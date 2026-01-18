@@ -1,6 +1,6 @@
 import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
-import { exprToString, FuncCallExpr } from "../../expr";
+import { exprToString, FnCallExpr } from "../../expr";
 import { createPtrType, isPtrType } from "../../types";
 import { createTypeValue, isTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
@@ -19,10 +19,10 @@ export function evaluateRawPointerCall({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): FnCallExpr {
   const argExpr = expr.args[0]!;
 
   let expectedType = context.expectedType;

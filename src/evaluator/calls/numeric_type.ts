@@ -5,7 +5,7 @@ import {
   Expr,
   ExprTag,
   exprToString,
-  FuncCallExpr,
+  FnCallExpr,
   replaceExprWithFuncCallExpr,
 } from "../../expr";
 import { TokenType } from "../../token";
@@ -256,7 +256,7 @@ export function tryToConvertToNumericType({
 }: {
   targetType: Type;
   argExpr: Expr;
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   callerEnv: Environment;
   context: EvaluatorContext;
 }): { expr: Expr; env: Environment } | undefined {
@@ -329,8 +329,8 @@ export function tryToConvertToNumericType({
   if (isCCompatibleType(targetType) || !isComptNumberValue(argValue)) {
     // Create __yo_as(value, TargetType) call
     // We need to properly transform the expr
-    const yoAsFuncExpr: FuncCallExpr = {
-      tag: ExprTag.FuncCall,
+    const yoAsFuncExpr: FnCallExpr = {
+      tag: ExprTag.FnCall,
       func: {
         tag: ExprTag.Atom,
         token: {

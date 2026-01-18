@@ -9,7 +9,7 @@ import {
   expectExprToBeFunctionCallOf,
   exprIsAtom,
   exprToString,
-  FuncCallExpr,
+  FnCallExpr,
 } from "../../expr";
 import { VUnit } from "../../unit-value";
 import { EvaluatorContext } from "../context";
@@ -26,10 +26,10 @@ export function evaluateVaStart({
   expr,
   env,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): FnCallExpr {
   expectExprToBeFunctionCallOf(expr, BuiltinFunctions.va_start);
 
   // Require all the args to be atom of identifier

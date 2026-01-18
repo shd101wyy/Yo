@@ -9,7 +9,7 @@ import {
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
-  FuncCallExpr,
+  FnCallExpr,
   mergeAndCheckEnvs,
 } from "../../expr";
 import {
@@ -38,7 +38,7 @@ export function evaluateCond({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
 }): Expr {

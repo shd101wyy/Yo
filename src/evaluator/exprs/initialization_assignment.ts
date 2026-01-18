@@ -5,7 +5,7 @@ import {
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
-  FuncCallExpr,
+  FnCallExpr,
   requireExprNotConsumed,
   setExprAsNeedsToCallDup,
 } from "../../expr";
@@ -25,6 +25,7 @@ import {
   createUnknownValue,
   isFunctionValue,
   isModuleValue,
+  isTraitValue,
   isTypeValue,
 } from "../../value";
 import { EvaluatorContext } from "../context";
@@ -44,10 +45,10 @@ export function evaluateInitializationAssignment({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): FnCallExpr {
   if (
     !exprIsFunctionCallOf(expr, ":=", 2) &&
     !exprIsFunctionCallOf(expr, "::", 2)
@@ -233,7 +234,7 @@ ${exprToString(expr)}`,
       rhsValue.funcName = lhs.token.value;
       rhsValue.funcId += `_${lhs.token.value}`;
     } else if (
-      isModuleValue(rhsValue) &&
+      (isModuleValue(rhsValue) || isTraitValue(rhsValue)) &&
       !rhsValue.type.typeName &&
       rhsValue.type !== context.SelfType
     ) {

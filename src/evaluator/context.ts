@@ -1,10 +1,10 @@
 import { Environment, Variable } from "../env";
 import { YoError } from "../error";
-import { Expr, FuncCallExpr, PathCollection } from "../expr";
+import { Expr, FnCallExpr, PathCollection } from "../expr";
 import { FunctionValue } from "../function-value";
 import { Token } from "../token";
 import { FunctionType, Type } from "../types";
-import { ModuleValue, Value } from "../value";
+import { ModuleValue, TraitValue, Value } from "../value";
 
 export interface FunctionEvaluationContext {
   kind: "function-body";
@@ -221,6 +221,11 @@ export interface ModuleTypeCallResult {
   callerEnv: Environment;
 }
 
+export interface TraitTypeCallResult {
+  traitValue: TraitValue;
+  callerEnv: Environment;
+}
+
 export interface ArrayCallResult {
   /**
    * The value by index from the array value.
@@ -328,6 +333,15 @@ export interface FunctionToCall {
         /**
          * This is the result from calling:
          *
+         *   tryToImplementTraitWithArguments
+         */
+        kind: "trait-type";
+        result: TraitTypeCallResult;
+      }
+    | {
+        /**
+         * This is the result from calling:
+         *
          *   tryToCallArrayWithArguments
          */
         kind: "array";
@@ -358,7 +372,7 @@ export interface FunctionToCall {
          *   evaluateIsoValueCall
          */
         kind: "iso-value";
-        result: FuncCallExpr;
+        result: FnCallExpr;
       }
     | {
         kind: "error";
@@ -389,6 +403,15 @@ export function getModuleTypeCallResult(
 ): ModuleTypeCallResult {
   if (functionToCall.result.kind !== "module-type") {
     throw new Error("Expected module type call result");
+  }
+  return functionToCall.result.result;
+}
+
+export function getTraitTypeCallResult(
+  functionToCall: FunctionToCall
+): TraitTypeCallResult {
+  if (functionToCall.result.kind !== "trait-type") {
+    throw new Error("Expected trait type call result");
   }
   return functionToCall.result.result;
 }

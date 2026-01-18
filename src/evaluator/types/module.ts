@@ -7,13 +7,11 @@ import {
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
-  FuncCallExpr,
+  FnCallExpr,
 } from "../../expr";
 import {
   areTypesCompatible,
   createModuleType,
-  createSomeType,
-  createType0,
   isFunctionType,
   isModuleType,
   ModuleField,
@@ -116,7 +114,7 @@ All module fields are compile-time only by default.`,
     ) {
       throw formatErrorMessage({
         token: labelExpr.token,
-        errorMessage: `No need to use "compt"  modifier. All module fields are compile-time only by default.`,
+        errorMessage: `No need to use "compt" modifier. All module fields are compile-time only by default.`,
       });
     }
 
@@ -133,7 +131,7 @@ All module fields are compile-time only by default.`,
   ) {
     throw formatErrorMessage({
       token: expr_.token,
-      errorMessage: `No need to use "compt"  modifier. All module fields are compile-time only by default.`,
+      errorMessage: `No need to use "compt" modifier. All module fields are compile-time only by default.`,
     });
   } else if (!defaultValueExpr && !assignedValueExpr) {
     throw formatErrorMessage({
@@ -210,7 +208,7 @@ ${typeToString(expectedType)}`
     if (!isTypeValue(typeValue)) {
       throw formatErrorMessage({
         token: typeExpr.token,
-        errorMessage: `(1) Expected type for module field, got ${exprToString(typeExpr)}`,
+        errorMessage: `Expected type for module field, got ${exprToString(typeExpr)}`,
       });
     }
     fieldType = typeValue.value;
@@ -389,8 +387,7 @@ Type expressions are required for return types in module fields to support prope
     if (!isFunctionType(fieldType)) {
       throw formatErrorMessage({
         token: defaultValueExpr.token,
-        errorMessage: `Default values (?=) are only allowed for function type module elemen
-ts (excluding closures).
+        errorMessage: `Default values (?=) are only allowed for function type module elements (excluding closures).
 Module field "${label ?? "unnamed"}" has type: ${typeToString(fieldType)}
 
 To avoid circular dependency issues, please explicitly provide the value for this field.`,
@@ -440,10 +437,10 @@ export function evaluateModuleType({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): FnCallExpr {
   if (!exprIsFunctionCallOf(expr, BuiltinKeywords.module)) {
     throw formatErrorMessage({
       token: expr.token,
@@ -464,11 +461,6 @@ export function evaluateModuleType({
   // Don't push env frame - module fields shouldn't be in env
 
   const args = expr.args;
-
-  // Create "Self" type, which is a SomeType containing the current moduleType
-  const selfType = createSomeType(createType0(), "Self");
-  selfType.module = moduleType;
-
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!;
 
@@ -482,7 +474,7 @@ export function evaluateModuleType({
         env,
         context: {
           ...context,
-          SelfType: selfType, // Self refers to the module itself
+          SelfType: undefined, // Modules cannot refer to Self while extending
         },
       });
       if (!evaluatedExtendedModuleExpr.$) {
@@ -612,137 +604,6 @@ export function evaluateModuleType({
         });
       }
     }
-    // where clause for adding constraints to Self
-    else if (
-      exprIsFunctionCall(arg) &&
-      exprIsFunctionCallOf(arg, BuiltinKeywords.where)
-    ) {
-      // where clause must be the first argument in a module
-      if (i !== 0) {
-        throw formatErrorMessage({
-          token: arg.token,
-          errorMessage: `The where clause must be the first argument in a module definition.`,
-        });
-      }
-
-      // Process each constraint in the where clause
-      const constraintExprs = arg.args;
-      if (constraintExprs.length === 0) {
-        throw formatErrorMessage({
-          token: arg.token,
-          errorMessage: `The where clause must have at least one constraint.`,
-        });
-      }
-
-      // Initialize selfConstraints array if not already
-      if (!moduleType.selfConstraints) {
-        moduleType.selfConstraints = [];
-      }
-
-      for (const constraintExpr of constraintExprs) {
-        // Each constraint must be of the form: Self <: Module or Self <: (Module1, Module2)
-        if (
-          !exprIsFunctionCall(constraintExpr) ||
-          !exprIsFunctionCallOf(constraintExpr, "<:", 2)
-        ) {
-          throw formatErrorMessage({
-            token: constraintExpr.token,
-            errorMessage: `Expected constraint in the form "Self <: Module" or "Self <: (Module1, Module2)", got: ${exprToString(constraintExpr)}`,
-          });
-        }
-
-        // Check that LHS is "Self"
-        const lhsExpr = constraintExpr.args[0]!;
-        if (!exprIsAtom(lhsExpr) || lhsExpr.token.value !== "Self") {
-          throw formatErrorMessage({
-            token: lhsExpr.token,
-            errorMessage: `In a module's where clause, the left-hand side of <: must be "Self", got: ${exprToString(lhsExpr)}`,
-          });
-        }
-
-        // Extract module types from RHS before evaluating the constraint
-        // Support both single module and tuple of modules
-        // Also handle negated modules: !(Module)
-        const rhsExpr = constraintExpr.args[1]!;
-        const moduleExprs: { expr: Expr; isNegated: boolean }[] = [];
-        if (
-          exprIsFunctionCall(rhsExpr) &&
-          exprIsFunctionCallOf(rhsExpr, BuiltinKeywords.tuple)
-        ) {
-          for (const moduleExpr of rhsExpr.args) {
-            // Check if this is a negated module: !(Module)
-            if (
-              exprIsFunctionCall(moduleExpr) &&
-              exprIsFunctionCallOf(moduleExpr, "!") &&
-              moduleExpr.args.length === 1
-            ) {
-              moduleExprs.push({ expr: moduleExpr.args[0]!, isNegated: true });
-            } else {
-              moduleExprs.push({ expr: moduleExpr, isNegated: false });
-            }
-          }
-        } else {
-          // Check if this is a negated module: !(Module)
-          if (
-            exprIsFunctionCall(rhsExpr) &&
-            exprIsFunctionCallOf(rhsExpr, "!") &&
-            rhsExpr.args.length === 1
-          ) {
-            moduleExprs.push({ expr: rhsExpr.args[0]!, isNegated: true });
-          } else {
-            moduleExprs.push({ expr: rhsExpr, isNegated: false });
-          }
-        }
-
-        // Initialize negativeSelfConstraints array if not already
-        if (!moduleType.negativeSelfConstraints) {
-          moduleType.negativeSelfConstraints = [];
-        }
-
-        // Evaluate each module expression to get the ModuleType
-        for (const { expr: moduleExpr, isNegated } of moduleExprs) {
-          const evaluatedModule = evaluateExpression({
-            expr: moduleExpr,
-            env,
-            context: {
-              ...context,
-              SelfType: selfType,
-            },
-          });
-          if (evaluatedModule.$?.env) {
-            env = evaluatedModule.$.env;
-          }
-          if (
-            evaluatedModule.$?.value &&
-            isTypeValue(evaluatedModule.$.value) &&
-            isModuleType(evaluatedModule.$.value.value)
-          ) {
-            if (isNegated) {
-              moduleType.negativeSelfConstraints.push(
-                evaluatedModule.$.value.value
-              );
-            } else {
-              moduleType.selfConstraints.push(evaluatedModule.$.value.value);
-            }
-          }
-        }
-
-        // Evaluate with isInsideWhereClause context
-        // The SelfType is already set to selfType which is a SomeType
-        const evaluated = evaluateExpression({
-          expr: constraintExpr,
-          env,
-          context: {
-            ...context,
-            SelfType: selfType,
-            isInsideWhereClause: true,
-          },
-        });
-        if (evaluated.$?.env) {
-          env = evaluated.$.env;
-        }
-      }
-    }
     // module field
     else {
       const { field: field, env: nextEnv } = evaluateModuleField({
@@ -751,7 +612,7 @@ export function evaluateModuleType({
         moduleFieldIndex: i,
         context: {
           ...context,
-          SelfType: selfType, // Self refers to the module itself
+          SelfType: undefined, // Modules cannot refer to Self while defining fields
         },
         isForEvaluatingModuleType: true,
       });

@@ -3,7 +3,7 @@ import { formatErrorMessage } from "../../error";
 import {
   attachTempVariableToExpr,
   exprToString,
-  FuncCallExpr,
+  FnCallExpr,
   setExprAsConsumed,
 } from "../../expr";
 import { createIsoType, IsoType } from "../../types";
@@ -23,10 +23,10 @@ export function evaluateIsoTypeCall({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): FnCallExpr {
   const argExpr = expr.args[0]!;
 
   const evaluatedArgExpr = evaluateExpression({
@@ -96,11 +96,11 @@ export function evaluateIsoValueCall({
   context,
   isoType,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
   isoType: IsoType;
-}): FuncCallExpr {
+}): FnCallExpr {
   const argExpr = expr.args[0]!;
 
   const evaluatedArgExpr = evaluateExpression({

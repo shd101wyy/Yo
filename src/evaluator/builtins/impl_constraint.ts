@@ -5,14 +5,14 @@ import {
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
-  FuncCallExpr,
+  FnCallExpr,
 } from "../../expr";
 import {
   createSomeType,
   createType0,
-  isConcreteModuleType,
-  isModuleType,
-  ModuleType,
+  isConcreteTraitType,
+  isTraitType,
+  TraitType,
   Type,
 } from "../../types";
 import { createTypeValue, isTypeValue } from "../../value";
@@ -20,13 +20,13 @@ import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 
 /**
- * Evaluates the `Impl(module1, module2, ...)` syntax.
- * Creates a SomeType whose module contains the given module constraints.
- * Supports negated modules with `!(Module)` syntax.
+ * Evaluates the `Impl(Trait1, Trait2, ...)` syntax.
+ * Creates a SomeType whose trait contains the given trait constraints.
+ * Supports negated traits with `!(Trait)` syntax.
  * Supports Concrete(T) to explicitly set resolvedConcreteType.
  *
  * Example:
- *   Id :: module(id : (fn(self : Self) -> Self));
+ *   Id :: trait(id : (fn(self : Self) -> Self));
  *   ImplId :: Impl(Id);
  *   ImplIdNotCopy :: Impl(Id, !(Copy));  // Must implement Id but NOT Copy
  *
@@ -34,17 +34,17 @@ import { evaluateExpression } from "../exprs/expr";
  *   extern "Yo", yo_io_future : Type;
  *   IOReadFuture :: Impl(Concrete(yo_io_future), Future(i32));
  *
- * ImplId is a SomeType that requires types to implement the Id module.
+ * ImplId is a SomeType that requires types to implement the Id trait.
  */
 export function evaluateImplConstraint({
   expr,
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): FnCallExpr {
   if (!exprIsFunctionCallOf(expr, BuiltinKeywords.Impl)) {
     throw formatErrorMessage({
       token: expr.token,
@@ -55,19 +55,19 @@ export function evaluateImplConstraint({
   if (expr.args.length === 0) {
     throw formatErrorMessage({
       token: expr.token,
-      errorMessage: `Impl requires at least one module argument.`,
+      errorMessage: `Impl requires at least one trait argument.`,
     });
   }
 
-  const requiredModules: ModuleType[] = [];
-  const negativeModules: ModuleType[] = [];
+  const requiredTraits: TraitType[] = [];
+  const negativeTraits: TraitType[] = [];
   let concreteType: Type | undefined = undefined;
 
-  // Evaluate each argument and expect them to be module types
+  // Evaluate each argument and expect them to be trait types
   // Support negated modules with !(Module) syntax
   // Support Concrete(T) to set resolvedConcreteType
   for (const arg of expr.args) {
-    // Check if this is a negated module: !(Module)
+    // Check if this is a negated trait: !(Module)
     const isNegated =
       exprIsFunctionCall(arg) &&
       exprIsFunctionCallOf(arg, "!") &&
@@ -91,22 +91,22 @@ export function evaluateImplConstraint({
     }
     env = evaluatedArg.$.env;
 
-    // Expect the argument to be a type value containing a module type
+    // Expect the argument to be a type value containing a trait type
     if (
       !evaluatedArg.$.value ||
       !isTypeValue(evaluatedArg.$.value) ||
-      !isModuleType(evaluatedArg.$.value.value)
+      !isTraitType(evaluatedArg.$.value.value)
     ) {
       throw formatErrorMessage({
         token: moduleExpr.token,
-        errorMessage: `Impl argument must be a module type, got: ${exprToString(moduleExpr)}`,
+        errorMessage: `Impl argument must be a trait type, got: ${exprToString(moduleExpr)}`,
       });
     }
 
     const moduleType = evaluatedArg.$.value.value;
 
-    // Check if this is a Concrete(T) module - extract the concrete type
-    if (isConcreteModuleType(moduleType)) {
+    // Check if this is a Concrete(T) trait - extract the concrete type
+    if (isConcreteTraitType(moduleType)) {
       if (concreteType !== undefined) {
         throw formatErrorMessage({
           token: moduleExpr.token,
@@ -114,14 +114,14 @@ export function evaluateImplConstraint({
         });
       }
       concreteType = moduleType.isConcrete.concreteType;
-      // Don't add Concrete to requiredModules - it's just a marker
+      // Don't add Concrete to requiredTraits - it's just a marker
       continue;
     }
 
     if (isNegated) {
-      negativeModules.push(moduleType);
+      negativeTraits.push(moduleType);
     } else {
-      requiredModules.push(moduleType);
+      requiredTraits.push(moduleType);
     }
   }
 
@@ -130,8 +130,8 @@ export function evaluateImplConstraint({
     createType0(),
     "Impl", // Name for the SomeType
     undefined,
-    requiredModules,
-    negativeModules
+    requiredTraits,
+    negativeTraits
   );
 
   // If Concrete(T) was specified, set the resolvedConcreteType

@@ -7,7 +7,7 @@ import {
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
-  FuncCallExpr,
+  FnCallExpr,
 } from "../../expr";
 import {
   areTypesCompatible,
@@ -36,7 +36,7 @@ export function tryToCallArrayWithArguments({
   callerEnv,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   arrayType: ArrayType | SliceType;
   arrayValue: ArrayValue | undefined;
   argExprs: Expr[];

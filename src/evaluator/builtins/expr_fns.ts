@@ -6,7 +6,7 @@ import {
   exprIsAtom,
   exprIsFunctionCall,
   exprToString,
-  FuncCallExpr,
+  FnCallExpr,
 } from "../../expr";
 import {
   createBooleanType,
@@ -34,10 +34,10 @@ export function evaluateYoExprIsAtom({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): FnCallExpr {
   expectExprToBeFunctionCallOf(expr, BuiltinFunctions.__yo_expr_is_atom, 1);
 
   const argExpr = expr.args[0]!;
@@ -93,10 +93,10 @@ export function evaluateYoExprIsFnCall({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): FnCallExpr {
   expectExprToBeFunctionCallOf(expr, BuiltinFunctions.__yo_expr_is_fn_call, 1);
 
   const argExpr = expr.args[0]!;
@@ -152,10 +152,10 @@ export function evaluateYoExprGetCallee({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): FnCallExpr {
   expectExprToBeFunctionCallOf(expr, BuiltinFunctions.__yo_expr_get_callee, 1);
 
   const argExpr = expr.args[0]!;
@@ -221,10 +221,10 @@ export function evaluateYoExprGetArgs({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): FnCallExpr {
   expectExprToBeFunctionCallOf(expr, BuiltinFunctions.__yo_expr_get_args, 1);
 
   const argExpr = expr.args[0]!;
@@ -293,10 +293,10 @@ export function evaluateYoExprToString({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): FnCallExpr {
   expectExprToBeFunctionCallOf(expr, BuiltinFunctions.__yo_expr_to_string, 1);
 
   const argExpr = expr.args[0]!;
@@ -353,10 +353,10 @@ export function evaluateYoExprEq({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): FnCallExpr {
   expectExprToBeFunctionCallOf(expr, BuiltinFunctions.__yo_expr_eq, 2);
 
   const firstArgExpr = expr.args[0]!;

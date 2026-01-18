@@ -4,7 +4,7 @@ import {
   BuiltinKeywords,
   exprIsFunctionCallOf,
   exprToString,
-  FuncCallExpr,
+  FnCallExpr,
 } from "../../expr";
 import { EvaluatorContext } from "../context";
 import { evaluateStructType } from "./struct";
@@ -19,10 +19,10 @@ export function evaluateObjectType({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): FnCallExpr {
   if (!exprIsFunctionCallOf(expr, BuiltinKeywords.object)) {
     throw formatErrorMessage({
       token: expr.token,

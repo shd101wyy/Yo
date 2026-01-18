@@ -1,6 +1,6 @@
 import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
-import { Expr, exprToString, FuncCallExpr } from "../../expr";
+import { Expr, exprToString, FnCallExpr } from "../../expr";
 import { isBooleanType, isUnitType, typeToString } from "../../types";
 import { VUnit } from "../../unit-value";
 import { isBooleanValue } from "../../value";
@@ -19,10 +19,10 @@ export function evaluateWhile({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): FnCallExpr {
   // Support both 2-argument (while condition, body) and 3-argument (while condition, step, body) forms
   if (expr.args.length !== 2 && expr.args.length !== 3) {
     throw formatErrorMessage({

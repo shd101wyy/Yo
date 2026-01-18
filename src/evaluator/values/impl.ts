@@ -14,7 +14,7 @@ import {
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
-  FuncCallExpr,
+  FnCallExpr,
 } from "../../expr";
 import { FunctionValue } from "../../function-value";
 import { PlaceholderToken, Token } from "../../token";
@@ -26,13 +26,13 @@ import {
   FunctionType,
   isArrayType,
   isFunctionType,
-  isModuleType,
   isSliceType,
   isSomeType,
+  isTraitType,
   isType0,
-  ModuleField,
-  ModuleType,
   SomeType,
+  TraitField,
+  TraitType,
   Type,
   typeContainsUnknownValue,
   typeToString,
@@ -41,10 +41,10 @@ import {
   createTypeValue,
   createUnknownValue,
   isFunctionValue,
-  isModuleValue,
+  isTraitValue,
   isTypeValue,
   isUnknownValue,
-  ModuleValue,
+  TraitValue,
   UnknownValue,
   Value,
   valueToString,
@@ -54,10 +54,11 @@ import { evaluateBeginExpression } from "../exprs/begin";
 import { evaluateExpression } from "../exprs/expr";
 import {
   checkTypeImplementsSelfConstraints,
-  typeImplementsModule,
+  typeImplementsTrait,
 } from "../exprs/subtype_of";
 import { synthesizeTypes } from "../types/synthesizer";
-import { evaluateAnonymousModuleBeginExprs } from "../values/anonymous_module";
+import { evaluateAnonymousModuleBeginExprs } from "./anonymous_module";
+import { evaluateAnonymousTraitBeginExprs } from "./anonymous_trait";
 
 /**
  * Re-evaluate a FunctionType's type expressions with substitutions bound in the environment.
@@ -84,7 +85,7 @@ function reEvaluateFunctionType({
     (param) => {
       if (!param.exprs.typeExpr) {
         // No type expression to re-evaluate - keep the original type
-        // This shouldn't happen for module methods due to validation in evaluateModuleField
+        // This shouldn't happen for trait methods due to validation in evaluateTraitField
         return param;
       }
 
@@ -169,7 +170,7 @@ function reEvaluateFunctionType({
  * Registry of types that have impl fields from a specific module path.
  * This allows cleanup when a module is re-evaluated or deleted.
  */
-const implRegistry: Map<string, Set<ModuleType>> = new Map();
+const implRegistry: Map<string, Set<TraitType>> = new Map();
 
 /**
  * Generic impl that uses forall type parameters.
@@ -184,13 +185,13 @@ export interface GenericImpl {
   /** The type parameters (e.g., T, Size) */
   forallParameters: ForallParameter[];
   /** The constraints from where clause (e.g., T <: Copy) */
-  whereConstraints: { someType: SomeType; moduleType: ModuleType }[];
+  whereConstraints: { someType: SomeType; traitType: TraitType }[];
   /** The receiver type pattern containing SomeTypes (e.g., Data(T)) */
   receiverTypePattern: Type;
-  /** The module type being implemented (e.g., Copy) */
-  moduleType: ModuleType;
-  /** The module value */
-  moduleValue: ModuleValue;
+  /** The trait type being implemented (e.g., Copy) */
+  traitType: TraitType;
+  /** The trait value */
+  traitValue: TraitValue;
   /** The expr that created this impl */
   expr: Expr;
   /** The source module path for cleanup on re-evaluation */
@@ -200,19 +201,19 @@ export interface GenericImpl {
 }
 
 /**
- * Registry of generic impls keyed by module type name.
- * This allows lookup when checking if a concrete type implements a module.
+ * Registry of generic impls keyed by trait type name.
+ * This allows lookup when checking if a concrete type implements a trait.
  */
 const genericImplRegistry: Map<string, GenericImpl[]> = new Map();
 
 /**
- * Registry tracking which modules are implemented for which types.
+ * Registry tracking which trait are implemented for which types.
  * Maps from type id to an array of impl records.
  * Used for duplicate impl detection.
  */
 interface ImplRecord {
-  moduleTypeId: string;
-  moduleTypeName?: string;
+  traitTypeId: string;
+  traitTypeName?: string;
   modulePath: string;
   expr: Expr;
 }
@@ -220,24 +221,24 @@ const typeImplRegistry: Map<string, ImplRecord[]> = new Map();
 
 /**
  * Clear all generic impls from the registry that were added by the specified module.
- * Call this before re-evaluating a module to prevent duplicate impls.
+ * Call this before re-evaluating a trait to prevent duplicate impls.
  */
 export function clearGenericImplsFromModule(modulePath: string): void {
-  for (const [moduleTypeName, impls] of genericImplRegistry.entries()) {
+  for (const [traitTypeName, impls] of genericImplRegistry.entries()) {
     const filteredImpls = impls.filter(
       (impl) => impl.sourceModulePath !== modulePath
     );
     if (filteredImpls.length === 0) {
-      genericImplRegistry.delete(moduleTypeName);
+      genericImplRegistry.delete(traitTypeName);
     } else {
-      genericImplRegistry.set(moduleTypeName, filteredImpls);
+      genericImplRegistry.set(traitTypeName, filteredImpls);
     }
   }
 }
 
 /**
  * Clear impl records from the type impl registry for a specific module.
- * Call this before re-evaluating a module to prevent duplicate impl detection.
+ * Call this before re-evaluating a trait to prevent duplicate impl detection.
  */
 function clearImplRecordsFromModule(modulePath: string): void {
   for (const [typeId, impls] of typeImplRegistry.entries()) {
@@ -266,58 +267,58 @@ export function clearAllGlobalImplState(): void {
  * Register a generic impl in the registry.
  */
 function registerGenericImpl(
-  moduleTypeName: string,
+  traitTypeName: string,
   genericImpl: GenericImpl
 ): void {
-  let impls = genericImplRegistry.get(moduleTypeName);
+  let impls = genericImplRegistry.get(traitTypeName);
   if (!impls) {
     impls = [];
-    genericImplRegistry.set(moduleTypeName, impls);
+    genericImplRegistry.set(traitTypeName, impls);
   }
   impls.push(genericImpl);
 }
 
 /**
- * Check if a module is already implemented for a type.
+ * Check if a trait is already implemented for a type.
  * Throws an error if duplicate impl is detected.
  */
 function checkDuplicateImpl({
   receiverType,
-  moduleType,
+  traitType,
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   currentModulePath,
   expr,
 }: {
   receiverType: Type;
-  moduleType: ModuleType;
+  traitType: TraitType;
   currentModulePath: string | undefined;
   expr: Expr;
 }): void {
   const typeId = receiverType.id;
   const impls = typeImplRegistry.get(typeId) || [];
 
-  const existing = impls.find((impl) => impl.moduleTypeId === moduleType.id);
+  const existing = impls.find((impl) => impl.traitTypeId === traitType.id);
   if (existing) {
     throw formatErrorMessage({
       token: expr.token,
       errorMessage:
-        `Module "${moduleType.typeName ?? moduleType.id}" is already implemented for type "${typeToString(receiverType)}".\n` +
+        `Trait "${traitType.typeName ?? traitType.id}" is already implemented for type "${typeToString(receiverType)}".\n` +
         `First implementation was in: ${existing.modulePath || "unknown"}`,
     });
   }
 }
 
 /**
- * Register that a module has been implemented for a type.
+ * Register that a trait has been implemented for a type.
  */
 function registerImplForType({
   receiverType,
-  moduleType,
+  traitType,
   currentModulePath,
   expr,
 }: {
   receiverType: Type;
-  moduleType: ModuleType;
+  traitType: TraitType;
   currentModulePath: string | undefined;
   expr: Expr;
 }): void {
@@ -329,25 +330,25 @@ function registerImplForType({
   }
 
   impls.push({
-    moduleTypeId: moduleType.id,
-    moduleTypeName: moduleType.typeName,
+    traitTypeId: traitType.id,
+    traitTypeName: traitType.typeName,
     modulePath: currentModulePath || "unknown",
     expr,
   });
 }
 
 /**
- * Check orphan rule: at least one of the module or the type must be defined in the current module.
+ * Check orphan rule: at least one of the trait or the type must be defined in the current module.
  * Throws an error if the orphan rule is violated.
  */
 function checkOrphanRule({
   receiverType,
-  moduleType,
+  traitType,
   currentModulePath,
   expr,
 }: {
   receiverType: Type;
-  moduleType: ModuleType;
+  traitType: TraitType;
   currentModulePath: string | undefined;
   expr: Expr;
 }): void {
@@ -357,8 +358,7 @@ function checkOrphanRule({
     return;
   }
 
-  const moduleDefinedHere =
-    moduleType.definedInModulePath === currentModulePath;
+  const moduleDefinedHere = traitType.definedInModulePath === currentModulePath;
   const typeDefinedHere =
     receiverType.definedInModulePath === currentModulePath;
 
@@ -375,9 +375,9 @@ function checkOrphanRule({
     throw formatErrorMessage({
       token: expr.token,
       errorMessage:
-        `Orphan impl: Cannot implement foreign module "${moduleType.typeName ?? moduleType.id}" for foreign type "${typeToString(receiverType)}".\n` +
-        `At least one of the module or the type must be defined in this module.\n` +
-        `Module defined in: ${moduleType.definedInModulePath || "unknown"}\n` +
+        `Orphan impl: Cannot implement foreign trait "${traitType.typeName ?? traitType.id}" for foreign type "${typeToString(receiverType)}".\n` +
+        `At least one of the trait or the type must be defined in this module.\n` +
+        `Trait defined in: ${traitType.definedInModulePath || "unknown"}\n` +
         `Type defined in: ${receiverType.definedInModulePath || "unknown"}\n` +
         `Current module: ${currentModulePath}`,
     });
@@ -385,22 +385,22 @@ function checkOrphanRule({
 }
 
 /**
- * Find a matching generic impl for a concrete type and module type.
+ * Find a matching generic impl for a concrete type and trait type.
  * Returns the matched impl if found, or undefined if no match.
  */
 export function findMatchingGenericImpl({
   concreteType,
-  moduleType,
+  traitType,
   env,
 }: {
   concreteType: Type;
-  moduleType: ModuleType;
+  traitType: TraitType;
   env: Environment;
 }): GenericImpl | undefined {
   // Use typeName if available, otherwise fall back to id for anonymous modules
-  const moduleTypeKey = moduleType.typeName || moduleType.id;
+  const traitTypeKey = traitType.typeName || traitType.id;
 
-  const impls = genericImplRegistry.get(moduleTypeKey);
+  const impls = genericImplRegistry.get(traitTypeKey);
   if (!impls || impls.length === 0) {
     return undefined;
   }
@@ -435,7 +435,7 @@ export function findMethodsFromGenericImpls({
 }): { type: FunctionType; value: Value | undefined }[] {
   const methods: { type: FunctionType; value: Value | undefined }[] = [];
 
-  // Search through all module types in the registry
+  // Search through all trait types in the registry
   for (const [_moduleTypeName, impls] of genericImplRegistry.entries()) {
     for (const impl of impls) {
       // Check if this impl matches the concrete type
@@ -449,18 +449,18 @@ export function findMethodsFromGenericImpls({
       }
 
       // Found a matching impl - look for the method
-      const moduleType = impl.moduleType;
-      const moduleValue = impl.moduleValue;
+      const traitType = impl.traitType;
+      const traitValue = impl.traitValue;
 
-      const methodIndex = moduleType.fields.findIndex(
+      const methodIndex = traitType.fields.findIndex(
         (f) => f.label === methodName && isFunctionType(f.type)
       );
 
       if (methodIndex >= 0) {
-        const method = moduleType.fields[methodIndex]!;
+        const method = traitType.fields[methodIndex]!;
         if (isFunctionType(method.type)) {
-          // Get the actual function value from the module value
-          const originalValue = moduleValue.fields[methodIndex];
+          // Get the actual function value from the trait value
+          const originalValue = traitValue.fields[methodIndex];
 
           // Check if we should create a specialized function value
           // IMPORTANT: We should NOT create specialized function values when the concreteType
@@ -661,25 +661,25 @@ export function findMethodsFromGenericImpls({
 }
 
 /**
- * Find a method from a generic impl for a specific module type and concrete receiver type.
+ * Find a method from a generic impl for a specific trait type and concrete receiver type.
  * This is used when accessing methods on a `<:` expression like `(Box(i32) <: Isolation).can_isolate`.
  * Returns the specialized method type and value if found.
  */
-export function findMethodFromGenericImplForModule({
+export function findMethodFromGenericImplForTrait({
   concreteType,
-  moduleType,
+  traitType,
   methodName,
   env,
 }: {
   concreteType: Type;
-  moduleType: ModuleType;
+  traitType: TraitType;
   methodName: string;
   env: Environment;
 }): { type: FunctionType; value: Value | undefined } | undefined {
   // Use typeName if available, otherwise fall back to id for anonymous modules
-  const moduleTypeKey = moduleType.typeName || moduleType.id;
+  const traitTypeKey = traitType.typeName || traitType.id;
 
-  const impls = genericImplRegistry.get(moduleTypeKey);
+  const impls = genericImplRegistry.get(traitTypeKey);
   if (!impls || impls.length === 0) {
     return undefined;
   }
@@ -696,18 +696,18 @@ export function findMethodFromGenericImplForModule({
     }
 
     // Found a matching impl - look for the method
-    const implModuleType = impl.moduleType;
-    const implModuleValue = impl.moduleValue;
+    const implTraitType = impl.traitType;
+    const implTraitValue = impl.traitValue;
 
-    const methodIndex = implModuleType.fields.findIndex(
+    const methodIndex = implTraitType.fields.findIndex(
       (f) => f.label === methodName && isFunctionType(f.type)
     );
 
     if (methodIndex >= 0) {
-      const method = implModuleType.fields[methodIndex]!;
+      const method = implTraitType.fields[methodIndex]!;
       if (isFunctionType(method.type)) {
-        // Get the actual function value from the module value
-        const originalValue = implModuleValue.fields[methodIndex];
+        // Get the actual function value from the trait value
+        const originalValue = implTraitValue.fields[methodIndex];
 
         // If it's a function value, we need to re-evaluate with concrete substitutions
         if (
@@ -905,7 +905,7 @@ function tryMatchGenericImpl({
     // Check if all where constraints are satisfied
     for (const {
       someType,
-      moduleType: constraintModule,
+      traitType: constraintTrait,
     } of impl.whereConstraints) {
       // Get the bound type for this SomeType from the unified environment
       const boundType = getValueOfSomeTypeFromEnvForGenericImpl(
@@ -916,23 +916,21 @@ function tryMatchGenericImpl({
         return noMatch;
       }
 
-      // Handle negated constraints: the bound type must NOT implement the module
-      if (constraintModule.isNegatedConstraint) {
+      // Handle negated constraints: the bound type must NOT implement the trait
+      if (constraintTrait.isNegatedConstraint) {
         // If bound to a SomeType, check if it has the negated constraint attached
         if (isSomeType(boundType)) {
-          if (
-            !someTypeHasNegatedModuleConstraint(boundType, constraintModule)
-          ) {
+          if (!someTypeHasNegatedModuleConstraint(boundType, constraintTrait)) {
             return noMatch;
           }
           continue;
         }
 
-        // For concrete types, verify they do NOT implement the module
+        // For concrete types, verify they do NOT implement the trait
         if (
-          typeImplementsModule({
+          typeImplementsTrait({
             targetType: boundType,
-            moduleType: constraintModule,
+            traitType: constraintTrait,
             env,
           })
         ) {
@@ -943,17 +941,17 @@ function tryMatchGenericImpl({
 
       // If bound to a SomeType, check if it has the required constraint attached
       if (isSomeType(boundType)) {
-        if (!someTypeHasModuleConstraint(boundType, constraintModule)) {
+        if (!someTypeHasModuleConstraint(boundType, constraintTrait)) {
           return noMatch;
         }
         continue;
       }
 
-      // Check if the bound type implements the required module
+      // Check if the bound type implements the required trait
       if (
-        !typeImplementsModule({
+        !typeImplementsTrait({
           targetType: boundType,
-          moduleType: constraintModule,
+          traitType: constraintTrait,
           env,
         })
       ) {
@@ -1001,29 +999,29 @@ function tryMatchGenericImpl({
 }
 
 /**
- * Check if a SomeType has a specific module constraint attached.
+ * Check if a SomeType has a specific trait constraint attached.
  * Used when checking where constraints during generic impl matching.
  */
 function someTypeHasModuleConstraint(
   someType: SomeType,
-  requiredModule: ModuleType
+  requiredTrait: TraitType
 ): boolean {
-  const moduleName = requiredModule.typeName;
+  const moduleName = requiredTrait.typeName;
   if (!moduleName) {
     return false;
   }
 
-  for (const field of someType.module.fields) {
+  for (const field of someType.trait.fields) {
     if (
       field.assignedValue &&
       isTypeValue(field.assignedValue) &&
-      isModuleType(field.assignedValue.value)
+      isTraitType(field.assignedValue.value)
     ) {
-      const constraintModule = field.assignedValue.value;
+      const constraintTrait = field.assignedValue.value;
       // Only match non-negated constraints
       if (
-        constraintModule.typeName === moduleName &&
-        !constraintModule.isNegatedConstraint
+        constraintTrait.typeName === moduleName &&
+        !constraintTrait.isNegatedConstraint
       ) {
         return true;
       }
@@ -1034,29 +1032,29 @@ function someTypeHasModuleConstraint(
 }
 
 /**
- * Check if a SomeType has a specific negated module constraint attached.
+ * Check if a SomeType has a specific negated trait constraint attached.
  * Used when checking where constraints like `where(T <: !(Copy))`.
  */
 function someTypeHasNegatedModuleConstraint(
   someType: SomeType,
-  requiredNegatedModule: ModuleType
+  requiredNegatedTrait: TraitType
 ): boolean {
-  const moduleName = requiredNegatedModule.typeName;
+  const moduleName = requiredNegatedTrait.typeName;
   if (!moduleName) {
     return false;
   }
 
-  for (const field of someType.module.fields) {
+  for (const field of someType.trait.fields) {
     if (
       field.assignedValue &&
       isTypeValue(field.assignedValue) &&
-      isModuleType(field.assignedValue.value)
+      isTraitType(field.assignedValue.value)
     ) {
-      const constraintModule = field.assignedValue.value;
+      const constraintTrait = field.assignedValue.value;
       // Only match negated constraints
       if (
-        constraintModule.typeName === moduleName &&
-        constraintModule.isNegatedConstraint
+        constraintTrait.typeName === moduleName &&
+        constraintTrait.isNegatedConstraint
       ) {
         return true;
       }
@@ -1067,8 +1065,8 @@ function someTypeHasNegatedModuleConstraint(
 }
 
 /**
- * Check that a generic impl's receiver type pattern satisfies the module's self-constraints.
- * For example, if module Id has `where(Self <: Copy)`, then any impl of Id must ensure
+ * Check that a generic impl's receiver type pattern satisfies the trait's self-constraints.
+ * For example, if trait Id has `where(Self <: Copy)`, then any impl of Id must ensure
  * the receiver type implements Copy.
  *
  * For `impl(forall(T : Type), Data(T), Id(...))`, this would fail because Data(T) doesn't
@@ -1079,26 +1077,26 @@ function someTypeHasNegatedModuleConstraint(
  */
 function checkGenericImplSelfConstraints({
   receiverTypePattern,
-  moduleType,
+  traitType,
   whereConstraints,
   env,
   errorToken,
 }: {
   receiverTypePattern: Type;
-  moduleType: ModuleType;
-  whereConstraints: { someType: SomeType; moduleType: ModuleType }[];
+  traitType: TraitType;
+  whereConstraints: { someType: SomeType; traitType: TraitType }[];
   env: Environment;
   errorToken: Token;
 }): void {
   // Check positive constraints (must implement)
-  if (moduleType.selfConstraints && moduleType.selfConstraints.length > 0) {
-    for (const constraintModule of moduleType.selfConstraints) {
+  if (traitType.selfConstraints && traitType.selfConstraints.length > 0) {
+    for (const constraintTrait of traitType.selfConstraints) {
       // Check if the receiver type pattern implements the constraint
-      // This uses typeImplementsModule which will check generic impls
+      // This uses typeImplementsTrait which will check generic impls
       if (
-        typeImplementsModule({
+        typeImplementsTrait({
           targetType: receiverTypePattern,
-          moduleType: constraintModule,
+          traitType: constraintTrait,
           env,
         })
       ) {
@@ -1111,43 +1109,43 @@ function checkGenericImplSelfConstraints({
       const someTypesWithConstraint = new Set<string>();
       for (const wc of whereConstraints) {
         if (
-          wc.moduleType.typeName === constraintModule.typeName &&
-          !wc.moduleType.isNegatedConstraint
+          wc.traitType.typeName === constraintTrait.typeName &&
+          !wc.traitType.isNegatedConstraint
         ) {
           someTypesWithConstraint.add(wc.someType.name);
         }
       }
 
       // Check if receiver type pattern relies on SomeTypes that have the required constraint
-      // For now, we just fail - the typeImplementsModule check should handle this
+      // For now, we just fail - the typeImplementsTrait check should handle this
       // via findMatchingGenericImpl which checks someTypeHasModuleConstraint
 
       throw formatErrorMessage({
         token: errorToken,
-        errorMessage: `Generic impl receiver type "${typeToString(receiverTypePattern)}" does not satisfy constraint "${constraintModule.typeName ?? typeToString(constraintModule)}" required by module "${moduleType.typeName ?? typeToString(moduleType)}".
-Consider adding "where(T <: ${constraintModule.typeName ?? typeToString(constraintModule)})" to the impl.`,
+        errorMessage: `Generic impl receiver type "${typeToString(receiverTypePattern)}" does not satisfy constraint "${constraintTrait.typeName ?? typeToString(constraintTrait)}" required by trait "${traitType.typeName ?? typeToString(traitType)}".
+Consider adding "where(T <: ${constraintTrait.typeName ?? typeToString(constraintTrait)})" to the impl.`,
       });
     }
   }
 
   // Check negative constraints (must NOT implement)
   if (
-    moduleType.negativeSelfConstraints &&
-    moduleType.negativeSelfConstraints.length > 0
+    traitType.negativeSelfConstraints &&
+    traitType.negativeSelfConstraints.length > 0
   ) {
-    for (const constraintModule of moduleType.negativeSelfConstraints) {
-      // If the receiver type pattern directly implements the forbidden module, it's an error
+    for (const constraintTrait of traitType.negativeSelfConstraints) {
+      // If the receiver type pattern directly implements the forbidden trait, it's an error
       if (
-        typeImplementsModule({
+        typeImplementsTrait({
           targetType: receiverTypePattern,
-          moduleType: constraintModule,
+          traitType: constraintTrait,
           env,
         })
       ) {
         throw formatErrorMessage({
           token: errorToken,
-          errorMessage: `Generic impl receiver type "${typeToString(receiverTypePattern)}" implements "${constraintModule.typeName ?? typeToString(constraintModule)}" but module "${moduleType.typeName ?? typeToString(moduleType)}" requires it to NOT implement this module.
-Consider adding "where(T <: !(${constraintModule.typeName ?? typeToString(constraintModule)}))" to the impl.`,
+          errorMessage: `Generic impl receiver type "${typeToString(receiverTypePattern)}" implements "${constraintTrait.typeName ?? typeToString(constraintTrait)}" but trait "${traitType.typeName ?? typeToString(traitType)}" requires it to NOT implement this trait.
+Consider adding "where(T <: !(${constraintTrait.typeName ?? typeToString(constraintTrait)}))" to the impl.`,
         });
       }
 
@@ -1181,8 +1179,8 @@ function getValueOfSomeTypeFromEnvForGenericImpl(
 }
 
 /**
- * Clear all impl fields from types that were added by the specified module.
- * Call this before re-evaluating a module to prevent duplicate impls.
+ * Clear all impl fields from types that were added by the specified trait.
+ * Call this before re-evaluating a trait to prevent duplicate impls.
  */
 export function clearImplsFromModule(modulePath: string): void {
   const typesWithImpls = implRegistry.get(modulePath);
@@ -1190,54 +1188,54 @@ export function clearImplsFromModule(modulePath: string): void {
     return;
   }
 
-  for (const moduleType of typesWithImpls) {
-    moduleType.fields = moduleType.fields.filter(
+  for (const traitType of typesWithImpls) {
+    traitType.fields = traitType.fields.filter(
       (field) => field.sourceModulePath !== modulePath
     );
   }
 
   implRegistry.delete(modulePath);
 
-  // Also clear the duplicate detection registry for this module
+  // Also clear the duplicate detection registry for this trait
   clearImplRecordsFromModule(modulePath);
 }
 
 /**
- * Register that a type has an impl field from the specified module.
+ * Register that a type has an impl field from the specified trait.
  */
-function registerImpl(modulePath: string, moduleType: ModuleType): void {
+function registerImpl(modulePath: string, traitType: TraitType): void {
   let types = implRegistry.get(modulePath);
   if (!types) {
     types = new Set();
     implRegistry.set(modulePath, types);
   }
-  types.add(moduleType);
+  types.add(traitType);
 }
 
 /**
- * Attach a module value to a receiver type's module.
+ * Attach a trait value to a receiver type's trait.
  * For anonymous modules (begin blocks), flatten the fields directly.
  * For named modules, attach with an empty label for method lookup.
  *
- * Note: clearImplsFromModule should be called before re-evaluating a module
+ * Note: clearImplsFromModule should be called before re-evaluating a trait
  * to remove old impls. This function just adds the new impl.
  */
-function attachModuleToReceiverType(
-  moduleValue: ModuleValue,
+function attachTraitToReceiverType(
+  traitValue: TraitValue,
   expr: Expr,
   sourceModulePath?: string
 ): void {
-  const receiverType = moduleValue.type.receiverType;
-  if (!receiverType || !receiverType.module) {
+  const receiverType = traitValue.type.receiverType;
+  if (!receiverType || !receiverType.trait) {
     return;
   }
 
   // Check for duplicate impl (only for named modules, not anonymous ones)
-  if (moduleValue.type.typeName) {
+  if (traitValue.type.typeName) {
     // Check orphan rule
     checkOrphanRule({
       receiverType,
-      moduleType: moduleValue.type,
+      traitType: traitValue.type,
       currentModulePath: sourceModulePath,
       expr,
     });
@@ -1245,7 +1243,7 @@ function attachModuleToReceiverType(
     // Check for duplicate impl
     checkDuplicateImpl({
       receiverType,
-      moduleType: moduleValue.type,
+      traitType: traitValue.type,
       currentModulePath: sourceModulePath,
       expr,
     });
@@ -1253,7 +1251,7 @@ function attachModuleToReceiverType(
     // Register this impl for duplicate detection
     registerImplForType({
       receiverType,
-      moduleType: moduleValue.type,
+      traitType: traitValue.type,
       currentModulePath: sourceModulePath,
       expr,
     });
@@ -1261,17 +1259,17 @@ function attachModuleToReceiverType(
 
   // Register this impl for cleanup on re-evaluation
   if (sourceModulePath) {
-    registerImpl(sourceModulePath, receiverType.module);
+    registerImpl(sourceModulePath, receiverType.trait);
   }
 
-  // Check if this is an anonymous module (no typeName) - flatten its fields
-  if (!moduleValue.type.typeName) {
-    // Flatten the module's fields directly onto the receiver type's module
-    for (let i = 0; i < moduleValue.type.fields.length; i++) {
-      const field = moduleValue.type.fields[i]!;
-      const value = moduleValue.fields[i];
+  // Check if this is an anonymous trait (no typeName) - flatten its fields
+  if (!traitValue.type.typeName) {
+    // Flatten the trait's fields directly onto the receiver type's trait
+    for (let i = 0; i < traitValue.type.fields.length; i++) {
+      const field = traitValue.type.fields[i]!;
+      const value = traitValue.fields[i];
 
-      const newField: ModuleField = {
+      const newField: TraitField = {
         label: field.label,
         type: field.type,
         isCompileTimeOnly: field.isCompileTimeOnly,
@@ -1282,23 +1280,23 @@ function attachModuleToReceiverType(
         },
       };
 
-      receiverType.module.fields.push(newField);
+      receiverType.trait.fields.push(newField);
     }
   } else {
-    // Named module - attach with empty label for method lookup
-    const field: ModuleField = {
+    // Named trait - attach with empty label for method lookup
+    const field: TraitField = {
       label: "", // Empty label prevents direct access, only method calls work
-      type: createTypeHierarchy(1), // Module type
+      type: createTypeHierarchy(1), // Trait type
       isCompileTimeOnly: true,
-      assignedValue: moduleValue,
+      assignedValue: traitValue,
       sourceModulePath,
       exprs: {
         expr,
       },
     };
 
-    // Add the field to the receiver type's module
-    receiverType.module.fields.push(field);
+    // Add the field to the receiver type's trait
+    receiverType.trait.fields.push(field);
   }
 }
 
@@ -1307,10 +1305,10 @@ export function evaluateModuleValue({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): FnCallExpr {
   if (!exprIsFunctionCallOf(expr, BuiltinKeywords.impl)) {
     throw formatErrorMessage({
       token: expr.token,
@@ -1350,7 +1348,7 @@ export function evaluateModuleValue({
 
     return expr;
   }
-  // Impl a module for a type
+  // Impl a trait for a type
   else if (expr.args.length === 2) {
     const receiverTypeArg = expr.args[0]!;
     const moduleCallArg = expr.args[1]!;
@@ -1384,25 +1382,25 @@ export function evaluateModuleValue({
     const isStructuralType =
       isSliceType(receiverType) || isArrayType(receiverType);
 
-    // Anonymous module value
+    // Anonymous trait value
     if (
       exprIsFunctionCall(expr.args[1]) &&
       exprIsFunctionCallOf(expr.args[1], BuiltinKeywords.begin)
     ) {
-      // Restrict anonymous module impl to prelude.yo only
+      // Restrict anonymous trait impl to prelude.yo only
       if (!context.currentModulePath?.endsWith("prelude.yo")) {
         throw formatErrorMessage({
           token: expr.token,
-          errorMessage: `impl a receiver type with anonymous module (begin block) is only allowed in prelude.yo`,
+          errorMessage: `impl a receiver type with anonymous trait (begin block) is only allowed in prelude.yo`,
         });
       }
 
       const beginExprs = expr.args[1]!.args;
       const {
-        moduleType,
-        moduleValue,
+        traitType,
+        traitValue,
         env: nextEnv,
-      } = evaluateAnonymousModuleBeginExprs({
+      } = evaluateAnonymousTraitBeginExprs({
         beginExprs,
         env,
         context: {
@@ -1414,49 +1412,21 @@ export function evaluateModuleValue({
       });
       env = nextEnv;
 
-      // Check that the receiver type implements all selfConstraints from the module's where clause
-      checkTypeImplementsSelfConstraints({
-        targetType: receiverType,
-        moduleType: moduleValue.type,
-        env,
-        errorToken: expr.token,
-      });
+      // Attach the anonymous trait to the receiver type
+      attachTraitToReceiverType(traitValue, expr, context.currentModulePath);
 
-      if (isStructuralType) {
-        // Register as a generic impl (with no forall parameters) for structural matching
-        const moduleTypeKey = moduleType.typeName || moduleType.id;
-        const genericImpl: GenericImpl = {
-          forallParameters: [],
-          whereConstraints: [],
-          receiverTypePattern: receiverType,
-          moduleType,
-          moduleValue,
-          expr,
-          sourceModulePath: context.currentModulePath,
-          definitionEnv: env,
-        };
-        registerGenericImpl(moduleTypeKey, genericImpl);
-      } else {
-        // Attach the module to the receiver type for method lookup
-        attachModuleToReceiverType(
-          moduleValue,
-          expr,
-          context.currentModulePath
-        );
-      }
-
-      // Set the module value to the expr
+      // Set the trait value to the expr
       expr.$ = {
         env,
-        type: moduleType,
-        value: moduleValue,
+        type: traitType,
+        value: traitValue,
         pathCollection: [],
       };
 
       return expr;
     } else {
-      // Evaluate the module call
-      const evaluatedModuleCallArg = evaluateExpression({
+      // Evaluate the trait call
+      const evaluatedTraitCallArg = evaluateExpression({
         expr: moduleCallArg,
         env,
         context: {
@@ -1465,56 +1435,52 @@ export function evaluateModuleValue({
           ReceiverType: receiverType,
         },
       });
-      // Expect the module call to be a module value
+      // Expect the trait call to be a trait value
       if (
-        !evaluatedModuleCallArg.$ ||
-        !isModuleValue(evaluatedModuleCallArg.$.value)
+        !evaluatedTraitCallArg.$ ||
+        !isTraitValue(evaluatedTraitCallArg.$.value)
       ) {
         throw formatErrorMessage({
           token: moduleCallArg.token,
-          errorMessage: `Expected module value for module call argument.`,
+          errorMessage: `Expected trait value for trait call argument.`,
         });
       }
-      env = evaluatedModuleCallArg.$.env;
-      const moduleValue = evaluatedModuleCallArg.$.value;
-      const moduleType = moduleValue.type;
+      env = evaluatedTraitCallArg.$.env;
+      const traitValue = evaluatedTraitCallArg.$.value;
+      const traitType = traitValue.type;
 
-      // Check that the receiver type implements all selfConstraints from the module's where clause
+      // Check that the receiver type implements all selfConstraints from the trait's where clause
       checkTypeImplementsSelfConstraints({
         targetType: receiverType,
-        moduleType: moduleValue.type,
+        traitType: traitValue.type,
         env,
         errorToken: expr.token,
       });
 
       if (isStructuralType) {
         // Register as a generic impl (with no forall parameters) for structural matching
-        const moduleTypeKey = moduleType.typeName || moduleType.id;
+        const traitTypeKey = traitType.typeName || traitType.id;
         const genericImpl: GenericImpl = {
           forallParameters: [],
           whereConstraints: [],
           receiverTypePattern: receiverType,
-          moduleType,
-          moduleValue,
+          traitType,
+          traitValue,
           expr,
           sourceModulePath: context.currentModulePath,
           definitionEnv: env,
         };
-        registerGenericImpl(moduleTypeKey, genericImpl);
+        registerGenericImpl(traitTypeKey, genericImpl);
       } else {
-        // Attach the module to the receiver type for method lookup
-        attachModuleToReceiverType(
-          moduleValue,
-          expr,
-          context.currentModulePath
-        );
+        // Attach the trait to the receiver type for method lookup
+        attachTraitToReceiverType(traitValue, expr, context.currentModulePath);
       }
 
-      // Set the module value to the expr
+      // Set the trait value to the expr
       expr.$ = {
         env,
-        type: evaluatedModuleCallArg.$.type,
-        value: moduleValue,
+        type: evaluatedTraitCallArg.$.type,
+        value: traitValue,
         pathCollection: [],
       };
 
@@ -1539,7 +1505,7 @@ export function evaluateModuleValue({
 
     // Determine if we have a where clause
     let hasWhere = false;
-    let whereArg: FuncCallExpr | undefined;
+    let whereArg: FnCallExpr | undefined;
     let receiverTypeArg: Expr;
     let moduleCallArg: Expr;
 
@@ -1676,7 +1642,7 @@ export function evaluateModuleValue({
     }
 
     // Parse where constraints if present
-    // The <: operator with isInsideWhereClause will attach constraints to SomeType's module
+    // The <: operator with isInsideWhereClause will attach constraints to SomeType's trait
 
     if (hasWhere && whereArg) {
       for (const constraintExpr of whereArg.args) {
@@ -1692,7 +1658,7 @@ export function evaluateModuleValue({
         }
 
         // Evaluate with isInsideWhereClause context
-        // This will attach the module constraint to the SomeType's module fields
+        // This will attach the trait constraint to the SomeType's trait fields
         const evaluated = evaluateExpression({
           expr: constraintExpr,
           env,
@@ -1707,22 +1673,21 @@ export function evaluateModuleValue({
       }
     }
 
-    // Collect where constraints from the SomeTypes' module fields
-    const whereConstraints: { someType: SomeType; moduleType: ModuleType }[] =
-      [];
+    // Collect where constraints from the SomeTypes' trait fields
+    const whereConstraints: { someType: SomeType; traitType: TraitType }[] = [];
     for (const param of forallParameters) {
       // Only type parameters have SomeTypes with constraints
       if (param.kind !== "type") continue;
       const { someType } = param;
-      for (const field of someType.module.fields) {
+      for (const field of someType.trait.fields) {
         if (
           field.assignedValue &&
           isTypeValue(field.assignedValue) &&
-          isModuleType(field.assignedValue.value)
+          isTraitType(field.assignedValue.value)
         ) {
           whereConstraints.push({
             someType,
-            moduleType: field.assignedValue.value,
+            traitType: field.assignedValue.value,
           });
         }
       }
@@ -1748,25 +1713,25 @@ export function evaluateModuleValue({
     env = evaluatedReceiverTypeArg.$.env;
     const receiverTypePattern = evaluatedReceiverTypeArg.$.value.value;
 
-    // Handle anonymous module value (begin block) or module call
-    let moduleValue: ModuleValue;
-    let moduleType: ModuleType;
+    // Handle anonymous trait value (begin block) or trait call
+    let traitValue: TraitValue;
+    let traitType: TraitType;
 
     if (
       exprIsFunctionCall(moduleCallArg) &&
       exprIsFunctionCallOf(moduleCallArg, BuiltinKeywords.begin)
     ) {
-      // Restrict anonymous module impl to prelude.yo only
+      // Restrict anonymous trait impl to prelude.yo only
       if (!context.currentModulePath?.endsWith("prelude.yo")) {
         throw formatErrorMessage({
           token: expr.token,
-          errorMessage: `impl a receiver type with anonymous module (begin block) is only allowed in prelude.yo`,
+          errorMessage: `impl a receiver type with anonymous trait (begin block) is only allowed in prelude.yo`,
         });
       }
 
-      // Anonymous module value
+      // Anonymous trait value
       const beginExprs = moduleCallArg.args;
-      const result = evaluateAnonymousModuleBeginExprs({
+      const result = evaluateAnonymousTraitBeginExprs({
         beginExprs,
         env,
         context: {
@@ -1777,11 +1742,11 @@ export function evaluateModuleValue({
         receiverType: receiverTypePattern,
       });
       env = result.env;
-      moduleType = result.moduleType;
-      moduleValue = result.moduleValue;
+      traitType = result.traitType;
+      traitValue = result.traitValue;
     } else {
-      // Evaluate the module call
-      const evaluatedModuleCallArg = evaluateExpression({
+      // Evaluate the trait call
+      const evaluatedTraitCallArg = evaluateExpression({
         expr: moduleCallArg,
         env,
         context: {
@@ -1792,25 +1757,25 @@ export function evaluateModuleValue({
       });
 
       if (
-        !evaluatedModuleCallArg.$ ||
-        !isModuleValue(evaluatedModuleCallArg.$.value)
+        !evaluatedTraitCallArg.$ ||
+        !isTraitValue(evaluatedTraitCallArg.$.value)
       ) {
         throw formatErrorMessage({
           token: moduleCallArg.token,
-          errorMessage: `Expected module value for module call argument.`,
+          errorMessage: `Expected trait value for trait call argument.`,
         });
       }
-      env = evaluatedModuleCallArg.$.env;
-      moduleValue = evaluatedModuleCallArg.$.value;
-      moduleType = moduleValue.type;
+      env = evaluatedTraitCallArg.$.env;
+      traitValue = evaluatedTraitCallArg.$.value;
+      traitType = traitValue.type;
     }
 
-    // Check that the receiver type pattern satisfies the module's self-constraints
+    // Check that the receiver type pattern satisfies the trait's self-constraints
     // For generic impls, we need to verify that the where constraints are sufficient
-    // to satisfy the module's requirements
+    // to satisfy the trait's requirements
     checkGenericImplSelfConstraints({
       receiverTypePattern,
-      moduleType,
+      traitType,
       whereConstraints,
       env,
       errorToken: expr.token,
@@ -1819,28 +1784,28 @@ export function evaluateModuleValue({
     // Pop the forall env frame
     env = popEnvFrame(env);
 
-    // Get the module type key for registry (use typeName if available, otherwise id)
-    const moduleTypeKey = moduleType.typeName || moduleType.id;
+    // Get the trait type key for registry (use typeName if available, otherwise id)
+    const traitTypeKey = traitType.typeName || traitType.id;
 
     // Register the generic impl
     const genericImpl: GenericImpl = {
       forallParameters,
       whereConstraints,
       receiverTypePattern,
-      moduleType,
-      moduleValue,
+      traitType,
+      traitValue,
       expr,
       sourceModulePath: context.currentModulePath,
       definitionEnv: env, // Store the environment where the impl was defined
     };
 
-    registerGenericImpl(moduleTypeKey, genericImpl);
+    registerGenericImpl(traitTypeKey, genericImpl);
 
-    // Set the module value to the expr
+    // Set the trait value to the expr
     expr.$ = {
       env,
-      type: moduleType,
-      value: moduleValue,
+      type: traitType,
+      value: traitValue,
       pathCollection: [],
     };
 
@@ -1848,7 +1813,7 @@ export function evaluateModuleValue({
   } else {
     throw formatErrorMessage({
       token: expr.token,
-      errorMessage: `Invalid module implementation, expected a "begin" block, got:\n${exprToString(expr)}`,
+      errorMessage: `Invalid "impl" call, expected a "begin" block, got:\n${exprToString(expr)}`,
     });
   }
 }

@@ -6,7 +6,7 @@ import {
   BuiltinKeywords,
   exprIsFunctionCallOf,
   exprToString,
-  FuncCallExpr,
+  FnCallExpr,
 } from "../../expr";
 import { isComptStringValue } from "../../value";
 import { EvaluatorContext } from "../context";
@@ -23,11 +23,11 @@ export function evaluateImport({
   context,
   stdPath,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
   stdPath: string;
-}): FuncCallExpr {
+}): FnCallExpr {
   if (!exprIsFunctionCallOf(expr, BuiltinKeywords.import, 1)) {
     throw formatErrorMessage({
       token: expr.token,

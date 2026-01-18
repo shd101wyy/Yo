@@ -109,9 +109,9 @@ if (isModuleType(expected.type) && isModuleType(given.type)) {
     return true;
   }
 
-  // Special case: FnModuleType and FutureModuleType use structural comparison
+  // Special case: FnTraitType and FutureTraitType use structural comparison
   // because they are parameterized (Fn(x: i32) -> i32 vs Fn(y: i32) -> i32)
-  if (isFnModuleType(expected.type) && isFnModuleType(given.type)) {
+  if (isFnTraitType(expected.type) && isFnTraitType(given.type)) {
     return areFunctionTypesCompatible(
       { type: expected.type.isFn.callType, env: expected.env },
       { type: given.type.isFn.callType, env: given.env },
@@ -119,7 +119,7 @@ if (isModuleType(expected.type) && isModuleType(given.type)) {
     );
   }
 
-  if (isFutureModuleType(expected.type) && isFutureModuleType(given.type)) {
+  if (isFutureTraitType(expected.type) && isFutureTraitType(given.type)) {
     return areTypesCompatible(
       { type: expected.type.isFuture.outputType, env: expected.env },
       { type: given.type.isFuture.outputType, env: given.env }
@@ -133,8 +133,8 @@ if (isModuleType(expected.type) && isModuleType(given.type)) {
 
 #### 2.2 Keep structural comparison for specific cases
 
-- `FnModuleType` (closures): Compare by function signature
-- `FutureModuleType` (futures): Compare by output type
+- `FnTraitType` (closures): Compare by function signature
+- `FutureTraitType` (futures): Compare by output type
 - Anonymous modules in prelude: May need special handling
 
 ### Phase 3: Implement Duplicate Impl Detection
@@ -157,7 +157,7 @@ const typeImplRegistry: Map<string, ImplRecord[]> = new Map();
 
 #### 3.2 Check for duplicates before adding impl
 
-In `attachModuleToReceiverType` and generic impl registration:
+In `attachTraitToReceiverType` and generic impl registration:
 
 ```typescript
 function checkDuplicateImpl(
@@ -233,7 +233,7 @@ export interface Type {
 
 ### Phase 5: Update Related Functions
 
-#### 5.1 Update `typeImplementsModule`
+#### 5.1 Update `typeImplementsTrait`
 
 In `src/evaluator/exprs/subtype_of.ts`:
 
@@ -263,7 +263,7 @@ They're exempt from orphan rules (prelude is "local" to all code).
 Modules created from functions like `Container(T)` get unique ids per instantiation.
 This is correct behavior - `Container(i32)` and `Container(string)` should be different.
 
-#### 6.3 FnModuleType and FutureModuleType
+#### 6.3 FnTraitType and FutureTraitType
 
 Keep structural comparison for these because:
 
@@ -284,7 +284,7 @@ Keep structural comparison for these because:
 
 - [ ] `src/evaluator/types/module.ts` - Set origin when creating modules
 - [ ] `src/evaluator/values/module.ts` - Add duplicate/orphan checks
-- [ ] `src/evaluator/exprs/subtype_of.ts` - Update `typeImplementsModule`
+- [ ] `src/evaluator/exprs/subtype_of.ts` - Update `typeImplementsTrait`
 - [ ] `src/evaluator/builtins/impl_constraint.ts` - May need updates
 
 ### Context
@@ -352,7 +352,7 @@ Keep structural comparison for these because:
 2. Track module origin during creation (non-breaking)
 3. Implement duplicate impl detection with clear error messages
 4. Change `areTypesCompatible` to nominal for modules
-5. Update related functions (`typeImplementsModule`, etc.)
+5. Update related functions (`typeImplementsTrait`, etc.)
 6. Add orphan rule checks
 7. Add comprehensive tests
 8. Update documentation

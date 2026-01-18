@@ -3,7 +3,7 @@ import { formatErrorMessage } from "../../error";
 import {
   BuiltinFunctions,
   expectExprToBeFunctionCallOf,
-  FuncCallExpr,
+  FnCallExpr,
 } from "../../expr";
 import { createUsizeType, isRcType } from "../../types";
 import { createNumberValue } from "../../value";
@@ -23,10 +23,10 @@ export function evaluateRc({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): FnCallExpr {
   expectExprToBeFunctionCallOf(expr, BuiltinFunctions.rc, 1);
 
   const argExpr = expr.args[0]!;

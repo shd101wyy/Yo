@@ -10,15 +10,16 @@ import {
   isArrayType,
   isComptListType,
   isEnumType,
-  isFnModuleType,
+  isFnTraitType,
   isFunctionType,
-  isFutureModuleType,
+  isFutureTraitType,
   isIsoType,
   isModuleType,
   isPtrType,
   isSliceType,
   isSomeType,
   isStructType,
+  isTraitType,
   isTupleType,
   isTypeHierarchyType,
   Type,
@@ -89,11 +90,11 @@ function occursCheck(someTypeId: string, type: Type): boolean {
     );
   }
 
-  if (isFutureModuleType(type)) {
+  if (isFutureTraitType(type)) {
     return occursCheck(someTypeId, type.isFuture.outputType);
   }
 
-  if (isFnModuleType(type)) {
+  if (isFnTraitType(type)) {
     return occursCheck(someTypeId, type.isFn.callType);
   }
 
@@ -499,6 +500,47 @@ export function synthesizeTypes(
         given.env = givenEnv;
       }
     }
+  } else if (
+    isTraitType(expected.type) &&
+    isTraitType(given.type) &&
+    expected.type.functionValue &&
+    given.type.functionValue &&
+    expected.type.functionValue === given.type.functionValue
+    // NOTE: The typeId might not match
+    // They might be different structs that both are returned from the same function.
+  ) {
+    for (let i = 0; i < expected.type.fields.length; i++) {
+      const expectedElement = expected.type.fields[i]!;
+      const givenElement = given.type.fields[i]!;
+      const { expectedEnv, givenEnv } = synthesizeTypes(
+        { type: expectedElement.type, env: expected.env },
+        { type: givenElement.type, env: given.env },
+        checkedTypePairs
+      );
+      expected.env = expectedEnv;
+      given.env = givenEnv;
+
+      if (
+        expectedElement.assignedValue &&
+        givenElement.assignedValue &&
+        isTypeValue(expectedElement.assignedValue) &&
+        isTypeValue(givenElement.assignedValue)
+      ) {
+        const { expectedEnv, givenEnv } = synthesizeTypes(
+          {
+            type: expectedElement.assignedValue.value,
+            env: expected.env,
+          },
+          {
+            type: givenElement.assignedValue.value,
+            env: given.env,
+          },
+          checkedTypePairs
+        );
+        expected.env = expectedEnv;
+        given.env = givenEnv;
+      }
+    }
   } else if (isPtrType(expected.type) && isPtrType(given.type)) {
     const { expectedEnv, givenEnv } = synthesizeTypes(
       {
@@ -614,8 +656,8 @@ export function synthesizeTypes(
     expected.env = expectedEnv;
     given.env = givenEnv;
   } else if (
-    isFutureModuleType(expected.type) &&
-    isFutureModuleType(given.type)
+    isFutureTraitType(expected.type) &&
+    isFutureTraitType(given.type)
   ) {
     // Synthesize the element types of the Futures
     const { expectedEnv, givenEnv } = synthesizeTypes(
@@ -631,8 +673,8 @@ export function synthesizeTypes(
     );
     expected.env = expectedEnv;
     given.env = givenEnv;
-  } else if (isFnModuleType(expected.type) && isFnModuleType(given.type)) {
-    // Synthesize FnModuleType types - match the function types (isFn)
+  } else if (isFnTraitType(expected.type) && isFnTraitType(given.type)) {
+    // Synthesize FnTraitType types - match the function types (isFn)
     const expectedFnModule = expected.type;
     const givenFnModule = given.type;
 

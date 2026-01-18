@@ -12,7 +12,7 @@ import {
 import { Expr, exprIsFunctionCallOf, ExprTag } from "../../expr";
 import {
   DynType,
-  extractFutureModuleFromType,
+  extractFutureTraitFromType,
   isDynType,
   isSomeType,
   isUnitType,
@@ -21,7 +21,8 @@ import {
   typeContainsRcType,
 } from "../../types";
 import { isTempVariableName } from "../../utils";
-import { generateExpr, getDupFunctionForType } from "../expressions";
+import { getDupFunctionForType } from "../exprs/drop_dup";
+import { generateExpr } from "../exprs/expr";
 import { FunctionGenerationContext } from "../functions/context";
 import { sanitizeForCIdentifier } from "../utils";
 import {
@@ -122,7 +123,7 @@ export function generateAsyncBlockResumeFunction(
 ): void {
   const emitter = context.emitter;
 
-  const futureModuleType = extractFutureModuleFromType(futureType)!;
+  const futureModuleType = extractFutureTraitFromType(futureType)!;
   const childType = futureModuleType.isFuture.outputType;
   const isUnitResult = isUnitType(childType);
 
@@ -219,7 +220,7 @@ export function generateAsyncBlockResumeFunction(
       // Since Futures are ref-counted, we use __yo_decr_rc instead of direct dispose.
       if (!prevAwait.futureVariableId) {
         const awaitExpr = prevAwait.expr as Expr;
-        if (awaitExpr.tag === ExprTag.FuncCall) {
+        if (awaitExpr.tag === ExprTag.FnCall) {
           const futureArg = awaitExpr.args[0];
           const futureType = futureArg?.$?.type;
           if (futureType && (isSomeType(futureType) || isDynType(futureType))) {

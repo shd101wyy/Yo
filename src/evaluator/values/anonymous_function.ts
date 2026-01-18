@@ -13,7 +13,7 @@ import {
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
-  FuncCallExpr,
+  FnCallExpr,
 } from "../../expr";
 import {
   FunctionCapturedVariableInfo,
@@ -22,9 +22,9 @@ import {
 import { PlaceholderToken } from "../../token";
 import {
   areTypesCompatible,
-  createFnModuleType,
-  extractFnModuleFromType,
-  FnModuleType,
+  createFnTraitType,
+  extractFnTraitFromType,
+  FnTraitType,
   FunctionType,
   isDynType,
   isFunctionType,
@@ -52,10 +52,10 @@ export function evaluateAnonymousFunctionImplementation({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): FnCallExpr {
   const expectedType = context.expectedType?.type;
   if (!expectedType) {
     throw formatErrorMessage({
@@ -68,14 +68,14 @@ export function evaluateAnonymousFunctionImplementation({
   // Use `dyn (x) => expr` to get Dyn(Fn(...)) for dynamic dispatch
   let functionType: FunctionType;
   let isCreatingClosure = false;
-  let expectedFnModuleType: FnModuleType | undefined;
+  let expectedFnModuleType: FnTraitType | undefined;
   let wrapperType: SomeType | undefined;
 
   if (isFunctionType(expectedType)) {
     functionType = expectedType;
   } else if (isSomeType(expectedType)) {
-    // Handle Impl(Fn(...)) - SomeType with required modules containing a FnModuleType
-    const fnModuleFromWrapper = extractFnModuleFromType(expectedType);
+    // Handle Impl(Fn(...)) - SomeType with required modules containing a FnTraitType
+    const fnModuleFromWrapper = extractFnTraitFromType(expectedType);
     if (fnModuleFromWrapper) {
       expectedFnModuleType = fnModuleFromWrapper;
       functionType = fnModuleFromWrapper.isFn.callType;
@@ -329,7 +329,7 @@ Got:      "${paramName}"`,
   };
 
   // Evaluate the function body
-  // A function is a closure if it's being used as an implementation of an Fn trait (FnModuleType)
+  // A function is a closure if it's being used as an implementation of an Fn trait (FnTraitType)
   const isClosureFunction = !!expectedFnModuleType;
 
   // Check if the function has forall type parameters
@@ -441,7 +441,7 @@ Got:      "${paramName}"`,
     // Create a closure type and closure value using helper function
     // We don't need the captureValue since closures are runtime-only
     const result = createCaptureTypeAndValue({
-      expectedCaptureType: undefined, // Capture type is no longer part of FnModuleType
+      expectedCaptureType: undefined, // Capture type is no longer part of FnTraitType
       capturedVariablesWithValues,
       env,
       closureToken: expr.token,
@@ -449,7 +449,7 @@ Got:      "${paramName}"`,
     });
     captureType = result.captureType;
 
-    const closureType = createFnModuleType(newFunctionType, env);
+    const closureType = createFnTraitType(newFunctionType, env);
 
     // Generate ___dup expressions for captured ARC variables
     // NOTE: This must happen BEFORE consuming the variables

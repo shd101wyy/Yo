@@ -1,6 +1,6 @@
 import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
-import { Expr, FuncCallExpr, setExprAsNeedsToCallDup } from "../../expr";
+import { Expr, FnCallExpr, setExprAsNeedsToCallDup } from "../../expr";
 import {
   areTypesCompatible,
   ArrayType,
@@ -33,7 +33,7 @@ export function tryToImplementArrayByArrayType({
   callerEnv,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   arrayType: ArrayType;
   argExprs: Expr[];
   callerEnv: Environment;

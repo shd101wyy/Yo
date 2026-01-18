@@ -9,7 +9,7 @@ import {
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
-  FuncCallExpr,
+  FnCallExpr,
 } from "../../expr";
 import { isExprListType, isExprType } from "../../types";
 import {
@@ -169,10 +169,10 @@ export function evaluateQuote({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): FnCallExpr {
   expectExprToBeFunctionCallOf(expr, BuiltinKeywords.quote, 1);
 
   const quotedExpr = processUnquotesInExpr({

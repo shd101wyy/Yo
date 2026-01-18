@@ -10,7 +10,7 @@ import {
   Expr,
   exprIsFunctionCall,
   exprToString,
-  FuncCallExpr,
+  FnCallExpr,
   replaceFuncCallExprWithFuncCallExpr,
   setExprAsConsumed,
 } from "../../expr";
@@ -135,7 +135,7 @@ export function evaluateDrop({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
 }): Expr {
@@ -192,9 +192,7 @@ export function evaluateDrop({
     if (isTupleType(concreteType)) {
       const tupleDropCode = generateTupleDropCall(evaluatedArgExpr);
       if (tupleDropCode) {
-        const tupleDropExpr = generateExprFromCode(
-          tupleDropCode
-        ) as FuncCallExpr;
+        const tupleDropExpr = generateExprFromCode(tupleDropCode) as FnCallExpr;
 
         // Set the expression as consumed
         env = setExprAsConsumed(evaluatedArgExpr, env, true);
@@ -228,9 +226,7 @@ export function evaluateDrop({
     else if (isArrayType(concreteType)) {
       const arrayDropCode = generateArrayDropCall(evaluatedArgExpr);
       if (arrayDropCode) {
-        const arrayDropExpr = generateExprFromCode(
-          arrayDropCode
-        ) as FuncCallExpr;
+        const arrayDropExpr = generateExprFromCode(arrayDropCode) as FnCallExpr;
 
         // Set the expression as consumed
         env = setExprAsConsumed(evaluatedArgExpr, env, true);
@@ -265,7 +261,7 @@ export function evaluateDrop({
       // Handle struct types and other types with ___drop methods
       const dropMethodCallExpr = generateExprFromCode(
         `(${exprToString(evaluatedArgExpr)}).___drop()`
-      ) as FuncCallExpr;
+      ) as FnCallExpr;
 
       // Convert this ___drop(x) to x.___drop() and evaluate the function call
       // NOTE: We consume AFTER the method call to avoid "use of moved value" errors

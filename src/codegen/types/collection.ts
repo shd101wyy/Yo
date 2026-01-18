@@ -7,8 +7,8 @@ import {
 import {
   ArrayType,
   DynType,
-  extractFnModuleFromType,
-  extractFutureModuleFromType,
+  extractFnTraitFromType,
+  extractFutureTraitFromType,
   FunctionType,
   isArrayType,
   isDynType,
@@ -20,6 +20,7 @@ import {
   isSliceType,
   isSomeType,
   isStructType,
+  isTraitType,
   isTupleType,
   isUnionType,
   SliceType,
@@ -32,6 +33,7 @@ import {
   isFunctionValue,
   isModuleValue,
   isNumberValue,
+  isTraitValue,
   isTypeValue,
   ModuleValue,
 } from "../../value";
@@ -39,7 +41,7 @@ import { PrimitiveTypeTags } from "../constants";
 import {
   collectRequiredFunctions,
   findFunctionCallsInExpr,
-} from "../functions";
+} from "../functions/collection";
 import {
   CodeGenContext,
   getTypeString,
@@ -200,7 +202,7 @@ export function collectTypesFromExpr(
       }
 
       // Collect functions from the module (___dup, ___drop, etc.)
-      for (const field of captureType.module.fields) {
+      for (const field of captureType.trait.fields) {
         if (field.assignedValue && isFunctionValue(field.assignedValue)) {
           const functionValue = field.assignedValue;
           if (!context.functions[functionValue.funcId]) {
@@ -221,7 +223,7 @@ export function collectTypesFromExpr(
   }
 
   switch (expr.tag) {
-    case ExprTag.FuncCall:
+    case ExprTag.FnCall:
       // Skip test blocks - they should not generate code
       if (exprIsFunctionCallOf(expr, BuiltinKeywords.test)) {
         break;
@@ -254,11 +256,11 @@ export function collectType(type: Type, context: CodeGenContext): void {
     return; // Already collected this type
   }
 
-  // Handle SomeType (Impl) that implements Fn - collect the FnModuleType for closure generation
+  // Handle SomeType (Impl) that implements Fn - collect the FnTraitType for closure generation
   // This must be checked BEFORE typeContainsSomeType since SomeType would otherwise be skipped
   if (isSomeType(type) && typeImplementsFn(type)) {
     // Prefer the resolved concrete type for static dispatch (capture struct).
-    // This avoids generating/depending on the FnModuleType runtime closure struct.
+    // This avoids generating/depending on the FnTraitType runtime closure struct.
     if (type.resolvedConcreteType) {
       collectType(type.resolvedConcreteType, context);
       return;
@@ -266,23 +268,23 @@ export function collectType(type: Type, context: CodeGenContext): void {
 
     // Fallback: if concrete type is not resolved (shouldn't happen for Impl closures
     // at codegen time), keep the old behavior to avoid crashing.
-    const fnModule = extractFnModuleFromType(type);
+    const fnModule = extractFnTraitFromType(type);
     if (fnModule) {
       collectType(fnModule, context);
     }
     return;
   }
 
-  // Handle SomeType (Impl) that implements Future - DON'T register the FutureModuleType here.
+  // Handle SomeType (Impl) that implements Future - DON'T register the FutureTraitType here.
   // The async block generation will register it with the correct state machine struct name.
   // This must be checked BEFORE typeContainsSomeType since SomeType would otherwise be skipped.
   // ALSO: Don't collect the module (ARC functions) since those are generic and will be resolved
   // to concrete state machine types during specialization.
   if (isSomeType(type) && typeImplementsFuture(type)) {
-    const futureModule = extractFutureModuleFromType(type);
+    const futureModule = extractFutureTraitFromType(type);
     if (futureModule) {
-      // Only collect the output type (T in Future(T)), not the FutureModuleType itself.
-      // The FutureModuleType will be registered by generateAsyncBlock with the state machine struct name.
+      // Only collect the output type (T in Future(T)), not the FutureTraitType itself.
+      // The FutureTraitType will be registered by generateAsyncBlock with the state machine struct name.
       collectType(futureModule.isFuture.outputType, context);
     }
 
@@ -305,13 +307,14 @@ export function collectType(type: Type, context: CodeGenContext): void {
     isTupleType(type) ||
     isDynType(type) ||
     isModuleType(type) ||
+    isTraitType(type) ||
     isSliceType(type) ||
     isIsoType(type)
   ) {
     // Use the struct's id to generate a mangled C type name
     const cTypeName =
       // NOTE: OUTDATED
-      // isFutureModuleType(type)
+      // isFutureTraitType(type)
       // ? `yo_future_${sanitizeForCIdentifier(getTypeString((type as FutureType).childType, context))}_t`
       // :
       isSliceType(type)
@@ -361,8 +364,8 @@ export function collectType(type: Type, context: CodeGenContext): void {
     if (isDynType(type)) {
       const dynType = type as DynType;
       // Collect all module types that this dynamic dispatch can handle
-      for (const moduleType of dynType.requiredModules) {
-        collectType(moduleType, context);
+      for (const traitType of dynType.requiredTraits) {
+        collectType(traitType, context);
       }
     }
 
@@ -377,7 +380,7 @@ export function collectType(type: Type, context: CodeGenContext): void {
 
     // For future types, collect the field type
     // NOTE: OUTDATED
-    // if (isFutureModuleType(type)) {
+    // if (isFutureTraitType(type)) {
     //   const futureType = type as FutureType;
     //   // Recursively collect the field type
     //   collectType(futureType.childType, context);
@@ -392,7 +395,7 @@ export function collectType(type: Type, context: CodeGenContext): void {
 
     // For module types, collect types and functions from the module's fields directly
     // (module types don't have a .module field - they ARE the module)
-    if (isModuleType(type)) {
+    if (isModuleType(type) || isTraitType(type)) {
       // First, collect types from all module fields (like struct does)
       for (const field of type.fields) {
         collectType(field.type, context);
@@ -414,7 +417,11 @@ export function collectType(type: Type, context: CodeGenContext): void {
             // Recursively collect functions called by this module function
             findFunctionCallsInExpr(functionValue.body, context);
           }
-        } else if (field.assignedValue && isModuleValue(field.assignedValue)) {
+        } else if (
+          field.assignedValue &&
+          (isModuleValue(field.assignedValue) ||
+            isTraitValue(field.assignedValue))
+        ) {
           // Module field has a module value - recursively collect its functions
           const moduleValue = field.assignedValue;
           collectRequiredFunctions(moduleValue, context);
@@ -492,8 +499,8 @@ export function collectType(type: Type, context: CodeGenContext): void {
     };
   }
 
-  // For other types (struct/enum/union/etc), collect types and functions from their .module property
-  if (type.module) {
-    collectType(type.module, context);
+  // For other types (struct/enum/union/etc), collect types and functions from their .trait property
+  if (type.trait) {
+    collectType(type.trait, context);
   }
 }

@@ -2,8 +2,11 @@ import { Emitter } from "../../emitter";
 import { Environment, getVariablesFromEnv } from "../../env";
 import {
   BuiltinFunctions,
+  Expr,
+  exprIsAtom,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
+  FnCallExpr,
 } from "../../expr";
 import { FunctionValue, FuncValueId } from "../../function-value";
 import {
@@ -11,7 +14,7 @@ import {
   DynType,
   EnumType,
   EnumVariant,
-  extractFutureModuleFromType,
+  extractFutureTraitFromType,
   FunctionType,
   isEnumType,
   isObjectType,
@@ -31,7 +34,7 @@ import {
   TypeTag,
   typeToString,
 } from "../../types";
-import { isNumberValue, ModuleValue } from "../../value";
+import { isNumberValue, TraitValue } from "../../value";
 import { BuiltinYoInlineFunctions } from "../constants";
 
 export interface CodeGenContext {
@@ -172,7 +175,7 @@ export interface CodeGenContext {
 
   /**
    * Track dyn() usage for generating box types, wrappers, and vtables
-   * Each entry represents a concrete type used with a specific dyn module
+   * Each entry represents a concrete type used with a specific dyn trait
    */
   dynImpls: Map<
     string,
@@ -186,7 +189,7 @@ export interface CodeGenContext {
        * - dataType = Box(T)
        */
       dataType: Type;
-      moduleValues: ModuleValue[];
+      traitValues: TraitValue[];
     }
   >;
 
@@ -526,8 +529,8 @@ export function getTypeString(
           return `${someTypeCName}*`;
         }
 
-        // Fallback: try the FutureModuleType (for backward compatibility with extern futures)
-        const futureModule = extractFutureModuleFromType(someType);
+        // Fallback: try the FutureTraitType (for backward compatibility with extern futures)
+        const futureModule = extractFutureTraitFromType(someType);
         if (futureModule) {
           const cTypeName = context.types[futureModule.id]?.cName;
           if (cTypeName) {
@@ -573,7 +576,7 @@ export function getTypeString(
       }
 
       // For Impl(Fn(...)), use the resolvedConcreteType (the capture struct)
-      // The FnModuleType is the interface, but the runtime representation is the capture struct
+      // The FnTraitType is the interface, but the runtime representation is the capture struct
       if (typeImplementsFn(someType)) {
         if (someType.resolvedConcreteType) {
           // Impl closures are VALUE types - use the capture struct directly
@@ -843,4 +846,45 @@ export function getVariableNameForCodegen(
   }
 
   return sanitizeForCIdentifier(variableName);
+}
+
+export function getDeferredDupTargetAtomName(
+  dupExpr: Expr
+): string | undefined {
+  if (!exprIsFunctionCall(dupExpr) || dupExpr.args.length < 1) {
+    return;
+  }
+  const firstArg = dupExpr.args[0];
+  if (!firstArg || !exprIsAtom(firstArg)) {
+    return;
+  }
+  return firstArg.token.value;
+}
+
+/**
+ * Find async blocks in an expression that might be returned.
+ * Returns the first async block found in the function body.
+ * For functions returning Impl(Future(T)), any async block in the body
+ * could potentially be the return value, so we return the first one we find.
+ */
+export function findReturnedAsyncBlock(
+  expr: Expr | undefined
+): Expr | undefined {
+  if (!expr) return undefined;
+
+  // If this is an async block itself, return it
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.async)) {
+    return expr;
+  }
+
+  // Recursively search in function call arguments
+  if (exprIsFunctionCall(expr)) {
+    const funcCallExpr = expr as FnCallExpr;
+    for (const arg of funcCallExpr.args) {
+      const found = findReturnedAsyncBlock(arg);
+      if (found) return found;
+    }
+  }
+
+  return undefined;
 }

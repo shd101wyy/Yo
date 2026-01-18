@@ -1,5 +1,5 @@
 import { formatErrorMessages } from "./error";
-import { findMethodsFromGenericImpls } from "./evaluator/values/module";
+import { findMethodsFromGenericImpls } from "./evaluator/values/impl";
 import { Token } from "./token";
 import {
   areTypesCompatible,
@@ -14,7 +14,8 @@ import {
   isObjectType,
   isPtrType,
   isSomeType,
-  ModuleType,
+  isTraitType,
+  TraitType,
   Type,
   typeContainsRcType,
   typeContainsSelfTypeForDynamicDispatchCheck,
@@ -27,6 +28,7 @@ import {
   createUnknownValue,
   isFunctionValue,
   isModuleValue,
+  isTraitValue,
   isTupleValue,
   isTypeValue,
   isUnknownValue,
@@ -159,7 +161,7 @@ export interface Variable {
    *
    * Example:
    * ```yo
-   * Id :: module(id : (fn(self : Self) -> Self));
+   * Id :: trait(id : (fn(self : Self) -> Self));
    * impl(Box(i32), Id(
    *   id : ((self2) -> { return self2; })
    * ));
@@ -554,7 +556,7 @@ export function getVariableInfo(variable: Variable) {
 /**
  *
  * This is the uniform function call, which only allows calling
- * methods from a module value.
+ * methods from a trait value.
  *
  * @param env
  * @param methodName
@@ -585,16 +587,16 @@ export function getMethodsByNameFromEnv(
     dereferencedReceiverType = dereferencedReceiverType.childType;
   }
 
-  function checkModule(moduleType: ModuleType, moduleValue: Value) {
+  function checkTrait(traitType: TraitType, traitValue: Value) {
     /*
     // NOTE: No need to do the check anymore, since we now only allow method call from type method
-    // Check if the module receiverType compatible with receiverType
-    if (isModuleValue(moduleValue)) {
-      const moduleReceiverType = moduleType.receiverType;
+    // Check if the trait receiverType compatible with receiverType
+    if (isTraitValue(traitValue)) {
+      const moduleReceiverType = traitType.receiverType;
       if (moduleReceiverType) {
         if (
           !areTypesCompatible(
-            { type: moduleReceiverType, env: moduleValue.type.env },
+            { type: moduleReceiverType, env: traitValue.type.env },
             { type: receiverType, env },
             true // isMethodReceiver
           )
@@ -605,7 +607,7 @@ export function getMethodsByNameFromEnv(
             // Continue checking with the dereferencedReceiverType
             if (
               !areTypesCompatible(
-                { type: moduleReceiverType, env: moduleValue.type.env },
+                { type: moduleReceiverType, env: traitValue.type.env },
                 { type: dereferencedReceiverType, env },
                 true // isMethodReceiver
               )
@@ -618,22 +620,22 @@ export function getMethodsByNameFromEnv(
     }
     */
 
-    const method = moduleType.fields.find(
+    const method = traitType.fields.find(
       (field) =>
         field.label === methodName &&
-        (isFunctionType(field.type) || isModuleType(field.type))
+        (isFunctionType(field.type) || isTraitType(field.type))
     );
 
     if (method) {
       let value: Value | undefined = undefined;
       if (isFunctionType(method.type)) {
-        if (isUnknownValue(moduleValue)) {
+        if (isUnknownValue(traitValue)) {
           value = createUnknownValue(method.type, method.label);
-        } else if (isModuleValue(moduleValue)) {
-          const index = moduleType.fields.findIndex(
+        } else if (isTraitValue(traitValue)) {
+          const index = traitType.fields.findIndex(
             (field) => field.label === method.label
           );
-          value = moduleValue.fields[index];
+          value = traitValue.fields[index];
         }
 
         methods.push({ type: method.type, value });
@@ -646,12 +648,12 @@ export function getMethodsByNameFromEnv(
       }
     }
 
-    // If method not found directly, search in nested modules
+    // If method not found directly, search in nested traits
     if (!method) {
-      for (const field of moduleType.fields) {
-        if (isModuleType(field.type) && field.assignedValue) {
-          // Recursively check nested modules
-          checkModule(field.type, field.assignedValue);
+      for (const field of traitType.fields) {
+        if (isTraitType(field.type) && field.assignedValue) {
+          // Recursively check nested traits
+          checkTrait(field.type, field.assignedValue);
         }
       }
     }
@@ -833,7 +835,7 @@ export function getMethodsByNameFromEnv(
         // Check if it's a valid dyn type method call
         if (isDynType(receiverType)) {
           // Dyn has two kinds of callable methods:
-          // 1) Dyn wrapper's own module methods (e.g., ___dup/___drop) which have concrete values.
+          // 1) Dyn wrapper's own trait methods (e.g., ___dup/___drop) which have concrete values.
           //    These are NOT dynamically dispatched to the wrapped object, so they may return Self.
           // 2) Wrapped object methods invoked via dynamic dispatch (value is undefined here).
           //    These must be object-safe (e.g., must not return Self).
@@ -887,20 +889,20 @@ export function getMethodsByNameFromEnv(
     return filtered;
   }
 
-  // Helper function to recursively check a module for methods
-  function checkModuleForMethod(
-    moduleType: ModuleType,
+  // Helper function to recursively check a trait for methods
+  function checkTraitForMethod(
+    traitType: TraitType,
     methodName: string,
-    visitedModules: Set<string> = new Set()
+    visitTraits: Set<string> = new Set()
   ): void {
-    // Prevent infinite recursion for circular module references
-    if (visitedModules.has(moduleType.id)) {
+    // Prevent infinite recursion for circular trait references
+    if (visitTraits.has(traitType.id)) {
       return;
     }
-    visitedModules.add(moduleType.id);
+    visitTraits.add(traitType.id);
 
-    // First, check direct methods in this module
-    const directMethod = moduleType.fields.find(
+    // First, check direct methods in this trait
+    const directMethod = traitType.fields.find(
       (field) => field.label === methodName && isFunctionType(field.type)
     );
 
@@ -910,23 +912,23 @@ export function getMethodsByNameFromEnv(
         value = createUnknownValue(directMethod.type, directMethod.label);
       }
       methods.push({ type: directMethod.type, value });
-      return; // Found the method, no need to search nested modules
+      return; // Found the method, no need to search nested traits
     }
 
-    // If not found, recursively check nested modules
-    for (const field of moduleType.fields) {
-      if (isModuleType(field.type) && field.assignedValue) {
-        // We need to use checkModule here to properly handle the module value
+    // If not found, recursively check nested traits
+    for (const field of traitType.fields) {
+      if (isTraitType(field.type) && field.assignedValue) {
+        // We need to use checkTrait here to properly handle the trait value
         // which might contain the actual function values
-        checkModule(field.type, field.assignedValue);
+        checkTrait(field.type, field.assignedValue);
       }
     }
   }
 
   // Check if th receiverType itself has method that can be called
-  if (receiverType !== dereferencedReceiverType && receiverType.module) {
+  if (receiverType !== dereferencedReceiverType && receiverType.trait) {
     // First check direct methods
-    const directMethod = receiverType.module.fields.find(
+    const directMethod = receiverType.trait.fields.find(
       (field) => field.label === methodName && isFunctionType(field.type)
     );
 
@@ -937,8 +939,8 @@ export function getMethodsByNameFromEnv(
       }
       methods.push({ type: directMethod.type, value });
     } else {
-      // If no direct method found, recursively check nested modules
-      checkModuleForMethod(receiverType.module, methodName);
+      // If no direct method found, recursively check nested traits
+      checkTraitForMethod(receiverType.trait, methodName);
     }
   }
 
@@ -956,18 +958,18 @@ export function getMethodsByNameFromEnv(
   // Check if the dereferencedReceiverType itself has method that can be called
   // NOTE: Skip DynType here since DynType has specialized handling below
   // NOTE: Skip SomeType with resolvedConcreteType since it has specialized handling below
-  // EXCEPTION: For Future types, DO check SomeType's module methods (they use __yo_sometype_drop)
+  // EXCEPTION: For Future types, DO check SomeType's trait methods (they use __yo_sometype_drop)
   const skipSomeTypeWithResolvedConcreteType =
     isSomeType(dereferencedReceiverType) &&
     dereferencedReceiverType.resolvedConcreteType &&
     !typeImplementsFuture(dereferencedReceiverType);
   if (
-    dereferencedReceiverType.module &&
+    dereferencedReceiverType.trait &&
     !isDynType(dereferencedReceiverType) &&
     !skipSomeTypeWithResolvedConcreteType
   ) {
     // First check direct methods
-    const directMethod = dereferencedReceiverType.module.fields.find(
+    const directMethod = dereferencedReceiverType.trait.fields.find(
       (field) => field.label === methodName && isFunctionType(field.type)
     );
 
@@ -978,31 +980,31 @@ export function getMethodsByNameFromEnv(
       }
       methods.push({ type: directMethod.type, value });
     } else {
-      // If no direct method found, recursively check nested modules
-      checkModuleForMethod(dereferencedReceiverType.module, methodName);
+      // If no direct method found, recursively check nested traits
+      checkTraitForMethod(dereferencedReceiverType.trait, methodName);
     }
 
-    // Also check for impl'd modules (stored with empty label as ModuleValue)
-    // NOTE: We check impl'd modules regardless of whether direct methods were found,
+    // Also check for impl'd traits (stored with empty label as ModuleValue)
+    // NOTE: We check impl'd traits regardless of whether direct methods were found,
     // because both compile-time and runtime versions of a method might exist,
     // and we need to let the function call resolution pick the right one.
-    for (const field of dereferencedReceiverType.module.fields) {
+    for (const field of dereferencedReceiverType.trait.fields) {
       if (
         field.label === "" &&
         field.assignedValue &&
-        isModuleValue(field.assignedValue)
+        isTraitValue(field.assignedValue)
       ) {
-        const implModuleValue = field.assignedValue;
-        const implModuleType = implModuleValue.type;
-        // Search for the method in the impl'd module
-        const methodIndex = implModuleType.fields.findIndex(
+        const implTraitValue = field.assignedValue;
+        const implTraitType = implTraitValue.type;
+        // Search for the method in the impl'd trait
+        const methodIndex = implTraitType.fields.findIndex(
           (f) => f.label === methodName && isFunctionType(f.type)
         );
         if (methodIndex >= 0) {
-          const method = implModuleType.fields[methodIndex]!;
+          const method = implTraitType.fields[methodIndex]!;
           if (isFunctionType(method.type)) {
-            // Get the actual function value from the module value
-            const value = implModuleValue.fields[methodIndex];
+            // Get the actual function value from the trait value
+            const value = implTraitValue.fields[methodIndex];
             // Use the function value's specialized type if available,
             // as it has Self replaced with the concrete receiver type
             let methodType = method.type;
@@ -1026,7 +1028,7 @@ export function getMethodsByNameFromEnv(
     }
   }
 
-  // If receiver is a compt type, also check the runtime type's module
+  // If receiver is a compt type, also check the runtime type's trait
   // because compt literals should be able to call methods from their runtime equivalents
   if (
     isComptIntType(dereferencedReceiverType) ||
@@ -1040,14 +1042,14 @@ export function getMethodsByNameFromEnv(
       env,
     });
     // console.log(
-    //   `DEBUG getMethodsByNameFromEnv: compt type ${typeToString(dereferencedReceiverType)} -> runtime type ${typeToString(runtimeType)}, has module: ${!!runtimeType.module}`
+    //   `DEBUG getMethodsByNameFromEnv: compt type ${typeToString(dereferencedReceiverType)} -> runtime type ${typeToString(runtimeType)}, has trait: ${!!runtimeType.trait}`
     // );
-    if (runtimeType.module) {
+    if (runtimeType.trait) {
       // console.log(
-      //   `DEBUG: runtime type module fields: ${runtimeType.module.fields.map((f) => f.label).join(", ")}`
+      //   `DEBUG: runtime type trait fields: ${runtimeType.trait.fields.map((f) => f.label).join(", ")}`
       // );
       // First check direct methods on the runtime type
-      const directMethod = runtimeType.module.fields.find(
+      const directMethod = runtimeType.trait.fields.find(
         (field) => field.label === methodName && isFunctionType(field.type)
       );
 
@@ -1060,43 +1062,43 @@ export function getMethodsByNameFromEnv(
         methods.push({ type: directMethod.type, value });
       } else {
         // console.log(
-        //   `DEBUG: No direct method, checking nested modules for ${methodName}`
+        //   `DEBUG: No direct method, checking nested traits for ${methodName}`
         // );
-        // If no direct method found, recursively check nested modules
-        checkModuleForMethod(runtimeType.module, methodName);
+        // If no direct method found, recursively check nested traits
+        checkTraitForMethod(runtimeType.trait, methodName);
       }
 
-      // Also check for impl'd modules (stored with empty label as ModuleValue)
+      // Also check for impl'd traits (stored with empty label as ModuleValue)
       // console.log(
-      //   `DEBUG: Checking impl'd modules, found ${runtimeType.module.fields.filter((f) => f.label === "").length} empty-label fields`
+      //   `DEBUG: Checking impl'd traits, found ${runtimeType.trait.fields.filter((f) => f.label === "").length} empty-label fields`
       // );
-      for (const field of runtimeType.module.fields) {
+      for (const field of runtimeType.trait.fields) {
         if (
           field.label === "" &&
           field.assignedValue &&
-          isModuleValue(field.assignedValue)
+          isTraitValue(field.assignedValue)
         ) {
-          const implModuleValue = field.assignedValue;
-          const implModuleType = implModuleValue.type;
+          const implTraitValue = field.assignedValue;
+          const implTraitType = implTraitValue.type;
           // console.log(
-          //   `DEBUG: Checking impl module with fields: ${implModuleType.fields.map((f) => f.label).join(", ")}`
+          //   `DEBUG: Checking impl trait with fields: ${implTraitType.fields.map((f) => f.label).join(", ")}`
           // );
-          const methodIndex = implModuleType.fields.findIndex(
+          const methodIndex = implTraitType.fields.findIndex(
             (f) => f.label === methodName && isFunctionType(f.type)
           );
           // console.log(
           //   `DEBUG: Method ${methodName} index in impl: ${methodIndex}`
           // );
           if (methodIndex >= 0) {
-            const method = implModuleType.fields[methodIndex]!;
+            const method = implTraitType.fields[methodIndex]!;
             if (isFunctionType(method.type)) {
-              const value = implModuleValue.fields[methodIndex];
+              const value = implTraitValue.fields[methodIndex];
               let methodType = method.type;
               if (isFunctionValue(value) && value.specializedType) {
                 methodType = value.specializedType;
               }
               methods.push({ type: methodType, value });
-              // console.log(`DEBUG: Added method ${methodName} from impl module`);
+              // console.log(`DEBUG: Added method ${methodName} from impl trait`);
             }
           }
         }
@@ -1114,17 +1116,17 @@ export function getMethodsByNameFromEnv(
     }
   }
 
-  // Check if the dereferencedReceiverType is a SomeType with required modules
+  // Check if the dereferencedReceiverType is a SomeType with required traits
   if (isSomeType(dereferencedReceiverType)) {
     // If SomeType has resolvedConcreteType, prefer resolving methods against the concrete type's
-    // impl modules (static dispatch). This is used for `fn() -> Impl(Module)` return values.
+    // impl traits (static dispatch). This is used for `fn() -> Impl(Module)` return values.
     // EXCEPTION: For Future types, do NOT use resolvedConcreteType methods.
     if (
-      dereferencedReceiverType.resolvedConcreteType?.module &&
+      dereferencedReceiverType.resolvedConcreteType?.trait &&
       !typeImplementsFuture(dereferencedReceiverType)
     ) {
       const concreteType = dereferencedReceiverType.resolvedConcreteType;
-      const concreteModule = concreteType.module;
+      const concreteModule = concreteType.trait;
 
       // 1) Direct methods on the concrete type
       const directConcreteMethod = concreteModule?.fields.find(
@@ -1140,24 +1142,24 @@ export function getMethodsByNameFromEnv(
         methods.push({ type: directConcreteMethod.type, value });
       }
 
-      // 2) Impl module methods stored as ModuleValue with empty label ""
+      // 2) Impl trait methods stored as ModuleValue with empty label ""
       // This is where `impl(concreteType, Module(...))` attaches concrete method bodies.
       if (methods.length === 0) {
         for (const field of concreteModule?.fields ?? []) {
           if (
             field.label === "" &&
             field.assignedValue &&
-            isModuleValue(field.assignedValue)
+            isTraitValue(field.assignedValue)
           ) {
-            const implModuleValue = field.assignedValue;
-            const implModuleType = implModuleValue.type;
-            const methodIndex = implModuleType.fields.findIndex(
+            const implTraitValue = field.assignedValue;
+            const implTraitType = implTraitValue.type;
+            const methodIndex = implTraitType.fields.findIndex(
               (f) => f.label === methodName && isFunctionType(f.type)
             );
             if (methodIndex >= 0) {
-              const method = implModuleType.fields[methodIndex]!;
+              const method = implTraitType.fields[methodIndex]!;
               if (isFunctionType(method.type)) {
-                const value = implModuleValue.fields[methodIndex];
+                const value = implTraitValue.fields[methodIndex];
                 let methodType = method.type;
                 if (isFunctionValue(value) && value.specializedType) {
                   methodType = value.specializedType;
@@ -1181,12 +1183,12 @@ export function getMethodsByNameFromEnv(
       }
     }
 
-    // Look for methods in the requiredModules array (from Impl(Module1, Module2, ...))
+    // Look for methods in the requiredTraits array (from Impl(Module1, Module2, ...))
     // This handles cases like `Impl(Id)` where we need to find the `id` method
-    if (methods.length === 0 && dereferencedReceiverType.requiredModules) {
-      for (const requiredModuleType of dereferencedReceiverType.requiredModules) {
-        // Search for the method in the required module
-        const method = requiredModuleType.fields.find(
+    if (methods.length === 0 && dereferencedReceiverType.requiredTraits) {
+      for (const requiredTraitType of dereferencedReceiverType.requiredTraits) {
+        // Search for the method in the required trait
+        const method = requiredTraitType.fields.find(
           (f) => f.label === methodName && isFunctionType(f.type)
         );
         if (method && isFunctionType(method.type)) {
@@ -1212,7 +1214,7 @@ export function getMethodsByNameFromEnv(
       // Helper function to find constraints from a function type
       const findConstraintsInFunction = (
         funcType: FunctionType | undefined
-      ): { requiredModules: ModuleType[] } | undefined => {
+      ): { requiredTraits: TraitType[] } | undefined => {
         if (!funcType?.whereClauseConstraints) return undefined;
 
         // First try direct lookup
@@ -1252,9 +1254,9 @@ export function getMethodsByNameFromEnv(
       while (funcToCheck && methods.length === 0) {
         const constraints = findConstraintsInFunction(funcToCheck);
         if (constraints) {
-          for (const requiredModuleType of constraints.requiredModules) {
-            // Search for the method in the required module
-            const method = requiredModuleType.fields.find(
+          for (const requiredTraitType of constraints.requiredTraits) {
+            // Search for the method in the required trait
+            const method = requiredTraitType.fields.find(
               (f) => f.label === methodName && isFunctionType(f.type)
             );
             if (method && isFunctionType(method.type)) {
@@ -1277,21 +1279,21 @@ export function getMethodsByNameFromEnv(
       }
     }
 
-    // Look for methods in the required modules stored in the SomeType's module
-    // Only consider modules with empty label "" (from module-level where clauses)
+    // Look for methods in the required traits stored in the SomeType's trait
+    // Only consider traits with empty label "" (from trait-level where clauses)
     if (methods.length === 0) {
-      for (const field of dereferencedReceiverType.module.fields) {
-        // Required modules are stored as TypeValue containing ModuleType
-        // Only allow modules with empty label (where clause constraints)
+      for (const field of dereferencedReceiverType.trait.fields) {
+        // Required traits are stored as TypeValue containing TraitType
+        // Only allow traits with empty label (where clause constraints)
         if (
           field.label === "" &&
           field.assignedValue &&
           isTypeValue(field.assignedValue) &&
-          isModuleType(field.assignedValue.value)
+          isTraitType(field.assignedValue.value)
         ) {
-          const requiredModuleType = field.assignedValue.value;
-          // Search for the method in the required module
-          const method = requiredModuleType.fields.find(
+          const requiredTraitType = field.assignedValue.value;
+          // Search for the method in the required trait
+          const method = requiredTraitType.fields.find(
             (f) => f.label === methodName && isFunctionType(f.type)
           );
           if (method && isFunctionType(method.type)) {
@@ -1306,11 +1308,11 @@ export function getMethodsByNameFromEnv(
 
   // Check if the dereferencedReceiverType is a DynType
   if (isDynType(dereferencedReceiverType)) {
-    // First, check the dyn object's own module for its Rc methods (___drop, ___dup, ___dispose)
-    const dynMethod = dereferencedReceiverType.module.fields.find(
+    // First, check the dyn object's own trait for its Rc methods (___drop, ___dup, ___dispose)
+    const dynMethod = dereferencedReceiverType.trait.fields.find(
       (field) =>
         field.label === methodName &&
-        (isFunctionType(field.type) || isModuleType(field.type))
+        (isFunctionType(field.type) || isTraitType(field.type))
     );
     if (dynMethod && isFunctionType(dynMethod.type)) {
       // For dyn object's own methods, we can use the assigned value directly
@@ -1320,14 +1322,14 @@ export function getMethodsByNameFromEnv(
       methods.push({ type: dynMethod.type, value });
     }
 
-    // Then, for dynamic dispatch, check all module types in the DynType for wrapped object methods
-    // A method might exist in only some modules, and that's perfectly valid
-    const requiredModules = dereferencedReceiverType.requiredModules;
-    for (const moduleType of requiredModules) {
-      const method = moduleType.fields.find(
+    // Then, for dynamic dispatch, check all trait types in the DynType for wrapped object methods
+    // A method might exist in only some traits, and that's perfectly valid
+    const requiredTraits = dereferencedReceiverType.requiredTraits;
+    for (const traitType of requiredTraits) {
+      const method = traitType.fields.find(
         (field) =>
           field.label === methodName &&
-          (isFunctionType(field.type) || isModuleType(field.type))
+          (isFunctionType(field.type) || isTraitType(field.type))
       );
       if (method && isFunctionType(method.type)) {
         // Check if the receiver type is compatible
@@ -1348,20 +1350,20 @@ export function getMethodsByNameFromEnv(
           const value = undefined; // NOTE: UnknownValue here is wrong: createUnknownValue(method.type, method.label);
           methods.push({ type: method.type, value });
         }
-        // Don't break - continue checking other modules in case they have different signatures
+        // Don't break - continue checking other traits in case they have different signatures
       }
     }
   }
   // NOTE:
-  // Type methods have higher priority than module methods,
-  // so we check the module methods only if there are no type methods.
+  // Type methods have higher priority than trait methods,
+  // so we check the trait methods only if there are no type methods.
 
   if (methods.length > 0) {
     return filterMethodsByReceiverType(methods);
   }
 
   /*
-  // Check the modules from innermost to outermost scope
+  // Check the traits from innermost to outermost scope
   // ~~Stop at the first frame level where we find matching methods (shadowing)~~
   // NOTE: ^^^ This is wrong. We shouldn't stop at the latest frame level,
   // One example is the hash_map.yo where the HashMap has a parameter
@@ -1372,26 +1374,26 @@ export function getMethodsByNameFromEnv(
 
     for (let j = frame.variables.length - 1; j >= 0; j--) {
       const variable = frame.variables[j]!;
-      const moduleType = variable.type;
-      const moduleValue = variable.value;
+      const traitType = variable.type;
+      const traitValue = variable.value;
       if (
-        // Find the module value
-        isModuleType(moduleType) &&
-        moduleValue
+        // Find the trait value
+        isTraitType(traitType) &&
+        traitValue
       ) {
-        checkModule(moduleType, moduleValue);
+        checkTrait(traitType, traitValue);
       }
     }
   }
 
   */
   /**
-   * NOTE: We stop checking the methods from modules in the environment.
-   * REASON 1: It is not performant to check all modules in the environment for methods.
-   * REASON 2: It can lead to ambiguous method calls if multiple modules have methods with the same name.
+   * NOTE: We stop checking the methods from traits in the environment.
+   * REASON 1: It is not performant to check all traits in the environment for methods.
+   * REASON 2: It can lead to ambiguous method calls if multiple traits have methods with the same name.
    * REASON 3: The ambiguity problem might root deeper, for examle the code below:
    *
-   * Id :: module(
+   * Id :: trait(
    *   id : (fn(self : Self) -> Self)
    * );
    * Point :: struct(x : i32, y : i32,

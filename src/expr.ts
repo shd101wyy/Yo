@@ -26,7 +26,7 @@ import {
   generateVarialeId,
   isTempVariableName,
 } from "./utils";
-import { isTypeValue, ModuleValue, Value } from "./value";
+import { isTypeValue, TraitValue, Value } from "./value";
 import { ValueTag } from "./value-tag";
 
 /**
@@ -90,7 +90,7 @@ export function pathConflictsWithPath(path1: Path, path2: Path): boolean {
 
 export enum ExprTag {
   Atom = "Atom",
-  FuncCall = "FuncCall",
+  FnCall = "FnCall",
 }
 
 export interface RuntimeDestructuring {
@@ -150,7 +150,7 @@ export interface EvaluatedExprData {
   pathCollection: PathCollection;
 
   /**
-   * This is mainly for FuncCall expressions.
+   * This is mainly for FnCall expressions.
    * It is used to record the runtime arguments passed to the function call in order.
    * This is useful for the codegen stage.
    */
@@ -176,11 +176,11 @@ export interface EvaluatedExprData {
   controlFlow?: ControlFlowKind;
 
   /**
-   * For dyn() function calls, this contains the module values that provide
+   * For dyn() function calls, this contains the trait values that provide
    * the dynamic dispatch implementations. Used by C codegen to generate
    * vtables and method dispatch code.
    */
-  dynCallModuleValues?: ModuleValue[];
+  dynCallTraitValues?: TraitValue[];
 
   /**
    * This is for codegen for the "cond"/"match" expressions.
@@ -301,9 +301,9 @@ export type AtomExpr = {
   $?: EvaluatedExprData | undefined;
 };
 
-export type FuncCallExpr = {
+export type FnCallExpr = {
   // Parser stage
-  tag: ExprTag.FuncCall;
+  tag: ExprTag.FnCall;
   func: Expr;
   args: Expr[];
   isInfix?: boolean;
@@ -324,7 +324,7 @@ export function cloneExpr(expr: Expr): Expr {
         $: undefined, //  expr.$ ? { ...expr.$ } : undefined
         // NOTE: We should unset the evaluated data here,
       };
-    case ExprTag.FuncCall:
+    case ExprTag.FnCall:
       return {
         ...expr,
         func: cloneExpr(expr.func),
@@ -335,12 +335,10 @@ export function cloneExpr(expr: Expr): Expr {
   }
 }
 
-export type Expr = AtomExpr | FuncCallExpr;
+export type Expr = AtomExpr | FnCallExpr;
 
-export function exprIsFunctionCall(
-  expr: Expr | undefined
-): expr is FuncCallExpr {
-  return expr?.tag === ExprTag.FuncCall;
+export function exprIsFunctionCall(expr: Expr | undefined): expr is FnCallExpr {
+  return expr?.tag === ExprTag.FnCall;
 }
 export function exprIsAtom(expr: Expr | undefined): expr is AtomExpr {
   return expr?.tag === ExprTag.Atom;
@@ -364,7 +362,7 @@ export function exprIsFunctionCallOf(
   funcNames: string | string[],
   argumentCount?: number
 ): boolean {
-  if (expr.tag !== ExprTag.FuncCall) {
+  if (expr.tag !== ExprTag.FnCall) {
     return false;
   }
   if (expr.func.tag !== ExprTag.Atom) {
@@ -373,7 +371,7 @@ export function exprIsFunctionCallOf(
   const funcName = expr.func.token.value;
 
   return (
-    expr.tag === ExprTag.FuncCall &&
+    expr.tag === ExprTag.FnCall &&
     expr.func.tag === ExprTag.Atom &&
     (typeof funcNames === "string"
       ? funcName === funcNames
@@ -439,7 +437,7 @@ export function exprsAreEqual(expr1: Expr, expr2: Expr): boolean {
     return expr1.token.value === expr2.token.value;
   }
 
-  if (expr1.tag === ExprTag.FuncCall && expr2.tag === ExprTag.FuncCall) {
+  if (expr1.tag === ExprTag.FnCall && expr2.tag === ExprTag.FnCall) {
     // For function calls, compare the function and all arguments
     if (!exprsAreEqual(expr1.func, expr2.func)) {
       return false;
@@ -489,6 +487,7 @@ export const BuiltinKeywords = {
   enum: ["enum"],
   union: ["union"],
   module: ["module"],
+  trait: ["trait"],
   impl: ["impl"],
   Impl: ["Impl"],
   begin: ["begin"],
@@ -537,6 +536,7 @@ export const BuiltinKeywords = {
   Concrete: ["Concrete"],
   Type: ["Type"],
   Module: ["Module"],
+  Trait: ["Trait"],
   ComptList: ["ComptList"],
 
   // data values
@@ -871,7 +871,7 @@ export const BuiltinFunctions = {
   __yo_type_contains_rc_type: ["__yo_type_contains_rc_type"],
   __yo_type_can_form_rc_cycle: ["__yo_type_can_form_rc_cycle"],
   __yo_are_types_compatible: ["__yo_are_types_compatible"],
-  __yo_type_impls: ["__yo_type_impls"], // Check if a type implements a module (e.g., Copy, Send)
+  __yo_type_impls: ["__yo_type_impls"], // Check if a type implements a trait (e.g., Copy, Send)
 
   // Variale related functions
   __yo_var_print_info: ["__yo_var_print_info"],
@@ -950,7 +950,7 @@ export const BuiltinFunctions = {
 
 export function exprIsInfixOperatorFunctionCall(expr: Expr): boolean {
   return Boolean(
-    expr.tag === "FuncCall" &&
+    expr.tag === "FnCall" &&
       expr.isInfix &&
       expr.func.tag === "Atom" &&
       expr.func.token.type === TokenType.Operator &&
@@ -989,7 +989,7 @@ function exprToCompactString(expr: Expr): string {
       printed = expr.token.value;
       break;
     }
-    case "FuncCall": {
+    case "FnCall": {
       if (
         expr.func.tag === "Atom" &&
         (expr.func.token.type === TokenType.Operator ||
@@ -1073,7 +1073,7 @@ function exprToPrettyString(
     case "Atom": {
       return expr.token.value;
     }
-    case "FuncCall": {
+    case "FnCall": {
       // Handle special operators and dots
       if (
         expr.func.tag === "Atom" &&
@@ -1799,8 +1799,8 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
  * @param newFuncExpr
  */
 export function replaceFuncCallExprWithFuncCallExpr(
-  funcExpr: FuncCallExpr,
-  newFuncExpr: FuncCallExpr
+  funcExpr: FnCallExpr,
+  newFuncExpr: FnCallExpr
 ): void {
   funcExpr.$ = newFuncExpr.$;
   funcExpr.args = newFuncExpr.args;
@@ -1811,7 +1811,7 @@ export function replaceFuncCallExprWithFuncCallExpr(
 }
 
 export function replaceFuncCallExprWithAtomExpr(
-  funcExpr: FuncCallExpr,
+  funcExpr: FnCallExpr,
   newAtomExpr: AtomExpr
 ): void {
   // Convert function call to atom by changing its properties
@@ -1821,21 +1821,21 @@ export function replaceFuncCallExprWithAtomExpr(
   atomExpr.$ = newAtomExpr.$;
 
   // Clean up function call specific properties by setting them to undefined
-  (funcExpr as Partial<FuncCallExpr>).func = undefined;
-  (funcExpr as Partial<FuncCallExpr>).args = undefined;
-  (funcExpr as Partial<FuncCallExpr>).isInfix = undefined;
+  (funcExpr as Partial<FnCallExpr>).func = undefined;
+  (funcExpr as Partial<FnCallExpr>).args = undefined;
+  (funcExpr as Partial<FnCallExpr>).isInfix = undefined;
 }
 
 export function replaceExprWithFuncCallExpr(
   expr: Expr,
-  newFuncExpr: FuncCallExpr
+  newFuncExpr: FnCallExpr
 ): void {
   if (exprIsFunctionCall(expr)) {
     replaceFuncCallExprWithFuncCallExpr(expr, newFuncExpr);
   } else {
     // expr is atom;
     (expr as Expr).tag = newFuncExpr.tag;
-    const funcExpr = expr as unknown as FuncCallExpr;
+    const funcExpr = expr as unknown as FnCallExpr;
     replaceFuncCallExprWithFuncCallExpr(funcExpr, newFuncExpr);
   }
 }
@@ -1992,7 +1992,7 @@ export function setExprAsNeedsToCallDup(
       // Don't pass expectedType when calling ___dup, as it refers to the outer expression's expected type,
       // not the expected type for the dup call itself. The dup call always returns the same type as its argument.
       context: { ...context, expectedType: undefined },
-    }) as FuncCallExpr;
+    }) as FnCallExpr;
 
     if (evaluatedDupCallExpr.$?.variableName) {
       // Set the variable as consumed so we won't need to drop it later

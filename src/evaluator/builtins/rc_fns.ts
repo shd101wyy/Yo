@@ -11,7 +11,7 @@ import {
   expectExprToBeFunctionCallOf,
   Expr,
   exprToString,
-  FuncCallExpr,
+  FnCallExpr,
 } from "../../expr";
 import { PlaceholderToken } from "../../token";
 import {
@@ -123,7 +123,7 @@ export function evaluateYoDecrRc({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
 }): Expr {
@@ -165,7 +165,7 @@ export function evaluateYoIncrRc({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
 }): Expr {
@@ -207,7 +207,7 @@ export function evaluateYoIncrRcAtomic({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
 }): Expr {
@@ -251,7 +251,7 @@ export function evaluateYoDecrRcAtomic({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
 }): Expr {
@@ -297,7 +297,7 @@ export function evaluateYoRcOwn({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
 }): Expr {
@@ -343,7 +343,7 @@ export function evaluateYoDynVtableDrop({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
 }): Expr {
@@ -386,7 +386,7 @@ export function evaluateYoDynVtableDup({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
 }): Expr {
@@ -429,7 +429,7 @@ export function evaluateYoSomeTypeDrop({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
 }): Expr {
@@ -472,7 +472,7 @@ export function evaluateYoSomeTypeDup({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
 }): Expr {
@@ -519,7 +519,7 @@ export function evaluateYoIsoExtract({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
 }): Expr {
@@ -597,7 +597,7 @@ export function evaluateYoIsoDispose({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
 }): Expr {
@@ -646,7 +646,7 @@ export function evaluateYoDropArrayElement({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
 }): Expr {
@@ -723,7 +723,7 @@ export function evaluateYoDupArrayElement({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
 }): Expr {
@@ -812,7 +812,7 @@ export function evaluateYoDropTupleElement({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
 }): Expr {
@@ -890,7 +890,7 @@ export function evaluateYoDupTupleElement({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
 }): Expr {

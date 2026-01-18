@@ -6,7 +6,7 @@ import {
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
-  FuncCallExpr,
+  FnCallExpr,
 } from "../../expr";
 import { ExternLanguage, ModuleField } from "../../types";
 import { VUnit } from "../../unit-value";
@@ -20,10 +20,10 @@ export function evaluateExtern({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): FnCallExpr {
   if (!exprIsFunctionCallOf(expr, BuiltinKeywords.extern)) {
     throw formatErrorMessage({
       token: expr.token,

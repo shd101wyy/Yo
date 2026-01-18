@@ -2,24 +2,26 @@ import { Emitter } from "../emitter";
 import { generateModuleId } from "../utils";
 import { ModuleValue } from "../value";
 import { collectCIncludes, emitCIncludes } from "./c/collection";
-
-// Import the modular components
 import {
   generateDeferredAsyncBlocks,
   preRegisterAsyncBlockTypes,
-} from "./expressions/generation";
+} from "./exprs/async";
 import { collectRequiredFunctions } from "./functions/collection";
 import { FunctionGenerationContext } from "./functions/context";
 import {
-  generateAllFunctions,
-  generateClosureDisposeFunctions,
+  generateFunctionDeclarations,
+  generateSpecializedFunctionDeclarations,
+} from "./functions/declarations";
+import {
   generateDynBoxFunctions,
   generateDynDupDrop,
   generateDynVtables,
   generateDynWrapperFunctions,
-  generateFunctionDeclarations,
+} from "./functions/dyn";
+import {
+  generateAllFunctions,
+  generateClosureDisposeFunctions,
   generateMainWrapper,
-  generateSpecializedFunctionDeclarations,
   generateSpecializedFunctions,
 } from "./functions/generation";
 import { collectRequiredTypes } from "./types/collection";

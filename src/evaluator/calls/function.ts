@@ -10,7 +10,7 @@ import {
   exprIsFunctionCallOf,
   ExprTag,
   exprToString,
-  FuncCallExpr,
+  FnCallExpr,
 } from "../../expr";
 import { FunctionValue } from "../../function-value";
 import { stringIsOperator, TokenType } from "../../token";
@@ -18,7 +18,7 @@ import { TypeValue } from "../../type-value";
 import {
   areTypesCompatible,
   createExprType,
-  extractFnModuleFromType,
+  extractFnTraitFromType,
   isArrayType,
   isComptFloatType,
   isComptIntType,
@@ -34,6 +34,7 @@ import {
   isSliceType,
   isSomeType,
   isStructType,
+  isTraitType,
   isUnionType,
   SomeType,
   Type,
@@ -59,6 +60,7 @@ import {
   getArrayCallResult,
   getFunctionCallResult,
   getModuleTypeCallResult,
+  getTraitTypeCallResult,
   getTypeCallResult,
 } from "../context";
 import { evaluateExpression } from "../exprs/expr";
@@ -76,6 +78,7 @@ import {
   tryToConvertToNumericType,
 } from "./numeric_type";
 import { tryToConvertToPointerType } from "./pointer_type";
+import { tryToImplementTraitWithArgumentsByTraitType } from "./trait_type";
 import { tryToCallTypeWithArguments } from "./type";
 
 /**
@@ -171,7 +174,7 @@ export function evaluateFunctionCall({
   givenFunc,
   forMacroExpansion,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
   givenFunc?: { type: Type; value: TypeValue | FunctionValue | undefined };
@@ -260,8 +263,8 @@ export function evaluateFunctionCall({
                   type: TokenType.Identifier,
                 };
 
-                const addressOfExpr: FuncCallExpr = {
-                  tag: ExprTag.FuncCall,
+                const addressOfExpr: FnCallExpr = {
+                  tag: ExprTag.FnCall,
                   func: ampersandExpr,
                   args: [receiverArg],
                   token: receiverArg.token,
@@ -545,10 +548,10 @@ export function evaluateFunctionCall({
       }
     } else if (
       (isSomeType(functionToCall.type) || isDynType(functionToCall.type)) &&
-      extractFnModuleFromType(functionToCall.type)
+      extractFnTraitFromType(functionToCall.type)
     ) {
       // Handle calling a SomeType or DynType that implements Fn (e.g., Impl(Fn(...) -> ...) or Dyn(Fn(...) -> ...))
-      const fnModuleType = extractFnModuleFromType(functionToCall.type)!;
+      const fnModuleType = extractFnTraitFromType(functionToCall.type)!;
       try {
         // NOTE: We need to pass the cloneExpr expr and argExprs here because
         // we might modify the expressions during the tryToCallFunctionWithArguments
@@ -739,6 +742,34 @@ export function evaluateFunctionCall({
           };
         }
       }
+      // trait value
+      else if (isTypeValue(value) && isTraitType(value.value)) {
+        const traitType = value.value;
+        try {
+          const result = tryToImplementTraitWithArgumentsByTraitType({
+            traitExpr: func,
+            traitType: traitType,
+            argExprs: argsToUse,
+            callerEnv: env,
+            context: { ...context },
+          });
+          return {
+            ...functionToCall,
+            result: {
+              kind: "trait-type",
+              result,
+            },
+          };
+        } catch (error) {
+          return {
+            ...functionToCall,
+            result: {
+              kind: "error",
+              error: error,
+            },
+          };
+        }
+      }
       // function
       else if (isTypeValue(value) && isFunctionType(value.value)) {
         const functionType = value.value;
@@ -825,7 +856,7 @@ export function evaluateFunctionCall({
         (isSomeType(value.value) || isDynType(value.value))
       ) {
         const wrapperType = value.value;
-        const fnModuleType = extractFnModuleFromType(wrapperType);
+        const fnModuleType = extractFnTraitFromType(wrapperType);
         if (fnModuleType) {
           try {
             tryToImplementClosureByFnModuleType({
@@ -1446,10 +1477,10 @@ ${functionsWithMatchingTypes.map((func) => `${typeToString(func.type)}`).join("\
   } else if (
     // Check if it's a closure call
     (isSomeType(functionToCall.type) || isDynType(functionToCall.type)) &&
-    extractFnModuleFromType(functionToCall.type)
+    extractFnTraitFromType(functionToCall.type)
   ) {
     // Handle calling a SomeType or DynType that implements Fn (e.g., Impl(Fn(...) -> ...) or Dyn(Fn(...) -> ...))
-    const fnModuleType = extractFnModuleFromType(functionToCall.type)!;
+    const fnModuleType = extractFnTraitFromType(functionToCall.type)!;
     const {
       returnType,
       returnValue,
@@ -1663,6 +1694,28 @@ ${functionsWithMatchingTypes.map((func) => `${typeToString(func.type)}`).join("\
         type: moduleValue.type,
         value: moduleValue,
         originType: moduleValue.type, // Module result's origin type is its type
+        pathCollection: [],
+      };
+
+      // Attach necessary info to the func
+      func.$ = {
+        env,
+        type: value.type,
+        value: value,
+        pathCollection: [],
+      };
+      return expr;
+    }
+    // trait value
+    else if (isTypeValue(value) && isTraitType(value.value)) {
+      const { traitValue, callerEnv } = getTraitTypeCallResult(functionToCall);
+      env = callerEnv;
+
+      expr.$ = {
+        env,
+        type: traitValue.type,
+        value: traitValue,
+        originType: traitValue.type, // Module result's origin type is its type
         pathCollection: [],
       };
 

@@ -1,6 +1,6 @@
 import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
-import { exprToString, FuncCallExpr } from "../../expr";
+import { exprToString, FnCallExpr } from "../../expr";
 import { VUnit } from "../../unit-value";
 import { isBooleanValue, isComptStringValue, valueToString } from "../../value";
 import { EvaluatorContext } from "../context";
@@ -11,10 +11,10 @@ export function evaluateComptAssert({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): FnCallExpr {
   // Do nothing if we are not really executing.
   if (context.isValidatingFunctionDefinition || !context.isExecuting) {
     expr.$ = {

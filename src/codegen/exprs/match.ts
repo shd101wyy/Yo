@@ -1,0 +1,868 @@
+import { getVariablesFromEnv } from "../../env";
+import {
+  BuiltinKeywords,
+  Expr,
+  exprIsAtom,
+  exprIsFunctionCall,
+  exprIsFunctionCallOf,
+  ExprTag,
+  FnCallExpr,
+} from "../../expr";
+import {
+  isEnumType,
+  isObjectType,
+  isPtrType,
+  isUnitType,
+  Type,
+  TypeTag,
+} from "../../types";
+import { FunctionGenerationContext } from "../functions/context";
+import {
+  canOptimizeAsNullablePointer,
+  canOptimizeAsSimpleEnum,
+  CodeGenContext,
+  getEnumVariantCName,
+  getTypeString,
+  getVariableNameForCodegen,
+  sanitizeForCIdentifier,
+} from "../utils";
+import {
+  generateDeferredDropExpressions,
+  generateDeferredDupExpressions,
+} from "./drop_dup";
+import { generateExpr } from "./expr";
+
+/**
+ * Generate case body for match/cond expressions, handling begin blocks specially
+ * Returns the body code string for assignment to temp variable
+ */
+function generateCaseBody(
+  bodyExpr: Expr,
+  indent: string,
+  context: CodeGenContext
+): string {
+  // Handle begin blocks specially
+  if (
+    exprIsFunctionCall(bodyExpr) &&
+    exprIsFunctionCallOf(bodyExpr, BuiltinKeywords.begin)
+  ) {
+    const beginArgs = bodyExpr.args;
+
+    // Generate each statement except the last one
+    for (let j = 0; j < beginArgs.length - 1; j++) {
+      const arg = beginArgs[j]!;
+      const argCode = generateExpr(arg, indent, context);
+      if (argCode) {
+        context.emitter.emitLine(`${indent}${argCode};`);
+      }
+    }
+
+    // Get the final expression code for return/assignment
+    let finalExprCode = "";
+    if (beginArgs.length > 0) {
+      const finalExpr = beginArgs[beginArgs.length - 1]!;
+      // Generate deferred dup expressions for the final expression (e.g., returning a borrowed value)
+      if (
+        finalExpr.$?.deferredDupExpressions &&
+        finalExpr.$.deferredDupExpressions.length > 0
+      ) {
+        generateDeferredDupExpressions(
+          finalExpr,
+          indent,
+          context as FunctionGenerationContext
+        );
+        // Use the duped value's variable name instead of the original expression
+        const dupExpr = finalExpr.$.deferredDupExpressions[0]!;
+        if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
+          finalExprCode = getVariableNameForCodegen(
+            dupExpr.$.variableName,
+            dupExpr.$.env
+          );
+        } else {
+          finalExprCode = generateExpr(finalExpr, indent, context);
+        }
+      } else {
+        finalExprCode = generateExpr(finalExpr, indent, context);
+      }
+    }
+
+    // Generate deferred drop expressions for the begin block
+    if (bodyExpr.$?.deferredDropExpressions) {
+      generateDeferredDropExpressions(bodyExpr, indent, context);
+    }
+
+    return finalExprCode;
+  } else {
+    // For non-begin expressions, check for deferred dup expressions
+    if (bodyExpr.$?.deferredDupExpressions) {
+      generateDeferredDupExpressions(
+        bodyExpr,
+        indent,
+        context as FunctionGenerationContext
+      );
+    }
+    return generateExpr(bodyExpr, indent, context);
+  }
+}
+
+/**
+ * Generate a match expression as a value (C switch statement) - extracted from original codegen-c.ts
+ */
+export function generateMatchExpression(
+  expr: FnCallExpr,
+  indent: string,
+  context: CodeGenContext
+): string {
+  if (!expr.$) {
+    return `/* "match" expression is not evaluated */`;
+  }
+  const tempVariableName = expr.$.variableName;
+  const valueType = expr.$.type;
+  const isUnit = valueType && isUnitType(valueType);
+
+  // Create temp variable declaration
+  if (!isUnit && tempVariableName) {
+    const varType = getTypeString(valueType, context);
+    context.emitter.emitLine(`${indent}${varType} ${tempVariableName};`);
+  }
+
+  // Generate the matched value
+  const matchedValueCode = generateExpr(expr.args[0]!, indent, context);
+  const matchValueType = expr.args[0]!.$?.type;
+  if (!matchValueType) {
+    return `// Error: "match" expression requires an enum type`;
+  }
+
+  // Check if it's a pointer/reference type OR reference semantics type
+  // If yes, then automatically dereference one-level of it.
+  let ptrOrRefType: TypeTag.Ptr | "ref_semantics" | undefined = undefined;
+
+  let enumType: Type;
+  if (isPtrType(matchValueType)) {
+    enumType = matchValueType.childType;
+    ptrOrRefType = matchValueType.tag;
+  } else if (isObjectType(matchValueType)) {
+    // ref enum types are represented as pointers in C
+    enumType = matchValueType;
+    ptrOrRefType = "ref_semantics";
+  } else {
+    enumType = matchValueType;
+  }
+
+  if (!isEnumType(enumType)) {
+    return `// Error: "match" expression requires an enum type`;
+  }
+  const enumCName = context.types[enumType.id]?.cName;
+  if (!enumCName) {
+    return `// Error: "match" expression enum type ${enumType.typeName} has no C name`;
+  }
+
+  // Check if this enum is optimized as a nullable pointer
+  const nullablePointerType = canOptimizeAsNullablePointer(enumType);
+  if (nullablePointerType) {
+    // Generate optimized nullable pointer matching using if/else instead of switch
+    const caseExprs = expr.args.slice(1);
+
+    // Find which variant is the null case and which is the pointer case
+    let nullCase: { caseBody: Expr } | null = null;
+    let pointerCase: {
+      caseBody: Expr;
+      variantName: string;
+      casePattern: Expr;
+    } | null = null;
+
+    for (const caseExpr of caseExprs) {
+      if (
+        exprIsFunctionCall(caseExpr) &&
+        exprIsFunctionCallOf(caseExpr, "=>", 2)
+      ) {
+        const caseValue = caseExpr.args[0]!; // .None, .Some(ptr)
+        const caseBody = caseExpr.args[1]!;
+
+        if (
+          caseValue &&
+          caseBody &&
+          exprIsFunctionCall(caseValue) &&
+          exprIsFunctionCallOf(caseValue, ".") // Destructuring pattern like .None
+        ) {
+          nullCase = { caseBody };
+        } else {
+          // Destructuring pattern like .Some(value)
+          // Handle destructuring pattern
+          const variantExpr = (caseValue as FnCallExpr).func;
+          // Check if variant is a field access like .Some
+          if (
+            variantExpr &&
+            exprIsFunctionCall(variantExpr) &&
+            exprIsFunctionCallOf(variantExpr, ".")
+          ) {
+            const variantNameExpr = variantExpr.args[0]!;
+            if (variantNameExpr && exprIsAtom(variantNameExpr)) {
+              const variantName = variantNameExpr.token.value;
+              pointerCase = {
+                caseBody,
+                variantName,
+                casePattern: caseValue,
+              };
+            }
+          }
+        }
+      }
+    }
+
+    // Generate the optimized if/else structure
+    context.emitter.emitLine(
+      `${indent}if (${ptrOrRefType && ptrOrRefType !== "ref_semantics" ? "*" : ""}${matchedValueCode} != NULL) {`
+    );
+
+    if (pointerCase) {
+      // For nullable pointer optimization with destructuring pattern like .Some(value),
+      // we need to bind the destructured variable to the pointer value
+      let destructuredVarName: string | undefined;
+      if (
+        exprIsFunctionCall(pointerCase.casePattern) &&
+        pointerCase.casePattern.args.length > 0
+      ) {
+        // Destructuring pattern: .Some(value)
+        const destructuredVar = pointerCase.casePattern.args[0];
+        if (destructuredVar && exprIsAtom(destructuredVar)) {
+          destructuredVarName = destructuredVar.token.value;
+          const varType = nullablePointerType;
+          // Declare and bind the destructured variable to the pointer
+          context.emitter.emitLine(
+            `${indent}  ${getTypeString(varType, context)} ${destructuredVarName} = ${matchedValueCode};`
+          );
+        }
+      }
+
+      // Add destructured variable to localShadowedVariables so it uses the local C var
+      const functionContext = context as FunctionGenerationContext;
+      if (destructuredVarName && functionContext.inStateMachine) {
+        if (!functionContext.localShadowedVariables) {
+          functionContext.localShadowedVariables = new Set();
+        }
+        functionContext.localShadowedVariables.add(destructuredVarName);
+      }
+
+      const bodyCode = generateCaseBody(
+        pointerCase.caseBody,
+        indent + "  ",
+        context
+      );
+
+      // Remove destructured variable from localShadowedVariables after generating body
+      if (destructuredVarName && functionContext.localShadowedVariables) {
+        functionContext.localShadowedVariables.delete(destructuredVarName);
+      }
+
+      // Check if body has control flow (return, break, continue) - don't assign temp in that case
+      const hasControlFlow =
+        bodyCode === "" ||
+        bodyCode === "break" ||
+        bodyCode === "continue" ||
+        bodyCode.includes("return");
+      if (!isUnit && tempVariableName && !hasControlFlow) {
+        // For nullable pointer match, the body returns the actual value
+        // If bodyCode is empty or just returns the matched value itself, use the matched value
+        const resultCode = bodyCode || matchedValueCode;
+        context.emitter.emitLine(
+          `${indent}  ${tempVariableName} = ${resultCode};`
+        );
+      } else if (bodyCode && bodyCode !== "") {
+        context.emitter.emitLine(`${indent}  ${bodyCode};`);
+      }
+    }
+
+    context.emitter.emitLine(`${indent}} else {`);
+
+    if (nullCase) {
+      const bodyCode = generateCaseBody(
+        nullCase.caseBody,
+        indent + "  ",
+        context
+      );
+      // Check if body has control flow (return, break, continue) - don't assign temp in that case
+      const hasControlFlow =
+        bodyCode === "" ||
+        bodyCode === "break" ||
+        bodyCode === "continue" ||
+        bodyCode.includes("return");
+      if (!isUnit && tempVariableName && !hasControlFlow) {
+        context.emitter.emitLine(
+          `${indent}  ${tempVariableName} = ${bodyCode};`
+        );
+      } else if (bodyCode && bodyCode !== "") {
+        context.emitter.emitLine(`${indent}  ${bodyCode};`);
+      }
+    }
+
+    context.emitter.emitLine(`${indent}}`);
+    return isUnit ? "" : (tempVariableName ?? "");
+  }
+
+  // Check if this enum can be optimized as a simple C enum
+  const simpleEnumOptimizable = canOptimizeAsSimpleEnum(enumType);
+  if (simpleEnumOptimizable) {
+    // Generate optimized simple enum matching
+    context.emitter.emitLine(
+      `${indent}switch (${ptrOrRefType && ptrOrRefType !== "ref_semantics" ? "*" : ""}${matchedValueCode}) {`
+    );
+
+    const caseExprs = expr.args.slice(1);
+    for (let i = 0; i < caseExprs.length; i++) {
+      const caseExpr = caseExprs[i];
+      if (
+        exprIsFunctionCall(caseExpr) &&
+        exprIsFunctionCallOf(caseExpr, "=>", 2)
+      ) {
+        // This is a case => value pair
+        const caseValue = caseExpr.args[0];
+        const caseBody = caseExpr.args[1];
+
+        if (
+          caseValue &&
+          caseBody &&
+          exprIsFunctionCall(caseValue) &&
+          exprIsFunctionCallOf(caseValue, ".", 1)
+        ) {
+          const variantName = caseValue.args[0]!.token.value;
+          const variantTag = getEnumVariantCName(
+            enumType,
+            variantName,
+            context
+          );
+
+          // Generate the case label
+          context.emitter.emitLine(`${indent}case ${variantTag}:`);
+
+          // Generate the body of the case
+          const bodyCode = generateCaseBody(caseBody, indent + "  ", context);
+          if (!isUnit && tempVariableName && bodyCode) {
+            context.emitter.emitLine(
+              `${indent}  ${tempVariableName} = ${bodyCode};`
+            );
+          } else if (bodyCode) {
+            context.emitter.emitLine(`${indent}  ${bodyCode};`);
+          }
+
+          // Check if we need to break out of the loop instead of just the switch
+          if (context.currentLoopLabel && caseBody.$?.controlFlow === "break") {
+            context.emitter.emitLine(
+              `${indent}  goto ${context.currentLoopLabel};`
+            );
+          } else if (caseBody.$?.controlFlow === "continue") {
+            // For continue, we need to break out of the switch first
+            context.emitter.emitLine(`${indent}  break;`);
+            // Then add a goto to the continue label (if it exists for 3-argument while loops)
+            if (context.currentContinueLabel) {
+              context.emitter.emitLine(
+                `${indent}  goto ${context.currentContinueLabel};`
+              );
+            }
+          } else {
+            context.emitter.emitLine(`${indent}  break;`);
+          }
+        }
+      }
+    }
+
+    context.emitter.emitLine(`${indent}}`);
+    return isUnit ? "" : (tempVariableName ?? "");
+  }
+
+  // Original tagged union matching
+  context.emitter.emitLine(
+    `${indent}switch (${ptrOrRefType === "ref_semantics" || ptrOrRefType ? matchedValueCode + "->tag" : "(" + matchedValueCode + ").tag"}) {`
+  );
+
+  const caseExprs = expr.args.slice(1);
+  for (let i = 0; i < caseExprs.length; i++) {
+    const caseExpr = caseExprs[i];
+    if (
+      exprIsFunctionCall(caseExpr) &&
+      exprIsFunctionCallOf(caseExpr, "=>", 2)
+    ) {
+      // This is a case => value pair
+      const caseValue = caseExpr.args[0];
+      let caseBody = caseExpr.args[1];
+
+      if (
+        caseValue &&
+        caseBody &&
+        // caseValue now has to be a variant:
+        exprIsFunctionCall(caseValue) &&
+        caseValue.func.tag === ExprTag.Atom &&
+        caseValue.func.token.value === "." &&
+        caseValue.args.length >= 1 // Allow 1 or more arguments for destructuring
+      ) {
+        const variantName = caseValue.args[0]!.token.value; // Get the variant name
+        const variantTag = getEnumVariantCName(enumType, variantName, context);
+
+        // Generate the case label
+        context.emitter.emitLine(`${indent}case ${variantTag}:`);
+
+        // Handle destructuring patterns like .Point(point) => { ... }
+        if (caseValue.args.length > 1) {
+          // This is a destructuring pattern
+          const variant = enumType.variants.find((v) => v.name === variantName);
+          if (variant && variant.fields) {
+            // Get destructuring params (skip the variant name at index 0)
+            const destructuringParams = caseValue.args.slice(1);
+
+            // Check if we have labeled destructuring
+            const hasLabeledParams = destructuringParams.some(
+              (param) =>
+                exprIsFunctionCall(param) && exprIsFunctionCallOf(param, ":", 2)
+            );
+
+            if (hasLabeledParams) {
+              // Handle labeled destructuring like .Circle(r : radius)
+              for (const param of destructuringParams) {
+                if (
+                  exprIsFunctionCall(param) &&
+                  exprIsFunctionCallOf(param, ":", 2)
+                ) {
+                  const labelExpr = param.args[0]!;
+                  const variableExpr = param.args[1]!;
+
+                  if (!exprIsAtom(labelExpr)) {
+                    continue;
+                  }
+
+                  const label = labelExpr.token.value;
+
+                  // Find the field with matching label
+                  const variantElement = variant.fields.find(
+                    (f) => f.label === label
+                  );
+                  if (!variantElement) {
+                    continue;
+                  }
+
+                  // Skip unit type fields - they don't exist in the generated struct
+                  if (isUnitType(variantElement.type)) {
+                    continue;
+                  }
+
+                  // Handle the variable part (could be identifier or _)
+                  if (exprIsAtom(variableExpr)) {
+                    const varName = variableExpr.token.value;
+
+                    // Skip if variable name is "_" (ignore pattern)
+                    if (varName !== "_") {
+                      const fieldName = sanitizeForCIdentifier(label);
+                      const fieldType = getTypeString(
+                        variantElement.type,
+                        context
+                      );
+
+                      // Generate variable declaration and assignment
+                      const accessPrefix =
+                        ptrOrRefType === "ref_semantics" || ptrOrRefType
+                          ? "->"
+                          : ".";
+                      context.emitter.emitLine(
+                        `${indent}  /* MARKER: Generating labeled destructured variable ${varName} from field ${label} */`
+                      );
+                      context.emitter.emitLine(
+                        `${indent}  ${fieldType} ${varName} = ${matchedValueCode}${accessPrefix}data.${variantName}.${fieldName};`
+                      );
+
+                      // Check if this variable needs to be stored in the state machine
+                      const functionContext =
+                        context as FunctionGenerationContext;
+                      if (
+                        functionContext?.inStateMachine &&
+                        functionContext.stateMachineVariables
+                      ) {
+                        let varId: string | undefined;
+
+                        if (variableExpr.$?.env) {
+                          const vars = getVariablesFromEnv(
+                            variableExpr.$.env,
+                            varName
+                          );
+                          if (vars.length > 0) {
+                            varId = vars[vars.length - 1]!.id;
+                          }
+                        }
+
+                        if (
+                          varId &&
+                          functionContext.stateMachineVariables.has(varId)
+                        ) {
+                          context.emitter.emitLine(
+                            `${indent}  sm->var_${varId} = ${varName};`
+                          );
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            } else {
+              // Handle positional destructuring
+              // Generate local variable declarations for destructured fields
+              for (
+                let fieldIndex = 0;
+                fieldIndex < destructuringParams.length &&
+                fieldIndex < variant.fields.length;
+                fieldIndex++
+              ) {
+                const destructuredVar = destructuringParams[fieldIndex]!;
+                const variantElement = variant.fields[fieldIndex];
+
+                if (exprIsAtom(destructuredVar) && variantElement) {
+                  // Skip unit type fields - they don't exist in the generated struct
+                  if (isUnitType(variantElement.type)) {
+                    continue;
+                  }
+
+                  const varName = destructuredVar.token.value;
+
+                  // Skip if variable name is "_" (ignore pattern)
+                  if (varName !== "_") {
+                    const fieldName = sanitizeForCIdentifier(
+                      variantElement.label
+                    );
+                    const fieldType = getTypeString(
+                      variantElement.type,
+                      context
+                    );
+
+                    // Generate variable declaration and assignment
+                    const accessPrefix =
+                      ptrOrRefType === "ref_semantics" || ptrOrRefType
+                        ? "->"
+                        : ".";
+                    context.emitter.emitLine(
+                      `${indent}  /* MARKER: Generating destructured variable ${varName} */`
+                    );
+                    context.emitter.emitLine(
+                      `${indent}  ${fieldType} ${varName} = ${matchedValueCode}${accessPrefix}data.${variantName}.${fieldName};`
+                    );
+                    // Check if this variable needs to be stored in the state machine
+                    // For async contexts, pattern-matched variables that are used across await points
+                    // need to be stored in the state machine structure
+                    const functionContext =
+                      context as FunctionGenerationContext;
+                    if (
+                      functionContext?.inStateMachine &&
+                      functionContext.stateMachineVariables
+                    ) {
+                      // Find the variable ID by searching through state machine variables
+                      // The state machine tracks variables by their ID
+                      let varId: string | undefined;
+
+                      // Try to get ID from expr metadata if available
+                      // if (destructuredVar.$?.id) {
+                      //   varId = destructuredVar.$.id;
+                      // } else
+                      if (destructuredVar.$?.env) {
+                        // Try to look up in environment
+                        const vars = getVariablesFromEnv(
+                          destructuredVar.$.env,
+                          varName
+                        );
+                        if (vars.length > 0) {
+                          varId = vars[vars.length - 1]!.id;
+                        }
+                      }
+
+                      if (
+                        varId &&
+                        functionContext.stateMachineVariables.has(varId)
+                      ) {
+                        // This variable crosses an await boundary, store it in state machine
+                        context.emitter.emitLine(
+                          `${indent}  sm->var_${varId} = ${varName};`
+                        );
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+
+        if (
+          exprIsFunctionCall(caseBody) &&
+          exprIsFunctionCallOf(caseBody, "=>", 2)
+        ) {
+          const renameExpr = caseBody.args[0]!;
+          context.emitter.emitLine(
+            `${indent}  ${getTypeString(matchValueType, context)} ${renameExpr.token.value} = ${matchedValueCode};`
+          );
+
+          caseBody = caseBody.args[1]!; // Get the value part of the case
+        }
+
+        // Generate the body of the case
+        const bodyCode = generateCaseBody(caseBody, indent + "  ", context);
+        if (!isUnit && tempVariableName && bodyCode) {
+          context.emitter.emitLine(
+            `${indent}  ${tempVariableName} = ${bodyCode};`
+          );
+        } else if (bodyCode) {
+          context.emitter.emitLine(`${indent}  ${bodyCode};`);
+        }
+
+        // Check if we need to break out of the loop instead of just the switch
+        if (context.currentLoopLabel && caseBody.$?.controlFlow === "break") {
+          context.emitter.emitLine(
+            `${indent}  goto ${context.currentLoopLabel};`
+          );
+        } else if (caseBody.$?.controlFlow === "continue") {
+          context.emitter.emitLine(`${indent}  break;`);
+          if (context.currentContinueLabel) {
+            context.emitter.emitLine(
+              `${indent}  goto ${context.currentContinueLabel};`
+            );
+          }
+        } else {
+          context.emitter.emitLine(`${indent}  break;`);
+        }
+      }
+      // Handle destructuring patterns like .Point(point) => { ... }
+      else if (
+        caseValue &&
+        caseBody &&
+        exprIsFunctionCall(caseValue) &&
+        exprIsFunctionCall(caseValue.func) &&
+        caseValue.func.func.tag === ExprTag.Atom &&
+        caseValue.func.func.token.value === "." &&
+        caseValue.func.args.length === 1
+      ) {
+        // Extract variant name from .Point(point) pattern
+        const variantName = caseValue.func.args[0]!.token.value;
+        const variantTag = getEnumVariantCName(enumType, variantName, context);
+        const destructuringParams = caseValue.args;
+
+        // Generate the case label
+        context.emitter.emitLine(`${indent}case ${variantTag}:`);
+
+        // Generate local variable declarations for destructured fields
+        const variant = enumType.variants.find((v) => v.name === variantName);
+        if (variant && variant.fields && destructuringParams.length > 0) {
+          // Check if we have labeled destructuring
+          const hasLabeledParams = destructuringParams.some(
+            (param) =>
+              exprIsFunctionCall(param) && exprIsFunctionCallOf(param, ":", 2)
+          );
+
+          if (hasLabeledParams) {
+            // Handle labeled destructuring like .Circle(r : radius)
+            for (const param of destructuringParams) {
+              if (
+                exprIsFunctionCall(param) &&
+                exprIsFunctionCallOf(param, ":", 2)
+              ) {
+                const labelExpr = param.args[0]!;
+                const variableExpr = param.args[1]!;
+
+                if (!exprIsAtom(labelExpr)) {
+                  continue;
+                }
+
+                const label = labelExpr.token.value;
+
+                // Find the field with matching label
+                const variantElement = variant.fields.find(
+                  (f) => f.label === label
+                );
+                if (!variantElement) {
+                  continue;
+                }
+
+                // Handle the variable part (could be identifier or _)
+                if (exprIsAtom(variableExpr)) {
+                  const varName = variableExpr.token.value;
+
+                  // Skip if variable name is "_" (ignore pattern)
+                  if (varName !== "_") {
+                    if (isUnitType(variantElement.type)) {
+                      context.emitter.emitLine(
+                        `${indent}  // ${varName} is unit type (no value)`
+                      );
+                    } else {
+                      const fieldName = sanitizeForCIdentifier(label);
+                      const fieldType = getTypeString(
+                        variantElement.type,
+                        context
+                      );
+
+                      // Generate variable declaration and assignment
+                      const accessPrefix =
+                        ptrOrRefType === "ref_semantics" || ptrOrRefType
+                          ? "->"
+                          : ".";
+                      context.emitter.emitLine(
+                        `${indent}  ${fieldType} ${varName} = ${matchedValueCode}${accessPrefix}data.${variantName}.${fieldName};`
+                      );
+
+                      // Check if this variable needs to be stored in the state machine
+                      const functionContext =
+                        context as FunctionGenerationContext;
+                      if (
+                        functionContext?.inStateMachine &&
+                        functionContext.stateMachineVariables
+                      ) {
+                        let varId: string | undefined;
+
+                        if (variableExpr.$?.env) {
+                          const vars = getVariablesFromEnv(
+                            variableExpr.$.env,
+                            varName
+                          );
+                          if (vars.length > 0) {
+                            varId = vars[vars.length - 1]!.id;
+                          }
+                        }
+
+                        if (
+                          varId &&
+                          functionContext.stateMachineVariables.has(varId)
+                        ) {
+                          context.emitter.emitLine(
+                            `${indent}  sm->var_${varId} = ${varName};`
+                          );
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          } else {
+            // Handle positional destructuring like .Circle(radius)
+            for (
+              let fieldIndex = 0;
+              fieldIndex <
+              Math.min(destructuringParams.length, variant.fields.length);
+              fieldIndex++
+            ) {
+              const destructuredVar = destructuringParams[fieldIndex]!;
+              const variantElement = variant.fields[fieldIndex];
+
+              if (destructuredVar.tag === ExprTag.Atom && variantElement) {
+                const varName = destructuredVar.token.value;
+
+                // Skip if variable name is "_" (ignore pattern)
+                if (varName !== "_") {
+                  // For unit type fields, generate a comment instead of a variable
+                  // This allows the variable name to be "declared" without generating invalid C
+                  if (isUnitType(variantElement.type)) {
+                    context.emitter.emitLine(
+                      `${indent}  // ${varName} is unit type (no value)`
+                    );
+                    // Register this as a unit variable so expression generation can handle it
+                    // (Expression generation should skip generating references to unit variables)
+                  } else {
+                    const fieldName = sanitizeForCIdentifier(
+                      variantElement.label
+                    );
+                    const fieldType = getTypeString(
+                      variantElement.type,
+                      context
+                    );
+
+                    // Generate variable declaration and assignment
+                    const accessPrefix =
+                      ptrOrRefType === "ref_semantics" || ptrOrRefType
+                        ? "->"
+                        : ".";
+                    context.emitter.emitLine(
+                      `${indent}  ${fieldType} ${varName} = ${matchedValueCode}${accessPrefix}data.${variantName}.${fieldName};`
+                    );
+
+                    // Check if this variable needs to be stored in the state machine
+                    const functionContext =
+                      context as FunctionGenerationContext;
+                    if (
+                      functionContext?.inStateMachine &&
+                      functionContext.stateMachineVariables
+                    ) {
+                      let varId: string | undefined;
+
+                      // if (destructuredVar.$?.id) {
+                      //   varId = destructuredVar.$.id;
+                      // } else
+                      if (destructuredVar.$?.env) {
+                        const vars = getVariablesFromEnv(
+                          destructuredVar.$.env,
+                          varName
+                        );
+                        if (vars.length > 0) {
+                          varId = vars[vars.length - 1]!.id;
+                        }
+                      }
+
+                      if (
+                        varId &&
+                        functionContext.stateMachineVariables.has(varId)
+                      ) {
+                        // This variable crosses an await boundary, store it in state machine
+                        context.emitter.emitLine(
+                          `${indent}  sm->var_${varId} = ${varName};`
+                        );
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+
+        if (
+          exprIsFunctionCall(caseBody) &&
+          exprIsFunctionCallOf(caseBody, "=>", 2)
+        ) {
+          const renameExpr = caseBody.args[0]!;
+          context.emitter.emitLine(
+            `${indent}  ${getTypeString(matchValueType, context)} ${renameExpr.token.value} = ${matchedValueCode};`
+          );
+
+          caseBody = caseBody.args[1]!; // Get the value part of the case
+        }
+
+        // Generate the body of the case
+        const bodyCode = generateCaseBody(caseBody, indent + "  ", context);
+        if (!isUnit && tempVariableName && bodyCode) {
+          context.emitter.emitLine(
+            `${indent}  ${tempVariableName} = ${bodyCode};`
+          );
+        } else if (bodyCode) {
+          context.emitter.emitLine(`${indent}  ${bodyCode};`);
+        }
+
+        // Check if we need to break out of the loop instead of just the switch
+        if (context.currentLoopLabel && caseBody.$?.controlFlow === "break") {
+          context.emitter.emitLine(
+            `${indent}  goto ${context.currentLoopLabel};`
+          );
+        } else if (caseBody.$?.controlFlow === "continue") {
+          context.emitter.emitLine(`${indent}  break;`);
+          if (context.currentContinueLabel) {
+            context.emitter.emitLine(
+              `${indent}  goto ${context.currentContinueLabel};`
+            );
+          }
+        } else {
+          context.emitter.emitLine(`${indent}  break;`);
+        }
+      }
+    }
+  }
+
+  context.emitter.emitLine(`${indent}}`);
+
+  // Generate deferred drop expressions for the match expression after the switch closes
+  // This ensures owned variables (like the matched enum) are cleaned up
+  if (expr.$?.deferredDropExpressions) {
+    generateDeferredDropExpressions(expr, indent, context);
+  }
+
+  return isUnit ? "" : (tempVariableName ?? ""); // Return the temp variable name
+}

@@ -7,10 +7,10 @@ import {
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
-  FuncCallExpr,
+  FnCallExpr,
   setExprAsNeedsToCallDup,
 } from "../../expr";
-import { createStructType, ModuleField, TypeField } from "../../types";
+import { createStructType, TraitField, TypeField } from "../../types";
 import { randomId } from "../../utils";
 import {
   createStructValue,
@@ -29,10 +29,10 @@ export function evaluateAnonymousStructValue({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): FnCallExpr {
   const func = expr.func;
   const args = expr.args;
 
@@ -47,7 +47,7 @@ export function evaluateAnonymousStructValue({
   // Create structType
   const structType = createStructType(env);
   const fields: TypeField[] = structType.fields;
-  const moduleFields: ModuleField[] = structType.module.fields;
+  const traitFields: TraitField[] = structType.trait.fields;
   const values: (Value | undefined)[] = [];
   const runtimeArgExprsInOrder: Expr[] = [];
 
@@ -73,7 +73,7 @@ export function evaluateAnonymousStructValue({
       });
 
       // Check if there is duplicate labels
-      const duplicateLabel = moduleFields.find(
+      const duplicateLabel = traitFields.find(
         (elem) => elem.label === field.label
       );
       if (duplicateLabel) {
@@ -92,25 +92,25 @@ export function evaluateAnonymousStructValue({
         });
       }
 
-      // Disallow to have the default value for anonymous struct module fields.
+      // Disallow to have the default value for anonymous struct trait fields.
       if (field.defaultValue) {
         throw formatErrorMessage({
           token: field.exprs.defaultValueExpr?.token ?? field.exprs.expr.token,
-          errorMessage: `Anonymous struct module field cannot have default value for its fields.`,
+          errorMessage: `Anonymous struct trait field cannot have default value for its fields.`,
         });
       }
 
-      // Require to have assigned value for anonymous struct module fields.
+      // Require to have assigned value for anonymous struct trait fields.
       if (!field.assignedValue) {
         throw formatErrorMessage({
           token: field.exprs.assignedValueExpr
             ? field.exprs.assignedValueExpr.token
             : field.exprs.expr.token,
-          errorMessage: `Anonymous struct module field must have assigned value.`,
+          errorMessage: `Anonymous struct trait field must have assigned value.`,
         });
       }
 
-      moduleFields.push(field as ModuleField);
+      traitFields.push(field as TraitField);
       env = nextEnv;
       continue;
     }

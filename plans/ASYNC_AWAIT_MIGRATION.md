@@ -77,17 +77,17 @@ The evaluator correctly sets:
 
 - `expr.$.type = SomeType` (representing `Impl(Future(T))`)
 - `resolvedConcreteType = captureType` (capture struct with outer vars)
-- `requiredModules = [futureModuleType]` (contains Future module)
+- `requiredTraits = [futureTraitType]` (contains Future trait)
 
 The codegen correctly:
 
-- Registers state machine struct under `futureModuleType.id`
+- Registers state machine struct under `futureTraitType.id`
 - Uses `getTypeString()` to look up the state machine struct name
 
 **Two-level type system:**
 
 1. `resolvedConcreteType` (capture struct) → For drop/dup of captures
-2. `context.types[futureModuleType.id]` (state machine) → For declarations
+2. `context.types[futureTraitType.id]` (state machine) → For declarations
 
 ## Key Design Decisions (Current)
 
@@ -208,8 +208,8 @@ void yo_await(Future* future) {
 ### Phase 1: Type System Updates ✅ (Completed)
 
 1. ✅ Update `getTypeString()` to handle `Impl(Future(T))` as value types
-2. ✅ Update `collectType()` to collect `FutureModuleType`
-3. ✅ Add `typeImplementsFuture` and `extractFutureModuleFromType` imports
+2. ✅ Update `collectType()` to collect `FutureTraitType`
+3. ✅ Add `typeImplementsFuture` and `extractFutureTraitFromType` imports
 4. ✅ Update `areTypesCompatible()` to check `resolvedConcreteType` for SomeType
 5. ✅ Update `getMethodsByNameFromEnv()` to find methods in `resolvedConcreteType`
 6. ✅ Update evaluator's `evaluateDrop()` to handle SomeType with `resolvedConcreteType`
@@ -219,7 +219,7 @@ void yo_await(Future* future) {
 1. ✅ Remove `yo_ref_header_t` from state machine struct
 2. ✅ Add `result` field directly to struct (not pointer to Future)
 3. ✅ Use `typedef struct X_struct { ... } X;` pattern
-4. ✅ Register struct name in context.types under FutureModuleType's ID
+4. ✅ Register struct name in context.types under FutureTraitType's ID
 5. ✅ Generate proper `___drop`, `___dup`, `___dispose` methods for capture struct
 
 ### Phase 3: Constructor/Allocation (Current)
@@ -649,7 +649,7 @@ task1_state_t __yo_new_task1(capture_t capture) {
 **Phase 5: Await Codegen**
 
 - `src/codegen/expressions/generation.ts`:
-  - ✅ Updated await recognition: `typeImplementsFuture()` instead of `isFutureModuleType()`
+  - ✅ Updated await recognition: `typeImplementsFuture()` instead of `isFutureTraitType()`
   - ✅ Await returns empty string in state machine context (handled by state transitions)
   - ✅ Fixed return statement to avoid `counter = counter` bug
   - ✅ Removed unused `futureTypeCName` lookup that was causing errors
@@ -688,23 +688,23 @@ The type system architecture for async blocks is **working correctly**:
 
    - Sets `expr.$.type` to `SomeType` (representing `Impl(Future(T))`)
    - Sets `resolvedConcreteType = captureType` (the capture struct with **outer scope** variables only)
-   - Stores `futureModuleType` in `requiredModules` array
+   - Stores `futureTraitType` in `requiredTraits` array
    - This is correct! The capture struct is just the **outer captures**, not the full state machine
 
 2. **Codegen** (`generateAsyncBlock`):
 
    - Recognizes Future by checking `typeImplementsFuture(expr.$.type)`
-   - Extracts `futureModuleType` from the type
+   - Extracts `futureTraitType` from the type
    - Generates **state machine struct** that includes:
      - `state`, `result`, `continuation_fn`, `continuation_sm` fields
      - `__capture` field (the capture struct from evaluator)
      - Local variables defined in async block body
-   - **Registers** the state machine struct name under `context.types[futureModuleType.id]`
+   - **Registers** the state machine struct name under `context.types[futureTraitType.id]`
 
 3. **Type Name Resolution** (`getTypeString`):
    - When generating code for a `SomeType` that implements `Future`:
-   - Extracts `futureModuleType` from `requiredModules`
-   - Looks up `context.types[futureModuleType.id]?.cName` to get the state machine struct name
+   - Extracts `futureTraitType` from `requiredTraits`
+   - Looks up `context.types[futureTraitType.id]?.cName` to get the state machine struct name
    - Returns the state machine struct name (NOT the capture struct name)
 
 **Key Insight**: The evaluator's `resolvedConcreteType` (capture struct) is used for **drop/dup** of captured variables, while the codegen-registered type (state machine struct) is used for **variable declarations and function signatures**.
@@ -746,7 +746,7 @@ This separation is **correct** and matches reference-counted semantics:
 1. **� HIGH PRIORITY: Fix evaluator type metadata for async blocks**:
 
    - Location: Evaluator's handling of `BuiltinFunctions.async` expressions
-   - Required change: When creating the async block expression, set `expr.$.type` to the Future's `SomeType` with `resolvedConcreteType` pointing to the state machine module type
+   - Required change: When creating the async block expression, set `expr.$.type` to the Future's `SomeType` with `resolvedConcreteType` pointing to the state machine trait type
    - Currently: Type is being set to the capture struct type instead of the Future type
    - This is blocking ALL async/await testing, even the simplest cases
 
@@ -794,13 +794,13 @@ The **C code generation for value-type Futures is complete and correct**:
 
 - Evaluator sets `expr.$.type = SomeType` with `resolvedConcreteType = captureType` ✅
 - The `captureType` is the capture struct (outer scope variables only) ✅
-- Codegen registers the state machine struct under `futureModuleType.id` ✅
-- `getTypeString()` looks up `context.types[futureModuleType.id]` for Future types ✅
+- Codegen registers the state machine struct under `futureTraitType.id` ✅
+- `getTypeString()` looks up `context.types[futureTraitType.id]` for Future types ✅
 
 **Two-Level Architecture**:
 
 1. `resolvedConcreteType` (capture struct) → Used for drop/dup of captured variables
-2. `context.types[futureModuleType.id]` (state machine) → Used for declarations
+2. `context.types[futureTraitType.id]` (state machine) → Used for declarations
 
 This separation is intentional and correct! It allows:
 

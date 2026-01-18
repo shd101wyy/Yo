@@ -4,16 +4,16 @@ import {
   BuiltinFunctions,
   expectExprToBeFunctionCallOf,
   exprToString,
-  FuncCallExpr,
+  FnCallExpr,
 } from "../../expr";
 import {
   areTypesCompatible,
   canTypeFormRcCycle,
   createBooleanType,
   createComptStringType,
-  isModuleType,
+  isTraitType,
   isTypeHierarchyType,
-  ModuleType,
+  TraitType,
   typeContainsRcType,
   typeToString,
 } from "../../types";
@@ -21,22 +21,22 @@ import {
   createBooleanValue,
   createComptStringValue,
   createUnknownValue,
-  isModuleValue,
+  isTraitValue,
   isTypeValue,
 } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
-import { findMatchingGenericImpl } from "../values/module";
+import { findMatchingGenericImpl } from "../values/impl";
 
 export function evaluateYoTypeToString({
   expr,
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): FnCallExpr {
   expectExprToBeFunctionCallOf(expr, BuiltinFunctions.__yo_type_to_string, 1);
 
   const arg = evaluateExpression({
@@ -94,10 +94,10 @@ export function evaluateYoAreTypesCompatible({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): FnCallExpr {
   const args = expr.args;
   const expectedTypeArg = args[0]!;
   const givenTypeArg = args[1]!;
@@ -160,10 +160,10 @@ export function evaluateYoTypeContainsRcType({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): FnCallExpr {
   expectExprToBeFunctionCallOf(
     expr,
     BuiltinFunctions.__yo_type_contains_rc_type,
@@ -222,10 +222,10 @@ export function evaluateYoTypeCanFormRcCycle({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): FnCallExpr {
   expectExprToBeFunctionCallOf(
     expr,
     BuiltinFunctions.__yo_type_can_form_rc_cycle,
@@ -280,22 +280,22 @@ export function evaluateYoTypeCanFormRcCycle({
 }
 
 /**
- * Check if a type implements a module.
- * Usage: __yo_type_impls(SomeType, SomeModule)
+ * Check if a type implements a trait.
+ * Usage: __yo_type_impls(SomeType, SomeTrait)
  * Returns: compt(bool)
  *
- * This checks if the type's module has a field whose assignedValue is a ModuleValue
- * that structurally matches the given module (with the type as the receiver).
+ * This checks if the type's trait has a field whose assignedValue is a ModuleValue
+ * that structurally matches the given trait (with the type as the receiver).
  */
 export function evaluateYoTypeImpls({
   expr,
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): FnCallExpr {
   expectExprToBeFunctionCallOf(expr, BuiltinFunctions.__yo_type_impls, 2);
 
   // Evaluate the first argument (the type to check)
@@ -334,45 +334,45 @@ export function evaluateYoTypeImpls({
   env = typeArg.$.env;
   const targetType = typeValue.value;
 
-  // Evaluate the second argument (the module to check for)
-  const moduleArg = evaluateExpression({
+  // Evaluate the second argument (the trait to check for)
+  const traitArg = evaluateExpression({
     expr: expr.args[1]!,
     env,
     context: {
       ...context,
     },
   });
-  if (!moduleArg.$) {
+  if (!traitArg.$) {
     throw formatErrorMessage({
-      token: moduleArg.token,
-      errorMessage: `Failed to evaluate the module argument for "${expr.func.token.value}":\n${exprToString(
-        moduleArg
+      token: traitArg.token,
+      errorMessage: `Failed to evaluate the trait argument for "${expr.func.token.value}":\n${exprToString(
+        traitArg
       )}`,
     });
   }
 
-  // The module argument should be a type value containing a module type
-  // Or it could be the module type directly (when passed as a compt parameter)
+  // The trait argument should be a type value containing a trait type
+  // Or it could be the trait type directly (when passed as a compt parameter)
   // If the argument is a compile-time unknown (Type hierarchy), return unknown bool
-  let expectedModuleType: ModuleType;
+  let expectedTraitType: TraitType;
 
-  if (isTypeValue(moduleArg.$.value)) {
-    const moduleTypeValue = moduleArg.$.value;
-    if (!isModuleType(moduleTypeValue.value)) {
+  if (isTypeValue(traitArg.$.value)) {
+    const traitTypeValue = traitArg.$.value;
+    if (!isTraitType(traitTypeValue.value)) {
       throw formatErrorMessage({
-        token: moduleArg.token,
-        errorMessage: `Expected module type for second argument of "${expr.func.token.value}", got a non-module type`,
+        token: traitArg.token,
+        errorMessage: `Expected trait type for second argument of "${expr.func.token.value}", got a non-trait type`,
       });
     }
-    expectedModuleType = moduleTypeValue.value;
-  } else if (isModuleType(moduleArg.$.type)) {
-    // The argument is a module type itself (the type of the value is ModuleType)
-    expectedModuleType = moduleArg.$.type;
-  } else if (isTypeHierarchyType(moduleArg.$.type)) {
+    expectedTraitType = traitTypeValue.value;
+  } else if (isTraitType(traitArg.$.type)) {
+    // The argument is a trait type itself (the type of the value is TraitType)
+    expectedTraitType = traitArg.$.type;
+  } else if (isTypeHierarchyType(traitArg.$.type)) {
     // The argument is a compile-time unknown (e.g., a generic parameter like `marker: Module`)
     // Return an unknown bool value - the actual check will happen when called with concrete types
     expr.$ = {
-      env: moduleArg.$.env,
+      env: traitArg.$.env,
       type: createBooleanType(),
       value: createUnknownValue(createBooleanType()),
       pathCollection: [],
@@ -381,38 +381,38 @@ export function evaluateYoTypeImpls({
     return expr;
   } else {
     throw formatErrorMessage({
-      token: moduleArg.token,
-      errorMessage: `Expected module type for second argument of "${expr.func.token.value}", got:\n${exprToString(
-        moduleArg
+      token: traitArg.token,
+      errorMessage: `Expected trait type for second argument of "${expr.func.token.value}", got:\n${exprToString(
+        traitArg
       )}`,
     });
   }
-  env = moduleArg.$.env;
+  env = traitArg.$.env;
 
-  // Create a version of the expected module with targetType as the receiver
-  const expectedModuleWithReceiver: ModuleType = {
-    ...expectedModuleType,
+  // Create a version of the expected trait with targetType as the receiver
+  const expectedTraitWithReceiver: TraitType = {
+    ...expectedTraitType,
     receiverType: targetType,
   };
 
-  // Check if the target type's module has a field that implements the expected module
+  // Check if the target type's trait has a field that implements the expected trait
   let impls = false;
-  const targetModule = targetType.module;
-  if (targetModule) {
-    for (const field of targetModule.fields) {
-      if (!field.assignedValue || !isModuleValue(field.assignedValue)) {
+  const targetTrait = targetType.trait;
+  if (targetTrait) {
+    for (const field of targetTrait.fields) {
+      if (!field.assignedValue || !isTraitValue(field.assignedValue)) {
         continue;
       }
 
-      const fieldModuleValue = field.assignedValue;
-      const fieldModuleType = fieldModuleValue.type;
+      const fieldTraitValue = field.assignedValue;
+      const fieldTraitType = fieldTraitValue.type;
 
-      // Check if this field's module type is compatible with the expected module
-      // The field module should have the target type as its receiver
+      // Check if this field's trait type is compatible with the expected trait
+      // The field trait should have the target type as its receiver
       if (
         areTypesCompatible(
-          { type: expectedModuleWithReceiver, env },
-          { type: fieldModuleType, env }
+          { type: expectedTraitWithReceiver, env },
+          { type: fieldTraitType, env }
         )
       ) {
         impls = true;
@@ -425,7 +425,7 @@ export function evaluateYoTypeImpls({
   if (!impls) {
     const matchingGenericImpl = findMatchingGenericImpl({
       concreteType: targetType,
-      moduleType: expectedModuleType,
+      traitType: expectedTraitType,
       env,
     });
     if (matchingGenericImpl) {

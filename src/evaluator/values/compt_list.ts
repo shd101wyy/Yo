@@ -1,6 +1,6 @@
 import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
-import { exprToString, FuncCallExpr } from "../../expr";
+import { exprToString, FnCallExpr } from "../../expr";
 import {
   areTypesCompatible,
   isComptListType,
@@ -16,10 +16,10 @@ export function evaluateComptListValue({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): FnCallExpr {
   const elements: Value[] = [];
   const args = expr.args;
 

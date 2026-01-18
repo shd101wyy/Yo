@@ -5,11 +5,11 @@ import {
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
-  FuncCallExpr,
+  FnCallExpr,
 } from "../../expr";
 import {
   createFunctionType,
-  createModuleType,
+  createTraitType,
   FunctionForallParameter,
   Type,
   typeOfType,
@@ -22,31 +22,31 @@ import { evaluateFunctionParameters } from "./function";
 
 /**
  * Evaluates the `Fn(params) -> ReturnType` syntax.
- * Creates a module type that represents a callable trait (similar to Rust's Fn trait).
+ * Creates a trait type that represents a callable trait (similar to Rust's Fn trait).
  *
  * Example:
  *   Fn(x: i32, y: i32) -> i32
  *
- * This creates a module type with `isFn` set to the function signature.
+ * This creates a trait type with `isFn` set to the function signature.
  *
- * The Fn module can be used with:
+ * The Fn trait can be used with:
  * - Impl(Fn(...) -> ...) for static dispatch with closures
  * - Dyn(Fn(...) -> ...) for dynamic dispatch
  */
-export function evaluateFnModuleType({
+export function evaluateFnTraitType({
   expr,
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): FnCallExpr {
   // expr is the `->` expression with Fn(...) on the left and return type on the right
   if (!exprIsFunctionCallOf(expr, "->", 2)) {
     throw formatErrorMessage({
       token: expr.token,
-      errorMessage: `Expected -> operator for Fn module type, got:\n${exprToString(expr)}`,
+      errorMessage: `Expected -> operator for Fn trait type, got:\n${exprToString(expr)}`,
     });
   }
 
@@ -91,7 +91,7 @@ export function evaluateFnModuleType({
   if (!evaluatedReturnType.$) {
     throw formatErrorMessage({
       token: returnTypeExpr.token,
-      errorMessage: `Failed to evaluate return type for Fn module.`,
+      errorMessage: `Failed to evaluate return type for Fn trait.`,
     });
   }
 
@@ -123,19 +123,19 @@ export function evaluateFnModuleType({
     isClosure: true,
   });
 
-  // Create the Fn module type
-  const fnModuleType = createModuleType(popEnvFrame(envWithParams, true));
+  // Create the Fn trait type
+  const fnTraitType = createTraitType(popEnvFrame(envWithParams, true));
 
   // Set the isFn field to the function type
-  fnModuleType.isFn = { callType: fnType };
+  fnTraitType.isFn = { callType: fnType };
 
   // Pop the environment frame (parameters are only for type evaluation)
   env = popEnvFrame(envWithParams, true);
 
   expr.$ = {
     env,
-    type: typeOfType(fnModuleType),
-    value: createTypeValue(fnModuleType),
+    type: typeOfType(fnTraitType),
+    value: createTypeValue(fnTraitType),
     pathCollection: [],
   };
 

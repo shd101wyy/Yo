@@ -14,7 +14,7 @@ import {
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
-  FuncCallExpr,
+  FnCallExpr,
   requireExprNotConsumed,
   setExprAsNeedsToCallDup,
 } from "../../expr";
@@ -49,6 +49,7 @@ import {
   isFunctionValue,
   isModuleValue,
   isStructValue,
+  isTraitValue,
   isTupleValue,
   isTypeValue,
   isUnknownValue,
@@ -129,10 +130,10 @@ export function evaluateAssignment({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): FnCallExpr {
   if (!exprIsFunctionCallOf(expr, "=", 2)) {
     throw formatErrorMessage({
       token: expr.token,
@@ -370,7 +371,10 @@ You can mutate fields (e.g., ${variableName}.field = value) but cannot reassign 
     } else if (isFunctionValue(rhsValue) && !rhsValue.funcName) {
       rhsValue.funcName = variableName;
       rhsValue.funcId += `_${lhs.token.value}`;
-    } else if (isModuleValue(rhsValue) && !rhsValue.type.typeName) {
+    } else if (
+      (isModuleValue(rhsValue) || isTraitValue(rhsValue)) &&
+      !rhsValue.type.typeName
+    ) {
       // Don't set typeName if this is a reference to Self (context.SelfType)
       if (rhsValue.type !== context.SelfType) {
         rhsValue.type.typeName = variableName;

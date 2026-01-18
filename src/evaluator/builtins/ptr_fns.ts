@@ -5,7 +5,7 @@ import {
   BuiltinFunctions,
   expectExprToBeFunctionCallOf,
   exprToString,
-  FuncCallExpr,
+  FnCallExpr,
 } from "../../expr";
 import {
   convertComptTypeToRuntimeType,
@@ -30,10 +30,10 @@ export function evaluateAddressCall({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): FnCallExpr {
   expectExprToBeFunctionCallOf(expr, BuiltinFunctions.__yo_address_of, 1);
 
   const argExpr = expr.args[0]!;

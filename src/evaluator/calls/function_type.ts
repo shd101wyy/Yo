@@ -6,7 +6,7 @@ import {
   pushEnvFrame,
 } from "../../env";
 import { formatErrorMessage } from "../../error";
-import { Expr, FuncCallExpr } from "../../expr";
+import { Expr, FnCallExpr } from "../../expr";
 import { FunctionValue } from "../../function-value";
 import { PlaceholderToken } from "../../token";
 import {
@@ -83,7 +83,7 @@ export function tryToImplementFunctionByFunctionType({
   callerEnv,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   functionType: FunctionType;
   callerEnv: Environment;
   context: EvaluatorContext;

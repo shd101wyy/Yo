@@ -60,35 +60,6 @@ export function tryToImplementModuleWithArgumentsByModuleType({
     })),
   };
 
-  const receiverType = context.ReceiverType;
-  const selfType = context.ReceiverType ?? workingModuleType;
-
-  if (!receiverType) {
-    throw formatErrorMessage({
-      token: moduleExpr.token,
-      errorMessage: `Receiver type is undefined when implementing module.
-Please consider using "impl" to specify the receiver type explicitly, like:
-
-// impl receiverType, moduleImplementation
-impl Point, Id(Point)(
-  id : ((p) -> p)
-);
-`,
-    });
-  }
-  const receiverTypeOriginalModule: ModuleType | undefined =
-    receiverType.module;
-
-  // Extend the receiverType module
-  if (!receiverType.module) {
-    receiverType.module = workingModuleType;
-  } else {
-    receiverType.module = {
-      ...receiverType.module,
-      fields: [...workingModuleType.fields, ...receiverType.module.fields],
-    };
-  }
-
   for (let i = 0; i < moduleType.fields.length; i++) {
     const moduleField = moduleType.fields[i]!;
     let foundArgExpr = false;
@@ -156,7 +127,7 @@ ${valueToString(moduleField.assignedValue)}`,
               ...context,
               expectedType: undefined,
               ReceiverType: undefined,
-              SelfType: selfType, // Use working module with progressively bound values
+              SelfType: undefined,
             },
           });
           const evaluatedModuleMemberTypeValue = evaluatedModuleMember.$?.value;
@@ -178,7 +149,7 @@ ${valueToString(moduleField.assignedValue)}`,
               ...context,
               expectedType: undefined,
               ReceiverType: undefined,
-              SelfType: selfType, // Use working module with progressively bound values
+              SelfType: undefined,
             },
           });
           const value = evaluatedValueExpr.$?.value;
@@ -204,7 +175,7 @@ ${valueToString(moduleField.assignedValue)}`,
             ...context,
             expectedType: { type: moduleFieldType, env: callerEnv },
             ReceiverType: undefined,
-            SelfType: selfType,
+            SelfType: undefined,
           },
         });
         const argType = evaluatedArgExpr.$?.type;
@@ -264,11 +235,6 @@ Got:   ${typeToString(argType)}`,
         // This allows subsequent Self.X references to resolve to this concrete value
         workingModuleType.fields[i]!.assignedValue = argValue;
 
-        if (receiverType && receiverType.module) {
-          // Add the field to the ReceiverType.module as well
-          receiverType.module.fields[i]!.assignedValue = argValue;
-        }
-
         // Add the type information to argExpr
         argExpr.$ = {
           env: callerEnv,
@@ -308,15 +274,7 @@ Got:   ${typeToString(argType)}`,
     }
   }
 
-  // Restore the receiverTypeOriginalModule
-  if (receiverType && receiverTypeOriginalModule) {
-    receiverType.module = receiverTypeOriginalModule;
-  }
-
   // Create the module value
-  const moduleValue = createModuleValue(
-    { ...moduleType, receiverType },
-    fields
-  );
+  const moduleValue = createModuleValue({ ...moduleType }, fields);
   return { moduleValue, callerEnv };
 }

@@ -1,14 +1,14 @@
 import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
-import { attachTempVariableToExpr, FuncCallExpr } from "../../expr";
+import { attachTempVariableToExpr, FnCallExpr } from "../../expr";
 import {
   areTypesCompatible,
   convertComptTypeToRuntimeType,
-  createFutureModuleType,
+  createFutureTraitType,
   createSomeType,
   createType0,
-  extractFutureModuleFromType,
-  FutureModuleType,
+  extractFutureTraitFromType,
+  FutureTraitType,
   SomeType,
   Type,
 } from "../../types";
@@ -49,10 +49,10 @@ export function evaluateAsync({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): FnCallExpr {
   if (expr.args.length !== 1) {
     throw formatErrorMessage({
       token: expr.token,
@@ -72,12 +72,12 @@ export function evaluateAsync({
   // Determine the expected return type for the body
   // If context expects Impl(Future(T)), extract T for the body
   let unwrappedFutureExpectedType: Type | undefined = undefined;
-  // Track the expected FutureModuleType to reuse its ID for consistent codegen
-  let expectedFutureModuleType: FutureModuleType | undefined = undefined;
+  // Track the expected FutureTraitType to reuse its ID for consistent codegen
+  let expectedFutureModuleType: FutureTraitType | undefined = undefined;
 
   if (context.expectedType) {
     const expectedType = context.expectedType.type;
-    const futureModuleFromExpected = extractFutureModuleFromType(expectedType);
+    const futureModuleFromExpected = extractFutureTraitFromType(expectedType);
     if (futureModuleFromExpected) {
       unwrappedFutureExpectedType =
         futureModuleFromExpected.isFuture.outputType;
@@ -130,10 +130,10 @@ export function evaluateAsync({
     env,
   });
 
-  // Reuse the expected FutureModuleType if available and the return types match.
-  // This ensures the FutureModuleType ID is consistent between the function's return type
+  // Reuse the expected FutureTraitType if available and the return types match.
+  // This ensures the FutureTraitType ID is consistent between the function's return type
   // annotation and the async block body, allowing codegen to properly link them.
-  let futureModuleType: FutureModuleType;
+  let futureModuleType: FutureTraitType;
   if (
     expectedFutureModuleType &&
     areTypesCompatible(
@@ -147,8 +147,8 @@ export function evaluateAsync({
   ) {
     futureModuleType = expectedFutureModuleType;
   } else {
-    // Create new FutureModuleType for the inferred return type
-    futureModuleType = createFutureModuleType(returnType, env);
+    // Create new FutureTraitType for the inferred return type
+    futureModuleType = createFutureTraitType(returnType, env);
   }
 
   // Enrich captured variables with values and types (convert to FunctionCapturedVariableInfo)

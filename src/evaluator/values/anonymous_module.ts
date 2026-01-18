@@ -18,7 +18,6 @@ import {
   createModuleType,
   isModuleType,
   ModuleType,
-  Type,
   typeToString,
 } from "../../types";
 import { createModuleValue, ModuleValue, Value } from "../../value";
@@ -31,7 +30,6 @@ export function evaluateAnonymousModuleBeginExprs({
   env,
   context,
   allowPartialModule = false,
-  receiverType,
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
 }: {
   beginExprs: Expr[];
@@ -43,7 +41,6 @@ export function evaluateAnonymousModuleBeginExprs({
    * we still want to return the moduleValue so the hoverProvider and completionProvider can work.
    */
   allowPartialModule?: boolean;
-  receiverType?: Type;
 }): {
   moduleValue: ModuleValue;
   moduleType: ModuleType;
@@ -87,7 +84,7 @@ export function evaluateAnonymousModuleBeginExprs({
                 ...context,
                 // NOTE: This is intended to set SelfType to undefined,
                 // because there might be variable "Self" in the begin block.
-                SelfType: receiverType, // moduleType, // Self refers to the module being built
+                SelfType: undefined, // moduleType, // Self refers to the module being built
               },
             });
             if (!evaluatedExtendedModuleExpr.$) {
@@ -360,7 +357,7 @@ export function evaluateAnonymousModuleBeginExprs({
           context: {
             ...context,
             expectedType: undefined,
-            SelfType: receiverType, // moduleType, // Self refers to the module being built
+            SelfType: undefined, // moduleType, // Self refers to the module being built
           },
         });
         if (evaluatedExpr.$?.env) {
@@ -393,10 +390,7 @@ export function evaluateAnonymousModuleBeginExprs({
   }
 
   // Create the module value
-  const moduleValue = createModuleValue(
-    { ...moduleType, receiverType: receiverType },
-    moduleElementValues
-  );
+  const moduleValue = createModuleValue({ ...moduleType }, moduleElementValues);
 
   return {
     moduleValue,

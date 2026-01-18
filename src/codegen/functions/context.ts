@@ -43,7 +43,7 @@ export interface FunctionGenerationContext extends CodeGenContext {
     constructorName: string;
     disposeFunctionName: string;
     futureType: SomeType | DynType;
-    futureModuleType: import("../../types").FutureModuleType;
+    futureModuleType: import("../../types").FutureTraitType;
     resultType: Type;
     resultTypeCName: string;
     captureType: StructType | undefined;

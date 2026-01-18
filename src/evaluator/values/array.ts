@@ -4,7 +4,7 @@ import {
   attachTempVariableToExpr,
   Expr,
   exprToString,
-  FuncCallExpr,
+  FnCallExpr,
   setExprAsNeedsToCallDup,
 } from "../../expr";
 import {
@@ -25,10 +25,10 @@ export function evaluateArrayValue({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): FnCallExpr {
   const arrayElementExprs = expr.args;
 
   // NOTE: We disallow the empty array for now.

@@ -4,7 +4,7 @@ import {
   BuiltinKeywords,
   exprIsFunctionCallOf,
   exprToString,
-  FuncCallExpr,
+  FnCallExpr,
 } from "../../expr";
 import { createBooleanType, isBooleanType } from "../../types";
 import {
@@ -22,10 +22,10 @@ export function evaluateAndOr({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): FnCallExpr {
   const kind: "and" | "or" = exprIsFunctionCallOf(expr, BuiltinKeywords.op_and)
     ? "and"
     : "or";

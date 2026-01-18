@@ -6,9 +6,9 @@ import {
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
-  FuncCallExpr,
+  FnCallExpr,
 } from "../../expr";
-import { createStructType, ModuleField } from "../../types";
+import { createStructType, TraitField } from "../../types";
 import { createTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateTypeField } from "./field";
@@ -24,10 +24,10 @@ export function evaluateStructType({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): FnCallExpr {
   const isObjectKeyword = exprIsFunctionCallOf(expr, BuiltinKeywords.object);
   const isStructKeyword = exprIsFunctionCallOf(expr, BuiltinKeywords.struct);
   const isNewtypeKeyword = exprIsFunctionCallOf(expr, BuiltinKeywords.newtype);
@@ -51,7 +51,7 @@ export function evaluateStructType({
   // Set the definedInModulePath for orphan rule checks
   if (context.currentModulePath) {
     structType.definedInModulePath = context.currentModulePath;
-    structType.module.definedInModulePath = context.currentModulePath;
+    structType.trait.definedInModulePath = context.currentModulePath;
   }
 
   // Evaluate the fields
@@ -108,14 +108,14 @@ export function evaluateStructType({
         // fn(self : Self) -> unit
         if (field.label === BuiltinFunctions.dispose[0]) {
           validateDisposeFunction(
-            field as ModuleField,
+            field as TraitField,
             exprIsFunctionCall(arg)
               ? (arg.args[0]?.token ?? arg.token)
               : arg.token
           );
         }
 
-        structType.module.fields.push(field as ModuleField);
+        structType.trait.fields.push(field as TraitField);
       } else {
         fields.push(field);
       }
@@ -132,7 +132,7 @@ export function evaluateStructType({
     });
   }
 
-  // Auto-derive Send module if applicable
+  // Auto-derive Send trait if applicable
   env = autoDeriveSendForStructType({
     structType,
     env,

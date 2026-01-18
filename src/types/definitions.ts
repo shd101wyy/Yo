@@ -64,10 +64,10 @@ export interface Type {
   cInclude?: string;
 
   /**
-   * The module of the struct, which contains
+   * The trait of the type, which contains
    * the compile-time methods, properties, etc.
    */
-  module?: ModuleType;
+  trait?: TraitType;
 
   /**
    * The module path where this type was defined.
@@ -95,13 +95,13 @@ export interface LiteralType extends Type {
 export interface ExprType extends Type {
   tag: TypeTag.Expr;
   id: TypeTag.Expr;
-  module: ModuleType;
+  trait: TraitType;
 }
 
 export interface ComptListType extends Type {
   tag: TypeTag.ComptList;
   childType: Type;
-  module: ModuleType;
+  trait: TraitType;
 }
 
 export interface TypeHierarchyType extends Type {
@@ -118,7 +118,7 @@ export interface TypeHierarchyType extends Type {
   // The base type of this hierarchy type.
   baseType?: Type;
 
-  module: ModuleType;
+  trait: TraitType;
 }
 
 /**
@@ -173,22 +173,22 @@ export interface SomeType extends Type {
   resolvedConcreteType?: Type;
 
   /**
-   * The required modules that this SomeType must implement.
-   * For example, `Impl(Fn(x: i32) -> i32, Copy)` has requiredModules = [FnModule, CopyModule]
+   * The required traits that this SomeType must implement.
+   * For example, `Impl(Fn(x: i32) -> i32, Copy)` has requiredTraits = [FnTrait, CopyTrait]
    */
-  requiredModules: ModuleType[];
+  requiredTraits: TraitType[];
 
   /**
-   * The negative modules that this SomeType must NOT implement.
-   * For example, `Impl(!(Copy))` has negativeModules = [CopyModule]
+   * The negative traits that this SomeType must NOT implement.
+   * For example, `Impl(!(Copy))` has negativeTraits = [CopyTrait]
    */
-  negativeModules?: ModuleType[];
+  negativeTraits?: TraitType[];
 
   /**
-   * The module that contains where constraints attached to this SomeType.
-   * This is separate from requiredModules which are the explicit modules in Impl(...).
+   * The trait that contains where constraints attached to this SomeType.
+   * This is separate from requiredTraits which are the explicit traits in Impl(...).
    */
-  module: ModuleType;
+  trait: TraitType;
 
   /**
    * For recursive type references created by `recur` during compile-time evaluation,
@@ -207,18 +207,18 @@ export interface ArrayType extends Type {
   tag: TypeTag.Array;
   childType: Type;
   length: Value; // Compile-time known usize compatible value.
-  module: ModuleType;
+  trait: TraitType;
 }
 
 export interface SliceType extends Type {
   tag: TypeTag.Slice;
   childType: Type;
-  module: ModuleType;
+  trait: TraitType;
 }
 
 export interface VoidType extends Type {
   tag: TypeTag.Void;
-  module: ModuleType;
+  trait: TraitType;
 }
 
 export type ElementExprs = {
@@ -277,7 +277,7 @@ export interface TypeField {
 export interface TupleType extends Type {
   tag: TypeTag.Tuple;
   fields: TypeField[];
-  module: ModuleType;
+  trait: TraitType;
 }
 
 /**
@@ -365,10 +365,10 @@ export interface StructType extends Type {
   fields: TypeField[];
 
   /**
-   * The module of the struct, which contains
+   * The trait of the union, which contains
    * the compile-time methods, properties, etc.
    */
-  module: ModuleType;
+  trait: TraitType;
 
   /**
    * The env when the struct type is created.
@@ -401,9 +401,15 @@ export interface ModuleField {
 }
 
 /**
- * ModuleType is a nominal type that represents a module.
+ * TraitField is identical to ModuleField but used in TraitType.
+ * Kept separate for future differentiation between traits and modules.
+ */
+export type TraitField = ModuleField;
+
+/**
+ * ModuleType is a ~~nominal~~structural type that represents a module.
  * Modules are compared by their unique id, not by their structure.
- * FnModuleType and FutureModuleType are exceptions that use structural comparison.
+ * FnTraitType and FutureTraitType are exceptions that use structural comparison.
  */
 export interface ModuleType extends Type {
   tag: TypeTag.Module;
@@ -425,35 +431,69 @@ export interface ModuleType extends Type {
   fields: ModuleField[];
 
   /**
-   * ModuleType doesn't have a module field because it IS the module itself.
-   * This is different from StructType/EnumType/UnionType which have a separate module.
+   * ModuleType doesn't have a trait field because modules are not traits.
+   * This is different from StructType/EnumType/UnionType which have a separate trait.
    */
-  module: undefined;
+  trait: undefined;
 
   /**
    * The env when the module type is created.
    * The env is also useful to show the frame level at which the module is defined.
    */
   env: Environment;
+}
+
+/**
+ * TraitType is a nominal type that represents a trait.
+ * Trait are compared by their unique id, not by their structure.
+ * FnTraitType and FutureTraitType are exceptions that use structural comparison.
+ */
+export interface TraitType extends Type {
+  tag: TypeTag.Trait;
+  /**
+   * The function that returns the module.
+   * eg:
+   *   Container :
+   *     fn(compt(T): Type)-> compt(Type)
+   *       trait(x: T, y: T)
+   * ;
+   * "Container" is the function that returns the trait.
+   */
+  functionValue?: FunctionValue;
 
   /**
-   * The type that is the receiverType of this module.
+   * The fields of the trait.
+   */
+  fields: TraitField[];
+
+  /**
+   * TraitType doesn't have a trait field because traits are not traits.
+   */
+  trait: undefined;
+
+  /**
+   * The env when the trait type is created.
+   * The env is also useful to show the frame level at which the trait is defined.
+   */
+  env: Environment;
+
+  /**
+   * The type that is the receiverType of this trait.
    * eg:
    *
    *   T <: Id
-   *
    */
   receiverType?: Type;
 
   /**
-   * If true, this module constraint is negated (the receiver must NOT implement this module).
+   * If true, this trait constraint is negated (the receiver must NOT implement this trait).
    * This is used for where clauses like: where(Self <: !(Copy))
    */
   isNegatedConstraint?: boolean;
 
   /**
    * The constraints on Self from where clauses.
-   * These are ModuleTypes that Self must implement.
+   * These are TraitTypes that Self must implement.
    * eg:
    *
    *   Id :: module(
@@ -461,13 +501,13 @@ export interface ModuleType extends Type {
    *     id : (fn(x : Self) -> Self)
    *   );
    *
-   * selfConstraints would contain [CopyModuleType]
+   * selfConstraints would contain [Copy]
    */
-  selfConstraints?: ModuleType[];
+  selfConstraints?: TraitType[];
 
   /**
    * The negative constraints on Self from where clauses.
-   * These are ModuleTypes that Self must NOT implement.
+   * These are TraitTypes that Self must NOT implement.
    * eg:
    *
    *   Gc :: module(
@@ -475,32 +515,32 @@ export interface ModuleType extends Type {
    *     ...
    *   );
    *
-   * negativeSelfConstraints would contain [CopyModuleType]
+   * negativeSelfConstraints would contain [Copy]
    */
-  negativeSelfConstraints?: ModuleType[];
+  negativeSelfConstraints?: TraitType[];
 
   /**
-   * If this module represents a Fn trait (callable type), this contains the function signature.
-   * Set for modules created via `Fn(params) -> ReturnType` syntax.
+   * If this trait represents a Fn trait (callable type), this contains the function signature.
+   * Set for traits created via `Fn(params) -> ReturnType` syntax.
    * The FunctionType contains the parameters and return type of the callable.
    */
   isFn?: { callType: FunctionType };
 
   /**
-   * If this module represents a Future type, this contains the child type.
-   * Set for modules created via `Future(T)` syntax.
+   * If this trait represents a Future type, this contains the child type.
+   * Set for traits created via `Future(T)` syntax.
    */
   isFuture?: { outputType: Type };
 
   /**
-   * If this module represents a Concrete type marker, this contains the concrete type.
-   * Set for modules created via `Concrete(T)` syntax.
+   * If this trait represents a Concrete type marker, this contains the concrete type.
+   * Set for traits created via `Concrete(T)` syntax.
    * Used in Impl(Concrete(T), ...) to explicitly specify the resolvedConcreteType.
    */
   isConcrete?: { concreteType: Type };
 
   /**
-   * The module path where this module was defined.
+   * The module path where this trait was defined.
    * Used for orphan rule checks to ensure coherence.
    * Inherited from Type.definedInModulePath.
    */
@@ -508,25 +548,25 @@ export interface ModuleType extends Type {
 }
 
 /**
- * FnModuleType represents a callable type (closure/function trait).
- * This replaces the old ClosureType - now closures are just ModuleTypes with isFn set.
+ * FnTraitType represents a callable type (closure/function trait).
+ * This replaces the old ClosureType - now closures are just TraitTypes with isFn set.
  *
  * Examples:
  * - Fn(x: i32) -> i32
  * - Impl(Fn(x: i32, y: i32) -> string)
  */
-export type FnModuleType = ModuleType & { isFn: { callType: FunctionType } };
+export type FnTraitType = TraitType & { isFn: { callType: FunctionType } };
 
 /**
- * FutureModuleType represents an async/await future for stackless coroutines.
- * This replaces the old FutureType - now futures are just ModuleTypes with isFuture set.
+ * FutureTraitType represents an async/await future for stackless coroutines.
+ * This replaces the old FutureType - now futures are just TraitTypes with isFuture set.
  *
  * Examples:
  * - Future(i32): A future that will eventually yield an i32 value
  * - Impl(Future(i32)) for static dispatch with futures
  * - Dyn(Future(i32)) for dynamic dispatch
  */
-export type FutureModuleType = ModuleType & { isFuture: { outputType: Type } };
+export type FutureTraitType = TraitType & { isFuture: { outputType: Type } };
 
 /**
  * ConcreteModuleType is a marker module that specifies the concrete type for Impl.
@@ -536,7 +576,7 @@ export type FutureModuleType = ModuleType & { isFuture: { outputType: Type } };
  * - Concrete(yo_io_future): marker that the concrete type is yo_io_future
  * - Impl(Concrete(yo_io_future), Future(i32)): Future with explicit C type
  */
-export type ConcreteModuleType = ModuleType & {
+export type ConcreteModuleType = TraitType & {
   isConcrete: { concreteType: Type };
 };
 
@@ -563,10 +603,10 @@ export interface EnumType extends Type {
   variants: EnumVariant[];
 
   /**
-   * The module of the struct, which contains
+   * The trait of the enum, which contains
    * the compile-time methods, properties, etc.
    */
-  module: ModuleType;
+  trait: TraitType;
 
   /**
    * The env when the enum type is created.
@@ -614,10 +654,10 @@ export interface UnionType extends Type {
   fields: TypeField[];
 
   /**
-   * The module of the union, which contains
+   * The trait of the union, which contains
    * the compile-time methods, properties, etc.
    */
-  module: ModuleType;
+  trait: TraitType;
 
   /**
    * The env when the union type is created.
@@ -706,9 +746,9 @@ export interface FunctionType extends Type {
   ParentFunctionType?: FunctionType;
 
   /**
-   * The module that contains this function's methods (like ___drop, ___dup for closures).
+   * The trait that contains this function's methods (like ___drop, ___dup for closures).
    */
-  module: ModuleType;
+  trait: TraitType;
 
   /**
    * Whether this function type represents a closure.
@@ -723,16 +763,16 @@ export interface FunctionType extends Type {
 
   /**
    * Constraints added via where clauses that apply to this function scope only.
-   * Maps from SomeType to the modules it must (or must not) implement within this function.
+   * Maps from SomeType to the traits it must (or must not) implement within this function.
    * Example: where(T <: Eq(T), T <: !(Copy)) adds:
-   *   T -> { requiredModules: [Eq(T)], negativeModules: [Copy] }
+   *   T -> { requiredTraits: [Eq(T)], negativeTraits: [Copy] }
    * These constraints don't mutate the original SomeType and don't leak to sibling functions.
    */
   whereClauseConstraints?: Map<
     SomeType,
     {
-      requiredModules: ModuleType[];
-      negativeModules: ModuleType[];
+      requiredTraits: TraitType[];
+      negativeTraits: TraitType[];
     }
   >;
 }
@@ -744,7 +784,7 @@ export interface PtrType extends Type {
    */
   childType: Type;
 
-  module: ModuleType;
+  trait: TraitType;
 }
 
 /**
@@ -769,10 +809,10 @@ export interface IsoType extends Type {
   childType: Type;
 
   /**
-   * The module of the Iso type, which contains
+   * The trait of the Iso type, which contains
    * the ARC methods (___dup_iso, ___drop_iso) using atomic operations.
    */
-  module: ModuleType;
+  trait: TraitType;
 
   /**
    * The env when the Iso type is created.
@@ -790,24 +830,24 @@ export interface DynType extends Type {
   tag: TypeTag.Dyn;
 
   /**
-   * The required modules that this dynamic dispatch type can dispatch to.
+   * The required traits that this dynamic dispatch type can dispatch to.
    * This is used to create vtable for dynamic dispatch.
    * Now uses reference semantics by default, so it's not a dynamic sized type.
    */
-  requiredModules: ModuleType[];
+  requiredTraits: TraitType[];
 
   /**
-   * The negative modules that this DynType must NOT implement.
-   * For example, `Dyn(!(Copy))` has negativeModules = [CopyModule]
+   * The negative traits that this DynType must NOT implement.
+   * For example, `Dyn(!(Copy))` has negativeTraits = [CopyTrait]
    */
-  negativeModules?: ModuleType[];
+  negativeTraits?: TraitType[];
 
   /**
-   * The module of the dyn type, which contains
+   * The trait of the dyn type, which contains
    * the ARC methods (___dup, ___drop) for the dyn wrapper itself.
    * These operate on the dyn object, not the wrapped object.
    */
-  module: ModuleType;
+  trait: TraitType;
 
   /**
    * The env when the dyn type is created.

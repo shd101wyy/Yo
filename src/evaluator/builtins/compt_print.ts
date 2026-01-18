@@ -1,6 +1,6 @@
 import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
-import { exprToString, FuncCallExpr } from "../../expr";
+import { exprToString, FnCallExpr } from "../../expr";
 import { VUnit } from "../../unit-value";
 import { isComptStringValue, valueToString } from "../../value";
 import { EvaluatorContext } from "../context";
@@ -11,10 +11,10 @@ export function evaluateComptPrint({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): FnCallExpr {
   // Accept any number of arguments (at least 1)
   if (expr.args.length === 0) {
     throw formatErrorMessage({

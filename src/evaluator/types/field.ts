@@ -12,6 +12,7 @@ import {
   areTypesCompatible,
   isModuleType,
   isStructType,
+  isTraitType,
   isTupleType,
   prohibitVoidType,
   Type,
@@ -24,6 +25,7 @@ import { VUnit } from "../../unit-value";
 import {
   isFunctionValue,
   isModuleValue,
+  isTraitValue,
   isTypeValue,
   Value,
 } from "../../value";
@@ -168,7 +170,8 @@ export function evaluateTypeField({
     if (
       isTupleType(expectedType) ||
       isStructType(expectedType) ||
-      isModuleType(expectedType)
+      isModuleType(expectedType) ||
+      isTraitType(expectedType)
     ) {
       const tupleElement = expectedType.fields[tupleFieldIndex];
       if (!tupleElement) {
@@ -454,7 +457,8 @@ Given type: ${typeToString(defaultValueType)}`,
         field.assignedValue.funcName = field.label;
         field.assignedValue.funcId += `_${field.label}`;
       } else if (
-        isModuleValue(field.assignedValue) &&
+        (isModuleValue(field.assignedValue) ||
+          isTraitValue(field.assignedValue)) &&
         !field.assignedValue.type.typeName &&
         field.assignedValue.type !== context.SelfType
       ) {

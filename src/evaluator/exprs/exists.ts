@@ -4,10 +4,10 @@
     env,
     context,
   }: {
-    expr: FuncCallExpr;
+    expr: FnCallExpr;
     env: Environment;
     context: EvaluatorContext;
-  }): FuncCallExpr {
+  }): FnCallExpr {
     if (!exprIsFunctionCallOf(expr, BuiltinKeywords.Exists)) {
       throw formatErrorMessage(
         expr.token,

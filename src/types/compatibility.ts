@@ -16,9 +16,9 @@ import {
   isDynType,
   isEnumType,
   isExprType,
-  isFnModuleType,
+  isFnTraitType,
   isFunctionType,
-  isFutureModuleType,
+  isFutureTraitType,
   isIsoType,
   isModuleType,
   isPrimitiveType,
@@ -26,6 +26,7 @@ import {
   isSliceType,
   isSomeType,
   isStructType,
+  isTraitType,
   isTupleType,
   isTypeHierarchyType,
   isU8Type,
@@ -35,7 +36,7 @@ import { TypeTag } from "./tags";
 import {
   getValueOfSomeTypeFromEnv,
   typeContainsSomeType,
-  typeImplementsModuleInternal,
+  typeImplementsTraitInternal,
 } from "./utils";
 
 /**
@@ -376,14 +377,38 @@ export function areTypesCompatible(
     return true;
   }
 
-  // NOTE: Module type is now a NOMINAL type (compared by id).
-  // Special cases: FnModuleType and FutureModuleType use structural comparison
+  // Module type is now structural type
+  if (isModuleType(expected.type) && isModuleType(given.type)) {
+    // Modules must have same fields and compatible types
+    for (const expectedField of expected.type.fields) {
+      const givenField = given.type.fields.find(
+        (f) => f.label === expectedField.label
+      );
+      if (!givenField) {
+        return false; // Field not found in given module
+      }
+      if (
+        !areTypesCompatible(
+          { type: expectedField.type, env: expected.env },
+          { type: givenField.type, env: given.env },
+          requireExactMatch,
+          visitedPairs
+        )
+      ) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  // NOTE: Trait type is now a NOMINAL type (compared by id).
+  // Special cases: FnTraitType and FutureTraitType use structural comparison
   // because they are parameterized (e.g., Fn(x: i32) -> i32 vs Fn(y: string) -> string).
-  if (isModuleType(expected.type)) {
-    if (isModuleType(given.type)) {
-      // Special case: FnModuleType uses structural comparison (function signature)
-      if (isFnModuleType(expected.type)) {
-        if (!isFnModuleType(given.type)) {
+  if (isTraitType(expected.type)) {
+    if (isTraitType(given.type)) {
+      // Special case: FnTraitType uses structural comparison (function signature)
+      if (isFnTraitType(expected.type)) {
+        if (!isFnTraitType(given.type)) {
           return false; // Expected is callable but given is not
         }
         // Compare the function signatures
@@ -396,13 +421,13 @@ export function areTypesCompatible(
         ) {
           return false;
         }
-        // FnModuleType matched structurally
+        // FnTraitType matched structurally
         return true;
       }
 
-      // Special case: FutureModuleType uses structural comparison (output type)
-      if (isFutureModuleType(expected.type)) {
-        if (!isFutureModuleType(given.type)) {
+      // Special case: FutureTraitType uses structural comparison (output type)
+      if (isFutureTraitType(expected.type)) {
+        if (!isFutureTraitType(given.type)) {
           return false; // Expected is Future but given is not
         }
         // Compare the output types
@@ -419,7 +444,7 @@ export function areTypesCompatible(
         ) {
           return false;
         }
-        // FutureModuleType matched structurally
+        // FutureTraitType matched structurally
         return true;
       }
 
@@ -437,13 +462,13 @@ export function areTypesCompatible(
     if (
       isTypeHierarchyType(given.type) &&
       given.type.baseType &&
-      given.type.baseType.module &&
-      isModuleType(expected.type)
+      given.type.baseType.trait &&
+      isTraitType(expected.type)
     ) {
       // Compare the module from TypeHierarchyType with expected module
       return areTypesCompatible(
         { type: expected.type, env: expected.env },
-        { type: given.type.baseType.module, env: given.env },
+        { type: given.type.baseType.trait, env: given.env },
         requireExactMatch,
         visitedPairs
       );
@@ -507,37 +532,36 @@ export function areTypesCompatible(
   if (isDynType(expected.type) && isDynType(given.type)) {
     // Given type must implement ALL modules required by expected type
     // Example: expected `Dyn(Copy)` is compatible with given `Dyn(Copy, Send)`
-    for (const expectedModule of expected.type.requiredModules) {
-      const matchingGivenModule = given.type.requiredModules.find(
-        (givenModule) =>
-          areTypesCompatible(
-            { type: expectedModule, env: expected.env },
-            { type: givenModule, env: given.env },
-            requireExactMatch,
-            visitedPairs
-          )
+    for (const expectedTrait of expected.type.requiredTraits) {
+      const matchingGivenTrait = given.type.requiredTraits.find((givenModule) =>
+        areTypesCompatible(
+          { type: expectedTrait, env: expected.env },
+          { type: givenModule, env: given.env },
+          requireExactMatch,
+          visitedPairs
+        )
       );
-      if (!matchingGivenModule) {
+      if (!matchingGivenTrait) {
         return false; // Expected module not found in given
       }
     }
 
     // Check negative modules: given must NOT implement any of expected's negative modules
     if (
-      expected.type.negativeModules &&
-      expected.type.negativeModules.length > 0
+      expected.type.negativeTraits &&
+      expected.type.negativeTraits.length > 0
     ) {
-      for (const negativeModule of expected.type.negativeModules) {
-        const matchingGivenModule = given.type.requiredModules.find(
+      for (const negativeTrait of expected.type.negativeTraits) {
+        const matchingGivenTrait = given.type.requiredTraits.find(
           (givenModule) =>
             areTypesCompatible(
-              { type: negativeModule, env: expected.env },
+              { type: negativeTrait, env: expected.env },
               { type: givenModule, env: given.env },
               requireExactMatch,
               visitedPairs
             )
         );
-        if (matchingGivenModule) {
+        if (matchingGivenTrait) {
           return false; // Given implements a module that expected forbids
         }
       }
@@ -581,7 +605,7 @@ export function areTypesCompatible(
 
       // When comparing two SomeTypes with different IDs:
       // - For cache comparisons (requireExactMatch=true): we need to check if they can unify
-      // - Two type parameters can unify if they have compatible constraints (requiredModules)
+      // - Two type parameters can unify if they have compatible constraints (requiredTraits)
       //
       // The key insight is that even with requireExactMatch=true, two different type parameters
       // like T from impl(forall(T: Type), *(T), ...) and T from ArrayList should be allowed
@@ -597,46 +621,46 @@ export function areTypesCompatible(
       // Example: expected `Impl(Send)` is compatible with given `Impl(Send, Copy)`
       // However, if requireExactMatch is true, the modules must match exactly (same count and types)
 
-      // Use the requiredModules field directly (not module.fields)
-      const expectedModules = expected.type.requiredModules ?? [];
-      const givenModules = given.type.requiredModules ?? [];
+      // Use the requiredTraits field directly (not module.fields)
+      const expectedTraits = expected.type.requiredTraits ?? [];
+      const givenTraits = given.type.requiredTraits ?? [];
 
       // For exact matching (e.g., cache comparisons), require same number of modules
-      if (requireExactMatch && expectedModules.length !== givenModules.length) {
+      if (requireExactMatch && expectedTraits.length !== givenTraits.length) {
         return false;
       }
 
       // Check that all expected modules are present in given modules
-      for (const expectedModule of expectedModules) {
-        const matchingGivenModule = givenModules.find((givenModule) => {
+      for (const expectedTrait of expectedTraits) {
+        const matchingGivenTrait = givenTraits.find((givenModule) => {
           // Compare by module type compatibility
           return areTypesCompatible(
-            { type: expectedModule, env: expected.env },
+            { type: expectedTrait, env: expected.env },
             { type: givenModule, env: given.env },
             requireExactMatch,
             visitedPairs
           );
         });
-        if (!matchingGivenModule) {
+        if (!matchingGivenTrait) {
           return false; // Expected module not found in given
         }
       }
 
       // Check negative modules: given must NOT implement any of expected's negative modules
       if (
-        expected.type.negativeModules &&
-        expected.type.negativeModules.length > 0
+        expected.type.negativeTraits &&
+        expected.type.negativeTraits.length > 0
       ) {
-        for (const negativeModule of expected.type.negativeModules) {
-          const matchingGivenModule = givenModules.find((givenModule) =>
+        for (const negativeTrait of expected.type.negativeTraits) {
+          const matchingGivenTrait = givenTraits.find((givenModule) =>
             areTypesCompatible(
-              { type: negativeModule, env: expected.env },
+              { type: negativeTrait, env: expected.env },
               { type: givenModule, env: given.env },
               requireExactMatch,
               visitedPairs
             )
           );
-          if (matchingGivenModule) {
+          if (matchingGivenTrait) {
             return false; // Given implements a module that expected forbids
           }
         }
@@ -677,14 +701,14 @@ export function areTypesCompatible(
     } else {
       // Given is a concrete type, expected is SomeType (e.g., Impl(Trait))
       // Check if given implements all required modules of expected
-      const requiredModules = expected.type.requiredModules ?? [];
-      if (requiredModules.length > 0) {
+      const requiredTraits = expected.type.requiredTraits ?? [];
+      if (requiredTraits.length > 0) {
         // Check that given implements all required modules
-        for (const requiredModule of requiredModules) {
+        for (const requiredTrait of requiredTraits) {
           if (
-            !typeImplementsModuleInternal({
+            !typeImplementsTraitInternal({
               targetType: given.type,
-              moduleType: requiredModule,
+              traitType: requiredTrait,
               env: expected.env,
             })
           ) {
@@ -696,14 +720,14 @@ export function areTypesCompatible(
         // All required modules are implemented
         // Check negative modules if any
         if (
-          expected.type.negativeModules &&
-          expected.type.negativeModules.length > 0
+          expected.type.negativeTraits &&
+          expected.type.negativeTraits.length > 0
         ) {
-          for (const negativeModule of expected.type.negativeModules) {
+          for (const negativeTrait of expected.type.negativeTraits) {
             if (
-              typeImplementsModuleInternal({
+              typeImplementsTraitInternal({
                 targetType: given.type,
-                moduleType: negativeModule,
+                traitType: negativeTrait,
                 env: expected.env,
               })
             ) {
@@ -714,11 +738,11 @@ export function areTypesCompatible(
         // All checks passed - given type implements all required modules
         // and doesn't implement any forbidden modules
         let allModulesImplemented = true;
-        for (const requiredModule of requiredModules) {
+        for (const requiredTrait of requiredTraits) {
           if (
-            !typeImplementsModuleInternal({
+            !typeImplementsTraitInternal({
               targetType: given.type,
-              moduleType: requiredModule,
+              traitType: requiredTrait,
               env: expected.env,
             })
           ) {

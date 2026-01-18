@@ -1,6 +1,6 @@
 import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
-import { Expr, exprIsFunctionCall, FuncCallExpr } from "../../expr";
+import { Expr, exprIsFunctionCall, FnCallExpr } from "../../expr";
 import {
   createTupleType,
   createUnitType,
@@ -79,10 +79,10 @@ export function evaluateTupleType({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): FnCallExpr {
   if (expr.args.length === 0) {
     const value = createTypeValue(createUnitType());
     expr.$ = {

@@ -15,7 +15,7 @@ import {
 } from "../../expr";
 import { TokenType } from "../../token";
 import {
-  extractFutureModuleFromType,
+  extractFutureTraitFromType,
   typeImplementsFuture,
 } from "../../types/utils";
 
@@ -132,7 +132,7 @@ function walkExprForAwaits(
       }
       break;
 
-    case ExprTag.FuncCall: {
+    case ExprTag.FnCall: {
       // Check if this is a while loop - handle specially
       if (exprIsFunctionCallOf(expr, BuiltinKeywords.while)) {
         // For while loops, awaits in the loop body need special handling
@@ -238,9 +238,9 @@ function walkExprForAwaits(
 
         const futureType = awaitArg.$?.type;
 
-        // Check if the type implements Future (handles both FutureModuleType and SomeType)
+        // Check if the type implements Future (handles both FutureTraitType and SomeType)
         if (futureType && typeImplementsFuture(futureType)) {
-          const futureModuleType = extractFutureModuleFromType(futureType);
+          const futureModuleType = extractFutureTraitFromType(futureType);
           if (!futureModuleType) {
             break;
           }
@@ -275,7 +275,7 @@ function walkExprForAwaits(
           let targetVariableId: string | undefined;
           if (
             parentExpr &&
-            parentExpr.tag === ExprTag.FuncCall &&
+            parentExpr.tag === ExprTag.FnCall &&
             exprIsFunctionCallOf(parentExpr, ":=")
           ) {
             const varExpr = parentExpr.args[0];
@@ -298,7 +298,7 @@ function walkExprForAwaits(
             index: awaitPoints.length,
             expr,
             resultType,
-            futureType: futureModuleType, // Store the FutureModuleType itself, not the outer type
+            futureType: futureModuleType, // Store the FutureTraitType itself, not the outer type
             targetVariableId,
             futureVariableId,
           });
@@ -349,7 +349,7 @@ function collectVariableBindings(
       // Atoms don't introduce new bindings
       break;
 
-    case ExprTag.FuncCall: {
+    case ExprTag.FnCall: {
       // Check if this is a let binding or variable declaration
       const func = expr.func;
       if (func.tag === ExprTag.Atom) {

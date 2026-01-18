@@ -14,19 +14,20 @@ import {
   ComptListType,
   DynType,
   EnumType,
-  FnModuleType,
+  FnTraitType,
   FunctionForallParameter,
   FunctionParameter,
   FunctionParameterExprs,
   FunctionReturn,
   FunctionType,
-  FutureModuleType,
+  FutureTraitType,
   IsoType,
   ModuleType,
   PtrType,
   SliceType,
   SomeType,
   StructType,
+  TraitType,
   TupleType,
   Type,
   TypeField,
@@ -44,14 +45,14 @@ export function createComptIntType(): Type {
   }
 
   const emptyEnv = createEmptyEnv();
-  const module = createModuleType(emptyEnv);
+  const trait = createTraitType(emptyEnv);
 
   const comptIntType: Type = {
     id: TypeTag.ComptInt,
     tag: TypeTag.ComptInt,
-    module,
+    trait,
   };
-  module.receiverType = comptIntType;
+  trait.receiverType = comptIntType;
 
   cachedComptIntType = comptIntType;
   return comptIntType;
@@ -64,14 +65,14 @@ export function createComptFloatType(): Type {
   }
 
   const emptyEnv = createEmptyEnv();
-  const module = createModuleType(emptyEnv);
+  const trait = createTraitType(emptyEnv);
 
   const type: Type = {
     id: TypeTag.ComptFloat,
     tag: TypeTag.ComptFloat,
-    module,
+    trait,
   };
-  module.receiverType = type;
+  trait.receiverType = type;
 
   cachedComptFloatType = type;
   return type;
@@ -84,14 +85,14 @@ export function createComptStringType(): Type {
   }
 
   const emptyEnv = createEmptyEnv();
-  const module = createModuleType(emptyEnv);
+  const trait = createTraitType(emptyEnv);
 
   const type: Type = {
     id: TypeTag.ComptString,
     tag: TypeTag.ComptString,
-    module,
+    trait,
   };
-  module.receiverType = type;
+  trait.receiverType = type;
 
   cachedComptStringType = type;
   return type;
@@ -104,14 +105,14 @@ export function createExprType(): Type {
   }
 
   const emptyEnv = createEmptyEnv();
-  const module = createModuleType(emptyEnv);
+  const trait = createTraitType(emptyEnv);
 
   const type: Type = {
     id: TypeTag.Expr,
     tag: TypeTag.Expr,
-    module,
+    trait,
   };
-  module.receiverType = type;
+  trait.receiverType = type;
 
   cachedExprType = type;
   return type;
@@ -123,16 +124,16 @@ export function createComptListType(childType: Type): ComptListType {
     return cachedComptListTypeMap.get(childType)!;
   }
   const emptyEnv = createEmptyEnv();
-  const module = createModuleType(emptyEnv);
+  const trait = createTraitType(emptyEnv);
 
   const typeId = `compt_list_${childType.id}`;
   const type: ComptListType = {
     id: typeId,
     tag: TypeTag.ComptList,
     childType,
-    module,
+    trait,
   };
-  module.receiverType = type;
+  trait.receiverType = type;
 
   cachedComptListTypeMap.set(childType, type);
 
@@ -150,14 +151,14 @@ export function createBooleanType(): Type {
   }
 
   const emptyEnv = createEmptyEnv();
-  const module = createModuleType(emptyEnv);
+  const trait = createTraitType(emptyEnv);
 
   const type: Type = {
     id: TypeTag.Bool,
     tag: TypeTag.Bool,
-    module,
+    trait,
   };
-  module.receiverType = type;
+  trait.receiverType = type;
 
   cachedBooleanType = type;
   return type;
@@ -170,14 +171,14 @@ export function createUsizeType(): Type {
   }
 
   const emptyEnv = createEmptyEnv();
-  const module = createModuleType(emptyEnv);
+  const trait = createTraitType(emptyEnv);
 
   const type: Type = {
     id: TypeTag.Usize,
     tag: TypeTag.Usize,
-    module,
+    trait,
   };
-  module.receiverType = type;
+  trait.receiverType = type;
 
   cachedUsizeType = type;
   return type;
@@ -190,14 +191,14 @@ export function createIsizeType(): Type {
   }
 
   const emptyEnv = createEmptyEnv();
-  const module = createModuleType(emptyEnv);
+  const trait = createTraitType(emptyEnv);
 
   const type: Type = {
     id: TypeTag.Isize,
     tag: TypeTag.Isize,
-    module,
+    trait,
   };
-  module.receiverType = type;
+  trait.receiverType = type;
 
   cachedIsizeType = type;
   return type;
@@ -210,14 +211,14 @@ export function createU8Type(): Type {
   }
 
   const emptyEnv = createEmptyEnv();
-  const module = createModuleType(emptyEnv);
+  const trait = createTraitType(emptyEnv);
 
   const type: Type = {
     id: TypeTag.U8,
     tag: TypeTag.U8,
-    module,
+    trait,
   };
-  module.receiverType = type;
+  trait.receiverType = type;
 
   cachedU8Type = type;
   return type;
@@ -230,14 +231,14 @@ export function createI8Type(): Type {
   }
 
   const emptyEnv = createEmptyEnv();
-  const module = createModuleType(emptyEnv);
+  const trait = createTraitType(emptyEnv);
 
   const type: Type = {
     id: TypeTag.I8,
     tag: TypeTag.I8,
-    module,
+    trait,
   };
-  module.receiverType = type;
+  trait.receiverType = type;
 
   cachedI8Type = type;
   return type;
@@ -250,14 +251,14 @@ export function createU16Type(): Type {
   }
 
   const emptyEnv = createEmptyEnv();
-  const module = createModuleType(emptyEnv);
+  const trait = createTraitType(emptyEnv);
 
   const type: Type = {
     id: TypeTag.U16,
     tag: TypeTag.U16,
-    module,
+    trait,
   };
-  module.receiverType = type;
+  trait.receiverType = type;
 
   cachedU16Type = type;
   return type;
@@ -270,14 +271,14 @@ export function createI16Type(): Type {
   }
 
   const emptyEnv = createEmptyEnv();
-  const module = createModuleType(emptyEnv);
+  const trait = createTraitType(emptyEnv);
 
   const type: Type = {
     id: TypeTag.I16,
     tag: TypeTag.I16,
-    module,
+    trait,
   };
-  module.receiverType = type;
+  trait.receiverType = type;
 
   cachedI16Type = type;
   return type;
@@ -290,14 +291,14 @@ export function createU32Type(): Type {
   }
 
   const emptyEnv = createEmptyEnv();
-  const module = createModuleType(emptyEnv);
+  const trait = createTraitType(emptyEnv);
 
   const type: Type = {
     id: TypeTag.U32,
     tag: TypeTag.U32,
-    module,
+    trait,
   };
-  module.receiverType = type;
+  trait.receiverType = type;
 
   cachedU32Type = type;
   return type;
@@ -310,14 +311,14 @@ export function createI32Type(): Type {
   }
 
   const emptyEnv = createEmptyEnv();
-  const module = createModuleType(emptyEnv);
+  const trait = createTraitType(emptyEnv);
 
   const type: Type = {
     id: TypeTag.I32,
     tag: TypeTag.I32,
-    module,
+    trait,
   };
-  module.receiverType = type;
+  trait.receiverType = type;
 
   cachedI32Type = type;
   return type;
@@ -330,14 +331,14 @@ export function createU64Type(): Type {
   }
 
   const emptyEnv = createEmptyEnv();
-  const module = createModuleType(emptyEnv);
+  const trait = createTraitType(emptyEnv);
 
   const type: Type = {
     id: TypeTag.U64,
     tag: TypeTag.U64,
-    module,
+    trait,
   };
-  module.receiverType = type;
+  trait.receiverType = type;
 
   cachedU64Type = type;
   return type;
@@ -350,14 +351,14 @@ export function createI64Type(): Type {
   }
 
   const emptyEnv = createEmptyEnv();
-  const module = createModuleType(emptyEnv);
+  const trait = createTraitType(emptyEnv);
 
   const type: Type = {
     id: TypeTag.I64,
     tag: TypeTag.I64,
-    module,
+    trait,
   };
-  module.receiverType = type;
+  trait.receiverType = type;
 
   cachedI64Type = type;
   return type;
@@ -370,14 +371,14 @@ export function createF32Type(): Type {
   }
 
   const emptyEnv = createEmptyEnv();
-  const module = createModuleType(emptyEnv);
+  const trait = createTraitType(emptyEnv);
 
   const type: Type = {
     id: TypeTag.F32,
     tag: TypeTag.F32,
-    module,
+    trait,
   };
-  module.receiverType = type;
+  trait.receiverType = type;
 
   cachedF32Type = type;
   return type;
@@ -390,14 +391,14 @@ export function createF64Type(): Type {
   }
 
   const emptyEnv = createEmptyEnv();
-  const module = createModuleType(emptyEnv);
+  const trait = createTraitType(emptyEnv);
 
   const type: Type = {
     id: TypeTag.F64,
     tag: TypeTag.F64,
-    module,
+    trait,
   };
-  module.receiverType = type;
+  trait.receiverType = type;
 
   cachedF64Type = type;
   return type;
@@ -410,13 +411,13 @@ export function createUnitType(): Type {
   }
 
   const emptyEnv = createEmptyEnv();
-  const module = createModuleType(emptyEnv);
+  const trait = createTraitType(emptyEnv);
   const type: Type = {
     id: TypeTag.Unit,
     tag: TypeTag.Unit,
-    module,
+    trait,
   };
-  module.receiverType = type;
+  trait.receiverType = type;
 
   cachedUnitType = type;
   return type;
@@ -429,14 +430,14 @@ export function createCharType(): Type {
   }
 
   const emptyEnv = createEmptyEnv();
-  const module = createModuleType(emptyEnv);
+  const trait = createTraitType(emptyEnv);
 
   const type: Type = {
     id: TypeTag.Char,
     tag: TypeTag.Char,
-    module,
+    trait,
   };
-  module.receiverType = type;
+  trait.receiverType = type;
 
   cachedCharType = type;
   return type;
@@ -449,14 +450,14 @@ export function createShortType(): Type {
   }
 
   const emptyEnv = createEmptyEnv();
-  const module = createModuleType(emptyEnv);
+  const trait = createTraitType(emptyEnv);
 
   const type: Type = {
     id: TypeTag.Short,
     tag: TypeTag.Short,
-    module,
+    trait,
   };
-  module.receiverType = type;
+  trait.receiverType = type;
 
   cachedShortType = type;
   return type;
@@ -469,14 +470,14 @@ export function createUShortType(): Type {
   }
 
   const emptyEnv = createEmptyEnv();
-  const module = createModuleType(emptyEnv);
+  const trait = createTraitType(emptyEnv);
 
   const type: Type = {
     id: TypeTag.UShort,
     tag: TypeTag.UShort,
-    module,
+    trait,
   };
-  module.receiverType = type;
+  trait.receiverType = type;
 
   cachedUShortType = type;
   return type;
@@ -489,14 +490,14 @@ export function createIntType(): Type {
   }
 
   const emptyEnv = createEmptyEnv();
-  const module = createModuleType(emptyEnv);
+  const trait = createTraitType(emptyEnv);
 
   const type: Type = {
     id: TypeTag.Int,
     tag: TypeTag.Int,
-    module,
+    trait,
   };
-  module.receiverType = type;
+  trait.receiverType = type;
 
   cachedIntType = type;
   return type;
@@ -509,14 +510,14 @@ export function createUIntType(): Type {
   }
 
   const emptyEnv = createEmptyEnv();
-  const module = createModuleType(emptyEnv);
+  const trait = createTraitType(emptyEnv);
 
   const type: Type = {
     id: TypeTag.UInt,
     tag: TypeTag.UInt,
-    module,
+    trait,
   };
-  module.receiverType = type;
+  trait.receiverType = type;
 
   cachedUIntType = type;
   return type;
@@ -529,14 +530,14 @@ export function createLongType(): Type {
   }
 
   const emptyEnv = createEmptyEnv();
-  const module = createModuleType(emptyEnv);
+  const trait = createTraitType(emptyEnv);
 
   const type: Type = {
     id: TypeTag.Long,
     tag: TypeTag.Long,
-    module,
+    trait,
   };
-  module.receiverType = type;
+  trait.receiverType = type;
 
   cachedLongType = type;
   return type;
@@ -549,14 +550,14 @@ export function createULongType(): Type {
   }
 
   const emptyEnv = createEmptyEnv();
-  const module = createModuleType(emptyEnv);
+  const trait = createTraitType(emptyEnv);
 
   const type: Type = {
     id: TypeTag.ULong,
     tag: TypeTag.ULong,
-    module,
+    trait,
   };
-  module.receiverType = type;
+  trait.receiverType = type;
 
   cachedULongType = type;
   return type;
@@ -569,14 +570,14 @@ export function createLongLongType(): Type {
   }
 
   const emptyEnv = createEmptyEnv();
-  const module = createModuleType(emptyEnv);
+  const trait = createTraitType(emptyEnv);
 
   const type: Type = {
     id: TypeTag.LongLong,
     tag: TypeTag.LongLong,
-    module,
+    trait,
   };
-  module.receiverType = type;
+  trait.receiverType = type;
 
   cachedLongLongType = type;
   return type;
@@ -589,14 +590,14 @@ export function createULongLongType(): Type {
   }
 
   const emptyEnv = createEmptyEnv();
-  const module = createModuleType(emptyEnv);
+  const trait = createTraitType(emptyEnv);
 
   const type: Type = {
     id: TypeTag.ULongLong,
     tag: TypeTag.ULongLong,
-    module,
+    trait,
   };
-  module.receiverType = type;
+  trait.receiverType = type;
 
   cachedULongLongType = type;
   return type;
@@ -609,14 +610,14 @@ export function createLongDoubleType(): Type {
   }
 
   const emptyEnv = createEmptyEnv();
-  const module = createModuleType(emptyEnv);
+  const trait = createTraitType(emptyEnv);
 
   const type: Type = {
     id: TypeTag.LongDouble,
     tag: TypeTag.LongDouble,
-    module,
+    trait,
   };
-  module.receiverType = type;
+  trait.receiverType = type;
 
   cachedLongDoubleType = type;
   return type;
@@ -628,17 +629,17 @@ export function createType0(baseType?: Type): TypeHierarchyType {
 
 export function createArrayType(childType: Type, length: Value): ArrayType {
   const emptyEnv = createEmptyEnv();
-  const module = createModuleType(emptyEnv);
+  const trait = createTraitType(emptyEnv);
 
   const arrayType: ArrayType = {
     id: `array_${childType.id + "_" + hashString(valueToString(length))}`,
     tag: TypeTag.Array,
     childType,
     length,
-    module,
+    trait,
   };
 
-  module.receiverType = arrayType;
+  trait.receiverType = arrayType;
 
   return arrayType;
 }
@@ -650,15 +651,15 @@ export function createSliceType(childType: Type): SliceType {
   }
 
   const emptyEnv = createEmptyEnv();
-  const module = createModuleType(emptyEnv);
+  const trait = createTraitType(emptyEnv);
 
   const sliceType: SliceType = {
     id: `slice_${childType.id}`,
     tag: TypeTag.Slice,
     childType,
-    module,
+    trait,
   };
-  module.receiverType = sliceType;
+  trait.receiverType = sliceType;
 
   cachedSliceTypeMap.set(childType, sliceType);
 
@@ -691,14 +692,14 @@ export function createVoidType(): VoidType {
   }
 
   const emptyEnv = createEmptyEnv();
-  const module = createModuleType(emptyEnv);
+  const trait = createTraitType(emptyEnv);
 
   const voidType: VoidType = {
     id: TypeTag.Void,
     tag: TypeTag.Void,
-    module,
+    trait,
   };
-  module.receiverType = voidType;
+  trait.receiverType = voidType;
 
   cachedVoidType = voidType;
   return voidType;
@@ -706,16 +707,16 @@ export function createVoidType(): VoidType {
 
 export function createTupleType(fields: TypeField[]): TupleType {
   const emptyEnv = createEmptyEnv();
-  const module = createModuleType(emptyEnv);
+  const trait = createTraitType(emptyEnv);
 
   const tupleType: TupleType = {
     id: `tuple_${fields.map((e) => e.type.id).join("_")}`,
     tag: TypeTag.Tuple,
     // size: totalSize,
     fields,
-    module,
+    trait,
   };
-  module.receiverType = tupleType;
+  trait.receiverType = tupleType;
 
   return tupleType;
 }
@@ -725,7 +726,7 @@ export function createStructType(
   isReferenceSemantics: boolean = false,
   isNewtype: boolean = false
 ): StructType {
-  const module = createModuleType(env);
+  const trait = createTraitType(env);
 
   const structType: StructType = {
     id: `struct_${randomId(env.modulePath)}`,
@@ -733,11 +734,11 @@ export function createStructType(
     isReferenceSemantics,
     isNewtype,
     fields: [],
-    module,
+    trait,
     env,
   };
 
-  module.receiverType = structType;
+  trait.receiverType = structType;
 
   return structType;
 }
@@ -748,39 +749,50 @@ export function createModuleType(env: Environment): ModuleType {
     tag: TypeTag.Module,
     fields: [],
     env,
-    module: undefined,
+    trait: undefined,
   };
   return moduleType;
 }
 
+export function createTraitType(env: Environment): TraitType {
+  const traitType: TraitType = {
+    id: `trait_${randomId(env.modulePath)}`,
+    tag: TypeTag.Trait,
+    fields: [],
+    env,
+    trait: undefined,
+  };
+  return traitType;
+}
+
 export function createEnumType(env: Environment): EnumType {
-  const module = createModuleType(env);
+  const trait = createTraitType(env);
 
   const enumType: EnumType = {
     id: `enum_${randomId(env.modulePath)}`,
     tag: TypeTag.Enum,
     variants: [],
-    module,
+    trait,
     env,
   };
 
-  module.receiverType = enumType;
+  trait.receiverType = enumType;
 
   return enumType;
 }
 
 export function createUnionType(env: Environment): UnionType {
-  const module: ModuleType = createModuleType(env);
+  const trait = createTraitType(env);
 
   const unionType: UnionType = {
     id: `union_${randomId(env.modulePath)}`,
     tag: TypeTag.Union,
     fields: [],
-    module,
+    trait,
     env,
   };
 
-  module.receiverType = unionType;
+  trait.receiverType = unionType;
 
   return unionType;
 }
@@ -807,7 +819,7 @@ export function createFunctionType({
   isClosure?: boolean;
 }): FunctionType {
   const emptyEnv = createEmptyEnv();
-  const module = createModuleType(emptyEnv);
+  const trait = createTraitType(emptyEnv);
 
   const functionType: FunctionType = {
     id: `fn_${randomId(env.modulePath)}`,
@@ -820,10 +832,10 @@ export function createFunctionType({
     parametersFrame,
     SelfType,
     ParentFunctionType,
-    module,
+    trait,
     isClosure,
   };
-  module.receiverType = functionType;
+  trait.receiverType = functionType;
 
   return functionType;
 }
@@ -836,14 +848,14 @@ export function createPtrType(childType: Type): PtrType {
   }
 
   const emptyEnv = createEmptyEnv();
-  const module = createModuleType(emptyEnv);
+  const trait = createTraitType(emptyEnv);
   const ptrType: PtrType = {
     id: `ptr_${childType.id}`,
     tag: TypeTag.Ptr,
     childType,
-    module,
+    trait,
   };
-  module.receiverType = ptrType;
+  trait.receiverType = ptrType;
 
   ptrCache.set(childType, ptrType);
 
@@ -857,15 +869,15 @@ export function createIsoType(childType: Type, env: Environment): IsoType {
     return isoCache.get(childType)!;
   }
 
-  const module = createModuleType(env);
+  const trait = createTraitType(env);
   const isoType: IsoType = {
     id: `iso_${childType.id}`,
     tag: TypeTag.Iso,
     childType,
-    module,
+    trait,
     env,
   };
-  module.receiverType = isoType;
+  trait.receiverType = isoType;
 
   isoCache.set(childType, isoType);
 
@@ -877,8 +889,8 @@ export function createSomeType(
   type: TypeHierarchyType,
   variableName: string,
   id?: string,
-  requiredModules?: ModuleType[],
-  negativeModules?: ModuleType[],
+  requiredTraits?: TraitType[],
+  negativeTraits?: TraitType[],
   recursiveTypeRef?: {
     functionValue: FunctionValue;
     argValues: Value[];
@@ -893,7 +905,7 @@ export function createSomeType(
   }
 
   const emptyEnv = env ?? createEmptyEnv();
-  const module: ModuleType = createModuleType(emptyEnv);
+  const trait = createTraitType(emptyEnv);
 
   const someType: SomeType = {
     id: id ?? `sometype_${randomId(emptyEnv.modulePath)}`,
@@ -901,18 +913,16 @@ export function createSomeType(
     name: variableName,
     parentType: type,
     size: undefined,
-    requiredModules: requiredModules ?? [],
-    negativeModules:
-      negativeModules && negativeModules.length > 0
-        ? negativeModules
-        : undefined,
-    module,
+    requiredTraits: requiredTraits ?? [],
+    negativeTraits:
+      negativeTraits && negativeTraits.length > 0 ? negativeTraits : undefined,
+    trait,
     // Necessary to inherit, like extern types from extern "yo"
     isExtern: type.isExtern,
     externName: type.externName,
     recursiveTypeRef,
   };
-  module.receiverType = someType;
+  trait.receiverType = someType;
 
   // Add ARC functions to SomeType - these dispatch to resolvedConcreteType at codegen time
   addRcFunctionsToSomeType({
@@ -950,15 +960,15 @@ export function createTypeHierarchy(
     cachedTypeMap.set(level, new Map());
   }
 
-  const module: ModuleType = createModuleType(createEmptyEnv());
+  const trait = createTraitType(createEmptyEnv());
   const type: TypeHierarchyType = {
     id: `Type(${level})`,
     tag: TypeTag.Type,
     level,
     baseType,
-    module,
+    trait,
   };
-  module.receiverType = type;
+  trait.receiverType = type;
 
   // Cache it
   cachedTypeMap.get(level)!.set(baseType, type);
@@ -999,57 +1009,56 @@ export function getFunctionParameterExprs({
 }
 
 /**
- * Creates a FnModuleType (callable/closure type).
- * This is a ModuleType with isFn set to the function signature.
+ * Creates a FnTraitType (callable/closure type).
+ * This is a TraitType with isFn set to the function signature.
  */
-export function createFnModuleType(
+export function createFnTraitType(
   fnType: FunctionType,
   env: Environment
-): FnModuleType {
-  const fnModuleId = `fn_module_${fnType.id}`;
-  const module = createModuleType(env);
+): FnTraitType {
+  const fnTraitId = `fn_trait_${fnType.id}`;
+  const trait = createTraitType(env);
 
-  // Set the isFn field to make this a FnModuleType
-  module.isFn = { callType: fnType };
-  module.id = fnModuleId;
+  // Set the isFn field to make this a FnTraitType
+  trait.isFn = { callType: fnType };
+  trait.id = fnTraitId;
 
-  module.receiverType = undefined;
+  trait.receiverType = undefined;
 
-  return module as FnModuleType;
+  return trait as FnTraitType;
 }
 
 /**
- * Creates a FutureModuleType (future/async type).
+ * Creates a FutureTraitType (future/async type).
  * This is a ModuleType with isFuture set to the child type.
  */
-// Global counter for unique FutureModuleType IDs
-// Each async block gets its own FutureModuleType with a unique ID
-let futureModuleCounter = 0;
-
-export function createFutureModuleType(
+// Global counter for unique FutureTraitType IDs
+// Each async block gets its own FutureTraitType with a unique ID
+let futureTraitCounter = 0;
+export function createFutureTraitType(
   outputType: Type,
   env: Environment
-): FutureModuleType {
-  // Create a unique ID for each async block's FutureModuleType
-  // This ensures different async blocks with the same output type don't share the same FutureModuleType
-  const futureModuleId = `future_module_${outputType.id}_${futureModuleCounter++}`;
-  const module = createModuleType(env);
+): FutureTraitType {
+  // Create a unique ID for each async block's FutureTraitType
+  // This ensures different async blocks with the same output type don't share the same FutureTraitType
+  const futureTraitId = `future_trait_${outputType.id}_${futureTraitCounter++}`;
+  const trait = createTraitType(env);
 
-  // Set the isFuture field to make this a FutureModuleType
-  module.isFuture = { outputType };
-  module.id = futureModuleId;
+  // Set the isFuture field to make this a FutureTraitType
+  trait.isFuture = { outputType };
+  trait.id = futureTraitId;
 
-  module.receiverType = undefined;
+  trait.receiverType = undefined;
 
-  return module as FutureModuleType;
+  return trait as FutureTraitType;
 }
 
 /**
  * Create a canonical signature for a module type based on its structure, not its unique ID.
  * This ensures that Dyn types with the same module structure get the same ID.
  */
-function createModuleSignature(moduleType: ModuleType): string {
-  const fieldSignatures = moduleType.fields.map((field) => {
+function createTraitSignature(traitType: TraitType): string {
+  const fieldSignatures = traitType.fields.map((field) => {
     // For function types, create a canonical signature
     if (field.type.tag === TypeTag.Function) {
       const fnType = field.type as FunctionType;
@@ -1065,34 +1074,32 @@ function createModuleSignature(moduleType: ModuleType): string {
 }
 
 export function createDynType(
-  requiredModules: ModuleType[],
+  requiredTraits: TraitType[],
   env: Environment,
-  negativeModules?: ModuleType[]
+  negativeTraits?: TraitType[]
 ): DynType {
-  const module = createModuleType(env);
+  const trait = createTraitType(env);
 
   // Create a canonical ID based on module structure, not unique IDs
-  const moduleSignatures = requiredModules
-    .map((m) => createModuleSignature(m))
+  const moduleSignatures = requiredTraits
+    .map((m) => createTraitSignature(m))
     .join("__");
-  const negativeSignatures = negativeModules
-    ? negativeModules.map((m) => createModuleSignature(m)).join("__")
+  const negativeSignatures = negativeTraits
+    ? negativeTraits.map((m) => createTraitSignature(m)).join("__")
     : "";
   const canonicalId = `dyn_${hashString(moduleSignatures + (negativeSignatures ? `_neg_${negativeSignatures}` : ""))}`;
 
   const dynType: DynType = {
     id: canonicalId,
     tag: TypeTag.Dyn,
-    requiredModules: [...requiredModules],
-    negativeModules:
-      negativeModules && negativeModules.length > 0
-        ? negativeModules
-        : undefined,
-    module,
+    requiredTraits: [...requiredTraits],
+    negativeTraits:
+      negativeTraits && negativeTraits.length > 0 ? negativeTraits : undefined,
+    trait,
     env,
   };
 
-  module.receiverType = dynType;
+  trait.receiverType = dynType;
 
   /*
   // QUESTION: From the C codegen, it seems like only the ___dispose is used for the wrapped object
@@ -1133,9 +1140,9 @@ export function createDynType(
   }
   const wrappedObjectARCModuleType = wrappedObjectARCModuleTypeValue.value;
 
-  dynType.requiredModules = [
+  dynType.requiredTraits = [
     wrappedObjectARCModuleType,
-    ...dynType.requiredModules,
+    ...dynType.requiredTraits,
   ];
   */
 

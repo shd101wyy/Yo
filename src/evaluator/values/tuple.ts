@@ -7,7 +7,7 @@ import {
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
-  FuncCallExpr,
+  FnCallExpr,
   setExprAsNeedsToCallDup,
 } from "../../expr";
 import {
@@ -218,10 +218,10 @@ export function evaluateTupleValue({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): FnCallExpr {
   if (!exprIsFunctionCallOf(expr, BuiltinKeywords.tuple)) {
     throw formatErrorMessage({
       token: expr.token,

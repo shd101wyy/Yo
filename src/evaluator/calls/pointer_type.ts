@@ -5,7 +5,7 @@ import {
   Expr,
   ExprTag,
   exprToString,
-  FuncCallExpr,
+  FnCallExpr,
   replaceExprWithFuncCallExpr,
 } from "../../expr";
 import { TokenType } from "../../token";
@@ -26,7 +26,7 @@ export function tryToConvertToPointerType({
 }: {
   targetType: Type;
   argExpr: Expr;
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   callerEnv: Environment;
   context: EvaluatorContext;
 }): { expr: Expr; env: Environment } | undefined {
@@ -61,8 +61,8 @@ export function tryToConvertToPointerType({
 
   // Create __yo_as(value, TargetType) call for runtime pointer casting
   // Reuse the generic __yo_as builtin for pointer casting
-  const yoAsFuncExpr: FuncCallExpr = {
-    tag: ExprTag.FuncCall,
+  const yoAsFuncExpr: FnCallExpr = {
+    tag: ExprTag.FnCall,
     func: {
       tag: ExprTag.Atom,
       token: {

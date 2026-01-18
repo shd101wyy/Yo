@@ -60,7 +60,7 @@ Our goal is to be a practical language that is easy to use and easy to learn.
 - [Newtype](#newtype)
 - [C union](#c-union)
 - [C enum](#c-enum)
-- [Modules](#modules)
+- [Traits](#traits)
 - [Pattern Matching](#pattern-matching)
 - [String](#string)
   - [C String literal as u8 slice or C string pointer](#c-string-literal-as-u8-slice-or-c-string-pointer)
@@ -84,7 +84,7 @@ Our goal is to be a practical language that is easy to use and easy to learn.
 - [Impl Types](#impl-types)
   - [Basic Usage](#basic-usage)
   - [Impl as Return Type](#impl-as-return-type)
-  - [Impl with Multiple Modules](#impl-with-multiple-modules)
+  - [Impl with Multiple Traits](#impl-with-multiple-traits)
   - [Impl vs Dyn](#impl-vs-dyn)
 - [Error handling](#error-handling)
   - [Error Propagation with match](#error-propagation-with-match)
@@ -94,6 +94,7 @@ Our goal is to be a practical language that is easy to use and easy to learn.
 - [Isolated Types](#isolated-types)
 - [Async IO](#async-io)
 - [Module importing and exporting](#module-importing-and-exporting)
+  - [Anonymous module](#anonymous-module)
 - [Dynamic Dispatch](#dynamic-dispatch)
   - [`Dyn` and `dyn`](#dyn-and-dyn)
   - [Examples](#examples)
@@ -592,20 +593,20 @@ compare_and_add :: (fn(
 
 ### Type Methods
 
-Yo supports **type methods** - methods defined within the type's module.
+Yo supports **type methods** - methods defined within the type's trait.
 
 **Method calls only work for:**
 
-1. Methods defined in the type's own module
-2. Methods from implemented modules
+1. Methods defined in the type's own trait
+2. Methods from implemented traits
 
 ```rust
-// Define a type with methods in its module
+// Define a type with methods in its trait
 Point :: struct(
   x : i32,
   y : i32,
 
-  // Type methods are defined in the struct's module
+  // Type methods are defined in the struct's trait
   distance_from_origin :: (fn(self: Self) -> f64)(
     f64(
       sqrt(
@@ -1144,20 +1145,21 @@ struct Point {
 
 ## Newtype
 
-The `newtype` keyword defines a struct with a single field along with methods, constants, and module implementations in one declaration. It provides zero-cost abstraction - at runtime, it's identical to the wrapped type, but at compile time it's a distinct type. This is similar to Haskell's `newtype`.
+The `newtype` keyword defines a struct with a single field along with methods, constants, and trait implementations in one declaration. It provides zero-cost abstraction - at runtime, it's identical to the wrapped type, but at compile time it's a distinct type. This is similar to Haskell's `newtype`.
 
 **Key properties:**
 
 - Zero runtime overhead (no wrapper allocation)
 - Type safety through distinct types
 - Methods and constants defined inline
-- Module implementations included in definition
+- Trait implementations included in definition
 - Access wrapped value via the field name
 
 **Syntax:**
 
 ```rust
 newtype(
+  // Only one field
   field_name : FieldType,
 
   // Methods
@@ -1165,10 +1167,7 @@ newtype(
 
   // Constants
   CONSTANT_NAME :: Value,
-
-  // Module implementations
-  ModuleName :: impl(Self, Module(...))
-)
+);
 ```
 
 **Example:** (see `std/string/rune.yo`):
@@ -1252,19 +1251,19 @@ day := Week.Wednesday;
 printf("%d", day); // 2
 ```
 
-## Modules
+## Traits
 
-Modules define collections of functions and types that can be implemented for types. They work similarly to traits in Rust. Note that `impl` takes the receiver type as the first argument, followed by the module implementation.
+Traits define collections of functions and types that can be implemented for types. They work similarly to traits in Rust. Note that `impl` takes the receiver type as the first argument, followed by the trait implementation.
 
-A module is defined as a function that returns a `Module` type containing field definitions.
+A trait is defined as a function that returns a `Trait` type containing field definitions.
 
 ```rust
-// Define a module (like a trait in Rust)
-Summary :: module(
+// Define a trait (like a trait in Rust)
+Summary :: trait(
   summarize : (fn(self: *(Self)) -> String)
 );
 
-Display :: module(
+Display :: trait(
   where(Self <: Summary), // Constraint
   display : (fn(self: *(Self)) -> String)
 );
@@ -1276,14 +1275,14 @@ NewsArticle :: struct(
   content  : String
 );
 
-// Implement the Summary module for NewsArticle
+// Implement the Summary trait for NewsArticle
 impl(NewsArticle, Summary(
   summarize : ((self) ->
     f(self.headline, ", by ", self.author, " (", self.location, ")")
   )
 ));
 
-// Implement the Display module for NewsArticle
+// Implement the Display trait for NewsArticle
 impl(NewsArticle, Display(
   display : ((self) ->
     f("Headline: ", self.headline, "\n")
@@ -1295,7 +1294,7 @@ notify :: (fn(item: *(NewsArticle)) -> unit) {
   println("Breaking news! ", item.summarize());
 };
 
-// Generic function with module constraint
+// Generic function with trait constraint
 notify2 :: (fn(forall(T : Type), item: *(T), where(T <: Display)) -> unit) {
   println("Breaking news! ", item.summarize());
   println("Breaking news! ", item.display());
@@ -1822,13 +1821,13 @@ use_dyn(dyn box(42));
 
 ## Impl Types
 
-`Impl(ModuleName)` creates a type representing any type that implements the specified module(s). This is similar to `impl Trait` in Rust.
+`Impl(TraitName)` creates a type representing any type that implements the specified trait(s). This is similar to `impl Trait` in Rust.
 
 ### Basic Usage
 
 ```rust
-// Define a module (trait)
-Id :: module(
+// Define a trait
+Id :: trait(
   id : (fn(self : Self) -> Self)
 );
 
@@ -1858,7 +1857,7 @@ result := use_id(42);  // Prints "i32: 42", returns 42
 `Impl` can be used in return types for static dispatch:
 
 ```rust
-RetI32 :: module(
+RetI32 :: trait(
   return_i32 : (fn(self : *(Self)) -> i32)
 );
 
@@ -1870,16 +1869,16 @@ get_value :: (fn(use_bool : bool) -> Impl(RetI32)) {
 };
 ```
 
-**Important**: Each return path must return a concrete type, not different types that happen to implement the same module.
+**Important**: Each return path must return a concrete type, not different types that happen to implement the same trait.
 
-### Impl with Multiple Modules
+### Impl with Multiple Traits
 
 ```rust
-Speak :: module(
+Speak :: trait(
   speak : (fn(self : Self) -> unit)
 );
 
-Run :: module(
+Run :: trait(
   run : (fn(self : Self) -> unit)
 );
 
@@ -2015,20 +2014,32 @@ export Option;
 
 ```rust
 open import("./test.yo"); // Import everything from test.yo
-Test :: import("./test.yo"); // Import everything from test.yo and put it in the Test namespace
+test_module :: import("./test.yo"); // Import everything from test.yo and put it in the Test namespace
 { test } :: import("./test.yo"); // Import test function from test.yo
 { test : test2 } :: import("./test.yo"); // Import test function from test.yo and rename it to test2
-
 { Option } :: import("./test.yo"); // Import Option type from test.yo
+```
+
+### Anonymous module
+
+The anonymous module is defined using `impl` keyword followed by a `begin` block:
+
+```typescript
+my_module :: impl {
+  my_function :: (fn() -> unit) {
+    println("Hello from my_module!");
+  };
+  export my_function;
+};
 ```
 
 ## Dynamic Dispatch
 
 ### `Dyn` and `dyn`
 
-Use `Dyn` to define dynamic dispatch types that can hold any object implementing specified modules (traits). Use the `dyn()` function to create a `Dyn` instance from an object.
+Use `Dyn` to define dynamic dispatch types that can hold any object implementing specified traits. Use the `dyn()` function to create a `Dyn` instance from an object.
 
-`Dyn` types in Yo are reference-counted objects (like closures and regular object types). They enable dynamic dispatch through module objects.
+`Dyn` types in Yo are reference-counted objects (like closures and regular object types). They enable dynamic dispatch through trait objects.
 
 **Key features:**
 
@@ -2040,11 +2051,11 @@ Use `Dyn` to define dynamic dispatch types that can hold any object implementing
 ### Examples
 
 ```rust
-Speak :: module(
+Speak :: trait(
   speak: (fn(self : Self) -> i32)
 );
 
-Run :: module(
+Run :: trait(
   run: (fn(self : Self) -> i32)
 );
 
@@ -2089,8 +2100,9 @@ main :: (fn() -> i32) {
   - `directory name`
   - `function`
   - `variable`
-- `PascaleCase`
   - `module`
+- `PascaleCase`
+  - `trait`
   - `type` and its variants
 - `UPPER_SNAKE_CASE`
   - `constant`

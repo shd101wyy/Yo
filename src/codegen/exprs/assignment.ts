@@ -1,0 +1,295 @@
+import { getVariablesFromEnv } from "../../env";
+import {
+  BuiltinKeywords,
+  exprIsAtom,
+  exprIsFunctionCall,
+  exprIsFunctionCallOf,
+  exprToString,
+  FnCallExpr,
+} from "../../expr";
+import {
+  isArrayType,
+  isUnitType,
+  typeImplementsFn,
+  typeImplementsFuture,
+} from "../../types";
+import { isTempVariableName } from "../../utils";
+import { FunctionGenerationContext } from "../functions/context";
+import {
+  CodeGenContext,
+  getTypeString,
+  getVariableNameForCodegen,
+  getVariableTypeString,
+} from "../utils";
+import { generateDeferredDupExpressions } from "./drop_dup";
+import { generateExpr } from "./expr";
+
+export function generateAssignment(
+  expr: FnCallExpr,
+  indent: string,
+  context: CodeGenContext
+): string {
+  let lhs = expr.args[0]!;
+  const rhs = expr.args[1]!;
+
+  let isInitialization = false;
+  if (exprIsFunctionCall(lhs) && exprIsFunctionCallOf(lhs, ":", 2)) {
+    isInitialization = true;
+    lhs = lhs.args[0]!; // Get the actual variable being assigned
+  }
+  if (
+    exprIsFunctionCall(lhs) &&
+    exprIsFunctionCallOf(lhs, BuiltinKeywords.compt)
+  ) {
+    // compile-time variable
+    return "";
+  }
+
+  // Check if LHS is a field/index access into a compile-time variable
+  // e.g., p1.x = 5 where p1 is compile-time
+  // e.g., arr(0) = 10 where arr is compile-time
+  if (lhs.$?.pathCollection && lhs.$?.pathCollection.length > 0) {
+    const path = lhs.$.pathCollection[0];
+    if (path && path.length >= 2) {
+      const baseVariableName = path[0];
+      if (typeof baseVariableName === "string" && lhs.$?.env) {
+        const variables = getVariablesFromEnv(lhs.$.env, baseVariableName);
+        if (
+          variables.length > 0 &&
+          variables[variables.length - 1]!.isCompileTimeOnly
+        ) {
+          // Base variable is compile-time, so this assignment should not generate code
+          return "";
+        }
+      }
+    }
+  }
+
+  // Check if LHS is a simple variable name that refers to a compile-time variable
+  if (exprIsAtom(lhs) && lhs.$?.env) {
+    const varName = lhs.token.value;
+    const variables = getVariablesFromEnv(lhs.$.env, varName);
+    if (
+      variables.length > 0 &&
+      variables[variables.length - 1]!.isCompileTimeOnly
+    ) {
+      // Compile-time variable - skip code generation
+      return "";
+    }
+  }
+
+  if (!lhs.$?.type) {
+    return `// Error: No type information for left-hand side ${exprToString(lhs)}\n`;
+  }
+  const lhsCode = generateExpr(lhs, indent, context);
+
+  // Check if we need to save the old value into temp variable
+  if (expr.$?.variableName) {
+    const tempVarName = expr.$.variableName;
+
+    // Skip temp variable declaration in state machines if lhsCode already accesses sm->var_xxx
+    const functionContext = context as FunctionGenerationContext;
+    const skipTempVar =
+      functionContext.inStateMachine && lhsCode.startsWith("sm->");
+
+    if (!skipTempVar) {
+      const tempVarNameAndType = getVariableTypeString(
+        lhs.$.type,
+        tempVarName,
+        context
+      );
+
+      // Handle array assignment specially
+      if (isArrayType(lhs.$.type)) {
+        // For array, use direct struct assignment
+        context.emitter.emitLine(
+          `${indent}${tempVarNameAndType} = ${lhsCode}; // Save old value for later use`
+        );
+      } else {
+        if (!isUnitType(lhs.$.type)) {
+          context.emitter.emitLine(
+            `${indent}${tempVarNameAndType} = ${lhsCode}; // Save old value for later use`
+          );
+        }
+      }
+    }
+  }
+
+  // Handle array assignments specially
+  if (isArrayType(lhs.$.type)) {
+    // Since we use struct wrappers consistently, we can use direct struct assignment
+    const rhsCode = generateExpr(rhs, indent, context);
+
+    // Check if RHS is a closure construction
+    const rhsIsClosureConstruction =
+      exprIsFunctionCall(rhs) &&
+      rhs.$?.closureFunctionValue &&
+      rhs.$?.type &&
+      typeImplementsFn(rhs.$.type);
+
+    // Handle deferred dup expressions for RHS
+    const functionContext = context as FunctionGenerationContext;
+    let finalRhsCode = rhsCode;
+    if (
+      !rhsIsClosureConstruction &&
+      rhs.$?.deferredDupExpressions &&
+      rhs.$.deferredDupExpressions.length > 0
+    ) {
+      // If RHS has a variable name, we need to declare it first
+      if (rhs.$?.variableName && rhs.$?.type) {
+        const rhsVarName = getVariableNameForCodegen(
+          rhs.$.variableName,
+          rhs.$.env
+        );
+        // Only emit the variable declaration if it's not the same as rhsCode
+        if (rhsVarName !== rhsCode.trim()) {
+          const rhsTypeStr = getTypeString(rhs.$.type, context);
+          context.emitter.emitLine(
+            `${indent}${rhsTypeStr} ${rhsVarName} = ${rhsCode};`
+          );
+        }
+      }
+
+      generateDeferredDupExpressions(rhs, indent, functionContext);
+      // Use the dup result variable instead of the original
+      const dupExpr = rhs.$.deferredDupExpressions[0]!;
+      if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
+        finalRhsCode = getVariableNameForCodegen(
+          dupExpr.$.variableName,
+          dupExpr.$.env
+        );
+      }
+    }
+
+    if (isInitialization) {
+      // For initialization
+      const varTypeAndName = getVariableTypeString(
+        lhs.$.type,
+        generateExpr(lhs, indent, context),
+        context
+      );
+      context.emitter.emitLine(`${indent}${varTypeAndName} = ${finalRhsCode};`);
+    } else {
+      // For assignment to existing array variable, use direct struct assignment
+      context.emitter.emitLine(`${indent}${lhsCode} = ${finalRhsCode};`);
+    }
+  } else {
+    // Non-array assignment - use existing logic
+    const rhsCode = generateExpr(rhs, indent, context);
+
+    // Check if RHS is a closure construction
+    const rhsIsClosureConstruction =
+      exprIsFunctionCall(rhs) &&
+      rhs.$?.closureFunctionValue &&
+      rhs.$?.type &&
+      typeImplementsFn(rhs.$.type);
+
+    // Handle deferred dup expressions for RHS
+    const functionContext = context as FunctionGenerationContext;
+    let finalRhsCode = rhsCode;
+    if (
+      !rhsIsClosureConstruction &&
+      rhs.$?.deferredDupExpressions &&
+      rhs.$.deferredDupExpressions.length > 0
+    ) {
+      // If RHS has a variable name, we need to declare it first
+      if (rhs.$?.variableName && rhs.$?.type) {
+        const rhsVarName = getVariableNameForCodegen(
+          rhs.$.variableName,
+          rhs.$.env
+        );
+        // Only emit the variable declaration if it's not the same as rhsCode
+        if (rhsVarName !== rhsCode.trim()) {
+          const rhsTypeStr = getTypeString(rhs.$.type, context);
+          context.emitter.emitLine(
+            `${indent}${rhsTypeStr} ${rhsVarName} = ${rhsCode};`
+          );
+        }
+      }
+
+      generateDeferredDupExpressions(rhs, indent, functionContext);
+      // Use the dup result variable instead of the original
+      const dupExpr = rhs.$.deferredDupExpressions[0]!;
+      if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
+        finalRhsCode = getVariableNameForCodegen(
+          dupExpr.$.variableName,
+          dupExpr.$.env
+        );
+      }
+    }
+
+    // Check if we need to cast closure types
+    // const lhsType = lhs.$.type;
+    // const rhsType = rhs.$?.type;
+    // if (
+    //   lhsType &&
+    //   rhsType &&
+    //   isClosureType(lhsType) &&
+    //   isClosureType(rhsType)
+    // ) {
+    //   // Note: All closure types are now the same (no base vs specific distinction)
+    //   // since captureType is no longer part of ClosureType
+    //   // No cast needed
+    // }
+
+    if (!isUnitType(lhs.$.type)) {
+      // For Impl(Future(...)) bindings, use RHS's actual async block type if available
+      // This ensures task := run_task(b) uses run_task's state machine type
+      const lhsType = lhs.$.type;
+      const rhsType = rhs.$?.type;
+      let rhsAsyncStructName: string | undefined;
+
+      // Special case: if RHS is a temp variable from a function call returning Future,
+      // we should use the temp variable's already-declared type instead of inferring from lhsType
+      // Temp variables have the pattern _yoXXXXXXXX_temp_NNNNN
+      const rhsIsTempVar = isTempVariableName(
+        rhs.$!.env.modulePath,
+        finalRhsCode.trim()
+      );
+
+      // If RHS is a temp variable, check if it has a stored async struct name
+      if (rhsIsTempVar && context.tempVarAsyncStructNames) {
+        rhsAsyncStructName = context.tempVarAsyncStructNames.get(
+          finalRhsCode.trim()
+        );
+      }
+
+      const shouldUseFutureType =
+        isInitialization &&
+        rhsType &&
+        typeImplementsFuture(lhsType) &&
+        typeImplementsFuture(rhsType);
+
+      let cTypeString: string;
+      if (rhsIsTempVar && shouldUseFutureType) {
+        // RHS is a temp variable that was already declared with the correct Future type
+        // Use 'auto' or just don't specify the type - let C infer it from the RHS
+        // Actually, C doesn't have type inference, so we need to use the RHS's type
+        // But we don't know the RHS's C type here. The best we can do is use the temp variable's
+        // type by looking at the generated code. But that's not possible.
+        // So instead, just don't emit the initialization - emit an alias assignment.
+        // NO WAIT - we can't do that because this IS the initialization.
+        // The only solution is to get the correct type from the function's async block.
+        if (rhsAsyncStructName) {
+          cTypeString = `${rhsAsyncStructName}*`;
+        } else {
+          cTypeString = getTypeString(rhsType!, context);
+        }
+      } else if (shouldUseFutureType && rhsAsyncStructName) {
+        // Use the async block's struct name directly
+        cTypeString = `${rhsAsyncStructName}*`;
+      } else {
+        cTypeString = getTypeString(
+          shouldUseFutureType ? rhsType! : lhsType,
+          context
+        );
+      }
+
+      context.emitter.emitLine(
+        `${indent}${isInitialization ? cTypeString + " " : ""}${lhsCode} = ${finalRhsCode};`
+      );
+    }
+  }
+
+  return expr.$?.variableName ?? "";
+}

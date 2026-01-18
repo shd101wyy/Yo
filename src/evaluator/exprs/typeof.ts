@@ -4,7 +4,7 @@ import {
   BuiltinFunctions,
   exprIsFunctionCallOf,
   exprToString,
-  FuncCallExpr,
+  FnCallExpr,
 } from "../../expr";
 import { createTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
@@ -15,10 +15,10 @@ export function evaluateTypeOf({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): FnCallExpr {
   if (!exprIsFunctionCallOf(expr, BuiltinFunctions.typeof, 1)) {
     throw formatErrorMessage({
       token: expr.token,

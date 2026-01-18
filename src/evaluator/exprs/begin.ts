@@ -22,7 +22,7 @@ import {
   exprIsFunctionCallOf,
   ExprTag,
   exprToString,
-  FuncCallExpr,
+  FnCallExpr,
   replaceFuncCallExprWithFuncCallExpr,
   setExprAsNeedsToCallDup,
 } from "../../expr";
@@ -124,7 +124,7 @@ function generateDeferredDropExpressions({
 
 function searchRecursively(
   expr: Expr,
-  dupCalls: Map<string, FuncCallExpr[]>
+  dupCalls: Map<string, FnCallExpr[]>
 ): void {
   // Check the captured dup expressions first
   if (expr.$?.deferredDupExpressions) {
@@ -173,16 +173,16 @@ function searchRecursively(
   }
 
   // Skip closures - they may be called multiple times
-  // if (exprIsFunctionCall(expr) && isFnModuleType(expr.$?.type)) {
+  // if (exprIsFunctionCall(expr) && isFnTraitType(expr.$?.type)) {
   //   return;
   // }
 
   // Helper function to handle branching expressions (cond, match)
   function handleBranchingExpression(
-    expr: FuncCallExpr,
+    expr: FnCallExpr,
     startIndex: number
   ): void {
-    const branchDupCalls: Map<string, FuncCallExpr[]>[] = [];
+    const branchDupCalls: Map<string, FnCallExpr[]>[] = [];
 
     // Process each statement/pattern which should be a "=>" expression with [condition/pattern, body]
     for (let i = startIndex; i < expr.args.length; i++) {
@@ -212,7 +212,7 @@ function searchRecursively(
           // Mark them by wrapping in a special marker object.
           // At runtime, only ONE executes (counts as 1 dup), but if we optimize it away,
           // we must remove ALL of them from the AST.
-          const allBranchDupExprs: FuncCallExpr[] = [];
+          const allBranchDupExprs: FnCallExpr[] = [];
           for (const branchDups of branchDupCalls) {
             const branchDupArray = branchDups.get(varName);
             if (branchDupArray && branchDupArray.length > 0) {
@@ -225,8 +225,8 @@ function searchRecursively(
             dupCalls.set(varName, []);
           }
           // Use a marker object with a special property to identify branch groups
-          const marker = allBranchDupExprs[0]! as FuncCallExpr & {
-            __branchGroup?: FuncCallExpr[];
+          const marker = allBranchDupExprs[0]! as FnCallExpr & {
+            __branchGroup?: FnCallExpr[];
           };
           marker.__branchGroup = allBranchDupExprs;
           dupCalls.get(varName)!.push(marker);
@@ -270,8 +270,8 @@ function searchRecursively(
 // Function to recursively collect dup calls with conservative cross-branch analysis
 function collectDupCallsConservatively(
   currentExpr: Expr
-): Map<string, FuncCallExpr[]> {
-  const dupCalls = new Map<string, FuncCallExpr[]>();
+): Map<string, FnCallExpr[]> {
+  const dupCalls = new Map<string, FnCallExpr[]>();
 
   searchRecursively(currentExpr, dupCalls);
   return dupCalls;
@@ -293,11 +293,11 @@ function isUnitValueExpression(expr: Expr): boolean {
  */
 function removeDupCallsFromExpr(
   expr: Expr,
-  dupCallsToRemove: Set<FuncCallExpr>
+  dupCallsToRemove: Set<FnCallExpr>
 ): void {
   if (expr.$?.deferredDupExpressions) {
     expr.$.deferredDupExpressions = expr.$.deferredDupExpressions.filter(
-      (dupExpr) => !dupCallsToRemove.has(dupExpr as FuncCallExpr)
+      (dupExpr) => !dupCallsToRemove.has(dupExpr as FnCallExpr)
     );
     if (expr.$.deferredDupExpressions.length === 0) {
       expr.$.deferredDupExpressions = undefined;
@@ -338,9 +338,9 @@ export function evaluateBeginExpression({
     // Re-construct it as begin expression
     // const beginExpr = generateExprFromCode(
     //   `begin(${exprToString(expr)})`
-    // ) as FuncCallExpr;
-    const beginExpr: FuncCallExpr = {
-      tag: ExprTag.FuncCall,
+    // ) as FnCallExpr;
+    const beginExpr: FnCallExpr = {
+      tag: ExprTag.FnCall,
       func: {
         tag: ExprTag.Atom,
         token: {
@@ -357,8 +357,8 @@ export function evaluateBeginExpression({
 
     // Replace everything from beginExpr to expr
     // expr = beginExpr;
-    replaceFuncCallExprWithFuncCallExpr(expr as FuncCallExpr, beginExpr);
-    expr = expr as FuncCallExpr;
+    replaceFuncCallExprWithFuncCallExpr(expr as FnCallExpr, beginExpr);
+    expr = expr as FnCallExpr;
   }
   const beginExpressions: Expr[] = expr.args;
   const expectedType = context.expectedType;
@@ -817,7 +817,7 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
     }
 
     // Optimization: Collect all dup calls using the existing infrastructure
-    const dupCallsByBaseVariable = new Map<string, FuncCallExpr[]>();
+    const dupCallsByBaseVariable = new Map<string, FnCallExpr[]>();
 
     // Scan through all expressions in the begin block to collect dup calls
     if (exprIsFunctionCall(expr)) {
@@ -833,7 +833,7 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
     }
 
     // Optimize: For each variable needing drop, check if there's a matching dup call
-    const dupCallsToRemove = new Set<FuncCallExpr>(); // Track which dup calls to remove
+    const dupCallsToRemove = new Set<FnCallExpr>(); // Track which dup calls to remove
 
     for (const variable of variablesNeedingDrop) {
       // Follow the entire isOwningTheSameRcValueAs chain to get the root base variable
@@ -860,11 +860,11 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
         // Branch groups (marked with __branchGroup) count as 1 dup each.
         // Regular dups count as 1 dup each.
         let runtimeDupCount = 0;
-        const allDupExprsToRemove: FuncCallExpr[] = [];
+        const allDupExprsToRemove: FnCallExpr[] = [];
 
         for (const dupCallExpr of dupCalls) {
-          const marker = dupCallExpr as FuncCallExpr & {
-            __branchGroup?: FuncCallExpr[];
+          const marker = dupCallExpr as FnCallExpr & {
+            __branchGroup?: FnCallExpr[];
           };
           if (marker.__branchGroup) {
             // This is a branch group - counts as 1 runtime dup
@@ -882,8 +882,8 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
         if (runtimeDupCount > 0) {
           // Remove the first runtime dup
           const firstDup = dupCalls[0]!;
-          const marker = firstDup as FuncCallExpr & {
-            __branchGroup?: FuncCallExpr[];
+          const marker = firstDup as FnCallExpr & {
+            __branchGroup?: FnCallExpr[];
           };
           if (marker.__branchGroup) {
             // Remove all expressions in the branch group

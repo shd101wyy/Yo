@@ -1,6 +1,6 @@
 import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
-import { FuncCallExpr } from "../../expr";
+import { FnCallExpr } from "../../expr";
 import { isComptStringType } from "../../types";
 import { isComptStringValue, isUnknownValue } from "../../value";
 import { EvaluatorContext } from "../context";
@@ -11,10 +11,10 @@ export function evaluatePanic({
   env,
   context,
 }: {
-  expr: FuncCallExpr;
+  expr: FnCallExpr;
   env: Environment;
   context: EvaluatorContext;
-}): FuncCallExpr {
+}): FnCallExpr {
   // Check if panic is being called inside a function context
   if (context.isEvaluatingFunctionBodyOrAsyncBlock?.kind !== "function-body") {
     throw formatErrorMessage({
