@@ -169,3 +169,19 @@ export function generateWorkerSpawnCall(
 
   return "";
 }
+
+/**
+ * __yo_thread_set_maximum_threads - set maxmium number of threads for coroutine schedular
+ */
+export function generateYoThreadSetMaximumThreads(
+  expr: FnCallExpr,
+  indent: string,
+  context: CodeGenContext
+): string {
+  const numArg = expr.args[0];
+  if (!numArg) {
+    return `// Error: __yo_thread_set_maximum_threads requires exactly 1 argument`;
+  }
+  const numCode = generateExpr(numArg, indent, context);
+  return `__yo_thread_set_maximum_threads(${numCode})`;
+}

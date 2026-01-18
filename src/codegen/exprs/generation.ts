@@ -1,4 +1,3 @@
-import { getVariablesFromEnv } from "../../env";
 import {
   BuiltinFunctions,
   BuiltinKeywords,
@@ -13,15 +12,11 @@ import {
 import {
   ArrayType,
   extractFnTraitFromType,
-  extractFutureTraitFromType,
   isArrayType,
   isDynType,
   isEnumType,
   isFunctionType,
-  isIsoType,
-  isObjectType,
   isPtrType,
-  isRcType,
   isSliceType,
   isSomeType,
   isStructType,
@@ -34,7 +29,6 @@ import {
   typeImplementsFuture,
   TypeTag,
 } from "../../types";
-import { isTempVariableName, randomId } from "../../utils";
 import {
   isBooleanValue,
   isComptStringValue,
@@ -58,8 +52,14 @@ import {
   isFunctionValueWithOnlyBuiltinYoInlineFunctionCall,
   sanitizeForCIdentifier,
 } from "../utils";
+import { generateOpAnd, generateOpOr } from "./and_or";
+import { generateYoArrayFill } from "./array_fns";
+import { generateAssignment } from "./assignment";
 import { generateAsyncBlock } from "./async";
 import { generateAtom } from "./atom";
+import { generateAwait } from "./await";
+import { generateBegin } from "./begin";
+import { generateBinding } from "./binding";
 import {
   checkVariableIsClosureCaptured,
   generateClosureConstruction,
@@ -71,19 +71,45 @@ import {
   generateDeferredDropExpressions,
   generateDeferredDupExpressions,
   generateDropCodeForValue,
-  generateDupCodeForValue,
-  getDropFunctionForType,
-  getDupFunctionForType,
 } from "./drop_dup";
 import { generateDynCall } from "./dyn";
 import { generateExpr, setGenerateExprFn } from "./expr";
+import { generateYoGcCollect } from "./gc";
+import { generateInitializationAssignment } from "./initialization_assignment";
 import { generateYoInlineFunctionCall } from "./inline";
+import {
+  generateIsoTypeCall,
+  generateYoIsoDispose,
+  generateYoIsoExtract,
+  isIsoTypeCall,
+} from "./iso";
 import { generateMatchExpression } from "./match";
+import { generatePanic } from "./panic";
 import {
   generateThreadSpawnCall,
   generateWorkerSpawnCall,
+  generateYoThreadSetMaximumThreads,
 } from "./parallelism";
 import { generateFieldAccess } from "./property_access";
+import {
+  generateDrop,
+  generateDup,
+  generateRcCall,
+  generateYoDecrRc,
+  generateYoDecrRcAtomic,
+  generateYoDropArrayElement,
+  generateYoDropTupleElement,
+  generateYoDupArrayElement,
+  generateYoDupTupleElement,
+  generateYoDynDrop,
+  generateYoDynDup,
+  generateYoIncrRc,
+  generateYoIncrRcAtomic,
+  generateYoRcOwn,
+  generateYoSomeTypeDrop,
+  generateYoSomeTypeDup,
+} from "./rc_fns";
+import { generateReturn } from "./return";
 import { generateWhileLoop } from "./while";
 
 /**
@@ -119,8 +145,6 @@ function generateFuncCall(
   indent: string,
   context: CodeGenContext
 ): string {
-  const emitter = context.emitter;
-
   // Handle macro function calls (functions with isUnquote return type)
   // If expr.$.macroExpansion is set, this macro call has already been expanded
   // during evaluation. Generate code for the expanded form instead.
@@ -171,267 +195,41 @@ function generateFuncCall(
 
   // __yo_decr_rc - handle reference count decrement
   if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_decr_rc)) {
-    const selfArg = expr.args[0];
-    if (!selfArg) {
-      return `// Error: __yo_decr_rc requires exactly 1 argument`;
-    }
-    const selfCode = generateExpr(selfArg, indent, context);
-    return `__yo_decr_rc(${selfCode})`;
+    return generateYoDecrRc(expr, indent, context);
   }
 
   // __yo_incr_rc - handle reference count increment
   if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_incr_rc)) {
-    const selfArg = expr.args[0];
-    if (!selfArg) {
-      return `// Error: __yo_incr_rc requires exactly 1 argument`;
-    }
-    const selfCode = generateExpr(selfArg, indent, context);
-    return `__yo_incr_rc(${selfCode})`;
+    return generateYoIncrRc(expr, indent, context);
   }
 
   // __yo_rc_own - return the value itself, used for transferring ownership
   if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_rc_own)) {
-    const selfArg = expr.args[0];
-    if (!selfArg) {
-      return `// Error: __yo_rc_own requires exactly 1 argument`;
-    }
-    const selfCode = generateExpr(selfArg, indent, context);
-    return selfCode; // Just return the argument as-is
+    return generateYoRcOwn(expr, indent, context);
   }
 
   // __yo_drop_array_element - drop array element at index without borrowing
   // This is used when dropping arrays to directly drop each element
   if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_drop_array_element)) {
-    const arrayArg = expr.args[0];
-    const indexArg = expr.args[1];
-    if (!arrayArg || !indexArg) {
-      return `// Error: __yo_drop_array_element requires exactly 2 arguments`;
-    }
-
-    const arrayCode = generateExpr(arrayArg, indent, context);
-    const indexCode = generateExpr(indexArg, indent, context);
-
-    // Get the array element type to find its drop function
-    const arrayType = arrayArg.$?.type;
-    if (!arrayType || !isArrayType(arrayType)) {
-      return `// Error: __yo_drop_array_element requires an array type`;
-    }
-
-    const elementType = arrayType.childType;
-    const concreteElementType =
-      isSomeType(elementType) && elementType.resolvedConcreteType
-        ? elementType.resolvedConcreteType
-        : elementType;
-
-    // If element type is array, recursively generate inline drop code
-    if (isArrayType(concreteElementType)) {
-      const nestedArrayLength = concreteElementType.length;
-      if (!isNumberValue(nestedArrayLength)) {
-        return `// Error: array element has non-constant length`;
-      }
-      const loopVar = `i_${Math.floor(Math.random() * 1000000)}`;
-      // Generate inline drop code using ___drop recursively
-      const emitter = (context as FunctionGenerationContext).emitter;
-      emitter.emitLine(
-        `for (size_t ${loopVar} = 0; ${loopVar} < ${nestedArrayLength.value}; ${loopVar}++) {`
-      );
-      // Create a fake expression for the nested array element to recursively call ___drop codegen
-      const nestedArrayElement = `(${arrayCode}).data[${indexCode}].data[${loopVar}]`;
-      emitter.emitLine(`  { // drop nested array element`);
-      const dropCode = generateDropCodeForValue(
-        nestedArrayElement,
-        concreteElementType.childType,
-        context
-      );
-      if (dropCode) {
-        emitter.emitLine(`    ${dropCode};`);
-      }
-      emitter.emitLine(`  }`);
-      emitter.emitLine(`}`);
-      return ``;
-    }
-
-    // Call the drop function on the element
-    // Arrays are represented as structs with a .data field containing the actual C array
-    const dropFnCName = getDropFunctionForType(concreteElementType, context);
-    if (dropFnCName) {
-      return `${dropFnCName}((${arrayCode}).data[${indexCode}])`;
-    } else {
-      return `// No drop function for array element type`;
-    }
+    return generateYoDropArrayElement(expr, indent, context);
   }
 
   // __yo_dup_array_element - dup array element at index without borrowing
   // This is used when duping arrays to directly dup each element
   if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_dup_array_element)) {
-    const arrayArg = expr.args[0];
-    const indexArg = expr.args[1];
-    if (!arrayArg || !indexArg) {
-      return `// Error: __yo_dup_array_element requires exactly 2 arguments`;
-    }
-
-    const arrayCode = generateExpr(arrayArg, indent, context);
-    const indexCode = generateExpr(indexArg, indent, context);
-
-    // Get the array element type to find its dup function
-    const arrayType = arrayArg.$?.type;
-    if (!arrayType || !isArrayType(arrayType)) {
-      return `// Error: __yo_dup_array_element requires an array type`;
-    }
-
-    const elementType = arrayType.childType;
-    const concreteElementType =
-      isSomeType(elementType) && elementType.resolvedConcreteType
-        ? elementType.resolvedConcreteType
-        : elementType;
-
-    // If element type is array, recursively generate inline dup code
-    if (isArrayType(concreteElementType)) {
-      const nestedArrayLength = concreteElementType.length;
-      if (!isNumberValue(nestedArrayLength)) {
-        return `// Error: array element has non-constant length`;
-      }
-      const tempVar = `temp_array_${Math.floor(Math.random() * 1000000)}`;
-      const loopVar = `i_${Math.floor(Math.random() * 1000000)}`;
-      const elementCName = getTypeString(concreteElementType, context);
-      const emitter = (context as FunctionGenerationContext).emitter;
-      emitter.emitLine(
-        `${elementCName} ${tempVar} = (${arrayCode}).data[${indexCode}];`
-      );
-      emitter.emitLine(
-        `for (size_t ${loopVar} = 0; ${loopVar} < ${nestedArrayLength.value}; ${loopVar}++) {`
-      );
-      // Recursively generate dup code for nested array elements
-      const dupCode = generateDupCodeForValue(
-        `${tempVar}.data[${loopVar}]`,
-        concreteElementType.childType,
-        context
-      );
-      emitter.emitLine(`  ${tempVar}.data[${loopVar}] = ${dupCode};`);
-      emitter.emitLine(`}`);
-      return tempVar;
-    }
-
-    // Call the dup function on the element
-    // Arrays are represented as structs with a .data field containing the actual C array
-    const dupFnCName = getDupFunctionForType(concreteElementType, context);
-    if (dupFnCName) {
-      return `${dupFnCName}((${arrayCode}).data[${indexCode}])`;
-    } else {
-      return `// No dup function for array element type`;
-    }
+    return generateYoDupArrayElement(expr, indent, context);
   }
 
   // __yo_drop_tuple_element - drop tuple element at index without borrowing
   // This is used when dropping tuples to directly drop each element
   if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_drop_tuple_element)) {
-    const tupleArg = expr.args[0];
-    const indexArg = expr.args[1];
-    if (!tupleArg || !indexArg) {
-      return `// Error: __yo_drop_tuple_element requires exactly 2 arguments`;
-    }
-
-    const tupleCode = generateExpr(tupleArg, indent, context);
-    generateExpr(indexArg, indent, context);
-
-    // Get the tuple element type to find its drop function
-    const tupleType = tupleArg.$?.type;
-    if (!tupleType || !isTupleType(tupleType)) {
-      return `// Error: __yo_drop_tuple_element requires a tuple type`;
-    }
-
-    // Get index value
-    const indexValue = indexArg.$?.value;
-    if (!isNumberValue(indexValue)) {
-      return `// Error: __yo_drop_tuple_element requires a constant index`;
-    }
-
-    const index = Number(indexValue.value);
-    if (index < 0 || index >= tupleType.fields.length) {
-      return `// Error: __yo_drop_tuple_element index out of bounds`;
-    }
-
-    const elementType = tupleType.fields[index]!.type;
-    const concreteElementType =
-      isSomeType(elementType) && elementType.resolvedConcreteType
-        ? elementType.resolvedConcreteType
-        : elementType;
-
-    // For nested tuples, we need to recursively drop the RC elements
-    if (isTupleType(concreteElementType)) {
-      const elementAccessCode = `(${tupleCode})._${index}`;
-      const dropCode = generateDropCodeForValue(
-        elementAccessCode,
-        concreteElementType,
-        context
-      );
-      return dropCode;
-    }
-
-    // Call the drop function on the element
-    // Tuples are represented as structs with fields named _0, _1, _2, etc.
-    const dropFnCName = getDropFunctionForType(concreteElementType, context);
-    if (dropFnCName) {
-      return `${dropFnCName}((${tupleCode})._${index})`;
-    } else {
-      return `// No drop function for tuple element type`;
-    }
+    return generateYoDropTupleElement(expr, indent, context);
   }
 
   // __yo_dup_tuple_element - dup tuple element at index without borrowing
   // This is used when duping tuples to directly dup each element
   if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_dup_tuple_element)) {
-    const tupleArg = expr.args[0];
-    const indexArg = expr.args[1];
-    if (!tupleArg || !indexArg) {
-      return `// Error: __yo_dup_tuple_element requires exactly 2 arguments`;
-    }
-
-    const tupleCode = generateExpr(tupleArg, indent, context);
-    generateExpr(indexArg, indent, context);
-
-    // Get the tuple element type to find its dup function
-    const tupleType = tupleArg.$?.type;
-    if (!tupleType || !isTupleType(tupleType)) {
-      return `// Error: __yo_dup_tuple_element requires a tuple type`;
-    }
-
-    // Get index value
-    const indexValue = indexArg.$?.value;
-    if (!isNumberValue(indexValue)) {
-      return `// Error: __yo_dup_tuple_element requires a constant index`;
-    }
-
-    const index = Number(indexValue.value);
-    if (index < 0 || index >= tupleType.fields.length) {
-      return `// Error: __yo_dup_tuple_element index out of bounds`;
-    }
-
-    const elementType = tupleType.fields[index]!.type;
-    const concreteElementType =
-      isSomeType(elementType) && elementType.resolvedConcreteType
-        ? elementType.resolvedConcreteType
-        : elementType;
-
-    // For nested tuples, we need to recursively dup the RC elements
-    if (isTupleType(concreteElementType)) {
-      const elementAccessCode = `(${tupleCode})._${index}`;
-      const dupCode = generateDupCodeForValue(
-        elementAccessCode,
-        concreteElementType,
-        context
-      );
-      return dupCode;
-    }
-
-    // Call the dup function on the element
-    // Tuples are represented as structs with fields named _0, _1, _2, etc.
-    const dupFnCName = getDupFunctionForType(concreteElementType, context);
-    if (dupFnCName) {
-      return `${dupFnCName}((${tupleCode})._${index})`;
-    } else {
-      return `// No dup function for tuple element type`;
-    }
+    return generateYoDupTupleElement(expr, indent, context);
   }
 
   // ___dup - generic dup hook used by evaluator for reference-counted values.
@@ -439,312 +237,75 @@ function generateFuncCall(
   // some contexts (e.g. deferred dup for dyn-closure captures) the builtin call
   // is intentionally deferred to codegen.
   if (exprIsFunctionCallOf(expr, BuiltinFunctions.___dup)) {
-    const valueArg = expr.args[0];
-    if (!valueArg) {
-      return `// Error: ___dup requires exactly 1 argument`;
-    }
-
-    const valueCode = generateExpr(valueArg, indent, context);
-    const valueType = valueArg.$?.type ?? expr.$?.type;
-    if (!valueType) {
-      // Best-effort: preserve the expression.
-      return valueCode;
-    }
-
-    return generateDupCodeForValue(valueCode, valueType, context);
+    return generateDup(expr, indent, context);
   }
 
   // ___drop - generic drop hook used by evaluator for reference-counted values.
   // Similar to ___dup, some drops are deferred to codegen.
   if (exprIsFunctionCallOf(expr, BuiltinFunctions.___drop)) {
-    const valueArg = expr.args[0];
-    if (!valueArg) {
-      return `// Error: ___drop requires exactly 1 argument`;
-    }
-
-    const valueCode = generateExpr(valueArg, indent, context);
-    const valueType = valueArg.$?.type ?? expr.$?.type;
-    if (!valueType) {
-      return ``;
-    }
-
-    return generateDropCodeForValue(valueCode, valueType, context);
+    return generateDrop(expr, indent, context);
   }
 
   // __yo_dyn_drop - call dispose on dyn object via dispose function then __yo_decr_rc on dyn
   if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_dyn_drop)) {
-    const selfArg = expr.args[0];
-    if (!selfArg) {
-      return `// Error: __yo_dyn_drop requires exactly 1 argument`;
-    }
-    const selfCode = generateExpr(selfArg, indent, context);
-    // Dyn is a value type; ref-counting applies to its .data pointer.
-    return `__yo_decr_rc((void*)(${selfCode}).data)`;
+    return generateYoDynDrop(expr, indent, context);
   }
 
   // __yo_dyn_dup - call dup on wrapped object via vtable and __yo_incr_rc on dyn
   if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_dyn_dup)) {
-    const selfArg = expr.args[0];
-    if (!selfArg) {
-      return `// Error: __yo_dyn_dup requires exactly 1 argument`;
-    }
-    const selfCode = generateExpr(selfArg, indent, context);
-    // Dyn is a value type; ref-counting applies to its .data pointer.
-    return `__yo_incr_rc((void*)(${selfCode}).data)`;
+    return generateYoDynDup(expr, indent, context);
   }
 
   // __yo_incr_rc_atomic - atomic reference count increment for Iso types
   if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_incr_rc_atomic)) {
-    const selfArg = expr.args[0];
-    if (!selfArg) {
-      return `// Error: __yo_incr_rc_atomic requires exactly 1 argument`;
-    }
-    const selfCode = generateExpr(selfArg, indent, context);
-    return `__yo_incr_rc_atomic(${selfCode})`;
+    return generateYoIncrRcAtomic(expr, indent, context);
   }
 
   // __yo_decr_rc_atomic - atomic reference count decrement for Iso types
   if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_decr_rc_atomic)) {
-    const selfArg = expr.args[0];
-    if (!selfArg) {
-      return `// Error: __yo_decr_rc_atomic requires exactly 1 argument`;
-    }
-    const selfCode = generateExpr(selfArg, indent, context);
-    return `__yo_decr_rc_atomic(${selfCode})`;
+    return generateYoDecrRcAtomic(expr, indent, context);
   }
 
   // __yo_iso_extract - extract inner value from Iso type
   if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_iso_extract)) {
-    const selfArg = expr.args[0];
-    if (!selfArg) {
-      return `// Error: __yo_iso_extract requires exactly 1 argument`;
-    }
-    const selfCode = generateExpr(selfArg, indent, context);
-    const selfType = selfArg.$?.type;
-
-    if (!selfType || !isIsoType(selfType)) {
-      return `// Error: __yo_iso_extract requires an Iso type`;
-    }
-
-    const isoTypeCName = getTypeString(selfType, context);
-
-    // Register the Option type C name for the extract function
-    // The return type of __yo_iso_extract is Option(ChildType)
-    const returnType = expr.$?.type;
-    if (returnType && context.isoTypes?.has(isoTypeCName)) {
-      const isoInfo = context.isoTypes.get(isoTypeCName)!;
-      if (!isoInfo.optionTypeCName) {
-        isoInfo.optionTypeCName = getTypeString(returnType, context);
-      }
-    }
-
-    const extractCall = `__yo_iso_extract_${isoTypeCName}(${selfCode})`;
-
-    // If this expression has a temp variable (for cleanup), emit declaration + assignment
-    const tempVar = expr.$?.variableName;
-    if (tempVar && returnType) {
-      context.emitter.emitLine(
-        `${indent}${getTypeString(returnType, context)} ${tempVar} = ${extractCall};`
-      );
-      return tempVar;
-    }
-
-    return extractCall;
+    return generateYoIsoExtract(expr, indent, context);
   }
 
   // __yo_iso_dispose - dispose inner value of Iso if not extracted
   if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_iso_dispose)) {
-    const selfArg = expr.args[0];
-    if (!selfArg) {
-      return `// Error: __yo_iso_dispose requires exactly 1 argument`;
-    }
-    const selfCode = generateExpr(selfArg, indent, context);
-    const selfType = selfArg.$?.type;
-
-    if (!selfType || !isIsoType(selfType)) {
-      return `// Error: __yo_iso_dispose requires an Iso type`;
-    }
-
-    const isoTypeCName = getTypeString(selfType, context);
-    return `__yo_iso_dispose_${isoTypeCName}(${selfCode})`;
+    return generateYoIsoDispose(expr, indent, context);
   }
 
   // Iso(T)(value) - Iso value constructor
   // Check if this is a call to an Iso type constructor (not just any expression returning Iso type)
   // The function being called must be a TypeValue containing an IsoType
-  const funcValue = expr.func.$?.value;
-  if (
-    isTypeValue(funcValue) &&
-    isIsoType(funcValue.value) &&
-    expr.args.length === 1
-  ) {
-    const isoType = funcValue.value;
-    const childType = isoType.childType;
-
-    const valueArg = expr.args[0]!;
-    const valueCode = generateExpr(valueArg, indent, context);
-
-    // Register the Iso type
-    const isoTypeCName = getTypeString(isoType, context);
-    const childTypeCName = getTypeString(childType, context);
-
-    if (!context.isoTypes) {
-      context.isoTypes = new Map();
-    }
-    if (!context.isoTypes.has(isoTypeCName)) {
-      context.isoTypes.set(isoTypeCName, { childTypeCName, isoType });
-    }
-
-    // Generate allocation and initialization
-    // Iso_T* iso = __yo_malloc(sizeof(Iso_T));
-    // iso->arc = 1;
-    // iso->extracted = false;
-    // iso->value = value;
-    // return iso;
-    return `__yo_create_iso_${isoTypeCName}(${valueCode})`;
+  if (isIsoTypeCall(expr)) {
+    return generateIsoTypeCall(expr, indent, context);
   }
 
   // __yo_sometype_drop - dispatch to resolvedConcreteType's ___drop if available
   if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_sometype_drop)) {
-    const selfArg = expr.args[0];
-    if (!selfArg) {
-      return `// Error: __yo_sometype_drop requires exactly 1 argument`;
-    }
-    const argType = selfArg.$?.type;
-
-    // Impl(Future(T)) is heap-backed and ref-counted: decrement refcount
-    // The state machine will be freed when refcount hits 0
-    if (argType && isSomeType(argType) && typeImplementsFuture(argType)) {
-      const selfCode = generateExpr(selfArg, indent, context);
-      return `if (${selfCode} != NULL) { __yo_decr_rc((void*)${selfCode}); }`;
-    }
-
-    if (argType && isSomeType(argType) && argType.resolvedConcreteType) {
-      // Dispatch to concrete type's ___drop
-      const concreteType = argType.resolvedConcreteType;
-      const dropFn = concreteType.trait?.fields.find(
-        (f) => f.label === BuiltinFunctions.___drop[0]
-      );
-      if (
-        dropFn &&
-        dropFn.assignedValue &&
-        isFunctionValue(dropFn.assignedValue)
-      ) {
-        const dropFnCName =
-          context.functions[dropFn.assignedValue.funcId]?.cName;
-        if (dropFnCName) {
-          const selfCode = generateExpr(selfArg, indent, context);
-          return `${dropFnCName}(${selfCode})`;
-        }
-      }
-    }
-    // No concrete type or no drop function - no-op
-    return `/* __yo_sometype_drop: no-op */`;
+    return generateYoSomeTypeDrop(expr, indent, context);
   }
 
   // __yo_sometype_dup - dispatch to resolvedConcreteType's ___dup if available
   if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_sometype_dup)) {
-    const selfArg = expr.args[0];
-    if (!selfArg) {
-      return `// Error: __yo_sometype_dup requires exactly 1 argument`;
-    }
-    const argType = selfArg.$?.type;
-
-    // Impl(Future(T)) is heap-backed and ref-counted: increment refcount
-    if (argType && isSomeType(argType) && typeImplementsFuture(argType)) {
-      const selfCode = generateExpr(selfArg, indent, context);
-      return `__yo_incr_rc((void*)${selfCode})`;
-    }
-
-    if (argType && isSomeType(argType) && argType.resolvedConcreteType) {
-      // Dispatch to concrete type's ___dup
-      const concreteType = argType.resolvedConcreteType;
-      const dupFn = concreteType.trait?.fields.find(
-        (f) => f.label === BuiltinFunctions.___dup[0]
-      );
-      if (
-        dupFn &&
-        dupFn.assignedValue &&
-        isFunctionValue(dupFn.assignedValue)
-      ) {
-        const dupFnCName = context.functions[dupFn.assignedValue.funcId]?.cName;
-        if (dupFnCName) {
-          const selfCode = generateExpr(selfArg, indent, context);
-          return `${dupFnCName}(${selfCode})`;
-        }
-      }
-    }
-    // No concrete type or no dup function - no-op
-    return `/* __yo_sometype_dup: no-op */`;
+    return generateYoSomeTypeDup(expr, indent, context);
   }
 
   // __yo_gc_collect - trigger garbage collection
   if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_gc_collect)) {
-    if (expr.args.length !== 0) {
-      return `// Error: __yo_gc_collect requires exactly 0 arguments`;
-    }
-    return `__yo_gc_collect()`;
+    return generateYoGcCollect(expr, indent, context);
   }
 
   // rc - get the reference count of a value
   if (exprIsFunctionCallOf(expr, BuiltinFunctions.rc)) {
-    if (expr.args.length !== 1) {
-      return `// Error: rc requires exactly 1 argument`;
-    }
-    const argExpr = expr.args[0]!;
-    const argType = argExpr.$?.type;
-    if (!argType) {
-      return `// Error: rc argument missing type information`;
-    }
-
-    const argCode = generateExpr(argExpr, indent, context);
-
-    // For GC types (reference-counted objects), return the actual ref_count
-    if (isRcType(argType)) {
-      return `((yo_ref_header_t*)(${argCode}))->ref_count`;
-    } else {
-      // For value types, always return 1
-      return `1`;
-    }
+    return generateRcCall(expr, indent, context);
   }
 
   // panic - print error message and abort execution
   if (exprIsFunctionCallOf(expr, BuiltinFunctions.panic)) {
-    // panic() never returns, so we need to handle it specially
-    // We need to generate the panic code and then provide a dummy value for the assignment
-    const returnType = expr.$?.type;
-    if (!returnType) {
-      return `// Error: panic() missing type information`;
-    }
-
-    if (expr.args.length === 0) {
-      // No message provided, just call abort()
-      emitter.emitLine(`${indent}abort();`);
-    } else if (expr.args.length === 1) {
-      // Message provided, print to stderr then abort
-      const messageArg = expr.args[0]!;
-
-      // The message should be a compile-time string value
-      if (messageArg.$?.value && isComptStringValue(messageArg.$.value)) {
-        const message = messageArg.$.value.value;
-        emitter.emitLine(
-          `${indent}fprintf(stderr, "%s\\n", ${JSON.stringify(message)});`
-        );
-        emitter.emitLine(`${indent}abort();`);
-      } else {
-        // Runtime message - generate code to evaluate it
-        const messageCode = generateExpr(messageArg, indent, context);
-        emitter.emitLine(`${indent}fprintf(stderr, "%s\\n", ${messageCode});`);
-        emitter.emitLine(`${indent}abort();`);
-      }
-    } else {
-      return `// Error: panic accepts 0 or 1 arguments, got ${expr.args.length}`;
-    }
-
-    // Since panic never returns, we need to provide a dummy value of the correct type
-    // This code is unreachable but needed for C compilation
-    const returnTypeStr = getTypeString(returnType, context);
-    return `(*((${returnTypeStr}*)NULL))`; // This will never execute but has the right type
+    return generatePanic(expr, indent, context);
   }
 
   // test - test declaration, skipped during normal compilation
@@ -758,38 +319,17 @@ function generateFuncCall(
   if (
     exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_thread_set_maximum_threads)
   ) {
-    const numArg = expr.args[0];
-    if (!numArg) {
-      return `// Error: __yo_thread_set_maximum_threads requires exactly 1 argument`;
-    }
-    const numCode = generateExpr(numArg, indent, context);
-    return `__yo_thread_set_maximum_threads(${numCode})`;
+    return generateYoThreadSetMaximumThreads(expr, indent, context);
   }
 
   // op_and - && operator with short-circuit evaluation
   if (exprIsFunctionCallOf(expr, BuiltinKeywords.op_and)) {
-    if (expr.args.length === 0) {
-      return `true`; // Empty && returns true
-    }
-    if (expr.args.length === 1) {
-      return generateExpr(expr.args[0]!, indent, context);
-    }
-    // Generate: (arg1 && arg2 && ... && argN)
-    const argCodes = expr.args.map((arg) => generateExpr(arg, indent, context));
-    return `(${argCodes.join(" && ")})`;
+    return generateOpAnd(expr, indent, context);
   }
 
   // op_or - || operator with short-circuit evaluation
   if (exprIsFunctionCallOf(expr, BuiltinKeywords.op_or)) {
-    if (expr.args.length === 0) {
-      return `false`; // Empty || returns false
-    }
-    if (expr.args.length === 1) {
-      return generateExpr(expr.args[0]!, indent, context);
-    }
-    // Generate: (arg1 || arg2 || ... || argN)
-    const argCodes = expr.args.map((arg) => generateExpr(arg, indent, context));
-    return `(${argCodes.join(" || ")})`;
+    return generateOpOr(expr, indent, context);
   }
 
   // async - async block that creates a Future
@@ -804,329 +344,17 @@ function generateFuncCall(
 
   // await - extract value from Future
   if (exprIsFunctionCallOf(expr, BuiltinFunctions.await)) {
-    const futureArg = expr.args[0];
-    if (!futureArg) {
-      return `// Error: await requires exactly 1 argument`;
-    }
-
-    // const futureCode = generateExpr(futureArg, indent, context);
-    const futureType = futureArg.$?.type;
-
-    // Check if the type implements Future (handles both FutureTraitType and SomeType with Future impl)
-    if (!futureType || !typeImplementsFuture(futureType)) {
-      return `// Error: await argument must be a Future type`;
-    }
-
-    // Extract the Future module type to get the result type
-    const futureModuleType = extractFutureTraitFromType(futureType);
-    if (!futureModuleType) {
-      return `// Error: could not extract Future module from type`;
-    }
-
-    // In async context (state machine), await expressions don't generate code
-    // The result is extracted at the start of the next state
-    // If this await expression is assigned to a variable, that variable's name is in expr.$.variableName
-    const functionContext = context as FunctionGenerationContext;
-    if (functionContext.inStateMachine) {
-      // Return empty string - the actual await logic is handled by state machine generator
-      // The result will be available in the target variable in the next state
-      return ``;
-    }
-
-    // Outside async context - this is an error
-    return `// Error: await should only be used inside async blocks`;
+    return generateAwait(expr, indent, context);
   }
 
   // return
   if (exprIsFunctionCallOf(expr, BuiltinKeywords.return)) {
-    const arg = expr.args[0];
-    if (arg) {
-      if (!expr.$) {
-        throw new Error(`Internal error: return expression missing metadata`);
-      }
-      // For non-unit types, we need a temporary variable to hold the return value
-      // before deferred drop expressions run
-      if (!expr.$.variableName && !isUnitType(expr.$.type)) {
-        return `// Error: return expression missing temporary variable name`;
-      }
-
-      // Special handling for async functions: we need to get the raw value code
-      // without temp variable indirection to properly declare the temp variable
-      const functionContext = context as FunctionGenerationContext;
-      let argCode: string;
-      let needsTempVarDeclaration = false;
-
-      if (functionContext.inStateMachine && arg.$?.variableName) {
-        // In async context: generate raw value code by temporarily clearing variableName
-        const savedVariableName = arg.$.variableName;
-        arg.$.variableName = undefined;
-        argCode = generateExpr(arg, indent, context);
-        arg.$.variableName = savedVariableName;
-        needsTempVarDeclaration = true;
-      } else {
-        // Check if arg has both a variableName and deferredDupExpressions
-        // This happens when we need to store the arg value in a temp var before duping it
-        if (
-          arg.$?.variableName &&
-          arg.$?.deferredDupExpressions &&
-          arg.$.deferredDupExpressions.length > 0
-        ) {
-          // Generate the arg value without the variableName to get the raw expression
-          const savedVariableName = arg.$.variableName;
-          arg.$.variableName = undefined;
-          const rawArgCode = generateExpr(arg, indent, context);
-          arg.$.variableName = savedVariableName;
-
-          // Declare and assign the temp variable
-          const argType = getTypeString(arg.$.type!, context);
-          const argTempVar = getVariableNameForCodegen(
-            savedVariableName,
-            arg.$.env
-          );
-
-          if (argTempVar !== rawArgCode) {
-            context.emitter.emitLine(
-              `${indent}${argType} ${argTempVar} = ${rawArgCode};`
-            );
-          }
-          argCode = argTempVar;
-        } else {
-          argCode = generateExpr(arg, indent, context);
-        }
-      }
-
-      // Handle deferred dup expressions for the return argument.
-      // This is needed when returning a borrowed parameter - we must call dup
-      // to increment the reference count since return values are owned.
-      let handledDeferredDup = false;
-      if (
-        arg.$?.deferredDupExpressions &&
-        arg.$.deferredDupExpressions.length > 0
-      ) {
-        generateDeferredDupExpressions(arg, indent, functionContext);
-        const dupExpr = arg.$.deferredDupExpressions[0]!;
-        if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
-          argCode = getVariableNameForCodegen(
-            dupExpr.$.variableName,
-            dupExpr.$.env
-          );
-          handledDeferredDup = true;
-        }
-      }
-
-      const returnType = getTypeString(expr.$.type!, context);
-
-      // The evaluator provides a temp variable name for return expressions so we can
-      // compute the value before running deferred drops.
-      const returnTempVar = expr.$.variableName
-        ? getVariableNameForCodegen(expr.$.variableName, expr.$.env)
-        : undefined;
-
-      // Skip re-declaring if we already generated a dup call with a temp variable
-      // Also skip if the variable name is the same as the arg code (e.g., returning a local variable)
-      if (
-        !handledDeferredDup &&
-        !isUnitType(expr.$.type) &&
-        returnTempVar &&
-        returnTempVar !== argCode // Prevent something like: int32_t counter = counter;
-      ) {
-        context.emitter.emitLine(
-          `${indent}${returnType} ${returnTempVar} = ${argCode};`
-        );
-      }
-
-      if (expr.$.deferredDropExpressions) {
-        generateDeferredDropExpressions(expr, indent, context);
-      }
-
-      // Check if we're in a state machine - if so, complete the Future instead of returning
-      if (functionContext.inStateMachine) {
-        // State machine return - complete the Future and clean up
-        const futureType = functionContext.inStateMachine.futureType;
-        const futureModuleType = extractFutureTraitFromType(futureType)!;
-        const childType = futureModuleType.isFuture.outputType;
-        const isUnitResult = isUnitType(childType);
-
-        // Generate pending deferred drops from enclosing begin blocks
-        // This is needed when returning early from inside a cond branch - the outer
-        // begin block's deferred drops would otherwise be skipped.
-        // Only generate these if the return expression doesn't already have its own
-        // deferred drops (to avoid double-dropping).
-        if (
-          functionContext.pendingDeferredDrops &&
-          (!expr.$.deferredDropExpressions ||
-            expr.$.deferredDropExpressions.length === 0)
-        ) {
-          context.emitter.emitLine(
-            `${indent}// Drop local variables before early completion`
-          );
-          for (const dropExpr of functionContext.pendingDeferredDrops) {
-            const dropCode = generateExpr(dropExpr, indent, context);
-            if (dropCode) {
-              context.emitter.emitLine(`${indent}${dropCode};`);
-            }
-          }
-        }
-
-        context.emitter.emitLine(
-          `${indent}// Final state - complete the result Future`
-        );
-        context.emitter.emitLine(
-          `${indent}ASYNC_DEBUG("${context.currentFunctionName}: Completing async function\\n");`
-        );
-
-        // Store the result if not unit
-        if (!isUnitResult) {
-          // Use argCode directly if we didn't need a temp variable, otherwise use the temp variable
-          const resultValue =
-            expr.$.variableName && needsTempVarDeclaration
-              ? expr.$.variableName
-              : expr.$.variableName || argCode;
-          context.emitter.emitLine(`${indent}sm->result = ${resultValue};`);
-        }
-
-        // Set state to COMPLETED with release semantics
-        // This ensures the result write above is visible to other threads
-        context.emitter.emitLine(
-          `${indent}ASYNC_DEBUG("${context.currentFunctionName}: Setting state to COMPLETED\\n");`
-        );
-        context.emitter.emitLine(
-          `${indent}atomic_store_explicit(&sm->state, -1, memory_order_release);  // -1 = completed`
-        );
-
-        // Check if there's a continuation waiting (with acquire semantics to see the continuation registration)
-        context.emitter.emitLine(``);
-        context.emitter.emitLine(
-          `${indent}// Check if there's a continuation waiting for this Future to complete`
-        );
-        context.emitter.emitLine(
-          `${indent}void (*continuation_fn)(void*) = atomic_load_explicit(&sm->continuation_fn, memory_order_acquire);`
-        );
-        context.emitter.emitLine(
-          `${indent}void* continuation_sm = atomic_load_explicit(&sm->continuation_sm, memory_order_acquire);`
-        );
-        context.emitter.emitLine(`${indent}if (continuation_fn != NULL) {`);
-        context.emitter.emitLine(
-          `${indent}  ASYNC_DEBUG("${context.currentFunctionName}: Spawning continuation: resume_fn=%p, sm=%p\\n", (void*)continuation_fn, continuation_sm);`
-        );
-        context.emitter.emitLine(
-          `${indent}  yo_async_spawn_task(continuation_fn, continuation_sm);`
-        );
-        context.emitter.emitLine(`${indent}}`);
-
-        context.emitter.emitLine(
-          `${indent}sm->state = ${Number.MAX_SAFE_INTEGER};  // Terminal state`
-        );
-        context.emitter.emitLine(``);
-        context.emitter.emitLine(
-          `${indent}// Release the "running task" reference now that task is complete`
-        );
-        context.emitter.emitLine(
-          `${indent}// This balances the __yo_incr_rc in the constructor`
-        );
-        context.emitter.emitLine(`${indent}__yo_decr_rc((void*)sm);`);
-        context.emitter.emitLine(``);
-        // Return from the void resume function
-        context.emitter.emitLine(`${indent}return;`);
-        // Return empty string so no additional code is generated
-        return ``;
-      }
-
-      // Normal (non-state-machine) return
-
-      // Generate pending deferred drops from enclosing begin blocks
-      // This is needed when returning early from inside a cond/match branch - the outer
-      // begin block's deferred drops would otherwise be skipped.
-      // Only generate these if the return expression doesn't already have its own
-      // deferred drops (to avoid double-dropping).
-      if (
-        functionContext.pendingDeferredDrops &&
-        (!expr.$.deferredDropExpressions ||
-          expr.$.deferredDropExpressions.length === 0)
-      ) {
-        context.emitter.emitLine(
-          `${indent}// Drop local variables before early return`
-        );
-        for (const dropExpr of functionContext.pendingDeferredDrops) {
-          const dropCode = generateExpr(dropExpr, indent, context);
-          if (dropCode) {
-            context.emitter.emitLine(`${indent}${dropCode};`);
-          }
-        }
-      }
-
-      if (isUnitType(expr.$.type)) {
-        return `return`;
-      }
-
-      // If we handled deferred dup, use argCode (which is the dup result temp variable)
-      // Otherwise use expr.$.variableName as before
-      const returnValue = handledDeferredDup
-        ? argCode
-        : (returnTempVar ?? argCode);
-      return `return ${returnValue}`;
-    } else {
-      if (expr.$?.deferredDropExpressions) {
-        generateDeferredDropExpressions(expr, indent, context);
-      }
-
-      const functionContext = context as FunctionGenerationContext;
-
-      // Generate pending deferred drops for unit return as well
-      if (functionContext.pendingDeferredDrops) {
-        context.emitter.emitLine(
-          `${indent}// Drop local variables before early return`
-        );
-        for (const dropExpr of functionContext.pendingDeferredDrops) {
-          const dropCode = generateExpr(dropExpr, indent, context);
-          if (dropCode) {
-            context.emitter.emitLine(`${indent}${dropCode};`);
-          }
-        }
-      }
-
-      return "return";
-    }
+    return generateReturn(expr, indent, context);
   }
 
   // __yo_array_fill builtin (handled similarly to Array.fill)
   if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_array_fill, 2)) {
-    const arrayTypeArg = expr.args[0]!;
-    const fillValueArg = expr.args[1]!;
-
-    // Get the ArrayType from the first argument's value
-    const arrayTypeValue = arrayTypeArg.$?.value;
-    if (
-      !arrayTypeValue ||
-      !isTypeValue(arrayTypeValue) ||
-      !isArrayType(arrayTypeValue.value)
-    ) {
-      return "/* ERROR: __yo_array_fill first argument must be an ArrayType */";
-    }
-
-    const arrayType = arrayTypeValue.value;
-    const length = arrayType.length;
-    if (!isNumberValue(length)) {
-      return "/* ERROR: __yo_array_fill requires compile-time known array length */";
-    }
-
-    // Generate the array fill code (macro expansion)
-    const arrayTypeName = getTypeString(arrayType, context);
-    const fillValueCode = generateExpr(fillValueArg, indent, context);
-    const tempVarName = expr.$?.variableName || `temp_array_${Date.now()}`;
-    const indexVarName = `i_${randomId(expr.$?.env.modulePath ?? "")}`;
-
-    // Generate array declaration and fill loop
-    emitter.emitLine(`${indent}${arrayTypeName} ${tempVarName};`);
-    emitter.emitLine(
-      `${indent}for (int ${indexVarName} = 0; ${indexVarName} < ${length.value}; ${indexVarName}++) {`
-    );
-    emitter.emitLine(
-      `${indent}  ${tempVarName}.data[${indexVarName}] = ${fillValueCode};`
-    );
-    emitter.emitLine(`${indent}}`);
-
-    return tempVarName;
+    return generateYoArrayFill(expr, indent, context);
   }
 
   // compile-time variable
@@ -1136,746 +364,18 @@ function generateFuncCall(
 
   // bindings
   if (exprIsFunctionCallOf(expr, ":", 2)) {
-    const lhs = expr.args[0]!;
-    if (
-      exprIsFunctionCall(lhs) &&
-      exprIsFunctionCallOf(lhs, BuiltinKeywords.compt, 1)
-    ) {
-      // compile-time variable
-      return "";
-    }
-
-    if (!lhs.$?.type) {
-      return `// Error: No type information for left-hand side ${exprToString(lhs)}\n`;
-    }
-    const varName = lhs.token.value;
-    const varTypeAndName = getVariableTypeString(lhs.$.type, varName, context);
-
-    context.emitter.emitLine(
-      // NOTE: We cannot assign "const" here.
-      `${indent}${varTypeAndName};`
-    );
-    return "";
+    return generateBinding(expr, indent, context);
   }
   // Initialization assignment
   else if (exprIsFunctionCallOf(expr, ":=", 2)) {
-    const lhs = expr.args[0]!;
-    const rhs = expr.args[1]!;
-
-    // Debug: Log all := assignments in state machines
-    const functionContext = context as FunctionGenerationContext;
-
-    if (
-      exprIsFunctionCall(lhs) &&
-      exprIsFunctionCallOf(lhs, BuiltinKeywords.compt, 1)
-    ) {
-      // compile-time variable
-      return "";
-    }
-
-    // In state machine context, skip variable "load" expressions (localVar := stateMachineVar)
-    // These are generated by the type checker to create local copies of variables
-    // But in state machines, we access variables directly through sm->var_xxx
-    if (functionContext.inStateMachine && exprIsAtom(lhs) && exprIsAtom(rhs)) {
-      const lhsName = lhs.token.value;
-      const rhsName = rhs.token.value;
-
-      // Check if both refer to the same state machine variable
-      // This handles cases like: b := b (creating a local copy)
-      const lhsIsStateMachineVar =
-        functionContext.stateMachineVariables &&
-        Array.from(functionContext.stateMachineVariables.values()).some(
-          (v) => v.name === lhsName
-        );
-      const rhsIsStateMachineVar =
-        functionContext.stateMachineVariables &&
-        Array.from(functionContext.stateMachineVariables.values()).some(
-          (v) => v.name === rhsName
-        );
-
-      // Skip if both sides reference state machine variables with the same name
-      // OR if we're trying to create a local copy of a state machine variable
-      if (
-        lhsName === rhsName &&
-        (lhsIsStateMachineVar || rhsIsStateMachineVar)
-      ) {
-        // Self-assignment of state machine variable - skip to avoid redundant local copy
-
-        return "";
-      }
-    }
-
-    // Check if it's destructurings
-    if (expr.$?.runtimeDestructurings) {
-      const runtimeDestructurings = expr.$.runtimeDestructurings;
-      const rhsCode = generateExpr(rhs, indent, context);
-      const rhsType = rhs.$?.type;
-      runtimeDestructurings.forEach(({ label, type, variableName }) => {
-        // Sanitize the variable name for C
-        const sanitizedVariableName = sanitizeForCIdentifier(
-          variableName,
-          type.isExtern === "c"
-        );
-        const varTypeAndName = getVariableTypeString(
-          type,
-          sanitizedVariableName,
-          context
-        );
-
-        // Handle newtype destructuring - just use the value itself
-        if (
-          rhsType &&
-          isStructType(rhsType) &&
-          rhsType.isNewtype &&
-          rhsType.fields.length === 1
-        ) {
-          const singleField = rhsType.fields[0];
-          if (singleField && singleField.label === label) {
-            // For newtype, destructuring the single field just returns the value itself
-            context.emitter.emitLine(
-              `${indent}${varTypeAndName} = ${rhsCode}; // Destructuring ${label} (newtype)`
-            );
-            return;
-          }
-        }
-
-        let fieldName = label.match(/^\d+$/)
-          ? `_${label}`
-          : sanitizeForCIdentifier(label, type.isExtern === "c");
-
-        if (rhsType && isTupleType(rhsType) && !label.match(/^\d+$/)) {
-          const index = rhsType.fields.findIndex((el) => el.label === label);
-          fieldName = index >= 0 ? `_${index}` : fieldName;
-        }
-
-        // Use -> for ref types (which are pointers), . for regular types
-        const memberAccessOp = rhsType && isObjectType(rhsType) ? "->" : ".";
-
-        context.emitter.emitLine(
-          `${indent}${varTypeAndName} = ${rhsCode}${memberAccessOp}${fieldName}; // Destructuring ${label}`
-        );
-      });
-      return "";
-    }
-
-    if (exprIsAtom(lhs)) {
-      const varName = lhs.token.value;
-      if (!lhs.$?.type) {
-        return `// Error: No type information for variable ${varName}\n`;
-      }
-
-      // Check if the variable being assigned to is compile-time
-      // If so, skip code generation (compile-time variables don't exist at runtime)
-      if (lhs.$?.env) {
-        const variables = getVariablesFromEnv(lhs.$.env, varName);
-        if (
-          variables.length > 0 &&
-          variables[variables.length - 1]!.isCompileTimeOnly
-        ) {
-          return "";
-        }
-      }
-
-      // Check if we're in a state machine context and this is a captured variable
-      const functionContext = context as FunctionGenerationContext;
-
-      // To check if a variable is in the state machine, we need to:
-      // 1. Look up the variable in the environment to get its ID
-      // 2. Check if that ID is a key in stateMachineVariables map
-      let isStateMachineVar = false;
-      let varId: string | undefined;
-
-      if (
-        functionContext.inStateMachine &&
-        functionContext.stateMachineVariables &&
-        lhs.$?.env
-      ) {
-        // Get the variable from the environment
-        const variables = getVariablesFromEnv(lhs.$.env, varName);
-        if (variables.length > 0) {
-          const variable = variables[variables.length - 1]!;
-          // Check if this variable (or its owner if it's borrowing) is in state machine
-          const idToCheck = variable.isOwningTheSameRcValueAs
-            ? variable.isOwningTheSameRcValueAs.id
-            : variable.id;
-
-          if (functionContext.stateMachineVariables.has(idToCheck)) {
-            isStateMachineVar = true;
-            varId = idToCheck;
-          }
-        }
-      }
-
-      // Handle array initialization specially
-      if (isArrayType(lhs.$.type)) {
-        // Check if RHS is an array literal
-        if (
-          exprIsFunctionCall(rhs) &&
-          exprIsFunctionCallOf(rhs, BuiltinKeywords.array)
-        ) {
-          // Direct initialization with array literal
-          const rhsCode = generateExpr(rhs, indent, context);
-
-          if (isStateMachineVar && varId) {
-            // In state machine - assign to sm->var_xxx field
-            context.emitter.emitLine(`${indent}sm->var_${varId} = ${rhsCode};`);
-          } else {
-            // Skip unit type variables (zero-sized types, optimized away like Rust)
-            if (!isUnitType(lhs.$.type)) {
-              const varTypeAndName = getVariableTypeString(
-                lhs.$.type,
-                varName,
-                context
-              );
-              context.emitter.emitLine(
-                `${indent}${varTypeAndName} = ${rhsCode};`
-              );
-            }
-          }
-        } else {
-          // Copying from another array - use direct struct assignment
-          // Handle temp variable assignment for Rc values
-          let rhsCode: string;
-          if (rhs.$?.variableName) {
-            const tempVarName = getVariableNameForCodegen(
-              rhs.$.variableName,
-              rhs.$.env
-            );
-
-            const rhsExprCode = generateExpr(rhs, indent, context);
-
-            // Generate temp variable assignment first (only if not in state machine)
-            if (!isStateMachineVar) {
-              const tempVarType = getVariableTypeString(
-                rhs.$.type!,
-                tempVarName,
-                context
-              );
-              if (tempVarName !== rhsExprCode) {
-                context.emitter.emitLine(
-                  `${indent}${tempVarType} = ${rhsExprCode};`
-                );
-              }
-            }
-
-            // Use temp variable for the main assignment
-            rhsCode = tempVarName;
-          } else {
-            rhsCode = generateExpr(rhs, indent, context);
-          }
-
-          if (isStateMachineVar && varId) {
-            // In state machine - assign to sm->var_xxx field
-            context.emitter.emitLine(`${indent}sm->var_${varId} = ${rhsCode};`);
-          } else {
-            // Skip unit type variables (zero-sized types, optimized away like Rust)
-            if (!isUnitType(lhs.$.type)) {
-              const varTypeAndName = getVariableTypeString(
-                lhs.$.type,
-                varName,
-                context
-              );
-              context.emitter.emitLine(
-                `${indent}${varTypeAndName} = ${rhsCode};`
-              );
-            }
-          }
-        }
-      } else {
-        // Non-array initialization - use existing logic
-        let rhsCode: string;
-
-        const rhsIsClosureConstruction =
-          exprIsFunctionCall(rhs) &&
-          rhs.$?.closureFunctionValue &&
-          rhs.$?.type &&
-          typeImplementsFn(rhs.$.type);
-
-        // If RHS has a temp variable name (e.g., for Rc values), we need to:
-        // 1. First generate the RHS expression and assign it to the temp variable
-        // 2. Then use the temp variable for the assignment
-        // BUT: don't create temp variables for captured variables
-        // ALSO: don't create temp variables if the temp var name is the same as the variable itself
-        if (rhs.$?.variableName) {
-          const tempVarName = getVariableNameForCodegen(
-            rhs.$.variableName,
-            rhs.$.env
-          );
-
-          const sanitizedVarName = getVariableNameForCodegen(
-            varName,
-            lhs.$.env
-          );
-
-          // Skip temp variable creation if temp var name matches the actual variable name
-          // This prevents redundant declarations like "int32_t x = x;"
-          if (tempVarName === sanitizedVarName) {
-            // Just use the variable directly, no temp variable needed
-            rhsCode = generateExpr(rhs, indent, context);
-
-            // Handle deferred dup expressions even for simple variable references
-            if (
-              !rhsIsClosureConstruction &&
-              rhs.$?.deferredDupExpressions &&
-              rhs.$.deferredDupExpressions.length > 0
-            ) {
-              generateDeferredDupExpressions(rhs, indent, functionContext);
-              const dupExpr = rhs.$.deferredDupExpressions[0]!;
-              if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
-                rhsCode = getVariableNameForCodegen(
-                  dupExpr.$.variableName,
-                  dupExpr.$.env
-                );
-              }
-            }
-          } else if (
-            exprIsAtom(rhs) &&
-            tempVarName ===
-              getVariableNameForCodegen(rhs.token.value, rhs.$.env)
-          ) {
-            // Just use the variable directly, no temp variable needed
-            rhsCode = generateExpr(rhs, indent, context);
-
-            // Handle deferred dup expressions even for simple variable references
-            if (
-              !rhsIsClosureConstruction &&
-              rhs.$?.deferredDupExpressions &&
-              rhs.$.deferredDupExpressions.length > 0
-            ) {
-              generateDeferredDupExpressions(rhs, indent, functionContext);
-              const dupExpr = rhs.$.deferredDupExpressions[0]!;
-              if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
-                rhsCode = getVariableNameForCodegen(
-                  dupExpr.$.variableName,
-                  dupExpr.$.env
-                );
-              }
-            }
-          } else {
-            // Check if this temp variable is for a captured variable - if so, skip temp variable creation
-            const functionContext = context as FunctionGenerationContext;
-            if (
-              exprIsAtom(rhs) &&
-              functionContext.currentClosureCaptures &&
-              functionContext.currentClosureCaptures.includes(
-                rhs.token.value
-              ) &&
-              rhs.$?.env &&
-              functionContext.currentClosureCaptureFrameLevel !== undefined &&
-              checkVariableIsClosureCaptured(
-                rhs.token.value,
-                rhs.$.env,
-                functionContext.currentClosureCaptureFrameLevel
-              )
-            ) {
-              // This is a captured variable, don't create a temp variable for it
-              // Generate closure access directly
-              const currentClosureType = functionContext.currentClosureType;
-              if (currentClosureType && currentClosureType.isClosure) {
-                const closureTypeEntry = Object.values(
-                  functionContext.types
-                ).find((entry) => entry.type === currentClosureType);
-                if (closureTypeEntry) {
-                  // Note: captureType is no longer on ClosureType, so we use a naming convention
-                  // The capture struct name follows the pattern: closure_type_name + "_capture"
-                  const captureStructName = `${closureTypeEntry.cName}_capture`;
-                  rhsCode = `((${captureStructName}*)closure_context->data)->${getVariableNameForCodegen(rhs.token.value, rhs.$.env)}`;
-                } else {
-                  rhsCode = `closure_context->${getVariableNameForCodegen(rhs.token.value, rhs.$.env)}`;
-                }
-              } else {
-                rhsCode = `closure_context->${getVariableNameForCodegen(rhs.token.value, rhs.$.env)}`;
-              }
-            } else {
-              // Normal temp variable handling
-              const rhsExprCode = generateExpr(rhs, indent, context);
-
-              // Check if the RHS expression already generates the same temp variable
-              // If so, don't generate a redundant assignment
-              if (rhsExprCode.trim() !== tempVarName) {
-                // Generate temp variable assignment first
-                const tempVarType = getVariableTypeString(
-                  rhs.$.type!,
-                  tempVarName,
-                  context
-                );
-                context.emitter.emitLine(
-                  `${indent}${tempVarType} = ${rhsExprCode};`
-                );
-              }
-
-              // Handle deferred dup expressions for RHS
-              // After generating the RHS temp variable, check if we need to dup it
-              if (
-                !rhsIsClosureConstruction &&
-                rhs.$?.deferredDupExpressions &&
-                rhs.$.deferredDupExpressions.length > 0
-              ) {
-                generateDeferredDupExpressions(rhs, indent, functionContext);
-                // Use the dup result variable instead of the original temp variable
-                const dupExpr = rhs.$.deferredDupExpressions[0]!;
-                if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
-                  rhsCode = getVariableNameForCodegen(
-                    dupExpr.$.variableName,
-                    dupExpr.$.env
-                  );
-                } else {
-                  // Use temp variable for the main assignment
-                  rhsCode = tempVarName;
-                }
-              } else {
-                // Use temp variable for the main assignment
-                rhsCode = tempVarName;
-              }
-            }
-          }
-        } else {
-          rhsCode = generateExpr(rhs, indent, context);
-
-          // Handle deferred dup expressions for RHS without temp variable
-          if (
-            !rhsIsClosureConstruction &&
-            rhs.$?.deferredDupExpressions &&
-            rhs.$.deferredDupExpressions.length > 0
-          ) {
-            const functionContext = context as FunctionGenerationContext;
-            generateDeferredDupExpressions(rhs, indent, functionContext);
-            // Use the dup result variable
-            const dupExpr = rhs.$.deferredDupExpressions[0]!;
-            if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
-              rhsCode = getVariableNameForCodegen(
-                dupExpr.$.variableName,
-                dupExpr.$.env
-              );
-            }
-          }
-        }
-
-        // Special handling for slice initialization.
-        if (isSliceType(lhs.$.type)) {
-          const sliceType = lhs.$.type; // Get the slice type directly
-
-          if (isStateMachineVar && varId) {
-            // In state machine - assign to sm->var_xxx field
-            context.emitter.emitLine(`${indent}sm->var_${varId} = ${rhsCode};`);
-          } else {
-            // Skip unit type variables (zero-sized types, optimized away like Rust)
-            if (!isUnitType(sliceType)) {
-              const varTypeAndName = getVariableTypeString(
-                sliceType,
-                varName,
-                context
-              );
-              context.emitter.emitLine(
-                `${indent}${varTypeAndName} = ${rhsCode};`
-              );
-            }
-          }
-        } else {
-          // Normal initialization
-          if (isStateMachineVar && varId) {
-            // In state machine - assign to sm->var_xxx field
-            context.emitter.emitLine(`${indent}sm->var_${varId} = ${rhsCode};`);
-          } else {
-            // Check if RHS is a temp variable with a registered async struct name
-            const rhsIsTempVar = isTempVariableName(
-              rhs.$!.env.modulePath,
-              rhsCode.trim()
-            );
-            let cTypeString: string;
-
-            if (rhsIsTempVar && context.tempVarAsyncStructNames) {
-              const asyncStructName = context.tempVarAsyncStructNames.get(
-                rhsCode.trim()
-              );
-              if (asyncStructName) {
-                cTypeString = `${asyncStructName}*`;
-              } else {
-                cTypeString = getTypeString(lhs.$.type, context);
-              }
-            } else {
-              cTypeString = getTypeString(lhs.$.type, context);
-            }
-
-            // Skip unit type variables (zero-sized types, optimized away like Rust)
-            if (!isUnitType(lhs.$.type)) {
-              context.emitter.emitLine(
-                `${indent}${cTypeString} ${getVariableNameForCodegen(varName, lhs.$.env)} = ${rhsCode};`
-              );
-            }
-          }
-        }
-      }
-      return "";
+    const result = generateInitializationAssignment(expr, indent, context);
+    if (result) {
+      return result;
     }
   }
   // Assignent with mutability or initialization
   else if (exprIsFunctionCallOf(expr, "=", 2)) {
-    let lhs = expr.args[0]!;
-    const rhs = expr.args[1]!;
-
-    let isInitialization = false;
-    if (exprIsFunctionCall(lhs) && exprIsFunctionCallOf(lhs, ":", 2)) {
-      isInitialization = true;
-      lhs = lhs.args[0]!; // Get the actual variable being assigned
-    }
-    if (
-      exprIsFunctionCall(lhs) &&
-      exprIsFunctionCallOf(lhs, BuiltinKeywords.compt)
-    ) {
-      // compile-time variable
-      return "";
-    }
-
-    // Check if LHS is a field/index access into a compile-time variable
-    // e.g., p1.x = 5 where p1 is compile-time
-    // e.g., arr(0) = 10 where arr is compile-time
-    if (lhs.$?.pathCollection && lhs.$?.pathCollection.length > 0) {
-      const path = lhs.$.pathCollection[0];
-      if (path && path.length >= 2) {
-        const baseVariableName = path[0];
-        if (typeof baseVariableName === "string" && lhs.$?.env) {
-          const variables = getVariablesFromEnv(lhs.$.env, baseVariableName);
-          if (
-            variables.length > 0 &&
-            variables[variables.length - 1]!.isCompileTimeOnly
-          ) {
-            // Base variable is compile-time, so this assignment should not generate code
-            return "";
-          }
-        }
-      }
-    }
-
-    // Check if LHS is a simple variable name that refers to a compile-time variable
-    if (exprIsAtom(lhs) && lhs.$?.env) {
-      const varName = lhs.token.value;
-      const variables = getVariablesFromEnv(lhs.$.env, varName);
-      if (
-        variables.length > 0 &&
-        variables[variables.length - 1]!.isCompileTimeOnly
-      ) {
-        // Compile-time variable - skip code generation
-        return "";
-      }
-    }
-
-    if (!lhs.$?.type) {
-      return `// Error: No type information for left-hand side ${exprToString(lhs)}\n`;
-    }
-    const lhsCode = generateExpr(lhs, indent, context);
-
-    // Check if we need to save the old value into temp variable
-    if (expr.$?.variableName) {
-      const tempVarName = expr.$.variableName;
-
-      // Skip temp variable declaration in state machines if lhsCode already accesses sm->var_xxx
-      const functionContext = context as FunctionGenerationContext;
-      const skipTempVar =
-        functionContext.inStateMachine && lhsCode.startsWith("sm->");
-
-      if (!skipTempVar) {
-        const tempVarNameAndType = getVariableTypeString(
-          lhs.$.type,
-          tempVarName,
-          context
-        );
-
-        // Handle array assignment specially
-        if (isArrayType(lhs.$.type)) {
-          // For array, use direct struct assignment
-          context.emitter.emitLine(
-            `${indent}${tempVarNameAndType} = ${lhsCode}; // Save old value for later use`
-          );
-        } else {
-          if (!isUnitType(lhs.$.type)) {
-            context.emitter.emitLine(
-              `${indent}${tempVarNameAndType} = ${lhsCode}; // Save old value for later use`
-            );
-          }
-        }
-      }
-    }
-
-    // Handle array assignments specially
-    if (isArrayType(lhs.$.type)) {
-      // Since we use struct wrappers consistently, we can use direct struct assignment
-      const rhsCode = generateExpr(rhs, indent, context);
-
-      // Check if RHS is a closure construction
-      const rhsIsClosureConstruction =
-        exprIsFunctionCall(rhs) &&
-        rhs.$?.closureFunctionValue &&
-        rhs.$?.type &&
-        typeImplementsFn(rhs.$.type);
-
-      // Handle deferred dup expressions for RHS
-      const functionContext = context as FunctionGenerationContext;
-      let finalRhsCode = rhsCode;
-      if (
-        !rhsIsClosureConstruction &&
-        rhs.$?.deferredDupExpressions &&
-        rhs.$.deferredDupExpressions.length > 0
-      ) {
-        // If RHS has a variable name, we need to declare it first
-        if (rhs.$?.variableName && rhs.$?.type) {
-          const rhsVarName = getVariableNameForCodegen(
-            rhs.$.variableName,
-            rhs.$.env
-          );
-          // Only emit the variable declaration if it's not the same as rhsCode
-          if (rhsVarName !== rhsCode.trim()) {
-            const rhsTypeStr = getTypeString(rhs.$.type, context);
-            context.emitter.emitLine(
-              `${indent}${rhsTypeStr} ${rhsVarName} = ${rhsCode};`
-            );
-          }
-        }
-
-        generateDeferredDupExpressions(rhs, indent, functionContext);
-        // Use the dup result variable instead of the original
-        const dupExpr = rhs.$.deferredDupExpressions[0]!;
-        if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
-          finalRhsCode = getVariableNameForCodegen(
-            dupExpr.$.variableName,
-            dupExpr.$.env
-          );
-        }
-      }
-
-      if (isInitialization) {
-        // For initialization
-        const varTypeAndName = getVariableTypeString(
-          lhs.$.type,
-          generateExpr(lhs, indent, context),
-          context
-        );
-        context.emitter.emitLine(
-          `${indent}${varTypeAndName} = ${finalRhsCode};`
-        );
-      } else {
-        // For assignment to existing array variable, use direct struct assignment
-        context.emitter.emitLine(`${indent}${lhsCode} = ${finalRhsCode};`);
-      }
-    } else {
-      // Non-array assignment - use existing logic
-      const rhsCode = generateExpr(rhs, indent, context);
-
-      // Check if RHS is a closure construction
-      const rhsIsClosureConstruction =
-        exprIsFunctionCall(rhs) &&
-        rhs.$?.closureFunctionValue &&
-        rhs.$?.type &&
-        typeImplementsFn(rhs.$.type);
-
-      // Handle deferred dup expressions for RHS
-      const functionContext = context as FunctionGenerationContext;
-      let finalRhsCode = rhsCode;
-      if (
-        !rhsIsClosureConstruction &&
-        rhs.$?.deferredDupExpressions &&
-        rhs.$.deferredDupExpressions.length > 0
-      ) {
-        // If RHS has a variable name, we need to declare it first
-        if (rhs.$?.variableName && rhs.$?.type) {
-          const rhsVarName = getVariableNameForCodegen(
-            rhs.$.variableName,
-            rhs.$.env
-          );
-          // Only emit the variable declaration if it's not the same as rhsCode
-          if (rhsVarName !== rhsCode.trim()) {
-            const rhsTypeStr = getTypeString(rhs.$.type, context);
-            context.emitter.emitLine(
-              `${indent}${rhsTypeStr} ${rhsVarName} = ${rhsCode};`
-            );
-          }
-        }
-
-        generateDeferredDupExpressions(rhs, indent, functionContext);
-        // Use the dup result variable instead of the original
-        const dupExpr = rhs.$.deferredDupExpressions[0]!;
-        if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
-          finalRhsCode = getVariableNameForCodegen(
-            dupExpr.$.variableName,
-            dupExpr.$.env
-          );
-        }
-      }
-
-      // Check if we need to cast closure types
-      // const lhsType = lhs.$.type;
-      // const rhsType = rhs.$?.type;
-      // if (
-      //   lhsType &&
-      //   rhsType &&
-      //   isClosureType(lhsType) &&
-      //   isClosureType(rhsType)
-      // ) {
-      //   // Note: All closure types are now the same (no base vs specific distinction)
-      //   // since captureType is no longer part of ClosureType
-      //   // No cast needed
-      // }
-
-      if (!isUnitType(lhs.$.type)) {
-        // For Impl(Future(...)) bindings, use RHS's actual async block type if available
-        // This ensures task := run_task(b) uses run_task's state machine type
-        const lhsType = lhs.$.type;
-        const rhsType = rhs.$?.type;
-        let rhsAsyncStructName: string | undefined;
-
-        // Special case: if RHS is a temp variable from a function call returning Future,
-        // we should use the temp variable's already-declared type instead of inferring from lhsType
-        // Temp variables have the pattern _yoXXXXXXXX_temp_NNNNN
-        const rhsIsTempVar = isTempVariableName(
-          rhs.$!.env.modulePath,
-          finalRhsCode.trim()
-        );
-
-        // If RHS is a temp variable, check if it has a stored async struct name
-        if (rhsIsTempVar && context.tempVarAsyncStructNames) {
-          rhsAsyncStructName = context.tempVarAsyncStructNames.get(
-            finalRhsCode.trim()
-          );
-        }
-
-        const shouldUseFutureType =
-          isInitialization &&
-          rhsType &&
-          typeImplementsFuture(lhsType) &&
-          typeImplementsFuture(rhsType);
-
-        let cTypeString: string;
-        if (rhsIsTempVar && shouldUseFutureType) {
-          // RHS is a temp variable that was already declared with the correct Future type
-          // Use 'auto' or just don't specify the type - let C infer it from the RHS
-          // Actually, C doesn't have type inference, so we need to use the RHS's type
-          // But we don't know the RHS's C type here. The best we can do is use the temp variable's
-          // type by looking at the generated code. But that's not possible.
-          // So instead, just don't emit the initialization - emit an alias assignment.
-          // NO WAIT - we can't do that because this IS the initialization.
-          // The only solution is to get the correct type from the function's async block.
-          if (rhsAsyncStructName) {
-            cTypeString = `${rhsAsyncStructName}*`;
-          } else {
-            cTypeString = getTypeString(rhsType!, context);
-          }
-        } else if (shouldUseFutureType && rhsAsyncStructName) {
-          // Use the async block's struct name directly
-          cTypeString = `${rhsAsyncStructName}*`;
-        } else {
-          cTypeString = getTypeString(
-            shouldUseFutureType ? rhsType! : lhsType,
-            context
-          );
-        }
-
-        context.emitter.emitLine(
-          `${indent}${isInitialization ? cTypeString + " " : ""}${lhsCode} = ${finalRhsCode};`
-        );
-      }
-    }
-
-    return expr.$?.variableName ?? "";
+    return generateAssignment(expr, indent, context);
   }
   // already computed and it's not unit value
   else if (
@@ -1892,146 +392,7 @@ function generateFuncCall(
   }
   // begin
   else if (exprIsFunctionCallOf(expr, BuiltinKeywords.begin)) {
-    const tempVariableName = expr.$?.variableName;
-    const valueType = expr.$?.type;
-    const functionContext = context as FunctionGenerationContext;
-
-    if (tempVariableName && valueType) {
-      // Expression form: begin block that returns a value
-      if (!isUnitType(valueType) && !expr.$?.controlFlow) {
-        context.emitter.emitLine(
-          `${indent}${getTypeString(valueType, context)} ${tempVariableName};`
-        );
-      }
-
-      // Evaluate each argument
-      context.emitter.emitLine(`${indent}{ // begin block`);
-
-      // Set pending deferred drops from this begin block
-      // These need to be generated when early returning from inside this block
-      const previousPendingDeferredDrops = functionContext.pendingDeferredDrops;
-      functionContext.pendingDeferredDrops = expr.$?.deferredDropExpressions;
-
-      // Generate and emit code for each arg IMMEDIATELY to preserve order
-      // This is important because generateExpr may have side effects that emit code
-      const argsCode: string[] = [];
-      const isReturningValue = !isUnitType(valueType) && !expr.$?.controlFlow;
-
-      for (let idx = 0; idx < expr.args.length; idx++) {
-        const arg = expr.args[idx]!;
-        const result = generateExpr(arg, indent + "  ", context);
-        argsCode.push(result);
-
-        // Emit immediately to preserve order (generateExpr might emit temp vars as side effects)
-        // But skip emitting the last expression if it's being used as the return value
-        const isLastExpr = idx === expr.args.length - 1;
-        if (result && !(isLastExpr && isReturningValue)) {
-          if (arg.$ && isTempVariableName(arg.$.env.modulePath, result)) {
-            // Skip
-          } else {
-            context.emitter.emitLine(`${indent}  ${result};`);
-          }
-        }
-      }
-      if (isReturningValue) {
-        const lastArg = expr.args[expr.args.length - 1]!;
-        let lastArgCode = argsCode[argsCode.length - 1]!;
-
-        // Handle deferred dup expressions for the return value
-        // This is needed when returning a borrowed value - we must call dup
-        if (
-          lastArg.$?.deferredDupExpressions &&
-          lastArg.$.deferredDupExpressions.length > 0
-        ) {
-          // Similar to return statement handling: first declare/assign the value
-          // before calling dup on it
-          if (lastArg.$?.variableName) {
-            const savedVariableName = lastArg.$.variableName;
-            lastArg.$.variableName = undefined;
-            const rawArgCode = generateExpr(lastArg, indent + "  ", context);
-            lastArg.$.variableName = savedVariableName;
-
-            const argType = getTypeString(lastArg.$.type!, context);
-            const argTempVar = getVariableNameForCodegen(
-              savedVariableName,
-              lastArg.$.env
-            );
-
-            if (argTempVar !== rawArgCode) {
-              context.emitter.emitLine(
-                `${indent}  ${argType} ${argTempVar} = ${rawArgCode};`
-              );
-            }
-            lastArgCode = argTempVar;
-          }
-
-          generateDeferredDupExpressions(lastArg, indent + "  ", context);
-          const dupExpr = lastArg.$.deferredDupExpressions[0]!;
-          if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
-            lastArgCode = getVariableNameForCodegen(
-              dupExpr.$.variableName,
-              dupExpr.$.env
-            );
-          }
-        }
-
-        context.emitter.emitLine(
-          `${indent}  ${tempVariableName} = ${lastArgCode};`
-        );
-      }
-
-      // Generate deferred drop expressions before closing the block
-      if (expr.$?.deferredDropExpressions) {
-        for (const dropExpr of expr.$.deferredDropExpressions) {
-          const dropCode = generateExpr(dropExpr, indent + "  ", context);
-          if (dropCode) {
-            context.emitter.emitLine(`${indent}  ${dropCode};`);
-          }
-        }
-      }
-
-      context.emitter.emitLine(`${indent}} // end begin block`);
-
-      // Restore previous pending deferred drops
-      functionContext.pendingDeferredDrops = previousPendingDeferredDrops;
-
-      return isUnitType(valueType) || expr.$?.controlFlow
-        ? ""
-        : tempVariableName;
-    } else {
-      // Statement form: begin block without returning a value
-      context.emitter.emitLine(`${indent}{ // begin block`);
-
-      // Set pending deferred drops for statement form as well
-      const previousPendingDeferredDrops = functionContext.pendingDeferredDrops;
-      functionContext.pendingDeferredDrops = expr.$?.deferredDropExpressions;
-
-      const argsCode = expr.args.map((arg) =>
-        generateExpr(arg, indent + "  ", context)
-      );
-      argsCode.forEach((argCode) => {
-        if (argCode) {
-          context.emitter.emitLine(`${indent}  ${argCode};`);
-        }
-      });
-
-      // Generate deferred drop expressions before closing the block
-      if (expr.$?.deferredDropExpressions) {
-        for (const dropExpr of expr.$.deferredDropExpressions) {
-          const dropCode = generateExpr(dropExpr, indent + "  ", context);
-          if (dropCode) {
-            context.emitter.emitLine(`${indent}  ${dropCode};`);
-          }
-        }
-      }
-
-      context.emitter.emitLine(`${indent}} // end begin block`);
-
-      // Restore previous pending deferred drops
-      functionContext.pendingDeferredDrops = previousPendingDeferredDrops;
-
-      return "";
-    }
+    return generateBegin(expr, indent, context);
   }
   // cond
   else if (exprIsFunctionCallOf(expr, BuiltinKeywords.cond)) {
