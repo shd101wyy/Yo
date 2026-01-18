@@ -1,0 +1,469 @@
+import { BuiltinFunctions } from "../../expr";
+import {
+  FunctionType,
+  isBoxedType,
+  isFnTraitType,
+  isFunctionType,
+  isPtrType,
+  isSomeType,
+  isVoidType,
+} from "../../types";
+import { isFunctionValue } from "../../value";
+import { getTypeString, sanitizeForCIdentifier } from "../utils";
+import { FunctionGenerationContext } from "./context";
+
+/**
+ * Generate dup/drop functions for dyn types
+ */
+export function generateDynDupDrop(context: FunctionGenerationContext): void {
+  const emitter = context.emitter;
+
+  // Track which dyn types we've generated dup/drop for
+  const generatedTypes = new Set<string>();
+
+  for (const [, impl] of context.dynImpls) {
+    const dynTypeCName =
+      context.types[impl.dynType.id]?.cName || `yo_dyn_${impl.dynType.id}`;
+
+    if (generatedTypes.has(dynTypeCName)) {
+      continue;
+    }
+    generatedTypes.add(dynTypeCName);
+
+    // Dup
+    emitter.emitLine(
+      `${dynTypeCName} __yo_dup_${dynTypeCName}(${dynTypeCName} dyn) {`
+    );
+    emitter.emitLine(`  if (dyn.data) {`);
+    emitter.emitLine(`    __yo_incr_rc(dyn.data);`);
+    emitter.emitLine(`  }`);
+    emitter.emitLine(`  return dyn;`);
+    emitter.emitLine(`}`);
+    emitter.emitLine("");
+
+    // Drop
+    emitter.emitLine(`void __yo_drop_${dynTypeCName}(${dynTypeCName} dyn) {`);
+    emitter.emitLine(`  if (dyn.data) {`);
+    emitter.emitLine(`    __yo_decr_rc(dyn.data);`);
+    emitter.emitLine(`  }`);
+    emitter.emitLine(`}`);
+    emitter.emitLine("");
+  }
+}
+
+/**
+ * Generate box constructor and dispose functions for dyn implementations
+ */
+export function generateDynBoxFunctions(
+  context: FunctionGenerationContext
+): void {
+  const emitter = context.emitter;
+
+  if (context.dynImpls.size === 0) {
+    return;
+  }
+
+  emitter.emitLine("");
+  emitter.emitLine("// === Dyn Box Functions ===");
+  emitter.emitLine("// Constructor and dispose functions for dyn boxes");
+  emitter.emitLine("");
+
+  const generatedBoxFunctions = new Set<string>();
+
+  for (const [, impl] of context.dynImpls) {
+    const concreteTypeCName =
+      context.types[impl.concreteType.id]?.cName ||
+      `unknown_${impl.concreteType.id}`;
+    const boxTypeName = `yo_dyn_box_${concreteTypeCName}`;
+
+    if (generatedBoxFunctions.has(boxTypeName)) {
+      continue;
+    }
+    generatedBoxFunctions.add(boxTypeName);
+
+    const valueTypeStr = getTypeString(impl.concreteType, context);
+
+    // Generate box constructor
+    emitter.emitLine(
+      `${boxTypeName}* __yo_new_${boxTypeName}(${valueTypeStr} value) {`
+    );
+    emitter.emitLine(
+      `  ${boxTypeName}* box = (${boxTypeName}*)__yo_malloc(sizeof(${boxTypeName}));`
+    );
+    emitter.emitLine(`  box->header.ref_count = 1;`);
+    emitter.emitLine(`  box->header.gc_flags = 0;`);
+    emitter.emitLine(`  box->header.gc_mark = YO_GC_UNMARKED;`);
+    emitter.emitLine(`  box->header.gc_next = NULL;`);
+    emitter.emitLine(`  box->header.gc_prev = NULL;`);
+    emitter.emitLine(`  box->header.dispose_fn = __yo_dispose_${boxTypeName};`);
+    emitter.emitLine(
+      `  box->header.traverse_fn = NULL; // TODO: Set if value contains GC types`
+    );
+    emitter.emitLine(`  box->value = value;`);
+    emitter.emitLine(`  return box;`);
+    emitter.emitLine(`}`);
+    emitter.emitLine("");
+
+    // Generate box dispose
+    emitter.emitLine(`void __yo_dispose_${boxTypeName}(void* ptr) {`);
+    emitter.emitLine(`  ${boxTypeName}* box = (${boxTypeName}*)ptr;`);
+
+    const concreteType =
+      isSomeType(impl.concreteType) && impl.concreteType.resolvedConcreteType
+        ? impl.concreteType.resolvedConcreteType
+        : impl.concreteType;
+
+    const dropFn = concreteType.trait?.fields.find(
+      (field) => field.label === BuiltinFunctions.___drop[0]
+    );
+    if (
+      dropFn &&
+      dropFn.assignedValue &&
+      isFunctionValue(dropFn.assignedValue)
+    ) {
+      const dropFnCName = context.functions[dropFn.assignedValue.funcId]?.cName;
+      if (dropFnCName) {
+        emitter.emitLine(`  ${dropFnCName}(box->value);`);
+      }
+    }
+
+    emitter.emitLine(`}`);
+    emitter.emitLine("");
+  }
+}
+
+/**
+ * Generate wrapper functions for dyn method dispatch
+ */
+export function generateDynWrapperFunctions(
+  context: FunctionGenerationContext
+): void {
+  const emitter = context.emitter;
+
+  if (context.dynImpls.size === 0) {
+    return;
+  }
+
+  emitter.emitDeclarationLine("");
+  emitter.emitDeclarationLine("// === Dyn Wrapper Functions ===");
+  emitter.emitDeclarationLine(
+    "// Wrappers that unwrap boxed values and call impl methods"
+  );
+  emitter.emitDeclarationLine("");
+
+  for (const [implKey, impl] of context.dynImpls) {
+    const dataType = impl.dataType;
+    const reservedDynMethodLabels = new Set<string>([
+      BuiltinFunctions.___dup[0]!,
+      BuiltinFunctions.___drop[0]!,
+      BuiltinFunctions.___dispose[0]!,
+      BuiltinFunctions.dispose[0]!,
+    ]);
+
+    // Handle Fn dyn with synthetic call slot
+    for (const requiredModule of impl.dynType.requiredTraits) {
+      if (!isFnTraitType(requiredModule)) {
+        continue;
+      }
+
+      const callType = requiredModule.isFn.callType;
+      const returnTypeStr = getTypeString(callType.return.type, context);
+      const wrapperName = `yo_wrap_${implKey}_call`;
+
+      const params: string[] = ["void* self_ptr"];
+      for (let i = 0; i < callType.parameters.length; i++) {
+        const param = callType.parameters[i]!;
+        const paramTypeStr = getTypeString(param.type, context);
+        params.push(`${paramTypeStr} arg${i + 1}`);
+      }
+
+      emitter.emitDeclarationLine(
+        `static ${returnTypeStr} ${wrapperName}(${params.join(", ")}) {`
+      );
+
+      if (isBoxedType(dataType)) {
+        const boxedCName =
+          context.types[dataType.id]?.cName || `unknown_${dataType.id}`;
+        const fieldName = sanitizeForCIdentifier(dataType.fields[0]!.label);
+        emitter.emitDeclarationLine(
+          `  ${boxedCName}* box = (${boxedCName}*)self_ptr;`
+        );
+
+        const boxedValueType = dataType.fields[0]!.type;
+        const captureType =
+          isSomeType(boxedValueType) && boxedValueType.resolvedConcreteType
+            ? boxedValueType.resolvedConcreteType
+            : boxedValueType;
+        const closureInfo = context.implClosureCallMap.get(captureType.id);
+        const discoveredClosureCName = (() => {
+          if (closureInfo) {
+            return closureInfo.functionCName;
+          }
+
+          for (const [, entry] of Object.entries(context.functions)) {
+            const fv = entry.value;
+            const ci = fv.closureInfo;
+            if (ci?.captureType?.id === captureType.id) {
+              return entry.cName;
+            }
+          }
+          return undefined;
+        })();
+
+        const callArgs: string[] = [];
+        if (discoveredClosureCName) {
+          callArgs.push(`(void*)&box->${fieldName}`);
+          for (let i = 0; i < callType.parameters.length; i++) {
+            callArgs.push(`arg${i + 1}`);
+          }
+
+          if (isVoidType(callType.return.type)) {
+            emitter.emitDeclarationLine(
+              `  ${discoveredClosureCName}(${callArgs.join(", ")});`
+            );
+          } else {
+            emitter.emitDeclarationLine(
+              `  return ${discoveredClosureCName}(${callArgs.join(", ")});`
+            );
+          }
+        } else {
+          callArgs.push(`box->${fieldName}.data`);
+          for (let i = 0; i < callType.parameters.length; i++) {
+            callArgs.push(`arg${i + 1}`);
+          }
+
+          if (isVoidType(callType.return.type)) {
+            emitter.emitDeclarationLine(
+              `  box->${fieldName}.call(${callArgs.join(", ")});`
+            );
+          } else {
+            emitter.emitDeclarationLine(
+              `  return box->${fieldName}.call(${callArgs.join(", ")});`
+            );
+          }
+        }
+      } else {
+        emitter.emitDeclarationLine(
+          `  (void)self_ptr; /* Dyn(Fn): expected Box(...) data */`
+        );
+        for (let i = 0; i < callType.parameters.length; i++) {
+          emitter.emitDeclarationLine(`  (void)arg${i + 1};`);
+        }
+        if (isVoidType(callType.return.type)) {
+          emitter.emitDeclarationLine(`  return;`);
+        } else {
+          emitter.emitDeclarationLine(
+            `  ${returnTypeStr} zero = (${returnTypeStr})0;`
+          );
+          emitter.emitDeclarationLine(`  return zero;`);
+        }
+      }
+
+      emitter.emitDeclarationLine(`}`);
+      emitter.emitDeclarationLine("");
+    }
+
+    // Regular dyn method wrappers (non-Fn modules)
+    for (
+      let moduleIndex = 0;
+      moduleIndex < impl.dynType.requiredTraits.length;
+      moduleIndex++
+    ) {
+      const requiredModuleType = impl.dynType.requiredTraits[moduleIndex]!;
+
+      if (isFnTraitType(requiredModuleType)) {
+        continue;
+      }
+
+      const moduleValue = impl.traitValues[moduleIndex];
+      if (!moduleValue) {
+        emitter.emitDeclarationLine(
+          `/* Warning: Module value missing for module ${moduleIndex} */`
+        );
+        continue;
+      }
+
+      const moduleType = moduleValue.type;
+      const moduleFields = moduleType.fields;
+
+      for (let i = 0; i < moduleFields.length; i++) {
+        const field = moduleFields[i]!;
+
+        if (field.label === "Self") {
+          continue;
+        }
+
+        if (reservedDynMethodLabels.has(field.label)) {
+          continue;
+        }
+
+        const fieldValue = moduleValue.fields[i];
+
+        if (!fieldValue || !isFunctionValue(fieldValue)) {
+          emitter.emitDeclarationLine(
+            `/* Warning: Module field ${field.label} is not a function value */`
+          );
+          continue;
+        }
+
+        const funcType = field.type;
+        if (!isFunctionType(funcType)) {
+          emitter.emitDeclarationLine(
+            `/* Warning: Module field ${field.label} is not a function type */`
+          );
+          continue;
+        }
+
+        const implFuncId = fieldValue.funcId;
+        const implFuncCName = context.functions[implFuncId]?.cName;
+        if (!implFuncCName) {
+          emitter.emitDeclarationLine(
+            `/* Warning: Impl function for ${field.label} not found */`
+          );
+          continue;
+        }
+
+        const wrapperName = `yo_wrap_${implKey}_${field.label}`;
+        const returnTypeStr = getTypeString(funcType.return.type, context);
+        const params = ["void* self_ptr"];
+        for (let j = 1; j < funcType.parameters.length; j++) {
+          const param = funcType.parameters[j]!;
+          const paramTypeStr = getTypeString(param.type, context);
+          params.push(`${paramTypeStr} arg${j}`);
+        }
+
+        emitter.emitDeclarationLine(
+          `static ${returnTypeStr} ${wrapperName}(${params.join(", ")}) {`
+        );
+
+        const implFirstParamType = funcType.parameters[0]?.type;
+        let firstArg: string;
+
+        if (isBoxedType(dataType)) {
+          const boxedCName =
+            context.types[dataType.id]?.cName || `unknown_${dataType.id}`;
+          const fieldName = sanitizeForCIdentifier(dataType.fields[0]!.label);
+          emitter.emitDeclarationLine(
+            `  ${boxedCName}* box = (${boxedCName}*)self_ptr;`
+          );
+
+          if (implFirstParamType && isPtrType(implFirstParamType)) {
+            firstArg = `&box->${fieldName}`;
+          } else {
+            firstArg = `box->${fieldName}`;
+          }
+        } else {
+          const concreteTypeStr = getTypeString(impl.concreteType, context);
+          emitter.emitDeclarationLine(
+            `  ${concreteTypeStr} concrete_value = (${concreteTypeStr})self_ptr;`
+          );
+
+          if (implFirstParamType && isPtrType(implFirstParamType)) {
+            firstArg = `&concrete_value`;
+          } else {
+            firstArg = `concrete_value`;
+          }
+        }
+
+        const args = [firstArg];
+        for (let j = 1; j < funcType.parameters.length; j++) {
+          args.push(`arg${j}`);
+        }
+
+        if (isVoidType(funcType.return.type)) {
+          emitter.emitDeclarationLine(
+            `  ${implFuncCName}(${args.join(", ")});`
+          );
+        } else {
+          emitter.emitDeclarationLine(
+            `  return ${implFuncCName}(${args.join(", ")});`
+          );
+        }
+
+        emitter.emitDeclarationLine(`}`);
+        emitter.emitDeclarationLine("");
+      }
+    }
+  }
+}
+
+/**
+ * Generate static vtables for dyn implementations
+ */
+export function generateDynVtables(context: FunctionGenerationContext): void {
+  const emitter = context.emitter;
+
+  if (context.dynImpls.size === 0) {
+    return;
+  }
+
+  emitter.emitDeclarationLine("");
+  emitter.emitDeclarationLine("// === Dyn Static Vtables ===");
+  emitter.emitDeclarationLine("// Static vtables for dynamic dispatch");
+  emitter.emitDeclarationLine("");
+
+  for (const [implKey, impl] of context.dynImpls) {
+    const dynTypeCName =
+      context.types[impl.dynType.id]?.cName || `yo_dyn_${impl.dynType.id}`;
+    const concreteTypeCName =
+      context.types[impl.concreteType.id]?.cName ||
+      `unknown_${impl.concreteType.id}`;
+    const vtableName = `yo_vtable_${implKey}`;
+    const vtableTypeName = `${dynTypeCName}_vtable`;
+
+    emitter.emitDeclarationLine(
+      `// Vtable for impl(${concreteTypeCName}, ${impl.dynType.requiredTraits.map((m) => m.typeName || "?").join(" + ")})`
+    );
+    emitter.emitDeclarationLine(
+      `static const ${vtableTypeName} ${vtableName} = {`
+    );
+
+    const processedMethods = new Set<string>();
+    const reservedDynMethodLabels = new Set<string>([
+      BuiltinFunctions.___dup[0]!,
+      BuiltinFunctions.___drop[0]!,
+      BuiltinFunctions.___dispose[0]!,
+      BuiltinFunctions.dispose[0]!,
+    ]);
+
+    for (const moduleType of impl.dynType.requiredTraits) {
+      if (isFnTraitType(moduleType)) {
+        const wrapperName = `yo_wrap_${implKey}_call`;
+        emitter.emitDeclarationLine(`  .call = ${wrapperName},`);
+        processedMethods.add("call");
+        continue;
+      }
+
+      for (const field of moduleType.fields) {
+        if (field.label === "Self") {
+          continue;
+        }
+
+        if (reservedDynMethodLabels.has(field.label)) {
+          continue;
+        }
+
+        if (processedMethods.has(field.label)) {
+          continue;
+        }
+        processedMethods.add(field.label);
+
+        if (isFunctionType(field.type)) {
+          const functionType = field.type as FunctionType;
+          if (functionType.parameters.length > 0) {
+            const firstParam = functionType.parameters[0];
+            if (firstParam && firstParam.label === "self") {
+              const wrapperName = `yo_wrap_${implKey}_${field.label}`;
+              emitter.emitDeclarationLine(
+                `  .${sanitizeForCIdentifier(field.label)} = ${wrapperName},`
+              );
+            }
+          }
+        }
+      }
+    }
+
+    emitter.emitDeclarationLine(`};`);
+    emitter.emitDeclarationLine("");
+  }
+}
