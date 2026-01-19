@@ -2913,16 +2913,18 @@ box :: (fn(forall(V : Type), own(value) : V) -> Box(V))
 impl(forall(T : Type), Box(T), Isolation(
   can_isolate : ((self) -> (rc(self) == 1))
 ));
-// FIXME:
 impl(forall(T : Type),
        where(T <: Hash),
        Box(T),
        Hash(
-         (hash) : ((self) -> {
-            d := self.*; // d : Box(T)
-            v := d.*;    // v : T
-            return v.hash();
-         })
+         (hash) : ((self) -> (self.*).*.hash())
+       )
+);
+impl(forall(T : Type),
+       where(T <: Eq(T)),
+       Box(T),
+       Eq(Box(T))(
+         (==) : ((lhs, rhs) -> (lhs.* == rhs.*))
        )
 );
 

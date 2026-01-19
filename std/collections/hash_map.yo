@@ -141,15 +141,13 @@ HashMap :: (fn(
     /**
      * Create a new empty HashMap with default capacity
      */
-    new :: (fn() -> Self)(
-      {
-        result := Self._alloc_with_capacity(DEFAULT_CAPACITY);
-        match(result,
-          .Ok(map) => map,
-          .Err(_) => panic("Failed to allocate HashMap")
-        )
-      }
-    ),
+    new :: (fn() -> Self)({
+      result := Self._alloc_with_capacity(DEFAULT_CAPACITY);
+      match(result,
+        .Ok(map) => map,
+        .Err(_) => panic("Failed to allocate HashMap")
+      )
+    }),
 
     /**
      * Create a HashMap with a specific initial capacity
