@@ -35,8 +35,13 @@ export function generateBegin(
 
     // Set pending deferred drops from this begin block
     // These need to be generated when early returning from inside this block
+    // IMPORTANT: Concatenate with previous drops so early returns drop ALL enclosing scope vars
     const previousPendingDeferredDrops = functionContext.pendingDeferredDrops;
-    functionContext.pendingDeferredDrops = expr.$?.deferredDropExpressions;
+    const currentDrops = expr.$?.deferredDropExpressions ?? [];
+    functionContext.pendingDeferredDrops = [
+      ...currentDrops,
+      ...(previousPendingDeferredDrops ?? []),
+    ];
 
     // Generate and emit code for each arg IMMEDIATELY to preserve order
     // This is important because generateExpr may have side effects that emit code
@@ -127,8 +132,13 @@ export function generateBegin(
     context.emitter.emitLine(`${indent}{ // begin block`);
 
     // Set pending deferred drops for statement form as well
+    // IMPORTANT: Concatenate with previous drops so early returns drop ALL enclosing scope vars
     const previousPendingDeferredDrops = functionContext.pendingDeferredDrops;
-    functionContext.pendingDeferredDrops = expr.$?.deferredDropExpressions;
+    const currentDrops = expr.$?.deferredDropExpressions ?? [];
+    functionContext.pendingDeferredDrops = [
+      ...currentDrops,
+      ...(previousPendingDeferredDrops ?? []),
+    ];
 
     const argsCode = expr.args.map((arg) =>
       generateExpr(arg, indent + "  ", context)

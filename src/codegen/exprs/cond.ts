@@ -210,13 +210,15 @@ export function generateCondExpression(
             const beginArgs = value.args;
 
             // Save and update pendingDeferredDrops for this nested begin block
-            // This ensures early returns inside the branch body don't drop variables
-            // from the outer function scope that haven't been declared yet
+            // IMPORTANT: Concatenate with previous drops so early returns drop ALL enclosing scope vars
             const functionContext = context as FunctionGenerationContext;
             const previousPendingDeferredDrops =
               functionContext.pendingDeferredDrops;
-            functionContext.pendingDeferredDrops =
-              value.$?.deferredDropExpressions;
+            const currentDrops = value.$?.deferredDropExpressions ?? [];
+            functionContext.pendingDeferredDrops = [
+              ...currentDrops,
+              ...(previousPendingDeferredDrops ?? []),
+            ];
 
             // Generate each statement except the last one
             for (let j = 0; j < beginArgs.length - 1; j++) {

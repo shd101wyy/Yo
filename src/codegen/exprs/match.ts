@@ -48,6 +48,16 @@ function generateCaseBody(
   ) {
     const beginArgs = bodyExpr.args;
 
+    // Update pendingDeferredDrops for this begin block
+    // IMPORTANT: Concatenate with previous drops so early returns drop ALL enclosing scope vars
+    const functionContext = context as FunctionGenerationContext;
+    const previousPendingDeferredDrops = functionContext.pendingDeferredDrops;
+    const currentDrops = bodyExpr.$?.deferredDropExpressions ?? [];
+    functionContext.pendingDeferredDrops = [
+      ...currentDrops,
+      ...(previousPendingDeferredDrops ?? []),
+    ];
+
     // Generate each statement except the last one
     for (let j = 0; j < beginArgs.length - 1; j++) {
       const arg = beginArgs[j]!;
@@ -90,6 +100,9 @@ function generateCaseBody(
     if (bodyExpr.$?.deferredDropExpressions) {
       generateDeferredDropExpressions(bodyExpr, indent, context);
     }
+
+    // Restore previous pending deferred drops
+    functionContext.pendingDeferredDrops = previousPendingDeferredDrops;
 
     return finalExprCode;
   } else {
