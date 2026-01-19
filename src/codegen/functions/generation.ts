@@ -584,6 +584,18 @@ export function generateSpecializedFunctions(context: CodeGenContext): void {
       continue;
     }
 
+    // Also skip if any parameter type contains SomeType (generic type parameters)
+    // This happens when a function specialization wasn't completed properly
+    const hasGenericParams = functionValue.specializedType.parameters.some(
+      (p) => typeContainsSomeType(p.type)
+    );
+    const hasGenericReturnType = typeContainsSomeType(
+      functionValue.specializedType.return.type
+    );
+    if (hasGenericParams || hasGenericReturnType) {
+      continue;
+    }
+
     // Generate the specialized function body
     generateFunction(functionValue, cFunctionName, context);
   }

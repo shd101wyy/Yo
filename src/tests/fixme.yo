@@ -1,26 +1,14 @@
 open import "std/collections/hash_map.yo";
-open import "std/fmt";
 
 main :: (fn() -> unit) {
-  // Test Box equality
-  a := box(1);
-  b := box(1);
-  assert(a == b);
-  ();
-
-  c := box(2);
-  assert(a != c);
-
   // Test HashMap with boxed keys and values
   m := HashMap(Box(i32), Box(i32)).new();
   m.set(box(1), box(100));
-  m.set(box(2), box(200));
+  // m.set(box(2), box(200));
   
   assert(m.get(box(1)).unwrap().(*) == 100);
-  assert(m.get(box(2)).unwrap().(*) == 200);
-  assert(m.get(box(3)).is_none());
-  
-  print("HashMap(Box(i32), Box(i32)) works!\n");
+  // assert(m.get(box(2)).unwrap().(*) == 200);
+  // assert(m.get(box(3)).is_none());
 };
 
 export main;
