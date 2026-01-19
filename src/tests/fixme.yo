@@ -2,203 +2,24 @@ open import "std/string";
 open import "std/collections/array_list";
 open import "std/fmt";
 
-test_index_of_from_index :: (fn() -> unit) {
-  println("--- Testing index_of with from_index ---");
-  
-  s := `hello world hello`;
-  
-  // Find first "hello" starting from 0
-  idx1 := s.index_of(`hello`, usize(0));
-  match(idx1,
-    .Some(i) => {
-      print("index_of('hello', 0): ");
-      println(i);
-      assert((i == usize(0)), "Expected 0");
-    },
-    .None => println("ERROR: not found")
-  );
-  
-  // Find "hello" starting from index 1 (should find second one)
-  idx2 := s.index_of(`hello`, usize(1));
-  match(idx2,
-    .Some(i) => {
-      print("index_of('hello', 1): ");
-      println(i);
-      assert((i == usize(12)), "Expected 12");
-    },
-    .None => println("ERROR: not found")
-  );
-  
-  // Find "world" starting from 0
-  idx3 := s.index_of(`world`, usize(0));
-  match(idx3,
-    .Some(i) => {
-      print("index_of('world', 0): ");
-      println(i);
-      assert((i == usize(6)), "Expected 6");
-    },
-    .None => println("ERROR: not found")
-  );
-};
-
-test_last_index_of :: (fn() -> unit) {
-  println("--- Testing last_index_of ---");
-  
-  s := `hello world hello`;
-  
-  // Find last "hello"
-  idx1 := s.last_index_of(`hello`);
-  match(idx1,
-    .Some(i) => {
-      print("last_index_of('hello'): ");
-      println(i);
-      assert((i == usize(12)), "Expected 12");
-    },
-    .None => println("ERROR: not found")
-  );
-  
-  // Find last "world"
-  idx2 := s.last_index_of(`world`);
-  match(idx2,
-    .Some(i) => {
-      print("last_index_of('world'): ");
-      println(i);
-      assert((i == usize(6)), "Expected 6");
-    },
-    .None => println("ERROR: not found")
-  );
-  
-  // Find "xyz" (not present)
-  idx3 := s.last_index_of(`xyz`);
-  match(idx3,
-    .Some(_) => println("ERROR: should not find"),
-    .None => println("last_index_of('xyz'): None (correct)")
-  );
-};
-
-test_starts_ends_with :: (fn() -> unit) {
-  println("--- Testing starts_with and ends_with ---");
-  
-  s := `Hello, World!`;
-  
-  result1 := s.starts_with(`Hello`);
-  print("starts_with('Hello'): ");
-  println(result1);
-  assert(result1, "Expected true");
-  
-  result2 := s.starts_with(`World`);
-  print("starts_with('World'): ");
-  println(result2);
-  assert(!(result2), "Expected false");
-  
-  result3 := s.ends_with(`World!`);
-  print("ends_with('World!'): ");
-  println(result3);
-  assert(result3, "Expected true");
-  
-  result4 := s.ends_with(`Hello`);
-  print("ends_with('Hello'): ");
-  println(result4);
-  assert(!(result4), "Expected false");
-};
-
-test_replace :: (fn() -> unit) {
-  println("--- Testing replace ---");
-  
-  s := `hello world`;
-  
-  result1 := s.replace(`world`, `universe`);
-  print("replace('world', 'universe'): ");
-  println(result1);
-  assert((result1 == `hello universe`), "Expected 'hello universe'");
-  
-  s2 := `foo foo foo`;
-  result2 := s2.replace(`foo`, `bar`);
-  print("replace first 'foo' with 'bar': ");
-  println(result2);
-  assert((result2 == `bar foo foo`), "Expected 'bar foo foo'");
-};
-
-test_replace_all :: (fn() -> unit) {
-  println("--- Testing replace_all ---");
-  
-  s := `foo foo foo`;
-  
-  result := s.replace_all(`foo`, `bar`);
-  print("replace_all('foo', 'bar'): ");
-  println(result);
-  assert((result == `bar bar bar`), "Expected 'bar bar bar'");
-};
-
-test_case_conversion :: (fn() -> unit) {
-  println("--- Testing to_upper_case and to_lower_case ---");
-  
-  s := `Hello, World!`;
-  
-  upper := s.to_upper_case();
-  print("to_upper_case: ");
-  println(upper);
-  assert((upper == `HELLO, WORLD!`), "Expected 'HELLO, WORLD!'");
-  
-  lower := s.to_lower_case();
-  print("to_lower_case: ");
-  println(lower);
-  assert((lower == `hello, world!`), "Expected 'hello, world!'");
-};
-
-test_trim :: (fn() -> unit) {
-  println("--- Testing trim ---");
-  
-  s1 := `  hello  `;
-  trimmed1 := s1.trim();
-  print("trim('  hello  '): '");
-  print(trimmed1);
-  println("'");
-  assert((trimmed1 == `hello`), "Expected 'hello'");
-  
-  s2 := `   `;
-  trimmed2 := s2.trim();
-  print("trim('   '): '");
-  print(trimmed2);
-  println("'");
-  assert((trimmed2 == ``), "Expected empty string");
-  
-  s3 := `abc`;
-  trimmed3 := s3.trim();
-  print("trim('abc'): '");
-  print(trimmed3);
-  println("'");
-  assert((trimmed3 == `abc`), "Expected 'abc'");
-};
-
-test_trim_start_end :: (fn() -> unit) {
-  println("--- Testing trim_start and trim_end ---");
-  
-  s := `  hello  `;
-  
-  start := s.trim_start();
-  print("trim_start('  hello  '): '");
-  print(start);
-  println("'");
-  assert((start == `hello  `), "Expected 'hello  '");
-  
-  end := s.trim_end();
-  print("trim_end('  hello  '): '");
-  print(end);
-  println("'");
-  assert((end == `  hello`), "Expected '  hello'");
-};
-
 main :: (fn() -> unit) {
-  test_index_of_from_index();
-  test_last_index_of();
-  test_starts_ends_with();
-  test_replace();
-  test_replace_all();
-  test_case_conversion();
-  test_trim();
-  test_trim_start_end();
-  println("All tests passed!");
+  // {
+  //   x := box(123);
+  //   z := ^(x);
+  //   match(z,
+  //     .Some(_) => assert(true),
+  //     .None => assert(false, "unreachable")
+  //   );
+  // };
+  {
+    x := box(123);
+    y := { x };
+    z := ^(x);
+    match(z,
+      .Some(_) => assert(false, "unreachable"),
+      .None => assert(true)
+    );
+  };
 };
 
 export main;

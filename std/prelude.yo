@@ -90,6 +90,16 @@ assert :: (fn(flag : bool, (compt(msg) : compt_string) ?= "Assertion failed.") -
 ;
 export assert;
 
+// unsafe module
+unsafe :: impl {
+  drop :: (fn(forall(T : Type), own(value) : T) -> unit) {
+    ___drop(value);
+    ()
+  };
+  export drop;
+};
+export unsafe;
+
 
 /// === Traits ===
 Send :: trait(
@@ -2953,7 +2963,7 @@ impl(forall(T : Type), Iso(T), {
           (unquote(temp_type) <: Isolation).can_isolate(unquote(temp)) => // run-time check
             Option(Iso(unquote(temp_type))).Some(Iso(unquote(temp_type))(unquote(temp))),
           true => { // run-time check
-            consume(unquote(temp));
+            unsafe.drop(unquote(temp));
             Option(Iso(unquote(temp_type))).None
           }
         ),
