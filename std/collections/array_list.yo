@@ -167,6 +167,9 @@ ArrayList :: (fn(compt(T): Type) -> compt(Type))
             .Some(ptr) => {
               last_element_ptr := (ptr &+ self._length);
               last_element := last_element_ptr.*;
+              // Drop the slot's reference since it's no longer tracked
+              // (length was decremented, so dispose won't reach this slot)
+              unsafe.drop(last_element_ptr.*);
               .Some(last_element)
             }
           )
@@ -298,6 +301,7 @@ ArrayList :: (fn(compt(T): Type) -> compt(Type))
                       while(i < actual_count, i = (i + usize(1)), {
                         element_ptr := (ptr &+ (start + i));
                         element := element_ptr.*;
+                        unsafe.drop(element_ptr.*);
                         // element will be automatically dropped here
                       });
                     },

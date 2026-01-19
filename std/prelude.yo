@@ -456,7 +456,7 @@ Hash :: trait(
     * Compute the hash of a value
     * Returns a u64 hash value
     */
-  (hash): (fn(value: Self) -> u64)
+  (hash): (fn(self : *(Self)) -> u64)
 );
 export
   Hash
@@ -665,9 +665,9 @@ impl(bool, Clone(bool)(
   )
 ));
 impl(bool, Hash(
-  (hash): ((value) ->
+  (hash): ((self) ->
     cond(
-      value => u64(1),
+      self.* => u64(1),
       true => u64(0)
     )
   )
@@ -743,7 +743,7 @@ impl(i8, Ord(i8)(
   (>=) : ((a, b) -> __yo_op_gte(a, b))
 ));
 impl(i8, Hash(
-  (hash): ((value) -> u64(value))
+  (hash): ((self) -> u64(self.*))
 ));
 impl(i8, Clone(i8)(
   clone: ((self) -> __yo_return_self(self))
@@ -863,7 +863,7 @@ impl(i16, Ord(i16)(
   (>=) : ((a, b) -> __yo_op_gte(a, b))
 ));
 impl(i16, Hash(
-  (hash): ((value) -> u64(value))
+  (hash): ((self) -> u64(self.*))
 ));
 impl(i16, Clone(i16)(
   clone: ((self) -> __yo_return_self(self))
@@ -983,8 +983,8 @@ impl(i32, Ord(i32)(
   (>=) : ((a, b) -> __yo_op_gte(a, b))
 ));
 impl(i32, Hash(
-  (hash): ((value) -> {
-    u32_value := u32(value);
+  (hash): ((self) -> {
+    u32_value := u32(self.*);
     u64(u32_value)
   })
 ));
@@ -1108,7 +1108,7 @@ impl(i64, Ord(i64)(
   (>=) : ((a, b) -> __yo_op_gte(a, b))
 ));
 impl(i64, Hash(
-  (hash): ((value) -> u64(value))
+  (hash): ((self) -> u64(self.*))
 ));
 impl(i64, Clone(i64)(
   clone: ((self) -> __yo_return_self(self))
@@ -1228,7 +1228,7 @@ impl(u8, Ord(u8)(
   (>=) : ((a, b) -> __yo_op_gte(a, b))
 ));
 impl(u8, Hash(
-  (hash): ((value) -> u64(value))
+  (hash): ((self) -> u64(self.*))
 ));
 impl(u8, Clone(u8)(
   clone: ((self) -> __yo_return_self(self))
@@ -1343,7 +1343,7 @@ impl(u16, Ord(u16)(
   (>=) : ((a, b) -> __yo_op_gte(a, b))
 ));
 impl(u16, Hash(
-  (hash): ((value) -> u64(value))
+  (hash): ((self) -> u64(self.*))
 ));
 impl(u16, Clone(u16)(
   clone: ((self) -> __yo_return_self(self))
@@ -1458,7 +1458,7 @@ impl(u32, Ord(u32)(
   (>=) : ((a, b) -> __yo_op_gte(a, b))
 ));
 impl(u32, Hash(
-  (hash): ((value) -> u64(value))
+  (hash): ((self) -> u64(self.*))
 ));
 impl(u32, Clone(u32)(
   clone: ((self) -> __yo_return_self(self))
@@ -1573,7 +1573,7 @@ impl(u64, Ord(u64)(
   (>=) : ((a, b) -> __yo_op_gte(a, b))
 ));
 impl(u64, Hash(
-  (hash): ((value) -> value)
+  (hash): ((self) -> self.*)
 ));
 impl(u64, Clone(u64)(
   clone: ((self) -> __yo_return_self(self))
@@ -1677,7 +1677,7 @@ impl(f32, Ord(f32)(
   (>=) : ((a, b) -> __yo_op_gte(a, b))
 ));
 impl(f32, Hash(
-  (hash): ((value) -> u64(i32(value)))
+  (hash): ((self) -> u64(i32(self.*)))
 ));
 impl(f32, Clone(f32)(
   clone: ((self) -> __yo_return_self(self))
@@ -1781,7 +1781,7 @@ impl(f64, Ord(f64)(
   (>=) : ((a, b) -> __yo_op_gte(a, b))
 ));
 impl(f64, Hash(
-  (hash): ((value) -> u64(i64(value)))
+  (hash): ((self) -> u64(i64(self.*)))
 ));
 impl(f64, Clone(f64)(
   clone: ((self) -> __yo_return_self(self))
@@ -1896,7 +1896,7 @@ impl(isize, Ord(isize)(
   (>=) : ((a, b) -> __yo_op_gte(a, b))
 ));
 impl(isize, Hash(
-  (hash): ((value) -> u64(value))
+  (hash): ((self) -> u64(self.*))
 ));
 impl(isize, Clone(isize)(
   clone: ((self) -> __yo_return_self(self))
@@ -2016,7 +2016,7 @@ impl(usize, Ord(usize)(
   (>=) : ((a, b) -> __yo_op_gte(a, b))
 ));
 impl(usize, Hash(
-  (hash): ((value) -> u64(value))
+  (hash): ((self) -> u64(self.*))
 ));
 impl(usize, Clone(usize)(
   clone: ((self) -> __yo_return_self(self))
@@ -2120,7 +2120,7 @@ impl(char, Ord(char)(
   (>=) : ((a, b) -> __yo_op_gte(a, b))
 ));
 impl(char, Hash(
-  (hash): ((value) -> u64(value))
+  (hash): ((self) -> u64(self.*))
 ));
 impl(char, Clone(char)(
   clone: ((self) -> __yo_return_self(self))
@@ -2174,7 +2174,7 @@ impl(int, Ord(int)(
   (>=) : ((a, b) -> __yo_op_gte(a, b))
 ));
 impl(int, Hash(
-  (hash): ((value) -> u64(value))
+  (hash): ((self) -> u64(self.*))
 ));
 impl(int, Clone(int)(
   clone: ((self) -> __yo_return_self(self))
@@ -2228,7 +2228,7 @@ impl(uint, Ord(uint)(
   (>=) : ((a, b) -> __yo_op_gte(a, b))
 ));
 impl(uint, Hash(
-  (hash): ((value) -> u64(value))
+  (hash): ((self) -> u64(self.*))
 ));
 impl(uint, Clone(uint)(
   clone: ((self) -> __yo_return_self(self))
@@ -2282,7 +2282,7 @@ impl(short, Ord(short)(
   (>=) : ((a, b) -> __yo_op_gte(a, b))
 ));
 impl(short, Hash(
-  (hash): ((value) -> u64(value))
+  (hash): ((self) -> u64(self.*))
 ));
 impl(short, Clone(short)(
   clone: ((self) -> __yo_return_self(self))
@@ -2336,7 +2336,7 @@ impl(ushort, Ord(ushort)(
   (>=) : ((a, b) -> __yo_op_gte(a, b))
 ));
 impl(ushort, Hash(
-  (hash): ((value) -> u64(value))
+  (hash): ((self) -> u64(self.*))
 ));
 impl(ushort, Clone(ushort)(
   clone: ((self) -> __yo_return_self(self))
@@ -2390,7 +2390,7 @@ impl(long, Ord(long)(
   (>=) : ((a, b) -> __yo_op_gte(a, b))
 ));
 impl(long, Hash(
-  (hash): ((value) -> u64(value))
+  (hash): ((self) -> u64(self.*))
 ));
 impl(long, Clone(long)(
   clone: ((self) -> __yo_return_self(self))
@@ -2445,7 +2445,7 @@ impl(ulong, Ord(ulong)(
   (>=) : ((a, b) -> __yo_op_gte(a, b))
 ));
 impl(ulong, Hash(
-  (hash): ((value) -> u64(value))
+  (hash): ((self) -> u64(self.*))
 ));
 impl(ulong, Clone(ulong)(
   clone: ((self) -> __yo_return_self(self))
@@ -2499,7 +2499,7 @@ impl(longlong, Ord(longlong)(
   (>=) : ((a, b) -> __yo_op_gte(a, b))
 ));
 impl(longlong, Hash(
-  (hash): ((value) -> u64(value))
+  (hash): ((self) -> u64(self.*))
 ));
 impl(longlong, Clone(longlong)(
   clone: ((self) -> __yo_return_self(self))
@@ -2553,7 +2553,7 @@ impl(ulonglong, Ord(ulonglong)(
   (>=) : ((a, b) -> __yo_op_gte(a, b))
 ));
 impl(ulonglong, Hash(
-  (hash): ((value) -> u64(value))
+  (hash): ((self) -> u64(self.*))
 ));
 impl(ulonglong, Clone(ulonglong)(
   clone: ((self) -> __yo_return_self(self))
@@ -2607,7 +2607,7 @@ impl(longdouble, Ord(longdouble)(
   (>=) : ((a, b) -> __yo_op_gte(a, b))
 ));
 impl(longdouble, Hash(
-  (hash): ((value) -> u64(i64(value)))
+  (hash): ((self) -> u64(i64(self.*)))
 ));
 impl(longdouble, Clone(longdouble)(
   clone: ((self) -> __yo_return_self(self))
@@ -2913,6 +2913,19 @@ box :: (fn(forall(V : Type), own(value) : V) -> Box(V))
 impl(forall(T : Type), Box(T), Isolation(
   can_isolate : ((self) -> (rc(self) == 1))
 ));
+// FIXME:
+impl(forall(T : Type),
+       where(T <: Hash),
+       Box(T),
+       Hash(
+         (hash) : ((self) -> {
+            d := self.*;
+            v := d.*;
+            // v.hash();
+            return 0;
+         })
+       )
+);
 
 export
   Box,

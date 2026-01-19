@@ -580,3 +580,100 @@ test "ArrayList large number of elements", {
     assert(list.get(i2).unwrap() == i32(i2));
   });
 };
+
+// ===== Reference-Counted Type Tests =====
+
+test "ArrayList.pop with Box doesn't leak memory", {
+  list := ArrayList(Box(i32)).new();
+  list.push(Box(i32)(10));
+  list.push(Box(i32)(20));
+  
+  popped := list.pop();
+  assert(popped.is_some());
+  // Popped value should be properly ref-counted and cleaned up
+};
+
+test "ArrayList.pop all Box elements doesn't leak", {
+  list := ArrayList(Box(i32)).new();
+  list.push(Box(i32)(1));
+  list.push(Box(i32)(2));
+  list.push(Box(i32)(3));
+  
+  list.pop();
+  list.pop();
+  list.pop();
+  
+  assert(list.len() == usize(0));
+  // All elements should be properly cleaned up
+};
+
+test "ArrayList disposal after pop doesn't leak remaining elements", {
+  list := ArrayList(Box(i32)).new();
+  list.push(Box(i32)(100));
+  list.push(Box(i32)(200));
+  list.push(Box(i32)(300));
+  
+  list.pop();
+  // list now has 2 elements
+  // When list goes out of scope, remaining elements should be cleaned up
+};
+
+test "ArrayList.clear with Box elements properly cleans up", {
+  list := ArrayList(Box(i32)).new();
+  list.push(Box(i32)(10));
+  list.push(Box(i32)(20));
+  list.push(Box(i32)(30));
+  
+  list.clear();
+  assert(list.len() == usize(0));
+  // All Box elements should be properly disposed
+};
+
+test "ArrayList.remove with Box elements properly cleans up", {
+  list := ArrayList(Box(i32)).new();
+  list.push(Box(i32)(1));
+  list.push(Box(i32)(2));
+  list.push(Box(i32)(3));
+  list.push(Box(i32)(4));
+  
+  result := list.remove(usize(1), usize(2));
+  assert(result.is_ok());
+  assert(list.len() == usize(2));
+  // Removed Box elements should be properly disposed
+};
+
+test "ArrayList.set with Box replaces and cleans up old value", {
+  list := ArrayList(Box(i32)).new();
+  list.push(Box(i32)(10));
+  list.push(Box(i32)(20));
+  
+  old_box := Box(i32)(99);
+  result := list.set(usize(1), old_box);
+  assert(result.is_ok());
+  
+  // Old value (20) should be dropped, new value (99) should be in place
+  assert(list.get(usize(1)).unwrap().(*) == i32(99));
+};
+
+test "ArrayList mixed operations with Box elements", {
+  list := ArrayList(Box(i32)).new();
+  
+  // Push several elements
+  list.push(Box(i32)(1));
+  list.push(Box(i32)(2));
+  list.push(Box(i32)(3));
+  list.push(Box(i32)(4));
+  
+  // Pop one
+  list.pop();
+  
+  // Remove one from middle
+  list.remove(usize(1), usize(1));
+  
+  // Should have 2 elements left: 1 and 3
+  assert(list.len() == usize(2));
+  assert(list.get(usize(0)).unwrap().(*) == i32(1));
+  assert(list.get(usize(1)).unwrap().(*) == i32(3));
+  
+  // All operations should properly manage reference counts
+};

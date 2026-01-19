@@ -377,6 +377,16 @@ HashSet :: (fn(
         slot_opt := self._find_slot(element, hash);
         match(slot_opt,
           .Some(index) => {
+            // Drop the element value before marking as deleted
+            cond(
+              Type.contains_rc_type(T) => {
+                data_ptr := self._data_ptr();
+                element_ptr := (data_ptr &+ index);
+                unsafe.drop(element_ptr.*);
+              },
+              true => ()
+            );
+            
             ctrl_ptr := self._ctrl_ptr();
             (ctrl_ptr &+ index).* = CTRL_DELETED;
             self.size = (self.size - usize(1));
@@ -407,6 +417,26 @@ HashSet :: (fn(
      */
     clear :: (fn(self: Self) -> unit)(
       {
+        // Drop all occupied elements before clearing
+        cond(
+          Type.contains_rc_type(T) => {
+            ctrl_ptr := self._ctrl_ptr();
+            data_ptr := self._data_ptr();
+            i := usize(0);
+            while(i < self.capacity, i = (i + usize(1)), {
+              ctrl_byte := (ctrl_ptr &+ i).*;
+              cond(
+                ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
+                  element_ptr := (data_ptr &+ i);
+                  unsafe.drop(element_ptr.*);
+                },
+                true => ()
+              );
+            });
+          },
+          true => ()
+        );
+        
         ctrl_ptr := self._ctrl_ptr();
         i := usize(0);
         while(i < self.capacity, i = (i + usize(1)), {
@@ -688,6 +718,34 @@ HashSet :: (fn(
      */
     dispose :: (fn(self: Self) -> unit)(
       {
+        // Drop all occupied elements before freeing memory
+        cond(
+          Type.contains_rc_type(T) => {
+            match(self.ctrl,
+              .Some(ctrl_ptr) => {
+                match(self.data,
+                  .Some(data_ptr) => {
+                    i := usize(0);
+                    while(i < self.capacity, i = (i + usize(1)), {
+                      ctrl_byte := (ctrl_ptr &+ i).*;
+                      cond(
+                        ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
+                          element_ptr := (data_ptr &+ i);
+                          unsafe.drop(element_ptr.*);
+                        },
+                        true => ()
+                      );
+                    });
+                  },
+                  .None => ()
+                );
+              },
+              .None => ()
+            );
+          },
+          true => ()
+        );
+        
         match(self.ctrl,
           .Some(ptr) => free(.Some(*(void) ptr)),
           .None => ()

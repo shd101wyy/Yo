@@ -421,6 +421,12 @@ HashMap :: (fn(
             bucket := (data_ptr &+ index).*;
             value := bucket.value;
             
+            // Drop the bucket's key and value to clean up RC refs
+            // (value is duped above, key needs explicit drop)
+            unsafe.drop(bucket.key);
+
+            // Value is returned, so it's moved out (no need to drop)
+            
             (ctrl_ptr &+ index).* = CTRL_DELETED;
             self.size = (self.size - usize(1));
             
@@ -451,6 +457,26 @@ HashMap :: (fn(
      */
     clear :: ((fn(self: Self) -> unit)
       {
+        // Drop all occupied buckets before clearing
+        cond(
+          (Type.contains_rc_type(K) || Type.contains_rc_type(V)) => {
+            ctrl_ptr := self._ctrl_ptr();
+            data_ptr := self._data_ptr();
+            i := usize(0);
+            while(i < self.capacity, i = (i + usize(1)), {
+              ctrl_byte := (ctrl_ptr &+ i).*;
+              cond(
+                ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
+                  bucket_ptr := (data_ptr &+ i);
+                  unsafe.drop(bucket_ptr.*);
+                },
+                true => ()
+              );
+            });
+          },
+          true => ()
+        );
+        
         ctrl_ptr := self._ctrl_ptr();
         i := usize(0);
         while(i < self.capacity, i = (i + usize(1)), {
@@ -464,6 +490,34 @@ HashMap :: (fn(
      * RAII destructor - automatically called when HashMap goes out of scope
      */
     dispose :: (fn(self: Self) -> unit)({
+      // Drop all occupied buckets before freeing memory
+      cond(
+        (Type.contains_rc_type(K) || Type.contains_rc_type(V)) => {
+          match(self.ctrl,
+            .Some(ctrl_ptr) => {
+              match(self.data,
+                .Some(data_ptr) => {
+                  i := usize(0);
+                  while(i < self.capacity, i = (i + usize(1)), {
+                    ctrl_byte := (ctrl_ptr &+ i).*;
+                    cond(
+                      ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
+                        bucket_ptr := (data_ptr &+ i);
+                        unsafe.drop(bucket_ptr.*);
+                      },
+                      true => ()
+                    );
+                  });
+                },
+                .None => ()
+              );
+            },
+            .None => ()
+          );
+        },
+        true => ()
+      );
+      
       match(self.ctrl,
         .Some(ptr) => free(.Some(*(void)(ptr))),
         .None => ()
