@@ -661,93 +661,169 @@ String :: object(
 
   /**
    * Check if the string starts with the specified substring (like JavaScript startsWith)
+   * position: The character index to start checking from (default 0)
    */
-  starts_with :: (fn(self: Self, prefix: Self) -> bool)({
+  starts_with :: (fn(self: Self, prefix: Self, (position : usize) ?= 0) -> bool)({
     prefix_bytes := prefix._bytes.len();
     self_bytes := self._bytes.len();
-    
+
     cond(
-      (prefix_bytes > self_bytes) => false,
       (prefix_bytes == usize(0)) => true,
       true => {
-        i := usize(0);
-        matches := true;
-        while ((i < prefix_bytes)),
-              (i = (i + usize(1))),
+        // Find the byte index corresponding to the position-th character
+        char_index := usize(0);
+        byte_index := usize(0);
+        
+        // Skip to the position-th character
+        while (((byte_index < self_bytes) && (char_index < position))),
+              (byte_index = (byte_index + usize(1))),
         {
-          self_byte_opt := self._bytes.get(i);
-          prefix_byte_opt := prefix._bytes.get(i);
-          match(self_byte_opt,
-            .Some(self_byte) =>
-              match(prefix_byte_opt,
-                .Some(prefix_byte) => {
-                  cond(
-                    (self_byte != prefix_byte) => {
+          byte_opt := self._bytes.get(byte_index);
+          match(byte_opt,
+            .Some(byte) => {
+              is_start := ((byte < u8(0x80)) || (byte >= u8(0xC0)));
+              cond(
+                is_start => {
+                  char_index = (char_index + usize(1));
+                },
+                true => ()
+              );
+            },
+            .None => ()
+          );
+        };
+        
+        // Check if we have enough bytes left for the prefix
+        cond(
+          ((byte_index + prefix_bytes) > self_bytes) => false,
+          true => {
+            // Compare bytes starting at byte_index
+            i := usize(0);
+            matches := true;
+            while ((i < prefix_bytes)),
+                  (i = (i + usize(1))),
+            {
+              self_byte_opt := self._bytes.get((byte_index + i));
+              prefix_byte_opt := prefix._bytes.get(i);
+              match(self_byte_opt,
+                .Some(self_byte) =>
+                  match(prefix_byte_opt,
+                    .Some(prefix_byte) => {
+                      cond(
+                        (self_byte != prefix_byte) => {
+                          matches = false;
+                          break;
+                        },
+                        true => ()
+                      );
+                    },
+                    .None => {
                       matches = false;
                       break;
-                    },
-                    true => ()
-                  );
-                },
+                    }
+                  ),
                 .None => {
                   matches = false;
                   break;
                 }
-              ),
-            .None => {
-              matches = false;
-              break;
-            }
-          );
-        };
-        return matches;
+              );
+            };
+            return matches;
+          }
+        )
       }
     )
   }),
 
   /**
    * Check if the string ends with the specified substring (like JavaScript endsWith)
+   * end_position: The character length to consider (default is string length)
    */
-  ends_with :: (fn(self: Self, suffix: Self) -> bool)({
+  ends_with :: (fn(self: Self, suffix: Self, (end_position : usize) ?= 0xFFFFFFFFFFFFFFFF) -> bool)({
     suffix_bytes := suffix._bytes.len();
     self_bytes := self._bytes.len();
-    
+
     cond(
-      (suffix_bytes > self_bytes) => false,
       (suffix_bytes == usize(0)) => true,
       true => {
-        offset := (self_bytes - suffix_bytes);
-        i := usize(0);
-        matches := true;
-        while ((i < suffix_bytes)),
-              (i = (i + usize(1))),
+        // Determine the effective end position in characters
+        string_char_len := self.len();
+        effective_end := cond(
+          (end_position == usize(0xFFFFFFFFFFFFFFFF)) => string_char_len,
+          (end_position > string_char_len) => string_char_len,
+          true => end_position
+        );
+        
+        // Find the byte index corresponding to effective_end character position
+        char_index := usize(0);
+        byte_index := usize(0);
+        end_byte_index := self_bytes;
+        
+        while ((byte_index < self_bytes)),
+              (byte_index = (byte_index + usize(1))),
         {
-          self_byte_opt := self._bytes.get((offset + i));
-          suffix_byte_opt := suffix._bytes.get(i);
-          match(self_byte_opt,
-            .Some(self_byte) =>
-              match(suffix_byte_opt,
-                .Some(suffix_byte) => {
+          byte_opt := self._bytes.get(byte_index);
+          match(byte_opt,
+            .Some(byte) => {
+              is_start := ((byte < u8(0x80)) || (byte >= u8(0xC0)));
+              cond(
+                is_start => {
                   cond(
-                    (self_byte != suffix_byte) => {
-                      matches = false;
+                    (char_index == effective_end) => {
+                      end_byte_index = byte_index;
                       break;
                     },
-                    true => ()
+                    true => {
+                      char_index = (char_index + usize(1));
+                    }
                   );
                 },
+                true => ()
+              );
+            },
+            .None => ()
+          );
+        };
+        
+        // Check if suffix fits within the effective range
+        cond(
+          (suffix_bytes > end_byte_index) => false,
+          true => {
+            // Compare bytes: check if bytes before end_byte_index end with suffix
+            offset := (end_byte_index - suffix_bytes);
+            i := usize(0);
+            matches := true;
+            while ((i < suffix_bytes)),
+                  (i = (i + usize(1))),
+            {
+              self_byte_opt := self._bytes.get((offset + i));
+              suffix_byte_opt := suffix._bytes.get(i);
+              match(self_byte_opt,
+                .Some(self_byte) =>
+                  match(suffix_byte_opt,
+                    .Some(suffix_byte) => {
+                      cond(
+                        (self_byte != suffix_byte) => {
+                          matches = false;
+                          break;
+                        },
+                        true => ()
+                      );
+                    },
+                    .None => {
+                      matches = false;
+                      break;
+                    }
+                  ),
                 .None => {
                   matches = false;
                   break;
                 }
-              ),
-            .None => {
-              matches = false;
-              break;
-            }
-          );
-        };
-        return matches;
+              );
+            };
+            return matches;
+          }
+        )
       }
     )
   }),

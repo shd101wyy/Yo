@@ -2143,3 +2143,137 @@ test "String trim_end emoji", {
   result := s.trim_end();
   assert(result == String.from("😀😁"));
 };
+// ===== starts_with with position Tests =====
+
+test "String starts_with with position at start", {
+  s := String.from("Hello World");
+  
+  assert(s.starts_with(String.from("Hello"), usize(0)));
+};
+
+test "String starts_with with position in middle", {
+  s := String.from("Hello World");
+  
+  assert(s.starts_with(String.from("World"), usize(6)));
+  assert(not(s.starts_with(String.from("Hello"), usize(6))));
+};
+
+test "String starts_with position skips prefix", {
+  s := String.from("abcdef");
+  
+  assert(s.starts_with(String.from("cde"), usize(2)));
+  assert(s.starts_with(String.from("def"), usize(3)));
+};
+
+test "String starts_with position UTF-8", {
+  s := String.from("你好世界");
+  
+  assert(s.starts_with(String.from("你好"), usize(0)));
+  assert(s.starts_with(String.from("世界"), usize(2)));
+  assert(s.starts_with(String.from("好世"), usize(1)));
+};
+
+test "String starts_with position beyond length", {
+  s := String.from("Hello");
+  
+  assert(not(s.starts_with(String.from("o"), usize(10))));
+};
+
+test "String starts_with position with emojis", {
+  s := String.from("😀😁😂");
+  
+  assert(s.starts_with(String.from("😀"), usize(0)));
+  assert(s.starts_with(String.from("😁"), usize(1)));
+  assert(s.starts_with(String.from("😂"), usize(2)));
+};
+
+test "String starts_with position empty prefix", {
+  s := String.from("Hello");
+  
+  assert(s.starts_with(String.from(""), usize(0)));
+  assert(s.starts_with(String.from(""), usize(3)));
+};
+
+test "String starts_with position mixed ASCII and UTF-8", {
+  s := String.from("Hello 世界");
+  
+  assert(s.starts_with(String.from("世"), usize(6)));
+  assert(s.starts_with(String.from("世界"), usize(6)));
+  assert(not(s.starts_with(String.from("Hello"), usize(6))));
+};
+
+// ===== ends_with with end_position Tests =====
+
+test "String ends_with end_position full length", {
+  s := String.from("Hello World");
+  
+  assert(s.ends_with(String.from("World"), s.len()));
+};
+
+test "String ends_with end_position partial string", {
+  s := String.from("Hello World");
+  
+  assert(s.ends_with(String.from("Hello"), usize(5)));
+  assert(not(s.ends_with(String.from("World"), usize(5))));
+};
+
+test "String ends_with end_position middle", {
+  s := String.from("abcdef");
+  
+  assert(s.ends_with(String.from("abc"), usize(3)));
+  assert(s.ends_with(String.from("abcd"), usize(4)));
+  assert(s.ends_with(String.from("c"), usize(3)));
+};
+
+test "String ends_with end_position UTF-8", {
+  s := String.from("你好世界");
+  
+  assert(s.ends_with(String.from("你好"), usize(2)));
+  assert(s.ends_with(String.from("好"), usize(2)));
+  assert(s.ends_with(String.from("你"), usize(1)));
+  assert(s.ends_with(String.from("世界"), usize(4)));
+};
+
+test "String ends_with end_position zero", {
+  s := String.from("Hello");
+  
+  assert(s.ends_with(String.from(""), usize(0)));
+  assert(not(s.ends_with(String.from("H"), usize(0))));
+};
+
+test "String ends_with end_position beyond length", {
+  s := String.from("Hello");
+  
+  assert(s.ends_with(String.from("Hello"), usize(100)));
+};
+
+test "String ends_with end_position with emojis", {
+  s := String.from("😀😁😂");
+  
+  assert(s.ends_with(String.from("😀"), usize(1)));
+  assert(s.ends_with(String.from("😀😁"), usize(2)));
+  assert(s.ends_with(String.from("😂"), usize(3)));
+};
+
+test "String ends_with end_position empty suffix", {
+  s := String.from("Hello");
+  
+  assert(s.ends_with(String.from(""), usize(0)));
+  assert(s.ends_with(String.from(""), usize(3)));
+};
+
+test "String ends_with end_position mixed ASCII and UTF-8", {
+  s := String.from("Hello 世界");
+  
+  assert(s.ends_with(String.from("Hello"), usize(5)));
+  assert(s.ends_with(String.from(" 世"), usize(7)));
+  assert(not(s.ends_with(String.from("世界"), usize(5))));
+};
+
+test "String ends_with end_position single character", {
+  s := String.from("abcdef");
+  
+  assert(s.ends_with(String.from("a"), usize(1)));
+  assert(s.ends_with(String.from("b"), usize(2)));
+  assert(s.ends_with(String.from("c"), usize(3)));
+};
