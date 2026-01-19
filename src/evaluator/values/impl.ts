@@ -203,6 +203,16 @@ export interface GenericImpl {
   sourceModulePath?: string;
   /** The environment where the impl was defined (for accessing non-exported variables like extern functions) */
   definitionEnv: Environment;
+  /**
+   * The trait type argument expressions (e.g., [Box(T)] for Eq(Box(T)))
+   * These need to be re-evaluated with substitutions to get concrete trait type parameters like Rhs
+   */
+  traitTypeArgExprs?: Expr[];
+  /**
+   * The trait function's parameter names (e.g., ["Rhs"] for Eq(Rhs))
+   * Paired with traitTypeArgExprs to bind parameters during specialization
+   */
+  traitFunctionParamNames?: string[];
 }
 
 /**
@@ -502,41 +512,8 @@ export function findMethodsFromGenericImpls({
             // Start with a fresh frame
             let specializedEnv = pushEnvFrame(baseEnv);
 
-            // IMPORTANT: Also copy bindings from the trait type's environment
-            // This provides access to trait type parameters like Rhs in Eq(Rhs)
-            // The trait type's env has Rhs=Box(T) when impl uses Eq(Box(T))
-            if (impl.traitType.env) {
-              // Check ALL frames for bindings, not just the last one
-              for (const frame of impl.traitType.env.frames) {
-                for (const variable of frame.variables) {
-                  // Only add if it's a type binding and not already in our substitutions
-                  if (
-                    variable.value &&
-                    isTypeValue(variable.value) &&
-                    !match.substitutions.has(variable.name)
-                  ) {
-                    const { env: nextEnv } = addVariableToEnv({
-                      env: specializedEnv,
-                      variable: {
-                        name: variable.name,
-                        type: variable.type,
-                        isCompileTimeOnly: true,
-                        value: variable.value,
-                        token: PlaceholderToken,
-                        initializedAtToken: PlaceholderToken,
-                        consumedAtToken: undefined,
-                        isOwningTheRcValue: false,
-                      },
-                      allowVariableShadowing: true,
-                    });
-                    specializedEnv = nextEnv;
-                  }
-                }
-              }
-            }
-
             // Add type substitutions to the environment first (like T=i32, U=usize, Self=[i32; 5])
-            // These must come BEFORE value substitutions so that value expressions can reference the types
+            // These must come BEFORE re-evaluating trait type args so that expressions like Box(T) become Box(i32)
             for (const [paramName, paramType] of match.substitutions) {
               // Include Self - it's needed for method bodies that reference it
               const { env: nextEnv } = addVariableToEnv({
@@ -571,6 +548,49 @@ export function findMethodsFromGenericImpls({
                 },
               });
               specializedEnv = nextEnv;
+            }
+
+            // IMPORTANT: Re-evaluate trait type argument expressions to get concrete trait type parameters
+            // For Eq(Box(T)) with T=i32, we re-evaluate Box(T) to get Box(i32), then bind Rhs=Box(i32)
+            // This is necessary because types in Yo are nominal, so we can't just substitute structurally
+            if (
+              impl.traitTypeArgExprs &&
+              impl.traitFunctionParamNames &&
+              impl.traitTypeArgExprs.length ===
+                impl.traitFunctionParamNames.length
+            ) {
+              for (let i = 0; i < impl.traitTypeArgExprs.length; i++) {
+                const argExpr = impl.traitTypeArgExprs[i]!;
+                const paramName = impl.traitFunctionParamNames[i]!;
+
+                // Re-evaluate the argument expression with substitutions bound
+                const evaluatedArg = evaluateExpression({
+                  expr: cloneExpr(argExpr),
+                  env: specializedEnv,
+                  context: {
+                    isEvaluatingGenericImplSpecialization: true,
+                    stdPath: "",
+                  } as EvaluatorContext,
+                });
+
+                if (evaluatedArg.$ && isTypeValue(evaluatedArg.$.value)) {
+                  const { env: nextEnv } = addVariableToEnv({
+                    env: specializedEnv,
+                    variable: {
+                      name: paramName,
+                      type: createType0(),
+                      isCompileTimeOnly: true,
+                      value: evaluatedArg.$.value,
+                      token: PlaceholderToken,
+                      initializedAtToken: PlaceholderToken,
+                      consumedAtToken: undefined,
+                      isOwningTheRcValue: false,
+                    },
+                    allowVariableShadowing: true,
+                  });
+                  specializedEnv = nextEnv;
+                }
+              }
             }
 
             // Re-evaluate the function type to get specialized types
@@ -1877,6 +1897,36 @@ export function evaluateModuleValue({
       traitType = traitValue.type;
     }
 
+    // Extract trait type argument expressions for later re-evaluation during specialization
+    // For Eq(Box(T))(...), we want to extract [Box(T)] and ["Rhs"]
+    let traitTypeArgExprs: Expr[] | undefined;
+    let traitFunctionParamNames: string[] | undefined;
+    if (exprIsFunctionCall(moduleCallArg)) {
+      // moduleCallArg is like Eq(Box(T))(...) - the func is Eq(Box(T))
+      const traitTypeCallExpr = moduleCallArg.func;
+      if (exprIsFunctionCall(traitTypeCallExpr)) {
+        // traitTypeCallExpr is Eq(Box(T)) - args are [Box(T)]
+        traitTypeArgExprs = traitTypeCallExpr.args.map((arg) => cloneExpr(arg));
+        // Get parameter names from the trait's function type
+        // Eq has signature (fn(compt(Rhs) : Type) -> compt(Trait)) so Rhs is a regular parameter
+        if (
+          traitType.functionValue &&
+          isFunctionType(traitType.functionValue.type)
+        ) {
+          // Try regular parameters first (for compt parameters like Rhs in Eq)
+          const funcType = traitType.functionValue.type;
+          if (funcType.parameters.length > 0) {
+            traitFunctionParamNames = funcType.parameters.map((p) => p.label);
+          } else if (funcType.forallParameters.length > 0) {
+            // Fallback to forall parameters
+            traitFunctionParamNames = funcType.forallParameters.map(
+              (p) => p.label
+            );
+          }
+        }
+      }
+    }
+
     // Check that the receiver type pattern satisfies the trait's self-constraints
     // For generic impls, we need to verify that the where constraints are sufficient
     // to satisfy the trait's requirements
@@ -1904,6 +1954,8 @@ export function evaluateModuleValue({
       expr,
       sourceModulePath: context.currentModulePath,
       definitionEnv: env, // Store the environment where the impl was defined
+      traitTypeArgExprs,
+      traitFunctionParamNames,
     };
 
     registerGenericImpl(traitTypeKey, genericImpl);

@@ -1,61 +1,26 @@
-open import "std/collections/array_list";
-open import "std/collections/hash_map";
-open import "std/collections/hash_set";
+open import "std/collections/hash_map.yo";
+open import "std/fmt";
 
 main :: (fn() -> unit) {
-  // Test ArrayList.pop with RC types
-  {
-    arr := ArrayList(Box(i32)).new();
-    arr.push(Box(i32)(1));
-    arr.push(Box(i32)(2));
-    arr.push(Box(i32)(3));
-    arr.pop();
-    arr.pop();
-  };
+  // Test Box equality
+  a := box(1);
+  b := box(1);
+  assert(a == b);
+  ();
+
+  c := box(2);
+  assert(a != c);
+
+  // Test HashMap with boxed keys and values
+  m := HashMap(Box(i32), Box(i32)).new();
+  m.set(box(1), box(100));
+  m.set(box(2), box(200));
   
-  // Test HashMap with RC types in both key and value
-  {
-    map := HashMap(Box(i32), Box(i32)).new().unwrap();
-    map.insert(Box(i32)(1), Box(i32)(10));
-    map.insert(Box(i32)(2), Box(i32)(20));
-    map.insert(Box(i32)(3), Box(i32)(30));
-    
-    // Remove should clean up both key and value
-    map.remove(Box(i32)(2));
-    
-    // Clear should clean up remaining entries
-    map.clear();
-  };
+  assert(m.get(box(1)).unwrap().(*) == 100);
+  assert(m.get(box(2)).unwrap().(*) == 200);
+  assert(m.get(box(3)).is_none());
   
-  // Test HashMap disposal with remaining elements
-  {
-    map := HashMap(Box(i32), Box(i32)).new().unwrap();
-    map.insert(Box(i32)(100), Box(i32)(200));
-    map.insert(Box(i32)(300), Box(i32)(400));
-    // Should clean up when going out of scope
-  };
-  
-  // Test HashSet with RC types
-  {
-    set := HashSet(Box(i32)).new().unwrap();
-    set.add(Box(i32)(10));
-    set.add(Box(i32)(20));
-    set.add(Box(i32)(30));
-    
-    // Remove should clean up the element
-    set.remove(Box(i32)(20));
-    
-    // Clear should clean up remaining elements
-    set.clear();
-  };
-  
-  // Test HashSet disposal with remaining elements
-  {
-    set := HashSet(Box(i32)).new().unwrap();
-    set.add(Box(i32)(1));
-    set.add(Box(i32)(2));
-    // Should clean up when going out of scope
-  };
+  print("HashMap(Box(i32), Box(i32)) works!\n");
 };
 
 export main;
