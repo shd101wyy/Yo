@@ -438,3 +438,114 @@ test "HashMap with bool keys", {
   assert(map.get(true).unwrap() == i32(1));
   assert(map.get(false).unwrap() == i32(0));
 };
+
+// ===== Reference-Counted Type Tests =====
+
+test "HashMap with Box key and value - basic set and get", {
+  map := HashMap(Box(i32), Box(i32)).new();
+  map.set(Box(i32)(1), Box(i32)(10));
+  map.set(Box(i32)(2), Box(i32)(20));
+  map.set(Box(i32)(3), Box(i32)(30));
+  
+  assert(map.len() == usize(3));
+  assert(map.get(Box(i32)(1)).unwrap().(*) == i32(10));
+  assert(map.get(Box(i32)(2)).unwrap().(*) == i32(20));
+  assert(map.get(Box(i32)(3)).unwrap().(*) == i32(30));
+};
+
+test "HashMap with Box values - update existing key cleans up old value", {
+  map := HashMap(Box(i32), Box(i32)).new();
+  map.set(Box(i32)(1), Box(i32)(100));
+  
+  // Update with new value - old Box(100) should be dropped
+  result := map.set(Box(i32)(1), Box(i32)(200));
+  assert(result.is_ok());
+  assert(result.unwrap().is_some());
+  
+  assert(map.len() == usize(1));
+  assert(map.get(Box(i32)(1)).unwrap().(*) == i32(200));
+  // The old Box(100) value should be properly dropped
+};
+
+test "HashMap with Box key and value - remove cleans up both", {
+  map := HashMap(Box(i32), Box(i32)).new();
+  map.set(Box(i32)(10), Box(i32)(100));
+  map.set(Box(i32)(20), Box(i32)(200));
+  map.set(Box(i32)(30), Box(i32)(300));
+  
+  removed := map.remove(Box(i32)(20));
+  assert(removed.is_some());
+  assert(removed.unwrap().(*) == i32(200));
+  assert(map.len() == usize(2));
+  
+  assert(!map.has(Box(i32)(20)));
+  assert(map.has(Box(i32)(10)));
+  assert(map.has(Box(i32)(30)));
+  // The removed key Box(20) should be dropped, value Box(200) returned
+};
+
+test "HashMap with Box key and value - clear cleans up all", {
+  map := HashMap(Box(i32), Box(i32)).new();
+  map.set(Box(i32)(1), Box(i32)(10));
+  map.set(Box(i32)(2), Box(i32)(20));
+  map.set(Box(i32)(3), Box(i32)(30));
+  
+  map.clear();
+  assert(map.len() == usize(0));
+  assert(map.is_empty());
+  // All Box keys and values should be properly dropped
+};
+
+test "HashMap with Box key and value - stress test with resize", {
+  map := HashMap(Box(i32), Box(i32)).new();
+  
+  // Add 100 elements to trigger multiple resizes
+  i := 0;
+  while i < 100, i = (i + 1), {
+    map.set(Box(i32)(i32(i)), Box(i32)(i32(i) * 10));
+  };
+  assert(map.len() == usize(100));
+  
+  // Update half of them (should drop old values)
+  i = 0;
+  while i < 50, i = (i + 1), {
+    map.set(Box(i32)(i32(i)), Box(i32)(i32(i) * 100));
+  };
+  assert(map.len() == usize(100));
+  
+  // Remove one
+  map.remove(Box(i32)(25));
+  assert(map.len() == usize(99));
+  
+  // Clear all
+  map.clear();
+  assert(map.len() == usize(0));
+  // All Box elements should be properly cleaned up including during resizes
+};
+
+test "HashMap with Box values only", {
+  map := HashMap(i32, Box(i32)).new();
+  map.set(i32(1), Box(i32)(100));
+  map.set(i32(2), Box(i32)(200));
+  
+  // Update value
+  map.set(i32(1), Box(i32)(150));
+  
+  assert(map.get(i32(1)).unwrap().(*) == i32(150));
+  assert(map.len() == usize(2));
+  // Old Box(100) should be dropped when updated
+};
+
+test "HashMap with Box keys only", {
+  map := HashMap(Box(i32), i32).new();
+  map.set(Box(i32)(1), i32(100));
+  map.set(Box(i32)(2), i32(200));
+  
+  assert(map.get(Box(i32)(1)).unwrap() == i32(100));
+  assert(map.get(Box(i32)(2)).unwrap() == i32(200));
+  
+  // Remove
+  map.remove(Box(i32)(1));
+  assert(map.len() == usize(1));
+  // Box key should be dropped
+};

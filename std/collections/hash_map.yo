@@ -300,6 +300,32 @@ HashMap :: (fn(
                 true => ()
               );
             });
+
+            // Drop old buckets before freeing old data array
+            // (bucket := ... above duped them, so we need to drop the old refs)
+            cond(
+              (Type.contains_rc_type(K) || Type.contains_rc_type(V)) => {
+                j := usize(0);
+                while(j < self.capacity, j = (j + usize(1)), {
+                  ctrl_byte := (ctrl_ptr &+ j).*;
+                  cond(
+                    ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
+                      bucket_ptr := (data_ptr &+ j);
+                      cond(
+                        Type.contains_rc_type(K) => unsafe.drop((bucket_ptr.*).key),
+                        true => ()
+                      );
+                      cond(
+                        Type.contains_rc_type(V) => unsafe.drop((bucket_ptr.*).value),
+                        true => ()
+                      );
+                    },
+                    true => ()
+                  );
+                });
+              },
+              true => ()
+            );
             
             match(self.ctrl,
               .Some(ptr) => free(.Some(*(void)(ptr))),
@@ -338,7 +364,12 @@ HashMap :: (fn(
             old_bucket := (data_ptr &+ index).*;
             old_value := old_bucket.value;
             new_bucket := Bucket(K, V)(key: key, value: value);
-            consume((data_ptr &+ index).* = new_bucket);
+            // Don't use consume here - we want to drop the old bucket at memory
+            // Note: old_bucket already duped it, so dropping here decrements to RC=1
+            // Then old_bucket goes out of scope and drops again to RC=0
+            // But wait - we return old_value which was duped from old_bucket...
+            // Actually the Bucket struct contains RC types, so assignment drops old + dups new
+            (data_ptr &+ index).* = new_bucket;
             .Ok(.Some(old_value))
           },
           .None => {
@@ -416,14 +447,16 @@ HashMap :: (fn(
           .Some(index) => {
             data_ptr := self._data_ptr();
             ctrl_ptr := self._ctrl_ptr();
-            bucket := (data_ptr &+ index).*;
-            value := bucket.value;
+            bucket_ptr := (data_ptr &+ index);
             
-            // Drop the bucket's key and value to clean up RC refs
-            // (value is duped above, key needs explicit drop)
-            unsafe.drop(bucket.key);
-
-            // Value is returned, so it's moved out (no need to drop)
+            // Read and dup value for return
+            value := bucket_ptr.*.value;
+            
+            // Drop the bucket's key (we're removing it)
+            unsafe.drop(bucket_ptr.*.key);
+            
+            // Drop the bucket's value extra ref (we duped it above)
+            unsafe.drop(bucket_ptr.*.value);
             
             (ctrl_ptr &+ index).* = CTRL_DELETED;
             self.size = (self.size - usize(1));

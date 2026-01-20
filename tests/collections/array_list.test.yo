@@ -677,3 +677,47 @@ test "ArrayList mixed operations with Box elements", {
   
   // All operations should properly manage reference counts
 };
+
+test "ArrayList stress test with Box - push 100 and remove from front", {
+  list := ArrayList(Box(i32)).new();
+
+  // Push 100 elements
+  i := 0;
+  while i < 100, i = (i + 1), {
+    list.push(Box(i32)(i32(i) * 10));
+  };
+  assert(list.len() == usize(100));
+
+  // Remove elements one by one from the front
+  i = 0;
+  while i < 50, i = (i + 1), {
+    list.remove(usize(0), usize(1));
+  };
+  assert(list.len() == usize(50));
+
+  // Clear the remaining elements
+  list.clear();
+  assert(list.len() == usize(0));
+  // All 100 Box elements should be properly disposed
+};
+
+test "ArrayList stress test with Box - remove multiple elements at once", {
+  list := ArrayList(Box(i32)).new();
+
+  // Push 20 elements
+  i := 0;
+  while i < 20, i = (i + 1), {
+    list.push(Box(i32)(i32(i)));
+  };
+  assert(list.len() == usize(20));
+
+  // Remove 10 elements from the middle
+  list.remove(usize(5), usize(10));
+  assert(list.len() == usize(10));
+
+  // Remaining elements should be 0-4 and 15-19
+  assert(list.get(usize(0)).unwrap().(*) == i32(0));
+  assert(list.get(usize(4)).unwrap().(*) == i32(4));
+  assert(list.get(usize(5)).unwrap().(*) == i32(15));
+  assert(list.get(usize(9)).unwrap().(*) == i32(19));
+};

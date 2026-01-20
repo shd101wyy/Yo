@@ -1,14 +1,82 @@
-open import "std/collections/hash_map.yo";
+open import "std/collections/array_list";
 
 main :: (fn() -> unit) {
-  // Test HashMap with boxed keys and values
-  m := HashMap(Box(i32), Box(i32)).new();
-  m.set(box(1), box(100));
-  m.set(box(2), box(200));
-  
-  assert(m.get(box(1)).unwrap().(*) == 100);
-  assert(m.get(box(2)).unwrap().(*) == 200);
-  assert(m.get(box(3)).is_none());
+  {
+    list := ArrayList(Box(i32)).new();
+    list.push(Box(i32)(1));
+    list.push(Box(i32)(2));
+    list.push(Box(i32)(3));
+    list.push(Box(i32)(4));
+    
+    result := list.remove(usize(1), usize(2));
+    assert(result.is_ok());
+    assert(list.len() == usize(2));
+  };
+
+  {
+    list := ArrayList(Box(i32)).new();
+    
+    // Push several elements
+    list.push(Box(i32)(1));
+    list.push(Box(i32)(2));
+    list.push(Box(i32)(3));
+    list.push(Box(i32)(4));
+    
+    // Pop one
+    list.pop();
+    
+    // Remove one from middle
+    list.remove(usize(1), usize(1));
+    
+    // Should have 2 elements left: 1 and 3
+    assert(list.len() == usize(2));
+    assert(list.get(usize(0)).unwrap().(*) == i32(1));
+    assert(list.get(usize(1)).unwrap().(*) == i32(3));
+  };
+
+  {
+    list := ArrayList(Box(i32)).new();
+
+    // Push 100 elements
+    i := 0;
+    while i < 100, i = (i + 1), {
+      list.push(Box(i32)(i32(i) * 10));
+    };
+    assert(list.len() == usize(100));
+
+    // Remove elements one by one from the front
+    i = 0;
+    while i < 50, i = (i + 1), {
+      list.remove(usize(0), usize(1));
+    };
+    assert(list.len() == usize(50));
+
+    // Clear the remaining elements
+    list.clear();
+    assert(list.len() == usize(0));
+    // All 100 Box elements should be properly disposed
+  };
+
+  {
+    list := ArrayList(Box(i32)).new();
+
+    // Push 20 elements
+    i := 0;
+    while i < 20, i = (i + 1), {
+      list.push(Box(i32)(i32(i)));
+    };
+    assert(list.len() == usize(20));
+
+    // Remove 10 elements from the middle
+    list.remove(usize(5), usize(10));
+    assert(list.len() == usize(10));
+
+    // Remaining elements should be 0-4 and 15-19
+    assert(list.get(usize(0)).unwrap().(*) == i32(0));
+    assert(list.get(usize(4)).unwrap().(*) == i32(4));
+    assert(list.get(usize(5)).unwrap().(*) == i32(15));
+    assert(list.get(usize(9)).unwrap().(*) == i32(19));
+  };
 };
 
 export main;
