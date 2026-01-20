@@ -92,6 +92,9 @@ function handleFuncCallDeferredDup(
  * Only drops variables that have been declared before the early return.
  * Variables that would be declared after the return point are filtered out
  * by checking if they exist in the return expression's environment.
+ *
+ * This function should be called AFTER the expression's own deferredDropExpressions
+ * have been emitted, to drop variables from enclosing scopes.
  */
 function generatePendingDeferredDrops(
   indent: string,
@@ -99,22 +102,36 @@ function generatePendingDeferredDrops(
   expr: Expr,
   isCompletion: boolean = false
 ): void {
-  if (
-    context.pendingDeferredDrops &&
-    (!expr.$?.deferredDropExpressions ||
-      expr.$.deferredDropExpressions.length === 0)
-  ) {
+  if (context.pendingDeferredDrops && context.pendingDeferredDrops.length > 0) {
     // Filter drops to only include variables that exist in the return expression's environment.
     // Variables declared after the return point won't be in expr.$.env yet.
+    // Also exclude variables that were already dropped by the expression's own deferredDropExpressions.
+    const alreadyDroppedVars = new Set<string>();
+    if (expr.$?.deferredDropExpressions) {
+      for (const dropExpr of expr.$.deferredDropExpressions) {
+        const varName = getDeferredDropTargetAtomName(dropExpr);
+        if (varName) {
+          alreadyDroppedVars.add(varName);
+        }
+      }
+    }
+
     const dropsToEmit = expr.$?.env
       ? context.pendingDeferredDrops.filter((dropExpr) => {
           const varName = getDeferredDropTargetAtomName(dropExpr);
           if (!varName) return false;
+          // Skip if already dropped by the expression's own drops
+          if (alreadyDroppedVars.has(varName)) return false;
           // Check if the variable exists in the environment at the return point
           const variables = getVariablesFromEnv(expr.$!.env, varName);
           return variables.length > 0;
         })
-      : context.pendingDeferredDrops;
+      : context.pendingDeferredDrops.filter((dropExpr) => {
+          const varName = getDeferredDropTargetAtomName(dropExpr);
+          if (!varName) return false;
+          // Skip if already dropped by the expression's own drops
+          return !alreadyDroppedVars.has(varName);
+        });
 
     if (dropsToEmit.length > 0) {
       const message = isCompletion

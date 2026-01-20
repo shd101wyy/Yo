@@ -1,13 +1,110 @@
 open import "std/string";
 open import "std/path";
 open import "std/collections/hash_set";
+open import "std/fmt";
 
 main :: (fn() -> unit) {
+  // Test 1: Create a simple path
+  println("Test 1: Create simple path");
   path1 := Path.new(`src/main.yo`);
+  println(path1);
+  println("");
 
-  set := HashSet(Box(i32)).new();
-  set.add(Box(i32)(10));
-  assert(set.has(Box(i32)(10)));
+  // Test 2: Create absolute path
+  println("Test 2: Create absolute path");
+  path2 := Path.new(`/usr/local/bin`);
+  println(path2.to_string());
+  print("Is absolute: ");
+  println(path2.is_absolute());
+  println("");
+
+  // Test 3: Join paths
+  println("Test 3: Join paths");
+  base := Path.new(`/home/user`);
+  subdir := Path.new(`documents/work`);
+  joined := base.join(subdir);
+  println(joined.to_string());
+  println("");
+
+  // Test 4: Get parent
+  println("Test 4: Get parent path");
+  path3 := Path.new(`/usr/local/bin`);
+  parent_opt := path3.parent();
+  match(parent_opt,
+    .Some(parent) => {
+      print("Parent of /usr/local/bin: ");
+      println(parent);
+    },
+    .None => {
+      println("No parent found");
+    }
+  );
+  println("");
+
+  // Test 5: Get file name
+  println("Test 5: Get file name");
+  path4 := Path.new(`/home/user/document.txt`);
+  name_opt := path4.file_name();
+  match(name_opt,
+    .Some(name) => {
+      print("File name: ");
+      println(name);
+    },
+    .None => {
+      println("No file name found");
+    }
+  );
+  println("");
+
+  // Test 6: Get file stem and extension
+  println("Test 6: Get file stem and extension");
+  path5 := Path.new(`main.yo`);
+  stem_opt := path5.file_stem();
+  ext_opt := path5.extension();
+  match(stem_opt,
+    .Some(stem) => {
+      print("File stem: ");
+      println(stem);
+    },
+    .None => {
+      println("No stem found");
+    }
+  );
+  match(ext_opt,
+    .Some(ext) => {
+      print("Extension: ");
+      println(ext);
+    },
+    .None => {
+      println("No extension found");
+    }
+  );
+  println("");
+  
+  // Test 8: Normalize path with .. and .
+  println("Test 8: Normalize path");
+  path8 := Path.new(`/usr/local/../bin/./test`);
+  println(path8.to_string());
+  println("");
+
+  // FIXME:
+  // Test 7: Change extension
+  println("Test 7: Change extension");
+  path6 := Path.new(`main.yo`);
+  path7 := path6.with_extension(`js`);
+  print("Changed extension: ");
+  println(path6.to_string());
+  println(path7.to_string());
+  println("");
+
+  // Test 9: Relative path
+  println("Test 9: Relative path check");
+  path9 := Path.new(`./src/main.yo`);
+  print("Is relative: ");
+  println(path9.is_relative());
+  println("");
+
+  println("=== All Path tests completed ===");
 };
 
 export main;
