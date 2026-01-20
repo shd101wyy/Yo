@@ -684,6 +684,15 @@ String :: object(
               is_start := ((byte < u8(0x80)) || (byte >= u8(0xC0)));
               cond(
                 is_start => {
+                  // Determine byte length of this UTF-8 character
+                  byte_len := cond(
+                    (byte < u8(0x80)) => usize(1),
+                    ((byte >= u8(0xC0)) && (byte < u8(0xE0))) => usize(2),
+                    ((byte >= u8(0xE0)) && (byte < u8(0xF0))) => usize(3),
+                    ((byte >= u8(0xF0)) && (byte < u8(0xF8))) => usize(4),
+                    true => usize(1)
+                  );
+                  byte_index = ((byte_index + byte_len) - usize(1));
                   char_index = (char_index + usize(1));
                 },
                 true => ()
