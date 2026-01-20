@@ -336,11 +336,9 @@ export function generateFunctionBody(
     // Handle begin block - generate all statements except the last, then return the last
     const args = expr.args;
 
-    // NOTE: We do NOT set pendingDeferredDrops to the function body's deferredDropExpressions here
-    // because those variables may not be defined yet at the point of an early return.
-    // The function body's drops are only valid at the END of the function, not in the middle.
-    // Each nested begin block and return statement handles its own drops appropriately.
-    // context.pendingDeferredDrops = expr.$?.deferredDropExpressions; // REMOVED
+    // Set pending deferred drops from the function body begin block
+    // These need to be generated when early returning from anywhere inside this function
+    context.pendingDeferredDrops = expr.$?.deferredDropExpressions;
 
     // Generate all expressions except the last as statements
     let findReturn = false;

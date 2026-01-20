@@ -74,12 +74,14 @@ function generateLoopBody(
     exprIsFunctionCallOf(bodyExpr, BuiltinKeywords.begin)
   ) {
     // Update pendingDeferredDrops for this begin block
-    // NOTE: We do NOT add the current begin block's drops because variables
-    // may not be defined yet at the point of an early return inside this block.
-    // Only outer scope drops are kept in pendingDeferredDrops.
+    // IMPORTANT: Concatenate with previous drops so early returns drop ALL enclosing scope vars
     const functionContext = context as FunctionGenerationContext;
     const previousPendingDeferredDrops = functionContext.pendingDeferredDrops;
-    // Keep only outer scope drops - don't add currentDrops here
+    const currentDrops = bodyExpr.$?.deferredDropExpressions ?? [];
+    functionContext.pendingDeferredDrops = [
+      ...currentDrops,
+      ...(previousPendingDeferredDrops ?? []),
+    ];
 
     // Generate each statement in the begin block directly
     for (const arg of bodyExpr.args) {

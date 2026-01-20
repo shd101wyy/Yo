@@ -33,14 +33,15 @@ export function generateBegin(
     // Evaluate each argument
     context.emitter.emitLine(`${indent}{ // begin block`);
 
-    // Save pending deferred drops from outer scopes
-    // NOTE: We do NOT add the current block's drops to pendingDeferredDrops because
-    // they may not be defined yet at the point of an early return. The current block's
-    // drops are only valid at the END of the block, not in the middle.
-    // Early returns from nested expressions (e.g., cond branches) should only drop
-    // variables from outer scopes that have already been fully defined.
+    // Set pending deferred drops from this begin block
+    // These need to be generated when early returning from inside this block
+    // IMPORTANT: Concatenate with previous drops so early returns drop ALL enclosing scope vars
     const previousPendingDeferredDrops = functionContext.pendingDeferredDrops;
-    // Keep only outer scope drops - don't add currentDrops here
+    const currentDrops = expr.$?.deferredDropExpressions ?? [];
+    functionContext.pendingDeferredDrops = [
+      ...currentDrops,
+      ...(previousPendingDeferredDrops ?? []),
+    ];
 
     // Generate and emit code for each arg IMMEDIATELY to preserve order
     // This is important because generateExpr may have side effects that emit code
@@ -130,9 +131,14 @@ export function generateBegin(
     // Statement form: begin block without returning a value
     context.emitter.emitLine(`${indent}{ // begin block`);
 
-    // Save pending deferred drops from outer scopes (same reasoning as expression form)
+    // Set pending deferred drops for statement form as well
+    // IMPORTANT: Concatenate with previous drops so early returns drop ALL enclosing scope vars
     const previousPendingDeferredDrops = functionContext.pendingDeferredDrops;
-    // Keep only outer scope drops - don't add currentDrops here
+    const currentDrops = expr.$?.deferredDropExpressions ?? [];
+    functionContext.pendingDeferredDrops = [
+      ...currentDrops,
+      ...(previousPendingDeferredDrops ?? []),
+    ];
 
     const argsCode = expr.args.map((arg) =>
       generateExpr(arg, indent + "  ", context)
