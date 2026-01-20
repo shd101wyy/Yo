@@ -78,7 +78,11 @@ extern "Yo",
 
   // slice related
   __yo_slice_len :
-    fn(forall(T: Type), slice: Slice(T)) -> usize
+    fn(forall(T: Type), slice: Slice(T)) -> usize,
+
+  // C macro related
+  __yo_c_macro_defined : (fn(compt(name) : compt_string) -> compt(bool)),
+  __yo_c_macro_value : (fn(compt(name) : compt_string) -> compt(compt_string))
 ;
 export __yo_as;
 
@@ -99,6 +103,34 @@ unsafe :: impl {
   export drop;
 };
 export unsafe;
+
+// IDEA:
+// c_macro :: impl {
+//   /// Check if a C macro is defined
+//   /// Returns true if the macro exists, false otherwise
+//   defined :: (fn(compt(name) : compt_string) -> compt(bool))(
+//     __yo_c_macro_defined(name)
+//   );
+//   export defined;
+// 
+//   /// Get the value of a C macro as a compile-time string
+//   /// Returns the macro's value as a string, or empty string "" if not defined
+//   /// Note: For function-like macros, returns the definition without expansion
+//   value :: (fn(compt(name) : compt_string) -> compt(compt_string))(
+//     __yo_c_macro_value(name)
+//   );
+//   export value;
+// 
+//   /// Get a macro value with a default fallback
+//   value_or :: (fn(compt(name) : compt_string, compt(default_val) : compt_string) -> compt(compt_string))(
+//     cond(
+//       defined(name) => value(name),
+//       true => default_val
+//     )
+//   );
+//   export value_or;
+// };
+// export c_macro;
 
 
 /// === Traits ===
