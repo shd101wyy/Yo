@@ -82,6 +82,30 @@ String :: object(
     return .Ok(Self(_bytes: bytes));
   }),
 
+  to_cstr :: (fn(self: Self) -> ArrayList(u8))({
+    bytes_len := self._bytes.len();
+    bytes_with_null := ArrayList(u8).with_capacity(bytes_len + usize(1));
+    
+    // Copy existing bytes
+    i := usize(0);
+    while (i < bytes_len),
+          (i = (i + usize(1))),
+    {
+      byte_opt := self._bytes.get(i);
+      match(byte_opt,
+        .Some(byte) => {
+          bytes_with_null.push(byte);
+        },
+        .None => ()
+      );
+    };
+    
+    // Add null terminator
+    bytes_with_null.push(u8(0));
+    
+    return bytes_with_null;
+  }),
+
   /**
    * Get the length of the string in Unicode characters (runes)
    * For "你好世界", this returns 4

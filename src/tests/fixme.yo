@@ -3,30 +3,10 @@ open import "std/fmt";
 open import "std/process";
 
 main :: (fn() -> unit) {
-  print(`Command-line arguments:\n`);
-  
-  // Get parsed arguments as Strings
-  parsed_args := args();
-  
-  // Print number of arguments
-  print(`argc = `);
-  println(argc());
-  print(`\n`);
-  
-  // Print each argument
-  i := usize(0);
-  len := parsed_args.len();
-  while i < len, {
-    arg := parsed_args.get(i).unwrap();
-    print("arg(");
-    print(i);
-    print(") = ");
-    println(arg);
-    println(`arg(${i}) = ${arg}`);
-    i = (i + 1);
-  };
-  
-  ();
+  println(env.get(`PATH`).unwrap_or(`No PATH set`));
+  println(env.get(`NON_EXISTENT_ENV_VAR`).unwrap_or(`Default Value`));
+  env.set(`NON_EXISTENT_ENV_VAR`, `New Value`);
+  println(env.get(`NON_EXISTENT_ENV_VAR`).unwrap_or(`Default Value`));
 };
 
 export main;

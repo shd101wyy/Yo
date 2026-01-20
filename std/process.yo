@@ -55,3 +55,30 @@ args :: (fn() -> ArrayList(String)) {
   return result;
 };
 export args;
+
+env :: impl {
+  { getenv, setenv } :: import "./libc/stdlib";
+
+  get :: (fn(name : String) -> Option(String)) {  
+    name_cstr := name.to_cstr().ptr().unwrap();
+    val_ptr := getenv(*(char)(name_cstr));
+    match(val_ptr,
+      .None => .None,
+      .Some(ptr) => .Some(String.from_cstr(*(u8)(ptr)).unwrap())
+    )
+  };
+  export get;
+
+  set :: (fn(name : String, value : String, (overwrite : bool) ?= true) -> bool) {
+    overwrite_int := cond(
+      overwrite => int(1),
+      true => int(0)
+    );
+    name_cstr := name.to_cstr().ptr().unwrap();
+    value_cstr := value.to_cstr().ptr().unwrap();
+    result := setenv(*(char)(name_cstr), *(char)(value_cstr), overwrite_int);
+    return result == int(0);
+  };
+  export set;
+};
+export env;
