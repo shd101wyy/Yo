@@ -1,0 +1,35 @@
+// Windows-specific C API bindings
+// Only available when compiling for Windows
+
+c_include "<windows.h>",
+  // Windows types
+  DWORD : Type,
+  WCHAR : Type,
+  BOOL : Type,
+
+  // GetCurrentDirectoryW - Gets the current directory (Unicode version)
+  // Returns the length of the string copied to the buffer (excluding null terminator)
+  // If the buffer is too small, returns the required size (including null terminator)
+  GetCurrentDirectoryW : (fn(nBufferLength : DWORD, lpBuffer : *(WCHAR)) -> DWORD),
+
+  // WideCharToMultiByte - Converts UTF-16 to UTF-8
+  WideCharToMultiByte : (fn(
+    CodePage : u32,
+    dwFlags : DWORD,
+    lpWideCharStr : *(WCHAR),
+    cchWideChar : i32,
+    lpMultiByteStr : *(u8),
+    cbMultiByte : i32,
+    lpDefaultChar : *(u8),
+    lpUsedDefaultChar : *(i32)
+  ) -> i32),
+
+  // Code page constants
+  CP_UTF8 : u32
+;
+export GetCurrentDirectoryW;
+export WideCharToMultiByte;
+export CP_UTF8;
+export DWORD;
+export WCHAR;
+export BOOL;

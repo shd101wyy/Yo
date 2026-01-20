@@ -582,4 +582,54 @@ impl(Path, ToString(
   })
 ));
 
+impl(Path, Eq(Path)(
+  (==) : ((self, other)-> {
+    // Compare absolute vs relative
+    cond(
+      (self._is_absolute != other._is_absolute) => {
+        return false;
+      },
+      true => ()
+    );
+
+    // Compare segment lengths
+    cond(
+      (self._segments.len() != other._segments.len()) => {
+        return false;
+      },
+      true => ()
+    );
+
+    // Compare each segment
+    i := usize(0);
+    while ((i < self._segments.len())),
+          (i = (i + usize(1))),
+    {
+      self_seg_opt := self._segments.get(i);
+      other_seg_opt := other._segments.get(i);
+      
+      match(self_seg_opt,
+        .Some(self_seg) => match(other_seg_opt,
+          .Some(other_seg) => {
+            cond(
+              (self_seg == other_seg) => (),
+              true => {
+                return false;
+              }
+            );
+          },
+          .None => {
+            return false;
+          }
+        ),
+        .None => {
+          return false;
+        }
+      );
+    };
+
+    return true;
+  })
+));
+
 export Path;

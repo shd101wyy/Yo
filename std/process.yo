@@ -3,6 +3,8 @@
 
 open import "./collections/array_list";
 open import "./string";
+{ GlobalAllocator } :: import "./allocator";
+{ malloc, free } :: GlobalAllocator;
 
 // === Low-level C interface ===
 
@@ -116,3 +118,112 @@ export platform;
  */
 arch :: __yo_process_arch();
 export arch;
+
+/**
+ * Get the current working directory at runtime.
+ * Returns a Result with the current directory as a String, or an error.
+ */
+cwd :: (fn() -> Result(String, String))(
+  cond(
+    (platform == "win32") => {
+      // Windows implementation using GetCurrentDirectoryW
+      { GetCurrentDirectoryW, WideCharToMultiByte, CP_UTF8, WCHAR, DWORD } :: import "./libc/windows";
+      
+      // First, get the required buffer size
+      required_size := GetCurrentDirectoryW(DWORD(0), *(WCHAR)(__yo_nullptr()));
+      cond(
+        (required_size == DWORD(0)) => .Err(`Failed to get current working directory on Windows`),
+        true => {
+          // Allocate buffer for wide characters
+          wbuf := *(WCHAR)(malloc((usize(required_size) * usize(2))).unwrap());
+          
+          // Get the current directory in UTF-16
+          actual_size := GetCurrentDirectoryW(required_size, wbuf);
+          
+          cond(
+            (actual_size == DWORD(0)) => {
+              free(.Some(*(void)(wbuf)));
+              .Err(`Failed to get current working directory on Windows`)
+            },
+            true => {
+              // Convert UTF-16 to UTF-8
+              // First, get the required buffer size for UTF-8
+              utf8_size := WideCharToMultiByte(
+                u32(CP_UTF8),
+                DWORD(0),
+                wbuf,
+                i32(actual_size),
+                *(u8)(__yo_nullptr()),
+                i32(0),
+                *(u8)(__yo_nullptr()),
+                *(i32)(__yo_nullptr())
+              );
+              
+              cond(
+                (utf8_size <= i32(0)) => {
+                  free(.Some(*(void)(wbuf)));
+                  .Err(`Failed to convert directory path to UTF-8`)
+                },
+                true => {
+                  // Allocate buffer for UTF-8 string
+                  utf8_buf := *(u8)(malloc((usize(utf8_size) + usize(1))).unwrap());
+                  
+                  // Convert to UTF-8
+                  result := WideCharToMultiByte(
+                    u32(CP_UTF8),
+                    DWORD(0),
+                    wbuf,
+                    i32(actual_size),
+                    utf8_buf,
+                    utf8_size,
+                    *(u8)(__yo_nullptr()),
+                    *(i32)(__yo_nullptr())
+                  );
+                  
+                  free(.Some(*(void)(wbuf)));
+                  
+                  cond(
+                    (result <= i32(0)) => {
+                      free(.Some(*(void)(utf8_buf)));
+                      .Err(`Failed to convert directory path to UTF-8`)
+                    },
+                    true => {
+                      // Add null terminator
+                      utf8_buf(usize(result)) = u8(0);
+                      cwd_str := String.from_cstr(utf8_buf).unwrap();
+                      free(.Some(*(void)(utf8_buf)));
+                      .Ok(cwd_str)
+                    }
+                  )
+                }
+              )
+            }
+          )
+        }
+      )
+    },
+    true => {
+      // Unix-like implementation using getcwd
+      { getcwd } :: import "./libc/unistd";
+      
+      // Allocate a buffer for the path (PATH_MAX is typically 4096)
+      buf_size := usize(4096);
+      buf := *(char)(malloc(buf_size).unwrap());
+      
+      result_ptr := getcwd(buf, buf_size);
+      
+      match(result_ptr,
+        .None => {
+          free(.Some(*(void)(buf)));
+          .Err(`Failed to get current working directory`)
+        },
+        .Some(ptr) => {
+          cwd_str := String.from_cstr(*(u8)(ptr)).unwrap();
+          free(.Some(*(void)(buf)));
+          .Ok(cwd_str)
+        }
+      )
+    }
+  )
+);
+export cwd;

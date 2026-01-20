@@ -71,12 +71,20 @@ export function evaluateImport({
       path.dirname(env.modulePath.replace(/^file:\/\//, "")),
       path.resolve(stdPath, modulePathToImport.replace("std/", "./"))
     );
+    // Ensure it starts with "./" or "../" for consistency
+    if (!modulePathToImport.startsWith(".")) {
+      modulePathToImport = "./" + modulePathToImport;
+    }
   } else if (modulePathToImport === "std") {
     // std library
     modulePathToImport = path.relative(
       path.dirname(env.modulePath.replace(/^file:\/\//, "")),
       path.resolve(stdPath, "./index.yo")
     ); // Let's set prelude.yo as the default for now
+    // Ensure it starts with "./" or "../" for consistency
+    if (!modulePathToImport.startsWith(".")) {
+      modulePathToImport = "./" + modulePathToImport;
+    }
   }
 
   if (!modulePathToImport.startsWith(".")) {

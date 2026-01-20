@@ -1,7 +1,19 @@
 process :: import "std/process";
+open import "std/fmt";
+open import "std/path";
 
-// Test process platform
-compt_print("Platform: ", process.platform);
-
-// Test process architecture
-compt_print("Architecture: ", process.arch);
+// Test runtime cwd
+main :: (fn() -> unit) {
+  cwd_result := process.cwd();
+  match(cwd_result,
+    .Ok(path) => {
+      print("Runtime CWD: ");
+      println(path);
+    },
+    .Err(msg) => {
+      print("Error getting CWD: ");
+      println(msg);
+    }
+  );
+};
+export main;
