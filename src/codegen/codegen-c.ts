@@ -65,7 +65,10 @@ export class CodeGeneratorC {
       externFunctions: {},
       types: {},
       arrayStructTypes: new Map(),
-      sliceStructTypes: new Map(),
+      sliceStructTypes: new Map([
+        // Always include slice type for command-line arguments (__yo_args)
+        ["Slice_uint8_t_u42_", { childType: "uint8_t*" }],
+      ]),
       spawnedFunctionSignatures: new Map(),
       spawnedClosureSignatures: new Map(),
       closureCaptureMap: new Map(),
