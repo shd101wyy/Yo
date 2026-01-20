@@ -6,9 +6,10 @@ open import "./string";
 
 // === Low-level C interface ===
 
-extern "C",
+extern "Yo",
   __yo_argc : i32,
-  __yo_argv : [*(u8)]
+  __yo_argv : *(*(u8)),
+  __yo_args : [*(u8)]
 ;
 
 // === Raw command-line arguments ===
@@ -17,7 +18,7 @@ extern "C",
 // The first element is the program name
 // Example: ["./program", "arg1", "arg2"]
 raw_args :: (fn() -> [*(u8)]) {
-  return __yo_argv(:);
+  return __yo_args(:);
 };
 export raw_args;
 
@@ -26,6 +27,12 @@ argc :: (fn() -> i32) {
   return __yo_argc;
 };
 export argc;
+
+// Return the argv u8** pointer
+argv :: (fn() -> *(*(u8))) {
+  return __yo_argv;
+};
+export argv;
 
 // === Convenient command-line arguments ===
 

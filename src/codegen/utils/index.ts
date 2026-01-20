@@ -307,7 +307,9 @@ export function getTypeString(
 ): string {
   if (!type) return "int32_t"; // fallback
 
-  if (type.isExtern && type.externName) {
+  // Only use externName for C extern types (e.g., libc_FILE)
+  // Not for Yo extern variables (__yo_argc, __yo_argv) - their types are normal Yo types
+  if (type.isExtern === "c" && type.externName) {
     return type.externName;
   }
 
