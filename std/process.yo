@@ -1,0 +1,50 @@
+// Process Module
+// Provides access to process information and command-line arguments
+
+open import "./collections/array_list";
+open import "./string";
+
+// === Low-level C interface ===
+
+extern "C",
+  __yo_argc : i32,
+  __yo_argv : [*(u8)]
+;
+
+// === Raw command-line arguments ===
+
+// Returns the raw command-line arguments as a slice of C strings
+// The first element is the program name
+// Example: ["./program", "arg1", "arg2"]
+raw_args :: (fn() -> [*(u8)]) {
+  return __yo_argv(:);
+};
+export raw_args;
+
+// Returns the number of command-line arguments (including program name)
+argc :: (fn() -> i32) {
+  return __yo_argc;
+};
+export argc;
+
+// === Convenient command-line arguments ===
+
+// Returns command-line arguments as an ArrayList of Strings
+// The first element is the program name
+// Example: [String("./program"), String("arg1"), String("arg2")]
+args :: (fn() -> ArrayList(String)) {  
+  raw := raw_args();
+  i := usize(0);
+  len := usize(argc());
+  
+  result := ArrayList(String).with_capacity(len);
+
+  while i < len, {
+    arg_ptr := raw(i);
+    arg_str := String.from_cstr(arg_ptr).unwrap();
+    result.push(arg_str);
+    i = (i + 1);
+  };
+  return result;
+};
+export args;

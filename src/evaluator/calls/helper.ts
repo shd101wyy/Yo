@@ -1354,6 +1354,7 @@ function createSpecializedFunctionInline({
         value: originalFunction,
         evaluationEnv: specializedEnv,
       },
+      isEvaluatingLoopBody: undefined, // Clear loop body context for function body
       capturedVariables: context.capturedVariables
         ? context.capturedVariables
         : undefined,

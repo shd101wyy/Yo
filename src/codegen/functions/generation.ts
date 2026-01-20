@@ -154,8 +154,16 @@ export function generateMainWrapper(context: FunctionGenerationContext): void {
   {
     // Sync main - call it directly and wait for any async tasks
     emitter.emitLine(`
+// Global storage for command-line arguments
+static int __yo_argc = 0;
+static char** __yo_argv = NULL;
+
 // Main wrapper - calls __yo_user_main directly
-int main(void) {
+int main(int argc, char** argv) {
+  // Store command-line arguments
+  __yo_argc = argc;
+  __yo_argv = argv;
+  
   // Initialize async runtime (in case async blocks are used)
   __yo_async_scheduler_init();
   
