@@ -3,6 +3,7 @@
 
 open import "./collections/array_list";
 open import "./string";
+open import "./path";
 { GlobalAllocator } :: import "./allocator";
 { malloc, free } :: GlobalAllocator;
 
@@ -121,9 +122,9 @@ export arch;
 
 /**
  * Get the current working directory at runtime.
- * Returns a Result with the current directory as a String, or an error.
+ * Returns a Result with the current directory as a Path, or an error message.
  */
-cwd :: (fn() -> Result(String, String))(
+cwd :: (fn() -> Result(Path, String))(
   cond(
     (platform == "win32") => {
       // Windows implementation using GetCurrentDirectoryW
@@ -192,7 +193,7 @@ cwd :: (fn() -> Result(String, String))(
                       utf8_buf(usize(result)) = u8(0);
                       cwd_str := String.from_cstr(utf8_buf).unwrap();
                       free(.Some(*(void)(utf8_buf)));
-                      .Ok(cwd_str)
+                      .Ok(Path.new(cwd_str))
                     }
                   )
                 }
@@ -220,10 +221,52 @@ cwd :: (fn() -> Result(String, String))(
         .Some(ptr) => {
           cwd_str := String.from_cstr(*(u8)(ptr)).unwrap();
           free(.Some(*(void)(buf)));
-          .Ok(cwd_str)
+          .Ok(Path.new(cwd_str))
         }
       )
     }
   )
 );
 export cwd;
+
+/**
+ * Change the current working directory.
+ * Returns Ok(()) on success, or an error message on failure.
+ */
+chdir :: (fn(path: Path) -> Result(unit, String))(
+  cond(
+    (platform == "win32") => {
+      // Windows implementation using SetCurrentDirectoryA
+      { SetCurrentDirectoryA, BOOL } :: import "./libc/windows";
+      
+      path_str := path.to_string();
+      path_cstr := path_str.to_cstr().ptr().unwrap();
+      result := SetCurrentDirectoryA(*(char)(path_cstr));
+      
+      cond(
+        (result == BOOL(0)) => .Err(`Failed to change directory to: ${path_str}`),
+        true => .Ok(())
+      )
+    },
+    true => {
+      // Unix-like implementation using chdir
+      { chdir : unix_chdir } :: import "./libc/unistd";
+      
+      path_str := path.to_string();
+      path_cstr := path_str.to_cstr().ptr().unwrap();
+      result := unix_chdir(*(char)(path_cstr));
+      
+      cond(
+        (result != int(0)) => .Err(`Failed to change directory to: ${path_str}`),
+        true => .Ok(())
+      )
+    }
+  )
+);
+export chdir;
+
+exit :: (fn(code : usize) -> unit) {
+  { exit : _exit } :: import "./libc/stdlib";
+  _exit(int(code));
+};
+export exit;

@@ -9,6 +9,7 @@ import {
   FnCallExpr,
 } from "../../expr";
 import { ModuleField } from "../../types";
+import { isFunctionType, isTypeHierarchyType } from "../../types/guards";
 import { VUnit } from "../../unit-value";
 import { createUnknownValue, isComptStringValue } from "../../value";
 import { EvaluatorContext } from "../context";
@@ -99,7 +100,18 @@ c_include "<stdio.h>" ...;`,
     // Set the isExtern and cInclude for the field type
     // IMPORTANT: Create a copy of the type to avoid mutating cached types
     // (e.g., the shared Type(0) object from createType0())
-    field.type = { ...field.type, isExtern: "c", cInclude: cHeaderFile };
+    // Also set externName for functions and types so that codegen uses the correct C name
+    // even when the import is renamed (e.g., { chdir: unix_chdir })
+    if (isTypeHierarchyType(field.type) || isFunctionType(field.type)) {
+      field.type = {
+        ...field.type,
+        isExtern: "c",
+        cInclude: cHeaderFile,
+        externName: field.label,
+      };
+    } else {
+      field.type = { ...field.type, isExtern: "c", cInclude: cHeaderFile };
+    }
 
     // Expect field to be compile-time only
     if (!field.isCompileTimeOnly) {

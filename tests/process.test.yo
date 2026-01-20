@@ -172,3 +172,146 @@ test "multiple env.set calls on same variable with overwrite=false", {
     .None => assert(false, "Expected variable to exist")
   );
 };
+
+// ============================================================
+// cwd and chdir tests
+// ============================================================
+
+test "cwd returns a valid absolute path", {
+  result := cwd();
+  match(result,
+    .Ok(path) => {
+      // cwd should return an absolute path
+      assert(path.is_absolute(), "cwd should return an absolute path");
+      
+      // The path should not be empty
+      path_str := path.to_string();
+      assert((path_str.len() > usize(0)), "cwd path should not be empty");
+      
+      println(`cwd: ${path_str}`);
+    },
+    .Err(msg) => {
+      // This should not happen on a normal system
+      println(`Error: ${msg}`);
+      assert(false, "cwd should not fail");
+    }
+  );
+};
+
+test "chdir changes directory and cwd reflects the change", {
+  { Path } :: import "std/path";
+  
+  // Get the original directory
+  original_result := cwd();
+  match(original_result,
+    .Err(msg) => {
+      println(`Error getting original cwd: ${msg}`);
+      assert(false, "Failed to get original cwd");
+    },
+    .Ok(original_path) => {
+      println(`Original cwd: ${original_path.to_string()}`);
+      
+      // Change to /tmp directory (exists on all Unix systems)
+      tmp_path := Path.new(`/tmp`);
+      chdir_result := chdir(tmp_path);
+      
+      match(chdir_result,
+        .Err(msg) => {
+          println(`Error changing directory: ${msg}`);
+          assert(false, "Failed to change directory to /tmp");
+        },
+        .Ok(_) => {
+          // Verify the change
+          new_cwd_result := cwd();
+          match(new_cwd_result,
+            .Err(msg) => {
+              println(`Error getting new cwd: ${msg}`);
+              assert(false, "Failed to get new cwd");
+            },
+            .Ok(new_path) => {
+              println(`New cwd: ${new_path.to_string()}`);
+              
+              // The new path should be /tmp
+              assert((new_path.to_string() == `/tmp`), "cwd should be /tmp after chdir");
+            }
+          );
+          
+          // Change back to original directory
+          restore_result := chdir(original_path);
+          match(restore_result,
+            .Err(msg) => {
+              println(`Error restoring directory: ${msg}`);
+              assert(false, "Failed to restore original directory");
+            },
+            .Ok(_) => {
+              // Verify we're back
+              final_cwd_result := cwd();
+              match(final_cwd_result,
+                .Err(msg) => {
+                  println(`Error getting final cwd: ${msg}`);
+                  assert(false, "Failed to get final cwd");
+                },
+                .Ok(final_path) => {
+                  println(`Restored cwd: ${final_path.to_string()}`);
+                  assert((final_path == original_path), "cwd should be restored to original");
+                }
+              );
+            }
+          );
+        }
+      );
+    }
+  );
+};
+
+test "chdir fails for non-existent directory", {
+  { Path } :: import "std/path";
+  
+  nonexistent := Path.new(`/this/path/should/not/exist/12345`);
+  result := chdir(nonexistent);
+  
+  match(result,
+    .Ok(_) => {
+      assert(false, "chdir should fail for non-existent directory");
+    },
+    .Err(msg) => {
+      println(`Expected error: ${msg}`);
+      // This is expected behavior
+    }
+  );
+};
+
+test "platform and arch are valid strings", {
+  println(`Platform: ${platform}`);
+  println(`Arch: ${arch}`);
+  
+  // Platform should be one of the known values
+  valid_platform := (
+    (platform == "linux") ||
+    (platform == "darwin") ||
+    (platform == "win32") ||
+    (platform == "freebsd") ||
+    (platform == "openbsd") ||
+    (platform == "aix") ||
+    (platform == "android") ||
+    (platform == "sunos")
+  );
+  assert(valid_platform, "platform should be a known value");
+  
+  // Arch should be one of the known values
+  valid_arch := (
+    (arch == "x64") ||
+    (arch == "arm64") ||
+    (arch == "arm") ||
+    (arch == "ia32") ||
+    (arch == "loong64") ||
+    (arch == "mips") ||
+    (arch == "mipsel") ||
+    (arch == "ppc") ||
+    (arch == "ppc64") ||
+    (arch == "riscv64") ||
+    (arch == "s390") ||
+    (arch == "s390x")
+  );
+  assert(valid_arch, "arch should be a known value");
+};
