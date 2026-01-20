@@ -176,3 +176,5 @@ bun package
 The Yo language supports double quote and template string like JavaScript.
 The difference is double quote string returns `str` type which contains `[u8]` the byte slice.  
 While the template string returns `String` type which is utf-8 encoded `object` type.
+
+`str` is a builtin type, so don't use it as a new variable or type name.
