@@ -1,7 +1,7 @@
 import { existsSync } from "fs";
 import path from "path";
 import { Environment } from "../../env";
-import { formatErrorMessage, YoError } from "../../error";
+import { formatErrorMessage, YoError, YoLexerError } from "../../error";
 import {
   BuiltinKeywords,
   exprIsFunctionCallOf,
@@ -71,12 +71,20 @@ export function evaluateImport({
       path.dirname(env.modulePath.replace(/^file:\/\//, "")),
       path.resolve(stdPath, modulePathToImport.replace("std/", "./"))
     );
+    // Ensure it starts with "./" or "../" for consistency
+    if (!modulePathToImport.startsWith(".")) {
+      modulePathToImport = "./" + modulePathToImport;
+    }
   } else if (modulePathToImport === "std") {
     // std library
     modulePathToImport = path.relative(
       path.dirname(env.modulePath.replace(/^file:\/\//, "")),
       path.resolve(stdPath, "./index.yo")
     ); // Let's set prelude.yo as the default for now
+    // Ensure it starts with "./" or "../" for consistency
+    if (!modulePathToImport.startsWith(".")) {
+      modulePathToImport = "./" + modulePathToImport;
+    }
   }
 
   if (!modulePathToImport.startsWith(".")) {
@@ -148,7 +156,7 @@ ${modulePathToImport}`,
       token: moduleArg.token,
       errorMessage: `Failed to import module "${modulePathToImport}":
 ${
-  error instanceof YoError
+  error instanceof YoError || error instanceof YoLexerError
     ? error.toString()
     : error instanceof Error
       ? error.message

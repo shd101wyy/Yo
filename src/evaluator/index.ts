@@ -13,7 +13,7 @@ import { isModuleType } from "../types";
 import { ModuleValue } from "../value";
 
 // Import extracted evaluator functions
-import { YoError } from "../error";
+import { YoError, YoLexerError } from "../error";
 import { LoadModuleFn } from "./context";
 import { evaluateAnonymousModuleBeginExprs } from "./values/anonymous_module";
 import {
@@ -99,7 +99,7 @@ export default class Evaluator {
       this.evaluateProgram(stdPath, loadModule);
     } catch (error) {
       throw new Error(
-        `Failed to import module "${modulePath}":\n${error instanceof YoError ? error.toString() : error instanceof Error ? error.message : String(error)}`
+        `Failed to import module "${modulePath}":\n${error instanceof YoError || error instanceof YoLexerError ? error.toString() : error instanceof Error ? error.message : String(error)}`
       );
     }
   }

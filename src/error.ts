@@ -10,16 +10,24 @@ export type ErrorKind = "overflow";
 export class YoLexerError {
   public characterIndex: number;
   public message: string;
+  public row: number;
 
   constructor({
     characterIndex,
     message,
+    row,
   }: {
     characterIndex: number;
     message: string;
+    row: number;
   }) {
     this.characterIndex = characterIndex;
     this.message = message;
+    this.row = row;
+  }
+
+  public toString(): string {
+    return `Lexer Error at row ${this.row + 1}: ${this.message}`;
   }
 }
 

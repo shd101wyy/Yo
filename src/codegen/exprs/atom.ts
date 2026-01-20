@@ -27,6 +27,11 @@ export function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
   }
 
   if (expr.token.value === "break") {
+    // When we're inside a match (which compiles to switch in C) and inside a loop,
+    // we need to use goto to break out of the loop, not just the switch
+    if (functionContext.insideMatch && functionContext.currentLoopLabel) {
+      return `goto ${functionContext.currentLoopLabel}`;
+    }
     return "break";
   }
 

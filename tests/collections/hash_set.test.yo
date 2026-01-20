@@ -620,3 +620,91 @@ test "HashSet maintains uniqueness", {
   assert(set.len() == usize(1));
   assert(set.has(i32(5)));
 };
+
+// ===== Reference-Counted Type Tests =====
+
+test "HashSet with Box elements - basic add and has", {
+  set := HashSet(Box(i32)).new();
+  set.add(Box(i32)(10));
+  set.add(Box(i32)(20));
+  set.add(Box(i32)(30));
+  
+  assert(set.len() == usize(3));
+  assert(set.has(Box(i32)(10)));
+  assert(set.has(Box(i32)(20)));
+  assert(set.has(Box(i32)(30)));
+};
+
+test "HashSet with Box elements - duplicate rejected and cleaned up", {
+  set := HashSet(Box(i32)).new();
+  result1 := set.add(Box(i32)(42));
+  result2 := set.add(Box(i32)(42));
+  
+  assert(result1.is_ok());
+  assert(result1.unwrap() == true);
+  assert(result2.is_ok());
+  assert(result2.unwrap() == false);
+  assert(set.len() == usize(1));
+  // The duplicate Box(42) should be properly dropped
+};
+
+test "HashSet with Box elements - remove cleans up element", {
+  set := HashSet(Box(i32)).new();
+  set.add(Box(i32)(10));
+  set.add(Box(i32)(20));
+  set.add(Box(i32)(30));
+  
+  result := set.remove(Box(i32)(20));
+  assert(result == true);
+  assert(set.len() == usize(2));
+  assert(!set.has(Box(i32)(20)));
+  assert(set.has(Box(i32)(10)));
+  assert(set.has(Box(i32)(30)));
+  // The removed Box(20) should be properly dropped
+};
+
+test "HashSet with Box elements - clear cleans up all elements", {
+  set := HashSet(Box(i32)).new();
+  set.add(Box(i32)(1));
+  set.add(Box(i32)(2));
+  set.add(Box(i32)(3));
+  
+  set.clear();
+  assert(set.len() == usize(0));
+  assert(set.is_empty());
+  // All Box elements should be properly dropped
+};
+
+test "HashSet with Box elements - stress test with resize", {
+  set := HashSet(Box(i32)).new();
+  
+  // Add 100 elements to trigger multiple resizes
+  i := 0;
+  while i < 100, i = (i + 1), {
+    set.add(Box(i32)(i32(i) * 10));
+  };
+  assert(set.len() == usize(100));
+  
+  // Remove one
+  set.remove(Box(i32)(200));
+  assert(set.len() == usize(99));
+  
+  // Clear all
+  set.clear();
+  assert(set.len() == usize(0));
+  // All Box elements should be properly cleaned up including during resizes
+};
+
+test "HashSet with Box elements - adding many duplicates", {
+  set := HashSet(Box(i32)).new();
+  
+  // Add same element many times - all duplicates should be dropped
+  i := 0;
+  while i < 50, i = (i + 1), {
+    set.add(Box(i32)(42));
+  };
+  
+  assert(set.len() == usize(1));
+  assert(set.has(Box(i32)(42)));
+  // 49 duplicate Box elements should be properly dropped
+};

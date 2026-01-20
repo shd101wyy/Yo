@@ -175,23 +175,30 @@ Path :: object(
 
 **Note:** Path operations are **synchronous** (pure computation, no I/O).
 
-| Yo Function               | Node.js Equivalent  | Priority | Notes                     |
-| ------------------------- | ------------------- | -------- | ------------------------- |
-| `Path.join(a, b)`         | `path.join()`       | High     | Sync                      |
-| `Path.resolve(paths...)`  | `path.resolve()`    | High     | Sync                      |
-| `Path.normalize(path)`    | `path.normalize()`  | High     | Sync                      |
-| `Path.is_absolute(path)`  | `path.isAbsolute()` | High     | Sync                      |
-| `Path.relative(from, to)` | `path.relative()`   | Medium   | Sync                      |
-| `Path.dirname(path)`      | `path.dirname()`    | High     | Sync                      |
-| `Path.basename(path)`     | `path.basename()`   | High     | Sync                      |
-| `Path.extname(path)`      | `path.extname()`    | High     | Sync                      |
-| `Path.parse(path)`        | `path.parse()`      | Medium   | Sync                      |
-| `Path.format(obj)`        | `path.format()`     | Medium   | Sync                      |
-| `Path.sep`                | `path.sep`          | High     | Const                     |
-| `Path.delimiter`          | `path.delimiter`    | Medium   | Const                     |
-| `exists()`                | -                   | High     | Async - see `fs.exists()` |
-| `is_file()`               | -                   | High     | Async - see `fs.stat()`   |
-| `is_dir()`                | -                   | High     | Async - see `fs.stat()`   |
+| Yo Function                 | Node.js Equivalent  | Priority | Notes                              |
+| --------------------------- | ------------------- | -------- | ---------------------------------- |
+| `Path.join(a, b)`           | `path.join()`       | High     | ✅ Implemented                     |
+| `Path.resolve(paths...)`    | `path.resolve()`    | High     | Sync - resolve to absolute path    |
+| `Path.normalize(path)`      | `path.normalize()`  | High     | Partially done in constructor      |
+| `Path.is_absolute(path)`    | `path.isAbsolute()` | High     | ✅ Implemented                     |
+| `Path.is_relative(path)`    | (derived)           | High     | ✅ Implemented                     |
+| `Path.relative(from, to)`   | `path.relative()`   | Medium   | Sync - compute relative path       |
+| `Path.dirname(path)`        | `path.dirname()`    | High     | ✅ Implemented as `parent()`       |
+| `Path.basename(path)`       | `path.basename()`   | High     | ✅ Implemented as `file_name()`    |
+| `Path.extname(path)`        | `path.extname()`    | High     | ✅ Implemented as `extension()`    |
+| `Path.file_stem()`          | (derived)           | High     | ✅ Implemented                     |
+| `Path.with_extension(ext)`  | (derived)           | High     | ✅ Implemented                     |
+| `Path.with_file_name(name)` | -                   | Medium   | Sync - replace file name           |
+| `Path.starts_with(base)`    | -                   | Medium   | Sync - check if starts with base   |
+| `Path.ends_with(suffix)`    | -                   | Low      | Sync - check if ends with suffix   |
+| `Path.components()`         | -                   | Low      | Sync - get all path components     |
+| `Path.sep`                  | `path.sep`          | High     | ✅ Implemented as `PATH_SEPARATOR` |
+| `Path.delimiter`            | `path.delimiter`    | Medium   | ✅ Implemented as `PATH_DELIMITER` |
+
+**Note:** File system I/O operations like checking existence or file type belong in the `fs` module:
+
+- Use `fs.exists(path)` to check if a path exists
+- Use `fs.stat(path)` to get file metadata (includes `is_file()`, `is_dir()`, etc.)
 
 ---
 

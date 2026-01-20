@@ -5,6 +5,7 @@ import {
   exprIsFunctionCallOf,
   FnCallExpr,
 } from "../../expr";
+import { FunctionGenerationContext } from "../functions/context";
 import { CodeGenContext } from "../utils";
 import { generateExpr } from "./expr";
 
@@ -72,6 +73,16 @@ function generateLoopBody(
     exprIsFunctionCall(bodyExpr) &&
     exprIsFunctionCallOf(bodyExpr, BuiltinKeywords.begin)
   ) {
+    // Update pendingDeferredDrops for this begin block
+    // IMPORTANT: Concatenate with previous drops so early returns drop ALL enclosing scope vars
+    const functionContext = context as FunctionGenerationContext;
+    const previousPendingDeferredDrops = functionContext.pendingDeferredDrops;
+    const currentDrops = bodyExpr.$?.deferredDropExpressions ?? [];
+    functionContext.pendingDeferredDrops = [
+      ...currentDrops,
+      ...(previousPendingDeferredDrops ?? []),
+    ];
+
     // Generate each statement in the begin block directly
     for (const arg of bodyExpr.args) {
       const argCode = generateExpr(arg, indent, context);
@@ -89,6 +100,9 @@ function generateLoopBody(
         }
       }
     }
+
+    // Restore previous pending deferred drops
+    functionContext.pendingDeferredDrops = previousPendingDeferredDrops;
   } else {
     // For non-begin expressions, generate normally
     const bodyCode = generateExpr(bodyExpr, indent, context);

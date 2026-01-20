@@ -75,8 +75,16 @@ export function evaluateComptFunctionCall({
         // given T = i32 in env, areValuesEqual returns true.
         // We don't want to use the cache there.
         // For caching purposes, we need EXACT equality, not just compatibility.
-        // Use requireExactMatch=true to ensure types match exactly.
         if (isTypeValue(argValue) && isTypeValue(givenArgValue)) {
+          // CRITICAL: For SomeTypes, we must compare by id, not by name or structure.
+          // Two different SomeTypes (e.g., V from Box's definition and T from impl's forall)
+          // should NOT be considered equal even if they have the same structure.
+          // This ensures that Box(V) and Box(T) create separate cache entries.
+          if (isSomeType(argValue.value) && isSomeType(givenArgValue.value)) {
+            // Must be the exact same SomeType instance
+            return argValue.value.id === givenArgValue.value.id;
+          }
+
           if (isSomeType(argValue.value)) {
             if (!isSomeType(givenArgValue.value)) {
               return false;
@@ -142,6 +150,7 @@ export function evaluateComptFunctionCall({
 
           evaluationEnv: calleeEnv,
         },
+        isEvaluatingLoopBody: undefined, // Clear loop body context for function body
         capturedVariables: context.capturedVariables
           ? context.capturedVariables
           : undefined,

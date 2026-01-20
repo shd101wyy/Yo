@@ -1,7 +1,40 @@
+open import "std/process";
 open import "std/fmt";
+open import "std/path";
 
+// Test runtime cwd
 main :: (fn() -> unit) {
-  x := 12;
+  println(`Platform: ${platform}`);
+  println(`Arch: ${arch}`);
+  
+  // Platform should be one of the known values
+  valid_platform := (
+    (platform == "linux") ||
+    (platform == "darwin") ||
+    (platform == "win32") ||
+    (platform == "freebsd") ||
+    (platform == "openbsd") ||
+    (platform == "aix") ||
+    (platform == "android") ||
+    (platform == "sunos")
+  );
+  assert(valid_platform, "platform should be a known value");
+  
+  // Arch should be one of the known values
+  valid_arch := (
+    (arch == "x64") ||
+    (arch == "arm64") ||
+    (arch == "arm") ||
+    (arch == "ia32") ||
+    (arch == "loong64") ||
+    (arch == "mips") ||
+    (arch == "mipsel") ||
+    (arch == "ppc") ||
+    (arch == "ppc64") ||
+    (arch == "riscv64") ||
+    (arch == "s390") ||
+    (arch == "s390x")
+  );
+  assert(valid_arch, "arch should be a known value");
 };
-
 export main;

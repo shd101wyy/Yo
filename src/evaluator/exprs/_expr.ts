@@ -47,6 +47,7 @@ import { evaluateImplConstraint } from "../builtins/impl_constraint";
 import { evaluateMacroExpand } from "../builtins/macro_expand";
 import { evaluateYoNumericFunctions } from "../builtins/numeric_fns";
 import { evaluatePanic } from "../builtins/panic";
+import { evaluateYoProcessFunctions } from "../builtins/process";
 import { evaluateAddressCall } from "../builtins/ptr_fns";
 import { evaluateQuote } from "../builtins/quote";
 import { evaluateRc } from "../builtins/rc";
@@ -871,6 +872,17 @@ ${exprToString(expr)}`,
     ) {
       // __yo_var_has_other_aliases
       return evaluateYoVarHasOtherAliases({
+        expr,
+        env,
+        context: { ...context },
+      });
+    }
+    // Process related functions
+    else if (
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_process_platform) ||
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_process_arch)
+    ) {
+      return evaluateYoProcessFunctions({
         expr,
         env,
         context: { ...context },

@@ -946,6 +946,10 @@ export const BuiltinFunctions = {
   __yo_noop: ["__yo_noop"],
   __yo_return_self: ["__yo_return_self"],
   __yo_ms_sleep: ["__yo_ms_sleep"],
+
+  // Process related functions
+  __yo_process_platform: ["__yo_process_platform"], // returns process.platform as compt_string
+  __yo_process_arch: ["__yo_process_arch"], // returns process.arch as compt_string
 };
 
 export function exprIsInfixOperatorFunctionCall(expr: Expr): boolean {

@@ -65,7 +65,10 @@ export class CodeGeneratorC {
       externFunctions: {},
       types: {},
       arrayStructTypes: new Map(),
-      sliceStructTypes: new Map(),
+      sliceStructTypes: new Map([
+        // Always include slice type for command-line arguments (__yo_args)
+        ["Slice_uint8_t_u42_", { childType: "uint8_t*" }],
+      ]),
       spawnedFunctionSignatures: new Map(),
       spawnedClosureSignatures: new Map(),
       closureCaptureMap: new Map(),
@@ -115,6 +118,14 @@ typedef enum {
 
     // Second pass: Generate type declarations
     generateTypeDeclarations(context);
+
+    // Command-line arguments (declared after types so Slice type is available)
+    this.emitter.emitDeclarationLine(`
+// Command-line arguments (initialized in main)
+static int32_t __yo_argc;
+static uint8_t** __yo_argv;
+static Slice_uint8_t_u42_ __yo_args;
+`);
 
     // Fix up dyn impl keys now that types have C names
     fixupDynImplKeys(context);

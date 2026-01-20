@@ -988,8 +988,62 @@ export function generateOtherFunctionCall(
                     arg.$?.env
                   );
 
-                  // Handle deferred dup expressions for enum variant fields
+                  // Declare temp variable for enum field arguments when needed
                   let finalArgValue = argCode;
+                  if (arg.$?.variableName && arg.$?.type) {
+                    const isClosureCapturedVariable =
+                      functionContext.currentClosureCaptures &&
+                      functionContext.currentClosureCaptures.includes(
+                        arg.$.variableName
+                      ) &&
+                      exprIsAtom(arg) &&
+                      arg.$.env &&
+                      functionContext.currentClosureCaptureFrameLevel !==
+                        undefined &&
+                      checkVariableIsClosureCaptured(
+                        arg.token.value,
+                        arg.$.env,
+                        functionContext.currentClosureCaptureFrameLevel
+                      );
+
+                    const isStateMachineCapturedVariable =
+                      functionContext.inStateMachine &&
+                      argCode.startsWith("sm->");
+
+                    let emittedTempVarDeclaration = false;
+
+                    if (
+                      argCode &&
+                      argCode !== arg.$.variableName &&
+                      !isClosureCapturedVariable &&
+                      !isStateMachineCapturedVariable
+                    ) {
+                      const sanitizedVarName = getVariableNameForCodegen(
+                        arg.$.variableName,
+                        arg.$.env
+                      );
+                      if (argCode !== sanitizedVarName) {
+                        const varTypeAndName = getVariableTypeString(
+                          arg.$.type,
+                          arg.$.variableName,
+                          context
+                        );
+                        context.emitter.emitLine(
+                          `${indent}${varTypeAndName} = ${argCode};`
+                        );
+                        emittedTempVarDeclaration = true;
+                      }
+                    }
+
+                    if (emittedTempVarDeclaration) {
+                      finalArgValue = getVariableNameForCodegen(
+                        arg.$.variableName,
+                        arg.$.env
+                      );
+                    }
+                  }
+
+                  // Handle deferred dup expressions for enum variant fields
                   if (
                     arg.$?.deferredDupExpressions &&
                     arg.$.deferredDupExpressions.length > 0

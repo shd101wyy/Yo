@@ -1,0 +1,635 @@
+open import "./string";
+open import "./fmt";
+open import "./collections/array_list";
+
+/**
+ * Path - Cross-platform path manipulation
+ * 
+ * Provides utilities for working with filesystem paths similar to Node.js's path module.
+ * Path operations are synchronous (pure computation, no I/O).
+ */
+
+PathError :: enum(
+  EmptyPath,
+  InvalidPath(message: String)
+);
+export PathError;
+
+/**
+ * Path separator for the current platform
+ * Unix: '/', Windows: '\\'
+ * TODO: Support Windows paths later
+ */
+PATH_SEPARATOR :: (fn() -> u8)(
+  u8(47)  // '/' for Unix (we'll focus on Unix first)
+);
+export PATH_SEPARATOR;
+
+/**
+ * Path delimiter for the current platform
+ * Unix: ':', Windows: ';'
+ * TODO: Support Windows paths later
+ */
+PATH_DELIMITER :: (fn() -> u8)(
+  u8(58)  // ':' for Unix
+);
+export PATH_DELIMITER;
+
+/**
+ * Path - Represents a filesystem path
+ */
+Path :: object(
+  _segments: ArrayList(String),
+  _is_absolute: bool,
+
+  /**
+   * Create a new path from a string
+   * Example: Path.new("./src/main.yo")
+   */
+  new :: (fn(path_str: String) -> Self)({
+    segments := ArrayList(String).new();
+    is_abs := false;
+
+    // Check if path is absolute (starts with '/')
+    bytes := path_str._bytes;
+    cond(
+      (bytes.len() > usize(0)) => {
+        first_byte := bytes.get(usize(0));
+        match(first_byte,
+          .Some(b) => cond(
+            (b == u8(47)) => {
+              is_abs = true;
+            },
+            true => ()
+          ),
+          .None => ()
+        );        
+      },
+      true => ()
+    );
+
+    // Split path by "/" separator
+    sep := String.from("/");
+    parts := path_str.split(sep);
+    
+    // Process each part
+    i := usize(0);
+    while ((i < parts.len())),
+          (i = (i + usize(1))),
+    {
+      part_opt := parts.get(i);
+      match(part_opt,
+        .Some(part) => {
+          // Skip empty segments (from leading/trailing slashes)
+          cond(
+            (part.is_empty()) => (),
+            true => {
+              // Check if it's "." (current directory)
+              is_dot := ((part.len() == usize(1)) && {
+                byte_opt := part._bytes.get(usize(0));
+                match(byte_opt,
+                  .Some(b) => (b == u8(46)),
+                  .None => false
+                )
+              });
+              
+              // Check if it's ".." (parent directory)
+              is_dotdot := ((part.len() == usize(2)) && {
+                b0_opt := part._bytes.get(usize(0));
+                b1_opt := part._bytes.get(usize(1));
+                match(b0_opt,
+                  .Some(b0) => match(b1_opt,
+                    .Some(b1) => ((b0 == u8(46)) && (b1 == u8(46))),
+                    .None => false
+                  ),
+                  .None => false
+                )
+              });
+              
+              cond(
+                (is_dot) => (),  // Skip "."
+                (is_dotdot) => {
+                  // Pop the last segment if exists
+                  cond(
+                    (segments.len() > usize(0)) => {
+                      segments.pop();
+                    },
+                    true => ()
+                  );
+                },
+                true => {
+                  segments.push(part);
+                }
+              );
+            }
+          );
+        },
+        .None => ()
+      );
+    };
+
+    return Self(_segments: segments, _is_absolute: is_abs);
+  }),
+
+  /**
+   * Create a path from a C string
+   * Example: Path.from_cstr(c"./src/main.yo")
+   */
+  from_cstr :: (fn(cstr: *(u8)) -> Self)({
+    str_result := String.from_cstr(cstr);
+    match(str_result,
+      .Ok(s) => {
+        return Self.new(s);
+      },
+      .Err(_) => {
+        // Return empty path on error
+        return Self(_segments: ArrayList(String).new(), _is_absolute: false);
+      }
+    );
+  }),
+
+  /**
+   * Join this path with another path
+   * Example: Path.new("/usr").join(Path.new("local/bin"))
+   */
+  join :: (fn(self: Self, other: Self) -> Self)({
+    // If other is absolute, return other
+    cond(
+      (other._is_absolute) => {
+        return other;
+      },
+      true => ()
+    );
+
+    // Otherwise, concatenate segments
+    new_segments := ArrayList(String).with_capacity((self._segments.len() + other._segments.len()));
+    
+    // Copy self segments
+    i := usize(0);
+    while ((i < self._segments.len())),
+          (i = (i + usize(1))),
+    {
+      seg := self._segments.get(i);
+      match(seg,
+        .Some(s) => {
+          new_segments.push(s);
+        },
+        .None => ()
+      );
+    };
+
+    // Copy other segments
+    j := usize(0);
+    while ((j < other._segments.len())),
+          (j = (j + usize(1))),
+    {
+      seg := other._segments.get(j);
+      match(seg,
+        .Some(s) => {
+          new_segments.push(s);
+        },
+        .None => ()
+      );
+    };
+
+    return Self(_segments: new_segments, _is_absolute: self._is_absolute);
+  }),
+
+  /**
+   * Get the parent path
+   * Example: Path.new("/usr/local/bin").parent() => Some(Path.new("/usr/local"))
+   */
+  parent :: (fn(self: Self) -> Option(Self))({
+    cond(
+      (self._segments.len() == usize(0)) => {
+        return .None;
+      },
+      true => ()
+    );
+
+    new_segments := ArrayList(String).with_capacity((self._segments.len() - usize(1)));
+    i := usize(0);
+    while ((i < (self._segments.len() - usize(1)))),
+          (i = (i + usize(1))),
+    {
+      seg := self._segments.get(i);
+      match(seg,
+        .Some(s) => {
+          new_segments.push(s);
+        },
+        .None => ()
+      );
+    };
+
+    return .Some(Self(_segments: new_segments, _is_absolute: self._is_absolute));
+  }),
+
+  /**
+   * Get the file name (last segment)
+   * Example: Path.new("/usr/local/bin").file_name() => Some("bin")
+   */
+  file_name :: (fn(self: Self) -> Option(String))({
+    cond(
+      (self._segments.len() == usize(0)) => {
+        return .None;
+      },
+      true => ()
+    );
+
+    return self._segments.get((self._segments.len() - usize(1)));
+  }),
+
+  /**
+   * Get the file stem (file name without extension)
+   * Example: Path.new("main.yo").file_stem() => Some("main")
+   */
+  file_stem :: (fn(self: Self) -> Option(String))({
+    name_opt := self.file_name();
+    match(name_opt,
+      .Some(name) => {
+        // Find the last dot using String methods
+        dot := String.from(".");
+        last_dot_result := name.last_index_of(dot);
+        match(last_dot_result,
+          .Some(idx) => {
+            // Return substring before the dot
+            stem := name.substring(usize(0), idx);
+            return .Some(stem);
+          },
+          .None => {
+            // No dot found, return the whole name
+            return .Some(name);
+          }
+        );
+      },
+      .None => {
+        return .None;
+      }
+    );
+  }),
+
+  /**
+   * Get the file extension
+   * Example: Path.new("main.yo").extension() => Some("yo")
+   */
+  extension :: (fn(self: Self) -> Option(String))({
+    name_opt := self.file_name();
+    match(name_opt,
+      .Some(name) => {
+        // Find the last dot using String methods
+        dot := String.from(".");
+        last_dot_result := name.last_index_of(dot);
+        match(last_dot_result,
+          .Some(idx) => {
+            // Return substring after the dot
+            ext := name.substring((idx + usize(1)), name.len());
+            cond(
+              (ext.is_empty()) => {
+                return .None;
+              },
+              true => {
+                return .Some(ext);
+              }
+            );
+          },
+          .None => {
+            // No dot found, no extension
+            return .None;
+          }
+        );
+      },
+      .None => {
+        return .None;
+      }
+    );
+  }),
+
+  /**
+   * Replace the extension of the path
+   * Example: Path.new("main.yo").with_extension("js") => Path.new("main.js")
+   */
+  with_extension :: (fn(self: Self, ext: String) -> Self)({
+    cond(
+      (self._segments.len() == usize(0)) => {
+        return self;
+      },
+      true => ()
+    );
+
+    // Get the file stem
+    stem_opt := self.file_stem();
+    match(stem_opt,
+      .Some(stem) => {
+        // Build new file name with extension
+        dot := String.from(".");
+        new_name := stem.concat(dot).concat(ext);
+        
+        // Replace the last segment
+        new_segments := ArrayList(String).with_capacity(self._segments.len());
+        i := usize(0);
+        while ((i < (self._segments.len() - usize(1)))),
+              (i = (i + usize(1))),
+        {
+          seg := self._segments.get(i);
+          match(seg,
+            .Some(s) => {
+              new_segments.push(s);
+            },
+            .None => ()
+          );
+        };
+        new_segments.push(new_name);
+
+        return Self(_segments: new_segments, _is_absolute: self._is_absolute);
+      },
+      .None => {
+        return self;
+      }
+    );
+  }),
+
+  /**
+   * Replace the file name (last segment) with a new name
+   * Example: Path.new("/usr/local/bin").with_file_name("lib") => Path.new("/usr/local/lib")
+   */
+  with_file_name :: (fn(self: Self, name: String) -> Self)({
+    cond(
+      (self._segments.len() == usize(0)) => {
+        // Empty path, just return a new path with the name
+        segments := ArrayList(String).new();
+        segments.push(name);
+        return Self(_segments: segments, _is_absolute: self._is_absolute);
+      },
+      true => ()
+    );
+
+    // Replace the last segment
+    new_segments := ArrayList(String).with_capacity(self._segments.len());
+    i := usize(0);
+    while ((i < (self._segments.len() - usize(1)))),
+          (i = (i + usize(1))),
+    {
+      seg := self._segments.get(i);
+      match(seg,
+        .Some(s) => {
+          new_segments.push(s);
+        },
+        .None => ()
+      );
+    };
+    new_segments.push(name);
+
+    return Self(_segments: new_segments, _is_absolute: self._is_absolute);
+  }),
+
+  /**
+   * Check if this path starts with the given base path
+   * Example: Path.new("/usr/local/bin").starts_with(Path.new("/usr")) => true
+   */
+  starts_with :: (fn(self: Self, base: Self) -> bool)({
+    // Absolute vs relative mismatch
+    cond(
+      (self._is_absolute != base._is_absolute) => {
+        return false;
+      },
+      true => ()
+    );
+
+    // Base has more segments than self
+    cond(
+      (base._segments.len() > self._segments.len()) => {
+        return false;
+      },
+      true => ()
+    );
+
+    // Check if all base segments match
+    i := usize(0);
+    while ((i < base._segments.len())),
+          (i = (i + usize(1))),
+    {
+      self_seg_opt := self._segments.get(i);
+      base_seg_opt := base._segments.get(i);
+      
+      match(self_seg_opt,
+        .Some(self_seg) => match(base_seg_opt,
+          .Some(base_seg) => {
+            cond(
+              (self_seg == base_seg) => (),
+              true => {
+                return false;
+              }
+            );
+          },
+          .None => {
+            return false;
+          }
+        ),
+        .None => {
+          return false;
+        }
+      );
+    };
+
+    return true;
+  }),
+
+  /**
+   * Check if this path ends with the given suffix path
+   * Example: Path.new("/usr/local/bin").ends_with(Path.new("local/bin")) => true
+   */
+  ends_with :: (fn(self: Self, suffix: Self) -> bool)({
+    // Suffix has more segments than self
+    cond(
+      (suffix._segments.len() > self._segments.len()) => {
+        return false;
+      },
+      true => ()
+    );
+
+    // If suffix is absolute, it must match exactly
+    cond(
+      (suffix._is_absolute) => {
+        cond(
+          (self._is_absolute != suffix._is_absolute) => {
+            return false;
+          },
+          true => ()
+        );
+        cond(
+          (self._segments.len() != suffix._segments.len()) => {
+            return false;
+          },
+          true => ()
+        );
+      },
+      true => ()
+    );
+
+    // Check if suffix segments match the end of self
+    suffix_len := suffix._segments.len();
+    self_len := self._segments.len();
+    offset := (self_len - suffix_len);
+
+    i := usize(0);
+    while ((i < suffix_len)),
+          (i = (i + usize(1))),
+    {
+      self_seg_opt := self._segments.get((offset + i));
+      suffix_seg_opt := suffix._segments.get(i);
+      
+      match(self_seg_opt,
+        .Some(self_seg) => match(suffix_seg_opt,
+          .Some(suffix_seg) => {
+            cond(
+              (self_seg == suffix_seg) => (),
+              true => {
+                return false;
+              }
+            );
+          },
+          .None => {
+            return false;
+          }
+        ),
+        .None => {
+          return false;
+        }
+      );
+    };
+
+    return true;
+  }),
+
+  /**
+   * Get all path components as a list of strings
+   * Example: Path.new("/usr/local/bin").components() => ["/", "usr", "local", "bin"]
+   */
+  components :: (fn(self: Self) -> ArrayList(String))({
+    result := ArrayList(String).with_capacity((self._segments.len() + usize(1)));
+    
+    // Add root component if absolute
+    cond(
+      (self._is_absolute) => {
+        result.push(String.from("/"));
+      },
+      true => ()
+    );
+
+    // Add all segments
+    i := usize(0);
+    while ((i < self._segments.len())),
+          (i = (i + usize(1))),
+    {
+      seg := self._segments.get(i);
+      match(seg,
+        .Some(s) => {
+          result.push(s);
+        },
+        .None => ()
+      );
+    };
+
+    return result;
+  }),
+
+  /**
+   * Check if the path is absolute
+   */
+  is_absolute :: (fn(self: Self) -> bool)(
+    self._is_absolute
+  ),
+
+  /**
+   * Check if the path is relative
+   */
+  is_relative :: (fn(self: Self) -> bool)(
+    !self._is_absolute
+  )
+);
+
+impl(Path, ToString(
+  to_string : (self -> {
+    segments := self._segments;
+    sep := String.from("/");
+    result := String.new();
+    cond(
+      (self._is_absolute) => {
+        result = result.concat(sep);
+      },
+      true => ()
+    );
+    i := usize(0);
+    segments_len := segments.len();
+    while ((i < segments_len)),
+          (i = (i + usize(1))),
+    {     
+      seg := segments.get(i);
+      match(seg,
+        .Some(s) => {
+          result = result.concat(s);
+          cond(
+            ((i < (segments_len - usize(1)))) => {
+              result = result.concat(sep);
+            },
+            true => ()
+          );
+        },
+        .None => ()
+      );    
+    };
+    return result;
+  })
+));
+
+impl(Path, Eq(Path)(
+  (==) : ((self, other)-> {
+    // Compare absolute vs relative
+    cond(
+      (self._is_absolute != other._is_absolute) => {
+        return false;
+      },
+      true => ()
+    );
+
+    // Compare segment lengths
+    cond(
+      (self._segments.len() != other._segments.len()) => {
+        return false;
+      },
+      true => ()
+    );
+
+    // Compare each segment
+    i := usize(0);
+    while ((i < self._segments.len())),
+          (i = (i + usize(1))),
+    {
+      self_seg_opt := self._segments.get(i);
+      other_seg_opt := other._segments.get(i);
+      
+      match(self_seg_opt,
+        .Some(self_seg) => match(other_seg_opt,
+          .Some(other_seg) => {
+            cond(
+              (self_seg == other_seg) => (),
+              true => {
+                return false;
+              }
+            );
+          },
+          .None => {
+            return false;
+          }
+        ),
+        .None => {
+          return false;
+        }
+      );
+    };
+
+    return true;
+  })
+));
+
+export Path;

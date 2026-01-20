@@ -155,7 +155,12 @@ export function generateMainWrapper(context: FunctionGenerationContext): void {
     // Sync main - call it directly and wait for any async tasks
     emitter.emitLine(`
 // Main wrapper - calls __yo_user_main directly
-int main(void) {
+int main(int argc, char** argv) {
+  // Store command-line arguments
+  __yo_argc = (int32_t)argc;
+  __yo_argv = (uint8_t**)argv;
+  __yo_args = (Slice_uint8_t_u42_){ .data = (uint8_t**)argv, .length = (size_t)argc };
+  
   // Initialize async runtime (in case async blocks are used)
   __yo_async_scheduler_init();
   
@@ -581,6 +586,18 @@ export function generateSpecializedFunctions(context: CodeGenContext): void {
 
     // Skip if the specialized type still has unresolved type parameters
     if (isFunctionSpecializable(functionValue.specializedType)) {
+      continue;
+    }
+
+    // Also skip if any parameter type contains SomeType (generic type parameters)
+    // This happens when a function specialization wasn't completed properly
+    const hasGenericParams = functionValue.specializedType.parameters.some(
+      (p) => typeContainsSomeType(p.type)
+    );
+    const hasGenericReturnType = typeContainsSomeType(
+      functionValue.specializedType.return.type
+    );
+    if (hasGenericParams || hasGenericReturnType) {
       continue;
     }
 

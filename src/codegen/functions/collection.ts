@@ -274,11 +274,16 @@ export function findFunctionCallsInExpr(
         }
       } else if (functionType.isExtern === "c") {
         // Might be the extern functions
+        // Use externName if available (set during c_include evaluation)
+        // This ensures we use the original C function name even if it was imported with a rename
+        const cName = functionType.externName
+          ? functionType.externName
+          : exprIsAtom(expr.func)
+            ? expr.func.token.value
+            : functionType.id;
         context.externFunctions[functionType.id] = {
           type: functionType,
-          cName: exprIsAtom(expr.func)
-            ? expr.func.token.value
-            : functionType.id, // Use the type id as the C name if the func is not atom
+          cName,
         };
       }
     }

@@ -232,6 +232,7 @@ export function checkIfFunctionParameterMatchesArgument({
         env: calleeEnv,
         context: {
           ...context,
+          expectedType: { type: parameterType, env: calleeEnv },
         },
       });
       if (evaluatedArgExpr.$?.env) {
@@ -1353,6 +1354,7 @@ function createSpecializedFunctionInline({
         value: originalFunction,
         evaluationEnv: specializedEnv,
       },
+      isEvaluatingLoopBody: undefined, // Clear loop body context for function body
       capturedVariables: context.capturedVariables
         ? context.capturedVariables
         : undefined,

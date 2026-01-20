@@ -9,6 +9,7 @@ import {
   FnCallExpr,
 } from "../../expr";
 import { ExternLanguage, ModuleField } from "../../types";
+import { isFunctionType, isTypeHierarchyType } from "../../types/guards";
 import { VUnit } from "../../unit-value";
 import { createUnknownValue, isComptStringValue } from "../../value";
 import { EvaluatorContext } from "../context";
@@ -100,7 +101,19 @@ export function evaluateExtern({
     // Set the isExtern for the field type
     // IMPORTANT: Create a copy of the type to avoid mutating cached types
     // (e.g., the shared Type(0) object from createType0())
-    field.type = { ...field.type, isExtern: language, externName: field.label };
+    // Only set externName for:
+    // - type declarations (e.g., `libc_FILE : Type`)
+    // - function declarations (e.g., `__yo_malloc : fn(...) -> ...`)
+    // NOT for variable declarations with primitive types (e.g., `__yo_argc : i32`)
+    if (isTypeHierarchyType(field.type) || isFunctionType(field.type)) {
+      field.type = {
+        ...field.type,
+        isExtern: language,
+        externName: field.label,
+      };
+    } else {
+      field.type = { ...field.type, isExtern: language };
+    }
 
     // Expect field to be compile-time only
     if (!field.isCompileTimeOnly) {

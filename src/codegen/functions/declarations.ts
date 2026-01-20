@@ -392,6 +392,18 @@ export function generateSpecializedFunctionDeclarations(
       continue;
     }
 
+    // Also skip if any parameter type contains SomeType (generic type parameters)
+    // This happens when a function specialization wasn't completed properly
+    const hasGenericParams = specializedFunctionType.parameters.some((p) =>
+      typeContainsSomeType(p.type)
+    );
+    const hasGenericReturnType = typeContainsSomeType(
+      specializedFunctionType.return.type
+    );
+    if (hasGenericParams || hasGenericReturnType) {
+      continue;
+    }
+
     // Skip if already generated
     if (generated.has(funcId)) {
       continue;

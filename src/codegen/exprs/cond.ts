@@ -209,6 +209,17 @@ export function generateCondExpression(
 
             const beginArgs = value.args;
 
+            // Save and update pendingDeferredDrops for this nested begin block
+            // IMPORTANT: Concatenate with previous drops so early returns drop ALL enclosing scope vars
+            const functionContext = context as FunctionGenerationContext;
+            const previousPendingDeferredDrops =
+              functionContext.pendingDeferredDrops;
+            const currentDrops = value.$?.deferredDropExpressions ?? [];
+            functionContext.pendingDeferredDrops = [
+              ...currentDrops,
+              ...(previousPendingDeferredDrops ?? []),
+            ];
+
             // Generate each statement except the last one
             for (let j = 0; j < beginArgs.length - 1; j++) {
               const arg = beginArgs[j]!;
@@ -264,6 +275,9 @@ export function generateCondExpression(
             if (value.$?.deferredDropExpressions) {
               generateDeferredDropExpressions(value, valueIndent, context);
             }
+
+            // Restore previous pendingDeferredDrops
+            functionContext.pendingDeferredDrops = previousPendingDeferredDrops;
           } else {
             // Generate deferred dup expressions for non-begin value expressions
             if (value.$?.deferredDupExpressions) {

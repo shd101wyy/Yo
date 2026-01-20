@@ -1,11 +1,15 @@
 import { FnCallExpr } from "../../expr";
 import { CodeGenContext } from "../utils";
-import { generateDropCodeForValue } from "./drop_dup";
 import { generateExpr } from "./expr";
 
 /**
  * The `consume` function call,
  * generating a consume expression.
+ *
+ * consume() means "take ownership of this location without dropping the old value"
+ * - Used for initializing fresh memory (malloc'd/calloc'd slots)
+ * - Used when explicitly consuming a value without cleanup
+ * - The old value at the location is NOT dropped (caller is responsible for ensuring it's safe)
  */
 export function generateConsume(
   expr: FnCallExpr,
@@ -14,17 +18,10 @@ export function generateConsume(
 ): string {
   const argExpr = expr.args[0]!;
   const argCode = generateExpr(argExpr, indent, context);
-  const argType = argExpr.$?.type;
 
-  // Generate drop code for the consumed value
-  // consume() marks the value as moved in the evaluator, so we must drop it in codegen
-  if (argType && argCode) {
-    const dropCode = generateDropCodeForValue(argCode, argType, context);
-    if (dropCode) {
-      const emitter = context.emitter;
-      emitter.emitLine(`${indent}${dropCode};`);
-    }
-  }
+  // NOTE: consume() does NOT generate drop code for the old value
+  // That's the whole point - we're consuming the location without cleanup
+  // If the old value needs to be dropped, use regular assignment or explicit ___drop()
 
   return argCode;
 }

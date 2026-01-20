@@ -24,6 +24,7 @@ import {
   createTypeHierarchy,
   FunctionParameter,
   FunctionType,
+  getValueOfSomeTypeFromEnv,
   isArrayType,
   isFunctionType,
   isSliceType,
@@ -185,7 +186,11 @@ export interface GenericImpl {
   /** The type parameters (e.g., T, Size) */
   forallParameters: ForallParameter[];
   /** The constraints from where clause (e.g., T <: Copy) */
-  whereConstraints: { someType: SomeType; traitType: TraitType }[];
+  whereConstraints: {
+    someType: SomeType;
+    traitType: TraitType;
+    traitExpr?: Expr;
+  }[];
   /** The receiver type pattern containing SomeTypes (e.g., Data(T)) */
   receiverTypePattern: Type;
   /** The trait type being implemented (e.g., Copy) */
@@ -198,6 +203,16 @@ export interface GenericImpl {
   sourceModulePath?: string;
   /** The environment where the impl was defined (for accessing non-exported variables like extern functions) */
   definitionEnv: Environment;
+  /**
+   * The trait type argument expressions (e.g., [Box(T)] for Eq(Box(T)))
+   * These need to be re-evaluated with substitutions to get concrete trait type parameters like Rhs
+   */
+  traitTypeArgExprs?: Expr[];
+  /**
+   * The trait function's parameter names (e.g., ["Rhs"] for Eq(Rhs))
+   * Paired with traitTypeArgExprs to bind parameters during specialization
+   */
+  traitFunctionParamNames?: string[];
 }
 
 /**
@@ -433,6 +448,18 @@ export function findMethodsFromGenericImpls({
   methodName: string;
   env: Environment;
 }): { type: FunctionType; value: Value | undefined }[] {
+  // CRITICAL: If concreteType is a SomeType, resolve it from the environment
+  // to get the actual concrete type. This is necessary when checking trait
+  // constraints like `K <: Hash` where `K = Box(i32)`. Without this resolution,
+  // the impl matching would try to match `Box(T)` against `K` instead of `Box(i32)`,
+  // resulting in incorrect type parameter bindings.
+  if (isSomeType(concreteType)) {
+    const resolvedType = getValueOfSomeTypeFromEnv(env, concreteType);
+    if (!isSomeType(resolvedType)) {
+      concreteType = resolvedType;
+    }
+  }
+
   const methods: { type: FunctionType; value: Value | undefined }[] = [];
 
   // Search through all trait types in the registry
@@ -486,7 +513,7 @@ export function findMethodsFromGenericImpls({
             let specializedEnv = pushEnvFrame(baseEnv);
 
             // Add type substitutions to the environment first (like T=i32, U=usize, Self=[i32; 5])
-            // These must come BEFORE value substitutions so that value expressions can reference the types
+            // These must come BEFORE re-evaluating trait type args so that expressions like Box(T) become Box(i32)
             for (const [paramName, paramType] of match.substitutions) {
               // Include Self - it's needed for method bodies that reference it
               const { env: nextEnv } = addVariableToEnv({
@@ -521,6 +548,49 @@ export function findMethodsFromGenericImpls({
                 },
               });
               specializedEnv = nextEnv;
+            }
+
+            // IMPORTANT: Re-evaluate trait type argument expressions to get concrete trait type parameters
+            // For Eq(Box(T)) with T=i32, we re-evaluate Box(T) to get Box(i32), then bind Rhs=Box(i32)
+            // This is necessary because types in Yo are nominal, so we can't just substitute structurally
+            if (
+              impl.traitTypeArgExprs &&
+              impl.traitFunctionParamNames &&
+              impl.traitTypeArgExprs.length ===
+                impl.traitFunctionParamNames.length
+            ) {
+              for (let i = 0; i < impl.traitTypeArgExprs.length; i++) {
+                const argExpr = impl.traitTypeArgExprs[i]!;
+                const paramName = impl.traitFunctionParamNames[i]!;
+
+                // Re-evaluate the argument expression with substitutions bound
+                const evaluatedArg = evaluateExpression({
+                  expr: cloneExpr(argExpr),
+                  env: specializedEnv,
+                  context: {
+                    isEvaluatingGenericImplSpecialization: true,
+                    stdPath: "",
+                  } as EvaluatorContext,
+                });
+
+                if (evaluatedArg.$ && isTypeValue(evaluatedArg.$.value)) {
+                  const { env: nextEnv } = addVariableToEnv({
+                    env: specializedEnv,
+                    variable: {
+                      name: paramName,
+                      type: createType0(),
+                      isCompileTimeOnly: true,
+                      value: evaluatedArg.$.value,
+                      token: PlaceholderToken,
+                      initializedAtToken: PlaceholderToken,
+                      consumedAtToken: undefined,
+                      isOwningTheRcValue: false,
+                    },
+                    allowVariableShadowing: true,
+                  });
+                  specializedEnv = nextEnv;
+                }
+              }
             }
 
             // Re-evaluate the function type to get specialized types
@@ -854,6 +924,21 @@ function tryMatchGenericImpl({
     valueSubstitutions: new Map(),
   };
 
+  // CRITICAL: If concreteType is an unresolved SomeType (type parameter like K),
+  // we cannot match it against a concrete pattern like Box(T).
+  // The SomeType represents any type that satisfies certain constraints,
+  // not a specific concrete type. Matching should only succeed when
+  // concreteType is a concrete type or a SomeType that is already bound.
+  if (isSomeType(concreteType)) {
+    const resolvedType = getValueOfSomeTypeFromEnv(env, concreteType);
+    if (isSomeType(resolvedType)) {
+      // concreteType is an unresolved type parameter, cannot match against a pattern
+      return noMatch;
+    }
+    // Otherwise use the resolved type
+    concreteType = resolvedType;
+  }
+
   // Create a fresh env with the forall parameters in scope for unification
   let unifyEnv = pushEnvFrame(env);
 
@@ -906,21 +991,54 @@ function tryMatchGenericImpl({
     for (const {
       someType,
       traitType: constraintTrait,
+      traitExpr: constraintExpr,
     } of impl.whereConstraints) {
       // Get the bound type for this SomeType from the unified environment
       const boundType = getValueOfSomeTypeFromEnvForGenericImpl(
         expectedEnv,
         someType
       );
+
       if (!boundType) {
         return noMatch;
       }
 
+      // If we have the original expression, re-evaluate it with the bound types
+      // This handles cases like Eq(T) -> Eq(i32) when T=i32
+      let actualConstraintTrait = constraintTrait;
+      if (constraintExpr) {
+        try {
+          const exprClone = cloneExpr(constraintExpr);
+          const evaluated = evaluateExpression({
+            expr: exprClone,
+            env: expectedEnv,
+            context: {
+              stdPath: "",
+              isEvaluatingGenericImplSpecialization: true,
+            } as EvaluatorContext,
+          });
+          if (
+            evaluated.$ &&
+            isTypeValue(evaluated.$.value) &&
+            isTraitType(evaluated.$.value.value)
+          ) {
+            actualConstraintTrait = evaluated.$.value.value;
+          }
+        } catch {
+          // If re-evaluation fails, fall back to the original constraint trait
+        }
+      }
+
       // Handle negated constraints: the bound type must NOT implement the trait
-      if (constraintTrait.isNegatedConstraint) {
+      if (actualConstraintTrait.isNegatedConstraint) {
         // If bound to a SomeType, check if it has the negated constraint attached
         if (isSomeType(boundType)) {
-          if (!someTypeHasNegatedModuleConstraint(boundType, constraintTrait)) {
+          if (
+            !someTypeHasNegatedModuleConstraint(
+              boundType,
+              actualConstraintTrait
+            )
+          ) {
             return noMatch;
           }
           continue;
@@ -930,7 +1048,7 @@ function tryMatchGenericImpl({
         if (
           typeImplementsTrait({
             targetType: boundType,
-            traitType: constraintTrait,
+            traitType: actualConstraintTrait,
             env,
           })
         ) {
@@ -941,7 +1059,7 @@ function tryMatchGenericImpl({
 
       // If bound to a SomeType, check if it has the required constraint attached
       if (isSomeType(boundType)) {
-        if (!someTypeHasModuleConstraint(boundType, constraintTrait)) {
+        if (!someTypeHasModuleConstraint(boundType, actualConstraintTrait)) {
           return noMatch;
         }
         continue;
@@ -951,8 +1069,8 @@ function tryMatchGenericImpl({
       if (
         !typeImplementsTrait({
           targetType: boundType,
-          traitType: constraintTrait,
-          env,
+          traitType: actualConstraintTrait,
+          env: expectedEnv,
         })
       ) {
         return noMatch;
@@ -1084,7 +1202,11 @@ function checkGenericImplSelfConstraints({
 }: {
   receiverTypePattern: Type;
   traitType: TraitType;
-  whereConstraints: { someType: SomeType; traitType: TraitType }[];
+  whereConstraints: {
+    someType: SomeType;
+    traitType: TraitType;
+    traitExpr?: Expr;
+  }[];
   env: Environment;
   errorToken: Token;
 }): void {
@@ -1674,7 +1796,11 @@ export function evaluateModuleValue({
     }
 
     // Collect where constraints from the SomeTypes' trait fields
-    const whereConstraints: { someType: SomeType; traitType: TraitType }[] = [];
+    const whereConstraints: {
+      someType: SomeType;
+      traitType: TraitType;
+      traitExpr?: Expr;
+    }[] = [];
     for (const param of forallParameters) {
       // Only type parameters have SomeTypes with constraints
       if (param.kind !== "type") continue;
@@ -1688,6 +1814,7 @@ export function evaluateModuleValue({
           whereConstraints.push({
             someType,
             traitType: field.assignedValue.value,
+            traitExpr: field.exprs?.expr,
           });
         }
       }
@@ -1770,6 +1897,36 @@ export function evaluateModuleValue({
       traitType = traitValue.type;
     }
 
+    // Extract trait type argument expressions for later re-evaluation during specialization
+    // For Eq(Box(T))(...), we want to extract [Box(T)] and ["Rhs"]
+    let traitTypeArgExprs: Expr[] | undefined;
+    let traitFunctionParamNames: string[] | undefined;
+    if (exprIsFunctionCall(moduleCallArg)) {
+      // moduleCallArg is like Eq(Box(T))(...) - the func is Eq(Box(T))
+      const traitTypeCallExpr = moduleCallArg.func;
+      if (exprIsFunctionCall(traitTypeCallExpr)) {
+        // traitTypeCallExpr is Eq(Box(T)) - args are [Box(T)]
+        traitTypeArgExprs = traitTypeCallExpr.args.map((arg) => cloneExpr(arg));
+        // Get parameter names from the trait's function type
+        // Eq has signature (fn(compt(Rhs) : Type) -> compt(Trait)) so Rhs is a regular parameter
+        if (
+          traitType.functionValue &&
+          isFunctionType(traitType.functionValue.type)
+        ) {
+          // Try regular parameters first (for compt parameters like Rhs in Eq)
+          const funcType = traitType.functionValue.type;
+          if (funcType.parameters.length > 0) {
+            traitFunctionParamNames = funcType.parameters.map((p) => p.label);
+          } else if (funcType.forallParameters.length > 0) {
+            // Fallback to forall parameters
+            traitFunctionParamNames = funcType.forallParameters.map(
+              (p) => p.label
+            );
+          }
+        }
+      }
+    }
+
     // Check that the receiver type pattern satisfies the trait's self-constraints
     // For generic impls, we need to verify that the where constraints are sufficient
     // to satisfy the trait's requirements
@@ -1797,6 +1954,8 @@ export function evaluateModuleValue({
       expr,
       sourceModulePath: context.currentModulePath,
       definitionEnv: env, // Store the environment where the impl was defined
+      traitTypeArgExprs,
+      traitFunctionParamNames,
     };
 
     registerGenericImpl(traitTypeKey, genericImpl);

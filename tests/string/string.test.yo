@@ -1099,3 +1099,1181 @@ test "String alternating ASCII and UTF-8", {
   assert(s.at(usize(3)).unwrap().to_u32() == u32(0x6587));
   assert(s.at(usize(4)).unwrap().to_u32() == u32(67));
 };
+
+// ===== substring Tests =====
+
+test "String substring ASCII basic", {
+  s := String.from("Hello, World!");
+  
+  sub1 := s.substring(usize(0), usize(5));
+  expected1 := String.from("Hello");
+  assert(sub1 == expected1);
+  
+  sub2 := s.substring(usize(7), usize(12));
+  expected2 := String.from("World");
+  assert(sub2 == expected2);
+  
+  sub3 := s.substring(usize(0), usize(13));
+  assert(sub3 == s);
+};
+
+test "String substring empty result", {
+  s := String.from("Hello");
+  
+  sub := s.substring(usize(2), usize(2));
+  assert(sub.is_empty());
+  assert(sub.len() == usize(0));
+};
+
+test "String substring single character", {
+  s := String.from("Hello");
+  
+  sub := s.substring(usize(1), usize(2));
+  expected := String.from("e");
+  assert(sub == expected);
+  assert(sub.len() == usize(1));
+};
+
+test "String substring from middle to end", {
+  s := String.from("Hello");
+  
+  sub := s.substring(usize(2), usize(5));
+  expected := String.from("llo");
+  assert(sub == expected);
+};
+
+test "String substring UTF-8 characters", {
+  s := String.from("你好世界");
+  
+  sub1 := s.substring(usize(0), usize(2));
+  expected1 := String.from("你好");
+  assert(sub1 == expected1);
+  
+  sub2 := s.substring(usize(2), usize(4));
+  expected2 := String.from("世界");
+  assert(sub2 == expected2);
+  
+  sub3 := s.substring(usize(1), usize(3));
+  expected3 := String.from("好世");
+  assert(sub3 == expected3);
+};
+
+test "String substring mixed ASCII and UTF-8", {
+  s := String.from("Hello 世界!");
+  
+  sub1 := s.substring(usize(0), usize(5));
+  expected1 := String.from("Hello");
+  assert(sub1 == expected1);
+  
+  sub2 := s.substring(usize(6), usize(8));
+  expected2 := String.from("世界");
+  assert(sub2 == expected2);
+};
+
+test "String substring with emojis", {
+  s := String.from("😀😁😂");
+  
+  sub1 := s.substring(usize(0), usize(2));
+  expected1 := String.from("😀😁");
+  assert(sub1 == expected1);
+  
+  sub2 := s.substring(usize(1), usize(3));
+  expected2 := String.from("😁😂");
+  assert(sub2 == expected2);
+};
+
+test "String substring beyond end", {
+  s := String.from("Hello");
+  
+  sub := s.substring(usize(0), usize(100));
+  assert(sub == s);
+};
+
+test "String substring entire string", {
+  s := String.from("Test String");
+  
+  sub := s.substring(usize(0), s.len());
+  assert(sub == s);
+};
+
+// ===== index_of Tests =====
+
+test "String index_of found at beginning", {
+  s := String.from("Hello, World!");
+  
+  result := s.index_of(String.from("Hello"));
+  assert(result.is_some());
+  assert(result.unwrap() == usize(0));
+};
+
+test "String index_of found in middle", {
+  s := String.from("Hello, World!");
+  
+  result := s.index_of(String.from("World"));
+  assert(result.is_some());
+  assert(result.unwrap() == usize(7));
+};
+
+test "String index_of not found", {
+  s := String.from("Hello, World!");
+  
+  result := s.index_of(String.from("xyz"));
+  assert(result.is_none());
+};
+
+test "String index_of single character", {
+  s := String.from("Hello, World!");
+  
+  result := s.index_of(String.from(","));
+  assert(result.is_some());
+  assert(result.unwrap() == usize(5));
+};
+
+test "String index_of empty string", {
+  s := String.from("Hello");
+  
+  result := s.index_of(String.from(""));
+  assert(result.is_some());
+  assert(result.unwrap() == usize(0));
+};
+
+test "String index_of entire string", {
+  s := String.from("Hello");
+  
+  result := s.index_of(String.from("Hello"));
+  assert(result.is_some());
+  assert(result.unwrap() == usize(0));
+};
+
+test "String index_of substring longer than string", {
+  s := String.from("Hi");
+  
+  result := s.index_of(String.from("Hello"));
+  assert(result.is_none());
+};
+
+test "String index_of UTF-8 characters", {
+  s := String.from("你好世界");
+  
+  result1 := s.index_of(String.from("世界"));
+  assert(result1.is_some());
+  assert(result1.unwrap() == usize(2));
+  
+  result2 := s.index_of(String.from("你好"));
+  assert(result2.is_some());
+  assert(result2.unwrap() == usize(0));
+  
+  result3 := s.index_of(String.from("好世"));
+  assert(result3.is_some());
+  assert(result3.unwrap() == usize(1));
+};
+
+test "String index_of mixed ASCII and UTF-8", {
+  s := String.from("Hello 世界!");
+  
+  result := s.index_of(String.from("世界"));
+  assert(result.is_some());
+  assert(result.unwrap() == usize(6));
+};
+
+test "String index_of with emojis", {
+  s := String.from("😀😁😂");
+  
+  result := s.index_of(String.from("😁"));
+  assert(result.is_some());
+  assert(result.unwrap() == usize(1));
+};
+
+test "String index_of case sensitive", {
+  s := String.from("Hello World");
+  
+  result := s.index_of(String.from("world"));
+  assert(result.is_none());
+};
+
+test "String index_of multiple occurrences returns first", {
+  s := String.from("abcabc");
+  
+  result := s.index_of(String.from("abc"));
+  assert(result.is_some());
+  assert(result.unwrap() == usize(0));
+};
+
+// ===== includes Tests =====
+
+test "String includes found", {
+  s := String.from("Hello, World!");
+  
+  assert(s.includes(String.from("World")));
+  assert(s.includes(String.from("Hello")));
+  assert(s.includes(String.from(",")));
+};
+
+test "String includes not found", {
+  s := String.from("Hello, World!");
+  
+  assert(not(s.includes(String.from("xyz"))));
+  assert(not(s.includes(String.from("world"))));
+};
+
+test "String includes empty string", {
+  s := String.from("Hello");
+  
+  assert(s.includes(String.from("")));
+};
+
+test "String includes entire string", {
+  s := String.from("Hello");
+  
+  assert(s.includes(String.from("Hello")));
+};
+
+test "String includes single character", {
+  s := String.from("Hello");
+  
+  assert(s.includes(String.from("e")));
+  assert(s.includes(String.from("H")));
+  assert(not(s.includes(String.from("x"))));
+};
+
+test "String includes UTF-8 characters", {
+  s := String.from("你好世界");
+  
+  assert(s.includes(String.from("世")));
+  assert(s.includes(String.from("你好")));
+  assert(s.includes(String.from("世界")));
+  assert(not(s.includes(String.from("测试"))));
+};
+
+test "String includes mixed ASCII and UTF-8", {
+  s := String.from("Hello 世界!");
+  
+  assert(s.includes(String.from("Hello")));
+  assert(s.includes(String.from("世界")));
+  assert(s.includes(String.from(" ")));
+  assert(s.includes(String.from("!")));
+};
+
+test "String includes with emojis", {
+  s := String.from("😀😁😂");
+  
+  assert(s.includes(String.from("😁")));
+  assert(s.includes(String.from("😀😁")));
+  assert(not(s.includes(String.from("😃"))));
+};
+
+test "String includes case sensitive", {
+  s := String.from("Hello World");
+  
+  assert(s.includes(String.from("Hello")));
+  assert(not(s.includes(String.from("hello"))));
+};
+
+test "String includes substring longer than string", {
+  s := String.from("Hi");
+  
+  assert(not(s.includes(String.from("Hello"))));
+};
+
+// ===== split Tests =====
+
+test "String split by comma", {
+  s := String.from("Hello,World,Test");
+  
+  parts := s.split(String.from(","));
+  assert(parts.len() == usize(3));
+  
+  assert(parts.get(usize(0)).unwrap() == String.from("Hello"));
+  assert(parts.get(usize(1)).unwrap() == String.from("World"));
+  assert(parts.get(usize(2)).unwrap() == String.from("Test"));
+};
+
+test "String split by space", {
+  s := String.from("one two three");
+  
+  parts := s.split(String.from(" "));
+  assert(parts.len() == usize(3));
+  
+  assert(parts.get(usize(0)).unwrap() == String.from("one"));
+  assert(parts.get(usize(1)).unwrap() == String.from("two"));
+  assert(parts.get(usize(2)).unwrap() == String.from("three"));
+};
+
+test "String split by empty string splits into characters", {
+  s := String.from("abc");
+  
+  parts := s.split(String.from(""));
+  assert(parts.len() == usize(3));
+  
+  assert(parts.get(usize(0)).unwrap() == String.from("a"));
+  assert(parts.get(usize(1)).unwrap() == String.from("b"));
+  assert(parts.get(usize(2)).unwrap() == String.from("c"));
+};
+
+test "String split with no separator found", {
+  s := String.from("Hello");
+  
+  parts := s.split(String.from(","));
+  assert(parts.len() == usize(1));
+  assert(parts.get(usize(0)).unwrap() == String.from("Hello"));
+};
+
+test "String split empty string", {
+  s := String.from("");
+  
+  parts := s.split(String.from(","));
+  assert(parts.len() == usize(1));
+  assert(parts.get(usize(0)).unwrap().is_empty());
+};
+
+test "String split with separator at beginning", {
+  s := String.from(",Hello,World");
+  
+  parts := s.split(String.from(","));
+  assert(parts.len() == usize(3));
+  
+  assert(parts.get(usize(0)).unwrap().is_empty());
+  assert(parts.get(usize(1)).unwrap() == String.from("Hello"));
+  assert(parts.get(usize(2)).unwrap() == String.from("World"));
+};
+
+test "String split with separator at end", {
+  s := String.from("Hello,World,");
+  
+  parts := s.split(String.from(","));
+  assert(parts.len() == usize(3));
+  
+  assert(parts.get(usize(0)).unwrap() == String.from("Hello"));
+  assert(parts.get(usize(1)).unwrap() == String.from("World"));
+  assert(parts.get(usize(2)).unwrap().is_empty());
+};
+
+test "String split consecutive separators", {
+  s := String.from("Hello,,World");
+  
+  parts := s.split(String.from(","));
+  assert(parts.len() == usize(3));
+  
+  assert(parts.get(usize(0)).unwrap() == String.from("Hello"));
+  assert(parts.get(usize(1)).unwrap().is_empty());
+  assert(parts.get(usize(2)).unwrap() == String.from("World"));
+};
+
+test "String split UTF-8 by ASCII separator", {
+  s := String.from("你好,世界");
+  
+  parts := s.split(String.from(","));
+  assert(parts.len() == usize(2));
+  
+  assert(parts.get(usize(0)).unwrap() == String.from("你好"));
+  assert(parts.get(usize(1)).unwrap() == String.from("世界"));
+};
+
+test "String split UTF-8 by UTF-8 separator", {
+  s := String.from("你好|世界|测试");
+  
+  parts := s.split(String.from("|"));
+  assert(parts.len() == usize(3));
+  
+  assert(parts.get(usize(0)).unwrap() == String.from("你好"));
+  assert(parts.get(usize(1)).unwrap() == String.from("世界"));
+  assert(parts.get(usize(2)).unwrap() == String.from("测试"));
+};
+
+test "String split UTF-8 characters into individual chars", {
+  s := String.from("你好");
+  
+  parts := s.split(String.from(""));
+  assert(parts.len() == usize(2));
+  
+  assert(parts.get(usize(0)).unwrap() == String.from("你"));
+  assert(parts.get(usize(1)).unwrap() == String.from("好"));
+};
+
+test "String split emojis by space", {
+  s := String.from("😀 😁 😂");
+  
+  parts := s.split(String.from(" "));
+  assert(parts.len() == usize(3));
+  
+  assert(parts.get(usize(0)).unwrap() == String.from("😀"));
+  assert(parts.get(usize(1)).unwrap() == String.from("😁"));
+  assert(parts.get(usize(2)).unwrap() == String.from("😂"));
+};
+
+test "String split emojis into individual characters", {
+  s := String.from("😀😁");
+  
+  parts := s.split(String.from(""));
+  assert(parts.len() == usize(2));
+  
+  assert(parts.get(usize(0)).unwrap() == String.from("😀"));
+  assert(parts.get(usize(1)).unwrap() == String.from("😁"));
+};
+
+test "String split by multi-character separator", {
+  s := String.from("Hello::World::Test");
+  
+  parts := s.split(String.from("::"));
+  assert(parts.len() == usize(3));
+  
+  assert(parts.get(usize(0)).unwrap() == String.from("Hello"));
+  assert(parts.get(usize(1)).unwrap() == String.from("World"));
+  assert(parts.get(usize(2)).unwrap() == String.from("Test"));
+};
+
+test "String split single character", {
+  s := String.from("A");
+  
+  parts := s.split(String.from(","));
+  assert(parts.len() == usize(1));
+  assert(parts.get(usize(0)).unwrap() == String.from("A"));
+};
+
+test "String split only separator", {
+  s := String.from(",");
+  
+  parts := s.split(String.from(","));
+  assert(parts.len() == usize(2));
+  assert(parts.get(usize(0)).unwrap().is_empty());
+  assert(parts.get(usize(1)).unwrap().is_empty());
+};
+
+// ===== index_of with from_index Tests =====
+
+test "String index_of with from_index at start", {
+  s := String.from("hello world hello");
+  
+  result := s.index_of(String.from("hello"), usize(0));
+  assert(result.is_some());
+  assert(result.unwrap() == usize(0));
+};
+
+test "String index_of with from_index finds second occurrence", {
+  s := String.from("hello world hello");
+  
+  result := s.index_of(String.from("hello"), usize(1));
+  assert(result.is_some());
+  assert(result.unwrap() == usize(12));
+};
+
+test "String index_of with from_index skips first match", {
+  s := String.from("abc abc abc");
+  
+  result := s.index_of(String.from("abc"), usize(5));
+  assert(result.is_some());
+  assert(result.unwrap() == usize(8));
+};
+
+test "String index_of with from_index beyond string", {
+  s := String.from("hello");
+  
+  result := s.index_of(String.from("hello"), usize(10));
+  assert(result.is_none());
+};
+
+test "String index_of with from_index UTF-8", {
+  s := String.from("你好世界你好");
+  
+  result1 := s.index_of(String.from("你好"), usize(0));
+  assert(result1.is_some());
+  assert(result1.unwrap() == usize(0));
+  
+  result2 := s.index_of(String.from("你好"), usize(1));
+  assert(result2.is_some());
+  assert(result2.unwrap() == usize(4));
+};
+
+// ===== last_index_of Tests =====
+
+test "String last_index_of finds last occurrence", {
+  s := String.from("hello world hello");
+  
+  result := s.last_index_of(String.from("hello"));
+  assert(result.is_some());
+  assert(result.unwrap() == usize(12));
+};
+
+test "String last_index_of single occurrence", {
+  s := String.from("hello world");
+  
+  result := s.last_index_of(String.from("world"));
+  assert(result.is_some());
+  assert(result.unwrap() == usize(6));
+};
+
+test "String last_index_of not found", {
+  s := String.from("hello world");
+  
+  result := s.last_index_of(String.from("xyz"));
+  assert(result.is_none());
+};
+
+test "String last_index_of empty string", {
+  s := String.from("hello");
+  
+  result := s.last_index_of(String.from(""));
+  assert(result.is_some());
+  assert(result.unwrap() == s.len());
+};
+
+test "String last_index_of at end", {
+  s := String.from("test");
+  
+  result := s.last_index_of(String.from("st"));
+  assert(result.is_some());
+  assert(result.unwrap() == usize(2));
+};
+
+test "String last_index_of UTF-8", {
+  s := String.from("你好世界你好");
+  
+  result := s.last_index_of(String.from("你好"));
+  assert(result.is_some());
+  assert(result.unwrap() == usize(4));
+};
+
+test "String last_index_of multiple same characters", {
+  s := String.from("aaaa");
+  
+  result := s.last_index_of(String.from("a"));
+  assert(result.is_some());
+  assert(result.unwrap() == usize(3));
+};
+
+// ===== starts_with Tests =====
+
+test "String starts_with true", {
+  s := String.from("Hello, World!");
+  
+  assert(s.starts_with(String.from("Hello")));
+  assert(s.starts_with(String.from("Hello,")));
+  assert(s.starts_with(String.from("H")));
+};
+
+test "String starts_with false", {
+  s := String.from("Hello, World!");
+  
+  assert(not(s.starts_with(String.from("World"))));
+  assert(not(s.starts_with(String.from("hello"))));
+  assert(not(s.starts_with(String.from("X"))));
+};
+
+test "String starts_with empty string", {
+  s := String.from("Hello");
+  
+  assert(s.starts_with(String.from("")));
+};
+
+test "String starts_with entire string", {
+  s := String.from("Hello");
+  
+  assert(s.starts_with(String.from("Hello")));
+};
+
+test "String starts_with longer than string", {
+  s := String.from("Hi");
+  
+  assert(not(s.starts_with(String.from("Hello"))));
+};
+
+test "String starts_with UTF-8", {
+  s := String.from("你好世界");
+  
+  assert(s.starts_with(String.from("你")));
+  assert(s.starts_with(String.from("你好")));
+  assert(not(s.starts_with(String.from("世界"))));
+};
+
+test "String starts_with emoji", {
+  s := String.from("😀😁😂");
+  
+  assert(s.starts_with(String.from("😀")));
+  assert(s.starts_with(String.from("😀😁")));
+  assert(not(s.starts_with(String.from("😁"))));
+};
+
+// ===== ends_with Tests =====
+
+test "String ends_with true", {
+  s := String.from("Hello, World!");
+  
+  assert(s.ends_with(String.from("World!")));
+  assert(s.ends_with(String.from("!")));
+  assert(s.ends_with(String.from("d!")));
+};
+
+test "String ends_with false", {
+  s := String.from("Hello, World!");
+  
+  assert(not(s.ends_with(String.from("Hello"))));
+  assert(not(s.ends_with(String.from("world!"))));
+  assert(not(s.ends_with(String.from("X"))));
+};
+
+test "String ends_with empty string", {
+  s := String.from("Hello");
+  
+  assert(s.ends_with(String.from("")));
+};
+
+test "String ends_with entire string", {
+  s := String.from("Hello");
+  
+  assert(s.ends_with(String.from("Hello")));
+};
+
+test "String ends_with longer than string", {
+  s := String.from("Hi");
+  
+  assert(not(s.ends_with(String.from("Hello"))));
+};
+
+test "String ends_with UTF-8", {
+  s := String.from("你好世界");
+  
+  assert(s.ends_with(String.from("界")));
+  assert(s.ends_with(String.from("世界")));
+  assert(not(s.ends_with(String.from("你好"))));
+};
+
+test "String ends_with emoji", {
+  s := String.from("😀😁😂");
+  
+  assert(s.ends_with(String.from("😂")));
+  assert(s.ends_with(String.from("😁😂")));
+  assert(not(s.ends_with(String.from("😀"))));
+};
+
+// ===== replace Tests =====
+
+test "String replace first occurrence", {
+  s := String.from("hello world hello");
+  
+  result := s.replace(String.from("hello"), String.from("hi"));
+  assert(result == String.from("hi world hello"));
+};
+
+test "String replace only occurrence", {
+  s := String.from("hello world");
+  
+  result := s.replace(String.from("world"), String.from("universe"));
+  assert(result == String.from("hello universe"));
+};
+
+test "String replace not found", {
+  s := String.from("hello world");
+  
+  result := s.replace(String.from("xyz"), String.from("abc"));
+  assert(result == s);
+};
+
+test "String replace empty search prepends", {
+  s := String.from("hello");
+  
+  result := s.replace(String.from(""), String.from("X"));
+  assert(result == String.from("Xhello"));
+};
+
+test "String replace with empty string", {
+  s := String.from("hello world");
+  
+  result := s.replace(String.from("hello "), String.from(""));
+  assert(result == String.from("world"));
+};
+
+test "String replace UTF-8", {
+  s := String.from("你好世界你好");
+  
+  result := s.replace(String.from("你好"), String.from("再见"));
+  assert(result == String.from("再见世界你好"));
+};
+
+test "String replace emoji", {
+  s := String.from("😀😁😀");
+  
+  result := s.replace(String.from("😀"), String.from("😂"));
+  assert(result == String.from("😂😁😀"));
+};
+
+test "String replace at beginning", {
+  s := String.from("hello world");
+  
+  result := s.replace(String.from("hello"), String.from("goodbye"));
+  assert(result == String.from("goodbye world"));
+};
+
+test "String replace at end", {
+  s := String.from("hello world");
+  
+  result := s.replace(String.from("world"), String.from("universe"));
+  assert(result == String.from("hello universe"));
+};
+
+// ===== replace_all Tests =====
+
+test "String replace_all multiple occurrences", {
+  s := String.from("foo foo foo");
+  
+  result := s.replace_all(String.from("foo"), String.from("bar"));
+  assert(result == String.from("bar bar bar"));
+};
+
+test "String replace_all single occurrence", {
+  s := String.from("hello world");
+  
+  result := s.replace_all(String.from("world"), String.from("universe"));
+  assert(result == String.from("hello universe"));
+};
+
+test "String replace_all not found", {
+  s := String.from("hello world");
+  
+  result := s.replace_all(String.from("xyz"), String.from("abc"));
+  assert(result == s);
+};
+
+test "String replace_all with empty string removes all", {
+  s := String.from("hello world");
+  
+  result := s.replace_all(String.from("o"), String.from(""));
+  assert(result == String.from("hell wrld"));
+};
+
+test "String replace_all UTF-8", {
+  s := String.from("你好世界你好");
+  
+  result := s.replace_all(String.from("你好"), String.from("再见"));
+  assert(result == String.from("再见世界再见"));
+};
+
+test "String replace_all emoji", {
+  s := String.from("😀😁😀😁😀");
+  
+  result := s.replace_all(String.from("😀"), String.from("😂"));
+  assert(result == String.from("😂😁😂😁😂"));
+};
+
+test "String replace_all consecutive matches", {
+  s := String.from("aaa");
+  
+  result := s.replace_all(String.from("a"), String.from("b"));
+  assert(result == String.from("bbb"));
+};
+
+test "String replace_all overlapping pattern", {
+  s := String.from("aaaa");
+  
+  result := s.replace_all(String.from("aa"), String.from("b"));
+  assert(result == String.from("bb"));
+};
+
+// ===== to_upper_case Tests =====
+
+test "String to_upper_case ASCII", {
+  s := String.from("hello world");
+  
+  result := s.to_upper_case();
+  assert(result == String.from("HELLO WORLD"));
+};
+
+test "String to_upper_case mixed case", {
+  s := String.from("Hello World");
+  
+  result := s.to_upper_case();
+  assert(result == String.from("HELLO WORLD"));
+};
+
+test "String to_upper_case already upper", {
+  s := String.from("HELLO");
+  
+  result := s.to_upper_case();
+  assert(result == s);
+};
+
+test "String to_upper_case with numbers", {
+  s := String.from("hello123");
+  
+  result := s.to_upper_case();
+  assert(result == String.from("HELLO123"));
+};
+
+test "String to_upper_case with punctuation", {
+  s := String.from("hello, world!");
+  
+  result := s.to_upper_case();
+  assert(result == String.from("HELLO, WORLD!"));
+};
+
+test "String to_upper_case empty string", {
+  s := String.from("");
+  
+  result := s.to_upper_case();
+  assert(result.is_empty());
+};
+
+test "String to_upper_case single character", {
+  s := String.from("a");
+  
+  result := s.to_upper_case();
+  assert(result == String.from("A"));
+};
+
+// ===== to_lower_case Tests =====
+
+test "String to_lower_case ASCII", {
+  s := String.from("HELLO WORLD");
+  
+  result := s.to_lower_case();
+  assert(result == String.from("hello world"));
+};
+
+test "String to_lower_case mixed case", {
+  s := String.from("Hello World");
+  
+  result := s.to_lower_case();
+  assert(result == String.from("hello world"));
+};
+
+test "String to_lower_case already lower", {
+  s := String.from("hello");
+  
+  result := s.to_lower_case();
+  assert(result == s);
+};
+
+test "String to_lower_case with numbers", {
+  s := String.from("HELLO123");
+  
+  result := s.to_lower_case();
+  assert(result == String.from("hello123"));
+};
+
+test "String to_lower_case with punctuation", {
+  s := String.from("HELLO, WORLD!");
+  
+  result := s.to_lower_case();
+  assert(result == String.from("hello, world!"));
+};
+
+test "String to_lower_case empty string", {
+  s := String.from("");
+  
+  result := s.to_lower_case();
+  assert(result.is_empty());
+};
+
+test "String to_lower_case single character", {
+  s := String.from("A");
+  
+  result := s.to_lower_case();
+  assert(result == String.from("a"));
+};
+
+// ===== trim Tests =====
+
+test "String trim both sides", {
+  s := String.from("  hello  ");
+  
+  result := s.trim();
+  assert(result == String.from("hello"));
+};
+
+test "String trim left only", {
+  s := String.from("  hello");
+  
+  result := s.trim();
+  assert(result == String.from("hello"));
+};
+
+test "String trim right only", {
+  s := String.from("hello  ");
+  
+  result := s.trim();
+  assert(result == String.from("hello"));
+};
+
+test "String trim no whitespace", {
+  s := String.from("hello");
+  
+  result := s.trim();
+  assert(result == s);
+};
+
+test "String trim all whitespace", {
+  s := String.from("   ");
+  
+  result := s.trim();
+  assert(result.is_empty());
+};
+
+test "String trim empty string", {
+  s := String.from("");
+  
+  result := s.trim();
+  assert(result.is_empty());
+};
+
+test "String trim tabs and newlines", {
+  s := String.from("\t\nhello\n\t");
+  
+  result := s.trim();
+  assert(result == String.from("hello"));
+};
+
+test "String trim preserves internal whitespace", {
+  s := String.from("  hello world  ");
+  
+  result := s.trim();
+  assert(result == String.from("hello world"));
+};
+
+test "String trim UTF-8 with whitespace", {
+  s := String.from("  你好  ");
+  
+  result := s.trim();
+  assert(result == String.from("你好"));
+};
+
+test "String trim emoji with whitespace", {
+  s := String.from("  😀😁  ");
+  
+  result := s.trim();
+  assert(result == String.from("😀😁"));
+};
+
+// ===== trim_start Tests =====
+
+test "String trim_start removes leading whitespace", {
+  s := String.from("  hello  ");
+  
+  result := s.trim_start();
+  assert(result == String.from("hello  "));
+};
+
+test "String trim_start no leading whitespace", {
+  s := String.from("hello  ");
+  
+  result := s.trim_start();
+  assert(result == s);
+};
+
+test "String trim_start all whitespace", {
+  s := String.from("   ");
+  
+  result := s.trim_start();
+  assert(result.is_empty());
+};
+
+test "String trim_start empty string", {
+  s := String.from("");
+  
+  result := s.trim_start();
+  assert(result.is_empty());
+};
+
+test "String trim_start tabs and newlines", {
+  s := String.from("\t\nhello");
+  
+  result := s.trim_start();
+  assert(result == String.from("hello"));
+};
+
+test "String trim_start UTF-8", {
+  s := String.from("  你好");
+  
+  result := s.trim_start();
+  assert(result == String.from("你好"));
+};
+
+test "String trim_start emoji", {
+  s := String.from("  😀😁");
+  
+  result := s.trim_start();
+  assert(result == String.from("😀😁"));
+};
+
+// ===== trim_end Tests =====
+
+test "String trim_end removes trailing whitespace", {
+  s := String.from("  hello  ");
+  
+  result := s.trim_end();
+  assert(result == String.from("  hello"));
+};
+
+test "String trim_end no trailing whitespace", {
+  s := String.from("  hello");
+  
+  result := s.trim_end();
+  assert(result == s);
+};
+
+test "String trim_end all whitespace", {
+  s := String.from("   ");
+  
+  result := s.trim_end();
+  assert(result.is_empty());
+};
+
+test "String trim_end empty string", {
+  s := String.from("");
+  
+  result := s.trim_end();
+  assert(result.is_empty());
+};
+
+test "String trim_end tabs and newlines", {
+  s := String.from("hello\n\t");
+  
+  result := s.trim_end();
+  assert(result == String.from("hello"));
+};
+
+test "String trim_end UTF-8", {
+  s := String.from("你好  ");
+  
+  result := s.trim_end();
+  assert(result == String.from("你好"));
+};
+
+test "String trim_end emoji", {
+  s := String.from("😀😁  ");
+  
+  result := s.trim_end();
+  assert(result == String.from("😀😁"));
+};
+// ===== starts_with with position Tests =====
+
+test "String starts_with with position at start", {
+  s := String.from("Hello World");
+  
+  assert(s.starts_with(String.from("Hello"), usize(0)));
+};
+
+test "String starts_with with position in middle", {
+  s := String.from("Hello World");
+  
+  assert(s.starts_with(String.from("World"), usize(6)));
+  assert(not(s.starts_with(String.from("Hello"), usize(6))));
+};
+
+test "String starts_with position skips prefix", {
+  s := String.from("abcdef");
+  
+  assert(s.starts_with(String.from("cde"), usize(2)));
+  assert(s.starts_with(String.from("def"), usize(3)));
+};
+
+test "String starts_with position UTF-8", {
+  s := String.from("你好世界");
+  
+  assert(s.starts_with(String.from("你好"), usize(0)));
+  assert(s.starts_with(String.from("世界"), usize(2)));
+  assert(s.starts_with(String.from("好世"), usize(1)));
+};
+
+test "String starts_with position beyond length", {
+  s := String.from("Hello");
+  
+  assert(not(s.starts_with(String.from("o"), usize(10))));
+};
+
+test "String starts_with position with emojis", {
+  s := String.from("😀😁😂");
+  
+  assert(s.starts_with(String.from("😀"), usize(0)));
+  assert(s.starts_with(String.from("😁"), usize(1)));
+  assert(s.starts_with(String.from("😂"), usize(2)));
+};
+
+test "String starts_with position empty prefix", {
+  s := String.from("Hello");
+  
+  assert(s.starts_with(String.from(""), usize(0)));
+  assert(s.starts_with(String.from(""), usize(3)));
+};
+
+test "String starts_with position mixed ASCII and UTF-8", {
+  s := String.from("Hello 世界");
+  
+  assert(s.starts_with(String.from("世"), usize(6)));
+  assert(s.starts_with(String.from("世界"), usize(6)));
+  assert(not(s.starts_with(String.from("Hello"), usize(6))));
+};
+
+// ===== ends_with with end_position Tests =====
+
+test "String ends_with end_position full length", {
+  s := String.from("Hello World");
+  
+  assert(s.ends_with(String.from("World"), s.len()));
+};
+
+test "String ends_with end_position partial string", {
+  s := String.from("Hello World");
+  
+  assert(s.ends_with(String.from("Hello"), usize(5)));
+  assert(not(s.ends_with(String.from("World"), usize(5))));
+};
+
+test "String ends_with end_position middle", {
+  s := String.from("abcdef");
+  
+  assert(s.ends_with(String.from("abc"), usize(3)));
+  assert(s.ends_with(String.from("abcd"), usize(4)));
+  assert(s.ends_with(String.from("c"), usize(3)));
+};
+
+test "String ends_with end_position UTF-8", {
+  s := String.from("你好世界");
+  
+  assert(s.ends_with(String.from("你好"), usize(2)));
+  assert(s.ends_with(String.from("好"), usize(2)));
+  assert(s.ends_with(String.from("你"), usize(1)));
+  assert(s.ends_with(String.from("世界"), usize(4)));
+};
+
+test "String ends_with end_position zero", {
+  s := String.from("Hello");
+  
+  assert(s.ends_with(String.from(""), usize(0)));
+  assert(not(s.ends_with(String.from("H"), usize(0))));
+};
+
+test "String ends_with end_position beyond length", {
+  s := String.from("Hello");
+  
+  assert(s.ends_with(String.from("Hello"), usize(100)));
+};
+
+test "String ends_with end_position with emojis", {
+  s := String.from("😀😁😂");
+  
+  assert(s.ends_with(String.from("😀"), usize(1)));
+  assert(s.ends_with(String.from("😀😁"), usize(2)));
+  assert(s.ends_with(String.from("😂"), usize(3)));
+};
+
+test "String ends_with end_position empty suffix", {
+  s := String.from("Hello");
+  
+  assert(s.ends_with(String.from(""), usize(0)));
+  assert(s.ends_with(String.from(""), usize(3)));
+};
+
+test "String ends_with end_position mixed ASCII and UTF-8", {
+  s := String.from("Hello 世界");
+  
+  assert(s.ends_with(String.from("Hello"), usize(5)));
+  assert(s.ends_with(String.from(" 世"), usize(7)));
+  assert(not(s.ends_with(String.from("世界"), usize(5))));
+};
+
+test "String ends_with end_position single character", {
+  s := String.from("abcdef");
+  
+  assert(s.ends_with(String.from("a"), usize(1)));
+  assert(s.ends_with(String.from("b"), usize(2)));
+  assert(s.ends_with(String.from("c"), usize(3)));
+};

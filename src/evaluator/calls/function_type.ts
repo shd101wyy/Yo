@@ -61,6 +61,7 @@ export function createFunctionBodyEvaluationContext(
     isValidatingFunctionDefinition: true, // We're validating function definition
     isEvaluatingFunctionBodyOrAsyncBlock: functionBodyContext,
     isEvaluatingFunctionType: false,
+    isEvaluatingLoopBody: undefined, // Clear loop body context for function body
     capturedVariables, // Set the captured variables map here
     expectedType: {
       type: functionType.return.type,

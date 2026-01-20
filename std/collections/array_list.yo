@@ -8,6 +8,7 @@
  * - RAII for automatic cleanup
  */
 { GlobalAllocator, AllocError } :: import "../allocator.yo";
+{ memmove } :: import "../libc/string.yo";
 { malloc, calloc, realloc, free, aligned_alloc } :: GlobalAllocator;
 
 /**
@@ -167,6 +168,9 @@ ArrayList :: (fn(compt(T): Type) -> compt(Type))
             .Some(ptr) => {
               last_element_ptr := (ptr &+ self._length);
               last_element := last_element_ptr.*;
+              // Drop the slot's reference since it's no longer tracked
+              // (length was decremented, so dispose won't reach this slot)
+              unsafe.drop(last_element_ptr.*);
               .Some(last_element)
             }
           )
@@ -259,8 +263,7 @@ ArrayList :: (fn(compt(T): Type) -> compt(Type))
           base_ptr := self._ptr.unwrap();
           while(i < self._length, i = (i + usize(1)), {
             element_ptr := (base_ptr &+ i);
-            element := element_ptr.*;
-            // element will be automatically dropped here
+            unsafe.drop(element_ptr.*);
           });
         },
         true => ()
@@ -271,7 +274,7 @@ ArrayList :: (fn(compt(T): Type) -> compt(Type))
      * Remove elements from the ArrayList starting at index, removing count elements
      * Returns the number of elements actually removed
      */
-    remove :: (fn(self: Self, start: usize, count: usize) -> Result(usize, ArrayListError))(
+    remove :: (fn(self: Self, start: usize, (count : usize) ?= 1) -> Result(usize, ArrayListError))(
       // Check if start index is valid
       cond(
         (start >= self._length) => 
@@ -292,39 +295,64 @@ ArrayList :: (fn(compt(T): Type) -> compt(Type))
               match(self._ptr,
                 .None => panic("ArrayList has length but no ptr"),
                 .Some(ptr) => {
-                  // Free elements that will be removed if they contain ARC types
-                  cond(
-                    Type.contains_rc_type(T) => {
-                      i := usize(0);
-                      while(i < actual_count, i = (i + usize(1)), {
-                        element_ptr := (ptr &+ (start + i));
-                        element := element_ptr.*;
-                        // element will be automatically dropped here
-                      });
-                    },
-                    true => ()
-                  );
-                  
                   // Shift remaining elements left to fill the gap
                   // We need to move elements from [start + actual_count, length) to [start, ...)
                   elements_after := ((self._length - start) - actual_count);
+                  new_length := (self._length - actual_count);
                   cond(
                     (elements_after > usize(0)) => {
                       src_ptr := (ptr &+ (start + actual_count));
                       dst_ptr := (ptr &+ start);
-                      // Move memory
-                      i := usize(0);
-                      while(i < elements_after, i = (i + usize(1)), {
-                        src := (src_ptr &+ i);
-                        dst := (dst_ptr &+ i);
-                        dst.* = src.*;
-                      });
+                      
+                      cond(
+                        Type.contains_rc_type(T) => {
+                          // For RC types, iterate and properly manage RC
+                          // The assignment dst.* = src.* will:
+                          // 1. Dup src.* (RC+1)
+                          // 2. Drop old dst.* (either element being removed, or previous iteration's copy)
+                          // 3. Write to dst.*
+                          i := usize(0);
+                          while(i < elements_after, i = (i + usize(1)), {
+                            dst := (dst_ptr &+ i);
+                            src := (src_ptr &+ i);
+                            dst.* = src.*;
+                          });
+                          // Drop the non-overlapping tail stale pointers
+                          j := usize(0);
+                          tail_start := (start + elements_after);
+                          tail_count := actual_count;
+                          while(j < tail_count, j = (j + usize(1)), {
+                            tail_ptr := (ptr &+ (tail_start + j));
+                            unsafe.drop(tail_ptr.*);
+                          });
+                        },
+                        true => {
+                          // For non-RC types, use fast memmove
+                          element_size := sizeof(T);
+                          bytes_to_move := (elements_after * element_size);
+                          dst_void := *(void)(dst_ptr);
+                          src_void := *(void)(src_ptr);
+                          memmove(dst_void, src_void, bytes_to_move);
+                        }
+                      );
                     },
-                    true => ()
+                    true => {
+                      // No elements to shift, just drop the removed elements
+                      cond(
+                        Type.contains_rc_type(T) => {
+                          i := usize(0);
+                          while(i < actual_count, i = (i + usize(1)), {
+                            element_ptr := (ptr &+ (start + i));
+                            unsafe.drop(element_ptr.*);
+                          });
+                        },
+                        true => ()
+                      );
+                    }
                   );
                   
                   // Update length
-                  self._length = (self._length - actual_count);
+                  self._length = new_length;
                   .Ok(actual_count)
                 }
               )
