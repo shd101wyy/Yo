@@ -868,6 +868,42 @@ export function getDeferredDupTargetAtomName(
 }
 
 /**
+ * Extract the variable name from a drop expression.
+ * Drop expressions are of the form `___drop(varName)`.
+ * Returns the variable name if the expression is a valid drop expression, undefined otherwise.
+ */
+export function getDeferredDropTargetAtomName(
+  dropExpr: Expr
+): string | undefined {
+  // Check if it's XXX.drop();
+  if (
+    exprIsFunctionCall(dropExpr) &&
+    dropExpr.args.length === 0 &&
+    exprIsFunctionCall(dropExpr.func) &&
+    exprIsFunctionCallOf(dropExpr.func, ".", 2) &&
+    exprIsAtom(dropExpr.func.args[1]!) &&
+    dropExpr.func.args[1]!.token.value === BuiltinFunctions.___drop[0] &&
+    exprIsAtom(dropExpr.func.args[0]!)
+  ) {
+    return dropExpr.func.args[0]!.token.value;
+  }
+
+  // Check if it's normal ___drop(varName);
+  if (
+    !exprIsFunctionCall(dropExpr) ||
+    !exprIsFunctionCallOf(dropExpr, BuiltinFunctions.___drop) ||
+    dropExpr.args.length < 1
+  ) {
+    return;
+  }
+  const firstArg = dropExpr.args[0];
+  if (!firstArg || !exprIsAtom(firstArg)) {
+    return;
+  }
+  return firstArg.token.value;
+}
+
+/**
  * Find async blocks in an expression that might be returned.
  * Returns the first async block found in the function body.
  * For functions returning Impl(Future(T)), any async block in the body
