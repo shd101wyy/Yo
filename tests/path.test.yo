@@ -395,3 +395,243 @@ test "Path .. beyond root is ignored for relative paths", {
   s := path.to_string();
   assert(s == `etc`);
 };
+
+// ============================================
+// Tests for new Path methods
+// ============================================
+
+test "Path.with_file_name replaces filename", {
+  p := Path.new(`/usr/local/bin`);
+  p2 := p.with_file_name(`lib`);
+  assert(p2.to_string() == `/usr/local/lib`);
+};
+
+test "Path.with_file_name on single segment", {
+  p := Path.new(`foo`);
+  p2 := p.with_file_name(`bar`);
+  assert(p2.to_string() == `bar`);
+};
+
+test "Path.with_file_name on empty path", {
+  p := Path.new(``);
+  p2 := p.with_file_name(`foo`);
+  assert(p2.to_string() == `foo`);
+};
+
+test "Path.with_file_name preserves absolute flag", {
+  p := Path.new(`/usr/local/bin`);
+  p2 := p.with_file_name(`lib`);
+  assert(p2.is_absolute());
+};
+
+test "Path.with_file_name with complex path", {
+  p := Path.new(`foo/bar/baz.txt`);
+  p2 := p.with_file_name(`qux.md`);
+  assert(p2.to_string() == `foo/bar/qux.md`);
+};
+
+test "Path.starts_with matching prefix", {
+  p := Path.new(`/usr/local/bin`);
+  base := Path.new(`/usr`);
+  assert(p.starts_with(base));
+};
+
+test "Path.starts_with exact match", {
+  p := Path.new(`/usr/local`);
+  base := Path.new(`/usr/local`);
+  assert(p.starts_with(base));
+};
+
+test "Path.starts_with non-matching prefix", {
+  p := Path.new(`/usr/local/bin`);
+  base := Path.new(`/var`);
+  assert(!p.starts_with(base));
+};
+
+test "Path.starts_with longer base", {
+  p := Path.new(`/usr`);
+  base := Path.new(`/usr/local`);
+  assert(!p.starts_with(base));
+};
+
+test "Path.starts_with relative vs absolute", {
+  p := Path.new(`/usr/local`);
+  base := Path.new(`usr`);
+  assert(!p.starts_with(base));
+};
+
+test "Path.starts_with both relative", {
+  p := Path.new(`foo/bar/baz`);
+  base := Path.new(`foo/bar`);
+  assert(p.starts_with(base));
+};
+
+test "Path.starts_with empty base", {
+  p := Path.new(`foo/bar`);
+  base := Path.new(``);
+  assert(p.starts_with(base));
+};
+
+test "Path.starts_with root", {
+  p := Path.new(`/usr/local`);
+  base := Path.new(`/`);
+  assert(p.starts_with(base));
+};
+
+test "Path.ends_with matching suffix", {
+  p := Path.new(`/usr/local/bin`);
+  suffix := Path.new(`local/bin`);
+  assert(p.ends_with(suffix));
+};
+
+test "Path.ends_with exact match", {
+  p := Path.new(`foo/bar`);
+  suffix := Path.new(`foo/bar`);
+  assert(p.ends_with(suffix));
+};
+
+test "Path.ends_with non-matching suffix", {
+  p := Path.new(`/usr/local/bin`);
+  suffix := Path.new(`lib`);
+  assert(!p.ends_with(suffix));
+};
+
+test "Path.ends_with longer suffix", {
+  p := Path.new(`foo`);
+  suffix := Path.new(`foo/bar`);
+  assert(!p.ends_with(suffix));
+};
+
+test "Path.ends_with absolute suffix match", {
+  p := Path.new(`/usr/local/bin`);
+  suffix := Path.new(`/usr/local/bin`);
+  assert(p.ends_with(suffix));
+};
+
+test "Path.ends_with absolute suffix mismatch", {
+  p := Path.new(`usr/local/bin`);
+  suffix := Path.new(`/local/bin`);
+  assert(!p.ends_with(suffix));
+};
+
+test "Path.ends_with empty suffix", {
+  p := Path.new(`foo/bar`);
+  suffix := Path.new(``);
+  assert(p.ends_with(suffix));
+};
+
+test "Path.ends_with single segment", {
+  p := Path.new(`/usr/local/bin`);
+  suffix := Path.new(`bin`);
+  assert(p.ends_with(suffix));
+};
+
+test "Path.components of relative path", {
+  p := Path.new(`foo/bar/baz`);
+  comps := p.components();
+  assert(comps.len() == usize(3));
+  
+  c0_opt := comps.get(usize(0));
+  match(c0_opt,
+    .Some(c0) => {
+      assert(c0 == `foo`);
+    },
+    .None => {
+      assert(false);
+    }
+  );
+  
+  c1_opt := comps.get(usize(1));
+  match(c1_opt,
+    .Some(c1) => {
+      assert(c1 == `bar`);
+    },
+    .None => {
+      assert(false);
+    }
+  );
+  
+  c2_opt := comps.get(usize(2));
+  match(c2_opt,
+    .Some(c2) => {
+      assert(c2 == `baz`);
+    },
+    .None => {
+      assert(false);
+    }
+  );
+};
+
+test "Path.components of absolute path", {
+  p := Path.new(`/usr/local`);
+  comps := p.components();
+  assert(comps.len() == usize(3));
+  
+  c0_opt := comps.get(usize(0));
+  match(c0_opt,
+    .Some(c0) => {
+      assert(c0 == `/`);
+    },
+    .None => {
+      assert(false);
+    }
+  );
+  
+  c1_opt := comps.get(usize(1));
+  match(c1_opt,
+    .Some(c1) => {
+      assert(c1 == `usr`);
+    },
+    .None => {
+      assert(false);
+    }
+  );
+  
+  c2_opt := comps.get(usize(2));
+  match(c2_opt,
+    .Some(c2) => {
+      assert(c2 == `local`);
+    },
+    .None => {
+      assert(false);
+    }
+  );
+};
+
+test "Path.components of root", {
+  p := Path.new(`/`);
+  comps := p.components();
+  assert(comps.len() == usize(1));
+  
+  c0_opt := comps.get(usize(0));
+  match(c0_opt,
+    .Some(c0) => {
+      assert(c0 == `/`);
+    },
+    .None => {
+      assert(false);
+    }
+  );
+};
+
+test "Path.components of empty path", {
+  p := Path.new(``);
+  comps := p.components();
+  assert(comps.len() == usize(0));
+};
+
+test "Path.components of single segment", {
+  p := Path.new(`foo`);
+  comps := p.components();
+  assert(comps.len() == usize(1));
+  
+  c0_opt := comps.get(usize(0));
+  match(c0_opt,
+    .Some(c0) => {
+      assert(c0 == `foo`);
+    },
+    .None => {
+      assert(false);
+    }
+  );
+};
