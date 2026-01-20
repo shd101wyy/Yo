@@ -1,12 +1,10 @@
+{ File, IOError, O_RDONLY, O_WRONLY, O_CREAT, O_TRUNC } :: import "std/io/file";
 open import "std/string";
-open import "std/fmt";
-open import "std/process";
 
 main :: (fn() -> unit) {
-  println(env.get(`PATH`).unwrap_or(`No PATH set`));
-  println(env.get(`NON_EXISTENT_ENV_VAR`).unwrap_or(`Default Value`));
-  env.set(`NON_EXISTENT_ENV_VAR`, `New Value`);
-  println(env.get(`NON_EXISTENT_ENV_VAR`).unwrap_or(`Default Value`));
+  // Test basic file open/close
+  (path : *(u8)) = "tests/fixtures/test_file.txt";
+  result := File.open(path, O_RDONLY);
 };
 
 export main;
