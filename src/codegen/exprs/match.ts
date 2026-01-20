@@ -49,14 +49,12 @@ function generateCaseBody(
     const beginArgs = bodyExpr.args;
 
     // Update pendingDeferredDrops for this begin block
-    // IMPORTANT: Concatenate with previous drops so early returns drop ALL enclosing scope vars
+    // NOTE: We do NOT add the current begin block's drops because variables
+    // may not be defined yet at the point of an early return inside this block.
+    // Only outer scope drops are kept in pendingDeferredDrops.
     const functionContext = context as FunctionGenerationContext;
     const previousPendingDeferredDrops = functionContext.pendingDeferredDrops;
-    const currentDrops = bodyExpr.$?.deferredDropExpressions ?? [];
-    functionContext.pendingDeferredDrops = [
-      ...currentDrops,
-      ...(previousPendingDeferredDrops ?? []),
-    ];
+    // Keep only outer scope drops - don't add currentDrops here
 
     // Generate each statement except the last one
     for (let j = 0; j < beginArgs.length - 1; j++) {
