@@ -20,8 +20,9 @@ export PathError;
  * Unix: '/', Windows: '\\'
  * TODO: Support Windows paths later
  */
-PATH_SEPARATOR :: (fn() -> u8)(
-  u8(47)  // '/' for Unix (we'll focus on Unix first)
+PATH_SEPARATOR :: cond(
+  (__yo_process_platform() == "win32") => u8(92),  // '\' for Windows
+  true => u8(47)  // '/' for Unix
 );
 export PATH_SEPARATOR;
 
@@ -30,8 +31,9 @@ export PATH_SEPARATOR;
  * Unix: ':', Windows: ';'
  * TODO: Support Windows paths later
  */
-PATH_DELIMITER :: (fn() -> u8)(
-  u8(58)  // ':' for Unix
+PATH_DELIMITER :: cond(
+  (__yo_process_platform() == "win32") => u8(59),  // ';' for Windows
+  true => u8(58)  // ':' for Unix
 );
 export PATH_DELIMITER;
 
@@ -57,7 +59,7 @@ Path :: object(
         first_byte := bytes.get(usize(0));
         match(first_byte,
           .Some(b) => cond(
-            (b == u8(47)) => {
+            (b == PATH_SEPARATOR) => {
               is_abs = true;
             },
             true => ()
