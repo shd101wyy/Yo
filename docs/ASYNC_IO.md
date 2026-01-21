@@ -909,7 +909,6 @@ file.close();
 
 - [ ] Async file read/write
 - [ ] Linux io_uring backend (via liburing)
-- [ ] Vendor liburing in `vendor/liburing/`
 
 **Phase 2 (Windows):**
 

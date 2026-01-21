@@ -1,0 +1,65 @@
+// C11 dirent.h - Directory entry operations
+// Provides directory traversal functionality
+
+c_include "<dirent.h>",
+  // Types
+  DIR : Type,
+  
+  // The dirent structure contains at minimum:
+  // - d_name: char[] - null-terminated filename
+  // - d_ino: ino_t - inode number (POSIX)
+  // On most systems also:
+  // - d_type: unsigned char - file type (DT_* constants)
+  dirent : Type,
+
+  // Directory operations
+  opendir :
+    (fn(name: *(char)) -> ?*(DIR)),
+  closedir :
+    (fn(dirp: *(DIR)) -> int),
+  readdir :
+    (fn(dirp: *(DIR)) -> ?*(dirent)),
+  rewinddir :
+    (fn(dirp: *(DIR)) -> unit),
+  
+  // Thread-safe readdir (POSIX)
+  // Note: readdir_r is deprecated in POSIX.1-2008, prefer readdir with mutex
+  // readdir_r :
+  //   (fn(dirp: *(DIR), entry: *(dirent), result: *(*(dirent))) -> int),
+
+  // Directory entry type constants (d_type field)
+  // Note: These may not be available on all systems
+  DT_UNKNOWN : u8,  // Unknown type
+  DT_FIFO : u8,     // Named pipe (FIFO)
+  DT_CHR : u8,      // Character device
+  DT_DIR : u8,      // Directory
+  DT_BLK : u8,      // Block device
+  DT_REG : u8,      // Regular file
+  DT_LNK : u8,      // Symbolic link
+  DT_SOCK : u8,     // UNIX domain socket
+  DT_WHT : u8       // Whiteout (BSD)
+;
+
+// Export all dirent functionality
+export
+  // Types
+  DIR,
+  dirent,
+
+  // Directory operations
+  opendir,
+  closedir,
+  readdir,
+  rewinddir,
+
+  // Directory entry type constants
+  DT_UNKNOWN,
+  DT_FIFO,
+  DT_CHR,
+  DT_DIR,
+  DT_BLK,
+  DT_REG,
+  DT_LNK,
+  DT_SOCK,
+  DT_WHT
+;

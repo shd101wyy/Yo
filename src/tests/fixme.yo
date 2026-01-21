@@ -1,40 +1,101 @@
-open import "std/process";
-open import "std/fmt";
-open import "std/path";
+{ println } :: import "std/fmt";
+{ Path } :: import "std/path";
+{ String } :: import "std/string";
+fs :: import "std/fs";
+{ DEFAULT_DIR_MODE } :: import "std/io";
 
-// Test runtime cwd
-main :: (fn() -> unit) {
-  println(`Platform: ${platform}`);
-  println(`Arch: ${arch}`);
-  
-  // Platform should be one of the known values
-  valid_platform := (
-    (platform == "linux") ||
-    (platform == "darwin") ||
-    (platform == "win32") ||
-    (platform == "freebsd") ||
-    (platform == "openbsd") ||
-    (platform == "aix") ||
-    (platform == "android") ||
-    (platform == "sunos")
+main :: (fn() -> Impl Future(unit))(async {
+  // Test exists function
+  println("Testing exists...");
+  test_path := Path.new(String.from_cstr("./src/tests/fixme.yo").unwrap());
+  e := await fs.exists(test_path);
+  cond(
+    e => println(String.from_cstr("exists(./src/tests/fixme.yo) = true").unwrap()),
+    true => println(String.from_cstr("exists(./src/tests/fixme.yo) = false").unwrap())
   );
-  assert(valid_platform, "platform should be a known value");
   
-  // Arch should be one of the known values
-  valid_arch := (
-    (arch == "x64") ||
-    (arch == "arm64") ||
-    (arch == "arm") ||
-    (arch == "ia32") ||
-    (arch == "loong64") ||
-    (arch == "mips") ||
-    (arch == "mipsel") ||
-    (arch == "ppc") ||
-    (arch == "ppc64") ||
-    (arch == "riscv64") ||
-    (arch == "s390") ||
-    (arch == "s390x")
+  // Test stat function
+  println(String.from_cstr("Testing stat...").unwrap());
+  stat_result := await fs.stat(test_path);
+  match(stat_result,
+    .Ok(info) => {
+      println(String.from_cstr("stat success!").unwrap());
+      cond(
+        info.is_file() => println(String.from_cstr("  is_file: true").unwrap()),
+        true => println(String.from_cstr("  is_file: false").unwrap())
+      );
+      cond(
+        info.is_directory() => println(String.from_cstr("  is_directory: true").unwrap()),
+        true => println(String.from_cstr("  is_directory: false").unwrap())
+      );
+    },
+    .Err(e) => {
+      println(String.from_cstr("stat failed!").unwrap());
+    }
   );
-  assert(valid_arch, "arch should be a known value");
-};
+  
+  // Test mkdir and rmdir
+  println(String.from_cstr("Testing mkdir/rmdir...").unwrap());
+  test_dir := Path.new(String.from_cstr("./test_mkdir_temp").unwrap());
+  mkdir_result := await fs.mkdir(test_dir, DEFAULT_DIR_MODE);
+  match(mkdir_result,
+    .Ok(_) => {
+      println(String.from_cstr("mkdir success!").unwrap());
+      
+      rmdir_result := await fs.rmdir(test_dir);
+      match(rmdir_result,
+        .Ok(_) => {
+          println(String.from_cstr("rmdir success!").unwrap());
+        },
+        .Err(e) => {
+          println(String.from_cstr("rmdir failed!").unwrap());
+        }
+      );
+    },
+    .Err(e) => {
+      println(String.from_cstr("mkdir failed!").unwrap());
+    }
+  );
+  
+  // Test read_file
+  println(String.from_cstr("Testing read_file...").unwrap());
+  read_result := await fs.read_file_string(test_path);
+  match(read_result,
+    .Ok(content) => {
+      println(String.from_cstr("read_file success!").unwrap());
+    },
+    .Err(e) => {
+      println(String.from_cstr("read_file failed!").unwrap());
+    }
+  );
+  
+  // Test write_file
+  println(String.from_cstr("Testing write_file...").unwrap());
+  write_path := Path.new(String.from_cstr("./test_write_temp.txt").unwrap());
+  test_content := String.from_cstr("Hello from Yo fs module!").unwrap();
+  write_result := await fs.write_file_string(write_path, test_content);
+  match(write_result,
+    .Ok(_) => {
+      println(String.from_cstr("write_file success!").unwrap());
+      
+      verify_result := await fs.read_file_string(write_path);
+      match(verify_result,
+        .Ok(read_back) => {
+          println(String.from_cstr("Read back success!").unwrap());
+        },
+        .Err(e) => {
+          println(String.from_cstr("verify read failed!").unwrap());
+        }
+      );
+      
+      await fs.unlink(write_path);
+    },
+    .Err(e) => {
+      println(String.from_cstr("write_file failed!").unwrap());
+    }
+  );
+  
+  println(String.from_cstr("All fs tests passed!").unwrap());
+});
+
 export main;

@@ -1,0 +1,402 @@
+// std/fs.yo - Filesystem operations
+//
+// High-level async filesystem API similar to Node.js fs.promises.
+// All operations are async using io_uring on Linux.
+
+{ String } :: import "./string";
+{ Path } :: import "./path";
+{ ArrayList } :: import "./collections/array_list";
+open import "./io";
+
+// Re-export IOError
+export IOError;
+
+// ============================================================================
+// File handle for read/write operations
+// ============================================================================
+
+File :: object(
+  _fd: i32,
+  _offset: u64,
+
+  // Open file with specified flags and mode
+  open :: (fn(path: Path, flags: i32, mode: i32) -> Impl Future(Result(Self, IOError)))(async {
+    path_str := path.to_string();
+    path_ptr := match(path_str.to_cstr().ptr(),
+      .Some(ptr) => ptr,
+      .None => return Result(Self, IOError).Err(.InvalidInput)
+    );
+    
+    io_future := __yo_async_openat_start(AT_FDCWD, path_ptr, flags, mode);
+    fd := await io_future;
+    
+    result := IOError.from_result(fd);
+    return match(result,
+      .Ok(fd_val) => .Ok(Self(_fd: fd_val, _offset: u64(0))),
+      .Err(e) => .Err(e)
+    );
+  }),
+
+  // Get file descriptor
+  fd :: (fn(self: Self) -> i32)(
+    self._fd
+  ),
+
+  // Get file size
+  size :: (fn(self: Self) -> Result(i64, IOError))({
+    result := __yo_file_size(self._fd);
+    cond(
+      (result >= i64(0)) => .Ok(result),
+      true => .Err(IOError.from_errno((i32(0) - i32(result))))
+    )
+  }),
+
+  // Read bytes from file at current offset
+  read_bytes :: (fn(self: Self, count: usize) -> Impl Future(Result(ArrayList(u8), IOError)))(async {
+    buffer := ArrayList(u8).with_capacity(count);
+    
+    buffer_ptr := match(buffer.ptr(),
+      .Some(ptr) => ptr,
+      .None => return Result(ArrayList(u8), IOError).Err(.Other(i32(-12)))
+    );
+    
+    io_future := __yo_async_read_start(self._fd, buffer_ptr, u32(count), self._offset);
+    bytes_read := await io_future;
+    
+    result := IOError.from_result(bytes_read);
+    return match(result,
+      .Ok(n) => {
+        buffer.set_len(usize(n));
+        self._offset = (self._offset + u64(n));
+        return .Ok(buffer);
+      },
+      .Err(e) => .Err(e)
+    );
+  }),
+
+  // Write bytes to file at current offset
+  write_bytes :: (fn(self: Self, data: ArrayList(u8)) -> Impl Future(Result(usize, IOError)))(async {
+    buffer_ptr := match(data.ptr(),
+      .Some(ptr) => ptr,
+      .None => return Result(usize, IOError).Err(.InvalidInput)
+    );
+    
+    io_future := __yo_async_write_start(self._fd, buffer_ptr, u32(data.len()), self._offset);
+    bytes_written := await io_future;
+    
+    result := IOError.from_result(bytes_written);
+    return match(result,
+      .Ok(n) => {
+        self._offset = (self._offset + u64(n));
+        return .Ok(usize(n));
+      },
+      .Err(e) => .Err(e)
+    );
+  }),
+
+  // Read string from file at current offset
+  read_string :: (fn(self: Self, count: usize) -> Impl Future(Result(String, IOError)))(async {
+    bytes_result := await self.read_bytes(count);
+    return match(bytes_result,
+      .Ok(bytes) => {
+        s := String.from_bytes(bytes);
+        return .Ok(s);
+      },
+      .Err(e) => .Err(e)
+    );
+  }),
+
+  // Write string to file at current offset
+  write_string :: (fn(self: Self, content: String) -> Impl Future(Result(usize, IOError)))({
+    bytes := content.as_bytes();
+    return self.write_bytes(bytes);
+  }),
+
+  // Close the file
+  close :: (fn(self: Self) -> Impl Future(Result(unit, IOError)))(async {
+    result := await __yo_async_close_start(self._fd);
+    
+    err_result := IOError.from_result(result);
+    return match(err_result,
+      .Ok(_) => .Ok(()),
+      .Err(e) => .Err(e)
+    );
+  })
+);
+
+// ============================================================================
+// FileStat - File status information
+// ============================================================================
+
+FileStat :: object(
+  _statx: Statx,
+
+  size :: (fn(self: Self) -> i64)(
+    self._statx.size()
+  ),
+
+  mode :: (fn(self: Self) -> u32)(
+    self._statx.mode()
+  ),
+
+  is_file :: (fn(self: Self) -> bool)(
+    self._statx.is_file()
+  ),
+
+  is_directory :: (fn(self: Self) -> bool)(
+    self._statx.is_directory()
+  ),
+
+  is_symlink :: (fn(self: Self) -> bool)(
+    self._statx.is_symlink()
+  )
+);
+
+// ============================================================================
+// File operations
+// ============================================================================
+
+// Get file status (follows symlinks)
+stat :: (fn(path: Path) -> Impl Future(Result(FileStat, IOError)))(async {
+  path_str := path.to_string();
+  path_ptr := match(path_str.to_cstr().ptr(),
+    .Some(ptr) => ptr,
+    .None => return Result(FileStat, IOError).Err(.InvalidInput)
+  );
+  
+  // Allocate buffer for statx
+  buf_size := usize(256);  // sizeof(struct statx) is ~256 bytes
+  buffer := ArrayList(u8).with_capacity(buf_size);
+  i := usize(0);
+  while ((i < buf_size)), (i = (i + usize(1))), {
+    buffer.push(u8(0));
+  };
+  
+  buf_ptr := match(buffer.ptr(),
+    .Some(ptr) => ptr,
+    .None => return Result(FileStat, IOError).Err(.Other(i32(-12)))
+  );
+  
+  io_future := __yo_async_statx_start(AT_FDCWD, path_ptr, i32(0), STATX_BASIC_STATS, buf_ptr);
+  result := await io_future;
+  
+  err_result := IOError.from_result(result);
+  return match(err_result,
+    .Ok(_) => {
+      statx := Statx(_buf_ptr: buf_ptr, _buf_size: buf_size);
+      return .Ok(FileStat(_statx: statx));
+    },
+    .Err(e) => .Err(e)
+  );
+});
+
+// Get file status (does not follow symlinks)
+lstat :: (fn(path: Path) -> Impl Future(Result(FileStat, IOError)))(async {
+  path_str := path.to_string();
+  path_ptr := match(path_str.to_cstr().ptr(),
+    .Some(ptr) => ptr,
+    .None => return Result(FileStat, IOError).Err(.InvalidInput)
+  );
+  
+  // Allocate buffer for statx
+  buf_size := usize(256);
+  buffer := ArrayList(u8).with_capacity(buf_size);
+  i := usize(0);
+  while ((i < buf_size)), (i = (i + usize(1))), {
+    buffer.push(u8(0));
+  };
+  
+  buf_ptr := match(buffer.ptr(),
+    .Some(ptr) => ptr,
+    .None => return Result(FileStat, IOError).Err(.Other(i32(-12)))
+  );
+  
+  io_future := __yo_async_statx_start(AT_FDCWD, path_ptr, AT_SYMLINK_NOFOLLOW, STATX_BASIC_STATS, buf_ptr);
+  result := await io_future;
+  
+  err_result := IOError.from_result(result);
+  return match(err_result,
+    .Ok(_) => {
+      statx := Statx(_buf_ptr: buf_ptr, _buf_size: buf_size);
+      return .Ok(FileStat(_statx: statx));
+    },
+    .Err(e) => .Err(e)
+  );
+});
+
+// Check if a path exists
+exists :: (fn(path: Path) -> Impl Future(bool))(async {
+  stat_result := await stat(path);
+  return match(stat_result,
+    .Ok(_) => true,
+    .Err(_) => false
+  );
+});
+
+// Create a directory
+mkdir :: (fn(path: Path, (mode : u32) ?= DEFAULT_DIR_MODE) -> Impl Future(Result(unit, IOError)))(async {
+  path_str := path.to_string();
+  path_ptr := match(path_str.to_cstr().ptr(),
+    .Some(ptr) => ptr,
+    .None => return Result(unit, IOError).Err(.InvalidInput)
+  );
+  
+  io_future := __yo_async_mkdirat_start(AT_FDCWD, path_ptr, i32(mode));
+  result := await io_future;
+  
+  err_result := IOError.from_result(result);
+  return match(err_result,
+    .Ok(_) => .Ok(()),
+    .Err(e) => .Err(e)
+  );
+});
+
+// Remove a directory (must be empty)
+rmdir :: (fn(path: Path) -> Impl Future(Result(unit, IOError)))(async {
+  path_str := path.to_string();
+  path_ptr := match(path_str.to_cstr().ptr(),
+    .Some(ptr) => ptr,
+    .None => return Result(unit, IOError).Err(.InvalidInput)
+  );
+  
+  io_future := __yo_async_unlinkat_start(AT_FDCWD, path_ptr, AT_REMOVEDIR);
+  result := await io_future;
+  
+  err_result := IOError.from_result(result);
+  return match(err_result,
+    .Ok(_) => .Ok(()),
+    .Err(e) => .Err(e)
+  );
+});
+
+// Remove a file
+unlink :: (fn(path: Path) -> Impl Future(Result(unit, IOError)))(async {
+  path_str := path.to_string();
+  path_ptr := match(path_str.to_cstr().ptr(),
+    .Some(ptr) => ptr,
+    .None => return Result(unit, IOError).Err(.InvalidInput)
+  );
+  
+  io_future := __yo_async_unlinkat_start(AT_FDCWD, path_ptr, i32(0));
+  result := await io_future;
+  
+  err_result := IOError.from_result(result);
+  return match(err_result,
+    .Ok(_) => .Ok(()),
+    .Err(e) => .Err(e)
+  );
+});
+
+// Rename a file or directory
+rename :: (fn(old_path: Path, new_path: Path) -> Impl Future(Result(unit, IOError)))(async {
+  old_str := old_path.to_string();
+  old_ptr := match(old_str.to_cstr().ptr(),
+    .Some(ptr) => ptr,
+    .None => return Result(unit, IOError).Err(.InvalidInput)
+  );
+  
+  new_str := new_path.to_string();
+  new_ptr := match(new_str.to_cstr().ptr(),
+    .Some(ptr) => ptr,
+    .None => return Result(unit, IOError).Err(.InvalidInput)
+  );
+  
+  io_future := __yo_async_renameat_start(AT_FDCWD, old_ptr, AT_FDCWD, new_ptr);
+  result := await io_future;
+  
+  err_result := IOError.from_result(result);
+  return match(err_result,
+    .Ok(_) => .Ok(()),
+    .Err(e) => .Err(e)
+  );
+});
+
+// ============================================================================
+// Read/Write entire files
+// ============================================================================
+
+// Read entire file as bytes
+read_file :: (fn(path: Path) -> Impl Future(Result(ArrayList(u8), IOError)))(async {
+  file_result := await File.open(path, O_RDONLY, i32(0));
+  
+  file := match(file_result,
+    .Ok(f) => f,
+    .Err(e) => return Result(ArrayList(u8), IOError).Err(e)
+  );
+  
+  size_result := file.size();
+  file_size := match(size_result,
+    .Ok(s) => s,
+    .Err(e) => {
+      await file.close();
+      return Result(ArrayList(u8), IOError).Err(e);
+    }
+  );
+  
+  cond(
+    (file_size < i64(0)) => {
+      await file.close();
+      return Result(ArrayList(u8), IOError).Err(.Other(i32(-22)));
+    },
+    true => ()
+  );
+  
+  read_result := await file.read_bytes(usize(file_size));
+  await file.close();
+  
+  return read_result;
+});
+
+// Read entire file as string
+read_file_string :: (fn(path: Path) -> Impl Future(Result(String, IOError)))(async {
+  bytes_result := await read_file(path);
+  
+  return match(bytes_result,
+    .Ok(bytes) => {
+      s := String.from_bytes(bytes);
+      return .Ok(s);
+    },
+    .Err(e) => .Err(e)
+  );
+});
+
+// Write bytes to file (creates or overwrites)
+write_file :: (fn(path: Path, data: ArrayList(u8)) -> Impl Future(Result(unit, IOError)))(async {
+  flags := ((O_WRONLY | O_CREAT) | O_TRUNC);
+  file_result := await File.open(path, flags, i32(DEFAULT_FILE_MODE));
+  
+  file := match(file_result,
+    .Ok(f) => f,
+    .Err(e) => return Result(unit, IOError).Err(e)
+  );
+  
+  write_result := await file.write_bytes(data);
+  await file.close();
+  
+  return match(write_result,
+    .Ok(_) => .Ok(()),
+    .Err(e) => .Err(e)
+  );
+});
+
+// Write string to file (creates or overwrites)
+write_file_string :: (fn(path: Path, content: String) -> Impl Future(Result(unit, IOError)))(async {
+  bytes := content.as_bytes();
+  return await write_file(path, bytes);
+});
+
+export
+  File,
+  FileStat,
+  stat,
+  lstat,
+  exists,
+  mkdir,
+  rmdir,
+  unlink,
+  rename,
+  read_file,
+  read_file_string,
+  write_file,
+  write_file_string
+;
