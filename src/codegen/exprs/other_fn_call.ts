@@ -676,8 +676,49 @@ export function generateOtherFunctionCall(
         // Handle newtype as zero-cost abstraction
         if (structType.isNewtype && structType.fields.length === 1) {
           // For newtype, just use the underlying value directly (with cast for type safety)
-          const argCode = generateExpr(runtimeArgExprs[0]!, indent, context);
-          const newtypeValue = `((${cName})(${argCode}))`;
+          const argExpr = runtimeArgExprs[0]!;
+          const argCode = generateExpr(argExpr, indent, context);
+
+          // Handle deferred dup expressions for newtype constructor arguments
+          // This is important because newtype shares the same RC as its inner type,
+          // so if the inner value is passed to the newtype, we need to dup it
+          // to avoid double-free (both newtype and original will try to drop).
+          let finalArgCode = argCode;
+          if (
+            argExpr.$?.deferredDupExpressions &&
+            argExpr.$.deferredDupExpressions.length > 0
+          ) {
+            const functionContext = context as FunctionGenerationContext;
+
+            // If the arg has a variable name but generateExpr didn't create a declaration,
+            // we need to create it now so the dup call can reference it
+            if (argExpr.$?.variableName && argExpr.$?.type) {
+              const argVarName = getVariableNameForCodegen(
+                argExpr.$.variableName,
+                argExpr.$.env
+              );
+              // Only emit the declaration if argCode is different from the variable name
+              if (argCode !== argVarName) {
+                const argType = argExpr.$.type;
+                const argTypeStr = getTypeString(argType, context);
+                context.emitter.emitLine(
+                  `${indent}${argTypeStr} ${argVarName} = ${argCode};`
+                );
+              }
+            }
+
+            generateDeferredDupExpressions(argExpr, indent, functionContext);
+            // Use the dup result variable instead of the original
+            const dupExpr = argExpr.$.deferredDupExpressions[0]!;
+            if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
+              finalArgCode = getVariableNameForCodegen(
+                dupExpr.$.variableName,
+                dupExpr.$.env
+              );
+            }
+          }
+
+          const newtypeValue = `((${cName})(${finalArgCode}))`;
 
           // If this newtype has a temporary variable name, declare it
           if (tempVar && expr.$?.type) {
