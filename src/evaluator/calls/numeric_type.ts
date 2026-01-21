@@ -13,6 +13,7 @@ import {
   isCCompatibleType,
   isComptFloatType,
   isComptIntType,
+  isEnumType,
   isFloatType,
   isIntegerType,
   Type,
@@ -23,8 +24,10 @@ import {
   createComptFloatValue,
   createComptIntValue,
   createNumberValue,
+  EnumValue,
   isComptFloatValue,
   isComptIntValue,
+  isEnumValue,
   isNumberValue,
   NumberValue,
   Value,
@@ -129,6 +132,18 @@ export function isConvertibleNumericType(type: Type): boolean {
     isComptFloatType(type) ||
     isCCompatibleType(type)
   );
+}
+
+/**
+ * Get the discriminant value for an enum value.
+ * Returns the discriminant if the variant is found, undefined otherwise.
+ */
+function getEnumDiscriminant(enumValue: EnumValue): bigint | undefined {
+  const enumType = enumValue.type;
+  const variant = enumType.variants.find(
+    (v) => v.name === enumValue.variantName
+  );
+  return variant?.discriminant;
 }
 
 /**
@@ -284,11 +299,38 @@ export function tryToConvertToNumericType({
   const argValue = evaluatedArg.$.value;
   const argType = evaluatedArg.$.type;
 
+  // Handle enum value to numeric conversion
+  if (isEnumType(argType) && isEnumValue(argValue)) {
+    const discriminant = getEnumDiscriminant(argValue);
+    if (discriminant === undefined) {
+      throw formatErrorMessage({
+        token: argExpr.token,
+        errorMessage: `Failed to get discriminant for enum variant "${argValue.variantName}"`,
+      });
+    }
+
+    if (supportsComptValue(targetType)) {
+      const resultValue = createComptValueOfType(
+        discriminant,
+        targetType,
+        expr.token
+      );
+      expr.$ = {
+        env,
+        type: targetType,
+        value: resultValue,
+        pathCollection: [],
+      };
+      return { expr, env };
+    }
+  }
+
   // Check if the source is a numeric type
   if (
     !isConvertibleNumericType(argType) &&
     !isComptIntType(argType) &&
-    !isComptFloatType(argType)
+    !isComptFloatType(argType) &&
+    !isEnumType(argType)
   ) {
     throw formatErrorMessage({
       token: argExpr.token,

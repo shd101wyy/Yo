@@ -586,6 +586,12 @@ export interface EnumVariant {
    */
   name: string;
   fields?: TypeField[]; // Changed from TypeField[] to TupleType for consistency
+  /**
+   * Custom discriminant value for this variant.
+   * If not specified, the discriminant will be automatically assigned
+   * based on the previous variant's discriminant + 1.
+   */
+  discriminant?: bigint;
   // TODO: return type? For GADT
 }
 

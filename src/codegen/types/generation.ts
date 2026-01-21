@@ -1017,7 +1017,8 @@ export function generateEnumDeclaration(
         // Use fully mangled names for enum tags to avoid global scope conflicts
         const tagName = getEnumVariantCName(enumType, variant.name, context);
         const comma = i < enumType.variants.length - 1 ? "," : "";
-        emitter.emitDeclarationLine(`  ${tagName} = ${i}${comma}`);
+        const discriminant = variant.discriminant ?? BigInt(i);
+        emitter.emitDeclarationLine(`  ${tagName} = ${discriminant}${comma}`);
       }
     }
 
@@ -1036,7 +1037,8 @@ export function generateEnumDeclaration(
       // Use fully mangled names for enum tags to avoid global scope conflicts
       const tagName = getEnumVariantCName(enumType, variant.name, context);
       const comma = i < enumType.variants.length - 1 ? "," : "";
-      emitter.emitDeclarationLine(`  ${tagName} = ${i}${comma}`);
+      const discriminant = variant.discriminant ?? BigInt(i);
+      emitter.emitDeclarationLine(`  ${tagName} = ${discriminant}${comma}`);
     }
   }
 

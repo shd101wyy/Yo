@@ -587,6 +587,40 @@ test "Test 'enum'", {
     n := NestedEnum.Level1(.Level2(3));
     (n2 : NestedEnum) = .Level1(.Level2(3));
   };
+
+  // Discriminant values
+  {
+    Color :: enum(
+      Red, // implicitly 0
+      Green = 6,
+      Blue = 9
+    );
+
+    Shape :: enum(
+      Circle(radius : i32) = 2,
+      Square(side : i32) = 4,
+      Triangle(base : i32, height : i32) // implicitly 5
+    );
+
+    red := i32(Color.Red);
+    assert(red == i32(0));
+    green := i32(Color.Green);
+    assert(green == i32(6));
+    blue := i32(Color.Blue);
+    assert(blue == i32(9));
+
+    circle := i32(Shape.Circle(10));
+    assert(circle == i32(2));
+    square := i32(Shape.Square(5));
+    assert(square == i32(4));
+    triangle := i32(Shape.Triangle(3, 4));
+    assert(triangle == i32(5));
+
+    expect_triangle :: (fn(shape : Shape) -> unit) {
+      assert(i32(shape) == i32(5));
+    };
+    expect_triangle(Shape.Triangle(5, 6));
+  };
 };
 
 test "Test 'union'", {

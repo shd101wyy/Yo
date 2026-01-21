@@ -1,5 +1,10 @@
 import { BuiltinFunctions, FnCallExpr } from "../../expr";
-import { CodeGenContext, getTypeString } from "../utils";
+import { isEnumType } from "../../types";
+import {
+  canOptimizeAsSimpleEnum,
+  CodeGenContext,
+  getTypeString,
+} from "../utils";
 
 /**
  * Generate Yo operator function call - extracted from original codegen-c.ts
@@ -115,6 +120,17 @@ usleep((${args[0]!}) * 1000)
   else if (BuiltinFunctions.__yo_as.includes(functionName) && expr.$?.type) {
     // The return type tells us what to cast to
     const targetCType = getTypeString(expr.$.type, context);
+
+    // Check if source is a non-simple enum (tagged union) - need to access .tag
+    const sourceType = expr.args[0]?.$?.type;
+    if (
+      sourceType &&
+      isEnumType(sourceType) &&
+      !canOptimizeAsSimpleEnum(sourceType)
+    ) {
+      return `((${targetCType})((${args[0]!}).tag))`;
+    }
+
     return `((${targetCType})(${args[0]!}))`;
   }
   // __yo_ptr_add
