@@ -16,13 +16,13 @@ mkShell rec {
     # python3
     # llvmPackages_14.llvm
     clang
-    mimalloc
-    liburing
     gdb
-    valgrind
     emscripten
     vsce
     ripgrep
+  ] ++ pkgs.lib.optionals pkgs.stdenv.isLinux [
+    liburing
+    valgrind
   ];
   LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath buildInputs;
   # where to find libgcc
@@ -30,7 +30,7 @@ mkShell rec {
   # teach clang about C startup file locations
   ## CFLAGS="-B${gccForLibs}/lib/gcc/${targetPlatform.config}/${gccForLibs.version} -B ${stdenv.cc.libc}/lib";
 
-  cmakeFlags = [
+  cmakeFlags = pkgs.lib.optionals pkgs.stdenv.isLinux [
     "-DGCC_INSTALL_PREFIX=${gcc}"
     "-DC_INCLUDE_DIRS=${stdenv.cc.libc.dev}/include"
     "-GNinja"
