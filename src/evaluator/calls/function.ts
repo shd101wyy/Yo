@@ -1148,6 +1148,7 @@ ${isTypeValue(value) ? typeToString(value.value) : typeToString(functionToCall.t
       isFunctionType(functionToCall.type) &&
       functionToCall.type.return.isCompileTimeOnly // TODO: How about other type calls?
   );
+
   if (comptFunctionCalls.length === 1) {
     functionsWithMatchingTypes = comptFunctionCalls;
   }
