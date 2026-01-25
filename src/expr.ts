@@ -2008,6 +2008,12 @@ export function setExprAsNeedsToCallDup(
     return;
   }
 
+  // Skip dup calls during function definition validation
+  // We're only validating types, not executing code, so RC operations are not needed
+  if (context.isValidatingFunctionDefinition) {
+    return;
+  }
+
   if (expr.$.value || !expr.$.variableName) {
     return; // DO NOT call dup on expression that evaluates to compile-time known value or doesn't have temp variable name, like __yo_rc_own.
   }

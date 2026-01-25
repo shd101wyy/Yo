@@ -1,19 +1,35 @@
+TryFrom :: (fn(compt(From) : Type, compt(Error) : Type) -> compt(Trait))(
+  trait(
+    Error := Error,
+    try_from :
+      (fn(value : From) -> Result(Self, Error))
+  )
+);
+
+/*
+EvenNumber :: struct(value : i32);
+impl(EvenNumber, TryFrom(i32, str)(
+  try_from : (value -> 
+    cond(
+      ((value % 2) == 0) => .Ok(EvenNumber(value)),
+      true => .Err("Only even numbers are allowed") 
+    )
+  )
+));
+impl(EvenNumber, TryFrom(i64, str)(
+  try_from : (value -> 
+    cond(
+      ((value % 2) == 0) => .Ok(EvenNumber(i32(value))),
+      true => .Err("Only even numbers are allowed") 
+    )
+  )
+));
+
 main :: (fn() -> unit) {
-  number := 3;
-  four :: 4;
-  match(number,
-    (1 | 2) => {
-      panic("Shouldn't match 1 | 2");
-    },
-    ( 3
-    | four
-    | 5) => {
-      assert(true, "Should match 3 | 4 | 5");
-    },
-    _ => {
-      panic("Shouldn't match this");
-    }
-  );
+  x := EvenNumber.try_from(i32(4));
+  y := EvenNumber.try_from(i64(10));
+  ();
 };
 
 export main;
+*/
