@@ -12,6 +12,96 @@ open import "./io";
 export IOError;
 
 // ============================================================================
+// OpenFlags - File open flags (bitwise combinable)
+// ============================================================================
+
+OpenFlags :: enum(
+  Read      = 0,      // O_RDONLY
+  Write     = 1,      // O_WRONLY
+  ReadWrite = 2,      // O_RDWR
+  Create    = 64,     // O_CREAT (0o100)
+  Exclusive = 128,    // O_EXCL (0o200)
+  Truncate  = 512,    // O_TRUNC (0o1000)
+  Append    = 1024,   // O_APPEND (0o2000)
+
+  // Convert to raw i32 flags
+  to_i32 :: (fn(self: Self) -> i32)(
+    i32(self)
+  )
+);
+
+// Combine two flags using bitwise OR
+impl(OpenFlags, BitOr(OpenFlags, i32)(
+  (|) : ((lhs, rhs) ->
+    (i32(lhs) | i32(rhs))
+  )
+));
+impl(OpenFlags, ComptBitOr(OpenFlags, i32)(
+  (|) : ((lhs, rhs) ->
+    (i32(lhs) | i32(rhs))
+  )
+));
+
+// Helper to combine multiple flags
+open_flags :: (fn(forall(U : usize), flags: [OpenFlags; U]) -> i32)({
+  result := i32(0);
+  i := usize(0);
+  while (i < flags.len()),
+        (i = (i + usize(1))),
+  {
+    result = (result | i32(flags(i)));
+  };
+  return result;
+});
+
+// Common flag combinations
+OPEN_READ :: i32(OpenFlags.Read);
+OPEN_WRITE :: (i32(OpenFlags.Write) | i32(OpenFlags.Create));
+OPEN_WRITE_TRUNCATE :: ((i32(OpenFlags.Write) | i32(OpenFlags.Create)) | i32(OpenFlags.Truncate));
+OPEN_APPEND :: ((i32(OpenFlags.Write) | i32(OpenFlags.Create)) | i32(OpenFlags.Append));
+OPEN_READ_WRITE :: i32(OpenFlags.ReadWrite);
+
+// ============================================================================
+// FileMode - Unix file permissions
+// ============================================================================
+
+FileMode :: enum(
+  // Owner permissions
+  OwnerRead    = 256,   // 0o400
+  OwnerWrite   = 128,   // 0o200
+  OwnerExecute = 64,    // 0o100
+  OwnerAll     = 448,   // 0o700
+
+  // Group permissions
+  GroupRead    = 32,    // 0o040
+  GroupWrite   = 16,    // 0o020
+  GroupExecute = 8,     // 0o010
+  GroupAll     = 56,    // 0o070
+
+  // Other permissions
+  OtherRead    = 4,     // 0o004
+  OtherWrite   = 2,     // 0o002
+  OtherExecute = 1,     // 0o001
+  OtherAll     = 7,     // 0o007
+
+  // Convert to raw i32
+  to_i32 :: (fn(self: Self) -> i32)(
+    i32(self)
+  ),
+
+  // Combine two modes using bitwise OR
+  or :: (fn(self: Self, other: Self) -> i32)(
+    (i32(self) | i32(other))
+  )
+);
+
+// Common file modes
+MODE_644 :: i32(420);   // 0o644 = rw-r--r--
+MODE_755 :: i32(493);   // 0o755 = rwxr-xr-x
+MODE_600 :: i32(384);   // 0o600 = rw-------
+MODE_700 :: i32(448);   // 0o700 = rwx------
+
+// ============================================================================
 // File handle for read/write operations
 // ============================================================================
 
@@ -19,7 +109,7 @@ File :: object(
   _fd: i32,
   _offset: u64,
 
-  // Open file with specified flags and mode
+  // Open file with specified flags and mode (low-level API)
   open :: (fn(path: Path, flags: i32, mode: i32) -> Impl Future(Result(Self, IOError)))(async {
     path_str := path.to_string();
     path_ptr := match(path_str.to_cstr().ptr(),
@@ -36,6 +126,26 @@ File :: object(
       .Err(e) => .Err(e)
     );
   }),
+
+  // Open file for reading only (high-level API)
+  open_read :: (fn(path: Path) -> Impl Future(Result(Self, IOError)))(
+    Self.open(path, OPEN_READ, i32(0))
+  ),
+
+  // Open file for writing (creates if not exists, truncates if exists)
+  open_write :: (fn(path: Path) -> Impl Future(Result(Self, IOError)))(
+    Self.open(path, OPEN_WRITE_TRUNCATE, MODE_644)
+  ),
+
+  // Open file for appending (creates if not exists)
+  open_append :: (fn(path: Path) -> Impl Future(Result(Self, IOError)))(
+    Self.open(path, OPEN_APPEND, MODE_644)
+  ),
+
+  // Create a new file (fails if exists)
+  create :: (fn(path: Path) -> Impl Future(Result(Self, IOError)))(
+    Self.open(path, ((i32(OpenFlags.Write) | i32(OpenFlags.Create)) | i32(OpenFlags.Exclusive)), MODE_644)
+  ),
 
   // Get file descriptor
   fd :: (fn(self: Self) -> i32)(
@@ -382,12 +492,27 @@ write_file :: (fn(path: Path, data: ArrayList(u8)) -> Impl Future(Result(unit, I
 // Write string to file (creates or overwrites)
 write_file_string :: (fn(path: Path, content: String) -> Impl Future(Result(unit, IOError)))(async {
   bytes := content.as_bytes();
-  return await write_file(path, bytes);
+  result := await write_file(path, bytes);
+  return result;
+
+  // FIXME: return await write_file(path, bytes);
 });
 
 export
   File,
   FileStat,
+  OpenFlags,
+  FileMode,
+  OPEN_READ,
+  OPEN_WRITE,
+  OPEN_WRITE_TRUNCATE,
+  OPEN_APPEND,
+  OPEN_READ_WRITE,
+  MODE_644,
+  MODE_755,
+  MODE_600,
+  MODE_700,
+  open_flags,
   stat,
   lstat,
   exists,

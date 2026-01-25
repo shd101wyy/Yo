@@ -1,17 +1,31 @@
-open import "std/collections/array_list";
-open import "std/string";
+OpenFlags :: enum(
+  Read      = 0,      // O_RDONLY
+  Write     = 1,      // O_WRONLY
+  ReadWrite = 2,      // O_RDWR
+  Create    = 64,     // O_CREAT (0o100)
+  Exclusive = 128,    // O_EXCL (0o200)
+  Truncate  = 512,    // O_TRUNC (0o1000)
+  Append    = 1024,   // O_APPEND (0o2000)
 
-main :: (fn() -> unit) {
-  bytes := ArrayList(u8).new();
-  bytes.push(u8(72));
-  bytes.push(u8(101));
-  bytes.push(u8(108));
-  bytes.push(u8(108));
-  bytes.push(u8(111));
-  
-  s := String.from_bytes(bytes);
-  assert(not(s.is_empty()));
-  assert(s.len() == usize(5));
-};
+  // Convert to raw i32 flags
+  to_i32 :: (fn(self: Self) -> i32)(
+    i32(self)
+  )
+);
 
-export main;
+// Combine two flags using bitwise OR
+impl(OpenFlags, BitOr(OpenFlags, i32)(
+  (|) : ((lhs, rhs) ->
+    (i32(lhs) | i32(rhs))
+  )
+));
+impl(OpenFlags, ComptBitOr(OpenFlags, i32)(
+  (|) : ((lhs, rhs) ->
+    (i32(lhs) | i32(rhs))
+  )
+));
+
+WRITE :: i32(OpenFlags.Write);
+CREATE :: i32(OpenFlags.Create);
+OPEN_WRITE_1 :: (WRITE | CREATE);
+// OPEN_WRITE :: (i32(OpenFlags.Write) | i32(OpenFlags.Create));

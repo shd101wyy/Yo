@@ -85,8 +85,6 @@ No need to read fixme.test.ts
 
 If you haven't modified the code, don't ask to run command repeatedly.
 
-Read `LEARN_YO_IN_10_MINUTES.yo` to understand the syntax.
-
 If you havent changed the code, don't ask me to run `bun test ...`
 
 To run a specific C codegen test, run: `$ ./yo-cli test ./tests/XXX.test.yo`. Add `-v` if you need verbose output.
