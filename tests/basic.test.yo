@@ -923,6 +923,90 @@ test "Test 'match'", {
   assert(area_partial_2(s2) == 5);
   assert(area_ptr(&(s1)) == 27);
   assert(area_ptr(&(s2)) == 20);
+
+  // Test primitive type matching (integers)
+  classify_number :: (fn(n: i32) -> i32)
+    match(n,
+      0 => 0,
+      1 => 1,
+      (2 | 3) => 23,
+      ( 4
+      | 5
+      | 6) => 456,
+      _ => 999
+    )
+  ;
+
+  assert(classify_number(0) == 0);
+  assert(classify_number(1) == 1);
+  assert(classify_number(2) == 23);
+  assert(classify_number(3) == 23);
+  assert(classify_number(4) == 456);
+  assert(classify_number(5) == 456);
+  assert(classify_number(6) == 456);
+  assert(classify_number(7) == 999);
+  assert(classify_number((-1)) == 999);
+  assert(classify_number(100) == 999);
+
+  // Test primitive matching with compile-time constants
+  TEN :: 10;
+  TWENTY :: 20;
+  THIRTY :: 30;
+
+  classify_tens :: (fn(n: i32) -> i32)
+    match(n,
+      (TEN
+      | TWENTY
+      | THIRTY
+      ) => 1,
+      _ => 0
+    )
+  ;
+
+  assert(classify_tens(10) == 1);
+  assert(classify_tens(20) == 1);
+  assert(classify_tens(30) == 1);
+  assert(classify_tens(15) == 0);
+  assert(classify_tens(0) == 0);
+
+  // Test boolean matching
+  bool_to_str :: (fn(b: bool) -> i32)
+    match(b,
+      true => 1,
+      false => 0
+    )
+  ;
+
+  assert(bool_to_str(true) == 1);
+  assert(bool_to_str(false) == 0);
+
+  // Test u8 matching
+  classify_byte :: (fn(b: u8) -> i32)
+    match(b,
+      (0 | 255) => 1,
+      _ => 0
+    )
+  ;
+
+  assert(classify_byte(u8(0)) == 1);
+  assert(classify_byte(u8(255)) == 1);
+  assert(classify_byte(u8(128)) == 0);
+
+  // Test negative numbers in match
+  classify_sign :: (fn(n: i32) -> i32)
+    match(n,
+      0 => 0,
+      1 => 1,
+      ((-1)) => (-1),
+      _ => 2
+    )
+  ;
+
+  assert(classify_sign(0) == 0);
+  assert(classify_sign(1) == 1);
+  assert(classify_sign((-1)) == (-1));
+  assert(classify_sign(5) == 2);
+  assert(classify_sign((-5)) == 2);
 };
 
 test "Test 'while'", {

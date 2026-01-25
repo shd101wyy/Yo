@@ -16,6 +16,7 @@ import {
   Type,
   TypeTag,
 } from "../../types";
+import { isBooleanValue, isNumberValue, Value } from "../../value";
 import { FunctionGenerationContext } from "../functions/context";
 import {
   canOptimizeAsNullablePointer,
@@ -143,7 +144,20 @@ export function generateMatchExpression(
   const matchedValueCode = generateExpr(expr.args[0]!, indent, context);
   const matchValueType = expr.args[0]!.$?.type;
   if (!matchValueType) {
-    return `// Error: "match" expression requires an enum type`;
+    return `// Error: "match" expression requires a valid type`;
+  }
+
+  // Check if this is a primitive type match (integer, bool)
+  if (expr.$.isPrimitiveMatch) {
+    return generatePrimitiveMatchExpression(
+      expr,
+      indent,
+      context,
+      matchedValueCode,
+      matchValueType,
+      tempVariableName,
+      isUnit
+    );
   }
 
   // Check if it's a pointer/reference type OR reference semantics type
@@ -852,4 +866,142 @@ export function generateMatchExpression(
   }
 
   return isUnit ? "" : (tempVariableName ?? ""); // Return the temp variable name
+}
+
+/**
+ * Helper function to check if an expression is an or-pattern (using `|`)
+ */
+function isOrPattern(expr: Expr): boolean {
+  if (!exprIsFunctionCall(expr)) return false;
+  return exprIsFunctionCallOf(expr, "|", 2);
+}
+
+/**
+ * Helper function to flatten an or-pattern into a list of individual patterns
+ */
+function flattenOrPattern(expr: Expr): Expr[] {
+  if (!isOrPattern(expr)) {
+    return [expr];
+  }
+  const fnCall = expr as FnCallExpr;
+  const left = fnCall.args[0]!;
+  const right = fnCall.args[1]!;
+  return [...flattenOrPattern(left), ...flattenOrPattern(right)];
+}
+
+/**
+ * Get a C literal value from a compile-time value
+ */
+function getCLiteralFromValue(value: Value | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  if (isNumberValue(value)) {
+    return String(value.value);
+  }
+  if (isBooleanValue(value)) {
+    return value.value ? "true" : "false";
+  }
+  return undefined;
+}
+
+/**
+ * Generate a match expression for primitive types (integer, bool)
+ * Uses C switch statement for efficient matching
+ */
+function generatePrimitiveMatchExpression(
+  expr: FnCallExpr,
+  indent: string,
+  context: CodeGenContext,
+  matchedValueCode: string,
+  matchValueType: Type,
+  tempVariableName: string | undefined,
+  isUnit: boolean
+): string {
+  // Set insideMatch flag so nested break statements use goto instead of break
+  const savedInsideMatch = context.insideMatch;
+  context.insideMatch = true;
+
+  // Generate the switch statement
+  context.emitter.emitLine(`${indent}switch (${matchedValueCode}) {`);
+
+  const caseExprs = expr.args.slice(1);
+  for (let i = 0; i < caseExprs.length; i++) {
+    const caseExpr = caseExprs[i];
+    if (
+      exprIsFunctionCall(caseExpr) &&
+      exprIsFunctionCallOf(caseExpr, "=>", 2)
+    ) {
+      const caseValue = caseExpr.args[0];
+      const caseBody = caseExpr.args[1];
+
+      if (!caseValue || !caseBody) continue;
+
+      // Check for wildcard pattern "_"
+      if (exprIsAtom(caseValue) && caseValue.token.value === "_") {
+        // Generate default case
+        context.emitter.emitLine(`${indent}default:`);
+
+        // Generate the body of the case
+        const bodyCode = generateCaseBody(caseBody, indent + "  ", context);
+        if (!isUnit && tempVariableName && bodyCode) {
+          context.emitter.emitLine(
+            `${indent}  ${tempVariableName} = ${bodyCode};`
+          );
+        } else if (bodyCode) {
+          context.emitter.emitLine(`${indent}  ${bodyCode};`);
+        }
+
+        context.emitter.emitLine(`${indent}  break;`);
+        continue;
+      }
+
+      // Get the pattern values from the or-pattern (or single pattern)
+      const flattenedPatterns = flattenOrPattern(caseValue);
+
+      // For or-patterns like (1 | 2 | 3), we use the primitivePatternValues from evaluator
+      // if available, otherwise fall back to generating from the expressions
+      const patternValues = caseValue.$?.primitivePatternValues;
+
+      if (patternValues && patternValues.length > 0) {
+        // Generate case labels for each pattern value
+        for (const value of patternValues) {
+          const cLiteral = getCLiteralFromValue(value);
+          if (cLiteral !== undefined) {
+            context.emitter.emitLine(`${indent}case ${cLiteral}:`);
+          }
+        }
+      } else {
+        // Fallback: try to get values from the flattened pattern expressions
+        for (const patternExpr of flattenedPatterns) {
+          const patternValue = patternExpr.$?.value;
+          const cLiteral = getCLiteralFromValue(patternValue);
+          if (cLiteral !== undefined) {
+            context.emitter.emitLine(`${indent}case ${cLiteral}:`);
+          }
+        }
+      }
+
+      // Generate the body of the case (only once for all the case labels)
+      const bodyCode = generateCaseBody(caseBody, indent + "  ", context);
+      if (!isUnit && tempVariableName && bodyCode) {
+        context.emitter.emitLine(
+          `${indent}  ${tempVariableName} = ${bodyCode};`
+        );
+      } else if (bodyCode) {
+        context.emitter.emitLine(`${indent}  ${bodyCode};`);
+      }
+
+      context.emitter.emitLine(`${indent}  break;`);
+    }
+  }
+
+  // Restore insideMatch flag
+  context.insideMatch = savedInsideMatch;
+  context.emitter.emitLine(`${indent}}`);
+
+  // Generate deferred drop expressions
+  if (expr.$?.deferredDropExpressions) {
+    generateDeferredDropExpressions(expr, indent, context);
+  }
+
+  return isUnit ? "" : (tempVariableName ?? "");
 }

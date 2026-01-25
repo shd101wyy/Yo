@@ -190,6 +190,20 @@ export interface EvaluatedExprData {
   caseExecuted?: boolean;
 
   /**
+   * For primitive type matching in match expressions.
+   * If true, indicates this match expression matches on primitive types (integer, bool)
+   * rather than enum types.
+   */
+  isPrimitiveMatch?: boolean;
+
+  /**
+   * For primitive pattern matching, stores the compile-time values of the patterns.
+   * Used by codegen to generate C switch cases.
+   * Example: For pattern `(1 | 2 | 3) => ...`, this would be [1, 2, 3]
+   */
+  primitivePatternValues?: (Value | undefined)[];
+
+  /**
    * Comment for the expression.
    */
   comment?: string;

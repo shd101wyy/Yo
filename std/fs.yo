@@ -127,21 +127,6 @@ File :: object(
     );
   }),
 
-  // Open file for reading only (high-level API)
-  open_read :: (fn(path: Path) -> Impl Future(Result(Self, IOError)))(
-    Self.open(path, OPEN_READ, i32(0))
-  ),
-
-  // Open file for writing (creates if not exists, truncates if exists)
-  open_write :: (fn(path: Path) -> Impl Future(Result(Self, IOError)))(
-    Self.open(path, OPEN_WRITE_TRUNCATE, MODE_644)
-  ),
-
-  // Open file for appending (creates if not exists)
-  open_append :: (fn(path: Path) -> Impl Future(Result(Self, IOError)))(
-    Self.open(path, OPEN_APPEND, MODE_644)
-  ),
-
   // Create a new file (fails if exists)
   create :: (fn(path: Path) -> Impl Future(Result(Self, IOError)))(
     Self.open(path, ((i32(OpenFlags.Write) | i32(OpenFlags.Create)) | i32(OpenFlags.Exclusive)), MODE_644)
