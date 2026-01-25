@@ -11,6 +11,7 @@ import {
 } from "../../expr";
 import {
   areTypesCompatible,
+  convertComptTypeToRuntimeType,
   tupleFieldToString,
   TypeField,
   typeToString,
@@ -133,7 +134,17 @@ ${tupleFieldToString(paramElement_)}`,
     callerEnv = evaluatedArgExpr.$.env;
 
     // Get the type of the evaluated arg expr
-    const argType = evaluatedArgExpr.$.type;
+    let argType = evaluatedArgExpr.$.type;
+
+    // Convert compile-time types to runtime types if the member element is not compile-time only
+    if (!memberElement.isCompileTimeOnly) {
+      argType = convertComptTypeToRuntimeType({
+        type: argType,
+        expectedType: memberElement.type,
+        expr: evaluatedArgExpr,
+        env: callerEnv,
+      });
+    }
 
     // Attach information to labelExpr
     if (labelExpr) {

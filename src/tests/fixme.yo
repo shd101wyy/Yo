@@ -6,13 +6,12 @@ TryFrom :: (fn(compt(From) : Type, compt(Error) : Type) -> compt(Trait))(
   )
 );
 
-/*
 EvenNumber :: struct(value : i32);
 impl(EvenNumber, TryFrom(i32, str)(
   try_from : (value -> 
     cond(
       ((value % 2) == 0) => .Ok(EvenNumber(value)),
-      true => .Err("Only even numbers are allowed") 
+      true => .Err("Only even numbers are allowed (i32)") 
     )
   )
 ));
@@ -20,16 +19,18 @@ impl(EvenNumber, TryFrom(i64, str)(
   try_from : (value -> 
     cond(
       ((value % 2) == 0) => .Ok(EvenNumber(i32(value))),
-      true => .Err("Only even numbers are allowed") 
+      true => .Err("Only even numbers are allowed (i64)") 
     )
   )
 ));
 
 main :: (fn() -> unit) {
+  // (x : str) = "Hello";
   x := EvenNumber.try_from(i32(4));
   y := EvenNumber.try_from(i64(10));
+  assert(x.is_ok());
+  assert(y.is_ok());
   ();
 };
 
 export main;
-*/
