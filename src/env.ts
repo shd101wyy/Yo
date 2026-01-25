@@ -564,7 +564,90 @@ export function getVariableInfo(variable: Variable) {
  * @param onlyFromTypeMethods
  * @returns
  */
-export function getMethodsByNameFromEnv(
+/**
+ * Get methods by name from a TYPE's trait fields.
+ * This is used for static method calls on TypeValue (e.g., EvenNumber.try_from(...)).
+ * It searches through impl'd traits stored with empty label "" in the type's trait.
+ */
+export function getTypeTraitMethodsByNameFromEnv(
+  env: Environment,
+  methodName: string,
+  type: Type
+): {
+  type: Type;
+  value: Value | undefined;
+}[] {
+  const methods: {
+    type: Type;
+    value: Value | undefined;
+  }[] = [];
+
+  // Check if the type has a trait attached
+  if (!type.trait) {
+    return methods;
+  }
+
+  // First check direct methods on the type's trait
+  const directMethod = type.trait.fields.find(
+    (field) => field.label === methodName && isFunctionType(field.type)
+  );
+
+  if (directMethod && isFunctionType(directMethod.type)) {
+    let value: Value | undefined = directMethod.assignedValue;
+    if (isUnknownValue(value)) {
+      value = createUnknownValue(directMethod.type, directMethod.label);
+    }
+    methods.push({ type: directMethod.type, value });
+  }
+
+  // Check for impl'd traits (stored with empty label "" as TraitValue)
+  for (const field of type.trait.fields) {
+    if (
+      field.label === "" &&
+      field.assignedValue &&
+      isTraitValue(field.assignedValue)
+    ) {
+      const implTraitValue = field.assignedValue;
+      const implTraitType = implTraitValue.type;
+      // Search for the method in the impl'd trait
+      const methodIndex = implTraitType.fields.findIndex(
+        (f) => f.label === methodName && isFunctionType(f.type)
+      );
+      if (methodIndex >= 0) {
+        const method = implTraitType.fields[methodIndex]!;
+        if (isFunctionType(method.type)) {
+          // Get the actual function value from the trait value
+          const value = implTraitValue.fields[methodIndex];
+          // Use the function value's specialized type if available,
+          // as it has Self replaced with the concrete receiver type
+          let methodType = method.type;
+          if (isFunctionValue(value) && value.specializedType) {
+            methodType = value.specializedType;
+          }
+          methods.push({ type: methodType, value });
+        }
+      }
+    }
+  }
+
+  // If still no methods found, check generic impl registry
+  if (methods.length === 0) {
+    const genericMethods = findMethodsFromGenericImpls({
+      concreteType: type,
+      methodName,
+      env,
+    });
+    methods.push(...genericMethods);
+  }
+
+  return methods;
+}
+
+/**
+ * Get methods by name from a receiver's type trait and environment.
+ * This is used for instance method calls (e.g., value.method(...)).
+ */
+export function getReceiverMethodsByNameFromEnv(
   env: Environment,
   methodName: string,
   receiverType: Type,
@@ -1042,7 +1125,7 @@ export function getMethodsByNameFromEnv(
       env,
     });
     // console.log(
-    //   `DEBUG getMethodsByNameFromEnv: compt type ${typeToString(dereferencedReceiverType)} -> runtime type ${typeToString(runtimeType)}, has trait: ${!!runtimeType.trait}`
+    //   `DEBUG getReceiverMethodsByNameFromEnv: compt type ${typeToString(dereferencedReceiverType)} -> runtime type ${typeToString(runtimeType)}, has trait: ${!!runtimeType.trait}`
     // );
     if (runtimeType.trait) {
       // console.log(

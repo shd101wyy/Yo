@@ -323,7 +323,10 @@ export function evaluatePropertyAccess({
           methodName: propertyName,
           env,
         });
-        if (genericMethods.length > 0) {
+        // Only resolve here if there's exactly one match.
+        // If there are multiple (e.g., multiple TryFrom implementations),
+        // defer to function.ts which can resolve based on call arguments.
+        if (genericMethods.length === 1) {
           const method = genericMethods[0]!;
           expr.$ = {
             env,
@@ -338,7 +341,7 @@ export function evaluatePropertyAccess({
 
         // Still not found - return undefined to allow function.ts
         // to handle this as a uniform function call (method call)
-        // function.ts will call getMethodsByNameFromEnv to find the method
+        // function.ts will call getTypeTraitMethodsByNameFromEnv to find the method
         // in implicit given implementations (like TypeMethods)
         expr.$ = undefined;
         return expr;
@@ -374,7 +377,7 @@ export function evaluatePropertyAccess({
         // Property not found in type's own module
         // Return expr with expr.$ = undefined to allow function.ts
         // to handle this as a uniform function call (method call)
-        // function.ts will call getMethodsByNameFromEnv to find the method
+        // function.ts will call getTypeTraitMethodsByNameFromEnv to find the method
         // in implicit given implementations (like TypeMethods)
         expr.$ = undefined;
         return expr;
@@ -487,7 +490,7 @@ export function evaluatePropertyAccess({
         // Property not found in type's own trait
         // Return expr with expr.$ = undefined to allow function.ts
         // to handle this as a uniform function call (method call)
-        // function.ts will call getMethodsByNameFromEnv to find the method
+        // function.ts will call getTypeTraitMethodsByNameFromEnv to find the method
         // in implicit given implementations (like TypeMethods)
         expr.$ = undefined;
         return expr;

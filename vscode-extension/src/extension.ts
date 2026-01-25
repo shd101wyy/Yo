@@ -7,7 +7,7 @@ import * as vscode from "vscode";
 // This assumes your extension can access the Yo project code
 import {
   Environment,
-  getMethodsByNameFromEnv,
+  getReceiverMethodsByNameFromEnv,
   getVariablesFromEnv,
 } from "@yo/env";
 import { YoError, YoLexerError } from "@yo/error";
@@ -1194,7 +1194,7 @@ export function activate(context: vscode.ExtensionContext) {
             });
           }
         } else {
-          // For other types, try to find methods using getMethodsByNameFromEnv
+          // For other types, try to find methods using getReceiverMethodsByNameFromEnv
           // We'll check for common method names and see if they're available
           const commonMethodNames = [
             "is_atom",
@@ -1223,8 +1223,10 @@ export function activate(context: vscode.ExtensionContext) {
               for (const methodName of commonMethodNames) {
                 try {
                   // Type assertion is necessary here since env comes from evaluated expressions
-                  const foundMethods = getMethodsByNameFromEnv(
-                    env as Parameters<typeof getMethodsByNameFromEnv>[0],
+                  const foundMethods = getReceiverMethodsByNameFromEnv(
+                    env as Parameters<
+                      typeof getReceiverMethodsByNameFromEnv
+                    >[0],
                     methodName,
                     originalReceiverType // Use original type for method calls
                   );

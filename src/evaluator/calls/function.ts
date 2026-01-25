@@ -1,4 +1,9 @@
-import { Environment, getMethodsByNameFromEnv, popEnvFrame } from "../../env";
+import {
+  Environment,
+  getReceiverMethodsByNameFromEnv,
+  getTypeTraitMethodsByNameFromEnv,
+  popEnvFrame,
+} from "../../env";
 import { formatErrorMessage, formatErrorMessages, YoError } from "../../error";
 import {
   AtomExpr,
@@ -225,64 +230,91 @@ export function evaluateFunctionCall({
             });
           }
 
+          // Check if the receiver is a TypeValue (e.g., EvenNumber.try_from(...)),
+          // which indicates a static method call on a type.
+          const receiverValue = receiverArg.$?.value;
+          const isStaticMethodCall = isTypeValue(receiverValue);
+
           // The methodExpr should also be evaluated already
           // so it should have a type
           if (exprIsAtom(methodExpr)) {
             // 1.add(3);
             const methodName = methodExpr.token.value;
-            // Get the current function type for where clause constraint lookup
-            const currentFunctionType =
-              context.isEvaluatingFunctionBodyOrAsyncBlock?.kind ===
-              "function-body"
-                ? context.isEvaluatingFunctionBodyOrAsyncBlock.type
-                : undefined;
-            // Get the method with the same name in the interface in the env
-            const methods = getMethodsByNameFromEnv(
-              env,
-              methodName,
-              receiverType,
-              false, // isInfixOperatorCall - property access allows auto pointer conversion
-              currentFunctionType
-            );
 
-            functions = methods.map((method) => {
-              // If pointer conversion is needed, wrap the receiver in &()
-              let methodArgs: Expr[];
-              if (method.needsPointerConversion) {
-                // Create &(receiverArg) expression
-                // Note: The compt type to runtime type conversion is handled
-                // in evaluateAddressCall (ptr_fns.ts) when &() is evaluated
-                const ampersandExpr: AtomExpr = {
-                  tag: ExprTag.Atom,
-                  token: receiverArg.token,
-                  $: undefined,
+            if (isStaticMethodCall) {
+              // Static method call (e.g., EvenNumber.try_from(...))
+              // Use getTypeTraitMethodsByNameFromEnv to find methods from impl'd traits
+              const innerType = receiverValue.value;
+              const methods = getTypeTraitMethodsByNameFromEnv(
+                env,
+                methodName,
+                innerType
+              );
+
+              functions = methods.map((method) => {
+                // Static methods don't have a receiver argument - just pass the call args
+                return {
+                  type: method.type,
+                  value: method.value,
+                  args: args,
                 };
-                ampersandExpr.token = {
-                  ...receiverArg.token,
-                  value: "&",
-                  type: TokenType.Identifier,
+              });
+            } else {
+              // Instance method call (e.g., value.add(...))
+              // Get the current function type for where clause constraint lookup
+              const currentFunctionType =
+                context.isEvaluatingFunctionBodyOrAsyncBlock?.kind ===
+                "function-body"
+                  ? context.isEvaluatingFunctionBodyOrAsyncBlock.type
+                  : undefined;
+              // Get the method with the same name in the interface in the env
+              const methods = getReceiverMethodsByNameFromEnv(
+                env,
+                methodName,
+                receiverType,
+                false, // isInfixOperatorCall - property access allows auto pointer conversion
+                currentFunctionType
+              );
+
+              functions = methods.map((method) => {
+                // If pointer conversion is needed, wrap the receiver in &()
+                let methodArgs: Expr[];
+                if (method.needsPointerConversion) {
+                  // Create &(receiverArg) expression
+                  // Note: The compt type to runtime type conversion is handled
+                  // in evaluateAddressCall (ptr_fns.ts) when &() is evaluated
+                  const ampersandExpr: AtomExpr = {
+                    tag: ExprTag.Atom,
+                    token: receiverArg.token,
+                    $: undefined,
+                  };
+                  ampersandExpr.token = {
+                    ...receiverArg.token,
+                    value: "&",
+                    type: TokenType.Identifier,
+                  };
+
+                  const addressOfExpr: FnCallExpr = {
+                    tag: ExprTag.FnCall,
+                    func: ampersandExpr,
+                    args: [receiverArg],
+                    token: receiverArg.token,
+                    $: undefined,
+                  };
+
+                  methodArgs = [addressOfExpr, ...args];
+                } else {
+                  methodArgs = [receiverArg, ...args];
+                }
+
+                return {
+                  type: method.type,
+                  value: method.value,
+                  needsPointerConversion: method.needsPointerConversion,
+                  args: methodArgs,
                 };
-
-                const addressOfExpr: FnCallExpr = {
-                  tag: ExprTag.FnCall,
-                  func: ampersandExpr,
-                  args: [receiverArg],
-                  token: receiverArg.token,
-                  $: undefined,
-                };
-
-                methodArgs = [addressOfExpr, ...args];
-              } else {
-                methodArgs = [receiverArg, ...args];
-              }
-
-              return {
-                type: method.type,
-                value: method.value,
-                needsPointerConversion: method.needsPointerConversion,
-                args: methodArgs,
-              };
-            });
+              });
+            }
           } else {
             // 1.(Add.add)(3);
             // Try to evaluate the methodExpr
@@ -400,7 +432,7 @@ export function evaluateFunctionCall({
             ? context.isEvaluatingFunctionBodyOrAsyncBlock.type
             : undefined;
         // Get the method with the same name in the module/type in the env
-        const moduleMethods = getMethodsByNameFromEnv(
+        const moduleMethods = getReceiverMethodsByNameFromEnv(
           env,
           methodName,
           receiverType,
