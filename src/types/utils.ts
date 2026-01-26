@@ -621,29 +621,8 @@ export function computeArrayTypeAvailability(
  * @param type The type to update
  * @returns The updated type (mutated in place)
  */
-export function updateTypeAvailability(type: Type): Type {
-  switch (type.tag) {
-    case TypeTag.Struct:
-      type.availability = computeStructTypeAvailability(type as StructType);
-      break;
-    case TypeTag.Enum:
-      type.availability = computeEnumTypeAvailability(type as EnumType);
-      break;
-    case TypeTag.Tuple:
-      type.availability = computeTupleTypeAvailability(type as TupleType);
-      break;
-    case TypeTag.Array:
-      type.availability = computeArrayTypeAvailability(type as ArrayType);
-      break;
-    case TypeTag.Union:
-      // Union types are always runtime-only
-      type.availability = RUNTIME_ONLY;
-      break;
-    // Other types have fixed availability based on their tag
-    default:
-      // No-op for primitive types and other types
-      break;
-  }
+export function updateTypeAvailability(type: Type, errorToken?: Token): Type {
+  type.availability = determineTypeAvailability(type, errorToken);
   return type;
 }
 

@@ -10,9 +10,7 @@ import {
 } from "../../expr";
 import {
   createStructType,
-  isValidAvailability,
   TraitField,
-  typeToString,
   updateTypeAvailability,
 } from "../../types";
 import { createTypeValue } from "../../value";
@@ -125,7 +123,7 @@ export function evaluateStructType({
       } else {
         fields.push(field);
         // Update the struct's availability after adding each non-compt field
-        updateTypeAvailability(structType);
+        updateTypeAvailability(structType, arg.token);
       }
 
       env = nextEnv;
@@ -137,15 +135,6 @@ export function evaluateStructType({
     throw formatErrorMessage({
       token: expr.token,
       errorMessage: `Newtype struct must have exactly one field, but got ${fields.length} fields.`,
-    });
-  }
-
-  // Validate that the struct's computed availability is valid
-  // (at least one context is available after intersecting all non-compt fields)
-  if (!isValidAvailability(structType.availability)) {
-    throw formatErrorMessage({
-      token: expr.token,
-      errorMessage: `Struct has incompatible field types with no common evaluation context.\nThe struct contains fields that can only be used at compile-time and fields that can only be used at runtime.\nStruct type: ${typeToString(structType)}`,
     });
   }
 

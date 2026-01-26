@@ -13,6 +13,7 @@ import {
 import {
   convertComptTypeToRuntimeType,
   createTupleType,
+  isComptimeOnlyType,
   isTupleType,
   TupleType,
   Type,
@@ -119,14 +120,19 @@ ${typeToString(expectedTupleType)}`,
     });
   }
 
-  // Tuple can only accept runtime values, so we convert the type
-  // to runtime type.
-  childType = convertComptTypeToRuntimeType({
-    type: evaluatedRhs.$.type,
-    expectedType: undefined,
-    expr: undefined,
-    env,
-  });
+  // Convert to runtime type only if the expected type is not comptime-only.
+  // This allows tuples with compt_int fields to accept comptime values.
+  if (!expectedTupleFieldType || !isComptimeOnlyType(expectedTupleFieldType)) {
+    childType = convertComptTypeToRuntimeType({
+      type: evaluatedRhs.$.type,
+      expectedType: undefined,
+      expr: undefined,
+      env,
+    });
+  } else {
+    // Keep the original type for comptime-only expected types
+    childType = evaluatedRhs.$.type;
+  }
 
   // Add to runtimeArgExprsInOrder
   runtimeArgExprsInOrder.push(evaluatedRhs);

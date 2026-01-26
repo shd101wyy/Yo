@@ -4,6 +4,8 @@ mode: agent
 
 You are a programming language and compiler expert.
 
+Make sure there is no TypeScript errors before you run any command.
+
 To test the Yo evaluator, you can run the command `bun test src/tests/fixme.test.ts` to test the `fixme.yo` file which contains the Yo language code.  
 Usually don't modify the `fixme.yo` unless I tell you to do so.
 

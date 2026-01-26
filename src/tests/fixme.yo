@@ -1,24 +1,21 @@
 main :: (fn() -> unit) {
+  // ===== STRUCT TESTS =====
   {
     Point :: struct(x : i32, y : i32); // Point can create both compile-time and run-time values
                                        // as i32 can be used in both contexts
-    // FIXME:
     a :: Point(3 + 5, 4); // compile-time value
-    // a :: Point(8, 4); // compile-time value
 
     b := Point(6, 8);     // run-time value
 
     r := 12;
-    // compt_expect_error(c :: Point(r, 15)); // Should give error, as `r` is runtime value
+    compt_expect_error(c :: Point(r, 15)); // Should give error, as r is a run-time value
     d := Point(r, 20); // valid run-time value
   };
 
   {
     Point2 :: struct(x : compt_int, y : compt_int); // Point2 can only create compile-time values
                                                     // as compt_int can only be used in compile-time context
-    // FIXME:
     x :: Point2(3 + 5, 4); // compile-time value
-    // x :: Point2(8, 4); // compile-time value
     
     compt_expect_error(
       y := Point2(6, 8)   // error: cannot create run-time value of type Point2
@@ -27,11 +24,10 @@ main :: (fn() -> unit) {
 
   {
     compt_expect_error(
-      Point3 :: struct(x : compt_int, y : *(i32)) // QUESTION: Should this give error?
+      Point3 :: struct(x : compt_int, y : *(i32)) // Error: incompatible field contexts
                                                   // compt_int can only be used in compile-time context,
                                                   // pointer can only be used in run-time context.
                                                   // There is no intersection between the two contexts.
-  
     );
   };
 
@@ -46,7 +42,102 @@ main :: (fn() -> unit) {
     );
   };
 
-  // Should we assume "SomeType" can be used in both compile-time and runtime contexts?
+  // ===== TUPLE TESTS =====
+  {
+    // Tuple can be used in both contexts
+    a :: (5, 10); // compile-time value
+    b := (15, 20); // run-time value
+
+    r := 25;
+    c := (r, 30); // valid run-time value
+
+    compt_expect_error(
+      d :: (r, 40) // error: cannot create compile-time value with run-time element
+    );
+  };
+
+  {
+    Pair :: Tuple(x : compt_int, y : compt_int); // Tuple can only be used in compile-time context
+
+    (compt(x) : Pair) = (11, 12); // compile-time value
+
+    compt_expect_error(
+      (y : Pair) = (13, 14) // error: cannot create run-time value
+    );
+  };
+
+  // ===== ENUM TESTS =====
+  {
+    MyResult :: enum(
+      Ok(value : i32),
+      Err(msg : i32)
+    ); // Enum can be used in both contexts
+    
+    a :: MyResult.Ok(42); // compile-time value
+    b := MyResult.Err(1); // run-time value
+
+    r := 10;
+    c := MyResult.Ok(r); // valid run-time value
+  };
+
+  {
+    ComptResult :: enum(
+      Ok(value : compt_int),
+      Err(code : compt_int)
+    ); // Enum can only be used in compile-time context
+    
+    x :: ComptResult.Ok(123); // compile-time value
+    
+    compt_expect_error(
+      y := ComptResult.Err(456) // error: cannot create run-time value
+    );
+  };
+
+  {
+    compt_expect_error(
+      MixedResult :: enum(
+        Ok(value : compt_int),
+        Err(ptr : *(i32))
+      ) // Error: incompatible variant field contexts
+    );
+  };
+
+  {
+    HalfComptResult :: enum(
+      Ok(value : compt_int),
+      Err(code : i32)
+    ); // Only compile-time context available (intersection of variant availabilities)
+    
+    x :: HalfComptResult.Ok(999); // compile-time value
+    compt_expect_error(
+      y := HalfComptResult.Err(888) // error: cannot create run-time value
+    );
+  };
+
+  // ===== ARRAY TESTS =====
+  {
+    IntArray :: [i32; 3]; // Array can be used in both contexts
+    a :: IntArray(1, 2, 3); // compile-time value
+    b := IntArray(4, 5, 6); // run-time value
+  };
+
+  {
+    ComptArray :: [compt_int; 2]; // Array can only be used in compile-time context
+    x :: ComptArray(10, 20); // compile-time value
+    
+    compt_expect_error(
+      y := ComptArray(30, 40) // error: cannot create run-time value
+    );
+  };
+
+  // ===== UNION TESTS =====
+  // Union can only accept runtime fields
+  {
+    MyUnion :: union(x : i32, y : i32); //allowed
+    compt_expect_error(
+      MyComptUnion :: union(a : compt_int, b : i32) // error: field 'a' is compile-time only
+    );
+  };
 };
 
 export main;
