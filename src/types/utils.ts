@@ -1030,6 +1030,7 @@ export function getValueOfSomeTypeFromEnv(
 /**
  * Convert compt types to their runtime equivalents.
  * If expr is provided and a conversion happens, sets expr.$.convertedRuntimeType
+ * NOTE: We only convert scalar compt types here (compt_int, compt_float, compt_string), like Zig.
  */
 export function convertComptTypeToRuntimeType({
   type,
@@ -1048,63 +1049,6 @@ export function convertComptTypeToRuntimeType({
     convertedType = createI32Type();
   } else if (isComptFloatType(type)) {
     convertedType = createF64Type();
-  } else if (isArrayType(type)) {
-    type.childType = convertComptTypeToRuntimeType({
-      type: type.childType,
-      expectedType: undefined,
-      expr: undefined,
-      env,
-    });
-    return type;
-  } else if (isTupleType(type)) {
-    type.fields = type.fields.map((field) => {
-      return {
-        ...field,
-        type: convertComptTypeToRuntimeType({
-          type: field.type,
-          expectedType: undefined,
-          expr: undefined,
-          env,
-        }),
-      };
-    });
-    return type;
-  } else if (isStructType(type)) {
-    // To prevent circular reference issues
-    if (isObjectType(type)) {
-      return type;
-    }
-
-    type.fields = type.fields.map((field) => {
-      return {
-        ...field,
-        type: convertComptTypeToRuntimeType({
-          type: field.type,
-          expectedType: undefined,
-          expr: undefined,
-          env,
-        }),
-      };
-    });
-    return type;
-  } else if (isEnumType(type)) {
-    type.variants = type.variants.map((variant) => {
-      if (variant.fields) {
-        variant.fields = variant.fields.map((param) => {
-          return {
-            ...param,
-            type: convertComptTypeToRuntimeType({
-              type: param.type,
-              expectedType: undefined,
-              expr: undefined,
-              env,
-            }),
-          };
-        });
-      }
-      return variant;
-    });
-    return type;
   } else if (isComptStringType(type)) {
     if (expectedType) {
       // Check if it's

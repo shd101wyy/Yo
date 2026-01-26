@@ -1,4 +1,15 @@
 main :: (fn() -> unit) {
+  {
+    // Test array literal with explicit type annotation (Zig-style)
+    (x : [i32; 3]) = [1, 2, 3];
+    
+    // Or using array constructor
+    y := [i32; 3](1, 2, 3);
+    
+    // Comptime array
+    z :: [1, 2, 3]; // [compt_int; 3]
+  };
+
   // ===== STRUCT TESTS =====
   {
     Point :: struct(x : i32, y : i32); // Point can create both compile-time and run-time values
@@ -133,7 +144,7 @@ main :: (fn() -> unit) {
   // ===== UNION TESTS =====
   // Union can only accept runtime fields
   {
-    MyUnion :: union(x : i32, y : i32); //allowed
+    MyUnion :: union(x : i32, y : i32); // allowed
     compt_expect_error(
       MyComptUnion :: union(a : compt_int, b : i32) // error: field 'a' is compile-time only
     );
