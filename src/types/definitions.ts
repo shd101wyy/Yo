@@ -8,6 +8,25 @@ export type TypeId = string;
 
 export type ExternLanguage = "yo" | "c";
 
+/**
+ * TypeAvailability indicates in which evaluation contexts a type can be used.
+ *
+ * - comptime: true if the type can be used for compile-time values
+ * - runtime: true if the type can be used for runtime values
+ *
+ * Examples:
+ * - i32: { comptime: true, runtime: true } - can be used in both contexts
+ * - compt_int: { comptime: true, runtime: false } - compile-time only
+ * - *(i32): { comptime: false, runtime: true } - runtime only
+ *
+ * For compound types (struct, enum, array), the availability is the intersection
+ * of all field availabilities. If the intersection is empty, it's an error.
+ */
+export type TypeAvailability = {
+  comptime: boolean;
+  runtime: boolean;
+};
+
 export interface Type {
   /**
    * The tag to identify the type of type.
@@ -74,6 +93,12 @@ export interface Type {
    * Used for orphan rule checks to ensure coherence.
    */
   definedInModulePath?: string;
+
+  /**
+   * The availability of this type - which evaluation contexts it can be used in.
+   * For compound types, this is computed as the intersection of field availabilities.
+   */
+  availability: TypeAvailability;
 }
 
 /*

@@ -2,6 +2,7 @@ import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   BuiltinKeywords,
+  Expr,
   exprIsAtom,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
@@ -125,7 +126,10 @@ export function evaluateEnumType({
         });
       }
 
-      const discriminant = discriminantValue.value;
+      const discriminant =
+        typeof discriminantValue.value === "bigint"
+          ? discriminantValue.value
+          : BigInt(discriminantValue.value);
 
       variants.push({
         name: variantName,
@@ -241,7 +245,7 @@ export function evaluateEnumType({
         nextDiscriminant += 1n;
       } else {
         // Check for enum variant with discriminant: VariantName(fields) = value
-        let variantExpr = enumArg;
+        let variantExpr: Expr = enumArg;
         let customDiscriminant: bigint | undefined = undefined;
 
         if (exprIsFunctionCallOf(enumArg, "=", 2)) {
@@ -272,7 +276,10 @@ export function evaluateEnumType({
             });
           }
 
-          customDiscriminant = discriminantValue.value;
+          customDiscriminant =
+            typeof discriminantValue.value === "bigint"
+              ? discriminantValue.value
+              : BigInt(discriminantValue.value);
         }
 
         if (exprIsFunctionCallOf(variantExpr, ":")) {

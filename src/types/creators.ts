@@ -9,6 +9,7 @@ import { Expr } from "../expr";
 import { FunctionValue } from "../function-value";
 import { hashString, randomId } from "../utils";
 import { isTypeValue, Value, valueToString } from "../value";
+import { BOTH_AVAILABLE, COMPTIME_ONLY, RUNTIME_ONLY } from "./constants";
 import {
   ArrayType,
   ComptListType,
@@ -51,6 +52,7 @@ export function createComptIntType(): Type {
     id: TypeTag.ComptInt,
     tag: TypeTag.ComptInt,
     trait,
+    availability: COMPTIME_ONLY,
   };
   trait.receiverType = comptIntType;
 
@@ -71,6 +73,7 @@ export function createComptFloatType(): Type {
     id: TypeTag.ComptFloat,
     tag: TypeTag.ComptFloat,
     trait,
+    availability: COMPTIME_ONLY,
   };
   trait.receiverType = type;
 
@@ -91,6 +94,7 @@ export function createComptStringType(): Type {
     id: TypeTag.ComptString,
     tag: TypeTag.ComptString,
     trait,
+    availability: COMPTIME_ONLY,
   };
   trait.receiverType = type;
 
@@ -111,6 +115,7 @@ export function createExprType(): Type {
     id: TypeTag.Expr,
     tag: TypeTag.Expr,
     trait,
+    availability: COMPTIME_ONLY,
   };
   trait.receiverType = type;
 
@@ -132,6 +137,7 @@ export function createComptListType(childType: Type): ComptListType {
     tag: TypeTag.ComptList,
     childType,
     trait,
+    availability: COMPTIME_ONLY,
   };
   trait.receiverType = type;
 
@@ -157,6 +163,7 @@ export function createBooleanType(): Type {
     id: TypeTag.Bool,
     tag: TypeTag.Bool,
     trait,
+    availability: BOTH_AVAILABLE,
   };
   trait.receiverType = type;
 
@@ -177,6 +184,7 @@ export function createUsizeType(): Type {
     id: TypeTag.Usize,
     tag: TypeTag.Usize,
     trait,
+    availability: BOTH_AVAILABLE,
   };
   trait.receiverType = type;
 
@@ -197,6 +205,7 @@ export function createIsizeType(): Type {
     id: TypeTag.Isize,
     tag: TypeTag.Isize,
     trait,
+    availability: BOTH_AVAILABLE,
   };
   trait.receiverType = type;
 
@@ -217,6 +226,7 @@ export function createU8Type(): Type {
     id: TypeTag.U8,
     tag: TypeTag.U8,
     trait,
+    availability: BOTH_AVAILABLE,
   };
   trait.receiverType = type;
 
@@ -237,6 +247,7 @@ export function createI8Type(): Type {
     id: TypeTag.I8,
     tag: TypeTag.I8,
     trait,
+    availability: BOTH_AVAILABLE,
   };
   trait.receiverType = type;
 
@@ -257,6 +268,7 @@ export function createU16Type(): Type {
     id: TypeTag.U16,
     tag: TypeTag.U16,
     trait,
+    availability: BOTH_AVAILABLE,
   };
   trait.receiverType = type;
 
@@ -277,6 +289,7 @@ export function createI16Type(): Type {
     id: TypeTag.I16,
     tag: TypeTag.I16,
     trait,
+    availability: BOTH_AVAILABLE,
   };
   trait.receiverType = type;
 
@@ -297,6 +310,7 @@ export function createU32Type(): Type {
     id: TypeTag.U32,
     tag: TypeTag.U32,
     trait,
+    availability: BOTH_AVAILABLE,
   };
   trait.receiverType = type;
 
@@ -317,6 +331,7 @@ export function createI32Type(): Type {
     id: TypeTag.I32,
     tag: TypeTag.I32,
     trait,
+    availability: BOTH_AVAILABLE,
   };
   trait.receiverType = type;
 
@@ -337,6 +352,7 @@ export function createU64Type(): Type {
     id: TypeTag.U64,
     tag: TypeTag.U64,
     trait,
+    availability: BOTH_AVAILABLE,
   };
   trait.receiverType = type;
 
@@ -357,6 +373,7 @@ export function createI64Type(): Type {
     id: TypeTag.I64,
     tag: TypeTag.I64,
     trait,
+    availability: BOTH_AVAILABLE,
   };
   trait.receiverType = type;
 
@@ -377,6 +394,7 @@ export function createF32Type(): Type {
     id: TypeTag.F32,
     tag: TypeTag.F32,
     trait,
+    availability: BOTH_AVAILABLE,
   };
   trait.receiverType = type;
 
@@ -397,6 +415,7 @@ export function createF64Type(): Type {
     id: TypeTag.F64,
     tag: TypeTag.F64,
     trait,
+    availability: BOTH_AVAILABLE,
   };
   trait.receiverType = type;
 
@@ -416,6 +435,7 @@ export function createUnitType(): Type {
     id: TypeTag.Unit,
     tag: TypeTag.Unit,
     trait,
+    availability: BOTH_AVAILABLE,
   };
   trait.receiverType = type;
 
@@ -436,6 +456,7 @@ export function createCharType(): Type {
     id: TypeTag.Char,
     tag: TypeTag.Char,
     trait,
+    availability: RUNTIME_ONLY,
   };
   trait.receiverType = type;
 
@@ -456,6 +477,7 @@ export function createShortType(): Type {
     id: TypeTag.Short,
     tag: TypeTag.Short,
     trait,
+    availability: RUNTIME_ONLY,
   };
   trait.receiverType = type;
 
@@ -476,6 +498,7 @@ export function createUShortType(): Type {
     id: TypeTag.UShort,
     tag: TypeTag.UShort,
     trait,
+    availability: RUNTIME_ONLY,
   };
   trait.receiverType = type;
 
@@ -496,6 +519,7 @@ export function createIntType(): Type {
     id: TypeTag.Int,
     tag: TypeTag.Int,
     trait,
+    availability: RUNTIME_ONLY,
   };
   trait.receiverType = type;
 
@@ -516,6 +540,7 @@ export function createUIntType(): Type {
     id: TypeTag.UInt,
     tag: TypeTag.UInt,
     trait,
+    availability: RUNTIME_ONLY,
   };
   trait.receiverType = type;
 
@@ -536,6 +561,7 @@ export function createLongType(): Type {
     id: TypeTag.Long,
     tag: TypeTag.Long,
     trait,
+    availability: RUNTIME_ONLY,
   };
   trait.receiverType = type;
 
@@ -556,6 +582,7 @@ export function createULongType(): Type {
     id: TypeTag.ULong,
     tag: TypeTag.ULong,
     trait,
+    availability: RUNTIME_ONLY,
   };
   trait.receiverType = type;
 
@@ -576,6 +603,7 @@ export function createLongLongType(): Type {
     id: TypeTag.LongLong,
     tag: TypeTag.LongLong,
     trait,
+    availability: RUNTIME_ONLY,
   };
   trait.receiverType = type;
 
@@ -596,6 +624,7 @@ export function createULongLongType(): Type {
     id: TypeTag.ULongLong,
     tag: TypeTag.ULongLong,
     trait,
+    availability: RUNTIME_ONLY,
   };
   trait.receiverType = type;
 
@@ -616,6 +645,7 @@ export function createLongDoubleType(): Type {
     id: TypeTag.LongDouble,
     tag: TypeTag.LongDouble,
     trait,
+    availability: RUNTIME_ONLY,
   };
   trait.receiverType = type;
 
@@ -637,6 +667,7 @@ export function createArrayType(childType: Type, length: Value): ArrayType {
     childType,
     length,
     trait,
+    availability: childType.availability,
   };
 
   trait.receiverType = arrayType;
@@ -658,6 +689,7 @@ export function createSliceType(childType: Type): SliceType {
     tag: TypeTag.Slice,
     childType,
     trait,
+    availability: RUNTIME_ONLY,
   };
   trait.receiverType = sliceType;
 
@@ -698,6 +730,7 @@ export function createVoidType(): VoidType {
     id: TypeTag.Void,
     tag: TypeTag.Void,
     trait,
+    availability: RUNTIME_ONLY,
   };
   trait.receiverType = voidType;
 
@@ -715,6 +748,7 @@ export function createTupleType(fields: TypeField[]): TupleType {
     // size: totalSize,
     fields,
     trait,
+    availability: BOTH_AVAILABLE,
   };
   trait.receiverType = tupleType;
 
@@ -736,6 +770,7 @@ export function createStructType(
     fields: [],
     trait,
     env,
+    availability: BOTH_AVAILABLE,
   };
 
   trait.receiverType = structType;
@@ -750,6 +785,7 @@ export function createModuleType(env: Environment): ModuleType {
     fields: [],
     env,
     trait: undefined,
+    availability: COMPTIME_ONLY,
   };
   return moduleType;
 }
@@ -761,6 +797,7 @@ export function createTraitType(env: Environment): TraitType {
     fields: [],
     env,
     trait: undefined,
+    availability: COMPTIME_ONLY,
   };
   return traitType;
 }
@@ -774,6 +811,7 @@ export function createEnumType(env: Environment): EnumType {
     variants: [],
     trait,
     env,
+    availability: BOTH_AVAILABLE,
   };
 
   trait.receiverType = enumType;
@@ -790,6 +828,7 @@ export function createUnionType(env: Environment): UnionType {
     fields: [],
     trait,
     env,
+    availability: RUNTIME_ONLY,
   };
 
   trait.receiverType = unionType;
@@ -834,6 +873,7 @@ export function createFunctionType({
     ParentFunctionType,
     trait,
     isClosure,
+    availability: BOTH_AVAILABLE,
   };
   trait.receiverType = functionType;
 
@@ -854,6 +894,7 @@ export function createPtrType(childType: Type): PtrType {
     tag: TypeTag.Ptr,
     childType,
     trait,
+    availability: RUNTIME_ONLY,
   };
   trait.receiverType = ptrType;
 
@@ -876,6 +917,7 @@ export function createIsoType(childType: Type, env: Environment): IsoType {
     childType,
     trait,
     env,
+    availability: RUNTIME_ONLY,
   };
   trait.receiverType = isoType;
 
@@ -921,6 +963,7 @@ export function createSomeType(
     isExtern: type.isExtern,
     externName: type.externName,
     recursiveTypeRef,
+    availability: BOTH_AVAILABLE,
   };
   trait.receiverType = someType;
 
@@ -967,6 +1010,7 @@ export function createTypeHierarchy(
     level,
     baseType,
     trait,
+    availability: COMPTIME_ONLY,
   };
   trait.receiverType = type;
 
@@ -1022,6 +1066,7 @@ export function createFnTraitType(
   // Set the isFn field to make this a FnTraitType
   trait.isFn = { callType: fnType };
   trait.id = fnTraitId;
+  trait.availability = BOTH_AVAILABLE;
 
   trait.receiverType = undefined;
 
@@ -1047,6 +1092,7 @@ export function createFutureTraitType(
   // Set the isFuture field to make this a FutureTraitType
   trait.isFuture = { outputType };
   trait.id = futureTraitId;
+  trait.availability = BOTH_AVAILABLE;
 
   trait.receiverType = undefined;
 
@@ -1097,6 +1143,7 @@ export function createDynType(
       negativeTraits && negativeTraits.length > 0 ? negativeTraits : undefined,
     trait,
     env,
+    availability: RUNTIME_ONLY,
   };
 
   trait.receiverType = dynType;

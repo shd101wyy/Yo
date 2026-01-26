@@ -1,2 +1,46 @@
-Point :: struct(x : i32, y : i32);
-x :: Point(3 + 5, 4);
+main :: (fn() -> unit) {
+  {
+    Point :: struct(x : i32, y : i32); // Point can create both compile-time and run-time values
+                                       // as i32 can be used in both contexts
+    a :: Point(3 + 5, 4); // compile-time value
+    b := Point(6, 8);     // run-time value
+
+    r := 12;
+    // compt_expect_error(c :: Point(r, 15)); // Should give error, as `r` is runtime value
+    d := Point(r, 20); // valid run-time value
+  };
+
+  {
+    Point2 :: struct(x : compt_int, y : compt_int); // Point2 can only create compile-time values
+                                                    // as compt_int can only be used in compile-time context
+    x :: Point2(3 + 5, 4); // compile-time value
+    compt_expect_error(
+      y := Point2(6, 8)   // error: cannot create run-time value of type Point2
+    );
+  };
+
+  {
+    compt_expect_error(
+      Point3 :: struct(x : compt_int, y : *(i32)) // QUESTION: Should this give error?
+                                                  // compt_int can only be used in compile-time context,
+                                                  // pointer can only be used in run-time context.
+                                                  // There is no intersection between the two contexts.
+  
+    );
+  };
+
+  {
+    Point4 :: struct(x : compt_int, y : i32); // Point4 can only be used to create compile-time values
+                                              // compt_int can only be used in compile-time context,
+                                              // i32 can be used in both contexts,
+                                              // so the intersection is compile-time context
+    x :: Point4(10, 20); // compile-time value
+    compt_expect_error(
+      y := Point4(30, 40) // error: cannot create run-time value of type Point4
+    );
+  };
+
+  // Should we assume "SomeType" can be used in both compile-time and runtime contexts?
+};
+
+export main;
