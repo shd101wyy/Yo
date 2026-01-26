@@ -502,12 +502,10 @@ export
 ;
 
 // === Clone ===
-Clone :: (fn(compt(Output) : Type) -> compt(Trait))
-  trait(
-    clone : 
-      fn(self: Self) -> Output
-  )
-;
+Clone :: trait(
+  clone : 
+    fn(self: *(Self)) -> Self
+);
 
 // === Isolation ===
 Isolation :: trait(
@@ -698,9 +696,9 @@ impl(bool, Eq(bool)(
     __yo_op_neq(a, b)
   )
 ));
-impl(bool, Clone(bool)(
+impl(bool, Clone(
   clone: ((self) ->
-    __yo_return_self(self)
+    __yo_return_self(self.*)
   )
 ));
 impl(bool, Hash(
@@ -784,8 +782,8 @@ impl(i8, Ord(i8)(
 impl(i8, Hash(
   (hash): ((self) -> u64(self.*))
 ));
-impl(i8, Clone(i8)(
-  clone: ((self) -> __yo_return_self(self))
+impl(i8, Clone(
+  clone: ((self) -> __yo_return_self(self.*))
 ));
 impl(i8, ComptAdd(i8)(
   (+) : (fn(compt(lhs): i8, compt(rhs): i8) -> compt(i8))(
@@ -934,8 +932,8 @@ impl(i16, Ord(i16)(
 impl(i16, Hash(
   (hash): ((self) -> u64(self.*))
 ));
-impl(i16, Clone(i16)(
-  clone: ((self) -> __yo_return_self(self))
+impl(i16, Clone(
+  clone: ((self) -> __yo_return_self(self.*))
 ));
 impl(i16, ComptAdd(i16)(
   (+) : (fn(compt(lhs): i16, compt(rhs): i16) -> compt(i16))(
@@ -1117,9 +1115,9 @@ impl(i32, Hash(
     u64(u32_value)
   })
 ));
-impl(i32, Clone(i32)(
+impl(i32, Clone(
   clone: ((self) ->
-    __yo_return_self(self)
+    __yo_return_self(self.*)
   )
 ));
 impl(i32, ComptAdd(i32)(
@@ -1239,8 +1237,8 @@ impl(i64, Ord(i64)(
 impl(i64, Hash(
   (hash): ((self) -> u64(self.*))
 ));
-impl(i64, Clone(i64)(
-  clone: ((self) -> __yo_return_self(self))
+impl(i64, Clone(
+  clone: ((self) -> __yo_return_self(self.*))
 ));
 impl(i64, ComptAdd(i64)(
   (+) : (fn(compt(lhs): i64, compt(rhs): i64) -> compt(i64))(
@@ -1389,8 +1387,8 @@ impl(u8, Ord(u8)(
 impl(u8, Hash(
   (hash): ((self) -> u64(self.*))
 ));
-impl(u8, Clone(u8)(
-  clone: ((self) -> __yo_return_self(self))
+impl(u8, Clone(
+  clone: ((self) -> __yo_return_self(self.*))
 ));
 impl(u8, ComptAdd(u8)(
   (+) : (fn(compt(lhs): u8, compt(rhs): u8) -> compt(u8))(
@@ -1534,8 +1532,8 @@ impl(u16, Ord(u16)(
 impl(u16, Hash(
   (hash): ((self) -> u64(self.*))
 ));
-impl(u16, Clone(u16)(
-  clone: ((self) -> __yo_return_self(self))
+impl(u16, Clone(
+  clone: ((self) -> __yo_return_self(self.*))
 ));
 impl(u16, ComptAdd(u16)(
   (+) : (fn(compt(lhs): u16, compt(rhs): u16) -> compt(u16))(
@@ -1679,8 +1677,8 @@ impl(u32, Ord(u32)(
 impl(u32, Hash(
   (hash): ((self) -> u64(self.*))
 ));
-impl(u32, Clone(u32)(
-  clone: ((self) -> __yo_return_self(self))
+impl(u32, Clone(
+  clone: ((self) -> __yo_return_self(self.*))
 ));
 impl(u32, ComptAdd(u32)(
   (+) : (fn(compt(lhs): u32, compt(rhs): u32) -> compt(u32))(
@@ -1824,8 +1822,8 @@ impl(u64, Ord(u64)(
 impl(u64, Hash(
   (hash): ((self) -> self.*)
 ));
-impl(u64, Clone(u64)(
-  clone: ((self) -> __yo_return_self(self))
+impl(u64, Clone(
+  clone: ((self) -> __yo_return_self(self.*))
 ));
 impl(u64, ComptAdd(u64)(
   (+) : (fn(compt(lhs): u64, compt(rhs): u64) -> compt(u64))(
@@ -1958,8 +1956,8 @@ impl(f32, Ord(f32)(
 impl(f32, Hash(
   (hash): ((self) -> u64(i32(self.*)))
 ));
-impl(f32, Clone(f32)(
-  clone: ((self) -> __yo_return_self(self))
+impl(f32, Clone(
+  clone: ((self) -> __yo_return_self(self.*))
 ));
 impl(f32, ComptAdd(f32)(
   (+) : (fn(compt(lhs): f32, compt(rhs): f32) -> compt(f32))(
@@ -2062,8 +2060,8 @@ impl(f64, Ord(f64)(
 impl(f64, Hash(
   (hash): ((self) -> u64(i64(self.*)))
 ));
-impl(f64, Clone(f64)(
-  clone: ((self) -> __yo_return_self(self))
+impl(f64, Clone(
+  clone: ((self) -> __yo_return_self(self.*))
 ));
 impl(f64, ComptAdd(f64)(
   (+) : (fn(compt(lhs): f64, compt(rhs): f64) -> compt(f64))(
@@ -2177,8 +2175,8 @@ impl(isize, Ord(isize)(
 impl(isize, Hash(
   (hash): ((self) -> u64(self.*))
 ));
-impl(isize, Clone(isize)(
-  clone: ((self) -> __yo_return_self(self))
+impl(isize, Clone(
+  clone: ((self) -> __yo_return_self(self.*))
 ));
 impl(isize, ComptAdd(isize)(
   (+) : (fn(compt(lhs): isize, compt(rhs): isize) -> compt(isize))(
@@ -2327,8 +2325,8 @@ impl(usize, Ord(usize)(
 impl(usize, Hash(
   (hash): ((self) -> u64(self.*))
 ));
-impl(usize, Clone(usize)(
-  clone: ((self) -> __yo_return_self(self))
+impl(usize, Clone(
+  clone: ((self) -> __yo_return_self(self.*))
 ));
 impl(usize, ComptAdd(usize)(
   (+) : (fn(compt(lhs): usize, compt(rhs): usize) -> compt(usize))(
@@ -2461,8 +2459,8 @@ impl(char, Ord(char)(
 impl(char, Hash(
   (hash): ((self) -> u64(self.*))
 ));
-impl(char, Clone(char)(
-  clone: ((self) -> __yo_return_self(self))
+impl(char, Clone(
+  clone: ((self) -> __yo_return_self(self.*))
 ));
 _char :: char;
 export char : _char;
@@ -2515,8 +2513,8 @@ impl(int, Ord(int)(
 impl(int, Hash(
   (hash): ((self) -> u64(self.*))
 ));
-impl(int, Clone(int)(
-  clone: ((self) -> __yo_return_self(self))
+impl(int, Clone(
+  clone: ((self) -> __yo_return_self(self.*))
 ));
 _int :: int;
 export int : _int;
@@ -2569,8 +2567,8 @@ impl(uint, Ord(uint)(
 impl(uint, Hash(
   (hash): ((self) -> u64(self.*))
 ));
-impl(uint, Clone(uint)(
-  clone: ((self) -> __yo_return_self(self))
+impl(uint, Clone(
+  clone: ((self) -> __yo_return_self(self.*))
 ));
 _uint :: uint;
 export uint : _uint;
@@ -2623,8 +2621,8 @@ impl(short, Ord(short)(
 impl(short, Hash(
   (hash): ((self) -> u64(self.*))
 ));
-impl(short, Clone(short)(
-  clone: ((self) -> __yo_return_self(self))
+impl(short, Clone(
+  clone: ((self) -> __yo_return_self(self.*))
 ));
 _short :: short;
 export short : _short;
@@ -2677,8 +2675,8 @@ impl(ushort, Ord(ushort)(
 impl(ushort, Hash(
   (hash): ((self) -> u64(self.*))
 ));
-impl(ushort, Clone(ushort)(
-  clone: ((self) -> __yo_return_self(self))
+impl(ushort, Clone(
+  clone: ((self) -> __yo_return_self(self.*))
 ));
 _ushort :: ushort;
 export ushort : _ushort;
@@ -2731,8 +2729,8 @@ impl(long, Ord(long)(
 impl(long, Hash(
   (hash): ((self) -> u64(self.*))
 ));
-impl(long, Clone(long)(
-  clone: ((self) -> __yo_return_self(self))
+impl(long, Clone(
+  clone: ((self) -> __yo_return_self(self.*))
 ));
 _long :: long;
 export long : _long;
@@ -2786,8 +2784,8 @@ impl(ulong, Ord(ulong)(
 impl(ulong, Hash(
   (hash): ((self) -> u64(self.*))
 ));
-impl(ulong, Clone(ulong)(
-  clone: ((self) -> __yo_return_self(self))
+impl(ulong, Clone(
+  clone: ((self) -> __yo_return_self(self.*))
 ));
 _ulong :: ulong;
 export ulong : _ulong;
@@ -2840,8 +2838,8 @@ impl(longlong, Ord(longlong)(
 impl(longlong, Hash(
   (hash): ((self) -> u64(self.*))
 ));
-impl(longlong, Clone(longlong)(
-  clone: ((self) -> __yo_return_self(self))
+impl(longlong, Clone(
+  clone: ((self) -> __yo_return_self(self.*))
 ));
 _longlong :: longlong;
 export longlong : _longlong;
@@ -2894,8 +2892,8 @@ impl(ulonglong, Ord(ulonglong)(
 impl(ulonglong, Hash(
   (hash): ((self) -> u64(self.*))
 ));
-impl(ulonglong, Clone(ulonglong)(
-  clone: ((self) -> __yo_return_self(self))
+impl(ulonglong, Clone(
+  clone: ((self) -> __yo_return_self(self.*))
 ));
 _ulonglong :: ulonglong;
 export ulonglong : _ulonglong;
@@ -2948,8 +2946,8 @@ impl(longdouble, Ord(longdouble)(
 impl(longdouble, Hash(
   (hash): ((self) -> u64(i64(self.*)))
 ));
-impl(longdouble, Clone(longdouble)(
-  clone: ((self) -> __yo_return_self(self))
+impl(longdouble, Clone(
+  clone: ((self) -> __yo_return_self(self.*))
 ));
 _longdouble :: longdouble;
 export longdouble : _longdouble;
@@ -3405,6 +3403,24 @@ IntoIterator :: (fn(
 };
 export IntoIterator;
 
+// === Conversion ===
+TryFrom :: (fn(compt(From) : Type) -> compt(Trait))(
+  trait(
+    Error : Type,
+    try_from :
+      (fn(value : From) -> Result(Self, Self.Error))
+  )
+);
+export TryFrom;
+
+TryInto :: (fn(compt(To) : Type) -> compt(Trait))(
+  trait(
+    Error : Type,
+    try_into :
+      (fn(self : Self, (compt(_To) : Type) = To) -> Result(To, Self.Error))
+  )
+);
+export TryInto;
 
 // === Macros ===
 /// === if ===
