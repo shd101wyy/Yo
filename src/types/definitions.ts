@@ -401,10 +401,18 @@ export interface ModuleField {
 }
 
 /**
- * TraitField is identical to ModuleField but used in TraitType.
- * Kept separate for future differentiation between traits and modules.
+ * TraitField extends ModuleField with additional support for associated types.
+ * When a trait field is declared as `Error : Type` (a type field without assigned value),
+ * we create a SomeType placeholder that represents the associated type.
  */
-export type TraitField = ModuleField;
+export interface TraitField extends ModuleField {
+  /**
+   * For associated types (fields declared as `X : Type` without an assigned value),
+   * this holds a SomeType placeholder that represents the associated type.
+   * When the trait is implemented, this SomeType will be replaced with the actual type.
+   */
+  unassignedSomeType?: SomeType;
+}
 
 /**
  * ModuleType is a ~~nominal~~structural type that represents a module.

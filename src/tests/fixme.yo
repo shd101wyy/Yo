@@ -1,13 +1,14 @@
-TryFrom :: (fn(compt(From) : Type, compt(Error) : Type) -> compt(Trait))(
+TryFrom :: (fn(compt(From) : Type) -> compt(Trait))(
   trait(
-    Error := Error,
+    Error : Type,
     try_from :
-      (fn(value : From) -> Result(Self, Error))
+      (fn(value : From) -> Result(Self, Self.Error))
   )
 );
 
 EvenNumber :: struct(value : i32);
-impl(EvenNumber, TryFrom(i32, str)(
+impl(EvenNumber, TryFrom(i32)(
+  Error : str,
   try_from : (value -> 
     cond(
       ((value % 2) == 0) => .Ok(EvenNumber(value)),
@@ -15,7 +16,8 @@ impl(EvenNumber, TryFrom(i32, str)(
     )
   )
 ));
-impl(EvenNumber, TryFrom(i64, str)(
+impl(EvenNumber, TryFrom(i64)(
+  Error : str,
   try_from : (value -> 
     cond(
       ((value % 2) == 0) => .Ok(EvenNumber(i32(value))),
