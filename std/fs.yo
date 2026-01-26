@@ -22,12 +22,7 @@ OpenFlags :: enum(
   Create    = 64,     // O_CREAT (0o100)
   Exclusive = 128,    // O_EXCL (0o200)
   Truncate  = 512,    // O_TRUNC (0o1000)
-  Append    = 1024,   // O_APPEND (0o2000)
-
-  // Convert to raw i32 flags
-  to_i32 :: (fn(self: Self) -> i32)(
-    i32(self)
-  )
+  Append    = 1024   // O_APPEND (0o2000)
 );
 
 // Combine two flags using bitwise OR
@@ -39,6 +34,25 @@ impl(OpenFlags, BitOr(OpenFlags, i32)(
 impl(OpenFlags, ComptBitOr(OpenFlags, i32)(
   (|) : ((lhs, rhs) ->
     (i32(lhs) | i32(rhs))
+  )
+));
+impl(OpenFlags, TryInto(i32)(
+  Error : unit,
+  try_into : ((self, _) -> .Ok(i32(self)))
+));
+impl(OpenFlags, TryFrom(i32)(
+  Error : unit,
+  try_from : ((value) ->
+    match(value,
+      (0) => .Ok(OpenFlags.Read),
+      (1) => .Ok(OpenFlags.Write),
+      (2) => .Ok(OpenFlags.ReadWrite),
+      (64) => .Ok(OpenFlags.Create),
+      (128) => .Ok(OpenFlags.Exclusive),
+      (512) => .Ok(OpenFlags.Truncate),
+      (1024) => .Ok(OpenFlags.Append),
+      (_) => .Err(())
+    )
   )
 ));
 
