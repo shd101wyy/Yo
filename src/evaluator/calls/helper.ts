@@ -39,6 +39,7 @@ import {
   FunctionType,
   getAllSomeTypes,
   getValueOfSomeTypeFromEnv,
+  isComptimeOnlyType,
   isExprListType,
   isExprType,
   isFunctionSpecializable,
@@ -371,7 +372,11 @@ Got:   ${valueToString(evaluatedArgExpr.$.value)}`,
   // Add the arg to the environment
   // console.log("(10) addVariableToEnv");
   let argValue = evaluatedArgExpr.$.value;
-  if (!parameter.isCompileTimeOnly) {
+  // Only convert to runtime type if:
+  // 1. The parameter doesn't have compt modifier, AND
+  // 2. The parameter type is not comptime-only (e.g., compt_int, Type, etc.)
+  // This allows struct fields like `x : compt_int` (without compt modifier) to accept comptime values.
+  if (!parameter.isCompileTimeOnly && !isComptimeOnlyType(parameterType)) {
     argValue = undefined;
 
     // argType requires compt modifier

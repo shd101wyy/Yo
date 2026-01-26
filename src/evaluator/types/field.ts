@@ -17,8 +17,6 @@ import {
   prohibitVoidType,
   Type,
   TypeField,
-  typeProhibitsComptModifier,
-  typeRequiresComptModifier,
   typeToString,
 } from "../../types";
 import { VUnit } from "../../unit-value";
@@ -363,30 +361,16 @@ Given type: ${typeToString(defaultValueType)}`,
     });
   }
 
-  if (typeRequiresComptModifier(fieldType) && !isCompileTimeOnly) {
-    // NOTE: We shouldn't convert compt type to runtime type here:
-    // eg:
-    //   struct(name : compt_string)
-    // ^ here we shouldn't convert `compt_string` to its runtime type `[u8]`
-    //
-    //
-    // fieldType = convertComptTypeToRuntimeType({
-    //   type: fieldType,
-    //   expectedType: undefined,
-    //   expr: undefined,
-    //   env,
-    // });
-    // if (typeRequiresComptModifier(fieldType)) {
+  // New availability-based validation:
+  // - If isCompileTimeOnly = true: the type MUST be available at compile-time
+  // - If isCompileTimeOnly = false: no validation - the field contributes to struct availability
+  const fieldAvailability = fieldType.availability;
+
+  if (isCompileTimeOnly && !fieldAvailability.comptime) {
+    // Field is marked as compile-time-only but type is runtime-only
     throw formatErrorMessage({
       token: labelExpr?.token ?? expr.token,
-      errorMessage: `Expected "compt" modifier for compile-time known value binding.`,
-    });
-    // }
-  }
-  if (isCompileTimeOnly && typeProhibitsComptModifier(fieldType)) {
-    throw formatErrorMessage({
-      token: labelExpr?.token ?? expr.token,
-      errorMessage: `Unexpected "compt"  modifier for ${typeToString(fieldType)} which can only be used at runtime.`,
+      errorMessage: `Type '${typeToString(fieldType)}' can only be used at runtime and cannot have "compt" modifier or :: syntax.`,
     });
   }
 

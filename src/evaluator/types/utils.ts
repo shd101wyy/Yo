@@ -398,6 +398,11 @@ export function addRcFunctionsToStructType({
   env: Environment;
   context: EvaluatorContext;
 }): Environment {
+  // Skip RC functions for comptime-only types - they don't exist at runtime
+  if (!structType.availability.runtime) {
+    return env;
+  }
+
   typeOfType(structType); // Ensure no invalid recursive type
 
   // Check if struct contains SomeType fields - if so, skip full evaluation to avoid
@@ -464,6 +469,11 @@ export function addRcFunctionSignaturesToStructType({
   env: Environment;
   context: EvaluatorContext;
 }) {
+  // Skip RC functions for comptime-only types - they don't exist at runtime
+  if (!structType.availability.runtime) {
+    return;
+  }
+
   // NOTE: We need to add signature to the struct trait first, to support recursive calls
   // Like
   //    List :: object
@@ -699,6 +709,11 @@ export function addRcFunctionsToEnumType({
   env: Environment;
   context: EvaluatorContext;
 }): Environment {
+  // Skip RC functions for comptime-only types - they don't exist at runtime
+  if (!enumType.availability.runtime) {
+    return env;
+  }
+
   typeOfType(enumType); // Ensure no invalid recursive type
 
   // Check if struct contains SomeType fields - if so, skip full evaluation to avoid
@@ -765,6 +780,11 @@ export function addRcFunctionSignaturesToEnumType({
   env: Environment;
   context: EvaluatorContext;
 }) {
+  // Skip RC functions for comptime-only types - they don't exist at runtime
+  if (!enumType.availability.runtime) {
+    return;
+  }
+
   // Add function signatures to the enum trait first, to support recursive calls
   addFunctionSignatureToSelfTypeModule({
     label: BuiltinFunctions.___dispose[0]!,

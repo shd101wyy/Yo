@@ -2,7 +2,10 @@ main :: (fn() -> unit) {
   {
     Point :: struct(x : i32, y : i32); // Point can create both compile-time and run-time values
                                        // as i32 can be used in both contexts
+    // FIXME:
     a :: Point(3 + 5, 4); // compile-time value
+    // a :: Point(8, 4); // compile-time value
+
     b := Point(6, 8);     // run-time value
 
     r := 12;
@@ -13,7 +16,10 @@ main :: (fn() -> unit) {
   {
     Point2 :: struct(x : compt_int, y : compt_int); // Point2 can only create compile-time values
                                                     // as compt_int can only be used in compile-time context
+    // FIXME:
     x :: Point2(3 + 5, 4); // compile-time value
+    // x :: Point2(8, 4); // compile-time value
+    
     compt_expect_error(
       y := Point2(6, 8)   // error: cannot create run-time value of type Point2
     );

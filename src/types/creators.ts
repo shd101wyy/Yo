@@ -37,7 +37,7 @@ import {
   VoidType,
 } from "./definitions";
 import { TypeTag } from "./tags";
-import { typeToString } from "./utils";
+import { computeTupleTypeAvailability, typeToString } from "./utils";
 
 let cachedComptIntType: Type | null = null;
 export function createComptIntType(): Type {
@@ -751,6 +751,9 @@ export function createTupleType(fields: TypeField[]): TupleType {
     availability: BOTH_AVAILABLE,
   };
   trait.receiverType = tupleType;
+
+  // Compute the actual availability from fields
+  tupleType.availability = computeTupleTypeAvailability(tupleType);
 
   return tupleType;
 }

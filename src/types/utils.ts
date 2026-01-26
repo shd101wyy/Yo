@@ -40,7 +40,6 @@ import {
 import {
   isArrayType,
   isBooleanType,
-  isCCompatibleType,
   isCharType,
   isComptFloatType,
   isComptIntType,
@@ -303,22 +302,27 @@ export function extractFutureTraitFromType(
  * For example:
  *   compt(x): Type
  *   compt(x): compt_int
+ *
+ * This includes:
+ * - Primitive comptime-only types (Type, compt_int, compt_float, etc.)
+ * - Compound types that are comptime-only (structs with compt_int fields, etc.)
  */
 export function typeRequiresComptModifier(type?: Type): boolean {
-  return (
-    isTypeHierarchyType(type) ||
-    isModuleType(type) ||
-    isTraitType(type) ||
-    isComptIntType(type) ||
-    isComptFloatType(type) ||
-    isComptStringType(type) ||
-    isComptListType(type) ||
-    isExprType(type)
-  );
+  if (!type) {
+    return false;
+  }
+
+  // Check if compound types are comptime-only based on their availability
+  // A type with availability { comptime: true, runtime: false } is comptime-only
+  return isComptimeOnlyType(type);
 }
 
 export function typeProhibitsComptModifier(type?: Type): boolean {
-  return isCCompatibleType(type);
+  if (!type) {
+    return false;
+  }
+
+  return isRuntimeOnlyType(type);
 }
 
 /**
@@ -608,6 +612,39 @@ export function computeArrayTypeAvailability(
   arrayType: ArrayType
 ): TypeAvailability {
   return arrayType.childType.availability;
+}
+
+/**
+ * Update the availability of a type after its fields/variants have been modified.
+ * This should be called after adding/removing fields to compound types.
+ *
+ * @param type The type to update
+ * @returns The updated type (mutated in place)
+ */
+export function updateTypeAvailability(type: Type): Type {
+  switch (type.tag) {
+    case TypeTag.Struct:
+      type.availability = computeStructTypeAvailability(type as StructType);
+      break;
+    case TypeTag.Enum:
+      type.availability = computeEnumTypeAvailability(type as EnumType);
+      break;
+    case TypeTag.Tuple:
+      type.availability = computeTupleTypeAvailability(type as TupleType);
+      break;
+    case TypeTag.Array:
+      type.availability = computeArrayTypeAvailability(type as ArrayType);
+      break;
+    case TypeTag.Union:
+      // Union types are always runtime-only
+      type.availability = RUNTIME_ONLY;
+      break;
+    // Other types have fixed availability based on their tag
+    default:
+      // No-op for primitive types and other types
+      break;
+  }
+  return type;
 }
 
 /**
