@@ -222,7 +222,7 @@ Got:      "${paramName}"`,
     const expectedParam = functionType.parameters[i]!;
 
     if (expectedParam.isCompileTimeOnly) {
-      // For compt parameters, require exact name matching
+      // For compt parameters, require exact name matching (except for _ which is a wildcard)
       if (!exprIsAtom(paramExpr)) {
         throw formatErrorMessage({
           token: paramExpr.token,
@@ -231,7 +231,8 @@ Got:      "${paramName}"`,
       }
 
       const paramName = paramExpr.token.value;
-      if (paramName !== expectedParam.label) {
+      // Allow _ as a wildcard that matches any expected parameter name
+      if (paramName !== "_" && paramName !== expectedParam.label) {
         throw formatErrorMessage({
           token: paramExpr.token,
           errorMessage: `Compile-time parameter name must match expected name.

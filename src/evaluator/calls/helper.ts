@@ -350,6 +350,24 @@ export function checkIfFunctionParameterMatchesArgument({
     });
   }
 
+  // If the parameter has an assignedValue, check that the argument value matches it.
+  // This is used for overload resolution based on value matching (e.g., TryInto(i32) vs TryInto(i64)).
+  if (parameter.assignedValue && evaluatedArgExpr.$?.value) {
+    if (
+      !areValuesEqual(
+        { value: parameter.assignedValue, env: calleeEnv },
+        { value: evaluatedArgExpr.$.value, env: callerEnv }
+      )
+    ) {
+      throw formatErrorMessage({
+        token: argExpr?.token ?? PlaceholderToken,
+        errorMessage: `Value mismatch for parameter "${parameter.label}":
+Expected: ${valueToString(parameter.assignedValue)}
+Got:   ${valueToString(evaluatedArgExpr.$.value)}`,
+      });
+    }
+  }
+
   // Add the arg to the environment
   // console.log("(10) addVariableToEnv");
   let argValue = evaluatedArgExpr.$.value;

@@ -5,6 +5,13 @@ TryFrom :: (fn(compt(From) : Type) -> compt(Trait))(
       (fn(value : From) -> Result(Self, Self.Error))
   )
 );
+TryInto :: (fn(compt(To) : Type) -> compt(Trait))(
+  trait(
+    Error : Type,
+    try_into :
+      (fn(self : Self, (compt(_To) : Type) = To) -> Result(To, Self.Error))
+  )
+);
 
 EvenNumber :: struct(value : i32);
 impl(EvenNumber, TryFrom(i32)(
@@ -25,14 +32,26 @@ impl(EvenNumber, TryFrom(i64)(
     )
   )
 ));
+impl(EvenNumber, TryInto(i32)(
+  Error : str,
+  try_into : ((self, _) -> .Ok(self.value))
+));
+impl(EvenNumber, TryInto(i64)(
+  Error : str,
+  try_into : ((self, _) -> .Ok(i64(self.value)))
+));
 
 main :: (fn() -> unit) {
-  // (x : str) = "Hello";
   x := EvenNumber.try_from(i32(4));
   y := EvenNumber.try_from(i64(10));
   assert(x.is_ok());
   assert(y.is_ok());
-  ();
+
+  a := x.unwrap().try_into(i32).unwrap();
+  assert(a == i32(4));
+
+  b := y.unwrap().try_into(i64).unwrap();
+  assert(b == i64(10));
 };
 
 export main;

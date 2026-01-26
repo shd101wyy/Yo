@@ -334,6 +334,11 @@ export function addVariableToFrame({
   frame: Frame;
   variable: Variable;
 }): Frame {
+  // Skip adding _ variables to the frame - they are "don't care" placeholders
+  if (variable.name === "_") {
+    return frame;
+  }
+
   // Check if variable already exists in the frame
   // If yes, then report an error
   if (frame.variables.some((value) => value.name === variable.name)) {
