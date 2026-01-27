@@ -59,7 +59,7 @@ generic_fn :: (fn(compt(T) : Type, x : T) -> T) { ... };
 
 1. Users must decide `::` vs `:=` - cognitive overhead
 2. Inconsistent with "CTFE when possible" philosophy
-3. `compt_assert` exists separately from `assert`
+3. `assert` exists separately from `assert`
 
 ## Proposed Design
 

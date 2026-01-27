@@ -69,6 +69,10 @@ export function createFunctionBodyEvaluationContext(
       env: env,
     },
     functionReturnImplConcreteType: [], // Empty array for each function
+
+    // reset CTFE specific flags
+    isAnalyzingCtfeCapability: false,
+    forceCompileTimeBindings: false,
   };
 
   return { evaluationContext, functionBodyContext };

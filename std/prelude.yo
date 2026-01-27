@@ -3305,17 +3305,17 @@ impl(forall(T : Type), Iso(T), {
         cond(
           Type.can_form_rc_cycle(unquote(temp_type)) => { // compile-time check
             consume(unquote(temp));
-            compt_assert(false, "Cannot isolate value of type containing Rc type that can form cycles");
+            assert(false, "Cannot isolate value of type containing Rc type that can form cycles");
             Option(Iso(unquote(temp_type))).None
           },
           !(Var.is_owning_the_rc_value(unquote(temp))) => { // compile-time check
             consume(unquote(temp));
-            compt_assert(false, "Cannot isolate value of type that is not owned");
+            assert(false, "Cannot isolate value of type that is not owned");
             Option(Iso(unquote(temp_type))).None
           },
           (Var.has_other_aliases(unquote(temp))) => { // compile-time check
             consume(unquote(temp));
-            compt_assert(false, "Cannot isolate value of type that has other aliases");
+            assert(false, "Cannot isolate value of type that has other aliases");
             Option(Iso(unquote(temp_type))).None
           },
           (unquote(temp_type) <: Isolation).can_isolate(unquote(temp)) => // run-time check
@@ -3326,7 +3326,7 @@ impl(forall(T : Type), Iso(T), {
           }
         ),
       true => { // compile-time check
-        compt_assert(false, "Cannot isolate value type that does not contain Rc type");
+        assert(false, "Cannot isolate value type that does not contain Rc type");
         Option(Iso(unquote(temp_type))).Some(Iso(unquote(temp_type))(unquote(temp)))
       }
     )
@@ -3485,7 +3485,7 @@ for :: (fn(
       cond(
         (callee.is_atom() && (callee == quote(=>))) => {
           args :: handle.get_args();
-          compt_assert(args.len() == 2, "'for' macro requires 2 arguments in the function handle");
+          assert(args.len() == 2, "'for' macro requires 2 arguments in the function handle");
           variable :: args.car();
           body :: args.cdr().car();
 
@@ -3503,13 +3503,13 @@ for :: (fn(
           })
         },
         true => {
-          compt_assert(false, "for macro requires a function handle with `=>`");
+          assert(false, "for macro requires a function handle with `=>`");
           quote(false)
         }
       )
     },
     true => {
-      compt_assert(false, "for macro requires a function handle with `=>`");
+      assert(false, "for macro requires a function handle with `=>`");
       quote(false)
     });
 };

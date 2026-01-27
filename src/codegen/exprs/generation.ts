@@ -446,7 +446,6 @@ function generateFuncCall(
   // compt_expect_error
   else if (
     exprIsFunctionCallOf(expr, BuiltinFunctions.compt_expect_error) ||
-    exprIsFunctionCallOf(expr, BuiltinFunctions.compt_assert) ||
     exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_var_print_info) ||
     exprIsFunctionCallOf(
       expr,

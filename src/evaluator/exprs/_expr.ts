@@ -16,7 +16,6 @@ import { evaluateAlignOf } from "../builtins/alignof";
 import { evaluateAndOr } from "../builtins/and_or";
 import { evaluateYoArrayFill } from "../builtins/array_fns";
 import { evaluateAsync } from "../builtins/async_fns";
-import { evaluateComptAssert } from "../builtins/compt_assert";
 import { evaluateYoComptBooleanFunctions } from "../builtins/compt_boolean_fns";
 import { evaluateComptExpectError } from "../builtins/compt_expect_error";
 import {
@@ -482,13 +481,6 @@ ${exprToString(expr)}`,
     ) {
       // compt_expect_error
       return evaluateComptExpectError({
-        expr,
-        env,
-        context: { ...context },
-      });
-    } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.compt_assert)) {
-      // compt_assert
-      return evaluateComptAssert({
         expr,
         env,
         context: { ...context },

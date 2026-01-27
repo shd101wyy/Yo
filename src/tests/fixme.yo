@@ -1,5 +1,38 @@
+extern "Yo",
+  some_cond : (fn() -> bool)
+;
+
 {
-  // Test 1: continue statement - skip even numbers
+  // Test that panic works at compile-time for CTFE functions
+  // Note: panic at compile-time only works for functions with compt return type
+  // or for builtins like assert
+  test_panic :: (fn(compt(x) : bool) -> compt(bool))(
+    cond(
+      x => panic("x must be non-negative"),
+      true => x
+    )
+  );
+
+  // This should work - x is positive
+  result1 :: test_panic(false);
+  assert(result1 == false);
+  assert(result1 == false);
+
+  test_some_cond :: (fn() -> unit) {
+  cond(
+    some_cond() => panic("GG"),
+    true => ()
+  );
+  };
+  test_some_cond();
+
+  // assert(false, "Reached the end of fixme.yo tests");
+
+  /*
+  // Test that panic at compile-time fails compilation
+  compt_expect_error(test_panic(i32(0) - 1));
+
+  // Test sum_odd with continue
   sum_odd :: (fn(max : i32) -> i32) {
     result := i32(0);
     i := i32(0);
@@ -15,13 +48,11 @@
     return result;
   };
 
-  // Test sum_odd(3) = 1 + 3 = 4
-  result1 :: sum_odd(3);
-  compt_print(result1);
-  compt_assert(result1 == 4);
+  result2 := sum_odd(10);
+  assert(result2 == 25);
 
-  // Test sum_odd(10) = 1 + 3 + 5 + 7 + 9 = 25
-  result2 :: sum_odd(10);
-  compt_print(result2);
-  compt_assert(result2 == 25);
+  // Test that assert works at runtime
+  x := 5;
+  assert(x == 5);  // Should pass at runtime
+  */
 };
