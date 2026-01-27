@@ -1,18 +1,18 @@
-find_first_greater_than_five :: (fn(max : i32) -> i32) {
-  result := -(1);
-  i := i32(0);
-  while i < max, {
-    i = (i + 1);
-    cond(
-      (i > 5) => {
-        result = i;
-        break;
-      }, 
-      true => () // continue loop
+some_condition :: (fn() -> bool)(
+  runtime(true)
+);
+
+test_while_with_mixed_2 :: (fn() -> i32) {
+  while some_condition(), {
+    a := cond(
+      some_condition() => break,
+      some_condition() => {
+        return 0;
+      },
+      some_condition() => true,
+      true => continue
     );
   };
-  return result;
-};
 
-x :: find_first_greater_than_five(20);
-assert(find_first_greater_than_five(20) == 6);
+  0
+};

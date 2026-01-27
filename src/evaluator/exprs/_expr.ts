@@ -128,6 +128,7 @@ import { evaluateMatch } from "./match";
 import { evaluateOpen } from "./open";
 import { evaluatePropertyAccess } from "./property_access";
 import { evaluateRecur } from "./recur";
+import { evaluateRuntime } from "./runtime";
 import { evaluateSubtypeOf } from "./subtype_of";
 import { evaluateTest } from "./test";
 import { evaluateTypeOf } from "./typeof";
@@ -264,6 +265,9 @@ ${exprToString(expr)}`,
     } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.recur)) {
       // recur
       return evaluateRecur({ expr, env, context: { ...context } });
+    } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.runtime)) {
+      // runtime - force runtime evaluation, prevents CTFE
+      return evaluateRuntime({ expr, env, context: { ...context } });
     } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.extern)) {
       // extern
       return evaluateExtern({ expr, env, context: { ...context } });

@@ -495,6 +495,7 @@ export function exprsAreEqual(expr1: Expr, expr2: Expr): boolean {
 
 export const BuiltinKeywords = {
   compt: ["compt" /*"@"*/],
+  runtime: ["runtime"], // Force runtime evaluation, prevents CTFE
   ref: ["ref"], // Reference semantics for struct/enum
 
   forall: ["forall", "∀"],

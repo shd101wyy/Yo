@@ -3437,23 +3437,6 @@ export
   if
 ;
 
-/// === runtval ===
-
-/**
- * This function is used to construct a runtime value from an expression.
- */
-runtval :: (fn(quote(val_expr) : Expr) -> unquote(Expr)) {
-  temp :: gensym("runtval");
-  quote {
-    unquote(temp) := unquote(val_expr);
-    unquote(temp)
-  }
-};
-export
-  runtval
-;
-
-
 /**
 * try macro for handling Result types.
 */
@@ -3510,7 +3493,7 @@ for :: (fn(
           temp_var :: gensym("for_temp_var");
           quote({
             unquote(iter_var) := unquote(iter);
-            while runtval(true), {
+            while runtime(true), {
               unquote(temp_var) := &(unquote(iter_var)).next();
               match(unquote(temp_var),
                 .Some(unquote(variable)) => unquote(body),
