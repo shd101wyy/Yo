@@ -151,11 +151,18 @@ export type PtrValue = {
   tag: ValueTag.Ptr;
   type: PtrType;
   /**
-   * Reference to the value array being pointed to.
+   * Reference to the value being pointed to, wrapped in a single-element array.
    * This is the same array object as the source variable's value array,
    * allowing mutations through the pointer to affect the original.
+   * For simple variables, this contains the value directly.
+   * For array element pointers, this contains the ArrayValue.
    */
   targetValue: [Value];
+  /**
+   * Index into the target. For simple variable pointers, this is 0.
+   * For array element pointers like &(arr(2)), this is 2 and targetValue[0] is the ArrayValue.
+   */
+  targetIndex: number;
 };
 
 export type Value =
@@ -307,7 +314,11 @@ export function valueToString(value?: Value): string {
       return `<compt ${typeToString(value.type)}>`;
     }
     case ValueTag.Ptr: {
-      return `<ptr to ${valueToString(value.targetValue[0])}>`;
+      const target = value.targetValue[0];
+      if (isArrayValue(target)) {
+        return `<ptr to ${valueToString(target.elements[value.targetIndex])}>`;
+      }
+      return `<ptr to ${valueToString(target)}>`;
     }
     default: {
       throw new Error(`valueToString: Unsupported value`);
@@ -607,11 +618,16 @@ export function createExprValue(expr: Expr): ExprValue {
   };
 }
 
-export function createPtrValue(type: PtrType, targetValue: [Value]): PtrValue {
+export function createPtrValue(
+  type: PtrType,
+  targetValue: [Value],
+  targetIndex: number = 0
+): PtrValue {
   return {
     tag: ValueTag.Ptr,
     type,
     targetValue,
+    targetIndex,
   };
 }
 
@@ -879,8 +895,11 @@ export function areValuesEqual(
     }
     return false;
   } else if (isPtrValue(value1) && isPtrValue(value2)) {
-    // Check if they are the same reference
-    return value1.targetValue[0] === value2.targetValue[0];
+    // Check if they point to the same element
+    return (
+      value1.targetValue === value2.targetValue &&
+      value1.targetIndex === value2.targetIndex
+    );
   } else {
     return false;
   }

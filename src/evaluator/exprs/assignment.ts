@@ -896,9 +896,17 @@ Consider using Dyn(...) for dynamic dispatch if you need to reassign to differen
     // Check if the LHS expression has a ptrTargetValue (set by property_access.ts)
     const ptrTargetValue = (evaluatedLhs.$ as { ptrTargetValue?: [Value] })
       .ptrTargetValue;
+    const ptrTargetIndex =
+      (evaluatedLhs.$ as { ptrTargetIndex?: number }).ptrTargetIndex ?? 0;
     if (ptrTargetValue && rhs.$?.value) {
-      // Update the value in the shared array - this will propagate to the original variable
-      ptrTargetValue[0] = rhs.$.value;
+      // Update the value - if targetValue[0] is an ArrayValue, update its element
+      // Otherwise, update targetValue[0] directly
+      const target = ptrTargetValue[0];
+      if (isArrayValue(target)) {
+        target.elements[ptrTargetIndex] = rhs.$.value;
+      } else {
+        ptrTargetValue[0] = rhs.$.value;
+      }
     }
 
     // Attach the updated env to expr

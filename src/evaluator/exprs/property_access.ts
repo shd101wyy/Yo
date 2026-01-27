@@ -29,6 +29,7 @@ import {
   createEnumValue,
   createTypeValue,
   createUnknownValue,
+  isArrayValue,
   isEnumValue,
   isFunctionValue,
   isModuleValue,
@@ -189,8 +190,16 @@ export function evaluatePropertyAccess({
       // Check for compile-time pointer dereference
       const objectValue = objectExpr.$?.value;
       if (isPtrValue(objectValue)) {
-        // For compile-time pointers, get the value from the targetValue array
-        const dereferencedValue = objectValue.targetValue[0];
+        // For compile-time pointers, get the dereferenced value
+        // If targetValue[0] is an ArrayValue, use targetIndex to get the element
+        // Otherwise, targetValue[0] is the value itself (targetIndex should be 0)
+        const target = objectValue.targetValue[0];
+        let dereferencedValue: Value;
+        if (isArrayValue(target)) {
+          dereferencedValue = target.elements[objectValue.targetIndex]!;
+        } else {
+          dereferencedValue = target;
+        }
         expr.$ = {
           env,
           type: baseType,
@@ -201,9 +210,13 @@ export function evaluatePropertyAccess({
           // Pass through the targetValue array so assignments can update it
           sourceVariable: objectExpr.$.sourceVariable,
         };
-        // Store a reference to the pointer's targetValue for compile-time assignment
-        (expr.$ as { ptrTargetValue?: [Value] }).ptrTargetValue =
-          objectValue.targetValue;
+        // Store a reference to the pointer's targetValue and targetIndex for compile-time assignment
+        (
+          expr.$ as { ptrTargetValue?: [Value]; ptrTargetIndex?: number }
+        ).ptrTargetValue = objectValue.targetValue;
+        (
+          expr.$ as { ptrTargetValue?: [Value]; ptrTargetIndex?: number }
+        ).ptrTargetIndex = objectValue.targetIndex;
         propertyExpr.$ = expr.$;
         return expr;
       }

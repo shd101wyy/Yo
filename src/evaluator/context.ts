@@ -4,7 +4,7 @@ import { Expr, FnCallExpr, PathCollection } from "../expr";
 import { FunctionValue } from "../function-value";
 import { Token } from "../token";
 import { FunctionType, Type } from "../types";
-import { ModuleValue, TraitValue, Value } from "../value";
+import { ArrayValue, ModuleValue, TraitValue, Value } from "../value";
 
 export interface FunctionEvaluationContext {
   kind: "function-body";
@@ -246,6 +246,15 @@ export interface ArrayCallResult {
    * The index used to access the array, if it's compile-time known.
    */
   index?: number;
+
+  /**
+   * For compile-time arrays, this stores a reference to the ArrayValue and index.
+   * This allows taking the address of an array element: p :: &(arr(0))
+   */
+  arrayElementRef?: {
+    arrayValue: ArrayValue;
+    index: number;
+  };
 
   /**
    * Type of the return value.

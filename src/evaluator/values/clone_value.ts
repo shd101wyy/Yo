@@ -72,12 +72,17 @@ export function cloneValue(value: Value): Value {
       // UnknownValue is a placeholder, no mutable state
       return value as UnknownValue;
 
-    // Pointer type - needs deep cloning of targetValue array
+    // Pointer type - clone the targetValue array
+    // Note: For pointers to array elements, this creates a new array
+    // which may break pointer-array relationships in cloned environments.
+    // This is acceptable for CTFE checking since we only need to prevent
+    // mutations from affecting the original environment.
     case ValueTag.Ptr: {
       const ptrValue = value as PtrValue;
       return {
         ...ptrValue,
         targetValue: [cloneValue(ptrValue.targetValue[0]!)],
+        targetIndex: ptrValue.targetIndex,
       } as PtrValue;
     }
 

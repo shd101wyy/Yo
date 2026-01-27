@@ -1870,7 +1870,7 @@ ${functionsWithMatchingTypes.map((func) => `${typeToString(func.type)}`).join("\
       isArrayType(functionToCall.type) ||
       isSliceType(functionToCall.type)
     ) {
-      const { value, index, type, callerEnv } =
+      const { value, index, type, arrayElementRef, callerEnv } =
         getArrayCallResult(functionToCall);
 
       // Build pathCollection for array access
@@ -1889,12 +1889,15 @@ ${functionsWithMatchingTypes.map((func) => `${typeToString(func.type)}`).join("\
         }
       }
 
+      // Pass arrayElementRef through to support &(arr(0))
       expr.$ = {
         env: callerEnv,
         type: type,
         value: value,
         originType: func.$?.originType ?? functionToCall.type, // Array access inherits origin type
         pathCollection: pathCollection,
+        sourceVariable: func.$?.sourceVariable,
+        arrayElementRef: arrayElementRef,
         /**
          * NOTE: We need to set isAccessingProperty to true here
          * to prevent getting an array element of Linear type.

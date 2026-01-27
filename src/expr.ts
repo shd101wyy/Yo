@@ -26,7 +26,7 @@ import {
   generateVarialeId,
   isTempVariableName,
 } from "./utils";
-import { isTypeValue, TraitValue, Value } from "./value";
+import { ArrayValue, isTypeValue, TraitValue, Value } from "./value";
 import { ValueTag } from "./value-tag";
 
 /**
@@ -310,6 +310,17 @@ export interface EvaluatedExprData {
    * Example: For `x` in `&(x)`, this would contain the Variable object for `x`.
    */
   sourceVariable?: Variable;
+
+  /**
+   * For array element access expressions (arr(i)), this stores a reference to the
+   * ArrayValue and the index. This allows taking the address of array elements.
+   *
+   * Example: For `arr(0)` in `&(arr(0))`, this stores { arrayValue, index: 0 }
+   */
+  arrayElementRef?: {
+    arrayValue: ArrayValue;
+    index: number;
+  };
 }
 
 export type AtomExpr = {

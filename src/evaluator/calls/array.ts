@@ -205,7 +205,12 @@ export function tryToCallArrayWithArguments({
           });
         }
         const value = arrayValue.elements[index]!;
-        return { value, index, type: returnType, callerEnv };
+
+        // For compile-time arrays, store a reference to the array and index
+        // so that &(arr(0)) can create a pointer to the specific element
+        const arrayElementRef = { arrayValue, index };
+
+        return { value, index, arrayElementRef, type: returnType, callerEnv };
       } else {
         // TODO: Check the index bound?
         const value = createUnknownValue(returnType);
