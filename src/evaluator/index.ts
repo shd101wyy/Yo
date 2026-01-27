@@ -148,7 +148,7 @@ export default class Evaluator {
             variable: {
               name: field.label,
               type: field.type,
-              value: fieldValue,
+              value: fieldValue ? [fieldValue] : undefined,
               isCompileTimeOnly: true,
               initializedAtToken:
                 field.exprs.labelExpr?.token ?? field.exprs.expr.token,

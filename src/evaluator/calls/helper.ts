@@ -408,7 +408,7 @@ Got:   ${valueToString(evaluatedArgExpr.$.value)}`,
       type: argType, // QUESTION: Should we use parameterType here or argType?
       // This might affect assigning Free type arg to Type parameter
       isCompileTimeOnly: parameter.isCompileTimeOnly,
-      value: argValue,
+      value: argValue ? [argValue] : undefined,
       token: argExpr?.token ?? PlaceholderToken,
       initializedAtToken: argExpr?.token ?? PlaceholderToken,
       consumedAtToken: undefined,
@@ -638,7 +638,7 @@ Got:   ${regularArgsToCheck.length} arguments`,
         isCompileTimeOnly: true,
         initializedAtToken: PlaceholderToken, // Set as initialized
         consumedAtToken: undefined,
-        value: typeValue,
+        value: [typeValue],
         isOwningTheRcValue: false,
       },
     });
@@ -659,10 +659,9 @@ Got:   ${regularArgsToCheck.length} arguments`,
           name: forallParameter.label,
           type: forallParameter.type,
           isCompileTimeOnly: true,
-          value: createUnknownValue(
-            forallParameter.type,
-            forallParameter.label
-          ),
+          value: [
+            createUnknownValue(forallParameter.type, forallParameter.label),
+          ],
           token: forallParameter.exprs.labelExpr.token,
           initializedAtToken: forallParameter.exprs.labelExpr.token, // Set as initialized
           consumedAtToken: undefined,
@@ -831,7 +830,7 @@ Got:   ${typeToString(typeValue.type)}`,
         if (typeParameterVariable) {
           calleeEnv = updateExistingVariable(calleeEnv, typeParameterVariable, {
             ...typeParameterVariable,
-            value: typeValue,
+            value: [typeValue],
           });
         } else {
           const token =
@@ -844,7 +843,7 @@ Got:   ${typeToString(typeValue.type)}`,
               name: forallParameter.label,
               type: typeValue.type,
               isCompileTimeOnly: true,
-              value: typeValue,
+              value: [typeValue],
               token: token,
               initializedAtToken: token, // Set as initialized
               consumedAtToken: undefined,
@@ -935,10 +934,10 @@ Got:   ${typeToString(typeValue.type)}`,
       if (forallParameter.label) {
         const variables = getVariablesFromEnv(calleeEnv, forallParameter.label);
         const variable = variables.at(-1);
-        if (variable?.value && isTypeValue(variable.value)) {
+        if (variable?.value?.[0] && isTypeValue(variable.value[0])) {
           forallArgValues.push({
-            value: variable.value,
-            argType: variable.value.type,
+            value: variable.value[0],
+            argType: variable.value[0].type,
             parameterType: forallParameter.type,
           });
         }
@@ -1071,7 +1070,7 @@ Got:   ${typeToString(typeValue.type)}`,
           type: exprListValue.type, // QUESTION: Should we use parameterType here or argType?
           // This might affect assigning Free type arg to Type parameter
           isCompileTimeOnly: functionType.variadicParameter.isCompileTimeOnly,
-          value: exprListValue,
+          value: [exprListValue],
           token: functionType.variadicParameter.exprs.expr.token,
           initializedAtToken: functionType.variadicParameter.exprs.expr.token,
           consumedAtToken: undefined,
@@ -1420,10 +1419,10 @@ function createSpecializedFunctionInline({
       // Check if it's in the calleeEnv
       // Its value might be available after synthesizing types
       const variables = getVariablesFromEnv(calleeEnv, label);
-      if (variables.length > 0 && variables[variables.length - 1]?.value) {
+      if (variables.length > 0 && variables[variables.length - 1]?.value?.[0]) {
         compileTimeSignatureParts.push(
           sanitizeForCIdentifier(
-            valueToSignatureString(variables[variables.length - 1]!.value!)
+            valueToSignatureString(variables[variables.length - 1]!.value![0])
           )
         );
       } else {
@@ -1577,8 +1576,8 @@ export function validateFunctionReturnType({
       let foundTransitively = false;
 
       for (const variable of allVariables) {
-        if (isTypeValue(variable.value)) {
-          const typeValue = variable.value.value;
+        if (isTypeValue(variable.value?.[0])) {
+          const typeValue = variable.value[0].value;
           const transitiveTypes = getAllSomeTypes(typeValue);
           for (const transitiveType of transitiveTypes) {
             if (transitiveType.name === returnTypeSomeType.name) {

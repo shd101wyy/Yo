@@ -253,15 +253,15 @@ export function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
       const variable = variables[variables.length - 1]!;
 
       // Check if the variable has a function value (or UnknownValue with function type)
-      if (variable.value && isFunctionValue(variable.value)) {
+      if (variable.value?.[0] && isFunctionValue(variable.value[0])) {
         // Look up the C function name
-        const cFuncName = context.functions[variable.value.funcId]?.cName;
+        const cFuncName = context.functions[variable.value[0].funcId]?.cName;
         if (cFuncName) {
           return cFuncName;
         }
       } else if (
         isFunctionType(variable.type) &&
-        (isUnknownValue(variable.value) || variable.value === undefined)
+        (isUnknownValue(variable.value?.[0]) || variable.value === undefined)
       ) {
         // For UnknownValue or undefined with function type (mutual recursion case),
         // we need to find the function ID another way.

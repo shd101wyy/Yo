@@ -1346,7 +1346,11 @@ ${exprToString(expr)}`);
       const updatedVariable: Variable = {
         ...existingVariable,
         type,
-        value: preservedIsOwningTheRefValue ? undefined : value,
+        value: preservedIsOwningTheRefValue
+          ? undefined
+          : value
+            ? [value]
+            : undefined,
         isCompileTimeOnly: preservedIsOwningTheRefValue
           ? false
           : Boolean(value),
@@ -1374,7 +1378,7 @@ ${exprToString(expr)}`);
       variable: {
         name: expr.$.variableName,
         type,
-        value: _isOwningTheARCValue ? undefined : value,
+        value: _isOwningTheARCValue ? undefined : value ? [value] : undefined,
         isCompileTimeOnly: _isOwningTheARCValue ? false : Boolean(value),
         initializedAtToken: expr.token,
         isOwningTheRcValue: _isOwningTheARCValue,
@@ -1403,7 +1407,7 @@ ${exprToString(expr)}`);
     variable: {
       name: tempVariableName,
       type,
-      value: _isOwningTheARCValue ? undefined : value,
+      value: _isOwningTheARCValue ? undefined : value ? [value] : undefined,
       isCompileTimeOnly: _isOwningTheARCValue ? false : Boolean(value),
       initializedAtToken: expr.token,
       isOwningTheRcValue: _isOwningTheARCValue,

@@ -705,16 +705,16 @@ export function createSliceType(childType: Type): SliceType {
 export function createStrType(env: Environment): Type {
   const strVariables = getVariablesFromEnv(env, "str");
   const strVariable = strVariables.find(
-    (v) => isTypeValue(v.value) && v.value.type
+    (v) => isTypeValue(v.value?.[0]) && v.value![0].type
   );
 
-  if (!strVariable || !isTypeValue(strVariable.value)) {
+  if (!strVariable || !isTypeValue(strVariable.value?.[0])) {
     throw new Error(
       "'str' type not found in environment. Make sure prelude is loaded."
     );
   }
 
-  return strVariable.value.value;
+  return strVariable.value![0].value;
 }
 
 let cachedVoidType: VoidType | undefined = undefined;

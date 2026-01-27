@@ -469,10 +469,11 @@ use_id :: (fn(forall(T : Type),
       value:
         // If there's an assignedValue (from := syntax), use it
         // Otherwise use a generic unknown value for compile-time params
-        assignedValue ??
-        (isCompileTimeOnly
-          ? createUnknownValue(parameterType, label)
-          : undefined),
+        assignedValue
+          ? [assignedValue]
+          : isCompileTimeOnly
+            ? [createUnknownValue(parameterType, label)]
+            : undefined,
       token: lhsExpr?.token ?? expr.token,
       initializedAtToken: lhsExpr?.token ?? expr.token, // Set as initialized
       consumedAtToken: undefined, // Not consumed yet
@@ -1011,7 +1012,7 @@ export function evaluateFunctionParameters({
             type: parameterType,
             isCompileTimeOnly: variadicParameter.isCompileTimeOnly,
             value: isCompileTimeOnly
-              ? createUnknownValue(parameterType, parameterName)
+              ? [createUnknownValue(parameterType, parameterName)]
               : undefined,
             token: labelExpr.token,
             initializedAtToken: labelExpr.token, // Set as initialized

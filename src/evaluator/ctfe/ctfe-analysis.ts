@@ -121,7 +121,7 @@ export function analyzeCtfeCapability(
           name: param.label,
           type: param.type,
           isCompileTimeOnly: true,
-          value: createUnknownValue(param.type, param.label),
+          value: [createUnknownValue(param.type, param.label)],
           token: PlaceholderToken,
           initializedAtToken: PlaceholderToken,
           consumedAtToken: undefined,

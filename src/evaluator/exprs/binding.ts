@@ -156,7 +156,7 @@ compt(${variableName}) : ${typeToString(userDefinedType)}`,
       type: userDefinedType,
       isCompileTimeOnly,
       value: isCompileTimeOnly
-        ? createUnknownValue(userDefinedType, variableName)
+        ? [createUnknownValue(userDefinedType, variableName)]
         : undefined,
       token: lhs.token,
       initializedAtToken: undefined, // The variable is not initialized yet

@@ -109,9 +109,9 @@ function resolveUnknownValuesAndSomeTypeInType(
       const variables = getVariablesFromEnv(env, unknownLength.variableName);
       if (variables.length > 0) {
         const variable = variables[variables.length - 1]!;
-        if (variable.value && !isUnknownValue(variable.value)) {
+        if (variable.value?.[0] && !isUnknownValue(variable.value[0])) {
           // Create a new array type with the resolved length
-          return createArrayType(type.childType, variable.value);
+          return createArrayType(type.childType, variable.value[0]);
         }
       }
     }
@@ -488,7 +488,7 @@ You can mutate fields (e.g., ${variableName}.field = value) but cannot reassign 
       env = updateExistingVariable(env, variable, {
         ...variable,
         initializedAtToken: lhs.token,
-        value: valueToStore,
+        value: valueToStore ? [valueToStore] : undefined,
         type: variableType,
         isOwningTheRcValue: typeContainsRcType(variableType),
         isOwningTheSameRcValueAs, // Track shared ownership for optimization, or undefined if moved
@@ -585,7 +585,7 @@ Consider using Dyn(...) for dynamic dispatch if you need to reassign to differen
       env = updateExistingVariable(env, variable, {
         ...variable,
         id: newVariableId, // New ID distinguishes this instance from previous one
-        value: valueToStore,
+        value: valueToStore ? [valueToStore] : undefined,
         type: variableType,
         isOwningTheRcValue: typeContainsRcType(variableType),
         isOwningTheSameRcValueAs, // Track shared ownership for optimization, or undefined if moved
@@ -615,7 +615,7 @@ Consider using Dyn(...) for dynamic dispatch if you need to reassign to differen
       expr.$ = {
         // NOTE: This should return the original value of lhs
         env,
-        value: variable.value,
+        value: variable.value?.[0],
         type: variable.type,
         pathCollection: [],
       };
@@ -768,8 +768,8 @@ Consider using Dyn(...) for dynamic dispatch if you need to reassign to differen
           const variable = variables[variables.length - 1]!;
 
           // If it's a compile-time mutable variable with a struct/array value, update it
-          if (variable.isCompileTimeOnly && variable.value) {
-            const currentValue = variable.value;
+          if (variable.isCompileTimeOnly && variable.value?.[0]) {
+            const currentValue = variable.value[0];
 
             // Handle struct/tuple field assignment
             if (isStructValue(currentValue) || isTupleValue(currentValue)) {
@@ -795,12 +795,12 @@ Consider using Dyn(...) for dynamic dispatch if you need to reassign to differen
                   // and update them all to maintain reference semantics
                   const allVariables = getVariablesFromEnvByFilter(
                     env,
-                    (v) => v.isCompileTimeOnly && v.value === currentValue
+                    (v) => v.isCompileTimeOnly && v.value?.[0] === currentValue
                   );
                   for (const sharedVariable of allVariables) {
                     env = updateExistingVariable(env, sharedVariable, {
                       ...sharedVariable,
-                      value: newValue,
+                      value: [newValue],
                     });
                   }
                 } else {
@@ -824,7 +824,7 @@ Consider using Dyn(...) for dynamic dispatch if you need to reassign to differen
                   // Update only this variable
                   env = updateExistingVariable(env, variable, {
                     ...variable,
-                    value: newValue,
+                    value: [newValue],
                   });
                 }
               }
@@ -848,7 +848,7 @@ Consider using Dyn(...) for dynamic dispatch if you need to reassign to differen
                 // Update the variable in the environment
                 env = updateExistingVariable(env, variable, {
                   ...variable,
-                  value: newValue,
+                  value: [newValue],
                 });
               }
             }
@@ -881,7 +881,7 @@ Consider using Dyn(...) for dynamic dispatch if you need to reassign to differen
                   // Value semantics - only update the specific variable
                   env = updateExistingVariable(env, variable, {
                     ...variable,
-                    value: newValue,
+                    value: [newValue],
                   });
                 }
               }

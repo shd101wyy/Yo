@@ -463,7 +463,10 @@ export function evaluateIdentifierAndOperator({
       const variable = variables[variables.length - 1]!;
       if (!variable.initializedAtToken && throwErrorOnUndefined) {
         // Allow forward references for function types to support mutual recursion
-        if (!isFunctionType(variable.type) && !isTypeValue(variable.value)) {
+        if (
+          !isFunctionType(variable.type) &&
+          !isTypeValue(variable.value?.[0])
+        ) {
           throw formatErrorMessage({
             token: expr.token,
             errorMessage: `Variable "${identifier}" is not initialized`,
@@ -475,7 +478,7 @@ export function evaluateIdentifierAndOperator({
       expr.$ = {
         env,
         type: variable.type,
-        value: variable.value,
+        value: variable.value?.[0],
         originType: variable.type, // Set origin type for direct variable access
         variableName: variable.name,
         pathCollection: [[variable.name]],

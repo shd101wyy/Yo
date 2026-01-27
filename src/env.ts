@@ -65,8 +65,9 @@ export interface Variable {
   /**
    * If the `value` is not `undefined`, then it means the variable is compile-time known.
    * Otherwise, it is a runtime variable.
+   * Uses an array wrapper to enable mutable reference semantics for compile-time pointers.
    */
-  value?: Value;
+  value?: [Value];
 
   /**
    * Whether the variable is compile-time only or not.
@@ -548,7 +549,7 @@ export function getVariableInfo(variable: Variable) {
     name: variable.name,
     type: typeToString(variable.type),
     typeId: variable.type.id,
-    value: valueToString(variable.value),
+    value: valueToString(variable.value?.[0]),
     isCompileTimeOnly: variable.isCompileTimeOnly,
     isUndefined: !variable.initializedAtToken,
     isOwningTheRcValue: !!variable.isOwningTheRcValue,

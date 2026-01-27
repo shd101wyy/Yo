@@ -3,6 +3,7 @@ export enum ValueTag {
   ComptInt = "ComptInt",
   ComptFloat = "ComptFloat",
   ComptString = "ComptString",
+  Ptr = "Ptr",
   U8 = "U8",
   I8 = "I8",
   U16 = "U16",

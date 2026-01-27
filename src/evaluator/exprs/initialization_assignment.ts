@@ -311,7 +311,7 @@ ${exprToString(rhs)}`,
         name: lhs.token.value,
         type: finalLhsType,
         isCompileTimeOnly,
-        value: lhs.$.value,
+        value: lhs.$.value ? [lhs.$.value] : undefined,
         token: lhs.token,
         initializedAtToken: lhs.token,
         consumedAtToken: undefined, // Not consumed yet

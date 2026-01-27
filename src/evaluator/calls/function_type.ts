@@ -139,7 +139,7 @@ export function tryToImplementFunctionByFunctionType({
           name: forallParam.label,
           type: forallParam.type,
           isCompileTimeOnly: true,
-          value: createUnknownValue(forallParam.type, forallParam.label),
+          value: [createUnknownValue(forallParam.type, forallParam.label)],
           token: PlaceholderToken,
           initializedAtToken: PlaceholderToken,
           consumedAtToken: undefined,
@@ -163,7 +163,7 @@ export function tryToImplementFunctionByFunctionType({
           type: anonymousParam.type,
           isCompileTimeOnly: anonymousParam.isCompileTimeOnly,
           value: anonymousParam.isCompileTimeOnly
-            ? createUnknownValue(anonymousParam.type, expectedParamName)
+            ? [createUnknownValue(anonymousParam.type, expectedParamName)]
             : undefined,
           token: PlaceholderToken,
           initializedAtToken: PlaceholderToken,

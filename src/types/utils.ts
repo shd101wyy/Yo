@@ -94,8 +94,8 @@ export function getTraitTypeFromEnv(
     return undefined;
   }
   const variable = variables[variables.length - 1]!;
-  if (variable.value && isTypeValue(variable.value)) {
-    const typeValue = variable.value as TypeValue;
+  if (variable.value && isTypeValue(variable.value[0])) {
+    const typeValue = variable.value[0] as TypeValue;
     if (isTraitType(typeValue.value)) {
       return typeValue.value;
     }
@@ -358,7 +358,6 @@ export function determineTypeAvailability(
       break;
 
     // Runtime-only types
-    case TypeTag.Ptr:
     case TypeTag.Slice:
     case TypeTag.Iso:
     case TypeTag.Dyn:
@@ -406,6 +405,13 @@ export function determineTypeAvailability(
       break;
     case TypeTag.Tuple:
       availability = computeTupleTypeAvailability(type as TupleType);
+      break;
+    case TypeTag.Ptr:
+      // Pointer types: availability depends on child type
+      // If child type is comptime-only, pointer is comptime-only
+      // If child type is runtime-only, pointer is runtime-only
+      // If child type is both, pointer is both
+      availability = (type as PtrType).childType.availability;
       break;
     case TypeTag.Union:
       // Union types are runtime-only (as specified in the design)
@@ -1003,7 +1009,7 @@ export function getValueOfSomeTypeFromEnv(
     visited.add(someType);
 
     const variables = getVariablesFromEnv(env, someType.name, (variable) => {
-      return variable.value?.tag === ValueTag.Type;
+      return variable.value?.[0]?.tag === ValueTag.Type;
       // cannot use "isTypeValue" function here due to circular dependency
     });
     if (!variables.length) {
@@ -1012,7 +1018,7 @@ export function getValueOfSomeTypeFromEnv(
       return someType; // Return itself
     }
 
-    someTypeValue = variables[variables.length - 1]!.value as TypeValue;
+    someTypeValue = variables[variables.length - 1]!.value![0] as TypeValue;
 
     // If the resolved value is the same object as current someType, return it
     if (someTypeValue.value === someType) {

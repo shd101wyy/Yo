@@ -163,7 +163,7 @@ export function handleMemberDestructuring({
           env,
           variable: {
             name: field.label,
-            value: fieldValue,
+            value: fieldValue ? [fieldValue] : undefined,
             type: field.type,
             isCompileTimeOnly,
             token: lhsField.token,
@@ -348,7 +348,7 @@ export function handleMemberDestructuring({
           name: variableName,
           type: rhsField.type,
           isCompileTimeOnly: isCompileTimeOnly,
-          value: fieldValue,
+          value: fieldValue ? [fieldValue] : undefined,
           token: variableToken,
           initializedAtToken: variableToken,
           consumedAtToken: undefined, // Not consumed yet

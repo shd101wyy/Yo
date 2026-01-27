@@ -46,18 +46,18 @@ function createOptionType(
   // Look up the Option type constructor from environment
   const optionVariables = getVariablesFromEnv(env, "Option");
   const optionVariable = optionVariables.find(
-    (v) => v.value && isFunctionValue(v.value) && isFunctionType(v.type)
+    (v) => v.value?.[0] && isFunctionValue(v.value[0]) && isFunctionType(v.type)
   );
 
   if (
     !optionVariable ||
-    !optionVariable.value ||
-    !isFunctionValue(optionVariable.value)
+    !optionVariable.value?.[0] ||
+    !isFunctionValue(optionVariable.value[0])
   ) {
     throw new Error(`Cannot find Option type constructor in environment`);
   }
 
-  const optionFunctionValue = optionVariable.value;
+  const optionFunctionValue = optionVariable.value[0];
   const optionFunctionType = optionFunctionValue.type;
 
   // Option :: (fn(compt(V) : Type) -> compt(Type))
@@ -78,7 +78,7 @@ function createOptionType(
       isCompileTimeOnly: true,
       initializedAtToken: PlaceholderToken,
       consumedAtToken: undefined,
-      value: innerTypeValue,
+      value: [innerTypeValue],
       isOwningTheRcValue: false,
     },
   });

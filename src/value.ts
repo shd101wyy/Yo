@@ -31,6 +31,7 @@ import {
   isExprType,
   isTypeHierarchyType,
   ModuleType,
+  PtrType,
   StructType,
   TraitType,
   TupleType,
@@ -141,6 +142,22 @@ export type UnknownValue = {
   variableName?: string;
 };
 
+/**
+ * Compile-time pointer value that stores a reference to a value.
+ * Used for compile-time pointer operations like &(x) and y.*
+ * The targetValue array is shared with the source, enabling mutable reference semantics.
+ */
+export type PtrValue = {
+  tag: ValueTag.Ptr;
+  type: PtrType;
+  /**
+   * Reference to the value array being pointed to.
+   * This is the same array object as the source variable's value array,
+   * allowing mutations through the pointer to affect the original.
+   */
+  targetValue: [Value];
+};
+
 export type Value =
   | TypeValue
   | ComptStringValue
@@ -156,7 +173,8 @@ export type Value =
   | TraitValue
   | FunctionValue
   | ExprValue
-  | UnknownValue;
+  | UnknownValue
+  | PtrValue;
 
 /**
  * Convert a Value object to a human-readable string representation
@@ -288,6 +306,9 @@ export function valueToString(value?: Value): string {
       }
       return `<compt ${typeToString(value.type)}>`;
     }
+    case ValueTag.Ptr: {
+      return `<ptr to ${valueToString(value.targetValue[0])}>`;
+    }
     default: {
       throw new Error(`valueToString: Unsupported value`);
     }
@@ -376,6 +397,10 @@ export function isModuleValue(value?: Value): value is ModuleValue {
 
 export function isTraitValue(value?: Value): value is TraitValue {
   return value?.tag === ValueTag.Trait;
+}
+
+export function isPtrValue(value?: Value): value is PtrValue {
+  return value?.tag === ValueTag.Ptr;
 }
 
 export function isRegionValue(_value?: Value): boolean {
@@ -582,6 +607,14 @@ export function createExprValue(expr: Expr): ExprValue {
   };
 }
 
+export function createPtrValue(type: PtrType, targetValue: [Value]): PtrValue {
+  return {
+    tag: ValueTag.Ptr,
+    type,
+    targetValue,
+  };
+}
+
 export function areValuesEqual(
   expected: {
     value: Value | undefined;
@@ -774,8 +807,8 @@ export function areValuesEqual(
       const variables1 = getVariablesFromEnv(expected.env, value1.variableName);
       if (variables1.length > 0) {
         const variable1 = variables1[variables1.length - 1]!;
-        if (variable1.value && !isUnknownValue(variable1.value)) {
-          resolvedValue1 = variable1.value;
+        if (variable1.value && !isUnknownValue(variable1.value[0])) {
+          resolvedValue1 = variable1.value[0];
         }
       }
     }
@@ -784,8 +817,8 @@ export function areValuesEqual(
       const variables2 = getVariablesFromEnv(given.env, value2.variableName);
       if (variables2.length > 0) {
         const variable2 = variables2[variables2.length - 1]!;
-        if (variable2.value && !isUnknownValue(variable2.value)) {
-          resolvedValue2 = variable2.value;
+        if (variable2.value && !isUnknownValue(variable2.value[0])) {
+          resolvedValue2 = variable2.value[0];
         }
       }
     }
@@ -821,9 +854,9 @@ export function areValuesEqual(
       const variables1 = getVariablesFromEnv(expected.env, value1.variableName);
       if (variables1.length > 0) {
         const variable1 = variables1[variables1.length - 1]!;
-        if (variable1.value && !isUnknownValue(variable1.value)) {
+        if (variable1.value && !isUnknownValue(variable1.value[0])) {
           return areValuesEqual(
-            { value: variable1.value, env: expected.env },
+            { value: variable1.value[0], env: expected.env },
             { value: value2, env: given.env }
           );
         }
@@ -836,10 +869,10 @@ export function areValuesEqual(
       const variables2 = getVariablesFromEnv(given.env, value2.variableName);
       if (variables2.length > 0) {
         const variable2 = variables2[variables2.length - 1]!;
-        if (variable2.value && !isUnknownValue(variable2.value)) {
+        if (variable2.value && !isUnknownValue(variable2.value[0])) {
           return areValuesEqual(
             { value: value1, env: expected.env },
-            { value: variable2.value, env: given.env }
+            { value: variable2.value[0], env: given.env }
           );
         }
       }

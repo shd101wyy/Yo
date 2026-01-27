@@ -147,7 +147,7 @@ export function synthesizeTypes(
           env: given.env,
           variable: {
             name: given.type.name,
-            value: value,
+            value: [value],
             type: value.type,
             isCompileTimeOnly: true,
             token: PlaceholderToken,
@@ -160,7 +160,7 @@ export function synthesizeTypes(
       } else {
         given.env = updateExistingVariable(given.env, variable, {
           ...variable,
-          value,
+          value: [value],
         });
       }
     } else if (!isSomeType(givenBoundType)) {
@@ -176,7 +176,7 @@ export function synthesizeTypes(
           env: expected.env,
           variable: {
             name: expected.type.name,
-            value: value,
+            value: [value],
             type: value.type,
             isCompileTimeOnly: true,
             token: PlaceholderToken,
@@ -189,7 +189,7 @@ export function synthesizeTypes(
       } else {
         expected.env = updateExistingVariable(expected.env, variable, {
           ...variable,
-          value,
+          value: [value],
         });
       }
     } else if (expectedBoundType === givenBoundType) {
@@ -215,7 +215,7 @@ export function synthesizeTypes(
             env: expected.env,
             variable: {
               name: expected.type.name,
-              value: value,
+              value: [value],
               type: value.type,
               isCompileTimeOnly: true,
               token: PlaceholderToken,
@@ -228,7 +228,7 @@ export function synthesizeTypes(
         } else {
           expected.env = updateExistingVariable(expected.env, variable, {
             ...variable,
-            value,
+            value: [value],
           });
         }
       }
@@ -245,7 +245,7 @@ export function synthesizeTypes(
             env: given.env,
             variable: {
               name: given.type.name,
-              value: value,
+              value: [value],
               type: value.type,
               isCompileTimeOnly: true,
               token: PlaceholderToken,
@@ -258,7 +258,7 @@ export function synthesizeTypes(
         } else {
           given.env = updateExistingVariable(given.env, variable, {
             ...variable,
-            value,
+            value: [value],
           });
         }
       }
@@ -292,7 +292,7 @@ export function synthesizeTypes(
           env: expected.env,
           variable: {
             name: expected.type.name,
-            value: value,
+            value: [value],
             type: value.type,
             isCompileTimeOnly: true,
             token: PlaceholderToken, // FIXME: What should be `token` here?
@@ -306,7 +306,7 @@ export function synthesizeTypes(
         // Update existing
         expected.env = updateExistingVariable(expected.env, variable, {
           ...variable,
-          value,
+          value: [value],
         });
       }
     } else if (!isSomeType(type)) {
@@ -352,7 +352,7 @@ export function synthesizeTypes(
           env: given.env,
           variable: {
             name: given.type.name,
-            value: value,
+            value: [value],
             type: value.type,
             isCompileTimeOnly: true,
             token: PlaceholderToken,
@@ -366,7 +366,7 @@ export function synthesizeTypes(
         // Update existing
         given.env = updateExistingVariable(given.env, variable, {
           ...variable,
-          value,
+          value: [value],
         });
       }
     }
@@ -607,7 +607,7 @@ export function synthesizeTypes(
           env: expected.env,
           variable: {
             name: expectedLengthVariableName,
-            value: givenLength,
+            value: [givenLength],
             type: given.type.length.type,
             isCompileTimeOnly: true,
             token: PlaceholderToken, // FIXME: What should be `token` here?
@@ -621,7 +621,7 @@ export function synthesizeTypes(
         // Update existing
         expected.env = updateExistingVariable(expected.env, variable, {
           ...variable,
-          value: givenLength,
+          value: [givenLength],
         });
       }
     }

@@ -522,7 +522,7 @@ export function findMethodsFromGenericImpls({
                   name: paramName,
                   type: createType0(),
                   isCompileTimeOnly: true,
-                  value: createTypeValue(paramType),
+                  value: [createTypeValue(paramType)],
                   token: PlaceholderToken,
                   initializedAtToken: PlaceholderToken,
                   consumedAtToken: undefined,
@@ -540,7 +540,7 @@ export function findMethodsFromGenericImpls({
                   name: paramName,
                   type: paramValue.type,
                   isCompileTimeOnly: true,
-                  value: paramValue,
+                  value: [paramValue],
                   token: PlaceholderToken,
                   initializedAtToken: PlaceholderToken,
                   consumedAtToken: undefined,
@@ -580,7 +580,7 @@ export function findMethodsFromGenericImpls({
                       name: paramName,
                       type: createType0(),
                       isCompileTimeOnly: true,
-                      value: evaluatedArg.$.value,
+                      value: [evaluatedArg.$.value],
                       token: PlaceholderToken,
                       initializedAtToken: PlaceholderToken,
                       consumedAtToken: undefined,
@@ -672,7 +672,7 @@ export function findMethodsFromGenericImpls({
                   name: paramName,
                   type: createType0(),
                   isCompileTimeOnly: true,
-                  value: createTypeValue(paramType),
+                  value: [createTypeValue(paramType)],
                   token: PlaceholderToken,
                   initializedAtToken: PlaceholderToken,
                   consumedAtToken: undefined,
@@ -690,7 +690,7 @@ export function findMethodsFromGenericImpls({
                   name: paramName,
                   type: paramValue.type,
                   isCompileTimeOnly: true,
-                  value: paramValue,
+                  value: [paramValue],
                   token: PlaceholderToken,
                   initializedAtToken: PlaceholderToken,
                   consumedAtToken: undefined,
@@ -798,7 +798,7 @@ export function findMethodFromGenericImplForTrait({
                 name: paramName,
                 type: createType0(),
                 isCompileTimeOnly: true,
-                value: createTypeValue(paramType),
+                value: [createTypeValue(paramType)],
                 token: PlaceholderToken,
                 initializedAtToken: PlaceholderToken,
                 consumedAtToken: undefined,
@@ -816,7 +816,7 @@ export function findMethodFromGenericImplForTrait({
                 name: paramName,
                 type: paramValue.type,
                 isCompileTimeOnly: true,
-                value: paramValue,
+                value: [paramValue],
                 token: PlaceholderToken,
                 initializedAtToken: PlaceholderToken,
                 consumedAtToken: undefined,
@@ -951,7 +951,7 @@ function tryMatchGenericImpl({
           name: param.name,
           type: createType0(),
           isCompileTimeOnly: true,
-          value: createTypeValue(param.someType),
+          value: [createTypeValue(param.someType)],
           token: PlaceholderToken,
           initializedAtToken: PlaceholderToken,
           consumedAtToken: undefined,
@@ -968,7 +968,7 @@ function tryMatchGenericImpl({
           name: param.name,
           type: param.type,
           isCompileTimeOnly: true,
-          value: param.unknownValue,
+          value: [param.unknownValue],
           token: PlaceholderToken,
           initializedAtToken: PlaceholderToken,
           consumedAtToken: undefined,
@@ -1093,12 +1093,12 @@ function tryMatchGenericImpl({
         // Value parameter: extract the bound value from the environment
         const variables = getVariablesFromEnv(expectedEnv, param.name);
         const variable = variables[variables.length - 1];
-        if (variable && variable.value && !isUnknownValue(variable.value)) {
+        if (variable && variable.value && !isUnknownValue(variable.value[0])) {
           // IMPORTANT: Use the parameter's declared type, not the value's type
           // For example, if forall(U : usize) and the value is 3 (compt_int),
           // we should store it as 3 with type usize, not compt_int
           const valueWithCorrectType = {
-            ...variable.value,
+            ...variable.value[0],
             type: param.type,
           } as Value;
           valueSubstitutions.set(param.name, valueWithCorrectType);
@@ -1291,8 +1291,8 @@ function getValueOfSomeTypeFromEnvForGenericImpl(
     const frame = env.frames[i]!;
     for (const variable of frame.variables) {
       if (variable.name === someType.name && variable.value) {
-        if (isTypeValue(variable.value)) {
-          return variable.value.value;
+        if (isTypeValue(variable.value[0])) {
+          return variable.value[0].value;
         }
       }
     }
@@ -1739,7 +1739,7 @@ export function evaluateModuleValue({
           name: paramName,
           type: effectiveType,
           isCompileTimeOnly: true,
-          value: unknownOrTypeValue,
+          value: [unknownOrTypeValue],
           token: paramExpr.token,
           initializedAtToken: paramExpr.token,
           consumedAtToken: undefined,

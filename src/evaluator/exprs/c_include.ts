@@ -132,8 +132,9 @@ c_include "<stdio.h>" ...;`,
       variable: {
         name: field.label,
         type: field.type,
-        value:
+        value: [
           field.assignedValue ?? createUnknownValue(field.type, field.label),
+        ],
         isCompileTimeOnly: field.isCompileTimeOnly,
         token: field.exprs.expr.token,
         initializedAtToken: field.exprs.expr.token,

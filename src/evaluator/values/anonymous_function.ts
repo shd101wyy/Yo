@@ -198,7 +198,7 @@ Got:      "${paramName}"`,
         name: expectedParam.label,
         type: expectedParam.type,
         isCompileTimeOnly: expectedParam.isCompileTimeOnly,
-        value: createUnknownValue(expectedParam.type, expectedParam.label),
+        value: [createUnknownValue(expectedParam.type, expectedParam.label)],
         token: paramExpr?.token ?? PlaceholderToken,
         initializedAtToken: paramExpr?.token ?? PlaceholderToken,
         consumedAtToken: undefined,
@@ -255,7 +255,7 @@ Got:      "${paramName}"`,
         type: expectedParam.type,
         isCompileTimeOnly: expectedParam.isCompileTimeOnly,
         value: expectedParam.isCompileTimeOnly
-          ? createUnknownValue(expectedParam.type, expectedParam.label)
+          ? [createUnknownValue(expectedParam.type, expectedParam.label)]
           : undefined,
         token: paramExpr.token,
         initializedAtToken: paramExpr.token,

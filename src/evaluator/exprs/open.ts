@@ -68,7 +68,7 @@ export function evaluateOpen({
           name: field.label,
           type: field.type,
           isCompileTimeOnly: field.isCompileTimeOnly,
-          value: value,
+          value: [value],
           token: field.exprs.labelExpr?.token ?? field.exprs.expr.token,
           initializedAtToken:
             field.exprs.labelExpr?.token ?? field.exprs.expr.token,
@@ -98,7 +98,7 @@ export function evaluateOpen({
             name: field.label,
             type: field.type,
             isCompileTimeOnly: field.isCompileTimeOnly,
-            value: value,
+            value: value ? [value] : undefined,
             token: field.exprs.labelExpr?.token ?? field.exprs.expr.token,
             initializedAtToken:
               field.exprs.labelExpr?.token ?? field.exprs.expr.token,
