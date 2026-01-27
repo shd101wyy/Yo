@@ -518,6 +518,11 @@ export function computeStructTypeAvailability(
 ): TypeAvailability {
   const fields = structType.fields;
 
+  // `object` types are always runtime-only
+  if (structType.isReferenceSemantics) {
+    return RUNTIME_ONLY;
+  }
+
   // Empty struct can be used in both contexts
   if (fields.length === 0) {
     return BOTH_AVAILABLE;

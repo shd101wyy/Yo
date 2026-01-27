@@ -1,11 +1,7 @@
-// Test simple recur
-factorial :: (fn(x : i32) -> i32) {
-  compt_print("x = ", x);
-  return cond(
-    (x <= 0) => 1,
-    true => (x * recur((x - 1)))
-  );
-};
+MyBox :: object(v : i32);
+compt_assert(Type.impls(MyBox, Send) == false);
 
-result :: factorial(i32(3));
-compt_print("result = ", result);
+GenericPoint :: (fn(compt(T) : Type) -> compt(Type))(
+  struct(x : T, y : T)
+);
+compt_assert(Type.impls(GenericPoint(MyBox), Send) == false);

@@ -47,12 +47,15 @@ function parseAndEvaluateExprCode(
   // not continuing the evaluation of an outer function body
   // Set isValidatingFunctionDefinition=true to prevent full evaluation of function bodies
   // during recursive type construction (avoids infinite loops for recursive types)
+  // Clear forceCompileTimeBindings because the auto-generated RC functions (___drop, ___dup, etc.)
+  // contain runtime code that should not be treated as compile-time bindings
   const evaluatedExpr = evaluateExpression({
     expr,
     env,
     context: {
       ...context,
       SelfType: SelfType,
+      forceCompileTimeBindings: false,
     },
   });
 
