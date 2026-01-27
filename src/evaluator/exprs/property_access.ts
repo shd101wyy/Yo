@@ -187,7 +187,7 @@ export function evaluatePropertyAccess({
       }
 
       // Check for compile-time pointer dereference
-      const objectValue = objectExpr.$.value;
+      const objectValue = objectExpr.$?.value;
       if (isPtrValue(objectValue)) {
         // For compile-time pointers, get the value from the targetValue array
         const dereferencedValue = objectValue.targetValue[0];

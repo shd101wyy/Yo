@@ -373,10 +373,12 @@ Got:   ${valueToString(evaluatedArgExpr.$.value)}`,
   // console.log("(10) addVariableToEnv");
   let argValue = evaluatedArgExpr.$.value;
   // Only convert to runtime type if:
-  // 1. The parameter doesn't have compt modifier, AND
-  // 2. The parameter type is not comptime-only (e.g., compt_int, Type, etc.)
-  // This allows struct fields like `x : compt_int` (without compt modifier) to accept comptime values.
-  if (!parameter.isCompileTimeOnly && !isComptimeOnlyType(parameterType)) {
+  // 1. The parameter doesn't have compt modifier (it's a runtime parameter), AND
+  // 2. The argument type is comptime-only (e.g., compt_int, Type, etc.)
+  // This converts comptime-only argument types to their runtime equivalents.
+  // For types that can exist at both compile-time and runtime (like *(i32)),
+  // we keep the value intact which allows CTFE with pointers to work correctly.
+  if (!parameter.isCompileTimeOnly && isComptimeOnlyType(argType)) {
     argValue = undefined;
 
     // argType requires compt modifier
@@ -398,7 +400,6 @@ Got:   ${valueToString(evaluatedArgExpr.$.value)}`,
         )}`,
       });
     }
-    // }
   }
 
   const { env: nextEnv } = addVariableToEnv({
