@@ -2008,12 +2008,6 @@ export function setExprAsNeedsToCallDup(
     return;
   }
 
-  // Skip dup calls during function definition validation
-  // We're only validating types, not executing code, so RC operations are not needed
-  if (context.isValidatingFunctionDefinition) {
-    return;
-  }
-
   if (expr.$.value || !expr.$.variableName) {
     return; // DO NOT call dup on expression that evaluates to compile-time known value or doesn't have temp variable name, like __yo_rc_own.
   }
@@ -2040,6 +2034,7 @@ export function setExprAsNeedsToCallDup(
           const variable = variables[variables.length - 1]!;
           if (variable.isOwningTheRcValue) {
             // Set the variable as consumed so we won't need to drop it later
+            // This needs to happen even during validation
             if (!variable.consumedAtToken) {
               expr.$.env = updateExistingVariable(expr.$.env, variable, {
                 ...variable,
@@ -2050,6 +2045,12 @@ export function setExprAsNeedsToCallDup(
           }
         }
       }
+    }
+
+    // Skip creating dup calls during function definition validation
+    // We're only validating types, not executing code, so RC operations are not needed
+    if (context.isValidatingFunctionDefinition) {
+      return;
     }
 
     // Copy semantics: call dup to share ownership
