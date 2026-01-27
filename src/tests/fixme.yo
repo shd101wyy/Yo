@@ -1,14 +1,89 @@
-// @skip_prelude
-swap :: (fn(x : *(i32), y : *(i32)) -> unit) {
-  temp := x.*;
-  x.* = y.*;
-  y.* = temp;
+// Test 1: Basic swap function with compile-time pointers
+{
+  swap :: (fn(x : *(i32), y : *(i32)) -> unit) {
+    temp := x.*;
+    x.* = y.*;
+    y.* = temp;
+  };
+
+  a :: i32(1);
+  b :: i32(2);
+  swap(&(a), &(b));
+
+  compt_assert(a == 2); // Expected: 2
+  compt_assert(b == 1); // Expected: 1
 };
 
-a :: 1;
-b :: 2;
-swap(&(a), &(b));
+// Test 2: Basic pointer creation and dereference
+{
+  x :: i32(10);
+  p :: &(x);
+  compt_assert(p.* == 10); // Expected: 10
+};
 
-compt_print(a); // Expected to print 2.
-compt_print(b); // Expected to print 1.
-compt_print(&(a));
+// Test 3: Pointer assignment to dereferenced value
+{
+  y :: i32(20);
+  q :: &(y);
+  q.* = 30;
+  compt_assert(y == 30); // Expected: 30
+};
+
+// Test 4: Nested pointer operations
+{
+  n :: i32(100);
+  ptr1 :: &(n);
+  ptr1.* = (ptr1.* + 1);
+  compt_assert(n == 101); // Expected: 101
+};
+
+// Test 5: Function that reads through pointer
+{
+  read_ptr :: (fn(p : *(i32)) -> i32)({
+    return p.*;
+  });
+  val :: i32(42);  // Explicit cast to i32, so &(val) has type *(i32)
+
+  // These 2 lines work:
+  // read_val :: read_ptr(&(val));
+  // compt_assert(read_val == 42); // Expected: 42
+
+  // FIXME: The line below doesn't work:
+  compt_assert(read_ptr(&(val)) == i32(42));
+
+  // FIXME: The line below doesn't work:
+  // compt_assert(read_ptr(&(val)) == 42); // Expected: 42
+};
+
+// Test 6: Function that increments through pointer
+{
+  increment :: (fn(p : *(i32)) -> unit) {
+    p.* = (p.* + 1);
+  };
+  counter :: i32(0);
+  increment(&(counter));
+  increment(&(counter));
+  compt_assert(counter == 2); // Expected: 2
+};
+
+/*
+// Test 7: Should prevent assigning compile-time pointer to runtime variable
+// This should be an error:
+{
+  ct_val :: 5;
+  ct_ptr :: &(ct_val);
+  compt_expect_error(
+    rt_ptr := ct_ptr  // Should fail - can't assign compt pointer to runtime var
+  );
+};
+*/
+
+// TODO: Should we change SliceType to allow compt availability? Since Slice is essentially a fat pointer.
+// {
+//   x :: [1, 2, 3]; // compt(x) : [compt_int, 3];
+//   s :: x(1:3); // Slice of x from index 1 to 3
+//   s(0) = 16;
+//   compt_assert(x(0) == 1); // Expected: 1
+//   compt_assert(x(1) == 16); // Expected: 16
+//   compt_assert(x(2) == 3); // Expected: 3
+// };

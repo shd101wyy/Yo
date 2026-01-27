@@ -498,11 +498,13 @@ export function areTypesCompatible(
     //   return true; // *(void) is compatible with any pointer type
     // }
 
-    // Mut pointers must have the same type
+    // Pointers are INVARIANT in their child type.
+    // *(compt_int) is NOT compatible with *(i32), even though compt_int is compatible with i32.
+    // This is a strict design choice to prevent pointer type coercion issues.
     return areTypesCompatible(
       { type: expected.type.childType, env: expected.env },
       { type: given.type.childType, env: given.env },
-      requireExactMatch,
+      true, // Always require exact match for pointer child types
       visitedPairs
     );
   }
