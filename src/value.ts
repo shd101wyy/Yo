@@ -878,6 +878,9 @@ export function areValuesEqual(
       }
     }
     return false;
+  } else if (isPtrValue(value1) && isPtrValue(value2)) {
+    // Check if they are the same reference
+    return value1.targetValue[0] === value2.targetValue[0];
   } else {
     return false;
   }

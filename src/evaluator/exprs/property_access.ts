@@ -208,6 +208,24 @@ export function evaluatePropertyAccess({
         return expr;
       }
 
+      // Handle UnknownValue for CTFE - dereference returns an UnknownValue of the base type
+      if (isUnknownValue(objectValue)) {
+        const dereferencedValue = createUnknownValue(
+          baseType,
+          objectValue.variableName ? `${objectValue.variableName}.*` : undefined
+        );
+        expr.$ = {
+          env,
+          type: baseType,
+          value: dereferencedValue,
+          originType: pointerType,
+          isAccessingProperty: true,
+          pathCollection: [],
+        };
+        propertyExpr.$ = expr.$;
+        return expr;
+      }
+
       expr.$ = {
         env,
         type: baseType,

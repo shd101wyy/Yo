@@ -159,6 +159,8 @@ export function evaluateComptFunctionCall({
         functionReturnImplConcreteType: [], // Fresh array for each call
         // Propagate SelfType from function type if available
         SelfType: functionType.SelfType ?? context.SelfType,
+        // Force := to behave like :: during compile-time function evaluation
+        forceCompileTimeBindings: true,
       },
       variablesToAdd: [],
     });

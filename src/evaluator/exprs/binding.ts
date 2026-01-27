@@ -96,6 +96,8 @@ Use explicit length like 'Array(i32, 3)' or omit the type annotation and initial
     }
     lhs = lhs.args[0]!;
   }
+  isCompileTimeOnly =
+    isCompileTimeOnly || context.forceCompileTimeBindings === true;
 
   if (
     !isCompileTimeOnly &&

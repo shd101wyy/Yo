@@ -174,6 +174,16 @@ export interface EvaluatorContext {
     env: Environment;
     token: Token;
   }>;
+
+  /**
+   * When true, forces all variable bindings (including `:=`) to be compile-time only.
+   * This is used during CTFE (Compile-Time Function Evaluation) so that runtime-style
+   * variable declarations inside a function body are still evaluated at compile time.
+   *
+   * For example, in `temp := x.*;`, normally `temp` would be a runtime variable.
+   * But during CTFE with this flag set, `temp` becomes a compile-time variable.
+   */
+  forceCompileTimeBindings?: boolean;
 }
 
 /**

@@ -154,6 +154,7 @@ export function analyzeCtfeCapability(
       context: {
         ...context,
         isExecuting: true, // Mark as executing for CTFE
+        forceCompileTimeBindings: true, // Force `:=` to behave like `::` during CTFE
         isEvaluatingFunctionBodyOrAsyncBlock: {
           kind: "function-body",
           type: comptFunctionType,
@@ -178,7 +179,7 @@ export function analyzeCtfeCapability(
 
     // Clean up
     popEnvFrame(ctfeEnv, true);
-  } catch {
+  } catch (e) {
     // CTFE failed - the function cannot be evaluated at compile time
     // functionValueAtCompileTime remains undefined
   }

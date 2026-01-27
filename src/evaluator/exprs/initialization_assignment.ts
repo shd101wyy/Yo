@@ -58,7 +58,10 @@ export function evaluateInitializationAssignment({
       errorMessage: `Expected ":=" or "::" for initialization assignment.`,
     });
   }
-  const isCompileTimeOnly = exprIsFunctionCallOf(expr, "::");
+  // During CTFE (when forceCompileTimeBindings is true), treat `:=` as `::`
+  const isCompileTimeOnly =
+    exprIsFunctionCallOf(expr, "::") ||
+    context.forceCompileTimeBindings === true;
 
   if (
     !isCompileTimeOnly &&
