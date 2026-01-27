@@ -24,6 +24,7 @@ import {
   EvaluatorContext,
   FunctionEvaluationContext,
 } from "../context";
+import { analyzeCtfeCapability } from "../ctfe/ctfe-analysis";
 import { evaluateBeginExpression } from "../exprs/begin";
 import {
   buildPathCollectionFromCapturedVariables,
@@ -321,6 +322,9 @@ export function tryToImplementFunctionByFunctionType({
       closureToken: expr.token,
     });
   }
+
+  // Analyze CTFE capability
+  analyzeCtfeCapability(functionValue, finalCallerEnv, context);
 
   // Reset the cache
   // functionValue.calledComptFunctionCaches = [];
