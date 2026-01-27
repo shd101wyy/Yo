@@ -63,6 +63,11 @@ export function evaluateInitializationAssignment({
     exprIsFunctionCallOf(expr, "::") ||
     context.forceCompileTimeBindings === true;
 
+  // For type conversion purposes, only consider :: as compile-time.
+  // When using := with forceCompileTimeBindings, we evaluate at compile-time
+  // but still convert types (e.g., compt_int -> i32).
+  const shouldConvertToRuntimeType = !exprIsFunctionCallOf(expr, "::");
+
   if (
     !isCompileTimeOnly &&
     context.isEvaluatingFunctionBodyOrAsyncBlock?.kind === "function-body" &&
@@ -146,7 +151,7 @@ export function evaluateInitializationAssignment({
       // compt_float -> f64
       // etc...
       let lhsType = rhsType;
-      if (!isCompileTimeOnly) {
+      if (shouldConvertToRuntimeType) {
         lhsType = convertComptTypeToRuntimeType({
           type: rhsType,
           expectedType: undefined,

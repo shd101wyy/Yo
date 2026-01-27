@@ -1157,7 +1157,10 @@ test "Test 'while'", {
     };
 
     assert(sum_odd(10) == 25); // 1 + 3 + 5 + 7 + 9 = 25
+    
+    compt_result :: find_first_greater_than_five(10); // It should be compile-time evaluatable.
     assert(find_first_greater_than_five(20) == 6);
+
     assert(search_value(7, 10) == 7);
     assert(search_value(15, 10) == -1);
     assert(sum_with_step(10) == 27); // 1 + 2 + 4 + 5 + 7 + 8 = 27
@@ -1252,14 +1255,14 @@ test "Test control flows", {
 
   test_while_with_mixed_2 :: (fn() -> i32) {
     while some_condition(), {
-      a := cond
+      a := cond(
         some_condition() => break,
         some_condition() => {
           return 0;
         },
         some_condition() => true,
         true => continue
-      ;
+      );
     };
 
     0
