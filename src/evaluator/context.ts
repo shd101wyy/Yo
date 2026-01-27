@@ -193,6 +193,13 @@ export interface EvaluatorContext {
    * actually recursing, to avoid infinite loops during capability analysis.
    */
   isAnalyzingCtfeCapability?: boolean;
+
+  /**
+   * Call stack for compile-time execution.
+   * Each entry contains the token of the function call site and an optional function name.
+   * Used to provide better error messages (e.g., when panic is called).
+   */
+  callStack?: Array<{ token: Token; functionName?: string }>;
 }
 
 /**
