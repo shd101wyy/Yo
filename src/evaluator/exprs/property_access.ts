@@ -32,6 +32,7 @@ import {
   isEnumValue,
   isFunctionValue,
   isModuleValue,
+  isPtrValue,
   isStructValue,
   isTraitValue,
   isTupleValue,
@@ -183,6 +184,28 @@ export function evaluatePropertyAccess({
       // QUESTION: Is this correct? This fix is related to hash_set.yo
       if (isSomeType(baseType)) {
         baseType = getValueOfSomeTypeFromEnv(env, baseType);
+      }
+
+      // Check for compile-time pointer dereference
+      const objectValue = objectExpr.$.value;
+      if (isPtrValue(objectValue)) {
+        // For compile-time pointers, get the value from the targetValue array
+        const dereferencedValue = objectValue.targetValue[0];
+        expr.$ = {
+          env,
+          type: baseType,
+          value: dereferencedValue,
+          originType: pointerType,
+          isAccessingProperty: true,
+          pathCollection: [],
+          // Pass through the targetValue array so assignments can update it
+          sourceVariable: objectExpr.$.sourceVariable,
+        };
+        // Store a reference to the pointer's targetValue for compile-time assignment
+        (expr.$ as { ptrTargetValue?: [Value] }).ptrTargetValue =
+          objectValue.targetValue;
+        propertyExpr.$ = expr.$;
+        return expr;
       }
 
       expr.$ = {

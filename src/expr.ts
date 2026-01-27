@@ -301,6 +301,15 @@ export interface EvaluatedExprData {
    * This is only used for `test` function for generating test function code in `main` function.
    */
   originalExpr?: Expr;
+
+  /**
+   * For expressions that reference a variable (identifiers), this stores the
+   * Variable object itself. This is used for compile-time pointer creation
+   * where we need access to the variable's value array wrapper.
+   *
+   * Example: For `x` in `&(x)`, this would contain the Variable object for `x`.
+   */
+  sourceVariable?: Variable;
 }
 
 export type AtomExpr = {

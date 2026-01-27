@@ -482,6 +482,7 @@ export function evaluateIdentifierAndOperator({
         originType: variable.type, // Set origin type for direct variable access
         variableName: variable.name,
         pathCollection: [[variable.name]],
+        sourceVariable: variable,
       };
 
       // Check if the variable has been consumed (for linear types including closures)

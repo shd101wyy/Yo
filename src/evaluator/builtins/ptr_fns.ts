@@ -15,7 +15,7 @@ import {
   isComptStringType,
   isPtrType,
 } from "../../types";
-import { isTypeValue } from "../../value";
+import { createPtrValue, isTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 
@@ -102,12 +102,27 @@ export function evaluateAddressCall({
 
     const pointerType = createPtrType(argType);
 
-    expr.$ = {
-      env,
-      type: pointerType,
-      value: undefined, // reference is only available for runtime
-      pathCollection: evaluatedArgExpr.$.pathCollection,
-    };
+    // Check if we can create a compile-time pointer
+    // This requires the source expression to have a sourceVariable with a value array
+    const sourceVariable = evaluatedArgExpr.$.sourceVariable;
+    if (sourceVariable && sourceVariable.value) {
+      // Create a compile-time pointer value that shares the value array with the source variable
+      const ptrValue = createPtrValue(pointerType, sourceVariable.value);
+
+      expr.$ = {
+        env,
+        type: pointerType,
+        value: ptrValue,
+        pathCollection: evaluatedArgExpr.$.pathCollection,
+      };
+    } else {
+      expr.$ = {
+        env,
+        type: pointerType,
+        value: undefined, // reference is only available for runtime
+        pathCollection: evaluatedArgExpr.$.pathCollection,
+      };
+    }
     attachTempVariableToExpr(expr, false);
     return expr;
   }

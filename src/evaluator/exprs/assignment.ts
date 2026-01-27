@@ -55,6 +55,7 @@ import {
   isUnknownValue,
   StructValue,
   TupleValue,
+  Value,
 } from "../../value";
 import { EvaluatorContext, trackVariableUsage } from "../context";
 import { evaluateExpression } from "../exprs/expr";
@@ -889,6 +890,15 @@ Consider using Dyn(...) for dynamic dispatch if you need to reassign to differen
           }
         }
       }
+    }
+
+    // Handle compile-time pointer dereference assignment (y.* = value)
+    // Check if the LHS expression has a ptrTargetValue (set by property_access.ts)
+    const ptrTargetValue = (evaluatedLhs.$ as { ptrTargetValue?: [Value] })
+      .ptrTargetValue;
+    if (ptrTargetValue && rhs.$?.value) {
+      // Update the value in the shared array - this will propagate to the original variable
+      ptrTargetValue[0] = rhs.$.value;
     }
 
     // Attach the updated env to expr

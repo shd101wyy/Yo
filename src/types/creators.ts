@@ -897,7 +897,7 @@ export function createPtrType(childType: Type): PtrType {
     tag: TypeTag.Ptr,
     childType,
     trait,
-    availability: RUNTIME_ONLY,
+    availability: childType.availability,
   };
   trait.receiverType = ptrType;
 
