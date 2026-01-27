@@ -25,17 +25,7 @@ OpenFlags :: enum(
   Append    = 1024   // O_APPEND (0o2000)
 );
 
-// Combine two flags using bitwise OR
-impl(OpenFlags, BitOr(OpenFlags, i32)(
-  (|) : ((lhs, rhs) ->
-    (i32(lhs) | i32(rhs))
-  )
-));
-impl(OpenFlags, ComptBitOr(OpenFlags, i32)(
-  (|) : ((lhs, rhs) ->
-    (i32(lhs) | i32(rhs))
-  )
-));
+// i32 <=> OpenFlags conversions
 impl(OpenFlags, TryInto(i32)(
   Error : unit,
   try_into : ((self, _) -> .Ok(i32(self)))
@@ -55,6 +45,18 @@ impl(OpenFlags, TryFrom(i32)(
     )
   )
 ));
+// Combine two flags using bitwise OR
+impl(OpenFlags, BitOr(OpenFlags, OpenFlags)(
+  (|) : ((lhs, rhs) ->
+    OpenFlags.try_from(i32(lhs) | i32(rhs)).unwrap()
+  )
+));
+impl(OpenFlags, ComptBitOr(OpenFlags, OpenFlags)(
+  (|) : ((lhs, rhs) ->
+    (i32(lhs) | i32(rhs))
+  )
+));
+
 
 // Helper to combine multiple flags
 open_flags :: (fn(forall(U : usize), flags: [OpenFlags; U]) -> i32)({
@@ -67,13 +69,6 @@ open_flags :: (fn(forall(U : usize), flags: [OpenFlags; U]) -> i32)({
   };
   return result;
 });
-
-// Common flag combinations
-OPEN_READ :: i32(OpenFlags.Read);
-OPEN_WRITE :: (i32(OpenFlags.Write) | i32(OpenFlags.Create));
-OPEN_WRITE_TRUNCATE :: ((i32(OpenFlags.Write) | i32(OpenFlags.Create)) | i32(OpenFlags.Truncate));
-OPEN_APPEND :: ((i32(OpenFlags.Write) | i32(OpenFlags.Create)) | i32(OpenFlags.Append));
-OPEN_READ_WRITE :: i32(OpenFlags.ReadWrite);
 
 // ============================================================================
 // FileMode - Unix file permissions
@@ -502,11 +497,6 @@ export
   FileStat,
   OpenFlags,
   FileMode,
-  OPEN_READ,
-  OPEN_WRITE,
-  OPEN_WRITE_TRUNCATE,
-  OPEN_APPEND,
-  OPEN_READ_WRITE,
   MODE_644,
   MODE_755,
   MODE_600,

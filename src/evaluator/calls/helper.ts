@@ -382,7 +382,6 @@ Got:   ${valueToString(evaluatedArgExpr.$.value)}`,
     // argType requires compt modifier
     // but the parameter is not compt
     // we need to convert the argType to runtimeType
-    // if (typeRequiresComptModifier(argType)) {
     argType = convertComptTypeToRuntimeType({
       type: argType,
       expectedType: parameterType,

@@ -118,7 +118,7 @@ Use explicit length like 'Array(i32, 3)' or omit the type annotation and initial
   if (typeRequiresComptModifier(userDefinedType) && !isCompileTimeOnly) {
     throw formatErrorMessage({
       token: lhs.token,
-      errorMessage: `Expected "compt"  for compile-time known value binding:\n${typeToString(userDefinedType)}`,
+      errorMessage: `Expected "compt" for compile-time known value binding:\n${typeToString(userDefinedType)}`,
     });
   }
 
