@@ -28,6 +28,7 @@ import {
   ModuleField,
   ModuleType,
   PtrType,
+  SliceType,
   SomeType,
   StructType,
   TraitType,
@@ -358,7 +359,6 @@ export function determineTypeAvailability(
       break;
 
     // Runtime-only types
-    case TypeTag.Slice:
     case TypeTag.Iso:
     case TypeTag.Dyn:
     case TypeTag.Void:
@@ -402,6 +402,9 @@ export function determineTypeAvailability(
       break;
     case TypeTag.Array:
       availability = computeArrayTypeAvailability(type as ArrayType);
+      break;
+    case TypeTag.Slice:
+      availability = (type as SliceType).childType.availability;
       break;
     case TypeTag.Tuple:
       availability = computeTupleTypeAvailability(type as TupleType);

@@ -49,12 +49,13 @@ import {
 } from "../../types";
 import {
   areValuesEqual,
-  ArrayValue,
   createEnumValue,
   createStructValue,
   createTypeValue,
+  isArrayValue,
   isExprValue,
   isFunctionValue,
+  isSliceValue,
   isTupleValue,
   isTypeValue,
   Value,
@@ -999,10 +1000,14 @@ ${isTypeValue(value) ? typeToString(value.value) : typeToString(functionToCall.t
         isSliceType(functionToCall.type)
       ) {
         try {
+          const value = functionToCall.value;
+          const arrayValue = isArrayValue(value) ? value : undefined;
+          const sliceValue = isSliceValue(value) ? value : undefined;
           const result = tryToCallArrayWithArguments({
             expr,
             arrayType: functionToCall.type, // Array or Slice
-            arrayValue: functionToCall.value as ArrayValue | undefined,
+            arrayValue,
+            sliceValue,
             argExprs: argsToUse,
             callerEnv: env,
             context: { ...context },

@@ -11,6 +11,7 @@ import {
   ModuleValue,
   NumberValue,
   PtrValue,
+  SliceValue,
   StructValue,
   TraitValue,
   TupleValue,
@@ -117,6 +118,16 @@ export function cloneValue(value: Value): Value {
         ...arrayValue,
         elements: arrayValue.elements.map(cloneValue),
       } as ArrayValue;
+    }
+
+    case ValueTag.Slice: {
+      const sliceValue = value as SliceValue;
+      // Clone the source array and wrap in new tuple
+      const clonedArray = cloneValue(sliceValue.sourceArray[0]) as ArrayValue;
+      return {
+        ...sliceValue,
+        sourceArray: [clonedArray],
+      } as SliceValue;
     }
 
     case ValueTag.ComptList: {

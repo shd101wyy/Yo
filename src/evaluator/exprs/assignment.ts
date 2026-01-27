@@ -909,6 +909,14 @@ Consider using Dyn(...) for dynamic dispatch if you need to reassign to differen
       }
     }
 
+    // Handle compile-time array/slice element assignment (arr(0) = value or s(0) = value)
+    // Check if the LHS expression has an arrayElementRef (set by function.ts for array/slice indexing)
+    const arrayElementRef = evaluatedLhs.$.arrayElementRef;
+    if (arrayElementRef && rhs.$?.value) {
+      // Update the element in the source array directly
+      arrayElementRef.arrayValue.elements[arrayElementRef.index] = rhs.$.value;
+    }
+
     // Attach the updated env to expr
     expr.$ = {
       // NOTE: This should return the original value of lhs

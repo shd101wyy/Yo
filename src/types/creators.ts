@@ -689,7 +689,7 @@ export function createSliceType(childType: Type): SliceType {
     tag: TypeTag.Slice,
     childType,
     trait,
-    availability: RUNTIME_ONLY,
+    availability: childType.availability,
   };
   trait.receiverType = sliceType;
 
