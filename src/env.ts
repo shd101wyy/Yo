@@ -1,4 +1,5 @@
 import { formatErrorMessages } from "./error";
+import { cloneValue } from "./evaluator/values/clone_value";
 import { findMethodsFromGenericImpls } from "./evaluator/values/impl";
 import { Token } from "./token";
 import {
@@ -216,6 +217,45 @@ export function createNewEnv({
 export function createEmptyEnv(): Environment {
   const env = createNewEnv({ modulePath: "", inputString: "" });
   return pushEnvFrame(env);
+}
+
+/**
+ * Clone an environment with deep-cloned values.
+ * This is used during CTFE checking phase (overload resolution) to prevent
+ * pointer mutations from affecting the original environment.
+ *
+ * During function call evaluation, we call tryToCallFunctionWithArguments twice:
+ * 1. First with cloned expressions for overload resolution (checking phase)
+ * 2. Second with real expressions for actual evaluation
+ *
+ * If we share the same env, CTFE with pointer mutations will mutate the shared
+ * PtrValue.targetValue array twice, causing incorrect results.
+ */
+export function cloneEnvForCTFECheck(env: Environment): Environment {
+  // Clone variable with deep-cloned value
+  const cloneVariable = (variable: Variable): Variable => {
+    if (!variable.value) {
+      return { ...variable };
+    }
+    return {
+      ...variable,
+      value: [cloneValue(variable.value[0]!)],
+    };
+  };
+
+  // Clone frame with cloned variables
+  const cloneFrame = (frame: Frame): Frame => {
+    return {
+      ...frame,
+      variables: frame.variables.map(cloneVariable),
+    };
+  };
+
+  return {
+    ...env,
+    frames: env.frames.map(cloneFrame),
+    freeVariables: env.freeVariables.map(cloneVariable),
+  };
 }
 
 let _envContainingPrelude: Environment | null = null;

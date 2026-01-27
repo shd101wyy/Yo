@@ -1,4 +1,5 @@
 import {
+  cloneEnvForCTFECheck,
   Environment,
   getReceiverMethodsByNameFromEnv,
   getTypeTraitMethodsByNameFromEnv,
@@ -553,13 +554,15 @@ export function evaluateFunctionCall({
         // We will call tryToCallFunctionWithArguments again later with the original expr and argExprs when we actually call the function
         // We pass skipSpecialization: true to avoid polluting the specialization cache during this checking phase.
         // See docs/SPECIALIZATION_CACHE_PITFALL.md for details.
+        // We also clone the env to prevent CTFE pointer mutations from affecting
+        // the real environment (which would cause double mutations).
         const result = tryToCallFunctionWithArguments({
           functionValue: extractFunctionValue(functionToCall.value),
           functionType: functionToCall.type,
           expr: cloneExpr(expr),
           functionCalleeExpr: func,
           argExprs: argsToUse.map((arg) => cloneExpr(arg)),
-          callerEnv: env,
+          callerEnv: cloneEnvForCTFECheck(env),
           context,
           isMethodCall: Boolean(methodExpr),
           skipSpecialization: true,
@@ -605,13 +608,15 @@ export function evaluateFunctionCall({
         // We will call tryToCallFunctionWithArguments again later with the original expr and argExprs when we actually call the function
         // We pass skipSpecialization: true to avoid polluting the specialization cache during this checking phase.
         // See docs/SPECIALIZATION_CACHE_PITFALL.md for details.
+        // We also clone the env to prevent CTFE pointer mutations from affecting
+        // the real environment (which would cause double mutations).
         const result = tryToCallFunctionWithArguments({
           functionValue: extractFunctionValue(functionToCall.value),
           functionType: fnModuleType.isFn.callType,
           expr: cloneExpr(expr),
           functionCalleeExpr: func,
           argExprs: argsToUse.map((arg) => cloneExpr(arg)),
-          callerEnv: env,
+          callerEnv: cloneEnvForCTFECheck(env),
           context,
           isMethodCall: Boolean(methodExpr),
           skipSpecialization: true,

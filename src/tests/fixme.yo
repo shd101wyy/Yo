@@ -1,3 +1,33 @@
+// Test 1: Simple address-of and dereference
+{
+  val :: i32(42);
+  p :: &(val);
+  compt_assert(p.* == i32(42));
+};
+
+// Test 2: Pointer assignment
+{
+  val :: i32(10);
+  p :: &(val);
+  p.* = i32(20);
+  compt_assert(val == i32(20));
+};
+
+// Test 3: Multiple derefs
+{
+  val :: i32(5);
+  p1 :: &(val);
+  p2 :: &(p1);
+  compt_assert(p2.*.* == i32(5));
+};
+
+// Test 4: Another pointer value test
+{
+  val :: i32(100);
+  p :: &(val);
+  compt_assert(p.* == i32(100));
+};
+
 // Test 5: Function that reads through pointer
 {
   read_ptr :: (fn(p : *(i32)) -> i32)({
@@ -6,4 +36,18 @@
   val :: i32(42);
 
   compt_assert(read_ptr(&(val)) == i32(42));
+};
+
+// Test 6: Function that mutates through pointer
+{
+  increment :: (fn(p : *(i32)) -> unit)({
+    p.* = (p.* + i32(1));
+  });
+  counter :: i32(0);
+  
+  compt_assert(counter == i32(0));
+  
+  increment(&(counter));
+  
+  compt_assert(counter == i32(1));
 };
