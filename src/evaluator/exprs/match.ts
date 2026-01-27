@@ -882,17 +882,30 @@ Supported patterns:
         throw formatErrorMessage({
           token: expr.token,
           errorMessage: `Match expression is not exhaustive. Missing cases for variants:
-        
+
 - ${missingVariants.map((v) => v.name).join("\n- ")}`,
         });
       }
     }
 
-    // Merge and check all environments
-    env = mergeAndCheckEnvs(
-      env,
-      bodies.filter((body) => body.$ && body.$.controlFlow !== "return")
+    // When we have a compile-time known scrutinee (enum value), we KNOW exactly which branch was taken.
+    // Use the environment from that branch directly, not mergeAndCheckEnvs.
+    // mergeAndCheckEnvs is for runtime unknown conditions where we need to merge metadata.
+    // Using the branch's environment directly preserves compile-time values like updated variables.
+    const nonReturnBodies = bodies.filter(
+      (body) => body.$ && body.$.controlFlow !== "return"
     );
+    if (
+      isEnumValue(scrutineeValue) &&
+      nonReturnBodies.length === 1 &&
+      nonReturnBodies[0]!.$
+    ) {
+      // Compile-time known match with exactly one matching body
+      env = nonReturnBodies[0]!.$.env;
+    } else {
+      // Merge and check all environments for runtime or multiple bodies
+      env = mergeAndCheckEnvs(env, nonReturnBodies);
+    }
 
     // Set the type and value of the match expression
     expr.$ = {
@@ -1452,11 +1465,25 @@ Hint: Use "::" to define compile-time constants, e.g., "myConst :: 42"`,
       resultType = { type: VUnit.type, env: env };
     }
 
-    // Merge and check all environments
-    env = mergeAndCheckEnvs(
-      env,
-      bodies.filter((body) => body.$ && body.$.controlFlow !== "return")
+    // When we have a compile-time known scrutinee, we KNOW exactly which branch was taken.
+    // Use the environment from that branch directly, not mergeAndCheckEnvs.
+    // mergeAndCheckEnvs is for runtime unknown conditions where we need to merge metadata.
+    // Using the branch's environment directly preserves compile-time values like updated variables.
+    const nonReturnBodies = bodies.filter(
+      (body) => body.$ && body.$.controlFlow !== "return"
     );
+    if (
+      scrutineeValue !== undefined &&
+      !isUnknownValue(scrutineeValue) &&
+      nonReturnBodies.length === 1 &&
+      nonReturnBodies[0]!.$
+    ) {
+      // Compile-time known match with exactly one matching body
+      env = nonReturnBodies[0]!.$.env;
+    } else {
+      // Merge and check all environments for runtime or multiple bodies
+      env = mergeAndCheckEnvs(env, nonReturnBodies);
+    }
 
     // Set the type and value of the match expression
     expr.$ = {

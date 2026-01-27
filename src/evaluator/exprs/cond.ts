@@ -234,11 +234,11 @@ export function evaluateCond({
         env: evaluatedCaseBodyExpr.$.env,
       };
 
-      // Merge and check all environments
-      env = mergeAndCheckEnvs(
-        env,
-        bodies.filter((body) => body.$ && body.$.controlFlow !== "return")
-      );
+      // When we have a compile-time known true condition, we KNOW exactly which branch was taken.
+      // Use the environment from that branch directly, not mergeAndCheckEnvs.
+      // mergeAndCheckEnvs is for runtime unknown conditions where we need to merge metadata.
+      // Using the branch's environment directly preserves compile-time values like updated variables.
+      env = evaluatedCaseBodyExpr.$.env;
 
       // Determine the compile-time value
       let value: Value | undefined = undefined;

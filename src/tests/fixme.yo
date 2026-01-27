@@ -1,21 +1,27 @@
-main :: (fn() -> unit) {
-  // Test primitive type matching (integers)
-  classify_number :: (fn(n: i32) -> i32)
-    match(n,
-      0 => 0,
-      _ => 999
-    )
-  ;
-
-  {
-    result :: classify_number(0);
-    assert(result == 0);
+{
+  // Test 1: continue statement - skip even numbers
+  sum_odd :: (fn(max : i32) -> i32) {
+    result := i32(0);
+    i := i32(0);
+    while i < max, {
+      i = (i + 1);
+      cond(
+        ((i % 2) == 0) => continue, 
+        true => {
+          result = (result + i);
+        }
+      );
+    };
+    return result;
   };
 
-  {
-    result :: classify_number(-(1));
-    assert(result == 999);
-  };
+  // Test sum_odd(3) = 1 + 3 = 4
+  result1 :: sum_odd(3);
+  compt_print(result1);
+  compt_assert(result1 == 4);
+
+  // Test sum_odd(10) = 1 + 3 + 5 + 7 + 9 = 25
+  result2 :: sum_odd(10);
+  compt_print(result2);
+  compt_assert(result2 == 25);
 };
-
-export main;

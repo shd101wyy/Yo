@@ -379,7 +379,11 @@ Got:   ${valueToString(evaluatedArgExpr.$.value)}`,
   // For types that can exist at both compile-time and runtime (like *(i32)),
   // we keep the value intact which allows CTFE with pointers to work correctly.
   if (!parameter.isCompileTimeOnly && isComptimeOnlyType(argType)) {
-    argValue = undefined;
+    // During CTFE (forceCompileTimeBindings), preserve the value for compile-time evaluation.
+    // Only clear the value for normal runtime calls.
+    if (!context.forceCompileTimeBindings) {
+      argValue = undefined;
+    }
 
     // argType requires compt modifier
     // but the parameter is not compt
@@ -402,13 +406,18 @@ Got:   ${valueToString(evaluatedArgExpr.$.value)}`,
     }
   }
 
+  // During CTFE (forceCompileTimeBindings), treat parameters as compile-time only
+  // so their values are tracked through the function body.
+  const isParamCompileTimeOnly =
+    parameter.isCompileTimeOnly || context.forceCompileTimeBindings === true;
+
   const { env: nextEnv } = addVariableToEnv({
     env: calleeEnv,
     variable: {
       name: parameter.label,
       type: argType, // QUESTION: Should we use parameterType here or argType?
       // This might affect assigning Free type arg to Type parameter
-      isCompileTimeOnly: parameter.isCompileTimeOnly,
+      isCompileTimeOnly: isParamCompileTimeOnly,
       value: argValue ? [argValue] : undefined,
       token: argExpr?.token ?? PlaceholderToken,
       initializedAtToken: argExpr?.token ?? PlaceholderToken,
