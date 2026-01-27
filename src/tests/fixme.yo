@@ -1,88 +1,11 @@
-// Test 1: Simple address-of and dereference
-{
-  val :: i32(42);
-  p :: &(val);
-  compt_assert(p.* == i32(42));
+// Test simple recur
+factorial :: (fn(x : i32) -> i32) {
+  compt_print("x = ", x);
+  return cond(
+    (x <= 0) => 1,
+    true => (x * recur((x - 1)))
+  );
 };
 
-// Test 2: Pointer assignment
-{
-  val :: i32(10);
-  p :: &(val);
-  p.* = i32(20);
-  compt_assert(val == i32(20));
-};
-
-// Test 3: Multiple derefs
-{
-  val :: i32(5);
-  p1 :: &(val);
-  p2 :: &(p1);
-  compt_assert(p2.*.* == i32(5));
-};
-
-// Test 4: Another pointer value test
-{
-  val :: i32(100);
-  p :: &(val);
-  compt_assert(p.* == i32(100));
-};
-
-// Test 5: Function that reads through pointer
-{
-  read_ptr :: (fn(p : *(i32)) -> i32)({
-    return p.*;
-  });
-  val :: i32(42);
-
-  compt_assert(read_ptr(&(val)) == i32(42));
-};
-
-// Test 6: Function that mutates through pointer
-{
-  increment :: (fn(p : *(i32)) -> unit)({
-    p.* = (p.* + i32(1));
-  });
-  counter :: i32(0);
-  
-  compt_assert(counter == i32(0));
-  
-  increment(&(counter));
-  compt_assert(counter == i32(1));
-
-  increment(&(counter));
-  compt_assert(counter == i32(2));
-};
-
-// Test 7: Test pointer to Array value
-{
-  arr :: [i32(0), i32(1), i32(2)];
-  p :: &(arr(0));
-  p.* = 16;
-  
-  p2 :: &(arr(1));
-  p2.* = 18;
-
-  compt_assert(arr(0) == i32(16));
-  compt_assert(arr(1) == i32(18));
-  compt_assert(arr(2) == i32(2));
-};
-
-// Test 8: Test Slice
-{
-  arr :: [i32(0), i32(1), i32(2), i32(3), i32(4)];
-  s :: arr(1:4); // Slice of arr from index 1 to 3
-  s(0) = 10; // Modify first element of slice
-  s(2) = 30; // Modify last element of slice
-  compt_assert(arr(0) == i32(0));
-  compt_assert(arr(1) == i32(10));
-  compt_assert(arr(2) == i32(2));
-  compt_assert(arr(3) == i32(30));
-  compt_assert(arr(4) == i32(4));
-
-  s2 :: s(0:2); // Slice of slice s from index 0 to 1
-  s2(1) = 20; // Modify second element of slice s2
-  compt_assert(arr(1) == i32(10));
-  compt_assert(arr(2) == i32(20));
-  compt_assert(arr(3) == i32(30));
-};
+result :: factorial(i32(3));
+compt_print("result = ", result);

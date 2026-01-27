@@ -557,6 +557,7 @@ export function evaluateFunctionCall({
         // See docs/SPECIALIZATION_CACHE_PITFALL.md for details.
         // We also clone the env to prevent CTFE pointer mutations from affecting
         // the real environment (which would cause double mutations).
+        // We pass skipCtfeExecution: true to avoid executing CTFE functions during checking.
         const result = tryToCallFunctionWithArguments({
           functionValue: extractFunctionValue(functionToCall.value),
           functionType: functionToCall.type,
@@ -567,6 +568,7 @@ export function evaluateFunctionCall({
           context,
           isMethodCall: Boolean(methodExpr),
           skipSpecialization: true,
+          skipCtfeExecution: true,
         });
         return {
           ...functionToCall,
@@ -611,6 +613,7 @@ export function evaluateFunctionCall({
         // See docs/SPECIALIZATION_CACHE_PITFALL.md for details.
         // We also clone the env to prevent CTFE pointer mutations from affecting
         // the real environment (which would cause double mutations).
+        // We pass skipCtfeExecution: true to avoid executing CTFE functions during checking.
         const result = tryToCallFunctionWithArguments({
           functionValue: extractFunctionValue(functionToCall.value),
           functionType: fnModuleType.isFn.callType,
@@ -621,6 +624,7 @@ export function evaluateFunctionCall({
           context,
           isMethodCall: Boolean(methodExpr),
           skipSpecialization: true,
+          skipCtfeExecution: true,
         });
         return {
           ...functionToCall,

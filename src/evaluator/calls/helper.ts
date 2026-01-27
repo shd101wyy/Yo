@@ -508,6 +508,7 @@ export function tryToCallFunctionWithArguments({
   context,
   isMethodCall,
   skipSpecialization,
+  skipCtfeExecution,
 }: {
   functionValue?: FunctionValue;
   functionType: FunctionType;
@@ -524,6 +525,12 @@ export function tryToCallFunctionWithArguments({
    * See docs/SPECIALIZATION_CACHE_PITFALL.md for details.
    */
   skipSpecialization?: boolean;
+  /**
+   * If true, skip CTFE execution during the "checking phase".
+   * We only verify types match, but don't actually execute compile-time functions.
+   * This prevents double execution when checking and then calling.
+   */
+  skipCtfeExecution?: boolean;
 }): FunctionCallResult {
   if (functionValue) {
     // Use the specializedType if available (e.g., from generic impls)
@@ -1111,7 +1118,12 @@ Got:   ${typeToString(typeValue.type)}`,
   let returnValue: Value | undefined;
   /// Compile-time
   if (functionType.return.isCompileTimeOnly) {
-    if (isFunctionValue(functionValue)) {
+    // During the checking phase (skipCtfeExecution), we don't actually execute CTFE.
+    // We just verify types match and return an UnknownValue.
+    // This prevents double execution when checking and then calling.
+    if (skipCtfeExecution) {
+      returnValue = createUnknownValue(returnType, functionType.return.label);
+    } else if (isFunctionValue(functionValue)) {
       const {
         value: nextReturnValue,
         callerEnv: nextCallerEnv,

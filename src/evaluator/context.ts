@@ -184,6 +184,15 @@ export interface EvaluatorContext {
    * But during CTFE with this flag set, `temp` becomes a compile-time variable.
    */
   forceCompileTimeBindings?: boolean;
+
+  /**
+   * Whether we are currently analyzing CTFE capability (with UnknownValue parameters).
+   * This is different from forceCompileTimeBindings which is also used during actual CTFE execution.
+   *
+   * When true, `recur` calls should short-circuit and return an UnknownValue instead of
+   * actually recursing, to avoid infinite loops during capability analysis.
+   */
+  isAnalyzingCtfeCapability?: boolean;
 }
 
 /**

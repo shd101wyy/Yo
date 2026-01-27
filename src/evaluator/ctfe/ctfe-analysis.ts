@@ -155,6 +155,7 @@ export function analyzeCtfeCapability(
         ...context,
         isExecuting: true, // Mark as executing for CTFE
         forceCompileTimeBindings: true, // Force `:=` to behave like `::` during CTFE
+        isAnalyzingCtfeCapability: true, // We're analyzing, not executing - short-circuit recur
         isEvaluatingFunctionBodyOrAsyncBlock: {
           kind: "function-body",
           type: comptFunctionType,
