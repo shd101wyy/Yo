@@ -43,6 +43,7 @@ import {
   areValuesEqual,
   createUnknownValue,
   isEnumValue,
+  isUnknownValue,
   Value,
   valueToString,
 } from "../../value";
@@ -371,8 +372,9 @@ export function evaluateMatch({
         env: poppedEnv,
       };
 
-      // If scrutinee is a runtime value, unset the body's compile-time value
+      // If scrutinee is a runtime value (undefined), unset the body's compile-time value
       // to force codegen to generate all statements
+      // Note: UnknownValue means compile-time but unknown concrete value, keep the body value
       if (scrutineeValue === undefined && evaluatedBody.$) {
         evaluatedBody.$.value = undefined;
       }
@@ -386,7 +388,11 @@ export function evaluateMatch({
         }
         // Check if we have a scrutinee value
         // If so, then this is the matched arm.
-        if (scrutineeValue && isEnumValue(scrutineeValue)) {
+        if (
+          scrutineeValue &&
+          !isUnknownValue(scrutineeValue) &&
+          isEnumValue(scrutineeValue)
+        ) {
           // If the scrutinee value is an enum value, we can return it directly
           expr.$ = {
             env: evaluatedBody.$.env,
@@ -736,8 +742,9 @@ export function evaluateMatch({
         env: poppedEnv,
       };
 
-      // If scrutinee is a runtime value, unset the body's compile-time value
+      // If scrutinee is a runtime value (undefined), unset the body's compile-time value
       // to force codegen to generate all statements
+      // Note: UnknownValue means compile-time but unknown concrete value, keep the body value
       if (scrutineeValue === undefined && evaluatedBody.$) {
         evaluatedBody.$.value = undefined;
       }
@@ -749,7 +756,11 @@ export function evaluateMatch({
         if (evaluatedBody.$.controlFlow === "return") {
           returnBodies.push(evaluatedBody);
         }
-        if (scrutineeValue && isEnumValue(scrutineeValue)) {
+        if (
+          scrutineeValue &&
+          !isUnknownValue(scrutineeValue) &&
+          isEnumValue(scrutineeValue)
+        ) {
           expr.$ = {
             env: evaluatedBody.$.env,
             type: context.expectedType?.type ?? evaluatedBody.$.type,
@@ -887,10 +898,10 @@ Supported patterns:
     expr.$ = {
       env,
       type: context.expectedType?.type ?? resultType.type,
-      // If scrutinee is a runtime value (scrutineeValue is undefined),
-      // the match expression result is also a runtime value.
-      // If scrutinee is a compile-time value, we might have evaluated a specific branch
-      // and can propagate that value.
+      // - undefined scrutinee = runtime value, result is undefined (runtime)
+      // - UnknownValue scrutinee = compile-time value of unknown concrete value,
+      //   result is UnknownValue (CTFE is possible)
+      // - Concrete scrutinee = should have already matched a branch above
       value:
         scrutineeValue === undefined
           ? undefined
@@ -1066,8 +1077,10 @@ function evaluatePrimitiveMatch({
         env: caseEnv,
         context: {
           ...context,
-          // For wildcard at compile-time, we're executing if we got here
-          isExecuting: scrutineeValue !== undefined,
+          // For wildcard at compile-time, we're executing if we have a concrete value
+          // UnknownValue means we don't know the concrete value
+          isExecuting:
+            scrutineeValue !== undefined && !isUnknownValue(scrutineeValue),
         },
         variablesToAdd: [],
       });
@@ -1088,7 +1101,8 @@ function evaluatePrimitiveMatch({
         env: poppedEnv,
       };
 
-      // If scrutinee is a runtime value, unset the body's compile-time value
+      // If scrutinee is a runtime value (undefined), unset the body's compile-time value
+      // Note: UnknownValue means compile-time but unknown concrete value, keep the body value
       if (scrutineeValue === undefined && evaluatedBody.$) {
         evaluatedBody.$.value = undefined;
       }
@@ -1099,7 +1113,7 @@ function evaluatePrimitiveMatch({
         if (evaluatedBody.$.controlFlow === "return") {
           returnBodies.push(evaluatedBody);
         }
-        if (scrutineeValue !== undefined) {
+        if (scrutineeValue !== undefined && !isUnknownValue(scrutineeValue)) {
           expr.$ = {
             env: evaluatedBody.$.env,
             type: context.expectedType?.type ?? evaluatedBody.$.type,
@@ -1107,7 +1121,7 @@ function evaluatePrimitiveMatch({
             pathCollection: evaluatedBody.$.pathCollection,
             controlFlow: evaluatedBody.$.controlFlow,
           };
-        } else {
+        } else if (scrutineeValue === undefined) {
           expr.$ = {
             env: evaluatedBody.$.env,
             type: context.expectedType?.type ?? evaluatedBody.$.type,
@@ -1116,6 +1130,8 @@ function evaluatePrimitiveMatch({
             controlFlow: evaluatedBody.$.controlFlow,
           };
         }
+        // else: scrutineeValue is UnknownValue, don't set expr.$ here
+        // let the final result handling set it with UnknownValue
       } else {
         hasCaseThatDoesntHaveControlFlowSet = true;
       }
@@ -1209,8 +1225,10 @@ Hint: Use "::" to define compile-time constants, e.g., "myConst :: 42"`,
     }
 
     // Check if any pattern matches the scrutinee at compile time
+    // Note: UnknownValue means we have a compile-time type but don't know the concrete value
+    // so we can't do compile-time pattern matching in that case
     let matchesAtCompileTime = false;
-    if (scrutineeValue !== undefined) {
+    if (scrutineeValue !== undefined && !isUnknownValue(scrutineeValue)) {
       for (const { value, expr: patternExpr } of patternValues) {
         if (
           areValuesEqual(
@@ -1266,6 +1284,7 @@ Hint: Use "::" to define compile-time constants, e.g., "myConst :: 42"`,
     };
 
     // If scrutinee is a runtime value, unset the body's compile-time value
+    // Note: UnknownValue means compile-time but unknown concrete value, keep the body value
     if (scrutineeValue === undefined && evaluatedBody.$) {
       evaluatedBody.$.value = undefined;
     }
@@ -1284,6 +1303,8 @@ Hint: Use "::" to define compile-time constants, e.g., "myConst :: 42"`,
           pathCollection: evaluatedBody.$.pathCollection,
           controlFlow: evaluatedBody.$.controlFlow,
         };
+        // Early return when we have a compile-time match with control flow
+        return expr;
       } else if (scrutineeValue === undefined) {
         expr.$ = {
           env: evaluatedBody.$.env,
@@ -1295,6 +1316,23 @@ Hint: Use "::" to define compile-time constants, e.g., "myConst :: 42"`,
       }
     } else {
       hasCaseThatDoesntHaveControlFlowSet = true;
+
+      // When we have a compile-time match without control flow, return early with the matched value
+      if (
+        scrutineeValue !== undefined &&
+        !isUnknownValue(scrutineeValue) &&
+        matchesAtCompileTime
+      ) {
+        expr.$ = {
+          env: evaluatedBody.$.env,
+          type: context.expectedType?.type ?? evaluatedBody.$.type,
+          value: evaluatedBody.$.value,
+          pathCollection: evaluatedBody.$.pathCollection,
+          isPrimitiveMatch: true,
+        };
+        attachTempVariableToExpr(expr, true);
+        return expr;
+      }
     }
 
     caseEnv = evaluatedBody.$.env;
@@ -1404,6 +1442,10 @@ Hint: Use "::" to define compile-time constants, e.g., "myConst :: 42"`,
     expr.$ = {
       env,
       type: context.expectedType?.type ?? resultType.type,
+      // - undefined scrutinee = runtime value, result is undefined (runtime)
+      // - UnknownValue scrutinee = compile-time value of unknown concrete value,
+      //   result is UnknownValue (CTFE is possible)
+      // - Concrete scrutinee = should have already matched a branch above
       value:
         scrutineeValue === undefined
           ? undefined

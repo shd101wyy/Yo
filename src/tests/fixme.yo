@@ -1,13 +1,37 @@
-main :: (fn() -> unit) {
-  {
-    expect_val :: (fn(x : i32) -> unit) {
-      assert(i32(x) == i32(5));
-    };
-    expect_val(5);
+// @skip_prelude
+assert :: (fn(flag : bool, (compt(msg) : compt_string) ?= "Assertion failed.") -> unit)
+  cond(
+    flag => (),
+    true => panic(msg)
+  )
+;
 
-    // extra line for testing C codegen
-    x := 666;
-  };
+main :: (fn() -> unit) {
+  classify_sign :: (fn(n: bool) -> bool)
+    match(n,
+      true => true,
+      _ => false
+    )
+  ;
+  /*
+  classify_sign :: (fn(n : bool) -> bool)(
+    cond(
+      n => true, 
+      true => false
+    )
+  );
+  */
+  
+  // FIXME:
+  // flag := classify_sign(true);
+  // assert(flag);
+
+  // FIXME:
+  flag :: classify_sign(true);
+  assert(flag);
+
+  // FIXME:
+  // assert(classify_sign(true));
 };
 
 export main;

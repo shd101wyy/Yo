@@ -23,7 +23,12 @@ import {
   typeImplementsFn,
   typeImplementsFuture,
 } from "../../types";
-import { isFunctionValue, isNumberValue, isTypeValue } from "../../value";
+import {
+  isFunctionValue,
+  isNumberValue,
+  isTypeValue,
+  isUnknownValue,
+} from "../../value";
 import { BuiltinYoInlineFunctions } from "../constants";
 import { FunctionGenerationContext } from "../functions/context";
 import {
@@ -39,6 +44,7 @@ import {
   sanitizeForCIdentifier,
 } from "../utils";
 import { checkVariableIsClosureCaptured } from "./closures";
+import { generateComptValue } from "./compt_value";
 import {
   generateDeferredDropExpressions,
   generateDeferredDupExpressions,
@@ -58,6 +64,21 @@ export function generateOtherFunctionCall(
   indent: string,
   context: CodeGenContext
 ): string | undefined {
+  // If the expression has a compile-time value (not UnknownValue), generate it directly.
+  // This handles CTFE functions, compile-time evaluated calls like `assert(true)`, etc.
+  if (expr.$?.value !== undefined && !isUnknownValue(expr.$.value)) {
+    // Handle deferred drop expressions if they exist
+    if (expr.$?.deferredDropExpressions) {
+      generateDeferredDropExpressions(expr, indent, context);
+    }
+    // For unit type, no code needed
+    if (isUnitType(expr.$.type)) {
+      return "";
+    }
+    // For non-unit types, generate the compile-time value
+    return generateComptValue(expr.$.value, context, expr);
+  }
+
   const functionType = expr.func.$?.type;
   const functionValue = expr.func.$?.value;
 
@@ -331,19 +352,6 @@ export function generateOtherFunctionCall(
         // Get new function type, which might be specialized.
         const functionType =
           functionValue.specializedType ?? functionValue.type;
-
-        // Skip CTFE (compile-time function evaluation) calls.
-        // These functions have isCompileTimeOnly return type and their results
-        // are computed at compile time. No runtime code should be generated.
-        if (functionValue.type.return.isCompileTimeOnly) {
-          // Handle deferred drop expressions if they exist
-          if (expr.$?.deferredDropExpressions) {
-            generateDeferredDropExpressions(expr, indent, context);
-          }
-          // For unit return type, just return empty string (no code needed)
-          // For non-unit types, the compile-time value should already be inlined by the evaluator
-          return "";
-        }
 
         // Normal function call
         const cFuncName = context.functions[functionValue.funcId]?.cName;
