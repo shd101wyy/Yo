@@ -1,13 +1,9 @@
-ret_i32 :: (fn(a : i32) -> i32) {
-  return a;
-};
+factorial :: (fn(x : i32) -> i32)(
+  cond(
+    (x <= 0) => 1,
+    true => (x * recur(x - 1))
+  )
+);
 
-x :: ret_i32(5); // This should work - CTFE enabled!
-compt_print(x);
+x :: factorial(12);
 
-add :: (fn(a : i32, b : i32) -> i32) {
-  return (a + b);
-};
-
-y :: add(3, 4); // This should work - CTFE enabled!
-compt_print(y);

@@ -131,6 +131,22 @@ export function analyzeCtfeCapability(
       ctfeEnv = nextEnv;
     }
 
+    // Create the compile-time FunctionValue BEFORE evaluating the body
+    // This is necessary so that `recur` calls inside the body can reference
+    // the compile-time version (which has compile-time return type)
+    const comptFunctionValue: FunctionValue = {
+      tag: ValueTag.Function,
+      type: comptFunctionType,
+      body: clonedBody, // Will be updated after evaluation
+      frameLevel: functionValue.frameLevel,
+      funcName: functionValue.funcName
+        ? `${functionValue.funcName}_compt`
+        : undefined,
+      funcId: `${functionValue.funcId}_compt`,
+      calledComptFunctionCaches: [],
+      specializedFunctionCaches: [],
+    };
+
     // Try to evaluate the body
     const evaluatedBody = evaluateBeginExpression({
       expr: clonedBody,
@@ -141,7 +157,7 @@ export function analyzeCtfeCapability(
         isEvaluatingFunctionBodyOrAsyncBlock: {
           kind: "function-body",
           type: comptFunctionType,
-          value: functionValue,
+          value: comptFunctionValue, // Use the compile-time function value for recur
           evaluationEnv: ctfeEnv,
         },
         expectedType: {
@@ -155,19 +171,8 @@ export function analyzeCtfeCapability(
 
     // Check if the result is a compile-time value
     if (evaluatedBody.$?.value !== undefined) {
-      // CTFE succeeded - create the compile-time FunctionValue
-      const comptFunctionValue: FunctionValue = {
-        tag: ValueTag.Function,
-        type: comptFunctionType,
-        body: evaluatedBody,
-        frameLevel: functionValue.frameLevel,
-        funcName: functionValue.funcName
-          ? `${functionValue.funcName}_compt`
-          : undefined,
-        funcId: `${functionValue.funcId}_compt`,
-        calledComptFunctionCaches: [],
-        specializedFunctionCaches: [],
-      };
+      // CTFE succeeded - update the body and store it
+      comptFunctionValue.body = evaluatedBody;
       functionValue.functionValueAtCompileTime = comptFunctionValue;
     }
 
