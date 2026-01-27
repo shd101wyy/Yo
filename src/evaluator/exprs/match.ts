@@ -1134,6 +1134,26 @@ function evaluatePrimitiveMatch({
         // let the final result handling set it with UnknownValue
       } else {
         hasCaseThatDoesntHaveControlFlowSet = true;
+
+        // If we have a concrete compile-time value for scrutinee (not UnknownValue),
+        // wildcard always matches, so return early with the body value
+        if (scrutineeValue !== undefined && !isUnknownValue(scrutineeValue)) {
+          // Merge and check all environments
+          env = mergeAndCheckEnvs(
+            env,
+            bodies.filter((body) => body.$ && body.$.controlFlow !== "return")
+          );
+
+          expr.$ = {
+            env,
+            type: context.expectedType?.type ?? evaluatedBody.$.type,
+            value: evaluatedBody.$.value,
+            pathCollection: [],
+            isPrimitiveMatch: true,
+          };
+          attachTempVariableToExpr(expr, true);
+          return expr;
+        }
       }
 
       caseEnv = evaluatedBody.$.env;

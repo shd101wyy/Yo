@@ -1,37 +1,21 @@
-// @skip_prelude
-assert :: (fn(flag : bool, (compt(msg) : compt_string) ?= "Assertion failed.") -> unit)
-  cond(
-    flag => (),
-    true => panic(msg)
-  )
-;
-
 main :: (fn() -> unit) {
-  classify_sign :: (fn(n: bool) -> bool)
+  // Test primitive type matching (integers)
+  classify_number :: (fn(n: i32) -> i32)
     match(n,
-      true => true,
-      _ => false
+      0 => 0,
+      _ => 999
     )
   ;
-  /*
-  classify_sign :: (fn(n : bool) -> bool)(
-    cond(
-      n => true, 
-      true => false
-    )
-  );
-  */
-  
-  // FIXME:
-  // flag := classify_sign(true);
-  // assert(flag);
 
-  // FIXME:
-  flag :: classify_sign(true);
-  assert(flag);
+  {
+    result :: classify_number(0);
+    assert(result == 0);
+  };
 
-  // FIXME:
-  // assert(classify_sign(true));
+  {
+    result :: classify_number(-(1));
+    assert(result == 999);
+  };
 };
 
 export main;
