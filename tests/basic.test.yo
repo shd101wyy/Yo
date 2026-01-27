@@ -1764,9 +1764,9 @@ test "Test type availability", {
 
   {
     compt_expect_error(
-      Point3 :: struct(x : compt_int, y : *(i32)) // Error: incompatible field contexts
+      Point3 :: struct(x : compt_int, y : Box(i32)) // Error: incompatible field contexts
                                                   // compt_int can only be used in compile-time context,
-                                                  // pointer can only be used in run-time context.
+                                                  // Box `object` can only be used in run-time context.
                                                   // There is no intersection between the two contexts.
     );
   };
@@ -1837,7 +1837,7 @@ test "Test type availability", {
     compt_expect_error(
       MixedResult :: enum(
         Ok(value : compt_int),
-        Err(ptr : *(i32))
+        Err(ptr : Box(i32))
       ) // Error: incompatible variant field contexts
     );
   };

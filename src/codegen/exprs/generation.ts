@@ -375,6 +375,10 @@ function generateFuncCall(
   else if (exprIsFunctionCallOf(expr, BuiltinKeywords.recur)) {
     return generateRecur(expr, indent, context);
   }
+  // runtime - just generate the inner expression (conversion happens at evaluation time)
+  else if (exprIsFunctionCallOf(expr, BuiltinKeywords.runtime, 1)) {
+    return generateExpr(expr.args[0]!, indent, context);
+  }
   // sizeof
   else if (exprIsFunctionCallOf(expr, BuiltinFunctions.sizeof, 1)) {
     return generateSizeOf(expr, indent, context);
