@@ -1,24 +1,13 @@
-some_condition :: (fn() -> bool)(
-  runtime(true)
-);
-
-test_while_with_mixed_2 :: (fn() -> i32) {
-  while some_condition(), {
-    a := cond(
-      some_condition() => break,
-      some_condition() => {
-        return 0;
-      },
-      some_condition() => true,
-      true => continue
-    );
-  };
-
-  0
-};
-
 main :: (fn() -> unit) {
-  assert(test_while_with_mixed_2() == 0);
+  {
+    expect_val :: (fn(x : i32) -> unit) {
+      assert(i32(x) == i32(5));
+    };
+    expect_val(5);
+
+    // extra line for testing C codegen
+    x := 666;
+  };
 };
 
 export main;

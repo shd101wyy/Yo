@@ -210,6 +210,13 @@ export function findFunctionCallsInExpr(
 
     if (isFunctionType(functionType)) {
       if (isFunctionValue(functionValue)) {
+        // Skip collecting CTFE (compile-time function evaluation) functions.
+        // These are functions whose return type is isCompileTimeOnly, meaning
+        // their results are computed at compile time and shouldn't generate runtime code.
+        if (functionValue.type.return.isCompileTimeOnly) {
+          return;
+        }
+
         // Skip collecting functions that are generic and haven't been specialized.
         // A function is generic if it has forallParameters or compile-time only parameters.
         // Note: typeContainsSomeType is too broad - it would skip functions with Impl(Module)

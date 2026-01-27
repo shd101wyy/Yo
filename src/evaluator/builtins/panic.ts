@@ -23,6 +23,15 @@ export function evaluatePanic({
     });
   }
 
+  // During CTFE capability analysis, `panic` should fail the analysis
+  // This ensures functions containing `panic` cannot be evaluated at compile time
+  if (context.isAnalyzingCtfeCapability) {
+    throw formatErrorMessage({
+      token: expr.token,
+      errorMessage: `Cannot use "panic" during compile-time function evaluation analysis. Functions containing "panic" cannot be evaluated at compile time.`,
+    });
+  }
+
   // Get the return type from the function context
   const functionReturnType =
     context.isEvaluatingFunctionBodyOrAsyncBlock.type.return.type;

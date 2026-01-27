@@ -331,8 +331,23 @@ export function generateOtherFunctionCall(
         // Get new function type, which might be specialized.
         const functionType =
           functionValue.specializedType ?? functionValue.type;
+
+        // Skip CTFE (compile-time function evaluation) calls.
+        // These functions have isCompileTimeOnly return type and their results
+        // are computed at compile time. No runtime code should be generated.
+        if (functionValue.type.return.isCompileTimeOnly) {
+          // Handle deferred drop expressions if they exist
+          if (expr.$?.deferredDropExpressions) {
+            generateDeferredDropExpressions(expr, indent, context);
+          }
+          // For unit return type, just return empty string (no code needed)
+          // For non-unit types, the compile-time value should already be inlined by the evaluator
+          return "";
+        }
+
         // Normal function call
         const cFuncName = context.functions[functionValue.funcId]?.cName;
+
         if (cFuncName) {
           // Generate function call
           if (isUnitType(functionType.return.type)) {
