@@ -212,7 +212,10 @@ export function evaluateInitializationAssignment({
       throw formatErrorMessage({
         token: expr.token,
         errorMessage: `Expected "::" instead of ":=" for compile-time known value assignment:
-${exprToString(expr)}`,
+${exprToString(expr)}
+
+Type:
+${typeToString(lhs.$.type)}`,
       });
     }
     if (isCompileTimeOnly && typeProhibitsComptModifier(lhs.$.type)) {
