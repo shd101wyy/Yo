@@ -616,6 +616,13 @@ export function evaluateMatch({
 
             const field = variant.fields[fieldIndex]!;
 
+            // Extract compile-time field value if scrutinee is a compile-time enum value
+            const isComptScrutinee =
+              isEnumValue(scrutineeValue) && !isUnknownValue(scrutineeValue);
+            const fieldValue = isComptScrutinee
+              ? scrutineeValue.fields[fieldIndex]
+              : undefined;
+
             // Handle the variable part (could be identifier or _)
             if (exprIsAtom(variableExpr)) {
               const variableName = variableExpr.token.value;
@@ -627,8 +634,8 @@ export function evaluateMatch({
                   variable: {
                     name: variableName,
                     type: field.type,
-                    isCompileTimeOnly: false,
-                    value: undefined,
+                    isCompileTimeOnly: isComptScrutinee,
+                    value: fieldValue !== undefined ? [fieldValue] : undefined,
                     token: variableExpr.token,
                     initializedAtToken: variableExpr.token,
                     consumedAtToken: undefined,
@@ -664,6 +671,13 @@ export function evaluateMatch({
             const paramName = param.token.value;
             const field = variant.fields[j]!;
 
+            // Extract compile-time field value if scrutinee is a compile-time enum value
+            const isComptScrutinee =
+              isEnumValue(scrutineeValue) && !isUnknownValue(scrutineeValue);
+            const fieldValue = isComptScrutinee
+              ? scrutineeValue.fields[j]
+              : undefined;
+
             // Skip if parameter name is "_" (ignore pattern)
             if (paramName !== "_") {
               const { env: nextEnv } = addVariableToEnv({
@@ -671,8 +685,8 @@ export function evaluateMatch({
                 variable: {
                   name: paramName,
                   type: field.type,
-                  isCompileTimeOnly: false,
-                  value: undefined,
+                  isCompileTimeOnly: isComptScrutinee,
+                  value: fieldValue !== undefined ? [fieldValue] : undefined,
                   token: param.token,
                   initializedAtToken: param.token,
                   consumedAtToken: undefined,
@@ -895,12 +909,24 @@ Supported patterns:
     const nonReturnBodies = bodies.filter(
       (body) => body.$ && body.$.controlFlow !== "return"
     );
+
+    // For compile-time known enum value, find the matched body's value
+    let matchedBodyValue: Value | undefined = undefined;
     if (
       isEnumValue(scrutineeValue) &&
+      !isUnknownValue(scrutineeValue) &&
       nonReturnBodies.length === 1 &&
       nonReturnBodies[0]!.$
     ) {
       // Compile-time known match with exactly one matching body
+      env = nonReturnBodies[0]!.$.env;
+      matchedBodyValue = nonReturnBodies[0]!.$.value;
+    } else if (
+      isEnumValue(scrutineeValue) &&
+      nonReturnBodies.length === 1 &&
+      nonReturnBodies[0]!.$
+    ) {
+      // Compile-time known match (but UnknownValue) with exactly one matching body
       env = nonReturnBodies[0]!.$.env;
     } else {
       // Merge and check all environments for runtime or multiple bodies
@@ -914,11 +940,13 @@ Supported patterns:
       // - undefined scrutinee = runtime value, result is undefined (runtime)
       // - UnknownValue scrutinee = compile-time value of unknown concrete value,
       //   result is UnknownValue (CTFE is possible)
-      // - Concrete scrutinee = should have already matched a branch above
+      // - Concrete scrutinee = use the actual matched body's computed value
       value:
         scrutineeValue === undefined
           ? undefined
-          : createUnknownValue(resultType.type),
+          : matchedBodyValue !== undefined
+            ? matchedBodyValue
+            : createUnknownValue(resultType.type),
       pathCollection: [],
     };
     attachTempVariableToExpr(expr, true);

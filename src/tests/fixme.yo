@@ -1,14 +1,4 @@
-add :: impl {
-  _add :: (fn(x : i32, y : i32) -> i32) {
-    return (x + y);
-  };
-  compt_add :: compt_fn(_add); // Convert `add` to a comptime function.
-                            // Panic if fails to convert.
-
-  Call :: (_add, compt_add);
-  export Call;
-};
-
+// @skip_prelude
 MyOption :: (fn(compt(T) : Type) -> compt(Type))(
   enum(
     None,
@@ -34,33 +24,7 @@ MyOption :: (fn(compt(T) : Type) -> compt(Type))(
   )
 );
 
-
-main :: (fn() -> unit) {  
-  op := MyOption(i32).Some(12);
-
-  match(op,
-    .Some(_) => {
-      assert(true);
-    },
-    .None => {
-      x :: add(3, 4); // compile-time function call
-      compt_assert(x == 7); 
-
-      y := add(4, 5); // run-time function call
-      assert(y == 9);
-
-      assert(false, "Expected Some, got None");
-    }
-  );
-
-  val := op.unwrap();
-  assert(val == 12);
-
-  op2 :: MyOption(i32).Some(55);
-  val2 :: op2.unwrap();
-  compt_assert(val2 == 55);
-
-  return ();
-};
-
-export main;
+op2 :: MyOption(bool).Some(true);
+val2 :: op2.unwrap();
+compt_print(val2);
+compt_assert(val2, "val2 should be true");
