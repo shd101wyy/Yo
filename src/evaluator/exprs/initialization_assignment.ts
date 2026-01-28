@@ -269,13 +269,15 @@ ${exprToString(rhs)}`,
     // For compile-time values, use cloneValue to ensure deep copy (value semantics)
     // This prevents mutations to one variable from affecting another
     // e.g., arr2 :: arr1 should create an independent copy
+    // cloneValue with preservePointerReferences=true (default) ensures that pointers
+    // maintain reference semantics even when nested in data structures
     lhs.$ = {
       ...lhs.$,
       env,
       type: lhs.$.type,
       value: isCompileTimeOnly
         ? rhsValue
-          ? cloneValue(rhsValue)
+          ? cloneValue(rhsValue) // preservePointerReferences=true by default
           : createUnknownValue(lhs.$.type, lhs.token.value)
         : undefined,
       pathCollection: [],

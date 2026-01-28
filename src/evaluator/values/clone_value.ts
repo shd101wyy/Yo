@@ -25,11 +25,19 @@ import { ValueTag } from "../../value-tag";
  * This is used during CTFE checking phase to prevent pointer mutations from
  * affecting the original environment.
  *
- * For PtrValue: creates a new targetValue array with cloned content
+ * @param preservePointerReferences - If true (default), pointers are NOT cloned to preserve
+ *   reference semantics. This is important for compile-time assignments like `p :: &(val)`
+ *   where p should still reference the original val. If false, pointers are cloned (used
+ *   in CTFE checking phase to prevent mutations from affecting original environment).
+ *
+ * For PtrValue: behavior depends on preservePointerReferences flag
  * For compound types (struct, enum, tuple, array): recursively clones fields/elements
  * For primitive types: returns as-is (immutable)
  */
-export function cloneValue(value: Value): Value {
+export function cloneValue(
+  value: Value,
+  preservePointerReferences: boolean = true
+): Value {
   switch (value.tag) {
     // Primitive/immutable types - no cloning needed
     case ValueTag.ComptInt:
@@ -73,16 +81,22 @@ export function cloneValue(value: Value): Value {
       // UnknownValue is a placeholder, no mutable state
       return value as UnknownValue;
 
-    // Pointer type - clone the targetValue array
-    // Note: For pointers to array elements, this creates a new array
-    // which may break pointer-array relationships in cloned environments.
-    // This is acceptable for CTFE checking since we only need to prevent
-    // mutations from affecting the original environment.
+    // Pointer type - behavior depends on preservePointerReferences flag
+    // If preservePointerReferences=true (default): return as-is to preserve reference semantics
+    // If preservePointerReferences=false: clone targetValue for CTFE checking isolation
     case ValueTag.Ptr: {
+      if (preservePointerReferences) {
+        // Don't clone pointers - preserve reference semantics
+        return value as PtrValue;
+      }
+      // Clone for CTFE checking - this creates a new targetValue array
+      // which breaks pointer-array relationships but isolates mutations
       const ptrValue = value as PtrValue;
       return {
         ...ptrValue,
-        targetValue: [cloneValue(ptrValue.targetValue[0]!)],
+        targetValue: [
+          cloneValue(ptrValue.targetValue[0]!, preservePointerReferences),
+        ],
         targetIndex: ptrValue.targetIndex,
       } as PtrValue;
     }
@@ -92,7 +106,9 @@ export function cloneValue(value: Value): Value {
       const tupleValue = value as TupleValue;
       return {
         ...tupleValue,
-        fields: tupleValue.fields.map(cloneValue),
+        fields: tupleValue.fields.map((f) =>
+          cloneValue(f, preservePointerReferences)
+        ),
       } as TupleValue;
     }
 
@@ -100,7 +116,9 @@ export function cloneValue(value: Value): Value {
       const structValue = value as StructValue;
       return {
         ...structValue,
-        fields: structValue.fields.map(cloneValue),
+        fields: structValue.fields.map((f) =>
+          cloneValue(f, preservePointerReferences)
+        ),
       } as StructValue;
     }
 
@@ -108,7 +126,9 @@ export function cloneValue(value: Value): Value {
       const enumValue = value as EnumValue;
       return {
         ...enumValue,
-        fields: enumValue.fields.map(cloneValue),
+        fields: enumValue.fields.map((f) =>
+          cloneValue(f, preservePointerReferences)
+        ),
       } as EnumValue;
     }
 
@@ -116,14 +136,25 @@ export function cloneValue(value: Value): Value {
       const arrayValue = value as ArrayValue;
       return {
         ...arrayValue,
-        elements: arrayValue.elements.map(cloneValue),
+        elements: arrayValue.elements.map((e) =>
+          cloneValue(e, preservePointerReferences)
+        ),
       } as ArrayValue;
     }
 
     case ValueTag.Slice: {
+      if (preservePointerReferences) {
+        // Slices are fat pointers - don't clone the source array reference
+        // This preserves reference semantics so mutations through the slice
+        // affect the original array
+        return value as SliceValue;
+      }
+      // For CTFE checking, clone the source array
       const sliceValue = value as SliceValue;
-      // Clone the source array and wrap in new tuple
-      const clonedArray = cloneValue(sliceValue.sourceArray[0]) as ArrayValue;
+      const clonedArray = cloneValue(
+        sliceValue.sourceArray[0],
+        preservePointerReferences
+      ) as ArrayValue;
       return {
         ...sliceValue,
         sourceArray: [clonedArray],
@@ -134,7 +165,9 @@ export function cloneValue(value: Value): Value {
       const comptListValue = value as ComptListValue;
       return {
         ...comptListValue,
-        elements: comptListValue.elements.map(cloneValue),
+        elements: comptListValue.elements.map((e) =>
+          cloneValue(e, preservePointerReferences)
+        ),
       } as ComptListValue;
     }
 
@@ -142,7 +175,9 @@ export function cloneValue(value: Value): Value {
       const moduleValue = value as ModuleValue;
       return {
         ...moduleValue,
-        fields: moduleValue.fields.map((f) => (f ? cloneValue(f) : undefined)),
+        fields: moduleValue.fields.map((f) =>
+          f ? cloneValue(f, preservePointerReferences) : undefined
+        ),
       } as ModuleValue;
     }
 
@@ -150,7 +185,9 @@ export function cloneValue(value: Value): Value {
       const traitValue = value as TraitValue;
       return {
         ...traitValue,
-        fields: traitValue.fields.map((f) => (f ? cloneValue(f) : undefined)),
+        fields: traitValue.fields.map((f) =>
+          f ? cloneValue(f, preservePointerReferences) : undefined
+        ),
       } as TraitValue;
     }
 

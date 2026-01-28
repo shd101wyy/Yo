@@ -239,7 +239,12 @@ export function cloneEnvForCTFECheck(env: Environment): Environment {
     }
     return {
       ...variable,
-      value: [cloneValue(variable.value[0]!)],
+      value: [
+        cloneValue(
+          variable.value[0]!,
+          false // do not preserve pointer references during CTFE check
+        ),
+      ],
     };
   };
 
