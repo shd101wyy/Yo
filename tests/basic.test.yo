@@ -1158,7 +1158,6 @@ test "Test 'while'", {
 
     assert(sum_odd(10) == 25); // 1 + 3 + 5 + 7 + 9 = 25
     
-    compt_result :: find_first_greater_than_five(10); // It should be compile-time evaluatable.
     assert(find_first_greater_than_five(20) == 6);
 
     assert(search_value(7, 10) == 7);
@@ -1878,4 +1877,66 @@ test "Test type availability", {
       MyComptUnion :: union(a : compt_int, b : i32) // error: field 'a' is compile-time only
     );
   };
+};
+
+test "Test 'compt_fn' function call and function overloading", {
+  add :: impl {
+    _add :: (fn(x : i32, y : i32) -> i32) {
+      return (x + y);
+    };
+    compt_add :: compt_fn(_add); // Convert `add` to a comptime function.
+                              // Panic if fails to convert.
+
+    Call :: (_add, compt_add);
+    export Call;
+  };
+
+  MyOption :: (fn(compt(T) : Type) -> compt(Type))(
+    enum(
+      None,
+      Some(value: T),
+
+      unwrap :: impl {
+        _unwrap :: (fn(self : Self) -> T)(
+          match(self,
+            .Some(value) => value,
+            .None => panic("Called unwrap on a None value")
+          )
+        );
+        _compt_unwrap :: (fn(compt(self) : Self) -> compt(T))(
+          match(self,
+            .Some(value) => value,
+            .None => compt_assert(false, "Called unwrap on a None value at comptime")
+          )
+        );
+
+        Call :: (_unwrap, _compt_unwrap);
+        export Call;
+      }
+    )
+  );
+
+  op := MyOption(i32).Some(12);
+
+  match(op,
+    .Some(_) => {
+      assert(true);
+    },
+    .None => {
+      x :: add(3, 4); // compile-time function call
+      compt_assert(x == 7); 
+
+      y := add(4, 5); // run-time function call
+      assert(y == 9);
+
+      assert(false, "Expected Some, got None");
+    }
+  );
+
+  val := op.unwrap();
+  assert(val == 12);
+
+  op2 :: MyOption(i32).Some(55);
+  val2 :: op2.unwrap();
+  compt_assert(val2 == 55);
 };

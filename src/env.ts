@@ -1097,9 +1097,11 @@ export function getReceiverMethodsByNameFromEnv(
     !isDynType(dereferencedReceiverType) &&
     !skipSomeTypeWithResolvedConcreteType
   ) {
-    // First check direct methods
+    // First check direct methods (can be FunctionType or ModuleType with Call)
     const directMethod = dereferencedReceiverType.trait.fields.find(
-      (field) => field.label === methodName && isFunctionType(field.type)
+      (field) =>
+        field.label === methodName &&
+        (isFunctionType(field.type) || isModuleType(field.type))
     );
 
     if (directMethod && isFunctionType(directMethod.type)) {
@@ -1108,6 +1110,12 @@ export function getReceiverMethodsByNameFromEnv(
         value = createUnknownValue(directMethod.type, directMethod.label);
       }
       methods.push({ type: directMethod.type, value });
+    } else if (directMethod && isModuleType(directMethod.type)) {
+      // Handle module with Call (e.g., `unwrap :: impl { ... export Call; }`)
+      const moduleValue_ = directMethod.assignedValue;
+      if (isModuleValue(moduleValue_)) {
+        checkModuleSelfCall(moduleValue_);
+      }
     } else {
       // If no direct method found, recursively check nested traits
       checkTraitForMethod(dereferencedReceiverType.trait, methodName);

@@ -1455,7 +1455,7 @@ export function evaluateModuleValue({
       context: {
         ...context,
         expectedType: undefined,
-        SelfType: undefined,
+        SelfType: context.SelfType,
       },
     });
     env = nextEnv;
@@ -1528,7 +1528,7 @@ export function evaluateModuleValue({
         context: {
           ...context,
           expectedType: undefined,
-          SelfType: undefined,
+          SelfType: undefined, // QUESTION: Should we pass receiverType here?
         },
         receiverType,
       });
@@ -1864,7 +1864,7 @@ export function evaluateModuleValue({
         context: {
           ...context,
           expectedType: undefined,
-          SelfType: undefined,
+          SelfType: undefined, // QUESTION: Should we pass receiverTypePattern here?
         },
         receiverType: receiverTypePattern,
       });

@@ -522,7 +522,7 @@ export function activate(context: vscode.ExtensionContext) {
                     token: tokenAtPosition,
                     $: {
                       type: selectedVariable.type,
-                      value: selectedVariable.value,
+                      value: selectedVariable.value?.[0],
                       env: bestEnv as Parameters<typeof getVariablesFromEnv>[0],
                       pathCollection: [], // Empty path collection for fallback
                     },
@@ -568,7 +568,7 @@ export function activate(context: vscode.ExtensionContext) {
             const selectedVar = variables[variables.length - 1]!;
             // Use the variable's type and value from the environment
             varType = selectedVar.type;
-            varValue = selectedVar.value;
+            varValue = selectedVar.value?.[0];
             isCompileTimeOnly = selectedVar.isCompileTimeOnly;
             isUndefined = !selectedVar.initializedAtToken;
           }
@@ -1516,8 +1516,8 @@ export function activate(context: vscode.ExtensionContext) {
         if (frame?.variables) {
           for (const variable of frame.variables) {
             // Check if this variable is a module value that might contain the symbol
-            if (variable.value && isModuleValue(variable.value)) {
-              const moduleValue = variable.value as ModuleValue;
+            if (variable.value && isModuleValue(variable.value?.[0])) {
+              const moduleValue = variable.value[0] as ModuleValue;
               if (moduleValue.type && moduleValue.type.fields) {
                 for (let i = 0; i < moduleValue.type.fields.length; i++) {
                   const element = moduleValue.type.fields[i];
