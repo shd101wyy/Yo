@@ -585,6 +585,7 @@ export const BuiltinFunctions = {
   compt_expect_error: ["compt_expect_error"],
   compt_assert: ["compt_assert"],
   compt_print: ["compt_print"],
+  compt_fn: ["compt_fn"],
   // compt_codegen_inline: ["compt_codegen_inline"],
 
   // va_XX related function for variadic arguments

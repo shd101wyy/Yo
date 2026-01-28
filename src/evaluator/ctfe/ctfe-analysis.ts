@@ -58,48 +58,44 @@ export function createComptFunctionType(
  * 2. Trying to evaluate the function body with all parameters as compile-time values
  * 3. If evaluation succeeds (produces a compile-time value), a compile-time FunctionValue is created
  *
- * If successful, `functionValue.functionValueAtCompileTime` is set to the compile-time version.
- * This compile-time function will be added as a candidate during function call resolution.
+ * If successful, returns the compile-time version of the function.
+ * This compile-time function can be used explicitly via `compt_fn()`.
  *
  * @param functionValue The function to analyze
  * @param env The environment in which the function was defined
  * @param context The evaluator context
+ * @returns The compile-time function value, or undefined if CTFE is not possible
  */
 export function analyzeCtfeCapability(
   functionValue: FunctionValue,
   env: Environment,
   context: EvaluatorContext
-): void {
-  // Skip if already analyzed
-  if (functionValue.functionValueAtCompileTime !== undefined) {
-    return;
-  }
-
+): FunctionValue | undefined {
   // Skip if the function is already a compile-time function
   if (functionValue.type.return.isCompileTimeOnly) {
-    return;
+    return undefined;
   }
 
   // Skip external functions - they can't be evaluated at compile time
   if (functionValue.type.isExtern) {
-    return;
+    return undefined;
   }
 
   // Skip functions with forall parameters - they need specialization first
   if (functionValue.type.forallParameters.length > 0) {
-    return;
+    return undefined;
   }
 
   // Check if any parameter type prohibits compt modifier (runtime-only types like Ptr, Slice, Void)
   for (const param of functionValue.type.parameters) {
     if (typeProhibitsComptModifier(param.type)) {
-      return;
+      return undefined;
     }
   }
 
   // Check if return type prohibits compt modifier
   if (typeProhibitsComptModifier(functionValue.type.return.type)) {
-    return;
+    return undefined;
   }
 
   // Create the compile-time version of the function type
@@ -173,15 +169,17 @@ export function analyzeCtfeCapability(
 
     // Check if the result is a compile-time value
     if (evaluatedBody.$?.value !== undefined) {
-      // CTFE succeeded - update the body and store it
+      // CTFE succeeded - update the body and return it
       comptFunctionValue.body = evaluatedBody;
-      functionValue.functionValueAtCompileTime = comptFunctionValue;
+      popEnvFrame(ctfeEnv, true);
+      return comptFunctionValue;
     }
 
     // Clean up
     popEnvFrame(ctfeEnv, true);
+    return undefined;
   } catch (e) {
     // CTFE failed - the function cannot be evaluated at compile time
-    // functionValueAtCompileTime remains undefined
+    return undefined;
   }
 }

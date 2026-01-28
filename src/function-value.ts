@@ -112,17 +112,6 @@ export type FunctionValue = {
    * Contains the FnTraitType and capture struct type for easy access during codegen.
    */
   closureInfo?: ClosureInfo;
-
-  /**
-   * The compile-time version of this function.
-   * This is a new FunctionValue with all parameters and return type marked as isCompileTimeOnly.
-   * Used for CTFE (Compile-Time Function Evaluation) similar to Zig's comptime.
-   *
-   * When set, this function can be evaluated at compile-time if all arguments are compile-time known.
-   * The function candidate selection will automatically prefer this compile-time version
-   * when all arguments are compile-time values.
-   */
-  functionValueAtCompileTime?: FunctionValue;
 };
 
 export interface FunctionCapturedVariableInfo extends CapturedVariableInfo {

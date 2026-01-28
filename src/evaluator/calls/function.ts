@@ -528,20 +528,10 @@ export function evaluateFunctionCall({
     }
   }
 
-  // Add CTFE (Compile-Time Function Evaluation) candidates
-  // For each function that has a compile-time version, add it as a candidate.
-  // The overload resolution will prefer compile-time versions when all arguments
-  // are compile-time known (because compt functions have higher priority).
-  const ctfeCandidates: typeof functions = [];
-  for (const func of functions) {
-    if (isFunctionValue(func.value) && func.value.functionValueAtCompileTime) {
-      ctfeCandidates.push({
-        type: func.value.functionValueAtCompileTime.type,
-        value: func.value.functionValueAtCompileTime,
-      });
-    }
-  }
-  functions = [...functions, ...ctfeCandidates];
+  // NOTE: Automatic CTFE candidate addition has been removed.
+  // Use `compt_fn(fn)` to explicitly create compile-time versions of functions.
+  // This makes the behavior predictable - functions are called at runtime unless
+  // explicitly declared as compile-time via compt_fn().
 
   // Find the functions whose parameters match the arguments
   const functionsToCall: FunctionToCall[] = functions.map((functionToCall) => {

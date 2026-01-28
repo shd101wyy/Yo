@@ -19,6 +19,7 @@ import { evaluateAsync } from "../builtins/async_fns";
 import { evaluateComptAssert } from "../builtins/compt_assert";
 import { evaluateYoComptBooleanFunctions } from "../builtins/compt_boolean_fns";
 import { evaluateComptExpectError } from "../builtins/compt_expect_error";
+import { evaluateComptFn } from "../builtins/compt_fn";
 import {
   evaluateYoComptListAppend,
   evaluateYoComptListCar,
@@ -489,6 +490,13 @@ ${exprToString(expr)}`,
     } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.compt_assert)) {
       // compt_assert
       return evaluateComptAssert({
+        expr,
+        env,
+        context: { ...context },
+      });
+    } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.compt_fn)) {
+      // compt_fn
+      return evaluateComptFn({
         expr,
         env,
         context: { ...context },

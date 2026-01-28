@@ -10,7 +10,7 @@ Yo aims to be **Simple** and **Fast** (around 0% - 15% slower than C).
 ## Features
 
 - First-class types.
-- [Compile-Time Function Evaluation (CTFE)](./docs/CTFE.md). (**Yo** performs compile-time evaluation whenever possible to improve runtime performance).
+- Compile-time evaluation.
 - Homoiconicity and metaprogramming (**Yo** syntax is inspired by the **Lisp** S expression).
 - Closure.
 - [Async/await](./docs/ASYNC_AWAIT.md) (Stackless coroutine & Cooperative multi-tasking).
