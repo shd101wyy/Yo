@@ -583,6 +583,7 @@ export const BuiltinKeywords = {
 export const BuiltinFunctions = {
   // compile-time related functions
   compt_expect_error: ["compt_expect_error"],
+  compt_assert: ["compt_assert"],
   compt_print: ["compt_print"],
   // compt_codegen_inline: ["compt_codegen_inline"],
 

@@ -97,7 +97,7 @@ StringContainer :: Container(String);
 
 ### 4. Compile-Time Assertions
 
-Use `assert` to verify conditions at compile-time:
+Use `compt_assert` to verify conditions at compile-time:
 
 ```yo
 fib :: (fn(n : i32) -> i32) {
@@ -108,9 +108,9 @@ fib :: (fn(n : i32) -> i32) {
 };
 
 // These assertions are checked at compile-time
-assert(fib(0) == 0);
-assert(fib(1) == 1);
-assert(fib(10) == 55);
+compt_assert(fib(0) == 0);
+compt_assert(fib(1) == 1);
+compt_assert(fib(10) == 55);
 ```
 
 ### 5. Compile-Time Parameters
@@ -187,7 +187,7 @@ CTFE cannot be used when:
 
 1. **Pure Functions**: Write pure functions (no side effects) for best CTFE results.
 
-2. **Use `assert`**: Verify compile-time assumptions with `assert`.
+2. **Use `compt_assert`**: Verify compile-time assumptions with `compt_assert`.
 
 3. **Leverage Type Parameters**: Use `compt(T) : Type` for generic functions that need monomorphization.
 
@@ -217,7 +217,7 @@ is_prime :: (fn(n : i32) -> bool) {
 };
 
 // All evaluated at compile-time
-assert(is_prime(2) == true);
-assert(is_prime(17) == true);
-assert(is_prime(18) == false);
+compt_assert(is_prime(2) == true);
+compt_assert(is_prime(17) == true);
+compt_assert(is_prime(18) == false);
 ```

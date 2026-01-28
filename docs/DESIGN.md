@@ -2161,18 +2161,18 @@ test "Runtime assertions", {
 
 #### Compile-Time Assertions
 
-Use `assert` for compile-time verification:
+Use `compt_assert` for compile-time verification:
 
 ```rust
 test "Compile-time assertions", {
   // These are checked during compilation
-  assert((2 + 2) == 4);
-  assert(Array(i32, 5).fill(0).len() == 5);
-  assert(f32(3.14) > f32(3.0));
+  compt_assert((2 + 2) == 4);
+  compt_assert(Array(i32, 5).fill(0).len() == 5);
+  compt_assert(f32(3.14) > f32(3.0));
 
   // Type-level assertions
   T :: i32;
-  assert(Type.to_string(T) == "i32");
+  compt_assert(Type.to_string(T) == "i32");
 };
 ```
 
@@ -2415,18 +2415,18 @@ int_array :: create_array(i32, 5, 42);  // [42,42,42,42,42]
 
 ### Compile-Time Assertions
 
-Use `assert` to verify compile-time conditions:
+Use `compt_assert` to verify compile-time conditions:
 
 ```rust
 test "Compile-time assertions", {
   // These are checked at compile time
-  assert((2 + 2) == 4);
-  assert(f32(100.5) > f32(50.0));
-  assert(Array(i32, 5).fill(0).len() == 5);
+  compt_assert((2 + 2) == 4);
+  compt_assert(f32(100.5) > f32(50.0));
+  compt_assert(Array(i32, 5).fill(0).len() == 5);
 
   // Compile-time type checks
   T :: i32;
-  assert(Type.to_string(T) == "i32");
+  compt_assert(Type.to_string(T) == "i32");
 };
 ```
 

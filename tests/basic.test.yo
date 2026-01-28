@@ -295,19 +295,19 @@ test "Test destructuring", {
 };
 
 test "Test type auto derive Send", {
-  assert(Type.impls(i32, Send));
+  compt_assert(Type.impls(i32, Send));
   
   Point :: struct(x : i32, y : i32);
-  assert(Type.impls(Point, Send) == true);
+  compt_assert(Type.impls(Point, Send) == true);
   
   MyBox :: object(v : i32);
-  assert(Type.impls(MyBox, Send) == false);
+  compt_assert(Type.impls(MyBox, Send) == false);
   
   GenericPoint :: (fn(compt(T) : Type) -> compt(Type))
     struct(x : T, y : T)
   ;
-  assert(Type.impls(GenericPoint(i32), Send) == true);
-  assert(Type.impls(GenericPoint(MyBox), Send) == false);
+  compt_assert(Type.impls(GenericPoint(i32), Send) == true);
+  compt_assert(Type.impls(GenericPoint(MyBox), Send) == false);
 };
 
 test "Test 'struct'", {
@@ -327,8 +327,8 @@ test "Test 'struct'", {
 
     assert(p.x == 3);
     assert(p.y == 4);
-    assert(p2.x == 3);
-    assert(p2.y == 4);
+    compt_assert(p2.x == 3);
+    compt_assert(p2.y == 4);
     assert(p3.x == 1);
     assert(p3.y == 4);
   };
@@ -663,7 +663,7 @@ test "Test tuple", {
 
     t3 := (x, runt_x);
 
-    assert(t.0 == 12);
+    compt_assert(t.0 == 12);
     assert(t3.0 == 12);
     assert(t3.1 == 16);
   };
@@ -1036,7 +1036,7 @@ test "Test 'while'", {
     };
 
     x :: sum_compt(10);
-    assert(x == 55);
+    compt_assert(x == 55);
 
     y := sum(10);
     assert(y == 55);
@@ -1067,7 +1067,7 @@ test "Test 'while'", {
     };
 
     x :: sum_compt(10);
-    assert(x == 55);
+    compt_assert(x == 55);
 
     y := sum(10);
     assert(y == 55);
@@ -1645,8 +1645,8 @@ test "Test 'open' statements", {
   {
     anony :: { x : 12, y : 13 };
     open anony;
-    assert(x == 12);
-    assert(y == 13);
+    compt_assert(x == 12);
+    compt_assert(y == 13);
   };
 
   // Open a runtime struct
@@ -1686,8 +1686,8 @@ test "Test 'open' statements", {
     };
     open my_module;
     
-    assert(x == 6);
-    assert(y == 2);
+    compt_assert(x == 6);
+    compt_assert(y == 2);
 
     assert(x == 6);
     assert(y == 2);
