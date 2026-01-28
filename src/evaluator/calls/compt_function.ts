@@ -1,6 +1,6 @@
 import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
-import { cloneExpr, Expr, exprToString } from "../../expr";
+import { cloneExpr, Expr } from "../../expr";
 import { CalledComptFunctionCache, FunctionValue } from "../../function-value";
 import { PlaceholderToken } from "../../token";
 import {
@@ -150,21 +150,6 @@ export function evaluateComptFunctionCall({
 
   let evaluatedFunctionBody;
   try {
-    // Build call stack entry for better error messages
-    // Try to get function name from functionValue.funcName, or extract from token
-    const functionName =
-      functionValue.funcName ||
-      (functionCalleeExpr ? exprToString(functionCalleeExpr) : undefined);
-    const callStackEntry = functionCalleeExpr
-      ? {
-          token: functionCalleeExpr.token,
-          functionName,
-        }
-      : undefined;
-    const newCallStack = callStackEntry
-      ? [...(context.callStack || []), callStackEntry]
-      : context.callStack;
-
     // NOTE: We should use the env from the function, not the current env.
     evaluatedFunctionBody = evaluateBeginExpression({
       expr: tempCache.body,
@@ -189,8 +174,6 @@ export function evaluateComptFunctionCall({
         SelfType: functionType.SelfType ?? context.SelfType,
         // Force := to behave like :: during compile-time function evaluation
         forceCompileTimeBindings: true,
-        // Add call stack for better error messages
-        callStack: newCallStack,
       },
       variablesToAdd: [],
     });

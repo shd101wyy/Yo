@@ -1228,7 +1228,6 @@ Got:   ${typeToString(typeValue.type)}`,
       calleeEnv: calleeEnv,
       callerEnv: callerEnv,
       context,
-      functionCalleeExpr, // Pass for call stack tracking
     });
   }
 
@@ -1271,14 +1270,12 @@ function createSpecializedFunctionInline({
   calleeEnv,
   callerEnv,
   context,
-  functionCalleeExpr,
 }: {
   originalFunction: FunctionValue;
   argValues: ArgValues;
   calleeEnv: Environment;
   callerEnv: Environment;
   context: EvaluatorContext;
-  functionCalleeExpr?: Expr;
 }): FunctionValue {
   const functionType = originalFunction.type;
 
@@ -1384,21 +1381,6 @@ function createSpecializedFunctionInline({
   });
   specializedEnv = _updatedSpecializedEnv;
 
-  // Build call stack entry for better error messages
-  // Try to get function name from originalFunction.funcName, or extract from token
-  const functionName =
-    originalFunction.funcName ||
-    (functionCalleeExpr ? exprToString(functionCalleeExpr) : undefined);
-  const callStackEntry = functionCalleeExpr
-    ? {
-        token: functionCalleeExpr.token,
-        functionName,
-      }
-    : undefined;
-  const newCallStack = callStackEntry
-    ? [...(context.callStack || []), callStackEntry]
-    : context.callStack;
-
   // Evaluate the function body in the specialized environment
   const specializedBody = evaluateBeginExpression({
     expr: clonedBody,
@@ -1420,8 +1402,6 @@ function createSpecializedFunctionInline({
         ? context.capturedVariables
         : undefined,
       functionReturnImplConcreteType: [], // Fresh array for each specialization
-      // Add call stack for better error messages
-      callStack: newCallStack,
     },
     variablesToAdd: [],
     isEvaluatingFunctionBodyBeginBlock: true,

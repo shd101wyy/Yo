@@ -1,5 +1,5 @@
 import { Environment } from "../../env";
-import { formatErrorMessage, formatErrorMessages } from "../../error";
+import { formatErrorMessage } from "../../error";
 import { FnCallExpr } from "../../expr";
 import { isComptStringType } from "../../types";
 import {
@@ -93,34 +93,11 @@ export function evaluatePanic({
   // because all branches are visited with UnknownValue, and we can't know if this
   // branch will actually be taken at runtime.
   if (context.isExecuting && !context.isAnalyzingCtfeCapability) {
-    // Build error messages with call stack for better debugging
-    const tokenAndErrorList: Array<{
-      token: typeof expr.token;
-      errorMessage: string;
-    }> = [];
-
-    // Add the main panic error
-    tokenAndErrorList.push({
+    throw formatErrorMessage({
       token: expr.token,
       errorMessage: `Panic at compile-time: ${message}`,
+      isAssertionError: true,
     });
-
-    // Add call stack entries (in reverse order - most recent call first)
-    if (context.callStack && context.callStack.length > 0) {
-      // Show call stack in reverse order (from the call site to the root)
-      for (let i = context.callStack.length - 1; i >= 0; i--) {
-        const entry = context.callStack[i]!;
-        const functionInfo = entry.functionName
-          ? ` in '${entry.functionName}'`
-          : "";
-        tokenAndErrorList.push({
-          token: entry.token,
-          errorMessage: `called${functionInfo}`,
-        });
-      }
-    }
-
-    throw formatErrorMessages(tokenAndErrorList, true /* isAssertionError */);
   }
 
   // Otherwise, return UnknownValue when in compile-time context (validation/analysis),
