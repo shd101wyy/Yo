@@ -192,7 +192,6 @@ export type Frame = {
 
 export type Environment = {
   functionDeclarationFrameLevel: number;
-  freeVariables: Variable[];
   frames: Frame[];
   modulePath: string;
   inputString: string;
@@ -208,7 +207,6 @@ export function createNewEnv({
   return {
     functionDeclarationFrameLevel: -1,
     frames: [],
-    freeVariables: [],
     modulePath,
     inputString,
   };
@@ -230,21 +228,61 @@ export function createEmptyEnv(): Environment {
  *
  * If we share the same env, CTFE with pointer mutations will mutate the shared
  * PtrValue.targetValue array twice, causing incorrect results.
+ *
+ * IMPORTANT: We use a mapping to maintain pointer relationships:
+ * When cloning, the mapping tracks original [Value] arrays to their clones.
+ * This ensures that if variable `x` has value [v] and pointer `p` has targetValue
+ * pointing to that same [v], both will end up pointing to the same cloned [v'].
  */
 export function cloneEnvForCTFECheck(env: Environment): Environment {
-  // Clone variable with deep-cloned value
+  // Mapping from original [Value] arrays to cloned [Value] arrays
+  // This ensures that pointers within the cloned env point to the correct cloned variables
+  const targetValueMapping = new Map<[Value], [Value]>();
+
+  // First pass: pre-register all variable value arrays in the mapping
+  // This ensures pointers can find their targets even if processed before the target variable
+  const allVariables = [...env.frames.flatMap((frame) => frame.variables)];
+
+  for (const variable of allVariables) {
+    if (variable.value && !targetValueMapping.has(variable.value)) {
+      // Pre-create the cloned value array (will be populated during second pass)
+      // We need to actually clone the value here to ensure consistency
+      const clonedValue = cloneValue(
+        variable.value[0]!,
+        false, // do not preserve pointer references during CTFE check
+        targetValueMapping
+      );
+      // Only set if not already set (cloneValue may have added it for pointers)
+      if (!targetValueMapping.has(variable.value)) {
+        targetValueMapping.set(variable.value, [clonedValue]);
+      }
+    }
+  }
+
+  // Second pass: clone variables using the pre-built mapping
   const cloneVariable = (variable: Variable): Variable => {
     if (!variable.value) {
       return { ...variable };
     }
+
+    // Use the mapping to get the cloned value array
+    const clonedValueArray = targetValueMapping.get(variable.value);
+    if (clonedValueArray) {
+      return {
+        ...variable,
+        value: clonedValueArray,
+      };
+    }
+
+    // Fallback: should not normally reach here
+    const clonedValue = cloneValue(
+      variable.value[0]!,
+      false,
+      targetValueMapping
+    );
     return {
       ...variable,
-      value: [
-        cloneValue(
-          variable.value[0]!,
-          false // do not preserve pointer references during CTFE check
-        ),
-      ],
+      value: [clonedValue],
     };
   };
 
@@ -259,7 +297,6 @@ export function cloneEnvForCTFECheck(env: Environment): Environment {
   return {
     ...env,
     frames: env.frames.map(cloneFrame),
-    freeVariables: env.freeVariables.map(cloneVariable),
   };
 }
 
@@ -363,7 +400,6 @@ export function addVariableToEnv({
   newFrames[frameLevel] = newFrame;
   const newEnv: Environment = {
     functionDeclarationFrameLevel: env.functionDeclarationFrameLevel,
-    freeVariables: env.freeVariables,
     frames: newFrames,
     modulePath: env.modulePath,
     inputString: env.inputString,
@@ -497,7 +533,6 @@ export function pushEnvFrame(
     : frame;
   return {
     functionDeclarationFrameLevel: env.functionDeclarationFrameLevel,
-    freeVariables: env.freeVariables,
     frames: [...env.frames, newFrame],
     modulePath: env.modulePath,
     inputString: env.inputString,
@@ -544,7 +579,6 @@ Typeof "${variable.name}": ${typeToString(variable.type)}`,
 
   return {
     functionDeclarationFrameLevel: env.functionDeclarationFrameLevel,
-    freeVariables: env.freeVariables,
     frames: env.frames.slice(0, -1),
     modulePath: env.modulePath,
     inputString: env.inputString,
@@ -569,7 +603,6 @@ export function updateExistingVariable(
 
   return {
     functionDeclarationFrameLevel: env.functionDeclarationFrameLevel,
-    freeVariables: env.freeVariables,
     frames,
     modulePath: env.modulePath,
     inputString: env.inputString,
@@ -1584,7 +1617,6 @@ export function keepTopLevelFrameAndComptimeVariablesFromEnv(
 
   return {
     functionDeclarationFrameLevel: env.functionDeclarationFrameLevel,
-    freeVariables: env.freeVariables,
     frames: newFrames,
     modulePath: env.modulePath,
     inputString: env.inputString,

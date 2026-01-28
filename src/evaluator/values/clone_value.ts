@@ -30,13 +30,18 @@ import { ValueTag } from "../../value-tag";
  *   where p should still reference the original val. If false, pointers are cloned (used
  *   in CTFE checking phase to prevent mutations from affecting original environment).
  *
+ * @param targetValueMapping - When cloning an environment with pointers, we need to ensure
+ *   that pointers within the cloned environment point to the correct cloned variables.
+ *   This map tracks original [Value] arrays to their cloned counterparts.
+ *
  * For PtrValue: behavior depends on preservePointerReferences flag
  * For compound types (struct, enum, tuple, array): recursively clones fields/elements
  * For primitive types: returns as-is (immutable)
  */
 export function cloneValue(
   value: Value,
-  preservePointerReferences: boolean = true
+  preservePointerReferences: boolean = true,
+  targetValueMapping?: Map<[Value], [Value]>
 ): Value {
   switch (value.tag) {
     // Primitive/immutable types - no cloning needed
@@ -89,14 +94,34 @@ export function cloneValue(
         // Don't clone pointers - preserve reference semantics
         return value as PtrValue;
       }
-      // Clone for CTFE checking - this creates a new targetValue array
-      // which breaks pointer-array relationships but isolates mutations
+      // Clone for CTFE checking - use mapping to maintain pointer relationships
       const ptrValue = value as PtrValue;
+
+      // Check if we already have a cloned version of this targetValue
+      if (targetValueMapping) {
+        const existingClone = targetValueMapping.get(ptrValue.targetValue);
+        if (existingClone) {
+          return {
+            ...ptrValue,
+            targetValue: existingClone,
+            targetIndex: ptrValue.targetIndex,
+          } as PtrValue;
+        }
+      }
+
+      // Create new targetValue and register in mapping
+      const clonedTarget = cloneValue(
+        ptrValue.targetValue[0]!,
+        preservePointerReferences,
+        targetValueMapping
+      );
+      const newTargetValue: [Value] = [clonedTarget];
+      if (targetValueMapping) {
+        targetValueMapping.set(ptrValue.targetValue, newTargetValue);
+      }
       return {
         ...ptrValue,
-        targetValue: [
-          cloneValue(ptrValue.targetValue[0]!, preservePointerReferences),
-        ],
+        targetValue: newTargetValue,
         targetIndex: ptrValue.targetIndex,
       } as PtrValue;
     }
@@ -107,7 +132,7 @@ export function cloneValue(
       return {
         ...tupleValue,
         fields: tupleValue.fields.map((f) =>
-          cloneValue(f, preservePointerReferences)
+          cloneValue(f, preservePointerReferences, targetValueMapping)
         ),
       } as TupleValue;
     }
@@ -117,7 +142,7 @@ export function cloneValue(
       return {
         ...structValue,
         fields: structValue.fields.map((f) =>
-          cloneValue(f, preservePointerReferences)
+          cloneValue(f, preservePointerReferences, targetValueMapping)
         ),
       } as StructValue;
     }
@@ -127,7 +152,7 @@ export function cloneValue(
       return {
         ...enumValue,
         fields: enumValue.fields.map((f) =>
-          cloneValue(f, preservePointerReferences)
+          cloneValue(f, preservePointerReferences, targetValueMapping)
         ),
       } as EnumValue;
     }
@@ -137,7 +162,7 @@ export function cloneValue(
       return {
         ...arrayValue,
         elements: arrayValue.elements.map((e) =>
-          cloneValue(e, preservePointerReferences)
+          cloneValue(e, preservePointerReferences, targetValueMapping)
         ),
       } as ArrayValue;
     }
@@ -149,15 +174,36 @@ export function cloneValue(
         // affect the original array
         return value as SliceValue;
       }
-      // For CTFE checking, clone the source array
+      // For CTFE checking, use mapping to maintain slice-array relationships
       const sliceValue = value as SliceValue;
+
+      // Check if we already have a cloned version of this sourceArray
+      if (targetValueMapping) {
+        const existingClone = targetValueMapping.get(sliceValue.sourceArray);
+        if (existingClone) {
+          return {
+            ...sliceValue,
+            sourceArray: existingClone as [ArrayValue],
+          } as SliceValue;
+        }
+      }
+
+      // Clone the source array and register in mapping
       const clonedArray = cloneValue(
         sliceValue.sourceArray[0],
-        preservePointerReferences
+        preservePointerReferences,
+        targetValueMapping
       ) as ArrayValue;
+      const newSourceArray: [ArrayValue] = [clonedArray];
+      if (targetValueMapping) {
+        targetValueMapping.set(
+          sliceValue.sourceArray as unknown as [Value],
+          newSourceArray as unknown as [Value]
+        );
+      }
       return {
         ...sliceValue,
-        sourceArray: [clonedArray],
+        sourceArray: newSourceArray,
       } as SliceValue;
     }
 
@@ -166,7 +212,7 @@ export function cloneValue(
       return {
         ...comptListValue,
         elements: comptListValue.elements.map((e) =>
-          cloneValue(e, preservePointerReferences)
+          cloneValue(e, preservePointerReferences, targetValueMapping)
         ),
       } as ComptListValue;
     }
@@ -176,7 +222,9 @@ export function cloneValue(
       return {
         ...moduleValue,
         fields: moduleValue.fields.map((f) =>
-          f ? cloneValue(f, preservePointerReferences) : undefined
+          f
+            ? cloneValue(f, preservePointerReferences, targetValueMapping)
+            : undefined
         ),
       } as ModuleValue;
     }
@@ -186,7 +234,9 @@ export function cloneValue(
       return {
         ...traitValue,
         fields: traitValue.fields.map((f) =>
-          f ? cloneValue(f, preservePointerReferences) : undefined
+          f
+            ? cloneValue(f, preservePointerReferences, targetValueMapping)
+            : undefined
         ),
       } as TraitValue;
     }
