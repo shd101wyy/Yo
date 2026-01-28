@@ -61,6 +61,7 @@ import { EvaluatorContext, trackVariableUsage } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { synthesizeExprAndType } from "../types/expr_synthesizer";
 import { findRcValueOwnerRelationship } from "../utils";
+import { cloneValue } from "../values/clone_value";
 import { evaluateBinding } from "./binding";
 import { evaluateIdentifierAndOperator } from "./identifer_and_operator";
 
@@ -454,20 +455,12 @@ You can mutate fields (e.g., ${variableName}.field = value) but cannot reassign 
       }
 
       // Initialize the variable
-      // For value semantics, clone array and enum values when initializing variables
-      let valueToStore = variable.isCompileTimeOnly ? rhsValue : undefined;
-      if (valueToStore && isArrayValue(valueToStore)) {
-        // Clone the array to ensure value semantics
-        const arrayType = variable.type as ArrayType;
-        valueToStore = createArrayValue(arrayType, [...valueToStore.elements]);
-      } else if (valueToStore && isEnumValue(valueToStore)) {
-        // Clone the enum only for value semantics, not for reference semantics
-        const enumType = variable.type as EnumType;
-        valueToStore = createEnumValue(enumType, valueToStore.variantName, [
-          ...valueToStore.fields,
-        ]);
-        // For reference semantics enums, keep the original value to share the reference
-      }
+      // For value semantics, use cloneValue to ensure deep copy
+      // This prevents mutations to one variable from affecting another
+      const valueToStore =
+        variable.isCompileTimeOnly && rhsValue
+          ? cloneValue(rhsValue)
+          : undefined;
 
       // Under the new simplified ownership model:
       // Variables created by := always own their values
@@ -547,20 +540,12 @@ Consider using Dyn(...) for dynamic dispatch if you need to reassign to differen
       }
 
       // Update the variable value
-      // For value semantics, clone array and enum values when assigning to new variables
-      let valueToStore = variable.isCompileTimeOnly ? rhsValue : undefined;
-      if (valueToStore && isArrayValue(valueToStore)) {
-        // Clone the array to ensure value semantics
-        const arrayType = variable.type as ArrayType;
-        valueToStore = createArrayValue(arrayType, [...valueToStore.elements]);
-      } else if (valueToStore && isEnumValue(valueToStore)) {
-        // Clone the enum only for value semantics, not for reference semantics
-        const enumType = variable.type as EnumType;
-        valueToStore = createEnumValue(enumType, valueToStore.variantName, [
-          ...valueToStore.fields,
-        ]);
-        // For reference semantics enums, keep the original value to share the reference
-      }
+      // For value semantics, use cloneValue to ensure deep copy
+      // This prevents mutations to one variable from affecting another
+      const valueToStore =
+        variable.isCompileTimeOnly && rhsValue
+          ? cloneValue(rhsValue)
+          : undefined;
 
       // Generate a new variable ID for reassignment
       // This is crucial for dup/drop optimization: dup calls on the old ID

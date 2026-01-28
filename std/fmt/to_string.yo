@@ -207,13 +207,13 @@ impl(rune, ToString(
     buffer := cond(
       (code <= 0x7F) => {
         // 1-byte encoding: 0xxxxxxx
-        arr := Array(u8, usize(2)).fill(0);
+        arr := Array(u8, usize(4)).fill(0);
         arr(0) = u8(code);
         arr
       },
       (code <= 0x7FF) => {
         // 2-byte encoding: 110xxxxx 10xxxxxx
-        arr := Array(u8, usize(3)).fill(0);
+        arr := Array(u8, usize(4)).fill(0);
         arr(0) = u8(u32(0xC0) | ((code >> 6) & 0x1F));
         arr(1) = u8(u32(0x80) | (code & 0x3F));
         arr
@@ -228,7 +228,7 @@ impl(rune, ToString(
       },
       true => {
         // 4-byte encoding: 11110xxx 10xxxxxx 10xxxxxx 10xxxxxx
-        arr := Array(u8, usize(5)).fill(0);
+        arr := Array(u8, usize(4)).fill(0);
         arr(0) = u8(u32(0xF0) | ((code >> 18) & 0x07));
         arr(1) = u8(u32(0x80) | ((code >> 12) & 0x3F));
         arr(2) = u8(u32(0x80) | ((code >> 6) & 0x3F));

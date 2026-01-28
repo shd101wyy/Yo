@@ -32,6 +32,7 @@ import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { synthesizeExprAndType } from "../types/expr_synthesizer";
 import { findRcValueOwnerRelationship, isValidVariableName } from "../utils";
+import { cloneValue } from "../values/clone_value";
 import { throwRhsContainsControlFlowExpressionError } from "./assignment";
 import { evaluateDestructuringAssignment } from "./destructuring_assignment";
 
@@ -265,12 +266,17 @@ ${exprToString(rhs)}`,
     }
 
     // Set the variable value
+    // For compile-time values, use cloneValue to ensure deep copy (value semantics)
+    // This prevents mutations to one variable from affecting another
+    // e.g., arr2 :: arr1 should create an independent copy
     lhs.$ = {
       ...lhs.$,
       env,
       type: lhs.$.type,
       value: isCompileTimeOnly
-        ? (rhsValue ?? createUnknownValue(lhs.$.type, lhs.token.value))
+        ? rhsValue
+          ? cloneValue(rhsValue)
+          : createUnknownValue(lhs.$.type, lhs.token.value)
         : undefined,
       pathCollection: [],
     };
