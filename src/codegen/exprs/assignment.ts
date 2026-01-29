@@ -29,6 +29,11 @@ export function generateAssignment(
   indent: string,
   context: CodeGenContext
 ): string {
+  // Skip compile-time only assignments (e.g., p.* = value where p is a compile-time pointer)
+  if (expr.$?.isCompileTimeOnlyAssignment) {
+    return "";
+  }
+
   let lhs = expr.args[0]!;
   const rhs = expr.args[1]!;
 

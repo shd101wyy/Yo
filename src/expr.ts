@@ -321,6 +321,14 @@ export interface EvaluatedExprData {
     arrayValue: ArrayValue;
     index: number;
   };
+
+  /**
+   * For assignments that are purely compile-time (both LHS and RHS are compile-time known),
+   * this flag indicates that no C code should be generated for this assignment.
+   *
+   * Example: For `p.* = i32(20)` where p is a compile-time pointer, this would be true.
+   */
+  isCompileTimeOnlyAssignment?: boolean;
 }
 
 export type AtomExpr = {

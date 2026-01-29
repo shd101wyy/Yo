@@ -739,6 +739,7 @@ Consider using Dyn(...) for dynamic dispatch if you need to reassign to differen
 
     // For field/index assignments, we need to update the actual variable value
     // if it's a compile-time mutable variable
+    let isCompileTimeOnlyAssignment = false;
     if (
       evaluatedLhs.$.pathCollection &&
       evaluatedLhs.$.pathCollection.length > 0
@@ -756,6 +757,11 @@ Consider using Dyn(...) for dynamic dispatch if you need to reassign to differen
           // If it's a compile-time mutable variable with a struct/array value, update it
           if (variable.isCompileTimeOnly && variable.value?.[0]) {
             const currentValue = variable.value[0];
+
+            // If RHS is also compile-time known, mark this as compile-time-only assignment
+            if (rhs.$?.value) {
+              isCompileTimeOnlyAssignment = true;
+            }
 
             // Handle struct/tuple field assignment
             if (isStructValue(currentValue) || isTupleValue(currentValue)) {
@@ -892,6 +898,9 @@ Consider using Dyn(...) for dynamic dispatch if you need to reassign to differen
       } else {
         ptrTargetValue[0] = rhs.$.value;
       }
+      // Both LHS (pointer dereference) and RHS are compile-time known,
+      // so this assignment should not generate any runtime code
+      isCompileTimeOnlyAssignment = true;
     }
 
     // Handle compile-time array/slice element assignment (arr(0) = value or s(0) = value)
@@ -900,6 +909,8 @@ Consider using Dyn(...) for dynamic dispatch if you need to reassign to differen
     if (arrayElementRef && rhs.$?.value) {
       // Update the element in the source array directly
       arrayElementRef.arrayValue.elements[arrayElementRef.index] = rhs.$.value;
+      // Both LHS (array element) and RHS are compile-time known
+      isCompileTimeOnlyAssignment = true;
     }
 
     // Attach the updated env to expr
@@ -909,10 +920,14 @@ Consider using Dyn(...) for dynamic dispatch if you need to reassign to differen
       value: evaluatedLhs.$.value,
       type: evaluatedLhs.$.type,
       pathCollection: [],
+      isCompileTimeOnlyAssignment,
     };
 
     // This temp variable is used to hold the old value of lhs
-    attachTempVariableToExpr(expr, true);
+    // Skip attaching temp variable for compile-time only assignments
+    if (!isCompileTimeOnlyAssignment) {
+      attachTempVariableToExpr(expr, true);
+    }
 
     // Update the lhs with the new value
     // Let's not set evaluatedLhs.$ as it is causing problem in C codegen.
