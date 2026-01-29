@@ -1,10 +1,32 @@
-factorial :: (fn(compt(x) : i32) -> compt(i32)) {
-  compt_print(x);
-  cond(
-    (x < 1) => 1,
-    true => (x * recur(x - 1))
-  )
-};
+main :: (fn() -> unit) {
+  {
+    factorial :: (fn(x : i32) -> i32)
+      cond(
+        (x < 1) => 1,
+        true => (x * recur(x - 1))
+      )
+    ;
+    assert(factorial(6) == 720);
 
-result :: factorial(3);
-compt_print(result);
+    // Try to evaluate in compile-time when possible
+    compt_factorial :: compt_fn(factorial);
+    result :: compt_factorial(12);
+    compt_assert(result == 479001600);
+  };
+
+  /*
+  {
+    factorial :: (fn(x : i32) -> i32) {
+      factorial_acc :: (fn(x2 : i32, acc : i32) -> i32) {
+        return cond(
+          (x2 < 1) => acc,
+          true => recur(x2 - 1, acc * x2)
+        );
+      };
+      return factorial_acc(x, 1);
+    };
+    assert(factorial(6) == 720);
+  };
+  */
+};
+export main;

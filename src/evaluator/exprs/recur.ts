@@ -1,4 +1,4 @@
-import { Environment } from "../../env";
+import { Environment, popEnvFrame } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   BuiltinKeywords,
@@ -7,10 +7,10 @@ import {
   exprToString,
   FnCallExpr,
 } from "../../expr";
-import { createUnknownValue } from "../../value";
+import { createUnknownValue, isFunctionValue } from "../../value";
 import { evaluateFunctionCall } from "../calls/function";
+import { tryToCallFunctionWithArguments } from "../calls/helper";
 import { EvaluatorContext } from "../context";
-import { evaluateFunctionReturnTypeAgain } from "../types/function";
 
 export function evaluateRecur({
   expr,
@@ -49,17 +49,36 @@ export function evaluateRecur({
     context.isAnalyzingCtfeCapability ||
     context.isValidatingFunctionDefinition
   ) {
-    const { returnType: recurReturnType } = evaluateFunctionReturnTypeAgain({
-      functionType: isEvaluatingFunctionBodyOfType,
-      calleeEnv: env,
-      context: { ...context, isEvaluatingFunctionType: true },
-    });
+    // Use tryToCallFunctionWithArguments with skipCtfeExecution to properly:
+    // 1. Type-check arguments against function parameters
+    // 2. Handle compile-time vs runtime parameters correctly
+    // 3. Populate runtimeArgExprsInOrder for codegen
+    // 4. Skip actual CTFE execution to avoid infinite recursion
+    const functionValue = context.isEvaluatingFunctionBodyOrAsyncBlock.value;
+    const { returnType, runtimeArgExprsInOrder, callerEnv } =
+      tryToCallFunctionWithArguments({
+        functionValue: isFunctionValue(functionValue)
+          ? functionValue
+          : undefined,
+        functionType: isEvaluatingFunctionBodyOfType,
+        expr,
+        functionCalleeExpr: expr.func,
+        argExprs: expr.args,
+        callerEnv: env,
+        context,
+        isMethodCall: false,
+        skipSpecialization: true, // Don't create specialized versions during validation
+        skipCtfeExecution: true, // Skip CTFE execution to avoid infinite recursion
+      });
+
+    env = popEnvFrame(callerEnv);
 
     expr.$ = {
-      type: recurReturnType,
-      value: createUnknownValue(recurReturnType, "recur_result"),
+      type: returnType,
+      value: createUnknownValue(returnType, "recur_result"),
       env,
       pathCollection: [],
+      runtimeArgExprsInOrder,
     };
     return expr;
   }
