@@ -69,28 +69,43 @@ export function collectRequiredTypes(
   }
 
   // Also collect types from non-exported functions we've already collected
-  // Traverse this.functions
-  for (const funcId in context.functions) {
-    const func = context.functions[funcId]!;
-    collectTypesFromFunctionType(func.value.type, context);
-    // For specialized generic functions, also collect types from the specialized type
-    // This ensures concrete types (after type substitution) are registered
-    if (func.value.specializedType) {
-      collectTypesFromFunctionType(func.value.specializedType, context);
-    }
-    collectTypesFromExpr(func.value.body, context);
+  // Keep iterating until no new functions are discovered.
+  // This is necessary because collectTypesFromExpr can discover new functions
+  // (e.g., impl functions) which then need their types collected too.
+  const processedFuncIds = new Set<string>();
+  let foundNewFunctions = true;
 
-    // Collect types from compile-time function call caches
-    // When a compt function is called, the result is cached with concrete types
-    // We need to collect those concrete types (e.g., [i32; 10] from cache, not [i32; n] from generic body)
-    if (func.value.calledComptFunctionCaches) {
-      for (const cache of func.value.calledComptFunctionCaches) {
-        // Collect types from the cached return value
-        if (cache.value && cache.value.type) {
-          collectType(cache.value.type, context);
+  while (foundNewFunctions) {
+    foundNewFunctions = false;
+
+    for (const funcId in context.functions) {
+      if (processedFuncIds.has(funcId)) {
+        continue;
+      }
+      processedFuncIds.add(funcId);
+      foundNewFunctions = true;
+
+      const func = context.functions[funcId]!;
+      collectTypesFromFunctionType(func.value.type, context);
+      // For specialized generic functions, also collect types from the specialized type
+      // This ensures concrete types (after type substitution) are registered
+      if (func.value.specializedType) {
+        collectTypesFromFunctionType(func.value.specializedType, context);
+      }
+      collectTypesFromExpr(func.value.body, context);
+
+      // Collect types from compile-time function call caches
+      // When a compt function is called, the result is cached with concrete types
+      // We need to collect those concrete types (e.g., [i32; 10] from cache, not [i32; n] from generic body)
+      if (func.value.calledComptFunctionCaches) {
+        for (const cache of func.value.calledComptFunctionCaches) {
+          // Collect types from the cached return value
+          if (cache.value && cache.value.type) {
+            collectType(cache.value.type, context);
+          }
+          // Also collect from the evaluated body which has concrete types
+          collectTypesFromExpr(cache.body, context);
         }
-        // Also collect from the evaluated body which has concrete types
-        collectTypesFromExpr(cache.body, context);
       }
     }
   }

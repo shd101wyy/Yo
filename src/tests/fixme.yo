@@ -1,5 +1,21 @@
+import("std/fmt/to_string");
+
+// Auto-generated main function for test: Test the `where` scoping in functions
 main :: (fn() -> unit) {
-  begin(Container :: (fn(compt(T) : Type) -> compt(Type))(object(value : T, equals :: (fn(self : Self, other : T, where(T <: Eq(T))) -> bool)((self.value) == other), try_equals_without_constraint :: (fn(self : Self, other : T) -> bool)(begin(compt_expect_error((self.value) == other), return(false), ())))), ());
+  Container :: (fn(compt(T): Type) -> compt(Type))(
+    object(
+      value : T,
+
+      // This function has where(T <: Eq(T))
+      equals :: (fn(
+        self: Self, 
+        other: T,
+        where(T <: Eq(T))
+      ) -> bool)(
+        self.value == other
+      )
+    )
+  );
 };
 
 export main;

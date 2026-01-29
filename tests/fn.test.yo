@@ -31,15 +31,16 @@ test "Test simple functions", {
     test1 :: (fn() -> i32)
       cond(
         true => 42,
-        false => (1 `div` 0)  // This should never be evaluated due to compile-time true above
+        false => (div 1, 0)  // This should never be evaluated due to compile-time true above
+                             // even though we didn't even define `div` at all!
       )
     ;
 
     // Test 2: Compile-time false conditions followed by true
     test2 :: (fn() -> i32)
       cond(
-        false => (1 `div` 0), // This should be skipped
-        false => (1 `div` 0), // This should be skipped
+        false => (div 1, 0), // This should be skipped
+        false => (div 1, 0), // This should be skipped
         true => 100
       )
     ;
