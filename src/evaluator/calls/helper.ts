@@ -1362,6 +1362,28 @@ function createSpecializedFunctionInline({
   // Create specialized environment with compile-time arguments bound
   let specializedEnv = calleeEnv;
 
+  // CRITICAL: Clear the values of runtime parameters in the specialized environment.
+  // The calleeEnv has runtime parameter values from the specific call site (e.g., x=1 for compt_add(1, 1)).
+  // We need to clear these so that codegen generates proper variable references (e.g., "x + 1")
+  // instead of inlining the compile-time evaluated result (e.g., "2").
+  // Only compile-time parameters should retain their values for specialization.
+  for (const param of runtimeParameters) {
+    const variables = getVariablesFromEnv(specializedEnv, param.label);
+    if (variables.length > 0) {
+      const variable = variables[variables.length - 1]!;
+      // Clear the value but keep the type - this makes it a runtime-only variable
+      const updatedVariable: Variable = {
+        ...variable,
+        value: undefined,
+      };
+      specializedEnv = updateExistingVariable(
+        specializedEnv,
+        variable,
+        updatedVariable
+      );
+    }
+  }
+
   // Clone the function body and evaluate it in the specialized environment
   const clonedBody = cloneExpr(originalFunction.body);
 
