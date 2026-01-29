@@ -540,20 +540,23 @@ export function evaluateFunctionCall({
 
   // Optimization: Skip the checking phase in these cases to avoid exponential blowup:
   // 1. When we're already in a checking phase (nested function calls during checking)
-  //    AND the function is a non-type-returning CTFE function
+  //    AND the function is a non-type-returning CTFE function without forall parameters
   // 2. When we have exactly one function candidate that is a non-type-returning CTFE function
+  //    without forall parameters
   // This is critical for recursive CTFE functions like factorial - without this optimization,
   // each recursive call would go through checking + execution, causing exponential blowup
   // since the checking phase also evaluates arguments (which contain recursive calls).
   //
-  // IMPORTANT: Type constructors (Box, Vec, etc.) must NOT skip checking because:
-  // 1. They need to resolve forall parameters from context
-  // 2. They don't cause recursive blowup (not recursively defined)
+  // IMPORTANT: We must NOT skip checking for:
+  // 1. Type constructors (Box, Vec, etc.) - they return TypeHierarchyType and need forall resolution
+  // 2. Functions with forall parameters - they need checking to resolve type parameters from context
+  // 3. Functions with where clauses - they need checking to verify constraints
   const isNonTypeCtfeFunction =
     functions.length === 1 &&
     isFunctionType(functions[0]!.type) &&
     functions[0]!.type.return.isCompileTimeOnly &&
-    !isTypeHierarchyType(functions[0]!.type.return.type);
+    !isTypeHierarchyType(functions[0]!.type.return.type) &&
+    functions[0]!.type.forallParameters.length === 0; // Don't skip if has forall params
 
   const canSkipCheckingPhase =
     (context.isInFunctionCallCheckingPhase && isNonTypeCtfeFunction) ||
@@ -1401,14 +1404,15 @@ ${functionsWithMatchingTypes.map((func) => `${typeToString(func.type)}`).join("\
   // CTFE functions like factorial.
   // The actual execution will happen when the outer function call executes.
   //
-  // IMPORTANT: We must NOT skip execution for type-returning CTFE functions (like Box(V), Vec(T))
-  // because we need to execute them to resolve the actual type for type inference.
-  // Type constructors don't cause recursive blowup because they're not recursively defined.
+  // IMPORTANT: We must NOT skip execution for:
+  // 1. Type-returning CTFE functions (Box(V), Vec(T)) - need execution to resolve the type
+  // 2. Functions with forall parameters - return type may reference unresolved forall params
   const shouldSkipExecutionDuringChecking =
     context.isInFunctionCallCheckingPhase &&
     isFunctionType(functionToCall.type) &&
     functionToCall.type.return.isCompileTimeOnly &&
-    !isTypeHierarchyType(functionToCall.type.return.type); // Don't skip type constructors
+    !isTypeHierarchyType(functionToCall.type.return.type) &&
+    functionToCall.type.forallParameters.length === 0; // Don't skip if has forall params
 
   if (shouldSkipExecutionDuringChecking) {
     const functionType = functionToCall.type as FunctionType;
