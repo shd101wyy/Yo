@@ -1,17 +1,44 @@
-main :: (fn() -> unit) {
-  val :: i32(10);
-  p :: &(val);
-  p.* = i32(20);
-  compt_assert(val == i32(20));
+// @skip_prelude
+// Simplified test case for Option.is_some
+MyOpt :: (fn(compt(T) : Type) -> compt(Type))
+  enum(
+    None,
+    Some(value: T),
 
-  s :: {x : 1, y : 2};
-  s.x = 3;
-  compt_assert(s.x == 3);
-  
-  Point :: struct(x : i32, y : i32);
-  (compt(point) : Point) = Point(3, 4);
-  point.x = 16;
-  compt_assert(point.x == 16);
+    is_some :: (fn(self : Self) -> bool)(
+      match(self,
+        .Some(_) => true,
+        .None => false
+      )
+    )
+  )
+;
+
+main :: (fn() -> unit) {
+  opt := MyOpt(i32).Some(42);
+  opt.is_some();
+};
+export main;
+
+/*
+RetI32 :: trait(
+  return_i32 : (fn(self : *(Self)) -> i32)
+);
+
+impl(Box(i32), RetI32(
+  // Let's x2 here
+  return_i32 : ((self) -> {
+    return self.*.* + (self.*.*);
+  })
+));
+
+ret_boxi32_i32 :: (fn() -> Impl(RetI32)) {
+  return Box(i32)(456);
 };
 
+main :: (fn() -> unit) {
+  r := ret_boxi32_i32();
+  assert(&(r).return_i32() == i32(912), "Expected 912 from ret_boxi32_i32");
+};
 export main;
+*/
