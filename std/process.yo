@@ -101,6 +101,18 @@ export env;
 platform :: __yo_process_platform();
 export platform;
 
+Platform :: {
+  Aix : "aix",
+  Android : "android",
+  Darwin : "darwin",
+  FreeBSD : "freebsd",
+  Linux : "linux",
+  OpenBSD : "openbsd",
+  SunOS : "sunos",
+  Win32 : "win32"
+};
+export Platform;
+
 /**
  * Currently follows node.js conventions.
  * Available architectures:
@@ -120,13 +132,29 @@ export platform;
 arch :: __yo_process_arch();
 export arch;
 
+Arch :: {
+  Arm : "arm",
+  Arm64 : "arm64",
+  Ia32 : "ia32",
+  Loong64 : "loong64",
+  Mips : "mips",
+  Mipsel : "mipsel",
+  Ppc : "ppc",
+  Ppc64 : "ppc64",
+  Riscv64 : "riscv64",
+  S390 : "s390",
+  S390x : "s390x",
+  X64 : "x64"
+};
+export Arch;
+
 /**
  * Get the current working directory at runtime.
  * Returns a Result with the current directory as a Path, or an error message.
  */
 cwd :: (fn() -> Result(Path, String))(
   cond(
-    (platform == "win32") => {
+    (platform == Platform.Win32) => {
       // Windows implementation using GetCurrentDirectoryW
       { GetCurrentDirectoryW, WideCharToMultiByte, CP_UTF8, WCHAR, DWORD } :: import "./libc/windows";
       
@@ -235,7 +263,7 @@ export cwd;
  */
 chdir :: (fn(path: Path) -> Result(unit, String))(
   cond(
-    (platform == "win32") => {
+    (platform == Platform.Win32) => {
       // Windows implementation using SetCurrentDirectoryA
       { SetCurrentDirectoryA, BOOL } :: import "./libc/windows";
       
