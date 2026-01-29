@@ -49,6 +49,7 @@ import {
   typeOfType,
   typeToString,
 } from "../../types";
+import { randomId } from "../../utils";
 import {
   areValuesEqual,
   createEnumValue,
@@ -558,9 +559,7 @@ export function evaluateFunctionCall({
     !isTypeHierarchyType(functions[0]!.type.return.type) &&
     functions[0]!.type.forallParameters.length === 0; // Don't skip if has forall params
 
-  const canSkipCheckingPhase =
-    (context.isInFunctionCallCheckingPhase && isNonTypeCtfeFunction) ||
-    isNonTypeCtfeFunction;
+  const canSkipCheckingPhase = isNonTypeCtfeFunction;
 
   // Find the functions whose parameters match the arguments
   const functionsToCall: FunctionToCall[] = canSkipCheckingPhase
@@ -1408,11 +1407,7 @@ ${functionsWithMatchingTypes.map((func) => `${typeToString(func.type)}`).join("\
   // 1. Type-returning CTFE functions (Box(V), Vec(T)) - need execution to resolve the type
   // 2. Functions with forall parameters - return type may reference unresolved forall params
   const shouldSkipExecutionDuringChecking =
-    context.isInFunctionCallCheckingPhase &&
-    isFunctionType(functionToCall.type) &&
-    functionToCall.type.return.isCompileTimeOnly &&
-    !isTypeHierarchyType(functionToCall.type.return.type) &&
-    functionToCall.type.forallParameters.length === 0; // Don't skip if has forall params
+    context.isInFunctionCallCheckingPhase && isNonTypeCtfeFunction;
 
   if (shouldSkipExecutionDuringChecking) {
     const functionType = functionToCall.type as FunctionType;
@@ -1428,7 +1423,10 @@ ${functionsWithMatchingTypes.map((func) => `${typeToString(func.type)}`).join("\
     expr.$ = {
       env,
       type: returnType,
-      value: createUnknownValue(returnType, "checking_phase_placeholder"),
+      value: createUnknownValue(
+        returnType,
+        "checking_phase_placeholder_" + randomId(env.modulePath)
+      ),
       pathCollection: [],
     };
     return expr;

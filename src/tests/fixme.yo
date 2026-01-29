@@ -1,20 +1,13 @@
-RetI32 :: trait(
-  return_i32 : (fn(self : *(Self)) -> i32)
-);
+import "std/fmt/to_string";
 
-impl(Box(i32), RetI32(
-  // Let's x2 here
-  return_i32 : ((self) -> {
-    return self.*.* + (self.*.*);
-  })
-));
-
-ret_boxi32_i32 :: (fn() -> Impl(RetI32)) {
-  return Box(i32)(456);
+add :: (fn(x : i32, y : i32) -> i32) {
+  return x + y;
 };
 
 main :: (fn() -> unit) {
-  r := ret_boxi32_i32();
-  assert(&(r).return_i32() == i32(912), "Expected 912 from ret_boxi32_i32");
+  // ((1).to_string() + (3 + 4).to_string()); // < Works
+  // ((1 + 2).to_string() + (3).to_string()); // < Works
+  ((1 + 2).to_string() + (3 + 4).to_string()); // Doesn't work
 };
-export main;
+
+export(main);
