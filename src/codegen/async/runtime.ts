@@ -344,6 +344,20 @@ __yo_yield_future_t __yo_async_yield(void) {
 #include <sys/stat.h>
 #include <errno.h>
 
+// Compatibility: io_uring_prep_ftruncate was added in liburing 2.2
+// Only define fallback if using older liburing that doesn't have IORING_OP_FTRUNCATE
+#ifndef IORING_OP_FTRUNCATE
+  #define IORING_OP_FTRUNCATE 46
+  #define YO_NEED_FTRUNCATE_COMPAT 1
+#endif
+
+#ifdef YO_NEED_FTRUNCATE_COMPAT
+  static inline void yo_io_uring_prep_ftruncate(struct io_uring_sqe *sqe, int fd, loff_t len) {
+    io_uring_prep_rw(IORING_OP_FTRUNCATE, sqe, fd, NULL, len, 0);
+  }
+  #define io_uring_prep_ftruncate yo_io_uring_prep_ftruncate
+#endif
+
 static struct io_uring __yo_io_ring;
 static bool __yo_io_initialized = false;
 static size_t __yo_pending_io_count = 0;
