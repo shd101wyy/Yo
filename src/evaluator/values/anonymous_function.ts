@@ -39,7 +39,6 @@ import { createUnknownValue, Value } from "../../value";
 import { ValueTag } from "../../value-tag";
 import { createFunctionBodyEvaluationContext } from "../calls/function_type";
 import { EvaluatorContext } from "../context";
-import { analyzeCtfeCapability } from "../ctfe/ctfe-analysis";
 import { evaluateBeginExpression } from "../exprs/begin";
 import {
   buildPathCollectionFromCapturedVariables,
@@ -419,12 +418,6 @@ Got:      "${paramName}"`,
   }
   // Restore the env frame
   env = popEnvFrame(env, true);
-
-  // Analyze CTFE capability for non-closure functions
-  // Closures capture runtime state and cannot be evaluated at compile time
-  if (!isCreatingClosure) {
-    analyzeCtfeCapability(functionValue, env, context);
-  }
 
   // For closures, prepare captured variables with values and types for the function value
   // NOTE: This must happen BEFORE consuming the variables, using the current env

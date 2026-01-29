@@ -42,7 +42,13 @@ export function evaluateRecur({
   // to avoid infinite recursion. We just return an UnknownValue of the return type
   // since we're only checking that the function CAN be evaluated at compile time,
   // not actually computing the result with unknown values.
-  if (context.isAnalyzingCtfeCapability) {
+  //
+  // Also short-circuit during function definition validation (isValidatingFunctionDefinition)
+  // to avoid infinite recursion when type-checking recursive functions.
+  if (
+    context.isAnalyzingCtfeCapability ||
+    context.isValidatingFunctionDefinition
+  ) {
     const { returnType: recurReturnType } = evaluateFunctionReturnTypeAgain({
       functionType: isEvaluatingFunctionBodyOfType,
       calleeEnv: env,

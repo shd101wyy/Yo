@@ -193,6 +193,15 @@ export interface EvaluatorContext {
    * actually recursing, to avoid infinite loops during capability analysis.
    */
   isAnalyzingCtfeCapability?: boolean;
+
+  /**
+   * When true, we're in the "checking phase" of function call resolution where we
+   * verify that arguments match parameter types. During this phase, we should NOT
+   * execute CTFE functions - only verify types. This prevents exponential blowup
+   * in recursive CTFE functions where each argument evaluation would otherwise
+   * trigger full CTFE execution.
+   */
+  isInFunctionCallCheckingPhase?: boolean;
 }
 
 /**
