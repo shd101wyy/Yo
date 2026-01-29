@@ -3172,33 +3172,58 @@ Option :: (fn(compt(T) : Type) -> compt(Type))
     None,
     Some(value: T),
 
-    unwrap :: (fn(self : Self) -> T)(
-      match(self,
-        .Some(value) => value,
-        .None => panic("Called unwrap on a None value")
-      )
-    ),
+    unwrap :: impl({
+      unwrap :: (fn(self : Self) -> T)(
+        match(self,
+          .Some(value) => value,
+          .None => panic("Called unwrap on a None value")
+        )
+      );
+      compt_unwrap :: (fn(compt(self) : Self) -> compt(T))(
+        match(self,
+          .Some(value) => value,
+          .None => compt_assert(false, "Called unwrap on a None value")
+        )
+      );
+      Call :: (unwrap, compt_unwrap);
+      export Call;
+    }),
 
-    unwrap_or :: (fn(self : Self, or_value : T) -> T)(
-      match(self,
-        .Some(value) => value,
-        .None => or_value
-      )
-    ),
+    unwrap_or :: impl({
+      unwrap_or :: (fn(self : Self, or_value : T) -> T)(
+        match(self,
+          .Some(value) => value,
+          .None => or_value
+        )
+      );
+      compt_unwrap_or :: compt_fn(unwrap_or);
+      Call :: (unwrap_or, compt_unwrap_or);
+      export Call;
+    }),
 
-    is_some :: (fn(self : Self) -> bool)(
-      match(self,
-        .Some(_) => true,
-        .None => false
-      )
-    ),
+    is_some :: impl({
+      is_some :: (fn(self : Self) -> bool)(
+        match(self,
+          .Some(_) => true,
+          .None => false
+        )
+      );
+      compt_is_some :: compt_fn(is_some);
+      Call :: (is_some, compt_is_some);
+      export Call;
+    }),
 
-    is_none :: (fn(self : Self) -> bool)(
-      match(self,
-        .None => true,
-        .Some(_) => false
-      )
-    )
+    is_none :: impl({
+      is_none :: (fn(self : Self) -> bool)(
+        match(self,
+          .None => true,
+          .Some(_) => false
+        )
+      );
+      compt_is_none :: compt_fn(is_none);
+      Call :: (is_none, compt_is_none);
+      export Call;
+    })
   )
 ;
 // Alias of the Option type
@@ -3216,30 +3241,50 @@ export
 
 /// === Result ===
 Result :: (fn(compt(OkType): Type, compt(ErrorType): Type) -> compt(Type))
-  enum
+  enum(
     Ok(value: OkType),
     Err(error: ErrorType),
 
-    unwrap :: (fn(self : Self) -> OkType)(
-      match(self,
-        .Ok(value) => value,
-        .Err(_) => panic("Called unwrap on an Error value")
-      )
-    ),
+    unwrap :: impl({
+      unwrap :: (fn(self : Self) -> OkType)(
+        match(self,
+          .Ok(value) => value,
+          .Err(_) => panic("Called unwrap on an Error value")
+        )
+      );
+      compt_unwrap :: (fn(compt(self) : Self) -> compt(OkType))(
+        match(self,
+          .Ok(value) => value,
+          .Err(_) => compt_assert(false, "Called unwrap on an Error value")
+        )
+      );
+      Call :: (unwrap, compt_unwrap);
+      export Call;
+    }),
 
-    is_ok :: (fn(self : Self) -> bool)(
-      match(self,
-        .Ok(_) => true,
-        .Err(_) => false
-      )
-    ),
+    is_ok :: impl({
+      is_ok :: (fn(self : Self) -> bool)(
+        match(self,
+          .Ok(_) => true,
+          .Err(_) => false
+        )
+      );
+      compt_is_ok :: compt_fn(is_ok);
+      Call :: (is_ok, compt_is_ok);
+      export Call;
+    }),
 
-    is_err :: (fn(self : Self) -> bool)(
-      match(self,
-        .Err(_) => true,
-        .Ok(_) => false
-      )
-    )
+    is_err :: impl({
+      is_error :: (fn(self : Self) -> bool)(
+        match(self,
+          .Err(_) => true,
+          .Ok(_) => false
+        )
+      );
+      compt_is_err :: compt_fn(is_error);
+      Call :: (is_error, compt_is_err);
+    })
+  )
 ;
 export
   Result
