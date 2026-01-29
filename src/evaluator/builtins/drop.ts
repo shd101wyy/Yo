@@ -260,7 +260,7 @@ export function evaluateDrop({
     }
     // This could happen during function definition validation
     // In that case, we skip generating the drop call here
-    else if (isSomeType(concreteType)) {
+    else if (isSomeType(concreteType) && !typeImplementsFuture(concreteType)) {
       expr.$ = {
         env,
         type: evaluatedArgExpr.$.type,

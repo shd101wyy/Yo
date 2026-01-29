@@ -19,6 +19,7 @@ import {
   isSomeType,
   isTupleType,
   typeContainsRcType,
+  typeImplementsFuture,
 } from "../../types";
 import { isNumberValue, NumberValue } from "../../value";
 import { evaluateFunctionCall } from "../calls/function";
@@ -213,7 +214,7 @@ export function evaluateDup({
     }
     // This could happen during function definition validation
     // In that case, we skip generating the dup call here
-    else if (isSomeType(concreteType)) {
+    else if (isSomeType(concreteType) && !typeImplementsFuture(concreteType)) {
       expr.$ = {
         env,
         type: evaluatedArgExpr.$.type,
