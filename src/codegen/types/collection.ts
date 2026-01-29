@@ -309,6 +309,14 @@ export function collectType(type: Type, context: CodeGenContext): void {
     return;
   }
 
+  // Handle SomeType (Impl) with resolvedConcreteType for other traits (e.g., Impl(RetI32))
+  // This must be checked BEFORE typeContainsSomeType since SomeType would otherwise be skipped
+  if (isSomeType(type) && type.resolvedConcreteType) {
+    // Collect the resolved concrete type (e.g., Box(i32) for Impl(RetI32))
+    collectType(type.resolvedConcreteType, context);
+    return;
+  }
+
   // Skip collecting any types that contain SomeType (generic type parameters)
   // Note: Extern types like YO_THREAD_SYNC_TYPE are excluded by typeContainsSomeType
   if (typeContainsSomeType(type)) {
