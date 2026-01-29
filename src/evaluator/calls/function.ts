@@ -25,6 +25,7 @@ import {
   areTypesCompatible,
   createExprType,
   extractFnTraitFromType,
+  FunctionType,
   isArrayType,
   isComptFloatType,
   isComptIntType,
@@ -41,6 +42,7 @@ import {
   isSomeType,
   isStructType,
   isTraitType,
+  isTypeHierarchyType,
   isUnionType,
   SomeType,
   Type,
@@ -538,15 +540,24 @@ export function evaluateFunctionCall({
 
   // Optimization: Skip the checking phase in these cases to avoid exponential blowup:
   // 1. When we're already in a checking phase (nested function calls during checking)
-  // 2. When we have exactly one function candidate that is a CTFE function
+  //    AND the function is a non-type-returning CTFE function
+  // 2. When we have exactly one function candidate that is a non-type-returning CTFE function
   // This is critical for recursive CTFE functions like factorial - without this optimization,
   // each recursive call would go through checking + execution, causing exponential blowup
   // since the checking phase also evaluates arguments (which contain recursive calls).
+  //
+  // IMPORTANT: Type constructors (Box, Vec, etc.) must NOT skip checking because:
+  // 1. They need to resolve forall parameters from context
+  // 2. They don't cause recursive blowup (not recursively defined)
+  const isNonTypeCtfeFunction =
+    functions.length === 1 &&
+    isFunctionType(functions[0]!.type) &&
+    functions[0]!.type.return.isCompileTimeOnly &&
+    !isTypeHierarchyType(functions[0]!.type.return.type);
+
   const canSkipCheckingPhase =
-    context.isInFunctionCallCheckingPhase ||
-    (functions.length === 1 &&
-      isFunctionType(functions[0]!.type) &&
-      functions[0]!.type.return.isCompileTimeOnly);
+    (context.isInFunctionCallCheckingPhase && isNonTypeCtfeFunction) ||
+    isNonTypeCtfeFunction;
 
   // Find the functions whose parameters match the arguments
   const functionsToCall: FunctionToCall[] = canSkipCheckingPhase
@@ -1384,19 +1395,23 @@ ${functionsWithMatchingTypes.map((func) => `${typeToString(func.type)}`).join("\
 
   const functionToCall = functionsWithMatchingTypes[0]!; // Found the only one function to call
 
-  // When we're in a checking phase of an outer function call, AND this function is a CTFE function,
-  // we should NOT actually execute it - just return a placeholder with the correct type.
-  // This prevents exponential blowup when checking recursive CTFE functions.
+  // When we're in a checking phase of an outer function call, AND this function is a CTFE function
+  // that returns a non-type compile-time value, we should NOT actually execute it - just return
+  // a placeholder with the correct type. This prevents exponential blowup when checking recursive
+  // CTFE functions like factorial.
   // The actual execution will happen when the outer function call executes.
-  // We only do this for CTFE functions because:
-  // 1. Runtime functions don't cause exponential blowup (they're not executed during checking anyway)
-  // 2. Non-CTFE functions need their type checking to complete normally
-  if (
+  //
+  // IMPORTANT: We must NOT skip execution for type-returning CTFE functions (like Box(V), Vec(T))
+  // because we need to execute them to resolve the actual type for type inference.
+  // Type constructors don't cause recursive blowup because they're not recursively defined.
+  const shouldSkipExecutionDuringChecking =
     context.isInFunctionCallCheckingPhase &&
     isFunctionType(functionToCall.type) &&
-    functionToCall.type.return.isCompileTimeOnly
-  ) {
-    const functionType = functionToCall.type;
+    functionToCall.type.return.isCompileTimeOnly &&
+    !isTypeHierarchyType(functionToCall.type.return.type); // Don't skip type constructors
+
+  if (shouldSkipExecutionDuringChecking) {
+    const functionType = functionToCall.type as FunctionType;
     const { returnType } = evaluateFunctionReturnTypeAgain({
       functionType,
       calleeEnv: functionType.env,
