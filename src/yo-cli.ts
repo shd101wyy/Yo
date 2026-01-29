@@ -289,6 +289,13 @@ yo --version                     Show version number
             "Number of tests to run in parallel (0 = auto/max CPUs, 1 = sequential)",
           type: "number",
           default: 1,
+        })
+        .option("keep-generated-files", {
+          alias: "k",
+          describe:
+            "Keep generated .yo and .c test files for debugging (not deleted after test)",
+          type: "boolean",
+          default: false,
         });
     },
     async (argv) => {
@@ -324,6 +331,7 @@ yo --version                     Show version number
         bail: argv.bail as boolean,
         testNamePattern: argv.testNamePattern as string | undefined,
         parallel,
+        keepGeneratedFiles: argv.keepGeneratedFiles as boolean,
       });
 
       process.exit(summary.failed > 0 ? 1 : 0);

@@ -243,7 +243,8 @@ export main;
 function runSingleTest(
   test: TestDeclaration,
   originalFileContent: string,
-  cCompiler: string
+  cCompiler: string,
+  keepGeneratedFiles?: boolean
 ): TestResult {
   const startTime = Date.now();
   const sanitizedName = test.name.replace(/[^a-zA-Z0-9_]/g, "_");
@@ -259,6 +260,12 @@ function runSingleTest(
 
   // Helper to clean up all temp files
   const cleanup = () => {
+    if (keepGeneratedFiles) {
+      console.log(`  ${colors.dim}Keeping generated files:${colors.reset}`);
+      console.log(`    ${colors.dim}.yo file: ${testFilePath}${colors.reset}`);
+      console.log(`    ${colors.dim}.c file: ${testCPath}${colors.reset}`);
+      return;
+    }
     for (const file of [testFilePath, testOutputPath, testCPath]) {
       if (fs.existsSync(file)) {
         fs.unlinkSync(file);
@@ -313,8 +320,8 @@ function runSingleTest(
 
     fs.writeFileSync(testCPath, generatedCode);
 
-    // Clean up temp .yo file after generating C code
-    if (fs.existsSync(testFilePath)) {
+    // Clean up temp .yo file after generating C code (unless keeping files)
+    if (!keepGeneratedFiles && fs.existsSync(testFilePath)) {
       fs.unlinkSync(testFilePath);
     }
 
@@ -442,6 +449,7 @@ async function runTestsWithConcurrency(
   options: {
     verbose?: boolean;
     bail?: boolean;
+    keepGeneratedFiles?: boolean;
   }
 ): Promise<{
   results: TestResult[];
@@ -459,7 +467,12 @@ async function runTestsWithConcurrency(
     for (const { test, originalContent } of testsToRun) {
       if (bailed) break;
 
-      const result = runSingleTest(test, originalContent, cCompiler);
+      const result = runSingleTest(
+        test,
+        originalContent,
+        cCompiler,
+        options.keepGeneratedFiles
+      );
       results.push(result);
 
       if (result.passed) {
@@ -500,7 +513,12 @@ async function runTestsWithConcurrency(
         const { test, originalContent } = testsToRun[index]!;
 
         // Run test synchronously in this "worker"
-        const result = runSingleTest(test, originalContent, cCompiler);
+        const result = runSingleTest(
+          test,
+          originalContent,
+          cCompiler,
+          options.keepGeneratedFiles
+        );
         testResultsMap.set(index, result);
 
         if (result.passed) {
@@ -565,6 +583,7 @@ export async function runTests(
     bail?: boolean;
     testNamePattern?: string;
     parallel?: number;
+    keepGeneratedFiles?: boolean;
   } = {}
 ): Promise<TestRunSummary> {
   const startTime = Date.now();
@@ -682,6 +701,7 @@ export async function runTests(
       {
         verbose: options.verbose,
         bail: options.bail,
+        keepGeneratedFiles: options.keepGeneratedFiles,
       }
     );
 
