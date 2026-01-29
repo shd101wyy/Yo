@@ -24,6 +24,7 @@ import {
   createComptFloatValue,
   createComptIntValue,
   createNumberValue,
+  createUnknownValue,
   EnumValue,
   isComptFloatValue,
   isComptIntValue,
@@ -106,18 +107,6 @@ function getValueTagFromType(type: Type): ValueTag | undefined {
     default:
       return undefined;
   }
-}
-
-/**
- * Check if a type supports compile-time values.
- */
-function supportsComptValue(type: Type): boolean {
-  return (
-    isIntegerType(type) ||
-    isFloatType(type) ||
-    isComptIntType(type) ||
-    isComptFloatType(type)
-  );
 }
 
 /**
@@ -309,7 +298,7 @@ export function tryToConvertToNumericType({
       });
     }
 
-    if (supportsComptValue(targetType)) {
+    if (targetType.availability.comptime) {
       const resultValue = createComptValueOfType(
         discriminant,
         targetType,
@@ -340,7 +329,7 @@ export function tryToConvertToNumericType({
 
   // Case 1: Compile-time value -> any supported type
   const comptValue = extractComptNumericValue(argValue);
-  if (comptValue !== undefined && supportsComptValue(targetType)) {
+  if (comptValue !== undefined && targetType.availability.comptime) {
     const resultValue = createComptValueOfType(
       comptValue,
       targetType,
@@ -364,6 +353,46 @@ export function tryToConvertToNumericType({
       });
     }
     // Already handled in Case 1
+  }
+
+  // Case 2.5: If the arg type is a compile-time type (compt_int or compt_float)
+  // and the target type supports compile-time values, we can handle it at compile-time.
+  // This is important for the checking phase where we don't have the actual value yet,
+  // but we know from the type that it will be a compile-time value.
+  // We create an UnknownValue with the target type to indicate that this will be
+  // a compile-time value once the actual value is known.
+  if (
+    (isComptIntType(argType) || isComptFloatType(argType)) &&
+    targetType.availability.comptime
+  ) {
+    // During checking phase, we may have a placeholder value but the type tells us
+    // this will be a compile-time conversion. Create an appropriate value.
+    if (comptValue !== undefined) {
+      // We have the actual value, create the result
+      const resultValue = createComptValueOfType(
+        comptValue,
+        targetType,
+        expr.token
+      );
+      expr.$ = {
+        env,
+        type: targetType,
+        value: resultValue,
+        pathCollection: [],
+      };
+      return { expr, env };
+    } else {
+      // We don't have the value yet (checking phase), but we know from the type
+      // that this will be a compile-time value. Create an UnknownValue with the
+      // target type to indicate that the conversion is valid.
+      expr.$ = {
+        env,
+        type: targetType,
+        value: createUnknownValue(targetType, "compt_conversion_placeholder"),
+        pathCollection: [],
+      };
+      return { expr, env };
+    }
   }
 
   // Case 3: Runtime conversion - transform to __yo_as(value, TargetType) call
