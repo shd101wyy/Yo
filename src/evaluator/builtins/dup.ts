@@ -210,6 +210,17 @@ export function evaluateDup({
         };
         return expr;
       }
+    }
+    // This could happen during function definition validation
+    // In that case, we skip generating the dup call here
+    else if (isSomeType(concreteType)) {
+      expr.$ = {
+        env,
+        type: evaluatedArgExpr.$.type,
+        value: undefined,
+        pathCollection: [],
+      };
+      return expr;
     } else {
       // Handle struct types and other types with ___dup methods
       const dupMethodCallExpr = generateExprFromCode(

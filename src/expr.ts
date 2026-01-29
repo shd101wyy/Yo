@@ -2073,11 +2073,12 @@ export function setExprAsNeedsToCallDup(
       }
     }
 
+    // NOTE: The condition below is wrong.
     // Skip creating dup calls during function definition validation
     // We're only validating types, not executing code, so RC operations are not needed
-    if (context.isValidatingFunctionDefinition) {
-      return;
-    }
+    // if (context.isValidatingFunctionDefinition) {
+    //   return;
+    // }
 
     // Copy semantics: call dup to share ownership
     // replace this expr with ___dup(...)
