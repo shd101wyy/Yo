@@ -7,6 +7,7 @@ import {
   exprToString,
   FnCallExpr,
 } from "../../expr";
+import { randomId } from "../../utils";
 import { createUnknownValue, isFunctionValue } from "../../value";
 import { evaluateFunctionCall } from "../calls/function";
 import { tryToCallFunctionWithArguments } from "../calls/helper";
@@ -75,7 +76,10 @@ export function evaluateRecur({
 
     expr.$ = {
       type: returnType,
-      value: createUnknownValue(returnType, "recur_result"),
+      value: createUnknownValue(
+        returnType,
+        "recur_result_" + randomId(env.modulePath)
+      ),
       env,
       pathCollection: [],
       runtimeArgExprsInOrder,

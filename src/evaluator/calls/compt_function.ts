@@ -14,6 +14,7 @@ import {
   isTypeHierarchyType,
   isUnionType,
 } from "../../types";
+import { randomId } from "../../utils";
 import {
   areValuesEqual,
   createUnknownValue,
@@ -45,6 +46,20 @@ export function evaluateComptFunctionCall({
   calleeEnv: Environment;
   context: EvaluatorContext;
 }): { value: Value; callerEnv: Environment; calleeEnv: Environment } {
+  // During CTFE capability analysis, we don't actually execute the function.
+  // We just verify that the call is valid and return an UnknownValue.
+  // This prevents infinite recursion and allows nested CTFE functions to work.
+  if (context.isAnalyzingCtfeCapability) {
+    return {
+      value: createUnknownValue(
+        functionType.return.type,
+        "ctfe_analysis_result_" + randomId(callerEnv.modulePath)
+      ),
+      callerEnv,
+      calleeEnv,
+    };
+  }
+
   const unfilteredArgValues: (Value | undefined)[] = [
     ...argValues_.forallArgs.map((v) => v.value),
     ...argValues_.args.map((v) => v.value),

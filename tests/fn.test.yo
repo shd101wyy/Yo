@@ -567,6 +567,11 @@ test "Test 'recur'", {
       return factorial_acc(x, 1);
     };
     assert(factorial(6) == 720);
+
+    // Try to evaluate in compile-time when possible
+    compt_factorial :: compt_fn(factorial);
+    result :: compt_factorial(12);
+    compt_assert(result == 479001600);
   };
 };
 

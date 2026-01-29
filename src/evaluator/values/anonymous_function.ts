@@ -39,6 +39,7 @@ import { createUnknownValue, Value } from "../../value";
 import { ValueTag } from "../../value-tag";
 import { createFunctionBodyEvaluationContext } from "../calls/function_type";
 import { EvaluatorContext } from "../context";
+import { analyzeCtfeCapability } from "../ctfe/ctfe-analysis";
 import { evaluateBeginExpression } from "../exprs/begin";
 import {
   buildPathCollectionFromCapturedVariables,
@@ -437,6 +438,24 @@ Got:      "${paramName}"`,
   let finalValue: Value | undefined;
   let capturedVariableDupExpressions: Expr[] | undefined;
   let captureType: StructType | undefined;
+  let finalFunctionValue = functionValue;
+
+  // If we're in CTFE analysis mode OR actually executing a CTFE function
+  // (forceCompileTimeBindings is true), also analyze this nested function for CTFE capability
+  if (
+    (context.isAnalyzingCtfeCapability || context.forceCompileTimeBindings) &&
+    !isCreatingClosure
+  ) {
+    const comptFunctionValue = analyzeCtfeCapability(
+      functionValue,
+      env,
+      context
+    );
+    if (comptFunctionValue) {
+      // Use the CTFE version for nested anonymous functions
+      finalFunctionValue = comptFunctionValue;
+    }
+  }
 
   if (isCreatingClosure && expectedFnModuleType && wrapperType) {
     // Create a closure type and closure value using helper function
@@ -485,9 +504,9 @@ Got:      "${paramName}"`,
     // The closure will be constructed at runtime in C code
     finalValue = undefined;
   } else {
-    // Regular function - use the existing functionValue
-    finalType = newFunctionType;
-    finalValue = functionValue;
+    // Regular function - use the final function value (CTFE version if available)
+    finalType = finalFunctionValue.type;
+    finalValue = finalFunctionValue;
   }
 
   expr.$ = {
@@ -503,7 +522,7 @@ Got:      "${paramName}"`,
         ? capturedVariableDupExpressions
         : undefined,
     captureType: isCreatingClosure ? captureType : undefined, // Store the capture struct type for codegen (used for both closures and async blocks)
-    closureFunctionValue: isCreatingClosure ? functionValue : undefined,
+    closureFunctionValue: isCreatingClosure ? finalFunctionValue : undefined,
   };
 
   // For closures, attach a temporary variable so they can be consumed
