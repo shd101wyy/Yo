@@ -3012,6 +3012,7 @@ static uint64_t __yo_statx_blocks(void* statxbuf) {
 // ============================================================================
 // These functions help extract fields from struct stat, which has platform-specific layout.
 
+#ifndef _WIN32
 #include <sys/stat.h>
 #include <dirent.h>
 
@@ -3074,6 +3075,7 @@ static uint8_t __yo_dirent_type(void* entry) {
   return 0;
 #endif
 }
+#endif // !_WIN32
 
 // ============================================================================
 // Timer Operations (cross-platform)
