@@ -119,6 +119,10 @@ typedef enum {
   #include <pthread.h>
   #include <unistd.h>
   #include <sys/syscall.h>
+  #if defined(__APPLE__)
+    #include <sys/types.h>
+    #include <sys/sysctl.h>
+  #endif
   typedef pthread_mutex_t YO_THREAD_SYNC_TYPE;
   typedef pthread_cond_t YO_COND_TYPE;
   typedef pthread_t YO_THREAD_TYPE;
