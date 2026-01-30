@@ -4,99 +4,125 @@
 
 This document outlines the implementation plan for Yo's async I/O system:
 
-| Platform    | Backend  | Priority |
-| ----------- | -------- | -------- |
-| **Linux**   | io_uring | Phase 1  |
-| **Windows** | IOCP     | Phase 2  |
-| **macOS**   | kqueue   | Phase 3  |
+| Platform    | Backend     | Status      | Description                      |
+| ----------- | ----------- | ----------- | -------------------------------- |
+| **Linux**   | io_uring    | ✅ Complete | True async I/O via liburing      |
+| **macOS**   | dispatch_io | ✅ Complete | GCD for async file I/O           |
+| **Windows** | IOCP        | 🔜 Planned  | I/O Completion Ports             |
+| **FreeBSD** | kqueue      | 🔜 Planned  | Event notification + thread pool |
 
-All platforms share a unified Yo API (`File.read_bytes_async`, `File.read_string_async`, etc.) with platform-specific C implementations.
+All platforms share a unified Yo API (`std/io.yo`) with platform-specific C implementations in `src/codegen/async/runtime.ts`.
 
-## liburing Strategy
+## Architecture Decision: Manual vs libuv
 
-### Why liburing (not raw syscalls)
+We chose **manual platform-specific implementations** over libuv because:
 
-- **liburing** is a thin wrapper (~5KB code) maintained by Jens Axboe (io_uring author)
-- Handles ring buffer memory mapping correctly
-- Well-tested, actively maintained
-- Raw io_uring syscalls require managing mmap'd ring buffers manually - error-prone
+1. **Event loop integration**: Yo's async/await compiles to state machines with its own scheduler. libuv's callback-based event loop would require a bridge layer.
 
-### liburing Dependency
+2. **No runtime dependency**: Yo programs are self-contained with no runtime dependencies.
 
-**Strategy: System-wide installation**
+3. **Maximum performance**: Direct use of io_uring/dispatch_io/IOCP without abstraction overhead.
 
-liburing must be installed system-wide. The Yo compiler detects it via `pkg-config`.
+4. **Clean model**: I/O completions wake state machines directly - perfect fit for Yo's design.
 
-**Installation:**
+## Implementation Status
 
-```bash
-# Arch Linux / Manjaro / SteamOS
-sudo pacman -S liburing
+### Phase 1: Linux (io_uring) ✅ COMPLETE
 
-# Ubuntu / Debian
-sudo apt-get install liburing-dev
+| Component                 | Status | Notes                           |
+| ------------------------- | ------ | ------------------------------- |
+| io_uring initialization   | ✅     | Lazy init on first I/O op       |
+| Async read/write          | ✅     | `__yo_async_read/write_start`   |
+| Async open/close          | ✅     | `__yo_async_openat/close_start` |
+| Async stat (statx)        | ✅     | `__yo_async_statx_start`        |
+| Async mkdir/unlink/rename | ✅     | Directory operations            |
+| Async symlink/link        | ✅     | Link operations                 |
+| Async fsync/fdatasync     | ✅     | Data integrity                  |
+| Async ftruncate           | ✅     | File truncation                 |
+| Event loop integration    | ✅     | `__yo_io_poll/wait`             |
 
-# Fedora / RHEL
-sudo dnf install liburing-devel
+### Phase 2: macOS (dispatch_io) ✅ COMPLETE
 
-# From source
-git clone https://github.com/axboe/liburing.git
-cd liburing
-./configure
-make
-sudo make install
-```
+| Component                  | Status | Notes                                    |
+| -------------------------- | ------ | ---------------------------------------- |
+| dispatch_io initialization | ✅     | Serial queue for completions             |
+| Async read/write           | ✅     | True async via dispatch_io               |
+| Async open/close           | ✅     | Sync wrapper (dispatch_io needs open fd) |
+| Async stat                 | ✅     | Uses struct stat (not statx)             |
+| Async mkdir/unlink/rename  | ✅     | Sync wrappers in completed futures       |
+| Async symlink/link         | ✅     | Sync wrappers                            |
+| Async fsync                | ✅     | Sync wrapper                             |
+| Async ftruncate            | ✅     | Sync wrapper                             |
+| Event loop integration     | ✅     | Semaphore-based wait                     |
 
-**Build integration:**
+**macOS Note**: Only read/write use true async I/O via dispatch_io. Other operations (open, stat, mkdir, etc.) complete synchronously but return futures for API consistency.
 
-```bash
-# Linux compilation with liburing (detected via pkg-config)
-clang -std=c11 a.out.c \
-  vendor/mimalloc/src/static.c \
-  -Ivendor/mimalloc/include \
-  $(pkg-config --cflags --libs liburing) \
-  -o a.out
-```
+### Phase 3: Windows (IOCP) 🔜 PLANNED
 
-## File API Design
+| Component              | Status | Notes                      |
+| ---------------------- | ------ | -------------------------- |
+| IOCP initialization    | 🔜     | CreateIoCompletionPort     |
+| Async read/write       | 🔜     | Overlapped I/O             |
+| Async open/close       | 🔜     | CreateFile + IOCP          |
+| File metadata          | 🔜     | GetFileInformationByHandle |
+| Directory operations   | 🔜     | Win32 API wrappers         |
+| Event loop integration | 🔜     | GetQueuedCompletionStatus  |
 
-### Return Types
+## API Implementation Status
 
-| Function                  | Return Type               | Description          |
-| ------------------------- | ------------------------- | -------------------- |
-| `File.read_bytes_async`   | `Result([u8], IOError)`   | Binary data as slice |
-| `File.read_string_async`  | `Result(String, IOError)` | UTF-8 validated text |
-| `File.write_bytes_async`  | `Result(unit, IOError)`   | Write from slice     |
-| `File.write_string_async` | `Result(unit, IOError)`   | Write from String    |
+### std/io.yo Declared APIs vs C Runtime Implementation
 
-### Why `[u8]` slice over `*u8` pointer
+| API Category       | Function                      | io.yo | Linux | macOS | Notes               |
+| ------------------ | ----------------------------- | ----- | ----- | ----- | ------------------- |
+| **File I/O**       | `__yo_async_read_start`       | ✅    | ✅    | ✅    |                     |
+|                    | `__yo_async_write_start`      | ✅    | ✅    | ✅    |                     |
+|                    | `__yo_async_openat_start`     | ✅    | ✅    | ✅    | macOS: sync wrapper |
+|                    | `__yo_async_close_start`      | ✅    | ✅    | ✅    |                     |
+|                    | `__yo_async_statx_start`      | ✅    | ✅    | ✅    | macOS: uses stat    |
+|                    | `__yo_async_fsync_start`      | ✅    | ✅    | ✅    |                     |
+|                    | `__yo_async_fdatasync_start`  | ✅    | ✅    | ✅    | macOS: uses fsync   |
+|                    | `__yo_async_ftruncate_start`  | ✅    | ✅    | ✅    |                     |
+| **Directory Ops**  | `__yo_async_mkdirat_start`    | ✅    | ✅    | ✅    |                     |
+|                    | `__yo_async_unlinkat_start`   | ✅    | ✅    | ✅    |                     |
+|                    | `__yo_async_renameat_start`   | ✅    | ✅    | ✅    |                     |
+|                    | `__yo_async_symlinkat_start`  | ✅    | ✅    | ✅    |                     |
+|                    | `__yo_async_linkat_start`     | ✅    | ✅    | ✅    |                     |
+|                    | `__yo_async_getdents_start`   | ✅    | ❌    | ❌    | TODO: implement     |
+| **Permissions**    | `__yo_async_fchmod_start`     | ✅    | ✅    | ✅    |                     |
+|                    | `__yo_async_fchmodat_start`   | ✅    | ✅    | ✅    |                     |
+|                    | `__yo_async_fchown_start`     | ✅    | ✅    | ✅    |                     |
+|                    | `__yo_async_fchownat_start`   | ✅    | ✅    | ✅    |                     |
+| **Links**          | `__yo_async_readlinkat_start` | ✅    | ✅    | ✅    |                     |
+| **FD Ops**         | `__yo_async_dup_start`        | ✅    | ✅    | ✅    |                     |
+|                    | `__yo_async_dup2_start`       | ✅    | ✅    | ✅    |                     |
+|                    | `__yo_async_pipe_start`       | ✅    | ✅    | ✅    |                     |
+| **Socket Ops**     | `__yo_async_socket_start`     | ✅    | ✅    | ✅    |                     |
+|                    | `__yo_async_bind_start`       | ✅    | ✅    | ✅    |                     |
+|                    | `__yo_async_listen_start`     | ✅    | ✅    | ✅    |                     |
+|                    | `__yo_async_accept_start`     | ✅    | ✅    | ✅    |                     |
+|                    | `__yo_async_connect_start`    | ✅    | ✅    | ✅    |                     |
+|                    | `__yo_async_send_start`       | ✅    | ✅    | ✅    |                     |
+|                    | `__yo_async_recv_start`       | ✅    | ✅    | ✅    |                     |
+|                    | `__yo_async_sendto_start`     | ✅    | ✅    | ✅    |                     |
+|                    | `__yo_async_recvfrom_start`   | ✅    | ✅    | ✅    |                     |
+|                    | `__yo_async_shutdown_start`   | ✅    | ✅    | ✅    |                     |
+|                    | `__yo_async_setsockopt_start` | ✅    | ✅    | ✅    |                     |
+|                    | `__yo_async_getsockopt_start` | ✅    | ✅    | ✅    |                     |
+| **Dirent Helpers** | `__yo_dirent_size`            | ✅    | ❌    | ❌    | TODO: implement     |
+|                    | `__yo_dirent_reclen`          | ✅    | ❌    | ❌    | TODO: implement     |
+|                    | `__yo_dirent_type`            | ✅    | ✅    | ✅    | Existing helper     |
+|                    | `__yo_dirent_name`            | ✅    | ✅    | ✅    | Existing helper     |
+|                    | `__yo_dirent_ino`             | ✅    | ❌    | ❌    | TODO: implement     |
 
-- **`[u8]`** (slice) = fat pointer with data + length
-- **`*u8`** = raw pointer, loses length information
-- Slice is safer and matches `ArrayList.as_slice()` return type
+### Pending Implementation Tasks
 
-### Why separate `read_bytes` and `read_string`
+1. **Directory listing (getdents)**: Need to implement `__yo_async_getdents_start` and dirent helpers for reading directory contents.
 
-- `read_bytes_async`: Returns raw bytes, no UTF-8 validation
-- `read_string_async`: Validates UTF-8, returns String or `IOError.InvalidUtf8`
-- Similar to Rust's `std::fs::read()` vs `std::fs::read_to_string()`
+2. **Windows IOCP backend**: Full implementation needed for Windows support.
 
-## Prerequisites
+---
 
-**Linux:**
-
-- Kernel 5.1+ (io_uring support)
-- No external dependencies (liburing vendored)
-
-**Windows:**
-
-- Windows Vista+ (for GetQueuedCompletionStatusEx)
-- Windows SDK
-
-**macOS:**
-
-- macOS 10.6+ (kqueue support)
-- No external dependencies
+## liburing Dependency (Linux)
 
 **All platforms:**
 
