@@ -3181,8 +3181,9 @@ static yo_io_future_t* __yo_async_timeout_start(uint64_t milliseconds) {
 #endif
 
 // ============================================================================
-// File Extra Operations (cross-platform)
+// File Extra Operations (POSIX-only)
 // ============================================================================
+#if !defined(_WIN32)
 
 // Async access - check file accessibility
 static yo_io_future_t* __yo_async_access_start(int32_t dirfd, const char* path, int32_t mode) {
@@ -3903,5 +3904,7 @@ static int32_t __yo_poll_stop(void* handle) {
 static void __yo_poll_close(void* handle) {
   if (handle) __yo_free(handle);
 }
+
+#endif // !defined(_WIN32) - End of POSIX-only File Extra Operations
 `);
 }

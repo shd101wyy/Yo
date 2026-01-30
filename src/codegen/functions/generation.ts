@@ -690,17 +690,22 @@ static size_t yo_gc_collect_threshold = 256;   // Adaptive: starts at min, grows
 
 // Thread cleanup infrastructure
 #if defined(_WIN32)
-static tss_t yo_thread_cleanup_key;
-static once_flag yo_thread_cleanup_once = ONCE_FLAG_INIT;
-
-static void yo_thread_cleanup_destructor(void* value) {
-  if (value != NULL) {
-    __yo_cleanup_thread_gc();
-  }
-}
+// Windows: Use native TLS API instead of C11 tss_t (better compiler support)
+static DWORD yo_thread_cleanup_key = TLS_OUT_OF_INDEXES;
+static volatile LONG yo_thread_cleanup_init_started = 0;
+static volatile LONG yo_thread_cleanup_init_done = 0;
 
 static void yo_init_thread_cleanup_key(void) {
-  tss_create(&yo_thread_cleanup_key, yo_thread_cleanup_destructor);
+  // Simple once-only initialization using interlocked operations
+  if (InterlockedCompareExchange(&yo_thread_cleanup_init_started, 1, 0) == 0) {
+    yo_thread_cleanup_key = TlsAlloc();
+    InterlockedExchange(&yo_thread_cleanup_init_done, 1);
+  } else {
+    // Wait for initialization to complete
+    while (InterlockedCompareExchange(&yo_thread_cleanup_init_done, 1, 1) == 0) {
+      Sleep(0);
+    }
+  }
 }
 #elif defined(__linux__) || defined(__APPLE__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__)
 static pthread_key_t yo_thread_cleanup_key = (pthread_key_t)(-1);
@@ -722,8 +727,10 @@ static void yo_init_thread_gc() {
   if (yo_current_thread_gc != NULL) return;
 
 #if defined(_WIN32)
-  call_once(&yo_thread_cleanup_once, yo_init_thread_cleanup_key);
-  tss_set(yo_thread_cleanup_key, (void*)1);
+  yo_init_thread_cleanup_key();
+  if (yo_thread_cleanup_key != TLS_OUT_OF_INDEXES) {
+    TlsSetValue(yo_thread_cleanup_key, (void*)1);
+  }
 #elif defined(__linux__) || defined(__APPLE__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__)
   pthread_once(&yo_thread_cleanup_once, yo_init_thread_cleanup_key);
   if (yo_thread_cleanup_key != (pthread_key_t)(-1)) {
@@ -1008,7 +1015,10 @@ static void yo_process_cleanup(void) {
   }
   
 #if defined(_WIN32)
-  tss_delete(yo_thread_cleanup_key);
+  if (yo_thread_cleanup_key != TLS_OUT_OF_INDEXES) {
+    TlsFree(yo_thread_cleanup_key);
+    yo_thread_cleanup_key = TLS_OUT_OF_INDEXES;
+  }
 #elif defined(__linux__) || defined(__APPLE__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__)
   if (yo_thread_cleanup_key != (pthread_key_t)(-1)) {
     pthread_key_delete(yo_thread_cleanup_key);
@@ -1022,7 +1032,7 @@ static void yo_init_process_cleanup(void) {
   cleanup_initialized = true;
   
 #if defined(_WIN32)
-  mtx_init(&yo_thread_list_mutex, mtx_plain);
+  InitializeCriticalSection(&yo_thread_list_mutex);
 #endif
   
   atexit(yo_process_cleanup);
