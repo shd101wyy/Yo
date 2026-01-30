@@ -401,7 +401,7 @@ function runSingleTest(
       fs.writeFileSync(suppressionFile, lsanSuppressions);
     }
 
-    const runResult = spawnSync(testOutputPath, [], {
+    let runResult = spawnSync(testOutputPath, [], {
       stdio: "pipe",
       encoding: "utf-8",
       timeout: 60000, // 60 second timeout - tests should complete quickly, this catches hangs
@@ -414,18 +414,39 @@ function runSingleTest(
       },
     });
 
+    // Check if detect_leaks is not supported (e.g., on GitHub Actions macOS runners)
+    const combinedOutputInitial = `${runResult.stdout || ""}${runResult.stderr || ""}`;
+    const leakDetectionNotSupported = combinedOutputInitial.includes(
+      "detect_leaks is not supported"
+    );
+
+    // If leak detection is not supported, rerun without it
+    if (leakDetectionNotSupported) {
+      runResult = spawnSync(testOutputPath, [], {
+        stdio: "pipe",
+        encoding: "utf-8",
+        timeout: 60000,
+        env: {
+          ...process.env,
+          // Run without detect_leaks
+          ASAN_OPTIONS: "detect_leaks=0",
+        },
+      });
+    }
+
     // Clean up suppression file
     if (suppressionFile && fs.existsSync(suppressionFile)) {
       fs.unlinkSync(suppressionFile);
     }
 
-    // Check for memory leaks in the output
+    // Check for memory leaks in the output (only if leak detection was supported)
     const combinedOutput = `${runResult.stdout || ""}${runResult.stderr || ""}`;
     const hasMemoryLeak =
-      combinedOutput.includes("LeakSanitizer") ||
-      combinedOutput.includes("detected memory leaks") ||
-      combinedOutput.includes("Direct leak") ||
-      combinedOutput.includes("Indirect leak");
+      !leakDetectionNotSupported &&
+      (combinedOutput.includes("LeakSanitizer") ||
+        combinedOutput.includes("detected memory leaks") ||
+        combinedOutput.includes("Direct leak") ||
+        combinedOutput.includes("Indirect leak"));
 
     const passed = runResult.status === 0 && !hasMemoryLeak;
 
