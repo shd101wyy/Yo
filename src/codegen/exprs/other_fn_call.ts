@@ -146,8 +146,10 @@ export function generateOtherFunctionCall(
               arg.$.env
             );
             if (argCode !== sanitizedVarName) {
+              // Use convertedRuntimeType if available (e.g., compt_string -> str)
+              const effectiveType = arg.$.convertedRuntimeType || arg.$.type;
               const varTypeAndName = getVariableTypeString(
-                arg.$.type,
+                effectiveType,
                 arg.$.variableName,
                 context
               );
@@ -548,8 +550,10 @@ export function generateOtherFunctionCall(
               // 1. The expression doesn't already handle it
               // 2. It's not a closure-captured variable (those are accessed inline from closure_context->data)
               // 3. It's not a state machine variable (those are accessed via sm->var_xxx)
+              // Use convertedRuntimeType if available (e.g., compt_string -> str)
+              const effectiveType = arg.$.convertedRuntimeType || arg.$.type;
               const varTypeAndName = getVariableTypeString(
-                arg.$.type,
+                effectiveType,
                 arg.$.variableName,
                 context
               );
