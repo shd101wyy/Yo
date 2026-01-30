@@ -1,6 +1,7 @@
 import { Expr } from "../../expr";
 import {
   isNewtypeType,
+  isPtrType,
   isSliceType,
   isStructType,
   isTupleType,
@@ -14,6 +15,7 @@ import {
   isEnumValue,
   isFunctionValue,
   isNumberValue,
+  isPtrValue,
   isStructValue,
   isTupleValue,
   isTypeValue,
@@ -238,7 +240,42 @@ export function generateComptValue(
         return `/* Error: No C type name found for type ${typeToString(type)} */`;
       }
     }
+  } else if (isPtrValue(value)) {
+    // For pointer values, we need to:
+    // 1. Generate the underlying value with proper type conversion
+    // 2. Take the address of that generated value using a compound literal
+    const targetValue = value.targetValue[0];
+    if (targetValue) {
+      // Check if we have a converted runtime type for the pointer's child type
+      // e.g., for *(str), the sourceExpr.$.convertedRuntimeType is *(str),
+      // and we need to generate the str value from compt_string
+      const ptrType =
+        _sourceExpr?.$?.convertedRuntimeType || _sourceExpr?.$?.type;
+      if (ptrType && isPtrType(ptrType)) {
+        const childType = ptrType.childType;
+
+        // Create a temporary expression-like object for the child value generation
+        // This allows generateComptValue to use the correct target type
+        const childCode = generateComptValue(targetValue, context, {
+          $: {
+            type: childType,
+            convertedRuntimeType: childType,
+          },
+        } as Expr);
+
+        if (
+          childCode &&
+          !childCode.startsWith("/*") &&
+          !childCode.startsWith("//")
+        ) {
+          // The childCode already contains a compound literal with the type cast
+          // (e.g., "(str){ .data = ..., .length = ... }"), so we just take its address
+          return `(&${childCode})`;
+        }
+      }
+    }
+    return `/* Error: Cannot generate pointer value ${valueToString(value)} */`;
   }
 
-  return ""; // No need to generate. It might be module value, etc
+  return `/* skip generating: ${valueToString(value)} */`; // No need to generate. It might be module value, etc
 }
