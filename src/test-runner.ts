@@ -388,6 +388,19 @@ function runSingleTest(
     }
 
     // Run the test executable with AddressSanitizer leak detection enabled
+    // On macOS, we need to suppress system library leaks (libobjc, libdyld, libxpc, etc.)
+    const isMacOS = process.platform === "darwin";
+    const lsanSuppressions = isMacOS
+      ? "leak:libobjc\nleak:libdyld\nleak:libxpc\nleak:libsystem_malloc\nleak:dyld"
+      : "";
+
+    // Create a temporary suppression file for macOS
+    let suppressionFile: string | undefined;
+    if (isMacOS && lsanSuppressions) {
+      suppressionFile = `${testOutputPath}.lsan_suppressions.txt`;
+      fs.writeFileSync(suppressionFile, lsanSuppressions);
+    }
+
     const runResult = spawnSync(testOutputPath, [], {
       stdio: "pipe",
       encoding: "utf-8",
@@ -395,8 +408,16 @@ function runSingleTest(
       env: {
         ...process.env,
         ASAN_OPTIONS: "detect_leaks=1",
+        ...(suppressionFile
+          ? { LSAN_OPTIONS: `suppressions=${suppressionFile}` }
+          : {}),
       },
     });
+
+    // Clean up suppression file
+    if (suppressionFile && fs.existsSync(suppressionFile)) {
+      fs.unlinkSync(suppressionFile);
+    }
 
     // Check for memory leaks in the output
     const combinedOutput = `${runResult.stdout || ""}${runResult.stderr || ""}`;
