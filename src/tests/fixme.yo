@@ -1,6 +1,16 @@
-// Auto-generated main function for test: Test empty test
 main :: (fn() -> unit) {
-  begin((), ());
+  EvenNumber :: struct(value : i32);
+  impl(EvenNumber, TryFrom(i32)(
+    Error : str,
+    try_from : (value -> 
+      cond(
+        ((value % 2) == 0) => .Ok(EvenNumber(value)),
+        true => .Err("Only even numbers are allowed (i32)") 
+      )
+    )
+  ));
+
+  x := EvenNumber.try_from(i32(4));
 };
 
 export main;

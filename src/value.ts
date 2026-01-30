@@ -332,6 +332,17 @@ export function valueToString(value?: Value): string {
         })
         .join(", ")})`;
     }
+    case ValueTag.Trait: {
+      return `${value.type.typeName ?? "_"}(${value.fields
+        .map((element, index) => {
+          let label = value.type.fields[index]!.label;
+          if (stringIsOperator(label)) {
+            label = `(${label})`;
+          }
+          return `${label}: ${valueToString(element)}`;
+        })
+        .join(", ")})`;
+    }
     case ValueTag.Unit: {
       return `()`;
     }
