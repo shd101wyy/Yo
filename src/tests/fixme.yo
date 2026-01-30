@@ -1,16 +1,71 @@
-main :: (fn() -> unit) {
-  EvenNumber :: struct(value : i32);
-  impl(EvenNumber, TryFrom(i32)(
-    Error : str,
-    try_from : (value -> 
-      cond(
-        ((value % 2) == 0) => .Ok(EvenNumber(value)),
-        true => .Err("Only even numbers are allowed (i32)") 
-      )
-    )
-  ));
+open import "std/process";
+open import "std/string";
+open import "std/fmt";
+{ Path } :: import "std/path";
 
-  x := EvenNumber.try_from(i32(4));
+main :: (fn() -> unit) {  
+  // Get the original directory
+  original_result := cwd();
+  match(original_result,
+    .Err(msg) => {
+      println(`Error getting original cwd: ${msg}`);
+      assert(false, "Failed to get original cwd");
+    },
+    .Ok(original_path) => {
+      println(`Original cwd: ${original_path.to_string()}`);
+      
+      // Change to /tmp directory (exists on all Unix systems)
+      tmp_path := Path.new(`/tmp`);
+      chdir_result := chdir(tmp_path);
+      
+      match(chdir_result,
+        .Err(msg) => {
+          println(`Error changing directory: ${msg}`);
+          assert(false, "Failed to change directory to /tmp");
+        },
+        .Ok(_) => {
+          // Verify the change
+          new_cwd_result := cwd();
+          match(new_cwd_result,
+            .Err(msg) => {
+              println(`Error getting new cwd: ${msg}`);
+              assert(false, "Failed to get new cwd");
+            },
+            .Ok(new_path) => {
+              println(`New cwd: ${new_path.to_string()}`);
+              
+              // The new path should be /tmp or /private/tmp (macOS symlink)
+              new_path_str := new_path.to_string();
+              assert(((new_path_str == `/tmp`) || (new_path_str == `/private/tmp`)), "cwd should be /tmp or /private/tmp after chdir");
+            }
+          );
+          
+          // Change back to original directory
+          restore_result := chdir(original_path);
+          match(restore_result,
+            .Err(msg) => {
+              println(`Error restoring directory: ${msg}`);
+              assert(false, "Failed to restore original directory");
+            },
+            .Ok(_) => {
+              // Verify we're back
+              final_cwd_result := cwd();
+              match(final_cwd_result,
+                .Err(msg) => {
+                  println(`Error getting final cwd: ${msg}`);
+                  assert(false, "Failed to get final cwd");
+                },
+                .Ok(final_path) => {
+                  println(`Restored cwd: ${final_path.to_string()}`);
+                  assert((final_path == original_path), "cwd should be restored to original");
+                }
+              );
+            }
+          );
+        }
+      );
+    }
+  );
 };
 
 export main;

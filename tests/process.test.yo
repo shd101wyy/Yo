@@ -231,8 +231,9 @@ test "chdir changes directory and cwd reflects the change", {
             .Ok(new_path) => {
               println(`New cwd: ${new_path.to_string()}`);
               
-              // The new path should be /tmp
-              assert((new_path.to_string() == `/tmp`), "cwd should be /tmp after chdir");
+              // The new path should be /tmp or /private/tmp (macOS symlink)
+              new_path_str := new_path.to_string();
+              assert(((new_path_str == `/tmp`) || (new_path_str == `/private/tmp`)), "cwd should be /tmp or /private/tmp after chdir");
             }
           );
           
