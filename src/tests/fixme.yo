@@ -1,19 +1,6 @@
+open import "std/path";
+
 main :: (fn() -> unit) {
-  x := Box(i32)(99);
-  
-  // Create a Result where the match condition is known at compile time
-  result := Result(Box(i32), i32).Ok(x);
-  
-  // This should NOT cause double-drop
-  value := match(result,
-    .Ok(v) => {
-      output := Iso(Box(i32))(v);
-      compt_expect_error(w := v, "use of moved value: 'v'");
-      output
-    },
-    .Err(_) => Iso(Box(i32))(Box(i32)(0))
-  );
-  
-  ()
+  path := Path.new(`src/main.yo`);
 };
 export main;

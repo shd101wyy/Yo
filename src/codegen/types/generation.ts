@@ -5,13 +5,16 @@ import {
   isDynType,
   isEnumType,
   isFutureTraitType,
+  isPtrType,
   isSomeType,
   isStructType,
   isTupleType,
   isUnionType,
   isUnitType,
+  PtrType,
   StructType,
   TupleType,
+  Type,
   typeContainsSomeType,
   typeToString,
   UnionType,
@@ -337,6 +340,35 @@ typedef struct yo_io_future_t {
     structsAndEnumsAndTuples.map((e) => [e.cName, e.typeId])
   );
 
+  // Helper function to extract the pointee type from a field type
+  // Handles: PtrType, and enums optimized as nullable pointers (e.g., Option(*(T)))
+  function extractPointeeNewtypeFromFieldType(
+    fieldType: Type
+  ): StructType | null {
+    // Case 1: Direct pointer type (e.g., *(String))
+    if (isPtrType(fieldType)) {
+      const ptrType = fieldType as PtrType;
+      const pointeeType = ptrType.childType;
+      if (isStructType(pointeeType) && pointeeType.isNewtype) {
+        return pointeeType;
+      }
+    }
+    // Case 2: Enum optimized as nullable pointer (e.g., Option(*(String)))
+    else if (isEnumType(fieldType)) {
+      const nullablePtrType = canOptimizeAsNullablePointer(
+        fieldType as EnumType
+      );
+      if (nullablePtrType && isPtrType(nullablePtrType)) {
+        const ptrType = nullablePtrType as PtrType;
+        const pointeeType = ptrType.childType;
+        if (isStructType(pointeeType) && pointeeType.isNewtype) {
+          return pointeeType;
+        }
+      }
+    }
+    return null;
+  }
+
   for (const { typeId, type, kind } of structsAndEnumsAndTuples) {
     dependencies.set(typeId, new Set());
 
@@ -349,7 +381,39 @@ typedef struct yo_io_future_t {
           fieldType = fieldType.resolvedConcreteType;
         }
 
+        // First, check for pointer-to-newtype dependencies (including nullable pointer optimized enums)
+        // This handles cases like: ?*(String) which becomes String* in C
+        const pointeeNewtype = extractPointeeNewtypeFromFieldType(fieldType);
+        if (pointeeNewtype) {
+          const depCName = getTypeString(pointeeNewtype, context);
+          const depTypeId = cNameToTypeId.get(depCName);
+          if (
+            depTypeId &&
+            depTypeId !== typeId &&
+            typeIdToData.has(depTypeId)
+          ) {
+            dependencies.get(typeId)!.add(depTypeId);
+          }
+        }
+
         if (isEnumType(fieldType)) {
+          // Skip enums that are optimized as nullable pointers - they don't need to be defined first
+          // since they become simple pointer types in C
+          if (!canOptimizeAsNullablePointer(fieldType as EnumType)) {
+            const depCName = getTypeString(fieldType, context);
+            const depTypeId = cNameToTypeId.get(depCName);
+            if (
+              depTypeId &&
+              depTypeId !== typeId &&
+              typeIdToData.has(depTypeId)
+            ) {
+              dependencies.get(typeId)!.add(depTypeId);
+            }
+          }
+        }
+        // Newtypes (typedef aliases) need to be defined first, even when behind a pointer
+        // because we use the typedef name (not struct name) in the pointer declaration
+        else if (isStructType(fieldType) && fieldType.isNewtype) {
           const depCName = getTypeString(fieldType, context);
           const depTypeId = cNameToTypeId.get(depCName);
           if (
