@@ -8,7 +8,11 @@ import {
   exprToString,
   FnCallExpr,
 } from "../../expr";
-import { createStructType, TraitField } from "../../types";
+import {
+  createStructType,
+  TraitField,
+  updateTypeAvailability,
+} from "../../types";
 import { createTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateTypeField } from "./field";
@@ -118,6 +122,8 @@ export function evaluateStructType({
         structType.trait.fields.push(field as TraitField);
       } else {
         fields.push(field);
+        // Update the struct's availability after adding each non-compt field
+        updateTypeAvailability(structType, arg.token);
       }
 
       env = nextEnv;

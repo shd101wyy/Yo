@@ -108,7 +108,8 @@ export function evaluateTest({
   }
   evaluatedTestBodyExpr.$.originalExpr = originalTestBodyExpr;
 
-  env = evaluatedTestBodyExpr.$.env;
+  // NOTE: Don't propagate env.
+  // env = evaluatedTestBodyExpr.$.env;
 
   // Return unit value (no-op) - the test doesn't produce a runtime value
   expr.$ = {

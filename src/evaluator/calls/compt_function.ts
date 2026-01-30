@@ -11,8 +11,10 @@ import {
   isSomeType,
   isStructType,
   isTraitType,
+  isTypeHierarchyType,
   isUnionType,
 } from "../../types";
+import { randomId } from "../../utils";
 import {
   areValuesEqual,
   createUnknownValue,
@@ -44,6 +46,20 @@ export function evaluateComptFunctionCall({
   calleeEnv: Environment;
   context: EvaluatorContext;
 }): { value: Value; callerEnv: Environment; calleeEnv: Environment } {
+  // During CTFE capability analysis, we don't actually execute the function.
+  // We just verify that the call is valid and return an UnknownValue.
+  // This prevents infinite recursion and allows nested CTFE functions to work.
+  if (context.isAnalyzingCtfeCapability) {
+    return {
+      value: createUnknownValue(
+        functionType.return.type,
+        "ctfe_analysis_result_" + randomId(callerEnv.modulePath)
+      ),
+      callerEnv,
+      calleeEnv,
+    };
+  }
+
   const unfilteredArgValues: (Value | undefined)[] = [
     ...argValues_.forallArgs.map((v) => v.value),
     ...argValues_.args.map((v) => v.value),
@@ -56,56 +72,68 @@ export function evaluateComptFunctionCall({
   }
   const argValues: Value[] = unfilteredArgValues as Value[];
 
-  // Check if it's in the cache
+  // Only cache CTFE calls that return Type (TypeHierarchyType).
+  // These are pure type-constructor functions like Box(T), Vec(T), etc.
+  // Functions that return regular values (i32, unit, etc.) should not be cached
+  // because they might have side effects (e.g., mutation through pointers).
+  const returnType = functionType.return.type;
+  const shouldCache = isTypeHierarchyType(returnType);
+
+  // Check if it's in the cache (only for type-returning functions)
   const funcId = functionValue.funcId;
   const calledComptFunctions = functionValue.calledComptFunctionCaches;
 
-  // Check if the function is already called.
-  const calledComptFunction = calledComptFunctions.find((cache) => {
-    return (
-      cache.argValues.length === argValues.length &&
-      cache.argValues.every((argValue, index) => {
-        const givenArgValue = argValues[index];
+  // Check if the function is already called (only if caching is enabled).
+  const calledComptFunction = shouldCache
+    ? calledComptFunctions.find((cache) => {
+        return (
+          cache.argValues.length === argValues.length &&
+          cache.argValues.every((argValue, index) => {
+            const givenArgValue = argValues[index];
 
-        // If argValue is some type, and givenArgValue is not some type,
-        // we return false.
-        // For example:
-        // - Point(T)
-        // - Point(i32)
-        // given T = i32 in env, areValuesEqual returns true.
-        // We don't want to use the cache there.
-        // For caching purposes, we need EXACT equality, not just compatibility.
-        if (isTypeValue(argValue) && isTypeValue(givenArgValue)) {
-          // CRITICAL: For SomeTypes, we must compare by id, not by name or structure.
-          // Two different SomeTypes (e.g., V from Box's definition and T from impl's forall)
-          // should NOT be considered equal even if they have the same structure.
-          // This ensures that Box(V) and Box(T) create separate cache entries.
-          if (isSomeType(argValue.value) && isSomeType(givenArgValue.value)) {
-            // Must be the exact same SomeType instance
-            return argValue.value.id === givenArgValue.value.id;
-          }
+            // If argValue is some type, and givenArgValue is not some type,
+            // we return false.
+            // For example:
+            // - Point(T)
+            // - Point(i32)
+            // given T = i32 in env, areValuesEqual returns true.
+            // We don't want to use the cache there.
+            // For caching purposes, we need EXACT equality, not just compatibility.
+            if (isTypeValue(argValue) && isTypeValue(givenArgValue)) {
+              // CRITICAL: For SomeTypes, we must compare by id, not by name or structure.
+              // Two different SomeTypes (e.g., V from Box's definition and T from impl's forall)
+              // should NOT be considered equal even if they have the same structure.
+              // This ensures that Box(V) and Box(T) create separate cache entries.
+              if (
+                isSomeType(argValue.value) &&
+                isSomeType(givenArgValue.value)
+              ) {
+                // Must be the exact same SomeType instance
+                return argValue.value.id === givenArgValue.value.id;
+              }
 
-          if (isSomeType(argValue.value)) {
-            if (!isSomeType(givenArgValue.value)) {
-              return false;
+              if (isSomeType(argValue.value)) {
+                if (!isSomeType(givenArgValue.value)) {
+                  return false;
+                }
+              }
+
+              // Direct type comparison with exact matching
+              return areTypesCompatible(
+                { type: argValue.value, env: cache.env },
+                { type: givenArgValue.value, env: callerEnv },
+                true // requireExactMatch for cache comparison
+              );
             }
-          }
 
-          // Direct type comparison with exact matching
-          return areTypesCompatible(
-            { type: argValue.value, env: cache.env },
-            { type: givenArgValue.value, env: callerEnv },
-            true // requireExactMatch for cache comparison
-          );
-        }
-
-        return areValuesEqual(
-          { value: argValue, env: cache.env },
-          { value: givenArgValue, env: callerEnv }
-        );
+            return areValuesEqual(
+              { value: argValue, env: cache.env },
+              { value: givenArgValue, env: callerEnv }
+            );
+          })
+        ); // Check if the values are equal
       })
-    ); // Check if the values are equal
-  });
+    : undefined;
   if (calledComptFunction) {
     return {
       callerEnv,
@@ -159,6 +187,10 @@ export function evaluateComptFunctionCall({
         functionReturnImplConcreteType: [], // Fresh array for each call
         // Propagate SelfType from function type if available
         SelfType: functionType.SelfType ?? context.SelfType,
+
+        // Force compile-time bindings for CTFE function execution.
+        // This allows `:=` bindings inside the function body to produce compile-time values.
+        forceCompileTimeBindings: true,
       },
       variablesToAdd: [],
     });
@@ -188,33 +220,38 @@ export function evaluateComptFunctionCall({
   calleeEnv = evaluatedFunctionBody.$.env;
 
   if (isTypeValue(returnValue)) {
-    const returnType = returnValue.value;
-    if (!returnType.typeName && functionValue.funcName) {
-      returnType.typeName =
+    const returnedType = returnValue.value;
+    if (!returnedType.typeName && functionValue.funcName) {
+      returnedType.typeName =
         functionValue.funcName +
         `(${argValues.map((v) => valueToString(v)).join(", ")})`;
     }
     if (
-      isStructType(returnType) ||
-      isEnumType(returnType) ||
-      isUnionType(returnType) ||
-      isModuleType(returnType) ||
-      isTraitType(returnType)
+      isStructType(returnedType) ||
+      isEnumType(returnedType) ||
+      isUnionType(returnedType) ||
+      isModuleType(returnedType) ||
+      isTraitType(returnedType)
     ) {
-      if (!returnType.functionValue) {
-        returnType.functionValue = functionValue;
+      if (!returnedType.functionValue) {
+        returnedType.functionValue = functionValue;
       }
     }
   }
 
-  // Update the temp cache with the actual result
-  functionValue.calledComptFunctionCaches[tempCacheIndex] = {
-    funcId,
-    argValues,
-    value: returnValue,
-    env: evaluatedFunctionBody.$.env,
-    body: evaluatedFunctionBody,
-  };
+  // Update the temp cache with the actual result.
+  // Only keep the cache for type-returning functions; remove for others.
+  if (shouldCache) {
+    functionValue.calledComptFunctionCaches[tempCacheIndex] = {
+      funcId,
+      argValues,
+      value: returnValue,
+      env: evaluatedFunctionBody.$.env,
+      body: evaluatedFunctionBody,
+    };
+  } else {
+    functionValue.calledComptFunctionCaches.splice(tempCacheIndex, 1);
+  }
 
   return {
     value: returnValue,

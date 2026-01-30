@@ -82,9 +82,6 @@ export function evaluateAnonymousModuleBeginExprs({
               env,
               context: {
                 ...context,
-                // NOTE: This is intended to set SelfType to undefined,
-                // because there might be variable "Self" in the begin block.
-                SelfType: undefined, // moduleType, // Self refers to the module being built
               },
             });
             if (!evaluatedExtendedModuleExpr.$) {
@@ -327,7 +324,7 @@ export function evaluateAnonymousModuleBeginExprs({
                 type: variable.type,
                 isCompileTimeOnly: variable.isCompileTimeOnly,
                 assignedValue: variable.isCompileTimeOnly
-                  ? variable.value
+                  ? variable.value?.[0]
                   : undefined,
                 defaultValue: undefined,
                 exprs: {
@@ -338,13 +335,13 @@ export function evaluateAnonymousModuleBeginExprs({
                   defaultValueExpr: undefined,
                 },
               });
-              moduleElementValues.push(variable.value);
+              moduleElementValues.push(variable.value?.[0]);
 
               // Add information to exportExpr
               exportExpr.$ = {
                 env,
                 type: variable.type,
-                value: variable.value,
+                value: variable.value?.[0],
                 pathCollection: [],
               };
             }
@@ -357,7 +354,6 @@ export function evaluateAnonymousModuleBeginExprs({
           context: {
             ...context,
             expectedType: undefined,
-            SelfType: undefined, // moduleType, // Self refers to the module being built
           },
         });
         if (evaluatedExpr.$?.env) {

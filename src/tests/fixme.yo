@@ -1,40 +1,71 @@
 open import "std/process";
+open import "std/string";
 open import "std/fmt";
-open import "std/path";
+{ Path } :: import "std/path";
 
-// Test runtime cwd
-main :: (fn() -> unit) {
-  println(`Platform: ${platform}`);
-  println(`Arch: ${arch}`);
-  
-  // Platform should be one of the known values
-  valid_platform := (
-    (platform == "linux") ||
-    (platform == "darwin") ||
-    (platform == "win32") ||
-    (platform == "freebsd") ||
-    (platform == "openbsd") ||
-    (platform == "aix") ||
-    (platform == "android") ||
-    (platform == "sunos")
+main :: (fn() -> unit) {  
+  // Get the original directory
+  original_result := cwd();
+  match(original_result,
+    .Err(msg) => {
+      println(`Error getting original cwd: ${msg}`);
+      assert(false, "Failed to get original cwd");
+    },
+    .Ok(original_path) => {
+      println(`Original cwd: ${original_path.to_string()}`);
+      
+      // Change to /tmp directory (exists on all Unix systems)
+      tmp_path := Path.new(`/tmp`);
+      chdir_result := chdir(tmp_path);
+      
+      match(chdir_result,
+        .Err(msg) => {
+          println(`Error changing directory: ${msg}`);
+          assert(false, "Failed to change directory to /tmp");
+        },
+        .Ok(_) => {
+          // Verify the change
+          new_cwd_result := cwd();
+          match(new_cwd_result,
+            .Err(msg) => {
+              println(`Error getting new cwd: ${msg}`);
+              assert(false, "Failed to get new cwd");
+            },
+            .Ok(new_path) => {
+              println(`New cwd: ${new_path.to_string()}`);
+              
+              // The new path should be /tmp or /private/tmp (macOS symlink)
+              new_path_str := new_path.to_string();
+              assert(((new_path_str == `/tmp`) || (new_path_str == `/private/tmp`)), "cwd should be /tmp or /private/tmp after chdir");
+            }
+          );
+          
+          // Change back to original directory
+          restore_result := chdir(original_path);
+          match(restore_result,
+            .Err(msg) => {
+              println(`Error restoring directory: ${msg}`);
+              assert(false, "Failed to restore original directory");
+            },
+            .Ok(_) => {
+              // Verify we're back
+              final_cwd_result := cwd();
+              match(final_cwd_result,
+                .Err(msg) => {
+                  println(`Error getting final cwd: ${msg}`);
+                  assert(false, "Failed to get final cwd");
+                },
+                .Ok(final_path) => {
+                  println(`Restored cwd: ${final_path.to_string()}`);
+                  assert((final_path == original_path), "cwd should be restored to original");
+                }
+              );
+            }
+          );
+        }
+      );
+    }
   );
-  assert(valid_platform, "platform should be a known value");
-  
-  // Arch should be one of the known values
-  valid_arch := (
-    (arch == "x64") ||
-    (arch == "arm64") ||
-    (arch == "arm") ||
-    (arch == "ia32") ||
-    (arch == "loong64") ||
-    (arch == "mips") ||
-    (arch == "mipsel") ||
-    (arch == "ppc") ||
-    (arch == "ppc64") ||
-    (arch == "riscv64") ||
-    (arch == "s390") ||
-    (arch == "s390x")
-  );
-  assert(valid_arch, "arch should be a known value");
 };
+
 export main;

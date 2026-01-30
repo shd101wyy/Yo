@@ -37,7 +37,11 @@ export function evaluateYoTypeToString({
   env: Environment;
   context: EvaluatorContext;
 }): FnCallExpr {
-  expectExprToBeFunctionCallOf(expr, BuiltinFunctions.__yo_type_to_string, 1);
+  expectExprToBeFunctionCallOf(
+    expr,
+    BuiltinFunctions.__yo_type_to_compt_string,
+    1
+  );
 
   const arg = evaluateExpression({
     expr: expr.args[0]!,

@@ -23,7 +23,12 @@ import {
   typeImplementsFn,
   typeImplementsFuture,
 } from "../../types";
-import { isFunctionValue, isNumberValue, isTypeValue } from "../../value";
+import {
+  isFunctionValue,
+  isNumberValue,
+  isTypeValue,
+  isUnknownValue,
+} from "../../value";
 import { BuiltinYoInlineFunctions } from "../constants";
 import { FunctionGenerationContext } from "../functions/context";
 import {
@@ -39,6 +44,7 @@ import {
   sanitizeForCIdentifier,
 } from "../utils";
 import { checkVariableIsClosureCaptured } from "./closures";
+import { generateComptValue } from "./compt_value";
 import {
   generateDeferredDropExpressions,
   generateDeferredDupExpressions,
@@ -58,6 +64,21 @@ export function generateOtherFunctionCall(
   indent: string,
   context: CodeGenContext
 ): string | undefined {
+  // If the expression has a compile-time value (not UnknownValue), generate it directly.
+  // This handles CTFE functions, compile-time evaluated calls like `assert(true)`, etc.
+  if (expr.$?.value !== undefined && !isUnknownValue(expr.$.value)) {
+    // Handle deferred drop expressions if they exist
+    if (expr.$?.deferredDropExpressions) {
+      generateDeferredDropExpressions(expr, indent, context);
+    }
+    // For unit type, no code needed
+    if (isUnitType(expr.$.type)) {
+      return "";
+    }
+    // For non-unit types, generate the compile-time value
+    return generateComptValue(expr.$.value, context, expr);
+  }
+
   const functionType = expr.func.$?.type;
   const functionValue = expr.func.$?.value;
 
@@ -125,8 +146,10 @@ export function generateOtherFunctionCall(
               arg.$.env
             );
             if (argCode !== sanitizedVarName) {
+              // Use convertedRuntimeType if available (e.g., compt_string -> str)
+              const effectiveType = arg.$.convertedRuntimeType || arg.$.type;
               const varTypeAndName = getVariableTypeString(
-                arg.$.type,
+                effectiveType,
                 arg.$.variableName,
                 context
               );
@@ -331,8 +354,10 @@ export function generateOtherFunctionCall(
         // Get new function type, which might be specialized.
         const functionType =
           functionValue.specializedType ?? functionValue.type;
+
         // Normal function call
         const cFuncName = context.functions[functionValue.funcId]?.cName;
+
         if (cFuncName) {
           // Generate function call
           if (isUnitType(functionType.return.type)) {
@@ -525,8 +550,10 @@ export function generateOtherFunctionCall(
               // 1. The expression doesn't already handle it
               // 2. It's not a closure-captured variable (those are accessed inline from closure_context->data)
               // 3. It's not a state machine variable (those are accessed via sm->var_xxx)
+              // Use convertedRuntimeType if available (e.g., compt_string -> str)
+              const effectiveType = arg.$.convertedRuntimeType || arg.$.type;
               const varTypeAndName = getVariableTypeString(
-                arg.$.type,
+                effectiveType,
                 arg.$.variableName,
                 context
               );
@@ -676,8 +703,49 @@ export function generateOtherFunctionCall(
         // Handle newtype as zero-cost abstraction
         if (structType.isNewtype && structType.fields.length === 1) {
           // For newtype, just use the underlying value directly (with cast for type safety)
-          const argCode = generateExpr(runtimeArgExprs[0]!, indent, context);
-          const newtypeValue = `((${cName})(${argCode}))`;
+          const argExpr = runtimeArgExprs[0]!;
+          const argCode = generateExpr(argExpr, indent, context);
+
+          // Handle deferred dup expressions for newtype constructor arguments
+          // This is important because newtype shares the same RC as its inner type,
+          // so if the inner value is passed to the newtype, we need to dup it
+          // to avoid double-free (both newtype and original will try to drop).
+          let finalArgCode = argCode;
+          if (
+            argExpr.$?.deferredDupExpressions &&
+            argExpr.$.deferredDupExpressions.length > 0
+          ) {
+            const functionContext = context as FunctionGenerationContext;
+
+            // If the arg has a variable name but generateExpr didn't create a declaration,
+            // we need to create it now so the dup call can reference it
+            if (argExpr.$?.variableName && argExpr.$?.type) {
+              const argVarName = getVariableNameForCodegen(
+                argExpr.$.variableName,
+                argExpr.$.env
+              );
+              // Only emit the declaration if argCode is different from the variable name
+              if (argCode !== argVarName) {
+                const argType = argExpr.$.type;
+                const argTypeStr = getTypeString(argType, context);
+                context.emitter.emitLine(
+                  `${indent}${argTypeStr} ${argVarName} = ${argCode};`
+                );
+              }
+            }
+
+            generateDeferredDupExpressions(argExpr, indent, functionContext);
+            // Use the dup result variable instead of the original
+            const dupExpr = argExpr.$.deferredDupExpressions[0]!;
+            if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
+              finalArgCode = getVariableNameForCodegen(
+                dupExpr.$.variableName,
+                dupExpr.$.env
+              );
+            }
+          }
+
+          const newtypeValue = `((${cName})(${finalArgCode}))`;
 
           // If this newtype has a temporary variable name, declare it
           if (tempVar && expr.$?.type) {

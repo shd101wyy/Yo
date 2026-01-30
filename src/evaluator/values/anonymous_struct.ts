@@ -277,7 +277,7 @@ export function evaluateAnonymousStructValue({
     variable: {
       name: structType.id,
       type: structTypeValue.type,
-      value: structTypeValue,
+      value: [structTypeValue],
       initializedAtToken: expr.token,
       token: expr.token,
       isCompileTimeOnly: true,

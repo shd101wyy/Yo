@@ -15,7 +15,7 @@ import {
   isComptStringType,
   isPtrType,
 } from "../../types";
-import { isTypeValue } from "../../value";
+import { createPtrValue, isTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 
@@ -102,12 +102,45 @@ export function evaluateAddressCall({
 
     const pointerType = createPtrType(argType);
 
-    expr.$ = {
-      env,
-      type: pointerType,
-      value: undefined, // reference is only available for runtime
-      pathCollection: evaluatedArgExpr.$.pathCollection,
-    };
+    // Check if we can create a compile-time pointer
+    // This requires the source expression to have a sourceVariable with a value array
+    // OR an arrayElementRef for array element access like &(arr(0))
+    const sourceVariable = evaluatedArgExpr.$.sourceVariable;
+    const arrayElementRef = evaluatedArgExpr.$.arrayElementRef;
+
+    if (arrayElementRef) {
+      // Create a compile-time pointer to an array element
+      // Store the ArrayValue in targetValue[0], and use targetIndex to specify the element
+      const ptrValue = createPtrValue(
+        pointerType,
+        [arrayElementRef.arrayValue],
+        arrayElementRef.index
+      );
+
+      expr.$ = {
+        env,
+        type: pointerType,
+        value: ptrValue,
+        pathCollection: evaluatedArgExpr.$.pathCollection,
+      };
+    } else if (sourceVariable && sourceVariable.value) {
+      // Create a compile-time pointer value that shares the value array with the source variable
+      const ptrValue = createPtrValue(pointerType, sourceVariable.value);
+
+      expr.$ = {
+        env,
+        type: pointerType,
+        value: ptrValue,
+        pathCollection: evaluatedArgExpr.$.pathCollection,
+      };
+    } else {
+      expr.$ = {
+        env,
+        type: pointerType,
+        value: undefined, // reference is only available for runtime
+        pathCollection: evaluatedArgExpr.$.pathCollection,
+      };
+    }
     attachTempVariableToExpr(expr, false);
     return expr;
   }

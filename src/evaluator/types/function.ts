@@ -368,31 +368,18 @@ export function evaluateFunctionParameter({
         errorMessage: `Expected type for function parameter}`,
       });
     }
-    if (typeRequiresComptModifier(parameterType) && !isCompileTimeOnly) {
-      // Try converting to runtime type first
-      parameterType = convertComptTypeToRuntimeType({
-        type: parameterType,
-        expectedType: undefined,
-        expr: undefined,
-        env,
-      });
-
-      // If it still requires compt modifier,
-      // then throw an error
-      if (typeRequiresComptModifier(parameterType)) {
-        throw formatErrorMessage({
-          token: lhsExpr?.token ?? expr.token,
-          errorMessage: `Expected a "compt" for parameter to be compile-time only. Given type:
-${typeToString(parameterType)}`,
-        });
-      }
-    }
     if (isCompileTimeOnly && typeProhibitsComptModifier(parameterType)) {
       throw formatErrorMessage({
         token: lhsExpr?.token ?? expr.token,
-        errorMessage: `Unexpected "compt" for parameter of type ${typeToString(
-          parameterType
-        )} which can only be used at runtime.`,
+        errorMessage: `Parameter marked as "compt" but type is not available at compile-time:
+${typeToString(parameterType)}`,
+      });
+    }
+    if (!isCompileTimeOnly && typeRequiresComptModifier(parameterType)) {
+      throw formatErrorMessage({
+        token: lhsExpr?.token ?? expr.token,
+        errorMessage: `Parameter marked as runtime but type is not available at runtime:
+${typeToString(parameterType)}`,
       });
     }
 
@@ -482,10 +469,11 @@ use_id :: (fn(forall(T : Type),
       value:
         // If there's an assignedValue (from := syntax), use it
         // Otherwise use a generic unknown value for compile-time params
-        assignedValue ??
-        (isCompileTimeOnly
-          ? createUnknownValue(parameterType, label)
-          : undefined),
+        assignedValue
+          ? [assignedValue]
+          : isCompileTimeOnly
+            ? [createUnknownValue(parameterType, label)]
+            : undefined,
       token: lhsExpr?.token ?? expr.token,
       initializedAtToken: lhsExpr?.token ?? expr.token, // Set as initialized
       consumedAtToken: undefined, // Not consumed yet
@@ -1024,7 +1012,7 @@ export function evaluateFunctionParameters({
             type: parameterType,
             isCompileTimeOnly: variadicParameter.isCompileTimeOnly,
             value: isCompileTimeOnly
-              ? createUnknownValue(parameterType, parameterName)
+              ? [createUnknownValue(parameterType, parameterName)]
               : undefined,
             token: labelExpr.token,
             initializedAtToken: labelExpr.token, // Set as initialized

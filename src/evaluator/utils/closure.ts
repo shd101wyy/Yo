@@ -286,7 +286,7 @@ export function enrichCapturedVariables({
       ) {
         enrichedMap.set(varName, {
           ...captureInfo,
-          value: variable.value, // Can be undefined for runtime values
+          value: variable.value?.[0], // Can be undefined for runtime values
           type: variable.type,
         });
       }

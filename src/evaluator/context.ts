@@ -4,7 +4,7 @@ import { Expr, FnCallExpr, PathCollection } from "../expr";
 import { FunctionValue } from "../function-value";
 import { Token } from "../token";
 import { FunctionType, Type } from "../types";
-import { ModuleValue, TraitValue, Value } from "../value";
+import { ArrayValue, ModuleValue, TraitValue, Value } from "../value";
 
 export interface FunctionEvaluationContext {
   kind: "function-body";
@@ -174,6 +174,34 @@ export interface EvaluatorContext {
     env: Environment;
     token: Token;
   }>;
+
+  /**
+   * When true, forces all variable bindings (including `:=`) to be compile-time only.
+   * This is used during CTFE (Compile-Time Function Evaluation) so that runtime-style
+   * variable declarations inside a function body are still evaluated at compile time.
+   *
+   * For example, in `temp := x.*;`, normally `temp` would be a runtime variable.
+   * But during CTFE with this flag set, `temp` becomes a compile-time variable.
+   */
+  forceCompileTimeBindings?: boolean;
+
+  /**
+   * Whether we are currently analyzing CTFE capability (with UnknownValue parameters).
+   * This is different from forceCompileTimeBindings which is also used during actual CTFE execution.
+   *
+   * When true, `recur` calls should short-circuit and return an UnknownValue instead of
+   * actually recursing, to avoid infinite loops during capability analysis.
+   */
+  isAnalyzingCtfeCapability?: boolean;
+
+  /**
+   * When true, we're in the "checking phase" of function call resolution where we
+   * verify that arguments match parameter types. During this phase, we should NOT
+   * execute CTFE functions - only verify types. This prevents exponential blowup
+   * in recursive CTFE functions where each argument evaluation would otherwise
+   * trigger full CTFE execution.
+   */
+  isInFunctionCallCheckingPhase?: boolean;
 }
 
 /**
@@ -236,6 +264,15 @@ export interface ArrayCallResult {
    * The index used to access the array, if it's compile-time known.
    */
   index?: number;
+
+  /**
+   * For compile-time arrays, this stores a reference to the ArrayValue and index.
+   * This allows taking the address of an array element: p :: &(arr(0))
+   */
+  arrayElementRef?: {
+    arrayValue: ArrayValue;
+    index: number;
+  };
 
   /**
    * Type of the return value.

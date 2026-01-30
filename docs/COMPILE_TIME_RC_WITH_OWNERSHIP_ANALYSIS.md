@@ -357,7 +357,7 @@ In loops, assignments follow the same "always own" rule:
 ```rust
 current_opt := self.head;  // ___dup(self.head), current_opt owns
 
-while runtval(true), {
+while runtime(true), {
   match(current_opt,
     .None => return false,
     .Some(current) => {

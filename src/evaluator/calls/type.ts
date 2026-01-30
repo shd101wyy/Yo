@@ -11,6 +11,8 @@ import {
 } from "../../expr";
 import {
   areTypesCompatible,
+  convertComptTypeToRuntimeType,
+  isComptimeOnlyType,
   tupleFieldToString,
   TypeField,
   typeToString,
@@ -133,7 +135,23 @@ ${tupleFieldToString(paramElement_)}`,
     callerEnv = evaluatedArgExpr.$.env;
 
     // Get the type of the evaluated arg expr
-    const argType = evaluatedArgExpr.$.type;
+    let argType = evaluatedArgExpr.$.type;
+
+    // Convert compile-time types to runtime types only if:
+    // 1. The member element is not compile-time only, AND
+    // 2. The member type itself is not comptime-only (e.g., compt_int, Type, etc.)
+    // This allows struct fields like `x : compt_int` (without compt modifier) to accept comptime values.
+    if (
+      !memberElement.isCompileTimeOnly &&
+      !isComptimeOnlyType(memberElement.type)
+    ) {
+      argType = convertComptTypeToRuntimeType({
+        type: argType,
+        expectedType: memberElement.type,
+        expr: evaluatedArgExpr,
+        env: callerEnv,
+      });
+    }
 
     // Attach information to labelExpr
     if (labelExpr) {

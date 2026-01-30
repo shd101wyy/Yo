@@ -1,0 +1,881 @@
+// std/io.yo - Low-level async I/O primitives
+//
+// This module provides low-level async I/O operations using platform-native backends:
+// - Linux: io_uring for true async I/O (kernel 5.1+)
+// - macOS: dispatch_io (Grand Central Dispatch) for true async file I/O
+// - Windows: IOCP for true async I/O (planned)
+//
+// API Categories (libuv-equivalent coverage):
+// - Timers: sleep, timeout
+// - File I/O: read, write, open, close, stat, truncate, fsync, access, realpath
+// - Directory Ops: mkdir, unlink, rename, symlink, link, readdir, scandir
+// - File Extras: mkdtemp, mkstemp, utime, copyfile, sendfile, statfs
+// - Permissions: chmod, chown
+// - Socket I/O: socket, bind, listen, accept, connect, send, recv
+// - FD Ops: dup, dup2, pipe
+// - DNS: getaddrinfo, getnameinfo
+// - Signals: signal handling
+// - TTY: terminal mode, window size
+// - FS Events: file/directory watching
+// - Poll: generic fd polling
+//
+// For higher-level APIs, see:
+// - std/fs.yo - File and Directory abstractions
+// - std/net/tcp.yo - TCP client/server (planned)
+// - std/net/udp.yo - UDP sockets (planned)
+
+{ String } :: import "./string";
+{ ToString } :: import "./fmt";
+{
+  ENOENT, EPERM, EACCES, EEXIST, ENOTDIR, EISDIR, ENOTEMPTY, EPIPE,
+  EAGAIN, EWOULDBLOCK, EINVAL, EINTR, EMFILE, ENFILE, EFBIG, ENOSPC,
+  EROFS, EXDEV, EMLINK, ENAMETOOLONG, ENOTSUP, EOPNOTSUPP, ETIMEDOUT, EBUSY,
+  ECONNREFUSED, ECONNRESET, ECONNABORTED, ENOTCONN, EADDRINUSE, EADDRNOTAVAIL,
+  ENETUNREACH, EHOSTUNREACH, ENETDOWN, EISCONN, EBADF, EIO
+} :: import "./libc/errno";
+
+// Import platform-correct open flags from libc
+{
+  O_RDONLY, O_WRONLY, O_RDWR, O_CREAT, O_EXCL, O_TRUNC, O_APPEND,
+  O_NONBLOCK, O_CLOEXEC
+} :: import "./libc/fcntl";
+
+// ============================================================================
+// Constants
+// ============================================================================
+
+// AT_FDCWD - Use current working directory for *at() functions
+// This value is the same across POSIX systems
+AT_FDCWD :: i32(-100);
+
+// Flags for unlinkat (AT_REMOVEDIR)
+AT_REMOVEDIR :: i32(0x200);
+
+// Flags for statx (Linux-specific, macOS uses different mechanism)
+AT_EMPTY_PATH :: i32(0x1000);
+AT_SYMLINK_NOFOLLOW :: i32(0x100);
+AT_STATX_SYNC_AS_STAT :: i32(0x0000);
+
+// STATX_BASIC_STATS - request basic stats (Linux-specific)
+STATX_BASIC_STATS :: u32(0x000007ff);
+
+// File mode bits (S_IF* and S_I* from sys/stat.h)
+S_IFMT   :: u32(0o170000);
+S_IFSOCK :: u32(0o140000);
+S_IFLNK  :: u32(0o120000);
+S_IFREG  :: u32(0o100000);
+S_IFBLK  :: u32(0o060000);
+S_IFDIR  :: u32(0o040000);
+S_IFCHR  :: u32(0o020000);
+S_IFIFO  :: u32(0o010000);
+
+// Permission bits
+S_IRWXU :: u32(0o0700);
+S_IRUSR :: u32(0o0400);
+S_IWUSR :: u32(0o0200);
+S_IXUSR :: u32(0o0100);
+S_IRWXG :: u32(0o0070);
+S_IRGRP :: u32(0o0040);
+S_IWGRP :: u32(0o0020);
+S_IXGRP :: u32(0o0010);
+S_IRWXO :: u32(0o0007);
+S_IROTH :: u32(0o0004);
+S_IWOTH :: u32(0o0002);
+S_IXOTH :: u32(0o0001);
+
+// Default permissions
+DEFAULT_FILE_MODE :: u32(0o644);
+DEFAULT_DIR_MODE  :: u32(0o755);
+
+// ============================================================================
+// Socket Constants
+// ============================================================================
+
+// Address families (AF_*)
+AF_UNSPEC :: i32(0);
+AF_UNIX   :: i32(1);
+AF_LOCAL  :: i32(1);    // Same as AF_UNIX
+AF_INET   :: i32(2);
+AF_INET6  :: i32(10);   // Note: 30 on macOS, 10 on Linux - use c_include for portability
+
+// Socket types (SOCK_*)
+SOCK_STREAM    :: i32(1);
+SOCK_DGRAM     :: i32(2);
+SOCK_RAW       :: i32(3);
+SOCK_SEQPACKET :: i32(5);
+
+// Socket options levels
+SOL_SOCKET :: i32(1);   // Note: 0xFFFF on macOS - use c_include for portability
+IPPROTO_TCP :: i32(6);
+IPPROTO_UDP :: i32(17);
+IPPROTO_IP  :: i32(0);
+IPPROTO_IPV6 :: i32(41);
+
+// Socket options (SO_*)
+SO_REUSEADDR   :: i32(2);   // Note: different on macOS
+SO_KEEPALIVE   :: i32(9);
+SO_BROADCAST   :: i32(6);
+SO_RCVBUF      :: i32(8);
+SO_SNDBUF      :: i32(7);
+SO_RCVTIMEO    :: i32(20);
+SO_SNDTIMEO    :: i32(21);
+SO_ERROR       :: i32(4);
+SO_TYPE        :: i32(3);
+SO_LINGER      :: i32(13);
+SO_REUSEPORT   :: i32(15);
+
+// TCP options (TCP_*)
+TCP_NODELAY    :: i32(1);
+TCP_KEEPIDLE   :: i32(4);
+TCP_KEEPINTVL  :: i32(5);
+TCP_KEEPCNT    :: i32(6);
+
+// shutdown() how parameter
+SHUT_RD   :: i32(0);
+SHUT_WR   :: i32(1);
+SHUT_RDWR :: i32(2);
+
+// Special IP addresses
+INADDR_ANY       :: u32(0x00000000);
+INADDR_LOOPBACK  :: u32(0x7F000001);
+INADDR_BROADCAST :: u32(0xFFFFFFFF);
+
+// Directory entry types (DT_*)
+DT_UNKNOWN :: u8(0);
+DT_FIFO    :: u8(1);
+DT_CHR     :: u8(2);
+DT_DIR     :: u8(4);
+DT_BLK     :: u8(6);
+DT_REG     :: u8(8);
+DT_LNK     :: u8(10);
+DT_SOCK    :: u8(12);
+DT_WHT     :: u8(14);
+
+// ============================================================================
+// Access Mode Constants (for access/faccessat)
+// ============================================================================
+F_OK :: i32(0);   // Test for existence
+R_OK :: i32(4);   // Test for read permission
+W_OK :: i32(2);   // Test for write permission
+X_OK :: i32(1);   // Test for execute permission
+
+// ============================================================================
+// Copyfile Flags (for copyfile)
+// ============================================================================
+COPYFILE_EXCL          :: i32(1);   // Fail if destination exists
+COPYFILE_FICLONE       :: i32(2);   // Attempt copy-on-write clone
+COPYFILE_FICLONE_FORCE :: i32(4);   // Force copy-on-write clone or fail
+
+// ============================================================================
+// Signal Constants (POSIX signals)
+// ============================================================================
+SIGHUP    :: i32(1);
+SIGINT    :: i32(2);
+SIGQUIT   :: i32(3);
+SIGILL    :: i32(4);
+SIGTRAP   :: i32(5);
+SIGABRT   :: i32(6);
+SIGBUS    :: i32(7);
+SIGFPE    :: i32(8);
+SIGKILL   :: i32(9);
+SIGUSR1   :: i32(10);
+SIGSEGV   :: i32(11);
+SIGUSR2   :: i32(12);
+SIGPIPE   :: i32(13);
+SIGALRM   :: i32(14);
+SIGTERM   :: i32(15);
+SIGCHLD   :: i32(17);   // Note: 20 on macOS
+SIGCONT   :: i32(18);   // Note: 19 on macOS
+SIGSTOP   :: i32(19);   // Note: 17 on macOS
+SIGTSTP   :: i32(20);   // Note: 18 on macOS
+SIGTTIN   :: i32(21);
+SIGTTOU   :: i32(22);
+SIGURG    :: i32(23);
+SIGXCPU   :: i32(24);
+SIGXFSZ   :: i32(25);
+SIGVTALRM :: i32(26);
+SIGPROF   :: i32(27);
+SIGWINCH  :: i32(28);
+
+// ============================================================================
+// TTY Mode Constants (libuv uv_tty_mode_t equivalent)
+// ============================================================================
+TTY_MODE_NORMAL :: i32(0);   // Initial/normal terminal mode
+TTY_MODE_RAW    :: i32(1);   // Raw input mode
+TTY_MODE_IO     :: i32(2);   // Binary-safe I/O mode (Unix-only)
+
+// ============================================================================
+// Poll Event Constants (libuv uv_poll_event equivalent)
+// ============================================================================
+POLL_READABLE    :: i32(1);
+POLL_WRITABLE    :: i32(2);
+POLL_DISCONNECT  :: i32(4);
+POLL_PRIORITIZED :: i32(8);
+
+// ============================================================================
+// FS Event Flags (libuv uv_fs_event_flags equivalent)
+// ============================================================================
+FS_EVENT_WATCH_ENTRY :: u32(1);   // Watch the directory entry, not contents
+FS_EVENT_STAT        :: u32(2);   // Use stat instead of inotify/kqueue
+FS_EVENT_RECURSIVE   :: u32(4);   // Watch subdirectories (if supported)
+
+// FS Event Types (callback event types)
+FS_EVENT_RENAME :: i32(1);
+FS_EVENT_CHANGE :: i32(2);
+
+// ============================================================================
+// Extern type for I/O Future
+// ============================================================================
+
+extern "Yo",
+  yo_io_future_t : Type
+;
+
+// I/O Future type - opaque handle to C future struct
+IOFuture :: Impl(Concrete(yo_io_future_t), Future(i32));
+
+// ============================================================================
+// Extern C runtime functions
+// ============================================================================
+
+extern "Yo",
+  // ========================================================================
+  // File Operations
+  // ========================================================================
+  __yo_async_read_start : (fn(fd: i32, buffer: *(u8), size: u32, offset: u64) -> IOFuture),
+  __yo_async_write_start : (fn(fd: i32, buffer: *(u8), size: u32, offset: u64) -> IOFuture),
+  __yo_async_openat_start : (fn(dirfd: i32, path: *(u8), flags: i32, mode: i32) -> IOFuture),
+  __yo_async_close_start : (fn(fd: i32) -> IOFuture),
+  __yo_async_statx_start : (fn(dirfd: i32, path: *(u8), flags: i32, mask: u32, statxbuf: *(u8)) -> IOFuture),
+  __yo_async_mkdirat_start : (fn(dirfd: i32, path: *(u8), mode: i32) -> IOFuture),
+  __yo_async_unlinkat_start : (fn(dirfd: i32, path: *(u8), flags: i32) -> IOFuture),
+  __yo_async_renameat_start : (fn(olddirfd: i32, oldpath: *(u8), newdirfd: i32, newpath: *(u8)) -> IOFuture),
+  __yo_async_symlinkat_start : (fn(target: *(u8), newdirfd: i32, linkpath: *(u8)) -> IOFuture),
+  __yo_async_linkat_start : (fn(olddirfd: i32, oldpath: *(u8), newdirfd: i32, newpath: *(u8), flags: i32) -> IOFuture),
+  __yo_async_fsync_start : (fn(fd: i32) -> IOFuture),
+  __yo_async_fdatasync_start : (fn(fd: i32) -> IOFuture),
+  __yo_async_ftruncate_start : (fn(fd: i32, length: i64) -> IOFuture),
+
+  // ========================================================================
+  // Directory Listing (for fs.readdir)
+  // ========================================================================
+  __yo_async_getdents_start : (fn(fd: i32, buf: *(u8), buf_size: u32) -> IOFuture),
+  __yo_dirent_size : (fn() -> usize),
+  __yo_dirent_reclen : (fn(entry: *(u8)) -> u16),
+  __yo_dirent_type : (fn(entry: *(u8)) -> u8),
+  __yo_dirent_name : (fn(entry: *(u8)) -> *(u8)),
+  __yo_dirent_ino : (fn(entry: *(u8)) -> u64),
+
+  // ========================================================================
+  // Permission Changes (for fs.chmod, fs.chown)
+  // ========================================================================
+  __yo_async_fchmod_start : (fn(fd: i32, mode: u32) -> IOFuture),
+  __yo_async_fchmodat_start : (fn(dirfd: i32, path: *(u8), mode: u32, flags: i32) -> IOFuture),
+  __yo_async_fchown_start : (fn(fd: i32, uid: u32, gid: u32) -> IOFuture),
+  __yo_async_fchownat_start : (fn(dirfd: i32, path: *(u8), uid: u32, gid: u32, flags: i32) -> IOFuture),
+
+  // ========================================================================
+  // Symbolic Link Resolution (for fs.readlink)
+  // ========================================================================
+  __yo_async_readlinkat_start : (fn(dirfd: i32, path: *(u8), buf: *(u8), bufsize: usize) -> IOFuture),
+
+  // ========================================================================
+  // File Descriptor Operations
+  // ========================================================================
+  __yo_async_dup_start : (fn(oldfd: i32) -> IOFuture),
+  __yo_async_dup2_start : (fn(oldfd: i32, newfd: i32) -> IOFuture),
+  __yo_async_pipe_start : (fn(pipefd: *(i32)) -> IOFuture),
+
+  // ========================================================================
+  // Socket Operations (for tcp, udp, unix sockets)
+  // ========================================================================
+  __yo_async_socket_start : (fn(domain: i32, sock_type: i32, protocol: i32) -> IOFuture),
+  __yo_async_bind_start : (fn(sockfd: i32, addr: *(u8), addrlen: u32) -> IOFuture),
+  __yo_async_listen_start : (fn(sockfd: i32, backlog: i32) -> IOFuture),
+  __yo_async_accept_start : (fn(sockfd: i32, addr: *(u8), addrlen: *(u32)) -> IOFuture),
+  __yo_async_connect_start : (fn(sockfd: i32, addr: *(u8), addrlen: u32) -> IOFuture),
+  __yo_async_send_start : (fn(sockfd: i32, buf: *(u8), len: usize, flags: i32) -> IOFuture),
+  __yo_async_recv_start : (fn(sockfd: i32, buf: *(u8), len: usize, flags: i32) -> IOFuture),
+  __yo_async_sendto_start : (fn(sockfd: i32, buf: *(u8), len: usize, flags: i32, dest_addr: *(u8), addrlen: u32) -> IOFuture),
+  __yo_async_recvfrom_start : (fn(sockfd: i32, buf: *(u8), len: usize, flags: i32, src_addr: *(u8), addrlen: *(u32)) -> IOFuture),
+  __yo_async_shutdown_start : (fn(sockfd: i32, how: i32) -> IOFuture),
+  __yo_async_setsockopt_start : (fn(sockfd: i32, level: i32, optname: i32, optval: *(u8), optlen: u32) -> IOFuture),
+  __yo_async_getsockopt_start : (fn(sockfd: i32, level: i32, optname: i32, optval: *(u8), optlen: *(u32)) -> IOFuture),
+
+  // ========================================================================
+  // Synchronous File Helpers
+  // ========================================================================
+  __yo_file_open : (fn(path: *(u8), flags: i32, mode: i32) -> i32),
+  __yo_file_close : (fn(fd: i32) -> unit),
+  __yo_file_size : (fn(fd: i32) -> i64),
+
+  // ========================================================================
+  // Stat Buffer Accessors
+  // ========================================================================
+  __yo_statx_buf_size : (fn() -> usize),
+  __yo_statx_size : (fn(statxbuf: *(u8)) -> i64),
+  __yo_statx_mode : (fn(statxbuf: *(u8)) -> u32),
+  __yo_statx_mtime_sec : (fn(statxbuf: *(u8)) -> i64),
+  __yo_statx_mtime_nsec : (fn(statxbuf: *(u8)) -> u32),
+  __yo_statx_atime_sec : (fn(statxbuf: *(u8)) -> i64),
+  __yo_statx_atime_nsec : (fn(statxbuf: *(u8)) -> u32),
+  __yo_statx_ctime_sec : (fn(statxbuf: *(u8)) -> i64),
+  __yo_statx_ctime_nsec : (fn(statxbuf: *(u8)) -> u32),
+  __yo_statx_btime_sec : (fn(statxbuf: *(u8)) -> i64),
+  __yo_statx_btime_nsec : (fn(statxbuf: *(u8)) -> u32),
+  __yo_statx_uid : (fn(statxbuf: *(u8)) -> u32),
+  __yo_statx_gid : (fn(statxbuf: *(u8)) -> u32),
+  __yo_statx_ino : (fn(statxbuf: *(u8)) -> u64),
+  __yo_statx_dev_major : (fn(statxbuf: *(u8)) -> u64),
+  __yo_statx_dev_minor : (fn(statxbuf: *(u8)) -> u64),
+  __yo_statx_nlink : (fn(statxbuf: *(u8)) -> u64),
+  __yo_statx_blksize : (fn(statxbuf: *(u8)) -> u64),
+  __yo_statx_blocks : (fn(statxbuf: *(u8)) -> u64),
+
+  // ========================================================================
+  // Socket Address Helpers
+  // ========================================================================
+  __yo_sockaddr_in_size : (fn() -> usize),
+  __yo_sockaddr_in6_size : (fn() -> usize),
+  __yo_sockaddr_un_size : (fn() -> usize),
+  __yo_sockaddr_storage_size : (fn() -> usize),
+  __yo_sockaddr_set_family : (fn(addr: *(u8), family: u16) -> unit),
+  __yo_sockaddr_get_family : (fn(addr: *(u8)) -> u16),
+  __yo_sockaddr_in_set_port : (fn(addr: *(u8), port: u16) -> unit),
+  __yo_sockaddr_in_get_port : (fn(addr: *(u8)) -> u16),
+  __yo_sockaddr_in_set_addr : (fn(addr: *(u8), ip: u32) -> unit),
+  __yo_sockaddr_in_get_addr : (fn(addr: *(u8)) -> u32),
+  __yo_sockaddr_in6_set_port : (fn(addr: *(u8), port: u16) -> unit),
+  __yo_sockaddr_in6_get_port : (fn(addr: *(u8)) -> u16),
+  __yo_sockaddr_in6_set_addr : (fn(addr: *(u8), ip: *(u8)) -> unit),
+  __yo_sockaddr_in6_get_addr : (fn(addr: *(u8), out: *(u8)) -> unit),
+  __yo_sockaddr_un_set_path : (fn(addr: *(u8), path: *(u8)) -> unit),
+  __yo_sockaddr_un_get_path : (fn(addr: *(u8)) -> *(u8)),
+  __yo_inet_pton : (fn(af: i32, src: *(u8), dst: *(u8)) -> i32),
+  __yo_inet_ntop : (fn(af: i32, src: *(u8), dst: *(u8), size: u32) -> *(u8)),
+  __yo_htons : (fn(hostshort: u16) -> u16),
+  __yo_ntohs : (fn(netshort: u16) -> u16),
+  __yo_htonl : (fn(hostlong: u32) -> u32),
+  __yo_ntohl : (fn(netlong: u32) -> u32),
+
+  // ========================================================================
+  // Timer Operations (libuv uv_timer_t equivalent)
+  // ========================================================================
+  __yo_async_sleep_start : (fn(milliseconds: u64) -> IOFuture),
+  __yo_async_timeout_start : (fn(milliseconds: u64) -> IOFuture),
+
+  // ========================================================================
+  // File Extra Operations (libuv additional fs operations)
+  // ========================================================================
+  __yo_async_access_start : (fn(dirfd: i32, path: *(u8), mode: i32) -> IOFuture),
+  __yo_async_realpath_start : (fn(path: *(u8), resolved: *(u8)) -> IOFuture),
+  __yo_async_utime_start : (fn(path: *(u8), atime_sec: i64, atime_nsec: i64, mtime_sec: i64, mtime_nsec: i64) -> IOFuture),
+  __yo_async_futime_start : (fn(fd: i32, atime_sec: i64, atime_nsec: i64, mtime_sec: i64, mtime_nsec: i64) -> IOFuture),
+  __yo_async_lutime_start : (fn(path: *(u8), atime_sec: i64, atime_nsec: i64, mtime_sec: i64, mtime_nsec: i64) -> IOFuture),
+  __yo_async_mkdtemp_start : (fn(template: *(u8)) -> IOFuture),
+  __yo_async_mkstemp_start : (fn(template: *(u8)) -> IOFuture),
+  __yo_async_copyfile_start : (fn(src_path: *(u8), dst_path: *(u8), flags: i32) -> IOFuture),
+  __yo_async_sendfile_start : (fn(out_fd: i32, in_fd: i32, offset: i64, count: usize) -> IOFuture),
+  __yo_async_statfs_start : (fn(path: *(u8), statfsbuf: *(u8)) -> IOFuture),
+  __yo_statfs_buf_size : (fn() -> usize),
+  __yo_statfs_type : (fn(buf: *(u8)) -> u64),
+  __yo_statfs_bsize : (fn(buf: *(u8)) -> u64),
+  __yo_statfs_blocks : (fn(buf: *(u8)) -> u64),
+  __yo_statfs_bfree : (fn(buf: *(u8)) -> u64),
+  __yo_statfs_bavail : (fn(buf: *(u8)) -> u64),
+  __yo_statfs_files : (fn(buf: *(u8)) -> u64),
+  __yo_statfs_ffree : (fn(buf: *(u8)) -> u64),
+
+  // ========================================================================
+  // Directory Scanning (libuv uv_fs_scandir equivalent)
+  // ========================================================================
+  __yo_async_scandir_start : (fn(dirfd: i32, path: *(u8)) -> IOFuture),
+  __yo_async_opendir_start : (fn(path: *(u8)) -> IOFuture),
+  __yo_async_readdir_start : (fn(dir: *(u8), entries: *(u8), max_entries: usize) -> IOFuture),
+  __yo_async_closedir_start : (fn(dir: *(u8)) -> IOFuture),
+  __yo_dirent_size : (fn() -> usize),
+  __yo_dirent_reclen : (fn(entry: *(u8)) -> u16),
+  __yo_dirent_ino : (fn(entry: *(u8)) -> u64),
+
+  // ========================================================================
+  // DNS Operations (libuv uv_getaddrinfo/uv_getnameinfo equivalent)
+  // ========================================================================
+  __yo_async_getaddrinfo_start : (fn(node: *(u8), service: *(u8), hints: *(u8), result: *(*(u8))) -> IOFuture),
+  __yo_async_getnameinfo_start : (fn(addr: *(u8), addrlen: u32, host: *(u8), hostlen: usize, service: *(u8), servlen: usize, flags: i32) -> IOFuture),
+  __yo_freeaddrinfo : (fn(res: *(u8)) -> unit),
+  __yo_addrinfo_size : (fn() -> usize),
+  __yo_addrinfo_flags : (fn(ai: *(u8)) -> i32),
+  __yo_addrinfo_family : (fn(ai: *(u8)) -> i32),
+  __yo_addrinfo_socktype : (fn(ai: *(u8)) -> i32),
+  __yo_addrinfo_protocol : (fn(ai: *(u8)) -> i32),
+  __yo_addrinfo_addrlen : (fn(ai: *(u8)) -> u32),
+  __yo_addrinfo_addr : (fn(ai: *(u8)) -> *(u8)),
+  __yo_addrinfo_canonname : (fn(ai: *(u8)) -> *(u8)),
+  __yo_addrinfo_next : (fn(ai: *(u8)) -> *(u8)),
+
+  // ========================================================================
+  // Signal Operations (libuv uv_signal_t equivalent)
+  // ========================================================================
+  __yo_signal_start : (fn(signum: i32, handler: *(u8)) -> i32),
+  __yo_signal_stop : (fn(signum: i32) -> i32),
+  __yo_kill : (fn(pid: i32, signum: i32) -> i32),
+
+  // ========================================================================
+  // TTY Operations (libuv uv_tty_t equivalent)
+  // ========================================================================
+  __yo_tty_init : (fn(fd: i32) -> i32),
+  __yo_tty_set_mode : (fn(fd: i32, mode: i32) -> i32),
+  __yo_tty_reset_mode : (fn() -> i32),
+  __yo_tty_get_winsize : (fn(fd: i32, width: *(i32), height: *(i32)) -> i32),
+  __yo_isatty : (fn(fd: i32) -> i32),
+
+  // ========================================================================
+  // FS Event Operations (libuv uv_fs_event_t equivalent)
+  // ========================================================================
+  __yo_fs_event_init : (fn() -> *(u8)),
+  __yo_fs_event_start : (fn(handle: *(u8), path: *(u8), flags: u32, callback: *(u8)) -> i32),
+  __yo_fs_event_stop : (fn(handle: *(u8)) -> i32),
+  __yo_fs_event_close : (fn(handle: *(u8)) -> unit),
+
+  // ========================================================================
+  // Poll Operations (libuv uv_poll_t equivalent)
+  // ========================================================================
+  __yo_poll_init : (fn(fd: i32) -> *(u8)),
+  __yo_poll_start : (fn(handle: *(u8), events: i32, callback: *(u8)) -> i32),
+  __yo_poll_stop : (fn(handle: *(u8)) -> i32),
+  __yo_poll_close : (fn(handle: *(u8)) -> unit)
+;
+
+// ============================================================================
+// IOError - I/O error type
+// ============================================================================
+
+IOError :: enum(
+  // File system errors
+  NotFound,
+  PermissionDenied,
+  AlreadyExists,
+  NotADirectory,
+  IsADirectory,
+  DirectoryNotEmpty,
+  BrokenPipe,
+  WouldBlock,
+  InvalidInput,
+  Interrupted,
+  TooManyOpenFiles,
+  FileTooLarge,
+  NoSpace,
+  ReadOnlyFilesystem,
+  CrossDeviceLink,
+  TooManyLinks,
+  NameTooLong,
+  NotSupported,
+  TimedOut,
+  Busy,
+  BadFileDescriptor,
+  IOError,
+
+  // Network errors
+  ConnectionRefused,
+  ConnectionReset,
+  ConnectionAborted,
+  NotConnected,
+  AddressInUse,
+  AddressNotAvailable,
+  NetworkUnreachable,
+  HostUnreachable,
+  NetworkDown,
+  AlreadyConnected,
+
+  // Generic
+  Other(code: i32),
+
+  from_errno :: (fn(errno: i32) -> Self)(
+    cond(
+      // File system errors
+      (errno == ENOENT) => .NotFound,
+      ((errno == EPERM) || (errno == EACCES)) => .PermissionDenied,
+      (errno == EEXIST) => .AlreadyExists,
+      (errno == ENOTDIR) => .NotADirectory,
+      (errno == EISDIR) => .IsADirectory,
+      (errno == ENOTEMPTY) => .DirectoryNotEmpty,
+      (errno == EPIPE) => .BrokenPipe,
+      ((errno == EAGAIN) || (errno == EWOULDBLOCK)) => .WouldBlock,
+      (errno == EINVAL) => .InvalidInput,
+      (errno == EINTR) => .Interrupted,
+      ((errno == EMFILE) || (errno == ENFILE)) => .TooManyOpenFiles,
+      (errno == EFBIG) => .FileTooLarge,
+      (errno == ENOSPC) => .NoSpace,
+      (errno == EROFS) => .ReadOnlyFilesystem,
+      (errno == EXDEV) => .CrossDeviceLink,
+      (errno == EMLINK) => .TooManyLinks,
+      (errno == ENAMETOOLONG) => .NameTooLong,
+      ((errno == ENOTSUP) || (errno == EOPNOTSUPP)) => .NotSupported,
+      (errno == ETIMEDOUT) => .TimedOut,
+      (errno == EBUSY) => .Busy,
+      (errno == EBADF) => .BadFileDescriptor,
+      (errno == EIO) => .IOError,
+      // Network errors
+      (errno == ECONNREFUSED) => .ConnectionRefused,
+      (errno == ECONNRESET) => .ConnectionReset,
+      (errno == ECONNABORTED) => .ConnectionAborted,
+      (errno == ENOTCONN) => .NotConnected,
+      (errno == EADDRINUSE) => .AddressInUse,
+      (errno == EADDRNOTAVAIL) => .AddressNotAvailable,
+      (errno == ENETUNREACH) => .NetworkUnreachable,
+      (errno == EHOSTUNREACH) => .HostUnreachable,
+      (errno == ENETDOWN) => .NetworkDown,
+      (errno == EISCONN) => .AlreadyConnected,
+      true => .Other(errno)
+    )
+  ),
+
+  from_result :: (fn(result: i32) -> Result(i32, Self))(
+    cond(
+      (result >= i32(0)) => .Ok(result),
+      true => .Err(Self.from_errno((i32(0) - result)))
+    )
+  )
+);
+
+impl(IOError, ToString(
+  to_string : (self -> {
+    s := match(self,
+      // File system errors
+      .NotFound => String.from_cstr("file or directory not found").unwrap(),
+      .PermissionDenied => String.from_cstr("permission denied").unwrap(),
+      .AlreadyExists => String.from_cstr("file or directory already exists").unwrap(),
+      .NotADirectory => String.from_cstr("not a directory").unwrap(),
+      .IsADirectory => String.from_cstr("is a directory").unwrap(),
+      .DirectoryNotEmpty => String.from_cstr("directory not empty").unwrap(),
+      .BrokenPipe => String.from_cstr("broken pipe").unwrap(),
+      .WouldBlock => String.from_cstr("operation would block").unwrap(),
+      .InvalidInput => String.from_cstr("invalid input").unwrap(),
+      .Interrupted => String.from_cstr("operation interrupted").unwrap(),
+      .TooManyOpenFiles => String.from_cstr("too many open files").unwrap(),
+      .FileTooLarge => String.from_cstr("file too large").unwrap(),
+      .NoSpace => String.from_cstr("no space left on device").unwrap(),
+      .ReadOnlyFilesystem => String.from_cstr("read-only filesystem").unwrap(),
+      .CrossDeviceLink => String.from_cstr("cross-device link").unwrap(),
+      .TooManyLinks => String.from_cstr("too many links").unwrap(),
+      .NameTooLong => String.from_cstr("name too long").unwrap(),
+      .NotSupported => String.from_cstr("operation not supported").unwrap(),
+      .TimedOut => String.from_cstr("operation timed out").unwrap(),
+      .Busy => String.from_cstr("resource busy").unwrap(),
+      .BadFileDescriptor => String.from_cstr("bad file descriptor").unwrap(),
+      .IOError => String.from_cstr("I/O error").unwrap(),
+      // Network errors
+      .ConnectionRefused => String.from_cstr("connection refused").unwrap(),
+      .ConnectionReset => String.from_cstr("connection reset by peer").unwrap(),
+      .ConnectionAborted => String.from_cstr("connection aborted").unwrap(),
+      .NotConnected => String.from_cstr("socket not connected").unwrap(),
+      .AddressInUse => String.from_cstr("address already in use").unwrap(),
+      .AddressNotAvailable => String.from_cstr("address not available").unwrap(),
+      .NetworkUnreachable => String.from_cstr("network unreachable").unwrap(),
+      .HostUnreachable => String.from_cstr("host unreachable").unwrap(),
+      .NetworkDown => String.from_cstr("network is down").unwrap(),
+      .AlreadyConnected => String.from_cstr("socket already connected").unwrap(),
+      .Other(errno) => String.from_cstr("unknown I/O error").unwrap()
+    );
+    return s;
+  })
+));
+
+// ============================================================================
+// Statx - File status from async stat operations
+// ============================================================================
+
+Statx :: object(
+  _buf_ptr: *(u8),
+  _buf_size: usize,
+
+  is_file :: (fn(self: Self) -> bool)({
+    mode := __yo_statx_mode(self._buf_ptr);
+    file_type := (mode & S_IFMT);
+    return (file_type == S_IFREG);
+  }),
+
+  is_directory :: (fn(self: Self) -> bool)({
+    mode := __yo_statx_mode(self._buf_ptr);
+    file_type := (mode & S_IFMT);
+    return (file_type == S_IFDIR);
+  }),
+
+  is_symlink :: (fn(self: Self) -> bool)({
+    mode := __yo_statx_mode(self._buf_ptr);
+    file_type := (mode & S_IFMT);
+    return (file_type == S_IFLNK);
+  }),
+
+  size :: (fn(self: Self) -> i64)(
+    __yo_statx_size(self._buf_ptr)
+  ),
+
+  mode :: (fn(self: Self) -> u32)(
+    __yo_statx_mode(self._buf_ptr)
+  ),
+
+  uid :: (fn(self: Self) -> u32)(
+    __yo_statx_uid(self._buf_ptr)
+  ),
+
+  gid :: (fn(self: Self) -> u32)(
+    __yo_statx_gid(self._buf_ptr)
+  ),
+
+  ino :: (fn(self: Self) -> u64)(
+    __yo_statx_ino(self._buf_ptr)
+  ),
+
+  nlink :: (fn(self: Self) -> u64)(
+    __yo_statx_nlink(self._buf_ptr)
+  ),
+
+  mtime_sec :: (fn(self: Self) -> i64)(
+    __yo_statx_mtime_sec(self._buf_ptr)
+  ),
+
+  mtime_nsec :: (fn(self: Self) -> u32)(
+    __yo_statx_mtime_nsec(self._buf_ptr)
+  )
+);
+
+export
+  // Types
+  IOError,
+  IOFuture,
+  Statx,
+
+  // AT_* flags
+  AT_FDCWD,
+  AT_REMOVEDIR,
+  AT_SYMLINK_NOFOLLOW,
+  STATX_BASIC_STATS,
+
+  // File type flags (S_IF*)
+  S_IFMT, S_IFSOCK, S_IFLNK, S_IFREG, S_IFBLK, S_IFDIR, S_IFCHR, S_IFIFO,
+
+  // Permission flags (S_I*)
+  S_IRWXU, S_IRUSR, S_IWUSR, S_IXUSR,
+  S_IRWXG, S_IRGRP, S_IWGRP, S_IXGRP,
+  S_IRWXO, S_IROTH, S_IWOTH, S_IXOTH,
+  DEFAULT_FILE_MODE,
+  DEFAULT_DIR_MODE,
+
+  // Open flags (O_*)
+  O_RDONLY, O_WRONLY, O_RDWR, O_CREAT, O_EXCL, O_TRUNC, O_APPEND,
+
+  // Socket address families (AF_*)
+  AF_UNSPEC, AF_UNIX, AF_LOCAL, AF_INET, AF_INET6,
+
+  // Socket types (SOCK_*)
+  SOCK_STREAM, SOCK_DGRAM, SOCK_RAW, SOCK_SEQPACKET,
+
+  // Socket option levels (SOL_*)
+  SOL_SOCKET, IPPROTO_TCP, IPPROTO_UDP, IPPROTO_IP, IPPROTO_IPV6,
+
+  // Socket options (SO_*)
+  SO_REUSEADDR, SO_REUSEPORT, SO_KEEPALIVE, SO_BROADCAST,
+  SO_RCVBUF, SO_SNDBUF, SO_RCVTIMEO, SO_SNDTIMEO, SO_ERROR, SO_TYPE,
+
+  // TCP options (TCP_*)
+  TCP_NODELAY, TCP_KEEPIDLE, TCP_KEEPINTVL, TCP_KEEPCNT,
+
+  // Shutdown flags (SHUT_*)
+  SHUT_RD, SHUT_WR, SHUT_RDWR,
+
+  // Special addresses (INADDR_*)
+  INADDR_ANY, INADDR_LOOPBACK, INADDR_BROADCAST,
+
+  // Directory entry types (DT_*)
+  DT_UNKNOWN, DT_FIFO, DT_CHR, DT_DIR, DT_BLK, DT_REG, DT_LNK, DT_SOCK,
+
+  // File system async operations
+  __yo_async_read_start,
+  __yo_async_write_start,
+  __yo_async_openat_start,
+  __yo_async_close_start,
+  __yo_async_statx_start,
+  __yo_async_mkdirat_start,
+  __yo_async_unlinkat_start,
+  __yo_async_renameat_start,
+  __yo_async_symlinkat_start,
+  __yo_async_linkat_start,
+  __yo_async_fsync_start,
+  __yo_async_fdatasync_start,
+  __yo_async_ftruncate_start,
+
+  // Permission async operations
+  __yo_async_fchmod_start,
+  __yo_async_fchmodat_start,
+  __yo_async_fchown_start,
+  __yo_async_fchownat_start,
+
+  // Symbolic link async operations
+  __yo_async_readlinkat_start,
+
+  // File descriptor async operations
+  __yo_async_dup_start,
+  __yo_async_dup2_start,
+  __yo_async_pipe_start,
+
+  // Socket async operations
+  __yo_async_socket_start,
+  __yo_async_bind_start,
+  __yo_async_listen_start,
+  __yo_async_accept_start,
+  __yo_async_connect_start,
+  __yo_async_send_start,
+  __yo_async_recv_start,
+  __yo_async_sendto_start,
+  __yo_async_recvfrom_start,
+  __yo_async_shutdown_start,
+  __yo_async_setsockopt_start,
+  __yo_async_getsockopt_start,
+
+  // Synchronous file helpers
+  __yo_file_open,
+  __yo_file_close,
+  __yo_file_size,
+
+  // Stat buffer accessors
+  __yo_statx_buf_size,
+  __yo_statx_size,
+  __yo_statx_mode,
+  __yo_statx_mtime_sec,
+  __yo_statx_mtime_nsec,
+  __yo_statx_atime_sec,
+  __yo_statx_atime_nsec,
+  __yo_statx_ctime_sec,
+  __yo_statx_ctime_nsec,
+  __yo_statx_btime_sec,
+  __yo_statx_btime_nsec,
+  __yo_statx_uid,
+  __yo_statx_gid,
+  __yo_statx_ino,
+  __yo_statx_dev_major,
+  __yo_statx_dev_minor,
+  __yo_statx_nlink,
+  __yo_statx_blksize,
+  __yo_statx_blocks,
+
+  // Socket address helpers
+  __yo_sockaddr_in_size,
+  __yo_sockaddr_in6_size,
+  __yo_sockaddr_un_size,
+  __yo_sockaddr_storage_size,
+  __yo_sockaddr_set_family,
+  __yo_sockaddr_get_family,
+  __yo_sockaddr_in_set_port,
+  __yo_sockaddr_in_get_port,
+  __yo_sockaddr_in_set_addr,
+  __yo_sockaddr_in_get_addr,
+  __yo_sockaddr_in6_set_port,
+  __yo_sockaddr_in6_get_port,
+  __yo_sockaddr_in6_set_addr,
+  __yo_sockaddr_in6_get_addr,
+  __yo_sockaddr_un_set_path,
+  __yo_sockaddr_un_get_path,
+  __yo_inet_pton,
+  __yo_inet_ntop,
+  __yo_htons,
+  __yo_ntohs,
+  __yo_htonl,
+  __yo_ntohl,
+
+  // Timer async operations
+  __yo_async_sleep_start,
+  __yo_async_timeout_start,
+
+  // File extra async operations
+  __yo_async_access_start,
+  __yo_async_realpath_start,
+  __yo_async_utime_start,
+  __yo_async_futime_start,
+  __yo_async_lutime_start,
+  __yo_async_mkdtemp_start,
+  __yo_async_mkstemp_start,
+  __yo_async_copyfile_start,
+  __yo_async_sendfile_start,
+  __yo_async_statfs_start,
+  __yo_statfs_buf_size,
+  __yo_statfs_type,
+  __yo_statfs_bsize,
+  __yo_statfs_blocks,
+  __yo_statfs_bfree,
+  __yo_statfs_bavail,
+  __yo_statfs_files,
+  __yo_statfs_ffree,
+
+  // Directory scanning operations
+  __yo_async_scandir_start,
+  __yo_async_opendir_start,
+  __yo_async_readdir_start,
+  __yo_async_closedir_start,
+  __yo_dirent_size,
+  __yo_dirent_reclen,
+  __yo_dirent_ino,
+  __yo_dirent_type,
+  __yo_dirent_name,
+  __yo_async_getdents_start,
+
+  // DNS async operations
+  __yo_async_getaddrinfo_start,
+  __yo_async_getnameinfo_start,
+  __yo_freeaddrinfo,
+  __yo_addrinfo_size,
+  __yo_addrinfo_flags,
+  __yo_addrinfo_family,
+  __yo_addrinfo_socktype,
+  __yo_addrinfo_protocol,
+  __yo_addrinfo_addrlen,
+  __yo_addrinfo_addr,
+  __yo_addrinfo_canonname,
+  __yo_addrinfo_next,
+
+  // Signal operations
+  __yo_signal_start,
+  __yo_signal_stop,
+  __yo_kill,
+
+  // TTY operations
+  __yo_tty_init,
+  __yo_tty_set_mode,
+  __yo_tty_reset_mode,
+  __yo_tty_get_winsize,
+  __yo_isatty,
+
+  // FS Event operations
+  __yo_fs_event_init,
+  __yo_fs_event_start,
+  __yo_fs_event_stop,
+  __yo_fs_event_close,
+
+  // Poll operations
+  __yo_poll_init,
+  __yo_poll_start,
+  __yo_poll_stop,
+  __yo_poll_close,
+
+  // Access mode constants
+  F_OK, R_OK, W_OK, X_OK,
+
+  // Copyfile flags
+  COPYFILE_EXCL, COPYFILE_FICLONE, COPYFILE_FICLONE_FORCE,
+
+  // Signal constants
+  SIGHUP, SIGINT, SIGQUIT, SIGILL, SIGTRAP, SIGABRT, SIGBUS, SIGFPE,
+  SIGKILL, SIGUSR1, SIGSEGV, SIGUSR2, SIGPIPE, SIGALRM, SIGTERM,
+  SIGCHLD, SIGCONT, SIGSTOP, SIGTSTP, SIGTTIN, SIGTTOU, SIGURG,
+  SIGXCPU, SIGXFSZ, SIGVTALRM, SIGPROF, SIGWINCH,
+
+  // TTY mode constants
+  TTY_MODE_NORMAL, TTY_MODE_RAW, TTY_MODE_IO,
+
+  // Poll event constants
+  POLL_READABLE, POLL_WRITABLE, POLL_DISCONNECT, POLL_PRIORITIZED,
+
+  // FS Event flags and types
+  FS_EVENT_WATCH_ENTRY, FS_EVENT_STAT, FS_EVENT_RECURSIVE,
+  FS_EVENT_RENAME, FS_EVENT_CHANGE
+;

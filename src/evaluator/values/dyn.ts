@@ -18,6 +18,7 @@ import {
   FnCallExpr,
   setExprAsNeedsToCallDup,
 } from "../../expr";
+import { FunctionValue } from "../../function-value";
 import { PlaceholderToken, TokenType } from "../../token";
 import {
   areTypesCompatible,
@@ -62,18 +63,18 @@ function createBoxedType(
   // Look up the Box type constructor from environment
   const boxVariables = getVariablesFromEnv(env, "Box");
   const boxVariable = boxVariables.find(
-    (v) => v.value && isFunctionValue(v.value) && isFunctionType(v.type)
+    (v) => v.value && isFunctionValue(v.value[0]) && isFunctionType(v.type)
   );
 
   if (
     !boxVariable ||
     !boxVariable.value ||
-    !isFunctionValue(boxVariable.value)
+    !isFunctionValue(boxVariable.value[0])
   ) {
     throw new Error(`Cannot find Box type constructor in environment`);
   }
 
-  const boxFunctionValue = boxVariable.value;
+  const boxFunctionValue = boxVariable.value[0] as FunctionValue;
   const boxFunctionType = boxFunctionValue.type;
 
   // Box :: (fn(compt(V) : Type) -> compt(Type))
@@ -94,7 +95,7 @@ function createBoxedType(
       isCompileTimeOnly: true,
       initializedAtToken: PlaceholderToken,
       consumedAtToken: undefined,
-      value: innerTypeValue,
+      value: [innerTypeValue],
       isOwningTheRcValue: false,
     },
   });
@@ -155,7 +156,8 @@ function isBoxFunctionCall(
       // Check if the funcValue matches the `box` function in the env
       const boxVariables = getVariablesFromEnv(env, "box");
       const findBoxFunction = boxVariables.find(
-        (v) => v.value && isFunctionValue(v.value) && v.value === funcValue
+        (v) =>
+          v.value && isFunctionValue(v.value[0]) && v.value[0] === funcValue
       );
       return Boolean(findBoxFunction);
     } else if (isTypeValue(funcValue)) {

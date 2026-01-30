@@ -29,6 +29,11 @@ export function generateAssignment(
   indent: string,
   context: CodeGenContext
 ): string {
+  // Skip compile-time only assignments (e.g., p.* = value where p is a compile-time pointer)
+  if (expr.$?.isCompileTimeOnlyAssignment) {
+    return "";
+  }
+
   let lhs = expr.args[0]!;
   const rhs = expr.args[1]!;
 
@@ -143,7 +148,9 @@ export function generateAssignment(
         );
         // Only emit the variable declaration if it's not the same as rhsCode
         if (rhsVarName !== rhsCode.trim()) {
-          const rhsTypeStr = getTypeString(rhs.$.type, context);
+          // Use convertedRuntimeType if available (e.g., compt_string -> str)
+          const effectiveType = rhs.$.convertedRuntimeType || rhs.$.type;
+          const rhsTypeStr = getTypeString(effectiveType, context);
           context.emitter.emitLine(
             `${indent}${rhsTypeStr} ${rhsVarName} = ${rhsCode};`
           );
@@ -200,7 +207,9 @@ export function generateAssignment(
         );
         // Only emit the variable declaration if it's not the same as rhsCode
         if (rhsVarName !== rhsCode.trim()) {
-          const rhsTypeStr = getTypeString(rhs.$.type, context);
+          // Use convertedRuntimeType if available (e.g., compt_string -> str)
+          const effectiveType = rhs.$.convertedRuntimeType || rhs.$.type;
+          const rhsTypeStr = getTypeString(effectiveType, context);
           context.emitter.emitLine(
             `${indent}${rhsTypeStr} ${rhsVarName} = ${rhsCode};`
           );

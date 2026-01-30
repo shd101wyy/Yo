@@ -31,6 +31,8 @@ import {
   isExprType,
   isTypeHierarchyType,
   ModuleType,
+  PtrType,
+  SliceType,
   StructType,
   TraitType,
   TupleType,
@@ -116,6 +118,28 @@ export type ArrayValue = {
   elements: Value[];
 };
 
+/**
+ * Compile-time slice value that references a portion of an ArrayValue.
+ * The sourceArray is shared with the original array, enabling mutable semantics.
+ */
+export type SliceValue = {
+  tag: ValueTag.Slice;
+  type: SliceType;
+  /**
+   * Reference to the source array. Wrapped in [ArrayValue] for sharing semantics,
+   * similar to PtrValue's targetValue.
+   */
+  sourceArray: [ArrayValue];
+  /**
+   * Start index into the source array (inclusive).
+   */
+  startIndex: number;
+  /**
+   * End index into the source array (exclusive).
+   */
+  endIndex: number;
+};
+
 export type ExprValue = {
   tag: ValueTag.Expr;
   type: ExprType;
@@ -141,6 +165,29 @@ export type UnknownValue = {
   variableName?: string;
 };
 
+/**
+ * Compile-time pointer value that stores a reference to a value.
+ * Used for compile-time pointer operations like &(x) and y.*
+ * The targetValue array is shared with the source, enabling mutable reference semantics.
+ */
+export type PtrValue = {
+  tag: ValueTag.Ptr;
+  type: PtrType;
+  /**
+   * Reference to the value being pointed to, wrapped in a single-element array.
+   * This is the same array object as the source variable's value array,
+   * allowing mutations through the pointer to affect the original.
+   * For simple variables, this contains the value directly.
+   * For array element pointers, this contains the ArrayValue.
+   */
+  targetValue: [Value];
+  /**
+   * Index into the target. For simple variable pointers, this is 0.
+   * For array element pointers like &(arr(2)), this is 2 and targetValue[0] is the ArrayValue.
+   */
+  targetIndex: number;
+};
+
 export type Value =
   | TypeValue
   | ComptStringValue
@@ -149,6 +196,7 @@ export type Value =
   | UnitValue
   | BooleanValue
   | ArrayValue
+  | SliceValue
   | TupleValue
   | StructValue
   | EnumValue
@@ -156,7 +204,8 @@ export type Value =
   | TraitValue
   | FunctionValue
   | ExprValue
-  | UnknownValue;
+  | UnknownValue
+  | PtrValue;
 
 /**
  * Convert a Value object to a human-readable string representation
@@ -203,6 +252,13 @@ export function valueToString(value?: Value): string {
       return `[${value.elements.map(valueToString).join(", ")}${
         value.elements.length === 1 ? "," : ""
       }]`;
+    }
+    case ValueTag.Slice: {
+      const elements = value.sourceArray[0].elements.slice(
+        value.startIndex,
+        value.endIndex
+      );
+      return `slice[${elements.map(valueToString).join(", ")}]`;
     }
     case ValueTag.Tuple: {
       if (value.fields.length === 0) {
@@ -276,6 +332,17 @@ export function valueToString(value?: Value): string {
         })
         .join(", ")})`;
     }
+    case ValueTag.Trait: {
+      return `${value.type.typeName ?? "_"}(${value.fields
+        .map((element, index) => {
+          let label = value.type.fields[index]!.label;
+          if (stringIsOperator(label)) {
+            label = `(${label})`;
+          }
+          return `${label}: ${valueToString(element)}`;
+        })
+        .join(", ")})`;
+    }
     case ValueTag.Unit: {
       return `()`;
     }
@@ -287,6 +354,13 @@ export function valueToString(value?: Value): string {
         return value.variableName;
       }
       return `<compt ${typeToString(value.type)}>`;
+    }
+    case ValueTag.Ptr: {
+      const target = value.targetValue[0];
+      if (isArrayValue(target)) {
+        return `<ptr to ${valueToString(target.elements[value.targetIndex])}>`;
+      }
+      return `<ptr to ${valueToString(target)}>`;
     }
     default: {
       throw new Error(`valueToString: Unsupported value`);
@@ -366,6 +440,10 @@ export function isArrayValue(value?: Value): value is ArrayValue {
   return value?.tag === ValueTag.Array;
 }
 
+export function isSliceValue(value?: Value): value is SliceValue {
+  return value?.tag === ValueTag.Slice;
+}
+
 export function isEnumValue(value?: Value): value is EnumValue {
   return value?.tag === ValueTag.Enum;
 }
@@ -376,6 +454,10 @@ export function isModuleValue(value?: Value): value is ModuleValue {
 
 export function isTraitValue(value?: Value): value is TraitValue {
   return value?.tag === ValueTag.Trait;
+}
+
+export function isPtrValue(value?: Value): value is PtrValue {
+  return value?.tag === ValueTag.Ptr;
 }
 
 export function isRegionValue(_value?: Value): boolean {
@@ -574,11 +656,39 @@ export function createArrayValue(
   };
 }
 
+export function createSliceValue(
+  type: SliceType,
+  sourceArray: [ArrayValue],
+  startIndex: number,
+  endIndex: number
+): SliceValue {
+  return {
+    tag: ValueTag.Slice,
+    type,
+    sourceArray,
+    startIndex,
+    endIndex,
+  };
+}
+
 export function createExprValue(expr: Expr): ExprValue {
   return {
     tag: ValueTag.Expr,
     type: createExprType() as ExprType,
     value: expr,
+  };
+}
+
+export function createPtrValue(
+  type: PtrType,
+  targetValue: [Value],
+  targetIndex: number = 0
+): PtrValue {
+  return {
+    tag: ValueTag.Ptr,
+    type,
+    targetValue,
+    targetIndex,
   };
 }
 
@@ -649,6 +759,26 @@ export function areValuesEqual(
         !areValuesEqual(
           { value: value1.elements[i], env: expected.env },
           { value: value2.elements[i], env: given.env }
+        )
+      ) {
+        return false;
+      }
+    }
+    return true;
+  } else if (isSliceValue(value1) && isSliceValue(value2)) {
+    // Compare by checking if they reference the same elements
+    const len1 = value1.endIndex - value1.startIndex;
+    const len2 = value2.endIndex - value2.startIndex;
+    if (len1 !== len2) {
+      return false;
+    }
+    for (let i = 0; i < len1; i++) {
+      const elem1 = value1.sourceArray[0].elements[value1.startIndex + i];
+      const elem2 = value2.sourceArray[0].elements[value2.startIndex + i];
+      if (
+        !areValuesEqual(
+          { value: elem1, env: expected.env },
+          { value: elem2, env: given.env }
         )
       ) {
         return false;
@@ -774,8 +904,8 @@ export function areValuesEqual(
       const variables1 = getVariablesFromEnv(expected.env, value1.variableName);
       if (variables1.length > 0) {
         const variable1 = variables1[variables1.length - 1]!;
-        if (variable1.value && !isUnknownValue(variable1.value)) {
-          resolvedValue1 = variable1.value;
+        if (variable1.value && !isUnknownValue(variable1.value[0])) {
+          resolvedValue1 = variable1.value[0];
         }
       }
     }
@@ -784,8 +914,8 @@ export function areValuesEqual(
       const variables2 = getVariablesFromEnv(given.env, value2.variableName);
       if (variables2.length > 0) {
         const variable2 = variables2[variables2.length - 1]!;
-        if (variable2.value && !isUnknownValue(variable2.value)) {
-          resolvedValue2 = variable2.value;
+        if (variable2.value && !isUnknownValue(variable2.value[0])) {
+          resolvedValue2 = variable2.value[0];
         }
       }
     }
@@ -821,9 +951,9 @@ export function areValuesEqual(
       const variables1 = getVariablesFromEnv(expected.env, value1.variableName);
       if (variables1.length > 0) {
         const variable1 = variables1[variables1.length - 1]!;
-        if (variable1.value && !isUnknownValue(variable1.value)) {
+        if (variable1.value && !isUnknownValue(variable1.value[0])) {
           return areValuesEqual(
-            { value: variable1.value, env: expected.env },
+            { value: variable1.value[0], env: expected.env },
             { value: value2, env: given.env }
           );
         }
@@ -836,15 +966,21 @@ export function areValuesEqual(
       const variables2 = getVariablesFromEnv(given.env, value2.variableName);
       if (variables2.length > 0) {
         const variable2 = variables2[variables2.length - 1]!;
-        if (variable2.value && !isUnknownValue(variable2.value)) {
+        if (variable2.value && !isUnknownValue(variable2.value[0])) {
           return areValuesEqual(
             { value: value1, env: expected.env },
-            { value: variable2.value, env: given.env }
+            { value: variable2.value[0], env: given.env }
           );
         }
       }
     }
     return false;
+  } else if (isPtrValue(value1) && isPtrValue(value2)) {
+    // Check if they point to the same element
+    return (
+      value1.targetValue === value2.targetValue &&
+      value1.targetIndex === value2.targetIndex
+    );
   } else {
     return false;
   }

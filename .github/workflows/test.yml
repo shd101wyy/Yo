@@ -1,4 +1,4 @@
-name: Test Module Manager
+name: Build and Test "std" library
 
 on:
   push:
@@ -14,8 +14,16 @@ concurrency:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+          ## Disable Windows for now
+          # - windows-latest
 
     steps:
     - name: Checkout repository
@@ -24,9 +32,16 @@ jobs:
         submodules: recursive
 
     - name: Install liburing
+      if: runner.os == 'Linux'
       run: |
         sudo apt-get update
         sudo apt-get install -y liburing-dev
+
+    - name: Install LLVM/Clang
+      if: runner.os == 'Windows'
+      run: |
+        choco install llvm -y
+        echo "C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
     - name: Setup Bun
       uses: oven-sh/setup-bun@v2
@@ -63,4 +78,4 @@ jobs:
 
     - name: Run tests
       # run: ./yo-cli test ./tests --verbose
-      run: node --expose-gc --max-old-space-size=4096 ./out/cjs/yo-cli.cjs test ./tests --verbose --parallel 1
+      run: node --expose-gc --max-old-space-size=4096 ./out/cjs/yo-cli.cjs test ./tests --parallel 1 --bail --verbose

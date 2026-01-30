@@ -1,4 +1,5 @@
 import { formatErrorMessages } from "./error";
+import { cloneValue } from "./evaluator/values/clone_value";
 import { findMethodsFromGenericImpls } from "./evaluator/values/impl";
 import { Token } from "./token";
 import {
@@ -65,8 +66,9 @@ export interface Variable {
   /**
    * If the `value` is not `undefined`, then it means the variable is compile-time known.
    * Otherwise, it is a runtime variable.
+   * Uses an array wrapper to enable mutable reference semantics for compile-time pointers.
    */
-  value?: Value;
+  value?: [Value];
 
   /**
    * Whether the variable is compile-time only or not.
@@ -190,7 +192,6 @@ export type Frame = {
 
 export type Environment = {
   functionDeclarationFrameLevel: number;
-  freeVariables: Variable[];
   frames: Frame[];
   modulePath: string;
   inputString: string;
@@ -206,7 +207,6 @@ export function createNewEnv({
   return {
     functionDeclarationFrameLevel: -1,
     frames: [],
-    freeVariables: [],
     modulePath,
     inputString,
   };
@@ -215,6 +215,89 @@ export function createNewEnv({
 export function createEmptyEnv(): Environment {
   const env = createNewEnv({ modulePath: "", inputString: "" });
   return pushEnvFrame(env);
+}
+
+/**
+ * Clone an environment with deep-cloned values.
+ * This is used during CTFE checking phase (overload resolution) to prevent
+ * pointer mutations from affecting the original environment.
+ *
+ * During function call evaluation, we call tryToCallFunctionWithArguments twice:
+ * 1. First with cloned expressions for overload resolution (checking phase)
+ * 2. Second with real expressions for actual evaluation
+ *
+ * If we share the same env, CTFE with pointer mutations will mutate the shared
+ * PtrValue.targetValue array twice, causing incorrect results.
+ *
+ * IMPORTANT: We use a mapping to maintain pointer relationships:
+ * When cloning, the mapping tracks original [Value] arrays to their clones.
+ * This ensures that if variable `x` has value [v] and pointer `p` has targetValue
+ * pointing to that same [v], both will end up pointing to the same cloned [v'].
+ */
+export function cloneEnvForCTFECheck(env: Environment): Environment {
+  // Mapping from original [Value] arrays to cloned [Value] arrays
+  // This ensures that pointers within the cloned env point to the correct cloned variables
+  const targetValueMapping = new Map<[Value], [Value]>();
+
+  // First pass: pre-register all variable value arrays in the mapping
+  // This ensures pointers can find their targets even if processed before the target variable
+  const allVariables = [...env.frames.flatMap((frame) => frame.variables)];
+
+  for (const variable of allVariables) {
+    if (variable.value && !targetValueMapping.has(variable.value)) {
+      // Pre-create the cloned value array (will be populated during second pass)
+      // We need to actually clone the value here to ensure consistency
+      const clonedValue = cloneValue(
+        variable.value[0]!,
+        false, // do not preserve pointer references during CTFE check
+        targetValueMapping
+      );
+      // Only set if not already set (cloneValue may have added it for pointers)
+      if (!targetValueMapping.has(variable.value)) {
+        targetValueMapping.set(variable.value, [clonedValue]);
+      }
+    }
+  }
+
+  // Second pass: clone variables using the pre-built mapping
+  const cloneVariable = (variable: Variable): Variable => {
+    if (!variable.value) {
+      return { ...variable };
+    }
+
+    // Use the mapping to get the cloned value array
+    const clonedValueArray = targetValueMapping.get(variable.value);
+    if (clonedValueArray) {
+      return {
+        ...variable,
+        value: clonedValueArray,
+      };
+    }
+
+    // Fallback: should not normally reach here
+    const clonedValue = cloneValue(
+      variable.value[0]!,
+      false,
+      targetValueMapping
+    );
+    return {
+      ...variable,
+      value: [clonedValue],
+    };
+  };
+
+  // Clone frame with cloned variables
+  const cloneFrame = (frame: Frame): Frame => {
+    return {
+      ...frame,
+      variables: frame.variables.map(cloneVariable),
+    };
+  };
+
+  return {
+    ...env,
+    frames: env.frames.map(cloneFrame),
+  };
 }
 
 let _envContainingPrelude: Environment | null = null;
@@ -317,7 +400,6 @@ export function addVariableToEnv({
   newFrames[frameLevel] = newFrame;
   const newEnv: Environment = {
     functionDeclarationFrameLevel: env.functionDeclarationFrameLevel,
-    freeVariables: env.freeVariables,
     frames: newFrames,
     modulePath: env.modulePath,
     inputString: env.inputString,
@@ -334,6 +416,11 @@ export function addVariableToFrame({
   frame: Frame;
   variable: Variable;
 }): Frame {
+  // Skip adding _ variables to the frame - they are "don't care" placeholders
+  if (variable.name === "_") {
+    return frame;
+  }
+
   // Check if variable already exists in the frame
   // If yes, then report an error
   if (frame.variables.some((value) => value.name === variable.name)) {
@@ -446,7 +533,6 @@ export function pushEnvFrame(
     : frame;
   return {
     functionDeclarationFrameLevel: env.functionDeclarationFrameLevel,
-    freeVariables: env.freeVariables,
     frames: [...env.frames, newFrame],
     modulePath: env.modulePath,
     inputString: env.inputString,
@@ -493,7 +579,6 @@ Typeof "${variable.name}": ${typeToString(variable.type)}`,
 
   return {
     functionDeclarationFrameLevel: env.functionDeclarationFrameLevel,
-    freeVariables: env.freeVariables,
     frames: env.frames.slice(0, -1),
     modulePath: env.modulePath,
     inputString: env.inputString,
@@ -518,7 +603,6 @@ export function updateExistingVariable(
 
   return {
     functionDeclarationFrameLevel: env.functionDeclarationFrameLevel,
-    freeVariables: env.freeVariables,
     frames,
     modulePath: env.modulePath,
     inputString: env.inputString,
@@ -543,7 +627,7 @@ export function getVariableInfo(variable: Variable) {
     name: variable.name,
     type: typeToString(variable.type),
     typeId: variable.type.id,
-    value: valueToString(variable.value),
+    value: valueToString(variable.value?.[0]),
     isCompileTimeOnly: variable.isCompileTimeOnly,
     isUndefined: !variable.initializedAtToken,
     isOwningTheRcValue: !!variable.isOwningTheRcValue,
@@ -564,7 +648,90 @@ export function getVariableInfo(variable: Variable) {
  * @param onlyFromTypeMethods
  * @returns
  */
-export function getMethodsByNameFromEnv(
+/**
+ * Get methods by name from a TYPE's trait fields.
+ * This is used for static method calls on TypeValue (e.g., EvenNumber.try_from(...)).
+ * It searches through impl'd traits stored with empty label "" in the type's trait.
+ */
+export function getTypeTraitMethodsByNameFromEnv(
+  env: Environment,
+  methodName: string,
+  type: Type
+): {
+  type: Type;
+  value: Value | undefined;
+}[] {
+  const methods: {
+    type: Type;
+    value: Value | undefined;
+  }[] = [];
+
+  // Check if the type has a trait attached
+  if (!type.trait) {
+    return methods;
+  }
+
+  // First check direct methods on the type's trait
+  const directMethod = type.trait.fields.find(
+    (field) => field.label === methodName && isFunctionType(field.type)
+  );
+
+  if (directMethod && isFunctionType(directMethod.type)) {
+    let value: Value | undefined = directMethod.assignedValue;
+    if (isUnknownValue(value)) {
+      value = createUnknownValue(directMethod.type, directMethod.label);
+    }
+    methods.push({ type: directMethod.type, value });
+  }
+
+  // Check for impl'd traits (stored with empty label "" as TraitValue)
+  for (const field of type.trait.fields) {
+    if (
+      field.label === "" &&
+      field.assignedValue &&
+      isTraitValue(field.assignedValue)
+    ) {
+      const implTraitValue = field.assignedValue;
+      const implTraitType = implTraitValue.type;
+      // Search for the method in the impl'd trait
+      const methodIndex = implTraitType.fields.findIndex(
+        (f) => f.label === methodName && isFunctionType(f.type)
+      );
+      if (methodIndex >= 0) {
+        const method = implTraitType.fields[methodIndex]!;
+        if (isFunctionType(method.type)) {
+          // Get the actual function value from the trait value
+          const value = implTraitValue.fields[methodIndex];
+          // Use the function value's specialized type if available,
+          // as it has Self replaced with the concrete receiver type
+          let methodType = method.type;
+          if (isFunctionValue(value) && value.specializedType) {
+            methodType = value.specializedType;
+          }
+          methods.push({ type: methodType, value });
+        }
+      }
+    }
+  }
+
+  // If still no methods found, check generic impl registry
+  if (methods.length === 0) {
+    const genericMethods = findMethodsFromGenericImpls({
+      concreteType: type,
+      methodName,
+      env,
+    });
+    methods.push(...genericMethods);
+  }
+
+  return methods;
+}
+
+/**
+ * Get methods by name from a receiver's type trait and environment.
+ * This is used for instance method calls (e.g., value.method(...)).
+ */
+export function getReceiverMethodsByNameFromEnv(
   env: Environment,
   methodName: string,
   receiverType: Type,
@@ -968,9 +1135,11 @@ export function getMethodsByNameFromEnv(
     !isDynType(dereferencedReceiverType) &&
     !skipSomeTypeWithResolvedConcreteType
   ) {
-    // First check direct methods
+    // First check direct methods (can be FunctionType or ModuleType with Call)
     const directMethod = dereferencedReceiverType.trait.fields.find(
-      (field) => field.label === methodName && isFunctionType(field.type)
+      (field) =>
+        field.label === methodName &&
+        (isFunctionType(field.type) || isModuleType(field.type))
     );
 
     if (directMethod && isFunctionType(directMethod.type)) {
@@ -979,6 +1148,12 @@ export function getMethodsByNameFromEnv(
         value = createUnknownValue(directMethod.type, directMethod.label);
       }
       methods.push({ type: directMethod.type, value });
+    } else if (directMethod && isModuleType(directMethod.type)) {
+      // Handle module with Call (e.g., `unwrap :: impl { ... export Call; }`)
+      const moduleValue_ = directMethod.assignedValue;
+      if (isModuleValue(moduleValue_)) {
+        checkModuleSelfCall(moduleValue_);
+      }
     } else {
       // If no direct method found, recursively check nested traits
       checkTraitForMethod(dereferencedReceiverType.trait, methodName);
@@ -1042,7 +1217,7 @@ export function getMethodsByNameFromEnv(
       env,
     });
     // console.log(
-    //   `DEBUG getMethodsByNameFromEnv: compt type ${typeToString(dereferencedReceiverType)} -> runtime type ${typeToString(runtimeType)}, has trait: ${!!runtimeType.trait}`
+    //   `DEBUG getReceiverMethodsByNameFromEnv: compt type ${typeToString(dereferencedReceiverType)} -> runtime type ${typeToString(runtimeType)}, has trait: ${!!runtimeType.trait}`
     // );
     if (runtimeType.trait) {
       // console.log(
@@ -1442,7 +1617,6 @@ export function keepTopLevelFrameAndComptimeVariablesFromEnv(
 
   return {
     functionDeclarationFrameLevel: env.functionDeclarationFrameLevel,
-    freeVariables: env.freeVariables,
     frames: newFrames,
     modulePath: env.modulePath,
     inputString: env.inputString,

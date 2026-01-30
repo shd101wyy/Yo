@@ -26,7 +26,7 @@ import {
   generateVarialeId,
   isTempVariableName,
 } from "./utils";
-import { isTypeValue, TraitValue, Value } from "./value";
+import { ArrayValue, isTypeValue, TraitValue, Value } from "./value";
 import { ValueTag } from "./value-tag";
 
 /**
@@ -190,6 +190,20 @@ export interface EvaluatedExprData {
   caseExecuted?: boolean;
 
   /**
+   * For primitive type matching in match expressions.
+   * If true, indicates this match expression matches on primitive types (integer, bool)
+   * rather than enum types.
+   */
+  isPrimitiveMatch?: boolean;
+
+  /**
+   * For primitive pattern matching, stores the compile-time values of the patterns.
+   * Used by codegen to generate C switch cases.
+   * Example: For pattern `(1 | 2 | 3) => ...`, this would be [1, 2, 3]
+   */
+  primitivePatternValues?: (Value | undefined)[];
+
+  /**
    * Comment for the expression.
    */
   comment?: string;
@@ -287,6 +301,34 @@ export interface EvaluatedExprData {
    * This is only used for `test` function for generating test function code in `main` function.
    */
   originalExpr?: Expr;
+
+  /**
+   * For expressions that reference a variable (identifiers), this stores the
+   * Variable object itself. This is used for compile-time pointer creation
+   * where we need access to the variable's value array wrapper.
+   *
+   * Example: For `x` in `&(x)`, this would contain the Variable object for `x`.
+   */
+  sourceVariable?: Variable;
+
+  /**
+   * For array element access expressions (arr(i)), this stores a reference to the
+   * ArrayValue and the index. This allows taking the address of array elements.
+   *
+   * Example: For `arr(0)` in `&(arr(0))`, this stores { arrayValue, index: 0 }
+   */
+  arrayElementRef?: {
+    arrayValue: ArrayValue;
+    index: number;
+  };
+
+  /**
+   * For assignments that are purely compile-time (both LHS and RHS are compile-time known),
+   * this flag indicates that no C code should be generated for this assignment.
+   *
+   * Example: For `p.* = i32(20)` where p is a compile-time pointer, this would be true.
+   */
+  isCompileTimeOnlyAssignment?: boolean;
 }
 
 export type AtomExpr = {
@@ -461,6 +503,7 @@ export function exprsAreEqual(expr1: Expr, expr2: Expr): boolean {
 
 export const BuiltinKeywords = {
   compt: ["compt" /*"@"*/],
+  runtime: ["runtime"], // Force runtime evaluation, prevents CTFE
   ref: ["ref"], // Reference semantics for struct/enum
 
   forall: ["forall", "∀"],
@@ -550,6 +593,7 @@ export const BuiltinFunctions = {
   compt_expect_error: ["compt_expect_error"],
   compt_assert: ["compt_assert"],
   compt_print: ["compt_print"],
+  compt_fn: ["compt_fn"],
   // compt_codegen_inline: ["compt_codegen_inline"],
 
   // va_XX related function for variadic arguments
@@ -624,11 +668,15 @@ export const BuiltinFunctions = {
   __yo_compt_int_lte: ["__yo_compt_int_lte"],
   __yo_compt_int_gt: ["__yo_compt_int_gt"],
   __yo_compt_int_gte: ["__yo_compt_int_gte"],
-  __yo_compt_int_as: ["__yo_compt_int_as"], // Convert to a different integer type
+  __yo_compt_int_bit_and: ["__yo_compt_int_bit_and"], // Bitwise AND
+  __yo_compt_int_bit_or: ["__yo_compt_int_bit_or"], // Bitwise OR
+  __yo_compt_int_bit_xor: ["__yo_compt_int_bit_xor"], // Bitwise XOR
+  __yo_compt_int_shl: ["__yo_compt_int_shl"], // Shift left
+  __yo_compt_int_shr: ["__yo_compt_int_shr"], // Shift right
   // 1 arg
   __yo_compt_int_neg: ["__yo_compt_int_neg"],
-  __yo_compt_int_to_float: ["__yo_compt_int_to_float"],
-  __yo_compt_int_to_string: ["__yo_compt_int_to_string"],
+  __yo_compt_int_bit_not: ["__yo_compt_int_bit_not"], // Bitwise NOT
+  __yo_compt_int_to_compt_string: ["__yo_compt_int_to_compt_string"],
 
   // compt_float related functions
   /// 2 args
@@ -642,202 +690,248 @@ export const BuiltinFunctions = {
   __yo_compt_float_lte: ["__yo_compt_float_lte"],
   __yo_compt_float_gt: ["__yo_compt_float_gt"],
   __yo_compt_float_gte: ["__yo_compt_float_gte"],
-  __yo_compt_float_as: ["__yo_compt_float_as"], // Convert to a different float type
   // 1 arg
   __yo_compt_float_neg: ["__yo_compt_float_neg"],
-  __yo_compt_float_to_int: ["__yo_compt_float_to_int"],
-  __yo_compt_float_to_string: ["__yo_compt_float_to_string"],
+  __yo_compt_float_to_compt_string: ["__yo_compt_float_to_compt_string"],
 
   // Numeric type functions (u8, i8, u16, i16, u32, i32, u64, i64, usize, isize, f32, f64)
   // u8 functions
-  __yo_u8_add: ["__yo_u8_add"],
-  __yo_u8_sub: ["__yo_u8_sub"],
-  __yo_u8_mul: ["__yo_u8_mul"],
-  __yo_u8_div: ["__yo_u8_div"],
-  __yo_u8_mod: ["__yo_u8_mod"],
-  __yo_u8_eq: ["__yo_u8_eq"],
-  __yo_u8_neq: ["__yo_u8_neq"],
-  __yo_u8_lt: ["__yo_u8_lt"],
-  __yo_u8_lte: ["__yo_u8_lte"],
-  __yo_u8_gt: ["__yo_u8_gt"],
-  __yo_u8_gte: ["__yo_u8_gte"],
-  __yo_u8_neg: ["__yo_u8_neg"],
-  __yo_u8_to_string: ["__yo_u8_to_string"],
-  __yo_u8_as: ["__yo_u8_as"], // Convert to a different number type
+  __yo_compt_u8_add: ["__yo_compt_u8_add"],
+  __yo_compt_u8_sub: ["__yo_compt_u8_sub"],
+  __yo_compt_u8_mul: ["__yo_compt_u8_mul"],
+  __yo_compt_u8_div: ["__yo_compt_u8_div"],
+  __yo_compt_u8_mod: ["__yo_compt_u8_mod"],
+  __yo_compt_u8_eq: ["__yo_compt_u8_eq"],
+  __yo_compt_u8_neq: ["__yo_compt_u8_neq"],
+  __yo_compt_u8_lt: ["__yo_compt_u8_lt"],
+  __yo_compt_u8_lte: ["__yo_compt_u8_lte"],
+  __yo_compt_u8_gt: ["__yo_compt_u8_gt"],
+  __yo_compt_u8_gte: ["__yo_compt_u8_gte"],
+  __yo_compt_u8_neg: ["__yo_compt_u8_neg"],
+  __yo_compt_u8_bit_and: ["__yo_compt_u8_bit_and"],
+  __yo_compt_u8_bit_or: ["__yo_compt_u8_bit_or"],
+  __yo_compt_u8_bit_xor: ["__yo_compt_u8_bit_xor"],
+  __yo_compt_u8_bit_not: ["__yo_compt_u8_bit_not"],
+  __yo_compt_u8_shl: ["__yo_compt_u8_shl"],
+  __yo_compt_u8_shr: ["__yo_compt_u8_shr"],
+  __yo_compt_u8_to_compt_string: ["__yo_compt_u8_to_compt_string"],
 
   // i8 functions
-  __yo_i8_add: ["__yo_i8_add"],
-  __yo_i8_sub: ["__yo_i8_sub"],
-  __yo_i8_mul: ["__yo_i8_mul"],
-  __yo_i8_div: ["__yo_i8_div"],
-  __yo_i8_mod: ["__yo_i8_mod"],
-  __yo_i8_eq: ["__yo_i8_eq"],
-  __yo_i8_neq: ["__yo_i8_neq"],
-  __yo_i8_lt: ["__yo_i8_lt"],
-  __yo_i8_lte: ["__yo_i8_lte"],
-  __yo_i8_gt: ["__yo_i8_gt"],
-  __yo_i8_gte: ["__yo_i8_gte"],
-  __yo_i8_neg: ["__yo_i8_neg"],
-  __yo_i8_to_string: ["__yo_i8_to_string"],
-  __yo_i8_as: ["__yo_i8_as"], // Convert to a different number type
+  __yo_compt_i8_add: ["__yo_compt_i8_add"],
+  __yo_compt_i8_sub: ["__yo_compt_i8_sub"],
+  __yo_compt_i8_mul: ["__yo_compt_i8_mul"],
+  __yo_compt_i8_div: ["__yo_compt_i8_div"],
+  __yo_compt_i8_mod: ["__yo_compt_i8_mod"],
+  __yo_compt_i8_eq: ["__yo_compt_i8_eq"],
+  __yo_compt_i8_neq: ["__yo_compt_i8_neq"],
+  __yo_compt_i8_lt: ["__yo_compt_i8_lt"],
+  __yo_compt_i8_lte: ["__yo_compt_i8_lte"],
+  __yo_compt_i8_gt: ["__yo_compt_i8_gt"],
+  __yo_compt_i8_gte: ["__yo_compt_i8_gte"],
+  __yo_compt_i8_neg: ["__yo_compt_i8_neg"],
+  __yo_compt_i8_bit_and: ["__yo_compt_i8_bit_and"],
+  __yo_compt_i8_bit_or: ["__yo_compt_i8_bit_or"],
+  __yo_compt_i8_bit_xor: ["__yo_compt_i8_bit_xor"],
+  __yo_compt_i8_bit_not: ["__yo_compt_i8_bit_not"],
+  __yo_compt_i8_shl: ["__yo_compt_i8_shl"],
+  __yo_compt_i8_shr: ["__yo_compt_i8_shr"],
+  __yo_compt_i8_to_compt_string: ["__yo_compt_i8_to_compt_string"],
 
   // u16 functions
-  __yo_u16_add: ["__yo_u16_add"],
-  __yo_u16_sub: ["__yo_u16_sub"],
-  __yo_u16_mul: ["__yo_u16_mul"],
-  __yo_u16_div: ["__yo_u16_div"],
-  __yo_u16_mod: ["__yo_u16_mod"],
-  __yo_u16_eq: ["__yo_u16_eq"],
-  __yo_u16_neq: ["__yo_u16_neq"],
-  __yo_u16_lt: ["__yo_u16_lt"],
-  __yo_u16_lte: ["__yo_u16_lte"],
-  __yo_u16_gt: ["__yo_u16_gt"],
-  __yo_u16_gte: ["__yo_u16_gte"],
-  __yo_u16_neg: ["__yo_u16_neg"],
-  __yo_u16_to_string: ["__yo_u16_to_string"],
-  __yo_u16_as: ["__yo_u16_as"], // Convert to a different number type
+  __yo_compt_u16_add: ["__yo_compt_u16_add"],
+  __yo_compt_u16_sub: ["__yo_compt_u16_sub"],
+  __yo_compt_u16_mul: ["__yo_compt_u16_mul"],
+  __yo_compt_u16_div: ["__yo_compt_u16_div"],
+  __yo_compt_u16_mod: ["__yo_compt_u16_mod"],
+  __yo_compt_u16_eq: ["__yo_compt_u16_eq"],
+  __yo_compt_u16_neq: ["__yo_compt_u16_neq"],
+  __yo_compt_u16_lt: ["__yo_compt_u16_lt"],
+  __yo_compt_u16_lte: ["__yo_compt_u16_lte"],
+  __yo_compt_u16_gt: ["__yo_compt_u16_gt"],
+  __yo_compt_u16_gte: ["__yo_compt_u16_gte"],
+  __yo_compt_u16_neg: ["__yo_compt_u16_neg"],
+  __yo_compt_u16_bit_and: ["__yo_compt_u16_bit_and"],
+  __yo_compt_u16_bit_or: ["__yo_compt_u16_bit_or"],
+  __yo_compt_u16_bit_xor: ["__yo_compt_u16_bit_xor"],
+  __yo_compt_u16_bit_not: ["__yo_compt_u16_bit_not"],
+  __yo_compt_u16_shl: ["__yo_compt_u16_shl"],
+  __yo_compt_u16_shr: ["__yo_compt_u16_shr"],
+  __yo_compt_u16_to_compt_string: ["__yo_compt_u16_to_compt_string"],
 
   // i16 functions
-  __yo_i16_add: ["__yo_i16_add"],
-  __yo_i16_sub: ["__yo_i16_sub"],
-  __yo_i16_mul: ["__yo_i16_mul"],
-  __yo_i16_div: ["__yo_i16_div"],
-  __yo_i16_mod: ["__yo_i16_mod"],
-  __yo_i16_eq: ["__yo_i16_eq"],
-  __yo_i16_neq: ["__yo_i16_neq"],
-  __yo_i16_lt: ["__yo_i16_lt"],
-  __yo_i16_lte: ["__yo_i16_lte"],
-  __yo_i16_gt: ["__yo_i16_gt"],
-  __yo_i16_gte: ["__yo_i16_gte"],
-  __yo_i16_neg: ["__yo_i16_neg"],
-  __yo_i16_to_string: ["__yo_i16_to_string"],
-  __yo_i16_as: ["__yo_i16_as"], // Convert to a different number type
+  __yo_compt_i16_add: ["__yo_compt_i16_add"],
+  __yo_compt_i16_sub: ["__yo_compt_i16_sub"],
+  __yo_compt_i16_mul: ["__yo_compt_i16_mul"],
+  __yo_compt_i16_div: ["__yo_compt_i16_div"],
+  __yo_compt_i16_mod: ["__yo_compt_i16_mod"],
+  __yo_compt_i16_eq: ["__yo_compt_i16_eq"],
+  __yo_compt_i16_neq: ["__yo_compt_i16_neq"],
+  __yo_compt_i16_lt: ["__yo_compt_i16_lt"],
+  __yo_compt_i16_lte: ["__yo_compt_i16_lte"],
+  __yo_compt_i16_gt: ["__yo_compt_i16_gt"],
+  __yo_compt_i16_gte: ["__yo_compt_i16_gte"],
+  __yo_compt_i16_neg: ["__yo_compt_i16_neg"],
+  __yo_compt_i16_bit_and: ["__yo_compt_i16_bit_and"],
+  __yo_compt_i16_bit_or: ["__yo_compt_i16_bit_or"],
+  __yo_compt_i16_bit_xor: ["__yo_compt_i16_bit_xor"],
+  __yo_compt_i16_bit_not: ["__yo_compt_i16_bit_not"],
+  __yo_compt_i16_shl: ["__yo_compt_i16_shl"],
+  __yo_compt_i16_shr: ["__yo_compt_i16_shr"],
+  __yo_compt_i16_to_compt_string: ["__yo_compt_i16_to_compt_string"],
 
   // u32 functions
-  __yo_u32_add: ["__yo_u32_add"],
-  __yo_u32_sub: ["__yo_u32_sub"],
-  __yo_u32_mul: ["__yo_u32_mul"],
-  __yo_u32_div: ["__yo_u32_div"],
-  __yo_u32_mod: ["__yo_u32_mod"],
-  __yo_u32_eq: ["__yo_u32_eq"],
-  __yo_u32_neq: ["__yo_u32_neq"],
-  __yo_u32_lt: ["__yo_u32_lt"],
-  __yo_u32_lte: ["__yo_u32_lte"],
-  __yo_u32_gt: ["__yo_u32_gt"],
-  __yo_u32_gte: ["__yo_u32_gte"],
-  __yo_u32_neg: ["__yo_u32_neg"],
-  __yo_u32_to_string: ["__yo_u32_to_string"],
-  __yo_u32_as: ["__yo_u32_as"], // Convert to a different number type
+  __yo_compt_u32_add: ["__yo_compt_u32_add"],
+  __yo_compt_u32_sub: ["__yo_compt_u32_sub"],
+  __yo_compt_u32_mul: ["__yo_compt_u32_mul"],
+  __yo_compt_u32_div: ["__yo_compt_u32_div"],
+  __yo_compt_u32_mod: ["__yo_compt_u32_mod"],
+  __yo_compt_u32_eq: ["__yo_compt_u32_eq"],
+  __yo_compt_u32_neq: ["__yo_compt_u32_neq"],
+  __yo_compt_u32_lt: ["__yo_compt_u32_lt"],
+  __yo_compt_u32_lte: ["__yo_compt_u32_lte"],
+  __yo_compt_u32_gt: ["__yo_compt_u32_gt"],
+  __yo_compt_u32_gte: ["__yo_compt_u32_gte"],
+  __yo_compt_u32_neg: ["__yo_compt_u32_neg"],
+  __yo_compt_u32_bit_and: ["__yo_compt_u32_bit_and"],
+  __yo_compt_u32_bit_or: ["__yo_compt_u32_bit_or"],
+  __yo_compt_u32_bit_xor: ["__yo_compt_u32_bit_xor"],
+  __yo_compt_u32_bit_not: ["__yo_compt_u32_bit_not"],
+  __yo_compt_u32_shl: ["__yo_compt_u32_shl"],
+  __yo_compt_u32_shr: ["__yo_compt_u32_shr"],
+  __yo_compt_u32_to_compt_string: ["__yo_compt_u32_to_compt_string"],
 
   // i32 functions
-  __yo_i32_add: ["__yo_i32_add"],
-  __yo_i32_sub: ["__yo_i32_sub"],
-  __yo_i32_mul: ["__yo_i32_mul"],
-  __yo_i32_div: ["__yo_i32_div"],
-  __yo_i32_mod: ["__yo_i32_mod"],
-  __yo_i32_eq: ["__yo_i32_eq"],
-  __yo_i32_neq: ["__yo_i32_neq"],
-  __yo_i32_lt: ["__yo_i32_lt"],
-  __yo_i32_lte: ["__yo_i32_lte"],
-  __yo_i32_gt: ["__yo_i32_gt"],
-  __yo_i32_gte: ["__yo_i32_gte"],
-  __yo_i32_neg: ["__yo_i32_neg"],
-  __yo_i32_to_string: ["__yo_i32_to_string"],
-  __yo_i32_as: ["__yo_i32_as"], // Convert to a different number type
+  __yo_compt_i32_add: ["__yo_compt_i32_add"],
+  __yo_compt_i32_sub: ["__yo_compt_i32_sub"],
+  __yo_compt_i32_mul: ["__yo_compt_i32_mul"],
+  __yo_compt_i32_div: ["__yo_compt_i32_div"],
+  __yo_compt_i32_mod: ["__yo_compt_i32_mod"],
+  __yo_compt_i32_eq: ["__yo_compt_i32_eq"],
+  __yo_compt_i32_neq: ["__yo_compt_i32_neq"],
+  __yo_compt_i32_lt: ["__yo_compt_i32_lt"],
+  __yo_compt_i32_lte: ["__yo_compt_i32_lte"],
+  __yo_compt_i32_gt: ["__yo_compt_i32_gt"],
+  __yo_compt_i32_gte: ["__yo_compt_i32_gte"],
+  __yo_compt_i32_neg: ["__yo_compt_i32_neg"],
+  __yo_compt_i32_bit_and: ["__yo_compt_i32_bit_and"],
+  __yo_compt_i32_bit_or: ["__yo_compt_i32_bit_or"],
+  __yo_compt_i32_bit_xor: ["__yo_compt_i32_bit_xor"],
+  __yo_compt_i32_bit_not: ["__yo_compt_i32_bit_not"],
+  __yo_compt_i32_shl: ["__yo_compt_i32_shl"],
+  __yo_compt_i32_shr: ["__yo_compt_i32_shr"],
+  __yo_compt_i32_to_compt_string: ["__yo_compt_i32_to_compt_string"],
 
   // u64 functions
-  __yo_u64_add: ["__yo_u64_add"],
-  __yo_u64_sub: ["__yo_u64_sub"],
-  __yo_u64_mul: ["__yo_u64_mul"],
-  __yo_u64_div: ["__yo_u64_div"],
-  __yo_u64_mod: ["__yo_u64_mod"],
-  __yo_u64_eq: ["__yo_u64_eq"],
-  __yo_u64_neq: ["__yo_u64_neq"],
-  __yo_u64_lt: ["__yo_u64_lt"],
-  __yo_u64_lte: ["__yo_u64_lte"],
-  __yo_u64_gt: ["__yo_u64_gt"],
-  __yo_u64_gte: ["__yo_u64_gte"],
-  __yo_u64_neg: ["__yo_u64_neg"],
-  __yo_u64_to_string: ["__yo_u64_to_string"],
-  __yo_u64_as: ["__yo_u64_as"], // Convert to a different number type
+  __yo_compt_u64_add: ["__yo_compt_u64_add"],
+  __yo_compt_u64_sub: ["__yo_compt_u64_sub"],
+  __yo_compt_u64_mul: ["__yo_compt_u64_mul"],
+  __yo_compt_u64_div: ["__yo_compt_u64_div"],
+  __yo_compt_u64_mod: ["__yo_compt_u64_mod"],
+  __yo_compt_u64_eq: ["__yo_compt_u64_eq"],
+  __yo_compt_u64_neq: ["__yo_compt_u64_neq"],
+  __yo_compt_u64_lt: ["__yo_compt_u64_lt"],
+  __yo_compt_u64_lte: ["__yo_compt_u64_lte"],
+  __yo_compt_u64_gt: ["__yo_compt_u64_gt"],
+  __yo_compt_u64_gte: ["__yo_compt_u64_gte"],
+  __yo_compt_u64_neg: ["__yo_compt_u64_neg"],
+  __yo_compt_u64_bit_and: ["__yo_compt_u64_bit_and"],
+  __yo_compt_u64_bit_or: ["__yo_compt_u64_bit_or"],
+  __yo_compt_u64_bit_xor: ["__yo_compt_u64_bit_xor"],
+  __yo_compt_u64_bit_not: ["__yo_compt_u64_bit_not"],
+  __yo_compt_u64_shl: ["__yo_compt_u64_shl"],
+  __yo_compt_u64_shr: ["__yo_compt_u64_shr"],
+  __yo_compt_u64_to_compt_string: ["__yo_compt_u64_to_compt_string"],
 
   // i64 functions
-  __yo_i64_add: ["__yo_i64_add"],
-  __yo_i64_sub: ["__yo_i64_sub"],
-  __yo_i64_mul: ["__yo_i64_mul"],
-  __yo_i64_div: ["__yo_i64_div"],
-  __yo_i64_mod: ["__yo_i64_mod"],
-  __yo_i64_eq: ["__yo_i64_eq"],
-  __yo_i64_neq: ["__yo_i64_neq"],
-  __yo_i64_lt: ["__yo_i64_lt"],
-  __yo_i64_lte: ["__yo_i64_lte"],
-  __yo_i64_gt: ["__yo_i64_gt"],
-  __yo_i64_gte: ["__yo_i64_gte"],
-  __yo_i64_neg: ["__yo_i64_neg"],
-  __yo_i64_to_string: ["__yo_i64_to_string"],
-  __yo_i64_as: ["__yo_i64_as"], // Convert to a different number type
+  __yo_compt_i64_add: ["__yo_compt_i64_add"],
+  __yo_compt_i64_sub: ["__yo_compt_i64_sub"],
+  __yo_compt_i64_mul: ["__yo_compt_i64_mul"],
+  __yo_compt_i64_div: ["__yo_compt_i64_div"],
+  __yo_compt_i64_mod: ["__yo_compt_i64_mod"],
+  __yo_compt_i64_eq: ["__yo_compt_i64_eq"],
+  __yo_compt_i64_neq: ["__yo_compt_i64_neq"],
+  __yo_compt_i64_lt: ["__yo_compt_i64_lt"],
+  __yo_compt_i64_lte: ["__yo_compt_i64_lte"],
+  __yo_compt_i64_gt: ["__yo_compt_i64_gt"],
+  __yo_compt_i64_gte: ["__yo_compt_i64_gte"],
+  __yo_compt_i64_neg: ["__yo_compt_i64_neg"],
+  __yo_compt_i64_bit_and: ["__yo_compt_i64_bit_and"],
+  __yo_compt_i64_bit_or: ["__yo_compt_i64_bit_or"],
+  __yo_compt_i64_bit_xor: ["__yo_compt_i64_bit_xor"],
+  __yo_compt_i64_bit_not: ["__yo_compt_i64_bit_not"],
+  __yo_compt_i64_shl: ["__yo_compt_i64_shl"],
+  __yo_compt_i64_shr: ["__yo_compt_i64_shr"],
+  __yo_compt_i64_to_compt_string: ["__yo_compt_i64_to_compt_string"],
 
   // usize functions
-  __yo_usize_add: ["__yo_usize_add"],
-  __yo_usize_sub: ["__yo_usize_sub"],
-  __yo_usize_mul: ["__yo_usize_mul"],
-  __yo_usize_div: ["__yo_usize_div"],
-  __yo_usize_mod: ["__yo_usize_mod"],
-  __yo_usize_eq: ["__yo_usize_eq"],
-  __yo_usize_neq: ["__yo_usize_neq"],
-  __yo_usize_lt: ["__yo_usize_lt"],
-  __yo_usize_lte: ["__yo_usize_lte"],
-  __yo_usize_gt: ["__yo_usize_gt"],
-  __yo_usize_gte: ["__yo_usize_gte"],
-  __yo_usize_neg: ["__yo_usize_neg"],
-  __yo_usize_to_string: ["__yo_usize_to_string"],
-  __yo_usize_as: ["__yo_usize_as"], // Convert to a different number type
+  __yo_compt_usize_add: ["__yo_compt_usize_add"],
+  __yo_compt_usize_sub: ["__yo_compt_usize_sub"],
+  __yo_compt_usize_mul: ["__yo_compt_usize_mul"],
+  __yo_compt_usize_div: ["__yo_compt_usize_div"],
+  __yo_compt_usize_mod: ["__yo_compt_usize_mod"],
+  __yo_compt_usize_eq: ["__yo_compt_usize_eq"],
+  __yo_compt_usize_neq: ["__yo_compt_usize_neq"],
+  __yo_compt_usize_lt: ["__yo_compt_usize_lt"],
+  __yo_compt_usize_lte: ["__yo_compt_usize_lte"],
+  __yo_compt_usize_gt: ["__yo_compt_usize_gt"],
+  __yo_compt_usize_gte: ["__yo_compt_usize_gte"],
+  __yo_compt_usize_neg: ["__yo_compt_usize_neg"],
+  __yo_compt_usize_bit_and: ["__yo_compt_usize_bit_and"],
+  __yo_compt_usize_bit_or: ["__yo_compt_usize_bit_or"],
+  __yo_compt_usize_bit_xor: ["__yo_compt_usize_bit_xor"],
+  __yo_compt_usize_bit_not: ["__yo_compt_usize_bit_not"],
+  __yo_compt_usize_shl: ["__yo_compt_usize_shl"],
+  __yo_compt_usize_shr: ["__yo_compt_usize_shr"],
+  __yo_compt_usize_to_compt_string: ["__yo_compt_usize_to_compt_string"],
 
   // isize functions
-  __yo_isize_add: ["__yo_isize_add"],
-  __yo_isize_sub: ["__yo_isize_sub"],
-  __yo_isize_mul: ["__yo_isize_mul"],
-  __yo_isize_div: ["__yo_isize_div"],
-  __yo_isize_mod: ["__yo_isize_mod"],
-  __yo_isize_eq: ["__yo_isize_eq"],
-  __yo_isize_neq: ["__yo_isize_neq"],
-  __yo_isize_lt: ["__yo_isize_lt"],
-  __yo_isize_lte: ["__yo_isize_lte"],
-  __yo_isize_gt: ["__yo_isize_gt"],
-  __yo_isize_gte: ["__yo_isize_gte"],
-  __yo_isize_neg: ["__yo_isize_neg"],
-  __yo_isize_to_string: ["__yo_isize_to_string"],
-  __yo_isize_as: ["__yo_isize_as"], // Convert to a different number type
+  __yo_compt_isize_add: ["__yo_compt_isize_add"],
+  __yo_compt_isize_sub: ["__yo_compt_isize_sub"],
+  __yo_compt_isize_mul: ["__yo_compt_isize_mul"],
+  __yo_compt_isize_div: ["__yo_compt_isize_div"],
+  __yo_compt_isize_mod: ["__yo_compt_isize_mod"],
+  __yo_compt_isize_eq: ["__yo_compt_isize_eq"],
+  __yo_compt_isize_neq: ["__yo_compt_isize_neq"],
+  __yo_compt_isize_lt: ["__yo_compt_isize_lt"],
+  __yo_compt_isize_lte: ["__yo_compt_isize_lte"],
+  __yo_compt_isize_gt: ["__yo_compt_isize_gt"],
+  __yo_compt_isize_gte: ["__yo_compt_isize_gte"],
+  __yo_compt_isize_neg: ["__yo_compt_isize_neg"],
+  __yo_compt_isize_bit_and: ["__yo_compt_isize_bit_and"],
+  __yo_compt_isize_bit_or: ["__yo_compt_isize_bit_or"],
+  __yo_compt_isize_bit_xor: ["__yo_compt_isize_bit_xor"],
+  __yo_compt_isize_bit_not: ["__yo_compt_isize_bit_not"],
+  __yo_compt_isize_shl: ["__yo_compt_isize_shl"],
+  __yo_compt_isize_shr: ["__yo_compt_isize_shr"],
+  __yo_compt_isize_to_compt_string: ["__yo_compt_isize_to_compt_string"],
 
   // f32 functions
-  __yo_f32_add: ["__yo_f32_add"],
-  __yo_f32_sub: ["__yo_f32_sub"],
-  __yo_f32_mul: ["__yo_f32_mul"],
-  __yo_f32_div: ["__yo_f32_div"],
-  __yo_f32_eq: ["__yo_f32_eq"],
-  __yo_f32_neq: ["__yo_f32_neq"],
-  __yo_f32_lt: ["__yo_f32_lt"],
-  __yo_f32_lte: ["__yo_f32_lte"],
-  __yo_f32_gt: ["__yo_f32_gt"],
-  __yo_f32_gte: ["__yo_f32_gte"],
-  __yo_f32_neg: ["__yo_f32_neg"],
-  __yo_f32_to_string: ["__yo_f32_to_string"],
-  __yo_f32_as: ["__yo_f32_as"], // Convert to a different number type
+  __yo_compt_f32_add: ["__yo_compt_f32_add"],
+  __yo_compt_f32_sub: ["__yo_compt_f32_sub"],
+  __yo_compt_f32_mul: ["__yo_compt_f32_mul"],
+  __yo_compt_f32_div: ["__yo_compt_f32_div"],
+  __yo_compt_f32_eq: ["__yo_compt_f32_eq"],
+  __yo_compt_f32_neq: ["__yo_compt_f32_neq"],
+  __yo_compt_f32_lt: ["__yo_compt_f32_lt"],
+  __yo_compt_f32_lte: ["__yo_compt_f32_lte"],
+  __yo_compt_f32_gt: ["__yo_compt_f32_gt"],
+  __yo_compt_f32_gte: ["__yo_compt_f32_gte"],
+  __yo_compt_f32_neg: ["__yo_compt_f32_neg"],
+  __yo_compt_f32_to_compt_string: ["__yo_compt_f32_to_compt_string"],
 
   // f64 functions
-  __yo_f64_add: ["__yo_f64_add"],
-  __yo_f64_sub: ["__yo_f64_sub"],
-  __yo_f64_mul: ["__yo_f64_mul"],
-  __yo_f64_div: ["__yo_f64_div"],
-  __yo_f64_eq: ["__yo_f64_eq"],
-  __yo_f64_neq: ["__yo_f64_neq"],
-  __yo_f64_lt: ["__yo_f64_lt"],
-  __yo_f64_lte: ["__yo_f64_lte"],
-  __yo_f64_gt: ["__yo_f64_gt"],
-  __yo_f64_gte: ["__yo_f64_gte"],
-  __yo_f64_neg: ["__yo_f64_neg"],
-  __yo_f64_to_string: ["__yo_f64_to_string"],
-  __yo_f64_as: ["__yo_f64_as"], // Convert to a different number type
+  __yo_compt_f64_add: ["__yo_compt_f64_add"],
+  __yo_compt_f64_sub: ["__yo_compt_f64_sub"],
+  __yo_compt_f64_mul: ["__yo_compt_f64_mul"],
+  __yo_compt_f64_div: ["__yo_compt_f64_div"],
+  __yo_compt_f64_eq: ["__yo_compt_f64_eq"],
+  __yo_compt_f64_neq: ["__yo_compt_f64_neq"],
+  __yo_compt_f64_lt: ["__yo_compt_f64_lt"],
+  __yo_compt_f64_lte: ["__yo_compt_f64_lte"],
+  __yo_compt_f64_gt: ["__yo_compt_f64_gt"],
+  __yo_compt_f64_gte: ["__yo_compt_f64_gte"],
+  __yo_compt_f64_neg: ["__yo_compt_f64_neg"],
+  __yo_compt_f64_to_compt_string: ["__yo_compt_f64_to_compt_string"],
 
   // compt_boolean related functions
   /// 2 args
@@ -847,7 +941,7 @@ export const BuiltinFunctions = {
   __yo_compt_boolean_neq: ["__yo_compt_boolean_neq"],
   // 1 arg
   __yo_compt_boolean_not: ["__yo_compt_boolean_not"],
-  __yo_compt_boolean_to_string: ["__yo_compt_boolean_to_string"],
+  __yo_compt_boolean_to_compt_string: ["__yo_compt_boolean_to_compt_string"],
 
   // compt_string related functions
   /// 2 args
@@ -866,7 +960,7 @@ export const BuiltinFunctions = {
   __yo_compt_string_slice: ["__yo_compt_string_slice"],
 
   // Type related functions
-  __yo_type_to_string: ["__yo_type_to_string"],
+  __yo_type_to_compt_string: ["__yo_type_to_compt_string"],
   // __yo_type_is_type0: ["__yo_type_is_type0"],
   __yo_type_contains_rc_type: ["__yo_type_contains_rc_type"],
   __yo_type_can_form_rc_cycle: ["__yo_type_can_form_rc_cycle"],
@@ -1282,7 +1376,11 @@ ${exprToString(expr)}`);
       const updatedVariable: Variable = {
         ...existingVariable,
         type,
-        value: preservedIsOwningTheRefValue ? undefined : value,
+        value: preservedIsOwningTheRefValue
+          ? undefined
+          : value
+            ? [value]
+            : undefined,
         isCompileTimeOnly: preservedIsOwningTheRefValue
           ? false
           : Boolean(value),
@@ -1310,7 +1408,7 @@ ${exprToString(expr)}`);
       variable: {
         name: expr.$.variableName,
         type,
-        value: _isOwningTheARCValue ? undefined : value,
+        value: _isOwningTheARCValue ? undefined : value ? [value] : undefined,
         isCompileTimeOnly: _isOwningTheARCValue ? false : Boolean(value),
         initializedAtToken: expr.token,
         isOwningTheRcValue: _isOwningTheARCValue,
@@ -1339,7 +1437,7 @@ ${exprToString(expr)}`);
     variable: {
       name: tempVariableName,
       type,
-      value: _isOwningTheARCValue ? undefined : value,
+      value: _isOwningTheARCValue ? undefined : value ? [value] : undefined,
       isCompileTimeOnly: _isOwningTheARCValue ? false : Boolean(value),
       initializedAtToken: expr.token,
       isOwningTheRcValue: _isOwningTheARCValue,
@@ -1970,6 +2068,7 @@ export function setExprAsNeedsToCallDup(
           const variable = variables[variables.length - 1]!;
           if (variable.isOwningTheRcValue) {
             // Set the variable as consumed so we won't need to drop it later
+            // This needs to happen even during validation
             if (!variable.consumedAtToken) {
               expr.$.env = updateExistingVariable(expr.$.env, variable, {
                 ...variable,
@@ -1981,6 +2080,13 @@ export function setExprAsNeedsToCallDup(
         }
       }
     }
+
+    // NOTE: The condition below is wrong.
+    // Skip creating dup calls during function definition validation
+    // We're only validating types, not executing code, so RC operations are not needed
+    // if (context.isValidatingFunctionDefinition) {
+    //   return;
+    // }
 
     // Copy semantics: call dup to share ownership
     // replace this expr with ___dup(...)

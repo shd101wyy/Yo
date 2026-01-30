@@ -39,6 +39,7 @@ import {
   FunctionType,
   getAllSomeTypes,
   getValueOfSomeTypeFromEnv,
+  isComptimeOnlyType,
   isExprListType,
   isExprType,
   isFunctionSpecializable,
@@ -350,16 +351,43 @@ export function checkIfFunctionParameterMatchesArgument({
     });
   }
 
+  // If the parameter has an assignedValue, check that the argument value matches it.
+  // This is used for overload resolution based on value matching (e.g., TryInto(i32) vs TryInto(i64)).
+  if (parameter.assignedValue && evaluatedArgExpr.$?.value) {
+    if (
+      !areValuesEqual(
+        { value: parameter.assignedValue, env: calleeEnv },
+        { value: evaluatedArgExpr.$.value, env: callerEnv }
+      )
+    ) {
+      throw formatErrorMessage({
+        token: argExpr?.token ?? PlaceholderToken,
+        errorMessage: `Value mismatch for parameter "${parameter.label}":
+Expected: ${valueToString(parameter.assignedValue)}
+Got:   ${valueToString(evaluatedArgExpr.$.value)}`,
+      });
+    }
+  }
+
   // Add the arg to the environment
   // console.log("(10) addVariableToEnv");
   let argValue = evaluatedArgExpr.$.value;
-  if (!parameter.isCompileTimeOnly) {
-    argValue = undefined;
+  // Only convert to runtime type if:
+  // 1. The parameter doesn't have compt modifier (it's a runtime parameter), AND
+  // 2. The argument type is comptime-only (e.g., compt_int, Type, etc.)
+  // This converts comptime-only argument types to their runtime equivalents.
+  // For types that can exist at both compile-time and runtime (like *(i32)),
+  // we keep the value intact which allows CTFE with pointers to work correctly.
+  if (!parameter.isCompileTimeOnly && isComptimeOnlyType(argType)) {
+    // During CTFE (forceCompileTimeBindings), preserve the value for compile-time evaluation.
+    // Only clear the value for normal runtime calls.
+    if (!context.forceCompileTimeBindings) {
+      argValue = undefined;
+    }
 
     // argType requires compt modifier
     // but the parameter is not compt
     // we need to convert the argType to runtimeType
-    // if (typeRequiresComptModifier(argType)) {
     argType = convertComptTypeToRuntimeType({
       type: argType,
       expectedType: parameterType,
@@ -376,8 +404,12 @@ export function checkIfFunctionParameterMatchesArgument({
         )}`,
       });
     }
-    // }
   }
+
+  // During CTFE (forceCompileTimeBindings), treat parameters as compile-time only
+  // so their values are tracked through the function body.
+  const isParamCompileTimeOnly =
+    parameter.isCompileTimeOnly || context.forceCompileTimeBindings === true;
 
   const { env: nextEnv } = addVariableToEnv({
     env: calleeEnv,
@@ -385,8 +417,8 @@ export function checkIfFunctionParameterMatchesArgument({
       name: parameter.label,
       type: argType, // QUESTION: Should we use parameterType here or argType?
       // This might affect assigning Free type arg to Type parameter
-      isCompileTimeOnly: parameter.isCompileTimeOnly,
-      value: argValue,
+      isCompileTimeOnly: isParamCompileTimeOnly,
+      value: argValue ? [argValue] : undefined,
       token: argExpr?.token ?? PlaceholderToken,
       initializedAtToken: argExpr?.token ?? PlaceholderToken,
       consumedAtToken: undefined,
@@ -485,6 +517,7 @@ export function tryToCallFunctionWithArguments({
   context,
   isMethodCall,
   skipSpecialization,
+  skipCtfeExecution,
 }: {
   functionValue?: FunctionValue;
   functionType: FunctionType;
@@ -501,6 +534,12 @@ export function tryToCallFunctionWithArguments({
    * See docs/SPECIALIZATION_CACHE_PITFALL.md for details.
    */
   skipSpecialization?: boolean;
+  /**
+   * If true, skip CTFE execution during the "checking phase".
+   * We only verify types match, but don't actually execute compile-time functions.
+   * This prevents double execution when checking and then calling.
+   */
+  skipCtfeExecution?: boolean;
 }): FunctionCallResult {
   if (functionValue) {
     // Use the specializedType if available (e.g., from generic impls)
@@ -616,7 +655,7 @@ Got:   ${regularArgsToCheck.length} arguments`,
         isCompileTimeOnly: true,
         initializedAtToken: PlaceholderToken, // Set as initialized
         consumedAtToken: undefined,
-        value: typeValue,
+        value: [typeValue],
         isOwningTheRcValue: false,
       },
     });
@@ -637,10 +676,9 @@ Got:   ${regularArgsToCheck.length} arguments`,
           name: forallParameter.label,
           type: forallParameter.type,
           isCompileTimeOnly: true,
-          value: createUnknownValue(
-            forallParameter.type,
-            forallParameter.label
-          ),
+          value: [
+            createUnknownValue(forallParameter.type, forallParameter.label),
+          ],
           token: forallParameter.exprs.labelExpr.token,
           initializedAtToken: forallParameter.exprs.labelExpr.token, // Set as initialized
           consumedAtToken: undefined,
@@ -809,7 +847,7 @@ Got:   ${typeToString(typeValue.type)}`,
         if (typeParameterVariable) {
           calleeEnv = updateExistingVariable(calleeEnv, typeParameterVariable, {
             ...typeParameterVariable,
-            value: typeValue,
+            value: [typeValue],
           });
         } else {
           const token =
@@ -822,7 +860,7 @@ Got:   ${typeToString(typeValue.type)}`,
               name: forallParameter.label,
               type: typeValue.type,
               isCompileTimeOnly: true,
-              value: typeValue,
+              value: [typeValue],
               token: token,
               initializedAtToken: token, // Set as initialized
               consumedAtToken: undefined,
@@ -913,10 +951,10 @@ Got:   ${typeToString(typeValue.type)}`,
       if (forallParameter.label) {
         const variables = getVariablesFromEnv(calleeEnv, forallParameter.label);
         const variable = variables.at(-1);
-        if (variable?.value && isTypeValue(variable.value)) {
+        if (variable?.value?.[0] && isTypeValue(variable.value[0])) {
           forallArgValues.push({
-            value: variable.value,
-            argType: variable.value.type,
+            value: variable.value[0],
+            argType: variable.value[0].type,
             parameterType: forallParameter.type,
           });
         }
@@ -1049,7 +1087,7 @@ Got:   ${typeToString(typeValue.type)}`,
           type: exprListValue.type, // QUESTION: Should we use parameterType here or argType?
           // This might affect assigning Free type arg to Type parameter
           isCompileTimeOnly: functionType.variadicParameter.isCompileTimeOnly,
-          value: exprListValue,
+          value: [exprListValue],
           token: functionType.variadicParameter.exprs.expr.token,
           initializedAtToken: functionType.variadicParameter.exprs.expr.token,
           consumedAtToken: undefined,
@@ -1089,7 +1127,12 @@ Got:   ${typeToString(typeValue.type)}`,
   let returnValue: Value | undefined;
   /// Compile-time
   if (functionType.return.isCompileTimeOnly) {
-    if (isFunctionValue(functionValue)) {
+    // During the checking phase (skipCtfeExecution), we don't actually execute CTFE.
+    // We just verify types match and return an UnknownValue.
+    // This prevents double execution when checking and then calling.
+    if (skipCtfeExecution) {
+      returnValue = createUnknownValue(returnType, functionType.return.label);
+    } else if (isFunctionValue(functionValue)) {
       const {
         value: nextReturnValue,
         callerEnv: nextCallerEnv,
@@ -1319,6 +1362,28 @@ function createSpecializedFunctionInline({
   // Create specialized environment with compile-time arguments bound
   let specializedEnv = calleeEnv;
 
+  // CRITICAL: Clear the values of runtime parameters in the specialized environment.
+  // The calleeEnv has runtime parameter values from the specific call site (e.g., x=1 for compt_add(1, 1)).
+  // We need to clear these so that codegen generates proper variable references (e.g., "x + 1")
+  // instead of inlining the compile-time evaluated result (e.g., "2").
+  // Only compile-time parameters should retain their values for specialization.
+  for (const param of runtimeParameters) {
+    const variables = getVariablesFromEnv(specializedEnv, param.label);
+    if (variables.length > 0) {
+      const variable = variables[variables.length - 1]!;
+      // Clear the value but keep the type - this makes it a runtime-only variable
+      const updatedVariable: Variable = {
+        ...variable,
+        value: undefined,
+      };
+      specializedEnv = updateExistingVariable(
+        specializedEnv,
+        variable,
+        updatedVariable
+      );
+    }
+  }
+
   // Clone the function body and evaluate it in the specialized environment
   const clonedBody = cloneExpr(originalFunction.body);
 
@@ -1398,10 +1463,10 @@ function createSpecializedFunctionInline({
       // Check if it's in the calleeEnv
       // Its value might be available after synthesizing types
       const variables = getVariablesFromEnv(calleeEnv, label);
-      if (variables.length > 0 && variables[variables.length - 1]?.value) {
+      if (variables.length > 0 && variables[variables.length - 1]?.value?.[0]) {
         compileTimeSignatureParts.push(
           sanitizeForCIdentifier(
-            valueToSignatureString(variables[variables.length - 1]!.value!)
+            valueToSignatureString(variables[variables.length - 1]!.value![0])
           )
         );
       } else {
@@ -1555,8 +1620,8 @@ export function validateFunctionReturnType({
       let foundTransitively = false;
 
       for (const variable of allVariables) {
-        if (isTypeValue(variable.value)) {
-          const typeValue = variable.value.value;
+        if (isTypeValue(variable.value?.[0])) {
+          const typeValue = variable.value[0].value;
           const transitiveTypes = getAllSomeTypes(typeValue);
           for (const transitiveType of transitiveTypes) {
             if (transitiveType.name === returnTypeSomeType.name) {

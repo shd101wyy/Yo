@@ -6,7 +6,6 @@ import {
   Type,
   TypeTag,
   createBooleanType,
-  createCharType,
   createComptFloatType,
   createComptIntType,
   createComptStringType,
@@ -16,25 +15,15 @@ import {
   createI32Type,
   createI64Type,
   createI8Type,
-  createIntType,
   createIsizeType,
-  createLongDoubleType,
-  createLongLongType,
-  createLongType,
-  createShortType,
   createU16Type,
   createU32Type,
   createU64Type,
   createU8Type,
-  createUIntType,
-  createULongLongType,
-  createULongType,
-  createUShortType,
   createUsizeType,
   isCCompatibleType,
   isFloatType,
   isIntegerType,
-  isTypeHierarchyType,
 } from "../../types";
 import {
   NumberValue,
@@ -48,7 +37,6 @@ import {
   isComptFloatValue,
   isComptIntValue,
   isNumberValue,
-  isTypeValue,
 } from "../../value";
 import { ValueTag } from "../../value-tag";
 import { getNumericBounds } from "../calls/numeric_type";
@@ -121,6 +109,10 @@ function getValueTagFromType(type: Type): ValueTag {
       return ValueTag.F32;
     case TypeTag.F64:
       return ValueTag.F64;
+    case TypeTag.ComptInt:
+      return ValueTag.ComptFloat;
+    case TypeTag.ComptFloat:
+      return ValueTag.ComptFloat;
     // C compatible types don't have corresponding ValueTags since they're runtime-only
     default:
       throw new Error(`Unsupported numeric type: ${type.tag}`);
@@ -287,7 +279,10 @@ function performUnaryOp(
   return result ?? createUnknownValue(resultType);
 }
 
-export function evaluateYoNumericFunctions({
+/**
+ * Evaluate Yo compt numeric functions.
+ */
+export function evaluateYoComptNumericFunctions({
   expr,
   env,
   context,
@@ -300,7 +295,7 @@ export function evaluateYoNumericFunctions({
 
   // Check if this is a numeric function by pattern matching
   const numericFnPattern =
-    /^__yo_(u8|i8|u16|i16|u32|i32|u64|i64|usize|isize|f32|f64|compt_int|compt_float|char|short|ushort|int|uint|long|ulong|longlong|ulonglong|longdouble)_(add|sub|mul|div|mod|eq|neq|lt|lte|gt|gte|neg|to_string|as)$/;
+    /^__yo_compt_(u8|i8|u16|i16|u32|i32|u64|i64|usize|isize|f32|f64|int|float)_(add|sub|mul|div|mod|eq|neq|lt|lte|gt|gte|neg|to_compt_string|bit_and|bit_or|bit_xor|bit_not|shl|shr)$/;
   const match = funcName.match(numericFnPattern);
 
   if (!match) {
@@ -339,28 +334,10 @@ export function evaluateYoNumericFunctions({
         return createF32Type();
       case TypeTag.F64:
         return createF64Type();
-      case TypeTag.Char:
-        return createCharType();
-      case TypeTag.Short:
-        return createShortType();
-      case TypeTag.UShort:
-        return createUShortType();
       case TypeTag.Int:
-        return createIntType();
-      case TypeTag.UInt:
-        return createUIntType();
-      case TypeTag.Long:
-        return createLongType();
-      case TypeTag.ULong:
-        return createULongType();
-      case TypeTag.LongLong:
-        return createLongLongType();
-      case TypeTag.ULongLong:
-        return createULongLongType();
-      case TypeTag.LongDouble:
-        return createLongDoubleType();
       case TypeTag.ComptInt:
         return createComptIntType();
+      case "float":
       case TypeTag.ComptFloat:
         return createComptFloatType();
       default:
@@ -371,7 +348,11 @@ export function evaluateYoNumericFunctions({
   const numericType = getType();
 
   // Handle unary operations
-  if (operation === "neg" || operation === "to_string") {
+  if (
+    operation === "neg" ||
+    operation === "to_compt_string" ||
+    operation === "bit_not"
+  ) {
     const arg = evaluateExpression({
       expr: expr.args[0]!,
       env,
@@ -390,6 +371,20 @@ export function evaluateYoNumericFunctions({
 
     if (operation === "neg") {
       if (isNumberValue(arg.$.value)) {
+        // Check if the numeric type is unsigned
+        if (
+          numericType.tag === TypeTag.U8 ||
+          numericType.tag === TypeTag.U16 ||
+          numericType.tag === TypeTag.U32 ||
+          numericType.tag === TypeTag.U64 ||
+          numericType.tag === TypeTag.Usize
+        ) {
+          throw formatErrorMessage({
+            token: expr.token,
+            errorMessage: `Cannot apply negation to unsigned type: ${typeStr}`,
+          });
+        }
+
         value = performUnaryOp(arg.$.value, numericType, (x) => {
           if (typeof x === "bigint") {
             return -x;
@@ -399,7 +394,22 @@ export function evaluateYoNumericFunctions({
       } else {
         value = createUnknownValue(numericType);
       }
-    } else if (operation === "to_string") {
+    } else if (operation === "bit_not") {
+      if (isNumberValue(arg.$.value) || isComptIntValue(arg.$.value)) {
+        const num = extractNumericValue(arg.$.value);
+        if (num !== null) {
+          if (typeof num === "bigint") {
+            value = createComptIntValue(~num);
+          } else {
+            value = createComptIntValue(BigInt(~Math.floor(num)));
+          }
+        } else {
+          value = createUnknownValue(numericType);
+        }
+      } else {
+        value = createUnknownValue(numericType);
+      }
+    } else if (operation === "to_compt_string") {
       if (isNumberValue(arg.$.value)) {
         const num = extractNumericValue(arg.$.value);
         if (num !== null) {
@@ -419,92 +429,9 @@ export function evaluateYoNumericFunctions({
 
     expr.$ = {
       env,
-      type: operation === "to_string" ? createComptStringType() : numericType,
+      type:
+        operation === "to_compt_string" ? createComptStringType() : numericType,
       value: value,
-      pathCollection: [],
-    };
-
-    return expr;
-  }
-
-  // Handle type conversion 'as' operation
-  if (operation === "as") {
-    const valueArg = evaluateExpression({
-      expr: expr.args[0]!,
-      env,
-      context: { ...context },
-    });
-
-    if (!valueArg.$) {
-      throw formatErrorMessage({
-        token: valueArg.token,
-        errorMessage: `Expected numeric value for "${funcName}" first argument, got:\n${exprToString(valueArg)}`,
-      });
-    }
-
-    env = valueArg.$.env;
-
-    // The second argument should be a type atom (e.g., i32, f64, etc.)
-    const targetTypeArg = expr.args[1]!;
-    const evaluatedTargetTypeArg = evaluateExpression({
-      expr: targetTypeArg,
-      env,
-      context: { ...context },
-    });
-    if (!evaluatedTargetTypeArg.$) {
-      throw formatErrorMessage({
-        token: evaluatedTargetTypeArg.token,
-        errorMessage: `Failed to evaluate the argument ${exprToString(evaluatedTargetTypeArg)}`,
-      });
-    }
-    env = evaluatedTargetTypeArg.$.env;
-
-    if (!evaluatedTargetTypeArg.$.value) {
-      throw formatErrorMessage({
-        token: evaluatedTargetTypeArg.token,
-        errorMessage: `Expected type for "${funcName}" second argument, got:\n${exprToString(evaluatedTargetTypeArg)}`,
-      });
-    }
-    if (!isTypeHierarchyType(evaluatedTargetTypeArg.$.type)) {
-      throw formatErrorMessage({
-        token: evaluatedTargetTypeArg.token,
-        errorMessage: `Expected type for "${funcName}" second argument, got:\n${exprToString(evaluatedTargetTypeArg)}`,
-      });
-    }
-    const typeValue = evaluatedTargetTypeArg.$.value;
-
-    if (!isTypeValue(typeValue)) {
-      throw formatErrorMessage({
-        token: evaluatedTargetTypeArg.token,
-        errorMessage: `Expected type value for "${funcName}" second argument, got:\n${exprToString(evaluatedTargetTypeArg)}`,
-      });
-    }
-
-    const targetType = typeValue.value;
-    const sourceValue = extractNumericValue(valueArg.$.value);
-
-    let convertedValue: Value | undefined;
-    let resultType: Type;
-
-    /* if (targetType === null) {
-      // Unknown target type - return unknown value with the source type
-      // This handles generic type parameters like 'Target'
-      convertedValue = createUnknownValue(numericType);
-      resultType = numericType; // Fallback to source type for unknown target types
-    } else */ if (sourceValue !== null) {
-      // Perform the conversion with bounds checking
-      convertedValue = createNumericValue(sourceValue, targetType);
-      resultType = targetType;
-    } else {
-      // If source value is unknown, result is also unknown
-      convertedValue = createUnknownValue(targetType);
-      resultType = targetType;
-    }
-
-    expr.$ = {
-      env,
-      type: resultType,
-      value: convertedValue,
       pathCollection: [],
     };
 
@@ -689,6 +616,91 @@ export function evaluateYoNumericFunctions({
       value = performComparisonOp(lhsValue, rhsValue, (a, b) => a >= b);
       resultType = createBooleanType();
       break;
+    case "bit_and": {
+      const lhs = extractNumericValue(lhsValue);
+      const rhs = extractNumericValue(rhsValue);
+      if (lhs !== null && rhs !== null) {
+        if (typeof lhs === "bigint" || typeof rhs === "bigint") {
+          const bigA = typeof lhs === "bigint" ? lhs : BigInt(Math.floor(lhs));
+          const bigB = typeof rhs === "bigint" ? rhs : BigInt(Math.floor(rhs));
+          value = createComptIntValue(bigA & bigB);
+        } else {
+          value = createComptIntValue(
+            BigInt(Math.floor(lhs) & Math.floor(rhs))
+          );
+        }
+      } else {
+        value = createUnknownValue(numericType);
+      }
+      resultType = numericType;
+      break;
+    }
+    case "bit_or": {
+      const lhs = extractNumericValue(lhsValue);
+      const rhs = extractNumericValue(rhsValue);
+      if (lhs !== null && rhs !== null) {
+        if (typeof lhs === "bigint" || typeof rhs === "bigint") {
+          const bigA = typeof lhs === "bigint" ? lhs : BigInt(Math.floor(lhs));
+          const bigB = typeof rhs === "bigint" ? rhs : BigInt(Math.floor(rhs));
+          value = createComptIntValue(bigA | bigB);
+        } else {
+          value = createComptIntValue(
+            BigInt(Math.floor(lhs) | Math.floor(rhs))
+          );
+        }
+      } else {
+        value = createUnknownValue(numericType);
+      }
+      resultType = numericType;
+      break;
+    }
+    case "bit_xor": {
+      const lhs = extractNumericValue(lhsValue);
+      const rhs = extractNumericValue(rhsValue);
+      if (lhs !== null && rhs !== null) {
+        if (typeof lhs === "bigint" || typeof rhs === "bigint") {
+          const bigA = typeof lhs === "bigint" ? lhs : BigInt(Math.floor(lhs));
+          const bigB = typeof rhs === "bigint" ? rhs : BigInt(Math.floor(rhs));
+          value = createComptIntValue(bigA ^ bigB);
+        } else {
+          value = createComptIntValue(
+            BigInt(Math.floor(lhs) ^ Math.floor(rhs))
+          );
+        }
+      } else {
+        value = createUnknownValue(numericType);
+      }
+      resultType = numericType;
+      break;
+    }
+    case "shl": {
+      const lhs = extractNumericValue(lhsValue);
+      const rhs = extractNumericValue(rhsValue);
+      if (lhs !== null && rhs !== null) {
+        const bigA = typeof lhs === "bigint" ? lhs : BigInt(Math.floor(lhs));
+        const shiftAmount =
+          typeof rhs === "bigint" ? Number(rhs) : Math.floor(rhs);
+        value = createComptIntValue(bigA << BigInt(shiftAmount));
+      } else {
+        value = createUnknownValue(numericType);
+      }
+      resultType = numericType;
+      break;
+    }
+    case "shr": {
+      const lhs = extractNumericValue(lhsValue);
+      const rhs = extractNumericValue(rhsValue);
+      if (lhs !== null && rhs !== null) {
+        const bigA = typeof lhs === "bigint" ? lhs : BigInt(Math.floor(lhs));
+        const shiftAmount =
+          typeof rhs === "bigint" ? Number(rhs) : Math.floor(rhs);
+        value = createComptIntValue(bigA >> BigInt(shiftAmount));
+      } else {
+        value = createUnknownValue(numericType);
+      }
+      resultType = numericType;
+      break;
+    }
     default:
       throw formatErrorMessage({
         token: expr.token,

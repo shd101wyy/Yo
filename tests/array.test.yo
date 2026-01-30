@@ -22,8 +22,8 @@ test "Test Array declaration with inferred length", {
     });
 
     arr := cond(
-      some_condition() => [1, 2, 3],
-      true => [2, 3, 4]
+      some_condition() => [i32; 3](1, 2, 3),
+      true => [i32; 3](2, 3, 4)
     );
   };
 
@@ -83,7 +83,7 @@ test "Test Array declaration with inferred length", {
 };
 
 test "Test Array element access and length", {
-  arr := [10, 20, 30, 40, 50];
+  (arr : [i32; 5]) = [10, 20, 30, 40, 50];
   assert(arr.len() == 5);
   assert(arr(usize(0)) == 10);
   assert(arr(usize(1)) == 20);
@@ -93,7 +93,7 @@ test "Test Array element access and length", {
 };
 
 test "Test Array slice element access and length", {
-  arr := [1, 2, 3, 4, 5];
+  (arr : [i32; 5]) = [1, 2, 3, 4, 5];
   s := arr(1:arr.len());
   assert(s.len() == 4);
   assert(s(usize(0)) == 2);
@@ -108,7 +108,7 @@ test "Test Array copy", {
   arr1 = [1, 2, 3];
 
   // Create binding and assign value in one line
-  arr2 := [1, 2, 3];
+  (arr2 : [i32; 3]) = [1, 2, 3];
   arr2(0) = 12;
 
   // Copy array
@@ -165,7 +165,7 @@ test "Test Array fill method", {
 };
 
 test "Test array slice", {
-  arr := [1, 2, 3, 4];
+  (arr : [i32; 4]) = [1, 2, 3, 4];
   arr_len := arr.len();
   
   (end : usize) = 3;

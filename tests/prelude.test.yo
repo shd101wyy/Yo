@@ -1,0 +1,42 @@
+test "Test TryFrom/TryInto traits", {
+  EvenNumber :: struct(value : i32);
+  impl(EvenNumber, TryFrom(i32)(
+    Error : str,
+    try_from : (value -> 
+      cond(
+        ((value % 2) == 0) => .Ok(EvenNumber(value)),
+        true => .Err("Only even numbers are allowed (i32)") 
+      )
+    )
+  ));
+  impl(EvenNumber, TryFrom(i64)(
+    Error : str,
+    try_from : (value -> 
+      cond(
+        ((value % 2) == 0) => .Ok(EvenNumber(i32(value))),
+        true => .Err("Only even numbers are allowed (i64)") 
+      )
+    )
+  ));
+  impl(EvenNumber, TryInto(i32)(
+    Error : str,
+    try_into : ((self, _) -> .Ok(self.value))
+  ));
+  impl(EvenNumber, TryInto(i64)(
+    Error : str,
+    try_into : ((self, _) -> .Ok(i64(self.value)))
+  ));
+
+  x := EvenNumber.try_from(i32(4));
+  y := EvenNumber.try_from(i64(10));
+  z := EvenNumber.try_from(i32(3));
+  assert(x.is_ok());
+  assert(y.is_ok());
+  assert(z.is_err());
+
+  a := x.unwrap().try_into(i32).unwrap();
+  assert(a == i32(4));
+
+  b := y.unwrap().try_into(i64).unwrap();
+  assert(b == i64(10));
+};

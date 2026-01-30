@@ -1,0 +1,93 @@
+// POSIX fcntl.h - File control options
+// Provides open flags and file control operations
+
+c_include "<fcntl.h>",
+  // File access modes (for open)
+  O_RDONLY : i32,     // Open for reading only
+  O_WRONLY : i32,     // Open for writing only
+  O_RDWR : i32,       // Open for reading and writing
+
+  // File creation flags
+  O_CREAT : i32,      // Create file if it doesn't exist
+  O_EXCL : i32,       // Fail if file exists (with O_CREAT)
+  O_TRUNC : i32,      // Truncate file to zero length
+  O_APPEND : i32,     // Append mode
+
+  // File status flags
+  O_NONBLOCK : i32,   // Non-blocking mode
+  O_SYNC : i32,       // Synchronous writes
+  O_DSYNC : i32,      // Synchronous data writes
+
+  // Additional flags (may not be available on all systems)
+  O_CLOEXEC : i32,    // Close on exec
+  O_DIRECTORY : i32,  // Fail if not a directory
+  O_NOFOLLOW : i32,   // Don't follow symlinks
+
+  // File control function
+  fcntl :
+    (fn(fd: int, cmd: int, ...) -> int),
+
+  // fcntl commands
+  F_DUPFD : int,      // Duplicate file descriptor
+  F_GETFD : int,      // Get file descriptor flags
+  F_SETFD : int,      // Set file descriptor flags
+  F_GETFL : int,      // Get file status flags
+  F_SETFL : int,      // Set file status flags
+  F_GETLK : int,      // Get record locking info
+  F_SETLK : int,      // Set record locking info
+  F_SETLKW : int,     // Set record locking info (blocking)
+
+  // File descriptor flags
+  FD_CLOEXEC : int,   // Close on exec flag
+
+  // Open function
+  // Note: open is also in unistd.h on some systems
+  open :
+    (fn(pathname: *(char), flags: int, ...) -> int),
+  creat :
+    (fn(pathname: *(char), mode: u32) -> int)
+;
+
+// Export all fcntl functionality
+export
+  // File access modes
+  O_RDONLY,
+  O_WRONLY,
+  O_RDWR,
+
+  // File creation flags
+  O_CREAT,
+  O_EXCL,
+  O_TRUNC,
+  O_APPEND,
+
+  // File status flags
+  O_NONBLOCK,
+  O_SYNC,
+  O_DSYNC,
+
+  // Additional flags
+  O_CLOEXEC,
+  O_DIRECTORY,
+  O_NOFOLLOW,
+
+  // File control function
+  fcntl,
+
+  // fcntl commands
+  F_DUPFD,
+  F_GETFD,
+  F_SETFD,
+  F_GETFL,
+  F_SETFL,
+  F_GETLK,
+  F_SETLK,
+  F_SETLKW,
+
+  // File descriptor flags
+  FD_CLOEXEC,
+
+  // Open functions
+  open,
+  creat
+;

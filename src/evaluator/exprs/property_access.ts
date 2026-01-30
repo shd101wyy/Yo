@@ -29,9 +29,11 @@ import {
   createEnumValue,
   createTypeValue,
   createUnknownValue,
+  isArrayValue,
   isEnumValue,
   isFunctionValue,
   isModuleValue,
+  isPtrValue,
   isStructValue,
   isTraitValue,
   isTupleValue,
@@ -185,6 +187,58 @@ export function evaluatePropertyAccess({
         baseType = getValueOfSomeTypeFromEnv(env, baseType);
       }
 
+      // Check for compile-time pointer dereference
+      const objectValue = objectExpr.$?.value;
+      if (isPtrValue(objectValue)) {
+        // For compile-time pointers, get the dereferenced value
+        // If targetValue[0] is an ArrayValue, use targetIndex to get the element
+        // Otherwise, targetValue[0] is the value itself (targetIndex should be 0)
+        const target = objectValue.targetValue[0];
+        let dereferencedValue: Value;
+        if (isArrayValue(target)) {
+          dereferencedValue = target.elements[objectValue.targetIndex]!;
+        } else {
+          dereferencedValue = target;
+        }
+        expr.$ = {
+          env,
+          type: baseType,
+          value: dereferencedValue,
+          originType: pointerType,
+          isAccessingProperty: true,
+          pathCollection: [],
+          // Pass through the targetValue array so assignments can update it
+          sourceVariable: objectExpr.$.sourceVariable,
+        };
+        // Store a reference to the pointer's targetValue and targetIndex for compile-time assignment
+        (
+          expr.$ as { ptrTargetValue?: [Value]; ptrTargetIndex?: number }
+        ).ptrTargetValue = objectValue.targetValue;
+        (
+          expr.$ as { ptrTargetValue?: [Value]; ptrTargetIndex?: number }
+        ).ptrTargetIndex = objectValue.targetIndex;
+        propertyExpr.$ = expr.$;
+        return expr;
+      }
+
+      // Handle UnknownValue for CTFE - dereference returns an UnknownValue of the base type
+      if (isUnknownValue(objectValue)) {
+        const dereferencedValue = createUnknownValue(
+          baseType,
+          objectValue.variableName ? `${objectValue.variableName}.*` : undefined
+        );
+        expr.$ = {
+          env,
+          type: baseType,
+          value: dereferencedValue,
+          originType: pointerType,
+          isAccessingProperty: true,
+          pathCollection: [],
+        };
+        propertyExpr.$ = expr.$;
+        return expr;
+      }
+
       expr.$ = {
         env,
         type: baseType,
@@ -303,27 +357,115 @@ export function evaluatePropertyAccess({
         (property) => property.label === propertyName
       );
       if (field) {
-        // Use the type from the assigned value if it exists, otherwise use field.type
-        const actualType = field.assignedValue?.type ?? field.type;
+        // First check if the field has an assigned value (e.g., from impl providing Error : str)
+        // This takes precedence over the unassignedSomeType placeholder
+        if (field.assignedValue) {
+          // Use the type from the assigned value
+          const actualType = field.assignedValue.type;
 
+          expr.$ = {
+            env,
+            type: actualType,
+            value: field.assignedValue,
+            pathCollection: [],
+            isAccessingProperty: true,
+          };
+          propertyExpr.$ = expr.$;
+          return expr;
+        }
+
+        // Check if this is an associated type (has unassignedSomeType but no assignedValue)
+        // If so, return a TypeValue containing the SomeType placeholder
+        if (field.unassignedSomeType) {
+          const someTypeValue = createTypeValue(field.unassignedSomeType);
+          expr.$ = {
+            env,
+            type: someTypeValue.type,
+            value: someTypeValue,
+            pathCollection: [],
+            isAccessingProperty: true,
+          };
+          propertyExpr.$ = expr.$;
+          return expr;
+        }
+
+        // Use field.type if no assigned value exists
         expr.$ = {
           env,
-          type: actualType,
-          value: field.assignedValue!,
+          type: field.type,
+          value: undefined,
           pathCollection: [],
           isAccessingProperty: true,
         };
         propertyExpr.$ = expr.$;
         return expr;
       } else {
-        // Property not found in type's own trait
+        // Property not found directly in type's own trait
+        // Check impl'd trait values (fields with empty label that contain trait values)
+        // These are created by impl(Type, Trait(...)) and contain associated type values
+        // NOTE: Only resolve non-function values here (like associated types).
+        // Function values (methods) should be deferred to function.ts for proper overload resolution.
+        for (const implField of typeValue.value.trait.fields) {
+          if (
+            implField.label === "" &&
+            implField.assignedValue &&
+            isTraitValue(implField.assignedValue)
+          ) {
+            const implTraitValue = implField.assignedValue;
+            const implTraitType = implTraitValue.type;
+            // Search for the property in the impl'd trait
+            const fieldIndex = implTraitType.fields.findIndex(
+              (f) => f.label === propertyName
+            );
+            if (fieldIndex >= 0) {
+              const traitField = implTraitType.fields[fieldIndex]!;
+              const fieldValue = implTraitValue.fields[fieldIndex];
+
+              // Skip function types - let function.ts handle method resolution
+              // This allows proper overload resolution when multiple impls have the same method
+              if (isFunctionType(traitField.type)) {
+                continue;
+              }
+
+              if (fieldValue) {
+                expr.$ = {
+                  env,
+                  type: fieldValue.type,
+                  value: fieldValue,
+                  pathCollection: [],
+                  isAccessingProperty: true,
+                };
+                propertyExpr.$ = expr.$;
+                return expr;
+              } else if (traitField.unassignedSomeType) {
+                // Associated type without assigned value
+                const someTypeValue = createTypeValue(
+                  traitField.unassignedSomeType
+                );
+                expr.$ = {
+                  env,
+                  type: someTypeValue.type,
+                  value: someTypeValue,
+                  pathCollection: [],
+                  isAccessingProperty: true,
+                };
+                propertyExpr.$ = expr.$;
+                return expr;
+              }
+            }
+          }
+        }
+
         // Check if there's a generic impl for this type (e.g., impl(forall(T), *(T), {...}))
         const genericMethods = findMethodsFromGenericImpls({
           concreteType: typeValue.value,
           methodName: propertyName,
           env,
         });
-        if (genericMethods.length > 0) {
+        // Only resolve here if there's exactly one match.
+        // If there are multiple (e.g., multiple TryFrom implementations),
+        // defer to function.ts which can resolve based on call arguments.
+        if (genericMethods.length === 1) {
           const method = genericMethods[0]!;
           expr.$ = {
             env,
@@ -338,7 +480,7 @@ export function evaluatePropertyAccess({
 
         // Still not found - return undefined to allow function.ts
         // to handle this as a uniform function call (method call)
-        // function.ts will call getMethodsByNameFromEnv to find the method
+        // function.ts will call getTypeTraitMethodsByNameFromEnv to find the method
         // in implicit given implementations (like TypeMethods)
         expr.$ = undefined;
         return expr;
@@ -374,7 +516,7 @@ export function evaluatePropertyAccess({
         // Property not found in type's own module
         // Return expr with expr.$ = undefined to allow function.ts
         // to handle this as a uniform function call (method call)
-        // function.ts will call getMethodsByNameFromEnv to find the method
+        // function.ts will call getTypeTraitMethodsByNameFromEnv to find the method
         // in implicit given implementations (like TypeMethods)
         expr.$ = undefined;
         return expr;
@@ -487,7 +629,7 @@ export function evaluatePropertyAccess({
         // Property not found in type's own trait
         // Return expr with expr.$ = undefined to allow function.ts
         // to handle this as a uniform function call (method call)
-        // function.ts will call getMethodsByNameFromEnv to find the method
+        // function.ts will call getTypeTraitMethodsByNameFromEnv to find the method
         // in implicit given implementations (like TypeMethods)
         expr.$ = undefined;
         return expr;

@@ -234,11 +234,11 @@ export function evaluateCond({
         env: evaluatedCaseBodyExpr.$.env,
       };
 
-      // Merge and check all environments
-      env = mergeAndCheckEnvs(
-        env,
-        bodies.filter((body) => body.$ && body.$.controlFlow !== "return")
-      );
+      // When we have a compile-time known true condition, we KNOW exactly which branch was taken.
+      // Use the environment from that branch directly, not mergeAndCheckEnvs.
+      // mergeAndCheckEnvs is for runtime unknown conditions where we need to merge metadata.
+      // Using the branch's environment directly preserves compile-time values like updated variables.
+      env = evaluatedCaseBodyExpr.$.env;
 
       // Determine the compile-time value
       let value: Value | undefined = undefined;
@@ -250,8 +250,17 @@ export function evaluateCond({
         type: context.expectedType?.type ?? valueType.type,
         value: value,
         pathCollection: [],
+        // Propagate the inner body's variable name if it exists.
+        // This avoids creating an extra temp variable which would cause
+        // double-drop when the value type contains RC fields.
+        variableName: evaluatedCaseBodyExpr.$.variableName,
       };
-      attachTempVariableToExpr(expr, true);
+
+      // Only attach a new temp variable if the inner body doesn't have one.
+      // This handles cases where the result is assigned to a variable (e.g., `value := cond(...)`)
+      if (!evaluatedCaseBodyExpr.$.variableName) {
+        attachTempVariableToExpr(expr, true);
+      }
 
       return expr;
     }

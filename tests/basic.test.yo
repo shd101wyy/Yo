@@ -45,7 +45,7 @@ test "Test assignments", {
   };
 
   {
-    x := [1, 2, 3];
+    (x : [i32; 3]) = [1, 2, 3];
     y := (x = [2, 3, 4]);
 
     assert(x(0) == 2);
@@ -587,6 +587,40 @@ test "Test 'enum'", {
     n := NestedEnum.Level1(.Level2(3));
     (n2 : NestedEnum) = .Level1(.Level2(3));
   };
+
+  // Discriminant values
+  {
+    Color :: enum(
+      Red, // implicitly 0
+      Green = 6,
+      Blue = 9
+    );
+
+    Shape :: enum(
+      Circle(radius : i32) = 2,
+      Square(side : i32) = 4,
+      Triangle(base : i32, height : i32) // implicitly 5
+    );
+
+    red := i32(Color.Red);
+    assert(red == i32(0));
+    green := i32(Color.Green);
+    assert(green == i32(6));
+    blue := i32(Color.Blue);
+    assert(blue == i32(9));
+
+    circle := i32(Shape.Circle(10));
+    assert(circle == i32(2));
+    square := i32(Shape.Square(5));
+    assert(square == i32(4));
+    triangle := i32(Shape.Triangle(3, 4));
+    assert(triangle == i32(5));
+
+    expect_triangle :: (fn(shape : Shape) -> unit) {
+      assert(i32(shape) == i32(5));
+    };
+    expect_triangle(Shape.Triangle(5, 6));
+  };
 };
 
 test "Test 'union'", {
@@ -889,6 +923,90 @@ test "Test 'match'", {
   assert(area_partial_2(s2) == 5);
   assert(area_ptr(&(s1)) == 27);
   assert(area_ptr(&(s2)) == 20);
+
+  // Test primitive type matching (integers)
+  classify_number :: (fn(n: i32) -> i32)
+    match(n,
+      0 => 0,
+      1 => 1,
+      (2 | 3) => 23,
+      ( 4
+      | 5
+      | 6) => 456,
+      _ => 999
+    )
+  ;
+
+  assert(classify_number(0) == 0);
+  assert(classify_number(1) == 1);
+  assert(classify_number(2) == 23);
+  assert(classify_number(3) == 23);
+  assert(classify_number(4) == 456);
+  assert(classify_number(5) == 456);
+  assert(classify_number(6) == 456);
+  assert(classify_number(7) == 999);
+  assert(classify_number((-1)) == 999);
+  assert(classify_number(100) == 999);
+
+  // Test primitive matching with compile-time constants
+  TEN :: 10;
+  TWENTY :: 20;
+  THIRTY :: 30;
+
+  classify_tens :: (fn(n: i32) -> i32)
+    match(n,
+      (TEN
+      | TWENTY
+      | THIRTY
+      ) => 1,
+      _ => 0
+    )
+  ;
+
+  assert(classify_tens(10) == 1);
+  assert(classify_tens(20) == 1);
+  assert(classify_tens(30) == 1);
+  assert(classify_tens(15) == 0);
+  assert(classify_tens(0) == 0);
+
+  // Test boolean matching
+  bool_to_str :: (fn(b: bool) -> i32)
+    match(b,
+      true => 1,
+      false => 0
+    )
+  ;
+
+  assert(bool_to_str(true) == 1);
+  assert(bool_to_str(false) == 0);
+
+  // Test u8 matching
+  classify_byte :: (fn(b: u8) -> i32)
+    match(b,
+      (0 | 255) => 1,
+      _ => 0
+    )
+  ;
+
+  assert(classify_byte(u8(0)) == 1);
+  assert(classify_byte(u8(255)) == 1);
+  assert(classify_byte(u8(128)) == 0);
+
+  // Test negative numbers in match
+  classify_sign :: (fn(n: i32) -> i32)
+    match(n,
+      0 => 0,
+      1 => 1,
+      ((-1)) => (-1),
+      _ => 2
+    )
+  ;
+
+  assert(classify_sign(0) == 0);
+  assert(classify_sign(1) == 1);
+  assert(classify_sign((-1)) == (-1));
+  assert(classify_sign(5) == 2);
+  assert(classify_sign((-5)) == 2);
 };
 
 test "Test 'while'", {
@@ -1039,7 +1157,9 @@ test "Test 'while'", {
     };
 
     assert(sum_odd(10) == 25); // 1 + 3 + 5 + 7 + 9 = 25
+    
     assert(find_first_greater_than_five(20) == 6);
+
     assert(search_value(7, 10) == 7);
     assert(search_value(15, 10) == -1);
     assert(sum_with_step(10) == 27); // 1 + 2 + 4 + 5 + 7 + 8 = 27
@@ -1050,7 +1170,7 @@ test "Test control flows", {
   (compt(LinearI32) : Type) = i32;
 
   some_condition :: (fn() -> bool) 
-    true
+    runtime(true)
   ;
 
   test_while_drop :: (fn() -> i32) {
@@ -1134,14 +1254,14 @@ test "Test control flows", {
 
   test_while_with_mixed_2 :: (fn() -> i32) {
     while some_condition(), {
-      a := cond
+      a := cond(
         some_condition() => break,
         some_condition() => {
           return 0;
         },
         some_condition() => true,
         true => continue
-      ;
+      );
     };
 
     0
@@ -1615,4 +1735,208 @@ test "Test Box", {
     z := box(2);
     assert(x != z);
   };
+};
+
+test "Test type availability", {
+  // ===== STRUCT TESTS =====
+  {
+    Point :: struct(x : i32, y : i32); // Point can create both compile-time and run-time values
+                                       // as i32 can be used in both contexts
+    a :: Point(3 + 5, 4); // compile-time value
+
+    b := Point(6, 8);     // run-time value
+
+    r := 12;
+    compt_expect_error(c :: Point(r, 15)); // Should give error, as r is a run-time value
+    d := Point(r, 20); // valid run-time value
+  };
+
+  {
+    Point2 :: struct(x : compt_int, y : compt_int); // Point2 can only create compile-time values
+                                                    // as compt_int can only be used in compile-time context
+    x :: Point2(3 + 5, 4); // compile-time value
+    
+    compt_expect_error(
+      y := Point2(6, 8)   // error: cannot create run-time value of type Point2
+    );
+  };
+
+  {
+    compt_expect_error(
+      Point3 :: struct(x : compt_int, y : Box(i32)) // Error: incompatible field contexts
+                                                  // compt_int can only be used in compile-time context,
+                                                  // Box `object` can only be used in run-time context.
+                                                  // There is no intersection between the two contexts.
+    );
+  };
+
+  {
+    Point4 :: struct(x : compt_int, y : i32); // Point4 can only be used to create compile-time values
+                                              // compt_int can only be used in compile-time context,
+                                              // i32 can be used in both contexts,
+                                              // so the intersection is compile-time context
+    x :: Point4(10, 20); // compile-time value
+    compt_expect_error(
+      y := Point4(30, 40) // error: cannot create run-time value of type Point4
+    );
+  };
+
+  // ===== TUPLE TESTS =====
+  {
+    // Tuple can be used in both contexts
+    a :: (5, 10); // compile-time value
+    b := (15, 20); // run-time value
+
+    r := 25;
+    c := (r, 30); // valid run-time value
+
+    compt_expect_error(
+      d :: (r, 40) // error: cannot create compile-time value with run-time element
+    );
+  };
+
+  {
+    Pair :: Tuple(x : compt_int, y : compt_int); // Tuple can only be used in compile-time context
+
+    (compt(x) : Pair) = (11, 12); // compile-time value
+
+    compt_expect_error(
+      (y : Pair) = (13, 14) // error: cannot create run-time value
+    );
+  };
+
+  // ===== ENUM TESTS =====
+  {
+    MyResult :: enum(
+      Ok(value : i32),
+      Err(msg : i32)
+    ); // Enum can be used in both contexts
+    
+    a :: MyResult.Ok(42); // compile-time value
+    b := MyResult.Err(1); // run-time value
+
+    r := 10;
+    c := MyResult.Ok(r); // valid run-time value
+  };
+
+  {
+    ComptResult :: enum(
+      Ok(value : compt_int),
+      Err(code : compt_int)
+    ); // Enum can only be used in compile-time context
+    
+    x :: ComptResult.Ok(123); // compile-time value
+    
+    compt_expect_error(
+      y := ComptResult.Err(456) // error: cannot create run-time value
+    );
+  };
+
+  {
+    compt_expect_error(
+      MixedResult :: enum(
+        Ok(value : compt_int),
+        Err(ptr : Box(i32))
+      ) // Error: incompatible variant field contexts
+    );
+  };
+
+  {
+    HalfComptResult :: enum(
+      Ok(value : compt_int),
+      Err(code : i32)
+    ); // Only compile-time context available (intersection of variant availabilities)
+    
+    x :: HalfComptResult.Ok(999); // compile-time value
+    compt_expect_error(
+      y := HalfComptResult.Err(888) // error: cannot create run-time value
+    );
+  };
+
+  // ===== ARRAY TESTS =====
+  {
+    IntArray :: [i32; 3]; // Array can be used in both contexts
+    a :: IntArray(1, 2, 3); // compile-time value
+    b := IntArray(4, 5, 6); // run-time value
+  };
+
+  {
+    ComptArray :: [compt_int; 2]; // Array can only be used in compile-time context
+    x :: ComptArray(10, 20); // compile-time value
+    
+    compt_expect_error(
+      y := ComptArray(30, 40) // error: cannot create run-time value
+    );
+  };
+
+  // ===== UNION TESTS =====
+  // Union can only accept runtime fields
+  {
+    MyUnion :: union(x : i32, y : i32); // allowed
+    compt_expect_error(
+      MyComptUnion :: union(a : compt_int, b : i32) // error: field 'a' is compile-time only
+    );
+  };
+};
+
+test "Test 'compt_fn' function call and function overloading", {
+  add :: impl {
+    _add :: (fn(x : i32, y : i32) -> i32) {
+      return (x + y);
+    };
+    compt_add :: compt_fn(_add); // Convert `add` to a comptime function.
+                              // Panic if fails to convert.
+
+    Call :: (_add, compt_add);
+    export Call;
+  };
+
+  MyOption :: (fn(compt(T) : Type) -> compt(Type))(
+    enum(
+      None,
+      Some(value: T),
+
+      unwrap :: impl {
+        _unwrap :: (fn(self : Self) -> T)(
+          match(self,
+            .Some(value) => value,
+            .None => panic("Called unwrap on a None value")
+          )
+        );
+        _compt_unwrap :: (fn(compt(self) : Self) -> compt(T))(
+          match(self,
+            .Some(value) => value,
+            .None => compt_assert(false, "Called unwrap on a None value at comptime")
+          )
+        );
+
+        Call :: (_unwrap, _compt_unwrap);
+        export Call;
+      }
+    )
+  );
+
+  op := MyOption(i32).Some(12);
+
+  match(op,
+    .Some(_) => {
+      assert(true);
+    },
+    .None => {
+      x :: add(3, 4); // compile-time function call
+      compt_assert(x == 7); 
+
+      y := add(4, 5); // run-time function call
+      assert(y == 9);
+
+      assert(false, "Expected Some, got None");
+    }
+  );
+
+  val := op.unwrap();
+  assert(val == 12);
+
+  op2 :: MyOption(i32).Some(55);
+  val2 :: op2.unwrap();
+  compt_assert(val2 == 55);
 };

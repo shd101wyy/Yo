@@ -28,6 +28,7 @@ import {
 } from "../../value";
 import { EvaluatorContext } from "../context";
 import { isValidVariableName } from "../utils";
+import { cloneValue } from "../values/clone_value";
 
 // Modified to handle member destructuring directly
 export function handleMemberDestructuring({
@@ -159,11 +160,12 @@ export function handleMemberDestructuring({
 
         // Add to environment
         // console.log("(2) addVariableToEnv");
+        // Use cloneValue to ensure value semantics for compile-time values
         const { env: nextEnv } = addVariableToEnv({
           env,
           variable: {
             name: field.label,
-            value: fieldValue,
+            value: fieldValue ? [cloneValue(fieldValue)] : undefined,
             type: field.type,
             isCompileTimeOnly,
             token: lhsField.token,
@@ -348,7 +350,8 @@ export function handleMemberDestructuring({
           name: variableName,
           type: rhsField.type,
           isCompileTimeOnly: isCompileTimeOnly,
-          value: fieldValue,
+          // Use cloneValue to ensure value semantics for compile-time values
+          value: fieldValue ? [cloneValue(fieldValue)] : undefined,
           token: variableToken,
           initializedAtToken: variableToken,
           consumedAtToken: undefined, // Not consumed yet

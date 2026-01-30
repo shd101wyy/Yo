@@ -16,6 +16,8 @@ import {
   createType0,
   isFunctionType,
   isTraitType,
+  isTypeHierarchyType,
+  SomeType,
   TraitField,
   Type,
   typeToString,
@@ -411,6 +413,27 @@ To avoid circular dependency issues, please explicitly provide the value for thi
     };
   }
 
+  // For associated types (fields declared as `X : Type` without an assigned value),
+  // create a SomeType placeholder that represents the associated type.
+  // This SomeType will be used when accessing Self.X in the trait definition.
+  let unassignedSomeType: SomeType | undefined = undefined;
+  if (
+    isForEvaluatingTraitType &&
+    !assignedValue &&
+    isTypeHierarchyType(fieldType) &&
+    fieldType.level === 0
+  ) {
+    unassignedSomeType = createSomeType(
+      fieldType,
+      label ?? `$associated_type_${randomId(env.modulePath)}`,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      env
+    );
+  }
+
   return {
     field: {
       label: label ?? `$field_${randomId(env.modulePath)}`,
@@ -425,6 +448,7 @@ To avoid circular dependency issues, please explicitly provide the value for thi
       isCompileTimeOnly: true,
       defaultValue,
       assignedValue,
+      unassignedSomeType,
     },
     env,
   };

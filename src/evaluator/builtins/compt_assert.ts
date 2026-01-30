@@ -1,8 +1,14 @@
 import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import { exprToString, FnCallExpr } from "../../expr";
+import { isUnitType } from "../../types";
 import { VUnit } from "../../unit-value";
-import { isBooleanValue, isComptStringValue, valueToString } from "../../value";
+import {
+  createUnknownValue,
+  isBooleanValue,
+  isComptStringValue,
+  valueToString,
+} from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 
@@ -16,11 +22,14 @@ export function evaluateComptAssert({
   context: EvaluatorContext;
 }): FnCallExpr {
   // Do nothing if we are not really executing.
+  // Use expectedType if available (for match branches), otherwise use unit.
+  // This allows compt_assert to type-check correctly in branches that expect a specific type.
   if (context.isValidatingFunctionDefinition || !context.isExecuting) {
+    const returnType = context.expectedType?.type ?? VUnit.type;
     expr.$ = {
       env,
-      type: VUnit.type,
-      value: VUnit,
+      type: returnType,
+      value: isUnitType(returnType) ? VUnit : createUnknownValue(returnType),
       pathCollection: [],
     };
     return expr;
@@ -40,7 +49,10 @@ export function evaluateComptAssert({
   if (!evaluatedArgExpr.$ || !isBooleanValue(evaluatedArgExpr.$.value)) {
     throw formatErrorMessage({
       token: argExpr.token,
-      errorMessage: `Expected bool value for "compt_assert", got:\n${exprToString(argExpr)}`,
+      errorMessage: `Expected bool value for "compt_assert", got:\n${exprToString(argExpr)}
+      
+Value:
+${valueToString(evaluatedArgExpr.$?.value)}`,
       isAssertionError: true,
     });
   }

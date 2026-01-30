@@ -1,4 +1,10 @@
-import { Environment, getMethodsByNameFromEnv, popEnvFrame } from "../../env";
+import {
+  cloneEnvForCTFECheck,
+  Environment,
+  getReceiverMethodsByNameFromEnv,
+  getTypeTraitMethodsByNameFromEnv,
+  popEnvFrame,
+} from "../../env";
 import { formatErrorMessage, formatErrorMessages, YoError } from "../../error";
 import {
   AtomExpr,
@@ -19,6 +25,7 @@ import {
   areTypesCompatible,
   createExprType,
   extractFnTraitFromType,
+  FunctionType,
   isArrayType,
   isComptFloatType,
   isComptIntType,
@@ -35,20 +42,24 @@ import {
   isSomeType,
   isStructType,
   isTraitType,
+  isTypeHierarchyType,
   isUnionType,
   SomeType,
   Type,
   typeOfType,
   typeToString,
 } from "../../types";
+import { randomId } from "../../utils";
 import {
   areValuesEqual,
-  ArrayValue,
   createEnumValue,
   createStructValue,
   createTypeValue,
+  createUnknownValue,
+  isArrayValue,
   isExprValue,
   isFunctionValue,
+  isSliceValue,
   isTupleValue,
   isTypeValue,
   Value,
@@ -56,6 +67,7 @@ import {
 } from "../../value";
 import {
   EvaluatorContext,
+  FunctionCallResult,
   FunctionToCall,
   getArrayCallResult,
   getFunctionCallResult,
@@ -64,6 +76,7 @@ import {
   getTypeCallResult,
 } from "../context";
 import { evaluateExpression } from "../exprs/expr";
+import { evaluateFunctionReturnTypeAgain } from "../types/function";
 import { evaluateAnonymousStructValue } from "../values/anonymous_struct";
 import { tryToCallArrayWithArguments } from "./array";
 import { tryToImplementArrayByArrayType } from "./array_type";
@@ -225,64 +238,91 @@ export function evaluateFunctionCall({
             });
           }
 
+          // Check if the receiver is a TypeValue (e.g., EvenNumber.try_from(...)),
+          // which indicates a static method call on a type.
+          const receiverValue = receiverArg.$?.value;
+          const isStaticMethodCall = isTypeValue(receiverValue);
+
           // The methodExpr should also be evaluated already
           // so it should have a type
           if (exprIsAtom(methodExpr)) {
             // 1.add(3);
             const methodName = methodExpr.token.value;
-            // Get the current function type for where clause constraint lookup
-            const currentFunctionType =
-              context.isEvaluatingFunctionBodyOrAsyncBlock?.kind ===
-              "function-body"
-                ? context.isEvaluatingFunctionBodyOrAsyncBlock.type
-                : undefined;
-            // Get the method with the same name in the interface in the env
-            const methods = getMethodsByNameFromEnv(
-              env,
-              methodName,
-              receiverType,
-              false, // isInfixOperatorCall - property access allows auto pointer conversion
-              currentFunctionType
-            );
 
-            functions = methods.map((method) => {
-              // If pointer conversion is needed, wrap the receiver in &()
-              let methodArgs: Expr[];
-              if (method.needsPointerConversion) {
-                // Create &(receiverArg) expression
-                // Note: The compt type to runtime type conversion is handled
-                // in evaluateAddressCall (ptr_fns.ts) when &() is evaluated
-                const ampersandExpr: AtomExpr = {
-                  tag: ExprTag.Atom,
-                  token: receiverArg.token,
-                  $: undefined,
+            if (isStaticMethodCall) {
+              // Static method call (e.g., EvenNumber.try_from(...))
+              // Use getTypeTraitMethodsByNameFromEnv to find methods from impl'd traits
+              const innerType = receiverValue.value;
+              const methods = getTypeTraitMethodsByNameFromEnv(
+                env,
+                methodName,
+                innerType
+              );
+
+              functions = methods.map((method) => {
+                // Static methods don't have a receiver argument - just pass the call args
+                return {
+                  type: method.type,
+                  value: method.value,
+                  args: args,
                 };
-                ampersandExpr.token = {
-                  ...receiverArg.token,
-                  value: "&",
-                  type: TokenType.Identifier,
+              });
+            } else {
+              // Instance method call (e.g., value.add(...))
+              // Get the current function type for where clause constraint lookup
+              const currentFunctionType =
+                context.isEvaluatingFunctionBodyOrAsyncBlock?.kind ===
+                "function-body"
+                  ? context.isEvaluatingFunctionBodyOrAsyncBlock.type
+                  : undefined;
+              // Get the method with the same name in the interface in the env
+              const methods = getReceiverMethodsByNameFromEnv(
+                env,
+                methodName,
+                receiverType,
+                false, // isInfixOperatorCall - property access allows auto pointer conversion
+                currentFunctionType
+              );
+
+              functions = methods.map((method) => {
+                // If pointer conversion is needed, wrap the receiver in &()
+                let methodArgs: Expr[];
+                if (method.needsPointerConversion) {
+                  // Create &(receiverArg) expression
+                  // Note: The compt type to runtime type conversion is handled
+                  // in evaluateAddressCall (ptr_fns.ts) when &() is evaluated
+                  const ampersandExpr: AtomExpr = {
+                    tag: ExprTag.Atom,
+                    token: receiverArg.token,
+                    $: undefined,
+                  };
+                  ampersandExpr.token = {
+                    ...receiverArg.token,
+                    value: "&",
+                    type: TokenType.Identifier,
+                  };
+
+                  const addressOfExpr: FnCallExpr = {
+                    tag: ExprTag.FnCall,
+                    func: ampersandExpr,
+                    args: [receiverArg],
+                    token: receiverArg.token,
+                    $: undefined,
+                  };
+
+                  methodArgs = [addressOfExpr, ...args];
+                } else {
+                  methodArgs = [receiverArg, ...args];
+                }
+
+                return {
+                  type: method.type,
+                  value: method.value,
+                  needsPointerConversion: method.needsPointerConversion,
+                  args: methodArgs,
                 };
-
-                const addressOfExpr: FnCallExpr = {
-                  tag: ExprTag.FnCall,
-                  func: ampersandExpr,
-                  args: [receiverArg],
-                  token: receiverArg.token,
-                  $: undefined,
-                };
-
-                methodArgs = [addressOfExpr, ...args];
-              } else {
-                methodArgs = [receiverArg, ...args];
-              }
-
-              return {
-                type: method.type,
-                value: method.value,
-                needsPointerConversion: method.needsPointerConversion,
-                args: methodArgs,
-              };
-            });
+              });
+            }
           } else {
             // 1.(Add.add)(3);
             // Try to evaluate the methodExpr
@@ -400,7 +440,7 @@ export function evaluateFunctionCall({
             ? context.isEvaluatingFunctionBodyOrAsyncBlock.type
             : undefined;
         // Get the method with the same name in the module/type in the env
-        const moduleMethods = getMethodsByNameFromEnv(
+        const moduleMethods = getReceiverMethodsByNameFromEnv(
           env,
           methodName,
           receiverType,
@@ -494,188 +534,93 @@ export function evaluateFunctionCall({
     }
   }
 
+  // NOTE: Automatic CTFE candidate addition has been removed.
+  // Use `compt_fn(fn)` to explicitly create compile-time versions of functions.
+  // This makes the behavior predictable - functions are called at runtime unless
+  // explicitly declared as compile-time via compt_fn().
+
+  // Optimization: Skip the checking phase in these cases to avoid exponential blowup:
+  // 1. When we're already in a checking phase (nested function calls during checking)
+  //    AND the function is a non-type-returning CTFE function without forall parameters
+  // 2. When we have exactly one function candidate that is a non-type-returning CTFE function
+  //    without forall parameters
+  // This is critical for recursive CTFE functions like factorial - without this optimization,
+  // each recursive call would go through checking + execution, causing exponential blowup
+  // since the checking phase also evaluates arguments (which contain recursive calls).
+  //
+  // IMPORTANT: We must NOT skip checking for:
+  // 1. Type constructors (Box, Vec, etc.) - they return TypeHierarchyType and need forall resolution
+  // 2. Functions with forall parameters - they need checking to resolve type parameters from context
+  // 3. Functions with where clauses - they need checking to verify constraints
+  const isNonTypeCtfeFunction =
+    functions.length === 1 &&
+    isFunctionType(functions[0]!.type) &&
+    functions[0]!.type.return.isCompileTimeOnly &&
+    !isTypeHierarchyType(functions[0]!.type.return.type) &&
+    functions[0]!.type.forallParameters.length === 0; // Don't skip if has forall params
+
+  const canSkipCheckingPhase = isNonTypeCtfeFunction;
+
   // Find the functions whose parameters match the arguments
-  const functionsToCall: FunctionToCall[] = functions.map((functionToCall) => {
-    // Use the stored args if available (e.g., with pointer conversion), otherwise use original args
-    const argsToUse = functionToCall.args ?? args;
+  const functionsToCall: FunctionToCall[] = canSkipCheckingPhase
+    ? functions.map((functionToCall) => ({
+        ...functionToCall,
+        result: {
+          kind: "function" as const,
+          result: undefined as unknown as FunctionCallResult, // Will be computed during execution phase
+        },
+      }))
+    : functions.map((functionToCall) => {
+        // Use the stored args if available (e.g., with pointer conversion), otherwise use original args
+        const argsToUse = functionToCall.args ?? args;
 
-    if (isFunctionType(functionToCall.type)) {
-      try {
-        // NOTE: We need to pass the cloneExpr expr and argExprs here because
-        // we might modify the expressions during the tryToCallFunctionWithArguments
-        // We will call tryToCallFunctionWithArguments again later with the original expr and argExprs when we actually call the function
-        // We pass skipSpecialization: true to avoid polluting the specialization cache during this checking phase.
-        // See docs/SPECIALIZATION_CACHE_PITFALL.md for details.
-        const result = tryToCallFunctionWithArguments({
-          functionValue: extractFunctionValue(functionToCall.value),
-          functionType: functionToCall.type,
-          expr: cloneExpr(expr),
-          functionCalleeExpr: func,
-          argExprs: argsToUse.map((arg) => cloneExpr(arg)),
-          callerEnv: env,
-          context,
-          isMethodCall: Boolean(methodExpr),
-          skipSpecialization: true,
-        });
-        return {
-          ...functionToCall,
-          result: {
-            kind: "function",
-            result,
-          },
-        };
-      } catch (error) {
-        // Re-throw overflow errors immediately - they should not be caught
-        if (error instanceof YoError && error.kind === "overflow") {
-          throw formatErrorMessages(
-            [
-              {
-                token: expr.token,
-                errorMessage: `Failed to call the function:\n`,
-              },
-              ...error.tokenAndErrorList,
-            ],
-            error.isAssertionError
-          );
-        }
-        return {
-          ...functionToCall,
-          result: {
-            kind: "error",
-            error: error,
-          },
-        };
-      }
-    } else if (
-      (isSomeType(functionToCall.type) || isDynType(functionToCall.type)) &&
-      extractFnTraitFromType(functionToCall.type)
-    ) {
-      // Handle calling a SomeType or DynType that implements Fn (e.g., Impl(Fn(...) -> ...) or Dyn(Fn(...) -> ...))
-      const fnModuleType = extractFnTraitFromType(functionToCall.type)!;
-      try {
-        // NOTE: We need to pass the cloneExpr expr and argExprs here because
-        // we might modify the expressions during the tryToCallFunctionWithArguments
-        // We will call tryToCallFunctionWithArguments again later with the original expr and argExprs when we actually call the function
-        // We pass skipSpecialization: true to avoid polluting the specialization cache during this checking phase.
-        // See docs/SPECIALIZATION_CACHE_PITFALL.md for details.
-        const result = tryToCallFunctionWithArguments({
-          functionValue: extractFunctionValue(functionToCall.value),
-          functionType: fnModuleType.isFn.callType,
-          expr: cloneExpr(expr),
-          functionCalleeExpr: func,
-          argExprs: argsToUse.map((arg) => cloneExpr(arg)),
-          callerEnv: env,
-          context,
-          isMethodCall: Boolean(methodExpr),
-          skipSpecialization: true,
-        });
-        return {
-          ...functionToCall,
-          result: {
-            kind: "function",
-            result,
-          },
-        };
-      } catch (error) {
-        // Re-throw overflow errors immediately - they should not be caught
-        if (error instanceof YoError && error.kind === "overflow") {
-          throw formatErrorMessages(
-            [
-              {
-                token: expr.token,
-                errorMessage: `Failed to call the function:\n`,
-              },
-              ...error.tokenAndErrorList,
-            ],
-            error.isAssertionError
-          );
-        }
-        return {
-          ...functionToCall,
-          result: {
-            kind: "error",
-            error: error,
-          },
-        };
-      }
-    } else {
-      let value = functionToCall.value;
-
-      // Resolve recursive type references before type checking
-      if (
-        isTypeValue(value) &&
-        isSomeType(value.value) &&
-        value.value.recursiveTypeRef
-      ) {
-        const resolvedType = resolveRecursiveTypeRef(value.value, env, context);
-        if (resolvedType) {
-          value = createTypeValue(resolvedType);
-          functionToCall.value = value;
-          functionToCall.type = value.type;
-        }
-      }
-
-      // struct value
-      if (isTypeValue(value) && isStructType(value.value)) {
-        try {
-          const result = tryToCallTypeWithArguments({
-            typeFields: value.value.fields,
-            functionCalleeExpr: func,
-            argExprs: argsToUse,
-            callerEnv: env,
-            context: { ...context },
-          });
-          return {
-            ...functionToCall,
-            result: {
-              kind: "type",
-              result,
-            },
-          };
-        } catch (error) {
-          return {
-            ...functionToCall,
-            result: {
-              kind: "error",
-              error: error,
-            },
-          };
-        }
-      }
-      // enum value
-      else if (isTypeValue(value) && isEnumType(value.value)) {
-        const enumType = value.value;
-        const selectedVariant = enumType.variants.find(
-          (variant) => variant.name === enumType.selectedVariantName
-        );
-        if (!selectedVariant) {
-          return {
-            ...functionToCall,
-            result: {
-              kind: "error",
-              error: formatErrorMessage({
-                token: expr.token,
-                errorMessage: `Enum variant not selected for enum type`,
-              }),
-            },
-          };
-        } else {
+        if (isFunctionType(functionToCall.type)) {
           try {
-            const result = tryToCallTypeWithArguments({
-              typeFields: selectedVariant.fields || [],
+            // NOTE: We need to pass the cloneExpr expr and argExprs here because
+            // we might modify the expressions during the tryToCallFunctionWithArguments
+            // We will call tryToCallFunctionWithArguments again later with the original expr and argExprs when we actually call the function
+            // We pass skipSpecialization: true to avoid polluting the specialization cache during this checking phase.
+            // See docs/SPECIALIZATION_CACHE_PITFALL.md for details.
+            // We also clone the env to prevent CTFE pointer mutations from affecting
+            // the real environment (which would cause double mutations).
+            // We pass skipCtfeExecution: true to avoid executing CTFE functions during checking.
+            // We set isInFunctionCallCheckingPhase: true so nested function calls also skip CTFE execution.
+            const result = tryToCallFunctionWithArguments({
+              functionValue: extractFunctionValue(functionToCall.value),
+              functionType: functionToCall.type,
+              expr: cloneExpr(expr),
               functionCalleeExpr: func,
-              argExprs: argsToUse,
-              callerEnv: env,
-              context: { ...context },
+              argExprs: argsToUse.map((arg) => cloneExpr(arg)),
+              callerEnv: cloneEnvForCTFECheck(env),
+              context: {
+                ...context,
+                isInFunctionCallCheckingPhase: true,
+              },
+              isMethodCall: Boolean(methodExpr),
+              skipSpecialization: true,
+              skipCtfeExecution: true,
             });
             return {
               ...functionToCall,
               result: {
-                kind: "type",
+                kind: "function",
                 result,
               },
             };
           } catch (error) {
+            // Re-throw overflow errors immediately - they should not be caught
+            if (error instanceof YoError && error.kind === "overflow") {
+              throw formatErrorMessages(
+                [
+                  {
+                    token: expr.token,
+                    errorMessage: `Failed to call the function:\n`,
+                  },
+                  ...error.tokenAndErrorList,
+                ],
+                error.isAssertionError
+              );
+            }
             return {
               ...functionToCall,
               result: {
@@ -684,195 +629,58 @@ export function evaluateFunctionCall({
               },
             };
           }
-        }
-      }
-      // union value
-      else if (isTypeValue(value) && isUnionType(value.value)) {
-        try {
-          const result = tryToCallTypeWithArguments({
-            typeFields: value.value.fields,
-            functionCalleeExpr: func,
-            argExprs: argsToUse,
-            callerEnv: env,
-            context: { ...context },
-            isUnionType: true,
-          });
-          return {
-            ...functionToCall,
-            result: {
-              kind: "type",
-              result,
-            },
-          };
-        } catch (error) {
-          return {
-            ...functionToCall,
-            result: {
-              kind: "error",
-              error: error,
-            },
-          };
-        }
-      }
-      // module value
-      else if (isTypeValue(value) && isModuleType(value.value)) {
-        const moduleType = value.value;
-        try {
-          const result = tryToImplementModuleWithArgumentsByModuleType({
-            moduleExpr: func,
-            moduleType: moduleType,
-            argExprs: argsToUse,
-            callerEnv: env,
-            context: { ...context },
-          });
-          return {
-            ...functionToCall,
-            result: {
-              kind: "module-type",
-              result,
-            },
-          };
-        } catch (error) {
-          return {
-            ...functionToCall,
-            result: {
-              kind: "error",
-              error: error,
-            },
-          };
-        }
-      }
-      // trait value
-      else if (isTypeValue(value) && isTraitType(value.value)) {
-        const traitType = value.value;
-        try {
-          const result = tryToImplementTraitWithArgumentsByTraitType({
-            traitExpr: func,
-            traitType: traitType,
-            argExprs: argsToUse,
-            callerEnv: env,
-            context: { ...context },
-          });
-          return {
-            ...functionToCall,
-            result: {
-              kind: "trait-type",
-              result,
-            },
-          };
-        } catch (error) {
-          return {
-            ...functionToCall,
-            result: {
-              kind: "error",
-              error: error,
-            },
-          };
-        }
-      }
-      // function
-      else if (isTypeValue(value) && isFunctionType(value.value)) {
-        const functionType = value.value;
-        try {
-          tryToImplementFunctionByFunctionType({
-            expr: expr,
-            functionType: functionType,
-            callerEnv: env,
-            context: { ...context },
-          });
-          return {
-            ...functionToCall,
-            result: {
-              kind: "function-type",
-            },
-          };
-        } catch (error) {
-          return {
-            ...functionToCall,
-            result: {
-              kind: "error",
-              error: error,
-            },
-          };
-        }
-      }
-      // array type
-      else if (isTypeValue(value) && isArrayType(value.value)) {
-        const arrayType = value.value;
-        try {
-          tryToImplementArrayByArrayType({
-            expr: expr,
-            arrayType: arrayType,
-            argExprs: argsToUse,
-            callerEnv: env,
-            context: { ...context },
-          });
-          return {
-            ...functionToCall,
-            result: {
-              kind: "array-type",
-            },
-          };
-        } catch (error) {
-          return {
-            ...functionToCall,
-            result: {
-              kind: "error",
-              error: error,
-            },
-          };
-        }
-      }
-      // compt list type
-      else if (isTypeValue(value) && isComptListType(value.value)) {
-        const comptListType = value.value;
-        try {
-          tryToImplementComptListByComptListType({
-            expr: expr,
-            comptListType: comptListType,
-            argExprs: argsToUse,
-            callerEnv: env,
-            context: { ...context },
-          });
-          return {
-            ...functionToCall,
-            result: {
-              kind: "array-type",
-            },
-          };
-        } catch (error) {
-          return {
-            ...functionToCall,
-            result: {
-              kind: "error",
-              error: error,
-            },
-          };
-        }
-      }
-      // SomeType or DynType that implements Fn (e.g., Impl(Fn(...) -> ...) or Dyn(Fn(...) -> ...))
-      else if (
-        isTypeValue(value) &&
-        (isSomeType(value.value) || isDynType(value.value))
-      ) {
-        const wrapperType = value.value;
-        const fnModuleType = extractFnTraitFromType(wrapperType);
-        if (fnModuleType) {
+        } else if (
+          (isSomeType(functionToCall.type) || isDynType(functionToCall.type)) &&
+          extractFnTraitFromType(functionToCall.type)
+        ) {
+          // Handle calling a SomeType or DynType that implements Fn (e.g., Impl(Fn(...) -> ...) or Dyn(Fn(...) -> ...))
+          const fnModuleType = extractFnTraitFromType(functionToCall.type)!;
           try {
-            tryToImplementClosureByFnModuleType({
-              expr: expr,
-              fnModuleType: fnModuleType,
-              wrapperType: wrapperType,
-              callerEnv: env,
-              context: { ...context },
+            // NOTE: We need to pass the cloneExpr expr and argExprs here because
+            // we might modify the expressions during the tryToCallFunctionWithArguments
+            // We will call tryToCallFunctionWithArguments again later with the original expr and argExprs when we actually call the function
+            // We pass skipSpecialization: true to avoid polluting the specialization cache during this checking phase.
+            // See docs/SPECIALIZATION_CACHE_PITFALL.md for details.
+            // We also clone the env to prevent CTFE pointer mutations from affecting
+            // the real environment (which would cause double mutations).
+            // We pass skipCtfeExecution: true to avoid executing CTFE functions during checking.
+            // We set isInFunctionCallCheckingPhase: true so nested function calls also skip CTFE execution.
+            const result = tryToCallFunctionWithArguments({
+              functionValue: extractFunctionValue(functionToCall.value),
+              functionType: fnModuleType.isFn.callType,
+              expr: cloneExpr(expr),
+              functionCalleeExpr: func,
+              argExprs: argsToUse.map((arg) => cloneExpr(arg)),
+              callerEnv: cloneEnvForCTFECheck(env),
+              context: {
+                ...context,
+                isInFunctionCallCheckingPhase: true,
+              },
+              isMethodCall: Boolean(methodExpr),
+              skipSpecialization: true,
+              skipCtfeExecution: true,
             });
             return {
               ...functionToCall,
               result: {
-                kind: "closure-type",
+                kind: "function",
+                result,
               },
             };
           } catch (error) {
+            // Re-throw overflow errors immediately - they should not be caught
+            if (error instanceof YoError && error.kind === "overflow") {
+              throw formatErrorMessages(
+                [
+                  {
+                    token: expr.token,
+                    errorMessage: `Failed to call the function:\n`,
+                  },
+                  ...error.tokenAndErrorList,
+                ],
+                error.isAssertionError
+              );
+            }
             return {
               ...functionToCall,
               result: {
@@ -881,129 +689,541 @@ export function evaluateFunctionCall({
               },
             };
           }
-        } else if (isSomeType(wrapperType) && wrapperType.recursiveTypeRef) {
-          // This is a recursive type reference that couldn't be resolved yet.
-          // Allow it to be used as a constructor - the type will be resolved later.
-          // We treat this as if calling an object constructor with no field validation.
-          try {
-            // Evaluate the arguments to type-check them
-            const runtimeArgExprsInOrder: Expr[] = [];
-            for (const argExpr of argsToUse) {
-              const evaluatedArg = evaluateExpression({
-                expr: argExpr,
-                env: env,
+        } else {
+          let value = functionToCall.value;
+
+          // Resolve recursive type references before type checking
+          if (
+            isTypeValue(value) &&
+            isSomeType(value.value) &&
+            value.value.recursiveTypeRef
+          ) {
+            const resolvedType = resolveRecursiveTypeRef(
+              value.value,
+              env,
+              context
+            );
+            if (resolvedType) {
+              value = createTypeValue(resolvedType);
+              functionToCall.value = value;
+              functionToCall.type = value.type;
+            }
+          }
+
+          // struct value
+          if (isTypeValue(value) && isStructType(value.value)) {
+            try {
+              const result = tryToCallTypeWithArguments({
+                typeFields: value.value.fields,
+                functionCalleeExpr: func,
+                argExprs: argsToUse,
+                callerEnv: env,
                 context: { ...context },
               });
-              if (!evaluatedArg.$) {
-                throw formatErrorMessage({
-                  token: argExpr.token,
-                  errorMessage: `Failed to evaluate argument`,
-                });
-              }
-              env = evaluatedArg.$.env;
-              runtimeArgExprsInOrder.push(evaluatedArg);
-            }
-
-            return {
-              ...functionToCall,
-              result: {
-                kind: "type",
+              return {
+                ...functionToCall,
                 result: {
-                  values: runtimeArgExprsInOrder.map((e) => e.$!.value),
-                  pathCollection: [],
-                  runtimeArgExprsInOrder,
-                  callerEnv: env,
+                  kind: "type",
+                  result,
                 },
-              },
-            };
-          } catch (error) {
-            return {
-              ...functionToCall,
-              result: {
-                kind: "error",
-                error: error,
-              },
-            };
+              };
+            } catch (error) {
+              return {
+                ...functionToCall,
+                result: {
+                  kind: "error",
+                  error: error,
+                },
+              };
+            }
           }
-        } else {
-          return {
-            ...functionToCall,
-            result: {
-              kind: "error",
-              error: formatErrorMessage({
-                token: func.token,
-                errorMessage: `Invalid function call on type:
+          // enum value
+          else if (isTypeValue(value) && isEnumType(value.value)) {
+            const enumType = value.value;
+            const selectedVariant = enumType.variants.find(
+              (variant) => variant.name === enumType.selectedVariantName
+            );
+            if (!selectedVariant) {
+              return {
+                ...functionToCall,
+                result: {
+                  kind: "error",
+                  error: formatErrorMessage({
+                    token: expr.token,
+                    errorMessage: `Enum variant not selected for enum type`,
+                  }),
+                },
+              };
+            } else {
+              try {
+                const result = tryToCallTypeWithArguments({
+                  typeFields: selectedVariant.fields || [],
+                  functionCalleeExpr: func,
+                  argExprs: argsToUse,
+                  callerEnv: env,
+                  context: { ...context },
+                });
+                return {
+                  ...functionToCall,
+                  result: {
+                    kind: "type",
+                    result,
+                  },
+                };
+              } catch (error) {
+                return {
+                  ...functionToCall,
+                  result: {
+                    kind: "error",
+                    error: error,
+                  },
+                };
+              }
+            }
+          }
+          // union value
+          else if (isTypeValue(value) && isUnionType(value.value)) {
+            try {
+              const result = tryToCallTypeWithArguments({
+                typeFields: value.value.fields,
+                functionCalleeExpr: func,
+                argExprs: argsToUse,
+                callerEnv: env,
+                context: { ...context },
+                isUnionType: true,
+              });
+              return {
+                ...functionToCall,
+                result: {
+                  kind: "type",
+                  result,
+                },
+              };
+            } catch (error) {
+              return {
+                ...functionToCall,
+                result: {
+                  kind: "error",
+                  error: error,
+                },
+              };
+            }
+          }
+          // module value
+          else if (isTypeValue(value) && isModuleType(value.value)) {
+            const moduleType = value.value;
+            try {
+              const result = tryToImplementModuleWithArgumentsByModuleType({
+                moduleExpr: func,
+                moduleType: moduleType,
+                argExprs: argsToUse,
+                callerEnv: env,
+                context: { ...context },
+              });
+              return {
+                ...functionToCall,
+                result: {
+                  kind: "module-type",
+                  result,
+                },
+              };
+            } catch (error) {
+              return {
+                ...functionToCall,
+                result: {
+                  kind: "error",
+                  error: error,
+                },
+              };
+            }
+          }
+          // trait value
+          else if (isTypeValue(value) && isTraitType(value.value)) {
+            const traitType = value.value;
+            try {
+              const result = tryToImplementTraitWithArgumentsByTraitType({
+                traitExpr: func,
+                traitType: traitType,
+                argExprs: argsToUse,
+                callerEnv: env,
+                context: { ...context },
+              });
+              return {
+                ...functionToCall,
+                result: {
+                  kind: "trait-type",
+                  result,
+                },
+              };
+            } catch (error) {
+              return {
+                ...functionToCall,
+                result: {
+                  kind: "error",
+                  error: error,
+                },
+              };
+            }
+          }
+          // function
+          else if (isTypeValue(value) && isFunctionType(value.value)) {
+            const functionType = value.value;
+            try {
+              tryToImplementFunctionByFunctionType({
+                expr: expr,
+                functionType: functionType,
+                callerEnv: env,
+                context: { ...context },
+              });
+              return {
+                ...functionToCall,
+                result: {
+                  kind: "function-type",
+                },
+              };
+            } catch (error) {
+              return {
+                ...functionToCall,
+                result: {
+                  kind: "error",
+                  error: error,
+                },
+              };
+            }
+          }
+          // array type
+          else if (isTypeValue(value) && isArrayType(value.value)) {
+            const arrayType = value.value;
+            try {
+              tryToImplementArrayByArrayType({
+                expr: expr,
+                arrayType: arrayType,
+                argExprs: argsToUse,
+                callerEnv: env,
+                context: { ...context },
+              });
+              return {
+                ...functionToCall,
+                result: {
+                  kind: "array-type",
+                },
+              };
+            } catch (error) {
+              return {
+                ...functionToCall,
+                result: {
+                  kind: "error",
+                  error: error,
+                },
+              };
+            }
+          }
+          // compt list type
+          else if (isTypeValue(value) && isComptListType(value.value)) {
+            const comptListType = value.value;
+            try {
+              tryToImplementComptListByComptListType({
+                expr: expr,
+                comptListType: comptListType,
+                argExprs: argsToUse,
+                callerEnv: env,
+                context: { ...context },
+              });
+              return {
+                ...functionToCall,
+                result: {
+                  kind: "array-type",
+                },
+              };
+            } catch (error) {
+              return {
+                ...functionToCall,
+                result: {
+                  kind: "error",
+                  error: error,
+                },
+              };
+            }
+          }
+          // SomeType or DynType that implements Fn (e.g., Impl(Fn(...) -> ...) or Dyn(Fn(...) -> ...))
+          else if (
+            isTypeValue(value) &&
+            (isSomeType(value.value) || isDynType(value.value))
+          ) {
+            const wrapperType = value.value;
+            const fnModuleType = extractFnTraitFromType(wrapperType);
+            if (fnModuleType) {
+              try {
+                tryToImplementClosureByFnModuleType({
+                  expr: expr,
+                  fnModuleType: fnModuleType,
+                  wrapperType: wrapperType,
+                  callerEnv: env,
+                  context: { ...context },
+                });
+                return {
+                  ...functionToCall,
+                  result: {
+                    kind: "closure-type",
+                  },
+                };
+              } catch (error) {
+                return {
+                  ...functionToCall,
+                  result: {
+                    kind: "error",
+                    error: error,
+                  },
+                };
+              }
+            } else if (
+              isSomeType(wrapperType) &&
+              wrapperType.recursiveTypeRef
+            ) {
+              // This is a recursive type reference that couldn't be resolved yet.
+              // Allow it to be used as a constructor - the type will be resolved later.
+              // We treat this as if calling an object constructor with no field validation.
+              try {
+                // Evaluate the arguments to type-check them
+                const runtimeArgExprsInOrder: Expr[] = [];
+                for (const argExpr of argsToUse) {
+                  const evaluatedArg = evaluateExpression({
+                    expr: argExpr,
+                    env: env,
+                    context: { ...context },
+                  });
+                  if (!evaluatedArg.$) {
+                    throw formatErrorMessage({
+                      token: argExpr.token,
+                      errorMessage: `Failed to evaluate argument`,
+                    });
+                  }
+                  env = evaluatedArg.$.env;
+                  runtimeArgExprsInOrder.push(evaluatedArg);
+                }
+
+                return {
+                  ...functionToCall,
+                  result: {
+                    kind: "type",
+                    result: {
+                      values: runtimeArgExprsInOrder.map((e) => e.$!.value),
+                      pathCollection: [],
+                      runtimeArgExprsInOrder,
+                      callerEnv: env,
+                    },
+                  },
+                };
+              } catch (error) {
+                return {
+                  ...functionToCall,
+                  result: {
+                    kind: "error",
+                    error: error,
+                  },
+                };
+              }
+            } else {
+              return {
+                ...functionToCall,
+                result: {
+                  kind: "error",
+                  error: formatErrorMessage({
+                    token: func.token,
+                    errorMessage: `Invalid function call on type:
 ${isTypeValue(value) ? typeToString(value.value) : typeToString(functionToCall.type)}`,
-              }),
-            },
-          };
-        }
-      }
-      // array or slice
-      else if (
-        // array
-        isArrayType(functionToCall.type) ||
-        // slice
-        isSliceType(functionToCall.type)
-      ) {
-        try {
-          const result = tryToCallArrayWithArguments({
-            expr,
-            arrayType: functionToCall.type, // Array or Slice
-            arrayValue: functionToCall.value as ArrayValue | undefined,
-            argExprs: argsToUse,
-            callerEnv: env,
-            context: { ...context },
-          });
-          return {
-            ...functionToCall,
-            result: {
-              kind: "array",
-              result,
-            },
-          };
-        } catch (error) {
-          return {
-            ...functionToCall,
-            result: {
-              kind: "error",
-              error: error,
-            },
-          };
-        }
-      }
-      // numeric type conversion (i32, u8, f64, etc.)
-      else if (isTypeValue(value) && isConvertibleNumericType(value.value)) {
-        const targetType = value.value;
-        // Numeric types expect exactly one argument
-        if (argsToUse.length !== 1) {
-          return {
-            ...functionToCall,
-            result: {
-              kind: "error",
-              error: formatErrorMessage({
-                token: func.token,
-                errorMessage: `Numeric type conversion expects exactly 1 argument, got ${argsToUse.length}`,
-              }),
-            },
-          };
-        }
-        try {
-          const result = tryToConvertToNumericType({
-            targetType,
-            argExpr: argsToUse[0]!,
-            expr,
-            callerEnv: env,
-            context: { ...context },
-          });
-          if (result) {
-            return {
-              ...functionToCall,
-              result: {
-                kind: "numeric-type",
-                result,
-              },
-            };
+                  }),
+                },
+              };
+            }
+          }
+          // array or slice
+          else if (
+            // array
+            isArrayType(functionToCall.type) ||
+            // slice
+            isSliceType(functionToCall.type)
+          ) {
+            try {
+              const value = functionToCall.value;
+              const arrayValue = isArrayValue(value) ? value : undefined;
+              const sliceValue = isSliceValue(value) ? value : undefined;
+              const result = tryToCallArrayWithArguments({
+                expr,
+                arrayType: functionToCall.type, // Array or Slice
+                arrayValue,
+                sliceValue,
+                argExprs: argsToUse,
+                callerEnv: env,
+                context: { ...context },
+              });
+              return {
+                ...functionToCall,
+                result: {
+                  kind: "array",
+                  result,
+                },
+              };
+            } catch (error) {
+              return {
+                ...functionToCall,
+                result: {
+                  kind: "error",
+                  error: error,
+                },
+              };
+            }
+          }
+          // numeric type conversion (i32, u8, f64, etc.)
+          else if (
+            isTypeValue(value) &&
+            isConvertibleNumericType(value.value)
+          ) {
+            const targetType = value.value;
+            // Numeric types expect exactly one argument
+            if (argsToUse.length !== 1) {
+              return {
+                ...functionToCall,
+                result: {
+                  kind: "error",
+                  error: formatErrorMessage({
+                    token: func.token,
+                    errorMessage: `Numeric type conversion expects exactly 1 argument, got ${argsToUse.length}`,
+                  }),
+                },
+              };
+            }
+            try {
+              const result = tryToConvertToNumericType({
+                targetType,
+                argExpr: argsToUse[0]!,
+                expr,
+                callerEnv: env,
+                context: { ...context },
+              });
+              if (result) {
+                return {
+                  ...functionToCall,
+                  result: {
+                    kind: "numeric-type",
+                    result,
+                  },
+                };
+              } else {
+                return {
+                  ...functionToCall,
+                  result: {
+                    kind: "error",
+                    error: formatErrorMessage({
+                      token: func.token,
+                      errorMessage: `Failed to convert to numeric type ${typeToString(targetType)}`,
+                    }),
+                  },
+                };
+              }
+            } catch (error) {
+              return {
+                ...functionToCall,
+                result: {
+                  kind: "error",
+                  error: error,
+                },
+              };
+            }
+          }
+          // pointer type casting (*(T))
+          else if (isTypeValue(value) && isPtrType(value.value)) {
+            const targetType = value.value;
+            // Pointer type casting expects exactly one argument
+            if (argsToUse.length !== 1) {
+              return {
+                ...functionToCall,
+                result: {
+                  kind: "error",
+                  error: formatErrorMessage({
+                    token: func.token,
+                    errorMessage: `Pointer type casting expects exactly 1 argument, got ${argsToUse.length}`,
+                  }),
+                },
+              };
+            }
+            try {
+              const result = tryToConvertToPointerType({
+                targetType,
+                argExpr: argsToUse[0]!,
+                expr,
+                callerEnv: env,
+                context: { ...context },
+              });
+              if (result) {
+                return {
+                  ...functionToCall,
+                  result: {
+                    kind: "pointer-type",
+                    result,
+                  },
+                };
+              } else {
+                return {
+                  ...functionToCall,
+                  result: {
+                    kind: "error",
+                    error: formatErrorMessage({
+                      token: func.token,
+                      errorMessage: `Failed to cast to pointer type ${typeToString(targetType)}`,
+                    }),
+                  },
+                };
+              }
+            } catch (error) {
+              return {
+                ...functionToCall,
+                result: {
+                  kind: "error",
+                  error: error,
+                },
+              };
+            }
+          }
+          // Iso value constructor: Iso(T)(value)
+          else if (isTypeValue(value) && isIsoType(value.value)) {
+            const isoType = value.value;
+            // Iso value constructor expects exactly one argument
+            if (argsToUse.length !== 1) {
+              return {
+                ...functionToCall,
+                result: {
+                  kind: "error",
+                  error: formatErrorMessage({
+                    token: func.token,
+                    errorMessage: `Iso value constructor expects exactly 1 argument, got ${argsToUse.length}`,
+                  }),
+                },
+              };
+            }
+            try {
+              const result = evaluateIsoValueCall({
+                expr,
+                env,
+                context: { ...context },
+                isoType,
+              });
+              return {
+                ...functionToCall,
+                result: {
+                  kind: "iso-value",
+                  result,
+                },
+              };
+            } catch (error) {
+              return {
+                ...functionToCall,
+                result: {
+                  kind: "error",
+                  error: error,
+                },
+              };
+            }
           } else {
             return {
               ...functionToCall,
@@ -1011,129 +1231,14 @@ ${isTypeValue(value) ? typeToString(value.value) : typeToString(functionToCall.t
                 kind: "error",
                 error: formatErrorMessage({
                   token: func.token,
-                  errorMessage: `Failed to convert to numeric type ${typeToString(targetType)}`,
-                }),
-              },
-            };
-          }
-        } catch (error) {
-          return {
-            ...functionToCall,
-            result: {
-              kind: "error",
-              error: error,
-            },
-          };
-        }
-      }
-      // pointer type casting (*(T))
-      else if (isTypeValue(value) && isPtrType(value.value)) {
-        const targetType = value.value;
-        // Pointer type casting expects exactly one argument
-        if (argsToUse.length !== 1) {
-          return {
-            ...functionToCall,
-            result: {
-              kind: "error",
-              error: formatErrorMessage({
-                token: func.token,
-                errorMessage: `Pointer type casting expects exactly 1 argument, got ${argsToUse.length}`,
-              }),
-            },
-          };
-        }
-        try {
-          const result = tryToConvertToPointerType({
-            targetType,
-            argExpr: argsToUse[0]!,
-            expr,
-            callerEnv: env,
-            context: { ...context },
-          });
-          if (result) {
-            return {
-              ...functionToCall,
-              result: {
-                kind: "pointer-type",
-                result,
-              },
-            };
-          } else {
-            return {
-              ...functionToCall,
-              result: {
-                kind: "error",
-                error: formatErrorMessage({
-                  token: func.token,
-                  errorMessage: `Failed to cast to pointer type ${typeToString(targetType)}`,
-                }),
-              },
-            };
-          }
-        } catch (error) {
-          return {
-            ...functionToCall,
-            result: {
-              kind: "error",
-              error: error,
-            },
-          };
-        }
-      }
-      // Iso value constructor: Iso(T)(value)
-      else if (isTypeValue(value) && isIsoType(value.value)) {
-        const isoType = value.value;
-        // Iso value constructor expects exactly one argument
-        if (argsToUse.length !== 1) {
-          return {
-            ...functionToCall,
-            result: {
-              kind: "error",
-              error: formatErrorMessage({
-                token: func.token,
-                errorMessage: `Iso value constructor expects exactly 1 argument, got ${argsToUse.length}`,
-              }),
-            },
-          };
-        }
-        try {
-          const result = evaluateIsoValueCall({
-            expr,
-            env,
-            context: { ...context },
-            isoType,
-          });
-          return {
-            ...functionToCall,
-            result: {
-              kind: "iso-value",
-              result,
-            },
-          };
-        } catch (error) {
-          return {
-            ...functionToCall,
-            result: {
-              kind: "error",
-              error: error,
-            },
-          };
-        }
-      } else {
-        return {
-          ...functionToCall,
-          result: {
-            kind: "error",
-            error: formatErrorMessage({
-              token: func.token,
-              errorMessage: `Invalid function call on type:
+                  errorMessage: `Invalid function call on type:
 ${isTypeValue(value) ? typeToString(value.value) : typeToString(functionToCall.type)}`,
-            }),
-          },
-        };
-      }
-    }
-  });
+                }),
+              },
+            };
+          }
+        }
+      }); // End of the checking phase map
 
   let functionsWithMatchingTypes = functionsToCall.filter(
     (functionToCall) => functionToCall.result.kind !== "error"
@@ -1148,6 +1253,7 @@ ${isTypeValue(value) ? typeToString(value.value) : typeToString(functionToCall.t
       isFunctionType(functionToCall.type) &&
       functionToCall.type.return.isCompileTimeOnly // TODO: How about other type calls?
   );
+
   if (comptFunctionCalls.length === 1) {
     functionsWithMatchingTypes = comptFunctionCalls;
   }
@@ -1290,6 +1396,41 @@ ${functionsWithMatchingTypes.map((func) => `${typeToString(func.type)}`).join("\
   }
 
   const functionToCall = functionsWithMatchingTypes[0]!; // Found the only one function to call
+
+  // When we're in a checking phase of an outer function call, AND this function is a CTFE function
+  // that returns a non-type compile-time value, we should NOT actually execute it - just return
+  // a placeholder with the correct type. This prevents exponential blowup when checking recursive
+  // CTFE functions like factorial.
+  // The actual execution will happen when the outer function call executes.
+  //
+  // IMPORTANT: We must NOT skip execution for:
+  // 1. Type-returning CTFE functions (Box(V), Vec(T)) - need execution to resolve the type
+  // 2. Functions with forall parameters - return type may reference unresolved forall params
+  const shouldSkipExecutionDuringChecking =
+    context.isInFunctionCallCheckingPhase && isNonTypeCtfeFunction;
+
+  if (shouldSkipExecutionDuringChecking) {
+    const functionType = functionToCall.type as FunctionType;
+    const { returnType } = evaluateFunctionReturnTypeAgain({
+      functionType,
+      calleeEnv: functionType.env,
+      context: { ...context, isEvaluatingFunctionType: true },
+      functionCalleeExpr: func,
+    });
+
+    env = popEnvFrame(env);
+
+    expr.$ = {
+      env,
+      type: returnType,
+      value: createUnknownValue(
+        returnType,
+        "checking_phase_placeholder_" + randomId(env.modulePath)
+      ),
+      pathCollection: [],
+    };
+    return expr;
+  }
 
   // This function call is for macro expansion.
   // So we just return the expr we expanded.
@@ -1817,7 +1958,7 @@ ${functionsWithMatchingTypes.map((func) => `${typeToString(func.type)}`).join("\
       isArrayType(functionToCall.type) ||
       isSliceType(functionToCall.type)
     ) {
-      const { value, index, type, callerEnv } =
+      const { value, index, type, arrayElementRef, callerEnv } =
         getArrayCallResult(functionToCall);
 
       // Build pathCollection for array access
@@ -1836,12 +1977,15 @@ ${functionsWithMatchingTypes.map((func) => `${typeToString(func.type)}`).join("\
         }
       }
 
+      // Pass arrayElementRef through to support &(arr(0))
       expr.$ = {
         env: callerEnv,
         type: type,
         value: value,
         originType: func.$?.originType ?? functionToCall.type, // Array access inherits origin type
         pathCollection: pathCollection,
+        sourceVariable: func.$?.sourceVariable,
+        arrayElementRef: arrayElementRef,
         /**
          * NOTE: We need to set isAccessingProperty to true here
          * to prevent getting an array element of Linear type.

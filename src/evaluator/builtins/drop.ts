@@ -257,6 +257,18 @@ export function evaluateDrop({
         };
         return expr;
       }
+    }
+    // This could happen during function definition validation
+    // In that case, we skip generating the drop call here
+    else if (isSomeType(concreteType) && !typeImplementsFuture(concreteType)) {
+      env = setExprAsConsumed(evaluatedArgExpr, env, true);
+      expr.$ = {
+        env,
+        type: VUnit.type,
+        value: undefined,
+        pathCollection: [],
+      };
+      return expr;
     } else {
       // Handle struct types and other types with ___drop methods
       const dropMethodCallExpr = generateExprFromCode(
@@ -318,7 +330,7 @@ export function evaluateDrop({
     expr.$ = {
       env,
       type: VUnit.type,
-      value: VUnit,
+      value: undefined,
       pathCollection: [],
     };
     return expr;

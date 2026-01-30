@@ -96,6 +96,8 @@ Use explicit length like 'Array(i32, 3)' or omit the type annotation and initial
     }
     lhs = lhs.args[0]!;
   }
+  isCompileTimeOnly =
+    isCompileTimeOnly || context.forceCompileTimeBindings === true;
 
   if (
     !isCompileTimeOnly &&
@@ -118,7 +120,7 @@ Use explicit length like 'Array(i32, 3)' or omit the type annotation and initial
   if (typeRequiresComptModifier(userDefinedType) && !isCompileTimeOnly) {
     throw formatErrorMessage({
       token: lhs.token,
-      errorMessage: `Expected "compt"  for compile-time known value binding:\n${typeToString(userDefinedType)}`,
+      errorMessage: `Expected "compt" for compile-time known value binding:\n${typeToString(userDefinedType)}`,
     });
   }
 
@@ -156,7 +158,7 @@ compt(${variableName}) : ${typeToString(userDefinedType)}`,
       type: userDefinedType,
       isCompileTimeOnly,
       value: isCompileTimeOnly
-        ? createUnknownValue(userDefinedType, variableName)
+        ? [createUnknownValue(userDefinedType, variableName)]
         : undefined,
       token: lhs.token,
       initializedAtToken: undefined, // The variable is not initialized yet

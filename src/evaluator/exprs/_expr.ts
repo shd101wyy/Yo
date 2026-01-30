@@ -19,6 +19,7 @@ import { evaluateAsync } from "../builtins/async_fns";
 import { evaluateComptAssert } from "../builtins/compt_assert";
 import { evaluateYoComptBooleanFunctions } from "../builtins/compt_boolean_fns";
 import { evaluateComptExpectError } from "../builtins/compt_expect_error";
+import { evaluateComptFn } from "../builtins/compt_fn";
 import {
   evaluateYoComptListAppend,
   evaluateYoComptListCar,
@@ -27,6 +28,7 @@ import {
   evaluateYoComptListElementType,
   evaluateYoComptListLength,
 } from "../builtins/compt_list_fns";
+import { evaluateYoComptNumericFunctions } from "../builtins/compt_numeric_fns";
 import { evaluateComptPrint } from "../builtins/compt_print";
 import { evaluateYoComptStringFunctions } from "../builtins/compt_string_fns";
 import { evaluateConsume } from "../builtins/consume";
@@ -45,7 +47,6 @@ import { evaluateYoGcCollect } from "../builtins/gc";
 import { evaluateGensym } from "../builtins/gensym";
 import { evaluateImplConstraint } from "../builtins/impl_constraint";
 import { evaluateMacroExpand } from "../builtins/macro_expand";
-import { evaluateYoNumericFunctions } from "../builtins/numeric_fns";
 import { evaluatePanic } from "../builtins/panic";
 import { evaluateYoProcessFunctions } from "../builtins/process";
 import { evaluateAddressCall } from "../builtins/ptr_fns";
@@ -128,6 +129,7 @@ import { evaluateMatch } from "./match";
 import { evaluateOpen } from "./open";
 import { evaluatePropertyAccess } from "./property_access";
 import { evaluateRecur } from "./recur";
+import { evaluateRuntime } from "./runtime";
 import { evaluateSubtypeOf } from "./subtype_of";
 import { evaluateTest } from "./test";
 import { evaluateTypeOf } from "./typeof";
@@ -264,6 +266,9 @@ ${exprToString(expr)}`,
     } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.recur)) {
       // recur
       return evaluateRecur({ expr, env, context: { ...context } });
+    } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.runtime)) {
+      // runtime - force runtime evaluation, prevents CTFE
+      return evaluateRuntime({ expr, env, context: { ...context } });
     } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.extern)) {
       // extern
       return evaluateExtern({ expr, env, context: { ...context } });
@@ -489,6 +494,13 @@ ${exprToString(expr)}`,
         env,
         context: { ...context },
       });
+    } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.compt_fn)) {
+      // compt_fn
+      return evaluateComptFn({
+        expr,
+        env,
+        context: { ...context },
+      });
     } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.compt_print)) {
       // compt_print
       return evaluateComptPrint({
@@ -707,33 +719,22 @@ ${exprToString(expr)}`,
       exprIsFunctionCall(expr) &&
       expr.func.tag === ExprTag.Atom &&
       typeof expr.func.token.value === "string" &&
-      (expr.func.token.value.startsWith("__yo_u8_") ||
-        expr.func.token.value.startsWith("__yo_i8_") ||
-        expr.func.token.value.startsWith("__yo_u16_") ||
-        expr.func.token.value.startsWith("__yo_i16_") ||
-        expr.func.token.value.startsWith("__yo_u32_") ||
-        expr.func.token.value.startsWith("__yo_i32_") ||
-        expr.func.token.value.startsWith("__yo_u64_") ||
-        expr.func.token.value.startsWith("__yo_i64_") ||
-        expr.func.token.value.startsWith("__yo_usize_") ||
-        expr.func.token.value.startsWith("__yo_isize_") ||
-        expr.func.token.value.startsWith("__yo_f32_") ||
-        expr.func.token.value.startsWith("__yo_f64_") ||
+      (expr.func.token.value.startsWith("__yo_compt_u8_") ||
+        expr.func.token.value.startsWith("__yo_compt_i8_") ||
+        expr.func.token.value.startsWith("__yo_compt_u16_") ||
+        expr.func.token.value.startsWith("__yo_compt_i16_") ||
+        expr.func.token.value.startsWith("__yo_compt_u32_") ||
+        expr.func.token.value.startsWith("__yo_compt_i32_") ||
+        expr.func.token.value.startsWith("__yo_compt_u64_") ||
+        expr.func.token.value.startsWith("__yo_compt_i64_") ||
+        expr.func.token.value.startsWith("__yo_compt_usize_") ||
+        expr.func.token.value.startsWith("__yo_compt_isize_") ||
+        expr.func.token.value.startsWith("__yo_compt_f32_") ||
+        expr.func.token.value.startsWith("__yo_compt_f64_") ||
         expr.func.token.value.startsWith("__yo_compt_int_") ||
-        expr.func.token.value.startsWith("__yo_compt_float_") ||
-        // C compatible types
-        expr.func.token.value.startsWith("__yo_char") ||
-        expr.func.token.value.startsWith("__yo_short_") ||
-        expr.func.token.value.startsWith("__yo_ushort_") ||
-        expr.func.token.value.startsWith("__yo_int_") ||
-        expr.func.token.value.startsWith("__yo_uint_") ||
-        expr.func.token.value.startsWith("__yo_long_") ||
-        expr.func.token.value.startsWith("__yo_ulong_") ||
-        expr.func.token.value.startsWith("__yo_longlong_") ||
-        expr.func.token.value.startsWith("__yo_ulonglong_") ||
-        expr.func.token.value.startsWith("__yo_longdouble_"))
+        expr.func.token.value.startsWith("__yo_compt_float_"))
     ) {
-      return evaluateYoNumericFunctions({
+      return evaluateYoComptNumericFunctions({
         expr: expr as FnCallExpr,
         env,
         context: { ...context },
@@ -748,7 +749,7 @@ ${exprToString(expr)}`,
       exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_boolean_not, 1) ||
       exprIsFunctionCallOf(
         expr,
-        BuiltinFunctions.__yo_compt_boolean_to_string,
+        BuiltinFunctions.__yo_compt_boolean_to_compt_string,
         1
       )
     ) {
@@ -796,9 +797,9 @@ ${exprToString(expr)}`,
     }
     // Type related functions
     else if (
-      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_type_to_string, 1)
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_type_to_compt_string, 1)
     ) {
-      // __yo_type_to_string
+      // __yo_type_to_compt_string
       return evaluateYoTypeToString({
         expr,
         env,

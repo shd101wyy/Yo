@@ -8,6 +8,25 @@ export type TypeId = string;
 
 export type ExternLanguage = "yo" | "c";
 
+/**
+ * TypeAvailability indicates in which evaluation contexts a type can be used.
+ *
+ * - comptime: true if the type can be used for compile-time values
+ * - runtime: true if the type can be used for runtime values
+ *
+ * Examples:
+ * - i32: { comptime: true, runtime: true } - can be used in both contexts
+ * - compt_int: { comptime: true, runtime: false } - compile-time only
+ * - *(i32): { comptime: false, runtime: true } - runtime only
+ *
+ * For compound types (struct, enum, array), the availability is the intersection
+ * of all field availabilities. If the intersection is empty, it's an error.
+ */
+export type TypeAvailability = {
+  comptime: boolean;
+  runtime: boolean;
+};
+
 export interface Type {
   /**
    * The tag to identify the type of type.
@@ -74,6 +93,12 @@ export interface Type {
    * Used for orphan rule checks to ensure coherence.
    */
   definedInModulePath?: string;
+
+  /**
+   * The availability of this type - which evaluation contexts it can be used in.
+   * For compound types, this is computed as the intersection of field availabilities.
+   */
+  availability: TypeAvailability;
 }
 
 /*
@@ -401,10 +426,18 @@ export interface ModuleField {
 }
 
 /**
- * TraitField is identical to ModuleField but used in TraitType.
- * Kept separate for future differentiation between traits and modules.
+ * TraitField extends ModuleField with additional support for associated types.
+ * When a trait field is declared as `Error : Type` (a type field without assigned value),
+ * we create a SomeType placeholder that represents the associated type.
  */
-export type TraitField = ModuleField;
+export interface TraitField extends ModuleField {
+  /**
+   * For associated types (fields declared as `X : Type` without an assigned value),
+   * this holds a SomeType placeholder that represents the associated type.
+   * When the trait is implemented, this SomeType will be replaced with the actual type.
+   */
+  unassignedSomeType?: SomeType;
+}
 
 /**
  * ModuleType is a ~~nominal~~structural type that represents a module.
@@ -586,6 +619,12 @@ export interface EnumVariant {
    */
   name: string;
   fields?: TypeField[]; // Changed from TypeField[] to TupleType for consistency
+  /**
+   * Custom discriminant value for this variant.
+   * If not specified, the discriminant will be automatically assigned
+   * based on the previous variant's discriminant + 1.
+   */
+  discriminant?: bigint;
   // TODO: return type? For GADT
 }
 

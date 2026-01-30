@@ -2,6 +2,7 @@ import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   BuiltinKeywords,
+  Expr,
   exprIsAtom,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
@@ -11,12 +12,15 @@ import {
 import {
   createEnumType,
   EnumVariant,
+  isComptIntType,
   ModuleField,
   TraitField,
   TypeField,
+  updateTypeAvailability,
 } from "../../types";
-import { createTypeValue } from "../../value";
+import { createTypeValue, isComptIntValue } from "../../value";
 import { EvaluatorContext } from "../context";
+import { evaluateExpression } from "../exprs/expr";
 import { isValidVariableName } from "../utils";
 import { evaluateTypeField } from "./field";
 import {
@@ -55,17 +59,95 @@ export function evaluateEnumType({
   const variants: EnumVariant[] = enumType.variants;
   const traitFields: TraitField[] = enumType.trait.fields;
 
+  // Track the next auto-assigned discriminant value
+  let nextDiscriminant = 0n;
+
   for (let i = 0; i < expr.args.length; i++) {
     const enumArg = expr.args[i]!;
 
+    // Check if this is a variant with discriminant: VariantName = value
+    // This is different from compile-time field because the LHS is a simple atom
+    if (
+      exprIsFunctionCall(enumArg) &&
+      exprIsFunctionCallOf(enumArg, "=", 2) &&
+      exprIsAtom(enumArg.args[0]!)
+    ) {
+      const variantNameExpr = enumArg.args[0]!;
+      const discriminantExpr = enumArg.args[1]!;
+
+      if (!isValidVariableName(variantNameExpr)) {
+        throw formatErrorMessage({
+          token: variantNameExpr.token,
+          errorMessage: `Expected identifier for enum variant, got:\n${exprToString(variantNameExpr)}`,
+        });
+      }
+
+      const variantName = variantNameExpr.token.value;
+
+      // Check for duplicate variant names
+      if (variants.some((v) => v.name === variantName)) {
+        throw formatErrorMessage({
+          token: variantNameExpr.token,
+          errorMessage: `Duplicate variant name "${variantName}" in enum`,
+        });
+      }
+
+      // Evaluate the discriminant value - it must be a compile-time integer
+      const evaluatedDiscriminant = evaluateExpression({
+        expr: discriminantExpr,
+        env,
+        context: { ...context, SelfType: enumType },
+      });
+
+      if (!evaluatedDiscriminant.$) {
+        throw formatErrorMessage({
+          token: discriminantExpr.token,
+          errorMessage: `Failed to evaluate discriminant value: ${exprToString(discriminantExpr)}`,
+        });
+      }
+
+      env = evaluatedDiscriminant.$.env;
+      const discriminantValue = evaluatedDiscriminant.$.value;
+      const discriminantType = evaluatedDiscriminant.$.type;
+
+      if (
+        !isComptIntValue(discriminantValue) &&
+        !isComptIntType(discriminantType)
+      ) {
+        throw formatErrorMessage({
+          token: discriminantExpr.token,
+          errorMessage: `Enum discriminant must be a compile-time integer, got: ${exprToString(discriminantExpr)}`,
+        });
+      }
+
+      if (!isComptIntValue(discriminantValue)) {
+        throw formatErrorMessage({
+          token: discriminantExpr.token,
+          errorMessage: `Enum discriminant must be a compile-time known value, got: ${exprToString(discriminantExpr)}`,
+        });
+      }
+
+      const discriminant =
+        typeof discriminantValue.value === "bigint"
+          ? discriminantValue.value
+          : BigInt(discriminantValue.value);
+
+      variants.push({
+        name: variantName,
+        discriminant,
+      });
+      updateTypeAvailability(enumType, enumArg.token);
+
+      // Update nextDiscriminant to be one more than the current value
+      nextDiscriminant = discriminant + 1n;
+    }
     // comptime fields
     // eg:
     //   ~~Self.new = (((lhs: Self, rhs: i32) -> i32) {})~~
     //   new :: (((lhs: Self, rhs: i32) -> i32) {})
-    if (
+    else if (
       exprIsFunctionCall(enumArg) &&
       (exprIsFunctionCallOf(enumArg, "::", 2) ||
-        exprIsFunctionCallOf(enumArg, "=", 2) ||
         exprIsFunctionCallOf(enumArg, "?=", 2))
     ) {
       const arg = enumArg;
@@ -149,34 +231,94 @@ export function evaluateEnumType({
             errorMessage: `Expected identifier for enum variant, got:\n${exprToString(enumArg)}`,
           });
         }
-        variants.push({
-          name: variantName,
-        });
 
-        // TODO: Check duplicates
-      } else {
-        if (exprIsFunctionCallOf(enumArg, ":")) {
+        // Check for duplicate variant names
+        if (variants.some((v) => v.name === variantName)) {
           throw formatErrorMessage({
             token: enumArg.token,
+            errorMessage: `Duplicate variant name "${variantName}" in enum`,
+          });
+        }
+
+        variants.push({
+          name: variantName,
+          discriminant: nextDiscriminant,
+        });
+        updateTypeAvailability(enumType, enumArg.token);
+        nextDiscriminant += 1n;
+      } else {
+        // Check for enum variant with discriminant: VariantName(fields) = value
+        let variantExpr: Expr = enumArg;
+        let customDiscriminant: bigint | undefined = undefined;
+
+        if (exprIsFunctionCallOf(enumArg, "=", 2)) {
+          variantExpr = enumArg.args[0]!;
+          const discriminantExpr = enumArg.args[1]!;
+
+          // Evaluate the discriminant value
+          const evaluatedDiscriminant = evaluateExpression({
+            expr: discriminantExpr,
+            env,
+            context: { ...context, SelfType: enumType },
+          });
+
+          if (!evaluatedDiscriminant.$) {
+            throw formatErrorMessage({
+              token: discriminantExpr.token,
+              errorMessage: `Failed to evaluate discriminant value: ${exprToString(discriminantExpr)}`,
+            });
+          }
+
+          env = evaluatedDiscriminant.$.env;
+          const discriminantValue = evaluatedDiscriminant.$.value;
+
+          if (!isComptIntValue(discriminantValue)) {
+            throw formatErrorMessage({
+              token: discriminantExpr.token,
+              errorMessage: `Enum discriminant must be a compile-time integer, got: ${exprToString(discriminantExpr)}`,
+            });
+          }
+
+          customDiscriminant =
+            typeof discriminantValue.value === "bigint"
+              ? discriminantValue.value
+              : BigInt(discriminantValue.value);
+        }
+
+        if (exprIsFunctionCallOf(variantExpr, ":")) {
+          throw formatErrorMessage({
+            token: variantExpr.token,
             errorMessage: `Enum variant with : is not implemented yet`,
           });
         }
-        if (!isValidVariableName(enumArg.func)) {
+        if (
+          !exprIsFunctionCall(variantExpr) ||
+          !isValidVariableName(variantExpr.func)
+        ) {
           throw formatErrorMessage({
-            token: enumArg.func.token,
+            token: variantExpr.token,
             errorMessage: `Expected identifier for enum variant, got:\n${exprToString(
-              enumArg.func
+              variantExpr
             )}`,
           });
         }
-        const variantName = enumArg.func.token.value;
+        const variantName = variantExpr.func.token.value;
+
+        // Check for duplicate variant names
+        if (variants.some((v) => v.name === variantName)) {
+          throw formatErrorMessage({
+            token: variantExpr.func.token,
+            errorMessage: `Duplicate variant name "${variantName}" in enum`,
+          });
+        }
+
         const fields: TypeField[] = [];
-        for (let i = 0; i < enumArg.args.length; i++) {
-          const arg = enumArg.args[i]!;
+        for (let j = 0; j < variantExpr.args.length; j++) {
+          const arg = variantExpr.args[j]!;
           const { field, env: nextEnv } = evaluateTypeField({
             expr: arg,
             env,
-            tupleFieldIndex: i,
+            tupleFieldIndex: j,
             context: { ...context, SelfType: enumType },
             forType: "enum",
           });
@@ -206,10 +348,14 @@ export function evaluateEnumType({
           env = nextEnv;
         }
 
+        const discriminant = customDiscriminant ?? nextDiscriminant;
         variants.push({
           name: variantName,
           fields: fields,
+          discriminant,
         });
+        updateTypeAvailability(enumType, variantExpr.token);
+        nextDiscriminant = discriminant + 1n;
       }
     }
   }

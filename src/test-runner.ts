@@ -46,6 +46,11 @@ export interface TestDeclaration {
   lineNumber: number;
 }
 
+export interface ExtractTestsResult {
+  tests: TestDeclaration[];
+  nonTestExprs: Expr[];
+}
+
 export interface TestResult {
   testName: string;
   filePath: string;
@@ -124,9 +129,11 @@ function findTestFilesRecursive(dir: string): string[] {
 /**
  * Extract test declarations from a Yo source file
  * Uses the evaluator to get test names from compile-time evaluated expressions
+ * Also returns non-test expressions for use in generating test programs
  */
-export function extractTests(filePath: string): TestDeclaration[] {
+export function extractTests(filePath: string): ExtractTestsResult {
   const tests: TestDeclaration[] = [];
+  const nonTestExprs: Expr[] = [];
 
   // Declare moduleManager outside try block so we can clean it up
   let moduleManager: ModuleManager | null = null;
@@ -154,7 +161,7 @@ export function extractTests(filePath: string): TestDeclaration[] {
         `${colors.red}Error: Module not found after loading: ${filePath}${colors.reset}`
       );
       moduleManager = null;
-      return tests;
+      return { tests, nonTestExprs };
     }
 
     // Get the evaluated program expressions
@@ -190,6 +197,9 @@ export function extractTests(filePath: string): TestDeclaration[] {
             lineNumber: testNameExpr.token.position.row + 1,
           });
         }
+      } else {
+        // Collect non-test expressions
+        nonTestExprs.push(expr);
       }
     }
 
@@ -204,29 +214,32 @@ export function extractTests(filePath: string): TestDeclaration[] {
     throw error;
   }
 
-  return tests;
+  return { tests, nonTestExprs };
 }
 
 /**
  * Generate a standalone Yo program for a single test
  *
- * Strategy: Keep the original module content and append a main function
- * that executes the specific test body. This preserves all module-level
- * definitions (functions, types, etc.) that the test may depend on.
+ * Strategy: Use the non-test expressions from the AST and convert them
+ * back to source using exprToString. This avoids type collection from
+ * other tests since we don't include test blocks at all.
  */
 function generateTestProgram(
   test: TestDeclaration,
-  originalFileContent: string
+  nonTestExprs: Expr[]
 ): string {
+  // Convert non-test expressions back to source code
+  const nonTestContent = nonTestExprs
+    .map((expr) => exprToString(expr.$?.originalExpr ?? expr))
+    .join(";\n");
+
   // The test body is a begin block, so we wrap it in a main function
   const testBodyString = exprToString(
     test.bodyExpr.$?.originalExpr ?? test.bodyExpr
   );
 
-  // Append main function to the original file content
-  // The original file already has all imports and definitions
-  // If test body completes without panic/assert failure, it returns 0 (success)
-  return `${originalFileContent}
+  // Build the program from non-test expressions plus the main function
+  return `${nonTestContent};
 
 // Auto-generated main function for test: ${test.name}
 main :: (fn() -> unit) {
@@ -242,8 +255,9 @@ export main;
  */
 function runSingleTest(
   test: TestDeclaration,
-  originalFileContent: string,
-  cCompiler: string
+  nonTestExprs: Expr[],
+  cCompiler: string,
+  keepGeneratedFiles?: boolean
 ): TestResult {
   const startTime = Date.now();
   const sanitizedName = test.name.replace(/[^a-zA-Z0-9_]/g, "_");
@@ -259,6 +273,12 @@ function runSingleTest(
 
   // Helper to clean up all temp files
   const cleanup = () => {
+    if (keepGeneratedFiles) {
+      console.log(`  ${colors.dim}Keeping generated files:${colors.reset}`);
+      console.log(`    ${colors.dim}.yo file: ${testFilePath}${colors.reset}`);
+      console.log(`    ${colors.dim}.c file: ${testCPath}${colors.reset}`);
+      return;
+    }
     for (const file of [testFilePath, testOutputPath, testCPath]) {
       if (fs.existsSync(file)) {
         fs.unlinkSync(file);
@@ -278,7 +298,7 @@ function runSingleTest(
     clearAllModuleCounters();
 
     // Generate test program
-    const testProgram = generateTestProgram(test, originalFileContent);
+    const testProgram = generateTestProgram(test, nonTestExprs);
     fs.writeFileSync(testFilePath, testProgram);
 
     // Compile the test using ModuleManager with libc allocator (faster compilation)
@@ -313,8 +333,8 @@ function runSingleTest(
 
     fs.writeFileSync(testCPath, generatedCode);
 
-    // Clean up temp .yo file after generating C code
-    if (fs.existsSync(testFilePath)) {
+    // Clean up temp .yo file after generating C code (unless keeping files)
+    if (!keepGeneratedFiles && fs.existsSync(testFilePath)) {
       fs.unlinkSync(testFilePath);
     }
 
@@ -368,23 +388,65 @@ function runSingleTest(
     }
 
     // Run the test executable with AddressSanitizer leak detection enabled
-    const runResult = spawnSync(testOutputPath, [], {
+    // On macOS, we need to suppress system library leaks (libobjc, libdyld, libxpc, etc.)
+    const isMacOS = process.platform === "darwin";
+    const lsanSuppressions = isMacOS
+      ? "leak:libobjc\nleak:libdyld\nleak:libxpc\nleak:libsystem_malloc\nleak:dyld"
+      : "";
+
+    // Create a temporary suppression file for macOS
+    let suppressionFile: string | undefined;
+    if (isMacOS && lsanSuppressions) {
+      suppressionFile = `${testOutputPath}.lsan_suppressions.txt`;
+      fs.writeFileSync(suppressionFile, lsanSuppressions);
+    }
+
+    let runResult = spawnSync(testOutputPath, [], {
       stdio: "pipe",
       encoding: "utf-8",
       timeout: 60000, // 60 second timeout - tests should complete quickly, this catches hangs
       env: {
         ...process.env,
         ASAN_OPTIONS: "detect_leaks=1",
+        ...(suppressionFile
+          ? { LSAN_OPTIONS: `suppressions=${suppressionFile}` }
+          : {}),
       },
     });
 
-    // Check for memory leaks in the output
+    // Check if detect_leaks is not supported (e.g., on GitHub Actions macOS runners)
+    const combinedOutputInitial = `${runResult.stdout || ""}${runResult.stderr || ""}`;
+    const leakDetectionNotSupported = combinedOutputInitial.includes(
+      "detect_leaks is not supported"
+    );
+
+    // If leak detection is not supported, rerun without it
+    if (leakDetectionNotSupported) {
+      runResult = spawnSync(testOutputPath, [], {
+        stdio: "pipe",
+        encoding: "utf-8",
+        timeout: 60000,
+        env: {
+          ...process.env,
+          // Run without detect_leaks
+          ASAN_OPTIONS: "detect_leaks=0",
+        },
+      });
+    }
+
+    // Clean up suppression file
+    if (suppressionFile && fs.existsSync(suppressionFile)) {
+      fs.unlinkSync(suppressionFile);
+    }
+
+    // Check for memory leaks in the output (only if leak detection was supported)
     const combinedOutput = `${runResult.stdout || ""}${runResult.stderr || ""}`;
     const hasMemoryLeak =
-      combinedOutput.includes("LeakSanitizer") ||
-      combinedOutput.includes("detected memory leaks") ||
-      combinedOutput.includes("Direct leak") ||
-      combinedOutput.includes("Indirect leak");
+      !leakDetectionNotSupported &&
+      (combinedOutput.includes("LeakSanitizer") ||
+        combinedOutput.includes("detected memory leaks") ||
+        combinedOutput.includes("Direct leak") ||
+        combinedOutput.includes("Indirect leak"));
 
     const passed = runResult.status === 0 && !hasMemoryLeak;
 
@@ -428,7 +490,7 @@ function runSingleTest(
  */
 interface TestToRun {
   test: TestDeclaration;
-  originalContent: string;
+  nonTestExprs: Expr[];
   relativePath: string;
 }
 
@@ -442,6 +504,7 @@ async function runTestsWithConcurrency(
   options: {
     verbose?: boolean;
     bail?: boolean;
+    keepGeneratedFiles?: boolean;
   }
 ): Promise<{
   results: TestResult[];
@@ -456,10 +519,15 @@ async function runTestsWithConcurrency(
 
   if (concurrency === 1) {
     // Sequential execution - original behavior with immediate output
-    for (const { test, originalContent } of testsToRun) {
+    for (const { test, nonTestExprs } of testsToRun) {
       if (bailed) break;
 
-      const result = runSingleTest(test, originalContent, cCompiler);
+      const result = runSingleTest(
+        test,
+        nonTestExprs,
+        cCompiler,
+        options.keepGeneratedFiles
+      );
       results.push(result);
 
       if (result.passed) {
@@ -497,10 +565,15 @@ async function runTestsWithConcurrency(
     const runNext = async (): Promise<void> => {
       while (currentIndex < testsToRun.length && !bailed) {
         const index = currentIndex++;
-        const { test, originalContent } = testsToRun[index]!;
+        const { test, nonTestExprs } = testsToRun[index]!;
 
         // Run test synchronously in this "worker"
-        const result = runSingleTest(test, originalContent, cCompiler);
+        const result = runSingleTest(
+          test,
+          nonTestExprs,
+          cCompiler,
+          options.keepGeneratedFiles
+        );
         testResultsMap.set(index, result);
 
         if (result.passed) {
@@ -565,6 +638,7 @@ export async function runTests(
     bail?: boolean;
     testNamePattern?: string;
     parallel?: number;
+    keepGeneratedFiles?: boolean;
   } = {}
 ): Promise<TestRunSummary> {
   const startTime = Date.now();
@@ -623,11 +697,13 @@ export async function runTests(
 
   for (const filePath of testFiles) {
     const relativePath = path.relative(process.cwd(), filePath);
-    const originalContent = fs.readFileSync(filePath, "utf-8");
 
     let tests: TestDeclaration[];
+    let nonTestExprs: Expr[];
     try {
-      tests = extractTests(filePath);
+      const result = extractTests(filePath);
+      tests = result.tests;
+      nonTestExprs = result.nonTestExprs;
     } catch (error) {
       // Module evaluation failed - treat as a single failed test for this file
       console.log(`${colors.dim}${relativePath}${colors.reset}`);
@@ -655,7 +731,7 @@ export async function runTests(
     if (tests.length > 0) {
       const testsToRun = tests.map((test) => ({
         test,
-        originalContent,
+        nonTestExprs,
         relativePath,
       }));
       testsByFile.set(relativePath, testsToRun);
@@ -682,6 +758,7 @@ export async function runTests(
       {
         verbose: options.verbose,
         bail: options.bail,
+        keepGeneratedFiles: options.keepGeneratedFiles,
       }
     );
 

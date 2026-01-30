@@ -17,7 +17,13 @@ import {
   SliceType,
   typeToString,
 } from "../../types";
-import { ArrayValue, createUnknownValue, isNumberValue } from "../../value";
+import {
+  ArrayValue,
+  createSliceValue,
+  createUnknownValue,
+  isNumberValue,
+  SliceValue,
+} from "../../value";
 import { ArrayCallResult, EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 
@@ -32,6 +38,7 @@ export function tryToCallArrayWithArguments({
   expr,
   arrayType,
   arrayValue,
+  sliceValue,
   argExprs,
   callerEnv,
   context,
@@ -39,6 +46,7 @@ export function tryToCallArrayWithArguments({
   expr: FnCallExpr;
   arrayType: ArrayType | SliceType;
   arrayValue: ArrayValue | undefined;
+  sliceValue: SliceValue | undefined;
   argExprs: Expr[];
   callerEnv: Environment;
   context: EvaluatorContext;
@@ -58,10 +66,35 @@ export function tryToCallArrayWithArguments({
     (exprIsFunctionCall(expr.args[0]!) &&
       exprIsFunctionCallOf(expr.args[0]!, ":"))
   ) {
+    const sliceType = createSliceType(arrayType.childType);
+
     if (exprIsAtom(expr.args[0]!)) {
+      // arr(:) - full slice
+      if (arrayValue) {
+        // Compile-time slice from array - create SliceValue referencing the full array
+        const newSliceValue = createSliceValue(
+          sliceType,
+          [arrayValue],
+          0,
+          arrayValue.elements.length
+        );
+        return {
+          value: newSliceValue,
+          type: sliceType,
+          callerEnv,
+        };
+      } else if (sliceValue) {
+        // Compile-time slice from slice - keep the same source array reference
+        // s(:) on a slice returns the full slice
+        return {
+          value: sliceValue,
+          type: sliceType,
+          callerEnv,
+        };
+      }
       return {
         value: undefined,
-        type: createSliceType(arrayType.childType),
+        type: sliceType,
         callerEnv,
       };
     } else {
@@ -141,9 +174,96 @@ export function tryToCallArrayWithArguments({
         });
       }
 
+      // Check if we can create a compile-time slice from an array
+      if (
+        arrayValue &&
+        isNumberValue(evaluatedStartExpr.$.value) &&
+        isNumberValue(evaluatedEndExpr.$.value)
+      ) {
+        const startValue = evaluatedStartExpr.$.value.value;
+        const endValue = evaluatedEndExpr.$.value.value;
+        const startIndex =
+          typeof startValue === "bigint" ? Number(startValue) : startValue;
+        const endIndex =
+          typeof endValue === "bigint" ? Number(endValue) : endValue;
+
+        // Bounds checking
+        if (startIndex < 0 || startIndex > arrayValue.elements.length) {
+          throw formatErrorMessage({
+            token: startExpr.token,
+            errorMessage: `Slice start index out of bounds: ${startIndex}. Expected index in range [0, ${arrayValue.elements.length}].`,
+          });
+        }
+        if (endIndex < startIndex || endIndex > arrayValue.elements.length) {
+          throw formatErrorMessage({
+            token: endExpr.token,
+            errorMessage: `Slice end index out of bounds: ${endIndex}. Expected index in range [${startIndex}, ${arrayValue.elements.length}].`,
+          });
+        }
+
+        const newSliceValue = createSliceValue(
+          sliceType,
+          [arrayValue],
+          startIndex,
+          endIndex
+        );
+        return {
+          value: newSliceValue,
+          type: sliceType,
+          callerEnv,
+        };
+      }
+
+      // Check if we can create a compile-time slice from another slice
+      if (
+        sliceValue &&
+        isNumberValue(evaluatedStartExpr.$.value) &&
+        isNumberValue(evaluatedEndExpr.$.value)
+      ) {
+        const startValue = evaluatedStartExpr.$.value.value;
+        const endValue = evaluatedEndExpr.$.value.value;
+        const relativeStart =
+          typeof startValue === "bigint" ? Number(startValue) : startValue;
+        const relativeEnd =
+          typeof endValue === "bigint" ? Number(endValue) : endValue;
+
+        // Calculate absolute indices into the source array
+        const sliceLength = sliceValue.endIndex - sliceValue.startIndex;
+
+        // Bounds checking for slice-of-slice
+        if (relativeStart < 0 || relativeStart > sliceLength) {
+          throw formatErrorMessage({
+            token: startExpr.token,
+            errorMessage: `Slice start index out of bounds: ${relativeStart}. Expected index in range [0, ${sliceLength}].`,
+          });
+        }
+        if (relativeEnd < relativeStart || relativeEnd > sliceLength) {
+          throw formatErrorMessage({
+            token: endExpr.token,
+            errorMessage: `Slice end index out of bounds: ${relativeEnd}. Expected index in range [${relativeStart}, ${sliceLength}].`,
+          });
+        }
+
+        // Create new slice with adjusted absolute indices, but same source array
+        const absoluteStart = sliceValue.startIndex + relativeStart;
+        const absoluteEnd = sliceValue.startIndex + relativeEnd;
+
+        const newSliceValue = createSliceValue(
+          sliceType,
+          sliceValue.sourceArray, // Keep the same source array reference
+          absoluteStart,
+          absoluteEnd
+        );
+        return {
+          value: newSliceValue,
+          type: sliceType,
+          callerEnv,
+        };
+      }
+
       return {
         value: undefined,
-        type: createSliceType(arrayType.childType),
+        type: sliceType,
         callerEnv,
       };
     }
@@ -187,7 +307,50 @@ export function tryToCallArrayWithArguments({
     }
     const returnType = arrayType.childType;
 
-    // It's compile time known value
+    // Handle compile-time slice indexing
+    if (sliceValue) {
+      if (!evaluatedArgExpr.$.value) {
+        throw formatErrorMessage({
+          token: argExpr.token,
+          errorMessage: `Expected compile-time known value for slice index, got runtime value.`,
+        });
+      } else if (isNumberValue(evaluatedArgExpr.$.value)) {
+        const indexValue = evaluatedArgExpr.$.value.value;
+        const relativeIndex =
+          typeof indexValue === "bigint" ? Number(indexValue) : indexValue;
+        const sliceLength = sliceValue.endIndex - sliceValue.startIndex;
+        if (relativeIndex < 0 || relativeIndex >= sliceLength) {
+          throw formatErrorMessage({
+            token: argExpr.token,
+            errorMessage: `Slice index out of bounds: ${relativeIndex}. Expected index in range [0, ${sliceLength - 1}].`,
+          });
+        }
+        // Calculate absolute index into the source array
+        const absoluteIndex = sliceValue.startIndex + relativeIndex;
+        const sourceArray = sliceValue.sourceArray[0];
+        const value = sourceArray.elements[absoluteIndex]!;
+
+        // For compile-time slices, store a reference to the source array and absolute index
+        // so assignments like s(0) = 10 can update the original array
+        const arrayElementRef = {
+          arrayValue: sourceArray,
+          index: absoluteIndex,
+        };
+
+        return {
+          value,
+          index: relativeIndex,
+          arrayElementRef,
+          type: returnType,
+          callerEnv,
+        };
+      } else {
+        const value = createUnknownValue(returnType);
+        return { value, type: returnType, callerEnv };
+      }
+    }
+
+    // Handle compile-time array indexing
     if (arrayValue) {
       if (!evaluatedArgExpr.$.value) {
         throw formatErrorMessage({
@@ -205,7 +368,12 @@ export function tryToCallArrayWithArguments({
           });
         }
         const value = arrayValue.elements[index]!;
-        return { value, index, type: returnType, callerEnv };
+
+        // For compile-time arrays, store a reference to the array and index
+        // so that &(arr(0)) can create a pointer to the specific element
+        const arrayElementRef = { arrayValue, index };
+
+        return { value, index, arrayElementRef, type: returnType, callerEnv };
       } else {
         // TODO: Check the index bound?
         const value = createUnknownValue(returnType);

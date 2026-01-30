@@ -32,6 +32,7 @@ import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { synthesizeExprAndType } from "../types/expr_synthesizer";
 import { findRcValueOwnerRelationship, isValidVariableName } from "../utils";
+import { cloneValue } from "../values/clone_value";
 import { throwRhsContainsControlFlowExpressionError } from "./assignment";
 import { evaluateDestructuringAssignment } from "./destructuring_assignment";
 
@@ -58,7 +59,15 @@ export function evaluateInitializationAssignment({
       errorMessage: `Expected ":=" or "::" for initialization assignment.`,
     });
   }
-  const isCompileTimeOnly = exprIsFunctionCallOf(expr, "::");
+  // During CTFE (when forceCompileTimeBindings is true), treat `:=` as `::`
+  const isCompileTimeOnly =
+    exprIsFunctionCallOf(expr, "::") ||
+    context.forceCompileTimeBindings === true;
+
+  // For type conversion purposes, only consider :: as compile-time.
+  // When using := with forceCompileTimeBindings, we evaluate at compile-time
+  // but still convert types (e.g., compt_int -> i32).
+  const shouldConvertToRuntimeType = !exprIsFunctionCallOf(expr, "::");
 
   if (
     !isCompileTimeOnly &&
@@ -143,7 +152,7 @@ export function evaluateInitializationAssignment({
       // compt_float -> f64
       // etc...
       let lhsType = rhsType;
-      if (!isCompileTimeOnly) {
+      if (shouldConvertToRuntimeType) {
         lhsType = convertComptTypeToRuntimeType({
           type: rhsType,
           expectedType: undefined,
@@ -204,7 +213,10 @@ export function evaluateInitializationAssignment({
       throw formatErrorMessage({
         token: expr.token,
         errorMessage: `Expected "::" instead of ":=" for compile-time known value assignment:
-${exprToString(expr)}`,
+${exprToString(expr)}
+
+Type:
+${typeToString(lhs.$.type)}`,
       });
     }
     if (isCompileTimeOnly && typeProhibitsComptModifier(lhs.$.type)) {
@@ -254,12 +266,19 @@ ${exprToString(rhs)}`,
     }
 
     // Set the variable value
+    // For compile-time values, use cloneValue to ensure deep copy (value semantics)
+    // This prevents mutations to one variable from affecting another
+    // e.g., arr2 :: arr1 should create an independent copy
+    // cloneValue with preservePointerReferences=true (default) ensures that pointers
+    // maintain reference semantics even when nested in data structures
     lhs.$ = {
       ...lhs.$,
       env,
       type: lhs.$.type,
       value: isCompileTimeOnly
-        ? (rhsValue ?? createUnknownValue(lhs.$.type, lhs.token.value))
+        ? rhsValue
+          ? cloneValue(rhsValue) // preservePointerReferences=true by default
+          : createUnknownValue(lhs.$.type, lhs.token.value)
         : undefined,
       pathCollection: [],
     };
@@ -311,7 +330,7 @@ ${exprToString(rhs)}`,
         name: lhs.token.value,
         type: finalLhsType,
         isCompileTimeOnly,
-        value: lhs.$.value,
+        value: lhs.$.value ? [lhs.$.value] : undefined,
         token: lhs.token,
         initializedAtToken: lhs.token,
         consumedAtToken: undefined, // Not consumed yet

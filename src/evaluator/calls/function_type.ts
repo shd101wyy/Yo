@@ -24,6 +24,7 @@ import {
   EvaluatorContext,
   FunctionEvaluationContext,
 } from "../context";
+import { analyzeCtfeCapability } from "../ctfe/ctfe-analysis";
 import { evaluateBeginExpression } from "../exprs/begin";
 import {
   buildPathCollectionFromCapturedVariables,
@@ -68,6 +69,10 @@ export function createFunctionBodyEvaluationContext(
       env: env,
     },
     functionReturnImplConcreteType: [], // Empty array for each function
+
+    // Clear CTFE
+    forceCompileTimeBindings: false,
+    isAnalyzingCtfeCapability: false,
   };
 
   return { evaluationContext, functionBodyContext };
@@ -138,7 +143,7 @@ export function tryToImplementFunctionByFunctionType({
           name: forallParam.label,
           type: forallParam.type,
           isCompileTimeOnly: true,
-          value: createUnknownValue(forallParam.type, forallParam.label),
+          value: [createUnknownValue(forallParam.type, forallParam.label)],
           token: PlaceholderToken,
           initializedAtToken: PlaceholderToken,
           consumedAtToken: undefined,
@@ -162,7 +167,7 @@ export function tryToImplementFunctionByFunctionType({
           type: anonymousParam.type,
           isCompileTimeOnly: anonymousParam.isCompileTimeOnly,
           value: anonymousParam.isCompileTimeOnly
-            ? createUnknownValue(anonymousParam.type, expectedParamName)
+            ? [createUnknownValue(anonymousParam.type, expectedParamName)]
             : undefined,
           token: PlaceholderToken,
           initializedAtToken: PlaceholderToken,
@@ -325,11 +330,30 @@ export function tryToImplementFunctionByFunctionType({
   // Reset the cache
   // functionValue.calledComptFunctionCaches = [];
 
+  // If we're in CTFE analysis mode OR actually executing a CTFE function
+  // (forceCompileTimeBindings is true), also analyze this nested function for CTFE capability.
+  // This allows nested functions to be called at compile-time.
+  let finalFunctionValue = functionValue;
+  let finalFunctionType = newFunctionType;
+
+  if (context.isAnalyzingCtfeCapability || context.forceCompileTimeBindings) {
+    const comptFunctionValue = analyzeCtfeCapability(
+      functionValue,
+      finalCallerEnv,
+      context
+    );
+    if (comptFunctionValue) {
+      // Use the CTFE version so it can be called at compile-time
+      finalFunctionValue = comptFunctionValue;
+      finalFunctionType = comptFunctionValue.type;
+    }
+  }
+
   // Set the function type and value
   expr.$ = {
     env: finalCallerEnv,
-    value: functionValue,
-    type: newFunctionType,
+    value: finalFunctionValue,
+    type: finalFunctionType,
     pathCollection:
       capturedVariables && capturedVariables.size > 0
         ? buildPathCollectionFromCapturedVariables(capturedVariables)

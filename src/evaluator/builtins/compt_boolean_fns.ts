@@ -32,7 +32,10 @@ export function evaluateYoComptBooleanFunctions({
 }): FnCallExpr {
   if (
     exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_boolean_not) ||
-    exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_boolean_to_string)
+    exprIsFunctionCallOf(
+      expr,
+      BuiltinFunctions.__yo_compt_boolean_to_compt_string
+    )
   ) {
     const arg = evaluateExpression({
       expr: expr.args[0]!,
@@ -63,7 +66,10 @@ export function evaluateYoComptBooleanFunctions({
     }
     // to_string(x)
     else if (
-      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_boolean_to_string)
+      exprIsFunctionCallOf(
+        expr,
+        BuiltinFunctions.__yo_compt_boolean_to_compt_string
+      )
     ) {
       if (isBooleanValue(arg.$.value)) {
         value = createComptStringValue(arg.$.value.value.toString());
@@ -73,7 +79,7 @@ export function evaluateYoComptBooleanFunctions({
     } else {
       throw formatErrorMessage({
         token: expr.token,
-        errorMessage: `Unexpected function call for "${expr.func.token.value}", expected "__yo_compt_boolean_not" or "__yo_compt_boolean_to_string" function`,
+        errorMessage: `Unexpected function call for "${expr.func.token.value}", expected "__yo_compt_boolean_not" or "__yo_compt_boolean_to_compt_string" function`,
       });
     }
     expr.$ = {

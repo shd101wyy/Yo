@@ -85,7 +85,7 @@ If you are creating an array value with 1 element, please consider adding a "," 
       env: evaluatedElementTypeExpr.$.env,
       variable: {
         name: lengthPlaceholderName,
-        value: unknownLength,
+        value: [unknownLength],
         type: createUsizeType(),
         isCompileTimeOnly: true,
         token: lengthExpr.token,

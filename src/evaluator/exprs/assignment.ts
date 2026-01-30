@@ -55,11 +55,13 @@ import {
   isUnknownValue,
   StructValue,
   TupleValue,
+  Value,
 } from "../../value";
 import { EvaluatorContext, trackVariableUsage } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { synthesizeExprAndType } from "../types/expr_synthesizer";
 import { findRcValueOwnerRelationship } from "../utils";
+import { cloneValue } from "../values/clone_value";
 import { evaluateBinding } from "./binding";
 import { evaluateIdentifierAndOperator } from "./identifer_and_operator";
 
@@ -109,9 +111,9 @@ function resolveUnknownValuesAndSomeTypeInType(
       const variables = getVariablesFromEnv(env, unknownLength.variableName);
       if (variables.length > 0) {
         const variable = variables[variables.length - 1]!;
-        if (variable.value && !isUnknownValue(variable.value)) {
+        if (variable.value?.[0] && !isUnknownValue(variable.value[0])) {
           // Create a new array type with the resolved length
-          return createArrayType(type.childType, variable.value);
+          return createArrayType(type.childType, variable.value[0]);
         }
       }
     }
@@ -453,20 +455,12 @@ You can mutate fields (e.g., ${variableName}.field = value) but cannot reassign 
       }
 
       // Initialize the variable
-      // For value semantics, clone array and enum values when initializing variables
-      let valueToStore = variable.isCompileTimeOnly ? rhsValue : undefined;
-      if (valueToStore && isArrayValue(valueToStore)) {
-        // Clone the array to ensure value semantics
-        const arrayType = variable.type as ArrayType;
-        valueToStore = createArrayValue(arrayType, [...valueToStore.elements]);
-      } else if (valueToStore && isEnumValue(valueToStore)) {
-        // Clone the enum only for value semantics, not for reference semantics
-        const enumType = variable.type as EnumType;
-        valueToStore = createEnumValue(enumType, valueToStore.variantName, [
-          ...valueToStore.fields,
-        ]);
-        // For reference semantics enums, keep the original value to share the reference
-      }
+      // For value semantics, use cloneValue to ensure deep copy
+      // This prevents mutations to one variable from affecting another
+      const valueToStore =
+        variable.isCompileTimeOnly && rhsValue
+          ? cloneValue(rhsValue)
+          : undefined;
 
       // Under the new simplified ownership model:
       // Variables created by := always own their values
@@ -488,7 +482,7 @@ You can mutate fields (e.g., ${variableName}.field = value) but cannot reassign 
       env = updateExistingVariable(env, variable, {
         ...variable,
         initializedAtToken: lhs.token,
-        value: valueToStore,
+        value: valueToStore ? [valueToStore] : undefined,
         type: variableType,
         isOwningTheRcValue: typeContainsRcType(variableType),
         isOwningTheSameRcValueAs, // Track shared ownership for optimization, or undefined if moved
@@ -546,20 +540,12 @@ Consider using Dyn(...) for dynamic dispatch if you need to reassign to differen
       }
 
       // Update the variable value
-      // For value semantics, clone array and enum values when assigning to new variables
-      let valueToStore = variable.isCompileTimeOnly ? rhsValue : undefined;
-      if (valueToStore && isArrayValue(valueToStore)) {
-        // Clone the array to ensure value semantics
-        const arrayType = variable.type as ArrayType;
-        valueToStore = createArrayValue(arrayType, [...valueToStore.elements]);
-      } else if (valueToStore && isEnumValue(valueToStore)) {
-        // Clone the enum only for value semantics, not for reference semantics
-        const enumType = variable.type as EnumType;
-        valueToStore = createEnumValue(enumType, valueToStore.variantName, [
-          ...valueToStore.fields,
-        ]);
-        // For reference semantics enums, keep the original value to share the reference
-      }
+      // For value semantics, use cloneValue to ensure deep copy
+      // This prevents mutations to one variable from affecting another
+      const valueToStore =
+        variable.isCompileTimeOnly && rhsValue
+          ? cloneValue(rhsValue)
+          : undefined;
 
       // Generate a new variable ID for reassignment
       // This is crucial for dup/drop optimization: dup calls on the old ID
@@ -585,7 +571,7 @@ Consider using Dyn(...) for dynamic dispatch if you need to reassign to differen
       env = updateExistingVariable(env, variable, {
         ...variable,
         id: newVariableId, // New ID distinguishes this instance from previous one
-        value: valueToStore,
+        value: valueToStore ? [valueToStore] : undefined,
         type: variableType,
         isOwningTheRcValue: typeContainsRcType(variableType),
         isOwningTheSameRcValueAs, // Track shared ownership for optimization, or undefined if moved
@@ -615,7 +601,7 @@ Consider using Dyn(...) for dynamic dispatch if you need to reassign to differen
       expr.$ = {
         // NOTE: This should return the original value of lhs
         env,
-        value: variable.value,
+        value: variable.value?.[0],
         type: variable.type,
         pathCollection: [],
       };
@@ -753,6 +739,7 @@ Consider using Dyn(...) for dynamic dispatch if you need to reassign to differen
 
     // For field/index assignments, we need to update the actual variable value
     // if it's a compile-time mutable variable
+    let isCompileTimeOnlyAssignment = false;
     if (
       evaluatedLhs.$.pathCollection &&
       evaluatedLhs.$.pathCollection.length > 0
@@ -768,8 +755,13 @@ Consider using Dyn(...) for dynamic dispatch if you need to reassign to differen
           const variable = variables[variables.length - 1]!;
 
           // If it's a compile-time mutable variable with a struct/array value, update it
-          if (variable.isCompileTimeOnly && variable.value) {
-            const currentValue = variable.value;
+          if (variable.isCompileTimeOnly && variable.value?.[0]) {
+            const currentValue = variable.value[0];
+
+            // If RHS is also compile-time known, mark this as compile-time-only assignment
+            if (rhs.$?.value) {
+              isCompileTimeOnlyAssignment = true;
+            }
 
             // Handle struct/tuple field assignment
             if (isStructValue(currentValue) || isTupleValue(currentValue)) {
@@ -795,12 +787,12 @@ Consider using Dyn(...) for dynamic dispatch if you need to reassign to differen
                   // and update them all to maintain reference semantics
                   const allVariables = getVariablesFromEnvByFilter(
                     env,
-                    (v) => v.isCompileTimeOnly && v.value === currentValue
+                    (v) => v.isCompileTimeOnly && v.value?.[0] === currentValue
                   );
                   for (const sharedVariable of allVariables) {
                     env = updateExistingVariable(env, sharedVariable, {
                       ...sharedVariable,
-                      value: newValue,
+                      value: [newValue],
                     });
                   }
                 } else {
@@ -824,7 +816,7 @@ Consider using Dyn(...) for dynamic dispatch if you need to reassign to differen
                   // Update only this variable
                   env = updateExistingVariable(env, variable, {
                     ...variable,
-                    value: newValue,
+                    value: [newValue],
                   });
                 }
               }
@@ -848,7 +840,7 @@ Consider using Dyn(...) for dynamic dispatch if you need to reassign to differen
                 // Update the variable in the environment
                 env = updateExistingVariable(env, variable, {
                   ...variable,
-                  value: newValue,
+                  value: [newValue],
                 });
               }
             }
@@ -881,7 +873,7 @@ Consider using Dyn(...) for dynamic dispatch if you need to reassign to differen
                   // Value semantics - only update the specific variable
                   env = updateExistingVariable(env, variable, {
                     ...variable,
-                    value: newValue,
+                    value: [newValue],
                   });
                 }
               }
@@ -891,6 +883,36 @@ Consider using Dyn(...) for dynamic dispatch if you need to reassign to differen
       }
     }
 
+    // Handle compile-time pointer dereference assignment (y.* = value)
+    // Check if the LHS expression has a ptrTargetValue (set by property_access.ts)
+    const ptrTargetValue = (evaluatedLhs.$ as { ptrTargetValue?: [Value] })
+      .ptrTargetValue;
+    const ptrTargetIndex =
+      (evaluatedLhs.$ as { ptrTargetIndex?: number }).ptrTargetIndex ?? 0;
+    if (ptrTargetValue && rhs.$?.value) {
+      // Update the value - if targetValue[0] is an ArrayValue, update its element
+      // Otherwise, update targetValue[0] directly
+      const target = ptrTargetValue[0];
+      if (isArrayValue(target)) {
+        target.elements[ptrTargetIndex] = rhs.$.value;
+      } else {
+        ptrTargetValue[0] = rhs.$.value;
+      }
+      // Both LHS (pointer dereference) and RHS are compile-time known,
+      // so this assignment should not generate any runtime code
+      isCompileTimeOnlyAssignment = true;
+    }
+
+    // Handle compile-time array/slice element assignment (arr(0) = value or s(0) = value)
+    // Check if the LHS expression has an arrayElementRef (set by function.ts for array/slice indexing)
+    const arrayElementRef = evaluatedLhs.$.arrayElementRef;
+    if (arrayElementRef && rhs.$?.value) {
+      // Update the element in the source array directly
+      arrayElementRef.arrayValue.elements[arrayElementRef.index] = rhs.$.value;
+      // Both LHS (array element) and RHS are compile-time known
+      isCompileTimeOnlyAssignment = true;
+    }
+
     // Attach the updated env to expr
     expr.$ = {
       // NOTE: This should return the original value of lhs
@@ -898,10 +920,14 @@ Consider using Dyn(...) for dynamic dispatch if you need to reassign to differen
       value: evaluatedLhs.$.value,
       type: evaluatedLhs.$.type,
       pathCollection: [],
+      isCompileTimeOnlyAssignment,
     };
 
     // This temp variable is used to hold the old value of lhs
-    attachTempVariableToExpr(expr, true);
+    // Skip attaching temp variable for compile-time only assignments
+    if (!isCompileTimeOnlyAssignment) {
+      attachTempVariableToExpr(expr, true);
+    }
 
     // Update the lhs with the new value
     // Let's not set evaluatedLhs.$ as it is causing problem in C codegen.
