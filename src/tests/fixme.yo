@@ -1,60 +1,19 @@
 main :: (fn() -> unit) {
   x := Box(i32)(99);
-
-  // This doesn't have memory leak:
-  /*
-  cond(
-    x.can_isolate() =>
-      Option(Iso(Box(i32))).Some(Iso(Box(i32))(x)),
-    true => {
-      unsafe.drop(x);
-      Option(Iso(Box(i32))).None
-    }
-  );
-  */
-
-  begin(
-    BoxI32 :: typeof(x),
-    
-    // ====== PART 1 ======
-    // println(((BoxI32 <: Isolation).can_isolate)(x)),
-    //  It prints true ^
-    // (Type.contains_rc_type)(BoxI32),
-    //  This is also true ^
-    value := cond(
-      (Type.contains_rc_type)(BoxI32) =>
-        cond(
-          ((BoxI32 <: Isolation).can_isolate)(x) => 
-            (Option(Iso(BoxI32)).Some)(Iso(BoxI32)(x)), 
-          true => 
-            begin(
-              (unsafe.drop)(x), 
-              (Option(Iso(BoxI32)).None))
-        ), 
-      true =>
-        begin(
-          compt_assert(false, "Cannot isolate value type that does not contain Rc type"),
-          (Option(Iso(BoxI32)).Some)(Iso(BoxI32)(x))
-        )
-    ),
-    
-    // ====== END PART 1 ======
-
-    /*
-    // ====== PART 2 ======
-        cond(
-          ((BoxI32 <: Isolation).can_isolate)(x) => 
-            (Option(Iso(BoxI32)).Some)(Iso(BoxI32)(x)), 
-          true => 
-            begin(
-              (unsafe.drop)(x), 
-              (Option(Iso(BoxI32)).None))
-        ),
-    // ====== END PART 2 ======
-    */
-    ()
+  
+  // Create a Result where the match condition is known at compile time
+  result := Result(Box(i32), i32).Ok(x);
+  
+  // This should NOT cause double-drop
+  value := match(result,
+    .Ok(v) => {
+      output := Iso(Box(i32))(v);
+      compt_expect_error(w := v, "use of moved value: 'v'");
+      output
+    },
+    .Err(_) => Iso(Box(i32))(Box(i32)(0))
   );
   
-  // ^(x);
+  ()
 };
 export main;

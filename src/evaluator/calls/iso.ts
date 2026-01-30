@@ -6,7 +6,7 @@ import {
   FnCallExpr,
   setExprAsConsumed,
 } from "../../expr";
-import { createIsoType, IsoType } from "../../types";
+import { canTypeFormRcCycle, createIsoType, IsoType } from "../../types";
 import { createTypeValue, isTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
@@ -130,6 +130,20 @@ export function evaluateIsoValueCall({
     if (variables.length > 0) {
       const variable = variables[variables.length - 1]!;
 
+      if (canTypeFormRcCycle(variable.type)) {
+        throw formatErrorMessage({
+          token: argExpr.token,
+          errorMessage: `Cannot isolate variable ${variableName} because its type may form RC cycles.`,
+        });
+      }
+
+      if (!variable.isOwningTheRcValue) {
+        throw formatErrorMessage({
+          token: argExpr.token,
+          errorMessage: `Cannot isolate variable ${variableName} because it does not own its RC value.`,
+        });
+      }
+
       // Check if there are other variables that own the same GC value
       // by looking for variables with isOwningTheSameRcValueAs pointing to this variable
       const allVariables = env.frames.flatMap((frame) => frame.variables);
@@ -146,6 +160,11 @@ export function evaluateIsoValueCall({
 Iso requires unique ownership (no aliases). Drop other aliases first.`,
         });
       }
+    } else {
+      throw formatErrorMessage({
+        token: argExpr.token,
+        errorMessage: `Variable ${variableName} not found in the environment.`,
+      });
     }
   }
 

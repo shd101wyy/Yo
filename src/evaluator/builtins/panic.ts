@@ -2,6 +2,7 @@ import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import { FnCallExpr } from "../../expr";
 import { isComptStringType } from "../../types";
+import { VUnit } from "../../unit-value";
 import { isComptStringValue, isUnknownValue } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
@@ -16,10 +17,13 @@ export function evaluatePanic({
   context: EvaluatorContext;
 }): FnCallExpr {
   // Check if panic is being called inside a function context
-  if (context.isEvaluatingFunctionBodyOrAsyncBlock?.kind !== "function-body") {
+  if (
+    context.isEvaluatingFunctionBodyOrAsyncBlock?.kind !== "function-body" &&
+    context.isEvaluatingFunctionBodyOrAsyncBlock?.kind !== "test-block"
+  ) {
     throw formatErrorMessage({
       token: expr.token,
-      errorMessage: `panic() can only be called inside a function body`,
+      errorMessage: `panic() can only be called inside a function body or test block`,
     });
   }
 
@@ -34,7 +38,9 @@ export function evaluatePanic({
 
   // Get the return type from the function context
   const functionReturnType =
-    context.isEvaluatingFunctionBodyOrAsyncBlock.type.return.type;
+    context.isEvaluatingFunctionBodyOrAsyncBlock.kind === "function-body"
+      ? context.isEvaluatingFunctionBodyOrAsyncBlock.type.return.type
+      : VUnit.type;
 
   // If there's an argument, evaluate it and use as the panic message
   if (expr.args.length > 0) {
