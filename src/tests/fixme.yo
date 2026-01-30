@@ -1,13 +1,34 @@
-import "std/fmt/to_string";
+// Simplified test case for Option.is_some
+MyOpt :: (fn(compt(T) : Type) -> compt(Type))
+  enum(
+    None,
+    Some(value: T),
 
-add :: (fn(x : i32, y : i32) -> i32) {
-  return x + y;
+    is_some :: (fn(self : Self) -> bool)(
+      match(self,
+        .Some(_) => true,
+        .None => false
+      )
+    )
+  )
+;
+
+
+factorial :: (fn(x : i32) -> i32) {
+  factorial_acc :: (fn(x2 : i32, acc : i32) -> i32) {
+    return cond(
+      (x2 < 1) => acc,
+      true => recur(x2 - 1, acc * x2)
+    );
+  };
+  return factorial_acc(x, 1);
 };
+
+compt_factorial :: compt_fn(factorial);
+
+result :: compt_factorial(12); // This line is causing an error.
 
 main :: (fn() -> unit) {
-  // ((1).to_string() + (3 + 4).to_string()); // < Works
-  // ((1 + 2).to_string() + (3).to_string()); // < Works
-  ((1 + 2).to_string() + (3 + 4).to_string()); // Doesn't work
+  opt := MyOpt(i32).Some(42);
+  opt.is_some();
 };
-
-export(main);

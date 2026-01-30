@@ -248,6 +248,12 @@ Please consider adding "compt"  modifier to the field label.`,
       context: {
         ...context,
         expectedType: expectedType,
+        // Don't propagate forceCompileTimeBindings when evaluating type field values.
+        // The field value itself is compile-time (it's a constant method/value),
+        // but its internal parameters/body should not be forced to compile-time.
+        // For example, `is_some :: (fn(self: Self) -> bool)(...)` - the `self` parameter
+        // should be a runtime parameter, not compile-time.
+        forceCompileTimeBindings: undefined,
       },
     });
     if (!evaluatedAssignedValueExpr.$) {

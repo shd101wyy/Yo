@@ -188,7 +188,9 @@ export function evaluateComptFunctionCall({
         // Propagate SelfType from function type if available
         SelfType: functionType.SelfType ?? context.SelfType,
 
-        // NOTE: Don't set forceCompileTimeBindings here!
+        // Force compile-time bindings for CTFE function execution.
+        // This allows `:=` bindings inside the function body to produce compile-time values.
+        forceCompileTimeBindings: true,
       },
       variablesToAdd: [],
     });
