@@ -261,9 +261,10 @@ export function evaluateDrop({
     // This could happen during function definition validation
     // In that case, we skip generating the drop call here
     else if (isSomeType(concreteType) && !typeImplementsFuture(concreteType)) {
+      env = setExprAsConsumed(evaluatedArgExpr, env, true);
       expr.$ = {
         env,
-        type: evaluatedArgExpr.$.type,
+        type: VUnit.type,
         value: undefined,
         pathCollection: [],
       };
@@ -329,7 +330,7 @@ export function evaluateDrop({
     expr.$ = {
       env,
       type: VUnit.type,
-      value: VUnit,
+      value: undefined,
       pathCollection: [],
     };
     return expr;

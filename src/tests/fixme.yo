@@ -1,34 +1,60 @@
-// Simplified test case for Option.is_some
-MyOpt :: (fn(compt(T) : Type) -> compt(Type))
-  enum(
-    None,
-    Some(value: T),
-
-    is_some :: (fn(self : Self) -> bool)(
-      match(self,
-        .Some(_) => true,
-        .None => false
-      )
-    )
-  )
-;
-
-
-factorial :: (fn(x : i32) -> i32) {
-  factorial_acc :: (fn(x2 : i32, acc : i32) -> i32) {
-    return cond(
-      (x2 < 1) => acc,
-      true => recur(x2 - 1, acc * x2)
-    );
-  };
-  return factorial_acc(x, 1);
-};
-
-compt_factorial :: compt_fn(factorial);
-
-result :: compt_factorial(12); // This line is causing an error.
-
 main :: (fn() -> unit) {
-  opt := MyOpt(i32).Some(42);
-  opt.is_some();
+  x := Box(i32)(99);
+
+  // This doesn't have memory leak:
+  /*
+  cond(
+    x.can_isolate() =>
+      Option(Iso(Box(i32))).Some(Iso(Box(i32))(x)),
+    true => {
+      unsafe.drop(x);
+      Option(Iso(Box(i32))).None
+    }
+  );
+  */
+
+  begin(
+    BoxI32 :: typeof(x),
+    
+    // ====== PART 1 ======
+    // println(((BoxI32 <: Isolation).can_isolate)(x)),
+    //  It prints true ^
+    // (Type.contains_rc_type)(BoxI32),
+    //  This is also true ^
+    value := cond(
+      (Type.contains_rc_type)(BoxI32) =>
+        cond(
+          ((BoxI32 <: Isolation).can_isolate)(x) => 
+            (Option(Iso(BoxI32)).Some)(Iso(BoxI32)(x)), 
+          true => 
+            begin(
+              (unsafe.drop)(x), 
+              (Option(Iso(BoxI32)).None))
+        ), 
+      true =>
+        begin(
+          compt_assert(false, "Cannot isolate value type that does not contain Rc type"),
+          (Option(Iso(BoxI32)).Some)(Iso(BoxI32)(x))
+        )
+    ),
+    
+    // ====== END PART 1 ======
+
+    /*
+    // ====== PART 2 ======
+        cond(
+          ((BoxI32 <: Isolation).can_isolate)(x) => 
+            (Option(Iso(BoxI32)).Some)(Iso(BoxI32)(x)), 
+          true => 
+            begin(
+              (unsafe.drop)(x), 
+              (Option(Iso(BoxI32)).None))
+        ),
+    // ====== END PART 2 ======
+    */
+    ()
+  );
+  
+  // ^(x);
 };
+export main;

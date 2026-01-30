@@ -250,8 +250,17 @@ export function evaluateCond({
         type: context.expectedType?.type ?? valueType.type,
         value: value,
         pathCollection: [],
+        // Propagate the inner body's variable name if it exists.
+        // This avoids creating an extra temp variable which would cause
+        // double-drop when the value type contains RC fields.
+        variableName: evaluatedCaseBodyExpr.$.variableName,
       };
-      attachTempVariableToExpr(expr, true);
+
+      // Only attach a new temp variable if the inner body doesn't have one.
+      // This handles cases where the result is assigned to a variable (e.g., `value := cond(...)`)
+      if (!evaluatedCaseBodyExpr.$.variableName) {
+        attachTempVariableToExpr(expr, true);
+      }
 
       return expr;
     }

@@ -29,12 +29,6 @@ export function generateCondExpression(
     const valueType = expr.$.type;
     const isUnit = valueType && isUnitType(valueType);
 
-    // For unit types, don't declare a temporary variable
-    if (!isUnit && tempVar) {
-      const varType = getTypeString(valueType, context);
-      context.emitter.emitLine(`${indent}${varType} ${tempVar};`);
-    }
-
     // Generate if-else chain for each condition => value pair
     // Strategy:
     // - If all conditions before a compile-time true are compile-time false, just generate the value directly
@@ -76,6 +70,14 @@ export function generateCondExpression(
           canOptimizeToDirect = true;
         }
       }
+    }
+
+    // For unit types, don't declare a temporary variable
+    // Also skip declaration when optimizing to direct (compile-time known condition)
+    // because the inner expression already has its temp variable declared
+    if (!isUnit && tempVar && !canOptimizeToDirect) {
+      const varType = getTypeString(valueType, context);
+      context.emitter.emitLine(`${indent}${varType} ${tempVar};`);
     }
 
     // If we can optimize to direct generation, just generate the value expression
