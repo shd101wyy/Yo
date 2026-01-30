@@ -1,0 +1,299 @@
+// std/io.yo - Low-level async I/O primitives
+//
+// This module provides low-level async I/O operations using io_uring on Linux.
+// For higher-level file operations, use std/fs.yo instead.
+
+{ String } :: import "./string";
+{ ToString } :: import "./fmt";
+
+// ============================================================================
+// Constants
+// ============================================================================
+
+// AT_FDCWD - Use current working directory for *at() functions
+AT_FDCWD :: i32(-100);
+
+// Flags for unlinkat (AT_REMOVEDIR)
+AT_REMOVEDIR :: i32(0x200);
+
+// Flags for statx
+AT_EMPTY_PATH :: i32(0x1000);
+AT_SYMLINK_NOFOLLOW :: i32(0x100);
+AT_STATX_SYNC_AS_STAT :: i32(0x0000);
+
+// STATX_BASIC_STATS - request basic stats (mode, nlink, uid, gid, ino, size, blocks, times)
+STATX_BASIC_STATS :: u32(0x000007ff);
+
+// File mode bits (S_IF* and S_I* from sys/stat.h)
+S_IFMT   :: u32(0o170000);
+S_IFSOCK :: u32(0o140000);
+S_IFLNK  :: u32(0o120000);
+S_IFREG  :: u32(0o100000);
+S_IFBLK  :: u32(0o060000);
+S_IFDIR  :: u32(0o040000);
+S_IFCHR  :: u32(0o020000);
+S_IFIFO  :: u32(0o010000);
+
+// Permission bits
+S_IRWXU :: u32(0o0700);
+S_IRUSR :: u32(0o0400);
+S_IWUSR :: u32(0o0200);
+S_IXUSR :: u32(0o0100);
+S_IRWXG :: u32(0o0070);
+S_IRGRP :: u32(0o0040);
+S_IWGRP :: u32(0o0020);
+S_IXGRP :: u32(0o0010);
+S_IRWXO :: u32(0o0007);
+S_IROTH :: u32(0o0004);
+S_IWOTH :: u32(0o0002);
+S_IXOTH :: u32(0o0001);
+
+// Default permissions
+DEFAULT_FILE_MODE :: u32(0o644);
+DEFAULT_DIR_MODE  :: u32(0o755);
+
+// Open flags (from fcntl.h)
+O_RDONLY   :: i32(0o0);
+O_WRONLY   :: i32(0o1);
+O_RDWR     :: i32(0o2);
+O_CREAT    :: i32(0o100);
+O_EXCL     :: i32(0o200);
+O_TRUNC    :: i32(0o1000);
+O_APPEND   :: i32(0o2000);
+O_NONBLOCK :: i32(0o4000);
+O_CLOEXEC  :: i32(0o2000000);
+
+// ============================================================================
+// Extern type for I/O Future
+// ============================================================================
+
+extern "Yo",
+  yo_io_future_t : Type
+;
+
+// I/O Future type - opaque handle to C future struct
+IOFuture :: Impl(Concrete(yo_io_future_t), Future(i32));
+
+// ============================================================================
+// Extern C runtime functions
+// ============================================================================
+
+extern "Yo",
+  __yo_async_read_start : (fn(fd: i32, buffer: *(u8), size: u32, offset: u64) -> IOFuture),
+  __yo_async_write_start : (fn(fd: i32, buffer: *(u8), size: u32, offset: u64) -> IOFuture),
+  __yo_async_openat_start : (fn(dirfd: i32, path: *(u8), flags: i32, mode: i32) -> IOFuture),
+  __yo_async_close_start : (fn(fd: i32) -> IOFuture),
+  __yo_async_statx_start : (fn(dirfd: i32, path: *(u8), flags: i32, mask: u32, statxbuf: *(u8)) -> IOFuture),
+  __yo_async_mkdirat_start : (fn(dirfd: i32, path: *(u8), mode: i32) -> IOFuture),
+  __yo_async_unlinkat_start : (fn(dirfd: i32, path: *(u8), flags: i32) -> IOFuture),
+  __yo_async_renameat_start : (fn(olddirfd: i32, oldpath: *(u8), newdirfd: i32, newpath: *(u8)) -> IOFuture),
+  __yo_async_symlinkat_start : (fn(target: *(u8), newdirfd: i32, linkpath: *(u8)) -> IOFuture),
+  __yo_async_linkat_start : (fn(olddirfd: i32, oldpath: *(u8), newdirfd: i32, newpath: *(u8), flags: i32) -> IOFuture),
+  __yo_async_fsync_start : (fn(fd: i32) -> IOFuture),
+  __yo_async_fdatasync_start : (fn(fd: i32) -> IOFuture),
+  __yo_async_ftruncate_start : (fn(fd: i32, length: i64) -> IOFuture),
+  __yo_file_open : (fn(path: *(u8), flags: i32, mode: i32) -> i32),
+  __yo_file_close : (fn(fd: i32) -> unit),
+  __yo_file_size : (fn(fd: i32) -> i64),
+  __yo_statx_buf_size : (fn() -> usize),
+  __yo_statx_size : (fn(statxbuf: *(u8)) -> i64),
+  __yo_statx_mode : (fn(statxbuf: *(u8)) -> u32),
+  __yo_statx_mtime_sec : (fn(statxbuf: *(u8)) -> i64),
+  __yo_statx_mtime_nsec : (fn(statxbuf: *(u8)) -> u32),
+  __yo_statx_atime_sec : (fn(statxbuf: *(u8)) -> i64),
+  __yo_statx_atime_nsec : (fn(statxbuf: *(u8)) -> u32),
+  __yo_statx_ctime_sec : (fn(statxbuf: *(u8)) -> i64),
+  __yo_statx_ctime_nsec : (fn(statxbuf: *(u8)) -> u32),
+  __yo_statx_btime_sec : (fn(statxbuf: *(u8)) -> i64),
+  __yo_statx_btime_nsec : (fn(statxbuf: *(u8)) -> u32),
+  __yo_statx_uid : (fn(statxbuf: *(u8)) -> u32),
+  __yo_statx_gid : (fn(statxbuf: *(u8)) -> u32),
+  __yo_statx_ino : (fn(statxbuf: *(u8)) -> u64),
+  __yo_statx_dev_major : (fn(statxbuf: *(u8)) -> u64),
+  __yo_statx_dev_minor : (fn(statxbuf: *(u8)) -> u64),
+  __yo_statx_nlink : (fn(statxbuf: *(u8)) -> u64),
+  __yo_statx_blksize : (fn(statxbuf: *(u8)) -> u64),
+  __yo_statx_blocks : (fn(statxbuf: *(u8)) -> u64)
+;
+
+// ============================================================================
+// IOError - I/O error type
+// ============================================================================
+
+IOError :: enum(
+  NotFound,
+  PermissionDenied,
+  AlreadyExists,
+  NotADirectory,
+  IsADirectory,
+  DirectoryNotEmpty,
+  BrokenPipe,
+  WouldBlock,
+  InvalidInput,
+  Interrupted,
+  TooManyOpenFiles,
+  FileTooLarge,
+  NoSpace,
+  ReadOnlyFilesystem,
+  CrossDeviceLink,
+  TooManyLinks,
+  NameTooLong,
+  NotSupported,
+  TimedOut,
+  Busy,
+  Other(code: i32),
+
+  from_errno :: (fn(errno: i32) -> Self)(
+    cond(
+      (errno == i32(2)) => .NotFound,
+      ((errno == i32(1)) || (errno == i32(13))) => .PermissionDenied,
+      (errno == i32(17)) => .AlreadyExists,
+      (errno == i32(20)) => .NotADirectory,
+      (errno == i32(21)) => .IsADirectory,
+      (errno == i32(39)) => .DirectoryNotEmpty,
+      (errno == i32(32)) => .BrokenPipe,
+      ((errno == i32(11)) || (errno == i32(35))) => .WouldBlock,
+      (errno == i32(22)) => .InvalidInput,
+      (errno == i32(4)) => .Interrupted,
+      ((errno == i32(24)) || (errno == i32(23))) => .TooManyOpenFiles,
+      (errno == i32(27)) => .FileTooLarge,
+      (errno == i32(28)) => .NoSpace,
+      (errno == i32(30)) => .ReadOnlyFilesystem,
+      (errno == i32(18)) => .CrossDeviceLink,
+      (errno == i32(31)) => .TooManyLinks,
+      (errno == i32(36)) => .NameTooLong,
+      ((errno == i32(95)) || (errno == i32(122))) => .NotSupported,
+      (errno == i32(110)) => .TimedOut,
+      (errno == i32(16)) => .Busy,
+      true => .Other(errno)
+    )
+  ),
+
+  from_result :: (fn(result: i32) -> Result(i32, Self))(
+    cond(
+      (result >= i32(0)) => .Ok(result),
+      true => .Err(Self.from_errno((i32(0) - result)))
+    )
+  )
+);
+
+impl(IOError, ToString(
+  to_string : (self -> {
+    s := match(self,
+      .NotFound => String.from_cstr("file or directory not found").unwrap(),
+      .PermissionDenied => String.from_cstr("permission denied").unwrap(),
+      .AlreadyExists => String.from_cstr("file or directory already exists").unwrap(),
+      .NotADirectory => String.from_cstr("not a directory").unwrap(),
+      .IsADirectory => String.from_cstr("is a directory").unwrap(),
+      .DirectoryNotEmpty => String.from_cstr("directory not empty").unwrap(),
+      .BrokenPipe => String.from_cstr("broken pipe").unwrap(),
+      .WouldBlock => String.from_cstr("operation would block").unwrap(),
+      .InvalidInput => String.from_cstr("invalid input").unwrap(),
+      .Interrupted => String.from_cstr("operation interrupted").unwrap(),
+      .TooManyOpenFiles => String.from_cstr("too many open files").unwrap(),
+      .FileTooLarge => String.from_cstr("file too large").unwrap(),
+      .NoSpace => String.from_cstr("no space left on device").unwrap(),
+      .ReadOnlyFilesystem => String.from_cstr("read-only filesystem").unwrap(),
+      .CrossDeviceLink => String.from_cstr("cross-device link").unwrap(),
+      .TooManyLinks => String.from_cstr("too many links").unwrap(),
+      .NameTooLong => String.from_cstr("name too long").unwrap(),
+      .NotSupported => String.from_cstr("operation not supported").unwrap(),
+      .TimedOut => String.from_cstr("operation timed out").unwrap(),
+      .Busy => String.from_cstr("resource busy").unwrap(),
+      .Other(errno) => String.from_cstr("I/O error").unwrap()
+    );
+    return s;
+  })
+));
+
+// ============================================================================
+// Statx - File status from async stat operations
+// ============================================================================
+
+Statx :: object(
+  _buf_ptr: *(u8),
+  _buf_size: usize,
+
+  is_file :: (fn(self: Self) -> bool)({
+    mode := __yo_statx_mode(self._buf_ptr);
+    file_type := (mode & S_IFMT);
+    return (file_type == S_IFREG);
+  }),
+
+  is_directory :: (fn(self: Self) -> bool)({
+    mode := __yo_statx_mode(self._buf_ptr);
+    file_type := (mode & S_IFMT);
+    return (file_type == S_IFDIR);
+  }),
+
+  is_symlink :: (fn(self: Self) -> bool)({
+    mode := __yo_statx_mode(self._buf_ptr);
+    file_type := (mode & S_IFMT);
+    return (file_type == S_IFLNK);
+  }),
+
+  size :: (fn(self: Self) -> i64)(
+    __yo_statx_size(self._buf_ptr)
+  ),
+
+  mode :: (fn(self: Self) -> u32)(
+    __yo_statx_mode(self._buf_ptr)
+  ),
+
+  uid :: (fn(self: Self) -> u32)(
+    __yo_statx_uid(self._buf_ptr)
+  ),
+
+  gid :: (fn(self: Self) -> u32)(
+    __yo_statx_gid(self._buf_ptr)
+  ),
+
+  ino :: (fn(self: Self) -> u64)(
+    __yo_statx_ino(self._buf_ptr)
+  ),
+
+  nlink :: (fn(self: Self) -> u64)(
+    __yo_statx_nlink(self._buf_ptr)
+  ),
+
+  mtime_sec :: (fn(self: Self) -> i64)(
+    __yo_statx_mtime_sec(self._buf_ptr)
+  ),
+
+  mtime_nsec :: (fn(self: Self) -> u32)(
+    __yo_statx_mtime_nsec(self._buf_ptr)
+  )
+);
+
+export
+  IOError,
+  IOFuture,
+  Statx,
+  AT_FDCWD,
+  AT_REMOVEDIR,
+  AT_SYMLINK_NOFOLLOW,
+  STATX_BASIC_STATS,
+  S_IFMT, S_IFSOCK, S_IFLNK, S_IFREG, S_IFBLK, S_IFDIR, S_IFCHR, S_IFIFO,
+  S_IRWXU, S_IRUSR, S_IWUSR, S_IXUSR,
+  S_IRWXG, S_IRGRP, S_IWGRP, S_IXGRP,
+  S_IRWXO, S_IROTH, S_IWOTH, S_IXOTH,
+  DEFAULT_FILE_MODE,
+  DEFAULT_DIR_MODE,
+  O_RDONLY, O_WRONLY, O_RDWR, O_CREAT, O_EXCL, O_TRUNC, O_APPEND,
+  __yo_async_read_start,
+  __yo_async_write_start,
+  __yo_async_openat_start,
+  __yo_async_close_start,
+  __yo_async_statx_start,
+  __yo_async_mkdirat_start,
+  __yo_async_unlinkat_start,
+  __yo_async_renameat_start,
+  __yo_async_symlinkat_start,
+  __yo_async_linkat_start,
+  __yo_async_fsync_start,
+  __yo_async_fdatasync_start,
+  __yo_async_ftruncate_start,
+  __yo_file_open,
+  __yo_file_close,
+  __yo_file_size
+;
