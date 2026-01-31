@@ -1,77 +1,14 @@
-open import "std/collections/array_list";
-
-Path :: object(
-  _segments: ArrayList(Box(i32)),
-
-  new :: (fn(path_str: Box(i32)) -> Self)({
-    segments := ArrayList(Box(i32)).new();
-
-    cond(
-      (path_str.* == 1) => {
-        return Self(_segments: segments);
-      },
-      true => {
-        x := 12;
-        16
-      }
-    );
-
-    return Self(_segments: segments);
-  })
+factorial :: (fn(x : i32) -> i32)(
+  cond(
+    (x <= 1) => 1,
+    true => 
+      x * recur(x - 1)
+  )
 );
+comptime_factorial :: comptime_fn(factorial);
 
-Node :: (fn(comptime(T): Type) -> comptime(Type))
-  object(
-    value : T,
-    next : Option(Self),
-    prev : Option(Self)
-  )
-;
 
-LinkedList :: (fn(comptime(T): Type) -> comptime(Type))
-  object(
-    head : Option(Node(T)),
-    tail : Option(Node(T)),
-    length : usize,
 
-    new :: (fn() -> Self)(
-      Self(
-        head: .None,
-        tail: .None,
-        length: usize(0)
-      )
-    ),
-    
-    push_front :: (fn(self: Self, value: T) -> unit)(
-      {
-        new_node := Node(T)(
-          value: value,
-          next: self.head,
-          prev: .None
-        );
-        
-        match(self.head,
-          .None => {
-            self.tail = .Some(new_node);
-          },
-          .Some(old_head) => {
-            old_head.prev = .Some(new_node);
-          }
-        );
-        
-        self.head = .Some(new_node);
-        self.length = (self.length + usize(1));
-      }
-    )
-  )
-;
 
-main :: (fn() -> unit) {
-  Path.new(box(1));
-  Path.new(box(2));
+result :: comptime_factorial(5);
 
-  list := LinkedList(i32).new();
-  list.push_front(i32(42));
-};
-
-export main;
