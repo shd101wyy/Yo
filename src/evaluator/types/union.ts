@@ -19,6 +19,7 @@ import { EvaluatorContext } from "../context";
 import { evaluateTypeField } from "./field";
 import {
   autoDeriveAcyclicForUnionType,
+  autoDeriveRuntimeForUnionType,
   autoDeriveSendForUnionType,
 } from "./utils";
 
@@ -121,6 +122,13 @@ export function evaluateUnionType({
 
   // Auto-derive Acyclic trait if applicable
   env = autoDeriveAcyclicForUnionType({
+    unionType,
+    env,
+    context,
+  });
+
+  // Auto-derive Runtime trait if applicable
+  env = autoDeriveRuntimeForUnionType({
     unionType,
     env,
     context,

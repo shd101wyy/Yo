@@ -35,7 +35,7 @@ syn keyword yoKeyword sizeof alignof typeof gensym consume take drop clone dup q
 syn keyword yoKeyword async await spawn infix infixl infixr
 
 " Type declarations and kinds  
-syn keyword yoTypeName Type Module Trait Self This Dyn Impl Future Concrete Fn FnOnce Sendable Send Acyclic Comptime Runtime Copy Box Promise Array Tuple Expr ComptimeList ExprList Result Impt unit
+syn keyword yoTypeName Type Module Trait Self This Dyn Impl Future Concrete Fn FnOnce Sendable Send Acyclic Comptime Runtime Copy Box Promise Array Slice Tuple Expr ComptimeList ExprList Result Impt unit
 
 " Permissions and self-reference
 syn keyword yoPermission read write own move copy control

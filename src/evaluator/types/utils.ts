@@ -21,6 +21,8 @@ import {
   typeContainsRcType,
   typeContainsSomeType,
   typeImplementsAcyclic,
+  typeImplementsComptime,
+  typeImplementsRuntime,
   typeImplementsSend,
   typeOfType,
   typeToString,
@@ -1185,8 +1187,8 @@ export function autoDeriveAcyclicForStructType({
   context: EvaluatorContext;
 }): Environment {
   if (structType.isReferenceSemantics) {
-    // For object types, check if they can form cycles
-    if (!canTypeFormRcCycle(structType)) {
+    // For object types, check if they can form cycles (pass env for SomeType Acyclic checking)
+    if (!canTypeFormRcCycle(structType, new Set(), env)) {
       env = attachTraitToReceiverType("Acyclic", structType, env, context);
     }
   } else {
@@ -1257,5 +1259,151 @@ export function autoDeriveAcyclicForUnionType({
     env = attachTraitToReceiverType("Acyclic", unionType, env, context);
   }
 
+  return env;
+}
+
+/**
+ * Auto-derive Comptime marker trait for a struct type.
+ *
+ * For struct (value semantics):
+ * - Auto-derive Comptime if all fields implement Comptime.
+ *
+ * For object (reference semantics):
+ * - Auto-derive Comptime if all fields implement Comptime.
+ */
+export function autoDeriveComptimeForStructType({
+  structType,
+  env,
+  context,
+}: {
+  structType: StructType;
+  env: Environment;
+  context: EvaluatorContext;
+}): Environment {
+  // Check if all non-comptime-only fields implement Comptime
+  // (isCompileTimeOnly fields are methods/statics, not data fields)
+  const allFieldsImplementComptime = structType.fields
+    .filter((field) => !field.isCompileTimeOnly)
+    .every((field) => typeImplementsComptime(field.type, env));
+
+  if (allFieldsImplementComptime) {
+    env = attachTraitToReceiverType("Comptime", structType, env, context);
+  }
+
+  return env;
+}
+
+/**
+ * Auto-derive Comptime marker trait for an enum type.
+ *
+ * - Auto-derive Comptime if all variant fields implement Comptime
+ */
+export function autoDeriveComptimeForEnumType({
+  enumType,
+  env,
+  context,
+}: {
+  enumType: EnumType;
+  env: Environment;
+  context: EvaluatorContext;
+}): Environment {
+  // Check if all variant fields implement Comptime
+  // (isCompileTimeOnly fields are methods/statics, not data fields)
+  const allFieldsImplementComptime = enumType.variants.every((variant) => {
+    if (!variant.fields || variant.fields.length === 0) {
+      return true; // Variants without fields are trivially Comptime
+    }
+    return variant.fields
+      .filter((field) => !field.isCompileTimeOnly)
+      .every((field) => typeImplementsComptime(field.type, env));
+  });
+
+  if (allFieldsImplementComptime) {
+    env = attachTraitToReceiverType("Comptime", enumType, env, context);
+  }
+
+  return env;
+}
+
+/**
+ * Auto-derive Runtime marker trait for a struct type.
+ *
+ * For struct (value semantics):
+ * - Auto-derive Runtime if all fields implement Runtime.
+ *
+ * For object (reference semantics):
+ * - Auto-derive Runtime if all fields implement Runtime.
+ */
+export function autoDeriveRuntimeForStructType({
+  structType,
+  env,
+  context,
+}: {
+  structType: StructType;
+  env: Environment;
+  context: EvaluatorContext;
+}): Environment {
+  // Check if all non-comptime-only fields implement Runtime
+  // (isCompileTimeOnly fields are methods/statics, not data fields)
+  const allFieldsImplementRuntime = structType.fields
+    .filter((field) => !field.isCompileTimeOnly)
+    .every((field) => typeImplementsRuntime(field.type, env));
+
+  if (allFieldsImplementRuntime) {
+    env = attachTraitToReceiverType("Runtime", structType, env, context);
+  }
+
+  return env;
+}
+
+/**
+ * Auto-derive Runtime marker trait for an enum type.
+ *
+ * - Auto-derive Runtime if all variant fields implement Runtime
+ */
+export function autoDeriveRuntimeForEnumType({
+  enumType,
+  env,
+  context,
+}: {
+  enumType: EnumType;
+  env: Environment;
+  context: EvaluatorContext;
+}): Environment {
+  // Check if all variant fields implement Runtime
+  // (isCompileTimeOnly fields are methods/statics, not data fields)
+  const allFieldsImplementRuntime = enumType.variants.every((variant) => {
+    if (!variant.fields || variant.fields.length === 0) {
+      return true; // Variants without fields are trivially Runtime
+    }
+    return variant.fields
+      .filter((field) => !field.isCompileTimeOnly)
+      .every((field) => typeImplementsRuntime(field.type, env));
+  });
+
+  if (allFieldsImplementRuntime) {
+    env = attachTraitToReceiverType("Runtime", enumType, env, context);
+  }
+
+  return env;
+}
+
+/**
+ * Auto-derive Runtime marker trait for a union type.
+ *
+ * Union types are always runtime-only (comptime-only fields are forbidden),
+ * so we always attach the Runtime trait.
+ */
+export function autoDeriveRuntimeForUnionType({
+  unionType,
+  env,
+  context,
+}: {
+  unionType: UnionType;
+  env: Environment;
+  context: EvaluatorContext;
+}): Environment {
+  // Union types are always runtime (comptime-only fields are forbidden)
+  env = attachTraitToReceiverType("Runtime", unionType, env, context);
   return env;
 }

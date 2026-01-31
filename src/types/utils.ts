@@ -229,6 +229,60 @@ export function typeImplementsAcyclic(
   });
 }
 
+/**
+ * Check if a type implements the Comptime trait.
+ *
+ * Comptime types can be used at compile-time.
+ * Examples: i32, bool, Type, comptime_int, comptime_float, comptime_string
+ * Non-examples: *(i32), void (runtime-only types)
+ */
+export function typeImplementsComptime(
+  type: Type | undefined,
+  env: Environment
+): boolean {
+  if (!type) {
+    return false;
+  }
+
+  const comptimeTraitType = getTraitTypeFromEnv(env, "Comptime");
+  if (!comptimeTraitType) {
+    return false;
+  }
+
+  return typeImplementsTraitInternal({
+    targetType: type,
+    traitType: comptimeTraitType,
+    env,
+  });
+}
+
+/**
+ * Check if a type implements the Runtime trait.
+ *
+ * Runtime types can be used at runtime.
+ * Examples: i32, bool, *(i32), void
+ * Non-examples: comptime_int, comptime_float, comptime_string, Type (compile-time-only types)
+ */
+export function typeImplementsRuntime(
+  type: Type | undefined,
+  env: Environment
+): boolean {
+  if (!type) {
+    return false;
+  }
+
+  const runtimeTraitType = getTraitTypeFromEnv(env, "Runtime");
+  if (!runtimeTraitType) {
+    return false;
+  }
+
+  return typeImplementsTraitInternal({
+    targetType: type,
+    traitType: runtimeTraitType,
+    env,
+  });
+}
+
 export function typeImplementsFn(
   type: Type | undefined
 ): type is (SomeType | DynType) & { isFn: true } {
@@ -1997,10 +2051,15 @@ Please consider use 'unit' type instead.
  * 2. It references other object types that could reference back to it
  *
  * This uses a depth-first search with cycle detection to avoid infinite recursion.
+ *
+ * @param type The type to check
+ * @param visitedTypes Internal tracking of visited types
+ * @param env Environment for trait checking (used to check if SomeType implements Acyclic)
  */
 export function canTypeFormRcCycle(
   type: Type,
-  visitedTypes = new Set<string>()
+  visitedTypes: Set<string>,
+  env: Environment
 ): boolean {
   if (!isObjectType(type)) {
     return false; // Only objects can form cycles through reference counting
@@ -2016,7 +2075,7 @@ export function canTypeFormRcCycle(
   try {
     // Check all fields in the struct
     for (const field of type.fields) {
-      if (typeCanFormCyclicRcReference(field.type, type, visitedTypes)) {
+      if (typeCanFormCyclicRcReference(field.type, type, visitedTypes, env)) {
         return true;
       }
     }
@@ -2034,7 +2093,8 @@ export function canTypeFormRcCycle(
 function typeCanFormCyclicRcReference(
   type: Type,
   originalRefStruct: StructType,
-  visitedTypes: Set<string>
+  visitedTypes: Set<string>,
+  env: Environment
 ): boolean {
   // If this type is the same as the original object, we have a direct self-reference
   if (isStructType(type) && type.id === originalRefStruct.id) {
@@ -2043,7 +2103,7 @@ function typeCanFormCyclicRcReference(
 
   // If this is a different object, check if it could form cycles with the original
   if (isStructType(type) && type.isReferenceSemantics) {
-    return canTypeFormRcCycle(type, new Set(visitedTypes));
+    return canTypeFormRcCycle(type, new Set(visitedTypes), env);
   }
 
   // Check through enum variants
@@ -2055,7 +2115,8 @@ function typeCanFormCyclicRcReference(
             typeCanFormCyclicRcReference(
               field.type,
               originalRefStruct,
-              visitedTypes
+              visitedTypes,
+              env
             )
           ) {
             return true;
@@ -2066,14 +2127,19 @@ function typeCanFormCyclicRcReference(
   }
 
   if (isSomeType(type)) {
+    // Check if SomeType implements Acyclic
+    if (typeImplementsAcyclic(type, env)) {
+      return false; // SomeType implements Acyclic, so it cannot form cycles
+    }
     if (type.resolvedConcreteType) {
       return typeCanFormCyclicRcReference(
         type.resolvedConcreteType,
         originalRefStruct,
-        visitedTypes
+        visitedTypes,
+        env
       );
     } else {
-      return true; // Be conservative
+      return true; // Be conservative when no resolvedConcreteType
     }
   }
 
@@ -2082,7 +2148,8 @@ function typeCanFormCyclicRcReference(
     return typeCanFormCyclicRcReference(
       type.childType,
       originalRefStruct,
-      visitedTypes
+      visitedTypes,
+      env
     );
   }
 
@@ -2091,7 +2158,8 @@ function typeCanFormCyclicRcReference(
     return typeCanFormCyclicRcReference(
       type.childType,
       originalRefStruct,
-      visitedTypes
+      visitedTypes,
+      env
     );
   }
 
@@ -2102,7 +2170,8 @@ function typeCanFormCyclicRcReference(
         typeCanFormCyclicRcReference(
           field.type,
           originalRefStruct,
-          visitedTypes
+          visitedTypes,
+          env
         )
       ) {
         return true;
@@ -2117,7 +2186,8 @@ function typeCanFormCyclicRcReference(
         typeCanFormCyclicRcReference(
           field.type,
           originalRefStruct,
-          visitedTypes
+          visitedTypes,
+          env
         )
       ) {
         return true;

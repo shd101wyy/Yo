@@ -20,6 +20,8 @@ import {
   addRcFunctionSignaturesToStructType,
   addRcFunctionsToStructType,
   autoDeriveAcyclicForStructType,
+  autoDeriveComptimeForStructType,
+  autoDeriveRuntimeForStructType,
   autoDeriveSendForStructType,
 } from "./utils";
 import { validateDisposeFunction } from "./validation";
@@ -148,6 +150,20 @@ export function evaluateStructType({
 
   // Auto-derive Acyclic trait if applicable
   env = autoDeriveAcyclicForStructType({
+    structType,
+    env,
+    context,
+  });
+
+  // Auto-derive Comptime trait if applicable
+  env = autoDeriveComptimeForStructType({
+    structType,
+    env,
+    context,
+  });
+
+  // Auto-derive Runtime trait if applicable
+  env = autoDeriveRuntimeForStructType({
     structType,
     env,
     context,

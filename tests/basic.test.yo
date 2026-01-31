@@ -342,6 +342,63 @@ test "Test type auto derive Acyclic", {
   comptime_assert(Type.impls(ResultInt, Acyclic) == true);
 };
 
+test "Test type auto derive Comptime", {
+  // Primitive types that can exist at comptime
+  comptime_assert(Type.impls(i32, Comptime));
+  comptime_assert(Type.impls(bool, Comptime));
+  comptime_assert(Type.impls(f64, Comptime));
+
+  // Value structs with comptime-compatible fields are Comptime
+  Point :: struct(x : i32, y : i32);
+  comptime_assert(Type.impls(Point, Comptime) == true);
+
+  // Object types are NOT Comptime (reference-counted, runtime-only)
+  MyBox :: object(v : i32);
+  comptime_assert(Type.impls(MyBox, Comptime) == false);
+
+  // Generic struct: Comptime depends on type parameter
+  GenericPoint :: (fn(comptime(T) : Type) -> comptime(Type))
+    struct(x : T, y : T)
+  ;
+  comptime_assert(Type.impls(GenericPoint(i32), Comptime) == true);
+  comptime_assert(Type.impls(GenericPoint(MyBox), Comptime) == false);
+
+  // Enum types with comptime-compatible fields are Comptime
+  Direction :: enum(North, South, East, West);
+  comptime_assert(Type.impls(Direction, Comptime) == true);
+
+  ResultInt :: enum(Ok(value : i32), Err(error : i32));
+  comptime_assert(Type.impls(ResultInt, Comptime) == true);
+};
+
+test "Test type auto derive Runtime", {
+  // Primitive types that can exist at runtime
+  comptime_assert(Type.impls(i32, Runtime));
+  comptime_assert(Type.impls(bool, Runtime));
+  comptime_assert(Type.impls(f64, Runtime));
+
+  // Value structs with runtime-compatible fields are Runtime
+  Point :: struct(x : i32, y : i32);
+  comptime_assert(Type.impls(Point, Runtime) == true);
+
+  // Object types are Runtime
+  MyBox :: object(v : i32);
+  comptime_assert(Type.impls(MyBox, Runtime) == true);
+
+  // Generic struct: Runtime depends on type parameter
+  GenericPoint :: (fn(comptime(T) : Type) -> comptime(Type))
+    struct(x : T, y : T)
+  ;
+  comptime_assert(Type.impls(GenericPoint(i32), Runtime) == true);
+
+  // Enum types with runtime-compatible fields are Runtime
+  Direction :: enum(North, South, East, West);
+  comptime_assert(Type.impls(Direction, Runtime) == true);
+
+  ResultInt :: enum(Ok(value : i32), Err(error : i32));
+  comptime_assert(Type.impls(ResultInt, Runtime) == true);
+};
+
 test "Test 'struct'", {
   // Struct
   {

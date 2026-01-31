@@ -130,7 +130,7 @@ export function evaluateIsoValueCall({
     if (variables.length > 0) {
       const variable = variables[variables.length - 1]!;
 
-      if (canTypeFormRcCycle(variable.type)) {
+      if (canTypeFormRcCycle(variable.type, new Set(), env)) {
         throw formatErrorMessage({
           token: argExpr.token,
           errorMessage: `Cannot isolate variable ${variableName} because its type may form RC cycles.`,

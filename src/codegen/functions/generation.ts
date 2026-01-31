@@ -1219,7 +1219,7 @@ export function generateRefStructConstructorFunctions(
       });
 
       // Register with GC if this type might participate in cycles
-      if (canTypeFormRcCycle(type)) {
+      if (canTypeFormRcCycle(type, new Set(), type.env)) {
         emitter.emitLine(`  __yo_gc_register(obj);`);
       }
 

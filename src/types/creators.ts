@@ -966,7 +966,9 @@ export function createSomeType(
     isExtern: type.isExtern,
     externName: type.externName,
     recursiveTypeRef,
-    availability: BOTH_AVAILABLE,
+    // SomeType defaults to RUNTIME_ONLY - most generic parameters represent runtime values
+    // If comptime is needed, add T <: Comptime constraint
+    availability: RUNTIME_ONLY,
   };
   trait.receiverType = someType;
 

@@ -269,7 +269,7 @@ export function evaluateYoTypeCanFormRcCycle({
     });
   }
 
-  const flag = canTypeFormRcCycle(typeValue.value);
+  const flag = canTypeFormRcCycle(typeValue.value, new Set(), arg.$.env);
   const value = createBooleanValue(flag);
 
   expr.$ = {

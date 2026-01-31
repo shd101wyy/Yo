@@ -27,6 +27,8 @@ import {
   addRcFunctionSignaturesToEnumType,
   addRcFunctionsToEnumType,
   autoDeriveAcyclicForEnumType,
+  autoDeriveComptimeForEnumType,
+  autoDeriveRuntimeForEnumType,
   autoDeriveSendForEnumType,
 } from "./utils";
 
@@ -370,6 +372,20 @@ export function evaluateEnumType({
 
   // Auto derive Acyclic trait
   env = autoDeriveAcyclicForEnumType({
+    enumType,
+    env,
+    context,
+  });
+
+  // Auto derive Comptime trait
+  env = autoDeriveComptimeForEnumType({
+    enumType,
+    env,
+    context,
+  });
+
+  // Auto derive Runtime trait
+  env = autoDeriveRuntimeForEnumType({
     enumType,
     env,
     context,
