@@ -18,7 +18,7 @@ c_include "<windows.h>",
 
   // SetCurrentDirectoryA - Sets the current directory (ANSI version)
   // Returns nonzero if successful, zero on failure
-  SetCurrentDirectoryA : (fn(lpPathName : ?*(char)) -> BOOL),
+  SetCurrentDirectoryA : (fn(lpPathName : *(char)) -> BOOL),
 
   // WideCharToMultiByte - Converts UTF-16 to UTF-8
   WideCharToMultiByte : (fn(
@@ -31,6 +31,10 @@ c_include "<windows.h>",
     lpDefaultChar : ?*(u8),
     lpUsedDefaultChar : ?*(i32)
   ) -> i32),
+  
+  // _putenv_s - Sets environment variable (Windows-specific)
+  // Returns 0 on success, non-zero on error
+  _putenv_s : (fn(varname : *(char), value_string : *(char)) -> int),
 
   // Code page constants
   CP_UTF8 : u32
@@ -38,4 +42,5 @@ c_include "<windows.h>",
 export GetCurrentDirectoryW;
 export SetCurrentDirectoryA;
 export WideCharToMultiByte;
+export _putenv_s;
 export CP_UTF8;

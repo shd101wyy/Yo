@@ -594,8 +594,42 @@ impl(Path, ToString(
     segments := self._segments;
     sep := String.from("/");
     result := String.new();
+    
+    // Check if first segment is a Windows drive letter (e.g., "C:")
+    has_drive_letter := cond(
+      (segments.len() > usize(0)) => {
+        first_seg_opt := segments.get(usize(0));
+        match(first_seg_opt,
+          .Some(first_seg) =>
+            // Check if it's a drive letter like "C:"
+            cond(
+              (first_seg.len() == usize(2)) => {
+                b0_opt := first_seg._bytes.get(usize(0));
+                b1_opt := first_seg._bytes.get(usize(1));
+                match(b0_opt,
+                  .Some(b0) => match(b1_opt,
+                    .Some(b1) => {
+                      is_letter := (((b0 >= u8(65)) && (b0 <= u8(90))) || ((b0 >= u8(97)) && (b0 <= u8(122))));
+                      is_colon := (b1 == u8(58));
+                      (is_letter && is_colon)
+                    },
+                    .None => false
+                  ),
+                  .None => false
+                )
+              },
+              true => false
+            ),
+          .None => false
+        )
+      },
+      true => false
+    );
+    
+    // For Unix absolute paths, prepend /
+    // For Windows paths with drive letter, don't prepend /
     cond(
-      (self._is_absolute) => {
+      (self._is_absolute && !has_drive_letter) => {
         result = result.concat(sep);
       },
       true => ()
