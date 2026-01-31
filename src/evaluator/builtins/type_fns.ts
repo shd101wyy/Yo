@@ -79,7 +79,7 @@ export function evaluateYoTypeToString({
   expr.$ = {
     env: arg.$.env,
     type: createComptimeStringType(),
-    value: createUnknownValue(createComptimeStringType()), // Will be updated later
+    value: createUnknownValue(createComptimeStringType(), { env: arg.$.env }), // Will be updated later
     pathCollection: [],
     isAccessingProperty: false,
   };
@@ -378,7 +378,7 @@ export function evaluateYoTypeImpls({
     expr.$ = {
       env: traitArg.$.env,
       type: createBooleanType(),
-      value: createUnknownValue(createBooleanType()),
+      value: createUnknownValue(createBooleanType(), { env: traitArg.$.env }),
       pathCollection: [],
       isAccessingProperty: false,
     };

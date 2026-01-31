@@ -434,7 +434,7 @@ comptime(${label}) : ${typeToString(parameterType)}`,
     */
 
   const value = isCompileTimeOnly
-    ? createUnknownValue(parameterType, label)
+    ? createUnknownValue(parameterType, { variableName: label, env })
     : undefined;
 
   // Prohibit void type as parameter type
@@ -495,7 +495,7 @@ use_id :: (fn(forall(T : Type),
     const newValue = assignedValue
       ? assignedValue
       : isCompileTimeOnly
-        ? createUnknownValue(parameterType, label)
+        ? createUnknownValue(parameterType, { variableName: label, env })
         : undefined;
 
     // Check if the new value is also a TypeValue containing a SomeType
@@ -545,7 +545,12 @@ use_id :: (fn(forall(T : Type),
           assignedValue
             ? [assignedValue]
             : isCompileTimeOnly
-              ? [createUnknownValue(parameterType, label)]
+              ? [
+                  createUnknownValue(parameterType, {
+                    variableName: label,
+                    env,
+                  }),
+                ]
               : undefined,
         token: lhsExpr?.token ?? expr.token,
         initializedAtToken: lhsExpr?.token ?? expr.token, // Set as initialized
@@ -657,7 +662,9 @@ function prepareWhereClauseVariables({
       const existingVars = getVariablesFromEnv(env, varName);
       if (existingVars.length === 0) {
         // Variable doesn't exist - create a new SomeType for it
-        const someType = createSomeType(createType0(), varName, {});
+        const someType = createSomeType(createType0(), varName, {
+          env,
+        });
 
         // Add to env so later parameters can reference it
         const typeValue = createTypeValue(someType);
@@ -876,7 +883,7 @@ function parseWhereClauseConstraints({
       } else {
         // Variable doesn't exist - create a new SomeType for it
         // This SomeType starts with RUNTIME_ONLY availability (default for type parameters)
-        someType = createSomeType(createType0(), varName, {});
+        someType = createSomeType(createType0(), varName, { env });
 
         // Add to env so later parameters can reference it
         const typeValue = createTypeValue(someType);
@@ -1389,7 +1396,12 @@ export function evaluateFunctionParameters({
             type: parameterType,
             isCompileTimeOnly: variadicParameter.isCompileTimeOnly,
             value: isCompileTimeOnly
-              ? [createUnknownValue(parameterType, parameterName)]
+              ? [
+                  createUnknownValue(parameterType, {
+                    variableName: parameterName,
+                    env,
+                  }),
+                ]
               : undefined,
             token: labelExpr.token,
             initializedAtToken: labelExpr.token, // Set as initialized
@@ -1406,7 +1418,10 @@ export function evaluateFunctionParameters({
           env,
           type: parameterType,
           value: isCompileTimeOnly
-            ? createUnknownValue(parameterType, parameterName)
+            ? createUnknownValue(parameterType, {
+                variableName: parameterName,
+                env,
+              })
             : undefined,
           pathCollection: [],
         };

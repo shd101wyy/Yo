@@ -198,7 +198,12 @@ Got:      "${paramName}"`,
         name: expectedParam.label,
         type: expectedParam.type,
         isCompileTimeOnly: expectedParam.isCompileTimeOnly,
-        value: [createUnknownValue(expectedParam.type, expectedParam.label)],
+        value: [
+          createUnknownValue(expectedParam.type, {
+            variableName: expectedParam.label,
+            env,
+          }),
+        ],
         token: paramExpr?.token ?? PlaceholderToken,
         initializedAtToken: paramExpr?.token ?? PlaceholderToken,
         consumedAtToken: undefined,
@@ -211,7 +216,10 @@ Got:      "${paramName}"`,
       paramExpr.$ = {
         env: env,
         type: expectedParam.type,
-        value: createUnknownValue(expectedParam.type, expectedParam.label),
+        value: createUnknownValue(expectedParam.type, {
+          variableName: expectedParam.label,
+          env,
+        }),
         pathCollection: [],
       };
     }
@@ -255,7 +263,12 @@ Got:      "${paramName}"`,
         type: expectedParam.type,
         isCompileTimeOnly: expectedParam.isCompileTimeOnly,
         value: expectedParam.isCompileTimeOnly
-          ? [createUnknownValue(expectedParam.type, expectedParam.label)]
+          ? [
+              createUnknownValue(expectedParam.type, {
+                variableName: expectedParam.label,
+                env,
+              }),
+            ]
           : undefined,
         token: paramExpr.token,
         initializedAtToken: paramExpr.token,
@@ -275,7 +288,10 @@ Got:      "${paramName}"`,
       env: env,
       type: expectedParam.type,
       value: expectedParam.isCompileTimeOnly
-        ? createUnknownValue(expectedParam.type, expectedParam.label)
+        ? createUnknownValue(expectedParam.type, {
+            variableName: expectedParam.label,
+            env,
+          })
         : undefined,
       pathCollection: [],
     };

@@ -75,10 +75,10 @@ If you are creating an array value with 1 element, please consider adding a "," 
   if (isLengthUnderscore) {
     // Create an unknown value with a unique variable name for length inference
     const lengthPlaceholderName = `_array_length_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    const unknownLength = createUnknownValue(
-      createUsizeType(),
-      lengthPlaceholderName
-    );
+    const unknownLength = createUnknownValue(createUsizeType(), {
+      variableName: lengthPlaceholderName,
+      env: evaluatedElementTypeExpr.$.env,
+    });
 
     // Add the unknown variable to the environment
     const { env: envWithUnknownVar } = addVariableToEnv({

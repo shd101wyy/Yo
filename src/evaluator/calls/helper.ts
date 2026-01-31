@@ -680,7 +680,10 @@ Got:   ${regularArgsToCheck.length} arguments`,
           type: forallParameter.type,
           isCompileTimeOnly: true,
           value: [
-            createUnknownValue(forallParameter.type, forallParameter.label),
+            createUnknownValue(forallParameter.type, {
+              variableName: forallParameter.label,
+              env: calleeEnv,
+            }),
           ],
           token: forallParameter.exprs.labelExpr.token,
           initializedAtToken: forallParameter.exprs.labelExpr.token, // Set as initialized
@@ -1134,7 +1137,10 @@ Got:   ${typeToString(typeValue.type)}`,
     // We just verify types match and return an UnknownValue.
     // This prevents double execution when checking and then calling.
     if (skipCtfeExecution) {
-      returnValue = createUnknownValue(returnType, functionType.return.label);
+      returnValue = createUnknownValue(returnType, {
+        variableName: functionType.return.label,
+        env: functionType.env,
+      });
     } else if (isFunctionValue(functionValue)) {
       const {
         value: nextReturnValue,
@@ -1171,7 +1177,7 @@ Got:   ${typeToString(typeValue.type)}`,
             const someType = createSomeType(
               returnType as TypeHierarchyType,
               functionType.return.label,
-              { id: someTypeId }
+              { id: someTypeId, env: calleeEnv }
             );
             someType.functionApplication = expr;
             const newReturnType = getValueOfSomeTypeFromEnv(
@@ -1188,7 +1194,10 @@ Got:   ${typeToString(typeValue.type)}`,
           }
         }
       } else {
-        returnValue = createUnknownValue(returnType, functionType.return.label);
+        returnValue = createUnknownValue(returnType, {
+          variableName: functionType.return.label,
+          env: functionType.env,
+        });
       }
     }
   }

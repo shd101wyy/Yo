@@ -76,7 +76,7 @@ export function evaluateYoExprIsAtom({
 
   const booleanValue = isExprValue(exprValue)
     ? createBooleanValue(exprIsAtom(exprValue.value))
-    : createUnknownValue(createBooleanType());
+    : createUnknownValue(createBooleanType(), { env: evaluatedArgExpr.$.env });
 
   expr.$ = {
     env: evaluatedArgExpr.$.env,
@@ -135,7 +135,7 @@ export function evaluateYoExprIsFnCall({
 
   const booleanValue = isExprValue(exprValue)
     ? createBooleanValue(exprIsFunctionCall(exprValue.value))
-    : createUnknownValue(createBooleanType());
+    : createUnknownValue(createBooleanType(), { env: evaluatedArgExpr.$.env });
 
   expr.$ = {
     env: evaluatedArgExpr.$.env,
@@ -195,7 +195,9 @@ export function evaluateYoExprGetCallee({
   expr.$ = {
     env: evaluatedArgExpr.$.env,
     type: createExprType(),
-    value: createUnknownValue(createExprType()), // Will be updated later
+    value: createUnknownValue(createExprType(), {
+      env: evaluatedArgExpr.$.env,
+    }), // Will be updated later
     pathCollection: [],
     isAccessingProperty: false,
   };
@@ -264,7 +266,9 @@ export function evaluateYoExprGetArgs({
   expr.$ = {
     env: evaluatedArgExpr.$.env,
     type: createExprListType(),
-    value: createUnknownValue(createExprListType()), // Will be updated later
+    value: createUnknownValue(createExprListType(), {
+      env: evaluatedArgExpr.$.env,
+    }), // Will be updated later
     pathCollection: [],
     isAccessingProperty: false,
   };
@@ -336,7 +340,9 @@ export function evaluateYoExprToString({
   expr.$ = {
     env: evaluatedArgExpr.$.env,
     type: createComptimeStringType(),
-    value: createUnknownValue(createComptimeStringType()), // Will be updated later
+    value: createUnknownValue(createComptimeStringType(), {
+      env: evaluatedArgExpr.$.env,
+    }), // Will be updated later
     pathCollection: [],
     isAccessingProperty: false,
   };
@@ -442,7 +448,7 @@ export function evaluateYoExprEq({
       )
     );
   } else {
-    value = createUnknownValue(createBooleanType()) as UnknownValue;
+    value = createUnknownValue(createBooleanType(), { env }) as UnknownValue;
   }
 
   expr.$ = {

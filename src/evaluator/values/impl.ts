@@ -1730,7 +1730,10 @@ export function evaluateModuleValue({
       // createUnknownValue handles both cases:
       // - For Type0: creates SomeType wrapped in TypeValue
       // - For other types: creates UnknownValue
-      const unknownOrTypeValue = createUnknownValue(effectiveType, paramName);
+      const unknownOrTypeValue = createUnknownValue(effectiveType, {
+        variableName: paramName,
+        env,
+      });
 
       // Add to environment
       const { env: nextEnv } = addVariableToEnv({

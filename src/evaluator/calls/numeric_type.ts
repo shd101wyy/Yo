@@ -393,10 +393,10 @@ export function tryToConvertToNumericType({
       expr.$ = {
         env,
         type: targetType,
-        value: createUnknownValue(
-          targetType,
-          "comptime_conversion_placeholder"
-        ),
+        value: createUnknownValue(targetType, {
+          variableName: "comptime_conversion_placeholder",
+          env,
+        }),
         pathCollection: [],
       };
       return { expr, env };

@@ -55,7 +55,9 @@ export function evaluateSizeOf({
   const typeSizeInBits = getSizeOfType(typeToCheck);
   let typeSizeValue: UnknownValue | NumberValue;
   if (typeSizeInBits === null) {
-    typeSizeValue = createUnknownValue(createUsizeType()) as UnknownValue;
+    typeSizeValue = createUnknownValue(createUsizeType(), {
+      env,
+    }) as UnknownValue;
   } else {
     typeSizeValue = createNumberValue(
       ValueTag.Usize,

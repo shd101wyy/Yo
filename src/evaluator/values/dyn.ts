@@ -194,6 +194,7 @@ export function evaluateDynValue({
     someType = createSomeType(createType0(), "", {
       requiredTraits: expectedDynType.requiredTraits,
       negativeTraits: expectedDynType.negativeTraits,
+      env,
     });
 
     // Special handling for dyn(box(...)) pattern:

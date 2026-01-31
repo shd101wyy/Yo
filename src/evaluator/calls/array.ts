@@ -345,7 +345,7 @@ export function tryToCallArrayWithArguments({
           callerEnv,
         };
       } else {
-        const value = createUnknownValue(returnType);
+        const value = createUnknownValue(returnType, { env: callerEnv });
         return { value, type: returnType, callerEnv };
       }
     }
@@ -376,7 +376,7 @@ export function tryToCallArrayWithArguments({
         return { value, index, arrayElementRef, type: returnType, callerEnv };
       } else {
         // TODO: Check the index bound?
-        const value = createUnknownValue(returnType);
+        const value = createUnknownValue(returnType, { env: callerEnv });
         return { value, type: returnType, callerEnv };
       }
     }

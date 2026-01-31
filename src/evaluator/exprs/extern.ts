@@ -133,7 +133,8 @@ export function evaluateExtern({
         name: field.label,
         type: field.type,
         value: [
-          field.assignedValue ?? createUnknownValue(field.type, field.label),
+          field.assignedValue ??
+            createUnknownValue(field.type, { variableName: field.label, env }),
         ],
         isCompileTimeOnly: field.isCompileTimeOnly,
         token: field.exprs.expr.token,

@@ -68,7 +68,7 @@ export function evaluateYoComptimeStringFunctions({
       if (isComptimeStringValue(arg.$.value)) {
         value = createComptimeIntValue(BigInt(arg.$.value.value.length));
       } else {
-        value = createUnknownValue(createComptimeIntType());
+        value = createUnknownValue(createComptimeIntType(), { env });
       }
     }
     // to_upper(x)
@@ -78,7 +78,7 @@ export function evaluateYoComptimeStringFunctions({
       if (isComptimeStringValue(arg.$.value)) {
         value = createComptimeStringValue(arg.$.value.value.toUpperCase());
       } else {
-        value = createUnknownValue(createComptimeStringType());
+        value = createUnknownValue(createComptimeStringType(), { env });
       }
     }
     // to_lower(x)
@@ -88,7 +88,7 @@ export function evaluateYoComptimeStringFunctions({
       if (isComptimeStringValue(arg.$.value)) {
         value = createComptimeStringValue(arg.$.value.value.toLowerCase());
       } else {
-        value = createUnknownValue(createComptimeStringType());
+        value = createUnknownValue(createComptimeStringType(), { env });
       }
     } else {
       throw formatErrorMessage({
@@ -208,7 +208,7 @@ export function evaluateYoComptimeStringFunctions({
       // Use JavaScript's slice semantics
       value = createComptimeStringValue(str.slice(start, end));
     } else {
-      value = createUnknownValue(createComptimeStringType());
+      value = createUnknownValue(createComptimeStringType(), { env });
     }
 
     expr.$ = {
@@ -266,7 +266,7 @@ export function evaluateYoComptimeStringFunctions({
       if (isComptimeStringValue(lhsValue) && isComptimeStringValue(rhsValue)) {
         value = createComptimeStringValue(lhsValue.value + rhsValue.value);
       } else {
-        value = createUnknownValue(createComptimeStringType());
+        value = createUnknownValue(createComptimeStringType(), { env });
       }
     }
     // x == y
@@ -276,7 +276,7 @@ export function evaluateYoComptimeStringFunctions({
       if (isComptimeStringValue(lhsValue) && isComptimeStringValue(rhsValue)) {
         value = createBooleanValue(lhsValue.value === rhsValue.value);
       } else {
-        value = createUnknownValue(createBooleanType());
+        value = createUnknownValue(createBooleanType(), { env });
       }
     }
     // x != y
@@ -286,7 +286,7 @@ export function evaluateYoComptimeStringFunctions({
       if (isComptimeStringValue(lhsValue) && isComptimeStringValue(rhsValue)) {
         value = createBooleanValue(lhsValue.value !== rhsValue.value);
       } else {
-        value = createUnknownValue(createBooleanType());
+        value = createUnknownValue(createBooleanType(), { env });
       }
     }
     // x < y (lexicographic comparison)
@@ -296,7 +296,7 @@ export function evaluateYoComptimeStringFunctions({
       if (isComptimeStringValue(lhsValue) && isComptimeStringValue(rhsValue)) {
         value = createBooleanValue(lhsValue.value < rhsValue.value);
       } else {
-        value = createUnknownValue(createBooleanType());
+        value = createUnknownValue(createBooleanType(), { env });
       }
     }
     // x <= y
@@ -306,7 +306,7 @@ export function evaluateYoComptimeStringFunctions({
       if (isComptimeStringValue(lhsValue) && isComptimeStringValue(rhsValue)) {
         value = createBooleanValue(lhsValue.value <= rhsValue.value);
       } else {
-        value = createUnknownValue(createBooleanType());
+        value = createUnknownValue(createBooleanType(), { env });
       }
     }
     // x > y
@@ -316,7 +316,7 @@ export function evaluateYoComptimeStringFunctions({
       if (isComptimeStringValue(lhsValue) && isComptimeStringValue(rhsValue)) {
         value = createBooleanValue(lhsValue.value > rhsValue.value);
       } else {
-        value = createUnknownValue(createBooleanType());
+        value = createUnknownValue(createBooleanType(), { env });
       }
     }
     // x >= y
@@ -326,7 +326,7 @@ export function evaluateYoComptimeStringFunctions({
       if (isComptimeStringValue(lhsValue) && isComptimeStringValue(rhsValue)) {
         value = createBooleanValue(lhsValue.value >= rhsValue.value);
       } else {
-        value = createUnknownValue(createBooleanType());
+        value = createUnknownValue(createBooleanType(), { env });
       }
     } else {
       throw formatErrorMessage({

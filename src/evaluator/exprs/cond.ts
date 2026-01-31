@@ -434,7 +434,7 @@ export function evaluateCond({
         value = undefined;
       } else {
         // All evaluated conditions were not compile-time true, so result is unknown
-        value = createUnknownValue(valueType.type);
+        value = createUnknownValue(valueType.type, { env });
       }
 
       expr.$ = {
@@ -490,7 +490,7 @@ export function evaluateCond({
             isFunctionTypeAndReturnsComptimeValue(
               context.isEvaluatingFunctionBodyOrAsyncBlock.type
             )
-              ? createUnknownValue(returnType)
+              ? createUnknownValue(returnType, { env })
               : undefined,
           pathCollection: [],
           controlFlow: "return",

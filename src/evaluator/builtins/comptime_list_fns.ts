@@ -77,7 +77,9 @@ export function evaluateYoComptimeListCar({
   expr.$ = {
     env: evaluatedArgExpr.$.env,
     type: comptimeListType.childType,
-    value: createUnknownValue(comptimeListType.childType), // Will be updated later
+    value: createUnknownValue(comptimeListType.childType, {
+      env: evaluatedArgExpr.$.env,
+    }), // Will be updated later
     pathCollection: [],
     isAccessingProperty: false,
   };
@@ -151,7 +153,9 @@ export function evaluateYoComptimeListCdr({
   expr.$ = {
     env: evaluatedArgExpr.$.env,
     type: comptimeListType,
-    value: createUnknownValue(comptimeListType), // Will be updated later
+    value: createUnknownValue(comptimeListType, {
+      env: evaluatedArgExpr.$.env,
+    }), // Will be updated later
     pathCollection: [],
     isAccessingProperty: false,
   };
@@ -269,7 +273,7 @@ export function evaluateYoComptimeListCons({
   expr.$ = {
     env: env,
     type: comptimeListType,
-    value: createUnknownValue(comptimeListType), // Will be updated later
+    value: createUnknownValue(comptimeListType, { env }), // Will be updated later
     pathCollection: [],
     isAccessingProperty: false,
   };
@@ -393,7 +397,7 @@ export function evaluateYoComptimeListAppend({
   expr.$ = {
     env: env,
     type: firstComptimeListType,
-    value: createUnknownValue(firstComptimeListType), // Will be updated later
+    value: createUnknownValue(firstComptimeListType, { env }), // Will be updated later
     pathCollection: [],
     isAccessingProperty: false,
   };
@@ -471,7 +475,9 @@ export function evaluateYoComptimeListLength({
   expr.$ = {
     env: evaluatedArgExpr.$.env,
     type: createUsizeType(),
-    value: createUnknownValue(createUsizeType()), // Will be updated later
+    value: createUnknownValue(createUsizeType(), {
+      env: evaluatedArgExpr.$.env,
+    }), // Will be updated later
     pathCollection: [],
     isAccessingProperty: false,
   };

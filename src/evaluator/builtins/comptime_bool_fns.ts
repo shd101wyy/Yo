@@ -61,7 +61,7 @@ export function evaluateYoComptimeBooleanFunctions({
       if (isBooleanValue(arg.$.value)) {
         value = createBooleanValue(!arg.$.value.value);
       } else {
-        value = createUnknownValue(createBooleanType());
+        value = createUnknownValue(createBooleanType(), { env });
       }
     }
     // to_string(x)
@@ -74,7 +74,7 @@ export function evaluateYoComptimeBooleanFunctions({
       if (isBooleanValue(arg.$.value)) {
         value = createComptimeStringValue(arg.$.value.value.toString());
       } else {
-        value = createUnknownValue(createComptimeStringType());
+        value = createUnknownValue(createComptimeStringType(), { env });
       }
     } else {
       throw formatErrorMessage({
@@ -135,7 +135,7 @@ export function evaluateYoComptimeBooleanFunctions({
       if (isBooleanValue(lhsValue) && isBooleanValue(rhsValue)) {
         value = createBooleanValue(lhsValue.value && rhsValue.value);
       } else {
-        value = createUnknownValue(createBooleanType());
+        value = createUnknownValue(createBooleanType(), { env });
       }
     }
     // x || y
@@ -145,7 +145,7 @@ export function evaluateYoComptimeBooleanFunctions({
       if (isBooleanValue(lhsValue) && isBooleanValue(rhsValue)) {
         value = createBooleanValue(lhsValue.value || rhsValue.value);
       } else {
-        value = createUnknownValue(createBooleanType());
+        value = createUnknownValue(createBooleanType(), { env });
       }
     }
     // x == y
@@ -155,7 +155,7 @@ export function evaluateYoComptimeBooleanFunctions({
       if (isBooleanValue(lhsValue) && isBooleanValue(rhsValue)) {
         value = createBooleanValue(lhsValue.value === rhsValue.value);
       } else {
-        value = createUnknownValue(createBooleanType());
+        value = createUnknownValue(createBooleanType(), { env });
       }
     }
     // x != y
@@ -165,7 +165,7 @@ export function evaluateYoComptimeBooleanFunctions({
       if (isBooleanValue(lhsValue) && isBooleanValue(rhsValue)) {
         value = createBooleanValue(lhsValue.value !== rhsValue.value);
       } else {
-        value = createUnknownValue(createBooleanType());
+        value = createUnknownValue(createBooleanType(), { env });
       }
     } else {
       throw formatErrorMessage({

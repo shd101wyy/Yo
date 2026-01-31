@@ -902,7 +902,7 @@ export function createSomeType(
       functionValue: FunctionValue;
       argValues: Value[];
     };
-    env?: Environment;
+    env: Environment;
   }
 ): SomeType {
   if (type.level !== 0) {

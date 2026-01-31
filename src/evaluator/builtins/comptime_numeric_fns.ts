@@ -1,4 +1,4 @@
-import { Environment } from "../../env";
+import { Environment, createEmptyEnv } from "../../env";
 import { formatErrorMessage } from "../../error";
 import { FnCallExpr, exprToString } from "../../expr";
 import { Token } from "../../token";
@@ -75,7 +75,7 @@ function createNumericValue(
 
   // C compatible types return unknown value
   if (isCCompatibleType(type)) {
-    return createUnknownValue(type);
+    return createUnknownValue(type, { env: createEmptyEnv() });
   }
 
   // Handle other numeric types
@@ -233,12 +233,12 @@ function performArithmeticOp(
   const rhs = extractNumericValue(rhsValue);
 
   if (lhs === null || rhs === null) {
-    return createUnknownValue(resultType);
+    return createUnknownValue(resultType, { env: createEmptyEnv() });
   }
 
   const result = createNumericValue(op(lhs, rhs), resultType);
   // For C compatible types, createNumericValue returns undefined (runtime-only)
-  return result ?? createUnknownValue(resultType);
+  return result ?? createUnknownValue(resultType, { env: createEmptyEnv() });
 }
 
 // Generic comparison operation
@@ -251,7 +251,7 @@ function performComparisonOp(
   const rhs = extractNumericValue(rhsValue);
 
   if (lhs === null || rhs === null) {
-    return createUnknownValue(createBooleanType());
+    return createUnknownValue(createBooleanType(), { env: createEmptyEnv() });
   }
 
   // Handle mixed number/bigint comparisons
@@ -273,12 +273,12 @@ function performUnaryOp(
   const num = extractNumericValue(value);
 
   if (num === null) {
-    return createUnknownValue(resultType);
+    return createUnknownValue(resultType, { env: createEmptyEnv() });
   }
 
   const result = createNumericValue(op(num), resultType);
   // For C compatible types, createNumericValue returns undefined (runtime-only)
-  return result ?? createUnknownValue(resultType);
+  return result ?? createUnknownValue(resultType, { env: createEmptyEnv() });
 }
 
 /**
@@ -394,7 +394,7 @@ export function evaluateYoComptimeNumericFunctions({
           return -x;
         });
       } else {
-        value = createUnknownValue(numericType);
+        value = createUnknownValue(numericType, { env: createEmptyEnv() });
       }
     } else if (operation === "bit_not") {
       if (isNumberValue(arg.$.value) || isComptimeIntValue(arg.$.value)) {
@@ -406,10 +406,10 @@ export function evaluateYoComptimeNumericFunctions({
             value = createComptimeIntValue(BigInt(~Math.floor(num)));
           }
         } else {
-          value = createUnknownValue(numericType);
+          value = createUnknownValue(numericType, { env: createEmptyEnv() });
         }
       } else {
-        value = createUnknownValue(numericType);
+        value = createUnknownValue(numericType, { env: createEmptyEnv() });
       }
     } else if (operation === "to_comptime_string") {
       if (isNumberValue(arg.$.value)) {
@@ -417,10 +417,14 @@ export function evaluateYoComptimeNumericFunctions({
         if (num !== null) {
           value = createComptimeStringValue(num.toString());
         } else {
-          value = createUnknownValue(createComptimeStringType());
+          value = createUnknownValue(createComptimeStringType(), {
+            env: createEmptyEnv(),
+          });
         }
       } else {
-        value = createUnknownValue(createComptimeStringType());
+        value = createUnknownValue(createComptimeStringType(), {
+          env: createEmptyEnv(),
+        });
       }
     } else {
       throw formatErrorMessage({
@@ -634,7 +638,7 @@ export function evaluateYoComptimeNumericFunctions({
           );
         }
       } else {
-        value = createUnknownValue(numericType);
+        value = createUnknownValue(numericType, { env: createEmptyEnv() });
       }
       resultType = numericType;
       break;
@@ -653,7 +657,7 @@ export function evaluateYoComptimeNumericFunctions({
           );
         }
       } else {
-        value = createUnknownValue(numericType);
+        value = createUnknownValue(numericType, { env: createEmptyEnv() });
       }
       resultType = numericType;
       break;
@@ -672,7 +676,7 @@ export function evaluateYoComptimeNumericFunctions({
           );
         }
       } else {
-        value = createUnknownValue(numericType);
+        value = createUnknownValue(numericType, { env: createEmptyEnv() });
       }
       resultType = numericType;
       break;
@@ -686,7 +690,7 @@ export function evaluateYoComptimeNumericFunctions({
           typeof rhs === "bigint" ? Number(rhs) : Math.floor(rhs);
         value = createComptimeIntValue(bigA << BigInt(shiftAmount));
       } else {
-        value = createUnknownValue(numericType);
+        value = createUnknownValue(numericType, { env: createEmptyEnv() });
       }
       resultType = numericType;
       break;
@@ -700,7 +704,7 @@ export function evaluateYoComptimeNumericFunctions({
           typeof rhs === "bigint" ? Number(rhs) : Math.floor(rhs);
         value = createComptimeIntValue(bigA >> BigInt(shiftAmount));
       } else {
-        value = createUnknownValue(numericType);
+        value = createUnknownValue(numericType, { env: createEmptyEnv() });
       }
       resultType = numericType;
       break;

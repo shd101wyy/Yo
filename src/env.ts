@@ -679,7 +679,10 @@ export function getTypeTraitMethodsByNameFromEnv(
   if (directMethod && isFunctionType(directMethod.type)) {
     let value: Value | undefined = directMethod.assignedValue;
     if (isUnknownValue(value)) {
-      value = createUnknownValue(directMethod.type, directMethod.label);
+      value = createUnknownValue(directMethod.type, {
+        variableName: directMethod.label,
+        env,
+      });
     }
     methods.push({ type: directMethod.type, value });
   }
@@ -797,7 +800,10 @@ export function getReceiverMethodsByNameFromEnv(
       let value: Value | undefined = undefined;
       if (isFunctionType(method.type)) {
         if (isUnknownValue(traitValue)) {
-          value = createUnknownValue(method.type, method.label);
+          value = createUnknownValue(method.type, {
+            variableName: method.label,
+            env,
+          });
         } else if (isTraitValue(traitValue)) {
           const index = traitType.fields.findIndex(
             (field) => field.label === method.label
@@ -1076,7 +1082,10 @@ export function getReceiverMethodsByNameFromEnv(
     if (directMethod && isFunctionType(directMethod.type)) {
       let value: Value | undefined = directMethod.assignedValue;
       if (isUnknownValue(value)) {
-        value = createUnknownValue(directMethod.type, directMethod.label);
+        value = createUnknownValue(directMethod.type, {
+          variableName: directMethod.label,
+          env,
+        });
       }
       methods.push({ type: directMethod.type, value });
       return; // Found the method, no need to search nested traits
@@ -1102,7 +1111,10 @@ export function getReceiverMethodsByNameFromEnv(
     if (directMethod && isFunctionType(directMethod.type)) {
       let value: Value | undefined = directMethod.assignedValue;
       if (isUnknownValue(value)) {
-        value = createUnknownValue(directMethod.type, directMethod.label);
+        value = createUnknownValue(directMethod.type, {
+          variableName: directMethod.label,
+          env,
+        });
       }
       methods.push({ type: directMethod.type, value });
     } else {
@@ -1145,7 +1157,10 @@ export function getReceiverMethodsByNameFromEnv(
     if (directMethod && isFunctionType(directMethod.type)) {
       let value: Value | undefined = directMethod.assignedValue;
       if (isUnknownValue(value)) {
-        value = createUnknownValue(directMethod.type, directMethod.label);
+        value = createUnknownValue(directMethod.type, {
+          variableName: directMethod.label,
+          env,
+        });
       }
       methods.push({ type: directMethod.type, value });
     } else if (directMethod && isModuleType(directMethod.type)) {
@@ -1232,7 +1247,10 @@ export function getReceiverMethodsByNameFromEnv(
         // console.log(`DEBUG: Found direct method ${methodName}`);
         let value: Value | undefined = directMethod.assignedValue;
         if (isUnknownValue(value)) {
-          value = createUnknownValue(directMethod.type, directMethod.label);
+          value = createUnknownValue(directMethod.type, {
+            variableName: directMethod.label,
+            env,
+          });
         }
         methods.push({ type: directMethod.type, value });
       } else {
@@ -1312,7 +1330,11 @@ export function getReceiverMethodsByNameFromEnv(
           directConcreteMethod.assignedValue ||
           createUnknownValue(
             directConcreteMethod.type,
-            directConcreteMethod.label
+
+            {
+              variableName: directConcreteMethod.label,
+              env,
+            }
           );
         methods.push({ type: directConcreteMethod.type, value });
       }
@@ -1376,7 +1398,14 @@ export function getReceiverMethodsByNameFromEnv(
 
           // Create an unknown value since the actual implementation is not known
           // The actual dispatch will happen at runtime based on the concrete type
-          const value = createUnknownValue(specializedMethodType, method.label);
+          const value = createUnknownValue(
+            specializedMethodType,
+
+            {
+              variableName: method.label,
+              env,
+            }
+          );
           methods.push({ type: specializedMethodType, value });
         }
       }
@@ -1443,7 +1472,8 @@ export function getReceiverMethodsByNameFromEnv(
               // Create an unknown value since the actual implementation is not known
               const value = createUnknownValue(
                 specializedMethodType,
-                method.label
+
+                { variableName: method.label, env }
               );
               methods.push({ type: specializedMethodType, value });
             }
@@ -1473,7 +1503,10 @@ export function getReceiverMethodsByNameFromEnv(
           );
           if (method && isFunctionType(method.type)) {
             // Create an unknown value since the actual implementation is not known
-            const value = createUnknownValue(method.type, method.label);
+            const value = createUnknownValue(method.type, {
+              variableName: method.label,
+              env,
+            });
             methods.push({ type: method.type, value });
           }
         }
@@ -1493,7 +1526,10 @@ export function getReceiverMethodsByNameFromEnv(
       // For dyn object's own methods, we can use the assigned value directly
       const value =
         dynMethod.assignedValue ||
-        createUnknownValue(dynMethod.type, dynMethod.label);
+        createUnknownValue(dynMethod.type, {
+          variableName: dynMethod.label,
+          env,
+        });
       methods.push({ type: dynMethod.type, value });
     }
 

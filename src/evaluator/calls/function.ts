@@ -1425,10 +1425,10 @@ ${functionsWithMatchingTypes.map((func) => `${typeToString(func.type)}`).join("\
     expr.$ = {
       env,
       type: returnType,
-      value: createUnknownValue(
-        returnType,
-        "checking_phase_placeholder_" + randomId(env.modulePath)
-      ),
+      value: createUnknownValue(returnType, {
+        variableName: "checking_phase_placeholder_" + randomId(env.modulePath),
+        env,
+      }),
       pathCollection: [],
     };
     return expr;

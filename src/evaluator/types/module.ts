@@ -399,7 +399,9 @@ To avoid circular dependency issues, please explicitly provide the value for thi
     labelExpr.$ = {
       env,
       type: fieldType,
-      value: assignedValue ?? createUnknownValue(fieldType, label),
+      value:
+        assignedValue ??
+        createUnknownValue(fieldType, { variableName: label, env }),
       pathCollection: [],
     };
   }

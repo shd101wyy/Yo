@@ -29,7 +29,9 @@ export function evaluateComptimeAssert({
     expr.$ = {
       env,
       type: returnType,
-      value: isUnitType(returnType) ? VUnit : createUnknownValue(returnType),
+      value: isUnitType(returnType)
+        ? VUnit
+        : createUnknownValue(returnType, { env }),
       pathCollection: [],
     };
     return expr;

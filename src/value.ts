@@ -560,10 +560,17 @@ export function createBooleanValue(value: boolean): BooleanValue {
 
 export function createUnknownValue(
   type: Type,
-  variableName?: string,
-  recursiveTypeRef?: {
-    functionValue: FunctionValue;
-    argValues: Value[];
+  {
+    variableName,
+    recursiveTypeRef,
+    env,
+  }: {
+    variableName?: string;
+    recursiveTypeRef?: {
+      functionValue: FunctionValue;
+      argValues: Value[];
+    };
+    env: Environment;
   }
 ): UnknownValue | TypeValue {
   if (isTypeHierarchyType(type) && type.level === 0) {
@@ -575,7 +582,10 @@ export function createUnknownValue(
     }
 
     // SomeType
-    const someType = createSomeType(type, variableName, { recursiveTypeRef });
+    const someType = createSomeType(type, variableName, {
+      recursiveTypeRef,
+      env,
+    });
     return createTypeValue(someType);
   }
 

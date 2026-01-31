@@ -118,7 +118,9 @@ export function evaluateAndOr({
     if (hasRuntime) {
       resultValue = undefined; // Runtime evaluation needed
     } else {
-      resultValue = createUnknownValue(createBooleanType()); // Only unknowns
+      resultValue = createUnknownValue(createBooleanType(), {
+        env: currentEnv,
+      }); // Only unknowns
     }
   }
 

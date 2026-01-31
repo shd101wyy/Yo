@@ -54,10 +54,10 @@ export function evaluateComptimeFunctionCall({
   // This prevents infinite recursion and allows nested CTFE functions to work.
   if (context.isAnalyzingCtfeCapability) {
     return {
-      value: createUnknownValue(
-        functionType.return.type,
-        "ctfe_analysis_result_" + randomId(callerEnv.modulePath)
-      ),
+      value: createUnknownValue(functionType.return.type, {
+        variableName: "ctfe_analysis_result_" + randomId(callerEnv.modulePath),
+        env: functionType.env,
+      }),
       callerEnv,
       calleeEnv,
     };
@@ -153,12 +153,12 @@ export function evaluateComptimeFunctionCall({
   const tempCache: CalledComptimeFunctionCache = {
     funcId,
     argValues,
-    value: createUnknownValue(
-      functionType.return.type,
-      functionType.return.label,
+    value: createUnknownValue(functionType.return.type, {
+      variableName: functionType.return.label,
       // Store recursive type reference so we can resolve it later
-      { functionValue, argValues }
-    ),
+      recursiveTypeRef: { functionValue, argValues },
+      env: calleeEnv,
+    }),
     env: calleeEnv,
     body: cloneExpr(functionBodyExpr), // NOTE: Clone here is necessary
   };

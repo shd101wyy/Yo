@@ -226,7 +226,7 @@ export function evaluateAsync({
   const finalType: SomeType = createSomeType(
     createType0(),
     "", // Name for the SomeType
-    { requiredTraits: [futureModuleType], negativeTraits: undefined }
+    { requiredTraits: [futureModuleType], negativeTraits: undefined, env }
   );
   finalType.resolvedConcreteType = captureType;
 

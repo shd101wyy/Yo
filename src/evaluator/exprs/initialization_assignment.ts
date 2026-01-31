@@ -278,7 +278,10 @@ ${exprToString(rhs)}`,
       value: isCompileTimeOnly
         ? rhsValue
           ? cloneValue(rhsValue) // preservePointerReferences=true by default
-          : createUnknownValue(lhs.$.type, lhs.token.value)
+          : createUnknownValue(lhs.$.type, {
+              variableName: lhs.token.value,
+              env,
+            })
         : undefined,
       pathCollection: [],
     };

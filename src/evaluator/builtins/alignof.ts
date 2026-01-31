@@ -55,7 +55,9 @@ export function evaluateAlignOf({
   const typeAlign = getAlignmentOfType(typeToCheck);
   let typeAlignValue: UnknownValue | NumberValue;
   if (typeAlign === null) {
-    typeAlignValue = createUnknownValue(createUsizeType()) as UnknownValue;
+    typeAlignValue = createUnknownValue(createUsizeType(), {
+      env,
+    }) as UnknownValue;
   } else {
     typeAlignValue = createNumberValue(
       ValueTag.Usize,

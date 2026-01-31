@@ -76,10 +76,10 @@ export function evaluateRecur({
 
     expr.$ = {
       type: returnType,
-      value: createUnknownValue(
-        returnType,
-        "recur_result_" + randomId(env.modulePath)
-      ),
+      value: createUnknownValue(returnType, {
+        variableName: "recur_result_" + randomId(env.modulePath),
+        env,
+      }),
       env,
       pathCollection: [],
       runtimeArgExprsInOrder,
