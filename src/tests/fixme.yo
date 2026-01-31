@@ -1,29 +1,25 @@
-open import "std/libc/stdio";
-Worker :: import "std/worker";
+open import "std/collections/array_list";
+
+Path :: object(
+  _segments: ArrayList(Box(i32)),
+
+  new :: (fn(path_str: Box(i32)) -> Self)({
+    segments := ArrayList(Box(i32)).new();
+
+    cond(
+      (path_str.* == 1) => {
+        return Self(_segments: segments);
+      },
+      true => ()
+    );
+
+    return Self(_segments: segments);
+  })
+);
 
 main :: (fn() -> unit) {  
-  printf("Starting worker test\n");
-  
-  Worker.set_num_threads(2);
-  
-  printf("About to spawn task\n");
-  Worker.spawn(() => {
-    printf("Task running on worker thread!\n");
-  });
-  
-  printf("Task spawned, waiting...\n");
-  
-  // Loop a bit to let worker run
-  i := 0;
-  while runtime(true),
-    cond(
-      (i >= 10000000) => break,
-      true => {
-        i = (i + 1);
-      }
-    );
-  
-  printf("Done\n");
+  Path.new(box(1));
+  Path.new(box(2));
 };
 
 export main;

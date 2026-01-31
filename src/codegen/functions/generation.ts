@@ -343,7 +343,7 @@ export function generateFunctionBody(
 
     // Set pending deferred drops from the function body begin block
     // These need to be generated when early returning from anywhere inside this function
-    context.pendingDeferredDrops = expr.$?.deferredDropExpressions;
+    context.pendingDeferredDrops = [...(expr.$?.deferredDropExpressions ?? [])];
 
     // Generate all expressions except the last as statements
     let findReturn = false;

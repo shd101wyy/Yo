@@ -122,14 +122,27 @@ function generateDeferredDropExpressions({
   };
 }
 
+/**
+ * Result of collecting dup calls with conservative analysis.
+ * - dupCalls: Map of variable ID to dup call expressions that can be safely optimized
+ * - varsWithPartialBranchDups: Set of variable IDs that have dups in SOME but not ALL branches.
+ *   These variables should NOT have their drops optimized away because on some execution paths
+ *   the dup happens but the drop at the end of scope would be skipped.
+ */
+interface DupCallsResult {
+  dupCalls: Map<string, FnCallExpr[]>;
+  varsWithPartialBranchDups: Set<string>;
+}
+
 function searchRecursively(
   expr: Expr,
-  dupCalls: Map<string, FnCallExpr[]>
+  dupCalls: Map<string, FnCallExpr[]>,
+  varsWithPartialBranchDups: Set<string>
 ): void {
   // Check the captured dup expressions first
   if (expr.$?.deferredDupExpressions) {
     for (const dupExpr of expr.$.deferredDupExpressions) {
-      searchRecursively(dupExpr, dupCalls);
+      searchRecursively(dupExpr, dupCalls, varsWithPartialBranchDups);
     }
   }
 
@@ -182,7 +195,7 @@ function searchRecursively(
     expr: FnCallExpr,
     startIndex: number
   ): void {
-    const branchDupCalls: Map<string, FnCallExpr[]>[] = [];
+    const branchDupCalls: DupCallsResult[] = [];
 
     // Process each statement/pattern which should be a "=>" expression with [condition/pattern, body]
     for (let i = startIndex; i < expr.args.length; i++) {
@@ -192,8 +205,20 @@ function searchRecursively(
         exprIsFunctionCallOf(statement, "=>", 2)
       ) {
         const branchBody = statement.args[1]!; // The body is the second argument
-        const branchDups = collectDupCallsConservatively(branchBody);
-        branchDupCalls.push(branchDups);
+        const branchResult = collectDupCallsConservatively(branchBody);
+        branchDupCalls.push(branchResult);
+      }
+    }
+
+    // Collect all variable IDs that have dups in ANY branch
+    const allVarsWithDups = new Set<string>();
+    for (const branchResult of branchDupCalls) {
+      for (const varId of branchResult.dupCalls.keys()) {
+        allVarsWithDups.add(varId);
+      }
+      // Also include vars with partial branch dups from nested branches
+      for (const varId of branchResult.varsWithPartialBranchDups) {
+        varsWithPartialBranchDups.add(varId);
       }
     }
 
@@ -201,10 +226,9 @@ function searchRecursively(
     // CRITICAL: Since only ONE branch executes at runtime, all branch dup expressions
     // count as ONE runtime dup. We wrap them in an array to mark them as a group.
     if (branchDupCalls.length > 0) {
-      const firstBranchDups = branchDupCalls[0]!;
-      for (const [varName, _firstBranchDupArray] of firstBranchDups) {
-        const isPresentInAllBranches = branchDupCalls.every((branchDups) =>
-          branchDups.has(varName)
+      for (const varId of allVarsWithDups) {
+        const isPresentInAllBranches = branchDupCalls.every((branchResult) =>
+          branchResult.dupCalls.has(varId)
         );
 
         if (isPresentInAllBranches) {
@@ -213,23 +237,29 @@ function searchRecursively(
           // At runtime, only ONE executes (counts as 1 dup), but if we optimize it away,
           // we must remove ALL of them from the AST.
           const allBranchDupExprs: FnCallExpr[] = [];
-          for (const branchDups of branchDupCalls) {
-            const branchDupArray = branchDups.get(varName);
+          for (const branchResult of branchDupCalls) {
+            const branchDupArray = branchResult.dupCalls.get(varId);
             if (branchDupArray && branchDupArray.length > 0) {
               allBranchDupExprs.push(...branchDupArray);
             }
           }
           // Store a special marker (negative index) followed by all the branch expressions.
           // The marker helps us identify this as a branch group that counts as 1 runtime dup.
-          if (!dupCalls.has(varName)) {
-            dupCalls.set(varName, []);
+          if (!dupCalls.has(varId)) {
+            dupCalls.set(varId, []);
           }
           // Use a marker object with a special property to identify branch groups
           const marker = allBranchDupExprs[0]! as FnCallExpr & {
             __branchGroup?: FnCallExpr[];
           };
           marker.__branchGroup = allBranchDupExprs;
-          dupCalls.get(varName)!.push(marker);
+          dupCalls.get(varId)!.push(marker);
+        } else {
+          // Dup is present in SOME but not ALL branches.
+          // This variable should NOT have its drop optimized away because on some
+          // execution paths (like early return), the dup happens but the drop at
+          // the end of scope would be skipped, causing a memory leak.
+          varsWithPartialBranchDups.add(varId);
         }
       }
     }
@@ -251,7 +281,7 @@ function searchRecursively(
   ) {
     // First, search through the scrutinee (first argument)
     if (expr.args[0]) {
-      searchRecursively(expr.args[0], dupCalls);
+      searchRecursively(expr.args[0], dupCalls, varsWithPartialBranchDups);
     }
     // Then handle branches conservatively (only dup calls present in ALL branches)
     handleBranchingExpression(expr, 1); // Skip the first argument (scrutinee) since we already handled it
@@ -260,21 +290,20 @@ function searchRecursively(
 
   // Recursively search in function calls
   if (exprIsFunctionCall(expr)) {
-    searchRecursively(expr.func, dupCalls);
+    searchRecursively(expr.func, dupCalls, varsWithPartialBranchDups);
     for (const arg of expr.args) {
-      searchRecursively(arg, dupCalls);
+      searchRecursively(arg, dupCalls, varsWithPartialBranchDups);
     }
   }
 }
 
 // Function to recursively collect dup calls with conservative cross-branch analysis
-function collectDupCallsConservatively(
-  currentExpr: Expr
-): Map<string, FnCallExpr[]> {
+function collectDupCallsConservatively(currentExpr: Expr): DupCallsResult {
   const dupCalls = new Map<string, FnCallExpr[]>();
+  const varsWithPartialBranchDups = new Set<string>();
 
-  searchRecursively(currentExpr, dupCalls);
-  return dupCalls;
+  searchRecursively(currentExpr, dupCalls, varsWithPartialBranchDups);
+  return { dupCalls, varsWithPartialBranchDups };
 }
 
 /**
@@ -818,16 +847,22 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
 
     // Optimization: Collect all dup calls using the existing infrastructure
     const dupCallsByBaseVariable = new Map<string, FnCallExpr[]>();
+    // Track variables that have dups in some but not all branches - these should NOT be optimized
+    const allVarsWithPartialBranchDups = new Set<string>();
 
     // Scan through all expressions in the begin block to collect dup calls
     if (exprIsFunctionCall(expr)) {
       for (const arg of expr.args) {
-        const dupCallsInArg = collectDupCallsConservatively(arg);
-        for (const [variableId, dupCallExprs] of dupCallsInArg) {
+        const dupCallsResult = collectDupCallsConservatively(arg);
+        for (const [variableId, dupCallExprs] of dupCallsResult.dupCalls) {
           if (!dupCallsByBaseVariable.has(variableId)) {
             dupCallsByBaseVariable.set(variableId, []);
           }
           dupCallsByBaseVariable.get(variableId)!.push(...dupCallExprs);
+        }
+        // Merge varsWithPartialBranchDups
+        for (const varId of dupCallsResult.varsWithPartialBranchDups) {
+          allVarsWithPartialBranchDups.add(varId);
         }
       }
     }
@@ -855,7 +890,20 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
         !isObjectType(baseVariable.type) &&
         typeContainsRcType(baseVariable.type);
 
-      if (dupCalls && dupCalls.length > 0 && !isValueTypeWithRCFields) {
+      // Check if this variable has dups in some but not all branches.
+      // This happens when there's an early return in one branch that dups the variable,
+      // but another branch doesn't dup it.
+      // CONSERVATIVE: If partial branch dups exist, don't optimize this variable at all.
+      // The early return branch needs the dup+drop, and optimizing the normal path
+      // would leave the early return without proper cleanup.
+      const hasPartialBranchDups = allVarsWithPartialBranchDups.has(baseId);
+
+      if (
+        dupCalls &&
+        dupCalls.length > 0 &&
+        !isValueTypeWithRCFields &&
+        !hasPartialBranchDups
+      ) {
         // Count how many runtime dups we have.
         // Branch groups (marked with __branchGroup) count as 1 dup each.
         // Regular dups count as 1 dup each.
@@ -898,7 +946,7 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
           // Remove from the list
           dupCalls.shift();
 
-          // Mark the variable as consumed so it won't generate a drop call
+          // Mark the variable as consumed so it won't generate a drop call at end of function
           env = updateExistingVariable(env, variable, {
             ...variable,
             consumedAtToken: lastExpr.token,
@@ -939,28 +987,6 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
     });
     deferredDropExpressions = dropResult.deferredDropExpressions;
     env = dropResult.env;
-
-    // DEBUG: Log deferred drop expressions
-    /// if (deferredDropExpressions) {
-    ///   console.log("\n=== DEBUG: Deferred Drop Expressions ===");
-    ///   for (const dropExpr of deferredDropExpressions) {
-    ///     console.log("Drop expression:", exprToString(dropExpr));
-    ///     if (dropExpr.$?.variableName) {
-    ///       console.log("  Variable name:", dropExpr.$.variableName);
-    ///     }
-    ///     if (exprIsFunctionCall(dropExpr)) {
-    ///       console.log("  Function:", exprToString(dropExpr.func));
-    ///       console.log(
-    ///         "  Args:",
-    ///         dropExpr.args.map((a) => exprToString(a)).join(", ")
-    ///       );
-    ///       if (dropExpr.args[0]?.$?.type) {
-    ///         console.log("  Arg type:", typeToString(dropExpr.args[0].$.type));
-    ///       }
-    ///     }
-    ///   }
-    ///   console.log("=== END DEBUG ===\n");
-    /// }
   }
 
   // Attach deferredDropExpressions to returnExpr if exists
