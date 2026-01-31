@@ -320,10 +320,15 @@ function searchRecursively(
 
         // Add early return branch dups - these are independent and can always be optimized
         // Each early return has its own drop at the return point
+        // Mark them with __isEarlyReturnDup so we know they don't pair with end-of-scope drop
         for (const dupExpr of earlyReturnBranchDups) {
           if (!dupCalls.has(varId)) {
             dupCalls.set(varId, []);
           }
+          // Mark as early return dup
+          (
+            dupExpr as FnCallExpr & { __isEarlyReturnDup?: boolean }
+          ).__isEarlyReturnDup = true;
           dupCalls.get(varId)!.push(dupExpr);
         }
 
@@ -954,7 +959,13 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
           if (!dupCallsByBaseVariable.has(variableId)) {
             dupCallsByBaseVariable.set(variableId, []);
           }
-          dupCallsByBaseVariable.get(variableId)!.push(...dupCallExprs);
+          const existingDups = dupCallsByBaseVariable.get(variableId)!;
+          for (const dupExpr of dupCallExprs) {
+            // Avoid adding the same dup expression twice (can happen when same function body is reused)
+            if (!existingDups.includes(dupExpr)) {
+              existingDups.push(dupExpr);
+            }
+          }
         }
         // Merge varsWithPartialBranchDups
         for (const varId of dupCallsResult.varsWithPartialBranchDups) {
@@ -1001,19 +1012,25 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
         !hasPartialBranchDups
       ) {
         // Count how many runtime dups we have.
-        // Branch groups (marked with __branchGroup) count as 1 dup each.
+        // Branch groups (marked with __branchGroup) count as 1 runtime dup.
         // Regular dups count as 1 dup each.
         let runtimeDupCount = 0;
         const allDupExprsToRemove: FnCallExpr[] = [];
+        const branchGroups: FnCallExpr[][] = [];
 
         for (const dupCallExpr of dupCalls) {
           const marker = dupCallExpr as FnCallExpr & {
             __branchGroup?: FnCallExpr[];
+            __isEarlyReturnDup?: boolean;
           };
-          if (marker.__branchGroup) {
+          if (marker.__isEarlyReturnDup) {
+            // Early return dups are INDEPENDENT - they have their own drop at the return point
+            // They don't count toward runtimeDupCount for the end-of-scope drop
+            allDupExprsToRemove.push(dupCallExpr);
+          } else if (marker.__branchGroup) {
             // This is a branch group - counts as 1 runtime dup
             runtimeDupCount++;
-            allDupExprsToRemove.push(...marker.__branchGroup);
+            branchGroups.push(marker.__branchGroup);
           } else {
             // Regular dup call - counts as 1 runtime dup
             runtimeDupCount++;
@@ -1021,14 +1038,22 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
           }
         }
 
-        // We can optimize: cancel dup/drop pairs
-        // Each runtime dup corresponds to one drop (either from early return via pendingDeferredDrops
-        // or from normal path via deferredDropExpressions).
-        // Since all execution paths are mutually exclusive, we can cancel ALL dups.
-        // Marking the variable as consumed removes the drop from deferredDropExpressions,
-        // which in turn removes it from pendingDeferredDrops (since that's built from deferredDropExpressions).
-        if (runtimeDupCount > 0) {
-          // Remove ALL dup expressions (from all branches and normal path)
+        // We can optimize: cancel ONE dup with ONE drop.
+        // The optimization cancels dup+drop pairs where the dup creates a reference
+        // that is immediately consumed by returning the value (ownership transfer).
+        // We only remove ONE runtime dup to cancel with the ONE drop at end of scope.
+        // Note: Early return dups are always removed (they pair with their own drops).
+        if (runtimeDupCount <= 1) {
+          // Zero or one runtime dup that pairs with end-of-scope drop - can optimize
+          // Zero means only early return dups exist (all independent)
+          // One means one dup pairs with one drop
+          // Add all branch group expressions (they all represent the same runtime dup)
+          for (const group of branchGroups) {
+            for (const dupExpr of group) {
+              dupCallsToRemove.add(dupExpr);
+            }
+          }
+          // Add regular dup expressions (including early return dups)
           for (const dupExpr of allDupExprsToRemove) {
             dupCallsToRemove.add(dupExpr);
           }
@@ -1037,10 +1062,15 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
           dupCalls.length = 0;
 
           // Mark the variable as consumed so it won't generate a drop call at end of function
+          // This handles the end-of-scope drop. Early return drops are handled separately.
           env = updateExistingVariable(env, variable, {
             ...variable,
             consumedAtToken: lastExpr.token,
           });
+        } else {
+          // Multiple runtime dups - can't simply cancel them all with one drop
+          // The variable needs all the dups and the drop
+          variablesActuallyNeedingDrop.push(variable);
         }
       } else {
         // No matching dup call, this variable actually needs drop

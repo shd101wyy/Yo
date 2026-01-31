@@ -20,9 +20,58 @@ Path :: object(
   })
 );
 
-main :: (fn() -> unit) {  
+Node :: (fn(compt(T): Type) -> compt(Type))
+  object(
+    value : T,
+    next : Option(Self),
+    prev : Option(Self)
+  )
+;
+
+LinkedList :: (fn(compt(T): Type) -> compt(Type))
+  object(
+    head : Option(Node(T)),
+    tail : Option(Node(T)),
+    length : usize,
+
+    new :: (fn() -> Self)(
+      Self(
+        head: .None,
+        tail: .None,
+        length: usize(0)
+      )
+    ),
+    
+    push_front :: (fn(self: Self, value: T) -> unit)(
+      {
+        new_node := Node(T)(
+          value: value,
+          next: self.head,
+          prev: .None
+        );
+        
+        match(self.head,
+          .None => {
+            self.tail = .Some(new_node);
+          },
+          .Some(old_head) => {
+            old_head.prev = .Some(new_node);
+          }
+        );
+        
+        self.head = .Some(new_node);
+        self.length = (self.length + usize(1));
+      }
+    )
+  )
+;
+
+main :: (fn() -> unit) {
   Path.new(box(1));
   Path.new(box(2));
+
+  list := LinkedList(i32).new();
+  list.push_front(i32(42));
 };
 
 export main;
