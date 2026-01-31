@@ -184,3 +184,5 @@ While the template string returns `String` type which is utf-8 encoded `object` 
 Yo will try to run CTFE (Compile-Time Function Evaluation) analysis (see cfte-analysis.ts) on function value. Basically it will try to replace all the parameters/return as `compt`, and re-evaluate the function body at compile-time context. If it succeeds, then the function value can be called at compile-time.
 
 Please note if expr.$.value == undefined, it means the value is runtime value. It doesn't mean it's UnknownValue.
+
+Please note you cannot run `./yo-cli compile` on a `*.test.yo` file. You will need to move what you want to test into a separate `.yo` file, then create a `main` function to call the content, and `export main;` at the end of the file, then you can run `./yo-cli compile` on that file.

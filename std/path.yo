@@ -52,14 +52,26 @@ Path :: object(
     segments := ArrayList(String).new();
     is_abs := false;
 
-    // Check if path is absolute (starts with '/')
-    bytes := path_str._bytes;
+    // Handle empty path early
+    cond(
+      (path_str.is_empty()) => {
+        return Self(_segments: segments, _is_absolute: is_abs);
+      },
+      true => ()
+    );
+
+    // Normalize backslashes to forward slashes for cross-platform support
+    normalized := path_str.replace(String.from("\\"), String.from("/"));
+
+    // Check if path is absolute (starts with '/' or '\')
+    bytes := normalized._bytes;
     cond(
       (bytes.len() > usize(0)) => {
         first_byte := bytes.get(usize(0));
         match(first_byte,
           .Some(b) => cond(
-            (b == PATH_SEPARATOR) => {
+            // Unix-style absolute path (starts with /)
+            (b == u8(47)) => {
               is_abs = true;
             },
             true => ()
@@ -70,9 +82,9 @@ Path :: object(
       true => ()
     );
 
-    // Split path by "/" separator
+    // Split path by "/" separator (backslashes already normalized)
     sep := String.from("/");
-    parts := path_str.split(sep);
+    parts := normalized.split(sep);
     
     // Process each part
     i := usize(0);
