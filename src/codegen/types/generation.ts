@@ -111,7 +111,7 @@ typedef enum {
   #define yo_cond_wait(c, m) SleepConditionVariableCS(c, m, INFINITE)
   #define yo_cond_signal(c) WakeConditionVariable(c)
   #define yo_cond_broadcast(c) WakeAllConditionVariable(c)
-  #define yo_thread_create(t, func, arg) (*(t) = (HANDLE)_beginthreadex(NULL, 0, (unsigned (__stdcall*)(void*))func, arg, 0, NULL), *(t) != NULL ? 0 : -1)
+  #define yo_thread_create(t, func, arg) (*(t) = (HANDLE)_beginthreadex(NULL, 0, func, arg, 0, NULL), *(t) != NULL ? 0 : -1)
   #define yo_thread_join(t) (WaitForSingleObject(t, INFINITE), CloseHandle(t), 0)
   #define yo_thread_self() ((uintptr_t)GetCurrentThreadId())
 #elif defined(__linux__) || defined(__APPLE__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__)

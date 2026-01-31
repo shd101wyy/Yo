@@ -1,15 +1,29 @@
-main :: (fn() -> unit) {  
-  swap :: (fn(a : *(i32), b : *(i32)) -> unit) {
-    temp := a.*;
-    a.* = b.*;
-    b.* = temp;
-  };
+open import "std/libc/stdio";
+Worker :: import "std/worker";
 
-  x := 5;
-  y := 10;
-  swap(&(x), &(y));
-  assert(x == 10);
-  assert(y == 5);   
+main :: (fn() -> unit) {  
+  printf("Starting worker test\n");
+  
+  Worker.set_num_threads(2);
+  
+  printf("About to spawn task\n");
+  Worker.spawn(() => {
+    printf("Task running on worker thread!\n");
+  });
+  
+  printf("Task spawned, waiting...\n");
+  
+  // Loop a bit to let worker run
+  i := 0;
+  while runtime(true),
+    cond(
+      (i >= 10000000) => break,
+      true => {
+        i = (i + 1);
+      }
+    );
+  
+  printf("Done\n");
 };
 
 export main;
