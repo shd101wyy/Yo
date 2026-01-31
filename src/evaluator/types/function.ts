@@ -608,11 +608,201 @@ use_id :: (fn(forall(T : Type),
 }
 
 /**
+ * First pass of where clause processing: scan LHS variables, create SomeTypes for them,
+ * and try to evaluate constraints. If a constraint fails (e.g., references undefined variables),
+ * store it for later retry.
+ */
+function prepareWhereClauseVariables({
+  constraintExprs,
+  env,
+  context,
+}: {
+  constraintExprs: Expr[];
+  env: Environment;
+  context: EvaluatorContext & { isEvaluatingFunctionType: true };
+}): {
+  env: Environment;
+  pendingConstraints: Expr[];
+  whereClauseConstraints?: Map<
+    SomeType,
+    {
+      requiredTraits: TraitType[];
+      negativeTraits: TraitType[];
+    }
+  >;
+} {
+  const pendingConstraints: Expr[] = [];
+  let whereClauseConstraints:
+    | Map<
+        SomeType,
+        {
+          requiredTraits: TraitType[];
+          negativeTraits: TraitType[];
+        }
+      >
+    | undefined = undefined;
+
+  for (const constraintExpr of constraintExprs) {
+    // Each constraint must be of the form: T <: Trait or T <: (Trait1, Trait2)
+    if (
+      !exprIsFunctionCall(constraintExpr) ||
+      !exprIsFunctionCallOf(constraintExpr, "<:", 2)
+    ) {
+      // Skip validation here - will be done in parseWhereClauseConstraints
+      continue;
+    }
+
+    const lhsExpr = constraintExpr.args[0]!;
+
+    // First, ensure LHS variable exists (create SomeType if needed)
+    if (exprIsAtom(lhsExpr)) {
+      const varName = lhsExpr.token.value;
+
+      // Check if variable already exists in env
+      const existingVars = getVariablesFromEnv(env, varName);
+      if (existingVars.length === 0) {
+        // Variable doesn't exist - create a new SomeType for it
+        const someType = createSomeType(createType0(), varName);
+
+        // Add to env so later parameters can reference it
+        const typeValue = createTypeValue(someType);
+        const { env: nextEnv } = addVariableToEnv({
+          env,
+          variable: {
+            name: varName,
+            type: typeOfType(someType),
+            isCompileTimeOnly: true,
+            value: [typeValue],
+            token: lhsExpr.token,
+            initializedAtToken: lhsExpr.token,
+            consumedAtToken: undefined,
+            isOwningTheRcValue: false,
+            isOwningTheSameRcValueAs: undefined,
+            isReassignable: false,
+          },
+        });
+        env = nextEnv;
+
+        // Set $ on the expr
+        lhsExpr.$ = {
+          env,
+          type: typeOfType(someType),
+          value: typeValue,
+          pathCollection: [],
+        };
+      }
+    }
+
+    // Now try to evaluate the full constraint
+    // If it fails (e.g., RHS references undefined variable), store for later retry
+    try {
+      const result = parseWhereClauseConstraints({
+        constraintExprs: [constraintExpr],
+        env,
+        context,
+      });
+      env = result.env;
+
+      // Merge constraints
+      if (result.whereClauseConstraints) {
+        if (!whereClauseConstraints) {
+          whereClauseConstraints = result.whereClauseConstraints;
+        } else {
+          // Merge with existing constraints
+          for (const [someType, constraints] of result.whereClauseConstraints) {
+            const existing = whereClauseConstraints.get(someType);
+            if (existing) {
+              existing.requiredTraits.push(...constraints.requiredTraits);
+              existing.negativeTraits.push(...constraints.negativeTraits);
+            } else {
+              whereClauseConstraints.set(someType, constraints);
+            }
+          }
+        }
+      }
+    } catch (error) {
+      // Constraint evaluation failed - store for later retry
+      pendingConstraints.push(constraintExpr);
+    }
+  }
+
+  return { env, pendingConstraints, whereClauseConstraints };
+}
+
+/**
+ * Retry pending where clause constraints that previously failed.
+ * Returns updated env, remaining pending constraints, and any new whereClauseConstraints.
+ */
+function retryPendingConstraints({
+  pendingConstraints,
+  env,
+  context,
+  existingWhereClauseConstraints,
+}: {
+  pendingConstraints: Expr[];
+  env: Environment;
+  context: EvaluatorContext & { isEvaluatingFunctionType: true };
+  existingWhereClauseConstraints?: Map<
+    SomeType,
+    {
+      requiredTraits: TraitType[];
+      negativeTraits: TraitType[];
+    }
+  >;
+}): {
+  env: Environment;
+  pendingConstraints: Expr[];
+  whereClauseConstraints?: Map<
+    SomeType,
+    {
+      requiredTraits: TraitType[];
+      negativeTraits: TraitType[];
+    }
+  >;
+} {
+  const stillPending: Expr[] = [];
+  let whereClauseConstraints = existingWhereClauseConstraints;
+
+  for (const constraintExpr of pendingConstraints) {
+    try {
+      const result = parseWhereClauseConstraints({
+        constraintExprs: [constraintExpr],
+        env,
+        context,
+      });
+      env = result.env;
+
+      // Merge constraints
+      if (result.whereClauseConstraints) {
+        if (!whereClauseConstraints) {
+          whereClauseConstraints = result.whereClauseConstraints;
+        } else {
+          // Merge with existing constraints
+          for (const [someType, constraints] of result.whereClauseConstraints) {
+            const existing = whereClauseConstraints.get(someType);
+            if (existing) {
+              existing.requiredTraits.push(...constraints.requiredTraits);
+              existing.negativeTraits.push(...constraints.negativeTraits);
+            } else {
+              whereClauseConstraints.set(someType, constraints);
+            }
+          }
+        }
+      }
+    } catch (error) {
+      // Still can't evaluate - keep it pending
+      stillPending.push(constraintExpr);
+    }
+  }
+
+  return { env, pendingConstraints: stillPending, whereClauseConstraints };
+}
+
+/**
  * Parse where clause constraints from constraint expressions.
  * Handles forms like: T <: Trait, T <: (Trait1, Trait2), T <: !(Trait)
  *
- * If the LHS variable doesn't exist in env yet, creates a new SomeType for it.
- * This allows where clause to be processed before regular parameters.
+ * Assumes all LHS variables already exist in env (either from forall, regular params, or prepareWhereClauseVariables).
  */
 function parseWhereClauseConstraints({
   constraintExprs,
@@ -1049,34 +1239,37 @@ export function evaluateFunctionParameters({
     }
   }
 
-  // Second pass: find and process where clause (updates SomeType availabilities)
+  // Second pass: scan where clause, create SomeTypes for LHS vars, and try to evaluate constraints
   // where must be the last parameter if present
+  let pendingConstraints: Expr[] = [];
   if (parameterExprs.length > 0) {
     const lastParam = parameterExprs[parameterExprs.length - 1]!;
     if (
       exprIsFunctionCall(lastParam) &&
       exprIsFunctionCallOf(lastParam, BuiltinKeywords.where)
     ) {
-      // Process each constraint in the where clause
-      const constraintExprs = lastParam.args;
-      if (constraintExprs.length === 0) {
+      const whereClauseExprs = lastParam.args;
+      if (whereClauseExprs.length === 0) {
         throw formatErrorMessage({
           token: lastParam.token,
           errorMessage: `The where clause must have at least one constraint.`,
         });
       }
 
-      const result = parseWhereClauseConstraints({
-        constraintExprs,
+      // Try to evaluate constraints, store failed ones for retry
+      const prepResult = prepareWhereClauseVariables({
+        constraintExprs: whereClauseExprs,
         env,
         context,
       });
-      env = result.env;
-      whereClauseConstraints = result.whereClauseConstraints;
+      env = prepResult.env;
+      pendingConstraints = prepResult.pendingConstraints;
+      whereClauseConstraints = prepResult.whereClauseConstraints;
     }
   }
 
   // Third pass: process regular parameters and variadic
+  // After each parameter, retry pending constraints
   for (let i = 0; i < parameterExprs.length; i++) {
     const parameterExpr = parameterExprs[i]!;
 
@@ -1291,6 +1484,19 @@ export function evaluateFunctionParameters({
 
       parameters.push(parameter);
       env = nextEnv;
+
+      // Retry pending constraints now that we have a new variable
+      if (pendingConstraints.length > 0) {
+        const retryResult = retryPendingConstraints({
+          pendingConstraints,
+          env,
+          context,
+          existingWhereClauseConstraints: whereClauseConstraints,
+        });
+        env = retryResult.env;
+        pendingConstraints = retryResult.pendingConstraints;
+        whereClauseConstraints = retryResult.whereClauseConstraints;
+      }
     }
   }
 
@@ -1306,6 +1512,30 @@ export function evaluateFunctionParameters({
       }
     }
   });
+
+  // Fourth pass: handle any remaining pending constraints
+  // At this point all parameters should exist, so any remaining pending constraints indicate an error
+  if (pendingConstraints.length > 0) {
+    const retryResult = retryPendingConstraints({
+      pendingConstraints,
+      env,
+      context,
+      existingWhereClauseConstraints: whereClauseConstraints,
+    });
+    env = retryResult.env;
+    whereClauseConstraints = retryResult.whereClauseConstraints;
+
+    // If there are still pending constraints after final retry, throw the error
+    if (retryResult.pendingConstraints.length > 0) {
+      const failedConstraint = retryResult.pendingConstraints[0]!;
+      // Evaluate to get the actual error message
+      parseWhereClauseConstraints({
+        constraintExprs: [failedConstraint],
+        env,
+        context,
+      });
+    }
+  }
 
   return {
     parameters,
