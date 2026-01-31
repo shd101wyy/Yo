@@ -86,8 +86,7 @@ export class CodeGeneratorC {
         "<stdio.h>",
         "<string.h>",
         "<fcntl.h>", // For O_RDONLY, O_WRONLY, etc.
-        "<unistd.h>", // For close(), read(), write(), etc.
-        "<sys/stat.h>", // For file modes
+        // Note: <unistd.h> and <sys/stat.h> are platform-specific, added in emitCIncludes
       ]),
       debugGc: options.debugGc ?? false,
       debugParallelism: options.debugParallelism ?? false,

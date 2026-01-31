@@ -1,7 +1,15 @@
-import { execSync, spawnSync } from "child_process";
+import { spawnSync } from "child_process";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
+import {
+  buildAsanRunEnvironment,
+  findClangAsanDllPath,
+  getCompilerInfo,
+  getMacOSLsanSuppressions,
+  getSanitizerFlags,
+  isLiburingAvailable,
+} from "./compiler-utils";
 import { clearEnvContainingPrelude } from "./env";
 import { YoError } from "./error";
 import { clearAllGlobalImplState } from "./evaluator/index";
@@ -268,8 +276,15 @@ function runSingleTest(
   const originalDir = path.dirname(test.filePath);
   const baseName = `.yo_test_${sanitizedName}_${uniqueId}`;
   const testFilePath = path.join(originalDir, `${baseName}.yo`);
-  const testOutputPath = path.join(originalDir, baseName);
+  // On Windows, executables must have .exe extension
+  const exeExtension = process.platform === "win32" ? ".exe" : "";
+  const testOutputPath = path.join(originalDir, `${baseName}${exeExtension}`);
   const testCPath = path.join(originalDir, `${baseName}.c`);
+  // On Windows with MSVC/Clang-cl, .pdb debug files are generated alongside the executable
+  const testPdbPath =
+    process.platform === "win32"
+      ? path.join(originalDir, `${baseName}.pdb`)
+      : undefined;
 
   // Helper to clean up all temp files
   const cleanup = () => {
@@ -279,7 +294,11 @@ function runSingleTest(
       console.log(`    ${colors.dim}.c file: ${testCPath}${colors.reset}`);
       return;
     }
-    for (const file of [testFilePath, testOutputPath, testCPath]) {
+    const filesToClean = [testFilePath, testOutputPath, testCPath];
+    if (testPdbPath) {
+      filesToClean.push(testPdbPath);
+    }
+    for (const file of filesToClean) {
       if (fs.existsSync(file)) {
         fs.unlinkSync(file);
       }
@@ -340,35 +359,33 @@ function runSingleTest(
 
     // Compile C code with AddressSanitizer for memory leak detection
     // Note: Using libc allocator (no mimalloc) for faster test compilation
-    const isMSVC = cCompiler === "cl";
+    const compilerInfo = getCompilerInfo(cCompiler);
+    const { isMSVC, isWindows } = compilerInfo;
+
+    // Get ASAN flags using shared utility
+    // ASAN is enabled if we get non-empty flags back (handles cases like MinGW GCC where ASAN isn't available)
+    const asanFlags = !isMSVC
+      ? getSanitizerFlags({ sanitize: "address", compilerInfo })
+      : { flags: [] };
+    const useAsan = asanFlags.flags.length > 0;
+
     const compileArgs = isMSVC
-      ? ["/Od", "/W4", "/fsanitize=address", testCPath, `/Fe${testOutputPath}`]
+      ? ["/Od", "/W4", testCPath, `/Fe${testOutputPath}`]
       : [
           ...(cCompiler === "zig" ? ["cc"] : []),
           "-std=c11",
           "-Wall",
           "-Wextra",
           "-O0",
-          "-fsanitize=address",
-          "-fno-omit-frame-pointer",
+          ...asanFlags.flags,
           testCPath,
           "-o",
           testOutputPath,
         ];
 
     // Add liburing on Linux for async I/O (uses system-installed liburing)
-    if (process.platform === "linux" && !isMSVC) {
-      try {
-        // First check if pkg-config is available
-        execSync("command -v pkg-config", { stdio: "ignore" });
-        // Then check if liburing is installed
-        execSync("pkg-config --exists liburing", { stdio: "ignore" });
-        compileArgs.splice(-2, 0, "-luring");
-      } catch (error) {
-        console.warn(
-          "⚠️  liburing not found - async I/O will not be available. Run 'npm run postinstall' for installation instructions."
-        );
-      }
+    if (!isMSVC && isLiburingAvailable()) {
+      compileArgs.splice(-2, 0, "-luring");
     }
 
     const compileResult = spawnSync(cCompiler, compileArgs, {
@@ -388,11 +405,10 @@ function runSingleTest(
     }
 
     // Run the test executable with AddressSanitizer leak detection enabled
-    // On macOS, we need to suppress system library leaks (libobjc, libdyld, libxpc, etc.)
+    // On macOS, we need to suppress system library leaks
+    // On Windows with Clang, we need to find and add the ASAN DLL path to PATH
     const isMacOS = process.platform === "darwin";
-    const lsanSuppressions = isMacOS
-      ? "leak:libobjc\nleak:libdyld\nleak:libxpc\nleak:libsystem_malloc\nleak:dyld"
-      : "";
+    const lsanSuppressions = getMacOSLsanSuppressions();
 
     // Create a temporary suppression file for macOS
     let suppressionFile: string | undefined;
@@ -401,17 +417,26 @@ function runSingleTest(
       fs.writeFileSync(suppressionFile, lsanSuppressions);
     }
 
+    // On Windows with Clang, find the ASAN DLL directory
+    // (GCC uses static linking so doesn't need this)
+    const asanDllPath =
+      isWindows && useAsan && compilerInfo.isClangOnWindows
+        ? findClangAsanDllPath(cCompiler)
+        : undefined;
+
+    // Build environment with ASAN settings
+    const runEnv = buildAsanRunEnvironment({
+      compilerInfo,
+      asanDllPath,
+      lsanSuppressionFile: suppressionFile,
+      detectLeaks: true,
+    });
+
     let runResult = spawnSync(testOutputPath, [], {
       stdio: "pipe",
       encoding: "utf-8",
       timeout: 60000, // 60 second timeout - tests should complete quickly, this catches hangs
-      env: {
-        ...process.env,
-        ASAN_OPTIONS: "detect_leaks=1",
-        ...(suppressionFile
-          ? { LSAN_OPTIONS: `suppressions=${suppressionFile}` }
-          : {}),
-      },
+      env: runEnv,
     });
 
     // Check if detect_leaks is not supported (e.g., on GitHub Actions macOS runners)
@@ -422,15 +447,17 @@ function runSingleTest(
 
     // If leak detection is not supported, rerun without it
     if (leakDetectionNotSupported) {
+      const runEnvNoLeaks = buildAsanRunEnvironment({
+        compilerInfo,
+        asanDllPath,
+        lsanSuppressionFile: suppressionFile,
+        detectLeaks: false,
+      });
       runResult = spawnSync(testOutputPath, [], {
         stdio: "pipe",
         encoding: "utf-8",
         timeout: 60000,
-        env: {
-          ...process.env,
-          // Run without detect_leaks
-          ASAN_OPTIONS: "detect_leaks=0",
-        },
+        env: runEnvNoLeaks,
       });
     }
 

@@ -21,7 +21,7 @@ Always go with a proper implementation. No shortcut. Don't simplify the problem.
 
 To test the Yo codegen transpiler, you can run the command `./yo-cli compile src/tests/fixme.yo --release` to compile the `fixme.yo`. Or run `./yo-cli compile src/tests/fixme.yo --emit-c --skip-c-compiler --release` on any `.yo` file to test its C code generation. Then run `clang -std=c11 -Wall -Wextra a.out.c vendor/mimalloc/src/static.c -Ivendor/mimalloc/include -o ./a.out` to compile the generated `./a.out.c`.
 
-If you are on Windows, use `zig` instead of `clang` to compile the generated C code. Use command like `.\yo-cli.ps1 compile .\src\tests\fixme.yo --release --cc zig -o test_fixme.exe`.
+If you are on Windows, use `zig` instead of `clang` to compile the generated C code. Use command like `.\yo-cli.ps1 compile .\src\tests\fixme.yo --release -o test_fixme.exe`.
 
 Or you can run `./yo-cli compile src/tests/fixme.yo --release -o a.out && ./a.out` directly to test the full pipeline. Use `--debug-gc` to debug the garbage collector and reference counting, and `--debug-parallelism` to debug the parallel worker threads, and `--debug-async-await` for debugging async/await.
 
@@ -184,3 +184,5 @@ While the template string returns `String` type which is utf-8 encoded `object` 
 Yo will try to run CTFE (Compile-Time Function Evaluation) analysis (see cfte-analysis.ts) on function value. Basically it will try to replace all the parameters/return as `compt`, and re-evaluate the function body at compile-time context. If it succeeds, then the function value can be called at compile-time.
 
 Please note if expr.$.value == undefined, it means the value is runtime value. It doesn't mean it's UnknownValue.
+
+Please note you cannot run `./yo-cli compile` on a `*.test.yo` file. You will need to move what you want to test into a separate `.yo` file, then create a `main` function to call the content, and `export main;` at the end of the file, then you can run `./yo-cli compile` on that file.

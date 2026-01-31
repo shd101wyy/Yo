@@ -1,6 +1,11 @@
-import { execSync, spawnSync } from "child_process";
+import { spawnSync } from "child_process";
 import * as fs from "fs";
 import path from "path";
+import {
+  getCompilerInfo,
+  getSanitizerFlags,
+  isLiburingAvailable,
+} from "../compiler-utils";
 import { ModuleManager } from "../module-manager";
 
 export class CodeGenerator {
@@ -209,28 +214,20 @@ export class CodeGenerator {
 
         // Add sanitizer flags if requested
         if (options.sanitize) {
-          if (options.sanitize === "address") {
-            if (isMSVC) {
-              // MSVC uses /fsanitize=address
-              compileArgs.splice(isMSVC ? -1 : -2, 0, "/fsanitize=address");
-              console.log(
-                "AddressSanitizer enabled (memory errors + leak detection)"
-              );
-            } else {
-              compileArgs.splice(-2, 0, "-fsanitize=address");
-              compileArgs.splice(-2, 0, "-fno-omit-frame-pointer");
-              console.log(
-                "AddressSanitizer enabled (memory errors + leak detection)"
-              );
+          const compilerInfo = getCompilerInfo(compiler);
+          const sanitizerResult = getSanitizerFlags({
+            sanitize: options.sanitize,
+            compilerInfo,
+          });
+          if (sanitizerResult.warning) {
+            console.warn(sanitizerResult.warning);
+          }
+          if (sanitizerResult.flags.length > 0) {
+            for (const flag of sanitizerResult.flags) {
+              compileArgs.splice(isMSVC ? -1 : -2, 0, flag);
             }
-          } else if (options.sanitize === "leak") {
-            if (isMSVC) {
-              console.warn(
-                "LeakSanitizer is not supported by MSVC, use AddressSanitizer instead"
-              );
-            } else {
-              compileArgs.splice(-2, 0, "-fsanitize=leak");
-              console.log("LeakSanitizer enabled (leak detection only)");
+            if (sanitizerResult.info) {
+              console.log(sanitizerResult.info);
             }
           }
         }
@@ -312,19 +309,13 @@ export class CodeGenerator {
         }
 
         // Add liburing on Linux for async I/O (uses system-installed liburing)
-        if (process.platform === "linux" && !isMSVC) {
-          try {
-            // First check if pkg-config is available
-            execSync("command -v pkg-config", { stdio: "ignore" });
-            // Then check if liburing is installed
-            execSync("pkg-config --exists liburing", { stdio: "ignore" });
-            compileArgs.splice(-2, 0, "-luring");
-            console.log("Using system liburing for async I/O");
-          } catch (error) {
-            console.warn(
-              "⚠️  liburing not found - async I/O will not be available. Run 'npm run postinstall' for installation instructions."
-            );
-          }
+        if (!isMSVC && isLiburingAvailable()) {
+          compileArgs.splice(-2, 0, "-luring");
+          console.log("Using system liburing for async I/O");
+        } else if (process.platform === "linux" && !isMSVC) {
+          console.warn(
+            "⚠️  liburing not found - async I/O will not be available. Run 'npm run postinstall' for installation instructions."
+          );
         }
 
         // Add arbitrary custom compiler flags from --cflags option
@@ -340,7 +331,10 @@ export class CodeGenerator {
 
         const result = spawnSync(compiler, compileArgs, { stdio: "inherit" });
 
-        if (result.status === 0) {
+        if (result.error) {
+          console.error(`Compilation failed: ${result.error.message}`);
+          process.exit(1);
+        } else if (result.status === 0) {
           console.log(`Successfully compiled to ${outputFile}`);
         } else {
           console.error(`Compilation failed with exit code ${result.status}`);

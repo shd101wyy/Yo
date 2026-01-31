@@ -1,29 +1,10 @@
-import { execSync } from "child_process";
 import * as fs from "fs";
 import yargs from "yargs";
 import { hideBin } from "yargs/helpers";
 import packageJson from "../package.json";
 import { CodeGenerator } from "./codegen";
+import { findAvailableCompiler } from "./compiler-utils";
 import { findTestFiles, runTests } from "./test-runner";
-
-function checkCompilerAvailable(compiler: string): boolean {
-  try {
-    execSync(`${compiler} --version`, { stdio: "ignore" });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function findAvailableCompiler(): string | null {
-  const compilers = ["cc", "gcc", "clang", "zig", "cl"];
-  for (const compiler of compilers) {
-    if (checkCompilerAvailable(compiler)) {
-      return compiler;
-    }
-  }
-  return null;
-}
 
 yargs(hideBin(process.argv))
   .wrap(null)

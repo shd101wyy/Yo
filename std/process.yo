@@ -7,6 +7,69 @@ open import "./path";
 { GlobalAllocator } :: import "./allocator";
 { malloc, free } :: GlobalAllocator;
 
+/**
+ * Currently follows node.js conventions.
+ * Available platforms:
+ * - "aix"
+ * - "android"
+ * - "darwin" (macOS)
+ * - "freebsd"
+ * - "linux"
+ * - "openbsd"
+ * - "sunos"
+ * - "win32" (even on 64-bit Windows)
+ */
+platform :: __yo_process_platform();
+export platform;
+
+Platform :: {
+  Aix : "aix",
+  Android : "android",
+  Darwin : "darwin",
+  FreeBSD : "freebsd",
+  Linux : "linux",
+  OpenBSD : "openbsd",
+  SunOS : "sunos",
+  Win32 : "win32"
+};
+export Platform;
+
+/**
+ * Currently follows node.js conventions.
+ * Available architectures:
+ * - "arm"
+ * - "arm64"
+ * - "ia32"
+ * - "loong64"
+ * - "mips"
+ * - "mipsel"
+ * - "ppc"
+ * - "ppc64"
+ * - "riscv64"
+ * - "s390"
+ * - "s390x"
+ * - "x64"
+ */
+arch :: __yo_process_arch();
+export arch;
+
+Arch :: {
+  Arm : "arm",
+  Arm64 : "arm64",
+  Ia32 : "ia32",
+  Loong64 : "loong64",
+  Mips : "mips",
+  Mipsel : "mipsel",
+  Ppc : "ppc",
+  Ppc64 : "ppc64",
+  Riscv64 : "riscv64",
+  S390 : "s390",
+  S390x : "s390x",
+  X64 : "x64"
+};
+export Arch;
+
+
 // === Low-level C interface ===
 
 extern "Yo",
@@ -73,80 +136,43 @@ env :: impl {
   export get;
 
   set :: (fn(name : String, value : String, (overwrite : bool) ?= true) -> bool) {
-    overwrite_int := cond(
-      overwrite => int(1),
-      true => int(0)
-    );
     name_cstr := name.to_cstr().ptr().unwrap();
     value_cstr := value.to_cstr().ptr().unwrap();
-    result := setenv(*(char)(name_cstr), *(char)(value_cstr), overwrite_int);
+    
+    result := cond(
+      (platform == Platform.Win32) => {
+        // Windows: use _putenv_s (doesn't have overwrite parameter)
+        { _putenv_s } :: import "./libc/windows";
+        
+        cond(
+          overwrite =>
+            // Always set on Windows (no native "don't overwrite" option)
+            _putenv_s(*(char)(name_cstr), *(char)(value_cstr)),
+          true => {
+            // Check if variable exists first
+            existing := getenv(*(char)(name_cstr));
+            match(existing,
+              .Some(_) => int(0),  // Variable exists, don't overwrite (return success)
+              .None => _putenv_s(*(char)(name_cstr), *(char)(value_cstr))
+            )
+          }
+        )
+      },
+      true => {
+        // Unix: use setenv
+        overwrite_int := cond(
+          overwrite => int(1),
+          true => int(0)
+        );
+        setenv(*(char)(name_cstr), *(char)(value_cstr), overwrite_int)
+      }
+    );
+    
     return result == int(0);
   };
   export set;
 };
 export env;
-
-/**
- * Currently follows node.js conventions.
- * Available platforms:
- * - "aix"
- * - "android"
- * - "darwin" (macOS)
- * - "freebsd"
- * - "linux"
- * - "openbsd"
- * - "sunos"
- * - "win32" (even on 64-bit Windows)
- */
-platform :: __yo_process_platform();
-export platform;
-
-Platform :: {
-  Aix : "aix",
-  Android : "android",
-  Darwin : "darwin",
-  FreeBSD : "freebsd",
-  Linux : "linux",
-  OpenBSD : "openbsd",
-  SunOS : "sunos",
-  Win32 : "win32"
-};
-export Platform;
-
-/**
- * Currently follows node.js conventions.
- * Available architectures:
- * - "arm"
- * - "arm64"
- * - "ia32"
- * - "loong64"
- * - "mips"
- * - "mipsel"
- * - "ppc"
- * - "ppc64"
- * - "riscv64"
- * - "s390"
- * - "s390x"
- * - "x64"
- */
-arch :: __yo_process_arch();
-export arch;
-
-Arch :: {
-  Arm : "arm",
-  Arm64 : "arm64",
-  Ia32 : "ia32",
-  Loong64 : "loong64",
-  Mips : "mips",
-  Mipsel : "mipsel",
-  Ppc : "ppc",
-  Ppc64 : "ppc64",
-  Riscv64 : "riscv64",
-  S390 : "s390",
-  S390x : "s390x",
-  X64 : "x64"
-};
-export Arch;
 
 /**
  * Get the current working directory at runtime.
@@ -159,18 +185,18 @@ cwd :: (fn() -> Result(Path, String))(
       { GetCurrentDirectoryW, WideCharToMultiByte, CP_UTF8, WCHAR, DWORD } :: import "./libc/windows";
       
       // First, get the required buffer size
-      required_size := GetCurrentDirectoryW(DWORD(0), *(WCHAR)(__yo_nullptr()));
+      required_size := GetCurrentDirectoryW(ulong(0), .None);
       cond(
-        (required_size == DWORD(0)) => .Err(`Failed to get current working directory on Windows`),
+        (required_size == ulong(0)) => .Err(`Failed to get current working directory on Windows`),
         true => {
           // Allocate buffer for wide characters
           wbuf := *(WCHAR)(malloc((usize(required_size) * usize(2))).unwrap());
           
           // Get the current directory in UTF-16
-          actual_size := GetCurrentDirectoryW(required_size, wbuf);
+          actual_size := GetCurrentDirectoryW(required_size, .Some(wbuf));
           
           cond(
-            (actual_size == DWORD(0)) => {
+            (actual_size == ulong(0)) => {
               free(.Some(*(void)(wbuf)));
               .Err(`Failed to get current working directory on Windows`)
             },
@@ -178,14 +204,14 @@ cwd :: (fn() -> Result(Path, String))(
               // Convert UTF-16 to UTF-8
               // First, get the required buffer size for UTF-8
               utf8_size := WideCharToMultiByte(
-                u32(CP_UTF8),
-                DWORD(0),
-                wbuf,
+                CP_UTF8,
+                ulong(0),
+                .Some(wbuf),
                 i32(actual_size),
-                *(u8)(__yo_nullptr()),
+                .None,
                 i32(0),
-                *(u8)(__yo_nullptr()),
-                *(i32)(__yo_nullptr())
+                .None,
+                .None
               );
               
               cond(
@@ -199,14 +225,14 @@ cwd :: (fn() -> Result(Path, String))(
                   
                   // Convert to UTF-8
                   result := WideCharToMultiByte(
-                    u32(CP_UTF8),
-                    DWORD(0),
-                    wbuf,
+                    CP_UTF8,
+                    ulong(0),
+                    .Some(wbuf),
                     i32(actual_size),
-                    utf8_buf,
+                    .Some(utf8_buf),
                     utf8_size,
-                    *(u8)(__yo_nullptr()),
-                    *(i32)(__yo_nullptr())
+                    .None,
+                    .None
                   );
                   
                   free(.Some(*(void)(wbuf)));
@@ -218,7 +244,7 @@ cwd :: (fn() -> Result(Path, String))(
                     },
                     true => {
                       // Add null terminator
-                      utf8_buf(usize(result)) = u8(0);
+                      (utf8_buf &+ usize(result)).* = u8(0);
                       cwd_str := String.from_cstr(utf8_buf).unwrap();
                       free(.Some(*(void)(utf8_buf)));
                       .Ok(Path.new(cwd_str))
@@ -272,7 +298,7 @@ chdir :: (fn(path: Path) -> Result(unit, String))(
       result := SetCurrentDirectoryA(*(char)(path_cstr));
       
       cond(
-        (result == BOOL(0)) => .Err(`Failed to change directory to: ${path_str}`),
+        (result == int(0)) => .Err(`Failed to change directory to: ${path_str}`),
         true => .Ok(())
       )
     },

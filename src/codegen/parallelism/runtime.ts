@@ -38,8 +38,12 @@ typedef struct __yo_thread_entry_args_t {
   void* closure;                // User's closure data
 } __yo_thread_entry_args_t;
 
-// Thread entry point
+// Thread entry point - Windows uses different signature
+#if defined(_WIN32)
+static unsigned __stdcall __yo_thread_entry(void* arg) {
+#else
 static void* __yo_thread_entry(void* arg) {
+#endif
   __yo_thread_entry_args_t* args = (__yo_thread_entry_args_t*)arg;
   
   PARALLELISM_DEBUG("[THREAD] Thread started (tid=%zu)\\n", (size_t)__yo_get_thread_id());
@@ -63,7 +67,11 @@ static void* __yo_thread_entry(void* arg) {
   // Free args
   __yo_free(args);
   
+#if defined(_WIN32)
+  return 0;
+#else
   return NULL;
+#endif
 }
 
 // Spawn a new OS thread (returns by value)
@@ -125,23 +133,46 @@ typedef struct __yo_worker_thread_t {
   __yo_worker_task_t* queue_tail;       // Tail of task queue
   volatile int shutdown;                // Shutdown flag
   volatile int running;                 // Thread running flag
+  volatile int started;                 // Thread has started executing
 } __yo_worker_thread_t;
 
 // Global worker pool state
 static __yo_worker_thread_t* __yo_worker_threads = NULL;  // Array of worker threads
 static size_t __yo_worker_num_threads = 0;                // Number of worker threads
 static size_t __yo_worker_next_thread = 0;                // Round-robin counter for task distribution
+#if defined(_WIN32)
+static YO_THREAD_SYNC_TYPE __yo_worker_pool_mutex;        // Pool-level mutex (initialized in __yo_worker_init_mutex)
+static volatile int __yo_worker_pool_mutex_initialized = 0;
+#else
 static YO_THREAD_SYNC_TYPE __yo_worker_pool_mutex = YO_THREAD_SYNC_INIT;  // Pool-level mutex
+#endif
 static volatile int __yo_worker_pool_initialized = 0;     // Pool initialization flag
 
-// Worker thread entry point
+#if defined(_WIN32)
+// Initialize the worker pool mutex on Windows (must be called before any use)
+static void __yo_worker_init_mutex(void) {
+  if (!__yo_worker_pool_mutex_initialized) {
+    InitializeCriticalSection(&__yo_worker_pool_mutex);
+    __yo_worker_pool_mutex_initialized = 1;
+  }
+}
+#endif
+
+// Worker thread entry point - Windows uses different signature
+#if defined(_WIN32)
+static unsigned __stdcall __yo_worker_thread_entry(void* arg) {
+#else
 static void* __yo_worker_thread_entry(void* arg) {
+#endif
   __yo_worker_thread_t* worker = (__yo_worker_thread_t*)arg;
   
   PARALLELISM_DEBUG("[WORKER] Worker thread started (tid=%zu)\\n", (size_t)__yo_get_thread_id());
   
   // Initialize thread-local GC for this worker thread
   __yo_gc_init_thread();
+  
+  // Signal that this thread has started
+  worker->started = 1;
   
   while (1) {
     __yo_worker_task_t* task = NULL;
@@ -189,10 +220,15 @@ static void* __yo_worker_thread_entry(void* arg) {
   // Final GC cleanup
   __yo_gc_collect();
   
+#if defined(_WIN32)
+  return 0;
+#else
   return NULL;
+#endif
 }
 
 // Initialize the worker pool with the specified number of threads
+static void __yo_worker_pool_shutdown(void);  // Forward declaration
 static void __yo_worker_pool_init(size_t num_threads) {
   if (__yo_worker_pool_initialized) {
     return;
@@ -212,20 +248,38 @@ static void __yo_worker_pool_init(size_t num_threads) {
     worker->queue_tail = NULL;
     worker->shutdown = 0;
     worker->running = 1;
+    worker->started = 0;
     
     int ret = yo_thread_create(&worker->handle, __yo_worker_thread_entry, worker);
     if (ret != 0) {
       PARALLELISM_DEBUG("[WORKER] Failed to create worker thread %zu (ret=%d)\\n", i, ret);
       worker->running = 0;
+      worker->started = 1;  // Mark as "started" to avoid waiting forever
+    }
+  }
+  
+  // Wait for all worker threads to start
+  for (size_t i = 0; i < num_threads; i++) {
+    __yo_worker_thread_t* worker = &__yo_worker_threads[i];
+    while (!worker->started) {
+      // Busy wait with yield to let threads start
+#if defined(_WIN32)
+      SwitchToThread();
+#else
+      sched_yield();
+#endif
     }
   }
   
   __yo_worker_pool_initialized = 1;
+  
+  // Register shutdown handler via atexit (runs LIFO, so registered last = runs first)
+  atexit(__yo_worker_pool_shutdown);
+  
   PARALLELISM_DEBUG("[WORKER] Worker pool initialized\\n");
 }
 
 // Shutdown the worker pool
-__attribute__((destructor))
 static void __yo_worker_pool_shutdown(void) {
   if (!__yo_worker_pool_initialized) {
     return;
@@ -313,6 +367,9 @@ int __yo_get_cpu_id(void) {
 
 // Set the number of worker threads (must be called before first spawn)
 void __yo_worker_set_num_threads(size_t num) {
+#if defined(_WIN32)
+  __yo_worker_init_mutex();
+#endif
   YO_THREAD_SYNC_LOCK(&__yo_worker_pool_mutex);
   if (!__yo_worker_pool_initialized) {
     // Pool not initialized yet, just set for later
@@ -326,6 +383,9 @@ void __yo_worker_set_num_threads(size_t num) {
 
 // Get the number of worker threads
 size_t __yo_worker_get_num_threads(void) {
+#if defined(_WIN32)
+  __yo_worker_init_mutex();
+#endif
   YO_THREAD_SYNC_LOCK(&__yo_worker_pool_mutex);
   size_t num = __yo_worker_num_threads;
   if (num == 0) {
@@ -338,6 +398,9 @@ size_t __yo_worker_get_num_threads(void) {
 // Spawn a task on the worker pool
 // Uses round-robin distribution for thread affinity
 void __yo_worker_spawn(__yo_thread_fn fn, void* closure) {
+#if defined(_WIN32)
+  __yo_worker_init_mutex();
+#endif
   YO_THREAD_SYNC_LOCK(&__yo_worker_pool_mutex);
   
   // Initialize pool on first spawn if not already done

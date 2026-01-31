@@ -343,7 +343,7 @@ export function generateFunctionBody(
 
     // Set pending deferred drops from the function body begin block
     // These need to be generated when early returning from anywhere inside this function
-    context.pendingDeferredDrops = expr.$?.deferredDropExpressions;
+    context.pendingDeferredDrops = [...(expr.$?.deferredDropExpressions ?? [])];
 
     // Generate all expressions except the last as statements
     let findReturn = false;
@@ -1026,16 +1026,25 @@ static void yo_process_cleanup(void) {
 #endif
 }
 
+#if defined(_WIN32)
+static INIT_ONCE yo_process_cleanup_once = INIT_ONCE_STATIC_INIT;
+static BOOL CALLBACK yo_process_cleanup_init_callback(PINIT_ONCE InitOnce, PVOID Parameter, PVOID *Context) {
+  (void)InitOnce; (void)Parameter; (void)Context;
+  InitializeCriticalSection(&yo_thread_list_mutex);
+  atexit(yo_process_cleanup);
+  return TRUE;
+}
+#endif
+
 static void yo_init_process_cleanup(void) {
+#if defined(_WIN32)
+  InitOnceExecuteOnce(&yo_process_cleanup_once, yo_process_cleanup_init_callback, NULL, NULL);
+#else
   static bool cleanup_initialized = false;
   if (cleanup_initialized) return;
   cleanup_initialized = true;
-  
-#if defined(_WIN32)
-  InitializeCriticalSection(&yo_thread_list_mutex);
-#endif
-  
   atexit(yo_process_cleanup);
+#endif
 }`);
 }
 

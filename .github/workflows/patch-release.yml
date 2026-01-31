@@ -47,6 +47,14 @@ jobs:
         cd vscode-extension
         npm version patch --no-git-tag-version
 
+    - name: Get last commit message
+      id: last_commit
+      run: |
+        LAST_COMMIT_MSG=$(git log -1 --pretty=%B)
+        echo "message<<EOF" >> $GITHUB_OUTPUT
+        echo "$LAST_COMMIT_MSG" >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+
     - name: Commit version bump
       run: |
         git config --local user.email "github-actions[bot]@users.noreply.github.com"
@@ -88,7 +96,7 @@ jobs:
           Patch release v${{ steps.version.outputs.version }}
           
           ## Changes
-          - Bug fixes and improvements
+          ${{ steps.last_commit.outputs.message }}
         draft: false
         prerelease: false
 

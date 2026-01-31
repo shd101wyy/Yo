@@ -52,17 +52,56 @@ Path :: object(
     segments := ArrayList(String).new();
     is_abs := false;
 
-    // Check if path is absolute (starts with '/')
-    bytes := path_str._bytes;
+    // Handle empty path early
+    cond(
+      (path_str.is_empty()) => {
+        return Self(_segments: segments, _is_absolute: is_abs);
+      },
+      true => ()
+    );
+
+    // Normalize backslashes to forward slashes for cross-platform support
+    normalized := path_str.replace(String.from("\\"), String.from("/"));
+
+    // Check if path is absolute
+    // Unix: starts with '/'
+    // Windows: starts with drive letter like 'C:' or UNC path '\\'
+    bytes := normalized._bytes;
     cond(
       (bytes.len() > usize(0)) => {
         first_byte := bytes.get(usize(0));
         match(first_byte,
           .Some(b) => cond(
-            (b == PATH_SEPARATOR) => {
+            // Unix-style absolute path (starts with /)
+            (b == u8(47)) => {
               is_abs = true;
             },
-            true => ()
+            true => {
+              // Windows drive letter: check for pattern like "C:"
+              cond(
+                (bytes.len() >= usize(2)) => {
+                  second_byte_opt := bytes.get(usize(1));
+                  match(second_byte_opt,
+                    .Some(second_byte) => cond(
+                      // Check if second byte is ':' (colon)
+                      (second_byte == u8(58)) => {
+                        // First byte should be a letter (A-Z or a-z)
+                        is_letter := (((b >= u8(65)) && (b <= u8(90))) || ((b >= u8(97)) && (b <= u8(122))));
+                        cond(
+                          is_letter => {
+                            is_abs = true;
+                          },
+                          true => ()
+                        );
+                      },
+                      true => ()
+                    ),
+                    .None => ()
+                  );
+                },
+                true => ()
+              );
+            }
           ),
           .None => ()
         );        
@@ -70,9 +109,9 @@ Path :: object(
       true => ()
     );
 
-    // Split path by "/" separator
+    // Split path by "/" separator (backslashes already normalized)
     sep := String.from("/");
-    parts := path_str.split(sep);
+    parts := normalized.split(sep);
     
     // Process each part
     i := usize(0);
@@ -555,8 +594,42 @@ impl(Path, ToString(
     segments := self._segments;
     sep := String.from("/");
     result := String.new();
+    
+    // Check if first segment is a Windows drive letter (e.g., "C:")
+    has_drive_letter := cond(
+      (segments.len() > usize(0)) => {
+        first_seg_opt := segments.get(usize(0));
+        match(first_seg_opt,
+          .Some(first_seg) =>
+            // Check if it's a drive letter like "C:"
+            cond(
+              (first_seg.len() == usize(2)) => {
+                b0_opt := first_seg._bytes.get(usize(0));
+                b1_opt := first_seg._bytes.get(usize(1));
+                match(b0_opt,
+                  .Some(b0) => match(b1_opt,
+                    .Some(b1) => {
+                      is_letter := (((b0 >= u8(65)) && (b0 <= u8(90))) || ((b0 >= u8(97)) && (b0 <= u8(122))));
+                      is_colon := (b1 == u8(58));
+                      (is_letter && is_colon)
+                    },
+                    .None => false
+                  ),
+                  .None => false
+                )
+              },
+              true => false
+            ),
+          .None => false
+        )
+      },
+      true => false
+    );
+    
+    // For Unix absolute paths, prepend /
+    // For Windows paths with drive letter, don't prepend /
     cond(
-      (self._is_absolute) => {
+      (self._is_absolute && !has_drive_letter) => {
         result = result.concat(sep);
       },
       true => ()

@@ -477,6 +477,36 @@ cond(
 - Doesn't optimize across function boundaries
 - Conservative: Falls back to dup/drop when uncertain
 
+**Early Return Branch Optimization**
+
+The optimization correctly handles branches with early returns (return, break, continue):
+
+```yo
+segments := ArrayList(Box(i32)).new();
+cond(
+  (condition) => {
+    return Self(_segments: segments);  // Early return uses segments
+  },
+  true => {
+    x := 12;  // Non-empty branch that doesn't use segments
+    16
+  }
+);
+return Self(_segments: segments);  // Normal return uses segments
+```
+
+Key insight: **Early return branches are independent execution paths**. The optimization separates branches into:
+
+1. **Early return branches with dup**: Each has its own independent dup+drop pair that can be optimized
+2. **Fallthrough branches with dup**: Share a drop at end of scope - only optimize if ALL fallthrough branches have the dup
+3. **Branches without dup**: Don't affect optimization for that variable (they don't use it)
+
+This means:
+
+- Variables used only in early return branches can always be optimized
+- Fallthrough branches that don't use a variable don't block its optimization
+- Only inconsistent dup patterns across fallthrough branches prevent optimization
+
 **Important: Value Type Semantics**
 
 The optimization must respect C's value type semantics. When assigning value types in C (structs, unions, arrays), the assignment performs a **shallow copy (memcpy)**:
