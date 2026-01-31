@@ -43,6 +43,47 @@ There is also an alias `yo-cli` for `yo` command in case of naming conflicts.
 
 Run `yo --help` or `yo-cli --help` to see available commands.
 
+### C Compiler Requirement
+
+Yo currently transpiles to C and requires a C compiler to produce machine code. **Clang is recommended** for the best experience.
+
+#### Installing Clang
+
+**Linux:**
+
+```bash
+# Ubuntu/Debian
+$ sudo apt-get update
+$ sudo apt-get install clang
+
+# Fedora/RHEL
+$ sudo dnf install clang
+
+# Arch Linux
+$ sudo pacman -S clang
+```
+
+**macOS:**
+
+```bash
+# Clang is included with Xcode Command Line Tools
+$ xcode-select --install
+
+# Or install via Homebrew
+$ brew install llvm
+```
+
+**Windows:**
+
+```bash
+# Using Chocolatey
+$ choco install llvm
+
+# Or download from https://releases.llvm.org/
+```
+
+Alternatively, you can use other C compilers like `gcc` or `zig` by specifying the compiler with the `--c-compiler` flag.
+
 ## Code examples
 
 Check the `./tests` and `./std` folders for code examples.
