@@ -58,6 +58,29 @@ export interface SanitizerFlags {
   info?: string;
 }
 
+export function checkCompilerAvailable(compiler: string): boolean {
+  try {
+    execSync(`${compiler} --version`, { stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Find an available C compiler on the system
+ * @returns
+ */
+export function findAvailableCompiler(): string | null {
+  const compilers = ["cc", "clang", "gcc", "zig", "cl"];
+  for (const compiler of compilers) {
+    if (checkCompilerAvailable(compiler)) {
+      return compiler;
+    }
+  }
+  return null;
+}
+
 /**
  * Get the compiler flags needed to enable a sanitizer
  */
