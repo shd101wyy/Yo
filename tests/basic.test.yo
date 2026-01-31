@@ -343,10 +343,59 @@ test "Test type auto derive Acyclic", {
 };
 
 test "Test type auto derive Comptime", {
+  // Compile-time only types
+  comptime_assert(Type.impls(comptime_int, Comptime));
+  comptime_assert(Type.impls(comptime_float, Comptime));
+  comptime_assert(Type.impls(comptime_string, Comptime));
+  comptime_assert(Type.impls(Expr, Comptime));
+  comptime_assert(Type.impls(ComptimeList(i32), Comptime));
+
   // Primitive types that can exist at comptime
-  comptime_assert(Type.impls(i32, Comptime));
   comptime_assert(Type.impls(bool, Comptime));
+  comptime_assert(Type.impls(usize, Comptime));
+  comptime_assert(Type.impls(isize, Comptime));
+  comptime_assert(Type.impls(u8, Comptime));
+  comptime_assert(Type.impls(i8, Comptime));
+  comptime_assert(Type.impls(u16, Comptime));
+  comptime_assert(Type.impls(i16, Comptime));
+  comptime_assert(Type.impls(u32, Comptime));
+  comptime_assert(Type.impls(i32, Comptime));
+  comptime_assert(Type.impls(u64, Comptime));
+  comptime_assert(Type.impls(i64, Comptime));
+  comptime_assert(Type.impls(f32, Comptime));
   comptime_assert(Type.impls(f64, Comptime));
+  comptime_assert(Type.impls(unit, Comptime));
+
+  // C compatible types are runtime only
+  comptime_assert(Type.impls(void, Comptime) == false);
+  comptime_assert(Type.impls(char, Comptime) == false);
+  comptime_assert(Type.impls(short, Comptime) == false);
+  comptime_assert(Type.impls(ushort, Comptime) == false);
+  comptime_assert(Type.impls(int, Comptime) == false);
+  comptime_assert(Type.impls(uint, Comptime) == false);
+  comptime_assert(Type.impls(long, Comptime) == false);
+  comptime_assert(Type.impls(ulong, Comptime) == false);
+  comptime_assert(Type.impls(longlong, Comptime) == false);
+  comptime_assert(Type.impls(ulonglong, Comptime) == false);
+  comptime_assert(Type.impls(longdouble, Comptime) == false);
+  
+  // Array
+  comptime_assert(Type.impls(Array(i32, 3), Comptime));
+  comptime_assert(Type.impls(Array(comptime_int, 3), Comptime));
+  comptime_assert(Type.impls(Array(Box(i32), 3), Comptime) == false);
+  
+  // Slice
+  comptime_assert(Type.impls(Slice(i32), Comptime));
+  comptime_assert(Type.impls(Slice(comptime_int), Comptime));
+  comptime_assert(Type.impls(Slice(Box(i32)), Comptime) == false);
+
+  // TODO: Tuple
+  // TODO: Ptr
+  // TODO: Function
+
+
+  // Iso type is runtime only
+  comptime_assert(Type.impls(Iso(i32), Comptime) == false);
 
   // Value structs with comptime-compatible fields are Comptime
   Point :: struct(x : i32, y : i32);
@@ -369,13 +418,67 @@ test "Test type auto derive Comptime", {
 
   ResultInt :: enum(Ok(value : i32), Err(error : i32));
   comptime_assert(Type.impls(ResultInt, Comptime) == true);
+
+  // Union type is runtime only
+  UnionData :: union(a : i32, b : bool);
+  comptime_assert(Type.impls(UnionData, Comptime) == false);
 };
 
 test "Test type auto derive Runtime", {
+  // Compile-time only types are not runtime available
+  comptime_assert(Type.impls(comptime_int, Runtime) == false);
+  comptime_assert(Type.impls(comptime_float, Runtime) == false);
+  comptime_assert(Type.impls(comptime_string, Runtime) == false);
+  comptime_assert(Type.impls(Expr, Runtime) == false);
+  comptime_assert(Type.impls(ComptimeList(i32), Runtime) == false);
+
   // Primitive types that can exist at runtime
-  comptime_assert(Type.impls(i32, Runtime));
   comptime_assert(Type.impls(bool, Runtime));
+  comptime_assert(Type.impls(i32, Runtime));
   comptime_assert(Type.impls(f64, Runtime));
+  comptime_assert(Type.impls(usize, Runtime));
+  comptime_assert(Type.impls(isize, Runtime));
+  comptime_assert(Type.impls(u8, Runtime));
+  comptime_assert(Type.impls(i8, Runtime));
+  comptime_assert(Type.impls(u16, Runtime));
+  comptime_assert(Type.impls(i16, Runtime));
+  comptime_assert(Type.impls(u32, Runtime));
+  comptime_assert(Type.impls(i32, Runtime));
+  comptime_assert(Type.impls(u64, Runtime));
+  comptime_assert(Type.impls(i64, Runtime));
+  comptime_assert(Type.impls(f32, Runtime));
+  comptime_assert(Type.impls(f64, Runtime));
+  comptime_assert(Type.impls(unit, Runtime));
+
+  // C compatible types are runtime only
+  comptime_assert(Type.impls(void, Runtime));
+  comptime_assert(Type.impls(char, Runtime));
+  comptime_assert(Type.impls(short, Runtime));
+  comptime_assert(Type.impls(ushort, Runtime));
+  comptime_assert(Type.impls(int, Runtime));
+  comptime_assert(Type.impls(uint, Runtime));
+  comptime_assert(Type.impls(long, Runtime));
+  comptime_assert(Type.impls(ulong, Runtime));
+  comptime_assert(Type.impls(longlong, Runtime));
+  comptime_assert(Type.impls(ulonglong, Runtime));
+  comptime_assert(Type.impls(longdouble, Runtime));
+  
+  // Array
+  comptime_assert(Type.impls(Array(i32, 3), Runtime));
+  comptime_assert(Type.impls(Array(comptime_int, 3), Runtime) == false);
+  comptime_assert(Type.impls(Array(i32, Box(i32)), Runtime));
+  
+  // Slice
+  comptime_assert(Type.impls(Slice(i32), Runtime));
+  comptime_assert(Type.impls(Slice(comptime_int), Runtime) == false);
+  comptime_assert(Type.impls(Slice(Box(i32)), Runtime));
+
+  // TODO: Tuple
+  // TODO: Ptr
+  // TODO: Function
+
+  // Iso type is runtime only
+  comptime_assert(Type.impls(Iso(i32), Runtime));
 
   // Value structs with runtime-compatible fields are Runtime
   Point :: struct(x : i32, y : i32);
@@ -397,6 +500,10 @@ test "Test type auto derive Runtime", {
 
   ResultInt :: enum(Ok(value : i32), Err(error : i32));
   comptime_assert(Type.impls(ResultInt, Runtime) == true);
+
+  // Union type is runtime only
+  UnionData :: union(a : i32, b : bool);
+  comptime_assert(Type.impls(UnionData, Runtime));
 };
 
 test "Test 'struct'", {

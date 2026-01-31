@@ -17,6 +17,7 @@ import {
   isFloatType,
   isIntegerType,
   Type,
+  typeImplementsComptime,
   TypeTag,
   typeToString,
 } from "../../types";
@@ -302,7 +303,7 @@ export function tryToConvertToNumericType({
       });
     }
 
-    if (targetType.availability.comptime) {
+    if (typeImplementsComptime(targetType, env)) {
       const resultValue = createComptimeValueOfType(
         discriminant,
         targetType,
@@ -333,7 +334,7 @@ export function tryToConvertToNumericType({
 
   // Case 1: Compile-time value -> any supported type
   const comptimeValue = extractComptimeNumericValue(argValue);
-  if (comptimeValue !== undefined && targetType.availability.comptime) {
+  if (comptimeValue !== undefined && typeImplementsComptime(targetType, env)) {
     const resultValue = createComptimeValueOfType(
       comptimeValue,
       targetType,
@@ -367,7 +368,7 @@ export function tryToConvertToNumericType({
   // a compile-time value once the actual value is known.
   if (
     (isComptimeIntType(argType) || isComptimeFloatType(argType)) &&
-    targetType.availability.comptime
+    typeImplementsComptime(targetType, env)
   ) {
     // During checking phase, we may have a placeholder value but the type tells us
     // this will be a compile-time conversion. Create an appropriate value.

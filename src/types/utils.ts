@@ -13,7 +13,6 @@ import {
 } from "../value";
 import { ValueTag } from "../value-tag";
 import { areTypesCompatible } from "./compatibility";
-import { BOTH_AVAILABLE, COMPTIME_ONLY, RUNTIME_ONLY } from "./constants";
 import { createF64Type, createI32Type, createStrType } from "./creators";
 import {
   ArrayType,
@@ -28,13 +27,11 @@ import {
   ModuleField,
   ModuleType,
   PtrType,
-  SliceType,
   SomeType,
   StructType,
   TraitType,
   TupleType,
   Type,
-  TypeAvailability,
   TypeField,
   UnionType,
 } from "./definitions";
@@ -244,6 +241,39 @@ export function typeImplementsComptime(
     return false;
   }
 
+  switch (type.tag) {
+    // Comptime-only types
+    case TypeTag.ComptimeInt:
+    case TypeTag.ComptimeFloat:
+    case TypeTag.ComptimeString:
+    case TypeTag.Type:
+    case TypeTag.Module:
+    case TypeTag.Trait:
+    case TypeTag.Expr:
+    case TypeTag.ComptimeList:
+    case TypeTag.Unit: // Types available in both contexts
+    case TypeTag.Bool:
+    case TypeTag.Usize:
+    case TypeTag.Isize:
+    case TypeTag.U8:
+    case TypeTag.I8:
+    case TypeTag.U16:
+    case TypeTag.I16:
+    case TypeTag.U32:
+    case TypeTag.I32:
+    case TypeTag.U64:
+    case TypeTag.I64:
+    case TypeTag.F32:
+    case TypeTag.F64:
+    case TypeTag.Function: {
+      return true;
+    }
+  }
+
+  if (isTypeHierarchyType(type)) {
+    return true;
+  }
+
   const comptimeTraitType = getTraitTypeFromEnv(env, "Comptime");
   if (!comptimeTraitType) {
     return false;
@@ -269,6 +299,41 @@ export function typeImplementsRuntime(
 ): boolean {
   if (!type) {
     return false;
+  }
+
+  switch (type.tag) {
+    // Runtime-only types
+    case TypeTag.Iso:
+    case TypeTag.Dyn:
+    case TypeTag.Void:
+    case TypeTag.Char: // C-compatible types (platform-dependent size, runtime only)
+    case TypeTag.Short:
+    case TypeTag.UShort:
+    case TypeTag.Int:
+    case TypeTag.UInt:
+    case TypeTag.Long:
+    case TypeTag.ULong:
+    case TypeTag.LongLong:
+    case TypeTag.ULongLong:
+    case TypeTag.LongDouble:
+    case TypeTag.Unit: // Types available in both contexts
+    case TypeTag.Bool:
+    case TypeTag.Usize:
+    case TypeTag.Isize:
+    case TypeTag.U8:
+    case TypeTag.I8:
+    case TypeTag.U16:
+    case TypeTag.I16:
+    case TypeTag.U32:
+    case TypeTag.I32:
+    case TypeTag.U64:
+    case TypeTag.I64:
+    case TypeTag.F32:
+    case TypeTag.F64:
+    case TypeTag.Function:
+    case TypeTag.Union: {
+      return true;
+    }
   }
 
   const runtimeTraitType = getTraitTypeFromEnv(env, "Runtime");
@@ -389,336 +454,42 @@ export function extractFutureTraitFromType(
  * - Primitive comptime-only types (Type, comptime_int, comptime_float, etc.)
  * - Compound types that are comptime-only (structs with comptime_int fields, etc.)
  */
-export function typeRequiresComptimeModifier(type?: Type): boolean {
+export function typeRequiresComptimeModifier(
+  type: Type | undefined,
+  env: Environment
+): boolean {
   if (!type) {
     return false;
   }
 
   // Check if compound types are comptime-only based on their availability
   // A type with availability { comptime: true, runtime: false } is comptime-only
-  return isComptimeOnlyType(type);
+  return isComptimeOnlyType(type, env);
 }
 
-export function typeProhibitsComptimeModifier(type?: Type): boolean {
+export function typeProhibitsComptimeModifier(
+  type: Type | undefined,
+  env: Environment
+): boolean {
   if (!type) {
     return false;
   }
 
-  return isRuntimeOnlyType(type);
-}
-
-/**
- * Determine the TypeAvailability for a given type and validate it.
- * This computes the availability and throws an error if invalid (no context available).
- *
- * For compound types (struct, enum, array, tuple), this computes the intersection
- * of field availabilities and validates that at least one context remains available.
- *
- * @param type The type to determine availability for
- * @param errorToken Optional token for error reporting
- * @returns The computed TypeAvailability
- * @throws Error if the availability is invalid (both comptime and runtime are false)
- */
-export function determineTypeAvailability(
-  type: Type,
-  errorToken?: Token
-): TypeAvailability {
-  let availability: TypeAvailability;
-
-  // Determine availability based on type tag
-  switch (type.tag) {
-    // Comptime-only types
-    case TypeTag.ComptimeInt:
-    case TypeTag.ComptimeFloat:
-    case TypeTag.ComptimeString:
-    case TypeTag.Type:
-    case TypeTag.Module:
-    case TypeTag.Trait:
-    case TypeTag.Expr:
-    case TypeTag.ComptimeList:
-      availability = COMPTIME_ONLY;
-      break;
-
-    // Runtime-only types
-    case TypeTag.Iso:
-    case TypeTag.Dyn:
-    case TypeTag.Void:
-    case TypeTag.Char: // C-compatible types (platform-dependent size, runtime only)
-    case TypeTag.Short:
-    case TypeTag.UShort:
-    case TypeTag.Int:
-    case TypeTag.UInt:
-    case TypeTag.Long:
-    case TypeTag.ULong:
-    case TypeTag.LongLong:
-    case TypeTag.ULongLong:
-    case TypeTag.LongDouble:
-      availability = RUNTIME_ONLY;
-      break;
-
-    // Types available in both contexts
-    case TypeTag.Unit:
-    case TypeTag.Bool:
-    case TypeTag.Usize:
-    case TypeTag.Isize:
-    case TypeTag.U8:
-    case TypeTag.I8:
-    case TypeTag.U16:
-    case TypeTag.I16:
-    case TypeTag.U32:
-    case TypeTag.I32:
-    case TypeTag.U64:
-    case TypeTag.I64:
-    case TypeTag.F32:
-    case TypeTag.F64:
-      availability = BOTH_AVAILABLE;
-      break;
-
-    // Compound types - compute from fields
-    case TypeTag.Struct:
-      availability = computeStructTypeAvailability(type as StructType);
-      break;
-    case TypeTag.Enum:
-      availability = computeEnumTypeAvailability(type as EnumType);
-      break;
-    case TypeTag.Array:
-      availability = computeArrayTypeAvailability(type as ArrayType);
-      break;
-    case TypeTag.Slice:
-      availability = (type as SliceType).childType.availability;
-      break;
-    case TypeTag.Tuple:
-      availability = computeTupleTypeAvailability(type as TupleType);
-      break;
-    case TypeTag.Ptr:
-      // Pointer types: availability depends on child type
-      // If child type is comptime-only, pointer is comptime-only
-      // If child type is runtime-only, pointer is runtime-only
-      // If child type is both, pointer is both
-      availability = (type as PtrType).childType.availability;
-      break;
-    case TypeTag.Union:
-      // Union types are runtime-only (as specified in the design)
-      availability = RUNTIME_ONLY;
-      break;
-
-    // Function types: can be used in both contexts (function references)
-    case TypeTag.Function:
-      availability = BOTH_AVAILABLE;
-      break;
-
-    // SomeType: defaults to both contexts unless we know more
-    case TypeTag.SomeType: {
-      const someType = type as SomeType;
-      // If we have a resolved concrete type, use its availability
-      if (someType.resolvedConcreteType) {
-        availability = determineTypeAvailability(
-          someType.resolvedConcreteType,
-          errorToken
-        );
-      } else {
-        // Otherwise, assume both contexts are available
-        availability = BOTH_AVAILABLE;
-      }
-      break;
-    }
-
-    default:
-      // Default to both contexts for unknown types
-      availability = BOTH_AVAILABLE;
-  }
-
-  // Validate the availability
-  if (!isValidAvailability(availability)) {
-    const typeName = type.typeName || typeToString(type);
-    const errorMessage = `Type '${typeName}' has incompatible field contexts and cannot be used in any evaluation context.\n\nThis typically happens when a struct/enum/array contains fields with conflicting availability:\n- Compile-time only fields (e.g., comptime_int, Type, Module)\n- Runtime only fields (e.g., *(T), [T], void, C-compatible types)\n\nConsider restructuring the type to avoid mixing incompatible field types.`;
-
-    if (errorToken) {
-      throw formatErrorMessages([
-        {
-          token: errorToken,
-          errorMessage,
-        },
-      ]);
-    } else {
-      throw new Error(errorMessage);
-    }
-  }
-
-  return availability;
-}
-
-/**
- * Get the TypeAvailability for a given type.
- * Simply returns the availability field from the type.
- */
-export function getTypeAvailability(type: Type): TypeAvailability {
-  return type.availability;
-}
-
-/**
- * Compute the intersection of two TypeAvailabilities.
- * Returns an availability where both comptime and runtime are true only if they are true in both inputs.
- */
-export function computeIntersectionAvailability(
-  a: TypeAvailability,
-  b: TypeAvailability
-): TypeAvailability {
-  return {
-    comptime: a.comptime && b.comptime,
-    runtime: a.runtime && b.runtime,
-  };
-}
-
-/**
- * Check if a TypeAvailability is valid (at least one context is available).
- */
-export function isValidAvailability(availability: TypeAvailability): boolean {
-  return availability.comptime || availability.runtime;
+  return isRuntimeOnlyType(type, env);
 }
 
 /**
  * Check if a type is comptime-only (cannot be used at runtime).
  */
-export function isComptimeOnlyType(type: Type): boolean {
-  return type.availability.comptime && !type.availability.runtime;
+export function isComptimeOnlyType(type: Type, env: Environment): boolean {
+  return typeImplementsComptime(type, env) && !typeImplementsRuntime(type, env);
 }
 
 /**
  * Check if a type is runtime-only (cannot be used at compile time).
  */
-export function isRuntimeOnlyType(type: Type): boolean {
-  return !type.availability.comptime && type.availability.runtime;
-}
-
-/**
- * Compute the TypeAvailability for a struct type based on its fields.
- */
-export function computeStructTypeAvailability(
-  structType: StructType
-): TypeAvailability {
-  const fields = structType.fields;
-
-  // `object` types are always runtime-only
-  if (structType.isReferenceSemantics) {
-    return RUNTIME_ONLY;
-  }
-
-  // Empty struct can be used in both contexts
-  if (fields.length === 0) {
-    return BOTH_AVAILABLE;
-  }
-
-  // Start with both contexts available
-  let result: TypeAvailability = { ...BOTH_AVAILABLE };
-
-  // Intersect with each non-compile-time-only field's availability
-  for (const field of fields) {
-    // Skip compile-time-only fields (they don't affect runtime representation)
-    if (field.isCompileTimeOnly) {
-      continue;
-    }
-
-    const fieldAvailability = field.type.availability;
-    result = computeIntersectionAvailability(result, fieldAvailability);
-
-    // Early exit if availability becomes invalid
-    if (!isValidAvailability(result)) {
-      break;
-    }
-  }
-
-  return result;
-}
-
-/**
- * Compute the TypeAvailability for an enum type based on its variants.
- */
-export function computeEnumTypeAvailability(
-  enumType: EnumType
-): TypeAvailability {
-  const variants = enumType.variants;
-
-  // Empty enum can be used in both contexts
-  if (variants.length === 0) {
-    return BOTH_AVAILABLE;
-  }
-
-  // Start with both contexts available
-  let result: TypeAvailability = { ...BOTH_AVAILABLE };
-
-  // Intersect with each variant's fields' availabilities
-  for (const variant of variants) {
-    if (variant.fields) {
-      for (const field of variant.fields) {
-        const fieldAvailability = field.type.availability;
-        result = computeIntersectionAvailability(result, fieldAvailability);
-
-        // Early exit if availability becomes invalid
-        if (!isValidAvailability(result)) {
-          return result;
-        }
-      }
-    }
-  }
-
-  return result;
-}
-
-/**
- * Compute the TypeAvailability for a tuple type based on its fields.
- */
-export function computeTupleTypeAvailability(
-  tupleType: TupleType
-): TypeAvailability {
-  const fields = tupleType.fields;
-
-  // Empty tuple can be used in both contexts
-  if (fields.length === 0) {
-    return BOTH_AVAILABLE;
-  }
-
-  // Start with both contexts available
-  let result: TypeAvailability = { ...BOTH_AVAILABLE };
-
-  // Intersect with each field's availability
-  for (const field of fields) {
-    // Skip compile-time-only fields
-    if (field.isCompileTimeOnly) {
-      continue;
-    }
-
-    const fieldAvailability = field.type.availability;
-    result = computeIntersectionAvailability(result, fieldAvailability);
-
-    // Early exit if availability becomes invalid
-    if (!isValidAvailability(result)) {
-      break;
-    }
-  }
-
-  return result;
-}
-
-/**
- * Compute the TypeAvailability for an array type based on its child type.
- */
-export function computeArrayTypeAvailability(
-  arrayType: ArrayType
-): TypeAvailability {
-  return arrayType.childType.availability;
-}
-
-/**
- * Update the availability of a type after its fields/variants have been modified.
- * This should be called after adding/removing fields to compound types.
- *
- * @param type The type to update
- * @returns The updated type (mutated in place)
- */
-export function updateTypeAvailability(type: Type, errorToken?: Token): Type {
-  type.availability = determineTypeAvailability(type, errorToken);
-  return type;
+export function isRuntimeOnlyType(type: Type, env: Environment): boolean {
+  return !typeImplementsComptime(type, env) && typeImplementsRuntime(type, env);
 }
 
 /**

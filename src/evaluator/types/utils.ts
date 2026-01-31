@@ -406,7 +406,7 @@ export function addRcFunctionsToStructType({
   context: EvaluatorContext;
 }): Environment {
   // Skip RC functions for comptime-only types - they don't exist at runtime
-  if (!structType.availability.runtime) {
+  if (!typeImplementsRuntime(structType, env)) {
     return env;
   }
 
@@ -477,7 +477,7 @@ export function addRcFunctionSignaturesToStructType({
   context: EvaluatorContext;
 }) {
   // Skip RC functions for comptime-only types - they don't exist at runtime
-  if (!structType.availability.runtime) {
+  if (!typeImplementsRuntime(structType, env)) {
     return;
   }
 
@@ -717,7 +717,7 @@ export function addRcFunctionsToEnumType({
   context: EvaluatorContext;
 }): Environment {
   // Skip RC functions for comptime-only types - they don't exist at runtime
-  if (!enumType.availability.runtime) {
+  if (!typeImplementsRuntime(enumType, env)) {
     return env;
   }
 
@@ -788,8 +788,8 @@ export function addRcFunctionSignaturesToEnumType({
   context: EvaluatorContext;
 }) {
   // Skip RC functions for comptime-only types - they don't exist at runtime
-  if (!enumType.availability.runtime) {
-    return;
+  if (!typeImplementsRuntime(enumType, env)) {
+    return env;
   }
 
   // Add function signatures to the enum trait first, to support recursive calls

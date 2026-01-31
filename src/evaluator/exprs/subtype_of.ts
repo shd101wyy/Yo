@@ -12,7 +12,6 @@ import { Token } from "../../token";
 import {
   areTypesCompatible,
   createTypeHierarchy,
-  getTraitTypeFromEnv,
   isSomeType,
   isTraitType,
   TraitField,
@@ -307,24 +306,6 @@ export function evaluateSubtypeOf({
           },
         };
         someType.trait.fields.push(field);
-
-        // If the constraint is Comptime trait, update the SomeType's availability
-        const comptimeTraitType = getTraitTypeFromEnv(env, "Comptime");
-        if (comptimeTraitType && traitType.id === comptimeTraitType.id) {
-          someType.availability = {
-            ...someType.availability,
-            comptime: true,
-          };
-        }
-
-        // If the constraint is Runtime trait, update the SomeType's availability
-        const runtimeTraitType = getTraitTypeFromEnv(env, "Runtime");
-        if (runtimeTraitType && traitType.id === runtimeTraitType.id) {
-          someType.availability = {
-            ...someType.availability,
-            runtime: true,
-          };
-        }
       }
     }
 

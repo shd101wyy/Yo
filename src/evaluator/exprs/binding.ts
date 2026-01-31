@@ -117,14 +117,20 @@ Use explicit length like 'Array(i32, 3)' or omit the type annotation and initial
     });
   }
 
-  if (typeRequiresComptimeModifier(userDefinedType) && !isCompileTimeOnly) {
+  if (
+    typeRequiresComptimeModifier(userDefinedType, env) &&
+    !isCompileTimeOnly
+  ) {
     throw formatErrorMessage({
       token: lhs.token,
       errorMessage: `Expected "comptime" for compile-time known value binding:\n${typeToString(userDefinedType)}`,
     });
   }
 
-  if (typeProhibitsComptimeModifier(userDefinedType) && isCompileTimeOnly) {
+  if (
+    typeProhibitsComptimeModifier(userDefinedType, env) &&
+    isCompileTimeOnly
+  ) {
     throw formatErrorMessage({
       token: lhs.token,
       errorMessage: `Unexpected "comptime"  for ${typeToString(userDefinedType)} which can only be used at runtime.`,

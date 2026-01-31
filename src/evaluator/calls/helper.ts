@@ -378,7 +378,10 @@ Got:   ${valueToString(evaluatedArgExpr.$.value)}`,
   // This converts comptime-only argument types to their runtime equivalents.
   // For types that can exist at both compile-time and runtime (like *(i32)),
   // we keep the value intact which allows CTFE with pointers to work correctly.
-  if (!parameter.isCompileTimeOnly && isComptimeOnlyType(argType)) {
+  if (
+    !parameter.isCompileTimeOnly &&
+    isComptimeOnlyType(argType, evaluatedArgExpr.$.env)
+  ) {
     // During CTFE (forceCompileTimeBindings), preserve the value for compile-time evaluation.
     // Only clear the value for normal runtime calls.
     if (!context.forceCompileTimeBindings) {
@@ -395,7 +398,7 @@ Got:   ${valueToString(evaluatedArgExpr.$.value)}`,
       env: evaluatedArgExpr.$.env,
     });
 
-    if (typeRequiresComptimeModifier(argType)) {
+    if (typeRequiresComptimeModifier(argType, evaluatedArgExpr.$.env)) {
       // We fail to convert to runtime type
       throw formatErrorMessage({
         token: argExpr?.token ?? PlaceholderToken,

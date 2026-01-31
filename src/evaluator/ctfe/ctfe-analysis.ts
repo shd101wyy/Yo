@@ -88,13 +88,13 @@ export function analyzeCtfeCapability(
 
   // Check if any parameter type prohibits comptime modifier (runtime-only types like Ptr, Slice, Void)
   for (const param of functionValue.type.parameters) {
-    if (typeProhibitsComptimeModifier(param.type)) {
+    if (typeProhibitsComptimeModifier(param.type, env)) {
       return undefined;
     }
   }
 
   // Check if return type prohibits comptime modifier
-  if (typeProhibitsComptimeModifier(functionValue.type.return.type)) {
+  if (typeProhibitsComptimeModifier(functionValue.type.return.type, env)) {
     return undefined;
   }
 

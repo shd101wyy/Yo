@@ -143,7 +143,7 @@ ${tupleFieldToString(paramElement_)}`,
     // This allows struct fields like `x : comptime_int` (without comptime modifier) to accept comptime values.
     if (
       !memberElement.isCompileTimeOnly &&
-      !isComptimeOnlyType(memberElement.type)
+      !isComptimeOnlyType(memberElement.type, callerEnv)
     ) {
       argType = convertComptimeTypeToRuntimeType({
         type: argType,

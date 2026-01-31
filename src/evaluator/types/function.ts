@@ -30,7 +30,6 @@ import {
   FunctionType,
   getFunctionParameterExprs,
   getFunctionParameterToken,
-  getTraitTypeFromEnv,
   getValueOfSomeTypeFromEnv,
   isExprListType,
   isExprType,
@@ -371,14 +370,20 @@ export function evaluateFunctionParameter({
         errorMessage: `Expected type for function parameter}`,
       });
     }
-    if (isCompileTimeOnly && typeProhibitsComptimeModifier(parameterType)) {
+    if (
+      isCompileTimeOnly &&
+      typeProhibitsComptimeModifier(parameterType, env)
+    ) {
       throw formatErrorMessage({
         token: lhsExpr?.token ?? expr.token,
         errorMessage: `Parameter marked as "comptime" but type is not available at compile-time:
 ${typeToString(parameterType)}`,
       });
     }
-    if (!isCompileTimeOnly && typeRequiresComptimeModifier(parameterType)) {
+    if (
+      !isCompileTimeOnly &&
+      typeRequiresComptimeModifier(parameterType, env)
+    ) {
       throw formatErrorMessage({
         token: lhsExpr?.token ?? expr.token,
         errorMessage: `Parameter marked as runtime but type is not available at runtime:
@@ -519,16 +524,6 @@ use_id :: (fn(forall(T : Type),
       existingSomeType.requiredTraits = mergedRequiredTraits;
       existingSomeType.negativeTraits =
         mergedNegativeTraits.length > 0 ? mergedNegativeTraits : undefined;
-
-      // Also merge availability from the new SomeType
-      existingSomeType.availability = {
-        comptime:
-          existingSomeType.availability.comptime ||
-          newSomeType.availability.comptime,
-        runtime:
-          existingSomeType.availability.runtime ||
-          newSomeType.availability.runtime,
-      };
     }
     // If new value is not a SomeType, just keep the existing SomeType
     // (this handles cases like `comptime(T): Type` after `where(T <: Trait)`)
@@ -1020,24 +1015,6 @@ function parseWhereClauseConstraints({
         negativeTraits.push(traitType);
       } else {
         requiredTraits.push(traitType);
-
-        // If the constraint is Comptime trait, update the SomeType's availability
-        const comptimeTraitType = getTraitTypeFromEnv(env, "Comptime");
-        if (comptimeTraitType && traitType.id === comptimeTraitType.id) {
-          someType.availability = {
-            ...someType.availability,
-            comptime: true,
-          };
-        }
-
-        // If the constraint is Runtime trait, update the SomeType's availability
-        const runtimeTraitType = getTraitTypeFromEnv(env, "Runtime");
-        if (runtimeTraitType && traitType.id === runtimeTraitType.id) {
-          someType.availability = {
-            ...someType.availability,
-            runtime: true,
-          };
-        }
       }
     }
 
@@ -1758,7 +1735,7 @@ export function evaluateFunctionType({
   }
 
   if (
-    typeRequiresComptimeModifier(returnType) &&
+    typeRequiresComptimeModifier(returnType, env) &&
     !isReturnTypeCompileTimeOnly
   ) {
     // Try converting to runtime type first
@@ -1770,7 +1747,7 @@ export function evaluateFunctionType({
     });
     // If it still requires comptime modifier,
     // then throw an error
-    if (typeRequiresComptimeModifier(returnType)) {
+    if (typeRequiresComptimeModifier(returnType, env)) {
       throw formatErrorMessage({
         token: returnTypeExpr.token,
         errorMessage: `Expected a "comptime"  for return type, like:\n
@@ -1789,7 +1766,7 @@ ${typeToString(returnType)}`,
 
   if (
     isReturnTypeCompileTimeOnly &&
-    typeProhibitsComptimeModifier(returnType)
+    typeProhibitsComptimeModifier(returnType, env)
   ) {
     throw formatErrorMessage({
       token: returnTypeExpr.token,

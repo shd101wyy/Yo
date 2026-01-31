@@ -122,7 +122,10 @@ ${typeToString(expectedTupleType)}`,
 
   // Convert to runtime type only if the expected type is not comptime-only.
   // This allows tuples with comptime_int fields to accept comptime values.
-  if (!expectedTupleFieldType || !isComptimeOnlyType(expectedTupleFieldType)) {
+  if (
+    !expectedTupleFieldType ||
+    !isComptimeOnlyType(expectedTupleFieldType, env)
+  ) {
     childType = convertComptimeTypeToRuntimeType({
       type: evaluatedRhs.$.type,
       expectedType: undefined,

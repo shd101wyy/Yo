@@ -209,7 +209,7 @@ export function evaluateInitializationAssignment({
     }
 
     // Check some value that requires compile-time only
-    if (!isCompileTimeOnly && typeRequiresComptimeModifier(lhs.$.type)) {
+    if (!isCompileTimeOnly && typeRequiresComptimeModifier(lhs.$.type, env)) {
       throw formatErrorMessage({
         token: expr.token,
         errorMessage: `Expected "::" instead of ":=" for compile-time known value assignment:
@@ -219,7 +219,7 @@ Type:
 ${typeToString(lhs.$.type)}`,
       });
     }
-    if (isCompileTimeOnly && typeProhibitsComptimeModifier(lhs.$.type)) {
+    if (isCompileTimeOnly && typeProhibitsComptimeModifier(lhs.$.type, env)) {
       throw formatErrorMessage({
         token: expr.token,
         errorMessage: `Expected ":=" instead of "::" for value type "${typeToString(lhs.$.type)}" which can only be used at the runtime:

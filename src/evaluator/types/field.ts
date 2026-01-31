@@ -17,6 +17,7 @@ import {
   prohibitVoidType,
   Type,
   TypeField,
+  typeImplementsComptime,
   typeToString,
 } from "../../types";
 import { VUnit } from "../../unit-value";
@@ -370,9 +371,8 @@ Given type: ${typeToString(defaultValueType)}`,
   // New availability-based validation:
   // - If isCompileTimeOnly = true: the type MUST be available at compile-time
   // - If isCompileTimeOnly = false: no validation - the field contributes to struct availability
-  const fieldAvailability = fieldType.availability;
 
-  if (isCompileTimeOnly && !fieldAvailability.comptime) {
+  if (isCompileTimeOnly && !typeImplementsComptime(fieldType, env)) {
     // Field is marked as compile-time-only but type is runtime-only
     throw formatErrorMessage({
       token: labelExpr?.token ?? expr.token,

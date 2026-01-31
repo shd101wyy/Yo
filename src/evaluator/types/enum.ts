@@ -16,7 +16,6 @@ import {
   ModuleField,
   TraitField,
   TypeField,
-  updateTypeAvailability,
 } from "../../types";
 import { createTypeValue, isComptimeIntValue } from "../../value";
 import { EvaluatorContext } from "../context";
@@ -139,7 +138,6 @@ export function evaluateEnumType({
         name: variantName,
         discriminant,
       });
-      updateTypeAvailability(enumType, enumArg.token);
 
       // Update nextDiscriminant to be one more than the current value
       nextDiscriminant = discriminant + 1n;
@@ -247,7 +245,6 @@ export function evaluateEnumType({
           name: variantName,
           discriminant: nextDiscriminant,
         });
-        updateTypeAvailability(enumType, enumArg.token);
         nextDiscriminant += 1n;
       } else {
         // Check for enum variant with discriminant: VariantName(fields) = value
@@ -357,7 +354,6 @@ export function evaluateEnumType({
           fields: fields,
           discriminant,
         });
-        updateTypeAvailability(enumType, variantExpr.token);
         nextDiscriminant = discriminant + 1n;
       }
     }

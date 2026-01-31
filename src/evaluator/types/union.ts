@@ -91,7 +91,7 @@ export function evaluateUnionType({
 
     // Union fields must be runtime-only types
     // Compile-time only types like comptime_int, Type, Module cannot be used in unions
-    if (!field.isCompileTimeOnly && isComptimeOnlyType(field.type)) {
+    if (!field.isCompileTimeOnly && isComptimeOnlyType(field.type, env)) {
       throw formatErrorMessage({
         token: field.exprs.expr.token,
         errorMessage: `Union field '${field.label}' has compile-time only type, but union fields must be usable at runtime.\nField type: ${field.type.typeName || "unknown"}\nConsider using a runtime type like i32 instead.`,
