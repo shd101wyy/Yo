@@ -575,14 +575,7 @@ export function createUnknownValue(
     }
 
     // SomeType
-    const someType = createSomeType(
-      type,
-      variableName,
-      undefined,
-      undefined,
-      undefined,
-      recursiveTypeRef
-    );
+    const someType = createSomeType(type, variableName, { recursiveTypeRef });
     return createTypeValue(someType);
   }
 

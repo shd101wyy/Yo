@@ -426,11 +426,7 @@ To avoid circular dependency issues, please explicitly provide the value for thi
     unassignedSomeType = createSomeType(
       fieldType,
       label ?? `$associated_type_${randomId(env.modulePath)}`,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      env
+      { env }
     );
   }
 
@@ -485,7 +481,7 @@ export function evaluateTraitType({
   const args = expr.args;
 
   // Create "Self" type, which is a SomeType containing the current traitType
-  const selfType = createSomeType(createType0(), "Self");
+  const selfType = createSomeType(createType0(), "Self", {});
   selfType.trait = traitType;
 
   for (let i = 0; i < args.length; i++) {

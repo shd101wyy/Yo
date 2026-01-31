@@ -191,13 +191,10 @@ export function evaluateDynValue({
   if (context.expectedType && isDynType(context.expectedType.type)) {
     const expectedDynType = context.expectedType.type;
     // Create a SomeType from the DynType's requiredTraits
-    someType = createSomeType(
-      createType0(),
-      "",
-      undefined,
-      expectedDynType.requiredTraits,
-      expectedDynType.negativeTraits
-    );
+    someType = createSomeType(createType0(), "", {
+      requiredTraits: expectedDynType.requiredTraits,
+      negativeTraits: expectedDynType.negativeTraits,
+    });
 
     // Special handling for dyn(box(...)) pattern:
     // For dyn(box(closure)), we need Box(Impl(A)) as the expected type

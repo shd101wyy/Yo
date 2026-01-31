@@ -657,7 +657,7 @@ function prepareWhereClauseVariables({
       const existingVars = getVariablesFromEnv(env, varName);
       if (existingVars.length === 0) {
         // Variable doesn't exist - create a new SomeType for it
-        const someType = createSomeType(createType0(), varName);
+        const someType = createSomeType(createType0(), varName, {});
 
         // Add to env so later parameters can reference it
         const typeValue = createTypeValue(someType);
@@ -876,7 +876,7 @@ function parseWhereClauseConstraints({
       } else {
         // Variable doesn't exist - create a new SomeType for it
         // This SomeType starts with RUNTIME_ONLY availability (default for type parameters)
-        someType = createSomeType(createType0(), varName);
+        someType = createSomeType(createType0(), varName, {});
 
         // Add to env so later parameters can reference it
         const typeValue = createTypeValue(someType);

@@ -2,6 +2,23 @@
 // Prelude Module
 // - Calling "import" is prohibited in this prelude module.
 
+// Traits for determine type availability
+/// Comptime trait - indicates a type that can be used at compile-time.
+/// Examples: i32, bool, Type, comptime_int, comptime_float, comptime_string
+/// Non-examples: int, ushort (runtime-only types)
+Comptime :: trait(
+  id := "Comptime"
+);
+export Comptime;
+
+/// Runtime trait - indicates a type that can be used at runtime.
+/// Examples: i32, bool, *(i32), void
+/// Non-examples: comptime_int, comptime_float, comptime_string, Type (compile-time-only types)
+Runtime :: trait(
+  id := "Runtime"
+);
+export Runtime;
+
 // === Builtin Yo functions ===
 extern "Yo",
   __yo_return_self : (fn(forall(T: Type), self: T) -> T),
@@ -152,22 +169,6 @@ Acyclic :: trait(
   id := "Acyclic"
 );
 export Acyclic;
-
-/// Comptime trait - indicates a type that can be used at compile-time.
-/// Examples: i32, bool, Type, comptime_int, comptime_float, comptime_string
-/// Non-examples: int, ushort (runtime-only types)
-Comptime :: trait(
-  id := "Comptime"
-);
-export Comptime;
-
-/// Runtime trait - indicates a type that can be used at runtime.
-/// Examples: i32, bool, *(i32), void
-/// Non-examples: comptime_int, comptime_float, comptime_string, Type (compile-time-only types)
-Runtime :: trait(
-  id := "Runtime"
-);
-export Runtime;
 
 /// === Arithmetic ===
 Add :: (fn(comptime(Rhs) : Type, comptime(Output) ?= Rhs)-> comptime(Trait))

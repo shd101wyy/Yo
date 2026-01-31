@@ -1171,7 +1171,7 @@ Got:   ${typeToString(typeValue.type)}`,
             const someType = createSomeType(
               returnType as TypeHierarchyType,
               functionType.return.label,
-              someTypeId
+              { id: someTypeId }
             );
             someType.functionApplication = expr;
             const newReturnType = getValueOfSomeTypeFromEnv(

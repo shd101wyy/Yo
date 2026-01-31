@@ -888,14 +888,22 @@ export function createIsoType(childType: Type, env: Environment): IsoType {
 export function createSomeType(
   type: TypeHierarchyType,
   variableName: string,
-  id?: string,
-  requiredTraits?: TraitType[],
-  negativeTraits?: TraitType[],
-  recursiveTypeRef?: {
-    functionValue: FunctionValue;
-    argValues: Value[];
-  },
-  env?: Environment
+  {
+    id,
+    requiredTraits,
+    negativeTraits,
+    recursiveTypeRef,
+    env,
+  }: {
+    id?: string;
+    requiredTraits?: TraitType[];
+    negativeTraits?: TraitType[];
+    recursiveTypeRef?: {
+      functionValue: FunctionValue;
+      argValues: Value[];
+    };
+    env?: Environment;
+  }
 ): SomeType {
   if (type.level !== 0) {
     console.trace();
