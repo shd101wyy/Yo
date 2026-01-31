@@ -159,18 +159,18 @@ cwd :: (fn() -> Result(Path, String))(
       { GetCurrentDirectoryW, WideCharToMultiByte, CP_UTF8, WCHAR, DWORD } :: import "./libc/windows";
       
       // First, get the required buffer size
-      required_size := GetCurrentDirectoryW(DWORD(0), *(WCHAR)(__yo_nullptr()));
+      required_size := GetCurrentDirectoryW(ulong(0), .None);
       cond(
-        (required_size == DWORD(0)) => .Err(`Failed to get current working directory on Windows`),
+        (required_size == ulong(0)) => .Err(`Failed to get current working directory on Windows`),
         true => {
           // Allocate buffer for wide characters
           wbuf := *(WCHAR)(malloc((usize(required_size) * usize(2))).unwrap());
           
           // Get the current directory in UTF-16
-          actual_size := GetCurrentDirectoryW(required_size, wbuf);
+          actual_size := GetCurrentDirectoryW(required_size, .Some(wbuf));
           
           cond(
-            (actual_size == DWORD(0)) => {
+            (actual_size == ulong(0)) => {
               free(.Some(*(void)(wbuf)));
               .Err(`Failed to get current working directory on Windows`)
             },
@@ -178,14 +178,14 @@ cwd :: (fn() -> Result(Path, String))(
               // Convert UTF-16 to UTF-8
               // First, get the required buffer size for UTF-8
               utf8_size := WideCharToMultiByte(
-                u32(CP_UTF8),
-                DWORD(0),
-                wbuf,
+                CP_UTF8,
+                ulong(0),
+                .Some(wbuf),
                 i32(actual_size),
-                *(u8)(__yo_nullptr()),
+                .None,
                 i32(0),
-                *(u8)(__yo_nullptr()),
-                *(i32)(__yo_nullptr())
+                .None,
+                .None
               );
               
               cond(
@@ -199,14 +199,14 @@ cwd :: (fn() -> Result(Path, String))(
                   
                   // Convert to UTF-8
                   result := WideCharToMultiByte(
-                    u32(CP_UTF8),
-                    DWORD(0),
-                    wbuf,
+                    CP_UTF8,
+                    ulong(0),
+                    .Some(wbuf),
                     i32(actual_size),
-                    utf8_buf,
+                    .Some(utf8_buf),
                     utf8_size,
-                    *(u8)(__yo_nullptr()),
-                    *(i32)(__yo_nullptr())
+                    .None,
+                    .None
                   );
                   
                   free(.Some(*(void)(wbuf)));
@@ -218,7 +218,7 @@ cwd :: (fn() -> Result(Path, String))(
                     },
                     true => {
                       // Add null terminator
-                      utf8_buf(usize(result)) = u8(0);
+                      (utf8_buf &+ usize(result)).* = u8(0);
                       cwd_str := String.from_cstr(utf8_buf).unwrap();
                       free(.Some(*(void)(utf8_buf)));
                       .Ok(Path.new(cwd_str))
@@ -269,10 +269,10 @@ chdir :: (fn(path: Path) -> Result(unit, String))(
       
       path_str := path.to_string();
       path_cstr := path_str.to_cstr().ptr().unwrap();
-      result := SetCurrentDirectoryA(*(char)(path_cstr));
+      result := SetCurrentDirectoryA(.Some *(char)(path_cstr));
       
       cond(
-        (result == BOOL(0)) => .Err(`Failed to change directory to: ${path_str}`),
+        (result == int(0)) => .Err(`Failed to change directory to: ${path_str}`),
         true => .Ok(())
       )
     },

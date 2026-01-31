@@ -63,7 +63,9 @@ Path :: object(
     // Normalize backslashes to forward slashes for cross-platform support
     normalized := path_str.replace(String.from("\\"), String.from("/"));
 
-    // Check if path is absolute (starts with '/' or '\')
+    // Check if path is absolute
+    // Unix: starts with '/'
+    // Windows: starts with drive letter like 'C:' or UNC path '\\'
     bytes := normalized._bytes;
     cond(
       (bytes.len() > usize(0)) => {
@@ -74,7 +76,32 @@ Path :: object(
             (b == u8(47)) => {
               is_abs = true;
             },
-            true => ()
+            true => {
+              // Windows drive letter: check for pattern like "C:"
+              cond(
+                (bytes.len() >= usize(2)) => {
+                  second_byte_opt := bytes.get(usize(1));
+                  match(second_byte_opt,
+                    .Some(second_byte) => cond(
+                      // Check if second byte is ':' (colon)
+                      (second_byte == u8(58)) => {
+                        // First byte should be a letter (A-Z or a-z)
+                        is_letter := (((b >= u8(65)) && (b <= u8(90))) || ((b >= u8(97)) && (b <= u8(122))));
+                        cond(
+                          is_letter => {
+                            is_abs = true;
+                          },
+                          true => ()
+                        );
+                      },
+                      true => ()
+                    ),
+                    .None => ()
+                  );
+                },
+                true => ()
+              );
+            }
           ),
           .None => ()
         );        
