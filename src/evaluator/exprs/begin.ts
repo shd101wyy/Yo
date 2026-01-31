@@ -190,12 +190,76 @@ function searchRecursively(
   //   return;
   // }
 
+  // Helper function to check if a branch has a control flow statement (return, break, continue)
+  function branchHasControlFlow(branchBody: Expr): boolean {
+    if (branchBody.$?.controlFlow) {
+      return true;
+    }
+    // Check if it's a begin block that ends with control flow
+    if (
+      exprIsFunctionCall(branchBody) &&
+      exprIsFunctionCallOf(branchBody, BuiltinKeywords.begin)
+    ) {
+      const lastArg = branchBody.args[branchBody.args.length - 1];
+      if (lastArg?.$?.controlFlow) {
+        return true;
+      }
+      // Also check if the last expression is a return statement
+      if (
+        exprIsFunctionCall(lastArg) &&
+        exprIsFunctionCallOf(lastArg, BuiltinKeywords.return)
+      ) {
+        return true;
+      }
+    }
+    // Check if it's directly a return statement
+    if (
+      exprIsFunctionCall(branchBody) &&
+      exprIsFunctionCallOf(branchBody, BuiltinKeywords.return)
+    ) {
+      return true;
+    }
+    return false;
+  }
+
+  // Helper function to check if a branch is empty/unit (just falls through)
+  function branchIsEmptyOrUnit(branchBody: Expr): boolean {
+    // Check for unit literal () - parsed as tuple() with 0 args
+    if (
+      exprIsFunctionCall(branchBody) &&
+      exprIsFunctionCallOf(branchBody, BuiltinKeywords.tuple, 0)
+    ) {
+      return true;
+    }
+    // Check for empty begin block or begin block with just unit
+    if (
+      exprIsFunctionCall(branchBody) &&
+      exprIsFunctionCallOf(branchBody, BuiltinKeywords.begin)
+    ) {
+      if (branchBody.args.length === 0) {
+        return true;
+      }
+      if (branchBody.args.length === 1) {
+        const onlyArg = branchBody.args[0]!;
+        if (
+          exprIsFunctionCall(onlyArg) &&
+          exprIsFunctionCallOf(onlyArg, BuiltinKeywords.tuple, 0)
+        ) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
   // Helper function to handle branching expressions (cond, match)
   function handleBranchingExpression(
     expr: FnCallExpr,
     startIndex: number
   ): void {
     const branchDupCalls: DupCallsResult[] = [];
+    const branchHasReturn: boolean[] = []; // Track if each branch has a return
+    const branchIsEmpty: boolean[] = []; // Track if each branch is empty/falls through
 
     // Process each statement/pattern which should be a "=>" expression with [condition/pattern, body]
     for (let i = startIndex; i < expr.args.length; i++) {
@@ -207,6 +271,8 @@ function searchRecursively(
         const branchBody = statement.args[1]!; // The body is the second argument
         const branchResult = collectDupCallsConservatively(branchBody);
         branchDupCalls.push(branchResult);
+        branchHasReturn.push(branchHasControlFlow(branchBody));
+        branchIsEmpty.push(branchIsEmptyOrUnit(branchBody));
       }
     }
 
@@ -222,44 +288,74 @@ function searchRecursively(
       }
     }
 
-    // Only include dup calls that are present in ALL branches.
-    // CRITICAL: Since only ONE branch executes at runtime, all branch dup expressions
-    // count as ONE runtime dup. We wrap them in an array to mark them as a group.
+    // Process each variable that has dups in at least one branch
     if (branchDupCalls.length > 0) {
       for (const varId of allVarsWithDups) {
-        const isPresentInAllBranches = branchDupCalls.every((branchResult) =>
-          branchResult.dupCalls.has(varId)
-        );
+        // Separate branches into categories:
+        // 1. Branches with dup + early return: independent dup+drop pair
+        // 2. Branches with dup + fallthrough: share drop with code after cond
+        // 3. Branches without dup (empty or not): don't affect optimization for this variable
 
-        if (isPresentInAllBranches) {
-          // Collect ALL dup call expressions from ALL branches.
-          // Mark them by wrapping in a special marker object.
-          // At runtime, only ONE executes (counts as 1 dup), but if we optimize it away,
-          // we must remove ALL of them from the AST.
-          const allBranchDupExprs: FnCallExpr[] = [];
-          for (const branchResult of branchDupCalls) {
-            const branchDupArray = branchResult.dupCalls.get(varId);
-            if (branchDupArray && branchDupArray.length > 0) {
-              allBranchDupExprs.push(...branchDupArray);
+        const earlyReturnBranchDups: FnCallExpr[] = [];
+        const fallthroughBranchDups: FnCallExpr[] = [];
+
+        for (let i = 0; i < branchDupCalls.length; i++) {
+          const branchResult = branchDupCalls[i]!;
+          const hasDup = branchResult.dupCalls.has(varId);
+          const hasReturn = branchHasReturn[i]!;
+
+          if (hasDup) {
+            const dups = branchResult.dupCalls.get(varId)!;
+            if (hasReturn) {
+              // This branch has dup + early return: independent dup+drop
+              earlyReturnBranchDups.push(...dups);
+            } else {
+              // This branch has dup + fallthrough: shares drop with code after cond
+              fallthroughBranchDups.push(...dups);
             }
           }
-          // Store a special marker (negative index) followed by all the branch expressions.
-          // The marker helps us identify this as a branch group that counts as 1 runtime dup.
+          // Branches without dup don't affect optimization for THIS variable
+          // (the variable isn't used in those branches)
+        }
+
+        // Add early return branch dups - these are independent and can always be optimized
+        // Each early return has its own drop at the return point
+        for (const dupExpr of earlyReturnBranchDups) {
           if (!dupCalls.has(varId)) {
             dupCalls.set(varId, []);
           }
-          // Use a marker object with a special property to identify branch groups
-          const marker = allBranchDupExprs[0]! as FnCallExpr & {
-            __branchGroup?: FnCallExpr[];
-          };
-          marker.__branchGroup = allBranchDupExprs;
-          dupCalls.get(varId)!.push(marker);
-        } else {
-          // Dup is present in SOME but not ALL branches.
-          // This variable should NOT have its drop optimized away because on some
-          // execution paths (like early return), the dup happens but the drop at
-          // the end of scope would be skipped, causing a memory leak.
-          varsWithPartialBranchDups.add(varId);
+          dupCalls.get(varId)!.push(dupExpr);
+        }
+
+        // Fallthrough branch dups share one drop at end of scope
+        // Only mark as partial branch dup if:
+        // - There are fallthrough dups AND
+        // - Not ALL fallthrough branches have the dup
+        if (fallthroughBranchDups.length > 0) {
+          // Count how many fallthrough branches exist (non-early-return branches)
+          let fallthroughBranchCount = 0;
+          let fallthroughBranchesWithDup = 0;
+          for (let i = 0; i < branchDupCalls.length; i++) {
+            if (!branchHasReturn[i]) {
+              fallthroughBranchCount++;
+              if (branchDupCalls[i]!.dupCalls.has(varId)) {
+                fallthroughBranchesWithDup++;
+              }
+            }
+          }
+
+          if (fallthroughBranchesWithDup === fallthroughBranchCount) {
+            // All fallthrough branches have the dup - can optimize
+            if (!dupCalls.has(varId)) {
+              dupCalls.set(varId, []);
+            }
+            for (const dupExpr of fallthroughBranchDups) {
+              dupCalls.get(varId)!.push(dupExpr);
+            }
+          } else {
+            // Some fallthrough branches have dup, some don't - can't optimize
+            varsWithPartialBranchDups.add(varId);
+          }
         }
       }
     }
@@ -925,26 +1021,20 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
           }
         }
 
-        // We can optimize: cancel one dup/drop pair
-        // Remove ONE runtime dup (which may be multiple expressions if it's a branch group)
+        // We can optimize: cancel dup/drop pairs
+        // Each runtime dup corresponds to one drop (either from early return via pendingDeferredDrops
+        // or from normal path via deferredDropExpressions).
+        // Since all execution paths are mutually exclusive, we can cancel ALL dups.
+        // Marking the variable as consumed removes the drop from deferredDropExpressions,
+        // which in turn removes it from pendingDeferredDrops (since that's built from deferredDropExpressions).
         if (runtimeDupCount > 0) {
-          // Remove the first runtime dup
-          const firstDup = dupCalls[0]!;
-          const marker = firstDup as FnCallExpr & {
-            __branchGroup?: FnCallExpr[];
-          };
-          if (marker.__branchGroup) {
-            // Remove all expressions in the branch group
-            for (const expr of marker.__branchGroup) {
-              dupCallsToRemove.add(expr);
-            }
-          } else {
-            // Remove this single dup expression
-            dupCallsToRemove.add(firstDup);
+          // Remove ALL dup expressions (from all branches and normal path)
+          for (const dupExpr of allDupExprsToRemove) {
+            dupCallsToRemove.add(dupExpr);
           }
 
-          // Remove from the list
-          dupCalls.shift();
+          // Clear the list
+          dupCalls.length = 0;
 
           // Mark the variable as consumed so it won't generate a drop call at end of function
           env = updateExistingVariable(env, variable, {
