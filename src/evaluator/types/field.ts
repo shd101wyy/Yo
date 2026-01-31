@@ -17,7 +17,6 @@ import {
   prohibitVoidType,
   Type,
   TypeField,
-  typeImplementsComptime,
   typeToString,
 } from "../../types";
 import { VUnit } from "../../unit-value";
@@ -30,6 +29,7 @@ import {
 } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
+import { typeImplementsComptime } from "../trait-checking";
 import { isValidVariableName } from "../utils";
 
 /**

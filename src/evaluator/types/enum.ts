@@ -16,11 +16,11 @@ import {
   ModuleField,
   TraitField,
   TypeField,
-  validateTypeAvailability,
 } from "../../types";
 import { createTypeValue, isComptimeIntValue } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
+import { validateTypeAvailability } from "../trait-checking";
 import { isValidVariableName } from "../utils";
 import { evaluateTypeField } from "./field";
 import {

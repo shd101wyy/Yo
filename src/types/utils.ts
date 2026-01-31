@@ -1,5 +1,5 @@
 import { Environment, getVariablesFromEnv } from "../env";
-import { formatErrorMessage, formatErrorMessages } from "../error";
+import { formatErrorMessages } from "../error";
 import { Expr, exprToString } from "../expr";
 import { stringIsOperator, Token } from "../token";
 import { TypeValue } from "../type-value";
@@ -102,8 +102,9 @@ export function getTraitTypeFromEnv(
 }
 
 /**
- * Check if a type implements a specific module.
- * This is the core implementation used by typeImplementsCopy and typeImplementsSend.
+ * Check if a type implements a specific trait by checking direct trait fields.
+ * NOTE: This does NOT check generic impls. For full trait checking including
+ * generic impls, use typeImplementsTraitWithGenericImpls from evaluator/trait-checking.ts
  */
 export function typeImplementsTraitInternal({
   targetType,
@@ -250,8 +251,30 @@ export function typeImplementsComptime(
     case TypeTag.Module:
     case TypeTag.Trait:
     case TypeTag.Expr:
-    case TypeTag.ComptimeList:
-    case TypeTag.Unit: // Types available in both contexts
+    case TypeTag.ComptimeList: {
+      return true;
+    }
+
+    // Runtime-only types
+    case TypeTag.Iso:
+    case TypeTag.Dyn:
+    case TypeTag.Void:
+    case TypeTag.Union:
+    case TypeTag.Char: // C-compatible types (platform-dependent size, runtime only)
+    case TypeTag.Short:
+    case TypeTag.UShort:
+    case TypeTag.Int:
+    case TypeTag.UInt:
+    case TypeTag.Long:
+    case TypeTag.ULong:
+    case TypeTag.LongLong:
+    case TypeTag.ULongLong:
+    case TypeTag.LongDouble: {
+      return false;
+    }
+
+    // Types available in both contexts
+    case TypeTag.Unit:
     case TypeTag.Bool:
     case TypeTag.Usize:
     case TypeTag.Isize:
@@ -268,10 +291,6 @@ export function typeImplementsComptime(
     case TypeTag.Function: {
       return true;
     }
-  }
-
-  if (isTypeHierarchyType(type)) {
-    return true;
   }
 
   const comptimeTraitType = getTraitTypeFromEnv(env, "Comptime");
@@ -302,10 +321,23 @@ export function typeImplementsRuntime(
   }
 
   switch (type.tag) {
+    // Comptime-only types - these do NOT implement Runtime
+    case TypeTag.ComptimeInt:
+    case TypeTag.ComptimeFloat:
+    case TypeTag.ComptimeString:
+    case TypeTag.Type:
+    case TypeTag.Module:
+    case TypeTag.Trait:
+    case TypeTag.Expr:
+    case TypeTag.ComptimeList: {
+      return false;
+    }
+
     // Runtime-only types
     case TypeTag.Iso:
     case TypeTag.Dyn:
     case TypeTag.Void:
+    case TypeTag.Union:
     case TypeTag.Char: // C-compatible types (platform-dependent size, runtime only)
     case TypeTag.Short:
     case TypeTag.UShort:
@@ -315,8 +347,12 @@ export function typeImplementsRuntime(
     case TypeTag.ULong:
     case TypeTag.LongLong:
     case TypeTag.ULongLong:
-    case TypeTag.LongDouble:
-    case TypeTag.Unit: // Types available in both contexts
+    case TypeTag.LongDouble: {
+      return true;
+    }
+
+    // Types available in both contexts
+    case TypeTag.Unit:
     case TypeTag.Bool:
     case TypeTag.Usize:
     case TypeTag.Isize:
@@ -330,8 +366,7 @@ export function typeImplementsRuntime(
     case TypeTag.I64:
     case TypeTag.F32:
     case TypeTag.F64:
-    case TypeTag.Function:
-    case TypeTag.Union: {
+    case TypeTag.Function: {
       return true;
     }
   }
@@ -2063,23 +2098,4 @@ export function typeContainsSelfTypeForDynamicDispatchCheck(
 
   // Other types (primitives, modules, etc.) don't contain Self
   return false;
-}
-
-export function validateTypeAvailability(
-  type: Type,
-  env: Environment,
-  token: Token
-): void {
-  if (!typeImplementsComptime(type, env) && !typeImplementsRuntime(type, env)) {
-    throw formatErrorMessage({
-      token: token,
-      errorMessage: `This type has incompatible field contexts and cannot be used in any evaluation context.
-  
-This typically happens when a struct/enum/array/tuple contains fields with conflicting availability:
-- Compile-time only fields (e.g., comptime_int, Type, Module)
-- Runtime only fields (e.g., *(T), [T], void, C-compatible types)
-
-Consider restructuring the type to avoid mixing incompatible field types.`,
-    });
-  }
 }

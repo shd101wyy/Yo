@@ -17,7 +17,6 @@ import {
   isFloatType,
   isIntegerType,
   Type,
-  typeImplementsComptime,
   TypeTag,
   typeToString,
 } from "../../types";
@@ -37,6 +36,7 @@ import {
 import { ValueTag } from "../../value-tag";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
+import { typeImplementsComptime } from "../trait-checking";
 
 /**
  * Get the numeric bounds for a type.

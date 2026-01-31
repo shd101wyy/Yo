@@ -22,9 +22,6 @@ import {
   typeContainsRcType,
   typeContainsSomeType,
   typeImplementsAcyclic,
-  typeImplementsComptime,
-  typeImplementsRuntime,
-  typeImplementsSend,
   typeOfType,
   typeToString,
   UnionType,
@@ -33,6 +30,11 @@ import { randomId } from "../../utils";
 import { isFunctionValue, isTraitValue, isTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
+import {
+  typeImplementsComptime,
+  typeImplementsRuntime,
+  typeImplementsSend,
+} from "../trait-checking";
 
 const YoSelf = "__yo_self";
 

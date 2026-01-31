@@ -7,10 +7,10 @@ import {
   TupleType,
   TypeField,
   typeOfType,
-  validateTypeAvailability,
 } from "../../types";
 import { createTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
+import { validateTypeAvailability } from "../trait-checking";
 import { evaluateTypeField } from "./field";
 import {
   autoDeriveComptimeForTupleType,

@@ -8,13 +8,10 @@ import {
   exprToString,
   FnCallExpr,
 } from "../../expr";
-import {
-  createStructType,
-  TraitField,
-  validateTypeAvailability,
-} from "../../types";
+import { createStructType, TraitField } from "../../types";
 import { createTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
+import { validateTypeAvailability } from "../trait-checking";
 import { evaluateTypeField } from "./field";
 import {
   addRcFunctionSignaturesToStructType,
