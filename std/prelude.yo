@@ -146,6 +146,15 @@ Send :: trait(
 );
 export Send;
 
+/// Acyclic trait - indicates a type that cannot form reference cycles.
+/// Types that implement Acyclic don't need cycle collection tracking.
+/// Primitive types, value types without object fields, and objects that
+/// don't reference back to themselves (directly or indirectly) are Acyclic.
+Acyclic :: trait(
+  id := "Acyclic"
+);
+export Acyclic;
+
 /// === Arithmetic ===
 Add :: (fn(compt(Rhs) : Type, compt(Output) ?= Rhs)-> compt(Trait))
   trait
@@ -688,6 +697,7 @@ export compt_string : _compt_string;
 
 /// bool
 impl(bool, Send());
+impl(bool, Acyclic());
 impl(bool, Eq(bool)(
   (==) : ((a, b) ->
     __yo_op_eq(a, b)
@@ -730,6 +740,7 @@ impl(i8, {
   export MIN, MAX;
 });
 impl(i8, Send());
+impl(i8, Acyclic());
 impl(i8, Add(i8)(
   (+): ((a, b) -> __yo_op_add(a, b))
 ));
@@ -880,6 +891,7 @@ impl(i16, {
   export MIN, MAX;
 });
 impl(i16, Send());
+impl(i16, Acyclic());
 impl(i16, Add(i16)(
   (+): ((a, b) -> __yo_op_add(a, b))
 ));
@@ -1030,6 +1042,7 @@ impl(i32, {
   export MIN, MAX;
 });
 impl(i32, Send());
+impl(i32, Acyclic());
 impl(i32, Add(i32)(
   (+): ((a, b) -> __yo_op_add(a, b))
 ));
@@ -1185,6 +1198,7 @@ impl(i64, {
   export MIN, MAX;
 });
 impl(i64, Send());
+impl(i64, Acyclic());
 impl(i64, Add(i64)(
   (+): ((a, b) -> __yo_op_add(a, b))
 ));
@@ -1335,6 +1349,7 @@ impl(u8, {
   export MIN, MAX;
 });
 impl(u8, Send());
+impl(u8, Acyclic());
 impl(u8, Add(u8)(
   (+): ((a, b) -> __yo_op_add(a, b))
 ));
@@ -1480,6 +1495,7 @@ impl(u16, {
   export MIN, MAX;
 });
 impl(u16, Send());
+impl(u16, Acyclic());
 impl(u16, Add(u16)(
   (+): ((a, b) -> __yo_op_add(a, b))
 ));
@@ -1625,6 +1641,7 @@ impl(u32, {
   export MIN, MAX;
 });
 impl(u32, Send());
+impl(u32, Acyclic());
 impl(u32, Add(u32)(
   (+): ((a, b) -> __yo_op_add(a, b))
 ));
@@ -1770,6 +1787,7 @@ impl(u64, {
   export MIN, MAX;
 });
 impl(u64, Send());
+impl(u64, Acyclic());
 impl(u64, Add(u64)(
   (+): ((a, b) -> __yo_op_add(a, b))
 ));
@@ -1910,6 +1928,7 @@ export u64 : _u64;
 
 /// f32
 impl(f32, Send());
+impl(f32, Acyclic());
 impl(f32, Add(f32)(
   (+): ((a, b) -> __yo_op_add(a, b))
 ));
@@ -2014,6 +2033,7 @@ export f32 : _f32;
 
 /// f64
 impl(f64, Send());
+impl(f64, Acyclic());
 impl(f64, Add(f64)(
   (+): ((a, b) -> __yo_op_add(a, b))
 ));
@@ -2123,6 +2143,7 @@ impl(isize, {
   export MIN, MAX;
 });
 impl(isize, Send());
+impl(isize, Acyclic());
 impl(isize, Add(isize)(
   (+): ((a, b) -> __yo_op_add(a, b))
 ));
@@ -2273,6 +2294,7 @@ impl(usize, {
   export MIN, MAX;
 });
 impl(usize, Send());
+impl(usize, Acyclic());
 impl(usize, Add(usize)(
   (+): ((a, b) -> __yo_op_add(a, b))
 ));
@@ -2413,6 +2435,7 @@ export usize : _usize;
 
 /// char
 impl(char, Send());
+impl(char, Acyclic());
 impl(char, Add(char)(
   (+): ((a, b) -> __yo_op_add(a, b))
 ));
@@ -2467,6 +2490,7 @@ export char : _char;
 
 /// int
 impl(int, Send());
+impl(int, Acyclic());
 impl(int, Add(int)(
   (+): ((a, b) -> __yo_op_add(a, b))
 ));
@@ -2521,6 +2545,7 @@ export int : _int;
 
 /// uint
 impl(uint, Send());
+impl(uint, Acyclic());
 impl(uint, Add(uint)(
   (+): ((a, b) -> __yo_op_add(a, b))
 ));
@@ -2575,6 +2600,7 @@ export uint : _uint;
 
 /// short
 impl(short, Send());
+impl(short, Acyclic());
 impl(short, Add(short)(
   (+): ((a, b) -> __yo_op_add(a, b))
 ));
@@ -2629,6 +2655,7 @@ export short : _short;
 
 /// ushort
 impl(ushort, Send());
+impl(ushort, Acyclic());
 impl(ushort, Add(ushort)(
   (+): ((a, b) -> __yo_op_add(a, b))
 ));
@@ -2683,6 +2710,7 @@ export ushort : _ushort;
 
 /// long
 impl(long, Send());
+impl(long, Acyclic());
 impl(long, Add(long)(
   (+): ((a, b) -> __yo_op_add(a, b))
 ));
@@ -2738,6 +2766,7 @@ export long : _long;
 
 /// ulong
 impl(ulong, Send());
+impl(ulong, Acyclic());
 impl(ulong, Add(ulong)(
   (+): ((a, b) -> __yo_op_add(a, b))
 ));
@@ -2792,6 +2821,7 @@ export ulong : _ulong;
 
 /// longlong
 impl(longlong, Send());
+impl(longlong, Acyclic());
 impl(longlong, Add(longlong)(
   (+): ((a, b) -> __yo_op_add(a, b))
 ));
@@ -2846,6 +2876,7 @@ export longlong : _longlong;
 
 /// ulonglong
 impl(ulonglong, Send());
+impl(ulonglong, Acyclic());
 impl(ulonglong, Add(ulonglong)(
   (+): ((a, b) -> __yo_op_add(a, b))
 ));
@@ -2900,6 +2931,7 @@ export ulonglong : _ulonglong;
 
 /// longdouble
 impl(longdouble, Send());
+impl(longdouble, Acyclic());
 impl(longdouble, Add(longdouble)(
   (+): ((a, b) -> __yo_op_add(a, b))
 ));
@@ -2954,6 +2986,7 @@ export longdouble : _longdouble;
 
 /// Ptr
 impl(forall(T : Type), where(T <: Send), *(T), Send());
+impl(forall(T : Type), *(T), Acyclic());
 /*
 impl(forall(T : Type), *(T), Add(usize, *(T))(
   (+) : ((lhs, rhs) -> __yo_ptr_add(lhs, rhs))
@@ -3015,6 +3048,7 @@ impl(forall(T : Type), *(T), {
 
 /// Array
 impl(forall(T : Type, U : usize), where(T <: Send), Array(T, U), Send());
+impl(forall(T : Type, U : usize), Array(T, U), Acyclic());
 impl(forall(T : Type, U : usize), Array(T, U), {
   len :: (fn(self : *(Self)) -> usize) {
     return U;
@@ -3279,6 +3313,7 @@ export
 
 /// === Iso ===
 impl(forall(T : Type), Iso(T), Send());
+impl(forall(T : Type), where(T <: Acyclic), Iso(T), Acyclic());
 impl(forall(T : Type), Iso(T), {
   extract :: (fn(self : Self) -> Option(T))(
     __yo_iso_extract(self)

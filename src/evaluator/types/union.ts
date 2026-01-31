@@ -17,7 +17,10 @@ import {
 import { createTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateTypeField } from "./field";
-import { autoDeriveSendForUnionType } from "./utils";
+import {
+  autoDeriveAcyclicForUnionType,
+  autoDeriveSendForUnionType,
+} from "./utils";
 
 export function evaluateUnionType({
   expr,
@@ -111,6 +114,13 @@ export function evaluateUnionType({
 
   // Auto-derive Send module if applicable
   env = autoDeriveSendForUnionType({
+    unionType,
+    env,
+    context,
+  });
+
+  // Auto-derive Acyclic trait if applicable
+  env = autoDeriveAcyclicForUnionType({
     unionType,
     env,
     context,

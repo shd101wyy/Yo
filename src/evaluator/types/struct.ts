@@ -19,6 +19,7 @@ import { evaluateTypeField } from "./field";
 import {
   addRcFunctionSignaturesToStructType,
   addRcFunctionsToStructType,
+  autoDeriveAcyclicForStructType,
   autoDeriveSendForStructType,
 } from "./utils";
 import { validateDisposeFunction } from "./validation";
@@ -140,6 +141,13 @@ export function evaluateStructType({
 
   // Auto-derive Send trait if applicable
   env = autoDeriveSendForStructType({
+    structType,
+    env,
+    context,
+  });
+
+  // Auto-derive Acyclic trait if applicable
+  env = autoDeriveAcyclicForStructType({
     structType,
     env,
     context,

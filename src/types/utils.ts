@@ -202,6 +202,33 @@ export function typeImplementsSend(
   });
 }
 
+/**
+ * Check if a type implements the Acyclic trait.
+ *
+ * Acyclic types cannot form reference cycles through reference counting.
+ * Primitives, value types (structs without reference semantics),
+ * and object types that don't reference back to themselves implement Acyclic.
+ */
+export function typeImplementsAcyclic(
+  type: Type | undefined,
+  env: Environment
+): boolean {
+  if (!type) {
+    return false;
+  }
+
+  const acyclicTraitType = getTraitTypeFromEnv(env, "Acyclic");
+  if (!acyclicTraitType) {
+    return false;
+  }
+
+  return typeImplementsTraitInternal({
+    targetType: type,
+    traitType: acyclicTraitType,
+    env,
+  });
+}
+
 export function typeImplementsFn(
   type: Type | undefined
 ): type is (SomeType | DynType) & { isFn: true } {

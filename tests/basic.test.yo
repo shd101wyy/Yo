@@ -310,6 +310,38 @@ test "Test type auto derive Send", {
   compt_assert(Type.impls(GenericPoint(MyBox), Send) == false);
 };
 
+test "Test type auto derive Acyclic", {
+  // Primitive types are Acyclic
+  compt_assert(Type.impls(i32, Acyclic));
+  compt_assert(Type.impls(bool, Acyclic));
+  
+  // Value structs without object fields are Acyclic
+  Point :: struct(x : i32, y : i32);
+  compt_assert(Type.impls(Point, Acyclic) == true);
+  
+  // Object types that don't form cycles are Acyclic
+  SimpleBox :: object(v : i32);
+  compt_assert(Type.impls(SimpleBox, Acyclic) == true);
+  
+  // Self-referencing object (can form cycle) is NOT Acyclic
+  Node :: object(value: i32, next: Option(Self));
+  compt_assert(Type.impls(Node, Acyclic) == false);
+  
+  // Generic struct: Acyclic depends on type parameter
+  GenericPoint :: (fn(compt(T) : Type) -> compt(Type))
+    struct(x : T, y : T)
+  ;
+  compt_assert(Type.impls(GenericPoint(i32), Acyclic) == true);
+  
+  // Enum types
+  Direction :: enum(North, South, East, West);
+  compt_assert(Type.impls(Direction, Acyclic) == true);
+  
+  // Enum with i32 fields
+  ResultInt :: enum(Ok(value : i32), Err(error : i32));
+  compt_assert(Type.impls(ResultInt, Acyclic) == true);
+};
+
 test "Test 'struct'", {
   // Struct
   {

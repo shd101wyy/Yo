@@ -7,6 +7,7 @@ import {
 } from "../../expr";
 import { generateExprFromCode } from "../../parser";
 import {
+  canTypeFormRcCycle,
   createTypeHierarchy,
   DynType,
   EnumType,
@@ -19,6 +20,7 @@ import {
   TraitField,
   typeContainsRcType,
   typeContainsSomeType,
+  typeImplementsAcyclic,
   typeImplementsSend,
   typeOfType,
   typeToString,
@@ -1159,6 +1161,100 @@ export function autoDeriveSendForUnionType({
 
   if (allFieldsImplementSend) {
     env = attachTraitToReceiverType("Send", unionType, env, context);
+  }
+
+  return env;
+}
+
+/**
+ * Auto-derive Acyclic marker trait for a struct type.
+ *
+ * For struct (value semantics):
+ * - Auto-derive Acyclic if all fields implement Acyclic.
+ *
+ * For object (reference semantics):
+ * - Auto-derive Acyclic if the type cannot form RC cycles (checked via canTypeFormRcCycle).
+ */
+export function autoDeriveAcyclicForStructType({
+  structType,
+  env,
+  context,
+}: {
+  structType: StructType;
+  env: Environment;
+  context: EvaluatorContext;
+}): Environment {
+  if (structType.isReferenceSemantics) {
+    // For object types, check if they can form cycles
+    if (!canTypeFormRcCycle(structType)) {
+      env = attachTraitToReceiverType("Acyclic", structType, env, context);
+    }
+  } else {
+    // For value types, check if all fields implement Acyclic
+    const allFieldsImplementAcyclic = structType.fields
+      .filter((field) => !field.isCompileTimeOnly)
+      .every((field) => typeImplementsAcyclic(field.type, env));
+
+    if (allFieldsImplementAcyclic) {
+      env = attachTraitToReceiverType("Acyclic", structType, env, context);
+    }
+  }
+
+  return env;
+}
+
+/**
+ * Auto-derive Acyclic marker trait for an enum type.
+ *
+ * - Auto-derive Acyclic if all variant fields implement Acyclic
+ */
+export function autoDeriveAcyclicForEnumType({
+  enumType,
+  env,
+  context,
+}: {
+  enumType: EnumType;
+  env: Environment;
+  context: EvaluatorContext;
+}): Environment {
+  // Check if all variant fields implement Acyclic
+  const allFieldsImplementAcyclic = enumType.variants.every((variant) => {
+    if (!variant.fields || variant.fields.length === 0) {
+      return true; // Variants without fields are trivially Acyclic
+    }
+    return variant.fields.every((field) =>
+      typeImplementsAcyclic(field.type, env)
+    );
+  });
+
+  if (allFieldsImplementAcyclic) {
+    env = attachTraitToReceiverType("Acyclic", enumType, env, context);
+  }
+
+  return env;
+}
+
+/**
+ * Auto-derive Acyclic marker trait for a union type.
+ *
+ * - Auto-derive Acyclic if all fields implement Acyclic
+ */
+export function autoDeriveAcyclicForUnionType({
+  unionType,
+  env,
+  context,
+}: {
+  unionType: UnionType;
+  env: Environment;
+  context: EvaluatorContext;
+}): Environment {
+  // Check if all fields implement Acyclic
+  const allFieldsImplementAcyclic = unionType.fields
+    .filter((field) => !field.isCompileTimeOnly)
+    .every((field) => typeImplementsAcyclic(field.type, env));
+
+  if (allFieldsImplementAcyclic) {
+    env = attachTraitToReceiverType("Acyclic", unionType, env, context);
   }
 
   return env;

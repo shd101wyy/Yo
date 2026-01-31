@@ -26,6 +26,7 @@ import { evaluateTypeField } from "./field";
 import {
   addRcFunctionSignaturesToEnumType,
   addRcFunctionsToEnumType,
+  autoDeriveAcyclicForEnumType,
   autoDeriveSendForEnumType,
 } from "./utils";
 
@@ -362,6 +363,13 @@ export function evaluateEnumType({
 
   // Auto derive Send module
   env = autoDeriveSendForEnumType({
+    enumType,
+    env,
+    context,
+  });
+
+  // Auto derive Acyclic trait
+  env = autoDeriveAcyclicForEnumType({
     enumType,
     env,
     context,

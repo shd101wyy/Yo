@@ -79,6 +79,9 @@ $ brew install llvm
 # Using Chocolatey
 $ choco install llvm
 
+# Using Scoop
+$ scoop install llvm
+
 # Or download from https://releases.llvm.org/
 ```
 
