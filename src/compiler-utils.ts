@@ -225,7 +225,12 @@ export function buildAsanRunEnvironment(options: {
   }
 
   if (asanDllPath) {
-    env.PATH = `${asanDllPath}${path.delimiter}${process.env.PATH}`;
+    // On Windows, the PATH variable might be named "Path" (case varies)
+    // We need to find the actual key name and update it
+    const pathKey =
+      Object.keys(env).find((k) => k.toLowerCase() === "path") || "PATH";
+    const currentPath = env[pathKey] || "";
+    env[pathKey] = `${asanDllPath}${path.delimiter}${currentPath}`;
   }
 
   return env;

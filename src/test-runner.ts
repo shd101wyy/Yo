@@ -280,6 +280,11 @@ function runSingleTest(
   const exeExtension = process.platform === "win32" ? ".exe" : "";
   const testOutputPath = path.join(originalDir, `${baseName}${exeExtension}`);
   const testCPath = path.join(originalDir, `${baseName}.c`);
+  // On Windows with MSVC/Clang-cl, .pdb debug files are generated alongside the executable
+  const testPdbPath =
+    process.platform === "win32"
+      ? path.join(originalDir, `${baseName}.pdb`)
+      : undefined;
 
   // Helper to clean up all temp files
   const cleanup = () => {
@@ -289,7 +294,11 @@ function runSingleTest(
       console.log(`    ${colors.dim}.c file: ${testCPath}${colors.reset}`);
       return;
     }
-    for (const file of [testFilePath, testOutputPath, testCPath]) {
+    const filesToClean = [testFilePath, testOutputPath, testCPath];
+    if (testPdbPath) {
+      filesToClean.push(testPdbPath);
+    }
+    for (const file of filesToClean) {
       if (fs.existsSync(file)) {
         fs.unlinkSync(file);
       }
