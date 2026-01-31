@@ -1,7 +1,15 @@
-import { execSync, spawnSync } from "child_process";
+import { spawnSync } from "child_process";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
+import {
+  buildAsanRunEnvironment,
+  findClangAsanDllPath,
+  getCompilerInfo,
+  getMacOSLsanSuppressions,
+  getSanitizerFlags,
+  isLiburingAvailable,
+} from "./compiler-utils";
 import { clearEnvContainingPrelude } from "./env";
 import { YoError } from "./error";
 import { clearAllGlobalImplState } from "./evaluator/index";
@@ -342,11 +350,16 @@ function runSingleTest(
 
     // Compile C code with AddressSanitizer for memory leak detection
     // Note: Using libc allocator (no mimalloc) for faster test compilation
-    // Note: On Windows, ASAN requires the runtime DLL to be in PATH. We try to find it
-    //       from the clang installation and add it to PATH when running the test.
-    const isMSVC = cCompiler === "cl";
-    const isWindows = process.platform === "win32";
-    const useAsan = !isMSVC; // Enable ASAN for clang (including on Windows), disable for MSVC
+    const compilerInfo = getCompilerInfo(cCompiler);
+    const { isMSVC, isWindows } = compilerInfo;
+
+    // Get ASAN flags using shared utility
+    // ASAN is enabled if we get non-empty flags back (handles cases like MinGW GCC where ASAN isn't available)
+    const asanFlags = !isMSVC
+      ? getSanitizerFlags({ sanitize: "address", compilerInfo })
+      : { flags: [] };
+    const useAsan = asanFlags.flags.length > 0;
+
     const compileArgs = isMSVC
       ? ["/Od", "/W4", testCPath, `/Fe${testOutputPath}`]
       : [
@@ -355,25 +368,15 @@ function runSingleTest(
           "-Wall",
           "-Wextra",
           "-O0",
-          ...(useAsan ? ["-fsanitize=address", "-fno-omit-frame-pointer"] : []),
+          ...asanFlags.flags,
           testCPath,
           "-o",
           testOutputPath,
         ];
 
     // Add liburing on Linux for async I/O (uses system-installed liburing)
-    if (process.platform === "linux" && !isMSVC) {
-      try {
-        // First check if pkg-config is available
-        execSync("command -v pkg-config", { stdio: "ignore" });
-        // Then check if liburing is installed
-        execSync("pkg-config --exists liburing", { stdio: "ignore" });
-        compileArgs.splice(-2, 0, "-luring");
-      } catch (error) {
-        console.warn(
-          "⚠️  liburing not found - async I/O will not be available. Run 'npm run postinstall' for installation instructions."
-        );
-      }
+    if (!isMSVC && isLiburingAvailable()) {
+      compileArgs.splice(-2, 0, "-luring");
     }
 
     const compileResult = spawnSync(cCompiler, compileArgs, {
@@ -393,12 +396,10 @@ function runSingleTest(
     }
 
     // Run the test executable with AddressSanitizer leak detection enabled
-    // On macOS, we need to suppress system library leaks (libobjc, libdyld, libxpc, etc.)
-    // On Windows, we need to find and add the ASAN DLL path to PATH
+    // On macOS, we need to suppress system library leaks
+    // On Windows with Clang, we need to find and add the ASAN DLL path to PATH
     const isMacOS = process.platform === "darwin";
-    const lsanSuppressions = isMacOS
-      ? "leak:libobjc\nleak:libdyld\nleak:libxpc\nleak:libsystem_malloc\nleak:dyld"
-      : "";
+    const lsanSuppressions = getMacOSLsanSuppressions();
 
     // Create a temporary suppression file for macOS
     let suppressionFile: string | undefined;
@@ -407,58 +408,20 @@ function runSingleTest(
       fs.writeFileSync(suppressionFile, lsanSuppressions);
     }
 
-    // On Windows, find the ASAN DLL directory and add it to PATH
-    let asanDllPath: string | undefined;
-    if (isWindows && useAsan) {
-      try {
-        // Get clang's installation directory using where.exe
-        // Use the actual compiler name, but if it's "cc", try "clang" as that's common on Windows
-        const compilerToFind = cCompiler === "cc" ? "clang" : cCompiler;
-        const clangPath = execSync(`where.exe ${compilerToFind}`, {
-          encoding: "utf-8",
-          stdio: ["pipe", "pipe", "pipe"],
-        })
-          .trim()
-          .split(/\r?\n/)[0]
-          ?.trim();
-        if (clangPath) {
-          const clangDir = path.dirname(clangPath);
-          // ASAN DLL is typically in ../lib/clang/<version>/lib/windows/
-          const llvmRoot = path.dirname(clangDir);
-          const clangLibDir = path.join(llvmRoot, "lib", "clang");
-          if (fs.existsSync(clangLibDir)) {
-            // Find the version directory (e.g., "21")
-            const versions = fs.readdirSync(clangLibDir);
-            for (const version of versions) {
-              const windowsLibDir = path.join(
-                clangLibDir,
-                version,
-                "lib",
-                "windows"
-              );
-              if (fs.existsSync(windowsLibDir)) {
-                asanDllPath = windowsLibDir;
-                break;
-              }
-            }
-          }
-        }
-      } catch (e) {
-        // Ignore errors finding ASAN DLL path
-      }
-    }
+    // On Windows with Clang, find the ASAN DLL directory
+    // (GCC uses static linking so doesn't need this)
+    const asanDllPath =
+      isWindows && useAsan && compilerInfo.isClangOnWindows
+        ? findClangAsanDllPath(cCompiler)
+        : undefined;
 
-    // Build environment with ASAN DLL path on Windows
-    const runEnv: NodeJS.ProcessEnv = {
-      ...process.env,
-      ASAN_OPTIONS: "detect_leaks=1",
-      ...(suppressionFile
-        ? { LSAN_OPTIONS: `suppressions=${suppressionFile}` }
-        : {}),
-      ...(asanDllPath
-        ? { PATH: `${asanDllPath}${path.delimiter}${process.env.PATH}` }
-        : {}),
-    };
+    // Build environment with ASAN settings
+    const runEnv = buildAsanRunEnvironment({
+      compilerInfo,
+      asanDllPath,
+      lsanSuppressionFile: suppressionFile,
+      detectLeaks: true,
+    });
 
     let runResult = spawnSync(testOutputPath, [], {
       stdio: "pipe",
@@ -475,15 +438,17 @@ function runSingleTest(
 
     // If leak detection is not supported, rerun without it
     if (leakDetectionNotSupported) {
+      const runEnvNoLeaks = buildAsanRunEnvironment({
+        compilerInfo,
+        asanDllPath,
+        lsanSuppressionFile: suppressionFile,
+        detectLeaks: false,
+      });
       runResult = spawnSync(testOutputPath, [], {
         stdio: "pipe",
         encoding: "utf-8",
         timeout: 60000,
-        env: {
-          ...runEnv,
-          // Run without detect_leaks
-          ASAN_OPTIONS: "detect_leaks=0",
-        },
+        env: runEnvNoLeaks,
       });
     }
 
