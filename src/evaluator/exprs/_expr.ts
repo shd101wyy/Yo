@@ -16,21 +16,21 @@ import { evaluateAlignOf } from "../builtins/alignof";
 import { evaluateAndOr } from "../builtins/and_or";
 import { evaluateYoArrayFill } from "../builtins/array_fns";
 import { evaluateAsync } from "../builtins/async_fns";
-import { evaluateComptAssert } from "../builtins/compt_assert";
-import { evaluateYoComptBooleanFunctions } from "../builtins/compt_boolean_fns";
-import { evaluateComptExpectError } from "../builtins/compt_expect_error";
-import { evaluateComptFn } from "../builtins/compt_fn";
+import { evaluateComptimeAssert } from "../builtins/comptime_assert";
+import { evaluateYoComptimeBooleanFunctions } from "../builtins/comptime_bool_fns";
+import { evaluateComptimeExpectError } from "../builtins/comptime_expect_error";
+import { evaluateComptimeFn } from "../builtins/comptime_fn";
 import {
-  evaluateYoComptListAppend,
-  evaluateYoComptListCar,
-  evaluateYoComptListCdr,
-  evaluateYoComptListCons,
-  evaluateYoComptListElementType,
-  evaluateYoComptListLength,
-} from "../builtins/compt_list_fns";
-import { evaluateYoComptNumericFunctions } from "../builtins/compt_numeric_fns";
-import { evaluateComptPrint } from "../builtins/compt_print";
-import { evaluateYoComptStringFunctions } from "../builtins/compt_string_fns";
+  evaluateYoComptimeListAppend,
+  evaluateYoComptimeListCar,
+  evaluateYoComptimeListCdr,
+  evaluateYoComptimeListCons,
+  evaluateYoComptimeListElementType,
+  evaluateYoComptimeListLength,
+} from "../builtins/comptime_list_fns";
+import { evaluateYoComptimeNumericFunctions } from "../builtins/comptime_numeric_fns";
+import { evaluateComptimePrint } from "../builtins/comptime_print";
+import { evaluateYoComptimeStringFunctions } from "../builtins/comptime_string_fns";
 import { evaluateConsume } from "../builtins/consume";
 import { evaluateDrop } from "../builtins/drop";
 import { evaluateDup } from "../builtins/dup";
@@ -90,7 +90,7 @@ import { evaluateRawPointerCall } from "../calls/pointer";
 import { EvaluatorContext } from "../context";
 import { evaluateArrayType } from "../types/array";
 import { evaluateClosureType } from "../types/closure";
-import { evaluateComptListType } from "../types/compt_list";
+import { evaluateComptimeListType } from "../types/comptime_list";
 import { evaluateConcreteType } from "../types/concrete_trait";
 import { evaluateDynType } from "../types/dyn";
 import { evaluateEnumType } from "../types/enum";
@@ -109,7 +109,7 @@ import { evaluateAnonymousFunctionImplementation } from "../values/anonymous_fun
 import { evaluateArrayValue } from "../values/array";
 import { evaluateBooleanLiteral } from "../values/boolean";
 import { evaluateCharLiteral } from "../values/char";
-import { evaluateComptListValue } from "../values/compt_list";
+import { evaluateComptimeListValue } from "../values/comptime_list";
 import { evaluateDynValue } from "../values/dyn";
 import { evaluateFloatLiteral } from "../values/float";
 import { evaluateModuleValue } from "../values/impl";
@@ -290,9 +290,9 @@ ${exprToString(expr)}`,
     } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.array)) {
       // array
       return evaluateArrayValue({ expr, env, context: { ...context } });
-    } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.compt_list)) {
-      // compt_list
-      return evaluateComptListValue({
+    } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.comptime_list)) {
+      // comptime_list
+      return evaluateComptimeListValue({
         expr,
         env,
         context: { ...context },
@@ -450,9 +450,9 @@ ${exprToString(expr)}`,
         env,
         context: { ...context },
       });
-    } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.ComptList)) {
-      // ComptList type
-      return evaluateComptListType({
+    } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.ComptimeList)) {
+      // ComptimeList type
+      return evaluateComptimeListType({
         expr,
         env,
         context: { ...context },
@@ -479,31 +479,31 @@ ${exprToString(expr)}`,
         context: { ...context },
       });
     } else if (
-      exprIsFunctionCallOf(expr, BuiltinFunctions.compt_expect_error)
+      exprIsFunctionCallOf(expr, BuiltinFunctions.comptime_expect_error)
     ) {
-      // compt_expect_error
-      return evaluateComptExpectError({
+      // comptime_expect_error
+      return evaluateComptimeExpectError({
         expr,
         env,
         context: { ...context },
       });
-    } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.compt_assert)) {
-      // compt_assert
-      return evaluateComptAssert({
+    } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.comptime_assert)) {
+      // comptime_assert
+      return evaluateComptimeAssert({
         expr,
         env,
         context: { ...context },
       });
-    } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.compt_fn)) {
-      // compt_fn
-      return evaluateComptFn({
+    } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.comptime_fn)) {
+      // comptime_fn
+      return evaluateComptimeFn({
         expr,
         env,
         context: { ...context },
       });
-    } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.compt_print)) {
-      // compt_print
-      return evaluateComptPrint({
+    } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.comptime_print)) {
+      // comptime_print
+      return evaluateComptimePrint({
         expr,
         env,
         context: { ...context },
@@ -660,136 +660,151 @@ ${exprToString(expr)}`,
         context: { ...context },
       });
     } else if (
-      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_list_car)
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_comptime_list_car)
     ) {
-      // __yo_compt_list_car
-      return evaluateYoComptListCar({
+      // __yo_comptime_list_car
+      return evaluateYoComptimeListCar({
         expr,
         env,
         context: { ...context },
       });
     } else if (
-      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_list_cdr)
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_comptime_list_cdr)
     ) {
-      // __yo_compt_list_cdr
-      return evaluateYoComptListCdr({
+      // __yo_comptime_list_cdr
+      return evaluateYoComptimeListCdr({
         expr,
         env,
         context: { ...context },
       });
     } else if (
-      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_list_cons)
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_comptime_list_cons)
     ) {
-      // __yo_compt_list_cons
-      return evaluateYoComptListCons({
+      // __yo_comptime_list_cons
+      return evaluateYoComptimeListCons({
         expr,
         env,
         context: { ...context },
       });
     } else if (
-      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_list_append)
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_comptime_list_append)
     ) {
-      // __yo_compt_list_append
-      return evaluateYoComptListAppend({
+      // __yo_comptime_list_append
+      return evaluateYoComptimeListAppend({
         expr,
         env,
         context: { ...context },
       });
     } else if (
-      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_list_length)
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_comptime_list_length)
     ) {
-      // __yo_compt_list_length
-      return evaluateYoComptListLength({
+      // __yo_comptime_list_length
+      return evaluateYoComptimeListLength({
         expr,
         env,
         context: { ...context },
       });
     } else if (
-      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_list_element_type)
+      exprIsFunctionCallOf(
+        expr,
+        BuiltinFunctions.__yo_comptime_list_element_type
+      )
     ) {
-      // __yo_compt_list_element_type
-      return evaluateYoComptListElementType({
+      // __yo_comptime_list_element_type
+      return evaluateYoComptimeListElementType({
         expr,
         env,
         context: { ...context },
       });
     }
-    // All numeric type functions (u8, i8, u16, i16, u32, i32, u64, i64, usize, isize, f32, f64, compt_int, compt_float)
+    // All numeric type functions (u8, i8, u16, i16, u32, i32, u64, i64, usize, isize, f32, f64, comptime_int, comptime_float)
     else if (
       exprIsFunctionCall(expr) &&
       expr.func.tag === ExprTag.Atom &&
       typeof expr.func.token.value === "string" &&
-      (expr.func.token.value.startsWith("__yo_compt_u8_") ||
-        expr.func.token.value.startsWith("__yo_compt_i8_") ||
-        expr.func.token.value.startsWith("__yo_compt_u16_") ||
-        expr.func.token.value.startsWith("__yo_compt_i16_") ||
-        expr.func.token.value.startsWith("__yo_compt_u32_") ||
-        expr.func.token.value.startsWith("__yo_compt_i32_") ||
-        expr.func.token.value.startsWith("__yo_compt_u64_") ||
-        expr.func.token.value.startsWith("__yo_compt_i64_") ||
-        expr.func.token.value.startsWith("__yo_compt_usize_") ||
-        expr.func.token.value.startsWith("__yo_compt_isize_") ||
-        expr.func.token.value.startsWith("__yo_compt_f32_") ||
-        expr.func.token.value.startsWith("__yo_compt_f64_") ||
-        expr.func.token.value.startsWith("__yo_compt_int_") ||
-        expr.func.token.value.startsWith("__yo_compt_float_"))
+      (expr.func.token.value.startsWith("__yo_comptime_u8_") ||
+        expr.func.token.value.startsWith("__yo_comptime_i8_") ||
+        expr.func.token.value.startsWith("__yo_comptime_u16_") ||
+        expr.func.token.value.startsWith("__yo_comptime_i16_") ||
+        expr.func.token.value.startsWith("__yo_comptime_u32_") ||
+        expr.func.token.value.startsWith("__yo_comptime_i32_") ||
+        expr.func.token.value.startsWith("__yo_comptime_u64_") ||
+        expr.func.token.value.startsWith("__yo_comptime_i64_") ||
+        expr.func.token.value.startsWith("__yo_comptime_usize_") ||
+        expr.func.token.value.startsWith("__yo_comptime_isize_") ||
+        expr.func.token.value.startsWith("__yo_comptime_f32_") ||
+        expr.func.token.value.startsWith("__yo_comptime_f64_") ||
+        expr.func.token.value.startsWith("__yo_comptime_int_") ||
+        expr.func.token.value.startsWith("__yo_comptime_float_"))
     ) {
-      return evaluateYoComptNumericFunctions({
+      return evaluateYoComptimeNumericFunctions({
         expr: expr as FnCallExpr,
         env,
         context: { ...context },
       });
     }
-    // compt_boolean related functions
+    // comptime_boolean related functions
     else if (
-      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_boolean_and, 2) ||
-      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_boolean_or, 2) ||
-      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_boolean_eq, 2) ||
-      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_boolean_neq, 2) ||
-      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_boolean_not, 1) ||
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_comptime_bool_and, 2) ||
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_comptime_bool_or, 2) ||
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_comptime_bool_eq, 2) ||
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_comptime_bool_neq, 2) ||
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_comptime_bool_not, 1) ||
       exprIsFunctionCallOf(
         expr,
-        BuiltinFunctions.__yo_compt_boolean_to_compt_string,
+        BuiltinFunctions.__yo_comptime_bool_to_comptime_string,
         1
       )
     ) {
-      return evaluateYoComptBooleanFunctions({
+      return evaluateYoComptimeBooleanFunctions({
         expr,
         env,
         context: { ...context },
       });
     }
-    // compt_string related functions
+    // comptime_string related functions
     else if (
       exprIsFunctionCallOf(
         expr,
-        BuiltinFunctions.__yo_compt_string_concat,
+        BuiltinFunctions.__yo_comptime_string_concat,
         2
       ) ||
-      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_string_eq, 2) ||
-      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_string_neq, 2) ||
-      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_string_lt, 2) ||
-      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_string_lte, 2) ||
-      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_string_gt, 2) ||
-      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_string_gte, 2) ||
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_comptime_string_eq, 2) ||
       exprIsFunctionCallOf(
         expr,
-        BuiltinFunctions.__yo_compt_string_length,
+        BuiltinFunctions.__yo_comptime_string_neq,
+        2
+      ) ||
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_comptime_string_lt, 2) ||
+      exprIsFunctionCallOf(
+        expr,
+        BuiltinFunctions.__yo_comptime_string_lte,
+        2
+      ) ||
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_comptime_string_gt, 2) ||
+      exprIsFunctionCallOf(
+        expr,
+        BuiltinFunctions.__yo_comptime_string_gte,
+        2
+      ) ||
+      exprIsFunctionCallOf(
+        expr,
+        BuiltinFunctions.__yo_comptime_string_length,
         1
       ) ||
       exprIsFunctionCallOf(
         expr,
-        BuiltinFunctions.__yo_compt_string_to_upper,
+        BuiltinFunctions.__yo_comptime_string_to_upper,
         1
       ) ||
       exprIsFunctionCallOf(
         expr,
-        BuiltinFunctions.__yo_compt_string_to_lower,
+        BuiltinFunctions.__yo_comptime_string_to_lower,
         1
       ) ||
-      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_string_slice)
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_comptime_string_slice)
     ) {
-      return evaluateYoComptStringFunctions({
+      return evaluateYoComptimeStringFunctions({
         expr,
         env,
         context: { ...context },
@@ -797,9 +812,13 @@ ${exprToString(expr)}`,
     }
     // Type related functions
     else if (
-      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_type_to_compt_string, 1)
+      exprIsFunctionCallOf(
+        expr,
+        BuiltinFunctions.__yo_type_to_comptime_string,
+        1
+      )
     ) {
-      // __yo_type_to_compt_string
+      // __yo_type_to_comptime_string
       return evaluateYoTypeToString({
         expr,
         env,

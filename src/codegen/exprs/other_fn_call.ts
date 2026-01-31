@@ -44,7 +44,7 @@ import {
   sanitizeForCIdentifier,
 } from "../utils";
 import { checkVariableIsClosureCaptured } from "./closures";
-import { generateComptValue } from "./compt_value";
+import { generateComptimeValue } from "./comptime_value";
 import {
   generateDeferredDropExpressions,
   generateDeferredDupExpressions,
@@ -76,7 +76,7 @@ export function generateOtherFunctionCall(
       return "";
     }
     // For non-unit types, generate the compile-time value
-    return generateComptValue(expr.$.value, context, expr);
+    return generateComptimeValue(expr.$.value, context, expr);
   }
 
   const functionType = expr.func.$?.type;
@@ -146,7 +146,7 @@ export function generateOtherFunctionCall(
               arg.$.env
             );
             if (argCode !== sanitizedVarName) {
-              // Use convertedRuntimeType if available (e.g., compt_string -> str)
+              // Use convertedRuntimeType if available (e.g., comptime_string -> str)
               const effectiveType = arg.$.convertedRuntimeType || arg.$.type;
               const varTypeAndName = getVariableTypeString(
                 effectiveType,
@@ -550,7 +550,7 @@ export function generateOtherFunctionCall(
               // 1. The expression doesn't already handle it
               // 2. It's not a closure-captured variable (those are accessed inline from closure_context->data)
               // 3. It's not a state machine variable (those are accessed via sm->var_xxx)
-              // Use convertedRuntimeType if available (e.g., compt_string -> str)
+              // Use convertedRuntimeType if available (e.g., comptime_string -> str)
               const effectiveType = arg.$.convertedRuntimeType || arg.$.type;
               const varTypeAndName = getVariableTypeString(
                 effectiveType,

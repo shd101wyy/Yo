@@ -123,7 +123,7 @@ export function evaluateStructType({
         structType.trait.fields.push(field as TraitField);
       } else {
         fields.push(field);
-        // Update the struct's availability after adding each non-compt field
+        // Update the struct's availability after adding each non-comptime field
         updateTypeAvailability(structType, arg.token);
       }
 

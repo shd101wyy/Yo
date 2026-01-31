@@ -25,7 +25,7 @@ import { ModuleManager } from "./module-manager";
 import { TokenType } from "./token";
 import { clearAllCachedTypes } from "./types";
 import { clearAllModuleCounters } from "./utils";
-import { isComptStringValue } from "./value";
+import { isComptimeStringValue } from "./value";
 
 // ANSI color codes for terminal output
 const colors = {
@@ -188,7 +188,7 @@ export function extractTests(filePath: string): ExtractTestsResult {
           let testName = "unnamed_test";
 
           // First try to get the value from the evaluated expression's $ field
-          if (testNameExpr.$ && isComptStringValue(testNameExpr.$.value)) {
+          if (testNameExpr.$ && isComptimeStringValue(testNameExpr.$.value)) {
             testName = testNameExpr.$.value.value;
           } else if (
             exprIsAtom(testNameExpr) &&

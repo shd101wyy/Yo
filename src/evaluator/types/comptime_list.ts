@@ -6,12 +6,12 @@ import {
   exprToString,
   FnCallExpr,
 } from "../../expr";
-import { createComptListType } from "../../types";
+import { createComptimeListType } from "../../types";
 import { createTypeValue, isTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 
-export function evaluateComptListType({
+export function evaluateComptimeListType({
   expr,
   env,
   context,
@@ -20,7 +20,7 @@ export function evaluateComptListType({
   env: Environment;
   context: EvaluatorContext;
 }): FnCallExpr {
-  expectExprToBeFunctionCallOf(expr, BuiltinKeywords.ComptList, 1);
+  expectExprToBeFunctionCallOf(expr, BuiltinKeywords.ComptimeList, 1);
 
   const elementTypeExpr = expr.args[0]!;
 
@@ -48,13 +48,13 @@ export function evaluateComptListType({
   }
   const childType = evaluatedElementTypeExpr.$.value.value;
 
-  const comptListType = createComptListType(childType);
-  const comptListTypeValue = createTypeValue(comptListType);
+  const comptimeListType = createComptimeListType(childType);
+  const comptimeListTypeValue = createTypeValue(comptimeListType);
 
   expr.$ = {
     env: evaluatedElementTypeExpr.$.env,
-    type: comptListTypeValue.type,
-    value: comptListTypeValue,
+    type: comptimeListTypeValue.type,
+    value: comptimeListTypeValue,
     pathCollection: [],
   };
   return expr;

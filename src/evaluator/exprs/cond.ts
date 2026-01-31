@@ -14,10 +14,10 @@ import {
 } from "../../expr";
 import {
   areTypesCompatible,
-  convertComptTypeToRuntimeType,
+  convertComptimeTypeToRuntimeType,
   createBooleanType,
   isBooleanType,
-  isFunctionTypeAndReturnsComptValue,
+  isFunctionTypeAndReturnsComptimeValue,
   Type,
   typeToString,
 } from "../../types";
@@ -355,7 +355,7 @@ export function evaluateCond({
             if (
               areTypesCompatible(
                 {
-                  type: convertComptTypeToRuntimeType({
+                  type: convertComptimeTypeToRuntimeType({
                     type: valueType.type,
                     expectedType: undefined,
                     expr: undefined,
@@ -487,7 +487,7 @@ export function evaluateCond({
           value:
             context.isEvaluatingFunctionBodyOrAsyncBlock.kind ===
               "function-body" &&
-            isFunctionTypeAndReturnsComptValue(
+            isFunctionTypeAndReturnsComptimeValue(
               context.isEvaluatingFunctionBodyOrAsyncBlock.type
             )
               ? createUnknownValue(returnType)

@@ -342,7 +342,7 @@ export function evaluatePropertyAccess({
       }
       return expr;
     }
-    // Accessing compt fields of a struct/union/dyn etc type.
+    // Accessing comptime fields of a struct/union/dyn etc type.
     else if (typeValue.value.trait) {
       if (!isValidVariableName(propertyExpr)) {
         throw formatErrorMessage({

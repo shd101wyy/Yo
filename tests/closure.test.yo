@@ -12,7 +12,7 @@ test "Test ClosureType({...}) to create closure value", {
   x := 1;
 
   ClosureType :: Impl(Fn(y : i32) -> i32);
-  T :: Type.to_compt_string(ClosureType);
+  T :: Type.to_comptime_string(ClosureType);
   closure := (ClosureType {
     x = (x + y);
     return x;
@@ -54,7 +54,7 @@ some_cond :: (fn() -> bool) {
 
 // This should fail
 test "Test multiple expected errors", {
-  compt_expect_error({
+  comptime_expect_error({
     closure : Impl(Fn(y : i32) -> i32);
     cond(
       some_cond() => {
@@ -72,7 +72,7 @@ test "Test multiple expected errors", {
     );
   });
 
-  compt_expect_error({
+  comptime_expect_error({
     closure : Impl(Fn(y : i32) -> i32);
     cond(
       some_cond() => {
@@ -90,7 +90,7 @@ test "Test multiple expected errors", {
     );
   }, "no two closures, even if identical, have the same type");
 
-  compt_expect_error(
+  comptime_expect_error(
     (closure : Impl(Fn(y : i32) -> i32)) =
     cond(
       some_cond() => {
@@ -109,14 +109,14 @@ test "Test multiple expected errors", {
   );
 
   // This should fail - sequential reassignment to closures with different capture types
-  compt_expect_error({
+  comptime_expect_error({
     a := 1;
     b := 2;
     closure : Impl(Fn(y : i32) -> i32);
     closure = ((y) => (y + a));
     closure = ((y) => (y + b));
   }, "cannot reassign to variable of Impl");
-  compt_expect_error({
+  comptime_expect_error({
     a := 1;
     (closure : Impl(Fn(y : i32) -> i32)) = ((y) => (y + a));
     closure = ((y) => (y + a));

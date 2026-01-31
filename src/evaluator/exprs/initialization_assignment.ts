@@ -11,13 +11,13 @@ import {
 } from "../../expr";
 import {
   areTypesCompatible,
-  convertComptTypeToRuntimeType,
+  convertComptimeTypeToRuntimeType,
   isSomeType,
   prohibitVoidType,
   SomeType,
   typeContainsRcType,
-  typeProhibitsComptModifier,
-  typeRequiresComptModifier,
+  typeProhibitsComptimeModifier,
+  typeRequiresComptimeModifier,
   typeToString,
 } from "../../types";
 import { VUnit } from "../../unit-value";
@@ -66,7 +66,7 @@ export function evaluateInitializationAssignment({
 
   // For type conversion purposes, only consider :: as compile-time.
   // When using := with forceCompileTimeBindings, we evaluate at compile-time
-  // but still convert types (e.g., compt_int -> i32).
+  // but still convert types (e.g., comptime_int -> i32).
   const shouldConvertToRuntimeType = !exprIsFunctionCallOf(expr, "::");
 
   if (
@@ -148,12 +148,12 @@ export function evaluateInitializationAssignment({
       }
 
       // If it's runtime, then we convert
-      // compt_int -> i32
-      // compt_float -> f64
+      // comptime_int -> i32
+      // comptime_float -> f64
       // etc...
       let lhsType = rhsType;
       if (shouldConvertToRuntimeType) {
-        lhsType = convertComptTypeToRuntimeType({
+        lhsType = convertComptimeTypeToRuntimeType({
           type: rhsType,
           expectedType: undefined,
           expr: rhs,
@@ -209,7 +209,7 @@ export function evaluateInitializationAssignment({
     }
 
     // Check some value that requires compile-time only
-    if (!isCompileTimeOnly && typeRequiresComptModifier(lhs.$.type)) {
+    if (!isCompileTimeOnly && typeRequiresComptimeModifier(lhs.$.type)) {
       throw formatErrorMessage({
         token: expr.token,
         errorMessage: `Expected "::" instead of ":=" for compile-time known value assignment:
@@ -219,7 +219,7 @@ Type:
 ${typeToString(lhs.$.type)}`,
       });
     }
-    if (isCompileTimeOnly && typeProhibitsComptModifier(lhs.$.type)) {
+    if (isCompileTimeOnly && typeProhibitsComptimeModifier(lhs.$.type)) {
       throw formatErrorMessage({
         token: expr.token,
         errorMessage: `Expected ":=" instead of "::" for value type "${typeToString(lhs.$.type)}" which can only be used at the runtime:

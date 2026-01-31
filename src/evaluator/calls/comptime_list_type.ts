@@ -1,27 +1,31 @@
 import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import { Expr, FnCallExpr, setExprAsNeedsToCallDup } from "../../expr";
-import { areTypesCompatible, ComptListType, typeToString } from "../../types";
-import { createComptListValue, Value } from "../../value";
+import {
+  areTypesCompatible,
+  ComptimeListType,
+  typeToString,
+} from "../../types";
+import { createComptimeListValue, Value } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 
 /**
- * This function creates an ComptList value from an ComptListType and initial values.
+ * This function creates an ComptimeList value from an ComptimeListType and initial values.
  * eg:
  *
- *   ExprList :: ComptList(Expr);
+ *   ExprList :: ComptimeList(Expr);
  *   list :: ExprList(quote(x), quote(y), quote(z));
  */
-export function tryToImplementComptListByComptListType({
+export function tryToImplementComptimeListByComptimeListType({
   expr,
-  comptListType,
+  comptimeListType,
   argExprs,
   callerEnv,
   context,
 }: {
   expr: FnCallExpr;
-  comptListType: ComptListType;
+  comptimeListType: ComptimeListType;
   argExprs: Expr[];
   callerEnv: Environment;
   context: EvaluatorContext;
@@ -30,7 +34,7 @@ export function tryToImplementComptListByComptListType({
   const elements: Value[] = [];
   let env = callerEnv;
 
-  const expectedElementType = comptListType.childType;
+  const expectedElementType = comptimeListType.childType;
 
   for (let i = 0; i < argExprs.length; i++) {
     const argExpr = argExprs[i]!;
@@ -48,7 +52,7 @@ export function tryToImplementComptListByComptListType({
     if (!evaluatedArg.$) {
       throw formatErrorMessage({
         token: argExpr.token,
-        errorMessage: `Failed to evaluate ComptList element at index ${i}.`,
+        errorMessage: `Failed to evaluate ComptimeList element at index ${i}.`,
       });
     }
 
@@ -65,34 +69,34 @@ export function tryToImplementComptListByComptListType({
     ) {
       throw formatErrorMessage({
         token: argExpr.token,
-        errorMessage: `ComptList element at index ${i} has incompatible type:
+        errorMessage: `ComptimeList element at index ${i} has incompatible type:
 - Expected: ${typeToString(expectedElementType)}
 - Given   : ${typeToString(evaluatedArg.$.type)}`,
       });
     }
 
-    // Store the value if available (for compile-time ComptList)
+    // Store the value if available (for compile-time ComptimeList)
     if (evaluatedArg.$.value !== undefined) {
       elements.push(evaluatedArg.$.value);
     } else {
       throw formatErrorMessage({
         token: argExpr.token,
-        errorMessage: `Expected compile-time known value for ComptList element at index ${i}, got ${typeToString(evaluatedArg.$.type)}`,
+        errorMessage: `Expected compile-time known value for ComptimeList element at index ${i}, got ${typeToString(evaluatedArg.$.type)}`,
       });
     }
   }
 
-  // Create the compt list value
-  const comptListValue = createComptListValue(
-    comptListType.childType,
+  // Create the comptime list value
+  const comptimeListValue = createComptimeListValue(
+    comptimeListType.childType,
     elements
   );
 
   // Set the result
   expr.$ = {
     env,
-    value: comptListValue,
-    type: comptListType,
+    value: comptimeListValue,
+    type: comptimeListType,
     pathCollection: [],
   };
 

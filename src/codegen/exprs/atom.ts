@@ -5,7 +5,7 @@ import { isFunctionValue, isUnknownValue } from "../../value";
 import { FunctionGenerationContext } from "../functions/context";
 import { CodeGenContext, getVariableNameForCodegen } from "../utils";
 import { checkVariableIsClosureCaptured } from "./closures";
-import { generateComptValue } from "./compt_value";
+import { generateComptimeValue } from "./comptime_value";
 
 /**
  * Generate C code for an atom expression - extracted from original codegen-c.ts
@@ -151,7 +151,7 @@ export function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
         variables.length > 0 &&
         variables[variables.length - 1]!.isCompileTimeOnly
       ) {
-        return generateComptValue(expr.$.value, context, expr);
+        return generateComptimeValue(expr.$.value, context, expr);
       }
     }
 
@@ -186,7 +186,7 @@ export function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
     } else {
       // Only inline if this is NOT a variable (e.g., it's a literal constant without a variable name)
       // But all variables should have been handled above, so this is just for safety
-      return generateComptValue(expr.$.value, context, expr);
+      return generateComptimeValue(expr.$.value, context, expr);
     }
   }
 

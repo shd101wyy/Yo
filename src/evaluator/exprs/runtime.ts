@@ -7,7 +7,7 @@ import {
   exprToString,
   FnCallExpr,
 } from "../../expr";
-import { convertComptTypeToRuntimeType } from "../../types";
+import { convertComptimeTypeToRuntimeType } from "../../types";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "./expr";
 
@@ -64,8 +64,8 @@ export function evaluateRuntime({
     });
   }
 
-  // Convert compile-time type to runtime type (e.g., compt_int -> i32)
-  const runtimeType = convertComptTypeToRuntimeType({
+  // Convert compile-time type to runtime type (e.g., comptime_int -> i32)
+  const runtimeType = convertComptimeTypeToRuntimeType({
     type: evaluatedArg.$.type,
     expectedType: undefined,
     expr: evaluatedArg,

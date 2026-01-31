@@ -3,7 +3,7 @@ import { formatErrorMessage } from "../../error";
 import { AtomExpr, ExprTag, exprToString, FnCallExpr } from "../../expr";
 import { TokenType } from "../../token";
 import { randomId } from "../../utils";
-import { createExprValue, isComptStringValue } from "../../value";
+import { createExprValue, isComptimeStringValue } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 
@@ -49,10 +49,10 @@ export function evaluateGensym({
         )}`,
       });
     }
-    if (!isComptStringValue(evaluatedPrefixArg.$.value)) {
+    if (!isComptimeStringValue(evaluatedPrefixArg.$.value)) {
       throw formatErrorMessage({
         token: prefixArg.token,
-        errorMessage: `Expected compt_string for prefix argument, got:\n${exprToString(prefixArg)}`,
+        errorMessage: `Expected comptime_string for prefix argument, got:\n${exprToString(prefixArg)}`,
       });
     }
     const prefixArgValue = evaluatedPrefixArg.$.value;

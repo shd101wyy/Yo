@@ -113,12 +113,12 @@ export function evaluateTypeField({
     // Check if it's compile-time only
     if (
       exprIsFunctionCall(labelExpr) &&
-      exprIsFunctionCallOf(labelExpr, BuiltinKeywords.compt, 1)
+      exprIsFunctionCallOf(labelExpr, BuiltinKeywords.comptime, 1)
     ) {
       if (isCompileTimeOnly) {
         throw formatErrorMessage({
           token: labelExpr.token,
-          errorMessage: `Cannot combine the use of "compt"  with ::`,
+          errorMessage: `Cannot combine the use of "comptime"  with ::`,
         });
       }
       isCompileTimeOnly = true;
@@ -134,12 +134,12 @@ export function evaluateTypeField({
     label = labelExpr.token.value;
   } else if (
     exprIsFunctionCall(expr_) &&
-    exprIsFunctionCallOf(expr_, BuiltinKeywords.compt, 1)
+    exprIsFunctionCallOf(expr_, BuiltinKeywords.comptime, 1)
   ) {
     if (isCompileTimeOnly) {
       throw formatErrorMessage({
         token: expr_.token,
-        errorMessage: `Cannot combine the use of "compt"  with "::"`,
+        errorMessage: `Cannot combine the use of "comptime"  with "::"`,
       });
     }
 
@@ -229,7 +229,7 @@ ${typeToString(expectedType)}`
       throw formatErrorMessage({
         token: assignedValueExpr.token,
         errorMessage: `Assigned value expression is only allowed for compile-time only.
-Please consider adding "compt"  modifier to the field label.`,
+Please consider adding "comptime"  modifier to the field label.`,
       });
     }
 
@@ -376,7 +376,7 @@ Given type: ${typeToString(defaultValueType)}`,
     // Field is marked as compile-time-only but type is runtime-only
     throw formatErrorMessage({
       token: labelExpr?.token ?? expr.token,
-      errorMessage: `Type '${typeToString(fieldType)}' can only be used at runtime and cannot have "compt" modifier or :: syntax.`,
+      errorMessage: `Type '${typeToString(fieldType)}' can only be used at runtime and cannot have "comptime" modifier or :: syntax.`,
     });
   }
 

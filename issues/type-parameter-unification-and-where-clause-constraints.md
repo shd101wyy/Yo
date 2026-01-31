@@ -72,21 +72,21 @@ Two separate issues in `areTypesCompatible`:
 
 ```yo
 {
-  Option :: (fn(compt(T): Type) -> compt(Type))
+  Option :: (fn(comptime(T): Type) -> comptime(Type))
     enum(
       None,
       Some(value: T)
     )
   ;
 
-  Node :: (fn(compt(T): Type) -> compt(Type))
+  Node :: (fn(comptime(T): Type) -> comptime(Type))
     object(
       value : T,
       next : Option(Self)
     )
   ;
 
-  LinkedList :: (fn(compt(X): Type) -> compt(Type))
+  LinkedList :: (fn(comptime(X): Type) -> comptime(Type))
     object(
       head : Option(Node(X)),
       length : usize
@@ -104,7 +104,7 @@ Two separate issues in `areTypesCompatible`:
 When calling methods on generic types, type parameters couldn't unify:
 
 ```yo
-ArrayList :: (fn(compt(T): Type) -> compt(Type))
+ArrayList :: (fn(comptime(T): Type) -> comptime(Type))
   object(
     _ptr : ?*(T),
     _length : usize,
@@ -163,7 +163,7 @@ Removed the early return that rejected SomeTypes with the same name but differen
 This allows:
 
 - `*(T)` from `impl(forall(T: Type), *(T), ...)` to unify with `*(T)` from `ArrayList(T)`
-- While still preventing `i32` from matching `compt_int` (different code paths for primitive types)
+- While still preventing `i32` from matching `comptime_int` (different code paths for primitive types)
 
 The key insight: Even with `requireExactMatch=true`, type parameters can unify if they have compatible constraints. The "exact match" applies to the overall type structure, not to preventing generic type unification.
 
@@ -176,7 +176,7 @@ The key insight: Even with `requireExactMatch=true`, type parameters can unify i
 Method lookup was failing when the receiver type differed from the constrained type, even though they should be unified:
 
 ```yo
-LinkedList :: (fn(compt(T): Type) -> compt(Type))(
+LinkedList :: (fn(comptime(T): Type) -> comptime(Type))(
   object(
     head : Option(Node(T)),
 
@@ -269,10 +269,10 @@ When where clause constraints are defined on an outer function, inner methods co
 
 ```yo
 HashMap :: (fn(
-  compt(K): Type,
-  compt(V): Type,
+  comptime(K): Type,
+  comptime(V): Type,
   where(K <: (Eq(K), Hash))  // Constraint on outer function
-) -> compt(Type))
+) -> comptime(Type))
   object(
     _find_bucket :: (fn(self: Self, key: K) -> Option(usize))(
       {

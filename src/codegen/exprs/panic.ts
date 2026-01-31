@@ -1,5 +1,5 @@
 import { FnCallExpr } from "../../expr";
-import { isComptStringValue } from "../../value";
+import { isComptimeStringValue } from "../../value";
 import { CodeGenContext, getTypeString } from "../utils";
 import { generateExpr } from "./expr";
 
@@ -25,7 +25,7 @@ export function generatePanic(
     const messageArg = expr.args[0]!;
 
     // The message should be a compile-time string value
-    if (messageArg.$?.value && isComptStringValue(messageArg.$.value)) {
+    if (messageArg.$?.value && isComptimeStringValue(messageArg.$.value)) {
       const message = messageArg.$.value.value;
       emitter.emitLine(
         `${indent}fprintf(stderr, "%s\\n", ${JSON.stringify(message)});`

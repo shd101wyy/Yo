@@ -8,12 +8,12 @@ import {
 } from "../../expr";
 import {
   createBooleanType,
-  createComptStringType,
+  createComptimeStringType,
   isBooleanType,
 } from "../../types";
 import {
   createBooleanValue,
-  createComptStringValue,
+  createComptimeStringValue,
   createUnknownValue,
   isBooleanValue,
   Value,
@@ -21,7 +21,7 @@ import {
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 
-export function evaluateYoComptBooleanFunctions({
+export function evaluateYoComptimeBooleanFunctions({
   expr,
   env,
   context,
@@ -31,10 +31,10 @@ export function evaluateYoComptBooleanFunctions({
   context: EvaluatorContext;
 }): FnCallExpr {
   if (
-    exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_boolean_not) ||
+    exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_comptime_bool_not) ||
     exprIsFunctionCallOf(
       expr,
-      BuiltinFunctions.__yo_compt_boolean_to_compt_string
+      BuiltinFunctions.__yo_comptime_bool_to_comptime_string
     )
   ) {
     const arg = evaluateExpression({
@@ -57,7 +57,7 @@ export function evaluateYoComptBooleanFunctions({
 
     let value: Value;
     // !(x)
-    if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_boolean_not)) {
+    if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_comptime_bool_not)) {
       if (isBooleanValue(arg.$.value)) {
         value = createBooleanValue(!arg.$.value.value);
       } else {
@@ -68,18 +68,18 @@ export function evaluateYoComptBooleanFunctions({
     else if (
       exprIsFunctionCallOf(
         expr,
-        BuiltinFunctions.__yo_compt_boolean_to_compt_string
+        BuiltinFunctions.__yo_comptime_bool_to_comptime_string
       )
     ) {
       if (isBooleanValue(arg.$.value)) {
-        value = createComptStringValue(arg.$.value.value.toString());
+        value = createComptimeStringValue(arg.$.value.value.toString());
       } else {
-        value = createUnknownValue(createComptStringType());
+        value = createUnknownValue(createComptimeStringType());
       }
     } else {
       throw formatErrorMessage({
         token: expr.token,
-        errorMessage: `Unexpected function call for "${expr.func.token.value}", expected "__yo_compt_boolean_not" or "__yo_compt_boolean_to_compt_string" function`,
+        errorMessage: `Unexpected function call for "${expr.func.token.value}", expected "__yo_comptime_bool_not" or "__yo_comptime_bool_to_comptime_string" function`,
       });
     }
     expr.$ = {
@@ -131,7 +131,7 @@ export function evaluateYoComptBooleanFunctions({
     let value: Value;
 
     // x && y
-    if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_boolean_and)) {
+    if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_comptime_bool_and)) {
       if (isBooleanValue(lhsValue) && isBooleanValue(rhsValue)) {
         value = createBooleanValue(lhsValue.value && rhsValue.value);
       } else {
@@ -140,7 +140,7 @@ export function evaluateYoComptBooleanFunctions({
     }
     // x || y
     else if (
-      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_boolean_or)
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_comptime_bool_or)
     ) {
       if (isBooleanValue(lhsValue) && isBooleanValue(rhsValue)) {
         value = createBooleanValue(lhsValue.value || rhsValue.value);
@@ -150,7 +150,7 @@ export function evaluateYoComptBooleanFunctions({
     }
     // x == y
     else if (
-      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_boolean_eq)
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_comptime_bool_eq)
     ) {
       if (isBooleanValue(lhsValue) && isBooleanValue(rhsValue)) {
         value = createBooleanValue(lhsValue.value === rhsValue.value);
@@ -160,7 +160,7 @@ export function evaluateYoComptBooleanFunctions({
     }
     // x != y
     else if (
-      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_boolean_neq)
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_comptime_bool_neq)
     ) {
       if (isBooleanValue(lhsValue) && isBooleanValue(rhsValue)) {
         value = createBooleanValue(lhsValue.value !== rhsValue.value);
@@ -170,7 +170,7 @@ export function evaluateYoComptBooleanFunctions({
     } else {
       throw formatErrorMessage({
         token: expr.token,
-        errorMessage: `Unexpected function call for compt_boolean operations: ${exprToString(
+        errorMessage: `Unexpected function call for comptime_bool operations: ${exprToString(
           expr
         )}`,
       });

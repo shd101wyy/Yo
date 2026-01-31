@@ -9,10 +9,10 @@ import {
 } from "./definitions";
 import {
   isArrayType,
-  isComptFloatType,
-  isComptIntType,
-  isComptListType,
-  isComptStringType,
+  isComptimeFloatType,
+  isComptimeIntType,
+  isComptimeListType,
+  isComptimeStringType,
   isDynType,
   isEnumType,
   isExprType,
@@ -129,10 +129,10 @@ export function typeOfType(
   } else if (isTypeHierarchyType(type)) {
     return createTypeHierarchy((type as TypeHierarchyType).level + 1);
   } else if (
-    isComptIntType(type) ||
-    isComptFloatType(type) ||
-    isComptStringType(type) ||
-    isComptListType(type)
+    isComptimeIntType(type) ||
+    isComptimeFloatType(type) ||
+    isComptimeStringType(type) ||
+    isComptimeListType(type)
   ) {
     return createType0(type);
   } else if (isExprType(type)) {

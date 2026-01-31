@@ -20,17 +20,17 @@ import {
 } from "../../expr";
 import {
   areTypesCompatible,
-  convertComptTypeToRuntimeType,
+  convertComptimeTypeToRuntimeType,
   createPtrType,
   EnumType,
   isBooleanType,
   isCCompatibleType,
-  isComptFloatType,
-  isComptIntType,
-  isComptStringType,
+  isComptimeFloatType,
+  isComptimeIntType,
+  isComptimeStringType,
   isEnumType,
   isFloatType,
-  isFunctionTypeAndReturnsComptValue,
+  isFunctionTypeAndReturnsComptimeValue,
   isIntegerType,
   isPtrType,
   PtrType,
@@ -84,9 +84,9 @@ function isMatchablePrimitiveType(type: Type): boolean {
     isFloatType(type) ||
     isCCompatibleType(type) ||
     isBooleanType(type) ||
-    isComptIntType(type) ||
-    isComptFloatType(type) ||
-    isComptStringType(type)
+    isComptimeIntType(type) ||
+    isComptimeFloatType(type) ||
+    isComptimeStringType(type)
   );
 }
 
@@ -450,7 +450,7 @@ export function evaluateMatch({
           if (
             areTypesCompatible(
               {
-                type: convertComptTypeToRuntimeType({
+                type: convertComptimeTypeToRuntimeType({
                   type: resultType.type,
                   expectedType: undefined,
                   expr: undefined,
@@ -617,9 +617,9 @@ export function evaluateMatch({
             const field = variant.fields[fieldIndex]!;
 
             // Extract compile-time field value if scrutinee is a compile-time enum value
-            const isComptScrutinee =
+            const isComptimeScrutinee =
               isEnumValue(scrutineeValue) && !isUnknownValue(scrutineeValue);
-            const fieldValue = isComptScrutinee
+            const fieldValue = isComptimeScrutinee
               ? scrutineeValue.fields[fieldIndex]
               : undefined;
 
@@ -634,7 +634,7 @@ export function evaluateMatch({
                   variable: {
                     name: variableName,
                     type: field.type,
-                    isCompileTimeOnly: isComptScrutinee,
+                    isCompileTimeOnly: isComptimeScrutinee,
                     value: fieldValue !== undefined ? [fieldValue] : undefined,
                     token: variableExpr.token,
                     initializedAtToken: variableExpr.token,
@@ -672,9 +672,9 @@ export function evaluateMatch({
             const field = variant.fields[j]!;
 
             // Extract compile-time field value if scrutinee is a compile-time enum value
-            const isComptScrutinee =
+            const isComptimeScrutinee =
               isEnumValue(scrutineeValue) && !isUnknownValue(scrutineeValue);
-            const fieldValue = isComptScrutinee
+            const fieldValue = isComptimeScrutinee
               ? scrutineeValue.fields[j]
               : undefined;
 
@@ -685,7 +685,7 @@ export function evaluateMatch({
                 variable: {
                   name: paramName,
                   type: field.type,
-                  isCompileTimeOnly: isComptScrutinee,
+                  isCompileTimeOnly: isComptimeScrutinee,
                   value: fieldValue !== undefined ? [fieldValue] : undefined,
                   token: param.token,
                   initializedAtToken: param.token,
@@ -815,7 +815,7 @@ export function evaluateMatch({
           if (
             areTypesCompatible(
               {
-                type: convertComptTypeToRuntimeType({
+                type: convertComptimeTypeToRuntimeType({
                   type: resultType.type,
                   expectedType: undefined,
                   expr: undefined,
@@ -991,7 +991,7 @@ Supported patterns:
         value:
           context.isEvaluatingFunctionBodyOrAsyncBlock.kind ===
             "function-body" &&
-          isFunctionTypeAndReturnsComptValue(
+          isFunctionTypeAndReturnsComptimeValue(
             context.isEvaluatingFunctionBodyOrAsyncBlock.type
           )
             ? createUnknownValue(returnType)
@@ -1413,7 +1413,7 @@ Hint: Use "::" to define compile-time constants, e.g., "myConst :: 42"`,
         if (
           areTypesCompatible(
             {
-              type: convertComptTypeToRuntimeType({
+              type: convertComptimeTypeToRuntimeType({
                 type: resultType.type,
                 expectedType: undefined,
                 expr: undefined,
@@ -1570,7 +1570,7 @@ Hint: Use "::" to define compile-time constants, e.g., "myConst :: 42"`,
         value:
           context.isEvaluatingFunctionBodyOrAsyncBlock.kind ===
             "function-body" &&
-          isFunctionTypeAndReturnsComptValue(
+          isFunctionTypeAndReturnsComptimeValue(
             context.isEvaluatingFunctionBodyOrAsyncBlock.type
           )
             ? createUnknownValue(returnType)

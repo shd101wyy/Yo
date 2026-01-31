@@ -44,7 +44,7 @@ export function generateAssignment(
   }
   if (
     exprIsFunctionCall(lhs) &&
-    exprIsFunctionCallOf(lhs, BuiltinKeywords.compt)
+    exprIsFunctionCallOf(lhs, BuiltinKeywords.comptime)
   ) {
     // compile-time variable
     return "";
@@ -148,7 +148,7 @@ export function generateAssignment(
         );
         // Only emit the variable declaration if it's not the same as rhsCode
         if (rhsVarName !== rhsCode.trim()) {
-          // Use convertedRuntimeType if available (e.g., compt_string -> str)
+          // Use convertedRuntimeType if available (e.g., comptime_string -> str)
           const effectiveType = rhs.$.convertedRuntimeType || rhs.$.type;
           const rhsTypeStr = getTypeString(effectiveType, context);
           context.emitter.emitLine(
@@ -207,7 +207,7 @@ export function generateAssignment(
         );
         // Only emit the variable declaration if it's not the same as rhsCode
         if (rhsVarName !== rhsCode.trim()) {
-          // Use convertedRuntimeType if available (e.g., compt_string -> str)
+          // Use convertedRuntimeType if available (e.g., comptime_string -> str)
           const effectiveType = rhs.$.convertedRuntimeType || rhs.$.type;
           const rhsTypeStr = getTypeString(effectiveType, context);
           context.emitter.emitLine(

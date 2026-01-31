@@ -6,12 +6,12 @@ import { TypeValue } from "./type-value";
 import {
   areTypesCompatible,
   ArrayType,
-  ComptListType,
+  ComptimeListType,
   createBooleanType,
-  createComptFloatType,
-  createComptIntType,
-  createComptListType,
-  createComptStringType,
+  createComptimeFloatType,
+  createComptimeIntType,
+  createComptimeListType,
+  createComptimeStringType,
   createExprType,
   createF32Type,
   createF64Type,
@@ -43,16 +43,16 @@ import {
 import { UnitValue } from "./unit-value";
 import { ValueTag } from "./value-tag";
 
-export type ComptStringValue = {
-  tag: ValueTag.ComptString;
+export type ComptimeStringValue = {
+  tag: ValueTag.ComptimeString;
   type: Type;
   value: string;
 };
 
 export type NumberValue = {
   tag:
-    | ValueTag.ComptInt
-    | ValueTag.ComptFloat
+    | ValueTag.ComptimeInt
+    | ValueTag.ComptimeFloat
     | ValueTag.U8
     | ValueTag.I8
     | ValueTag.U16
@@ -146,9 +146,9 @@ export type ExprValue = {
   value: Expr;
 };
 
-export type ComptListValue = {
-  tag: ValueTag.ComptList;
-  type: ComptListType;
+export type ComptimeListValue = {
+  tag: ValueTag.ComptimeList;
+  type: ComptimeListType;
   // The UnknownValue here should have a type of ExprType
   elements: Value[];
 };
@@ -190,8 +190,8 @@ export type PtrValue = {
 
 export type Value =
   | TypeValue
-  | ComptStringValue
-  | ComptListValue
+  | ComptimeStringValue
+  | ComptimeListValue
   | NumberValue
   | UnitValue
   | BooleanValue
@@ -219,15 +219,15 @@ export function valueToString(value?: Value): string {
     case ValueTag.Type: {
       return typeToString(value.value);
     }
-    case ValueTag.ComptInt:
-    case ValueTag.ComptFloat: {
+    case ValueTag.ComptimeInt:
+    case ValueTag.ComptimeFloat: {
       return value.value.toString();
     }
-    case ValueTag.ComptString: {
+    case ValueTag.ComptimeString: {
       return JSON.stringify(value.value);
     }
-    case ValueTag.ComptList: {
-      return `compt_list(${value.elements.map(valueToString).join(", ")})`;
+    case ValueTag.ComptimeList: {
+      return `comptime_list(${value.elements.map(valueToString).join(", ")})`;
     }
     case ValueTag.U8:
     case ValueTag.I8:
@@ -277,8 +277,8 @@ export function valueToString(value?: Value): string {
           }
           if (value.type.fields[index]!.isCompileTimeOnly) {
             label = stringIsOperator(label)
-              ? `compt${label}`
-              : `compt(${label})`;
+              ? `comptime${label}`
+              : `comptime(${label})`;
           }
           return `${label}: ${valueToString(element)}`;
         })
@@ -300,8 +300,8 @@ export function valueToString(value?: Value): string {
           }
           if (variant?.fields![index]!.isCompileTimeOnly) {
             label = stringIsOperator(label)
-              ? `compt${label}`
-              : `compt(${label})`;
+              ? `comptime${label}`
+              : `comptime(${label})`;
           }
           return `${label}: ${valueToString(element)}`;
         })
@@ -353,7 +353,7 @@ export function valueToString(value?: Value): string {
       if (value.variableName) {
         return value.variableName;
       }
-      return `<compt ${typeToString(value.type)}>`;
+      return `<comptime ${typeToString(value.type)}>`;
     }
     case ValueTag.Ptr: {
       const target = value.targetValue[0];
@@ -372,30 +372,32 @@ export function isTypeValue(value?: Value): value is TypeValue {
   return value?.tag === ValueTag.Type;
 }
 
-export function isComptIntValue(value?: Value): value is NumberValue {
-  return value?.tag === ValueTag.ComptInt;
+export function isComptimeIntValue(value?: Value): value is NumberValue {
+  return value?.tag === ValueTag.ComptimeInt;
 }
 
-export function isComptFloatValue(value?: Value): value is NumberValue {
-  return value?.tag === ValueTag.ComptFloat;
+export function isComptimeFloatValue(value?: Value): value is NumberValue {
+  return value?.tag === ValueTag.ComptimeFloat;
 }
 
-export function isComptStringValue(value?: Value): value is ComptStringValue {
-  return value?.tag === ValueTag.ComptString;
+export function isComptimeStringValue(
+  value?: Value
+): value is ComptimeStringValue {
+  return value?.tag === ValueTag.ComptimeString;
 }
 
-export function isComptListValue(value?: Value): value is ComptListValue {
-  return value?.tag === ValueTag.ComptList;
+export function isComptimeListValue(value?: Value): value is ComptimeListValue {
+  return value?.tag === ValueTag.ComptimeList;
 }
 
-export function isExprListValue(value?: Value): value is ComptListValue {
-  return isComptListValue(value) && isExprType(value.type.childType);
+export function isExprListValue(value?: Value): value is ComptimeListValue {
+  return isComptimeListValue(value) && isExprType(value.type.childType);
 }
 
 export function isNumberValue(value?: Value): value is NumberValue {
   return (
-    value?.tag === ValueTag.ComptInt ||
-    value?.tag === ValueTag.ComptFloat ||
+    value?.tag === ValueTag.ComptimeInt ||
+    value?.tag === ValueTag.ComptimeFloat ||
     value?.tag === ValueTag.U8 ||
     value?.tag === ValueTag.I8 ||
     value?.tag === ValueTag.U16 ||
@@ -476,21 +478,21 @@ export function createTypeValue(value: Type): TypeValue {
   };
 }
 
-export function createComptStringValue(value: string): ComptStringValue {
+export function createComptimeStringValue(value: string): ComptimeStringValue {
   return {
-    tag: ValueTag.ComptString,
-    type: createComptStringType(),
+    tag: ValueTag.ComptimeString,
+    type: createComptimeStringType(),
     value,
   };
 }
 
-export function createComptListValue(
+export function createComptimeListValue(
   childType: Type,
   elements: Value[]
-): ComptListValue {
+): ComptimeListValue {
   return {
-    tag: ValueTag.ComptList,
-    type: createComptListType(childType),
+    tag: ValueTag.ComptimeList,
+    type: createComptimeListType(childType),
     elements,
   };
 }
@@ -501,10 +503,10 @@ export function createNumberValue(
   value: number | bigint
 ) {
   let numberType: Type;
-  if (tag === ValueTag.ComptInt) {
-    numberType = createComptIntType();
-  } else if (tag === ValueTag.ComptFloat) {
-    numberType = createComptFloatType();
+  if (tag === ValueTag.ComptimeInt) {
+    numberType = createComptimeIntType();
+  } else if (tag === ValueTag.ComptimeFloat) {
+    numberType = createComptimeFloatType();
   } else if (tag === ValueTag.U8) {
     numberType = createU8Type();
   } else if (tag === ValueTag.I8) {
@@ -540,12 +542,12 @@ export function createNumberValue(
   };
 }
 
-export function createComptIntValue(value: bigint): NumberValue {
-  return createNumberValue(ValueTag.ComptInt, value);
+export function createComptimeIntValue(value: bigint): NumberValue {
+  return createNumberValue(ValueTag.ComptimeInt, value);
 }
 
-export function createComptFloatValue(value: number): NumberValue {
-  return createNumberValue(ValueTag.ComptFloat, value);
+export function createComptimeFloatValue(value: number): NumberValue {
+  return createNumberValue(ValueTag.ComptimeFloat, value);
 }
 
 export function createBooleanValue(value: boolean): BooleanValue {
@@ -719,9 +721,9 @@ export function areValuesEqual(
       { type: value2.value, env: given.env },
       true
     );
-  } else if (isComptStringValue(value1) && isComptStringValue(value2)) {
-    return value1.value === (value2 as ComptStringValue).value;
-  } else if (isComptListValue(value1) && isComptListValue(value2)) {
+  } else if (isComptimeStringValue(value1) && isComptimeStringValue(value2)) {
+    return value1.value === (value2 as ComptimeStringValue).value;
+  } else if (isComptimeListValue(value1) && isComptimeListValue(value2)) {
     if (value1.elements.length !== value2.elements.length) {
       return false;
     }
@@ -936,7 +938,7 @@ export function areValuesEqual(
     // return false;
     // If neither resolved, fall back to type compatibility
     // NOTE: This is an assumption. If we return false here, it might cause the
-    // "Maximum Call Stack Exceeded" exception due to the evaluateComptFunctionCall
+    // "Maximum Call Stack Exceeded" exception due to the evaluateComptimeFunctionCall
     // recursively evalauting the `recur` function.
     return areTypesCompatible(
       { type: value1.type, env: expected.env },

@@ -3,7 +3,7 @@ import { formatErrorMessage } from "../../error";
 import { attachTempVariableToExpr, FnCallExpr } from "../../expr";
 import {
   areTypesCompatible,
-  convertComptTypeToRuntimeType,
+  convertComptimeTypeToRuntimeType,
   createFutureTraitType,
   createSomeType,
   createType0,
@@ -123,7 +123,7 @@ export function evaluateAsync({
   env = evaluatedBody.$.env;
 
   // Infer the return type from the evaluated expression
-  const returnType = convertComptTypeToRuntimeType({
+  const returnType = convertComptimeTypeToRuntimeType({
     type: evaluatedBody.$.type,
     expectedType: undefined,
     expr: evaluatedBody,

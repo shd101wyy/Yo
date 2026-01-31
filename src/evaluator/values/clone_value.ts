@@ -4,8 +4,8 @@ import { UnitValue } from "../../unit-value";
 import {
   ArrayValue,
   BooleanValue,
-  ComptListValue,
-  ComptStringValue,
+  ComptimeListValue,
+  ComptimeStringValue,
   EnumValue,
   ExprValue,
   ModuleValue,
@@ -45,8 +45,8 @@ export function cloneValue(
 ): Value {
   switch (value.tag) {
     // Primitive/immutable types - no cloning needed
-    case ValueTag.ComptInt:
-    case ValueTag.ComptFloat:
+    case ValueTag.ComptimeInt:
+    case ValueTag.ComptimeFloat:
     case ValueTag.U8:
     case ValueTag.I8:
     case ValueTag.U16:
@@ -67,8 +67,8 @@ export function cloneValue(
     case ValueTag.Unit:
       return value as UnitValue;
 
-    case ValueTag.ComptString:
-      return value as ComptStringValue;
+    case ValueTag.ComptimeString:
+      return value as ComptimeStringValue;
 
     case ValueTag.Type:
       // TypeValue contains a Type which is immutable
@@ -207,14 +207,14 @@ export function cloneValue(
       } as SliceValue;
     }
 
-    case ValueTag.ComptList: {
-      const comptListValue = value as ComptListValue;
+    case ValueTag.ComptimeList: {
+      const comptimetListValue = value as ComptimeListValue;
       return {
-        ...comptListValue,
-        elements: comptListValue.elements.map((e) =>
+        ...comptimetListValue,
+        elements: comptimetListValue.elements.map((e) =>
           cloneValue(e, preservePointerReferences, targetValueMapping)
         ),
-      } as ComptListValue;
+      } as ComptimeListValue;
     }
 
     case ValueTag.Module: {

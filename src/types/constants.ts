@@ -6,7 +6,7 @@ import { TypeAvailability } from "./definitions";
 
 /**
  * Type available only at compile-time.
- * Examples: compt_int, compt_float, Type, Module, Trait
+ * Examples: comptime_int, comptime_float, Type, Module, Trait
  */
 export const COMPTIME_ONLY: TypeAvailability = {
   comptime: true,

@@ -575,7 +575,7 @@ export function activate(context: vscode.ExtensionContext) {
         }
 
         if (isCompileTimeOnly) {
-          tokenText = `compt(${tokenText})`;
+          tokenText = `comptime(${tokenText})`;
         }
 
         // Start with the token name in code format
@@ -1154,7 +1154,7 @@ export function activate(context: vscode.ExtensionContext) {
           // For array types, show the length field
           methods.push({
             name: "len",
-            detail: "compt(usize)",
+            detail: "comptime(usize)",
             documentation: `Get the compile-time known length of the array`,
           });
         } else if (isSliceType(fieldAccessType)) {

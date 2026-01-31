@@ -8,24 +8,24 @@ import {
 } from "../../expr";
 import {
   createBooleanType,
-  createComptIntType,
-  createComptStringType,
-  isComptIntType,
-  isComptStringType,
+  createComptimeIntType,
+  createComptimeStringType,
+  isComptimeIntType,
+  isComptimeStringType,
 } from "../../types";
 import {
   createBooleanValue,
-  createComptIntValue,
-  createComptStringValue,
+  createComptimeIntValue,
+  createComptimeStringValue,
   createUnknownValue,
-  isComptIntValue,
-  isComptStringValue,
+  isComptimeIntValue,
+  isComptimeStringValue,
   Value,
 } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 
-export function evaluateYoComptStringFunctions({
+export function evaluateYoComptimeStringFunctions({
   expr,
   env,
   context,
@@ -35,9 +35,12 @@ export function evaluateYoComptStringFunctions({
   context: EvaluatorContext;
 }): FnCallExpr {
   if (
-    exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_string_length) ||
-    exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_string_to_upper) ||
-    exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_string_to_lower)
+    exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_comptime_string_length) ||
+    exprIsFunctionCallOf(
+      expr,
+      BuiltinFunctions.__yo_comptime_string_to_upper
+    ) ||
+    exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_comptime_string_to_lower)
   ) {
     const arg = evaluateExpression({
       expr: expr.args[0]!,
@@ -47,10 +50,10 @@ export function evaluateYoComptStringFunctions({
       },
     });
 
-    if (!arg.$ || !isComptStringType(arg.$.type) || !arg.$.value) {
+    if (!arg.$ || !isComptimeStringType(arg.$.type) || !arg.$.value) {
       throw formatErrorMessage({
         token: arg.token,
-        errorMessage: `Expected compt_string type for "${expr.func.token.value}" argument, got:\n${exprToString(
+        errorMessage: `Expected comptime_string type for "${expr.func.token.value}" argument, got:\n${exprToString(
           arg
         )}`,
       });
@@ -59,31 +62,33 @@ export function evaluateYoComptStringFunctions({
 
     let value: Value;
     // length(x)
-    if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_string_length)) {
-      if (isComptStringValue(arg.$.value)) {
-        value = createComptIntValue(BigInt(arg.$.value.value.length));
+    if (
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_comptime_string_length)
+    ) {
+      if (isComptimeStringValue(arg.$.value)) {
+        value = createComptimeIntValue(BigInt(arg.$.value.value.length));
       } else {
-        value = createUnknownValue(createComptIntType());
+        value = createUnknownValue(createComptimeIntType());
       }
     }
     // to_upper(x)
     else if (
-      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_string_to_upper)
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_comptime_string_to_upper)
     ) {
-      if (isComptStringValue(arg.$.value)) {
-        value = createComptStringValue(arg.$.value.value.toUpperCase());
+      if (isComptimeStringValue(arg.$.value)) {
+        value = createComptimeStringValue(arg.$.value.value.toUpperCase());
       } else {
-        value = createUnknownValue(createComptStringType());
+        value = createUnknownValue(createComptimeStringType());
       }
     }
     // to_lower(x)
     else if (
-      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_string_to_lower)
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_comptime_string_to_lower)
     ) {
-      if (isComptStringValue(arg.$.value)) {
-        value = createComptStringValue(arg.$.value.value.toLowerCase());
+      if (isComptimeStringValue(arg.$.value)) {
+        value = createComptimeStringValue(arg.$.value.value.toLowerCase());
       } else {
-        value = createUnknownValue(createComptStringType());
+        value = createUnknownValue(createComptimeStringType());
       }
     } else {
       throw formatErrorMessage({
@@ -100,7 +105,7 @@ export function evaluateYoComptStringFunctions({
   }
   // Handle slice function with 2-3 arguments
   else if (
-    exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_string_slice)
+    exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_comptime_string_slice)
   ) {
     // slice(string, start, end?) - validate argument count
     if (expr.args.length < 2 || expr.args.length > 3) {
@@ -121,12 +126,12 @@ export function evaluateYoComptStringFunctions({
 
     if (
       !stringArg.$ ||
-      !isComptStringType(stringArg.$.type) ||
+      !isComptimeStringType(stringArg.$.type) ||
       !stringArg.$.value
     ) {
       throw formatErrorMessage({
         token: stringArg.token,
-        errorMessage: `Expected compt_string type for "${expr.func.token.value}" string argument, got:\n${exprToString(
+        errorMessage: `Expected comptime_string type for "${expr.func.token.value}" string argument, got:\n${exprToString(
           stringArg
         )}`,
       });
@@ -142,10 +147,14 @@ export function evaluateYoComptStringFunctions({
       },
     });
 
-    if (!startArg.$ || !isComptIntType(startArg.$.type) || !startArg.$.value) {
+    if (
+      !startArg.$ ||
+      !isComptimeIntType(startArg.$.type) ||
+      !startArg.$.value
+    ) {
       throw formatErrorMessage({
         token: startArg.token,
-        errorMessage: `Expected compt_int type for "${expr.func.token.value}" start argument, got:\n${exprToString(
+        errorMessage: `Expected comptime_int type for "${expr.func.token.value}" start argument, got:\n${exprToString(
           startArg
         )}`,
       });
@@ -163,10 +172,10 @@ export function evaluateYoComptStringFunctions({
         },
       });
 
-      if (!endArg.$ || !isComptIntType(endArg.$.type) || !endArg.$.value) {
+      if (!endArg.$ || !isComptimeIntType(endArg.$.type) || !endArg.$.value) {
         throw formatErrorMessage({
           token: endArg.token,
-          errorMessage: `Expected compt_int type for "${expr.func.token.value}" end argument, got:\n${exprToString(
+          errorMessage: `Expected comptime_int type for "${expr.func.token.value}" end argument, got:\n${exprToString(
             endArg
           )}`,
         });
@@ -176,8 +185,8 @@ export function evaluateYoComptStringFunctions({
 
     let value: Value;
     if (
-      isComptStringValue(stringArg.$.value) &&
-      isComptIntValue(startArg.$.value)
+      isComptimeStringValue(stringArg.$.value) &&
+      isComptimeIntValue(startArg.$.value)
     ) {
       const str = stringArg.$.value.value;
       const startValue = startArg.$.value.value;
@@ -190,16 +199,16 @@ export function evaluateYoComptStringFunctions({
         endArg &&
         endArg.$ &&
         endArg.$.value &&
-        isComptIntValue(endArg.$.value)
+        isComptimeIntValue(endArg.$.value)
       ) {
         const endValue = endArg.$.value.value;
         end = typeof endValue === "bigint" ? Number(endValue) : endValue;
       }
 
       // Use JavaScript's slice semantics
-      value = createComptStringValue(str.slice(start, end));
+      value = createComptimeStringValue(str.slice(start, end));
     } else {
-      value = createUnknownValue(createComptStringType());
+      value = createUnknownValue(createComptimeStringType());
     }
 
     expr.$ = {
@@ -217,10 +226,10 @@ export function evaluateYoComptStringFunctions({
       },
     });
 
-    if (!lhs.$ || !isComptStringType(lhs.$.type) || !lhs.$.value) {
+    if (!lhs.$ || !isComptimeStringType(lhs.$.type) || !lhs.$.value) {
       throw formatErrorMessage({
         token: lhs.token,
-        errorMessage: `Expected compt_string type for "${expr.func.token.value}" first argument, got:\n${exprToString(
+        errorMessage: `Expected comptime_string type for "${expr.func.token.value}" first argument, got:\n${exprToString(
           lhs
         )}`,
       });
@@ -235,10 +244,10 @@ export function evaluateYoComptStringFunctions({
       },
     });
 
-    if (!rhs.$ || !isComptStringType(rhs.$.type) || !rhs.$.value) {
+    if (!rhs.$ || !isComptimeStringType(rhs.$.type) || !rhs.$.value) {
       throw formatErrorMessage({
         token: rhs.token,
-        errorMessage: `Expected compt_string type for "${expr.func.token.value}" second argument, got:\n${exprToString(
+        errorMessage: `Expected comptime_string type for "${expr.func.token.value}" second argument, got:\n${exprToString(
           rhs
         )}`,
       });
@@ -251,18 +260,20 @@ export function evaluateYoComptStringFunctions({
     let value: Value;
 
     // x + y (concatenation)
-    if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_string_concat)) {
-      if (isComptStringValue(lhsValue) && isComptStringValue(rhsValue)) {
-        value = createComptStringValue(lhsValue.value + rhsValue.value);
+    if (
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_comptime_string_concat)
+    ) {
+      if (isComptimeStringValue(lhsValue) && isComptimeStringValue(rhsValue)) {
+        value = createComptimeStringValue(lhsValue.value + rhsValue.value);
       } else {
-        value = createUnknownValue(createComptStringType());
+        value = createUnknownValue(createComptimeStringType());
       }
     }
     // x == y
     else if (
-      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_string_eq)
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_comptime_string_eq)
     ) {
-      if (isComptStringValue(lhsValue) && isComptStringValue(rhsValue)) {
+      if (isComptimeStringValue(lhsValue) && isComptimeStringValue(rhsValue)) {
         value = createBooleanValue(lhsValue.value === rhsValue.value);
       } else {
         value = createUnknownValue(createBooleanType());
@@ -270,9 +281,9 @@ export function evaluateYoComptStringFunctions({
     }
     // x != y
     else if (
-      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_string_neq)
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_comptime_string_neq)
     ) {
-      if (isComptStringValue(lhsValue) && isComptStringValue(rhsValue)) {
+      if (isComptimeStringValue(lhsValue) && isComptimeStringValue(rhsValue)) {
         value = createBooleanValue(lhsValue.value !== rhsValue.value);
       } else {
         value = createUnknownValue(createBooleanType());
@@ -280,9 +291,9 @@ export function evaluateYoComptStringFunctions({
     }
     // x < y (lexicographic comparison)
     else if (
-      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_string_lt)
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_comptime_string_lt)
     ) {
-      if (isComptStringValue(lhsValue) && isComptStringValue(rhsValue)) {
+      if (isComptimeStringValue(lhsValue) && isComptimeStringValue(rhsValue)) {
         value = createBooleanValue(lhsValue.value < rhsValue.value);
       } else {
         value = createUnknownValue(createBooleanType());
@@ -290,9 +301,9 @@ export function evaluateYoComptStringFunctions({
     }
     // x <= y
     else if (
-      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_string_lte)
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_comptime_string_lte)
     ) {
-      if (isComptStringValue(lhsValue) && isComptStringValue(rhsValue)) {
+      if (isComptimeStringValue(lhsValue) && isComptimeStringValue(rhsValue)) {
         value = createBooleanValue(lhsValue.value <= rhsValue.value);
       } else {
         value = createUnknownValue(createBooleanType());
@@ -300,9 +311,9 @@ export function evaluateYoComptStringFunctions({
     }
     // x > y
     else if (
-      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_string_gt)
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_comptime_string_gt)
     ) {
-      if (isComptStringValue(lhsValue) && isComptStringValue(rhsValue)) {
+      if (isComptimeStringValue(lhsValue) && isComptimeStringValue(rhsValue)) {
         value = createBooleanValue(lhsValue.value > rhsValue.value);
       } else {
         value = createUnknownValue(createBooleanType());
@@ -310,9 +321,9 @@ export function evaluateYoComptStringFunctions({
     }
     // x >= y
     else if (
-      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_compt_string_gte)
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_comptime_string_gte)
     ) {
-      if (isComptStringValue(lhsValue) && isComptStringValue(rhsValue)) {
+      if (isComptimeStringValue(lhsValue) && isComptimeStringValue(rhsValue)) {
         value = createBooleanValue(lhsValue.value >= rhsValue.value);
       } else {
         value = createUnknownValue(createBooleanType());
@@ -320,7 +331,7 @@ export function evaluateYoComptStringFunctions({
     } else {
       throw formatErrorMessage({
         token: expr.token,
-        errorMessage: `Unexpected function call for compt_string operations: ${exprToString(expr)}`,
+        errorMessage: `Unexpected function call for comptime_string operations: ${exprToString(expr)}`,
       });
     }
 

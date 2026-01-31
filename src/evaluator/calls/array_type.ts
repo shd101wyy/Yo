@@ -10,7 +10,7 @@ import {
 } from "../../types";
 import {
   createArrayValue,
-  createComptIntValue,
+  createComptimeIntValue,
   createUnknownValue,
   isNumberValue,
   isUnknownValue,
@@ -59,7 +59,7 @@ export function tryToImplementArrayByArrayType({
     expectedLengthValue = argExprs.length;
 
     // Create a new array type with the inferred length
-    const inferredLength = createComptIntValue(BigInt(expectedLengthValue));
+    const inferredLength = createComptimeIntValue(BigInt(expectedLengthValue));
     finalArrayType = createArrayType(arrayType.childType, inferredLength);
   } else {
     throw formatErrorMessage({

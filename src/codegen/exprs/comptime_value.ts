@@ -11,7 +11,7 @@ import {
 import {
   isArrayValue,
   isBooleanValue,
-  isComptStringValue,
+  isComptimeStringValue,
   isEnumValue,
   isFunctionValue,
   isNumberValue,
@@ -34,7 +34,7 @@ import {
 /**
  * Generate C code for a compile-time value - extracted from original codegen-c.ts
  */
-export function generateComptValue(
+export function generateComptimeValue(
   value: Value,
   context: CodeGenContext,
   _sourceExpr?: Expr
@@ -45,8 +45,8 @@ export function generateComptValue(
   } else if (isBooleanValue(value)) {
     // For booleans, return true/false
     return value.value ? "true" : "false";
-  } else if (isComptStringValue(value)) {
-    // Check if there's a converted runtime type (e.g., compt_string -> str or [u8])
+  } else if (isComptimeStringValue(value)) {
+    // Check if there's a converted runtime type (e.g., comptime_string -> str or [u8])
     const targetType =
       _sourceExpr?.$?.convertedRuntimeType || _sourceExpr?.$?.type;
 
@@ -100,7 +100,7 @@ export function generateComptValue(
         return "NULL";
       } else if (variant.fields.length === 1 && value.fields.length === 1) {
         // This is the pointer case (Some variant)
-        return generateComptValue(value.fields[0]!, context);
+        return generateComptimeValue(value.fields[0]!, context);
       }
     }
 
@@ -141,7 +141,7 @@ export function generateComptValue(
           const variantElement = variant.fields![index];
           if (variantElement && !isUnitType(variantElement.type)) {
             const fieldName = sanitizeForCIdentifier(variantElement.label);
-            const fieldCode = generateComptValue(field, context);
+            const fieldCode = generateComptimeValue(field, context);
             return `.${fieldName} = ${fieldCode}`;
           }
           return null;
@@ -164,7 +164,7 @@ export function generateComptValue(
     }
 
     const fields = value.fields.map((field, index) => {
-      const fieldCode = generateComptValue(field, context);
+      const fieldCode = generateComptimeValue(field, context);
       // Tuples always use numeric field names _0, _1, _2...
       return `._${index} = ${fieldCode}`;
     });
@@ -186,14 +186,17 @@ export function generateComptValue(
         value.fields.length === 1
       ) {
         // For newtype, just use the underlying value with a cast
-        const underlyingValue = generateComptValue(value.fields[0]!, context);
+        const underlyingValue = generateComptimeValue(
+          value.fields[0]!,
+          context
+        );
         return `((${cName})(${underlyingValue}))`;
       }
 
       if (type.isReferenceSemantics) {
         // For object compile-time values, use constructor function
         const fieldValues = value.fields.map((field) =>
-          generateComptValue(field, context)
+          generateComptimeValue(field, context)
         );
 
         const constructorName = `__yo_new_${cName}`;
@@ -207,7 +210,7 @@ export function generateComptValue(
           const fieldName = isTupleType(type)
             ? `_${index}`
             : sanitizeForCIdentifier(type.fields[index]!.label);
-          const fieldCode = generateComptValue(fieldValue, context);
+          const fieldCode = generateComptimeValue(fieldValue, context);
           return `.${fieldName} = ${fieldCode}`;
         });
 
@@ -219,7 +222,7 @@ export function generateComptValue(
     const arrayType = value.type;
     const arrayTypeName = getTypeString(arrayType, context);
     const elementCodes = value.elements.map((element) =>
-      generateComptValue(element, context)
+      generateComptimeValue(element, context)
     );
     return `(${arrayTypeName}){ .data = { ${elementCodes.join(", ")} } }`;
   } else if (isFunctionValue(value)) {
@@ -248,15 +251,15 @@ export function generateComptValue(
     if (targetValue) {
       // Check if we have a converted runtime type for the pointer's child type
       // e.g., for *(str), the sourceExpr.$.convertedRuntimeType is *(str),
-      // and we need to generate the str value from compt_string
+      // and we need to generate the str value from comptime_string
       const ptrType =
         _sourceExpr?.$?.convertedRuntimeType || _sourceExpr?.$?.type;
       if (ptrType && isPtrType(ptrType)) {
         const childType = ptrType.childType;
 
         // Create a temporary expression-like object for the child value generation
-        // This allows generateComptValue to use the correct target type
-        const childCode = generateComptValue(targetValue, context, {
+        // This allows generateComptimeValue to use the correct target type
+        const childCode = generateComptimeValue(targetValue, context, {
           $: {
             type: childType,
             convertedRuntimeType: childType,

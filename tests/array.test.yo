@@ -8,7 +8,7 @@ test "Test Array declaration with inferred length", {
 
   {
     some_condition :: (fn() -> bool) true;
-    compt_expect_error({
+    comptime_expect_error({
       arr : Array(i32, _); // Not allow to have Array with unknown length in binding
       cond(
         some_condition() => {
@@ -75,7 +75,7 @@ test "Test Array declaration with inferred length", {
 
     // Test mutable
     mutable_array := Array(i32, _)(1, 2, 3);
-    compt_expect_error(
+    comptime_expect_error(
       mutable_array = [1, 2, 3, 4]
     );
     mutable_array = [2, 3, 4]; // Should be allowed
@@ -129,19 +129,19 @@ test "Test Array copy", {
 };
 
 test "Test Array fill method", {
-  return_array :: (fn(compt(n) : usize) -> [i32; n]) {
+  return_array :: (fn(comptime(n) : usize) -> [i32; n]) {
     return Array(i32, n).fill(10);
   };
 
-  return_array_2 :: (fn(compt(n) : usize) -> [i32; n])
+  return_array_2 :: (fn(comptime(n) : usize) -> [i32; n])
     Array(i32, n).fill(20)
   ;
 
-  compt_return_array :: (fn(compt(n) : usize) -> compt([i32; n])) {
+  compt_return_array :: (fn(comptime(n) : usize) -> comptime([i32; n])) {
     return Array(i32, n).fill(30);
   };
 
-  compt_return_array_2 :: (fn(compt(n) : usize) -> compt([i32; n]))
+  compt_return_array_2 :: (fn(comptime(n) : usize) -> comptime([i32; n]))
     Array(i32, n).fill(40)
   ;
 

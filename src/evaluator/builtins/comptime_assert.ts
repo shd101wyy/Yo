@@ -6,13 +6,13 @@ import { VUnit } from "../../unit-value";
 import {
   createUnknownValue,
   isBooleanValue,
-  isComptStringValue,
+  isComptimeStringValue,
   valueToString,
 } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 
-export function evaluateComptAssert({
+export function evaluateComptimeAssert({
   expr,
   env,
   context,
@@ -23,7 +23,7 @@ export function evaluateComptAssert({
 }): FnCallExpr {
   // Do nothing if we are not really executing.
   // Use expectedType if available (for match branches), otherwise use unit.
-  // This allows compt_assert to type-check correctly in branches that expect a specific type.
+  // This allows comptime_assert to type-check correctly in branches that expect a specific type.
   if (context.isValidatingFunctionDefinition || !context.isExecuting) {
     const returnType = context.expectedType?.type ?? VUnit.type;
     expr.$ = {
@@ -49,7 +49,7 @@ export function evaluateComptAssert({
   if (!evaluatedArgExpr.$ || !isBooleanValue(evaluatedArgExpr.$.value)) {
     throw formatErrorMessage({
       token: argExpr.token,
-      errorMessage: `Expected bool value for "compt_assert", got:\n${exprToString(argExpr)}
+      errorMessage: `Expected bool value for "comptime_assert", got:\n${exprToString(argExpr)}
       
 Value:
 ${valueToString(evaluatedArgExpr.$?.value)}`,
@@ -79,7 +79,7 @@ ${valueToString(evaluatedArgExpr.$?.value)}`,
         throw formatErrorMessage({
           token: expr.token,
 
-          errorMessage: isComptStringValue(evaluatedMessageExpr.$.value)
+          errorMessage: isComptimeStringValue(evaluatedMessageExpr.$.value)
             ? evaluatedMessageExpr.$.value.value
             : valueToString(evaluatedMessageExpr.$.value),
 
@@ -90,7 +90,7 @@ ${valueToString(evaluatedArgExpr.$?.value)}`,
 
     throw formatErrorMessage({
       token: expr.token,
-      errorMessage: `Assertion failed for "compt_assert":\n${exprToString(argExpr)}`,
+      errorMessage: `Assertion failed for "comptime_assert":\n${exprToString(argExpr)}`,
       isAssertionError: true,
     });
   }

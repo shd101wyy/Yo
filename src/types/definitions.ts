@@ -16,7 +16,7 @@ export type ExternLanguage = "yo" | "c";
  *
  * Examples:
  * - i32: { comptime: true, runtime: true } - can be used in both contexts
- * - compt_int: { comptime: true, runtime: false } - compile-time only
+ * - comptime_int: { comptime: true, runtime: false } - compile-time only
  * - *(i32): { comptime: false, runtime: true } - runtime only
  *
  * For compound types (struct, enum, array), the availability is the intersection
@@ -53,7 +53,7 @@ export interface Type {
    * Point is the name of the struct.
    *
    * eg:
-   *   (compt(LinearI32) : Linear) = i32;
+   *   (comptime(LinearI32) : Linear) = i32;
    * LinearI32 is the name of the type.
    */
   typeName?: string;
@@ -123,8 +123,8 @@ export interface ExprType extends Type {
   trait: TraitType;
 }
 
-export interface ComptListType extends Type {
-  tag: TypeTag.ComptList;
+export interface ComptimeListType extends Type {
+  tag: TypeTag.ComptimeList;
   childType: Type;
   trait: TraitType;
 }
@@ -451,7 +451,7 @@ export interface ModuleType extends Type {
    * The function that returns the module.
    * eg:
    *   Container :
-   *     fn(compt(T): Type)-> compt(Type)
+   *     fn(comptime(T): Type)-> comptime(Type)
    *       module(x: T, y: T)
    * ;
    * "Container" is the function that returns the module.
@@ -487,7 +487,7 @@ export interface TraitType extends Type {
    * The function that returns the module.
    * eg:
    *   Container :
-   *     fn(compt(T): Type)-> compt(Type)
+   *     fn(comptime(T): Type)-> comptime(Type)
    *       trait(x: T, y: T)
    * ;
    * "Container" is the function that returns the trait.
@@ -738,9 +738,9 @@ export interface FunctionType extends Type {
    *
    *  (x: i32, y: i32, ...) -> i32; // c style
    *
-   *  (quote(e): Expr, ...(quote(rest))) -> unquote(Expr); // macro, rest has type ComptList(Expr)
+   *  (quote(e): Expr, ...(quote(rest))) -> unquote(Expr); // macro, rest has type ComptimeList(Expr)
    *  (x: i32, y: i32, ...(rest)) -> i32;     // Yo style. rest has type ArgList
-   *  (compt(x) : i32, compt(y) : i32, ...(compt(rest))); // Yo style. rest has type ArgList
+   *  (comptime(x) : i32, comptime(y) : i32, ...(comptime(rest))); // Yo style. rest has type ArgList
    *
    */
   variadicParameter?: FunctionParameter;
@@ -771,7 +771,7 @@ export interface FunctionType extends Type {
    * This is used for `recur` to reference the correct function when evaluating
    * nested function types. For example:
    *
-   *   Worker :: (fn(compt(T): Type) -> compt(Type)) {
+   *   Worker :: (fn(comptime(T): Type) -> comptime(Type)) {
    *     return object(
    *       spawn_local :: (fn(
    *         callback : (fn(child : recur(T)) -> unit)  // <-- This function type

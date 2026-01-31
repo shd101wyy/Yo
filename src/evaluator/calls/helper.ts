@@ -31,7 +31,7 @@ import { generateExprFromCode } from "../../parser";
 import { PlaceholderToken } from "../../token";
 import {
   areTypesCompatible,
-  convertComptTypeToRuntimeType,
+  convertComptimeTypeToRuntimeType,
   createExprType,
   createFunctionType,
   createSomeType,
@@ -51,12 +51,12 @@ import {
   TypeHierarchyType,
   typeImplementsFn,
   typeImplementsFuture,
-  typeRequiresComptModifier,
+  typeRequiresComptimeModifier,
   typeToString,
 } from "../../types";
 import {
   areValuesEqual,
-  createComptListValue,
+  createComptimeListValue,
   createExprValue,
   createTypeValue,
   createUnknownValue,
@@ -74,7 +74,7 @@ import {
   evaluateFunctionReturnTypeAgain,
 } from "../types/function";
 import { synthesizeTypes } from "../types/synthesizer";
-import { evaluateComptFunctionCall } from "./compt_function";
+import { evaluateComptimeFunctionCall } from "./comptime_fn";
 
 /**
  * Generate ___drop expressions for variables that need cleanup during function calls.
@@ -341,7 +341,7 @@ export function checkIfFunctionParameterMatchesArgument({
 
   let argType = evaluatedArgExpr.$.type;
 
-  // Cannot assign runtime parameter to compt parameter
+  // Cannot assign runtime parameter to comptime parameter
   if (!evaluatedArgExpr.$?.value && parameter.isCompileTimeOnly) {
     throw formatErrorMessage({
       token: argExpr?.token ?? PlaceholderToken,
@@ -373,8 +373,8 @@ Got:   ${valueToString(evaluatedArgExpr.$.value)}`,
   // console.log("(10) addVariableToEnv");
   let argValue = evaluatedArgExpr.$.value;
   // Only convert to runtime type if:
-  // 1. The parameter doesn't have compt modifier (it's a runtime parameter), AND
-  // 2. The argument type is comptime-only (e.g., compt_int, Type, etc.)
+  // 1. The parameter doesn't have comptime modifier (it's a runtime parameter), AND
+  // 2. The argument type is comptime-only (e.g., comptime_int, Type, etc.)
   // This converts comptime-only argument types to their runtime equivalents.
   // For types that can exist at both compile-time and runtime (like *(i32)),
   // we keep the value intact which allows CTFE with pointers to work correctly.
@@ -385,17 +385,17 @@ Got:   ${valueToString(evaluatedArgExpr.$.value)}`,
       argValue = undefined;
     }
 
-    // argType requires compt modifier
-    // but the parameter is not compt
+    // argType requires comptime modifier
+    // but the parameter is not comptime
     // we need to convert the argType to runtimeType
-    argType = convertComptTypeToRuntimeType({
+    argType = convertComptimeTypeToRuntimeType({
       type: argType,
       expectedType: parameterType,
       expr: evaluatedArgExpr,
       env: evaluatedArgExpr.$.env,
     });
 
-    if (typeRequiresComptModifier(argType)) {
+    if (typeRequiresComptimeModifier(argType)) {
       // We fail to convert to runtime type
       throw formatErrorMessage({
         token: argExpr?.token ?? PlaceholderToken,
@@ -1074,7 +1074,7 @@ Got:   ${typeToString(typeValue.type)}`,
       // Do nothing
     } else if (functionType.variadicParameter.isQuote) {
       // Create the ExprList and add that to environment
-      const exprListValue = createComptListValue(
+      const exprListValue = createComptimeListValue(
         createExprType(),
         variadicArgs.map((arg) => arg.value as ExprValue)
       );
@@ -1122,8 +1122,8 @@ Got:   ${typeToString(typeValue.type)}`,
     variadicArgs,
   };
 
-  // Check if we need to evaluate the compt function call
-  // such as the type function, macro function, or function that returns compt value.
+  // Check if we need to evaluate the comptime function call
+  // such as the type function, macro function, or function that returns comptime value.
   let returnValue: Value | undefined;
   /// Compile-time
   if (functionType.return.isCompileTimeOnly) {
@@ -1137,7 +1137,7 @@ Got:   ${typeToString(typeValue.type)}`,
         value: nextReturnValue,
         callerEnv: nextCallerEnv,
         calleeEnv: nextCalleeEnv,
-      } = evaluateComptFunctionCall({
+      } = evaluateComptimeFunctionCall({
         functionCalleeExpr,
         functionType,
         functionValue,
@@ -1180,7 +1180,7 @@ Got:   ${typeToString(typeValue.type)}`,
             throw formatErrorMessage({
               token:
                 expr?.token ?? functionCalleeExpr?.token ?? PlaceholderToken,
-              errorMessage: `Cannot infer compt return type. Please provide the expected type.`,
+              errorMessage: `Cannot infer comptime return type. Please provide the expected type.`,
             });
           }
         }
@@ -1363,7 +1363,7 @@ function createSpecializedFunctionInline({
   let specializedEnv = calleeEnv;
 
   // CRITICAL: Clear the values of runtime parameters in the specialized environment.
-  // The calleeEnv has runtime parameter values from the specific call site (e.g., x=1 for compt_add(1, 1)).
+  // The calleeEnv has runtime parameter values from the specific call site (e.g., x=1 for comptime_add(1, 1)).
   // We need to clear these so that codegen generates proper variable references (e.g., "x + 1")
   // instead of inlining the compile-time evaluated result (e.g., "2").
   // Only compile-time parameters should retain their values for specialization.
@@ -1534,7 +1534,7 @@ function createSpecializedFunctionInline({
     funcId: `${originalFunction.funcId}_${compileTimeSignature}`,
     funcName: `${originalFunction.funcName}_${compileTimeSignature}`,
     // Initialize cache arrays for the specialized function
-    calledComptFunctionCaches: [],
+    calledComptimeFunctionCaches: [],
     specializedFunctionCaches: [],
   };
 

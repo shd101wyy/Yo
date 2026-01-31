@@ -3,11 +3,11 @@ import { formatErrorMessage, YoError } from "../../error";
 import { exprIsFunctionCall, exprToString, FnCallExpr } from "../../expr";
 import {
   createExprType,
-  isComptIntType,
+  isComptimeIntType,
   isExprType,
   typeToString,
 } from "../../types";
-import { createExprValue, isComptIntValue, isExprValue } from "../../value";
+import { createExprValue, isComptimeIntValue, isExprValue } from "../../value";
 import { evaluateFunctionCall } from "../calls/function";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
@@ -21,7 +21,7 @@ import { processUnquotesInExpr } from "./quote";
  *   macro_expand(quote(if true, 1, 2));
  *   macro_expand(quote(add(1, 2, 3)), 2); // expand only 2 levels
  *
- * It accepts an Expr as the first argument and an optional compt_int as the second argument.
+ * It accepts an Expr as the first argument and an optional comptime_int as the second argument.
  * If the second argument is not provided, it expands until no more expansion is possible.
  * If the second argument is provided, it expands only that many levels.
  */
@@ -85,17 +85,17 @@ export function evaluateMacroExpand({
       });
     }
 
-    if (!isComptIntType(evaluatedLevelArgExpr.$.type)) {
+    if (!isComptimeIntType(evaluatedLevelArgExpr.$.type)) {
       throw formatErrorMessage({
         token: levelArgExpr.token,
-        errorMessage: `The level argument for "macro_expand" must be a compt_int value, but got: ${typeToString(evaluatedLevelArgExpr.$.type)}`,
+        errorMessage: `The level argument for "macro_expand" must be a comptime_int value, but got: ${typeToString(evaluatedLevelArgExpr.$.type)}`,
       });
     }
 
-    if (!isComptIntValue(evaluatedLevelArgExpr.$.value)) {
+    if (!isComptimeIntValue(evaluatedLevelArgExpr.$.value)) {
       throw formatErrorMessage({
         token: levelArgExpr.token,
-        errorMessage: `The level argument for "macro_expand" must be a compt_int value`,
+        errorMessage: `The level argument for "macro_expand" must be a comptime_int value`,
       });
     }
 
@@ -155,7 +155,7 @@ export function evaluateMacroExpand({
         }
       } catch (error) {
         // Throw the error if it's a YoError with isAssertionError flag
-        // which means is from `compt_assert` or similar assertion
+        // which means is from `comptime_assert` or similar assertion
         if (error instanceof YoError && error.isAssertionError) {
           throw error;
         }

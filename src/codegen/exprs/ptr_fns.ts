@@ -12,7 +12,11 @@ import {
   isSliceType,
   SliceType,
 } from "../../types";
-import { isBooleanValue, isComptStringValue, isNumberValue } from "../../value";
+import {
+  isBooleanValue,
+  isComptimeStringValue,
+  isNumberValue,
+} from "../../value";
 import {
   CodeGenContext,
   getTypeString,
@@ -145,8 +149,8 @@ export function generateAddressOf(
       const typeName = getTypeString(argType, context);
       return `(&(${typeName}){${argCode}})`;
     }
-    // For compt_string with conversion, the generateExpr already generates the struct
-    if (isComptStringValue(argValue) && arg.$?.convertedRuntimeType) {
+    // For comptime_string with conversion, the generateExpr already generates the struct
+    if (isComptimeStringValue(argValue) && arg.$?.convertedRuntimeType) {
       const argCode = generateExpr(arg, indent, context);
       return `(&${argCode})`;
     }

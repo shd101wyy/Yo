@@ -341,7 +341,7 @@ export function findFunctionCallsInExpr(
   // Note: Closures are now runtime-only values, so we can't collect their function information at compile time
   // The closure's function will be collected when it's defined (as a FunctionValue)
 
-  // expr might be a compt function call that returns a type
+  // expr might be a comptime function call that returns a type
   if (isTypeValue(expr.$?.value)) {
     collectType(expr.$.value.value, context);
   }

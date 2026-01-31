@@ -31,7 +31,7 @@ import {
   isNumberValue,
   isTypeValue,
 } from "../../value";
-import { evaluateComptFunctionCall } from "../calls/compt_function";
+import { evaluateComptimeFunctionCall } from "../calls/comptime_fn";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 
@@ -60,7 +60,7 @@ function createOptionType(
   const optionFunctionValue = optionVariable.value[0];
   const optionFunctionType = optionFunctionValue.type;
 
-  // Option :: (fn(compt(V) : Type) -> compt(Type))
+  // Option :: (fn(comptime(V) : Type) -> comptime(Type))
   // We need to create a calleeEnv with the parameter V added
   const parameter = optionFunctionType.parameters[0]!;
   const innerTypeValue = createTypeValue(innerType);
@@ -85,7 +85,7 @@ function createOptionType(
 
   // Call Option(innerType) to get Option(innerType) type
   const { value: optionTypeValue, callerEnv: nextEnv } =
-    evaluateComptFunctionCall({
+    evaluateComptimeFunctionCall({
       functionCalleeExpr: undefined,
       functionType: optionFunctionType,
       functionValue: optionFunctionValue,

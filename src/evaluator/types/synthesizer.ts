@@ -8,7 +8,7 @@ import { PlaceholderToken } from "../../token";
 import {
   getValueOfSomeTypeFromEnv,
   isArrayType,
-  isComptListType,
+  isComptimeListType,
   isEnumType,
   isFnTraitType,
   isFunctionType,
@@ -68,7 +68,7 @@ function occursCheck(someTypeId: string, type: Type): boolean {
     return type.fields.some((el) => occursCheck(someTypeId, el.type));
   }
 
-  if (isArrayType(type) || isSliceType(type) || isComptListType(type)) {
+  if (isArrayType(type) || isSliceType(type) || isComptimeListType(type)) {
     return occursCheck(someTypeId, type.childType);
   }
 
@@ -103,7 +103,7 @@ function occursCheck(someTypeId: string, type: Type): boolean {
 
 /**
  * Synthesize the types, such as
- * compt(T): Type, i32  => T = i32
+ * comptime(T): Type, i32  => T = i32
  */
 export function synthesizeTypes(
   expected: {
@@ -640,8 +640,11 @@ export function synthesizeTypes(
     );
     expected.env = expectedEnv;
     given.env = givenEnv;
-  } else if (isComptListType(expected.type) && isComptListType(given.type)) {
-    // Synthesize the element types of the ComptLists
+  } else if (
+    isComptimeListType(expected.type) &&
+    isComptimeListType(given.type)
+  ) {
+    // Synthesize the element types of the ComptimeLists
     const { expectedEnv, givenEnv } = synthesizeTypes(
       {
         type: expected.type.childType,

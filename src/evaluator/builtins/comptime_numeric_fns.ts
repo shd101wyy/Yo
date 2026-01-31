@@ -6,9 +6,9 @@ import {
   Type,
   TypeTag,
   createBooleanType,
-  createComptFloatType,
-  createComptIntType,
-  createComptStringType,
+  createComptimeFloatType,
+  createComptimeIntType,
+  createComptimeStringType,
   createF32Type,
   createF64Type,
   createI16Type,
@@ -29,13 +29,13 @@ import {
   NumberValue,
   Value,
   createBooleanValue,
-  createComptFloatValue,
-  createComptIntValue,
-  createComptStringValue,
+  createComptimeFloatValue,
+  createComptimeIntValue,
+  createComptimeStringValue,
   createNumberValue,
   createUnknownValue,
-  isComptFloatValue,
-  isComptIntValue,
+  isComptimeFloatValue,
+  isComptimeIntValue,
   isNumberValue,
 } from "../../value";
 import { ValueTag } from "../../value-tag";
@@ -47,7 +47,9 @@ import { evaluateExpression } from "../exprs/expr";
 function extractNumericValue(value?: Value): number | bigint | null {
   if (
     value &&
-    (isComptIntValue(value) || isComptFloatValue(value) || isNumberValue(value))
+    (isComptimeIntValue(value) ||
+      isComptimeFloatValue(value) ||
+      isNumberValue(value))
   ) {
     return value.value;
   }
@@ -59,16 +61,16 @@ function createNumericValue(
   value: number | bigint,
   type: Type
 ): Value | undefined {
-  // Handle compt_int and compt_float separately
-  if (type.tag === TypeTag.ComptInt) {
-    // For compt_int, always convert to BigInt
+  // Handle comptime_int and comptime_float separately
+  if (type.tag === TypeTag.ComptimeInt) {
+    // For comptime_int, always convert to BigInt
     const bigValue =
       typeof value === "bigint" ? value : BigInt(Math.floor(value));
-    return createComptIntValue(bigValue);
+    return createComptimeIntValue(bigValue);
   }
-  if (type.tag === TypeTag.ComptFloat) {
+  if (type.tag === TypeTag.ComptimeFloat) {
     const numValue = typeof value === "bigint" ? Number(value) : value;
-    return createComptFloatValue(numValue);
+    return createComptimeFloatValue(numValue);
   }
 
   // C compatible types return unknown value
@@ -109,10 +111,10 @@ function getValueTagFromType(type: Type): ValueTag {
       return ValueTag.F32;
     case TypeTag.F64:
       return ValueTag.F64;
-    case TypeTag.ComptInt:
-      return ValueTag.ComptFloat;
-    case TypeTag.ComptFloat:
-      return ValueTag.ComptFloat;
+    case TypeTag.ComptimeInt:
+      return ValueTag.ComptimeFloat;
+    case TypeTag.ComptimeFloat:
+      return ValueTag.ComptimeFloat;
     // C compatible types don't have corresponding ValueTags since they're runtime-only
     default:
       throw new Error(`Unsupported numeric type: ${type.tag}`);
@@ -133,7 +135,7 @@ function checkOverflow(
     return; // No overflow check for floats
   }
 
-  // Infinity bounds mean unbounded (compt_int)
+  // Infinity bounds mean unbounded (comptime_int)
   if (bounds.min === -Infinity && bounds.max === Infinity) {
     return; // No overflow for unbounded types
   }
@@ -280,9 +282,9 @@ function performUnaryOp(
 }
 
 /**
- * Evaluate Yo compt numeric functions.
+ * Evaluate Yo comptime numeric functions.
  */
-export function evaluateYoComptNumericFunctions({
+export function evaluateYoComptimeNumericFunctions({
   expr,
   env,
   context,
@@ -295,7 +297,7 @@ export function evaluateYoComptNumericFunctions({
 
   // Check if this is a numeric function by pattern matching
   const numericFnPattern =
-    /^__yo_compt_(u8|i8|u16|i16|u32|i32|u64|i64|usize|isize|f32|f64|int|float)_(add|sub|mul|div|mod|eq|neq|lt|lte|gt|gte|neg|to_compt_string|bit_and|bit_or|bit_xor|bit_not|shl|shr)$/;
+    /^__yo_comptime_(u8|i8|u16|i16|u32|i32|u64|i64|usize|isize|f32|f64|int|float)_(add|sub|mul|div|mod|eq|neq|lt|lte|gt|gte|neg|to_comptime_string|bit_and|bit_or|bit_xor|bit_not|shl|shr)$/;
   const match = funcName.match(numericFnPattern);
 
   if (!match) {
@@ -335,11 +337,11 @@ export function evaluateYoComptNumericFunctions({
       case TypeTag.F64:
         return createF64Type();
       case TypeTag.Int:
-      case TypeTag.ComptInt:
-        return createComptIntType();
+      case TypeTag.ComptimeInt:
+        return createComptimeIntType();
       case "float":
-      case TypeTag.ComptFloat:
-        return createComptFloatType();
+      case TypeTag.ComptimeFloat:
+        return createComptimeFloatType();
       default:
         throw new Error(`Unknown numeric type: ${typeStr}`);
     }
@@ -350,7 +352,7 @@ export function evaluateYoComptNumericFunctions({
   // Handle unary operations
   if (
     operation === "neg" ||
-    operation === "to_compt_string" ||
+    operation === "to_comptime_string" ||
     operation === "bit_not"
   ) {
     const arg = evaluateExpression({
@@ -395,13 +397,13 @@ export function evaluateYoComptNumericFunctions({
         value = createUnknownValue(numericType);
       }
     } else if (operation === "bit_not") {
-      if (isNumberValue(arg.$.value) || isComptIntValue(arg.$.value)) {
+      if (isNumberValue(arg.$.value) || isComptimeIntValue(arg.$.value)) {
         const num = extractNumericValue(arg.$.value);
         if (num !== null) {
           if (typeof num === "bigint") {
-            value = createComptIntValue(~num);
+            value = createComptimeIntValue(~num);
           } else {
-            value = createComptIntValue(BigInt(~Math.floor(num)));
+            value = createComptimeIntValue(BigInt(~Math.floor(num)));
           }
         } else {
           value = createUnknownValue(numericType);
@@ -409,16 +411,16 @@ export function evaluateYoComptNumericFunctions({
       } else {
         value = createUnknownValue(numericType);
       }
-    } else if (operation === "to_compt_string") {
+    } else if (operation === "to_comptime_string") {
       if (isNumberValue(arg.$.value)) {
         const num = extractNumericValue(arg.$.value);
         if (num !== null) {
-          value = createComptStringValue(num.toString());
+          value = createComptimeStringValue(num.toString());
         } else {
-          value = createUnknownValue(createComptStringType());
+          value = createUnknownValue(createComptimeStringType());
         }
       } else {
-        value = createUnknownValue(createComptStringType());
+        value = createUnknownValue(createComptimeStringType());
       }
     } else {
       throw formatErrorMessage({
@@ -430,7 +432,9 @@ export function evaluateYoComptNumericFunctions({
     expr.$ = {
       env,
       type:
-        operation === "to_compt_string" ? createComptStringType() : numericType,
+        operation === "to_comptime_string"
+          ? createComptimeStringType()
+          : numericType,
       value: value,
       pathCollection: [],
     };
@@ -559,7 +563,7 @@ export function evaluateYoComptNumericFunctions({
           return bigA / bigB;
         }
         return isIntegerType(numericType) ||
-          numericType.tag === TypeTag.ComptInt
+          numericType.tag === TypeTag.ComptimeInt
           ? Math.trunc(a / b)
           : a / b;
       });
@@ -623,9 +627,9 @@ export function evaluateYoComptNumericFunctions({
         if (typeof lhs === "bigint" || typeof rhs === "bigint") {
           const bigA = typeof lhs === "bigint" ? lhs : BigInt(Math.floor(lhs));
           const bigB = typeof rhs === "bigint" ? rhs : BigInt(Math.floor(rhs));
-          value = createComptIntValue(bigA & bigB);
+          value = createComptimeIntValue(bigA & bigB);
         } else {
-          value = createComptIntValue(
+          value = createComptimeIntValue(
             BigInt(Math.floor(lhs) & Math.floor(rhs))
           );
         }
@@ -642,9 +646,9 @@ export function evaluateYoComptNumericFunctions({
         if (typeof lhs === "bigint" || typeof rhs === "bigint") {
           const bigA = typeof lhs === "bigint" ? lhs : BigInt(Math.floor(lhs));
           const bigB = typeof rhs === "bigint" ? rhs : BigInt(Math.floor(rhs));
-          value = createComptIntValue(bigA | bigB);
+          value = createComptimeIntValue(bigA | bigB);
         } else {
-          value = createComptIntValue(
+          value = createComptimeIntValue(
             BigInt(Math.floor(lhs) | Math.floor(rhs))
           );
         }
@@ -661,9 +665,9 @@ export function evaluateYoComptNumericFunctions({
         if (typeof lhs === "bigint" || typeof rhs === "bigint") {
           const bigA = typeof lhs === "bigint" ? lhs : BigInt(Math.floor(lhs));
           const bigB = typeof rhs === "bigint" ? rhs : BigInt(Math.floor(rhs));
-          value = createComptIntValue(bigA ^ bigB);
+          value = createComptimeIntValue(bigA ^ bigB);
         } else {
-          value = createComptIntValue(
+          value = createComptimeIntValue(
             BigInt(Math.floor(lhs) ^ Math.floor(rhs))
           );
         }
@@ -680,7 +684,7 @@ export function evaluateYoComptNumericFunctions({
         const bigA = typeof lhs === "bigint" ? lhs : BigInt(Math.floor(lhs));
         const shiftAmount =
           typeof rhs === "bigint" ? Number(rhs) : Math.floor(rhs);
-        value = createComptIntValue(bigA << BigInt(shiftAmount));
+        value = createComptimeIntValue(bigA << BigInt(shiftAmount));
       } else {
         value = createUnknownValue(numericType);
       }
@@ -694,7 +698,7 @@ export function evaluateYoComptNumericFunctions({
         const bigA = typeof lhs === "bigint" ? lhs : BigInt(Math.floor(lhs));
         const shiftAmount =
           typeof rhs === "bigint" ? Number(rhs) : Math.floor(rhs);
-        value = createComptIntValue(bigA >> BigInt(shiftAmount));
+        value = createComptimeIntValue(bigA >> BigInt(shiftAmount));
       } else {
         value = createUnknownValue(numericType);
       }

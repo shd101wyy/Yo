@@ -47,7 +47,7 @@ import {
   TraitValue,
   Value,
 } from "../../value";
-import { evaluateComptFunctionCall } from "../calls/compt_function";
+import { evaluateComptimeFunctionCall } from "../calls/comptime_fn";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { addRcFunctionsToDynType } from "../types/utils";
@@ -77,7 +77,7 @@ function createBoxedType(
   const boxFunctionValue = boxVariable.value[0] as FunctionValue;
   const boxFunctionType = boxFunctionValue.type;
 
-  // Box :: (fn(compt(V) : Type) -> compt(Type))
+  // Box :: (fn(comptime(V) : Type) -> comptime(Type))
   // We need to create a calleeEnv with the parameter V added
   const parameter = boxFunctionType.parameters[0]!;
   const innerTypeValue = createTypeValue(innerType);
@@ -101,8 +101,8 @@ function createBoxedType(
   });
 
   // Call Box(innerType) to get Box(innerType) type
-  const { value: boxTypeValue, callerEnv: nextEnv } = evaluateComptFunctionCall(
-    {
+  const { value: boxTypeValue, callerEnv: nextEnv } =
+    evaluateComptimeFunctionCall({
       functionCalleeExpr: undefined,
       functionType: boxFunctionType,
       functionValue: boxFunctionValue,
@@ -120,8 +120,7 @@ function createBoxedType(
       callerEnv: env,
       calleeEnv: calleeEnvWithParam,
       context,
-    }
-  );
+    });
 
   if (!isTypeValue(boxTypeValue) || !isObjectType(boxTypeValue.value)) {
     throw new Error(`Box type constructor did not return a type value`);

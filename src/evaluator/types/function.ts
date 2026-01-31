@@ -19,7 +19,7 @@ import {
 import { PlaceholderToken } from "../../token";
 import {
   areTypesCompatible,
-  convertComptTypeToRuntimeType,
+  convertComptimeTypeToRuntimeType,
   createExprListType,
   createFunctionType,
   createType0,
@@ -40,8 +40,8 @@ import {
   TraitType,
   Type,
   typeOfType,
-  typeProhibitsComptModifier,
-  typeRequiresComptModifier,
+  typeProhibitsComptimeModifier,
+  typeRequiresComptimeModifier,
   typeToString,
 } from "../../types";
 import { VUnit } from "../../unit-value";
@@ -67,15 +67,15 @@ export function evaluateFunctionParameter({
   expr,
   env,
   context,
-  isParameterComptByDefault,
+  isParameterComptimeByDefault,
 }: {
   expr: Expr;
   env: Environment;
   context: EvaluatorContext & { isEvaluatingFunctionType: true };
-  isParameterComptByDefault: boolean;
+  isParameterComptimeByDefault: boolean;
 }): { parameter: FunctionParameter; env: Environment } {
   let label: string | undefined = undefined;
-  let isCompileTimeOnly: boolean = isParameterComptByDefault;
+  let isCompileTimeOnly: boolean = isParameterComptimeByDefault;
   let isQuote: boolean = false;
   let isOwningTheRcValue: boolean = false;
 
@@ -161,12 +161,12 @@ export function evaluateFunctionParameter({
   if (lhsExpr) {
     if (
       exprIsFunctionCall(lhsExpr) &&
-      exprIsFunctionCallOf(lhsExpr, BuiltinKeywords.compt)
+      exprIsFunctionCallOf(lhsExpr, BuiltinKeywords.comptime)
     ) {
-      if (isParameterComptByDefault) {
+      if (isParameterComptimeByDefault) {
         throw formatErrorMessage({
           token: lhsExpr.token,
-          errorMessage: `"forall"/"using" parameters are "compt" by default. Not needed to use "compt" modifier.`,
+          errorMessage: `"forall"/"using" parameters are "comptime" by default. Not needed to use "comptime" modifier.`,
         });
       }
 
@@ -174,7 +174,7 @@ export function evaluateFunctionParameter({
       if (lhsExpr.args.length !== 1) {
         throw formatErrorMessage({
           token: lhsExpr.token,
-          errorMessage: `Expected one argument for "compt" , got ${lhsExpr.args.length}`,
+          errorMessage: `Expected one argument for "comptime" , got ${lhsExpr.args.length}`,
         });
       }
       lhsExpr = lhsExpr.args[0]!;
@@ -206,7 +206,7 @@ export function evaluateFunctionParameter({
       if (isCompileTimeOnly) {
         throw formatErrorMessage({
           token: lhsExpr.token,
-          errorMessage: `Cannot use "compt"  with "quote" (or ":"). "quote" parameters means compile-time only, so "compt" is redundant.`,
+          errorMessage: `Cannot use "comptime"  with "quote" (or ":"). "quote" parameters means compile-time only, so "comptime" is redundant.`,
         });
       }
       isCompileTimeOnly = true;
@@ -277,7 +277,7 @@ export function evaluateFunctionParameter({
       if (!isCompileTimeOnly) {
         throw formatErrorMessage({
           token: assignedValueExpr.token,
-          errorMessage: `Assigned value (:= or =) is only allowed for compile-time parameters. Use "compt(${label})" or put this in "forall(...)".`,
+          errorMessage: `Assigned value (:= or =) is only allowed for compile-time parameters. Use "comptime(${label})" or put this in "forall(...)".`,
         });
       }
     }
@@ -368,14 +368,14 @@ export function evaluateFunctionParameter({
         errorMessage: `Expected type for function parameter}`,
       });
     }
-    if (isCompileTimeOnly && typeProhibitsComptModifier(parameterType)) {
+    if (isCompileTimeOnly && typeProhibitsComptimeModifier(parameterType)) {
       throw formatErrorMessage({
         token: lhsExpr?.token ?? expr.token,
-        errorMessage: `Parameter marked as "compt" but type is not available at compile-time:
+        errorMessage: `Parameter marked as "comptime" but type is not available at compile-time:
 ${typeToString(parameterType)}`,
       });
     }
-    if (!isCompileTimeOnly && typeRequiresComptModifier(parameterType)) {
+    if (!isCompileTimeOnly && typeRequiresComptimeModifier(parameterType)) {
       throw formatErrorMessage({
         token: lhsExpr?.token ?? expr.token,
         errorMessage: `Parameter marked as runtime but type is not available at runtime:
@@ -400,7 +400,7 @@ ${typeToString(parameterType)}`,
 ${typeToString(parameterType)}
 
 Generic functions must be compile-time known to enable monomorphization. Consider using:
-compt(${label}) : ${typeToString(parameterType)}`,
+comptime(${label}) : ${typeToString(parameterType)}`,
       });
     }
   }
@@ -852,7 +852,7 @@ export function evaluateFunctionParameters({
           context: {
             ...context,
           },
-          isParameterComptByDefault: true,
+          isParameterComptimeByDefault: true,
         });
 
         // Check if there is duplicate labels
@@ -920,13 +920,13 @@ export function evaluateFunctionParameters({
         if (argExpr) {
           if (
             exprIsFunctionCall(argExpr) &&
-            exprIsFunctionCallOf(argExpr, BuiltinKeywords.compt)
+            exprIsFunctionCallOf(argExpr, BuiltinKeywords.comptime)
           ) {
             isCompileTimeOnly = true;
             if (argExpr.args.length !== 1) {
               throw formatErrorMessage({
                 token: argExpr.token,
-                errorMessage: `Expected one argument for "compt" , got ${argExpr.args.length}`,
+                errorMessage: `Expected one argument for "comptime" , got ${argExpr.args.length}`,
               });
             }
             labelExpr = argExpr.args[0]!;
@@ -937,7 +937,7 @@ export function evaluateFunctionParameters({
 
             throw formatErrorMessage({
               token: argExpr.token,
-              errorMessage: `...(compt(param_name)) is not supported yet.`,
+              errorMessage: `...(comptime(param_name)) is not supported yet.`,
             });
           }
           // macro
@@ -1050,7 +1050,7 @@ export function evaluateFunctionParameters({
         context: {
           ...context,
         },
-        isParameterComptByDefault: false,
+        isParameterComptimeByDefault: false,
       });
 
       // Check if there is duplicate labels
@@ -1177,7 +1177,7 @@ export function evaluateFunctionType({
   let returnTypeExpr: Expr = returnExpr;
   /// has label
   /// -> (ret : i32)
-  /// -> (compt(ret) : i32)
+  /// -> (comptime(ret) : i32)
   /// -> (unquote(ret) : Expr)
   if (
     exprIsFunctionCall(returnExpr) &&
@@ -1188,13 +1188,13 @@ export function evaluateFunctionType({
 
     if (
       exprIsFunctionCall(returnLabelExpr) &&
-      exprIsFunctionCallOf(returnLabelExpr, BuiltinKeywords.compt)
+      exprIsFunctionCallOf(returnLabelExpr, BuiltinKeywords.comptime)
     ) {
       isReturnTypeCompileTimeOnly = true;
       if (returnLabelExpr.args.length !== 1) {
         throw formatErrorMessage({
           token: returnLabelExpr.token,
-          errorMessage: `Expected one argument for "compt" , got ${returnLabelExpr.args.length}`,
+          errorMessage: `Expected one argument for "comptime" , got ${returnLabelExpr.args.length}`,
         });
       }
       returnLabelExpr = returnLabelExpr.args[0]!;
@@ -1213,7 +1213,7 @@ export function evaluateFunctionType({
       if (isReturnTypeCompileTimeOnly) {
         throw formatErrorMessage({
           token: returnLabelExpr.token,
-          errorMessage: `Cannot use "compt"  with "unquote". "unquote" return type means compile-time only, so "compt" is redundant.`,
+          errorMessage: `Cannot use "comptime"  with "unquote". "unquote" return type means compile-time only, so "comptime" is redundant.`,
         });
       }
       isReturnTypeCompileTimeOnly = true;
@@ -1241,18 +1241,18 @@ export function evaluateFunctionType({
   }
   /// has no label
   /// -> i32
-  /// -> compt(i32)
+  /// -> comptime(i32)
   /// -> unquote(Expr)
   else {
     if (
       exprIsFunctionCall(returnTypeExpr) &&
-      exprIsFunctionCallOf(returnTypeExpr, BuiltinKeywords.compt)
+      exprIsFunctionCallOf(returnTypeExpr, BuiltinKeywords.comptime)
     ) {
       isReturnTypeCompileTimeOnly = true;
       if (returnTypeExpr.args.length !== 1) {
         throw formatErrorMessage({
           token: returnTypeExpr.token,
-          errorMessage: `Expected one argument for "compt" , got ${returnTypeExpr.args.length}`,
+          errorMessage: `Expected one argument for "comptime" , got ${returnTypeExpr.args.length}`,
         });
       }
       returnTypeExpr = returnTypeExpr.args[0]!;
@@ -1271,7 +1271,7 @@ export function evaluateFunctionType({
       if (isReturnTypeCompileTimeOnly) {
         throw formatErrorMessage({
           token: returnTypeExpr.token,
-          errorMessage: `Cannot use "compt"  with "unquote". "unquote" return type means compile-time only, so "compt" is redundant.`,
+          errorMessage: `Cannot use "comptime"  with "unquote". "unquote" return type means compile-time only, so "comptime" is redundant.`,
         });
       }
       isReturnTypeCompileTimeOnly = true;
@@ -1320,21 +1320,24 @@ export function evaluateFunctionType({
     });
   }
 
-  if (typeRequiresComptModifier(returnType) && !isReturnTypeCompileTimeOnly) {
+  if (
+    typeRequiresComptimeModifier(returnType) &&
+    !isReturnTypeCompileTimeOnly
+  ) {
     // Try converting to runtime type first
-    returnType = convertComptTypeToRuntimeType({
+    returnType = convertComptimeTypeToRuntimeType({
       type: returnType,
       expectedType: undefined,
       expr: undefined,
       env,
     });
-    // If it still requires compt modifier,
+    // If it still requires comptime modifier,
     // then throw an error
-    if (typeRequiresComptModifier(returnType)) {
+    if (typeRequiresComptimeModifier(returnType)) {
       throw formatErrorMessage({
         token: returnTypeExpr.token,
-        errorMessage: `Expected a "compt"  for return type, like:\n
-compt(${exprToString(returnTypeExpr)})
+        errorMessage: `Expected a "comptime"  for return type, like:\n
+comptime(${exprToString(returnTypeExpr)})
 
 Given type:
 ${typeToString(returnType)}`,
@@ -1347,10 +1350,13 @@ ${typeToString(returnType)}`,
     prohibitVoidType(returnType, returnTypeExpr.token);
   }
 
-  if (isReturnTypeCompileTimeOnly && typeProhibitsComptModifier(returnType)) {
+  if (
+    isReturnTypeCompileTimeOnly &&
+    typeProhibitsComptimeModifier(returnType)
+  ) {
     throw formatErrorMessage({
       token: returnTypeExpr.token,
-      errorMessage: `Unexpected "compt"  for return type of ${typeToString(
+      errorMessage: `Unexpected "comptime"  for return type of ${typeToString(
         returnType
       )} which can only be used at runtime.`,
     });

@@ -11,7 +11,7 @@ import {
 } from "../../expr";
 import {
   areTypesCompatible,
-  convertComptTypeToRuntimeType,
+  convertComptimeTypeToRuntimeType,
   isComptimeOnlyType,
   tupleFieldToString,
   TypeField,
@@ -139,13 +139,13 @@ ${tupleFieldToString(paramElement_)}`,
 
     // Convert compile-time types to runtime types only if:
     // 1. The member element is not compile-time only, AND
-    // 2. The member type itself is not comptime-only (e.g., compt_int, Type, etc.)
-    // This allows struct fields like `x : compt_int` (without compt modifier) to accept comptime values.
+    // 2. The member type itself is not comptime-only (e.g., comptime_int, Type, etc.)
+    // This allows struct fields like `x : comptime_int` (without comptime modifier) to accept comptime values.
     if (
       !memberElement.isCompileTimeOnly &&
       !isComptimeOnlyType(memberElement.type)
     ) {
-      argType = convertComptTypeToRuntimeType({
+      argType = convertComptimeTypeToRuntimeType({
         type: argType,
         expectedType: memberElement.type,
         expr: evaluatedArgExpr,

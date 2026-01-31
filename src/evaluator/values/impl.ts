@@ -1095,8 +1095,8 @@ function tryMatchGenericImpl({
         const variable = variables[variables.length - 1];
         if (variable && variable.value && !isUnknownValue(variable.value[0])) {
           // IMPORTANT: Use the parameter's declared type, not the value's type
-          // For example, if forall(U : usize) and the value is 3 (compt_int),
-          // we should store it as 3 with type usize, not compt_int
+          // For example, if forall(U : usize) and the value is 3 (comptime_int),
+          // we should store it as 3 with type usize, not comptime_int
           const valueWithCorrectType = {
             ...variable.value[0],
             type: param.type,
@@ -1908,12 +1908,12 @@ export function evaluateModuleValue({
         // traitTypeCallExpr is Eq(Box(T)) - args are [Box(T)]
         traitTypeArgExprs = traitTypeCallExpr.args.map((arg) => cloneExpr(arg));
         // Get parameter names from the trait's function type
-        // Eq has signature (fn(compt(Rhs) : Type) -> compt(Trait)) so Rhs is a regular parameter
+        // Eq has signature (fn(comptime(Rhs) : Type) -> comptime(Trait)) so Rhs is a regular parameter
         if (
           traitType.functionValue &&
           isFunctionType(traitType.functionValue.type)
         ) {
-          // Try regular parameters first (for compt parameters like Rhs in Eq)
+          // Try regular parameters first (for comptime parameters like Rhs in Eq)
           const funcType = traitType.functionValue.type;
           if (funcType.parameters.length > 0) {
             traitFunctionParamNames = funcType.parameters.map((p) => p.label);

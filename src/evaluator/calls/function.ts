@@ -27,10 +27,10 @@ import {
   extractFnTraitFromType,
   FunctionType,
   isArrayType,
-  isComptFloatType,
-  isComptIntType,
-  isComptListType,
-  isComptStringType,
+  isComptimeFloatType,
+  isComptimeIntType,
+  isComptimeListType,
+  isComptimeStringType,
   isDynType,
   isEnumType,
   isFunctionType,
@@ -81,7 +81,7 @@ import { evaluateAnonymousStructValue } from "../values/anonymous_struct";
 import { tryToCallArrayWithArguments } from "./array";
 import { tryToImplementArrayByArrayType } from "./array_type";
 import { tryToImplementClosureByFnModuleType } from "./closure_type";
-import { tryToImplementComptListByComptListType } from "./compt_list_type";
+import { tryToImplementComptimeListByComptimeListType } from "./comptime_list_type";
 import { tryToImplementFunctionByFunctionType } from "./function_type";
 import { extractFunctionValue, tryToCallFunctionWithArguments } from "./helper";
 import { evaluateIsoValueCall } from "./iso";
@@ -117,27 +117,29 @@ function resolveRecursiveTypeRef(
   const { functionValue, argValues } = someType.recursiveTypeRef;
 
   // Strategy 1: Look for the exact matching cache entry with resolved type
-  const exactCache = functionValue.calledComptFunctionCaches.find((cache) => {
-    return (
-      cache.argValues.length === argValues.length &&
-      cache.argValues.every((argValue, index) => {
-        const givenArgValue = argValues[index];
+  const exactCache = functionValue.calledComptimeFunctionCaches.find(
+    (cache) => {
+      return (
+        cache.argValues.length === argValues.length &&
+        cache.argValues.every((argValue, index) => {
+          const givenArgValue = argValues[index];
 
-        if (isTypeValue(argValue) && isTypeValue(givenArgValue)) {
-          return areTypesCompatible(
-            { type: argValue.value, env: cache.env },
-            { type: givenArgValue.value, env: callerEnv },
-            true // requireExactMatch
+          if (isTypeValue(argValue) && isTypeValue(givenArgValue)) {
+            return areTypesCompatible(
+              { type: argValue.value, env: cache.env },
+              { type: givenArgValue.value, env: callerEnv },
+              true // requireExactMatch
+            );
+          }
+
+          return areValuesEqual(
+            { value: argValue, env: cache.env },
+            { value: givenArgValue, env: callerEnv }
           );
-        }
-
-        return areValuesEqual(
-          { value: argValue, env: cache.env },
-          { value: givenArgValue, env: callerEnv }
-        );
-      })
-    );
-  });
+        })
+      );
+    }
+  );
 
   if (exactCache && isTypeValue(exactCache.value)) {
     // Check if it's not still a placeholder
@@ -161,7 +163,7 @@ function resolveRecursiveTypeRef(
 
   // Strategy 3: Look for ANY resolved cache entry from the same function
   // All instantiations of the same type-generating function produce the same structure
-  const anyResolvedCache = functionValue.calledComptFunctionCaches.find(
+  const anyResolvedCache = functionValue.calledComptimeFunctionCaches.find(
     (cache) => {
       if (!isTypeValue(cache.value)) return false;
       // Skip if still a placeholder
@@ -289,7 +291,7 @@ export function evaluateFunctionCall({
                 let methodArgs: Expr[];
                 if (method.needsPointerConversion) {
                   // Create &(receiverArg) expression
-                  // Note: The compt type to runtime type conversion is handled
+                  // Note: The comptime type to runtime type conversion is handled
                   // in evaluateAddressCall (ptr_fns.ts) when &() is evaluated
                   const ampersandExpr: AtomExpr = {
                     tag: ExprTag.Atom,
@@ -535,9 +537,9 @@ export function evaluateFunctionCall({
   }
 
   // NOTE: Automatic CTFE candidate addition has been removed.
-  // Use `compt_fn(fn)` to explicitly create compile-time versions of functions.
+  // Use `comptime_fn(fn)` to explicitly create compile-time versions of functions.
   // This makes the behavior predictable - functions are called at runtime unless
-  // explicitly declared as compile-time via compt_fn().
+  // explicitly declared as compile-time via comptime_fn().
 
   // Optimization: Skip the checking phase in these cases to avoid exponential blowup:
   // 1. When we're already in a checking phase (nested function calls during checking)
@@ -918,13 +920,13 @@ export function evaluateFunctionCall({
               };
             }
           }
-          // compt list type
-          else if (isTypeValue(value) && isComptListType(value.value)) {
-            const comptListType = value.value;
+          // comptime list type
+          else if (isTypeValue(value) && isComptimeListType(value.value)) {
+            const comptimeListType = value.value;
             try {
-              tryToImplementComptListByComptListType({
+              tryToImplementComptimeListByComptimeListType({
                 expr: expr,
-                comptListType: comptListType,
+                comptimeListType: comptimeListType,
                 argExprs: argsToUse,
                 callerEnv: env,
                 context: { ...context },
@@ -1244,41 +1246,41 @@ ${isTypeValue(value) ? typeToString(value.value) : typeToString(functionToCall.t
     (functionToCall) => functionToCall.result.kind !== "error"
   );
 
-  // Check if there is only one compt function call,
+  // Check if there is only one comptime function call,
   // If yes, then we use that function.
-  // Compt function call has higher priority than normal function call.
+  // Comptime function call has higher priority than normal function call.
   // So this way we eagerly evaluate the function call that can be done at the compile-time.
-  const comptFunctionCalls = functionsWithMatchingTypes.filter(
+  const comptimeFunctionCalls = functionsWithMatchingTypes.filter(
     (functionToCall) =>
       isFunctionType(functionToCall.type) &&
       functionToCall.type.return.isCompileTimeOnly // TODO: How about other type calls?
   );
 
-  if (comptFunctionCalls.length === 1) {
-    functionsWithMatchingTypes = comptFunctionCalls;
+  if (comptimeFunctionCalls.length === 1) {
+    functionsWithMatchingTypes = comptimeFunctionCalls;
   }
 
-  // When there are still multiple matches and multiple are compt functions,
-  // prefer the one with compt parameter types over runtime parameter types.
+  // When there are still multiple matches and multiple are comptime functions,
+  // prefer the one with comptime parameter types over runtime parameter types.
   // For example, when calling `3 > 4`:
-  // - Prefer fn(compt_int, compt_int) -> bool over fn(i32, i32) -> bool
+  // - Prefer fn(comptime_int, comptime_int) -> bool over fn(i32, i32) -> bool
   // This ensures that compile-time operations stay at compile-time when possible.
   if (functionsWithMatchingTypes.length > 1) {
-    const functionsWithComptParams = functionsWithMatchingTypes.filter(
+    const functionsWithComptimeParams = functionsWithMatchingTypes.filter(
       (functionToCall) => {
         if (!isFunctionType(functionToCall.type)) return false;
         const params = functionToCall.type.parameters;
-        // Check if any parameter is a compt type (compt_int, compt_float, compt_string)
+        // Check if any parameter is a comptime type (comptime_int, comptime_float, comptime_string)
         return params.some(
           (param) =>
-            isComptIntType(param.type) ||
-            isComptFloatType(param.type) ||
-            isComptStringType(param.type)
+            isComptimeIntType(param.type) ||
+            isComptimeFloatType(param.type) ||
+            isComptimeStringType(param.type)
         );
       }
     );
-    if (functionsWithComptParams.length === 1) {
-      functionsWithMatchingTypes = functionsWithComptParams;
+    if (functionsWithComptimeParams.length === 1) {
+      functionsWithMatchingTypes = functionsWithComptimeParams;
     }
   }
 
@@ -1889,9 +1891,9 @@ ${functionsWithMatchingTypes.map((func) => `${typeToString(func.type)}`).join("\
       // This should already be evaluated by tryToImplementArrayByArrayType
       return expr;
     }
-    // compt list type
-    else if (isTypeValue(value) && isComptListType(value.value)) {
-      // This should already be evaluated by tryToImplementComptListByComptListType
+    // comptime list type
+    else if (isTypeValue(value) && isComptimeListType(value.value)) {
+      // This should already be evaluated by tryToImplementComptimeListByComptimeListType
       return expr;
     }
     // SomeType or DynType - check if it was called as a constructor (has "type" result)

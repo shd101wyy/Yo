@@ -15,7 +15,7 @@ export function evaluateFloatLiteral(
   if (expr.token.type === TokenType.Float) {
     const floatValue = parseFloat(expr.token.value);
 
-    let valueTag: ValueTag = ValueTag.ComptFloat;
+    let valueTag: ValueTag = ValueTag.ComptimeFloat;
     if (context.expectedType) {
       const expectedType = context.expectedType.type;
       if (isF32Type(expectedType)) {

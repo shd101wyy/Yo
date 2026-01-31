@@ -95,10 +95,10 @@ export function collectRequiredTypes(
       collectTypesFromExpr(func.value.body, context);
 
       // Collect types from compile-time function call caches
-      // When a compt function is called, the result is cached with concrete types
+      // When a comptime function is called, the result is cached with concrete types
       // We need to collect those concrete types (e.g., [i32; 10] from cache, not [i32; n] from generic body)
-      if (func.value.calledComptFunctionCaches) {
-        for (const cache of func.value.calledComptFunctionCaches) {
+      if (func.value.calledComptimeFunctionCaches) {
+        for (const cache of func.value.calledComptimeFunctionCaches) {
           // Collect types from the cached return value
           if (cache.value && cache.value.type) {
             collectType(cache.value.type, context);
@@ -188,7 +188,7 @@ export function collectTypesFromExpr(
   }
 
   // Collect types from runtime destructurings
-  // These occur when compile-time values are converted to runtime (e.g., compt array -> runtime array)
+  // These occur when compile-time values are converted to runtime (e.g., comptime array -> runtime array)
   if (expr.$ && expr.$.runtimeDestructurings) {
     for (const { type } of expr.$.runtimeDestructurings) {
       collectType(type, context);

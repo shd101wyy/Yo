@@ -8,11 +8,11 @@ import {
   FnCallExpr,
 } from "../../expr";
 import {
-  convertComptTypeToRuntimeType,
+  convertComptimeTypeToRuntimeType,
   createPtrType,
-  isComptFloatType,
-  isComptIntType,
-  isComptStringType,
+  isComptimeFloatType,
+  isComptimeIntType,
+  isComptimeStringType,
   isPtrType,
 } from "../../types";
 import { createPtrValue, isTypeValue } from "../../value";
@@ -81,14 +81,14 @@ export function evaluateAddressCall({
   else {
     let argType = evaluatedArgExpr.$.type;
 
-    // If the argument is a compt type, convert it to its runtime equivalent
-    // before creating the pointer type. This ensures we get *(str) instead of *(compt_string).
+    // If the argument is a comptime type, convert it to its runtime equivalent
+    // before creating the pointer type. This ensures we get *(str) instead of *(comptime_string).
     if (
-      isComptIntType(argType) ||
-      isComptFloatType(argType) ||
-      isComptStringType(argType)
+      isComptimeIntType(argType) ||
+      isComptimeFloatType(argType) ||
+      isComptimeStringType(argType)
     ) {
-      const runtimeType = convertComptTypeToRuntimeType({
+      const runtimeType = convertComptimeTypeToRuntimeType({
         type: argType,
         expectedType: expectedType?.type,
         expr: evaluatedArgExpr,

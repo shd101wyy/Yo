@@ -6,7 +6,7 @@ test "Test basic Iso related functions", {
     i2 := i1;
     i3 := i1;
 
-    compt_expect_error(y := x, "use of moved value: x");
+    comptime_expect_error(y := x, "use of moved value: x");
 
     // f :: Type.impls(typeof(i1), Send);
 
@@ -27,7 +27,7 @@ test "Test basic Iso related functions", {
 
     match(result,
       .Ok(v) => {
-        compt_expect_error(Iso(Box(i32))(v), "v is borrowed and no owning RC value");
+        comptime_expect_error(Iso(Box(i32))(v), "v is borrowed and no owning RC value");
       },
       .Err(_) => {
         panic("Unexpected Err");
@@ -41,7 +41,7 @@ test "Test Iso dispose inner value when not extracted", {
   
   isolated := Option(Iso(Box(i32))).Some Iso(Box(i32))(x);
 
-  compt_expect_error(y := x, "use of moved value: x");
+  comptime_expect_error(y := x, "use of moved value: x");
 
   match(isolated,
     .Some(_) => {
@@ -59,7 +59,7 @@ test "Test ^ operator for constructing Iso value", {
   x := Box(i32)(99);
   isolated := ^(x);
 
-  compt_expect_error(y := x, "use of moved value: x");
+  comptime_expect_error(y := x, "use of moved value: x");
 
   match(isolated,
     .Some(iso_val) => {

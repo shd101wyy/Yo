@@ -54,7 +54,7 @@ MAX_LOAD_FACTOR_DENOMINATOR :: usize(8);
 /**
  * Bucket - Internal structure to store key-value pairs
  */
-Bucket :: (fn(compt(K): Type, compt(V): Type) -> compt(Type))
+Bucket :: (fn(comptime(K): Type, comptime(V): Type) -> comptime(Type))
   struct(
     key : K,
     value : V
@@ -85,10 +85,10 @@ h1_hash :: (fn(hash: u64, capacity: usize) -> usize)
  * - size: Current number of occupied buckets
  */
 HashMap :: (fn(
-  compt(K): Type,
-  compt(V): Type,
+  comptime(K): Type,
+  comptime(V): Type,
   where(K <: (Eq(K), Hash))
-) -> compt(Type))
+) -> comptime(Type))
   object(
     ctrl : ?*(u8),
     data : ?*(Bucket(K, V)),

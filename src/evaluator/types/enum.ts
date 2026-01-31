@@ -12,13 +12,13 @@ import {
 import {
   createEnumType,
   EnumVariant,
-  isComptIntType,
+  isComptimeIntType,
   ModuleField,
   TraitField,
   TypeField,
   updateTypeAvailability,
 } from "../../types";
-import { createTypeValue, isComptIntValue } from "../../value";
+import { createTypeValue, isComptimeIntValue } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { isValidVariableName } from "../utils";
@@ -112,8 +112,8 @@ export function evaluateEnumType({
       const discriminantType = evaluatedDiscriminant.$.type;
 
       if (
-        !isComptIntValue(discriminantValue) &&
-        !isComptIntType(discriminantType)
+        !isComptimeIntValue(discriminantValue) &&
+        !isComptimeIntType(discriminantType)
       ) {
         throw formatErrorMessage({
           token: discriminantExpr.token,
@@ -121,7 +121,7 @@ export function evaluateEnumType({
         });
       }
 
-      if (!isComptIntValue(discriminantValue)) {
+      if (!isComptimeIntValue(discriminantValue)) {
         throw formatErrorMessage({
           token: discriminantExpr.token,
           errorMessage: `Enum discriminant must be a compile-time known value, got: ${exprToString(discriminantExpr)}`,
@@ -273,7 +273,7 @@ export function evaluateEnumType({
           env = evaluatedDiscriminant.$.env;
           const discriminantValue = evaluatedDiscriminant.$.value;
 
-          if (!isComptIntValue(discriminantValue)) {
+          if (!isComptimeIntValue(discriminantValue)) {
             throw formatErrorMessage({
               token: discriminantExpr.token,
               errorMessage: `Enum discriminant must be a compile-time integer, got: ${exprToString(discriminantExpr)}`,

@@ -17,7 +17,7 @@ import { BOTH_AVAILABLE, COMPTIME_ONLY, RUNTIME_ONLY } from "./constants";
 import { createF64Type, createI32Type, createStrType } from "./creators";
 import {
   ArrayType,
-  ComptListType,
+  ComptimeListType,
   DynType,
   EnumType,
   FnTraitType,
@@ -42,10 +42,10 @@ import {
   isArrayType,
   isBooleanType,
   isCharType,
-  isComptFloatType,
-  isComptIntType,
-  isComptListType,
-  isComptStringType,
+  isComptimeFloatType,
+  isComptimeIntType,
+  isComptimeListType,
+  isComptimeStringType,
   isDynType,
   isEnumType,
   isExprType,
@@ -326,16 +326,16 @@ export function extractFutureTraitFromType(
 }
 
 /**
- * Check if the type of the value requires to use the compt modifier.
+ * Check if the type of the value requires to use the comptime modifier.
  * For example:
- *   compt(x): Type
- *   compt(x): compt_int
+ *   comptime(x): Type
+ *   comptime(x): comptime_int
  *
  * This includes:
- * - Primitive comptime-only types (Type, compt_int, compt_float, etc.)
- * - Compound types that are comptime-only (structs with compt_int fields, etc.)
+ * - Primitive comptime-only types (Type, comptime_int, comptime_float, etc.)
+ * - Compound types that are comptime-only (structs with comptime_int fields, etc.)
  */
-export function typeRequiresComptModifier(type?: Type): boolean {
+export function typeRequiresComptimeModifier(type?: Type): boolean {
   if (!type) {
     return false;
   }
@@ -345,7 +345,7 @@ export function typeRequiresComptModifier(type?: Type): boolean {
   return isComptimeOnlyType(type);
 }
 
-export function typeProhibitsComptModifier(type?: Type): boolean {
+export function typeProhibitsComptimeModifier(type?: Type): boolean {
   if (!type) {
     return false;
   }
@@ -374,14 +374,14 @@ export function determineTypeAvailability(
   // Determine availability based on type tag
   switch (type.tag) {
     // Comptime-only types
-    case TypeTag.ComptInt:
-    case TypeTag.ComptFloat:
-    case TypeTag.ComptString:
+    case TypeTag.ComptimeInt:
+    case TypeTag.ComptimeFloat:
+    case TypeTag.ComptimeString:
     case TypeTag.Type:
     case TypeTag.Module:
     case TypeTag.Trait:
     case TypeTag.Expr:
-    case TypeTag.ComptList:
+    case TypeTag.ComptimeList:
       availability = COMPTIME_ONLY;
       break;
 
@@ -477,7 +477,7 @@ export function determineTypeAvailability(
   // Validate the availability
   if (!isValidAvailability(availability)) {
     const typeName = type.typeName || typeToString(type);
-    const errorMessage = `Type '${typeName}' has incompatible field contexts and cannot be used in any evaluation context.\n\nThis typically happens when a struct/enum/array contains fields with conflicting availability:\n- Compile-time only fields (e.g., compt_int, Type, Module)\n- Runtime only fields (e.g., *(T), [T], void, C-compatible types)\n\nConsider restructuring the type to avoid mixing incompatible field types.`;
+    const errorMessage = `Type '${typeName}' has incompatible field contexts and cannot be used in any evaluation context.\n\nThis typically happens when a struct/enum/array contains fields with conflicting availability:\n- Compile-time only fields (e.g., comptime_int, Type, Module)\n- Runtime only fields (e.g., *(T), [T], void, C-compatible types)\n\nConsider restructuring the type to avoid mixing incompatible field types.`;
 
     if (errorToken) {
       throw formatErrorMessages([
@@ -1069,11 +1069,11 @@ export function getValueOfSomeTypeFromEnv(
 }
 
 /**
- * Convert compt types to their runtime equivalents.
+ * Convert comptime types to their runtime equivalents.
  * If expr is provided and a conversion happens, sets expr.$.convertedRuntimeType
- * NOTE: We only convert scalar compt types here (compt_int, compt_float, compt_string), like Zig.
+ * NOTE: We only convert scalar comptime types here (comptime_int, comptime_float, comptime_string), like Zig.
  */
-export function convertComptTypeToRuntimeType({
+export function convertComptimeTypeToRuntimeType({
   type,
   expectedType,
   expr,
@@ -1086,11 +1086,11 @@ export function convertComptTypeToRuntimeType({
 }): Type {
   let convertedType: Type | undefined;
 
-  if (isComptIntType(type)) {
+  if (isComptimeIntType(type)) {
     convertedType = createI32Type();
-  } else if (isComptFloatType(type)) {
+  } else if (isComptimeFloatType(type)) {
     convertedType = createF64Type();
-  } else if (isComptStringType(type)) {
+  } else if (isComptimeStringType(type)) {
     if (expectedType) {
       // Check if it's
       // - *(u8)
@@ -1107,7 +1107,7 @@ export function convertComptTypeToRuntimeType({
     }
 
     if (!convertedType) {
-      // Default: Convert the compt_string to str from prelude
+      // Default: Convert the comptime_string to str from prelude
       convertedType = createStrType(env);
     }
   } else {
@@ -1177,17 +1177,17 @@ export function getIntegerTypeRange(type: Type): { min: bigint; max: bigint } {
 }
 
 /**
- * Check if compt_int can be cast to a target type.
+ * Check if comptime_int can be cast to a target type.
  */
-export function canComptIntCastTo(targetType: Type): boolean {
-  return isIntegerType(targetType) || isComptIntType(targetType);
+export function canComptimeIntCastTo(targetType: Type): boolean {
+  return isIntegerType(targetType) || isComptimeIntType(targetType);
 }
 
 /**
- * Check if compt_float can be cast to a target type.
+ * Check if comptime_float can be cast to a target type.
  */
-export function canComptFloatCastTo(targetType: Type): boolean {
-  return isFloatType(targetType) || isComptFloatType(targetType);
+export function canComptimeFloatCastTo(targetType: Type): boolean {
+  return isFloatType(targetType) || isComptimeFloatType(targetType);
 }
 
 /**
@@ -1202,7 +1202,7 @@ export function functionParameterToString(
   if (parameter.isQuote) {
     label = `quote(${label})`;
   } else if (parameter.isCompileTimeOnly) {
-    label = `compt(${label})`;
+    label = `comptime(${label})`;
   }
 
   const typeStr = typeToString(parameter.type, visited);
@@ -1231,7 +1231,7 @@ export function tupleFieldToString(
     label = `(${label})`;
   }
   if (element.isCompileTimeOnly) {
-    label = `compt(${label})`;
+    label = `comptime(${label})`;
   }
 
   const defaultValueStr = element.defaultValue
@@ -1306,7 +1306,7 @@ function functionTypeToString(
     } else if (func.variadicParameter.isQuote) {
       variadicParam = `...(quote(${func.variadicParameter.label}))`;
     } else if (func.variadicParameter.isCompileTimeOnly) {
-      variadicParam = `...(compt(${func.variadicParameter.label}))`;
+      variadicParam = `...(comptime(${func.variadicParameter.label}))`;
     } else {
       variadicParam = `...(${func.variadicParameter.label})`;
     }
@@ -1322,9 +1322,9 @@ function functionTypeToString(
     }
   } else if (func.return.isCompileTimeOnly) {
     if (func.return.label) {
-      returnString = `(compt(${func.return.label}) : ${returnTypeString})`;
+      returnString = `(comptime(${func.return.label}) : ${returnTypeString})`;
     } else {
-      returnString = `compt(${returnTypeString})`;
+      returnString = `comptime(${returnTypeString})`;
     }
   }
 
@@ -1611,8 +1611,8 @@ function typeToStringInternal(type: Type, visited: Set<string>): string {
       return "Expr";
     }
 
-    case TypeTag.ComptList: {
-      return `ComptList(${typeToString((type as ComptListType).childType)})`;
+    case TypeTag.ComptimeList: {
+      return `ComptimeList(${typeToString((type as ComptimeListType).childType)})`;
     }
 
     case TypeTag.Dyn: {
@@ -1816,10 +1816,10 @@ export function getAlignmentOfType(type: Type): number | null {
   if (
     isUnitType(type) || // Unit type has no alignment requirement
     isTypeHierarchyType(type) ||
-    isComptIntType(type) ||
-    isComptFloatType(type) ||
-    isComptStringType(type) ||
-    isComptListType(type) ||
+    isComptimeIntType(type) ||
+    isComptimeFloatType(type) ||
+    isComptimeStringType(type) ||
+    isComptimeListType(type) ||
     isModuleType(type) ||
     isTraitType(type) ||
     isExprType(type) // ^ disallowed in the runtime
@@ -1924,10 +1924,10 @@ export function getSizeOfType(type: Type): number | null {
   if (
     isUnitType(type) || // Unit type has no size
     isTypeHierarchyType(type) ||
-    isComptIntType(type) ||
-    isComptFloatType(type) ||
-    isComptStringType(type) ||
-    isComptListType(type) ||
+    isComptimeIntType(type) ||
+    isComptimeFloatType(type) ||
+    isComptimeStringType(type) ||
+    isComptimeListType(type) ||
     isModuleType(type) ||
     isTraitType(type) ||
     isExprType(type) // ^ disallowed in the runtime

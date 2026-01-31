@@ -11,7 +11,7 @@ import {
 import { ModuleField } from "../../types";
 import { isFunctionType, isTypeHierarchyType } from "../../types/guards";
 import { VUnit } from "../../unit-value";
-import { createUnknownValue, isComptStringValue } from "../../value";
+import { createUnknownValue, isComptimeStringValue } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { evaluateModuleField } from "../types/module";
@@ -54,7 +54,7 @@ export function evaluateCInclude({
     }
     env = evaluatedCHeaderFileArg.$.env;
     const cHeaderFileValue = evaluatedCHeaderFileArg.$.value;
-    if (!isComptStringValue(cHeaderFileValue)) {
+    if (!isComptimeStringValue(cHeaderFileValue)) {
       throw formatErrorMessage({
         token: cHeaderFileArg.token,
         errorMessage: `Expected string for C header file argument, got ${exprToString(cHeaderFileArg)}`,

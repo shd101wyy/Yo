@@ -9,7 +9,7 @@ import {
 } from "../../expr";
 import {
   areTypesCompatible,
-  convertComptTypeToRuntimeType,
+  convertComptimeTypeToRuntimeType,
   createArrayType,
   isArrayType,
   Type,
@@ -90,13 +90,13 @@ export function evaluateArrayValue({
         // For example:
         //    x := 12; // x: i32
         //    arr := [1, x, 3];
-        //    -  1: compt_int
+        //    -  1: comptime_int
         //    -  x: i32
-        //    Here we convert compt_int to i32 to check compatibility.
+        //    Here we convert comptime_int to i32 to check compatibility.
         if (
           areTypesCompatible(
             {
-              type: convertComptTypeToRuntimeType({
+              type: convertComptimeTypeToRuntimeType({
                 type: arrayElementType,
                 expectedType: undefined,
                 expr: undefined,

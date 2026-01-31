@@ -78,11 +78,11 @@ add_va_yo :: (fn(forall(count: usize), ...(args) : Array(c_int, count)) -> c_int
 Dependent types are types which depend on values.
 
 ```rust
-Vector :: (fn(compt(N) : i32) -> compt(Type))
+Vector :: (fn(comptime(N) : i32) -> comptime(Type))
   Array(i32, N)
 ;
 
-add_vectors :: (fn(forall(N : compt(i32)), a: Vector(N), b: Vector(N)) -> Vector(N))
+add_vectors :: (fn(forall(N : comptime(i32)), a: Vector(N), b: Vector(N)) -> Vector(N))
   a.map((x, i) -> (x + b(i)))
 ;
 
@@ -101,8 +101,8 @@ v4 := [4, 5, 6]; // v4: Array(i32, 3), which is Vector(3)
 Refinement types consists of all values of a given type which satisfy a given predicate.
 
 ```rust
-PositiveNumber :: (compt(i32) |: (@ > 0));
-NonEmptyString :: (compt(String) |: (@.length() > 0));
+PositiveNumber :: (comptime(i32) |: (@ > 0));
+NonEmptyString :: (comptime(String) |: (@.length() > 0));
 
 divide :: (fn(x: PositiveNumber, y: PositiveNumber) -> PositiveNumber)
   (x / y)
@@ -117,13 +117,13 @@ result := divide(10, 2); // Valid
 ```rust
 NaturalNumber :: (i32 |: (@ >= 0));
 PositiveNumber :: (i32 |: (@ > 0));
-Equal :: (fn(compt(n): i32) -> Type)
+Equal :: (fn(comptime(n): i32) -> Type)
   (i32 |: (@ == n))
 ;
-Index :: (fn(compt(T): Type, compt(a): Array(T, _)) -> Type)
+Index :: (fn(comptime(T): Type, comptime(a): Array(T, _)) -> Type)
   (NaturalNumber |: (@ < a.length()))
 ;
-NotEmptyArray :: (fn(compt(T): Type) -> Type)
+NotEmptyArray :: (fn(comptime(T): Type) -> Type)
   (Array(T, _) |: (@.length() > 0))
 ;
 
@@ -145,11 +145,11 @@ head :: (fn(forall(T: Type), array: NotEmptyArray(T)) -> T)
 Higher Kinded Types are types that take other types as parameters.
 
 ```rust
-T1 :: (fn(compt(F): (Type -> Type), compt(A): Type) -> Type)
+T1 :: (fn(comptime(F): (Type -> Type), comptime(A): Type) -> Type)
   F(A)
 ;
 
-Option :: (fn(compt(T): Type) -> Type)
+Option :: (fn(comptime(T): Type) -> Type)
   T1(Maybe, T)
 ;
 ```
@@ -157,7 +157,7 @@ Option :: (fn(compt(T): Type) -> Type)
 ### Generalized Algebraic Data Types (GADTs)
 
 ```rust
-MyExpr :: (fn(compt(T): Type) -> Type)
+MyExpr :: (fn(comptime(T): Type) -> Type)
   enum(
     IntExpr(i : i32), // MyExpr(i32)
     BoolExpr(b : bool), // MyExpr(bool)

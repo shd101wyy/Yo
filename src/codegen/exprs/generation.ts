@@ -23,7 +23,7 @@ import { generateAwait } from "./await";
 import { generateBegin } from "./begin";
 import { generateBinding } from "./binding";
 import { generateClosureConstruction, isClosureConstruction } from "./closures";
-import { generateComptValue } from "./compt_value";
+import { generateComptimeValue } from "./comptime_value";
 import { generateCondExpression } from "./cond";
 import { generateConsume } from "./consume";
 import { generateDeferredDupExpressions } from "./drop_dup";
@@ -338,7 +338,7 @@ function generateFuncCall(
     !isUnitType(expr.$.type)
   ) {
     const value: Value = expr.$.value;
-    return generateComptValue(value, context, expr);
+    return generateComptimeValue(value, context, expr);
   }
   // . field access
   else if (exprIsFunctionCallOf(expr, ".", 2)) {
@@ -433,7 +433,7 @@ function generateFuncCall(
     // Anonymous functions should have been evaluated and have a function value
     const functionValue = expr.$?.value;
     if (isFunctionValue(functionValue)) {
-      return generateComptValue(functionValue, context);
+      return generateComptimeValue(functionValue, context);
     } else {
       return `// Error: Anonymous function missing function value`;
     }
@@ -443,10 +443,10 @@ function generateFuncCall(
     return generateConsume(expr, indent, context);
   }
   // functions that should be skipped
-  // compt_expect_error
+  // comptime_expect_error
   else if (
-    exprIsFunctionCallOf(expr, BuiltinFunctions.compt_expect_error) ||
-    exprIsFunctionCallOf(expr, BuiltinFunctions.compt_assert) ||
+    exprIsFunctionCallOf(expr, BuiltinFunctions.comptime_expect_error) ||
+    exprIsFunctionCallOf(expr, BuiltinFunctions.comptime_assert) ||
     exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_var_print_info) ||
     exprIsFunctionCallOf(
       expr,

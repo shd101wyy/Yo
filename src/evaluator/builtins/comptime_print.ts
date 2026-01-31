@@ -2,11 +2,11 @@ import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import { exprToString, FnCallExpr } from "../../expr";
 import { VUnit } from "../../unit-value";
-import { isComptStringValue, valueToString } from "../../value";
+import { isComptimeStringValue, valueToString } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 
-export function evaluateComptPrint({
+export function evaluateComptimePrint({
   expr,
   env,
   context,
@@ -19,7 +19,7 @@ export function evaluateComptPrint({
   if (expr.args.length === 0) {
     throw formatErrorMessage({
       token: expr.token,
-      errorMessage: `Expected at least 1 argument for "compt_print", got 0`,
+      errorMessage: `Expected at least 1 argument for "comptime_print", got 0`,
     });
   }
 
@@ -37,13 +37,13 @@ export function evaluateComptPrint({
     if (!evaluatedArgExpr.$) {
       throw formatErrorMessage({
         token: argExpr.token,
-        errorMessage: `Failed to evaluate argument for "compt_print": ${exprToString(argExpr)}`,
+        errorMessage: `Failed to evaluate argument for "comptime_print": ${exprToString(argExpr)}`,
       });
     }
     env = evaluatedArgExpr.$.env;
 
     // Convert the value to string and store it
-    if (isComptStringValue(evaluatedArgExpr.$.value)) {
+    if (isComptimeStringValue(evaluatedArgExpr.$.value)) {
       evaluatedValues.push(evaluatedArgExpr.$.value.value);
     } else {
       evaluatedValues.push(valueToString(evaluatedArgExpr.$.value));

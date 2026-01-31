@@ -46,7 +46,7 @@ export interface TestBlockEvaluationContext {
 export interface EvaluatorContext {
   /**
    * Whether we are currently executing code (true) or just analyzing/type-checking it (false).
-   * This flag prevents side effects like compt_print from executing during function definition.
+   * This flag prevents side effects like comptime_print from executing during function definition.
    */
   isExecuting?: boolean;
 

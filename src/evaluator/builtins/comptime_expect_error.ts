@@ -2,14 +2,14 @@ import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import { cloneExpr, exprToString, FnCallExpr } from "../../expr";
 import { VUnit } from "../../unit-value";
-import { isComptStringValue, valueToString } from "../../value";
+import { isComptimeStringValue, valueToString } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 
 /**
  * Expect having compile error
  */
-export function evaluateComptExpectError({
+export function evaluateComptimeExpectError({
   expr,
   env,
   context,
@@ -53,7 +53,7 @@ export function evaluateComptExpectError({
       throw formatErrorMessage({
         token: expr.token,
 
-        errorMessage: isComptStringValue(evaluatedMessageExpr.$.value)
+        errorMessage: isComptimeStringValue(evaluatedMessageExpr.$.value)
           ? evaluatedMessageExpr.$.value.value
           : valueToString(evaluatedMessageExpr.$.value),
       });

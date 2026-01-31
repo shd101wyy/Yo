@@ -9,10 +9,10 @@ import {
   isArrayType,
   isCCompatibleType,
   isCharType,
-  isComptFloatType,
-  isComptIntType,
-  isComptListType,
-  isComptStringType,
+  isComptimeFloatType,
+  isComptimeIntType,
+  isComptimeListType,
+  isComptimeStringType,
   isDynType,
   isEnumType,
   isExprType,
@@ -85,8 +85,8 @@ export function areTypesCompatible(
     return expected.type.tag === given.type.tag;
   }
 
-  // compt_int can be converted to
-  // - compt_int
+  // comptime_int can be converted to
+  // - comptime_int
   // - u8
   // - i8
   // - u16
@@ -98,7 +98,7 @@ export function areTypesCompatible(
   // - usize
   // - isize
   if (
-    (isComptIntType(expected.type) ||
+    (isComptimeIntType(expected.type) ||
       expected.type.tag === TypeTag.U8 ||
       expected.type.tag === TypeTag.I8 ||
       expected.type.tag === TypeTag.U16 ||
@@ -110,46 +110,46 @@ export function areTypesCompatible(
       expected.type.tag === TypeTag.Usize ||
       expected.type.tag === TypeTag.Isize ||
       isCCompatibleType(expected.type)) &&
-    isComptIntType(given.type)
+    isComptimeIntType(given.type)
   ) {
-    if (requireExactMatch && !isComptIntType(expected.type)) {
-      // If exact match is required, compt_int cannot be converted to other numeric types
+    if (requireExactMatch && !isComptimeIntType(expected.type)) {
+      // If exact match is required, comptime_int cannot be converted to other numeric types
       return false;
     }
 
     return true;
   }
 
-  // compt_float can be converted to
-  // - compt_float
+  // comptime_float can be converted to
+  // - comptime_float
   // - f32
   // - f64
   if (
-    (isComptFloatType(expected.type) ||
+    (isComptimeFloatType(expected.type) ||
       expected.type.tag === TypeTag.F32 ||
       expected.type.tag === TypeTag.F64) &&
-    isComptFloatType(given.type)
+    isComptimeFloatType(given.type)
   ) {
-    if (requireExactMatch && !isComptFloatType(expected.type)) {
-      // If exact match is required, compt_float cannot be converted to other numeric types
+    if (requireExactMatch && !isComptimeFloatType(expected.type)) {
+      // If exact match is required, comptime_float cannot be converted to other numeric types
       return false;
     }
 
     return true;
   }
 
-  // compt_string can be converted to
+  // comptime_string can be converted to
   // - [u8]  u8 slice
   // - *(u8)    u8 pointer with \0 terminator
   // - *(char)  char pointer with \0 terminator
   if (
-    (isComptStringType(expected.type) ||
+    (isComptimeStringType(expected.type) ||
       (isSliceType(expected.type) && // [u8]
         isU8Type(expected.type.childType)) ||
       (isPtrType(expected.type) && // *(u8) or *(char)
         (isU8Type(expected.type.childType) ||
           isCharType(expected.type.childType)))) &&
-    isComptStringType(given.type)
+    isComptimeStringType(given.type)
   ) {
     return true;
   }
@@ -164,7 +164,7 @@ export function areTypesCompatible(
     return true;
   }
 
-  if (isComptListType(expected.type) && isComptListType(given.type)) {
+  if (isComptimeListType(expected.type) && isComptimeListType(given.type)) {
     return areTypesCompatible(
       { type: expected.type.childType, env: expected.env },
       { type: given.type.childType, env: given.env },
@@ -499,7 +499,7 @@ export function areTypesCompatible(
     // }
 
     // Pointers are INVARIANT in their child type.
-    // *(compt_int) is NOT compatible with *(i32), even though compt_int is compatible with i32.
+    // *(comptime_int) is NOT compatible with *(i32), even though comptime_int is compatible with i32.
     // This is a strict design choice to prevent pointer type coercion issues.
     return areTypesCompatible(
       { type: expected.type.childType, env: expected.env },

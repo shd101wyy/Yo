@@ -45,7 +45,7 @@ export function generateInitializationAssignment(
 
   if (
     exprIsFunctionCall(lhs) &&
-    exprIsFunctionCallOf(lhs, BuiltinKeywords.compt, 1)
+    exprIsFunctionCallOf(lhs, BuiltinKeywords.comptime, 1)
   ) {
     // compile-time variable
     return "";
@@ -363,7 +363,7 @@ export function generateInitializationAssignment(
             // If so, don't generate a redundant assignment
             if (rhsExprCode.trim() !== tempVarName) {
               // Generate temp variable assignment first
-              // Use convertedRuntimeType if available (e.g., compt_string -> str)
+              // Use convertedRuntimeType if available (e.g., comptime_string -> str)
               const effectiveType = rhs.$.convertedRuntimeType || rhs.$.type!;
               const tempVarType = getVariableTypeString(
                 effectiveType,

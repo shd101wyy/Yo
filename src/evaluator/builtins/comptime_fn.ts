@@ -7,18 +7,18 @@ import { analyzeCtfeCapability } from "../ctfe/ctfe-analysis";
 import { evaluateExpression } from "../exprs/expr";
 
 /**
- * compt_fn(fn) - Convert a runtime function to a compile-time function.
+ * comptime_fn(fn) - Convert a runtime function to a compile-time function.
  *
  * This builtin explicitly creates a compile-time version of a function.
  * It returns the function with all parameters and return type marked as isCompileTimeOnly.
  *
  * Usage:
  *   add :: (fn(x : i32, y : i32) -> i32) { return (x + y); };
- *   compt_add :: compt_fn(add);  // fn(compt(i32), compt(i32)) -> compt(i32)
+ *   comptime_add :: comptime_fn(add);  // fn(comptime(i32), comptime(i32)) -> comptime(i32)
  *
  * The returned function can only be called with compile-time known arguments.
  */
-export function evaluateComptFn({
+export function evaluateComptimeFn({
   expr,
   env,
   context,
@@ -31,7 +31,7 @@ export function evaluateComptFn({
   if (!argExpr) {
     throw formatErrorMessage({
       token: expr.token,
-      errorMessage: `compt_fn requires exactly one argument (a function)`,
+      errorMessage: `comptime_fn requires exactly one argument (a function)`,
     });
   }
 
@@ -45,7 +45,7 @@ export function evaluateComptFn({
   if (!evaluatedArgExpr.$) {
     throw formatErrorMessage({
       token: argExpr.token,
-      errorMessage: `Failed to evaluate argument to compt_fn`,
+      errorMessage: `Failed to evaluate argument to comptime_fn`,
     });
   }
 
@@ -53,7 +53,7 @@ export function evaluateComptFn({
   if (!isFunctionValue(functionValue)) {
     throw formatErrorMessage({
       token: argExpr.token,
-      errorMessage: `compt_fn requires a function argument, got: ${valueToString(functionValue)}`,
+      errorMessage: `comptime_fn requires a function argument, got: ${valueToString(functionValue)}`,
     });
   }
 
@@ -70,14 +70,18 @@ export function evaluateComptFn({
   }
 
   // Try to create the compile-time version using CTFE analysis
-  const comptFunctionValue = analyzeCtfeCapability(functionValue, env, context);
+  const comptimeFunctionValue = analyzeCtfeCapability(
+    functionValue,
+    env,
+    context
+  );
 
-  if (comptFunctionValue) {
+  if (comptimeFunctionValue) {
     // CTFE succeeded - return the compile-time version
     expr.$ = {
       env,
-      type: comptFunctionValue.type,
-      value: comptFunctionValue,
+      type: comptimeFunctionValue.type,
+      value: comptimeFunctionValue,
       pathCollection: [],
     };
     return expr;
@@ -86,6 +90,6 @@ export function evaluateComptFn({
   // CTFE failed - throw an error
   throw formatErrorMessage({
     token: argExpr.token,
-    errorMessage: `compt_fn: Failed to create compile-time version of function. The function body cannot be evaluated at compile time.`,
+    errorMessage: `comptime_fn: Failed to create compile-time version of function. The function body cannot be evaluated at compile time.`,
   });
 }

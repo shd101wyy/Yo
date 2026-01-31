@@ -11,7 +11,7 @@ import {
   setExprAsNeedsToCallDup,
 } from "../../expr";
 import {
-  convertComptTypeToRuntimeType,
+  convertComptimeTypeToRuntimeType,
   createTupleType,
   isComptimeOnlyType,
   isTupleType,
@@ -121,9 +121,9 @@ ${typeToString(expectedTupleType)}`,
   }
 
   // Convert to runtime type only if the expected type is not comptime-only.
-  // This allows tuples with compt_int fields to accept comptime values.
+  // This allows tuples with comptime_int fields to accept comptime values.
   if (!expectedTupleFieldType || !isComptimeOnlyType(expectedTupleFieldType)) {
-    childType = convertComptTypeToRuntimeType({
+    childType = convertComptimeTypeToRuntimeType({
       type: evaluatedRhs.$.type,
       expectedType: undefined,
       expr: undefined,

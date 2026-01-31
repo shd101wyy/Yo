@@ -3,15 +3,15 @@ import { formatErrorMessage } from "../../error";
 import { exprToString, FnCallExpr } from "../../expr";
 import {
   areTypesCompatible,
-  isComptListType,
+  isComptimeListType,
   Type,
   typeToString,
 } from "../../types";
-import { createComptListValue, Value } from "../../value";
+import { createComptimeListValue, Value } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 
-export function evaluateComptListValue({
+export function evaluateComptimeListValue({
   expr,
   env,
   context,
@@ -23,17 +23,17 @@ export function evaluateComptListValue({
   const elements: Value[] = [];
   const args = expr.args;
 
-  // We disallow the empty compt_list for now.
+  // We disallow the empty comptime_list for now.
   if (args.length === 0) {
     throw formatErrorMessage({
       token: expr.token,
-      errorMessage: `Expected at least one element in compt_list, got ${args.length}`,
+      errorMessage: `Expected at least one element in comptime_list, got ${args.length}`,
     });
   }
 
-  // Check if we have an expected compt_list type from the context
+  // Check if we have an expected comptime_list type from the context
   let childType: Type | undefined = undefined;
-  if (context.expectedType && isComptListType(context.expectedType.type)) {
+  if (context.expectedType && isComptimeListType(context.expectedType.type)) {
     childType = context.expectedType.type.childType;
   }
 
@@ -69,13 +69,13 @@ export function evaluateComptListValue({
       ) {
         throw formatErrorMessage({
           token: arg.token,
-          errorMessage: `Mismatched element types in compt_list. Expected element of type ${typeToString(childType)}, got ${typeToString(evaluatedArg.$.type)}`,
+          errorMessage: `Mismatched element types in comptime_list. Expected element of type ${typeToString(childType)}, got ${typeToString(evaluatedArg.$.type)}`,
         });
       }
     }
   }
 
-  const exprListValue = createComptListValue(childType!, elements);
+  const exprListValue = createComptimeListValue(childType!, elements);
   expr.$ = {
     env,
     type: exprListValue.type,

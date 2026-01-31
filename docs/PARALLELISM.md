@@ -136,7 +136,7 @@ Channels will be implemented separately to enable communication between threads/
 
 ```yo
 // Future API (not yet implemented)
-Channel :: (fn(compt(T) : Type) -> compt(Type)) {
+Channel :: (fn(comptime(T) : Type) -> comptime(Type)) {
   object(
     send :: (fn(self : Self, value : T) -> Result(unit, T)),
     recv :: (fn(self : Self) -> Result(T, unit)),

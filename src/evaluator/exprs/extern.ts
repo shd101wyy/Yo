@@ -11,7 +11,7 @@ import {
 import { ExternLanguage, ModuleField } from "../../types";
 import { isFunctionType, isTypeHierarchyType } from "../../types/guards";
 import { VUnit } from "../../unit-value";
-import { createUnknownValue, isComptStringValue } from "../../value";
+import { createUnknownValue, isComptimeStringValue } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { evaluateModuleField } from "../types/module";
@@ -54,7 +54,7 @@ export function evaluateExtern({
     }
     env = evaluatedLang.$.env;
     const langValue = evaluatedLang.$.value;
-    if (!isComptStringValue(langValue)) {
+    if (!isComptimeStringValue(langValue)) {
       throw formatErrorMessage({
         token: langArg.token,
         errorMessage: `Expected string for language argument, got ${exprToString(langArg)}`,

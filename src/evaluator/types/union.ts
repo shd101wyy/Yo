@@ -89,7 +89,7 @@ export function evaluateUnionType({
     }
 
     // Union fields must be runtime-only types
-    // Compile-time only types like compt_int, Type, Module cannot be used in unions
+    // Compile-time only types like comptime_int, Type, Module cannot be used in unions
     if (!field.isCompileTimeOnly && isComptimeOnlyType(field.type)) {
       throw formatErrorMessage({
         token: field.exprs.expr.token,

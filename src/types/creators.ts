@@ -12,7 +12,7 @@ import { isTypeValue, Value, valueToString } from "../value";
 import { BOTH_AVAILABLE, COMPTIME_ONLY, RUNTIME_ONLY } from "./constants";
 import {
   ArrayType,
-  ComptListType,
+  ComptimeListType,
   DynType,
   EnumType,
   FnTraitType,
@@ -39,66 +39,66 @@ import {
 import { TypeTag } from "./tags";
 import { computeTupleTypeAvailability, typeToString } from "./utils";
 
-let cachedComptIntType: Type | null = null;
-export function createComptIntType(): Type {
-  if (cachedComptIntType) {
-    return cachedComptIntType;
+let cachedComptimeIntType: Type | null = null;
+export function createComptimeIntType(): Type {
+  if (cachedComptimeIntType) {
+    return cachedComptimeIntType;
   }
 
   const emptyEnv = createEmptyEnv();
   const trait = createTraitType(emptyEnv);
 
   const comptIntType: Type = {
-    id: TypeTag.ComptInt,
-    tag: TypeTag.ComptInt,
+    id: TypeTag.ComptimeInt,
+    tag: TypeTag.ComptimeInt,
     trait,
     availability: COMPTIME_ONLY,
   };
   trait.receiverType = comptIntType;
 
-  cachedComptIntType = comptIntType;
+  cachedComptimeIntType = comptIntType;
   return comptIntType;
 }
 
-let cachedComptFloatType: Type | null = null;
-export function createComptFloatType(): Type {
-  if (cachedComptFloatType) {
-    return cachedComptFloatType;
+let cachedComptimeFloatType: Type | null = null;
+export function createComptimeFloatType(): Type {
+  if (cachedComptimeFloatType) {
+    return cachedComptimeFloatType;
   }
 
   const emptyEnv = createEmptyEnv();
   const trait = createTraitType(emptyEnv);
 
   const type: Type = {
-    id: TypeTag.ComptFloat,
-    tag: TypeTag.ComptFloat,
+    id: TypeTag.ComptimeFloat,
+    tag: TypeTag.ComptimeFloat,
     trait,
     availability: COMPTIME_ONLY,
   };
   trait.receiverType = type;
 
-  cachedComptFloatType = type;
+  cachedComptimeFloatType = type;
   return type;
 }
 
-let cachedComptStringType: Type | null = null;
-export function createComptStringType(): Type {
-  if (cachedComptStringType) {
-    return cachedComptStringType;
+let cachedComptimeStringType: Type | null = null;
+export function createComptimeStringType(): Type {
+  if (cachedComptimeStringType) {
+    return cachedComptimeStringType;
   }
 
   const emptyEnv = createEmptyEnv();
   const trait = createTraitType(emptyEnv);
 
   const type: Type = {
-    id: TypeTag.ComptString,
-    tag: TypeTag.ComptString,
+    id: TypeTag.ComptimeString,
+    tag: TypeTag.ComptimeString,
     trait,
     availability: COMPTIME_ONLY,
   };
   trait.receiverType = type;
 
-  cachedComptStringType = type;
+  cachedComptimeStringType = type;
   return type;
 }
 
@@ -123,31 +123,31 @@ export function createExprType(): Type {
   return type;
 }
 
-const cachedComptListTypeMap: Map<Type, ComptListType> = new Map();
-export function createComptListType(childType: Type): ComptListType {
-  if (cachedComptListTypeMap.has(childType)) {
-    return cachedComptListTypeMap.get(childType)!;
+const cachedComptimeListTypeMap: Map<Type, ComptimeListType> = new Map();
+export function createComptimeListType(childType: Type): ComptimeListType {
+  if (cachedComptimeListTypeMap.has(childType)) {
+    return cachedComptimeListTypeMap.get(childType)!;
   }
   const emptyEnv = createEmptyEnv();
   const trait = createTraitType(emptyEnv);
 
-  const typeId = `compt_list_${childType.id}`;
-  const type: ComptListType = {
+  const typeId = `comptime_list_${childType.id}`;
+  const type: ComptimeListType = {
     id: typeId,
-    tag: TypeTag.ComptList,
+    tag: TypeTag.ComptimeList,
     childType,
     trait,
     availability: COMPTIME_ONLY,
   };
   trait.receiverType = type;
 
-  cachedComptListTypeMap.set(childType, type);
+  cachedComptimeListTypeMap.set(childType, type);
 
   return type;
 }
 
 export function createExprListType(): Type {
-  return createComptListType(createExprType());
+  return createComptimeListType(createExprType());
 }
 
 let cachedBooleanType: Type | null = null;
@@ -1200,11 +1200,11 @@ export function createDynType(
 }
 
 export function clearAllCachedTypes(): void {
-  cachedComptIntType = null;
-  cachedComptFloatType = null;
-  cachedComptStringType = null;
+  cachedComptimeIntType = null;
+  cachedComptimeFloatType = null;
+  cachedComptimeStringType = null;
   cachedExprType = null;
-  cachedComptListTypeMap.clear();
+  cachedComptimeListTypeMap.clear();
   cachedBooleanType = null;
   cachedUsizeType = null;
   cachedIsizeType = null;

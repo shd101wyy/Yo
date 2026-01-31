@@ -4,11 +4,11 @@ import { findMethodsFromGenericImpls } from "./evaluator/values/impl";
 import { Token } from "./token";
 import {
   areTypesCompatible,
-  convertComptTypeToRuntimeType,
+  convertComptimeTypeToRuntimeType,
   FunctionType,
-  isComptFloatType,
-  isComptIntType,
-  isComptStringType,
+  isComptimeFloatType,
+  isComptimeIntType,
+  isComptimeStringType,
   isDynType,
   isFunctionType,
   isModuleType,
@@ -890,21 +890,21 @@ export function getReceiverMethodsByNameFromEnv(
           //   `DEBUG filter ptr: method ${methodName} expects ptr, child type: ${typeToString(methodPtrChildType)}, receiverType: ${typeToString(receiverType)}`
           // );
 
-          // For compt types, convert to runtime type before checking compatibility
+          // For comptime types, convert to runtime type before checking compatibility
           let effectiveReceiverType = receiverType;
           if (
-            isComptIntType(receiverType) ||
-            isComptFloatType(receiverType) ||
-            isComptStringType(receiverType)
+            isComptimeIntType(receiverType) ||
+            isComptimeFloatType(receiverType) ||
+            isComptimeStringType(receiverType)
           ) {
-            effectiveReceiverType = convertComptTypeToRuntimeType({
+            effectiveReceiverType = convertComptimeTypeToRuntimeType({
               type: receiverType,
               expectedType: undefined,
               expr: undefined,
               env,
             });
             // console.log(
-            //   `DEBUG filter ptr: converted compt type to runtime: ${typeToString(effectiveReceiverType)}`
+            //   `DEBUG filter ptr: converted comptime type to runtime: ${typeToString(effectiveReceiverType)}`
             // );
           }
 
@@ -970,21 +970,21 @@ export function getReceiverMethodsByNameFromEnv(
           return false;
         }
 
-        // Special case: compt types (compt_int, compt_float, compt_string) can call
+        // Special case: comptime types (comptime_int, comptime_float, comptime_string) can call
         // methods from their runtime type equivalents (i32, f64, [u8])
         if (
-          isComptIntType(receiverType) ||
-          isComptFloatType(receiverType) ||
-          isComptStringType(receiverType)
+          isComptimeIntType(receiverType) ||
+          isComptimeFloatType(receiverType) ||
+          isComptimeStringType(receiverType)
         ) {
-          const runtimeReceiverType = convertComptTypeToRuntimeType({
+          const runtimeReceiverType = convertComptimeTypeToRuntimeType({
             type: receiverType,
             expectedType: undefined,
             expr: undefined,
             env,
           });
           // console.log(
-          //   `DEBUG filter: checking compt ${typeToString(receiverType)} method ${methodName}, runtime type: ${typeToString(runtimeReceiverType)}, method param type: ${typeToString(methodFirstParamType)}`
+          //   `DEBUG filter: checking comptime ${typeToString(receiverType)} method ${methodName}, runtime type: ${typeToString(runtimeReceiverType)}, method param type: ${typeToString(methodFirstParamType)}`
           // );
           const isRuntimeCompatible = areTypesCompatible(
             { type: methodFirstParamType, env: method.type.env },
@@ -1203,21 +1203,21 @@ export function getReceiverMethodsByNameFromEnv(
     }
   }
 
-  // If receiver is a compt type, also check the runtime type's trait
-  // because compt literals should be able to call methods from their runtime equivalents
+  // If receiver is a comptime type, also check the runtime type's trait
+  // because comptime literals should be able to call methods from their runtime equivalents
   if (
-    isComptIntType(dereferencedReceiverType) ||
-    isComptFloatType(dereferencedReceiverType) ||
-    isComptStringType(dereferencedReceiverType)
+    isComptimeIntType(dereferencedReceiverType) ||
+    isComptimeFloatType(dereferencedReceiverType) ||
+    isComptimeStringType(dereferencedReceiverType)
   ) {
-    const runtimeType = convertComptTypeToRuntimeType({
+    const runtimeType = convertComptimeTypeToRuntimeType({
       type: dereferencedReceiverType,
       expectedType: undefined,
       expr: undefined,
       env,
     });
     // console.log(
-    //   `DEBUG getReceiverMethodsByNameFromEnv: compt type ${typeToString(dereferencedReceiverType)} -> runtime type ${typeToString(runtimeType)}, has trait: ${!!runtimeType.trait}`
+    //   `DEBUG getReceiverMethodsByNameFromEnv: comptime type ${typeToString(dereferencedReceiverType)} -> runtime type ${typeToString(runtimeType)}, has trait: ${!!runtimeType.trait}`
     // );
     if (runtimeType.trait) {
       // console.log(
@@ -1641,7 +1641,7 @@ export function getVariablesNeedingDrop(env: Environment): Variable[] {
 
     // Skip variables whose types contain unresolved SomeTypes.
     // We can't generate proper drop code for abstract type parameters.
-    // This handles cases like compile-time generic functions: `compt(id) : (fn(forall(T), x: T) -> T)`
+    // This handles cases like compile-time generic functions: `comptime(id) : (fn(forall(T), x: T) -> T)`
     // where temp variables may have type `T` that isn't resolved to a concrete type.
     const varType = variable.type;
     if (isSomeType(varType) && !varType.resolvedConcreteType) {

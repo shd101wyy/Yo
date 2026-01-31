@@ -645,7 +645,7 @@ export function tokenize(input: string, modulePath: string): Token[] {
           if (IdentifierRegex.test(value)) {
             /* 
             // NOTE: We stop making '@' part of identifier.
-            // It is now an operator used for the 'compt` meaning.
+            // It is now an operator used for the 'comptime` meaning.
             if (tokens.length > 0 && tokens[tokens.length - 1].value === "@") {
               // Merge with previous token '@'
               tokens[tokens.length - 1].value += value;

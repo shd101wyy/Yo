@@ -10,7 +10,7 @@ import {
 } from "../../expr";
 import {
   createBooleanType,
-  createComptStringType,
+  createComptimeStringType,
   createExprListType,
   createExprType,
   isExprType,
@@ -19,8 +19,8 @@ import {
   areValuesEqual,
   BooleanValue,
   createBooleanValue,
-  createComptListValue,
-  createComptStringValue,
+  createComptimeListValue,
+  createComptimeStringValue,
   createExprValue,
   createUnknownValue,
   isExprValue,
@@ -272,7 +272,7 @@ export function evaluateYoExprGetArgs({
   if (isExprValue(exprValue)) {
     if (exprIsFunctionCall(exprValue.value)) {
       const fnArgs = exprValue.value.args;
-      const fnArgsValue = createComptListValue(
+      const fnArgsValue = createComptimeListValue(
         createExprType(),
         fnArgs.map((arg) => createExprValue(arg))
       );
@@ -335,14 +335,14 @@ export function evaluateYoExprToString({
 
   expr.$ = {
     env: evaluatedArgExpr.$.env,
-    type: createComptStringType(),
-    value: createUnknownValue(createComptStringType()), // Will be updated later
+    type: createComptimeStringType(),
+    value: createUnknownValue(createComptimeStringType()), // Will be updated later
     pathCollection: [],
     isAccessingProperty: false,
   };
 
   if (isExprValue(exprValue)) {
-    expr.$.value = createComptStringValue(exprToString(exprValue.value));
+    expr.$.value = createComptimeStringValue(exprToString(exprValue.value));
   }
 
   return expr;

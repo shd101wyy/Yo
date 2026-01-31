@@ -9,22 +9,22 @@ import {
 import {
   areTypesCompatible,
   createUsizeType,
-  isComptListType,
+  isComptimeListType,
   typeToString,
 } from "../../types";
 import {
-  createComptListValue,
+  createComptimeListValue,
   createNumberValue,
   createTypeValue,
   createUnknownValue,
-  isComptListValue,
+  isComptimeListValue,
   isTypeValue,
 } from "../../value";
 import { ValueTag } from "../../value-tag";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 
-export function evaluateYoComptListCar({
+export function evaluateYoComptimeListCar({
   expr,
   env,
   context,
@@ -33,7 +33,11 @@ export function evaluateYoComptListCar({
   env: Environment;
   context: EvaluatorContext;
 }): FnCallExpr {
-  expectExprToBeFunctionCallOf(expr, BuiltinFunctions.__yo_compt_list_car, 1);
+  expectExprToBeFunctionCallOf(
+    expr,
+    BuiltinFunctions.__yo_comptime_list_car,
+    1
+  );
 
   const argExpr = expr.args[0]!;
   const evaluatedArgExpr = evaluateExpression({
@@ -51,20 +55,20 @@ export function evaluateYoComptListCar({
       )}`,
     });
   }
-  if (!isComptListType(evaluatedArgExpr.$.type)) {
+  if (!isComptimeListType(evaluatedArgExpr.$.type)) {
     throw formatErrorMessage({
       token: argExpr.token,
-      errorMessage: `Expected ComptList type for "${expr.func.token.value}" argument, got:\n${exprToString(
+      errorMessage: `Expected ComptimeList type for "${expr.func.token.value}" argument, got:\n${exprToString(
         argExpr
       )}`,
     });
   }
-  const comptListType = evaluatedArgExpr.$.type;
-  const comptListValue = evaluatedArgExpr.$.value;
-  if (!comptListValue) {
+  const comptimeListType = evaluatedArgExpr.$.type;
+  const comptimeListValue = evaluatedArgExpr.$.value;
+  if (!comptimeListValue) {
     throw formatErrorMessage({
       token: argExpr.token,
-      errorMessage: `Expected ComptList value for "${expr.func.token.value}" argument, got:\n${exprToString(
+      errorMessage: `Expected ComptimeList value for "${expr.func.token.value}" argument, got:\n${exprToString(
         argExpr
       )}`,
     });
@@ -72,20 +76,20 @@ export function evaluateYoComptListCar({
 
   expr.$ = {
     env: evaluatedArgExpr.$.env,
-    type: comptListType.childType,
-    value: createUnknownValue(comptListType.childType), // Will be updated later
+    type: comptimeListType.childType,
+    value: createUnknownValue(comptimeListType.childType), // Will be updated later
     pathCollection: [],
     isAccessingProperty: false,
   };
 
-  if (isComptListValue(comptListValue)) {
-    const elements = comptListValue.elements;
+  if (isComptimeListValue(comptimeListValue)) {
+    const elements = comptimeListValue.elements;
     if (elements.length > 0) {
       expr.$.value = elements[0]!;
     } else {
       throw formatErrorMessage({
         token: argExpr.token,
-        errorMessage: `Unexpected empty ComptList for "${expr.func.token.value}" argument`,
+        errorMessage: `Unexpected empty ComptimeList for "${expr.func.token.value}" argument`,
       });
     }
   }
@@ -93,7 +97,7 @@ export function evaluateYoComptListCar({
   return expr;
 }
 
-export function evaluateYoComptListCdr({
+export function evaluateYoComptimeListCdr({
   expr,
   env,
   context,
@@ -102,7 +106,11 @@ export function evaluateYoComptListCdr({
   env: Environment;
   context: EvaluatorContext;
 }): FnCallExpr {
-  expectExprToBeFunctionCallOf(expr, BuiltinFunctions.__yo_compt_list_cdr, 1);
+  expectExprToBeFunctionCallOf(
+    expr,
+    BuiltinFunctions.__yo_comptime_list_cdr,
+    1
+  );
 
   const argExpr = expr.args[0]!;
   const evaluatedArgExpr = evaluateExpression({
@@ -120,21 +128,21 @@ export function evaluateYoComptListCdr({
       )}`,
     });
   }
-  if (!isComptListType(evaluatedArgExpr.$.type)) {
+  if (!isComptimeListType(evaluatedArgExpr.$.type)) {
     throw formatErrorMessage({
       token: argExpr.token,
-      errorMessage: `Expected ComptList type for "${expr.func.token.value}" argument, got:\n${exprToString(
+      errorMessage: `Expected ComptimeList type for "${expr.func.token.value}" argument, got:\n${exprToString(
         argExpr
       )}`,
     });
   }
 
-  const comptListType = evaluatedArgExpr.$.type;
-  const comptListValue = evaluatedArgExpr.$.value;
-  if (!comptListValue) {
+  const comptimeListType = evaluatedArgExpr.$.type;
+  const comptimeListValue = evaluatedArgExpr.$.value;
+  if (!comptimeListValue) {
     throw formatErrorMessage({
       token: argExpr.token,
-      errorMessage: `Expected ComptList value for "${expr.func.token.value}" argument, got:\n${exprToString(
+      errorMessage: `Expected ComptimeList value for "${expr.func.token.value}" argument, got:\n${exprToString(
         argExpr
       )}`,
     });
@@ -142,22 +150,22 @@ export function evaluateYoComptListCdr({
 
   expr.$ = {
     env: evaluatedArgExpr.$.env,
-    type: comptListType,
-    value: createUnknownValue(comptListType), // Will be updated later
+    type: comptimeListType,
+    value: createUnknownValue(comptimeListType), // Will be updated later
     pathCollection: [],
     isAccessingProperty: false,
   };
 
-  if (isComptListValue(comptListValue)) {
-    const elements = comptListValue.elements;
+  if (isComptimeListValue(comptimeListValue)) {
+    const elements = comptimeListValue.elements;
     if (elements.length > 0) {
-      expr.$.value = createComptListValue(comptListType.childType, [
+      expr.$.value = createComptimeListValue(comptimeListType.childType, [
         ...elements.slice(1),
       ]);
     } else {
       throw formatErrorMessage({
         token: argExpr.token,
-        errorMessage: `Unexpected empty ComptList for "${expr.func.token.value}" argument`,
+        errorMessage: `Unexpected empty ComptimeList for "${expr.func.token.value}" argument`,
       });
     }
   }
@@ -165,7 +173,7 @@ export function evaluateYoComptListCdr({
   return expr;
 }
 
-export function evaluateYoComptListCons({
+export function evaluateYoComptimeListCons({
   expr,
   env,
   context,
@@ -174,7 +182,11 @@ export function evaluateYoComptListCons({
   env: Environment;
   context: EvaluatorContext;
 }): FnCallExpr {
-  expectExprToBeFunctionCallOf(expr, BuiltinFunctions.__yo_compt_list_cons, 2);
+  expectExprToBeFunctionCallOf(
+    expr,
+    BuiltinFunctions.__yo_comptime_list_cons,
+    2
+  );
 
   const carArg = evaluateExpression({
     expr: expr.args[0]!,
@@ -220,10 +232,10 @@ export function evaluateYoComptListCons({
     });
   }
   env = cdrArg.$.env;
-  if (!isComptListType(cdrArg.$.type)) {
+  if (!isComptimeListType(cdrArg.$.type)) {
     throw formatErrorMessage({
       token: cdrArg.token,
-      errorMessage: `Expected ComptList type for "${expr.func.token.value}" second argument, got:\n${exprToString(
+      errorMessage: `Expected ComptimeList type for "${expr.func.token.value}" second argument, got:\n${exprToString(
         cdrArg
       )}`,
     });
@@ -232,12 +244,12 @@ export function evaluateYoComptListCons({
   if (!cdrValue) {
     throw formatErrorMessage({
       token: cdrArg.token,
-      errorMessage: `Expected ComptList value for "${expr.func.token.value}" second argument, got:\n${exprToString(
+      errorMessage: `Expected ComptimeList value for "${expr.func.token.value}" second argument, got:\n${exprToString(
         cdrArg
       )}`,
     });
   }
-  const comptListType = cdrArg.$.type;
+  const comptimeListType = cdrArg.$.type;
   const carArgType = carArg.$.type;
   if (
     !areTypesCompatible(
@@ -245,27 +257,30 @@ export function evaluateYoComptListCons({
         type: carArgType,
         env,
       },
-      { type: comptListType.childType, env }
+      { type: comptimeListType.childType, env }
     )
   ) {
     throw formatErrorMessage({
       token: carArg.token,
-      errorMessage: `Type mismatch: cannot cons value of type "${typeToString(carArgType)}" to ComptList of base type "${typeToString(comptListType.childType)}" in "${expr.func.token.value}"`,
+      errorMessage: `Type mismatch: cannot cons value of type "${typeToString(carArgType)}" to ComptimeList of base type "${typeToString(comptimeListType.childType)}" in "${expr.func.token.value}"`,
     });
   }
 
   expr.$ = {
     env: env,
-    type: comptListType,
-    value: createUnknownValue(comptListType), // Will be updated later
+    type: comptimeListType,
+    value: createUnknownValue(comptimeListType), // Will be updated later
     pathCollection: [],
     isAccessingProperty: false,
   };
 
-  if (isComptListValue(cdrValue)) {
-    // Create a new ComptList value with the car as the first element
+  if (isComptimeListValue(cdrValue)) {
+    // Create a new ComptimeList value with the car as the first element
     const newElements = [carValue, ...cdrValue.elements];
-    expr.$.value = createComptListValue(comptListType.childType, newElements);
+    expr.$.value = createComptimeListValue(
+      comptimeListType.childType,
+      newElements
+    );
   } else {
     // cdrValue is unknown
   }
@@ -273,7 +288,7 @@ export function evaluateYoComptListCons({
   return expr;
 }
 
-export function evaluateYoComptListAppend({
+export function evaluateYoComptimeListAppend({
   expr,
   env,
   context,
@@ -284,7 +299,7 @@ export function evaluateYoComptListAppend({
 }): FnCallExpr {
   expectExprToBeFunctionCallOf(
     expr,
-    BuiltinFunctions.__yo_compt_list_append,
+    BuiltinFunctions.__yo_comptime_list_append,
     2
   );
 
@@ -305,10 +320,10 @@ export function evaluateYoComptListAppend({
     });
   }
   env = firstListArg.$.env;
-  if (!isComptListType(firstListArg.$.type)) {
+  if (!isComptimeListType(firstListArg.$.type)) {
     throw formatErrorMessage({
       token: firstListArg.token,
-      errorMessage: `Expected ComptList type for "${expr.func.token.value}" first argument, got:\n${exprToString(
+      errorMessage: `Expected ComptimeList type for "${expr.func.token.value}" first argument, got:\n${exprToString(
         firstListArg
       )}`,
     });
@@ -339,10 +354,10 @@ export function evaluateYoComptListAppend({
     });
   }
   env = secondListArg.$.env;
-  if (!isComptListType(secondListArg.$.type)) {
+  if (!isComptimeListType(secondListArg.$.type)) {
     throw formatErrorMessage({
       token: secondListArg.token,
-      errorMessage: `Expected ComptList type for "${expr.func.token.value}" second argument, got:\n${exprToString(
+      errorMessage: `Expected ComptimeList type for "${expr.func.token.value}" second argument, got:\n${exprToString(
         secondListArg
       )}`,
     });
@@ -351,47 +366,47 @@ export function evaluateYoComptListAppend({
   if (!secondListValue) {
     throw formatErrorMessage({
       token: secondListArg.token,
-      errorMessage: `Expected ComptList value for "${expr.func.token.value}" second argument, got:\n${exprToString(
+      errorMessage: `Expected ComptimeList value for "${expr.func.token.value}" second argument, got:\n${exprToString(
         secondListArg
       )}`,
     });
   }
 
-  // Check if the two ComptList have the same type
-  const firstComptListType = firstListArg.$.type;
-  const secondComptListType = secondListArg.$.type;
+  // Check if the two ComptimeList have the same type
+  const firstComptimeListType = firstListArg.$.type;
+  const secondComptimeListType = secondListArg.$.type;
   if (
     !areTypesCompatible(
       {
-        type: firstComptListType,
+        type: firstComptimeListType,
         env,
       },
-      { type: secondComptListType, env }
+      { type: secondComptimeListType, env }
     )
   ) {
     throw formatErrorMessage({
       token: expr.token,
-      errorMessage: `Type mismatch: cannot append ComptList of base type "${typeToString(secondComptListType.childType)}" to ComptList of base type "${typeToString(firstComptListType.childType)}" in "${expr.func.token.value}"`,
+      errorMessage: `Type mismatch: cannot append ComptimeList of base type "${typeToString(secondComptimeListType.childType)}" to ComptimeList of base type "${typeToString(firstComptimeListType.childType)}" in "${expr.func.token.value}"`,
     });
   }
 
   expr.$ = {
     env: env,
-    type: firstComptListType,
-    value: createUnknownValue(firstComptListType), // Will be updated later
+    type: firstComptimeListType,
+    value: createUnknownValue(firstComptimeListType), // Will be updated later
     pathCollection: [],
     isAccessingProperty: false,
   };
 
-  if (isComptListValue(firstListValue)) {
-    if (isComptListValue(secondListValue)) {
-      // merge two ComptList values
+  if (isComptimeListValue(firstListValue)) {
+    if (isComptimeListValue(secondListValue)) {
+      // merge two ComptimeList values
       const newElements = [
         ...firstListValue.elements,
         ...secondListValue.elements,
       ];
-      expr.$.value = createComptListValue(
-        firstComptListType.childType,
+      expr.$.value = createComptimeListValue(
+        firstComptimeListType.childType,
         newElements
       );
     } else {
@@ -404,7 +419,7 @@ export function evaluateYoComptListAppend({
   return expr;
 }
 
-export function evaluateYoComptListLength({
+export function evaluateYoComptimeListLength({
   expr,
   env,
   context,
@@ -415,7 +430,7 @@ export function evaluateYoComptListLength({
 }): FnCallExpr {
   expectExprToBeFunctionCallOf(
     expr,
-    BuiltinFunctions.__yo_compt_list_length,
+    BuiltinFunctions.__yo_comptime_list_length,
     1
   );
 
@@ -435,19 +450,19 @@ export function evaluateYoComptListLength({
       )}`,
     });
   }
-  if (!isComptListType(evaluatedArgExpr.$.type)) {
+  if (!isComptimeListType(evaluatedArgExpr.$.type)) {
     throw formatErrorMessage({
       token: argExpr.token,
-      errorMessage: `Expected ComptList type for "${expr.func.token.value}" argument, got:\n${exprToString(
+      errorMessage: `Expected ComptimeList type for "${expr.func.token.value}" argument, got:\n${exprToString(
         argExpr
       )}`,
     });
   }
-  const comptListValue = evaluatedArgExpr.$.value;
-  if (!comptListValue) {
+  const comptimeListValue = evaluatedArgExpr.$.value;
+  if (!comptimeListValue) {
     throw formatErrorMessage({
       token: argExpr.token,
-      errorMessage: `Expected ComptList value for "${expr.func.token.value}" argument, got:\n${exprToString(
+      errorMessage: `Expected ComptimeList value for "${expr.func.token.value}" argument, got:\n${exprToString(
         argExpr
       )}`,
     });
@@ -461,8 +476,8 @@ export function evaluateYoComptListLength({
     isAccessingProperty: false,
   };
 
-  if (isComptListValue(comptListValue)) {
-    const length = comptListValue.elements.length;
+  if (isComptimeListValue(comptimeListValue)) {
+    const length = comptimeListValue.elements.length;
     const lengthValue = createNumberValue(ValueTag.Usize, length);
     expr.$.value = lengthValue;
   }
@@ -470,7 +485,7 @@ export function evaluateYoComptListLength({
   return expr;
 }
 
-export function evaluateYoComptListElementType({
+export function evaluateYoComptimeListElementType({
   expr,
   env,
   context,
@@ -481,7 +496,7 @@ export function evaluateYoComptListElementType({
 }): FnCallExpr {
   expectExprToBeFunctionCallOf(
     expr,
-    BuiltinFunctions.__yo_compt_list_element_type,
+    BuiltinFunctions.__yo_comptime_list_element_type,
     1
   );
 
@@ -504,23 +519,23 @@ export function evaluateYoComptListElementType({
   if (!isTypeValue(evaluatedArgExpr.$?.value)) {
     throw formatErrorMessage({
       token: argExpr.token,
-      errorMessage: `Expected ComptList type for "${expr.func.token.value}" argument, got:\n${exprToString(
+      errorMessage: `Expected ComptimeList type for "${expr.func.token.value}" argument, got:\n${exprToString(
         argExpr
       )}`,
     });
   }
 
-  const comptListType = evaluatedArgExpr.$.value.value;
-  if (!isComptListType(comptListType)) {
+  const comptimeListType = evaluatedArgExpr.$.value.value;
+  if (!isComptimeListType(comptimeListType)) {
     throw formatErrorMessage({
       token: argExpr.token,
-      errorMessage: `Expected ComptList type for "${expr.func.token.value}" argument, got:\n${typeToString(
-        comptListType
+      errorMessage: `Expected ComptimeList type for "${expr.func.token.value}" argument, got:\n${typeToString(
+        comptimeListType
       )}`,
     });
   }
 
-  const typeValue = createTypeValue(comptListType.childType);
+  const typeValue = createTypeValue(comptimeListType.childType);
 
   expr.$ = {
     env: evaluatedArgExpr.$.env,

@@ -11,8 +11,8 @@ import {
 import { TokenType } from "../../token";
 import {
   isCCompatibleType,
-  isComptFloatType,
-  isComptIntType,
+  isComptimeFloatType,
+  isComptimeIntType,
   isEnumType,
   isFloatType,
   isIntegerType,
@@ -21,13 +21,13 @@ import {
   typeToString,
 } from "../../types";
 import {
-  createComptFloatValue,
-  createComptIntValue,
+  createComptimeFloatValue,
+  createComptimeIntValue,
   createNumberValue,
   createUnknownValue,
   EnumValue,
-  isComptFloatValue,
-  isComptIntValue,
+  isComptimeFloatValue,
+  isComptimeIntValue,
   isEnumValue,
   isNumberValue,
   NumberValue,
@@ -65,7 +65,7 @@ export function getNumericBounds(
       return { min: 0n, max: 18446744073709551615n };
     case TypeTag.Isize:
       return { min: -9223372036854775808n, max: 9223372036854775807n };
-    case TypeTag.ComptInt:
+    case TypeTag.ComptimeInt:
       return { min: -Infinity, max: Infinity }; // Unbounded
     case TypeTag.F32:
     case TypeTag.F64:
@@ -117,8 +117,8 @@ export function isConvertibleNumericType(type: Type): boolean {
   return (
     isIntegerType(type) ||
     isFloatType(type) ||
-    isComptIntType(type) ||
-    isComptFloatType(type) ||
+    isComptimeIntType(type) ||
+    isComptimeFloatType(type) ||
     isCCompatibleType(type)
   );
 }
@@ -138,9 +138,11 @@ function getEnumDiscriminant(enumValue: EnumValue): bigint | undefined {
 /**
  * Extract numeric value from a Value if it's compile-time known.
  */
-function extractComptNumericValue(value?: Value): number | bigint | undefined {
+function extractComptimeNumericValue(
+  value?: Value
+): number | bigint | undefined {
   if (!value) return undefined;
-  // isNumberValue includes ComptInt, ComptFloat, and all concrete numeric types
+  // isNumberValue includes ComptimeInt, ComptimeFloat, and all concrete numeric types
   if (isNumberValue(value)) {
     return value.value;
   }
@@ -150,16 +152,18 @@ function extractComptNumericValue(value?: Value): number | bigint | undefined {
 /**
  * Check if a number value is compile-time known.
  */
-function isComptNumberValue(value?: Value): boolean {
+function isComptimeNumberValue(value?: Value): boolean {
   return (
-    isComptIntValue(value) || isComptFloatValue(value) || isNumberValue(value)
+    isComptimeIntValue(value) ||
+    isComptimeFloatValue(value) ||
+    isNumberValue(value)
   );
 }
 
 /**
  * Create a compile-time value of the target type.
  */
-function createComptValueOfType(
+function createComptimeValueOfType(
   numericValue: number | bigint,
   targetType: Type,
   errorToken: Expr["token"]
@@ -195,17 +199,17 @@ function createComptValueOfType(
   }
 
   // Create the appropriate value type
-  if (isComptIntType(targetType)) {
+  if (isComptimeIntType(targetType)) {
     const bigValue =
       typeof numericValue === "bigint"
         ? numericValue
         : BigInt(Math.floor(numericValue));
-    return createComptIntValue(bigValue);
+    return createComptimeIntValue(bigValue);
   }
-  if (isComptFloatType(targetType)) {
+  if (isComptimeFloatType(targetType)) {
     const numValue =
       typeof numericValue === "bigint" ? Number(numericValue) : numericValue;
-    return createComptFloatValue(numValue);
+    return createComptimeFloatValue(numValue);
   }
   if (isFloatType(targetType)) {
     const tag = getValueTagFromType(targetType);
@@ -299,7 +303,7 @@ export function tryToConvertToNumericType({
     }
 
     if (targetType.availability.comptime) {
-      const resultValue = createComptValueOfType(
+      const resultValue = createComptimeValueOfType(
         discriminant,
         targetType,
         expr.token
@@ -317,8 +321,8 @@ export function tryToConvertToNumericType({
   // Check if the source is a numeric type
   if (
     !isConvertibleNumericType(argType) &&
-    !isComptIntType(argType) &&
-    !isComptFloatType(argType) &&
+    !isComptimeIntType(argType) &&
+    !isComptimeFloatType(argType) &&
     !isEnumType(argType)
   ) {
     throw formatErrorMessage({
@@ -328,10 +332,10 @@ export function tryToConvertToNumericType({
   }
 
   // Case 1: Compile-time value -> any supported type
-  const comptValue = extractComptNumericValue(argValue);
-  if (comptValue !== undefined && targetType.availability.comptime) {
-    const resultValue = createComptValueOfType(
-      comptValue,
+  const comptimeValue = extractComptimeNumericValue(argValue);
+  if (comptimeValue !== undefined && targetType.availability.comptime) {
+    const resultValue = createComptimeValueOfType(
+      comptimeValue,
       targetType,
       expr.token
     );
@@ -344,9 +348,9 @@ export function tryToConvertToNumericType({
     return { expr, env };
   }
 
-  // Case 2: Converting TO compt_int or compt_float requires a compile-time value
-  if (isComptIntType(targetType) || isComptFloatType(targetType)) {
-    if (comptValue === undefined) {
+  // Case 2: Converting TO comptime_int or comptime_float requires a compile-time value
+  if (isComptimeIntType(targetType) || isComptimeFloatType(targetType)) {
+    if (comptimeValue === undefined) {
       throw formatErrorMessage({
         token: argExpr.token,
         errorMessage: `Cannot convert runtime value to ${typeToString(targetType)}. Only compile-time values can be converted to ${typeToString(targetType)}.`,
@@ -355,22 +359,22 @@ export function tryToConvertToNumericType({
     // Already handled in Case 1
   }
 
-  // Case 2.5: If the arg type is a compile-time type (compt_int or compt_float)
+  // Case 2.5: If the arg type is a compile-time type (comptime_int or comptime_float)
   // and the target type supports compile-time values, we can handle it at compile-time.
   // This is important for the checking phase where we don't have the actual value yet,
   // but we know from the type that it will be a compile-time value.
   // We create an UnknownValue with the target type to indicate that this will be
   // a compile-time value once the actual value is known.
   if (
-    (isComptIntType(argType) || isComptFloatType(argType)) &&
+    (isComptimeIntType(argType) || isComptimeFloatType(argType)) &&
     targetType.availability.comptime
   ) {
     // During checking phase, we may have a placeholder value but the type tells us
     // this will be a compile-time conversion. Create an appropriate value.
-    if (comptValue !== undefined) {
+    if (comptimeValue !== undefined) {
       // We have the actual value, create the result
-      const resultValue = createComptValueOfType(
-        comptValue,
+      const resultValue = createComptimeValueOfType(
+        comptimeValue,
         targetType,
         expr.token
       );
@@ -388,7 +392,10 @@ export function tryToConvertToNumericType({
       expr.$ = {
         env,
         type: targetType,
-        value: createUnknownValue(targetType, "compt_conversion_placeholder"),
+        value: createUnknownValue(
+          targetType,
+          "comptime_conversion_placeholder"
+        ),
         pathCollection: [],
       };
       return { expr, env };
@@ -397,7 +404,7 @@ export function tryToConvertToNumericType({
 
   // Case 3: Runtime conversion - transform to __yo_as(value, TargetType) call
   // For C compatible types or runtime values, we generate __yo_as call
-  if (isCCompatibleType(targetType) || !isComptNumberValue(argValue)) {
+  if (isCCompatibleType(targetType) || !isComptimeNumberValue(argValue)) {
     // Create __yo_as(value, TargetType) call
     // We need to properly transform the expr
     const yoAsFuncExpr: FnCallExpr = {
@@ -430,9 +437,9 @@ export function tryToConvertToNumericType({
 
   // Case 4: Compile-time value -> compile-time result (already handled in Case 1)
   // This shouldn't be reached, but just in case
-  if (comptValue !== undefined) {
-    const resultValue = createComptValueOfType(
-      comptValue,
+  if (comptimeValue !== undefined) {
+    const resultValue = createComptimeValueOfType(
+      comptimeValue,
       targetType,
       expr.token
     );

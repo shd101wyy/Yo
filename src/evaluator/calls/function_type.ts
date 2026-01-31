@@ -208,7 +208,7 @@ export function tryToImplementFunctionByFunctionType({
     frameLevel: env.frames.length - 1,
     funcName: undefined,
     funcId: `fn_${randomId(env.modulePath)}`,
-    calledComptFunctionCaches: [],
+    calledComptimeFunctionCaches: [],
     specializedFunctionCaches: [],
   };
 
@@ -328,7 +328,7 @@ export function tryToImplementFunctionByFunctionType({
   }
 
   // Reset the cache
-  // functionValue.calledComptFunctionCaches = [];
+  // functionValue.calledComptimeFunctionCaches = [];
 
   // If we're in CTFE analysis mode OR actually executing a CTFE function
   // (forceCompileTimeBindings is true), also analyze this nested function for CTFE capability.
@@ -337,15 +337,15 @@ export function tryToImplementFunctionByFunctionType({
   let finalFunctionType = newFunctionType;
 
   if (context.isAnalyzingCtfeCapability || context.forceCompileTimeBindings) {
-    const comptFunctionValue = analyzeCtfeCapability(
+    const comptimeFunctionValue = analyzeCtfeCapability(
       functionValue,
       finalCallerEnv,
       context
     );
-    if (comptFunctionValue) {
+    if (comptimeFunctionValue) {
       // Use the CTFE version so it can be called at compile-time
-      finalFunctionValue = comptFunctionValue;
-      finalFunctionType = comptFunctionValue.type;
+      finalFunctionValue = comptimeFunctionValue;
+      finalFunctionType = comptimeFunctionValue.type;
     }
   }
 

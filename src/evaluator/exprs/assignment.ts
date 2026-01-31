@@ -21,7 +21,7 @@ import {
 import {
   areTypesCompatible,
   ArrayType,
-  convertComptTypeToRuntimeType,
+  convertComptimeTypeToRuntimeType,
   createArrayType,
   EnumType,
   isArrayType,
@@ -270,9 +270,9 @@ You can mutate fields (e.g., ${variableName}.field = value) but cannot reassign 
     }
 
     // Convert compile-time types to runtime types if needed
-    // For example: compt_string -> [u8] when assigning to a [u8] variable
+    // For example: comptime_string -> [u8] when assigning to a [u8] variable
     if (!variable.isCompileTimeOnly) {
-      rhsType = convertComptTypeToRuntimeType({
+      rhsType = convertComptimeTypeToRuntimeType({
         type: rhsType,
         expectedType: variable.type,
         expr: rhs,

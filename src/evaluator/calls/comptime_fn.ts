@@ -1,7 +1,10 @@
 import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import { cloneExpr, Expr } from "../../expr";
-import { CalledComptFunctionCache, FunctionValue } from "../../function-value";
+import {
+  CalledComptimeFunctionCache,
+  FunctionValue,
+} from "../../function-value";
 import { PlaceholderToken } from "../../token";
 import {
   areTypesCompatible,
@@ -29,7 +32,7 @@ import { evaluateBeginExpression } from "../exprs/begin";
  * Calling function that returns compile-time known value.
  * The return value will be cached.
  */
-export function evaluateComptFunctionCall({
+export function evaluateComptimeFunctionCall({
   functionCalleeExpr,
   functionType,
   functionValue,
@@ -81,11 +84,11 @@ export function evaluateComptFunctionCall({
 
   // Check if it's in the cache (only for type-returning functions)
   const funcId = functionValue.funcId;
-  const calledComptFunctions = functionValue.calledComptFunctionCaches;
+  const calledComptimeFunctions = functionValue.calledComptimeFunctionCaches;
 
   // Check if the function is already called (only if caching is enabled).
-  const calledComptFunction = shouldCache
-    ? calledComptFunctions.find((cache) => {
+  const calledComptimeFunction = shouldCache
+    ? calledComptimeFunctions.find((cache) => {
         return (
           cache.argValues.length === argValues.length &&
           cache.argValues.every((argValue, index) => {
@@ -134,11 +137,11 @@ export function evaluateComptFunctionCall({
         ); // Check if the values are equal
       })
     : undefined;
-  if (calledComptFunction) {
+  if (calledComptimeFunction) {
     return {
       callerEnv,
       calleeEnv,
-      value: calledComptFunction.value,
+      value: calledComptimeFunction.value,
     };
   }
 
@@ -147,7 +150,7 @@ export function evaluateComptFunctionCall({
 
   // Create a temporary environment for the function call
   // This is to prevent the infinite loop of calling the same function
-  const tempCache: CalledComptFunctionCache = {
+  const tempCache: CalledComptimeFunctionCache = {
     funcId,
     argValues,
     value: createUnknownValue(
@@ -160,8 +163,8 @@ export function evaluateComptFunctionCall({
     body: cloneExpr(functionBodyExpr), // NOTE: Clone here is necessary
   };
   // Add the temp cache directly to the function's cache array
-  functionValue.calledComptFunctionCaches.push(tempCache);
-  const tempCacheIndex = functionValue.calledComptFunctionCaches.length - 1;
+  functionValue.calledComptimeFunctionCaches.push(tempCache);
+  const tempCacheIndex = functionValue.calledComptimeFunctionCaches.length - 1;
 
   let evaluatedFunctionBody;
   try {
@@ -198,7 +201,7 @@ export function evaluateComptFunctionCall({
     // If an error is thrown during evaluation, remove the temp cache entry
     // to ensure the error is properly re-thrown on subsequent calls with
     // the same arguments
-    functionValue.calledComptFunctionCaches.splice(tempCacheIndex, 1);
+    functionValue.calledComptimeFunctionCaches.splice(tempCacheIndex, 1);
     throw error;
   }
 
@@ -242,7 +245,7 @@ export function evaluateComptFunctionCall({
   // Update the temp cache with the actual result.
   // Only keep the cache for type-returning functions; remove for others.
   if (shouldCache) {
-    functionValue.calledComptFunctionCaches[tempCacheIndex] = {
+    functionValue.calledComptimeFunctionCaches[tempCacheIndex] = {
       funcId,
       argValues,
       value: returnValue,
@@ -250,7 +253,7 @@ export function evaluateComptFunctionCall({
       body: evaluatedFunctionBody,
     };
   } else {
-    functionValue.calledComptFunctionCaches.splice(tempCacheIndex, 1);
+    functionValue.calledComptimeFunctionCaches.splice(tempCacheIndex, 1);
   }
 
   return {

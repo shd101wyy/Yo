@@ -14,7 +14,7 @@ import {
   CodeGenContext,
   findReturnedAsyncBlock,
   getTypeString,
-  isComptFunction,
+  isComptimeFunction,
   isFunctionValueWithOnlyBuiltinYoInlineFunctionCall,
   sanitizeForCIdentifier,
 } from "../utils";
@@ -82,7 +82,7 @@ export function generateFunctionDeclarations(
 
     if (
       isFunctionSpecializable(value.type) ||
-      isComptFunction(value) ||
+      isComptimeFunction(value) ||
       isFunctionValueWithOnlyBuiltinYoInlineFunctionCall(value)
     ) {
       continue;
@@ -373,7 +373,7 @@ export function generateSpecializedFunctionDeclarations(
       context.functions[funcId]!;
     const specializedFunctionType = functionValue.specializedType;
 
-    if (isComptFunction(functionValue)) {
+    if (isComptimeFunction(functionValue)) {
       // Skip compile-time only functions
       continue;
     }

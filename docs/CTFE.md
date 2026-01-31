@@ -84,7 +84,7 @@ Types are values in Yo, enabling powerful compile-time type manipulation:
 
 ```yo
 // Create a generic container type at compile-time
-Container :: (fn(compt(T) : Type) -> compt(Type))
+Container :: (fn(comptime(T) : Type) -> comptime(Type))
   object(
     value : T
   )
@@ -97,7 +97,7 @@ StringContainer :: Container(String);
 
 ### 4. Compile-Time Assertions
 
-Use `compt_assert` to verify conditions at compile-time:
+Use `comptime_assert` to verify conditions at compile-time:
 
 ```yo
 fib :: (fn(n : i32) -> i32) {
@@ -108,9 +108,9 @@ fib :: (fn(n : i32) -> i32) {
 };
 
 // These assertions are checked at compile-time
-compt_assert(fib(0) == 0);
-compt_assert(fib(1) == 1);
-compt_assert(fib(10) == 55);
+comptime_assert(fib(0) == 0);
+comptime_assert(fib(1) == 1);
+comptime_assert(fib(10) == 55);
 ```
 
 ### 5. Compile-Time Parameters
@@ -119,7 +119,7 @@ Use `compt` to require compile-time known parameters:
 
 ```yo
 // T must be known at compile-time for monomorphization
-Array :: (fn(compt(T) : Type, compt(N) : usize) -> compt(Type))
+Array :: (fn(comptime(T) : Type, comptime(N) : usize) -> comptime(Type))
   struct(
     data : [T; N]
   )
@@ -187,9 +187,9 @@ CTFE cannot be used when:
 
 1. **Pure Functions**: Write pure functions (no side effects) for best CTFE results.
 
-2. **Use `compt_assert`**: Verify compile-time assumptions with `compt_assert`.
+2. **Use `comptime_assert`**: Verify compile-time assumptions with `comptime_assert`.
 
-3. **Leverage Type Parameters**: Use `compt(T) : Type` for generic functions that need monomorphization.
+3. **Leverage Type Parameters**: Use `comptime(T) : Type` for generic functions that need monomorphization.
 
 4. **Trust the Compiler**: Don't over-annotate. Let Yo's automatic CTFE analysis do its job.
 
@@ -217,7 +217,7 @@ is_prime :: (fn(n : i32) -> bool) {
 };
 
 // All evaluated at compile-time
-compt_assert(is_prime(2) == true);
-compt_assert(is_prime(17) == true);
-compt_assert(is_prime(18) == false);
+comptime_assert(is_prime(2) == true);
+comptime_assert(is_prime(17) == true);
+comptime_assert(is_prime(18) == false);
 ```

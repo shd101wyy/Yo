@@ -10,7 +10,7 @@ import {
   areTypesCompatible,
   canTypeFormRcCycle,
   createBooleanType,
-  createComptStringType,
+  createComptimeStringType,
   isTraitType,
   isTypeHierarchyType,
   TraitType,
@@ -19,7 +19,7 @@ import {
 } from "../../types";
 import {
   createBooleanValue,
-  createComptStringValue,
+  createComptimeStringValue,
   createUnknownValue,
   isTraitValue,
   isTypeValue,
@@ -39,7 +39,7 @@ export function evaluateYoTypeToString({
 }): FnCallExpr {
   expectExprToBeFunctionCallOf(
     expr,
-    BuiltinFunctions.__yo_type_to_compt_string,
+    BuiltinFunctions.__yo_type_to_comptime_string,
     1
   );
 
@@ -78,14 +78,14 @@ export function evaluateYoTypeToString({
 
   expr.$ = {
     env: arg.$.env,
-    type: createComptStringType(),
-    value: createUnknownValue(createComptStringType()), // Will be updated later
+    type: createComptimeStringType(),
+    value: createUnknownValue(createComptimeStringType()), // Will be updated later
     pathCollection: [],
     isAccessingProperty: false,
   };
 
   if (isTypeValue(typeValue)) {
-    expr.$.value = createComptStringValue(typeToString(typeValue.value));
+    expr.$.value = createComptimeStringValue(typeToString(typeValue.value));
   }
   return expr;
 }
@@ -286,7 +286,7 @@ export function evaluateYoTypeCanFormRcCycle({
 /**
  * Check if a type implements a trait.
  * Usage: __yo_type_impls(SomeType, SomeTrait)
- * Returns: compt(bool)
+ * Returns: comptime(bool)
  *
  * This checks if the type's trait has a field whose assignedValue is a ModuleValue
  * that structurally matches the given trait (with the type as the receiver).
@@ -356,7 +356,7 @@ export function evaluateYoTypeImpls({
   }
 
   // The trait argument should be a type value containing a trait type
-  // Or it could be the trait type directly (when passed as a compt parameter)
+  // Or it could be the trait type directly (when passed as a comptime parameter)
   // If the argument is a compile-time unknown (Type hierarchy), return unknown bool
   let expectedTraitType: TraitType;
 

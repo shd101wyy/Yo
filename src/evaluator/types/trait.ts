@@ -110,11 +110,11 @@ All trait fields are compile-time only by default.`,
     // Check if it's compile-time only
     if (
       exprIsFunctionCall(labelExpr) &&
-      exprIsFunctionCallOf(labelExpr, BuiltinKeywords.compt, 1)
+      exprIsFunctionCallOf(labelExpr, BuiltinKeywords.comptime, 1)
     ) {
       throw formatErrorMessage({
         token: labelExpr.token,
-        errorMessage: `No need to use "compt" modifier. All trait fields are compile-time only by default.`,
+        errorMessage: `No need to use "comptime" modifier. All trait fields are compile-time only by default.`,
       });
     }
 
@@ -127,11 +127,11 @@ All trait fields are compile-time only by default.`,
     label = labelExpr.token.value;
   } else if (
     exprIsFunctionCall(expr_) &&
-    exprIsFunctionCallOf(expr_, BuiltinKeywords.compt, 1)
+    exprIsFunctionCallOf(expr_, BuiltinKeywords.comptime, 1)
   ) {
     throw formatErrorMessage({
       token: expr_.token,
-      errorMessage: `No need to use "compt" modifier. All trait fields are compile-time only by default.`,
+      errorMessage: `No need to use "comptime" modifier. All trait fields are compile-time only by default.`,
     });
   } else if (!defaultValueExpr && !assignedValueExpr) {
     throw formatErrorMessage({

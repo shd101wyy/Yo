@@ -69,7 +69,7 @@ Note: `where` must come after `forall` and is optional. `forall` must be the 1st
 
 1. **Should generic impls be lazily instantiated?** When `Data(i32) <: Copy` is checked, we could either just return true, or actually instantiate and attach the impl to `Data(i32)`. Lazy instantiation would be cleaner but requires changes to method lookup. Recommend: just check for match, don't instantiate.
 
-2. **How to handle builtin types like `Array(T, Size)`?** The same pattern should work - `Array` returns a type when called. Need to verify `Array` is implemented as a function returning `compt(Type)` like `Data`. If not, may need special handling.
+2. **How to handle builtin types like `Array(T, Size)`?** The same pattern should work - `Array` returns a type when called. Need to verify `Array` is implemented as a function returning `comptime(Type)` like `Data`. If not, may need special handling.
 
 3. **Cleanup strategy for generic impls?** The `sourceModulePath` tracking should work the same way as direct impls - store it and filter on re-evaluation.
 

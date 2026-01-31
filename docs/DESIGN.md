@@ -130,7 +130,7 @@ Our goal is to be a practical language that is easy to use and easy to learn.
 
 - **Simple syntax inspired by Lisp** (no keywords, minimal)
 - **First-class types** (types are values)
-- **Compile-time evaluation** (powerful `compt` system)
+- **Compile-time evaluation** (powerful `comptime` system)
 - **Reference counting with ownership analysis** (eliminate unnecessary RC)
 - **Pointer-based memory model** (no references/borrowing complexity)
 
@@ -370,15 +370,15 @@ s2 := s1;  // s2 and s1 point to the same object (reference counted)
 Variables in Yo are declared with `:=` (runtime) or `::` (compile-time).
 
 ```rust
-               // "compt" here means compile-time known
+               // "comptime" here means compile-time known
 x := 5;        // x: i32, runtime variable
-y :: 5;        // y: compt_int, compile-time variable
+y :: 5;        // y: comptime_int, compile-time variable
 
 // with explicit type declaration
 (x : i32) = 5; // x: i32, runtime variable
-(compt(y) : compt_int) = 5; // y: compt_int, compile-time variable
+(comptime(y) : comptime_int) = 5; // y: comptime_int, compile-time variable
 // or
-compt(y) := 5;
+comptime(y) := 5;
 
 // All variables are mutable by default
 x := 1;
@@ -390,16 +390,16 @@ x = 2;  // OK: reassignment is allowed
 // (::) function is used to denote a comptime variable with type inferred
 
 x : i32;        // Define a runtime variable
-compt(x) : i32; // Define a compile-time variable
+comptime(x) : i32; // Define a compile-time variable
 // All variables are mutable by default. There is no immutable variable, for simplicity.
 
 // Initialize variables
-(compt(x) : compt_int) = 12;
+(comptime(x) : comptime_int) = 12;
 (y : i32) = 14;
 (z : i32) = 16;
 
 // can be written as:
-(=)((:)(compt(x), compt_int), 12);
+(=)((:)(comptime(x), comptime_int), 12);
 (=)((:)(y, i32), 14);
 (=)((:)(z, i32), 16);
 
@@ -488,7 +488,7 @@ add :: (fn(x : i32, y : i32) -> i32)
 // calling a function type with function body creates a function value
 
 // Or define type first, then implementation
-compt(add) : (fn(x : i32, y : i32) -> i32);
+comptime(add) : (fn(x : i32, y : i32) -> i32);
 add = _(x + y); // `_` here infers the function type from `add`
 
 // or define the function body with anonymous function
@@ -504,8 +504,8 @@ divide :: (fn(x : i32, y : i32) -> i32)
   (x / y)
 ;
 
-// Function can take `compt` parameter and can return `compt` value, like Type:
-Point :: (fn(compt(T) : Type) -> compt(Type)) {
+// Function can take `comptime` parameter and can return `comptime` value, like Type:
+Point :: (fn(comptime(T) : Type) -> comptime(Type)) {
   return struct(
     x : T,
     y : T
@@ -938,7 +938,7 @@ arr := [1, 2, 3, 4, 5];
 len := arr.len();  // 5 (compile-time for arrays, runtime for slices)
 
 // Works with generic arrays
-generic_len :: (fn(compt(T) : Type, compt(n) : usize, arr : [T; n]) -> usize)
+generic_len :: (fn(comptime(T) : Type, comptime(n) : usize, arr : [T; n]) -> usize)
   arr.len()  // Returns n
 ;
 ```
@@ -1091,7 +1091,7 @@ There is also some optimization on the ADT. For example, if the ADT has only one
 In addition, if there is only one variant with one field, the field type will be used directly instead of wrapping it in a record. This is like the [newtype](https://wiki.haskell.org/Newtype) in Haskell.
 
 ```rust
-Option :: (fn(compt(T) : Type) -> compt(Type))
+Option :: (fn(comptime(T) : Type) -> comptime(Type))
   enum(
     Some(value : T),
     None
@@ -1736,7 +1736,7 @@ Yo provides `Box` and `box` for heap-allocating value types with automatic refer
 
 ```rust
 // Box is defined in std/prelude.yo
-Box :: (fn(compt(V) : Type) -> compt(Type))
+Box :: (fn(comptime(V) : Type) -> comptime(Type))
   object(
     (*) : V
   )
@@ -1918,7 +1918,7 @@ Yo uses the `Result` type for error handling, similar to Rust:
 
 ```rust
 // Define Result type (from standard library)
-Result :: (fn(compt(T): Type, compt(E): Type) -> compt(Type))
+Result :: (fn(comptime(T): Type, comptime(E): Type) -> comptime(Type))
   enum(
     Ok(value : T),
     Error(error : E)
@@ -2003,7 +2003,7 @@ export test;
 
 // module2.yo
 // Export the type
-Option :: (fn(compt(T): Type) -> compt(Type))
+Option :: (fn(comptime(T): Type) -> comptime(Type))
   enum(
     Some(value : T),
     None
@@ -2161,18 +2161,18 @@ test "Runtime assertions", {
 
 #### Compile-Time Assertions
 
-Use `compt_assert` for compile-time verification:
+Use `comptime_assert` for compile-time verification:
 
 ```rust
 test "Compile-time assertions", {
   // These are checked during compilation
-  compt_assert((2 + 2) == 4);
-  compt_assert(Array(i32, 5).fill(0).len() == 5);
-  compt_assert(f32(3.14) > f32(3.0));
+  comptime_assert((2 + 2) == 4);
+  comptime_assert(Array(i32, 5).fill(0).len() == 5);
+  comptime_assert(f32(3.14) > f32(3.0));
 
   // Type-level assertions
   T :: i32;
-  compt_assert(Type.to_string(T) == "i32");
+  comptime_assert(Type.to_string(T) == "i32");
 };
 ```
 
@@ -2183,12 +2183,12 @@ Verify that certain code produces compile-time errors:
 ```rust
 test "Expected compile errors", {
   // Expect an error without specific message
-  compt_expect_error({
+  comptime_expect_error({
     x :: (1 / 0);  // Division by zero
   });
 
   // Expect an error with specific message
-  compt_expect_error(
+  comptime_expect_error(
     {
       arr : Array(i32, _);
       arr = [1, 2, 3];
@@ -2197,7 +2197,7 @@ test "Expected compile errors", {
   );
 
   // Test that certain patterns are invalid
-  compt_expect_error({
+  comptime_expect_error({
     closure1 := ((x) => (x + 1));
     closure2 := ((x) => (x + 1));
     // Each closure has unique type
@@ -2275,7 +2275,7 @@ For comprehensive test examples, see the [tests/](../tests/) directory.
 `unquote_splicing` can only be used in `quote` to splice the values into the AST.
 
 ```rust
-x := quote(2); // compt(x) : Expr
+x := quote(2); // comptime(x) : Expr
 
 list := quote((1, unquote(x), 3)); // tuple (1, 2, 3)
 
@@ -2344,15 +2344,15 @@ Variables declared with `::` are compile-time constants:
 
 ```rust
 // Compile-time integer
-x :: 42;                    // compt_int
-y :: (x + 10);              // compt_int = 52
+x :: 42;                    // comptime_int
+y :: (x + 10);              // comptime_int = 52
 
 // Compile-time type
-MyInt :: i32;               // compt(Type)
+MyInt :: i32;               // comptime(Type)
 value := MyInt(100);        // Runtime i32
 
 // Compile-time computation
-factorial :: (fn(compt(n) : compt_int) -> compt(compt_int))
+factorial :: (fn(comptime(n) : comptime_int) -> comptime(comptime_int))
   cond(
     (n <= 1) => 1,
     true => (n * recur(n - 1))
@@ -2406,7 +2406,7 @@ len :: arr.len();          // 5 (compile-time)
 zeros :: Array(i32, 10).fill(0);  // [0,0,0,0,0,0,0,0,0,0]
 
 // Generic array function
-create_array :: (fn(compt(T) : Type, compt(n) : usize, value : T) -> [T; n])
+create_array :: (fn(comptime(T) : Type, comptime(n) : usize, value : T) -> [T; n])
   Array(T, n).fill(value)
 ;
 
@@ -2415,18 +2415,18 @@ int_array :: create_array(i32, 5, 42);  // [42,42,42,42,42]
 
 ### Compile-Time Assertions
 
-Use `compt_assert` to verify compile-time conditions:
+Use `comptime_assert` to verify compile-time conditions:
 
 ```rust
 test "Compile-time assertions", {
   // These are checked at compile time
-  compt_assert((2 + 2) == 4);
-  compt_assert(f32(100.5) > f32(50.0));
-  compt_assert(Array(i32, 5).fill(0).len() == 5);
+  comptime_assert((2 + 2) == 4);
+  comptime_assert(f32(100.5) > f32(50.0));
+  comptime_assert(Array(i32, 5).fill(0).len() == 5);
 
   // Compile-time type checks
   T :: i32;
-  compt_assert(Type.to_string(T) == "i32");
+  comptime_assert(Type.to_string(T) == "i32");
 };
 ```
 
@@ -2437,12 +2437,12 @@ Test that code produces compile-time errors:
 ```rust
 test "Expected compile errors", {
   // Verify that this code produces an error
-  compt_expect_error(
+  comptime_expect_error(
     x :: (1 / 0),  // Division by zero
     "Division by zero"
   );
 
-  compt_expect_error({
+  comptime_expect_error({
     arr : Array(i32, _);  // Cannot infer length in binding
     arr = [1, 2, 3];
   });
@@ -2454,9 +2454,9 @@ test "Expected compile errors", {
 Understanding when things happen:
 
 ```rust
-// Compile-time: declared with :: or compt(...)
+// Compile-time: declared with :: or comptime(...)
 COMPT_VALUE :: 42;                // Computed at compile time
-ComptType :: i32;                 // Type selected at compile time
+ComptimeType :: i32;                 // Type selected at compile time
 
 // Runtime: declared with :=
 runtime_value := 42;              // Computed at runtime
@@ -2467,7 +2467,7 @@ runtime_type := i32(100);         // Value created at runtime
                                   // Value computed at runtime
 
 // Compile-time function parameter
-array_fn :: (fn(compt(n) : usize) -> Array(i32, n))
+array_fn :: (fn(comptime(n) : usize) -> Array(i32, n))
   Array(i32, n).fill(0)
 ;                                 // n must be known at compile time
 
@@ -2484,7 +2484,7 @@ increment :: (fn(x : i32) -> i32)
 3. **Generic programming**: Type-level abstraction without runtime overhead
 4. **Metaprogramming**: Generate code based on compile-time information
 
-For more examples, see [compt.test.yo](../tests/compt.test.yo).
+For more examples, see [comptime.test.yo](../tests/comptime.test.yo).
 
 ## In Design
 

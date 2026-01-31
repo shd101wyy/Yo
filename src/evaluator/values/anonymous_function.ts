@@ -165,8 +165,8 @@ export function evaluateAnonymousFunctionImplementation({
   // Add parameters to environment
   env = pushEnvFrame(env);
 
-  // Validate parameter names for compt parameters (forall, implicit, and compt regular parameters)
-  // Check forall parameters (always compt)
+  // Validate parameter names for comptime parameters (forall, implicit, and comptime regular parameters)
+  // Check forall parameters (always comptime)
   for (let i = 0; i < forallParamExprs.length; i++) {
     const paramExpr = forallParamExprs[i]!;
     const expectedParam = functionType.forallParameters[i]!;
@@ -217,13 +217,13 @@ Got:      "${paramName}"`,
     }
   }
 
-  // Check regular parameters (only compt ones need exact matching)
+  // Check regular parameters (only comptime ones need exact matching)
   for (let i = 0; i < regularParamExprs.length; i++) {
     const paramExpr = regularParamExprs[i]!;
     const expectedParam = functionType.parameters[i]!;
 
     if (expectedParam.isCompileTimeOnly) {
-      // For compt parameters, require exact name matching (except for _ which is a wildcard)
+      // For comptime parameters, require exact name matching (except for _ which is a wildcard)
       if (!exprIsAtom(paramExpr)) {
         throw formatErrorMessage({
           token: paramExpr.token,
@@ -286,15 +286,15 @@ Got:      "${paramName}"`,
   // Create new function type using expected forall/implicit parameters and mixing anonymous + expected regular parameters
   const newFunctionType: FunctionType = {
     ...functionType,
-    // forall parameters must use expected names/types entirely (they're always compt)
+    // forall parameters must use expected names/types entirely (they're always comptime)
     forallParameters: functionType.forallParameters,
-    // For regular parameters: use expected types but allow anonymous names for non-compt parameters
+    // For regular parameters: use expected types but allow anonymous names for non-comptime parameters
     parameters: functionType.parameters.map((expectedParam, index) => {
       if (expectedParam.isCompileTimeOnly) {
-        // Compt parameters must use expected name and type
+        // Comptime parameters must use expected name and type
         return expectedParam;
       } else {
-        // Non-compt parameters can use anonymous function's name with expected type
+        // Non-comptime parameters can use anonymous function's name with expected type
         const paramExpr = regularParamExprs[index]!;
         return {
           ...expectedParam,
@@ -326,7 +326,7 @@ Got:      "${paramName}"`,
     body: functionBodyExpr,
     frameLevel: env.frames.length - 1,
     funcId: `fn_${randomId(env.modulePath)}`,
-    calledComptFunctionCaches: [],
+    calledComptimeFunctionCaches: [],
     specializedFunctionCaches: [],
   };
 
@@ -446,14 +446,14 @@ Got:      "${paramName}"`,
     (context.isAnalyzingCtfeCapability || context.forceCompileTimeBindings) &&
     !isCreatingClosure
   ) {
-    const comptFunctionValue = analyzeCtfeCapability(
+    const comptimeFunctionValue = analyzeCtfeCapability(
       functionValue,
       env,
       context
     );
-    if (comptFunctionValue) {
+    if (comptimeFunctionValue) {
       // Use the CTFE version for nested anonymous functions
-      finalFunctionValue = comptFunctionValue;
+      finalFunctionValue = comptimeFunctionValue;
     }
   }
 

@@ -155,7 +155,7 @@ When debugging the evaluator, use `typeToString`, `exprToString`, and `valueToSt
 The `Box` and `box` functions are implemented in `prelude.yo`:
 
 ```
-Box :: (fn(compt(V) : Type) -> compt(Type))
+Box :: (fn(comptime(V) : Type) -> comptime(Type))
   object(
     (*) : V
   )
@@ -181,7 +181,7 @@ While the template string returns `String` type which is utf-8 encoded `object` 
 
 `str` is a builtin type, so don't use it as a new variable or type name.
 
-Yo will try to run CTFE (Compile-Time Function Evaluation) analysis (see cfte-analysis.ts) on function value. Basically it will try to replace all the parameters/return as `compt`, and re-evaluate the function body at compile-time context. If it succeeds, then the function value can be called at compile-time.
+Yo will try to run CTFE (Compile-Time Function Evaluation) analysis (see cfte-analysis.ts) on function value. Basically it will try to replace all the parameters/return as `comptime`, and re-evaluate the function body at compile-time context. If it succeeds, then the function value can be called at compile-time.
 
 Please note if expr.$.value == undefined, it means the value is runtime value. It doesn't mean it's UnknownValue.
 

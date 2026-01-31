@@ -63,7 +63,7 @@ void* data = point;                // Store Point pointer
 **Box Type Definition:**
 
 ```yo
-Box :: (fn(compt(V) : Type) -> compt(Type))
+Box :: (fn(comptime(V) : Type) -> comptime(Type))
   object(
     (*) : V
   )

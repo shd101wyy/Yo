@@ -4,9 +4,9 @@ import { AtomExpr } from "../../expr";
 import {
   createBooleanType,
   createCharType,
-  createComptFloatType,
-  createComptIntType,
-  createComptStringType,
+  createComptimeFloatType,
+  createComptimeIntType,
+  createComptimeStringType,
   createExprType,
   createF32Type,
   createF64Type,
@@ -100,9 +100,9 @@ export function evaluateIdentifierAndOperator({
     };
     return expr;
   }
-  // compt_int
-  else if (identifier === TypeTag.ComptInt) {
-    const value = createTypeValue(createComptIntType());
+  // comptime_int
+  else if (identifier === TypeTag.ComptimeInt) {
+    const value = createTypeValue(createComptimeIntType());
     expr.$ = {
       env,
       type: value.type,
@@ -112,9 +112,9 @@ export function evaluateIdentifierAndOperator({
     };
     return expr;
   }
-  // compt_float
-  else if (identifier === TypeTag.ComptFloat) {
-    const value = createTypeValue(createComptFloatType());
+  // comptime_float
+  else if (identifier === TypeTag.ComptimeFloat) {
+    const value = createTypeValue(createComptimeFloatType());
     expr.$ = {
       env,
       type: value.type,
@@ -124,9 +124,9 @@ export function evaluateIdentifierAndOperator({
     };
     return expr;
   }
-  // compt_string
-  else if (identifier === TypeTag.ComptString) {
-    const value = createTypeValue(createComptStringType());
+  // comptime_string
+  else if (identifier === TypeTag.ComptimeString) {
+    const value = createTypeValue(createComptimeStringType());
     expr.$ = {
       env,
       type: value.type,

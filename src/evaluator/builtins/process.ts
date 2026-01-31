@@ -1,8 +1,8 @@
 import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import { BuiltinFunctions, exprIsFunctionCallOf, FnCallExpr } from "../../expr";
-import { createComptStringType } from "../../types";
-import { createComptStringValue } from "../../value";
+import { createComptimeStringType } from "../../types";
+import { createComptimeStringValue } from "../../value";
 import { EvaluatorContext } from "../context";
 
 /**
@@ -27,11 +27,11 @@ export function evaluateYoProcessFunctions({
 
     // In compile-time evaluation, return the actual platform value
     const platform = process.platform; // 'darwin', 'linux', 'win32', etc.
-    const value = createComptStringValue(platform);
+    const value = createComptimeStringValue(platform);
 
     expr.$ = {
       env,
-      type: createComptStringType(),
+      type: createComptimeStringType(),
       value,
       pathCollection: [],
     };
@@ -50,11 +50,11 @@ export function evaluateYoProcessFunctions({
 
     // In compile-time evaluation, return the actual architecture value
     const arch = process.arch; // 'x64', 'arm64', 'ia32', etc.
-    const value = createComptStringValue(arch);
+    const value = createComptimeStringValue(arch);
 
     expr.$ = {
       env,
-      type: createComptStringType(),
+      type: createComptimeStringType(),
       value,
       pathCollection: [],
     };

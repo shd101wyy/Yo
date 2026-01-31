@@ -2,10 +2,10 @@
 
 ## Issue
 
-When a compile-time function that returns `compt(Type)` uses `recur` to create recursive type definitions, it creates a chicken-and-egg problem during evaluation:
+When a compile-time function that returns `comptime(Type)` uses `recur` to create recursive type definitions, it creates a chicken-and-egg problem during evaluation:
 
 ```yo
-Worker :: (fn(compt(A) : Type, compt(B) : Type) -> compt(Type)) {
+Worker :: (fn(comptime(A) : Type, comptime(B) : Type) -> comptime(Type)) {
   Child :: recur(B, A);  // Child = Worker(B, A)
 
   // Case 1: Using Child INSIDE object definition (has SelfType)
@@ -19,7 +19,7 @@ Worker :: (fn(compt(A) : Type, compt(B) : Type) -> compt(Type)) {
 };
 
 // Case 2: Using Child OUTSIDE object definition (no SelfType)
-Worker2 :: (fn(compt(A) : Type, compt(B) : Type) -> compt(Type)) {
+Worker2 :: (fn(comptime(A) : Type, comptime(B) : Type) -> comptime(Type)) {
   Child :: recur(B, A);
 
   internal_wrapper :: (fn(raw : *(void)) -> unit) {
@@ -45,7 +45,7 @@ Worker2 :: (fn(compt(A) : Type, compt(B) : Type) -> compt(Type)) {
 
 ### Root Cause
 
-The temp cache mechanism (in `evaluateComptFunctionCall`) prevents infinite recursion by storing a SomeType placeholder with `recursiveTypeRef`. However, when the recursive call happens before the cache is populated with the actual type, any code trying to use that type as a constructor gets the placeholder.
+The temp cache mechanism (in `evaluateComptimeFunctionCall`) prevents infinite recursion by storing a SomeType placeholder with `recursiveTypeRef`. However, when the recursive call happens before the cache is populated with the actual type, any code trying to use that type as a constructor gets the placeholder.
 
 ## Solution
 
@@ -89,7 +89,7 @@ When outside an object definition (no SelfType available), allow the SomeType to
    ```typescript
    function resolveRecursiveTypeRef(someType, callerEnv, context) {
      // Strategy 1: Look for exact matching cache entry with resolved type
-     const exactCache = functionValue.calledComptFunctionCaches.find(...);
+     const exactCache = functionValue.calledComptimeFunctionCaches.find(...);
      if (exactCache && !isSomeType(exactCache.value.value)) {
        return exactCache.value.value;
      }
@@ -100,7 +100,7 @@ When outside an object definition (no SelfType available), allow the SomeType to
      }
 
      // Strategy 3: Look for ANY resolved cache entry (same structure)
-     const anyResolvedCache = functionValue.calledComptFunctionCaches.find(...);
+     const anyResolvedCache = functionValue.calledComptimeFunctionCaches.find(...);
      if (anyResolvedCache) {
        return anyResolvedCache.value.value;
      }
@@ -140,7 +140,7 @@ When outside an object definition (no SelfType available), allow the SomeType to
 
 - The SomeType placeholder carries enough information (recursiveTypeRef) to identify what type it will become
 - During function body validation, we only need to know the type structure for type-checking
-- The actual type resolution happens when the enclosing compt function completes and updates the cache
+- The actual type resolution happens when the enclosing comptime function completes and updates the cache
 
 ## Comparison with Other Languages
 
@@ -181,7 +181,7 @@ type Worker<A, B> = {
 ## Test Case
 
 ```yo
-Worker :: (fn(compt(A) : Type, compt(B) : Type) -> compt(Type)) {
+Worker :: (fn(comptime(A) : Type, comptime(B) : Type) -> comptime(Type)) {
   Child :: recur(B, A);
 
   internal_wrapper :: (fn(raw : *(void)) -> unit) {

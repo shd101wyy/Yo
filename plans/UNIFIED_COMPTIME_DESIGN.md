@@ -6,7 +6,7 @@ This document proposes simplifying Yo's compile-time semantics by:
 
 1. Removing the `::` binding operator (compile-time only `:=`)
 2. Automatically storing compile-time values when available
-3. Making `compt` a constraint keyword for function parameters only
+3. Making `comptime` a constraint keyword for function parameters only
 
 ## Inspiration: Zig's Approach
 
@@ -51,15 +51,15 @@ MyType :: i32;
 // := = runtime binding (value stored even if known at compile-time)
 radius := 5.0;  // Could be compile-time, but marked as runtime
 
-// compt in parameters
-generic_fn :: (fn(compt(T) : Type, x : T) -> T) { ... };
+// comptime in parameters
+generic_fn :: (fn(comptime(T) : Type, x : T) -> T) { ... };
 ```
 
 **Problems:**
 
 1. Users must decide `::` vs `:=` - cognitive overhead
 2. Inconsistent with "CTFE when possible" philosophy
-3. `compt_assert` exists separately from `assert`
+3. `comptime_assert` exists separately from `assert`
 
 ## Proposed Design
 
@@ -81,12 +81,12 @@ MyType := i32;      // Automatically compile-time (type value)
 - If `evaluatedRhs.$.value !== undefined`, store it in the variable
 - Variable's `isCompileTimeOnly` becomes an optimization hint, not a user choice
 
-### 2. `compt` for Parameter Constraints Only
+### 2. `comptime` for Parameter Constraints Only
 
 ```yo
-// compt(T) means: T must be compile-time known at call site
+// comptime(T) means: T must be compile-time known at call site
 // Used for generics and type-level programming
-Array :: (fn(compt(T) : Type, compt(N) : usize) -> Type)
+Array :: (fn(comptime(T) : Type, comptime(N) : usize) -> Type)
   struct(
     data : [T; N]
   )
@@ -99,7 +99,7 @@ IntArray5 := Array(i32, 5);  // OK: i32 and 5 are compile-time known
 
 **Semantics:**
 
-- `compt(x) : Type` = parameter `x` has `UnknownValue` (not `undefined`)
+- `comptime(x) : Type` = parameter `x` has `UnknownValue` (not `undefined`)
 - This means: "x is compile-time, but its specific value isn't known during function body analysis"
 - At call site: argument must have `value !== undefined`
 
@@ -128,11 +128,11 @@ env = addVariableToEnv({
 });
 ```
 
-### Phase 2: Simplify `compt` in Parameters
+### Phase 2: Simplify `comptime` in Parameters
 
 In `binding.ts` and `helper.ts`:
 
-- `compt(x)` creates parameter with `isCompileTimeOnly: true`
+- `comptime(x)` creates parameter with `isCompileTimeOnly: true`
 - During call: verify argument has `value !== undefined`
 - Store `UnknownValue` for function body analysis, actual value for CTFE execution
 
@@ -152,11 +152,11 @@ value := some_pure_fn(10);
 
 ## Comparison Table
 
-| Aspect               | Current Yo | Proposed Yo | Zig                  |
-| -------------------- | ---------- | ----------- | -------------------- |
-| Compile-time binding | `::`       | `:=` (auto) | `const`/`var` (auto) |
-| Runtime binding      | `:=`       | `:=` (auto) | `var`                |
-| Param constraint     | `compt(x)` | `compt(x)`  | `comptime x`         |
+| Aspect               | Current Yo    | Proposed Yo   | Zig                  |
+| -------------------- | ------------- | ------------- | -------------------- |
+| Compile-time binding | `::`          | `:=` (auto)   | `const`/`var` (auto) |
+| Runtime binding      | `:=`          | `:=` (auto)   | `var`                |
+| Param constraint     | `comptime(x)` | `comptime(x)` | `comptime x`         |
 
 ## Benefits
 
@@ -174,14 +174,14 @@ value := some_pure_fn(10);
 
 ## Open Questions
 
-1. Should we keep `compt_print` for debugging, or unify with `println`?
+1. Should we keep `comptime_print` for debugging, or unify with `println`?
 2. Do we need a way to force runtime evaluation? (Probably not - just use a function that has runtime side effects)
-3. Should `compt_string` become just `str` that's compile-time known?
+3. Should `comptime_string` become just `str` that's compile-time known?
 
 ## Timeline
 
 - Phase 1 (unify binding): 2-3 days
-- Phase 2 (simplify compt): 1 day
+- Phase 2 (simplify comptime): 1 day
 - Testing & migration: 2-3 days
 
 Total: ~1 week
