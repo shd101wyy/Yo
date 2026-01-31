@@ -8,7 +8,11 @@ import {
   exprToString,
   FnCallExpr,
 } from "../../expr";
-import { createStructType, TraitField } from "../../types";
+import {
+  createStructType,
+  TraitField,
+  validateTypeAvailability,
+} from "../../types";
 import { createTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateTypeField } from "./field";
@@ -169,6 +173,8 @@ export function evaluateStructType({
     env,
     context,
   });
+
+  validateTypeAvailability(structType, env, expr.token);
 
   // console.log(typeToString(structType));
   const structTypeValue = createTypeValue(structType);

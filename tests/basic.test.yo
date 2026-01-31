@@ -389,10 +389,20 @@ test "Test type auto derive Comptime", {
   comptime_assert(Type.impls(Slice(comptime_int), Comptime));
   comptime_assert(Type.impls(Slice(Box(i32)), Comptime) == false);
 
-  // TODO: Tuple
-  // TODO: Ptr
-  // TODO: Function
+  // Tuple
+  comptime_assert(Type.impls(Tuple(i32), Comptime));
+  comptime_assert(Type.impls(Tuple(comptime_int), Comptime));
+  comptime_assert(Type.impls(Tuple(Box(i32)), Comptime) == false);
 
+  // Ptr
+  // Yo support compile-time pointer
+  comptime_assert(Type.impls(*(comptime_int), Comptime));
+  comptime_assert(Type.impls(*(i32), Comptime));
+  comptime_assert(Type.impls(*(Box(i32)), Comptime) == false);
+
+  
+  // Function
+  comptime_assert(Type.impls(fn() -> unit, Comptime));
 
   // Iso type is runtime only
   comptime_assert(Type.impls(Iso(i32), Comptime) == false);
@@ -466,16 +476,27 @@ test "Test type auto derive Runtime", {
   // Array
   comptime_assert(Type.impls(Array(i32, 3), Runtime));
   comptime_assert(Type.impls(Array(comptime_int, 3), Runtime) == false);
-  comptime_assert(Type.impls(Array(i32, Box(i32)), Runtime));
+  comptime_assert(Type.impls(Array(Box(i32), 3), Runtime));
   
   // Slice
   comptime_assert(Type.impls(Slice(i32), Runtime));
   comptime_assert(Type.impls(Slice(comptime_int), Runtime) == false);
   comptime_assert(Type.impls(Slice(Box(i32)), Runtime));
 
-  // TODO: Tuple
-  // TODO: Ptr
-  // TODO: Function
+  // Tuple
+  comptime_assert(Type.impls(Tuple(i32), Runtime));
+  comptime_assert(Type.impls(Tuple(comptime_int), Runtime) == false);
+  comptime_assert(Type.impls(Tuple(Box(i32)), Runtime));
+
+  // Ptr
+  // Yo support compile-time pointer
+  comptime_assert(Type.impls(*(comptime_int), Runtime) == false);
+  comptime_assert(Type.impls(*(i32), Runtime));
+  comptime_assert(Type.impls(*(Box(i32)), Runtime));
+
+  
+  // Function
+  comptime_assert(Type.impls(fn() -> unit, Runtime));
 
   // Iso type is runtime only
   comptime_assert(Type.impls(Iso(i32), Runtime));

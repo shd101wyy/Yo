@@ -1,5 +1,5 @@
 import { Environment, getVariablesFromEnv } from "../env";
-import { formatErrorMessages } from "../error";
+import { formatErrorMessage, formatErrorMessages } from "../error";
 import { Expr, exprToString } from "../expr";
 import { stringIsOperator, Token } from "../token";
 import { TypeValue } from "../type-value";
@@ -2063,4 +2063,23 @@ export function typeContainsSelfTypeForDynamicDispatchCheck(
 
   // Other types (primitives, modules, etc.) don't contain Self
   return false;
+}
+
+export function validateTypeAvailability(
+  type: Type,
+  env: Environment,
+  token: Token
+): void {
+  if (!typeImplementsComptime(type, env) && !typeImplementsRuntime(type, env)) {
+    throw formatErrorMessage({
+      token: token,
+      errorMessage: `This type has incompatible field contexts and cannot be used in any evaluation context.
+  
+This typically happens when a struct/enum/array/tuple contains fields with conflicting availability:
+- Compile-time only fields (e.g., comptime_int, Type, Module)
+- Runtime only fields (e.g., *(T), [T], void, C-compatible types)
+
+Consider restructuring the type to avoid mixing incompatible field types.`,
+    });
+  }
 }

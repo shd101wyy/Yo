@@ -16,6 +16,7 @@ import {
   ModuleField,
   TraitField,
   TypeField,
+  validateTypeAvailability,
 } from "../../types";
 import { createTypeValue, isComptimeIntValue } from "../../value";
 import { EvaluatorContext } from "../context";
@@ -393,6 +394,8 @@ export function evaluateEnumType({
     env,
     context,
   });
+
+  validateTypeAvailability(enumType, env, expr.token);
 
   const enumTypeValue = createTypeValue(enumType);
   expr.$ = {

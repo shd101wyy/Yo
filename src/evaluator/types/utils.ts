@@ -18,6 +18,7 @@ import {
   SomeType,
   StructType,
   TraitField,
+  TupleType,
   typeContainsRcType,
   typeContainsSomeType,
   typeImplementsAcyclic,
@@ -1032,7 +1033,7 @@ export function addRcFunctionsToIsoType({
  */
 export function attachTraitToReceiverType(
   moduleName: string,
-  receiverType: StructType | EnumType | UnionType,
+  receiverType: StructType | EnumType | UnionType | TupleType,
   env: Environment,
   context: EvaluatorContext
 ): Environment {
@@ -1405,5 +1406,83 @@ export function autoDeriveRuntimeForUnionType({
 }): Environment {
   // Union types are always runtime (comptime-only fields are forbidden)
   env = attachTraitToReceiverType("Runtime", unionType, env, context);
+  return env;
+}
+
+/**
+ * Auto-derive Send marker trait for a tuple type.
+ *
+ * - Auto-derive Send if all fields implement Send
+ */
+export function autoDeriveSendForTupleType({
+  tupleType,
+  env,
+  context,
+}: {
+  tupleType: import("../../types").TupleType;
+  env: Environment;
+  context: EvaluatorContext;
+}): Environment {
+  // Check if all fields implement Send
+  const allFieldsImplementSend = tupleType.fields
+    .filter((field) => !field.isCompileTimeOnly)
+    .every((field) => typeImplementsSend(field.type, env));
+
+  if (allFieldsImplementSend) {
+    env = attachTraitToReceiverType("Send", tupleType, env, context);
+  }
+
+  return env;
+}
+
+/**
+ * Auto-derive Comptime marker trait for a tuple type.
+ *
+ * - Auto-derive Comptime if all fields implement Comptime
+ */
+export function autoDeriveComptimeForTupleType({
+  tupleType,
+  env,
+  context,
+}: {
+  tupleType: TupleType;
+  env: Environment;
+  context: EvaluatorContext;
+}): Environment {
+  // Check if all non-comptime-only fields implement Comptime
+  const allFieldsImplementComptime = tupleType.fields
+    .filter((field) => !field.isCompileTimeOnly)
+    .every((field) => typeImplementsComptime(field.type, env));
+
+  if (allFieldsImplementComptime) {
+    env = attachTraitToReceiverType("Comptime", tupleType, env, context);
+  }
+
+  return env;
+}
+
+/**
+ * Auto-derive Runtime marker trait for a tuple type.
+ *
+ * - Auto-derive Runtime if all fields implement Runtime
+ */
+export function autoDeriveRuntimeForTupleType({
+  tupleType,
+  env,
+  context,
+}: {
+  tupleType: import("../../types").TupleType;
+  env: Environment;
+  context: EvaluatorContext;
+}): Environment {
+  // Check if all non-comptime-only fields implement Runtime
+  const allFieldsImplementRuntime = tupleType.fields
+    .filter((field) => !field.isCompileTimeOnly)
+    .every((field) => typeImplementsRuntime(field.type, env));
+
+  if (allFieldsImplementRuntime) {
+    env = attachTraitToReceiverType("Runtime", tupleType, env, context);
+  }
+
   return env;
 }
