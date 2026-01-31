@@ -14,6 +14,7 @@ import {
   createSomeType,
   createTraitType,
   createType0,
+  getTraitTypeFromEnv,
   isFunctionType,
   isTraitType,
   isTypeHierarchyType,
@@ -596,12 +597,35 @@ export function evaluateTraitType({
             isTypeValue(evaluatedTrait.$.value) &&
             isTraitType(evaluatedTrait.$.value.value)
           ) {
+            const constraintTraitType = evaluatedTrait.$.value.value;
             if (isNegated) {
-              traitType.negativeSelfConstraints.push(
-                evaluatedTrait.$.value.value
-              );
+              traitType.negativeSelfConstraints.push(constraintTraitType);
             } else {
-              traitType.selfConstraints.push(evaluatedTrait.$.value.value);
+              traitType.selfConstraints.push(constraintTraitType);
+
+              // If the constraint is Comptime trait, update selfType's availability
+              const comptimeTraitType = getTraitTypeFromEnv(env, "Comptime");
+              if (
+                comptimeTraitType &&
+                constraintTraitType.id === comptimeTraitType.id
+              ) {
+                selfType.availability = {
+                  ...selfType.availability,
+                  comptime: true,
+                };
+              }
+
+              // If the constraint is Runtime trait, update selfType's availability
+              const runtimeTraitType = getTraitTypeFromEnv(env, "Runtime");
+              if (
+                runtimeTraitType &&
+                constraintTraitType.id === runtimeTraitType.id
+              ) {
+                selfType.availability = {
+                  ...selfType.availability,
+                  runtime: true,
+                };
+              }
             }
           }
         }

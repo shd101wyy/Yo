@@ -1,6 +1,7 @@
 import {
   addVariableToEnv,
   Environment,
+  getVariablesFromEnv,
   popEnvFrame,
   pushEnvFrame,
 } from "../../env";
@@ -22,12 +23,14 @@ import {
   convertComptimeTypeToRuntimeType,
   createExprListType,
   createFunctionType,
+  createSomeType,
   createType0,
   FunctionForallParameter,
   FunctionParameter,
   FunctionType,
   getFunctionParameterExprs,
   getFunctionParameterToken,
+  getTraitTypeFromEnv,
   getValueOfSomeTypeFromEnv,
   isExprListType,
   isExprType,
@@ -459,36 +462,112 @@ use_id :: (fn(forall(T : Type),
   }
 
   // Add the parameter to the env
-  // console.log("(9) addVariableToEnv");
-  const { env: nextEnv } = addVariableToEnv({
-    env,
-    variable: {
-      name: label,
-      type: parameterType,
-      isCompileTimeOnly: isCompileTimeOnly,
-      value:
-        // If there's an assignedValue (from := syntax), use it
-        // Otherwise use a generic unknown value for compile-time params
-        assignedValue
-          ? [assignedValue]
-          : isCompileTimeOnly
-            ? [createUnknownValue(parameterType, label)]
-            : undefined,
-      token: lhsExpr?.token ?? expr.token,
-      initializedAtToken: lhsExpr?.token ?? expr.token, // Set as initialized
-      consumedAtToken: undefined, // Not consumed yet
-      isOwningTheRcValue: isOwningTheRcValue,
-      isOwningTheSameRcValueAs: undefined, // Parameters don't borrow from other variables
-      isReassignable: false, // Mark as not reassigable
-    },
+  // Check if the variable already exists (from where clause processing)
+  const existingVars = getVariablesFromEnv(env, label);
+  const existingWhereClauseVar = existingVars.find((v) => {
+    // Check if this is a SomeType created by where clause for this exact label
+    if (v.value && isTypeValue(v.value[0])) {
+      const typeVal = v.value[0]!;
+      if (isSomeType(typeVal.value)) {
+        return true;
+      }
+    }
+    return false;
   });
-  env = nextEnv;
+
+  // Track the actual value to use for this parameter
+  let actualValue: Value | undefined = value;
+  let actualParameterType: Type = parameterType;
+
+  if (existingWhereClauseVar) {
+    // Variable already exists from where clause - we need to merge constraints
+    const existingTypeValue = existingWhereClauseVar.value![0] as Value & {
+      value: SomeType;
+    };
+    const existingSomeType = existingTypeValue.value;
+
+    // Get the new value (could be a SomeType from := syntax like Impl(Trait))
+    const newValue = assignedValue
+      ? assignedValue
+      : isCompileTimeOnly
+        ? createUnknownValue(parameterType, label)
+        : undefined;
+
+    // Check if the new value is also a TypeValue containing a SomeType
+    if (newValue && isTypeValue(newValue) && isSomeType(newValue.value)) {
+      const newSomeType = newValue.value;
+
+      // Merge required traits from both SomeTypes
+      const mergedRequiredTraits = [...existingSomeType.requiredTraits];
+      for (const trait of newSomeType.requiredTraits) {
+        if (!mergedRequiredTraits.some((t) => t.id === trait.id)) {
+          mergedRequiredTraits.push(trait);
+        }
+      }
+
+      // Merge negative traits
+      const mergedNegativeTraits = [...(existingSomeType.negativeTraits ?? [])];
+      if (newSomeType.negativeTraits) {
+        for (const trait of newSomeType.negativeTraits) {
+          if (!mergedNegativeTraits.some((t) => t.id === trait.id)) {
+            mergedNegativeTraits.push(trait);
+          }
+        }
+      }
+
+      // Update the existing SomeType with merged traits
+      existingSomeType.requiredTraits = mergedRequiredTraits;
+      existingSomeType.negativeTraits =
+        mergedNegativeTraits.length > 0 ? mergedNegativeTraits : undefined;
+
+      // Also merge availability from the new SomeType
+      existingSomeType.availability = {
+        comptime:
+          existingSomeType.availability.comptime ||
+          newSomeType.availability.comptime,
+        runtime:
+          existingSomeType.availability.runtime ||
+          newSomeType.availability.runtime,
+      };
+    }
+    // If new value is not a SomeType, just keep the existing SomeType
+    // (this handles cases like `comptime(T): Type` after `where(T <: Trait)`)
+
+    // Use the existing SomeType as the actual value for this parameter
+    actualValue = existingTypeValue;
+    actualParameterType = typeOfType(existingSomeType);
+  } else {
+    // No existing variable - add new one
+    const { env: nextEnv } = addVariableToEnv({
+      env,
+      variable: {
+        name: label,
+        type: parameterType,
+        isCompileTimeOnly: isCompileTimeOnly,
+        value:
+          // If there's an assignedValue (from := syntax), use it
+          // Otherwise use a generic unknown value for compile-time params
+          assignedValue
+            ? [assignedValue]
+            : isCompileTimeOnly
+              ? [createUnknownValue(parameterType, label)]
+              : undefined,
+        token: lhsExpr?.token ?? expr.token,
+        initializedAtToken: lhsExpr?.token ?? expr.token, // Set as initialized
+        consumedAtToken: undefined, // Not consumed yet
+        isOwningTheRcValue: isOwningTheRcValue,
+        isOwningTheSameRcValueAs: undefined, // Parameters don't borrow from other variables
+        isReassignable: false, // Mark as not reassigable
+      },
+    });
+    env = nextEnv;
+  }
 
   if (lhsExpr) {
     lhsExpr.$ = {
       env,
-      type: parameterType,
-      value: value,
+      type: actualParameterType,
+      value: actualValue,
       pathCollection: [],
     };
   }
@@ -531,6 +610,9 @@ use_id :: (fn(forall(T : Type),
 /**
  * Parse where clause constraints from constraint expressions.
  * Handles forms like: T <: Trait, T <: (Trait1, Trait2), T <: !(Trait)
+ *
+ * If the LHS variable doesn't exist in env yet, creates a new SomeType for it.
+ * This allows where clause to be processed before regular parameters.
  */
 function parseWhereClauseConstraints({
   constraintExprs,
@@ -573,127 +655,107 @@ function parseWhereClauseConstraints({
     const lhsExpr = constraintExpr.args[0]!;
     const rhsExpr = constraintExpr.args[1]!;
 
-    // Evaluate the LHS (must be a SomeType - type parameter)
-    const evaluatedLhs = evaluateExpression({
-      expr: lhsExpr,
-      env,
-      context: { ...context },
-    });
-    if (
-      !evaluatedLhs.$ ||
-      !evaluatedLhs.$.value ||
-      !isTypeValue(evaluatedLhs.$.value)
-    ) {
-      throw formatErrorMessage({
-        token: lhsExpr.token,
-        errorMessage: `Expected type for left-hand side of where clause constraint.`,
-      });
-    }
-    env = evaluatedLhs.$.env;
+    // Check if LHS is a simple variable name
+    let someType: SomeType;
 
-    const lhsTypeValue = evaluatedLhs.$.value;
+    if (exprIsAtom(lhsExpr)) {
+      const varName = lhsExpr.token.value;
 
-    // Check if this is a SomeType (type parameter) or a concrete type
-    // If it's a concrete type, it means the type parameter has been specialized
-    // and we should validate the constraint immediately
-    if (!isSomeType(lhsTypeValue.value)) {
-      // The type parameter has been resolved to a concrete type during specialization
-      // We need to check if this concrete type satisfies the constraints
-      const concreteType = lhsTypeValue.value;
-
-      // Continue to parse and evaluate the RHS modules, then check if concreteType implements them
-      // We'll handle this after parsing all trait expressions below
-      // For now, skip adding to whereClauseConstraints and just validate
-
-      // Parse RHS: can be Trait, (Trait1, Trait2), !(Trait), or (!(Trait1), Trait2)
-      const traitExprs: { expr: Expr; isNegated: boolean }[] = [];
-      if (
-        exprIsFunctionCall(rhsExpr) &&
-        exprIsFunctionCallOf(rhsExpr, BuiltinKeywords.tuple)
-      ) {
-        // Tuple form: (Trait1, Trait2, ...)
-        for (const traitExpr of rhsExpr.args) {
-          if (
-            exprIsFunctionCall(traitExpr) &&
-            exprIsFunctionCallOf(traitExpr, "!") &&
-            traitExpr.args.length === 1
-          ) {
-            traitExprs.push({ expr: traitExpr.args[0]!, isNegated: true });
-          } else {
-            traitExprs.push({ expr: traitExpr, isNegated: false });
-          }
+      // Check if variable already exists in env
+      const existingVars = getVariablesFromEnv(env, varName);
+      if (existingVars.length > 0) {
+        const existingVar = existingVars[existingVars.length - 1]!;
+        if (
+          existingVar.value &&
+          isTypeValue(existingVar.value[0]) &&
+          isSomeType(existingVar.value[0].value)
+        ) {
+          someType = existingVar.value[0].value as SomeType;
+        } else if (existingVar.value && isTypeValue(existingVar.value[0])) {
+          // It's a concrete type - validate constraints immediately
+          const concreteType = existingVar.value[0].value as Type;
+          env = validateConcreteTypeConstraints({
+            concreteType,
+            rhsExpr,
+            constraintExpr,
+            env,
+            context,
+          });
+          continue;
+        } else {
+          throw formatErrorMessage({
+            token: lhsExpr.token,
+            errorMessage: `Expected type for left-hand side of where clause constraint, got variable "${varName}".`,
+          });
         }
       } else {
-        // Single trait - check if negated
-        if (
-          exprIsFunctionCall(rhsExpr) &&
-          exprIsFunctionCallOf(rhsExpr, "!") &&
-          rhsExpr.args.length === 1
-        ) {
-          traitExprs.push({ expr: rhsExpr.args[0]!, isNegated: true });
-        } else {
-          traitExprs.push({ expr: rhsExpr, isNegated: false });
-        }
+        // Variable doesn't exist - create a new SomeType for it
+        // This SomeType starts with RUNTIME_ONLY availability (default for type parameters)
+        someType = createSomeType(createType0(), varName);
+
+        // Add to env so later parameters can reference it
+        const typeValue = createTypeValue(someType);
+        const { env: nextEnv } = addVariableToEnv({
+          env,
+          variable: {
+            name: varName,
+            type: typeOfType(someType),
+            isCompileTimeOnly: true,
+            value: [typeValue],
+            token: lhsExpr.token,
+            initializedAtToken: lhsExpr.token,
+            consumedAtToken: undefined,
+            isOwningTheRcValue: false,
+            isOwningTheSameRcValueAs: undefined,
+            isReassignable: false,
+          },
+        });
+        env = nextEnv;
+
+        // Set $ on the expr
+        lhsExpr.$ = {
+          env,
+          type: typeOfType(someType),
+          value: typeValue,
+          pathCollection: [],
+        };
+      }
+    } else {
+      // Evaluate the LHS expression (must be a SomeType - type parameter)
+      const evaluatedLhs = evaluateExpression({
+        expr: lhsExpr,
+        env,
+        context: { ...context },
+      });
+      if (
+        !evaluatedLhs.$ ||
+        !evaluatedLhs.$.value ||
+        !isTypeValue(evaluatedLhs.$.value)
+      ) {
+        throw formatErrorMessage({
+          token: lhsExpr.token,
+          errorMessage: `Expected type for left-hand side of where clause constraint.`,
+        });
+      }
+      env = evaluatedLhs.$.env;
+
+      const lhsTypeValue = evaluatedLhs.$.value;
+
+      // Check if this is a SomeType (type parameter) or a concrete type
+      if (!isSomeType(lhsTypeValue.value)) {
+        // It's a concrete type - validate constraints immediately
+        env = validateConcreteTypeConstraints({
+          concreteType: lhsTypeValue.value,
+          rhsExpr,
+          constraintExpr,
+          env,
+          context,
+        });
+        continue;
       }
 
-      // Check each trait constraint
-      for (const { expr: traitExpr, isNegated } of traitExprs) {
-        const evaluatedTrait = evaluateExpression({
-          expr: traitExpr,
-          env,
-          context: { ...context },
-        });
-        if (
-          !evaluatedTrait.$ ||
-          !evaluatedTrait.$.value ||
-          !isTypeValue(evaluatedTrait.$.value)
-        ) {
-          throw formatErrorMessage({
-            token: traitExpr.token,
-            errorMessage: `Expected trait type for right-hand side of where clause constraint.`,
-          });
-        }
-        env = evaluatedTrait.$.env;
-
-        const traitTypeValue = evaluatedTrait.$.value;
-        if (!isTraitType(traitTypeValue.value)) {
-          throw formatErrorMessage({
-            token: traitExpr.token,
-            errorMessage: `Expected trait type for right-hand side of where clause constraint, got: ${typeToString(traitTypeValue.value)}`,
-          });
-        }
-
-        const traitType = traitTypeValue.value;
-        const implemented = typeImplementsTrait({
-          targetType: concreteType,
-          traitType,
-          env,
-        });
-
-        if (isNegated) {
-          // Negative constraint: type must NOT implement this trait
-          if (implemented) {
-            throw formatErrorMessage({
-              token: constraintExpr.token,
-              errorMessage: `Type ${typeToString(concreteType)} must NOT implement ${typeToString(traitType)}, but it does.`,
-            });
-          }
-        } else {
-          // Positive constraint: type must implement this trait
-          if (!implemented) {
-            throw formatErrorMessage({
-              token: constraintExpr.token,
-              errorMessage: `Type ${typeToString(concreteType)} does not implement required trait ${typeToString(traitType)}.`,
-            });
-          }
-        }
-      }
-
-      // Skip adding to whereClauseConstraints since we've already validated
-      continue;
+      someType = lhsTypeValue.value;
     }
-
-    const someType = lhsTypeValue.value;
 
     // Parse RHS: can be Trait, (Trait1, Trait2), !(Trait), or (!(Trait1), Trait2)
     const traitExprs: { expr: Expr; isNegated: boolean }[] = [];
@@ -768,6 +830,24 @@ function parseWhereClauseConstraints({
         negativeTraits.push(traitType);
       } else {
         requiredTraits.push(traitType);
+
+        // If the constraint is Comptime trait, update the SomeType's availability
+        const comptimeTraitType = getTraitTypeFromEnv(env, "Comptime");
+        if (comptimeTraitType && traitType.id === comptimeTraitType.id) {
+          someType.availability = {
+            ...someType.availability,
+            comptime: true,
+          };
+        }
+
+        // If the constraint is Runtime trait, update the SomeType's availability
+        const runtimeTraitType = getTraitTypeFromEnv(env, "Runtime");
+        if (runtimeTraitType && traitType.id === runtimeTraitType.id) {
+          someType.availability = {
+            ...someType.availability,
+            runtime: true,
+          };
+        }
       }
     }
 
@@ -785,6 +865,109 @@ function parseWhereClauseConstraints({
   }
 
   return { whereClauseConstraints, env };
+}
+
+/**
+ * Helper function to validate constraints on a concrete type.
+ */
+function validateConcreteTypeConstraints({
+  concreteType,
+  rhsExpr,
+  constraintExpr,
+  env,
+  context,
+}: {
+  concreteType: Type;
+  rhsExpr: Expr;
+  constraintExpr: Expr;
+  env: Environment;
+  context: EvaluatorContext & { isEvaluatingFunctionType: true };
+}): Environment {
+  // Parse RHS: can be Trait, (Trait1, Trait2), !(Trait), or (!(Trait1), Trait2)
+  const traitExprs: { expr: Expr; isNegated: boolean }[] = [];
+  if (
+    exprIsFunctionCall(rhsExpr) &&
+    exprIsFunctionCallOf(rhsExpr, BuiltinKeywords.tuple)
+  ) {
+    // Tuple form: (Trait1, Trait2, ...)
+    for (const traitExpr of rhsExpr.args) {
+      if (
+        exprIsFunctionCall(traitExpr) &&
+        exprIsFunctionCallOf(traitExpr, "!") &&
+        traitExpr.args.length === 1
+      ) {
+        traitExprs.push({ expr: traitExpr.args[0]!, isNegated: true });
+      } else {
+        traitExprs.push({ expr: traitExpr, isNegated: false });
+      }
+    }
+  } else {
+    // Single trait - check if negated
+    if (
+      exprIsFunctionCall(rhsExpr) &&
+      exprIsFunctionCallOf(rhsExpr, "!") &&
+      rhsExpr.args.length === 1
+    ) {
+      traitExprs.push({ expr: rhsExpr.args[0]!, isNegated: true });
+    } else {
+      traitExprs.push({ expr: rhsExpr, isNegated: false });
+    }
+  }
+
+  // Check each trait constraint
+  for (const { expr: traitExpr, isNegated } of traitExprs) {
+    const evaluatedTrait = evaluateExpression({
+      expr: traitExpr,
+      env,
+      context: { ...context },
+    });
+    if (
+      !evaluatedTrait.$ ||
+      !evaluatedTrait.$.value ||
+      !isTypeValue(evaluatedTrait.$.value)
+    ) {
+      throw formatErrorMessage({
+        token: traitExpr.token,
+        errorMessage: `Expected trait type for right-hand side of where clause constraint.`,
+      });
+    }
+    env = evaluatedTrait.$.env;
+
+    const traitTypeValue = evaluatedTrait.$.value;
+    if (!isTraitType(traitTypeValue.value)) {
+      throw formatErrorMessage({
+        token: traitExpr.token,
+        errorMessage: `Expected trait type for right-hand side of where clause constraint, got: ${typeToString(traitTypeValue.value)}`,
+      });
+    }
+
+    const traitType = traitTypeValue.value;
+    const implemented = typeImplementsTrait({
+      targetType: concreteType,
+      traitType,
+      env,
+    });
+
+    if (isNegated) {
+      // Negative constraint: type must NOT implement this trait
+      if (implemented) {
+        throw formatErrorMessage({
+          token: constraintExpr.token,
+          errorMessage: `Type ${typeToString(concreteType)} must NOT implement ${typeToString(traitType)}, but it does.`,
+        });
+      }
+    } else {
+      // Positive constraint: type must implement this trait
+      if (!implemented) {
+        throw formatErrorMessage({
+          token: constraintExpr.token,
+          errorMessage: `Type ${typeToString(concreteType)} does not implement required trait ${typeToString(traitType)}.`,
+        });
+      }
+    }
+  }
+
+  return env;
 }
 
 /**
@@ -828,21 +1011,15 @@ export function evaluateFunctionParameters({
 
   let findVariadicParameter = false;
 
-  for (let i = 0; i < parameterExprs.length; i++) {
-    const parameterExpr = parameterExprs[i]!;
-
-    // Check if it's the type parameters
+  // First pass: find and process forall parameters (creates SomeTypes)
+  // forall must be the first parameter if present
+  if (parameterExprs.length > 0) {
+    const firstParam = parameterExprs[0]!;
     if (
-      exprIsFunctionCall(parameterExpr) &&
-      exprIsFunctionCallOf(parameterExpr, BuiltinKeywords.forall)
+      exprIsFunctionCall(firstParam) &&
+      exprIsFunctionCallOf(firstParam, BuiltinKeywords.forall)
     ) {
-      if (i !== 0) {
-        throw formatErrorMessage({
-          token: parameterExpr.token,
-          errorMessage: `Expected type parameters to be the first argument, got ${i + 1}`,
-        });
-      }
-      const typeParameterExprs = parameterExpr.args;
+      const typeParameterExprs = firstParam.args;
 
       for (let j = 0; j < typeParameterExprs.length; j++) {
         const typeParameterExpr = typeParameterExprs[j]!;
@@ -870,24 +1047,21 @@ export function evaluateFunctionParameters({
         env = nextEnv;
       }
     }
-    // Check if it's a where clause: where(T <: Trait1, U <: Trait2, ...)
-    else if (
-      exprIsFunctionCall(parameterExpr) &&
-      exprIsFunctionCallOf(parameterExpr, BuiltinKeywords.where)
-    ) {
-      // where clause must be the last parameter
-      if (i !== parameterExprs.length - 1) {
-        throw formatErrorMessage({
-          token: parameterExpr.token,
-          errorMessage: `The where clause must be the last parameter in the function signature.`,
-        });
-      }
+  }
 
+  // Second pass: find and process where clause (updates SomeType availabilities)
+  // where must be the last parameter if present
+  if (parameterExprs.length > 0) {
+    const lastParam = parameterExprs[parameterExprs.length - 1]!;
+    if (
+      exprIsFunctionCall(lastParam) &&
+      exprIsFunctionCallOf(lastParam, BuiltinKeywords.where)
+    ) {
       // Process each constraint in the where clause
-      const constraintExprs = parameterExpr.args;
+      const constraintExprs = lastParam.args;
       if (constraintExprs.length === 0) {
         throw formatErrorMessage({
-          token: parameterExpr.token,
+          token: lastParam.token,
           errorMessage: `The where clause must have at least one constraint.`,
         });
       }
@@ -899,6 +1073,39 @@ export function evaluateFunctionParameters({
       });
       env = result.env;
       whereClauseConstraints = result.whereClauseConstraints;
+    }
+  }
+
+  // Third pass: process regular parameters and variadic
+  for (let i = 0; i < parameterExprs.length; i++) {
+    const parameterExpr = parameterExprs[i]!;
+
+    // Skip forall (already processed in first pass)
+    if (
+      exprIsFunctionCall(parameterExpr) &&
+      exprIsFunctionCallOf(parameterExpr, BuiltinKeywords.forall)
+    ) {
+      if (i !== 0) {
+        throw formatErrorMessage({
+          token: parameterExpr.token,
+          errorMessage: `Expected type parameters to be the first argument, got ${i + 1}`,
+        });
+      }
+      continue;
+    }
+    // Skip where clause (already processed in second pass)
+    else if (
+      exprIsFunctionCall(parameterExpr) &&
+      exprIsFunctionCallOf(parameterExpr, BuiltinKeywords.where)
+    ) {
+      // where clause must be the last parameter
+      if (i !== parameterExprs.length - 1) {
+        throw formatErrorMessage({
+          token: parameterExpr.token,
+          errorMessage: `The where clause must be the last parameter in the function signature.`,
+        });
+      }
+      continue;
     }
     // Check if it's the variadic parameter
     else if (
@@ -1356,7 +1563,7 @@ ${typeToString(returnType)}`,
   ) {
     throw formatErrorMessage({
       token: returnTypeExpr.token,
-      errorMessage: `Unexpected "comptime"  for return type of ${typeToString(
+      errorMessage: `Unexpected "comptime" for return type of ${typeToString(
         returnType
       )} which can only be used at runtime.`,
     });
