@@ -137,11 +137,11 @@ test "Test Array fill method", {
     Array(i32, n).fill(20)
   ;
 
-  compt_return_array :: (fn(comptime(n) : usize) -> comptime([i32; n])) {
+  comptime_return_array :: (fn(comptime(n) : usize) -> comptime([i32; n])) {
     return Array(i32, n).fill(30);
   };
 
-  compt_return_array_2 :: (fn(comptime(n) : usize) -> comptime([i32; n]))
+  comptime_return_array_2 :: (fn(comptime(n) : usize) -> comptime([i32; n]))
     Array(i32, n).fill(40)
   ;
 
@@ -155,11 +155,11 @@ test "Test Array fill method", {
   assert(arr2_2.len() == 7);
   assert(arr2_2(0) == 20);
 
-  arr3 := compt_return_array(10);
+  arr3 := comptime_return_array(10);
   assert(arr3.len() == 10);
   assert(arr3(0) == 30);
 
-  arr3_2 := compt_return_array_2(12);
+  arr3_2 := comptime_return_array_2(12);
   assert(arr3_2.len() == 12);
   assert(arr3_2(0) == 40);
 };

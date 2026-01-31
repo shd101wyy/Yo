@@ -109,10 +109,10 @@ test "Test simple functions", {
     };
   };
 
-  // no runtime value in compt fn
+  // no runtime value in comptime fn
   {
-    no_runtime_in_compt_fn :: (fn() -> comptime(unit)) {
-      // This is a compt function.
+    no_runtime_in_comptime_fn :: (fn() -> comptime(unit)) {
+      // This is a comptime function.
       comptime_expect_error(
         a : i32 // runtime variable not allowed
       );
@@ -202,7 +202,7 @@ test "Test simple functions", {
     assert(color_to_i32_2(.Green) == 1);
     assert(color_to_i32_2(.Blue) == 2);
 
-    compt_return_in_while :: (fn(comptime(flag): bool) -> comptime(i32)) {
+    comptime_return_in_while :: (fn(comptime(flag): bool) -> comptime(i32)) {
       while(flag, {
         cond(
           flag => {
@@ -219,8 +219,8 @@ test "Test simple functions", {
       16
     };
 
-    x :: compt_return_in_while(true);
-    y :: compt_return_in_while(false);
+    x :: comptime_return_in_while(true);
+    y :: comptime_return_in_while(false);
     comptime_assert(x == 1);
     comptime_assert(y == 16);
   };
@@ -426,12 +426,12 @@ test "Test generic functions", {
   };
 
   {
-    compt_add :: (fn(x : i32, comptime(y) : i32) -> i32)
+    comptime_add :: (fn(x : i32, comptime(y) : i32) -> i32)
       (x + y)
     ;
-    x := compt_add(1, 1);
-    y := compt_add(2, 1);
-    z := compt_add(3, 2);
+    x := comptime_add(1, 1);
+    y := comptime_add(2, 1);
+    z := comptime_add(3, 2);
     
     assert(x == 2);
     assert(y == 3);
@@ -552,8 +552,8 @@ test "Test 'recur'", {
     assert(factorial(6) == 720);
 
     // Try to evaluate in compile-time when possible
-    compt_factorial :: comptime_fn(factorial);
-    result :: compt_factorial(12);
+    comptime_factorial :: comptime_fn(factorial);
+    result :: comptime_factorial(12);
     comptime_assert(result == 479001600);
   };
 
@@ -570,44 +570,44 @@ test "Test 'recur'", {
     assert(factorial(6) == 720);
 
     // Try to evaluate in compile-time when possible
-    compt_factorial :: comptime_fn(factorial);
-    result :: compt_factorial(12);
+    comptime_factorial :: comptime_fn(factorial);
+    result :: comptime_factorial(12);
     comptime_assert(result == 479001600);
   };
 };
 
-test "Test compt function", {
+test "Test comptime function", {
   // Runtime only function
   runt_id :: (fn(n : i32) -> i32)(
     n
   );
   
   // Compile-time only function
-  compt_id :: (fn(comptime(n) : i32) -> comptime(i32))(
+  comptime_id :: (fn(comptime(n) : i32) -> comptime(i32))(
     n
   );
 
   {
     n := 5; // runtime
     comptime_expect_error(
-      result1 :: compt_id(n) // compt, not allowed
+      result1 :: comptime_id(n) // comptime, not allowed
     );
     comptime_expect_error(
       result2 :: runt_id(n) // cannot assign runtime to comptime
     );
     comptime_expect_error(
-      result3 := compt_id(n) // cannot assign runtime `n` to compt parameter
+      result3 := comptime_id(n) // cannot assign runtime `n` to comptime parameter
     );
     result4 := runt_id(n); // runtime, allowed
   };
 
   {
     n :: i32(5); // comptime
-    result1 :: compt_id(n); // allowed
+    result1 :: comptime_id(n); // allowed
     comptime_expect_error(
       result2 :: runt_id(n)  // cannot assign runtime to comptime
     );
-    result3 := compt_id(n);  // allowed
+    result3 := comptime_id(n);  // allowed
     result4 := runt_id(n);   // allowed
   };
 
@@ -620,7 +620,7 @@ test "Test compt function", {
     runt_add_points :: (fn(p1: Point, p2: Point)-> Point)
       Point(p1.x + p2.x, p1.y + p2.y)
     ;
-    compt_add_points :: (fn(comptime(p1): Point, comptime(p2): Point)-> comptime(Point))
+    comptime_add_points :: (fn(comptime(p1): Point, comptime(p2): Point)-> comptime(Point))
       Point(p1.x + p2.x, p1.y + p2.y)
     ;
 
@@ -632,7 +632,7 @@ test "Test compt function", {
     comptime_expect_error(
       p3 :: runt_add_points(p1, p2)
     );
-    p4 :: compt_add_points(p1, p2); // allowed, comptime
+    p4 :: comptime_add_points(p1, p2); // allowed, comptime
   };
 };
 

@@ -180,8 +180,8 @@ test "Test variable shadowing", {
   };
 };
 
-test "Test compt", {
-  compt_12 :: (fn() -> comptime(i32))(
+test "Test comptime", {
+  comptime_12 :: (fn() -> comptime(i32))(
     12
   );
 
@@ -193,7 +193,7 @@ test "Test compt", {
   {
     x :: 13;
     y := x;
-    z :: compt_12();
+    z :: comptime_12();
     assert((y + z) == 25);
   };
 
@@ -202,7 +202,7 @@ test "Test compt", {
       (p.x + p.y)
     ;
 
-    p :: Point(compt_12(), 16);
+    p :: Point(comptime_12(), 16);
     assert(use_point(p) == 28);
   };
 };
@@ -347,14 +347,14 @@ test "Test 'struct'", {
   {
     Point :: struct(x: i32, y: i32);
 
-    p := Point(3, 4); // Assign compt to runtime
-    p2 :: Point(3, 4); // Assign compt to compt
+    p := Point(3, 4); // Assign comptime to runtime
+    p2 :: Point(3, 4); // Assign comptime to comptime
 
     runt_value := 1;
     p3 := Point(runt_value, 4);
 
     comptime_expect_error(
-      p4 :: Point(runt_value, 4) // Assign runt to compt is not allowed
+      p4 :: Point(runt_value, 4) // Assign runt to comptime is not allowed
     );
 
     assert(p.x == 3);
@@ -1672,7 +1672,7 @@ test "Test extending modules by ... spread operator", {
 };
 
 test "Test 'open' statements", {
-  // Open a compt struct
+  // Open a comptime struct
   {
     anony :: { x : 12, y : 13 };
     open anony;
@@ -1916,10 +1916,10 @@ test "Test 'comptime_fn' function call and function overloading", {
     _add :: (fn(x : i32, y : i32) -> i32) {
       return (x + y);
     };
-    compt_add :: comptime_fn(_add); // Convert `add` to a comptime function.
+    comptime_add :: comptime_fn(_add); // Convert `add` to a comptime function.
                               // Panic if fails to convert.
 
-    Call :: (_add, compt_add);
+    Call :: (_add, comptime_add);
     export Call;
   };
 
@@ -1935,14 +1935,14 @@ test "Test 'comptime_fn' function call and function overloading", {
             .None => panic("Called unwrap on a None value")
           )
         );
-        _compt_unwrap :: (fn(comptime(self) : Self) -> comptime(T))(
+        _comptime_unwrap :: (fn(comptime(self) : Self) -> comptime(T))(
           match(self,
             .Some(value) => value,
             .None => comptime_assert(false, "Called unwrap on a None value at comptime")
           )
         );
 
-        Call :: (_unwrap, _compt_unwrap);
+        Call :: (_unwrap, _comptime_unwrap);
         export Call;
       }
     )
