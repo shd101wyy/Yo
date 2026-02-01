@@ -618,9 +618,19 @@ use_id :: (fn(forall(T : Type),
 }
 
 /**
+ * Represents a pending trait constraint that failed to evaluate.
+ * Tracks the LHS expression and the specific trait expression (which may be wrapped with !).
+ */
+interface PendingTraitConstraint {
+  lhsExpr: Expr;
+  traitExpr: Expr; // May be !(Trait) or just Trait
+  originalConstraintExpr: Expr;
+}
+
+/**
  * First pass of where clause processing: scan LHS variables, create SomeTypes for them,
- * and try to evaluate constraints. If a constraint fails (e.g., references undefined variables),
- * store it for later retry.
+ * and try to evaluate constraints. If a specific trait fails (e.g., references undefined variables),
+ * store only that trait for later retry while applying successful traits immediately.
  */
 function prepareWhereClauseVariables({
   constraintExprs,
@@ -632,9 +642,9 @@ function prepareWhereClauseVariables({
   context: EvaluatorContext & { isEvaluatingFunctionType: true };
 }): {
   env: Environment;
-  pendingConstraints: Expr[];
+  pendingConstraints: PendingTraitConstraint[];
 } {
-  const pendingConstraints: Expr[] = [];
+  const pendingConstraints: PendingTraitConstraint[] = [];
 
   for (const constraintExpr of constraintExprs) {
     // Each constraint must be of the form: T <: Trait or T <: (Trait1, Trait2)
@@ -690,26 +700,22 @@ function prepareWhereClauseVariables({
       }
     }
 
-    // Now try to evaluate the full constraint
-    // If it fails (e.g., RHS references undefined variable), store for later retry
-    try {
-      const result = parseWhereClauseConstraints({
-        constraintExprs: [constraintExpr],
-        env,
-        context,
-      });
-      env = result.env;
-    } catch (error) {
-      // Constraint evaluation failed - store for later retry
-      pendingConstraints.push(constraintExpr);
-    }
+    // Now try to evaluate the constraint, collecting any failed individual traits
+    const result = parseWhereClauseConstraints({
+      constraintExprs: [constraintExpr],
+      env,
+      context,
+      collectPendingTraits: true,
+    });
+    env = result.env;
+    pendingConstraints.push(...result.pendingTraits);
   }
 
   return { env, pendingConstraints };
 }
 
 /**
- * Retry pending where clause constraints that previously failed.
+ * Retry pending trait constraints that previously failed.
  * Returns updated env and remaining pending constraints.
  */
 function retryPendingConstraints({
@@ -717,26 +723,26 @@ function retryPendingConstraints({
   env,
   context,
 }: {
-  pendingConstraints: Expr[];
+  pendingConstraints: PendingTraitConstraint[];
   env: Environment;
   context: EvaluatorContext & { isEvaluatingFunctionType: true };
 }): {
   env: Environment;
-  pendingConstraints: Expr[];
+  pendingConstraints: PendingTraitConstraint[];
 } {
-  const stillPending: Expr[] = [];
+  const stillPending: PendingTraitConstraint[] = [];
 
-  for (const constraintExpr of pendingConstraints) {
-    try {
-      const result = parseWhereClauseConstraints({
-        constraintExprs: [constraintExpr],
-        env,
-        context,
-      });
-      env = result.env;
-    } catch (error) {
-      // Still can't evaluate - keep it pending
-      stillPending.push(constraintExpr);
+  for (const pending of pendingConstraints) {
+    const result = applySingleTraitConstraint({
+      lhsExpr: pending.lhsExpr,
+      traitExpr: pending.traitExpr,
+      originalConstraintExpr: pending.originalConstraintExpr,
+      env,
+      context,
+    });
+    env = result.env;
+    if (!result.success) {
+      stillPending.push(pending);
     }
   }
 
@@ -744,8 +750,274 @@ function retryPendingConstraints({
 }
 
 /**
+ * Helper function to validate a single trait constraint on a concrete type.
+ * Returns success=true if the constraint was satisfied, false if evaluation failed (should be retried later).
+ * Throws if the constraint is definitively violated.
+ */
+function validateSingleTraitOnConcreteType({
+  concreteType,
+  traitExpr,
+  isNegated,
+  constraintExpr,
+  env,
+  context,
+}: {
+  concreteType: Type;
+  traitExpr: Expr;
+  isNegated: boolean;
+  constraintExpr: Expr;
+  env: Environment;
+  context: EvaluatorContext & { isEvaluatingFunctionType: true };
+}): {
+  env: Environment;
+  success: boolean;
+} {
+  let evaluatedTrait: Expr;
+  try {
+    evaluatedTrait = evaluateExpression({
+      expr: traitExpr,
+      env,
+      context: { ...context },
+    });
+  } catch {
+    return { env, success: false };
+  }
+
+  if (
+    !evaluatedTrait.$ ||
+    !evaluatedTrait.$.value ||
+    !isTypeValue(evaluatedTrait.$.value)
+  ) {
+    return { env, success: false };
+  }
+  env = evaluatedTrait.$.env;
+
+  const traitTypeValue = evaluatedTrait.$.value;
+  if (!isTraitType(traitTypeValue.value)) {
+    throw formatErrorMessage({
+      token: traitExpr.token,
+      errorMessage: `Expected trait type for right-hand side of where clause constraint, got: ${typeToString(traitTypeValue.value)}`,
+    });
+  }
+
+  const traitType = traitTypeValue.value;
+  const implemented = typeImplementsTrait({
+    targetType: concreteType,
+    traitType,
+    env,
+  });
+
+  if (isNegated) {
+    if (implemented) {
+      throw formatErrorMessage({
+        token: constraintExpr.token,
+        errorMessage: `Type ${typeToString(concreteType)} must NOT implement ${typeToString(traitType)}, but it does.`,
+      });
+    }
+  } else {
+    if (!implemented) {
+      throw formatErrorMessage({
+        token: constraintExpr.token,
+        errorMessage: `Type ${typeToString(concreteType)} does not implement required trait ${typeToString(traitType)}.`,
+      });
+    }
+  }
+
+  return { env, success: true };
+}
+
+/**
+ * Try to apply a single trait constraint to a SomeType.
+ * Returns success=true if the trait was successfully applied, false if it failed (should be retried later).
+ */
+function applySingleTraitConstraint({
+  lhsExpr,
+  traitExpr,
+  originalConstraintExpr,
+  env,
+  context,
+}: {
+  lhsExpr: Expr;
+  traitExpr: Expr; // May be !(Trait) or just Trait
+  originalConstraintExpr: Expr;
+  env: Environment;
+  context: EvaluatorContext & { isEvaluatingFunctionType: true };
+}): {
+  env: Environment;
+  success: boolean;
+} {
+  const currentFrameLevel = env.frames.length - 1;
+
+  // Check if the trait expression is negated
+  let isNegated = false;
+  let unwrappedTraitExpr = traitExpr;
+  if (
+    exprIsFunctionCall(traitExpr) &&
+    exprIsFunctionCallOf(traitExpr, "!") &&
+    traitExpr.args.length === 1
+  ) {
+    isNegated = true;
+    unwrappedTraitExpr = traitExpr.args[0]!;
+  }
+
+  // Resolve the LHS to a SomeType
+  let someType: SomeType;
+  let someTypeFrameLevel: number = currentFrameLevel;
+
+  if (exprIsAtom(lhsExpr)) {
+    const varName = lhsExpr.token.value;
+    const existingVars = getVariablesFromEnv(env, varName);
+    if (existingVars.length === 0) {
+      return { env, success: false };
+    }
+    const existingVar = existingVars[existingVars.length - 1]!;
+    if (
+      existingVar.value &&
+      isTypeValue(existingVar.value[0]) &&
+      isSomeType(existingVar.value[0].value)
+    ) {
+      someType = existingVar.value[0].value as SomeType;
+      const varFrameLevel = findVariableFrameLevel(env, varName);
+      if (varFrameLevel !== undefined) {
+        someTypeFrameLevel = varFrameLevel;
+      }
+    } else if (existingVar.value && isTypeValue(existingVar.value[0])) {
+      // It's a concrete type - validate constraint immediately
+      try {
+        const result = validateSingleTraitOnConcreteType({
+          concreteType: existingVar.value[0].value as Type,
+          traitExpr: unwrappedTraitExpr,
+          isNegated,
+          constraintExpr: originalConstraintExpr,
+          env,
+          context,
+        });
+        return result;
+      } catch {
+        return { env, success: false };
+      }
+    } else {
+      return { env, success: false };
+    }
+  } else {
+    // Evaluate the LHS expression
+    let evaluatedLhs: Expr;
+    try {
+      evaluatedLhs = evaluateExpression({
+        expr: lhsExpr,
+        env,
+        context: { ...context },
+      });
+    } catch {
+      return { env, success: false };
+    }
+
+    if (
+      !evaluatedLhs.$ ||
+      !evaluatedLhs.$.value ||
+      !isTypeValue(evaluatedLhs.$.value)
+    ) {
+      return { env, success: false };
+    }
+    env = evaluatedLhs.$.env;
+
+    const lhsTypeValue = evaluatedLhs.$.value;
+    if (!isSomeType(lhsTypeValue.value)) {
+      // It's a concrete type - validate constraint immediately
+      try {
+        const result = validateSingleTraitOnConcreteType({
+          concreteType: lhsTypeValue.value,
+          traitExpr: unwrappedTraitExpr,
+          isNegated,
+          constraintExpr: originalConstraintExpr,
+          env,
+          context,
+        });
+        return result;
+      } catch {
+        return { env, success: false };
+      }
+    }
+
+    someType = lhsTypeValue.value;
+    const varFrameLevel = findVariableFrameLevel(env, someType.name);
+    if (varFrameLevel !== undefined) {
+      someTypeFrameLevel = varFrameLevel;
+    }
+  }
+
+  // Now try to evaluate the trait expression (unwrapped)
+  let evaluatedRhs: Expr;
+  try {
+    evaluatedRhs = evaluateExpression({
+      expr: unwrappedTraitExpr,
+      env,
+      context: { ...context },
+    });
+  } catch {
+    return { env, success: false };
+  }
+
+  if (
+    !evaluatedRhs.$ ||
+    !evaluatedRhs.$.value ||
+    !isTypeValue(evaluatedRhs.$.value)
+  ) {
+    return { env, success: false };
+  }
+  env = evaluatedRhs.$.env;
+
+  const traitTypeValue = evaluatedRhs.$.value;
+  if (!isTraitType(traitTypeValue.value)) {
+    throw formatErrorMessage({
+      token: unwrappedTraitExpr.token,
+      errorMessage: `Expected trait type for right-hand side of where clause constraint, got: ${typeToString(traitTypeValue.value)}`,
+    });
+  }
+
+  const traitType = traitTypeValue.value;
+  if (traitType.receiverType) {
+    throw formatErrorMessage({
+      token: unwrappedTraitExpr.token,
+      errorMessage: `Trait type in where clause already has a receiver type assigned.`,
+    });
+  }
+
+  // Track this SomeType for cleanup when frame is popped
+  const targetFrame = env.frames[someTypeFrameLevel];
+  if (targetFrame && !targetFrame.modifiedSomeTypes.includes(someType)) {
+    targetFrame.modifiedSomeTypes.push(someType);
+  }
+
+  // Apply the trait constraint
+  if (isNegated) {
+    if (!someType.negativeTraits) {
+      someType.negativeTraits = [];
+    }
+    if (!someType.negativeTraits.some((t) => t.traitType.id === traitType.id)) {
+      someType.negativeTraits.push({
+        traitType,
+        frameLevel: someTypeFrameLevel,
+      });
+    }
+  } else {
+    if (!someType.requiredTraits.some((t) => t.traitType.id === traitType.id)) {
+      someType.requiredTraits.push({
+        traitType,
+        frameLevel: someTypeFrameLevel,
+      });
+    }
+  }
+
+  return { env, success: true };
+}
+
+/**
  * Parse where clause constraints from constraint expressions.
  * Handles forms like: T <: Trait, T <: (Trait1, Trait2), T <: !(Trait)
+ *
+ * When collectPendingTraits is true, failed individual traits are collected
+ * instead of throwing an error.
  *
  * Assumes all LHS variables already exist in env (either from forall, regular params, or prepareWhereClauseVariables).
  */
@@ -753,13 +1025,17 @@ function parseWhereClauseConstraints({
   constraintExprs,
   env,
   context,
+  collectPendingTraits = false,
 }: {
   constraintExprs: Expr[];
   env: Environment;
   context: EvaluatorContext & { isEvaluatingFunctionType: true };
+  collectPendingTraits?: boolean;
 }): {
   env: Environment;
+  pendingTraits: PendingTraitConstraint[];
 } {
+  const pendingTraits: PendingTraitConstraint[] = [];
   const currentFrameLevel = env.frames.length - 1;
 
   // Track SomeTypes that we've modified so we don't add duplicates to modifiedSomeTypes
@@ -918,54 +1194,73 @@ function parseWhereClauseConstraints({
     }
 
     // Parse RHS: can be Trait, (Trait1, Trait2), !(Trait), or (!(Trait1), Trait2)
-    const traitExprs: { expr: Expr; isNegated: boolean }[] = [];
+    // Store the original expressions (potentially wrapped with !)
+    const traitExprs: Expr[] = [];
     if (
       exprIsFunctionCall(rhsExpr) &&
       exprIsFunctionCallOf(rhsExpr, BuiltinKeywords.tuple)
     ) {
       // Tuple form: (Trait1, Trait2, ...)
-      for (const traitExpr of rhsExpr.args) {
-        if (
-          exprIsFunctionCall(traitExpr) &&
-          exprIsFunctionCallOf(traitExpr, "!") &&
-          traitExpr.args.length === 1
-        ) {
-          traitExprs.push({ expr: traitExpr.args[0]!, isNegated: true });
-        } else {
-          traitExprs.push({ expr: traitExpr, isNegated: false });
-        }
-      }
+      traitExprs.push(...rhsExpr.args);
     } else {
-      // Single trait - check if negated
-      if (
-        exprIsFunctionCall(rhsExpr) &&
-        exprIsFunctionCallOf(rhsExpr, "!") &&
-        rhsExpr.args.length === 1
-      ) {
-        traitExprs.push({ expr: rhsExpr.args[0]!, isNegated: true });
-      } else {
-        traitExprs.push({ expr: rhsExpr, isNegated: false });
-      }
+      // Single trait
+      traitExprs.push(rhsExpr);
     }
 
     // Evaluate each trait expression and add constraints INCREMENTALLY
     // This is important for cases like `T <: (Comptime, ComptimeNegate(T))`
     // where the second trait depends on the first constraint being in scope
     for (let traitIdx = 0; traitIdx < traitExprs.length; traitIdx++) {
-      const { expr: traitExpr, isNegated } = traitExprs[traitIdx]!;
+      const traitExpr = traitExprs[traitIdx]!;
 
-      const evaluatedRhs = evaluateExpression({
-        expr: traitExpr,
-        env,
-        context: { ...context },
-      });
+      // Check if this trait is negated
+      let isNegated = false;
+      let unwrappedTraitExpr = traitExpr;
+      if (
+        exprIsFunctionCall(traitExpr) &&
+        exprIsFunctionCallOf(traitExpr, "!") &&
+        traitExpr.args.length === 1
+      ) {
+        isNegated = true;
+        unwrappedTraitExpr = traitExpr.args[0]!;
+      }
+
+      // Try to evaluate the trait expression (unwrapped)
+      let evaluatedRhs: Expr;
+      try {
+        evaluatedRhs = evaluateExpression({
+          expr: unwrappedTraitExpr,
+          env,
+          context: { ...context },
+        });
+      } catch (error) {
+        // Trait evaluation failed - collect for retry if requested
+        if (collectPendingTraits) {
+          pendingTraits.push({
+            lhsExpr,
+            traitExpr, // Store the original (potentially wrapped) expression
+            originalConstraintExpr: constraintExpr,
+          });
+          continue;
+        }
+        throw error;
+      }
+
       if (
         !evaluatedRhs.$ ||
         !evaluatedRhs.$.value ||
         !isTypeValue(evaluatedRhs.$.value)
       ) {
+        if (collectPendingTraits) {
+          pendingTraits.push({
+            lhsExpr,
+            traitExpr, // Store the original (potentially wrapped) expression
+            originalConstraintExpr: constraintExpr,
+          });
+          continue;
+        }
         throw formatErrorMessage({
-          token: traitExpr.token,
+          token: unwrappedTraitExpr.token,
           errorMessage: `Expected trait type for right-hand side of where clause constraint.`,
         });
       }
@@ -974,7 +1269,7 @@ function parseWhereClauseConstraints({
       const traitTypeValue = evaluatedRhs.$.value;
       if (!isTraitType(traitTypeValue.value)) {
         throw formatErrorMessage({
-          token: traitExpr.token,
+          token: unwrappedTraitExpr.token,
           errorMessage: `Expected trait type for right-hand side of where clause constraint, got: ${typeToString(traitTypeValue.value)}`,
         });
       }
@@ -982,7 +1277,7 @@ function parseWhereClauseConstraints({
       const traitType = traitTypeValue.value;
       if (traitType.receiverType) {
         throw formatErrorMessage({
-          token: traitExpr.token,
+          token: unwrappedTraitExpr.token,
           errorMessage: `Trait type in where clause already has a receiver type assigned.`,
         });
       }
@@ -993,9 +1288,6 @@ function parseWhereClauseConstraints({
         someTypeFrameLevels.get(someType) ?? currentFrameLevel;
 
       if (isNegated) {
-        if (!someType.negativeTraits) {
-          someType.negativeTraits = [];
-        }
         // Check for duplicate
         if (
           !someType.negativeTraits.some((t) => t.traitType.id === traitType.id)
@@ -1019,7 +1311,7 @@ function parseWhereClauseConstraints({
     }
   }
 
-  return { env };
+  return { env, pendingTraits };
 }
 
 /**
@@ -1190,7 +1482,7 @@ export function evaluateFunctionParameters({
 
   // Second pass: scan where clause, create SomeTypes for LHS vars, and try to evaluate constraints
   // where must be the last parameter if present
-  let pendingConstraints: Expr[] = [];
+  let pendingConstraints: PendingTraitConstraint[] = [];
   if (parameterExprs.length > 0) {
     const lastParam = parameterExprs[parameterExprs.length - 1]!;
     if (
@@ -1483,11 +1775,13 @@ export function evaluateFunctionParameters({
     // If there are still pending constraints after final retry, throw the error
     if (retryResult.pendingConstraints.length > 0) {
       const failedConstraint = retryResult.pendingConstraints[0]!;
-      // Evaluate to get the actual error message
+      // Re-evaluate to get the actual error message
+      // Use parseWhereClauseConstraints with collectPendingTraits=false to throw the error
       parseWhereClauseConstraints({
-        constraintExprs: [failedConstraint],
+        constraintExprs: [failedConstraint.originalConstraintExpr],
         env,
         context,
+        collectPendingTraits: false,
       });
     }
   }

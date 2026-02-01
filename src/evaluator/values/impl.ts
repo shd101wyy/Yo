@@ -1510,12 +1510,12 @@ export function evaluateModuleValue({
       exprIsFunctionCallOf(expr.args[1], BuiltinKeywords.begin)
     ) {
       // Restrict anonymous trait impl to prelude.yo only
-      if (!context.currentModulePath?.endsWith("prelude.yo")) {
-        throw formatErrorMessage({
-          token: expr.token,
-          errorMessage: `impl a receiver type with anonymous trait (begin block) is only allowed in prelude.yo`,
-        });
-      }
+      // if (!context.currentModulePath?.endsWith("prelude.yo")) {
+      //   throw formatErrorMessage({
+      //     token: expr.token,
+      //     errorMessage: `impl a receiver type with anonymous trait (begin block) is only allowed in prelude.yo`,
+      //   });
+      // }
 
       const beginExprs = expr.args[1]!.args;
       const {
@@ -1853,12 +1853,12 @@ export function evaluateModuleValue({
       exprIsFunctionCallOf(moduleCallArg, BuiltinKeywords.begin)
     ) {
       // Restrict anonymous trait impl to prelude.yo only
-      if (!context.currentModulePath?.endsWith("prelude.yo")) {
-        throw formatErrorMessage({
-          token: expr.token,
-          errorMessage: `impl a receiver type with anonymous trait (begin block) is only allowed in prelude.yo`,
-        });
-      }
+      // if (!context.currentModulePath?.endsWith("prelude.yo")) {
+      //   throw formatErrorMessage({
+      //     token: expr.token,
+      //     errorMessage: `impl a receiver type with anonymous trait (begin block) is only allowed in prelude.yo`,
+      //   });
+      // }
 
       // Anonymous trait value
       const beginExprs = moduleCallArg.args;

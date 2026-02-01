@@ -25,8 +25,9 @@ import {
 } from "@yo/expr";
 import { ModuleManager } from "@yo/module-manager";
 import { stringIsOperator, Token, TokenType } from "@yo/token";
+import { areTypesCompatible } from "@yo/types/compatibility";
+import { Type } from "@yo/types/definitions";
 import {
-  areTypesCompatible,
   isArrayType,
   isEnumType,
   isFunctionType,
@@ -34,10 +35,9 @@ import {
   isSliceType,
   isStructType,
   isUnionType,
-  Type,
-  TypeTag,
-  typeToString,
-} from "@yo/types";
+} from "@yo/types/guards";
+import { TypeTag } from "@yo/types/tags";
+import { typeToString } from "@yo/types/utils";
 import { isModuleValue, ModuleValue, valueToString } from "@yo/value";
 import { ValueTag } from "@yo/value-tag";
 
@@ -1244,9 +1244,7 @@ export function activate(context: vscode.ExtensionContext) {
                           try {
                             const receiverTypeInfo = {
                               type: originalReceiverType, // Use original type for method calls
-                              env: env as Parameters<
-                                typeof areTypesCompatible
-                              >[0]["env"],
+                              env: env,
                             };
                             const paramTypeInfo = {
                               type: firstParamType,
