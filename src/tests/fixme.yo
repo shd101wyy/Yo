@@ -8,13 +8,23 @@ Runtime :: trait(
 impl(forall(T : Type), where(T <: Comptime), *(T), Comptime());
 impl(forall(T : Type), where(T <: Runtime), *(T), Runtime());
 
-Option :: (fn(comptime(T) : Type) -> comptime(Type))
-  enum(
-    None,
-    Some(value: T)
+Hash :: trait(
+  /**
+    * Compute the hash of a value
+    * Returns a u64 hash value
+    */
+  (hash): (fn(self : *(Self)) -> u64)
+);
+
+Box :: (fn(comptime(V) : Type) -> comptime(Type))
+  object(
+    (v) : V
   )
 ;
-
-(?*) :: (fn(comptime(T): Type) -> comptime(Type))
-  Option(*(T))
-;
+impl(forall(T : Type),
+       where(T <: Hash),
+       Box(T),
+       Hash(
+         (hash) : ((self) -> (self.*).v.hash())
+       )
+);

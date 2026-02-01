@@ -1444,7 +1444,7 @@ export function getReceiverMethodsByNameFromEnv({
     // Look for methods in the requiredTraits array (from Impl(Module1, Module2, ...) or where clauses)
     // This handles cases like `Impl(Id)` where we need to find the `id` method
     // and where(T <: Trait) constraints
-    if (methods.length === 0 && dereferencedReceiverType.requiredTraits) {
+    if (dereferencedReceiverType.requiredTraits) {
       for (const requiredTraitEntry of dereferencedReceiverType.requiredTraits) {
         const requiredTraitType = requiredTraitEntry.traitType;
         // Search for the method in the required trait
@@ -1459,6 +1459,38 @@ export function getReceiverMethodsByNameFromEnv({
             SelfType: dereferencedReceiverType,
           };
 
+          // Check if pointer conversion is needed
+          // If method expects *(Self) but receiver is Self, mark for conversion
+          let needsPointerConversion = false;
+          if (
+            specializedMethodType.parameters.length > 0 &&
+            isPtrType(specializedMethodType.parameters[0]!.type)
+          ) {
+            const methodPtrChildType =
+              specializedMethodType.parameters[0]!.type.childType;
+            // For methods from required traits, the first parameter might be *(Self)
+            // where Self is a SomeType from the trait definition.
+            // Since we set SelfType to the receiver type, we should check if the
+            // parameter is Self (which would be resolved to the receiver type),
+            // not check compatibility between two different SomeTypes.
+            const isSelfParam =
+              isSomeType(methodPtrChildType) &&
+              methodPtrChildType.name === "Self";
+            const receiverCompatibleWithPtrChild =
+              isSelfParam ||
+              areTypesCompatible(
+                {
+                  type: methodPtrChildType,
+                  env: specializedMethodType.env,
+                },
+                { type: receiverType, env },
+                true // isMethodReceiver
+              );
+            if (receiverCompatibleWithPtrChild) {
+              needsPointerConversion = true;
+            }
+          }
+
           // Create an unknown value since the actual implementation is not known
           // The actual dispatch will happen at runtime based on the concrete type
           const value = createUnknownValue(
@@ -1470,7 +1502,11 @@ export function getReceiverMethodsByNameFromEnv({
               context,
             }
           );
-          methods.push({ type: specializedMethodType, value });
+          methods.push({
+            type: specializedMethodType,
+            value,
+            needsPointerConversion,
+          });
         }
       }
     }
