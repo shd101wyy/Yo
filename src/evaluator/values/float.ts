@@ -2,7 +2,7 @@ import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import { AtomExpr } from "../../expr";
 import { TokenType } from "../../token";
-import { isF32Type, isF64Type } from "../../types";
+import { isF32Type, isF64Type } from "../../types/guards";
 import { createNumberValue } from "../../value";
 import { ValueTag } from "../../value-tag";
 import { EvaluatorContext } from "../context";

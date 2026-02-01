@@ -6,7 +6,7 @@ import {
   FnCallExpr,
   RuntimeDestructuring,
 } from "../../expr";
-import { isStructType } from "../../types";
+import { isStructType } from "../../types/guards";
 import { VUnit } from "../../unit-value";
 import { isModuleValue, isStructValue, Value } from "../../value";
 import { EvaluatorContext } from "../context";

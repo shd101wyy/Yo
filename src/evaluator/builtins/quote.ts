@@ -11,7 +11,7 @@ import {
   exprToString,
   FnCallExpr,
 } from "../../expr";
-import { isExprListType, isExprType } from "../../types";
+import { isExprListType, isExprType } from "../../types/guards";
 import {
   createExprValue,
   isExprListValue,

@@ -18,34 +18,39 @@ import {
   FnCallExpr,
 } from "../../expr";
 import { PlaceholderToken } from "../../token";
+import { areTypesCompatible } from "../../types/compatibility";
 import {
-  areTypesCompatible,
-  convertComptimeTypeToRuntimeType,
   createExprListType,
   createFunctionType,
   createSomeType,
   createType0,
+  getFunctionParameterExprs,
+} from "../../types/creators";
+import {
   FunctionForallParameter,
   FunctionParameter,
   FunctionType,
-  getFunctionParameterExprs,
-  getFunctionParameterToken,
-  getValueOfSomeTypeFromEnv,
+  SomeType,
+  TraitType,
+  Type,
+} from "../../types/definitions";
+import { getValueOfSomeTypeFromEnv } from "../../types/env-lookup";
+import {
   isExprListType,
   isExprType,
   isFnTraitType,
   isFunctionType,
   isSomeType,
   isTraitType,
+} from "../../types/guards";
+import { getFunctionParameterToken, typeOfType } from "../../types/hierarchy";
+import {
+  convertComptimeTypeToRuntimeType,
   prohibitVoidType,
-  SomeType,
-  TraitType,
-  Type,
-  typeOfType,
   typeProhibitsComptimeModifier,
   typeRequiresComptimeModifier,
   typeToString,
-} from "../../types";
+} from "../../types/utils";
 import { VUnit } from "../../unit-value";
 import { randomId } from "../../utils";
 import {

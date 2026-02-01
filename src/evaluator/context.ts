@@ -3,7 +3,7 @@ import { YoError } from "../error";
 import { Expr, FnCallExpr, PathCollection } from "../expr";
 import { FunctionValue } from "../function-value";
 import { Token } from "../token";
-import { FunctionType, Type } from "../types";
+import { FunctionType, Type } from "../types/definitions";
 import { ArrayValue, ModuleValue, TraitValue, Value } from "../value";
 
 export interface FunctionEvaluationContext {

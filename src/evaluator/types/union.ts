@@ -7,13 +7,9 @@ import {
   exprToString,
   FnCallExpr,
 } from "../../expr";
-import {
-  createUnionType,
-  isComptimeOnlyType,
-  TraitField,
-  typeContainsRcType,
-  TypeField,
-} from "../../types";
+import { createUnionType } from "../../types/creators";
+import { TraitField, TypeField } from "../../types/definitions";
+import { isComptimeOnlyType, typeContainsRcType } from "../../types/utils";
 import { createTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateTypeField } from "./field";

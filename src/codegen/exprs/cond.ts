@@ -4,7 +4,7 @@ import {
   exprIsFunctionCallOf,
   FnCallExpr,
 } from "../../expr";
-import { isUnitType } from "../../types";
+import { isUnitType } from "../../types/guards";
 import { isTempVariableName } from "../../utils";
 import { isBooleanValue } from "../../value";
 import { FunctionGenerationContext } from "../functions/context";
@@ -12,7 +12,7 @@ import { CodeGenContext, getTypeString } from "../utils";
 import {
   generateDeferredDropExpressions,
   generateDeferredDupExpressions,
-} from "./drop_dup";
+} from "./drop-dup";
 import { generateExpr } from "./expr";
 
 /**

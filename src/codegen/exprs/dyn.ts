@@ -1,6 +1,7 @@
 import { extractFnTraitFromType } from "../../evaluator/trait-checking";
 import { FnCallExpr } from "../../expr";
-import { isBoxedType, isDynType, isObjectType, Type } from "../../types";
+import { Type } from "../../types/definitions";
+import { isBoxedType, isDynType, isObjectType } from "../../types/guards";
 import { CodeGenContext, getVariableTypeString } from "../utils";
 import { generateExpr } from "./expr";
 

@@ -7,14 +7,14 @@ import {
   FnCallExpr,
   setExprAsNeedsToCallDup,
 } from "../../expr";
+import { areTypesCompatible } from "../../types/compatibility";
+import { createArrayType } from "../../types/creators";
+import { Type } from "../../types/definitions";
+import { isArrayType } from "../../types/guards";
 import {
-  areTypesCompatible,
   convertComptimeTypeToRuntimeType,
-  createArrayType,
-  isArrayType,
-  Type,
   typeToString,
-} from "../../types";
+} from "../../types/utils";
 import { createArrayValue, createNumberValue, Value } from "../../value";
 import { ValueTag } from "../../value-tag";
 import { EvaluatorContext } from "../context";

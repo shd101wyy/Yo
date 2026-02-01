@@ -17,7 +17,8 @@ import {
   exprIsFunctionCallOf,
 } from "../../expr";
 import { TokenType } from "../../token";
-import { EnumType, isEnumType } from "../../types";
+import { EnumType } from "../../types/definitions";
+import { isEnumType } from "../../types/guards";
 import { isTempVariableName } from "../../utils";
 import { generateExpr } from "../exprs/expr";
 import { FunctionGenerationContext } from "../functions/context";

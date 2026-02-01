@@ -27,13 +27,9 @@ import {
   setExprAsNeedsToCallDup,
 } from "../../expr";
 import { generateExprFromCode } from "../../parser";
-import {
-  areTypesCompatible,
-  isObjectType,
-  isSomeType,
-  typeContainsRcType,
-  typeToString,
-} from "../../types";
+import { areTypesCompatible } from "../../types/compatibility";
+import { isObjectType, isSomeType } from "../../types/guards";
+import { typeContainsRcType, typeToString } from "../../types/utils";
 import { VUnit } from "../../unit-value";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";

@@ -12,15 +12,17 @@ import {
   FnCallExpr,
   mergeAndCheckEnvs,
 } from "../../expr";
+import { areTypesCompatible } from "../../types/compatibility";
+import { createBooleanType } from "../../types/creators";
+import { Type } from "../../types/definitions";
 import {
-  areTypesCompatible,
-  convertComptimeTypeToRuntimeType,
-  createBooleanType,
   isBooleanType,
   isFunctionTypeAndReturnsComptimeValue,
-  Type,
+} from "../../types/guards";
+import {
+  convertComptimeTypeToRuntimeType,
   typeToString,
-} from "../../types";
+} from "../../types/utils";
 import { VUnit } from "../../unit-value";
 import {
   BooleanValue,

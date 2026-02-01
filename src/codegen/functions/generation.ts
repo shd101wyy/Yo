@@ -7,29 +7,30 @@ import {
   exprIsFunctionCallOf,
 } from "../../expr";
 import { FunctionValue } from "../../function-value";
+import { EnumType, FunctionType } from "../../types/definitions";
 import {
-  EnumType,
-  FunctionType,
   isEnumType,
   isFunctionSpecializable,
   isSomeType,
   isStructType,
   isUnitType,
+} from "../../types/guards";
+import {
+  canTypeFormRcCycle,
   typeContainsSomeType,
   typeToString,
-} from "../../types";
-import { canTypeFormRcCycle } from "../../types/utils";
+} from "../../types/utils";
 import { isTempVariableName } from "../../utils";
 import { isFunctionValue } from "../../value";
 import { generateAsyncRuntime } from "../async/runtime";
 import {
   generateDeferredDropExpressions,
   generateDeferredDupExpressions,
-} from "../exprs/drop_dup";
+} from "../exprs/drop-dup";
 import { generateExpr } from "../exprs/expr";
 import { generateImplicitReturnStatement } from "../exprs/return";
 import { generateParallelismRuntime } from "../parallelism/runtime";
-import { generateIsoTypeDeclarations } from "../types";
+import { generateIsoTypeDeclarations } from "../types/generation";
 import {
   canOptimizeAsNullablePointer,
   CodeGenContext,

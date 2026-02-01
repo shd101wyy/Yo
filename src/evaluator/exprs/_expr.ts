@@ -13,13 +13,13 @@ import {
 } from "../../expr";
 import { TokenType } from "../../token";
 import { evaluateAlignOf } from "../builtins/alignof";
-import { evaluateAndOr } from "../builtins/and_or";
-import { evaluateYoArrayFill } from "../builtins/array_fns";
-import { evaluateAsync } from "../builtins/async_fns";
-import { evaluateComptimeAssert } from "../builtins/comptime_assert";
-import { evaluateYoComptimeBooleanFunctions } from "../builtins/comptime_bool_fns";
-import { evaluateComptimeExpectError } from "../builtins/comptime_expect_error";
-import { evaluateComptimeFn } from "../builtins/comptime_fn";
+import { evaluateAndOr } from "../builtins/and-or";
+import { evaluateYoArrayFill } from "../builtins/array-fns";
+import { evaluateAsync } from "../builtins/async-fns";
+import { evaluateComptimeAssert } from "../builtins/comptime-assert";
+import { evaluateYoComptimeBooleanFunctions } from "../builtins/comptime-bool-fns";
+import { evaluateComptimeExpectError } from "../builtins/comptime-expect-error";
+import { evaluateComptimeFn } from "../builtins/comptime-fn";
 import {
   evaluateYoComptimeListAppend,
   evaluateYoComptimeListCar,
@@ -27,10 +27,10 @@ import {
   evaluateYoComptimeListCons,
   evaluateYoComptimeListElementType,
   evaluateYoComptimeListLength,
-} from "../builtins/comptime_list_fns";
-import { evaluateYoComptimeNumericFunctions } from "../builtins/comptime_numeric_fns";
-import { evaluateComptimePrint } from "../builtins/comptime_print";
-import { evaluateYoComptimeStringFunctions } from "../builtins/comptime_string_fns";
+} from "../builtins/comptime-list-fns";
+import { evaluateYoComptimeNumericFunctions } from "../builtins/comptime-numeric-fns";
+import { evaluateComptimePrint } from "../builtins/comptime-print";
+import { evaluateYoComptimeStringFunctions } from "../builtins/comptime-string-fns";
 import { evaluateConsume } from "../builtins/consume";
 import { evaluateDrop } from "../builtins/drop";
 import { evaluateDup } from "../builtins/dup";
@@ -41,15 +41,15 @@ import {
   evaluateYoExprIsAtom,
   evaluateYoExprIsFnCall,
   evaluateYoExprToString,
-} from "../builtins/expr_fns";
-import { evaluateAwait } from "../builtins/future_fns";
+} from "../builtins/expr-fns";
+import { evaluateAwait } from "../builtins/future-fns";
 import { evaluateYoGcCollect } from "../builtins/gc";
 import { evaluateGensym } from "../builtins/gensym";
-import { evaluateImplConstraint } from "../builtins/impl_constraint";
-import { evaluateMacroExpand } from "../builtins/macro_expand";
+import { evaluateImplConstraint } from "../builtins/impl-constraint";
+import { evaluateMacroExpand } from "../builtins/macro-expand";
 import { evaluatePanic } from "../builtins/panic";
 import { evaluateYoProcessFunctions } from "../builtins/process";
-import { evaluateAddressCall } from "../builtins/ptr_fns";
+import { evaluateAddressCall } from "../builtins/ptr-fns";
 import { evaluateQuote } from "../builtins/quote";
 import { evaluateRc } from "../builtins/rc";
 import {
@@ -68,7 +68,7 @@ import {
   evaluateYoRcOwn,
   evaluateYoSomeTypeDrop,
   evaluateYoSomeTypeDup,
-} from "../builtins/rc_fns";
+} from "../builtins/rc-fns";
 import { evaluateSizeOf } from "../builtins/sizeof";
 import { evaluateThe } from "../builtins/the";
 import {
@@ -77,26 +77,26 @@ import {
   evaluateYoTypeContainsRcType,
   evaluateYoTypeImpls,
   evaluateYoTypeToString,
-} from "../builtins/type_fns";
-import { evaluateVaStart } from "../builtins/va_start";
+} from "../builtins/type-fns";
+import { evaluateVaStart } from "../builtins/va-start";
 import {
   evaluateYoVarHasOtherAliases,
   evaluateYoVarIsOwningTheRcValue,
   evaluateYoVarPrintInfo,
-} from "../builtins/var_fns";
+} from "../builtins/var-fns";
 import { evaluateFunctionCall } from "../calls/function";
 import { evaluateIsoTypeCall } from "../calls/iso";
 import { evaluateRawPointerCall } from "../calls/pointer";
 import { EvaluatorContext } from "../context";
 import { evaluateArrayType } from "../types/array";
 import { evaluateClosureType } from "../types/closure";
-import { evaluateComptimeListType } from "../types/comptime_list";
-import { evaluateConcreteType } from "../types/concrete_trait";
+import { evaluateComptimeListType } from "../types/comptime-list";
+import { evaluateConcreteType } from "../types/concrete-trait";
 import { evaluateDynType } from "../types/dyn";
 import { evaluateEnumType } from "../types/enum";
-import { evaluateFnTraitType } from "../types/fn_trait";
+import { evaluateFnTraitType } from "../types/fn-trait";
 import { evaluateFunctionType } from "../types/function";
-import { evaluateFutureType } from "../types/future_trait";
+import { evaluateFutureType } from "../types/future-trait";
 import { evaluateModuleType } from "../types/module";
 import { evaluateNewtypeType } from "../types/newtype";
 import { evaluateObjectType } from "../types/object";
@@ -105,11 +105,11 @@ import { evaluateStructType } from "../types/struct";
 import { evaluateTraitType } from "../types/trait";
 import { evaluateTupleType } from "../types/tuple";
 import { evaluateUnionType } from "../types/union";
-import { evaluateAnonymousFunctionImplementation } from "../values/anonymous_function";
+import { evaluateAnonymousFunctionImplementation } from "../values/anonymous-function";
 import { evaluateArrayValue } from "../values/array";
 import { evaluateBooleanLiteral } from "../values/boolean";
 import { evaluateCharLiteral } from "../values/char";
-import { evaluateComptimeListValue } from "../values/comptime_list";
+import { evaluateComptimeListValue } from "../values/comptime-list";
 import { evaluateDynValue } from "../values/dyn";
 import { evaluateFloatLiteral } from "../values/float";
 import { evaluateModuleValue } from "../values/impl";
@@ -119,18 +119,18 @@ import { evaluateTupleValue } from "../values/tuple";
 import { evaluateAssignment } from "./assignment";
 import { evaluateBeginExpression } from "./begin";
 import { evaluateBinding } from "./binding";
-import { evaluateCInclude } from "./c_include";
+import { evaluateCInclude } from "./c-include";
 import { evaluateCond } from "./cond";
 import { evaluateExtern } from "./extern";
-import { evaluateIdentifierAndOperator } from "./identifer_and_operator";
+import { evaluateIdentifierAndOperator } from "./identifer-and-operator";
 import { evaluateImport } from "./import";
-import { evaluateInitializationAssignment } from "./initialization_assignment";
+import { evaluateInitializationAssignment } from "./initialization-assignment";
 import { evaluateMatch } from "./match";
 import { evaluateOpen } from "./open";
-import { evaluatePropertyAccess } from "./property_access";
+import { evaluatePropertyAccess } from "./property-access";
 import { evaluateRecur } from "./recur";
 import { evaluateRuntime } from "./runtime";
-import { evaluateSubtypeOf } from "./subtype_of";
+import { evaluateSubtypeOf } from "./subtype-of";
 import { evaluateTest } from "./test";
 import { evaluateTypeOf } from "./typeof";
 import { evaluateWhile } from "./while";

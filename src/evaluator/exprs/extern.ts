@@ -8,7 +8,7 @@ import {
   exprToString,
   FnCallExpr,
 } from "../../expr";
-import { ExternLanguage, ModuleField } from "../../types";
+import { ExternLanguage, ModuleField } from "../../types/definitions";
 import { isFunctionType, isTypeHierarchyType } from "../../types/guards";
 import { VUnit } from "../../unit-value";
 import { createUnknownValue, isComptimeStringValue } from "../../value";

@@ -9,14 +9,14 @@ import {
   exprToString,
   FnCallExpr,
 } from "../../expr";
+import { createEnumType } from "../../types/creators";
 import {
-  createEnumType,
   EnumVariant,
-  isComptimeIntType,
   ModuleField,
   TraitField,
   TypeField,
-} from "../../types";
+} from "../../types/definitions";
+import { isComptimeIntType } from "../../types/guards";
 import { createTypeValue, isComptimeIntValue } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";

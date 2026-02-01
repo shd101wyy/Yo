@@ -4,13 +4,9 @@ import {
   typeImplementsFn,
 } from "../../evaluator/trait-checking";
 import { AtomExpr, Expr, exprIsAtom, ExprTag, FnCallExpr } from "../../expr";
-import {
-  isDynType,
-  isStructType,
-  SomeType,
-  StructType,
-  TypeTag,
-} from "../../types";
+import { SomeType, StructType } from "../../types/definitions";
+import { isDynType, isStructType } from "../../types/guards";
+import { TypeTag } from "../../types/tags";
 import { FunctionGenerationContext } from "../functions/context";
 import {
   CodeGenContext,

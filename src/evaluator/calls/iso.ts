@@ -6,7 +6,9 @@ import {
   FnCallExpr,
   setExprAsConsumed,
 } from "../../expr";
-import { canTypeFormRcCycle, createIsoType, IsoType } from "../../types";
+import { createIsoType } from "../../types/creators";
+import { IsoType } from "../../types/definitions";
+import { canTypeFormRcCycle } from "../../types/utils";
 import { createTypeValue, isTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";

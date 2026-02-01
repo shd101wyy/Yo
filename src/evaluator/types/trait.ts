@@ -9,19 +9,19 @@ import {
   exprToString,
   FnCallExpr,
 } from "../../expr";
+import { areTypesCompatible } from "../../types/compatibility";
 import {
-  areTypesCompatible,
   createSomeType,
   createTraitType,
   createType0,
+} from "../../types/creators";
+import { SomeType, TraitField, Type } from "../../types/definitions";
+import {
   isFunctionType,
   isTraitType,
   isTypeHierarchyType,
-  SomeType,
-  TraitField,
-  Type,
-  typeToString,
-} from "../../types";
+} from "../../types/guards";
+import { typeToString } from "../../types/utils";
 import { VUnit } from "../../unit-value";
 import { randomId } from "../../utils";
 import {

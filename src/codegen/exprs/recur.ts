@@ -1,7 +1,7 @@
 import { exprIsFunctionCall, exprToString, FnCallExpr } from "../../expr";
 import { FunctionGenerationContext } from "../functions/context";
 import { CodeGenContext, getVariableNameForCodegen } from "../utils";
-import { generateDeferredDupExpressions } from "./drop_dup";
+import { generateDeferredDupExpressions } from "./drop-dup";
 import { generateExpr } from "./expr";
 
 /**

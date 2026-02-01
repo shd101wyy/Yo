@@ -20,7 +20,8 @@ import {
 import { cloneExpr } from "../../expr";
 import { FunctionValue } from "../../function-value";
 import { PlaceholderToken } from "../../token";
-import { FunctionType, typeProhibitsComptimeModifier } from "../../types";
+import { FunctionType } from "../../types/definitions";
+import { typeProhibitsComptimeModifier } from "../../types/utils";
 import { createUnknownValue } from "../../value";
 import { ValueTag } from "../../value-tag";
 import { EvaluatorContext } from "../context";

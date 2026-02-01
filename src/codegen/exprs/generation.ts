@@ -10,13 +10,13 @@ import {
   exprToString,
   FnCallExpr,
 } from "../../expr";
-import { isSomeType, isUnitType } from "../../types";
+import { isSomeType, isUnitType } from "../../types/guards";
 import { isFunctionValue, isUnknownValue, Value } from "../../value";
 import { BuiltinYoInlineFunctions } from "../constants";
 import { FunctionGenerationContext } from "../functions/context";
 import { CodeGenContext, getVariableNameForCodegen } from "../utils";
-import { generateOpAnd, generateOpOr } from "./and_or";
-import { generateAnonymousArray, generateYoArrayFill } from "./array_fns";
+import { generateOpAnd, generateOpOr } from "./and-or";
+import { generateAnonymousArray, generateYoArrayFill } from "./array-fns";
 import { generateAssignment } from "./assignment";
 import { generateAsyncBlock } from "./async";
 import { generateAtom } from "./atom";
@@ -24,15 +24,15 @@ import { generateAwait } from "./await";
 import { generateBegin } from "./begin";
 import { generateBinding } from "./binding";
 import { generateClosureConstruction, isClosureConstruction } from "./closures";
-import { generateComptimeValue } from "./comptime_value";
+import { generateComptimeValue } from "./comptime-value";
 import { generateCondExpression } from "./cond";
 import { generateConsume } from "./consume";
-import { generateDeferredDupExpressions } from "./drop_dup";
+import { generateDeferredDupExpressions } from "./drop-dup";
 import { generateDynCall } from "./dyn";
 import { generateExpr } from "./expr";
 import { generateYoGcCollect } from "./gc";
-import { generateInitializationAssignment } from "./initialization_assignment";
-import { generateYoInlineFunctionCall } from "./inline_fns";
+import { generateInitializationAssignment } from "./initialization-assignment";
+import { generateYoInlineFunctionCall } from "./inline-fns";
 import {
   generateIsoTypeCall,
   generateYoIsoDispose,
@@ -41,11 +41,11 @@ import {
 } from "./iso";
 import { generateMatchExpression } from "./match";
 import { generateOpen } from "./open";
-import { generateOtherFunctionCall } from "./other_fn_call";
+import { generateOtherFunctionCall } from "./other-fn-call";
 import { generatePanic } from "./panic";
 import { generateYoThreadSetMaximumThreads } from "./parallelism";
-import { generateFieldAccess } from "./property_access";
-import { generateAddressOf } from "./ptr_fns";
+import { generateFieldAccess } from "./property-access";
+import { generateAddressOf } from "./ptr-fns";
 import {
   generateDrop,
   generateDup,
@@ -63,11 +63,11 @@ import {
   generateYoRcOwn,
   generateYoSomeTypeDrop,
   generateYoSomeTypeDup,
-} from "./rc_fns";
+} from "./rc-fns";
 import { generateRecur } from "./recur";
 import { generateReturn } from "./return";
 import { generateSizeOf } from "./sizeof";
-import { generateAnonymousTuple } from "./tuple_fn";
+import { generateAnonymousTuple } from "./tuple-fn";
 import { generateWhileLoop } from "./while";
 
 /**

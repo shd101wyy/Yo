@@ -6,25 +6,26 @@ import {
   exprToString,
 } from "../../expr";
 import { generateExprFromCode } from "../../parser";
+import { createTypeHierarchy } from "../../types/creators";
 import {
-  canTypeFormRcCycle,
-  createTypeHierarchy,
   DynType,
   EnumType,
-  isFunctionType,
   IsoType,
-  isRcType,
   ModuleField,
   SomeType,
   StructType,
   TraitField,
   TupleType,
+  UnionType,
+} from "../../types/definitions";
+import { isFunctionType, isRcType } from "../../types/guards";
+import { typeOfType } from "../../types/hierarchy";
+import {
+  canTypeFormRcCycle,
   typeContainsRcType,
   typeContainsSomeType,
-  typeOfType,
   typeToString,
-  UnionType,
-} from "../../types";
+} from "../../types/utils";
 import { randomId } from "../../utils";
 import { isFunctionValue, isTraitValue, isTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
@@ -1421,7 +1422,7 @@ export function autoDeriveSendForTupleType({
   env,
   context,
 }: {
-  tupleType: import("../../types").TupleType;
+  tupleType: TupleType;
   env: Environment;
   context: EvaluatorContext;
 }): Environment {
@@ -1473,7 +1474,7 @@ export function autoDeriveRuntimeForTupleType({
   env,
   context,
 }: {
-  tupleType: import("../../types").TupleType;
+  tupleType: TupleType;
   env: Environment;
   context: EvaluatorContext;
 }): Environment {

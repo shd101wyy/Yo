@@ -21,10 +21,10 @@ import {
 import { FunctionValue } from "../../function-value";
 import { stringIsOperator, TokenType } from "../../token";
 import { TypeValue } from "../../type-value";
+import { areTypesCompatible } from "../../types/compatibility";
+import { createExprType } from "../../types/creators";
+import { FunctionType, SomeType, Type } from "../../types/definitions";
 import {
-  areTypesCompatible,
-  createExprType,
-  FunctionType,
   isArrayType,
   isComptimeFloatType,
   isComptimeIntType,
@@ -43,11 +43,9 @@ import {
   isTraitType,
   isTypeHierarchyType,
   isUnionType,
-  SomeType,
-  Type,
-  typeOfType,
-  typeToString,
-} from "../../types";
+} from "../../types/guards";
+import { typeOfType } from "../../types/hierarchy";
+import { typeToString } from "../../types/utils";
 import { randomId } from "../../utils";
 import {
   areValuesEqual,
@@ -77,21 +75,21 @@ import {
 import { evaluateExpression } from "../exprs/expr";
 import { extractFnTraitFromType } from "../trait-checking";
 import { evaluateFunctionReturnTypeAgain } from "../types/function";
-import { evaluateAnonymousStructValue } from "../values/anonymous_struct";
+import { evaluateAnonymousStructValue } from "../values/anonymous-struct";
 import { tryToCallArrayWithArguments } from "./array";
-import { tryToImplementArrayByArrayType } from "./array_type";
-import { tryToImplementClosureByFnModuleType } from "./closure_type";
-import { tryToImplementComptimeListByComptimeListType } from "./comptime_list_type";
-import { tryToImplementFunctionByFunctionType } from "./function_type";
+import { tryToImplementArrayByArrayType } from "./array-type";
+import { tryToImplementClosureByFnModuleType } from "./closure-type";
+import { tryToImplementComptimeListByComptimeListType } from "./comptime-list-type";
+import { tryToImplementFunctionByFunctionType } from "./function-type";
 import { extractFunctionValue, tryToCallFunctionWithArguments } from "./helper";
 import { evaluateIsoValueCall } from "./iso";
-import { tryToImplementModuleWithArgumentsByModuleType } from "./module_type";
+import { tryToImplementModuleWithArgumentsByModuleType } from "./module-type";
 import {
   isConvertibleNumericType,
   tryToConvertToNumericType,
-} from "./numeric_type";
-import { tryToConvertToPointerType } from "./pointer_type";
-import { tryToImplementTraitWithArgumentsByTraitType } from "./trait_type";
+} from "./numeric-type";
+import { tryToConvertToPointerType } from "./pointer-type";
+import { tryToImplementTraitWithArgumentsByTraitType } from "./trait-type";
 import { tryToCallTypeWithArguments } from "./type";
 
 /**

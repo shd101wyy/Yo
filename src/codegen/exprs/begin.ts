@@ -1,5 +1,5 @@
 import { exprIsFunctionCall, FnCallExpr } from "../../expr";
-import { isUnitType } from "../../types";
+import { isUnitType } from "../../types/guards";
 import { isTempVariableName } from "../../utils";
 import { FunctionGenerationContext } from "../functions/context";
 import {
@@ -7,7 +7,7 @@ import {
   getTypeString,
   getVariableNameForCodegen,
 } from "../utils";
-import { generateDeferredDupExpressions } from "./drop_dup";
+import { generateDeferredDupExpressions } from "./drop-dup";
 import { generateExpr } from "./expr";
 
 /**

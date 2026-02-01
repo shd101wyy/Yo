@@ -9,14 +9,14 @@ import {
   PathCollection,
   setExprAsNeedsToCallDup,
 } from "../../expr";
+import { areTypesCompatible } from "../../types/compatibility";
+import { TypeField } from "../../types/definitions";
 import {
-  areTypesCompatible,
   convertComptimeTypeToRuntimeType,
   isComptimeOnlyType,
   tupleFieldToString,
-  TypeField,
   typeToString,
-} from "../../types";
+} from "../../types/utils";
 import { Value } from "../../value";
 import { EvaluatorContext, TypeCallResult } from "../context";
 import { evaluateExpression } from "../exprs/expr";

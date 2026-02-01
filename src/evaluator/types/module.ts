@@ -9,16 +9,11 @@ import {
   exprToString,
   FnCallExpr,
 } from "../../expr";
-import {
-  areTypesCompatible,
-  createModuleType,
-  isFunctionType,
-  isModuleType,
-  ModuleField,
-  ModuleType,
-  Type,
-  typeToString,
-} from "../../types";
+import { areTypesCompatible } from "../../types/compatibility";
+import { createModuleType } from "../../types/creators";
+import { ModuleField, ModuleType, Type } from "../../types/definitions";
+import { isFunctionType, isModuleType } from "../../types/guards";
+import { typeToString } from "../../types/utils";
 import { VUnit } from "../../unit-value";
 import { randomId } from "../../utils";
 import {

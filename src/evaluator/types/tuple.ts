@@ -1,13 +1,9 @@
 import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import { Expr, exprIsFunctionCall, FnCallExpr } from "../../expr";
-import {
-  createTupleType,
-  createUnitType,
-  TupleType,
-  TypeField,
-  typeOfType,
-} from "../../types";
+import { createTupleType, createUnitType } from "../../types/creators";
+import { TupleType, TypeField } from "../../types/definitions";
+import { typeOfType } from "../../types/hierarchy";
 import { createTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
 import { validateTypeAvailability } from "../trait-checking";

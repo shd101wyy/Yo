@@ -1,5 +1,5 @@
 import { extractFnTraitFromType } from "../../evaluator/trait-checking";
-import { DynType, Type } from "../../types";
+import { DynType, Type } from "../../types/definitions";
 import { TraitValue } from "../../value";
 import { CodeGenContext } from "./index";
 

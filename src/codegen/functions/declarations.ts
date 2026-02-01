@@ -1,15 +1,14 @@
 import { typeImplementsFuture } from "../../evaluator/trait-checking";
 import { Expr } from "../../expr";
 import { FuncValueId } from "../../function-value";
+import { FunctionType } from "../../types/definitions";
 import {
-  FunctionType,
   isFunctionSpecializable,
   isFunctionType,
   isSomeType,
   isStructType,
-  typeContainsSomeType,
-  typeToString,
-} from "../../types";
+} from "../../types/guards";
+import { typeContainsSomeType, typeToString } from "../../types/utils";
 import {
   CodeGenContext,
   findReturnedAsyncBlock,

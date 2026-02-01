@@ -1,7 +1,8 @@
 import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import { Expr, exprToString, FnCallExpr } from "../../expr";
-import { isBooleanType, isUnitType, typeToString } from "../../types";
+import { isBooleanType, isUnitType } from "../../types/guards";
+import { typeToString } from "../../types/utils";
 import { VUnit } from "../../unit-value";
 import { isBooleanValue } from "../../value";
 import { EvaluatorContext } from "../context";

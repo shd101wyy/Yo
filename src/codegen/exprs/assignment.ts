@@ -11,7 +11,7 @@ import {
   exprToString,
   FnCallExpr,
 } from "../../expr";
-import { isArrayType, isUnitType } from "../../types";
+import { isArrayType, isUnitType } from "../../types/guards";
 import { isTempVariableName } from "../../utils";
 import { FunctionGenerationContext } from "../functions/context";
 import {
@@ -20,7 +20,7 @@ import {
   getVariableNameForCodegen,
   getVariableTypeString,
 } from "../utils";
-import { generateDeferredDupExpressions } from "./drop_dup";
+import { generateDeferredDupExpressions } from "./drop-dup";
 import { generateExpr } from "./expr";
 
 export function generateAssignment(

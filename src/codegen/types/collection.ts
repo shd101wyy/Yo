@@ -14,12 +14,16 @@ import {
   ArrayType,
   DynType,
   FunctionType,
+  IsoType,
+  SliceType,
+  Type,
+} from "../../types/definitions";
+import {
   isArrayType,
   isDynType,
   isEnumType,
   isIsoType,
   isModuleType,
-  IsoType,
   isPtrType,
   isSliceType,
   isSomeType,
@@ -27,10 +31,8 @@ import {
   isTraitType,
   isTupleType,
   isUnionType,
-  SliceType,
-  Type,
-  typeContainsSomeType,
-} from "../../types";
+} from "../../types/guards";
+import { typeContainsSomeType } from "../../types/utils";
 import {
   isFunctionValue,
   isModuleValue,

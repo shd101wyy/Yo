@@ -7,7 +7,8 @@ import {
   exprToString,
   FnCallExpr,
 } from "../../expr";
-import { isUnitType, typeToString } from "../../types";
+import { isUnitType } from "../../types/guards";
+import { typeToString } from "../../types/utils";
 import { VUnit } from "../../unit-value";
 import { isComptimeStringValue } from "../../value";
 import { EvaluatorContext } from "../context";

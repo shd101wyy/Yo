@@ -29,29 +29,35 @@ import {
 import { FunctionValue, SpecializedFunctionCache } from "../../function-value";
 import { generateExprFromCode } from "../../parser";
 import { PlaceholderToken } from "../../token";
+import { areTypesCompatible } from "../../types/compatibility";
 import {
-  areTypesCompatible,
-  convertComptimeTypeToRuntimeType,
   createExprType,
   createFunctionType,
   createSomeType,
+} from "../../types/creators";
+import {
   FunctionParameter,
   FunctionType,
-  getAllSomeTypes,
-  getValueOfSomeTypeFromEnv,
-  isComptimeOnlyType,
+  SomeType,
+  Type,
+  TypeHierarchyType,
+} from "../../types/definitions";
+import { getValueOfSomeTypeFromEnv } from "../../types/env-lookup";
+import {
   isExprListType,
   isExprType,
   isFunctionSpecializable,
   isSomeType,
   isTypeHierarchyType,
-  SomeType,
-  Type,
+} from "../../types/guards";
+import {
+  convertComptimeTypeToRuntimeType,
+  getAllSomeTypes,
+  isComptimeOnlyType,
   typeContainsSomeType,
-  TypeHierarchyType,
   typeRequiresComptimeModifier,
   typeToString,
-} from "../../types";
+} from "../../types/utils";
 import {
   areValuesEqual,
   createComptimeListValue,
@@ -73,7 +79,7 @@ import {
   evaluateFunctionReturnTypeAgain,
 } from "../types/function";
 import { synthesizeTypes } from "../types/synthesizer";
-import { evaluateComptimeFunctionCall } from "./comptime_fn";
+import { evaluateComptimeFunctionCall } from "./comptime-fn";
 
 /**
  * Generate ___drop expressions for variables that need cleanup during function calls.

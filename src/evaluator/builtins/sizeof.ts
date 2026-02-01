@@ -5,7 +5,9 @@ import {
   expectExprToBeFunctionCallOf,
   FnCallExpr,
 } from "../../expr";
-import { createUsizeType, getSizeOfType, Type } from "../../types";
+import { createUsizeType } from "../../types/creators";
+import { Type } from "../../types/definitions";
+import { getSizeOfType } from "../../types/utils";
 import {
   createNumberValue,
   createUnknownValue,

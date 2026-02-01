@@ -1,11 +1,7 @@
 import { BuiltinFunctions } from "../../expr";
-import {
-  DynType,
-  FunctionType,
-  isFnTraitType,
-  isFunctionType,
-  typeToString,
-} from "../../types";
+import { DynType, FunctionType } from "../../types/definitions";
+import { isFnTraitType, isFunctionType } from "../../types/guards";
+import { typeToString } from "../../types/utils";
 import {
   CodeGenContext,
   getTypeString,

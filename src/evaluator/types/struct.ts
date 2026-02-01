@@ -8,7 +8,8 @@ import {
   exprToString,
   FnCallExpr,
 } from "../../expr";
-import { createStructType, TraitField } from "../../types";
+import { createStructType } from "../../types/creators";
+import { TraitField } from "../../types/definitions";
 import { createTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
 import { validateTypeAvailability } from "../trait-checking";

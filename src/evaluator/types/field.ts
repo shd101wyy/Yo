@@ -8,17 +8,15 @@ import {
   exprIsFunctionCallOf,
   exprToString,
 } from "../../expr";
+import { areTypesCompatible } from "../../types/compatibility";
+import { Type, TypeField } from "../../types/definitions";
 import {
-  areTypesCompatible,
   isModuleType,
   isStructType,
   isTraitType,
   isTupleType,
-  prohibitVoidType,
-  Type,
-  TypeField,
-  typeToString,
-} from "../../types";
+} from "../../types/guards";
+import { prohibitVoidType, typeToString } from "../../types/utils";
 import { VUnit } from "../../unit-value";
 import {
   isFunctionValue,

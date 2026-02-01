@@ -8,13 +8,10 @@ import {
   exprIsFunctionCallOf,
   FnCallExpr,
 } from "../../expr";
-import {
-  createDynType,
-  isFunctionType,
-  isTraitType,
-  TraitType,
-  typeToString,
-} from "../../types";
+import { createDynType } from "../../types/creators";
+import { TraitType } from "../../types/definitions";
+import { isFunctionType, isTraitType } from "../../types/guards";
+import { typeToString } from "../../types/utils";
 import { createTypeValue, isTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";

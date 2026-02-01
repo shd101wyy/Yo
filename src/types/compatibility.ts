@@ -6,6 +6,7 @@ import {
 } from "../evaluator/types/synthesizer";
 import { areValuesEqual } from "../value";
 import { FunctionType, Type } from "./definitions";
+import { getValueOfSomeTypeFromEnv } from "./env-lookup";
 import {
   isArrayType,
   isCCompatibleType,
@@ -34,7 +35,7 @@ import {
   isUnionType,
 } from "./guards";
 import { TypeTag } from "./tags";
-import { getValueOfSomeTypeFromEnv, typeContainsSomeType } from "./utils";
+import { typeContainsSomeType } from "./utils";
 
 /**
  * Check if two types are compatible.

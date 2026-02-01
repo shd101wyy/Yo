@@ -9,14 +9,10 @@ import {
   exprToString,
   FnCallExpr,
 } from "../../expr";
-import {
-  areTypesCompatible,
-  ArrayType,
-  createSliceType,
-  createUsizeType,
-  SliceType,
-  typeToString,
-} from "../../types";
+import { areTypesCompatible } from "../../types/compatibility";
+import { createSliceType, createUsizeType } from "../../types/creators";
+import { ArrayType, SliceType } from "../../types/definitions";
+import { typeToString } from "../../types/utils";
 import {
   ArrayValue,
   createSliceValue,

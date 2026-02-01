@@ -12,25 +12,28 @@
 import { Environment } from "../env";
 import { formatErrorMessage } from "../error";
 import { Token } from "../token";
+import { areTypesCompatible } from "../types/compatibility";
 import {
   DynType,
   FnTraitType,
   FutureTraitType,
+  SomeType,
+  TraitType,
+  Type,
+} from "../types/definitions";
+import {
   getTraitTypeFromEnv,
   getValueOfSomeTypeFromEnv,
+} from "../types/env-lookup";
+import {
   isDynType,
   isFnTraitType,
   isFutureTraitType,
   isSomeType,
   isTypeHierarchyType,
-  SomeType,
-  TraitType,
-  Type,
-  typeContainsSomeType,
-  TypeTag,
-  typeToString,
-} from "../types";
-import { areTypesCompatible } from "../types/compatibility";
+} from "../types/guards";
+import { TypeTag } from "../types/tags";
+import { typeContainsSomeType, typeToString } from "../types/utils";
 import { isTraitValue, TraitValue } from "../value";
 import { findMatchingGenericImpl } from "./values/impl";
 

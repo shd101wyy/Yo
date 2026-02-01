@@ -1,5 +1,5 @@
-import { existsSync } from "node:fs";
-import path from "node:path";
+import { existsSync } from "fs";
+import * as path from "path";
 import { CodeGeneratorC } from "./codegen/codegen-c";
 import { setGenerateExprFn } from "./codegen/exprs/expr";
 import { _generateExpr } from "./codegen/exprs/generation";

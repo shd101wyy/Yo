@@ -10,16 +10,14 @@ import {
   FnCallExpr,
   setExprAsNeedsToCallDup,
 } from "../../expr";
+import { createTupleType } from "../../types/creators";
+import { TupleType, Type, TypeField } from "../../types/definitions";
+import { isTupleType } from "../../types/guards";
 import {
   convertComptimeTypeToRuntimeType,
-  createTupleType,
   isComptimeOnlyType,
-  isTupleType,
-  TupleType,
-  Type,
-  TypeField,
   typeToString,
-} from "../../types";
+} from "../../types/utils";
 import { VUnit } from "../../unit-value";
 import { createTupleValue, isTypeValue, TupleValue, Value } from "../../value";
 import { EvaluatorContext } from "../context";
@@ -159,7 +157,7 @@ ${typeToString(expectedTupleType)}`,
         assignedValueExpr: undefined,
       },
       isCompileTimeOnly: false,
-      type: childType,
+      type: childType!,
       label: elementIndex.toString(), // `$field_${randomId()}`,
     },
     value,

@@ -11,17 +11,11 @@ import {
 } from "../../evaluator/async/await-analysis";
 import { extractFutureTraitFromType } from "../../evaluator/trait-checking";
 import { Expr, exprIsFunctionCallOf, ExprTag } from "../../expr";
-import {
-  DynType,
-  isDynType,
-  isSomeType,
-  isUnitType,
-  SomeType,
-  StructType,
-  typeContainsRcType,
-} from "../../types";
+import { DynType, SomeType, StructType } from "../../types/definitions";
+import { isDynType, isSomeType, isUnitType } from "../../types/guards";
+import { typeContainsRcType } from "../../types/utils";
 import { isTempVariableName } from "../../utils";
-import { getDupFunctionForType } from "../exprs/drop_dup";
+import { getDupFunctionForType } from "../exprs/drop-dup";
 import { generateExpr } from "../exprs/expr";
 import { FunctionGenerationContext } from "../functions/context";
 import { sanitizeForCIdentifier } from "../utils";

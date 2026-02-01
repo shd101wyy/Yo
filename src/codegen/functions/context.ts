@@ -7,11 +7,12 @@ import { FunctionValue, FuncValueId } from "../../function-value";
 import {
   DynType,
   FunctionType,
+  FutureTraitType,
   SomeType,
   StructType,
   Type,
   TypeId,
-} from "../../types";
+} from "../../types/definitions";
 import { CodeGenContext } from "../utils";
 
 export interface FunctionGenerationContext extends CodeGenContext {
@@ -43,7 +44,7 @@ export interface FunctionGenerationContext extends CodeGenContext {
     constructorName: string;
     disposeFunctionName: string;
     futureType: SomeType | DynType;
-    futureModuleType: import("../../types").FutureTraitType;
+    futureModuleType: FutureTraitType;
     resultType: Type;
     resultTypeCName: string;
     captureType: StructType | undefined;

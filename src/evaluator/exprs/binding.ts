@@ -12,12 +12,14 @@ import {
   isArrayType,
   isFunctionSpecializable,
   isFunctionType,
+} from "../../types/guards";
+import {
   prohibitVoidType,
   typeContainsRcType,
   typeProhibitsComptimeModifier,
   typeRequiresComptimeModifier,
   typeToString,
-} from "../../types";
+} from "../../types/utils";
 import { VUnit } from "../../unit-value";
 import { createUnknownValue, isTypeValue, isUnknownValue } from "../../value";
 import { EvaluatorContext } from "../context";

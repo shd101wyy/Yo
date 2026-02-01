@@ -7,11 +7,8 @@ import {
   exprToString,
   FnCallExpr,
 } from "../../expr";
-import {
-  areTypesCompatible,
-  createArrayType,
-  createUsizeType,
-} from "../../types";
+import { areTypesCompatible } from "../../types/compatibility";
+import { createArrayType, createUsizeType } from "../../types/creators";
 import {
   createTypeValue,
   createUnknownValue,

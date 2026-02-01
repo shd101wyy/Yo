@@ -4,10 +4,8 @@ import { Expr, exprsAreEqual, exprToString } from "./expr";
 import { FunctionValue } from "./function-value";
 import { stringIsOperator } from "./token";
 import { TypeValue } from "./type-value";
+import { areTypesCompatible } from "./types/compatibility";
 import {
-  areTypesCompatible,
-  ArrayType,
-  ComptimeListType,
   createBooleanType,
   createComptimeFloatType,
   createComptimeIntType,
@@ -27,10 +25,12 @@ import {
   createU64Type,
   createU8Type,
   createUsizeType,
+} from "./types/creators";
+import {
+  ArrayType,
+  ComptimeListType,
   EnumType,
   ExprType,
-  isExprType,
-  isTypeHierarchyType,
   ModuleType,
   PtrType,
   SliceType,
@@ -38,9 +38,10 @@ import {
   TraitType,
   TupleType,
   Type,
-  typeOfType,
-  typeToString,
-} from "./types";
+} from "./types/definitions";
+import { isExprType, isTypeHierarchyType } from "./types/guards";
+import { typeOfType } from "./types/hierarchy";
+import { typeToString } from "./types/utils";
 import { UnitValue } from "./unit-value";
 import { ValueTag } from "./value-tag";
 

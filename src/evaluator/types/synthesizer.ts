@@ -5,8 +5,9 @@ import {
   updateExistingVariable,
 } from "../../env";
 import { PlaceholderToken } from "../../token";
+import { Type } from "../../types/definitions";
+import { getValueOfSomeTypeFromEnv } from "../../types/env-lookup";
 import {
-  getValueOfSomeTypeFromEnv,
   isArrayType,
   isComptimeListType,
   isEnumType,
@@ -22,10 +23,9 @@ import {
   isTraitType,
   isTupleType,
   isTypeHierarchyType,
-  Type,
-  typeToString,
-} from "../../types";
+} from "../../types/guards";
 import { TypeTag } from "../../types/tags";
+import { typeToString } from "../../types/utils";
 import { createTypeValue, isTypeValue, isUnknownValue } from "../../value";
 
 /**

@@ -1,7 +1,7 @@
 import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import { BuiltinFunctions, exprIsFunctionCallOf, FnCallExpr } from "../../expr";
-import { createComptimeStringType } from "../../types";
+import { createComptimeStringType } from "../../types/creators";
 import { createComptimeStringValue } from "../../value";
 import { EvaluatorContext } from "../context";
 

@@ -13,15 +13,9 @@ import {
   ExprTag,
   FnCallExpr,
 } from "../../expr";
-import {
-  DynType,
-  isUnitType,
-  SomeType,
-  StructType,
-  Type,
-  typeContainsRcType,
-  typeToString,
-} from "../../types";
+import { DynType, SomeType, StructType, Type } from "../../types/definitions";
+import { isUnitType } from "../../types/guards";
+import { typeContainsRcType, typeToString } from "../../types/utils";
 import { isFunctionValue } from "../../value";
 import {
   generateAsyncBlockResumeFunction,
@@ -30,7 +24,7 @@ import {
 import { FunctionGenerationContext } from "../functions/context";
 import { getTypeString, getVariableTypeString } from "../utils";
 import { generateAtom } from "./atom";
-import { getDropFunctionForType } from "./drop_dup";
+import { getDropFunctionForType } from "./drop-dup";
 import { generateExpr } from "./expr";
 
 /**

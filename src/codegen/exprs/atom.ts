@@ -1,11 +1,11 @@
 import { getVariablesFromEnv } from "../../env";
 import { AtomExpr } from "../../expr";
-import { isFunctionType, isUnitType } from "../../types";
+import { isFunctionType, isUnitType } from "../../types/guards";
 import { isFunctionValue, isUnknownValue } from "../../value";
 import { FunctionGenerationContext } from "../functions/context";
 import { CodeGenContext, getVariableNameForCodegen } from "../utils";
 import { checkVariableIsClosureCaptured } from "./closures";
-import { generateComptimeValue } from "./comptime_value";
+import { generateComptimeValue } from "./comptime-value";
 
 /**
  * Generate C code for an atom expression - extracted from original codegen-c.ts

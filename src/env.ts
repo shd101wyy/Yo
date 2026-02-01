@@ -1,13 +1,12 @@
 import { formatErrorMessages } from "./error";
 import { EvaluatorContext } from "./evaluator/context";
 import { typeImplementsFuture } from "./evaluator/trait-checking";
-import { cloneValue } from "./evaluator/values/clone_value";
+import { cloneValue } from "./evaluator/values/clone-value";
 import { findMethodsFromGenericImpls } from "./evaluator/values/impl";
 import { Token } from "./token";
+import { areTypesCompatible } from "./types/compatibility";
+import { FunctionType, SomeType, TraitType, Type } from "./types/definitions";
 import {
-  areTypesCompatible,
-  convertComptimeTypeToRuntimeType,
-  FunctionType,
   isComptimeFloatType,
   isComptimeIntType,
   isComptimeStringType,
@@ -18,14 +17,14 @@ import {
   isPtrType,
   isSomeType,
   isTraitType,
-  SomeType,
-  TraitType,
-  Type,
+} from "./types/guards";
+import {
+  convertComptimeTypeToRuntimeType,
   typeContainsRcType,
   typeContainsSelfTypeForDynamicDispatchCheck,
   typeContainsSomeType,
   typeToString,
-} from "./types";
+} from "./types/utils";
 import { generateVarialeId, isTempVariableName } from "./utils";
 import {
   createUnknownValue,

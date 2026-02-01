@@ -2,6 +2,13 @@ import { BuiltinFunctions } from "../../expr";
 import {
   EnumType,
   FunctionType,
+  PtrType,
+  StructType,
+  TupleType,
+  Type,
+  UnionType,
+} from "../../types/definitions";
+import {
   isDynType,
   isEnumType,
   isFutureTraitType,
@@ -11,14 +18,8 @@ import {
   isTupleType,
   isUnionType,
   isUnitType,
-  PtrType,
-  StructType,
-  TupleType,
-  Type,
-  typeContainsSomeType,
-  typeToString,
-  UnionType,
-} from "../../types";
+} from "../../types/guards";
+import { typeContainsSomeType, typeToString } from "../../types/utils";
 import {
   canOptimizeAsNullablePointer,
   canOptimizeAsSimpleEnum,

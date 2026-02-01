@@ -6,6 +6,7 @@ import {
   exprIsFunctionCall,
   exprIsFunctionCallOf,
 } from "../../expr";
+import { Type } from "../../types/definitions";
 import {
   isBoxedType,
   isDynType,
@@ -14,8 +15,7 @@ import {
   isObjectType,
   isSomeType,
   isUnitType,
-  Type,
-} from "../../types";
+} from "../../types/guards";
 import {
   isFunctionValue,
   isTypeValue,
@@ -23,7 +23,7 @@ import {
   ModuleValue,
   TraitValue,
 } from "../../value";
-import { collectType } from "../types";
+import { collectType } from "../types/collection";
 import { CodeGenContext, sanitizeForCIdentifier } from "../utils";
 
 /**

@@ -8,14 +8,14 @@ import {
   ExprTag,
   FnCallExpr,
 } from "../../expr";
+import { Type } from "../../types/definitions";
 import {
   isEnumType,
   isObjectType,
   isPtrType,
   isUnitType,
-  Type,
-  TypeTag,
-} from "../../types";
+} from "../../types/guards";
+import { TypeTag } from "../../types/tags";
 import { isBooleanValue, isNumberValue, Value } from "../../value";
 import { FunctionGenerationContext } from "../functions/context";
 import {
@@ -30,7 +30,7 @@ import {
 import {
   generateDeferredDropExpressions,
   generateDeferredDupExpressions,
-} from "./drop_dup";
+} from "./drop-dup";
 import { generateExpr } from "./expr";
 
 /**

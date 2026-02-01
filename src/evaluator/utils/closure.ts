@@ -8,14 +8,10 @@ import { BuiltinFunctions, Expr, ExprTag } from "../../expr";
 import { FunctionCapturedVariableInfo } from "../../function-value";
 import { generateExprFromCode } from "../../parser";
 import { Token } from "../../token";
-import {
-  areTypesCompatible,
-  createStructType,
-  StructType,
-  typeContainsRcType,
-  TypeField,
-  typeToString,
-} from "../../types";
+import { areTypesCompatible } from "../../types/compatibility";
+import { createStructType } from "../../types/creators";
+import { StructType, TypeField } from "../../types/definitions";
+import { typeContainsRcType, typeToString } from "../../types/utils";
 import {
   createStructValue,
   StructValue,

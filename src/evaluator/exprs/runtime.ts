@@ -7,7 +7,7 @@ import {
   exprToString,
   FnCallExpr,
 } from "../../expr";
-import { convertComptimeTypeToRuntimeType } from "../../types";
+import { convertComptimeTypeToRuntimeType } from "../../types/utils";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "./expr";
 

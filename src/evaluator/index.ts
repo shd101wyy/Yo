@@ -9,13 +9,13 @@ import {
 import { Expr } from "../expr";
 import Parser from "../parser";
 import { Token, TokenType } from "../token";
-import { isModuleType } from "../types";
+import { isModuleType } from "../types/guards";
 import { ModuleValue } from "../value";
 
 // Import extracted evaluator functions
 import { YoError, YoLexerError } from "../error";
 import { LoadModuleFn } from "./context";
-import { evaluateAnonymousModuleBeginExprs } from "./values/anonymous_module";
+import { evaluateAnonymousModuleBeginExprs } from "./values/anonymous-module";
 import {
   clearAllGlobalImplState,
   clearGenericImplsFromModule,

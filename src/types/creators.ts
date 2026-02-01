@@ -39,8 +39,9 @@ import {
   UnionType,
   VoidType,
 } from "./definitions";
+import { getTraitTypeFromEnv } from "./env-lookup";
 import { TypeTag } from "./tags";
-import { getTraitTypeFromEnv, typeToString } from "./utils";
+import { typeToString } from "./utils";
 
 let cachedComptimeIntType: Type | null = null;
 export function createComptimeIntType(): Type {

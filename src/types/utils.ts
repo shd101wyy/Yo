@@ -1,4 +1,4 @@
-import { Environment, getVariablesFromEnv } from "../env";
+import { Environment } from "../env";
 import { formatErrorMessages } from "../error";
 import {
   typeImplementsAcyclic,
@@ -9,14 +9,7 @@ import {
 } from "../evaluator/trait-checking";
 import { Expr, exprToString } from "../expr";
 import { stringIsOperator, Token } from "../token";
-import { TypeValue } from "../type-value";
-import {
-  isNumberValue,
-  isTypeValue,
-  isUnknownValue,
-  valueToString,
-} from "../value";
-import { ValueTag } from "../value-tag";
+import { isNumberValue, isUnknownValue, valueToString } from "../value";
 import { createF64Type, createI32Type, createStrType } from "./creators";
 import {
   ArrayType,
@@ -80,28 +73,6 @@ import {
   isVoidType,
 } from "./guards";
 import { TypeTag } from "./tags";
-
-/**
- * Get a module type from the environment by name (e.g., "Copy", "Send").
- * Returns undefined if not found.
- */
-export function getTraitTypeFromEnv(
-  env: Environment,
-  traitName: string
-): TraitType | undefined {
-  const variables = getVariablesFromEnv(env, traitName);
-  if (variables.length === 0) {
-    return undefined;
-  }
-  const variable = variables[variables.length - 1]!;
-  if (variable.value && isTypeValue(variable.value[0])) {
-    const typeValue = variable.value[0] as TypeValue;
-    if (isTraitType(typeValue.value)) {
-      return typeValue.value;
-    }
-  }
-  return undefined;
-}
 
 /**
  * Check if the type of the value requires to use the comptime modifier.
@@ -521,49 +492,6 @@ export function typeRequiresInference(type?: Type): boolean {
     default:
       return false; // For other types, no unknown values are present
   }
-}
-
-/**
- * Get the value of a SomeType from the environment.
- */
-export function getValueOfSomeTypeFromEnv(
-  env: Environment,
-  someType: SomeType
-): Type {
-  let someTypeValue: TypeValue | undefined = undefined;
-  // Track visited SomeTypes to detect cycles (e.g., A -> B -> A)
-  const visited = new Set<SomeType>();
-
-  do {
-    // If we've already visited this SomeType, we have a cycle - return it as-is
-    if (visited.has(someType)) {
-      return someType;
-    }
-    visited.add(someType);
-
-    const variables = getVariablesFromEnv(env, someType.name, (variable) => {
-      return variable.value?.[0]?.tag === ValueTag.Type;
-      // cannot use "isTypeValue" function here due to circular dependency
-    });
-    if (!variables.length) {
-      // NOTE: This might be SomeType defined from "forall"
-      // So it doesn't exist in the env.
-      return someType; // Return itself
-    }
-
-    someTypeValue = variables[variables.length - 1]!.value![0] as TypeValue;
-
-    // If the resolved value is the same object as current someType, return it
-    if (someTypeValue.value === someType) {
-      return someType;
-    }
-    if (isSomeType(someTypeValue.value)) {
-      someType = someTypeValue.value;
-    } else {
-      break;
-    }
-  } while (isSomeType(someType));
-  return someTypeValue.value;
 }
 
 /**

@@ -1,6 +1,7 @@
 import { FnCallExpr } from "../../expr";
 import { TypeValue } from "../../type-value";
-import { isIsoType, IsoType } from "../../types";
+import { IsoType } from "../../types/definitions";
+import { isIsoType } from "../../types/guards";
 import { isTypeValue } from "../../value";
 import { CodeGenContext, getTypeString } from "../utils";
 import { generateExpr } from "./expr";

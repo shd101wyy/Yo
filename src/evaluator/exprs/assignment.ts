@@ -18,25 +18,29 @@ import {
   requireExprNotConsumed,
   setExprAsNeedsToCallDup,
 } from "../../expr";
+import { areTypesCompatible } from "../../types/compatibility";
+import { createArrayType } from "../../types/creators";
 import {
-  areTypesCompatible,
   ArrayType,
-  convertComptimeTypeToRuntimeType,
-  createArrayType,
   EnumType,
+  SomeType,
+  StructType,
+  TupleType,
+  Type,
+} from "../../types/definitions";
+import {
   isArrayType,
   isEnumType,
   isSomeType,
   isStructType,
   isTypeHierarchyType,
-  SomeType,
-  StructType,
-  TupleType,
-  Type,
+} from "../../types/guards";
+import {
+  convertComptimeTypeToRuntimeType,
   typeContainsRcType,
   typeRequiresInference,
   typeToString,
-} from "../../types";
+} from "../../types/utils";
 import { VUnit } from "../../unit-value";
 import { generateVarialeId } from "../../utils";
 import {
@@ -59,11 +63,11 @@ import {
 } from "../../value";
 import { EvaluatorContext, trackVariableUsage } from "../context";
 import { evaluateExpression } from "../exprs/expr";
-import { synthesizeExprAndType } from "../types/expr_synthesizer";
+import { synthesizeExprAndType } from "../types/expr-synthesizer";
 import { findRcValueOwnerRelationship } from "../utils";
-import { cloneValue } from "../values/clone_value";
+import { cloneValue } from "../values/clone-value";
 import { evaluateBinding } from "./binding";
-import { evaluateIdentifierAndOperator } from "./identifer_and_operator";
+import { evaluateIdentifierAndOperator } from "./identifer-and-operator";
 
 export function throwRhsContainsControlFlowExpressionError(
   rhs: Expr,

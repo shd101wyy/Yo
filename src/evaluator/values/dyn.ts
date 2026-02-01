@@ -20,23 +20,27 @@ import {
 } from "../../expr";
 import { FunctionValue } from "../../function-value";
 import { PlaceholderToken, TokenType } from "../../token";
+import { areTypesCompatible } from "../../types/compatibility";
 import {
-  areTypesCompatible,
   createDynType,
   createSomeType,
   createType0,
+} from "../../types/creators";
+import {
   DynType,
+  SomeType,
+  StructType,
+  TraitType,
+  Type,
+} from "../../types/definitions";
+import {
   isBoxedType,
   isDynType,
   isFunctionType,
   isObjectType,
   isSomeType,
-  SomeType,
-  StructType,
-  TraitType,
-  Type,
-  typeToString,
-} from "../../types";
+} from "../../types/guards";
+import { typeToString } from "../../types/utils";
 import {
   createTraitValue,
   createTypeValue,
@@ -46,7 +50,7 @@ import {
   TraitValue,
   Value,
 } from "../../value";
-import { evaluateComptimeFunctionCall } from "../calls/comptime_fn";
+import { evaluateComptimeFunctionCall } from "../calls/comptime-fn";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { typeImplementsFuture } from "../trait-checking";

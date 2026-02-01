@@ -1,13 +1,13 @@
 import { BuiltinFunctions } from "../../expr";
+import { FunctionType } from "../../types/definitions";
 import {
-  FunctionType,
   isBoxedType,
   isFnTraitType,
   isFunctionType,
   isPtrType,
   isSomeType,
   isVoidType,
-} from "../../types";
+} from "../../types/guards";
 import { isFunctionValue } from "../../value";
 import { getTypeString, sanitizeForCIdentifier } from "../utils";
 import { FunctionGenerationContext } from "./context";

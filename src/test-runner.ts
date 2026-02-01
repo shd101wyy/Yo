@@ -23,7 +23,7 @@ import {
 } from "./expr";
 import { ModuleManager } from "./module-manager";
 import { TokenType } from "./token";
-import { clearAllCachedTypes } from "./types";
+import { clearAllCachedTypes } from "./types/creators";
 import { clearAllModuleCounters } from "./utils";
 import { isComptimeStringValue } from "./value";
 

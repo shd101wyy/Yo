@@ -1,7 +1,8 @@
 import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import { exprToString, FnCallExpr } from "../../expr";
-import { createPtrType, isPtrType } from "../../types";
+import { createPtrType } from "../../types/creators";
+import { isPtrType } from "../../types/guards";
 import { createTypeValue, isTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";

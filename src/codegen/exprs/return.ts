@@ -9,7 +9,7 @@ import {
   ExprTag,
   FnCallExpr,
 } from "../../expr";
-import { isUnitType } from "../../types";
+import { isUnitType } from "../../types/guards";
 import { FunctionGenerationContext } from "../functions/context";
 import {
   CodeGenContext,
@@ -22,7 +22,7 @@ import { generateAtom } from "./atom";
 import {
   generateDeferredDropExpressions,
   generateDeferredDupExpressions,
-} from "./drop_dup";
+} from "./drop-dup";
 import { generateExpr } from "./expr";
 
 /**

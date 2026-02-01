@@ -5,15 +5,12 @@ import {
   expectExprToBeFunctionCallOf,
   FnCallExpr,
 } from "../../expr";
-import {
-  areTypesCompatible,
-  typeRequiresInference,
-  typeToString,
-} from "../../types";
+import { areTypesCompatible } from "../../types/compatibility";
+import { typeRequiresInference, typeToString } from "../../types/utils";
 import { isTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
-import { synthesizeExprAndType } from "../types/expr_synthesizer";
+import { synthesizeExprAndType } from "../types/expr-synthesizer";
 
 export function evaluateThe({
   expr,

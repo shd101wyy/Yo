@@ -1,7 +1,8 @@
 import { formatErrorMessage } from "../../error";
 import { BuiltinFunctions } from "../../expr";
 import { Token } from "../../token";
-import { isFunctionType, isUnitType, ModuleField } from "../../types";
+import { ModuleField } from "../../types/definitions";
+import { isFunctionType, isUnitType } from "../../types/guards";
 
 /**
  * Validate that a dispose function has the correct signature: fn(self : Self) -> unit

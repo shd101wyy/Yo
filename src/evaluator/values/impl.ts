@@ -19,25 +19,25 @@ import {
 import { FunctionValue } from "../../function-value";
 import { PlaceholderToken, Token } from "../../token";
 import { TypeValue } from "../../type-value";
+import { createType0, createTypeHierarchy } from "../../types/creators";
 import {
-  createType0,
-  createTypeHierarchy,
   FunctionParameter,
   FunctionType,
-  getValueOfSomeTypeFromEnv,
+  SomeType,
+  TraitField,
+  TraitType,
+  Type,
+} from "../../types/definitions";
+import { getValueOfSomeTypeFromEnv } from "../../types/env-lookup";
+import {
   isArrayType,
   isFunctionType,
   isSliceType,
   isSomeType,
   isTraitType,
   isType0,
-  SomeType,
-  TraitField,
-  TraitType,
-  Type,
-  typeContainsUnknownValue,
-  typeToString,
-} from "../../types";
+} from "../../types/guards";
+import { typeContainsUnknownValue, typeToString } from "../../types/utils";
 import {
   createTypeValue,
   createUnknownValue,
@@ -58,8 +58,8 @@ import {
   typeImplementsTrait,
 } from "../trait-checking";
 import { synthesizeTypes } from "../types/synthesizer";
-import { evaluateAnonymousModuleBeginExprs } from "./anonymous_module";
-import { evaluateAnonymousTraitBeginExprs } from "./anonymous_trait";
+import { evaluateAnonymousModuleBeginExprs } from "./anonymous-module";
+import { evaluateAnonymousTraitBeginExprs } from "./anonymous-trait";
 
 /**
  * Re-evaluate a FunctionType's type expressions with substitutions bound in the environment.

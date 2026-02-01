@@ -1,5 +1,5 @@
 import { FnCallExpr } from "../../expr";
-import { isStructType } from "../../types";
+import { isStructType } from "../../types/guards";
 import {
   CodeGenContext,
   getTypeString,

@@ -13,14 +13,10 @@ import { EvaluatorContext } from "./evaluator/context";
 import { evaluateExpression } from "./evaluator/exprs/expr";
 import { generateExprFromCode } from "./parser";
 import { Token, TokenType } from "./token";
-import {
-  areTypesCompatible,
-  isSomeType,
-  StructType,
-  Type,
-  typeContainsRcType,
-  typeToString,
-} from "./types";
+import { areTypesCompatible } from "./types/compatibility";
+import { StructType, Type } from "./types/definitions";
+import { isSomeType } from "./types/guards";
+import { typeContainsRcType, typeToString } from "./types/utils";
 import {
   generateNewTempVariableName,
   generateVarialeId,

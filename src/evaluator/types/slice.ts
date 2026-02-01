@@ -6,7 +6,7 @@ import {
   exprToString,
   FnCallExpr,
 } from "../../expr";
-import { createSliceType } from "../../types";
+import { createSliceType } from "../../types/creators";
 import { createTypeValue, isTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";

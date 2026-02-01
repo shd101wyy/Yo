@@ -18,11 +18,10 @@ import {
   FnCallExpr,
   mergeAndCheckEnvs,
 } from "../../expr";
+import { areTypesCompatible } from "../../types/compatibility";
+import { createPtrType } from "../../types/creators";
+import { EnumType, PtrType, Type } from "../../types/definitions";
 import {
-  areTypesCompatible,
-  convertComptimeTypeToRuntimeType,
-  createPtrType,
-  EnumType,
   isBooleanType,
   isCCompatibleType,
   isComptimeFloatType,
@@ -33,11 +32,12 @@ import {
   isFunctionTypeAndReturnsComptimeValue,
   isIntegerType,
   isPtrType,
-  PtrType,
-  Type,
-  TypeTag,
+} from "../../types/guards";
+import { TypeTag } from "../../types/tags";
+import {
+  convertComptimeTypeToRuntimeType,
   typeToString,
-} from "../../types";
+} from "../../types/utils";
 import { VUnit } from "../../unit-value";
 import {
   areValuesEqual,

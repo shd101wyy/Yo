@@ -20,22 +20,24 @@ import {
   EnumType,
   EnumVariant,
   FunctionType,
-  isEnumType,
-  isObjectType,
   IsoType,
-  isPtrType,
-  isSliceType,
-  isSomeType,
-  isStructType,
   PtrType,
   SliceType,
   SomeType,
   StructType,
   Type,
   TypeId,
-  TypeTag,
-  typeToString,
-} from "../../types";
+} from "../../types/definitions";
+import {
+  isEnumType,
+  isObjectType,
+  isPtrType,
+  isSliceType,
+  isSomeType,
+  isStructType,
+} from "../../types/guards";
+import { TypeTag } from "../../types/tags";
+import { typeToString } from "../../types/utils";
 import { isNumberValue, TraitValue } from "../../value";
 import { BuiltinYoInlineFunctions } from "../constants";
 

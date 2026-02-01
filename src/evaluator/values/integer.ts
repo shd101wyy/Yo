@@ -13,7 +13,7 @@ import {
   isU64Type,
   isU8Type,
   isUsizeType,
-} from "../../types";
+} from "../../types/guards";
 import { createNumberValue } from "../../value";
 import { ValueTag } from "../../value-tag";
 import { EvaluatorContext } from "../context";

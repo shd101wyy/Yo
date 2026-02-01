@@ -1,5 +1,6 @@
 import { FnCallExpr } from "../../expr";
-import { isSomeType, isStructType, SomeType, Type } from "../../types";
+import { SomeType, Type } from "../../types/definitions";
+import { isSomeType, isStructType } from "../../types/guards";
 import { randomId } from "../../utils";
 import {
   CodeGenContext,

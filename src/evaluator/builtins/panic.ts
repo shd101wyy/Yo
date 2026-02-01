@@ -1,7 +1,7 @@
 import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import { FnCallExpr } from "../../expr";
-import { isComptimeStringType } from "../../types";
+import { isComptimeStringType } from "../../types/guards";
 import { VUnit } from "../../unit-value";
 import { isComptimeStringValue, isUnknownValue } from "../../value";
 import { EvaluatorContext } from "../context";

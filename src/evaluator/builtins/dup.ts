@@ -14,12 +14,8 @@ import {
   replaceFuncCallExprWithFuncCallExpr,
 } from "../../expr";
 import { generateExprFromCode } from "../../parser";
-import {
-  isArrayType,
-  isSomeType,
-  isTupleType,
-  typeContainsRcType,
-} from "../../types";
+import { isArrayType, isSomeType, isTupleType } from "../../types/guards";
+import { typeContainsRcType } from "../../types/utils";
 import { isNumberValue, NumberValue } from "../../value";
 import { evaluateFunctionCall } from "../calls/function";
 import { EvaluatorContext } from "../context";
