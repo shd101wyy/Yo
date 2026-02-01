@@ -9,26 +9,9 @@ Runtime :: trait(
 );
 export Runtime;
 
-ComptimeNegate :: (fn(comptime(Output) : Type, where(Output <: Comptime))-> comptime(Trait)) 
-  trait(
-    where(Self <: Comptime),
-    (neg) : (fn(comptime(self): Self)-> comptime(Output))
+Option :: (fn(comptime(T) : Type) -> comptime(Type))
+  enum(
+    None,
+    Some(value: T)
   )
 ;
-export ComptimeNegate;
-
-(-) :: impl {
-  (comptime_neg) :: (fn(forall(_Self : Type),
-          comptime(self) : _Self,
-          where(_Self <: (Comptime, ComptimeNegate(_Self)))
-        ) -> comptime(_Self)) {
-    return self.neg();
-  };
-
-  Call :: (comptime_neg,);
-
-  export
-    Call
-  ;
-};
-export (-);

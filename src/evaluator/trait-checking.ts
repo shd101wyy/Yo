@@ -507,12 +507,12 @@ export function extractFutureTraitFromType(
 export function validateTypeAvailability(
   type: Type,
   env: Environment,
-  token: import("../token").Token
+  token: Token
 ): void {
   if (!typeImplementsComptime(type, env) && !typeImplementsRuntime(type, env)) {
     throw formatErrorMessage({
       token: token,
-      errorMessage: `This type has incompatible field contexts and cannot be used in any evaluation context.
+      errorMessage: `Type ${typeToString(type)} has incompatible field contexts and cannot be used in any evaluation context.
   
 This typically happens when a struct/enum/array/tuple contains fields with conflicting availability:
 - Compile-time only fields (e.g., comptime_int, Type, Module)

@@ -1059,7 +1059,7 @@ function tryMatchGenericImpl({
 
       // If bound to a SomeType, check if it has the required constraint attached
       if (isSomeType(boundType)) {
-        if (!someTypeHasModuleConstraint(boundType, actualConstraintTrait)) {
+        if (!someTypeHasTraitConstraint(boundType, actualConstraintTrait)) {
           return noMatch;
         }
         continue;
@@ -1120,7 +1120,7 @@ function tryMatchGenericImpl({
  * Check if a SomeType has a specific trait constraint attached.
  * Used when checking where constraints during generic impl matching.
  */
-function someTypeHasModuleConstraint(
+function someTypeHasTraitConstraint(
   someType: SomeType,
   requiredTrait: TraitType
 ): boolean {
@@ -1129,20 +1129,10 @@ function someTypeHasModuleConstraint(
     return false;
   }
 
-  for (const field of someType.trait.fields) {
-    if (
-      field.assignedValue &&
-      isTypeValue(field.assignedValue) &&
-      isTraitType(field.assignedValue.value)
-    ) {
-      const constraintTrait = field.assignedValue.value;
-      // Only match non-negated constraints
-      if (
-        constraintTrait.typeName === moduleName &&
-        !constraintTrait.isNegatedConstraint
-      ) {
-        return true;
-      }
+  // Check in requiredTraits (the new system)
+  for (const requiredTraitEntry of someType.requiredTraits) {
+    if (requiredTraitEntry.traitType.typeName === moduleName) {
+      return true;
     }
   }
 
@@ -1162,18 +1152,10 @@ function someTypeHasNegatedModuleConstraint(
     return false;
   }
 
-  for (const field of someType.trait.fields) {
-    if (
-      field.assignedValue &&
-      isTypeValue(field.assignedValue) &&
-      isTraitType(field.assignedValue.value)
-    ) {
-      const constraintTrait = field.assignedValue.value;
-      // Only match negated constraints
-      if (
-        constraintTrait.typeName === moduleName &&
-        constraintTrait.isNegatedConstraint
-      ) {
+  // Check in negativeTraits (the new system)
+  if (someType.negativeTraits) {
+    for (const negativeTraitEntry of someType.negativeTraits) {
+      if (negativeTraitEntry.traitType.typeName === moduleName) {
         return true;
       }
     }
@@ -1240,7 +1222,7 @@ function checkGenericImplSelfConstraints({
 
       // Check if receiver type pattern relies on SomeTypes that have the required constraint
       // For now, we just fail - the typeImplementsTrait check should handle this
-      // via findMatchingGenericImpl which checks someTypeHasModuleConstraint
+      // via findMatchingGenericImpl which checks someTypeHasTraitConstraint
 
       throw formatErrorMessage({
         token: errorToken,
@@ -1799,7 +1781,7 @@ export function evaluateModuleValue({
       }
     }
 
-    // Collect where constraints from the SomeTypes' trait fields
+    // Collect where constraints from the SomeTypes' requiredTraits
     const whereConstraints: {
       someType: SomeType;
       traitType: TraitType;
@@ -1809,18 +1791,13 @@ export function evaluateModuleValue({
       // Only type parameters have SomeTypes with constraints
       if (param.kind !== "type") continue;
       const { someType } = param;
-      for (const field of someType.trait.fields) {
-        if (
-          field.assignedValue &&
-          isTypeValue(field.assignedValue) &&
-          isTraitType(field.assignedValue.value)
-        ) {
-          whereConstraints.push({
-            someType,
-            traitType: field.assignedValue.value,
-            traitExpr: field.exprs?.expr,
-          });
-        }
+      // Collect from requiredTraits (the new system)
+      for (const requiredTrait of someType.requiredTraits) {
+        whereConstraints.push({
+          someType,
+          traitType: requiredTrait.traitType,
+          traitExpr: undefined, // We don't store the original expr in the new system
+        });
       }
     }
 

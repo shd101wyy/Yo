@@ -8,8 +8,7 @@ import {
   exprToString,
   FnCallExpr,
 } from "../../expr";
-import { createTypeHierarchy } from "../../types/creators";
-import { TraitField, TraitType } from "../../types/definitions";
+import { TraitType } from "../../types/definitions";
 import { isSomeType, isTraitType } from "../../types/guards";
 import { typeToString } from "../../types/utils";
 import { createTypeValue, isTypeValue } from "../../value";
@@ -159,8 +158,9 @@ export function evaluateSubtypeOf({
   // In a where clause, add the trait constraints to the SomeType's trait
   if (context.isInsideWhereClause && isSomeType(typeValue.value)) {
     const someType = typeValue.value;
+    const currentFrameLevel = env.frames.length - 1;
 
-    for (const { traitType, expr: traitExpr, isNegated } of traitTypes) {
+    for (const { traitType, expr: isNegated } of traitTypes) {
       // Create a copy of the trait with receiverType set to the someType
       const traitWithReceiver: TraitType = {
         ...traitType,
@@ -168,36 +168,34 @@ export function evaluateSubtypeOf({
       };
 
       if (isNegated) {
-        // For negated constraints, mark the trait as a negative constraint
-        const negatedTraitWithReceiver: TraitType = {
-          ...traitWithReceiver,
-          isNegatedConstraint: true,
-        };
-        // Use empty label to prevent direct access - only method calls are allowed
-        const label = "";
-        const field: TraitField = {
-          label,
-          type: createTypeHierarchy(1), // Trait type
-          isCompileTimeOnly: true,
-          assignedValue: createTypeValue(negatedTraitWithReceiver),
-          exprs: {
-            expr: traitExpr,
-          },
-        };
-        someType.trait.fields.push(field);
+        // Add to negativeTraits (the new system)
+        if (!someType.negativeTraits) {
+          someType.negativeTraits = [];
+        }
+        // Check for duplicate
+        if (
+          !someType.negativeTraits.some(
+            (t) => t.traitType.id === traitWithReceiver.id
+          )
+        ) {
+          someType.negativeTraits.push({
+            traitType: traitWithReceiver,
+            frameLevel: currentFrameLevel,
+          });
+        }
       } else {
-        // Use empty label to prevent direct access - only method calls are allowed
-        const label = "";
-        const field: TraitField = {
-          label,
-          type: createTypeHierarchy(1), // Trait type
-          isCompileTimeOnly: true,
-          assignedValue: createTypeValue(traitWithReceiver),
-          exprs: {
-            expr: traitExpr,
-          },
-        };
-        someType.trait.fields.push(field);
+        // Add to requiredTraits (the new system)
+        // Check for duplicate
+        if (
+          !someType.requiredTraits.some(
+            (t) => t.traitType.id === traitWithReceiver.id
+          )
+        ) {
+          someType.requiredTraits.push({
+            traitType: traitWithReceiver,
+            frameLevel: currentFrameLevel,
+          });
+        }
       }
     }
 
