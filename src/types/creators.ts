@@ -938,6 +938,8 @@ export function createSomeType(
     id: id ?? `sometype_${randomId(env.modulePath)}`,
     tag: TypeTag.SomeType,
     name: variableName,
+    definitionFrameLevel:
+      env.frames.length > 0 ? env.frames.length - 1 : undefined,
     parentType: type,
     size: undefined,
     requiredTraits: requiredTraitsWithLevel,

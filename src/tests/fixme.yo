@@ -1,25 +1,7 @@
-Container :: (fn(comptime(T): Type) -> comptime(Type))(
-  object(
-    value : T,
+main :: (fn() -> unit) {
+  comptime(id) : (fn(forall(T : Type), x : T) -> T);
+  id = ((a) -> a);
 
-    // This function has where(T <: Eq(T))
-    equals :: (fn(
-      self: Self, 
-      other: T,
-      where(T <: Eq(T))
-    ) -> bool)(
-      self.value == other
-    ),
-
-    // This function should NOT have access to Eq(T) 
-    // because it doesn't declare where(T <: Eq(T))
-    try_equals_without_constraint :: (fn(
-      self: Self,
-      other: T
-    ) -> bool)({
-      // This line should fail: T doesn't have Eq(T) in this function's scope
-      comptime_expect_error(self.value == other);
-      return false;
-    })
-  )
-);
+  x := id(true);
+};
+export main;

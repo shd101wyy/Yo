@@ -141,6 +141,12 @@ export interface SomeType extends Type {
   name: string;
 
   /**
+   * The frame level where this SomeType was defined.
+   * Used to resolve bindings without leaking across shadowed scopes.
+   */
+  definitionFrameLevel?: number;
+
+  /**
    * The parent type of the SomeType.
    */
   parentType: TypeHierarchyType;

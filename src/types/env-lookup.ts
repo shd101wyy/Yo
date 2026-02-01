@@ -42,6 +42,29 @@ export function getValueOfSomeTypeFromEnv(
   env: Environment,
   someType: SomeType
 ): Type {
+  const definitionFrameLevel = someType.definitionFrameLevel;
+  if (definitionFrameLevel !== undefined && definitionFrameLevel >= 0) {
+    const frame = env.frames[definitionFrameLevel];
+    if (frame) {
+      const variable = frame.variables.find((value) => {
+        return (
+          value.name === someType.name &&
+          value.value?.[0]?.tag === ValueTag.Type
+        );
+      });
+      if (variable && variable.value) {
+        const typeVal = variable.value[0] as TypeValue;
+        if (typeVal.value === someType) {
+          return someType;
+        }
+        if (isSomeType(typeVal.value) && typeVal.value.id !== someType.id) {
+          return someType;
+        }
+        return typeVal.value;
+      }
+    }
+  }
+
   let someTypeValue: TypeValue | undefined = undefined;
   // Track visited SomeTypes to detect cycles (e.g., A -> B -> A)
   const visited = new Set<SomeType>();
@@ -80,14 +103,6 @@ export function getValueOfSomeTypeFromEnv(
     } else {
       // The variable is bound to a concrete type (not a SomeType).
       // We need to verify this binding is actually FOR this specific SomeType.
-      //
-      // Search through all variables with this name to see if any of them
-      // were originally bound to THIS SomeType (by checking if any variable
-      // has value equal to this someType, meaning it was the original binding point).
-      //
-      // If we find that THIS SomeType was bound to itself somewhere, then the concrete
-      // value we found is the updated binding. Otherwise, the concrete binding is for
-      // a different SomeType with the same name.
       let thisSomeTypeWasBound = false;
       for (let i = env.frames.length - 1; i >= 0; i--) {
         const frame = env.frames[i];
