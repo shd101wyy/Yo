@@ -1284,6 +1284,11 @@ export function autoDeriveComptimeForStructType({
   env: Environment;
   context: EvaluatorContext;
 }): Environment {
+  // `object` types are always runtime, so skip auto-derive Comptime
+  if (structType.isReferenceSemantics) {
+    return env;
+  }
+
   // Check if all non-comptime-only fields implement Comptime
   // (isCompileTimeOnly fields are methods/statics, not data fields)
   const allFieldsImplementComptime = structType.fields
@@ -1347,6 +1352,11 @@ export function autoDeriveRuntimeForStructType({
   env: Environment;
   context: EvaluatorContext;
 }): Environment {
+  if (structType.isReferenceSemantics) {
+    env = attachTraitToReceiverType("Runtime", structType, env, context);
+    return env;
+  }
+
   // Check if all non-comptime-only fields implement Runtime
   // (isCompileTimeOnly fields are methods/statics, not data fields)
   const allFieldsImplementRuntime = structType.fields
@@ -1486,6 +1496,59 @@ export function autoDeriveRuntimeForTupleType({
   if (allFieldsImplementRuntime) {
     env = attachTraitToReceiverType("Runtime", tupleType, env, context);
   }
+
+  return env;
+}
+
+/**
+ * Auto-derive all applicable traits for a struct type.
+ * This should be called after all fields are added but before RC functions are generated.
+ * Order matters: Send → Acyclic → Comptime → Runtime
+ *
+ * Auto-generate ___drop, ___dup, and ___dispose functions if needed
+ */
+export function autoDeriveTraitsAndAddRcFunctionsForStructType({
+  structType,
+  env,
+  context,
+}: {
+  structType: StructType;
+  env: Environment;
+  context: EvaluatorContext;
+}): Environment {
+  // Auto-derive Send trait if applicable
+  env = autoDeriveSendForStructType({
+    structType,
+    env,
+    context,
+  });
+
+  // Auto-derive Acyclic trait if applicable
+  env = autoDeriveAcyclicForStructType({
+    structType,
+    env,
+    context,
+  });
+
+  // Auto-derive Comptime trait if applicable
+  env = autoDeriveComptimeForStructType({
+    structType,
+    env,
+    context,
+  });
+
+  // Auto-derive Runtime trait if applicable
+  env = autoDeriveRuntimeForStructType({
+    structType,
+    env,
+    context,
+  });
+
+  env = addRcFunctionsToStructType({
+    structType,
+    env,
+    context,
+  });
 
   return env;
 }

@@ -89,6 +89,16 @@ export function typeImplementsTrait({
   // Check where clause constraints for SomeType
   // Constraints are stored directly on the SomeType itself
   if (isSomeType(targetType)) {
+    // QUESTION: Should we check this?
+    // if (targetType.resolvedConcreteType) {
+    //   // If resolvedConcreteType is set, check that type instead
+    //   return typeImplementsTrait({
+    //     targetType: targetType.resolvedConcreteType,
+    //     traitType,
+    //     env,
+    //   });
+    // }
+
     let foundRequiredTraitInConstraints = false;
     let foundNegativeTraitInConstraints = false;
     // Check if the trait is in requiredTraits

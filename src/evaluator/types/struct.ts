@@ -16,11 +16,7 @@ import { validateTypeAvailability } from "../trait-checking";
 import { evaluateTypeField } from "./field";
 import {
   addRcFunctionSignaturesToStructType,
-  addRcFunctionsToStructType,
-  autoDeriveAcyclicForStructType,
-  autoDeriveComptimeForStructType,
-  autoDeriveRuntimeForStructType,
-  autoDeriveSendForStructType,
+  autoDeriveTraitsAndAddRcFunctionsForStructType,
 } from "./utils";
 import { validateDisposeFunction } from "./validation";
 
@@ -137,36 +133,9 @@ export function evaluateStructType({
     });
   }
 
-  // Auto-derive Send trait if applicable
-  env = autoDeriveSendForStructType({
-    structType,
-    env,
-    context,
-  });
-
-  // Auto-derive Acyclic trait if applicable
-  env = autoDeriveAcyclicForStructType({
-    structType,
-    env,
-    context,
-  });
-
-  // Auto-derive Comptime trait if applicable
-  env = autoDeriveComptimeForStructType({
-    structType,
-    env,
-    context,
-  });
-
-  // Auto-derive Runtime trait if applicable
-  env = autoDeriveRuntimeForStructType({
-    structType,
-    env,
-    context,
-  });
-
-  // Auto-generate ___drop, ___dup, and ___dispose functions if needed
-  env = addRcFunctionsToStructType({
+  // Auto-derive all applicable traits (Send, Acyclic, Comptime, Runtime)
+  // and Rc functions if needed
+  env = autoDeriveTraitsAndAddRcFunctionsForStructType({
     structType,
     env,
     context,

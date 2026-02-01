@@ -20,7 +20,7 @@ import {
 } from "../../value";
 import { CapturedVariableInfo, EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
-import { addRcFunctionsToStructType } from "../types/utils";
+import { autoDeriveTraitsAndAddRcFunctionsForStructType } from "../types/utils";
 
 /**
  * Consume captured variables for closures.
@@ -150,7 +150,8 @@ export function createCaptureTypeAndValue({
       inferredCaptureType.fields = captureFields;
       captureType = inferredCaptureType;
 
-      env = addRcFunctionsToStructType({
+      // Auto-derive all applicable traits (Send, Acyclic, Comptime, Runtime)
+      env = autoDeriveTraitsAndAddRcFunctionsForStructType({
         structType: inferredCaptureType,
         env,
         context: { ...context },
@@ -174,7 +175,8 @@ export function createCaptureTypeAndValue({
       const emptyStructType = createStructType(env);
       emptyStructType.fields = [];
 
-      env = addRcFunctionsToStructType({
+      // Auto-derive all applicable traits (Send, Acyclic, Comptime, Runtime)
+      env = autoDeriveTraitsAndAddRcFunctionsForStructType({
         structType: emptyStructType,
         env,
         context: { ...context },

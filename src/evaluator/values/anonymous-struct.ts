@@ -22,7 +22,7 @@ import {
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { evaluateTypeField } from "../types/field";
-import { addRcFunctionsToStructType } from "../types/utils";
+import { autoDeriveTraitsAndAddRcFunctionsForStructType } from "../types/utils";
 import { isValidVariableName } from "../utils";
 
 export function evaluateAnonymousStructValue({
@@ -251,8 +251,8 @@ export function evaluateAnonymousStructValue({
     }
   }
 
-  // Auto-generate ___drop, ___dup, and ___dispose functions if needed
-  env = addRcFunctionsToStructType({
+  // Auto-derive all applicable traits (Send, Acyclic, Comptime, Runtime)
+  env = autoDeriveTraitsAndAddRcFunctionsForStructType({
     structType,
     env,
     context,
