@@ -33,9 +33,18 @@ import {
   isTypeHierarchyType,
 } from "../types/guards";
 import { TypeTag } from "../types/tags";
-import { typeContainsSomeType, typeToString } from "../types/utils";
+import { typeToString } from "../types/utils";
 import { isTraitValue, TraitValue } from "../value";
 import { findMatchingGenericImpl } from "./values/impl";
+
+/**
+ * Recursion guard to prevent infinite loops when checking trait implementations.
+ * This can happen with impls that have where clauses referencing the same trait.
+ * For example: impl(forall(T : Type), where(T <: Runtime), *(T), Runtime())
+ * When checking if *(SomeType) implements Runtime, it would recursively check
+ * if SomeType implements Runtime, which could loop indefinitely.
+ */
+const traitCheckRecursionGuard = new Set<string>();
 
 /**
  * Check if a type implements a specific trait.
@@ -109,7 +118,7 @@ export function typeImplementsTrait({
   }
 
   // Check generic impl registry for matching patterns
-  // Guard against types containing unresolved SomeTypes
+  // Guard against unresolved SomeTypes
   if (isSomeType(targetType)) {
     const resolvedType = getValueOfSomeTypeFromEnv(env, targetType);
     if (isSomeType(resolvedType)) {
@@ -118,16 +127,24 @@ export function typeImplementsTrait({
     targetType = resolvedType;
   }
 
-  if (typeContainsSomeType(targetType)) {
+  // Use recursion guard to prevent infinite loops when checking impls with where clauses
+  // Example: impl(forall(T : Type), where(T <: Runtime), *(T), Runtime()) would cause
+  // infinite recursion when checking if *(SomeType) implements Runtime
+  const guardKey = `${targetType.id}:${traitType.id}`;
+  if (traitCheckRecursionGuard.has(guardKey)) {
     return false;
   }
-
-  const result = findMatchingGenericImpl({
-    concreteType: targetType,
-    traitType,
-    env,
-  });
-  return result !== undefined;
+  traitCheckRecursionGuard.add(guardKey);
+  try {
+    const result = findMatchingGenericImpl({
+      concreteType: targetType,
+      traitType,
+      env,
+    });
+    return result !== undefined;
+  } finally {
+    traitCheckRecursionGuard.delete(guardKey);
+  }
 }
 
 /**

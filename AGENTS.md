@@ -188,3 +188,7 @@ Please note if expr.$.value == undefined, it means the value is runtime value. I
 Please note you cannot run `./yo-cli compile` on a `*.test.yo` file. You will need to move what you want to test into a separate `.yo` file, then create a `main` function to call the content, and `export main;` at the end of the file, then you can run `./yo-cli compile` on that file.
 
 No typescript index.ts barrel files are allowed, as they can easily cause circular dependency.
+
+The Pointer type in Yo can be used in both compile-time and runtime contexts. Its `Runtime` and `Comptime` traits are implemented in prelude.yo.
+
+The SomeType in Yo by defaults automatically implements the `Runtime` trait

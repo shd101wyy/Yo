@@ -69,9 +69,62 @@ export function getValueOfSomeTypeFromEnv(
     if (someTypeValue.value === someType) {
       return someType;
     }
+
+    // If the resolved value is a different SomeType with the same name,
+    // check if it's actually binding THIS SomeType or a different one.
+    // This happens when we have shadowed variables with the same name but different SomeTypes.
+    // In this case, we need to find the variable that was specifically bound to this SomeType.
     if (isSomeType(someTypeValue.value)) {
+      // The variable is bound to another SomeType - follow the chain
       someType = someTypeValue.value;
     } else {
+      // The variable is bound to a concrete type (not a SomeType).
+      // We need to verify this binding is actually FOR this specific SomeType.
+      //
+      // Search through all variables with this name to see if any of them
+      // were originally bound to THIS SomeType (by checking if any variable
+      // has value equal to this someType, meaning it was the original binding point).
+      //
+      // If we find that THIS SomeType was bound to itself somewhere, then the concrete
+      // value we found is the updated binding. Otherwise, the concrete binding is for
+      // a different SomeType with the same name.
+      let thisSomeTypeWasBound = false;
+      for (let i = env.frames.length - 1; i >= 0; i--) {
+        const frame = env.frames[i];
+        if (!frame) continue;
+        for (const variable of frame.variables) {
+          if (variable.name === someType.name && variable.value) {
+            const val = variable.value[0];
+            if (val?.tag === ValueTag.Type) {
+              const typeVal = val as TypeValue;
+              // Check if this variable's value IS this SomeType (self-referential binding)
+              if (typeVal.value === someType) {
+                thisSomeTypeWasBound = true;
+                break;
+              }
+              // If we found a binding that is NOT for this SomeType (different ID),
+              // and the bound value IS a SomeType, then this is a different SomeType
+              // shadowing ours. Return our SomeType as unbound.
+              if (
+                isSomeType(typeVal.value) &&
+                typeVal.value.id !== someType.id
+              ) {
+                return someType;
+              }
+            }
+          }
+        }
+        if (thisSomeTypeWasBound) break;
+      }
+
+      // If THIS SomeType was never bound to itself anywhere in the env,
+      // the concrete value we found must be for a different SomeType with the same name.
+      // Return this SomeType as unbound.
+      if (!thisSomeTypeWasBound) {
+        return someType;
+      }
+
+      // This SomeType was bound, and we found its concrete binding. Use it.
       break;
     }
   } while (isSomeType(someType));

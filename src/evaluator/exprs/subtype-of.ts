@@ -160,7 +160,7 @@ export function evaluateSubtypeOf({
     const someType = typeValue.value;
     const currentFrameLevel = env.frames.length - 1;
 
-    for (const { traitType, expr: isNegated } of traitTypes) {
+    for (const { traitType, isNegated } of traitTypes) {
       // Create a copy of the trait with receiverType set to the someType
       const traitWithReceiver: TraitType = {
         ...traitType,

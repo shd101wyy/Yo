@@ -1034,10 +1034,7 @@ function tryMatchGenericImpl({
         // If bound to a SomeType, check if it has the negated constraint attached
         if (isSomeType(boundType)) {
           if (
-            !someTypeHasNegatedModuleConstraint(
-              boundType,
-              actualConstraintTrait
-            )
+            !someTypeHasNegatedTraitConstraint(boundType, actualConstraintTrait)
           ) {
             return noMatch;
           }
@@ -1124,15 +1121,24 @@ function someTypeHasTraitConstraint(
   someType: SomeType,
   requiredTrait: TraitType
 ): boolean {
-  const moduleName = requiredTrait.typeName;
-  if (!moduleName) {
+  const traitName = requiredTrait.typeName;
+  if (!traitName) {
     return false;
   }
 
-  // Check in requiredTraits (the new system)
+  // Check in requiredTraits (from where clause constraints)
   for (const requiredTraitEntry of someType.requiredTraits) {
-    if (requiredTraitEntry.traitType.typeName === moduleName) {
+    if (requiredTraitEntry.traitType.id === requiredTrait.id) {
       return true;
+    }
+  }
+
+  // Also check trait.fields (from auto-derivation, e.g., Runtime is auto-attached to SomeTypes)
+  for (const field of someType.trait.fields) {
+    if (isTraitValue(field.assignedValue)) {
+      if (field.assignedValue.type.id === requiredTrait.id) {
+        return true;
+      }
     }
   }
 
@@ -1143,19 +1149,19 @@ function someTypeHasTraitConstraint(
  * Check if a SomeType has a specific negated trait constraint attached.
  * Used when checking where constraints like `where(T <: !(Copy))`.
  */
-function someTypeHasNegatedModuleConstraint(
+function someTypeHasNegatedTraitConstraint(
   someType: SomeType,
   requiredNegatedTrait: TraitType
 ): boolean {
-  const moduleName = requiredNegatedTrait.typeName;
-  if (!moduleName) {
+  const traitName = requiredNegatedTrait.typeName;
+  if (!traitName) {
     return false;
   }
 
   // Check in negativeTraits (the new system)
   if (someType.negativeTraits) {
     for (const negativeTraitEntry of someType.negativeTraits) {
-      if (negativeTraitEntry.traitType.typeName === moduleName) {
+      if (negativeTraitEntry.traitType.id === requiredNegatedTrait.id) {
         return true;
       }
     }

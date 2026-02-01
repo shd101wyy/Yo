@@ -2,16 +2,19 @@
 Comptime :: trait(
   id := "Comptime"
 );
-export Comptime;
-
 Runtime :: trait(
   id := "Runtime"
 );
-export Runtime;
+impl(forall(T : Type), where(T <: Comptime), *(T), Comptime());
+impl(forall(T : Type), where(T <: Runtime), *(T), Runtime());
 
 Option :: (fn(comptime(T) : Type) -> comptime(Type))
   enum(
     None,
     Some(value: T)
   )
+;
+
+(?*) :: (fn(comptime(T): Type) -> comptime(Type))
+  Option(*(T))
 ;
