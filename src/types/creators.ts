@@ -1126,7 +1126,7 @@ export function createDynType({
   const requiredTraitsWithLevel: {
     traitType: TraitType;
     frameLevel: number;
-  }[] = requiredTraits?.map((t) => ({ traitType: t, frameLevel: -1 })) ?? [];
+  }[] = requiredTraits.map((t) => ({ traitType: t, frameLevel: -1 })) ?? [];
   const negativeTraitsWithLevel: {
     traitType: TraitType;
     frameLevel: number;

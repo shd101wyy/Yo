@@ -436,8 +436,10 @@ export function evaluateDynValue({
       const boxedFieldType = valueType.fields[0]!.type;
       let foundInSomeType = false;
       // Extract TraitTypes from requiredTraits (handle both SomeType and DynType formats)
-      const traitTypes = boxedFieldType.requiredTraits.map((e) => e.traitType);
-      for (const someTypeModule of traitTypes) {
+      const someTypeTraitTypes = boxedFieldType.requiredTraits.map(
+        (e) => e.traitType
+      );
+      for (const someTypeModule of someTypeTraitTypes) {
         if (
           areTypesCompatible(
             { type: requiredTraitType, env },
