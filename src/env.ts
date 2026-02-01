@@ -190,19 +190,10 @@ export type Frame = {
    */
   isBeginBlockFrame: boolean;
   /**
-   * Where clause constraints that apply to this frame scope.
-   * Maps from SomeType to the traits it must (or must not) implement within this scope.
-   * Example: where(T <: Eq(T), T <: !(Copy)) adds:
-   *   T -> { requiredTraits: [Eq(T)], negativeTraits: [Copy] }
-   * These constraints are automatically cleaned up when the frame is popped.
+   * SomeTypes that had constraints added at this frame level.
+   * When this frame is popped, we clean up the constraints from these SomeTypes based on the frame level.
    */
-  whereClauseConstraints: Map<
-    SomeType,
-    {
-      requiredTraits: TraitType[];
-      negativeTraits: TraitType[];
-    }
-  >;
+  modifiedSomeTypes: SomeType[];
 };
 
 export type Environment = {
@@ -464,7 +455,7 @@ export function addVariableToFrame({
       id: frame.id,
       variables: newVariables,
       isBeginBlockFrame: frame.isBeginBlockFrame,
-      whereClauseConstraints: frame.whereClauseConstraints,
+      modifiedSomeTypes: [...frame.modifiedSomeTypes],
     };
   }
 
@@ -472,7 +463,7 @@ export function addVariableToFrame({
     id: frame.id,
     variables: [...frame.variables, variable],
     isBeginBlockFrame: frame.isBeginBlockFrame,
-    whereClauseConstraints: frame.whereClauseConstraints,
+    modifiedSomeTypes: [...frame.modifiedSomeTypes],
   };
 }
 
@@ -523,6 +514,25 @@ export function getVariablesFromEnv(
   return variables;
 }
 
+/**
+ * Find the frame level where a variable with given name is located.
+ * Returns the toppest frame level if the variable exists in multiple frames.
+ * Returns undefined if the variable is not found.
+ */
+export function findVariableFrameLevel(
+  env: Environment,
+  variableName: string
+): number | undefined {
+  for (let i = env.frames.length - 1; i >= 0; i--) {
+    const frame = env.frames[i]!;
+    const variablesInFrame = getVariablesFromFrame(frame, variableName);
+    if (variablesInFrame.length > 0) {
+      return i;
+    }
+  }
+  return undefined;
+}
+
 export function getVariablesFromEnvByFilter(
   env: Environment,
   variableFilter: (variable: Variable) => boolean
@@ -542,7 +552,7 @@ export function pushEnvFrame(
     id: generateVarialeId(env.modulePath, "frame"),
     variables: [],
     isBeginBlockFrame: false,
-    whereClauseConstraints: new Map(),
+    modifiedSomeTypes: [],
   },
   isBeginBlockFrame?: boolean
 ): Environment {
@@ -565,14 +575,28 @@ export function popEnvFrame(
    */
   ignoreCheck = false
 ): Environment {
+  const currentFrameLevel = env.frames.length - 1;
   if (!ignoreCheck) {
-    const frameToPop = env.frames[env.frames.length - 1]!;
-    // Check if there is any Linear/Type0 value in the frame that is not consumed or uninitialized.
-    const unconsumedVariables = getVariablesNeedingDrop(env);
+    const frameToPop = env.frames[currentFrameLevel]!;
 
+    // Clean up where clause constraints from SomeTypes modified at this frame level
+    for (const someType of frameToPop.modifiedSomeTypes) {
+      someType.requiredTraits = someType.requiredTraits.filter(
+        (c) => c.frameLevel !== currentFrameLevel
+      );
+      if (someType.negativeTraits) {
+        someType.negativeTraits = someType.negativeTraits.filter(
+          (c) => c.frameLevel !== currentFrameLevel
+        );
+      }
+    }
+
+    // Check if there is any value in the frame that is not consumed or uninitialized.
+    const unconsumedVariables = getVariablesNeedingDrop(env);
     const undefinedVariables = frameToPop.variables.filter(
       (variable) => !variable.initializedAtToken
     );
+
     if (unconsumedVariables.length > 0) {
       throw formatErrorMessages(
         unconsumedVariables.map((variable) => {
@@ -1417,10 +1441,12 @@ export function getReceiverMethodsByNameFromEnv({
       }
     }
 
-    // Look for methods in the requiredTraits array (from Impl(Module1, Module2, ...))
+    // Look for methods in the requiredTraits array (from Impl(Module1, Module2, ...) or where clauses)
     // This handles cases like `Impl(Id)` where we need to find the `id` method
+    // and where(T <: Trait) constraints
     if (methods.length === 0 && dereferencedReceiverType.requiredTraits) {
-      for (const requiredTraitType of dereferencedReceiverType.requiredTraits) {
+      for (const requiredTraitEntry of dereferencedReceiverType.requiredTraits) {
+        const requiredTraitType = requiredTraitEntry.traitType;
         // Search for the method in the required trait
         const method = requiredTraitType.fields.find(
           (f) => f.label === methodName && isFunctionType(f.type)
@@ -1445,78 +1471,6 @@ export function getReceiverMethodsByNameFromEnv({
             }
           );
           methods.push({ type: specializedMethodType, value });
-        }
-      }
-    }
-
-    // Look for methods in function-scoped where clause constraints
-    // This checks currentFunctionType.whereClauseConstraints for the SomeType
-    // Also checks parent function types (for nested functions like methods inside generic types)
-    if (methods.length === 0) {
-      // Helper function to find constraints from a function type
-      const findConstraintsInEnvFrame = (
-        envFrame: Frame | undefined
-      ): { requiredTraits: TraitType[] } | undefined => {
-        if (!envFrame) return undefined;
-
-        // First try direct lookup
-        let constraints = envFrame.whereClauseConstraints.get(
-          dereferencedReceiverType
-        );
-
-        // If direct lookup fails and receiver is a SomeType, try to find a compatible
-        // constrained type parameter. This handles cases like:
-        //   - where(T <: Eq(T)) in has method
-        //   - current_opt.value has type X (from Node(X))
-        //   - X should match T because they're unified type parameters
-        if (!constraints && isSomeType(dereferencedReceiverType)) {
-          for (const [
-            constrainedType,
-            typeConstraints,
-          ] of envFrame.whereClauseConstraints) {
-            if (
-              isSomeType(constrainedType) &&
-              areTypesCompatible(
-                { type: constrainedType, env },
-                { type: dereferencedReceiverType, env },
-                false // Allow type parameter unification
-              )
-            ) {
-              constraints = typeConstraints;
-              break;
-            }
-          }
-        }
-
-        return constraints;
-      };
-
-      // Check current function and all parent functions in the chain
-      const envFrames = env.frames;
-      for (let i = envFrames.length - 1; i >= 0; i--) {
-        const envFrame = envFrames[i]!;
-        const constraints = findConstraintsInEnvFrame(envFrame);
-        if (constraints) {
-          for (const requiredTraitType of constraints.requiredTraits) {
-            // Search for the method in the required trait
-            const method = requiredTraitType.fields.find(
-              (f) => f.label === methodName && isFunctionType(f.type)
-            );
-            if (method && isFunctionType(method.type)) {
-              // Create a specialized method type with SelfType set to the receiver type
-              const specializedMethodType: FunctionType = {
-                ...method.type,
-                SelfType: dereferencedReceiverType,
-              };
-              // Create an unknown value since the actual implementation is not known
-              const value = createUnknownValue(specializedMethodType, {
-                variableName: method.label,
-                env,
-                context,
-              });
-              methods.push({ type: specializedMethodType, value });
-            }
-          }
         }
       }
     }
@@ -1575,7 +1529,7 @@ export function getReceiverMethodsByNameFromEnv({
     // Then, for dynamic dispatch, check all trait types in the DynType for wrapped object methods
     // A method might exist in only some traits, and that's perfectly valid
     const requiredTraits = dereferencedReceiverType.requiredTraits;
-    for (const traitType of requiredTraits) {
+    for (const { traitType } of requiredTraits) {
       const method = traitType.fields.find(
         (field) =>
           field.label === methodName &&

@@ -78,52 +78,21 @@ export function typeImplementsTrait({
   }
 
   // Check where clause constraints for SomeType
-  // Traverse frames to find applicable constraints
+  // Constraints are stored directly on the SomeType itself
   if (isSomeType(targetType)) {
     let foundRequiredTraitInConstraints = false;
     let foundNegativeTraitInConstraints = false;
-    // Debug
-    console.log(
-      `[DEBUG] Checking where clause constraints for SomeType "${targetType.name}" (id=${targetType.id}) against trait "${traitType.typeName}"`
-    );
-    console.log(`  env.frames.length = ${env.frames.length}`);
-    for (let i = env.frames.length - 1; i >= 0; i--) {
-      const frame = env.frames[i];
-      if (
-        !frame?.whereClauseConstraints ||
-        frame.whereClauseConstraints.size === 0
-      ) {
-        console.log(
-          `  Frame ${i} (${frame?.id}): no where clause constraints or empty`
-        );
-        continue;
+    // Check if the trait is in requiredTraits
+    for (const requiredTraitEntry of targetType.requiredTraits) {
+      if (requiredTraitEntry.traitType.id === traitType.id) {
+        foundRequiredTraitInConstraints = true;
       }
-
-      console.log(
-        `  Frame ${i} (${frame.id}): has where clause constraints with ${frame.whereClauseConstraints.size} entries`
-      );
-      // Log all entries to see what SomeTypes are in the map
-      for (const [someType, _] of frame.whereClauseConstraints.entries()) {
-        console.log(
-          `    - Entry for SomeType "${someType.name}" (id=${someType.id})`
-        );
-      }
-      const constraints = frame.whereClauseConstraints.get(targetType);
-      console.log(
-        `  Looking up targetType (id=${targetType.id}): ${constraints ? "FOUND" : "NOT FOUND"}`
-      );
-      if (constraints) {
-        // Check if the trait is in requiredTraits
-        for (const requiredTrait of constraints.requiredTraits) {
-          if (requiredTrait.id === traitType.id) {
-            foundRequiredTraitInConstraints = true;
-          }
-        }
-        // Check if the trait is in negativeTraits
-        for (const negativeTrait of constraints.negativeTraits) {
-          if (negativeTrait.id === traitType.id) {
-            foundNegativeTraitInConstraints = true;
-          }
+    }
+    // Check if the trait is in negativeTraits
+    if (targetType.negativeTraits) {
+      for (const negativeTraitEntry of targetType.negativeTraits) {
+        if (negativeTraitEntry.traitType.id === traitType.id) {
+          foundNegativeTraitInConstraints = true;
         }
       }
     }
@@ -224,12 +193,6 @@ export function typeImplementsComptime(
     return false;
   }
 
-  if (isSomeType(type)) {
-    console.log(
-      `typeImplementsComptime called for SomeType "${(type as SomeType).name}", env.frames.length = ${env.frames.length}`
-    );
-  }
-
   switch (type.tag) {
     // Comptime-only types - always return true
     case TypeTag.ComptimeInt:
@@ -287,14 +250,7 @@ export function typeImplementsComptime(
 
   const comptimeTraitType = getTraitTypeFromEnv(env, "Comptime");
   if (!comptimeTraitType) {
-    if (isSomeType(type)) {
-      console.log(`  Comptime trait not found in env, returning false`);
-    }
     return false;
-  }
-
-  if (isSomeType(type)) {
-    console.log(`  Calling typeImplementsTrait for Comptime trait`);
   }
 
   return typeImplementsTrait({
@@ -466,12 +422,9 @@ export function typeImplementsFn(
 
   // Check requiredTraits for SomeType and DynType (e.g., Impl(Fn(...)) or Dyn(Fn(...)))
   if (isSomeType(type) || isDynType(type)) {
-    const requiredTraits = (type as SomeType | DynType).requiredTraits;
-    if (requiredTraits) {
-      for (const traitType of requiredTraits) {
-        if (isFnTraitType(traitType)) {
-          return true;
-        }
+    for (const { traitType } of type.requiredTraits) {
+      if (isFnTraitType(traitType)) {
+        return true;
       }
     }
   }
@@ -491,12 +444,9 @@ export function extractFnTraitFromType(type: Type): FnTraitType | undefined {
 
   // Check requiredTraits for SomeType and DynType
   if (isSomeType(type) || isDynType(type)) {
-    const requiredTraits = (type as SomeType | DynType).requiredTraits;
-    if (requiredTraits) {
-      for (const traitType of requiredTraits) {
-        if (isFnTraitType(traitType)) {
-          return traitType;
-        }
+    for (const { traitType } of type.requiredTraits) {
+      if (isFnTraitType(traitType)) {
+        return traitType;
       }
     }
   }
@@ -516,12 +466,9 @@ export function typeImplementsFuture(
 
   // Check requiredTraits for SomeType and DynType (e.g., Impl(Fn(...)) or Dyn(Fn(...)))
   if (isSomeType(type) || isDynType(type)) {
-    const requiredTraits = (type as SomeType | DynType).requiredTraits;
-    if (requiredTraits) {
-      for (const traitType of requiredTraits) {
-        if (isFutureTraitType(traitType)) {
-          return true;
-        }
+    for (const { traitType } of type.requiredTraits) {
+      if (isFutureTraitType(traitType)) {
+        return true;
       }
     }
   }
@@ -543,12 +490,9 @@ export function extractFutureTraitFromType(
 
   // Check requiredTraits for SomeType and DynType
   if (isSomeType(type) || isDynType(type)) {
-    const requiredTraits = (type as SomeType | DynType).requiredTraits;
-    if (requiredTraits) {
-      for (const traitType of requiredTraits) {
-        if (isFutureTraitType(traitType)) {
-          return traitType;
-        }
+    for (const { traitType } of type.requiredTraits) {
+      if (isFutureTraitType(traitType)) {
+        return traitType;
       }
     }
   }

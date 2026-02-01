@@ -401,7 +401,7 @@ export ComptimeBitXor;
 
   (comptime_not) :: (fn(forall(_Self : Type),
           comptime(self) : _Self,
-          where(_Self <: (ComptimeLogicalNot, Comptime))
+          where(_Self <: (Comptime, ComptimeLogicalNot))
         ) -> comptime(bool))
     self.(!)()
   ;
@@ -409,9 +409,7 @@ export ComptimeBitXor;
   Call :: (not, comptime_not);
 
   export
-    Call,
-    not,
-    comptime_not
+    Call
   ;
 };
 (not) :: (!);
@@ -427,7 +425,7 @@ export not, (!);
 
   (comptime_neg) :: (fn(forall(_Self : Type), 
           comptime(self) : _Self,
-          where(_Self <: Comptime, _Self <: ComptimeNegate(_Self))
+          where(_Self <: (Comptime, ComptimeNegate(_Self)))
         ) -> comptime(_Self)) {
     return self.neg();
   };
@@ -435,9 +433,7 @@ export not, (!);
   Call :: (neg, comptime_neg);
 
   export
-    Call,
-    neg,
-    comptime_neg
+    Call
   ;
 };
 export (-);

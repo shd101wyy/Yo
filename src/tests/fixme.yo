@@ -9,11 +9,26 @@ Runtime :: trait(
 );
 export Runtime;
 
-ComptimeAdd :: (fn(comptime(Rhs) : Type, comptime(Output) ?= Rhs, where(Rhs <: Comptime, Output <: Comptime))-> comptime(Trait))
+ComptimeNegate :: (fn(comptime(Output) : Type, where(Output <: Comptime))-> comptime(Trait)) 
   trait(
     where(Self <: Comptime),
-    Output := Output,
-    (+)    :  (fn(comptime(lhs): Self, comptime(rhs): Rhs)-> comptime(Output))
+    (neg) : (fn(comptime(self): Self)-> comptime(Output))
   )
 ;
-export ComptimeAdd;
+export ComptimeNegate;
+
+(-) :: impl {
+  (comptime_neg) :: (fn(forall(_Self : Type),
+          comptime(self) : _Self,
+          where(_Self <: (Comptime, ComptimeNegate(_Self)))
+        ) -> comptime(_Self)) {
+    return self.neg();
+  };
+
+  Call :: (comptime_neg,);
+
+  export
+    Call
+  ;
+};
+export (-);

@@ -196,8 +196,12 @@ export function evaluateDynValue({
     const expectedDynType = context.expectedType.type;
     // Create a SomeType from the DynType's requiredTraits
     someType = createSomeType(createType0(), "", {
-      requiredTraits: expectedDynType.requiredTraits,
-      negativeTraits: expectedDynType.negativeTraits,
+      requiredTraits: expectedDynType.requiredTraits.map(
+        (entry) => entry.traitType
+      ),
+      negativeTraits: expectedDynType.negativeTraits.map(
+        (entry) => entry.traitType
+      ),
       env,
       context,
     });
@@ -340,7 +344,11 @@ export function evaluateDynValue({
         }
       }
 
-      expectedDynType = createDynType(implementedTraitTypes, env, []);
+      expectedDynType = createDynType({
+        requiredTraits: implementedTraitTypes,
+        negativeTraits: [],
+        env,
+      });
       // Add ARC functions to the DynType
       env = addRcFunctionsToDynType({
         dynType: expectedDynType,
@@ -362,7 +370,11 @@ export function evaluateDynValue({
       }
     }
 
-    expectedDynType = createDynType(implementedTraitTypes, env, []);
+    expectedDynType = createDynType({
+      requiredTraits: implementedTraitTypes,
+      negativeTraits: [],
+      env,
+    });
     // Add ARC functions to the DynType
     env = addRcFunctionsToDynType({
       dynType: expectedDynType,
@@ -382,11 +394,16 @@ export function evaluateDynValue({
   if (isBoxedType(valueType)) {
     const boxedFieldType = valueType.fields[0]!.type;
     if (isSomeType(boxedFieldType) || isDynType(boxedFieldType)) {
-      negativeTraits.push(...(boxedFieldType.negativeTraits ?? []));
+      // SomeType has new format with frameLevel
+      negativeTraits.push(
+        ...(boxedFieldType.negativeTraits.map((e) => e.traitType) ?? [])
+      );
     }
   }
 
-  for (const requiredTraitType of expectedDynType.requiredTraits) {
+  for (const {
+    traitType: requiredTraitType,
+  } of expectedDynType.requiredTraits) {
     for (const negativeTrait of negativeTraits) {
       if (
         areTypesCompatible(
@@ -403,7 +420,9 @@ export function evaluateDynValue({
   }
 
   // Find traits automatically for all required trait types
-  for (const requiredTraitType of expectedDynType.requiredTraits) {
+  for (const {
+    traitType: requiredTraitType,
+  } of expectedDynType.requiredTraits) {
     if (checkedTraitTypes.has(requiredTraitType)) {
       continue;
     }
@@ -416,7 +435,9 @@ export function evaluateDynValue({
     ) {
       const boxedFieldType = valueType.fields[0]!.type;
       let foundInSomeType = false;
-      for (const someTypeModule of boxedFieldType.requiredTraits) {
+      // Extract TraitTypes from requiredTraits (handle both SomeType and DynType formats)
+      const traitTypes = boxedFieldType.requiredTraits.map((e) => e.traitType);
+      for (const someTypeModule of traitTypes) {
         if (
           areTypesCompatible(
             { type: requiredTraitType, env },
@@ -501,23 +522,25 @@ export function evaluateDynValue({
   // Reorder traitValues to match the order of expectedDynType.requiredTraits
   // This ensures the constructor parameters match the vtable order
   const orderedTraitValues: TraitValue[] = [];
-  for (const expectedModuleType of expectedDynType.requiredTraits) {
+  for (const {
+    traitType: expectedTraitType,
+  } of expectedDynType.requiredTraits) {
     // Find the corresponding trait value
-    const moduleValueIndex = traitTypes.findIndex((moduleType) =>
+    const traitIndex = traitTypes.findIndex((givenTraitType) =>
       areTypesCompatible(
-        { type: expectedModuleType, env },
-        { type: moduleType, env }
+        { type: expectedTraitType, env },
+        { type: givenTraitType, env }
       )
     );
 
-    if (moduleValueIndex === -1) {
+    if (traitIndex === -1) {
       throw formatErrorMessage({
         token: expr.token,
-        errorMessage: `No trait value found for expected trait type ${typeToString(expectedModuleType)}.`,
+        errorMessage: `No trait value found for expected trait type ${typeToString(expectedTraitType)}.`,
       });
     }
 
-    orderedTraitValues.push(traitValues[moduleValueIndex]!);
+    orderedTraitValues.push(traitValues[traitIndex]!);
   }
 
   // Create a runtime object that implements dynamic dispatch

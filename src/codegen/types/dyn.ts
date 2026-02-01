@@ -38,7 +38,7 @@ export function generateDynDeclaration(
   ]);
 
   // Process modules in the order they appear in dynType.requiredTraits
-  for (const traitType of dynType.requiredTraits) {
+  for (const { traitType } of dynType.requiredTraits) {
     // Handle FnTraitType specially - it has isFn which represents the "call" method
     if (isFnTraitType(traitType)) {
       const functionType = traitType.isFn.callType;

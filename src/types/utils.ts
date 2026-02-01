@@ -106,11 +106,6 @@ export function typeProhibitsComptimeModifier(
   }
 
   const result = isRuntimeOnlyType(type, env);
-  if (result && isSomeType(type)) {
-    console.log(
-      `typeProhibitsComptimeModifier: SomeType "${type.name}" is runtime-only`
-    );
-  }
   return result;
 }
 
@@ -128,11 +123,6 @@ export function isRuntimeOnlyType(type: Type, env: Environment): boolean {
   const implementsComptime = typeImplementsComptime(type, env);
   const implementsRuntime = typeImplementsRuntime(type, env);
   const result = !implementsComptime && implementsRuntime;
-  if (isSomeType(type)) {
-    console.log(
-      `isRuntimeOnlyType for SomeType "${type.name}": implementsComptime=${implementsComptime}, implementsRuntime=${implementsRuntime}, result=${result}`
-    );
-  }
   return result;
 }
 
@@ -1005,20 +995,20 @@ function typeToStringInternal(type: Type, visited: Set<string>): string {
       if (someType.functionApplication) {
         return exprToString(someType.functionApplication);
       }
-      // Display as Impl(Module1, Module2, ..., !NegModule1, !NegModule2, ...) with the required and negative modules
-      const allModuleStrings: string[] = [];
+      // Display as Impl(Trait1, Trait2, ..., !NegTrait1, !NegTrait2, ...) with the required and negative modules
+      const allTraitStrings: string[] = [];
       if (someType.requiredTraits && someType.requiredTraits.length > 0) {
         for (const mt of someType.requiredTraits) {
-          allModuleStrings.push(typeToString(mt, visited));
+          allTraitStrings.push(typeToString(mt.traitType, visited));
         }
       }
       if (someType.negativeTraits && someType.negativeTraits.length > 0) {
         for (const mt of someType.negativeTraits) {
-          allModuleStrings.push(`!(${typeToString(mt, visited)})`);
+          allTraitStrings.push(`!(${typeToString(mt.traitType, visited)})`);
         }
       }
-      if (allModuleStrings.length > 0) {
-        return `${someType.name || "Impl"}(${allModuleStrings.join(", ")})`;
+      if (allTraitStrings.length > 0) {
+        return `${someType.name || "Impl"}(${allTraitStrings.join(", ")})`;
       }
       return someType.name || "Impl()";
     }
@@ -1047,17 +1037,17 @@ function typeToStringInternal(type: Type, visited: Set<string>): string {
       if (dynType.typeName) {
         return dynType.typeName;
       }
-      // Display as Dyn(Module1, Module2, ..., !NegModule1, !NegModule2, ...) with the required and negative modules
-      const allModuleStrings: string[] = [];
-      for (const mt of dynType.requiredTraits) {
-        allModuleStrings.push(typeToString(mt, visited));
+      // Display as Dyn(Trait1, Trait2, ..., !NegTrait1, !NegTrait2, ...) with the required and negative modules
+      const allTraitStrings: string[] = [];
+      for (const { traitType } of dynType.requiredTraits) {
+        allTraitStrings.push(typeToString(traitType, visited));
       }
       if (dynType.negativeTraits && dynType.negativeTraits.length > 0) {
-        for (const mt of dynType.negativeTraits) {
-          allModuleStrings.push(`!(${typeToString(mt, visited)})`);
+        for (const { traitType } of dynType.negativeTraits) {
+          allTraitStrings.push(`!(${typeToString(traitType, visited)})`);
         }
       }
-      return `Dyn(${allModuleStrings /*.slice(1)*/
+      return `Dyn(${allTraitStrings /*.slice(1)*/
         .join(", ")})`;
     }
 

@@ -1,6 +1,7 @@
 import {
   addVariableToEnv,
   Environment,
+  findVariableFrameLevel,
   getVariablesFromEnv,
   popEnvFrame,
   pushEnvFrame,
@@ -31,7 +32,6 @@ import {
   FunctionParameter,
   FunctionType,
   SomeType,
-  TraitType,
   Type,
 } from "../../types/definitions";
 import { getValueOfSomeTypeFromEnv } from "../../types/env-lookup";
@@ -490,31 +490,28 @@ use_id :: (fn(forall(T : Type),
   let actualParameterType: Type = parameterType;
 
   if (existingWhereClauseVar) {
-    // Variable already exists from where clause - we need to merge constraints
+    // Variable already exists from where clause - reuse it instead of creating new SomeType
     const existingTypeValue = existingWhereClauseVar.value![0] as Value & {
       value: SomeType;
     };
     const existingSomeType = existingTypeValue.value;
 
-    // Get the new value (could be a SomeType from := syntax like Impl(Trait))
-    const newValue = assignedValue
-      ? assignedValue
-      : isCompileTimeOnly
-        ? createUnknownValue(parameterType, {
-            variableName: label,
-            env,
-            context,
-          })
-        : undefined;
-
-    // Check if the new value is also a TypeValue containing a SomeType
-    if (newValue && isTypeValue(newValue) && isSomeType(newValue.value)) {
-      const newSomeType = newValue.value;
+    // If there's an assigned value (from := syntax like Impl(Trait)), check if it adds new traits
+    if (
+      assignedValue &&
+      isTypeValue(assignedValue) &&
+      isSomeType(assignedValue.value)
+    ) {
+      const newSomeType = assignedValue.value;
 
       // Merge required traits from both SomeTypes
       const mergedRequiredTraits = [...existingSomeType.requiredTraits];
       for (const trait of newSomeType.requiredTraits) {
-        if (!mergedRequiredTraits.some((t) => t.id === trait.id)) {
+        if (
+          !mergedRequiredTraits.some(
+            (t) => t.traitType.id === trait.traitType.id
+          )
+        ) {
           mergedRequiredTraits.push(trait);
         }
       }
@@ -523,7 +520,11 @@ use_id :: (fn(forall(T : Type),
       const mergedNegativeTraits = [...(existingSomeType.negativeTraits ?? [])];
       if (newSomeType.negativeTraits) {
         for (const trait of newSomeType.negativeTraits) {
-          if (!mergedNegativeTraits.some((t) => t.id === trait.id)) {
+          if (
+            !mergedNegativeTraits.some(
+              (t) => t.traitType.id === trait.traitType.id
+            )
+          ) {
             mergedNegativeTraits.push(trait);
           }
         }
@@ -531,10 +532,9 @@ use_id :: (fn(forall(T : Type),
 
       // Update the existing SomeType with merged traits
       existingSomeType.requiredTraits = mergedRequiredTraits;
-      existingSomeType.negativeTraits =
-        mergedNegativeTraits.length > 0 ? mergedNegativeTraits : undefined;
+      existingSomeType.negativeTraits = mergedNegativeTraits;
     }
-    // If new value is not a SomeType, just keep the existing SomeType
+    // Otherwise, just keep the existing SomeType with its where clause constraints
     // (this handles cases like `comptime(T): Type` after `where(T <: Trait)`)
 
     // Use the existing SomeType as the actual value for this parameter
@@ -633,24 +633,8 @@ function prepareWhereClauseVariables({
 }): {
   env: Environment;
   pendingConstraints: Expr[];
-  whereClauseConstraints?: Map<
-    SomeType,
-    {
-      requiredTraits: TraitType[];
-      negativeTraits: TraitType[];
-    }
-  >;
 } {
   const pendingConstraints: Expr[] = [];
-  let whereClauseConstraints:
-    | Map<
-        SomeType,
-        {
-          requiredTraits: TraitType[];
-          negativeTraits: TraitType[];
-        }
-      >
-    | undefined = undefined;
 
   for (const constraintExpr of constraintExprs) {
     // Each constraint must be of the form: T <: Trait or T <: (Trait1, Trait2)
@@ -715,66 +699,32 @@ function prepareWhereClauseVariables({
         context,
       });
       env = result.env;
-
-      // Merge constraints
-      if (result.whereClauseConstraints) {
-        if (!whereClauseConstraints) {
-          whereClauseConstraints = result.whereClauseConstraints;
-        } else {
-          // Merge with existing constraints
-          for (const [someType, constraints] of result.whereClauseConstraints) {
-            const existing = whereClauseConstraints.get(someType);
-            if (existing) {
-              existing.requiredTraits.push(...constraints.requiredTraits);
-              existing.negativeTraits.push(...constraints.negativeTraits);
-            } else {
-              whereClauseConstraints.set(someType, constraints);
-            }
-          }
-        }
-      }
     } catch (error) {
       // Constraint evaluation failed - store for later retry
       pendingConstraints.push(constraintExpr);
     }
   }
 
-  return { env, pendingConstraints, whereClauseConstraints };
+  return { env, pendingConstraints };
 }
 
 /**
  * Retry pending where clause constraints that previously failed.
- * Returns updated env, remaining pending constraints, and any new whereClauseConstraints.
+ * Returns updated env and remaining pending constraints.
  */
 function retryPendingConstraints({
   pendingConstraints,
   env,
   context,
-  existingWhereClauseConstraints,
 }: {
   pendingConstraints: Expr[];
   env: Environment;
   context: EvaluatorContext & { isEvaluatingFunctionType: true };
-  existingWhereClauseConstraints?: Map<
-    SomeType,
-    {
-      requiredTraits: TraitType[];
-      negativeTraits: TraitType[];
-    }
-  >;
 }): {
   env: Environment;
   pendingConstraints: Expr[];
-  whereClauseConstraints?: Map<
-    SomeType,
-    {
-      requiredTraits: TraitType[];
-      negativeTraits: TraitType[];
-    }
-  >;
 } {
   const stillPending: Expr[] = [];
-  let whereClauseConstraints = existingWhereClauseConstraints;
 
   for (const constraintExpr of pendingConstraints) {
     try {
@@ -784,31 +734,13 @@ function retryPendingConstraints({
         context,
       });
       env = result.env;
-
-      // Merge constraints
-      if (result.whereClauseConstraints) {
-        if (!whereClauseConstraints) {
-          whereClauseConstraints = result.whereClauseConstraints;
-        } else {
-          // Merge with existing constraints
-          for (const [someType, constraints] of result.whereClauseConstraints) {
-            const existing = whereClauseConstraints.get(someType);
-            if (existing) {
-              existing.requiredTraits.push(...constraints.requiredTraits);
-              existing.negativeTraits.push(...constraints.negativeTraits);
-            } else {
-              whereClauseConstraints.set(someType, constraints);
-            }
-          }
-        }
-      }
     } catch (error) {
       // Still can't evaluate - keep it pending
       stillPending.push(constraintExpr);
     }
   }
 
-  return { env, pendingConstraints: stillPending, whereClauseConstraints };
+  return { env, pendingConstraints: stillPending };
 }
 
 /**
@@ -826,22 +758,15 @@ function parseWhereClauseConstraints({
   env: Environment;
   context: EvaluatorContext & { isEvaluatingFunctionType: true };
 }): {
-  whereClauseConstraints: Map<
-    SomeType,
-    {
-      requiredTraits: TraitType[];
-      negativeTraits: TraitType[];
-    }
-  >;
   env: Environment;
 } {
-  const whereClauseConstraints = new Map<
-    SomeType,
-    {
-      requiredTraits: TraitType[];
-      negativeTraits: TraitType[];
-    }
-  >();
+  const currentFrameLevel = env.frames.length - 1;
+
+  // Track SomeTypes that we've modified so we don't add duplicates to modifiedSomeTypes
+  const modifiedSomeTypesThisCall = new Set<SomeType>();
+
+  // Track the frame level where each SomeType is located
+  const someTypeFrameLevels = new Map<SomeType, number>();
 
   for (const constraintExpr of constraintExprs) {
     // Each constraint must be of the form: T <: Trait or T <: (Trait1, Trait2)
@@ -874,6 +799,12 @@ function parseWhereClauseConstraints({
           isSomeType(existingVar.value[0].value)
         ) {
           someType = existingVar.value[0].value as SomeType;
+
+          // Find the frame level where this variable is located
+          const varFrameLevel = findVariableFrameLevel(env, varName);
+          if (varFrameLevel !== undefined) {
+            someTypeFrameLevels.set(someType, varFrameLevel);
+          }
         } else if (existingVar.value && isTypeValue(existingVar.value[0])) {
           // It's a concrete type - validate constraints immediately
           const concreteType = existingVar.value[0].value as Type;
@@ -895,6 +826,9 @@ function parseWhereClauseConstraints({
         // Variable doesn't exist - create a new SomeType for it
         // This SomeType starts with RUNTIME_ONLY availability (default for type parameters)
         someType = createSomeType(createType0(), varName, { env, context });
+
+        // Record that this SomeType will be in the current frame
+        someTypeFrameLevels.set(someType, currentFrameLevel);
 
         // Add to env so later parameters can reference it
         const typeValue = createTypeValue(someType);
@@ -958,6 +892,29 @@ function parseWhereClauseConstraints({
       }
 
       someType = lhsTypeValue.value;
+
+      // Try to find the frame level where this SomeType is located
+      const varFrameLevel = findVariableFrameLevel(env, someType.name);
+      if (varFrameLevel !== undefined) {
+        someTypeFrameLevels.set(someType, varFrameLevel);
+      } else {
+        // Couldn't find it - use current frame level as fallback
+        someTypeFrameLevels.set(someType, currentFrameLevel);
+      }
+    }
+
+    // Track this SomeType for cleanup when frame is popped
+    // We need to add it to the frame where the SomeType variable is located,
+    // not the current frame
+    if (!modifiedSomeTypesThisCall.has(someType)) {
+      modifiedSomeTypesThisCall.add(someType);
+
+      const someTypeFrameLevel =
+        someTypeFrameLevels.get(someType) ?? currentFrameLevel;
+      const targetFrame = env.frames[someTypeFrameLevel];
+      if (targetFrame) {
+        targetFrame.modifiedSomeTypes.push(someType);
+      }
     }
 
     // Parse RHS: can be Trait, (Trait1, Trait2), !(Trait), or (!(Trait1), Trait2)
@@ -991,11 +948,12 @@ function parseWhereClauseConstraints({
       }
     }
 
-    // Evaluate each trait expression
-    const requiredTraits: TraitType[] = [];
-    const negativeTraits: TraitType[] = [];
+    // Evaluate each trait expression and add constraints INCREMENTALLY
+    // This is important for cases like `T <: (Comptime, ComptimeNegate(T))`
+    // where the second trait depends on the first constraint being in scope
+    for (let traitIdx = 0; traitIdx < traitExprs.length; traitIdx++) {
+      const { expr: traitExpr, isNegated } = traitExprs[traitIdx]!;
 
-    for (const { expr: traitExpr, isNegated } of traitExprs) {
       const evaluatedRhs = evaluateExpression({
         expr: traitExpr,
         env,
@@ -1029,27 +987,39 @@ function parseWhereClauseConstraints({
         });
       }
 
-      if (isNegated) {
-        negativeTraits.push(traitType);
-      } else {
-        requiredTraits.push(traitType);
-      }
-    }
+      // Directly mutate the SomeType with the constraint
+      // Use the frame level where the SomeType variable is located, not the current frame
+      const someTypeFrameLevel =
+        someTypeFrameLevels.get(someType) ?? currentFrameLevel;
 
-    // Store constraints for this SomeType
-    const existing = whereClauseConstraints.get(someType);
-    if (existing) {
-      existing.requiredTraits.push(...requiredTraits);
-      existing.negativeTraits.push(...negativeTraits);
-    } else {
-      whereClauseConstraints.set(someType, {
-        requiredTraits,
-        negativeTraits,
-      });
+      if (isNegated) {
+        if (!someType.negativeTraits) {
+          someType.negativeTraits = [];
+        }
+        // Check for duplicate
+        if (
+          !someType.negativeTraits.some((t) => t.traitType.id === traitType.id)
+        ) {
+          someType.negativeTraits.push({
+            traitType,
+            frameLevel: someTypeFrameLevel,
+          });
+        }
+      } else {
+        // Check for duplicate
+        if (
+          !someType.requiredTraits.some((t) => t.traitType.id === traitType.id)
+        ) {
+          someType.requiredTraits.push({
+            traitType,
+            frameLevel: someTypeFrameLevel,
+          });
+        }
+      }
     }
   }
 
-  return { whereClauseConstraints, env };
+  return { env };
 }
 
 /**
@@ -1171,28 +1141,12 @@ export function evaluateFunctionParameters({
   forallParameters: FunctionParameter[];
   variadicParameter?: FunctionParameter;
   env: Environment;
-  whereClauseConstraints?: Map<
-    SomeType,
-    {
-      requiredTraits: TraitType[];
-      negativeTraits: TraitType[];
-    }
-  >;
 } {
   env = pushEnvFrame(env);
 
   const parameters: FunctionParameter[] = [];
   const forallParameters: FunctionParameter[] = [];
   let variadicParameter: FunctionParameter | undefined = undefined;
-  let whereClauseConstraints:
-    | Map<
-        SomeType,
-        {
-          requiredTraits: TraitType[];
-          negativeTraits: TraitType[];
-        }
-      >
-    | undefined = undefined;
 
   let findVariadicParameter = false;
 
@@ -1252,6 +1206,7 @@ export function evaluateFunctionParameters({
       }
 
       // Try to evaluate constraints, store failed ones for retry
+      // Constraints are now stored directly on the SomeTypes
       const prepResult = prepareWhereClauseVariables({
         constraintExprs: whereClauseExprs,
         env,
@@ -1259,38 +1214,6 @@ export function evaluateFunctionParameters({
       });
       env = prepResult.env;
       pendingConstraints = prepResult.pendingConstraints;
-      whereClauseConstraints = prepResult.whereClauseConstraints;
-
-      // Set whereClauseConstraints on the current frame
-      if (whereClauseConstraints && whereClauseConstraints.size > 0) {
-        const currentFrame = env.frames[env.frames.length - 1]!;
-        const updatedFrame = {
-          ...currentFrame,
-          whereClauseConstraints,
-        };
-        const updatedFrames = [...env.frames];
-        updatedFrames[updatedFrames.length - 1] = updatedFrame;
-        env = {
-          ...env,
-          frames: updatedFrames,
-        };
-        // Debug: log that we set where clause constraints
-        console.log(
-          `[DEBUG] Set where clause constraints on frame ${currentFrame.id} (frameLevel=${env.frames.length - 1}):`
-        );
-        for (const [
-          someType,
-          constraints,
-        ] of whereClauseConstraints.entries()) {
-          console.log(`  SomeType "${someType.name}" (id=${someType.id}):`);
-          console.log(
-            `    requiredTraits: [${constraints.requiredTraits.map((t) => t.typeName).join(", ")}]`
-          );
-          console.log(
-            `    negativeTraits: [${constraints.negativeTraits.map((t) => t.typeName).join(", ")}]`
-          );
-        }
-      }
     }
   }
 
@@ -1527,11 +1450,9 @@ export function evaluateFunctionParameters({
           pendingConstraints,
           env,
           context,
-          existingWhereClauseConstraints: whereClauseConstraints,
         });
         env = retryResult.env;
         pendingConstraints = retryResult.pendingConstraints;
-        whereClauseConstraints = retryResult.whereClauseConstraints;
       }
     }
   }
@@ -1556,10 +1477,8 @@ export function evaluateFunctionParameters({
       pendingConstraints,
       env,
       context,
-      existingWhereClauseConstraints: whereClauseConstraints,
     });
     env = retryResult.env;
-    whereClauseConstraints = retryResult.whereClauseConstraints;
 
     // If there are still pending constraints after final retry, throw the error
     if (retryResult.pendingConstraints.length > 0) {
@@ -1578,7 +1497,6 @@ export function evaluateFunctionParameters({
     forallParameters,
     variadicParameter,
     env,
-    whereClauseConstraints,
   };
 }
 
@@ -1626,13 +1544,12 @@ export function evaluateFunctionType({
     });
   }
 
-  // Evaluate the parameter list (where clauses will store constraints in expr.$)
+  // Evaluate the parameter list (where clauses will store constraints directly on SomeTypes)
   const {
     parameters,
     forallParameters,
     variadicParameter,
     env: nextEnv,
-    whereClauseConstraints,
   } = evaluateFunctionParameters({
     parameterExprs: argList,
     env,
@@ -1877,11 +1794,6 @@ ${typeToString(returnType)}`,
         ? context.isEvaluatingFunctionBodyOrAsyncBlock.type
         : undefined,
   });
-
-  // Attach where clause constraints collected from parameter evaluation
-  if (whereClauseConstraints) {
-    functionType.whereClauseConstraints = whereClauseConstraints;
-  }
 
   // Pop the environment frame
   env = popEnvFrame(env, true);

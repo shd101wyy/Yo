@@ -921,22 +921,38 @@ export function createSomeType(
 
   const trait = createTraitType(env);
 
+  // Convert TraitType[] to the new format with frameLevel = -1 (permanent, not from where clause)
+  const requiredTraitsWithLevel: {
+    traitType: TraitType;
+    frameLevel: number;
+  }[] = requiredTraits?.map((t) => ({ traitType: t, frameLevel: -1 })) ?? [];
+  const negativeTraitsWithLevel: {
+    traitType: TraitType;
+    frameLevel: number;
+  }[] = negativeTraits?.map((t) => ({ traitType: t, frameLevel: -1 })) ?? [];
+
   const someType: SomeType = {
     id: id ?? `sometype_${randomId(env.modulePath)}`,
     tag: TypeTag.SomeType,
     name: variableName,
     parentType: type,
     size: undefined,
-    requiredTraits: requiredTraits ?? [],
-    negativeTraits:
-      negativeTraits && negativeTraits.length > 0 ? negativeTraits : undefined,
+    requiredTraits: requiredTraitsWithLevel,
+    negativeTraits: negativeTraitsWithLevel,
     trait,
     // Necessary to inherit, like extern types from extern "yo"
     isExtern: type.isExtern,
     externName: type.externName,
     recursiveTypeRef,
   };
+
   trait.receiverType = someType;
+
+  // Check if "Runtime" trait
+  if (getTraitTypeFromEnv(env, "Runtime")) {
+    // Attach the Runtime trait to the SomeType
+    attachTraitToReceiverType("Runtime", someType, env, context);
+  }
 
   // Add ARC functions to SomeType - these dispatch to resolvedConcreteType at codegen time
   addRcFunctionsToSomeType({
@@ -947,12 +963,6 @@ export function createSomeType(
       stdPath: "",
     },
   });
-
-  // Check if "Runtime" trait
-  if (getTraitTypeFromEnv(env, "Runtime")) {
-    // Attach the Runtime trait to the SomeType
-    attachTraitToReceiverType("Runtime", someType, env, context);
-  }
 
   return someType;
 }
@@ -1093,11 +1103,15 @@ function createTraitSignature(traitType: TraitType): string {
   return fieldSignatures.join(";");
 }
 
-export function createDynType(
-  requiredTraits: TraitType[],
-  env: Environment,
-  negativeTraits?: TraitType[]
-): DynType {
+export function createDynType({
+  requiredTraits,
+  env,
+  negativeTraits,
+}: {
+  requiredTraits: TraitType[];
+  env: Environment;
+  negativeTraits?: TraitType[];
+}): DynType {
   const trait = createTraitType(env);
 
   // Create a canonical ID based on module structure, not unique IDs
@@ -1109,12 +1123,20 @@ export function createDynType(
     : "";
   const canonicalId = `dyn_${hashString(moduleSignatures + (negativeSignatures ? `_neg_${negativeSignatures}` : ""))}`;
 
+  const requiredTraitsWithLevel: {
+    traitType: TraitType;
+    frameLevel: number;
+  }[] = requiredTraits?.map((t) => ({ traitType: t, frameLevel: -1 })) ?? [];
+  const negativeTraitsWithLevel: {
+    traitType: TraitType;
+    frameLevel: number;
+  }[] = negativeTraits?.map((t) => ({ traitType: t, frameLevel: -1 })) ?? [];
+
   const dynType: DynType = {
     id: canonicalId,
     tag: TypeTag.Dyn,
-    requiredTraits: [...requiredTraits],
-    negativeTraits:
-      negativeTraits && negativeTraits.length > 0 ? negativeTraits : undefined,
+    requiredTraits: requiredTraitsWithLevel,
+    negativeTraits: negativeTraitsWithLevel,
     trait,
     env,
   };

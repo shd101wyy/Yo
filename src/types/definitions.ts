@@ -174,15 +174,19 @@ export interface SomeType extends Type {
 
   /**
    * The required traits that this SomeType must implement.
-   * For example, `Impl(Fn(x: i32) -> i32, Copy)` has requiredTraits = [FnTrait, CopyTrait]
+   * Each constraint includes the frameLevel at which it was added, so constraints
+   * can be properly cleaned up when frames are popped.
+   * For example, `Impl(Fn(x: i32) -> i32, Copy)` has requiredTraits with the corresponding traits.
+   * Where clause constraints like `where(T <: Comptime)` add entries with frameLevel.
    */
-  requiredTraits: TraitType[];
+  requiredTraits: { traitType: TraitType; frameLevel: number }[];
 
   /**
    * The negative traits that this SomeType must NOT implement.
-   * For example, `Impl(!(Copy))` has negativeTraits = [CopyTrait]
+   * Each constraint includes the frameLevel at which it was added.
+   * For example, `Impl(!(Copy))` or `where(T <: !(Copy))` adds entries here.
    */
-  negativeTraits?: TraitType[];
+  negativeTraits: { traitType: TraitType; frameLevel: number }[];
 
   /**
    * The trait that contains where constraints attached to this SomeType.
@@ -774,21 +778,6 @@ export interface FunctionType extends Type {
    *
    */
   isClosure?: boolean;
-
-  /**
-   * Constraints added via where clauses that apply to this function scope only.
-   * Maps from SomeType to the traits it must (or must not) implement within this function.
-   * Example: where(T <: Eq(T), T <: !(Copy)) adds:
-   *   T -> { requiredTraits: [Eq(T)], negativeTraits: [Copy] }
-   * These constraints don't mutate the original SomeType and don't leak to sibling functions.
-   */
-  whereClauseConstraints?: Map<
-    SomeType,
-    {
-      requiredTraits: TraitType[];
-      negativeTraits: TraitType[];
-    }
-  >;
 }
 
 export interface PtrType extends Type {
@@ -848,13 +837,13 @@ export interface DynType extends Type {
    * This is used to create vtable for dynamic dispatch.
    * Now uses reference semantics by default, so it's not a dynamic sized type.
    */
-  requiredTraits: TraitType[];
+  requiredTraits: { traitType: TraitType; frameLevel: number }[];
 
   /**
    * The negative traits that this DynType must NOT implement.
    * For example, `Dyn(!(Copy))` has negativeTraits = [CopyTrait]
    */
-  negativeTraits?: TraitType[];
+  negativeTraits: { traitType: TraitType; frameLevel: number }[];
 
   /**
    * The trait of the dyn type, which contains

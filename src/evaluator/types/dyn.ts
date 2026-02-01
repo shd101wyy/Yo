@@ -134,7 +134,11 @@ export function evaluateDynType({
 
   // Create the dyn type with its own trait for ARC functions
   // Note: wrappedObjectARCTraitType is prepended to handle ARC for the wrapped object
-  const dynType = createDynType(traitTypes, env, negativeTraits);
+  const dynType = createDynType({
+    requiredTraits: traitTypes,
+    env,
+    negativeTraits,
+  });
 
   // Add ARC functions to the dyn type's trait
   env = addRcFunctionsToDynType({

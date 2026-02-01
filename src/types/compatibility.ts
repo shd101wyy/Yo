@@ -532,14 +532,15 @@ export function areTypesCompatible(
   if (isDynType(expected.type) && isDynType(given.type)) {
     // Given type must implement ALL modules required by expected type
     // Example: expected `Dyn(Copy)` is compatible with given `Dyn(Copy, Send)`
-    for (const expectedTrait of expected.type.requiredTraits) {
-      const matchingGivenTrait = given.type.requiredTraits.find((givenModule) =>
-        areTypesCompatible(
-          { type: expectedTrait, env: expected.env },
-          { type: givenModule, env: given.env },
-          requireExactMatch,
-          visitedPairs
-        )
+    for (const { traitType: expectedTrait } of expected.type.requiredTraits) {
+      const matchingGivenTrait = given.type.requiredTraits.find(
+        ({ traitType: givenTrait }) =>
+          areTypesCompatible(
+            { type: expectedTrait, env: expected.env },
+            { type: givenTrait, env: given.env },
+            requireExactMatch,
+            visitedPairs
+          )
       );
       if (!matchingGivenTrait) {
         return false; // Expected module not found in given
@@ -551,12 +552,12 @@ export function areTypesCompatible(
       expected.type.negativeTraits &&
       expected.type.negativeTraits.length > 0
     ) {
-      for (const negativeTrait of expected.type.negativeTraits) {
+      for (const { traitType: negativeTrait } of expected.type.negativeTraits) {
         const matchingGivenTrait = given.type.requiredTraits.find(
-          (givenModule) =>
+          ({ traitType: givenTrait }) =>
             areTypesCompatible(
               { type: negativeTrait, env: expected.env },
-              { type: givenModule, env: given.env },
+              { type: givenTrait, env: given.env },
               requireExactMatch,
               visitedPairs
             )
@@ -635,8 +636,8 @@ export function areTypesCompatible(
         const matchingGivenTrait = givenTraits.find((givenModule) => {
           // Compare by module type compatibility
           return areTypesCompatible(
-            { type: expectedTrait, env: expected.env },
-            { type: givenModule, env: given.env },
+            { type: expectedTrait.traitType, env: expected.env },
+            { type: givenModule.traitType, env: given.env },
             requireExactMatch,
             visitedPairs
           );
@@ -651,11 +652,15 @@ export function areTypesCompatible(
         expected.type.negativeTraits &&
         expected.type.negativeTraits.length > 0
       ) {
-        for (const negativeTrait of expected.type.negativeTraits) {
+        // Extract TraitTypes from negativeTraits entries
+        const expectedNegativeTraits = expected.type.negativeTraits.map(
+          (e) => e.traitType
+        );
+        for (const negativeTrait of expectedNegativeTraits) {
           const matchingGivenTrait = givenTraits.find((givenModule) =>
             areTypesCompatible(
               { type: negativeTrait, env: expected.env },
-              { type: givenModule, env: given.env },
+              { type: givenModule.traitType, env: given.env },
               requireExactMatch,
               visitedPairs
             )
@@ -703,8 +708,10 @@ export function areTypesCompatible(
       // Check if given implements all required modules of expected
       const requiredTraits = expected.type.requiredTraits ?? [];
       if (requiredTraits.length > 0) {
+        // Extract TraitTypes from entries
+        const requiredTraitTypes = requiredTraits.map((e) => e.traitType);
         // Check that given implements all required modules
-        for (const requiredTrait of requiredTraits) {
+        for (const requiredTrait of requiredTraitTypes) {
           if (
             !typeImplementsTrait({
               targetType: given.type,
@@ -723,7 +730,10 @@ export function areTypesCompatible(
           expected.type.negativeTraits &&
           expected.type.negativeTraits.length > 0
         ) {
-          for (const negativeTrait of expected.type.negativeTraits) {
+          const negativeTraitTypes = expected.type.negativeTraits.map(
+            (e) => e.traitType
+          );
+          for (const negativeTrait of negativeTraitTypes) {
             if (
               typeImplementsTrait({
                 targetType: given.type,
@@ -738,7 +748,7 @@ export function areTypesCompatible(
         // All checks passed - given type implements all required modules
         // and doesn't implement any forbidden modules
         let allModulesImplemented = true;
-        for (const requiredTrait of requiredTraits) {
+        for (const requiredTrait of requiredTraitTypes) {
           if (
             !typeImplementsTrait({
               targetType: given.type,
