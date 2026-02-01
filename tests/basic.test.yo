@@ -432,6 +432,14 @@ test "Test type auto derive Comptime", {
   // Union type is runtime only
   UnionData :: union(a : i32, b : bool);
   comptime_assert(Type.impls(UnionData, Comptime) == false);
+
+  // SomeType
+  fn1 :: (fn(comptime(T) : Type) -> unit) {
+    comptime_assert(Type.impls(T, Comptime) == false);
+  };
+  fn2 :: (fn(comptime(T) : Type, where(T <: Comptime)) -> unit) {
+    comptime_assert(Type.impls(T, Comptime));
+  };
 };
 
 test "Test type auto derive Runtime", {
@@ -525,6 +533,14 @@ test "Test type auto derive Runtime", {
   // Union type is runtime only
   UnionData :: union(a : i32, b : bool);
   comptime_assert(Type.impls(UnionData, Runtime));
+
+  // SomeType
+  fn1 :: (fn(comptime(T) : Type) -> unit) {
+    comptime_assert(Type.impls(T, Runtime));
+  };
+  fn2 :: (fn(comptime(T) : Type, where(T <: !(Runtime))) -> unit) {
+    comptime_assert(Type.impls(T, Runtime) == false);
+  };
 };
 
 test "Test 'struct'", {
