@@ -19,6 +19,8 @@ Never hardcode any typescript or yo when you are trying to solve a problem.
 
 Always go with a proper implementation. No shortcut. Don't simplify the problem.
 
+Always run `bun run build && ...` to make sure there is no TypeScript error before you run other `bun` or `./yo-cli` commands.
+
 To test the Yo codegen transpiler, you can run the command `./yo-cli compile src/tests/fixme.yo --release` to compile the `fixme.yo`. Or run `./yo-cli compile src/tests/fixme.yo --emit-c --skip-c-compiler --release` on any `.yo` file to test its C code generation. Then run `clang -std=c11 -Wall -Wextra a.out.c vendor/mimalloc/src/static.c -Ivendor/mimalloc/include -o ./a.out` to compile the generated `./a.out.c`.
 
 If you are on Windows, use `zig` instead of `clang` to compile the generated C code. Use command like `.\yo-cli.ps1 compile .\src\tests\fixme.yo --release -o test_fixme.exe`.

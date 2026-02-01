@@ -16,6 +16,7 @@ import {
   createType0,
 } from "../../types/creators";
 import { SomeType, TraitField, Type } from "../../types/definitions";
+import { getTraitTypeFromEnv } from "../../types/env-lookup";
 import {
   isFunctionType,
   isTraitType,
@@ -33,6 +34,7 @@ import {
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { isValidVariableName } from "../utils";
+import { attachTraitToReceiverType } from "./utils";
 
 /**
  * Evaluate the field in trait rvalue
@@ -485,6 +487,15 @@ export function evaluateTraitType({
   // Create "Self" type, which is a SomeType containing the current traitType
   const selfType = createSomeType(createType0(), "Self", { env, context });
   selfType.trait = traitType;
+
+  // Attach Runtime trait to the traitType (which is now Self's trait)
+  // This must be done AFTER setting selfType.trait = traitType
+  // because createSomeType attaches Runtime to selfType's initial trait,
+  // which then gets replaced by traitType
+  const runtimeTraitType = getTraitTypeFromEnv(env, "Runtime");
+  if (runtimeTraitType) {
+    env = attachTraitToReceiverType("Runtime", selfType, env, context);
+  }
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!;
