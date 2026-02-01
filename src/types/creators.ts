@@ -4,7 +4,11 @@ import {
   Frame,
   getVariablesFromEnv,
 } from "../env";
-import { addRcFunctionsToSomeType } from "../evaluator/types/utils";
+import { EvaluatorContext } from "../evaluator/context";
+import {
+  addRcFunctionsToSomeType,
+  attachTraitToReceiverType,
+} from "../evaluator/types/utils";
 import { Expr } from "../expr";
 import { FunctionValue } from "../function-value";
 import { hashString, randomId } from "../utils";
@@ -894,6 +898,7 @@ export function createSomeType(
     negativeTraits,
     recursiveTypeRef,
     env,
+    context,
   }: {
     id?: string;
     requiredTraits?: TraitType[];
@@ -903,6 +908,7 @@ export function createSomeType(
       argValues: Value[];
     };
     env: Environment;
+    context: EvaluatorContext;
   }
 ): SomeType {
   if (type.level !== 0) {
@@ -912,11 +918,10 @@ export function createSomeType(
     );
   }
 
-  const emptyEnv = env ?? createEmptyEnv();
-  const trait = createTraitType(emptyEnv);
+  const trait = createTraitType(env);
 
   const someType: SomeType = {
-    id: id ?? `sometype_${randomId(emptyEnv.modulePath)}`,
+    id: id ?? `sometype_${randomId(env.modulePath)}`,
     tag: TypeTag.SomeType,
     name: variableName,
     parentType: type,
@@ -929,20 +934,21 @@ export function createSomeType(
     isExtern: type.isExtern,
     externName: type.externName,
     recursiveTypeRef,
-    // SomeType defaults to RUNTIME_ONLY - most generic parameters represent runtime values
-    // If comptime is needed, add T <: Comptime constraint
   };
   trait.receiverType = someType;
 
   // Add ARC functions to SomeType - these dispatch to resolvedConcreteType at codegen time
   addRcFunctionsToSomeType({
     someType,
-    env: emptyEnv,
+    env,
     context: {
       SelfType: someType,
       stdPath: "",
     },
   });
+
+  // Attach the Runtime trait to the SomeType
+  attachTraitToReceiverType("Runtime", someType, env, context);
 
   return someType;
 }

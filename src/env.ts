@@ -1,4 +1,5 @@
 import { formatErrorMessages } from "./error";
+import { EvaluatorContext } from "./evaluator/context";
 import { cloneValue } from "./evaluator/values/clone_value";
 import { findMethodsFromGenericImpls } from "./evaluator/values/impl";
 import { Token } from "./token";
@@ -653,11 +654,17 @@ export function getVariableInfo(variable: Variable) {
  * This is used for static method calls on TypeValue (e.g., EvenNumber.try_from(...)).
  * It searches through impl'd traits stored with empty label "" in the type's trait.
  */
-export function getTypeTraitMethodsByNameFromEnv(
-  env: Environment,
-  methodName: string,
-  type: Type
-): {
+export function getTypeTraitMethodsByNameFromEnv({
+  env,
+  context,
+  methodName,
+  type,
+}: {
+  env: Environment;
+  context: EvaluatorContext;
+  methodName: string;
+  type: Type;
+}): {
   type: Type;
   value: Value | undefined;
 }[] {
@@ -682,6 +689,7 @@ export function getTypeTraitMethodsByNameFromEnv(
       value = createUnknownValue(directMethod.type, {
         variableName: directMethod.label,
         env,
+        context,
       });
     }
     methods.push({ type: directMethod.type, value });
@@ -734,13 +742,21 @@ export function getTypeTraitMethodsByNameFromEnv(
  * Get methods by name from a receiver's type trait and environment.
  * This is used for instance method calls (e.g., value.method(...)).
  */
-export function getReceiverMethodsByNameFromEnv(
-  env: Environment,
-  methodName: string,
-  receiverType: Type,
-  isInfixOperatorCall = false,
-  currentFunctionType?: FunctionType
-): {
+export function getReceiverMethodsByNameFromEnv({
+  env,
+  context,
+  methodName,
+  receiverType,
+  isInfixOperatorCall,
+  currentFunctionType,
+}: {
+  env: Environment;
+  context: EvaluatorContext;
+  methodName: string;
+  receiverType: Type;
+  isInfixOperatorCall?: boolean;
+  currentFunctionType?: FunctionType;
+}): {
   type: Type;
   value: Value | undefined;
   needsPointerConversion?: boolean;
@@ -803,6 +819,7 @@ export function getReceiverMethodsByNameFromEnv(
           value = createUnknownValue(method.type, {
             variableName: method.label,
             env,
+            context,
           });
         } else if (isTraitValue(traitValue)) {
           const index = traitType.fields.findIndex(
@@ -1085,6 +1102,7 @@ export function getReceiverMethodsByNameFromEnv(
         value = createUnknownValue(directMethod.type, {
           variableName: directMethod.label,
           env,
+          context,
         });
       }
       methods.push({ type: directMethod.type, value });
@@ -1114,6 +1132,7 @@ export function getReceiverMethodsByNameFromEnv(
         value = createUnknownValue(directMethod.type, {
           variableName: directMethod.label,
           env,
+          context,
         });
       }
       methods.push({ type: directMethod.type, value });
@@ -1160,6 +1179,7 @@ export function getReceiverMethodsByNameFromEnv(
         value = createUnknownValue(directMethod.type, {
           variableName: directMethod.label,
           env,
+          context,
         });
       }
       methods.push({ type: directMethod.type, value });
@@ -1250,6 +1270,7 @@ export function getReceiverMethodsByNameFromEnv(
           value = createUnknownValue(directMethod.type, {
             variableName: directMethod.label,
             env,
+            context,
           });
         }
         methods.push({ type: directMethod.type, value });
@@ -1334,6 +1355,7 @@ export function getReceiverMethodsByNameFromEnv(
             {
               variableName: directConcreteMethod.label,
               env,
+              context,
             }
           );
         methods.push({ type: directConcreteMethod.type, value });
@@ -1404,6 +1426,7 @@ export function getReceiverMethodsByNameFromEnv(
             {
               variableName: method.label,
               env,
+              context,
             }
           );
           methods.push({ type: specializedMethodType, value });
@@ -1470,11 +1493,11 @@ export function getReceiverMethodsByNameFromEnv(
                 SelfType: dereferencedReceiverType,
               };
               // Create an unknown value since the actual implementation is not known
-              const value = createUnknownValue(
-                specializedMethodType,
-
-                { variableName: method.label, env }
-              );
+              const value = createUnknownValue(specializedMethodType, {
+                variableName: method.label,
+                env,
+                context,
+              });
               methods.push({ type: specializedMethodType, value });
             }
           }
@@ -1506,6 +1529,7 @@ export function getReceiverMethodsByNameFromEnv(
             const value = createUnknownValue(method.type, {
               variableName: method.label,
               env,
+              context,
             });
             methods.push({ type: method.type, value });
           }
@@ -1529,6 +1553,7 @@ export function getReceiverMethodsByNameFromEnv(
         createUnknownValue(dynMethod.type, {
           variableName: dynMethod.label,
           env,
+          context,
         });
       methods.push({ type: dynMethod.type, value });
     }

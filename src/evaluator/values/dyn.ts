@@ -195,6 +195,7 @@ export function evaluateDynValue({
       requiredTraits: expectedDynType.requiredTraits,
       negativeTraits: expectedDynType.negativeTraits,
       env,
+      context,
     });
 
     // Special handling for dyn(box(...)) pattern:

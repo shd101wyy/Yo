@@ -345,7 +345,10 @@ export function tryToCallArrayWithArguments({
           callerEnv,
         };
       } else {
-        const value = createUnknownValue(returnType, { env: callerEnv });
+        const value = createUnknownValue(returnType, {
+          env: callerEnv,
+          context,
+        });
         return { value, type: returnType, callerEnv };
       }
     }
@@ -376,7 +379,10 @@ export function tryToCallArrayWithArguments({
         return { value, index, arrayElementRef, type: returnType, callerEnv };
       } else {
         // TODO: Check the index bound?
-        const value = createUnknownValue(returnType, { env: callerEnv });
+        const value = createUnknownValue(returnType, {
+          env: callerEnv,
+          context,
+        });
         return { value, type: returnType, callerEnv };
       }
     }

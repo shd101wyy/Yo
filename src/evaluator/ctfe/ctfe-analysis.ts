@@ -121,6 +121,7 @@ export function analyzeCtfeCapability(
             createUnknownValue(param.type, {
               variableName: param.label,
               env: ctfeEnv,
+              context,
             }),
           ],
           token: PlaceholderToken,

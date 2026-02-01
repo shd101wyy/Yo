@@ -683,6 +683,7 @@ Got:   ${regularArgsToCheck.length} arguments`,
             createUnknownValue(forallParameter.type, {
               variableName: forallParameter.label,
               env: calleeEnv,
+              context,
             }),
           ],
           token: forallParameter.exprs.labelExpr.token,
@@ -1140,6 +1141,7 @@ Got:   ${typeToString(typeValue.type)}`,
       returnValue = createUnknownValue(returnType, {
         variableName: functionType.return.label,
         env: functionType.env,
+        context,
       });
     } else if (isFunctionValue(functionValue)) {
       const {
@@ -1177,7 +1179,7 @@ Got:   ${typeToString(typeValue.type)}`,
             const someType = createSomeType(
               returnType as TypeHierarchyType,
               functionType.return.label,
-              { id: someTypeId, env: calleeEnv }
+              { id: someTypeId, env: calleeEnv, context }
             );
             someType.functionApplication = expr;
             const newReturnType = getValueOfSomeTypeFromEnv(
@@ -1197,6 +1199,7 @@ Got:   ${typeToString(typeValue.type)}`,
         returnValue = createUnknownValue(returnType, {
           variableName: functionType.return.label,
           env: functionType.env,
+          context,
         });
       }
     }

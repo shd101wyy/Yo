@@ -129,7 +129,7 @@ export function evaluateImplConstraint({
   const someType = createSomeType(
     createType0(),
     "Impl", // Name for the SomeType
-    { requiredTraits, negativeTraits, env }
+    { requiredTraits, negativeTraits, env, context }
   );
 
   // If Concrete(T) was specified, set the resolvedConcreteType

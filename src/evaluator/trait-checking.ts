@@ -162,6 +162,20 @@ export function typeImplementsComptime(
     return true;
   }
 
+  // For SomeType, check if Comptime is explicitly attached or negated
+  if (isSomeType(type)) {
+    const comptimeTraitType = getTraitTypeFromEnv(env, "Comptime");
+    if (comptimeTraitType && type.negativeTraits) {
+      for (const negativeTrait of type.negativeTraits) {
+        if (negativeTrait.id === comptimeTraitType.id) {
+          return false;
+        }
+      }
+    }
+    // Default: SomeType does NOT implement Comptime (runtime by default)
+    return false;
+  }
+
   const comptimeTraitType = getTraitTypeFromEnv(env, "Comptime");
   if (!comptimeTraitType) {
     return false;
@@ -234,6 +248,21 @@ export function typeImplementsRuntime(
     case TypeTag.Union: {
       return true;
     }
+  }
+
+  // For SomeType, default to Runtime (type parameters are runtime by default)
+  // unless Runtime is explicitly in negativeTraits (e.g., where(T <: !(Runtime)))
+  if (isSomeType(type)) {
+    const runtimeTraitType = getTraitTypeFromEnv(env, "Runtime");
+    if (runtimeTraitType && type.negativeTraits) {
+      for (const negativeTrait of type.negativeTraits) {
+        if (negativeTrait.id === runtimeTraitType.id) {
+          return false;
+        }
+      }
+    }
+    // Default: SomeType implements Runtime
+    return true;
   }
 
   const runtimeTraitType = getTraitTypeFromEnv(env, "Runtime");

@@ -1035,7 +1035,7 @@ export function addRcFunctionsToIsoType({
  */
 export function attachTraitToReceiverType(
   moduleName: string,
-  receiverType: StructType | EnumType | UnionType | TupleType,
+  receiverType: StructType | EnumType | UnionType | TupleType | SomeType,
   env: Environment,
   context: EvaluatorContext
 ): Environment {

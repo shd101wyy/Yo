@@ -57,6 +57,7 @@ export function evaluateAlignOf({
   if (typeAlign === null) {
     typeAlignValue = createUnknownValue(createUsizeType(), {
       env,
+      context,
     }) as UnknownValue;
   } else {
     typeAlignValue = createNumberValue(

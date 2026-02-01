@@ -1,4 +1,5 @@
 import { Environment, getVariablesFromEnv } from "./env";
+import { EvaluatorContext } from "./evaluator/context";
 import { Expr, exprsAreEqual, exprToString } from "./expr";
 import { FunctionValue } from "./function-value";
 import { stringIsOperator } from "./token";
@@ -564,6 +565,7 @@ export function createUnknownValue(
     variableName,
     recursiveTypeRef,
     env,
+    context,
   }: {
     variableName?: string;
     recursiveTypeRef?: {
@@ -571,6 +573,7 @@ export function createUnknownValue(
       argValues: Value[];
     };
     env: Environment;
+    context: EvaluatorContext;
   }
 ): UnknownValue | TypeValue {
   if (isTypeHierarchyType(type) && type.level === 0) {
@@ -585,6 +588,7 @@ export function createUnknownValue(
     const someType = createSomeType(type, variableName, {
       recursiveTypeRef,
       env,
+      context,
     });
     return createTypeValue(someType);
   }

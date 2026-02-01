@@ -57,6 +57,7 @@ export function evaluateComptimeFunctionCall({
       value: createUnknownValue(functionType.return.type, {
         variableName: "ctfe_analysis_result_" + randomId(callerEnv.modulePath),
         env: functionType.env,
+        context,
       }),
       callerEnv,
       calleeEnv,
@@ -158,6 +159,7 @@ export function evaluateComptimeFunctionCall({
       // Store recursive type reference so we can resolve it later
       recursiveTypeRef: { functionValue, argValues },
       env: calleeEnv,
+      context,
     }),
     env: calleeEnv,
     body: cloneExpr(functionBodyExpr), // NOTE: Clone here is necessary

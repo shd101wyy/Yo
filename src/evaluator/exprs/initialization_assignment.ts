@@ -281,6 +281,7 @@ ${exprToString(rhs)}`,
           : createUnknownValue(lhs.$.type, {
               variableName: lhs.token.value,
               env,
+              context,
             })
         : undefined,
       pathCollection: [],

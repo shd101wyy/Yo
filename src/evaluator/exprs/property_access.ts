@@ -228,6 +228,7 @@ export function evaluatePropertyAccess({
             ? `${objectValue.variableName}.*`
             : undefined,
           env,
+          context,
         });
         expr.$ = {
           env,
@@ -509,7 +510,11 @@ export function evaluatePropertyAccess({
           type: field.type,
           value:
             field.assignedValue ??
-            createUnknownValue(field.type, { variableName: field.label, env }),
+            createUnknownValue(field.type, {
+              variableName: field.label,
+              env,
+              context,
+            }),
           pathCollection: [],
           isAccessingProperty: true,
         };
@@ -623,7 +628,11 @@ export function evaluatePropertyAccess({
           type: field.type,
           value:
             field.assignedValue ??
-            createUnknownValue(field.type, { variableName: field.label, env }),
+            createUnknownValue(field.type, {
+              variableName: field.label,
+              env,
+              context,
+            }),
           pathCollection: [],
           isAccessingProperty: true,
         };
@@ -769,7 +778,10 @@ export function evaluatePropertyAccess({
           // expr.value = ...
           if (objectExprValue) {
             if (isUnknownValue(objectExprValue)) {
-              expr.$.value = createUnknownValue(tupleElement.type, { env });
+              expr.$.value = createUnknownValue(tupleElement.type, {
+                env,
+                context,
+              });
             } else {
               let values: (Value | undefined)[] = [];
               if (isTupleValue(objectExprValue)) {
@@ -780,7 +792,7 @@ export function evaluatePropertyAccess({
 
               let value = values?.[tupleFieldIndex];
               if (!value) {
-                value = createUnknownValue(tupleElement.type, { env });
+                value = createUnknownValue(tupleElement.type, { env, context });
               }
 
               expr.$.value = value;
@@ -844,7 +856,10 @@ export function evaluatePropertyAccess({
           // expr.value = ...
           if (objectExprValue) {
             if (isUnknownValue(objectExprValue)) {
-              expr.$.value = createUnknownValue(tupleElement.type, { env });
+              expr.$.value = createUnknownValue(tupleElement.type, {
+                env,
+                context,
+              });
             } else {
               let values: (Value | undefined)[] = [];
               if (isModuleValue(objectExprValue)) {
@@ -853,7 +868,7 @@ export function evaluatePropertyAccess({
 
               let value = values?.[tupleFieldIndex];
               if (!value && tupleElement.isCompileTimeOnly) {
-                value = createUnknownValue(tupleElement.type, { env });
+                value = createUnknownValue(tupleElement.type, { env, context });
               }
 
               expr.$.value = value;

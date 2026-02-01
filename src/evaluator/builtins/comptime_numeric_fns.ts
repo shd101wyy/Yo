@@ -1,4 +1,4 @@
-import { Environment, createEmptyEnv } from "../../env";
+import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import { FnCallExpr, exprToString } from "../../expr";
 import { Token } from "../../token";
@@ -59,7 +59,9 @@ function extractNumericValue(value?: Value): number | bigint | null {
 // Helper function to create a numeric value of the given type
 function createNumericValue(
   value: number | bigint,
-  type: Type
+  type: Type,
+  env: Environment,
+  context: EvaluatorContext
 ): Value | undefined {
   // Handle comptime_int and comptime_float separately
   if (type.tag === TypeTag.ComptimeInt) {
@@ -75,7 +77,7 @@ function createNumericValue(
 
   // C compatible types return unknown value
   if (isCCompatibleType(type)) {
-    return createUnknownValue(type, { env: createEmptyEnv() });
+    return createUnknownValue(type, { env, context });
   }
 
   // Handle other numeric types
@@ -227,31 +229,35 @@ function performArithmeticOp(
   lhsValue: Value,
   rhsValue: Value,
   resultType: Type,
-  op: (a: number | bigint, b: number | bigint) => number | bigint
+  op: (a: number | bigint, b: number | bigint) => number | bigint,
+  env: Environment,
+  context: EvaluatorContext
 ): Value {
   const lhs = extractNumericValue(lhsValue);
   const rhs = extractNumericValue(rhsValue);
 
   if (lhs === null || rhs === null) {
-    return createUnknownValue(resultType, { env: createEmptyEnv() });
+    return createUnknownValue(resultType, { env, context });
   }
 
-  const result = createNumericValue(op(lhs, rhs), resultType);
+  const result = createNumericValue(op(lhs, rhs), resultType, env, context);
   // For C compatible types, createNumericValue returns undefined (runtime-only)
-  return result ?? createUnknownValue(resultType, { env: createEmptyEnv() });
+  return result ?? createUnknownValue(resultType, { env, context });
 }
 
 // Generic comparison operation
 function performComparisonOp(
   lhsValue: Value,
   rhsValue: Value,
-  op: (a: number | bigint, b: number | bigint) => boolean
+  op: (a: number | bigint, b: number | bigint) => boolean,
+  env: Environment,
+  context: EvaluatorContext
 ): Value {
   const lhs = extractNumericValue(lhsValue);
   const rhs = extractNumericValue(rhsValue);
 
   if (lhs === null || rhs === null) {
-    return createUnknownValue(createBooleanType(), { env: createEmptyEnv() });
+    return createUnknownValue(createBooleanType(), { env, context });
   }
 
   // Handle mixed number/bigint comparisons
@@ -268,17 +274,19 @@ function performComparisonOp(
 function performUnaryOp(
   value: Value,
   resultType: Type,
-  op: (a: number | bigint) => number | bigint
+  op: (a: number | bigint) => number | bigint,
+  env: Environment,
+  context: EvaluatorContext
 ): Value {
   const num = extractNumericValue(value);
 
   if (num === null) {
-    return createUnknownValue(resultType, { env: createEmptyEnv() });
+    return createUnknownValue(resultType, { env, context });
   }
 
-  const result = createNumericValue(op(num), resultType);
+  const result = createNumericValue(op(num), resultType, env, context);
   // For C compatible types, createNumericValue returns undefined (runtime-only)
-  return result ?? createUnknownValue(resultType, { env: createEmptyEnv() });
+  return result ?? createUnknownValue(resultType, { env, context });
 }
 
 /**
@@ -387,14 +395,20 @@ export function evaluateYoComptimeNumericFunctions({
           });
         }
 
-        value = performUnaryOp(arg.$.value, numericType, (x) => {
-          if (typeof x === "bigint") {
+        value = performUnaryOp(
+          arg.$.value,
+          numericType,
+          (x) => {
+            if (typeof x === "bigint") {
+              return -x;
+            }
             return -x;
-          }
-          return -x;
-        });
+          },
+          env,
+          context
+        );
       } else {
-        value = createUnknownValue(numericType, { env: createEmptyEnv() });
+        value = createUnknownValue(numericType, { env, context });
       }
     } else if (operation === "bit_not") {
       if (isNumberValue(arg.$.value) || isComptimeIntValue(arg.$.value)) {
@@ -406,10 +420,10 @@ export function evaluateYoComptimeNumericFunctions({
             value = createComptimeIntValue(BigInt(~Math.floor(num)));
           }
         } else {
-          value = createUnknownValue(numericType, { env: createEmptyEnv() });
+          value = createUnknownValue(numericType, { env, context });
         }
       } else {
-        value = createUnknownValue(numericType, { env: createEmptyEnv() });
+        value = createUnknownValue(numericType, { env, context });
       }
     } else if (operation === "to_comptime_string") {
       if (isNumberValue(arg.$.value)) {
@@ -418,12 +432,14 @@ export function evaluateYoComptimeNumericFunctions({
           value = createComptimeStringValue(num.toString());
         } else {
           value = createUnknownValue(createComptimeStringType(), {
-            env: createEmptyEnv(),
+            env,
+            context,
           });
         }
       } else {
         value = createUnknownValue(createComptimeStringType(), {
-          env: createEmptyEnv(),
+          env,
+          context,
         });
       }
     } else {
@@ -496,14 +512,21 @@ export function evaluateYoComptimeNumericFunctions({
             : lhs + rhs;
         checkOverflow(result, numericType, "add", lhs, rhs, expr.token);
       }
-      value = performArithmeticOp(lhsValue, rhsValue, numericType, (a, b) => {
-        if (typeof a === "bigint" || typeof b === "bigint") {
-          const bigA = typeof a === "bigint" ? a : BigInt(a);
-          const bigB = typeof b === "bigint" ? b : BigInt(b);
-          return bigA + bigB;
-        }
-        return a + b;
-      });
+      value = performArithmeticOp(
+        lhsValue,
+        rhsValue,
+        numericType,
+        (a, b) => {
+          if (typeof a === "bigint" || typeof b === "bigint") {
+            const bigA = typeof a === "bigint" ? a : BigInt(a);
+            const bigB = typeof b === "bigint" ? b : BigInt(b);
+            return bigA + bigB;
+          }
+          return a + b;
+        },
+        env,
+        context
+      );
       resultType = numericType;
       break;
     }
@@ -518,14 +541,21 @@ export function evaluateYoComptimeNumericFunctions({
             : lhs - rhs;
         checkOverflow(result, numericType, "subtract", lhs, rhs, expr.token);
       }
-      value = performArithmeticOp(lhsValue, rhsValue, numericType, (a, b) => {
-        if (typeof a === "bigint" || typeof b === "bigint") {
-          const bigA = typeof a === "bigint" ? a : BigInt(a);
-          const bigB = typeof b === "bigint" ? b : BigInt(b);
-          return bigA - bigB;
-        }
-        return a - b;
-      });
+      value = performArithmeticOp(
+        lhsValue,
+        rhsValue,
+        numericType,
+        (a, b) => {
+          if (typeof a === "bigint" || typeof b === "bigint") {
+            const bigA = typeof a === "bigint" ? a : BigInt(a);
+            const bigB = typeof b === "bigint" ? b : BigInt(b);
+            return bigA - bigB;
+          }
+          return a - b;
+        },
+        env,
+        context
+      );
       resultType = numericType;
       break;
     }
@@ -540,14 +570,21 @@ export function evaluateYoComptimeNumericFunctions({
             : lhs * rhs;
         checkOverflow(result, numericType, "multiply", lhs, rhs, expr.token);
       }
-      value = performArithmeticOp(lhsValue, rhsValue, numericType, (a, b) => {
-        if (typeof a === "bigint" || typeof b === "bigint") {
-          const bigA = typeof a === "bigint" ? a : BigInt(a);
-          const bigB = typeof b === "bigint" ? b : BigInt(b);
-          return bigA * bigB;
-        }
-        return a * b;
-      });
+      value = performArithmeticOp(
+        lhsValue,
+        rhsValue,
+        numericType,
+        (a, b) => {
+          if (typeof a === "bigint" || typeof b === "bigint") {
+            const bigA = typeof a === "bigint" ? a : BigInt(a);
+            const bigB = typeof b === "bigint" ? b : BigInt(b);
+            return bigA * bigB;
+          }
+          return a * b;
+        },
+        env,
+        context
+      );
       resultType = numericType;
       break;
     }
@@ -560,17 +597,24 @@ export function evaluateYoComptimeNumericFunctions({
           errorMessage: `Division by zero in "${funcName}" operation`,
         });
       }
-      value = performArithmeticOp(lhsValue, rhsValue, numericType, (a, b) => {
-        if (typeof a === "bigint" || typeof b === "bigint") {
-          const bigA = typeof a === "bigint" ? a : BigInt(a);
-          const bigB = typeof b === "bigint" ? b : BigInt(b);
-          return bigA / bigB;
-        }
-        return isIntegerType(numericType) ||
-          numericType.tag === TypeTag.ComptimeInt
-          ? Math.trunc(a / b)
-          : a / b;
-      });
+      value = performArithmeticOp(
+        lhsValue,
+        rhsValue,
+        numericType,
+        (a, b) => {
+          if (typeof a === "bigint" || typeof b === "bigint") {
+            const bigA = typeof a === "bigint" ? a : BigInt(a);
+            const bigB = typeof b === "bigint" ? b : BigInt(b);
+            return bigA / bigB;
+          }
+          return isIntegerType(numericType) ||
+            numericType.tag === TypeTag.ComptimeInt
+            ? Math.trunc(a / b)
+            : a / b;
+        },
+        env,
+        context
+      );
       resultType = numericType;
       break;
     }
@@ -589,39 +633,82 @@ export function evaluateYoComptimeNumericFunctions({
           errorMessage: `Modulo by zero in "${funcName}" operation`,
         });
       }
-      value = performArithmeticOp(lhsValue, rhsValue, numericType, (a, b) => {
-        if (typeof a === "bigint" || typeof b === "bigint") {
-          const bigA = typeof a === "bigint" ? a : BigInt(a);
-          const bigB = typeof b === "bigint" ? b : BigInt(b);
-          return bigA % bigB;
-        }
-        return a % b;
-      });
+      value = performArithmeticOp(
+        lhsValue,
+        rhsValue,
+        numericType,
+        (a, b) => {
+          if (typeof a === "bigint" || typeof b === "bigint") {
+            const bigA = typeof a === "bigint" ? a : BigInt(a);
+            const bigB = typeof b === "bigint" ? b : BigInt(b);
+            return bigA % bigB;
+          }
+          return a % b;
+        },
+        env,
+        context
+      );
       resultType = numericType;
       break;
     }
     case "eq":
-      value = performComparisonOp(lhsValue, rhsValue, (a, b) => a === b);
+      value = performComparisonOp(
+        lhsValue,
+        rhsValue,
+        (a, b) => a === b,
+        env,
+        context
+      );
       resultType = createBooleanType();
       break;
     case "neq":
-      value = performComparisonOp(lhsValue, rhsValue, (a, b) => a !== b);
+      value = performComparisonOp(
+        lhsValue,
+        rhsValue,
+        (a, b) => a !== b,
+        env,
+        context
+      );
       resultType = createBooleanType();
       break;
     case "lt":
-      value = performComparisonOp(lhsValue, rhsValue, (a, b) => a < b);
+      value = performComparisonOp(
+        lhsValue,
+        rhsValue,
+        (a, b) => a < b,
+        env,
+        context
+      );
       resultType = createBooleanType();
       break;
     case "lte":
-      value = performComparisonOp(lhsValue, rhsValue, (a, b) => a <= b);
+      value = performComparisonOp(
+        lhsValue,
+        rhsValue,
+        (a, b) => a <= b,
+        env,
+        context
+      );
       resultType = createBooleanType();
       break;
     case "gt":
-      value = performComparisonOp(lhsValue, rhsValue, (a, b) => a > b);
+      value = performComparisonOp(
+        lhsValue,
+        rhsValue,
+        (a, b) => a > b,
+        env,
+        context
+      );
       resultType = createBooleanType();
       break;
     case "gte":
-      value = performComparisonOp(lhsValue, rhsValue, (a, b) => a >= b);
+      value = performComparisonOp(
+        lhsValue,
+        rhsValue,
+        (a, b) => a >= b,
+        env,
+        context
+      );
       resultType = createBooleanType();
       break;
     case "bit_and": {
@@ -638,7 +725,7 @@ export function evaluateYoComptimeNumericFunctions({
           );
         }
       } else {
-        value = createUnknownValue(numericType, { env: createEmptyEnv() });
+        value = createUnknownValue(numericType, { env, context });
       }
       resultType = numericType;
       break;
@@ -657,7 +744,7 @@ export function evaluateYoComptimeNumericFunctions({
           );
         }
       } else {
-        value = createUnknownValue(numericType, { env: createEmptyEnv() });
+        value = createUnknownValue(numericType, { env, context });
       }
       resultType = numericType;
       break;
@@ -676,7 +763,7 @@ export function evaluateYoComptimeNumericFunctions({
           );
         }
       } else {
-        value = createUnknownValue(numericType, { env: createEmptyEnv() });
+        value = createUnknownValue(numericType, { env, context });
       }
       resultType = numericType;
       break;
@@ -690,7 +777,7 @@ export function evaluateYoComptimeNumericFunctions({
           typeof rhs === "bigint" ? Number(rhs) : Math.floor(rhs);
         value = createComptimeIntValue(bigA << BigInt(shiftAmount));
       } else {
-        value = createUnknownValue(numericType, { env: createEmptyEnv() });
+        value = createUnknownValue(numericType, { env, context });
       }
       resultType = numericType;
       break;
@@ -704,7 +791,7 @@ export function evaluateYoComptimeNumericFunctions({
           typeof rhs === "bigint" ? Number(rhs) : Math.floor(rhs);
         value = createComptimeIntValue(bigA >> BigInt(shiftAmount));
       } else {
-        value = createUnknownValue(numericType, { env: createEmptyEnv() });
+        value = createUnknownValue(numericType, { env, context });
       }
       resultType = numericType;
       break;

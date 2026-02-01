@@ -76,7 +76,10 @@ export function evaluateYoExprIsAtom({
 
   const booleanValue = isExprValue(exprValue)
     ? createBooleanValue(exprIsAtom(exprValue.value))
-    : createUnknownValue(createBooleanType(), { env: evaluatedArgExpr.$.env });
+    : createUnknownValue(createBooleanType(), {
+        env: evaluatedArgExpr.$.env,
+        context,
+      });
 
   expr.$ = {
     env: evaluatedArgExpr.$.env,
@@ -135,7 +138,10 @@ export function evaluateYoExprIsFnCall({
 
   const booleanValue = isExprValue(exprValue)
     ? createBooleanValue(exprIsFunctionCall(exprValue.value))
-    : createUnknownValue(createBooleanType(), { env: evaluatedArgExpr.$.env });
+    : createUnknownValue(createBooleanType(), {
+        env: evaluatedArgExpr.$.env,
+        context,
+      });
 
   expr.$ = {
     env: evaluatedArgExpr.$.env,
@@ -197,6 +203,7 @@ export function evaluateYoExprGetCallee({
     type: createExprType(),
     value: createUnknownValue(createExprType(), {
       env: evaluatedArgExpr.$.env,
+      context,
     }), // Will be updated later
     pathCollection: [],
     isAccessingProperty: false,
@@ -268,6 +275,7 @@ export function evaluateYoExprGetArgs({
     type: createExprListType(),
     value: createUnknownValue(createExprListType(), {
       env: evaluatedArgExpr.$.env,
+      context,
     }), // Will be updated later
     pathCollection: [],
     isAccessingProperty: false,
@@ -342,6 +350,7 @@ export function evaluateYoExprToString({
     type: createComptimeStringType(),
     value: createUnknownValue(createComptimeStringType(), {
       env: evaluatedArgExpr.$.env,
+      context,
     }), // Will be updated later
     pathCollection: [],
     isAccessingProperty: false,
@@ -448,7 +457,10 @@ export function evaluateYoExprEq({
       )
     );
   } else {
-    value = createUnknownValue(createBooleanType(), { env }) as UnknownValue;
+    value = createUnknownValue(createBooleanType(), {
+      env,
+      context,
+    }) as UnknownValue;
   }
 
   expr.$ = {

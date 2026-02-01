@@ -255,11 +255,12 @@ export function evaluateFunctionCall({
               // Static method call (e.g., EvenNumber.try_from(...))
               // Use getTypeTraitMethodsByNameFromEnv to find methods from impl'd traits
               const innerType = receiverValue.value;
-              const methods = getTypeTraitMethodsByNameFromEnv(
+              const methods = getTypeTraitMethodsByNameFromEnv({
                 env,
+                context,
                 methodName,
-                innerType
-              );
+                type: innerType,
+              });
 
               functions = methods.map((method) => {
                 // Static methods don't have a receiver argument - just pass the call args
@@ -278,13 +279,14 @@ export function evaluateFunctionCall({
                   ? context.isEvaluatingFunctionBodyOrAsyncBlock.type
                   : undefined;
               // Get the method with the same name in the interface in the env
-              const methods = getReceiverMethodsByNameFromEnv(
+              const methods = getReceiverMethodsByNameFromEnv({
                 env,
+                context,
                 methodName,
                 receiverType,
-                false, // isInfixOperatorCall - property access allows auto pointer conversion
-                currentFunctionType
-              );
+                isInfixOperatorCall: false, // isInfixOperatorCall - property access allows auto pointer conversion
+                currentFunctionType,
+              });
 
               functions = methods.map((method) => {
                 // If pointer conversion is needed, wrap the receiver in &()
@@ -442,13 +444,14 @@ export function evaluateFunctionCall({
             ? context.isEvaluatingFunctionBodyOrAsyncBlock.type
             : undefined;
         // Get the method with the same name in the module/type in the env
-        const moduleMethods = getReceiverMethodsByNameFromEnv(
+        const moduleMethods = getReceiverMethodsByNameFromEnv({
           env,
+          context,
           methodName,
           receiverType,
-          true, // isInfixOperatorCall - infix operators don't allow auto pointer conversion
-          currentFunctionTypeForInfix
-        );
+          isInfixOperatorCall: true, // isInfixOperatorCall - infix operators don't allow auto pointer conversion
+          currentFunctionType: currentFunctionTypeForInfix,
+        });
         functions = moduleMethods.map((method) => ({
           type: method.type,
           value: method.value,
@@ -1428,6 +1431,7 @@ ${functionsWithMatchingTypes.map((func) => `${typeToString(func.type)}`).join("\
       value: createUnknownValue(returnType, {
         variableName: "checking_phase_placeholder_" + randomId(env.modulePath),
         env,
+        context,
       }),
       pathCollection: [],
     };

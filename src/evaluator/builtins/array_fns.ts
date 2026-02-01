@@ -114,7 +114,7 @@ export function evaluateYoArrayFill({
 
   // If the length is an UnknownValue, we can't create a concrete array at compile time
   if (isUnknownValue(lengthValue)) {
-    const arrayValue = createUnknownValue(arrayType, { env });
+    const arrayValue = createUnknownValue(arrayType, { env, context });
 
     expr.$ = {
       env,
@@ -149,7 +149,7 @@ export function evaluateYoArrayFill({
 
   // If fillValue is an UnknownValue, return an UnknownValue for the array
   if (isUnknownValue(fillValue)) {
-    const arrayValue = createUnknownValue(arrayType, { env });
+    const arrayValue = createUnknownValue(arrayType, { env, context });
 
     expr.$ = {
       env,

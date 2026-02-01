@@ -434,7 +434,7 @@ comptime(${label}) : ${typeToString(parameterType)}`,
     */
 
   const value = isCompileTimeOnly
-    ? createUnknownValue(parameterType, { variableName: label, env })
+    ? createUnknownValue(parameterType, { variableName: label, env, context })
     : undefined;
 
   // Prohibit void type as parameter type
@@ -495,7 +495,11 @@ use_id :: (fn(forall(T : Type),
     const newValue = assignedValue
       ? assignedValue
       : isCompileTimeOnly
-        ? createUnknownValue(parameterType, { variableName: label, env })
+        ? createUnknownValue(parameterType, {
+            variableName: label,
+            env,
+            context,
+          })
         : undefined;
 
     // Check if the new value is also a TypeValue containing a SomeType
@@ -549,6 +553,7 @@ use_id :: (fn(forall(T : Type),
                   createUnknownValue(parameterType, {
                     variableName: label,
                     env,
+                    context,
                   }),
                 ]
               : undefined,
@@ -664,6 +669,7 @@ function prepareWhereClauseVariables({
         // Variable doesn't exist - create a new SomeType for it
         const someType = createSomeType(createType0(), varName, {
           env,
+          context,
         });
 
         // Add to env so later parameters can reference it
@@ -883,7 +889,7 @@ function parseWhereClauseConstraints({
       } else {
         // Variable doesn't exist - create a new SomeType for it
         // This SomeType starts with RUNTIME_ONLY availability (default for type parameters)
-        someType = createSomeType(createType0(), varName, { env });
+        someType = createSomeType(createType0(), varName, { env, context });
 
         // Add to env so later parameters can reference it
         const typeValue = createTypeValue(someType);
@@ -1400,6 +1406,7 @@ export function evaluateFunctionParameters({
                   createUnknownValue(parameterType, {
                     variableName: parameterName,
                     env,
+                    context,
                   }),
                 ]
               : undefined,
@@ -1421,6 +1428,7 @@ export function evaluateFunctionParameters({
             ? createUnknownValue(parameterType, {
                 variableName: parameterName,
                 env,
+                context,
               })
             : undefined,
           pathCollection: [],

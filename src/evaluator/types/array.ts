@@ -78,6 +78,7 @@ If you are creating an array value with 1 element, please consider adding a "," 
     const unknownLength = createUnknownValue(createUsizeType(), {
       variableName: lengthPlaceholderName,
       env: evaluatedElementTypeExpr.$.env,
+      context,
     });
 
     // Add the unknown variable to the environment

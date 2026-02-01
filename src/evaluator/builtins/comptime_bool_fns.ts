@@ -61,7 +61,7 @@ export function evaluateYoComptimeBooleanFunctions({
       if (isBooleanValue(arg.$.value)) {
         value = createBooleanValue(!arg.$.value.value);
       } else {
-        value = createUnknownValue(createBooleanType(), { env });
+        value = createUnknownValue(createBooleanType(), { env, context });
       }
     }
     // to_string(x)
@@ -74,7 +74,10 @@ export function evaluateYoComptimeBooleanFunctions({
       if (isBooleanValue(arg.$.value)) {
         value = createComptimeStringValue(arg.$.value.value.toString());
       } else {
-        value = createUnknownValue(createComptimeStringType(), { env });
+        value = createUnknownValue(createComptimeStringType(), {
+          env,
+          context,
+        });
       }
     } else {
       throw formatErrorMessage({
@@ -135,7 +138,7 @@ export function evaluateYoComptimeBooleanFunctions({
       if (isBooleanValue(lhsValue) && isBooleanValue(rhsValue)) {
         value = createBooleanValue(lhsValue.value && rhsValue.value);
       } else {
-        value = createUnknownValue(createBooleanType(), { env });
+        value = createUnknownValue(createBooleanType(), { env, context });
       }
     }
     // x || y
@@ -145,7 +148,7 @@ export function evaluateYoComptimeBooleanFunctions({
       if (isBooleanValue(lhsValue) && isBooleanValue(rhsValue)) {
         value = createBooleanValue(lhsValue.value || rhsValue.value);
       } else {
-        value = createUnknownValue(createBooleanType(), { env });
+        value = createUnknownValue(createBooleanType(), { env, context });
       }
     }
     // x == y
@@ -155,7 +158,7 @@ export function evaluateYoComptimeBooleanFunctions({
       if (isBooleanValue(lhsValue) && isBooleanValue(rhsValue)) {
         value = createBooleanValue(lhsValue.value === rhsValue.value);
       } else {
-        value = createUnknownValue(createBooleanType(), { env });
+        value = createUnknownValue(createBooleanType(), { env, context });
       }
     }
     // x != y
@@ -165,7 +168,7 @@ export function evaluateYoComptimeBooleanFunctions({
       if (isBooleanValue(lhsValue) && isBooleanValue(rhsValue)) {
         value = createBooleanValue(lhsValue.value !== rhsValue.value);
       } else {
-        value = createUnknownValue(createBooleanType(), { env });
+        value = createUnknownValue(createBooleanType(), { env, context });
       }
     } else {
       throw formatErrorMessage({

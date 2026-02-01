@@ -136,7 +136,7 @@ export function tryToImplementArrayByArrayType({
       elements.push(evaluatedArg.$.value);
     } else {
       // For runtime arrays, we'll create unknown values as placeholders
-      elements.push(createUnknownValue(expectedElementType, { env }));
+      elements.push(createUnknownValue(expectedElementType, { env, context }));
     }
   }
 

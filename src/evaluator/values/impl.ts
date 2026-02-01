@@ -1733,6 +1733,7 @@ export function evaluateModuleValue({
       const unknownOrTypeValue = createUnknownValue(effectiveType, {
         variableName: paramName,
         env,
+        context,
       });
 
       // Add to environment

@@ -68,7 +68,7 @@ export function evaluateYoComptimeStringFunctions({
       if (isComptimeStringValue(arg.$.value)) {
         value = createComptimeIntValue(BigInt(arg.$.value.value.length));
       } else {
-        value = createUnknownValue(createComptimeIntType(), { env });
+        value = createUnknownValue(createComptimeIntType(), { env, context });
       }
     }
     // to_upper(x)
@@ -78,7 +78,10 @@ export function evaluateYoComptimeStringFunctions({
       if (isComptimeStringValue(arg.$.value)) {
         value = createComptimeStringValue(arg.$.value.value.toUpperCase());
       } else {
-        value = createUnknownValue(createComptimeStringType(), { env });
+        value = createUnknownValue(createComptimeStringType(), {
+          env,
+          context,
+        });
       }
     }
     // to_lower(x)
@@ -88,7 +91,10 @@ export function evaluateYoComptimeStringFunctions({
       if (isComptimeStringValue(arg.$.value)) {
         value = createComptimeStringValue(arg.$.value.value.toLowerCase());
       } else {
-        value = createUnknownValue(createComptimeStringType(), { env });
+        value = createUnknownValue(createComptimeStringType(), {
+          env,
+          context,
+        });
       }
     } else {
       throw formatErrorMessage({
@@ -208,7 +214,7 @@ export function evaluateYoComptimeStringFunctions({
       // Use JavaScript's slice semantics
       value = createComptimeStringValue(str.slice(start, end));
     } else {
-      value = createUnknownValue(createComptimeStringType(), { env });
+      value = createUnknownValue(createComptimeStringType(), { env, context });
     }
 
     expr.$ = {
@@ -266,7 +272,10 @@ export function evaluateYoComptimeStringFunctions({
       if (isComptimeStringValue(lhsValue) && isComptimeStringValue(rhsValue)) {
         value = createComptimeStringValue(lhsValue.value + rhsValue.value);
       } else {
-        value = createUnknownValue(createComptimeStringType(), { env });
+        value = createUnknownValue(createComptimeStringType(), {
+          env,
+          context,
+        });
       }
     }
     // x == y
@@ -276,7 +285,7 @@ export function evaluateYoComptimeStringFunctions({
       if (isComptimeStringValue(lhsValue) && isComptimeStringValue(rhsValue)) {
         value = createBooleanValue(lhsValue.value === rhsValue.value);
       } else {
-        value = createUnknownValue(createBooleanType(), { env });
+        value = createUnknownValue(createBooleanType(), { env, context });
       }
     }
     // x != y
@@ -286,7 +295,7 @@ export function evaluateYoComptimeStringFunctions({
       if (isComptimeStringValue(lhsValue) && isComptimeStringValue(rhsValue)) {
         value = createBooleanValue(lhsValue.value !== rhsValue.value);
       } else {
-        value = createUnknownValue(createBooleanType(), { env });
+        value = createUnknownValue(createBooleanType(), { env, context });
       }
     }
     // x < y (lexicographic comparison)
@@ -296,7 +305,7 @@ export function evaluateYoComptimeStringFunctions({
       if (isComptimeStringValue(lhsValue) && isComptimeStringValue(rhsValue)) {
         value = createBooleanValue(lhsValue.value < rhsValue.value);
       } else {
-        value = createUnknownValue(createBooleanType(), { env });
+        value = createUnknownValue(createBooleanType(), { env, context });
       }
     }
     // x <= y
@@ -306,7 +315,7 @@ export function evaluateYoComptimeStringFunctions({
       if (isComptimeStringValue(lhsValue) && isComptimeStringValue(rhsValue)) {
         value = createBooleanValue(lhsValue.value <= rhsValue.value);
       } else {
-        value = createUnknownValue(createBooleanType(), { env });
+        value = createUnknownValue(createBooleanType(), { env, context });
       }
     }
     // x > y
@@ -316,7 +325,7 @@ export function evaluateYoComptimeStringFunctions({
       if (isComptimeStringValue(lhsValue) && isComptimeStringValue(rhsValue)) {
         value = createBooleanValue(lhsValue.value > rhsValue.value);
       } else {
-        value = createUnknownValue(createBooleanType(), { env });
+        value = createUnknownValue(createBooleanType(), { env, context });
       }
     }
     // x >= y
@@ -326,7 +335,7 @@ export function evaluateYoComptimeStringFunctions({
       if (isComptimeStringValue(lhsValue) && isComptimeStringValue(rhsValue)) {
         value = createBooleanValue(lhsValue.value >= rhsValue.value);
       } else {
-        value = createUnknownValue(createBooleanType(), { env });
+        value = createUnknownValue(createBooleanType(), { env, context });
       }
     } else {
       throw formatErrorMessage({

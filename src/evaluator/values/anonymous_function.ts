@@ -202,6 +202,7 @@ Got:      "${paramName}"`,
           createUnknownValue(expectedParam.type, {
             variableName: expectedParam.label,
             env,
+            context,
           }),
         ],
         token: paramExpr?.token ?? PlaceholderToken,
@@ -219,6 +220,7 @@ Got:      "${paramName}"`,
         value: createUnknownValue(expectedParam.type, {
           variableName: expectedParam.label,
           env,
+          context,
         }),
         pathCollection: [],
       };
@@ -267,6 +269,7 @@ Got:      "${paramName}"`,
               createUnknownValue(expectedParam.type, {
                 variableName: expectedParam.label,
                 env,
+                context,
               }),
             ]
           : undefined,
@@ -291,6 +294,7 @@ Got:      "${paramName}"`,
         ? createUnknownValue(expectedParam.type, {
             variableName: expectedParam.label,
             env,
+            context,
           })
         : undefined,
       pathCollection: [],

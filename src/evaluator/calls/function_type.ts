@@ -147,6 +147,7 @@ export function tryToImplementFunctionByFunctionType({
             createUnknownValue(forallParam.type, {
               variableName: forallParam.label,
               env,
+              context,
             }),
           ],
           token: PlaceholderToken,
@@ -176,6 +177,7 @@ export function tryToImplementFunctionByFunctionType({
                 createUnknownValue(anonymousParam.type, {
                   variableName: expectedParamName,
                   env,
+                  context,
                 }),
               ]
             : undefined,

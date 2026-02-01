@@ -396,6 +396,7 @@ export function tryToConvertToNumericType({
         value: createUnknownValue(targetType, {
           variableName: "comptime_conversion_placeholder",
           env,
+          context,
         }),
         pathCollection: [],
       };

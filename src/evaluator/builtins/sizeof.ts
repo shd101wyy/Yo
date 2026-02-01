@@ -57,6 +57,7 @@ export function evaluateSizeOf({
   if (typeSizeInBits === null) {
     typeSizeValue = createUnknownValue(createUsizeType(), {
       env,
+      context,
     }) as UnknownValue;
   } else {
     typeSizeValue = createNumberValue(

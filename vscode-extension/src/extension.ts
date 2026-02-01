@@ -1216,20 +1216,21 @@ export function activate(context: vscode.ExtensionContext) {
           // Get the environment from the target expression
           if (targetExpr && exprIsAtom(targetExpr)) {
             const atomExpr = targetExpr as AtomExpr;
-            const evalInfo = atomExpr.$ as { env?: unknown } | undefined;
+            const evalInfo = atomExpr.$;
             const env = evalInfo?.env;
 
             if (env) {
               for (const methodName of commonMethodNames) {
                 try {
                   // Type assertion is necessary here since env comes from evaluated expressions
-                  const foundMethods = getReceiverMethodsByNameFromEnv(
-                    env as Parameters<
-                      typeof getReceiverMethodsByNameFromEnv
-                    >[0],
+                  const foundMethods = getReceiverMethodsByNameFromEnv({
+                    env: env,
                     methodName,
-                    originalReceiverType // Use original type for method calls
-                  );
+                    receiverType: originalReceiverType, // Use original type for method calls
+                    context: {
+                      stdPath: env.modulePath,
+                    },
+                  });
 
                   if (foundMethods && foundMethods.length > 0) {
                     // Show all available methods, but check type compatibility first

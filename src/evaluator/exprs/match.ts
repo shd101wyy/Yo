@@ -946,7 +946,7 @@ Supported patterns:
           ? undefined
           : matchedBodyValue !== undefined
             ? matchedBodyValue
-            : createUnknownValue(resultType.type, { env }),
+            : createUnknownValue(resultType.type, { env, context }),
       pathCollection: [],
     };
     attachTempVariableToExpr(expr, true);
@@ -994,7 +994,7 @@ Supported patterns:
           isFunctionTypeAndReturnsComptimeValue(
             context.isEvaluatingFunctionBodyOrAsyncBlock.type
           )
-            ? createUnknownValue(returnType, { env })
+            ? createUnknownValue(returnType, { env, context })
             : undefined,
         pathCollection: [],
         controlFlow: "return",
@@ -1524,7 +1524,7 @@ Hint: Use "::" to define compile-time constants, e.g., "myConst :: 42"`,
       value:
         scrutineeValue === undefined
           ? undefined
-          : createUnknownValue(resultType.type, { env }),
+          : createUnknownValue(resultType.type, { env, context }),
       pathCollection: [],
       // Mark this as a primitive match for codegen
       isPrimitiveMatch: true,
@@ -1573,7 +1573,7 @@ Hint: Use "::" to define compile-time constants, e.g., "myConst :: 42"`,
           isFunctionTypeAndReturnsComptimeValue(
             context.isEvaluatingFunctionBodyOrAsyncBlock.type
           )
-            ? createUnknownValue(returnType, { env })
+            ? createUnknownValue(returnType, { env, context })
             : undefined,
         pathCollection: [],
         controlFlow: "return",

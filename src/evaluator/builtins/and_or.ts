@@ -120,6 +120,7 @@ export function evaluateAndOr({
     } else {
       resultValue = createUnknownValue(createBooleanType(), {
         env: currentEnv,
+        context,
       }); // Only unknowns
     }
   }

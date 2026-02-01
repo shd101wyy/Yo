@@ -79,6 +79,7 @@ export function evaluateRecur({
       value: createUnknownValue(returnType, {
         variableName: "recur_result_" + randomId(env.modulePath),
         env,
+        context,
       }),
       env,
       pathCollection: [],

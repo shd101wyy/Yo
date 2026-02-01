@@ -401,7 +401,7 @@ To avoid circular dependency issues, please explicitly provide the value for thi
       type: fieldType,
       value:
         assignedValue ??
-        createUnknownValue(fieldType, { variableName: label, env }),
+        createUnknownValue(fieldType, { variableName: label, env, context }),
       pathCollection: [],
     };
   }

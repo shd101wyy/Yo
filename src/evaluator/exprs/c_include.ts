@@ -134,7 +134,11 @@ c_include "<stdio.h>" ...;`,
         type: field.type,
         value: [
           field.assignedValue ??
-            createUnknownValue(field.type, { variableName: field.label, env }),
+            createUnknownValue(field.type, {
+              variableName: field.label,
+              env,
+              context,
+            }),
         ],
         isCompileTimeOnly: field.isCompileTimeOnly,
         token: field.exprs.expr.token,
