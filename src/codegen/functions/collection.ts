@@ -1,3 +1,4 @@
+import { typeImplementsFuture } from "../../evaluator/trait-checking";
 import {
   BuiltinKeywords,
   Expr,
@@ -14,7 +15,6 @@ import {
   isSomeType,
   isUnitType,
   Type,
-  typeImplementsFuture,
 } from "../../types";
 import {
   isFunctionValue,

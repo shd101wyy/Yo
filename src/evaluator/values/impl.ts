@@ -56,7 +56,7 @@ import { evaluateExpression } from "../exprs/expr";
 import {
   checkTypeImplementsSelfConstraints,
   typeImplementsTrait,
-} from "../exprs/subtype_of";
+} from "../trait-checking";
 import { synthesizeTypes } from "../types/synthesizer";
 import { evaluateAnonymousModuleBeginExprs } from "./anonymous_module";
 import { evaluateAnonymousTraitBeginExprs } from "./anonymous_trait";

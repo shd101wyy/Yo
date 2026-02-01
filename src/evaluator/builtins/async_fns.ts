@@ -7,7 +7,6 @@ import {
   createFutureTraitType,
   createSomeType,
   createType0,
-  extractFutureTraitFromType,
   FutureTraitType,
   SomeType,
   Type,
@@ -15,6 +14,7 @@ import {
 import { analyzeAwaitPoints } from "../async/await-analysis";
 import { CapturedVariableInfo, EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
+import { extractFutureTraitFromType } from "../trait-checking";
 import {
   createCaptureTypeAndValue,
   enrichCapturedVariables,

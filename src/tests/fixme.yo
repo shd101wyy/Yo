@@ -1,14 +1,19 @@
-factorial :: (fn(x : i32) -> i32)(
-  cond(
-    (x <= 1) => 1,
-    true => 
-      x * recur(x - 1)
-  )
+// @skip_prelude
+Comptime :: trait(
+  id := "Comptime"
 );
-comptime_factorial :: comptime_fn(factorial);
+export Comptime;
 
+Runtime :: trait(
+  id := "Runtime"
+);
+export Runtime;
 
-
-
-result :: comptime_factorial(5);
-
+ComptimeAdd :: (fn(comptime(Rhs) : Type, comptime(Output) ?= Rhs, where(Rhs <: Comptime, Output <: Comptime))-> comptime(Trait))
+  trait(
+    where(Self <: Comptime),
+    Output := Output,
+    (+)    :  (fn(comptime(lhs): Self, comptime(rhs): Rhs)-> comptime(Output))
+  )
+;
+export ComptimeAdd;

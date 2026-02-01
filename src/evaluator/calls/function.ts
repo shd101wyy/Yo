@@ -24,7 +24,6 @@ import { TypeValue } from "../../type-value";
 import {
   areTypesCompatible,
   createExprType,
-  extractFnTraitFromType,
   FunctionType,
   isArrayType,
   isComptimeFloatType,
@@ -76,6 +75,7 @@ import {
   getTypeCallResult,
 } from "../context";
 import { evaluateExpression } from "../exprs/expr";
+import { extractFnTraitFromType } from "../trait-checking";
 import { evaluateFunctionReturnTypeAgain } from "../types/function";
 import { evaluateAnonymousStructValue } from "../values/anonymous_struct";
 import { tryToCallArrayWithArguments } from "./array";
@@ -272,12 +272,7 @@ export function evaluateFunctionCall({
               });
             } else {
               // Instance method call (e.g., value.add(...))
-              // Get the current function type for where clause constraint lookup
-              const currentFunctionType =
-                context.isEvaluatingFunctionBodyOrAsyncBlock?.kind ===
-                "function-body"
-                  ? context.isEvaluatingFunctionBodyOrAsyncBlock.type
-                  : undefined;
+
               // Get the method with the same name in the interface in the env
               const methods = getReceiverMethodsByNameFromEnv({
                 env,
@@ -285,7 +280,6 @@ export function evaluateFunctionCall({
                 methodName,
                 receiverType,
                 isInfixOperatorCall: false, // isInfixOperatorCall - property access allows auto pointer conversion
-                currentFunctionType,
               });
 
               functions = methods.map((method) => {
@@ -438,11 +432,6 @@ export function evaluateFunctionCall({
         }
         const methodName = functionName;
         methodExpr = func;
-        // Get the current function type for where clause constraint lookup
-        const currentFunctionTypeForInfix =
-          context.isEvaluatingFunctionBodyOrAsyncBlock?.kind === "function-body"
-            ? context.isEvaluatingFunctionBodyOrAsyncBlock.type
-            : undefined;
         // Get the method with the same name in the module/type in the env
         const moduleMethods = getReceiverMethodsByNameFromEnv({
           env,
@@ -450,7 +439,6 @@ export function evaluateFunctionCall({
           methodName,
           receiverType,
           isInfixOperatorCall: true, // isInfixOperatorCall - infix operators don't allow auto pointer conversion
-          currentFunctionType: currentFunctionTypeForInfix,
         });
         functions = moduleMethods.map((method) => ({
           type: method.type,

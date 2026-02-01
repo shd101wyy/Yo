@@ -1,3 +1,4 @@
+import { typeImplementsFuture } from "../evaluator/trait-checking";
 import {
   ArrayType,
   ComptimeListType,
@@ -21,7 +22,6 @@ import {
   VoidType,
 } from "./definitions";
 import { TypeTag } from "./tags";
-import { typeImplementsFuture } from "./utils";
 
 // Basic type guards
 export function isPrimitiveType(type: Type): boolean {

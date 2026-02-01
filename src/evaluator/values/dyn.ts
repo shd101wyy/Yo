@@ -35,7 +35,6 @@ import {
   StructType,
   TraitType,
   Type,
-  typeImplementsFuture,
   typeToString,
 } from "../../types";
 import {
@@ -50,6 +49,7 @@ import {
 import { evaluateComptimeFunctionCall } from "../calls/comptime_fn";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
+import { typeImplementsFuture } from "../trait-checking";
 import { addRcFunctionsToDynType } from "../types/utils";
 
 /**

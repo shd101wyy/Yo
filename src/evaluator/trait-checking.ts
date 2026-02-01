@@ -11,8 +11,11 @@
 
 import { Environment } from "../env";
 import { formatErrorMessage } from "../error";
+import { Token } from "../token";
 import {
   DynType,
+  FnTraitType,
+  FutureTraitType,
   getTraitTypeFromEnv,
   getValueOfSomeTypeFromEnv,
   isDynType,
@@ -25,6 +28,7 @@ import {
   Type,
   typeContainsSomeType,
   TypeTag,
+  typeToString,
 } from "../types";
 import { areTypesCompatible } from "../types/compatibility";
 import { isTraitValue, TraitValue } from "../value";
@@ -35,7 +39,7 @@ import { findMatchingGenericImpl } from "./values/impl";
  * This is the core implementation that handles both direct trait fields
  * and generic impls.
  */
-export function typeImplementsTraitWithGenericImpls({
+export function typeImplementsTrait({
   targetType,
   traitType,
   env,
@@ -70,6 +74,68 @@ export function typeImplementsTraitWithGenericImpls({
     }
   }
 
+  // Check where clause constraints for SomeType
+  // Traverse frames to find applicable constraints
+  if (isSomeType(targetType)) {
+    let foundRequiredTraitInConstraints = false;
+    let foundNegativeTraitInConstraints = false;
+    // Debug
+    console.log(
+      `[DEBUG] Checking where clause constraints for SomeType "${targetType.name}" (id=${targetType.id}) against trait "${traitType.typeName}"`
+    );
+    console.log(`  env.frames.length = ${env.frames.length}`);
+    for (let i = env.frames.length - 1; i >= 0; i--) {
+      const frame = env.frames[i];
+      if (
+        !frame?.whereClauseConstraints ||
+        frame.whereClauseConstraints.size === 0
+      ) {
+        console.log(
+          `  Frame ${i} (${frame?.id}): no where clause constraints or empty`
+        );
+        continue;
+      }
+
+      console.log(
+        `  Frame ${i} (${frame.id}): has where clause constraints with ${frame.whereClauseConstraints.size} entries`
+      );
+      // Log all entries to see what SomeTypes are in the map
+      for (const [someType, _] of frame.whereClauseConstraints.entries()) {
+        console.log(
+          `    - Entry for SomeType "${someType.name}" (id=${someType.id})`
+        );
+      }
+      const constraints = frame.whereClauseConstraints.get(targetType);
+      console.log(
+        `  Looking up targetType (id=${targetType.id}): ${constraints ? "FOUND" : "NOT FOUND"}`
+      );
+      if (constraints) {
+        // Check if the trait is in requiredTraits
+        for (const requiredTrait of constraints.requiredTraits) {
+          if (requiredTrait.id === traitType.id) {
+            foundRequiredTraitInConstraints = true;
+          }
+        }
+        // Check if the trait is in negativeTraits
+        for (const negativeTrait of constraints.negativeTraits) {
+          if (negativeTrait.id === traitType.id) {
+            foundNegativeTraitInConstraints = true;
+          }
+        }
+      }
+    }
+
+    if (foundRequiredTraitInConstraints) {
+      if (foundNegativeTraitInConstraints) {
+        return false;
+      } else {
+        return true;
+      }
+    } else if (foundNegativeTraitInConstraints) {
+      return false;
+    }
+  }
+
   // Check generic impl registry for matching patterns
   // Guard against types containing unresolved SomeTypes
   if (isSomeType(targetType)) {
@@ -93,6 +159,54 @@ export function typeImplementsTraitWithGenericImpls({
 }
 
 /**
+ * Check if a type implements all the selfConstraints of a trait type.
+ * Also checks that the type does NOT implement any negativeSelfConstraints.
+ * Throws an error if any constraint is not satisfied.
+ */
+export function checkTypeImplementsSelfConstraints({
+  targetType,
+  traitType,
+  env,
+  errorToken,
+}: {
+  targetType: Type;
+  traitType: TraitType;
+  env: Environment;
+  errorToken: Token;
+}): void {
+  // Check positive constraints (must implement)
+  if (traitType.selfConstraints && traitType.selfConstraints.length > 0) {
+    for (const constraintTrait of traitType.selfConstraints) {
+      if (
+        !typeImplementsTrait({ targetType, traitType: constraintTrait, env })
+      ) {
+        throw formatErrorMessage({
+          token: errorToken,
+          errorMessage: `Type "${typeToString(targetType)}" does not implement required constraint "${constraintTrait.typeName ?? typeToString(constraintTrait)}" from trait "${traitType.typeName ?? typeToString(traitType)}"'s where clause.`,
+        });
+      }
+    }
+  }
+
+  // Check negative constraints (must NOT implement)
+  if (
+    traitType.negativeSelfConstraints &&
+    traitType.negativeSelfConstraints.length > 0
+  ) {
+    for (const constraintTrait of traitType.negativeSelfConstraints) {
+      if (
+        typeImplementsTrait({ targetType, traitType: constraintTrait, env })
+      ) {
+        throw formatErrorMessage({
+          token: errorToken,
+          errorMessage: `Type "${typeToString(targetType)}" implements "${constraintTrait.typeName ?? typeToString(constraintTrait)}" but the trait "${traitType.typeName ?? typeToString(traitType)}"'s where clause requires it to NOT implement this trait.`,
+        });
+      }
+    }
+  }
+}
+
+/**
  * Check if a type implements the Comptime trait.
  *
  * Comptime types can be used at compile-time.
@@ -105,6 +219,12 @@ export function typeImplementsComptime(
 ): boolean {
   if (!type) {
     return false;
+  }
+
+  if (isSomeType(type)) {
+    console.log(
+      `typeImplementsComptime called for SomeType "${(type as SomeType).name}", env.frames.length = ${env.frames.length}`
+    );
   }
 
   switch (type.tag) {
@@ -162,26 +282,19 @@ export function typeImplementsComptime(
     return true;
   }
 
-  // For SomeType, check if Comptime is explicitly attached or negated
-  if (isSomeType(type)) {
-    const comptimeTraitType = getTraitTypeFromEnv(env, "Comptime");
-    if (comptimeTraitType && type.negativeTraits) {
-      for (const negativeTrait of type.negativeTraits) {
-        if (negativeTrait.id === comptimeTraitType.id) {
-          return false;
-        }
-      }
-    }
-    // Default: SomeType does NOT implement Comptime (runtime by default)
-    return false;
-  }
-
   const comptimeTraitType = getTraitTypeFromEnv(env, "Comptime");
   if (!comptimeTraitType) {
+    if (isSomeType(type)) {
+      console.log(`  Comptime trait not found in env, returning false`);
+    }
     return false;
   }
 
-  return typeImplementsTraitWithGenericImpls({
+  if (isSomeType(type)) {
+    console.log(`  Calling typeImplementsTrait for Comptime trait`);
+  }
+
+  return typeImplementsTrait({
     targetType: type,
     traitType: comptimeTraitType,
     env,
@@ -229,8 +342,12 @@ export function typeImplementsRuntime(
     case TypeTag.ULong:
     case TypeTag.LongLong:
     case TypeTag.ULongLong:
-    case TypeTag.LongDouble:
-    case TypeTag.Unit: // Types available in both contexts
+    case TypeTag.LongDouble: {
+      return true;
+    }
+
+    // Types available in both contexts
+    case TypeTag.Unit:
     case TypeTag.Bool:
     case TypeTag.Usize:
     case TypeTag.Isize:
@@ -250,27 +367,12 @@ export function typeImplementsRuntime(
     }
   }
 
-  // For SomeType, default to Runtime (type parameters are runtime by default)
-  // unless Runtime is explicitly in negativeTraits (e.g., where(T <: !(Runtime)))
-  if (isSomeType(type)) {
-    const runtimeTraitType = getTraitTypeFromEnv(env, "Runtime");
-    if (runtimeTraitType && type.negativeTraits) {
-      for (const negativeTrait of type.negativeTraits) {
-        if (negativeTrait.id === runtimeTraitType.id) {
-          return false;
-        }
-      }
-    }
-    // Default: SomeType implements Runtime
-    return true;
-  }
-
   const runtimeTraitType = getTraitTypeFromEnv(env, "Runtime");
   if (!runtimeTraitType) {
     return false;
   }
 
-  return typeImplementsTraitWithGenericImpls({
+  return typeImplementsTrait({
     targetType: type,
     traitType: runtimeTraitType,
     env,
@@ -295,9 +397,36 @@ export function typeImplementsSend(
     return false;
   }
 
-  return typeImplementsTraitWithGenericImpls({
+  return typeImplementsTrait({
     targetType: type,
     traitType: sendTraitType,
+    env,
+  });
+}
+
+/**
+ * Check if a type implements the Acyclic trait.
+ *
+ * Acyclic types cannot form reference cycles through reference counting.
+ * Primitives, value types (structs without reference semantics),
+ * and object types that don't reference back to themselves implement Acyclic.
+ */
+export function typeImplementsAcyclic(
+  type: Type | undefined,
+  env: Environment
+): boolean {
+  if (!type) {
+    return false;
+  }
+
+  const acyclicTraitType = getTraitTypeFromEnv(env, "Acyclic");
+  if (!acyclicTraitType) {
+    return false;
+  }
+
+  return typeImplementsTrait({
+    targetType: type,
+    traitType: acyclicTraitType,
     env,
   });
 }
@@ -348,6 +477,31 @@ export function typeImplementsFn(
 }
 
 /**
+ * Extract FnTraitType from a type (e.g., from Impl(Fn(...) -> ...) or Dyn(Fn(...) -> ...) or FnTraitType directly)
+ * Returns the FnTraitType if found, otherwise undefined.
+ */
+export function extractFnTraitFromType(type: Type): FnTraitType | undefined {
+  // If the type is already a FnTraitType, return it directly
+  if (isFnTraitType(type)) {
+    return type;
+  }
+
+  // Check requiredTraits for SomeType and DynType
+  if (isSomeType(type) || isDynType(type)) {
+    const requiredTraits = (type as SomeType | DynType).requiredTraits;
+    if (requiredTraits) {
+      for (const traitType of requiredTraits) {
+        if (isFnTraitType(traitType)) {
+          return traitType;
+        }
+      }
+    }
+  }
+
+  return undefined;
+}
+
+/**
  * Check if a type implements Future (is a future-like type).
  */
 export function typeImplementsFuture(
@@ -370,6 +524,33 @@ export function typeImplementsFuture(
   }
 
   return false;
+}
+
+/**
+ * Extract FutureTraitType from a type (e.g., from Impl(Future(T)) or Dyn(Future(T)) or FutureTraitType directly)
+ * Returns the FutureTraitType if found, otherwise undefined.
+ */
+export function extractFutureTraitFromType(
+  type: Type
+): FutureTraitType | undefined {
+  // If the type is already a FutureTraitType, return it directly
+  if (isFutureTraitType(type)) {
+    return type;
+  }
+
+  // Check requiredTraits for SomeType and DynType
+  if (isSomeType(type) || isDynType(type)) {
+    const requiredTraits = (type as SomeType | DynType).requiredTraits;
+    if (requiredTraits) {
+      for (const traitType of requiredTraits) {
+        if (isFutureTraitType(traitType)) {
+          return traitType;
+        }
+      }
+    }
+  }
+
+  return undefined;
 }
 
 /**

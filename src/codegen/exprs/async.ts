@@ -1,5 +1,9 @@
 import { AwaitAnalysisResult } from "../../evaluator/async/await-analysis-types";
 import {
+  extractFutureTraitFromType,
+  typeImplementsFuture,
+} from "../../evaluator/trait-checking";
+import {
   AtomExpr,
   BuiltinFunctions,
   Expr,
@@ -11,13 +15,11 @@ import {
 } from "../../expr";
 import {
   DynType,
-  extractFutureTraitFromType,
   isUnitType,
   SomeType,
   StructType,
   Type,
   typeContainsRcType,
-  typeImplementsFuture,
   typeToString,
 } from "../../types";
 import { isFunctionValue } from "../../value";

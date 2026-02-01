@@ -1,3 +1,4 @@
+import { typeImplementsFuture } from "../../evaluator/trait-checking";
 import {
   BuiltinFunctions,
   BuiltinKeywords,
@@ -17,7 +18,7 @@ import {
   typeContainsSomeType,
   typeToString,
 } from "../../types";
-import { canTypeFormRcCycle, typeImplementsFuture } from "../../types/utils";
+import { canTypeFormRcCycle } from "../../types/utils";
 import { isTempVariableName } from "../../utils";
 import { isFunctionValue } from "../../value";
 import { generateAsyncRuntime } from "../async/runtime";

@@ -1,4 +1,5 @@
 import { Environment } from "../env";
+import { typeImplementsTrait } from "../evaluator/trait-checking";
 import {
   canAssignTypeHierarchy,
   synthesizeTypes,
@@ -33,11 +34,7 @@ import {
   isUnionType,
 } from "./guards";
 import { TypeTag } from "./tags";
-import {
-  getValueOfSomeTypeFromEnv,
-  typeContainsSomeType,
-  typeImplementsTraitInternal,
-} from "./utils";
+import { getValueOfSomeTypeFromEnv, typeContainsSomeType } from "./utils";
 
 /**
  * Check if two types are compatible.
@@ -708,7 +705,7 @@ export function areTypesCompatible(
         // Check that given implements all required modules
         for (const requiredTrait of requiredTraits) {
           if (
-            !typeImplementsTraitInternal({
+            !typeImplementsTrait({
               targetType: given.type,
               traitType: requiredTrait,
               env: expected.env,
@@ -727,7 +724,7 @@ export function areTypesCompatible(
         ) {
           for (const negativeTrait of expected.type.negativeTraits) {
             if (
-              typeImplementsTraitInternal({
+              typeImplementsTrait({
                 targetType: given.type,
                 traitType: negativeTrait,
                 env: expected.env,
@@ -742,7 +739,7 @@ export function areTypesCompatible(
         let allModulesImplemented = true;
         for (const requiredTrait of requiredTraits) {
           if (
-            !typeImplementsTraitInternal({
+            !typeImplementsTrait({
               targetType: given.type,
               traitType: requiredTrait,
               env: expected.env,

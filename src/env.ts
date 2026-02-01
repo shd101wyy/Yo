@@ -1,5 +1,6 @@
 import { formatErrorMessages } from "./error";
 import { EvaluatorContext } from "./evaluator/context";
+import { typeImplementsFuture } from "./evaluator/trait-checking";
 import { cloneValue } from "./evaluator/values/clone_value";
 import { findMethodsFromGenericImpls } from "./evaluator/values/impl";
 import { Token } from "./token";
@@ -17,12 +18,12 @@ import {
   isPtrType,
   isSomeType,
   isTraitType,
+  SomeType,
   TraitType,
   Type,
   typeContainsRcType,
   typeContainsSelfTypeForDynamicDispatchCheck,
   typeContainsSomeType,
-  typeImplementsFuture,
   typeToString,
 } from "./types";
 import { generateVarialeId, isTempVariableName } from "./utils";
@@ -189,6 +190,20 @@ export type Frame = {
    * begin block frame, not the current top frame (which might be a function call frame).
    */
   isBeginBlockFrame: boolean;
+  /**
+   * Where clause constraints that apply to this frame scope.
+   * Maps from SomeType to the traits it must (or must not) implement within this scope.
+   * Example: where(T <: Eq(T), T <: !(Copy)) adds:
+   *   T -> { requiredTraits: [Eq(T)], negativeTraits: [Copy] }
+   * These constraints are automatically cleaned up when the frame is popped.
+   */
+  whereClauseConstraints: Map<
+    SomeType,
+    {
+      requiredTraits: TraitType[];
+      negativeTraits: TraitType[];
+    }
+  >;
 };
 
 export type Environment = {
@@ -450,6 +465,7 @@ export function addVariableToFrame({
       id: frame.id,
       variables: newVariables,
       isBeginBlockFrame: frame.isBeginBlockFrame,
+      whereClauseConstraints: frame.whereClauseConstraints,
     };
   }
 
@@ -457,6 +473,7 @@ export function addVariableToFrame({
     id: frame.id,
     variables: [...frame.variables, variable],
     isBeginBlockFrame: frame.isBeginBlockFrame,
+    whereClauseConstraints: frame.whereClauseConstraints,
   };
 }
 
@@ -526,6 +543,7 @@ export function pushEnvFrame(
     id: generateVarialeId(env.modulePath, "frame"),
     variables: [],
     isBeginBlockFrame: false,
+    whereClauseConstraints: new Map(),
   },
   isBeginBlockFrame?: boolean
 ): Environment {
@@ -748,14 +766,12 @@ export function getReceiverMethodsByNameFromEnv({
   methodName,
   receiverType,
   isInfixOperatorCall,
-  currentFunctionType,
 }: {
   env: Environment;
   context: EvaluatorContext;
   methodName: string;
   receiverType: Type;
   isInfixOperatorCall?: boolean;
-  currentFunctionType?: FunctionType;
 }): {
   type: Type;
   value: Value | undefined;
@@ -1439,13 +1455,13 @@ export function getReceiverMethodsByNameFromEnv({
     // Also checks parent function types (for nested functions like methods inside generic types)
     if (methods.length === 0) {
       // Helper function to find constraints from a function type
-      const findConstraintsInFunction = (
-        funcType: FunctionType | undefined
+      const findConstraintsInEnvFrame = (
+        envFrame: Frame | undefined
       ): { requiredTraits: TraitType[] } | undefined => {
-        if (!funcType?.whereClauseConstraints) return undefined;
+        if (!envFrame) return undefined;
 
         // First try direct lookup
-        let constraints = funcType.whereClauseConstraints.get(
+        let constraints = envFrame.whereClauseConstraints.get(
           dereferencedReceiverType
         );
 
@@ -1458,7 +1474,7 @@ export function getReceiverMethodsByNameFromEnv({
           for (const [
             constrainedType,
             typeConstraints,
-          ] of funcType.whereClauseConstraints) {
+          ] of envFrame.whereClauseConstraints) {
             if (
               isSomeType(constrainedType) &&
               areTypesCompatible(
@@ -1477,9 +1493,10 @@ export function getReceiverMethodsByNameFromEnv({
       };
 
       // Check current function and all parent functions in the chain
-      let funcToCheck: FunctionType | undefined = currentFunctionType;
-      while (funcToCheck && methods.length === 0) {
-        const constraints = findConstraintsInFunction(funcToCheck);
+      const envFrames = env.frames;
+      for (let i = envFrames.length - 1; i >= 0; i--) {
+        const envFrame = envFrames[i]!;
+        const constraints = findConstraintsInEnvFrame(envFrame);
         if (constraints) {
           for (const requiredTraitType of constraints.requiredTraits) {
             // Search for the method in the required trait
@@ -1502,8 +1519,6 @@ export function getReceiverMethodsByNameFromEnv({
             }
           }
         }
-        // Move to parent function
-        funcToCheck = funcToCheck.ParentFunctionType;
       }
     }
 

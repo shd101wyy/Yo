@@ -1,6 +1,11 @@
 import { Emitter } from "../../emitter";
 import { Environment, getVariablesFromEnv } from "../../env";
 import {
+  extractFutureTraitFromType,
+  typeImplementsFn,
+  typeImplementsFuture,
+} from "../../evaluator/trait-checking";
+import {
   BuiltinFunctions,
   Expr,
   exprIsAtom,
@@ -14,7 +19,6 @@ import {
   DynType,
   EnumType,
   EnumVariant,
-  extractFutureTraitFromType,
   FunctionType,
   isEnumType,
   isObjectType,
@@ -29,8 +33,6 @@ import {
   StructType,
   Type,
   TypeId,
-  typeImplementsFn,
-  typeImplementsFuture,
   TypeTag,
   typeToString,
 } from "../../types";

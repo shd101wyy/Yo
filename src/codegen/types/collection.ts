@@ -1,4 +1,10 @@
 import {
+  extractFnTraitFromType,
+  extractFutureTraitFromType,
+  typeImplementsFn,
+  typeImplementsFuture,
+} from "../../evaluator/trait-checking";
+import {
   BuiltinKeywords,
   Expr,
   exprIsFunctionCallOf,
@@ -7,8 +13,6 @@ import {
 import {
   ArrayType,
   DynType,
-  extractFnTraitFromType,
-  extractFutureTraitFromType,
   FunctionType,
   isArrayType,
   isDynType,
@@ -26,8 +30,6 @@ import {
   SliceType,
   Type,
   typeContainsSomeType,
-  typeImplementsFn,
-  typeImplementsFuture,
 } from "../../types";
 import {
   isFunctionValue,

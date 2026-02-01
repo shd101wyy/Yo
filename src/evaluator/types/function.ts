@@ -57,7 +57,7 @@ import {
 } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
-import { typeImplementsTrait } from "../exprs/subtype_of";
+import { typeImplementsTrait } from "../trait-checking";
 import { isValidVariableName } from "../utils";
 
 /**
@@ -1255,6 +1255,37 @@ export function evaluateFunctionParameters({
       env = prepResult.env;
       pendingConstraints = prepResult.pendingConstraints;
       whereClauseConstraints = prepResult.whereClauseConstraints;
+
+      // Set whereClauseConstraints on the current frame
+      if (whereClauseConstraints && whereClauseConstraints.size > 0) {
+        const currentFrame = env.frames[env.frames.length - 1]!;
+        const updatedFrame = {
+          ...currentFrame,
+          whereClauseConstraints,
+        };
+        const updatedFrames = [...env.frames];
+        updatedFrames[updatedFrames.length - 1] = updatedFrame;
+        env = {
+          ...env,
+          frames: updatedFrames,
+        };
+        // Debug: log that we set where clause constraints
+        console.log(
+          `[DEBUG] Set where clause constraints on frame ${currentFrame.id} (frameLevel=${env.frames.length - 1}):`
+        );
+        for (const [
+          someType,
+          constraints,
+        ] of whereClauseConstraints.entries()) {
+          console.log(`  SomeType "${someType.name}" (id=${someType.id}):`);
+          console.log(
+            `    requiredTraits: [${constraints.requiredTraits.map((t) => t.typeName).join(", ")}]`
+          );
+          console.log(
+            `    negativeTraits: [${constraints.negativeTraits.map((t) => t.typeName).join(", ")}]`
+          );
+        }
+      }
     }
   }
 

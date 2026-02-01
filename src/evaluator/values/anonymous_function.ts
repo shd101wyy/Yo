@@ -23,7 +23,6 @@ import { PlaceholderToken } from "../../token";
 import {
   areTypesCompatible,
   createFnTraitType,
-  extractFnTraitFromType,
   FnTraitType,
   FunctionType,
   isDynType,
@@ -41,6 +40,7 @@ import { createFunctionBodyEvaluationContext } from "../calls/function_type";
 import { EvaluatorContext } from "../context";
 import { analyzeCtfeCapability } from "../ctfe/ctfe-analysis";
 import { evaluateBeginExpression } from "../exprs/begin";
+import { extractFnTraitFromType } from "../trait-checking";
 import {
   buildPathCollectionFromCapturedVariables,
   createCaptureTypeAndValue,

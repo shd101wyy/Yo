@@ -1,28 +1,30 @@
 import { Environment, getVariablesFromEnv } from "../env";
 import { formatErrorMessages } from "../error";
+import {
+  typeImplementsAcyclic,
+  typeImplementsComptime,
+  typeImplementsFn,
+  typeImplementsFuture,
+  typeImplementsRuntime,
+} from "../evaluator/trait-checking";
 import { Expr, exprToString } from "../expr";
 import { stringIsOperator, Token } from "../token";
 import { TypeValue } from "../type-value";
 import {
   isNumberValue,
-  isTraitValue,
   isTypeValue,
   isUnknownValue,
-  TraitValue,
   valueToString,
 } from "../value";
 import { ValueTag } from "../value-tag";
-import { areTypesCompatible } from "./compatibility";
 import { createF64Type, createI32Type, createStrType } from "./creators";
 import {
   ArrayType,
   ComptimeListType,
   DynType,
   EnumType,
-  FnTraitType,
   FunctionParameter,
   FunctionType,
-  FutureTraitType,
   IsoType,
   ModuleField,
   ModuleType,
@@ -102,384 +104,6 @@ export function getTraitTypeFromEnv(
 }
 
 /**
- * Check if a type implements a specific trait by checking direct trait fields.
- * NOTE: This does NOT check generic impls. For full trait checking including
- * generic impls, use typeImplementsTraitWithGenericImpls from evaluator/trait-checking.ts
- */
-export function typeImplementsTraitInternal({
-  targetType,
-  traitType,
-  env,
-}: {
-  targetType: Type;
-  traitType: TraitType;
-  env: Environment;
-}): boolean {
-  const expectedTraitWithReceiver: TraitType = {
-    ...traitType,
-    receiverType: targetType,
-  };
-
-  const targetTrait = targetType.trait;
-  if (targetTrait) {
-    for (const field of targetTrait.fields) {
-      if (!field.assignedValue || !isTraitValue(field.assignedValue)) {
-        continue;
-      }
-
-      const fieldTraitValue = field.assignedValue as TraitValue;
-      const fieldTraitType = fieldTraitValue.type;
-
-      if (
-        areTypesCompatible(
-          { type: expectedTraitWithReceiver, env },
-          { type: fieldTraitType, env }
-        )
-      ) {
-        return true;
-      }
-    }
-  }
-
-  return false;
-}
-
-/**
- * Check if a type implements the Copy trait.
- *
- * Copy types can be implicitly duplicated without consuming the original.
- * Primitives (i32, boolean, etc.), pointers (*T), and structs where all fields are Copy
- * implement Copy.
- */
-/*
-export function typeImplementsCopy(
-  type: Type | undefined,
-  env: Environment
-): boolean {
-  if (!type) {
-    return false;
-  }
-
-  const copyModuleType = getTraitTypeFromEnv(env, "Copy");
-  if (!copyModuleType) {
-    return false;
-  }
-
-  return typeImplementsTraitInternal({
-    targetType: type,
-    moduleType: copyModuleType,
-    env,
-  });
-}
-*/
-
-/**
- * Check if a type implements the Send trait.
- *
- * Send types can be safely transferred between threads.
- * Primitives, Send pointers (where T is not Rc and T implements Send),
- * and structs where all fields are Send implement Send.
- */
-export function typeImplementsSend(
-  type: Type | undefined,
-  env: Environment
-): boolean {
-  if (!type) {
-    return false;
-  }
-
-  const sendTraitType = getTraitTypeFromEnv(env, "Send");
-  if (!sendTraitType) {
-    return false;
-  }
-
-  return typeImplementsTraitInternal({
-    targetType: type,
-    traitType: sendTraitType,
-    env,
-  });
-}
-
-/**
- * Check if a type implements the Acyclic trait.
- *
- * Acyclic types cannot form reference cycles through reference counting.
- * Primitives, value types (structs without reference semantics),
- * and object types that don't reference back to themselves implement Acyclic.
- */
-export function typeImplementsAcyclic(
-  type: Type | undefined,
-  env: Environment
-): boolean {
-  if (!type) {
-    return false;
-  }
-
-  const acyclicTraitType = getTraitTypeFromEnv(env, "Acyclic");
-  if (!acyclicTraitType) {
-    return false;
-  }
-
-  return typeImplementsTraitInternal({
-    targetType: type,
-    traitType: acyclicTraitType,
-    env,
-  });
-}
-
-/**
- * Check if a type implements the Comptime trait.
- *
- * Comptime types can be used at compile-time.
- * Examples: i32, bool, Type, comptime_int, comptime_float, comptime_string
- * Non-examples: *(i32), void (runtime-only types)
- */
-export function typeImplementsComptime(
-  type: Type | undefined,
-  env: Environment
-): boolean {
-  if (!type) {
-    return false;
-  }
-
-  switch (type.tag) {
-    // Comptime-only types
-    case TypeTag.ComptimeInt:
-    case TypeTag.ComptimeFloat:
-    case TypeTag.ComptimeString:
-    case TypeTag.Type:
-    case TypeTag.Module:
-    case TypeTag.Trait:
-    case TypeTag.Expr:
-    case TypeTag.ComptimeList: {
-      return true;
-    }
-
-    // Runtime-only types
-    case TypeTag.Iso:
-    case TypeTag.Dyn:
-    case TypeTag.Void:
-    case TypeTag.Union:
-    case TypeTag.Char: // C-compatible types (platform-dependent size, runtime only)
-    case TypeTag.Short:
-    case TypeTag.UShort:
-    case TypeTag.Int:
-    case TypeTag.UInt:
-    case TypeTag.Long:
-    case TypeTag.ULong:
-    case TypeTag.LongLong:
-    case TypeTag.ULongLong:
-    case TypeTag.LongDouble: {
-      return false;
-    }
-
-    // Types available in both contexts
-    case TypeTag.Unit:
-    case TypeTag.Bool:
-    case TypeTag.Usize:
-    case TypeTag.Isize:
-    case TypeTag.U8:
-    case TypeTag.I8:
-    case TypeTag.U16:
-    case TypeTag.I16:
-    case TypeTag.U32:
-    case TypeTag.I32:
-    case TypeTag.U64:
-    case TypeTag.I64:
-    case TypeTag.F32:
-    case TypeTag.F64:
-    case TypeTag.Function: {
-      return true;
-    }
-  }
-
-  const comptimeTraitType = getTraitTypeFromEnv(env, "Comptime");
-  if (!comptimeTraitType) {
-    return false;
-  }
-
-  return typeImplementsTraitInternal({
-    targetType: type,
-    traitType: comptimeTraitType,
-    env,
-  });
-}
-
-/**
- * Check if a type implements the Runtime trait.
- *
- * Runtime types can be used at runtime.
- * Examples: i32, bool, *(i32), void
- * Non-examples: comptime_int, comptime_float, comptime_string, Type (compile-time-only types)
- */
-export function typeImplementsRuntime(
-  type: Type | undefined,
-  env: Environment
-): boolean {
-  if (!type) {
-    return false;
-  }
-
-  switch (type.tag) {
-    // Comptime-only types - these do NOT implement Runtime
-    case TypeTag.ComptimeInt:
-    case TypeTag.ComptimeFloat:
-    case TypeTag.ComptimeString:
-    case TypeTag.Type:
-    case TypeTag.Module:
-    case TypeTag.Trait:
-    case TypeTag.Expr:
-    case TypeTag.ComptimeList: {
-      return false;
-    }
-
-    // Runtime-only types
-    case TypeTag.Iso:
-    case TypeTag.Dyn:
-    case TypeTag.Void:
-    case TypeTag.Union:
-    case TypeTag.Char: // C-compatible types (platform-dependent size, runtime only)
-    case TypeTag.Short:
-    case TypeTag.UShort:
-    case TypeTag.Int:
-    case TypeTag.UInt:
-    case TypeTag.Long:
-    case TypeTag.ULong:
-    case TypeTag.LongLong:
-    case TypeTag.ULongLong:
-    case TypeTag.LongDouble: {
-      return true;
-    }
-
-    // Types available in both contexts
-    case TypeTag.Unit:
-    case TypeTag.Bool:
-    case TypeTag.Usize:
-    case TypeTag.Isize:
-    case TypeTag.U8:
-    case TypeTag.I8:
-    case TypeTag.U16:
-    case TypeTag.I16:
-    case TypeTag.U32:
-    case TypeTag.I32:
-    case TypeTag.U64:
-    case TypeTag.I64:
-    case TypeTag.F32:
-    case TypeTag.F64:
-    case TypeTag.Function: {
-      return true;
-    }
-  }
-
-  const runtimeTraitType = getTraitTypeFromEnv(env, "Runtime");
-  if (!runtimeTraitType) {
-    return false;
-  }
-
-  return typeImplementsTraitInternal({
-    targetType: type,
-    traitType: runtimeTraitType,
-    env,
-  });
-}
-
-export function typeImplementsFn(
-  type: Type | undefined
-): type is (SomeType | DynType) & { isFn: true } {
-  if (!type) {
-    return false;
-  }
-
-  // Check requiredTraits for SomeType and DynType (e.g., Impl(Fn(...)) or Dyn(Fn(...)))
-  if (isSomeType(type) || isDynType(type)) {
-    const requiredTraits = (type as SomeType | DynType).requiredTraits;
-    if (requiredTraits) {
-      for (const traitType of requiredTraits) {
-        if (isFnTraitType(traitType)) {
-          return true;
-        }
-      }
-    }
-  }
-
-  return false;
-}
-
-/**
- * Extract FnTraitType from a type (e.g., from Impl(Fn(...) -> ...) or Dyn(Fn(...) -> ...) or FnTraitType directly)
- * Returns the FnTraitType if found, otherwise undefined.
- */
-export function extractFnTraitFromType(type: Type): FnTraitType | undefined {
-  // If the type is already a FnTraitType, return it directly
-  if (isFnTraitType(type)) {
-    return type;
-  }
-
-  // Check requiredTraits for SomeType and DynType
-  if (isSomeType(type) || isDynType(type)) {
-    const requiredTraits = (type as SomeType | DynType).requiredTraits;
-    if (requiredTraits) {
-      for (const traitType of requiredTraits) {
-        if (isFnTraitType(traitType)) {
-          return traitType;
-        }
-      }
-    }
-  }
-
-  return undefined;
-}
-
-export function typeImplementsFuture(
-  type: Type | undefined
-): type is (SomeType | DynType) & { isFuture: true } {
-  if (!type) {
-    return false;
-  }
-
-  // Check requiredTraits for SomeType and DynType (e.g., Impl(Fn(...)) or Dyn(Fn(...)))
-  if (isSomeType(type) || isDynType(type)) {
-    const requiredTraits = (type as SomeType | DynType).requiredTraits;
-    if (requiredTraits) {
-      for (const traitType of requiredTraits) {
-        if (isFutureTraitType(traitType)) {
-          return true;
-        }
-      }
-    }
-  }
-
-  return false;
-}
-
-/**
- * Extract FutureTraitType from a type (e.g., from Impl(Future(T)) or Dyn(Future(T)) or FutureTraitType directly)
- * Returns the FutureTraitType if found, otherwise undefined.
- */
-export function extractFutureTraitFromType(
-  type: Type
-): FutureTraitType | undefined {
-  // If the type is already a FutureTraitType, return it directly
-  if (isFutureTraitType(type)) {
-    return type;
-  }
-
-  // Check requiredTraits for SomeType and DynType
-  if (isSomeType(type) || isDynType(type)) {
-    const requiredTraits = (type as SomeType | DynType).requiredTraits;
-    if (requiredTraits) {
-      for (const traitType of requiredTraits) {
-        if (isFutureTraitType(traitType)) {
-          return traitType;
-        }
-      }
-    }
-  }
-
-  return undefined;
-}
-
-/**
  * Check if the type of the value requires to use the comptime modifier.
  * For example:
  *   comptime(x): Type
@@ -510,7 +134,13 @@ export function typeProhibitsComptimeModifier(
     return false;
   }
 
-  return isRuntimeOnlyType(type, env);
+  const result = isRuntimeOnlyType(type, env);
+  if (result && isSomeType(type)) {
+    console.log(
+      `typeProhibitsComptimeModifier: SomeType "${type.name}" is runtime-only`
+    );
+  }
+  return result;
 }
 
 /**
@@ -524,7 +154,15 @@ export function isComptimeOnlyType(type: Type, env: Environment): boolean {
  * Check if a type is runtime-only (cannot be used at compile time).
  */
 export function isRuntimeOnlyType(type: Type, env: Environment): boolean {
-  return !typeImplementsComptime(type, env) && typeImplementsRuntime(type, env);
+  const implementsComptime = typeImplementsComptime(type, env);
+  const implementsRuntime = typeImplementsRuntime(type, env);
+  const result = !implementsComptime && implementsRuntime;
+  if (isSomeType(type)) {
+    console.log(
+      `isRuntimeOnlyType for SomeType "${type.name}": implementsComptime=${implementsComptime}, implementsRuntime=${implementsRuntime}, result=${result}`
+    );
+  }
+  return result;
 }
 
 /**

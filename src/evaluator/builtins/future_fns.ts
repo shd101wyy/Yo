@@ -1,9 +1,10 @@
 import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import { FnCallExpr } from "../../expr";
-import { extractFutureTraitFromType, typeToString } from "../../types";
+import { typeToString } from "../../types";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
+import { extractFutureTraitFromType } from "../trait-checking";
 
 /**
  * Evaluates the await builtin function (stackless async value extraction).

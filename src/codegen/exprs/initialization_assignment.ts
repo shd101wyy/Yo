@@ -1,4 +1,5 @@
 import { getVariablesFromEnv } from "../../env";
+import { typeImplementsFn } from "../../evaluator/trait-checking";
 import {
   BuiltinKeywords,
   exprIsAtom,
@@ -13,7 +14,6 @@ import {
   isStructType,
   isTupleType,
   isUnitType,
-  typeImplementsFn,
 } from "../../types";
 import { isTempVariableName } from "../../utils";
 import { FunctionGenerationContext } from "../functions/context";

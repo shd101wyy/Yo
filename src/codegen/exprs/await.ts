@@ -1,5 +1,8 @@
+import {
+  extractFutureTraitFromType,
+  typeImplementsFuture,
+} from "../../evaluator/trait-checking";
 import { FnCallExpr } from "../../expr";
-import { extractFutureTraitFromType, typeImplementsFuture } from "../../types";
 import { FunctionGenerationContext } from "../functions/context";
 import { CodeGenContext } from "../utils";
 

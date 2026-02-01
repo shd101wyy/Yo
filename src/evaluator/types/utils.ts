@@ -21,7 +21,6 @@ import {
   TupleType,
   typeContainsRcType,
   typeContainsSomeType,
-  typeImplementsAcyclic,
   typeOfType,
   typeToString,
   UnionType,
@@ -31,6 +30,7 @@ import { isFunctionValue, isTraitValue, isTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import {
+  typeImplementsAcyclic,
   typeImplementsComptime,
   typeImplementsRuntime,
   typeImplementsSend,

@@ -17,7 +17,7 @@ import { TokenType } from "../../token";
 import {
   extractFutureTraitFromType,
   typeImplementsFuture,
-} from "../../types/utils";
+} from "../trait-checking";
 
 // Re-export types from the types file
 export type {

@@ -40,7 +40,7 @@ import {
   VoidType,
 } from "./definitions";
 import { TypeTag } from "./tags";
-import { typeToString } from "./utils";
+import { getTraitTypeFromEnv, typeToString } from "./utils";
 
 let cachedComptimeIntType: Type | null = null;
 export function createComptimeIntType(): Type {
@@ -947,8 +947,11 @@ export function createSomeType(
     },
   });
 
-  // Attach the Runtime trait to the SomeType
-  attachTraitToReceiverType("Runtime", someType, env, context);
+  // Check if "Runtime" trait
+  if (getTraitTypeFromEnv(env, "Runtime")) {
+    // Attach the Runtime trait to the SomeType
+    attachTraitToReceiverType("Runtime", someType, env, context);
+  }
 
   return someType;
 }

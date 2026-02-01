@@ -1,5 +1,9 @@
 import { getVariablesFromEnv } from "../../env";
 import {
+  typeImplementsFn,
+  typeImplementsFuture,
+} from "../../evaluator/trait-checking";
+import {
   BuiltinKeywords,
   exprIsAtom,
   exprIsFunctionCall,
@@ -7,12 +11,7 @@ import {
   exprToString,
   FnCallExpr,
 } from "../../expr";
-import {
-  isArrayType,
-  isUnitType,
-  typeImplementsFn,
-  typeImplementsFuture,
-} from "../../types";
+import { isArrayType, isUnitType } from "../../types";
 import { isTempVariableName } from "../../utils";
 import { FunctionGenerationContext } from "../functions/context";
 import {

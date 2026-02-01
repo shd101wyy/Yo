@@ -1,3 +1,4 @@
+import { typeImplementsFuture } from "../../evaluator/trait-checking";
 import { Expr } from "../../expr";
 import { FuncValueId } from "../../function-value";
 import {
@@ -7,7 +8,6 @@ import {
   isSomeType,
   isStructType,
   typeContainsSomeType,
-  typeImplementsFuture,
   typeToString,
 } from "../../types";
 import {

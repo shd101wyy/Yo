@@ -1,11 +1,6 @@
+import { typeImplementsFuture } from "../../evaluator/trait-checking";
 import { BuiltinFunctions, FnCallExpr } from "../../expr";
-import {
-  isArrayType,
-  isRcType,
-  isSomeType,
-  isTupleType,
-  typeImplementsFuture,
-} from "../../types";
+import { isArrayType, isRcType, isSomeType, isTupleType } from "../../types";
 import { isFunctionValue, isNumberValue } from "../../value";
 import { FunctionGenerationContext } from "../functions/context";
 import { CodeGenContext, getTypeString } from "../utils";

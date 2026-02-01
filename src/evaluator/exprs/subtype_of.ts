@@ -8,122 +8,18 @@ import {
   exprToString,
   FnCallExpr,
 } from "../../expr";
-import { Token } from "../../token";
 import {
-  areTypesCompatible,
   createTypeHierarchy,
   isSomeType,
   isTraitType,
   TraitField,
   TraitType,
-  Type,
   typeToString,
 } from "../../types";
-import { createTypeValue, isTraitValue, isTypeValue } from "../../value";
+import { createTypeValue, isTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
-import { findMatchingGenericImpl } from "../values/impl";
-
-/**
- * Check if a type implements a specific trait.
- * @returns true if the type implements the trait, false otherwise
- */
-export function typeImplementsTrait({
-  targetType,
-  traitType,
-  env,
-}: {
-  targetType: Type;
-  traitType: TraitType;
-  env: Environment;
-}): boolean {
-  const expectedTraitWithReceiver: TraitType = {
-    ...traitType,
-    receiverType: targetType,
-  };
-
-  const targetTrait = targetType.trait;
-  if (targetTrait) {
-    for (const field of targetTrait.fields) {
-      if (!field.assignedValue || !isTraitValue(field.assignedValue)) {
-        continue;
-      }
-
-      const fieldTraitValue = field.assignedValue;
-      const fieldTraitType = fieldTraitValue.type;
-
-      if (
-        areTypesCompatible(
-          { type: expectedTraitWithReceiver, env },
-          { type: fieldTraitType, env }
-        )
-      ) {
-        return true;
-      }
-    }
-  }
-
-  // Check generic impl registry for matching patterns
-  const matchingGenericImpl = findMatchingGenericImpl({
-    concreteType: targetType,
-    traitType,
-    env,
-  });
-
-  if (matchingGenericImpl) {
-    return true;
-  }
-
-  return false;
-}
-
-/**
- * Check if a type implements all the selfConstraints of a trait type.
- * Also checks that the type does NOT implement any negativeSelfConstraints.
- * Throws an error if any constraint is not satisfied.
- */
-export function checkTypeImplementsSelfConstraints({
-  targetType,
-  traitType,
-  env,
-  errorToken,
-}: {
-  targetType: Type;
-  traitType: TraitType;
-  env: Environment;
-  errorToken: Token;
-}): void {
-  // Check positive constraints (must implement)
-  if (traitType.selfConstraints && traitType.selfConstraints.length > 0) {
-    for (const constraintTrait of traitType.selfConstraints) {
-      if (
-        !typeImplementsTrait({ targetType, traitType: constraintTrait, env })
-      ) {
-        throw formatErrorMessage({
-          token: errorToken,
-          errorMessage: `Type "${typeToString(targetType)}" does not implement required constraint "${constraintTrait.typeName ?? typeToString(constraintTrait)}" from trait "${traitType.typeName ?? typeToString(traitType)}"'s where clause.`,
-        });
-      }
-    }
-  }
-
-  // Check negative constraints (must NOT implement)
-  if (
-    traitType.negativeSelfConstraints &&
-    traitType.negativeSelfConstraints.length > 0
-  ) {
-    for (const constraintTrait of traitType.negativeSelfConstraints) {
-      if (
-        typeImplementsTrait({ targetType, traitType: constraintTrait, env })
-      ) {
-        throw formatErrorMessage({
-          token: errorToken,
-          errorMessage: `Type "${typeToString(targetType)}" implements "${constraintTrait.typeName ?? typeToString(constraintTrait)}" but the trait "${traitType.typeName ?? typeToString(traitType)}"'s where clause requires it to NOT implement this trait.`,
-        });
-      }
-    }
-  }
-}
+import { typeImplementsTrait } from "../trait-checking";
 
 /*
 

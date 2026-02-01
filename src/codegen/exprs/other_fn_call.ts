@@ -1,4 +1,9 @@
 import {
+  extractFnTraitFromType,
+  typeImplementsFn,
+  typeImplementsFuture,
+} from "../../evaluator/trait-checking";
+import {
   BuiltinFunctions,
   exprIsAtom,
   exprIsFunctionCall,
@@ -7,7 +12,6 @@ import {
 } from "../../expr";
 import {
   ArrayType,
-  extractFnTraitFromType,
   isArrayType,
   isDynType,
   isEnumType,
@@ -20,8 +24,6 @@ import {
   isUnionType,
   isUnitType,
   SomeType,
-  typeImplementsFn,
-  typeImplementsFuture,
 } from "../../types";
 import {
   isFunctionValue,

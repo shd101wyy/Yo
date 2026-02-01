@@ -1,12 +1,14 @@
 import { Environment, getVariablesFromEnv } from "../../env";
-import { AtomExpr, Expr, exprIsAtom, ExprTag, FnCallExpr } from "../../expr";
 import {
   extractFnTraitFromType,
+  typeImplementsFn,
+} from "../../evaluator/trait-checking";
+import { AtomExpr, Expr, exprIsAtom, ExprTag, FnCallExpr } from "../../expr";
+import {
   isDynType,
   isStructType,
   SomeType,
   StructType,
-  typeImplementsFn,
   TypeTag,
 } from "../../types";
 import { FunctionGenerationContext } from "../functions/context";

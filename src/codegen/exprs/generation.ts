@@ -1,3 +1,4 @@
+import { typeImplementsFuture } from "../../evaluator/trait-checking";
 import {
   BuiltinFunctions,
   BuiltinKeywords,
@@ -9,7 +10,7 @@ import {
   exprToString,
   FnCallExpr,
 } from "../../expr";
-import { isSomeType, isUnitType, typeImplementsFuture } from "../../types";
+import { isSomeType, isUnitType } from "../../types";
 import { isFunctionValue, isUnknownValue, Value } from "../../value";
 import { BuiltinYoInlineFunctions } from "../constants";
 import { FunctionGenerationContext } from "../functions/context";

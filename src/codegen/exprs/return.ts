@@ -1,4 +1,5 @@
 import { getVariablesFromEnv } from "../../env";
+import { extractFutureTraitFromType } from "../../evaluator/trait-checking";
 import {
   AtomExpr,
   BuiltinKeywords,
@@ -8,7 +9,7 @@ import {
   ExprTag,
   FnCallExpr,
 } from "../../expr";
-import { extractFutureTraitFromType, isUnitType } from "../../types";
+import { isUnitType } from "../../types";
 import { FunctionGenerationContext } from "../functions/context";
 import {
   CodeGenContext,

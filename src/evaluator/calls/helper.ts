@@ -49,8 +49,6 @@ import {
   Type,
   typeContainsSomeType,
   TypeHierarchyType,
-  typeImplementsFn,
-  typeImplementsFuture,
   typeRequiresComptimeModifier,
   typeToString,
 } from "../../types";
@@ -69,6 +67,7 @@ import {
 import { ArgValues, EvaluatorContext, FunctionCallResult } from "../context";
 import { evaluateBeginExpression } from "../exprs/begin";
 import { evaluateExpression } from "../exprs/expr";
+import { typeImplementsFn, typeImplementsFuture } from "../trait-checking";
 import {
   evaluateFunctionParameterTypeAgain,
   evaluateFunctionReturnTypeAgain,

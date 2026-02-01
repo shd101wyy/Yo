@@ -9,10 +9,10 @@ import {
   AwaitPoint,
   CapturedVariable,
 } from "../../evaluator/async/await-analysis";
+import { extractFutureTraitFromType } from "../../evaluator/trait-checking";
 import { Expr, exprIsFunctionCallOf, ExprTag } from "../../expr";
 import {
   DynType,
-  extractFutureTraitFromType,
   isDynType,
   isSomeType,
   isUnitType,

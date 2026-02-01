@@ -20,13 +20,13 @@ import {
   isSomeType,
   isTupleType,
   typeContainsRcType,
-  typeImplementsFuture,
 } from "../../types";
 import { VUnit } from "../../unit-value";
 import { isNumberValue } from "../../value";
 import { evaluateFunctionCall } from "../calls/function";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
+import { typeImplementsFuture } from "../trait-checking";
 
 /**
  * Generate ___drop function for a tuple type that contains ARC values
