@@ -1196,13 +1196,10 @@ export function getReceiverMethodsByNameFromEnv({
   // NOTE: Skip DynType here since DynType has specialized handling below
   // NOTE: Skip SomeType with resolvedConcreteType since it has specialized handling below
   // EXCEPTION: For Future types, DO check SomeType's trait methods (they use __yo_sometype_drop)
-  // EXCEPTION: For ARC methods (___drop, ___dup), ALWAYS check SomeType's trait methods
-  const isARCMethod = methodName === "___drop" || methodName === "___dup";
   const skipSomeTypeWithResolvedConcreteType =
     isSomeType(dereferencedReceiverType) &&
     dereferencedReceiverType.resolvedConcreteType &&
-    !typeImplementsFuture(dereferencedReceiverType) &&
-    !isARCMethod;
+    !typeImplementsFuture(dereferencedReceiverType);
   if (
     dereferencedReceiverType.trait &&
     !isDynType(dereferencedReceiverType) &&

@@ -1,10 +1,30 @@
-main :: (fn() -> unit) {
-  use_cb :: (fn(v : i32, cb : (Impl(Fn(u : i32) -> i32))) -> i32) {
-    return cb(v);
-  };
+// @skip_prelude
+Comptime :: trait(
+  id := "Comptime"
+);
+Runtime :: trait(
+  id := "Runtime"
+);
 
-  b := Box(i32)(5);
-  z := use_cb(10, (u) => ((u + 1) + b.*)); // capture variable 'a'
-  assert(z == 16);
-};
-export main;
+ComptimeAdd :: (fn(comptime(Rhs) : Type, comptime(Output) ?= Rhs, where(Rhs <: Comptime, Output <: Comptime))-> comptime(Trait))
+  trait(
+    where(Self <: Comptime),
+    Output := Output,
+    (+)    :  (fn(comptime(lhs): Self, comptime(rhs): Rhs)-> comptime(Output))
+  )
+;
+
+Result :: (fn(comptime(OkType): Type, comptime(ErrorType): Type) -> comptime(Type))
+  enum(
+    Ok(value: OkType),
+    Err(error: ErrorType)
+  )
+;
+
+TryFrom :: (fn(comptime(From) : Type) -> comptime(Trait))(
+  trait(
+    Error : Type,
+    try_from :
+      (fn(value : From) -> Result(Self, Self.Error))
+  )
+);
