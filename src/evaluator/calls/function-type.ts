@@ -6,7 +6,7 @@ import {
   pushEnvFrame,
 } from "../../env";
 import { formatErrorMessage } from "../../error";
-import { Expr, FnCallExpr } from "../../expr";
+import { cloneExpr, Expr, FnCallExpr } from "../../expr";
 import { FunctionValue } from "../../function-value";
 import { PlaceholderToken } from "../../token";
 import { areTypesCompatible } from "../../types/compatibility";
@@ -23,6 +23,7 @@ import {
 } from "../context";
 import { analyzeCtfeCapability } from "../ctfe/ctfe-analysis";
 import { evaluateBeginExpression } from "../exprs/begin";
+import { applyWhereClauseConstraints } from "../types/function";
 import {
   buildPathCollectionFromCapturedVariables,
   consumeCapturedVariables,
@@ -222,6 +223,21 @@ export function tryToImplementFunctionByFunctionType({
   };
 
   // Check if the function has forall type parameters
+  // Re-apply where-clause constraints for this function body evaluation.
+  if (newFunctionType.whereClauseExprs?.length) {
+    const constraintExprs = newFunctionType.whereClauseExprs.map((expr) =>
+      cloneExpr(expr)
+    );
+    const result = applyWhereClauseConstraints({
+      constraintExprs,
+      env,
+      context: {
+        ...context,
+        isEvaluatingFunctionType: true,
+      },
+    });
+    env = result.env;
+  }
   // If so, we should NOT evaluate the body at definition time because we can't
   // execute code that uses type variables. The body will be evaluated when the
   // function is called with concrete type arguments.

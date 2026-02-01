@@ -8,6 +8,7 @@ import { formatErrorMessage } from "../../error";
 import {
   attachTempVariableToExpr,
   BuiltinKeywords,
+  cloneExpr,
   Expr,
   exprIsAtom,
   exprIsFunctionCall,
@@ -39,6 +40,7 @@ import { EvaluatorContext } from "../context";
 import { analyzeCtfeCapability } from "../ctfe/ctfe-analysis";
 import { evaluateBeginExpression } from "../exprs/begin";
 import { extractFnTraitFromType } from "../trait-checking";
+import { applyWhereClauseConstraints } from "../types/function";
 import {
   buildPathCollectionFromCapturedVariables,
   createCaptureTypeAndValue,
@@ -336,6 +338,22 @@ Got:      "${paramName}"`,
     parametersFrame: parametersFrame,
     env: envWithoutParametersFrame, // functionType.env, // Here we need to use the functionType.env, not the current env for later CPS transformation use.
   };
+
+  // Re-apply where-clause constraints for this function body evaluation.
+  if (newFunctionType.whereClauseExprs?.length) {
+    const constraintExprs = newFunctionType.whereClauseExprs.map((expr) =>
+      cloneExpr(expr)
+    );
+    const result = applyWhereClauseConstraints({
+      constraintExprs,
+      env,
+      context: {
+        ...context,
+        isEvaluatingFunctionType: true,
+      },
+    });
+    env = result.env;
+  }
 
   // Create the function value BEFORE evaluating the function body (fixing FIXME)
   const functionValue: FunctionValue = {

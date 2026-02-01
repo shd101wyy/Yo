@@ -725,6 +725,12 @@ export interface FunctionType extends Type {
   variadicParameter?: FunctionParameter;
 
   /**
+   * Where-clause constraint expressions attached to this function type.
+   * These are re-applied when evaluating the function body.
+   */
+  whereClauseExprs?: Expr[];
+
+  /**
    * The return information of the function.
    */
   return: FunctionReturn;

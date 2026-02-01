@@ -1,7 +1,6 @@
 import {
   addVariableToEnv,
   Environment,
-  findVariableFrameLevel,
   getVariablesFromEnv,
   popEnvFrame,
   pushEnvFrame,
@@ -862,7 +861,6 @@ function applySingleTraitConstraint({
 
   // Resolve the LHS to a SomeType
   let someType: SomeType;
-  let someTypeFrameLevel: number = currentFrameLevel;
 
   if (exprIsAtom(lhsExpr)) {
     const varName = lhsExpr.token.value;
@@ -877,10 +875,6 @@ function applySingleTraitConstraint({
       isSomeType(existingVar.value[0].value)
     ) {
       someType = existingVar.value[0].value as SomeType;
-      const varFrameLevel = findVariableFrameLevel(env, varName);
-      if (varFrameLevel !== undefined) {
-        someTypeFrameLevel = varFrameLevel;
-      }
     } else if (existingVar.value && isTypeValue(existingVar.value[0])) {
       // It's a concrete type - validate constraint immediately
       try {
@@ -940,10 +934,7 @@ function applySingleTraitConstraint({
     }
 
     someType = lhsTypeValue.value;
-    const varFrameLevel = findVariableFrameLevel(env, someType.name);
-    if (varFrameLevel !== undefined) {
-      someTypeFrameLevel = varFrameLevel;
-    }
+    // Keep constraints scoped to the current frame.
   }
 
   // Now try to evaluate the trait expression (unwrapped)
@@ -984,7 +975,7 @@ function applySingleTraitConstraint({
   }
 
   // Track this SomeType for cleanup when frame is popped
-  const targetFrame = env.frames[someTypeFrameLevel];
+  const targetFrame = env.frames[currentFrameLevel];
   if (targetFrame && !targetFrame.modifiedSomeTypes.includes(someType)) {
     targetFrame.modifiedSomeTypes.push(someType);
   }
@@ -997,14 +988,14 @@ function applySingleTraitConstraint({
     if (!someType.negativeTraits.some((t) => t.traitType.id === traitType.id)) {
       someType.negativeTraits.push({
         traitType,
-        frameLevel: someTypeFrameLevel,
+        frameLevel: currentFrameLevel,
       });
     }
   } else {
     if (!someType.requiredTraits.some((t) => t.traitType.id === traitType.id)) {
       someType.requiredTraits.push({
         traitType,
-        frameLevel: someTypeFrameLevel,
+        frameLevel: currentFrameLevel,
       });
     }
   }
@@ -1041,9 +1032,6 @@ function parseWhereClauseConstraints({
   // Track SomeTypes that we've modified so we don't add duplicates to modifiedSomeTypes
   const modifiedSomeTypesThisCall = new Set<SomeType>();
 
-  // Track the frame level where each SomeType is located
-  const someTypeFrameLevels = new Map<SomeType, number>();
-
   for (const constraintExpr of constraintExprs) {
     // Each constraint must be of the form: T <: Trait or T <: (Trait1, Trait2)
     if (
@@ -1075,12 +1063,6 @@ function parseWhereClauseConstraints({
           isSomeType(existingVar.value[0].value)
         ) {
           someType = existingVar.value[0].value as SomeType;
-
-          // Find the frame level where this variable is located
-          const varFrameLevel = findVariableFrameLevel(env, varName);
-          if (varFrameLevel !== undefined) {
-            someTypeFrameLevels.set(someType, varFrameLevel);
-          }
         } else if (existingVar.value && isTypeValue(existingVar.value[0])) {
           // It's a concrete type - validate constraints immediately
           const concreteType = existingVar.value[0].value as Type;
@@ -1102,9 +1084,6 @@ function parseWhereClauseConstraints({
         // Variable doesn't exist - create a new SomeType for it
         // This SomeType starts with RUNTIME_ONLY availability (default for type parameters)
         someType = createSomeType(createType0(), varName, { env, context });
-
-        // Record that this SomeType will be in the current frame
-        someTypeFrameLevels.set(someType, currentFrameLevel);
 
         // Add to env so later parameters can reference it
         const typeValue = createTypeValue(someType);
@@ -1169,25 +1148,15 @@ function parseWhereClauseConstraints({
 
       someType = lhsTypeValue.value;
 
-      // Try to find the frame level where this SomeType is located
-      const varFrameLevel = findVariableFrameLevel(env, someType.name);
-      if (varFrameLevel !== undefined) {
-        someTypeFrameLevels.set(someType, varFrameLevel);
-      } else {
-        // Couldn't find it - use current frame level as fallback
-        someTypeFrameLevels.set(someType, currentFrameLevel);
-      }
+      // Keep constraints scoped to the current frame.
     }
 
     // Track this SomeType for cleanup when frame is popped
-    // We need to add it to the frame where the SomeType variable is located,
-    // not the current frame
+    // We keep constraints scoped to the current frame that introduced them.
     if (!modifiedSomeTypesThisCall.has(someType)) {
       modifiedSomeTypesThisCall.add(someType);
 
-      const someTypeFrameLevel =
-        someTypeFrameLevels.get(someType) ?? currentFrameLevel;
-      const targetFrame = env.frames[someTypeFrameLevel];
+      const targetFrame = env.frames[currentFrameLevel];
       if (targetFrame) {
         targetFrame.modifiedSomeTypes.push(someType);
       }
@@ -1283,9 +1252,7 @@ function parseWhereClauseConstraints({
       }
 
       // Directly mutate the SomeType with the constraint
-      // Use the frame level where the SomeType variable is located, not the current frame
-      const someTypeFrameLevel =
-        someTypeFrameLevels.get(someType) ?? currentFrameLevel;
+      // Use the current frame level to scope where-clause constraints.
 
       if (isNegated) {
         // Check for duplicate
@@ -1294,7 +1261,7 @@ function parseWhereClauseConstraints({
         ) {
           someType.negativeTraits.push({
             traitType,
-            frameLevel: someTypeFrameLevel,
+            frameLevel: currentFrameLevel,
           });
         }
       } else {
@@ -1304,7 +1271,7 @@ function parseWhereClauseConstraints({
         ) {
           someType.requiredTraits.push({
             traitType,
-            frameLevel: someTypeFrameLevel,
+            frameLevel: currentFrameLevel,
           });
         }
       }
@@ -1312,6 +1279,34 @@ function parseWhereClauseConstraints({
   }
 
   return { env, pendingTraits };
+}
+
+/**
+ * Apply where-clause constraints in the current environment frame.
+ * This is used when evaluating a function body to re-attach constraints
+ * that were validated during function type evaluation.
+ */
+export function applyWhereClauseConstraints({
+  constraintExprs,
+  env,
+  context,
+}: {
+  constraintExprs: Expr[];
+  env: Environment;
+  context: EvaluatorContext & { isEvaluatingFunctionType: true };
+}): { env: Environment } {
+  if (constraintExprs.length === 0) {
+    return { env };
+  }
+
+  const result = parseWhereClauseConstraints({
+    constraintExprs,
+    env,
+    context,
+    collectPendingTraits: false,
+  });
+
+  return { env: result.env };
 }
 
 /**
@@ -1432,6 +1427,7 @@ export function evaluateFunctionParameters({
   parameters: FunctionParameter[];
   forallParameters: FunctionParameter[];
   variadicParameter?: FunctionParameter;
+  whereClauseExprs?: Expr[];
   env: Environment;
 } {
   env = pushEnvFrame(env);
@@ -1439,6 +1435,7 @@ export function evaluateFunctionParameters({
   const parameters: FunctionParameter[] = [];
   const forallParameters: FunctionParameter[] = [];
   let variadicParameter: FunctionParameter | undefined = undefined;
+  let whereClauseExprs: Expr[] | undefined = undefined;
 
   let findVariadicParameter = false;
 
@@ -1489,7 +1486,7 @@ export function evaluateFunctionParameters({
       exprIsFunctionCall(lastParam) &&
       exprIsFunctionCallOf(lastParam, BuiltinKeywords.where)
     ) {
-      const whereClauseExprs = lastParam.args;
+      whereClauseExprs = lastParam.args;
       if (whereClauseExprs.length === 0) {
         throw formatErrorMessage({
           token: lastParam.token,
@@ -1790,6 +1787,7 @@ export function evaluateFunctionParameters({
     parameters,
     forallParameters,
     variadicParameter,
+    whereClauseExprs,
     env,
   };
 }
@@ -1843,6 +1841,7 @@ export function evaluateFunctionType({
     parameters,
     forallParameters,
     variadicParameter,
+    whereClauseExprs,
     env: nextEnv,
   } = evaluateFunctionParameters({
     parameterExprs: argList,
@@ -2073,6 +2072,7 @@ ${typeToString(returnType)}`,
     parameters,
     forallParameters: forallParameters as FunctionForallParameter[],
     variadicParameter,
+    whereClauseExprs,
     return_: {
       type: returnType,
       expr: returnTypeExpr,

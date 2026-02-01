@@ -806,6 +806,7 @@ export function createFunctionType({
   parameters,
   forallParameters,
   variadicParameter,
+  whereClauseExprs,
   return_,
   env,
   parametersFrame,
@@ -816,6 +817,7 @@ export function createFunctionType({
   parameters: FunctionParameter[];
   forallParameters: FunctionForallParameter[];
   variadicParameter: FunctionParameter | undefined;
+  whereClauseExprs?: Expr[];
   return_: FunctionReturn;
   env: Environment;
   parametersFrame: Frame;
@@ -832,6 +834,7 @@ export function createFunctionType({
     parameters: parameters,
     forallParameters,
     variadicParameter,
+    whereClauseExprs,
     return: return_,
     env,
     parametersFrame,

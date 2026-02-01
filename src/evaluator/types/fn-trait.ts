@@ -67,6 +67,7 @@ export function evaluateFnTraitType({
     parameters,
     forallParameters,
     variadicParameter,
+    whereClauseExprs,
     env: envWithParams,
   } = evaluateFunctionParameters({
     parameterExprs: paramExprs,
@@ -107,6 +108,7 @@ export function evaluateFnTraitType({
     parameters,
     forallParameters: forallParameters as FunctionForallParameter[],
     variadicParameter,
+    whereClauseExprs,
     return_: {
       type: returnType,
       expr: returnTypeExpr,

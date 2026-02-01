@@ -1,6 +1,11 @@
 import { Environment, popEnvFrame, pushEnvFrame } from "../../env";
 import { formatErrorMessage } from "../../error";
-import { attachTempVariableToExpr, Expr, FnCallExpr } from "../../expr";
+import {
+  attachTempVariableToExpr,
+  cloneExpr,
+  Expr,
+  FnCallExpr,
+} from "../../expr";
 import { FunctionValue } from "../../function-value";
 import { PlaceholderToken } from "../../token";
 import { areTypesCompatible } from "../../types/compatibility";
@@ -11,6 +16,7 @@ import { randomId } from "../../utils";
 import { ValueTag } from "../../value-tag";
 import { EvaluatorContext } from "../context";
 import { evaluateBeginExpression } from "../exprs/begin";
+import { applyWhereClauseConstraints } from "../types/function";
 import {
   buildPathCollectionFromCapturedVariables,
   createCaptureTypeAndValue,
@@ -53,6 +59,22 @@ export function tryToImplementClosureByFnModuleType({
   // For closures, we keep the full caller environment to enable variable capturing
   let env = pushEnvFrame(callerEnv, fnModuleType.isFn.callType.parametersFrame);
   // const originalEnv = env; // backup the env for later CPS transformation use.
+
+  // Re-apply where-clause constraints for this closure body evaluation.
+  if (fnModuleType.isFn.callType.whereClauseExprs?.length) {
+    const constraintExprs = fnModuleType.isFn.callType.whereClauseExprs.map(
+      (expr) => cloneExpr(expr)
+    );
+    const result = applyWhereClauseConstraints({
+      constraintExprs,
+      env,
+      context: {
+        ...context,
+        isEvaluatingFunctionType: true,
+      },
+    });
+    env = result.env;
+  }
 
   // Create the function value for the closure
   const functionValue: FunctionValue = {

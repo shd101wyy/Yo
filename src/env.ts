@@ -576,21 +576,33 @@ export function popEnvFrame(
   ignoreCheck = false
 ): Environment {
   const currentFrameLevel = env.frames.length - 1;
-  if (!ignoreCheck) {
-    const frameToPop = env.frames[currentFrameLevel]!;
+  const frameToPop = env.frames[currentFrameLevel]!;
 
-    // Clean up where clause constraints from SomeTypes modified at this frame level
-    for (const someType of frameToPop.modifiedSomeTypes) {
-      someType.requiredTraits = someType.requiredTraits.filter(
-        (c) => c.frameLevel !== currentFrameLevel
-      );
-      if (someType.negativeTraits) {
-        someType.negativeTraits = someType.negativeTraits.filter(
-          (c) => c.frameLevel !== currentFrameLevel
-        );
-      }
+  // Clean up where clause constraints from SomeTypes modified at this frame level.
+  // When ignoreCheck is true, keep constraints for SomeTypes defined in this frame
+  // (e.g., function type parameters), but still remove constraints applied to outer SomeTypes.
+  for (const someType of frameToPop.modifiedSomeTypes) {
+    const definitionFrameLevel = findVariableFrameLevel(env, someType.name);
+    const shouldCleanupConstraints =
+      !ignoreCheck ||
+      definitionFrameLevel === undefined ||
+      definitionFrameLevel !== currentFrameLevel;
+
+    if (!shouldCleanupConstraints) {
+      continue;
     }
 
+    someType.requiredTraits = someType.requiredTraits.filter(
+      (c) => c.frameLevel !== currentFrameLevel
+    );
+    if (someType.negativeTraits) {
+      someType.negativeTraits = someType.negativeTraits.filter(
+        (c) => c.frameLevel !== currentFrameLevel
+      );
+    }
+  }
+
+  if (!ignoreCheck) {
     // Check if there is any value in the frame that is not consumed or uninitialized.
     const unconsumedVariables = getVariablesNeedingDrop(env);
     const undefinedVariables = frameToPop.variables.filter(
