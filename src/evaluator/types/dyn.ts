@@ -92,12 +92,12 @@ export function evaluateDynType({
       const traitTypeB = traitTypes[j]!;
       for (const elementA of traitTypeA.fields) {
         for (const elementB of traitTypeB.fields) {
-          if (elementA.label === elementB.label) {
+          if (elementA.label === elementB.label && elementA.label !== "") {
             throw formatErrorMessage({
               token: expr.token,
               errorMessage: `Trait types ${typeToString(traitTypeA)} and ${typeToString(
                 traitTypeB
-              )} have conflicting function name '${elementA.label}' in 'dyn' expression.`,
+              )} have conflicting function name '${elementA.label}' in '${BuiltinKeywords.Dyn[0]!}' expression.`,
             });
           }
         }

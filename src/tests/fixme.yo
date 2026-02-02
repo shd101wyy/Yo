@@ -1,64 +1,30 @@
-// @skip_prelude
-Comptime :: trait(
-  id := "Comptime"
-);
-Runtime :: trait(
-  id := "Runtime"
+open import "std/libc/stdio";
+
+Speak :: trait(
+  speak : (fn(self : Self) -> i32)
 );
 
-Option :: (fn(comptime(T) : Type) -> comptime(Type))(
-  enum(
-    None,
-    Some(value: T)
-  )
+Run :: trait(
+  run : (fn(self : Self) -> i32)
 );
-impl(forall(T : Type), where(T <: Comptime), *(T), Comptime());
-impl(forall(T : Type), where(T <: Runtime), *(T), Runtime());
-impl(char, Runtime());
 
-(?*) :: (fn(comptime(T): Type) -> comptime(Type))
-  Option(*(T))
+// Dog :: struct(); // This should give error working with `dyn`.
+Dog :: object();
+
+DogSpeak :: impl(Dog, Speak
+  speak : ((self : Self) -> {
+    printf("Woof!\n");
+    return 1;
+  })
+);
+
+DogRun :: impl(Dog, Run
+  run : ((self : Self) -> {
+    printf("The dog is running!\n");
+    return 2;
+  })
+);
+
+act :: (fn(s : Dyn(Speak, Run)) -> i32)
+  s.speak() + s.run()
 ;
-
-comptime_assert(__yo_type_impls(*(char), Runtime));
-
-?*(char);
-
-Data :: (fn(comptime(X) : Type) -> comptime(Type))(
-  struct(value : X)
-);
-
-// This works:
-// id :: (fn(forall(T : Type), x : T) -> T)(Data(T)(x));
-
-// This works:
-comptime(id) : (fn(forall(T : Type), x : T) -> Data(T));
-id = ((a) -> Data(typeof(a))(a));
-
-// This works:
-// id2 :: (fn(comptime(T) : Type, x : T) -> Data(T))(Data(T)(x));
-
-// The anonymous function below is causing problem:
-comptime(id2) : (fn(comptime(T) : Type, x : T) -> Data(T));
-id2 = ((T, a) -> Data(T)(a));
-
-generic_fn :: (fn(
-  forall(T : Type),
-  x : T,
-  callback : (fn(v : T)-> T)
-) -> T)
-  callback(x)
-;
-
-main :: (fn() -> unit) {
-  x := id(true);
-  cond(
-    x.value => (),
-    true => panic("error")
-  );
-
-  y := id2(bool, true);
-
-  a := generic_fn(1, (v)-> (v)); // i32
-};
-export main;
