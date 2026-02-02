@@ -256,6 +256,7 @@ export function evaluateAnonymousStructValue({
     structType,
     env,
     context,
+    errorToken: func.token,
   });
 
   // Check if it's comptime value

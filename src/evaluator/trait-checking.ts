@@ -35,6 +35,7 @@ import {
 import { TypeTag } from "../types/tags";
 import { typeToString } from "../types/utils";
 import { isTraitValue, TraitValue } from "../value";
+import { EvaluatorContext } from "./context";
 import { findMatchingGenericImpl } from "./values/impl";
 
 /**
@@ -534,9 +535,19 @@ export function extractFutureTraitFromType(
 export function validateTypeAvailability(
   type: Type,
   env: Environment,
-  token: Token
+  token: Token,
+  context?: EvaluatorContext
 ): void {
   if (!typeImplementsComptime(type, env) && !typeImplementsRuntime(type, env)) {
+    if (context?.pendingTypeAvailabilityChecks) {
+      const alreadyDeferred = context.pendingTypeAvailabilityChecks.some(
+        (entry) => entry.type === type
+      );
+      if (!alreadyDeferred) {
+        context.pendingTypeAvailabilityChecks.push({ type, token });
+      }
+      return;
+    }
     throw formatErrorMessage({
       token: token,
       errorMessage: `Type ${typeToString(type)} has incompatible field contexts and cannot be used in any evaluation context.

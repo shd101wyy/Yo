@@ -6,13 +6,8 @@ import { TupleType, TypeField } from "../../types/definitions";
 import { typeOfType } from "../../types/hierarchy";
 import { createTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
-import { validateTypeAvailability } from "../trait-checking";
 import { evaluateTypeField } from "./field";
-import {
-  autoDeriveComptimeForTupleType,
-  autoDeriveRuntimeForTupleType,
-  autoDeriveSendForTupleType,
-} from "./utils";
+import { autoDeriveTraitsAndAddRcFunctionsForTupleType } from "./utils";
 
 export function evaluateTupleElementsType({
   args,
@@ -114,28 +109,14 @@ export function evaluateTupleType({
     }
   });
 
-  // Auto-derive Send trait if applicable
-  env = autoDeriveSendForTupleType({
-    tupleType,
+  // Auto-derive all applicable traits (Send, Acyclic, Comptime, Runtime)
+  // and Rc functions if needed
+  env = autoDeriveTraitsAndAddRcFunctionsForTupleType({
     env,
     context,
-  });
-
-  // Auto-derive Comptime trait if applicable
-  env = autoDeriveComptimeForTupleType({
     tupleType,
-    env,
-    context,
+    errorToken: expr.token,
   });
-
-  // Auto-derive Runtime trait if applicable
-  env = autoDeriveRuntimeForTupleType({
-    tupleType,
-    env,
-    context,
-  });
-
-  validateTypeAvailability(tupleType, env, expr.token);
 
   expr.$ = {
     env,

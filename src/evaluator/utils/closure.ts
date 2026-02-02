@@ -155,6 +155,7 @@ export function createCaptureTypeAndValue({
         structType: inferredCaptureType,
         env,
         context: { ...context },
+        errorToken: closureToken,
       });
 
       // Create a struct value if all captured values are compile-time known
@@ -180,6 +181,7 @@ export function createCaptureTypeAndValue({
         structType: emptyStructType,
         env,
         context: { ...context },
+        errorToken: closureToken,
       });
 
       captureType = emptyStructType;

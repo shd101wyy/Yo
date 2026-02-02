@@ -12,7 +12,6 @@ import { createStructType } from "../../types/creators";
 import { TraitField } from "../../types/definitions";
 import { createTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
-import { validateTypeAvailability } from "../trait-checking";
 import { evaluateTypeField } from "./field";
 import {
   addRcFunctionSignaturesToStructType,
@@ -139,9 +138,8 @@ export function evaluateStructType({
     structType,
     env,
     context,
+    errorToken: expr.token,
   });
-
-  validateTypeAvailability(structType, env, expr.token);
 
   // console.log(typeToString(structType));
   const structTypeValue = createTypeValue(structType);

@@ -1,7 +1,33 @@
+// @skip_prelude
+Comptime :: trait(
+  id := "Comptime"
+);
+Runtime :: trait(
+  id := "Runtime"
+);
+
+Option :: (fn(comptime(T) : Type) -> comptime(Type))(
+  enum(
+    None,
+    Some(value: T)
+  )
+);
+impl(forall(T : Type), where(T <: Comptime), *(T), Comptime());
+impl(forall(T : Type), where(T <: Runtime), *(T), Runtime());
+impl(char, Runtime());
+
+(?*) :: (fn(comptime(T): Type) -> comptime(Type))
+  Option(*(T))
+;
+
+comptime_assert(__yo_type_impls(*(char), Runtime));
+
+?*(char);
+
 main :: (fn() -> unit) {
   comptime(id) : (fn(forall(T : Type), x : T) -> T);
   id = ((a) -> a);
-
+  
   x := id(true);
 };
 export main;

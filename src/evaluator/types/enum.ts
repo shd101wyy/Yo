@@ -20,16 +20,11 @@ import { isComptimeIntType } from "../../types/guards";
 import { createTypeValue, isComptimeIntValue } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
-import { validateTypeAvailability } from "../trait-checking";
 import { isValidVariableName } from "../utils";
 import { evaluateTypeField } from "./field";
 import {
   addRcFunctionSignaturesToEnumType,
-  addRcFunctionsToEnumType,
-  autoDeriveAcyclicForEnumType,
-  autoDeriveComptimeForEnumType,
-  autoDeriveRuntimeForEnumType,
-  autoDeriveSendForEnumType,
+  autoDeriveTraitsAndAddRcFunctionsForEnumType,
 } from "./utils";
 
 export function evaluateEnumType({
@@ -360,42 +355,14 @@ export function evaluateEnumType({
     }
   }
 
-  // Auto derive Send module
-  env = autoDeriveSendForEnumType({
+  // Auto-derive all applicable traits (Send, Acyclic, Comptime, Runtime)
+  // and Rc functions if needed
+  env = autoDeriveTraitsAndAddRcFunctionsForEnumType({
     enumType,
     env,
     context,
+    errorToken: expr.token,
   });
-
-  // Auto derive Acyclic trait
-  env = autoDeriveAcyclicForEnumType({
-    enumType,
-    env,
-    context,
-  });
-
-  // Auto derive Comptime trait
-  env = autoDeriveComptimeForEnumType({
-    enumType,
-    env,
-    context,
-  });
-
-  // Auto derive Runtime trait
-  env = autoDeriveRuntimeForEnumType({
-    enumType,
-    env,
-    context,
-  });
-
-  // Auto-generate ARC functions using the systematic approach
-  env = addRcFunctionsToEnumType({
-    enumType,
-    env,
-    context,
-  });
-
-  validateTypeAvailability(enumType, env, expr.token);
 
   const enumTypeValue = createTypeValue(enumType);
   expr.$ = {

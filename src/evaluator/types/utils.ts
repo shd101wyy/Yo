@@ -6,6 +6,7 @@ import {
   exprToString,
 } from "../../expr";
 import { generateExprFromCode } from "../../parser";
+import { Token } from "../../token";
 import { createTypeHierarchy } from "../../types/creators";
 import {
   DynType,
@@ -35,6 +36,7 @@ import {
   typeImplementsComptime,
   typeImplementsRuntime,
   typeImplementsSend,
+  validateTypeAvailability,
 } from "../trait-checking";
 
 const YoSelf = "__yo_self";
@@ -1511,10 +1513,12 @@ export function autoDeriveTraitsAndAddRcFunctionsForStructType({
   structType,
   env,
   context,
+  errorToken,
 }: {
   structType: StructType;
   env: Environment;
   context: EvaluatorContext;
+  errorToken: Token;
 }): Environment {
   // Auto-derive Send trait if applicable
   env = autoDeriveSendForStructType({
@@ -1549,6 +1553,110 @@ export function autoDeriveTraitsAndAddRcFunctionsForStructType({
     env,
     context,
   });
+
+  validateTypeAvailability(structType, env, errorToken, context);
+
+  return env;
+}
+
+/**
+ * Auto-derive all applicable traits for a enum type.
+ * This should be called after all fields are added but before RC functions are generated.
+ * Order matters: Send → Acyclic → Comptime → Runtime
+ *
+ * Auto-generate ___drop, ___dup, and ___dispose functions if needed
+ */
+export function autoDeriveTraitsAndAddRcFunctionsForEnumType({
+  enumType,
+  env,
+  context,
+  errorToken,
+}: {
+  enumType: EnumType;
+  env: Environment;
+  context: EvaluatorContext;
+  errorToken: Token;
+}): Environment {
+  // Auto-derive Send trait if applicable
+  env = autoDeriveSendForEnumType({
+    enumType,
+    env,
+    context,
+  });
+
+  // Auto derive Acyclic trait
+  env = autoDeriveAcyclicForEnumType({
+    enumType,
+    env,
+    context,
+  });
+
+  // Auto derive Comptime trait
+  env = autoDeriveComptimeForEnumType({
+    enumType,
+    env,
+    context,
+  });
+
+  // Auto derive Runtime trait
+  env = autoDeriveRuntimeForEnumType({
+    enumType,
+    env,
+    context,
+  });
+
+  // Auto-generate ARC functions using the systematic approach
+  env = addRcFunctionsToEnumType({
+    enumType,
+    env,
+    context,
+  });
+
+  validateTypeAvailability(enumType, env, errorToken, context);
+
+  return env;
+}
+
+/**
+ * Auto-derive all applicable traits for a enum type.
+ * This should be called after all fields are added but before RC functions are generated.
+ * Order matters: Send → Acyclic → Comptime → Runtime
+ *
+ * Auto-generate ___drop, ___dup, and ___dispose functions if needed
+ */
+export function autoDeriveTraitsAndAddRcFunctionsForTupleType({
+  tupleType,
+  env,
+  context,
+  errorToken,
+}: {
+  tupleType: TupleType;
+  env: Environment;
+  context: EvaluatorContext;
+  errorToken: Token;
+}): Environment {
+  // Auto-derive Send trait if applicable
+  env = autoDeriveSendForTupleType({
+    tupleType,
+    env,
+    context,
+  });
+
+  // Auto-derive Comptime trait if applicable
+  env = autoDeriveComptimeForTupleType({
+    tupleType,
+    env,
+    context,
+  });
+
+  // Auto-derive Runtime trait if applicable
+  env = autoDeriveRuntimeForTupleType({
+    tupleType,
+    env,
+    context,
+  });
+
+  validateTypeAvailability(tupleType, env, errorToken, context);
 
   return env;
 }

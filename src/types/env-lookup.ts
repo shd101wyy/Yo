@@ -54,13 +54,25 @@ export function getValueOfSomeTypeFromEnv(
       });
       if (variable && variable.value) {
         const typeVal = variable.value[0] as TypeValue;
+        // If found value is exactly THIS SomeType object, it's unbound
         if (typeVal.value === someType) {
           return someType;
         }
-        if (isSomeType(typeVal.value) && typeVal.value.id !== someType.id) {
+        // If found value is a SomeType with the same ID, it's unbound
+        if (isSomeType(typeVal.value) && typeVal.value.id === someType.id) {
           return someType;
         }
-        return typeVal.value;
+        // If found value is a DIFFERENT SomeType (different ID), we have shadowing.
+        // Fall through to normal search - there may be a newer binding in a higher frame.
+        if (isSomeType(typeVal.value) && typeVal.value.id !== someType.id) {
+          // Fall through to normal search
+        } else {
+          // Found a concrete type binding. But is it for THIS SomeType or a different one?
+          // We can't tell for sure from definitionFrameLevel alone, so fall through
+          // to normal search which handles shadowing properly.
+          // This is needed because multiple SomeTypes with the same name but different IDs
+          // might share the same definitionFrameLevel.
+        }
       }
     }
   }

@@ -144,6 +144,15 @@ export interface EvaluatorContext {
   currentModulePath?: string;
 
   /**
+   * Deferred type availability checks collected during module evaluation.
+   * Used to allow forward impls to satisfy Runtime/Comptime after all impls are registered.
+   */
+  pendingTypeAvailabilityChecks?: Array<{
+    type: Type;
+    token: Token;
+  }>;
+
+  /**
    * Whether the function type being evaluated is marked as unsafe.
    */
   isUnsafeFunctionType?: boolean;
