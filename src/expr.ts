@@ -84,6 +84,7 @@ export function pathConflictsWithPath(path1: Path, path2: Path): boolean {
   return false;
 }
 
+// eslint-disable-next-line no-shadow
 export enum ExprTag {
   Atom = "Atom",
   FnCall = "FnCall",
@@ -1604,23 +1605,23 @@ export function mergeAndCheckEnvs(
     // 3. If some are consumed in some cases, then throw error.
     const rows = matrix.length;
     const cols = matrix[0]!.length;
-    for (let i = 0; i < cols; i++) {
-      const variableName = frameVariables[i]!.name;
+    for (let j = 0; j < cols; j++) {
+      const variableName = frameVariables[j]!.name;
       const initializedAtTokens: (Token | undefined)[] = [];
       const isOwningTheRefValueAtTokens: (Token | undefined)[] = [];
       const consumedAtTokens: (Token | undefined)[] = [];
       const types: Type[] = [];
-      for (let j = 1; j < rows; j++) {
-        const caseEnv = caseEnvs[j - 1]!;
+      for (let k = 1; k < rows; k++) {
+        const caseEnv = caseEnvs[k - 1]!;
         const caseEnvFrameVariables = caseEnv.frames[frameLevel]!.variables;
-        initializedAtTokens.push(matrix[j]![i]!.initializedAtToken);
+        initializedAtTokens.push(matrix[k]![j]!.initializedAtToken);
         isOwningTheRefValueAtTokens.push(
-          matrix[j]![i]!.isOwningTheRcValue
-            ? caseEnvFrameVariables[i]!.token
+          matrix[k]![j]!.isOwningTheRcValue
+            ? caseEnvFrameVariables[j]!.token
             : undefined
         );
-        consumedAtTokens.push(matrix[j]![i]!.consumedAtToken);
-        types.push(matrix[j]![i]!.type);
+        consumedAtTokens.push(matrix[k]![j]!.consumedAtToken);
+        types.push(matrix[k]![j]!.type);
       }
 
       // Check type compatibility across cases for initialized variables
@@ -1716,12 +1717,12 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
       if (initializedAtTokens.length === 1) {
         if (
           !!initializedAtTokens[0] &&
-          !frameVariables[i]!.initializedAtToken
+          !frameVariables[j]!.initializedAtToken
         ) {
           throw formatErrorMessages([
             {
-              token: frameVariables[i]!.token,
-              errorMessage: `Variable "${frameVariables[i]!.name}" might not be initialized in all cases.`,
+              token: frameVariables[j]!.token,
+              errorMessage: `Variable "${frameVariables[j]!.name}" might not be initialized in all cases.`,
             },
             {
               token: initializedAtTokens[0]!,
@@ -1733,15 +1734,15 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
       // case 2
       // variable is undefined outside, but all cases make it defined.
       else if (
-        !frameVariables[i]!.initializedAtToken &&
+        !frameVariables[j]!.initializedAtToken &&
         initializedAtTokens.every((u) => u)
       ) {
         const newVariable: Variable = {
-          ...frameVariables[i]!,
+          ...frameVariables[j]!,
           initializedAtToken: initializedAtTokens[0]!,
         };
-        env = updateExistingVariable(env, frameVariables[i]!, newVariable);
-        frameVariables[i] = newVariable;
+        env = updateExistingVariable(env, frameVariables[j]!, newVariable);
+        frameVariables[j] = newVariable;
       }
       // case 3
       else {
@@ -1771,26 +1772,26 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
       // (Previously this was an error, but that was wrong - if there's only one branch,
       // the variable IS definitely consumed, there's no ambiguity)
       if (consumedAtTokens.length === 1) {
-        if (!!consumedAtTokens[0] && !frameVariables[i]!.consumedAtToken) {
+        if (!!consumedAtTokens[0] && !frameVariables[j]!.consumedAtToken) {
           const newVariable: Variable = {
-            ...frameVariables[i]!,
+            ...frameVariables[j]!,
             consumedAtToken: consumedAtTokens[0]!,
           };
-          env = updateExistingVariable(env, frameVariables[i]!, newVariable);
-          frameVariables[i] = newVariable;
+          env = updateExistingVariable(env, frameVariables[j]!, newVariable);
+          frameVariables[j] = newVariable;
         }
       }
       // case 2: Variable is not consumed before, but consumed in all cases
       else if (
-        !frameVariables[i]!.consumedAtToken &&
+        !frameVariables[j]!.consumedAtToken &&
         consumedAtTokens.every((u) => u)
       ) {
         const newVariable: Variable = {
-          ...frameVariables[i]!,
+          ...frameVariables[j]!,
           consumedAtToken: consumedAtTokens[0]!,
         };
-        env = updateExistingVariable(env, frameVariables[i]!, newVariable);
-        frameVariables[i] = newVariable;
+        env = updateExistingVariable(env, frameVariables[j]!, newVariable);
+        frameVariables[j] = newVariable;
       }
       // case 3: Some cases consume, some don't
       else {
@@ -1837,16 +1838,16 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
       else 
       */
       if (
-        !frameVariables[i]!.isOwningTheRcValue &&
+        !frameVariables[j]!.isOwningTheRcValue &&
         isOwningTheRefValueAtTokens.every((u) => u)
       ) {
         const newVariable: Variable = {
-          ...frameVariables[i]!,
+          ...frameVariables[j]!,
           isOwningTheRcValue: true,
           isOwningTheSameRcValueAs: undefined,
         };
-        env = updateExistingVariable(env, frameVariables[i]!, newVariable);
-        frameVariables[i] = newVariable;
+        env = updateExistingVariable(env, frameVariables[j]!, newVariable);
+        frameVariables[j] = newVariable;
       }
       // case 3
       else {
@@ -1880,13 +1881,13 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
       // Check for reassignment across branches
       // When a variable is reassigned in any branch, its ID changes (see assignment.ts)
       // We need to detect this and generate a new ID for the merged environment
-      const originalVariableId = frameVariables[i]!.id;
+      const originalVariableId = frameVariables[j]!.id;
       const variableIds: string[] = [];
 
-      for (let j = 1; j < rows; j++) {
-        const caseEnv = caseEnvs[j - 1]!;
+      for (let k = 1; k < rows; k++) {
+        const caseEnv = caseEnvs[k - 1]!;
         const caseEnvFrameVariables = caseEnv.frames[frameLevel]!.variables;
-        const caseVariable = caseEnvFrameVariables[i]!;
+        const caseVariable = caseEnvFrameVariables[j]!;
         variableIds.push(caseVariable.id);
       }
 
@@ -1901,13 +1902,13 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
         const newVariableId = generateVarialeId(env.modulePath, variableName);
 
         const newVariable: Variable = {
-          ...frameVariables[i]!,
+          ...frameVariables[j]!,
           id: newVariableId,
           // Clear ownership tracking since the value may come from different sources
           isOwningTheSameRcValueAs: undefined,
         };
-        env = updateExistingVariable(env, frameVariables[i]!, newVariable);
-        frameVariables[i] = newVariable;
+        env = updateExistingVariable(env, frameVariables[j]!, newVariable);
+        frameVariables[j] = newVariable;
       }
     }
   }

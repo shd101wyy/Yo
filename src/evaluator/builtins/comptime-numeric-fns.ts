@@ -503,16 +503,23 @@ export function evaluateYoComptimeNumericFunctions({
 
   switch (operation) {
     case "add": {
-      const lhs = extractNumericValue(lhsValue);
-      const rhs = extractNumericValue(rhsValue);
-      if (lhs !== null && rhs !== null) {
+      const lhsNumber = extractNumericValue(lhsValue);
+      const rhsNumber = extractNumericValue(rhsValue);
+      if (lhsNumber !== null && rhsNumber !== null) {
         // Handle bigint arithmetic
         const result =
-          typeof lhs === "bigint" || typeof rhs === "bigint"
-            ? (typeof lhs === "bigint" ? lhs : BigInt(lhs)) +
-              (typeof rhs === "bigint" ? rhs : BigInt(rhs))
-            : lhs + rhs;
-        checkOverflow(result, numericType, "add", lhs, rhs, expr.token);
+          typeof lhsNumber === "bigint" || typeof rhsNumber === "bigint"
+            ? (typeof lhsNumber === "bigint" ? lhsNumber : BigInt(lhsNumber)) +
+              (typeof rhsNumber === "bigint" ? rhsNumber : BigInt(rhsNumber))
+            : lhsNumber + rhsNumber;
+        checkOverflow(
+          result,
+          numericType,
+          "add",
+          lhsNumber,
+          rhsNumber,
+          expr.token
+        );
       }
       value = performArithmeticOp(
         lhsValue,
@@ -533,15 +540,22 @@ export function evaluateYoComptimeNumericFunctions({
       break;
     }
     case "sub": {
-      const lhs = extractNumericValue(lhsValue);
-      const rhs = extractNumericValue(rhsValue);
-      if (lhs !== null && rhs !== null) {
+      const lhsNumber = extractNumericValue(lhsValue);
+      const rhsNumber = extractNumericValue(rhsValue);
+      if (lhsNumber !== null && rhsNumber !== null) {
         const result =
-          typeof lhs === "bigint" || typeof rhs === "bigint"
-            ? (typeof lhs === "bigint" ? lhs : BigInt(lhs)) -
-              (typeof rhs === "bigint" ? rhs : BigInt(rhs))
-            : lhs - rhs;
-        checkOverflow(result, numericType, "subtract", lhs, rhs, expr.token);
+          typeof lhsNumber === "bigint" || typeof rhsNumber === "bigint"
+            ? (typeof lhsNumber === "bigint" ? lhsNumber : BigInt(lhsNumber)) -
+              (typeof rhsNumber === "bigint" ? rhsNumber : BigInt(rhsNumber))
+            : lhsNumber - rhsNumber;
+        checkOverflow(
+          result,
+          numericType,
+          "subtract",
+          lhsNumber,
+          rhsNumber,
+          expr.token
+        );
       }
       value = performArithmeticOp(
         lhsValue,
@@ -562,15 +576,22 @@ export function evaluateYoComptimeNumericFunctions({
       break;
     }
     case "mul": {
-      const lhs = extractNumericValue(lhsValue);
-      const rhs = extractNumericValue(rhsValue);
-      if (lhs !== null && rhs !== null) {
+      const lhsNumber = extractNumericValue(lhsValue);
+      const rhsNumber = extractNumericValue(rhsValue);
+      if (lhsNumber !== null && rhsNumber !== null) {
         const result =
-          typeof lhs === "bigint" || typeof rhs === "bigint"
-            ? (typeof lhs === "bigint" ? lhs : BigInt(lhs)) *
-              (typeof rhs === "bigint" ? rhs : BigInt(rhs))
-            : lhs * rhs;
-        checkOverflow(result, numericType, "multiply", lhs, rhs, expr.token);
+          typeof lhsNumber === "bigint" || typeof rhsNumber === "bigint"
+            ? (typeof lhsNumber === "bigint" ? lhsNumber : BigInt(lhsNumber)) *
+              (typeof rhsNumber === "bigint" ? rhsNumber : BigInt(rhsNumber))
+            : lhsNumber * rhsNumber;
+        checkOverflow(
+          result,
+          numericType,
+          "multiply",
+          lhsNumber,
+          rhsNumber,
+          expr.token
+        );
       }
       value = performArithmeticOp(
         lhsValue,
@@ -714,16 +735,22 @@ export function evaluateYoComptimeNumericFunctions({
       resultType = createBooleanType();
       break;
     case "bit_and": {
-      const lhs = extractNumericValue(lhsValue);
-      const rhs = extractNumericValue(rhsValue);
-      if (lhs !== null && rhs !== null) {
-        if (typeof lhs === "bigint" || typeof rhs === "bigint") {
-          const bigA = typeof lhs === "bigint" ? lhs : BigInt(Math.floor(lhs));
-          const bigB = typeof rhs === "bigint" ? rhs : BigInt(Math.floor(rhs));
+      const lhsNumber = extractNumericValue(lhsValue);
+      const rhsNumber = extractNumericValue(rhsValue);
+      if (lhsNumber !== null && rhsNumber !== null) {
+        if (typeof lhsNumber === "bigint" || typeof rhsNumber === "bigint") {
+          const bigA =
+            typeof lhsNumber === "bigint"
+              ? lhsNumber
+              : BigInt(Math.floor(lhsNumber));
+          const bigB =
+            typeof rhsNumber === "bigint"
+              ? rhsNumber
+              : BigInt(Math.floor(rhsNumber));
           value = createComptimeIntValue(bigA & bigB);
         } else {
           value = createComptimeIntValue(
-            BigInt(Math.floor(lhs) & Math.floor(rhs))
+            BigInt(Math.floor(lhsNumber) & Math.floor(rhsNumber))
           );
         }
       } else {
@@ -733,16 +760,22 @@ export function evaluateYoComptimeNumericFunctions({
       break;
     }
     case "bit_or": {
-      const lhs = extractNumericValue(lhsValue);
-      const rhs = extractNumericValue(rhsValue);
-      if (lhs !== null && rhs !== null) {
-        if (typeof lhs === "bigint" || typeof rhs === "bigint") {
-          const bigA = typeof lhs === "bigint" ? lhs : BigInt(Math.floor(lhs));
-          const bigB = typeof rhs === "bigint" ? rhs : BigInt(Math.floor(rhs));
+      const lhsNumber = extractNumericValue(lhsValue);
+      const rhsNumber = extractNumericValue(rhsValue);
+      if (lhsNumber !== null && rhsNumber !== null) {
+        if (typeof lhsNumber === "bigint" || typeof rhsNumber === "bigint") {
+          const bigA =
+            typeof lhsNumber === "bigint"
+              ? lhsNumber
+              : BigInt(Math.floor(lhsNumber));
+          const bigB =
+            typeof rhsNumber === "bigint"
+              ? rhsNumber
+              : BigInt(Math.floor(rhsNumber));
           value = createComptimeIntValue(bigA | bigB);
         } else {
           value = createComptimeIntValue(
-            BigInt(Math.floor(lhs) | Math.floor(rhs))
+            BigInt(Math.floor(lhsNumber) | Math.floor(rhsNumber))
           );
         }
       } else {
@@ -752,16 +785,22 @@ export function evaluateYoComptimeNumericFunctions({
       break;
     }
     case "bit_xor": {
-      const lhs = extractNumericValue(lhsValue);
-      const rhs = extractNumericValue(rhsValue);
-      if (lhs !== null && rhs !== null) {
-        if (typeof lhs === "bigint" || typeof rhs === "bigint") {
-          const bigA = typeof lhs === "bigint" ? lhs : BigInt(Math.floor(lhs));
-          const bigB = typeof rhs === "bigint" ? rhs : BigInt(Math.floor(rhs));
+      const lhsNumber = extractNumericValue(lhsValue);
+      const rhsNumber = extractNumericValue(rhsValue);
+      if (lhsNumber !== null && rhsNumber !== null) {
+        if (typeof lhsNumber === "bigint" || typeof rhsNumber === "bigint") {
+          const bigA =
+            typeof lhsNumber === "bigint"
+              ? lhsNumber
+              : BigInt(Math.floor(lhsNumber));
+          const bigB =
+            typeof rhsNumber === "bigint"
+              ? rhsNumber
+              : BigInt(Math.floor(rhsNumber));
           value = createComptimeIntValue(bigA ^ bigB);
         } else {
           value = createComptimeIntValue(
-            BigInt(Math.floor(lhs) ^ Math.floor(rhs))
+            BigInt(Math.floor(lhsNumber) ^ Math.floor(rhsNumber))
           );
         }
       } else {
@@ -771,12 +810,17 @@ export function evaluateYoComptimeNumericFunctions({
       break;
     }
     case "shl": {
-      const lhs = extractNumericValue(lhsValue);
-      const rhs = extractNumericValue(rhsValue);
-      if (lhs !== null && rhs !== null) {
-        const bigA = typeof lhs === "bigint" ? lhs : BigInt(Math.floor(lhs));
+      const lhsNumber = extractNumericValue(lhsValue);
+      const rhsNumber = extractNumericValue(rhsValue);
+      if (lhsNumber !== null && rhsNumber !== null) {
+        const bigA =
+          typeof lhsNumber === "bigint"
+            ? lhsNumber
+            : BigInt(Math.floor(lhsNumber));
         const shiftAmount =
-          typeof rhs === "bigint" ? Number(rhs) : Math.floor(rhs);
+          typeof rhsNumber === "bigint"
+            ? Number(rhsNumber)
+            : Math.floor(rhsNumber);
         value = createComptimeIntValue(bigA << BigInt(shiftAmount));
       } else {
         value = createUnknownValue(numericType, { env, context });
@@ -785,12 +829,17 @@ export function evaluateYoComptimeNumericFunctions({
       break;
     }
     case "shr": {
-      const lhs = extractNumericValue(lhsValue);
-      const rhs = extractNumericValue(rhsValue);
-      if (lhs !== null && rhs !== null) {
-        const bigA = typeof lhs === "bigint" ? lhs : BigInt(Math.floor(lhs));
+      const lhsNumber = extractNumericValue(lhsValue);
+      const rhsNumber = extractNumericValue(rhsValue);
+      if (lhsNumber !== null && rhsNumber !== null) {
+        const bigA =
+          typeof lhsNumber === "bigint"
+            ? lhsNumber
+            : BigInt(Math.floor(lhsNumber));
         const shiftAmount =
-          typeof rhs === "bigint" ? Number(rhs) : Math.floor(rhs);
+          typeof rhsNumber === "bigint"
+            ? Number(rhsNumber)
+            : Math.floor(rhsNumber);
         value = createComptimeIntValue(bigA >> BigInt(shiftAmount));
       } else {
         value = createUnknownValue(numericType, { env, context });

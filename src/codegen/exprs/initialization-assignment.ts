@@ -151,9 +151,6 @@ export function generateInitializationAssignment(
       }
     }
 
-    // Check if we're in a state machine context and this is a captured variable
-    const functionContext = context as FunctionGenerationContext;
-
     // To check if a variable is in the state machine, we need to:
     // 1. Look up the variable in the environment to get its ID
     // 2. Check if that ID is a key in stateMachineVariables map
@@ -323,8 +320,6 @@ export function generateInitializationAssignment(
             }
           }
         } else {
-          // Check if this temp variable is for a captured variable - if so, skip temp variable creation
-          const functionContext = context as FunctionGenerationContext;
           if (
             exprIsAtom(rhs) &&
             functionContext.currentClosureCaptures &&
@@ -409,7 +404,6 @@ export function generateInitializationAssignment(
           rhs.$?.deferredDupExpressions &&
           rhs.$.deferredDupExpressions.length > 0
         ) {
-          const functionContext = context as FunctionGenerationContext;
           generateDeferredDupExpressions(rhs, indent, functionContext);
           // Use the dup result variable
           const dupExpr = rhs.$.deferredDupExpressions[0]!;

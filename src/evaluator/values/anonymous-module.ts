@@ -71,8 +71,8 @@ export function evaluateAnonymousModuleBeginExprs({
         exprIsFunctionCallOf(expr, BuiltinKeywords.export)
       ) {
         const exportExprs = expr.args;
-        for (let i = 0; i < exportExprs.length; i++) {
-          const exportExpr = exportExprs[i]!;
+        for (let j = 0; j < exportExprs.length; j++) {
+          const exportExpr = exportExprs[j]!;
 
           // spread operator for export all fields in another module
           if (
@@ -184,8 +184,8 @@ export function evaluateAnonymousModuleBeginExprs({
             }
 
             // Iterate over the fields of the extended struct
-            for (let i = 0; i < extendedModuleType.fields.length; i++) {
-              const extendedStructField = extendedModuleType.fields[i]!;
+            for (let k = 0; k < extendedModuleType.fields.length; k++) {
+              const extendedStructField = extendedModuleType.fields[k]!;
               // Check if the field is excluded
               if (excludedLabels.has(extendedStructField.label)) {
                 // Skip the field if it's excluded
@@ -223,7 +223,7 @@ export function evaluateAnonymousModuleBeginExprs({
 
                 // Add the value to the module field values
                 if (extendedModuleValue) {
-                  moduleElementValues.push(extendedModuleValue.fields[i]);
+                  moduleElementValues.push(extendedModuleValue.fields[j]);
                 } else {
                   moduleElementValues.push(undefined);
                 }
@@ -233,7 +233,7 @@ export function evaluateAnonymousModuleBeginExprs({
                   env,
                   type: extendedStructField.type,
                   value: extendedModuleValue
-                    ? extendedModuleValue.fields[i]
+                    ? extendedModuleValue.fields[j]
                     : undefined,
                   pathCollection: [],
                 };

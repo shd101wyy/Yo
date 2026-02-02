@@ -926,7 +926,7 @@ export function getReceiverMethodsByNameFromEnv({
   }
 
   function filterMethodsByReceiverType(
-    methods: {
+    methodsToFilter: {
       type: Type;
       value: Value | undefined;
       needsPointerConversion?: boolean;
@@ -936,7 +936,7 @@ export function getReceiverMethodsByNameFromEnv({
     value: Value | undefined;
     needsPointerConversion?: boolean;
   }[] {
-    const filtered = methods.filter((method) => {
+    const filtered = methodsToFilter.filter((method) => {
       if (isFunctionType(method.type)) {
         if (method.type.parameters.length === 0) {
           return false; // Methods must have at least one parameter (receiver)
@@ -1133,7 +1133,7 @@ export function getReceiverMethodsByNameFromEnv({
   // Helper function to recursively check a trait for methods
   function checkTraitForMethod(
     traitType: TraitType,
-    methodName: string,
+    traitMethodName: string,
     visitTraits: Set<string> = new Set()
   ): void {
     // Prevent infinite recursion for circular trait references
@@ -1144,7 +1144,7 @@ export function getReceiverMethodsByNameFromEnv({
 
     // First, check direct methods in this trait
     const directMethod = traitType.fields.find(
-      (field) => field.label === methodName && isFunctionType(field.type)
+      (field) => field.label === traitMethodName && isFunctionType(field.type)
     );
 
     if (directMethod && isFunctionType(directMethod.type)) {

@@ -69,20 +69,20 @@ export function tokenize(input: string, modulePath: string): Token[] {
       case "\n":
       case "\r": {
         let whitespaces = "";
-        let j = i;
+        let k = i;
         const currentLine = line;
         while (
-          input[j] === " " ||
-          input[j] === "\t" ||
-          input[j] === "\n" ||
-          input[j] === "\r"
+          input[k] === " " ||
+          input[k] === "\t" ||
+          input[k] === "\n" ||
+          input[k] === "\r"
         ) {
-          whitespaces += input[j];
-          if (input[j] === "\n") {
+          whitespaces += input[k];
+          if (input[k] === "\n") {
             line++; // reset the line number
-            totalCharacters = j + 1; // reset the character number
+            totalCharacters = k + 1; // reset the character number
           }
-          j = j + 1;
+          k = k + 1;
         }
         tokens.push({
           type: TokenType.Whitespace,
@@ -95,7 +95,7 @@ export function tokenize(input: string, modulePath: string): Token[] {
           modulePath,
           inputString: input,
         });
-        i = j - 1;
+        i = k - 1;
         break;
       }
       // comments
@@ -103,11 +103,11 @@ export function tokenize(input: string, modulePath: string): Token[] {
         if (input[i + 1] === "/") {
           // single line comment
           let comment = "";
-          let j = i;
-          while (input[j] !== "\n" && j < input.length) {
+          let k = i;
+          while (input[k] !== "\n" && k < input.length) {
             // ignore the rest of the line
-            comment += input[j];
-            j = j + 1;
+            comment += input[k];
+            k = k + 1;
           }
           tokens.push({
             type: TokenType.SingleLineComment,
@@ -120,43 +120,43 @@ export function tokenize(input: string, modulePath: string): Token[] {
             modulePath,
             inputString: input,
           });
-          i = j - 1;
+          i = k - 1;
         } else if (input[i + 1] === "*") {
           // multi line comment
-          let j = i;
+          let k = i;
           let comment = "";
           const currentLine = line;
           let nestingLevel = 1; // Track nesting level, starting with 1 for the opening /*
 
-          comment += input[j]; // Add the opening '/'
-          j++;
-          comment += input[j]; // Add the opening '*'
-          j++;
+          comment += input[k]; // Add the opening '/'
+          k++;
+          comment += input[k]; // Add the opening '*'
+          k++;
 
-          while (nestingLevel > 0 && j < input.length) {
-            if (input[j] === "\n") {
-              totalCharacters = j + 1;
+          while (nestingLevel > 0 && k < input.length) {
+            if (input[k] === "\n") {
+              totalCharacters = k + 1;
               line++;
             }
 
             // Check for nested opening comment
-            if (input[j] === "/" && input[j + 1] === "*") {
+            if (input[k] === "/" && input[k + 1] === "*") {
               nestingLevel++;
               comment += "/*";
-              j += 2;
+              k += 2;
               continue;
             }
 
             // Check for closing comment
-            if (input[j] === "*" && input[j + 1] === "/") {
+            if (input[k] === "*" && input[k + 1] === "/") {
               nestingLevel--;
               comment += "*/";
-              j += 2;
+              k += 2;
               continue;
             }
 
-            comment += input[j];
-            j++;
+            comment += input[k];
+            k++;
           }
 
           if (nestingLevel > 0) {
@@ -178,7 +178,7 @@ export function tokenize(input: string, modulePath: string): Token[] {
             modulePath,
             inputString: input,
           });
-          i = j - 1;
+          i = k - 1;
         } else {
           throw new YoLexerError({
             message: `Unexpected character ${char}`,
@@ -275,19 +275,19 @@ export function tokenize(input: string, modulePath: string): Token[] {
       case "'": {
         let value = "";
 
-        for (let j = i + 1; j < input.length; j++) {
-          if (input[j] === "\\") {
-            value += input[j];
-            j = j + 1;
-            value += input[j];
+        for (let k = i + 1; k < input.length; j++) {
+          if (input[k] === "\\") {
+            value += input[k];
+            k = k + 1;
+            value += input[k];
             continue;
           }
-          if (input[j] === "'") {
-            i = j;
+          if (input[k] === "'") {
+            i = k;
             break;
           }
 
-          value += input[j];
+          value += input[k];
         }
 
         // Check if it's a valid char
@@ -317,19 +317,19 @@ export function tokenize(input: string, modulePath: string): Token[] {
       case '"': {
         let stringValue = "";
 
-        for (let j = i + 1; j < input.length; j++) {
-          if (input[j] === "\\") {
-            stringValue += input[j];
-            j = j + 1;
-            stringValue += input[j];
+        for (let k = i + 1; k < input.length; k++) {
+          if (input[k] === "\\") {
+            stringValue += input[k];
+            k = k + 1;
+            stringValue += input[k];
             continue;
           }
-          if (input[j] === '"') {
-            i = j;
+          if (input[k] === '"') {
+            i = k;
             break;
           }
 
-          stringValue += input[j];
+          stringValue += input[k];
         }
 
         tokens.push({
@@ -350,21 +350,21 @@ export function tokenize(input: string, modulePath: string): Token[] {
       case "`": {
         let value = "";
         let braceDepth = 0;
-        let j = i + 1;
+        let k = i + 1;
 
-        while (j < input.length) {
+        while (k < input.length) {
           // Handle escape sequences
-          if (input[j] === "\\") {
-            if (j + 1 < input.length) {
-              const nextChar = input[j + 1];
+          if (input[k] === "\\") {
+            if (k + 1 < input.length) {
+              const nextChar = input[k + 1];
               if (nextChar === "$") {
                 // Escaped dollar sign: \$ should be stored specially for the parser
                 value += "\\$";
-                j = j + 2;
+                k = k + 2;
                 continue;
               } else {
                 // Other escape sequences - interpret them like JavaScript
-                j = j + 1;
+                k = k + 1;
                 switch (nextChar) {
                   case "n":
                     value += "\n";
@@ -405,49 +405,49 @@ export function tokenize(input: string, modulePath: string): Token[] {
                     value += nextChar;
                     break;
                 }
-                j = j + 1;
+                k = k + 1;
                 continue;
               }
             }
           }
 
           // Handle interpolation start: ${
-          if (braceDepth === 0 && input[j] === "$" && input[j + 1] === "{") {
+          if (braceDepth === 0 && input[k] === "$" && input[k + 1] === "{") {
             value += "${";
-            j = j + 2;
+            k = k + 2;
             braceDepth = 1;
             continue;
           }
 
           // Handle nested braces inside interpolation
           if (braceDepth > 0) {
-            if (input[j] === "{") {
+            if (input[k] === "{") {
               braceDepth = braceDepth + 1;
-            } else if (input[j] === "}") {
+            } else if (input[k] === "}") {
               braceDepth = braceDepth - 1;
             }
-            value += input[j];
-            j = j + 1;
+            value += input[k];
+            k = k + 1;
             continue;
           }
 
           // Handle end of template string
-          if (input[j] === "`") {
-            i = j;
+          if (input[k] === "`") {
+            i = k;
             break;
           }
 
           // Handle newlines for line tracking
-          if (input[j] === "\n") {
+          if (input[k] === "\n") {
             line++;
-            totalCharacters = j + 1;
+            totalCharacters = k + 1;
           }
 
-          value += input[j];
-          j = j + 1;
+          value += input[k];
+          k = k + 1;
         }
 
-        if (j >= input.length && input[j] !== "`") {
+        if (k >= input.length && input[k] !== "`") {
           throw new YoLexerError({
             message: `Unterminated template string`,
             characterIndex: i,

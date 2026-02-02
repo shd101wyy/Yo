@@ -225,8 +225,8 @@ export function tryToImplementFunctionByFunctionType({
   // Check if the function has forall type parameters
   // Re-apply where-clause constraints for this function body evaluation.
   if (newFunctionType.whereClauseExprs?.length) {
-    const constraintExprs = newFunctionType.whereClauseExprs.map((expr) =>
-      cloneExpr(expr)
+    const constraintExprs = newFunctionType.whereClauseExprs.map(
+      (whereClauseExpr) => cloneExpr(whereClauseExpr)
     );
     const result = applyWhereClauseConstraints({
       constraintExprs,

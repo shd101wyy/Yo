@@ -141,7 +141,7 @@ export function synthesizeExprAndType({
       }
       const variantName = variantNameExpr.token.value;
       const variant = type.variants.find(
-        (variant) => variant.name === variantName
+        (_variant) => _variant.name === variantName
       );
       if (!variant) {
         throw formatErrorMessage({
@@ -192,7 +192,7 @@ export function synthesizeExprAndType({
 
       const variantName = variantNameExpr.token.value;
       const variant = type.variants.find(
-        (variant) => variant.name === variantName
+        (_variant) => _variant.name === variantName
       );
       if (!variant) {
         throw formatErrorMessage({

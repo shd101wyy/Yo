@@ -1,6 +1,7 @@
 /**
  * Type tags to identify different kinds of types
  */
+// eslint-disable-next-line no-shadow
 export enum TypeTag {
   // Primitive types
   Unit = "unit",

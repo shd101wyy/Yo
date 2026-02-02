@@ -134,8 +134,8 @@ export function processUnquotesInExpr({
             // TODO: exprListValue is unknown value.
           }
           if (unquoteSplicingArgs) {
-            unquoteSplicingArgs.forEach((arg) => {
-              newArgs.push(arg);
+            unquoteSplicingArgs.forEach((_arg) => {
+              newArgs.push(_arg);
             });
           } else {
             // Meet unknown value, we just ignore it

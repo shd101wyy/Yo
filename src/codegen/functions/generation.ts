@@ -1105,19 +1105,19 @@ function generateRefStructTraversalFunctions(
             for (const variant of enumType.variants || []) {
               // Check if any of the variant's fields contain references
               if (variant.fields && variant.fields.length > 0) {
-                for (const field of variant.fields) {
+                for (const variantField of variant.fields) {
                   if (
-                    isStructType(field.type) &&
-                    field.type.isReferenceSemantics
+                    isStructType(variantField.type) &&
+                    variantField.type.isReferenceSemantics
                   ) {
                     // This variant contains a reference
                     const enumConstantName = `YO_${enumType.id?.toUpperCase()}_${variant.name.toUpperCase()}`;
                     emitter.emitLine(`  case ${enumConstantName}:`);
                     emitter.emitLine(
-                      `    if (obj->${fieldName}.data.${variant.name}.${sanitizeForCIdentifier(field.label)}) {`
+                      `    if (obj->${fieldName}.data.${variant.name}.${sanitizeForCIdentifier(variantField.label)}) {`
                     );
                     emitter.emitLine(
-                      `      visit(obj->${fieldName}.data.${variant.name}.${sanitizeForCIdentifier(field.label)});`
+                      `      visit(obj->${fieldName}.data.${variant.name}.${sanitizeForCIdentifier(variantField.label)});`
                     );
                     emitter.emitLine(`    }`);
                     emitter.emitLine(`    break;`);

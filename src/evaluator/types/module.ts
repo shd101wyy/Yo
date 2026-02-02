@@ -211,7 +211,7 @@ ${typeToString(expectedType)}`
 
   // Evaluate assignedValueExpr if it exists
   if (assignedValueExpr) {
-    const expectedType = fieldType
+    const fieldExpectedType = fieldType
       ? { type: fieldType, env }
       : expectedModuleFieldType
         ? {
@@ -224,7 +224,7 @@ ${typeToString(expectedType)}`
       env,
       context: {
         ...context,
-        expectedType: expectedType,
+        expectedType: fieldExpectedType,
       },
     });
     if (!evaluatedAssignedValueExpr.$) {
@@ -249,22 +249,22 @@ ${typeToString(expectedType)}`
 
     const assignedValueType = evaluatedAssignedValueExpr.$.type;
 
-    // Check if assignedValueType matches expectedType
-    if (expectedType) {
+    // Check if assignedValueType matches fieldExpectedType
+    if (fieldExpectedType) {
       if (
         !areTypesCompatible(
-          { type: expectedType.type, env },
+          { type: fieldExpectedType.type, env },
           { type: assignedValueType, env }
         )
       ) {
         throw formatErrorMessage({
           token: assignedValueExpr.token,
           errorMessage: `Assigned value type mismatch:
-Expected type: ${typeToString(expectedType.type)}
+Expected type: ${typeToString(fieldExpectedType.type)}
 Given type: ${typeToString(assignedValueType)}`,
         });
       }
-      fieldType = expectedType.type;
+      fieldType = fieldExpectedType.type;
     } else {
       fieldType = assignedValueType;
     }
@@ -272,7 +272,7 @@ Given type: ${typeToString(assignedValueType)}`,
 
   // Evaluate defaultValueExpr if it exists
   if (defaultValueExpr) {
-    const expectedType = fieldType
+    const fieldExpectedType = fieldType
       ? { type: fieldType, env }
       : expectedModuleFieldType
         ? {
@@ -285,7 +285,7 @@ Given type: ${typeToString(assignedValueType)}`,
       env,
       context: {
         ...context,
-        expectedType: expectedType,
+        expectedType: fieldExpectedType,
       },
     });
     if (!evaluatedDefaultValueExpr.$) {
@@ -310,22 +310,22 @@ Given type: ${typeToString(assignedValueType)}`,
 
     const defaultValueType = evaluatedDefaultValueExpr.$.type;
 
-    // Check if defaultValueType matches expectedType
-    if (expectedType) {
+    // Check if defaultValueType matches fieldExpectedType
+    if (fieldExpectedType) {
       if (
         !areTypesCompatible(
-          { type: expectedType.type, env },
+          { type: fieldExpectedType.type, env },
           { type: defaultValueType, env }
         )
       ) {
         throw formatErrorMessage({
           token: defaultValueExpr.token,
           errorMessage: `Default value type mismatch:
-Expected type: ${typeToString(expectedType.type)}
+Expected type: ${typeToString(fieldExpectedType.type)}
 Given type: ${typeToString(defaultValueType)}`,
         });
       }
-      fieldType = expectedType.type;
+      fieldType = fieldExpectedType.type;
     } else {
       fieldType = defaultValueType;
     }
@@ -552,9 +552,9 @@ export function evaluateModuleType({
         const moduleValue = value;
 
         // Iterate over the fields of the module value
-        for (let i = 0; i < moduleValue.fields.length; i++) {
-          const fieldValue = moduleValue.fields[i]!;
-          const extendedModuleField = moduleValue.type.fields[i]!;
+        for (let idx = 0; idx < moduleValue.fields.length; idx++) {
+          const fieldValue = moduleValue.fields[idx]!;
+          const extendedModuleField = moduleValue.type.fields[idx]!;
 
           // Check if there is a duplicate label
           const duplicateLabelIndex = fields.findIndex(
@@ -586,7 +586,7 @@ export function evaluateModuleType({
           } else {
             // Add the field to the module
             fields.push({
-              ...moduleValue.type.fields[i]!,
+              ...moduleValue.type.fields[idx]!,
               assignedValue: fieldValue,
             });
             // Don't add to environment - module fields are accessed via Self.XXX

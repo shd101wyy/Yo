@@ -292,7 +292,7 @@ export function valueToString(value?: Value): string {
       }
 
       const variant = value.type.variants.find(
-        (variant) => variant.name === value.variantName
+        (_variant) => _variant.name === value.variantName
       );
       return `.${value.variantName}(${value.fields
         .map((element, index) => {

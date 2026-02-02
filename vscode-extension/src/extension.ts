@@ -212,7 +212,7 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(diagnosticCollection);
 
   // Yo language module manager (initialized lazily per workspace std path)
-  let moduleManager: ModuleManager | null = null;
+  let rootModuleManager: ModuleManager | null = null;
   let moduleManagerStdPath: string | null = null;
 
   const findStdPathForDocument = (
@@ -241,22 +241,22 @@ export function activate(context: vscode.ExtensionContext) {
   ): ModuleManager => {
     const stdPath = findStdPathForDocument(document);
 
-    if (!moduleManager) {
-      moduleManager = new ModuleManager({
+    if (!rootModuleManager) {
+      rootModuleManager = new ModuleManager({
         allowPartialModule: true,
         stdPath: stdPath ?? undefined,
       });
-      moduleManagerStdPath = moduleManager.stdPath;
-      return moduleManager;
+      moduleManagerStdPath = rootModuleManager.stdPath;
+      return rootModuleManager;
     }
 
     if (stdPath && moduleManagerStdPath !== stdPath) {
-      moduleManager.resetAllState();
-      moduleManager.stdPath = stdPath;
+      rootModuleManager.resetAllState();
+      rootModuleManager.stdPath = stdPath;
       moduleManagerStdPath = stdPath;
     }
 
-    return moduleManager;
+    return rootModuleManager;
   };
 
   // Track in-flight analyses to avoid race conditions where an older run clears
@@ -465,9 +465,9 @@ export function activate(context: vscode.ExtensionContext) {
         let bestExprPosition = -1;
 
         for (const expr of exprs) {
-          const findBestEnv = (expr: Expr) => {
-            if (exprIsAtom(expr)) {
-              const atomExpr = expr as AtomExpr;
+          const findBestEnv = (_expr: Expr) => {
+            if (exprIsAtom(_expr)) {
+              const atomExpr = _expr as AtomExpr;
               if (
                 atomExpr.$?.env &&
                 atomExpr.token.position.row < tokenAtPosition.position.row &&
@@ -476,8 +476,8 @@ export function activate(context: vscode.ExtensionContext) {
                 bestEnv = atomExpr.$.env;
                 bestExprPosition = atomExpr.token.position.row;
               }
-            } else if (expr.tag === "FnCall") {
-              const funcCallExpr = expr as FnCallExpr;
+            } else if (exprIsFunctionCall(_expr)) {
+              const funcCallExpr = _expr as FnCallExpr;
               findBestEnv(funcCallExpr.func);
               for (const arg of funcCallExpr.args) {
                 findBestEnv(arg);
@@ -748,11 +748,11 @@ export function activate(context: vscode.ExtensionContext) {
             } else {
               // Multiple candidates, prioritize them
               candidates.sort((a, b) => {
-                const currentLine = position.line;
+                const _currentLine = position.line;
 
                 // First priority: prefer variables declared closer to current position (but before it)
-                const aIsBeforeCurrent = a.token.position.row < currentLine;
-                const bIsBeforeCurrent = b.token.position.row < currentLine;
+                const aIsBeforeCurrent = a.token.position.row < _currentLine;
+                const bIsBeforeCurrent = b.token.position.row < _currentLine;
 
                 if (aIsBeforeCurrent && bIsBeforeCurrent) {
                   // Both are before current, prefer the one closer to current position
@@ -1008,8 +1008,8 @@ export function activate(context: vscode.ExtensionContext) {
             if (result) return result;
 
             for (const arg of funcCallExpr.args) {
-              const result = findVariableInScope(arg);
-              if (result) return result;
+              const variable = findVariableInScope(arg);
+              if (variable) return variable;
             }
           }
           return null;
@@ -1076,9 +1076,9 @@ export function activate(context: vscode.ExtensionContext) {
         let bestExprPosition = -1;
 
         for (const expr of program) {
-          const findBestEnv = (expr: Expr) => {
-            if (exprIsAtom(expr)) {
-              const atomExpr = expr as AtomExpr;
+          const findBestEnv = (_expr: Expr) => {
+            if (exprIsAtom(_expr)) {
+              const atomExpr = _expr as AtomExpr;
               if (
                 atomExpr.$?.env &&
                 atomExpr.token.position.row < currentLine &&
@@ -1087,8 +1087,8 @@ export function activate(context: vscode.ExtensionContext) {
                 bestEnv = atomExpr.$.env;
                 bestExprPosition = atomExpr.token.position.row;
               }
-            } else if (exprIsFunctionCall(expr)) {
-              const funcCallExpr = expr as FnCallExpr;
+            } else if (exprIsFunctionCall(_expr)) {
+              const funcCallExpr = _expr as FnCallExpr;
               findBestEnv(funcCallExpr.func);
               for (const arg of funcCallExpr.args) {
                 findBestEnv(arg);

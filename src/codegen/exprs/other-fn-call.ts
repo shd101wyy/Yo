@@ -353,7 +353,7 @@ export function generateOtherFunctionCall(
         }
 
         // Get new function type, which might be specialized.
-        const functionType =
+        const functionValueType =
           functionValue.specializedType ?? functionValue.type;
 
         // Normal function call
@@ -361,7 +361,7 @@ export function generateOtherFunctionCall(
 
         if (cFuncName) {
           // Generate function call
-          if (isUnitType(functionType.return.type)) {
+          if (isUnitType(functionValueType.return.type)) {
             // If the function returns unit, just call it without assignment
             context.emitter.emitLine(`${indent}${cFuncName}(${argsList});`);
 
@@ -378,7 +378,7 @@ export function generateOtherFunctionCall(
               // For Impl(Future(...)), use the actual function return type to get the correct state machine type
               const returnType =
                 functionValue.specializedType?.return.type ??
-                functionType.return.type;
+                functionValueType.return.type;
               const exprType = expr.$?.type;
 
               // Check if both types implement Future
@@ -442,7 +442,7 @@ export function generateOtherFunctionCall(
               return tempVar; // Return the temp variable name
             } else {
               // Error: regular function call returns non-unit type but no temp variable assigned
-              return `// Error: Regular function call returns ${getTypeString(functionValue.specializedType?.return.type ?? functionType.return.type, context)} but no temp variable assigned`;
+              return `// Error: Regular function call returns ${getTypeString(functionValue.specializedType?.return.type ?? functionValueType.return.type, context)} but no temp variable assigned`;
             }
           }
         }

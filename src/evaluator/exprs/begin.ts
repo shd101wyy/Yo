@@ -250,7 +250,7 @@ function searchRecursively(
 
   // Helper function to handle branching expressions (cond, match)
   function handleBranchingExpression(
-    expr: FnCallExpr,
+    branchingExpr: FnCallExpr,
     startIndex: number
   ): void {
     const branchDupCalls: DupCallsResult[] = [];
@@ -258,8 +258,8 @@ function searchRecursively(
     const branchIsEmpty: boolean[] = []; // Track if each branch is empty/falls through
 
     // Process each statement/pattern which should be a "=>" expression with [condition/pattern, body]
-    for (let i = startIndex; i < expr.args.length; i++) {
-      const statement = expr.args[i]!;
+    for (let i = startIndex; i < branchingExpr.args.length; i++) {
+      const statement = branchingExpr.args[i]!;
       if (
         exprIsFunctionCall(statement) &&
         exprIsFunctionCallOf(statement, "=>", 2)

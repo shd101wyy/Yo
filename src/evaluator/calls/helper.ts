@@ -1152,7 +1152,7 @@ Got:   ${typeToString(typeValue.type)}`,
       const {
         value: nextReturnValue,
         callerEnv: nextCallerEnv,
-        calleeEnv: nextCalleeEnv,
+        calleeEnv: _nextCalleeEnv,
       } = evaluateComptimeFunctionCall({
         functionCalleeExpr,
         functionType,
@@ -1168,15 +1168,15 @@ Got:   ${typeToString(typeValue.type)}`,
       returnValue = nextReturnValue;
       returnType = nextReturnValue.type;
       callerEnv = nextCallerEnv;
-      calleeEnv = nextCalleeEnv;
+      calleeEnv = _nextCalleeEnv;
     } else {
       // NOTE: The returnType might be a SomeType that we already synthesized
       //     in this case, we need to try to get its synthesized value from the callerEnv.
-      const isSomeType =
+      const _isSomeType =
         isTypeHierarchyType(returnType) && returnType.level === 0;
       const someTypeId = `${functionType.id}_return_sometype`;
 
-      if (isSomeType) {
+      if (_isSomeType) {
         if (context.expectedType?.type) {
           returnValue = createTypeValue(context.expectedType.type);
         } else {

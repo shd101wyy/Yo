@@ -182,8 +182,8 @@ yo --version                     Show version number
   .command(
     "compile <file>",
     "Compile a '.yo' file",
-    (yargs) => {
-      yargs.positional("file", {
+    (_yargs) => {
+      _yargs.positional("file", {
         describe: "File to compile",
         type: "string",
         demandOption: true,
@@ -240,8 +240,8 @@ yo --version                     Show version number
   .command(
     "test [path]",
     "Run tests in .test.yo files",
-    (yargs) => {
-      yargs
+    (_yargs) => {
+      _yargs
         .positional("path", {
           describe:
             "Path to test file or directory (default: current directory)",

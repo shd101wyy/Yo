@@ -63,7 +63,7 @@ export function tryToImplementClosureByFnModuleType({
   // Re-apply where-clause constraints for this closure body evaluation.
   if (fnModuleType.isFn.callType.whereClauseExprs?.length) {
     const constraintExprs = fnModuleType.isFn.callType.whereClauseExprs.map(
-      (expr) => cloneExpr(expr)
+      (whereClauseExpr) => cloneExpr(whereClauseExpr)
     );
     const result = applyWhereClauseConstraints({
       constraintExprs,

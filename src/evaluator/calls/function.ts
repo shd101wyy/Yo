@@ -1036,9 +1036,13 @@ ${isTypeValue(value) ? typeToString(value.value) : typeToString(functionToCall.t
             isSliceType(functionToCall.type)
           ) {
             try {
-              const value = functionToCall.value;
-              const arrayValue = isArrayValue(value) ? value : undefined;
-              const sliceValue = isSliceValue(value) ? value : undefined;
+              const functionToCallValue = functionToCall.value;
+              const arrayValue = isArrayValue(functionToCallValue)
+                ? functionToCallValue
+                : undefined;
+              const sliceValue = isSliceValue(functionToCallValue)
+                ? functionToCallValue
+                : undefined;
               const result = tryToCallArrayWithArguments({
                 expr,
                 arrayType: functionToCall.type, // Array or Slice
@@ -1344,30 +1348,30 @@ ${exprToString(expr)}
 ${functionsToCall.length ? "Available functions:\n" : ""}`,
       },
       ...functionsToCall
-        .map((functionsToCall) => {
+        .map((functionToCall) => {
           const error =
-            functionsToCall.result.kind === "error"
-              ? functionsToCall.result.error
+            functionToCall.result.kind === "error"
+              ? functionToCall.result.error
               : undefined;
           if (error) {
             if (error instanceof YoError) {
               return [
                 {
                   token: func.token,
-                  errorMessage: `- ${typeToString(functionsToCall.type)}\n`,
+                  errorMessage: `- ${typeToString(functionToCall.type)}\n`,
                 },
                 ...error.tokenAndErrorList,
               ];
             } else {
               return {
                 token: func.token,
-                errorMessage: `- ${typeToString(functionsToCall.type)}\n${error instanceof Error ? error.message : String(error)}`,
+                errorMessage: `- ${typeToString(functionToCall.type)}\n${error instanceof Error ? error.message : String(error)}`,
               };
             }
           } else {
             return {
               token: func.token,
-              errorMessage: `${typeToString(functionsToCall.type)}`,
+              errorMessage: `${typeToString(functionToCall.type)}`,
             };
           }
         })
@@ -1381,7 +1385,7 @@ ${functionsToCall.length ? "Available functions:\n" : ""}`,
 ${exprToString(expr)}
 
 Found ${functionsWithMatchingTypes.length} matching calls:
-${functionsWithMatchingTypes.map((func) => `${typeToString(func.type)}`).join("\n")}
+${functionsWithMatchingTypes.map((matchedFunction) => `${typeToString(matchedFunction.type)}`).join("\n")}
 `,
     });
   }
@@ -1690,10 +1694,13 @@ ${functionsWithMatchingTypes.map((func) => `${typeToString(func.type)}`).join("\
     }
     return expr;
   } else {
-    const value = functionToCall.value;
+    const functionToCallValue = functionToCall.value;
     // struct value
-    if (isTypeValue(value) && isStructType(value.value)) {
-      const structType = value.value;
+    if (
+      isTypeValue(functionToCallValue) &&
+      isStructType(functionToCallValue.value)
+    ) {
+      const structType = functionToCallValue.value;
       expr.$ = {
         env,
         type: structType,
@@ -1714,7 +1721,7 @@ ${functionsWithMatchingTypes.map((func) => `${typeToString(func.type)}`).join("\
           errorMessage: `Error evaluating struct call.`,
         });
       }
-      const structValue = memberValues.some((value) => !value)
+      const structValue = memberValues.some((memberValue) => !memberValue)
         ? undefined
         : createStructValue(structType, memberValues as Value[]);
       expr.$.value = isObjectType(structType)
@@ -1730,15 +1737,18 @@ ${functionsWithMatchingTypes.map((func) => `${typeToString(func.type)}`).join("\
       // Attach necessary info to the func
       func.$ = {
         env,
-        type: value.type,
-        value: value,
+        type: functionToCallValue.type,
+        value: functionToCallValue,
         pathCollection: [],
       };
       return expr;
     }
     // enum value
-    else if (isTypeValue(value) && isEnumType(value.value)) {
-      const enumType = value.value;
+    else if (
+      isTypeValue(functionToCallValue) &&
+      isEnumType(functionToCallValue.value)
+    ) {
+      const enumType = functionToCallValue.value;
       expr.$ = {
         env,
         type: enumType,
@@ -1781,15 +1791,18 @@ ${functionsWithMatchingTypes.map((func) => `${typeToString(func.type)}`).join("\
       // Attach necessary info to the func
       func.$ = {
         env,
-        type: value.type,
-        value: value,
+        type: functionToCallValue.type,
+        value: functionToCallValue,
         pathCollection: [],
       };
       return expr;
     }
     // union value
-    else if (isTypeValue(value) && isUnionType(value.value)) {
-      const unionType = value.value;
+    else if (
+      isTypeValue(functionToCallValue) &&
+      isUnionType(functionToCallValue.value)
+    ) {
+      const unionType = functionToCallValue.value;
       expr.$ = {
         env,
         type: unionType,
@@ -1810,14 +1823,17 @@ ${functionsWithMatchingTypes.map((func) => `${typeToString(func.type)}`).join("\
       // Attach necessary info to the func
       func.$ = {
         env,
-        type: value.type,
-        value: value,
+        type: functionToCallValue.type,
+        value: functionToCallValue,
         pathCollection: [],
       };
       return expr;
     }
     // module value
-    else if (isTypeValue(value) && isModuleType(value.value)) {
+    else if (
+      isTypeValue(functionToCallValue) &&
+      isModuleType(functionToCallValue.value)
+    ) {
       const { moduleValue, callerEnv } =
         getModuleTypeCallResult(functionToCall);
       env = callerEnv;
@@ -1833,14 +1849,17 @@ ${functionsWithMatchingTypes.map((func) => `${typeToString(func.type)}`).join("\
       // Attach necessary info to the func
       func.$ = {
         env,
-        type: value.type,
-        value: value,
+        type: functionToCallValue.type,
+        value: functionToCallValue,
         pathCollection: [],
       };
       return expr;
     }
     // trait value
-    else if (isTypeValue(value) && isTraitType(value.value)) {
+    else if (
+      isTypeValue(functionToCallValue) &&
+      isTraitType(functionToCallValue.value)
+    ) {
       const { traitValue, callerEnv } = getTraitTypeCallResult(functionToCall);
       env = callerEnv;
 
@@ -1855,14 +1874,17 @@ ${functionsWithMatchingTypes.map((func) => `${typeToString(func.type)}`).join("\
       // Attach necessary info to the func
       func.$ = {
         env,
-        type: value.type,
-        value: value,
+        type: functionToCallValue.type,
+        value: functionToCallValue,
         pathCollection: [],
       };
       return expr;
     }
     // function value
-    else if (isTypeValue(value) && isFunctionType(value.value)) {
+    else if (
+      isTypeValue(functionToCallValue) &&
+      isFunctionType(functionToCallValue.value)
+    ) {
       // This should already be evaluated.
       /*
         if (!expr.$ || !expr.$.value) {
@@ -1877,27 +1899,34 @@ ${functionsWithMatchingTypes.map((func) => `${typeToString(func.type)}`).join("\
       return expr;
     }
     // array type
-    else if (isTypeValue(value) && isArrayType(value.value)) {
+    else if (
+      isTypeValue(functionToCallValue) &&
+      isArrayType(functionToCallValue.value)
+    ) {
       // This should already be evaluated by tryToImplementArrayByArrayType
       return expr;
     }
     // comptime list type
-    else if (isTypeValue(value) && isComptimeListType(value.value)) {
+    else if (
+      isTypeValue(functionToCallValue) &&
+      isComptimeListType(functionToCallValue.value)
+    ) {
       // This should already be evaluated by tryToImplementComptimeListByComptimeListType
       return expr;
     }
     // SomeType or DynType - check if it was called as a constructor (has "type" result)
     else if (
-      isTypeValue(value) &&
-      (isSomeType(value.value) || isDynType(value.value))
+      isTypeValue(functionToCallValue) &&
+      (isSomeType(functionToCallValue.value) ||
+        isDynType(functionToCallValue.value))
     ) {
       // Check if this was a constructor call (has "type" result with recursiveTypeRef)
       if (
         functionToCall.result.kind === "type" &&
-        isSomeType(value.value) &&
-        value.value.recursiveTypeRef
+        isSomeType(functionToCallValue.value) &&
+        functionToCallValue.value.recursiveTypeRef
       ) {
-        const someType = value.value;
+        const someType = functionToCallValue.value;
         expr.$ = {
           env,
           type: someType,
@@ -1919,8 +1948,8 @@ ${functionsWithMatchingTypes.map((func) => `${typeToString(func.type)}`).join("\
         // Attach necessary info to the func
         func.$ = {
           env,
-          type: value.type,
-          value: value,
+          type: functionToCallValue.type,
+          value: functionToCallValue,
           pathCollection: [],
         };
         return expr;
@@ -1929,19 +1958,28 @@ ${functionsWithMatchingTypes.map((func) => `${typeToString(func.type)}`).join("\
       return expr;
     }
     // numeric type conversion (i32, u8, f64, etc.)
-    else if (isTypeValue(value) && isConvertibleNumericType(value.value)) {
+    else if (
+      isTypeValue(functionToCallValue) &&
+      isConvertibleNumericType(functionToCallValue.value)
+    ) {
       // This should already be evaluated by tryToConvertToNumericType
       // The expr has been transformed to __yo_as call if needed
       return expr;
     }
     // pointer type casting (*(T))
-    else if (isTypeValue(value) && isPtrType(value.value)) {
+    else if (
+      isTypeValue(functionToCallValue) &&
+      isPtrType(functionToCallValue.value)
+    ) {
       // This should already be evaluated by tryToConvertToPointerType
       // The expr has been transformed to __yo_as call if needed
       return expr;
     }
     // Iso value constructor: Iso(T)(value)
-    else if (isTypeValue(value) && isIsoType(value.value)) {
+    else if (
+      isTypeValue(functionToCallValue) &&
+      isIsoType(functionToCallValue.value)
+    ) {
       // This should already be evaluated by evaluateIsoValueCall
       return expr;
     }

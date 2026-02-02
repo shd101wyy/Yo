@@ -86,7 +86,7 @@ export function evaluatePropertyAccess({
     const enumType = expectedEnumType;
 
     const variant = enumType.variants.find(
-      (variant) => variant.name === variantName
+      (_variant) => _variant.name === variantName
     );
     if (!variant) {
       throw formatErrorMessage({
@@ -295,7 +295,7 @@ export function evaluatePropertyAccess({
       // Check if variantName is a valid enum variant
       const enumType = typeValue.value;
       const variant = enumType.variants.find(
-        (variant) => variant.name === variantName
+        (_variant) => _variant.name === variantName
       );
       if (!variant) {
         throw formatErrorMessage({

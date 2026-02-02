@@ -216,8 +216,11 @@ export function generateAsyncBlockResumeFunction(
         const awaitExpr = prevAwait.expr as Expr;
         if (awaitExpr.tag === ExprTag.FnCall) {
           const futureArg = awaitExpr.args[0];
-          const futureType = futureArg?.$?.type;
-          if (futureType && (isSomeType(futureType) || isDynType(futureType))) {
+          const argFutureType = futureArg?.$?.type;
+          if (
+            argFutureType &&
+            (isSomeType(argFutureType) || isDynType(argFutureType))
+          ) {
             emitter.emitLine(
               `      if (sm->${prevFutureFieldName} != NULL) { __yo_decr_rc((void*)sm->${prevFutureFieldName}); sm->${prevFutureFieldName} = NULL; }`
             );

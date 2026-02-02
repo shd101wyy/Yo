@@ -958,11 +958,11 @@ export default class Parser {
     ) {
       // Field access like
       // obj.field
-      const { expr, index: nextIndex } = this.parsePrimary({
+      const { expr, index: _nextIndex } = this.parsePrimary({
         tokens,
         index: primaryExprIsDotOperator ? index : index + 1,
       });
-      index = nextIndex;
+      index = _nextIndex;
       let returnValue: ParserReturn = {
         expr: {
           tag: ExprTag.FnCall,
@@ -978,7 +978,7 @@ export default class Parser {
       };
       // Check chaining
       while (tokens[index] && tokens[index]!.type === TokenType.Dot) {
-        const { expr, index: nextIndex } = this.parsePrimary({
+        const { expr: _expr, index: __nextIndex } = this.parsePrimary({
           tokens,
           index: index + 1,
         });
@@ -989,13 +989,13 @@ export default class Parser {
               tag: ExprTag.Atom,
               token,
             },
-            args: [returnValue.expr, expr],
+            args: [returnValue.expr, _expr],
             isInfix: true,
             token,
           },
-          index: nextIndex,
+          index: __nextIndex,
         };
-        index = nextIndex;
+        index = __nextIndex;
       }
 
       return this.parsePrimaryEnd({
@@ -1015,7 +1015,7 @@ export default class Parser {
     ) {
       // Infix operator
       const startIndex = this.skipWhitespace(tokens, index + 1);
-      const { expr: rhs, index: nextIndex } = this.parseExpression({
+      const { expr: rhs, index: _nextIndex } = this.parseExpression({
         tokens,
         index: startIndex,
       });
@@ -1026,7 +1026,7 @@ export default class Parser {
         rhs.isInfix &&
         rhs.func.tag === "Atom" &&
         rhs.func.token.type !== TokenType.Dot && // Allow dot operator to chain
-        !this.isParenthesizedExpression(tokens, startIndex, nextIndex - 1) // Check if the RHS is already parenthesized
+        !this.isParenthesizedExpression(tokens, startIndex, _nextIndex - 1) // Check if the RHS is already parenthesized
       ) {
         const ambiguityErrorMessage = `Ambiguous operator precedence. 
 Please use parentheses to clarify:
@@ -1054,8 +1054,8 @@ Or use newline after "${token.value}" to confirm the right-associativity.
         // will be parsed as: (1 + 2) + 3
         const tokensInBetween = tokens.slice(index + 1, startIndex);
         const hasNewLineAfterOperator = tokensInBetween.some(
-          (token) =>
-            token.type === TokenType.Whitespace && token.value.includes("\n")
+          (_token) =>
+            _token.type === TokenType.Whitespace && _token.value.includes("\n")
         );
 
         // Check if current operator is at the start of a line (left associativity)
@@ -1091,7 +1091,7 @@ Or use newline after "${token.value}" to confirm the right-associativity.
             operatorToken: token,
             rhs,
             tokens,
-            index: nextIndex,
+            index: _nextIndex,
           });
         } else {
           throw formatErrorMessage({
@@ -1113,7 +1113,7 @@ Or use newline after "${token.value}" to confirm the right-associativity.
           token,
         },
         tokens,
-        index: nextIndex,
+        index: _nextIndex,
       });
     }
 

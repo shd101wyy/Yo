@@ -417,19 +417,20 @@ export function synthesizeTypes(
         isTypeValue(expectedElement.assignedValue) &&
         isTypeValue(givenElement.assignedValue)
       ) {
-        const { expectedEnv, givenEnv } = synthesizeTypes(
-          {
-            type: expectedElement.assignedValue.value,
-            env: expected.env,
-          },
-          {
-            type: givenElement.assignedValue.value,
-            env: given.env,
-          },
-          checkedTypePairs
-        );
-        expected.env = expectedEnv;
-        given.env = givenEnv;
+        const { expectedEnv: _expectedEnv, givenEnv: _givenEnv } =
+          synthesizeTypes(
+            {
+              type: expectedElement.assignedValue.value,
+              env: expected.env,
+            },
+            {
+              type: givenElement.assignedValue.value,
+              env: given.env,
+            },
+            checkedTypePairs
+          );
+        expected.env = _expectedEnv;
+        given.env = _givenEnv;
       }
     }
   } else if (
@@ -485,19 +486,20 @@ export function synthesizeTypes(
         isTypeValue(expectedElement.assignedValue) &&
         isTypeValue(givenElement.assignedValue)
       ) {
-        const { expectedEnv, givenEnv } = synthesizeTypes(
-          {
-            type: expectedElement.assignedValue.value,
-            env: expected.env,
-          },
-          {
-            type: givenElement.assignedValue.value,
-            env: given.env,
-          },
-          checkedTypePairs
-        );
-        expected.env = expectedEnv;
-        given.env = givenEnv;
+        const { expectedEnv: _expectedEnv, givenEnv: _givenEnv } =
+          synthesizeTypes(
+            {
+              type: expectedElement.assignedValue.value,
+              env: expected.env,
+            },
+            {
+              type: givenElement.assignedValue.value,
+              env: given.env,
+            },
+            checkedTypePairs
+          );
+        expected.env = _expectedEnv;
+        given.env = _givenEnv;
       }
     }
   } else if (
@@ -526,19 +528,20 @@ export function synthesizeTypes(
         isTypeValue(expectedElement.assignedValue) &&
         isTypeValue(givenElement.assignedValue)
       ) {
-        const { expectedEnv, givenEnv } = synthesizeTypes(
-          {
-            type: expectedElement.assignedValue.value,
-            env: expected.env,
-          },
-          {
-            type: givenElement.assignedValue.value,
-            env: given.env,
-          },
-          checkedTypePairs
-        );
-        expected.env = expectedEnv;
-        given.env = givenEnv;
+        const { expectedEnv: _expectedEnv, givenEnv: _givenEnv } =
+          synthesizeTypes(
+            {
+              type: expectedElement.assignedValue.value,
+              env: expected.env,
+            },
+            {
+              type: givenElement.assignedValue.value,
+              env: given.env,
+            },
+            checkedTypePairs
+          );
+        expected.env = _expectedEnv;
+        given.env = _givenEnv;
       }
     }
   } else if (isPtrType(expected.type) && isPtrType(given.type)) {

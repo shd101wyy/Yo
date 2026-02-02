@@ -63,8 +63,8 @@ export function evaluateAnonymousTraitBeginExprs({
         exprIsFunctionCallOf(expr, BuiltinKeywords.export)
       ) {
         const exportExprs = expr.args;
-        for (let i = 0; i < exportExprs.length; i++) {
-          const exportExpr = exportExprs[i]!;
+        for (let j = 0; j < exportExprs.length; j++) {
+          const exportExpr = exportExprs[j]!;
 
           // Check if it's
           //          variableName        givenVariableName

@@ -346,8 +346,8 @@ Got:      "${paramName}"`,
 
   // Re-apply where-clause constraints for this function body evaluation.
   if (newFunctionType.whereClauseExprs?.length) {
-    const constraintExprs = newFunctionType.whereClauseExprs.map((expr) =>
-      cloneExpr(expr)
+    const constraintExprs = newFunctionType.whereClauseExprs.map((_expr) =>
+      cloneExpr(_expr)
     );
     const result = applyWhereClauseConstraints({
       constraintExprs,

@@ -143,7 +143,7 @@ export function handleMemberDestructuring({
           };
         }
 
-        const fieldValue =
+        const _fieldValue =
           isTupleValue(rhsValue) ||
           isStructValue(rhsValue) ||
           isModuleValue(rhsValue) ||
@@ -151,7 +151,7 @@ export function handleMemberDestructuring({
             ? rhsValue.fields[j]
             : undefined;
 
-        if (!fieldValue && isCompileTimeOnly) {
+        if (!_fieldValue && isCompileTimeOnly) {
           throw formatErrorMessage({
             token: lhsField.token,
             errorMessage: `Destructuring field "${field.label}" is not defined in compile-time only context.`,
@@ -165,7 +165,7 @@ export function handleMemberDestructuring({
           env,
           variable: {
             name: field.label,
-            value: fieldValue ? [cloneValue(fieldValue)] : undefined,
+            value: _fieldValue ? [cloneValue(_fieldValue)] : undefined,
             type: field.type,
             isCompileTimeOnly,
             token: lhsField.token,
