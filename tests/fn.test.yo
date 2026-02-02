@@ -466,6 +466,20 @@ test "Test generic functions", {
   };
 
   {
+    // Test with compile-time variable and anonymous function with explicit type annotation
+    comptime(id) : (fn(comptime(T) : Type, x : T) -> T);
+    id = ((T, a) -> a);
+    
+    x := id(bool, true);
+    y := id(i32, 12);
+    z := id(f64, 3.14);
+    
+    assert(x == true);
+    assert(y == 12);
+    assert(z == 3.14);
+  };
+
+  {
     // Disallow to have generic function assigned to runtime variable
     comptime_expect_error(id : (fn(forall(T : Type), x : T) -> T));
   

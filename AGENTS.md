@@ -194,3 +194,5 @@ No typescript index.ts barrel files are allowed, as they can easily cause circul
 The Pointer type in Yo can be used in both compile-time and runtime contexts. Its `Runtime` and `Comptime` traits are implemented in prelude.yo.
 
 The SomeType in Yo by defaults automatically implements the `Runtime` trait
+
+Never try to write function to resolve SomeType, as struct/enum/union etc are all nominal types, simply replacing SomeType in them will cause problem.

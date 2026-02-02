@@ -135,7 +135,7 @@ export function evaluateCond({
     if (!isBooleanType(evaluatedCondExpr.$.type)) {
       throw formatErrorMessage({
         token: evaluatedCondExpr.token,
-        errorMessage: `Expected bool for cond statement, got ${exprToString(evaluatedCondExpr)}`,
+        errorMessage: `Expected bool for cond statement, got ${exprToString(evaluatedCondExpr)} of type ${typeToString(evaluatedCondExpr.$.type)}`,
       });
     }
 

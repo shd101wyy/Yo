@@ -24,10 +24,41 @@ comptime_assert(__yo_type_impls(*(char), Runtime));
 
 ?*(char);
 
+Data :: (fn(comptime(X) : Type) -> comptime(Type))(
+  struct(value : X)
+);
+
+// This works:
+// id :: (fn(forall(T : Type), x : T) -> T)(Data(T)(x));
+
+// This works:
+comptime(id) : (fn(forall(T : Type), x : T) -> Data(T));
+id = ((a) -> Data(typeof(a))(a));
+
+// This works:
+// id2 :: (fn(comptime(T) : Type, x : T) -> Data(T))(Data(T)(x));
+
+// The anonymous function below is causing problem:
+comptime(id2) : (fn(comptime(T) : Type, x : T) -> Data(T));
+id2 = ((T, a) -> Data(T)(a));
+
+generic_fn :: (fn(
+  forall(T : Type),
+  x : T,
+  callback : (fn(v : T)-> T)
+) -> T)
+  callback(x)
+;
+
 main :: (fn() -> unit) {
-  comptime(id) : (fn(forall(T : Type), x : T) -> T);
-  id = ((a) -> a);
-  
   x := id(true);
+  cond(
+    x.value => (),
+    true => panic("error")
+  );
+
+  y := id2(bool, true);
+
+  a := generic_fn(1, (v)-> (v)); // i32
 };
 export main;
