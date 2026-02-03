@@ -180,17 +180,17 @@ export interface SomeType extends Type {
 
   /**
    * The required traits that this SomeType must implement.
-   * Each constraint includes the frameLevel at which it was added, so constraints
-   * can be properly cleaned up when frames are popped.
+   * Each constraint includes the frameLevel at which it was added.
    * For example, `Impl(Fn(x: i32) -> i32, Copy)` has requiredTraits with the corresponding traits.
-   * Where clause constraints like `where(T <: Comptime)` add entries with frameLevel.
+   * NOTE: where-clause constraints are scoped in env frames, not stored here.
    */
   requiredTraits: { traitType: TraitType; frameLevel: number }[];
 
   /**
    * The negative traits that this SomeType must NOT implement.
    * Each constraint includes the frameLevel at which it was added.
-   * For example, `Impl(!(Copy))` or `where(T <: !(Copy))` adds entries here.
+   * For example, `Impl(!(Copy))` adds entries here.
+   * NOTE: where-clause constraints are scoped in env frames, not stored here.
    */
   negativeTraits: { traitType: TraitType; frameLevel: number }[];
 

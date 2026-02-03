@@ -1,6 +1,34 @@
-open import "std/fmt";
+// @skip_prelude
+Comptime :: trait(
+  id := "Comptime"
+);
+export Comptime;
 
-main :: (fn() -> unit) {
-  println("Hi");
+Runtime :: trait(
+  id := "Runtime"
+);
+export Runtime;
+
+ComptimeNegate :: (fn(comptime(Output) : Type, where(Output <: Comptime))-> comptime(Trait)) 
+  trait(
+    where(Self <: Comptime),
+    (neg) : (fn(comptime(self): Self)-> comptime(Output))
+  )
+;
+export ComptimeNegate;
+
+(-) :: impl {
+  (comptime_neg) :: (fn(forall(_Self : Type),
+          comptime(self) : _Self,
+          where(_Self <: (Comptime, ComptimeNegate(_Self)))
+        ) -> comptime(_Self)) {
+    return self.neg();
+  };
+
+  Call :: (comptime_neg,);
+
+  export
+    Call
+  ;
 };
-export main;
+export (-);

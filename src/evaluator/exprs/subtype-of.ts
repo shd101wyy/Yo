@@ -1,4 +1,4 @@
-import { Environment } from "../../env";
+import { addWhereClauseConstraintToEnv, Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   BuiltinKeywords,
@@ -155,11 +155,9 @@ export function evaluateSubtypeOf({
     traitTypes.push({ traitType, expr: traitExpr, isNegated });
   }
 
-  // In a where clause, add the trait constraints to the SomeType's trait
+  // In a where clause, attach the trait constraints to the current env frame
   if (context.isInsideWhereClause && isSomeType(typeValue.value)) {
     const someType = typeValue.value;
-    const currentFrameLevel = env.frames.length - 1;
-
     for (const { traitType, isNegated } of traitTypes) {
       // Create a copy of the trait with receiverType set to the someType
       const traitWithReceiver: TraitType = {
@@ -167,36 +165,12 @@ export function evaluateSubtypeOf({
         receiverType: someType,
       };
 
-      if (isNegated) {
-        // Add to negativeTraits (the new system)
-        if (!someType.negativeTraits) {
-          someType.negativeTraits = [];
-        }
-        // Check for duplicate
-        if (
-          !someType.negativeTraits.some(
-            (t) => t.traitType.id === traitWithReceiver.id
-          )
-        ) {
-          someType.negativeTraits.push({
-            traitType: traitWithReceiver,
-            frameLevel: currentFrameLevel,
-          });
-        }
-      } else {
-        // Add to requiredTraits (the new system)
-        // Check for duplicate
-        if (
-          !someType.requiredTraits.some(
-            (t) => t.traitType.id === traitWithReceiver.id
-          )
-        ) {
-          someType.requiredTraits.push({
-            traitType: traitWithReceiver,
-            frameLevel: currentFrameLevel,
-          });
-        }
-      }
+      env = addWhereClauseConstraintToEnv({
+        env,
+        someType,
+        traitType: traitWithReceiver,
+        isNegated,
+      });
     }
 
     // Return the original typeValue (the SomeType itself)

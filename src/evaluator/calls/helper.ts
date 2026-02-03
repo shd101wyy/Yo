@@ -75,6 +75,7 @@ import { evaluateBeginExpression } from "../exprs/begin";
 import { evaluateExpression } from "../exprs/expr";
 import { typeImplementsFn, typeImplementsFuture } from "../trait-checking";
 import {
+  applyWhereClauseConstraints,
   evaluateFunctionParameterTypeAgain,
   evaluateFunctionReturnTypeAgain,
 } from "../types/function";
@@ -972,6 +973,23 @@ Got:   ${typeToString(typeValue.type)}`,
         }
       }
     }
+  }
+
+  // Re-apply where-clause constraints for this function call now that
+  // parameters are bound in calleeEnv (needed for return type resolution).
+  if (functionType.whereClauseExprs?.length) {
+    const constraintExprs = functionType.whereClauseExprs.map((_expr) =>
+      cloneExpr(_expr)
+    );
+    const result = applyWhereClauseConstraints({
+      constraintExprs,
+      env: calleeEnv,
+      context: {
+        ...context,
+        isEvaluatingFunctionType: true,
+      },
+    });
+    calleeEnv = result.env;
   }
 
   // NOTE: We should handle the returnType before the implicit arguments

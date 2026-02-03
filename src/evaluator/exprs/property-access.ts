@@ -176,10 +176,9 @@ export function evaluatePropertyAccess({
       let baseType = pointerType.childType;
 
       // CRITICAL: If the child type is a SomeType, we need to resolve it from the environment
-      // to get the properly constrained version (e.g., with where clause trait constraints).
+      // to get the properly constrained version (e.g., with where-clause constraints).
       // This is necessary because during function specialization, SomeTypes might be created
-      // that reference the type parameter name but don't carry over the trait.fields from
-      // the original where clause constraints.
+      // that reference the type parameter name but don't carry over the env-scoped constraints.
       // QUESTION: Is this correct? This fix is related to hash_set.yo
       if (isSomeType(baseType)) {
         baseType = getValueOfSomeTypeFromEnv(env, baseType);

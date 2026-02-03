@@ -1,11 +1,11 @@
-import { Environment } from "../env";
+import { Environment, getWhereClauseConstraintsForSomeType } from "../env";
 import { typeImplementsTrait } from "../evaluator/trait-checking";
 import {
   canAssignTypeHierarchy,
   synthesizeTypes,
 } from "../evaluator/types/synthesizer";
 import { areValuesEqual } from "../value";
-import { FunctionType, Type } from "./definitions";
+import { FunctionType, SomeType, TraitType, Type } from "./definitions";
 import { getValueOfSomeTypeFromEnv } from "./env-lookup";
 import {
   isArrayType,
@@ -36,6 +36,44 @@ import {
 } from "./guards";
 import { TypeTag } from "./tags";
 import { typeContainsSomeType } from "./utils";
+
+function getEffectiveRequiredTraitTypes(
+  env: Environment,
+  someType: SomeType
+): TraitType[] {
+  const traitMap = new Map<string, TraitType>();
+  for (const entry of someType.requiredTraits ?? []) {
+    traitMap.set(entry.traitType.id, entry.traitType);
+  }
+
+  const whereConstraints = getWhereClauseConstraintsForSomeType(env, someType);
+  if (whereConstraints) {
+    for (const traitType of whereConstraints.requiredTraits) {
+      traitMap.set(traitType.id, traitType);
+    }
+  }
+
+  return [...traitMap.values()];
+}
+
+function getEffectiveNegativeTraitTypes(
+  env: Environment,
+  someType: SomeType
+): TraitType[] {
+  const traitMap = new Map<string, TraitType>();
+  for (const entry of someType.negativeTraits ?? []) {
+    traitMap.set(entry.traitType.id, entry.traitType);
+  }
+
+  const whereConstraints = getWhereClauseConstraintsForSomeType(env, someType);
+  if (whereConstraints) {
+    for (const traitType of whereConstraints.negativeTraits) {
+      traitMap.set(traitType.id, traitType);
+    }
+  }
+
+  return [...traitMap.values()];
+}
 
 /**
  * Check if two types are compatible.
@@ -622,9 +660,12 @@ export function areTypesCompatible(
       // Example: expected `Impl(Send)` is compatible with given `Impl(Send, Copy)`
       // However, if requireExactMatch is true, the modules must match exactly (same count and types)
 
-      // Use the requiredTraits field directly (not module.fields)
-      const expectedTraits = expected.type.requiredTraits ?? [];
-      const givenTraits = given.type.requiredTraits ?? [];
+      // Use effective requiredTraits (SomeType + scoped where constraints)
+      const expectedTraits = getEffectiveRequiredTraitTypes(
+        expected.env,
+        expected.type
+      );
+      const givenTraits = getEffectiveRequiredTraitTypes(given.env, given.type);
 
       // For exact matching (e.g., cache comparisons), require same number of modules
       if (requireExactMatch && expectedTraits.length !== givenTraits.length) {
@@ -633,11 +674,11 @@ export function areTypesCompatible(
 
       // Check that all expected modules are present in given modules
       for (const expectedTrait of expectedTraits) {
-        const matchingGivenTrait = givenTraits.find((givenModule) => {
+        const matchingGivenTrait = givenTraits.find((givenTrait) => {
           // Compare by module type compatibility
           return areTypesCompatible(
-            { type: expectedTrait.traitType, env: expected.env },
-            { type: givenModule.traitType, env: given.env },
+            { type: expectedTrait, env: expected.env },
+            { type: givenTrait, env: given.env },
             requireExactMatch,
             visitedPairs
           );
@@ -648,19 +689,16 @@ export function areTypesCompatible(
       }
 
       // Check negative modules: given must NOT implement any of expected's negative modules
-      if (
-        expected.type.negativeTraits &&
-        expected.type.negativeTraits.length > 0
-      ) {
-        // Extract TraitTypes from negativeTraits entries
-        const expectedNegativeTraits = expected.type.negativeTraits.map(
-          (e) => e.traitType
-        );
+      const expectedNegativeTraits = getEffectiveNegativeTraitTypes(
+        expected.env,
+        expected.type
+      );
+      if (expectedNegativeTraits.length > 0) {
         for (const negativeTrait of expectedNegativeTraits) {
-          const matchingGivenTrait = givenTraits.find((givenModule) =>
+          const matchingGivenTrait = givenTraits.find((givenTrait) =>
             areTypesCompatible(
               { type: negativeTrait, env: expected.env },
-              { type: givenModule.traitType, env: given.env },
+              { type: givenTrait, env: given.env },
               requireExactMatch,
               visitedPairs
             )
@@ -706,10 +744,11 @@ export function areTypesCompatible(
     } else {
       // Given is a concrete type, expected is SomeType (e.g., Impl(Trait))
       // Check if given implements all required modules of expected
-      const requiredTraits = expected.type.requiredTraits ?? [];
-      if (requiredTraits.length > 0) {
-        // Extract TraitTypes from entries
-        const requiredTraitTypes = requiredTraits.map((e) => e.traitType);
+      const requiredTraitTypes = getEffectiveRequiredTraitTypes(
+        expected.env,
+        expected.type
+      );
+      if (requiredTraitTypes.length > 0) {
         // Check that given implements all required modules
         for (const requiredTrait of requiredTraitTypes) {
           if (
@@ -726,13 +765,11 @@ export function areTypesCompatible(
         }
         // All required modules are implemented
         // Check negative modules if any
-        if (
-          expected.type.negativeTraits &&
-          expected.type.negativeTraits.length > 0
-        ) {
-          const negativeTraitTypes = expected.type.negativeTraits.map(
-            (e) => e.traitType
-          );
+        const negativeTraitTypes = getEffectiveNegativeTraitTypes(
+          expected.env,
+          expected.type
+        );
+        if (negativeTraitTypes.length > 0) {
           for (const negativeTrait of negativeTraitTypes) {
             if (
               typeImplementsTrait({

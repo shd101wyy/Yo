@@ -177,6 +177,12 @@ export interface Variable {
   parameterAlias?: string;
 }
 
+export type WhereClauseConstraints = {
+  someType: SomeType;
+  requiredTraits: TraitType[];
+  negativeTraits: TraitType[];
+};
+
 export type Frame = {
   variables: Variable[];
   /**
@@ -190,10 +196,10 @@ export type Frame = {
    */
   isBeginBlockFrame: boolean;
   /**
-   * SomeTypes that had constraints added at this frame level.
-   * When this frame is popped, we clean up the constraints from these SomeTypes based on the frame level.
+   * Where-clause constraints attached in this frame.
+   * These constraints are scoped to the frame and discarded when the frame is popped.
    */
-  modifiedSomeTypes: SomeType[];
+  whereClauseConstraints: Map<string, WhereClauseConstraints>;
 };
 
 export type Environment = {
@@ -297,6 +303,9 @@ export function cloneEnvForCTFECheck(env: Environment): Environment {
     return {
       ...frame,
       variables: frame.variables.map(cloneVariable),
+      whereClauseConstraints: cloneWhereClauseConstraints(
+        frame.whereClauseConstraints
+      ),
     };
   };
 
@@ -304,6 +313,113 @@ export function cloneEnvForCTFECheck(env: Environment): Environment {
     ...env,
     frames: env.frames.map(cloneFrame),
   };
+}
+
+function cloneWhereClauseConstraints(
+  constraints: Map<string, WhereClauseConstraints>
+): Map<string, WhereClauseConstraints> {
+  const cloned = new Map<string, WhereClauseConstraints>();
+  for (const [key, entry] of constraints) {
+    cloned.set(key, {
+      someType: entry.someType,
+      requiredTraits: [...entry.requiredTraits],
+      negativeTraits: [...entry.negativeTraits],
+    });
+  }
+  return cloned;
+}
+
+export function addWhereClauseConstraintToEnv({
+  env,
+  someType,
+  traitType,
+  isNegated,
+}: {
+  env: Environment;
+  someType: SomeType;
+  traitType: TraitType;
+  isNegated: boolean;
+}): Environment {
+  const currentFrameLevel = env.frames.length - 1;
+  const targetFrame = env.frames[currentFrameLevel];
+  if (!targetFrame) {
+    return env;
+  }
+
+  const key = someType.id;
+  let entry = targetFrame.whereClauseConstraints.get(key);
+  if (!entry) {
+    entry = {
+      someType,
+      requiredTraits: [],
+      negativeTraits: [],
+    };
+    targetFrame.whereClauseConstraints.set(key, entry);
+  }
+
+  const targetList = isNegated ? entry.negativeTraits : entry.requiredTraits;
+  if (!targetList.some((t) => t.id === traitType.id)) {
+    targetList.push(traitType);
+  }
+
+  return env;
+}
+
+export function getWhereClauseConstraintsForSomeType(
+  env: Environment,
+  someType: SomeType
+): { requiredTraits: TraitType[]; negativeTraits: TraitType[] } | undefined {
+  const requiredTraits: TraitType[] = [];
+  const negativeTraits: TraitType[] = [];
+  const requiredIds = new Set<string>();
+  const negativeIds = new Set<string>();
+  let found = false;
+
+  // Collect alias names that are bound to the same SomeType value
+  // This helps resolve constraints when type parameters are bound to other names
+  // (e.g., Output bound to _Self during function call specialization).
+  const aliasNames = new Set<string>();
+  for (const frame of env.frames) {
+    for (const variable of frame.variables) {
+      const variableValue = variable.value?.[0];
+      if (isTypeValue(variableValue) && isSomeType(variableValue.value)) {
+        if (variableValue.value.id === someType.id) {
+          aliasNames.add(variable.name);
+        }
+      }
+    }
+  }
+
+  for (const frame of env.frames) {
+    for (const entry of frame.whereClauseConstraints.values()) {
+      if (
+        entry.someType.id !== someType.id &&
+        !aliasNames.has(entry.someType.name)
+      ) {
+        continue;
+      }
+
+      found = true;
+      for (const trait of entry.requiredTraits) {
+        if (!requiredIds.has(trait.id)) {
+          requiredIds.add(trait.id);
+          requiredTraits.push(trait);
+        }
+      }
+      for (const trait of entry.negativeTraits) {
+        if (!negativeIds.has(trait.id)) {
+          negativeIds.add(trait.id);
+          negativeTraits.push(trait);
+        }
+      }
+    }
+  }
+
+  if (!found) {
+    return undefined;
+  }
+
+  return { requiredTraits, negativeTraits };
 }
 
 let _envContainingPrelude: Environment | null = null;
@@ -455,7 +571,7 @@ export function addVariableToFrame({
       id: frame.id,
       variables: newVariables,
       isBeginBlockFrame: frame.isBeginBlockFrame,
-      modifiedSomeTypes: [...frame.modifiedSomeTypes],
+      whereClauseConstraints: new Map(frame.whereClauseConstraints),
     };
   }
 
@@ -463,7 +579,7 @@ export function addVariableToFrame({
     id: frame.id,
     variables: [...frame.variables, variable],
     isBeginBlockFrame: frame.isBeginBlockFrame,
-    modifiedSomeTypes: [...frame.modifiedSomeTypes],
+    whereClauseConstraints: new Map(frame.whereClauseConstraints),
   };
 }
 
@@ -552,7 +668,7 @@ export function pushEnvFrame(
     id: generateVarialeId(env.modulePath, "frame"),
     variables: [],
     isBeginBlockFrame: false,
-    modifiedSomeTypes: [],
+    whereClauseConstraints: new Map(),
   },
   isBeginBlockFrame?: boolean
 ): Environment {
@@ -577,30 +693,6 @@ export function popEnvFrame(
 ): Environment {
   const currentFrameLevel = env.frames.length - 1;
   const frameToPop = env.frames[currentFrameLevel]!;
-
-  // Clean up where clause constraints from SomeTypes modified at this frame level.
-  // When ignoreCheck is true, keep constraints for SomeTypes defined in this frame
-  // (e.g., function type parameters), but still remove constraints applied to outer SomeTypes.
-  for (const someType of frameToPop.modifiedSomeTypes) {
-    const definitionFrameLevel = findVariableFrameLevel(env, someType.name);
-    const shouldCleanupConstraints =
-      !ignoreCheck ||
-      definitionFrameLevel === undefined ||
-      definitionFrameLevel !== currentFrameLevel;
-
-    if (!shouldCleanupConstraints) {
-      continue;
-    }
-
-    someType.requiredTraits = someType.requiredTraits.filter(
-      (c) => c.frameLevel !== currentFrameLevel
-    );
-    if (someType.negativeTraits) {
-      someType.negativeTraits = someType.negativeTraits.filter(
-        (c) => c.frameLevel !== currentFrameLevel
-      );
-    }
-  }
 
   if (!ignoreCheck) {
     // Check if there is any value in the frame that is not consumed or uninitialized.
@@ -1453,73 +1545,118 @@ export function getReceiverMethodsByNameFromEnv({
       }
     }
 
-    // Look for methods in the requiredTraits array (from Impl(Module1, Module2, ...) or where clauses)
+    // Look for methods in required traits (from Impl(Module1, Module2, ...) and where constraints)
     // This handles cases like `Impl(Id)` where we need to find the `id` method
     // and where(T <: Trait) constraints
-    if (dereferencedReceiverType.requiredTraits) {
-      for (const requiredTraitEntry of dereferencedReceiverType.requiredTraits) {
-        const requiredTraitType = requiredTraitEntry.traitType;
-        // Search for the method in the required trait
-        const method = requiredTraitType.fields.find(
-          (f) => f.label === methodName && isFunctionType(f.type)
-        );
-        if (method && isFunctionType(method.type)) {
-          // Create a specialized method type with SelfType set to the receiver type
-          // This allows `Self` in the method signature to resolve to `Impl(Id)`
-          const specializedMethodType: FunctionType = {
-            ...method.type,
-            SelfType: dereferencedReceiverType,
-          };
+    const requiredTraitTypes: TraitType[] = [];
+    const requiredTraitIds = new Set<string>();
 
-          // Check if pointer conversion is needed
-          // If method expects *(Self) but receiver is Self, mark for conversion
-          let needsPointerConversion = false;
+    for (const requiredTraitEntry of dereferencedReceiverType.requiredTraits ??
+      []) {
+      if (!requiredTraitIds.has(requiredTraitEntry.traitType.id)) {
+        requiredTraitIds.add(requiredTraitEntry.traitType.id);
+        requiredTraitTypes.push(requiredTraitEntry.traitType);
+      }
+    }
+
+    const directWhereConstraints = getWhereClauseConstraintsForSomeType(
+      env,
+      dereferencedReceiverType
+    );
+    if (directWhereConstraints) {
+      for (const requiredTraitType of directWhereConstraints.requiredTraits) {
+        if (!requiredTraitIds.has(requiredTraitType.id)) {
+          requiredTraitIds.add(requiredTraitType.id);
+          requiredTraitTypes.push(requiredTraitType);
+        }
+      }
+    }
+
+    // If no direct match, check for compatible constrained SomeTypes in the env frames
+    if (isSomeType(dereferencedReceiverType)) {
+      for (let i = env.frames.length - 1; i >= 0; i--) {
+        const frame = env.frames[i]!;
+        for (const constraintEntry of frame.whereClauseConstraints.values()) {
           if (
-            specializedMethodType.parameters.length > 0 &&
-            isPtrType(specializedMethodType.parameters[0]!.type)
+            !areTypesCompatible(
+              { type: constraintEntry.someType, env },
+              { type: dereferencedReceiverType, env },
+              false
+            )
           ) {
-            const methodPtrChildType =
-              specializedMethodType.parameters[0]!.type.childType;
-            // For methods from required traits, the first parameter might be *(Self)
-            // where Self is a SomeType from the trait definition.
-            // Since we set SelfType to the receiver type, we should check if the
-            // parameter is Self (which would be resolved to the receiver type),
-            // not check compatibility between two different SomeTypes.
-            const isSelfParam =
-              isSomeType(methodPtrChildType) &&
-              methodPtrChildType.name === "Self";
-            const receiverCompatibleWithPtrChild =
-              isSelfParam ||
-              areTypesCompatible(
-                {
-                  type: methodPtrChildType,
-                  env: specializedMethodType.env,
-                },
-                { type: receiverType, env },
-                true // isMethodReceiver
-              );
-            if (receiverCompatibleWithPtrChild) {
-              needsPointerConversion = true;
+            continue;
+          }
+          for (const requiredTraitType of constraintEntry.requiredTraits) {
+            if (!requiredTraitIds.has(requiredTraitType.id)) {
+              requiredTraitIds.add(requiredTraitType.id);
+              requiredTraitTypes.push(requiredTraitType);
             }
           }
-
-          // Create an unknown value since the actual implementation is not known
-          // The actual dispatch will happen at runtime based on the concrete type
-          const value = createUnknownValue(
-            specializedMethodType,
-
-            {
-              variableName: method.label,
-              env,
-              context,
-            }
-          );
-          methods.push({
-            type: specializedMethodType,
-            value,
-            needsPointerConversion,
-          });
         }
+      }
+    }
+
+    for (const requiredTraitType of requiredTraitTypes) {
+      // Search for the method in the required trait
+      const method = requiredTraitType.fields.find(
+        (f) => f.label === methodName && isFunctionType(f.type)
+      );
+      if (method && isFunctionType(method.type)) {
+        // Create a specialized method type with SelfType set to the receiver type
+        // This allows `Self` in the method signature to resolve to `Impl(Id)`
+        const specializedMethodType: FunctionType = {
+          ...method.type,
+          SelfType: dereferencedReceiverType,
+        };
+
+        // Check if pointer conversion is needed
+        // If method expects *(Self) but receiver is Self, mark for conversion
+        let needsPointerConversion = false;
+        if (
+          specializedMethodType.parameters.length > 0 &&
+          isPtrType(specializedMethodType.parameters[0]!.type)
+        ) {
+          const methodPtrChildType =
+            specializedMethodType.parameters[0]!.type.childType;
+          // For methods from required traits, the first parameter might be *(Self)
+          // where Self is a SomeType from the trait definition.
+          // Since we set SelfType to the receiver type, we should check if the
+          // parameter is Self (which would be resolved to the receiver type),
+          // not check compatibility between two different SomeTypes.
+          const isSelfParam =
+            isSomeType(methodPtrChildType) &&
+            methodPtrChildType.name === "Self";
+          const receiverCompatibleWithPtrChild =
+            isSelfParam ||
+            areTypesCompatible(
+              {
+                type: methodPtrChildType,
+                env: specializedMethodType.env,
+              },
+              { type: receiverType, env },
+              true // isMethodReceiver
+            );
+          if (receiverCompatibleWithPtrChild) {
+            needsPointerConversion = true;
+          }
+        }
+
+        // Create an unknown value since the actual implementation is not known
+        // The actual dispatch will happen at runtime based on the concrete type
+        const value = createUnknownValue(
+          specializedMethodType,
+
+          {
+            variableName: method.label,
+            env,
+            context,
+          }
+        );
+        methods.push({
+          type: specializedMethodType,
+          value,
+          needsPointerConversion,
+        });
       }
     }
 

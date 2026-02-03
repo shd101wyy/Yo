@@ -2,6 +2,7 @@ import {
   addVariableToEnv,
   Environment,
   getVariablesFromEnv,
+  getWhereClauseConstraintsForSomeType,
   popEnvFrame,
   pushEnvFrame,
 } from "../../env";
@@ -1034,7 +1035,11 @@ function tryMatchGenericImpl({
         // If bound to a SomeType, check if it has the negated constraint attached
         if (isSomeType(boundType)) {
           if (
-            !someTypeHasNegatedTraitConstraint(boundType, actualConstraintTrait)
+            !someTypeHasNegatedTraitConstraint(
+              boundType,
+              actualConstraintTrait,
+              env
+            )
           ) {
             return noMatch;
           }
@@ -1056,7 +1061,9 @@ function tryMatchGenericImpl({
 
       // If bound to a SomeType, check if it has the required constraint attached
       if (isSomeType(boundType)) {
-        if (!someTypeHasTraitConstraint(boundType, actualConstraintTrait)) {
+        if (
+          !someTypeHasTraitConstraint(boundType, actualConstraintTrait, env)
+        ) {
           return noMatch;
         }
         continue;
@@ -1119,17 +1126,27 @@ function tryMatchGenericImpl({
  */
 function someTypeHasTraitConstraint(
   someType: SomeType,
-  requiredTrait: TraitType
+  requiredTrait: TraitType,
+  env: Environment
 ): boolean {
   const traitName = requiredTrait.typeName;
   if (!traitName) {
     return false;
   }
 
-  // Check in requiredTraits (from where clause constraints)
+  // Check in requiredTraits (SomeType-level constraints)
   for (const requiredTraitEntry of someType.requiredTraits) {
     if (requiredTraitEntry.traitType.id === requiredTrait.id) {
       return true;
+    }
+  }
+
+  const whereConstraints = getWhereClauseConstraintsForSomeType(env, someType);
+  if (whereConstraints) {
+    for (const requiredTraitType of whereConstraints.requiredTraits) {
+      if (requiredTraitType.id === requiredTrait.id) {
+        return true;
+      }
     }
   }
 
@@ -1151,17 +1168,27 @@ function someTypeHasTraitConstraint(
  */
 function someTypeHasNegatedTraitConstraint(
   someType: SomeType,
-  requiredNegatedTrait: TraitType
+  requiredNegatedTrait: TraitType,
+  env: Environment
 ): boolean {
   const traitName = requiredNegatedTrait.typeName;
   if (!traitName) {
     return false;
   }
 
-  // Check in negativeTraits (the new system)
+  // Check in negativeTraits (SomeType-level constraints)
   if (someType.negativeTraits) {
     for (const negativeTraitEntry of someType.negativeTraits) {
       if (negativeTraitEntry.traitType.id === requiredNegatedTrait.id) {
+        return true;
+      }
+    }
+  }
+
+  const whereConstraints = getWhereClauseConstraintsForSomeType(env, someType);
+  if (whereConstraints) {
+    for (const negativeTraitType of whereConstraints.negativeTraits) {
+      if (negativeTraitType.id === requiredNegatedTrait.id) {
         return true;
       }
     }
@@ -1787,7 +1814,7 @@ export function evaluateModuleValue({
       }
     }
 
-    // Collect where constraints from the SomeTypes' requiredTraits
+    // Collect where constraints from the current env frames
     const whereConstraints: {
       someType: SomeType;
       traitType: TraitType;
@@ -1797,11 +1824,14 @@ export function evaluateModuleValue({
       // Only type parameters have SomeTypes with constraints
       if (param.kind !== "type") continue;
       const { someType } = param;
-      // Collect from requiredTraits (the new system)
-      for (const requiredTrait of someType.requiredTraits) {
+      const constraints = getWhereClauseConstraintsForSomeType(env, someType);
+      if (!constraints) {
+        continue;
+      }
+      for (const requiredTraitType of constraints.requiredTraits) {
         whereConstraints.push({
           someType,
-          traitType: requiredTrait.traitType,
+          traitType: requiredTraitType,
           traitExpr: undefined, // We don't store the original expr in the new system
         });
       }

@@ -1,5 +1,6 @@
 import {
   addVariableToEnv,
+  addWhereClauseConstraintToEnv,
   Environment,
   getVariablesFromEnv,
   popEnvFrame,
@@ -533,8 +534,9 @@ use_id :: (fn(forall(T : Type),
       existingSomeType.requiredTraits = mergedRequiredTraits;
       existingSomeType.negativeTraits = mergedNegativeTraits;
     }
-    // Otherwise, just keep the existing SomeType with its where clause constraints
-    // (this handles cases like `comptime(T): Type` after `where(T <: Trait)`)
+    // Otherwise, just keep the existing SomeType; its where-clause constraints
+    // are stored in the current env frame (this handles cases like
+    // `comptime(T): Type` after `where(T <: Trait)`)
 
     // Use the existing SomeType as the actual value for this parameter
     actualValue = existingTypeValue;
@@ -845,8 +847,6 @@ function applySingleTraitConstraint({
   env: Environment;
   success: boolean;
 } {
-  const currentFrameLevel = env.frames.length - 1;
-
   // Check if the trait expression is negated
   let isNegated = false;
   let unwrappedTraitExpr = traitExpr;
@@ -974,31 +974,12 @@ function applySingleTraitConstraint({
     });
   }
 
-  // Track this SomeType for cleanup when frame is popped
-  const targetFrame = env.frames[currentFrameLevel];
-  if (targetFrame && !targetFrame.modifiedSomeTypes.includes(someType)) {
-    targetFrame.modifiedSomeTypes.push(someType);
-  }
-
-  // Apply the trait constraint
-  if (isNegated) {
-    if (!someType.negativeTraits) {
-      someType.negativeTraits = [];
-    }
-    if (!someType.negativeTraits.some((t) => t.traitType.id === traitType.id)) {
-      someType.negativeTraits.push({
-        traitType,
-        frameLevel: currentFrameLevel,
-      });
-    }
-  } else {
-    if (!someType.requiredTraits.some((t) => t.traitType.id === traitType.id)) {
-      someType.requiredTraits.push({
-        traitType,
-        frameLevel: currentFrameLevel,
-      });
-    }
-  }
+  env = addWhereClauseConstraintToEnv({
+    env,
+    someType,
+    traitType,
+    isNegated,
+  });
 
   return { env, success: true };
 }
@@ -1027,11 +1008,6 @@ function parseWhereClauseConstraints({
   pendingTraits: PendingTraitConstraint[];
 } {
   const pendingTraits: PendingTraitConstraint[] = [];
-  const currentFrameLevel = env.frames.length - 1;
-
-  // Track SomeTypes that we've modified so we don't add duplicates to modifiedSomeTypes
-  const modifiedSomeTypesThisCall = new Set<SomeType>();
-
   for (const constraintExpr of constraintExprs) {
     // Each constraint must be of the form: T <: Trait or T <: (Trait1, Trait2)
     if (
@@ -1151,17 +1127,6 @@ function parseWhereClauseConstraints({
       // Keep constraints scoped to the current frame.
     }
 
-    // Track this SomeType for cleanup when frame is popped
-    // We keep constraints scoped to the current frame that introduced them.
-    if (!modifiedSomeTypesThisCall.has(someType)) {
-      modifiedSomeTypesThisCall.add(someType);
-
-      const targetFrame = env.frames[currentFrameLevel];
-      if (targetFrame) {
-        targetFrame.modifiedSomeTypes.push(someType);
-      }
-    }
-
     // Parse RHS: can be Trait, (Trait1, Trait2), !(Trait), or (!(Trait1), Trait2)
     // Store the original expressions (potentially wrapped with !)
     const traitExprs: Expr[] = [];
@@ -1251,30 +1216,12 @@ function parseWhereClauseConstraints({
         });
       }
 
-      // Directly mutate the SomeType with the constraint
-      // Use the current frame level to scope where-clause constraints.
-
-      if (isNegated) {
-        // Check for duplicate
-        if (
-          !someType.negativeTraits.some((t) => t.traitType.id === traitType.id)
-        ) {
-          someType.negativeTraits.push({
-            traitType,
-            frameLevel: currentFrameLevel,
-          });
-        }
-      } else {
-        // Check for duplicate
-        if (
-          !someType.requiredTraits.some((t) => t.traitType.id === traitType.id)
-        ) {
-          someType.requiredTraits.push({
-            traitType,
-            frameLevel: currentFrameLevel,
-          });
-        }
-      }
+      env = addWhereClauseConstraintToEnv({
+        env,
+        someType,
+        traitType,
+        isNegated,
+      });
     }
   }
 
@@ -1836,7 +1783,7 @@ export function evaluateFunctionType({
     });
   }
 
-  // Evaluate the parameter list (where clauses will store constraints directly on SomeTypes)
+  // Evaluate the parameter list (where clauses store constraints in env frames)
   const {
     parameters,
     forallParameters,

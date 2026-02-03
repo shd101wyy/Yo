@@ -9,7 +9,7 @@
  * generic impl registry, which is in the evaluator layer.
  */
 
-import { Environment } from "../env";
+import { Environment, getWhereClauseConstraintsForSomeType } from "../env";
 import { formatErrorMessage } from "../error";
 import { Token } from "../token";
 import { areTypesCompatible } from "../types/compatibility";
@@ -88,7 +88,7 @@ export function typeImplementsTrait({
   }
 
   // Check where clause constraints for SomeType
-  // Constraints are stored directly on the SomeType itself
+  // Constraints are stored in the current env frames (not on SomeType)
   if (isSomeType(targetType)) {
     // QUESTION: Should we check this?
     // if (targetType.resolvedConcreteType) {
@@ -102,13 +102,31 @@ export function typeImplementsTrait({
 
     let foundRequiredTraitInConstraints = false;
     let foundNegativeTraitInConstraints = false;
-    // Check if the trait is in requiredTraits
+    // Check if the trait is in requiredTraits (SomeType-level + where-clause constraints)
     for (const requiredTraitEntry of targetType.requiredTraits) {
       if (requiredTraitEntry.traitType.id === traitType.id) {
         foundRequiredTraitInConstraints = true;
       }
     }
-    // Check if the trait is in negativeTraits
+
+    const whereConstraints = getWhereClauseConstraintsForSomeType(
+      env,
+      targetType
+    );
+    if (whereConstraints) {
+      for (const requiredTrait of whereConstraints.requiredTraits) {
+        if (requiredTrait.id === traitType.id) {
+          foundRequiredTraitInConstraints = true;
+        }
+      }
+      for (const negativeTrait of whereConstraints.negativeTraits) {
+        if (negativeTrait.id === traitType.id) {
+          foundNegativeTraitInConstraints = true;
+        }
+      }
+    }
+
+    // Check if the trait is in negativeTraits (SomeType-level)
     if (targetType.negativeTraits) {
       for (const negativeTraitEntry of targetType.negativeTraits) {
         if (negativeTraitEntry.traitType.id === traitType.id) {
