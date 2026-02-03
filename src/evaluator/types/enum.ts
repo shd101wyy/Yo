@@ -10,12 +10,7 @@ import {
   FnCallExpr,
 } from "../../expr";
 import { createEnumType } from "../../types/creators";
-import {
-  EnumVariant,
-  ModuleField,
-  TraitField,
-  TypeField,
-} from "../../types/definitions";
+import { EnumVariant, TypeField } from "../../types/definitions";
 import { isComptimeIntType } from "../../types/guards";
 import { createTypeValue, isComptimeIntValue } from "../../value";
 import { EvaluatorContext } from "../context";
@@ -55,7 +50,6 @@ export function evaluateEnumType({
 
   // Evaluate the variants
   const variants: EnumVariant[] = enumType.variants;
-  const traitFields: TraitField[] = enumType.trait.fields;
 
   // Track the next auto-assigned discriminant value
   let nextDiscriminant = 0n;
@@ -140,81 +134,16 @@ export function evaluateEnumType({
     }
     // comptime fields
     // eg:
-    //   ~~Self.new = (((lhs: Self, rhs: i32) -> i32) {})~~
     //   new :: (((lhs: Self, rhs: i32) -> i32) {})
     else if (
       exprIsFunctionCall(enumArg) &&
       (exprIsFunctionCallOf(enumArg, "::", 2) ||
         exprIsFunctionCallOf(enumArg, "?=", 2))
     ) {
-      const arg = enumArg;
-
-      const { field, env: nextEnv } = evaluateTypeField({
-        expr: arg,
-        env,
-        tupleFieldIndex: i,
-        context: { ...context, SelfType: enumType },
-        forType: "enum",
+      throw formatErrorMessage({
+        token: enumArg.token,
+        errorMessage: `Please use "impl" block to define members/methods for enum types.`,
       });
-
-      // Check if there is duplicate labels
-      const duplicateLabel = traitFields.find(
-        (elem) => elem.label === field.label
-      );
-      if (duplicateLabel) {
-        throw formatErrorMessage({
-          token: arg.token,
-          errorMessage: `Duplicate label "${field.label}" in enum`,
-        });
-      }
-
-      // Check if it duplicates with the existing variant names
-      if (variants.some((v) => v.name === field.label)) {
-        throw formatErrorMessage({
-          token: arg.token,
-          errorMessage: `Duplicate label "${field.label}" in enum variants`,
-        });
-      }
-
-      if (!field.isCompileTimeOnly) {
-        throw formatErrorMessage({
-          token: arg.token,
-          errorMessage: `Expected compile-time only field, got:\n${exprToString(field.exprs.expr)}`,
-        });
-      }
-
-      // Enum module field cannot have default value.
-      if (field.defaultValue) {
-        throw formatErrorMessage({
-          token: field.exprs.defaultValueExpr?.token ?? field.exprs.expr.token,
-          errorMessage: `Enum module field cannot have default value.`,
-        });
-      }
-
-      // Enum module field must have assigned value.
-      if (!field.assignedValue) {
-        throw formatErrorMessage({
-          token: field.exprs.assignedValueExpr?.token ?? field.exprs.expr.token,
-          errorMessage: `Enum module field must have assigned value.`,
-        });
-      }
-
-      // ___drop function
-      // if (type.label === BuiltinFunctions.___drop[0]) {
-      //   throw formatErrorMessage({
-      //     token: arg.token,
-      //     errorMessage: `The label "${BuiltinFunctions.___drop[0]}()" is reserved for the auto-generated drop function. You cannot define it as a compile-time-only element.`,
-      //   });
-      // }
-
-      // dispose function
-      // Verify the disposeFunction has the correct type.
-      // fn(self : Self) -> unit
-      // if (type.label === BuiltinFunctions.dispose[0]) {
-      //   validateDisposeFunction(type as ModuleField, arg.token);
-      // }
-      traitFields.push(field as ModuleField);
-      env = nextEnv;
     }
 
     // Enum variant

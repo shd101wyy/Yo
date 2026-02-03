@@ -28,414 +28,431 @@ ArrayListError :: enum(
  * - _length: current number of elements
  * - _capacity: total capacity of the buffer
  */
-ArrayList :: (fn(comptime(T): Type) -> comptime(Type))
+ArrayList :: (fn(comptime(T): Type) -> comptime(Type))(
   object(
     _ptr : ?*(T),
     _length : usize,
-    _capacity : usize,
+    _capacity : usize
+  )
+);
+impl(forall(T : Type), ArrayList(T), {
+  len :: (fn(self: Self) -> usize)({
+    return self._length;
+  });
+  export len;
 
-    len :: (fn(self: Self) -> usize)({
-      return self._length;
-    }),
+  capacity :: (fn(self: Self) -> usize)({
+    return self._capacity;
+  });
+  export capacity;
 
-    capacity :: (fn(self: Self) -> usize)({
-      return self._capacity;
-    }),
-
-    /**
-     * Get a pointer to the underlying data buffer
-     * Returns .None if the list is empty or has no allocated buffer
-     */
-    ptr :: (fn(self: Self) -> ?*(T))(
-      self._ptr
-    ),
-
-    /**     * Get a slice view of the ArrayList
-     * Returns a fat pointer [T] with data pointer and length
-     * This allows passing ArrayList to functions expecting slices
-     */
-    // as_slice :: (fn(self: Self) -> [T])({
-    //   ptr := match(self._ptr,
-    //     .Some(p) => p,
-    //     .None => (*(T))(*(void)(usize(0)))  // NULL for empty list
-    //   );
-    //   return [T](ptr, self._length);
-    // }),
-
-    /**     * Directly set the length of the ArrayList
-     * UNSAFE: This does not initialize new elements or free removed elements
-     * Only use when you've manually populated the buffer (e.g., via direct memory writes)
-     */
-    set_len :: (fn(self: Self, new_len: usize) -> unit)({
-      cond(
-        (new_len <= self._capacity) => {
-          self._length = new_len;
-        },
-        true => panic("set_len: new length exceeds capacity")
-      );
-    }),
-
-    /**
-     * Create a new empty ArrayList
-     */
-    new :: (fn() -> Self)(
-      Self(
-        _ptr: .None,
-        _length: usize(0),
-        _capacity: usize(0)
-      )),
-
-    /**
-     * Create an ArrayList with a specific initial capacity
-     */
-    with_capacity :: (fn(capacity: usize) -> Self)(
-      cond(
-        (capacity == usize(0)) => 
-          Self.new(),
-        true => {
-          ptr_result := malloc(sizeof(T) * capacity);
-          match(ptr_result,
-            .Some(ptr) =>
-              Self(
-                _ptr: .Some((*(T))(ptr)),
-                _length: usize(0),
-                _capacity: capacity
-              ),
-            .None => panic("malloc returned None")
-          )
-        }
-      )
-    ),
-
-    /**
-     * Add an element to the end of the ArrayList
-     */
-    push :: (fn(self: Self, value: T) -> Result(unit, ArrayListError))(
-      // Check if we need to grow
-      cond(
-        (self._length >= self._capacity) => {
-          // Need to grow - calculate new capacity
-          new_capacity := cond
-            (self._capacity == usize(0)) => usize(4),
-            true => (self._capacity * usize(2));
-          
-          // Allocate or reallocate
-          new_some_ptr := match self._ptr,
-            .None => GlobalAllocator.malloc(sizeof(T) * new_capacity),
-            .Some(old_ptr) => GlobalAllocator.realloc(
-              .Some((*(void))(old_ptr)), 
-              sizeof(T) * new_capacity
-            );
-          
-          match(new_some_ptr,
-            .Some(new_ptr) => {
-              typed_ptr := (*(T))(new_ptr);
-              self._ptr = .Some(typed_ptr);
-              self._capacity = new_capacity;
-              // Now add the element at position length
-              target_ptr := (typed_ptr &+ self._length);
-              consume(target_ptr.* = value);
-              self._length = (self._length + usize(1));
-              .Ok(())
-            },
-            .None => .Err(.AllocError(.OutOfMemory))
-          )
-        },
-        true =>
-          // Have capacity - just add the element
-          match(self._ptr,
-            .Some(ptr) => {
-              target_ptr := (ptr &+ self._length);
-              consume(target_ptr.* = value);
-              self._length = (self._length + usize(1));
-              .Ok(())
-            },
-            .None => panic("ArrayList has capacity but no ptr")
-          )
-      )
-    ),
-
-    /**
-     * Remove and return the last element
-     */
-    pop :: (fn(self: Self) -> Option(T))(
-      cond(
-        (self._length == usize(0)) => .None,
-        true => {
-          self._length = (self._length - usize(1));
-          match(self._ptr,
-            .None => .None,
-            .Some(ptr) => {
-              last_element_ptr := (ptr &+ self._length);
-              last_element := last_element_ptr.*;
-              // Drop the slot's reference since it's no longer tracked
-              // (length was decremented, so dispose won't reach this slot)
-              unsafe.drop(last_element_ptr.*);
-              .Some(last_element)
-            }
-          )
-        }
-      )
-    ),
-
-    /**
-     * Get an element by index (bounds checked)
-     */
-    get :: (fn(self: Self, index: usize) -> Option(T))(
-      cond(
-        (index >= self._length) => .None,
-        true =>
-          match(self._ptr,
-            .None => .None,
-            .Some(ptr) => .Some((ptr &+ index).*)
-          )
-      )
-    ),
-
-    /**
-     * Set an element at a specific index (bounds checked)
-     * Returns Ok(()) on success, or Error with bounds information
-     */
-    set :: (fn(self: Self, index: usize, value: T) -> Result(unit, ArrayListError))(
-      cond(
-        (index >= self._length) => 
-          .Err(.IndexOutOfBounds(index: index, length: self._length)),
-        true =>
-          match(self._ptr,
-            .None => panic("ArrayList has length but no ptr"),
-            .Some(ptr) => {
-              target_ptr := (ptr &+ index);
-              target_ptr.* = value;
-              .Ok(())
-            }
-          )
-      )
-    ),
-
-    /**
-     * Shrink the capacity to match the current length
-     * This reduces memory usage but may cause reallocation on next push
-     */
-    shrink_to_fit :: ((fn(self: Self) -> Result(unit, ArrayListError))
-      // If length equals capacity or both are zero, nothing to do
-      cond(
-        ((self._length == self._capacity) || (self._capacity == usize(0))) => .Ok(()),
-        true =>
-          // If length is zero, free the buffer
-          cond(
-            (self._length == usize(0)) => {
-              match(self._ptr,
-                .Some(ptr) => {
-                  GlobalAllocator.free(.Some(*(void)(ptr)));
-                  self._ptr = .None;
-                  self._capacity = usize(0);
-                },
-                .None => ());
-              .Ok(())
-            },
-            true =>
-              // Otherwise, reallocate to exact size
-              match(self._ptr,
-                .None => panic("ArrayList has capacity but no ptr"),
-                .Some(old_ptr) => {
-                  new_some_ptr := GlobalAllocator.realloc(
-                    .Some(*(void)(old_ptr)),
-                    sizeof(T) * self._length
-                  );
-                  match(new_some_ptr,
-                    .Some(new_ptr) => {
-                      self._ptr = .Some(*(T)(new_ptr));
-                      self._capacity = self._length;
-                      .Ok(())
-                    },
-                    .None => .Err(.AllocError(.OutOfMemory))
-                  )
-                }
-              )
-          )
-      )
-    ),
-
-    _free_elements :: ((fn(self : Self) -> unit)
-      cond(
-        Type.contains_rc_type(T) => {
-          i := usize(0);
-          base_ptr := self._ptr.unwrap();
-          while(i < self._length, i = (i + usize(1)), {
-            element_ptr := (base_ptr &+ i);
-            unsafe.drop(element_ptr.*);
-          });
-        },
-        true => ()
-      )
-    ),
-
-    /**
-     * Remove elements from the ArrayList starting at index, removing count elements
-     * Returns the number of elements actually removed
-     */
-    remove :: (fn(self: Self, start: usize, (count : usize) ?= 1) -> Result(usize, ArrayListError))(
-      // Check if start index is valid
-      cond(
-        (start >= self._length) => 
-          .Err(.IndexOutOfBounds(index: start, length: self._length)),
-        true => {
-          // Calculate actual number of elements to remove
-          // (can't remove more than what's available)
-          available := (self._length - start);
-          actual_count := cond(
-            (count > available) => available,
-            true => count
-          );
-          
-          // If removing 0 elements, just return success
-          cond(
-            (actual_count == usize(0)) => .Ok(usize(0)),
-            true =>
-              match(self._ptr,
-                .None => panic("ArrayList has length but no ptr"),
-                .Some(ptr) => {
-                  // Shift remaining elements left to fill the gap
-                  // We need to move elements from [start + actual_count, length) to [start, ...)
-                  elements_after := ((self._length - start) - actual_count);
-                  new_length := (self._length - actual_count);
-                  cond(
-                    (elements_after > usize(0)) => {
-                      src_ptr := (ptr &+ (start + actual_count));
-                      dst_ptr := (ptr &+ start);
-                      
-                      cond(
-                        Type.contains_rc_type(T) => {
-                          // For RC types, iterate and properly manage RC
-                          // The assignment dst.* = src.* will:
-                          // 1. Dup src.* (RC+1)
-                          // 2. Drop old dst.* (either element being removed, or previous iteration's copy)
-                          // 3. Write to dst.*
-                          i := usize(0);
-                          while(i < elements_after, i = (i + usize(1)), {
-                            dst := (dst_ptr &+ i);
-                            src := (src_ptr &+ i);
-                            dst.* = src.*;
-                          });
-                          // Drop the non-overlapping tail stale pointers
-                          j := usize(0);
-                          tail_start := (start + elements_after);
-                          tail_count := actual_count;
-                          while(j < tail_count, j = (j + usize(1)), {
-                            tail_ptr := (ptr &+ (tail_start + j));
-                            unsafe.drop(tail_ptr.*);
-                          });
-                        },
-                        true => {
-                          // For non-RC types, use fast memmove
-                          element_size := sizeof(T);
-                          bytes_to_move := (elements_after * element_size);
-                          dst_void := *(void)(dst_ptr);
-                          src_void := *(void)(src_ptr);
-                          memmove(dst_void, src_void, bytes_to_move);
-                        }
-                      );
-                    },
-                    true => {
-                      // No elements to shift, just drop the removed elements
-                      cond(
-                        Type.contains_rc_type(T) => {
-                          i := usize(0);
-                          while(i < actual_count, i = (i + usize(1)), {
-                            element_ptr := (ptr &+ (start + i));
-                            unsafe.drop(element_ptr.*);
-                          });
-                        },
-                        true => ()
-                      );
-                    }
-                  );
-                  
-                  // Update length
-                  self._length = new_length;
-                  .Ok(actual_count)
-                }
-              )
-          )
-        }
-      )
-    ),
-
-    /**
-     * Create a new ArrayList containing a slice of elements from start to end (exclusive)
-     * Similar to array slicing in many languages: array[start:end]
-     * Returns a new ArrayList with copied elements
-     */
-    slice :: (fn(self: Self, start: usize, end: usize) -> Result(Self, ArrayListError))(
-      // Validate indices
-      cond(
-        (start > self._length) =>
-          .Err(.IndexOutOfBounds(index: start, length: self._length)),
-        (end > self._length) =>
-          .Err(.IndexOutOfBounds(index: end, length: self._length)),
-        (start > end) =>
-          .Err(.IndexOutOfBounds(index: start, length: end)),
-        true => {
-          slice_length := (end - start);
-          
-          // If slice is empty, return empty ArrayList
-          cond(
-            (slice_length == usize(0)) =>
-              .Ok(Self.new()),
-            true =>
-              match(self._ptr,
-                .None => panic("ArrayList has length but no ptr"),
-                .Some(src_ptr) => {
-                  // Create new ArrayList with exact capacity
-                  new_list := Self.with_capacity(slice_length);
-                  
-                  match(new_list._ptr,
-                    .None => .Err(.AllocError(.OutOfMemory)),
-                    .Some(dst_ptr) => {
-                      // Copy elements
-                      i := usize(0);
-                      while(i < slice_length, i = (i + usize(1)), {
-                        src := (src_ptr &+ (start + i));
-                        dst := (dst_ptr &+ i);
-                        dst.* = src.*;
-                      });
-                      
-                      // Set the length of the new list
-                      new_list._length = slice_length;
-                      .Ok(new_list)
-                    }
-                  )
-                }
-              )
-          )
-        }
-      )
-    ),
-
-    /**
-     * Clear all elements but keep capacity
-     */
-    clear :: (fn(self: Self) -> unit)({
-      self._free_elements();
-      self._length = usize(0);
-    }),
-
-    /**
-     * RAII destructor - automatically called when ArrayList goes out of scope
-     * For `object`, this is called when the reference count drops to zero
-     */
-    dispose :: (fn(self: Self) -> unit)({
-      match(self._ptr,
-        .Some(ptr) => {
-          self._free_elements();
-          self._length = usize(0);
-          GlobalAllocator.free(.Some(*(void)(ptr)));
-          self._ptr = .None;
-        },
-        .None => ()
-      );
-    })
+  /**
+    * Get a pointer to the underlying data buffer
+    * Returns .None if the list is empty or has no allocated buffer
+    */
+  _ptr :: (fn(self: Self) -> ?*(T))(
+    self._ptr
   );
+  export ptr: _ptr;
+
+  /**
+    * Get a slice view of the ArrayList
+    * Returns a fat pointer [T] with data pointer and length
+    * This allows passing ArrayList to functions expecting slices
+    */
+  // as_slice :: (fn(self: Self) -> [T])({
+  //   ptr := match(self._ptr,
+  //     .Some(p) => p,
+  //     .None => (*(T))(*(void)(usize(0)))  // NULL for empty list
+  //   );
+  //   return [T](ptr, self._length);
+  // }),
+
+  /**     * Directly set the length of the ArrayList
+    * UNSAFE: This does not initialize new elements or free removed elements
+    * Only use when you've manually populated the buffer (e.g., via direct memory writes)
+    */
+  set_len :: (fn(self: Self, new_len: usize) -> unit)({
+    cond(
+      (new_len <= self._capacity) => {
+        self._length = new_len;
+      },
+      true => panic("set_len: new length exceeds capacity")
+    );
+  });
+  export set_len;
+
+  /**
+    * Create a new empty ArrayList
+    */
+  new :: (fn() -> Self)(
+    Self(
+      _ptr: .None,
+      _length: usize(0),
+      _capacity: usize(0)
+    ));
+  export new;
+
+  /**
+    * Create an ArrayList with a specific initial cap
+    */
+  with_capacity :: (fn(cap: usize) -> Self)(
+    cond(
+      (cap == usize(0)) => 
+        new(),
+      true => {
+        ptr_result := malloc(sizeof(T) * cap);
+        match(ptr_result,
+          .Some(ptr) =>
+            Self(
+              _ptr: .Some((*(T))(ptr)),
+              _length: usize(0),
+              _capacity: cap
+            ),
+          .None => panic("malloc returned None")
+        )
+      }
+    )
+  );
+  export with_capacity;
+
+  /**
+    * Add an element to the end of the ArrayList
+    */
+  push :: (fn(self: Self, value: T) -> Result(unit, ArrayListError))(
+    // Check if we need to grow
+    cond(
+      (self._length >= self._capacity) => {
+        // Need to grow - calculate new capacity
+        new_capacity := cond
+          (self._capacity == usize(0)) => usize(4),
+          true => (self._capacity * usize(2));
+        
+        // Allocate or reallocate
+        new_some_ptr := match self._ptr,
+          .None => GlobalAllocator.malloc(sizeof(T) * new_capacity),
+          .Some(old_ptr) => GlobalAllocator.realloc(
+            .Some((*(void))(old_ptr)), 
+            sizeof(T) * new_capacity
+          );
+        
+        match(new_some_ptr,
+          .Some(new_ptr) => {
+            typed_ptr := (*(T))(new_ptr);
+            self._ptr = .Some(typed_ptr);
+            self._capacity = new_capacity;
+            // Now add the element at position length
+            target_ptr := (typed_ptr &+ self._length);
+            consume(target_ptr.* = value);
+            self._length = (self._length + usize(1));
+            .Ok(())
+          },
+          .None => .Err(.AllocError(.OutOfMemory))
+        )
+      },
+      true =>
+        // Have capacity - just add the element
+        match(self._ptr,
+          .Some(ptr) => {
+            target_ptr := (ptr &+ self._length);
+            consume(target_ptr.* = value);
+            self._length = (self._length + usize(1));
+            .Ok(())
+          },
+          .None => panic("ArrayList has capacity but no ptr")
+        )
+    )
+  );
+  export push;
+
+  /**
+    * Remove and return the last element
+    */
+  pop :: (fn(self: Self) -> Option(T))(
+    cond(
+      (self._length == usize(0)) => .None,
+      true => {
+        self._length = (self._length - usize(1));
+        match(self._ptr,
+          .None => .None,
+          .Some(ptr) => {
+            last_element_ptr := (ptr &+ self._length);
+            last_element := last_element_ptr.*;
+            // Drop the slot's reference since it's no longer tracked
+            // (length was decremented, so dispose won't reach this slot)
+            unsafe.drop(last_element_ptr.*);
+            .Some(last_element)
+          }
+        )
+      }
+    )
+  );
+  export pop;
+
+  /**
+    * Get an element by index (bounds checked)
+    */
+  get :: (fn(self: Self, index: usize) -> Option(T))(
+    cond(
+      (index >= self._length) => .None,
+      true =>
+        match(self._ptr,
+          .None => .None,
+          .Some(ptr) => .Some((ptr &+ index).*)
+        )
+    )
+  );
+  export get;
+
+  /**
+    * Set an element at a specific index (bounds checked)
+    * Returns Ok(()) on success, or Error with bounds information
+    */
+  set :: (fn(self: Self, index: usize, value: T) -> Result(unit, ArrayListError))(
+    cond(
+      (index >= self._length) => 
+        .Err(.IndexOutOfBounds(index: index, length: self._length)),
+      true =>
+        match(self._ptr,
+          .None => panic("ArrayList has length but no ptr"),
+          .Some(ptr) => {
+            target_ptr := (ptr &+ index);
+            target_ptr.* = value;
+            .Ok(())
+          }
+        )
+    )
+  );
+  export set;
+
+  /**
+    * Shrink the capacity to match the current length
+    * This reduces memory usage but may cause reallocation on next push
+    */
+  shrink_to_fit :: ((fn(self: Self) -> Result(unit, ArrayListError))
+    // If length equals capacity or both are zero, nothing to do
+    cond(
+      ((self._length == self._capacity) || (self._capacity == usize(0))) => .Ok(()),
+      true =>
+        // If length is zero, free the buffer
+        cond(
+          (self._length == usize(0)) => {
+            match(self._ptr,
+              .Some(ptr) => {
+                GlobalAllocator.free(.Some(*(void)(ptr)));
+                self._ptr = .None;
+                self._capacity = usize(0);
+              },
+              .None => ());
+            .Ok(())
+          },
+          true =>
+            // Otherwise, reallocate to exact size
+            match(self._ptr,
+              .None => panic("ArrayList has capacity but no ptr"),
+              .Some(old_ptr) => {
+                new_some_ptr := GlobalAllocator.realloc(
+                  .Some(*(void)(old_ptr)),
+                  sizeof(T) * self._length
+                );
+                match(new_some_ptr,
+                  .Some(new_ptr) => {
+                    self._ptr = .Some(*(T)(new_ptr));
+                    self._capacity = self._length;
+                    .Ok(())
+                  },
+                  .None => .Err(.AllocError(.OutOfMemory))
+                )
+              }
+            )
+        )
+    )
+  );
+  export shrink_to_fit;
+
+  _free_elements :: ((fn(self : Self) -> unit)
+    cond(
+      Type.contains_rc_type(T) => {
+        i := usize(0);
+        base_ptr := self._ptr.unwrap();
+        while(i < self._length, i = (i + usize(1)), {
+          element_ptr := (base_ptr &+ i);
+          unsafe.drop(element_ptr.*);
+        });
+      },
+      true => ()
+    )
+  );
+
+  /**
+    * Remove elements from the ArrayList starting at index, removing count elements
+    * Returns the number of elements actually removed
+    */
+  remove :: (fn(self: Self, start: usize, (count : usize) ?= 1) -> Result(usize, ArrayListError))(
+    // Check if start index is valid
+    cond(
+      (start >= self._length) => 
+        .Err(.IndexOutOfBounds(index: start, length: self._length)),
+      true => {
+        // Calculate actual number of elements to remove
+        // (can't remove more than what's available)
+        available := (self._length - start);
+        actual_count := cond(
+          (count > available) => available,
+          true => count
+        );
+        
+        // If removing 0 elements, just return success
+        cond(
+          (actual_count == usize(0)) => .Ok(usize(0)),
+          true =>
+            match(self._ptr,
+              .None => panic("ArrayList has length but no ptr"),
+              .Some(ptr) => {
+                // Shift remaining elements left to fill the gap
+                // We need to move elements from [start + actual_count, length) to [start, ...)
+                elements_after := ((self._length - start) - actual_count);
+                new_length := (self._length - actual_count);
+                cond(
+                  (elements_after > usize(0)) => {
+                    src_ptr := (ptr &+ (start + actual_count));
+                    dst_ptr := (ptr &+ start);
+                    
+                    cond(
+                      Type.contains_rc_type(T) => {
+                        // For RC types, iterate and properly manage RC
+                        // The assignment dst.* = src.* will:
+                        // 1. Dup src.* (RC+1)
+                        // 2. Drop old dst.* (either element being removed, or previous iteration's copy)
+                        // 3. Write to dst.*
+                        i := usize(0);
+                        while(i < elements_after, i = (i + usize(1)), {
+                          dst := (dst_ptr &+ i);
+                          src := (src_ptr &+ i);
+                          dst.* = src.*;
+                        });
+                        // Drop the non-overlapping tail stale pointers
+                        j := usize(0);
+                        tail_start := (start + elements_after);
+                        tail_count := actual_count;
+                        while(j < tail_count, j = (j + usize(1)), {
+                          tail_ptr := (ptr &+ (tail_start + j));
+                          unsafe.drop(tail_ptr.*);
+                        });
+                      },
+                      true => {
+                        // For non-RC types, use fast memmove
+                        element_size := sizeof(T);
+                        bytes_to_move := (elements_after * element_size);
+                        dst_void := *(void)(dst_ptr);
+                        src_void := *(void)(src_ptr);
+                        memmove(dst_void, src_void, bytes_to_move);
+                      }
+                    );
+                  },
+                  true => {
+                    // No elements to shift, just drop the removed elements
+                    cond(
+                      Type.contains_rc_type(T) => {
+                        i := usize(0);
+                        while(i < actual_count, i = (i + usize(1)), {
+                          element_ptr := (ptr &+ (start + i));
+                          unsafe.drop(element_ptr.*);
+                        });
+                      },
+                      true => ()
+                    );
+                  }
+                );
+                
+                // Update length
+                self._length = new_length;
+                .Ok(actual_count)
+              }
+            )
+        )
+      }
+    )
+  );
+  export remove;
+
+  /**
+    * Create a new ArrayList containing a slice of elements from start to end (exclusive)
+    * Similar to array slicing in many languages: array[start:end]
+    * Returns a new ArrayList with copied elements
+    */
+  slice :: (fn(self: Self, start: usize, end: usize) -> Result(Self, ArrayListError))(
+    // Validate indices
+    cond(
+      (start > self._length) =>
+        .Err(.IndexOutOfBounds(index: start, length: self._length)),
+      (end > self._length) =>
+        .Err(.IndexOutOfBounds(index: end, length: self._length)),
+      (start > end) =>
+        .Err(.IndexOutOfBounds(index: start, length: end)),
+      true => {
+        slice_length := (end - start);
+        
+        // If slice is empty, return empty ArrayList
+        cond(
+          (slice_length == usize(0)) =>
+            .Ok(new()),
+          true =>
+            match(self._ptr,
+              .None => panic("ArrayList has length but no ptr"),
+              .Some(src_ptr) => {
+                // Create new ArrayList with exact capacity
+                new_list := with_capacity(slice_length);
+                
+                match(new_list._ptr,
+                  .None => .Err(.AllocError(.OutOfMemory)),
+                  .Some(dst_ptr) => {
+                    // Copy elements
+                    i := usize(0);
+                    while(i < slice_length, i = (i + usize(1)), {
+                      src := (src_ptr &+ (start + i));
+                      dst := (dst_ptr &+ i);
+                      dst.* = src.*;
+                    });
+                    
+                    // Set the length of the new list
+                    new_list._length = slice_length;
+                    .Ok(new_list)
+                  }
+                )
+              }
+            )
+        )
+      }
+    )
+  );
+  export slice;
+
+  /**
+    * Clear all elements but keep capacity
+    */
+  clear :: (fn(self: Self) -> unit)({
+    self._free_elements();
+    self._length = usize(0);
+  });
+  export clear;
+
+  /**
+    * RAII destructor - automatically called when ArrayList goes out of scope
+    * For `object`, this is called when the reference count drops to zero
+    */
+  dispose :: (fn(self: Self) -> unit)({
+    match(self._ptr,
+      .Some(ptr) => {
+        self._free_elements();
+        self._length = usize(0);
+        GlobalAllocator.free(.Some(*(void)(ptr)));
+        self._ptr = .None;
+      },
+      .None => ()
+    );
+  });
+});
 
 export
   ArrayList,

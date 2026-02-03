@@ -488,8 +488,9 @@ IOError :: enum(
   AlreadyConnected,
 
   // Generic
-  Other(code: i32),
-
+  Other(code: i32)
+);
+impl(IOError, {
   from_errno :: (fn(errno: i32) -> Self)(
     cond(
       // File system errors
@@ -528,15 +529,17 @@ IOError :: enum(
       (errno == EISCONN) => .AlreadyConnected,
       true => .Other(errno)
     )
-  ),
+  );
+  export from_errno;
 
   from_result :: (fn(result: i32) -> Result(i32, Self))(
     cond(
       (result >= i32(0)) => .Ok(result),
       true => .Err(Self.from_errno((i32(0) - result)))
     )
-  )
-);
+  );
+  export from_result;
+});
 
 impl(IOError, ToString(
   to_string : (self -> {

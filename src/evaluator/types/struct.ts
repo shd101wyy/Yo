@@ -9,7 +9,6 @@ import {
   FnCallExpr,
 } from "../../expr";
 import { createStructType } from "../../types/creators";
-import { TraitField } from "../../types/definitions";
 import { createTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateTypeField } from "./field";
@@ -17,7 +16,6 @@ import {
   addRcFunctionSignaturesToStructType,
   autoDeriveTraitsAndAddRcFunctionsForStructType,
 } from "./utils";
-import { validateDisposeFunction } from "./validation";
 
 export function evaluateStructType({
   expr,
@@ -102,20 +100,13 @@ export function evaluateStructType({
         }
       }
 
-      if (field.isCompileTimeOnly && field.assignedValue) {
-        // dispose function
-        // Verify the disposeFunction has the correct type.
-        // fn(self : Self) -> unit
-        if (field.label === BuiltinFunctions.dispose[0]) {
-          validateDisposeFunction(
-            field as TraitField,
-            exprIsFunctionCall(arg)
-              ? (arg.args[0]?.token ?? arg.token)
-              : arg.token
-          );
-        }
-
-        structType.trait.fields.push(field as TraitField);
+      if (field.isCompileTimeOnly) {
+        throw formatErrorMessage({
+          token: exprIsFunctionCall(arg)
+            ? (arg.args[0]?.token ?? arg.token)
+            : arg.token,
+          errorMessage: `Please use "impl" block to define members/methods for ${expr.func.token.value} types.`,
+        });
       } else {
         fields.push(field);
       }

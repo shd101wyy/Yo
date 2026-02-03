@@ -1,67 +1,79 @@
 rune :: newtype(
-  char : u32,
-
+  char : u32
+);
+impl(rune, {
   from_u32 :: ((fn(value: u32) -> Option(Self))
     cond(
       ((value <= u32(0x10FFFF)) && (((value < 0xD800) || (value > 0xDFFF)))) => .Some(Self(value)),
       true => .None
     )
-  ),
+  );
+  export from_u32;
 
   to_u32 :: ((fn(self: Self) -> u32)
     self.char
-  ),
+  );
+  export to_u32;
 
   is_ascii :: ((fn(self: Self) -> bool)
     (self.char <= 0x7F)
-  ),
+  );
+  export is_ascii;
 
   is_whitespace :: ((fn(self: Self) -> bool)
     (((self.char == 0x20) || (self.char == 0x09)) || ((self.char == 0x0A) || (self.char == 0x0D)))
-  ),
+  );
+  export is_whitespace;
 
   is_digit :: ((fn(self: Self) -> bool)
     ((self.char >= 0x30) && (self.char <= 0x39))
-  ),
+  );
+  export is_digit;
 
   is_alphabetic :: ((fn(self: Self) -> bool)
     (((self.char >= 0x41) && (self.char <= 0x5A)) || ((self.char >= 0x61) && (self.char <= 0x7A)))
-  ),
+  );
+  export is_alphabetic;
 
   is_uppercase :: ((fn(self: Self) -> bool)
     ((self.char >= 0x41) && (self.char <= 0x5A))
-  ),
+  );
+  export is_uppercase;
 
   is_lowercase :: ((fn(self: Self) -> bool)
     ((self.char >= 0x61) && (self.char <= 0x7A))
-  ),
+  );
+  export is_lowercase;
 
   to_lowercase :: ((fn(self: Self) -> Self)
     cond(
-      self.is_uppercase() => Self((self.char + 32)),
+      is_uppercase(self) => Self((self.char + 32)),
       true => self
     )
-  ),
+  );
+  export to_lowercase;
 
   to_uppercase :: ((fn(self: Self) -> Self)
     cond(
-      self.is_lowercase() => Self((self.char - 32)),
+      is_lowercase(self) => Self((self.char - 32)),
       true => self
     )
-  ),
+  );
+  export to_uppercase;
 
   // Some constants
-  NUL        :: Self(0x00),
-  TAB        :: Self(0x09),
-  NEWLINE    :: Self(0x0A),
-  SPACE      :: Self(0x20),
-  ZERO       :: Self(0x30),
-  NINE       :: Self(0x39),
-  UPPERCASE_A :: Self(0x41),
-  UPPERCASE_Z :: Self(0x5A),
-  LOWERCASE_A :: Self(0x61),
-  LOWERCASE_Z :: Self(0x7A)
-);
+  NUL        :: Self(0x00);
+  TAB        :: Self(0x09);
+  NEWLINE    :: Self(0x0A);
+  SPACE      :: Self(0x20);
+  ZERO       :: Self(0x30);
+  NINE       :: Self(0x39);
+  UPPERCASE_A :: Self(0x41);
+  UPPERCASE_Z :: Self(0x5A);
+  LOWERCASE_A :: Self(0x61);
+  LOWERCASE_Z :: Self(0x7A);
+  export NUL, TAB, NEWLINE, SPACE, ZERO, NINE, UPPERCASE_A, UPPERCASE_Z, LOWERCASE_A, LOWERCASE_Z;
+});
 
 impl(rune, Eq(rune)(
   (==) : ((a, b) -> (a.char == b.char)),

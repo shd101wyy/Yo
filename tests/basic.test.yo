@@ -738,8 +738,9 @@ test "Test 'struct'", {
   // type methods
   {
     Withdraw :: struct(
-      balance: i32,
-
+      balance: i32
+    );
+    impl(Withdraw, {
       withdraw :: (fn(self: *(Self), amount: i32) -> i32)(
         cond(
           (self.balance >= amount) => {
@@ -750,8 +751,9 @@ test "Test 'struct'", {
             return 0; // insufficient balance
           }
         )
-      )
-    );
+      );
+      export withdraw;
+    });
 
     make_widthdraw_balance_100 :: (fn() -> Withdraw) {
       (balance : i32) = 100;
@@ -803,16 +805,20 @@ test "Test 'enum'", {
     Shape :: enum(
       Circle(radius: i32),
       Rectangle(width: i32, height: i32),
-      Triangle(base: i32, height: i32),
-
+      Triangle(base: i32, height: i32)
+    );
+    impl(Shape, {
       new_circle :: (
         (fn(radius: i32) -> Self)
           .Circle(radius)
-      ),
+      );
+      export new_circle;
+
       id :: ((fn(self: Self)-> Self)
         self
-      )
-    );
+      );
+      export id;
+    });
 
     // c := Shape.new_circle(5);
     // c2 := c.id();

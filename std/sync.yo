@@ -13,21 +13,29 @@ extern "Yo",
 ;
 
 mutex_t :: newtype(
-  mutex : YO_THREAD_SYNC_TYPE,
-
+  mutex : YO_THREAD_SYNC_TYPE
+);
+impl(mutex_t, {
   new :: ((fn() -> Self) {
     return Self(yo_mutex_create());
-  }),
+  });
+  export new;
+
   lock :: ((fn(self : *(Self))-> unit) {
     return yo_mutex_lock(&(self.mutex));
-  }),
+  });
+  export lock;
+
   unlock :: ((fn(self : *(Self)) -> unit) {
     return yo_mutex_unlock(&(self.mutex));
-  }),
+  });
+  export unlock;
+
   destroy :: ((fn(self : *(Self)) -> unit) {
     return yo_mutex_destroy(&(self.mutex));
-  })
-);
+  });
+  export destroy;
+});
 
 // GC managed
 Mutex :: object(
@@ -48,24 +56,34 @@ Mutex :: object(
 );
 
 cond_t :: newtype(
-  cv : YO_COND_TYPE,
-
+  cv : YO_COND_TYPE
+);
+impl(cond_t, {
   new :: ((fn() -> Self) {
     return Self(yo_cond_create());
-  }),
+  });
+  export new;
+  
   wait :: ((fn(self : *(Self), mutex : *(mutex_t)) -> unit) {
     return yo_cond_wait(&(self.cv), &(mutex.mutex));
-  }),
+  });
+  export wait;
+
   signal :: ((fn(self : *(Self)) -> unit) {
     return yo_cond_signal(&(self.cv));
-  }),
+  });
+  export signal;
+  
   broadcast :: ((fn(self : *(Self)) -> unit) {
     return yo_cond_broadcast(&(self.cv));
-  }),
+  });
+  export broadcast;
+
   destroy :: ((fn(self : *(Self)) -> unit) {
     return yo_cond_destroy(&(self.cv));
-  })
-);
+  });
+  export destroy;
+});
 
 Cond :: object(
   cv : YO_COND_TYPE,

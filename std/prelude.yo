@@ -483,11 +483,11 @@ ComptimeEq ::
 export ComptimeEq;
 
 /// === Ord ===
-Ordering :: enum
+Ordering :: enum(
   Less,
   Equal,
   Greater
-;
+);
 export Ordering;
 
 Ord :: (
@@ -3184,13 +3184,16 @@ impl(forall(T : Type), Slice(T), {
 
 /// str
 str :: newtype(
-  bytes : Slice(u8),
-
+  bytes : Slice(u8)
+);
+impl(str, {
   len :: (fn(self : Self) -> usize)(
     __yo_slice_len(self.bytes)
-  )
-);
+  );
+  export len;
+});
 export str;
+
 
 /// ComptimeList
 impl(forall(T : Type), ComptimeList(T), Comptime());
@@ -3307,40 +3310,46 @@ export Var;
 
 // === Data Types ===
 /// === Option ===
-Option :: (fn(comptime(T) : Type) -> comptime(Type))
+Option :: (fn(comptime(T) : Type) -> comptime(Type))(
   enum(
     None,
-    Some(value: T),
-
-    unwrap :: (fn(self : Self) -> T)(
-      match(self,
-        .Some(value) => value,
-        .None => panic("Called unwrap on a None value")
-      )
-    ),
-
-    unwrap_or :: (fn(self : Self, or_value : T) -> T)(
-      match(self,
-        .Some(value) => value,
-        .None => or_value
-      )
-    ),
-
-    is_some :: (fn(self : Self) -> bool)(
-      match(self,
-        .Some(_) => true,
-        .None => false
-      )
-    ),
-
-    is_none :: (fn(self : Self) -> bool)(
-      match(self,
-        .None => true,
-        .Some(_) => false
-      )
-    )
+    Some(value: T)
   )
-;
+);
+impl(forall(T : Type), Option(T), {
+  unwrap :: (fn(self : Self) -> T)(
+    match(self,
+      .Some(value) => value,
+      .None => panic("Called unwrap on a None value")
+    )
+  );
+  export unwrap;
+
+  unwrap_or :: (fn(self : Self, or_value : T) -> T)(
+    match(self,
+      .Some(value) => value,
+      .None => or_value
+    )
+  );
+  export unwrap_or;
+
+  is_some :: (fn(self : Self) -> bool)(
+    match(self,
+      .Some(_) => true,
+      .None => false
+    )
+  );
+  export is_some;
+
+  is_none :: (fn(self : Self) -> bool)(
+    match(self,
+      .None => true,
+      .Some(_) => false
+    )
+  );
+  export is_none;
+});
+
 // Alias of the Option type
 ? :: Option;
 // Nullable pointer
@@ -3356,31 +3365,36 @@ export
 
 /// === Result ===
 Result :: (fn(comptime(OkType): Type, comptime(ErrorType): Type) -> comptime(Type))
-  enum
+  enum(
     Ok(value: OkType),
-    Err(error: ErrorType),
-
-    unwrap :: (fn(self : Self) -> OkType)(
-      match(self,
-        .Ok(value) => value,
-        .Err(_) => panic("Called unwrap on an Error value")
-      )
-    ),
-
-    is_ok :: (fn(self : Self) -> bool)(
-      match(self,
-        .Ok(_) => true,
-        .Err(_) => false
-      )
-    ),
-
-    is_err :: (fn(self : Self) -> bool)(
-      match(self,
-        .Err(_) => true,
-        .Ok(_) => false
-      )
-    )
+    Err(error: ErrorType)
+  )
 ;
+impl(forall(OkType : Type, ErrorType : Type), Result(OkType, ErrorType), {
+  unwrap :: (fn(self : Self) -> OkType)(
+    match(self,
+      .Ok(value) => value,
+      .Err(_) => panic("Called unwrap on an Error value")
+    )
+  );
+  export unwrap;
+
+  is_ok :: (fn(self : Self) -> bool)(
+    match(self,
+      .Ok(_) => true,
+      .Err(_) => false
+    )
+  );
+  export is_ok;
+
+  is_err :: (fn(self : Self) -> bool)(
+    match(self,
+      .Err(_) => true,
+      .Ok(_) => false
+    )
+  );
+  export is_err;
+});
 export
   Result
 ;
@@ -3487,19 +3501,23 @@ extern "Yo",
 
 MaybeUninit :: (fn(comptime(BaseType): Type) -> comptime(Type))
   struct(
-    value: BaseType,
-
-    new :: (fn() -> Self)(__yo_maybe_uninit_new(Self)),
-
-    as_ptr :: (fn(self: *(Self)) -> *(BaseType))(
-      __yo_maybe_uninit_as_ptr(Self, BaseType, self)
-    ),
-
-    assume_init :: (fn(self : Self) -> BaseType)(
-      __yo_maybe_uninit_assume_init(Self, BaseType, self)
-    )
+    value: BaseType
   )
 ;
+impl(forall(BaseType : Type), MaybeUninit(BaseType), {
+  new :: (fn() -> Self)(__yo_maybe_uninit_new(Self));
+  export new;
+
+  as_ptr :: (fn(self: *(Self)) -> *(BaseType))(
+    __yo_maybe_uninit_as_ptr(Self, BaseType, self)
+  );
+  export as_ptr;
+
+  assume_init :: (fn(self : Self) -> BaseType)(
+    __yo_maybe_uninit_assume_init(Self, BaseType, self)
+  );
+  export assume_init;
+});
 
 /* EXAMPLE:
 

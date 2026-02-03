@@ -8,7 +8,7 @@ import {
   FnCallExpr,
 } from "../../expr";
 import { createUnionType } from "../../types/creators";
-import { TraitField, TypeField } from "../../types/definitions";
+import { TypeField } from "../../types/definitions";
 import { isComptimeOnlyType, typeContainsRcType } from "../../types/utils";
 import { createTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
@@ -95,14 +95,10 @@ export function evaluateUnionType({
     }
 
     if (field.isCompileTimeOnly) {
-      if (!field.assignedValue) {
-        throw formatErrorMessage({
-          token: field.exprs.expr.token,
-          errorMessage: `Trait field in union type must have assigned value.`,
-        });
-      }
-
-      unionType.trait.fields.push(field as TraitField);
+      throw formatErrorMessage({
+        token: field.exprs.expr.token,
+        errorMessage: `Please use "impl" block to define members/methods for ${expr.func.token.value} types.`,
+      });
     } else {
       fields.push(field);
     }

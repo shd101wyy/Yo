@@ -361,12 +361,14 @@ test "Test anonymous struct with type method", {
 
   closure := {
     x,
-    y,
-
+    y
+  };
+  impl(typeof(closure), {
     call :: ((fn(self: Self, z : i32) -> i32)
       (self.x + (self.y + z))
-    )
-  };
+    );
+    export call;
+  });
 
   result := closure.call(3);
   assert(result == 6, "Expected 6");
