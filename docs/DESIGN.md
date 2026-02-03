@@ -604,21 +604,24 @@ Yo supports **type methods** - methods defined within the type's trait.
 // Define a type with methods in its trait
 Point :: struct(
   x : i32,
-  y : i32,
-
+  y : i32
+);
+impl(Point, {
   // Type methods are defined in the struct's trait
   distance_from_origin :: (fn(self: Self) -> f64)(
     f64(
       sqrt(
         (self.x * self.x) +
         (self.y * self.y)))
-  ),
+  );
+  export distance_from_origin;
 
   move_by :: (fn(self: *(Self), dx : i32, dy : i32) -> unit)({
     self.x = (self.x + dx);
     self.y = (self.y + dy);
-  })
-);
+  });
+  export move_by;
+});
 
 p := Point(3, 4);
 d := p.distance_from_origin();  // Type method call - OK
@@ -633,11 +636,13 @@ p2.move_by(5, 10);  // Automatically takes pointer for `*(Self)` parameter
 When a method expects `*(Self)` but you have `Self`, Yo automatically takes the pointer for you (Rust-style):
 
 ```rust
-Point :: struct(x: i32, y: i32,
+Point :: struct(x: i32, y: i32);
+impl(Point, {
   set_x :: ((self: *(Self), new_x: i32) -> unit) {
     self.x = new_x;
-  }
-);
+  };
+  export set_x;
+});
 
 mut(p) := Point(3, 4);
 p.set_x(10);  // Automatically converts to &(p).set_x(10)
@@ -1160,13 +1165,7 @@ The `newtype` keyword defines a struct with a single field along with methods, c
 ```rust
 newtype(
   // Only one field
-  field_name : FieldType,
-
-  // Methods
-  method_name :: ((fn(...) -> ReturnType) body),
-
-  // Constants
-  CONSTANT_NAME :: Value,
+  field_name : FieldType
 );
 ```
 
@@ -1174,26 +1173,31 @@ newtype(
 
 ```rust
 rune :: newtype(
-  c : u32,
-
+  c : u32
+);
+impl(rune, {
   // Constructor with validation
   from_u32 :: ((fn(value: u32) -> Option(Self))
     cond(
       ((value <= 0x10FFFF.as(u32)) && (((value < 0xD800) || (value > 0xDFFF)))) => .Some(Self(c: value)),
       true => .None
     )
-  ),
+  );
+  export from_u32;
 
-  to_u32 :: ((fn(self: Self) -> u32) self.c),
+  to_u32 :: ((fn(self: Self) -> u32) self.c);
+  export to_u32;
 
-  is_ascii :: ((fn(self: Self) -> bool) (self.c <= 0x7F)),
+  is_ascii :: ((fn(self: Self) -> bool) (self.c <= 0x7F));
+  export is_ascii;
 
   // Constants
-  NUL        :: Self(c: 0x00),
-  TAB        :: Self(c: 0x09),
-  NEWLINE    :: Self(c: 0x0A),
-  SPACE      :: Self(c: 0x20)
-);
+  NUL        :: Self(c: 0x00);
+  TAB        :: Self(c: 0x09);
+  NEWLINE    :: Self(c: 0x0A);
+  SPACE      :: Self(c: 0x20);
+  export NUL, TAB, NEWLINE, SPACE;
+});
 ```
 
 **Use cases:**
