@@ -549,3 +549,17 @@ Let's keep it simple for now:
   ```
 
 Use ^(x) to move a value. By moving we consume the variable. This could be useful for ending the variable lifetime early, especially like in a `cond`/`match` expression.
+
+---
+
+```rust
+impl(bool, Comptime, {});
+impl(bool, LogicalNot, {
+  (!) :: (fn(value : bool) -> bool) {
+    return __yo_op_not(a);
+  };
+  export (!);
+});
+```
+
+No this is bad ^^ It requires we re-define the function signature every time.
