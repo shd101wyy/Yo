@@ -27,7 +27,6 @@ import {
 } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
-import { typeImplementsComptime } from "../trait-checking";
 import { isValidVariableName } from "../utils";
 
 /**
@@ -370,13 +369,13 @@ Given type: ${typeToString(defaultValueType)}`,
   // - If isCompileTimeOnly = true: the type MUST be available at compile-time
   // - If isCompileTimeOnly = false: no validation - the field contributes to struct availability
 
-  if (isCompileTimeOnly && !typeImplementsComptime(fieldType, env)) {
-    // Field is marked as compile-time-only but type is runtime-only
-    throw formatErrorMessage({
-      token: labelExpr?.token ?? expr.token,
-      errorMessage: `Type '${typeToString(fieldType)}' can only be used at runtime and cannot have "comptime" modifier or :: syntax.`,
-    });
-  }
+  // if (isCompileTimeOnly && !typeImplementsComptime(fieldType, env)) {
+  //   // Field is marked as compile-time-only but type is runtime-only
+  //   throw formatErrorMessage({
+  //     token: labelExpr?.token ?? expr.token,
+  //     errorMessage: `Type '${typeToString(fieldType)}' can only be used at runtime and cannot have "comptime" modifier or :: syntax.`,
+  //   });
+  // }
 
   if (forType !== "tuple" && !labelExpr) {
     throw formatErrorMessage({
