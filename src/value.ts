@@ -277,11 +277,6 @@ export function valueToString(value?: Value): string {
           if (stringIsOperator(label)) {
             label = `(${label})`;
           }
-          if (value.type.fields[index]!.isCompileTimeOnly) {
-            label = stringIsOperator(label)
-              ? `comptime${label}`
-              : `comptime(${label})`;
-          }
           return `${label}: ${valueToString(element)}`;
         })
         .join(", ")})`;
@@ -299,11 +294,6 @@ export function valueToString(value?: Value): string {
           let label = variant?.fields![index]!.label ?? `_`;
           if (stringIsOperator(label)) {
             label = `(${label})`;
-          }
-          if (variant?.fields![index]!.isCompileTimeOnly) {
-            label = stringIsOperator(label)
-              ? `comptime${label}`
-              : `comptime(${label})`;
           }
           return `${label}: ${valueToString(element)}`;
         })

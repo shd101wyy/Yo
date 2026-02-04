@@ -685,11 +685,9 @@ export function evaluatePropertyAccess({
           });
         }
 
-        const runtimeElementsCount = fields.filter(
-          (field) => !field.isCompileTimeOnly
-        ).length;
+        const fieldCount = fields.length;
 
-        if (index < 0 || index >= runtimeElementsCount) {
+        if (index < 0 || index >= fieldCount) {
           throw formatErrorMessage({
             token: propertyExpr.token,
             errorMessage: `Index out of bounds: ${index} for accessing field in:\n${typeToString(

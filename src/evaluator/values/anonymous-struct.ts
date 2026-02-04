@@ -11,7 +11,7 @@ import {
   setExprAsNeedsToCallDup,
 } from "../../expr";
 import { createStructType } from "../../types/creators";
-import { TraitField, TypeField } from "../../types/definitions";
+import { TypeField } from "../../types/definitions";
 import { randomId } from "../../utils";
 import {
   createStructValue,
@@ -21,7 +21,6 @@ import {
 } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
-import { evaluateTypeField } from "../types/field";
 import { autoDeriveTraitsAndAddRcFunctionsForStructType } from "../types/utils";
 import { isValidVariableName } from "../utils";
 
@@ -48,7 +47,6 @@ export function evaluateAnonymousStructValue({
   // Create structType
   const structType = createStructType(env);
   const fields: TypeField[] = structType.fields;
-  const traitFields: TraitField[] = structType.trait.fields;
   const values: (Value | undefined)[] = [];
   const runtimeArgExprsInOrder: Expr[] = [];
 
@@ -57,64 +55,6 @@ export function evaluateAnonymousStructValue({
     let labelExpr: Expr | undefined = undefined;
     let valueExpr: Expr = arg;
     let label: string | undefined = undefined;
-
-    // Check if it's type method call
-    if (
-      exprIsFunctionCall(arg) &&
-      (exprIsFunctionCallOf(arg, "::", 2) ||
-        exprIsFunctionCallOf(arg, "=", 2) ||
-        exprIsFunctionCallOf(arg, "?=", 2))
-    ) {
-      const { field, env: nextEnv } = evaluateTypeField({
-        expr: arg,
-        env,
-        tupleFieldIndex: i,
-        context: { ...context, SelfType: structType },
-        forType: "struct",
-      });
-
-      // Check if there is duplicate labels
-      const duplicateLabel = traitFields.find(
-        (elem) => elem.label === field.label
-      );
-      if (duplicateLabel) {
-        throw formatErrorMessage({
-          token: arg.token,
-          errorMessage: `Duplicate label "${field.label}" in anonymous struct`,
-        });
-      }
-
-      if (!field.isCompileTimeOnly) {
-        throw formatErrorMessage({
-          token: arg.token,
-          errorMessage: `Expected compile-time only field for anonymous struct, got:\n${exprToString(
-            arg
-          )}`,
-        });
-      }
-
-      // Disallow to have the default value for anonymous struct trait fields.
-      if (field.defaultValue) {
-        throw formatErrorMessage({
-          token: field.exprs.defaultValueExpr?.token ?? field.exprs.expr.token,
-          errorMessage: `Anonymous struct trait field cannot have default value for its fields.`,
-        });
-      }
-
-      // Require to have assigned value for anonymous struct trait fields.
-      if (!field.assignedValue) {
-        throw formatErrorMessage({
-          token: field.exprs.assignedValueExpr
-            ? field.exprs.assignedValueExpr.token
-            : field.exprs.expr.token,
-          errorMessage: `Anonymous struct trait field must have assigned value.`,
-        });
-      }
-
-      traitFields.push(field as TraitField);
-      env = nextEnv;
-      continue;
-    }
 
     if (exprIsFunctionCall(arg) && exprIsFunctionCallOf(arg, ":", 2)) {
       labelExpr = arg.args[0]!;
@@ -234,7 +174,6 @@ export function evaluateAnonymousStructValue({
         },
         type,
         label: label ?? `$field_${randomId(env.modulePath)}`,
-        isCompileTimeOnly: false, // TODO: Fix this
       };
       fields.push(field);
       runtimeArgExprsInOrder.push(evaluatedArg);

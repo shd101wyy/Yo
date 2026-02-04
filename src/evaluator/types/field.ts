@@ -18,13 +18,7 @@ import {
 } from "../../types/guards";
 import { prohibitVoidType, typeToString } from "../../types/utils";
 import { VUnit } from "../../unit-value";
-import {
-  isFunctionValue,
-  isModuleValue,
-  isTraitValue,
-  isTypeValue,
-  Value,
-} from "../../value";
+import { isTypeValue, Value } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { isValidVariableName } from "../utils";
@@ -415,44 +409,9 @@ Given type: ${typeToString(defaultValueType)}`,
       defaultValueExpr,
       assignedValueExpr,
     },
-    isCompileTimeOnly,
     defaultValue,
     assignedValue,
   };
-
-  if (field.isCompileTimeOnly) {
-    // Compile-time field must have an assigned value
-    if (!field.assignedValue) {
-      // NOTE: Let's allow to have compile-time only field without assigned value for now
-      // throw formatErrorMessage({
-      //   token: field.exprs.expr.token,
-      //   errorMessage: `Compile-time only field "${field.label}" must have an assigned value.`,
-      // });
-    } else {
-      // Attach .typeName info if necessary
-      // But don't modify SelfType - it's a reference to the enclosing type
-      if (
-        isTypeValue(field.assignedValue) &&
-        !field.assignedValue.value.typeName &&
-        field.assignedValue.value !== context.SelfType
-      ) {
-        field.assignedValue.value.typeName = field.label;
-      } else if (
-        isFunctionValue(field.assignedValue) &&
-        !field.assignedValue.funcName
-      ) {
-        field.assignedValue.funcName = field.label;
-        field.assignedValue.funcId += `_${field.label}`;
-      } else if (
-        (isModuleValue(field.assignedValue) ||
-          isTraitValue(field.assignedValue)) &&
-        !field.assignedValue.type.typeName &&
-        field.assignedValue.type !== context.SelfType
-      ) {
-        field.assignedValue.type.typeName = field.label;
-      }
-    }
-  }
 
   return {
     field: field,

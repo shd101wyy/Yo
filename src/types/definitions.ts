@@ -267,7 +267,6 @@ export type ElementExprs = {
 export interface TypeField {
   type: Type;
   label: string;
-  isCompileTimeOnly: boolean;
 
   // The default value and assigned value are compile-time known.
   // eg:

@@ -141,10 +141,7 @@ ${tupleFieldToString(paramElement_)}`,
     // 1. The member element is not compile-time only, AND
     // 2. The member type itself is not comptime-only (e.g., comptime_int, Type, etc.)
     // This allows struct fields like `x : comptime_int` (without comptime modifier) to accept comptime values.
-    if (
-      !memberElement.isCompileTimeOnly &&
-      !isComptimeOnlyType(memberElement.type, callerEnv)
-    ) {
+    if (!isComptimeOnlyType(memberElement.type, callerEnv)) {
       argType = convertComptimeTypeToRuntimeType({
         type: argType,
         expectedType: memberElement.type,

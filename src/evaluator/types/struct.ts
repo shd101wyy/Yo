@@ -1,7 +1,6 @@
 import { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
-  BuiltinFunctions,
   BuiltinKeywords,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
@@ -77,40 +76,7 @@ export function evaluateStructType({
         });
       }
 
-      // Reserved function names check for compile-time-only fields
-      if (field.isCompileTimeOnly) {
-        // ___drop function
-        if (field.label === BuiltinFunctions.___drop[0]) {
-          throw formatErrorMessage({
-            token: exprIsFunctionCall(arg)
-              ? (arg.args[0]?.token ?? arg.token)
-              : arg.token,
-            errorMessage: `The label "${BuiltinFunctions.___drop[0]}()" is reserved for the auto-generated function. You cannot define it as a compile-time-only field.`,
-          });
-        }
-
-        // ___dup function
-        if (field.label === BuiltinFunctions.___dup[0]) {
-          throw formatErrorMessage({
-            token: exprIsFunctionCall(arg)
-              ? (arg.args[0]?.token ?? arg.token)
-              : arg.token,
-            errorMessage: `The label "${BuiltinFunctions.___dup[0]}()" is reserved for the auto-generated function. You cannot define it as a compile-time-only field.`,
-          });
-        }
-      }
-
-      if (field.isCompileTimeOnly) {
-        throw formatErrorMessage({
-          token: exprIsFunctionCall(arg)
-            ? (arg.args[0]?.token ?? arg.token)
-            : arg.token,
-          errorMessage: `Please use "impl" block to define members/methods for ${expr.func.token.value} types.`,
-        });
-      } else {
-        fields.push(field);
-      }
-
+      fields.push(field);
       env = nextEnv;
     }
   }

@@ -50,16 +50,6 @@ export function evaluateTupleElementsType({
       }
     }
 
-    // Check if it's compile-time only
-    if (field.isCompileTimeOnly && field.assignedValue) {
-      throw formatErrorMessage({
-        token: exprIsFunctionCall(arg)
-          ? (arg.args[0]?.token ?? arg.token)
-          : arg.token,
-        errorMessage: `Tuple cannot have module fields.`,
-      });
-    }
-
     tupleFields.push(field as TypeField);
     env = nextEnv;
   }

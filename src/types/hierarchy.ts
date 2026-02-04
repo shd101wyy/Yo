@@ -150,35 +150,21 @@ export function typeOfType(
     return createType0(type);
   } else if (isTupleType(type)) {
     // For tuples, check all element types
-    return determineTypeUniverse(
-      type,
-      type.fields.filter((element) => !element.isCompileTimeOnly),
-      checkedTupleElements
-    );
+    return determineTypeUniverse(type, type.fields, checkedTupleElements);
   } else if (isStructType(type)) {
-    return determineTypeUniverse(
-      type,
-      type.fields.filter((element) => !element.isCompileTimeOnly),
-      checkedTupleElements
-    );
+    return determineTypeUniverse(type, type.fields, checkedTupleElements);
   } else if (isEnumType(type)) {
     // For enums, check all variant
     const fields: TypeField[] = [];
     for (const variant of type.variants) {
       if (variant.fields) {
-        fields.push(
-          ...variant.fields.filter((element) => !element.isCompileTimeOnly)
-        );
+        fields.push(...variant.fields);
       }
     }
     return determineTypeUniverse(type, fields, checkedTupleElements);
   } else if (isUnionType(type)) {
     // For unions, check all member types
-    return determineTypeUniverse(
-      type,
-      type.fields.filter((element) => !element.isCompileTimeOnly),
-      checkedTupleElements
-    );
+    return determineTypeUniverse(type, type.fields, checkedTupleElements);
   } else if (isModuleType(type)) {
     return createTypeHierarchy(1, type);
     // Modules are treated as type hierarchies

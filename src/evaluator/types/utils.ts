@@ -280,9 +280,7 @@ function generateDisposeFunctionCodeForStructType(structType: StructType): {
   }
 
   const destructuringLabels = structType.fields
-    .filter(
-      (field) => !field.isCompileTimeOnly && typeContainsRcType(field.type)
-    )
+    .filter((field) => typeContainsRcType(field.type))
     .map((field) => field.label);
 
   const hasDisposeFunction = structType.trait.fields.some(
@@ -324,9 +322,7 @@ function generateDropFunctionCodeForStructType(structType: StructType): {
 } {
   const signature = DropFnSignature;
   const destructuringLabels = structType.fields
-    .filter(
-      (field) => !field.isCompileTimeOnly && typeContainsRcType(field.type)
-    )
+    .filter((field) => typeContainsRcType(field.type))
     .map((field) => field.label);
 
   const decrRcExpr = isRcType(structType)
@@ -367,9 +363,7 @@ function generateDupFunctionCodeForStructType(structType: StructType): {
 } {
   const signature = DupFnSignature;
   const destructuringLabels = structType.fields
-    .filter(
-      (field) => !field.isCompileTimeOnly && typeContainsRcType(field.type)
-    )
+    .filter((field) => typeContainsRcType(field.type))
     .map((field) => field.label);
 
   const incrRcExpr = isRcType(structType)
@@ -612,10 +606,7 @@ function generateDropFunctionCodeForEnumType(enumType: EnumType): {
     ${variantsWithRcTypes
       .map((variant) => {
         const destructurings = variant
-          .fields!.filter(
-            (field) =>
-              !field.isCompileTimeOnly && typeContainsRcType(field.type)
-          )
+          .fields!.filter((field) => typeContainsRcType(field.type))
           .map((field) => field.label);
 
         const paramList = variant
@@ -675,10 +666,7 @@ function generateDupFunctionCodeForEnumType(enumType: EnumType): {
     ${variantsWithRcTypes
       .map((variant) => {
         const destructurings = variant
-          .fields!.filter(
-            (field) =>
-              !field.isCompileTimeOnly && typeContainsRcType(field.type)
-          )
+          .fields!.filter((field) => typeContainsRcType(field.type))
           .map((field) => field.label);
 
         const paramList = variant
@@ -1109,9 +1097,9 @@ export function autoDeriveSendForStructType({
   }
 
   // Check if all fields implement Send
-  const allFieldsImplementSend = structType.fields
-    .filter((field) => !field.isCompileTimeOnly)
-    .every((field) => typeImplementsSend(field.type, env));
+  const allFieldsImplementSend = structType.fields.every((field) =>
+    typeImplementsSend(field.type, env)
+  );
 
   if (allFieldsImplementSend) {
     env = attachTraitToReceiverType("Send", structType, env, context);
@@ -1164,9 +1152,9 @@ export function autoDeriveSendForUnionType({
   context: EvaluatorContext;
 }): Environment {
   // Check if all fields implement Send
-  const allFieldsImplementSend = unionType.fields
-    .filter((field) => !field.isCompileTimeOnly)
-    .every((field) => typeImplementsSend(field.type, env));
+  const allFieldsImplementSend = unionType.fields.every((field) =>
+    typeImplementsSend(field.type, env)
+  );
 
   if (allFieldsImplementSend) {
     env = attachTraitToReceiverType("Send", unionType, env, context);
@@ -1200,9 +1188,9 @@ export function autoDeriveAcyclicForStructType({
     }
   } else {
     // For value types, check if all fields implement Acyclic
-    const allFieldsImplementAcyclic = structType.fields
-      .filter((field) => !field.isCompileTimeOnly)
-      .every((field) => typeImplementsAcyclic(field.type, env));
+    const allFieldsImplementAcyclic = structType.fields.every((field) =>
+      typeImplementsAcyclic(field.type, env)
+    );
 
     if (allFieldsImplementAcyclic) {
       env = attachTraitToReceiverType("Acyclic", structType, env, context);
@@ -1258,9 +1246,9 @@ export function autoDeriveAcyclicForUnionType({
   context: EvaluatorContext;
 }): Environment {
   // Check if all fields implement Acyclic
-  const allFieldsImplementAcyclic = unionType.fields
-    .filter((field) => !field.isCompileTimeOnly)
-    .every((field) => typeImplementsAcyclic(field.type, env));
+  const allFieldsImplementAcyclic = unionType.fields.every((field) =>
+    typeImplementsAcyclic(field.type, env)
+  );
 
   if (allFieldsImplementAcyclic) {
     env = attachTraitToReceiverType("Acyclic", unionType, env, context);
@@ -1294,9 +1282,9 @@ export function autoDeriveComptimeForStructType({
 
   // Check if all non-comptime-only fields implement Comptime
   // (isCompileTimeOnly fields are methods/statics, not data fields)
-  const allFieldsImplementComptime = structType.fields
-    .filter((field) => !field.isCompileTimeOnly)
-    .every((field) => typeImplementsComptime(field.type, env));
+  const allFieldsImplementComptime = structType.fields.every((field) =>
+    typeImplementsComptime(field.type, env)
+  );
 
   if (allFieldsImplementComptime) {
     env = attachTraitToReceiverType("Comptime", structType, env, context);
@@ -1325,9 +1313,9 @@ export function autoDeriveComptimeForEnumType({
     if (!variant.fields || variant.fields.length === 0) {
       return true; // Variants without fields are trivially Comptime
     }
-    return variant.fields
-      .filter((field) => !field.isCompileTimeOnly)
-      .every((field) => typeImplementsComptime(field.type, env));
+    return variant.fields.every((field) =>
+      typeImplementsComptime(field.type, env)
+    );
   });
 
   if (allFieldsImplementComptime) {
@@ -1362,9 +1350,9 @@ export function autoDeriveRuntimeForStructType({
 
   // Check if all non-comptime-only fields implement Runtime
   // (isCompileTimeOnly fields are methods/statics, not data fields)
-  const allFieldsImplementRuntime = structType.fields
-    .filter((field) => !field.isCompileTimeOnly)
-    .every((field) => typeImplementsRuntime(field.type, env));
+  const allFieldsImplementRuntime = structType.fields.every((field) =>
+    typeImplementsRuntime(field.type, env)
+  );
 
   if (allFieldsImplementRuntime) {
     env = attachTraitToReceiverType("Runtime", structType, env, context);
@@ -1393,9 +1381,9 @@ export function autoDeriveRuntimeForEnumType({
     if (!variant.fields || variant.fields.length === 0) {
       return true; // Variants without fields are trivially Runtime
     }
-    return variant.fields
-      .filter((field) => !field.isCompileTimeOnly)
-      .every((field) => typeImplementsRuntime(field.type, env));
+    return variant.fields.every((field) =>
+      typeImplementsRuntime(field.type, env)
+    );
   });
 
   if (allFieldsImplementRuntime) {
@@ -1440,9 +1428,9 @@ export function autoDeriveSendForTupleType({
   context: EvaluatorContext;
 }): Environment {
   // Check if all fields implement Send
-  const allFieldsImplementSend = tupleType.fields
-    .filter((field) => !field.isCompileTimeOnly)
-    .every((field) => typeImplementsSend(field.type, env));
+  const allFieldsImplementSend = tupleType.fields.every((field) =>
+    typeImplementsSend(field.type, env)
+  );
 
   if (allFieldsImplementSend) {
     env = attachTraitToReceiverType("Send", tupleType, env, context);
@@ -1466,9 +1454,9 @@ export function autoDeriveComptimeForTupleType({
   context: EvaluatorContext;
 }): Environment {
   // Check if all non-comptime-only fields implement Comptime
-  const allFieldsImplementComptime = tupleType.fields
-    .filter((field) => !field.isCompileTimeOnly)
-    .every((field) => typeImplementsComptime(field.type, env));
+  const allFieldsImplementComptime = tupleType.fields.every((field) =>
+    typeImplementsComptime(field.type, env)
+  );
 
   if (allFieldsImplementComptime) {
     env = attachTraitToReceiverType("Comptime", tupleType, env, context);
@@ -1492,9 +1480,9 @@ export function autoDeriveRuntimeForTupleType({
   context: EvaluatorContext;
 }): Environment {
   // Check if all non-comptime-only fields implement Runtime
-  const allFieldsImplementRuntime = tupleType.fields
-    .filter((field) => !field.isCompileTimeOnly)
-    .every((field) => typeImplementsRuntime(field.type, env));
+  const allFieldsImplementRuntime = tupleType.fields.every((field) =>
+    typeImplementsRuntime(field.type, env)
+  );
 
   if (allFieldsImplementRuntime) {
     env = attachTraitToReceiverType("Runtime", tupleType, env, context);

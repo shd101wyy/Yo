@@ -9,7 +9,7 @@ import {
 } from "../../expr";
 import { createUnionType } from "../../types/creators";
 import { TypeField } from "../../types/definitions";
-import { isComptimeOnlyType, typeContainsRcType } from "../../types/utils";
+import { typeContainsRcType } from "../../types/utils";
 import { createTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateTypeField } from "./field";
@@ -85,23 +85,7 @@ export function evaluateUnionType({
       });
     }
 
-    // Union fields must be runtime-only types
-    // Compile-time only types like comptime_int, Type, Module cannot be used in unions
-    if (!field.isCompileTimeOnly && isComptimeOnlyType(field.type, env)) {
-      throw formatErrorMessage({
-        token: field.exprs.expr.token,
-        errorMessage: `Union field '${field.label}' has compile-time only type, but union fields must be usable at runtime.\nField type: ${field.type.typeName || "unknown"}\nConsider using a runtime type like i32 instead.`,
-      });
-    }
-
-    if (field.isCompileTimeOnly) {
-      throw formatErrorMessage({
-        token: field.exprs.expr.token,
-        errorMessage: `Please use "impl" block to define members/methods for ${expr.func.token.value} types.`,
-      });
-    } else {
-      fields.push(field);
-    }
+    fields.push(field);
     env = nextEnv;
   }
 

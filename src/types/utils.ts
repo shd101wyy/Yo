@@ -646,9 +646,6 @@ export function tupleFieldToString(
   if (stringIsOperator(label)) {
     label = `(${label})`;
   }
-  if (element.isCompileTimeOnly) {
-    label = `comptime(${label})`;
-  }
 
   const defaultValueStr = element.defaultValue
     ? valueToString(element.defaultValue)
