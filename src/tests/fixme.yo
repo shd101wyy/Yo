@@ -1,40 +1,37 @@
-extern "Yo",
-  malloc : 
-    fn(size: usize) -> ?*(void)
-;
+MyStruct :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(value : T)
+);
 
-HashSet :: (fn(
-  comptime(T): Type,
-  where(T <: (Eq(T), Hash))
-) -> comptime(Type))
-  object(
-    ctrl : ?*(u8),
-    data : ?*(T),
-    capacity : usize,
-    size : usize
-  )
-;
-impl(forall(T : Type), where(T <: (Eq(T), Hash)), HashSet(T), {
-  CtrlPtrType :: *(u8);
-  DataPtrType :: *(T);
+impl(forall(T : Type), MyStruct(T), {
+  new :: (fn(v : T) -> Self)(Self(v));
+  export new;
 
-  /**
-    * Allocate memory for HashSet with given capacity
-    * Initializes all control bytes to EMPTY
-    */
-  _alloc_with_capacity :: (fn(capacity: usize) -> Result(Self, unit))(
-    {
-
-      
-      ctrl_ptr := malloc(4).unwrap();
-      data_ptr := malloc(4).unwrap();
-
-      .Ok(Self(
-            ctrl: .Some(*(u8)(ctrl_ptr)),
-            data: .Some(*(T)(data_ptr)),
-            capacity: capacity,
-            size: usize(0)
-          ))
-    }
+  another_new :: (fn(v : T) -> Self)(
+    Self.new(v)
   );
+  export another_new;
+
+  add :: (fn(self : *(Self), value : T, where(T <: Add(T, T))) -> unit) {
+    self.value = (self.value + value);
+  };
+  export add;
+
+  another_add :: (fn(self : *(Self), value : T, where(T <: Add(T, T))) -> unit) {
+    self.add(value);
+  };
+  export another_add;
 });
+
+main :: (fn() -> unit) {
+  value := 10;
+  x := MyStruct(i32).new(value);
+  y := MyStruct(i32).another_new(value);
+  assert(x.value == value);
+  assert(y.value == value);
+
+  x.add(3);
+  y.another_add(4);
+  assert(x.value == (value + 3));
+  assert(y.value == (value + 4));
+};
+export main;

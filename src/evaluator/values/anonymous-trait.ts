@@ -48,6 +48,16 @@ export function evaluateAnonymousTraitBeginExprs({
   const traitType = createTraitType(env);
   const traitElementValues: (Value | undefined)[] = [];
 
+  // If a receiver type is provided, temporarily extend its trait so Self.X
+  // can resolve within this impl block (e.g., Self.new inside another method).
+  const receiverTypeOriginalTrait = receiverType?.trait;
+  if (receiverType?.trait) {
+    receiverType.trait = {
+      ...receiverType.trait,
+      fields: [...receiverType.trait.fields],
+    };
+  }
+
   let partialModuleError: Error | undefined = undefined;
 
   // Push new frame to the env
@@ -168,6 +178,26 @@ export function evaluateAnonymousTraitBeginExprs({
               });
               traitElementValues.push(variable.value?.[0]);
 
+              // Also add to receiver type trait so Self.X can resolve within this block
+              if (receiverType?.trait) {
+                receiverType.trait.fields.push({
+                  label: variableName,
+                  type: variable.type,
+                  isCompileTimeOnly: variable.isCompileTimeOnly,
+                  assignedValue: variable.isCompileTimeOnly
+                    ? variable.value?.[0]
+                    : undefined,
+                  defaultValue: undefined,
+                  exprs: {
+                    expr: exportExpr,
+                    labelExpr: undefined,
+                    typeExpr: undefined,
+                    assignedValueExpr: undefined,
+                    defaultValueExpr: undefined,
+                  },
+                });
+              }
+
               // Add information to exportExpr
               exportExpr.$ = {
                 env,
@@ -215,6 +245,11 @@ export function evaluateAnonymousTraitBeginExprs({
     } else {
       throw error;
     }
+  }
+
+  // Restore the receiver type trait to avoid duplicating fields
+  if (receiverType) {
+    receiverType.trait = receiverTypeOriginalTrait;
   }
 
   // Create the module value

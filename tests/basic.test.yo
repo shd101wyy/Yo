@@ -769,6 +769,43 @@ test "Test 'struct'", {
     assert(left2 == 20);
     assert(left3 == 0);
   };
+  // type methods for generic type
+  {
+    MyStruct :: (fn(comptime(T) : Type) -> comptime(Type))(
+      struct(value : T)
+    );
+
+    impl(forall(T : Type), MyStruct(T), {
+      new :: (fn(v : T) -> Self)(Self(v));
+      export new;
+
+      another_new :: (fn(v : T) -> Self)(
+        Self.new(v)
+      );
+      export another_new;
+
+      add :: (fn(self : *(Self), value : T, where(T <: Add(T, T))) -> unit) {
+        self.value = (self.value + value);
+      };
+      export add;
+
+      another_add :: (fn(self : *(Self), value : T, where(T <: Add(T, T))) -> unit) {
+        self.add(value);
+      };
+      export another_add;
+    });
+
+    value := 10;
+    x := MyStruct(i32).new(value);
+    y := MyStruct(i32).another_new(value);
+    assert(x.value == value);
+    assert(y.value == value);
+
+    x.add(3);
+    y.another_add(4);
+    assert(x.value == (value + 3));
+    assert(y.value == (value + 4));
+  };
 };
 
 test "Test 'enum'", {
