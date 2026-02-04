@@ -21,7 +21,6 @@ import { typeToString } from "../../types/utils";
 import { createModuleValue, ModuleValue, Value } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
-import { validateTypeAvailability } from "../trait-checking";
 import { isValidVariableName } from "../utils";
 
 export function evaluateAnonymousModuleBeginExprs({
@@ -54,12 +53,6 @@ export function evaluateAnonymousModuleBeginExprs({
 
   // Push new frame to the env
   env = pushEnvFrame(env);
-
-  const ownsPendingTypeAvailabilityChecks =
-    context.pendingTypeAvailabilityChecks === undefined;
-  if (ownsPendingTypeAvailabilityChecks) {
-    context.pendingTypeAvailabilityChecks = [];
-  }
 
   // Evaluate each expression in the begin
   for (let i = 0; i < beginExprs.length; i++) {
@@ -369,24 +362,6 @@ export function evaluateAnonymousModuleBeginExprs({
       if (allowPartialModule) {
         partialModuleError = error;
         break;
-      } else {
-        throw error;
-      }
-    }
-  }
-
-  if (
-    ownsPendingTypeAvailabilityChecks &&
-    context.pendingTypeAvailabilityChecks &&
-    context.pendingTypeAvailabilityChecks.length > 0
-  ) {
-    try {
-      for (const pending of context.pendingTypeAvailabilityChecks) {
-        validateTypeAvailability(pending.type, env, pending.token);
-      }
-    } catch (error) {
-      if (allowPartialModule) {
-        partialModuleError = error as Error;
       } else {
         throw error;
       }

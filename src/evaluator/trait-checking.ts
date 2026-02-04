@@ -591,31 +591,14 @@ export function validateTypeAvailability(
   type: Type,
   env: Environment,
   token: Token,
-  context?: EvaluatorContext
+  _context?: EvaluatorContext
 ): void {
   // If the type still contains SomeType placeholders, defer availability checks.
   if (typeContainsSomeType(type)) {
-    if (context?.pendingTypeAvailabilityChecks) {
-      const alreadyDeferred = context.pendingTypeAvailabilityChecks.some(
-        (entry) => entry.type === type
-      );
-      if (!alreadyDeferred) {
-        context.pendingTypeAvailabilityChecks.push({ type, token });
-      }
-    }
     return;
   }
 
   if (!typeImplementsComptime(type, env) && !typeImplementsRuntime(type, env)) {
-    if (context?.pendingTypeAvailabilityChecks) {
-      const alreadyDeferred = context.pendingTypeAvailabilityChecks.some(
-        (entry) => entry.type === type
-      );
-      if (!alreadyDeferred) {
-        context.pendingTypeAvailabilityChecks.push({ type, token });
-      }
-      return;
-    }
     throw formatErrorMessage({
       token: token,
       errorMessage: `Type ${typeToString(type)} has incompatible field contexts and cannot be used in any evaluation context.

@@ -17,9 +17,19 @@ import {
   StructType,
   TraitField,
   TupleType,
+  Type,
   UnionType,
 } from "../../types/definitions";
-import { isFunctionType, isRcType } from "../../types/guards";
+import {
+  isArrayType,
+  isEnumType,
+  isFunctionType,
+  isPtrType,
+  isRcType,
+  isSliceType,
+  isStructType,
+  isTupleType,
+} from "../../types/guards";
 import { typeOfType } from "../../types/hierarchy";
 import {
   canTypeFormRcCycle,
@@ -41,6 +51,96 @@ import {
 } from "../trait-checking";
 
 const YoSelf = "__yo_self";
+
+function typeDerivesComptime(
+  type: Type,
+  env: Environment,
+  visiting: Set<string>
+): boolean {
+  if (isStructType(type)) {
+    if (type.isReferenceSemantics) return false;
+    if (visiting.has(type.id)) return true;
+    visiting.add(type.id);
+    const result = type.fields.every((field) =>
+      typeDerivesComptime(field.type, env, visiting)
+    );
+    visiting.delete(type.id);
+    return result;
+  }
+
+  if (isTupleType(type)) {
+    if (visiting.has(type.id)) return true;
+    visiting.add(type.id);
+    const result = type.fields.every((field) =>
+      typeDerivesComptime(field.type, env, visiting)
+    );
+    visiting.delete(type.id);
+    return result;
+  }
+
+  if (isEnumType(type)) {
+    if (visiting.has(type.id)) return true;
+    visiting.add(type.id);
+    const result = type.variants.every((variant) =>
+      (variant.fields ?? []).every((field) =>
+        typeDerivesComptime(field.type, env, visiting)
+      )
+    );
+    visiting.delete(type.id);
+    return result;
+  }
+
+  if (isArrayType(type) || isSliceType(type) || isPtrType(type)) {
+    return typeDerivesComptime(type.childType, env, visiting);
+  }
+
+  return typeImplementsComptime(type, env);
+}
+
+function typeDerivesRuntime(
+  type: Type,
+  env: Environment,
+  visiting: Set<string>
+): boolean {
+  if (isStructType(type)) {
+    if (type.isReferenceSemantics) return true;
+    if (visiting.has(type.id)) return true;
+    visiting.add(type.id);
+    const result = type.fields.every((field) =>
+      typeDerivesRuntime(field.type, env, visiting)
+    );
+    visiting.delete(type.id);
+    return result;
+  }
+
+  if (isTupleType(type)) {
+    if (visiting.has(type.id)) return true;
+    visiting.add(type.id);
+    const result = type.fields.every((field) =>
+      typeDerivesRuntime(field.type, env, visiting)
+    );
+    visiting.delete(type.id);
+    return result;
+  }
+
+  if (isEnumType(type)) {
+    if (visiting.has(type.id)) return true;
+    visiting.add(type.id);
+    const result = type.variants.every((variant) =>
+      (variant.fields ?? []).every((field) =>
+        typeDerivesRuntime(field.type, env, visiting)
+      )
+    );
+    visiting.delete(type.id);
+    return result;
+  }
+
+  if (isArrayType(type) || isSliceType(type) || isPtrType(type)) {
+    return typeDerivesRuntime(type.childType, env, visiting);
+  }
+
+  return typeImplementsRuntime(type, env);
+}
 
 /**
  * Helper function to parse and evaluate a Yo code string in the context of a SelfType
@@ -541,10 +641,7 @@ function generateDisposeFunctionCodeForEnumType(enumType: EnumType): {
   const matchCases = variantsWithRcTypes
     .map((variant) => {
       const destructurings = variant
-        .fields!.filter(
-          (field) =>
-            !field.isCompileTimeOnly && typeContainsRcType(field.type)
-        )
+        .fields!.filter((field) => typeContainsRcType(field.type))
         .map((field) => field.label);
 
       const paramList = variant
@@ -1283,7 +1380,7 @@ export function autoDeriveComptimeForStructType({
   // Check if all non-comptime-only fields implement Comptime
   // (isCompileTimeOnly fields are methods/statics, not data fields)
   const allFieldsImplementComptime = structType.fields.every((field) =>
-    typeImplementsComptime(field.type, env)
+    typeDerivesComptime(field.type, env, new Set([structType.id]))
   );
 
   if (allFieldsImplementComptime) {
@@ -1314,7 +1411,7 @@ export function autoDeriveComptimeForEnumType({
       return true; // Variants without fields are trivially Comptime
     }
     return variant.fields.every((field) =>
-      typeImplementsComptime(field.type, env)
+      typeDerivesComptime(field.type, env, new Set([enumType.id]))
     );
   });
 
@@ -1351,7 +1448,7 @@ export function autoDeriveRuntimeForStructType({
   // Check if all non-comptime-only fields implement Runtime
   // (isCompileTimeOnly fields are methods/statics, not data fields)
   const allFieldsImplementRuntime = structType.fields.every((field) =>
-    typeImplementsRuntime(field.type, env)
+    typeDerivesRuntime(field.type, env, new Set([structType.id]))
   );
 
   if (allFieldsImplementRuntime) {
@@ -1382,7 +1479,7 @@ export function autoDeriveRuntimeForEnumType({
       return true; // Variants without fields are trivially Runtime
     }
     return variant.fields.every((field) =>
-      typeImplementsRuntime(field.type, env)
+      typeDerivesRuntime(field.type, env, new Set([enumType.id]))
     );
   });
 
@@ -1455,7 +1552,7 @@ export function autoDeriveComptimeForTupleType({
 }): Environment {
   // Check if all non-comptime-only fields implement Comptime
   const allFieldsImplementComptime = tupleType.fields.every((field) =>
-    typeImplementsComptime(field.type, env)
+    typeDerivesComptime(field.type, env, new Set([tupleType.id]))
   );
 
   if (allFieldsImplementComptime) {
@@ -1481,7 +1578,7 @@ export function autoDeriveRuntimeForTupleType({
 }): Environment {
   // Check if all non-comptime-only fields implement Runtime
   const allFieldsImplementRuntime = tupleType.fields.every((field) =>
-    typeImplementsRuntime(field.type, env)
+    typeDerivesRuntime(field.type, env, new Set([tupleType.id]))
   );
 
   if (allFieldsImplementRuntime) {

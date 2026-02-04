@@ -480,6 +480,42 @@ test "Test type auto derive Comptime", {
   fn4 :: (fn(forall(T : Type), v : T, where(T <: Comptime)) -> unit) {
     comptime_assert(Type.impls(T, Comptime));
   };
+
+  // Recursive type
+  {
+    SelfRecursive :: struct(
+      v : i32,
+      next: *(Self)
+    );
+    // i32 is both comptime and runtime
+    // *(Self) is both comptime and runtime
+    // therefore SelfRecursive should be both comptime and runtime
+    comptime_assert(Type.impls(SelfRecursive, Comptime));
+
+
+    // next: *(Self) is both comptime and runtime
+    // therefore SelfRecursive2 should be both comptime and runtime
+    SelfRecursive2 :: struct(
+      next: *(Self)
+    );
+    comptime_assert(Type.impls(SelfRecursive2, Comptime));
+
+    // v : int is only runtime
+    // therefore SelfRecursive3 should be only runtime
+    SelfRecursive3 :: struct(
+      v : int,
+      next: *(Self)
+    );
+    comptime_assert(Type.impls(SelfRecursive3, Comptime) == false);
+
+    // v : comptime_int is only comptime
+    // therefore SelfRecursive4 should be only comptime
+    SelfRecursive4 :: struct(
+      v : comptime_int,
+      next: *(Self)
+    );
+    comptime_assert(Type.impls(SelfRecursive4, Comptime));
+  };
 };
 
 test "Test type auto derive Runtime", {
@@ -586,6 +622,43 @@ test "Test type auto derive Runtime", {
   };
   fn4 :: (fn(forall(T : Type), v : T, where(T <: !(Runtime))) -> unit) {
     comptime_assert(Type.impls(T, Runtime) == false);
+  };
+
+  // Self recursive types
+  {
+    SelfRecursive :: struct(
+      v : i32,
+      next: *(Self)
+    );
+    // i32 is both comptime and runtime
+    // *(Self) is both comptime and runtime
+    // therefore SelfRecursive should be both comptime and runtime
+    comptime_assert(Type.impls(SelfRecursive, Runtime));
+
+
+    // next: *(Self) is both comptime and runtime
+    // therefore SelfRecursive2 should be both comptime and runtime
+    SelfRecursive2 :: struct(
+      next: *(Self)
+    );
+    comptime_assert(Type.impls(SelfRecursive2, Runtime));
+
+    // v : int is only runtime
+    // therefore SelfRecursive3 should be only runtime
+    SelfRecursive3 :: struct(
+      v : int,
+      next: *(Self)
+    );
+    comptime_assert(Type.impls(SelfRecursive3, Runtime));
+
+    // v : comptime_int is only comptime
+    // therefore SelfRecursive4 should be only comptime
+    SelfRecursive4 :: struct(
+      v : comptime_int,
+      next: *(Self)
+    );
+    comptime_assert(Type.impls(SelfRecursive4, Runtime) == false);
+
   };
 };
 
