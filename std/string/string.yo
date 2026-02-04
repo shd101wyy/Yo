@@ -262,7 +262,7 @@ impl(String, {
               cond(
                 (char_count == index) => {
                   // This is the character we want, decode it
-                  return self._decode_rune_at(byte_index);
+                  return _decode_rune_at(self, byte_index);
                 },
                 true => {
                   // Not the right character yet, keep counting
@@ -382,12 +382,12 @@ impl(String, {
    * Returns the character index of the first match, or None if not found
    * from_index specifies the character index to start searching from
    */
-  index_of :: (fn(self: Self, substring: Self, (from_index : usize) ?= 0) -> Option(usize))(
+  index_of :: (fn(self: Self, substr: Self, (from_index : usize) ?= 0) -> Option(usize))(
     cond(
-      substring.is_empty() => .Some(from_index),
+      substr.is_empty() => .Some(from_index),
       true => {
         self_bytes := self._bytes.len();
-        sub_bytes := substring._bytes.len();
+        sub_bytes := substr._bytes.len();
         
         cond(
           (sub_bytes > self_bytes) => .None,
@@ -423,7 +423,7 @@ impl(String, {
                     (j = (j + usize(1))),
               {
                 self_byte_opt := self._bytes.get((byte_index + j));
-                sub_byte_opt := substring._bytes.get(j);
+                sub_byte_opt := substr._bytes.get(j);
                 match(self_byte_opt,
                   .Some(self_byte) =>
                     match(sub_byte_opt,
@@ -481,8 +481,8 @@ impl(String, {
   /**
    * Check if the string contains a substring (like JavaScript includes)
    */
-  includes :: (fn(self: Self, substring: Self, (from_index : usize) ?= 0) -> bool)(
-    match(self.index_of(substring, from_index),
+  includes :: (fn(self: Self, substr: Self, (from_index : usize) ?= 0) -> bool)(
+    match(self.index_of(substr, from_index),
       .Some(_) => true,
       .None => false
     )
@@ -590,12 +590,12 @@ impl(String, {
    * Returns the character index of the last match, or None if not found
    * from_index specifies the character index to start searching backwards from
    */
-  last_index_of :: (fn(self: Self, substring: Self, (from_index : usize) ?= 0xFFFFFFFFFFFFFFFF) -> Option(usize))(
+  last_index_of :: (fn(self: Self, substr: Self, (from_index : usize) ?= 0xFFFFFFFFFFFFFFFF) -> Option(usize))(
     cond(
-      substring.is_empty() => .Some(self.len()),
+      substr.is_empty() => .Some(self.len()),
       true => {
         self_bytes := self._bytes.len();
-        sub_bytes := substring._bytes.len();
+        sub_bytes := substr._bytes.len();
         
         cond(
           (sub_bytes > self_bytes) => .None,
@@ -653,7 +653,7 @@ impl(String, {
                                 (j = (j + usize(1))),
                           {
                             self_byte_opt := self._bytes.get((byte_pos + j));
-                            sub_byte_opt := substring._bytes.get(j);
+                            sub_byte_opt := substr._bytes.get(j);
                             match(self_byte_opt,
                               .Some(self_byte) =>
                                 match(sub_byte_opt,

@@ -99,7 +99,7 @@ impl(forall(T : Type), ArrayList(T), {
   with_capacity :: (fn(cap: usize) -> Self)(
     cond(
       (cap == usize(0)) => 
-        new(),
+        Self.new(),
       true => {
         ptr_result := malloc(sizeof(T) * cap);
         match(ptr_result,
@@ -432,7 +432,7 @@ impl(forall(T : Type), ArrayList(T), {
     * Clear all elements but keep capacity
     */
   clear :: (fn(self: Self) -> unit)({
-    self._free_elements();
+    _free_elements(self);
     self._length = usize(0);
   });
   export clear;
@@ -444,7 +444,7 @@ impl(forall(T : Type), ArrayList(T), {
   dispose :: (fn(self: Self) -> unit)({
     match(self._ptr,
       .Some(ptr) => {
-        self._free_elements();
+        _free_elements(self);
         self._length = usize(0);
         GlobalAllocator.free(.Some(*(void)(ptr)));
         self._ptr = .None;
@@ -452,6 +452,7 @@ impl(forall(T : Type), ArrayList(T), {
       .None => ()
     );
   });
+  export dispose;
 });
 
 export

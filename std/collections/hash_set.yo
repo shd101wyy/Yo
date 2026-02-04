@@ -203,9 +203,9 @@ impl(forall(T : Type), where(T <: (Eq(T), Hash)), HashSet(T), {
       h2 := h2_hash(hash);
       index := h1_hash(hash, self.capacity);
       probe := usize(0);
-      ctrl_ptr := self._ctrl_ptr();
-      data_ptr := self._data_ptr();
-      
+      ctrl_ptr := _ctrl_ptr(self);
+      data_ptr := _data_ptr(self);
+
       while(probe < self.capacity, probe = (probe + usize(1)), {
         probe_index := ((index + probe) % self.capacity);
         ctrl_byte := CtrlPtrType(*(void)(ctrl_ptr) + probe_index).*;
@@ -239,7 +239,7 @@ impl(forall(T : Type), where(T <: (Eq(T), Hash)), HashSet(T), {
     {
       index := h1_hash(hash, self.capacity);
       probe := usize(0);
-      ctrl_ptr := self._ctrl_ptr();
+      ctrl_ptr := _ctrl_ptr(self);
       
       while(probe < self.capacity, probe = (probe + usize(1)), {
         probe_index := ((index + probe) % self.capacity);
@@ -277,8 +277,8 @@ impl(forall(T : Type), where(T <: (Eq(T), Hash)), HashSet(T), {
         .Err(err) => .Err(err),
         .Ok(new_set) => {
           i := usize(0);
-          ctrl_ptr := self._ctrl_ptr();
-          data_ptr := self._data_ptr();
+          ctrl_ptr := _ctrl_ptr(self);
+          data_ptr := _data_ptr(self);
           while(i < self.capacity, i = (i + usize(1)), {
             ctrl_byte := CtrlPtrType(*(void)(ctrl_ptr) + i).*;
             cond(
@@ -286,10 +286,10 @@ impl(forall(T : Type), where(T <: (Eq(T), Hash)), HashSet(T), {
                 element := DataPtrType(*(void)(data_ptr) + i).*;
                 hash := element.hash();
                 h2 := h2_hash(hash);
-                new_index := new_set._find_insert_slot(hash);
+                new_index := _find_insert_slot(new_set, hash);
                 
-                new_ctrl_ptr := new_set._ctrl_ptr();
-                new_data_ptr := new_set._data_ptr();
+                new_ctrl_ptr := _ctrl_ptr(new_set);
+                new_data_ptr := _data_ptr(new_set);
                 CtrlPtrType(*(void)(new_ctrl_ptr) + new_index).* = h2;
                 consume(DataPtrType(*(void)(new_data_ptr) + new_index).* = element);
                 new_set.size = (new_set.size + usize(1));
@@ -346,15 +346,15 @@ impl(forall(T : Type), where(T <: (Eq(T), Hash)), HashSet(T), {
   add :: (fn(self: Self, element: T) -> Result(bool, HashSetError))(
     {
       hash := element.hash();
-      slot_opt := self._find_slot(element, hash);
+      slot_opt := _find_slot(self, element, hash);
       
       match(slot_opt,
         .Some(_) => .Ok(false),
         .None => {
           resize_check := cond(
-            (self._needs_resize()) => {
+            (_needs_resize(self)) => {
               new_capacity := (self.capacity * usize(2));
-              self._resize(new_capacity)
+              _resize(self, new_capacity)
             },
             true => (Result(unit, HashSetError).Ok(()))
           );
@@ -363,10 +363,10 @@ impl(forall(T : Type), where(T <: (Eq(T), Hash)), HashSet(T), {
             .Err(err) => .Err(err),
             .Ok(_) => {
               h2 := h2_hash(hash);
-              index := self._find_insert_slot(hash);
+              index := _find_insert_slot(self, hash);
               
-              ctrl_ptr := self._ctrl_ptr();
-              data_ptr := self._data_ptr();
+              ctrl_ptr := _ctrl_ptr(self);
+              data_ptr := _data_ptr(self);
               CtrlPtrType(*(void)(ctrl_ptr) + index).* = h2;
               consume(DataPtrType(*(void)(data_ptr) + index).* = element);
               self.size = (self.size + usize(1));
@@ -386,7 +386,7 @@ impl(forall(T : Type), where(T <: (Eq(T), Hash)), HashSet(T), {
   has :: (fn(self: Self, element: T) -> bool)(
     {
       hash := element.hash();
-      slot_opt := self._find_slot(element, hash);
+      slot_opt := _find_slot(self, element, hash);
       match(slot_opt,
         .Some(_) => true,
         .None => false
@@ -402,20 +402,20 @@ impl(forall(T : Type), where(T <: (Eq(T), Hash)), HashSet(T), {
   remove :: (fn(self: Self, element: T) -> bool)(
     {
       hash := element.hash();
-      slot_opt := self._find_slot(element, hash);
+      slot_opt := _find_slot(self, element, hash);
       match(slot_opt,
         .Some(index) => {
           // Drop the element value before marking as deleted
           cond(
             Type.contains_rc_type(T) => {
-              data_ptr := self._data_ptr();
+              data_ptr := _data_ptr(self);
               element_ptr := DataPtrType(*(void)(data_ptr) + index);
               unsafe.drop(element_ptr.*);
             },
             true => ()
           );
           
-          ctrl_ptr := self._ctrl_ptr();
+          ctrl_ptr := _ctrl_ptr(self);
           CtrlPtrType(*(void)(ctrl_ptr) + index).* = CTRL_DELETED;
           self.size = (self.size - usize(1));
           true
@@ -451,8 +451,8 @@ impl(forall(T : Type), where(T <: (Eq(T), Hash)), HashSet(T), {
       // Drop all occupied elements before clearing
       cond(
         Type.contains_rc_type(T) => {
-          ctrl_ptr := self._ctrl_ptr();
-          data_ptr := self._data_ptr();
+          ctrl_ptr := _ctrl_ptr(self);
+          data_ptr := _data_ptr(self);
           i := usize(0);
           while(i < self.capacity, i = (i + usize(1)), {
             ctrl_byte := CtrlPtrType(*(void)(ctrl_ptr) + i).*;
@@ -468,7 +468,7 @@ impl(forall(T : Type), where(T <: (Eq(T), Hash)), HashSet(T), {
         true => ()
       );
       
-      ctrl_ptr := self._ctrl_ptr();
+      ctrl_ptr := _ctrl_ptr(self);
       i := usize(0);
       while(i < self.capacity, i = (i + usize(1)), {
         CtrlPtrType(*(void)(ctrl_ptr) + i).* = CTRL_EMPTY;
@@ -487,8 +487,8 @@ impl(forall(T : Type), where(T <: (Eq(T), Hash)), HashSet(T), {
       (self.size > other.size) => false,
       true => {
         i := usize(0);
-        ctrl_ptr := self._ctrl_ptr();
-        data_ptr := self._data_ptr();
+        ctrl_ptr := _ctrl_ptr(self);
+        data_ptr := _data_ptr(self);
         is_sub := true;
         
         while(i < self.capacity, i = (i + usize(1)), {
@@ -533,8 +533,8 @@ impl(forall(T : Type), where(T <: (Eq(T), Hash)), HashSet(T), {
       larger := cond((self.size <= other.size) => other, true => self);
       
       i := usize(0);
-      ctrl_ptr := smaller._ctrl_ptr();
-      data_ptr := smaller._data_ptr();
+      ctrl_ptr := _ctrl_ptr(smaller);
+      data_ptr := _data_ptr(smaller);
       result := true;
       
       while(i < smaller.capacity, i = (i + usize(1)), {
@@ -585,28 +585,28 @@ impl(forall(T : Type), where(T <: (Eq(T), Hash)), HashSet(T), {
         .Err(err) => .Err(err),
         .Ok(result_set) => {
           i := usize(0);
-          ctrl_ptr := self._ctrl_ptr();
-          data_ptr := self._data_ptr();
+          ctrl_ptr := _ctrl_ptr(self);
+          data_ptr := _data_ptr(self);
           while(i < self.capacity, i = (i + usize(1)), {
             ctrl_byte := CtrlPtrType(*(void)(ctrl_ptr) + i).*;
             cond(
               ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
                 element := DataPtrType(*(void)(data_ptr) + i).*;
-                _ := result_set.add(element);
+                result_set.add(element);
               },
               true => ()
             );
           });
           
           j := usize(0);
-          other_ctrl_ptr := other._ctrl_ptr();
-          other_data_ptr := other._data_ptr();
+          other_ctrl_ptr := _ctrl_ptr(other);
+          other_data_ptr := _data_ptr(other);
           while(j < other.capacity, j = (j + usize(1)), {
             ctrl_byte := CtrlPtrType(*(void)(other_ctrl_ptr) + j).*;
             cond(
               ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
                 element := DataPtrType(*(void)(other_data_ptr) + j).*;
-                _ := result_set.add(element);
+                result_set.add(element);
               },
               true => ()
             );
@@ -633,8 +633,8 @@ impl(forall(T : Type), where(T <: (Eq(T), Hash)), HashSet(T), {
         .Err(err) => .Err(err),
         .Ok(result_set) => {
           i := usize(0);
-          ctrl_ptr := smaller._ctrl_ptr();
-          data_ptr := smaller._data_ptr();
+          ctrl_ptr := _ctrl_ptr(smaller);
+          data_ptr := _data_ptr(smaller);
           while(i < smaller.capacity, i = (i + usize(1)), {
             ctrl_byte := CtrlPtrType(*(void)(ctrl_ptr) + i).*;
             cond(
@@ -669,8 +669,8 @@ impl(forall(T : Type), where(T <: (Eq(T), Hash)), HashSet(T), {
         .Err(err) => .Err(err),
         .Ok(result_set) => {
           i := usize(0);
-          ctrl_ptr := self._ctrl_ptr();
-          data_ptr := self._data_ptr();
+          ctrl_ptr := _ctrl_ptr(self);
+          data_ptr := _data_ptr(self);
           while(i < self.capacity, i = (i + usize(1)), {
             ctrl_byte := CtrlPtrType(*(void)(ctrl_ptr) + i).*;
             cond(
@@ -706,8 +706,8 @@ impl(forall(T : Type), where(T <: (Eq(T), Hash)), HashSet(T), {
         .Err(err) => .Err(err),
         .Ok(result_set) => {
           i := usize(0);
-          ctrl_ptr := self._ctrl_ptr();
-          data_ptr := self._data_ptr();
+          ctrl_ptr := _ctrl_ptr(self);
+          data_ptr := _data_ptr(self);
           while(i < self.capacity, i = (i + usize(1)), {
             ctrl_byte := CtrlPtrType(*(void)(ctrl_ptr) + i).*;
             cond(
@@ -726,8 +726,8 @@ impl(forall(T : Type), where(T <: (Eq(T), Hash)), HashSet(T), {
           });
           
           j := usize(0);
-          other_ctrl_ptr := other._ctrl_ptr();
-          other_data_ptr := other._data_ptr();
+          other_ctrl_ptr := _ctrl_ptr(other);
+          other_data_ptr := _data_ptr(other);
           while(j < other.capacity, j = (j + usize(1)), {
             ctrl_byte := CtrlPtrType(*(void)(other_ctrl_ptr) + j).*;
             cond(
