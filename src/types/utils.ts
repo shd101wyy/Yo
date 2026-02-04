@@ -1427,6 +1427,10 @@ export function canTypeFormRcCycle(
     return false; // Only objects can form cycles through reference counting
   }
 
+  if (typeImplementsAcyclic(type, env)) {
+    return false; // Type is marked as Acyclic, so it cannot form cycles
+  }
+
   // Avoid infinite recursion by tracking visited types
   if (visitedTypes.has(type.id)) {
     return true; // We found a cycle back to a type we're already analyzing
