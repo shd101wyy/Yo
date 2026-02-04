@@ -33,7 +33,7 @@ import {
   isTypeHierarchyType,
 } from "../types/guards";
 import { TypeTag } from "../types/tags";
-import { typeToString } from "../types/utils";
+import { typeContainsSomeType, typeToString } from "../types/utils";
 import { isTraitValue, TraitValue } from "../value";
 import { EvaluatorContext } from "./context";
 import { findMatchingGenericImpl } from "./values/impl";
@@ -556,6 +556,19 @@ export function validateTypeAvailability(
   token: Token,
   context?: EvaluatorContext
 ): void {
+  // If the type still contains SomeType placeholders, defer availability checks.
+  if (typeContainsSomeType(type)) {
+    if (context?.pendingTypeAvailabilityChecks) {
+      const alreadyDeferred = context.pendingTypeAvailabilityChecks.some(
+        (entry) => entry.type === type
+      );
+      if (!alreadyDeferred) {
+        context.pendingTypeAvailabilityChecks.push({ type, token });
+      }
+    }
+    return;
+  }
+
   if (!typeImplementsComptime(type, env) && !typeImplementsRuntime(type, env)) {
     if (context?.pendingTypeAvailabilityChecks) {
       const alreadyDeferred = context.pendingTypeAvailabilityChecks.some(

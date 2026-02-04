@@ -1,37 +1,53 @@
-MyStruct :: (fn(comptime(T) : Type) -> comptime(Type))(
-  struct(value : T)
+// @skip_prelude
+Comptime :: trait(
+  id := "Comptime"
+);
+export Comptime;
+
+Runtime :: trait(
+  id := "Runtime"
+);
+export Runtime;
+
+Send :: trait(
+  id := "Send"
+);
+export Send;
+
+Acyclic :: trait(
+  id := "Acyclic"
+);
+export Acyclic;
+
+Option :: (fn(comptime(T) : Type) -> comptime(Type))(
+  enum(
+    None,
+    Some(value: T)
+  )
 );
 
-impl(forall(T : Type), MyStruct(T), {
-  new :: (fn(v : T) -> Self)(Self(v));
-  export new;
+Node :: (fn(comptime(T): Type) -> comptime(Type))
+  object(
+    value : T,
+    next : Option(Self)
+  )
+;
 
-  another_new :: (fn(v : T) -> Self)(
-    Self.new(v)
+LinkedList :: (fn(comptime(T): Type) -> comptime(Type))
+  object(
+    head : Option(Node(T)),
+    length : usize
+  )
+;
+
+impl(forall(T : Type), LinkedList(T), {
+  push_front :: (fn(self: Self, value: T) -> unit)(
+    {
+      new_node := Node(T)(
+        value: value,
+        next: self.head
+      );
+    }
   );
-  export another_new;
-
-  add :: (fn(self : *(Self), value : T, where(T <: Add(T, T))) -> unit) {
-    self.value = (self.value + value);
-  };
-  export add;
-
-  another_add :: (fn(self : *(Self), value : T, where(T <: Add(T, T))) -> unit) {
-    self.add(value);
-  };
-  export another_add;
+  export push_front;
 });
-
-main :: (fn() -> unit) {
-  value := 10;
-  x := MyStruct(i32).new(value);
-  y := MyStruct(i32).another_new(value);
-  assert(x.value == value);
-  assert(y.value == value);
-
-  x.add(3);
-  y.another_add(4);
-  assert(x.value == (value + 3));
-  assert(y.value == (value + 4));
-};
-export main;

@@ -36,6 +36,7 @@ import {
   typeImplementsComptime,
   typeImplementsRuntime,
   typeImplementsSend,
+  typeIsComptimeOnly,
   validateTypeAvailability,
 } from "../trait-checking";
 
@@ -412,7 +413,7 @@ export function addRcFunctionsToStructType({
   context: EvaluatorContext;
 }): Environment {
   // Skip RC functions for comptime-only types - they don't exist at runtime
-  if (!typeImplementsRuntime(structType, env)) {
+  if (typeIsComptimeOnly(structType, env)) {
     return env;
   }
 
@@ -483,7 +484,7 @@ export function addRcFunctionSignaturesToStructType({
   context: EvaluatorContext;
 }) {
   // Skip RC functions for comptime-only types - they don't exist at runtime
-  if (!typeImplementsRuntime(structType, env)) {
+  if (typeIsComptimeOnly(structType, env)) {
     return;
   }
 
@@ -723,7 +724,7 @@ export function addRcFunctionsToEnumType({
   context: EvaluatorContext;
 }): Environment {
   // Skip RC functions for comptime-only types - they don't exist at runtime
-  if (!typeImplementsRuntime(enumType, env)) {
+  if (typeIsComptimeOnly(enumType, env)) {
     return env;
   }
 
@@ -794,7 +795,7 @@ export function addRcFunctionSignaturesToEnumType({
   context: EvaluatorContext;
 }) {
   // Skip RC functions for comptime-only types - they don't exist at runtime
-  if (!typeImplementsRuntime(enumType, env)) {
+  if (typeIsComptimeOnly(enumType, env)) {
     return env;
   }
 
