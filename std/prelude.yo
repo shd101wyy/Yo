@@ -3157,6 +3157,7 @@ export str;
 
 /// ComptimeList
 impl(forall(T : Type), ComptimeList(T), Comptime());
+impl(forall(T : Type), ComptimeList(T), Acyclic());
 impl(forall(T : Type), where(T <: Comptime), ComptimeList(T), {
   car :: (fn(comptime(self): Self) -> comptime(__yo_comptime_list_element_type(Self)))(
     __yo_comptime_list_car(self)
@@ -3181,6 +3182,7 @@ export ExprList;
 
 /// Expr
 impl(Expr, Comptime());
+impl(Expr, Acyclic());
 impl(Expr, ComptimeEq(Expr)(
   (==) : (fn(comptime(lhs): Expr, comptime(rhs): Expr) -> comptime(bool))(
     __yo_expr_eq(lhs, rhs)

@@ -30,6 +30,7 @@ import {
   isFnTraitType,
   isFutureTraitType,
   isSomeType,
+  isStructType,
   isTypeHierarchyType,
 } from "../types/guards";
 import { TypeTag } from "../types/tags";
@@ -319,6 +320,11 @@ export function typeImplementsRuntime(
 ): boolean {
   if (!type) {
     return false;
+  }
+
+  // Object types (reference semantics) are always runtime types.
+  if (isStructType(type) && type.isReferenceSemantics) {
+    return true;
   }
 
   switch (type.tag) {
