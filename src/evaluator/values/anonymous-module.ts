@@ -223,7 +223,7 @@ export function evaluateAnonymousModuleBeginExprs({
 
                 // Add the value to the module field values
                 if (extendedModuleValue) {
-                  moduleElementValues.push(extendedModuleValue.fields[j]);
+                  moduleElementValues.push(extendedModuleValue.fields[k]);
                 } else {
                   moduleElementValues.push(undefined);
                 }
@@ -233,7 +233,7 @@ export function evaluateAnonymousModuleBeginExprs({
                   env,
                   type: extendedStructField.type,
                   value: extendedModuleValue
-                    ? extendedModuleValue.fields[j]
+                    ? extendedModuleValue.fields[k]
                     : undefined,
                   pathCollection: [],
                 };

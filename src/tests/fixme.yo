@@ -1,53 +1,6 @@
-// @skip_prelude
-Comptime :: trait(
-  id := "Comptime"
-);
-export Comptime;
-
-Runtime :: trait(
-  id := "Runtime"
-);
-export Runtime;
-
-Send :: trait(
-  id := "Send"
-);
-export Send;
-
-Acyclic :: trait(
-  id := "Acyclic"
-);
-export Acyclic;
-
-Option :: (fn(comptime(T) : Type) -> comptime(Type))(
-  enum(
-    None,
-    Some(value: T)
-  )
-);
-
-Node :: (fn(comptime(T): Type) -> comptime(Type))
-  object(
-    value : T,
-    next : Option(Self)
-  )
-;
-
-LinkedList :: (fn(comptime(T): Type) -> comptime(Type))
-  object(
-    head : Option(Node(T)),
-    length : usize
-  )
-;
-
-impl(forall(T : Type), LinkedList(T), {
-  push_front :: (fn(self: Self, value: T) -> unit)(
-    {
-      new_node := Node(T)(
-        value: value,
-        next: self.head
-      );
-    }
-  );
-  export push_front;
-});
+{ String } :: import "std/string";
+main :: (fn() -> unit) {
+  (cstr : *(u8)) = "Hello";
+  String.from_cstr(cstr);
+};
+export main;
