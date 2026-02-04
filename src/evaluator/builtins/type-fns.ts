@@ -22,12 +22,11 @@ import {
   createBooleanValue,
   createComptimeStringValue,
   createUnknownValue,
-  isTraitValue,
   isTypeValue,
 } from "../../value";
 import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
-import { findMatchingGenericImpl } from "../values/impl";
+import { typeImplementsTrait } from "../trait-checking";
 
 export function evaluateYoTypeToString({
   expr,
@@ -377,7 +376,7 @@ export function evaluateYoTypeImpls({
     // The argument is a trait type itself (the type of the value is TraitType)
     expectedTraitType = traitArg.$.type;
   } else if (isTypeHierarchyType(traitArg.$.type)) {
-    // The argument is a compile-time unknown (e.g., a generic parameter like `marker: Module`)
+    // The argument is a compile-time unknown (e.g., a generic parameter like `marker: Trait`)
     // Return an unknown bool value - the actual check will happen when called with concrete types
     expr.$ = {
       env: traitArg.$.env,
@@ -400,51 +399,9 @@ export function evaluateYoTypeImpls({
   }
   env = traitArg.$.env;
 
-  // Create a version of the expected trait with targetType as the receiver
-  const expectedTraitWithReceiver: TraitType = {
-    ...expectedTraitType,
-    receiverType: targetType,
-  };
-
-  // Check if the target type's trait has a field that implements the expected trait
-  let impls = false;
-  const targetTrait = targetType.trait;
-  if (targetTrait) {
-    for (const field of targetTrait.fields) {
-      if (!field.assignedValue || !isTraitValue(field.assignedValue)) {
-        continue;
-      }
-
-      const fieldTraitValue = field.assignedValue;
-      const fieldTraitType = fieldTraitValue.type;
-
-      // Check if this field's trait type is compatible with the expected trait
-      // The field trait should have the target type as its receiver
-      if (
-        areTypesCompatible(
-          { type: expectedTraitWithReceiver, env },
-          { type: fieldTraitType, env }
-        )
-      ) {
-        impls = true;
-        break;
-      }
-    }
-  }
-
-  // If no direct impl found, check for generic impls
-  if (!impls) {
-    const matchingGenericImpl = findMatchingGenericImpl({
-      concreteType: targetType,
-      traitType: expectedTraitType,
-      env,
-    });
-    if (matchingGenericImpl) {
-      impls = true;
-    }
-  }
-
-  const value = createBooleanValue(impls);
+  const value = createBooleanValue(
+    typeImplementsTrait({ targetType, traitType: expectedTraitType, env })
+  );
 
   expr.$ = {
     env,

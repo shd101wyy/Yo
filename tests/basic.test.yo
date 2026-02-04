@@ -312,9 +312,42 @@ test "Test type auto derive Send", {
 
 test "Test type auto derive Acyclic", {
   // Primitive types are Acyclic
-  comptime_assert(Type.impls(i32, Acyclic));
+  // Compile-time only types
+  comptime_assert(Type.impls(comptime_int, Acyclic));
+  comptime_assert(Type.impls(comptime_float, Acyclic));
+  comptime_assert(Type.impls(comptime_string, Acyclic));
+  comptime_assert(Type.impls(Expr, Acyclic));
+  comptime_assert(Type.impls(ComptimeList(i32), Acyclic));
+
+  // Primitive types that can exist at comptime
   comptime_assert(Type.impls(bool, Acyclic));
-  
+  comptime_assert(Type.impls(usize, Acyclic));
+  comptime_assert(Type.impls(isize, Acyclic));
+  comptime_assert(Type.impls(u8, Acyclic));
+  comptime_assert(Type.impls(i8, Acyclic));
+  comptime_assert(Type.impls(u16, Acyclic));
+  comptime_assert(Type.impls(i16, Acyclic));
+  comptime_assert(Type.impls(u32, Acyclic));
+  comptime_assert(Type.impls(i32, Acyclic));
+  comptime_assert(Type.impls(u64, Acyclic));
+  comptime_assert(Type.impls(i64, Acyclic));
+  comptime_assert(Type.impls(f32, Acyclic));
+  comptime_assert(Type.impls(f64, Acyclic));
+  comptime_assert(Type.impls(unit, Acyclic));
+
+  // C compatible types are runtime only
+  comptime_assert(Type.impls(void, Acyclic));
+  comptime_assert(Type.impls(char, Acyclic));
+  comptime_assert(Type.impls(short, Acyclic));
+  comptime_assert(Type.impls(ushort, Acyclic));
+  comptime_assert(Type.impls(int, Acyclic));
+  comptime_assert(Type.impls(uint, Acyclic));
+  comptime_assert(Type.impls(long, Acyclic));
+  comptime_assert(Type.impls(ulong, Acyclic));
+  comptime_assert(Type.impls(longlong, Acyclic));
+  comptime_assert(Type.impls(ulonglong, Acyclic));
+  comptime_assert(Type.impls(longdouble, Acyclic));
+
   // Value structs without object fields are Acyclic
   Point :: struct(x : i32, y : i32);
   comptime_assert(Type.impls(Point, Acyclic) == true);
@@ -326,13 +359,14 @@ test "Test type auto derive Acyclic", {
   // Self-referencing object (can form cycle) is NOT Acyclic
   Node :: object(value: i32, next: Option(Self));
   comptime_assert(Type.impls(Node, Acyclic) == false);
-  
+  // 
   // Generic struct: Acyclic depends on type parameter
   GenericPoint :: (fn(comptime(T) : Type) -> comptime(Type))
     struct(x : T, y : T)
   ;
   comptime_assert(Type.impls(GenericPoint(i32), Acyclic) == true);
-  
+  comptime_assert(Type.impls(GenericPoint(Node), Acyclic) == false);
+
   // Enum types
   Direction :: enum(North, South, East, West);
   comptime_assert(Type.impls(Direction, Acyclic) == true);

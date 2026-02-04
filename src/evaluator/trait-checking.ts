@@ -48,6 +48,142 @@ import { findMatchingGenericImpl } from "./values/impl";
  */
 const traitCheckRecursionGuard = new Set<string>();
 
+function typeImplementsComptimeBuiltin(
+  type: Type | undefined
+): boolean | undefined {
+  if (!type) {
+    return false;
+  }
+
+  // Object types (reference semantics) are always runtime types.
+  if (isStructType(type) && type.isReferenceSemantics) {
+    return false;
+  }
+
+  switch (type.tag) {
+    // Comptime-only types - always return true
+    case TypeTag.ComptimeInt:
+    case TypeTag.ComptimeFloat:
+    case TypeTag.ComptimeString:
+    case TypeTag.Type:
+    case TypeTag.Module:
+    case TypeTag.Trait:
+    case TypeTag.Expr:
+    case TypeTag.ComptimeList: {
+      return true;
+    }
+
+    // Runtime-only types - always return false
+    case TypeTag.Iso:
+    case TypeTag.Dyn:
+    case TypeTag.Void:
+    case TypeTag.Union:
+    case TypeTag.Char: // C-compatible types (platform-dependent size, runtime only)
+    case TypeTag.Short:
+    case TypeTag.UShort:
+    case TypeTag.Int:
+    case TypeTag.UInt:
+    case TypeTag.Long:
+    case TypeTag.ULong:
+    case TypeTag.LongLong:
+    case TypeTag.ULongLong:
+    case TypeTag.LongDouble: {
+      return false;
+    }
+
+    // Primitive types available in both contexts - return true
+    case TypeTag.Unit:
+    case TypeTag.Bool:
+    case TypeTag.Usize:
+    case TypeTag.Isize:
+    case TypeTag.U8:
+    case TypeTag.I8:
+    case TypeTag.U16:
+    case TypeTag.I16:
+    case TypeTag.U32:
+    case TypeTag.I32:
+    case TypeTag.U64:
+    case TypeTag.I64:
+    case TypeTag.F32:
+    case TypeTag.F64:
+    case TypeTag.Function: {
+      return true;
+    }
+  }
+
+  if (isTypeHierarchyType(type)) {
+    return true;
+  }
+
+  return undefined;
+}
+
+function typeImplementsRuntimeBuiltin(
+  type: Type | undefined
+): boolean | undefined {
+  if (!type) {
+    return false;
+  }
+
+  // Object types (reference semantics) are always runtime types.
+  if (isStructType(type) && type.isReferenceSemantics) {
+    return true;
+  }
+
+  switch (type.tag) {
+    // Comptime-only types - do NOT implement Runtime
+    case TypeTag.ComptimeInt:
+    case TypeTag.ComptimeFloat:
+    case TypeTag.ComptimeString:
+    case TypeTag.Type:
+    case TypeTag.Module:
+    case TypeTag.Trait:
+    case TypeTag.Expr:
+    case TypeTag.ComptimeList: {
+      return false;
+    }
+
+    // Runtime-only types
+    case TypeTag.Iso:
+    case TypeTag.Dyn:
+    case TypeTag.Void:
+    case TypeTag.Char: // C-compatible types (platform-dependent size, runtime only)
+    case TypeTag.Short:
+    case TypeTag.UShort:
+    case TypeTag.Int:
+    case TypeTag.UInt:
+    case TypeTag.Long:
+    case TypeTag.ULong:
+    case TypeTag.LongLong:
+    case TypeTag.ULongLong:
+    case TypeTag.LongDouble: {
+      return true;
+    }
+
+    // Types available in both contexts
+    case TypeTag.Unit:
+    case TypeTag.Bool:
+    case TypeTag.Usize:
+    case TypeTag.Isize:
+    case TypeTag.U8:
+    case TypeTag.I8:
+    case TypeTag.U16:
+    case TypeTag.I16:
+    case TypeTag.U32:
+    case TypeTag.I32:
+    case TypeTag.U64:
+    case TypeTag.I64:
+    case TypeTag.F32:
+    case TypeTag.F64:
+    case TypeTag.Function:
+    case TypeTag.Union: {
+      return true;
+    }
+  }
+
+  return undefined;
+}
+
 /**
  * Check if a type implements a specific trait.
  * This is the core implementation that handles both direct trait fields
@@ -62,6 +198,22 @@ export function typeImplementsTrait({
   traitType: TraitType;
   env: Environment;
 }): boolean {
+  const comptimeTraitType = getTraitTypeFromEnv(env, "Comptime");
+  if (comptimeTraitType && traitType.id === comptimeTraitType.id) {
+    const builtin = typeImplementsComptimeBuiltin(targetType);
+    if (builtin !== undefined) {
+      return builtin;
+    }
+  }
+
+  const runtimeTraitType = getTraitTypeFromEnv(env, "Runtime");
+  if (runtimeTraitType && traitType.id === runtimeTraitType.id) {
+    const builtin = typeImplementsRuntimeBuiltin(targetType);
+    if (builtin !== undefined) {
+      return builtin;
+    }
+  }
+
   const expectedTraitWithReceiver: TraitType = {
     ...traitType,
     receiverType: targetType,
@@ -232,67 +384,10 @@ export function checkTypeImplementsSelfConstraints({
  * Examples: i32, bool, Type, comptime_int, comptime_float, comptime_string
  * Non-examples: void (runtime-only type)
  */
-export function typeImplementsComptime(
-  type: Type | undefined,
-  env: Environment
-): boolean {
-  if (!type) {
-    return false;
-  }
-
-  switch (type.tag) {
-    // Comptime-only types - always return true
-    case TypeTag.ComptimeInt:
-    case TypeTag.ComptimeFloat:
-    case TypeTag.ComptimeString:
-    case TypeTag.Type:
-    case TypeTag.Module:
-    case TypeTag.Trait:
-    case TypeTag.Expr:
-    case TypeTag.ComptimeList: {
-      return true;
-    }
-
-    // Runtime-only types - always return false
-    case TypeTag.Iso:
-    case TypeTag.Dyn:
-    case TypeTag.Void:
-    case TypeTag.Union:
-    case TypeTag.Char: // C-compatible types (platform-dependent size, runtime only)
-    case TypeTag.Short:
-    case TypeTag.UShort:
-    case TypeTag.Int:
-    case TypeTag.UInt:
-    case TypeTag.Long:
-    case TypeTag.ULong:
-    case TypeTag.LongLong:
-    case TypeTag.ULongLong:
-    case TypeTag.LongDouble: {
-      return false;
-    }
-
-    // Primitive types available in both contexts - return true
-    case TypeTag.Unit:
-    case TypeTag.Bool:
-    case TypeTag.Usize:
-    case TypeTag.Isize:
-    case TypeTag.U8:
-    case TypeTag.I8:
-    case TypeTag.U16:
-    case TypeTag.I16:
-    case TypeTag.U32:
-    case TypeTag.I32:
-    case TypeTag.U64:
-    case TypeTag.I64:
-    case TypeTag.F32:
-    case TypeTag.F64:
-    case TypeTag.Function: {
-      return true;
-    }
-  }
-
-  if (isTypeHierarchyType(type)) {
-    return true;
+export function typeImplementsComptime(type: Type, env: Environment): boolean {
+  const builtin = typeImplementsComptimeBuiltin(type);
+  if (builtin !== undefined) {
+    return builtin;
   }
 
   const comptimeTraitType = getTraitTypeFromEnv(env, "Comptime");
@@ -314,68 +409,10 @@ export function typeImplementsComptime(
  * Examples: i32, bool, *(i32), void
  * Non-examples: comptime_int, comptime_float, comptime_string, Type (compile-time-only types)
  */
-export function typeImplementsRuntime(
-  type: Type | undefined,
-  env: Environment
-): boolean {
-  if (!type) {
-    return false;
-  }
-
-  // Object types (reference semantics) are always runtime types.
-  if (isStructType(type) && type.isReferenceSemantics) {
-    return true;
-  }
-
-  switch (type.tag) {
-    // Comptime-only types - do NOT implement Runtime
-    case TypeTag.ComptimeInt:
-    case TypeTag.ComptimeFloat:
-    case TypeTag.ComptimeString:
-    case TypeTag.Type:
-    case TypeTag.Module:
-    case TypeTag.Trait:
-    case TypeTag.Expr:
-    case TypeTag.ComptimeList: {
-      return false;
-    }
-
-    // Runtime-only types
-    case TypeTag.Iso:
-    case TypeTag.Dyn:
-    case TypeTag.Void:
-    case TypeTag.Char: // C-compatible types (platform-dependent size, runtime only)
-    case TypeTag.Short:
-    case TypeTag.UShort:
-    case TypeTag.Int:
-    case TypeTag.UInt:
-    case TypeTag.Long:
-    case TypeTag.ULong:
-    case TypeTag.LongLong:
-    case TypeTag.ULongLong:
-    case TypeTag.LongDouble: {
-      return true;
-    }
-
-    // Types available in both contexts
-    case TypeTag.Unit:
-    case TypeTag.Bool:
-    case TypeTag.Usize:
-    case TypeTag.Isize:
-    case TypeTag.U8:
-    case TypeTag.I8:
-    case TypeTag.U16:
-    case TypeTag.I16:
-    case TypeTag.U32:
-    case TypeTag.I32:
-    case TypeTag.U64:
-    case TypeTag.I64:
-    case TypeTag.F32:
-    case TypeTag.F64:
-    case TypeTag.Function:
-    case TypeTag.Union: {
-      return true;
-    }
+export function typeImplementsRuntime(type: Type, env: Environment): boolean {
+  const builtin = typeImplementsRuntimeBuiltin(type);
+  if (builtin !== undefined) {
+    return builtin;
   }
 
   const runtimeTraitType = getTraitTypeFromEnv(env, "Runtime");
@@ -445,20 +482,14 @@ export function typeImplementsAcyclic(
 /**
  * Check if a type is comptime-only (only available at compile-time, not runtime).
  */
-export function typeIsComptimeOnly(
-  type: Type | undefined,
-  env: Environment
-): boolean {
+export function typeIsComptimeOnly(type: Type, env: Environment): boolean {
   return typeImplementsComptime(type, env) && !typeImplementsRuntime(type, env);
 }
 
 /**
  * Check if a type is runtime-only (only available at runtime, not compile-time).
  */
-export function typeIsRuntimeOnly(
-  type: Type | undefined,
-  env: Environment
-): boolean {
+export function typeIsRuntimeOnly(type: Type, env: Environment): boolean {
   return !typeImplementsComptime(type, env) && typeImplementsRuntime(type, env);
 }
 
