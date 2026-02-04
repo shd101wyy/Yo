@@ -17,6 +17,7 @@ import {
   isTypeHierarchyType,
   isUnionType,
 } from "../../types/guards";
+import { typeContainsSomeType } from "../../types/utils";
 import { randomId } from "../../utils";
 import {
   areValuesEqual,
@@ -113,6 +114,16 @@ export function evaluateComptimeFunctionCall({
                 isSomeType(givenArgValue.value)
               ) {
                 // Must be the exact same SomeType instance
+                return argValue.value.id === givenArgValue.value.id;
+              }
+
+              // If either side contains SomeType anywhere inside, require exact type identity.
+              // This prevents cache reuse across different type parameters that happen to be
+              // structurally compatible (e.g., Option(*(T)) vs Option(*(U))).
+              if (
+                typeContainsSomeType(argValue.value) ||
+                typeContainsSomeType(givenArgValue.value)
+              ) {
                 return argValue.value.id === givenArgValue.value.id;
               }
 

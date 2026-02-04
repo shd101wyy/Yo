@@ -384,6 +384,12 @@ export function synthesizeTypes(
       expected.env = expectedEnv;
       given.env = givenEnv;
     }
+  } else if (isTupleType(expected.type) && isTupleType(given.type)) {
+    throw new Error(
+      `Cannot unify incompatible tuple types: "${typeToString(
+        expected.type
+      )}" and "${typeToString(given.type)}"`
+    );
   } else if (isStructType(expected.type) && isStructType(given.type)) {
     if (
       expected.type.id === given.type.id ||
@@ -460,6 +466,12 @@ export function synthesizeTypes(
         given.env = givenEnv;
       }
     }
+  } else if (isEnumType(expected.type) && isEnumType(given.type)) {
+    throw new Error(
+      `Cannot unify incompatible enum types: "${typeToString(
+        expected.type
+      )}" and "${typeToString(given.type)}"`
+    );
   } else if (
     isModuleType(expected.type) &&
     isModuleType(given.type) &&
