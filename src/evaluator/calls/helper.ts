@@ -1,10 +1,12 @@
 import { sanitizeForCIdentifier } from "../../codegen/utils";
 import {
   addVariableToEnv,
+  addWhereClauseConstraintToEnv,
   Environment,
   getVariablesFromEnv,
   getVariablesFromEnvByFilter,
   getVariablesNeedingDrop,
+  getWhereClauseConstraintsForSomeType,
   pushEnvFrame,
   updateExistingVariable,
   Variable,
@@ -435,6 +437,35 @@ Got:   ${valueToString(evaluatedArgExpr.$.value)}`,
     },
   });
   calleeEnv = nextEnv;
+
+  // Propagate where-clause constraints for SomeType arguments into callee env
+  if (argValue && isTypeValue(argValue) && isSomeType(argValue.value)) {
+    const someType = argValue.value;
+    const whereConstraints = getWhereClauseConstraintsForSomeType(
+      callerEnv,
+      someType
+    );
+    if (whereConstraints) {
+      for (const requiredTrait of whereConstraints.requiredTraits) {
+        const traitWithReceiver = { ...requiredTrait, receiverType: someType };
+        calleeEnv = addWhereClauseConstraintToEnv({
+          env: calleeEnv,
+          someType,
+          traitType: traitWithReceiver,
+          isNegated: false,
+        });
+      }
+      for (const negativeTrait of whereConstraints.negativeTraits) {
+        const traitWithReceiver = { ...negativeTrait, receiverType: someType };
+        calleeEnv = addWhereClauseConstraintToEnv({
+          env: calleeEnv,
+          someType,
+          traitType: traitWithReceiver,
+          isNegated: true,
+        });
+      }
+    }
+  }
 
   try {
     // Synthesize the types

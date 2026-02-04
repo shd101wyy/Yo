@@ -2276,7 +2276,6 @@ test "Test type availability", {
   };
 };
 
-/*
 test "Test 'comptime_fn' function call and function overloading", {
   add :: impl {
     _add :: (fn(x : i32, y : i32) -> i32) {
@@ -2292,27 +2291,28 @@ test "Test 'comptime_fn' function call and function overloading", {
   MyOption :: (fn(comptime(T) : Type) -> comptime(Type))(
     enum(
       None,
-      Some(value: T),
-
-      unwrap :: impl {
-        _unwrap :: (fn(self : Self) -> T)(
-          match(self,
-            .Some(value) => value,
-            .None => panic("Called unwrap on a None value")
-          )
-        );
-        _comptime_unwrap :: (fn(comptime(self) : Self) -> comptime(T))(
-          match(self,
-            .Some(value) => value,
-            .None => comptime_assert(false, "Called unwrap on a None value at comptime")
-          )
-        );
-
-        Call :: (_unwrap, _comptime_unwrap);
-        export Call;
-      }
+      Some(value: T)
     )
   );
+
+  impl(forall(T : Type), MyOption(T), {
+    unwrap :: (fn(self : Self) -> T)(
+      match(self,
+        .Some(value) => value,
+        .None => panic("Called unwrap on a None value")
+      )
+    );
+    export unwrap;
+  });
+  impl(forall(T : Type), where(T <: Comptime), MyOption(T), {
+    comptime_unwrap :: (fn(comptime(self) : Self) -> comptime(T))(
+      match(self,
+        .Some(value) => value,
+        .None => comptime_assert(false, "Called unwrap on a None value at comptime")
+      )
+    );
+    export comptime_unwrap;
+  });
 
   op := MyOption(i32).Some(12);
 
@@ -2335,7 +2335,6 @@ test "Test 'comptime_fn' function call and function overloading", {
   assert(val == 12);
 
   op2 :: MyOption(i32).Some(55);
-  val2 :: op2.unwrap();
+  val2 :: op2.comptime_unwrap();
   comptime_assert(val2 == 55);
 };
-*/
