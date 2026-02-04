@@ -85,6 +85,9 @@ HashSet :: (fn(
   )
 ;
 impl(forall(T : Type), where(T <: (Eq(T), Hash)), HashSet(T), {
+  CtrlPtrType :: *(u8);
+  DataPtrType :: *(T);
+
   /**
     * Allocate memory for HashSet with given capacity
     * Initializes all control bytes to EMPTY
@@ -99,7 +102,7 @@ impl(forall(T : Type), where(T <: (Eq(T), Hash)), HashSet(T), {
       match(ctrl_result,
         .None => .Err(.AllocError(error: .OutOfMemory)),
         .Some(ctrl_void_ptr) => {
-          ctrl_ptr := *(u8)(ctrl_void_ptr);
+          ctrl_ptr := CtrlPtrType(ctrl_void_ptr);
           
           data_result := malloc(data_size);
           match(data_result,
@@ -108,11 +111,11 @@ impl(forall(T : Type), where(T <: (Eq(T), Hash)), HashSet(T), {
               .Err(.AllocError(error: .OutOfMemory))
             },
             .Some(data_void_ptr) => {
-              data_ptr := *(T)(data_void_ptr);
+              data_ptr := DataPtrType(data_void_ptr);
               
               i := usize(0);
               while(i < capacity, i = (i + usize(1)), {
-                (ctrl_ptr &+ i).* = CTRL_EMPTY;
+                CtrlPtrType(*(void)(ctrl_ptr) + i).* = CTRL_EMPTY;
               });
               
               .Ok(Self(
@@ -205,14 +208,14 @@ impl(forall(T : Type), where(T <: (Eq(T), Hash)), HashSet(T), {
       
       while(probe < self.capacity, probe = (probe + usize(1)), {
         probe_index := ((index + probe) % self.capacity);
-        ctrl_byte := (ctrl_ptr &+ probe_index).*;
+        ctrl_byte := CtrlPtrType(*(void)(ctrl_ptr) + probe_index).*;
         
         cond(
           (ctrl_byte == CTRL_EMPTY) => {
             return .None;
           },
           (ctrl_byte == h2) => {
-            stored_element := (data_ptr &+ probe_index).*;
+            stored_element := DataPtrType(*(void)(data_ptr) + probe_index).*;
             cond(
               (stored_element == element) => {
                 return .Some(probe_index);
@@ -240,7 +243,7 @@ impl(forall(T : Type), where(T <: (Eq(T), Hash)), HashSet(T), {
       
       while(probe < self.capacity, probe = (probe + usize(1)), {
         probe_index := ((index + probe) % self.capacity);
-        ctrl_byte := (ctrl_ptr &+ probe_index).*;
+        ctrl_byte := CtrlPtrType(*(void)(ctrl_ptr) + probe_index).*;
         
         cond(
           ((ctrl_byte == CTRL_EMPTY) || (ctrl_byte == CTRL_DELETED)) => {
@@ -277,18 +280,18 @@ impl(forall(T : Type), where(T <: (Eq(T), Hash)), HashSet(T), {
           ctrl_ptr := self._ctrl_ptr();
           data_ptr := self._data_ptr();
           while(i < self.capacity, i = (i + usize(1)), {
-            ctrl_byte := (ctrl_ptr &+ i).*;
+            ctrl_byte := CtrlPtrType(*(void)(ctrl_ptr) + i).*;
             cond(
               ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-                element := (data_ptr &+ i).*;
+                element := DataPtrType(*(void)(data_ptr) + i).*;
                 hash := element.hash();
                 h2 := h2_hash(hash);
                 new_index := new_set._find_insert_slot(hash);
                 
                 new_ctrl_ptr := new_set._ctrl_ptr();
                 new_data_ptr := new_set._data_ptr();
-                (new_ctrl_ptr &+ new_index).* = h2;
-                consume((new_data_ptr &+ new_index).* = element);
+                CtrlPtrType(*(void)(new_ctrl_ptr) + new_index).* = h2;
+                consume(DataPtrType(*(void)(new_data_ptr) + new_index).* = element);
                 new_set.size = (new_set.size + usize(1));
               },
               true => ()
@@ -301,10 +304,10 @@ impl(forall(T : Type), where(T <: (Eq(T), Hash)), HashSet(T), {
             Type.contains_rc_type(T) => {
               j := usize(0);
               while(j < self.capacity, j = (j + usize(1)), {
-                ctrl_byte := (ctrl_ptr &+ j).*;
+                ctrl_byte := CtrlPtrType(*(void)(ctrl_ptr) + j).*;
                 cond(
                   ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-                    element_ptr := (data_ptr &+ j);
+                    element_ptr := DataPtrType(*(void)(data_ptr) + j);
                     unsafe.drop(element_ptr.*);
                   },
                   true => ()
@@ -364,8 +367,8 @@ impl(forall(T : Type), where(T <: (Eq(T), Hash)), HashSet(T), {
               
               ctrl_ptr := self._ctrl_ptr();
               data_ptr := self._data_ptr();
-              (ctrl_ptr &+ index).* = h2;
-              consume((data_ptr &+ index).* = element);
+              CtrlPtrType(*(void)(ctrl_ptr) + index).* = h2;
+              consume(DataPtrType(*(void)(data_ptr) + index).* = element);
               self.size = (self.size + usize(1));
               
               .Ok(true)
@@ -406,14 +409,14 @@ impl(forall(T : Type), where(T <: (Eq(T), Hash)), HashSet(T), {
           cond(
             Type.contains_rc_type(T) => {
               data_ptr := self._data_ptr();
-              element_ptr := (data_ptr &+ index);
+              element_ptr := DataPtrType(*(void)(data_ptr) + index);
               unsafe.drop(element_ptr.*);
             },
             true => ()
           );
           
           ctrl_ptr := self._ctrl_ptr();
-          (ctrl_ptr &+ index).* = CTRL_DELETED;
+          CtrlPtrType(*(void)(ctrl_ptr) + index).* = CTRL_DELETED;
           self.size = (self.size - usize(1));
           true
         },
@@ -452,10 +455,10 @@ impl(forall(T : Type), where(T <: (Eq(T), Hash)), HashSet(T), {
           data_ptr := self._data_ptr();
           i := usize(0);
           while(i < self.capacity, i = (i + usize(1)), {
-            ctrl_byte := (ctrl_ptr &+ i).*;
+            ctrl_byte := CtrlPtrType(*(void)(ctrl_ptr) + i).*;
             cond(
               ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-                element_ptr := (data_ptr &+ i);
+                element_ptr := DataPtrType(*(void)(data_ptr) + i);
                 unsafe.drop(element_ptr.*);
               },
               true => ()
@@ -468,7 +471,7 @@ impl(forall(T : Type), where(T <: (Eq(T), Hash)), HashSet(T), {
       ctrl_ptr := self._ctrl_ptr();
       i := usize(0);
       while(i < self.capacity, i = (i + usize(1)), {
-        (ctrl_ptr &+ i).* = CTRL_EMPTY;
+        CtrlPtrType(*(void)(ctrl_ptr) + i).* = CTRL_EMPTY;
       });
       self.size = usize(0);
     }
@@ -489,10 +492,10 @@ impl(forall(T : Type), where(T <: (Eq(T), Hash)), HashSet(T), {
         is_sub := true;
         
         while(i < self.capacity, i = (i + usize(1)), {
-          ctrl_byte := (ctrl_ptr &+ i).*;
+          ctrl_byte := CtrlPtrType(*(void)(ctrl_ptr) + i).*;
           cond(
             ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-              element := (data_ptr &+ i).*;
+              element := DataPtrType(*(void)(data_ptr) + i).*;
               contains_result := other.has(element);
               cond(
                 (contains_result == false) => {
@@ -535,10 +538,10 @@ impl(forall(T : Type), where(T <: (Eq(T), Hash)), HashSet(T), {
       result := true;
       
       while(i < smaller.capacity, i = (i + usize(1)), {
-        ctrl_byte := (ctrl_ptr &+ i).*;
+        ctrl_byte := CtrlPtrType(*(void)(ctrl_ptr) + i).*;
         cond(
           ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-            element := (data_ptr &+ i).*;
+            element := DataPtrType(*(void)(data_ptr) + i).*;
             contains_result := larger.has(element);
             cond(
               (contains_result == true) => {
@@ -585,10 +588,10 @@ impl(forall(T : Type), where(T <: (Eq(T), Hash)), HashSet(T), {
           ctrl_ptr := self._ctrl_ptr();
           data_ptr := self._data_ptr();
           while(i < self.capacity, i = (i + usize(1)), {
-            ctrl_byte := (ctrl_ptr &+ i).*;
+            ctrl_byte := CtrlPtrType(*(void)(ctrl_ptr) + i).*;
             cond(
               ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-                element := (data_ptr &+ i).*;
+                element := DataPtrType(*(void)(data_ptr) + i).*;
                 _ := result_set.add(element);
               },
               true => ()
@@ -599,10 +602,10 @@ impl(forall(T : Type), where(T <: (Eq(T), Hash)), HashSet(T), {
           other_ctrl_ptr := other._ctrl_ptr();
           other_data_ptr := other._data_ptr();
           while(j < other.capacity, j = (j + usize(1)), {
-            ctrl_byte := (other_ctrl_ptr &+ j).*;
+            ctrl_byte := CtrlPtrType(*(void)(other_ctrl_ptr) + j).*;
             cond(
               ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-                element := (other_data_ptr &+ j).*;
+                element := DataPtrType(*(void)(other_data_ptr) + j).*;
                 _ := result_set.add(element);
               },
               true => ()
@@ -633,10 +636,10 @@ impl(forall(T : Type), where(T <: (Eq(T), Hash)), HashSet(T), {
           ctrl_ptr := smaller._ctrl_ptr();
           data_ptr := smaller._data_ptr();
           while(i < smaller.capacity, i = (i + usize(1)), {
-            ctrl_byte := (ctrl_ptr &+ i).*;
+            ctrl_byte := CtrlPtrType(*(void)(ctrl_ptr) + i).*;
             cond(
               ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-                element := (data_ptr &+ i).*;
+                element := DataPtrType(*(void)(data_ptr) + i).*;
                 cond(
                   (larger.has(element)) => {
                     _ := result_set.add(element);
@@ -669,10 +672,10 @@ impl(forall(T : Type), where(T <: (Eq(T), Hash)), HashSet(T), {
           ctrl_ptr := self._ctrl_ptr();
           data_ptr := self._data_ptr();
           while(i < self.capacity, i = (i + usize(1)), {
-            ctrl_byte := (ctrl_ptr &+ i).*;
+            ctrl_byte := CtrlPtrType(*(void)(ctrl_ptr) + i).*;
             cond(
               ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-                element := (data_ptr &+ i).*;
+                element := DataPtrType(*(void)(data_ptr) + i).*;
                 contains_result := other.has(element);
                 cond(
                   (contains_result == false) => {
@@ -706,10 +709,10 @@ impl(forall(T : Type), where(T <: (Eq(T), Hash)), HashSet(T), {
           ctrl_ptr := self._ctrl_ptr();
           data_ptr := self._data_ptr();
           while(i < self.capacity, i = (i + usize(1)), {
-            ctrl_byte := (ctrl_ptr &+ i).*;
+            ctrl_byte := CtrlPtrType(*(void)(ctrl_ptr) + i).*;
             cond(
               ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-                element := (data_ptr &+ i).*;
+                element := DataPtrType(*(void)(data_ptr) + i).*;
                 contains_result := other.has(element);
                 cond(
                   (contains_result == false) => {
@@ -726,10 +729,10 @@ impl(forall(T : Type), where(T <: (Eq(T), Hash)), HashSet(T), {
           other_ctrl_ptr := other._ctrl_ptr();
           other_data_ptr := other._data_ptr();
           while(j < other.capacity, j = (j + usize(1)), {
-            ctrl_byte := (other_ctrl_ptr &+ j).*;
+            ctrl_byte := CtrlPtrType(*(void)(other_ctrl_ptr) + j).*;
             cond(
               ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-                element := (other_data_ptr &+ j).*;
+                element := DataPtrType(*(void)(other_data_ptr) + j).*;
                 contains_result := self.has(element);
                 cond(
                   (contains_result == false) => {
@@ -763,10 +766,10 @@ impl(forall(T : Type), where(T <: (Eq(T), Hash)), HashSet(T), {
                 .Some(data_ptr) => {
                   i := usize(0);
                   while(i < self.capacity, i = (i + usize(1)), {
-                    ctrl_byte := (ctrl_ptr &+ i).*;
+                    ctrl_byte := CtrlPtrType(*(void)(ctrl_ptr) + i).*;
                     cond(
                       ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-                        element_ptr := (data_ptr &+ i);
+                        element_ptr := DataPtrType(*(void)(data_ptr) + i);
                         unsafe.drop(element_ptr.*);
                       },
                       true => ()

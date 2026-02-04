@@ -952,10 +952,10 @@ test "Test raw pointer", {
     {
       ptr := (*(i32))(malloc(sizeof(i32) * 2).unwrap());
       ptr.* = 42;
-      (ptr &+ 1).* = 84;
+      *(i32)(*(void)ptr + 1).* = 84;
 
       assert(ptr.* == 42);
-      assert((ptr &+ 1).* == 84);
+      assert(*(i32)(*(void)(ptr) + 1).* == 84);
 
       free(.Some(*(void) ptr));
     };

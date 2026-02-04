@@ -3082,64 +3082,25 @@ impl(forall(T : Type), where(T <: Send), *(T), Send());
 impl(forall(T : Type), *(T), Acyclic());
 impl(forall(T : Type), where(T <: Comptime), *(T), Comptime());
 impl(forall(T : Type), where(T <: Runtime), *(T), Runtime());
-/*
-impl(forall(T : Type), *(T), Add(usize, *(T))(
+impl(*(void), Add(usize, *(void))(
   (+) : ((lhs, rhs) -> __yo_ptr_add(lhs, rhs))
 ));
-impl(forall(T : Type), *(T), Sub(usize, *(T))(
+impl(*(void), Sub(usize, *(void))(
   (-) : ((lhs, rhs) -> __yo_ptr_sub(lhs, rhs))
 ));
-impl(forall(T : Type), *(T), Eq(*(T))(
+impl(*(void), Eq(*(void))(
   (==) : ((lhs, rhs) -> __yo_ptr_eq(lhs, rhs)),
   (!=) : ((lhs, rhs) -> __yo_ptr_neq(lhs, rhs))
 ));
-impl(forall(T : Type), *(T), Ord(*(T))(
+impl(*(void), Div(*(void), isize)(
+  (/) : ((lhs, rhs) -> __yo_ptr_diff(lhs, rhs))
+));
+impl(*(void), Ord(*(void))(
   (<) : ((lhs, rhs) -> __yo_ptr_lt(lhs, rhs)),
   (<=) : ((lhs, rhs) -> __yo_ptr_lte(lhs, rhs)),
   (>) : ((lhs, rhs) -> __yo_ptr_gt(lhs, rhs)),
   (>=) : ((lhs, rhs) -> __yo_ptr_gte(lhs, rhs))
 ));
-impl(forall(T : Type), *(T), {
-  diff :: (fn(lhs : Self, rhs : Self) -> isize) {
-    return __yo_ptr_diff(lhs, rhs);
-  };
-  cast :: (fn(self : Self, comptime(Target) : Type) -> Target) {
-    return __yo_as(self, Target);
-  };
-  export diff, cast;
-});
-*/
-impl(forall(T : Type), *(T), {
-  (&+) :: (fn(self : Self, offset : usize) -> Self)
-    __yo_ptr_add(self, offset)
-  ;
-  (&-) :: (fn(self : Self, offset : usize) -> Self)
-    __yo_ptr_sub(self, offset)
-  ;
-  (&==) :: (fn(self : Self, another : Self) -> bool)
-    __yo_ptr_eq(self, another)
-  ;
-  (&!=) :: (fn(self : Self, another : Self) -> bool)
-    __yo_ptr_neq(self, another)
-  ;
-  (&<) :: (fn(self : Self, another : Self) -> bool)
-    __yo_ptr_lt(self, another)
-  ;
-  (&<=) :: (fn(self : Self, another : Self) -> bool)
-    __yo_ptr_lte(self, another)
-  ;
-  (&>) :: (fn(self : Self, another : Self) -> bool)
-    __yo_ptr_gt(self, another)
-  ;
-  (&>=) :: (fn(self : Self, another : Self) -> bool)
-    __yo_ptr_gte(self, another)
-  ;
-  (&/) :: (fn(self : Self, another : Self) -> isize)
-    __yo_ptr_diff(self, another)
-  ;
- 
-  export (&+), (&-), (&==), (&!=), (&<), (&<=), (&>), (&>=), (&/);
-});
 
 /// Array
 impl(forall(T : Type, U : usize), where(T <: Send), Array(T, U), Send());

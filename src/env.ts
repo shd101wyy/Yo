@@ -1283,6 +1283,35 @@ export function getReceiverMethodsByNameFromEnv({
       // If no direct method found, recursively check nested traits
       checkTraitForMethod(receiverType.trait, methodName);
     }
+
+    // Also check for impl'd traits (stored with empty label as ModuleValue)
+    // NOTE: We check impl'd traits regardless of whether direct methods were found,
+    // because both compile-time and runtime versions of a method might exist,
+    // and we need to let the function call resolution pick the right one.
+    for (const field of receiverType.trait.fields) {
+      if (
+        field.label === "" &&
+        field.assignedValue &&
+        isTraitValue(field.assignedValue)
+      ) {
+        const implTraitValue = field.assignedValue;
+        const implTraitType = implTraitValue.type;
+        const methodIndex = implTraitType.fields.findIndex(
+          (f) => f.label === methodName && isFunctionType(f.type)
+        );
+        if (methodIndex >= 0) {
+          const method = implTraitType.fields[methodIndex]!;
+          if (isFunctionType(method.type)) {
+            const value = implTraitValue.fields[methodIndex];
+            let methodType = method.type;
+            if (isFunctionValue(value) && value.specializedType) {
+              methodType = value.specializedType;
+            }
+            methods.push({ type: methodType, value });
+          }
+        }
+      }
+    }
   }
 
   // Check generic impl registry for the original receiver type (e.g., *(i32))
