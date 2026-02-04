@@ -12,6 +12,7 @@ import { TypeField } from "../../types/definitions";
 import { typeContainsRcType } from "../../types/utils";
 import { createTypeValue } from "../../value";
 import { EvaluatorContext } from "../context";
+import { typeImplementsRuntime, typeIsComptimeOnly } from "../trait-checking";
 import { evaluateTypeField } from "./field";
 import {
   autoDeriveAcyclicForUnionType,
@@ -75,6 +76,16 @@ export function evaluateUnionType({
       throw formatErrorMessage({
         token: field.exprs.defaultValueExpr?.token ?? field.exprs.expr.token,
         errorMessage: `Union type cannot have default value for its fields.`,
+      });
+    }
+
+    if (
+      typeIsComptimeOnly(field.type, env) ||
+      !typeImplementsRuntime(field.type, env)
+    ) {
+      throw formatErrorMessage({
+        token: field.exprs.expr.token,
+        errorMessage: `Union type fields must be runtime types.`,
       });
     }
 
