@@ -97,15 +97,15 @@ HashMap :: (fn(
   )
 ;
 
-impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash)), HashMap(K, V), {
-  CtrlPtrType :: *(u8);
-  DataPtrType :: *(Bucket(K, V));
+impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash)), HashMap(K, V),
+  _CtrlPtrType : *(u8),
+  _DataPtrType : *(Bucket(K, V)),
 
   /**
     * Allocate memory for HashMap with given capacity
     * Initializes all control bytes to EMPTY
     */
-  _alloc_with_capacity :: (fn(capacity: usize) -> Result(Self, HashMapError))(
+  _alloc_with_capacity : (fn(capacity: usize) -> Result(Self, HashMapError))(
     {
       bucket_size :: sizeof(Bucket(K, V));
       ctrl_size := capacity;
@@ -115,7 +115,7 @@ impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash)), HashMap(K, V), {
       match(ctrl_result,
         .None => .Err(.AllocError(error: .OutOfMemory)),
         .Some(ctrl_void_ptr) => {
-          ctrl_ptr := CtrlPtrType(ctrl_void_ptr);
+          ctrl_ptr := Self._CtrlPtrType(ctrl_void_ptr);
           
           data_result := malloc(data_size);
           match(data_result,
@@ -128,7 +128,7 @@ impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash)), HashMap(K, V), {
               
               i := usize(0);
               while(i < capacity, i = (i + usize(1)), {
-                CtrlPtrType(*(void)(ctrl_ptr) + i).* = CTRL_EMPTY;
+                Self._CtrlPtrType(*(void)(ctrl_ptr) + i).* = CTRL_EMPTY;
               });
               
               .Ok(Self(
@@ -142,25 +142,24 @@ impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash)), HashMap(K, V), {
         }
       )
     }
-  );
+  ),
 
   /**
     * Create a new empty HashMap with default capacity
     */
-  new :: (fn() -> Self)({
-    result := _alloc_with_capacity(DEFAULT_CAPACITY);
+  new : (fn() -> Self)({
+    result := Self._alloc_with_capacity(DEFAULT_CAPACITY);
     match(result,
       .Ok(map) => map,
       .Err(_) => panic("Failed to allocate HashMap")
     )
-  });
-  export new;
+  }),
 
   /**
     * Create a HashMap with a specific initial capacity
     * Capacity will be rounded up to next power of 2
     */
-  with_capacity :: (fn(requested_capacity: usize) -> Self)(
+  with_capacity : (fn(requested_capacity: usize) -> Self)(
     {
       capacity := cond(
         (requested_capacity < DEFAULT_CAPACITY) => DEFAULT_CAPACITY,
@@ -176,57 +175,56 @@ impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash)), HashMap(K, V), {
         }
       );
       
-      result := _alloc_with_capacity(capacity);
+      result := Self._alloc_with_capacity(capacity);
       match(result,
         .Ok(map) => map,
         .Err(_) => panic("Failed to allocate HashMap")
       )
     }
-  );
-  export with_capacity;
+  ),
 
   /**
     * Get ctrl pointer (unwrapped for internal use)
     */
-  _ctrl_ptr :: (fn(self: Self) -> *(u8))(
+  _ctrl_ptr : (fn(self: Self) -> *(u8))(
     match(self.ctrl,
       .Some(ptr) => ptr,
       .None => panic("HashMap ctrl pointer is null")
     )
-  );
+  ),
 
   /**
     * Get data pointer (unwrapped for internal use)
     */
-  _data_ptr :: (fn(self: Self) -> *(Bucket(K, V)))(
+  _data_ptr : (fn(self: Self) -> *(Bucket(K, V)))(
     match(self.data,
       .Some(ptr) => ptr,
       .None => panic("HashMap data pointer is null")
     )
-  );
+  ),
 
   /**
     * Find bucket index for a given key using quadratic probing
     * Returns Some(index) if key is found, None otherwise
     */
-  _find_bucket :: (fn(self: Self, key: K, hash: u64) -> Option(usize))(
+  _find_bucket : (fn(self: Self, key: K, hash: u64) -> Option(usize))(
     {
       h2 := h2_hash(hash);
       index := h1_hash(hash, self.capacity);
       probe := usize(0);
-      ctrl_ptr := _ctrl_ptr(self);
-      data_ptr := _data_ptr(self);
+      ctrl_ptr := Self._ctrl_ptr(self);
+      data_ptr := Self._data_ptr(self);
       
       while(probe < self.capacity, probe = (probe + usize(1)), {
         probe_index := ((index + probe) % self.capacity);
-        ctrl_byte := CtrlPtrType(*(void)(ctrl_ptr) + probe_index).*;
+        ctrl_byte := Self._CtrlPtrType(*(void)(ctrl_ptr) + probe_index).*;
         
         cond(
           (ctrl_byte == CTRL_EMPTY) => {
             return .None;
           },
           (ctrl_byte == h2) => {
-            bucket := DataPtrType(*(void)(data_ptr) + probe_index).*;
+            bucket := Self._DataPtrType(*(void)(data_ptr) + probe_index).*;
             cond(
               (bucket.key == key) => {
                 return .Some(probe_index);
@@ -240,21 +238,21 @@ impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash)), HashMap(K, V), {
       
       .None
     }
-  );
+  ),
 
   /**
     * Find first available bucket (EMPTY or DELETED) for insertion
     * Returns bucket index using quadratic probing
     */
-  _find_insert_bucket :: (fn(self: Self, hash: u64) -> usize)(
+  _find_insert_bucket : (fn(self: Self, hash: u64) -> usize)(
     {
       index := h1_hash(hash, self.capacity);
       probe := usize(0);
-      ctrl_ptr := _ctrl_ptr(self);
+      ctrl_ptr := Self._ctrl_ptr(self);
       
       while(probe < self.capacity, probe = (probe + usize(1)), {
         probe_index := ((index + probe) % self.capacity);
-        ctrl_byte := CtrlPtrType(*(void)(ctrl_ptr) + probe_index).*;
+        ctrl_byte := Self._CtrlPtrType(*(void)(ctrl_ptr) + probe_index).*;
         
         cond(
           ((ctrl_byte == CTRL_EMPTY) || (ctrl_byte == CTRL_DELETED)) => {
@@ -266,43 +264,43 @@ impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash)), HashMap(K, V), {
       
       panic("HashMap is full - should have resized")
     }
-  );
+  ),
 
   /**
     * Check if HashMap needs resizing based on load factor
     */
-  _needs_resize :: ((fn(self: Self) -> bool)
+  _needs_resize : ((fn(self: Self) -> bool)
     {
       threshold := ((self.capacity * MAX_LOAD_FACTOR_NUMERATOR) / MAX_LOAD_FACTOR_DENOMINATOR);
       (self.size >= threshold)
     }
-  );
+  ),
 
   /**
     * Resize and rehash the HashMap to a new capacity
     */
-  _resize :: (fn(self: Self, new_capacity: usize) -> Result(unit, HashMapError))(
+  _resize : (fn(self: Self, new_capacity: usize) -> Result(unit, HashMapError))(
     {
-      result := _alloc_with_capacity(new_capacity);
+      result := Self._alloc_with_capacity(new_capacity);
       match(result,
         .Err(err) => .Err(err),
         .Ok(new_map) => {
           i := usize(0);
-          ctrl_ptr := _ctrl_ptr(self);
-          data_ptr := _data_ptr(self);
+          ctrl_ptr := Self._ctrl_ptr(self);
+          data_ptr := Self._data_ptr(self);
           while(i < self.capacity, i = (i + usize(1)), {
-            ctrl_byte := CtrlPtrType(*(void)(ctrl_ptr) + i).*;
+            ctrl_byte := Self._CtrlPtrType(*(void)(ctrl_ptr) + i).*;
             cond(
               ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-                bucket := DataPtrType(*(void)(data_ptr) + i).*;
+                bucket := Self._DataPtrType(*(void)(data_ptr) + i).*;
                 hash := (bucket.key).hash();
                 h2 := h2_hash(hash);
-                new_index := _find_insert_bucket(new_map, hash);
+                new_index := Self._find_insert_bucket(new_map, hash);
                 
-                new_ctrl_ptr := _ctrl_ptr(new_map);
-                new_data_ptr := _data_ptr(new_map);
-                CtrlPtrType(*(void)(new_ctrl_ptr) + new_index).* = h2;
-                consume(DataPtrType(*(void)(new_data_ptr) + new_index).* = bucket);
+                new_ctrl_ptr := Self._ctrl_ptr(new_map);
+                new_data_ptr := Self._data_ptr(new_map);
+                Self._CtrlPtrType(*(void)(new_ctrl_ptr) + new_index).* = h2;
+                consume(Self._DataPtrType(*(void)(new_data_ptr) + new_index).* = bucket);
                 new_map.size = (new_map.size + usize(1));
               },
               true => ()
@@ -315,10 +313,10 @@ impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash)), HashMap(K, V), {
             (Type.contains_rc_type(K) || Type.contains_rc_type(V)) => {
               j := usize(0);
               while(j < self.capacity, j = (j + usize(1)), {
-                ctrl_byte := CtrlPtrType(*(void)(ctrl_ptr) + j).*;
+                ctrl_byte := Self._CtrlPtrType(*(void)(ctrl_ptr) + j).*;
                 cond(
                   ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-                    bucket_ptr := DataPtrType(*(void)(data_ptr) + j);
+                    bucket_ptr := Self._DataPtrType(*(void)(data_ptr) + j);
                     cond(
                       Type.contains_rc_type(K) => unsafe.drop((bucket_ptr.*).key),
                       true => ()
@@ -355,21 +353,21 @@ impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash)), HashMap(K, V), {
         }
       )
     }
-  );
+  ),
 
   /**
     * Insert or update a key-value pair
     * Returns Ok(Some(old_value)) if key existed, Ok(None) if new key
     */
-  set :: ((fn(self: Self, key: K, value: V) -> Result(Option(V), HashMapError))
+  set : ((fn(self: Self, key: K, value: V) -> Result(Option(V), HashMapError))
     {
       hash := key.hash();
-      bucket_opt := _find_bucket(self, key, hash);
+      bucket_opt := Self._find_bucket(self, key, hash);
       
       match(bucket_opt,
         .Some(index) => {
-          data_ptr := _data_ptr(self);
-          old_bucket := DataPtrType(*(void)(data_ptr) + index).*;
+          data_ptr := Self._data_ptr(self);
+          old_bucket := Self._DataPtrType(*(void)(data_ptr) + index).*;
           old_value := old_bucket.value;
           new_bucket := Bucket(K, V)(key: key, value: value);
           // Don't use consume here - we want to drop the old bucket at memory
@@ -377,14 +375,14 @@ impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash)), HashMap(K, V), {
           // Then old_bucket goes out of scope and drops again to RC=0
           // But wait - we return old_value which was duped from old_bucket...
           // Actually the Bucket struct contains RC types, so assignment drops old + dups new
-          DataPtrType(*(void)(data_ptr) + index).* = new_bucket;
+          Self._DataPtrType(*(void)(data_ptr) + index).* = new_bucket;
           .Ok(.Some(old_value))
         },
         .None => {
           resize_check := cond(
-            (_needs_resize(self)) => {
+            (Self._needs_resize(self)) => {
               new_capacity := (self.capacity * usize(2));
-              _resize(self, new_capacity)
+              Self._resize(self, new_capacity)
             },
             true => (Result(unit, HashMapError).Ok(()))
           );
@@ -393,13 +391,13 @@ impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash)), HashMap(K, V), {
             .Err(err) => .Err(err),
             .Ok(_) => {
               h2 := h2_hash(hash);
-              index := _find_insert_bucket(self, hash);
+              index := Self._find_insert_bucket(self, hash);
               
-              ctrl_ptr := _ctrl_ptr(self);
-              data_ptr := _data_ptr(self);
-              CtrlPtrType(*(void)(ctrl_ptr) + index).* = h2;
+              ctrl_ptr := Self._ctrl_ptr(self);
+              data_ptr := Self._data_ptr(self);
+              Self._CtrlPtrType(*(void)(ctrl_ptr) + index).* = h2;
               new_bucket := Bucket(K, V)(key: key, value: value);
-              consume(DataPtrType(*(void)(data_ptr) + index).* = new_bucket);
+              consume(Self._DataPtrType(*(void)(data_ptr) + index).* = new_bucket);
               self.size = (self.size + usize(1));
               
               .Ok(.None)
@@ -408,57 +406,54 @@ impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash)), HashMap(K, V), {
         }
       )
     }
-  );
-  export set;
+  ),
 
   /**
     * Get a value by key
     * Returns Some(value) if found, None otherwise
     */
-  get :: ((fn(self: Self, key: K) -> Option(V))
+  get : ((fn(self: Self, key: K) -> Option(V))
     {
       hash := key.hash();
-      bucket_opt := _find_bucket(self, key, hash);
+      bucket_opt := Self._find_bucket(self, key, hash);
       match(bucket_opt,
         .Some(index) => {
-          data_ptr := _data_ptr(self);
-          bucket := DataPtrType(*(void)(data_ptr) + index).*;
+          data_ptr := Self._data_ptr(self);
+          bucket := Self._DataPtrType(*(void)(data_ptr) + index).*;
           .Some(bucket.value)
         },
         .None => .None
       )
     }
-  );
-  export get;
+  ),
 
   /**
     * Check if a key exists in the map
     */
-  has :: ((fn(self: Self, key: K) -> bool)
+  has : ((fn(self: Self, key: K) -> bool)
     {
       hash := key.hash();
-      bucket_opt := _find_bucket(self, key, hash);
+      bucket_opt := Self._find_bucket(self, key, hash);
       match(bucket_opt,
         .Some(_) => true,
         .None => false
       )
     }
-  );
-  export has;
+  ),
 
   /**
     * Remove a key-value pair by key
     * Returns Some(value) if the key was found and removed, None otherwise
     */
-  remove :: ((fn(self: Self, key: K) -> Option(V))
+  remove : ((fn(self: Self, key: K) -> Option(V))
     {
       hash := key.hash();
-      bucket_opt := _find_bucket(self, key, hash);
+      bucket_opt := Self._find_bucket(self, key, hash);
       match(bucket_opt,
         .Some(index) => {
-          data_ptr := _data_ptr(self);
-          ctrl_ptr := _ctrl_ptr(self);
-          bucket_ptr := DataPtrType(*(void)(data_ptr) + index);
+          data_ptr := Self._data_ptr(self);
+          ctrl_ptr := Self._ctrl_ptr(self);
+          bucket_ptr := Self._DataPtrType(*(void)(data_ptr) + index);
           
           // Read and dup value for return
           value := bucket_ptr.*.value;
@@ -477,42 +472,39 @@ impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash)), HashMap(K, V), {
         .None => .None
       )
     }
-  );
-  export remove;
+  ),
 
   /**
     * Get the number of key-value pairs in the map
     */
-  len :: ((fn(self: Self) -> usize)
+  len : ((fn(self: Self) -> usize)
     self.size
-  );
-  export len;
+  ),
 
   /**
     * Check if the map is empty
     */
-  is_empty :: ((fn(self: Self) -> bool)
+  is_empty : ((fn(self: Self) -> bool)
     (self.size == usize(0))
-  );
-  export is_empty;
+  ),
 
   /**
     * Clear all key-value pairs
     * Resets all control bytes to EMPTY
     */
-  clear :: ((fn(self: Self) -> unit)
+  clear : ((fn(self: Self) -> unit)
     {
       // Drop all occupied buckets before clearing
       cond(
         (Type.contains_rc_type(K) || Type.contains_rc_type(V)) => {
-          ctrl_ptr := _ctrl_ptr(self);
-          data_ptr := _data_ptr(self);
+          ctrl_ptr := Self._ctrl_ptr(self);
+          data_ptr := Self._data_ptr(self);
           i := usize(0);
           while(i < self.capacity, i = (i + usize(1)), {
-            ctrl_byte := CtrlPtrType(*(void)(ctrl_ptr) + i).*;
+            ctrl_byte := Self._CtrlPtrType(*(void)(ctrl_ptr) + i).*;
             cond(
               ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-                bucket_ptr := DataPtrType(*(void)(data_ptr) + i);
+                bucket_ptr := Self._DataPtrType(*(void)(data_ptr) + i);
                 unsafe.drop(bucket_ptr.*);
               },
               true => ()
@@ -522,20 +514,19 @@ impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash)), HashMap(K, V), {
         true => ()
       );
       
-      ctrl_ptr := _ctrl_ptr(self);
+      ctrl_ptr := Self._ctrl_ptr(self);
       i := usize(0);
       while(i < self.capacity, i = (i + usize(1)), {
-        CtrlPtrType(*(void)(ctrl_ptr) + i).* = CTRL_EMPTY;
+        Self._CtrlPtrType(*(void)(ctrl_ptr) + i).* = CTRL_EMPTY;
       });
       self.size = usize(0);
     }
-  );
-  export clear;
+  ),
 
   /**
     * RAII destructor - automatically called when HashMap goes out of scope
     */
-  dispose :: (fn(self: Self) -> unit)({
+  dispose : (fn(self: Self) -> unit)({
     // Drop all occupied buckets before freeing memory
     cond(
       (Type.contains_rc_type(K) || Type.contains_rc_type(V)) => {
@@ -545,10 +536,10 @@ impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash)), HashMap(K, V), {
               .Some(data_ptr) => {
                 i := usize(0);
                 while(i < self.capacity, i = (i + usize(1)), {
-                  ctrl_byte := CtrlPtrType(*(void)(ctrl_ptr) + i).*;
+                  ctrl_byte := Self._CtrlPtrType(*(void)(ctrl_ptr) + i).*;
                   cond(
                     ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-                      bucket_ptr := DataPtrType(*(void)(data_ptr) + i);
+                      bucket_ptr := Self._DataPtrType(*(void)(data_ptr) + i);
                       unsafe.drop(bucket_ptr.*);
                     },
                     true => ()
@@ -572,9 +563,8 @@ impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash)), HashMap(K, V), {
       .Some(ptr) => free(.Some(*(void)(ptr))),
       .None => ()
     );
-  });
-  export dispose;
-});
+  })
+);
 
 export
   HashMap,

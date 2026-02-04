@@ -847,8 +847,8 @@ test "Test 'struct'", {
     Withdraw :: struct(
       balance: i32
     );
-    impl(Withdraw, {
-      withdraw :: (fn(self: *(Self), amount: i32) -> i32)(
+    impl(Withdraw,
+      withdraw : (fn(self: *(Self), amount: i32) -> i32)(
         cond(
           (self.balance >= amount) => {
             self.balance = (self.balance - amount);
@@ -858,9 +858,8 @@ test "Test 'struct'", {
             return 0; // insufficient balance
           }
         )
-      );
-      export withdraw;
-    });
+      )
+    );
 
     make_widthdraw_balance_100 :: (fn() -> Withdraw) {
       (balance : i32) = 100;
@@ -882,25 +881,21 @@ test "Test 'struct'", {
       struct(value : T)
     );
 
-    impl(forall(T : Type), MyStruct(T), {
-      new :: (fn(v : T) -> Self)(Self(v));
-      export new;
+    impl(forall(T : Type), MyStruct(T),
+      new : (fn(v : T) -> Self)(Self(v)),
 
-      another_new :: (fn(v : T) -> Self)(
+      another_new : (fn(v : T) -> Self)(
         Self.new(v)
-      );
-      export another_new;
+      ),
 
-      add :: (fn(self : *(Self), value : T, where(T <: Add(T, T))) -> unit) {
+      add : (fn(self : *(Self), value : T, where(T <: Add(T, T))) -> unit)({
         self.value = (self.value + value);
-      };
-      export add;
+      }),
 
-      another_add :: (fn(self : *(Self), value : T, where(T <: Add(T, T))) -> unit) {
+      another_add : (fn(self : *(Self), value : T, where(T <: Add(T, T))) -> unit)({
         self.add(value);
-      };
-      export another_add;
-    });
+      })
+    );
 
     value := 10;
     x := MyStruct(i32).new(value);
@@ -951,18 +946,16 @@ test "Test 'enum'", {
       Rectangle(width: i32, height: i32),
       Triangle(base: i32, height: i32)
     );
-    impl(Shape, {
-      new_circle :: (
+    impl(Shape,
+      new_circle : (
         (fn(radius: i32) -> Self)
           .Circle(radius)
-      );
-      export new_circle;
+      ),
 
-      id :: ((fn(self: Self)-> Self)
+      id : ((fn(self: Self)-> Self)
         self
-      );
-      export id;
-    });
+      )
+    );
 
     // c := Shape.new_circle(5);
     // c2 := c.id();
@@ -1023,10 +1016,9 @@ test "Test 'union'", {
     x : i32,
     y : bool
   );
-  impl(SomeUnion, {
-    new :: ((fn()-> Self) Self(x : 0));
-    export new;
-  });
+  impl(SomeUnion,
+    new : ((fn()-> Self) Self(x : 0))
+  );
 
   v1 := SomeUnion( x : 12 );
   v2 := SomeUnion( y : true );
@@ -2295,24 +2287,22 @@ test "Test 'comptime_fn' function call and function overloading", {
     )
   );
 
-  impl(forall(T : Type), MyOption(T), {
-    unwrap :: (fn(self : Self) -> T)(
+  impl(forall(T : Type), MyOption(T),
+    unwrap : (fn(self : Self) -> T)(
       match(self,
         .Some(value) => value,
         .None => panic("Called unwrap on a None value")
       )
-    );
-    export unwrap;
-  });
-  impl(forall(T : Type), where(T <: Comptime), MyOption(T), {
-    comptime_unwrap :: (fn(comptime(self) : Self) -> comptime(T))(
+    )
+  );
+  impl(forall(T : Type), where(T <: Comptime), MyOption(T),
+    comptime_unwrap : (fn(comptime(self) : Self) -> comptime(T))(
       match(self,
         .Some(value) => value,
         .None => comptime_assert(false, "Called unwrap on a None value at comptime")
       )
-    );
-    export comptime_unwrap;
-  });
+    )
+  );
 
   op := MyOption(i32).Some(12);
 

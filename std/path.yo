@@ -44,12 +44,12 @@ Path :: object(
   _segments: ArrayList(String),
   _is_absolute: bool
 );
-impl(Path, {
+impl(Path,
   /**
    * Create a new path from a string
    * Example: Path.new("./src/main.yo")
    */
-  new :: (fn(path_str: String) -> Self)({
+  new : (fn(path_str: String) -> Self)({
     segments := ArrayList(String).new();
     is_abs := false;
 
@@ -171,14 +171,13 @@ impl(Path, {
     };
 
     return Self(_segments: segments, _is_absolute: is_abs);
-  });
-  export new;
+  }),
 
   /**
    * Create a path from a C string
    * Example: Path.from_cstr(c"./src/main.yo")
    */
-  from_cstr :: (fn(cstr: *(u8)) -> Self)({
+  from_cstr : (fn(cstr: *(u8)) -> Self)({
     str_result := String.from_cstr(cstr);
     match(str_result,
       .Ok(s) => {
@@ -189,14 +188,13 @@ impl(Path, {
         return Self(_segments: ArrayList(String).new(), _is_absolute: false);
       }
     );
-  });
-  export from_cstr;
+  }),
 
   /**
    * Join this path with another path
    * Example: Path.new("/usr").join(Path.new("local/bin"))
    */
-  join :: (fn(self: Self, other: Self) -> Self)({
+  join : (fn(self: Self, other: Self) -> Self)({
     // If other is absolute, return other
     cond(
       (other._is_absolute) => {
@@ -237,14 +235,13 @@ impl(Path, {
     };
 
     return Self(_segments: new_segments, _is_absolute: self._is_absolute);
-  });
-  export join;
+  }),
 
   /**
    * Get the parent path
    * Example: Path.new("/usr/local/bin").parent() => Some(Path.new("/usr/local"))
    */
-  parent :: (fn(self: Self) -> Option(Self))({
+  parent : (fn(self: Self) -> Option(Self))({
     cond(
       (self._segments.len() == usize(0)) => {
         return .None;
@@ -267,14 +264,13 @@ impl(Path, {
     };
 
     return .Some(Self(_segments: new_segments, _is_absolute: self._is_absolute));
-  });
-  export parent;
+  }),
 
   /**
    * Get the file name (last segment)
    * Example: Path.new("/usr/local/bin").file_name() => Some("bin")
    */
-  file_name :: (fn(self: Self) -> Option(String))({
+  file_name : (fn(self: Self) -> Option(String))({
     cond(
       (self._segments.len() == usize(0)) => {
         return .None;
@@ -283,14 +279,13 @@ impl(Path, {
     );
 
     return self._segments.get((self._segments.len() - usize(1)));
-  });
-  export file_name;
+  }),
 
   /**
    * Get the file stem (file name without extension)
    * Example: Path.new("main.yo").file_stem() => Some("main")
    */
-  file_stem :: (fn(self: Self) -> Option(String))({
+  file_stem : (fn(self: Self) -> Option(String))({
     name_opt := self.file_name();
     match(name_opt,
       .Some(name) => {
@@ -313,14 +308,13 @@ impl(Path, {
         return .None;
       }
     );
-  });
-  export file_stem;
+  }),
 
   /**
    * Get the file extension
    * Example: Path.new("main.yo").extension() => Some("yo")
    */
-  extension :: (fn(self: Self) -> Option(String))({
+  extension : (fn(self: Self) -> Option(String))({
     name_opt := self.file_name();
     match(name_opt,
       .Some(name) => {
@@ -350,14 +344,13 @@ impl(Path, {
         return .None;
       }
     );
-  });
-  export extension;
+  }),
 
   /**
    * Replace the extension of the path
    * Example: Path.new("main.yo").with_extension("js") => Path.new("main.js")
    */
-  with_extension :: (fn(self: Self, ext: String) -> Self)({
+  with_extension : (fn(self: Self, ext: String) -> Self)({
     cond(
       (self._segments.len() == usize(0)) => {
         return self;
@@ -395,14 +388,13 @@ impl(Path, {
         return self;
       }
     );
-  });
-  export with_extension;
+  }),
 
   /**
    * Replace the file name (last segment) with a new name
    * Example: Path.new("/usr/local/bin").with_file_name("lib") => Path.new("/usr/local/lib")
    */
-  with_file_name :: (fn(self: Self, name: String) -> Self)({
+  with_file_name : (fn(self: Self, name: String) -> Self)({
     cond(
       (self._segments.len() == usize(0)) => {
         // Empty path, just return a new path with the name
@@ -430,14 +422,13 @@ impl(Path, {
     new_segments.push(name);
 
     return Self(_segments: new_segments, _is_absolute: self._is_absolute);
-  });
-  export with_file_name;
+  }),
 
   /**
    * Check if this path starts with the given base path
    * Example: Path.new("/usr/local/bin").starts_with(Path.new("/usr")) => true
    */
-  starts_with :: (fn(self: Self, base: Self) -> bool)({
+  starts_with : (fn(self: Self, base: Self) -> bool)({
     // Absolute vs relative mismatch
     cond(
       (self._is_absolute != base._is_absolute) => {
@@ -483,14 +474,13 @@ impl(Path, {
     };
 
     return true;
-  });
-  export starts_with;
+  }),
 
   /**
    * Check if this path ends with the given suffix path
    * Example: Path.new("/usr/local/bin").ends_with(Path.new("local/bin")) => true
    */
-  ends_with :: (fn(self: Self, suffix: Self) -> bool)({
+  ends_with : (fn(self: Self, suffix: Self) -> bool)({
     // Suffix has more segments than self
     cond(
       (suffix._segments.len() > self._segments.len()) => {
@@ -551,14 +541,13 @@ impl(Path, {
     };
 
     return true;
-  });
-  export ends_with;
+  }),
 
   /**
    * Get all path components as a list of strings
    * Example: Path.new("/usr/local/bin").components() => ["/", "usr", "local", "bin"]
    */
-  components :: (fn(self: Self) -> ArrayList(String))({
+  components : (fn(self: Self) -> ArrayList(String))({
     result := ArrayList(String).with_capacity((self._segments.len() + usize(1)));
     
     // Add root component if absolute
@@ -584,25 +573,22 @@ impl(Path, {
     };
 
     return result;
-  });
-  export components;
+  }),
 
   /**
    * Check if the path is absolute
    */
-  is_absolute :: (fn(self: Self) -> bool)(
+  is_absolute : (fn(self: Self) -> bool)(
     self._is_absolute
-  );
-  export is_absolute;
+  ),
 
   /**
    * Check if the path is relative
    */
-  is_relative :: (fn(self: Self) -> bool)(
+  is_relative : (fn(self: Self) -> bool)(
     !self._is_absolute
-  );
-  export is_relative;
-});
+  )
+);
 
 impl(Path, ToString(
   to_string : (self -> {

@@ -130,13 +130,12 @@ test "Test simple functions", {
     ReturnSelf :: (fn() -> comptime(Type)) {
       return struct();
     };
-    impl(ReturnSelf(), {
-      test :: (fn() -> Self)({
+    impl(ReturnSelf(),
+      test : (fn() -> Self)({
         s := Self();
         return s;
-      });
-      export test;
-    });
+      })
+    );
 
     ReturnSelf();
   };
@@ -322,29 +321,27 @@ test "Test the `where` scoping in functions", {
       value : T
     )
   );
-  impl(forall(T : Type), Container(T), {
+  impl(forall(T : Type), Container(T),
     // This function has where(T <: Eq(T))
-    equals :: (fn(
+    equals : (fn(
       self: Self, 
       other: T,
       where(T <: Eq(T))
     ) -> bool)(
       self.value == other
-    );
-    export equals;
+    ),
 
     // This function should NOT have access to Eq(T) 
     // because it doesn't declare where(T <: Eq(T))
-    try_equals_without_constraint :: (fn(
+    try_equals_without_constraint : (fn(
       self: Self,
       other: T
     ) -> bool)({
       // This line should fail: T doesn't have Eq(T) in this function's scope
       comptime_expect_error(self.value == other);
       return false;
-    });
-    export try_equals_without_constraint;
-  });
+    })
+  );
 };
 
 test "Test variable name matching C reserved", {
@@ -368,12 +365,11 @@ test "Test anonymous struct with type method", {
     x,
     y
   };
-  impl(typeof(closure), {
-    call :: ((fn(self: Self, z : i32) -> i32)
+  impl(typeof(closure),
+    call : ((fn(self: Self, z : i32) -> i32)
       (self.x + (self.y + z))
-    );
-    export call;
-  });
+    )
+  );
 
   result := closure.call(3);
   assert(result == 6, "Expected 6");

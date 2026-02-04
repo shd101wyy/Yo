@@ -18,30 +18,28 @@ String :: newtype(
   _bytes: ArrayList(u8)
 );
 
-impl(String, {
+impl(String,
   /**
    * Create a new empty string
    */
-  new :: (fn() -> Self)(
+  new : (fn() -> Self)(
     Self(_bytes: ArrayList(u8).new())
-  );
-  export new;
+  ),
 
   /**
    * Create a string from raw bytes (assumes valid UTF-8)
    * No validation is performed - the caller must ensure bytes are valid UTF-8
    */
-  from_bytes :: (fn(bytes: ArrayList(u8)) -> Self)(
+  from_bytes : (fn(bytes: ArrayList(u8)) -> Self)(
     Self(_bytes: bytes)
-  );
-  export from_bytes;
+  ),
 
   /**
    * Create a string from a slice of bytes str
    * The slice is a fat pointer containing data pointer and length
    * Example: String.from(slice) where slice is str
    */
-  from :: (fn(slice: str) -> Self)({
+  from : (fn(slice: str) -> Self)({
     // Create a new ArrayList and copy bytes from the slice
     bytes := ArrayList(u8).with_capacity(slice.len());
     
@@ -54,8 +52,7 @@ impl(String, {
     };
     
     return Self(_bytes: bytes);
-  });
-  export from;
+  }),
 
   /**
    * Create a string from a C null-terminated string *(u8)
@@ -64,7 +61,7 @@ impl(String, {
    * 
    * Note: We manually search for the null terminator by iterating
    */
-  from_cstr :: (fn(cstr: *(u8)) -> Result(Self, StringError))({
+  from_cstr : (fn(cstr: *(u8)) -> Result(Self, StringError))({
     // Create a new ArrayList to store the bytes
     bytes := ArrayList(u8).new();
     
@@ -85,10 +82,9 @@ impl(String, {
     };
       
     return .Ok(Self(_bytes: bytes));
-  });
-  export from_cstr;
+  }),
 
-  to_cstr :: (fn(self: Self) -> ArrayList(u8))({
+  to_cstr : (fn(self: Self) -> ArrayList(u8))({
     bytes_len := self._bytes.len();
     bytes_with_null := ArrayList(u8).with_capacity(bytes_len + usize(1));
     
@@ -110,14 +106,13 @@ impl(String, {
     bytes_with_null.push(u8(0));
     
     return bytes_with_null;
-  });
-  export to_cstr;
+  }),
 
   /**
    * Get the length of the string in Unicode characters (runes)
    * For "你好世界", this returns 4
    */
-  len :: (fn(self: Self) -> usize)({
+  len : (fn(self: Self) -> usize)({
     count := usize(0);
     byte_index := usize(0);
     total_bytes := self._bytes.len();
@@ -142,24 +137,21 @@ impl(String, {
     };
     
     return count;
-  });
-  export len;
+  }),
 
   /**
    * Check if the string is empty
    */
-  is_empty :: ((fn(self: Self) -> bool)
+  is_empty : ((fn(self: Self) -> bool)
     (self._bytes.len() == usize(0))
-  );
-  export is_empty;
+  ),
 
   /**
    * Get a reference to the internal byte array
    */
-  as_bytes :: (fn(self: Self) -> ArrayList(u8))(
+  as_bytes : (fn(self: Self) -> ArrayList(u8))(
     self._bytes
-  );
-  export as_bytes;
+  ),
 
   // as_bytes :: (fn(self: Self) -> ArrayList(u8))({
   //   return self._bytes;
@@ -169,7 +161,7 @@ impl(String, {
    * Decode a UTF-8 encoded rune starting at the given byte index
    * Internal helper method
    */
-  _decode_rune_at :: (fn(self: Self, byte_index: usize) -> Option(rune))({
+  _decode_rune_at : (fn(self: Self, byte_index: usize) -> Option(rune))({
     first_byte_opt := self._bytes.get(byte_index);
     match(first_byte_opt,
       .Some(first_byte) => {
@@ -235,14 +227,14 @@ impl(String, {
       },
       .None => .None
     )
-  });
+  }),
 
   /**
    * Get the rune at the specified character index (0-based)
    * Returns None if index is out of bounds
    * For "你好世界", at(0) returns '你', at(1) returns '好', etc.
    */
-  at :: (fn(self: Self, index: usize) -> Option(rune))({
+  at : (fn(self: Self, index: usize) -> Option(rune))({
     char_count := usize(0);
     byte_index := usize(0);
     total_bytes := self._bytes.len();
@@ -262,7 +254,7 @@ impl(String, {
               cond(
                 (char_count == index) => {
                   // This is the character we want, decode it
-                  return _decode_rune_at(self, byte_index);
+                  return Self._decode_rune_at(self, byte_index);
                 },
                 true => {
                   // Not the right character yet, keep counting
@@ -279,13 +271,12 @@ impl(String, {
     
     // Index out of bounds
     return .None;
-  });
-  export at;
+  }),
 
   /**
    * Concatenate two strings (like JavaScript +)
    */
-  concat :: (fn(self: Self, other: Self) -> Self)({
+  concat : (fn(self: Self, other: Self) -> Self)({
     self_len := self._bytes.len();
     other_len := other._bytes.len();
     new_bytes := ArrayList(u8).with_capacity((self_len + other_len));
@@ -315,15 +306,14 @@ impl(String, {
     };
     
     return Self(_bytes: new_bytes);
-  });
-  export concat;
+  }),
 
   /**
    * Extract a substring from start to end character indices (like JavaScript substring)
    * Returns a new string containing characters from start (inclusive) to end (exclusive)
    * If end is greater than length, it will substring to the end of the string
    */
-  substring :: (fn(self: Self, start: usize, end: usize) -> Self)({
+  substring : (fn(self: Self, start: usize, end: usize) -> Self)({
     total_bytes := self._bytes.len();
     new_bytes := ArrayList(u8).new();
     
@@ -374,15 +364,14 @@ impl(String, {
     };
     
     return Self(_bytes: new_bytes);
-  });
-  export substring;
+  }),
 
   /**
    * Find the first occurrence of a substring (like JavaScript indexOf)
    * Returns the character index of the first match, or None if not found
    * from_index specifies the character index to start searching from
    */
-  index_of :: (fn(self: Self, substr: Self, (from_index : usize) ?= 0) -> Option(usize))(
+  index_of : (fn(self: Self, substr: Self, (from_index : usize) ?= 0) -> Option(usize))(
     cond(
       substr.is_empty() => .Some(from_index),
       true => {
@@ -475,25 +464,23 @@ impl(String, {
         )
       }
     )
-  );
-  export index_of;
+  ),
 
   /**
    * Check if the string contains a substring (like JavaScript includes)
    */
-  includes :: (fn(self: Self, substr: Self, (from_index : usize) ?= 0) -> bool)(
+  includes : (fn(self: Self, substr: Self, (from_index : usize) ?= 0) -> bool)(
     match(self.index_of(substr, from_index),
       .Some(_) => true,
       .None => false
     )
-  );
-  export includes;
+  ),
 
   /**
    * Split the string by a separator into an array of strings (like JavaScript split)
    * Returns an ArrayList of String
    */
-  split :: (fn(self: Self, separator: Self) -> ArrayList(Self))({
+  split : (fn(self: Self, separator: Self) -> ArrayList(Self))({
     result := ArrayList(Self).new();
     
     cond(
@@ -582,15 +569,14 @@ impl(String, {
         return result;
       }
     )
-  });
-  export split;
+  }),
 
   /**
    * Find the last occurrence of a substring (like JavaScript lastIndexOf)
    * Returns the character index of the last match, or None if not found
    * from_index specifies the character index to start searching backwards from
    */
-  last_index_of :: (fn(self: Self, substr: Self, (from_index : usize) ?= 0xFFFFFFFFFFFFFFFF) -> Option(usize))(
+  last_index_of : (fn(self: Self, substr: Self, (from_index : usize) ?= 0xFFFFFFFFFFFFFFFF) -> Option(usize))(
     cond(
       substr.is_empty() => .Some(self.len()),
       true => {
@@ -698,14 +684,13 @@ impl(String, {
         )
       }
     )
-  );
-  export last_index_of;
+  ),
 
   /**
    * Check if the string starts with the specified substring (like JavaScript startsWith)
    * position: The character index to start checking from (default 0)
    */
-  starts_with :: (fn(self: Self, prefix: Self, (position : usize) ?= 0) -> bool)({
+  starts_with : (fn(self: Self, prefix: Self, (position : usize) ?= 0) -> bool)({
     prefix_bytes := prefix._bytes.len();
     self_bytes := self._bytes.len();
 
@@ -784,14 +769,13 @@ impl(String, {
         )
       }
     )
-  });
-  export starts_with;
+  }),
 
   /**
    * Check if the string ends with the specified substring (like JavaScript endsWith)
    * end_position: The character length to consider (default is string length)
    */
-  ends_with :: (fn(self: Self, suffix: Self, (end_position : usize) ?= 0xFFFFFFFFFFFFFFFF) -> bool)({
+  ends_with : (fn(self: Self, suffix: Self, (end_position : usize) ?= 0xFFFFFFFFFFFFFFFF) -> bool)({
     suffix_bytes := suffix._bytes.len();
     self_bytes := self._bytes.len();
 
@@ -878,13 +862,12 @@ impl(String, {
         )
       }
     )
-  });
-  export ends_with;
+  }),
 
   /**
    * Replace the first occurrence of search_value with new_value (like JavaScript replace)
    */
-  replace :: (fn(self: Self, search_value: Self, new_value: Self) -> Self)(
+  replace : (fn(self: Self, search_value: Self, new_value: Self) -> Self)(
     cond(
       search_value.is_empty() => {
         // If search is empty, prepend new_value
@@ -987,13 +970,12 @@ impl(String, {
         )
       }
     )
-  );
-  export replace;
+  ),
 
   /**
    * Replace all occurrences of search_value with new_value (like JavaScript replaceAll)
    */
-  replace_all :: (fn(self: Self, search_value: Self, new_value: Self) -> Self)(
+  replace_all : (fn(self: Self, search_value: Self, new_value: Self) -> Self)(
     cond(
       search_value.is_empty() => self,
       true => {
@@ -1071,14 +1053,13 @@ impl(String, {
         return Self(_bytes: new_bytes);
       }
     )
-  );
-  export replace_all;
+  ),
 
   /**
    * Convert ASCII lowercase letters to uppercase (like JavaScript toUpperCase)
    * Note: Only handles ASCII a-z, not full Unicode case mapping
    */
-  to_upper_case :: (fn(self: Self) -> Self)({
+  to_upper_case : (fn(self: Self) -> Self)({
     new_bytes := ArrayList(u8).with_capacity(self._bytes.len());
     
     i := usize(0);
@@ -1100,14 +1081,13 @@ impl(String, {
     };
     
     return Self(_bytes: new_bytes);
-  });
-  export to_upper_case;
+  }),
 
   /**
    * Convert ASCII uppercase letters to lowercase (like JavaScript toLowerCase)
    * Note: Only handles ASCII A-Z, not full Unicode case mapping
    */
-  to_lower_case :: (fn(self: Self) -> Self)({
+  to_lower_case : (fn(self: Self) -> Self)({
     new_bytes := ArrayList(u8).with_capacity(self._bytes.len());
     
     i := usize(0);
@@ -1129,21 +1109,20 @@ impl(String, {
     };
     
     return Self(_bytes: new_bytes);
-  });
-  export to_lower_case;
+  }),
 
   /**
    * Helper to check if a byte is ASCII whitespace
    * Space (0x20), Tab (0x09), Newline (0x0A), Carriage Return (0x0D), Form Feed (0x0C), Vertical Tab (0x0B)
    */
-  _is_whitespace_byte :: (fn(byte: u8) -> bool)(
+  _is_whitespace_byte : (fn(byte: u8) -> bool)(
     ((byte == u8(0x20)) || ((byte == u8(0x09)) || ((byte == u8(0x0A)) || ((byte == u8(0x0D)) || ((byte == u8(0x0C)) || (byte == u8(0x0B)))))))
-  );
+  ),
 
   /**
    * Remove whitespace from both ends of the string (like JavaScript trim)
    */
-  trim :: (fn(self: Self) -> Self)({
+  trim : (fn(self: Self) -> Self)({
     total_bytes := self._bytes.len();
     
     cond(
@@ -1161,7 +1140,7 @@ impl(String, {
       byte_opt := self._bytes.get(start_idx);
       match(byte_opt,
         .Some(byte) => {
-          is_ws := _is_whitespace_byte(byte);
+          is_ws := Self._is_whitespace_byte(byte);
           cond(
             (!(is_ws)) => break,
             true => ()
@@ -1179,7 +1158,7 @@ impl(String, {
       byte_opt := self._bytes.get((end_idx - usize(1)));
       match(byte_opt,
         .Some(byte) => {
-          is_ws := _is_whitespace_byte(byte);
+          is_ws := Self._is_whitespace_byte(byte);
           cond(
             (!(is_ws)) => break,
             true => ()
@@ -1208,13 +1187,12 @@ impl(String, {
       );
     };
     return Self(_bytes: new_bytes);
-  });
-  export trim;
+  }),
 
   /**
    * Remove whitespace from the start of the string (like JavaScript trimStart)
    */
-  trim_start :: (fn(self: Self) -> Self)({
+  trim_start : (fn(self: Self) -> Self)({
     total_bytes := self._bytes.len();
     
     cond(
@@ -1232,7 +1210,7 @@ impl(String, {
       byte_opt := self._bytes.get(start_idx);
       match(byte_opt,
         .Some(byte) => {
-          is_ws := _is_whitespace_byte(byte);
+          is_ws := Self._is_whitespace_byte(byte);
           cond(
             (!(is_ws)) => break,
             true => ()
@@ -1261,13 +1239,12 @@ impl(String, {
       );
     };
     return Self(_bytes: new_bytes);
-  });
-  export trim_start;
+  }),
 
   /**
    * Remove whitespace from the end of the string (like JavaScript trimEnd)
    */
-  trim_end :: (fn(self: Self) -> Self)({
+  trim_end : (fn(self: Self) -> Self)({
     total_bytes := self._bytes.len();
     
     cond(
@@ -1285,7 +1262,7 @@ impl(String, {
       byte_opt := self._bytes.get((end_idx - usize(1)));
       match(byte_opt,
         .Some(byte) => {
-          is_ws := _is_whitespace_byte(byte);
+          is_ws := Self._is_whitespace_byte(byte);
           cond(
             (!(is_ws)) => break,
             true => ()
@@ -1314,9 +1291,8 @@ impl(String, {
       );
     };
     return Self(_bytes: new_bytes);
-  });
-  export trim_end;
-});
+  })
+);
 
 impl(String, Add(String, String)(
   (+) : (fn(self: Self, other: Self) -> Self)({

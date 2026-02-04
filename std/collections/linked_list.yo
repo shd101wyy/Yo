@@ -43,40 +43,37 @@ LinkedList :: (fn(comptime(T): Type) -> comptime(Type))
   )
 ;
 
-impl(forall(T : Type), LinkedList(T), {
+impl(forall(T : Type), LinkedList(T),
   /**
     * Create a new empty LinkedList
     */
-  new :: (fn() -> Self)(
+  new : (fn() -> Self)(
     Self(
       head: .None,
       tail: .None,
       length: usize(0)
     )
-  );
-  export new;
+  ),
 
   /**
     * Get the number of elements in the list
     */
-  len :: (fn(self: Self) -> usize)(
+  len : (fn(self: Self) -> usize)(
     self.length
-  );
-  export len;
+  ),
 
   /**
     * Check if the list is empty
     */
-  is_empty :: (fn(self: Self) -> bool)(
+  is_empty : (fn(self: Self) -> bool)(
     (self.length == usize(0))
-  );
-  export is_empty;
+  ),
 
   /**
     * Push an element to the front of the list
     * O(1) time complexity
     */
-  push_front :: (fn(self: Self, value: T) -> unit)(
+  push_front : (fn(self: Self, value: T) -> unit)(
     {
       new_node := Node(T)(
         value: value,
@@ -96,14 +93,13 @@ impl(forall(T : Type), LinkedList(T), {
       self.head = .Some(new_node);
       self.length = (self.length + usize(1));
     }
-  );
-  export push_front;
+  ),
 
   /**
     * Push an element to the back of the list
     * O(1) time complexity
     */
-  push_back :: (fn(self: Self, value: T) -> unit)(
+  push_back : (fn(self: Self, value: T) -> unit)(
     {
       new_node := Node(T)(
         value: value,
@@ -123,14 +119,13 @@ impl(forall(T : Type), LinkedList(T), {
       self.tail = .Some(new_node);
       self.length = (self.length + usize(1));
     }
-  );
-  export push_back;
+  ),
 
   /**
     * Remove and return the element from the front
     * O(1) time complexity
     */
-  pop_front :: (fn(self: Self) -> Option(T))(
+  pop_front : (fn(self: Self) -> Option(T))(
     match(self.head,
       .None => .None,
       .Some(old_head) => {
@@ -152,14 +147,13 @@ impl(forall(T : Type), LinkedList(T), {
         .Some(value)
       }
     )
-  );
-  export pop_front;
+  ),
 
   /**
     * Remove and return the element from the back
     * O(1) time complexity
     */
-  pop_back :: (fn(self: Self) -> Option(T))(
+  pop_back : (fn(self: Self) -> Option(T))(
     match(self.tail,
       .None => .None,
       .Some(old_tail) => {
@@ -181,36 +175,33 @@ impl(forall(T : Type), LinkedList(T), {
         .Some(value)
       }
     )
-  );
-  export pop_back;
+  ),
 
   /**
     * Get reference to the front element without removing it
     */
-  front :: (fn(self: Self) -> Option(T))(
+  front : (fn(self: Self) -> Option(T))(
     match(self.head,
       .None => .None,
       .Some(head_node) => .Some(head_node.value)
     )
-  );
-  export front;
+  ),
 
   /**
     * Get reference to the back element without removing it
     */
-  back :: (fn(self: Self) -> Option(T))(
+  back : (fn(self: Self) -> Option(T))(
     match(self.tail,
       .None => .None,
       .Some(tail_node) => .Some(tail_node.value)
     )
-  );
-  export back;
+  ),
 
   /**
     * Get element at a specific index
     * O(n) time complexity
     */
-  get :: (fn(self: Self, index: usize) -> Option(T))(
+  get : (fn(self: Self, index: usize) -> Option(T))(
     cond(
       (index >= self.length) => .None,
       true => {
@@ -235,14 +226,13 @@ impl(forall(T : Type), LinkedList(T), {
         )
       }
     )
-  );
-  export get;
+  ),
 
   /**
     * Insert element at a specific index
     * O(n) time complexity
     */
-  insert :: (fn(self: Self, index: usize, value: T) -> Result(unit, LinkedListError))(
+  insert : (fn(self: Self, index: usize, value: T) -> Result(unit, LinkedListError))(
     cond(
       (index > self.length) => .Err(.IndexOutOfBounds(index: index, length: self.length)),
       (index == usize(0)) => {
@@ -296,14 +286,13 @@ impl(forall(T : Type), LinkedList(T), {
         )
       }
     )
-  );
-  export insert;
+  ),
 
   /**
     * Remove element at a specific index
     * O(n) time complexity
     */
-  remove :: (fn(self: Self, index: usize) -> Result(T, LinkedListError))(
+  remove : (fn(self: Self, index: usize) -> Result(T, LinkedListError))(
     cond(
       (index >= self.length) => .Err(.IndexOutOfBounds(index: index, length: self.length)),
       (index == usize(0)) =>
@@ -362,26 +351,24 @@ impl(forall(T : Type), LinkedList(T), {
         )
       }
     )
-  );
-  export remove;
+  ),
 
   /**
     * Clear all elements from the list
     */
-  clear :: (fn(self: Self) -> unit)(
+  clear : (fn(self: Self) -> unit)(
     {
       while((self.length > usize(0)), {
         _ := self.pop_front();
       });
     }
-  );
-  export clear;
+  ),
 
   /**
     * Check if the list contains a value
     * O(n) time complexity
     */
-  has :: (fn(
+  has : (fn(
     self: Self, 
     value: T,
     where(T <: Eq(T))
@@ -410,14 +397,13 @@ impl(forall(T : Type), LinkedList(T), {
       
       false
     }
-  );
-  export has;
+  ),
 
   /**
     * Reverse the list in place
     * O(n) time complexity
     */
-  reverse :: (fn(self: Self) -> unit)(
+  reverse : (fn(self: Self) -> unit)(
     {
       current_opt := self.head;
       i := usize(0);
@@ -440,17 +426,15 @@ impl(forall(T : Type), LinkedList(T), {
       self.head = self.tail;
       self.tail = temp_head;
     }
-  );
-  export reverse;
+  ),
 
   /**
     * RAII destructor - automatically called when LinkedList goes out of scope
     */
-  dispose :: (fn(self: Self) -> unit)(
+  dispose : (fn(self: Self) -> unit)(
     self.clear()
-  );
-  export dispose;
-});
+  )
+);
 
 export
   LinkedList,
