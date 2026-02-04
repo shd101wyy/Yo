@@ -1,4 +1,11 @@
-import { Environment } from "../../env";
+import {
+  addVariableToEnv,
+  addWhereClauseConstraintToEnv,
+  Environment,
+  getVariablesFromEnv,
+  popEnvFrame,
+  pushEnvFrame,
+} from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   BuiltinKeywords,
@@ -15,13 +22,15 @@ import {
   createTraitType,
   createType0,
 } from "../../types/creators";
-import { SomeType, TraitField, Type } from "../../types/definitions";
+import { SomeType, TraitField, TraitType, Type } from "../../types/definitions";
 import { getTraitTypeFromEnv } from "../../types/env-lookup";
 import {
   isFunctionType,
+  isSomeType,
   isTraitType,
   isTypeHierarchyType,
 } from "../../types/guards";
+import { typeOfType } from "../../types/hierarchy";
 import { typeToString } from "../../types/utils";
 import { VUnit } from "../../unit-value";
 import { randomId } from "../../utils";
@@ -35,6 +44,357 @@ import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { isValidVariableName } from "../utils";
 import { attachTraitToReceiverType } from "./utils";
+
+/**
+ * Represents a pending trait constraint that failed to evaluate.
+ * Tracks the LHS expression and the specific trait expression (which may be wrapped with !).
+ */
+interface PendingTraitConstraint {
+  lhsExpr: Expr;
+  traitExpr: Expr; // May be !(Trait) or just Trait
+  originalConstraintExpr: Expr;
+}
+
+function getOrCreateSomeTypeForTraitWhereClause({
+  lhsExpr,
+  env,
+  context,
+  selfType,
+}: {
+  lhsExpr: Expr;
+  env: Environment;
+  context: EvaluatorContext;
+  selfType: SomeType;
+}): { env: Environment; someType: SomeType; isSelf: boolean } {
+  if (exprIsAtom(lhsExpr) && lhsExpr.token.value === "Self") {
+    return { env, someType: selfType, isSelf: true };
+  }
+
+  if (exprIsAtom(lhsExpr)) {
+    const varName = lhsExpr.token.value;
+    const existingVars = getVariablesFromEnv(env, varName);
+    if (existingVars.length > 0) {
+      const existingVar = existingVars[existingVars.length - 1]!;
+      if (
+        existingVar.value &&
+        isTypeValue(existingVar.value[0]) &&
+        isSomeType(existingVar.value[0].value)
+      ) {
+        return {
+          env,
+          someType: existingVar.value[0].value as SomeType,
+          isSelf: false,
+        };
+      }
+    }
+
+    // Create a new SomeType if not found
+    const someType = createSomeType(createType0(), varName, { env, context });
+    const typeValue = createTypeValue(someType);
+    const { env: nextEnv } = addVariableToEnv({
+      env,
+      variable: {
+        name: varName,
+        type: typeOfType(someType),
+        isCompileTimeOnly: true,
+        value: [typeValue],
+        token: lhsExpr.token,
+        initializedAtToken: lhsExpr.token,
+        consumedAtToken: undefined,
+        isOwningTheRcValue: false,
+        isOwningTheSameRcValueAs: undefined,
+        isReassignable: false,
+      },
+      allowVariableShadowing: true,
+    });
+    return { env: nextEnv, someType, isSelf: false };
+  }
+
+  // Evaluate the LHS expression (must resolve to SomeType)
+  const evaluatedLhs = evaluateExpression({
+    expr: lhsExpr,
+    env,
+    context: { ...context, SelfType: selfType },
+  });
+  if (
+    !evaluatedLhs.$ ||
+    !evaluatedLhs.$.value ||
+    !isTypeValue(evaluatedLhs.$.value)
+  ) {
+    throw formatErrorMessage({
+      token: lhsExpr.token,
+      errorMessage: `Expected type for left-hand side of where clause constraint.`,
+    });
+  }
+  const lhsTypeValue = evaluatedLhs.$.value;
+  if (!isSomeType(lhsTypeValue.value)) {
+    throw formatErrorMessage({
+      token: lhsExpr.token,
+      errorMessage: `Expected SomeType for left-hand side of where clause constraint, got ${typeToString(lhsTypeValue.value)}`,
+    });
+  }
+
+  return {
+    env: evaluatedLhs.$.env,
+    someType: lhsTypeValue.value,
+    isSelf: false,
+  };
+}
+
+function applySingleTraitConstraintForTrait({
+  lhsExpr,
+  traitExpr,
+  env,
+  context,
+  selfType,
+  traitType,
+}: {
+  lhsExpr: Expr;
+  traitExpr: Expr; // May be !(Trait) or just Trait
+  originalConstraintExpr: Expr;
+  env: Environment;
+  context: EvaluatorContext;
+  selfType: SomeType;
+  traitType: TraitType;
+}): { env: Environment; success: boolean } {
+  // Check if the trait expression is negated
+  let isNegated = false;
+  let unwrappedTraitExpr = traitExpr;
+  if (
+    exprIsFunctionCall(traitExpr) &&
+    exprIsFunctionCallOf(traitExpr, "!") &&
+    traitExpr.args.length === 1
+  ) {
+    isNegated = true;
+    unwrappedTraitExpr = traitExpr.args[0]!;
+  }
+
+  let resolved;
+  try {
+    resolved = getOrCreateSomeTypeForTraitWhereClause({
+      lhsExpr,
+      env,
+      context,
+      selfType,
+    });
+  } catch {
+    return { env, success: false };
+  }
+  env = resolved.env;
+
+  // Try to evaluate the trait expression
+  let evaluatedRhs: Expr;
+  try {
+    evaluatedRhs = evaluateExpression({
+      expr: unwrappedTraitExpr,
+      env,
+      context: { ...context, SelfType: selfType },
+    });
+  } catch {
+    return { env, success: false };
+  }
+
+  if (
+    !evaluatedRhs.$ ||
+    !evaluatedRhs.$.value ||
+    !isTypeValue(evaluatedRhs.$.value)
+  ) {
+    return { env, success: false };
+  }
+  env = evaluatedRhs.$.env;
+
+  const evaluatedTraitTypeValue = evaluatedRhs.$.value;
+  if (!isTraitType(evaluatedTraitTypeValue.value)) {
+    throw formatErrorMessage({
+      token: unwrappedTraitExpr.token,
+      errorMessage: `Expected trait type for right-hand side of where clause constraint, got: ${typeToString(evaluatedTraitTypeValue.value)}`,
+    });
+  }
+
+  const constraintTraitType = evaluatedTraitTypeValue.value;
+  if (constraintTraitType.receiverType) {
+    throw formatErrorMessage({
+      token: unwrappedTraitExpr.token,
+      errorMessage: `Trait type in where clause already has a receiver type assigned.`,
+    });
+  }
+
+  if (resolved.isSelf) {
+    // Record Self constraints on the trait type
+    if (!traitType.selfConstraints) {
+      traitType.selfConstraints = [];
+    }
+    if (!traitType.negativeSelfConstraints) {
+      traitType.negativeSelfConstraints = [];
+    }
+
+    if (isNegated) {
+      traitType.negativeSelfConstraints.push(constraintTraitType);
+    } else {
+      traitType.selfConstraints.push(constraintTraitType);
+    }
+  }
+
+  env = addWhereClauseConstraintToEnv({
+    env,
+    someType: resolved.someType,
+    traitType: constraintTraitType,
+    isNegated,
+  });
+
+  return { env, success: true };
+}
+
+function parseTraitWhereClauseConstraints({
+  constraintExprs,
+  env,
+  context,
+  selfType,
+  traitType,
+  collectPendingTraits = false,
+}: {
+  constraintExprs: Expr[];
+  env: Environment;
+  context: EvaluatorContext;
+  selfType: SomeType;
+  traitType: TraitType;
+  collectPendingTraits?: boolean;
+}): { env: Environment; pendingTraits: PendingTraitConstraint[] } {
+  const pendingTraits: PendingTraitConstraint[] = [];
+
+  for (const constraintExpr of constraintExprs) {
+    if (
+      !exprIsFunctionCall(constraintExpr) ||
+      !exprIsFunctionCallOf(constraintExpr, "<:", 2)
+    ) {
+      throw formatErrorMessage({
+        token: constraintExpr.token,
+        errorMessage: `Expected constraint in the form "T <: Trait" or "T <: (Trait1, Trait2)", got: ${exprToString(constraintExpr)}`,
+      });
+    }
+
+    const lhsExpr = constraintExpr.args[0]!;
+    const rhsExpr = constraintExpr.args[1]!;
+
+    let resolved;
+    try {
+      resolved = getOrCreateSomeTypeForTraitWhereClause({
+        lhsExpr,
+        env,
+        context,
+        selfType,
+      });
+    } catch {
+      throw formatErrorMessage({
+        token: lhsExpr.token,
+        errorMessage: `Expected type for left-hand side of where clause constraint.`,
+      });
+    }
+    env = resolved.env;
+
+    const traitExprs: Expr[] = [];
+    if (
+      exprIsFunctionCall(rhsExpr) &&
+      exprIsFunctionCallOf(rhsExpr, BuiltinKeywords.tuple)
+    ) {
+      traitExprs.push(...rhsExpr.args);
+    } else {
+      traitExprs.push(rhsExpr);
+    }
+
+    for (const traitExpr of traitExprs) {
+      let isNegated = false;
+      let unwrappedTraitExpr = traitExpr;
+      if (
+        exprIsFunctionCall(traitExpr) &&
+        exprIsFunctionCallOf(traitExpr, "!") &&
+        traitExpr.args.length === 1
+      ) {
+        isNegated = true;
+        unwrappedTraitExpr = traitExpr.args[0]!;
+      }
+
+      let evaluatedRhs: Expr;
+      try {
+        evaluatedRhs = evaluateExpression({
+          expr: unwrappedTraitExpr,
+          env,
+          context: { ...context, SelfType: selfType },
+        });
+      } catch (error) {
+        if (collectPendingTraits) {
+          pendingTraits.push({
+            lhsExpr,
+            traitExpr,
+            originalConstraintExpr: constraintExpr,
+          });
+          continue;
+        }
+        throw error;
+      }
+
+      if (
+        !evaluatedRhs.$ ||
+        !evaluatedRhs.$.value ||
+        !isTypeValue(evaluatedRhs.$.value)
+      ) {
+        if (collectPendingTraits) {
+          pendingTraits.push({
+            lhsExpr,
+            traitExpr,
+            originalConstraintExpr: constraintExpr,
+          });
+          continue;
+        }
+        throw formatErrorMessage({
+          token: unwrappedTraitExpr.token,
+          errorMessage: `Expected trait type for right-hand side of where clause constraint.`,
+        });
+      }
+      env = evaluatedRhs.$.env;
+
+      const evaluatedTraitTypeValue = evaluatedRhs.$.value;
+      if (!isTraitType(evaluatedTraitTypeValue.value)) {
+        throw formatErrorMessage({
+          token: unwrappedTraitExpr.token,
+          errorMessage: `Expected trait type for right-hand side of where clause constraint, got: ${typeToString(evaluatedTraitTypeValue.value)}`,
+        });
+      }
+
+      const constraintTraitType = evaluatedTraitTypeValue.value;
+      if (constraintTraitType.receiverType) {
+        throw formatErrorMessage({
+          token: unwrappedTraitExpr.token,
+          errorMessage: `Trait type in where clause already has a receiver type assigned.`,
+        });
+      }
+
+      if (resolved.isSelf) {
+        if (!traitType.selfConstraints) {
+          traitType.selfConstraints = [];
+        }
+        if (!traitType.negativeSelfConstraints) {
+          traitType.negativeSelfConstraints = [];
+        }
+
+        if (isNegated) {
+          traitType.negativeSelfConstraints.push(constraintTraitType);
+        } else {
+          traitType.selfConstraints.push(constraintTraitType);
+        }
+      }
+
+      env = addWhereClauseConstraintToEnv({
+        env,
+        someType: resolved.someType,
+        traitType: constraintTraitType,
+        isNegated,
+      });
+    }
+  }
+
+  return { env, pendingTraits };
+}
 
 /**
  * Evaluate the field in trait rvalue
@@ -427,11 +787,25 @@ To avoid circular dependency issues, please explicitly provide the value for thi
     isTypeHierarchyType(fieldType) &&
     fieldType.level === 0
   ) {
-    unassignedSomeType = createSomeType(
-      fieldType,
-      label ?? `$associated_type_${randomId(env.modulePath)}`,
-      { env, context }
-    );
+    if (label) {
+      const existingVars = getVariablesFromEnv(env, label);
+      const existingVar = existingVars[existingVars.length - 1];
+      if (
+        existingVar?.value &&
+        isTypeValue(existingVar.value[0]) &&
+        isSomeType(existingVar.value[0].value)
+      ) {
+        unassignedSomeType = existingVar.value[0].value as SomeType;
+      }
+    }
+
+    if (!unassignedSomeType) {
+      unassignedSomeType = createSomeType(
+        fieldType,
+        label ?? `$associated_type_${randomId(env.modulePath)}`,
+        { env, context }
+      );
+    }
   }
 
   return {
@@ -480,7 +854,8 @@ export function evaluateTraitType({
     traitType.definedInModulePath = context.currentModulePath;
   }
 
-  // Don't push env frame - trait fields shouldn't be in env
+  // Push a scoped env frame for trait evaluation (where-clause constraints and associated types)
+  env = pushEnvFrame(env);
 
   const args = expr.args;
 
@@ -497,141 +872,58 @@ export function evaluateTraitType({
     env = attachTraitToReceiverType("Runtime", selfType, env, context);
   }
 
+  let whereClauseExprs: Expr[] | undefined = undefined;
+  if (args.length > 0) {
+    const lastArg = args[args.length - 1]!;
+    if (
+      exprIsFunctionCall(lastArg) &&
+      exprIsFunctionCallOf(lastArg, BuiltinKeywords.where)
+    ) {
+      whereClauseExprs = lastArg.args;
+      if (whereClauseExprs.length === 0) {
+        throw formatErrorMessage({
+          token: lastArg.token,
+          errorMessage: `The where clause must have at least one constraint.`,
+        });
+      }
+    }
+  }
+
+  // Pre-parse where-clause constraints (if any) so Self constraints are available
+  // when evaluating trait fields.
+  let pendingConstraints: PendingTraitConstraint[] = [];
+  if (whereClauseExprs && whereClauseExprs.length > 0) {
+    const prepResult = parseTraitWhereClauseConstraints({
+      constraintExprs: whereClauseExprs,
+      env,
+      context,
+      selfType,
+      traitType,
+      collectPendingTraits: true,
+    });
+    env = prepResult.env;
+    pendingConstraints = prepResult.pendingTraits;
+  }
+
+  // Evaluate trait fields (skip where clause if present at the end)
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!;
 
-    // where clause for adding constraints to Self
     if (
       exprIsFunctionCall(arg) &&
       exprIsFunctionCallOf(arg, BuiltinKeywords.where)
     ) {
-      // where clause must be the first argument in a trait
-      if (i !== 0) {
+      if (i !== args.length - 1) {
         throw formatErrorMessage({
           token: arg.token,
-          errorMessage: `The where clause must be the first argument in a trait definition.`,
+          errorMessage: `The where clause must be the last argument in a trait definition.`,
         });
       }
-
-      // Process each constraint in the where clause
-      const constraintExprs = arg.args;
-      if (constraintExprs.length === 0) {
-        throw formatErrorMessage({
-          token: arg.token,
-          errorMessage: `The where clause must have at least one constraint.`,
-        });
-      }
-
-      // Initialize selfConstraints array if not already
-      if (!traitType.selfConstraints) {
-        traitType.selfConstraints = [];
-      }
-
-      for (const constraintExpr of constraintExprs) {
-        // Each constraint must be of the form: Self <: Trait or Self <: (Trait1, Trait2)
-        if (
-          !exprIsFunctionCall(constraintExpr) ||
-          !exprIsFunctionCallOf(constraintExpr, "<:", 2)
-        ) {
-          throw formatErrorMessage({
-            token: constraintExpr.token,
-            errorMessage: `Expected constraint in the form "Self <: Trait" or "Self <: (Trait1, Trait2)", got: ${exprToString(constraintExpr)}`,
-          });
-        }
-
-        // Check that LHS is "Self"
-        const lhsExpr = constraintExpr.args[0]!;
-        if (!exprIsAtom(lhsExpr) || lhsExpr.token.value !== "Self") {
-          throw formatErrorMessage({
-            token: lhsExpr.token,
-            errorMessage: `In a trait's where clause, the left-hand side of <: must be "Self", got: ${exprToString(lhsExpr)}`,
-          });
-        }
-
-        // Extract trait types from RHS before evaluating the constraint
-        // Support both single trait and tuple of traits
-        // Also handle negated traits: !(Trait)
-        const rhsExpr = constraintExpr.args[1]!;
-        const traitExprs: { expr: Expr; isNegated: boolean }[] = [];
-        if (
-          exprIsFunctionCall(rhsExpr) &&
-          exprIsFunctionCallOf(rhsExpr, BuiltinKeywords.tuple)
-        ) {
-          for (const traitExpr of rhsExpr.args) {
-            // Check if this is a negated trait: !(Trait)
-            if (
-              exprIsFunctionCall(traitExpr) &&
-              exprIsFunctionCallOf(traitExpr, "!") &&
-              traitExpr.args.length === 1
-            ) {
-              traitExprs.push({ expr: traitExpr.args[0]!, isNegated: true });
-            } else {
-              traitExprs.push({ expr: traitExpr, isNegated: false });
-            }
-          }
-        } else {
-          // Check if this is a negated trait: !(Trait)
-          if (
-            exprIsFunctionCall(rhsExpr) &&
-            exprIsFunctionCallOf(rhsExpr, "!") &&
-            rhsExpr.args.length === 1
-          ) {
-            traitExprs.push({ expr: rhsExpr.args[0]!, isNegated: true });
-          } else {
-            traitExprs.push({ expr: rhsExpr, isNegated: false });
-          }
-        }
-
-        // Initialize negativeSelfConstraints array if not already
-        if (!traitType.negativeSelfConstraints) {
-          traitType.negativeSelfConstraints = [];
-        }
-
-        // Evaluate each module expression to get the ModuleType
-        for (const { expr: traitExpr, isNegated } of traitExprs) {
-          const evaluatedTrait = evaluateExpression({
-            expr: traitExpr,
-            env,
-            context: {
-              ...context,
-              SelfType: selfType,
-            },
-          });
-          if (evaluatedTrait.$?.env) {
-            env = evaluatedTrait.$.env;
-          }
-          if (
-            evaluatedTrait.$?.value &&
-            isTypeValue(evaluatedTrait.$.value) &&
-            isTraitType(evaluatedTrait.$.value.value)
-          ) {
-            const constraintTraitType = evaluatedTrait.$.value.value;
-            if (isNegated) {
-              traitType.negativeSelfConstraints.push(constraintTraitType);
-            } else {
-              traitType.selfConstraints.push(constraintTraitType);
-            }
-          }
-        }
-
-        // Evaluate with isInsideWhereClause context
-        // The SelfType is already set to selfType which is a SomeType
-        const evaluated = evaluateExpression({
-          expr: constraintExpr,
-          env,
-          context: {
-            ...context,
-            SelfType: selfType,
-            isInsideWhereClause: true,
-          },
-        });
-        if (evaluated.$?.env) {
-          env = evaluated.$.env;
-        }
-      }
+      continue;
     }
+
     // trait field
-    else {
+    {
       const { field: field, env: nextEnv } = evaluateTraitField({
         expr: arg,
         env,
@@ -657,6 +949,40 @@ export function evaluateTraitType({
       fields.push(field);
       env = nextEnv;
 
+      // If this is an associated type, bind it in the scoped env
+      if (field.unassignedSomeType) {
+        const existingVars = getVariablesFromEnv(env, field.label);
+        const existingVar = existingVars[existingVars.length - 1];
+        const existingSomeType =
+          existingVar?.value &&
+          isTypeValue(existingVar.value[0]) &&
+          isSomeType(existingVar.value[0].value)
+            ? (existingVar.value[0].value as SomeType)
+            : undefined;
+        if (existingSomeType?.id !== field.unassignedSomeType.id) {
+          const typeValue = createTypeValue(field.unassignedSomeType);
+          const token =
+            field.exprs.labelExpr?.token ?? field.exprs.expr.token ?? arg.token;
+          const { env: envWithAssociatedType } = addVariableToEnv({
+            env,
+            variable: {
+              name: field.label,
+              type: typeValue.type,
+              isCompileTimeOnly: true,
+              value: [typeValue],
+              token,
+              initializedAtToken: token,
+              consumedAtToken: undefined,
+              isOwningTheRcValue: false,
+              isOwningTheSameRcValueAs: undefined,
+              isReassignable: false,
+            },
+            allowVariableShadowing: true,
+          });
+          env = envWithAssociatedType;
+        }
+      }
+
       // Expect field to be compile-time only
       if (!field.isCompileTimeOnly) {
         throw formatErrorMessage({
@@ -668,6 +994,42 @@ export function evaluateTraitType({
       // Don't add field to env - module fields are accessed via Self.XXX
     }
   }
+
+  // Retry any pending where constraints after all fields are evaluated
+  if (pendingConstraints.length > 0) {
+    const stillPending: PendingTraitConstraint[] = [];
+    for (const pending of pendingConstraints) {
+      const result = applySingleTraitConstraintForTrait({
+        lhsExpr: pending.lhsExpr,
+        traitExpr: pending.traitExpr,
+        originalConstraintExpr: pending.originalConstraintExpr,
+        env,
+        context,
+        selfType,
+        traitType,
+      });
+      env = result.env;
+      if (!result.success) {
+        stillPending.push(pending);
+      }
+    }
+
+    if (stillPending.length > 0) {
+      const failedConstraint = stillPending[0]!;
+      // Re-evaluate to get the actual error message
+      parseTraitWhereClauseConstraints({
+        constraintExprs: [failedConstraint.originalConstraintExpr],
+        env,
+        context,
+        selfType,
+        traitType,
+        collectPendingTraits: false,
+      });
+    }
+  }
+
+  // Pop the scoped env frame before returning
+  env = popEnvFrame(env, true);
 
   const traitTypeValue = createTypeValue(traitType);
   expr.$ = {
