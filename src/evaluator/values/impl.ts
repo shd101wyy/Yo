@@ -1784,6 +1784,7 @@ export function evaluateModuleValue({
 
     // Parse where constraints if present
     // The <: operator with isInsideWhereClause will attach constraints to SomeType's trait
+    const whereConstraintTraitExprById = new Map<string, Expr>();
 
     if (hasWhere && whereArg) {
       for (const constraintExpr of whereArg.args) {
@@ -1811,6 +1812,81 @@ export function evaluateModuleValue({
         if (evaluated.$?.env) {
           env = evaluated.$.env;
         }
+
+        const lhsExpr = constraintExpr.args[0]!;
+        const rhsExpr = constraintExpr.args[1]!;
+
+        const evaluatedLhs = evaluateExpression({
+          expr: lhsExpr,
+          env,
+          context: {
+            ...context,
+          },
+        });
+
+        if (
+          !evaluatedLhs.$ ||
+          !evaluatedLhs.$.value ||
+          !isTypeValue(evaluatedLhs.$.value) ||
+          !isSomeType(evaluatedLhs.$.value.value)
+        ) {
+          throw formatErrorMessage({
+            token: lhsExpr.token,
+            errorMessage: `In a where clause, the left-hand side of <: must be a type parameter (SomeType), got: ${exprToString(lhsExpr)}`,
+          });
+        }
+        env = evaluatedLhs.$.env;
+
+        const traitExprs: { expr: Expr; isNegated: boolean }[] = [];
+        if (
+          exprIsFunctionCall(rhsExpr) &&
+          exprIsFunctionCallOf(rhsExpr, BuiltinKeywords.tuple)
+        ) {
+          for (const traitExpr of rhsExpr.args) {
+            if (
+              exprIsFunctionCall(traitExpr) &&
+              exprIsFunctionCallOf(traitExpr, "!") &&
+              traitExpr.args.length === 1
+            ) {
+              traitExprs.push({ expr: traitExpr.args[0]!, isNegated: true });
+            } else {
+              traitExprs.push({ expr: traitExpr, isNegated: false });
+            }
+          }
+        } else if (
+          exprIsFunctionCall(rhsExpr) &&
+          exprIsFunctionCallOf(rhsExpr, "!") &&
+          rhsExpr.args.length === 1
+        ) {
+          traitExprs.push({ expr: rhsExpr.args[0]!, isNegated: true });
+        } else {
+          traitExprs.push({ expr: rhsExpr, isNegated: false });
+        }
+
+        for (const { expr: traitExpr } of traitExprs) {
+          const evaluatedRhs = evaluateExpression({
+            expr: traitExpr,
+            env,
+            context: {
+              ...context,
+            },
+          });
+
+          if (
+            !evaluatedRhs.$ ||
+            !evaluatedRhs.$.value ||
+            !isTypeValue(evaluatedRhs.$.value) ||
+            !isTraitType(evaluatedRhs.$.value.value)
+          ) {
+            throw formatErrorMessage({
+              token: traitExpr.token,
+              errorMessage: `Expected trait type for right-hand side expression.`,
+            });
+          }
+          env = evaluatedRhs.$.env;
+          const traitType = evaluatedRhs.$.value.value;
+          whereConstraintTraitExprById.set(traitType.id, cloneExpr(traitExpr));
+        }
       }
     }
 
@@ -1832,7 +1908,18 @@ export function evaluateModuleValue({
         whereConstraints.push({
           someType,
           traitType: requiredTraitType,
-          traitExpr: undefined, // We don't store the original expr in the new system
+          traitExpr: whereConstraintTraitExprById.get(requiredTraitType.id),
+        });
+      }
+      for (const negativeTraitType of constraints.negativeTraits) {
+        const negatedTrait: TraitType = {
+          ...negativeTraitType,
+          isNegatedConstraint: true,
+        };
+        whereConstraints.push({
+          someType,
+          traitType: negatedTrait,
+          traitExpr: whereConstraintTraitExprById.get(negativeTraitType.id),
         });
       }
     }
