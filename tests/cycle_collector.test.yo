@@ -3,12 +3,14 @@ Gc :: import "std/gc";
 
 List :: object(
   value : i32,
-  next : Option(Self),
-  
+  next : Option(Self)
+);
+impl(List, {
   dispose :: ((fn(self : Self)-> unit) {
     printf("Disposing List with value %d\n", self.value);
-  })
-);
+  });
+  export dispose;
+});
 
 form_cycle :: (fn() -> unit) {
   a := List(3, .None);

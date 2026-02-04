@@ -42,8 +42,9 @@ export PATH_DELIMITER;
  */
 Path :: object(
   _segments: ArrayList(String),
-  _is_absolute: bool,
-
+  _is_absolute: bool
+);
+impl(Path, {
   /**
    * Create a new path from a string
    * Example: Path.new("./src/main.yo")
@@ -170,7 +171,8 @@ Path :: object(
     };
 
     return Self(_segments: segments, _is_absolute: is_abs);
-  }),
+  });
+  export new;
 
   /**
    * Create a path from a C string
@@ -187,7 +189,8 @@ Path :: object(
         return Self(_segments: ArrayList(String).new(), _is_absolute: false);
       }
     );
-  }),
+  });
+  export from_cstr;
 
   /**
    * Join this path with another path
@@ -234,7 +237,8 @@ Path :: object(
     };
 
     return Self(_segments: new_segments, _is_absolute: self._is_absolute);
-  }),
+  });
+  export join;
 
   /**
    * Get the parent path
@@ -263,7 +267,8 @@ Path :: object(
     };
 
     return .Some(Self(_segments: new_segments, _is_absolute: self._is_absolute));
-  }),
+  });
+  export parent;
 
   /**
    * Get the file name (last segment)
@@ -278,7 +283,8 @@ Path :: object(
     );
 
     return self._segments.get((self._segments.len() - usize(1)));
-  }),
+  });
+  export file_name;
 
   /**
    * Get the file stem (file name without extension)
@@ -307,7 +313,8 @@ Path :: object(
         return .None;
       }
     );
-  }),
+  });
+  export file_stem;
 
   /**
    * Get the file extension
@@ -343,7 +350,8 @@ Path :: object(
         return .None;
       }
     );
-  }),
+  });
+  export extension;
 
   /**
    * Replace the extension of the path
@@ -387,7 +395,8 @@ Path :: object(
         return self;
       }
     );
-  }),
+  });
+  export with_extension;
 
   /**
    * Replace the file name (last segment) with a new name
@@ -421,7 +430,8 @@ Path :: object(
     new_segments.push(name);
 
     return Self(_segments: new_segments, _is_absolute: self._is_absolute);
-  }),
+  });
+  export with_file_name;
 
   /**
    * Check if this path starts with the given base path
@@ -473,7 +483,8 @@ Path :: object(
     };
 
     return true;
-  }),
+  });
+  export starts_with;
 
   /**
    * Check if this path ends with the given suffix path
@@ -540,7 +551,8 @@ Path :: object(
     };
 
     return true;
-  }),
+  });
+  export ends_with;
 
   /**
    * Get all path components as a list of strings
@@ -572,22 +584,25 @@ Path :: object(
     };
 
     return result;
-  }),
+  });
+  export components;
 
   /**
    * Check if the path is absolute
    */
   is_absolute :: (fn(self: Self) -> bool)(
     self._is_absolute
-  ),
+  );
+  export is_absolute;
 
   /**
    * Check if the path is relative
    */
   is_relative :: (fn(self: Self) -> bool)(
     !self._is_absolute
-  )
-);
+  );
+  export is_relative;
+});
 
 impl(Path, ToString(
   to_string : (self -> {

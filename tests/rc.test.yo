@@ -54,22 +54,26 @@ test "Test 'rc' function", {
 
 test "Test explicit return and implicit return", {
   Foo :: object(
-    data: Box(i32),
-
+    data: Box(i32)
+  );
+  impl(Foo, {
     new :: (fn(val: i32) -> Self)(
       Self(data: box(val))
-    ),
+    );
+    export new;
 
     // This should generate a dup call
     get_data_implicit :: (fn(self: Self) -> Box(i32))(
       self.data
-    ),
+    );
+    export get_data_implicit;
 
     // THIS WORKS:
     get_data_explicit :: (fn(self: Self) -> Box(i32))({
       return self.data;
-    })
-  );
+    });
+    export get_data_explicit;
+  });
 
   foo := Foo.new(42);
   d1 := foo.get_data_implicit();

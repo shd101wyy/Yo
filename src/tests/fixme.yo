@@ -1,6 +1,40 @@
-main :: (fn() -> unit) {
-  x := 12;
-  p := &(x);
-  p = *(i32)(*(void)(p) + 2);
-};
-export main;
+extern "Yo",
+  malloc : 
+    fn(size: usize) -> ?*(void)
+;
+
+HashSet :: (fn(
+  comptime(T): Type,
+  where(T <: (Eq(T), Hash))
+) -> comptime(Type))
+  object(
+    ctrl : ?*(u8),
+    data : ?*(T),
+    capacity : usize,
+    size : usize
+  )
+;
+impl(forall(T : Type), where(T <: (Eq(T), Hash)), HashSet(T), {
+  CtrlPtrType :: *(u8);
+  DataPtrType :: *(T);
+
+  /**
+    * Allocate memory for HashSet with given capacity
+    * Initializes all control bytes to EMPTY
+    */
+  _alloc_with_capacity :: (fn(capacity: usize) -> Result(Self, unit))(
+    {
+
+      
+      ctrl_ptr := malloc(4).unwrap();
+      data_ptr := malloc(4).unwrap();
+
+      .Ok(Self(
+            ctrl: .Some(*(u8)(ctrl_ptr)),
+            data: .Some(*(T)(data_ptr)),
+            capacity: capacity,
+            size: usize(0)
+          ))
+    }
+  );
+});
