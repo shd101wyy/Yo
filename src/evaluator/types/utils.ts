@@ -218,7 +218,6 @@ export function addFunctionSignatureToSelfTypeModule({
         label: label,
         type: functionType,
         assignedValue: undefined, // NOTE: We have to use the `undefined` here.
-        isCompileTimeOnly: true,
         exprs: {
           expr: functionExpr,
           labelExpr: functionExpr.args[0],
@@ -284,7 +283,6 @@ export function addFunctionCodeToSelfTypeModule({
         label: label,
         type: functionExpr.$.type,
         assignedValue: functionExpr.$.value,
-        isCompileTimeOnly: true,
         exprs: {
           expr: functionExpr,
           labelExpr: functionExpr.args[0],
@@ -1157,7 +1155,6 @@ export function attachTraitToReceiverType(
   const field: TraitField = {
     label: "", // Empty label prevents direct access, only method calls work
     type: createTypeHierarchy(1), // Trait type
-    isCompileTimeOnly: true,
     assignedValue: traitValue,
     sourceModulePath: context.currentModulePath,
     exprs: {

@@ -200,10 +200,7 @@ export function evaluateAnonymousModuleBeginExprs({
                 moduleType.fields.push({
                   label: extendedStructField.label,
                   type: extendedStructField.type,
-                  isCompileTimeOnly: extendedStructField.isCompileTimeOnly,
-                  assignedValue: extendedStructField.isCompileTimeOnly
-                    ? extendedStructField.assignedValue
-                    : undefined,
+                  assignedValue: extendedStructField.assignedValue,
                   defaultValue: extendedStructField.defaultValue,
                   exprs: {
                     expr: exportExpr,
@@ -320,7 +317,6 @@ export function evaluateAnonymousModuleBeginExprs({
               moduleType.fields.push({
                 label: variableName,
                 type: variable.type,
-                isCompileTimeOnly: variable.isCompileTimeOnly,
                 assignedValue: variable.isCompileTimeOnly
                   ? variable.value?.[0]
                   : undefined,

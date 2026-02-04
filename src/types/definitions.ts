@@ -389,11 +389,6 @@ export interface StructType extends Type {
 export interface ModuleField {
   type: Type;
   label: string;
-  /**
-   * Whether this element is compile-time only.
-   * In theory, all module elements are compile-time only.
-   */
-  isCompileTimeOnly: true;
 
   /**
    * The module path that added this field via `impl`.

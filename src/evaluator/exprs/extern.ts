@@ -115,14 +115,6 @@ export function evaluateExtern({
       field.type = { ...field.type, isExtern: language };
     }
 
-    // Expect field to be compile-time only
-    if (!field.isCompileTimeOnly) {
-      throw formatErrorMessage({
-        token: arg.token,
-        errorMessage: `Expected compile-time only field for extern module, got ${exprToString(arg)}`,
-      });
-    }
-
     fields.push(field);
     env = nextEnv;
 
@@ -140,7 +132,7 @@ export function evaluateExtern({
               context,
             }),
         ],
-        isCompileTimeOnly: field.isCompileTimeOnly,
+        isCompileTimeOnly: true,
         token: field.exprs.expr.token,
         initializedAtToken: field.exprs.expr.token,
         consumedAtToken: undefined, // Not consumed yet

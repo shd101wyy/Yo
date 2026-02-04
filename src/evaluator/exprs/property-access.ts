@@ -818,10 +818,10 @@ export function evaluatePropertyAccess({
         const label = propertyExpr.token.value;
 
         {
-          const tupleFieldIndex = fields.findIndex(
+          const moduleFieldIndex = fields.findIndex(
             (field) => field.label === label
           );
-          if (tupleFieldIndex < 0) {
+          if (moduleFieldIndex < 0) {
             if (isModuleType(objectExpr.$?.type)) {
               throw formatErrorMessage({
                 token: propertyExpr.token,
@@ -833,10 +833,10 @@ export function evaluatePropertyAccess({
             expr.$ = undefined;
             return expr;
           }
-          const tupleElement = fields[tupleFieldIndex]!;
+          const moduleField = fields[moduleFieldIndex]!;
           expr.$ = {
             env,
-            type: tupleElement.type,
+            type: moduleField.type,
             isAccessingProperty: true,
             pathCollection: [
               [
@@ -851,7 +851,7 @@ export function evaluatePropertyAccess({
           // expr.value = ...
           if (objectExprValue) {
             if (isUnknownValue(objectExprValue)) {
-              expr.$.value = createUnknownValue(tupleElement.type, {
+              expr.$.value = createUnknownValue(moduleField.type, {
                 env,
                 context,
               });
@@ -861,9 +861,9 @@ export function evaluatePropertyAccess({
                 values = objectExprValue.fields;
               }
 
-              let value = values?.[tupleFieldIndex];
-              if (!value && tupleElement.isCompileTimeOnly) {
-                value = createUnknownValue(tupleElement.type, { env, context });
+              let value = values?.[moduleFieldIndex];
+              if (!value) {
+                value = createUnknownValue(moduleField.type, { env, context });
               }
 
               expr.$.value = value;

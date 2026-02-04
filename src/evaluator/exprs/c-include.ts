@@ -113,14 +113,6 @@ c_include "<stdio.h>" ...;`,
       field.type = { ...field.type, isExtern: "c", cInclude: cHeaderFile };
     }
 
-    // Expect field to be compile-time only
-    if (!field.isCompileTimeOnly) {
-      throw formatErrorMessage({
-        token: arg.token,
-        errorMessage: `Expected compile-time only field for extern module, got ${exprToString(arg)}`,
-      });
-    }
-
     fields.push(field);
     env = nextEnv;
 
@@ -140,7 +132,7 @@ c_include "<stdio.h>" ...;`,
               context,
             }),
         ],
-        isCompileTimeOnly: field.isCompileTimeOnly,
+        isCompileTimeOnly: true,
         token: field.exprs.expr.token,
         initializedAtToken: field.exprs.expr.token,
         consumedAtToken: undefined, // Not consumed yet

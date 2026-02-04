@@ -67,7 +67,7 @@ export function evaluateOpen({
         variable: {
           name: field.label,
           type: field.type,
-          isCompileTimeOnly: field.isCompileTimeOnly,
+          isCompileTimeOnly: true,
           value: [value],
           token: field.exprs.labelExpr?.token ?? field.exprs.expr.token,
           initializedAtToken:

@@ -1409,7 +1409,6 @@ function attachTraitToReceiverType(
       const newField: TraitField = {
         label: field.label,
         type: field.type,
-        isCompileTimeOnly: field.isCompileTimeOnly,
         assignedValue: value,
         sourceModulePath,
         exprs: {
@@ -1424,7 +1423,6 @@ function attachTraitToReceiverType(
     const field: TraitField = {
       label: "", // Empty label prevents direct access, only method calls work
       type: createTypeHierarchy(1), // Trait type
-      isCompileTimeOnly: true,
       assignedValue: traitValue,
       sourceModulePath,
       exprs: {

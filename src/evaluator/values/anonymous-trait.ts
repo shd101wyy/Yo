@@ -163,7 +163,6 @@ export function evaluateAnonymousTraitBeginExprs({
               traitType.fields.push({
                 label: variableName,
                 type: variable.type,
-                isCompileTimeOnly: variable.isCompileTimeOnly,
                 assignedValue: variable.isCompileTimeOnly
                   ? variable.value?.[0]
                   : undefined,
@@ -183,7 +182,6 @@ export function evaluateAnonymousTraitBeginExprs({
                 receiverType.trait.fields.push({
                   label: variableName,
                   type: variable.type,
-                  isCompileTimeOnly: variable.isCompileTimeOnly,
                   assignedValue: variable.isCompileTimeOnly
                     ? variable.value?.[0]
                     : undefined,

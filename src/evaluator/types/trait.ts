@@ -819,7 +819,6 @@ To avoid circular dependency issues, please explicitly provide the value for thi
         defaultValueExpr,
         assignedValueExpr,
       },
-      isCompileTimeOnly: true,
       defaultValue,
       assignedValue,
       unassignedSomeType,
@@ -981,14 +980,6 @@ export function evaluateTraitType({
           });
           env = envWithAssociatedType;
         }
-      }
-
-      // Expect field to be compile-time only
-      if (!field.isCompileTimeOnly) {
-        throw formatErrorMessage({
-          token: arg.token,
-          errorMessage: `Expected compile-time only field for extern trait, got ${exprToString(arg)}`,
-        });
       }
 
       // Don't add field to env - module fields are accessed via Self.XXX
