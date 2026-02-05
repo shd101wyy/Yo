@@ -1,19 +1,6 @@
-open import "std/libc/stdio";
-
-MyBox :: object(
-  value: i32
-);
-comptime_assert(Type.impls(MyBox, Rc));
-impl(MyBox, Dispose(
-  dispose : (fn(self: Self) -> unit)({
-    printf("Disposing MyBox with value: %d\n", self.value);
-  })
-));
-
-AnotherBox :: struct(value : i32);
-comptime_assert(Type.impls(AnotherBox, Rc) == false);
+open import "std/collections/array_list.yo";
 
 main :: (fn() -> unit) {
-  MyBox(42);
+  ArrayList(i32).with_capacity(usize(10));
 };
 export main;

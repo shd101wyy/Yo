@@ -6,7 +6,10 @@ import {
   generateDeferredAsyncBlocks,
   preRegisterAsyncBlockTypes,
 } from "./exprs/async";
-import { collectRequiredFunctions } from "./functions/collection";
+import {
+  collectDisposeMethodsFromGenericImpls,
+  collectRequiredFunctions,
+} from "./functions/collection";
 import { FunctionGenerationContext } from "./functions/context";
 import {
   generateFunctionDeclarations,
@@ -98,6 +101,11 @@ export class CodeGeneratorC {
     // First pass: Collect all functions and types (exported and required by exported functions)
     collectRequiredFunctions(moduleValue, context);
     collectRequiredTypes(moduleValue, context);
+
+    // Collect dispose methods from generic impls for all collected types
+    // This is needed because ___dispose functions may need to call user's dispose methods
+    // that are defined via generic impls like: impl(forall(T : Type), ArrayList(T), Dispose(...))
+    collectDisposeMethodsFromGenericImpls(context);
 
     // Collect C includes from variables used in the module
     collectCIncludes(context);

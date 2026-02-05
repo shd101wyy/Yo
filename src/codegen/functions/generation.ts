@@ -1,5 +1,6 @@
 import { Environment } from "../../env";
 import { typeImplementsFuture } from "../../evaluator/trait-checking";
+import { findMatchingGenericImpl } from "../../evaluator/values/impl";
 import {
   BuiltinFunctions,
   BuiltinKeywords,
@@ -55,15 +56,13 @@ import { generateFunctionPrototype } from "./declarations";
 /**
  * Find the Dispose trait value attached to a type, if any.
  * Uses trait identity (not just method name) to match Dispose.
+ * Also checks generic impl registry for forall impls like:
+ *   impl(forall(T : Type), ArrayList(T), Dispose(...))
  */
 function findDisposeTraitValue(
   type: Type,
   env: Environment
 ): TraitValue | undefined {
-  if (!type.trait) {
-    return undefined;
-  }
-
   const disposeTraitType = getTraitTypeFromEnv(env, "Dispose");
   if (!disposeTraitType) {
     return undefined;
@@ -74,22 +73,35 @@ function findDisposeTraitValue(
     receiverType: type,
   };
 
-  for (const field of type.trait.fields) {
-    if (!field.assignedValue || !isTraitValue(field.assignedValue)) {
-      continue;
-    }
+  // First check if Dispose trait is directly attached to the type
+  if (type.trait) {
+    for (const field of type.trait.fields) {
+      if (!field.assignedValue || !isTraitValue(field.assignedValue)) {
+        continue;
+      }
 
-    const fieldTraitValue = field.assignedValue;
-    const fieldTraitType = fieldTraitValue.type;
+      const fieldTraitValue = field.assignedValue;
+      const fieldTraitType = fieldTraitValue.type;
 
-    if (
-      areTypesCompatible(
-        { type: expectedTraitWithReceiver, env },
-        { type: fieldTraitType, env }
-      )
-    ) {
-      return fieldTraitValue;
+      if (
+        areTypesCompatible(
+          { type: expectedTraitWithReceiver, env },
+          { type: fieldTraitType, env }
+        )
+      ) {
+        return fieldTraitValue;
+      }
     }
+  }
+
+  // Fallback: check generic impl registry for forall impls
+  const genericImpl = findMatchingGenericImpl({
+    concreteType: type,
+    traitType: disposeTraitType,
+    env,
+  });
+  if (genericImpl) {
+    return genericImpl.traitValue;
   }
 
   return undefined;
@@ -121,7 +133,34 @@ function findUserDisposeMethodForType(
     return undefined;
   }
 
-  return context.functions[disposeValue.funcId]?.cName;
+  // First try direct lookup by funcId
+  const directLookup = context.functions[disposeValue.funcId]?.cName;
+  if (directLookup) {
+    return directLookup;
+  }
+
+  // For generic impls, the dispose function is generic and needs specialization.
+  // Search for a specialized version of dispose for this SelfType.
+  // Look for functions with funcName === "dispose" and matching SelfType.
+  for (const funcId in context.functions) {
+    const funcEntry = context.functions[funcId]!;
+    const funcValue = funcEntry.value;
+    const funcType = funcValue.specializedType ?? funcValue.type;
+
+    if (funcValue.funcName !== BuiltinFunctions.dispose[0]) {
+      continue;
+    }
+
+    // Check if SelfType matches
+    if (
+      funcType.SelfType &&
+      areTypesCompatible({ type: funcType.SelfType, env }, { type, env })
+    ) {
+      return funcEntry.cName;
+    }
+  }
+
+  return undefined;
 }
 
 /**
