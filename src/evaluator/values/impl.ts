@@ -1739,6 +1739,10 @@ export function evaluateModuleValue({
   let forallArg: FnCallExpr | undefined;
   let whereArg: FnCallExpr | undefined;
 
+  // Supported forms:
+  //   impl(forall(...), where(...), receiverType, ...)
+  //   impl(forall(...), receiverType, where(...), ...)
+
   if (
     args[argIndex] &&
     exprIsFunctionCall(args[argIndex]!) &&
@@ -1756,7 +1760,7 @@ export function evaluateModuleValue({
     if (!forallArg) {
       throw formatErrorMessage({
         token: args[argIndex]!.token,
-        errorMessage: `impl where(...) requires forall(...) as the first argument.`,
+        errorMessage: `impl where(...) requires forall(...) and may appear before or after the receiver type.`,
       });
     }
     whereArg = args[argIndex]! as FnCallExpr;
@@ -1772,6 +1776,27 @@ export function evaluateModuleValue({
 
   const receiverTypeArg = args[argIndex]!;
   argIndex++;
+
+  if (
+    args[argIndex] &&
+    exprIsFunctionCall(args[argIndex]!) &&
+    exprIsFunctionCallOf(args[argIndex]!, BuiltinKeywords.where)
+  ) {
+    if (!forallArg) {
+      throw formatErrorMessage({
+        token: args[argIndex]!.token,
+        errorMessage: `impl where(...) requires forall(...) and may appear before or after the receiver type.`,
+      });
+    }
+    if (whereArg) {
+      throw formatErrorMessage({
+        token: args[argIndex]!.token,
+        errorMessage: `impl supports only a single where(...) clause.`,
+      });
+    }
+    whereArg = args[argIndex]! as FnCallExpr;
+    argIndex++;
+  }
   const fieldExprs = args.slice(argIndex);
 
   if (fieldExprs.length === 0) {
