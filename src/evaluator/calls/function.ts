@@ -616,7 +616,7 @@ export function evaluateFunctionCall({
               ...functionToCall,
               result: {
                 kind: "error",
-                error: error,
+                error: error as Error | YoError,
               },
             };
           }
@@ -676,7 +676,7 @@ export function evaluateFunctionCall({
               ...functionToCall,
               result: {
                 kind: "error",
-                error: error,
+                error: error as Error | YoError,
               },
             };
           }
@@ -723,7 +723,7 @@ export function evaluateFunctionCall({
                 ...functionToCall,
                 result: {
                   kind: "error",
-                  error: error,
+                  error: error as Error | YoError,
                 },
               };
             }
@@ -766,7 +766,7 @@ export function evaluateFunctionCall({
                   ...functionToCall,
                   result: {
                     kind: "error",
-                    error: error,
+                    error: error as Error | YoError,
                   },
                 };
               }
@@ -795,7 +795,7 @@ export function evaluateFunctionCall({
                 ...functionToCall,
                 result: {
                   kind: "error",
-                  error: error,
+                  error: error as Error | YoError,
                 },
               };
             }
@@ -823,7 +823,7 @@ export function evaluateFunctionCall({
                 ...functionToCall,
                 result: {
                   kind: "error",
-                  error: error,
+                  error: error as Error | YoError,
                 },
               };
             }
@@ -851,7 +851,7 @@ export function evaluateFunctionCall({
                 ...functionToCall,
                 result: {
                   kind: "error",
-                  error: error,
+                  error: error as Error | YoError,
                 },
               };
             }
@@ -877,7 +877,7 @@ export function evaluateFunctionCall({
                 ...functionToCall,
                 result: {
                   kind: "error",
-                  error: error,
+                  error: error as Error | YoError,
                 },
               };
             }
@@ -904,7 +904,7 @@ export function evaluateFunctionCall({
                 ...functionToCall,
                 result: {
                   kind: "error",
-                  error: error,
+                  error: error as Error | YoError,
                 },
               };
             }
@@ -931,7 +931,7 @@ export function evaluateFunctionCall({
                 ...functionToCall,
                 result: {
                   kind: "error",
-                  error: error,
+                  error: error as Error | YoError,
                 },
               };
             }
@@ -963,7 +963,7 @@ export function evaluateFunctionCall({
                   ...functionToCall,
                   result: {
                     kind: "error",
-                    error: error,
+                    error: error as Error | YoError,
                   },
                 };
               }
@@ -1010,7 +1010,7 @@ export function evaluateFunctionCall({
                   ...functionToCall,
                   result: {
                     kind: "error",
-                    error: error,
+                    error: error as Error | YoError,
                   },
                 };
               }
@@ -1064,7 +1064,7 @@ ${isTypeValue(value) ? typeToString(value.value) : typeToString(functionToCall.t
                 ...functionToCall,
                 result: {
                   kind: "error",
-                  error: error,
+                  error: error as Error | YoError,
                 },
               };
             }
@@ -1121,7 +1121,7 @@ ${isTypeValue(value) ? typeToString(value.value) : typeToString(functionToCall.t
                 ...functionToCall,
                 result: {
                   kind: "error",
-                  error: error,
+                  error: error as Error | YoError,
                 },
               };
             }
@@ -1175,7 +1175,7 @@ ${isTypeValue(value) ? typeToString(value.value) : typeToString(functionToCall.t
                 ...functionToCall,
                 result: {
                   kind: "error",
-                  error: error,
+                  error: error as Error | YoError,
                 },
               };
             }
@@ -1215,7 +1215,7 @@ ${isTypeValue(value) ? typeToString(value.value) : typeToString(functionToCall.t
                 ...functionToCall,
                 result: {
                   kind: "error",
-                  error: error,
+                  error: error as Error | YoError,
                 },
               };
             }
