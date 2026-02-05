@@ -606,22 +606,20 @@ Point :: struct(
   x : i32,
   y : i32
 );
-impl(Point, {
+impl(Point,
   // Type methods are defined in the struct's trait
-  distance_from_origin :: (fn(self: Self) -> f64)(
+  distance_from_origin : (fn(self: Self) -> f64)(
     f64(
       sqrt(
         (self.x * self.x) +
         (self.y * self.y)))
-  );
-  export distance_from_origin;
+  ),
 
-  move_by :: (fn(self: *(Self), dx : i32, dy : i32) -> unit)({
+  move_by : (fn(self: *(Self), dx : i32, dy : i32) -> unit)({
     self.x = (self.x + dx);
     self.y = (self.y + dy);
-  });
-  export move_by;
-});
+  })
+);
 
 p := Point(3, 4);
 d := p.distance_from_origin();  // Type method call - OK
@@ -637,12 +635,11 @@ When a method expects `*(Self)` but you have `Self`, Yo automatically takes the 
 
 ```rust
 Point :: struct(x: i32, y: i32);
-impl(Point, {
-  set_x :: ((self: *(Self), new_x: i32) -> unit) {
+impl(Point,
+  set_x : ((self: *(Self), new_x: i32) -> unit)({
     self.x = new_x;
-  };
-  export set_x;
-});
+  })
+);
 
 mut(p) := Point(3, 4);
 p.set_x(10);  // Automatically converts to &(p).set_x(10)
@@ -687,20 +684,21 @@ Object types are heap-allocated types with automatic reference counting:
 ```rust
 // Define an object type
 String :: object(
-  _bytes: ArrayList(u8),
-
+  _bytes : ArrayList(u8)
+);
+impl(String,
   // Methods
-  from :: (fn(slice : [u8]) -> Self)({
+  from : (fn(slice : [u8]) -> Self)({
     // Implementation...
   }),
 
-  length :: (fn(self : Self) -> usize)({
+  length : (fn(self : Self) -> usize)({
     // Implementation...
   }),
 
-  dispose :: (fn(self : Self) -> unit) {
+  dispose : (fn(self : Self) -> unit)({
     // The `dispose` function is called when the reference count reaches zero
-  }
+  })
 );
 
 // Usage
@@ -1175,29 +1173,25 @@ newtype(
 rune :: newtype(
   c : u32
 );
-impl(rune, {
+impl(rune,
   // Constructor with validation
-  from_u32 :: ((fn(value: u32) -> Option(Self))
+  from_u32 : ((fn(value: u32) -> Option(Self))
     cond(
       ((value <= 0x10FFFF.as(u32)) && (((value < 0xD800) || (value > 0xDFFF)))) => .Some(Self(c: value)),
       true => .None
     )
-  );
-  export from_u32;
+  ),
 
-  to_u32 :: ((fn(self: Self) -> u32) self.c);
-  export to_u32;
+  to_u32 : ((fn(self: Self) -> u32) self.c),
 
-  is_ascii :: ((fn(self: Self) -> bool) (self.c <= 0x7F));
-  export is_ascii;
+  is_ascii : ((fn(self: Self) -> bool) (self.c <= 0x7F)),
 
   // Constants
-  NUL        :: Self(c: 0x00);
-  TAB        :: Self(c: 0x09);
-  NEWLINE    :: Self(c: 0x0A);
-  SPACE      :: Self(c: 0x20);
-  export NUL, TAB, NEWLINE, SPACE;
-});
+  NUL        : Self(c: 0x00),
+  TAB        : Self(c: 0x09),
+  NEWLINE    : Self(c: 0x0A),
+  SPACE      : Self(c: 0x20)
+);
 ```
 
 **Use cases:**
@@ -1268,8 +1262,8 @@ Summary :: trait(
 );
 
 Display :: trait(
-  where(Self <: Summary), // Constraint
-  display : (fn(self: *(Self)) -> String)
+  display : (fn(self: *(Self)) -> String),
+  where(Self <: Summary) // Constraint
 );
 
 NewsArticle :: struct(
