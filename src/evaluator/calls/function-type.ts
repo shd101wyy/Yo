@@ -12,7 +12,7 @@ import { PlaceholderToken } from "../../token";
 import { areTypesCompatible } from "../../types/compatibility";
 import { FunctionType } from "../../types/definitions";
 import { isFunctionType, isSomeType } from "../../types/guards";
-import { typeToString } from "../../types/utils";
+import { typeContainsSomeType, typeToString } from "../../types/utils";
 import { randomId } from "../../utils";
 import { createUnknownValue } from "../../value";
 import { ValueTag } from "../../value-tag";
@@ -238,33 +238,42 @@ export function tryToImplementFunctionByFunctionType({
     });
     env = result.env;
   }
-  // If so, we should NOT evaluate the body at definition time because we can't
-  // execute code that uses type variables. The body will be evaluated when the
-  // function is called with concrete type arguments.
-  // const hasForallTypeParams = functionType.forallParameters.length > 0;
+  // If the function depends on generic type variables, we should NOT evaluate the body
+  // at definition time. The body will be evaluated when the function is specialized
+  // with concrete type arguments.
+  const shouldDeferBodyEvaluation =
+    newFunctionType.forallParameters.length > 0 ||
+    newFunctionType.parameters.some((param) =>
+      typeContainsSomeType(param.type)
+    ) ||
+    (newFunctionType.SelfType &&
+      typeContainsSomeType(newFunctionType.SelfType));
 
   let evaluatedFunctionBody: Expr;
   let evaluationContext: EvaluatorContext;
 
-  // if (hasForallTypeParams) {
-  //   // Don't evaluate the body for generic functions
-  //   // Just attach the environment for later use when called
-  //   functionBodyExpr.$ = {
-  //     env,
-  //     type: functionType.return.type,
-  //     value: functionType.return.isCompileTimeOnly
-  //       ? createUnknownValue(functionType.return.type, "function_body")
-  //       : undefined,
-  //     pathCollection: [],
-  //   };
-  //   // Create a minimal evaluation context for generic functions
-  //   evaluationContext = {
-  //     ...context,
-  //     capturedVariables: undefined,
-  //   };
-  //   evaluatedFunctionBody = functionBodyExpr;
-  // } else
-  {
+  if (shouldDeferBodyEvaluation) {
+    // Don't evaluate the body for generic functions
+    // Just attach the environment for later use when called
+    functionBodyExpr.$ = {
+      env,
+      type: functionType.return.type,
+      value: functionType.return.isCompileTimeOnly
+        ? createUnknownValue(functionType.return.type, {
+            variableName: "function_body",
+            env,
+            context,
+          })
+        : undefined,
+      pathCollection: [],
+    };
+    // Create a minimal evaluation context for generic functions
+    evaluationContext = {
+      ...context,
+      capturedVariables: undefined,
+    };
+    evaluatedFunctionBody = functionBodyExpr;
+  } else {
     // Create a mutable context that we can check after evaluation
     // For regular functions (not closures), we clear capturedVariables to prevent
     // outer variables from being incorrectly marked as captured/consumed.

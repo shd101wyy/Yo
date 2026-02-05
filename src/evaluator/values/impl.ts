@@ -109,11 +109,11 @@ function reEvaluateFunctionType({
       });
 
       if (isTypeValue(evaluatedTypeExpr.$?.value)) {
-        // Clear typeExpr to prevent re-evaluation of already specialized type
+        // Keep typeExpr so defaulted parameters can re-evaluate with concrete bindings
         return {
           ...param,
           type: evaluatedTypeExpr.$.value.value,
-          exprs: { ...param.exprs, typeExpr: undefined },
+          exprs: { ...param.exprs },
         };
       }
 
@@ -165,10 +165,11 @@ function reEvaluateFunctionType({
 
   return {
     ...functionType,
+    env: specializedEnv,
     forallParameters: [], // Clear forall parameters since we've specialized them
     parameters: newParameters,
     parametersFrame: newParametersFrame,
-    return: { ...functionType.return, type: newReturnType, expr: undefined }, // Clear expr to prevent re-evaluation
+    return: { ...functionType.return, type: newReturnType },
     SelfType: newSelfType,
   };
 }
@@ -303,22 +304,20 @@ function evaluateImplFieldList({
       });
     }
 
-    // Field definition: name : value
+    // Reject unsupported field assignment syntax
     if (
       exprIsFunctionCall(expr) &&
-      (exprIsFunctionCallOf(expr, ":", 2) ||
-        exprIsFunctionCallOf(expr, "::", 2) ||
+      (exprIsFunctionCallOf(expr, "::", 2) ||
         exprIsFunctionCallOf(expr, ":=", 2))
     ) {
-      if (
-        exprIsFunctionCallOf(expr, "::", 2) ||
-        exprIsFunctionCallOf(expr, ":=", 2)
-      ) {
-        throw formatErrorMessage({
-          token: expr.token,
-          errorMessage: `impl fields must be compile-time values. Use ":" instead.`,
-        });
-      }
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `impl fields must use ":". "::" and ":=" are not allowed here.`,
+      });
+    }
+
+    // Field definition: name : value
+    if (exprIsFunctionCall(expr) && exprIsFunctionCallOf(expr, ":", 2)) {
       const labelExpr = expr.args[0]!;
       const valueExpr = expr.args[1]!;
 

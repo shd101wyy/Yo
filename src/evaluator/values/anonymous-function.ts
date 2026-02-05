@@ -31,7 +31,7 @@ import {
   Type,
 } from "../../types/definitions";
 import { isDynType, isFunctionType, isSomeType } from "../../types/guards";
-import { typeToString } from "../../types/utils";
+import { typeContainsSomeType, typeToString } from "../../types/utils";
 import { randomId } from "../../utils";
 import { createUnknownValue, Value } from "../../value";
 import { ValueTag } from "../../value-tag";
@@ -304,7 +304,9 @@ Got:      "${paramName}"`,
   const parametersFrame = env.frames[env.frames.length - 1]!;
   const preserveTypeExprs =
     functionType.forallParameters.length > 0 ||
-    functionType.parameters.some((param) => param.isCompileTimeOnly);
+    functionType.parameters.some((param) => param.isCompileTimeOnly) ||
+    functionType.parameters.some((param) => typeContainsSomeType(param.type)) ||
+    (functionType.SelfType && typeContainsSomeType(functionType.SelfType));
 
   // Create new function type using expected forall/implicit parameters and mixing anonymous + expected regular parameters
   const newFunctionType: FunctionType = {
@@ -375,35 +377,41 @@ Got:      "${paramName}"`,
   // A function is a closure if it's being used as an implementation of an Fn trait (FnTraitType)
   const isClosureFunction = !!expectedFnModuleType;
 
-  // Check if the function has forall type parameters
+  // Check if the function depends on generic type variables (forall parameters or SomeType in Self/params).
   // If so, we should NOT evaluate the body at definition time because we can't
-  // execute code that uses type variables. The body will be evaluated when the
-  // function is called with concrete type arguments.
-  // const hasForallTypeParams = functionType.forallParameters.length > 0;
+  // execute code that uses unresolved type variables. The body will be evaluated
+  // when the function is specialized with concrete type arguments.
+  const shouldDeferBodyEvaluation =
+    functionType.forallParameters.length > 0 ||
+    functionType.parameters.some((param) => typeContainsSomeType(param.type)) ||
+    (functionType.SelfType && typeContainsSomeType(functionType.SelfType));
 
   let evaluationContext: EvaluatorContext;
   let evaluatedBody: Expr;
 
-  // if (hasForallTypeParams) {
-  //   // Don't evaluate the body for generic functions
-  //   // Just attach the environment for later use when called
-  //   functionBodyExpr.$ = {
-  //     env,
-  //     type: functionType.return.type,
-  //     value: functionType.return.isCompileTimeOnly
-  //       ? createUnknownValue(functionType.return.type, "function_body")
-  //       : undefined,
-  //     pathCollection: [],
-  //   };
-  //   // Create a minimal evaluation context for generic functions
-  //   evaluationContext = {
-  //     ...context,
-  //     isExecuting: false,
-  //     capturedVariables: new Map(),
-  //   };
-  //   evaluatedBody = functionBodyExpr;
-  // } else
-  {
+  if (shouldDeferBodyEvaluation) {
+    // Don't evaluate the body for generic functions
+    // Just attach the environment for later use when called
+    functionBodyExpr.$ = {
+      env,
+      type: functionType.return.type,
+      value: functionType.return.isCompileTimeOnly
+        ? createUnknownValue(functionType.return.type, {
+            variableName: "function_body",
+            env,
+            context,
+          })
+        : undefined,
+      pathCollection: [],
+    };
+    // Create a minimal evaluation context for generic functions
+    evaluationContext = {
+      ...context,
+      isExecuting: false,
+      capturedVariables: new Map(),
+    };
+    evaluatedBody = functionBodyExpr;
+  } else {
     // Non-generic function: evaluate the body now
     // eslint-disable-next-line prefer-const
     let { evaluationContext: ctx } = createFunctionBodyEvaluationContext(

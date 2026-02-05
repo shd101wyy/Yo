@@ -384,13 +384,13 @@ impl(forall(T : Type), ArrayList(T),
         // If slice is empty, return empty ArrayList
         cond(
           (slice_length == usize(0)) =>
-            .Ok(new()),
+            .Ok(Self.new()),
           true =>
             match(self._ptr,
               .None => panic("ArrayList has length but no ptr"),
               .Some(src_ptr) => {
                 // Create new ArrayList with exact capacity
-                new_list := with_capacity(slice_length);
+                new_list := Self.with_capacity(slice_length);
                 
                 match(new_list._ptr,
                   .None => .Err(.AllocError(.OutOfMemory)),

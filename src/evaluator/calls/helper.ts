@@ -698,6 +698,8 @@ Got:   ${regularArgsToCheck.length} arguments`,
         value: [typeValue],
         isOwningTheRcValue: false,
       },
+      // Allow shadowing if Self was already bound in specialized function env
+      allowVariableShadowing: true,
     });
     calleeEnv = nextEnv;
   }

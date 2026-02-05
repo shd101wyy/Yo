@@ -231,7 +231,7 @@ export interface VoidType extends Type {
   trait: TraitType;
 }
 
-export type ElementExprs = {
+export type FieldExprs = {
   /**
    * The expression of the element.
    */
@@ -256,7 +256,7 @@ export type ElementExprs = {
   defaultValueExpr?: Expr;
   /**
    * For example:
-   *   x = 20
+   *   x := 20
    *
    * assignedValueExpr is:
    *  20
@@ -280,7 +280,7 @@ export interface TypeField {
   defaultValue?: Value;
   assignedValue?: Value;
 
-  exprs: ElementExprs;
+  exprs: FieldExprs;
 }
 
 export interface TupleType extends Type {
@@ -401,7 +401,7 @@ export interface ModuleField {
   defaultValue?: Value;
   assignedValue?: Value;
 
-  exprs: ElementExprs;
+  exprs: FieldExprs;
 }
 
 /**
