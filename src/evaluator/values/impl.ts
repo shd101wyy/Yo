@@ -516,6 +516,21 @@ export function clearAllGlobalImplState(): void {
 }
 
 /**
+ * Get the base trait key for registry lookup.
+ * For parameterized traits like Eq(Box(T)) or Eq(i32), this returns the funcId of the base trait function (Eq).
+ * This ensures that all instantiations of the same trait share the same registry key.
+ */
+function getBaseTraitKey(traitType: TraitType): string {
+  // Use the funcId of the trait's function value if available
+  // This is the most reliable way to identify the base trait
+  if (traitType.functionValue) {
+    return traitType.functionValue.funcId;
+  }
+  // Fall back to typeName or id for non-parameterized traits
+  return traitType.typeName || traitType.id;
+}
+
+/**
  * Register a generic impl in the registry.
  */
 function registerGenericImpl(
@@ -649,8 +664,8 @@ export function findMatchingGenericImpl({
   traitType: TraitType;
   env: Environment;
 }): GenericImpl | undefined {
-  // Use typeName if available, otherwise fall back to id for anonymous modules
-  const traitTypeKey = traitType.typeName || traitType.id;
+  // Use the base trait key (funcId) for lookup
+  const traitTypeKey = getBaseTraitKey(traitType);
 
   const impls = genericImplRegistry.get(traitTypeKey);
   if (!impls || impls.length === 0) {
@@ -983,8 +998,8 @@ export function findMethodFromGenericImplForTrait({
   methodName: string;
   env: Environment;
 }): { type: FunctionType; value: Value | undefined } | undefined {
-  // Use typeName if available, otherwise fall back to id for anonymous modules
-  const traitTypeKey = traitType.typeName || traitType.id;
+  // Use the base trait key (funcId) for lookup
+  const traitTypeKey = getBaseTraitKey(traitType);
 
   const impls = genericImplRegistry.get(traitTypeKey);
   if (!impls || impls.length === 0) {
@@ -1820,7 +1835,7 @@ export function evaluateModuleValue({
       }
 
       if (isStructuralType) {
-        const traitTypeKey = traitType.typeName || traitType.id;
+        const traitTypeKey = getBaseTraitKey(traitType);
         const genericImpl: GenericImpl = {
           forallParameters: [],
           whereConstraints: [],
@@ -2172,8 +2187,7 @@ export function evaluateModuleValue({
   env = popEnvFrame(env);
 
   for (const registration of pendingRegistrations) {
-    const traitTypeKey =
-      registration.traitType.typeName || registration.traitType.id;
+    const traitTypeKey = getBaseTraitKey(registration.traitType);
 
     const genericImpl: GenericImpl = {
       forallParameters,
