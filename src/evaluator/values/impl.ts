@@ -124,22 +124,20 @@ function reEvaluateFunctionType({
 
   // Re-evaluate the return type expression
   let newReturnType = functionType.return.type;
-  if (functionType.return.expr) {
-    const returnTypeExprClone = cloneExpr(functionType.return.expr);
-    const evaluatedReturnTypeExpr = evaluateExpression({
-      expr: returnTypeExprClone,
-      env: specializedEnv,
-      context: {
-        isEvaluatingGenericImplSpecialization: true,
-        stdPath: "",
-        isEvaluatingFunctionType: true,
-        SelfType,
-      } as EvaluatorContext,
-    });
+  const returnTypeExprClone = cloneExpr(functionType.return.typeExpr);
+  const evaluatedReturnTypeExpr = evaluateExpression({
+    expr: returnTypeExprClone,
+    env: specializedEnv,
+    context: {
+      isEvaluatingGenericImplSpecialization: true,
+      stdPath: "",
+      isEvaluatingFunctionType: true,
+      SelfType,
+    } as EvaluatorContext,
+  });
 
-    if (isTypeValue(evaluatedReturnTypeExpr.$?.value)) {
-      newReturnType = evaluatedReturnTypeExpr.$.value.value;
-    }
+  if (isTypeValue(evaluatedReturnTypeExpr.$?.value)) {
+    newReturnType = evaluatedReturnTypeExpr.$.value.value;
   }
 
   // Re-evaluate SelfType if present (it's likely already concrete from substitutions)

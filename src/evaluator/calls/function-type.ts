@@ -317,7 +317,7 @@ export function tryToImplementFunctionByFunctionType({
   ) {
     // console.trace();
     throw formatErrorMessage({
-      token: newFunctionType.return.expr?.token ?? PlaceholderToken,
+      token: newFunctionType.return.typeExpr.token,
       errorMessage: `Incompatible function return type for:
 - Expected: ${typeToString(newFunctionType.return.type)}
 - Given  : ${typeToString(functionBodyReturnType)}`,
@@ -341,7 +341,7 @@ export function tryToImplementFunctionByFunctionType({
     !evaluatedFunctionBody.$.value
   ) {
     throw formatErrorMessage({
-      token: newFunctionType.return.expr?.token ?? PlaceholderToken,
+      token: newFunctionType.return.typeExpr.token,
       errorMessage: `Expected to return a compile-time value, but got runtime value.`,
     });
   }

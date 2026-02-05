@@ -111,7 +111,7 @@ export function evaluateFnTraitType({
     whereClauseExprs,
     return_: {
       type: returnType,
-      expr: returnTypeExpr,
+      typeExpr: returnTypeExpr,
       isCompileTimeOnly: false,
       isUnquote: false,
       label: `fn_return_${randomId(env.modulePath)}`,

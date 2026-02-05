@@ -688,9 +688,10 @@ export interface FunctionReturn {
   type: Type;
 
   /**
-   * For anonymous function implementataion, let's set `expr` to undefined.
+   * Always set to the return type expression.
+   * For anonymous function implementations, reuse the expected return type expression.
    */
-  expr?: Expr;
+  typeExpr: Expr;
 
   isCompileTimeOnly: boolean;
   isUnquote: boolean;

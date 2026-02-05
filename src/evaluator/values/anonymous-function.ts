@@ -302,11 +302,6 @@ Got:      "${paramName}"`,
   }
 
   const parametersFrame = env.frames[env.frames.length - 1]!;
-  const preserveTypeExprs =
-    functionType.forallParameters.length > 0 ||
-    functionType.parameters.some((param) => param.isCompileTimeOnly) ||
-    functionType.parameters.some((param) => typeContainsSomeType(param.type)) ||
-    (functionType.SelfType && typeContainsSomeType(functionType.SelfType));
 
   // Create new function type using expected forall/implicit parameters and mixing anonymous + expected regular parameters
   const newFunctionType: FunctionType = {
@@ -338,7 +333,7 @@ Got:      "${paramName}"`,
     }),
     return: {
       ...functionType.return,
-      expr: preserveTypeExprs ? functionType.return.expr : undefined,
+      typeExpr: functionType.return.typeExpr,
     },
     parametersFrame: parametersFrame,
     env: envWithoutParametersFrame, // functionType.env, // Here we need to use the functionType.env, not the current env for later CPS transformation use.

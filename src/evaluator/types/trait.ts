@@ -734,8 +734,8 @@ Type expressions are required for all function parameters in trait fields to sup
         });
       }
     }
-    // Also validate return type has expr
-    if (!fieldType.return.expr) {
+    // Also validate return type has typeExpr
+    if (!fieldType.return.typeExpr) {
       throw formatErrorMessage({
         token: expr.token,
         errorMessage: `Function in trait field "${label ?? "unnamed"}" must have an explicit return type annotation.

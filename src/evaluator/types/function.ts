@@ -2031,7 +2031,7 @@ ${typeToString(returnType)}`,
     whereClauseExprs,
     return_: {
       type: returnType,
-      expr: returnTypeExpr,
+      typeExpr: returnTypeExpr,
       isCompileTimeOnly: isReturnTypeCompileTimeOnly,
       isUnquote: isReturnTypeUnquote,
       label: returnLabel ?? `fn_return_${randomId(env.modulePath)}`,
@@ -2219,17 +2219,8 @@ export function evaluateFunctionReturnTypeAgain({
   functionCalleeExpr?: Expr;
 }): { returnType: Type; calleeEnv: Environment } {
   const functionReturn = functionType.return;
-  if (!functionReturn.expr) {
-    // Even without an expr, we still need to resolve SomeTypes in the return type
-    // This is important for anonymous functions where return.expr is undefined
-    let returnType = functionReturn.type;
-    if (isSomeType(returnType)) {
-      returnType = getValueOfSomeTypeFromEnv(calleeEnv, returnType);
-    }
-    return { returnType, calleeEnv };
-  }
   const evaluatedFunctionReturnExpr = evaluateExpression({
-    expr: cloneExpr(functionReturn.expr),
+    expr: cloneExpr(functionReturn.typeExpr),
     env: calleeEnv,
     context: {
       ...context,

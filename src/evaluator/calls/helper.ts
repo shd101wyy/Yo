@@ -1161,13 +1161,13 @@ Got:   ${typeToString(typeValue.type)}`,
     }
   }
 
-  // if (exprToString(functionType.return.expr) === "Wrapper2(A)") {
+  // if (exprToString(functionType.return.typeExpr) === "Wrapper2(A)") {
   //   console.log("before Wrapper2(A): ");
   //   printEnvVarNames(calleeEnv);
   // }
 
   // console.log("\nFunction call: ", exprToString(expr));
-  // console.log("- return expr: ", exprToString(functionType.return.expr));
+  // console.log("- return expr: ", exprToString(functionType.return.typeExpr));
   // console.log(
   //   "- SelfType:",
   //   context.SelfType ? typeToString(context.SelfType) : undefined

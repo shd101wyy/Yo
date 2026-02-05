@@ -7,7 +7,6 @@ import {
   FnCallExpr,
 } from "../../expr";
 import { FunctionValue } from "../../function-value";
-import { PlaceholderToken } from "../../token";
 import { areTypesCompatible } from "../../types/compatibility";
 import { DynType, FnTraitType, SomeType, Type } from "../../types/definitions";
 import { isDynType, isSomeType } from "../../types/guards";
@@ -125,7 +124,7 @@ export function tryToImplementClosureByFnModuleType({
     )
   ) {
     throw formatErrorMessage({
-      token: fnModuleType.isFn.callType.return.expr?.token ?? PlaceholderToken,
+      token: fnModuleType.isFn.callType.return.typeExpr.token,
       errorMessage: `Incompatible closure return type:
 - Expected: ${typeToString(fnModuleType.isFn.callType.return.type)}
 - Given  : ${typeToString(closureBodyReturnType)}`,
@@ -137,7 +136,7 @@ export function tryToImplementClosureByFnModuleType({
     !evaluatedClosureBody.$.value
   ) {
     throw formatErrorMessage({
-      token: fnModuleType.isFn.callType.return.expr?.token ?? PlaceholderToken,
+      token: fnModuleType.isFn.callType.return.typeExpr.token,
       errorMessage: `Expected to return a compile-time value, but got runtime value.`,
     });
   }
