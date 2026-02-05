@@ -48,12 +48,13 @@ impl(Mutex,
 
   unlock : (fn(self : Self) -> unit)({
     return yo_mutex_unlock(&(self.mutex));
-  }),
-
+  })
+);
+impl(Mutex, Dispose(
   dispose : (fn(self : Self) -> unit)({
     return yo_mutex_destroy(&(self.mutex));
   })
-);
+));
 
 cond_t :: newtype(
   cv : YO_COND_TYPE
@@ -98,12 +99,13 @@ impl(Cond,
 
   broadcast : (fn(self : Self) -> unit)({
     return yo_cond_broadcast(&(self.cv));
-  }),
-
+  })
+);
+impl(Cond, Dispose(
   dispose : (fn(self : Self) -> unit)({
     return yo_cond_destroy(&(self.cv));
   })
-);
+));
 
 export
   mutex_t,

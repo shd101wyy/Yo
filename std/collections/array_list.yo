@@ -421,8 +421,9 @@ impl(forall(T : Type), ArrayList(T),
   clear : (fn(self: Self) -> unit)({
     Self._free_elements(self);
     self._length = usize(0);
-  }),
-
+  })
+);
+impl(forall(T : Type), ArrayList(T), Dispose(
   /**
     * RAII destructor - automatically called when ArrayList goes out of scope
     * For `object`, this is called when the reference count drops to zero
@@ -438,7 +439,7 @@ impl(forall(T : Type), ArrayList(T),
       .None => ()
     );
   })
-);
+));
 
 export
   ArrayList,

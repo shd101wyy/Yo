@@ -277,6 +277,8 @@ export function addFunctionCodeToSelfTypeModule({
     ) {
       // The code below is necessary for the C code generator to make the ___drop like function to have a more descriptive name.
       functionExpr.$.value.funcId += label;
+      // Set the funcName so codegen can identify this function (e.g., ___dispose)
+      functionExpr.$.value.funcName = label;
 
       // Add the drop function to the struct's trait fields
       const moduleField: ModuleField = {
@@ -381,11 +383,11 @@ function generateDisposeFunctionCodeForStructType(structType: StructType): {
     .filter((field) => typeContainsRcType(field.type))
     .map((field) => field.label);
 
-  const hasDisposeFunction = structType.trait.fields.some(
-    (field) => field.label === BuiltinFunctions.dispose[0]
-  );
+  // Note: User's dispose() method from Dispose trait is handled in C codegen,
+  // not here. This function only generates the field dropping logic.
+  // The C codegen will check for Dispose trait and emit the call before this code runs.
 
-  if (!destructuringLabels.length && !hasDisposeFunction) {
+  if (!destructuringLabels.length) {
     return { signature, code: `(${signature} ())` };
   }
 
@@ -394,17 +396,14 @@ function generateDisposeFunctionCodeForStructType(structType: StructType): {
     BuiltinFunctions.___drop[0]!
   );
 
-  const dropDestructuringsExpr = destructuringLabels.length
-    ? `
+  const dropDestructuringsExpr = `
   ${destructuringExpr}
   ${callsExpr}
-`
-    : "";
+`;
 
   return {
     signature,
     code: `(${signature} { // ___dispose
-      ${hasDisposeFunction ? `Self.dispose(${YoSelf});` : ""}
       ${dropDestructuringsExpr}
       return ();
   })`,

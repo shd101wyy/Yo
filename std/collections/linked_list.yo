@@ -426,15 +426,18 @@ impl(forall(T : Type), LinkedList(T),
       self.head = self.tail;
       self.tail = temp_head;
     }
-  ),
+  )
+);
 
+impl(forall(T : Type), LinkedList(T), Dispose(
   /**
     * RAII destructor - automatically called when LinkedList goes out of scope
     */
   dispose : (fn(self: Self) -> unit)(
     self.clear()
   )
-);
+));
+
 
 export
   LinkedList,

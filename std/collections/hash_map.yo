@@ -521,50 +521,52 @@ impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash)), HashMap(K, V),
       });
       self.size = usize(0);
     }
-  ),
-
-  /**
-    * RAII destructor - automatically called when HashMap goes out of scope
-    */
-  dispose : (fn(self: Self) -> unit)({
-    // Drop all occupied buckets before freeing memory
-    cond(
-      (Type.contains_rc_type(K) || Type.contains_rc_type(V)) => {
-        match(self.ctrl,
-          .Some(ctrl_ptr) => {
-            match(self.data,
-              .Some(data_ptr) => {
-                i := usize(0);
-                while(i < self.capacity, i = (i + usize(1)), {
-                  ctrl_byte := Self._CtrlPtrType(*(void)(ctrl_ptr) + i).*;
-                  cond(
-                    ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-                      bucket_ptr := Self._DataPtrType(*(void)(data_ptr) + i);
-                      unsafe.drop(bucket_ptr.*);
-                    },
-                    true => ()
-                  );
-                });
-              },
-              .None => ()
-            );
-          },
-          .None => ()
-        );
-      },
-      true => ()
-    );
-    
-    match(self.ctrl,
-      .Some(ptr) => free(.Some(*(void)(ptr))),
-      .None => ()
-    );
-    match(self.data,
-      .Some(ptr) => free(.Some(*(void)(ptr))),
-      .None => ()
-    );
-  })
+  )
 );
+impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash)), HashMap(K, V),
+  Dispose(
+    /**
+      * RAII destructor - automatically called when HashMap goes out of scope
+      */
+    dispose : (fn(self: Self) -> unit)({
+      // Drop all occupied buckets before freeing memory
+      cond(
+        (Type.contains_rc_type(K) || Type.contains_rc_type(V)) => {
+          match(self.ctrl,
+            .Some(ctrl_ptr) => {
+              match(self.data,
+                .Some(data_ptr) => {
+                  i := usize(0);
+                  while(i < self.capacity, i = (i + usize(1)), {
+                    ctrl_byte := Self._CtrlPtrType(*(void)(ctrl_ptr) + i).*;
+                    cond(
+                      ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
+                        bucket_ptr := Self._DataPtrType(*(void)(data_ptr) + i);
+                        unsafe.drop(bucket_ptr.*);
+                      },
+                      true => ()
+                    );
+                  });
+                },
+                .None => ()
+              );
+            },
+            .None => ()
+          );
+        },
+        true => ()
+      );
+      
+      match(self.ctrl,
+        .Some(ptr) => free(.Some(*(void)(ptr))),
+        .None => ()
+      );
+      match(self.data,
+        .Some(ptr) => free(.Some(*(void)(ptr))),
+        .None => ()
+      );
+    })
+  ));
 
 export
   HashMap,

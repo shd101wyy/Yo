@@ -7,7 +7,7 @@ import {
   exprIsFunctionCallOf,
 } from "../../expr";
 import { FunctionValue } from "../../function-value";
-import { EnumType, FunctionType } from "../../types/definitions";
+import { EnumType, FunctionType, Type } from "../../types/definitions";
 import {
   isEnumType,
   isFunctionSpecializable,
@@ -21,7 +21,7 @@ import {
   typeToString,
 } from "../../types/utils";
 import { isTempVariableName } from "../../utils";
-import { isFunctionValue } from "../../value";
+import { isFunctionValue, isTraitValue } from "../../value";
 import { generateAsyncRuntime } from "../async/runtime";
 import {
   generateDeferredDropExpressions,
@@ -43,6 +43,57 @@ import {
 } from "../utils";
 import { FunctionGenerationContext } from "./context";
 import { generateFunctionPrototype } from "./declarations";
+
+/**
+ * Find the user's dispose method from a type's trait (from Dispose trait).
+ * This looks for named traits with empty labels that contain a "dispose" method.
+ * Returns the C function name if found, undefined otherwise.
+ */
+function findUserDisposeMethodForType(
+  type: Type,
+  context: CodeGenContext
+): string | undefined {
+  if (!type.trait) {
+    return undefined;
+  }
+
+  // First check for direct dispose method (anonymous impl)
+  for (const field of type.trait.fields) {
+    if (
+      field.label === BuiltinFunctions.dispose[0] &&
+      isFunctionValue(field.assignedValue)
+    ) {
+      const cName = context.functions[field.assignedValue.funcId]?.cName;
+      if (cName) {
+        return cName;
+      }
+    }
+  }
+
+  // Then check for dispose method in named traits (empty label fields containing TraitValue)
+  for (const field of type.trait.fields) {
+    if (field.label === "" && isTraitValue(field.assignedValue)) {
+      const traitValue = field.assignedValue;
+      // Search for dispose method in the trait's fields
+      for (let i = 0; i < traitValue.type.fields.length; i++) {
+        const traitField = traitValue.type.fields[i];
+        if (
+          traitField &&
+          traitField.label === BuiltinFunctions.dispose[0] &&
+          isFunctionValue(traitValue.fields[i])
+        ) {
+          const funcValue = traitValue.fields[i] as FunctionValue;
+          const cName = context.functions[funcValue.funcId]?.cName;
+          if (cName) {
+            return cName;
+          }
+        }
+      }
+    }
+  }
+
+  return undefined;
+}
 
 /**
  * Generate all collected functions
@@ -305,6 +356,29 @@ export function generateFunction(
           ).currentClosureCaptureTypeCName = captureTypeCName;
         }
       }
+    }
+  }
+
+  // For ___dispose functions, check if the SelfType has a user-defined dispose method
+  // from a Dispose trait and emit a call to it at the start of the function body.
+  // This is done in codegen rather than the evaluator to handle traits added via impl
+  // after the struct is defined.
+  const isDisposeFunction =
+    functionValue.funcName === BuiltinFunctions.___dispose[0];
+  if (isDisposeFunction && functionType.SelfType) {
+    const userDisposeCName = findUserDisposeMethodForType(
+      functionType.SelfType,
+      context
+    );
+    if (userDisposeCName) {
+      // Get the parameter name for __yo_self
+      const selfParamName =
+        functionType.parameters[0]?.label === "__yo_self"
+          ? "__yo_self"
+          : (functionType.parameters[0]?.label ?? "__yo_self");
+      emitter.emitLine(
+        `  ${userDisposeCName}(${selfParamName}); // Call user's dispose method`
+      );
     }
   }
 
