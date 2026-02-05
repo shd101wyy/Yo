@@ -19,7 +19,7 @@ import {
   FnCallExpr,
 } from "../../expr";
 import { generateExprFromCode } from "../../parser";
-import { PlaceholderToken } from "../../token";
+import { PlaceholderToken, Token } from "../../token";
 import { areTypesCompatible } from "../../types/compatibility";
 import {
   createExprListType,
@@ -65,6 +65,58 @@ import { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { typeImplementsTrait } from "../trait-checking";
 import { isValidVariableName } from "../utils";
+
+/**
+ * Extract information about a comptime parameter from its expression.
+ * Returns undefined if the parameter is not a comptime parameter.
+ *
+ * Handles forms like:
+ *   - comptime(name) : Type
+ *   - comptime(name) : Type ?= defaultValue
+ */
+function extractComptimeParameterInfo(
+  paramExpr: Expr
+): { name: string; typeExpr: Expr; token: Token } | undefined {
+  let expr = paramExpr;
+
+  // Handle default value: (comptime(name) : Type) ?= defaultValue
+  if (exprIsFunctionCall(expr) && exprIsFunctionCallOf(expr, "?=", 2)) {
+    expr = expr.args[0]!;
+  }
+
+  // Handle assigned value: (comptime(name) : Type) = value
+  if (exprIsFunctionCall(expr) && exprIsFunctionCallOf(expr, "=", 2)) {
+    expr = expr.args[0]!;
+  }
+
+  // Expect: comptime(name) : Type
+  if (!exprIsFunctionCall(expr) || !exprIsFunctionCallOf(expr, ":", 2)) {
+    return undefined;
+  }
+
+  const lhs = expr.args[0]!;
+  const typeExpr = expr.args[1]!;
+
+  // Check if lhs is comptime(name)
+  if (
+    !exprIsFunctionCall(lhs) ||
+    !exprIsFunctionCallOf(lhs, BuiltinKeywords.comptime) ||
+    lhs.args.length !== 1
+  ) {
+    return undefined;
+  }
+
+  const nameExpr = lhs.args[0]!;
+  if (!exprIsAtom(nameExpr) || !isValidVariableName(nameExpr)) {
+    return undefined;
+  }
+
+  return {
+    name: nameExpr.token.value,
+    typeExpr,
+    token: nameExpr.token,
+  };
+}
 
 /**
  * type:
@@ -475,8 +527,10 @@ use_id :: (fn(forall(T : Type),
   }
 
   // Add the parameter to the env
-  // Check if the variable already exists (from where clause processing)
+  // Check if the variable already exists (from where clause processing or pre-added comptime params)
   const existingVars = getVariablesFromEnv(env, label);
+  const existingPreAddedVar =
+    existingVars.length > 0 ? existingVars[existingVars.length - 1] : undefined;
   const existingWhereClauseVar = existingVars.find((v) => {
     // Check if this is a SomeType created by where clause for this exact label
     if (v.value && isTypeValue(v.value[0])) {
@@ -544,6 +598,15 @@ use_id :: (fn(forall(T : Type),
     // Use the existing SomeType as the actual value for this parameter
     actualValue = existingTypeValue;
     actualParameterType = typeOfType(existingSomeType);
+  } else if (
+    existingPreAddedVar &&
+    existingPreAddedVar.isCompileTimeOnly &&
+    existingPreAddedVar.value
+  ) {
+    // Variable was pre-added by the comptime parameter pre-scan pass
+    // Reuse it to avoid duplicate variable creation
+    actualValue = existingPreAddedVar.value[0];
+    actualParameterType = existingPreAddedVar.type;
   } else {
     // No existing variable - add new one
     const { env: nextEnv } = addVariableToEnv({
@@ -1427,7 +1490,75 @@ export function evaluateFunctionParameters({
     }
   }
 
-  // Second pass: scan where clause, create SomeTypes for LHS vars, and try to evaluate constraints
+  // Second pass: pre-add all comptime parameters to the environment
+  // This is necessary because where clauses may reference comptime parameters that appear
+  // later in the parameter list. For example:
+  //   fn(comptime(Item) : Type, comptime(IntoIter) : Type, where(IntoIter <: Iterator(Item)))
+  // The where clause references Item and IntoIter before they are fully processed.
+  // Track which parameters were pre-added so we can skip them in the third pass
+  const preAddedComptimeParams = new Set<number>();
+  for (let i = 0; i < parameterExprs.length; i++) {
+    const paramExpr = parameterExprs[i]!;
+    // Skip forall and where
+    if (
+      exprIsFunctionCall(paramExpr) &&
+      (exprIsFunctionCallOf(paramExpr, BuiltinKeywords.forall) ||
+        exprIsFunctionCallOf(paramExpr, BuiltinKeywords.where) ||
+        exprIsFunctionCallOf(paramExpr, "..."))
+    ) {
+      continue;
+    }
+    // Check if this is a comptime parameter: comptime(name) : Type
+    const comptimeInfo = extractComptimeParameterInfo(paramExpr);
+    if (comptimeInfo) {
+      // Evaluate the type expression
+      const evaluatedType = evaluateExpression({
+        expr: comptimeInfo.typeExpr,
+        env,
+        context: { ...context },
+      });
+      if (evaluatedType.$?.env) {
+        env = evaluatedType.$.env;
+      }
+      if (
+        !evaluatedType.$ ||
+        !evaluatedType.$.value ||
+        !isTypeValue(evaluatedType.$.value)
+      ) {
+        // Type evaluation failed, skip pre-adding - will be handled in third pass
+        continue;
+      }
+      const paramType = evaluatedType.$.value.value;
+
+      // Create the appropriate value (SomeType for Type, UnknownValue for others)
+      const value = createUnknownValue(paramType, {
+        variableName: comptimeInfo.name,
+        env,
+        context,
+      });
+
+      // Add to environment
+      const { env: nextEnv } = addVariableToEnv({
+        env,
+        variable: {
+          name: comptimeInfo.name,
+          type: paramType,
+          isCompileTimeOnly: true,
+          value: [value],
+          token: comptimeInfo.token,
+          initializedAtToken: comptimeInfo.token,
+          consumedAtToken: undefined,
+          isOwningTheRcValue: false,
+          isOwningTheSameRcValueAs: undefined,
+          isReassignable: false,
+        },
+      });
+      env = nextEnv;
+      preAddedComptimeParams.add(i);
+    }
+  }
+
+  // Third pass: scan where clause, create SomeTypes for LHS vars, and try to evaluate constraints
   // where must be the last parameter if present
   let pendingConstraints: PendingTraitConstraint[] = [];
   if (parameterExprs.length > 0) {
@@ -1456,8 +1587,9 @@ export function evaluateFunctionParameters({
     }
   }
 
-  // Third pass: process regular parameters and variadic
+  // Fourth pass: process regular parameters and variadic
   // After each parameter, retry pending constraints
+  // Note: parameters pre-added in second pass still need to be fully processed to create FunctionParameter objects
   for (let i = 0; i < parameterExprs.length; i++) {
     const parameterExpr = parameterExprs[i]!;
 
@@ -1474,7 +1606,7 @@ export function evaluateFunctionParameters({
       }
       continue;
     }
-    // Skip where clause (already processed in second pass)
+    // Skip where clause (already processed in third pass)
     else if (
       exprIsFunctionCall(parameterExpr) &&
       exprIsFunctionCallOf(parameterExpr, BuiltinKeywords.where)
