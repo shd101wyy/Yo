@@ -18,6 +18,7 @@ import {
   exprToString,
   FnCallExpr,
 } from "../../expr";
+import { generateExprFromCode } from "../../parser";
 import { PlaceholderToken } from "../../token";
 import { areTypesCompatible } from "../../types/compatibility";
 import {
@@ -100,11 +101,9 @@ export function evaluateFunctionParameter({
   let assignedValueExpr: Expr | undefined = undefined;
 
   if (exprIsFunctionCall(expr_) && exprIsFunctionCallOf(expr_, "=")) {
-    // Check if this is `(T : Type) = Impl(Id)` syntax for assigned value with explicit type
-    // The LHS should have a type annotation (`:`)
+    // Assigned value syntax requires explicit type annotation: (T : Type) = Impl(Id)
     const lhs = expr_.args[0];
     if (lhs && exprIsFunctionCall(lhs) && exprIsFunctionCallOf(lhs, ":", 2)) {
-      // This is the explicit type form: (T : Type) = Impl(Id)
       lhsExpr = lhs;
       rhsExpr = expr_.args[1]!;
       assignedValueExpr = rhsExpr;
@@ -112,26 +111,21 @@ export function evaluateFunctionParameter({
     } else {
       throw formatErrorMessage({
         token: expr_.func.token,
-        errorMessage: `Please use "?=" for default parameter value, not "=".`,
+        errorMessage: `Use "?=" for default parameter values. Assigned values require an explicit type: (name : Type) = value.`,
       });
     }
   }
 
-  // Check if it's an assignment binding (`:=`)
-  // eg:
-  //   forall(T := Impl(Id))
-  // Here T is the label, Impl(Id) is the assigned value (constraint)
-  // The type is implicitly Type (for forall parameters)
+  // Disallow assignment binding with ":=" in parameter lists
   if (exprIsFunctionCall(expr_) && exprIsFunctionCallOf(expr_, ":=", 2)) {
-    lhsExpr = expr_.args[0]!;
-    rhsExpr = expr_.args[1]!;
-    assignedValueExpr = rhsExpr;
-    expr_ = lhsExpr; // Continue parsing the lhs for the label
+    throw formatErrorMessage({
+      token: expr_.func.token,
+      errorMessage: `":=" is not allowed in parameter lists. Use (name : Type) = value instead.`,
+    });
   }
 
   // Check if there is defaultValue
   // eg:
-  //   (x = 12)
   //   ((x: i32) ?= 13)
   if (exprIsFunctionCall(expr_) && exprIsFunctionCallOf(expr_, "?=", 2)) {
     rhsExpr = expr_.args[1]!;
@@ -148,21 +142,30 @@ export function evaluateFunctionParameter({
     lhsExpr = expr_.args[0]!;
     typeExpr = rhsExpr;
   } else if (!assignedValueExpr) {
-    // Only set typeExpr if it wasn't already set by `:=` handling
+    // Only set typeExpr if it wasn't already set by assignment handling
     // eg:
     //   (i32)
     if (!defaultValueExpr) {
       typeExpr = expr_;
     }
     // eg:
-    //   (x = 13)
+    //   (x ?= 13)
     else {
       typeExpr = undefined;
       lhsExpr = expr_;
     }
   } else {
-    // assignedValueExpr was set by `:=`, expr_ is the label
+    // assignedValueExpr was set by assignment, expr_ is the label
     lhsExpr = expr_;
+  }
+
+  if (!typeExpr) {
+    throw formatErrorMessage({
+      token: expr.token,
+      errorMessage: defaultValueExpr
+        ? `Default parameters must specify a type: (name : Type) ?= value.`
+        : `Expected an explicit type annotation for function parameter. Use "(name : Type)".`,
+    });
   }
 
   if (lhsExpr) {
@@ -249,8 +252,8 @@ export function evaluateFunctionParameter({
   }
 
   {
-    // Evaluate the assignedValueExpr if exists (for `:=` syntax)
-    // eg: forall(T := Impl(Id))
+    // Evaluate the assignedValueExpr if exists (for "=" syntax)
+    // eg: forall((T : Type) = Impl(Id))
     // The assigned value becomes the value of the parameter, and the type is Type
     if (assignedValueExpr) {
       const evaluatedAssignedValue = evaluateExpression({
@@ -271,7 +274,7 @@ export function evaluateFunctionParameter({
       if (!isTypeValue(assignedValue_)) {
         throw formatErrorMessage({
           token: assignedValueExpr.token,
-          errorMessage: `Expected type value for := assignment, got ${valueToString(assignedValue_)}`,
+          errorMessage: `Expected type value for = assignment, got ${valueToString(assignedValue_)}`,
         });
       }
 
@@ -284,7 +287,7 @@ export function evaluateFunctionParameter({
       if (!isCompileTimeOnly) {
         throw formatErrorMessage({
           token: assignedValueExpr.token,
-          errorMessage: `Assigned value (:= or =) is only allowed for compile-time parameters. Use "comptime(${label})" or put this in "forall(...)".`,
+          errorMessage: `Assigned value (=) is only allowed for compile-time parameters. Use "comptime(${label})" or put this in "forall(...)".`,
         });
       }
     }
@@ -496,7 +499,7 @@ use_id :: (fn(forall(T : Type),
     };
     const existingSomeType = existingTypeValue.value;
 
-    // If there's an assigned value (from := syntax like Impl(Trait)), check if it adds new traits
+    // If there's an assigned value (from = syntax like Impl(Trait)), check if it adds new traits
     if (
       assignedValue &&
       isTypeValue(assignedValue) &&
@@ -550,7 +553,7 @@ use_id :: (fn(forall(T : Type),
         type: parameterType,
         isCompileTimeOnly: isCompileTimeOnly,
         value:
-          // If there's an assignedValue (from := syntax), use it
+          // If there's an assignedValue (from = syntax), use it
           // Otherwise use a generic unknown value for compile-time params
           assignedValue
             ? [assignedValue]
@@ -1575,11 +1578,16 @@ export function evaluateFunctionParameters({
         parameterType = VUnit.type; // Default type is VUnit
       }
 
+      const variadicTypeExpr = generateExprFromCode(
+        typeToString(parameterType)
+      );
+
       // Create the parameter object
-      variadicParameter = {
+      const createdVariadicParameter: FunctionParameter = {
         exprs: {
           expr: parameterExpr,
           labelExpr,
+          typeExpr: variadicTypeExpr,
         },
         isCompileTimeOnly,
         isQuote,
@@ -1587,6 +1595,7 @@ export function evaluateFunctionParameters({
         type: parameterType,
         isOwningTheRcValue: false,
       };
+      variadicParameter = createdVariadicParameter;
 
       if (parameterName !== "...") {
         // Add the parameter to the environment
@@ -1595,7 +1604,7 @@ export function evaluateFunctionParameters({
           variable: {
             name: parameterName,
             type: parameterType,
-            isCompileTimeOnly: variadicParameter.isCompileTimeOnly,
+            isCompileTimeOnly: createdVariadicParameter.isCompileTimeOnly,
             value: isCompileTimeOnly
               ? [
                   createUnknownValue(parameterType, {
@@ -1608,7 +1617,7 @@ export function evaluateFunctionParameters({
             token: labelExpr.token,
             initializedAtToken: labelExpr.token, // Set as initialized
             consumedAtToken: undefined, // Not consumed yet
-            isOwningTheRcValue: variadicParameter.isOwningTheRcValue,
+            isOwningTheRcValue: createdVariadicParameter.isOwningTheRcValue,
             isOwningTheSameRcValueAs: undefined, // Parameters don't borrow from other variables
             isReassignable: false, // Mark as not reassigable
           },

@@ -330,9 +330,7 @@ Got:      "${paramName}"`,
             ...expectedParam.exprs,
             expr: paramExpr,
             labelExpr: paramExpr,
-            typeExpr: preserveTypeExprs
-              ? expectedParam.exprs.typeExpr
-              : undefined,
+            typeExpr: expectedParam.exprs.typeExpr,
             defaultValueExpr: undefined, // Anonymous functions can't have default values
           },
         };

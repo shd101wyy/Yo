@@ -1020,20 +1020,10 @@ export function getFunctionParameterExprs({
 }: {
   expr: Expr;
   labelExpr: Expr | undefined;
-  typeExpr: Expr | undefined;
+  typeExpr: Expr;
   defaultValueExpr: Expr | undefined;
   assignedValueExpr: Expr | undefined;
 }): FunctionParameterExprs {
-  if (!labelExpr && !typeExpr && !defaultValueExpr && !assignedValueExpr) {
-    throw new Error(
-      `At least one of labelExpr, typeExpr, defaultValueExpr or assignedValueExpr must be defined`
-    );
-  }
-  if (!typeExpr && !defaultValueExpr && !assignedValueExpr) {
-    throw new Error(
-      `Expected either typeExpr, defaultValueExpr or assignedValueExpr to be defined`
-    );
-  }
   return {
     expr,
     labelExpr,

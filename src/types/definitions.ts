@@ -289,13 +289,13 @@ export interface TupleType extends Type {
   trait: TraitType;
 }
 
-/**
- * NOTE: For anonymous function, it might not have labelExpr, typeExpr, and defaultValueExpr.
- */
 export type FunctionParameterExprs = {
   expr: Expr;
   labelExpr?: Expr;
-  typeExpr?: Expr;
+  /**
+   * Always required to be set
+   */
+  typeExpr: Expr;
   defaultValueExpr?: Expr;
   assignedValueExpr?: Expr;
 };
@@ -329,7 +329,7 @@ export interface FunctionParameter {
    */
   exprs: FunctionParameterExprs;
   /**
-   * The assigned value for := syntax (e.g., T := Impl(Id))
+   * The assigned value for "=" syntax (e.g., (T : Type) = Impl(Id))
    * This is the constraint/value bound to the type parameter.
    * Only used for forall parameters.
    */
@@ -686,6 +686,7 @@ export interface UnionType extends Type {
 
 export interface FunctionReturn {
   type: Type;
+
   /**
    * For anonymous function implementataion, let's set `expr` to undefined.
    */
