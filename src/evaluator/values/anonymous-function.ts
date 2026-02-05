@@ -1,6 +1,7 @@
 import {
   addVariableToEnv,
   Environment,
+  keepTopLevelFrameAndComptimeVariablesFromEnv,
   popEnvFrame,
   pushEnvFrame,
 } from "../../env";
@@ -161,7 +162,6 @@ export function evaluateAnonymousFunctionImplementation({
     });
   }
 
-  const envWithoutParametersFrame = env;
   // Add parameters to environment
   env = pushEnvFrame(env);
 
@@ -336,7 +336,7 @@ Got:      "${paramName}"`,
       typeExpr: functionType.return.typeExpr,
     },
     parametersFrame: parametersFrame,
-    env: envWithoutParametersFrame, // functionType.env, // Here we need to use the functionType.env, not the current env for later CPS transformation use.
+    env: keepTopLevelFrameAndComptimeVariablesFromEnv(functionType.env),
   };
 
   // Re-apply where-clause constraints for this function body evaluation.

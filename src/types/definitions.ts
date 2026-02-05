@@ -244,6 +244,8 @@ export type FieldExprs = {
   /**
    * For example:
    *   i32 in (x: i32)
+   *
+   * We have to make `?: Expr` for anonymous struct value.
    */
   typeExpr?: Expr;
   /**
