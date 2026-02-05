@@ -3,12 +3,15 @@ open import "std/libc/stdio";
 MyBox :: object(
   value: i32
 );
-
+comptime_assert(Type.impls(MyBox, Rc));
 impl(MyBox, Dispose(
   dispose : (fn(self: Self) -> unit)({
     printf("Disposing MyBox with value: %d\n", self.value);
   })
 ));
+
+AnotherBox :: struct(value : i32);
+comptime_assert(Type.impls(AnotherBox, Rc) == false);
 
 main :: (fn() -> unit) {
   MyBox(42);

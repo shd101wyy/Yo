@@ -89,7 +89,7 @@ export function evaluateStructType({
     });
   }
 
-  // Auto-derive all applicable traits (Send, Acyclic, Comptime, Runtime)
+  // Auto-derive all applicable traits (Send, Rc, Acyclic, Comptime, Runtime)
   // and Rc functions if needed
   env = autoDeriveTraitsAndAddRcFunctionsForStructType({
     structType,

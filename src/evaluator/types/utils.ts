@@ -1202,6 +1202,31 @@ export function autoDeriveSendForStructType({
 }
 
 /**
+ * Auto-derive Rc marker trait for a struct type.
+ *
+ * For object (reference semantics):
+ * - Always auto-derive Rc.
+ *
+ * For struct (value semantics):
+ * - Never auto-derive Rc.
+ */
+export function autoDeriveRcForStructType({
+  structType,
+  env,
+  context,
+}: {
+  structType: StructType;
+  env: Environment;
+  context: EvaluatorContext;
+}): Environment {
+  if (structType.isReferenceSemantics) {
+    env = attachTraitToReceiverType("Rc", structType, env, context);
+  }
+
+  return env;
+}
+
+/**
  * Auto-derive Copy, Send marker modules for an enum type.
  *
  * - Auto-derive Send if all variant fields implement Send
@@ -1587,7 +1612,7 @@ export function autoDeriveRuntimeForTupleType({
 /**
  * Auto-derive all applicable traits for a struct type.
  * This should be called after all fields are added but before RC functions are generated.
- * Order matters: Send → Acyclic → Comptime → Runtime
+ * Order matters: Send → Rc → Acyclic → Comptime → Runtime
  *
  * Auto-generate ___drop, ___dup, and ___dispose functions if needed
  */
@@ -1604,6 +1629,13 @@ export function autoDeriveTraitsAndAddRcFunctionsForStructType({
 }): Environment {
   // Auto-derive Send trait if applicable
   env = autoDeriveSendForStructType({
+    structType,
+    env,
+    context,
+  });
+
+  // Auto-derive Rc trait for object types
+  env = autoDeriveRcForStructType({
     structType,
     env,
     context,
