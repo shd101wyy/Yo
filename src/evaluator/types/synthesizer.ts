@@ -49,27 +49,39 @@ export function canAssignTypeHierarchy(expected: Type, given: Type): boolean {
  * This prevents infinite types like T = Option(T).
  * Returns true if someType occurs in the type structure.
  */
-function occursCheck(someTypeId: string, type: Type): boolean {
+function occursCheck(
+  someTypeId: string,
+  type: Type,
+  visited: Set<string> = new Set()
+): boolean {
+  // Prevent infinite recursion on cyclic types like Node(T) → Option(Node(T)) → Node(T)
+  if (visited.has(type.id)) {
+    return false;
+  }
+  visited.add(type.id);
+
   if (isSomeType(type)) {
     return someTypeId === type.id;
   }
 
   if (isStructType(type)) {
-    return type.fields.some((el) => occursCheck(someTypeId, el.type));
+    return type.fields.some((el) => occursCheck(someTypeId, el.type, visited));
   }
 
   if (isEnumType(type)) {
     return type.variants.some((v) =>
-      v.fields ? v.fields.some((el) => occursCheck(someTypeId, el.type)) : false
+      v.fields
+        ? v.fields.some((el) => occursCheck(someTypeId, el.type, visited))
+        : false
     );
   }
 
   if (isTupleType(type)) {
-    return type.fields.some((el) => occursCheck(someTypeId, el.type));
+    return type.fields.some((el) => occursCheck(someTypeId, el.type, visited));
   }
 
   if (isArrayType(type) || isSliceType(type) || isComptimeListType(type)) {
-    return occursCheck(someTypeId, type.childType);
+    return occursCheck(someTypeId, type.childType, visited);
   }
 
   if (isPtrType(type)) {
@@ -80,22 +92,22 @@ function occursCheck(someTypeId: string, type: Type): boolean {
   }
 
   if (isIsoType(type)) {
-    return occursCheck(someTypeId, type.childType);
+    return occursCheck(someTypeId, type.childType, visited);
   }
 
   if (isFunctionType(type)) {
     return (
-      type.parameters.some((p) => occursCheck(someTypeId, p.type)) ||
-      occursCheck(someTypeId, type.return.type)
+      type.parameters.some((p) => occursCheck(someTypeId, p.type, visited)) ||
+      occursCheck(someTypeId, type.return.type, visited)
     );
   }
 
   if (isFutureTraitType(type)) {
-    return occursCheck(someTypeId, type.isFuture.outputType);
+    return occursCheck(someTypeId, type.isFuture.outputType, visited);
   }
 
   if (isFnTraitType(type)) {
-    return occursCheck(someTypeId, type.isFn.callType);
+    return occursCheck(someTypeId, type.isFn.callType, visited);
   }
 
   return false;

@@ -307,32 +307,41 @@ export function typeContainsSomeType(
  * Check if a type contains any Unknown values (e.g., array length is Unknown).
  * Used to determine if we should fully specialize a generic impl method or not.
  */
-export function typeContainsUnknownValue(type: Type): boolean {
+export function typeContainsUnknownValue(
+  type: Type,
+  visited: Set<string> = new Set()
+): boolean {
+  // Prevent infinite recursion on cyclic types
+  if (visited.has(type.id)) {
+    return false;
+  }
+  visited.add(type.id);
+
   if (isArrayType(type)) {
     if (isUnknownValue(type.length)) {
       return true;
     }
-    return typeContainsUnknownValue(type.childType);
+    return typeContainsUnknownValue(type.childType, visited);
   }
   if (isPtrType(type)) {
-    return typeContainsUnknownValue(type.childType);
+    return typeContainsUnknownValue(type.childType, visited);
   }
   if (isSliceType(type)) {
-    return typeContainsUnknownValue(type.childType);
+    return typeContainsUnknownValue(type.childType, visited);
   }
   if (isTupleType(type)) {
-    return type.fields.some((f) => typeContainsUnknownValue(f.type));
+    return type.fields.some((f) => typeContainsUnknownValue(f.type, visited));
   }
   if (isStructType(type)) {
-    return type.fields.some((f) => typeContainsUnknownValue(f.type));
+    return type.fields.some((f) => typeContainsUnknownValue(f.type, visited));
   }
   if (isEnumType(type)) {
     return type.variants.some((v) =>
-      v.fields?.some((param) => typeContainsUnknownValue(param.type))
+      v.fields?.some((param) => typeContainsUnknownValue(param.type, visited))
     );
   }
   if (isUnionType(type)) {
-    return type.fields.some((f) => typeContainsUnknownValue(f.type));
+    return type.fields.some((f) => typeContainsUnknownValue(f.type, visited));
   }
 
   // Add other cases as needed
