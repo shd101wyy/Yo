@@ -304,7 +304,21 @@ function evaluateImplFieldList({
     }
 
     // Field definition: name : value
-    if (exprIsFunctionCall(expr) && exprIsFunctionCallOf(expr, ":", 2)) {
+    if (
+      exprIsFunctionCall(expr) &&
+      (exprIsFunctionCallOf(expr, ":", 2) ||
+        exprIsFunctionCallOf(expr, "::", 2) ||
+        exprIsFunctionCallOf(expr, ":=", 2))
+    ) {
+      if (
+        exprIsFunctionCallOf(expr, "::", 2) ||
+        exprIsFunctionCallOf(expr, ":=", 2)
+      ) {
+        throw formatErrorMessage({
+          token: expr.token,
+          errorMessage: `impl fields must be compile-time values. Use ":" instead.`,
+        });
+      }
       const labelExpr = expr.args[0]!;
       const valueExpr = expr.args[1]!;
 

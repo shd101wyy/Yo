@@ -48,7 +48,7 @@ impl(forall(T : Type), ArrayList(T),
     * Get a pointer to the underlying data buffer
     * Returns .None if the list is empty or has no allocated buffer
     */
-  _ptr : (fn(self: Self) -> ?*(T))(
+  ptr : (fn(self: Self) -> ?*(T))(
     self._ptr
   ),
 
@@ -98,9 +98,9 @@ impl(forall(T : Type), ArrayList(T),
       true => {
         ptr_result := malloc(sizeof(T) * cap);
         match(ptr_result,
-          .Some(ptr) =>
+          .Some(_ptr) =>
             Self(
-              _ptr: .Some((*(T))(ptr)),
+              _ptr: .Some((*(T))(_ptr)),
               _length: usize(0),
               _capacity: cap
             ),
@@ -147,8 +147,8 @@ impl(forall(T : Type), ArrayList(T),
       true =>
         // Have capacity - just add the element
         match(self._ptr,
-          .Some(ptr) => {
-            target_ptr := *(T)(*(void)(ptr) + self._length);
+          .Some(_ptr) => {
+            target_ptr := *(T)(*(void)(_ptr) + self._length);
             consume(target_ptr.* = value);
             self._length = (self._length + usize(1));
             .Ok(())
@@ -168,8 +168,8 @@ impl(forall(T : Type), ArrayList(T),
         self._length = (self._length - usize(1));
         match(self._ptr,
           .None => .None,
-          .Some(ptr) => {
-            last_element_ptr := *(T)(*(void)(ptr) + self._length);
+          .Some(_ptr) => {
+            last_element_ptr := *(T)(*(void)(_ptr) + self._length);
             last_element := last_element_ptr.*;
             // Drop the slot's reference since it's no longer tracked
             // (length was decremented, so dispose won't reach this slot)
@@ -190,7 +190,7 @@ impl(forall(T : Type), ArrayList(T),
       true =>
         match(self._ptr,
           .None => .None,
-          .Some(ptr) => .Some(*(T)(*(void)(ptr) + index).*)
+          .Some(_ptr) => .Some(*(T)(*(void)(_ptr) + index).*)
         )
     )
   ),
@@ -206,8 +206,8 @@ impl(forall(T : Type), ArrayList(T),
       true =>
         match(self._ptr,
           .None => panic("ArrayList has length but no ptr"),
-          .Some(ptr) => {
-            target_ptr := *(T)(*(void)(ptr) + index);
+          .Some(_ptr) => {
+            target_ptr := *(T)(*(void)(_ptr) + index);
             target_ptr.* = value;
             .Ok(())
           }
@@ -228,8 +228,8 @@ impl(forall(T : Type), ArrayList(T),
         cond(
           (self._length == usize(0)) => {
             match(self._ptr,
-              .Some(ptr) => {
-                GlobalAllocator.free(.Some(*(void)(ptr)));
+              .Some(_ptr) => {
+                GlobalAllocator.free(.Some(*(void)(_ptr)));
                 self._ptr = .None;
                 self._capacity = usize(0);
               },
@@ -297,15 +297,15 @@ impl(forall(T : Type), ArrayList(T),
           true =>
             match(self._ptr,
               .None => panic("ArrayList has length but no ptr"),
-              .Some(ptr) => {
+              .Some(_ptr) => {
                 // Shift remaining elements left to fill the gap
                 // We need to move elements from [start + actual_count, length) to [start, ...)
                 elements_after := ((self._length - start) - actual_count);
                 new_length := (self._length - actual_count);
                 cond(
                   (elements_after > usize(0)) => {
-                    src_ptr := *(T)(*(void)(ptr) + (start + actual_count));
-                    dst_ptr := *(T)(*(void)(ptr) + start);
+                    src_ptr := *(T)(*(void)(_ptr) + (start + actual_count));
+                    dst_ptr := *(T)(*(void)(_ptr) + start);
                     
                     cond(
                       Type.contains_rc_type(T) => {
@@ -325,7 +325,7 @@ impl(forall(T : Type), ArrayList(T),
                         tail_start := (start + elements_after);
                         tail_count := actual_count;
                         while(j < tail_count, j = (j + usize(1)), {
-                          tail_ptr := *(T)(*(void)(ptr) + (tail_start + j));
+                          tail_ptr := *(T)(*(void)(_ptr) + (tail_start + j));
                           unsafe.drop(tail_ptr.*);
                         });
                       },
@@ -345,7 +345,7 @@ impl(forall(T : Type), ArrayList(T),
                       Type.contains_rc_type(T) => {
                         i := usize(0);
                         while(i < actual_count, i = (i + usize(1)), {
-                          element_ptr := *(T)(*(void)(ptr) + (start + i));
+                          element_ptr := *(T)(*(void)(_ptr) + (start + i));
                           unsafe.drop(element_ptr.*);
                         });
                       },
@@ -429,10 +429,10 @@ impl(forall(T : Type), ArrayList(T),
     */
   dispose : (fn(self: Self) -> unit)({
     match(self._ptr,
-      .Some(ptr) => {
+      .Some(_ptr) => {
         Self._free_elements(self);
         self._length = usize(0);
-        GlobalAllocator.free(.Some(*(void)(ptr)));
+        GlobalAllocator.free(.Some(*(void)(_ptr)));
         self._ptr = .None;
       },
       .None => ()

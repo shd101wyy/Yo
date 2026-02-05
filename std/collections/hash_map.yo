@@ -464,7 +464,7 @@ impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash)), HashMap(K, V),
           // Drop the bucket's value extra ref (we duped it above)
           unsafe.drop(bucket_ptr.*.value);
           
-          (CtrlPtrType)(*(void)(ctrl_ptr) + index).* = CTRL_DELETED;
+          (Self._CtrlPtrType)(*(void)(ctrl_ptr) + index).* = CTRL_DELETED;
           self.size = (self.size - usize(1));
           
           .Some(value)
