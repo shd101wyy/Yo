@@ -8,6 +8,7 @@ import {
 } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
+  BuiltinFunctions,
   BuiltinKeywords,
   cloneExpr,
   Expr,
@@ -39,6 +40,7 @@ import {
   isFunctionType,
   isSliceType,
   isSomeType,
+  isStructType,
   isTraitType,
   isType0,
 } from "../../types/guards";
@@ -64,6 +66,7 @@ import {
   typeImplementsTrait,
 } from "../trait-checking";
 import { synthesizeTypes } from "../types/synthesizer";
+import { addRcFunctionsToStructType } from "../types/utils";
 import { isValidVariableName } from "../utils";
 import { evaluateAnonymousModuleBeginExprs } from "./anonymous-module";
 
@@ -1835,6 +1838,19 @@ export function evaluateModuleValue({
       } else {
         attachTraitToReceiverType(traitValue, expr, context.currentModulePath);
       }
+    }
+
+    if (
+      isStructType(receiverType) &&
+      receiverType.trait?.fields.some(
+        (field) => field.label === BuiltinFunctions.dispose[0]
+      )
+    ) {
+      env = addRcFunctionsToStructType({
+        structType: receiverType,
+        env,
+        context,
+      });
     }
 
     const primaryTraitValue = traitEntries[0]!.traitValue;
