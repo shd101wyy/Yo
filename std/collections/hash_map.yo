@@ -98,9 +98,6 @@ HashMap :: (fn(
 ;
 
 impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash)), HashMap(K, V),
-  _CtrlPtrType : *(u8),
-  _DataPtrType : *(Bucket(K, V)),
-
   /**
     * Allocate memory for HashMap with given capacity
     * Initializes all control bytes to EMPTY
@@ -115,7 +112,7 @@ impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash)), HashMap(K, V),
       match(ctrl_result,
         .None => .Err(.AllocError(error: .OutOfMemory)),
         .Some(ctrl_void_ptr) => {
-          ctrl_ptr := Self._CtrlPtrType(ctrl_void_ptr);
+          ctrl_ptr := *(u8)(ctrl_void_ptr);
           
           data_result := malloc(data_size);
           match(data_result,
@@ -128,7 +125,7 @@ impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash)), HashMap(K, V),
               
               i := usize(0);
               while(i < capacity, i = (i + usize(1)), {
-                Self._CtrlPtrType(*(void)(ctrl_ptr) + i).* = CTRL_EMPTY;
+                (ctrl_ptr &+ i).* = CTRL_EMPTY;
               });
               
               .Ok(Self(
@@ -217,14 +214,14 @@ impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash)), HashMap(K, V),
       
       while(probe < self.capacity, probe = (probe + usize(1)), {
         probe_index := ((index + probe) % self.capacity);
-        ctrl_byte := Self._CtrlPtrType(*(void)(ctrl_ptr) + probe_index).*;
+        ctrl_byte := (ctrl_ptr &+ probe_index).*;
         
         cond(
           (ctrl_byte == CTRL_EMPTY) => {
             return .None;
           },
           (ctrl_byte == h2) => {
-            bucket := Self._DataPtrType(*(void)(data_ptr) + probe_index).*;
+            bucket := (data_ptr &+ probe_index).*;
             cond(
               (bucket.key == key) => {
                 return .Some(probe_index);
@@ -252,7 +249,7 @@ impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash)), HashMap(K, V),
       
       while(probe < self.capacity, probe = (probe + usize(1)), {
         probe_index := ((index + probe) % self.capacity);
-        ctrl_byte := Self._CtrlPtrType(*(void)(ctrl_ptr) + probe_index).*;
+        ctrl_byte := (ctrl_ptr &+ probe_index).*;
         
         cond(
           ((ctrl_byte == CTRL_EMPTY) || (ctrl_byte == CTRL_DELETED)) => {
@@ -289,18 +286,18 @@ impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash)), HashMap(K, V),
           ctrl_ptr := Self._ctrl_ptr(self);
           data_ptr := Self._data_ptr(self);
           while(i < self.capacity, i = (i + usize(1)), {
-            ctrl_byte := Self._CtrlPtrType(*(void)(ctrl_ptr) + i).*;
+            ctrl_byte := (ctrl_ptr &+ i).*;
             cond(
               ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-                bucket := Self._DataPtrType(*(void)(data_ptr) + i).*;
+                bucket := (data_ptr &+ i).*;
                 hash := (bucket.key).hash();
                 h2 := h2_hash(hash);
                 new_index := Self._find_insert_bucket(new_map, hash);
                 
                 new_ctrl_ptr := Self._ctrl_ptr(new_map);
                 new_data_ptr := Self._data_ptr(new_map);
-                Self._CtrlPtrType(*(void)(new_ctrl_ptr) + new_index).* = h2;
-                consume(Self._DataPtrType(*(void)(new_data_ptr) + new_index).* = bucket);
+                (new_ctrl_ptr &+ new_index).* = h2;
+                consume((new_data_ptr &+ new_index).* = bucket);
                 new_map.size = (new_map.size + usize(1));
               },
               true => ()
@@ -313,10 +310,10 @@ impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash)), HashMap(K, V),
             (Type.contains_rc_type(K) || Type.contains_rc_type(V)) => {
               j := usize(0);
               while(j < self.capacity, j = (j + usize(1)), {
-                ctrl_byte := Self._CtrlPtrType(*(void)(ctrl_ptr) + j).*;
+                ctrl_byte := (ctrl_ptr &+ j).*;
                 cond(
                   ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-                    bucket_ptr := Self._DataPtrType(*(void)(data_ptr) + j);
+                    bucket_ptr := (data_ptr &+ j);
                     cond(
                       Type.contains_rc_type(K) => unsafe.drop((bucket_ptr.*).key),
                       true => ()
@@ -367,7 +364,7 @@ impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash)), HashMap(K, V),
       match(bucket_opt,
         .Some(index) => {
           data_ptr := Self._data_ptr(self);
-          old_bucket := Self._DataPtrType(*(void)(data_ptr) + index).*;
+          old_bucket := (data_ptr &+ index).*;
           old_value := old_bucket.value;
           new_bucket := Bucket(K, V)(key: key, value: value);
           // Don't use consume here - we want to drop the old bucket at memory
@@ -375,7 +372,7 @@ impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash)), HashMap(K, V),
           // Then old_bucket goes out of scope and drops again to RC=0
           // But wait - we return old_value which was duped from old_bucket...
           // Actually the Bucket struct contains RC types, so assignment drops old + dups new
-          Self._DataPtrType(*(void)(data_ptr) + index).* = new_bucket;
+          (data_ptr &+ index).* = new_bucket;
           .Ok(.Some(old_value))
         },
         .None => {
@@ -395,9 +392,9 @@ impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash)), HashMap(K, V),
               
               ctrl_ptr := Self._ctrl_ptr(self);
               data_ptr := Self._data_ptr(self);
-              Self._CtrlPtrType(*(void)(ctrl_ptr) + index).* = h2;
+              (ctrl_ptr &+ index).* = h2;
               new_bucket := Bucket(K, V)(key: key, value: value);
-              consume(Self._DataPtrType(*(void)(data_ptr) + index).* = new_bucket);
+              consume((data_ptr &+ index).* = new_bucket);
               self.size = (self.size + usize(1));
               
               .Ok(.None)
@@ -419,7 +416,7 @@ impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash)), HashMap(K, V),
       match(bucket_opt,
         .Some(index) => {
           data_ptr := Self._data_ptr(self);
-          bucket := Self._DataPtrType(*(void)(data_ptr) + index).*;
+          bucket := (data_ptr &+ index).*;
           .Some(bucket.value)
         },
         .None => .None
@@ -453,7 +450,7 @@ impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash)), HashMap(K, V),
         .Some(index) => {
           data_ptr := Self._data_ptr(self);
           ctrl_ptr := Self._ctrl_ptr(self);
-          bucket_ptr := Self._DataPtrType(*(void)(data_ptr) + index);
+          bucket_ptr := (data_ptr &+ index);
           
           // Read and dup value for return
           value := bucket_ptr.*.value;
@@ -464,7 +461,7 @@ impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash)), HashMap(K, V),
           // Drop the bucket's value extra ref (we duped it above)
           unsafe.drop(bucket_ptr.*.value);
           
-          (Self._CtrlPtrType)(*(void)(ctrl_ptr) + index).* = CTRL_DELETED;
+          (ctrl_ptr &+ index).* = CTRL_DELETED;
           self.size = (self.size - usize(1));
           
           .Some(value)
@@ -501,10 +498,10 @@ impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash)), HashMap(K, V),
           data_ptr := Self._data_ptr(self);
           i := usize(0);
           while(i < self.capacity, i = (i + usize(1)), {
-            ctrl_byte := Self._CtrlPtrType(*(void)(ctrl_ptr) + i).*;
+            ctrl_byte := (ctrl_ptr &+ i).*;
             cond(
               ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-                bucket_ptr := Self._DataPtrType(*(void)(data_ptr) + i);
+                bucket_ptr := (data_ptr &+ i);
                 unsafe.drop(bucket_ptr.*);
               },
               true => ()
@@ -517,7 +514,7 @@ impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash)), HashMap(K, V),
       ctrl_ptr := Self._ctrl_ptr(self);
       i := usize(0);
       while(i < self.capacity, i = (i + usize(1)), {
-        Self._CtrlPtrType(*(void)(ctrl_ptr) + i).* = CTRL_EMPTY;
+        (ctrl_ptr &+ i).* = CTRL_EMPTY;
       });
       self.size = usize(0);
     }
@@ -538,10 +535,10 @@ impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash)), HashMap(K, V),
                 .Some(data_ptr) => {
                   i := usize(0);
                   while(i < self.capacity, i = (i + usize(1)), {
-                    ctrl_byte := Self._CtrlPtrType(*(void)(ctrl_ptr) + i).*;
+                    ctrl_byte := (ctrl_ptr &+ i).*;
                     cond(
                       ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-                        bucket_ptr := Self._DataPtrType(*(void)(data_ptr) + i);
+                        bucket_ptr := (data_ptr &+ i);
                         unsafe.drop(bucket_ptr.*);
                       },
                       true => ()

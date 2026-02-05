@@ -244,7 +244,7 @@ cwd :: (fn() -> Result(Path, String))(
                     },
                     true => {
                       // Add null terminator
-                      *(u8)(*(void)(utf8_buf) + usize(result)).* = u8(0);
+                      (utf8_buf &+ usize(result)).* = u8(0);
                       cwd_str := String.from_cstr(utf8_buf).unwrap();
                       free(.Some(*(void)(utf8_buf)));
                       .Ok(Path.new(cwd_str))

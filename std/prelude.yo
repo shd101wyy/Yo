@@ -3082,6 +3082,8 @@ impl(forall(T : Type), where(T <: Send), *(T), Send());
 impl(forall(T : Type), *(T), Acyclic());
 impl(forall(T : Type), where(T <: Comptime), *(T), Comptime());
 impl(forall(T : Type), where(T <: Runtime), *(T), Runtime());
+/*
+// NOTE: Below should give eror, as C disallows pointer arithmetic on void pointers.
 impl(*(void), Add(usize, *(void))(
   (+) : ((lhs, rhs) -> __yo_ptr_add(lhs, rhs))
 ));
@@ -3101,6 +3103,36 @@ impl(*(void), Ord(*(void))(
   (>) : ((lhs, rhs) -> __yo_ptr_gt(lhs, rhs)),
   (>=) : ((lhs, rhs) -> __yo_ptr_gte(lhs, rhs))
 ));
+*/
+impl(forall(T : Type), *(T),
+  (&+) : (fn(self : Self, offset : usize) -> Self)(
+    __yo_ptr_add(self, offset)
+  ),
+  (&-) : (fn(self : Self, offset : usize) -> Self)(
+    __yo_ptr_sub(self, offset)
+  ),
+  (&==) : (fn(self : Self, another : Self) -> bool)(
+    __yo_ptr_eq(self, another)
+  ),
+  (&!=) : (fn(self : Self, another : Self) -> bool)(
+    __yo_ptr_neq(self, another)
+  ),
+  (&<) : (fn(self : Self, another : Self) -> bool)(
+    __yo_ptr_lt(self, another)
+  ),
+  (&<=) : (fn(self : Self, another : Self) -> bool)(
+    __yo_ptr_lte(self, another)
+  ),
+  (&>) : (fn(self : Self, another : Self) -> bool)(
+    __yo_ptr_gt(self, another)
+  ),
+  (&>=) : (fn(self : Self, another : Self) -> bool)(
+    __yo_ptr_gte(self, another)
+  ),
+  (&/) : (fn(self : Self, another : Self) -> isize)(
+    __yo_ptr_diff(self, another)
+  )
+);
 
 /// Array
 impl(forall(T : Type, U : usize), where(T <: Send), Array(T, U), Send());

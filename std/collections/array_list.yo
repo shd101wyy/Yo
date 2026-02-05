@@ -136,7 +136,7 @@ impl(forall(T : Type), ArrayList(T),
             self._ptr = .Some(typed_ptr);
             self._capacity = new_capacity;
             // Now add the element at position length
-            target_ptr := *(T)(*(void)(typed_ptr) + self._length);
+            target_ptr := (typed_ptr &+ self._length);
             consume(target_ptr.* = value);
             self._length = (self._length + usize(1));
             .Ok(())
@@ -148,7 +148,7 @@ impl(forall(T : Type), ArrayList(T),
         // Have capacity - just add the element
         match(self._ptr,
           .Some(_ptr) => {
-            target_ptr := *(T)(*(void)(_ptr) + self._length);
+            target_ptr := (_ptr &+ self._length);
             consume(target_ptr.* = value);
             self._length = (self._length + usize(1));
             .Ok(())
@@ -169,7 +169,7 @@ impl(forall(T : Type), ArrayList(T),
         match(self._ptr,
           .None => .None,
           .Some(_ptr) => {
-            last_element_ptr := *(T)(*(void)(_ptr) + self._length);
+            last_element_ptr := (_ptr &+ self._length);
             last_element := last_element_ptr.*;
             // Drop the slot's reference since it's no longer tracked
             // (length was decremented, so dispose won't reach this slot)
@@ -190,7 +190,7 @@ impl(forall(T : Type), ArrayList(T),
       true =>
         match(self._ptr,
           .None => .None,
-          .Some(_ptr) => .Some(*(T)(*(void)(_ptr) + index).*)
+          .Some(_ptr) => .Some((_ptr &+ index).*)
         )
     )
   ),
@@ -207,7 +207,7 @@ impl(forall(T : Type), ArrayList(T),
         match(self._ptr,
           .None => panic("ArrayList has length but no ptr"),
           .Some(_ptr) => {
-            target_ptr := *(T)(*(void)(_ptr) + index);
+            target_ptr := (_ptr &+ index);
             target_ptr.* = value;
             .Ok(())
           }
@@ -265,7 +265,7 @@ impl(forall(T : Type), ArrayList(T),
         i := usize(0);
         base_ptr := self._ptr.unwrap();
         while(i < self._length, i = (i + usize(1)), {
-          element_ptr := *(T)(*(void)(base_ptr) + i);
+          element_ptr := (base_ptr &+ i);
           unsafe.drop(element_ptr.*);
         });
       },
@@ -304,8 +304,8 @@ impl(forall(T : Type), ArrayList(T),
                 new_length := (self._length - actual_count);
                 cond(
                   (elements_after > usize(0)) => {
-                    src_ptr := *(T)(*(void)(_ptr) + (start + actual_count));
-                    dst_ptr := *(T)(*(void)(_ptr) + start);
+                    src_ptr := (_ptr &+ (start + actual_count));
+                    dst_ptr := (_ptr &+ start);
                     
                     cond(
                       Type.contains_rc_type(T) => {
@@ -316,8 +316,8 @@ impl(forall(T : Type), ArrayList(T),
                         // 3. Write to dst.*
                         i := usize(0);
                         while(i < elements_after, i = (i + usize(1)), {
-                          dst := *(T)(*(void)(dst_ptr) + i);
-                          src := *(T)(*(void)(src_ptr) + i);
+                          dst := (dst_ptr &+ i);
+                          src := (src_ptr &+ i);
                           dst.* = src.*;
                         });
                         // Drop the non-overlapping tail stale pointers
@@ -325,7 +325,7 @@ impl(forall(T : Type), ArrayList(T),
                         tail_start := (start + elements_after);
                         tail_count := actual_count;
                         while(j < tail_count, j = (j + usize(1)), {
-                          tail_ptr := *(T)(*(void)(_ptr) + (tail_start + j));
+                          tail_ptr := (_ptr &+ (tail_start + j));
                           unsafe.drop(tail_ptr.*);
                         });
                       },
@@ -345,7 +345,7 @@ impl(forall(T : Type), ArrayList(T),
                       Type.contains_rc_type(T) => {
                         i := usize(0);
                         while(i < actual_count, i = (i + usize(1)), {
-                          element_ptr := *(T)(*(void)(_ptr) + (start + i));
+                          element_ptr := (_ptr &+ (start + i));
                           unsafe.drop(element_ptr.*);
                         });
                       },
@@ -398,8 +398,8 @@ impl(forall(T : Type), ArrayList(T),
                     // Copy elements
                     i := usize(0);
                     while(i < slice_length, i = (i + usize(1)), {
-                      src := *(T)(*(void)(src_ptr) + (start + i));
-                      dst := *(T)(*(void)(dst_ptr) + i);
+                      src := (src_ptr &+ (start + i));
+                      dst := (dst_ptr &+ i);
                       dst.* = src.*;
                     });
                     
