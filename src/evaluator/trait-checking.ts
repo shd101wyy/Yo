@@ -453,6 +453,29 @@ export function typeImplementsSend(
 }
 
 /**
+ * Check if a type implements the Dispose trait.
+ */
+export function typeImplementsDispose(
+  type: Type | undefined,
+  env: Environment
+): boolean {
+  if (!type) {
+    return false;
+  }
+
+  const disposeTraitType = getTraitTypeFromEnv(env, "Dispose");
+  if (!disposeTraitType) {
+    return false;
+  }
+
+  return typeImplementsTrait({
+    targetType: type,
+    traitType: disposeTraitType,
+    env,
+  });
+}
+
+/**
  * Check if a type implements the Acyclic trait.
  *
  * Acyclic types cannot form reference cycles through reference counting.
