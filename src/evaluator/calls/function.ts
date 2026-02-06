@@ -543,10 +543,13 @@ export function evaluateFunctionCall({
   // 1. Type constructors (Box, Vec, etc.) - they return TypeHierarchyType and need forall resolution
   // 2. Functions with forall parameters - they need checking to resolve type parameters from context
   // 3. Functions with where clauses - they need checking to verify constraints
+  // 4. Macro functions (return.isUnquote) - they must be executed to expand the macro and
+  //    determine the actual result type (otherwise the type remains Expr instead of the expanded type)
   const isNonTypeCtfeFunction =
     functions.length === 1 &&
     isFunctionType(functions[0]!.type) &&
     functions[0]!.type.return.isCompileTimeOnly &&
+    !functions[0]!.type.return.isUnquote &&
     !isTypeHierarchyType(functions[0]!.type.return.type) &&
     functions[0]!.type.forallParameters.length === 0; // Don't skip if has forall params
 
