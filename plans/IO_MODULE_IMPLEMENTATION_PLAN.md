@@ -19,9 +19,18 @@ The `std/io` module provides Yo's low-level async I/O foundation. It sits betwee
 | **Externs**          | `std/io/externs.yo`   | ✅ Complete | All C extern function declarations               |
 | **Statx**            | `std/io/statx.yo`     | ✅ Complete | File metadata accessor object                    |
 | **Timer**            | `std/io/timer.yo`     | ✅ Complete | `sleep(ms)`, `timeout(ms)`                       |
-| **Index**            | `std/io/index.yo`     | ✅ Complete | Re-exports all submodules                        |
+| **File**             | `std/io/file.yo`      | ✅ Complete | Async+sync file ops (openat, read, write, etc.)  |
+| **Index**            | `std/io/index.yo`     | ❌ Removed  | Users import submodules directly                 |
 
-### C Runtime Status (in `src/codegen/async/runtime.ts`)
+### C Runtime Status (in `src/codegen/async/runtime*.ts`)
+
+The runtime has been refactored into 4 modules:
+
+- `runtime.ts` — Thin coordinator that calls the others
+- `runtime-core.ts` — Core scheduler (continuation queue, spawn, wait, concurrency helpers)
+- `runtime-io-linux.ts` — Linux io_uring async I/O
+- `runtime-io-macos.ts` — macOS GCD async I/O
+- `runtime-io-common.ts` — Cross-platform stat helpers, timer, file extras, DNS, signals, TTY, FS events, poll
 
 | Category                   | Linux (io_uring)      | macOS (dispatch_io) | Windows (IOCP)         |
 | -------------------------- | --------------------- | ------------------- | ---------------------- |
@@ -54,6 +63,9 @@ The `std/io` module provides Yo's low-level async I/O foundation. It sits betwee
 
 - ✅ **errno naming conflict**: Enum variant destructuring (`.Other(errno)`) now properly sanitizes variable names in C codegen to avoid conflicts with C's `errno` macro.
 - ✅ **Timer resource leak (Linux)**: timerfd and read buffer are now properly tracked and cleaned up via `dispose_fn` on an extended future struct.
+- ✅ **Bitwise OR on c_include constants**: `c_include` constants (O_WRONLY, O_CREAT, etc.) had `UnknownValue` causing `ComptimeBitOr` to be selected. Fixed in `identifer-and-operator.ts` to treat extern "c" unknowns as runtime values.
+- ✅ **Barrel re-export removed**: `std/io/index.yo` removed to avoid naming conflicts. Users now import submodules directly: `import "std/io/file"`, `import "std/io/timer"`, etc.
+- ✅ **Runtime refactored**: 4012-line `runtime.ts` split into 4 focused modules for maintainability.
 
 ---
 
@@ -61,9 +73,11 @@ The `std/io` module provides Yo's low-level async I/O foundation. It sits betwee
 
 **Goal**: Provide ergonomic async file operations that wrap the low-level externs.
 
-### 1.1 Create `std/io/file.yo` — Async File Operations
+### 1.1 Create `std/io/file.yo` — Async File Operations ✅
 
-Wraps the extern functions into safe, Result-returning async functions:
+Wraps the extern functions into safe async functions. Implemented with both async operations (openat, close, read, write, statx, fsync, fdatasync, ftruncate) and sync helpers (open_sync, close_sync, file_size). Tests in `tests/io/file.test.yo`.
+
+Original plan:
 
 ```yo
 // std/io/file.yo
@@ -90,31 +104,13 @@ fsync :: (fn(fd: i32) -> IOFuture)(...);
 truncate :: (fn(fd: i32, length: i64) -> IOFuture)(...);
 ```
 
-### 1.2 Create `std/io/dir.yo` — Async Directory Operations
+### 1.2 Create `std/io/dir.yo` — Async Directory Operations ✅
 
-```yo
-// std/io/dir.yo
+Wraps extern directory functions into async operations. All functions take `AT_FDCWD` for relative paths. Uses `AT_REMOVEDIR` flag with `unlink` for removing directories. Tests in `tests/io/dir.test.yo`.
 
-// Create a directory
-mkdir :: (fn(dirfd: i32, path: *(u8), mode: i32) -> IOFuture)(...);
+**Import pattern**: Use namespace import (`dir :: import "std/io/dir"`) to avoid naming conflicts with libc's `rename` brought in by `open import "std/libc/stdio"`.
 
-// Remove a file or directory
-unlink :: (fn(dirfd: i32, path: *(u8), flags: i32) -> IOFuture)(...);
-
-// Remove a directory (use unlink with AT_REMOVEDIR flag)
-
-// Rename/move a file
-rename :: (fn(olddirfd: i32, oldpath: *(u8), newdirfd: i32, newpath: *(u8)) -> IOFuture)(...);
-
-// Create a symbolic link
-symlink :: (fn(target: *(u8), newdirfd: i32, linkpath: *(u8)) -> IOFuture)(...);
-
-// Create a hard link
-link :: (fn(olddirfd: i32, oldpath: *(u8), newdirfd: i32, newpath: *(u8), flags: i32) -> IOFuture)(...);
-
-// Read a symbolic link target
-readlink :: (fn(dirfd: i32, path: *(u8), buf: *(u8), bufsize: usize) -> IOFuture)(...);
-```
+Implemented functions: `mkdir`, `unlink`, `rename`, `symlink`, `link`, `readlink`.
 
 ### 1.3 Implement `getdents`/directory listing in C Runtime
 
@@ -453,18 +449,17 @@ For cross-platform validation:
 
 ```
 std/io/
-  index.yo         ← Module entry point (re-exports)
   constants.yo     ← FS constants (modes, flags, etc.)    ✅
   errors.yo        ← IOError enum                         ✅
   future.yo        ← IOFuture type                        ✅
   externs.yo       ← C extern declarations                ✅
   socket.yo        ← Socket constants                     ✅
   signals.yo       ← Signal constants                     ✅
-  events.yo        ← TTY/poll/FS event constants          ✅
+  events.yo        ← TTY/poll/FS event constants           ✅
   statx.yo         ← File metadata accessors              ✅
   timer.yo         ← sleep, timeout                       ✅
-  file.yo          ← Async file operations                Phase 1
-  dir.yo           ← Async directory operations           Phase 1
+  file.yo          ← Async file operations                ✅
+  dir.yo           ← Async directory operations           ✅
   tcp.yo           ← TCP socket operations                Phase 2
   udp.yo           ← UDP socket operations                Phase 2
   addr.yo          ← Socket address helpers               Phase 2
@@ -481,6 +476,8 @@ std/io/
 - **macOS sync wrappers**: Many macOS operations (mkdir, stat, rename, etc.) use synchronous POSIX calls wrapped in completed futures. This is acceptable because these operations are fast and `dispatch_io` only supports read/write. A future optimization could use `dispatch_async` on a global queue to avoid blocking the event loop for slow operations.
 
 - **Windows IOCP model**: Unlike io_uring (which can do arbitrary syscalls async), IOCP only supports file handles opened with `FILE_FLAG_OVERLAPPED`. Directory operations, stat, chmod, etc. will use sync wrappers like macOS.
+
+- **Import pattern**: No barrel re-export. Import specific submodules: `{ openat, read } :: import "std/io/file"`, `{ sleep } :: import "std/io/timer"`, etc. Use destructured imports, not namespace access (e.g. `io.O_RDONLY`), for c_include constants to avoid codegen issues.
 
 - **`*(u8)` not `str` for paths**: The low-level `std/io` functions use `*(u8)` raw pointers to match the C extern signatures directly. `str` is a higher-level newtype wrapping `Slice(u8)` — the `std/fs` module will accept `str` and extract the pointer before calling into `std/io`.
 

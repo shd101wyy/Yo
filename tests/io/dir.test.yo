@@ -8,11 +8,7 @@ open import "std/libc/stdio";
 } :: import "std/io/file";
 dir :: import "std/io/dir";
 
-main :: (fn() -> unit) {
-  // =========================================================================
-  // Test 1: Async mkdir, then remove directory
-  // =========================================================================
-  printf("Test 1: async mkdir and rmdir\n");
+test "async mkdir and rmdir", {
   async {
     dir_path := *(u8)("/tmp/yo_io_dir_test");
     unlink_result := await dir.unlink(AT_FDCWD, dir_path, AT_REMOVEDIR);
@@ -23,13 +19,10 @@ main :: (fn() -> unit) {
     rm_result := await dir.unlink(AT_FDCWD, dir_path, AT_REMOVEDIR);
     printf("  rmdir = %d\n", rm_result);
     assert(rm_result == i32(0));
-    printf("  passed!\n");
   };
+};
 
-  // =========================================================================
-  // Test 2: mkdir on existing dir returns -EEXIST
-  // =========================================================================
-  printf("Test 2: mkdir existing returns error\n");
+test "mkdir existing returns -EEXIST", {
   async {
     dir_path := *(u8)("/tmp/yo_io_dir_test2");
     await dir.unlink(AT_FDCWD, dir_path, AT_REMOVEDIR);
@@ -39,13 +32,10 @@ main :: (fn() -> unit) {
     printf("  mkdir existing = %d\n", mk2);
     assert(mk2 < i32(0));
     await dir.unlink(AT_FDCWD, dir_path, AT_REMOVEDIR);
-    printf("  passed!\n");
   };
+};
 
-  // =========================================================================
-  // Test 3: Async rename
-  // =========================================================================
-  printf("Test 3: async rename\n");
+test "async rename", {
   async {
     old_path := *(u8)("/tmp/yo_io_rename_src");
     new_path := *(u8)("/tmp/yo_io_rename_dst");
@@ -76,29 +66,23 @@ main :: (fn() -> unit) {
     await close(new_open);
     free(.Some(*(void)(buf)));
     await dir.unlink(AT_FDCWD, new_path, i32(0));
-    printf("  passed!\n");
   };
+};
 
-  // =========================================================================
-  // Test 4: Async symlink and readlink
-  // =========================================================================
-  printf("Test 4: async symlink and readlink\n");
+test "async symlink and readlink", {
   async {
     target := *(u8)("/tmp/yo_io_symlink_target");
     link_path := *(u8)("/tmp/yo_io_symlink_link");
-    r1 := await dir.unlink(AT_FDCWD, link_path, i32(0));
-    printf("  cleanup link = %d\n", r1);
-    r2 := await dir.unlink(AT_FDCWD, target, i32(0));
-    printf("  cleanup target = %d\n", r2);
+    await dir.unlink(AT_FDCWD, link_path, i32(0));
+    await dir.unlink(AT_FDCWD, target, i32(0));
     write_flags := ((O_WRONLY | O_CREAT) | O_TRUNC);
     fd := await openat(AT_FDCWD, target, write_flags, i32(0o644));
     printf("  openat = %d\n", fd);
     assert(fd >= i32(0));
     data := *(u8)("symlink target");
     wr := await write(fd, data, u32(14), u64(0));
-    printf("  write = %d\n", wr);
-    cl := await close(fd);
-    printf("  close = %d\n", cl);
+    assert(wr == i32(14));
+    await close(fd);
     sym_result := await dir.symlink(target, AT_FDCWD, link_path);
     printf("  symlink = %d\n", sym_result);
     assert(sym_result == i32(0));
@@ -106,7 +90,6 @@ main :: (fn() -> unit) {
     rl_result := await dir.readlink(AT_FDCWD, link_path, readlink_buf, usize(256));
     printf("  readlink = %d\n", rl_result);
     assert(rl_result > i32(0));
-    printf("  first byte = %d\n", i32((readlink_buf &+ usize(0)).*));
     assert((readlink_buf &+ usize(0)).* == u8(47));
     fd2 := await openat(AT_FDCWD, link_path, O_RDONLY, i32(0));
     printf("  open via link = %d\n", fd2);
@@ -121,9 +104,5 @@ main :: (fn() -> unit) {
     free(.Some(*(void)(read_buf)));
     await dir.unlink(AT_FDCWD, link_path, i32(0));
     await dir.unlink(AT_FDCWD, target, i32(0));
-    printf("  passed!\n");
   };
-
-  printf("All dir tests passed!\n");
 };
-export main;
