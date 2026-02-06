@@ -31,6 +31,10 @@ Or you can run `./yo-cli compile src/tests/fixme.yo --release -o a.out && ./a.ou
 
 For debugging running command, always use `| head` or `| tail` to limit the output.
 
+Let's never skip the bug that you discovered/meet during implementation.
+
+If running a command didn't produce any output for a long time, let's write it to a file instead, like `./yo-cli compile src/tests/fixme.yo --release &> compile_output.txt` and then we can check the output file.
+
 **Memory Allocator Options:**
 
 - `--allocator mimalloc` (default) - Use mimalloc for high-performance allocation
