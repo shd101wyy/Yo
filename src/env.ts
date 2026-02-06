@@ -1577,147 +1577,155 @@ export function getReceiverMethodsByNameFromEnv({
     // Look for methods in required traits (from Impl(Module1, Module2, ...) and where constraints)
     // This handles cases like `Impl(Id)` where we need to find the `id` method
     // and where(T <: Trait) constraints
-    const requiredTraitTypes: TraitType[] = [];
-    const requiredTraitIds = new Set<string>();
+    // NOTE: Skip this if we already found concrete methods from resolvedConcreteType,
+    // because the concrete implementation takes priority over the abstract trait method
+    // (static dispatch). Without this guard, both the concrete `fn(self: *(bool)) -> i32`
+    // and the abstract `fn(self: *(Self)) -> i32` would be returned, causing ambiguity.
+    if (methods.length > 0) {
+      // Already have concrete methods from resolvedConcreteType, skip trait lookup
+    } else {
+      const requiredTraitTypes: TraitType[] = [];
+      const requiredTraitIds = new Set<string>();
 
-    for (const requiredTraitEntry of dereferencedReceiverType.requiredTraits ??
-      []) {
-      if (!requiredTraitIds.has(requiredTraitEntry.traitType.id)) {
-        requiredTraitIds.add(requiredTraitEntry.traitType.id);
-        requiredTraitTypes.push(requiredTraitEntry.traitType);
-      }
-    }
-
-    const directWhereConstraints = getWhereClauseConstraintsForSomeType(
-      env,
-      dereferencedReceiverType
-    );
-    if (directWhereConstraints) {
-      for (const requiredTraitType of directWhereConstraints.requiredTraits) {
-        if (!requiredTraitIds.has(requiredTraitType.id)) {
-          requiredTraitIds.add(requiredTraitType.id);
-          requiredTraitTypes.push(requiredTraitType);
+      for (const requiredTraitEntry of dereferencedReceiverType.requiredTraits ??
+        []) {
+        if (!requiredTraitIds.has(requiredTraitEntry.traitType.id)) {
+          requiredTraitIds.add(requiredTraitEntry.traitType.id);
+          requiredTraitTypes.push(requiredTraitEntry.traitType);
         }
       }
-    }
 
-    // If no direct match, check for compatible constrained SomeTypes in the env frames
-    if (isSomeType(dereferencedReceiverType)) {
-      for (let i = env.frames.length - 1; i >= 0; i--) {
-        const frame = env.frames[i]!;
-        for (const constraintEntry of frame.whereClauseConstraints.values()) {
-          if (
-            !areTypesCompatible(
-              { type: constraintEntry.someType, env },
-              { type: dereferencedReceiverType, env },
-              false
-            )
-          ) {
-            continue;
+      const directWhereConstraints = getWhereClauseConstraintsForSomeType(
+        env,
+        dereferencedReceiverType
+      );
+      if (directWhereConstraints) {
+        for (const requiredTraitType of directWhereConstraints.requiredTraits) {
+          if (!requiredTraitIds.has(requiredTraitType.id)) {
+            requiredTraitIds.add(requiredTraitType.id);
+            requiredTraitTypes.push(requiredTraitType);
           }
-          for (const requiredTraitType of constraintEntry.requiredTraits) {
-            if (!requiredTraitIds.has(requiredTraitType.id)) {
-              requiredTraitIds.add(requiredTraitType.id);
-              requiredTraitTypes.push(requiredTraitType);
+        }
+      }
+
+      // If no direct match, check for compatible constrained SomeTypes in the env frames
+      if (isSomeType(dereferencedReceiverType)) {
+        for (let i = env.frames.length - 1; i >= 0; i--) {
+          const frame = env.frames[i]!;
+          for (const constraintEntry of frame.whereClauseConstraints.values()) {
+            if (
+              !areTypesCompatible(
+                { type: constraintEntry.someType, env },
+                { type: dereferencedReceiverType, env },
+                false
+              )
+            ) {
+              continue;
+            }
+            for (const requiredTraitType of constraintEntry.requiredTraits) {
+              if (!requiredTraitIds.has(requiredTraitType.id)) {
+                requiredTraitIds.add(requiredTraitType.id);
+                requiredTraitTypes.push(requiredTraitType);
+              }
             }
           }
         }
       }
-    }
 
-    for (const requiredTraitType of requiredTraitTypes) {
-      // Search for the method in the required trait
-      const method = requiredTraitType.fields.find(
-        (f) => f.label === methodName && isFunctionType(f.type)
-      );
-      if (method && isFunctionType(method.type)) {
-        // Create a specialized method type with SelfType set to the receiver type
-        // This allows `Self` in the method signature to resolve to `Impl(Id)`
-        const specializedMethodType: FunctionType = {
-          ...method.type,
-          SelfType: dereferencedReceiverType,
-        };
-
-        // Check if pointer conversion is needed
-        // If method expects *(Self) but receiver is Self, mark for conversion
-        let needsPointerConversion = false;
-        if (
-          specializedMethodType.parameters.length > 0 &&
-          isPtrType(specializedMethodType.parameters[0]!.type)
-        ) {
-          const methodPtrChildType =
-            specializedMethodType.parameters[0]!.type.childType;
-          // For methods from required traits, the first parameter might be *(Self)
-          // where Self is a SomeType from the trait definition.
-          // Since we set SelfType to the receiver type, we should check if the
-          // parameter is Self (which would be resolved to the receiver type),
-          // not check compatibility between two different SomeTypes.
-          const isSelfParam =
-            isSomeType(methodPtrChildType) &&
-            methodPtrChildType.name === "Self";
-          const receiverCompatibleWithPtrChild =
-            isSelfParam ||
-            areTypesCompatible(
-              {
-                type: methodPtrChildType,
-                env: specializedMethodType.env,
-              },
-              { type: receiverType, env },
-              true // isMethodReceiver
-            );
-          if (receiverCompatibleWithPtrChild) {
-            needsPointerConversion = true;
-          }
-        }
-
-        // Create an unknown value since the actual implementation is not known
-        // The actual dispatch will happen at runtime based on the concrete type
-        const value = createUnknownValue(
-          specializedMethodType,
-
-          {
-            variableName: method.label,
-            env,
-            context,
-          }
+      for (const requiredTraitType of requiredTraitTypes) {
+        // Search for the method in the required trait
+        const method = requiredTraitType.fields.find(
+          (f) => f.label === methodName && isFunctionType(f.type)
         );
-        methods.push({
-          type: specializedMethodType,
-          value,
-          needsPointerConversion,
-        });
-      }
-    }
+        if (method && isFunctionType(method.type)) {
+          // Create a specialized method type with SelfType set to the receiver type
+          // This allows `Self` in the method signature to resolve to `Impl(Id)`
+          const specializedMethodType: FunctionType = {
+            ...method.type,
+            SelfType: dereferencedReceiverType,
+          };
 
-    // Look for methods in the required traits stored in the SomeType's trait
-    // Only consider traits with empty label "" (from trait-level where clauses)
-    if (methods.length === 0) {
-      for (const field of dereferencedReceiverType.trait.fields) {
-        // Required traits are stored as TypeValue containing TraitType
-        // Only allow traits with empty label (where clause constraints)
-        if (
-          field.label === "" &&
-          field.assignedValue &&
-          isTypeValue(field.assignedValue) &&
-          isTraitType(field.assignedValue.value)
-        ) {
-          const requiredTraitType = field.assignedValue.value;
-          // Search for the method in the required trait
-          const method = requiredTraitType.fields.find(
-            (f) => f.label === methodName && isFunctionType(f.type)
-          );
-          if (method && isFunctionType(method.type)) {
-            // Create an unknown value since the actual implementation is not known
-            const value = createUnknownValue(method.type, {
+          // Check if pointer conversion is needed
+          // If method expects *(Self) but receiver is Self, mark for conversion
+          let needsPointerConversion = false;
+          if (
+            specializedMethodType.parameters.length > 0 &&
+            isPtrType(specializedMethodType.parameters[0]!.type)
+          ) {
+            const methodPtrChildType =
+              specializedMethodType.parameters[0]!.type.childType;
+            // For methods from required traits, the first parameter might be *(Self)
+            // where Self is a SomeType from the trait definition.
+            // Since we set SelfType to the receiver type, we should check if the
+            // parameter is Self (which would be resolved to the receiver type),
+            // not check compatibility between two different SomeTypes.
+            const isSelfParam =
+              isSomeType(methodPtrChildType) &&
+              methodPtrChildType.name === "Self";
+            const receiverCompatibleWithPtrChild =
+              isSelfParam ||
+              areTypesCompatible(
+                {
+                  type: methodPtrChildType,
+                  env: specializedMethodType.env,
+                },
+                { type: receiverType, env },
+                true // isMethodReceiver
+              );
+            if (receiverCompatibleWithPtrChild) {
+              needsPointerConversion = true;
+            }
+          }
+
+          // Create an unknown value since the actual implementation is not known
+          // The actual dispatch will happen at runtime based on the concrete type
+          const value = createUnknownValue(
+            specializedMethodType,
+
+            {
               variableName: method.label,
               env,
               context,
-            });
-            methods.push({ type: method.type, value });
+            }
+          );
+          methods.push({
+            type: specializedMethodType,
+            value,
+            needsPointerConversion,
+          });
+        }
+      }
+
+      // Look for methods in the required traits stored in the SomeType's trait
+      // Only consider traits with empty label "" (from trait-level where clauses)
+      if (methods.length === 0) {
+        for (const field of dereferencedReceiverType.trait.fields) {
+          // Required traits are stored as TypeValue containing TraitType
+          // Only allow traits with empty label (where clause constraints)
+          if (
+            field.label === "" &&
+            field.assignedValue &&
+            isTypeValue(field.assignedValue) &&
+            isTraitType(field.assignedValue.value)
+          ) {
+            const requiredTraitType = field.assignedValue.value;
+            // Search for the method in the required trait
+            const method = requiredTraitType.fields.find(
+              (f) => f.label === methodName && isFunctionType(f.type)
+            );
+            if (method && isFunctionType(method.type)) {
+              // Create an unknown value since the actual implementation is not known
+              const value = createUnknownValue(method.type, {
+                variableName: method.label,
+                env,
+                context,
+              });
+              methods.push({ type: method.type, value });
+            }
           }
         }
       }
-    }
+    } // end of else block for "methods.length > 0 from resolvedConcreteType"
   }
 
   // Check if the dereferencedReceiverType is a DynType

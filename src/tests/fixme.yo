@@ -1,5 +1,24 @@
+open import "std/libc/stdio.yo";
+
+RetI32 :: trait(
+  return_i32 : (fn(self : *(Self)) -> i32)
+);
+
+impl(bool, RetI32(
+  return_i32 : ((self) ->
+    cond(
+      self.* => 1,
+      true => return 0
+    )
+  )
+));
+
+ret_boolean_i32 :: (fn() -> Impl(RetI32)) {
+  return true;
+};
+
 main :: (fn() -> unit) {
-  x := Box(i32)(99);
-  isolated := ^(x);
+  b := ret_boolean_i32();
+  assert(b.return_i32() == 1, "Expected true from ret_boolean_i32");
 };
 export main;
