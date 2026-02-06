@@ -1,4 +1,4 @@
-import { Environment } from "../../env";
+import type { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   BuiltinFunctions,
@@ -6,17 +6,14 @@ import {
   expectExprToBeFunctionCallOf,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
-  FnCallExpr,
+  type FnCallExpr,
 } from "../../expr";
-import {
-  createDynType,
-  isFunctionType,
-  isTraitType,
-  TraitType,
-  typeToString,
-} from "../../types";
+import { createDynType } from "../../types/creators";
+import type { TraitType } from "../../types/definitions";
+import { isFunctionType, isTraitType } from "../../types/guards";
+import { typeToString } from "../../types/utils";
 import { createTypeValue, isTypeValue } from "../../value";
-import { EvaluatorContext } from "../context";
+import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { addRcFunctionsToDynType } from "./utils";
 
@@ -95,12 +92,12 @@ export function evaluateDynType({
       const traitTypeB = traitTypes[j]!;
       for (const elementA of traitTypeA.fields) {
         for (const elementB of traitTypeB.fields) {
-          if (elementA.label === elementB.label) {
+          if (elementA.label === elementB.label && elementA.label !== "") {
             throw formatErrorMessage({
               token: expr.token,
               errorMessage: `Trait types ${typeToString(traitTypeA)} and ${typeToString(
                 traitTypeB
-              )} have conflicting function name '${elementA.label}' in 'dyn' expression.`,
+              )} have conflicting function name '${elementA.label}' in '${BuiltinKeywords.Dyn[0]!}' expression.`,
             });
           }
         }
@@ -137,7 +134,11 @@ export function evaluateDynType({
 
   // Create the dyn type with its own trait for ARC functions
   // Note: wrappedObjectARCTraitType is prepended to handle ARC for the wrapped object
-  const dynType = createDynType(traitTypes, env, negativeTraits);
+  const dynType = createDynType({
+    requiredTraits: traitTypes,
+    env,
+    negativeTraits,
+  });
 
   // Add ARC functions to the dyn type's trait
   env = addRcFunctionsToDynType({

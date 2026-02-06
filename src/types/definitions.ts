@@ -1,31 +1,12 @@
-import { Environment, Frame } from "../env";
-import { Expr } from "../expr";
-import { FunctionValue } from "../function-value";
-import { Value } from "../value";
+import type { Environment, Frame } from "../env";
+import type { Expr } from "../expr";
+import type { FunctionValue } from "../function-value";
+import type { Value } from "../value";
 import { TypeTag } from "./tags";
 
 export type TypeId = string;
 
 export type ExternLanguage = "yo" | "c";
-
-/**
- * TypeAvailability indicates in which evaluation contexts a type can be used.
- *
- * - comptime: true if the type can be used for compile-time values
- * - runtime: true if the type can be used for runtime values
- *
- * Examples:
- * - i32: { comptime: true, runtime: true } - can be used in both contexts
- * - compt_int: { comptime: true, runtime: false } - compile-time only
- * - *(i32): { comptime: false, runtime: true } - runtime only
- *
- * For compound types (struct, enum, array), the availability is the intersection
- * of all field availabilities. If the intersection is empty, it's an error.
- */
-export type TypeAvailability = {
-  comptime: boolean;
-  runtime: boolean;
-};
 
 export interface Type {
   /**
@@ -53,7 +34,7 @@ export interface Type {
    * Point is the name of the struct.
    *
    * eg:
-   *   (compt(LinearI32) : Linear) = i32;
+   *   (comptime(LinearI32) : Linear) = i32;
    * LinearI32 is the name of the type.
    */
   typeName?: string;
@@ -93,12 +74,6 @@ export interface Type {
    * Used for orphan rule checks to ensure coherence.
    */
   definedInModulePath?: string;
-
-  /**
-   * The availability of this type - which evaluation contexts it can be used in.
-   * For compound types, this is computed as the intersection of field availabilities.
-   */
-  availability: TypeAvailability;
 }
 
 /*
@@ -123,8 +98,8 @@ export interface ExprType extends Type {
   trait: TraitType;
 }
 
-export interface ComptListType extends Type {
-  tag: TypeTag.ComptList;
+export interface ComptimeListType extends Type {
+  tag: TypeTag.ComptimeList;
   childType: Type;
   trait: TraitType;
 }
@@ -166,6 +141,12 @@ export interface SomeType extends Type {
   name: string;
 
   /**
+   * The frame level where this SomeType was defined.
+   * Used to resolve bindings without leaking across shadowed scopes.
+   */
+  definitionFrameLevel?: number;
+
+  /**
    * The parent type of the SomeType.
    */
   parentType: TypeHierarchyType;
@@ -199,15 +180,19 @@ export interface SomeType extends Type {
 
   /**
    * The required traits that this SomeType must implement.
-   * For example, `Impl(Fn(x: i32) -> i32, Copy)` has requiredTraits = [FnTrait, CopyTrait]
+   * Each constraint includes the frameLevel at which it was added.
+   * For example, `Impl(Fn(x: i32) -> i32, Copy)` has requiredTraits with the corresponding traits.
+   * NOTE: where-clause constraints are scoped in env frames, not stored here.
    */
-  requiredTraits: TraitType[];
+  requiredTraits: { traitType: TraitType; frameLevel: number }[];
 
   /**
    * The negative traits that this SomeType must NOT implement.
-   * For example, `Impl(!(Copy))` has negativeTraits = [CopyTrait]
+   * Each constraint includes the frameLevel at which it was added.
+   * For example, `Impl(!(Copy))` adds entries here.
+   * NOTE: where-clause constraints are scoped in env frames, not stored here.
    */
-  negativeTraits?: TraitType[];
+  negativeTraits: { traitType: TraitType; frameLevel: number }[];
 
   /**
    * The trait that contains where constraints attached to this SomeType.
@@ -246,7 +231,7 @@ export interface VoidType extends Type {
   trait: TraitType;
 }
 
-export type ElementExprs = {
+export type FieldExprs = {
   /**
    * The expression of the element.
    */
@@ -259,6 +244,8 @@ export type ElementExprs = {
   /**
    * For example:
    *   i32 in (x: i32)
+   *
+   * We have to make `?: Expr` for anonymous struct value.
    */
   typeExpr?: Expr;
   /**
@@ -271,7 +258,7 @@ export type ElementExprs = {
   defaultValueExpr?: Expr;
   /**
    * For example:
-   *   x = 20
+   *   x := 20
    *
    * assignedValueExpr is:
    *  20
@@ -282,7 +269,6 @@ export type ElementExprs = {
 export interface TypeField {
   type: Type;
   label: string;
-  isCompileTimeOnly: boolean;
 
   // The default value and assigned value are compile-time known.
   // eg:
@@ -296,7 +282,7 @@ export interface TypeField {
   defaultValue?: Value;
   assignedValue?: Value;
 
-  exprs: ElementExprs;
+  exprs: FieldExprs;
 }
 
 export interface TupleType extends Type {
@@ -305,13 +291,13 @@ export interface TupleType extends Type {
   trait: TraitType;
 }
 
-/**
- * NOTE: For anonymous function, it might not have labelExpr, typeExpr, and defaultValueExpr.
- */
 export type FunctionParameterExprs = {
   expr: Expr;
   labelExpr?: Expr;
-  typeExpr?: Expr;
+  /**
+   * Always required to be set
+   */
+  typeExpr: Expr;
   defaultValueExpr?: Expr;
   assignedValueExpr?: Expr;
 };
@@ -345,7 +331,7 @@ export interface FunctionParameter {
    */
   exprs: FunctionParameterExprs;
   /**
-   * The assigned value for := syntax (e.g., T := Impl(Id))
+   * The assigned value for "=" syntax (e.g., (T : Type) = Impl(Id))
    * This is the constraint/value bound to the type parameter.
    * Only used for forall parameters.
    */
@@ -405,11 +391,6 @@ export interface StructType extends Type {
 export interface ModuleField {
   type: Type;
   label: string;
-  /**
-   * Whether this element is compile-time only.
-   * In theory, all module elements are compile-time only.
-   */
-  isCompileTimeOnly: true;
 
   /**
    * The module path that added this field via `impl`.
@@ -422,7 +403,7 @@ export interface ModuleField {
   defaultValue?: Value;
   assignedValue?: Value;
 
-  exprs: ElementExprs;
+  exprs: FieldExprs;
 }
 
 /**
@@ -451,7 +432,7 @@ export interface ModuleType extends Type {
    * The function that returns the module.
    * eg:
    *   Container :
-   *     fn(compt(T): Type)-> compt(Type)
+   *     fn(comptime(T): Type)-> comptime(Type)
    *       module(x: T, y: T)
    * ;
    * "Container" is the function that returns the module.
@@ -487,7 +468,7 @@ export interface TraitType extends Type {
    * The function that returns the module.
    * eg:
    *   Container :
-   *     fn(compt(T): Type)-> compt(Type)
+   *     fn(comptime(T): Type)-> comptime(Type)
    *       trait(x: T, y: T)
    * ;
    * "Container" is the function that returns the trait.
@@ -707,10 +688,12 @@ export interface UnionType extends Type {
 
 export interface FunctionReturn {
   type: Type;
+
   /**
-   * For anonymous function implementataion, let's set `expr` to undefined.
+   * Always set to the return type expression.
+   * For anonymous function implementations, reuse the expected return type expression.
    */
-  expr?: Expr;
+  typeExpr: Expr;
 
   isCompileTimeOnly: boolean;
   isUnquote: boolean;
@@ -738,12 +721,18 @@ export interface FunctionType extends Type {
    *
    *  (x: i32, y: i32, ...) -> i32; // c style
    *
-   *  (quote(e): Expr, ...(quote(rest))) -> unquote(Expr); // macro, rest has type ComptList(Expr)
+   *  (quote(e): Expr, ...(quote(rest))) -> unquote(Expr); // macro, rest has type ComptimeList(Expr)
    *  (x: i32, y: i32, ...(rest)) -> i32;     // Yo style. rest has type ArgList
-   *  (compt(x) : i32, compt(y) : i32, ...(compt(rest))); // Yo style. rest has type ArgList
+   *  (comptime(x) : i32, comptime(y) : i32, ...(comptime(rest))); // Yo style. rest has type ArgList
    *
    */
   variadicParameter?: FunctionParameter;
+
+  /**
+   * Where-clause constraint expressions attached to this function type.
+   * These are re-applied when evaluating the function body.
+   */
+  whereClauseExprs?: Expr[];
 
   /**
    * The return information of the function.
@@ -771,7 +760,7 @@ export interface FunctionType extends Type {
    * This is used for `recur` to reference the correct function when evaluating
    * nested function types. For example:
    *
-   *   Worker :: (fn(compt(T): Type) -> compt(Type)) {
+   *   Worker :: (fn(comptime(T): Type) -> comptime(Type)) {
    *     return object(
    *       spawn_local :: (fn(
    *         callback : (fn(child : recur(T)) -> unit)  // <-- This function type
@@ -799,21 +788,6 @@ export interface FunctionType extends Type {
    *
    */
   isClosure?: boolean;
-
-  /**
-   * Constraints added via where clauses that apply to this function scope only.
-   * Maps from SomeType to the traits it must (or must not) implement within this function.
-   * Example: where(T <: Eq(T), T <: !(Copy)) adds:
-   *   T -> { requiredTraits: [Eq(T)], negativeTraits: [Copy] }
-   * These constraints don't mutate the original SomeType and don't leak to sibling functions.
-   */
-  whereClauseConstraints?: Map<
-    SomeType,
-    {
-      requiredTraits: TraitType[];
-      negativeTraits: TraitType[];
-    }
-  >;
 }
 
 export interface PtrType extends Type {
@@ -873,13 +847,13 @@ export interface DynType extends Type {
    * This is used to create vtable for dynamic dispatch.
    * Now uses reference semantics by default, so it's not a dynamic sized type.
    */
-  requiredTraits: TraitType[];
+  requiredTraits: { traitType: TraitType; frameLevel: number }[];
 
   /**
    * The negative traits that this DynType must NOT implement.
    * For example, `Dyn(!(Copy))` has negativeTraits = [CopyTrait]
    */
-  negativeTraits?: TraitType[];
+  negativeTraits: { traitType: TraitType; frameLevel: number }[];
 
   /**
    * The trait of the dyn type, which contains

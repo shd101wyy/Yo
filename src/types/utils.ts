@@ -1,40 +1,32 @@
-import { Environment, getVariablesFromEnv } from "../env";
+import type { Environment } from "../env";
 import { formatErrorMessages } from "../error";
-import { Expr, exprToString } from "../expr";
-import { stringIsOperator, Token } from "../token";
-import { TypeValue } from "../type-value";
 import {
-  isNumberValue,
-  isTraitValue,
-  isTypeValue,
-  isUnknownValue,
-  TraitValue,
-  valueToString,
-} from "../value";
-import { ValueTag } from "../value-tag";
-import { areTypesCompatible } from "./compatibility";
-import { BOTH_AVAILABLE, COMPTIME_ONLY, RUNTIME_ONLY } from "./constants";
+  typeImplementsAcyclic,
+  typeImplementsComptime,
+  typeImplementsFn,
+  typeImplementsFuture,
+  typeImplementsRuntime,
+} from "../evaluator/trait-checking";
+import { type Expr, exprToString } from "../expr";
+import { stringIsOperator, type Token } from "../token";
+import { isNumberValue, isUnknownValue, valueToString } from "../value";
 import { createF64Type, createI32Type, createStrType } from "./creators";
-import {
+import type {
   ArrayType,
-  ComptListType,
+  ComptimeListType,
   DynType,
   EnumType,
-  FnTraitType,
   FunctionParameter,
   FunctionType,
-  FutureTraitType,
   IsoType,
   ModuleField,
   ModuleType,
   PtrType,
-  SliceType,
   SomeType,
   StructType,
   TraitType,
   TupleType,
   Type,
-  TypeAvailability,
   TypeField,
   UnionType,
 } from "./definitions";
@@ -42,10 +34,10 @@ import {
   isArrayType,
   isBooleanType,
   isCharType,
-  isComptFloatType,
-  isComptIntType,
-  isComptListType,
-  isComptStringType,
+  isComptimeFloatType,
+  isComptimeIntType,
+  isComptimeListType,
+  isComptimeStringType,
   isDynType,
   isEnumType,
   isExprType,
@@ -83,561 +75,55 @@ import {
 import { TypeTag } from "./tags";
 
 /**
- * Get a module type from the environment by name (e.g., "Copy", "Send").
- * Returns undefined if not found.
- */
-export function getTraitTypeFromEnv(
-  env: Environment,
-  traitName: string
-): TraitType | undefined {
-  const variables = getVariablesFromEnv(env, traitName);
-  if (variables.length === 0) {
-    return undefined;
-  }
-  const variable = variables[variables.length - 1]!;
-  if (variable.value && isTypeValue(variable.value[0])) {
-    const typeValue = variable.value[0] as TypeValue;
-    if (isTraitType(typeValue.value)) {
-      return typeValue.value;
-    }
-  }
-  return undefined;
-}
-
-/**
- * Check if a type implements a specific module.
- * This is the core implementation used by typeImplementsCopy and typeImplementsSend.
- */
-export function typeImplementsTraitInternal({
-  targetType,
-  traitType,
-  env,
-}: {
-  targetType: Type;
-  traitType: TraitType;
-  env: Environment;
-}): boolean {
-  const expectedTraitWithReceiver: TraitType = {
-    ...traitType,
-    receiverType: targetType,
-  };
-
-  const targetTrait = targetType.trait;
-  if (targetTrait) {
-    for (const field of targetTrait.fields) {
-      if (!field.assignedValue || !isTraitValue(field.assignedValue)) {
-        continue;
-      }
-
-      const fieldTraitValue = field.assignedValue as TraitValue;
-      const fieldTraitType = fieldTraitValue.type;
-
-      if (
-        areTypesCompatible(
-          { type: expectedTraitWithReceiver, env },
-          { type: fieldTraitType, env }
-        )
-      ) {
-        return true;
-      }
-    }
-  }
-
-  return false;
-}
-
-/**
- * Check if a type implements the Copy trait.
- *
- * Copy types can be implicitly duplicated without consuming the original.
- * Primitives (i32, boolean, etc.), pointers (*T), and structs where all fields are Copy
- * implement Copy.
- */
-/*
-export function typeImplementsCopy(
-  type: Type | undefined,
-  env: Environment
-): boolean {
-  if (!type) {
-    return false;
-  }
-
-  const copyModuleType = getTraitTypeFromEnv(env, "Copy");
-  if (!copyModuleType) {
-    return false;
-  }
-
-  return typeImplementsTraitInternal({
-    targetType: type,
-    moduleType: copyModuleType,
-    env,
-  });
-}
-*/
-
-/**
- * Check if a type implements the Send trait.
- *
- * Send types can be safely transferred between threads.
- * Primitives, Send pointers (where T is not Rc and T implements Send),
- * and structs where all fields are Send implement Send.
- */
-export function typeImplementsSend(
-  type: Type | undefined,
-  env: Environment
-): boolean {
-  if (!type) {
-    return false;
-  }
-
-  const sendTraitType = getTraitTypeFromEnv(env, "Send");
-  if (!sendTraitType) {
-    return false;
-  }
-
-  return typeImplementsTraitInternal({
-    targetType: type,
-    traitType: sendTraitType,
-    env,
-  });
-}
-
-export function typeImplementsFn(
-  type: Type | undefined
-): type is (SomeType | DynType) & { isFn: true } {
-  if (!type) {
-    return false;
-  }
-
-  // Check requiredTraits for SomeType and DynType (e.g., Impl(Fn(...)) or Dyn(Fn(...)))
-  if (isSomeType(type) || isDynType(type)) {
-    const requiredTraits = (type as SomeType | DynType).requiredTraits;
-    if (requiredTraits) {
-      for (const traitType of requiredTraits) {
-        if (isFnTraitType(traitType)) {
-          return true;
-        }
-      }
-    }
-  }
-
-  return false;
-}
-
-/**
- * Extract FnTraitType from a type (e.g., from Impl(Fn(...) -> ...) or Dyn(Fn(...) -> ...) or FnTraitType directly)
- * Returns the FnTraitType if found, otherwise undefined.
- */
-export function extractFnTraitFromType(type: Type): FnTraitType | undefined {
-  // If the type is already a FnTraitType, return it directly
-  if (isFnTraitType(type)) {
-    return type;
-  }
-
-  // Check requiredTraits for SomeType and DynType
-  if (isSomeType(type) || isDynType(type)) {
-    const requiredTraits = (type as SomeType | DynType).requiredTraits;
-    if (requiredTraits) {
-      for (const traitType of requiredTraits) {
-        if (isFnTraitType(traitType)) {
-          return traitType;
-        }
-      }
-    }
-  }
-
-  return undefined;
-}
-
-export function typeImplementsFuture(
-  type: Type | undefined
-): type is (SomeType | DynType) & { isFuture: true } {
-  if (!type) {
-    return false;
-  }
-
-  // Check requiredTraits for SomeType and DynType (e.g., Impl(Fn(...)) or Dyn(Fn(...)))
-  if (isSomeType(type) || isDynType(type)) {
-    const requiredTraits = (type as SomeType | DynType).requiredTraits;
-    if (requiredTraits) {
-      for (const traitType of requiredTraits) {
-        if (isFutureTraitType(traitType)) {
-          return true;
-        }
-      }
-    }
-  }
-
-  return false;
-}
-
-/**
- * Extract FutureTraitType from a type (e.g., from Impl(Future(T)) or Dyn(Future(T)) or FutureTraitType directly)
- * Returns the FutureTraitType if found, otherwise undefined.
- */
-export function extractFutureTraitFromType(
-  type: Type
-): FutureTraitType | undefined {
-  // If the type is already a FutureTraitType, return it directly
-  if (isFutureTraitType(type)) {
-    return type;
-  }
-
-  // Check requiredTraits for SomeType and DynType
-  if (isSomeType(type) || isDynType(type)) {
-    const requiredTraits = (type as SomeType | DynType).requiredTraits;
-    if (requiredTraits) {
-      for (const traitType of requiredTraits) {
-        if (isFutureTraitType(traitType)) {
-          return traitType;
-        }
-      }
-    }
-  }
-
-  return undefined;
-}
-
-/**
- * Check if the type of the value requires to use the compt modifier.
+ * Check if the type of the value requires to use the comptime modifier.
  * For example:
- *   compt(x): Type
- *   compt(x): compt_int
+ *   comptime(x): Type
+ *   comptime(x): comptime_int
  *
  * This includes:
- * - Primitive comptime-only types (Type, compt_int, compt_float, etc.)
- * - Compound types that are comptime-only (structs with compt_int fields, etc.)
+ * - Primitive comptime-only types (Type, comptime_int, comptime_float, etc.)
+ * - Compound types that are comptime-only (structs with comptime_int fields, etc.)
  */
-export function typeRequiresComptModifier(type?: Type): boolean {
+export function typeRequiresComptimeModifier(
+  type: Type | undefined,
+  env: Environment
+): boolean {
   if (!type) {
     return false;
   }
 
   // Check if compound types are comptime-only based on their availability
   // A type with availability { comptime: true, runtime: false } is comptime-only
-  return isComptimeOnlyType(type);
+  return isComptimeOnlyType(type, env);
 }
 
-export function typeProhibitsComptModifier(type?: Type): boolean {
+export function typeProhibitsComptimeModifier(
+  type: Type | undefined,
+  env: Environment
+): boolean {
   if (!type) {
     return false;
   }
 
-  return isRuntimeOnlyType(type);
-}
-
-/**
- * Determine the TypeAvailability for a given type and validate it.
- * This computes the availability and throws an error if invalid (no context available).
- *
- * For compound types (struct, enum, array, tuple), this computes the intersection
- * of field availabilities and validates that at least one context remains available.
- *
- * @param type The type to determine availability for
- * @param errorToken Optional token for error reporting
- * @returns The computed TypeAvailability
- * @throws Error if the availability is invalid (both comptime and runtime are false)
- */
-export function determineTypeAvailability(
-  type: Type,
-  errorToken?: Token
-): TypeAvailability {
-  let availability: TypeAvailability;
-
-  // Determine availability based on type tag
-  switch (type.tag) {
-    // Comptime-only types
-    case TypeTag.ComptInt:
-    case TypeTag.ComptFloat:
-    case TypeTag.ComptString:
-    case TypeTag.Type:
-    case TypeTag.Module:
-    case TypeTag.Trait:
-    case TypeTag.Expr:
-    case TypeTag.ComptList:
-      availability = COMPTIME_ONLY;
-      break;
-
-    // Runtime-only types
-    case TypeTag.Iso:
-    case TypeTag.Dyn:
-    case TypeTag.Void:
-    case TypeTag.Char: // C-compatible types (platform-dependent size, runtime only)
-    case TypeTag.Short:
-    case TypeTag.UShort:
-    case TypeTag.Int:
-    case TypeTag.UInt:
-    case TypeTag.Long:
-    case TypeTag.ULong:
-    case TypeTag.LongLong:
-    case TypeTag.ULongLong:
-    case TypeTag.LongDouble:
-      availability = RUNTIME_ONLY;
-      break;
-
-    // Types available in both contexts
-    case TypeTag.Unit:
-    case TypeTag.Bool:
-    case TypeTag.Usize:
-    case TypeTag.Isize:
-    case TypeTag.U8:
-    case TypeTag.I8:
-    case TypeTag.U16:
-    case TypeTag.I16:
-    case TypeTag.U32:
-    case TypeTag.I32:
-    case TypeTag.U64:
-    case TypeTag.I64:
-    case TypeTag.F32:
-    case TypeTag.F64:
-      availability = BOTH_AVAILABLE;
-      break;
-
-    // Compound types - compute from fields
-    case TypeTag.Struct:
-      availability = computeStructTypeAvailability(type as StructType);
-      break;
-    case TypeTag.Enum:
-      availability = computeEnumTypeAvailability(type as EnumType);
-      break;
-    case TypeTag.Array:
-      availability = computeArrayTypeAvailability(type as ArrayType);
-      break;
-    case TypeTag.Slice:
-      availability = (type as SliceType).childType.availability;
-      break;
-    case TypeTag.Tuple:
-      availability = computeTupleTypeAvailability(type as TupleType);
-      break;
-    case TypeTag.Ptr:
-      // Pointer types: availability depends on child type
-      // If child type is comptime-only, pointer is comptime-only
-      // If child type is runtime-only, pointer is runtime-only
-      // If child type is both, pointer is both
-      availability = (type as PtrType).childType.availability;
-      break;
-    case TypeTag.Union:
-      // Union types are runtime-only (as specified in the design)
-      availability = RUNTIME_ONLY;
-      break;
-
-    // Function types: can be used in both contexts (function references)
-    case TypeTag.Function:
-      availability = BOTH_AVAILABLE;
-      break;
-
-    // SomeType: defaults to both contexts unless we know more
-    case TypeTag.SomeType: {
-      const someType = type as SomeType;
-      // If we have a resolved concrete type, use its availability
-      if (someType.resolvedConcreteType) {
-        availability = determineTypeAvailability(
-          someType.resolvedConcreteType,
-          errorToken
-        );
-      } else {
-        // Otherwise, assume both contexts are available
-        availability = BOTH_AVAILABLE;
-      }
-      break;
-    }
-
-    default:
-      // Default to both contexts for unknown types
-      availability = BOTH_AVAILABLE;
-  }
-
-  // Validate the availability
-  if (!isValidAvailability(availability)) {
-    const typeName = type.typeName || typeToString(type);
-    const errorMessage = `Type '${typeName}' has incompatible field contexts and cannot be used in any evaluation context.\n\nThis typically happens when a struct/enum/array contains fields with conflicting availability:\n- Compile-time only fields (e.g., compt_int, Type, Module)\n- Runtime only fields (e.g., *(T), [T], void, C-compatible types)\n\nConsider restructuring the type to avoid mixing incompatible field types.`;
-
-    if (errorToken) {
-      throw formatErrorMessages([
-        {
-          token: errorToken,
-          errorMessage,
-        },
-      ]);
-    } else {
-      throw new Error(errorMessage);
-    }
-  }
-
-  return availability;
-}
-
-/**
- * Get the TypeAvailability for a given type.
- * Simply returns the availability field from the type.
- */
-export function getTypeAvailability(type: Type): TypeAvailability {
-  return type.availability;
-}
-
-/**
- * Compute the intersection of two TypeAvailabilities.
- * Returns an availability where both comptime and runtime are true only if they are true in both inputs.
- */
-export function computeIntersectionAvailability(
-  a: TypeAvailability,
-  b: TypeAvailability
-): TypeAvailability {
-  return {
-    comptime: a.comptime && b.comptime,
-    runtime: a.runtime && b.runtime,
-  };
-}
-
-/**
- * Check if a TypeAvailability is valid (at least one context is available).
- */
-export function isValidAvailability(availability: TypeAvailability): boolean {
-  return availability.comptime || availability.runtime;
+  const result = isRuntimeOnlyType(type, env);
+  return result;
 }
 
 /**
  * Check if a type is comptime-only (cannot be used at runtime).
  */
-export function isComptimeOnlyType(type: Type): boolean {
-  return type.availability.comptime && !type.availability.runtime;
+export function isComptimeOnlyType(type: Type, env: Environment): boolean {
+  return typeImplementsComptime(type, env) && !typeImplementsRuntime(type, env);
 }
 
 /**
  * Check if a type is runtime-only (cannot be used at compile time).
  */
-export function isRuntimeOnlyType(type: Type): boolean {
-  return !type.availability.comptime && type.availability.runtime;
-}
-
-/**
- * Compute the TypeAvailability for a struct type based on its fields.
- */
-export function computeStructTypeAvailability(
-  structType: StructType
-): TypeAvailability {
-  const fields = structType.fields;
-
-  // `object` types are always runtime-only
-  if (structType.isReferenceSemantics) {
-    return RUNTIME_ONLY;
-  }
-
-  // Empty struct can be used in both contexts
-  if (fields.length === 0) {
-    return BOTH_AVAILABLE;
-  }
-
-  // Start with both contexts available
-  let result: TypeAvailability = { ...BOTH_AVAILABLE };
-
-  // Intersect with each non-compile-time-only field's availability
-  for (const field of fields) {
-    // Skip compile-time-only fields (they don't affect runtime representation)
-    if (field.isCompileTimeOnly) {
-      continue;
-    }
-
-    const fieldAvailability = field.type.availability;
-    result = computeIntersectionAvailability(result, fieldAvailability);
-
-    // Early exit if availability becomes invalid
-    if (!isValidAvailability(result)) {
-      break;
-    }
-  }
-
+export function isRuntimeOnlyType(type: Type, env: Environment): boolean {
+  const implementsComptime = typeImplementsComptime(type, env);
+  const implementsRuntime = typeImplementsRuntime(type, env);
+  const result = !implementsComptime && implementsRuntime;
   return result;
-}
-
-/**
- * Compute the TypeAvailability for an enum type based on its variants.
- */
-export function computeEnumTypeAvailability(
-  enumType: EnumType
-): TypeAvailability {
-  const variants = enumType.variants;
-
-  // Empty enum can be used in both contexts
-  if (variants.length === 0) {
-    return BOTH_AVAILABLE;
-  }
-
-  // Start with both contexts available
-  let result: TypeAvailability = { ...BOTH_AVAILABLE };
-
-  // Intersect with each variant's fields' availabilities
-  for (const variant of variants) {
-    if (variant.fields) {
-      for (const field of variant.fields) {
-        const fieldAvailability = field.type.availability;
-        result = computeIntersectionAvailability(result, fieldAvailability);
-
-        // Early exit if availability becomes invalid
-        if (!isValidAvailability(result)) {
-          return result;
-        }
-      }
-    }
-  }
-
-  return result;
-}
-
-/**
- * Compute the TypeAvailability for a tuple type based on its fields.
- */
-export function computeTupleTypeAvailability(
-  tupleType: TupleType
-): TypeAvailability {
-  const fields = tupleType.fields;
-
-  // Empty tuple can be used in both contexts
-  if (fields.length === 0) {
-    return BOTH_AVAILABLE;
-  }
-
-  // Start with both contexts available
-  let result: TypeAvailability = { ...BOTH_AVAILABLE };
-
-  // Intersect with each field's availability
-  for (const field of fields) {
-    // Skip compile-time-only fields
-    if (field.isCompileTimeOnly) {
-      continue;
-    }
-
-    const fieldAvailability = field.type.availability;
-    result = computeIntersectionAvailability(result, fieldAvailability);
-
-    // Early exit if availability becomes invalid
-    if (!isValidAvailability(result)) {
-      break;
-    }
-  }
-
-  return result;
-}
-
-/**
- * Compute the TypeAvailability for an array type based on its child type.
- */
-export function computeArrayTypeAvailability(
-  arrayType: ArrayType
-): TypeAvailability {
-  return arrayType.childType.availability;
-}
-
-/**
- * Update the availability of a type after its fields/variants have been modified.
- * This should be called after adding/removing fields to compound types.
- *
- * @param type The type to update
- * @returns The updated type (mutated in place)
- */
-export function updateTypeAvailability(type: Type, errorToken?: Token): Type {
-  type.availability = determineTypeAvailability(type, errorToken);
-  return type;
 }
 
 /**
@@ -821,32 +307,41 @@ export function typeContainsSomeType(
  * Check if a type contains any Unknown values (e.g., array length is Unknown).
  * Used to determine if we should fully specialize a generic impl method or not.
  */
-export function typeContainsUnknownValue(type: Type): boolean {
+export function typeContainsUnknownValue(
+  type: Type,
+  visited: Set<string> = new Set()
+): boolean {
+  // Prevent infinite recursion on cyclic types
+  if (visited.has(type.id)) {
+    return false;
+  }
+  visited.add(type.id);
+
   if (isArrayType(type)) {
     if (isUnknownValue(type.length)) {
       return true;
     }
-    return typeContainsUnknownValue(type.childType);
+    return typeContainsUnknownValue(type.childType, visited);
   }
   if (isPtrType(type)) {
-    return typeContainsUnknownValue(type.childType);
+    return typeContainsUnknownValue(type.childType, visited);
   }
   if (isSliceType(type)) {
-    return typeContainsUnknownValue(type.childType);
+    return typeContainsUnknownValue(type.childType, visited);
   }
   if (isTupleType(type)) {
-    return type.fields.some((f) => typeContainsUnknownValue(f.type));
+    return type.fields.some((f) => typeContainsUnknownValue(f.type, visited));
   }
   if (isStructType(type)) {
-    return type.fields.some((f) => typeContainsUnknownValue(f.type));
+    return type.fields.some((f) => typeContainsUnknownValue(f.type, visited));
   }
   if (isEnumType(type)) {
     return type.variants.some((v) =>
-      v.fields?.some((param) => typeContainsUnknownValue(param.type))
+      v.fields?.some((param) => typeContainsUnknownValue(param.type, visited))
     );
   }
   if (isUnionType(type)) {
-    return type.fields.some((f) => typeContainsUnknownValue(f.type));
+    return type.fields.some((f) => typeContainsUnknownValue(f.type, visited));
   }
 
   // Add other cases as needed
@@ -999,54 +494,11 @@ export function typeRequiresInference(type?: Type): boolean {
 }
 
 /**
- * Get the value of a SomeType from the environment.
- */
-export function getValueOfSomeTypeFromEnv(
-  env: Environment,
-  someType: SomeType
-): Type {
-  let someTypeValue: TypeValue | undefined = undefined;
-  // Track visited SomeTypes to detect cycles (e.g., A -> B -> A)
-  const visited = new Set<SomeType>();
-
-  do {
-    // If we've already visited this SomeType, we have a cycle - return it as-is
-    if (visited.has(someType)) {
-      return someType;
-    }
-    visited.add(someType);
-
-    const variables = getVariablesFromEnv(env, someType.name, (variable) => {
-      return variable.value?.[0]?.tag === ValueTag.Type;
-      // cannot use "isTypeValue" function here due to circular dependency
-    });
-    if (!variables.length) {
-      // NOTE: This might be SomeType defined from "forall"
-      // So it doesn't exist in the env.
-      return someType; // Return itself
-    }
-
-    someTypeValue = variables[variables.length - 1]!.value![0] as TypeValue;
-
-    // If the resolved value is the same object as current someType, return it
-    if (someTypeValue.value === someType) {
-      return someType;
-    }
-    if (isSomeType(someTypeValue.value)) {
-      someType = someTypeValue.value;
-    } else {
-      break;
-    }
-  } while (isSomeType(someType));
-  return someTypeValue.value;
-}
-
-/**
- * Convert compt types to their runtime equivalents.
+ * Convert comptime types to their runtime equivalents.
  * If expr is provided and a conversion happens, sets expr.$.convertedRuntimeType
- * NOTE: We only convert scalar compt types here (compt_int, compt_float, compt_string), like Zig.
+ * NOTE: We only convert scalar comptime types here (comptime_int, comptime_float, comptime_string), like Zig.
  */
-export function convertComptTypeToRuntimeType({
+export function convertComptimeTypeToRuntimeType({
   type,
   expectedType,
   expr,
@@ -1059,11 +511,11 @@ export function convertComptTypeToRuntimeType({
 }): Type {
   let convertedType: Type | undefined;
 
-  if (isComptIntType(type)) {
+  if (isComptimeIntType(type)) {
     convertedType = createI32Type();
-  } else if (isComptFloatType(type)) {
+  } else if (isComptimeFloatType(type)) {
     convertedType = createF64Type();
-  } else if (isComptStringType(type)) {
+  } else if (isComptimeStringType(type)) {
     if (expectedType) {
       // Check if it's
       // - *(u8)
@@ -1080,7 +532,7 @@ export function convertComptTypeToRuntimeType({
     }
 
     if (!convertedType) {
-      // Default: Convert the compt_string to str from prelude
+      // Default: Convert the comptime_string to str from prelude
       convertedType = createStrType(env);
     }
   } else {
@@ -1150,17 +602,17 @@ export function getIntegerTypeRange(type: Type): { min: bigint; max: bigint } {
 }
 
 /**
- * Check if compt_int can be cast to a target type.
+ * Check if comptime_int can be cast to a target type.
  */
-export function canComptIntCastTo(targetType: Type): boolean {
-  return isIntegerType(targetType) || isComptIntType(targetType);
+export function canComptimeIntCastTo(targetType: Type): boolean {
+  return isIntegerType(targetType) || isComptimeIntType(targetType);
 }
 
 /**
- * Check if compt_float can be cast to a target type.
+ * Check if comptime_float can be cast to a target type.
  */
-export function canComptFloatCastTo(targetType: Type): boolean {
-  return isFloatType(targetType) || isComptFloatType(targetType);
+export function canComptimeFloatCastTo(targetType: Type): boolean {
+  return isFloatType(targetType) || isComptimeFloatType(targetType);
 }
 
 /**
@@ -1175,7 +627,7 @@ export function functionParameterToString(
   if (parameter.isQuote) {
     label = `quote(${label})`;
   } else if (parameter.isCompileTimeOnly) {
-    label = `compt(${label})`;
+    label = `comptime(${label})`;
   }
 
   const typeStr = typeToString(parameter.type, visited);
@@ -1202,9 +654,6 @@ export function tupleFieldToString(
   let label = element.label;
   if (stringIsOperator(label)) {
     label = `(${label})`;
-  }
-  if (element.isCompileTimeOnly) {
-    label = `compt(${label})`;
   }
 
   const defaultValueStr = element.defaultValue
@@ -1279,7 +728,7 @@ function functionTypeToString(
     } else if (func.variadicParameter.isQuote) {
       variadicParam = `...(quote(${func.variadicParameter.label}))`;
     } else if (func.variadicParameter.isCompileTimeOnly) {
-      variadicParam = `...(compt(${func.variadicParameter.label}))`;
+      variadicParam = `...(comptime(${func.variadicParameter.label}))`;
     } else {
       variadicParam = `...(${func.variadicParameter.label})`;
     }
@@ -1295,9 +744,9 @@ function functionTypeToString(
     }
   } else if (func.return.isCompileTimeOnly) {
     if (func.return.label) {
-      returnString = `(compt(${func.return.label}) : ${returnTypeString})`;
+      returnString = `(comptime(${func.return.label}) : ${returnTypeString})`;
     } else {
-      returnString = `compt(${returnTypeString})`;
+      returnString = `comptime(${returnTypeString})`;
     }
   }
 
@@ -1552,20 +1001,20 @@ function typeToStringInternal(type: Type, visited: Set<string>): string {
       if (someType.functionApplication) {
         return exprToString(someType.functionApplication);
       }
-      // Display as Impl(Module1, Module2, ..., !NegModule1, !NegModule2, ...) with the required and negative modules
-      const allModuleStrings: string[] = [];
+      // Display as Impl(Trait1, Trait2, ..., !NegTrait1, !NegTrait2, ...) with the required and negative modules
+      const allTraitStrings: string[] = [];
       if (someType.requiredTraits && someType.requiredTraits.length > 0) {
         for (const mt of someType.requiredTraits) {
-          allModuleStrings.push(typeToString(mt, visited));
+          allTraitStrings.push(typeToString(mt.traitType, visited));
         }
       }
       if (someType.negativeTraits && someType.negativeTraits.length > 0) {
         for (const mt of someType.negativeTraits) {
-          allModuleStrings.push(`!(${typeToString(mt, visited)})`);
+          allTraitStrings.push(`!(${typeToString(mt.traitType, visited)})`);
         }
       }
-      if (allModuleStrings.length > 0) {
-        return `${someType.name || "Impl"}(${allModuleStrings.join(", ")})`;
+      if (allTraitStrings.length > 0) {
+        return `${someType.name || "Impl"}(${allTraitStrings.join(", ")})`;
       }
       return someType.name || "Impl()";
     }
@@ -1584,8 +1033,8 @@ function typeToStringInternal(type: Type, visited: Set<string>): string {
       return "Expr";
     }
 
-    case TypeTag.ComptList: {
-      return `ComptList(${typeToString((type as ComptListType).childType)})`;
+    case TypeTag.ComptimeList: {
+      return `ComptimeList(${typeToString((type as ComptimeListType).childType)})`;
     }
 
     case TypeTag.Dyn: {
@@ -1594,17 +1043,17 @@ function typeToStringInternal(type: Type, visited: Set<string>): string {
       if (dynType.typeName) {
         return dynType.typeName;
       }
-      // Display as Dyn(Module1, Module2, ..., !NegModule1, !NegModule2, ...) with the required and negative modules
-      const allModuleStrings: string[] = [];
-      for (const mt of dynType.requiredTraits) {
-        allModuleStrings.push(typeToString(mt, visited));
+      // Display as Dyn(Trait1, Trait2, ..., !NegTrait1, !NegTrait2, ...) with the required and negative modules
+      const allTraitStrings: string[] = [];
+      for (const { traitType } of dynType.requiredTraits) {
+        allTraitStrings.push(typeToString(traitType, visited));
       }
       if (dynType.negativeTraits && dynType.negativeTraits.length > 0) {
-        for (const mt of dynType.negativeTraits) {
-          allModuleStrings.push(`!(${typeToString(mt, visited)})`);
+        for (const { traitType } of dynType.negativeTraits) {
+          allTraitStrings.push(`!(${typeToString(traitType, visited)})`);
         }
       }
-      return `Dyn(${allModuleStrings /*.slice(1)*/
+      return `Dyn(${allTraitStrings /*.slice(1)*/
         .join(", ")})`;
     }
 
@@ -1789,10 +1238,10 @@ export function getAlignmentOfType(type: Type): number | null {
   if (
     isUnitType(type) || // Unit type has no alignment requirement
     isTypeHierarchyType(type) ||
-    isComptIntType(type) ||
-    isComptFloatType(type) ||
-    isComptStringType(type) ||
-    isComptListType(type) ||
+    isComptimeIntType(type) ||
+    isComptimeFloatType(type) ||
+    isComptimeStringType(type) ||
+    isComptimeListType(type) ||
     isModuleType(type) ||
     isTraitType(type) ||
     isExprType(type) // ^ disallowed in the runtime
@@ -1897,10 +1346,10 @@ export function getSizeOfType(type: Type): number | null {
   if (
     isUnitType(type) || // Unit type has no size
     isTypeHierarchyType(type) ||
-    isComptIntType(type) ||
-    isComptFloatType(type) ||
-    isComptStringType(type) ||
-    isComptListType(type) ||
+    isComptimeIntType(type) ||
+    isComptimeFloatType(type) ||
+    isComptimeStringType(type) ||
+    isComptimeListType(type) ||
     isModuleType(type) ||
     isTraitType(type) ||
     isExprType(type) // ^ disallowed in the runtime
@@ -1970,13 +1419,22 @@ Please consider use 'unit' type instead.
  * 2. It references other object types that could reference back to it
  *
  * This uses a depth-first search with cycle detection to avoid infinite recursion.
+ *
+ * @param type The type to check
+ * @param visitedTypes Internal tracking of visited types
+ * @param env Environment for trait checking (used to check if SomeType implements Acyclic)
  */
 export function canTypeFormRcCycle(
   type: Type,
-  visitedTypes = new Set<string>()
+  visitedTypes: Set<string>,
+  env: Environment
 ): boolean {
   if (!isObjectType(type)) {
     return false; // Only objects can form cycles through reference counting
+  }
+
+  if (typeImplementsAcyclic(type, env)) {
+    return false; // Type is marked as Acyclic, so it cannot form cycles
   }
 
   // Avoid infinite recursion by tracking visited types
@@ -1989,7 +1447,7 @@ export function canTypeFormRcCycle(
   try {
     // Check all fields in the struct
     for (const field of type.fields) {
-      if (typeCanFormCyclicRcReference(field.type, type, visitedTypes)) {
+      if (typeCanFormCyclicRcReference(field.type, type, visitedTypes, env)) {
         return true;
       }
     }
@@ -2007,7 +1465,8 @@ export function canTypeFormRcCycle(
 function typeCanFormCyclicRcReference(
   type: Type,
   originalRefStruct: StructType,
-  visitedTypes: Set<string>
+  visitedTypes: Set<string>,
+  env: Environment
 ): boolean {
   // If this type is the same as the original object, we have a direct self-reference
   if (isStructType(type) && type.id === originalRefStruct.id) {
@@ -2016,7 +1475,7 @@ function typeCanFormCyclicRcReference(
 
   // If this is a different object, check if it could form cycles with the original
   if (isStructType(type) && type.isReferenceSemantics) {
-    return canTypeFormRcCycle(type, new Set(visitedTypes));
+    return canTypeFormRcCycle(type, new Set(visitedTypes), env);
   }
 
   // Check through enum variants
@@ -2028,7 +1487,8 @@ function typeCanFormCyclicRcReference(
             typeCanFormCyclicRcReference(
               field.type,
               originalRefStruct,
-              visitedTypes
+              visitedTypes,
+              env
             )
           ) {
             return true;
@@ -2039,14 +1499,19 @@ function typeCanFormCyclicRcReference(
   }
 
   if (isSomeType(type)) {
+    // Check if SomeType implements Acyclic
+    if (typeImplementsAcyclic(type, env)) {
+      return false; // SomeType implements Acyclic, so it cannot form cycles
+    }
     if (type.resolvedConcreteType) {
       return typeCanFormCyclicRcReference(
         type.resolvedConcreteType,
         originalRefStruct,
-        visitedTypes
+        visitedTypes,
+        env
       );
     } else {
-      return true; // Be conservative
+      return true; // Be conservative when no resolvedConcreteType
     }
   }
 
@@ -2055,7 +1520,8 @@ function typeCanFormCyclicRcReference(
     return typeCanFormCyclicRcReference(
       type.childType,
       originalRefStruct,
-      visitedTypes
+      visitedTypes,
+      env
     );
   }
 
@@ -2064,7 +1530,8 @@ function typeCanFormCyclicRcReference(
     return typeCanFormCyclicRcReference(
       type.childType,
       originalRefStruct,
-      visitedTypes
+      visitedTypes,
+      env
     );
   }
 
@@ -2075,7 +1542,8 @@ function typeCanFormCyclicRcReference(
         typeCanFormCyclicRcReference(
           field.type,
           originalRefStruct,
-          visitedTypes
+          visitedTypes,
+          env
         )
       ) {
         return true;
@@ -2090,7 +1558,8 @@ function typeCanFormCyclicRcReference(
         typeCanFormCyclicRcReference(
           field.type,
           originalRefStruct,
-          visitedTypes
+          visitedTypes,
+          env
         )
       ) {
         return true;

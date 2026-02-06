@@ -1,16 +1,17 @@
-import { Environment } from "../../env";
+import type { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   BuiltinKeywords,
   cloneExpr,
   exprIsFunctionCallOf,
   exprToString,
-  FnCallExpr,
+  type FnCallExpr,
 } from "../../expr";
-import { isUnitType, typeToString } from "../../types";
+import { isUnitType } from "../../types/guards";
+import { typeToString } from "../../types/utils";
 import { VUnit } from "../../unit-value";
-import { isComptStringValue } from "../../value";
-import { EvaluatorContext } from "../context";
+import { isComptimeStringValue } from "../../value";
+import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "./expr";
 
 /**
@@ -53,7 +54,7 @@ export function evaluateTest({
   const testNameExpr = expr.args[0]!;
   const testBodyExpr = expr.args[1]!;
 
-  // Evaluate test name to ensure it's a compt_string
+  // Evaluate test name to ensure it's a comptime_string
   const evaluatedTestNameExpr = evaluateExpression({
     expr: testNameExpr,
     env,
@@ -71,7 +72,7 @@ export function evaluateTest({
 
   env = evaluatedTestNameExpr.$.env;
 
-  if (!isComptStringValue(evaluatedTestNameExpr.$.value)) {
+  if (!isComptimeStringValue(evaluatedTestNameExpr.$.value)) {
     throw formatErrorMessage({
       token: testNameExpr.token,
       errorMessage: `Expected string for test name, got ${exprToString(testNameExpr)}`,

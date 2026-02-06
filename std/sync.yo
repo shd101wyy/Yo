@@ -13,79 +13,99 @@ extern "Yo",
 ;
 
 mutex_t :: newtype(
-  mutex : YO_THREAD_SYNC_TYPE,
-
-  new :: ((fn() -> Self) {
+  mutex : YO_THREAD_SYNC_TYPE
+);
+impl(mutex_t,
+  new : (fn() -> Self)({
     return Self(yo_mutex_create());
   }),
-  lock :: ((fn(self : *(Self))-> unit) {
+
+  lock : (fn(self : *(Self))-> unit)({
     return yo_mutex_lock(&(self.mutex));
   }),
-  unlock :: ((fn(self : *(Self)) -> unit) {
+
+  unlock : (fn(self : *(Self)) -> unit)({
     return yo_mutex_unlock(&(self.mutex));
   }),
-  destroy :: ((fn(self : *(Self)) -> unit) {
+
+  destroy : (fn(self : *(Self)) -> unit)({
     return yo_mutex_destroy(&(self.mutex));
   })
 );
 
 // GC managed
 Mutex :: object(
-  mutex : YO_THREAD_SYNC_TYPE,
-
-  new :: ((fn() -> Self) {
+  mutex : YO_THREAD_SYNC_TYPE
+);
+impl(Mutex,
+  new : (fn() -> Self)({
     return Self(yo_mutex_create());
   }),
-  lock :: ((fn(self : Self)-> unit) {
+
+  lock : (fn(self : Self)-> unit)({
     return yo_mutex_lock(&(self.mutex));
   }),
-  unlock :: ((fn(self : Self) -> unit) {
+
+  unlock : (fn(self : Self) -> unit)({
     return yo_mutex_unlock(&(self.mutex));
-  }),
-  dispose :: ((fn(self : Self) -> unit) {
-    return yo_mutex_destroy(&(self.mutex));
   })
 );
+impl(Mutex, Dispose(
+  dispose : (fn(self : Self) -> unit)({
+    return yo_mutex_destroy(&(self.mutex));
+  })
+));
 
 cond_t :: newtype(
-  cv : YO_COND_TYPE,
-
-  new :: ((fn() -> Self) {
+  cv : YO_COND_TYPE
+);
+impl(cond_t,
+  new : (fn() -> Self)({
     return Self(yo_cond_create());
   }),
-  wait :: ((fn(self : *(Self), mutex : *(mutex_t)) -> unit) {
+  
+  wait : (fn(self : *(Self), mutex : *(mutex_t)) -> unit)({
     return yo_cond_wait(&(self.cv), &(mutex.mutex));
   }),
-  signal :: ((fn(self : *(Self)) -> unit) {
+
+  signal : (fn(self : *(Self)) -> unit)({
     return yo_cond_signal(&(self.cv));
   }),
-  broadcast :: ((fn(self : *(Self)) -> unit) {
+  
+  broadcast : (fn(self : *(Self)) -> unit)({
     return yo_cond_broadcast(&(self.cv));
   }),
-  destroy :: ((fn(self : *(Self)) -> unit) {
+
+  destroy : (fn(self : *(Self)) -> unit)({
     return yo_cond_destroy(&(self.cv));
   })
 );
 
 Cond :: object(
-  cv : YO_COND_TYPE,
-
-  new :: ((fn() -> Self) {
+  cv : YO_COND_TYPE
+);
+impl(Cond,
+  new : (fn() -> Self)({
     return Self(yo_cond_create());
   }),
-  wait :: ((fn(self : Self, mutex : Mutex) -> unit) {
+
+  wait : (fn(self : Self, mutex : Mutex) -> unit)({
     return yo_cond_wait(&(self.cv), &(mutex.mutex));
   }),
-  signal :: ((fn(self : Self) -> unit) {
+
+  signal : (fn(self : Self) -> unit)({
     return yo_cond_signal(&(self.cv));
   }),
-  broadcast :: ((fn(self : Self) -> unit) {
+
+  broadcast : (fn(self : Self) -> unit)({
     return yo_cond_broadcast(&(self.cv));
-  }),
-  dispose :: ((fn(self : Self) -> unit) {
-    return yo_cond_destroy(&(self.cv));
   })
 );
+impl(Cond, Dispose(
+  dispose : (fn(self : Self) -> unit)({
+    return yo_cond_destroy(&(self.cv));
+  })
+));
 
 export
   mutex_t,

@@ -1,17 +1,17 @@
-import { Environment, popEnvFrame } from "../../env";
+import { type Environment, popEnvFrame } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   BuiltinKeywords,
-  Expr,
+  type Expr,
   exprIsFunctionCallOf,
   exprToString,
-  FnCallExpr,
+  type FnCallExpr,
 } from "../../expr";
 import { randomId } from "../../utils";
 import { createUnknownValue, isFunctionValue } from "../../value";
 import { evaluateFunctionCall } from "../calls/function";
 import { tryToCallFunctionWithArguments } from "../calls/helper";
-import { EvaluatorContext } from "../context";
+import type { EvaluatorContext } from "../context";
 
 export function evaluateRecur({
   expr,
@@ -76,10 +76,11 @@ export function evaluateRecur({
 
     expr.$ = {
       type: returnType,
-      value: createUnknownValue(
-        returnType,
-        "recur_result_" + randomId(env.modulePath)
-      ),
+      value: createUnknownValue(returnType, {
+        variableName: "recur_result_" + randomId(env.modulePath),
+        env,
+        context,
+      }),
       env,
       pathCollection: [],
       runtimeArgExprsInOrder,

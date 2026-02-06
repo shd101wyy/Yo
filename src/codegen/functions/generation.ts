@@ -1,46 +1,167 @@
+import { type Environment } from "../../env";
+import { typeImplementsFuture } from "../../evaluator/trait-checking";
+import { findMatchingGenericImpl } from "../../evaluator/values/impl";
 import {
   BuiltinFunctions,
   BuiltinKeywords,
-  Expr,
+  type Expr,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
 } from "../../expr";
-import { FunctionValue } from "../../function-value";
-import {
+import { type FunctionValue } from "../../function-value";
+import { areTypesCompatible } from "../../types/compatibility";
+import type {
   EnumType,
   FunctionType,
+  TraitType,
+  Type,
+} from "../../types/definitions";
+import { getTraitTypeFromEnv } from "../../types/env-lookup";
+import {
   isEnumType,
   isFunctionSpecializable,
   isSomeType,
   isStructType,
   isUnitType,
+} from "../../types/guards";
+import {
+  canTypeFormRcCycle,
   typeContainsSomeType,
   typeToString,
-} from "../../types";
-import { canTypeFormRcCycle, typeImplementsFuture } from "../../types/utils";
+} from "../../types/utils";
 import { isTempVariableName } from "../../utils";
-import { isFunctionValue } from "../../value";
+import { isFunctionValue, isTraitValue, type TraitValue } from "../../value";
 import { generateAsyncRuntime } from "../async/runtime";
 import {
   generateDeferredDropExpressions,
   generateDeferredDupExpressions,
-} from "../exprs/drop_dup";
+} from "../exprs/drop-dup";
 import { generateExpr } from "../exprs/expr";
 import { generateImplicitReturnStatement } from "../exprs/return";
 import { generateParallelismRuntime } from "../parallelism/runtime";
-import { generateIsoTypeDeclarations } from "../types";
+import { generateIsoTypeDeclarations } from "../types/generation";
 import {
   canOptimizeAsNullablePointer,
-  CodeGenContext,
+  type CodeGenContext,
   findReturnedAsyncBlock,
   getTypeString,
   getVariableNameForCodegen,
-  isComptFunction,
+  isComptimeFunction,
   isFunctionValueWithOnlyBuiltinYoInlineFunctionCall,
   sanitizeForCIdentifier,
 } from "../utils";
-import { FunctionGenerationContext } from "./context";
+import type { FunctionGenerationContext } from "./context";
 import { generateFunctionPrototype } from "./declarations";
+
+/**
+ * Find the Dispose trait value attached to a type, if any.
+ * Uses trait identity (not just method name) to match Dispose.
+ * Also checks generic impl registry for forall impls like:
+ *   impl(forall(T : Type), ArrayList(T), Dispose(...))
+ */
+function findDisposeTraitValue(
+  type: Type,
+  env: Environment
+): TraitValue | undefined {
+  const disposeTraitType = getTraitTypeFromEnv(env, "Dispose");
+  if (!disposeTraitType) {
+    return undefined;
+  }
+
+  const expectedTraitWithReceiver: TraitType = {
+    ...disposeTraitType,
+    receiverType: type,
+  };
+
+  // First check if Dispose trait is directly attached to the type
+  if (type.trait) {
+    for (const field of type.trait.fields) {
+      if (!field.assignedValue || !isTraitValue(field.assignedValue)) {
+        continue;
+      }
+
+      const fieldTraitValue = field.assignedValue;
+      const fieldTraitType = fieldTraitValue.type;
+
+      if (
+        areTypesCompatible(
+          { type: expectedTraitWithReceiver, env },
+          { type: fieldTraitType, env }
+        )
+      ) {
+        return fieldTraitValue;
+      }
+    }
+  }
+
+  // Fallback: check generic impl registry for forall impls
+  const genericImpl = findMatchingGenericImpl({
+    concreteType: type,
+    traitType: disposeTraitType,
+    env,
+  });
+  if (genericImpl) {
+    return genericImpl.traitValue;
+  }
+
+  return undefined;
+}
+
+/**
+ * Find the user's dispose method from the Dispose trait.
+ * Returns the C function name if found, undefined otherwise.
+ */
+function findUserDisposeMethodForType(
+  type: Type,
+  env: Environment,
+  context: CodeGenContext
+): string | undefined {
+  const traitValue = findDisposeTraitValue(type, env);
+  if (!traitValue) {
+    return undefined;
+  }
+
+  const disposeIndex = traitValue.type.fields.findIndex(
+    (field) => field.label === BuiltinFunctions.dispose[0]
+  );
+  if (disposeIndex < 0) {
+    return undefined;
+  }
+
+  const disposeValue = traitValue.fields[disposeIndex];
+  if (!isFunctionValue(disposeValue)) {
+    return undefined;
+  }
+
+  // First try direct lookup by funcId
+  const directLookup = context.functions[disposeValue.funcId]?.cName;
+  if (directLookup) {
+    return directLookup;
+  }
+
+  // For generic impls, the dispose function is generic and needs specialization.
+  // Search for a specialized version of dispose for this SelfType.
+  // Look for functions with funcName === "dispose" and matching SelfType.
+  for (const funcId in context.functions) {
+    const funcEntry = context.functions[funcId]!;
+    const funcValue = funcEntry.value;
+    const funcType = funcValue.specializedType ?? funcValue.type;
+
+    if (funcValue.funcName !== BuiltinFunctions.dispose[0]) {
+      continue;
+    }
+
+    // Check if SelfType matches
+    if (
+      funcType.SelfType &&
+      areTypesCompatible({ type: funcType.SelfType, env }, { type, env })
+    ) {
+      return funcEntry.cName;
+    }
+  }
+
+  return undefined;
+}
 
 /**
  * Generate all collected functions
@@ -79,7 +200,7 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
     if (
       isFunctionSpecializable(value.type) ||
       (value.specializedType && !isSpecializedImplMethod) ||
-      isComptFunction(value) ||
+      isComptimeFunction(value) ||
       isFunctionValueWithOnlyBuiltinYoInlineFunctionCall(value)
     ) {
       continue;
@@ -303,6 +424,30 @@ export function generateFunction(
           ).currentClosureCaptureTypeCName = captureTypeCName;
         }
       }
+    }
+  }
+
+  // For ___dispose functions, check if the SelfType has a user-defined dispose method
+  // from a Dispose trait and emit a call to it at the start of the function body.
+  // This is done in codegen rather than the evaluator to handle traits added via impl
+  // after the struct is defined.
+  const isDisposeFunction =
+    functionValue.funcName === BuiltinFunctions.___dispose[0];
+  if (isDisposeFunction && functionType.SelfType) {
+    const userDisposeCName = findUserDisposeMethodForType(
+      functionType.SelfType,
+      functionValue.type.env,
+      context
+    );
+    if (userDisposeCName) {
+      // Get the parameter name for __yo_self
+      const selfParamName =
+        functionType.parameters[0]?.label === "__yo_self"
+          ? "__yo_self"
+          : (functionType.parameters[0]?.label ?? "__yo_self");
+      emitter.emitLine(
+        `  ${userDisposeCName}(${selfParamName}); // Call user's dispose method`
+      );
     }
   }
 
@@ -571,7 +716,7 @@ export function generateSpecializedFunctions(context: CodeGenContext): void {
     const { value: functionValue, cName: cFunctionName } =
       context.functions[funcId]!;
 
-    if (isComptFunction(functionValue)) {
+    if (isComptimeFunction(functionValue)) {
       // Skip compile-time only functions
       continue;
     }
@@ -1103,19 +1248,19 @@ function generateRefStructTraversalFunctions(
             for (const variant of enumType.variants || []) {
               // Check if any of the variant's fields contain references
               if (variant.fields && variant.fields.length > 0) {
-                for (const field of variant.fields) {
+                for (const variantField of variant.fields) {
                   if (
-                    isStructType(field.type) &&
-                    field.type.isReferenceSemantics
+                    isStructType(variantField.type) &&
+                    variantField.type.isReferenceSemantics
                   ) {
                     // This variant contains a reference
                     const enumConstantName = `YO_${enumType.id?.toUpperCase()}_${variant.name.toUpperCase()}`;
                     emitter.emitLine(`  case ${enumConstantName}:`);
                     emitter.emitLine(
-                      `    if (obj->${fieldName}.data.${variant.name}.${sanitizeForCIdentifier(field.label)}) {`
+                      `    if (obj->${fieldName}.data.${variant.name}.${sanitizeForCIdentifier(variantField.label)}) {`
                     );
                     emitter.emitLine(
-                      `      visit(obj->${fieldName}.data.${variant.name}.${sanitizeForCIdentifier(field.label)});`
+                      `      visit(obj->${fieldName}.data.${variant.name}.${sanitizeForCIdentifier(variantField.label)});`
                     );
                     emitter.emitLine(`    }`);
                     emitter.emitLine(`    break;`);
@@ -1219,7 +1364,7 @@ export function generateRefStructConstructorFunctions(
       });
 
       // Register with GC if this type might participate in cycles
-      if (canTypeFormRcCycle(type)) {
+      if (canTypeFormRcCycle(type, new Set(), type.env)) {
         emitter.emitLine(`  __yo_gc_register(obj);`);
       }
 

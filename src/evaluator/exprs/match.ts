@@ -1,6 +1,6 @@
 import {
   addVariableToEnv,
-  Environment,
+  type Environment,
   popEnvFrame,
   pushEnvFrame,
 } from "../../env";
@@ -8,46 +8,46 @@ import { formatErrorMessage } from "../../error";
 import {
   attachTempVariableToExpr,
   BuiltinKeywords,
-  ControlFlowKind,
-  Expr,
+  type ControlFlowKind,
+  type Expr,
   exprIsAtom,
   exprIsAtomOf,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
-  FnCallExpr,
+  type FnCallExpr,
   mergeAndCheckEnvs,
 } from "../../expr";
+import { areTypesCompatible } from "../../types/compatibility";
+import { createPtrType } from "../../types/creators";
+import type { EnumType, PtrType, Type } from "../../types/definitions";
 import {
-  areTypesCompatible,
-  convertComptTypeToRuntimeType,
-  createPtrType,
-  EnumType,
   isBooleanType,
   isCCompatibleType,
-  isComptFloatType,
-  isComptIntType,
-  isComptStringType,
+  isComptimeFloatType,
+  isComptimeIntType,
+  isComptimeStringType,
   isEnumType,
   isFloatType,
-  isFunctionTypeAndReturnsComptValue,
+  isFunctionTypeAndReturnsComptimeValue,
   isIntegerType,
   isPtrType,
-  PtrType,
-  Type,
-  TypeTag,
+} from "../../types/guards";
+import { TypeTag } from "../../types/tags";
+import {
+  convertComptimeTypeToRuntimeType,
   typeToString,
-} from "../../types";
+} from "../../types/utils";
 import { VUnit } from "../../unit-value";
 import {
   areValuesEqual,
   createUnknownValue,
   isEnumValue,
   isUnknownValue,
-  Value,
+  type Value,
   valueToString,
 } from "../../value";
-import { EvaluatorContext } from "../context";
+import type { EvaluatorContext } from "../context";
 import { evaluateBeginExpression } from "./begin";
 import { evaluateExpression } from "./expr";
 
@@ -84,9 +84,9 @@ function isMatchablePrimitiveType(type: Type): boolean {
     isFloatType(type) ||
     isCCompatibleType(type) ||
     isBooleanType(type) ||
-    isComptIntType(type) ||
-    isComptFloatType(type) ||
-    isComptStringType(type)
+    isComptimeIntType(type) ||
+    isComptimeFloatType(type) ||
+    isComptimeStringType(type)
   );
 }
 
@@ -450,7 +450,7 @@ export function evaluateMatch({
           if (
             areTypesCompatible(
               {
-                type: convertComptTypeToRuntimeType({
+                type: convertComptimeTypeToRuntimeType({
                   type: resultType.type,
                   expectedType: undefined,
                   expr: undefined,
@@ -617,9 +617,9 @@ export function evaluateMatch({
             const field = variant.fields[fieldIndex]!;
 
             // Extract compile-time field value if scrutinee is a compile-time enum value
-            const isComptScrutinee =
+            const isComptimeScrutinee =
               isEnumValue(scrutineeValue) && !isUnknownValue(scrutineeValue);
-            const fieldValue = isComptScrutinee
+            const fieldValue = isComptimeScrutinee
               ? scrutineeValue.fields[fieldIndex]
               : undefined;
 
@@ -634,7 +634,7 @@ export function evaluateMatch({
                   variable: {
                     name: variableName,
                     type: field.type,
-                    isCompileTimeOnly: isComptScrutinee,
+                    isCompileTimeOnly: isComptimeScrutinee,
                     value: fieldValue !== undefined ? [fieldValue] : undefined,
                     token: variableExpr.token,
                     initializedAtToken: variableExpr.token,
@@ -672,9 +672,9 @@ export function evaluateMatch({
             const field = variant.fields[j]!;
 
             // Extract compile-time field value if scrutinee is a compile-time enum value
-            const isComptScrutinee =
+            const isComptimeScrutinee =
               isEnumValue(scrutineeValue) && !isUnknownValue(scrutineeValue);
-            const fieldValue = isComptScrutinee
+            const fieldValue = isComptimeScrutinee
               ? scrutineeValue.fields[j]
               : undefined;
 
@@ -685,7 +685,7 @@ export function evaluateMatch({
                 variable: {
                   name: paramName,
                   type: field.type,
-                  isCompileTimeOnly: isComptScrutinee,
+                  isCompileTimeOnly: isComptimeScrutinee,
                   value: fieldValue !== undefined ? [fieldValue] : undefined,
                   token: param.token,
                   initializedAtToken: param.token,
@@ -815,7 +815,7 @@ export function evaluateMatch({
           if (
             areTypesCompatible(
               {
-                type: convertComptTypeToRuntimeType({
+                type: convertComptimeTypeToRuntimeType({
                   type: resultType.type,
                   expectedType: undefined,
                   expr: undefined,
@@ -946,7 +946,7 @@ Supported patterns:
           ? undefined
           : matchedBodyValue !== undefined
             ? matchedBodyValue
-            : createUnknownValue(resultType.type),
+            : createUnknownValue(resultType.type, { env, context }),
       pathCollection: [],
     };
     attachTempVariableToExpr(expr, true);
@@ -991,10 +991,10 @@ Supported patterns:
         value:
           context.isEvaluatingFunctionBodyOrAsyncBlock.kind ===
             "function-body" &&
-          isFunctionTypeAndReturnsComptValue(
+          isFunctionTypeAndReturnsComptimeValue(
             context.isEvaluatingFunctionBodyOrAsyncBlock.type
           )
-            ? createUnknownValue(returnType)
+            ? createUnknownValue(returnType, { env, context })
             : undefined,
         pathCollection: [],
         controlFlow: "return",
@@ -1413,7 +1413,7 @@ Hint: Use "::" to define compile-time constants, e.g., "myConst :: 42"`,
         if (
           areTypesCompatible(
             {
-              type: convertComptTypeToRuntimeType({
+              type: convertComptimeTypeToRuntimeType({
                 type: resultType.type,
                 expectedType: undefined,
                 expr: undefined,
@@ -1524,7 +1524,7 @@ Hint: Use "::" to define compile-time constants, e.g., "myConst :: 42"`,
       value:
         scrutineeValue === undefined
           ? undefined
-          : createUnknownValue(resultType.type),
+          : createUnknownValue(resultType.type, { env, context }),
       pathCollection: [],
       // Mark this as a primitive match for codegen
       isPrimitiveMatch: true,
@@ -1570,10 +1570,10 @@ Hint: Use "::" to define compile-time constants, e.g., "myConst :: 42"`,
         value:
           context.isEvaluatingFunctionBodyOrAsyncBlock.kind ===
             "function-body" &&
-          isFunctionTypeAndReturnsComptValue(
+          isFunctionTypeAndReturnsComptimeValue(
             context.isEvaluatingFunctionBodyOrAsyncBlock.type
           )
-            ? createUnknownValue(returnType)
+            ? createUnknownValue(returnType, { env, context })
             : undefined,
         pathCollection: [],
         controlFlow: "return",

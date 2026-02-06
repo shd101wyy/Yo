@@ -1,5 +1,5 @@
 import { BuiltinFunctions } from "../expr";
-import { TypeTag } from "../types";
+import { TypeTag } from "../types/tags";
 
 export const BuiltinYoInlineFunctions = [
   // Arithemtic

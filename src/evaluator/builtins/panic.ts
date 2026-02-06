@@ -1,10 +1,10 @@
-import { Environment } from "../../env";
+import type { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
-import { FnCallExpr } from "../../expr";
-import { isComptStringType } from "../../types";
+import type { FnCallExpr } from "../../expr";
+import { isComptimeStringType } from "../../types/guards";
 import { VUnit } from "../../unit-value";
-import { isComptStringValue, isUnknownValue } from "../../value";
-import { EvaluatorContext } from "../context";
+import { isComptimeStringValue, isUnknownValue } from "../../value";
+import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 
 export function evaluatePanic({
@@ -52,7 +52,7 @@ export function evaluatePanic({
         ...context,
       },
     });
-    // Let's require it to be a compt_string for now
+    // Let's require it to be a comptime_string for now
     if (!evaluatedMessageExpr.$) {
       throw formatErrorMessage({
         token: messageExpr.token,
@@ -61,15 +61,15 @@ export function evaluatePanic({
     }
     if (
       !evaluatedMessageExpr.$.value ||
-      (!isComptStringValue(evaluatedMessageExpr.$.value) &&
+      (!isComptimeStringValue(evaluatedMessageExpr.$.value) &&
         !(
           isUnknownValue(evaluatedMessageExpr.$.value) &&
-          isComptStringType(evaluatedMessageExpr.$.value.type)
+          isComptimeStringType(evaluatedMessageExpr.$.value.type)
         ))
     ) {
       throw formatErrorMessage({
         token: messageExpr.token,
-        errorMessage: `panic message must be a compt_string`,
+        errorMessage: `panic message must be a comptime_string`,
       });
     }
   }

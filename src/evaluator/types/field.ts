@@ -1,33 +1,25 @@
-import { Environment } from "../../env";
+import type { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   BuiltinKeywords,
-  Expr,
+  type Expr,
   exprIsAtom,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
 } from "../../expr";
+import { areTypesCompatible } from "../../types/compatibility";
+import type { Type, TypeField } from "../../types/definitions";
 import {
-  areTypesCompatible,
   isModuleType,
   isStructType,
   isTraitType,
   isTupleType,
-  prohibitVoidType,
-  Type,
-  TypeField,
-  typeToString,
-} from "../../types";
+} from "../../types/guards";
+import { prohibitVoidType, typeToString } from "../../types/utils";
 import { VUnit } from "../../unit-value";
-import {
-  isFunctionValue,
-  isModuleValue,
-  isTraitValue,
-  isTypeValue,
-  Value,
-} from "../../value";
-import { EvaluatorContext } from "../context";
+import { isTypeValue, type Value } from "../../value";
+import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { isValidVariableName } from "../utils";
 
@@ -113,12 +105,12 @@ export function evaluateTypeField({
     // Check if it's compile-time only
     if (
       exprIsFunctionCall(labelExpr) &&
-      exprIsFunctionCallOf(labelExpr, BuiltinKeywords.compt, 1)
+      exprIsFunctionCallOf(labelExpr, BuiltinKeywords.comptime, 1)
     ) {
       if (isCompileTimeOnly) {
         throw formatErrorMessage({
           token: labelExpr.token,
-          errorMessage: `Cannot combine the use of "compt"  with ::`,
+          errorMessage: `Cannot combine the use of "comptime"  with ::`,
         });
       }
       isCompileTimeOnly = true;
@@ -134,12 +126,12 @@ export function evaluateTypeField({
     label = labelExpr.token.value;
   } else if (
     exprIsFunctionCall(expr_) &&
-    exprIsFunctionCallOf(expr_, BuiltinKeywords.compt, 1)
+    exprIsFunctionCallOf(expr_, BuiltinKeywords.comptime, 1)
   ) {
     if (isCompileTimeOnly) {
       throw formatErrorMessage({
         token: expr_.token,
-        errorMessage: `Cannot combine the use of "compt"  with "::"`,
+        errorMessage: `Cannot combine the use of "comptime"  with "::"`,
       });
     }
 
@@ -229,11 +221,11 @@ ${typeToString(expectedType)}`
       throw formatErrorMessage({
         token: assignedValueExpr.token,
         errorMessage: `Assigned value expression is only allowed for compile-time only.
-Please consider adding "compt"  modifier to the field label.`,
+Please consider adding "comptime"  modifier to the field label.`,
       });
     }
 
-    const expectedType = fieldType
+    const fieldExpectedType = fieldType
       ? { type: fieldType, env }
       : expectedTupleElementType
         ? {
@@ -247,7 +239,7 @@ Please consider adding "compt"  modifier to the field label.`,
       env,
       context: {
         ...context,
-        expectedType: expectedType,
+        expectedType: fieldExpectedType,
         // Don't propagate forceCompileTimeBindings when evaluating type field values.
         // The field value itself is compile-time (it's a constant method/value),
         // but its internal parameters/body should not be forced to compile-time.
@@ -278,22 +270,22 @@ Please consider adding "compt"  modifier to the field label.`,
 
     const assignedValueType = evaluatedAssignedValueExpr.$.type;
 
-    // Check if assignedValueType matches expectedType
-    if (expectedType) {
+    // Check if assignedValueType matches fieldExpectedType
+    if (fieldExpectedType) {
       if (
         !areTypesCompatible(
-          { type: expectedType.type, env },
+          { type: fieldExpectedType.type, env },
           { type: assignedValueType, env }
         )
       ) {
         throw formatErrorMessage({
           token: assignedValueExpr.token,
           errorMessage: `Assigned value type mismatch:
-Expected type: ${typeToString(expectedType.type)}
+Expected type: ${typeToString(fieldExpectedType.type)}
 Given type: ${typeToString(assignedValueType)}`,
         });
       }
-      fieldType = expectedType.type;
+      fieldType = fieldExpectedType.type;
     } else {
       fieldType = assignedValueType;
     }
@@ -301,7 +293,7 @@ Given type: ${typeToString(assignedValueType)}`,
 
   // Evaluate defaultValueExpr if it exists
   if (defaultValueExpr) {
-    const expectedType = fieldType
+    const fieldExpectedType = fieldType
       ? { type: fieldType, env }
       : expectedTupleElementType
         ? {
@@ -314,7 +306,7 @@ Given type: ${typeToString(assignedValueType)}`,
       env,
       context: {
         ...context,
-        expectedType: expectedType,
+        expectedType: fieldExpectedType,
       },
     });
     if (!evaluatedDefaultValueExpr.$) {
@@ -339,22 +331,22 @@ Given type: ${typeToString(assignedValueType)}`,
 
     const defaultValueType = evaluatedDefaultValueExpr.$.type;
 
-    // Check if defaultValueType matches expectedType
-    if (expectedType) {
+    // Check if defaultValueType matches fieldExpectedType
+    if (fieldExpectedType) {
       if (
         !areTypesCompatible(
-          { type: expectedType.type, env },
+          { type: fieldExpectedType.type, env },
           { type: defaultValueType, env }
         )
       ) {
         throw formatErrorMessage({
           token: defaultValueExpr.token,
           errorMessage: `Default value type mismatch:
-Expected type: ${typeToString(expectedType.type)}
+Expected type: ${typeToString(fieldExpectedType.type)}
 Given type: ${typeToString(defaultValueType)}`,
         });
       }
-      fieldType = expectedType.type;
+      fieldType = fieldExpectedType.type;
     } else {
       fieldType = defaultValueType;
     }
@@ -370,15 +362,14 @@ Given type: ${typeToString(defaultValueType)}`,
   // New availability-based validation:
   // - If isCompileTimeOnly = true: the type MUST be available at compile-time
   // - If isCompileTimeOnly = false: no validation - the field contributes to struct availability
-  const fieldAvailability = fieldType.availability;
 
-  if (isCompileTimeOnly && !fieldAvailability.comptime) {
-    // Field is marked as compile-time-only but type is runtime-only
-    throw formatErrorMessage({
-      token: labelExpr?.token ?? expr.token,
-      errorMessage: `Type '${typeToString(fieldType)}' can only be used at runtime and cannot have "compt" modifier or :: syntax.`,
-    });
-  }
+  // if (isCompileTimeOnly && !typeImplementsComptime(fieldType, env)) {
+  //   // Field is marked as compile-time-only but type is runtime-only
+  //   throw formatErrorMessage({
+  //     token: labelExpr?.token ?? expr.token,
+  //     errorMessage: `Type '${typeToString(fieldType)}' can only be used at runtime and cannot have "comptime" modifier or :: syntax.`,
+  //   });
+  // }
 
   if (forType !== "tuple" && !labelExpr) {
     throw formatErrorMessage({
@@ -418,44 +409,9 @@ Given type: ${typeToString(defaultValueType)}`,
       defaultValueExpr,
       assignedValueExpr,
     },
-    isCompileTimeOnly,
     defaultValue,
     assignedValue,
   };
-
-  if (field.isCompileTimeOnly) {
-    // Compile-time field must have an assigned value
-    if (!field.assignedValue) {
-      // NOTE: Let's allow to have compile-time only field without assigned value for now
-      // throw formatErrorMessage({
-      //   token: field.exprs.expr.token,
-      //   errorMessage: `Compile-time only field "${field.label}" must have an assigned value.`,
-      // });
-    } else {
-      // Attach .typeName info if necessary
-      // But don't modify SelfType - it's a reference to the enclosing type
-      if (
-        isTypeValue(field.assignedValue) &&
-        !field.assignedValue.value.typeName &&
-        field.assignedValue.value !== context.SelfType
-      ) {
-        field.assignedValue.value.typeName = field.label;
-      } else if (
-        isFunctionValue(field.assignedValue) &&
-        !field.assignedValue.funcName
-      ) {
-        field.assignedValue.funcName = field.label;
-        field.assignedValue.funcId += `_${field.label}`;
-      } else if (
-        (isModuleValue(field.assignedValue) ||
-          isTraitValue(field.assignedValue)) &&
-        !field.assignedValue.type.typeName &&
-        field.assignedValue.type !== context.SelfType
-      ) {
-        field.assignedValue.type.typeName = field.label;
-      }
-    }
-  }
 
   return {
     field: field,

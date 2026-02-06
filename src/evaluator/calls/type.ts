@@ -1,24 +1,24 @@
-import { Environment } from "../../env";
+import type { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
-  Expr,
+  type Expr,
   exprIsAtom,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
-  PathCollection,
+  type PathCollection,
   setExprAsNeedsToCallDup,
 } from "../../expr";
+import { areTypesCompatible } from "../../types/compatibility";
+import type { TypeField } from "../../types/definitions";
 import {
-  areTypesCompatible,
-  convertComptTypeToRuntimeType,
+  convertComptimeTypeToRuntimeType,
   isComptimeOnlyType,
   tupleFieldToString,
-  TypeField,
   typeToString,
-} from "../../types";
-import { Value } from "../../value";
-import { EvaluatorContext, TypeCallResult } from "../context";
+} from "../../types/utils";
+import type { Value } from "../../value";
+import type { EvaluatorContext, TypeCallResult } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 
 /**
@@ -139,13 +139,10 @@ ${tupleFieldToString(paramElement_)}`,
 
     // Convert compile-time types to runtime types only if:
     // 1. The member element is not compile-time only, AND
-    // 2. The member type itself is not comptime-only (e.g., compt_int, Type, etc.)
-    // This allows struct fields like `x : compt_int` (without compt modifier) to accept comptime values.
-    if (
-      !memberElement.isCompileTimeOnly &&
-      !isComptimeOnlyType(memberElement.type)
-    ) {
-      argType = convertComptTypeToRuntimeType({
+    // 2. The member type itself is not comptime-only (e.g., comptime_int, Type, etc.)
+    // This allows struct fields like `x : comptime_int` (without comptime modifier) to accept comptime values.
+    if (!isComptimeOnlyType(memberElement.type, callerEnv)) {
+      argType = convertComptimeTypeToRuntimeType({
         type: argType,
         expectedType: memberElement.type,
         expr: evaluatedArgExpr,

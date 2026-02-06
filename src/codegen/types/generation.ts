@@ -1,7 +1,14 @@
 import { BuiltinFunctions } from "../../expr";
-import {
+import type {
   EnumType,
   FunctionType,
+  PtrType,
+  StructType,
+  TupleType,
+  Type,
+  UnionType,
+} from "../../types/definitions";
+import {
   isDynType,
   isEnumType,
   isFutureTraitType,
@@ -11,18 +18,12 @@ import {
   isTupleType,
   isUnionType,
   isUnitType,
-  PtrType,
-  StructType,
-  TupleType,
-  Type,
-  typeContainsSomeType,
-  typeToString,
-  UnionType,
-} from "../../types";
+} from "../../types/guards";
+import { typeContainsSomeType, typeToString } from "../../types/utils";
 import {
   canOptimizeAsNullablePointer,
   canOptimizeAsSimpleEnum,
-  CodeGenContext,
+  type CodeGenContext,
   getEnumVariantCName,
   getTypeString,
   sanitizeForCIdentifier,

@@ -1,14 +1,15 @@
 import {
   addVariableToEnv,
-  Environment,
+  type Environment,
   getVariablesFromEnv,
   updateExistingVariable,
 } from "../../env";
 import { PlaceholderToken } from "../../token";
+import type { Type } from "../../types/definitions";
+import { getValueOfSomeTypeFromEnv } from "../../types/env-lookup";
 import {
-  getValueOfSomeTypeFromEnv,
   isArrayType,
-  isComptListType,
+  isComptimeListType,
   isEnumType,
   isFnTraitType,
   isFunctionType,
@@ -22,10 +23,9 @@ import {
   isTraitType,
   isTupleType,
   isTypeHierarchyType,
-  Type,
-  typeToString,
-} from "../../types";
+} from "../../types/guards";
 import { TypeTag } from "../../types/tags";
+import { typeToString } from "../../types/utils";
 import { createTypeValue, isTypeValue, isUnknownValue } from "../../value";
 
 /**
@@ -49,27 +49,39 @@ export function canAssignTypeHierarchy(expected: Type, given: Type): boolean {
  * This prevents infinite types like T = Option(T).
  * Returns true if someType occurs in the type structure.
  */
-function occursCheck(someTypeId: string, type: Type): boolean {
+function occursCheck(
+  someTypeId: string,
+  type: Type,
+  visited: Set<string> = new Set()
+): boolean {
+  // Prevent infinite recursion on cyclic types like Node(T) → Option(Node(T)) → Node(T)
+  if (visited.has(type.id)) {
+    return false;
+  }
+  visited.add(type.id);
+
   if (isSomeType(type)) {
     return someTypeId === type.id;
   }
 
   if (isStructType(type)) {
-    return type.fields.some((el) => occursCheck(someTypeId, el.type));
+    return type.fields.some((el) => occursCheck(someTypeId, el.type, visited));
   }
 
   if (isEnumType(type)) {
     return type.variants.some((v) =>
-      v.fields ? v.fields.some((el) => occursCheck(someTypeId, el.type)) : false
+      v.fields
+        ? v.fields.some((el) => occursCheck(someTypeId, el.type, visited))
+        : false
     );
   }
 
   if (isTupleType(type)) {
-    return type.fields.some((el) => occursCheck(someTypeId, el.type));
+    return type.fields.some((el) => occursCheck(someTypeId, el.type, visited));
   }
 
-  if (isArrayType(type) || isSliceType(type) || isComptListType(type)) {
-    return occursCheck(someTypeId, type.childType);
+  if (isArrayType(type) || isSliceType(type) || isComptimeListType(type)) {
+    return occursCheck(someTypeId, type.childType, visited);
   }
 
   if (isPtrType(type)) {
@@ -80,22 +92,22 @@ function occursCheck(someTypeId: string, type: Type): boolean {
   }
 
   if (isIsoType(type)) {
-    return occursCheck(someTypeId, type.childType);
+    return occursCheck(someTypeId, type.childType, visited);
   }
 
   if (isFunctionType(type)) {
     return (
-      type.parameters.some((p) => occursCheck(someTypeId, p.type)) ||
-      occursCheck(someTypeId, type.return.type)
+      type.parameters.some((p) => occursCheck(someTypeId, p.type, visited)) ||
+      occursCheck(someTypeId, type.return.type, visited)
     );
   }
 
   if (isFutureTraitType(type)) {
-    return occursCheck(someTypeId, type.isFuture.outputType);
+    return occursCheck(someTypeId, type.isFuture.outputType, visited);
   }
 
   if (isFnTraitType(type)) {
-    return occursCheck(someTypeId, type.isFn.callType);
+    return occursCheck(someTypeId, type.isFn.callType, visited);
   }
 
   return false;
@@ -103,7 +115,7 @@ function occursCheck(someTypeId: string, type: Type): boolean {
 
 /**
  * Synthesize the types, such as
- * compt(T): Type, i32  => T = i32
+ * comptime(T): Type, i32  => T = i32
  */
 export function synthesizeTypes(
   expected: {
@@ -384,6 +396,12 @@ export function synthesizeTypes(
       expected.env = expectedEnv;
       given.env = givenEnv;
     }
+  } else if (isTupleType(expected.type) && isTupleType(given.type)) {
+    throw new Error(
+      `Cannot unify incompatible tuple types: "${typeToString(
+        expected.type
+      )}" and "${typeToString(given.type)}"`
+    );
   } else if (isStructType(expected.type) && isStructType(given.type)) {
     if (
       expected.type.id === given.type.id ||
@@ -417,19 +435,20 @@ export function synthesizeTypes(
         isTypeValue(expectedElement.assignedValue) &&
         isTypeValue(givenElement.assignedValue)
       ) {
-        const { expectedEnv, givenEnv } = synthesizeTypes(
-          {
-            type: expectedElement.assignedValue.value,
-            env: expected.env,
-          },
-          {
-            type: givenElement.assignedValue.value,
-            env: given.env,
-          },
-          checkedTypePairs
-        );
-        expected.env = expectedEnv;
-        given.env = givenEnv;
+        const { expectedEnv: _expectedEnv, givenEnv: _givenEnv } =
+          synthesizeTypes(
+            {
+              type: expectedElement.assignedValue.value,
+              env: expected.env,
+            },
+            {
+              type: givenElement.assignedValue.value,
+              env: given.env,
+            },
+            checkedTypePairs
+          );
+        expected.env = _expectedEnv;
+        given.env = _givenEnv;
       }
     }
   } else if (
@@ -459,6 +478,12 @@ export function synthesizeTypes(
         given.env = givenEnv;
       }
     }
+  } else if (isEnumType(expected.type) && isEnumType(given.type)) {
+    throw new Error(
+      `Cannot unify incompatible enum types: "${typeToString(
+        expected.type
+      )}" and "${typeToString(given.type)}"`
+    );
   } else if (
     isModuleType(expected.type) &&
     isModuleType(given.type) &&
@@ -485,19 +510,20 @@ export function synthesizeTypes(
         isTypeValue(expectedElement.assignedValue) &&
         isTypeValue(givenElement.assignedValue)
       ) {
-        const { expectedEnv, givenEnv } = synthesizeTypes(
-          {
-            type: expectedElement.assignedValue.value,
-            env: expected.env,
-          },
-          {
-            type: givenElement.assignedValue.value,
-            env: given.env,
-          },
-          checkedTypePairs
-        );
-        expected.env = expectedEnv;
-        given.env = givenEnv;
+        const { expectedEnv: _expectedEnv, givenEnv: _givenEnv } =
+          synthesizeTypes(
+            {
+              type: expectedElement.assignedValue.value,
+              env: expected.env,
+            },
+            {
+              type: givenElement.assignedValue.value,
+              env: given.env,
+            },
+            checkedTypePairs
+          );
+        expected.env = _expectedEnv;
+        given.env = _givenEnv;
       }
     }
   } else if (
@@ -526,19 +552,20 @@ export function synthesizeTypes(
         isTypeValue(expectedElement.assignedValue) &&
         isTypeValue(givenElement.assignedValue)
       ) {
-        const { expectedEnv, givenEnv } = synthesizeTypes(
-          {
-            type: expectedElement.assignedValue.value,
-            env: expected.env,
-          },
-          {
-            type: givenElement.assignedValue.value,
-            env: given.env,
-          },
-          checkedTypePairs
-        );
-        expected.env = expectedEnv;
-        given.env = givenEnv;
+        const { expectedEnv: _expectedEnv, givenEnv: _givenEnv } =
+          synthesizeTypes(
+            {
+              type: expectedElement.assignedValue.value,
+              env: expected.env,
+            },
+            {
+              type: givenElement.assignedValue.value,
+              env: given.env,
+            },
+            checkedTypePairs
+          );
+        expected.env = _expectedEnv;
+        given.env = _givenEnv;
       }
     }
   } else if (isPtrType(expected.type) && isPtrType(given.type)) {
@@ -640,8 +667,11 @@ export function synthesizeTypes(
     );
     expected.env = expectedEnv;
     given.env = givenEnv;
-  } else if (isComptListType(expected.type) && isComptListType(given.type)) {
-    // Synthesize the element types of the ComptLists
+  } else if (
+    isComptimeListType(expected.type) &&
+    isComptimeListType(given.type)
+  ) {
+    // Synthesize the element types of the ComptimeLists
     const { expectedEnv, givenEnv } = synthesizeTypes(
       {
         type: expected.type.childType,

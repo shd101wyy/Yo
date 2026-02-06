@@ -1,5 +1,5 @@
-import { Environment, getVariablesFromEnv, Variable } from "../env";
-import { Expr, exprIsAtom } from "../expr";
+import { type Environment, getVariablesFromEnv, type Variable } from "../env";
+import { type Expr, exprIsAtom } from "../expr";
 import { TokenType } from "../token";
 
 /**

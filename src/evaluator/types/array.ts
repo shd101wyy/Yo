@@ -1,24 +1,21 @@
-import { addVariableToEnv, Environment } from "../../env";
+import { addVariableToEnv, type Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   BuiltinKeywords,
   exprIsAtom,
   exprIsFunctionCallOf,
   exprToString,
-  FnCallExpr,
+  type FnCallExpr,
 } from "../../expr";
-import {
-  areTypesCompatible,
-  createArrayType,
-  createUsizeType,
-} from "../../types";
+import { areTypesCompatible } from "../../types/compatibility";
+import { createArrayType, createUsizeType } from "../../types/creators";
 import {
   createTypeValue,
   createUnknownValue,
   isTypeValue,
   isUnknownValue,
 } from "../../value";
-import { EvaluatorContext } from "../context";
+import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 
 export function evaluateArrayType({
@@ -33,7 +30,7 @@ export function evaluateArrayType({
   if (!exprIsFunctionCallOf(expr, BuiltinKeywords.Array, 2)) {
     throw formatErrorMessage({
       token: expr.token,
-      errorMessage: `Expected "Array(compt(Type), compt(usize))" with 2 arguments, like "Array(i32, 10)"
+      errorMessage: `Expected "Array(comptime(Type), comptime(usize))" with 2 arguments, like "Array(i32, 10)"
 Got:\n${exprToString(expr)}`,
     });
   }
@@ -75,10 +72,11 @@ If you are creating an array value with 1 element, please consider adding a "," 
   if (isLengthUnderscore) {
     // Create an unknown value with a unique variable name for length inference
     const lengthPlaceholderName = `_array_length_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    const unknownLength = createUnknownValue(
-      createUsizeType(),
-      lengthPlaceholderName
-    );
+    const unknownLength = createUnknownValue(createUsizeType(), {
+      variableName: lengthPlaceholderName,
+      env: evaluatedElementTypeExpr.$.env,
+      context,
+    });
 
     // Add the unknown variable to the environment
     const { env: envWithUnknownVar } = addVariableToEnv({

@@ -13,24 +13,25 @@
 
 import {
   addVariableToEnv,
-  Environment,
+  type Environment,
   popEnvFrame,
   pushEnvFrame,
 } from "../../env";
 import { cloneExpr } from "../../expr";
-import { FunctionValue } from "../../function-value";
+import type { FunctionValue } from "../../function-value";
 import { PlaceholderToken } from "../../token";
-import { FunctionType, typeProhibitsComptModifier } from "../../types";
+import type { FunctionType } from "../../types/definitions";
+import { typeProhibitsComptimeModifier } from "../../types/utils";
 import { createUnknownValue } from "../../value";
 import { ValueTag } from "../../value-tag";
-import { EvaluatorContext } from "../context";
+import type { EvaluatorContext } from "../context";
 import { evaluateBeginExpression } from "../exprs/begin";
 
 /**
  * Create a compile-time version of a function type.
  * All parameters and the return type are marked as isCompileTimeOnly.
  */
-export function createComptFunctionType(
+export function createComptimeFunctionType(
   functionType: FunctionType
 ): FunctionType {
   return {
@@ -59,7 +60,7 @@ export function createComptFunctionType(
  * 3. If evaluation succeeds (produces a compile-time value), a compile-time FunctionValue is created
  *
  * If successful, returns the compile-time version of the function.
- * This compile-time function can be used explicitly via `compt_fn()`.
+ * This compile-time function can be used explicitly via `comptime_fn()`.
  *
  * @param functionValue The function to analyze
  * @param env The environment in which the function was defined
@@ -86,20 +87,20 @@ export function analyzeCtfeCapability(
     return undefined;
   }
 
-  // Check if any parameter type prohibits compt modifier (runtime-only types like Ptr, Slice, Void)
+  // Check if any parameter type prohibits comptime modifier (runtime-only types like Ptr, Slice, Void)
   for (const param of functionValue.type.parameters) {
-    if (typeProhibitsComptModifier(param.type)) {
+    if (typeProhibitsComptimeModifier(param.type, env)) {
       return undefined;
     }
   }
 
-  // Check if return type prohibits compt modifier
-  if (typeProhibitsComptModifier(functionValue.type.return.type)) {
+  // Check if return type prohibits comptime modifier
+  if (typeProhibitsComptimeModifier(functionValue.type.return.type, env)) {
     return undefined;
   }
 
   // Create the compile-time version of the function type
-  const comptFunctionType = createComptFunctionType(functionValue.type);
+  const comptimeFunctionType = createComptimeFunctionType(functionValue.type);
 
   // Try to evaluate the function body in CTFE mode
   try {
@@ -107,17 +108,23 @@ export function analyzeCtfeCapability(
     const clonedBody = cloneExpr(functionValue.body);
 
     // Create environment with compile-time parameters
-    let ctfeEnv = pushEnvFrame(comptFunctionType.env);
+    let ctfeEnv = pushEnvFrame(comptimeFunctionType.env);
 
     // Add all parameters as compile-time known UnknownValues
-    for (const param of comptFunctionType.parameters) {
+    for (const param of comptimeFunctionType.parameters) {
       const { env: nextEnv } = addVariableToEnv({
         env: ctfeEnv,
         variable: {
           name: param.label,
           type: param.type,
           isCompileTimeOnly: true,
-          value: [createUnknownValue(param.type, param.label)],
+          value: [
+            createUnknownValue(param.type, {
+              variableName: param.label,
+              env: ctfeEnv,
+              context,
+            }),
+          ],
           token: PlaceholderToken,
           initializedAtToken: PlaceholderToken,
           consumedAtToken: undefined,
@@ -130,16 +137,16 @@ export function analyzeCtfeCapability(
     // Create the compile-time FunctionValue BEFORE evaluating the body
     // This is necessary so that `recur` calls inside the body can reference
     // the compile-time version (which has compile-time return type)
-    const comptFunctionValue: FunctionValue = {
+    const comptimeFunctionValue: FunctionValue = {
       tag: ValueTag.Function,
-      type: comptFunctionType,
+      type: comptimeFunctionType,
       body: clonedBody, // Will be updated after evaluation
       frameLevel: functionValue.frameLevel,
       funcName: functionValue.funcName
-        ? `${functionValue.funcName}_compt`
+        ? `${functionValue.funcName}_comptime`
         : undefined,
-      funcId: `${functionValue.funcId}_compt`,
-      calledComptFunctionCaches: [],
+      funcId: `${functionValue.funcId}_comptime`,
+      calledComptimeFunctionCaches: [],
       specializedFunctionCaches: [],
     };
 
@@ -154,12 +161,12 @@ export function analyzeCtfeCapability(
         isAnalyzingCtfeCapability: true, // We're analyzing, not executing - short-circuit recur
         isEvaluatingFunctionBodyOrAsyncBlock: {
           kind: "function-body",
-          type: comptFunctionType,
-          value: comptFunctionValue, // Use the compile-time function value for recur
+          type: comptimeFunctionType,
+          value: comptimeFunctionValue, // Use the compile-time function value for recur
           evaluationEnv: ctfeEnv,
         },
         expectedType: {
-          type: comptFunctionType.return.type,
+          type: comptimeFunctionType.return.type,
           env: ctfeEnv,
         },
       },
@@ -170,9 +177,9 @@ export function analyzeCtfeCapability(
     // Check if the result is a compile-time value
     if (evaluatedBody.$?.value !== undefined) {
       // CTFE succeeded - update the body and return it
-      comptFunctionValue.body = evaluatedBody;
+      comptimeFunctionValue.body = evaluatedBody;
       popEnvFrame(ctfeEnv, true);
-      return comptFunctionValue;
+      return comptimeFunctionValue;
     }
 
     // Clean up

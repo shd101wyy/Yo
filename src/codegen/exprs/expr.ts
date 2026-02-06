@@ -1,5 +1,5 @@
-import { Expr } from "../../expr";
-import { CodeGenContext } from "../utils";
+import type { Expr } from "../../expr";
+import type { CodeGenContext } from "../utils";
 
 export type GenerateExprFn = (
   expr: Expr,

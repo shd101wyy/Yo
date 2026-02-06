@@ -1,4 +1,5 @@
-import * as path from "path";
+import { beforeAll, describe, it } from "bun:test";
+import * as path from "node:path";
 import { printYoError } from "../error";
 import { ModuleManager } from "../module-manager";
 

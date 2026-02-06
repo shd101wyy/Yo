@@ -1,18 +1,20 @@
-import { Environment } from "../env";
+import { type Environment, getWhereClauseConstraintsForSomeType } from "../env";
+import { typeImplementsTrait } from "../evaluator/trait-checking";
 import {
   canAssignTypeHierarchy,
   synthesizeTypes,
 } from "../evaluator/types/synthesizer";
 import { areValuesEqual } from "../value";
-import { FunctionType, Type } from "./definitions";
+import type { FunctionType, SomeType, TraitType, Type } from "./definitions";
+import { getValueOfSomeTypeFromEnv } from "./env-lookup";
 import {
   isArrayType,
   isCCompatibleType,
   isCharType,
-  isComptFloatType,
-  isComptIntType,
-  isComptListType,
-  isComptStringType,
+  isComptimeFloatType,
+  isComptimeIntType,
+  isComptimeListType,
+  isComptimeStringType,
   isDynType,
   isEnumType,
   isExprType,
@@ -33,11 +35,45 @@ import {
   isUnionType,
 } from "./guards";
 import { TypeTag } from "./tags";
-import {
-  getValueOfSomeTypeFromEnv,
-  typeContainsSomeType,
-  typeImplementsTraitInternal,
-} from "./utils";
+import { typeContainsSomeType } from "./utils";
+
+function getEffectiveRequiredTraitTypes(
+  env: Environment,
+  someType: SomeType
+): TraitType[] {
+  const traitMap = new Map<string, TraitType>();
+  for (const entry of someType.requiredTraits ?? []) {
+    traitMap.set(entry.traitType.id, entry.traitType);
+  }
+
+  const whereConstraints = getWhereClauseConstraintsForSomeType(env, someType);
+  if (whereConstraints) {
+    for (const traitType of whereConstraints.requiredTraits) {
+      traitMap.set(traitType.id, traitType);
+    }
+  }
+
+  return [...traitMap.values()];
+}
+
+function getEffectiveNegativeTraitTypes(
+  env: Environment,
+  someType: SomeType
+): TraitType[] {
+  const traitMap = new Map<string, TraitType>();
+  for (const entry of someType.negativeTraits ?? []) {
+    traitMap.set(entry.traitType.id, entry.traitType);
+  }
+
+  const whereConstraints = getWhereClauseConstraintsForSomeType(env, someType);
+  if (whereConstraints) {
+    for (const traitType of whereConstraints.negativeTraits) {
+      traitMap.set(traitType.id, traitType);
+    }
+  }
+
+  return [...traitMap.values()];
+}
 
 /**
  * Check if two types are compatible.
@@ -85,8 +121,8 @@ export function areTypesCompatible(
     return expected.type.tag === given.type.tag;
   }
 
-  // compt_int can be converted to
-  // - compt_int
+  // comptime_int can be converted to
+  // - comptime_int
   // - u8
   // - i8
   // - u16
@@ -98,7 +134,7 @@ export function areTypesCompatible(
   // - usize
   // - isize
   if (
-    (isComptIntType(expected.type) ||
+    (isComptimeIntType(expected.type) ||
       expected.type.tag === TypeTag.U8 ||
       expected.type.tag === TypeTag.I8 ||
       expected.type.tag === TypeTag.U16 ||
@@ -110,46 +146,46 @@ export function areTypesCompatible(
       expected.type.tag === TypeTag.Usize ||
       expected.type.tag === TypeTag.Isize ||
       isCCompatibleType(expected.type)) &&
-    isComptIntType(given.type)
+    isComptimeIntType(given.type)
   ) {
-    if (requireExactMatch && !isComptIntType(expected.type)) {
-      // If exact match is required, compt_int cannot be converted to other numeric types
+    if (requireExactMatch && !isComptimeIntType(expected.type)) {
+      // If exact match is required, comptime_int cannot be converted to other numeric types
       return false;
     }
 
     return true;
   }
 
-  // compt_float can be converted to
-  // - compt_float
+  // comptime_float can be converted to
+  // - comptime_float
   // - f32
   // - f64
   if (
-    (isComptFloatType(expected.type) ||
+    (isComptimeFloatType(expected.type) ||
       expected.type.tag === TypeTag.F32 ||
       expected.type.tag === TypeTag.F64) &&
-    isComptFloatType(given.type)
+    isComptimeFloatType(given.type)
   ) {
-    if (requireExactMatch && !isComptFloatType(expected.type)) {
-      // If exact match is required, compt_float cannot be converted to other numeric types
+    if (requireExactMatch && !isComptimeFloatType(expected.type)) {
+      // If exact match is required, comptime_float cannot be converted to other numeric types
       return false;
     }
 
     return true;
   }
 
-  // compt_string can be converted to
+  // comptime_string can be converted to
   // - [u8]  u8 slice
   // - *(u8)    u8 pointer with \0 terminator
   // - *(char)  char pointer with \0 terminator
   if (
-    (isComptStringType(expected.type) ||
+    (isComptimeStringType(expected.type) ||
       (isSliceType(expected.type) && // [u8]
         isU8Type(expected.type.childType)) ||
       (isPtrType(expected.type) && // *(u8) or *(char)
         (isU8Type(expected.type.childType) ||
           isCharType(expected.type.childType)))) &&
-    isComptStringType(given.type)
+    isComptimeStringType(given.type)
   ) {
     return true;
   }
@@ -164,7 +200,7 @@ export function areTypesCompatible(
     return true;
   }
 
-  if (isComptListType(expected.type) && isComptListType(given.type)) {
+  if (isComptimeListType(expected.type) && isComptimeListType(given.type)) {
     return areTypesCompatible(
       { type: expected.type.childType, env: expected.env },
       { type: given.type.childType, env: given.env },
@@ -499,7 +535,7 @@ export function areTypesCompatible(
     // }
 
     // Pointers are INVARIANT in their child type.
-    // *(compt_int) is NOT compatible with *(i32), even though compt_int is compatible with i32.
+    // *(comptime_int) is NOT compatible with *(i32), even though comptime_int is compatible with i32.
     // This is a strict design choice to prevent pointer type coercion issues.
     return areTypesCompatible(
       { type: expected.type.childType, env: expected.env },
@@ -534,14 +570,15 @@ export function areTypesCompatible(
   if (isDynType(expected.type) && isDynType(given.type)) {
     // Given type must implement ALL modules required by expected type
     // Example: expected `Dyn(Copy)` is compatible with given `Dyn(Copy, Send)`
-    for (const expectedTrait of expected.type.requiredTraits) {
-      const matchingGivenTrait = given.type.requiredTraits.find((givenModule) =>
-        areTypesCompatible(
-          { type: expectedTrait, env: expected.env },
-          { type: givenModule, env: given.env },
-          requireExactMatch,
-          visitedPairs
-        )
+    for (const { traitType: expectedTrait } of expected.type.requiredTraits) {
+      const matchingGivenTrait = given.type.requiredTraits.find(
+        ({ traitType: givenTrait }) =>
+          areTypesCompatible(
+            { type: expectedTrait, env: expected.env },
+            { type: givenTrait, env: given.env },
+            requireExactMatch,
+            visitedPairs
+          )
       );
       if (!matchingGivenTrait) {
         return false; // Expected module not found in given
@@ -553,12 +590,12 @@ export function areTypesCompatible(
       expected.type.negativeTraits &&
       expected.type.negativeTraits.length > 0
     ) {
-      for (const negativeTrait of expected.type.negativeTraits) {
+      for (const { traitType: negativeTrait } of expected.type.negativeTraits) {
         const matchingGivenTrait = given.type.requiredTraits.find(
-          (givenModule) =>
+          ({ traitType: givenTrait }) =>
             areTypesCompatible(
               { type: negativeTrait, env: expected.env },
-              { type: givenModule, env: given.env },
+              { type: givenTrait, env: given.env },
               requireExactMatch,
               visitedPairs
             )
@@ -623,9 +660,12 @@ export function areTypesCompatible(
       // Example: expected `Impl(Send)` is compatible with given `Impl(Send, Copy)`
       // However, if requireExactMatch is true, the modules must match exactly (same count and types)
 
-      // Use the requiredTraits field directly (not module.fields)
-      const expectedTraits = expected.type.requiredTraits ?? [];
-      const givenTraits = given.type.requiredTraits ?? [];
+      // Use effective requiredTraits (SomeType + scoped where constraints)
+      const expectedTraits = getEffectiveRequiredTraitTypes(
+        expected.env,
+        expected.type
+      );
+      const givenTraits = getEffectiveRequiredTraitTypes(given.env, given.type);
 
       // For exact matching (e.g., cache comparisons), require same number of modules
       if (requireExactMatch && expectedTraits.length !== givenTraits.length) {
@@ -634,11 +674,11 @@ export function areTypesCompatible(
 
       // Check that all expected modules are present in given modules
       for (const expectedTrait of expectedTraits) {
-        const matchingGivenTrait = givenTraits.find((givenModule) => {
+        const matchingGivenTrait = givenTraits.find((givenTrait) => {
           // Compare by module type compatibility
           return areTypesCompatible(
             { type: expectedTrait, env: expected.env },
-            { type: givenModule, env: given.env },
+            { type: givenTrait, env: given.env },
             requireExactMatch,
             visitedPairs
           );
@@ -649,15 +689,16 @@ export function areTypesCompatible(
       }
 
       // Check negative modules: given must NOT implement any of expected's negative modules
-      if (
-        expected.type.negativeTraits &&
-        expected.type.negativeTraits.length > 0
-      ) {
-        for (const negativeTrait of expected.type.negativeTraits) {
-          const matchingGivenTrait = givenTraits.find((givenModule) =>
+      const expectedNegativeTraits = getEffectiveNegativeTraitTypes(
+        expected.env,
+        expected.type
+      );
+      if (expectedNegativeTraits.length > 0) {
+        for (const negativeTrait of expectedNegativeTraits) {
+          const matchingGivenTrait = givenTraits.find((givenTrait) =>
             areTypesCompatible(
               { type: negativeTrait, env: expected.env },
-              { type: givenModule, env: given.env },
+              { type: givenTrait, env: given.env },
               requireExactMatch,
               visitedPairs
             )
@@ -703,12 +744,15 @@ export function areTypesCompatible(
     } else {
       // Given is a concrete type, expected is SomeType (e.g., Impl(Trait))
       // Check if given implements all required modules of expected
-      const requiredTraits = expected.type.requiredTraits ?? [];
-      if (requiredTraits.length > 0) {
+      const requiredTraitTypes = getEffectiveRequiredTraitTypes(
+        expected.env,
+        expected.type
+      );
+      if (requiredTraitTypes.length > 0) {
         // Check that given implements all required modules
-        for (const requiredTrait of requiredTraits) {
+        for (const requiredTrait of requiredTraitTypes) {
           if (
-            !typeImplementsTraitInternal({
+            !typeImplementsTrait({
               targetType: given.type,
               traitType: requiredTrait,
               env: expected.env,
@@ -721,13 +765,14 @@ export function areTypesCompatible(
         }
         // All required modules are implemented
         // Check negative modules if any
-        if (
-          expected.type.negativeTraits &&
-          expected.type.negativeTraits.length > 0
-        ) {
-          for (const negativeTrait of expected.type.negativeTraits) {
+        const negativeTraitTypes = getEffectiveNegativeTraitTypes(
+          expected.env,
+          expected.type
+        );
+        if (negativeTraitTypes.length > 0) {
+          for (const negativeTrait of negativeTraitTypes) {
             if (
-              typeImplementsTraitInternal({
+              typeImplementsTrait({
                 targetType: given.type,
                 traitType: negativeTrait,
                 env: expected.env,
@@ -740,9 +785,9 @@ export function areTypesCompatible(
         // All checks passed - given type implements all required modules
         // and doesn't implement any forbidden modules
         let allModulesImplemented = true;
-        for (const requiredTrait of requiredTraits) {
+        for (const requiredTrait of requiredTraitTypes) {
           if (
-            !typeImplementsTraitInternal({
+            !typeImplementsTrait({
               targetType: given.type,
               traitType: requiredTrait,
               env: expected.env,

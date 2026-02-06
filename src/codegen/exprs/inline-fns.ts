@@ -1,0 +1,180 @@
+import { BuiltinFunctions, type FnCallExpr } from "../../expr";
+import { isEnumType } from "../../types/guards";
+import {
+  canOptimizeAsSimpleEnum,
+  type CodeGenContext,
+  getTypeString,
+} from "../utils";
+
+/**
+ * Generate Yo operator function call - extracted from original codegen-c.ts
+ */
+export function generateYoInlineFunctionCall(
+  functionName: string,
+  args: string[],
+  expr: FnCallExpr,
+  context: CodeGenContext
+): string {
+  // +
+  if (BuiltinFunctions.__yo_op_add.includes(functionName)) {
+    return `((${args[0]!}) + (${args[1]!}))`;
+  }
+  // -
+  else if (BuiltinFunctions.__yo_op_sub.includes(functionName)) {
+    return `((${args[0]!}) - (${args[1]!}))`;
+  }
+  // *
+  else if (BuiltinFunctions.__yo_op_mul.includes(functionName)) {
+    return `((${args[0]!}) * (${args[1]!}))`;
+  }
+  // /
+  else if (BuiltinFunctions.__yo_op_div.includes(functionName)) {
+    return `((${args[0]!}) / (${args[1]!}))`;
+  }
+  // %
+  else if (BuiltinFunctions.__yo_op_mod.includes(functionName)) {
+    return `((${args[0]!}) % (${args[1]!}))`;
+  }
+  // neg -
+  else if (BuiltinFunctions.__yo_op_neg.includes(functionName)) {
+    return `(-(${args[0]!}))`;
+  }
+  // ==
+  else if (BuiltinFunctions.__yo_op_eq.includes(functionName)) {
+    return `((${args[0]!}) == (${args[1]!}))`;
+  }
+  // !=
+  else if (BuiltinFunctions.__yo_op_neq.includes(functionName)) {
+    return `((${args[0]!}) != (${args[1]!}))`;
+  }
+  // <
+  else if (BuiltinFunctions.__yo_op_lt.includes(functionName)) {
+    return `((${args[0]!}) < (${args[1]!}))`;
+  }
+  // <=
+  else if (BuiltinFunctions.__yo_op_lte.includes(functionName)) {
+    return `((${args[0]!}) <= (${args[1]!}))`;
+  }
+  // >
+  else if (BuiltinFunctions.__yo_op_gt.includes(functionName)) {
+    return `((${args[0]!}) > (${args[1]!}))`;
+  }
+  // >=
+  else if (BuiltinFunctions.__yo_op_gte.includes(functionName)) {
+    return `((${args[0]!}) >= (${args[1]!}))`;
+  }
+  // !
+  else if (BuiltinFunctions.__yo_op_not.includes(functionName)) {
+    return `(!(${args[0]!}))`;
+  }
+  // &
+  else if (BuiltinFunctions.__yo_op_bit_and.includes(functionName)) {
+    return `((${args[0]!}) & (${args[1]!}))`;
+  }
+  // |
+  else if (BuiltinFunctions.__yo_op_bit_or.includes(functionName)) {
+    return `((${args[0]!}) | (${args[1]!}))`;
+  }
+  // ^
+  else if (BuiltinFunctions.__yo_op_bit_xor.includes(functionName)) {
+    return `((${args[0]!}) ^ (${args[1]!}))`;
+  }
+  // ~
+  else if (BuiltinFunctions.__yo_op_bit_complement.includes(functionName)) {
+    return `(~(${args[0]!}))`;
+  }
+  // <<
+  else if (BuiltinFunctions.__yo_op_bit_left_shift.includes(functionName)) {
+    return `((${args[0]!}) << (${args[1]!}))`;
+  }
+  // >>
+  else if (BuiltinFunctions.__yo_op_bit_right_shift.includes(functionName)) {
+    return `((${args[0]!}) >> (${args[1]!}))`;
+  }
+  // __yo_noop
+  else if (BuiltinFunctions.__yo_noop.includes(functionName)) {
+    return "";
+  }
+  // __yo_return_self
+  else if (BuiltinFunctions.__yo_return_self.includes(functionName)) {
+    // This is a special case where we just return the first argument
+    return `(*${args[0]!})`;
+  }
+  // __yo_ms_sleep
+  else if (BuiltinFunctions.__yo_ms_sleep.includes(functionName)) {
+    // Cross-platform sleep - takes milliseconds
+    // Windows Sleep takes milliseconds, usleep takes microseconds
+    return `(
+#ifdef _WIN32
+Sleep(${args[0]!})
+#else
+usleep((${args[0]!}) * 1000)
+#endif
+)`;
+  }
+  // __yo_decr_rc
+  else if (BuiltinFunctions.__yo_decr_rc.includes(functionName)) {
+    return `__yo_decr_rc((void*)(${args[0]!}))`;
+  }
+  // __yo_as - generic type casting for primitives and pointers
+  else if (BuiltinFunctions.__yo_as.includes(functionName) && expr.$?.type) {
+    // The return type tells us what to cast to
+    const targetCType = getTypeString(expr.$.type, context);
+
+    // Check if source is a non-simple enum (tagged union) - need to access .tag
+    const sourceType = expr.args[0]?.$?.type;
+    if (
+      sourceType &&
+      isEnumType(sourceType) &&
+      !canOptimizeAsSimpleEnum(sourceType)
+    ) {
+      return `((${targetCType})((${args[0]!}).tag))`;
+    }
+
+    return `((${targetCType})(${args[0]!}))`;
+  }
+  // __yo_ptr_add
+  else if (BuiltinFunctions.__yo_ptr_add.includes(functionName)) {
+    return `(${args[0]!} + ${args[1]!})`;
+  }
+  // __yo_ptr_sub
+  else if (BuiltinFunctions.__yo_ptr_sub.includes(functionName)) {
+    return `(${args[0]!} - ${args[1]!})`;
+  }
+  // __yo_ptr_diff
+  else if (BuiltinFunctions.__yo_ptr_diff.includes(functionName)) {
+    return `(${args[0]!} - ${args[1]!})`;
+  }
+  // __yo_ptr_eq
+  else if (BuiltinFunctions.__yo_ptr_eq.includes(functionName)) {
+    return `(${args[0]!} == ${args[1]!})`;
+  }
+  // __yo_ptr_neq
+  else if (BuiltinFunctions.__yo_ptr_neq.includes(functionName)) {
+    return `(${args[0]!} != ${args[1]!})`;
+  }
+  // __yo_ptr_lt
+  else if (BuiltinFunctions.__yo_ptr_lt.includes(functionName)) {
+    return `(${args[0]!} < ${args[1]!})`;
+  }
+  // __yo_ptr_lte
+  else if (BuiltinFunctions.__yo_ptr_lte.includes(functionName)) {
+    return `(${args[0]!} <= ${args[1]!})`;
+  }
+  // __yo_ptr_gt
+  else if (BuiltinFunctions.__yo_ptr_gt.includes(functionName)) {
+    return `(${args[0]!} > ${args[1]!})`;
+  }
+  // __yo_ptr_gte
+  else if (BuiltinFunctions.__yo_ptr_gte.includes(functionName)) {
+    return `(${args[0]!} >= ${args[1]!})`;
+  }
+  // __yo_slice_len - access the length field of a slice fat pointer
+  else if (BuiltinFunctions.__yo_slice_len.includes(functionName)) {
+    return `(${args[0]!}.length)`;
+  }
+  // Handle other operators that are not defined in Yo
+  else {
+    return `/* Unhandled operator ${functionName} */`;
+  }
+}

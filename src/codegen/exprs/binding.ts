@@ -3,9 +3,9 @@ import {
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
-  FnCallExpr,
+  type FnCallExpr,
 } from "../../expr";
-import { CodeGenContext, getVariableTypeString } from "../utils";
+import { type CodeGenContext, getVariableTypeString } from "../utils";
 
 /**
  * bindings `:`
@@ -18,7 +18,7 @@ export function generateBinding(
   const lhs = expr.args[0]!;
   if (
     exprIsFunctionCall(lhs) &&
-    exprIsFunctionCallOf(lhs, BuiltinKeywords.compt, 1)
+    exprIsFunctionCallOf(lhs, BuiltinKeywords.comptime, 1)
   ) {
     // compile-time variable
     return "";

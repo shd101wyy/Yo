@@ -4,26 +4,26 @@ Type reflection
 // Type reflection
 
 TypeField :: struct(
-  compt(type) : Type,
-  compt(label) : compt_string,
-  compt(is_compt) : bool
+  comptime(type) : Type,
+  comptime(label) : comptime_string,
+  comptime(is_comptime) : bool
 );
 
 TypeInfo :: enum(
   Module(
-    compt(fields) : ComptList(TypeField),
-    compt(receiver_type) : enum(
+    comptime(fields) : ComptimeList(TypeField),
+    comptime(receiver_type) : enum(
       None,
-      Some(compt(type) : Type)
+      Some(comptime(type) : Type)
     )
   ),
   I32(
-    compt(id) : compt_string,
-    compt(module) : Self.Module
+    comptime(id) : comptime_string,
+    comptime(module) : Self.Module
   ),
   Bool(
-    compt(id) : compt_string,
-    compt(module) : Self.Module
+    comptime(id) : comptime_string,
+    comptime(module) : Self.Module
   )
 );
 
@@ -31,7 +31,7 @@ TypeInfo :: enum(
 I32Info :: TypeInfo.I32(
   id: "i32",
   module: TypeInfo.Module(
-    fields : ComptList(TypeField)(),
+    fields : ComptimeList(TypeField)(),
     receiver_type : .None
   )
 );
@@ -39,7 +39,7 @@ I32Info :: TypeInfo.I32(
 
 ```rust,f#
 swap ::
-  (fn(forall(R1 : Region, compt(R2) : Region),
+  (fn(forall(R1 : Region, comptime(R2) : Region),
     a : &!(i32, using(R1)),
     b : &!(i32, using(R2))
   ) -> unit)
@@ -51,7 +51,7 @@ swap ::
 
 // pre/post conditions
 swap2 ::
-  (fn(forall(R1 : Region, compt(R2) : Region),
+  (fn(forall(R1 : Region, comptime(R2) : Region),
     a : &!(i32, using(R1)),
     b : &!(i32, using(R2))
   ) -> (unit `with` {
@@ -352,7 +352,7 @@ get_ref :: (fn(forall(SomeRegion: Region)) -> &(i32, SomeRegion)) { ... } // Thi
 3. Data Structure Storage: This is where explicit regions might still be needed:
 
 ```rust
-Container :: (fn(using(ExplicitRegion: Region))-> compt(Type))
+Container :: (fn(using(ExplicitRegion: Region))-> comptime(Type))
   struct(
     data_ref: &(i32, ExplicitRegion) // Still need explicit regions here?
   );
@@ -502,7 +502,7 @@ p2 == Point(7, 6); // true
 ```
 
 ```rust
-Box :: (fn(compt(V) : Type) -> compt(Type))
+Box :: (fn(comptime(V) : Type) -> comptime(Type))
   ref struct
     (*) : V
 ;
@@ -549,3 +549,17 @@ Let's keep it simple for now:
   ```
 
 Use ^(x) to move a value. By moving we consume the variable. This could be useful for ending the variable lifetime early, especially like in a `cond`/`match` expression.
+
+---
+
+```rust
+impl(bool, Comptime, {});
+impl(bool, LogicalNot, {
+  (!) :: (fn(value : bool) -> bool) {
+    return __yo_op_not(a);
+  };
+  export (!);
+});
+```
+
+No this is bad ^^ It requires we re-define the function signature every time.

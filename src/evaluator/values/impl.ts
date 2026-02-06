@@ -1,7 +1,8 @@
 import {
   addVariableToEnv,
-  Environment,
+  type Environment,
   getVariablesFromEnv,
+  getWhereClauseConstraintsForSomeType,
   popEnvFrame,
   pushEnvFrame,
 } from "../../env";
@@ -9,57 +10,62 @@ import { formatErrorMessage } from "../../error";
 import {
   BuiltinKeywords,
   cloneExpr,
-  Expr,
+  type Expr,
   exprIsAtom,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
-  FnCallExpr,
+  type FnCallExpr,
 } from "../../expr";
-import { FunctionValue } from "../../function-value";
-import { PlaceholderToken, Token } from "../../token";
-import { TypeValue } from "../../type-value";
+import type { FunctionValue } from "../../function-value";
+import { PlaceholderToken, type Token } from "../../token";
+import type { TypeValue } from "../../type-value";
 import {
+  createTraitType,
   createType0,
   createTypeHierarchy,
+} from "../../types/creators";
+import type {
   FunctionParameter,
   FunctionType,
-  getValueOfSomeTypeFromEnv,
+  SomeType,
+  TraitField,
+  TraitType,
+  Type,
+} from "../../types/definitions";
+import { getValueOfSomeTypeFromEnv } from "../../types/env-lookup";
+import {
   isArrayType,
   isFunctionType,
   isSliceType,
   isSomeType,
   isTraitType,
   isType0,
-  SomeType,
-  TraitField,
-  TraitType,
-  Type,
-  typeContainsUnknownValue,
-  typeToString,
-} from "../../types";
+} from "../../types/guards";
+import { typeContainsUnknownValue, typeToString } from "../../types/utils";
 import {
+  createTraitValue,
   createTypeValue,
   createUnknownValue,
   isFunctionValue,
   isTraitValue,
   isTypeValue,
   isUnknownValue,
-  TraitValue,
-  UnknownValue,
-  Value,
+  type TraitValue,
+  type UnknownValue,
+  type Value,
   valueToString,
 } from "../../value";
-import { EvaluatorContext } from "../context";
+import type { EvaluatorContext } from "../context";
 import { evaluateBeginExpression } from "../exprs/begin";
 import { evaluateExpression } from "../exprs/expr";
 import {
   checkTypeImplementsSelfConstraints,
   typeImplementsTrait,
-} from "../exprs/subtype_of";
+} from "../trait-checking";
 import { synthesizeTypes } from "../types/synthesizer";
-import { evaluateAnonymousModuleBeginExprs } from "./anonymous_module";
-import { evaluateAnonymousTraitBeginExprs } from "./anonymous_trait";
+import { isValidVariableName } from "../utils";
+import { evaluateAnonymousModuleBeginExprs } from "./anonymous-module";
 
 /**
  * Re-evaluate a FunctionType's type expressions with substitutions bound in the environment.
@@ -103,11 +109,11 @@ function reEvaluateFunctionType({
       });
 
       if (isTypeValue(evaluatedTypeExpr.$?.value)) {
-        // Clear typeExpr to prevent re-evaluation of already specialized type
+        // Keep typeExpr so defaulted parameters can re-evaluate with concrete bindings
         return {
           ...param,
           type: evaluatedTypeExpr.$.value.value,
-          exprs: { ...param.exprs, typeExpr: undefined },
+          exprs: { ...param.exprs },
         };
       }
 
@@ -118,22 +124,20 @@ function reEvaluateFunctionType({
 
   // Re-evaluate the return type expression
   let newReturnType = functionType.return.type;
-  if (functionType.return.expr) {
-    const returnTypeExprClone = cloneExpr(functionType.return.expr);
-    const evaluatedReturnTypeExpr = evaluateExpression({
-      expr: returnTypeExprClone,
-      env: specializedEnv,
-      context: {
-        isEvaluatingGenericImplSpecialization: true,
-        stdPath: "",
-        isEvaluatingFunctionType: true,
-        SelfType,
-      } as EvaluatorContext,
-    });
+  const returnTypeExprClone = cloneExpr(functionType.return.typeExpr);
+  const evaluatedReturnTypeExpr = evaluateExpression({
+    expr: returnTypeExprClone,
+    env: specializedEnv,
+    context: {
+      isEvaluatingGenericImplSpecialization: true,
+      stdPath: "",
+      isEvaluatingFunctionType: true,
+      SelfType,
+    } as EvaluatorContext,
+  });
 
-    if (isTypeValue(evaluatedReturnTypeExpr.$?.value)) {
-      newReturnType = evaluatedReturnTypeExpr.$.value.value;
-    }
+  if (isTypeValue(evaluatedReturnTypeExpr.$?.value)) {
+    newReturnType = evaluatedReturnTypeExpr.$.value.value;
   }
 
   // Re-evaluate SelfType if present (it's likely already concrete from substitutions)
@@ -159,10 +163,11 @@ function reEvaluateFunctionType({
 
   return {
     ...functionType,
+    env: specializedEnv,
     forallParameters: [], // Clear forall parameters since we've specialized them
     parameters: newParameters,
     parametersFrame: newParametersFrame,
-    return: { ...functionType.return, type: newReturnType, expr: undefined }, // Clear expr to prevent re-evaluation
+    return: { ...functionType.return, type: newReturnType },
     SelfType: newSelfType,
   };
 }
@@ -213,6 +218,238 @@ export interface GenericImpl {
    * Paired with traitTypeArgExprs to bind parameters during specialization
    */
   traitFunctionParamNames?: string[];
+}
+
+type ImplTraitEntry = {
+  traitValue: TraitValue;
+  sourceExpr?: Expr;
+  isAnonymousTrait: boolean;
+};
+
+function extractTraitTypeArgsFromImplExpr({
+  traitExpr,
+  traitType,
+}: {
+  traitExpr: Expr | undefined;
+  traitType: TraitType;
+}): {
+  traitTypeArgExprs?: Expr[];
+  traitFunctionParamNames?: string[];
+} {
+  if (!traitExpr || !exprIsFunctionCall(traitExpr)) {
+    return {};
+  }
+
+  // traitExpr is like Add(i32)(...) - the func is Add(i32)
+  const traitTypeCallExpr = traitExpr.func;
+  if (!exprIsFunctionCall(traitTypeCallExpr)) {
+    return {};
+  }
+
+  const traitTypeArgExprs = traitTypeCallExpr.args.map((arg) => cloneExpr(arg));
+
+  let traitFunctionParamNames: string[] | undefined;
+  if (traitType.functionValue && isFunctionType(traitType.functionValue.type)) {
+    const funcType = traitType.functionValue.type;
+    if (funcType.parameters.length > 0) {
+      traitFunctionParamNames = funcType.parameters.map((p) => p.label);
+    } else if (funcType.forallParameters.length > 0) {
+      traitFunctionParamNames = funcType.forallParameters.map((p) => p.label);
+    }
+  }
+
+  return { traitTypeArgExprs, traitFunctionParamNames };
+}
+
+function evaluateImplFieldList({
+  fieldExprs,
+  env,
+  context,
+  receiverType,
+}: {
+  fieldExprs: Expr[];
+  env: Environment;
+  context: EvaluatorContext;
+  receiverType: Type;
+}): { env: Environment; traitEntries: ImplTraitEntry[] } {
+  const traitEntries: ImplTraitEntry[] = [];
+
+  const traitType = createTraitType(env);
+  const traitElementValues: (Value | undefined)[] = [];
+  let hasAnonymousFields = false;
+
+  // Temporarily extend receiver type trait so Self.X resolves within the impl list
+  const receiverTypeOriginalTrait = receiverType?.trait;
+  if (receiverType?.trait) {
+    receiverType.trait = {
+      ...receiverType.trait,
+      fields: [...receiverType.trait.fields],
+    };
+  }
+
+  // Push new frame to the env so impl fields don't leak
+  env = pushEnvFrame(env);
+
+  for (const expr of fieldExprs) {
+    // Disallow begin blocks in new impl field syntax
+    if (
+      exprIsFunctionCall(expr) &&
+      exprIsFunctionCallOf(expr, BuiltinKeywords.begin)
+    ) {
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `impl receiverType, ... no longer accepts begin blocks. Use "impl { ... }" for anonymous modules.`,
+      });
+    }
+
+    // Reject unsupported field assignment syntax
+    if (
+      exprIsFunctionCall(expr) &&
+      (exprIsFunctionCallOf(expr, "::", 2) ||
+        exprIsFunctionCallOf(expr, ":=", 2))
+    ) {
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `impl fields must use ":". "::" and ":=" are not allowed here.`,
+      });
+    }
+
+    // Field definition: name : value
+    if (exprIsFunctionCall(expr) && exprIsFunctionCallOf(expr, ":", 2)) {
+      const labelExpr = expr.args[0]!;
+      const valueExpr = expr.args[1]!;
+
+      if (!exprIsAtom(labelExpr) || !isValidVariableName(labelExpr)) {
+        throw formatErrorMessage({
+          token: labelExpr.token,
+          errorMessage: `Expected identifier for impl field name, got:\n${exprToString(labelExpr)}`,
+        });
+      }
+
+      const label = labelExpr.token.value;
+
+      // Evaluate the value expression with Self in context
+      const evaluatedValueExpr = evaluateExpression({
+        expr: valueExpr,
+        env,
+        context: {
+          ...context,
+          expectedType: undefined,
+          SelfType: receiverType,
+        },
+      });
+
+      if (!evaluatedValueExpr.$?.type) {
+        throw formatErrorMessage({
+          token: valueExpr.token,
+          errorMessage: `Failed to evaluate impl field value for "${label}".`,
+        });
+      }
+
+      env = evaluatedValueExpr.$.env;
+      const fieldType = evaluatedValueExpr.$.type;
+      const fieldValue = evaluatedValueExpr.$.value;
+
+      if (!fieldValue) {
+        throw formatErrorMessage({
+          token: valueExpr.token,
+          errorMessage: `impl field "${label}" must be a compile-time value.`,
+        });
+      }
+
+      if (isFunctionValue(fieldValue) && !fieldValue.funcName) {
+        fieldValue.funcName = label;
+        fieldValue.funcId += `_${label}`;
+      }
+
+      // Add to env for subsequent fields to reference
+      const { env: nextEnv } = addVariableToEnv({
+        env,
+        variable: {
+          name: label,
+          type: fieldType,
+          isCompileTimeOnly: true,
+          value: [fieldValue],
+          token: labelExpr.token,
+          initializedAtToken: labelExpr.token,
+          consumedAtToken: undefined,
+          isOwningTheRcValue: false,
+        },
+      });
+      env = nextEnv;
+
+      // Add to anonymous trait fields
+      traitType.fields.push({
+        label,
+        type: fieldType,
+        assignedValue: fieldValue,
+        defaultValue: undefined,
+        exprs: { expr },
+      });
+      traitElementValues.push(fieldValue);
+      hasAnonymousFields = true;
+
+      // Also add to receiver trait for Self.method resolution within this impl list
+      if (receiverType?.trait) {
+        receiverType.trait.fields.push({
+          label,
+          type: fieldType,
+          assignedValue: fieldValue,
+          defaultValue: undefined,
+          exprs: { expr },
+        });
+      }
+
+      continue;
+    }
+
+    // Trait value implementation
+    const evaluatedTraitExpr = evaluateExpression({
+      expr,
+      env,
+      context: {
+        ...context,
+        expectedType: undefined,
+        ReceiverType: receiverType,
+      },
+    });
+
+    if (!evaluatedTraitExpr.$ || !isTraitValue(evaluatedTraitExpr.$.value)) {
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `Expected trait value in impl field list, got:\n${exprToString(expr)}`,
+      });
+    }
+
+    env = evaluatedTraitExpr.$.env;
+    traitEntries.push({
+      traitValue: evaluatedTraitExpr.$.value,
+      sourceExpr: expr,
+      isAnonymousTrait: false,
+    });
+  }
+
+  // Pop the env frame
+  env = popEnvFrame(env);
+
+  // Restore receiver trait to avoid duplication
+  if (receiverType) {
+    receiverType.trait = receiverTypeOriginalTrait;
+  }
+
+  if (hasAnonymousFields) {
+    const anonymousTraitValue = createTraitValue(
+      { ...traitType, receiverType },
+      traitElementValues
+    );
+    traitEntries.unshift({
+      traitValue: anonymousTraitValue,
+      sourceExpr: undefined,
+      isAnonymousTrait: true,
+    });
+  }
+
+  return { env, traitEntries };
 }
 
 /**
@@ -276,6 +513,21 @@ export function clearAllGlobalImplState(): void {
   implRegistry.clear();
   genericImplRegistry.clear();
   typeImplRegistry.clear();
+}
+
+/**
+ * Get the base trait key for registry lookup.
+ * For parameterized traits like Eq(Box(T)) or Eq(i32), this returns the funcId of the base trait function (Eq).
+ * This ensures that all instantiations of the same trait share the same registry key.
+ */
+function getBaseTraitKey(traitType: TraitType): string {
+  // Use the funcId of the trait's function value if available
+  // This is the most reliable way to identify the base trait
+  if (traitType.functionValue) {
+    return traitType.functionValue.funcId;
+  }
+  // Fall back to typeName or id for non-parameterized traits
+  return traitType.typeName || traitType.id;
 }
 
 /**
@@ -412,8 +664,8 @@ export function findMatchingGenericImpl({
   traitType: TraitType;
   env: Environment;
 }): GenericImpl | undefined {
-  // Use typeName if available, otherwise fall back to id for anonymous modules
-  const traitTypeKey = traitType.typeName || traitType.id;
+  // Use the base trait key (funcId) for lookup
+  const traitTypeKey = getBaseTraitKey(traitType);
 
   const impls = genericImplRegistry.get(traitTypeKey);
   if (!impls || impls.length === 0) {
@@ -746,8 +998,8 @@ export function findMethodFromGenericImplForTrait({
   methodName: string;
   env: Environment;
 }): { type: FunctionType; value: Value | undefined } | undefined {
-  // Use typeName if available, otherwise fall back to id for anonymous modules
-  const traitTypeKey = traitType.typeName || traitType.id;
+  // Use the base trait key (funcId) for lookup
+  const traitTypeKey = getBaseTraitKey(traitType);
 
   const impls = genericImplRegistry.get(traitTypeKey);
   if (!impls || impls.length === 0) {
@@ -1034,9 +1286,10 @@ function tryMatchGenericImpl({
         // If bound to a SomeType, check if it has the negated constraint attached
         if (isSomeType(boundType)) {
           if (
-            !someTypeHasNegatedModuleConstraint(
+            !someTypeHasNegatedTraitConstraint(
               boundType,
-              actualConstraintTrait
+              actualConstraintTrait,
+              env
             )
           ) {
             return noMatch;
@@ -1059,7 +1312,9 @@ function tryMatchGenericImpl({
 
       // If bound to a SomeType, check if it has the required constraint attached
       if (isSomeType(boundType)) {
-        if (!someTypeHasModuleConstraint(boundType, actualConstraintTrait)) {
+        if (
+          !someTypeHasTraitConstraint(boundType, actualConstraintTrait, env)
+        ) {
           return noMatch;
         }
         continue;
@@ -1095,8 +1350,8 @@ function tryMatchGenericImpl({
         const variable = variables[variables.length - 1];
         if (variable && variable.value && !isUnknownValue(variable.value[0])) {
           // IMPORTANT: Use the parameter's declared type, not the value's type
-          // For example, if forall(U : usize) and the value is 3 (compt_int),
-          // we should store it as 3 with type usize, not compt_int
+          // For example, if forall(U : usize) and the value is 3 (comptime_int),
+          // we should store it as 3 with type usize, not comptime_int
           const valueWithCorrectType = {
             ...variable.value[0],
             type: param.type,
@@ -1120,27 +1375,36 @@ function tryMatchGenericImpl({
  * Check if a SomeType has a specific trait constraint attached.
  * Used when checking where constraints during generic impl matching.
  */
-function someTypeHasModuleConstraint(
+function someTypeHasTraitConstraint(
   someType: SomeType,
-  requiredTrait: TraitType
+  requiredTrait: TraitType,
+  env: Environment
 ): boolean {
-  const moduleName = requiredTrait.typeName;
-  if (!moduleName) {
+  const traitName = requiredTrait.typeName;
+  if (!traitName) {
     return false;
   }
 
+  // Check in requiredTraits (SomeType-level constraints)
+  for (const requiredTraitEntry of someType.requiredTraits) {
+    if (requiredTraitEntry.traitType.id === requiredTrait.id) {
+      return true;
+    }
+  }
+
+  const whereConstraints = getWhereClauseConstraintsForSomeType(env, someType);
+  if (whereConstraints) {
+    for (const requiredTraitType of whereConstraints.requiredTraits) {
+      if (requiredTraitType.id === requiredTrait.id) {
+        return true;
+      }
+    }
+  }
+
+  // Also check trait.fields (from auto-derivation, e.g., Runtime is auto-attached to SomeTypes)
   for (const field of someType.trait.fields) {
-    if (
-      field.assignedValue &&
-      isTypeValue(field.assignedValue) &&
-      isTraitType(field.assignedValue.value)
-    ) {
-      const constraintTrait = field.assignedValue.value;
-      // Only match non-negated constraints
-      if (
-        constraintTrait.typeName === moduleName &&
-        !constraintTrait.isNegatedConstraint
-      ) {
+    if (isTraitValue(field.assignedValue)) {
+      if (field.assignedValue.type.id === requiredTrait.id) {
         return true;
       }
     }
@@ -1153,27 +1417,29 @@ function someTypeHasModuleConstraint(
  * Check if a SomeType has a specific negated trait constraint attached.
  * Used when checking where constraints like `where(T <: !(Copy))`.
  */
-function someTypeHasNegatedModuleConstraint(
+function someTypeHasNegatedTraitConstraint(
   someType: SomeType,
-  requiredNegatedTrait: TraitType
+  requiredNegatedTrait: TraitType,
+  env: Environment
 ): boolean {
-  const moduleName = requiredNegatedTrait.typeName;
-  if (!moduleName) {
+  const traitName = requiredNegatedTrait.typeName;
+  if (!traitName) {
     return false;
   }
 
-  for (const field of someType.trait.fields) {
-    if (
-      field.assignedValue &&
-      isTypeValue(field.assignedValue) &&
-      isTraitType(field.assignedValue.value)
-    ) {
-      const constraintTrait = field.assignedValue.value;
-      // Only match negated constraints
-      if (
-        constraintTrait.typeName === moduleName &&
-        constraintTrait.isNegatedConstraint
-      ) {
+  // Check in negativeTraits (SomeType-level constraints)
+  if (someType.negativeTraits) {
+    for (const negativeTraitEntry of someType.negativeTraits) {
+      if (negativeTraitEntry.traitType.id === requiredNegatedTrait.id) {
+        return true;
+      }
+    }
+  }
+
+  const whereConstraints = getWhereClauseConstraintsForSomeType(env, someType);
+  if (whereConstraints) {
+    for (const negativeTraitType of whereConstraints.negativeTraits) {
+      if (negativeTraitType.id === requiredNegatedTrait.id) {
         return true;
       }
     }
@@ -1240,7 +1506,7 @@ function checkGenericImplSelfConstraints({
 
       // Check if receiver type pattern relies on SomeTypes that have the required constraint
       // For now, we just fail - the typeImplementsTrait check should handle this
-      // via findMatchingGenericImpl which checks someTypeHasModuleConstraint
+      // via findMatchingGenericImpl which checks someTypeHasTraitConstraint
 
       throw formatErrorMessage({
         token: errorToken,
@@ -1394,7 +1660,6 @@ function attachTraitToReceiverType(
       const newField: TraitField = {
         label: field.label,
         type: field.type,
-        isCompileTimeOnly: field.isCompileTimeOnly,
         assignedValue: value,
         sourceModulePath,
         exprs: {
@@ -1409,7 +1674,6 @@ function attachTraitToReceiverType(
     const field: TraitField = {
       label: "", // Empty label prevents direct access, only method calls work
       type: createTypeHierarchy(1), // Trait type
-      isCompileTimeOnly: true,
       assignedValue: traitValue,
       sourceModulePath,
       exprs: {
@@ -1470,357 +1734,80 @@ export function evaluateModuleValue({
 
     return expr;
   }
-  // Impl a trait for a type
-  else if (expr.args.length === 2) {
-    const receiverTypeArg = expr.args[0]!;
-    const moduleCallArg = expr.args[1]!;
+  const args = expr.args;
+  let argIndex = 0;
+  let forallArg: FnCallExpr | undefined;
+  let whereArg: FnCallExpr | undefined;
 
-    // Evaluate the receiver type
-    const evaluatedReceiverTypeArg = evaluateExpression({
-      expr: receiverTypeArg,
-      env,
-      context: {
-        ...context,
-      },
-    });
+  // Supported forms:
+  //   impl(forall(...), where(...), receiverType, ...)
+  //   impl(forall(...), receiverType, where(...), ...)
 
-    // Expect the receiver type to be a type
-    if (
-      !evaluatedReceiverTypeArg.$ ||
-      !evaluatedReceiverTypeArg.$.value ||
-      !isTypeValue(evaluatedReceiverTypeArg.$.value)
-    ) {
-      throw formatErrorMessage({
-        token: receiverTypeArg.token,
-        errorMessage: `Expected type for receiver type argument.`,
-      });
-    }
-    env = evaluatedReceiverTypeArg.$.env;
-    const receiverType = evaluatedReceiverTypeArg.$.value.value;
-
-    // Check if the receiver type is a structural type (SliceType, ArrayType)
-    // For structural types, we need to register as a generic impl so they can be matched structurally
-    // because each [u8] or Array(u8, 10) creates a new type instance
-    const isStructuralType =
-      isSliceType(receiverType) || isArrayType(receiverType);
-
-    // Anonymous trait value
-    if (
-      exprIsFunctionCall(expr.args[1]) &&
-      exprIsFunctionCallOf(expr.args[1], BuiltinKeywords.begin)
-    ) {
-      // Restrict anonymous trait impl to prelude.yo only
-      if (!context.currentModulePath?.endsWith("prelude.yo")) {
-        throw formatErrorMessage({
-          token: expr.token,
-          errorMessage: `impl a receiver type with anonymous trait (begin block) is only allowed in prelude.yo`,
-        });
-      }
-
-      const beginExprs = expr.args[1]!.args;
-      const {
-        traitType,
-        traitValue,
-        env: nextEnv,
-      } = evaluateAnonymousTraitBeginExprs({
-        beginExprs,
-        env,
-        context: {
-          ...context,
-          expectedType: undefined,
-          SelfType: undefined, // QUESTION: Should we pass receiverType here?
-        },
-        receiverType,
-      });
-      env = nextEnv;
-
-      // Attach the anonymous trait to the receiver type
-      attachTraitToReceiverType(traitValue, expr, context.currentModulePath);
-
-      // Set the trait value to the expr
-      expr.$ = {
-        env,
-        type: traitType,
-        value: traitValue,
-        pathCollection: [],
-      };
-
-      return expr;
-    } else {
-      // Evaluate the trait call
-      const evaluatedTraitCallArg = evaluateExpression({
-        expr: moduleCallArg,
-        env,
-        context: {
-          ...context,
-          expectedType: undefined,
-          ReceiverType: receiverType,
-        },
-      });
-      // Expect the trait call to be a trait value
-      if (
-        !evaluatedTraitCallArg.$ ||
-        !isTraitValue(evaluatedTraitCallArg.$.value)
-      ) {
-        throw formatErrorMessage({
-          token: moduleCallArg.token,
-          errorMessage: `Expected trait value for trait call argument.`,
-        });
-      }
-      env = evaluatedTraitCallArg.$.env;
-      const traitValue = evaluatedTraitCallArg.$.value;
-      const traitType = traitValue.type;
-
-      // Check that the receiver type implements all selfConstraints from the trait's where clause
-      checkTypeImplementsSelfConstraints({
-        targetType: receiverType,
-        traitType: traitValue.type,
-        env,
-        errorToken: expr.token,
-      });
-
-      if (isStructuralType) {
-        // Register as a generic impl (with no forall parameters) for structural matching
-        const traitTypeKey = traitType.typeName || traitType.id;
-        const genericImpl: GenericImpl = {
-          forallParameters: [],
-          whereConstraints: [],
-          receiverTypePattern: receiverType,
-          traitType,
-          traitValue,
-          expr,
-          sourceModulePath: context.currentModulePath,
-          definitionEnv: env,
-        };
-        registerGenericImpl(traitTypeKey, genericImpl);
-      } else {
-        // Attach the trait to the receiver type for method lookup
-        attachTraitToReceiverType(traitValue, expr, context.currentModulePath);
-      }
-
-      // Set the trait value to the expr
-      expr.$ = {
-        env,
-        type: evaluatedTraitCallArg.$.type,
-        value: traitValue,
-        pathCollection: [],
-      };
-
-      return expr;
-    }
+  if (
+    args[argIndex] &&
+    exprIsFunctionCall(args[argIndex]!) &&
+    exprIsFunctionCallOf(args[argIndex]!, BuiltinKeywords.forall)
+  ) {
+    forallArg = args[argIndex]! as FnCallExpr;
+    argIndex++;
   }
-  // Generic impl with forall: impl(forall(...), ReceiverTypePattern, Module(...))
-  // or with where: impl(forall(...), where(...), ReceiverTypePattern, Module(...))
-  else if (expr.args.length === 3 || expr.args.length === 4) {
-    const firstArg = expr.args[0]!;
 
-    // First argument must be forall(...)
-    if (
-      !exprIsFunctionCall(firstArg) ||
-      !exprIsFunctionCallOf(firstArg, BuiltinKeywords.forall)
-    ) {
+  if (
+    args[argIndex] &&
+    exprIsFunctionCall(args[argIndex]!) &&
+    exprIsFunctionCallOf(args[argIndex]!, BuiltinKeywords.where)
+  ) {
+    if (!forallArg) {
       throw formatErrorMessage({
-        token: firstArg.token,
-        errorMessage: `Expected forall(...) as first argument in generic impl, got: ${exprToString(firstArg)}`,
+        token: args[argIndex]!.token,
+        errorMessage: `impl where(...) requires forall(...) and may appear before or after the receiver type.`,
       });
     }
+    whereArg = args[argIndex]! as FnCallExpr;
+    argIndex++;
+  }
 
-    // Determine if we have a where clause
-    let hasWhere = false;
-    let whereArg: FnCallExpr | undefined;
-    let receiverTypeArg: Expr;
-    let moduleCallArg: Expr;
+  if (!args[argIndex]) {
+    throw formatErrorMessage({
+      token: expr.token,
+      errorMessage: `impl requires a receiver type and at least one field.`,
+    });
+  }
 
-    if (expr.args.length === 4) {
-      const secondArg = expr.args[1]!;
-      if (
-        !exprIsFunctionCall(secondArg) ||
-        !exprIsFunctionCallOf(secondArg, BuiltinKeywords.where)
-      ) {
-        throw formatErrorMessage({
-          token: secondArg.token,
-          errorMessage: `Expected where(...) as second argument in 4-argument generic impl, got: ${exprToString(secondArg)}`,
-        });
-      }
-      hasWhere = true;
-      whereArg = secondArg;
-      receiverTypeArg = expr.args[2]!;
-      moduleCallArg = expr.args[3]!;
-    } else {
-      // 3-argument case: check if second arg is where
-      const secondArg = expr.args[1]!;
-      if (
-        exprIsFunctionCall(secondArg) &&
-        exprIsFunctionCallOf(secondArg, BuiltinKeywords.where)
-      ) {
-        throw formatErrorMessage({
-          token: secondArg.token,
-          errorMessage: `impl with where clause requires 4 arguments: impl(forall(...), where(...), ReceiverType, Module(...))`,
-        });
-      }
-      receiverTypeArg = secondArg;
-      moduleCallArg = expr.args[2]!;
-    }
+  const receiverTypeArg = args[argIndex]!;
+  argIndex++;
 
-    // Parse forall parameters and create SomeTypes or unknown values
-    const forallParamExprs = firstArg.args;
-    const forallParameters: ForallParameter[] = [];
-
-    // Create a new env frame for forall parameters
-    env = pushEnvFrame(env);
-
-    for (const paramExpr of forallParamExprs) {
-      // Parse parameter expression: T : Type or just T
-      let paramName: string;
-      let paramTypeExpr: Expr | undefined;
-
-      if (
-        exprIsFunctionCall(paramExpr) &&
-        exprIsFunctionCallOf(paramExpr, ":", 2)
-      ) {
-        // T : Type form
-        const nameExpr = paramExpr.args[0]!;
-        if (!exprIsAtom(nameExpr)) {
-          throw formatErrorMessage({
-            token: nameExpr.token,
-            errorMessage: `Expected identifier for forall parameter name, got: ${exprToString(nameExpr)}`,
-          });
-        }
-        paramName = nameExpr.token.value;
-        paramTypeExpr = paramExpr.args[1]!;
-      } else if (exprIsAtom(paramExpr)) {
-        // Just T form
-        paramName = paramExpr.token.value;
-      } else {
-        throw formatErrorMessage({
-          token: paramExpr.token,
-          errorMessage: `Expected parameter name or "name : Type" for forall parameter, got: ${exprToString(paramExpr)}`,
-        });
-      }
-
-      // Evaluate the type expression if present
-      let paramType: Type | undefined;
-      if (paramTypeExpr) {
-        const evaluatedType = evaluateExpression({
-          expr: paramTypeExpr,
-          env,
-          context: { ...context },
-        });
-        if (evaluatedType.$?.env) {
-          env = evaluatedType.$.env;
-        }
-        // Verify it's a type
-        if (
-          !evaluatedType.$ ||
-          !evaluatedType.$.value ||
-          !isTypeValue(evaluatedType.$.value)
-        ) {
-          throw formatErrorMessage({
-            token: paramTypeExpr.token,
-            errorMessage: `Expected type for forall parameter type, got: ${exprToString(paramTypeExpr)}`,
-          });
-        }
-        paramType = evaluatedType.$.value.value;
-      }
-
-      // Check if this is a Type parameter or a value parameter
-      const isTypeParam = !paramType || isType0(paramType);
-      const effectiveType = paramType || createType0();
-
-      // createUnknownValue handles both cases:
-      // - For Type0: creates SomeType wrapped in TypeValue
-      // - For other types: creates UnknownValue
-      const unknownOrTypeValue = createUnknownValue(effectiveType, paramName);
-
-      // Add to environment
-      const { env: nextEnv } = addVariableToEnv({
-        env,
-        variable: {
-          name: paramName,
-          type: effectiveType,
-          isCompileTimeOnly: true,
-          value: [unknownOrTypeValue],
-          token: paramExpr.token,
-          initializedAtToken: paramExpr.token,
-          consumedAtToken: undefined,
-          isOwningTheRcValue: false,
-        },
+  if (
+    args[argIndex] &&
+    exprIsFunctionCall(args[argIndex]!) &&
+    exprIsFunctionCallOf(args[argIndex]!, BuiltinKeywords.where)
+  ) {
+    if (!forallArg) {
+      throw formatErrorMessage({
+        token: args[argIndex]!.token,
+        errorMessage: `impl where(...) requires forall(...) and may appear before or after the receiver type.`,
       });
-      env = nextEnv;
-
-      if (isTypeParam) {
-        // Type parameter: extract the SomeType from the TypeValue
-        const someType = (unknownOrTypeValue as TypeValue).value as SomeType;
-        forallParameters.push({ kind: "type", name: paramName, someType });
-      } else {
-        // Value parameter
-        forallParameters.push({
-          kind: "value",
-          name: paramName,
-          type: effectiveType,
-          unknownValue: unknownOrTypeValue as UnknownValue,
-        });
-      }
     }
-
-    // Parse where constraints if present
-    // The <: operator with isInsideWhereClause will attach constraints to SomeType's trait
-
-    if (hasWhere && whereArg) {
-      for (const constraintExpr of whereArg.args) {
-        // Each constraint must be of the form: T <: Module
-        if (
-          !exprIsFunctionCall(constraintExpr) ||
-          !exprIsFunctionCallOf(constraintExpr, "<:", 2)
-        ) {
-          throw formatErrorMessage({
-            token: constraintExpr.token,
-            errorMessage: `Expected constraint in the form "T <: Module", got: ${exprToString(constraintExpr)}`,
-          });
-        }
-
-        // Evaluate with isInsideWhereClause context
-        // This will attach the trait constraint to the SomeType's trait fields
-        const evaluated = evaluateExpression({
-          expr: constraintExpr,
-          env,
-          context: {
-            ...context,
-            isInsideWhereClause: true,
-          },
-        });
-        if (evaluated.$?.env) {
-          env = evaluated.$.env;
-        }
-      }
+    if (whereArg) {
+      throw formatErrorMessage({
+        token: args[argIndex]!.token,
+        errorMessage: `impl supports only a single where(...) clause.`,
+      });
     }
+    whereArg = args[argIndex]! as FnCallExpr;
+    argIndex++;
+  }
+  const fieldExprs = args.slice(argIndex);
 
-    // Collect where constraints from the SomeTypes' trait fields
-    const whereConstraints: {
-      someType: SomeType;
-      traitType: TraitType;
-      traitExpr?: Expr;
-    }[] = [];
-    for (const param of forallParameters) {
-      // Only type parameters have SomeTypes with constraints
-      if (param.kind !== "type") continue;
-      const { someType } = param;
-      for (const field of someType.trait.fields) {
-        if (
-          field.assignedValue &&
-          isTypeValue(field.assignedValue) &&
-          isTraitType(field.assignedValue.value)
-        ) {
-          whereConstraints.push({
-            someType,
-            traitType: field.assignedValue.value,
-            traitExpr: field.exprs?.expr,
-          });
-        }
-      }
-    }
+  if (fieldExprs.length === 0) {
+    throw formatErrorMessage({
+      token: expr.token,
+      errorMessage: `impl requires at least one field after the receiver type.`,
+    });
+  }
 
-    // Evaluate the receiver type pattern with SomeTypes in scope
+  if (!forallArg) {
+    // Non-generic impl: impl(receiverType, field1, field2, ...)
     const evaluatedReceiverTypeArg = evaluateExpression({
       expr: receiverTypeArg,
       env,
@@ -1834,102 +1821,369 @@ export function evaluateModuleValue({
     ) {
       throw formatErrorMessage({
         token: receiverTypeArg.token,
-        errorMessage: `Expected type for receiver type pattern.`,
+        errorMessage: `Expected type for receiver type argument.`,
       });
     }
+
     env = evaluatedReceiverTypeArg.$.env;
-    const receiverTypePattern = evaluatedReceiverTypeArg.$.value.value;
+    const receiverType = evaluatedReceiverTypeArg.$.value.value;
 
-    // Handle anonymous trait value (begin block) or trait call
-    let traitValue: TraitValue;
-    let traitType: TraitType;
+    const isStructuralType =
+      isSliceType(receiverType) || isArrayType(receiverType);
 
-    if (
-      exprIsFunctionCall(moduleCallArg) &&
-      exprIsFunctionCallOf(moduleCallArg, BuiltinKeywords.begin)
-    ) {
-      // Restrict anonymous trait impl to prelude.yo only
-      if (!context.currentModulePath?.endsWith("prelude.yo")) {
-        throw formatErrorMessage({
-          token: expr.token,
-          errorMessage: `impl a receiver type with anonymous trait (begin block) is only allowed in prelude.yo`,
+    const { env: nextEnv, traitEntries } = evaluateImplFieldList({
+      fieldExprs,
+      env,
+      context: { ...context },
+      receiverType,
+    });
+    env = nextEnv;
+
+    if (traitEntries.length === 0) {
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `impl requires at least one trait or member field.`,
+      });
+    }
+
+    for (const entry of traitEntries) {
+      const traitValue = entry.traitValue;
+      const traitType = traitValue.type;
+
+      if (!entry.isAnonymousTrait) {
+        checkTypeImplementsSelfConstraints({
+          targetType: receiverType,
+          traitType: traitType,
+          env,
+          errorToken: expr.token,
         });
       }
 
-      // Anonymous trait value
-      const beginExprs = moduleCallArg.args;
-      const result = evaluateAnonymousTraitBeginExprs({
-        beginExprs,
-        env,
-        context: {
-          ...context,
-          expectedType: undefined,
-          SelfType: undefined, // QUESTION: Should we pass receiverTypePattern here?
-        },
-        receiverType: receiverTypePattern,
-      });
-      env = result.env;
-      traitType = result.traitType;
-      traitValue = result.traitValue;
+      if (isStructuralType) {
+        const traitTypeKey = getBaseTraitKey(traitType);
+        const genericImpl: GenericImpl = {
+          forallParameters: [],
+          whereConstraints: [],
+          receiverTypePattern: receiverType,
+          traitType,
+          traitValue,
+          expr,
+          sourceModulePath: context.currentModulePath,
+          definitionEnv: env,
+        };
+        registerGenericImpl(traitTypeKey, genericImpl);
+      } else {
+        attachTraitToReceiverType(traitValue, expr, context.currentModulePath);
+      }
+    }
+
+    const primaryTraitValue = traitEntries[0]!.traitValue;
+    expr.$ = {
+      env,
+      type: primaryTraitValue.type,
+      value: primaryTraitValue,
+      pathCollection: [],
+    };
+
+    return expr;
+  }
+
+  // Generic impl with forall (and optional where)
+  const firstArg = forallArg;
+
+  // Parse forall parameters and create SomeTypes or unknown values
+  const forallParamExprs = firstArg.args;
+  const forallParameters: ForallParameter[] = [];
+
+  // Create a new env frame for forall parameters
+  env = pushEnvFrame(env);
+
+  for (const paramExpr of forallParamExprs) {
+    // Parse parameter expression: T : Type or just T
+    let paramName: string;
+    let paramTypeExpr: Expr | undefined;
+
+    if (
+      exprIsFunctionCall(paramExpr) &&
+      exprIsFunctionCallOf(paramExpr, ":", 2)
+    ) {
+      // T : Type form
+      const nameExpr = paramExpr.args[0]!;
+      if (!exprIsAtom(nameExpr)) {
+        throw formatErrorMessage({
+          token: nameExpr.token,
+          errorMessage: `Expected identifier for forall parameter name, got: ${exprToString(nameExpr)}`,
+        });
+      }
+      paramName = nameExpr.token.value;
+      paramTypeExpr = paramExpr.args[1]!;
+    } else if (exprIsAtom(paramExpr)) {
+      // Just T form
+      paramName = paramExpr.token.value;
     } else {
-      // Evaluate the trait call
-      const evaluatedTraitCallArg = evaluateExpression({
-        expr: moduleCallArg,
+      throw formatErrorMessage({
+        token: paramExpr.token,
+        errorMessage: `Expected parameter name or "name : Type" for forall parameter, got: ${exprToString(paramExpr)}`,
+      });
+    }
+
+    // Evaluate the type expression if present
+    let paramType: Type | undefined;
+    if (paramTypeExpr) {
+      const evaluatedType = evaluateExpression({
+        expr: paramTypeExpr,
+        env,
+        context: { ...context },
+      });
+      if (evaluatedType.$?.env) {
+        env = evaluatedType.$.env;
+      }
+      // Verify it's a type
+      if (
+        !evaluatedType.$ ||
+        !evaluatedType.$.value ||
+        !isTypeValue(evaluatedType.$.value)
+      ) {
+        throw formatErrorMessage({
+          token: paramTypeExpr.token,
+          errorMessage: `Expected type for forall parameter type, got: ${exprToString(paramTypeExpr)}`,
+        });
+      }
+      paramType = evaluatedType.$.value.value;
+    }
+
+    // Check if this is a Type parameter or a value parameter
+    const isTypeParam = !paramType || isType0(paramType);
+    const effectiveType = paramType || createType0();
+
+    // createUnknownValue handles both cases:
+    // - For Type0: creates SomeType wrapped in TypeValue
+    // - For other types: creates UnknownValue
+    const unknownOrTypeValue = createUnknownValue(effectiveType, {
+      variableName: paramName,
+      env,
+      context,
+    });
+
+    // Add to environment
+    const { env: nextEnv } = addVariableToEnv({
+      env,
+      variable: {
+        name: paramName,
+        type: effectiveType,
+        isCompileTimeOnly: true,
+        value: [unknownOrTypeValue],
+        token: paramExpr.token,
+        initializedAtToken: paramExpr.token,
+        consumedAtToken: undefined,
+        isOwningTheRcValue: false,
+      },
+    });
+    env = nextEnv;
+
+    if (isTypeParam) {
+      // Type parameter: extract the SomeType from the TypeValue
+      const someType = (unknownOrTypeValue as TypeValue).value as SomeType;
+      forallParameters.push({ kind: "type", name: paramName, someType });
+    } else {
+      // Value parameter
+      forallParameters.push({
+        kind: "value",
+        name: paramName,
+        type: effectiveType,
+        unknownValue: unknownOrTypeValue as UnknownValue,
+      });
+    }
+  }
+
+  // Parse where constraints if present
+  // The <: operator with isInsideWhereClause will attach constraints to SomeType's trait
+  const whereConstraintTraitExprById = new Map<string, Expr>();
+
+  if (whereArg) {
+    for (const constraintExpr of whereArg.args) {
+      // Each constraint must be of the form: T <: Module
+      if (
+        !exprIsFunctionCall(constraintExpr) ||
+        !exprIsFunctionCallOf(constraintExpr, "<:", 2)
+      ) {
+        throw formatErrorMessage({
+          token: constraintExpr.token,
+          errorMessage: `Expected constraint in the form "T <: Module", got: ${exprToString(constraintExpr)}`,
+        });
+      }
+
+      // Evaluate with isInsideWhereClause context
+      // This will attach the trait constraint to the SomeType's trait fields
+      const evaluated = evaluateExpression({
+        expr: constraintExpr,
         env,
         context: {
           ...context,
-          expectedType: undefined,
-          ReceiverType: receiverTypePattern,
+          isInsideWhereClause: true,
+        },
+      });
+      if (evaluated.$?.env) {
+        env = evaluated.$.env;
+      }
+
+      const lhsExpr = constraintExpr.args[0]!;
+      const rhsExpr = constraintExpr.args[1]!;
+
+      const evaluatedLhs = evaluateExpression({
+        expr: lhsExpr,
+        env,
+        context: {
+          ...context,
         },
       });
 
       if (
-        !evaluatedTraitCallArg.$ ||
-        !isTraitValue(evaluatedTraitCallArg.$.value)
+        !evaluatedLhs.$ ||
+        !evaluatedLhs.$.value ||
+        !isTypeValue(evaluatedLhs.$.value) ||
+        !isSomeType(evaluatedLhs.$.value.value)
       ) {
         throw formatErrorMessage({
-          token: moduleCallArg.token,
-          errorMessage: `Expected trait value for trait call argument.`,
+          token: lhsExpr.token,
+          errorMessage: `In a where clause, the left-hand side of <: must be a type parameter (SomeType), got: ${exprToString(lhsExpr)}`,
         });
       }
-      env = evaluatedTraitCallArg.$.env;
-      traitValue = evaluatedTraitCallArg.$.value;
-      traitType = traitValue.type;
-    }
+      env = evaluatedLhs.$.env;
 
-    // Extract trait type argument expressions for later re-evaluation during specialization
-    // For Eq(Box(T))(...), we want to extract [Box(T)] and ["Rhs"]
-    let traitTypeArgExprs: Expr[] | undefined;
-    let traitFunctionParamNames: string[] | undefined;
-    if (exprIsFunctionCall(moduleCallArg)) {
-      // moduleCallArg is like Eq(Box(T))(...) - the func is Eq(Box(T))
-      const traitTypeCallExpr = moduleCallArg.func;
-      if (exprIsFunctionCall(traitTypeCallExpr)) {
-        // traitTypeCallExpr is Eq(Box(T)) - args are [Box(T)]
-        traitTypeArgExprs = traitTypeCallExpr.args.map((arg) => cloneExpr(arg));
-        // Get parameter names from the trait's function type
-        // Eq has signature (fn(compt(Rhs) : Type) -> compt(Trait)) so Rhs is a regular parameter
-        if (
-          traitType.functionValue &&
-          isFunctionType(traitType.functionValue.type)
-        ) {
-          // Try regular parameters first (for compt parameters like Rhs in Eq)
-          const funcType = traitType.functionValue.type;
-          if (funcType.parameters.length > 0) {
-            traitFunctionParamNames = funcType.parameters.map((p) => p.label);
-          } else if (funcType.forallParameters.length > 0) {
-            // Fallback to forall parameters
-            traitFunctionParamNames = funcType.forallParameters.map(
-              (p) => p.label
-            );
+      const traitExprs: { expr: Expr; isNegated: boolean }[] = [];
+      if (
+        exprIsFunctionCall(rhsExpr) &&
+        exprIsFunctionCallOf(rhsExpr, BuiltinKeywords.tuple)
+      ) {
+        for (const traitExpr of rhsExpr.args) {
+          if (
+            exprIsFunctionCall(traitExpr) &&
+            exprIsFunctionCallOf(traitExpr, "!") &&
+            traitExpr.args.length === 1
+          ) {
+            traitExprs.push({ expr: traitExpr.args[0]!, isNegated: true });
+          } else {
+            traitExprs.push({ expr: traitExpr, isNegated: false });
           }
         }
+      } else if (
+        exprIsFunctionCall(rhsExpr) &&
+        exprIsFunctionCallOf(rhsExpr, "!") &&
+        rhsExpr.args.length === 1
+      ) {
+        traitExprs.push({ expr: rhsExpr.args[0]!, isNegated: true });
+      } else {
+        traitExprs.push({ expr: rhsExpr, isNegated: false });
+      }
+
+      for (const { expr: traitExpr } of traitExprs) {
+        const evaluatedRhs = evaluateExpression({
+          expr: traitExpr,
+          env,
+          context: {
+            ...context,
+          },
+        });
+
+        if (
+          !evaluatedRhs.$ ||
+          !evaluatedRhs.$.value ||
+          !isTypeValue(evaluatedRhs.$.value) ||
+          !isTraitType(evaluatedRhs.$.value.value)
+        ) {
+          throw formatErrorMessage({
+            token: traitExpr.token,
+            errorMessage: `Expected trait type for right-hand side expression.`,
+          });
+        }
+        env = evaluatedRhs.$.env;
+        const traitType = evaluatedRhs.$.value.value;
+        whereConstraintTraitExprById.set(traitType.id, cloneExpr(traitExpr));
       }
     }
+  }
 
-    // Check that the receiver type pattern satisfies the trait's self-constraints
-    // For generic impls, we need to verify that the where constraints are sufficient
-    // to satisfy the trait's requirements
+  // Collect where constraints from the current env frames
+  const whereConstraints: {
+    someType: SomeType;
+    traitType: TraitType;
+    traitExpr?: Expr;
+  }[] = [];
+  for (const param of forallParameters) {
+    // Only type parameters have SomeTypes with constraints
+    if (param.kind !== "type") continue;
+    const { someType } = param;
+    const constraints = getWhereClauseConstraintsForSomeType(env, someType);
+    if (!constraints) {
+      continue;
+    }
+    for (const requiredTraitType of constraints.requiredTraits) {
+      whereConstraints.push({
+        someType,
+        traitType: requiredTraitType,
+        traitExpr: whereConstraintTraitExprById.get(requiredTraitType.id),
+      });
+    }
+    for (const negativeTraitType of constraints.negativeTraits) {
+      const negatedTrait: TraitType = {
+        ...negativeTraitType,
+        isNegatedConstraint: true,
+      };
+      whereConstraints.push({
+        someType,
+        traitType: negatedTrait,
+        traitExpr: whereConstraintTraitExprById.get(negativeTraitType.id),
+      });
+    }
+  }
+
+  // Evaluate the receiver type pattern with SomeTypes in scope
+  const evaluatedReceiverTypeArg = evaluateExpression({
+    expr: receiverTypeArg,
+    env,
+    context: { ...context },
+  });
+
+  if (
+    !evaluatedReceiverTypeArg.$ ||
+    !evaluatedReceiverTypeArg.$.value ||
+    !isTypeValue(evaluatedReceiverTypeArg.$.value)
+  ) {
+    throw formatErrorMessage({
+      token: receiverTypeArg.token,
+      errorMessage: `Expected type for receiver type pattern.`,
+    });
+  }
+  env = evaluatedReceiverTypeArg.$.env;
+  const receiverTypePattern = evaluatedReceiverTypeArg.$.value.value;
+
+  const { env: nextEnv, traitEntries } = evaluateImplFieldList({
+    fieldExprs,
+    env,
+    context: { ...context },
+    receiverType: receiverTypePattern,
+  });
+  env = nextEnv;
+
+  if (traitEntries.length === 0) {
+    throw formatErrorMessage({
+      token: expr.token,
+      errorMessage: `impl requires at least one trait or member field.`,
+    });
+  }
+
+  const pendingRegistrations: Array<{
+    traitType: TraitType;
+    traitValue: TraitValue;
+    traitTypeArgExprs?: Expr[];
+    traitFunctionParamNames?: string[];
+  }> = [];
+
+  for (const entry of traitEntries) {
+    const traitValue = entry.traitValue;
+    const traitType = traitValue.type;
+
     checkGenericImplSelfConstraints({
       receiverTypePattern,
       traitType,
@@ -1938,41 +2192,51 @@ export function evaluateModuleValue({
       errorToken: expr.token,
     });
 
-    // Pop the forall env frame
-    env = popEnvFrame(env);
+    const { traitTypeArgExprs, traitFunctionParamNames } =
+      entry.isAnonymousTrait
+        ? {}
+        : extractTraitTypeArgsFromImplExpr({
+            traitExpr: entry.sourceExpr,
+            traitType,
+          });
 
-    // Get the trait type key for registry (use typeName if available, otherwise id)
-    const traitTypeKey = traitType.typeName || traitType.id;
+    pendingRegistrations.push({
+      traitType,
+      traitValue,
+      traitTypeArgExprs,
+      traitFunctionParamNames,
+    });
+  }
 
-    // Register the generic impl
+  // Pop the forall env frame
+  env = popEnvFrame(env);
+
+  for (const registration of pendingRegistrations) {
+    const traitTypeKey = getBaseTraitKey(registration.traitType);
+
     const genericImpl: GenericImpl = {
       forallParameters,
       whereConstraints,
       receiverTypePattern,
-      traitType,
-      traitValue,
+      traitType: registration.traitType,
+      traitValue: registration.traitValue,
       expr,
       sourceModulePath: context.currentModulePath,
       definitionEnv: env, // Store the environment where the impl was defined
-      traitTypeArgExprs,
-      traitFunctionParamNames,
+      traitTypeArgExprs: registration.traitTypeArgExprs,
+      traitFunctionParamNames: registration.traitFunctionParamNames,
     };
 
     registerGenericImpl(traitTypeKey, genericImpl);
-
-    // Set the trait value to the expr
-    expr.$ = {
-      env,
-      type: traitType,
-      value: traitValue,
-      pathCollection: [],
-    };
-
-    return expr;
-  } else {
-    throw formatErrorMessage({
-      token: expr.token,
-      errorMessage: `Invalid "impl" call, expected a "begin" block, got:\n${exprToString(expr)}`,
-    });
   }
+
+  const primaryTraitValue = pendingRegistrations[0]!.traitValue;
+  expr.$ = {
+    env,
+    type: primaryTraitValue.type,
+    value: primaryTraitValue,
+    pathCollection: [],
+  };
+
+  return expr;
 }

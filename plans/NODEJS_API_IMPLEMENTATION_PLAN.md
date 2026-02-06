@@ -593,7 +593,7 @@ Timer :: impl {
 
 ```
 // std/events/emitter.yo
-EventEmitter :: (fn(compt(E): Type) -> compt(Type))
+EventEmitter :: (fn(comptime(E): Type) -> comptime(Type))
   object(
     _listeners: HashMap(String, ArrayList(fn(E) -> unit)),
 

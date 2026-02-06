@@ -1,28 +1,31 @@
-import { Environment } from "../../env";
+import type { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   attachTempVariableToExpr,
   BuiltinKeywords,
-  Expr,
+  type Expr,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
-  FnCallExpr,
+  type FnCallExpr,
   setExprAsNeedsToCallDup,
 } from "../../expr";
+import { createTupleType } from "../../types/creators";
+import type { TupleType, Type, TypeField } from "../../types/definitions";
+import { isTupleType } from "../../types/guards";
 import {
-  convertComptTypeToRuntimeType,
-  createTupleType,
+  convertComptimeTypeToRuntimeType,
   isComptimeOnlyType,
-  isTupleType,
-  TupleType,
-  Type,
-  TypeField,
   typeToString,
-} from "../../types";
+} from "../../types/utils";
 import { VUnit } from "../../unit-value";
-import { createTupleValue, isTypeValue, TupleValue, Value } from "../../value";
-import { EvaluatorContext } from "../context";
+import {
+  createTupleValue,
+  isTypeValue,
+  type TupleValue,
+  type Value,
+} from "../../value";
+import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 
 /**
@@ -121,9 +124,12 @@ ${typeToString(expectedTupleType)}`,
   }
 
   // Convert to runtime type only if the expected type is not comptime-only.
-  // This allows tuples with compt_int fields to accept comptime values.
-  if (!expectedTupleFieldType || !isComptimeOnlyType(expectedTupleFieldType)) {
-    childType = convertComptTypeToRuntimeType({
+  // This allows tuples with comptime_int fields to accept comptime values.
+  if (
+    !expectedTupleFieldType ||
+    !isComptimeOnlyType(expectedTupleFieldType, env)
+  ) {
+    childType = convertComptimeTypeToRuntimeType({
       type: evaluatedRhs.$.type,
       expectedType: undefined,
       expr: undefined,
@@ -155,8 +161,7 @@ ${typeToString(expectedTupleType)}`,
         defaultValueExpr: undefined,
         assignedValueExpr: undefined,
       },
-      isCompileTimeOnly: false,
-      type: childType,
+      type: childType!,
       label: elementIndex.toString(), // `$field_${randomId()}`,
     },
     value,

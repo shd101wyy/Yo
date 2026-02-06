@@ -1,7 +1,10 @@
-import { FnCallExpr } from "../../expr";
-import { extractFutureTraitFromType, typeImplementsFuture } from "../../types";
-import { FunctionGenerationContext } from "../functions/context";
-import { CodeGenContext } from "../utils";
+import {
+  extractFutureTraitFromType,
+  typeImplementsFuture,
+} from "../../evaluator/trait-checking";
+import type { FnCallExpr } from "../../expr";
+import type { FunctionGenerationContext } from "../functions/context";
+import type { CodeGenContext } from "../utils";
 
 /**
  * await - extract value from Future

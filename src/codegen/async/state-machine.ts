@@ -4,26 +4,20 @@
  * Generates C code for async function state machines.
  */
 
-import {
+import type {
   AwaitAnalysisResult,
   AwaitPoint,
   CapturedVariable,
 } from "../../evaluator/async/await-analysis";
-import { Expr, exprIsFunctionCallOf, ExprTag } from "../../expr";
-import {
-  DynType,
-  extractFutureTraitFromType,
-  isDynType,
-  isSomeType,
-  isUnitType,
-  SomeType,
-  StructType,
-  typeContainsRcType,
-} from "../../types";
+import { extractFutureTraitFromType } from "../../evaluator/trait-checking";
+import { type Expr, exprIsFunctionCallOf, ExprTag } from "../../expr";
+import type { DynType, SomeType, StructType } from "../../types/definitions";
+import { isDynType, isSomeType, isUnitType } from "../../types/guards";
+import { typeContainsRcType } from "../../types/utils";
 import { isTempVariableName } from "../../utils";
-import { getDupFunctionForType } from "../exprs/drop_dup";
+import { getDupFunctionForType } from "../exprs/drop-dup";
 import { generateExpr } from "../exprs/expr";
-import { FunctionGenerationContext } from "../functions/context";
+import type { FunctionGenerationContext } from "../functions/context";
 import { sanitizeForCIdentifier } from "../utils";
 import {
   generateStateSegmentCode,
@@ -222,8 +216,11 @@ export function generateAsyncBlockResumeFunction(
         const awaitExpr = prevAwait.expr as Expr;
         if (awaitExpr.tag === ExprTag.FnCall) {
           const futureArg = awaitExpr.args[0];
-          const futureType = futureArg?.$?.type;
-          if (futureType && (isSomeType(futureType) || isDynType(futureType))) {
+          const argFutureType = futureArg?.$?.type;
+          if (
+            argFutureType &&
+            (isSomeType(argFutureType) || isDynType(argFutureType))
+          ) {
             emitter.emitLine(
               `      if (sm->${prevFutureFieldName} != NULL) { __yo_decr_rc((void*)sm->${prevFutureFieldName}); sm->${prevFutureFieldName} = NULL; }`
             );

@@ -1,23 +1,23 @@
-import { Environment } from "../../env";
+import type { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   attachTempVariableToExpr,
-  Expr,
+  type Expr,
   exprToString,
-  FnCallExpr,
+  type FnCallExpr,
   setExprAsNeedsToCallDup,
 } from "../../expr";
+import { areTypesCompatible } from "../../types/compatibility";
+import { createArrayType } from "../../types/creators";
+import type { Type } from "../../types/definitions";
+import { isArrayType } from "../../types/guards";
 import {
-  areTypesCompatible,
-  convertComptTypeToRuntimeType,
-  createArrayType,
-  isArrayType,
-  Type,
+  convertComptimeTypeToRuntimeType,
   typeToString,
-} from "../../types";
-import { createArrayValue, createNumberValue, Value } from "../../value";
+} from "../../types/utils";
+import { createArrayValue, createNumberValue, type Value } from "../../value";
 import { ValueTag } from "../../value-tag";
-import { EvaluatorContext } from "../context";
+import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 
 export function evaluateArrayValue({
@@ -90,13 +90,13 @@ export function evaluateArrayValue({
         // For example:
         //    x := 12; // x: i32
         //    arr := [1, x, 3];
-        //    -  1: compt_int
+        //    -  1: comptime_int
         //    -  x: i32
-        //    Here we convert compt_int to i32 to check compatibility.
+        //    Here we convert comptime_int to i32 to check compatibility.
         if (
           areTypesCompatible(
             {
-              type: convertComptTypeToRuntimeType({
+              type: convertComptimeTypeToRuntimeType({
                 type: arrayElementType,
                 expectedType: undefined,
                 expr: undefined,

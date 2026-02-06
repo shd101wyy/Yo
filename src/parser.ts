@@ -2,17 +2,17 @@
 import { formatErrorMessage } from "./error";
 import {
   BuiltinKeywords,
-  Expr,
+  type Expr,
   exprIsAtom,
   ExprTag,
   exprToString,
-  FnCallExpr,
+  type FnCallExpr,
 } from "./expr";
 import { tokenize } from "./lexer";
 import {
   findMatchingBracketTokenIndex,
   PlaceholderToken,
-  Token,
+  type Token,
   TokenType,
 } from "./token";
 
@@ -358,7 +358,7 @@ export default class Parser {
             tag: ExprTag.Atom,
             token: {
               type: TokenType.Identifier,
-              value: BuiltinKeywords.tuple,
+              value: BuiltinKeywords.tuple[0]!,
               position: tokens[index]!.position,
               modulePath: this.modulePath,
               inputString: this.inputString,
@@ -446,7 +446,7 @@ export default class Parser {
               type: TokenType.Identifier,
               value: isTupleType
                 ? BuiltinKeywords.Tuple[0]!
-                : BuiltinKeywords.tuple,
+                : BuiltinKeywords.tuple[0]!,
               position: tokens[startIndex]!.position,
               modulePath: this.modulePath,
               inputString: this.inputString,
@@ -544,7 +544,7 @@ export default class Parser {
               ? BuiltinKeywords.Array[0]!
               : isSliceType
                 ? BuiltinKeywords.Slice[0]!
-                : BuiltinKeywords.array,
+                : BuiltinKeywords.array[0]!,
             position: tokens[startIndex]!.position,
             modulePath: this.modulePath,
             inputString: this.inputString,
@@ -619,7 +619,7 @@ export default class Parser {
         ) {
           const token: Token = {
             type: TokenType.Identifier,
-            value: BuiltinKeywords.tuple,
+            value: BuiltinKeywords.tuple[0]!,
             position: lastNonWhiteSpaceToken.position,
             modulePath: this.modulePath,
             inputString: this.inputString,
@@ -958,11 +958,11 @@ export default class Parser {
     ) {
       // Field access like
       // obj.field
-      const { expr, index: nextIndex } = this.parsePrimary({
+      const { expr, index: _nextIndex } = this.parsePrimary({
         tokens,
         index: primaryExprIsDotOperator ? index : index + 1,
       });
-      index = nextIndex;
+      index = _nextIndex;
       let returnValue: ParserReturn = {
         expr: {
           tag: ExprTag.FnCall,
@@ -978,7 +978,7 @@ export default class Parser {
       };
       // Check chaining
       while (tokens[index] && tokens[index]!.type === TokenType.Dot) {
-        const { expr, index: nextIndex } = this.parsePrimary({
+        const { expr: _expr, index: __nextIndex } = this.parsePrimary({
           tokens,
           index: index + 1,
         });
@@ -989,13 +989,13 @@ export default class Parser {
               tag: ExprTag.Atom,
               token,
             },
-            args: [returnValue.expr, expr],
+            args: [returnValue.expr, _expr],
             isInfix: true,
             token,
           },
-          index: nextIndex,
+          index: __nextIndex,
         };
-        index = nextIndex;
+        index = __nextIndex;
       }
 
       return this.parsePrimaryEnd({
@@ -1015,7 +1015,7 @@ export default class Parser {
     ) {
       // Infix operator
       const startIndex = this.skipWhitespace(tokens, index + 1);
-      const { expr: rhs, index: nextIndex } = this.parseExpression({
+      const { expr: rhs, index: _nextIndex } = this.parseExpression({
         tokens,
         index: startIndex,
       });
@@ -1026,7 +1026,7 @@ export default class Parser {
         rhs.isInfix &&
         rhs.func.tag === "Atom" &&
         rhs.func.token.type !== TokenType.Dot && // Allow dot operator to chain
-        !this.isParenthesizedExpression(tokens, startIndex, nextIndex - 1) // Check if the RHS is already parenthesized
+        !this.isParenthesizedExpression(tokens, startIndex, _nextIndex - 1) // Check if the RHS is already parenthesized
       ) {
         const ambiguityErrorMessage = `Ambiguous operator precedence. 
 Please use parentheses to clarify:
@@ -1054,8 +1054,8 @@ Or use newline after "${token.value}" to confirm the right-associativity.
         // will be parsed as: (1 + 2) + 3
         const tokensInBetween = tokens.slice(index + 1, startIndex);
         const hasNewLineAfterOperator = tokensInBetween.some(
-          (token) =>
-            token.type === TokenType.Whitespace && token.value.includes("\n")
+          (_token) =>
+            _token.type === TokenType.Whitespace && _token.value.includes("\n")
         );
 
         // Check if current operator is at the start of a line (left associativity)
@@ -1091,7 +1091,7 @@ Or use newline after "${token.value}" to confirm the right-associativity.
             operatorToken: token,
             rhs,
             tokens,
-            index: nextIndex,
+            index: _nextIndex,
           });
         } else {
           throw formatErrorMessage({
@@ -1113,7 +1113,7 @@ Or use newline after "${token.value}" to confirm the right-associativity.
           token,
         },
         tokens,
-        index: nextIndex,
+        index: _nextIndex,
       });
     }
 
@@ -1370,7 +1370,7 @@ or ) to end the function call`,
         exprs.push(expr);
         index = nextIndex;
       } catch (error) {
-        this.parserError = error;
+        this.parserError = error as Error;
         break;
       }
     }
@@ -1384,7 +1384,7 @@ or ) to end the function call`,
     ) {
       const token: Token = {
         type: TokenType.Identifier,
-        value: BuiltinKeywords.tuple,
+        value: BuiltinKeywords.tuple[0]!,
         position: lastNonWhiteSpaceToken.position,
         modulePath: this.modulePath,
         inputString: this.inputString,

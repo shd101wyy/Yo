@@ -1,35 +1,37 @@
-import { Environment } from "../../env";
+import { type Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   attachTempVariableToExpr,
   BuiltinKeywords,
-  ControlFlowKind,
-  Expr,
+  type ControlFlowKind,
+  type Expr,
   exprIsAtom,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
-  FnCallExpr,
+  type FnCallExpr,
   mergeAndCheckEnvs,
 } from "../../expr";
+import { areTypesCompatible } from "../../types/compatibility";
+import { createBooleanType } from "../../types/creators";
+import { type Type } from "../../types/definitions";
 import {
-  areTypesCompatible,
-  convertComptTypeToRuntimeType,
-  createBooleanType,
   isBooleanType,
-  isFunctionTypeAndReturnsComptValue,
-  Type,
+  isFunctionTypeAndReturnsComptimeValue,
+} from "../../types/guards";
+import {
+  convertComptimeTypeToRuntimeType,
   typeToString,
-} from "../../types";
+} from "../../types/utils";
 import { VUnit } from "../../unit-value";
 import {
-  BooleanValue,
+  type BooleanValue,
   createUnknownValue,
   isBooleanValue,
-  UnknownValue,
-  Value,
+  type UnknownValue,
+  type Value,
 } from "../../value";
-import { EvaluatorContext } from "../context";
+import type { EvaluatorContext } from "../context";
 import { evaluateBeginExpression } from "./begin";
 import { evaluateExpression } from "./expr";
 
@@ -133,7 +135,7 @@ export function evaluateCond({
     if (!isBooleanType(evaluatedCondExpr.$.type)) {
       throw formatErrorMessage({
         token: evaluatedCondExpr.token,
-        errorMessage: `Expected bool for cond statement, got ${exprToString(evaluatedCondExpr)}`,
+        errorMessage: `Expected bool for cond statement, got ${exprToString(evaluatedCondExpr)} of type ${typeToString(evaluatedCondExpr.$.type)}`,
       });
     }
 
@@ -355,7 +357,7 @@ export function evaluateCond({
             if (
               areTypesCompatible(
                 {
-                  type: convertComptTypeToRuntimeType({
+                  type: convertComptimeTypeToRuntimeType({
                     type: valueType.type,
                     expectedType: undefined,
                     expr: undefined,
@@ -434,7 +436,7 @@ export function evaluateCond({
         value = undefined;
       } else {
         // All evaluated conditions were not compile-time true, so result is unknown
-        value = createUnknownValue(valueType.type);
+        value = createUnknownValue(valueType.type, { env, context });
       }
 
       expr.$ = {
@@ -487,10 +489,10 @@ export function evaluateCond({
           value:
             context.isEvaluatingFunctionBodyOrAsyncBlock.kind ===
               "function-body" &&
-            isFunctionTypeAndReturnsComptValue(
+            isFunctionTypeAndReturnsComptimeValue(
               context.isEvaluatingFunctionBodyOrAsyncBlock.type
             )
-              ? createUnknownValue(returnType)
+              ? createUnknownValue(returnType, { env, context })
               : undefined,
           pathCollection: [],
           controlFlow: "return",

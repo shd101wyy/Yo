@@ -1,6 +1,7 @@
 /**
  * Type tags to identify different kinds of types
  */
+// eslint-disable-next-line no-shadow
 export enum TypeTag {
   // Primitive types
   Unit = "unit",
@@ -20,10 +21,10 @@ export enum TypeTag {
   // Rune = "rune", // 4 bytes, u32, // Unicode code point
   // Rune :: u32;
 
-  // Compt types
-  ComptInt = "compt_int",
-  ComptFloat = "compt_float",
-  ComptString = "compt_string",
+  // Compile-time types
+  ComptimeInt = "comptime_int",
+  ComptimeFloat = "comptime_float",
+  ComptimeString = "comptime_string",
 
   // C Compatible types
   // NOTE: C Compatible types cannot be used for compile-time known value.
@@ -86,5 +87,5 @@ export enum TypeTag {
   Expr = "Expr",
 
   // Compile-time known List
-  ComptList = "ComptList",
+  ComptimeList = "ComptimeList",
 }

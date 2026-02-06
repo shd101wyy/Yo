@@ -5,6 +5,8 @@ module.exports = {
   plugins: ["@typescript-eslint"],
   root: true,
   rules: {
+    // Disallow to have variable shadowing completely
+    "no-shadow": "error",
     // Allow unused parameters, especially those prefixed with underscore
     "@typescript-eslint/no-unused-vars": [
       "error",

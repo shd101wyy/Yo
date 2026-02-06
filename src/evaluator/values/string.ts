@@ -1,15 +1,15 @@
-import { Environment } from "../../env";
+import type { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
-import { AtomExpr } from "../../expr";
+import type { AtomExpr } from "../../expr";
 import { TokenType } from "../../token";
-import { createComptStringValue } from "../../value";
+import { createComptimeStringValue } from "../../value";
 
 export function evaluateStringLiteral(
   expr: AtomExpr,
   env: Environment
 ): AtomExpr {
   if (expr.token.type === TokenType.String) {
-    const value = createComptStringValue(JSON.parse(expr.token.value));
+    const value = createComptimeStringValue(JSON.parse(expr.token.value));
     expr.$ = {
       env,
       value,

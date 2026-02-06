@@ -1,26 +1,28 @@
-import { addVariableToEnv, Environment } from "../../env";
+import { addVariableToEnv, type Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   BuiltinKeywords,
-  Expr,
+  type Expr,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
-  FnCallExpr,
+  type FnCallExpr,
 } from "../../expr";
 import {
   isArrayType,
   isFunctionSpecializable,
   isFunctionType,
+} from "../../types/guards";
+import {
   prohibitVoidType,
   typeContainsRcType,
-  typeProhibitsComptModifier,
-  typeRequiresComptModifier,
+  typeProhibitsComptimeModifier,
+  typeRequiresComptimeModifier,
   typeToString,
-} from "../../types";
+} from "../../types/utils";
 import { VUnit } from "../../unit-value";
 import { createUnknownValue, isTypeValue, isUnknownValue } from "../../value";
-import { EvaluatorContext } from "../context";
+import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { isValidVariableName } from "../utils";
 
@@ -85,13 +87,13 @@ Use explicit length like 'Array(i32, 3)' or omit the type annotation and initial
   let isCompileTimeOnly = false;
   if (
     exprIsFunctionCall(lhs) &&
-    exprIsFunctionCallOf(lhs, BuiltinKeywords.compt)
+    exprIsFunctionCallOf(lhs, BuiltinKeywords.comptime)
   ) {
     isCompileTimeOnly = true;
     if (lhs.args.length !== 1) {
       throw formatErrorMessage({
         token: lhs.token,
-        errorMessage: `Expected one argument for "compt" , got ${lhs.args.length}`,
+        errorMessage: `Expected one argument for "comptime" , got ${lhs.args.length}`,
       });
     }
     lhs = lhs.args[0]!;
@@ -117,17 +119,23 @@ Use explicit length like 'Array(i32, 3)' or omit the type annotation and initial
     });
   }
 
-  if (typeRequiresComptModifier(userDefinedType) && !isCompileTimeOnly) {
+  if (
+    typeRequiresComptimeModifier(userDefinedType, env) &&
+    !isCompileTimeOnly
+  ) {
     throw formatErrorMessage({
       token: lhs.token,
-      errorMessage: `Expected "compt" for compile-time known value binding:\n${typeToString(userDefinedType)}`,
+      errorMessage: `Expected "comptime" for compile-time known value binding:\n${typeToString(userDefinedType)}`,
     });
   }
 
-  if (typeProhibitsComptModifier(userDefinedType) && isCompileTimeOnly) {
+  if (
+    typeProhibitsComptimeModifier(userDefinedType, env) &&
+    isCompileTimeOnly
+  ) {
     throw formatErrorMessage({
       token: lhs.token,
-      errorMessage: `Unexpected "compt"  for ${typeToString(userDefinedType)} which can only be used at runtime.`,
+      errorMessage: `Unexpected "comptime"  for ${typeToString(userDefinedType)} which can only be used at runtime.`,
     });
   }
 
@@ -146,7 +154,7 @@ Use explicit length like 'Array(i32, 3)' or omit the type annotation and initial
 ${typeToString(userDefinedType)}
 
 Generic functions must be compile-time known to enable monomorphization. Consider using:
-compt(${variableName}) : ${typeToString(userDefinedType)}`,
+comptime(${variableName}) : ${typeToString(userDefinedType)}`,
     });
   }
   // Add the variable to the env
@@ -158,7 +166,7 @@ compt(${variableName}) : ${typeToString(userDefinedType)}`,
       type: userDefinedType,
       isCompileTimeOnly,
       value: isCompileTimeOnly
-        ? [createUnknownValue(userDefinedType, variableName)]
+        ? [createUnknownValue(userDefinedType, { variableName, env, context })]
         : undefined,
       token: lhs.token,
       initializedAtToken: undefined, // The variable is not initialized yet

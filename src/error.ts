@@ -1,4 +1,4 @@
-import { Token } from "./token";
+import type { Token } from "./token";
 
 export interface TokenAndError {
   token: Token;
@@ -137,8 +137,8 @@ export function formatWarningMessages({
   tokenAndWarningList: { token: Token; warningMessage: string }[];
 }): string {
   const warningMessages = tokenAndWarningList
-    .map(({ token, warningMessage }) => {
-      return `Warning: ${warningMessage}
+    .map(({ token, warningMessage: message }) => {
+      return `Warning: ${message}
 ${getLineAtToken({ token })}`;
     })
     .join("\n\n");

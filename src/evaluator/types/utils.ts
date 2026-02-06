@@ -1,35 +1,146 @@
-import { Environment } from "../../env";
+import type { Environment } from "../../env";
 import {
   BuiltinFunctions,
-  Expr,
+  type Expr,
   exprIsFunctionCall,
   exprToString,
 } from "../../expr";
 import { generateExprFromCode } from "../../parser";
-import {
-  createTypeHierarchy,
+import type { Token } from "../../token";
+import { createTypeHierarchy } from "../../types/creators";
+import type {
   DynType,
   EnumType,
-  isFunctionType,
   IsoType,
-  isRcType,
   ModuleField,
   SomeType,
   StructType,
   TraitField,
+  TupleType,
+  Type,
+  UnionType,
+} from "../../types/definitions";
+import {
+  isArrayType,
+  isEnumType,
+  isFunctionType,
+  isPtrType,
+  isRcType,
+  isSliceType,
+  isStructType,
+  isTupleType,
+} from "../../types/guards";
+import { typeOfType } from "../../types/hierarchy";
+import {
+  canTypeFormRcCycle,
   typeContainsRcType,
   typeContainsSomeType,
-  typeImplementsSend,
-  typeOfType,
   typeToString,
-  UnionType,
-} from "../../types";
+} from "../../types/utils";
 import { randomId } from "../../utils";
 import { isFunctionValue, isTraitValue, isTypeValue } from "../../value";
-import { EvaluatorContext } from "../context";
+import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
+import {
+  typeImplementsAcyclic,
+  typeImplementsComptime,
+  typeImplementsRuntime,
+  typeImplementsSend,
+  typeIsComptimeOnly,
+  validateTypeAvailability,
+} from "../trait-checking";
 
 const YoSelf = "__yo_self";
+
+function typeDerivesComptime(
+  type: Type,
+  env: Environment,
+  visiting: Set<string>
+): boolean {
+  if (isStructType(type)) {
+    if (type.isReferenceSemantics) return false;
+    if (visiting.has(type.id)) return true;
+    visiting.add(type.id);
+    const result = type.fields.every((field) =>
+      typeDerivesComptime(field.type, env, visiting)
+    );
+    visiting.delete(type.id);
+    return result;
+  }
+
+  if (isTupleType(type)) {
+    if (visiting.has(type.id)) return true;
+    visiting.add(type.id);
+    const result = type.fields.every((field) =>
+      typeDerivesComptime(field.type, env, visiting)
+    );
+    visiting.delete(type.id);
+    return result;
+  }
+
+  if (isEnumType(type)) {
+    if (visiting.has(type.id)) return true;
+    visiting.add(type.id);
+    const result = type.variants.every((variant) =>
+      (variant.fields ?? []).every((field) =>
+        typeDerivesComptime(field.type, env, visiting)
+      )
+    );
+    visiting.delete(type.id);
+    return result;
+  }
+
+  if (isArrayType(type) || isSliceType(type) || isPtrType(type)) {
+    return typeDerivesComptime(type.childType, env, visiting);
+  }
+
+  return typeImplementsComptime(type, env);
+}
+
+function typeDerivesRuntime(
+  type: Type,
+  env: Environment,
+  visiting: Set<string>
+): boolean {
+  if (isStructType(type)) {
+    if (type.isReferenceSemantics) return true;
+    if (visiting.has(type.id)) return true;
+    visiting.add(type.id);
+    const result = type.fields.every((field) =>
+      typeDerivesRuntime(field.type, env, visiting)
+    );
+    visiting.delete(type.id);
+    return result;
+  }
+
+  if (isTupleType(type)) {
+    if (visiting.has(type.id)) return true;
+    visiting.add(type.id);
+    const result = type.fields.every((field) =>
+      typeDerivesRuntime(field.type, env, visiting)
+    );
+    visiting.delete(type.id);
+    return result;
+  }
+
+  if (isEnumType(type)) {
+    if (visiting.has(type.id)) return true;
+    visiting.add(type.id);
+    const result = type.variants.every((variant) =>
+      (variant.fields ?? []).every((field) =>
+        typeDerivesRuntime(field.type, env, visiting)
+      )
+    );
+    visiting.delete(type.id);
+    return result;
+  }
+
+  if (isArrayType(type) || isSliceType(type) || isPtrType(type)) {
+    return typeDerivesRuntime(type.childType, env, visiting);
+  }
+
+  return typeImplementsRuntime(type, env);
+}
 
 /**
  * Helper function to parse and evaluate a Yo code string in the context of a SelfType
@@ -107,7 +218,6 @@ export function addFunctionSignatureToSelfTypeModule({
         label: label,
         type: functionType,
         assignedValue: undefined, // NOTE: We have to use the `undefined` here.
-        isCompileTimeOnly: true,
         exprs: {
           expr: functionExpr,
           labelExpr: functionExpr.args[0],
@@ -167,13 +277,14 @@ export function addFunctionCodeToSelfTypeModule({
     ) {
       // The code below is necessary for the C code generator to make the ___drop like function to have a more descriptive name.
       functionExpr.$.value.funcId += label;
+      // Set the funcName so codegen can identify this function (e.g., ___dispose)
+      functionExpr.$.value.funcName = label;
 
       // Add the drop function to the struct's trait fields
       const moduleField: ModuleField = {
         label: label,
         type: functionExpr.$.type,
         assignedValue: functionExpr.$.value,
-        isCompileTimeOnly: true,
         exprs: {
           expr: functionExpr,
           labelExpr: functionExpr.args[0],
@@ -269,16 +380,14 @@ function generateDisposeFunctionCodeForStructType(structType: StructType): {
   }
 
   const destructuringLabels = structType.fields
-    .filter(
-      (field) => !field.isCompileTimeOnly && typeContainsRcType(field.type)
-    )
+    .filter((field) => typeContainsRcType(field.type))
     .map((field) => field.label);
 
-  const hasDisposeFunction = structType.trait.fields.some(
-    (field) => field.label === BuiltinFunctions.dispose[0]
-  );
+  // Note: User's dispose() method from Dispose trait is handled in C codegen,
+  // not here. This function only generates the field dropping logic.
+  // The C codegen will check for Dispose trait and emit the call before this code runs.
 
-  if (!destructuringLabels.length && !hasDisposeFunction) {
+  if (!destructuringLabels.length) {
     return { signature, code: `(${signature} ())` };
   }
 
@@ -287,17 +396,14 @@ function generateDisposeFunctionCodeForStructType(structType: StructType): {
     BuiltinFunctions.___drop[0]!
   );
 
-  const dropDestructuringsExpr = destructuringLabels.length
-    ? `
+  const dropDestructuringsExpr = `
   ${destructuringExpr}
   ${callsExpr}
-`
-    : "";
+`;
 
   return {
     signature,
     code: `(${signature} { // ___dispose
-      ${hasDisposeFunction ? `Self.dispose(${YoSelf});` : ""}
       ${dropDestructuringsExpr}
       return ();
   })`,
@@ -313,9 +419,7 @@ function generateDropFunctionCodeForStructType(structType: StructType): {
 } {
   const signature = DropFnSignature;
   const destructuringLabels = structType.fields
-    .filter(
-      (field) => !field.isCompileTimeOnly && typeContainsRcType(field.type)
-    )
+    .filter((field) => typeContainsRcType(field.type))
     .map((field) => field.label);
 
   const decrRcExpr = isRcType(structType)
@@ -356,9 +460,7 @@ function generateDupFunctionCodeForStructType(structType: StructType): {
 } {
   const signature = DupFnSignature;
   const destructuringLabels = structType.fields
-    .filter(
-      (field) => !field.isCompileTimeOnly && typeContainsRcType(field.type)
-    )
+    .filter((field) => typeContainsRcType(field.type))
     .map((field) => field.label);
 
   const incrRcExpr = isRcType(structType)
@@ -402,7 +504,7 @@ export function addRcFunctionsToStructType({
   context: EvaluatorContext;
 }): Environment {
   // Skip RC functions for comptime-only types - they don't exist at runtime
-  if (!structType.availability.runtime) {
+  if (typeIsComptimeOnly(structType, env)) {
     return env;
   }
 
@@ -473,7 +575,7 @@ export function addRcFunctionSignaturesToStructType({
   context: EvaluatorContext;
 }) {
   // Skip RC functions for comptime-only types - they don't exist at runtime
-  if (!structType.availability.runtime) {
+  if (typeIsComptimeOnly(structType, env)) {
     return;
   }
 
@@ -536,10 +638,7 @@ function generateDisposeFunctionCodeForEnumType(enumType: EnumType): {
   const matchCases = variantsWithRcTypes
     .map((variant) => {
       const destructurings = variant
-        .fields!.filter(
-          (field) =>
-            !field.isCompileTimeOnly && typeContainsRcType(field.type)
-        )
+        .fields!.filter((field) => typeContainsRcType(field.type))
         .map((field) => field.label);
 
       const paramList = variant
@@ -601,10 +700,7 @@ function generateDropFunctionCodeForEnumType(enumType: EnumType): {
     ${variantsWithRcTypes
       .map((variant) => {
         const destructurings = variant
-          .fields!.filter(
-            (field) =>
-              !field.isCompileTimeOnly && typeContainsRcType(field.type)
-          )
+          .fields!.filter((field) => typeContainsRcType(field.type))
           .map((field) => field.label);
 
         const paramList = variant
@@ -664,10 +760,7 @@ function generateDupFunctionCodeForEnumType(enumType: EnumType): {
     ${variantsWithRcTypes
       .map((variant) => {
         const destructurings = variant
-          .fields!.filter(
-            (field) =>
-              !field.isCompileTimeOnly && typeContainsRcType(field.type)
-          )
+          .fields!.filter((field) => typeContainsRcType(field.type))
           .map((field) => field.label);
 
         const paramList = variant
@@ -713,7 +806,7 @@ export function addRcFunctionsToEnumType({
   context: EvaluatorContext;
 }): Environment {
   // Skip RC functions for comptime-only types - they don't exist at runtime
-  if (!enumType.availability.runtime) {
+  if (typeIsComptimeOnly(enumType, env)) {
     return env;
   }
 
@@ -784,8 +877,8 @@ export function addRcFunctionSignaturesToEnumType({
   context: EvaluatorContext;
 }) {
   // Skip RC functions for comptime-only types - they don't exist at runtime
-  if (!enumType.availability.runtime) {
-    return;
+  if (typeIsComptimeOnly(enumType, env)) {
+    return env;
   }
 
   // Add function signatures to the enum trait first, to support recursive calls
@@ -1028,7 +1121,7 @@ export function addRcFunctionsToIsoType({
  */
 export function attachTraitToReceiverType(
   moduleName: string,
-  receiverType: StructType | EnumType | UnionType,
+  receiverType: StructType | EnumType | UnionType | TupleType | SomeType,
   env: Environment,
   context: EvaluatorContext
 ): Environment {
@@ -1061,7 +1154,6 @@ export function attachTraitToReceiverType(
   const field: TraitField = {
     label: "", // Empty label prevents direct access, only method calls work
     type: createTypeHierarchy(1), // Trait type
-    isCompileTimeOnly: true,
     assignedValue: traitValue,
     sourceModulePath: context.currentModulePath,
     exprs: {
@@ -1098,12 +1190,37 @@ export function autoDeriveSendForStructType({
   }
 
   // Check if all fields implement Send
-  const allFieldsImplementSend = structType.fields
-    .filter((field) => !field.isCompileTimeOnly)
-    .every((field) => typeImplementsSend(field.type, env));
+  const allFieldsImplementSend = structType.fields.every((field) =>
+    typeImplementsSend(field.type, env)
+  );
 
   if (allFieldsImplementSend) {
     env = attachTraitToReceiverType("Send", structType, env, context);
+  }
+
+  return env;
+}
+
+/**
+ * Auto-derive Rc marker trait for a struct type.
+ *
+ * For object (reference semantics):
+ * - Always auto-derive Rc.
+ *
+ * For struct (value semantics):
+ * - Never auto-derive Rc.
+ */
+export function autoDeriveRcForStructType({
+  structType,
+  env,
+  context,
+}: {
+  structType: StructType;
+  env: Environment;
+  context: EvaluatorContext;
+}): Environment {
+  if (structType.isReferenceSemantics) {
+    env = attachTraitToReceiverType("Rc", structType, env, context);
   }
 
   return env;
@@ -1153,13 +1270,507 @@ export function autoDeriveSendForUnionType({
   context: EvaluatorContext;
 }): Environment {
   // Check if all fields implement Send
-  const allFieldsImplementSend = unionType.fields
-    .filter((field) => !field.isCompileTimeOnly)
-    .every((field) => typeImplementsSend(field.type, env));
+  const allFieldsImplementSend = unionType.fields.every((field) =>
+    typeImplementsSend(field.type, env)
+  );
 
   if (allFieldsImplementSend) {
     env = attachTraitToReceiverType("Send", unionType, env, context);
   }
+
+  return env;
+}
+
+/**
+ * Auto-derive Acyclic marker trait for a struct type.
+ *
+ * For struct (value semantics):
+ * - Auto-derive Acyclic if all fields implement Acyclic.
+ *
+ * For object (reference semantics):
+ * - Auto-derive Acyclic if the type cannot form RC cycles (checked via canTypeFormRcCycle).
+ */
+export function autoDeriveAcyclicForStructType({
+  structType,
+  env,
+  context,
+}: {
+  structType: StructType;
+  env: Environment;
+  context: EvaluatorContext;
+}): Environment {
+  if (structType.isReferenceSemantics) {
+    // For object types, check if they can form cycles (pass env for SomeType Acyclic checking)
+    if (!canTypeFormRcCycle(structType, new Set(), env)) {
+      env = attachTraitToReceiverType("Acyclic", structType, env, context);
+    }
+  } else {
+    // For value types, check if all fields implement Acyclic
+    const allFieldsImplementAcyclic = structType.fields.every((field) =>
+      typeImplementsAcyclic(field.type, env)
+    );
+
+    if (allFieldsImplementAcyclic) {
+      env = attachTraitToReceiverType("Acyclic", structType, env, context);
+    }
+  }
+
+  return env;
+}
+
+/**
+ * Auto-derive Acyclic marker trait for an enum type.
+ *
+ * - Auto-derive Acyclic if all variant fields implement Acyclic
+ */
+export function autoDeriveAcyclicForEnumType({
+  enumType,
+  env,
+  context,
+}: {
+  enumType: EnumType;
+  env: Environment;
+  context: EvaluatorContext;
+}): Environment {
+  // Check if all variant fields implement Acyclic
+  const allFieldsImplementAcyclic = enumType.variants.every((variant) => {
+    if (!variant.fields || variant.fields.length === 0) {
+      return true; // Variants without fields are trivially Acyclic
+    }
+    return variant.fields.every((field) =>
+      typeImplementsAcyclic(field.type, env)
+    );
+  });
+
+  if (allFieldsImplementAcyclic) {
+    env = attachTraitToReceiverType("Acyclic", enumType, env, context);
+  }
+
+  return env;
+}
+
+/**
+ * Auto-derive Acyclic marker trait for a union type.
+ *
+ * - Auto-derive Acyclic if all fields implement Acyclic
+ */
+export function autoDeriveAcyclicForUnionType({
+  unionType,
+  env,
+  context,
+}: {
+  unionType: UnionType;
+  env: Environment;
+  context: EvaluatorContext;
+}): Environment {
+  // Check if all fields implement Acyclic
+  const allFieldsImplementAcyclic = unionType.fields.every((field) =>
+    typeImplementsAcyclic(field.type, env)
+  );
+
+  if (allFieldsImplementAcyclic) {
+    env = attachTraitToReceiverType("Acyclic", unionType, env, context);
+  }
+
+  return env;
+}
+
+/**
+ * Auto-derive Comptime marker trait for a struct type.
+ *
+ * For struct (value semantics):
+ * - Auto-derive Comptime if all fields implement Comptime.
+ *
+ * For object (reference semantics):
+ * - Auto-derive Comptime if all fields implement Comptime.
+ */
+export function autoDeriveComptimeForStructType({
+  structType,
+  env,
+  context,
+}: {
+  structType: StructType;
+  env: Environment;
+  context: EvaluatorContext;
+}): Environment {
+  // `object` types are always runtime, so skip auto-derive Comptime
+  if (structType.isReferenceSemantics) {
+    return env;
+  }
+
+  // Check if all non-comptime-only fields implement Comptime
+  // (isCompileTimeOnly fields are methods/statics, not data fields)
+  const allFieldsImplementComptime = structType.fields.every((field) =>
+    typeDerivesComptime(field.type, env, new Set([structType.id]))
+  );
+
+  if (allFieldsImplementComptime) {
+    env = attachTraitToReceiverType("Comptime", structType, env, context);
+  }
+
+  return env;
+}
+
+/**
+ * Auto-derive Comptime marker trait for an enum type.
+ *
+ * - Auto-derive Comptime if all variant fields implement Comptime
+ */
+export function autoDeriveComptimeForEnumType({
+  enumType,
+  env,
+  context,
+}: {
+  enumType: EnumType;
+  env: Environment;
+  context: EvaluatorContext;
+}): Environment {
+  // Check if all variant fields implement Comptime
+  // (isCompileTimeOnly fields are methods/statics, not data fields)
+  const allFieldsImplementComptime = enumType.variants.every((variant) => {
+    if (!variant.fields || variant.fields.length === 0) {
+      return true; // Variants without fields are trivially Comptime
+    }
+    return variant.fields.every((field) =>
+      typeDerivesComptime(field.type, env, new Set([enumType.id]))
+    );
+  });
+
+  if (allFieldsImplementComptime) {
+    env = attachTraitToReceiverType("Comptime", enumType, env, context);
+  }
+
+  return env;
+}
+
+/**
+ * Auto-derive Runtime marker trait for a struct type.
+ *
+ * For struct (value semantics):
+ * - Auto-derive Runtime if all fields implement Runtime.
+ *
+ * For object (reference semantics):
+ * - Auto-derive Runtime if all fields implement Runtime.
+ */
+export function autoDeriveRuntimeForStructType({
+  structType,
+  env,
+  context,
+}: {
+  structType: StructType;
+  env: Environment;
+  context: EvaluatorContext;
+}): Environment {
+  if (structType.isReferenceSemantics) {
+    env = attachTraitToReceiverType("Runtime", structType, env, context);
+    return env;
+  }
+
+  // Check if all non-comptime-only fields implement Runtime
+  // (isCompileTimeOnly fields are methods/statics, not data fields)
+  const allFieldsImplementRuntime = structType.fields.every((field) =>
+    typeDerivesRuntime(field.type, env, new Set([structType.id]))
+  );
+
+  if (allFieldsImplementRuntime) {
+    env = attachTraitToReceiverType("Runtime", structType, env, context);
+  }
+
+  return env;
+}
+
+/**
+ * Auto-derive Runtime marker trait for an enum type.
+ *
+ * - Auto-derive Runtime if all variant fields implement Runtime
+ */
+export function autoDeriveRuntimeForEnumType({
+  enumType,
+  env,
+  context,
+}: {
+  enumType: EnumType;
+  env: Environment;
+  context: EvaluatorContext;
+}): Environment {
+  // Check if all variant fields implement Runtime
+  // (isCompileTimeOnly fields are methods/statics, not data fields)
+  const allFieldsImplementRuntime = enumType.variants.every((variant) => {
+    if (!variant.fields || variant.fields.length === 0) {
+      return true; // Variants without fields are trivially Runtime
+    }
+    return variant.fields.every((field) =>
+      typeDerivesRuntime(field.type, env, new Set([enumType.id]))
+    );
+  });
+
+  if (allFieldsImplementRuntime) {
+    env = attachTraitToReceiverType("Runtime", enumType, env, context);
+  }
+
+  return env;
+}
+
+/**
+ * Auto-derive Runtime marker trait for a union type.
+ *
+ * Union types are always runtime-only (comptime-only fields are forbidden),
+ * so we always attach the Runtime trait.
+ */
+export function autoDeriveRuntimeForUnionType({
+  unionType,
+  env,
+  context,
+}: {
+  unionType: UnionType;
+  env: Environment;
+  context: EvaluatorContext;
+}): Environment {
+  // Union types are always runtime (comptime-only fields are forbidden)
+  env = attachTraitToReceiverType("Runtime", unionType, env, context);
+  return env;
+}
+
+/**
+ * Auto-derive Send marker trait for a tuple type.
+ *
+ * - Auto-derive Send if all fields implement Send
+ */
+export function autoDeriveSendForTupleType({
+  tupleType,
+  env,
+  context,
+}: {
+  tupleType: TupleType;
+  env: Environment;
+  context: EvaluatorContext;
+}): Environment {
+  // Check if all fields implement Send
+  const allFieldsImplementSend = tupleType.fields.every((field) =>
+    typeImplementsSend(field.type, env)
+  );
+
+  if (allFieldsImplementSend) {
+    env = attachTraitToReceiverType("Send", tupleType, env, context);
+  }
+
+  return env;
+}
+
+/**
+ * Auto-derive Comptime marker trait for a tuple type.
+ *
+ * - Auto-derive Comptime if all fields implement Comptime
+ */
+export function autoDeriveComptimeForTupleType({
+  tupleType,
+  env,
+  context,
+}: {
+  tupleType: TupleType;
+  env: Environment;
+  context: EvaluatorContext;
+}): Environment {
+  // Check if all non-comptime-only fields implement Comptime
+  const allFieldsImplementComptime = tupleType.fields.every((field) =>
+    typeDerivesComptime(field.type, env, new Set([tupleType.id]))
+  );
+
+  if (allFieldsImplementComptime) {
+    env = attachTraitToReceiverType("Comptime", tupleType, env, context);
+  }
+
+  return env;
+}
+
+/**
+ * Auto-derive Runtime marker trait for a tuple type.
+ *
+ * - Auto-derive Runtime if all fields implement Runtime
+ */
+export function autoDeriveRuntimeForTupleType({
+  tupleType,
+  env,
+  context,
+}: {
+  tupleType: TupleType;
+  env: Environment;
+  context: EvaluatorContext;
+}): Environment {
+  // Check if all non-comptime-only fields implement Runtime
+  const allFieldsImplementRuntime = tupleType.fields.every((field) =>
+    typeDerivesRuntime(field.type, env, new Set([tupleType.id]))
+  );
+
+  if (allFieldsImplementRuntime) {
+    env = attachTraitToReceiverType("Runtime", tupleType, env, context);
+  }
+
+  return env;
+}
+
+/**
+ * Auto-derive all applicable traits for a struct type.
+ * This should be called after all fields are added but before RC functions are generated.
+ * Order matters: Send → Rc → Acyclic → Comptime → Runtime
+ *
+ * Auto-generate ___drop, ___dup, and ___dispose functions if needed
+ */
+export function autoDeriveTraitsAndAddRcFunctionsForStructType({
+  structType,
+  env,
+  context,
+  errorToken,
+}: {
+  structType: StructType;
+  env: Environment;
+  context: EvaluatorContext;
+  errorToken: Token;
+}): Environment {
+  // Auto-derive Send trait if applicable
+  env = autoDeriveSendForStructType({
+    structType,
+    env,
+    context,
+  });
+
+  // Auto-derive Rc trait for object types
+  env = autoDeriveRcForStructType({
+    structType,
+    env,
+    context,
+  });
+
+  // Auto-derive Acyclic trait if applicable
+  env = autoDeriveAcyclicForStructType({
+    structType,
+    env,
+    context,
+  });
+
+  // Auto-derive Comptime trait if applicable
+  env = autoDeriveComptimeForStructType({
+    structType,
+    env,
+    context,
+  });
+
+  // Auto-derive Runtime trait if applicable
+  env = autoDeriveRuntimeForStructType({
+    structType,
+    env,
+    context,
+  });
+
+  env = addRcFunctionsToStructType({
+    structType,
+    env,
+    context,
+  });
+
+  validateTypeAvailability(structType, env, errorToken, context);
+
+  return env;
+}
+
+/**
+ * Auto-derive all applicable traits for a enum type.
+ * This should be called after all fields are added but before RC functions are generated.
+ * Order matters: Send → Acyclic → Comptime → Runtime
+ *
+ * Auto-generate ___drop, ___dup, and ___dispose functions if needed
+ */
+export function autoDeriveTraitsAndAddRcFunctionsForEnumType({
+  enumType,
+  env,
+  context,
+  errorToken,
+}: {
+  enumType: EnumType;
+  env: Environment;
+  context: EvaluatorContext;
+  errorToken: Token;
+}): Environment {
+  // Auto-derive Send trait if applicable
+  env = autoDeriveSendForEnumType({
+    enumType,
+    env,
+    context,
+  });
+
+  // Auto derive Acyclic trait
+  env = autoDeriveAcyclicForEnumType({
+    enumType,
+    env,
+    context,
+  });
+
+  // Auto derive Comptime trait
+  env = autoDeriveComptimeForEnumType({
+    enumType,
+    env,
+    context,
+  });
+
+  // Auto derive Runtime trait
+  env = autoDeriveRuntimeForEnumType({
+    enumType,
+    env,
+    context,
+  });
+
+  // Auto-generate ARC functions using the systematic approach
+  env = addRcFunctionsToEnumType({
+    enumType,
+    env,
+    context,
+  });
+
+  validateTypeAvailability(enumType, env, errorToken, context);
+
+  return env;
+}
+
+/**
+ * Auto-derive all applicable traits for a enum type.
+ * This should be called after all fields are added but before RC functions are generated.
+ * Order matters: Send → Acyclic → Comptime → Runtime
+ *
+ * Auto-generate ___drop, ___dup, and ___dispose functions if needed
+ */
+export function autoDeriveTraitsAndAddRcFunctionsForTupleType({
+  tupleType,
+  env,
+  context,
+  errorToken,
+}: {
+  tupleType: TupleType;
+  env: Environment;
+  context: EvaluatorContext;
+  errorToken: Token;
+}): Environment {
+  // Auto-derive Send trait if applicable
+  env = autoDeriveSendForTupleType({
+    tupleType,
+    env,
+    context,
+  });
+
+  // Auto-derive Comptime trait if applicable
+  env = autoDeriveComptimeForTupleType({
+    tupleType,
+    env,
+    context,
+  });
+
+  // Auto-derive Runtime trait if applicable
+  env = autoDeriveRuntimeForTupleType({
+    tupleType,
+    env,
+    context,
+  });
+
+  validateTypeAvailability(tupleType, env, errorToken, context);
 
   return env;
 }

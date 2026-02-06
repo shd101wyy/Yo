@@ -2,13 +2,28 @@
 // Prelude Module
 // - Calling "import" is prohibited in this prelude module.
 
+// Traits for determine type availability
+/// Comptime trait - indicates a type that can be used at compile-time.
+/// Examples: i32, bool, Type, comptime_int, comptime_float, comptime_string
+/// Non-examples: int, ushort (runtime-only types)
+Comptime :: trait(
+  id := "Comptime"
+);
+export Comptime;
+
+/// Runtime trait - indicates a type that can be used at runtime.
+/// Examples: i32, bool, *(i32), void
+/// Non-examples: comptime_int, comptime_float, comptime_string, Type (compile-time-only types)
+Runtime :: trait(
+  id := "Runtime"
+);
+export Runtime;
+
 // === Builtin Yo functions ===
 extern "Yo",
-  // compt_codegen_inline: (fn(compt(C): compt_string)-> compt(unit)),
-  // compt_noop: (()-> compt(unit)),
   __yo_return_self : (fn(forall(T: Type), self: T) -> T),
   __yo_noop : (fn(forall(T : Type))-> T),
-  __yo_as : (fn(forall(_Self: Type), self: _Self, compt(Target): Type) -> Target),
+  __yo_as : (fn(forall(_Self: Type), self: _Self, comptime(Target): Type) -> Target),
   
   // Arithmetic Operators
   /// +
@@ -81,19 +96,19 @@ extern "Yo",
     fn(forall(T: Type), slice: Slice(T)) -> usize,
 
   // C macro related
-  __yo_c_macro_defined : (fn(compt(name) : compt_string) -> compt(bool)),
-  __yo_c_macro_value : (fn(compt(name) : compt_string) -> compt(compt_string)),
+  __yo_c_macro_defined : (fn(comptime(name) : comptime_string) -> comptime(bool)),
+  __yo_c_macro_value : (fn(comptime(name) : comptime_string) -> comptime(comptime_string)),
 
   // Process related functions
-  __yo_process_platform : (fn() -> compt(compt_string)),
-  __yo_process_arch : (fn() -> compt(compt_string)),
-  __yo_process_cwd : (fn() -> compt(compt_string)),
-  __yo_process_env_get : (fn(compt(key) : compt_string) -> compt(compt_string)),
-  __yo_process_node_version : (fn() -> compt(compt_string))
+  __yo_process_platform : (fn() -> comptime(comptime_string)),
+  __yo_process_arch : (fn() -> comptime(comptime_string)),
+  __yo_process_cwd : (fn() -> comptime(comptime_string)),
+  __yo_process_env_get : (fn(comptime(key) : comptime_string) -> comptime(comptime_string)),
+  __yo_process_node_version : (fn() -> comptime(comptime_string))
 ;
 export __yo_as;
 
-assert :: (fn(flag : bool, (compt(msg) : compt_string) ?= "Assertion failed.") -> unit)
+assert :: (fn(flag : bool, (comptime(msg) : comptime_string) ?= "Assertion failed.") -> unit)
   cond(
     flag => (),
     true => panic(msg)
@@ -115,7 +130,7 @@ export unsafe;
 // c_macro :: impl {
 //   /// Check if a C macro is defined
 //   /// Returns true if the macro exists, false otherwise
-//   defined :: (fn(compt(name) : compt_string) -> compt(bool))(
+//   defined :: (fn(comptime(name) : comptime_string) -> comptime(bool))(
 //     __yo_c_macro_defined(name)
 //   );
 //   export defined;
@@ -123,13 +138,13 @@ export unsafe;
 //   /// Get the value of a C macro as a compile-time string
 //   /// Returns the macro's value as a string, or empty string "" if not defined
 //   /// Note: For function-like macros, returns the definition without expansion
-//   value :: (fn(compt(name) : compt_string) -> compt(compt_string))(
+//   value :: (fn(comptime(name) : comptime_string) -> comptime(comptime_string))(
 //     __yo_c_macro_value(name)
 //   );
 //   export value;
 // 
 //   /// Get a macro value with a default fallback
-//   value_or :: (fn(compt(name) : compt_string, compt(default_val) : compt_string) -> compt(compt_string))(
+//   value_or :: (fn(comptime(name) : comptime_string, comptime(default_val) : comptime_string) -> comptime(comptime_string))(
 //     cond(
 //       defined(name) => value(name),
 //       true => default_val
@@ -146,132 +161,173 @@ Send :: trait(
 );
 export Send;
 
+/// Acyclic trait - indicates a type that cannot form reference cycles.
+/// Types that implement Acyclic don't need cycle collection tracking.
+/// Primitive types, value types without object fields, and objects that
+/// don't reference back to themselves (directly or indirectly) are Acyclic.
+Acyclic :: trait(
+  id := "Acyclic"
+);
+export Acyclic;
+
+/// The Rc trait means the type is reference counted `object` type.
+Rc :: trait(
+  id := "Rc"
+);
+export Rc;
+
+/// Dispose trait - defines a dispose method for cleaning up resources.
+Dispose :: trait(
+  id := "Dispose",
+  dispose : (fn(self: Self) -> unit),
+  where(Self <: Rc)
+);
+export Dispose;
+
 /// === Arithmetic ===
-Add :: (fn(compt(Rhs) : Type, compt(Output) ?= Rhs)-> compt(Trait))
+Add :: (fn(comptime(Rhs) : Type, (comptime(Output) : Type) ?= Rhs)-> comptime(Trait))
   trait
     Output := Output,
     (+)    :  (fn(lhs: Self, rhs: Rhs)-> Output)
 ;
 export Add;
 
-ComptAdd :: (fn(compt(Rhs) : Type, compt(Output) ?= Rhs)-> compt(Trait))
-  trait
+ComptimeAdd :: (fn(comptime(Rhs) : Type, (comptime(Output) : Type) ?= Rhs, where(Rhs <: Comptime, Output <: Comptime))-> comptime(Trait))
+  trait(
     Output := Output,
-    (+)    :  (fn(compt(lhs): Self, compt(rhs): Rhs)-> compt(Output))
+    (+)    :  (fn(comptime(lhs): Self, comptime(rhs): Rhs)-> comptime(Output)),
+    where(Self <: Comptime)
+  )
 ;
-export ComptAdd;
+export ComptimeAdd;
 
-Sub :: (fn(compt(Rhs) : Type, compt(Output) ?= Rhs)-> compt(Trait))
+Sub :: (fn(comptime(Rhs) : Type, (comptime(Output) : Type) ?= Rhs)-> comptime(Trait))
   trait
     Output := Output,
     (-)    : (fn(lhs: Self, rhs: Rhs)-> Output)
 ;
 export Sub;
 
-ComptSub :: (fn(compt(Rhs) : Type, compt(Output) ?= Rhs)-> compt(Trait))
-  trait
+ComptimeSub :: (fn(comptime(Rhs) : Type, (comptime(Output) : Type) ?= Rhs, where(Rhs <: Comptime, Output <: Comptime))-> comptime(Trait))
+  trait(
     Output := Output,
-    (-)    : (fn(compt(lhs): Self, compt(rhs): Rhs)-> compt(Output))
+    (-)    : (fn(comptime(lhs): Self, comptime(rhs): Rhs)-> comptime(Output)),
+    where(Self <: Comptime)
+  )
 ;
-export ComptSub;
+export ComptimeSub;
 
-Mul :: (fn(compt(Rhs) : Type, compt(Output) ?= Rhs)-> compt(Trait))
+Mul :: (fn(comptime(Rhs) : Type, (comptime(Output) : Type) ?= Rhs)-> comptime(Trait))
   trait
     Output := Output,
     (*)    : (fn(lhs: Self, rhs: Rhs)-> Output)
 ;
 export Mul;
 
-ComptMul :: (fn(compt(Rhs) : Type, compt(Output) ?= Rhs)-> compt(Trait))
-  trait
+ComptimeMul :: (fn(comptime(Rhs) : Type, (comptime(Output) : Type) ?= Rhs, where(Rhs <: Comptime, Output <: Comptime))-> comptime(Trait))
+  trait(
     Output := Output,
-    (*)    : (fn(compt(lhs): Self, compt(rhs): Rhs)-> compt(Output))
+    (*)    : (fn(comptime(lhs): Self, comptime(rhs): Rhs)-> comptime(Output)),
+    where(Self <: Comptime)
+  )
 ;
-export ComptMul;
+export ComptimeMul;
 
-Div :: (fn(compt(Rhs) : Type, compt(Output) ?= Rhs)-> compt(Trait))
+Div :: (fn(comptime(Rhs) : Type, (comptime(Output) : Type) ?= Rhs)-> comptime(Trait))
   trait
     Output := Output,
     (/)    : (fn(lhs: Self, rhs: Rhs)-> Output)
 ;
 export Div;
 
-ComptDiv :: (fn(compt(Rhs) : Type, compt(Output) ?= Rhs)-> compt(Trait))
-  trait
+ComptimeDiv :: (fn(comptime(Rhs) : Type, (comptime(Output) : Type) ?= Rhs, where(Rhs <: Comptime, Output <: Comptime))-> comptime(Trait))
+  trait(
     Output := Output,
-    (/)    : (fn(compt(lhs): Self, compt(rhs): Rhs)-> compt(Output))
+    (/)    : (fn(comptime(lhs): Self, comptime(rhs): Rhs)-> comptime(Output)),
+    where(Self <: Comptime)
+  )
 ;
-export ComptDiv;
+export ComptimeDiv;
 
-Mod :: (fn(compt(Rhs) : Type, compt(Output) ?= Rhs)-> compt(Trait))
+Mod :: (fn(comptime(Rhs) : Type, (comptime(Output) : Type) ?= Rhs)-> comptime(Trait))
   trait
     Output := Output,
     (%)    : (fn(lhs: Self, rhs: Rhs)-> Output)
 ;
 export Mod;
 
-ComptMod :: (fn(compt(Rhs) : Type, compt(Output) ?= Rhs)-> compt(Trait))
-  trait
+ComptimeMod :: (fn(comptime(Rhs) : Type, (comptime(Output) : Type) ?= Rhs, where(Rhs <: Comptime, Output <: Comptime))-> comptime(Trait))
+  trait(
     Output := Output,
-    (%)    : (fn(compt(lhs): Self, compt(rhs): Rhs)-> compt(Output))
+    (%)    : (fn(comptime(lhs): Self, comptime(rhs): Rhs)-> comptime(Output)),
+    where(Self <: Comptime)
+  )
 ;
-export ComptMod;
+export ComptimeMod;
 
-BitLeftShift :: (fn(compt(Rhs) : Type, compt(Output) ?= Rhs)-> compt(Trait))
+BitLeftShift :: (fn(comptime(Rhs) : Type, (comptime(Output) : Type) ?= Rhs)-> comptime(Trait))
   trait
     Output := Output,
     (<<)   : (fn(lhs: Self, rhs: Rhs)-> Output)
 ;
 export BitLeftShift;
 
-ComptBitLeftShift :: (fn(compt(Rhs) : Type, compt(Output) ?= Rhs)-> compt(Trait))
-  trait
+ComptimeBitLeftShift :: (fn(comptime(Rhs) : Type, (comptime(Output) : Type) ?= Rhs, where(Rhs <: Comptime, Output <: Comptime))-> comptime(Trait))
+  trait(
     Output := Output,
-    (<<)   : (fn(compt(lhs): Self, compt(rhs): Rhs)-> compt(Output))
+    (<<)   : (fn(comptime(lhs): Self, comptime(rhs): Rhs)-> comptime(Output)),
+    where(Self <: Comptime)
+  )
 ;
-export ComptBitLeftShift;
+export ComptimeBitLeftShift;
 
-BitRightShift :: (fn(compt(Rhs) : Type, compt(Output) ?= Rhs)-> compt(Trait))
+BitRightShift :: (fn(comptime(Rhs) : Type, (comptime(Output) : Type) ?= Rhs)-> comptime(Trait))
   trait
     Output := Output,
     (>>)   : (fn(lhs: Self, rhs: Rhs)-> Output)
 ;
 export BitRightShift;
 
-ComptBitRightShift :: (fn(compt(Rhs) : Type, compt(Output) ?= Rhs)-> compt(Trait))
-  trait
+ComptimeBitRightShift :: (fn(comptime(Rhs) : Type, (comptime(Output) : Type) ?= Rhs, where(Rhs <: Comptime, Output <: Comptime))-> comptime(Trait))
+  trait(
     Output := Output,
-    (>>)   : (fn(compt(lhs): Self, compt(rhs): Rhs)-> compt(Output))
+    (>>)   : (fn(comptime(lhs): Self, comptime(rhs): Rhs)-> comptime(Output)),
+    where(Self <: Comptime)
+  )
 ;
-export ComptBitRightShift;
+export ComptimeBitRightShift;
 
-Exponentiation :: (fn(compt(Rhs) : Type, compt(Output) ?= Rhs)-> compt(Trait))
+Exponentiation :: (fn(comptime(Rhs) : Type, (comptime(Output) : Type) ?= Rhs)-> comptime(Trait))
   trait
     Output := Output,
     (**)   : (fn(lhs: Self, rhs: Rhs)-> Output)
 ;
 export Exponentiation;
 
-ComptExponentiation :: (fn(compt(Rhs) : Type, compt(Output) ?= Rhs)-> compt(Trait))
-  trait
+ComptimeExponentiation :: (fn(comptime(Rhs) : Type, (comptime(Output) : Type) ?= Rhs, where(Rhs <: Comptime, Output <: Comptime))-> comptime(Trait))
+  trait(
     Output := Output,
-    (**)   : (fn(compt(lhs): Self, compt(rhs): Rhs)-> compt(Output))
+    (**)   : (fn(comptime(lhs): Self, comptime(rhs): Rhs)-> comptime(Output)),
+    where(Self <: Comptime)
+  )
 ;
-export ComptExponentiation;
+export ComptimeExponentiation;
 
-Negate :: (fn(compt(Output) : Type)-> compt(Trait)) 
+Negate :: (fn(comptime(Output) : Type)-> comptime(Trait)) 
   trait
     Output := Output,
     (neg): (fn(self: Self)-> Output)
 ;
 export Negate;
 
-ComptNegate :: (fn(compt(Output) : Type)-> compt(Trait)) 
-  trait
+ComptimeNegate :: (fn(comptime(Output) : Type, where(Output <: Comptime))-> comptime(Trait)) 
+  trait(
     Output := Output,
-    (neg) : (fn(compt(self): Self)-> compt(Output))
+    (neg) : (fn(comptime(self): Self)-> comptime(Output)),
+    where(Self <: Comptime)
+  )
 ;
-export ComptNegate;
+export ComptimeNegate;
 
 /// === Logic ===
 LogicalNot :: trait
@@ -279,66 +335,75 @@ LogicalNot :: trait
 ;
 export LogicalNot;
 
-ComptLogicalNot :: trait
-  (!)  : (fn(compt(self): Self) -> compt(bool))
+ComptimeLogicalNot :: trait
+  (!)  : (fn(comptime(self): Self) -> comptime(bool)),
+  where(Self <: Comptime)
 ;
-export ComptLogicalNot;
+export ComptimeLogicalNot;
 
-BitNot :: (fn(compt(Output) : Type) -> compt(Trait))
+BitNot :: (fn(comptime(Output) : Type) -> comptime(Trait))
   trait
     Output := Output,
     (~)    :  (fn(self: Self)-> Output)
 ;
 export BitNot;
 
-ComptBitNot :: (fn(compt(Output) : Type) -> compt(Trait))
-  trait
+ComptimeBitNot :: (fn(comptime(Output) : Type, where(Output <: Comptime)) -> comptime(Trait))
+  trait(
     Output := Output,
-    (~)    :  (fn(compt(self): Self)-> compt(Output))
+    (~)    :  (fn(comptime(self): Self)-> comptime(Output)),
+    where(Self <: Comptime)
+  )
 ;
-export ComptBitNot;
+export ComptimeBitNot;
 
-BitAnd :: (fn(compt(Rhs) : Type, compt(Output) ?= Rhs) -> compt(Trait)) 
+BitAnd :: (fn(comptime(Rhs) : Type, (comptime(Output) : Type) ?= Rhs) -> comptime(Trait)) 
   trait
     Output := Output,
     (&)    :  (fn(lhs: Self, rhs: Rhs)-> Output)
 ;
 export BitAnd;
 
-ComptBitAnd :: (fn(compt(Rhs) : Type, compt(Output) ?= Rhs) -> compt(Trait)) 
-  trait
+ComptimeBitAnd :: (fn(comptime(Rhs) : Type, (comptime(Output) : Type) ?= Rhs, where(Rhs <: Comptime, Output <: Comptime)) -> comptime(Trait)) 
+  trait(
     Output := Output,
-    (&)    :  (fn(compt(lhs): Self, compt(rhs): Rhs)-> compt(Output))
+    (&)    :  (fn(comptime(lhs): Self, comptime(rhs): Rhs)-> comptime(Output)),
+    where(Self <: Comptime)
+  )
 ;
-export ComptBitAnd;
+export ComptimeBitAnd;
 
-BitOr :: (fn(compt(Rhs) : Type, compt(Output) ?= Rhs) -> compt(Trait))
+BitOr :: (fn(comptime(Rhs) : Type, (comptime(Output) : Type) ?= Rhs) -> comptime(Trait))
   trait
     Output := Output,
     (|)    :  (fn(lhs: Self, rhs: Rhs)-> Output)
 ;
 export BitOr;
 
-ComptBitOr :: (fn(compt(Rhs) : Type, compt(Output) ?= Rhs) -> compt(Trait))
-  trait
+ComptimeBitOr :: (fn(comptime(Rhs) : Type, (comptime(Output) : Type) ?= Rhs, where(Rhs <: Comptime, Output <: Comptime)) -> comptime(Trait))
+  trait(
     Output := Output,
-    (|)    :  (fn(compt(lhs): Self, compt(rhs): Rhs)-> compt(Output))
+    (|)    :  (fn(comptime(lhs): Self, comptime(rhs): Rhs)-> comptime(Output)),
+    where(Self <: Comptime)
+  )
 ;
-export ComptBitOr;
+export ComptimeBitOr;
 
-BitXor :: (fn(compt(Rhs) : Type, compt(Output) ?= Rhs) -> compt(Trait)) 
+BitXor :: (fn(comptime(Rhs) : Type, (comptime(Output) : Type) ?= Rhs) -> comptime(Trait)) 
   trait
     Output := Output,
     (^)    :  (fn(lhs: Self, rhs: Rhs)-> Output)
 ;
 export BitXor;
 
-ComptBitXor :: (fn(compt(Rhs) : Type, compt(Output) ?= Rhs) -> compt(Trait)) 
-  trait
+ComptimeBitXor :: (fn(comptime(Rhs) : Type, (comptime(Output) : Type) ?= Rhs, where(Rhs <: Comptime, Output <: Comptime)) -> comptime(Trait)) 
+  trait(
     Output := Output,
-    (^)    :  (fn(compt(lhs): Self, compt(rhs): Rhs)-> compt(Output))
+    (^)    :  (fn(comptime(lhs): Self, comptime(rhs): Rhs)-> comptime(Output)),
+    where(Self <: Comptime)
+  )
 ;
-export ComptBitXor;
+export ComptimeBitXor;
 
 (!) :: impl {
   (not) :: (fn(forall(_Self : Type),
@@ -348,19 +413,17 @@ export ComptBitXor;
     self.(!)()
   ;
 
-  (compt_not) :: (fn(forall(_Self : Type), 
-          compt(self) : _Self,
-          where(_Self <: ComptLogicalNot)
-        ) -> compt(bool))
+  (comptime_not) :: (fn(forall(_Self : Type),
+          comptime(self) : _Self,
+          where(_Self <: (Comptime, ComptimeLogicalNot))
+        ) -> comptime(bool))
     self.(!)()
   ;
 
-  Call :: (not, compt_not);
+  Call :: (not, comptime_not);
 
   export
-    Call,
-    not,
-    compt_not
+    Call
   ;
 };
 (not) :: (!);
@@ -374,19 +437,17 @@ export not, (!);
     return self.neg();
   };
 
-  (compt_neg) :: (fn(forall(_Self : Type), 
-          compt(self) : _Self,
-          where(_Self <: ComptNegate(_Self))
-        ) -> compt(_Self)) {
+  (comptime_neg) :: (fn(forall(_Self : Type), 
+          comptime(self) : _Self,
+          where(_Self <: (Comptime, ComptimeNegate(_Self)))
+        ) -> comptime(_Self)) {
     return self.neg();
   };
 
-  Call :: (neg, compt_neg);
+  Call :: (neg, comptime_neg);
 
   export
-    Call,
-    neg,
-    compt_neg
+    Call
   ;
 };
 export (-);
@@ -395,20 +456,22 @@ export (-);
  * logic for bool
  * No need to export them. For internal use only
  */
+impl(bool, Comptime());
+impl(bool, Runtime());
 impl(bool, LogicalNot(
-  (!): ((a) ->
-    __yo_op_not(a)
+  (!): ((self) ->
+    __yo_op_not(self)
   )
 ));
-impl(bool, ComptLogicalNot(
-  (!) : (fn(compt(self): bool) -> compt(bool))(
-    __yo_compt_boolean_not(self)
+impl(bool, ComptimeLogicalNot(
+  (!) : (self ->
+    __yo_comptime_bool_not(self)
   )
 ));
 
 /// === Eq ===
 Eq ::
-  (fn(compt(Rhs) : Type) -> compt(Trait))
+  (fn(comptime(Rhs) : Type) -> comptime(Trait))
   trait(
     (==) : (fn(lhs: Self, rhs: Rhs) -> bool),
 
@@ -419,34 +482,34 @@ Eq ::
   );
 export Eq;
 
-ComptEq ::
-  (fn(compt(Rhs) : Type) -> compt(Trait))
+ComptimeEq ::
+  (fn(comptime(Rhs) : Type, where(Rhs <: Comptime)) -> comptime(Trait))
   trait(
-    (==) : (fn(compt(lhs): Self, compt(rhs): Rhs) -> compt(bool)),
+    (==) : (fn(comptime(lhs): Self, comptime(rhs): Rhs) -> comptime(bool)),
 
-    ((!=) : (fn(compt(lhs): Self, compt(rhs): Rhs) -> compt(bool))) ?= 
+    ((!=) : (fn(comptime(lhs): Self, comptime(rhs): Rhs) -> comptime(bool))) ?= 
       ((lhs, rhs) ->
         not(Self.(==)(lhs, rhs))
-      )
+      ),
+    
+    where(Self <: Comptime)
   )
 ;
-export ComptEq;
+export ComptimeEq;
 
 /// === Ord ===
-Ordering :: enum
+Ordering :: enum(
   Less,
   Equal,
   Greater
-;
+);
 export Ordering;
 
 Ord :: (
   fn(
-    compt(Rhs) : Type
-  ) -> compt(Trait))
+    comptime(Rhs) : Type
+  ) -> comptime(Trait))
   trait(
-    where(Self <: Eq(Rhs)),
-
     (<) :
       fn(lhs: Self, rhs: Rhs) -> bool,
     (<=) :
@@ -454,26 +517,27 @@ Ord :: (
     (>) :
       fn(lhs: Self, rhs: Rhs) -> bool,
     (>=) :
-      fn(lhs: Self, rhs: Rhs) -> bool
+      fn(lhs: Self, rhs: Rhs) -> bool,
+    where(Self <: Eq(Rhs))
   )
 ;
 export Ord;
 
-ComptOrd :: (
+ComptimeOrd :: (
   fn(
-    compt(Rhs) : Type
-  ) -> compt(Trait))
+    comptime(Rhs) : Type,
+    where(Rhs <: Comptime)
+  ) -> comptime(Trait))
   trait(
-    where(Self <: ComptEq(Rhs)),
-
     (<) :
-      fn(compt(lhs): Self, compt(rhs): Rhs) -> compt(bool),
+      fn(comptime(lhs): Self, comptime(rhs): Rhs) -> comptime(bool),
     (<=) :
-      fn(compt(lhs): Self, compt(rhs): Rhs) -> compt(bool),
+      fn(comptime(lhs): Self, comptime(rhs): Rhs) -> comptime(bool),
     (>) :
-      fn(compt(lhs): Self, compt(rhs): Rhs) -> compt(bool),
+      fn(comptime(lhs): Self, comptime(rhs): Rhs) -> comptime(bool),
     (>=) :
-      fn(compt(lhs): Self, compt(rhs): Rhs) -> compt(bool)
+      fn(comptime(lhs): Self, comptime(rhs): Rhs) -> comptime(bool),
+    where(Self <: (Comptime, ComptimeEq(Rhs)))
   )
 ;
 
@@ -513,187 +577,202 @@ Isolation :: trait(
 );
 export Isolation;
 
-// === ToComptString ===
-ComptToString :: trait(
-  to_compt_string : (fn(compt(self) : Self) -> compt(compt_string))
+// === ToComptimeString ===
+ComptimeToString :: trait(
+  to_comptime_string : (fn(comptime(self) : Self) -> comptime(comptime_string)),
+  where(Self <: Comptime)
 );
 
 // === Builtin types ===
-/// compt_int
-impl(compt_int, ComptAdd(compt_int)(
-  (+) : (fn(compt(lhs): compt_int, compt(rhs): compt_int) -> compt(compt_int))(
-    __yo_compt_int_add(lhs, rhs)
-  )
-));
-impl(compt_int, ComptSub(compt_int)(
-  (-) : (fn(compt(lhs): compt_int, compt(rhs): compt_int) -> compt(compt_int))(
-    __yo_compt_int_sub(lhs, rhs)
-  )
-));
-impl(compt_int, ComptMul(compt_int)(
-  (*) : (fn(compt(lhs): compt_int, compt(rhs): compt_int) -> compt(compt_int))(
-    __yo_compt_int_mul(lhs, rhs)
-  )
-));
-impl(compt_int, ComptDiv(compt_int)(
-  (/) : (fn(compt(lhs): compt_int, compt(rhs): compt_int) -> compt(compt_int))(
-    __yo_compt_int_div(lhs, rhs)
-  )
-));
-impl(compt_int, ComptMod(compt_int)(
-  (%) : (fn(compt(lhs): compt_int, compt(rhs): compt_int) -> compt(compt_int))(
-    __yo_compt_int_mod(lhs, rhs)
-  )
-));
-impl(compt_int, ComptNegate(compt_int)(
-  (neg) : (fn(compt(self): compt_int) -> compt(compt_int))(
-    __yo_compt_int_neg(self)
-  )
-));
-impl(compt_int, ComptEq(compt_int)(
-  (==) : (fn(compt(lhs): compt_int, compt(rhs): compt_int) -> compt(bool))(
-    __yo_compt_int_eq(lhs, rhs)
-  ),
-  (!=) : (fn(compt(lhs): compt_int, compt(rhs): compt_int) -> compt(bool))(
-    __yo_compt_int_neq(lhs, rhs)
-  )
-));
-impl(compt_int, ComptOrd(compt_int)(
-  (<) : (fn(compt(lhs): compt_int, compt(rhs): compt_int) -> compt(bool))(
-    __yo_compt_int_lt(lhs, rhs)
-  ),
-  (<=) : (fn(compt(lhs): compt_int, compt(rhs): compt_int) -> compt(bool))(
-    __yo_compt_int_lte(lhs, rhs)
-  ),
-  (>) : (fn(compt(lhs): compt_int, compt(rhs): compt_int) -> compt(bool))(
-    __yo_compt_int_gt(lhs, rhs)
-  ),
-  (>=) : (fn(compt(lhs): compt_int, compt(rhs): compt_int) -> compt(bool))(
-    __yo_compt_int_gte(lhs, rhs)
-  )
-));
-impl(compt_int, ComptToString(
-  (to_compt_string) : (self ->
-    __yo_compt_int_to_compt_string(self)
-  )
-));
-_compt_int :: compt_int;
-export compt_int : _compt_int;
+/// unit
+impl(unit, Acyclic());
+impl(unit, Comptime());
+impl(unit, Runtime());
+impl(unit, Send());
 
-/// compt_float
-impl(compt_float, ComptAdd(compt_float)(
-  (+) : (fn(compt(lhs): compt_float, compt(rhs): compt_float) -> compt(compt_float))(
-    __yo_compt_float_add(lhs, rhs)
-  )
-));
-impl(compt_float, ComptSub(compt_float)(
-  (-) : (fn(compt(lhs): compt_float, compt(rhs): compt_float) -> compt(compt_float))(
-    __yo_compt_float_sub(lhs, rhs)
-  )
-));
-impl(compt_float, ComptMul(compt_float)(
-  (*) : (fn(compt(lhs): compt_float, compt(rhs): compt_float) -> compt(compt_float))(
-    __yo_compt_float_mul(lhs, rhs)
-  )
-));
-impl(compt_float, ComptDiv(compt_float)(
-  (/) : (fn(compt(lhs): compt_float, compt(rhs): compt_float) -> compt(compt_float))(
-    __yo_compt_float_div(lhs, rhs)
-  )
-));
-impl(compt_float, ComptNegate(compt_float)(
-  (neg) : (fn(compt(self): compt_float) -> compt(compt_float))(
-    __yo_compt_float_neg(self)
-  )
-));
-impl(compt_float, ComptEq(compt_float)(
-  (==) : (fn(compt(lhs): compt_float, compt(rhs): compt_float) -> compt(bool))(
-    __yo_compt_float_eq(lhs, rhs)
-  ),
-  (!=) : (fn(compt(lhs): compt_float, compt(rhs): compt_float) -> compt(bool))(
-    __yo_compt_float_neq(lhs, rhs)
-  )
-));
-impl(compt_float, ComptOrd(compt_float)(
-  (<) : (fn(compt(lhs): compt_float, compt(rhs): compt_float) -> compt(bool))(
-    __yo_compt_float_lt(lhs, rhs)
-  ),
-  (<=) : (fn(compt(lhs): compt_float, compt(rhs): compt_float) -> compt(bool))(
-    __yo_compt_float_lte(lhs, rhs)
-  ),
-  (>) : (fn(compt(lhs): compt_float, compt(rhs): compt_float) -> compt(bool))(
-    __yo_compt_float_gt(lhs, rhs)
-  ),
-  (>=) : (fn(compt(lhs): compt_float, compt(rhs): compt_float) -> compt(bool))(
-    __yo_compt_float_gte(lhs, rhs)
-  )
-));
-impl(compt_float, ComptToString(
-  to_compt_string : (self -> __yo_compt_float_to_compt_string(self))
-));
-_compt_float :: compt_float;
-export compt_float : _compt_float;
+/// void
+impl(void, Acyclic());
+impl(void, Runtime());
+impl(void, Send());
 
-/// compt_string
-impl(compt_string, ComptAdd(compt_string)(
-  (+) : (fn(compt(lhs): compt_string, compt(rhs): compt_string) -> compt(compt_string))(
-    __yo_compt_string_concat(lhs, rhs)
+/// comptime_int
+impl(comptime_int, Acyclic());
+impl(comptime_int, Comptime());
+impl(comptime_int, ComptimeAdd(comptime_int)(
+  (+) : ((lhs, rhs) ->
+    __yo_comptime_int_add(lhs, rhs)
   )
 ));
-impl(compt_string, ComptEq(compt_string)(
-  (==) : (fn(compt(lhs): compt_string, compt(rhs): compt_string) -> compt(bool))(
-    __yo_compt_string_eq(lhs, rhs)
-  ),
-  (!=) : (fn(compt(lhs): compt_string, compt(rhs): compt_string) -> compt(bool))(
-    __yo_compt_string_neq(lhs, rhs)
+impl(comptime_int, ComptimeSub(comptime_int)(
+  (-) : ((lhs, rhs) ->
+    __yo_comptime_int_sub(lhs, rhs)
   )
 ));
-impl(compt_string, ComptOrd(compt_string)(
-  (<) : (fn(compt(lhs): compt_string, compt(rhs): compt_string) -> compt(bool))(
-    __yo_compt_string_lt(lhs, rhs)
-  ),
-  (<=) : (fn(compt(lhs): compt_string, compt(rhs): compt_string) -> compt(bool))(
-    __yo_compt_string_lte(lhs, rhs)
-  ),
-  (>) : (fn(compt(lhs): compt_string, compt(rhs): compt_string) -> compt(bool))(
-    __yo_compt_string_gt(lhs, rhs)
-  ),
-  (>=) : (fn(compt(lhs): compt_string, compt(rhs): compt_string) -> compt(bool))(
-    __yo_compt_string_gte(lhs, rhs)
+impl(comptime_int, ComptimeMul(comptime_int)(
+  (*) : ((lhs, rhs) ->
+    __yo_comptime_int_mul(lhs, rhs)
   )
 ));
-impl(compt_string, {
-  len :: (fn(compt(self): compt_string) -> compt(compt_int))(
-    __yo_compt_string_length(self)
-  );
-  export len;
+impl(comptime_int, ComptimeDiv(comptime_int)(
+  (/) : ((lhs, rhs) ->
+    __yo_comptime_int_div(lhs, rhs)
+  )
+));
+impl(comptime_int, ComptimeMod(comptime_int)(
+  (%) : ((lhs, rhs) ->
+    __yo_comptime_int_mod(lhs, rhs)
+  )
+));
+impl(comptime_int, ComptimeNegate(comptime_int)(
+  (neg) : (self ->
+    __yo_comptime_int_neg(self)
+  )
+));
+impl(comptime_int, ComptimeEq(comptime_int)(
+  (==) : ((lhs, rhs) ->
+    __yo_comptime_int_eq(lhs, rhs)
+  ),
+  (!=) : ((lhs, rhs) ->
+    __yo_comptime_int_neq(lhs, rhs)
+  )
+));
+impl(comptime_int, ComptimeOrd(comptime_int)(
+  (<) : ((lhs, rhs) ->
+    __yo_comptime_int_lt(lhs, rhs)
+  ),
+  (<=) : ((lhs, rhs) ->
+    __yo_comptime_int_lte(lhs, rhs)
+  ),
+  (>) : ((lhs, rhs) ->
+    __yo_comptime_int_gt(lhs, rhs)
+  ),
+  (>=) : ((lhs, rhs) ->
+    __yo_comptime_int_gte(lhs, rhs)
+  )
+));
+impl(comptime_int, ComptimeToString(
+  (to_comptime_string) : (self ->
+    __yo_comptime_int_to_comptime_string(self)
+  )
+));
+_comptime_int :: comptime_int;
+export comptime_int : _comptime_int;
 
-  (to_upper) :: (fn(compt(self): compt_string) -> compt(compt_string))(
-    __yo_compt_string_to_upper(self)
-  );
-  export to_upper;
+/// comptime_float
+impl(comptime_float, Acyclic());
+impl(comptime_float, Comptime());
+impl(comptime_float, ComptimeAdd(comptime_float)(
+  (+) : ((lhs, rhs) ->
+    __yo_comptime_float_add(lhs, rhs)
+  )
+));
+impl(comptime_float, ComptimeSub(comptime_float)(
+  (-) : ((lhs, rhs) ->
+    __yo_comptime_float_sub(lhs, rhs)
+  )
+));
+impl(comptime_float, ComptimeMul(comptime_float)(
+  (*) : ((lhs, rhs) ->
+    __yo_comptime_float_mul(lhs, rhs)
+  )
+));
+impl(comptime_float, ComptimeDiv(comptime_float)(
+  (/) : ((lhs, rhs) ->
+    __yo_comptime_float_div(lhs, rhs)
+  )
+));
+impl(comptime_float, ComptimeNegate(comptime_float)(
+  (neg) : (self ->
+    __yo_comptime_float_neg(self)
+  )
+));
+impl(comptime_float, ComptimeEq(comptime_float)(
+  (==) : ((lhs, rhs) ->
+    __yo_comptime_float_eq(lhs, rhs)
+  ),
+  (!=) : ((lhs, rhs) ->
+    __yo_comptime_float_neq(lhs, rhs)
+  )
+));
+impl(comptime_float, ComptimeOrd(comptime_float)(
+  (<) : ((lhs, rhs) ->
+    __yo_comptime_float_lt(lhs, rhs)
+  ),
+  (<=) : ((lhs, rhs) ->
+    __yo_comptime_float_lte(lhs, rhs)
+  ),
+  (>) : ((lhs, rhs) ->
+    __yo_comptime_float_gt(lhs, rhs)
+  ),
+  (>=) : ((lhs, rhs) ->
+    __yo_comptime_float_gte(lhs, rhs)
+  )
+));
+impl(comptime_float, ComptimeToString(
+  to_comptime_string : (self -> __yo_comptime_float_to_comptime_string(self))
+));
+_comptime_float :: comptime_float;
+export comptime_float : _comptime_float;
 
-  (to_lower) :: (fn(compt(self): compt_string) -> compt(compt_string))(
-    __yo_compt_string_to_lower(self)
-  );
-  export to_lower;
+/// comptime_string
+impl(comptime_string, Acyclic());
+impl(comptime_string, Comptime());
+impl(comptime_string, ComptimeAdd(comptime_string)(
+  (+) : ((lhs, rhs) ->
+    __yo_comptime_string_concat(lhs, rhs)
+  )
+));
+impl(comptime_string, ComptimeEq(comptime_string)(
+  (==) : ((lhs, rhs) ->
+    __yo_comptime_string_eq(lhs, rhs)
+  ),
+  (!=) : ((lhs, rhs) ->
+    __yo_comptime_string_neq(lhs, rhs)
+  )
+));
+impl(comptime_string, ComptimeOrd(comptime_string)(
+  (<) : ((lhs, rhs) ->
+    __yo_comptime_string_lt(lhs, rhs)
+  ),
+  (<=) : ((lhs, rhs) ->
+    __yo_comptime_string_lte(lhs, rhs)
+  ),
+  (>) : ((lhs, rhs) ->
+    __yo_comptime_string_gt(lhs, rhs)
+  ),
+  (>=) : ((lhs, rhs) ->
+    __yo_comptime_string_gte(lhs, rhs)
+  )
+));
+impl(comptime_string,
+  len : (fn(comptime(self): comptime_string) -> comptime(comptime_int))(
+    __yo_comptime_string_length(self)
+  ),
 
-  slice :: (fn(compt(self): compt_string, compt(start): compt_int, compt(end): compt_int) -> compt(compt_string))(
-    __yo_compt_string_slice(self, start, end)
-  );
-  export slice;
-});
-_compt_string :: compt_string;
-export compt_string : _compt_string;
+  (to_upper) : (fn(comptime(self): comptime_string) -> comptime(comptime_string))(
+    __yo_comptime_string_to_upper(self)
+  ),
+
+  (to_lower) : (fn(comptime(self): comptime_string) -> comptime(comptime_string))(
+    __yo_comptime_string_to_lower(self)
+  ),
+
+  slice : (fn(comptime(self): comptime_string, comptime(start): comptime_int, comptime(end): comptime_int) -> comptime(comptime_string))(
+    __yo_comptime_string_slice(self, start, end)
+  )
+);
+_comptime_string :: comptime_string;
+export comptime_string : _comptime_string;
 
 /// bool
 impl(bool, Send());
+impl(bool, Acyclic());
 impl(bool, Eq(bool)(
-  (==) : ((a, b) ->
-    __yo_op_eq(a, b)
+  (==) : ((lhs, rhs) ->
+    __yo_op_eq(lhs, rhs)
   ),
-  (!=) : ((a, b) ->
-    __yo_op_neq(a, b)
+  (!=) : ((lhs, rhs) ->
+    __yo_op_neq(lhs, rhs)
   )
 ));
 impl(bool, Clone(
@@ -709,75 +788,77 @@ impl(bool, Hash(
     )
   )
 ));
-impl(bool, ComptEq(bool)(
-  (==) : (fn(compt(lhs): bool, compt(rhs): bool) -> compt(bool))(
-    __yo_compt_boolean_eq(lhs, rhs)
+impl(bool, ComptimeEq(bool)(
+  (==) : ((lhs, rhs) ->
+    __yo_comptime_bool_eq(lhs, rhs)
   ),
-  (!=) : (fn(compt(lhs): bool, compt(rhs): bool) -> compt(bool))(
-    __yo_compt_boolean_neq(lhs, rhs)
+  (!=) : ((lhs, rhs) ->
+    __yo_comptime_bool_neq(lhs, rhs)
   )
 ));
-impl(bool, ComptToString(
-  to_compt_string : (self -> __yo_compt_boolean_to_compt_string(self))
+impl(bool, ComptimeToString(
+  to_comptime_string : (self -> __yo_comptime_bool_to_comptime_string(self))
 ));
 _boolean :: bool;
 export bool : _boolean;
 
 /// i8
-impl(i8, {
-  MIN :: i8(-128);
-  MAX :: i8(127);
-  export MIN, MAX;
-});
+impl(i8,
+  MIN : i8(-128),
+  MAX : i8(127)
+);
 impl(i8, Send());
+impl(i8, Acyclic());
+impl(i8, Comptime());
+impl(i8, Runtime());
 impl(i8, Add(i8)(
-  (+): ((a, b) -> __yo_op_add(a, b))
+  (+): ((lhs, rhs) -> __yo_op_add(lhs, rhs))
 ));
 impl(i8, Sub(i8)(
-  (-): ((a, b) -> __yo_op_sub(a, b))
+  (-): ((lhs, rhs) -> __yo_op_sub(lhs, rhs))
 ));
 impl(i8, Mul(i8)(
-  (*): ((a, b) -> __yo_op_mul(a, b))
+  (*): ((lhs, rhs) -> __yo_op_mul(lhs, rhs))
 ));
 impl(i8, Div(i8)(
-  (/): ((a, b) -> __yo_op_div(a, b))
+  (/): ((lhs, rhs) -> __yo_op_div(lhs, rhs))
 ));
 impl(i8, Mod(i8)(
-  (%): ((a, b) -> __yo_op_mod(a, b))
+  (%): ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
 ));
 impl(i8, Negate(i8)(
-  (neg): ((a) -> __yo_op_neg(a))
+  (neg): ((self) -> __yo_op_neg(self))
 ));
 impl(i8, BitLeftShift(i8)(
-  (<<): ((a, b) -> __yo_op_bit_left_shift(a, b))
+  (<<): ((lhs, rhs) -> __yo_op_bit_left_shift(lhs, rhs))
 ));
 impl(i8, BitRightShift(i8)(
-  (>>): ((a, b) -> __yo_op_bit_right_shift(a, b))
+  (>>): ((lhs, rhs) -> __yo_op_bit_right_shift(lhs, rhs))
 ));
 impl(i8, LogicalNot(
-  (!): ((a) -> __yo_op_not(a))
+  (!): ((self) -> __yo_op_not(self))
 ));
 impl(i8, BitNot(i8)(
-  (~): ((a) -> __yo_op_bit_complement(a))
+  (~): ((self) -> __yo_op_bit_complement(self))
 ));
 impl(i8, BitAnd(i8)(
-  (&): ((a, b) -> __yo_op_bit_and(a, b))
+  (&): ((lhs, rhs) -> __yo_op_bit_and(lhs, rhs))
 ));
 impl(i8, BitOr(i8)(
-  (|): ((a, b) -> __yo_op_bit_or(a, b))
+  (|): ((lhs, rhs) -> __yo_op_bit_or(lhs, rhs))
 ));
 impl(i8, BitXor(i8)(
-  (^): ((a, b) -> __yo_op_bit_xor(a, b))
+  (^): ((lhs, rhs) -> __yo_op_bit_xor(lhs, rhs))
 ));
 impl(i8, Eq(i8)(
-  (==) : ((a, b) -> __yo_op_eq(a, b)),
-  (!=) : ((a, b) -> __yo_op_neq(a, b))
+  (==) : ((lhs, rhs) -> __yo_op_eq(lhs, rhs)),
+  (!=) : ((lhs, rhs) -> __yo_op_neq(lhs, rhs))
 ));
 impl(i8, Ord(i8)(
-  (<) : ((a, b) -> __yo_op_lt(a, b)),
-  (<=) : ((a, b) -> __yo_op_lte(a, b)),
-  (>) : ((a, b) -> __yo_op_gt(a, b)),
-  (>=) : ((a, b) -> __yo_op_gte(a, b))
+  (<) : ((lhs, rhs) -> __yo_op_lt(lhs, rhs)),
+  (<=) : ((lhs, rhs) -> __yo_op_lte(lhs, rhs)),
+  (>) : ((lhs, rhs) -> __yo_op_gt(lhs, rhs)),
+  (>=) : ((lhs, rhs) -> __yo_op_gte(lhs, rhs))
 ));
 impl(i8, Hash(
   (hash): ((self) -> u64(self.*))
@@ -785,149 +866,151 @@ impl(i8, Hash(
 impl(i8, Clone(
   clone: ((self) -> __yo_return_self(self.*))
 ));
-impl(i8, ComptAdd(i8)(
-  (+) : (fn(compt(lhs): i8, compt(rhs): i8) -> compt(i8))(
-    __yo_compt_i8_add(lhs, rhs)
+impl(i8, ComptimeAdd(i8)(
+  (+) : ((lhs, rhs) ->
+    __yo_comptime_i8_add(lhs, rhs)
   )
 ));
-impl(i8, ComptSub(i8)(
-  (-) : (fn(compt(lhs): i8, compt(rhs): i8) -> compt(i8))(
-    __yo_compt_i8_sub(lhs, rhs)
+impl(i8, ComptimeSub(i8)(
+  (-) : ((lhs, rhs) ->
+    __yo_comptime_i8_sub(lhs, rhs)
   )
 ));
-impl(i8, ComptMul(i8)(
-  (*) : (fn(compt(lhs): i8, compt(rhs): i8) -> compt(i8))(
-    __yo_compt_i8_mul(lhs, rhs)
+impl(i8, ComptimeMul(i8)(
+  (*) : ((lhs, rhs) ->
+    __yo_comptime_i8_mul(lhs, rhs)
   )
 ));
-impl(i8, ComptDiv(i8)(
-  (/) : (fn(compt(lhs): i8, compt(rhs): i8) -> compt(i8))(
-    __yo_compt_i8_div(lhs, rhs)
+impl(i8, ComptimeDiv(i8)(
+  (/) : ((lhs, rhs) ->
+    __yo_comptime_i8_div(lhs, rhs)
   )
 ));
-impl(i8, ComptMod(i8)(
-  (%) : (fn(compt(lhs): i8, compt(rhs): i8) -> compt(i8))(
-    __yo_compt_i8_mod(lhs, rhs)
+impl(i8, ComptimeMod(i8)(
+  (%) : ((lhs, rhs) ->
+    __yo_comptime_i8_mod(lhs, rhs)
   )
 ));
-impl(i8, ComptNegate(i8)(
-  (neg) : (fn(compt(self): i8) -> compt(i8))(
-    __yo_compt_i8_neg(self)
+impl(i8, ComptimeNegate(i8)(
+  (neg) : (self ->
+    __yo_comptime_i8_neg(self)
   )
 ));
-impl(i8, ComptEq(i8)(
-  (==) : (fn(compt(lhs): i8, compt(rhs): i8) -> compt(bool))(
-    __yo_compt_i8_eq(lhs, rhs)
+impl(i8, ComptimeEq(i8)(
+  (==) : ((lhs, rhs) ->
+    __yo_comptime_i8_eq(lhs, rhs)
   ),
-  (!=) : (fn(compt(lhs): i8, compt(rhs): i8) -> compt(bool))(
-    __yo_compt_i8_neq(lhs, rhs)
+  (!=) : ((lhs, rhs) ->
+    __yo_comptime_i8_neq(lhs, rhs)
   )
 ));
-impl(i8, ComptOrd(i8)(
-  (<) : (fn(compt(lhs): i8, compt(rhs): i8) -> compt(bool))(
-    __yo_compt_i8_lt(lhs, rhs)
+impl(i8, ComptimeOrd(i8)(
+  (<) : ((lhs, rhs) ->
+    __yo_comptime_i8_lt(lhs, rhs)
   ),
-  (<=) : (fn(compt(lhs): i8, compt(rhs): i8) -> compt(bool))(
-    __yo_compt_i8_lte(lhs, rhs)
+  (<=) : ((lhs, rhs) ->
+    __yo_comptime_i8_lte(lhs, rhs)
   ),
-  (>) : (fn(compt(lhs): i8, compt(rhs): i8) -> compt(bool))(
-    __yo_compt_i8_gt(lhs, rhs)
+  (>) : ((lhs, rhs) ->
+    __yo_comptime_i8_gt(lhs, rhs)
   ),
-  (>=) : (fn(compt(lhs): i8, compt(rhs): i8) -> compt(bool))(
-    __yo_compt_i8_gte(lhs, rhs)
+  (>=) : ((lhs, rhs) ->
+    __yo_comptime_i8_gte(lhs, rhs)
   )
 ));
-impl(i8, ComptBitAnd(i8)(
-  (&): (fn(compt(a): i8, compt(b): i8) -> compt(i8))(
-    __yo_compt_i8_bit_and(a, b)
+impl(i8, ComptimeBitAnd(i8)(
+  (&): ((lhs, rhs) ->
+    __yo_comptime_i8_bit_and(lhs, rhs)
   )
 ));
-impl(i8, ComptBitOr(i8)(
-  (|): (fn(compt(a): i8, compt(b): i8) -> compt(i8))(
-    __yo_compt_i8_bit_or(a, b)
+impl(i8, ComptimeBitOr(i8)(
+  (|): ((lhs, rhs) ->
+    __yo_comptime_i8_bit_or(lhs, rhs)
   )
 ));
-impl(i8, ComptBitXor(i8)(
-  (^): (fn(compt(a): i8, compt(b): i8) -> compt(i8))(
-    __yo_compt_i8_bit_xor(a, b)
+impl(i8, ComptimeBitXor(i8)(
+  (^): ((lhs, rhs) ->
+    __yo_comptime_i8_bit_xor(lhs, rhs)
   )
 ));
-impl(i8, ComptBitLeftShift(i8)(
-  (<<): (fn(compt(a): i8, compt(b): i8) -> compt(i8))(
-    __yo_compt_i8_shl(a, b)
+impl(i8, ComptimeBitLeftShift(i8)(
+  (<<): ((lhs, rhs) ->
+    __yo_comptime_i8_shl(lhs, rhs)
   )
 ));
-impl(i8, ComptBitRightShift(i8)(
-  (>>): (fn(compt(a): i8, compt(b): i8) -> compt(i8))(
-    __yo_compt_i8_shr(a, b)
+impl(i8, ComptimeBitRightShift(i8)(
+  (>>): ((lhs, rhs) ->
+    __yo_comptime_i8_shr(lhs, rhs)
   )
 ));
-impl(i8, ComptBitNot(i8)(
-  (~): (fn(compt(self): i8) -> compt(i8))(
-    __yo_compt_i8_bit_not(self)
+impl(i8, ComptimeBitNot(i8)(
+  (~): (self ->
+    __yo_comptime_i8_bit_not(self)
   )
 ));
-impl(i8, ComptToString(
-  to_compt_string : (self -> __yo_compt_i8_to_compt_string(self))
+impl(i8, ComptimeToString(
+  to_comptime_string : (self -> __yo_comptime_i8_to_comptime_string(self))
 ));
 _i8 :: i8;
 export i8 : _i8;
 
 /// i16
-impl(i16, {
-  MIN :: i16(-32768);
-  MAX :: i16(32767);
-  export MIN, MAX;
-});
+impl(i16,
+  MIN : i16(-32768),
+  MAX : i16(32767)
+);
 impl(i16, Send());
+impl(i16, Acyclic());
+impl(i16, Comptime());
+impl(i16, Runtime());
 impl(i16, Add(i16)(
-  (+): ((a, b) -> __yo_op_add(a, b))
+  (+): ((lhs, rhs) -> __yo_op_add(lhs, rhs))
 ));
 impl(i16, Sub(i16)(
-  (-): ((a, b) -> __yo_op_sub(a, b))
+  (-): ((lhs, rhs) -> __yo_op_sub(lhs, rhs))
 ));
 impl(i16, Mul(i16)(
-  (*): ((a, b) -> __yo_op_mul(a, b))
+  (*): ((lhs, rhs) -> __yo_op_mul(lhs, rhs))
 ));
 impl(i16, Div(i16)(
-  (/): ((a, b) -> __yo_op_div(a, b))
+  (/): ((lhs, rhs) -> __yo_op_div(lhs, rhs))
 ));
 impl(i16, Mod(i16)(
-  (%): ((a, b) -> __yo_op_mod(a, b))
+  (%): ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
 ));
 impl(i16, Negate(i16)(
-  (neg): ((a) -> __yo_op_neg(a))
+  (neg): ((self) -> __yo_op_neg(self))
 ));
 impl(i16, BitLeftShift(i16)(
-  (<<): ((a, b) -> __yo_op_bit_left_shift(a, b))
+  (<<): ((lhs, rhs) -> __yo_op_bit_left_shift(lhs, rhs))
 ));
 impl(i16, BitRightShift(i16)(
-  (>>): ((a, b) -> __yo_op_bit_right_shift(a, b))
+  (>>): ((lhs, rhs) -> __yo_op_bit_right_shift(lhs, rhs))
 ));
 impl(i16, LogicalNot(
-  (!): ((a) -> __yo_op_not(a))
+  (!): ((self) -> __yo_op_not(self))
 ));
 impl(i16, BitNot(i16)(
-  (~): ((a) -> __yo_op_bit_complement(a))
+  (~): ((self) -> __yo_op_bit_complement(self))
 ));
 impl(i16, BitAnd(i16)(
-  (&): ((a, b) -> __yo_op_bit_and(a, b))
+  (&): ((lhs, rhs) -> __yo_op_bit_and(lhs, rhs))
 ));
 impl(i16, BitOr(i16)(
-  (|): ((a, b) -> __yo_op_bit_or(a, b))
+  (|): ((lhs, rhs) -> __yo_op_bit_or(lhs, rhs))
 ));
 impl(i16, BitXor(i16)(
-  (^): ((a, b) -> __yo_op_bit_xor(a, b))
+  (^): ((lhs, rhs) -> __yo_op_bit_xor(lhs, rhs))
 ));
 impl(i16, Eq(i16)(
-  (==) : ((a, b) -> __yo_op_eq(a, b)),
-  (!=) : ((a, b) -> __yo_op_neq(a, b))
+  (==) : ((lhs, rhs) -> __yo_op_eq(lhs, rhs)),
+  (!=) : ((lhs, rhs) -> __yo_op_neq(lhs, rhs))
 ));
 impl(i16, Ord(i16)(
-  (<) : ((a, b) -> __yo_op_lt(a, b)),
-  (<=) : ((a, b) -> __yo_op_lte(a, b)),
-  (>) : ((a, b) -> __yo_op_gt(a, b)),
-  (>=) : ((a, b) -> __yo_op_gte(a, b))
+  (<) : ((lhs, rhs) -> __yo_op_lt(lhs, rhs)),
+  (<=) : ((lhs, rhs) -> __yo_op_lte(lhs, rhs)),
+  (>) : ((lhs, rhs) -> __yo_op_gt(lhs, rhs)),
+  (>=) : ((lhs, rhs) -> __yo_op_gte(lhs, rhs))
 ));
 impl(i16, Hash(
   (hash): ((self) -> u64(self.*))
@@ -935,179 +1018,181 @@ impl(i16, Hash(
 impl(i16, Clone(
   clone: ((self) -> __yo_return_self(self.*))
 ));
-impl(i16, ComptAdd(i16)(
-  (+) : (fn(compt(lhs): i16, compt(rhs): i16) -> compt(i16))(
-    __yo_compt_i16_add(lhs, rhs)
+impl(i16, ComptimeAdd(i16)(
+  (+) : ((lhs, rhs) ->
+    __yo_comptime_i16_add(lhs, rhs)
   )
 ));
-impl(i16, ComptSub(i16)(
-  (-) : (fn(compt(lhs): i16, compt(rhs): i16) -> compt(i16))(
-    __yo_compt_i16_sub(lhs, rhs)
+impl(i16, ComptimeSub(i16)(
+  (-) : ((lhs, rhs) ->
+    __yo_comptime_i16_sub(lhs, rhs)
   )
 ));
-impl(i16, ComptMul(i16)(
-  (*) : (fn(compt(lhs): i16, compt(rhs): i16) -> compt(i16))(
-    __yo_compt_i16_mul(lhs, rhs)
+impl(i16, ComptimeMul(i16)(
+  (*) : ((lhs, rhs) ->
+    __yo_comptime_i16_mul(lhs, rhs)
   )
 ));
-impl(i16, ComptDiv(i16)(
-  (/) : (fn(compt(lhs): i16, compt(rhs): i16) -> compt(i16))(
-    __yo_compt_i16_div(lhs, rhs)
+impl(i16, ComptimeDiv(i16)(
+  (/) : ((lhs, rhs) ->
+    __yo_comptime_i16_div(lhs, rhs)
   )
 ));
-impl(i16, ComptMod(i16)(
-  (%) : (fn(compt(lhs): i16, compt(rhs): i16) -> compt(i16))(
-    __yo_compt_i16_mod(lhs, rhs)
+impl(i16, ComptimeMod(i16)(
+  (%) : ((lhs, rhs) ->
+    __yo_comptime_i16_mod(lhs, rhs)
   )
 ));
-impl(i16, ComptNegate(i16)(
-  (neg) : (fn(compt(self): i16) -> compt(i16))(
-    __yo_compt_i16_neg(self)
+impl(i16, ComptimeNegate(i16)(
+  (neg) : (self ->
+    __yo_comptime_i16_neg(self)
   )
 ));
-impl(i16, ComptEq(i16)(
-  (==) : (fn(compt(lhs): i16, compt(rhs): i16) -> compt(bool))(
-    __yo_compt_i16_eq(lhs, rhs)
+impl(i16, ComptimeEq(i16)(
+  (==) : ((lhs, rhs) ->
+    __yo_comptime_i16_eq(lhs, rhs)
   ),
-  (!=) : (fn(compt(lhs): i16, compt(rhs): i16) -> compt(bool))(
-    __yo_compt_i16_neq(lhs, rhs)
+  (!=) : ((lhs, rhs) ->
+    __yo_comptime_i16_neq(lhs, rhs)
   )
 ));
-impl(i16, ComptOrd(i16)(
-  (<) : (fn(compt(lhs): i16, compt(rhs): i16) -> compt(bool))(
-    __yo_compt_i16_lt(lhs, rhs)
+impl(i16, ComptimeOrd(i16)(
+  (<) : ((lhs, rhs) ->
+    __yo_comptime_i16_lt(lhs, rhs)
   ),
-  (<=) : (fn(compt(lhs): i16, compt(rhs): i16) -> compt(bool))(
-    __yo_compt_i16_lte(lhs, rhs)
+  (<=) : ((lhs, rhs) ->
+    __yo_comptime_i16_lte(lhs, rhs)
   ),
-  (>) : (fn(compt(lhs): i16, compt(rhs): i16) -> compt(bool))(
-    __yo_compt_i16_gt(lhs, rhs)
+  (>) : ((lhs, rhs) ->
+    __yo_comptime_i16_gt(lhs, rhs)
   ),
-  (>=) : (fn(compt(lhs): i16, compt(rhs): i16) -> compt(bool))(
-    __yo_compt_i16_gte(lhs, rhs)
+  (>=) : ((lhs, rhs) ->
+    __yo_comptime_i16_gte(lhs, rhs)
   )
 ));
-impl(i16, ComptBitAnd(i16)(
-  (&): (fn(compt(a): i16, compt(b): i16) -> compt(i16))(
-    __yo_compt_i16_bit_and(a, b)
+impl(i16, ComptimeBitAnd(i16)(
+  (&): ((lhs, rhs) ->
+    __yo_comptime_i16_bit_and(lhs, rhs)
   )
 ));
-impl(i16, ComptBitOr(i16)(
-  (|): (fn(compt(a): i16, compt(b): i16) -> compt(i16))(
-    __yo_compt_i16_bit_or(a, b)
+impl(i16, ComptimeBitOr(i16)(
+  (|): ((lhs, rhs) ->
+    __yo_comptime_i16_bit_or(lhs, rhs)
   )
 ));
-impl(i16, ComptBitXor(i16)(
-  (^): (fn(compt(a): i16, compt(b): i16) -> compt(i16))(
-    __yo_compt_i16_bit_xor(a, b)
+impl(i16, ComptimeBitXor(i16)(
+  (^): ((lhs, rhs) ->
+    __yo_comptime_i16_bit_xor(lhs, rhs)
   )
 ));
-impl(i16, ComptBitLeftShift(i16)(
-  (<<): (fn(compt(a): i16, compt(b): i16) -> compt(i16))(
-    __yo_compt_i16_shl(a, b)
+impl(i16, ComptimeBitLeftShift(i16)(
+  (<<): ((lhs, rhs) ->
+    __yo_comptime_i16_shl(lhs, rhs)
   )
 ));
-impl(i16, ComptBitRightShift(i16)(
-  (>>): (fn(compt(a): i16, compt(b): i16) -> compt(i16))(
-    __yo_compt_i16_shr(a, b)
+impl(i16, ComptimeBitRightShift(i16)(
+  (>>): ((lhs, rhs) ->
+    __yo_comptime_i16_shr(lhs, rhs)
   )
 ));
-impl(i16, ComptBitNot(i16)(
-  (~): (fn(compt(self): i16) -> compt(i16))(
-    __yo_compt_i16_bit_not(self)
+impl(i16, ComptimeBitNot(i16)(
+  (~): (self ->
+    __yo_comptime_i16_bit_not(self)
   )
 ));
-impl(i16, ComptToString(
-  to_compt_string : (self -> __yo_compt_i16_to_compt_string(self))
+impl(i16, ComptimeToString(
+  to_comptime_string : (self -> __yo_comptime_i16_to_comptime_string(self))
 ));
 _i16 :: i16;
 export i16 : _i16;
 
 /// i32
-impl(i32, {
-  MIN :: i32(-2147483648);
-  MAX :: i32(2147483647);
-  export MIN, MAX;
-});
+impl(i32,
+  MIN : i32(-2147483648),
+  MAX : i32(2147483647)
+);
 impl(i32, Send());
+impl(i32, Acyclic());
+impl(i32, Comptime());
+impl(i32, Runtime());
 impl(i32, Add(i32)(
-  (+): ((a, b) -> __yo_op_add(a, b))
+  (+): ((lhs, rhs) -> __yo_op_add(lhs, rhs))
 ));
 impl(i32, Sub(i32)(
-  (-): ((a, b) -> __yo_op_sub(a, b))
+  (-): ((lhs, rhs) -> __yo_op_sub(lhs, rhs))
 ));
 impl(i32, Mul(i32)(
-  (*): ((a, b) -> __yo_op_mul(a, b))
+  (*): ((lhs, rhs) -> __yo_op_mul(lhs, rhs))
 ));
 impl(i32, Div(i32)(
-  (/): ((a, b) -> __yo_op_div(a, b))
+  (/): ((lhs, rhs) -> __yo_op_div(lhs, rhs))
 ));
 impl(i32, Mod(i32)(
-  (%): ((a, b) -> __yo_op_mod(a, b))
+  (%): ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
 ));
 impl(i32, Negate(i32)(
-  (neg): ((a) -> __yo_op_neg(a))
+  (neg): ((self) -> __yo_op_neg(self))
 ));
 impl(i32, BitLeftShift(i32)(
-  (<<): ((a, b) -> __yo_op_bit_left_shift(a, b))
+  (<<): ((lhs, rhs) -> __yo_op_bit_left_shift(lhs, rhs))
 ));
 impl(i32, BitRightShift(i32)(
-  (>>): ((a, b) -> __yo_op_bit_right_shift(a, b))
+  (>>): ((lhs, rhs) -> __yo_op_bit_right_shift(lhs, rhs))
 ));
 impl(i32, LogicalNot(
-  (!): ((a) -> __yo_op_not(a))
+  (!): ((self) -> __yo_op_not(self))
 ));
 impl(i32, BitNot(i32)(
-  (~): ((a) -> __yo_op_bit_complement(a))
+  (~): ((self) -> __yo_op_bit_complement(self))
 ));
 impl(i32, BitAnd(i32)(
-  (&): ((a, b) -> __yo_op_bit_and(a, b))
+  (&): ((lhs, rhs) -> __yo_op_bit_and(lhs, rhs))
 ));
 impl(i32, BitOr(i32)(
-  (|): ((a, b) -> __yo_op_bit_or(a, b))
+  (|): ((lhs, rhs) -> __yo_op_bit_or(lhs, rhs))
 ));
 impl(i32, BitXor(i32)(
-  (^): ((a, b) -> __yo_op_bit_xor(a, b))
+  (^): ((lhs, rhs) -> __yo_op_bit_xor(lhs, rhs))
 ));
-impl(i32, ComptBitAnd(i32)(
-  (&): (fn(compt(a): i32, compt(b): i32) -> compt(i32))(
-    __yo_compt_i32_bit_and(a, b)
+impl(i32, ComptimeBitAnd(i32)(
+  (&): ((lhs, rhs) ->
+    __yo_comptime_i32_bit_and(lhs, rhs)
   )
 ));
-impl(i32, ComptBitOr(i32)(
-  (|): (fn(compt(a): i32, compt(b): i32) -> compt(i32))(
-    __yo_compt_i32_bit_or(a, b)
+impl(i32, ComptimeBitOr(i32)(
+  (|): ((lhs, rhs) ->
+    __yo_comptime_i32_bit_or(lhs, rhs)
   )
 ));
-impl(i32, ComptBitXor(i32)(
-  (^): (fn(compt(a): i32, compt(b): i32) -> compt(i32))(
-    __yo_compt_i32_bit_xor(a, b)
+impl(i32, ComptimeBitXor(i32)(
+  (^): ((lhs, rhs) ->
+    __yo_comptime_i32_bit_xor(lhs, rhs)
   )
 ));
-impl(i32, ComptBitLeftShift(i32)(
-  (<<): (fn(compt(a): i32, compt(b): i32) -> compt(i32))(
-    __yo_compt_i32_shl(a, b)
+impl(i32, ComptimeBitLeftShift(i32)(
+  (<<): ((lhs, rhs) ->
+    __yo_comptime_i32_shl(lhs, rhs)
   )
 ));
-impl(i32, ComptBitRightShift(i32)(
-  (>>): (fn(compt(a): i32, compt(b): i32) -> compt(i32))(
-    __yo_compt_i32_shr(a, b)
+impl(i32, ComptimeBitRightShift(i32)(
+  (>>): ((lhs, rhs) ->
+    __yo_comptime_i32_shr(lhs, rhs)
   )
 ));
-impl(i32, ComptBitNot(i32)(
-  (~): (fn(compt(self): i32) -> compt(i32))(
-    __yo_compt_i32_bit_not(self)
+impl(i32, ComptimeBitNot(i32)(
+  (~): (self ->
+    __yo_comptime_i32_bit_not(self)
   )
 ));
 impl(i32, Eq(i32)(
-  (==) : ((a, b) -> __yo_op_eq(a, b)),
-  (!=) : ((a, b) -> __yo_op_neq(a, b))
+  (==) : ((lhs, rhs) -> __yo_op_eq(lhs, rhs)),
+  (!=) : ((lhs, rhs) -> __yo_op_neq(lhs, rhs))
 ));
 impl(i32, Ord(i32)(
-  (<) : ((a, b) -> __yo_op_lt(a, b)),
-  (<=) : ((a, b) -> __yo_op_lte(a, b)),
-  (>) : ((a, b) -> __yo_op_gt(a, b)),
-  (>=) : ((a, b) -> __yo_op_gte(a, b))
+  (<) : ((lhs, rhs) -> __yo_op_lt(lhs, rhs)),
+  (<=) : ((lhs, rhs) -> __yo_op_lte(lhs, rhs)),
+  (>) : ((lhs, rhs) -> __yo_op_gt(lhs, rhs)),
+  (>=) : ((lhs, rhs) -> __yo_op_gte(lhs, rhs))
 ));
 impl(i32, Hash(
   (hash): ((self) -> {
@@ -1120,119 +1205,121 @@ impl(i32, Clone(
     __yo_return_self(self.*)
   )
 ));
-impl(i32, ComptAdd(i32)(
-  (+) : (fn(compt(lhs): i32, compt(rhs): i32) -> compt(i32))(
-    __yo_compt_i32_add(lhs, rhs)
+impl(i32, ComptimeAdd(i32)(
+  (+) : ((lhs, rhs) ->
+    __yo_comptime_i32_add(lhs, rhs)
   )
 ));
-impl(i32, ComptSub(i32)(
-  (-) : (fn(compt(lhs): i32, compt(rhs): i32) -> compt(i32))(
-    __yo_compt_i32_sub(lhs, rhs)
+impl(i32, ComptimeSub(i32)(
+  (-) : ((lhs, rhs) ->
+    __yo_comptime_i32_sub(lhs, rhs)
   )
 ));
-impl(i32, ComptMul(i32)(
-  (*) : (fn(compt(lhs): i32, compt(rhs): i32) -> compt(i32))(
-    __yo_compt_i32_mul(lhs, rhs)
+impl(i32, ComptimeMul(i32)(
+  (*) : ((lhs, rhs) ->
+    __yo_comptime_i32_mul(lhs, rhs)
   )
 ));
-impl(i32, ComptDiv(i32)(
-  (/) : (fn(compt(lhs): i32, compt(rhs): i32) -> compt(i32))(
-    __yo_compt_i32_div(lhs, rhs)
+impl(i32, ComptimeDiv(i32)(
+  (/) : ((lhs, rhs) ->
+    __yo_comptime_i32_div(lhs, rhs)
   )
 ));
-impl(i32, ComptMod(i32)(
-  (%) : (fn(compt(lhs): i32, compt(rhs): i32) -> compt(i32))(
-    __yo_compt_i32_mod(lhs, rhs)
+impl(i32, ComptimeMod(i32)(
+  (%) : ((lhs, rhs) ->
+    __yo_comptime_i32_mod(lhs, rhs)
   )
 ));
-impl(i32, ComptNegate(i32)(
-  (neg) : (fn(compt(self): i32) -> compt(i32))(
-    __yo_compt_i32_neg(self)
+impl(i32, ComptimeNegate(i32)(
+  (neg) : (self ->
+    __yo_comptime_i32_neg(self)
   )
 ));
-impl(i32, ComptEq(i32)(
-  (==) : (fn(compt(lhs): i32, compt(rhs): i32) -> compt(bool))(
-    __yo_compt_i32_eq(lhs, rhs)
+impl(i32, ComptimeEq(i32)(
+  (==) : ((lhs, rhs) ->
+    __yo_comptime_i32_eq(lhs, rhs)
   ),
-  (!=) : (fn(compt(lhs): i32, compt(rhs): i32) -> compt(bool))(
-    __yo_compt_i32_neq(lhs, rhs)
+  (!=) : ((lhs, rhs) ->
+    __yo_comptime_i32_neq(lhs, rhs)
   )
 ));
-impl(i32, ComptOrd(i32)(
-  (<) : (fn(compt(lhs): i32, compt(rhs): i32) -> compt(bool))(
-    __yo_compt_i32_lt(lhs, rhs)
+impl(i32, ComptimeOrd(i32)(
+  (<) : ((lhs, rhs) ->
+    __yo_comptime_i32_lt(lhs, rhs)
   ),
-  (<=) : (fn(compt(lhs): i32, compt(rhs): i32) -> compt(bool))(
-    __yo_compt_i32_lte(lhs, rhs)
+  (<=) : ((lhs, rhs) ->
+    __yo_comptime_i32_lte(lhs, rhs)
   ),
-  (>) : (fn(compt(lhs): i32, compt(rhs): i32) -> compt(bool))(
-    __yo_compt_i32_gt(lhs, rhs)
+  (>) : ((lhs, rhs) ->
+    __yo_comptime_i32_gt(lhs, rhs)
   ),
-  (>=) : (fn(compt(lhs): i32, compt(rhs): i32) -> compt(bool))(
-    __yo_compt_i32_gte(lhs, rhs)
+  (>=) : ((lhs, rhs) ->
+    __yo_comptime_i32_gte(lhs, rhs)
   )
 ));
-impl(i32, ComptToString(
-  to_compt_string : (self -> __yo_compt_i32_to_compt_string(self))
+impl(i32, ComptimeToString(
+  to_comptime_string : (self -> __yo_comptime_i32_to_comptime_string(self))
 ));
 _i32 :: i32;
 export i32 : _i32;
 
 /// i64
-impl(i64, {
-  MIN :: i64(-9223372036854775808);
-  MAX :: i64(9223372036854775807);
-  export MIN, MAX;
-});
+impl(i64,
+  MIN : i64(-9223372036854775808),
+  MAX : i64(9223372036854775807)
+);
 impl(i64, Send());
+impl(i64, Acyclic());
+impl(i64, Comptime());
+impl(i64, Runtime());
 impl(i64, Add(i64)(
-  (+): ((a, b) -> __yo_op_add(a, b))
+  (+): ((lhs, rhs) -> __yo_op_add(lhs, rhs))
 ));
 impl(i64, Sub(i64)(
-  (-): ((a, b) -> __yo_op_sub(a, b))
+  (-): ((lhs, rhs) -> __yo_op_sub(lhs, rhs))
 ));
 impl(i64, Mul(i64)(
-  (*): ((a, b) -> __yo_op_mul(a, b))
+  (*): ((lhs, rhs) -> __yo_op_mul(lhs, rhs))
 ));
 impl(i64, Div(i64)(
-  (/): ((a, b) -> __yo_op_div(a, b))
+  (/): ((lhs, rhs) -> __yo_op_div(lhs, rhs))
 ));
 impl(i64, Mod(i64)(
-  (%): ((a, b) -> __yo_op_mod(a, b))
+  (%): ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
 ));
 impl(i64, Negate(i64)(
-  (neg): ((a) -> __yo_op_neg(a))
+  (neg): ((self) -> __yo_op_neg(self))
 ));
 impl(i64, BitLeftShift(i64)(
-  (<<): ((a, b) -> __yo_op_bit_left_shift(a, b))
+  (<<): ((lhs, rhs) -> __yo_op_bit_left_shift(lhs, rhs))
 ));
 impl(i64, BitRightShift(i64)(
-  (>>): ((a, b) -> __yo_op_bit_right_shift(a, b))
+  (>>): ((lhs, rhs) -> __yo_op_bit_right_shift(lhs, rhs))
 ));
 impl(i64, LogicalNot(
-  (!): ((a) -> __yo_op_not(a))
+  (!): ((self) -> __yo_op_not(self))
 ));
 impl(i64, BitNot(i64)(
-  (~): ((a) -> __yo_op_bit_complement(a))
+  (~): ((self) -> __yo_op_bit_complement(self))
 ));
 impl(i64, BitAnd(i64)(
-  (&): ((a, b) -> __yo_op_bit_and(a, b))
+  (&): ((lhs, rhs) -> __yo_op_bit_and(lhs, rhs))
 ));
 impl(i64, BitOr(i64)(
-  (|): ((a, b) -> __yo_op_bit_or(a, b))
+  (|): ((lhs, rhs) -> __yo_op_bit_or(lhs, rhs))
 ));
 impl(i64, BitXor(i64)(
-  (^): ((a, b) -> __yo_op_bit_xor(a, b))
+  (^): ((lhs, rhs) -> __yo_op_bit_xor(lhs, rhs))
 ));
 impl(i64, Eq(i64)(
-  (==) : ((a, b) -> __yo_op_eq(a, b)),
-  (!=) : ((a, b) -> __yo_op_neq(a, b))
+  (==) : ((lhs, rhs) -> __yo_op_eq(lhs, rhs)),
+  (!=) : ((lhs, rhs) -> __yo_op_neq(lhs, rhs))
 ));
 impl(i64, Ord(i64)(
-  (<) : ((a, b) -> __yo_op_lt(a, b)),
-  (<=) : ((a, b) -> __yo_op_lte(a, b)),
-  (>) : ((a, b) -> __yo_op_gt(a, b)),
-  (>=) : ((a, b) -> __yo_op_gte(a, b))
+  (<) : ((lhs, rhs) -> __yo_op_lt(lhs, rhs)),
+  (<=) : ((lhs, rhs) -> __yo_op_lte(lhs, rhs)),
+  (>) : ((lhs, rhs) -> __yo_op_gt(lhs, rhs)),
+  (>=) : ((lhs, rhs) -> __yo_op_gte(lhs, rhs))
 ));
 impl(i64, Hash(
   (hash): ((self) -> u64(self.*))
@@ -1240,149 +1327,151 @@ impl(i64, Hash(
 impl(i64, Clone(
   clone: ((self) -> __yo_return_self(self.*))
 ));
-impl(i64, ComptAdd(i64)(
-  (+) : (fn(compt(lhs): i64, compt(rhs): i64) -> compt(i64))(
-    __yo_compt_i64_add(lhs, rhs)
+impl(i64, ComptimeAdd(i64)(
+  (+) : ((lhs, rhs) ->
+    __yo_comptime_i64_add(lhs, rhs)
   )
 ));
-impl(i64, ComptSub(i64)(
-  (-) : (fn(compt(lhs): i64, compt(rhs): i64) -> compt(i64))(
-    __yo_compt_i64_sub(lhs, rhs)
+impl(i64, ComptimeSub(i64)(
+  (-) : ((lhs, rhs) ->
+    __yo_comptime_i64_sub(lhs, rhs)
   )
 ));
-impl(i64, ComptMul(i64)(
-  (*) : (fn(compt(lhs): i64, compt(rhs): i64) -> compt(i64))(
-    __yo_compt_i64_mul(lhs, rhs)
+impl(i64, ComptimeMul(i64)(
+  (*) : ((lhs, rhs) ->
+    __yo_comptime_i64_mul(lhs, rhs)
   )
 ));
-impl(i64, ComptDiv(i64)(
-  (/) : (fn(compt(lhs): i64, compt(rhs): i64) -> compt(i64))(
-    __yo_compt_i64_div(lhs, rhs)
+impl(i64, ComptimeDiv(i64)(
+  (/) : ((lhs, rhs) ->
+    __yo_comptime_i64_div(lhs, rhs)
   )
 ));
-impl(i64, ComptMod(i64)(
-  (%) : (fn(compt(lhs): i64, compt(rhs): i64) -> compt(i64))(
-    __yo_compt_i64_mod(lhs, rhs)
+impl(i64, ComptimeMod(i64)(
+  (%) : ((lhs, rhs) ->
+    __yo_comptime_i64_mod(lhs, rhs)
   )
 ));
-impl(i64, ComptNegate(i64)(
-  (neg) : (fn(compt(self): i64) -> compt(i64))(
-    __yo_compt_i64_neg(self)
+impl(i64, ComptimeNegate(i64)(
+  (neg) : (self ->
+    __yo_comptime_i64_neg(self)
   )
 ));
-impl(i64, ComptEq(i64)(
-  (==) : (fn(compt(lhs): i64, compt(rhs): i64) -> compt(bool))(
-    __yo_compt_i64_eq(lhs, rhs)
+impl(i64, ComptimeEq(i64)(
+  (==) : ((lhs, rhs) ->
+    __yo_comptime_i64_eq(lhs, rhs)
   ),
-  (!=) : (fn(compt(lhs): i64, compt(rhs): i64) -> compt(bool))(
-    __yo_compt_i64_neq(lhs, rhs)
+  (!=) : ((lhs, rhs) ->
+    __yo_comptime_i64_neq(lhs, rhs)
   )
 ));
-impl(i64, ComptOrd(i64)(
-  (<) : (fn(compt(lhs): i64, compt(rhs): i64) -> compt(bool))(
-    __yo_compt_i64_lt(lhs, rhs)
+impl(i64, ComptimeOrd(i64)(
+  (<) : ((lhs, rhs) ->
+    __yo_comptime_i64_lt(lhs, rhs)
   ),
-  (<=) : (fn(compt(lhs): i64, compt(rhs): i64) -> compt(bool))(
-    __yo_compt_i64_lte(lhs, rhs)
+  (<=) : ((lhs, rhs) ->
+    __yo_comptime_i64_lte(lhs, rhs)
   ),
-  (>) : (fn(compt(lhs): i64, compt(rhs): i64) -> compt(bool))(
-    __yo_compt_i64_gt(lhs, rhs)
+  (>) : ((lhs, rhs) ->
+    __yo_comptime_i64_gt(lhs, rhs)
   ),
-  (>=) : (fn(compt(lhs): i64, compt(rhs): i64) -> compt(bool))(
-    __yo_compt_i64_gte(lhs, rhs)
+  (>=) : ((lhs, rhs) ->
+    __yo_comptime_i64_gte(lhs, rhs)
   )
 ));
-impl(i64, ComptBitAnd(i64)(
-  (&): (fn(compt(a): i64, compt(b): i64) -> compt(i64))(
-    __yo_compt_i64_bit_and(a, b)
+impl(i64, ComptimeBitAnd(i64)(
+  (&): ((lhs, rhs) ->
+    __yo_comptime_i64_bit_and(lhs, rhs)
   )
 ));
-impl(i64, ComptBitOr(i64)(
-  (|): (fn(compt(a): i64, compt(b): i64) -> compt(i64))(
-    __yo_compt_i64_bit_or(a, b)
+impl(i64, ComptimeBitOr(i64)(
+  (|): ((lhs, rhs) ->
+    __yo_comptime_i64_bit_or(lhs, rhs)
   )
 ));
-impl(i64, ComptBitXor(i64)(
-  (^): (fn(compt(a): i64, compt(b): i64) -> compt(i64))(
-    __yo_compt_i64_bit_xor(a, b)
+impl(i64, ComptimeBitXor(i64)(
+  (^): ((lhs, rhs) ->
+    __yo_comptime_i64_bit_xor(lhs, rhs)
   )
 ));
-impl(i64, ComptBitLeftShift(i64)(
-  (<<): (fn(compt(a): i64, compt(b): i64) -> compt(i64))(
-    __yo_compt_i64_shl(a, b)
+impl(i64, ComptimeBitLeftShift(i64)(
+  (<<): ((lhs, rhs) ->
+    __yo_comptime_i64_shl(lhs, rhs)
   )
 ));
-impl(i64, ComptBitRightShift(i64)(
-  (>>): (fn(compt(a): i64, compt(b): i64) -> compt(i64))(
-    __yo_compt_i64_shr(a, b)
+impl(i64, ComptimeBitRightShift(i64)(
+  (>>): ((lhs, rhs) ->
+    __yo_comptime_i64_shr(lhs, rhs)
   )
 ));
-impl(i64, ComptBitNot(i64)(
-  (~): (fn(compt(self): i64) -> compt(i64))(
-    __yo_compt_i64_bit_not(self)
+impl(i64, ComptimeBitNot(i64)(
+  (~): (self ->
+    __yo_comptime_i64_bit_not(self)
   )
 ));
-impl(i64, ComptToString(
-  to_compt_string : (self ->  __yo_compt_i64_to_compt_string(self))
+impl(i64, ComptimeToString(
+  to_comptime_string : (self ->  __yo_comptime_i64_to_comptime_string(self))
 ));
 _i64 :: i64;
 export i64 : _i64;
 
 /// u8
-impl(u8, {
-  MIN :: u8(0);
-  MAX :: u8(255);
-  export MIN, MAX;
-});
+impl(u8,
+  MIN : u8(0),
+  MAX : u8(255)
+);
 impl(u8, Send());
+impl(u8, Acyclic());
+impl(u8, Comptime());
+impl(u8, Runtime());
 impl(u8, Add(u8)(
-  (+): ((a, b) -> __yo_op_add(a, b))
+  (+): ((lhs, rhs) -> __yo_op_add(lhs, rhs))
 ));
 impl(u8, Sub(u8)(
-  (-): ((a, b) -> __yo_op_sub(a, b))
+  (-): ((lhs, rhs) -> __yo_op_sub(lhs, rhs))
 ));
 impl(u8, Mul(u8)(
-  (*): ((a, b) -> __yo_op_mul(a, b))
+  (*): ((lhs, rhs) -> __yo_op_mul(lhs, rhs))
 ));
 impl(u8, Div(u8)(
-  (/): ((a, b) -> __yo_op_div(a, b))
+  (/): ((lhs, rhs) -> __yo_op_div(lhs, rhs))
 ));
 impl(u8, Mod(u8)(
-  (%): ((a, b) -> __yo_op_mod(a, b))
+  (%): ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
 ));
 impl(u8, Negate(u8)(
-  (neg): ((a) -> __yo_op_neg(a))
+  (neg): ((self) -> __yo_op_neg(self))
 ));
 impl(u8, BitLeftShift(u8)(
-  (<<): ((a, b) -> __yo_op_bit_left_shift(a, b))
+  (<<): ((lhs, rhs) -> __yo_op_bit_left_shift(lhs, rhs))
 ));
 impl(u8, BitRightShift(u8)(
-  (>>): ((a, b) -> __yo_op_bit_right_shift(a, b))
+  (>>): ((lhs, rhs) -> __yo_op_bit_right_shift(lhs, rhs))
 ));
 impl(u8, LogicalNot(
-  (!): ((a) -> __yo_op_not(a))
+  (!): ((self) -> __yo_op_not(self))
 ));
 impl(u8, BitNot(u8)(
-  (~): ((a) -> __yo_op_bit_complement(a))
+  (~): ((self) -> __yo_op_bit_complement(self))
 ));
 impl(u8, BitAnd(u8)(
-  (&): ((a, b) -> __yo_op_bit_and(a, b))
+  (&): ((lhs, rhs) -> __yo_op_bit_and(lhs, rhs))
 ));
 impl(u8, BitOr(u8)(
-  (|): ((a, b) -> __yo_op_bit_or(a, b))
+  (|): ((lhs, rhs) -> __yo_op_bit_or(lhs, rhs))
 ));
 impl(u8, BitXor(u8)(
-  (^): ((a, b) -> __yo_op_bit_xor(a, b))
+  (^): ((lhs, rhs) -> __yo_op_bit_xor(lhs, rhs))
 ));
 impl(u8, Eq(u8)(
-  (==) : ((a, b) -> __yo_op_eq(a, b)),
-  (!=) : ((a, b) -> __yo_op_neq(a, b))
+  (==) : ((lhs, rhs) -> __yo_op_eq(lhs, rhs)),
+  (!=) : ((lhs, rhs) -> __yo_op_neq(lhs, rhs))
 ));
 impl(u8, Ord(u8)(
-  (<) : ((a, b) -> __yo_op_lt(a, b)),
-  (<=) : ((a, b) -> __yo_op_lte(a, b)),
-  (>) : ((a, b) -> __yo_op_gt(a, b)),
-  (>=) : ((a, b) -> __yo_op_gte(a, b))
+  (<) : ((lhs, rhs) -> __yo_op_lt(lhs, rhs)),
+  (<=) : ((lhs, rhs) -> __yo_op_lte(lhs, rhs)),
+  (>) : ((lhs, rhs) -> __yo_op_gt(lhs, rhs)),
+  (>=) : ((lhs, rhs) -> __yo_op_gte(lhs, rhs))
 ));
 impl(u8, Hash(
   (hash): ((self) -> u64(self.*))
@@ -1390,144 +1479,146 @@ impl(u8, Hash(
 impl(u8, Clone(
   clone: ((self) -> __yo_return_self(self.*))
 ));
-impl(u8, ComptAdd(u8)(
-  (+) : (fn(compt(lhs): u8, compt(rhs): u8) -> compt(u8))(
-    __yo_compt_u8_add(lhs, rhs)
+impl(u8, ComptimeAdd(u8)(
+  (+) : ((lhs, rhs) ->
+    __yo_comptime_u8_add(lhs, rhs)
   )
 ));
-impl(u8, ComptSub(u8)(
-  (-) : (fn(compt(lhs): u8, compt(rhs): u8) -> compt(u8))(
-    __yo_compt_u8_sub(lhs, rhs)
+impl(u8, ComptimeSub(u8)(
+  (-) : ((lhs, rhs) ->
+    __yo_comptime_u8_sub(lhs, rhs)
   )
 ));
-impl(u8, ComptMul(u8)(
-  (*) : (fn(compt(lhs): u8, compt(rhs): u8) -> compt(u8))(
-    __yo_compt_u8_mul(lhs, rhs)
+impl(u8, ComptimeMul(u8)(
+  (*) : ((lhs, rhs) ->
+    __yo_comptime_u8_mul(lhs, rhs)
   )
 ));
-impl(u8, ComptDiv(u8)(
-  (/) : (fn(compt(lhs): u8, compt(rhs): u8) -> compt(u8))(
-    __yo_compt_u8_div(lhs, rhs)
+impl(u8, ComptimeDiv(u8)(
+  (/) : ((lhs, rhs) ->
+    __yo_comptime_u8_div(lhs, rhs)
   )
 ));
-impl(u8, ComptMod(u8)(
-  (%) : (fn(compt(lhs): u8, compt(rhs): u8) -> compt(u8))(
-    __yo_compt_u8_mod(lhs, rhs)
+impl(u8, ComptimeMod(u8)(
+  (%) : ((lhs, rhs) ->
+    __yo_comptime_u8_mod(lhs, rhs)
   )
 ));
-impl(u8, ComptEq(u8)(
-  (==) : (fn(compt(lhs): u8, compt(rhs): u8) -> compt(bool))(
-    __yo_compt_u8_eq(lhs, rhs)
+impl(u8, ComptimeEq(u8)(
+  (==) : ((lhs, rhs) ->
+    __yo_comptime_u8_eq(lhs, rhs)
   ),
-  (!=) : (fn(compt(lhs): u8, compt(rhs): u8) -> compt(bool))(
-    __yo_compt_u8_neq(lhs, rhs)
+  (!=) : ((lhs, rhs) ->
+    __yo_comptime_u8_neq(lhs, rhs)
   )
 ));
-impl(u8, ComptOrd(u8)(
-  (<) : (fn(compt(lhs): u8, compt(rhs): u8) -> compt(bool))(
-    __yo_compt_u8_lt(lhs, rhs)
+impl(u8, ComptimeOrd(u8)(
+  (<) : ((lhs, rhs) ->
+    __yo_comptime_u8_lt(lhs, rhs)
   ),
-  (<=) : (fn(compt(lhs): u8, compt(rhs): u8) -> compt(bool))(
-    __yo_compt_u8_lte(lhs, rhs)
+  (<=) : ((lhs, rhs) ->
+    __yo_comptime_u8_lte(lhs, rhs)
   ),
-  (>) : (fn(compt(lhs): u8, compt(rhs): u8) -> compt(bool))(
-    __yo_compt_u8_gt(lhs, rhs)
+  (>) : ((lhs, rhs) ->
+    __yo_comptime_u8_gt(lhs, rhs)
   ),
-  (>=) : (fn(compt(lhs): u8, compt(rhs): u8) -> compt(bool))(
-    __yo_compt_u8_gte(lhs, rhs)
+  (>=) : ((lhs, rhs) ->
+    __yo_comptime_u8_gte(lhs, rhs)
   )
 ));
-impl(u8, ComptBitAnd(u8)(
-  (&): (fn(compt(a): u8, compt(b): u8) -> compt(u8))(
-    __yo_compt_u8_bit_and(a, b)
+impl(u8, ComptimeBitAnd(u8)(
+  (&): ((lhs, rhs) ->
+    __yo_comptime_u8_bit_and(lhs, rhs)
   )
 ));
-impl(u8, ComptBitOr(u8)(
-  (|): (fn(compt(a): u8, compt(b): u8) -> compt(u8))(
-    __yo_compt_u8_bit_or(a, b)
+impl(u8, ComptimeBitOr(u8)(
+  (|): ((lhs, rhs) ->
+    __yo_comptime_u8_bit_or(lhs, rhs)
   )
 ));
-impl(u8, ComptBitXor(u8)(
-  (^): (fn(compt(a): u8, compt(b): u8) -> compt(u8))(
-    __yo_compt_u8_bit_xor(a, b)
+impl(u8, ComptimeBitXor(u8)(
+  (^): ((lhs, rhs) ->
+    __yo_comptime_u8_bit_xor(lhs, rhs)
   )
 ));
-impl(u8, ComptBitLeftShift(u8)(
-  (<<): (fn(compt(a): u8, compt(b): u8) -> compt(u8))(
-    __yo_compt_u8_shl(a, b)
+impl(u8, ComptimeBitLeftShift(u8)(
+  (<<): ((lhs, rhs) ->
+    __yo_comptime_u8_shl(lhs, rhs)
   )
 ));
-impl(u8, ComptBitRightShift(u8)(
-  (>>): (fn(compt(a): u8, compt(b): u8) -> compt(u8))(
-    __yo_compt_u8_shr(a, b)
+impl(u8, ComptimeBitRightShift(u8)(
+  (>>): ((lhs, rhs) ->
+    __yo_comptime_u8_shr(lhs, rhs)
   )
 ));
-impl(u8, ComptBitNot(u8)(
-  (~): (fn(compt(self): u8) -> compt(u8))(
-    __yo_compt_u8_bit_not(self)
+impl(u8, ComptimeBitNot(u8)(
+  (~): (self ->
+    __yo_comptime_u8_bit_not(self)
   )
 ));
-impl(u8, ComptToString(
-  to_compt_string : (self -> __yo_compt_u8_to_compt_string(self))
+impl(u8, ComptimeToString(
+  to_comptime_string : (self -> __yo_comptime_u8_to_comptime_string(self))
 ));
 _u8 :: u8;
 export u8 : _u8;
 
 /// u16
-impl(u16, {
-  MIN :: u16(0);
-  MAX :: u16(65535);
-  export MIN, MAX;
-});
+impl(u16,
+  MIN : u16(0),
+  MAX : u16(65535)
+);
 impl(u16, Send());
+impl(u16, Acyclic());
+impl(u16, Comptime());
+impl(u16, Runtime());
 impl(u16, Add(u16)(
-  (+): ((a, b) -> __yo_op_add(a, b))
+  (+): ((lhs, rhs) -> __yo_op_add(lhs, rhs))
 ));
 impl(u16, Sub(u16)(
-  (-): ((a, b) -> __yo_op_sub(a, b))
+  (-): ((lhs, rhs) -> __yo_op_sub(lhs, rhs))
 ));
 impl(u16, Mul(u16)(
-  (*): ((a, b) -> __yo_op_mul(a, b))
+  (*): ((lhs, rhs) -> __yo_op_mul(lhs, rhs))
 ));
 impl(u16, Div(u16)(
-  (/): ((a, b) -> __yo_op_div(a, b))
+  (/): ((lhs, rhs) -> __yo_op_div(lhs, rhs))
 ));
 impl(u16, Mod(u16)(
-  (%): ((a, b) -> __yo_op_mod(a, b))
+  (%): ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
 ));
 impl(u16, Negate(u16)(
-  (neg): ((a) -> __yo_op_neg(a))
+  (neg): ((self) -> __yo_op_neg(self))
 ));
 impl(u16, BitLeftShift(u16)(
-  (<<): ((a, b) -> __yo_op_bit_left_shift(a, b))
+  (<<): ((lhs, rhs) -> __yo_op_bit_left_shift(lhs, rhs))
 ));
 impl(u16, BitRightShift(u16)(
-  (>>): ((a, b) -> __yo_op_bit_right_shift(a, b))
+  (>>): ((lhs, rhs) -> __yo_op_bit_right_shift(lhs, rhs))
 ));
 impl(u16, LogicalNot(
-  (!): ((a) -> __yo_op_not(a))
+  (!): ((self) -> __yo_op_not(self))
 ));
 impl(u16, BitNot(u16)(
-  (~): ((a) -> __yo_op_bit_complement(a))
+  (~): ((self) -> __yo_op_bit_complement(self))
 ));
 impl(u16, BitAnd(u16)(
-  (&): ((a, b) -> __yo_op_bit_and(a, b))
+  (&): ((lhs, rhs) -> __yo_op_bit_and(lhs, rhs))
 ));
 impl(u16, BitOr(u16)(
-  (|): ((a, b) -> __yo_op_bit_or(a, b))
+  (|): ((lhs, rhs) -> __yo_op_bit_or(lhs, rhs))
 ));
 impl(u16, BitXor(u16)(
-  (^): ((a, b) -> __yo_op_bit_xor(a, b))
+  (^): ((lhs, rhs) -> __yo_op_bit_xor(lhs, rhs))
 ));
 impl(u16, Eq(u16)(
-  (==) : ((a, b) -> __yo_op_eq(a, b)),
-  (!=) : ((a, b) -> __yo_op_neq(a, b))
+  (==) : ((lhs, rhs) -> __yo_op_eq(lhs, rhs)),
+  (!=) : ((lhs, rhs) -> __yo_op_neq(lhs, rhs))
 ));
 impl(u16, Ord(u16)(
-  (<) : ((a, b) -> __yo_op_lt(a, b)),
-  (<=) : ((a, b) -> __yo_op_lte(a, b)),
-  (>) : ((a, b) -> __yo_op_gt(a, b)),
-  (>=) : ((a, b) -> __yo_op_gte(a, b))
+  (<) : ((lhs, rhs) -> __yo_op_lt(lhs, rhs)),
+  (<=) : ((lhs, rhs) -> __yo_op_lte(lhs, rhs)),
+  (>) : ((lhs, rhs) -> __yo_op_gt(lhs, rhs)),
+  (>=) : ((lhs, rhs) -> __yo_op_gte(lhs, rhs))
 ));
 impl(u16, Hash(
   (hash): ((self) -> u64(self.*))
@@ -1535,144 +1626,146 @@ impl(u16, Hash(
 impl(u16, Clone(
   clone: ((self) -> __yo_return_self(self.*))
 ));
-impl(u16, ComptAdd(u16)(
-  (+) : (fn(compt(lhs): u16, compt(rhs): u16) -> compt(u16))(
-    __yo_compt_u16_add(lhs, rhs)
+impl(u16, ComptimeAdd(u16)(
+  (+) : ((lhs, rhs) ->
+    __yo_comptime_u16_add(lhs, rhs)
   )
 ));
-impl(u16, ComptSub(u16)(
-  (-) : (fn(compt(lhs): u16, compt(rhs): u16) -> compt(u16))(
-    __yo_compt_u16_sub(lhs, rhs)
+impl(u16, ComptimeSub(u16)(
+  (-) : ((lhs, rhs) ->
+    __yo_comptime_u16_sub(lhs, rhs)
   )
 ));
-impl(u16, ComptMul(u16)(
-  (*) : (fn(compt(lhs): u16, compt(rhs): u16) -> compt(u16))(
-    __yo_compt_u16_mul(lhs, rhs)
+impl(u16, ComptimeMul(u16)(
+  (*) : ((lhs, rhs) ->
+    __yo_comptime_u16_mul(lhs, rhs)
   )
 ));
-impl(u16, ComptDiv(u16)(
-  (/) : (fn(compt(lhs): u16, compt(rhs): u16) -> compt(u16))(
-    __yo_compt_u16_div(lhs, rhs)
+impl(u16, ComptimeDiv(u16)(
+  (/) : ((lhs, rhs) ->
+    __yo_comptime_u16_div(lhs, rhs)
   )
 ));
-impl(u16, ComptMod(u16)(
-  (%) : (fn(compt(lhs): u16, compt(rhs): u16) -> compt(u16))(
-    __yo_compt_u16_mod(lhs, rhs)
+impl(u16, ComptimeMod(u16)(
+  (%) : ((lhs, rhs) ->
+    __yo_comptime_u16_mod(lhs, rhs)
   )
 ));
-impl(u16, ComptEq(u16)(
-  (==) : (fn(compt(lhs): u16, compt(rhs): u16) -> compt(bool))(
-    __yo_compt_u16_eq(lhs, rhs)
+impl(u16, ComptimeEq(u16)(
+  (==) : ((lhs, rhs) ->
+    __yo_comptime_u16_eq(lhs, rhs)
   ),
-  (!=) : (fn(compt(lhs): u16, compt(rhs): u16) -> compt(bool))(
-    __yo_compt_u16_neq(lhs, rhs)
+  (!=) : ((lhs, rhs) ->
+    __yo_comptime_u16_neq(lhs, rhs)
   )
 ));
-impl(u16, ComptOrd(u16)(
-  (<) : (fn(compt(lhs): u16, compt(rhs): u16) -> compt(bool))(
-    __yo_compt_u16_lt(lhs, rhs)
+impl(u16, ComptimeOrd(u16)(
+  (<) : ((lhs, rhs) ->
+    __yo_comptime_u16_lt(lhs, rhs)
   ),
-  (<=) : (fn(compt(lhs): u16, compt(rhs): u16) -> compt(bool))(
-    __yo_compt_u16_lte(lhs, rhs)
+  (<=) : ((lhs, rhs) ->
+    __yo_comptime_u16_lte(lhs, rhs)
   ),
-  (>) : (fn(compt(lhs): u16, compt(rhs): u16) -> compt(bool))(
-    __yo_compt_u16_gt(lhs, rhs)
+  (>) : ((lhs, rhs) ->
+    __yo_comptime_u16_gt(lhs, rhs)
   ),
-  (>=) : (fn(compt(lhs): u16, compt(rhs): u16) -> compt(bool))(
-    __yo_compt_u16_gte(lhs, rhs)
+  (>=) : ((lhs, rhs) ->
+    __yo_comptime_u16_gte(lhs, rhs)
   )
 ));
-impl(u16, ComptBitAnd(u16)(
-  (&): (fn(compt(a): u16, compt(b): u16) -> compt(u16))(
-    __yo_compt_u16_bit_and(a, b)
+impl(u16, ComptimeBitAnd(u16)(
+  (&): ((lhs, rhs) ->
+    __yo_comptime_u16_bit_and(lhs, rhs)
   )
 ));
-impl(u16, ComptBitOr(u16)(
-  (|): (fn(compt(a): u16, compt(b): u16) -> compt(u16))(
-    __yo_compt_u16_bit_or(a, b)
+impl(u16, ComptimeBitOr(u16)(
+  (|): ((lhs, rhs) ->
+    __yo_comptime_u16_bit_or(lhs, rhs)
   )
 ));
-impl(u16, ComptBitXor(u16)(
-  (^): (fn(compt(a): u16, compt(b): u16) -> compt(u16))(
-    __yo_compt_u16_bit_xor(a, b)
+impl(u16, ComptimeBitXor(u16)(
+  (^): ((lhs, rhs) ->
+    __yo_comptime_u16_bit_xor(lhs, rhs)
   )
 ));
-impl(u16, ComptBitLeftShift(u16)(
-  (<<): (fn(compt(a): u16, compt(b): u16) -> compt(u16))(
-    __yo_compt_u16_shl(a, b)
+impl(u16, ComptimeBitLeftShift(u16)(
+  (<<): ((lhs, rhs) ->
+    __yo_comptime_u16_shl(lhs, rhs)
   )
 ));
-impl(u16, ComptBitRightShift(u16)(
-  (>>): (fn(compt(a): u16, compt(b): u16) -> compt(u16))(
-    __yo_compt_u16_shr(a, b)
+impl(u16, ComptimeBitRightShift(u16)(
+  (>>): ((lhs, rhs) ->
+    __yo_comptime_u16_shr(lhs, rhs)
   )
 ));
-impl(u16, ComptBitNot(u16)(
-  (~): (fn(compt(self): u16) -> compt(u16))(
-    __yo_compt_u16_bit_not(self)
+impl(u16, ComptimeBitNot(u16)(
+  (~): (self ->
+    __yo_comptime_u16_bit_not(self)
   )
 ));
-impl(u16, ComptToString(
-  to_compt_string : (self -> __yo_compt_u16_to_compt_string(self))
+impl(u16, ComptimeToString(
+  to_comptime_string : (self -> __yo_comptime_u16_to_comptime_string(self))
 ));
 _u16 :: u16;
 export u16 : _u16;
 
 /// u32
-impl(u32, {
-  MIN :: u32(0);
-  MAX :: u32(4294967295);
-  export MIN, MAX;
-});
+impl(u32,
+  MIN : u32(0),
+  MAX : u32(4294967295)
+);
 impl(u32, Send());
+impl(u32, Acyclic());
+impl(u32, Comptime());
+impl(u32, Runtime());
 impl(u32, Add(u32)(
-  (+): ((a, b) -> __yo_op_add(a, b))
+  (+): ((lhs, rhs) -> __yo_op_add(lhs, rhs))
 ));
 impl(u32, Sub(u32)(
-  (-): ((a, b) -> __yo_op_sub(a, b))
+  (-): ((lhs, rhs) -> __yo_op_sub(lhs, rhs))
 ));
 impl(u32, Mul(u32)(
-  (*): ((a, b) -> __yo_op_mul(a, b))
+  (*): ((lhs, rhs) -> __yo_op_mul(lhs, rhs))
 ));
 impl(u32, Div(u32)(
-  (/): ((a, b) -> __yo_op_div(a, b))
+  (/): ((lhs, rhs) -> __yo_op_div(lhs, rhs))
 ));
 impl(u32, Mod(u32)(
-  (%): ((a, b) -> __yo_op_mod(a, b))
+  (%): ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
 ));
 impl(u32, Negate(u32)(
-  (neg): ((a) -> __yo_op_neg(a))
+  (neg): ((self) -> __yo_op_neg(self))
 ));
 impl(u32, BitLeftShift(u32)(
-  (<<): ((a, b) -> __yo_op_bit_left_shift(a, b))
+  (<<): ((lhs, rhs) -> __yo_op_bit_left_shift(lhs, rhs))
 ));
 impl(u32, BitRightShift(u32)(
-  (>>): ((a, b) -> __yo_op_bit_right_shift(a, b))
+  (>>): ((lhs, rhs) -> __yo_op_bit_right_shift(lhs, rhs))
 ));
 impl(u32, LogicalNot(
-  (!): ((a) -> __yo_op_not(a))
+  (!): ((self) -> __yo_op_not(self))
 ));
 impl(u32, BitNot(u32)(
-  (~): ((a) -> __yo_op_bit_complement(a))
+  (~): ((self) -> __yo_op_bit_complement(self))
 ));
 impl(u32, BitAnd(u32)(
-  (&): ((a, b) -> __yo_op_bit_and(a, b))
+  (&): ((lhs, rhs) -> __yo_op_bit_and(lhs, rhs))
 ));
 impl(u32, BitOr(u32)(
-  (|): ((a, b) -> __yo_op_bit_or(a, b))
+  (|): ((lhs, rhs) -> __yo_op_bit_or(lhs, rhs))
 ));
 impl(u32, BitXor(u32)(
-  (^): ((a, b) -> __yo_op_bit_xor(a, b))
+  (^): ((lhs, rhs) -> __yo_op_bit_xor(lhs, rhs))
 ));
 impl(u32, Eq(u32)(
-  (==) : ((a, b) -> __yo_op_eq(a, b)),
-  (!=) : ((a, b) -> __yo_op_neq(a, b))
+  (==) : ((lhs, rhs) -> __yo_op_eq(lhs, rhs)),
+  (!=) : ((lhs, rhs) -> __yo_op_neq(lhs, rhs))
 ));
 impl(u32, Ord(u32)(
-  (<) : ((a, b) -> __yo_op_lt(a, b)),
-  (<=) : ((a, b) -> __yo_op_lte(a, b)),
-  (>) : ((a, b) -> __yo_op_gt(a, b)),
-  (>=) : ((a, b) -> __yo_op_gte(a, b))
+  (<) : ((lhs, rhs) -> __yo_op_lt(lhs, rhs)),
+  (<=) : ((lhs, rhs) -> __yo_op_lte(lhs, rhs)),
+  (>) : ((lhs, rhs) -> __yo_op_gt(lhs, rhs)),
+  (>=) : ((lhs, rhs) -> __yo_op_gte(lhs, rhs))
 ));
 impl(u32, Hash(
   (hash): ((self) -> u64(self.*))
@@ -1680,144 +1773,146 @@ impl(u32, Hash(
 impl(u32, Clone(
   clone: ((self) -> __yo_return_self(self.*))
 ));
-impl(u32, ComptAdd(u32)(
-  (+) : (fn(compt(lhs): u32, compt(rhs): u32) -> compt(u32))(
-    __yo_compt_u32_add(lhs, rhs)
+impl(u32, ComptimeAdd(u32)(
+  (+) : ((lhs, rhs) ->
+    __yo_comptime_u32_add(lhs, rhs)
   )
 ));
-impl(u32, ComptSub(u32)(
-  (-) : (fn(compt(lhs): u32, compt(rhs): u32) -> compt(u32))(
-    __yo_compt_u32_sub(lhs, rhs)
+impl(u32, ComptimeSub(u32)(
+  (-) : ((lhs, rhs) ->
+    __yo_comptime_u32_sub(lhs, rhs)
   )
 ));
-impl(u32, ComptMul(u32)(
-  (*) : (fn(compt(lhs): u32, compt(rhs): u32) -> compt(u32))(
-    __yo_compt_u32_mul(lhs, rhs)
+impl(u32, ComptimeMul(u32)(
+  (*) : ((lhs, rhs) ->
+    __yo_comptime_u32_mul(lhs, rhs)
   )
 ));
-impl(u32, ComptDiv(u32)(
-  (/) : (fn(compt(lhs): u32, compt(rhs): u32) -> compt(u32))(
-    __yo_compt_u32_div(lhs, rhs)
+impl(u32, ComptimeDiv(u32)(
+  (/) : ((lhs, rhs) ->
+    __yo_comptime_u32_div(lhs, rhs)
   )
 ));
-impl(u32, ComptMod(u32)(
-  (%) : (fn(compt(lhs): u32, compt(rhs): u32) -> compt(u32))(
-    __yo_compt_u32_mod(lhs, rhs)
+impl(u32, ComptimeMod(u32)(
+  (%) : ((lhs, rhs) ->
+    __yo_comptime_u32_mod(lhs, rhs)
   )
 ));
-impl(u32, ComptEq(u32)(
-  (==) : (fn(compt(lhs): u32, compt(rhs): u32) -> compt(bool))(
-    __yo_compt_u32_eq(lhs, rhs)
+impl(u32, ComptimeEq(u32)(
+  (==) : ((lhs, rhs) ->
+    __yo_comptime_u32_eq(lhs, rhs)
   ),
-  (!=) : (fn(compt(lhs): u32, compt(rhs): u32) -> compt(bool))(
-    __yo_compt_u32_neq(lhs, rhs)
+  (!=) : ((lhs, rhs) ->
+    __yo_comptime_u32_neq(lhs, rhs)
   )
 ));
-impl(u32, ComptOrd(u32)(
-  (<) : (fn(compt(lhs): u32, compt(rhs): u32) -> compt(bool))(
-    __yo_compt_u32_lt(lhs, rhs)
+impl(u32, ComptimeOrd(u32)(
+  (<) : ((lhs, rhs) ->
+    __yo_comptime_u32_lt(lhs, rhs)
   ),
-  (<=) : (fn(compt(lhs): u32, compt(rhs): u32) -> compt(bool))(
-    __yo_compt_u32_lte(lhs, rhs)
+  (<=) : ((lhs, rhs) ->
+    __yo_comptime_u32_lte(lhs, rhs)
   ),
-  (>) : (fn(compt(lhs): u32, compt(rhs): u32) -> compt(bool))(
-    __yo_compt_u32_gt(lhs, rhs)
+  (>) : ((lhs, rhs) ->
+    __yo_comptime_u32_gt(lhs, rhs)
   ),
-  (>=) : (fn(compt(lhs): u32, compt(rhs): u32) -> compt(bool))(
-    __yo_compt_u32_gte(lhs, rhs)
+  (>=) : ((lhs, rhs) ->
+    __yo_comptime_u32_gte(lhs, rhs)
   )
 ));
-impl(u32, ComptBitAnd(u32)(
-  (&): (fn(compt(a): u32, compt(b): u32) -> compt(u32))(
-    __yo_compt_u32_bit_and(a, b)
+impl(u32, ComptimeBitAnd(u32)(
+  (&): ((lhs, rhs) ->
+    __yo_comptime_u32_bit_and(lhs, rhs)
   )
 ));
-impl(u32, ComptBitOr(u32)(
-  (|): (fn(compt(a): u32, compt(b): u32) -> compt(u32))(
-    __yo_compt_u32_bit_or(a, b)
+impl(u32, ComptimeBitOr(u32)(
+  (|): ((lhs, rhs) ->
+    __yo_comptime_u32_bit_or(lhs, rhs)
   )
 ));
-impl(u32, ComptBitXor(u32)(
-  (^): (fn(compt(a): u32, compt(b): u32) -> compt(u32))(
-    __yo_compt_u32_bit_xor(a, b)
+impl(u32, ComptimeBitXor(u32)(
+  (^): ((lhs, rhs) ->
+    __yo_comptime_u32_bit_xor(lhs, rhs)
   )
 ));
-impl(u32, ComptBitLeftShift(u32)(
-  (<<): (fn(compt(a): u32, compt(b): u32) -> compt(u32))(
-    __yo_compt_u32_shl(a, b)
+impl(u32, ComptimeBitLeftShift(u32)(
+  (<<): ((lhs, rhs) ->
+    __yo_comptime_u32_shl(lhs, rhs)
   )
 ));
-impl(u32, ComptBitRightShift(u32)(
-  (>>): (fn(compt(a): u32, compt(b): u32) -> compt(u32))(
-    __yo_compt_u32_shr(a, b)
+impl(u32, ComptimeBitRightShift(u32)(
+  (>>): ((lhs, rhs) ->
+    __yo_comptime_u32_shr(lhs, rhs)
   )
 ));
-impl(u32, ComptBitNot(u32)(
-  (~): (fn(compt(self): u32) -> compt(u32))(
-    __yo_compt_u32_bit_not(self)
+impl(u32, ComptimeBitNot(u32)(
+  (~): (self ->
+    __yo_comptime_u32_bit_not(self)
   )
 ));
-impl(u32, ComptToString(
-  to_compt_string : (self -> __yo_compt_u32_to_compt_string(self))
+impl(u32, ComptimeToString(
+  to_comptime_string : (self -> __yo_comptime_u32_to_comptime_string(self))
 ));
 _u32 :: u32;
 export u32 : _u32;
 
 /// u64
-impl(u64, {
-  MIN :: u64(0);
-  MAX :: u64(18446744073709551615);
-  export MIN, MAX;
-});
+impl(u64,
+  MIN : u64(0),
+  MAX : u64(18446744073709551615)
+);
 impl(u64, Send());
+impl(u64, Acyclic());
+impl(u64, Comptime());
+impl(u64, Runtime());
 impl(u64, Add(u64)(
-  (+): ((a, b) -> __yo_op_add(a, b))
+  (+): ((lhs, rhs) -> __yo_op_add(lhs, rhs))
 ));
 impl(u64, Sub(u64)(
-  (-): ((a, b) -> __yo_op_sub(a, b))
+  (-): ((lhs, rhs) -> __yo_op_sub(lhs, rhs))
 ));
 impl(u64, Mul(u64)(
-  (*): ((a, b) -> __yo_op_mul(a, b))
+  (*): ((lhs, rhs) -> __yo_op_mul(lhs, rhs))
 ));
 impl(u64, Div(u64)(
-  (/): ((a, b) -> __yo_op_div(a, b))
+  (/): ((lhs, rhs) -> __yo_op_div(lhs, rhs))
 ));
 impl(u64, Mod(u64)(
-  (%): ((a, b) -> __yo_op_mod(a, b))
+  (%): ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
 ));
 impl(u64, Negate(u64)(
-  (neg): ((a) -> __yo_op_neg(a))
+  (neg): ((self) -> __yo_op_neg(self))
 ));
 impl(u64, BitLeftShift(u64)(
-  (<<): ((a, b) -> __yo_op_bit_left_shift(a, b))
+  (<<): ((lhs, rhs) -> __yo_op_bit_left_shift(lhs, rhs))
 ));
 impl(u64, BitRightShift(u64)(
-  (>>): ((a, b) -> __yo_op_bit_right_shift(a, b))
+  (>>): ((lhs, rhs) -> __yo_op_bit_right_shift(lhs, rhs))
 ));
 impl(u64, LogicalNot(
-  (!): ((a) -> __yo_op_not(a))
+  (!): ((self) -> __yo_op_not(self))
 ));
 impl(u64, BitNot(u64)(
-  (~): ((a) -> __yo_op_bit_complement(a))
+  (~): ((self) -> __yo_op_bit_complement(self))
 ));
 impl(u64, BitAnd(u64)(
-  (&): ((a, b) -> __yo_op_bit_and(a, b))
+  (&): ((lhs, rhs) -> __yo_op_bit_and(lhs, rhs))
 ));
 impl(u64, BitOr(u64)(
-  (|): ((a, b) -> __yo_op_bit_or(a, b))
+  (|): ((lhs, rhs) -> __yo_op_bit_or(lhs, rhs))
 ));
 impl(u64, BitXor(u64)(
-  (^): ((a, b) -> __yo_op_bit_xor(a, b))
+  (^): ((lhs, rhs) -> __yo_op_bit_xor(lhs, rhs))
 ));
 impl(u64, Eq(u64)(
-  (==) : ((a, b) -> __yo_op_eq(a, b)),
-  (!=) : ((a, b) -> __yo_op_neq(a, b))
+  (==) : ((lhs, rhs) -> __yo_op_eq(lhs, rhs)),
+  (!=) : ((lhs, rhs) -> __yo_op_neq(lhs, rhs))
 ));
 impl(u64, Ord(u64)(
-  (<) : ((a, b) -> __yo_op_lt(a, b)),
-  (<=) : ((a, b) -> __yo_op_lte(a, b)),
-  (>) : ((a, b) -> __yo_op_gt(a, b)),
-  (>=) : ((a, b) -> __yo_op_gte(a, b))
+  (<) : ((lhs, rhs) -> __yo_op_lt(lhs, rhs)),
+  (<=) : ((lhs, rhs) -> __yo_op_lte(lhs, rhs)),
+  (>) : ((lhs, rhs) -> __yo_op_gt(lhs, rhs)),
+  (>=) : ((lhs, rhs) -> __yo_op_gte(lhs, rhs))
 ));
 impl(u64, Hash(
   (hash): ((self) -> self.*)
@@ -1825,133 +1920,136 @@ impl(u64, Hash(
 impl(u64, Clone(
   clone: ((self) -> __yo_return_self(self.*))
 ));
-impl(u64, ComptAdd(u64)(
-  (+) : (fn(compt(lhs): u64, compt(rhs): u64) -> compt(u64))(
-    __yo_compt_u64_add(lhs, rhs)
+impl(u64, ComptimeAdd(u64)(
+  (+) : ((lhs, rhs) ->
+    __yo_comptime_u64_add(lhs, rhs)
   )
 ));
-impl(u64, ComptSub(u64)(
-  (-) : (fn(compt(lhs): u64, compt(rhs): u64) -> compt(u64))(
-    __yo_compt_u64_sub(lhs, rhs)
+impl(u64, ComptimeSub(u64)(
+  (-) : ((lhs, rhs) ->
+    __yo_comptime_u64_sub(lhs, rhs)
   )
 ));
-impl(u64, ComptMul(u64)(
-  (*) : (fn(compt(lhs): u64, compt(rhs): u64) -> compt(u64))(
-    __yo_compt_u64_mul(lhs, rhs)
+impl(u64, ComptimeMul(u64)(
+  (*) : ((lhs, rhs) ->
+    __yo_comptime_u64_mul(lhs, rhs)
   )
 ));
-impl(u64, ComptDiv(u64)(
-  (/) : (fn(compt(lhs): u64, compt(rhs): u64) -> compt(u64))(
-    __yo_compt_u64_div(lhs, rhs)
+impl(u64, ComptimeDiv(u64)(
+  (/) : ((lhs, rhs) ->
+    __yo_comptime_u64_div(lhs, rhs)
   )
 ));
-impl(u64, ComptMod(u64)(
-  (%) : (fn(compt(lhs): u64, compt(rhs): u64) -> compt(u64))(
-    __yo_compt_u64_mod(lhs, rhs)
+impl(u64, ComptimeMod(u64)(
+  (%) : ((lhs, rhs) ->
+    __yo_comptime_u64_mod(lhs, rhs)
   )
 ));
-impl(u64, ComptEq(u64)(
-  (==) : (fn(compt(lhs): u64, compt(rhs): u64) -> compt(bool))(
-    __yo_compt_u64_eq(lhs, rhs)
+impl(u64, ComptimeEq(u64)(
+  (==) : ((lhs, rhs) ->
+    __yo_comptime_u64_eq(lhs, rhs)
   ),
-  (!=) : (fn(compt(lhs): u64, compt(rhs): u64) -> compt(bool))(
-    __yo_compt_u64_neq(lhs, rhs)
+  (!=) : ((lhs, rhs) ->
+    __yo_comptime_u64_neq(lhs, rhs)
   )
 ));
-impl(u64, ComptOrd(u64)(
-  (<) : (fn(compt(lhs): u64, compt(rhs): u64) -> compt(bool))(
-    __yo_compt_u64_lt(lhs, rhs)
+impl(u64, ComptimeOrd(u64)(
+  (<) : ((lhs, rhs) ->
+    __yo_comptime_u64_lt(lhs, rhs)
   ),
-  (<=) : (fn(compt(lhs): u64, compt(rhs): u64) -> compt(bool))(
-    __yo_compt_u64_lte(lhs, rhs)
+  (<=) : ((lhs, rhs) ->
+    __yo_comptime_u64_lte(lhs, rhs)
   ),
-  (>) : (fn(compt(lhs): u64, compt(rhs): u64) -> compt(bool))(
-    __yo_compt_u64_gt(lhs, rhs)
+  (>) : ((lhs, rhs) ->
+    __yo_comptime_u64_gt(lhs, rhs)
   ),
-  (>=) : (fn(compt(lhs): u64, compt(rhs): u64) -> compt(bool))(
-    __yo_compt_u64_gte(lhs, rhs)
+  (>=) : ((lhs, rhs) ->
+    __yo_comptime_u64_gte(lhs, rhs)
   )
 ));
-impl(u64, ComptBitAnd(u64)(
-  (&): (fn(compt(a): u64, compt(b): u64) -> compt(u64))(
-    __yo_compt_u64_bit_and(a, b)
+impl(u64, ComptimeBitAnd(u64)(
+  (&): ((lhs, rhs) ->
+    __yo_comptime_u64_bit_and(lhs, rhs)
   )
 ));
-impl(u64, ComptBitOr(u64)(
-  (|): (fn(compt(a): u64, compt(b): u64) -> compt(u64))(
-    __yo_compt_u64_bit_or(a, b)
+impl(u64, ComptimeBitOr(u64)(
+  (|): ((lhs, rhs) ->
+    __yo_comptime_u64_bit_or(lhs, rhs)
   )
 ));
-impl(u64, ComptBitXor(u64)(
-  (^): (fn(compt(a): u64, compt(b): u64) -> compt(u64))(
-    __yo_compt_u64_bit_xor(a, b)
+impl(u64, ComptimeBitXor(u64)(
+  (^): ((lhs, rhs) ->
+    __yo_comptime_u64_bit_xor(lhs, rhs)
   )
 ));
-impl(u64, ComptBitLeftShift(u64)(
-  (<<): (fn(compt(a): u64, compt(b): u64) -> compt(u64))(
-    __yo_compt_u64_shl(a, b)
+impl(u64, ComptimeBitLeftShift(u64)(
+  (<<): ((lhs, rhs) ->
+    __yo_comptime_u64_shl(lhs, rhs)
   )
 ));
-impl(u64, ComptBitRightShift(u64)(
-  (>>): (fn(compt(a): u64, compt(b): u64) -> compt(u64))(
-    __yo_compt_u64_shr(a, b)
+impl(u64, ComptimeBitRightShift(u64)(
+  (>>): ((lhs, rhs) ->
+    __yo_comptime_u64_shr(lhs, rhs)
   )
 ));
-impl(u64, ComptBitNot(u64)(
-  (~): (fn(compt(self): u64) -> compt(u64))(
-    __yo_compt_u64_bit_not(self)
+impl(u64, ComptimeBitNot(u64)(
+  (~): (fn(comptime(self): u64) -> comptime(u64))(
+    __yo_comptime_u64_bit_not(self)
   )
 ));
-impl(u64, ComptToString(
-  to_compt_string : (self -> __yo_compt_u64_to_compt_string(self))
+impl(u64, ComptimeToString(
+  to_comptime_string : (self -> __yo_comptime_u64_to_comptime_string(self))
 ));
 _u64 :: u64;
 export u64 : _u64;
 
 /// f32
 impl(f32, Send());
+impl(f32, Acyclic());
+impl(f32, Comptime());
+impl(f32, Runtime());
 impl(f32, Add(f32)(
-  (+): ((a, b) -> __yo_op_add(a, b))
+  (+): ((lhs, rhs) -> __yo_op_add(lhs, rhs))
 ));
 impl(f32, Sub(f32)(
-  (-): ((a, b) -> __yo_op_sub(a, b))
+  (-): ((lhs, rhs) -> __yo_op_sub(lhs, rhs))
 ));
 impl(f32, Mul(f32)(
-  (*): ((a, b) -> __yo_op_mul(a, b))
+  (*): ((lhs, rhs) -> __yo_op_mul(lhs, rhs))
 ));
 impl(f32, Div(f32)(
-  (/): ((a, b) -> __yo_op_div(a, b))
+  (/): ((lhs, rhs) -> __yo_op_div(lhs, rhs))
 ));
 impl(f32, Mod(f32)(
-  (%): ((a, b) -> __yo_op_mod(a, b))
+  (%): ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
 ));
 impl(f32, Negate(f32)(
-  (neg): ((a) -> __yo_op_neg(a))
+  (neg): ((self) -> __yo_op_neg(self))
 ));
 impl(f32, LogicalNot(
-  (!): ((a) -> __yo_op_not(a))
+  (!): ((self) -> __yo_op_not(self))
 ));
 impl(f32, BitNot(f32)(
-  (~): ((a) -> __yo_op_bit_complement(a))
+  (~): ((self) -> __yo_op_bit_complement(self))
 ));
 impl(f32, BitAnd(f32)(
-  (&): ((a, b) -> __yo_op_bit_and(a, b))
+  (&): ((lhs, rhs) -> __yo_op_bit_and(lhs, rhs))
 ));
 impl(f32, BitOr(f32)(
-  (|): ((a, b) -> __yo_op_bit_or(a, b))
+  (|): ((lhs, rhs) -> __yo_op_bit_or(lhs, rhs))
 ));
 impl(f32, BitXor(f32)(
-  (^): ((a, b) -> __yo_op_bit_xor(a, b))
+  (^): ((lhs, rhs) -> __yo_op_bit_xor(lhs, rhs))
 ));
 impl(f32, Eq(f32)(
-  (==) : ((a, b) -> __yo_op_eq(a, b)),
-  (!=) : ((a, b) -> __yo_op_neq(a, b))
+  (==) : ((lhs, rhs) -> __yo_op_eq(lhs, rhs)),
+  (!=) : ((lhs, rhs) -> __yo_op_neq(lhs, rhs))
 ));
 impl(f32, Ord(f32)(
-  (<) : ((a, b) -> __yo_op_lt(a, b)),
-  (<=) : ((a, b) -> __yo_op_lte(a, b)),
-  (>) : ((a, b) -> __yo_op_gt(a, b)),
-  (>=) : ((a, b) -> __yo_op_gte(a, b))
+  (<) : ((lhs, rhs) -> __yo_op_lt(lhs, rhs)),
+  (<=) : ((lhs, rhs) -> __yo_op_lte(lhs, rhs)),
+  (>) : ((lhs, rhs) -> __yo_op_gt(lhs, rhs)),
+  (>=) : ((lhs, rhs) -> __yo_op_gte(lhs, rhs))
 ));
 impl(f32, Hash(
   (hash): ((self) -> u64(i32(self.*)))
@@ -1959,103 +2057,106 @@ impl(f32, Hash(
 impl(f32, Clone(
   clone: ((self) -> __yo_return_self(self.*))
 ));
-impl(f32, ComptAdd(f32)(
-  (+) : (fn(compt(lhs): f32, compt(rhs): f32) -> compt(f32))(
-    __yo_compt_f32_add(lhs, rhs)
+impl(f32, ComptimeAdd(f32)(
+  (+) : ((lhs, rhs) ->
+    __yo_comptime_f32_add(lhs, rhs)
   )
 ));
-impl(f32, ComptSub(f32)(
-  (-) : (fn(compt(lhs): f32, compt(rhs): f32) -> compt(f32))(
-    __yo_compt_f32_sub(lhs, rhs)
+impl(f32, ComptimeSub(f32)(
+  (-) : ((lhs, rhs) ->
+    __yo_comptime_f32_sub(lhs, rhs)
   )
 ));
-impl(f32, ComptMul(f32)(
-  (*) : (fn(compt(lhs): f32, compt(rhs): f32) -> compt(f32))(
-    __yo_compt_f32_mul(lhs, rhs)
+impl(f32, ComptimeMul(f32)(
+  (*) : ((lhs, rhs) ->
+    __yo_comptime_f32_mul(lhs, rhs)
   )
 ));
-impl(f32, ComptDiv(f32)(
-  (/) : (fn(compt(lhs): f32, compt(rhs): f32) -> compt(f32))(
-    __yo_compt_f32_div(lhs, rhs)
+impl(f32, ComptimeDiv(f32)(
+  (/) : ((lhs, rhs) ->
+    __yo_comptime_f32_div(lhs, rhs)
   )
 ));
-impl(f32, ComptNegate(f32)(
-  (neg) : (fn(compt(self): f32) -> compt(f32))(
-    __yo_compt_f32_neg(self)
+impl(f32, ComptimeNegate(f32)(
+  (neg) : (self ->
+    __yo_comptime_f32_neg(self)
   )
 ));
-impl(f32, ComptEq(f32)(
-  (==) : (fn(compt(lhs): f32, compt(rhs): f32) -> compt(bool))(
-    __yo_compt_f32_eq(lhs, rhs)
+impl(f32, ComptimeEq(f32)(
+  (==) : ((lhs, rhs) ->
+    __yo_comptime_f32_eq(lhs, rhs)
   ),
-  (!=) : (fn(compt(lhs): f32, compt(rhs): f32) -> compt(bool))(
-    __yo_compt_f32_neq(lhs, rhs)
+  (!=) : ((lhs, rhs) ->
+    __yo_comptime_f32_neq(lhs, rhs)
   )
 ));
-impl(f32, ComptOrd(f32)(
-  (<) : (fn(compt(lhs): f32, compt(rhs): f32) -> compt(bool))(
-    __yo_compt_f32_lt(lhs, rhs)
+impl(f32, ComptimeOrd(f32)(
+  (<) : ((lhs, rhs) ->
+    __yo_comptime_f32_lt(lhs, rhs)
   ),
-  (<=) : (fn(compt(lhs): f32, compt(rhs): f32) -> compt(bool))(
-    __yo_compt_f32_lte(lhs, rhs)
+  (<=) : ((lhs, rhs) ->
+    __yo_comptime_f32_lte(lhs, rhs)
   ),
-  (>) : (fn(compt(lhs): f32, compt(rhs): f32) -> compt(bool))(
-    __yo_compt_f32_gt(lhs, rhs)
+  (>) : ((lhs, rhs) ->
+    __yo_comptime_f32_gt(lhs, rhs)
   ),
-  (>=) : (fn(compt(lhs): f32, compt(rhs): f32) -> compt(bool))(
-    __yo_compt_f32_gte(lhs, rhs)
+  (>=) : ((lhs, rhs) ->
+    __yo_comptime_f32_gte(lhs, rhs)
   )
 ));
-impl(f32, ComptToString(
-  to_compt_string : (self -> __yo_compt_f32_to_compt_string(self))
+impl(f32, ComptimeToString(
+  to_comptime_string : (self -> __yo_comptime_f32_to_comptime_string(self))
 ));
 _f32 :: f32;
 export f32 : _f32;
 
 /// f64
 impl(f64, Send());
+impl(f64, Acyclic());
+impl(f64, Comptime());
+impl(f64, Runtime());
 impl(f64, Add(f64)(
-  (+): ((a, b) -> __yo_op_add(a, b))
+  (+): ((lhs, rhs) -> __yo_op_add(lhs, rhs))
 ));
 impl(f64, Sub(f64)(
-  (-): ((a, b) -> __yo_op_sub(a, b))
+  (-): ((lhs, rhs) -> __yo_op_sub(lhs, rhs))
 ));
 impl(f64, Mul(f64)(
-  (*): ((a, b) -> __yo_op_mul(a, b))
+  (*): ((lhs, rhs) -> __yo_op_mul(lhs, rhs))
 ));
 impl(f64, Div(f64)(
-  (/): ((a, b) -> __yo_op_div(a, b))
+  (/): ((lhs, rhs) -> __yo_op_div(lhs, rhs))
 ));
 impl(f64, Mod(f64)(
-  (%): ((a, b) -> __yo_op_mod(a, b))
+  (%): ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
 ));
 impl(f64, Negate(f64)(
-  (neg): ((a) -> __yo_op_neg(a))
+  (neg): ((self) -> __yo_op_neg(self))
 ));
 impl(f64, LogicalNot(
-  (!): ((a) -> __yo_op_not(a))
+  (!): ((self) -> __yo_op_not(self))
 ));
 impl(f64, BitNot(f64)(
-  (~): ((a) -> __yo_op_bit_complement(a))
+  (~): ((self) -> __yo_op_bit_complement(self))
 ));
 impl(f64, BitAnd(f64)(
-  (&): ((a, b) -> __yo_op_bit_and(a, b))
+  (&): ((lhs, rhs) -> __yo_op_bit_and(lhs, rhs))
 ));
 impl(f64, BitOr(f64)(
-  (|): ((a, b) -> __yo_op_bit_or(a, b))
+  (|): ((lhs, rhs) -> __yo_op_bit_or(lhs, rhs))
 ));
 impl(f64, BitXor(f64)(
-  (^): ((a, b) -> __yo_op_bit_xor(a, b))
+  (^): ((lhs, rhs) -> __yo_op_bit_xor(lhs, rhs))
 ));
 impl(f64, Eq(f64)(
-  (==) : ((a, b) -> __yo_op_eq(a, b)),
-  (!=) : ((a, b) -> __yo_op_neq(a, b))
+  (==) : ((lhs, rhs) -> __yo_op_eq(lhs, rhs)),
+  (!=) : ((lhs, rhs) -> __yo_op_neq(lhs, rhs))
 ));
 impl(f64, Ord(f64)(
-  (<) : ((a, b) -> __yo_op_lt(a, b)),
-  (<=) : ((a, b) -> __yo_op_lte(a, b)),
-  (>) : ((a, b) -> __yo_op_gt(a, b)),
-  (>=) : ((a, b) -> __yo_op_gte(a, b))
+  (<) : ((lhs, rhs) -> __yo_op_lt(lhs, rhs)),
+  (<=) : ((lhs, rhs) -> __yo_op_lte(lhs, rhs)),
+  (>) : ((lhs, rhs) -> __yo_op_gt(lhs, rhs)),
+  (>=) : ((lhs, rhs) -> __yo_op_gte(lhs, rhs))
 ));
 impl(f64, Hash(
   (hash): ((self) -> u64(i64(self.*)))
@@ -2063,114 +2164,116 @@ impl(f64, Hash(
 impl(f64, Clone(
   clone: ((self) -> __yo_return_self(self.*))
 ));
-impl(f64, ComptAdd(f64)(
-  (+) : (fn(compt(lhs): f64, compt(rhs): f64) -> compt(f64))(
-    __yo_compt_f64_add(lhs, rhs)
+impl(f64, ComptimeAdd(f64)(
+  (+) : ((lhs, rhs) ->
+    __yo_comptime_f64_add(lhs, rhs)
   )
 ));
-impl(f64, ComptSub(f64)(
-  (-) : (fn(compt(lhs): f64, compt(rhs): f64) -> compt(f64))(
-    __yo_compt_f64_sub(lhs, rhs)
+impl(f64, ComptimeSub(f64)(
+  (-) : ((lhs, rhs) ->
+    __yo_comptime_f64_sub(lhs, rhs)
   )
 ));
-impl(f64, ComptMul(f64)(
-  (*) : (fn(compt(lhs): f64, compt(rhs): f64) -> compt(f64))(
-    __yo_compt_f64_mul(lhs, rhs)
+impl(f64, ComptimeMul(f64)(
+  (*) : ((lhs, rhs) ->
+    __yo_comptime_f64_mul(lhs, rhs)
   )
 ));
-impl(f64, ComptDiv(f64)(
-  (/) : (fn(compt(lhs): f64, compt(rhs): f64) -> compt(f64))(
-    __yo_compt_f64_div(lhs, rhs)
+impl(f64, ComptimeDiv(f64)(
+  (/) : ((lhs, rhs) ->
+    __yo_comptime_f64_div(lhs, rhs)
   )
 ));
-impl(f64, ComptNegate(f64)(
-  (neg) : (fn(compt(self): f64) -> compt(f64))(
-    __yo_compt_f64_neg(self)
+impl(f64, ComptimeNegate(f64)(
+  (neg) : (self ->
+    __yo_comptime_f64_neg(self)
   )
 ));
-impl(f64, ComptEq(f64)(
-  (==) : (fn(compt(lhs): f64, compt(rhs): f64) -> compt(bool))(
-    __yo_compt_f64_eq(lhs, rhs)
+impl(f64, ComptimeEq(f64)(
+  (==) : ((lhs, rhs) ->
+    __yo_comptime_f64_eq(lhs, rhs)
   ),
-  (!=) : (fn(compt(lhs): f64, compt(rhs): f64) -> compt(bool))(
-    __yo_compt_f64_neq(lhs, rhs)
+  (!=) : ((lhs, rhs) ->
+    __yo_comptime_f64_neq(lhs, rhs)
   )
 ));
-impl(f64, ComptOrd(f64)(
-  (<) : (fn(compt(lhs): f64, compt(rhs): f64) -> compt(bool))(
-    __yo_compt_f64_lt(lhs, rhs)
+impl(f64, ComptimeOrd(f64)(
+  (<) : ((lhs, rhs) ->
+    __yo_comptime_f64_lt(lhs, rhs)
   ),
-  (<=) : (fn(compt(lhs): f64, compt(rhs): f64) -> compt(bool))(
-    __yo_compt_f64_lte(lhs, rhs)
+  (<=) : ((lhs, rhs) ->
+    __yo_comptime_f64_lte(lhs, rhs)
   ),
-  (>) : (fn(compt(lhs): f64, compt(rhs): f64) -> compt(bool))(
-    __yo_compt_f64_gt(lhs, rhs)
+  (>) : ((lhs, rhs) ->
+    __yo_comptime_f64_gt(lhs, rhs)
   ),
-  (>=) : (fn(compt(lhs): f64, compt(rhs): f64) -> compt(bool))(
-    __yo_compt_f64_gte(lhs, rhs)
+  (>=) : ((lhs, rhs) ->
+    __yo_comptime_f64_gte(lhs, rhs)
   )
 ));
-impl(f64, ComptToString(
-  to_compt_string : (self -> __yo_compt_f64_to_compt_string(self))
+impl(f64, ComptimeToString(
+  to_comptime_string : (self -> __yo_comptime_f64_to_comptime_string(self))
 ));
 _f64 :: f64;
 export f64 : _f64;
 
 /// isize
-impl(isize, {
-  MIN :: isize(-9223372036854775808);
-  MAX :: isize(9223372036854775807);
-  export MIN, MAX;
-});
+impl(isize,
+  MIN : isize(-9223372036854775808),
+  MAX : isize(9223372036854775807)
+);
 impl(isize, Send());
+impl(isize, Acyclic());
+impl(isize, Comptime());
+impl(isize, Runtime());
 impl(isize, Add(isize)(
-  (+): ((a, b) -> __yo_op_add(a, b))
+  (+): ((lhs, rhs) -> __yo_op_add(lhs, rhs))
 ));
 impl(isize, Sub(isize)(
-  (-): ((a, b) -> __yo_op_sub(a, b))
+  (-): ((lhs, rhs) -> __yo_op_sub(lhs, rhs))
 ));
 impl(isize, Mul(isize)(
-  (*): ((a, b) -> __yo_op_mul(a, b))
+  (*): ((lhs, rhs) -> __yo_op_mul(lhs, rhs))
 ));
 impl(isize, Div(isize)(
-  (/): ((a, b) -> __yo_op_div(a, b))
+  (/): ((lhs, rhs) -> __yo_op_div(lhs, rhs))
 ));
 impl(isize, Mod(isize)(
-  (%): ((a, b) -> __yo_op_mod(a, b))
+  (%): ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
 ));
 impl(isize, Negate(isize)(
-  (neg): ((a) -> __yo_op_neg(a))
+  (neg): ((self) -> __yo_op_neg(self))
 ));
 impl(isize, BitLeftShift(isize)(
-  (<<): ((a, b) -> __yo_op_bit_left_shift(a, b))
+  (<<): ((lhs, rhs) -> __yo_op_bit_left_shift(lhs, rhs))
 ));
 impl(isize, BitRightShift(isize)(
-  (>>): ((a, b) -> __yo_op_bit_right_shift(a, b))
+  (>>): ((lhs, rhs) -> __yo_op_bit_right_shift(lhs, rhs))
 ));
 impl(isize, LogicalNot(
-  (!): ((a) -> __yo_op_not(a))
+  (!): ((self) -> __yo_op_not(self))
 ));
 impl(isize, BitNot(isize)(
-  (~): ((a) -> __yo_op_bit_complement(a))
+  (~): ((self) -> __yo_op_bit_complement(self))
 ));
 impl(isize, BitAnd(isize)(
-  (&): ((a, b) -> __yo_op_bit_and(a, b))
+  (&): ((lhs, rhs) -> __yo_op_bit_and(lhs, rhs))
 ));
 impl(isize, BitOr(isize)(
-  (|): ((a, b) -> __yo_op_bit_or(a, b))
+  (|): ((lhs, rhs) -> __yo_op_bit_or(lhs, rhs))
 ));
 impl(isize, BitXor(isize)(
-  (^): ((a, b) -> __yo_op_bit_xor(a, b))
+  (^): ((lhs, rhs) -> __yo_op_bit_xor(lhs, rhs))
 ));
 impl(isize, Eq(isize)(
-  (==) : ((a, b) -> __yo_op_eq(a, b)),
-  (!=) : ((a, b) -> __yo_op_neq(a, b))
+  (==) : ((lhs, rhs) -> __yo_op_eq(lhs, rhs)),
+  (!=) : ((lhs, rhs) -> __yo_op_neq(lhs, rhs))
 ));
 impl(isize, Ord(isize)(
-  (<) : ((a, b) -> __yo_op_lt(a, b)),
-  (<=) : ((a, b) -> __yo_op_lte(a, b)),
-  (>) : ((a, b) -> __yo_op_gt(a, b)),
-  (>=) : ((a, b) -> __yo_op_gte(a, b))
+  (<) : ((lhs, rhs) -> __yo_op_lt(lhs, rhs)),
+  (<=) : ((lhs, rhs) -> __yo_op_lte(lhs, rhs)),
+  (>) : ((lhs, rhs) -> __yo_op_gt(lhs, rhs)),
+  (>=) : ((lhs, rhs) -> __yo_op_gte(lhs, rhs))
 ));
 impl(isize, Hash(
   (hash): ((self) -> u64(self.*))
@@ -2178,149 +2281,151 @@ impl(isize, Hash(
 impl(isize, Clone(
   clone: ((self) -> __yo_return_self(self.*))
 ));
-impl(isize, ComptAdd(isize)(
-  (+) : (fn(compt(lhs): isize, compt(rhs): isize) -> compt(isize))(
-    __yo_compt_isize_add(lhs, rhs)
+impl(isize, ComptimeAdd(isize)(
+  (+) : ((lhs, rhs) ->
+    __yo_comptime_isize_add(lhs, rhs)
   )
 ));
-impl(isize, ComptSub(isize)(
-  (-) : (fn(compt(lhs): isize, compt(rhs): isize) -> compt(isize))(
-    __yo_compt_isize_sub(lhs, rhs)
+impl(isize, ComptimeSub(isize)(
+  (-) : ((lhs, rhs) ->
+    __yo_comptime_isize_sub(lhs, rhs)
   )
 ));
-impl(isize, ComptMul(isize)(
-  (*) : (fn(compt(lhs): isize, compt(rhs): isize) -> compt(isize))(
-    __yo_compt_isize_mul(lhs, rhs)
+impl(isize, ComptimeMul(isize)(
+  (*) : ((lhs, rhs) ->
+    __yo_comptime_isize_mul(lhs, rhs)
   )
 ));
-impl(isize, ComptDiv(isize)(
-  (/) : (fn(compt(lhs): isize, compt(rhs): isize) -> compt(isize))(
-    __yo_compt_isize_div(lhs, rhs)
+impl(isize, ComptimeDiv(isize)(
+  (/) : ((lhs, rhs) ->
+    __yo_comptime_isize_div(lhs, rhs)
   )
 ));
-impl(isize, ComptMod(isize)(
-  (%) : (fn(compt(lhs): isize, compt(rhs): isize) -> compt(isize))(
-    __yo_compt_isize_mod(lhs, rhs)
+impl(isize, ComptimeMod(isize)(
+  (%) : ((lhs, rhs) ->
+    __yo_comptime_isize_mod(lhs, rhs)
   )
 ));
-impl(isize, ComptNegate(isize)(
-  (neg) : (fn(compt(self): isize) -> compt(isize))(
-    __yo_compt_isize_neg(self)
+impl(isize, ComptimeNegate(isize)(
+  (neg) : (self ->
+    __yo_comptime_isize_neg(self)
   )
 ));
-impl(isize, ComptEq(isize)(
-  (==) : (fn(compt(lhs): isize, compt(rhs): isize) -> compt(bool))(
-    __yo_compt_isize_eq(lhs, rhs)
+impl(isize, ComptimeEq(isize)(
+  (==) : ((lhs, rhs) ->
+    __yo_comptime_isize_eq(lhs, rhs)
   ),
-  (!=) : (fn(compt(lhs): isize, compt(rhs): isize) -> compt(bool))(
-    __yo_compt_isize_neq(lhs, rhs)
+  (!=) : ((lhs, rhs) ->
+    __yo_comptime_isize_neq(lhs, rhs)
   )
 ));
-impl(isize, ComptOrd(isize)(
-  (<) : (fn(compt(lhs): isize, compt(rhs): isize) -> compt(bool))(
-    __yo_compt_isize_lt(lhs, rhs)
+impl(isize, ComptimeOrd(isize)(
+  (<) : ((lhs, rhs) ->
+    __yo_comptime_isize_lt(lhs, rhs)
   ),
-  (<=) : (fn(compt(lhs): isize, compt(rhs): isize) -> compt(bool))(
-    __yo_compt_isize_lte(lhs, rhs)
+  (<=) : ((lhs, rhs) ->
+    __yo_comptime_isize_lte(lhs, rhs)
   ),
-  (>) : (fn(compt(lhs): isize, compt(rhs): isize) -> compt(bool))(
-    __yo_compt_isize_gt(lhs, rhs)
+  (>) : ((lhs, rhs) ->
+    __yo_comptime_isize_gt(lhs, rhs)
   ),
-  (>=) : (fn(compt(lhs): isize, compt(rhs): isize) -> compt(bool))(
-    __yo_compt_isize_gte(lhs, rhs)
+  (>=) : ((lhs, rhs) ->
+    __yo_comptime_isize_gte(lhs, rhs)
   )
 ));
-impl(isize, ComptBitAnd(isize)(
-  (&): (fn(compt(a): isize, compt(b): isize) -> compt(isize))(
-    __yo_compt_isize_bit_and(a, b)
+impl(isize, ComptimeBitAnd(isize)(
+  (&): ((lhs, rhs) ->
+    __yo_comptime_isize_bit_and(lhs, rhs)
   )
 ));
-impl(isize, ComptBitOr(isize)(
-  (|): (fn(compt(a): isize, compt(b): isize) -> compt(isize))(
-    __yo_compt_isize_bit_or(a, b)
+impl(isize, ComptimeBitOr(isize)(
+  (|): ((lhs, rhs) ->
+    __yo_comptime_isize_bit_or(lhs, rhs)
   )
 ));
-impl(isize, ComptBitXor(isize)(
-  (^): (fn(compt(a): isize, compt(b): isize) -> compt(isize))(
-    __yo_compt_isize_bit_xor(a, b)
+impl(isize, ComptimeBitXor(isize)(
+  (^): ((lhs, rhs) ->
+    __yo_comptime_isize_bit_xor(lhs, rhs)
   )
 ));
-impl(isize, ComptBitLeftShift(isize)(
-  (<<): (fn(compt(a): isize, compt(b): isize) -> compt(isize))(
-    __yo_compt_isize_shl(a, b)
+impl(isize, ComptimeBitLeftShift(isize)(
+  (<<): ((lhs, rhs) ->
+    __yo_comptime_isize_shl(lhs, rhs)
   )
 ));
-impl(isize, ComptBitRightShift(isize)(
-  (>>): (fn(compt(a): isize, compt(b): isize) -> compt(isize))(
-    __yo_compt_isize_shr(a, b)
+impl(isize, ComptimeBitRightShift(isize)(
+  (>>): ((lhs, rhs) ->
+    __yo_comptime_isize_shr(lhs, rhs)
   )
 ));
-impl(isize, ComptBitNot(isize)(
-  (~): (fn(compt(self): isize) -> compt(isize))(
-    __yo_compt_isize_bit_not(self)
+impl(isize, ComptimeBitNot(isize)(
+  (~): (self ->
+    __yo_comptime_isize_bit_not(self)
   )
 ));
-impl(isize, ComptToString(
-  to_compt_string : (self -> __yo_compt_isize_to_compt_string(self))
+impl(isize, ComptimeToString(
+  to_comptime_string : (self -> __yo_comptime_isize_to_comptime_string(self))
 ));
 _isize :: isize;
 export isize : _isize;
 
 /// usize
-impl(usize, {
-  MIN :: usize(0);
-  MAX :: usize(18446744073709551615);
-  export MIN, MAX;
-});
+impl(usize,
+  MIN : usize(0),
+  MAX : usize(18446744073709551615)
+);
 impl(usize, Send());
+impl(usize, Acyclic());
+impl(usize, Comptime());
+impl(usize, Runtime());
 impl(usize, Add(usize)(
-  (+): ((a, b) -> __yo_op_add(a, b))
+  (+): ((lhs, rhs) -> __yo_op_add(lhs, rhs))
 ));
 impl(usize, Sub(usize)(
-  (-): ((a, b) -> __yo_op_sub(a, b))
+  (-): ((lhs, rhs) -> __yo_op_sub(lhs, rhs))
 ));
 impl(usize, Mul(usize)(
-  (*): ((a, b) -> __yo_op_mul(a, b))
+  (*): ((lhs, rhs) -> __yo_op_mul(lhs, rhs))
 ));
 impl(usize, Div(usize)(
-  (/): ((a, b) -> __yo_op_div(a, b))
+  (/): ((lhs, rhs) -> __yo_op_div(lhs, rhs))
 ));
 impl(usize, Mod(usize)(
-  (%): ((a, b) -> __yo_op_mod(a, b))
+  (%): ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
 ));
 impl(usize, Negate(usize)(
-  (neg): ((a) -> __yo_op_neg(a))
+  (neg): ((self) -> __yo_op_neg(self))
 ));
 impl(usize, BitLeftShift(usize)(
-  (<<): ((a, b) -> __yo_op_bit_left_shift(a, b))
+  (<<): ((lhs, rhs) -> __yo_op_bit_left_shift(lhs, rhs))
 ));
 impl(usize, BitRightShift(usize)(
-  (>>): ((a, b) -> __yo_op_bit_right_shift(a, b))
+  (>>): ((lhs, rhs) -> __yo_op_bit_right_shift(lhs, rhs))
 ));
 impl(usize, LogicalNot(
-  (!): ((a) -> __yo_op_not(a))
+  (!): ((self) -> __yo_op_not(self))
 ));
 impl(usize, BitNot(usize)(
-  (~): ((a) -> __yo_op_bit_complement(a))
+  (~): ((self) -> __yo_op_bit_complement(self))
 ));
 impl(usize, BitAnd(usize)(
-  (&): ((a, b) -> __yo_op_bit_and(a, b))
+  (&): ((lhs, rhs) -> __yo_op_bit_and(lhs, rhs))
 ));
 impl(usize, BitOr(usize)(
-  (|): ((a, b) -> __yo_op_bit_or(a, b))
+  (|): ((lhs, rhs) -> __yo_op_bit_or(lhs, rhs))
 ));
 impl(usize, BitXor(usize)(
-  (^): ((a, b) -> __yo_op_bit_xor(a, b))
+  (^): ((lhs, rhs) -> __yo_op_bit_xor(lhs, rhs))
 ));
 impl(usize, Eq(usize)(
-  (==) : ((a, b) -> __yo_op_eq(a, b)),
-  (!=) : ((a, b) -> __yo_op_neq(a, b))
+  (==) : ((lhs, rhs) -> __yo_op_eq(lhs, rhs)),
+  (!=) : ((lhs, rhs) -> __yo_op_neq(lhs, rhs))
 ));
 impl(usize, Ord(usize)(
-  (<) : ((a, b) -> __yo_op_lt(a, b)),
-  (<=) : ((a, b) -> __yo_op_lte(a, b)),
-  (>) : ((a, b) -> __yo_op_gt(a, b)),
-  (>=) : ((a, b) -> __yo_op_gte(a, b))
+  (<) : ((lhs, rhs) -> __yo_op_lt(lhs, rhs)),
+  (<=) : ((lhs, rhs) -> __yo_op_lte(lhs, rhs)),
+  (>) : ((lhs, rhs) -> __yo_op_gt(lhs, rhs)),
+  (>=) : ((lhs, rhs) -> __yo_op_gte(lhs, rhs))
 ));
 impl(usize, Hash(
   (hash): ((self) -> u64(self.*))
@@ -2328,133 +2433,135 @@ impl(usize, Hash(
 impl(usize, Clone(
   clone: ((self) -> __yo_return_self(self.*))
 ));
-impl(usize, ComptAdd(usize)(
-  (+) : (fn(compt(lhs): usize, compt(rhs): usize) -> compt(usize))(
-    __yo_compt_usize_add(lhs, rhs)
+impl(usize, ComptimeAdd(usize)(
+  (+) : ((lhs, rhs) ->
+    __yo_comptime_usize_add(lhs, rhs)
   )
 ));
-impl(usize, ComptSub(usize)(
-  (-) : (fn(compt(lhs): usize, compt(rhs): usize) -> compt(usize))(
-    __yo_compt_usize_sub(lhs, rhs)
+impl(usize, ComptimeSub(usize)(
+  (-) : ((lhs, rhs) ->
+    __yo_comptime_usize_sub(lhs, rhs)
   )
 ));
-impl(usize, ComptMul(usize)(
-  (*) : (fn(compt(lhs): usize, compt(rhs): usize) -> compt(usize))(
-    __yo_compt_usize_mul(lhs, rhs)
+impl(usize, ComptimeMul(usize)(
+  (*) : ((lhs, rhs) ->
+    __yo_comptime_usize_mul(lhs, rhs)
   )
 ));
-impl(usize, ComptDiv(usize)(
-  (/) : (fn(compt(lhs): usize, compt(rhs): usize) -> compt(usize))(
-    __yo_compt_usize_div(lhs, rhs)
+impl(usize, ComptimeDiv(usize)(
+  (/) : ((lhs, rhs) ->
+    __yo_comptime_usize_div(lhs, rhs)
   )
 ));
-impl(usize, ComptMod(usize)(
-  (%) : (fn(compt(lhs): usize, compt(rhs): usize) -> compt(usize))(
-    __yo_compt_usize_mod(lhs, rhs)
+impl(usize, ComptimeMod(usize)(
+  (%) : ((lhs, rhs) ->
+    __yo_comptime_usize_mod(lhs, rhs)
   )
 ));
-impl(usize, ComptEq(usize)(
-  (==) : (fn(compt(lhs): usize, compt(rhs): usize) -> compt(bool))(
-    __yo_compt_usize_eq(lhs, rhs)
+impl(usize, ComptimeEq(usize)(
+  (==) : ((lhs, rhs) ->
+    __yo_comptime_usize_eq(lhs, rhs)
   ),
-  (!=) : (fn(compt(lhs): usize, compt(rhs): usize) -> compt(bool))(
-    __yo_compt_usize_neq(lhs, rhs)
+  (!=) : ((lhs, rhs) ->
+    __yo_comptime_usize_neq(lhs, rhs)
   )
 ));
-impl(usize, ComptOrd(usize)(
-  (<) : (fn(compt(lhs): usize, compt(rhs): usize) -> compt(bool))(
-    __yo_compt_usize_lt(lhs, rhs)
+impl(usize, ComptimeOrd(usize)(
+  (<) : ((lhs, rhs) ->
+    __yo_comptime_usize_lt(lhs, rhs)
   ),
-  (<=) : (fn(compt(lhs): usize, compt(rhs): usize) -> compt(bool))(
-    __yo_compt_usize_lte(lhs, rhs)
+  (<=) : ((lhs, rhs) ->
+    __yo_comptime_usize_lte(lhs, rhs)
   ),
-  (>) : (fn(compt(lhs): usize, compt(rhs): usize) -> compt(bool))(
-    __yo_compt_usize_gt(lhs, rhs)
+  (>) : ((lhs, rhs) ->
+    __yo_comptime_usize_gt(lhs, rhs)
   ),
-  (>=) : (fn(compt(lhs): usize, compt(rhs): usize) -> compt(bool))(
-    __yo_compt_usize_gte(lhs, rhs)
+  (>=) : ((lhs, rhs) ->
+    __yo_comptime_usize_gte(lhs, rhs)
   )
 ));
-impl(usize, ComptBitAnd(usize)(
-  (&): (fn(compt(a): usize, compt(b): usize) -> compt(usize))(
-    __yo_compt_usize_bit_and(a, b)
+impl(usize, ComptimeBitAnd(usize)(
+  (&): ((lhs, rhs) ->
+    __yo_comptime_usize_bit_and(lhs, rhs)
   )
 ));
-impl(usize, ComptBitOr(usize)(
-  (|): (fn(compt(a): usize, compt(b): usize) -> compt(usize))(
-    __yo_compt_usize_bit_or(a, b)
+impl(usize, ComptimeBitOr(usize)(
+  (|): ((lhs, rhs) ->
+    __yo_comptime_usize_bit_or(lhs, rhs)
   )
 ));
-impl(usize, ComptBitXor(usize)(
-  (^): (fn(compt(a): usize, compt(b): usize) -> compt(usize))(
-    __yo_compt_usize_bit_xor(a, b)
+impl(usize, ComptimeBitXor(usize)(
+  (^): ((lhs, rhs) ->
+    __yo_comptime_usize_bit_xor(lhs, rhs)
   )
 ));
-impl(usize, ComptBitLeftShift(usize)(
-  (<<): (fn(compt(a): usize, compt(b): usize) -> compt(usize))(
-    __yo_compt_usize_shl(a, b)
+impl(usize, ComptimeBitLeftShift(usize)(
+  (<<): ((lhs, rhs) ->
+    __yo_comptime_usize_shl(lhs, rhs)
   )
 ));
-impl(usize, ComptBitRightShift(usize)(
-  (>>): (fn(compt(a): usize, compt(b): usize) -> compt(usize))(
-    __yo_compt_usize_shr(a, b)
+impl(usize, ComptimeBitRightShift(usize)(
+  (>>): ((lhs, rhs) ->
+    __yo_comptime_usize_shr(lhs, rhs)
   )
 ));
-impl(usize, ComptBitNot(usize)(
-  (~): (fn(compt(self): usize) -> compt(usize))(
-    __yo_compt_usize_bit_not(self)
+impl(usize, ComptimeBitNot(usize)(
+  (~): (self ->
+    __yo_comptime_usize_bit_not(self)
   )
 ));
-impl(usize, ComptToString(
-  to_compt_string : (self -> __yo_compt_usize_to_compt_string(self))
+impl(usize, ComptimeToString(
+  to_comptime_string : (self -> __yo_comptime_usize_to_comptime_string(self))
 ));
 _usize :: usize;
 export usize : _usize;
 
 /// char
 impl(char, Send());
+impl(char, Acyclic());
+impl(char, Runtime());
 impl(char, Add(char)(
-  (+): ((a, b) -> __yo_op_add(a, b))
+  (+): ((lhs, rhs) -> __yo_op_add(lhs, rhs))
 ));
 impl(char, Sub(char)(
-  (-): ((a, b) -> __yo_op_sub(a, b))
+  (-): ((lhs, rhs) -> __yo_op_sub(lhs, rhs))
 ));
 impl(char, Mul(char)(
-  (*): ((a, b) -> __yo_op_mul(a, b))
+  (*): ((lhs, rhs) -> __yo_op_mul(lhs, rhs))
 ));
 impl(char, Div(char)(
-  (/): ((a, b) -> __yo_op_div(a, b))
+  (/): ((lhs, rhs) -> __yo_op_div(lhs, rhs))
 ));
 impl(char, Mod(char)(
-  (%): ((a, b) -> __yo_op_mod(a, b))
+  (%): ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
 ));
 impl(char, Negate(char)(
-  (neg): ((a) -> __yo_op_neg(a))
+  (neg): ((self) -> __yo_op_neg(self))
 ));
 impl(char, LogicalNot(
-  (!): ((a) -> __yo_op_not(a))
+  (!): ((self) -> __yo_op_not(self))
 ));
 impl(char, BitNot(char)(
-  (~): ((a) -> __yo_op_bit_complement(a))
+  (~): ((self) -> __yo_op_bit_complement(self))
 ));
 impl(char, BitAnd(char)(
-  (&): ((a, b) -> __yo_op_bit_and(a, b))
+  (&): ((lhs, rhs) -> __yo_op_bit_and(lhs, rhs))
 ));
 impl(char, BitOr(char)(
-  (|): ((a, b) -> __yo_op_bit_or(a, b))
+  (|): ((lhs, rhs) -> __yo_op_bit_or(lhs, rhs))
 ));
 impl(char, BitXor(char)(
-  (^): ((a, b) -> __yo_op_bit_xor(a, b))
+  (^): ((lhs, rhs) -> __yo_op_bit_xor(lhs, rhs))
 ));
 impl(char, Eq(char)(
-  (==) : ((a, b) -> __yo_op_eq(a, b)),
-  (!=) : ((a, b) -> __yo_op_neq(a, b))
+  (==) : ((lhs, rhs) -> __yo_op_eq(lhs, rhs)),
+  (!=) : ((lhs, rhs) -> __yo_op_neq(lhs, rhs))
 ));
 impl(char, Ord(char)(
-  (<) : ((a, b) -> __yo_op_lt(a, b)),
-  (<=) : ((a, b) -> __yo_op_lte(a, b)),
-  (>) : ((a, b) -> __yo_op_gt(a, b)),
-  (>=) : ((a, b) -> __yo_op_gte(a, b))
+  (<) : ((lhs, rhs) -> __yo_op_lt(lhs, rhs)),
+  (<=) : ((lhs, rhs) -> __yo_op_lte(lhs, rhs)),
+  (>) : ((lhs, rhs) -> __yo_op_gt(lhs, rhs)),
+  (>=) : ((lhs, rhs) -> __yo_op_gte(lhs, rhs))
 ));
 impl(char, Hash(
   (hash): ((self) -> u64(self.*))
@@ -2467,48 +2574,50 @@ export char : _char;
 
 /// int
 impl(int, Send());
+impl(int, Acyclic());
+impl(int, Runtime());
 impl(int, Add(int)(
-  (+): ((a, b) -> __yo_op_add(a, b))
+  (+): ((lhs, rhs) -> __yo_op_add(lhs, rhs))
 ));
 impl(int, Sub(int)(
-  (-): ((a, b) -> __yo_op_sub(a, b))
+  (-): ((lhs, rhs) -> __yo_op_sub(lhs, rhs))
 ));
 impl(int, Mul(int)(
-  (*): ((a, b) -> __yo_op_mul(a, b))
+  (*): ((lhs, rhs) -> __yo_op_mul(lhs, rhs))
 ));
 impl(int, Div(int)(
-  (/): ((a, b) -> __yo_op_div(a, b))
+  (/): ((lhs, rhs) -> __yo_op_div(lhs, rhs))
 ));
 impl(int, Mod(int)(
-  (%): ((a, b) -> __yo_op_mod(a, b))
+  (%): ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
 ));
 impl(int, Negate(int)(
-  (neg): ((a) -> __yo_op_neg(a))
+  (neg): ((self) -> __yo_op_neg(self))
 ));
 impl(int, LogicalNot(
-  (!): ((a) -> __yo_op_not(a))
+  (!): ((self) -> __yo_op_not(self))
 ));
 impl(int, BitNot(int)(
-  (~): ((a) -> __yo_op_bit_complement(a))
+  (~): ((self) -> __yo_op_bit_complement(self))
 ));
 impl(int, BitAnd(int)(
-  (&): ((a, b) -> __yo_op_bit_and(a, b))
+  (&): ((lhs, rhs) -> __yo_op_bit_and(lhs, rhs))
 ));
 impl(int, BitOr(int)(
-  (|): ((a, b) -> __yo_op_bit_or(a, b))
+  (|): ((lhs, rhs) -> __yo_op_bit_or(lhs, rhs))
 ));
 impl(int, BitXor(int)(
-  (^): ((a, b) -> __yo_op_bit_xor(a, b))
+  (^): ((lhs, rhs) -> __yo_op_bit_xor(lhs, rhs))
 ));
 impl(int, Eq(int)(
-  (==) : ((a, b) -> __yo_op_eq(a, b)),
-  (!=) : ((a, b) -> __yo_op_neq(a, b))
+  (==) : ((lhs, rhs) -> __yo_op_eq(lhs, rhs)),
+  (!=) : ((lhs, rhs) -> __yo_op_neq(lhs, rhs))
 ));
 impl(int, Ord(int)(
-  (<) : ((a, b) -> __yo_op_lt(a, b)),
-  (<=) : ((a, b) -> __yo_op_lte(a, b)),
-  (>) : ((a, b) -> __yo_op_gt(a, b)),
-  (>=) : ((a, b) -> __yo_op_gte(a, b))
+  (<) : ((lhs, rhs) -> __yo_op_lt(lhs, rhs)),
+  (<=) : ((lhs, rhs) -> __yo_op_lte(lhs, rhs)),
+  (>) : ((lhs, rhs) -> __yo_op_gt(lhs, rhs)),
+  (>=) : ((lhs, rhs) -> __yo_op_gte(lhs, rhs))
 ));
 impl(int, Hash(
   (hash): ((self) -> u64(self.*))
@@ -2521,48 +2630,50 @@ export int : _int;
 
 /// uint
 impl(uint, Send());
+impl(uint, Acyclic());
+impl(uint, Runtime());
 impl(uint, Add(uint)(
-  (+): ((a, b) -> __yo_op_add(a, b))
+  (+): ((lhs, rhs) -> __yo_op_add(lhs, rhs))
 ));
 impl(uint, Sub(uint)(
-  (-): ((a, b) -> __yo_op_sub(a, b))
+  (-): ((lhs, rhs) -> __yo_op_sub(lhs, rhs))
 ));
 impl(uint, Mul(uint)(
-  (*): ((a, b) -> __yo_op_mul(a, b))
+  (*): ((lhs, rhs) -> __yo_op_mul(lhs, rhs))
 ));
 impl(uint, Div(uint)(
-  (/): ((a, b) -> __yo_op_div(a, b))
+  (/): ((lhs, rhs) -> __yo_op_div(lhs, rhs))
 ));
 impl(uint, Mod(uint)(
-  (%): ((a, b) -> __yo_op_mod(a, b))
+  (%): ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
 ));
 impl(uint, Negate(uint)(
-  (neg): ((a) -> __yo_op_neg(a))
+  (neg): ((self) -> __yo_op_neg(self))
 ));
 impl(uint, LogicalNot(
-  (!): ((a) -> __yo_op_not(a))
+  (!): ((self) -> __yo_op_not(self))
 ));
 impl(uint, BitNot(uint)(
-  (~): ((a) -> __yo_op_bit_complement(a))
+  (~): ((self) -> __yo_op_bit_complement(self))
 ));
 impl(uint, BitAnd(uint)(
-  (&): ((a, b) -> __yo_op_bit_and(a, b))
+  (&): ((lhs, rhs) -> __yo_op_bit_and(lhs, rhs))
 ));
 impl(uint, BitOr(uint)(
-  (|): ((a, b) -> __yo_op_bit_or(a, b))
+  (|): ((lhs, rhs) -> __yo_op_bit_or(lhs, rhs))
 ));
 impl(uint, BitXor(uint)(
-  (^): ((a, b) -> __yo_op_bit_xor(a, b))
+  (^): ((lhs, rhs) -> __yo_op_bit_xor(lhs, rhs))
 ));
 impl(uint, Eq(uint)(
-  (==) : ((a, b) -> __yo_op_eq(a, b)),
-  (!=) : ((a, b) -> __yo_op_neq(a, b))
+  (==) : ((lhs, rhs) -> __yo_op_eq(lhs, rhs)),
+  (!=) : ((lhs, rhs) -> __yo_op_neq(lhs, rhs))
 ));
 impl(uint, Ord(uint)(
-  (<) : ((a, b) -> __yo_op_lt(a, b)),
-  (<=) : ((a, b) -> __yo_op_lte(a, b)),
-  (>) : ((a, b) -> __yo_op_gt(a, b)),
-  (>=) : ((a, b) -> __yo_op_gte(a, b))
+  (<) : ((lhs, rhs) -> __yo_op_lt(lhs, rhs)),
+  (<=) : ((lhs, rhs) -> __yo_op_lte(lhs, rhs)),
+  (>) : ((lhs, rhs) -> __yo_op_gt(lhs, rhs)),
+  (>=) : ((lhs, rhs) -> __yo_op_gte(lhs, rhs))
 ));
 impl(uint, Hash(
   (hash): ((self) -> u64(self.*))
@@ -2575,48 +2686,50 @@ export uint : _uint;
 
 /// short
 impl(short, Send());
+impl(short, Acyclic());
+impl(short, Runtime());
 impl(short, Add(short)(
-  (+): ((a, b) -> __yo_op_add(a, b))
+  (+): ((lhs, rhs) -> __yo_op_add(lhs, rhs))
 ));
 impl(short, Sub(short)(
-  (-): ((a, b) -> __yo_op_sub(a, b))
+  (-): ((lhs, rhs) -> __yo_op_sub(lhs, rhs))
 ));
 impl(short, Mul(short)(
-  (*): ((a, b) -> __yo_op_mul(a, b))
+  (*): ((lhs, rhs) -> __yo_op_mul(lhs, rhs))
 ));
 impl(short, Div(short)(
-  (/): ((a, b) -> __yo_op_div(a, b))
+  (/): ((lhs, rhs) -> __yo_op_div(lhs, rhs))
 ));
 impl(short, Mod(short)(
-  (%): ((a, b) -> __yo_op_mod(a, b))
+  (%): ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
 ));
 impl(short, Negate(short)(
-  (neg): ((a) -> __yo_op_neg(a))
+  (neg): ((self) -> __yo_op_neg(self))
 ));
 impl(short, LogicalNot(
-  (!): ((a) -> __yo_op_not(a))
+  (!): ((self) -> __yo_op_not(self))
 ));
 impl(short, BitNot(short)(
-  (~): ((a) -> __yo_op_bit_complement(a))
+  (~): ((self) -> __yo_op_bit_complement(self))
 ));
 impl(short, BitAnd(short)(
-  (&): ((a, b) -> __yo_op_bit_and(a, b))
+  (&): ((lhs, rhs) -> __yo_op_bit_and(lhs, rhs))
 ));
 impl(short, BitOr(short)(
-  (|): ((a, b) -> __yo_op_bit_or(a, b))
+  (|): ((lhs, rhs) -> __yo_op_bit_or(lhs, rhs))
 ));
 impl(short, BitXor(short)(
-  (^): ((a, b) -> __yo_op_bit_xor(a, b))
+  (^): ((lhs, rhs) -> __yo_op_bit_xor(lhs, rhs))
 ));
 impl(short, Eq(short)(
-  (==) : ((a, b) -> __yo_op_eq(a, b)),
-  (!=) : ((a, b) -> __yo_op_neq(a, b))
+  (==) : ((lhs, rhs) -> __yo_op_eq(lhs, rhs)),
+  (!=) : ((lhs, rhs) -> __yo_op_neq(lhs, rhs))
 ));
 impl(short, Ord(short)(
-  (<) : ((a, b) -> __yo_op_lt(a, b)),
-  (<=) : ((a, b) -> __yo_op_lte(a, b)),
-  (>) : ((a, b) -> __yo_op_gt(a, b)),
-  (>=) : ((a, b) -> __yo_op_gte(a, b))
+  (<) : ((lhs, rhs) -> __yo_op_lt(lhs, rhs)),
+  (<=) : ((lhs, rhs) -> __yo_op_lte(lhs, rhs)),
+  (>) : ((lhs, rhs) -> __yo_op_gt(lhs, rhs)),
+  (>=) : ((lhs, rhs) -> __yo_op_gte(lhs, rhs))
 ));
 impl(short, Hash(
   (hash): ((self) -> u64(self.*))
@@ -2629,48 +2742,50 @@ export short : _short;
 
 /// ushort
 impl(ushort, Send());
+impl(ushort, Acyclic());
+impl(ushort, Runtime());
 impl(ushort, Add(ushort)(
-  (+): ((a, b) -> __yo_op_add(a, b))
+  (+): ((lhs, rhs) -> __yo_op_add(lhs, rhs))
 ));
 impl(ushort, Sub(ushort)(
-  (-): ((a, b) -> __yo_op_sub(a, b))
+  (-): ((lhs, rhs) -> __yo_op_sub(lhs, rhs))
 ));
 impl(ushort, Mul(ushort)(
-  (*): ((a, b) -> __yo_op_mul(a, b))
+  (*): ((lhs, rhs) -> __yo_op_mul(lhs, rhs))
 ));
 impl(ushort, Div(ushort)(
-  (/): ((a, b) -> __yo_op_div(a, b))
+  (/): ((lhs, rhs) -> __yo_op_div(lhs, rhs))
 ));
 impl(ushort, Mod(ushort)(
-  (%): ((a, b) -> __yo_op_mod(a, b))
+  (%): ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
 ));
 impl(ushort, Negate(ushort)(
-  (neg): ((a) -> __yo_op_neg(a))
+  (neg): ((self) -> __yo_op_neg(self))
 ));
 impl(ushort, LogicalNot(
-  (!): ((a) -> __yo_op_not(a))
+  (!): ((self) -> __yo_op_not(self))
 ));
 impl(ushort, BitNot(ushort)(
-  (~): ((a) -> __yo_op_bit_complement(a))
+  (~): ((self) -> __yo_op_bit_complement(self))
 ));
 impl(ushort, BitAnd(ushort)(
-  (&): ((a, b) -> __yo_op_bit_and(a, b))
+  (&): ((lhs, rhs) -> __yo_op_bit_and(lhs, rhs))
 ));
 impl(ushort, BitOr(ushort)(
-  (|): ((a, b) -> __yo_op_bit_or(a, b))
+  (|): ((lhs, rhs) -> __yo_op_bit_or(lhs, rhs))
 ));
 impl(ushort, BitXor(ushort)(
-  (^): ((a, b) -> __yo_op_bit_xor(a, b))
+  (^): ((lhs, rhs) -> __yo_op_bit_xor(lhs, rhs))
 ));
 impl(ushort, Eq(ushort)(
-  (==) : ((a, b) -> __yo_op_eq(a, b)),
-  (!=) : ((a, b) -> __yo_op_neq(a, b))
+  (==) : ((lhs, rhs) -> __yo_op_eq(lhs, rhs)),
+  (!=) : ((lhs, rhs) -> __yo_op_neq(lhs, rhs))
 ));
 impl(ushort, Ord(ushort)(
-  (<) : ((a, b) -> __yo_op_lt(a, b)),
-  (<=) : ((a, b) -> __yo_op_lte(a, b)),
-  (>) : ((a, b) -> __yo_op_gt(a, b)),
-  (>=) : ((a, b) -> __yo_op_gte(a, b))
+  (<) : ((lhs, rhs) -> __yo_op_lt(lhs, rhs)),
+  (<=) : ((lhs, rhs) -> __yo_op_lte(lhs, rhs)),
+  (>) : ((lhs, rhs) -> __yo_op_gt(lhs, rhs)),
+  (>=) : ((lhs, rhs) -> __yo_op_gte(lhs, rhs))
 ));
 impl(ushort, Hash(
   (hash): ((self) -> u64(self.*))
@@ -2683,48 +2798,50 @@ export ushort : _ushort;
 
 /// long
 impl(long, Send());
+impl(long, Acyclic());
+impl(long, Runtime());
 impl(long, Add(long)(
-  (+): ((a, b) -> __yo_op_add(a, b))
+  (+): ((lhs, rhs) -> __yo_op_add(lhs, rhs))
 ));
 impl(long, Sub(long)(
-  (-): ((a, b) -> __yo_op_sub(a, b))
+  (-): ((lhs, rhs) -> __yo_op_sub(lhs, rhs))
 ));
 impl(long, Mul(long)(
-  (*): ((a, b) -> __yo_op_mul(a, b))
+  (*): ((lhs, rhs) -> __yo_op_mul(lhs, rhs))
 ));
 impl(long, Div(long)(
-  (/): ((a, b) -> __yo_op_div(a, b))
+  (/): ((lhs, rhs) -> __yo_op_div(lhs, rhs))
 ));
 impl(long, Mod(long)(
-  (%): ((a, b) -> __yo_op_mod(a, b))
+  (%): ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
 ));
 impl(long, Negate(long)(
-  (neg): ((a) -> __yo_op_neg(a))
+  (neg): ((self) -> __yo_op_neg(self))
 ));
 impl(long, LogicalNot(
-  (!): ((a) -> __yo_op_not(a))
+  (!): ((self) -> __yo_op_not(self))
 ));
 impl(long, BitNot(long)(
-  (~): ((a) -> __yo_op_bit_complement(a))
+  (~): ((self) -> __yo_op_bit_complement(self))
 ));
 impl(long, BitAnd(long)(
-  (&): ((a, b) -> __yo_op_bit_and(a, b))
+  (&): ((lhs, rhs) -> __yo_op_bit_and(lhs, rhs))
 ));
 impl(long, BitOr(long)(
-  (|): ((a, b) -> __yo_op_bit_or(a, b))
+  (|): ((lhs, rhs) -> __yo_op_bit_or(lhs, rhs))
 ));
 impl(long, BitXor(long)(
-  (^): ((a, b) -> __yo_op_bit_xor(a, b))
+  (^): ((lhs, rhs) -> __yo_op_bit_xor(lhs, rhs))
 ));
 impl(long, Eq(long)(
-  (==) : ((a, b) -> __yo_op_eq(a, b)),
-  (!=) : ((a, b) -> __yo_op_neq(a, b))
+  (==) : ((lhs, rhs) -> __yo_op_eq(lhs, rhs)),
+  (!=) : ((lhs, rhs) -> __yo_op_neq(lhs, rhs))
 ));
 impl(long, Ord(long)(
-  (<) : ((a, b) -> __yo_op_lt(a, b)),
-  (<=) : ((a, b) -> __yo_op_lte(a, b)),
-  (>) : ((a, b) -> __yo_op_gt(a, b)),
-  (>=) : ((a, b) -> __yo_op_gte(a, b))
+  (<) : ((lhs, rhs) -> __yo_op_lt(lhs, rhs)),
+  (<=) : ((lhs, rhs) -> __yo_op_lte(lhs, rhs)),
+  (>) : ((lhs, rhs) -> __yo_op_gt(lhs, rhs)),
+  (>=) : ((lhs, rhs) -> __yo_op_gte(lhs, rhs))
 ));
 impl(long, Hash(
   (hash): ((self) -> u64(self.*))
@@ -2738,48 +2855,50 @@ export long : _long;
 
 /// ulong
 impl(ulong, Send());
+impl(ulong, Acyclic());
+impl(ulong, Runtime());
 impl(ulong, Add(ulong)(
-  (+): ((a, b) -> __yo_op_add(a, b))
+  (+): ((lhs, rhs) -> __yo_op_add(lhs, rhs))
 ));
 impl(ulong, Sub(ulong)(
-  (-): ((a, b) -> __yo_op_sub(a, b))
+  (-): ((lhs, rhs) -> __yo_op_sub(lhs, rhs))
 ));
 impl(ulong, Mul(ulong)(
-  (*): ((a, b) -> __yo_op_mul(a, b))
+  (*): ((lhs, rhs) -> __yo_op_mul(lhs, rhs))
 ));
 impl(ulong, Div(ulong)(
-  (/): ((a, b) -> __yo_op_div(a, b))
+  (/): ((lhs, rhs) -> __yo_op_div(lhs, rhs))
 ));
 impl(ulong, Mod(ulong)(
-  (%): ((a, b) -> __yo_op_mod(a, b))
+  (%): ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
 ));
 impl(ulong, Negate(ulong)(
-  (neg): ((a) -> __yo_op_neg(a))
+  (neg): ((self) -> __yo_op_neg(self))
 ));
 impl(ulong, LogicalNot(
-  (!): ((a) -> __yo_op_not(a))
+  (!): ((self) -> __yo_op_not(self))
 ));
 impl(ulong, BitNot(ulong)(
-  (~): ((a) -> __yo_op_bit_complement(a))
+  (~): ((self) -> __yo_op_bit_complement(self))
 ));
 impl(ulong, BitAnd(ulong)(
-  (&): ((a, b) -> __yo_op_bit_and(a, b))
+  (&): ((lhs, rhs) -> __yo_op_bit_and(lhs, rhs))
 ));
 impl(ulong, BitOr(ulong)(
-  (|): ((a, b) -> __yo_op_bit_or(a, b))
+  (|): ((lhs, rhs) -> __yo_op_bit_or(lhs, rhs))
 ));
 impl(ulong, BitXor(ulong)(
-  (^): ((a, b) -> __yo_op_bit_xor(a, b))
+  (^): ((lhs, rhs) -> __yo_op_bit_xor(lhs, rhs))
 ));
 impl(ulong, Eq(ulong)(
-  (==) : ((a, b) -> __yo_op_eq(a, b)),
-  (!=) : ((a, b) -> __yo_op_neq(a, b))
+  (==) : ((lhs, rhs) -> __yo_op_eq(lhs, rhs)),
+  (!=) : ((lhs, rhs) -> __yo_op_neq(lhs, rhs))
 ));
 impl(ulong, Ord(ulong)(
-  (<) : ((a, b) -> __yo_op_lt(a, b)),
-  (<=) : ((a, b) -> __yo_op_lte(a, b)),
-  (>) : ((a, b) -> __yo_op_gt(a, b)),
-  (>=) : ((a, b) -> __yo_op_gte(a, b))
+  (<) : ((lhs, rhs) -> __yo_op_lt(lhs, rhs)),
+  (<=) : ((lhs, rhs) -> __yo_op_lte(lhs, rhs)),
+  (>) : ((lhs, rhs) -> __yo_op_gt(lhs, rhs)),
+  (>=) : ((lhs, rhs) -> __yo_op_gte(lhs, rhs))
 ));
 impl(ulong, Hash(
   (hash): ((self) -> u64(self.*))
@@ -2792,48 +2911,50 @@ export ulong : _ulong;
 
 /// longlong
 impl(longlong, Send());
+impl(longlong, Acyclic());
+impl(longlong, Runtime());
 impl(longlong, Add(longlong)(
-  (+): ((a, b) -> __yo_op_add(a, b))
+  (+): ((lhs, rhs) -> __yo_op_add(lhs, rhs))
 ));
 impl(longlong, Sub(longlong)(
-  (-): ((a, b) -> __yo_op_sub(a, b))
+  (-): ((lhs, rhs) -> __yo_op_sub(lhs, rhs))
 ));
 impl(longlong, Mul(longlong)(
-  (*): ((a, b) -> __yo_op_mul(a, b))
+  (*): ((lhs, rhs) -> __yo_op_mul(lhs, rhs))
 ));
 impl(longlong, Div(longlong)(
-  (/): ((a, b) -> __yo_op_div(a, b))
+  (/): ((lhs, rhs) -> __yo_op_div(lhs, rhs))
 ));
 impl(longlong, Mod(longlong)(
-  (%): ((a, b) -> __yo_op_mod(a, b))
+  (%): ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
 ));
 impl(longlong, Negate(longlong)(
-  (neg): ((a) -> __yo_op_neg(a))
+  (neg): ((self) -> __yo_op_neg(self))
 ));
 impl(longlong, LogicalNot(
-  (!): ((a) -> __yo_op_not(a))
+  (!): ((self) -> __yo_op_not(self))
 ));
 impl(longlong, BitNot(longlong)(
-  (~): ((a) -> __yo_op_bit_complement(a))
+  (~): ((self) -> __yo_op_bit_complement(self))
 ));
 impl(longlong, BitAnd(longlong)(
-  (&): ((a, b) -> __yo_op_bit_and(a, b))
+  (&): ((lhs, rhs) -> __yo_op_bit_and(lhs, rhs))
 ));
 impl(longlong, BitOr(longlong)(
-  (|): ((a, b) -> __yo_op_bit_or(a, b))
+  (|): ((lhs, rhs) -> __yo_op_bit_or(lhs, rhs))
 ));
 impl(longlong, BitXor(longlong)(
-  (^): ((a, b) -> __yo_op_bit_xor(a, b))
+  (^): ((lhs, rhs) -> __yo_op_bit_xor(lhs, rhs))
 ));
 impl(longlong, Eq(longlong)(
-  (==) : ((a, b) -> __yo_op_eq(a, b)),
-  (!=) : ((a, b) -> __yo_op_neq(a, b))
+  (==) : ((lhs, rhs) -> __yo_op_eq(lhs, rhs)),
+  (!=) : ((lhs, rhs) -> __yo_op_neq(lhs, rhs))
 ));
 impl(longlong, Ord(longlong)(
-  (<) : ((a, b) -> __yo_op_lt(a, b)),
-  (<=) : ((a, b) -> __yo_op_lte(a, b)),
-  (>) : ((a, b) -> __yo_op_gt(a, b)),
-  (>=) : ((a, b) -> __yo_op_gte(a, b))
+  (<) : ((lhs, rhs) -> __yo_op_lt(lhs, rhs)),
+  (<=) : ((lhs, rhs) -> __yo_op_lte(lhs, rhs)),
+  (>) : ((lhs, rhs) -> __yo_op_gt(lhs, rhs)),
+  (>=) : ((lhs, rhs) -> __yo_op_gte(lhs, rhs))
 ));
 impl(longlong, Hash(
   (hash): ((self) -> u64(self.*))
@@ -2846,48 +2967,50 @@ export longlong : _longlong;
 
 /// ulonglong
 impl(ulonglong, Send());
+impl(ulonglong, Acyclic());
+impl(ulonglong, Runtime());
 impl(ulonglong, Add(ulonglong)(
-  (+): ((a, b) -> __yo_op_add(a, b))
+  (+): ((lhs, rhs) -> __yo_op_add(lhs, rhs))
 ));
 impl(ulonglong, Sub(ulonglong)(
-  (-): ((a, b) -> __yo_op_sub(a, b))
+  (-): ((lhs, rhs) -> __yo_op_sub(lhs, rhs))
 ));
 impl(ulonglong, Mul(ulonglong)(
-  (*): ((a, b) -> __yo_op_mul(a, b))
+  (*): ((lhs, rhs) -> __yo_op_mul(lhs, rhs))
 ));
 impl(ulonglong, Div(ulonglong)(
-  (/): ((a, b) -> __yo_op_div(a, b))
+  (/): ((lhs, rhs) -> __yo_op_div(lhs, rhs))
 ));
 impl(ulonglong, Mod(ulonglong)(
-  (%): ((a, b) -> __yo_op_mod(a, b))
+  (%): ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
 ));
 impl(ulonglong, Negate(ulonglong)(
-  (neg): ((a) -> __yo_op_neg(a))
+  (neg): ((self) -> __yo_op_neg(self))
 ));
 impl(ulonglong, LogicalNot(
-  (!): ((a) -> __yo_op_not(a))
+  (!): ((self) -> __yo_op_not(self))
 ));
 impl(ulonglong, BitNot(ulonglong)(
-  (~): ((a) -> __yo_op_bit_complement(a))
+  (~): ((self) -> __yo_op_bit_complement(self))
 ));
 impl(ulonglong, BitAnd(ulonglong)(
-  (&): ((a, b) -> __yo_op_bit_and(a, b))
+  (&): ((lhs, rhs) -> __yo_op_bit_and(lhs, rhs))
 ));
 impl(ulonglong, BitOr(ulonglong)(
-  (|): ((a, b) -> __yo_op_bit_or(a, b))
+  (|): ((lhs, rhs) -> __yo_op_bit_or(lhs, rhs))
 ));
 impl(ulonglong, BitXor(ulonglong)(
-  (^): ((a, b) -> __yo_op_bit_xor(a, b))
+  (^): ((lhs, rhs) -> __yo_op_bit_xor(lhs, rhs))
 ));
 impl(ulonglong, Eq(ulonglong)(
-  (==) : ((a, b) -> __yo_op_eq(a, b)),
-  (!=) : ((a, b) -> __yo_op_neq(a, b))
+  (==) : ((lhs, rhs) -> __yo_op_eq(lhs, rhs)),
+  (!=) : ((lhs, rhs) -> __yo_op_neq(lhs, rhs))
 ));
 impl(ulonglong, Ord(ulonglong)(
-  (<) : ((a, b) -> __yo_op_lt(a, b)),
-  (<=) : ((a, b) -> __yo_op_lte(a, b)),
-  (>) : ((a, b) -> __yo_op_gt(a, b)),
-  (>=) : ((a, b) -> __yo_op_gte(a, b))
+  (<) : ((lhs, rhs) -> __yo_op_lt(lhs, rhs)),
+  (<=) : ((lhs, rhs) -> __yo_op_lte(lhs, rhs)),
+  (>) : ((lhs, rhs) -> __yo_op_gt(lhs, rhs)),
+  (>=) : ((lhs, rhs) -> __yo_op_gte(lhs, rhs))
 ));
 impl(ulonglong, Hash(
   (hash): ((self) -> u64(self.*))
@@ -2900,48 +3023,50 @@ export ulonglong : _ulonglong;
 
 /// longdouble
 impl(longdouble, Send());
+impl(longdouble, Acyclic());
+impl(longdouble, Runtime());
 impl(longdouble, Add(longdouble)(
-  (+): ((a, b) -> __yo_op_add(a, b))
+  (+): ((lhs, rhs) -> __yo_op_add(lhs, rhs))
 ));
 impl(longdouble, Sub(longdouble)(
-  (-): ((a, b) -> __yo_op_sub(a, b))
+  (-): ((lhs, rhs) -> __yo_op_sub(lhs, rhs))
 ));
 impl(longdouble, Mul(longdouble)(
-  (*): ((a, b) -> __yo_op_mul(a, b))
+  (*): ((lhs, rhs) -> __yo_op_mul(lhs, rhs))
 ));
 impl(longdouble, Div(longdouble)(
-  (/): ((a, b) -> __yo_op_div(a, b))
+  (/): ((lhs, rhs) -> __yo_op_div(lhs, rhs))
 ));
 impl(longdouble, Mod(longdouble)(
-  (%): ((a, b) -> __yo_op_mod(a, b))
+  (%): ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
 ));
 impl(longdouble, Negate(longdouble)(
-  (neg): ((a) -> __yo_op_neg(a))
+  (neg): ((self) -> __yo_op_neg(self))
 ));
 impl(longdouble, LogicalNot(
-  (!): ((a) -> __yo_op_not(a))
+  (!): ((self) -> __yo_op_not(self))
 ));
 impl(longdouble, BitNot(longdouble)(
-  (~): ((a) -> __yo_op_bit_complement(a))
+  (~): ((self) -> __yo_op_bit_complement(self))
 ));
 impl(longdouble, BitAnd(longdouble)(
-  (&): ((a, b) -> __yo_op_bit_and(a, b))
+  (&): ((lhs, rhs) -> __yo_op_bit_and(lhs, rhs))
 ));
 impl(longdouble, BitOr(longdouble)(
-  (|): ((a, b) -> __yo_op_bit_or(a, b))
+  (|): ((lhs, rhs) -> __yo_op_bit_or(lhs, rhs))
 ));
 impl(longdouble, BitXor(longdouble)(
-  (^): ((a, b) -> __yo_op_bit_xor(a, b))
+  (^): ((lhs, rhs) -> __yo_op_bit_xor(lhs, rhs))
 ));
 impl(longdouble, Eq(longdouble)(
-  (==) : ((a, b) -> __yo_op_eq(a, b)),
-  (!=) : ((a, b) -> __yo_op_neq(a, b))
+  (==) : ((lhs, rhs) -> __yo_op_eq(lhs, rhs)),
+  (!=) : ((lhs, rhs) -> __yo_op_neq(lhs, rhs))
 ));
 impl(longdouble, Ord(longdouble)(
-  (<) : ((a, b) -> __yo_op_lt(a, b)),
-  (<=) : ((a, b) -> __yo_op_lte(a, b)),
-  (>) : ((a, b) -> __yo_op_gt(a, b)),
-  (>=) : ((a, b) -> __yo_op_gte(a, b))
+  (<) : ((lhs, rhs) -> __yo_op_lt(lhs, rhs)),
+  (<=) : ((lhs, rhs) -> __yo_op_lte(lhs, rhs)),
+  (>) : ((lhs, rhs) -> __yo_op_gt(lhs, rhs)),
+  (>=) : ((lhs, rhs) -> __yo_op_gte(lhs, rhs))
 ));
 impl(longdouble, Hash(
   (hash): ((self) -> u64(i64(self.*)))
@@ -2954,77 +3079,70 @@ export longdouble : _longdouble;
 
 /// Ptr
 impl(forall(T : Type), where(T <: Send), *(T), Send());
+impl(forall(T : Type), *(T), Acyclic());
+impl(forall(T : Type), where(T <: Comptime), *(T), Comptime());
+impl(forall(T : Type), where(T <: Runtime), *(T), Runtime());
 /*
-impl(forall(T : Type), *(T), Add(usize, *(T))(
+// NOTE: Below should give eror, as C disallows pointer arithmetic on void pointers.
+impl(*(void), Add(usize, *(void))(
   (+) : ((lhs, rhs) -> __yo_ptr_add(lhs, rhs))
 ));
-impl(forall(T : Type), *(T), Sub(usize, *(T))(
+impl(*(void), Sub(usize, *(void))(
   (-) : ((lhs, rhs) -> __yo_ptr_sub(lhs, rhs))
 ));
-impl(forall(T : Type), *(T), Eq(*(T))(
+impl(*(void), Eq(*(void))(
   (==) : ((lhs, rhs) -> __yo_ptr_eq(lhs, rhs)),
   (!=) : ((lhs, rhs) -> __yo_ptr_neq(lhs, rhs))
 ));
-impl(forall(T : Type), *(T), Ord(*(T))(
+impl(*(void), Div(*(void), isize)(
+  (/) : ((lhs, rhs) -> __yo_ptr_diff(lhs, rhs))
+));
+impl(*(void), Ord(*(void))(
   (<) : ((lhs, rhs) -> __yo_ptr_lt(lhs, rhs)),
   (<=) : ((lhs, rhs) -> __yo_ptr_lte(lhs, rhs)),
   (>) : ((lhs, rhs) -> __yo_ptr_gt(lhs, rhs)),
   (>=) : ((lhs, rhs) -> __yo_ptr_gte(lhs, rhs))
 ));
-impl(forall(T : Type), *(T), {
-  diff :: (fn(lhs : Self, rhs : Self) -> isize) {
-    return __yo_ptr_diff(lhs, rhs);
-  };
-  cast :: (fn(self : Self, compt(Target) : Type) -> Target) {
-    return __yo_as(self, Target);
-  };
-  export diff, cast;
-});
 */
-impl(forall(T : Type), *(T), {
-  (&+) :: (fn(self : Self, offset : usize) -> Self)
+impl(forall(T : Type), *(T),
+  (&+) : (fn(self : Self, offset : usize) -> Self)(
     __yo_ptr_add(self, offset)
-  ;
-  (&-) :: (fn(self : Self, offset : usize) -> Self)
+  ),
+  (&-) : (fn(self : Self, offset : usize) -> Self)(
     __yo_ptr_sub(self, offset)
-  ;
-  (&==) :: (fn(self : Self, another : Self) -> bool)
+  ),
+  (&==) : (fn(self : Self, another : Self) -> bool)(
     __yo_ptr_eq(self, another)
-  ;
-  (&!=) :: (fn(self : Self, another : Self) -> bool)
+  ),
+  (&!=) : (fn(self : Self, another : Self) -> bool)(
     __yo_ptr_neq(self, another)
-  ;
-  (&<) :: (fn(self : Self, another : Self) -> bool)
+  ),
+  (&<) : (fn(self : Self, another : Self) -> bool)(
     __yo_ptr_lt(self, another)
-  ;
-  (&<=) :: (fn(self : Self, another : Self) -> bool)
+  ),
+  (&<=) : (fn(self : Self, another : Self) -> bool)(
     __yo_ptr_lte(self, another)
-  ;
-  (&>) :: (fn(self : Self, another : Self) -> bool)
+  ),
+  (&>) : (fn(self : Self, another : Self) -> bool)(
     __yo_ptr_gt(self, another)
-  ;
-  (&>=) :: (fn(self : Self, another : Self) -> bool)
+  ),
+  (&>=) : (fn(self : Self, another : Self) -> bool)(
     __yo_ptr_gte(self, another)
-  ;
-  (&/) :: (fn(self : Self, another : Self) -> isize)
+  ),
+  (&/) : (fn(self : Self, another : Self) -> isize)(
     __yo_ptr_diff(self, another)
-  ;
- 
-  export (&+), (&-), (&==), (&!=), (&<), (&<=), (&>), (&>=), (&/);
-});
+  )
+);
 
 /// Array
 impl(forall(T : Type, U : usize), where(T <: Send), Array(T, U), Send());
-impl(forall(T : Type, U : usize), Array(T, U), {
-  len :: (fn(self : *(Self)) -> usize) {
+impl(forall(T : Type, U : usize), Array(T, U), Acyclic());
+impl(forall(T : Type, U : usize), where(T <: Comptime), Array(T, U), Comptime());
+impl(forall(T : Type, U : usize), where(T <: Runtime), Array(T, U), Runtime());
+impl(forall(T : Type, U : usize), Array(T, U),
+  len : (fn(self : *(Self)) -> usize)({
     return U;
-  };
-  export len;
-
-  fill :: (fn(compt(val) : T) -> compt(Self)) {
-    return __yo_array_fill(Self, val);
-  };
-  export fill;
+  })
 
   /*
   // NOTE: Macro doesn't work yet.
@@ -3035,111 +3153,120 @@ impl(forall(T : Type, U : usize), Array(T, U), {
   };
   export fill;
   */
-});
+);
+
+impl(forall(T : Type, U : usize), where(T <: Comptime), Array(T, U),
+  fill : (fn(comptime(val) : T) -> comptime(Self))({
+    return __yo_array_fill(Self, val);
+  })
+);
 
 /// Slice
-impl(forall(T : Type), Slice(T), {
-  len :: (fn(self : Self) -> usize)(
+impl(forall(T : Type), Slice(T), Acyclic());
+impl(forall(T : Type), where(T <: Comptime), Slice(T), Comptime());
+impl(forall(T : Type), where(T <: Runtime), Slice(T), Runtime());
+impl(forall(T : Type), Slice(T),
+  len : (fn(self : Self) -> usize)(
     __yo_slice_len(self)
-  );
-  export len;
-});
+  )
+);
 
 /// str
 str :: newtype(
-  bytes : Slice(u8),
-
-  len :: (fn(self : Self) -> usize)(
+  bytes : Slice(u8)
+);
+impl(str,
+  len : (fn(self : Self) -> usize)(
     __yo_slice_len(self.bytes)
   )
 );
 export str;
 
-/// ComptList
-impl(forall(T : Type), ComptList(T), {
-  car :: (fn(compt(self): Self) -> compt(__yo_compt_list_element_type(Self)))(
-    __yo_compt_list_car(self)
-  );
-  cdr :: (fn(compt(self): Self) -> compt(Self))(
-    __yo_compt_list_cdr(self)
-  );
-  first :: car;
-  rest :: cdr;
-  append :: (fn(compt(self): Self, compt(another): Self) -> compt(Self))(
-    __yo_compt_list_append(self, another)
-  );
-  len :: (fn(compt(self): Self) -> compt(usize))(
-    __yo_compt_list_length(self)
-  );
-  export car, cdr, first, rest, append, len;
-});
+
+/// ComptimeList
+impl(forall(T : Type), ComptimeList(T), Comptime());
+impl(forall(T : Type), ComptimeList(T), Acyclic());
+impl(forall(T : Type), where(T <: Comptime), ComptimeList(T),
+  car : (fn(comptime(self): Self) -> comptime(__yo_comptime_list_element_type(Self)))(
+    __yo_comptime_list_car(self)
+  ),
+
+  cdr : (fn(comptime(self): Self) -> comptime(Self))(
+    __yo_comptime_list_cdr(self)
+  ),
+
+  first : car,
+  rest : cdr,
+  
+  append : (fn(comptime(self): Self, comptime(another): Self) -> comptime(Self))(
+    __yo_comptime_list_append(self, another)
+  ),
+
+  len : (fn(comptime(self): Self) -> comptime(usize))(
+    __yo_comptime_list_length(self)
+  )
+);
 
 /// ExprList
-ExprList :: ComptList(Expr);
+ExprList :: ComptimeList(Expr);
 export ExprList;
 
 /// Expr
-impl(Expr, ComptEq(Expr)(
-  (==) : (fn(compt(lhs): Expr, compt(rhs): Expr) -> compt(bool))(
+impl(Expr, Comptime());
+impl(Expr, Acyclic());
+impl(Expr, ComptimeEq(Expr)(
+  (==) : (fn(comptime(lhs): Expr, comptime(rhs): Expr) -> comptime(bool))(
     __yo_expr_eq(lhs, rhs)
   )
 ));
-impl(Expr, {
-  is_atom :: (fn(compt(self): Expr) -> compt(bool))(
+impl(Expr,
+  is_atom : (fn(comptime(self): Expr) -> comptime(bool))(
     __yo_expr_is_atom(self)
-  );
-  export is_atom;
+  ),
 
-  is_fn_call :: (fn(compt(self): Expr) -> compt(bool))(
+  is_fn_call : (fn(comptime(self): Expr) -> comptime(bool))(
     __yo_expr_is_fn_call(self)
-  );
-  export is_fn_call;
+  ),
 
-  get_callee :: (fn(compt(self): Expr) -> compt(Expr))(
+  get_callee : (fn(comptime(self): Expr) -> comptime(Expr))(
     __yo_expr_get_callee(self)
-  );
-  export get_callee;
+  ),
 
-  get_args :: (fn(compt(self): Expr) -> compt(ExprList))(
+  get_args : (fn(comptime(self): Expr) -> comptime(ExprList))(
     __yo_expr_get_args(self)
-  );
-  export get_args;
+  ),
 
-  cons :: (fn(compt(self): Expr, compt(rest): ExprList) -> compt(ExprList))(
-    __yo_compt_list_cons(self, rest)
-  );
-  export cons;
-});
-impl(Expr, ComptToString(
-  to_compt_string : (self -> __yo_expr_to_string(self))
+  cons : (fn(comptime(self): Expr, comptime(rest): ExprList) -> comptime(ExprList))(
+    __yo_comptime_list_cons(self, rest)
+  )
+);
+impl(Expr, ComptimeToString(
+  to_comptime_string : (self -> __yo_expr_to_string(self))
 ));
 _Expr :: Expr;
 export Expr : _Expr;
 
 // Type
-impl(Type, {
-  is_compatible_with :: (fn(compt(self): Type, compt(expected_type): Type) -> compt(bool))({
+impl(Type, Comptime());
+impl(Type,
+  is_compatible_with : (fn(comptime(self): Type, comptime(expected_type): Type) -> comptime(bool))({
      return __yo_are_types_compatible(expected_type, self);
-  });
-  export is_compatible_with;
+  }),
 
-  contains_rc_type :: (fn(compt(self): Type) -> compt(bool))({
+  contains_rc_type : (fn(comptime(self): Type) -> comptime(bool))({
     return __yo_type_contains_rc_type(self);
-  });
-  export contains_rc_type;
+  }),
 
-  can_form_rc_cycle :: (fn(compt(self): Type) -> compt(bool))({
+  can_form_rc_cycle : (fn(comptime(self): Type) -> comptime(bool))({
     return __yo_type_can_form_rc_cycle(self);
-  });
-  export can_form_rc_cycle;
+  }),
 
-  impls :: (fn(compt(self): Type, compt(marker): Trait) -> compt(bool))({
+  impls : (fn(comptime(self): Type, comptime(marker): Trait) -> comptime(bool))({
     return __yo_type_impls(self, marker);
-  });
-  export impls;
-});
-impl(Type, ComptToString(
-  to_compt_string : (self -> __yo_type_to_compt_string(self))
+  })
+);
+impl(Type, ComptimeToString(
+  to_comptime_string : (self -> __yo_type_to_comptime_string(self))
 ));
 _Type :: Type;
 export Type : _Type;
@@ -3167,44 +3294,46 @@ export Var;
 
 // === Data Types ===
 /// === Option ===
-Option :: (fn(compt(T) : Type) -> compt(Type))
+Option :: (fn(comptime(T) : Type) -> comptime(Type))(
   enum(
     None,
-    Some(value: T),
+    Some(value: T)
+  )
+);
+impl(forall(T : Type), Option(T),
+  unwrap : (fn(self : Self) -> T)(
+    match(self,
+      .Some(value) => value,
+      .None => panic("Called unwrap on a None value")
+    )
+  ),
 
-    unwrap :: (fn(self : Self) -> T)(
-      match(self,
-        .Some(value) => value,
-        .None => panic("Called unwrap on a None value")
-      )
-    ),
+  unwrap_or : (fn(self : Self, or_value : T) -> T)(
+    match(self,
+      .Some(value) => value,
+      .None => or_value
+    )
+  ),
 
-    unwrap_or :: (fn(self : Self, or_value : T) -> T)(
-      match(self,
-        .Some(value) => value,
-        .None => or_value
-      )
-    ),
+  is_some : (fn(self : Self) -> bool)(
+    match(self,
+      .Some(_) => true,
+      .None => false
+    )
+  ),
 
-    is_some :: (fn(self : Self) -> bool)(
-      match(self,
-        .Some(_) => true,
-        .None => false
-      )
-    ),
-
-    is_none :: (fn(self : Self) -> bool)(
-      match(self,
-        .None => true,
-        .Some(_) => false
-      )
+  is_none : (fn(self : Self) -> bool)(
+    match(self,
+      .None => true,
+      .Some(_) => false
     )
   )
-;
+);
+
 // Alias of the Option type
 ? :: Option;
 // Nullable pointer
-(?*) :: (fn(compt(T): Type) -> compt(Type))
+(?*) :: (fn(comptime(T): Type) -> comptime(Type))
   Option(*(T))
 ;
 export 
@@ -3215,38 +3344,40 @@ export
 
 
 /// === Result ===
-Result :: (fn(compt(OkType): Type, compt(ErrorType): Type) -> compt(Type))
-  enum
+Result :: (fn(comptime(OkType): Type, comptime(ErrorType): Type) -> comptime(Type))
+  enum(
     Ok(value: OkType),
-    Err(error: ErrorType),
-
-    unwrap :: (fn(self : Self) -> OkType)(
-      match(self,
-        .Ok(value) => value,
-        .Err(_) => panic("Called unwrap on an Error value")
-      )
-    ),
-
-    is_ok :: (fn(self : Self) -> bool)(
-      match(self,
-        .Ok(_) => true,
-        .Err(_) => false
-      )
-    ),
-
-    is_err :: (fn(self : Self) -> bool)(
-      match(self,
-        .Err(_) => true,
-        .Ok(_) => false
-      )
-    )
+    Err(error: ErrorType)
+  )
 ;
+impl(forall(OkType : Type, ErrorType : Type), Result(OkType, ErrorType),
+  unwrap : (fn(self : Self) -> OkType)(
+    match(self,
+      .Ok(value) => value,
+      .Err(_) => panic("Called unwrap on an Error value")
+    )
+  ),
+
+  is_ok : (fn(self : Self) -> bool)(
+    match(self,
+      .Ok(_) => true,
+      .Err(_) => false
+    )
+  ),
+
+  is_err : (fn(self : Self) -> bool)(
+    match(self,
+      .Err(_) => true,
+      .Ok(_) => false
+    )
+  )
+);
 export
   Result
 ;
 
 /// === Box ===
-Box :: (fn(compt(V) : Type) -> compt(Type))
+Box :: (fn(comptime(V) : Type) -> comptime(Type))
   object(
     (*) : V
   )
@@ -3279,12 +3410,12 @@ export
 
 /// === Iso ===
 impl(forall(T : Type), Iso(T), Send());
-impl(forall(T : Type), Iso(T), {
-  extract :: (fn(self : Self) -> Option(T))(
+impl(forall(T : Type), where(T <: Acyclic), Iso(T), Acyclic());
+impl(forall(T : Type), Iso(T),
+  extract : (fn(self : Self) -> Option(T))(
     __yo_iso_extract(self)
-  );
-  export extract;
-});
+  )
+);
 
 
 (^) :: (fn(quote(v) : Expr) -> unquote(Expr))({
@@ -3305,17 +3436,17 @@ impl(forall(T : Type), Iso(T), {
         cond(
           Type.can_form_rc_cycle(unquote(temp_type)) => { // compile-time check
             consume(unquote(temp));
-            compt_assert(false, "Cannot isolate value of type containing Rc type that can form cycles");
+            comptime_assert(false, "Cannot isolate value of type containing Rc type that can form cycles");
             Option(Iso(unquote(temp_type))).None
           },
           !(Var.is_owning_the_rc_value(unquote(temp))) => { // compile-time check
             consume(unquote(temp));
-            compt_assert(false, "Cannot isolate value of type that is not owned");
+            comptime_assert(false, "Cannot isolate value of type that is not owned");
             Option(Iso(unquote(temp_type))).None
           },
           (Var.has_other_aliases(unquote(temp))) => { // compile-time check
             consume(unquote(temp));
-            compt_assert(false, "Cannot isolate value of type that has other aliases");
+            comptime_assert(false, "Cannot isolate value of type that has other aliases");
             Option(Iso(unquote(temp_type))).None
           },
           (unquote(temp_type) <: Isolation).can_isolate(unquote(temp)) => // run-time check
@@ -3326,7 +3457,7 @@ impl(forall(T : Type), Iso(T), {
           }
         ),
       true => { // compile-time check
-        compt_assert(false, "Cannot isolate value type that does not contain Rc type");
+        comptime_assert(false, "Cannot isolate value type that does not contain Rc type");
         Option(Iso(unquote(temp_type))).Some(Iso(unquote(temp_type))(unquote(temp)))
       }
     )
@@ -3337,28 +3468,29 @@ export (^);
 /// === MaybeUninit ===
 extern "Yo",
   __yo_maybe_uninit_new : 
-    (fn(compt(_Self) : Type) -> _Self),
+    (fn(comptime(_Self) : Type) -> _Self),
   __yo_maybe_uninit_as_ptr : 
-    (fn(compt(_Self) : Type, compt(BaseType): Type, self: *(_Self)) -> *(BaseType)),
+    (fn(comptime(_Self) : Type, comptime(BaseType): Type, self: *(_Self)) -> *(BaseType)),
   __yo_maybe_uninit_assume_init : 
-    (fn(compt(_Self) : Type, compt(BaseType): Type, self: _Self) -> BaseType)
+    (fn(comptime(_Self) : Type, comptime(BaseType): Type, self: _Self) -> BaseType)
 ;
 
-MaybeUninit :: (fn(compt(BaseType): Type) -> compt(Type))
+MaybeUninit :: (fn(comptime(BaseType): Type) -> comptime(Type))
   struct(
-    value: BaseType,
-
-    new :: (fn() -> Self)(__yo_maybe_uninit_new(Self)),
-
-    as_ptr :: (fn(self: *(Self)) -> *(BaseType))(
-      __yo_maybe_uninit_as_ptr(Self, BaseType, self)
-    ),
-
-    assume_init :: (fn(self : Self) -> BaseType)(
-      __yo_maybe_uninit_assume_init(Self, BaseType, self)
-    )
+    value: BaseType
   )
 ;
+impl(forall(BaseType : Type), MaybeUninit(BaseType),
+  new : (fn() -> Self)(__yo_maybe_uninit_new(Self)),
+
+  as_ptr : (fn(self: *(Self)) -> *(BaseType))(
+    __yo_maybe_uninit_as_ptr(Self, BaseType, self)
+  ),
+
+  assume_init : (fn(self : Self) -> BaseType)(
+    __yo_maybe_uninit_assume_init(Self, BaseType, self)
+  )
+);
 
 /* EXAMPLE:
 
@@ -3380,7 +3512,7 @@ export
 
 // === Traits again ===
 /// === Iterator ===
-Iterator :: (fn(compt(Item) : Type) -> compt(Trait)) {
+Iterator :: (fn(comptime(Item) : Type) -> comptime(Trait)) {
   return trait(
     Item := Item,
     next :
@@ -3391,9 +3523,9 @@ export Iterator;
 
 /// === IntoIterator ===
 IntoIterator :: (fn(
-  compt(Item) : Type,
-  compt(IntoIter) : Type,
-  where(IntoIter <: Iterator(Item))) -> compt(Trait)) {
+  comptime(Item) : Type,
+  comptime(IntoIter) : Type,
+  where(IntoIter <: Iterator(Item))) -> comptime(Trait)) {
   return trait(
     Item := Item,
     IntoIter := IntoIter,
@@ -3404,7 +3536,7 @@ IntoIterator :: (fn(
 export IntoIterator;
 
 // === Conversion ===
-TryFrom :: (fn(compt(From) : Type) -> compt(Trait))(
+TryFrom :: (fn(comptime(From) : Type) -> comptime(Trait))(
   trait(
     Error : Type,
     try_from :
@@ -3413,11 +3545,11 @@ TryFrom :: (fn(compt(From) : Type) -> compt(Trait))(
 );
 export TryFrom;
 
-TryInto :: (fn(compt(To) : Type) -> compt(Trait))(
+TryInto :: (fn(comptime(To) : Type) -> comptime(Trait))(
   trait(
     Error : Type,
     try_into :
-      (fn(self : Self, (compt(_To) : Type) = To) -> Result(To, Self.Error))
+      (fn(self : Self, (comptime(_To) : Type) = To) -> Result(To, Self.Error))
   )
 );
 export TryInto;
@@ -3485,7 +3617,7 @@ for :: (fn(
       cond(
         (callee.is_atom() && (callee == quote(=>))) => {
           args :: handle.get_args();
-          compt_assert(args.len() == 2, "'for' macro requires 2 arguments in the function handle");
+          comptime_assert(args.len() == 2, "'for' macro requires 2 arguments in the function handle");
           variable :: args.car();
           body :: args.cdr().car();
 
@@ -3503,13 +3635,13 @@ for :: (fn(
           })
         },
         true => {
-          compt_assert(false, "for macro requires a function handle with `=>`");
+          comptime_assert(false, "for macro requires a function handle with `=>`");
           quote(false)
         }
       )
     },
     true => {
-      compt_assert(false, "for macro requires a function handle with `=>`");
+      comptime_assert(false, "for macro requires a function handle with `=>`");
       quote(false)
     });
 };

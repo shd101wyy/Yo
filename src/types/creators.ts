@@ -1,18 +1,21 @@
 import {
   createEmptyEnv,
-  Environment,
-  Frame,
+  type Environment,
+  type Frame,
   getVariablesFromEnv,
 } from "../env";
-import { addRcFunctionsToSomeType } from "../evaluator/types/utils";
-import { Expr } from "../expr";
-import { FunctionValue } from "../function-value";
-import { hashString, randomId } from "../utils";
-import { isTypeValue, Value, valueToString } from "../value";
-import { BOTH_AVAILABLE, COMPTIME_ONLY, RUNTIME_ONLY } from "./constants";
+import type { EvaluatorContext } from "../evaluator/context";
 import {
+  addRcFunctionsToSomeType,
+  attachTraitToReceiverType,
+} from "../evaluator/types/utils";
+import type { Expr } from "../expr";
+import type { FunctionValue } from "../function-value";
+import { hashString, randomId } from "../utils";
+import { isTypeValue, type Value, valueToString } from "../value";
+import type {
   ArrayType,
-  ComptListType,
+  ComptimeListType,
   DynType,
   EnumType,
   FnTraitType,
@@ -36,69 +39,67 @@ import {
   UnionType,
   VoidType,
 } from "./definitions";
+import { getTraitTypeFromEnv } from "./env-lookup";
 import { TypeTag } from "./tags";
-import { computeTupleTypeAvailability, typeToString } from "./utils";
+import { typeToString } from "./utils";
 
-let cachedComptIntType: Type | null = null;
-export function createComptIntType(): Type {
-  if (cachedComptIntType) {
-    return cachedComptIntType;
+let cachedComptimeIntType: Type | null = null;
+export function createComptimeIntType(): Type {
+  if (cachedComptimeIntType) {
+    return cachedComptimeIntType;
   }
 
   const emptyEnv = createEmptyEnv();
   const trait = createTraitType(emptyEnv);
 
   const comptIntType: Type = {
-    id: TypeTag.ComptInt,
-    tag: TypeTag.ComptInt,
+    id: TypeTag.ComptimeInt,
+    tag: TypeTag.ComptimeInt,
     trait,
-    availability: COMPTIME_ONLY,
   };
   trait.receiverType = comptIntType;
 
-  cachedComptIntType = comptIntType;
+  cachedComptimeIntType = comptIntType;
   return comptIntType;
 }
 
-let cachedComptFloatType: Type | null = null;
-export function createComptFloatType(): Type {
-  if (cachedComptFloatType) {
-    return cachedComptFloatType;
+let cachedComptimeFloatType: Type | null = null;
+export function createComptimeFloatType(): Type {
+  if (cachedComptimeFloatType) {
+    return cachedComptimeFloatType;
   }
 
   const emptyEnv = createEmptyEnv();
   const trait = createTraitType(emptyEnv);
 
   const type: Type = {
-    id: TypeTag.ComptFloat,
-    tag: TypeTag.ComptFloat,
+    id: TypeTag.ComptimeFloat,
+    tag: TypeTag.ComptimeFloat,
     trait,
-    availability: COMPTIME_ONLY,
   };
   trait.receiverType = type;
 
-  cachedComptFloatType = type;
+  cachedComptimeFloatType = type;
   return type;
 }
 
-let cachedComptStringType: Type | null = null;
-export function createComptStringType(): Type {
-  if (cachedComptStringType) {
-    return cachedComptStringType;
+let cachedComptimeStringType: Type | null = null;
+export function createComptimeStringType(): Type {
+  if (cachedComptimeStringType) {
+    return cachedComptimeStringType;
   }
 
   const emptyEnv = createEmptyEnv();
   const trait = createTraitType(emptyEnv);
 
   const type: Type = {
-    id: TypeTag.ComptString,
-    tag: TypeTag.ComptString,
+    id: TypeTag.ComptimeString,
+    tag: TypeTag.ComptimeString,
     trait,
-    availability: COMPTIME_ONLY,
   };
   trait.receiverType = type;
 
-  cachedComptStringType = type;
+  cachedComptimeStringType = type;
   return type;
 }
 
@@ -115,7 +116,6 @@ export function createExprType(): Type {
     id: TypeTag.Expr,
     tag: TypeTag.Expr,
     trait,
-    availability: COMPTIME_ONLY,
   };
   trait.receiverType = type;
 
@@ -123,31 +123,30 @@ export function createExprType(): Type {
   return type;
 }
 
-const cachedComptListTypeMap: Map<Type, ComptListType> = new Map();
-export function createComptListType(childType: Type): ComptListType {
-  if (cachedComptListTypeMap.has(childType)) {
-    return cachedComptListTypeMap.get(childType)!;
+const cachedComptimeListTypeMap: Map<Type, ComptimeListType> = new Map();
+export function createComptimeListType(childType: Type): ComptimeListType {
+  if (cachedComptimeListTypeMap.has(childType)) {
+    return cachedComptimeListTypeMap.get(childType)!;
   }
   const emptyEnv = createEmptyEnv();
   const trait = createTraitType(emptyEnv);
 
-  const typeId = `compt_list_${childType.id}`;
-  const type: ComptListType = {
+  const typeId = `comptime_list_${childType.id}`;
+  const type: ComptimeListType = {
     id: typeId,
-    tag: TypeTag.ComptList,
+    tag: TypeTag.ComptimeList,
     childType,
     trait,
-    availability: COMPTIME_ONLY,
   };
   trait.receiverType = type;
 
-  cachedComptListTypeMap.set(childType, type);
+  cachedComptimeListTypeMap.set(childType, type);
 
   return type;
 }
 
 export function createExprListType(): Type {
-  return createComptListType(createExprType());
+  return createComptimeListType(createExprType());
 }
 
 let cachedBooleanType: Type | null = null;
@@ -163,7 +162,6 @@ export function createBooleanType(): Type {
     id: TypeTag.Bool,
     tag: TypeTag.Bool,
     trait,
-    availability: BOTH_AVAILABLE,
   };
   trait.receiverType = type;
 
@@ -184,7 +182,6 @@ export function createUsizeType(): Type {
     id: TypeTag.Usize,
     tag: TypeTag.Usize,
     trait,
-    availability: BOTH_AVAILABLE,
   };
   trait.receiverType = type;
 
@@ -205,7 +202,6 @@ export function createIsizeType(): Type {
     id: TypeTag.Isize,
     tag: TypeTag.Isize,
     trait,
-    availability: BOTH_AVAILABLE,
   };
   trait.receiverType = type;
 
@@ -226,7 +222,6 @@ export function createU8Type(): Type {
     id: TypeTag.U8,
     tag: TypeTag.U8,
     trait,
-    availability: BOTH_AVAILABLE,
   };
   trait.receiverType = type;
 
@@ -247,7 +242,6 @@ export function createI8Type(): Type {
     id: TypeTag.I8,
     tag: TypeTag.I8,
     trait,
-    availability: BOTH_AVAILABLE,
   };
   trait.receiverType = type;
 
@@ -268,7 +262,6 @@ export function createU16Type(): Type {
     id: TypeTag.U16,
     tag: TypeTag.U16,
     trait,
-    availability: BOTH_AVAILABLE,
   };
   trait.receiverType = type;
 
@@ -289,7 +282,6 @@ export function createI16Type(): Type {
     id: TypeTag.I16,
     tag: TypeTag.I16,
     trait,
-    availability: BOTH_AVAILABLE,
   };
   trait.receiverType = type;
 
@@ -310,7 +302,6 @@ export function createU32Type(): Type {
     id: TypeTag.U32,
     tag: TypeTag.U32,
     trait,
-    availability: BOTH_AVAILABLE,
   };
   trait.receiverType = type;
 
@@ -331,7 +322,6 @@ export function createI32Type(): Type {
     id: TypeTag.I32,
     tag: TypeTag.I32,
     trait,
-    availability: BOTH_AVAILABLE,
   };
   trait.receiverType = type;
 
@@ -352,7 +342,6 @@ export function createU64Type(): Type {
     id: TypeTag.U64,
     tag: TypeTag.U64,
     trait,
-    availability: BOTH_AVAILABLE,
   };
   trait.receiverType = type;
 
@@ -373,7 +362,6 @@ export function createI64Type(): Type {
     id: TypeTag.I64,
     tag: TypeTag.I64,
     trait,
-    availability: BOTH_AVAILABLE,
   };
   trait.receiverType = type;
 
@@ -394,7 +382,6 @@ export function createF32Type(): Type {
     id: TypeTag.F32,
     tag: TypeTag.F32,
     trait,
-    availability: BOTH_AVAILABLE,
   };
   trait.receiverType = type;
 
@@ -415,7 +402,6 @@ export function createF64Type(): Type {
     id: TypeTag.F64,
     tag: TypeTag.F64,
     trait,
-    availability: BOTH_AVAILABLE,
   };
   trait.receiverType = type;
 
@@ -435,7 +421,6 @@ export function createUnitType(): Type {
     id: TypeTag.Unit,
     tag: TypeTag.Unit,
     trait,
-    availability: BOTH_AVAILABLE,
   };
   trait.receiverType = type;
 
@@ -456,7 +441,6 @@ export function createCharType(): Type {
     id: TypeTag.Char,
     tag: TypeTag.Char,
     trait,
-    availability: RUNTIME_ONLY,
   };
   trait.receiverType = type;
 
@@ -477,7 +461,6 @@ export function createShortType(): Type {
     id: TypeTag.Short,
     tag: TypeTag.Short,
     trait,
-    availability: RUNTIME_ONLY,
   };
   trait.receiverType = type;
 
@@ -498,7 +481,6 @@ export function createUShortType(): Type {
     id: TypeTag.UShort,
     tag: TypeTag.UShort,
     trait,
-    availability: RUNTIME_ONLY,
   };
   trait.receiverType = type;
 
@@ -519,7 +501,6 @@ export function createIntType(): Type {
     id: TypeTag.Int,
     tag: TypeTag.Int,
     trait,
-    availability: RUNTIME_ONLY,
   };
   trait.receiverType = type;
 
@@ -540,7 +521,6 @@ export function createUIntType(): Type {
     id: TypeTag.UInt,
     tag: TypeTag.UInt,
     trait,
-    availability: RUNTIME_ONLY,
   };
   trait.receiverType = type;
 
@@ -561,7 +541,6 @@ export function createLongType(): Type {
     id: TypeTag.Long,
     tag: TypeTag.Long,
     trait,
-    availability: RUNTIME_ONLY,
   };
   trait.receiverType = type;
 
@@ -582,7 +561,6 @@ export function createULongType(): Type {
     id: TypeTag.ULong,
     tag: TypeTag.ULong,
     trait,
-    availability: RUNTIME_ONLY,
   };
   trait.receiverType = type;
 
@@ -603,7 +581,6 @@ export function createLongLongType(): Type {
     id: TypeTag.LongLong,
     tag: TypeTag.LongLong,
     trait,
-    availability: RUNTIME_ONLY,
   };
   trait.receiverType = type;
 
@@ -624,7 +601,6 @@ export function createULongLongType(): Type {
     id: TypeTag.ULongLong,
     tag: TypeTag.ULongLong,
     trait,
-    availability: RUNTIME_ONLY,
   };
   trait.receiverType = type;
 
@@ -645,7 +621,6 @@ export function createLongDoubleType(): Type {
     id: TypeTag.LongDouble,
     tag: TypeTag.LongDouble,
     trait,
-    availability: RUNTIME_ONLY,
   };
   trait.receiverType = type;
 
@@ -667,7 +642,6 @@ export function createArrayType(childType: Type, length: Value): ArrayType {
     childType,
     length,
     trait,
-    availability: childType.availability,
   };
 
   trait.receiverType = arrayType;
@@ -689,7 +663,6 @@ export function createSliceType(childType: Type): SliceType {
     tag: TypeTag.Slice,
     childType,
     trait,
-    availability: childType.availability,
   };
   trait.receiverType = sliceType;
 
@@ -730,7 +703,6 @@ export function createVoidType(): VoidType {
     id: TypeTag.Void,
     tag: TypeTag.Void,
     trait,
-    availability: RUNTIME_ONLY,
   };
   trait.receiverType = voidType;
 
@@ -748,12 +720,8 @@ export function createTupleType(fields: TypeField[]): TupleType {
     // size: totalSize,
     fields,
     trait,
-    availability: BOTH_AVAILABLE,
   };
   trait.receiverType = tupleType;
-
-  // Compute the actual availability from fields
-  tupleType.availability = computeTupleTypeAvailability(tupleType);
 
   return tupleType;
 }
@@ -773,7 +741,6 @@ export function createStructType(
     fields: [],
     trait,
     env,
-    availability: BOTH_AVAILABLE,
   };
 
   trait.receiverType = structType;
@@ -788,7 +755,6 @@ export function createModuleType(env: Environment): ModuleType {
     fields: [],
     env,
     trait: undefined,
-    availability: COMPTIME_ONLY,
   };
   return moduleType;
 }
@@ -800,7 +766,6 @@ export function createTraitType(env: Environment): TraitType {
     fields: [],
     env,
     trait: undefined,
-    availability: COMPTIME_ONLY,
   };
   return traitType;
 }
@@ -814,7 +779,6 @@ export function createEnumType(env: Environment): EnumType {
     variants: [],
     trait,
     env,
-    availability: BOTH_AVAILABLE,
   };
 
   trait.receiverType = enumType;
@@ -831,7 +795,6 @@ export function createUnionType(env: Environment): UnionType {
     fields: [],
     trait,
     env,
-    availability: RUNTIME_ONLY,
   };
 
   trait.receiverType = unionType;
@@ -843,6 +806,7 @@ export function createFunctionType({
   parameters,
   forallParameters,
   variadicParameter,
+  whereClauseExprs,
   return_,
   env,
   parametersFrame,
@@ -853,6 +817,7 @@ export function createFunctionType({
   parameters: FunctionParameter[];
   forallParameters: FunctionForallParameter[];
   variadicParameter: FunctionParameter | undefined;
+  whereClauseExprs?: Expr[];
   return_: FunctionReturn;
   env: Environment;
   parametersFrame: Frame;
@@ -869,6 +834,7 @@ export function createFunctionType({
     parameters: parameters,
     forallParameters,
     variadicParameter,
+    whereClauseExprs,
     return: return_,
     env,
     parametersFrame,
@@ -876,7 +842,6 @@ export function createFunctionType({
     ParentFunctionType,
     trait,
     isClosure,
-    availability: BOTH_AVAILABLE,
   };
   trait.receiverType = functionType;
 
@@ -897,7 +862,6 @@ export function createPtrType(childType: Type): PtrType {
     tag: TypeTag.Ptr,
     childType,
     trait,
-    availability: childType.availability,
   };
   trait.receiverType = ptrType;
 
@@ -920,7 +884,6 @@ export function createIsoType(childType: Type, env: Environment): IsoType {
     childType,
     trait,
     env,
-    availability: RUNTIME_ONLY,
   };
   trait.receiverType = isoType;
 
@@ -933,14 +896,24 @@ export function createIsoType(childType: Type, env: Environment): IsoType {
 export function createSomeType(
   type: TypeHierarchyType,
   variableName: string,
-  id?: string,
-  requiredTraits?: TraitType[],
-  negativeTraits?: TraitType[],
-  recursiveTypeRef?: {
-    functionValue: FunctionValue;
-    argValues: Value[];
-  },
-  env?: Environment
+  {
+    id,
+    requiredTraits,
+    negativeTraits,
+    recursiveTypeRef,
+    env,
+    context,
+  }: {
+    id?: string;
+    requiredTraits?: TraitType[];
+    negativeTraits?: TraitType[];
+    recursiveTypeRef?: {
+      functionValue: FunctionValue;
+      argValues: Value[];
+    };
+    env: Environment;
+    context: EvaluatorContext;
+  }
 ): SomeType {
   if (type.level !== 0) {
     console.trace();
@@ -949,31 +922,47 @@ export function createSomeType(
     );
   }
 
-  const emptyEnv = env ?? createEmptyEnv();
-  const trait = createTraitType(emptyEnv);
+  const trait = createTraitType(env);
+
+  // Convert TraitType[] to the new format with frameLevel = -1 (permanent, not from where clause)
+  const requiredTraitsWithLevel: {
+    traitType: TraitType;
+    frameLevel: number;
+  }[] = requiredTraits?.map((t) => ({ traitType: t, frameLevel: -1 })) ?? [];
+  const negativeTraitsWithLevel: {
+    traitType: TraitType;
+    frameLevel: number;
+  }[] = negativeTraits?.map((t) => ({ traitType: t, frameLevel: -1 })) ?? [];
 
   const someType: SomeType = {
-    id: id ?? `sometype_${randomId(emptyEnv.modulePath)}`,
+    id: id ?? `sometype_${randomId(env.modulePath)}`,
     tag: TypeTag.SomeType,
     name: variableName,
+    definitionFrameLevel:
+      env.frames.length > 0 ? env.frames.length - 1 : undefined,
     parentType: type,
     size: undefined,
-    requiredTraits: requiredTraits ?? [],
-    negativeTraits:
-      negativeTraits && negativeTraits.length > 0 ? negativeTraits : undefined,
+    requiredTraits: requiredTraitsWithLevel,
+    negativeTraits: negativeTraitsWithLevel,
     trait,
     // Necessary to inherit, like extern types from extern "yo"
     isExtern: type.isExtern,
     externName: type.externName,
     recursiveTypeRef,
-    availability: BOTH_AVAILABLE,
   };
+
   trait.receiverType = someType;
+
+  // Check if "Runtime" trait
+  if (getTraitTypeFromEnv(env, "Runtime")) {
+    // Attach the Runtime trait to the SomeType
+    attachTraitToReceiverType("Runtime", someType, env, context);
+  }
 
   // Add ARC functions to SomeType - these dispatch to resolvedConcreteType at codegen time
   addRcFunctionsToSomeType({
     someType,
-    env: emptyEnv,
+    env,
     context: {
       SelfType: someType,
       stdPath: "",
@@ -1013,7 +1002,6 @@ export function createTypeHierarchy(
     level,
     baseType,
     trait,
-    availability: COMPTIME_ONLY,
   };
   trait.receiverType = type;
 
@@ -1032,20 +1020,10 @@ export function getFunctionParameterExprs({
 }: {
   expr: Expr;
   labelExpr: Expr | undefined;
-  typeExpr: Expr | undefined;
+  typeExpr: Expr;
   defaultValueExpr: Expr | undefined;
   assignedValueExpr: Expr | undefined;
 }): FunctionParameterExprs {
-  if (!labelExpr && !typeExpr && !defaultValueExpr && !assignedValueExpr) {
-    throw new Error(
-      `At least one of labelExpr, typeExpr, defaultValueExpr or assignedValueExpr must be defined`
-    );
-  }
-  if (!typeExpr && !defaultValueExpr && !assignedValueExpr) {
-    throw new Error(
-      `Expected either typeExpr, defaultValueExpr or assignedValueExpr to be defined`
-    );
-  }
   return {
     expr,
     labelExpr,
@@ -1069,7 +1047,6 @@ export function createFnTraitType(
   // Set the isFn field to make this a FnTraitType
   trait.isFn = { callType: fnType };
   trait.id = fnTraitId;
-  trait.availability = BOTH_AVAILABLE;
 
   trait.receiverType = undefined;
 
@@ -1095,7 +1072,6 @@ export function createFutureTraitType(
   // Set the isFuture field to make this a FutureTraitType
   trait.isFuture = { outputType };
   trait.id = futureTraitId;
-  trait.availability = BOTH_AVAILABLE;
 
   trait.receiverType = undefined;
 
@@ -1122,11 +1098,15 @@ function createTraitSignature(traitType: TraitType): string {
   return fieldSignatures.join(";");
 }
 
-export function createDynType(
-  requiredTraits: TraitType[],
-  env: Environment,
-  negativeTraits?: TraitType[]
-): DynType {
+export function createDynType({
+  requiredTraits,
+  env,
+  negativeTraits,
+}: {
+  requiredTraits: TraitType[];
+  env: Environment;
+  negativeTraits?: TraitType[];
+}): DynType {
   const trait = createTraitType(env);
 
   // Create a canonical ID based on module structure, not unique IDs
@@ -1138,15 +1118,22 @@ export function createDynType(
     : "";
   const canonicalId = `dyn_${hashString(moduleSignatures + (negativeSignatures ? `_neg_${negativeSignatures}` : ""))}`;
 
+  const requiredTraitsWithLevel: {
+    traitType: TraitType;
+    frameLevel: number;
+  }[] = requiredTraits.map((t) => ({ traitType: t, frameLevel: -1 })) ?? [];
+  const negativeTraitsWithLevel: {
+    traitType: TraitType;
+    frameLevel: number;
+  }[] = negativeTraits?.map((t) => ({ traitType: t, frameLevel: -1 })) ?? [];
+
   const dynType: DynType = {
     id: canonicalId,
     tag: TypeTag.Dyn,
-    requiredTraits: [...requiredTraits],
-    negativeTraits:
-      negativeTraits && negativeTraits.length > 0 ? negativeTraits : undefined,
+    requiredTraits: requiredTraitsWithLevel,
+    negativeTraits: negativeTraitsWithLevel,
     trait,
     env,
-    availability: RUNTIME_ONLY,
   };
 
   trait.receiverType = dynType;
@@ -1200,11 +1187,11 @@ export function createDynType(
 }
 
 export function clearAllCachedTypes(): void {
-  cachedComptIntType = null;
-  cachedComptFloatType = null;
-  cachedComptStringType = null;
+  cachedComptimeIntType = null;
+  cachedComptimeFloatType = null;
+  cachedComptimeStringType = null;
   cachedExprType = null;
-  cachedComptListTypeMap.clear();
+  cachedComptimeListTypeMap.clear();
   cachedBooleanType = null;
   cachedUsizeType = null;
   cachedIsizeType = null;

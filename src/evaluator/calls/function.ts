@@ -1,36 +1,35 @@
 import {
   cloneEnvForCTFECheck,
-  Environment,
+  type Environment,
   getReceiverMethodsByNameFromEnv,
   getTypeTraitMethodsByNameFromEnv,
   popEnvFrame,
 } from "../../env";
 import { formatErrorMessage, formatErrorMessages, YoError } from "../../error";
 import {
-  AtomExpr,
+  type AtomExpr,
   attachTempVariableToExpr,
   cloneExpr,
-  Expr,
+  type Expr,
   exprIsAtom,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   ExprTag,
   exprToString,
-  FnCallExpr,
+  type FnCallExpr,
 } from "../../expr";
-import { FunctionValue } from "../../function-value";
+import type { FunctionValue } from "../../function-value";
 import { stringIsOperator, TokenType } from "../../token";
-import { TypeValue } from "../../type-value";
+import type { TypeValue } from "../../type-value";
+import { areTypesCompatible } from "../../types/compatibility";
+import { createExprType } from "../../types/creators";
+import type { FunctionType, SomeType, Type } from "../../types/definitions";
 import {
-  areTypesCompatible,
-  createExprType,
-  extractFnTraitFromType,
-  FunctionType,
   isArrayType,
-  isComptFloatType,
-  isComptIntType,
-  isComptListType,
-  isComptStringType,
+  isComptimeFloatType,
+  isComptimeIntType,
+  isComptimeListType,
+  isComptimeStringType,
   isDynType,
   isEnumType,
   isFunctionType,
@@ -44,11 +43,9 @@ import {
   isTraitType,
   isTypeHierarchyType,
   isUnionType,
-  SomeType,
-  Type,
-  typeOfType,
-  typeToString,
-} from "../../types";
+} from "../../types/guards";
+import { typeOfType } from "../../types/hierarchy";
+import { typeToString } from "../../types/utils";
 import { randomId } from "../../utils";
 import {
   areValuesEqual,
@@ -62,13 +59,13 @@ import {
   isSliceValue,
   isTupleValue,
   isTypeValue,
-  Value,
+  type Value,
   valueToString,
 } from "../../value";
 import {
-  EvaluatorContext,
-  FunctionCallResult,
-  FunctionToCall,
+  type EvaluatorContext,
+  type FunctionCallResult,
+  type FunctionToCall,
   getArrayCallResult,
   getFunctionCallResult,
   getModuleTypeCallResult,
@@ -76,22 +73,23 @@ import {
   getTypeCallResult,
 } from "../context";
 import { evaluateExpression } from "../exprs/expr";
+import { extractFnTraitFromType } from "../trait-checking";
 import { evaluateFunctionReturnTypeAgain } from "../types/function";
-import { evaluateAnonymousStructValue } from "../values/anonymous_struct";
+import { evaluateAnonymousStructValue } from "../values/anonymous-struct";
 import { tryToCallArrayWithArguments } from "./array";
-import { tryToImplementArrayByArrayType } from "./array_type";
-import { tryToImplementClosureByFnModuleType } from "./closure_type";
-import { tryToImplementComptListByComptListType } from "./compt_list_type";
-import { tryToImplementFunctionByFunctionType } from "./function_type";
+import { tryToImplementArrayByArrayType } from "./array-type";
+import { tryToImplementClosureByFnModuleType } from "./closure-type";
+import { tryToImplementComptimeListByComptimeListType } from "./comptime-list-type";
+import { tryToImplementFunctionByFunctionType } from "./function-type";
 import { extractFunctionValue, tryToCallFunctionWithArguments } from "./helper";
 import { evaluateIsoValueCall } from "./iso";
-import { tryToImplementModuleWithArgumentsByModuleType } from "./module_type";
+import { tryToImplementModuleWithArgumentsByModuleType } from "./module-type";
 import {
   isConvertibleNumericType,
   tryToConvertToNumericType,
-} from "./numeric_type";
-import { tryToConvertToPointerType } from "./pointer_type";
-import { tryToImplementTraitWithArgumentsByTraitType } from "./trait_type";
+} from "./numeric-type";
+import { tryToConvertToPointerType } from "./pointer-type";
+import { tryToImplementTraitWithArgumentsByTraitType } from "./trait-type";
 import { tryToCallTypeWithArguments } from "./type";
 
 /**
@@ -117,27 +115,29 @@ function resolveRecursiveTypeRef(
   const { functionValue, argValues } = someType.recursiveTypeRef;
 
   // Strategy 1: Look for the exact matching cache entry with resolved type
-  const exactCache = functionValue.calledComptFunctionCaches.find((cache) => {
-    return (
-      cache.argValues.length === argValues.length &&
-      cache.argValues.every((argValue, index) => {
-        const givenArgValue = argValues[index];
+  const exactCache = functionValue.calledComptimeFunctionCaches.find(
+    (cache) => {
+      return (
+        cache.argValues.length === argValues.length &&
+        cache.argValues.every((argValue, index) => {
+          const givenArgValue = argValues[index];
 
-        if (isTypeValue(argValue) && isTypeValue(givenArgValue)) {
-          return areTypesCompatible(
-            { type: argValue.value, env: cache.env },
-            { type: givenArgValue.value, env: callerEnv },
-            true // requireExactMatch
+          if (isTypeValue(argValue) && isTypeValue(givenArgValue)) {
+            return areTypesCompatible(
+              { type: argValue.value, env: cache.env },
+              { type: givenArgValue.value, env: callerEnv },
+              true // requireExactMatch
+            );
+          }
+
+          return areValuesEqual(
+            { value: argValue, env: cache.env },
+            { value: givenArgValue, env: callerEnv }
           );
-        }
-
-        return areValuesEqual(
-          { value: argValue, env: cache.env },
-          { value: givenArgValue, env: callerEnv }
-        );
-      })
-    );
-  });
+        })
+      );
+    }
+  );
 
   if (exactCache && isTypeValue(exactCache.value)) {
     // Check if it's not still a placeholder
@@ -161,7 +161,7 @@ function resolveRecursiveTypeRef(
 
   // Strategy 3: Look for ANY resolved cache entry from the same function
   // All instantiations of the same type-generating function produce the same structure
-  const anyResolvedCache = functionValue.calledComptFunctionCaches.find(
+  const anyResolvedCache = functionValue.calledComptimeFunctionCaches.find(
     (cache) => {
       if (!isTypeValue(cache.value)) return false;
       // Skip if still a placeholder
@@ -253,11 +253,12 @@ export function evaluateFunctionCall({
               // Static method call (e.g., EvenNumber.try_from(...))
               // Use getTypeTraitMethodsByNameFromEnv to find methods from impl'd traits
               const innerType = receiverValue.value;
-              const methods = getTypeTraitMethodsByNameFromEnv(
+              const methods = getTypeTraitMethodsByNameFromEnv({
                 env,
+                context,
                 methodName,
-                innerType
-              );
+                type: innerType,
+              });
 
               functions = methods.map((method) => {
                 // Static methods don't have a receiver argument - just pass the call args
@@ -269,27 +270,22 @@ export function evaluateFunctionCall({
               });
             } else {
               // Instance method call (e.g., value.add(...))
-              // Get the current function type for where clause constraint lookup
-              const currentFunctionType =
-                context.isEvaluatingFunctionBodyOrAsyncBlock?.kind ===
-                "function-body"
-                  ? context.isEvaluatingFunctionBodyOrAsyncBlock.type
-                  : undefined;
+
               // Get the method with the same name in the interface in the env
-              const methods = getReceiverMethodsByNameFromEnv(
+              const methods = getReceiverMethodsByNameFromEnv({
                 env,
+                context,
                 methodName,
                 receiverType,
-                false, // isInfixOperatorCall - property access allows auto pointer conversion
-                currentFunctionType
-              );
+                isInfixOperatorCall: false, // isInfixOperatorCall - property access allows auto pointer conversion
+              });
 
               functions = methods.map((method) => {
                 // If pointer conversion is needed, wrap the receiver in &()
                 let methodArgs: Expr[];
                 if (method.needsPointerConversion) {
                   // Create &(receiverArg) expression
-                  // Note: The compt type to runtime type conversion is handled
+                  // Note: The comptime type to runtime type conversion is handled
                   // in evaluateAddressCall (ptr_fns.ts) when &() is evaluated
                   const ampersandExpr: AtomExpr = {
                     tag: ExprTag.Atom,
@@ -434,19 +430,14 @@ export function evaluateFunctionCall({
         }
         const methodName = functionName;
         methodExpr = func;
-        // Get the current function type for where clause constraint lookup
-        const currentFunctionTypeForInfix =
-          context.isEvaluatingFunctionBodyOrAsyncBlock?.kind === "function-body"
-            ? context.isEvaluatingFunctionBodyOrAsyncBlock.type
-            : undefined;
         // Get the method with the same name in the module/type in the env
-        const moduleMethods = getReceiverMethodsByNameFromEnv(
+        const moduleMethods = getReceiverMethodsByNameFromEnv({
           env,
+          context,
           methodName,
           receiverType,
-          true, // isInfixOperatorCall - infix operators don't allow auto pointer conversion
-          currentFunctionTypeForInfix
-        );
+          isInfixOperatorCall: true, // isInfixOperatorCall - infix operators don't allow auto pointer conversion
+        });
         functions = moduleMethods.map((method) => ({
           type: method.type,
           value: method.value,
@@ -535,9 +526,9 @@ export function evaluateFunctionCall({
   }
 
   // NOTE: Automatic CTFE candidate addition has been removed.
-  // Use `compt_fn(fn)` to explicitly create compile-time versions of functions.
+  // Use `comptime_fn(fn)` to explicitly create compile-time versions of functions.
   // This makes the behavior predictable - functions are called at runtime unless
-  // explicitly declared as compile-time via compt_fn().
+  // explicitly declared as compile-time via comptime_fn().
 
   // Optimization: Skip the checking phase in these cases to avoid exponential blowup:
   // 1. When we're already in a checking phase (nested function calls during checking)
@@ -552,10 +543,13 @@ export function evaluateFunctionCall({
   // 1. Type constructors (Box, Vec, etc.) - they return TypeHierarchyType and need forall resolution
   // 2. Functions with forall parameters - they need checking to resolve type parameters from context
   // 3. Functions with where clauses - they need checking to verify constraints
+  // 4. Macro functions (return.isUnquote) - they must be executed to expand the macro and
+  //    determine the actual result type (otherwise the type remains Expr instead of the expanded type)
   const isNonTypeCtfeFunction =
     functions.length === 1 &&
     isFunctionType(functions[0]!.type) &&
     functions[0]!.type.return.isCompileTimeOnly &&
+    !functions[0]!.type.return.isUnquote &&
     !isTypeHierarchyType(functions[0]!.type.return.type) &&
     functions[0]!.type.forallParameters.length === 0; // Don't skip if has forall params
 
@@ -625,7 +619,7 @@ export function evaluateFunctionCall({
               ...functionToCall,
               result: {
                 kind: "error",
-                error: error,
+                error: error as Error | YoError,
               },
             };
           }
@@ -685,7 +679,7 @@ export function evaluateFunctionCall({
               ...functionToCall,
               result: {
                 kind: "error",
-                error: error,
+                error: error as Error | YoError,
               },
             };
           }
@@ -732,7 +726,7 @@ export function evaluateFunctionCall({
                 ...functionToCall,
                 result: {
                   kind: "error",
-                  error: error,
+                  error: error as Error | YoError,
                 },
               };
             }
@@ -775,7 +769,7 @@ export function evaluateFunctionCall({
                   ...functionToCall,
                   result: {
                     kind: "error",
-                    error: error,
+                    error: error as Error | YoError,
                   },
                 };
               }
@@ -804,7 +798,7 @@ export function evaluateFunctionCall({
                 ...functionToCall,
                 result: {
                   kind: "error",
-                  error: error,
+                  error: error as Error | YoError,
                 },
               };
             }
@@ -832,7 +826,7 @@ export function evaluateFunctionCall({
                 ...functionToCall,
                 result: {
                   kind: "error",
-                  error: error,
+                  error: error as Error | YoError,
                 },
               };
             }
@@ -860,7 +854,7 @@ export function evaluateFunctionCall({
                 ...functionToCall,
                 result: {
                   kind: "error",
-                  error: error,
+                  error: error as Error | YoError,
                 },
               };
             }
@@ -886,7 +880,7 @@ export function evaluateFunctionCall({
                 ...functionToCall,
                 result: {
                   kind: "error",
-                  error: error,
+                  error: error as Error | YoError,
                 },
               };
             }
@@ -913,18 +907,18 @@ export function evaluateFunctionCall({
                 ...functionToCall,
                 result: {
                   kind: "error",
-                  error: error,
+                  error: error as Error | YoError,
                 },
               };
             }
           }
-          // compt list type
-          else if (isTypeValue(value) && isComptListType(value.value)) {
-            const comptListType = value.value;
+          // comptime list type
+          else if (isTypeValue(value) && isComptimeListType(value.value)) {
+            const comptimeListType = value.value;
             try {
-              tryToImplementComptListByComptListType({
+              tryToImplementComptimeListByComptimeListType({
                 expr: expr,
-                comptListType: comptListType,
+                comptimeListType: comptimeListType,
                 argExprs: argsToUse,
                 callerEnv: env,
                 context: { ...context },
@@ -940,7 +934,7 @@ export function evaluateFunctionCall({
                 ...functionToCall,
                 result: {
                   kind: "error",
-                  error: error,
+                  error: error as Error | YoError,
                 },
               };
             }
@@ -972,7 +966,7 @@ export function evaluateFunctionCall({
                   ...functionToCall,
                   result: {
                     kind: "error",
-                    error: error,
+                    error: error as Error | YoError,
                   },
                 };
               }
@@ -1019,7 +1013,7 @@ export function evaluateFunctionCall({
                   ...functionToCall,
                   result: {
                     kind: "error",
-                    error: error,
+                    error: error as Error | YoError,
                   },
                 };
               }
@@ -1045,9 +1039,13 @@ ${isTypeValue(value) ? typeToString(value.value) : typeToString(functionToCall.t
             isSliceType(functionToCall.type)
           ) {
             try {
-              const value = functionToCall.value;
-              const arrayValue = isArrayValue(value) ? value : undefined;
-              const sliceValue = isSliceValue(value) ? value : undefined;
+              const functionToCallValue = functionToCall.value;
+              const arrayValue = isArrayValue(functionToCallValue)
+                ? functionToCallValue
+                : undefined;
+              const sliceValue = isSliceValue(functionToCallValue)
+                ? functionToCallValue
+                : undefined;
               const result = tryToCallArrayWithArguments({
                 expr,
                 arrayType: functionToCall.type, // Array or Slice
@@ -1069,7 +1067,7 @@ ${isTypeValue(value) ? typeToString(value.value) : typeToString(functionToCall.t
                 ...functionToCall,
                 result: {
                   kind: "error",
-                  error: error,
+                  error: error as Error | YoError,
                 },
               };
             }
@@ -1126,7 +1124,7 @@ ${isTypeValue(value) ? typeToString(value.value) : typeToString(functionToCall.t
                 ...functionToCall,
                 result: {
                   kind: "error",
-                  error: error,
+                  error: error as Error | YoError,
                 },
               };
             }
@@ -1180,7 +1178,7 @@ ${isTypeValue(value) ? typeToString(value.value) : typeToString(functionToCall.t
                 ...functionToCall,
                 result: {
                   kind: "error",
-                  error: error,
+                  error: error as Error | YoError,
                 },
               };
             }
@@ -1220,7 +1218,7 @@ ${isTypeValue(value) ? typeToString(value.value) : typeToString(functionToCall.t
                 ...functionToCall,
                 result: {
                   kind: "error",
-                  error: error,
+                  error: error as Error | YoError,
                 },
               };
             }
@@ -1244,41 +1242,41 @@ ${isTypeValue(value) ? typeToString(value.value) : typeToString(functionToCall.t
     (functionToCall) => functionToCall.result.kind !== "error"
   );
 
-  // Check if there is only one compt function call,
+  // Check if there is only one comptime function call,
   // If yes, then we use that function.
-  // Compt function call has higher priority than normal function call.
+  // Comptime function call has higher priority than normal function call.
   // So this way we eagerly evaluate the function call that can be done at the compile-time.
-  const comptFunctionCalls = functionsWithMatchingTypes.filter(
+  const comptimeFunctionCalls = functionsWithMatchingTypes.filter(
     (functionToCall) =>
       isFunctionType(functionToCall.type) &&
       functionToCall.type.return.isCompileTimeOnly // TODO: How about other type calls?
   );
 
-  if (comptFunctionCalls.length === 1) {
-    functionsWithMatchingTypes = comptFunctionCalls;
+  if (comptimeFunctionCalls.length === 1) {
+    functionsWithMatchingTypes = comptimeFunctionCalls;
   }
 
-  // When there are still multiple matches and multiple are compt functions,
-  // prefer the one with compt parameter types over runtime parameter types.
+  // When there are still multiple matches and multiple are comptime functions,
+  // prefer the one with comptime parameter types over runtime parameter types.
   // For example, when calling `3 > 4`:
-  // - Prefer fn(compt_int, compt_int) -> bool over fn(i32, i32) -> bool
+  // - Prefer fn(comptime_int, comptime_int) -> bool over fn(i32, i32) -> bool
   // This ensures that compile-time operations stay at compile-time when possible.
   if (functionsWithMatchingTypes.length > 1) {
-    const functionsWithComptParams = functionsWithMatchingTypes.filter(
+    const functionsWithComptimeParams = functionsWithMatchingTypes.filter(
       (functionToCall) => {
         if (!isFunctionType(functionToCall.type)) return false;
         const params = functionToCall.type.parameters;
-        // Check if any parameter is a compt type (compt_int, compt_float, compt_string)
+        // Check if any parameter is a comptime type (comptime_int, comptime_float, comptime_string)
         return params.some(
           (param) =>
-            isComptIntType(param.type) ||
-            isComptFloatType(param.type) ||
-            isComptStringType(param.type)
+            isComptimeIntType(param.type) ||
+            isComptimeFloatType(param.type) ||
+            isComptimeStringType(param.type)
         );
       }
     );
-    if (functionsWithComptParams.length === 1) {
-      functionsWithMatchingTypes = functionsWithComptParams;
+    if (functionsWithComptimeParams.length === 1) {
+      functionsWithMatchingTypes = functionsWithComptimeParams;
     }
   }
 
@@ -1353,30 +1351,30 @@ ${exprToString(expr)}
 ${functionsToCall.length ? "Available functions:\n" : ""}`,
       },
       ...functionsToCall
-        .map((functionsToCall) => {
+        .map((functionToCall) => {
           const error =
-            functionsToCall.result.kind === "error"
-              ? functionsToCall.result.error
+            functionToCall.result.kind === "error"
+              ? functionToCall.result.error
               : undefined;
           if (error) {
             if (error instanceof YoError) {
               return [
                 {
                   token: func.token,
-                  errorMessage: `- ${typeToString(functionsToCall.type)}\n`,
+                  errorMessage: `- ${typeToString(functionToCall.type)}\n`,
                 },
                 ...error.tokenAndErrorList,
               ];
             } else {
               return {
                 token: func.token,
-                errorMessage: `- ${typeToString(functionsToCall.type)}\n${error instanceof Error ? error.message : String(error)}`,
+                errorMessage: `- ${typeToString(functionToCall.type)}\n${error instanceof Error ? error.message : String(error)}`,
               };
             }
           } else {
             return {
               token: func.token,
-              errorMessage: `${typeToString(functionsToCall.type)}`,
+              errorMessage: `${typeToString(functionToCall.type)}`,
             };
           }
         })
@@ -1390,7 +1388,7 @@ ${functionsToCall.length ? "Available functions:\n" : ""}`,
 ${exprToString(expr)}
 
 Found ${functionsWithMatchingTypes.length} matching calls:
-${functionsWithMatchingTypes.map((func) => `${typeToString(func.type)}`).join("\n")}
+${functionsWithMatchingTypes.map((matchedFunction) => `${typeToString(matchedFunction.type)}`).join("\n")}
 `,
     });
   }
@@ -1423,10 +1421,11 @@ ${functionsWithMatchingTypes.map((func) => `${typeToString(func.type)}`).join("\
     expr.$ = {
       env,
       type: returnType,
-      value: createUnknownValue(
-        returnType,
-        "checking_phase_placeholder_" + randomId(env.modulePath)
-      ),
+      value: createUnknownValue(returnType, {
+        variableName: "checking_phase_placeholder_" + randomId(env.modulePath),
+        env,
+        context,
+      }),
       pathCollection: [],
     };
     return expr;
@@ -1698,10 +1697,13 @@ ${functionsWithMatchingTypes.map((func) => `${typeToString(func.type)}`).join("\
     }
     return expr;
   } else {
-    const value = functionToCall.value;
+    const functionToCallValue = functionToCall.value;
     // struct value
-    if (isTypeValue(value) && isStructType(value.value)) {
-      const structType = value.value;
+    if (
+      isTypeValue(functionToCallValue) &&
+      isStructType(functionToCallValue.value)
+    ) {
+      const structType = functionToCallValue.value;
       expr.$ = {
         env,
         type: structType,
@@ -1722,7 +1724,7 @@ ${functionsWithMatchingTypes.map((func) => `${typeToString(func.type)}`).join("\
           errorMessage: `Error evaluating struct call.`,
         });
       }
-      const structValue = memberValues.some((value) => !value)
+      const structValue = memberValues.some((memberValue) => !memberValue)
         ? undefined
         : createStructValue(structType, memberValues as Value[]);
       expr.$.value = isObjectType(structType)
@@ -1738,15 +1740,18 @@ ${functionsWithMatchingTypes.map((func) => `${typeToString(func.type)}`).join("\
       // Attach necessary info to the func
       func.$ = {
         env,
-        type: value.type,
-        value: value,
+        type: functionToCallValue.type,
+        value: functionToCallValue,
         pathCollection: [],
       };
       return expr;
     }
     // enum value
-    else if (isTypeValue(value) && isEnumType(value.value)) {
-      const enumType = value.value;
+    else if (
+      isTypeValue(functionToCallValue) &&
+      isEnumType(functionToCallValue.value)
+    ) {
+      const enumType = functionToCallValue.value;
       expr.$ = {
         env,
         type: enumType,
@@ -1789,15 +1794,18 @@ ${functionsWithMatchingTypes.map((func) => `${typeToString(func.type)}`).join("\
       // Attach necessary info to the func
       func.$ = {
         env,
-        type: value.type,
-        value: value,
+        type: functionToCallValue.type,
+        value: functionToCallValue,
         pathCollection: [],
       };
       return expr;
     }
     // union value
-    else if (isTypeValue(value) && isUnionType(value.value)) {
-      const unionType = value.value;
+    else if (
+      isTypeValue(functionToCallValue) &&
+      isUnionType(functionToCallValue.value)
+    ) {
+      const unionType = functionToCallValue.value;
       expr.$ = {
         env,
         type: unionType,
@@ -1818,14 +1826,17 @@ ${functionsWithMatchingTypes.map((func) => `${typeToString(func.type)}`).join("\
       // Attach necessary info to the func
       func.$ = {
         env,
-        type: value.type,
-        value: value,
+        type: functionToCallValue.type,
+        value: functionToCallValue,
         pathCollection: [],
       };
       return expr;
     }
     // module value
-    else if (isTypeValue(value) && isModuleType(value.value)) {
+    else if (
+      isTypeValue(functionToCallValue) &&
+      isModuleType(functionToCallValue.value)
+    ) {
       const { moduleValue, callerEnv } =
         getModuleTypeCallResult(functionToCall);
       env = callerEnv;
@@ -1841,14 +1852,17 @@ ${functionsWithMatchingTypes.map((func) => `${typeToString(func.type)}`).join("\
       // Attach necessary info to the func
       func.$ = {
         env,
-        type: value.type,
-        value: value,
+        type: functionToCallValue.type,
+        value: functionToCallValue,
         pathCollection: [],
       };
       return expr;
     }
     // trait value
-    else if (isTypeValue(value) && isTraitType(value.value)) {
+    else if (
+      isTypeValue(functionToCallValue) &&
+      isTraitType(functionToCallValue.value)
+    ) {
       const { traitValue, callerEnv } = getTraitTypeCallResult(functionToCall);
       env = callerEnv;
 
@@ -1863,14 +1877,17 @@ ${functionsWithMatchingTypes.map((func) => `${typeToString(func.type)}`).join("\
       // Attach necessary info to the func
       func.$ = {
         env,
-        type: value.type,
-        value: value,
+        type: functionToCallValue.type,
+        value: functionToCallValue,
         pathCollection: [],
       };
       return expr;
     }
     // function value
-    else if (isTypeValue(value) && isFunctionType(value.value)) {
+    else if (
+      isTypeValue(functionToCallValue) &&
+      isFunctionType(functionToCallValue.value)
+    ) {
       // This should already be evaluated.
       /*
         if (!expr.$ || !expr.$.value) {
@@ -1885,27 +1902,34 @@ ${functionsWithMatchingTypes.map((func) => `${typeToString(func.type)}`).join("\
       return expr;
     }
     // array type
-    else if (isTypeValue(value) && isArrayType(value.value)) {
+    else if (
+      isTypeValue(functionToCallValue) &&
+      isArrayType(functionToCallValue.value)
+    ) {
       // This should already be evaluated by tryToImplementArrayByArrayType
       return expr;
     }
-    // compt list type
-    else if (isTypeValue(value) && isComptListType(value.value)) {
-      // This should already be evaluated by tryToImplementComptListByComptListType
+    // comptime list type
+    else if (
+      isTypeValue(functionToCallValue) &&
+      isComptimeListType(functionToCallValue.value)
+    ) {
+      // This should already be evaluated by tryToImplementComptimeListByComptimeListType
       return expr;
     }
     // SomeType or DynType - check if it was called as a constructor (has "type" result)
     else if (
-      isTypeValue(value) &&
-      (isSomeType(value.value) || isDynType(value.value))
+      isTypeValue(functionToCallValue) &&
+      (isSomeType(functionToCallValue.value) ||
+        isDynType(functionToCallValue.value))
     ) {
       // Check if this was a constructor call (has "type" result with recursiveTypeRef)
       if (
         functionToCall.result.kind === "type" &&
-        isSomeType(value.value) &&
-        value.value.recursiveTypeRef
+        isSomeType(functionToCallValue.value) &&
+        functionToCallValue.value.recursiveTypeRef
       ) {
-        const someType = value.value;
+        const someType = functionToCallValue.value;
         expr.$ = {
           env,
           type: someType,
@@ -1927,8 +1951,8 @@ ${functionsWithMatchingTypes.map((func) => `${typeToString(func.type)}`).join("\
         // Attach necessary info to the func
         func.$ = {
           env,
-          type: value.type,
-          value: value,
+          type: functionToCallValue.type,
+          value: functionToCallValue,
           pathCollection: [],
         };
         return expr;
@@ -1937,19 +1961,28 @@ ${functionsWithMatchingTypes.map((func) => `${typeToString(func.type)}`).join("\
       return expr;
     }
     // numeric type conversion (i32, u8, f64, etc.)
-    else if (isTypeValue(value) && isConvertibleNumericType(value.value)) {
+    else if (
+      isTypeValue(functionToCallValue) &&
+      isConvertibleNumericType(functionToCallValue.value)
+    ) {
       // This should already be evaluated by tryToConvertToNumericType
       // The expr has been transformed to __yo_as call if needed
       return expr;
     }
     // pointer type casting (*(T))
-    else if (isTypeValue(value) && isPtrType(value.value)) {
+    else if (
+      isTypeValue(functionToCallValue) &&
+      isPtrType(functionToCallValue.value)
+    ) {
       // This should already be evaluated by tryToConvertToPointerType
       // The expr has been transformed to __yo_as call if needed
       return expr;
     }
     // Iso value constructor: Iso(T)(value)
-    else if (isTypeValue(value) && isIsoType(value.value)) {
+    else if (
+      isTypeValue(functionToCallValue) &&
+      isIsoType(functionToCallValue.value)
+    ) {
       // This should already be evaluated by evaluateIsoValueCall
       return expr;
     }

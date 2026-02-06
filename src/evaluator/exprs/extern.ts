@@ -1,4 +1,4 @@
-import { addVariableToEnv, Environment } from "../../env";
+import { addVariableToEnv, type Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   BuiltinKeywords,
@@ -6,13 +6,13 @@ import {
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
-  FnCallExpr,
+  type FnCallExpr,
 } from "../../expr";
-import { ExternLanguage, ModuleField } from "../../types";
+import type { ExternLanguage, ModuleField } from "../../types/definitions";
 import { isFunctionType, isTypeHierarchyType } from "../../types/guards";
 import { VUnit } from "../../unit-value";
-import { createUnknownValue, isComptStringValue } from "../../value";
-import { EvaluatorContext } from "../context";
+import { createUnknownValue, isComptimeStringValue } from "../../value";
+import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { evaluateModuleField } from "../types/module";
 
@@ -54,7 +54,7 @@ export function evaluateExtern({
     }
     env = evaluatedLang.$.env;
     const langValue = evaluatedLang.$.value;
-    if (!isComptStringValue(langValue)) {
+    if (!isComptimeStringValue(langValue)) {
       throw formatErrorMessage({
         token: langArg.token,
         errorMessage: `Expected string for language argument, got ${exprToString(langArg)}`,
@@ -115,14 +115,6 @@ export function evaluateExtern({
       field.type = { ...field.type, isExtern: language };
     }
 
-    // Expect field to be compile-time only
-    if (!field.isCompileTimeOnly) {
-      throw formatErrorMessage({
-        token: arg.token,
-        errorMessage: `Expected compile-time only field for extern module, got ${exprToString(arg)}`,
-      });
-    }
-
     fields.push(field);
     env = nextEnv;
 
@@ -133,9 +125,14 @@ export function evaluateExtern({
         name: field.label,
         type: field.type,
         value: [
-          field.assignedValue ?? createUnknownValue(field.type, field.label),
+          field.assignedValue ??
+            createUnknownValue(field.type, {
+              variableName: field.label,
+              env,
+              context,
+            }),
         ],
-        isCompileTimeOnly: field.isCompileTimeOnly,
+        isCompileTimeOnly: true,
         token: field.exprs.expr.token,
         initializedAtToken: field.exprs.expr.token,
         consumedAtToken: undefined, // Not consumed yet

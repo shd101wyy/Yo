@@ -1,6 +1,7 @@
-import {
+import { typeImplementsFuture } from "../evaluator/trait-checking";
+import type {
   ArrayType,
-  ComptListType,
+  ComptimeListType,
   ConcreteModuleType,
   DynType,
   EnumType,
@@ -21,7 +22,6 @@ import {
   VoidType,
 } from "./definitions";
 import { TypeTag } from "./tags";
-import { typeImplementsFuture } from "./utils";
 
 // Basic type guards
 export function isPrimitiveType(type: Type): boolean {
@@ -59,24 +59,24 @@ export function isUnitType(type?: Type): boolean {
   return type?.tag === TypeTag.Unit;
 }
 
-export function isComptIntType(type?: Type): boolean {
-  return type?.tag === TypeTag.ComptInt;
+export function isComptimeIntType(type?: Type): boolean {
+  return type?.tag === TypeTag.ComptimeInt;
 }
 
-export function isComptFloatType(type?: Type): boolean {
-  return type?.tag === TypeTag.ComptFloat;
+export function isComptimeFloatType(type?: Type): boolean {
+  return type?.tag === TypeTag.ComptimeFloat;
 }
 
-export function isComptStringType(type?: Type): boolean {
-  return type?.tag === TypeTag.ComptString;
+export function isComptimeStringType(type?: Type): boolean {
+  return type?.tag === TypeTag.ComptimeString;
 }
 
-export function isComptListType(type?: Type): type is ComptListType {
-  return type?.tag === TypeTag.ComptList;
+export function isComptimeListType(type?: Type): type is ComptimeListType {
+  return type?.tag === TypeTag.ComptimeList;
 }
 
 export function isExprListType(type?: Type): boolean {
-  return isComptListType(type) && isExprType(type.childType);
+  return isComptimeListType(type) && isExprType(type.childType);
 }
 
 export function isBooleanType(type?: Type): boolean {
@@ -207,7 +207,7 @@ export function isFunctionTypeAndIsMacroFunction(type?: Type) {
   );
 }
 
-export function isFunctionTypeAndReturnsComptValue(type?: Type) {
+export function isFunctionTypeAndReturnsComptimeValue(type?: Type) {
   return (
     type?.tag === TypeTag.Function &&
     (type as FunctionType).return.isCompileTimeOnly

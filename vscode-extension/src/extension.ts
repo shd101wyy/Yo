@@ -25,8 +25,9 @@ import {
 } from "@yo/expr";
 import { ModuleManager } from "@yo/module-manager";
 import { stringIsOperator, Token, TokenType } from "@yo/token";
+import { areTypesCompatible } from "@yo/types/compatibility";
+import { Type } from "@yo/types/definitions";
 import {
-  areTypesCompatible,
   isArrayType,
   isEnumType,
   isFunctionType,
@@ -34,21 +35,24 @@ import {
   isSliceType,
   isStructType,
   isUnionType,
-  Type,
-  TypeTag,
-  typeToString,
-} from "@yo/types";
+} from "@yo/types/guards";
+import { TypeTag } from "@yo/types/tags";
+import { typeToString } from "@yo/types/utils";
 import { isModuleValue, ModuleValue, valueToString } from "@yo/value";
 import { ValueTag } from "@yo/value-tag";
 
 const basicKeywords: string[] = [];
-for (const keyword in BuiltinKeywords) {
+for (const keyword of Object.keys(BuiltinKeywords) as Array<
+  keyof typeof BuiltinKeywords
+>) {
   basicKeywords.push(...BuiltinKeywords[keyword]);
 }
-for (const keyword in BuiltinFunctions) {
+for (const keyword of Object.keys(BuiltinFunctions) as Array<
+  keyof typeof BuiltinFunctions
+>) {
   basicKeywords.push(...BuiltinFunctions[keyword]);
 }
-for (const key in TypeTag) {
+for (const key of Object.keys(TypeTag) as Array<keyof typeof TypeTag>) {
   basicKeywords.push(TypeTag[key]);
 }
 
@@ -212,7 +216,7 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(diagnosticCollection);
 
   // Yo language module manager (initialized lazily per workspace std path)
-  let moduleManager: ModuleManager | null = null;
+  let rootModuleManager: ModuleManager | null = null;
   let moduleManagerStdPath: string | null = null;
 
   const findStdPathForDocument = (
@@ -241,22 +245,22 @@ export function activate(context: vscode.ExtensionContext) {
   ): ModuleManager => {
     const stdPath = findStdPathForDocument(document);
 
-    if (!moduleManager) {
-      moduleManager = new ModuleManager({
+    if (!rootModuleManager) {
+      rootModuleManager = new ModuleManager({
         allowPartialModule: true,
         stdPath: stdPath ?? undefined,
       });
-      moduleManagerStdPath = moduleManager.stdPath;
-      return moduleManager;
+      moduleManagerStdPath = rootModuleManager.stdPath;
+      return rootModuleManager;
     }
 
     if (stdPath && moduleManagerStdPath !== stdPath) {
-      moduleManager.resetAllState();
-      moduleManager.stdPath = stdPath;
+      rootModuleManager.resetAllState();
+      rootModuleManager.stdPath = stdPath;
       moduleManagerStdPath = stdPath;
     }
 
-    return moduleManager;
+    return rootModuleManager;
   };
 
   // Track in-flight analyses to avoid race conditions where an older run clears
@@ -401,7 +405,7 @@ export function activate(context: vscode.ExtensionContext) {
         // Create a diagnostic
         const diagnostic = new vscode.Diagnostic(
           range,
-          error.toString(),
+          String(error),
           vscode.DiagnosticSeverity.Error
         );
 
@@ -465,9 +469,9 @@ export function activate(context: vscode.ExtensionContext) {
         let bestExprPosition = -1;
 
         for (const expr of exprs) {
-          const findBestEnv = (expr: Expr) => {
-            if (exprIsAtom(expr)) {
-              const atomExpr = expr as AtomExpr;
+          const findBestEnv = (_expr: Expr) => {
+            if (exprIsAtom(_expr)) {
+              const atomExpr = _expr as AtomExpr;
               if (
                 atomExpr.$?.env &&
                 atomExpr.token.position.row < tokenAtPosition.position.row &&
@@ -476,8 +480,8 @@ export function activate(context: vscode.ExtensionContext) {
                 bestEnv = atomExpr.$.env;
                 bestExprPosition = atomExpr.token.position.row;
               }
-            } else if (expr.tag === "FnCall") {
-              const funcCallExpr = expr as FnCallExpr;
+            } else if (exprIsFunctionCall(_expr)) {
+              const funcCallExpr = _expr as FnCallExpr;
               findBestEnv(funcCallExpr.func);
               for (const arg of funcCallExpr.args) {
                 findBestEnv(arg);
@@ -575,7 +579,7 @@ export function activate(context: vscode.ExtensionContext) {
         }
 
         if (isCompileTimeOnly) {
-          tokenText = `compt(${tokenText})`;
+          tokenText = `comptime(${tokenText})`;
         }
 
         // Start with the token name in code format
@@ -748,11 +752,11 @@ export function activate(context: vscode.ExtensionContext) {
             } else {
               // Multiple candidates, prioritize them
               candidates.sort((a, b) => {
-                const currentLine = position.line;
+                const _currentLine = position.line;
 
                 // First priority: prefer variables declared closer to current position (but before it)
-                const aIsBeforeCurrent = a.token.position.row < currentLine;
-                const bIsBeforeCurrent = b.token.position.row < currentLine;
+                const aIsBeforeCurrent = a.token.position.row < _currentLine;
+                const bIsBeforeCurrent = b.token.position.row < _currentLine;
 
                 if (aIsBeforeCurrent && bIsBeforeCurrent) {
                   // Both are before current, prefer the one closer to current position
@@ -1008,8 +1012,8 @@ export function activate(context: vscode.ExtensionContext) {
             if (result) return result;
 
             for (const arg of funcCallExpr.args) {
-              const result = findVariableInScope(arg);
-              if (result) return result;
+              const variable = findVariableInScope(arg);
+              if (variable) return variable;
             }
           }
           return null;
@@ -1076,9 +1080,9 @@ export function activate(context: vscode.ExtensionContext) {
         let bestExprPosition = -1;
 
         for (const expr of program) {
-          const findBestEnv = (expr: Expr) => {
-            if (exprIsAtom(expr)) {
-              const atomExpr = expr as AtomExpr;
+          const findBestEnv = (_expr: Expr) => {
+            if (exprIsAtom(_expr)) {
+              const atomExpr = _expr as AtomExpr;
               if (
                 atomExpr.$?.env &&
                 atomExpr.token.position.row < currentLine &&
@@ -1087,8 +1091,8 @@ export function activate(context: vscode.ExtensionContext) {
                 bestEnv = atomExpr.$.env;
                 bestExprPosition = atomExpr.token.position.row;
               }
-            } else if (exprIsFunctionCall(expr)) {
-              const funcCallExpr = expr as FnCallExpr;
+            } else if (exprIsFunctionCall(_expr)) {
+              const funcCallExpr = _expr as FnCallExpr;
               findBestEnv(funcCallExpr.func);
               for (const arg of funcCallExpr.args) {
                 findBestEnv(arg);
@@ -1154,7 +1158,7 @@ export function activate(context: vscode.ExtensionContext) {
           // For array types, show the length field
           methods.push({
             name: "len",
-            detail: "compt(usize)",
+            detail: "comptime(usize)",
             documentation: `Get the compile-time known length of the array`,
           });
         } else if (isSliceType(fieldAccessType)) {
@@ -1216,20 +1220,21 @@ export function activate(context: vscode.ExtensionContext) {
           // Get the environment from the target expression
           if (targetExpr && exprIsAtom(targetExpr)) {
             const atomExpr = targetExpr as AtomExpr;
-            const evalInfo = atomExpr.$ as { env?: unknown } | undefined;
+            const evalInfo = atomExpr.$;
             const env = evalInfo?.env;
 
             if (env) {
               for (const methodName of commonMethodNames) {
                 try {
                   // Type assertion is necessary here since env comes from evaluated expressions
-                  const foundMethods = getReceiverMethodsByNameFromEnv(
-                    env as Parameters<
-                      typeof getReceiverMethodsByNameFromEnv
-                    >[0],
+                  const foundMethods = getReceiverMethodsByNameFromEnv({
+                    env: env,
                     methodName,
-                    originalReceiverType // Use original type for method calls
-                  );
+                    receiverType: originalReceiverType, // Use original type for method calls
+                    context: {
+                      stdPath: env.modulePath,
+                    },
+                  });
 
                   if (foundMethods && foundMethods.length > 0) {
                     // Show all available methods, but check type compatibility first
@@ -1243,9 +1248,7 @@ export function activate(context: vscode.ExtensionContext) {
                           try {
                             const receiverTypeInfo = {
                               type: originalReceiverType, // Use original type for method calls
-                              env: env as Parameters<
-                                typeof areTypesCompatible
-                              >[0]["env"],
+                              env: env,
                             };
                             const paramTypeInfo = {
                               type: firstParamType,

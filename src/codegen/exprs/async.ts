@@ -1,34 +1,35 @@
-import { AwaitAnalysisResult } from "../../evaluator/async/await-analysis-types";
+import type { AwaitAnalysisResult } from "../../evaluator/async/await-analysis-types";
 import {
-  AtomExpr,
+  extractFutureTraitFromType,
+  typeImplementsFuture,
+} from "../../evaluator/trait-checking";
+import {
+  type AtomExpr,
   BuiltinFunctions,
-  Expr,
+  type Expr,
   exprIsAtom,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   ExprTag,
-  FnCallExpr,
+  type FnCallExpr,
 } from "../../expr";
-import {
+import type {
   DynType,
-  extractFutureTraitFromType,
-  isUnitType,
   SomeType,
   StructType,
   Type,
-  typeContainsRcType,
-  typeImplementsFuture,
-  typeToString,
-} from "../../types";
+} from "../../types/definitions";
+import { isUnitType } from "../../types/guards";
+import { typeContainsRcType, typeToString } from "../../types/utils";
 import { isFunctionValue } from "../../value";
 import {
   generateAsyncBlockResumeFunction,
   getStateMachineFieldName,
 } from "../async/state-machine";
-import { FunctionGenerationContext } from "../functions/context";
+import type { FunctionGenerationContext } from "../functions/context";
 import { getTypeString, getVariableTypeString } from "../utils";
 import { generateAtom } from "./atom";
-import { getDropFunctionForType } from "./drop_dup";
+import { getDropFunctionForType } from "./drop-dup";
 import { generateExpr } from "./expr";
 
 /**

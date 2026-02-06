@@ -1,16 +1,16 @@
-import { Environment } from "./env";
-import { CapturedVariableInfo } from "./evaluator/context";
-import { Expr } from "./expr";
-import { FnTraitType, FunctionType, Type } from "./types";
+import type { Environment } from "./env";
+import type { CapturedVariableInfo } from "./evaluator/context";
+import type { Expr } from "./expr";
+import type { FnTraitType, FunctionType, Type } from "./types/definitions";
 import type { Value } from "./value";
 import { ValueTag } from "./value-tag";
 
 export type FuncValueId = string;
 
-export interface CalledComptFunctionCache {
+export interface CalledComptimeFunctionCache {
   funcId: FuncValueId;
   /**
-   * The function arguments that were used to call the compt function.
+   * The function arguments that were used to call the comptime function.
    */
   argValues: Value[];
   /**
@@ -18,7 +18,7 @@ export interface CalledComptFunctionCache {
    */
   env: Environment;
   /**
-   * The return value of the compt function call
+   * The return value of the comptime function call
    */
   value: Value;
   /**
@@ -94,11 +94,11 @@ export type FunctionValue = {
   funcId: FuncValueId;
 
   /**
-   * This is used to cache the result of the call to the function that returns a compt type value.
+   * This is used to cache the result of the call to the function that returns a comptime type value.
    * For example, a function returns a Type.
-   * If the function is not a compt function, this will be empty.
+   * If the function is not a comptime function, this will be empty.
    */
-  calledComptFunctionCaches: CalledComptFunctionCache[];
+  calledComptimeFunctionCaches: CalledComptimeFunctionCache[];
 
   /**
    * This is used to cache specialized versions of generic functions with compile-time parameters.

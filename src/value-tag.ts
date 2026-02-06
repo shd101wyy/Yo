@@ -1,8 +1,9 @@
+// eslint-disable-next-line no-shadow
 export enum ValueTag {
   Type = "Type",
-  ComptInt = "ComptInt",
-  ComptFloat = "ComptFloat",
-  ComptString = "ComptString",
+  ComptimeInt = "ComptimeInt",
+  ComptimeFloat = "ComptimeFloat",
+  ComptimeString = "ComptimeString",
   Ptr = "Ptr",
   U8 = "U8",
   I8 = "I8",
@@ -27,6 +28,6 @@ export enum ValueTag {
   Module = "Module",
   Trait = "Trait",
   Expr = "Expr",
-  ComptList = "ComptList",
+  ComptimeList = "ComptimeList",
   Unknown = "Unknown",
 }

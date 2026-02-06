@@ -11,7 +11,7 @@ This document describes the migration from globally-mutating where clause constr
 Before this migration, where clause constraints were implemented by directly mutating the `SomeType`'s module fields. This caused constraints to leak across function boundaries:
 
 ```yo
-LinkedList :: (fn(compt(T): Type) -> compt(Type))(
+LinkedList :: (fn(comptime(T): Type) -> comptime(Type))(
   object(
     // This function has where(T <: Eq(T))
     has :: (fn(
@@ -247,7 +247,7 @@ This change is **non-breaking** for correctly written code:
 **Incorrect code that may have worked before**:
 
 ```yo
-Container :: (fn(compt(T): Type) -> compt(Type))(
+Container :: (fn(comptime(T): Type) -> comptime(Type))(
   object(
     method1 :: (fn(self: Self, where(T <: Copy)) -> unit)({ ... }),
 
@@ -268,7 +268,7 @@ Container :: (fn(compt(T): Type) -> compt(Type))(
 The fix is validated by `src/tests/examples/fixme.yo`:
 
 ```yo
-LinkedList :: (fn(compt(T): Type) -> compt(Type))(
+LinkedList :: (fn(comptime(T): Type) -> comptime(Type))(
   object(
     has :: (fn(
       self: Self,

@@ -1,17 +1,17 @@
-import { Environment } from "../../env";
+import type { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   BuiltinKeywords,
   expectExprToBeFunctionCallOf,
-  Expr,
+  type Expr,
   exprIsAtom,
   exprIsAtomOf,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
-  FnCallExpr,
+  type FnCallExpr,
 } from "../../expr";
-import { isExprListType, isExprType } from "../../types";
+import { isExprListType, isExprType } from "../../types/guards";
 import {
   createExprValue,
   isExprListValue,
@@ -19,7 +19,7 @@ import {
   isUnknownValue,
   valueToString,
 } from "../../value";
-import { EvaluatorContext } from "../context";
+import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 
 export function processUnquotesInExpr({
@@ -134,8 +134,8 @@ export function processUnquotesInExpr({
             // TODO: exprListValue is unknown value.
           }
           if (unquoteSplicingArgs) {
-            unquoteSplicingArgs.forEach((arg) => {
-              newArgs.push(arg);
+            unquoteSplicingArgs.forEach((_arg) => {
+              newArgs.push(_arg);
             });
           } else {
             // Meet unknown value, we just ignore it

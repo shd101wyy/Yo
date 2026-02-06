@@ -1,32 +1,33 @@
 /* eslint-disable no-constant-condition */
 import {
   addVariableToEnv,
-  Environment,
-  Frame,
+  type Environment,
+  type Frame,
   getVariablesFromEnv,
   updateExistingVariable,
-  Variable,
+  type Variable,
 } from "./env";
 import { formatErrorMessage, formatErrorMessages } from "./error";
 import type { AwaitAnalysisResult } from "./evaluator/async/await-analysis-types";
-import { EvaluatorContext } from "./evaluator/context";
+import type { EvaluatorContext } from "./evaluator/context";
 import { evaluateExpression } from "./evaluator/exprs/expr";
 import { generateExprFromCode } from "./parser";
-import { Token, TokenType } from "./token";
-import {
-  areTypesCompatible,
-  isSomeType,
-  StructType,
-  Type,
-  typeContainsRcType,
-  typeToString,
-} from "./types";
+import { type Token, TokenType } from "./token";
+import { areTypesCompatible } from "./types/compatibility";
+import type { StructType, Type } from "./types/definitions";
+import { isSomeType } from "./types/guards";
+import { typeContainsRcType, typeToString } from "./types/utils";
 import {
   generateNewTempVariableName,
   generateVarialeId,
   isTempVariableName,
 } from "./utils";
-import { ArrayValue, isTypeValue, TraitValue, Value } from "./value";
+import {
+  type ArrayValue,
+  isTypeValue,
+  type TraitValue,
+  type Value,
+} from "./value";
 import { ValueTag } from "./value-tag";
 
 /**
@@ -88,6 +89,7 @@ export function pathConflictsWithPath(path1: Path, path2: Path): boolean {
   return false;
 }
 
+// eslint-disable-next-line no-shadow
 export enum ExprTag {
   Atom = "Atom",
   FnCall = "FnCall",
@@ -118,7 +120,7 @@ export interface EvaluatedExprData {
   /**
    * When a compile-time type needs to be converted to a different runtime type,
    * this field stores the target runtime type.
-   * For example: string literal "hello" with type `compt_string` converted to `str`
+   * For example: string literal "hello" with type `comptime_string` converted to `str`
    */
   convertedRuntimeType?: Type;
   /**
@@ -502,7 +504,7 @@ export function exprsAreEqual(expr1: Expr, expr2: Expr): boolean {
 }
 
 export const BuiltinKeywords = {
-  compt: ["compt" /*"@"*/],
+  comptime: ["comptime" /*"@"*/],
   runtime: ["runtime"], // Force runtime evaluation, prevents CTFE
   ref: ["ref"], // Reference semantics for struct/enum
 
@@ -580,21 +582,20 @@ export const BuiltinKeywords = {
   Type: ["Type"],
   Module: ["Module"],
   Trait: ["Trait"],
-  ComptList: ["ComptList"],
+  ComptimeList: ["ComptimeList"],
 
   // data values
-  tuple: "tuple",
-  array: "array",
-  compt_list: "compt_list", // compt_list
+  tuple: ["tuple"],
+  array: ["array"],
+  comptime_list: ["comptime_list"], // comptime_list
 };
 
 export const BuiltinFunctions = {
   // compile-time related functions
-  compt_expect_error: ["compt_expect_error"],
-  compt_assert: ["compt_assert"],
-  compt_print: ["compt_print"],
-  compt_fn: ["compt_fn"],
-  // compt_codegen_inline: ["compt_codegen_inline"],
+  comptime_expect_error: ["comptime_expect_error"],
+  comptime_assert: ["comptime_assert"],
+  comptime_print: ["comptime_print"],
+  comptime_fn: ["comptime_fn"],
 
   // va_XX related function for variadic arguments
   // Only `va_start` needs to be handled here.
@@ -648,319 +649,345 @@ export const BuiltinFunctions = {
 
   // expr_list related functions
   // __yo_expr_list_is_expr_list: ["__yo_expr_list_is_expr_list"],
-  __yo_compt_list_car: ["__yo_compt_list_car"],
-  __yo_compt_list_cdr: ["__yo_compt_list_cdr"],
-  __yo_compt_list_cons: ["__yo_compt_list_cons"],
-  __yo_compt_list_append: ["__yo_compt_list_append"],
-  __yo_compt_list_length: ["__yo_compt_list_length"],
-  __yo_compt_list_element_type: ["__yo_compt_list_element_type"],
+  __yo_comptime_list_car: ["__yo_comptime_list_car"],
+  __yo_comptime_list_cdr: ["__yo_comptime_list_cdr"],
+  __yo_comptime_list_cons: ["__yo_comptime_list_cons"],
+  __yo_comptime_list_append: ["__yo_comptime_list_append"],
+  __yo_comptime_list_length: ["__yo_comptime_list_length"],
+  __yo_comptime_list_element_type: ["__yo_comptime_list_element_type"],
 
-  // compt_int related functions
+  // comptime_int related functions
   /// 2 args
-  __yo_compt_int_add: ["__yo_compt_int_add"],
-  __yo_compt_int_sub: ["__yo_compt_int_sub"],
-  __yo_compt_int_mul: ["__yo_compt_int_mul"],
-  __yo_compt_int_div: ["__yo_compt_int_div"],
-  __yo_compt_int_mod: ["__yo_compt_int_mod"],
-  __yo_compt_int_eq: ["__yo_compt_int_eq"],
-  __yo_compt_int_neq: ["__yo_compt_int_neq"],
-  __yo_compt_int_lt: ["__yo_compt_int_lt"],
-  __yo_compt_int_lte: ["__yo_compt_int_lte"],
-  __yo_compt_int_gt: ["__yo_compt_int_gt"],
-  __yo_compt_int_gte: ["__yo_compt_int_gte"],
-  __yo_compt_int_bit_and: ["__yo_compt_int_bit_and"], // Bitwise AND
-  __yo_compt_int_bit_or: ["__yo_compt_int_bit_or"], // Bitwise OR
-  __yo_compt_int_bit_xor: ["__yo_compt_int_bit_xor"], // Bitwise XOR
-  __yo_compt_int_shl: ["__yo_compt_int_shl"], // Shift left
-  __yo_compt_int_shr: ["__yo_compt_int_shr"], // Shift right
+  __yo_comptime_int_add: ["__yo_comptime_int_add"],
+  __yo_comptime_int_sub: ["__yo_comptime_int_sub"],
+  __yo_comptime_int_mul: ["__yo_comptime_int_mul"],
+  __yo_comptime_int_div: ["__yo_comptime_int_div"],
+  __yo_comptime_int_mod: ["__yo_comptime_int_mod"],
+  __yo_comptime_int_eq: ["__yo_comptime_int_eq"],
+  __yo_comptime_int_neq: ["__yo_comptime_int_neq"],
+  __yo_comptime_int_lt: ["__yo_comptime_int_lt"],
+  __yo_comptime_int_lte: ["__yo_comptime_int_lte"],
+  __yo_comptime_int_gt: ["__yo_comptime_int_gt"],
+  __yo_comptime_int_gte: ["__yo_comptime_int_gte"],
+  __yo_comptime_int_bit_and: ["__yo_comptime_int_bit_and"], // Bitwise AND
+  __yo_comptime_int_bit_or: ["__yo_comptime_int_bit_or"], // Bitwise OR
+  __yo_comptime_int_bit_xor: ["__yo_comptime_int_bit_xor"], // Bitwise XOR
+  __yo_comptime_int_shl: ["__yo_comptime_int_shl"], // Shift left
+  __yo_comptime_int_shr: ["__yo_comptime_int_shr"], // Shift right
   // 1 arg
-  __yo_compt_int_neg: ["__yo_compt_int_neg"],
-  __yo_compt_int_bit_not: ["__yo_compt_int_bit_not"], // Bitwise NOT
-  __yo_compt_int_to_compt_string: ["__yo_compt_int_to_compt_string"],
+  __yo_comptime_int_neg: ["__yo_comptime_int_neg"],
+  __yo_comptime_int_bit_not: ["__yo_comptime_int_bit_not"], // Bitwise NOT
+  __yo_comptime_int_to_comptime_string: [
+    "__yo_comptime_int_to_comptime_string",
+  ],
 
-  // compt_float related functions
+  // comptime_float related functions
   /// 2 args
-  __yo_compt_float_add: ["__yo_compt_float_add"],
-  __yo_compt_float_sub: ["__yo_compt_float_sub"],
-  __yo_compt_float_mul: ["__yo_compt_float_mul"],
-  __yo_compt_float_div: ["__yo_compt_float_div"],
-  __yo_compt_float_eq: ["__yo_compt_float_eq"],
-  __yo_compt_float_neq: ["__yo_compt_float_neq"],
-  __yo_compt_float_lt: ["__yo_compt_float_lt"],
-  __yo_compt_float_lte: ["__yo_compt_float_lte"],
-  __yo_compt_float_gt: ["__yo_compt_float_gt"],
-  __yo_compt_float_gte: ["__yo_compt_float_gte"],
+  __yo_comptime_float_add: ["__yo_comptime_float_add"],
+  __yo_comptime_float_sub: ["__yo_comptime_float_sub"],
+  __yo_comptime_float_mul: ["__yo_comptime_float_mul"],
+  __yo_comptime_float_div: ["__yo_comptime_float_div"],
+  __yo_comptime_float_eq: ["__yo_comptime_float_eq"],
+  __yo_comptime_float_neq: ["__yo_comptime_float_neq"],
+  __yo_comptime_float_lt: ["__yo_comptime_float_lt"],
+  __yo_comptime_float_lte: ["__yo_comptime_float_lte"],
+  __yo_comptime_float_gt: ["__yo_comptime_float_gt"],
+  __yo_comptime_float_gte: ["__yo_comptime_float_gte"],
   // 1 arg
-  __yo_compt_float_neg: ["__yo_compt_float_neg"],
-  __yo_compt_float_to_compt_string: ["__yo_compt_float_to_compt_string"],
+  __yo_comptime_float_neg: ["__yo_comptime_float_neg"],
+  __yo_comptime_float_to_comptime_string: [
+    "__yo_comptime_float_to_comptime_string",
+  ],
 
   // Numeric type functions (u8, i8, u16, i16, u32, i32, u64, i64, usize, isize, f32, f64)
   // u8 functions
-  __yo_compt_u8_add: ["__yo_compt_u8_add"],
-  __yo_compt_u8_sub: ["__yo_compt_u8_sub"],
-  __yo_compt_u8_mul: ["__yo_compt_u8_mul"],
-  __yo_compt_u8_div: ["__yo_compt_u8_div"],
-  __yo_compt_u8_mod: ["__yo_compt_u8_mod"],
-  __yo_compt_u8_eq: ["__yo_compt_u8_eq"],
-  __yo_compt_u8_neq: ["__yo_compt_u8_neq"],
-  __yo_compt_u8_lt: ["__yo_compt_u8_lt"],
-  __yo_compt_u8_lte: ["__yo_compt_u8_lte"],
-  __yo_compt_u8_gt: ["__yo_compt_u8_gt"],
-  __yo_compt_u8_gte: ["__yo_compt_u8_gte"],
-  __yo_compt_u8_neg: ["__yo_compt_u8_neg"],
-  __yo_compt_u8_bit_and: ["__yo_compt_u8_bit_and"],
-  __yo_compt_u8_bit_or: ["__yo_compt_u8_bit_or"],
-  __yo_compt_u8_bit_xor: ["__yo_compt_u8_bit_xor"],
-  __yo_compt_u8_bit_not: ["__yo_compt_u8_bit_not"],
-  __yo_compt_u8_shl: ["__yo_compt_u8_shl"],
-  __yo_compt_u8_shr: ["__yo_compt_u8_shr"],
-  __yo_compt_u8_to_compt_string: ["__yo_compt_u8_to_compt_string"],
+  __yo_comptime_u8_add: ["__yo_comptime_u8_add"],
+  __yo_comptime_u8_sub: ["__yo_comptime_u8_sub"],
+  __yo_comptime_u8_mul: ["__yo_comptime_u8_mul"],
+  __yo_comptime_u8_div: ["__yo_comptime_u8_div"],
+  __yo_comptime_u8_mod: ["__yo_comptime_u8_mod"],
+  __yo_comptime_u8_eq: ["__yo_comptime_u8_eq"],
+  __yo_comptime_u8_neq: ["__yo_comptime_u8_neq"],
+  __yo_comptime_u8_lt: ["__yo_comptime_u8_lt"],
+  __yo_comptime_u8_lte: ["__yo_comptime_u8_lte"],
+  __yo_comptime_u8_gt: ["__yo_comptime_u8_gt"],
+  __yo_comptime_u8_gte: ["__yo_comptime_u8_gte"],
+  __yo_comptime_u8_neg: ["__yo_comptime_u8_neg"],
+  __yo_comptime_u8_bit_and: ["__yo_comptime_u8_bit_and"],
+  __yo_comptime_u8_bit_or: ["__yo_comptime_u8_bit_or"],
+  __yo_comptime_u8_bit_xor: ["__yo_comptime_u8_bit_xor"],
+  __yo_comptime_u8_bit_not: ["__yo_comptime_u8_bit_not"],
+  __yo_comptime_u8_shl: ["__yo_comptime_u8_shl"],
+  __yo_comptime_u8_shr: ["__yo_comptime_u8_shr"],
+  __yo_comptime_u8_to_comptime_string: ["__yo_comptime_u8_to_comptime_string"],
 
   // i8 functions
-  __yo_compt_i8_add: ["__yo_compt_i8_add"],
-  __yo_compt_i8_sub: ["__yo_compt_i8_sub"],
-  __yo_compt_i8_mul: ["__yo_compt_i8_mul"],
-  __yo_compt_i8_div: ["__yo_compt_i8_div"],
-  __yo_compt_i8_mod: ["__yo_compt_i8_mod"],
-  __yo_compt_i8_eq: ["__yo_compt_i8_eq"],
-  __yo_compt_i8_neq: ["__yo_compt_i8_neq"],
-  __yo_compt_i8_lt: ["__yo_compt_i8_lt"],
-  __yo_compt_i8_lte: ["__yo_compt_i8_lte"],
-  __yo_compt_i8_gt: ["__yo_compt_i8_gt"],
-  __yo_compt_i8_gte: ["__yo_compt_i8_gte"],
-  __yo_compt_i8_neg: ["__yo_compt_i8_neg"],
-  __yo_compt_i8_bit_and: ["__yo_compt_i8_bit_and"],
-  __yo_compt_i8_bit_or: ["__yo_compt_i8_bit_or"],
-  __yo_compt_i8_bit_xor: ["__yo_compt_i8_bit_xor"],
-  __yo_compt_i8_bit_not: ["__yo_compt_i8_bit_not"],
-  __yo_compt_i8_shl: ["__yo_compt_i8_shl"],
-  __yo_compt_i8_shr: ["__yo_compt_i8_shr"],
-  __yo_compt_i8_to_compt_string: ["__yo_compt_i8_to_compt_string"],
+  __yo_comptime_i8_add: ["__yo_comptime_i8_add"],
+  __yo_comptime_i8_sub: ["__yo_comptime_i8_sub"],
+  __yo_comptime_i8_mul: ["__yo_comptime_i8_mul"],
+  __yo_comptime_i8_div: ["__yo_comptime_i8_div"],
+  __yo_comptime_i8_mod: ["__yo_comptime_i8_mod"],
+  __yo_comptime_i8_eq: ["__yo_comptime_i8_eq"],
+  __yo_comptime_i8_neq: ["__yo_comptime_i8_neq"],
+  __yo_comptime_i8_lt: ["__yo_comptime_i8_lt"],
+  __yo_comptime_i8_lte: ["__yo_comptime_i8_lte"],
+  __yo_comptime_i8_gt: ["__yo_comptime_i8_gt"],
+  __yo_comptime_i8_gte: ["__yo_comptime_i8_gte"],
+  __yo_comptime_i8_neg: ["__yo_comptime_i8_neg"],
+  __yo_comptime_i8_bit_and: ["__yo_comptime_i8_bit_and"],
+  __yo_comptime_i8_bit_or: ["__yo_comptime_i8_bit_or"],
+  __yo_comptime_i8_bit_xor: ["__yo_comptime_i8_bit_xor"],
+  __yo_comptime_i8_bit_not: ["__yo_comptime_i8_bit_not"],
+  __yo_comptime_i8_shl: ["__yo_comptime_i8_shl"],
+  __yo_comptime_i8_shr: ["__yo_comptime_i8_shr"],
+  __yo_comptime_i8_to_comptime_string: ["__yo_comptime_i8_to_comptime_string"],
 
   // u16 functions
-  __yo_compt_u16_add: ["__yo_compt_u16_add"],
-  __yo_compt_u16_sub: ["__yo_compt_u16_sub"],
-  __yo_compt_u16_mul: ["__yo_compt_u16_mul"],
-  __yo_compt_u16_div: ["__yo_compt_u16_div"],
-  __yo_compt_u16_mod: ["__yo_compt_u16_mod"],
-  __yo_compt_u16_eq: ["__yo_compt_u16_eq"],
-  __yo_compt_u16_neq: ["__yo_compt_u16_neq"],
-  __yo_compt_u16_lt: ["__yo_compt_u16_lt"],
-  __yo_compt_u16_lte: ["__yo_compt_u16_lte"],
-  __yo_compt_u16_gt: ["__yo_compt_u16_gt"],
-  __yo_compt_u16_gte: ["__yo_compt_u16_gte"],
-  __yo_compt_u16_neg: ["__yo_compt_u16_neg"],
-  __yo_compt_u16_bit_and: ["__yo_compt_u16_bit_and"],
-  __yo_compt_u16_bit_or: ["__yo_compt_u16_bit_or"],
-  __yo_compt_u16_bit_xor: ["__yo_compt_u16_bit_xor"],
-  __yo_compt_u16_bit_not: ["__yo_compt_u16_bit_not"],
-  __yo_compt_u16_shl: ["__yo_compt_u16_shl"],
-  __yo_compt_u16_shr: ["__yo_compt_u16_shr"],
-  __yo_compt_u16_to_compt_string: ["__yo_compt_u16_to_compt_string"],
+  __yo_comptime_u16_add: ["__yo_comptime_u16_add"],
+  __yo_comptime_u16_sub: ["__yo_comptime_u16_sub"],
+  __yo_comptime_u16_mul: ["__yo_comptime_u16_mul"],
+  __yo_comptime_u16_div: ["__yo_comptime_u16_div"],
+  __yo_comptime_u16_mod: ["__yo_comptime_u16_mod"],
+  __yo_comptime_u16_eq: ["__yo_comptime_u16_eq"],
+  __yo_comptime_u16_neq: ["__yo_comptime_u16_neq"],
+  __yo_comptime_u16_lt: ["__yo_comptime_u16_lt"],
+  __yo_comptime_u16_lte: ["__yo_comptime_u16_lte"],
+  __yo_comptime_u16_gt: ["__yo_comptime_u16_gt"],
+  __yo_comptime_u16_gte: ["__yo_comptime_u16_gte"],
+  __yo_comptime_u16_neg: ["__yo_comptime_u16_neg"],
+  __yo_comptime_u16_bit_and: ["__yo_comptime_u16_bit_and"],
+  __yo_comptime_u16_bit_or: ["__yo_comptime_u16_bit_or"],
+  __yo_comptime_u16_bit_xor: ["__yo_comptime_u16_bit_xor"],
+  __yo_comptime_u16_bit_not: ["__yo_comptime_u16_bit_not"],
+  __yo_comptime_u16_shl: ["__yo_comptime_u16_shl"],
+  __yo_comptime_u16_shr: ["__yo_comptime_u16_shr"],
+  __yo_comptime_u16_to_comptime_string: [
+    "__yo_comptime_u16_to_comptime_string",
+  ],
 
   // i16 functions
-  __yo_compt_i16_add: ["__yo_compt_i16_add"],
-  __yo_compt_i16_sub: ["__yo_compt_i16_sub"],
-  __yo_compt_i16_mul: ["__yo_compt_i16_mul"],
-  __yo_compt_i16_div: ["__yo_compt_i16_div"],
-  __yo_compt_i16_mod: ["__yo_compt_i16_mod"],
-  __yo_compt_i16_eq: ["__yo_compt_i16_eq"],
-  __yo_compt_i16_neq: ["__yo_compt_i16_neq"],
-  __yo_compt_i16_lt: ["__yo_compt_i16_lt"],
-  __yo_compt_i16_lte: ["__yo_compt_i16_lte"],
-  __yo_compt_i16_gt: ["__yo_compt_i16_gt"],
-  __yo_compt_i16_gte: ["__yo_compt_i16_gte"],
-  __yo_compt_i16_neg: ["__yo_compt_i16_neg"],
-  __yo_compt_i16_bit_and: ["__yo_compt_i16_bit_and"],
-  __yo_compt_i16_bit_or: ["__yo_compt_i16_bit_or"],
-  __yo_compt_i16_bit_xor: ["__yo_compt_i16_bit_xor"],
-  __yo_compt_i16_bit_not: ["__yo_compt_i16_bit_not"],
-  __yo_compt_i16_shl: ["__yo_compt_i16_shl"],
-  __yo_compt_i16_shr: ["__yo_compt_i16_shr"],
-  __yo_compt_i16_to_compt_string: ["__yo_compt_i16_to_compt_string"],
+  __yo_comptime_i16_add: ["__yo_comptime_i16_add"],
+  __yo_comptime_i16_sub: ["__yo_comptime_i16_sub"],
+  __yo_comptime_i16_mul: ["__yo_comptime_i16_mul"],
+  __yo_comptime_i16_div: ["__yo_comptime_i16_div"],
+  __yo_comptime_i16_mod: ["__yo_comptime_i16_mod"],
+  __yo_comptime_i16_eq: ["__yo_comptime_i16_eq"],
+  __yo_comptime_i16_neq: ["__yo_comptime_i16_neq"],
+  __yo_comptime_i16_lt: ["__yo_comptime_i16_lt"],
+  __yo_comptime_i16_lte: ["__yo_comptime_i16_lte"],
+  __yo_comptime_i16_gt: ["__yo_comptime_i16_gt"],
+  __yo_comptime_i16_gte: ["__yo_comptime_i16_gte"],
+  __yo_comptime_i16_neg: ["__yo_comptime_i16_neg"],
+  __yo_comptime_i16_bit_and: ["__yo_comptime_i16_bit_and"],
+  __yo_comptime_i16_bit_or: ["__yo_comptime_i16_bit_or"],
+  __yo_comptime_i16_bit_xor: ["__yo_comptime_i16_bit_xor"],
+  __yo_comptime_i16_bit_not: ["__yo_comptime_i16_bit_not"],
+  __yo_comptime_i16_shl: ["__yo_comptime_i16_shl"],
+  __yo_comptime_i16_shr: ["__yo_comptime_i16_shr"],
+  __yo_comptime_i16_to_comptime_string: [
+    "__yo_comptime_i16_to_comptime_string",
+  ],
 
   // u32 functions
-  __yo_compt_u32_add: ["__yo_compt_u32_add"],
-  __yo_compt_u32_sub: ["__yo_compt_u32_sub"],
-  __yo_compt_u32_mul: ["__yo_compt_u32_mul"],
-  __yo_compt_u32_div: ["__yo_compt_u32_div"],
-  __yo_compt_u32_mod: ["__yo_compt_u32_mod"],
-  __yo_compt_u32_eq: ["__yo_compt_u32_eq"],
-  __yo_compt_u32_neq: ["__yo_compt_u32_neq"],
-  __yo_compt_u32_lt: ["__yo_compt_u32_lt"],
-  __yo_compt_u32_lte: ["__yo_compt_u32_lte"],
-  __yo_compt_u32_gt: ["__yo_compt_u32_gt"],
-  __yo_compt_u32_gte: ["__yo_compt_u32_gte"],
-  __yo_compt_u32_neg: ["__yo_compt_u32_neg"],
-  __yo_compt_u32_bit_and: ["__yo_compt_u32_bit_and"],
-  __yo_compt_u32_bit_or: ["__yo_compt_u32_bit_or"],
-  __yo_compt_u32_bit_xor: ["__yo_compt_u32_bit_xor"],
-  __yo_compt_u32_bit_not: ["__yo_compt_u32_bit_not"],
-  __yo_compt_u32_shl: ["__yo_compt_u32_shl"],
-  __yo_compt_u32_shr: ["__yo_compt_u32_shr"],
-  __yo_compt_u32_to_compt_string: ["__yo_compt_u32_to_compt_string"],
+  __yo_comptime_u32_add: ["__yo_comptime_u32_add"],
+  __yo_comptime_u32_sub: ["__yo_comptime_u32_sub"],
+  __yo_comptime_u32_mul: ["__yo_comptime_u32_mul"],
+  __yo_comptime_u32_div: ["__yo_comptime_u32_div"],
+  __yo_comptime_u32_mod: ["__yo_comptime_u32_mod"],
+  __yo_comptime_u32_eq: ["__yo_comptime_u32_eq"],
+  __yo_comptime_u32_neq: ["__yo_comptime_u32_neq"],
+  __yo_comptime_u32_lt: ["__yo_comptime_u32_lt"],
+  __yo_comptime_u32_lte: ["__yo_comptime_u32_lte"],
+  __yo_comptime_u32_gt: ["__yo_comptime_u32_gt"],
+  __yo_comptime_u32_gte: ["__yo_comptime_u32_gte"],
+  __yo_comptime_u32_neg: ["__yo_comptime_u32_neg"],
+  __yo_comptime_u32_bit_and: ["__yo_comptime_u32_bit_and"],
+  __yo_comptime_u32_bit_or: ["__yo_comptime_u32_bit_or"],
+  __yo_comptime_u32_bit_xor: ["__yo_comptime_u32_bit_xor"],
+  __yo_comptime_u32_bit_not: ["__yo_comptime_u32_bit_not"],
+  __yo_comptime_u32_shl: ["__yo_comptime_u32_shl"],
+  __yo_comptime_u32_shr: ["__yo_comptime_u32_shr"],
+  __yo_comptime_u32_to_comptime_string: [
+    "__yo_comptime_u32_to_comptime_string",
+  ],
 
   // i32 functions
-  __yo_compt_i32_add: ["__yo_compt_i32_add"],
-  __yo_compt_i32_sub: ["__yo_compt_i32_sub"],
-  __yo_compt_i32_mul: ["__yo_compt_i32_mul"],
-  __yo_compt_i32_div: ["__yo_compt_i32_div"],
-  __yo_compt_i32_mod: ["__yo_compt_i32_mod"],
-  __yo_compt_i32_eq: ["__yo_compt_i32_eq"],
-  __yo_compt_i32_neq: ["__yo_compt_i32_neq"],
-  __yo_compt_i32_lt: ["__yo_compt_i32_lt"],
-  __yo_compt_i32_lte: ["__yo_compt_i32_lte"],
-  __yo_compt_i32_gt: ["__yo_compt_i32_gt"],
-  __yo_compt_i32_gte: ["__yo_compt_i32_gte"],
-  __yo_compt_i32_neg: ["__yo_compt_i32_neg"],
-  __yo_compt_i32_bit_and: ["__yo_compt_i32_bit_and"],
-  __yo_compt_i32_bit_or: ["__yo_compt_i32_bit_or"],
-  __yo_compt_i32_bit_xor: ["__yo_compt_i32_bit_xor"],
-  __yo_compt_i32_bit_not: ["__yo_compt_i32_bit_not"],
-  __yo_compt_i32_shl: ["__yo_compt_i32_shl"],
-  __yo_compt_i32_shr: ["__yo_compt_i32_shr"],
-  __yo_compt_i32_to_compt_string: ["__yo_compt_i32_to_compt_string"],
+  __yo_comptime_i32_add: ["__yo_comptime_i32_add"],
+  __yo_comptime_i32_sub: ["__yo_comptime_i32_sub"],
+  __yo_comptime_i32_mul: ["__yo_comptime_i32_mul"],
+  __yo_comptime_i32_div: ["__yo_comptime_i32_div"],
+  __yo_comptime_i32_mod: ["__yo_comptime_i32_mod"],
+  __yo_comptime_i32_eq: ["__yo_comptime_i32_eq"],
+  __yo_comptime_i32_neq: ["__yo_comptime_i32_neq"],
+  __yo_comptime_i32_lt: ["__yo_comptime_i32_lt"],
+  __yo_comptime_i32_lte: ["__yo_comptime_i32_lte"],
+  __yo_comptime_i32_gt: ["__yo_comptime_i32_gt"],
+  __yo_comptime_i32_gte: ["__yo_comptime_i32_gte"],
+  __yo_comptime_i32_neg: ["__yo_comptime_i32_neg"],
+  __yo_comptime_i32_bit_and: ["__yo_comptime_i32_bit_and"],
+  __yo_comptime_i32_bit_or: ["__yo_comptime_i32_bit_or"],
+  __yo_comptime_i32_bit_xor: ["__yo_comptime_i32_bit_xor"],
+  __yo_comptime_i32_bit_not: ["__yo_comptime_i32_bit_not"],
+  __yo_comptime_i32_shl: ["__yo_comptime_i32_shl"],
+  __yo_comptime_i32_shr: ["__yo_comptime_i32_shr"],
+  __yo_comptime_i32_to_comptime_string: [
+    "__yo_comptime_i32_to_comptime_string",
+  ],
 
   // u64 functions
-  __yo_compt_u64_add: ["__yo_compt_u64_add"],
-  __yo_compt_u64_sub: ["__yo_compt_u64_sub"],
-  __yo_compt_u64_mul: ["__yo_compt_u64_mul"],
-  __yo_compt_u64_div: ["__yo_compt_u64_div"],
-  __yo_compt_u64_mod: ["__yo_compt_u64_mod"],
-  __yo_compt_u64_eq: ["__yo_compt_u64_eq"],
-  __yo_compt_u64_neq: ["__yo_compt_u64_neq"],
-  __yo_compt_u64_lt: ["__yo_compt_u64_lt"],
-  __yo_compt_u64_lte: ["__yo_compt_u64_lte"],
-  __yo_compt_u64_gt: ["__yo_compt_u64_gt"],
-  __yo_compt_u64_gte: ["__yo_compt_u64_gte"],
-  __yo_compt_u64_neg: ["__yo_compt_u64_neg"],
-  __yo_compt_u64_bit_and: ["__yo_compt_u64_bit_and"],
-  __yo_compt_u64_bit_or: ["__yo_compt_u64_bit_or"],
-  __yo_compt_u64_bit_xor: ["__yo_compt_u64_bit_xor"],
-  __yo_compt_u64_bit_not: ["__yo_compt_u64_bit_not"],
-  __yo_compt_u64_shl: ["__yo_compt_u64_shl"],
-  __yo_compt_u64_shr: ["__yo_compt_u64_shr"],
-  __yo_compt_u64_to_compt_string: ["__yo_compt_u64_to_compt_string"],
+  __yo_comptime_u64_add: ["__yo_comptime_u64_add"],
+  __yo_comptime_u64_sub: ["__yo_comptime_u64_sub"],
+  __yo_comptime_u64_mul: ["__yo_comptime_u64_mul"],
+  __yo_comptime_u64_div: ["__yo_comptime_u64_div"],
+  __yo_comptime_u64_mod: ["__yo_comptime_u64_mod"],
+  __yo_comptime_u64_eq: ["__yo_comptime_u64_eq"],
+  __yo_comptime_u64_neq: ["__yo_comptime_u64_neq"],
+  __yo_comptime_u64_lt: ["__yo_comptime_u64_lt"],
+  __yo_comptime_u64_lte: ["__yo_comptime_u64_lte"],
+  __yo_comptime_u64_gt: ["__yo_comptime_u64_gt"],
+  __yo_comptime_u64_gte: ["__yo_comptime_u64_gte"],
+  __yo_comptime_u64_neg: ["__yo_comptime_u64_neg"],
+  __yo_comptime_u64_bit_and: ["__yo_comptime_u64_bit_and"],
+  __yo_comptime_u64_bit_or: ["__yo_comptime_u64_bit_or"],
+  __yo_comptime_u64_bit_xor: ["__yo_comptime_u64_bit_xor"],
+  __yo_comptime_u64_bit_not: ["__yo_comptime_u64_bit_not"],
+  __yo_comptime_u64_shl: ["__yo_comptime_u64_shl"],
+  __yo_comptime_u64_shr: ["__yo_comptime_u64_shr"],
+  __yo_comptime_u64_to_comptime_string: [
+    "__yo_comptime_u64_to_comptime_string",
+  ],
 
   // i64 functions
-  __yo_compt_i64_add: ["__yo_compt_i64_add"],
-  __yo_compt_i64_sub: ["__yo_compt_i64_sub"],
-  __yo_compt_i64_mul: ["__yo_compt_i64_mul"],
-  __yo_compt_i64_div: ["__yo_compt_i64_div"],
-  __yo_compt_i64_mod: ["__yo_compt_i64_mod"],
-  __yo_compt_i64_eq: ["__yo_compt_i64_eq"],
-  __yo_compt_i64_neq: ["__yo_compt_i64_neq"],
-  __yo_compt_i64_lt: ["__yo_compt_i64_lt"],
-  __yo_compt_i64_lte: ["__yo_compt_i64_lte"],
-  __yo_compt_i64_gt: ["__yo_compt_i64_gt"],
-  __yo_compt_i64_gte: ["__yo_compt_i64_gte"],
-  __yo_compt_i64_neg: ["__yo_compt_i64_neg"],
-  __yo_compt_i64_bit_and: ["__yo_compt_i64_bit_and"],
-  __yo_compt_i64_bit_or: ["__yo_compt_i64_bit_or"],
-  __yo_compt_i64_bit_xor: ["__yo_compt_i64_bit_xor"],
-  __yo_compt_i64_bit_not: ["__yo_compt_i64_bit_not"],
-  __yo_compt_i64_shl: ["__yo_compt_i64_shl"],
-  __yo_compt_i64_shr: ["__yo_compt_i64_shr"],
-  __yo_compt_i64_to_compt_string: ["__yo_compt_i64_to_compt_string"],
+  __yo_comptime_i64_add: ["__yo_comptime_i64_add"],
+  __yo_comptime_i64_sub: ["__yo_comptime_i64_sub"],
+  __yo_comptime_i64_mul: ["__yo_comptime_i64_mul"],
+  __yo_comptime_i64_div: ["__yo_comptime_i64_div"],
+  __yo_comptime_i64_mod: ["__yo_comptime_i64_mod"],
+  __yo_comptime_i64_eq: ["__yo_comptime_i64_eq"],
+  __yo_comptime_i64_neq: ["__yo_comptime_i64_neq"],
+  __yo_comptime_i64_lt: ["__yo_comptime_i64_lt"],
+  __yo_comptime_i64_lte: ["__yo_comptime_i64_lte"],
+  __yo_comptime_i64_gt: ["__yo_comptime_i64_gt"],
+  __yo_comptime_i64_gte: ["__yo_comptime_i64_gte"],
+  __yo_comptime_i64_neg: ["__yo_comptime_i64_neg"],
+  __yo_comptime_i64_bit_and: ["__yo_comptime_i64_bit_and"],
+  __yo_comptime_i64_bit_or: ["__yo_comptime_i64_bit_or"],
+  __yo_comptime_i64_bit_xor: ["__yo_comptime_i64_bit_xor"],
+  __yo_comptime_i64_bit_not: ["__yo_comptime_i64_bit_not"],
+  __yo_comptime_i64_shl: ["__yo_comptime_i64_shl"],
+  __yo_comptime_i64_shr: ["__yo_comptime_i64_shr"],
+  __yo_comptime_i64_to_comptime_string: [
+    "__yo_comptime_i64_to_comptime_string",
+  ],
 
   // usize functions
-  __yo_compt_usize_add: ["__yo_compt_usize_add"],
-  __yo_compt_usize_sub: ["__yo_compt_usize_sub"],
-  __yo_compt_usize_mul: ["__yo_compt_usize_mul"],
-  __yo_compt_usize_div: ["__yo_compt_usize_div"],
-  __yo_compt_usize_mod: ["__yo_compt_usize_mod"],
-  __yo_compt_usize_eq: ["__yo_compt_usize_eq"],
-  __yo_compt_usize_neq: ["__yo_compt_usize_neq"],
-  __yo_compt_usize_lt: ["__yo_compt_usize_lt"],
-  __yo_compt_usize_lte: ["__yo_compt_usize_lte"],
-  __yo_compt_usize_gt: ["__yo_compt_usize_gt"],
-  __yo_compt_usize_gte: ["__yo_compt_usize_gte"],
-  __yo_compt_usize_neg: ["__yo_compt_usize_neg"],
-  __yo_compt_usize_bit_and: ["__yo_compt_usize_bit_and"],
-  __yo_compt_usize_bit_or: ["__yo_compt_usize_bit_or"],
-  __yo_compt_usize_bit_xor: ["__yo_compt_usize_bit_xor"],
-  __yo_compt_usize_bit_not: ["__yo_compt_usize_bit_not"],
-  __yo_compt_usize_shl: ["__yo_compt_usize_shl"],
-  __yo_compt_usize_shr: ["__yo_compt_usize_shr"],
-  __yo_compt_usize_to_compt_string: ["__yo_compt_usize_to_compt_string"],
+  __yo_comptime_usize_add: ["__yo_comptime_usize_add"],
+  __yo_comptime_usize_sub: ["__yo_comptime_usize_sub"],
+  __yo_comptime_usize_mul: ["__yo_comptime_usize_mul"],
+  __yo_comptime_usize_div: ["__yo_comptime_usize_div"],
+  __yo_comptime_usize_mod: ["__yo_comptime_usize_mod"],
+  __yo_comptime_usize_eq: ["__yo_comptime_usize_eq"],
+  __yo_comptime_usize_neq: ["__yo_comptime_usize_neq"],
+  __yo_comptime_usize_lt: ["__yo_comptime_usize_lt"],
+  __yo_comptime_usize_lte: ["__yo_comptime_usize_lte"],
+  __yo_comptime_usize_gt: ["__yo_comptime_usize_gt"],
+  __yo_comptime_usize_gte: ["__yo_comptime_usize_gte"],
+  __yo_comptime_usize_neg: ["__yo_comptime_usize_neg"],
+  __yo_comptime_usize_bit_and: ["__yo_comptime_usize_bit_and"],
+  __yo_comptime_usize_bit_or: ["__yo_comptime_usize_bit_or"],
+  __yo_comptime_usize_bit_xor: ["__yo_comptime_usize_bit_xor"],
+  __yo_comptime_usize_bit_not: ["__yo_comptime_usize_bit_not"],
+  __yo_comptime_usize_shl: ["__yo_comptime_usize_shl"],
+  __yo_comptime_usize_shr: ["__yo_comptime_usize_shr"],
+  __yo_comptime_usize_to_comptime_string: [
+    "__yo_comptime_usize_to_comptime_string",
+  ],
 
   // isize functions
-  __yo_compt_isize_add: ["__yo_compt_isize_add"],
-  __yo_compt_isize_sub: ["__yo_compt_isize_sub"],
-  __yo_compt_isize_mul: ["__yo_compt_isize_mul"],
-  __yo_compt_isize_div: ["__yo_compt_isize_div"],
-  __yo_compt_isize_mod: ["__yo_compt_isize_mod"],
-  __yo_compt_isize_eq: ["__yo_compt_isize_eq"],
-  __yo_compt_isize_neq: ["__yo_compt_isize_neq"],
-  __yo_compt_isize_lt: ["__yo_compt_isize_lt"],
-  __yo_compt_isize_lte: ["__yo_compt_isize_lte"],
-  __yo_compt_isize_gt: ["__yo_compt_isize_gt"],
-  __yo_compt_isize_gte: ["__yo_compt_isize_gte"],
-  __yo_compt_isize_neg: ["__yo_compt_isize_neg"],
-  __yo_compt_isize_bit_and: ["__yo_compt_isize_bit_and"],
-  __yo_compt_isize_bit_or: ["__yo_compt_isize_bit_or"],
-  __yo_compt_isize_bit_xor: ["__yo_compt_isize_bit_xor"],
-  __yo_compt_isize_bit_not: ["__yo_compt_isize_bit_not"],
-  __yo_compt_isize_shl: ["__yo_compt_isize_shl"],
-  __yo_compt_isize_shr: ["__yo_compt_isize_shr"],
-  __yo_compt_isize_to_compt_string: ["__yo_compt_isize_to_compt_string"],
+  __yo_comptime_isize_add: ["__yo_comptime_isize_add"],
+  __yo_comptime_isize_sub: ["__yo_comptime_isize_sub"],
+  __yo_comptime_isize_mul: ["__yo_comptime_isize_mul"],
+  __yo_comptime_isize_div: ["__yo_comptime_isize_div"],
+  __yo_comptime_isize_mod: ["__yo_comptime_isize_mod"],
+  __yo_comptime_isize_eq: ["__yo_comptime_isize_eq"],
+  __yo_comptime_isize_neq: ["__yo_comptime_isize_neq"],
+  __yo_comptime_isize_lt: ["__yo_comptime_isize_lt"],
+  __yo_comptime_isize_lte: ["__yo_comptime_isize_lte"],
+  __yo_comptime_isize_gt: ["__yo_comptime_isize_gt"],
+  __yo_comptime_isize_gte: ["__yo_comptime_isize_gte"],
+  __yo_comptime_isize_neg: ["__yo_comptime_isize_neg"],
+  __yo_comptime_isize_bit_and: ["__yo_comptime_isize_bit_and"],
+  __yo_comptime_isize_bit_or: ["__yo_comptime_isize_bit_or"],
+  __yo_comptime_isize_bit_xor: ["__yo_comptime_isize_bit_xor"],
+  __yo_comptime_isize_bit_not: ["__yo_comptime_isize_bit_not"],
+  __yo_comptime_isize_shl: ["__yo_comptime_isize_shl"],
+  __yo_comptime_isize_shr: ["__yo_comptime_isize_shr"],
+  __yo_comptime_isize_to_comptime_string: [
+    "__yo_comptime_isize_to_comptime_string",
+  ],
 
   // f32 functions
-  __yo_compt_f32_add: ["__yo_compt_f32_add"],
-  __yo_compt_f32_sub: ["__yo_compt_f32_sub"],
-  __yo_compt_f32_mul: ["__yo_compt_f32_mul"],
-  __yo_compt_f32_div: ["__yo_compt_f32_div"],
-  __yo_compt_f32_eq: ["__yo_compt_f32_eq"],
-  __yo_compt_f32_neq: ["__yo_compt_f32_neq"],
-  __yo_compt_f32_lt: ["__yo_compt_f32_lt"],
-  __yo_compt_f32_lte: ["__yo_compt_f32_lte"],
-  __yo_compt_f32_gt: ["__yo_compt_f32_gt"],
-  __yo_compt_f32_gte: ["__yo_compt_f32_gte"],
-  __yo_compt_f32_neg: ["__yo_compt_f32_neg"],
-  __yo_compt_f32_to_compt_string: ["__yo_compt_f32_to_compt_string"],
+  __yo_comptime_f32_add: ["__yo_comptime_f32_add"],
+  __yo_comptime_f32_sub: ["__yo_comptime_f32_sub"],
+  __yo_comptime_f32_mul: ["__yo_comptime_f32_mul"],
+  __yo_comptime_f32_div: ["__yo_comptime_f32_div"],
+  __yo_comptime_f32_eq: ["__yo_comptime_f32_eq"],
+  __yo_comptime_f32_neq: ["__yo_comptime_f32_neq"],
+  __yo_comptime_f32_lt: ["__yo_comptime_f32_lt"],
+  __yo_comptime_f32_lte: ["__yo_comptime_f32_lte"],
+  __yo_comptime_f32_gt: ["__yo_comptime_f32_gt"],
+  __yo_comptime_f32_gte: ["__yo_comptime_f32_gte"],
+  __yo_comptime_f32_neg: ["__yo_comptime_f32_neg"],
+  __yo_comptime_f32_to_comptime_string: [
+    "__yo_comptime_f32_to_comptime_string",
+  ],
 
   // f64 functions
-  __yo_compt_f64_add: ["__yo_compt_f64_add"],
-  __yo_compt_f64_sub: ["__yo_compt_f64_sub"],
-  __yo_compt_f64_mul: ["__yo_compt_f64_mul"],
-  __yo_compt_f64_div: ["__yo_compt_f64_div"],
-  __yo_compt_f64_eq: ["__yo_compt_f64_eq"],
-  __yo_compt_f64_neq: ["__yo_compt_f64_neq"],
-  __yo_compt_f64_lt: ["__yo_compt_f64_lt"],
-  __yo_compt_f64_lte: ["__yo_compt_f64_lte"],
-  __yo_compt_f64_gt: ["__yo_compt_f64_gt"],
-  __yo_compt_f64_gte: ["__yo_compt_f64_gte"],
-  __yo_compt_f64_neg: ["__yo_compt_f64_neg"],
-  __yo_compt_f64_to_compt_string: ["__yo_compt_f64_to_compt_string"],
+  __yo_comptime_f64_add: ["__yo_comptime_f64_add"],
+  __yo_comptime_f64_sub: ["__yo_comptime_f64_sub"],
+  __yo_comptime_f64_mul: ["__yo_comptime_f64_mul"],
+  __yo_comptime_f64_div: ["__yo_comptime_f64_div"],
+  __yo_comptime_f64_eq: ["__yo_comptime_f64_eq"],
+  __yo_comptime_f64_neq: ["__yo_comptime_f64_neq"],
+  __yo_comptime_f64_lt: ["__yo_comptime_f64_lt"],
+  __yo_comptime_f64_lte: ["__yo_comptime_f64_lte"],
+  __yo_comptime_f64_gt: ["__yo_comptime_f64_gt"],
+  __yo_comptime_f64_gte: ["__yo_comptime_f64_gte"],
+  __yo_comptime_f64_neg: ["__yo_comptime_f64_neg"],
+  __yo_comptime_f64_to_comptime_string: [
+    "__yo_comptime_f64_to_comptime_string",
+  ],
 
-  // compt_boolean related functions
+  // comptime_boolean related functions
   /// 2 args
-  __yo_compt_boolean_and: ["__yo_compt_boolean_and"],
-  __yo_compt_boolean_or: ["__yo_compt_boolean_or"],
-  __yo_compt_boolean_eq: ["__yo_compt_boolean_eq"],
-  __yo_compt_boolean_neq: ["__yo_compt_boolean_neq"],
+  __yo_comptime_bool_and: ["__yo_comptime_bool_and"],
+  __yo_comptime_bool_or: ["__yo_comptime_bool_or"],
+  __yo_comptime_bool_eq: ["__yo_comptime_bool_eq"],
+  __yo_comptime_bool_neq: ["__yo_comptime_bool_neq"],
   // 1 arg
-  __yo_compt_boolean_not: ["__yo_compt_boolean_not"],
-  __yo_compt_boolean_to_compt_string: ["__yo_compt_boolean_to_compt_string"],
+  __yo_comptime_bool_not: ["__yo_comptime_bool_not"],
+  __yo_comptime_bool_to_comptime_string: [
+    "__yo_comptime_bool_to_comptime_string",
+  ],
 
-  // compt_string related functions
+  // comptime_string related functions
   /// 2 args
-  __yo_compt_string_concat: ["__yo_compt_string_concat"],
-  __yo_compt_string_eq: ["__yo_compt_string_eq"],
-  __yo_compt_string_neq: ["__yo_compt_string_neq"],
-  __yo_compt_string_lt: ["__yo_compt_string_lt"],
-  __yo_compt_string_lte: ["__yo_compt_string_lte"],
-  __yo_compt_string_gt: ["__yo_compt_string_gt"],
-  __yo_compt_string_gte: ["__yo_compt_string_gte"],
+  __yo_comptime_string_concat: ["__yo_comptime_string_concat"],
+  __yo_comptime_string_eq: ["__yo_comptime_string_eq"],
+  __yo_comptime_string_neq: ["__yo_comptime_string_neq"],
+  __yo_comptime_string_lt: ["__yo_comptime_string_lt"],
+  __yo_comptime_string_lte: ["__yo_comptime_string_lte"],
+  __yo_comptime_string_gt: ["__yo_comptime_string_gt"],
+  __yo_comptime_string_gte: ["__yo_comptime_string_gte"],
   // 1 arg
-  __yo_compt_string_length: ["__yo_compt_string_length"],
-  __yo_compt_string_to_upper: ["__yo_compt_string_to_upper"],
-  __yo_compt_string_to_lower: ["__yo_compt_string_to_lower"],
+  __yo_comptime_string_length: ["__yo_comptime_string_length"],
+  __yo_comptime_string_to_upper: ["__yo_comptime_string_to_upper"],
+  __yo_comptime_string_to_lower: ["__yo_comptime_string_to_lower"],
   // 2-3 args (string, start, optional end)
-  __yo_compt_string_slice: ["__yo_compt_string_slice"],
+  __yo_comptime_string_slice: ["__yo_comptime_string_slice"],
 
   // Type related functions
-  __yo_type_to_compt_string: ["__yo_type_to_compt_string"],
+  __yo_type_to_comptime_string: ["__yo_type_to_comptime_string"],
   // __yo_type_is_type0: ["__yo_type_is_type0"],
   __yo_type_contains_rc_type: ["__yo_type_contains_rc_type"],
   __yo_type_can_form_rc_cycle: ["__yo_type_can_form_rc_cycle"],
@@ -1042,8 +1069,8 @@ export const BuiltinFunctions = {
   __yo_ms_sleep: ["__yo_ms_sleep"],
 
   // Process related functions
-  __yo_process_platform: ["__yo_process_platform"], // returns process.platform as compt_string
-  __yo_process_arch: ["__yo_process_arch"], // returns process.arch as compt_string
+  __yo_process_platform: ["__yo_process_platform"], // returns process.platform as comptime_string
+  __yo_process_arch: ["__yo_process_arch"], // returns process.arch as comptime_string
 };
 
 export function exprIsInfixOperatorFunctionCall(expr: Expr): boolean {
@@ -1124,7 +1151,7 @@ function exprToCompactString(expr: Expr): string {
       if (
         expr.func.tag === "Atom" &&
         expr.func.token.type === TokenType.Identifier &&
-        expr.func.token.value === BuiltinKeywords.tuple
+        expr.func.token.value === BuiltinKeywords.tuple[0]!
       ) {
         if (expr.args.length === 1) {
           printed = `(${exprToCompactString(expr.args[0]!)},)`;
@@ -1217,7 +1244,7 @@ function exprToPrettyString(
       if (
         expr.func.tag === "Atom" &&
         expr.func.token.type === TokenType.Identifier &&
-        expr.func.token.value === BuiltinKeywords.tuple
+        expr.func.token.value === BuiltinKeywords.tuple[0]!
       ) {
         if (expr.args.length === 0) {
           return "()";
@@ -1583,30 +1610,30 @@ export function mergeAndCheckEnvs(
     // 3. If some are consumed in some cases, then throw error.
     const rows = matrix.length;
     const cols = matrix[0]!.length;
-    for (let i = 0; i < cols; i++) {
-      const variableName = frameVariables[i]!.name;
+    for (let j = 0; j < cols; j++) {
+      const variableName = frameVariables[j]!.name;
       const initializedAtTokens: (Token | undefined)[] = [];
       const isOwningTheRefValueAtTokens: (Token | undefined)[] = [];
       const consumedAtTokens: (Token | undefined)[] = [];
       const types: Type[] = [];
-      for (let j = 1; j < rows; j++) {
-        const caseEnv = caseEnvs[j - 1]!;
+      for (let k = 1; k < rows; k++) {
+        const caseEnv = caseEnvs[k - 1]!;
         const caseEnvFrameVariables = caseEnv.frames[frameLevel]!.variables;
-        initializedAtTokens.push(matrix[j]![i]!.initializedAtToken);
+        initializedAtTokens.push(matrix[k]![j]!.initializedAtToken);
         isOwningTheRefValueAtTokens.push(
-          matrix[j]![i]!.isOwningTheRcValue
-            ? caseEnvFrameVariables[i]!.token
+          matrix[k]![j]!.isOwningTheRcValue
+            ? caseEnvFrameVariables[j]!.token
             : undefined
         );
-        consumedAtTokens.push(matrix[j]![i]!.consumedAtToken);
-        types.push(matrix[j]![i]!.type);
+        consumedAtTokens.push(matrix[k]![j]!.consumedAtToken);
+        types.push(matrix[k]![j]!.type);
       }
 
       // Check type compatibility across cases for initialized variables
       // This is for checking the code like:
       //
       //   arr : Array(i32, _);
-      //   compt_expect_error(
+      //   comptime_expect_error(
       //     cond(
       //       some_condition() => {arr = [1, 2, 3]; },
       //       true => { arr = [1, 2, 3, 4]; }
@@ -1695,12 +1722,12 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
       if (initializedAtTokens.length === 1) {
         if (
           !!initializedAtTokens[0] &&
-          !frameVariables[i]!.initializedAtToken
+          !frameVariables[j]!.initializedAtToken
         ) {
           throw formatErrorMessages([
             {
-              token: frameVariables[i]!.token,
-              errorMessage: `Variable "${frameVariables[i]!.name}" might not be initialized in all cases.`,
+              token: frameVariables[j]!.token,
+              errorMessage: `Variable "${frameVariables[j]!.name}" might not be initialized in all cases.`,
             },
             {
               token: initializedAtTokens[0]!,
@@ -1712,15 +1739,15 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
       // case 2
       // variable is undefined outside, but all cases make it defined.
       else if (
-        !frameVariables[i]!.initializedAtToken &&
+        !frameVariables[j]!.initializedAtToken &&
         initializedAtTokens.every((u) => u)
       ) {
         const newVariable: Variable = {
-          ...frameVariables[i]!,
+          ...frameVariables[j]!,
           initializedAtToken: initializedAtTokens[0]!,
         };
-        env = updateExistingVariable(env, frameVariables[i]!, newVariable);
-        frameVariables[i] = newVariable;
+        env = updateExistingVariable(env, frameVariables[j]!, newVariable);
+        frameVariables[j] = newVariable;
       }
       // case 3
       else {
@@ -1750,26 +1777,26 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
       // (Previously this was an error, but that was wrong - if there's only one branch,
       // the variable IS definitely consumed, there's no ambiguity)
       if (consumedAtTokens.length === 1) {
-        if (!!consumedAtTokens[0] && !frameVariables[i]!.consumedAtToken) {
+        if (!!consumedAtTokens[0] && !frameVariables[j]!.consumedAtToken) {
           const newVariable: Variable = {
-            ...frameVariables[i]!,
+            ...frameVariables[j]!,
             consumedAtToken: consumedAtTokens[0]!,
           };
-          env = updateExistingVariable(env, frameVariables[i]!, newVariable);
-          frameVariables[i] = newVariable;
+          env = updateExistingVariable(env, frameVariables[j]!, newVariable);
+          frameVariables[j] = newVariable;
         }
       }
       // case 2: Variable is not consumed before, but consumed in all cases
       else if (
-        !frameVariables[i]!.consumedAtToken &&
+        !frameVariables[j]!.consumedAtToken &&
         consumedAtTokens.every((u) => u)
       ) {
         const newVariable: Variable = {
-          ...frameVariables[i]!,
+          ...frameVariables[j]!,
           consumedAtToken: consumedAtTokens[0]!,
         };
-        env = updateExistingVariable(env, frameVariables[i]!, newVariable);
-        frameVariables[i] = newVariable;
+        env = updateExistingVariable(env, frameVariables[j]!, newVariable);
+        frameVariables[j] = newVariable;
       }
       // case 3: Some cases consume, some don't
       else {
@@ -1816,16 +1843,16 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
       else 
       */
       if (
-        !frameVariables[i]!.isOwningTheRcValue &&
+        !frameVariables[j]!.isOwningTheRcValue &&
         isOwningTheRefValueAtTokens.every((u) => u)
       ) {
         const newVariable: Variable = {
-          ...frameVariables[i]!,
+          ...frameVariables[j]!,
           isOwningTheRcValue: true,
           isOwningTheSameRcValueAs: undefined,
         };
-        env = updateExistingVariable(env, frameVariables[i]!, newVariable);
-        frameVariables[i] = newVariable;
+        env = updateExistingVariable(env, frameVariables[j]!, newVariable);
+        frameVariables[j] = newVariable;
       }
       // case 3
       else {
@@ -1859,13 +1886,13 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
       // Check for reassignment across branches
       // When a variable is reassigned in any branch, its ID changes (see assignment.ts)
       // We need to detect this and generate a new ID for the merged environment
-      const originalVariableId = frameVariables[i]!.id;
+      const originalVariableId = frameVariables[j]!.id;
       const variableIds: string[] = [];
 
-      for (let j = 1; j < rows; j++) {
-        const caseEnv = caseEnvs[j - 1]!;
+      for (let k = 1; k < rows; k++) {
+        const caseEnv = caseEnvs[k - 1]!;
         const caseEnvFrameVariables = caseEnv.frames[frameLevel]!.variables;
-        const caseVariable = caseEnvFrameVariables[i]!;
+        const caseVariable = caseEnvFrameVariables[j]!;
         variableIds.push(caseVariable.id);
       }
 
@@ -1880,13 +1907,13 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
         const newVariableId = generateVarialeId(env.modulePath, variableName);
 
         const newVariable: Variable = {
-          ...frameVariables[i]!,
+          ...frameVariables[j]!,
           id: newVariableId,
           // Clear ownership tracking since the value may come from different sources
           isOwningTheSameRcValueAs: undefined,
         };
-        env = updateExistingVariable(env, frameVariables[i]!, newVariable);
-        frameVariables[i] = newVariable;
+        env = updateExistingVariable(env, frameVariables[j]!, newVariable);
+        frameVariables[j] = newVariable;
       }
     }
   }

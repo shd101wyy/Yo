@@ -1,15 +1,15 @@
 import { existsSync } from "fs";
 import path from "path";
-import { Environment } from "../../env";
+import type { Environment } from "../../env";
 import { formatErrorMessage, YoError, YoLexerError } from "../../error";
 import {
   BuiltinKeywords,
   exprIsFunctionCallOf,
   exprToString,
-  FnCallExpr,
+  type FnCallExpr,
 } from "../../expr";
-import { isComptStringValue } from "../../value";
-import { EvaluatorContext } from "../context";
+import { isComptimeStringValue } from "../../value";
+import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 
 /**
@@ -47,10 +47,10 @@ export function evaluateImport({
   });
   const value = evaluatedModuleArg.$?.value;
 
-  if (!isComptStringValue(value)) {
+  if (!isComptimeStringValue(value)) {
     throw formatErrorMessage({
       token: moduleArg.token,
-      errorMessage: `Expected compt_string for module path, got:\n${exprToString(moduleArg)}`,
+      errorMessage: `Expected comptime_string for module path, got:\n${exprToString(moduleArg)}`,
     });
   }
 

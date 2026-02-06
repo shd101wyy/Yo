@@ -1,27 +1,20 @@
-import { Environment } from "../../env";
+import type { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
-  BuiltinFunctions,
   BuiltinKeywords,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
-  FnCallExpr,
+  type FnCallExpr,
 } from "../../expr";
-import {
-  createStructType,
-  TraitField,
-  updateTypeAvailability,
-} from "../../types";
+import { createStructType } from "../../types/creators";
 import { createTypeValue } from "../../value";
-import { EvaluatorContext } from "../context";
+import type { EvaluatorContext } from "../context";
 import { evaluateTypeField } from "./field";
 import {
   addRcFunctionSignaturesToStructType,
-  addRcFunctionsToStructType,
-  autoDeriveSendForStructType,
+  autoDeriveTraitsAndAddRcFunctionsForStructType,
 } from "./utils";
-import { validateDisposeFunction } from "./validation";
 
 export function evaluateStructType({
   expr,
@@ -83,49 +76,7 @@ export function evaluateStructType({
         });
       }
 
-      // Reserved function names check for compile-time-only fields
-      if (field.isCompileTimeOnly) {
-        // ___drop function
-        if (field.label === BuiltinFunctions.___drop[0]) {
-          throw formatErrorMessage({
-            token: exprIsFunctionCall(arg)
-              ? (arg.args[0]?.token ?? arg.token)
-              : arg.token,
-            errorMessage: `The label "${BuiltinFunctions.___drop[0]}()" is reserved for the auto-generated function. You cannot define it as a compile-time-only field.`,
-          });
-        }
-
-        // ___dup function
-        if (field.label === BuiltinFunctions.___dup[0]) {
-          throw formatErrorMessage({
-            token: exprIsFunctionCall(arg)
-              ? (arg.args[0]?.token ?? arg.token)
-              : arg.token,
-            errorMessage: `The label "${BuiltinFunctions.___dup[0]}()" is reserved for the auto-generated function. You cannot define it as a compile-time-only field.`,
-          });
-        }
-      }
-
-      if (field.isCompileTimeOnly && field.assignedValue) {
-        // dispose function
-        // Verify the disposeFunction has the correct type.
-        // fn(self : Self) -> unit
-        if (field.label === BuiltinFunctions.dispose[0]) {
-          validateDisposeFunction(
-            field as TraitField,
-            exprIsFunctionCall(arg)
-              ? (arg.args[0]?.token ?? arg.token)
-              : arg.token
-          );
-        }
-
-        structType.trait.fields.push(field as TraitField);
-      } else {
-        fields.push(field);
-        // Update the struct's availability after adding each non-compt field
-        updateTypeAvailability(structType, arg.token);
-      }
-
+      fields.push(field);
       env = nextEnv;
     }
   }
@@ -138,18 +89,13 @@ export function evaluateStructType({
     });
   }
 
-  // Auto-derive Send trait if applicable
-  env = autoDeriveSendForStructType({
+  // Auto-derive all applicable traits (Send, Rc, Acyclic, Comptime, Runtime)
+  // and Rc functions if needed
+  env = autoDeriveTraitsAndAddRcFunctionsForStructType({
     structType,
     env,
     context,
-  });
-
-  // Auto-generate ___drop, ___dup, and ___dispose functions if needed
-  env = addRcFunctionsToStructType({
-    structType,
-    env,
-    context,
+    errorToken: expr.token,
   });
 
   // console.log(typeToString(structType));

@@ -1,8 +1,8 @@
-# Compt Function Cache: SomeType Identity Comparison Issue
+# Comptime Function Cache: SomeType Identity Comparison Issue
 
 ## Status
 
-**RESOLVED** - Fixed in compt_function.ts
+**RESOLVED** - Fixed in comptime_function.ts
 
 ## Summary
 
@@ -15,7 +15,7 @@ When evaluating generic impls with where clause constraints, calling a generic t
 ### Example
 
 ```yo
-Box :: (fn(compt(V) : Type) -> compt(Type))
+Box :: (fn(comptime(V) : Type) -> comptime(Type))
   object((*) : V)
 ;
 
@@ -34,7 +34,7 @@ impl(forall(T : Type), where(T <: Hash), Box(T), Hash(
 
 ## Root Cause
 
-The compile-time function cache comparison in `evaluateComptFunctionCall` was using `areTypesCompatible` to compare SomeType arguments:
+The compile-time function cache comparison in `evaluateComptimeFunctionCall` was using `areTypesCompatible` to compare SomeType arguments:
 
 ```typescript
 // OLD (INCORRECT) CODE:

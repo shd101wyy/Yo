@@ -1,7 +1,7 @@
-import { FnCallExpr } from "../../expr";
-import { isStructType } from "../../types";
+import type { FnCallExpr } from "../../expr";
+import { isStructType } from "../../types/guards";
 import {
-  CodeGenContext,
+  type CodeGenContext,
   getTypeString,
   sanitizeForCIdentifier,
 } from "../utils";

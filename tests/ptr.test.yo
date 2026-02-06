@@ -3,11 +3,13 @@ open import "std/libc/stdio.yo";
 open GlobalAllocator;
 
 MyBox :: object(
-  (*) : i32,
-  dispose :: ((fn(self : Self) -> unit) {
+  (*) : i32
+);
+impl(MyBox, Dispose(
+  dispose : (fn(self : Self) -> unit)({
     printf("Disposing MyBox with value: %d\n", self.*);
   })
-);
+));
 
 test "Test basic pointer arithmetic operations", {
   x := 12;

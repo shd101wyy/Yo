@@ -1,5 +1,5 @@
 import {
-  Environment,
+  type Environment,
   getVariablesFromEnv,
   getVariablesFromEnvByFilter,
   updateExistingVariable,
@@ -8,35 +8,39 @@ import { formatErrorMessage, formatErrorMessages } from "../../error";
 import {
   attachTempVariableToExpr,
   BuiltinKeywords,
-  ControlFlowKind,
-  Expr,
+  type ControlFlowKind,
+  type Expr,
   exprIsAtom,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
-  FnCallExpr,
+  type FnCallExpr,
   requireExprNotConsumed,
   setExprAsNeedsToCallDup,
 } from "../../expr";
-import {
-  areTypesCompatible,
+import { areTypesCompatible } from "../../types/compatibility";
+import { createArrayType } from "../../types/creators";
+import type {
   ArrayType,
-  convertComptTypeToRuntimeType,
-  createArrayType,
   EnumType,
+  SomeType,
+  StructType,
+  TupleType,
+  Type,
+} from "../../types/definitions";
+import {
   isArrayType,
   isEnumType,
   isSomeType,
   isStructType,
   isTypeHierarchyType,
-  SomeType,
-  StructType,
-  TupleType,
-  Type,
+} from "../../types/guards";
+import {
+  convertComptimeTypeToRuntimeType,
   typeContainsRcType,
   typeRequiresInference,
   typeToString,
-} from "../../types";
+} from "../../types/utils";
 import { VUnit } from "../../unit-value";
 import { generateVarialeId } from "../../utils";
 import {
@@ -53,17 +57,17 @@ import {
   isTupleValue,
   isTypeValue,
   isUnknownValue,
-  StructValue,
-  TupleValue,
-  Value,
+  type StructValue,
+  type TupleValue,
+  type Value,
 } from "../../value";
-import { EvaluatorContext, trackVariableUsage } from "../context";
+import { type EvaluatorContext, trackVariableUsage } from "../context";
 import { evaluateExpression } from "../exprs/expr";
-import { synthesizeExprAndType } from "../types/expr_synthesizer";
+import { synthesizeExprAndType } from "../types/expr-synthesizer";
 import { findRcValueOwnerRelationship } from "../utils";
-import { cloneValue } from "../values/clone_value";
+import { cloneValue } from "../values/clone-value";
 import { evaluateBinding } from "./binding";
-import { evaluateIdentifierAndOperator } from "./identifer_and_operator";
+import { evaluateIdentifierAndOperator } from "./identifer-and-operator";
 
 export function throwRhsContainsControlFlowExpressionError(
   rhs: Expr,
@@ -270,9 +274,9 @@ You can mutate fields (e.g., ${variableName}.field = value) but cannot reassign 
     }
 
     // Convert compile-time types to runtime types if needed
-    // For example: compt_string -> [u8] when assigning to a [u8] variable
+    // For example: comptime_string -> [u8] when assigning to a [u8] variable
     if (!variable.isCompileTimeOnly) {
-      rhsType = convertComptTypeToRuntimeType({
+      rhsType = convertComptimeTypeToRuntimeType({
         type: rhsType,
         expectedType: variable.type,
         expr: rhs,

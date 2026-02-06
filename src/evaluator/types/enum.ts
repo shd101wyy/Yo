@@ -1,32 +1,25 @@
-import { Environment } from "../../env";
+import type { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   BuiltinKeywords,
-  Expr,
+  type Expr,
   exprIsAtom,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
-  FnCallExpr,
+  type FnCallExpr,
 } from "../../expr";
-import {
-  createEnumType,
-  EnumVariant,
-  isComptIntType,
-  ModuleField,
-  TraitField,
-  TypeField,
-  updateTypeAvailability,
-} from "../../types";
-import { createTypeValue, isComptIntValue } from "../../value";
-import { EvaluatorContext } from "../context";
+import { createEnumType } from "../../types/creators";
+import type { EnumVariant, TypeField } from "../../types/definitions";
+import { isComptimeIntType } from "../../types/guards";
+import { createTypeValue, isComptimeIntValue } from "../../value";
+import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { isValidVariableName } from "../utils";
 import { evaluateTypeField } from "./field";
 import {
   addRcFunctionSignaturesToEnumType,
-  addRcFunctionsToEnumType,
-  autoDeriveSendForEnumType,
+  autoDeriveTraitsAndAddRcFunctionsForEnumType,
 } from "./utils";
 
 export function evaluateEnumType({
@@ -57,7 +50,6 @@ export function evaluateEnumType({
 
   // Evaluate the variants
   const variants: EnumVariant[] = enumType.variants;
-  const traitFields: TraitField[] = enumType.trait.fields;
 
   // Track the next auto-assigned discriminant value
   let nextDiscriminant = 0n;
@@ -111,8 +103,8 @@ export function evaluateEnumType({
       const discriminantType = evaluatedDiscriminant.$.type;
 
       if (
-        !isComptIntValue(discriminantValue) &&
-        !isComptIntType(discriminantType)
+        !isComptimeIntValue(discriminantValue) &&
+        !isComptimeIntType(discriminantType)
       ) {
         throw formatErrorMessage({
           token: discriminantExpr.token,
@@ -120,7 +112,7 @@ export function evaluateEnumType({
         });
       }
 
-      if (!isComptIntValue(discriminantValue)) {
+      if (!isComptimeIntValue(discriminantValue)) {
         throw formatErrorMessage({
           token: discriminantExpr.token,
           errorMessage: `Enum discriminant must be a compile-time known value, got: ${exprToString(discriminantExpr)}`,
@@ -136,88 +128,22 @@ export function evaluateEnumType({
         name: variantName,
         discriminant,
       });
-      updateTypeAvailability(enumType, enumArg.token);
 
       // Update nextDiscriminant to be one more than the current value
       nextDiscriminant = discriminant + 1n;
     }
     // comptime fields
     // eg:
-    //   ~~Self.new = (((lhs: Self, rhs: i32) -> i32) {})~~
     //   new :: (((lhs: Self, rhs: i32) -> i32) {})
     else if (
       exprIsFunctionCall(enumArg) &&
       (exprIsFunctionCallOf(enumArg, "::", 2) ||
         exprIsFunctionCallOf(enumArg, "?=", 2))
     ) {
-      const arg = enumArg;
-
-      const { field, env: nextEnv } = evaluateTypeField({
-        expr: arg,
-        env,
-        tupleFieldIndex: i,
-        context: { ...context, SelfType: enumType },
-        forType: "enum",
+      throw formatErrorMessage({
+        token: enumArg.token,
+        errorMessage: `Please use "impl" block to define members/methods for enum types.`,
       });
-
-      // Check if there is duplicate labels
-      const duplicateLabel = traitFields.find(
-        (elem) => elem.label === field.label
-      );
-      if (duplicateLabel) {
-        throw formatErrorMessage({
-          token: arg.token,
-          errorMessage: `Duplicate label "${field.label}" in enum`,
-        });
-      }
-
-      // Check if it duplicates with the existing variant names
-      if (variants.some((v) => v.name === field.label)) {
-        throw formatErrorMessage({
-          token: arg.token,
-          errorMessage: `Duplicate label "${field.label}" in enum variants`,
-        });
-      }
-
-      if (!field.isCompileTimeOnly) {
-        throw formatErrorMessage({
-          token: arg.token,
-          errorMessage: `Expected compile-time only field, got:\n${exprToString(field.exprs.expr)}`,
-        });
-      }
-
-      // Enum module field cannot have default value.
-      if (field.defaultValue) {
-        throw formatErrorMessage({
-          token: field.exprs.defaultValueExpr?.token ?? field.exprs.expr.token,
-          errorMessage: `Enum module field cannot have default value.`,
-        });
-      }
-
-      // Enum module field must have assigned value.
-      if (!field.assignedValue) {
-        throw formatErrorMessage({
-          token: field.exprs.assignedValueExpr?.token ?? field.exprs.expr.token,
-          errorMessage: `Enum module field must have assigned value.`,
-        });
-      }
-
-      // ___drop function
-      // if (type.label === BuiltinFunctions.___drop[0]) {
-      //   throw formatErrorMessage({
-      //     token: arg.token,
-      //     errorMessage: `The label "${BuiltinFunctions.___drop[0]}()" is reserved for the auto-generated drop function. You cannot define it as a compile-time-only element.`,
-      //   });
-      // }
-
-      // dispose function
-      // Verify the disposeFunction has the correct type.
-      // fn(self : Self) -> unit
-      // if (type.label === BuiltinFunctions.dispose[0]) {
-      //   validateDisposeFunction(type as ModuleField, arg.token);
-      // }
-      traitFields.push(field as ModuleField);
-      env = nextEnv;
     }
 
     // Enum variant
@@ -244,7 +170,6 @@ export function evaluateEnumType({
           name: variantName,
           discriminant: nextDiscriminant,
         });
-        updateTypeAvailability(enumType, enumArg.token);
         nextDiscriminant += 1n;
       } else {
         // Check for enum variant with discriminant: VariantName(fields) = value
@@ -272,7 +197,7 @@ export function evaluateEnumType({
           env = evaluatedDiscriminant.$.env;
           const discriminantValue = evaluatedDiscriminant.$.value;
 
-          if (!isComptIntValue(discriminantValue)) {
+          if (!isComptimeIntValue(discriminantValue)) {
             throw formatErrorMessage({
               token: discriminantExpr.token,
               errorMessage: `Enum discriminant must be a compile-time integer, got: ${exprToString(discriminantExpr)}`,
@@ -354,24 +279,18 @@ export function evaluateEnumType({
           fields: fields,
           discriminant,
         });
-        updateTypeAvailability(enumType, variantExpr.token);
         nextDiscriminant = discriminant + 1n;
       }
     }
   }
 
-  // Auto derive Send module
-  env = autoDeriveSendForEnumType({
+  // Auto-derive all applicable traits (Send, Acyclic, Comptime, Runtime)
+  // and Rc functions if needed
+  env = autoDeriveTraitsAndAddRcFunctionsForEnumType({
     enumType,
     env,
     context,
-  });
-
-  // Auto-generate ARC functions using the systematic approach
-  env = addRcFunctionsToEnumType({
-    enumType,
-    env,
-    context,
+    errorToken: expr.token,
   });
 
   const enumTypeValue = createTypeValue(enumType);

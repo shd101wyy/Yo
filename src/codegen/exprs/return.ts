@@ -1,17 +1,18 @@
 import { getVariablesFromEnv } from "../../env";
+import { extractFutureTraitFromType } from "../../evaluator/trait-checking";
 import {
-  AtomExpr,
+  type AtomExpr,
   BuiltinKeywords,
-  Expr,
+  type Expr,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   ExprTag,
-  FnCallExpr,
+  type FnCallExpr,
 } from "../../expr";
-import { extractFutureTraitFromType, isUnitType } from "../../types";
-import { FunctionGenerationContext } from "../functions/context";
+import { isUnitType } from "../../types/guards";
+import type { FunctionGenerationContext } from "../functions/context";
 import {
-  CodeGenContext,
+  type CodeGenContext,
   getDeferredDropTargetAtomName,
   getTypeString,
   getVariableNameForCodegen,
@@ -21,7 +22,7 @@ import { generateAtom } from "./atom";
 import {
   generateDeferredDropExpressions,
   generateDeferredDupExpressions,
-} from "./drop_dup";
+} from "./drop-dup";
 import { generateExpr } from "./expr";
 
 /**

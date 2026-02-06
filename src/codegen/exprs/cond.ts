@@ -2,17 +2,17 @@ import {
   BuiltinKeywords,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
-  FnCallExpr,
+  type FnCallExpr,
 } from "../../expr";
-import { isUnitType } from "../../types";
+import { isUnitType } from "../../types/guards";
 import { isTempVariableName } from "../../utils";
 import { isBooleanValue } from "../../value";
-import { FunctionGenerationContext } from "../functions/context";
-import { CodeGenContext, getTypeString } from "../utils";
+import { type FunctionGenerationContext } from "../functions/context";
+import { type CodeGenContext, getTypeString } from "../utils";
 import {
   generateDeferredDropExpressions,
   generateDeferredDupExpressions,
-} from "./drop_dup";
+} from "./drop-dup";
 import { generateExpr } from "./expr";
 
 /**
@@ -224,13 +224,13 @@ export function generateCondExpression(
 
             // Generate each statement except the last one
             for (let j = 0; j < beginArgs.length - 1; j++) {
-              const arg = beginArgs[j]!;
-              const argCode = generateExpr(arg, valueIndent, context);
+              const beginArg = beginArgs[j]!;
+              const argCode = generateExpr(beginArg, valueIndent, context);
               // Skip temp variable references
               if (
                 argCode &&
-                arg.$ &&
-                !isTempVariableName(arg.$.env.modulePath, argCode)
+                beginArg.$ &&
+                !isTempVariableName(beginArg.$.env.modulePath, argCode)
               ) {
                 context.emitter.emitLine(`${valueIndent}${argCode};`);
               }

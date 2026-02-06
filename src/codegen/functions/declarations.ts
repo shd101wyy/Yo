@@ -1,24 +1,23 @@
-import { Expr } from "../../expr";
-import { FuncValueId } from "../../function-value";
+import { typeImplementsFuture } from "../../evaluator/trait-checking";
+import type { Expr } from "../../expr";
+import type { FuncValueId } from "../../function-value";
+import type { FunctionType } from "../../types/definitions";
 import {
-  FunctionType,
   isFunctionSpecializable,
   isFunctionType,
   isSomeType,
   isStructType,
-  typeContainsSomeType,
-  typeImplementsFuture,
-  typeToString,
-} from "../../types";
+} from "../../types/guards";
+import { typeContainsSomeType, typeToString } from "../../types/utils";
 import {
-  CodeGenContext,
+  type CodeGenContext,
   findReturnedAsyncBlock,
   getTypeString,
-  isComptFunction,
+  isComptimeFunction,
   isFunctionValueWithOnlyBuiltinYoInlineFunctionCall,
   sanitizeForCIdentifier,
 } from "../utils";
-import { FunctionGenerationContext } from "./context";
+import type { FunctionGenerationContext } from "./context";
 
 /**
  * Generate function declarations (prototypes)
@@ -82,7 +81,7 @@ export function generateFunctionDeclarations(
 
     if (
       isFunctionSpecializable(value.type) ||
-      isComptFunction(value) ||
+      isComptimeFunction(value) ||
       isFunctionValueWithOnlyBuiltinYoInlineFunctionCall(value)
     ) {
       continue;
@@ -373,7 +372,7 @@ export function generateSpecializedFunctionDeclarations(
       context.functions[funcId]!;
     const specializedFunctionType = functionValue.specializedType;
 
-    if (isComptFunction(functionValue)) {
+    if (isComptimeFunction(functionValue)) {
       // Skip compile-time only functions
       continue;
     }

@@ -85,9 +85,9 @@ test "Test simple functions", {
     assert(test4(x : 3, y : 3) == 4);
 
     // Named arguments must be in the same order as the function definition
-    compt_expect_error(test4(y : 1, 0));
-    compt_expect_error(test4(y : 1, x : 0));
-    compt_expect_error(test4(1, x : 0));
+    comptime_expect_error(test4(y : 1, 0));
+    comptime_expect_error(test4(y : 1, x : 0));
+    comptime_expect_error(test4(1, x : 0));
 
     assert(test5(1) == 100);
     assert(test5(flag : 2) == 200);
@@ -102,39 +102,40 @@ test "Test simple functions", {
     add2 :: (fn(x : i32, y : i32) -> i32) {
       (z : MyI32) = 13; // Can use the comptime variables from the outer scope
       
-      compt_expect_error(x + a, "Cannot use `a` from outer scope");
+      comptime_expect_error(x + a, "Cannot use `a` from outer scope");
       // To capture the outer scope variable, we need to use closure.
 
       (x + z)
     };
   };
 
-  // no runtime value in compt fn
+  // no runtime value in comptime fn
   {
-    no_runtime_in_compt_fn :: (fn() -> compt(unit)) {
-      // This is a compt function.
-      compt_expect_error(
+    no_runtime_in_comptime_fn :: (fn() -> comptime(unit)) {
+      // This is a comptime function.
+      comptime_expect_error(
         a : i32 // runtime variable not allowed
       );
-      compt_expect_error(
+      comptime_expect_error(
         b := 12 // runtime variable not allowed
       );
 
-      (compt(c) : i32) = 1;
+      (comptime(c) : i32) = 1;
       d :: 13;
     };
   };
 
   // return self
   {
-    ReturnSelf :: (fn() -> compt(Type)) {
-      return struct(
-        test :: ((fn() -> Self) {
-          s := Self();
-          return s;
-        })
-      );
+    ReturnSelf :: (fn() -> comptime(Type)) {
+      return struct();
     };
+    impl(ReturnSelf(),
+      test : (fn() -> Self)({
+        s := Self();
+        return s;
+      })
+    );
 
     ReturnSelf();
   };
@@ -202,7 +203,7 @@ test "Test simple functions", {
     assert(color_to_i32_2(.Green) == 1);
     assert(color_to_i32_2(.Blue) == 2);
 
-    compt_return_in_while :: (fn(compt(flag): bool) -> compt(i32)) {
+    comptime_return_in_while :: (fn(comptime(flag): bool) -> comptime(i32)) {
       while(flag, {
         cond(
           flag => {
@@ -219,10 +220,10 @@ test "Test simple functions", {
       16
     };
 
-    x :: compt_return_in_while(true);
-    y :: compt_return_in_while(false);
-    compt_assert(x == 1);
-    compt_assert(y == 16);
+    x :: comptime_return_in_while(true);
+    y :: comptime_return_in_while(false);
+    comptime_assert(x == 1);
+    comptime_assert(y == 16);
   };
 };
 
@@ -231,10 +232,10 @@ test "Test function default parameters", {
     // Default parameters
     // The default value for a parameter has to be compile-time known.
     MyAdd ::
-      (fn( compt(Lhs): Type, 
-        (compt(Rhs): Type) ?= Lhs, 
-        compt(Output) ?= Lhs
-      )-> compt(Module))
+      (fn( comptime(Lhs): Type, 
+        (comptime(Rhs): Type) ?= Lhs, 
+        (comptime(Output) : Type) ?= Lhs
+      )-> comptime(Module))
       module
         (Self: Type) = Lhs,
         (+): (fn(lhs: Lhs, rhs: Rhs)-> Output)
@@ -315,30 +316,31 @@ test "Test Dyn closure callback with manual boxing", {
 };
 
 test "Test the `where` scoping in functions", {
-  Container :: (fn(compt(T): Type) -> compt(Type))(
+  Container :: (fn(comptime(T): Type) -> comptime(Type))(
     object(
-      value : T,
-
-      // This function has where(T <: Eq(T))
-      equals :: (fn(
-        self: Self, 
-        other: T,
-        where(T <: Eq(T))
-      ) -> bool)(
-        self.value == other
-      ),
-
-      // This function should NOT have access to Eq(T) 
-      // because it doesn't declare where(T <: Eq(T))
-      try_equals_without_constraint :: (fn(
-        self: Self,
-        other: T
-      ) -> bool)({
-        // This line should fail: T doesn't have Eq(T) in this function's scope
-        compt_expect_error(self.value == other);
-        return false;
-      })
+      value : T
     )
+  );
+  impl(forall(T : Type), Container(T),
+    // This function has where(T <: Eq(T))
+    equals : (fn(
+      self: Self, 
+      other: T,
+      where(T <: Eq(T))
+    ) -> bool)(
+      self.value == other
+    ),
+
+    // This function should NOT have access to Eq(T) 
+    // because it doesn't declare where(T <: Eq(T))
+    try_equals_without_constraint : (fn(
+      self: Self,
+      other: T
+    ) -> bool)({
+      // This line should fail: T doesn't have Eq(T) in this function's scope
+      comptime_expect_error(self.value == other);
+      return false;
+    })
   );
 };
 
@@ -361,12 +363,13 @@ test "Test anonymous struct with type method", {
 
   closure := {
     x,
-    y,
-
-    call :: ((fn(self: Self, z : i32) -> i32)
+    y
+  };
+  impl(typeof(closure),
+    call : ((fn(self: Self, z : i32) -> i32)
       (self.x + (self.y + z))
     )
-  };
+  );
 
   result := closure.call(3);
   assert(result == 6, "Expected 6");
@@ -374,7 +377,7 @@ test "Test anonymous struct with type method", {
 
 test "Test generic functions", {
   {
-    id :: (fn(compt(T): Type, val: T) -> T)
+    id :: (fn(comptime(T): Type, val: T) -> T)
       val
     ;
 
@@ -390,7 +393,7 @@ test "Test generic functions", {
   };
 
   {
-    id :: (fn(compt(T): Type, val: T) -> T) {
+    id :: (fn(comptime(T): Type, val: T) -> T) {
       id2 :: (fn(val2: T) -> T)(val2);
       return id2(val);
     };
@@ -407,8 +410,8 @@ test "Test generic functions", {
   };
 
   {
-    id :: (fn(compt(T): Type, val: T) -> T) {
-      id2 :: (fn(compt(X): Type, val2: X) -> X) 
+    id :: (fn(comptime(T): Type, val: T) -> T) {
+      id2 :: (fn(comptime(X): Type, val2: X) -> X) 
         val2
       ;
       id2(T, val)
@@ -426,12 +429,12 @@ test "Test generic functions", {
   };
 
   {
-    compt_add :: (fn(x : i32, compt(y) : i32) -> i32)
+    comptime_add :: (fn(x : i32, comptime(y) : i32) -> i32)
       (x + y)
     ;
-    x := compt_add(1, 1);
-    y := compt_add(2, 1);
-    z := compt_add(3, 2);
+    x := comptime_add(1, 1);
+    y := comptime_add(2, 1);
+    z := comptime_add(3, 2);
     
     assert(x == 2);
     assert(y == 3);
@@ -453,7 +456,7 @@ test "Test generic functions", {
 
   {
     // Test with compile-time variable and anonymous function - should infer types automatically
-    compt(id) : (fn(forall(T : Type), x : T) -> T);
+    comptime(id) : (fn(forall(T : Type), x : T) -> T);
     id = ((a) -> a);
     
     x := id(true);
@@ -466,11 +469,25 @@ test "Test generic functions", {
   };
 
   {
+    // Test with compile-time variable and anonymous function with explicit type annotation
+    comptime(id) : (fn(comptime(T) : Type, x : T) -> T);
+    id = ((T, a) -> a);
+    
+    x := id(bool, true);
+    y := id(i32, 12);
+    z := id(f64, 3.14);
+    
+    assert(x == true);
+    assert(y == 12);
+    assert(z == 3.14);
+  };
+
+  {
     // Disallow to have generic function assigned to runtime variable
-    compt_expect_error(id : (fn(forall(T : Type), x : T) -> T));
+    comptime_expect_error(id : (fn(forall(T : Type), x : T) -> T));
   
     // Disallow to runtime function parameter with generic function type
-    compt_expect_error(test_fn :: (fn(f : (fn(forall(T : Type), x : T) -> T)) -> unit) {
+    comptime_expect_error(test_fn :: (fn(f : (fn(forall(T : Type), x : T) -> T)) -> unit) {
       x := f(42);
       assert(x == 42);
     });
@@ -493,7 +510,7 @@ test "Test generic functions", {
 
   {
     // container struct
-    Container :: (fn(compt(T) : Type)-> compt(Type))
+    Container :: (fn(comptime(T) : Type)-> comptime(Type))
       struct(value: T)
     ;
 
@@ -552,9 +569,9 @@ test "Test 'recur'", {
     assert(factorial(6) == 720);
 
     // Try to evaluate in compile-time when possible
-    compt_factorial :: compt_fn(factorial);
-    result :: compt_factorial(12);
-    compt_assert(result == 479001600);
+    comptime_factorial :: comptime_fn(factorial);
+    result :: comptime_factorial(12);
+    comptime_assert(result == 479001600);
   };
 
   {
@@ -570,44 +587,44 @@ test "Test 'recur'", {
     assert(factorial(6) == 720);
 
     // Try to evaluate in compile-time when possible
-    compt_factorial :: compt_fn(factorial);
-    result :: compt_factorial(12);
-    compt_assert(result == 479001600);
+    comptime_factorial :: comptime_fn(factorial);
+    result :: comptime_factorial(12);
+    comptime_assert(result == 479001600);
   };
 };
 
-test "Test compt function", {
+test "Test comptime function", {
   // Runtime only function
   runt_id :: (fn(n : i32) -> i32)(
     n
   );
   
   // Compile-time only function
-  compt_id :: (fn(compt(n) : i32) -> compt(i32))(
+  comptime_id :: (fn(comptime(n) : i32) -> comptime(i32))(
     n
   );
 
   {
     n := 5; // runtime
-    compt_expect_error(
-      result1 :: compt_id(n) // compt, not allowed
+    comptime_expect_error(
+      result1 :: comptime_id(n) // comptime, not allowed
     );
-    compt_expect_error(
+    comptime_expect_error(
       result2 :: runt_id(n) // cannot assign runtime to comptime
     );
-    compt_expect_error(
-      result3 := compt_id(n) // cannot assign runtime `n` to compt parameter
+    comptime_expect_error(
+      result3 := comptime_id(n) // cannot assign runtime `n` to comptime parameter
     );
     result4 := runt_id(n); // runtime, allowed
   };
 
   {
     n :: i32(5); // comptime
-    result1 :: compt_id(n); // allowed
-    compt_expect_error(
+    result1 :: comptime_id(n); // allowed
+    comptime_expect_error(
       result2 :: runt_id(n)  // cannot assign runtime to comptime
     );
-    result3 := compt_id(n);  // allowed
+    result3 := comptime_id(n);  // allowed
     result4 := runt_id(n);   // allowed
   };
 
@@ -620,7 +637,7 @@ test "Test compt function", {
     runt_add_points :: (fn(p1: Point, p2: Point)-> Point)
       Point(p1.x + p2.x, p1.y + p2.y)
     ;
-    compt_add_points :: (fn(compt(p1): Point, compt(p2): Point)-> compt(Point))
+    comptime_add_points :: (fn(comptime(p1): Point, comptime(p2): Point)-> comptime(Point))
       Point(p1.x + p2.x, p1.y + p2.y)
     ;
 
@@ -629,10 +646,10 @@ test "Test compt function", {
 
     p1_x :: p1.x;
 
-    compt_expect_error(
+    comptime_expect_error(
       p3 :: runt_add_points(p1, p2)
     );
-    p4 :: compt_add_points(p1, p2); // allowed, comptime
+    p4 :: comptime_add_points(p1, p2); // allowed, comptime
   };
 };
 
@@ -649,15 +666,15 @@ test "Test function overloading using module Call", {
   assert(add(1) == 1);
   assert(add(2, 3) == 5);
   assert(add(3, 4, 5) == 12);
-  compt_expect_error(
+  comptime_expect_error(
     add(4, 5, 6, 7) // This will not work because add4 is not used in "Call".
   );
 };
 
 test "Test mutual recursion", {
   // Mutual recursion
-  compt(is_even) : (fn(n : i32) -> bool);
-  compt(is_odd) : (fn(n : i32) -> bool);
+  comptime(is_even) : (fn(n : i32) -> bool);
+  comptime(is_odd) : (fn(n : i32) -> bool);
 
   is_even = _
     cond

@@ -1,27 +1,27 @@
 import { getVariablesFromEnv } from "../../env";
 import {
   BuiltinKeywords,
-  Expr,
+  type Expr,
   exprIsAtom,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   ExprTag,
-  FnCallExpr,
+  type FnCallExpr,
 } from "../../expr";
+import type { Type } from "../../types/definitions";
 import {
   isEnumType,
   isObjectType,
   isPtrType,
   isUnitType,
-  Type,
-  TypeTag,
-} from "../../types";
-import { isBooleanValue, isNumberValue, Value } from "../../value";
-import { FunctionGenerationContext } from "../functions/context";
+} from "../../types/guards";
+import { TypeTag } from "../../types/tags";
+import { isBooleanValue, isNumberValue, type Value } from "../../value";
+import { type FunctionGenerationContext } from "../functions/context";
 import {
   canOptimizeAsNullablePointer,
   canOptimizeAsSimpleEnum,
-  CodeGenContext,
+  type CodeGenContext,
   getEnumVariantCName,
   getTypeString,
   getVariableNameForCodegen,
@@ -30,7 +30,7 @@ import {
 import {
   generateDeferredDropExpressions,
   generateDeferredDupExpressions,
-} from "./drop_dup";
+} from "./drop-dup";
 import { generateExpr } from "./expr";
 
 /**

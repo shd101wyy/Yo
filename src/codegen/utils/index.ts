@@ -1,40 +1,44 @@
 import { Emitter } from "../../emitter";
-import { Environment, getVariablesFromEnv } from "../../env";
+import { type Environment, getVariablesFromEnv } from "../../env";
+import {
+  extractFutureTraitFromType,
+  typeImplementsFn,
+  typeImplementsFuture,
+} from "../../evaluator/trait-checking";
 import {
   BuiltinFunctions,
-  Expr,
+  type Expr,
   exprIsAtom,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
-  FnCallExpr,
+  type FnCallExpr,
 } from "../../expr";
-import { FunctionValue, FuncValueId } from "../../function-value";
-import {
+import type { FunctionValue, FuncValueId } from "../../function-value";
+import type {
   ArrayType,
   DynType,
   EnumType,
   EnumVariant,
-  extractFutureTraitFromType,
   FunctionType,
-  isEnumType,
-  isObjectType,
   IsoType,
-  isPtrType,
-  isSliceType,
-  isSomeType,
-  isStructType,
   PtrType,
   SliceType,
   SomeType,
   StructType,
   Type,
   TypeId,
-  typeImplementsFn,
-  typeImplementsFuture,
-  TypeTag,
-  typeToString,
-} from "../../types";
-import { isNumberValue, TraitValue } from "../../value";
+} from "../../types/definitions";
+import {
+  isEnumType,
+  isObjectType,
+  isPtrType,
+  isSliceType,
+  isSomeType,
+  isStructType,
+} from "../../types/guards";
+import { TypeTag } from "../../types/tags";
+import { typeToString } from "../../types/utils";
+import { isNumberValue, type TraitValue } from "../../value";
 import { BuiltinYoInlineFunctions } from "../constants";
 
 export interface CodeGenContext {
@@ -346,15 +350,15 @@ export function getTypeString(
       return "float";
     case TypeTag.F64:
       return "double";
-    case TypeTag.ComptInt:
-      // compt_int is a compile-time integer with infinite precision
+    case TypeTag.ComptimeInt:
+      // comptime_int is a compile-time integer with infinite precision
       // For C generation, we'll use a reasonable default like int32_t
       // In a more sophisticated implementation, we might analyze the actual value
       return "int32_t";
-    case TypeTag.ComptFloat:
-      return "double"; // For compt_float, we can use double
-    case TypeTag.ComptString:
-      return "uint8_t*"; // For compt_string, we use C string (char* or uint8_t*)
+    case TypeTag.ComptimeFloat:
+      return "double"; // For comptime_float, we can use double
+    case TypeTag.ComptimeString:
+      return "uint8_t*"; // For comptime_string, we use C string (char* or uint8_t*)
 
     case TypeTag.Char:
       return "char"; // C char type
@@ -723,7 +727,7 @@ export function getEnumVariantCName(
 /**
  * Check if a function is for compile-time only
  */
-export function isComptFunction(functionValue: FunctionValue): boolean {
+export function isComptimeFunction(functionValue: FunctionValue): boolean {
   return functionValue.type.return.isCompileTimeOnly;
 }
 

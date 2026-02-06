@@ -1,14 +1,16 @@
-import { Environment, getVariablesFromEnv } from "../../env";
+import { type Environment, getVariablesFromEnv } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   attachTempVariableToExpr,
   exprToString,
-  FnCallExpr,
+  type FnCallExpr,
   setExprAsConsumed,
 } from "../../expr";
-import { canTypeFormRcCycle, createIsoType, IsoType } from "../../types";
+import { createIsoType } from "../../types/creators";
+import type { IsoType } from "../../types/definitions";
+import { canTypeFormRcCycle } from "../../types/utils";
 import { createTypeValue, isTypeValue } from "../../value";
-import { EvaluatorContext } from "../context";
+import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { addRcFunctionsToIsoType } from "../types/utils";
 
@@ -130,7 +132,7 @@ export function evaluateIsoValueCall({
     if (variables.length > 0) {
       const variable = variables[variables.length - 1]!;
 
-      if (canTypeFormRcCycle(variable.type)) {
+      if (canTypeFormRcCycle(variable.type, new Set(), env)) {
         throw formatErrorMessage({
           token: argExpr.token,
           errorMessage: `Cannot isolate variable ${variableName} because its type may form RC cycles.`,

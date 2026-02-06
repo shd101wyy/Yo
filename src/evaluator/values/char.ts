@@ -1,8 +1,8 @@
-import { Environment } from "../../env";
+import type { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
-import { AtomExpr } from "../../expr";
+import type { AtomExpr } from "../../expr";
 import { TokenType } from "../../token";
-import { createComptIntValue } from "../../value";
+import { createComptimeIntValue } from "../../value";
 
 export function evaluateCharLiteral(
   expr: AtomExpr,
@@ -10,7 +10,7 @@ export function evaluateCharLiteral(
 ): AtomExpr {
   if (expr.token.type === TokenType.Char) {
     const charCode = parseCharLiteral(expr.token.value);
-    const value = createComptIntValue(BigInt(charCode));
+    const value = createComptimeIntValue(BigInt(charCode));
     expr.$ = {
       env,
       value,

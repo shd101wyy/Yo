@@ -1,10 +1,14 @@
+import { typeImplementsFuture } from "../../evaluator/trait-checking";
+import { findMethodsFromGenericImpls } from "../../evaluator/values/impl";
 import {
+  BuiltinFunctions,
   BuiltinKeywords,
-  Expr,
+  type Expr,
   exprIsAtom,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
 } from "../../expr";
+import type { Type } from "../../types/definitions";
 import {
   isBoxedType,
   isDynType,
@@ -12,19 +16,18 @@ import {
   isFunctionType,
   isObjectType,
   isSomeType,
+  isStructType,
   isUnitType,
-  Type,
-  typeImplementsFuture,
-} from "../../types";
+} from "../../types/guards";
 import {
   isFunctionValue,
   isTypeValue,
   isUnknownValue,
-  ModuleValue,
-  TraitValue,
+  type ModuleValue,
+  type TraitValue,
 } from "../../value";
-import { collectType } from "../types";
-import { CodeGenContext, sanitizeForCIdentifier } from "../utils";
+import { collectType, collectTypesFromFunctionType } from "../types/collection";
+import { type CodeGenContext, sanitizeForCIdentifier } from "../utils";
 
 /**
  * Check if an expression tree contains any UnknownValue.
@@ -341,7 +344,7 @@ export function findFunctionCallsInExpr(
   // Note: Closures are now runtime-only values, so we can't collect their function information at compile time
   // The closure's function will be collected when it's defined (as a FunctionValue)
 
-  // expr might be a compt function call that returns a type
+  // expr might be a comptime function call that returns a type
   if (isTypeValue(expr.$?.value)) {
     collectType(expr.$.value.value, context);
   }
@@ -365,6 +368,64 @@ export function findFunctionCallsInExpr(
     for (const traitValue of expr.$.dynCallTraitValues) {
       // Recursively collect functions from the dyn() module values
       collectRequiredFunctions(traitValue, context);
+    }
+  }
+}
+
+/**
+ * Collect dispose methods from generic impls for all collected struct types.
+ * This is needed because generic impls like:
+ *   impl(forall(T : Type), ArrayList(T), Dispose(...))
+ * store a generic dispose function that doesn't get specialized until it's called.
+ * Since the ___dispose function needs to call the user's dispose method,
+ * we need to specialize and collect it here.
+ */
+export function collectDisposeMethodsFromGenericImpls(
+  context: CodeGenContext
+): void {
+  const disposeFuncName = BuiltinFunctions.dispose[0]!;
+
+  for (const typeId in context.types) {
+    const { type } = context.types[typeId]!;
+
+    // Only check RC struct types (object types)
+    if (!isStructType(type) || !type.isReferenceSemantics) {
+      continue;
+    }
+
+    // Try to find dispose method from generic impls
+    const methods = findMethodsFromGenericImpls({
+      concreteType: type,
+      methodName: disposeFuncName,
+      env: type.env,
+    });
+
+    for (const method of methods) {
+      if (method.value && isFunctionValue(method.value)) {
+        const funcValue = method.value;
+
+        // Skip if already collected
+        if (context.functions[funcValue.funcId]) {
+          continue;
+        }
+
+        // Set funcName if not already set
+        if (!funcValue.funcName) {
+          funcValue.funcName = disposeFuncName;
+        }
+
+        // Register the specialized dispose function
+        context.functions[funcValue.funcId] = {
+          value: funcValue,
+          cName: sanitizeForCIdentifier(funcValue.funcId),
+        };
+
+        // Collect types from the function signature
+        collectTypesFromFunctionType(funcValue.type, context);
+
+        // Recursively collect functions called by this dispose function
+        findFunctionCallsInExpr(funcValue.body, context);
+      }
     }
   }
 }

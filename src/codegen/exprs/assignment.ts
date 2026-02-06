@@ -1,27 +1,26 @@
 import { getVariablesFromEnv } from "../../env";
 import {
+  typeImplementsFn,
+  typeImplementsFuture,
+} from "../../evaluator/trait-checking";
+import {
   BuiltinKeywords,
   exprIsAtom,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
-  FnCallExpr,
+  type FnCallExpr,
 } from "../../expr";
-import {
-  isArrayType,
-  isUnitType,
-  typeImplementsFn,
-  typeImplementsFuture,
-} from "../../types";
+import { isArrayType, isUnitType } from "../../types/guards";
 import { isTempVariableName } from "../../utils";
-import { FunctionGenerationContext } from "../functions/context";
+import type { FunctionGenerationContext } from "../functions/context";
 import {
-  CodeGenContext,
+  type CodeGenContext,
   getTypeString,
   getVariableNameForCodegen,
   getVariableTypeString,
 } from "../utils";
-import { generateDeferredDupExpressions } from "./drop_dup";
+import { generateDeferredDupExpressions } from "./drop-dup";
 import { generateExpr } from "./expr";
 
 export function generateAssignment(
@@ -44,7 +43,7 @@ export function generateAssignment(
   }
   if (
     exprIsFunctionCall(lhs) &&
-    exprIsFunctionCallOf(lhs, BuiltinKeywords.compt)
+    exprIsFunctionCallOf(lhs, BuiltinKeywords.comptime)
   ) {
     // compile-time variable
     return "";
@@ -148,7 +147,7 @@ export function generateAssignment(
         );
         // Only emit the variable declaration if it's not the same as rhsCode
         if (rhsVarName !== rhsCode.trim()) {
-          // Use convertedRuntimeType if available (e.g., compt_string -> str)
+          // Use convertedRuntimeType if available (e.g., comptime_string -> str)
           const effectiveType = rhs.$.convertedRuntimeType || rhs.$.type;
           const rhsTypeStr = getTypeString(effectiveType, context);
           context.emitter.emitLine(
@@ -207,7 +206,7 @@ export function generateAssignment(
         );
         // Only emit the variable declaration if it's not the same as rhsCode
         if (rhsVarName !== rhsCode.trim()) {
-          // Use convertedRuntimeType if available (e.g., compt_string -> str)
+          // Use convertedRuntimeType if available (e.g., comptime_string -> str)
           const effectiveType = rhs.$.convertedRuntimeType || rhs.$.type;
           const rhsTypeStr = getTypeString(effectiveType, context);
           context.emitter.emitLine(

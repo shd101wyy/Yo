@@ -1,14 +1,20 @@
 import { formatErrorMessages } from "./error";
-import { cloneValue } from "./evaluator/values/clone_value";
+import type { EvaluatorContext } from "./evaluator/context";
+import { typeImplementsFuture } from "./evaluator/trait-checking";
+import { cloneValue } from "./evaluator/values/clone-value";
 import { findMethodsFromGenericImpls } from "./evaluator/values/impl";
-import { Token } from "./token";
-import {
-  areTypesCompatible,
-  convertComptTypeToRuntimeType,
+import type { Token } from "./token";
+import { areTypesCompatible } from "./types/compatibility";
+import type {
   FunctionType,
-  isComptFloatType,
-  isComptIntType,
-  isComptStringType,
+  SomeType,
+  TraitType,
+  Type,
+} from "./types/definitions";
+import {
+  isComptimeFloatType,
+  isComptimeIntType,
+  isComptimeStringType,
   isDynType,
   isFunctionType,
   isModuleType,
@@ -16,14 +22,14 @@ import {
   isPtrType,
   isSomeType,
   isTraitType,
-  TraitType,
-  Type,
+} from "./types/guards";
+import {
+  convertComptimeTypeToRuntimeType,
   typeContainsRcType,
   typeContainsSelfTypeForDynamicDispatchCheck,
   typeContainsSomeType,
-  typeImplementsFuture,
   typeToString,
-} from "./types";
+} from "./types/utils";
 import { generateVarialeId, isTempVariableName } from "./utils";
 import {
   createUnknownValue,
@@ -33,8 +39,8 @@ import {
   isTupleValue,
   isTypeValue,
   isUnknownValue,
-  ModuleValue,
-  Value,
+  type ModuleValue,
+  type Value,
   valueToString,
 } from "./value";
 
@@ -176,6 +182,12 @@ export interface Variable {
   parameterAlias?: string;
 }
 
+export type WhereClauseConstraints = {
+  someType: SomeType;
+  requiredTraits: TraitType[];
+  negativeTraits: TraitType[];
+};
+
 export type Frame = {
   variables: Variable[];
   /**
@@ -188,6 +200,11 @@ export type Frame = {
    * begin block frame, not the current top frame (which might be a function call frame).
    */
   isBeginBlockFrame: boolean;
+  /**
+   * Where-clause constraints attached in this frame.
+   * These constraints are scoped to the frame and discarded when the frame is popped.
+   */
+  whereClauseConstraints: Map<string, WhereClauseConstraints>;
 };
 
 export type Environment = {
@@ -291,6 +308,9 @@ export function cloneEnvForCTFECheck(env: Environment): Environment {
     return {
       ...frame,
       variables: frame.variables.map(cloneVariable),
+      whereClauseConstraints: cloneWhereClauseConstraints(
+        frame.whereClauseConstraints
+      ),
     };
   };
 
@@ -298,6 +318,113 @@ export function cloneEnvForCTFECheck(env: Environment): Environment {
     ...env,
     frames: env.frames.map(cloneFrame),
   };
+}
+
+function cloneWhereClauseConstraints(
+  constraints: Map<string, WhereClauseConstraints>
+): Map<string, WhereClauseConstraints> {
+  const cloned = new Map<string, WhereClauseConstraints>();
+  for (const [key, entry] of constraints) {
+    cloned.set(key, {
+      someType: entry.someType,
+      requiredTraits: [...entry.requiredTraits],
+      negativeTraits: [...entry.negativeTraits],
+    });
+  }
+  return cloned;
+}
+
+export function addWhereClauseConstraintToEnv({
+  env,
+  someType,
+  traitType,
+  isNegated,
+}: {
+  env: Environment;
+  someType: SomeType;
+  traitType: TraitType;
+  isNegated: boolean;
+}): Environment {
+  const currentFrameLevel = env.frames.length - 1;
+  const targetFrame = env.frames[currentFrameLevel];
+  if (!targetFrame) {
+    return env;
+  }
+
+  const key = someType.id;
+  let entry = targetFrame.whereClauseConstraints.get(key);
+  if (!entry) {
+    entry = {
+      someType,
+      requiredTraits: [],
+      negativeTraits: [],
+    };
+    targetFrame.whereClauseConstraints.set(key, entry);
+  }
+
+  const targetList = isNegated ? entry.negativeTraits : entry.requiredTraits;
+  if (!targetList.some((t) => t.id === traitType.id)) {
+    targetList.push(traitType);
+  }
+
+  return env;
+}
+
+export function getWhereClauseConstraintsForSomeType(
+  env: Environment,
+  someType: SomeType
+): { requiredTraits: TraitType[]; negativeTraits: TraitType[] } | undefined {
+  const requiredTraits: TraitType[] = [];
+  const negativeTraits: TraitType[] = [];
+  const requiredIds = new Set<string>();
+  const negativeIds = new Set<string>();
+  let found = false;
+
+  // Collect alias names that are bound to the same SomeType value
+  // This helps resolve constraints when type parameters are bound to other names
+  // (e.g., Output bound to _Self during function call specialization).
+  const aliasNames = new Set<string>();
+  for (const frame of env.frames) {
+    for (const variable of frame.variables) {
+      const variableValue = variable.value?.[0];
+      if (isTypeValue(variableValue) && isSomeType(variableValue.value)) {
+        if (variableValue.value.id === someType.id) {
+          aliasNames.add(variable.name);
+        }
+      }
+    }
+  }
+
+  for (const frame of env.frames) {
+    for (const entry of frame.whereClauseConstraints.values()) {
+      if (
+        entry.someType.id !== someType.id &&
+        !aliasNames.has(entry.someType.name)
+      ) {
+        continue;
+      }
+
+      found = true;
+      for (const trait of entry.requiredTraits) {
+        if (!requiredIds.has(trait.id)) {
+          requiredIds.add(trait.id);
+          requiredTraits.push(trait);
+        }
+      }
+      for (const trait of entry.negativeTraits) {
+        if (!negativeIds.has(trait.id)) {
+          negativeIds.add(trait.id);
+          negativeTraits.push(trait);
+        }
+      }
+    }
+  }
+
+  if (!found) {
+    return undefined;
+  }
+
+  return { requiredTraits, negativeTraits };
 }
 
 let _envContainingPrelude: Environment | null = null;
@@ -449,6 +576,7 @@ export function addVariableToFrame({
       id: frame.id,
       variables: newVariables,
       isBeginBlockFrame: frame.isBeginBlockFrame,
+      whereClauseConstraints: new Map(frame.whereClauseConstraints),
     };
   }
 
@@ -456,6 +584,7 @@ export function addVariableToFrame({
     id: frame.id,
     variables: [...frame.variables, variable],
     isBeginBlockFrame: frame.isBeginBlockFrame,
+    whereClauseConstraints: new Map(frame.whereClauseConstraints),
   };
 }
 
@@ -506,6 +635,25 @@ export function getVariablesFromEnv(
   return variables;
 }
 
+/**
+ * Find the frame level where a variable with given name is located.
+ * Returns the toppest frame level if the variable exists in multiple frames.
+ * Returns undefined if the variable is not found.
+ */
+export function findVariableFrameLevel(
+  env: Environment,
+  variableName: string
+): number | undefined {
+  for (let i = env.frames.length - 1; i >= 0; i--) {
+    const frame = env.frames[i]!;
+    const variablesInFrame = getVariablesFromFrame(frame, variableName);
+    if (variablesInFrame.length > 0) {
+      return i;
+    }
+  }
+  return undefined;
+}
+
 export function getVariablesFromEnvByFilter(
   env: Environment,
   variableFilter: (variable: Variable) => boolean
@@ -525,6 +673,7 @@ export function pushEnvFrame(
     id: generateVarialeId(env.modulePath, "frame"),
     variables: [],
     isBeginBlockFrame: false,
+    whereClauseConstraints: new Map(),
   },
   isBeginBlockFrame?: boolean
 ): Environment {
@@ -547,14 +696,16 @@ export function popEnvFrame(
    */
   ignoreCheck = false
 ): Environment {
-  if (!ignoreCheck) {
-    const frameToPop = env.frames[env.frames.length - 1]!;
-    // Check if there is any Linear/Type0 value in the frame that is not consumed or uninitialized.
-    const unconsumedVariables = getVariablesNeedingDrop(env);
+  const currentFrameLevel = env.frames.length - 1;
+  const frameToPop = env.frames[currentFrameLevel]!;
 
+  if (!ignoreCheck) {
+    // Check if there is any value in the frame that is not consumed or uninitialized.
+    const unconsumedVariables = getVariablesNeedingDrop(env);
     const undefinedVariables = frameToPop.variables.filter(
       (variable) => !variable.initializedAtToken
     );
+
     if (unconsumedVariables.length > 0) {
       throw formatErrorMessages(
         unconsumedVariables.map((variable) => {
@@ -653,11 +804,17 @@ export function getVariableInfo(variable: Variable) {
  * This is used for static method calls on TypeValue (e.g., EvenNumber.try_from(...)).
  * It searches through impl'd traits stored with empty label "" in the type's trait.
  */
-export function getTypeTraitMethodsByNameFromEnv(
-  env: Environment,
-  methodName: string,
-  type: Type
-): {
+export function getTypeTraitMethodsByNameFromEnv({
+  env,
+  context,
+  methodName,
+  type,
+}: {
+  env: Environment;
+  context: EvaluatorContext;
+  methodName: string;
+  type: Type;
+}): {
   type: Type;
   value: Value | undefined;
 }[] {
@@ -679,7 +836,11 @@ export function getTypeTraitMethodsByNameFromEnv(
   if (directMethod && isFunctionType(directMethod.type)) {
     let value: Value | undefined = directMethod.assignedValue;
     if (isUnknownValue(value)) {
-      value = createUnknownValue(directMethod.type, directMethod.label);
+      value = createUnknownValue(directMethod.type, {
+        variableName: directMethod.label,
+        env,
+        context,
+      });
     }
     methods.push({ type: directMethod.type, value });
   }
@@ -731,13 +892,19 @@ export function getTypeTraitMethodsByNameFromEnv(
  * Get methods by name from a receiver's type trait and environment.
  * This is used for instance method calls (e.g., value.method(...)).
  */
-export function getReceiverMethodsByNameFromEnv(
-  env: Environment,
-  methodName: string,
-  receiverType: Type,
-  isInfixOperatorCall = false,
-  currentFunctionType?: FunctionType
-): {
+export function getReceiverMethodsByNameFromEnv({
+  env,
+  context,
+  methodName,
+  receiverType,
+  isInfixOperatorCall,
+}: {
+  env: Environment;
+  context: EvaluatorContext;
+  methodName: string;
+  receiverType: Type;
+  isInfixOperatorCall?: boolean;
+}): {
   type: Type;
   value: Value | undefined;
   needsPointerConversion?: boolean;
@@ -797,7 +964,11 @@ export function getReceiverMethodsByNameFromEnv(
       let value: Value | undefined = undefined;
       if (isFunctionType(method.type)) {
         if (isUnknownValue(traitValue)) {
-          value = createUnknownValue(method.type, method.label);
+          value = createUnknownValue(method.type, {
+            variableName: method.label,
+            env,
+            context,
+          });
         } else if (isTraitValue(traitValue)) {
           const index = traitType.fields.findIndex(
             (field) => field.label === method.label
@@ -852,7 +1023,7 @@ export function getReceiverMethodsByNameFromEnv(
   }
 
   function filterMethodsByReceiverType(
-    methods: {
+    methodsToFilter: {
       type: Type;
       value: Value | undefined;
       needsPointerConversion?: boolean;
@@ -862,7 +1033,7 @@ export function getReceiverMethodsByNameFromEnv(
     value: Value | undefined;
     needsPointerConversion?: boolean;
   }[] {
-    const filtered = methods.filter((method) => {
+    const filtered = methodsToFilter.filter((method) => {
       if (isFunctionType(method.type)) {
         if (method.type.parameters.length === 0) {
           return false; // Methods must have at least one parameter (receiver)
@@ -890,21 +1061,21 @@ export function getReceiverMethodsByNameFromEnv(
           //   `DEBUG filter ptr: method ${methodName} expects ptr, child type: ${typeToString(methodPtrChildType)}, receiverType: ${typeToString(receiverType)}`
           // );
 
-          // For compt types, convert to runtime type before checking compatibility
+          // For comptime types, convert to runtime type before checking compatibility
           let effectiveReceiverType = receiverType;
           if (
-            isComptIntType(receiverType) ||
-            isComptFloatType(receiverType) ||
-            isComptStringType(receiverType)
+            isComptimeIntType(receiverType) ||
+            isComptimeFloatType(receiverType) ||
+            isComptimeStringType(receiverType)
           ) {
-            effectiveReceiverType = convertComptTypeToRuntimeType({
+            effectiveReceiverType = convertComptimeTypeToRuntimeType({
               type: receiverType,
               expectedType: undefined,
               expr: undefined,
               env,
             });
             // console.log(
-            //   `DEBUG filter ptr: converted compt type to runtime: ${typeToString(effectiveReceiverType)}`
+            //   `DEBUG filter ptr: converted comptime type to runtime: ${typeToString(effectiveReceiverType)}`
             // );
           }
 
@@ -970,21 +1141,21 @@ export function getReceiverMethodsByNameFromEnv(
           return false;
         }
 
-        // Special case: compt types (compt_int, compt_float, compt_string) can call
+        // Special case: comptime types (comptime_int, comptime_float, comptime_string) can call
         // methods from their runtime type equivalents (i32, f64, [u8])
         if (
-          isComptIntType(receiverType) ||
-          isComptFloatType(receiverType) ||
-          isComptStringType(receiverType)
+          isComptimeIntType(receiverType) ||
+          isComptimeFloatType(receiverType) ||
+          isComptimeStringType(receiverType)
         ) {
-          const runtimeReceiverType = convertComptTypeToRuntimeType({
+          const runtimeReceiverType = convertComptimeTypeToRuntimeType({
             type: receiverType,
             expectedType: undefined,
             expr: undefined,
             env,
           });
           // console.log(
-          //   `DEBUG filter: checking compt ${typeToString(receiverType)} method ${methodName}, runtime type: ${typeToString(runtimeReceiverType)}, method param type: ${typeToString(methodFirstParamType)}`
+          //   `DEBUG filter: checking comptime ${typeToString(receiverType)} method ${methodName}, runtime type: ${typeToString(runtimeReceiverType)}, method param type: ${typeToString(methodFirstParamType)}`
           // );
           const isRuntimeCompatible = areTypesCompatible(
             { type: methodFirstParamType, env: method.type.env },
@@ -1059,7 +1230,7 @@ export function getReceiverMethodsByNameFromEnv(
   // Helper function to recursively check a trait for methods
   function checkTraitForMethod(
     traitType: TraitType,
-    methodName: string,
+    traitMethodName: string,
     visitTraits: Set<string> = new Set()
   ): void {
     // Prevent infinite recursion for circular trait references
@@ -1070,13 +1241,17 @@ export function getReceiverMethodsByNameFromEnv(
 
     // First, check direct methods in this trait
     const directMethod = traitType.fields.find(
-      (field) => field.label === methodName && isFunctionType(field.type)
+      (field) => field.label === traitMethodName && isFunctionType(field.type)
     );
 
     if (directMethod && isFunctionType(directMethod.type)) {
       let value: Value | undefined = directMethod.assignedValue;
       if (isUnknownValue(value)) {
-        value = createUnknownValue(directMethod.type, directMethod.label);
+        value = createUnknownValue(directMethod.type, {
+          variableName: directMethod.label,
+          env,
+          context,
+        });
       }
       methods.push({ type: directMethod.type, value });
       return; // Found the method, no need to search nested traits
@@ -1102,12 +1277,45 @@ export function getReceiverMethodsByNameFromEnv(
     if (directMethod && isFunctionType(directMethod.type)) {
       let value: Value | undefined = directMethod.assignedValue;
       if (isUnknownValue(value)) {
-        value = createUnknownValue(directMethod.type, directMethod.label);
+        value = createUnknownValue(directMethod.type, {
+          variableName: directMethod.label,
+          env,
+          context,
+        });
       }
       methods.push({ type: directMethod.type, value });
     } else {
       // If no direct method found, recursively check nested traits
       checkTraitForMethod(receiverType.trait, methodName);
+    }
+
+    // Also check for impl'd traits (stored with empty label as ModuleValue)
+    // NOTE: We check impl'd traits regardless of whether direct methods were found,
+    // because both compile-time and runtime versions of a method might exist,
+    // and we need to let the function call resolution pick the right one.
+    for (const field of receiverType.trait.fields) {
+      if (
+        field.label === "" &&
+        field.assignedValue &&
+        isTraitValue(field.assignedValue)
+      ) {
+        const implTraitValue = field.assignedValue;
+        const implTraitType = implTraitValue.type;
+        const methodIndex = implTraitType.fields.findIndex(
+          (f) => f.label === methodName && isFunctionType(f.type)
+        );
+        if (methodIndex >= 0) {
+          const method = implTraitType.fields[methodIndex]!;
+          if (isFunctionType(method.type)) {
+            const value = implTraitValue.fields[methodIndex];
+            let methodType = method.type;
+            if (isFunctionValue(value) && value.specializedType) {
+              methodType = value.specializedType;
+            }
+            methods.push({ type: methodType, value });
+          }
+        }
+      }
     }
   }
 
@@ -1145,7 +1353,11 @@ export function getReceiverMethodsByNameFromEnv(
     if (directMethod && isFunctionType(directMethod.type)) {
       let value: Value | undefined = directMethod.assignedValue;
       if (isUnknownValue(value)) {
-        value = createUnknownValue(directMethod.type, directMethod.label);
+        value = createUnknownValue(directMethod.type, {
+          variableName: directMethod.label,
+          env,
+          context,
+        });
       }
       methods.push({ type: directMethod.type, value });
     } else if (directMethod && isModuleType(directMethod.type)) {
@@ -1203,21 +1415,21 @@ export function getReceiverMethodsByNameFromEnv(
     }
   }
 
-  // If receiver is a compt type, also check the runtime type's trait
-  // because compt literals should be able to call methods from their runtime equivalents
+  // If receiver is a comptime type, also check the runtime type's trait
+  // because comptime literals should be able to call methods from their runtime equivalents
   if (
-    isComptIntType(dereferencedReceiverType) ||
-    isComptFloatType(dereferencedReceiverType) ||
-    isComptStringType(dereferencedReceiverType)
+    isComptimeIntType(dereferencedReceiverType) ||
+    isComptimeFloatType(dereferencedReceiverType) ||
+    isComptimeStringType(dereferencedReceiverType)
   ) {
-    const runtimeType = convertComptTypeToRuntimeType({
+    const runtimeType = convertComptimeTypeToRuntimeType({
       type: dereferencedReceiverType,
       expectedType: undefined,
       expr: undefined,
       env,
     });
     // console.log(
-    //   `DEBUG getReceiverMethodsByNameFromEnv: compt type ${typeToString(dereferencedReceiverType)} -> runtime type ${typeToString(runtimeType)}, has trait: ${!!runtimeType.trait}`
+    //   `DEBUG getReceiverMethodsByNameFromEnv: comptime type ${typeToString(dereferencedReceiverType)} -> runtime type ${typeToString(runtimeType)}, has trait: ${!!runtimeType.trait}`
     // );
     if (runtimeType.trait) {
       // console.log(
@@ -1232,7 +1444,11 @@ export function getReceiverMethodsByNameFromEnv(
         // console.log(`DEBUG: Found direct method ${methodName}`);
         let value: Value | undefined = directMethod.assignedValue;
         if (isUnknownValue(value)) {
-          value = createUnknownValue(directMethod.type, directMethod.label);
+          value = createUnknownValue(directMethod.type, {
+            variableName: directMethod.label,
+            env,
+            context,
+          });
         }
         methods.push({ type: directMethod.type, value });
       } else {
@@ -1312,7 +1528,12 @@ export function getReceiverMethodsByNameFromEnv(
           directConcreteMethod.assignedValue ||
           createUnknownValue(
             directConcreteMethod.type,
-            directConcreteMethod.label
+
+            {
+              variableName: directConcreteMethod.label,
+              env,
+              context,
+            }
           );
         methods.push({ type: directConcreteMethod.type, value });
       }
@@ -1358,10 +1579,65 @@ export function getReceiverMethodsByNameFromEnv(
       }
     }
 
-    // Look for methods in the requiredTraits array (from Impl(Module1, Module2, ...))
+    // Look for methods in required traits (from Impl(Module1, Module2, ...) and where constraints)
     // This handles cases like `Impl(Id)` where we need to find the `id` method
-    if (methods.length === 0 && dereferencedReceiverType.requiredTraits) {
-      for (const requiredTraitType of dereferencedReceiverType.requiredTraits) {
+    // and where(T <: Trait) constraints
+    // NOTE: Skip this if we already found concrete methods from resolvedConcreteType,
+    // because the concrete implementation takes priority over the abstract trait method
+    // (static dispatch). Without this guard, both the concrete `fn(self: *(bool)) -> i32`
+    // and the abstract `fn(self: *(Self)) -> i32` would be returned, causing ambiguity.
+    if (methods.length > 0) {
+      // Already have concrete methods from resolvedConcreteType, skip trait lookup
+    } else {
+      const requiredTraitTypes: TraitType[] = [];
+      const requiredTraitIds = new Set<string>();
+
+      for (const requiredTraitEntry of dereferencedReceiverType.requiredTraits ??
+        []) {
+        if (!requiredTraitIds.has(requiredTraitEntry.traitType.id)) {
+          requiredTraitIds.add(requiredTraitEntry.traitType.id);
+          requiredTraitTypes.push(requiredTraitEntry.traitType);
+        }
+      }
+
+      const directWhereConstraints = getWhereClauseConstraintsForSomeType(
+        env,
+        dereferencedReceiverType
+      );
+      if (directWhereConstraints) {
+        for (const requiredTraitType of directWhereConstraints.requiredTraits) {
+          if (!requiredTraitIds.has(requiredTraitType.id)) {
+            requiredTraitIds.add(requiredTraitType.id);
+            requiredTraitTypes.push(requiredTraitType);
+          }
+        }
+      }
+
+      // If no direct match, check for compatible constrained SomeTypes in the env frames
+      if (isSomeType(dereferencedReceiverType)) {
+        for (let i = env.frames.length - 1; i >= 0; i--) {
+          const frame = env.frames[i]!;
+          for (const constraintEntry of frame.whereClauseConstraints.values()) {
+            if (
+              !areTypesCompatible(
+                { type: constraintEntry.someType, env },
+                { type: dereferencedReceiverType, env },
+                false
+              )
+            ) {
+              continue;
+            }
+            for (const requiredTraitType of constraintEntry.requiredTraits) {
+              if (!requiredTraitIds.has(requiredTraitType.id)) {
+                requiredTraitIds.add(requiredTraitType.id);
+                requiredTraitTypes.push(requiredTraitType);
+              }
+            }
+          }
+        }
+      }
+
+      for (const requiredTraitType of requiredTraitTypes) {
         // Search for the method in the required trait
         const method = requiredTraitType.fields.find(
           (f) => f.label === methodName && isFunctionType(f.type)
@@ -1374,111 +1650,87 @@ export function getReceiverMethodsByNameFromEnv(
             SelfType: dereferencedReceiverType,
           };
 
-          // Create an unknown value since the actual implementation is not known
-          // The actual dispatch will happen at runtime based on the concrete type
-          const value = createUnknownValue(specializedMethodType, method.label);
-          methods.push({ type: specializedMethodType, value });
-        }
-      }
-    }
-
-    // Look for methods in function-scoped where clause constraints
-    // This checks currentFunctionType.whereClauseConstraints for the SomeType
-    // Also checks parent function types (for nested functions like methods inside generic types)
-    if (methods.length === 0) {
-      // Helper function to find constraints from a function type
-      const findConstraintsInFunction = (
-        funcType: FunctionType | undefined
-      ): { requiredTraits: TraitType[] } | undefined => {
-        if (!funcType?.whereClauseConstraints) return undefined;
-
-        // First try direct lookup
-        let constraints = funcType.whereClauseConstraints.get(
-          dereferencedReceiverType
-        );
-
-        // If direct lookup fails and receiver is a SomeType, try to find a compatible
-        // constrained type parameter. This handles cases like:
-        //   - where(T <: Eq(T)) in has method
-        //   - current_opt.value has type X (from Node(X))
-        //   - X should match T because they're unified type parameters
-        if (!constraints && isSomeType(dereferencedReceiverType)) {
-          for (const [
-            constrainedType,
-            typeConstraints,
-          ] of funcType.whereClauseConstraints) {
-            if (
-              isSomeType(constrainedType) &&
+          // Check if pointer conversion is needed
+          // If method expects *(Self) but receiver is Self, mark for conversion
+          let needsPointerConversion = false;
+          if (
+            specializedMethodType.parameters.length > 0 &&
+            isPtrType(specializedMethodType.parameters[0]!.type)
+          ) {
+            const methodPtrChildType =
+              specializedMethodType.parameters[0]!.type.childType;
+            // For methods from required traits, the first parameter might be *(Self)
+            // where Self is a SomeType from the trait definition.
+            // Since we set SelfType to the receiver type, we should check if the
+            // parameter is Self (which would be resolved to the receiver type),
+            // not check compatibility between two different SomeTypes.
+            const isSelfParam =
+              isSomeType(methodPtrChildType) &&
+              methodPtrChildType.name === "Self";
+            const receiverCompatibleWithPtrChild =
+              isSelfParam ||
               areTypesCompatible(
-                { type: constrainedType, env },
-                { type: dereferencedReceiverType, env },
-                false // Allow type parameter unification
-              )
-            ) {
-              constraints = typeConstraints;
-              break;
+                {
+                  type: methodPtrChildType,
+                  env: specializedMethodType.env,
+                },
+                { type: receiverType, env },
+                true // isMethodReceiver
+              );
+            if (receiverCompatibleWithPtrChild) {
+              needsPointerConversion = true;
             }
           }
+
+          // Create an unknown value since the actual implementation is not known
+          // The actual dispatch will happen at runtime based on the concrete type
+          const value = createUnknownValue(
+            specializedMethodType,
+
+            {
+              variableName: method.label,
+              env,
+              context,
+            }
+          );
+          methods.push({
+            type: specializedMethodType,
+            value,
+            needsPointerConversion,
+          });
         }
+      }
 
-        return constraints;
-      };
-
-      // Check current function and all parent functions in the chain
-      let funcToCheck: FunctionType | undefined = currentFunctionType;
-      while (funcToCheck && methods.length === 0) {
-        const constraints = findConstraintsInFunction(funcToCheck);
-        if (constraints) {
-          for (const requiredTraitType of constraints.requiredTraits) {
+      // Look for methods in the required traits stored in the SomeType's trait
+      // Only consider traits with empty label "" (from trait-level where clauses)
+      if (methods.length === 0) {
+        for (const field of dereferencedReceiverType.trait.fields) {
+          // Required traits are stored as TypeValue containing TraitType
+          // Only allow traits with empty label (where clause constraints)
+          if (
+            field.label === "" &&
+            field.assignedValue &&
+            isTypeValue(field.assignedValue) &&
+            isTraitType(field.assignedValue.value)
+          ) {
+            const requiredTraitType = field.assignedValue.value;
             // Search for the method in the required trait
             const method = requiredTraitType.fields.find(
               (f) => f.label === methodName && isFunctionType(f.type)
             );
             if (method && isFunctionType(method.type)) {
-              // Create a specialized method type with SelfType set to the receiver type
-              const specializedMethodType: FunctionType = {
-                ...method.type,
-                SelfType: dereferencedReceiverType,
-              };
               // Create an unknown value since the actual implementation is not known
-              const value = createUnknownValue(
-                specializedMethodType,
-                method.label
-              );
-              methods.push({ type: specializedMethodType, value });
+              const value = createUnknownValue(method.type, {
+                variableName: method.label,
+                env,
+                context,
+              });
+              methods.push({ type: method.type, value });
             }
           }
         }
-        // Move to parent function
-        funcToCheck = funcToCheck.ParentFunctionType;
       }
-    }
-
-    // Look for methods in the required traits stored in the SomeType's trait
-    // Only consider traits with empty label "" (from trait-level where clauses)
-    if (methods.length === 0) {
-      for (const field of dereferencedReceiverType.trait.fields) {
-        // Required traits are stored as TypeValue containing TraitType
-        // Only allow traits with empty label (where clause constraints)
-        if (
-          field.label === "" &&
-          field.assignedValue &&
-          isTypeValue(field.assignedValue) &&
-          isTraitType(field.assignedValue.value)
-        ) {
-          const requiredTraitType = field.assignedValue.value;
-          // Search for the method in the required trait
-          const method = requiredTraitType.fields.find(
-            (f) => f.label === methodName && isFunctionType(f.type)
-          );
-          if (method && isFunctionType(method.type)) {
-            // Create an unknown value since the actual implementation is not known
-            const value = createUnknownValue(method.type, method.label);
-            methods.push({ type: method.type, value });
-          }
-        }
-      }
-    }
+    } // end of else block for "methods.length > 0 from resolvedConcreteType"
   }
 
   // Check if the dereferencedReceiverType is a DynType
@@ -1493,14 +1745,18 @@ export function getReceiverMethodsByNameFromEnv(
       // For dyn object's own methods, we can use the assigned value directly
       const value =
         dynMethod.assignedValue ||
-        createUnknownValue(dynMethod.type, dynMethod.label);
+        createUnknownValue(dynMethod.type, {
+          variableName: dynMethod.label,
+          env,
+          context,
+        });
       methods.push({ type: dynMethod.type, value });
     }
 
     // Then, for dynamic dispatch, check all trait types in the DynType for wrapped object methods
     // A method might exist in only some traits, and that's perfectly valid
     const requiredTraits = dereferencedReceiverType.requiredTraits;
-    for (const traitType of requiredTraits) {
+    for (const { traitType } of requiredTraits) {
       const method = traitType.fields.find(
         (field) =>
           field.label === methodName &&
@@ -1641,7 +1897,7 @@ export function getVariablesNeedingDrop(env: Environment): Variable[] {
 
     // Skip variables whose types contain unresolved SomeTypes.
     // We can't generate proper drop code for abstract type parameters.
-    // This handles cases like compile-time generic functions: `compt(id) : (fn(forall(T), x: T) -> T)`
+    // This handles cases like compile-time generic functions: `comptime(id) : (fn(forall(T), x: T) -> T)`
     // where temp variables may have type `T` that isn't resolved to a concrete type.
     const varType = variable.type;
     if (isSomeType(varType) && !varType.resolvedConcreteType) {

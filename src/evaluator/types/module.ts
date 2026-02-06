@@ -1,24 +1,19 @@
-import { Environment } from "../../env";
+import type { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   BuiltinKeywords,
-  Expr,
+  type Expr,
   exprIsAtom,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
-  FnCallExpr,
+  type FnCallExpr,
 } from "../../expr";
-import {
-  areTypesCompatible,
-  createModuleType,
-  isFunctionType,
-  isModuleType,
-  ModuleField,
-  ModuleType,
-  Type,
-  typeToString,
-} from "../../types";
+import { areTypesCompatible } from "../../types/compatibility";
+import { createModuleType } from "../../types/creators";
+import type { ModuleField, ModuleType, Type } from "../../types/definitions";
+import { isFunctionType, isModuleType } from "../../types/guards";
+import { typeToString } from "../../types/utils";
 import { VUnit } from "../../unit-value";
 import { randomId } from "../../utils";
 import {
@@ -28,9 +23,9 @@ import {
   isModuleValue,
   isTypeValue,
   isUnknownValue,
-  Value,
+  type Value,
 } from "../../value";
-import { EvaluatorContext } from "../context";
+import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { isValidVariableName } from "../utils";
 
@@ -110,11 +105,11 @@ All module fields are compile-time only by default.`,
     // Check if it's compile-time only
     if (
       exprIsFunctionCall(labelExpr) &&
-      exprIsFunctionCallOf(labelExpr, BuiltinKeywords.compt, 1)
+      exprIsFunctionCallOf(labelExpr, BuiltinKeywords.comptime, 1)
     ) {
       throw formatErrorMessage({
         token: labelExpr.token,
-        errorMessage: `No need to use "compt" modifier. All module fields are compile-time only by default.`,
+        errorMessage: `No need to use "comptime" modifier. All module fields are compile-time only by default.`,
       });
     }
 
@@ -127,11 +122,11 @@ All module fields are compile-time only by default.`,
     label = labelExpr.token.value;
   } else if (
     exprIsFunctionCall(expr_) &&
-    exprIsFunctionCallOf(expr_, BuiltinKeywords.compt, 1)
+    exprIsFunctionCallOf(expr_, BuiltinKeywords.comptime, 1)
   ) {
     throw formatErrorMessage({
       token: expr_.token,
-      errorMessage: `No need to use "compt" modifier. All module fields are compile-time only by default.`,
+      errorMessage: `No need to use "comptime" modifier. All module fields are compile-time only by default.`,
     });
   } else if (!defaultValueExpr && !assignedValueExpr) {
     throw formatErrorMessage({
@@ -216,7 +211,7 @@ ${typeToString(expectedType)}`
 
   // Evaluate assignedValueExpr if it exists
   if (assignedValueExpr) {
-    const expectedType = fieldType
+    const fieldExpectedType = fieldType
       ? { type: fieldType, env }
       : expectedModuleFieldType
         ? {
@@ -229,7 +224,7 @@ ${typeToString(expectedType)}`
       env,
       context: {
         ...context,
-        expectedType: expectedType,
+        expectedType: fieldExpectedType,
       },
     });
     if (!evaluatedAssignedValueExpr.$) {
@@ -254,22 +249,22 @@ ${typeToString(expectedType)}`
 
     const assignedValueType = evaluatedAssignedValueExpr.$.type;
 
-    // Check if assignedValueType matches expectedType
-    if (expectedType) {
+    // Check if assignedValueType matches fieldExpectedType
+    if (fieldExpectedType) {
       if (
         !areTypesCompatible(
-          { type: expectedType.type, env },
+          { type: fieldExpectedType.type, env },
           { type: assignedValueType, env }
         )
       ) {
         throw formatErrorMessage({
           token: assignedValueExpr.token,
           errorMessage: `Assigned value type mismatch:
-Expected type: ${typeToString(expectedType.type)}
+Expected type: ${typeToString(fieldExpectedType.type)}
 Given type: ${typeToString(assignedValueType)}`,
         });
       }
-      fieldType = expectedType.type;
+      fieldType = fieldExpectedType.type;
     } else {
       fieldType = assignedValueType;
     }
@@ -277,7 +272,7 @@ Given type: ${typeToString(assignedValueType)}`,
 
   // Evaluate defaultValueExpr if it exists
   if (defaultValueExpr) {
-    const expectedType = fieldType
+    const fieldExpectedType = fieldType
       ? { type: fieldType, env }
       : expectedModuleFieldType
         ? {
@@ -290,7 +285,7 @@ Given type: ${typeToString(assignedValueType)}`,
       env,
       context: {
         ...context,
-        expectedType: expectedType,
+        expectedType: fieldExpectedType,
       },
     });
     if (!evaluatedDefaultValueExpr.$) {
@@ -315,22 +310,22 @@ Given type: ${typeToString(assignedValueType)}`,
 
     const defaultValueType = evaluatedDefaultValueExpr.$.type;
 
-    // Check if defaultValueType matches expectedType
-    if (expectedType) {
+    // Check if defaultValueType matches fieldExpectedType
+    if (fieldExpectedType) {
       if (
         !areTypesCompatible(
-          { type: expectedType.type, env },
+          { type: fieldExpectedType.type, env },
           { type: defaultValueType, env }
         )
       ) {
         throw formatErrorMessage({
           token: defaultValueExpr.token,
           errorMessage: `Default value type mismatch:
-Expected type: ${typeToString(expectedType.type)}
+Expected type: ${typeToString(fieldExpectedType.type)}
 Given type: ${typeToString(defaultValueType)}`,
         });
       }
-      fieldType = expectedType.type;
+      fieldType = fieldExpectedType.type;
     } else {
       fieldType = defaultValueType;
     }
@@ -372,8 +367,8 @@ Type expressions are required for all function parameters in module fields to su
         });
       }
     }
-    // Also validate return type has expr
-    if (!fieldType.return.expr) {
+    // Also validate return type has typeExpr
+    if (!fieldType.return.typeExpr) {
       throw formatErrorMessage({
         token: expr.token,
         errorMessage: `Function in module field "${label ?? "unnamed"}" must have an explicit return type annotation.
@@ -399,7 +394,9 @@ To avoid circular dependency issues, please explicitly provide the value for thi
     labelExpr.$ = {
       env,
       type: fieldType,
-      value: assignedValue ?? createUnknownValue(fieldType, label),
+      value:
+        assignedValue ??
+        createUnknownValue(fieldType, { variableName: label, env, context }),
       pathCollection: [],
     };
   }
@@ -424,7 +421,6 @@ To avoid circular dependency issues, please explicitly provide the value for thi
         defaultValueExpr,
         assignedValueExpr,
       },
-      isCompileTimeOnly: true,
       defaultValue,
       assignedValue,
     },
@@ -555,9 +551,9 @@ export function evaluateModuleType({
         const moduleValue = value;
 
         // Iterate over the fields of the module value
-        for (let i = 0; i < moduleValue.fields.length; i++) {
-          const fieldValue = moduleValue.fields[i]!;
-          const extendedModuleField = moduleValue.type.fields[i]!;
+        for (let idx = 0; idx < moduleValue.fields.length; idx++) {
+          const fieldValue = moduleValue.fields[idx]!;
+          const extendedModuleField = moduleValue.type.fields[idx]!;
 
           // Check if there is a duplicate label
           const duplicateLabelIndex = fields.findIndex(
@@ -589,7 +585,7 @@ export function evaluateModuleType({
           } else {
             // Add the field to the module
             fields.push({
-              ...moduleValue.type.fields[i]!,
+              ...moduleValue.type.fields[idx]!,
               assignedValue: fieldValue,
             });
             // Don't add to environment - module fields are accessed via Self.XXX
@@ -630,14 +626,6 @@ export function evaluateModuleType({
 
       fields.push(field);
       env = nextEnv;
-
-      // Expect field to be compile-time only
-      if (!field.isCompileTimeOnly) {
-        throw formatErrorMessage({
-          token: arg.token,
-          errorMessage: `Expected compile-time only field for extern module, got ${exprToString(arg)}`,
-        });
-      }
 
       // Don't add field to env - module fields are accessed via Self.XXX
     }

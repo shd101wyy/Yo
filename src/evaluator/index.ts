@@ -6,16 +6,16 @@ import {
   pushEnvFrame,
   setEnvContainingPrelude,
 } from "../env";
-import { Expr } from "../expr";
+import type { Expr } from "../expr";
 import Parser from "../parser";
-import { Token, TokenType } from "../token";
-import { isModuleType } from "../types";
-import { ModuleValue } from "../value";
+import { TokenType, type Token } from "../token";
+import { isModuleType } from "../types/guards";
+import type { ModuleValue } from "../value";
 
 // Import extracted evaluator functions
 import { YoError, YoLexerError } from "../error";
-import { LoadModuleFn } from "./context";
-import { evaluateAnonymousModuleBeginExprs } from "./values/anonymous_module";
+import type { LoadModuleFn } from "./context";
+import { evaluateAnonymousModuleBeginExprs } from "./values/anonymous-module";
 import {
   clearAllGlobalImplState,
   clearGenericImplsFromModule,
@@ -57,7 +57,7 @@ export default class Evaluator {
   private parser: Parser;
   private program: Expr[];
   private tokens: Token[];
-  private moduleValue: ModuleValue;
+  private moduleValue: ModuleValue | undefined;
   private moduleError: Error | undefined;
   private allowPartialModule: boolean;
 

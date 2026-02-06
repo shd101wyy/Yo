@@ -1,11 +1,11 @@
-import { Environment } from "../../env";
+import type { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
-import { AtomExpr } from "../../expr";
+import type { AtomExpr } from "../../expr";
 import { TokenType } from "../../token";
-import { isF32Type, isF64Type } from "../../types";
+import { isF32Type, isF64Type } from "../../types/guards";
 import { createNumberValue } from "../../value";
 import { ValueTag } from "../../value-tag";
-import { EvaluatorContext } from "../context";
+import type { EvaluatorContext } from "../context";
 
 export function evaluateFloatLiteral(
   expr: AtomExpr,
@@ -15,7 +15,7 @@ export function evaluateFloatLiteral(
   if (expr.token.type === TokenType.Float) {
     const floatValue = parseFloat(expr.token.value);
 
-    let valueTag: ValueTag = ValueTag.ComptFloat;
+    let valueTag: ValueTag = ValueTag.ComptimeFloat;
     if (context.expectedType) {
       const expectedType = context.expectedType.type;
       if (isF32Type(expectedType)) {

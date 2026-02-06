@@ -57,7 +57,7 @@ test "Test assignments", {
     
     // Initialize a variable defined outside the function body is not allowed
     test1 :: (fn() -> unit) {
-      compt_expect_error(
+      comptime_expect_error(
         x = 12,
         "Cannot initialize a variable that is defined outside the function body."
       );
@@ -68,11 +68,11 @@ test "Test assignments", {
     test2 :: (fn(flag: bool) -> unit) {
       y : i32;
       while flag, {
-        compt_expect_error(
+        comptime_expect_error(
           x = 12,
           "Cannot initialize a variable that is defined outside the while loop."
         );
-        compt_expect_error(
+        comptime_expect_error(
           y = 12,
           "Cannot initialize a variable that is defined outside the while loop."
         );
@@ -115,21 +115,21 @@ test "Test bindings", {
 
   // Compile-time immutable variable
   {
-    compt(x) : i32;
+    comptime(x) : i32;
     x = 12;
   };
   {
-    (compt(x) : bool) = true;
+    (comptime(x) : bool) = true;
     // x = false;
   };
 
   // Compile-time mutable variable
   {
-    compt(x) : i32;
+    comptime(x) : i32;
     x = 12;
   };
   {
-    (compt(x) : bool) = true;
+    (comptime(x) : bool) = true;
     x = false;
   };
 
@@ -158,7 +158,7 @@ test "Test bindings", {
   };
 
   {
-    compt(x) : Type;
+    comptime(x) : Type;
     x = struct(x: i32, y: i32);
   };
 };
@@ -166,13 +166,13 @@ test "Test bindings", {
 test "Test variable shadowing", {
   {
     (x : i32) = 12;
-    compt_expect_error(
+    comptime_expect_error(
       x := 13 // Not allowed, because `x` already exists at the current frame.
     );
     assert(x == 12);
 
     {
-      compt_expect_error(
+      comptime_expect_error(
         x := 15 // Not allowed, because `x` already exists at upper frame.
       );
     };
@@ -180,8 +180,8 @@ test "Test variable shadowing", {
   };
 };
 
-test "Test compt", {
-  compt_12 :: (fn() -> compt(i32))(
+test "Test comptime", {
+  comptime_12 :: (fn() -> comptime(i32))(
     12
   );
 
@@ -193,7 +193,7 @@ test "Test compt", {
   {
     x :: 13;
     y := x;
-    z :: compt_12();
+    z :: comptime_12();
     assert((y + z) == 25);
   };
 
@@ -202,7 +202,7 @@ test "Test compt", {
       (p.x + p.y)
     ;
 
-    p :: Point(compt_12(), 16);
+    p :: Point(comptime_12(), 16);
     assert(use_point(p) == 28);
   };
 };
@@ -295,19 +295,392 @@ test "Test destructuring", {
 };
 
 test "Test type auto derive Send", {
-  compt_assert(Type.impls(i32, Send));
+  comptime_assert(Type.impls(i32, Send));
   
   Point :: struct(x : i32, y : i32);
-  compt_assert(Type.impls(Point, Send) == true);
+  comptime_assert(Type.impls(Point, Send) == true);
   
   MyBox :: object(v : i32);
-  compt_assert(Type.impls(MyBox, Send) == false);
+  comptime_assert(Type.impls(MyBox, Send) == false);
   
-  GenericPoint :: (fn(compt(T) : Type) -> compt(Type))
+  GenericPoint :: (fn(comptime(T) : Type) -> comptime(Type))
     struct(x : T, y : T)
   ;
-  compt_assert(Type.impls(GenericPoint(i32), Send) == true);
-  compt_assert(Type.impls(GenericPoint(MyBox), Send) == false);
+  comptime_assert(Type.impls(GenericPoint(i32), Send) == true);
+  comptime_assert(Type.impls(GenericPoint(MyBox), Send) == false);
+};
+
+test "Test type auto derive Acyclic", {
+  // Primitive types are Acyclic
+  // Compile-time only types
+  comptime_assert(Type.impls(comptime_int, Acyclic));
+  comptime_assert(Type.impls(comptime_float, Acyclic));
+  comptime_assert(Type.impls(comptime_string, Acyclic));
+  comptime_assert(Type.impls(Expr, Acyclic));
+  comptime_assert(Type.impls(ComptimeList(i32), Acyclic));
+
+  // Primitive types that can exist at comptime
+  comptime_assert(Type.impls(bool, Acyclic));
+  comptime_assert(Type.impls(usize, Acyclic));
+  comptime_assert(Type.impls(isize, Acyclic));
+  comptime_assert(Type.impls(u8, Acyclic));
+  comptime_assert(Type.impls(i8, Acyclic));
+  comptime_assert(Type.impls(u16, Acyclic));
+  comptime_assert(Type.impls(i16, Acyclic));
+  comptime_assert(Type.impls(u32, Acyclic));
+  comptime_assert(Type.impls(i32, Acyclic));
+  comptime_assert(Type.impls(u64, Acyclic));
+  comptime_assert(Type.impls(i64, Acyclic));
+  comptime_assert(Type.impls(f32, Acyclic));
+  comptime_assert(Type.impls(f64, Acyclic));
+  comptime_assert(Type.impls(unit, Acyclic));
+
+  // C compatible types are runtime only
+  comptime_assert(Type.impls(void, Acyclic));
+  comptime_assert(Type.impls(char, Acyclic));
+  comptime_assert(Type.impls(short, Acyclic));
+  comptime_assert(Type.impls(ushort, Acyclic));
+  comptime_assert(Type.impls(int, Acyclic));
+  comptime_assert(Type.impls(uint, Acyclic));
+  comptime_assert(Type.impls(long, Acyclic));
+  comptime_assert(Type.impls(ulong, Acyclic));
+  comptime_assert(Type.impls(longlong, Acyclic));
+  comptime_assert(Type.impls(ulonglong, Acyclic));
+  comptime_assert(Type.impls(longdouble, Acyclic));
+
+  // Value structs without object fields are Acyclic
+  Point :: struct(x : i32, y : i32);
+  comptime_assert(Type.impls(Point, Acyclic) == true);
+  
+  // Object types that don't form cycles are Acyclic
+  SimpleBox :: object(v : i32);
+  comptime_assert(Type.impls(SimpleBox, Acyclic) == true);
+  
+  // Self-referencing object (can form cycle) is NOT Acyclic
+  Node :: object(value: i32, next: Option(Self));
+  comptime_assert(Type.impls(Node, Acyclic) == false);
+  // 
+  // Generic struct: Acyclic depends on type parameter
+  GenericPoint :: (fn(comptime(T) : Type) -> comptime(Type))
+    struct(x : T, y : T)
+  ;
+  comptime_assert(Type.impls(GenericPoint(i32), Acyclic) == true);
+  comptime_assert(Type.impls(GenericPoint(Node), Acyclic) == false);
+
+  // Enum types
+  Direction :: enum(North, South, East, West);
+  comptime_assert(Type.impls(Direction, Acyclic) == true);
+  
+  // Enum with i32 fields
+  ResultInt :: enum(Ok(value : i32), Err(error : i32));
+  comptime_assert(Type.impls(ResultInt, Acyclic) == true);
+};
+
+test "Test type auto derive Comptime", {
+  // Compile-time only types
+  comptime_assert(Type.impls(comptime_int, Comptime));
+  comptime_assert(Type.impls(comptime_float, Comptime));
+  comptime_assert(Type.impls(comptime_string, Comptime));
+  comptime_assert(Type.impls(Expr, Comptime));
+  comptime_assert(Type.impls(ComptimeList(i32), Comptime));
+
+  // Primitive types that can exist at comptime
+  comptime_assert(Type.impls(bool, Comptime));
+  comptime_assert(Type.impls(usize, Comptime));
+  comptime_assert(Type.impls(isize, Comptime));
+  comptime_assert(Type.impls(u8, Comptime));
+  comptime_assert(Type.impls(i8, Comptime));
+  comptime_assert(Type.impls(u16, Comptime));
+  comptime_assert(Type.impls(i16, Comptime));
+  comptime_assert(Type.impls(u32, Comptime));
+  comptime_assert(Type.impls(i32, Comptime));
+  comptime_assert(Type.impls(u64, Comptime));
+  comptime_assert(Type.impls(i64, Comptime));
+  comptime_assert(Type.impls(f32, Comptime));
+  comptime_assert(Type.impls(f64, Comptime));
+  comptime_assert(Type.impls(unit, Comptime));
+
+  // C compatible types are runtime only
+  comptime_assert(Type.impls(void, Comptime) == false);
+  comptime_assert(Type.impls(char, Comptime) == false);
+  comptime_assert(Type.impls(short, Comptime) == false);
+  comptime_assert(Type.impls(ushort, Comptime) == false);
+  comptime_assert(Type.impls(int, Comptime) == false);
+  comptime_assert(Type.impls(uint, Comptime) == false);
+  comptime_assert(Type.impls(long, Comptime) == false);
+  comptime_assert(Type.impls(ulong, Comptime) == false);
+  comptime_assert(Type.impls(longlong, Comptime) == false);
+  comptime_assert(Type.impls(ulonglong, Comptime) == false);
+  comptime_assert(Type.impls(longdouble, Comptime) == false);
+  
+  // Array
+  comptime_assert(Type.impls(Array(i32, 3), Comptime));
+  comptime_assert(Type.impls(Array(comptime_int, 3), Comptime));
+  comptime_assert(Type.impls(Array(Box(i32), 3), Comptime) == false);
+  
+  // Slice
+  comptime_assert(Type.impls(Slice(i32), Comptime));
+  comptime_assert(Type.impls(Slice(comptime_int), Comptime));
+  comptime_assert(Type.impls(Slice(Box(i32)), Comptime) == false);
+
+  // Tuple
+  comptime_assert(Type.impls(Tuple(i32), Comptime));
+  comptime_assert(Type.impls(Tuple(comptime_int), Comptime));
+  comptime_assert(Type.impls(Tuple(Box(i32)), Comptime) == false);
+
+  // Ptr
+  // Yo support compile-time pointer
+  comptime_assert(Type.impls(*(comptime_int), Comptime));
+  comptime_assert(Type.impls(*(i32), Comptime));
+  comptime_assert(Type.impls(*(Box(i32)), Comptime) == false);
+
+  
+  // Function
+  comptime_assert(Type.impls(fn() -> unit, Comptime));
+
+  // Iso type is runtime only
+  comptime_assert(Type.impls(Iso(i32), Comptime) == false);
+
+  // Value structs with comptime-compatible fields are Comptime
+  Point :: struct(x : i32, y : i32);
+  comptime_assert(Type.impls(Point, Comptime) == true);
+
+  // Object types are NOT Comptime (reference-counted, runtime-only)
+  MyBox :: object(v : i32);
+  comptime_assert(Type.impls(MyBox, Comptime) == false);
+
+  // Generic struct: Comptime depends on type parameter
+  GenericPoint :: (fn(comptime(T) : Type) -> comptime(Type))
+    struct(x : T, y : T)
+  ;
+  comptime_assert(Type.impls(GenericPoint(i32), Comptime) == true);
+  comptime_assert(Type.impls(GenericPoint(MyBox), Comptime) == false);
+
+  // Enum types with comptime-compatible fields are Comptime
+  Direction :: enum(North, South, East, West);
+  comptime_assert(Type.impls(Direction, Comptime) == true);
+
+  ResultInt :: enum(Ok(value : i32), Err(error : i32));
+  comptime_assert(Type.impls(ResultInt, Comptime) == true);
+
+  // Union type is runtime only
+  UnionData :: union(a : i32, b : bool);
+  comptime_assert(Type.impls(UnionData, Comptime) == false);
+
+  // SomeType
+  fn1 :: (fn(comptime(T) : Type) -> unit) {
+    comptime_assert(Type.impls(T, Comptime) == false);
+  };
+  fn2 :: (fn(comptime(T) : Type, where(T <: Comptime)) -> unit) {
+    comptime_assert(Type.impls(T, Comptime));
+  };
+  fn3 :: (fn(forall(T : Type), v : T) -> unit) {
+    comptime_assert(Type.impls(T, Comptime) == false);
+  };
+  fn4 :: (fn(forall(T : Type), v : T, where(T <: Comptime)) -> unit) {
+    comptime_assert(Type.impls(T, Comptime));
+  };
+
+  // Recursive type
+  {
+    SelfRecursive :: struct(
+      v : i32,
+      next: *(Self)
+    );
+    // i32 is both comptime and runtime
+    // *(Self) is both comptime and runtime
+    // therefore SelfRecursive should be both comptime and runtime
+    comptime_assert(Type.impls(SelfRecursive, Comptime));
+
+
+    // next: *(Self) is both comptime and runtime
+    // therefore SelfRecursive2 should be both comptime and runtime
+    SelfRecursive2 :: struct(
+      next: *(Self)
+    );
+    comptime_assert(Type.impls(SelfRecursive2, Comptime));
+
+    // v : int is only runtime
+    // therefore SelfRecursive3 should be only runtime
+    SelfRecursive3 :: struct(
+      v : int,
+      next: *(Self)
+    );
+    comptime_assert(Type.impls(SelfRecursive3, Comptime) == false);
+
+    // v : comptime_int is only comptime
+    // therefore SelfRecursive4 should be only comptime
+    SelfRecursive4 :: struct(
+      v : comptime_int,
+      next: *(Self)
+    );
+    comptime_assert(Type.impls(SelfRecursive4, Comptime));
+  };
+};
+
+test "Test type auto derive Runtime", {
+  // Compile-time only types are not runtime available
+  comptime_assert(Type.impls(comptime_int, Runtime) == false);
+  comptime_assert(Type.impls(comptime_float, Runtime) == false);
+  comptime_assert(Type.impls(comptime_string, Runtime) == false);
+  comptime_assert(Type.impls(Expr, Runtime) == false);
+  comptime_assert(Type.impls(ComptimeList(i32), Runtime) == false);
+
+  // Primitive types that can exist at runtime
+  comptime_assert(Type.impls(bool, Runtime));
+  comptime_assert(Type.impls(i32, Runtime));
+  comptime_assert(Type.impls(f64, Runtime));
+  comptime_assert(Type.impls(usize, Runtime));
+  comptime_assert(Type.impls(isize, Runtime));
+  comptime_assert(Type.impls(u8, Runtime));
+  comptime_assert(Type.impls(i8, Runtime));
+  comptime_assert(Type.impls(u16, Runtime));
+  comptime_assert(Type.impls(i16, Runtime));
+  comptime_assert(Type.impls(u32, Runtime));
+  comptime_assert(Type.impls(i32, Runtime));
+  comptime_assert(Type.impls(u64, Runtime));
+  comptime_assert(Type.impls(i64, Runtime));
+  comptime_assert(Type.impls(f32, Runtime));
+  comptime_assert(Type.impls(f64, Runtime));
+  comptime_assert(Type.impls(unit, Runtime));
+
+  // C compatible types are runtime only
+  comptime_assert(Type.impls(void, Runtime));
+  comptime_assert(Type.impls(char, Runtime));
+  comptime_assert(Type.impls(short, Runtime));
+  comptime_assert(Type.impls(ushort, Runtime));
+  comptime_assert(Type.impls(int, Runtime));
+  comptime_assert(Type.impls(uint, Runtime));
+  comptime_assert(Type.impls(long, Runtime));
+  comptime_assert(Type.impls(ulong, Runtime));
+  comptime_assert(Type.impls(longlong, Runtime));
+  comptime_assert(Type.impls(ulonglong, Runtime));
+  comptime_assert(Type.impls(longdouble, Runtime));
+  
+  // Array
+  comptime_assert(Type.impls(Array(i32, 3), Runtime));
+  comptime_assert(Type.impls(Array(comptime_int, 3), Runtime) == false);
+  comptime_assert(Type.impls(Array(Box(i32), 3), Runtime));
+  
+  // Slice
+  comptime_assert(Type.impls(Slice(i32), Runtime));
+  comptime_assert(Type.impls(Slice(comptime_int), Runtime) == false);
+  comptime_assert(Type.impls(Slice(Box(i32)), Runtime));
+
+  // Tuple
+  comptime_assert(Type.impls(Tuple(i32), Runtime));
+  comptime_assert(Type.impls(Tuple(comptime_int), Runtime) == false);
+  comptime_assert(Type.impls(Tuple(Box(i32)), Runtime));
+
+  // Ptr
+  // Yo support compile-time pointer
+  comptime_assert(Type.impls(*(comptime_int), Runtime) == false);
+  comptime_assert(Type.impls(*(i32), Runtime));
+  comptime_assert(Type.impls(*(Box(i32)), Runtime));
+
+  
+  // Function
+  comptime_assert(Type.impls(fn() -> unit, Runtime));
+
+  // Iso type is runtime only
+  comptime_assert(Type.impls(Iso(i32), Runtime));
+
+  // Value structs with runtime-compatible fields are Runtime
+  Point :: struct(x : i32, y : i32);
+  comptime_assert(Type.impls(Point, Runtime) == true);
+
+  // Object types are Runtime
+  MyBox :: object(v : i32);
+  comptime_assert(Type.impls(MyBox, Runtime) == true);
+
+  // Generic struct: Runtime depends on type parameter
+  GenericPoint :: (fn(comptime(T) : Type) -> comptime(Type))
+    struct(x : T, y : T)
+  ;
+  comptime_assert(Type.impls(GenericPoint(i32), Runtime) == true);
+
+  // Enum types with runtime-compatible fields are Runtime
+  Direction :: enum(North, South, East, West);
+  comptime_assert(Type.impls(Direction, Runtime) == true);
+
+  ResultInt :: enum(Ok(value : i32), Err(error : i32));
+  comptime_assert(Type.impls(ResultInt, Runtime) == true);
+
+  // Union type is runtime only
+  UnionData :: union(a : i32, b : bool);
+  comptime_assert(Type.impls(UnionData, Runtime));
+
+  // SomeType
+  fn1 :: (fn(comptime(T) : Type) -> unit) {
+    comptime_assert(Type.impls(T, Runtime));
+  };
+  fn2 :: (fn(comptime(T) : Type, where(T <: !(Runtime))) -> unit) {
+    comptime_assert(Type.impls(T, Runtime) == false);
+  };
+  fn3 :: (fn(forall(T : Type), v : T) -> unit) {
+    comptime_assert(Type.impls(T, Runtime));
+  };
+  fn4 :: (fn(forall(T : Type), v : T, where(T <: !(Runtime))) -> unit) {
+    comptime_assert(Type.impls(T, Runtime) == false);
+  };
+
+  // Self recursive types
+  {
+    SelfRecursive :: struct(
+      v : i32,
+      next: *(Self)
+    );
+    // i32 is both comptime and runtime
+    // *(Self) is both comptime and runtime
+    // therefore SelfRecursive should be both comptime and runtime
+    comptime_assert(Type.impls(SelfRecursive, Runtime));
+
+
+    // next: *(Self) is both comptime and runtime
+    // therefore SelfRecursive2 should be both comptime and runtime
+    SelfRecursive2 :: struct(
+      next: *(Self)
+    );
+    comptime_assert(Type.impls(SelfRecursive2, Runtime));
+
+    // v : int is only runtime
+    // therefore SelfRecursive3 should be only runtime
+    SelfRecursive3 :: struct(
+      v : int,
+      next: *(Self)
+    );
+    comptime_assert(Type.impls(SelfRecursive3, Runtime));
+
+    // v : comptime_int is only comptime
+    // therefore SelfRecursive4 should be only comptime
+    SelfRecursive4 :: struct(
+      v : comptime_int,
+      next: *(Self)
+    );
+    comptime_assert(Type.impls(SelfRecursive4, Runtime) == false);
+
+  };
+};
+
+test "Test 'Rc' and 'Dispose' traits", {
+  MyBox :: object(
+    value: i32
+  );
+  comptime_assert(Type.impls(MyBox, Rc));
+  impl(MyBox, Dispose(
+    dispose : (fn(self: Self) -> unit)({
+      ();
+    })
+  ));
+
+  AnotherBox :: struct(value : i32);
+  comptime_assert(Type.impls(AnotherBox, Rc) == false);
+  comptime_expect_error(
+    impl(AnotherBox, Dispose(
+      dispose : (fn(self: Self) -> unit)({
+        printf("Disposing AnotherBox with value: %d\n", self.value);
+      })
+    )));
 };
 
 test "Test 'struct'", {
@@ -315,20 +688,20 @@ test "Test 'struct'", {
   {
     Point :: struct(x: i32, y: i32);
 
-    p := Point(3, 4); // Assign compt to runtime
-    p2 :: Point(3, 4); // Assign compt to compt
+    p := Point(3, 4); // Assign comptime to runtime
+    p2 :: Point(3, 4); // Assign comptime to comptime
 
     runt_value := 1;
     p3 := Point(runt_value, 4);
 
-    compt_expect_error(
-      p4 :: Point(runt_value, 4) // Assign runt to compt is not allowed
+    comptime_expect_error(
+      p4 :: Point(runt_value, 4) // Assign runt to comptime is not allowed
     );
 
     assert(p.x == 3);
     assert(p.y == 4);
-    compt_assert(p2.x == 3);
-    compt_assert(p2.y == 4);
+    comptime_assert(p2.x == 3);
+    comptime_assert(p2.y == 4);
     assert(p3.x == 1);
     assert(p3.y == 4);
   };
@@ -372,7 +745,7 @@ test "Test 'struct'", {
     x := Point1(3, 4);
     (y : Point2) = _(5, 6);
 
-    compt_expect_error(
+    comptime_expect_error(
       (z : Point1) := (3, 4),
       "error: type Mismatch"
     );
@@ -381,7 +754,7 @@ test "Test 'struct'", {
 
     (z : Point2) = y;
     (z2 : Point3) = x;
-    compt_expect_error(
+    comptime_expect_error(
       (z3 : Point2) = x,
       "error: type Mismatch"
     );
@@ -493,9 +866,10 @@ test "Test 'struct'", {
   // type methods
   {
     Withdraw :: struct(
-      balance: i32,
-
-      withdraw :: (fn(self: *(Self), amount: i32) -> i32)(
+      balance: i32
+    );
+    impl(Withdraw,
+      withdraw : (fn(self: *(Self), amount: i32) -> i32)(
         cond(
           (self.balance >= amount) => {
             self.balance = (self.balance - amount);
@@ -521,6 +895,39 @@ test "Test 'struct'", {
     assert(left == 50);
     assert(left2 == 20);
     assert(left3 == 0);
+  };
+  // type methods for generic type
+  {
+    MyStruct :: (fn(comptime(T) : Type) -> comptime(Type))(
+      struct(value : T)
+    );
+
+    impl(forall(T : Type), MyStruct(T),
+      new : (fn(v : T) -> Self)(Self(v)),
+
+      another_new : (fn(v : T) -> Self)(
+        Self.new(v)
+      ),
+
+      add : (fn(self : *(Self), value : T, where(T <: Add(T, T))) -> unit)({
+        self.value = (self.value + value);
+      }),
+
+      another_add : (fn(self : *(Self), value : T, where(T <: Add(T, T))) -> unit)({
+        self.add(value);
+      })
+    );
+
+    value := 10;
+    x := MyStruct(i32).new(value);
+    y := MyStruct(i32).another_new(value);
+    assert(x.value == value);
+    assert(y.value == value);
+
+    x.add(3);
+    y.another_add(4);
+    assert(x.value == (value + 3));
+    assert(y.value == (value + 4));
   };
 };
 
@@ -558,13 +965,15 @@ test "Test 'enum'", {
     Shape :: enum(
       Circle(radius: i32),
       Rectangle(width: i32, height: i32),
-      Triangle(base: i32, height: i32),
-
-      new_circle :: (
+      Triangle(base: i32, height: i32)
+    );
+    impl(Shape,
+      new_circle : (
         (fn(radius: i32) -> Self)
           .Circle(radius)
       ),
-      id :: ((fn(self: Self)-> Self)
+
+      id : ((fn(self: Self)-> Self)
         self
       )
     );
@@ -624,12 +1033,13 @@ test "Test 'enum'", {
 };
 
 test "Test 'union'", {
-  SomeUnion :: union
+  SomeUnion :: union(
     x : i32,
-    y : bool,
-
-    new :: ((fn()-> Self) Self(x : 0)) 
-  ;
+    y : bool
+  );
+  impl(SomeUnion,
+    new : ((fn()-> Self) Self(x : 0))
+  );
 
   v1 := SomeUnion( x : 12 );
   v2 := SomeUnion( y : true );
@@ -659,11 +1069,11 @@ test "Test tuple", {
     t :: (x,);
 
     runt_x := 16;
-    compt_expect_error(t2 :: (x, runt_x)); // Expected error
+    comptime_expect_error(t2 :: (x, runt_x)); // Expected error
 
     t3 := (x, runt_x);
 
-    compt_assert(t.0 == 12);
+    comptime_assert(t.0 == 12);
     assert(t3.0 == 12);
     assert(t3.1 == 16);
   };
@@ -739,13 +1149,13 @@ test "Test raw pointer", {
 
   // void pointer
   {
-    compt_expect_error(
+    comptime_expect_error(
       FuncType :: 
         fn() -> void // Cannot use DST directly in function return type
     );
 
     use_void_ptr :: (fn(ptr : *(void)) -> unit) {
-      compt_expect_error(
+      comptime_expect_error(
         x := ptr.*,
         "Cannot use DST directly"
       );
@@ -756,7 +1166,7 @@ test "Test raw pointer", {
     };
 
     mutate_void_ptr :: (fn(ptr : *(void)) -> unit) {
-      compt_expect_error(
+      comptime_expect_error(
         x := ptr.*,
         "Cannot use DST directly"
       );
@@ -795,7 +1205,7 @@ test "Test 'cond'", {
     assert(max(x, y) == 10);
   };
 
-  compt_expect_error(
+  comptime_expect_error(
     x := cond(
       (3 > 4) => 5,
       (5 > 6) => 6
@@ -894,7 +1304,7 @@ test "Test 'match'", {
   ;
 
   // This should now fail - trying to use .Circle without destructuring
-  compt_expect_error(
+  comptime_expect_error(
     invalid_area :: (fn(shape: Shape) -> i32)
       match shape,
         .Circle => 0,  // ERROR: Circle has fields and must be destructured
@@ -1025,7 +1435,7 @@ test "Test 'while'", {
     };
 
     // compile-time evaluation of sum
-    sum_compt :: (fn(compt(max) : i32) -> compt(i32)) {
+    sum_comptime :: (fn(comptime(max) : i32) -> comptime(i32)) {
       result :: i32(0);
       i :: i32(0);
       while i <= max, {
@@ -1035,8 +1445,8 @@ test "Test 'while'", {
       return result;
     };
 
-    x :: sum_compt(10);
-    compt_assert(x == 55);
+    x :: sum_comptime(10);
+    comptime_assert(x == 55);
 
     y := sum(10);
     assert(y == 55);
@@ -1056,7 +1466,7 @@ test "Test 'while'", {
     };
 
     // compile-time evaluation of sum
-    sum_compt :: (fn(compt(max) : i32) -> compt(i32)) {
+    sum_comptime :: (fn(comptime(max) : i32) -> comptime(i32)) {
       result :: i32(0);
       i :: i32(0);
       while i <= max, i = (i + 1), {
@@ -1066,8 +1476,8 @@ test "Test 'while'", {
       return result;
     };
 
-    x :: sum_compt(10);
-    compt_assert(x == 55);
+    x :: sum_comptime(10);
+    comptime_assert(x == 55);
 
     y := sum(10);
     assert(y == 55);
@@ -1167,7 +1577,7 @@ test "Test 'while'", {
 };
 
 test "Test control flows", {
-  (compt(LinearI32) : Type) = i32;
+  (comptime(LinearI32) : Type) = i32;
 
   some_condition :: (fn() -> bool) 
     runtime(true)
@@ -1176,7 +1586,7 @@ test "Test control flows", {
   test_while_drop :: (fn() -> i32) {
     (x : LinearI32) = 42;
 
-    compt_expect_error(
+    comptime_expect_error(
       while some_condition(), {
         drop(x);
       },
@@ -1221,7 +1631,7 @@ test "Test control flows", {
   test_while_drop_with_continue_nested :: (fn() -> i32) {
     (x : LinearI32) = 42;
 
-    compt_expect_error(
+    comptime_expect_error(
       while some_condition(), {
         drop(x);
         cond
@@ -1236,7 +1646,7 @@ test "Test control flows", {
 
   test_while_drop_with_mixed :: (fn() -> i32) {
     (x : LinearI32) = 42;
-    compt_expect_error(
+    comptime_expect_error(
       while some_condition(), {
         drop(x); // should give error
         cond
@@ -1269,7 +1679,7 @@ test "Test control flows", {
 
   test_while_drop_with_mixed_2 :: (fn() -> i32) {
     (x : LinearI32) = 42;
-    compt_expect_error(
+    comptime_expect_error(
       while some_condition(), {
         a := cond
           some_condition() => break,
@@ -1359,7 +1769,7 @@ test "Test control flows", {
   ;
 
   // Test enum for match expressions
-  (compt(Shape): Type) = enum(Circle, Square);
+  (comptime(Shape): Type) = enum(Circle, Square);
 
   // Test 7: Match with all break cases
   test_match_all_break :: (fn(shape: Shape) -> i32) {
@@ -1528,14 +1938,14 @@ test "Test control flows", {
 
   // Test: Break outside of loop should fail
   test_break_outside_loop :: (fn() -> unit) 
-    compt_expect_error({
+    comptime_expect_error({
       break;
     })
   ;
 
   // Test: Continue outside of loop should fail  
   test_continue_outside_loop :: (fn() -> unit)
-    compt_expect_error({
+    comptime_expect_error({
       continue;
     })
   ;
@@ -1559,7 +1969,7 @@ test "Test control flows", {
 
   // Test: Break in function (not in loop) should fail
   test_break_in_function :: (fn() -> unit)
-    compt_expect_error({
+    comptime_expect_error({
       cond(
         some_condition() => {
           break;  // Break outside loop context should fail
@@ -1571,7 +1981,7 @@ test "Test control flows", {
 
   // Test: Continue in function (not in loop) should fail
   test_continue_in_function :: (fn() -> unit)
-    compt_expect_error({
+    comptime_expect_error({
       cond(
         some_condition() => {
           continue;  // Continue outside loop context should fail
@@ -1640,17 +2050,17 @@ test "Test extending modules by ... spread operator", {
 };
 
 test "Test 'open' statements", {
-  // Open a compt struct
+  // Open a comptime struct
   {
     anony :: { x : 12, y : 13 };
     open anony;
-    compt_assert(x == 12);
-    compt_assert(y == 13);
+    comptime_assert(x == 12);
+    comptime_assert(y == 13);
   };
 
   // Open a runtime struct
   {
-    anony := { x : 12, y : 13 };
+    anony := { x : i32(12), y : i32(13) };
     open anony;
     assert(x == 12);
     assert(y == 13);
@@ -1685,8 +2095,8 @@ test "Test 'open' statements", {
     };
     open my_module;
     
-    compt_assert(x == 6);
-    compt_assert(y == 2);
+    comptime_assert(x == 6);
+    comptime_assert(y == 2);
 
     assert(x == 6);
     assert(y == 2);
@@ -1713,12 +2123,12 @@ test "Test 'Impl'", {
       id : (fn(self : Self) -> Self)
     );
 
-    test1 :: (fn(forall(T := Impl(Id)), x : T) -> T) {
+    test1 :: (fn(forall((T : Type) = Impl(Id)), x : T) -> T) {
       y := (typeof(x) <: Id).id(x);
       return y.id();
     };
 
-    test2 :: (fn(compt(T) := Impl(Id), x : T) -> T) {
+    test2 :: (fn((comptime(T) : Type) = Impl(Id), x : T) -> T) {
       y := (typeof(x) <: Id).id(x);
       return y.id();
     };
@@ -1747,36 +2157,36 @@ test "Test type availability", {
     b := Point(6, 8);     // run-time value
 
     r := 12;
-    compt_expect_error(c :: Point(r, 15)); // Should give error, as r is a run-time value
+    comptime_expect_error(c :: Point(r, 15)); // Should give error, as r is a run-time value
     d := Point(r, 20); // valid run-time value
   };
 
   {
-    Point2 :: struct(x : compt_int, y : compt_int); // Point2 can only create compile-time values
-                                                    // as compt_int can only be used in compile-time context
+    Point2 :: struct(x : comptime_int, y : comptime_int); // Point2 can only create compile-time values
+                                                    // as comptime_int can only be used in compile-time context
     x :: Point2(3 + 5, 4); // compile-time value
     
-    compt_expect_error(
+    comptime_expect_error(
       y := Point2(6, 8)   // error: cannot create run-time value of type Point2
     );
   };
 
   {
-    compt_expect_error(
-      Point3 :: struct(x : compt_int, y : Box(i32)) // Error: incompatible field contexts
-                                                  // compt_int can only be used in compile-time context,
+    comptime_expect_error(
+      Point3 :: struct(x : comptime_int, y : Box(i32)) // Error: incompatible field contexts
+                                                  // comptime_int can only be used in compile-time context,
                                                   // Box `object` can only be used in run-time context.
                                                   // There is no intersection between the two contexts.
     );
   };
 
   {
-    Point4 :: struct(x : compt_int, y : i32); // Point4 can only be used to create compile-time values
-                                              // compt_int can only be used in compile-time context,
+    Point4 :: struct(x : comptime_int, y : i32); // Point4 can only be used to create compile-time values
+                                              // comptime_int can only be used in compile-time context,
                                               // i32 can be used in both contexts,
                                               // so the intersection is compile-time context
     x :: Point4(10, 20); // compile-time value
-    compt_expect_error(
+    comptime_expect_error(
       y := Point4(30, 40) // error: cannot create run-time value of type Point4
     );
   };
@@ -1790,17 +2200,17 @@ test "Test type availability", {
     r := 25;
     c := (r, 30); // valid run-time value
 
-    compt_expect_error(
+    comptime_expect_error(
       d :: (r, 40) // error: cannot create compile-time value with run-time element
     );
   };
 
   {
-    Pair :: Tuple(x : compt_int, y : compt_int); // Tuple can only be used in compile-time context
+    Pair :: Tuple(x : comptime_int, y : comptime_int); // Tuple can only be used in compile-time context
 
-    (compt(x) : Pair) = (11, 12); // compile-time value
+    (comptime(x) : Pair) = (11, 12); // compile-time value
 
-    compt_expect_error(
+    comptime_expect_error(
       (y : Pair) = (13, 14) // error: cannot create run-time value
     );
   };
@@ -1821,21 +2231,21 @@ test "Test type availability", {
 
   {
     ComptResult :: enum(
-      Ok(value : compt_int),
-      Err(code : compt_int)
+      Ok(value : comptime_int),
+      Err(code : comptime_int)
     ); // Enum can only be used in compile-time context
     
     x :: ComptResult.Ok(123); // compile-time value
     
-    compt_expect_error(
+    comptime_expect_error(
       y := ComptResult.Err(456) // error: cannot create run-time value
     );
   };
 
   {
-    compt_expect_error(
+    comptime_expect_error(
       MixedResult :: enum(
-        Ok(value : compt_int),
+        Ok(value : comptime_int),
         Err(ptr : Box(i32))
       ) // Error: incompatible variant field contexts
     );
@@ -1843,12 +2253,12 @@ test "Test type availability", {
 
   {
     HalfComptResult :: enum(
-      Ok(value : compt_int),
+      Ok(value : comptime_int),
       Err(code : i32)
     ); // Only compile-time context available (intersection of variant availabilities)
     
     x :: HalfComptResult.Ok(999); // compile-time value
-    compt_expect_error(
+    comptime_expect_error(
       y := HalfComptResult.Err(888) // error: cannot create run-time value
     );
   };
@@ -1861,10 +2271,10 @@ test "Test type availability", {
   };
 
   {
-    ComptArray :: [compt_int; 2]; // Array can only be used in compile-time context
+    ComptArray :: [comptime_int; 2]; // Array can only be used in compile-time context
     x :: ComptArray(10, 20); // compile-time value
     
-    compt_expect_error(
+    comptime_expect_error(
       y := ComptArray(30, 40) // error: cannot create run-time value
     );
   };
@@ -1873,46 +2283,45 @@ test "Test type availability", {
   // Union can only accept runtime fields
   {
     MyUnion :: union(x : i32, y : i32); // allowed
-    compt_expect_error(
-      MyComptUnion :: union(a : compt_int, b : i32) // error: field 'a' is compile-time only
+    comptime_expect_error(
+      MyComptUnion :: union(a : comptime_int, b : i32) // error: field 'a' is compile-time only
     );
   };
 };
 
-test "Test 'compt_fn' function call and function overloading", {
+test "Test 'comptime_fn' function call and function overloading", {
   add :: impl {
     _add :: (fn(x : i32, y : i32) -> i32) {
       return (x + y);
     };
-    compt_add :: compt_fn(_add); // Convert `add` to a comptime function.
+    comptime_add :: comptime_fn(_add); // Convert `add` to a comptime function.
                               // Panic if fails to convert.
 
-    Call :: (_add, compt_add);
+    Call :: (_add, comptime_add);
     export Call;
   };
 
-  MyOption :: (fn(compt(T) : Type) -> compt(Type))(
+  MyOption :: (fn(comptime(T) : Type) -> comptime(Type))(
     enum(
       None,
-      Some(value: T),
+      Some(value: T)
+    )
+  );
 
-      unwrap :: impl {
-        _unwrap :: (fn(self : Self) -> T)(
-          match(self,
-            .Some(value) => value,
-            .None => panic("Called unwrap on a None value")
-          )
-        );
-        _compt_unwrap :: (fn(compt(self) : Self) -> compt(T))(
-          match(self,
-            .Some(value) => value,
-            .None => compt_assert(false, "Called unwrap on a None value at comptime")
-          )
-        );
-
-        Call :: (_unwrap, _compt_unwrap);
-        export Call;
-      }
+  impl(forall(T : Type), MyOption(T),
+    unwrap : (fn(self : Self) -> T)(
+      match(self,
+        .Some(value) => value,
+        .None => panic("Called unwrap on a None value")
+      )
+    )
+  );
+  impl(forall(T : Type), where(T <: Comptime), MyOption(T),
+    comptime_unwrap : (fn(comptime(self) : Self) -> comptime(T))(
+      match(self,
+        .Some(value) => value,
+        .None => comptime_assert(false, "Called unwrap on a None value at comptime")
+      )
     )
   );
 
@@ -1924,7 +2333,7 @@ test "Test 'compt_fn' function call and function overloading", {
     },
     .None => {
       x :: add(3, 4); // compile-time function call
-      compt_assert(x == 7); 
+      comptime_assert(x == 7); 
 
       y := add(4, 5); // run-time function call
       assert(y == 9);
@@ -1937,6 +2346,6 @@ test "Test 'compt_fn' function call and function overloading", {
   assert(val == 12);
 
   op2 :: MyOption(i32).Some(55);
-  val2 :: op2.unwrap();
-  compt_assert(val2 == 55);
+  val2 :: op2.comptime_unwrap();
+  comptime_assert(val2 == 55);
 };

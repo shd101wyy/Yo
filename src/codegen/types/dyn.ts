@@ -1,13 +1,9 @@
 import { BuiltinFunctions } from "../../expr";
+import type { DynType, FunctionType } from "../../types/definitions";
+import { isFnTraitType, isFunctionType } from "../../types/guards";
+import { typeToString } from "../../types/utils";
 import {
-  DynType,
-  FunctionType,
-  isFnTraitType,
-  isFunctionType,
-  typeToString,
-} from "../../types";
-import {
-  CodeGenContext,
+  type CodeGenContext,
   getTypeString,
   sanitizeForCIdentifier,
 } from "../utils";
@@ -42,7 +38,7 @@ export function generateDynDeclaration(
   ]);
 
   // Process modules in the order they appear in dynType.requiredTraits
-  for (const traitType of dynType.requiredTraits) {
+  for (const { traitType } of dynType.requiredTraits) {
     // Handle FnTraitType specially - it has isFn which represents the "call" method
     if (isFnTraitType(traitType)) {
       const functionType = traitType.isFn.callType;

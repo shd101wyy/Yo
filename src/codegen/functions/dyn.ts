@@ -1,16 +1,16 @@
 import { BuiltinFunctions } from "../../expr";
+import type { FunctionType } from "../../types/definitions";
 import {
-  FunctionType,
   isBoxedType,
   isFnTraitType,
   isFunctionType,
   isPtrType,
   isSomeType,
   isVoidType,
-} from "../../types";
-import { isFunctionValue } from "../../value";
+} from "../../types/guards";
+import { isFunctionValue, type Value } from "../../value";
 import { getTypeString, sanitizeForCIdentifier } from "../utils";
-import { FunctionGenerationContext } from "./context";
+import type { FunctionGenerationContext } from "./context";
 
 /**
  * Generate dup/drop functions for dyn types
@@ -161,7 +161,7 @@ export function generateDynWrapperFunctions(
     ]);
 
     // Handle Fn dyn with synthetic call slot
-    for (const requiredModule of impl.dynType.requiredTraits) {
+    for (const { traitType: requiredModule } of impl.dynType.requiredTraits) {
       if (!isFnTraitType(requiredModule)) {
         continue;
       }
@@ -269,9 +269,10 @@ export function generateDynWrapperFunctions(
       moduleIndex < impl.dynType.requiredTraits.length;
       moduleIndex++
     ) {
-      const requiredModuleType = impl.dynType.requiredTraits[moduleIndex]!;
+      const { traitType: requiredTraitType } =
+        impl.dynType.requiredTraits[moduleIndex]!;
 
-      if (isFnTraitType(requiredModuleType)) {
+      if (isFnTraitType(requiredTraitType)) {
         continue;
       }
 
@@ -297,7 +298,7 @@ export function generateDynWrapperFunctions(
           continue;
         }
 
-        const fieldValue = moduleValue.fields[i];
+        const fieldValue: Value | undefined = moduleValue.fields[i];
 
         if (!fieldValue || !isFunctionValue(fieldValue)) {
           emitter.emitDeclarationLine(
@@ -412,7 +413,7 @@ export function generateDynVtables(context: FunctionGenerationContext): void {
     const vtableTypeName = `${dynTypeCName}_vtable`;
 
     emitter.emitDeclarationLine(
-      `// Vtable for impl(${concreteTypeCName}, ${impl.dynType.requiredTraits.map((m) => m.typeName || "?").join(" + ")})`
+      `// Vtable for impl(${concreteTypeCName}, ${impl.dynType.requiredTraits.map(({ traitType }) => traitType.typeName || "?").join(" + ")})`
     );
     emitter.emitDeclarationLine(
       `static const ${vtableTypeName} ${vtableName} = {`
@@ -426,15 +427,15 @@ export function generateDynVtables(context: FunctionGenerationContext): void {
       BuiltinFunctions.dispose[0]!,
     ]);
 
-    for (const moduleType of impl.dynType.requiredTraits) {
-      if (isFnTraitType(moduleType)) {
+    for (const { traitType } of impl.dynType.requiredTraits) {
+      if (isFnTraitType(traitType)) {
         const wrapperName = `yo_wrap_${implKey}_call`;
         emitter.emitDeclarationLine(`  .call = ${wrapperName},`);
         processedMethods.add("call");
         continue;
       }
 
-      for (const field of moduleType.fields) {
+      for (const field of traitType.fields) {
         if (field.label === "Self") {
           continue;
         }

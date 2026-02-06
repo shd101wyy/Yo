@@ -1,10 +1,10 @@
-import { Environment, Variable } from "../env";
+import type { Environment, Variable } from "../env";
 import { YoError } from "../error";
-import { Expr, FnCallExpr, PathCollection } from "../expr";
-import { FunctionValue } from "../function-value";
-import { Token } from "../token";
-import { FunctionType, Type } from "../types";
-import { ArrayValue, ModuleValue, TraitValue, Value } from "../value";
+import type { Expr, FnCallExpr, PathCollection } from "../expr";
+import type { FunctionValue } from "../function-value";
+import type { Token } from "../token";
+import type { FunctionType, Type } from "../types/definitions";
+import type { ArrayValue, ModuleValue, TraitValue, Value } from "../value";
 
 export interface FunctionEvaluationContext {
   kind: "function-body";
@@ -46,7 +46,7 @@ export interface TestBlockEvaluationContext {
 export interface EvaluatorContext {
   /**
    * Whether we are currently executing code (true) or just analyzing/type-checking it (false).
-   * This flag prevents side effects like compt_print from executing during function definition.
+   * This flag prevents side effects like comptime_print from executing during function definition.
    */
   isExecuting?: boolean;
 

@@ -1,16 +1,13 @@
-import { Environment } from "../../env";
+import type { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
-import { Expr, exprIsFunctionCall, FnCallExpr } from "../../expr";
-import {
-  createTupleType,
-  createUnitType,
-  TupleType,
-  TypeField,
-  typeOfType,
-} from "../../types";
+import { type Expr, exprIsFunctionCall, type FnCallExpr } from "../../expr";
+import { createTupleType, createUnitType } from "../../types/creators";
+import type { TupleType, TypeField } from "../../types/definitions";
+import { typeOfType } from "../../types/hierarchy";
 import { createTypeValue } from "../../value";
-import { EvaluatorContext } from "../context";
+import type { EvaluatorContext } from "../context";
 import { evaluateTypeField } from "./field";
+import { autoDeriveTraitsAndAddRcFunctionsForTupleType } from "./utils";
 
 export function evaluateTupleElementsType({
   args,
@@ -51,16 +48,6 @@ export function evaluateTupleElementsType({
           errorMessage: `Duplicate label "${field.label}" in tuple`,
         });
       }
-    }
-
-    // Check if it's compile-time only
-    if (field.isCompileTimeOnly && field.assignedValue) {
-      throw formatErrorMessage({
-        token: exprIsFunctionCall(arg)
-          ? (arg.args[0]?.token ?? arg.token)
-          : arg.token,
-        errorMessage: `Tuple cannot have module fields.`,
-      });
     }
 
     tupleFields.push(field as TypeField);
@@ -110,6 +97,15 @@ export function evaluateTupleType({
         errorMessage: `Tuple type cannot have default value.`,
       });
     }
+  });
+
+  // Auto-derive all applicable traits (Send, Acyclic, Comptime, Runtime)
+  // and Rc functions if needed
+  env = autoDeriveTraitsAndAddRcFunctionsForTupleType({
+    env,
+    context,
+    tupleType,
+    errorToken: expr.token,
   });
 
   expr.$ = {

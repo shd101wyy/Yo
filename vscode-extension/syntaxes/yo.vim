@@ -27,15 +27,15 @@ syn match yoNumber /\v\<\d+(\.\d+)?([eE][+-]?\d+)?\>/
 syn match yoOperator /[-=+*\/<>@$~&%|!?^.:#∀]\+/
 
 " Keywords
-syn keyword yoKeyword let var while for select forall mut const in out inout ref break continue pass return pure recur use borrow compt compteval runt resume shift reset abort panic assert test thread_local
+syn keyword yoKeyword let var while for select forall mut const in out inout ref break continue pass return pure recur use borrow comptime runt resume shift reset abort panic assert test thread_local
 syn keyword yoKeyword open import export from as extern module trait c_include using exists where
 syn keyword yoKeyword type fn macro enum struct newtype union object actor impl dyn box chan static
 syn keyword yoKeyword if cond then else switch case default match try with
-syn keyword yoKeyword sizeof alignof typeof gensym consume take drop clone dup quote unquote unquote_splicing compt_expect_error compt_assert array tuple compt_list begin and or not the macro_expand runtime
+syn keyword yoKeyword sizeof alignof typeof gensym consume take drop clone dup quote unquote unquote_splicing comptime_expect_error comptime_assert array tuple comptime_list begin and or not the macro_expand runtime
 syn keyword yoKeyword async await spawn infix infixl infixr
 
 " Type declarations and kinds  
-syn keyword yoTypeName Type Module Trait Self This Dyn Impl Future Concrete Fn FnOnce Sendable Send Copy Box Promise Array Tuple Expr ComptList ExprList Result Impt unit
+syn keyword yoTypeName Type Module Trait Self This Dyn Impl Future Concrete Fn FnOnce Sendable Send Acyclic Comptime Runtime Copy Box Promise Array Slice Tuple Expr ComptimeList ExprList Result Impt unit
 
 " Permissions and self-reference
 syn keyword yoPermission read write own move copy control
@@ -52,7 +52,7 @@ syn keyword yoInfixPrecedence infix infixl infixr
 syn region yoInfixIdentifier start=+`+ skip=+\\\\\|\\`+ end=+`+ contains=yoStringEscape
 
 " Types and values
-syn keyword yoBuiltinTypes unit usize isize u8 i8 u16 i16 u32 i32 u64 i64 f16 f32 f64 boolean char symbol any voidptr void compt_int compt_float compt_string anyopaque short ushort int uint long ulong longlong ulonglong longdouble
+syn keyword yoBuiltinTypes unit usize isize u8 i8 u16 i16 u32 i32 u64 i64 f16 f32 f64 boolean char symbol any voidptr void comptime_int comptime_float comptime_string anyopaque short ushort int uint long ulong longlong ulonglong longdouble
 syn keyword yoBuiltinValues true false null undefined
 
 " Links to highlights

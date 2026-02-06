@@ -1,80 +1,95 @@
 import { sanitizeForCIdentifier } from "../../codegen/utils";
 import {
   addVariableToEnv,
-  Environment,
+  addWhereClauseConstraintToEnv,
+  type Environment,
   getVariablesFromEnv,
   getVariablesFromEnvByFilter,
   getVariablesNeedingDrop,
+  getWhereClauseConstraintsForSomeType,
   pushEnvFrame,
   updateExistingVariable,
-  Variable,
+  type Variable,
 } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   BuiltinFunctions,
   BuiltinKeywords,
   cloneExpr,
-  Expr,
+  type Expr,
   exprIsAtom,
   exprIsAtomOf,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
-  FnCallExpr,
-  PathCollection,
+  type FnCallExpr,
+  type PathCollection,
   requireExprNotConsumed,
   setExprAsConsumed,
   setExprAsNeedsToCallDup,
 } from "../../expr";
-import { FunctionValue, SpecializedFunctionCache } from "../../function-value";
+import type {
+  FunctionValue,
+  SpecializedFunctionCache,
+} from "../../function-value";
 import { generateExprFromCode } from "../../parser";
 import { PlaceholderToken } from "../../token";
+import { areTypesCompatible } from "../../types/compatibility";
 import {
-  areTypesCompatible,
-  convertComptTypeToRuntimeType,
   createExprType,
   createFunctionType,
   createSomeType,
+} from "../../types/creators";
+import type {
   FunctionParameter,
   FunctionType,
-  getAllSomeTypes,
-  getValueOfSomeTypeFromEnv,
-  isComptimeOnlyType,
+  SomeType,
+  Type,
+  TypeHierarchyType,
+} from "../../types/definitions";
+import { getValueOfSomeTypeFromEnv } from "../../types/env-lookup";
+import {
   isExprListType,
   isExprType,
   isFunctionSpecializable,
   isSomeType,
   isTypeHierarchyType,
-  SomeType,
-  Type,
+} from "../../types/guards";
+import {
+  convertComptimeTypeToRuntimeType,
+  getAllSomeTypes,
+  isComptimeOnlyType,
   typeContainsSomeType,
-  TypeHierarchyType,
-  typeImplementsFn,
-  typeImplementsFuture,
-  typeRequiresComptModifier,
+  typeRequiresComptimeModifier,
   typeToString,
-} from "../../types";
+} from "../../types/utils";
 import {
   areValuesEqual,
-  createComptListValue,
+  createComptimeListValue,
   createExprValue,
   createTypeValue,
   createUnknownValue,
-  ExprValue,
+  type ExprValue,
   isFunctionValue,
   isTypeValue,
-  Value,
+  type Value,
   valueToString,
 } from "../../value";
-import { ArgValues, EvaluatorContext, FunctionCallResult } from "../context";
+import type {
+  ArgValues,
+  EvaluatorContext,
+  FunctionCallResult,
+} from "../context";
 import { evaluateBeginExpression } from "../exprs/begin";
 import { evaluateExpression } from "../exprs/expr";
+import { typeImplementsFn, typeImplementsFuture } from "../trait-checking";
 import {
+  applyWhereClauseConstraints,
   evaluateFunctionParameterTypeAgain,
   evaluateFunctionReturnTypeAgain,
 } from "../types/function";
 import { synthesizeTypes } from "../types/synthesizer";
-import { evaluateComptFunctionCall } from "./compt_function";
+import { evaluateComptimeFunctionCall } from "./comptime-fn";
 
 /**
  * Generate ___drop expressions for variables that need cleanup during function calls.
@@ -341,7 +356,7 @@ export function checkIfFunctionParameterMatchesArgument({
 
   let argType = evaluatedArgExpr.$.type;
 
-  // Cannot assign runtime parameter to compt parameter
+  // Cannot assign runtime parameter to comptime parameter
   if (!evaluatedArgExpr.$?.value && parameter.isCompileTimeOnly) {
     throw formatErrorMessage({
       token: argExpr?.token ?? PlaceholderToken,
@@ -373,29 +388,32 @@ Got:   ${valueToString(evaluatedArgExpr.$.value)}`,
   // console.log("(10) addVariableToEnv");
   let argValue = evaluatedArgExpr.$.value;
   // Only convert to runtime type if:
-  // 1. The parameter doesn't have compt modifier (it's a runtime parameter), AND
-  // 2. The argument type is comptime-only (e.g., compt_int, Type, etc.)
+  // 1. The parameter doesn't have comptime modifier (it's a runtime parameter), AND
+  // 2. The argument type is comptime-only (e.g., comptime_int, Type, etc.)
   // This converts comptime-only argument types to their runtime equivalents.
   // For types that can exist at both compile-time and runtime (like *(i32)),
   // we keep the value intact which allows CTFE with pointers to work correctly.
-  if (!parameter.isCompileTimeOnly && isComptimeOnlyType(argType)) {
+  if (
+    !parameter.isCompileTimeOnly &&
+    isComptimeOnlyType(argType, evaluatedArgExpr.$.env)
+  ) {
     // During CTFE (forceCompileTimeBindings), preserve the value for compile-time evaluation.
     // Only clear the value for normal runtime calls.
     if (!context.forceCompileTimeBindings) {
       argValue = undefined;
     }
 
-    // argType requires compt modifier
-    // but the parameter is not compt
+    // argType requires comptime modifier
+    // but the parameter is not comptime
     // we need to convert the argType to runtimeType
-    argType = convertComptTypeToRuntimeType({
+    argType = convertComptimeTypeToRuntimeType({
       type: argType,
       expectedType: parameterType,
       expr: evaluatedArgExpr,
       env: evaluatedArgExpr.$.env,
     });
 
-    if (typeRequiresComptModifier(argType)) {
+    if (typeRequiresComptimeModifier(argType, evaluatedArgExpr.$.env)) {
       // We fail to convert to runtime type
       throw formatErrorMessage({
         token: argExpr?.token ?? PlaceholderToken,
@@ -426,6 +444,35 @@ Got:   ${valueToString(evaluatedArgExpr.$.value)}`,
     },
   });
   calleeEnv = nextEnv;
+
+  // Propagate where-clause constraints for SomeType arguments into callee env
+  if (argValue && isTypeValue(argValue) && isSomeType(argValue.value)) {
+    const someType = argValue.value;
+    const whereConstraints = getWhereClauseConstraintsForSomeType(
+      callerEnv,
+      someType
+    );
+    if (whereConstraints) {
+      for (const requiredTrait of whereConstraints.requiredTraits) {
+        const traitWithReceiver = { ...requiredTrait, receiverType: someType };
+        calleeEnv = addWhereClauseConstraintToEnv({
+          env: calleeEnv,
+          someType,
+          traitType: traitWithReceiver,
+          isNegated: false,
+        });
+      }
+      for (const negativeTrait of whereConstraints.negativeTraits) {
+        const traitWithReceiver = { ...negativeTrait, receiverType: someType };
+        calleeEnv = addWhereClauseConstraintToEnv({
+          env: calleeEnv,
+          someType,
+          traitType: traitWithReceiver,
+          isNegated: true,
+        });
+      }
+    }
+  }
 
   try {
     // Synthesize the types
@@ -658,6 +705,8 @@ Got:   ${regularArgsToCheck.length} arguments`,
         value: [typeValue],
         isOwningTheRcValue: false,
       },
+      // Allow shadowing if Self was already bound in specialized function env
+      allowVariableShadowing: true,
     });
     calleeEnv = nextEnv;
   }
@@ -677,7 +726,11 @@ Got:   ${regularArgsToCheck.length} arguments`,
           type: forallParameter.type,
           isCompileTimeOnly: true,
           value: [
-            createUnknownValue(forallParameter.type, forallParameter.label),
+            createUnknownValue(forallParameter.type, {
+              variableName: forallParameter.label,
+              env: calleeEnv,
+              context,
+            }),
           ],
           token: forallParameter.exprs.labelExpr.token,
           initializedAtToken: forallParameter.exprs.labelExpr.token, // Set as initialized
@@ -962,6 +1015,23 @@ Got:   ${typeToString(typeValue.type)}`,
     }
   }
 
+  // Re-apply where-clause constraints for this function call now that
+  // parameters are bound in calleeEnv (needed for return type resolution).
+  if (functionType.whereClauseExprs?.length) {
+    const constraintExprs = functionType.whereClauseExprs.map((_expr) =>
+      cloneExpr(_expr)
+    );
+    const result = applyWhereClauseConstraints({
+      constraintExprs,
+      env: calleeEnv,
+      context: {
+        ...context,
+        isEvaluatingFunctionType: true,
+      },
+    });
+    calleeEnv = result.env;
+  }
+
   // NOTE: We should handle the returnType before the implicit arguments
   // Evaluate the function return type again
   let {
@@ -1074,7 +1144,7 @@ Got:   ${typeToString(typeValue.type)}`,
       // Do nothing
     } else if (functionType.variadicParameter.isQuote) {
       // Create the ExprList and add that to environment
-      const exprListValue = createComptListValue(
+      const exprListValue = createComptimeListValue(
         createExprType(),
         variadicArgs.map((arg) => arg.value as ExprValue)
       );
@@ -1098,13 +1168,13 @@ Got:   ${typeToString(typeValue.type)}`,
     }
   }
 
-  // if (exprToString(functionType.return.expr) === "Wrapper2(A)") {
+  // if (exprToString(functionType.return.typeExpr) === "Wrapper2(A)") {
   //   console.log("before Wrapper2(A): ");
   //   printEnvVarNames(calleeEnv);
   // }
 
   // console.log("\nFunction call: ", exprToString(expr));
-  // console.log("- return expr: ", exprToString(functionType.return.expr));
+  // console.log("- return expr: ", exprToString(functionType.return.typeExpr));
   // console.log(
   //   "- SelfType:",
   //   context.SelfType ? typeToString(context.SelfType) : undefined
@@ -1122,8 +1192,8 @@ Got:   ${typeToString(typeValue.type)}`,
     variadicArgs,
   };
 
-  // Check if we need to evaluate the compt function call
-  // such as the type function, macro function, or function that returns compt value.
+  // Check if we need to evaluate the comptime function call
+  // such as the type function, macro function, or function that returns comptime value.
   let returnValue: Value | undefined;
   /// Compile-time
   if (functionType.return.isCompileTimeOnly) {
@@ -1131,13 +1201,17 @@ Got:   ${typeToString(typeValue.type)}`,
     // We just verify types match and return an UnknownValue.
     // This prevents double execution when checking and then calling.
     if (skipCtfeExecution) {
-      returnValue = createUnknownValue(returnType, functionType.return.label);
+      returnValue = createUnknownValue(returnType, {
+        variableName: functionType.return.label,
+        env: functionType.env,
+        context,
+      });
     } else if (isFunctionValue(functionValue)) {
       const {
         value: nextReturnValue,
         callerEnv: nextCallerEnv,
-        calleeEnv: nextCalleeEnv,
-      } = evaluateComptFunctionCall({
+        calleeEnv: _nextCalleeEnv,
+      } = evaluateComptimeFunctionCall({
         functionCalleeExpr,
         functionType,
         functionValue,
@@ -1152,15 +1226,15 @@ Got:   ${typeToString(typeValue.type)}`,
       returnValue = nextReturnValue;
       returnType = nextReturnValue.type;
       callerEnv = nextCallerEnv;
-      calleeEnv = nextCalleeEnv;
+      calleeEnv = _nextCalleeEnv;
     } else {
       // NOTE: The returnType might be a SomeType that we already synthesized
       //     in this case, we need to try to get its synthesized value from the callerEnv.
-      const isSomeType =
+      const _isSomeType =
         isTypeHierarchyType(returnType) && returnType.level === 0;
       const someTypeId = `${functionType.id}_return_sometype`;
 
-      if (isSomeType) {
+      if (_isSomeType) {
         if (context.expectedType?.type) {
           returnValue = createTypeValue(context.expectedType.type);
         } else {
@@ -1168,7 +1242,7 @@ Got:   ${typeToString(typeValue.type)}`,
             const someType = createSomeType(
               returnType as TypeHierarchyType,
               functionType.return.label,
-              someTypeId
+              { id: someTypeId, env: calleeEnv, context }
             );
             someType.functionApplication = expr;
             const newReturnType = getValueOfSomeTypeFromEnv(
@@ -1180,12 +1254,16 @@ Got:   ${typeToString(typeValue.type)}`,
             throw formatErrorMessage({
               token:
                 expr?.token ?? functionCalleeExpr?.token ?? PlaceholderToken,
-              errorMessage: `Cannot infer compt return type. Please provide the expected type.`,
+              errorMessage: `Cannot infer comptime return type. Please provide the expected type.`,
             });
           }
         }
       } else {
-        returnValue = createUnknownValue(returnType, functionType.return.label);
+        returnValue = createUnknownValue(returnType, {
+          variableName: functionType.return.label,
+          env: functionType.env,
+          context,
+        });
       }
     }
   }
@@ -1363,7 +1441,7 @@ function createSpecializedFunctionInline({
   let specializedEnv = calleeEnv;
 
   // CRITICAL: Clear the values of runtime parameters in the specialized environment.
-  // The calleeEnv has runtime parameter values from the specific call site (e.g., x=1 for compt_add(1, 1)).
+  // The calleeEnv has runtime parameter values from the specific call site (e.g., x=1 for comptime_add(1, 1)).
   // We need to clear these so that codegen generates proper variable references (e.g., "x + 1")
   // instead of inlining the compile-time evaluated result (e.g., "2").
   // Only compile-time parameters should retain their values for specialization.
@@ -1534,7 +1612,7 @@ function createSpecializedFunctionInline({
     funcId: `${originalFunction.funcId}_${compileTimeSignature}`,
     funcName: `${originalFunction.funcName}_${compileTimeSignature}`,
     // Initialize cache arrays for the specialized function
-    calledComptFunctionCaches: [],
+    calledComptimeFunctionCaches: [],
     specializedFunctionCaches: [],
   };
 

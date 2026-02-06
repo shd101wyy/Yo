@@ -1,18 +1,19 @@
-import {
+import type {
   AwaitAnalysisResult,
   CapturedVariable,
 } from "../../evaluator/async/await-analysis";
-import { Expr } from "../../expr";
-import { FunctionValue, FuncValueId } from "../../function-value";
-import {
+import type { Expr } from "../../expr";
+import type { FunctionValue, FuncValueId } from "../../function-value";
+import type {
   DynType,
   FunctionType,
+  FutureTraitType,
   SomeType,
   StructType,
   Type,
   TypeId,
-} from "../../types";
-import { CodeGenContext } from "../utils";
+} from "../../types/definitions";
+import type { CodeGenContext } from "../utils";
 
 export interface FunctionGenerationContext extends CodeGenContext {
   functions: Record<FuncValueId, { value: FunctionValue; cName: string }>;
@@ -43,7 +44,7 @@ export interface FunctionGenerationContext extends CodeGenContext {
     constructorName: string;
     disposeFunctionName: string;
     futureType: SomeType | DynType;
-    futureModuleType: import("../../types").FutureTraitType;
+    futureModuleType: FutureTraitType;
     resultType: Type;
     resultTypeCName: string;
     captureType: StructType | undefined;

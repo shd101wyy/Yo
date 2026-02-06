@@ -1,7 +1,7 @@
-import { DynType, Type } from "../../types";
-import { extractFnTraitFromType } from "../../types/utils";
-import { TraitValue } from "../../value";
-import { CodeGenContext } from "./index";
+import { extractFnTraitFromType } from "../../evaluator/trait-checking";
+import type { DynType, Type } from "../../types/definitions";
+import type { TraitValue } from "../../value";
+import type { CodeGenContext } from "./index";
 
 /**
  * Fix up dyn impl keys to use C names instead of IDs.

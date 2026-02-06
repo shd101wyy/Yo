@@ -1,20 +1,22 @@
-import { Environment } from "../../env";
+import type { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   BuiltinFunctions,
   expectExprToBeFunctionCallOf,
-  FnCallExpr,
+  type FnCallExpr,
 } from "../../expr";
-import { createUsizeType, getSizeOfType, Type } from "../../types";
+import { createUsizeType } from "../../types/creators";
+import type { Type } from "../../types/definitions";
+import { getSizeOfType } from "../../types/utils";
 import {
   createNumberValue,
   createUnknownValue,
   isTypeValue,
-  NumberValue,
-  UnknownValue,
+  type NumberValue,
+  type UnknownValue,
 } from "../../value";
 import { ValueTag } from "../../value-tag";
-import { EvaluatorContext } from "../context";
+import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 
 export function evaluateSizeOf({
@@ -55,7 +57,10 @@ export function evaluateSizeOf({
   const typeSizeInBits = getSizeOfType(typeToCheck);
   let typeSizeValue: UnknownValue | NumberValue;
   if (typeSizeInBits === null) {
-    typeSizeValue = createUnknownValue(createUsizeType()) as UnknownValue;
+    typeSizeValue = createUnknownValue(createUsizeType(), {
+      env,
+      context,
+    }) as UnknownValue;
   } else {
     typeSizeValue = createNumberValue(
       ValueTag.Usize,

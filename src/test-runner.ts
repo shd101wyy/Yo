@@ -1,7 +1,7 @@
-import { spawnSync } from "child_process";
-import * as fs from "fs";
-import * as os from "os";
-import * as path from "path";
+import { spawnSync } from "node:child_process";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import {
   buildAsanRunEnvironment,
   findClangAsanDllPath,
@@ -15,7 +15,7 @@ import { YoError } from "./error";
 import { clearAllGlobalImplState } from "./evaluator/index";
 import {
   BuiltinKeywords,
-  Expr,
+  type Expr,
   exprIsAtom,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
@@ -23,9 +23,9 @@ import {
 } from "./expr";
 import { ModuleManager } from "./module-manager";
 import { TokenType } from "./token";
-import { clearAllCachedTypes } from "./types";
+import { clearAllCachedTypes } from "./types/creators";
 import { clearAllModuleCounters } from "./utils";
-import { isComptStringValue } from "./value";
+import { isComptimeStringValue } from "./value";
 
 // ANSI color codes for terminal output
 const colors = {
@@ -188,7 +188,7 @@ export function extractTests(filePath: string): ExtractTestsResult {
           let testName = "unnamed_test";
 
           // First try to get the value from the evaluated expression's $ field
-          if (testNameExpr.$ && isComptStringValue(testNameExpr.$.value)) {
+          if (testNameExpr.$ && isComptimeStringValue(testNameExpr.$.value)) {
             testName = testNameExpr.$.value.value;
           } else if (
             exprIsAtom(testNameExpr) &&

@@ -1,5 +1,5 @@
-import { existsSync } from "node:fs";
-import path from "node:path";
+import { existsSync } from "fs";
+import * as path from "path";
 import { CodeGeneratorC } from "./codegen/codegen-c";
 import { setGenerateExprFn } from "./codegen/exprs/expr";
 import { _generateExpr } from "./codegen/exprs/generation";
@@ -12,7 +12,7 @@ import Evaluator, {
   clearImplsFromModule,
 } from "./evaluator/index";
 import { clearAllModuleCounters, resetModuleIdCounter } from "./utils";
-import { ModuleValue } from "./value";
+import type { ModuleValue } from "./value";
 
 function findStdDirectory(startPath: string): string {
   let currentPath = startPath;
@@ -76,10 +76,10 @@ export class ModuleManager {
   /**
    * Extract the relative path from a module path (e.g., "std/prelude.yo" or "tests/fixme.yo")
    */
-  private getRelativePath(path: string): string | null {
-    const stdMatch = path.match(/\/std\/(.+)$/);
+  private getRelativePath(_path: string): string | null {
+    const stdMatch = _path.match(/\/std\/(.+)$/);
     if (stdMatch) return `std/${stdMatch[1]}`;
-    const testsMatch = path.match(/\/tests\/(.+)$/);
+    const testsMatch = _path.match(/\/tests\/(.+)$/);
     if (testsMatch) return `tests/${testsMatch[1]}`;
     return null;
   }
@@ -110,24 +110,25 @@ export class ModuleManager {
     const duplicates: string[] = [];
 
     // Find all extension versions of this module
-    for (const [path] of this.modules) {
-      if (path !== modulePath && !this.isWorkspaceModule(path)) {
-        const otherRelPath = this.getRelativePath(path);
+    for (const [_path] of this.modules) {
+      if (_path !== modulePath && !this.isWorkspaceModule(_path)) {
+        const otherRelPath = this.getRelativePath(_path);
         if (otherRelPath === relPath) {
-          duplicates.push(path);
+          duplicates.push(_path);
         }
       }
     }
 
     // If this is a workspace std/ module, also include extension prelude
     if (relPath.startsWith("std/")) {
-      for (const [path] of this.modules) {
+      for (const [_path] of this.modules) {
         if (
-          !this.isWorkspaceModule(path) &&
-          (path.endsWith("/std/prelude.yo") || path.endsWith("/prelude.yo")) &&
-          !duplicates.includes(path)
+          !this.isWorkspaceModule(_path) &&
+          (_path.endsWith("/std/prelude.yo") ||
+            _path.endsWith("/prelude.yo")) &&
+          !duplicates.includes(_path)
         ) {
-          duplicates.push(path);
+          duplicates.push(_path);
         }
       }
     }
@@ -302,12 +303,12 @@ export class ModuleManager {
     // If deleting a workspace module, aggressively delete ALL extension modules
     // This prevents any possible type mismatches from stale extension modules
     if (this.isWorkspaceModule(modulePath)) {
-      for (const [path] of this.modules) {
+      for (const [_path] of this.modules) {
         if (
-          !this.isWorkspaceModule(path) &&
-          !modulesToInvalidate.includes(path)
+          !this.isWorkspaceModule(_path) &&
+          !modulesToInvalidate.includes(_path)
         ) {
-          modulesToInvalidate.push(path);
+          modulesToInvalidate.push(_path);
         }
       }
     }
@@ -317,13 +318,14 @@ export class ModuleManager {
       modulePath.endsWith("/std/prelude.yo") ||
       modulePath.endsWith("/prelude.yo");
     if (isPrelude) {
-      for (const [path] of this.modules) {
+      for (const [_path] of this.modules) {
         if (
-          (path.endsWith("/std/prelude.yo") || path.endsWith("/prelude.yo")) &&
-          path !== modulePath &&
-          !modulesToInvalidate.includes(path)
+          (_path.endsWith("/std/prelude.yo") ||
+            _path.endsWith("/prelude.yo")) &&
+          _path !== modulePath &&
+          !modulesToInvalidate.includes(_path)
         ) {
-          modulesToInvalidate.push(path);
+          modulesToInvalidate.push(_path);
         }
       }
     }

@@ -1,6 +1,6 @@
-import { Environment } from "../../env";
+import type { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
-import { AtomExpr } from "../../expr";
+import type { AtomExpr } from "../../expr";
 import { TokenType } from "../../token";
 import {
   isI16Type,
@@ -13,10 +13,10 @@ import {
   isU64Type,
   isU8Type,
   isUsizeType,
-} from "../../types";
+} from "../../types/guards";
 import { createNumberValue } from "../../value";
 import { ValueTag } from "../../value-tag";
-import { EvaluatorContext } from "../context";
+import type { EvaluatorContext } from "../context";
 
 /**
  * Evaluates literal expressions (integers, floats, strings, booleans)
@@ -40,7 +40,7 @@ export function evaluateIntegerLiteral(
       numberValue = numberValue.slice(2); // Remove '0o' prefix
     }
 
-    let valueTag: ValueTag = ValueTag.ComptInt;
+    let valueTag: ValueTag = ValueTag.ComptimeInt;
     if (context.expectedType) {
       const expectedType = context.expectedType.type;
       if (isUsizeType(expectedType)) {
@@ -75,8 +75,8 @@ export function evaluateIntegerLiteral(
       valueTag === ValueTag.Isize;
 
     let integerValue: number | bigint;
-    if (is64Bit || valueTag === ValueTag.ComptInt) {
-      // Parse as BigInt for 64-bit types and compt_int to preserve precision
+    if (is64Bit || valueTag === ValueTag.ComptimeInt) {
+      // Parse as BigInt for 64-bit types and comptime_int to preserve precision
       // For non-decimal radixes, prepend the appropriate prefix
       if (radix === 16) {
         integerValue = BigInt("0x" + numberValue);

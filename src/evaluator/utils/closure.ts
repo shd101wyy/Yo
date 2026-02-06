@@ -1,30 +1,26 @@
 import {
-  Environment,
+  type Environment,
   getVariablesFromEnv,
   updateExistingVariable,
 } from "../../env";
 import { formatErrorMessage } from "../../error";
-import { BuiltinFunctions, Expr, ExprTag } from "../../expr";
-import { FunctionCapturedVariableInfo } from "../../function-value";
+import { BuiltinFunctions, type Expr, ExprTag } from "../../expr";
+import type { FunctionCapturedVariableInfo } from "../../function-value";
 import { generateExprFromCode } from "../../parser";
-import { Token } from "../../token";
-import {
-  areTypesCompatible,
-  createStructType,
-  StructType,
-  typeContainsRcType,
-  TypeField,
-  typeToString,
-} from "../../types";
+import type { Token } from "../../token";
+import { areTypesCompatible } from "../../types/compatibility";
+import { createStructType } from "../../types/creators";
+import type { StructType, TypeField } from "../../types/definitions";
+import { typeContainsRcType, typeToString } from "../../types/utils";
 import {
   createStructValue,
-  StructValue,
-  UnknownValue,
-  Value,
+  type StructValue,
+  type UnknownValue,
+  type Value,
 } from "../../value";
-import { CapturedVariableInfo, EvaluatorContext } from "../context";
+import type { CapturedVariableInfo, EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
-import { addRcFunctionsToStructType } from "../types/utils";
+import { autoDeriveTraitsAndAddRcFunctionsForStructType } from "../types/utils";
 
 /**
  * Consume captured variables for closures.
@@ -154,10 +150,12 @@ export function createCaptureTypeAndValue({
       inferredCaptureType.fields = captureFields;
       captureType = inferredCaptureType;
 
-      env = addRcFunctionsToStructType({
+      // Auto-derive all applicable traits (Send, Acyclic, Comptime, Runtime)
+      env = autoDeriveTraitsAndAddRcFunctionsForStructType({
         structType: inferredCaptureType,
         env,
         context: { ...context },
+        errorToken: closureToken,
       });
 
       // Create a struct value if all captured values are compile-time known
@@ -178,10 +176,12 @@ export function createCaptureTypeAndValue({
       const emptyStructType = createStructType(env);
       emptyStructType.fields = [];
 
-      env = addRcFunctionsToStructType({
+      // Auto-derive all applicable traits (Send, Acyclic, Comptime, Runtime)
+      env = autoDeriveTraitsAndAddRcFunctionsForStructType({
         structType: emptyStructType,
         env,
         context: { ...context },
+        errorToken: closureToken,
       });
 
       captureType = emptyStructType;

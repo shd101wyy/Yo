@@ -64,10 +64,10 @@ process :: (fn(forall(T : Type, U : Type),
   };
 
 // struct declaration
-Container :: (fn(compt(T) : Type,
+Container :: (fn(comptime(T) : Type,
   where(
     T <: (Display, PartialOrd)
-  )) -> compt(Type)) {
+  )) -> comptime(Type)) {
     return struct(
       value : T,
 
@@ -96,10 +96,10 @@ impl(forall(T : Type), where(T <: (Debug, Serialize)),
 );
 
 // module declaration
-AdvancedDisplay :: (fn(compt(T) : Type,
+AdvancedDisplay :: (fn(comptime(T) : Type,
   where(
     T <: Clone
-  )) -> compt(Module)) {
+  )) -> comptime(Module)) {
   return module(
     display_with_clone : (fn(self : *(Self)) -> T)
   );

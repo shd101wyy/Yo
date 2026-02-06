@@ -1,23 +1,24 @@
-import { Environment } from "../../env";
+import type { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   BuiltinKeywords,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
-  FnCallExpr,
+  type FnCallExpr,
 } from "../../expr";
-import {
-  createUnionType,
-  isComptimeOnlyType,
-  TraitField,
-  typeContainsRcType,
-  TypeField,
-} from "../../types";
+import { createUnionType } from "../../types/creators";
+import { type TypeField } from "../../types/definitions";
+import { typeContainsRcType } from "../../types/utils";
 import { createTypeValue } from "../../value";
-import { EvaluatorContext } from "../context";
+import { type EvaluatorContext } from "../context";
+import { typeImplementsRuntime, typeIsComptimeOnly } from "../trait-checking";
 import { evaluateTypeField } from "./field";
-import { autoDeriveSendForUnionType } from "./utils";
+import {
+  autoDeriveAcyclicForUnionType,
+  autoDeriveRuntimeForUnionType,
+  autoDeriveSendForUnionType,
+} from "./utils";
 
 export function evaluateUnionType({
   expr,
@@ -78,6 +79,16 @@ export function evaluateUnionType({
       });
     }
 
+    if (
+      typeIsComptimeOnly(field.type, env) ||
+      !typeImplementsRuntime(field.type, env)
+    ) {
+      throw formatErrorMessage({
+        token: field.exprs.expr.token,
+        errorMessage: `Union type fields must be runtime types.`,
+      });
+    }
+
     if (typeContainsRcType(field.type)) {
       throw formatErrorMessage({
         token: field.exprs.expr.token,
@@ -85,32 +96,26 @@ export function evaluateUnionType({
       });
     }
 
-    // Union fields must be runtime-only types
-    // Compile-time only types like compt_int, Type, Module cannot be used in unions
-    if (!field.isCompileTimeOnly && isComptimeOnlyType(field.type)) {
-      throw formatErrorMessage({
-        token: field.exprs.expr.token,
-        errorMessage: `Union field '${field.label}' has compile-time only type, but union fields must be usable at runtime.\nField type: ${field.type.typeName || "unknown"}\nConsider using a runtime type like i32 instead.`,
-      });
-    }
-
-    if (field.isCompileTimeOnly) {
-      if (!field.assignedValue) {
-        throw formatErrorMessage({
-          token: field.exprs.expr.token,
-          errorMessage: `Trait field in union type must have assigned value.`,
-        });
-      }
-
-      unionType.trait.fields.push(field as TraitField);
-    } else {
-      fields.push(field);
-    }
+    fields.push(field);
     env = nextEnv;
   }
 
   // Auto-derive Send module if applicable
   env = autoDeriveSendForUnionType({
+    unionType,
+    env,
+    context,
+  });
+
+  // Auto-derive Acyclic trait if applicable
+  env = autoDeriveAcyclicForUnionType({
+    unionType,
+    env,
+    context,
+  });
+
+  // Auto-derive Runtime trait if applicable
+  env = autoDeriveRuntimeForUnionType({
     unionType,
     env,
     context,
