@@ -11,7 +11,7 @@ The `std/io` module provides Yo's low-level async I/O foundation. It sits betwee
 | Component            | File                  | Status      | Notes                                            |
 | -------------------- | --------------------- | ----------- | ------------------------------------------------ |
 | **Constants**        | `std/io/constants.yo` | ✅ Complete | File mode, permissions, AT*\*, DT*\*, open flags |
-| **Socket Constants** | `std/io/socket.yo`    | ✅ Complete | Platform-aware AF*\*, SOCK*_, SO\__, TCP\_\*     |
+| **Socket Constants** | `std/io/socket.yo`    | ✅ Complete | Platform-aware AF*\*, SOCK*\_, SO\_\_, TCP\_\*   |
 | **Signals**          | `std/io/signals.yo`   | ✅ Complete | Platform-aware POSIX signal numbers              |
 | **Events**           | `std/io/events.yo`    | ✅ Complete | TTY, poll, FS event constants                    |
 | **IOError**          | `std/io/errors.yo`    | ✅ Complete | Enum with errno mapping, ToString impl           |
@@ -69,7 +69,7 @@ Wraps the extern functions into safe, Result-returning async functions:
 // std/io/file.yo
 
 // Open a file and return its fd (or IOError)
-open :: (fn(path: str, flags: i32, mode: u32) -> IOFuture)(...);
+open :: (fn(dirfd: i32, path: *(u8), flags: i32, mode: i32) -> IOFuture)(...);
 
 // Read from fd into buffer, returns bytes read or IOError
 read :: (fn(fd: i32, buffer: *(u8), size: u32, offset: u64) -> IOFuture)(...);
@@ -81,7 +81,7 @@ write :: (fn(fd: i32, buffer: *(u8), size: u32, offset: u64) -> IOFuture)(...);
 close :: (fn(fd: i32) -> IOFuture)(...);
 
 // Get file status
-stat :: (fn(path: str) -> IOFuture)(...);
+stat :: (fn(dirfd: i32, path: *(u8), flags: i32, mask: u32, statxbuf: *(u8)) -> IOFuture)(...);
 
 // Sync file data to disk
 fsync :: (fn(fd: i32) -> IOFuture)(...);
@@ -96,25 +96,24 @@ truncate :: (fn(fd: i32, length: i64) -> IOFuture)(...);
 // std/io/dir.yo
 
 // Create a directory
-mkdir :: (fn(path: str, mode: u32) -> IOFuture)(...);
+mkdir :: (fn(dirfd: i32, path: *(u8), mode: i32) -> IOFuture)(...);
 
 // Remove a file or directory
-unlink :: (fn(path: str) -> IOFuture)(...);
+unlink :: (fn(dirfd: i32, path: *(u8), flags: i32) -> IOFuture)(...);
 
-// Remove a directory
-rmdir :: (fn(path: str) -> IOFuture)(...);
+// Remove a directory (use unlink with AT_REMOVEDIR flag)
 
 // Rename/move a file
-rename :: (fn(old_path: str, new_path: str) -> IOFuture)(...);
+rename :: (fn(olddirfd: i32, oldpath: *(u8), newdirfd: i32, newpath: *(u8)) -> IOFuture)(...);
 
 // Create a symbolic link
-symlink :: (fn(target: str, link_path: str) -> IOFuture)(...);
+symlink :: (fn(target: *(u8), newdirfd: i32, linkpath: *(u8)) -> IOFuture)(...);
 
 // Create a hard link
-link :: (fn(existing: str, new_path: str) -> IOFuture)(...);
+link :: (fn(olddirfd: i32, oldpath: *(u8), newdirfd: i32, newpath: *(u8), flags: i32) -> IOFuture)(...);
 
 // Read a symbolic link target
-readlink :: (fn(path: str) -> IOFuture)(...);
+readlink :: (fn(dirfd: i32, path: *(u8), buf: *(u8), bufsize: usize) -> IOFuture)(...);
 ```
 
 ### 1.3 Implement `getdents`/directory listing in C Runtime
@@ -187,7 +186,7 @@ SockAddrIn :: object(
 );
 
 impl(SockAddrIn,
-  new :: (fn(ip: str, port: u16) -> Self)(...),
+  new :: (fn(ip: *(u8), port: u16) -> Self)(...),
   ip :: (fn(self: Self) -> u32)(...),
   port :: (fn(self: Self) -> u16)(...),
   as_ptr :: (fn(self: Self) -> *(u8))(...),
@@ -205,7 +204,7 @@ impl(SockAddrIn,
 // std/io/dns.yo
 
 // Resolve hostname to addresses
-getaddrinfo :: (fn(host: str, service: str) -> IOFuture)(...);
+getaddrinfo :: (fn(host: *(u8), service: *(u8)) -> IOFuture)(...);
 
 // Reverse lookup
 getnameinfo :: (fn(addr: *(u8), addrlen: u32) -> IOFuture)(...);
@@ -221,13 +220,13 @@ getnameinfo :: (fn(addr: *(u8), addrlen: u32) -> IOFuture)(...);
 // std/io/perm.yo
 
 // Change file permissions
-chmod :: (fn(path: str, mode: u32) -> IOFuture)(...);
+chmod :: (fn(dirfd: i32, path: *(u8), mode: u32, flags: i32) -> IOFuture)(...);
 
 // Change file ownership
-chown :: (fn(path: str, uid: u32, gid: u32) -> IOFuture)(...);
+chown :: (fn(dirfd: i32, path: *(u8), uid: u32, gid: u32, flags: i32) -> IOFuture)(...);
 
 // Check file accessibility
-access :: (fn(path: str, mode: i32) -> IOFuture)(...);
+access :: (fn(dirfd: i32, path: *(u8), mode: i32, flags: i32) -> IOFuture)(...);
 ```
 
 ### 4.2 Create `std/io/time.yo` — File Timestamps
@@ -236,7 +235,7 @@ access :: (fn(path: str, mode: i32) -> IOFuture)(...);
 // std/io/time.yo
 
 // Update file access and modification times
-utime :: (fn(path: str, atime_sec: i64, mtime_sec: i64) -> IOFuture)(...);
+utime :: (fn(path: *(u8), atime_sec: i64, atime_nsec: i64, mtime_sec: i64, mtime_nsec: i64) -> IOFuture)(...);
 ```
 
 ---
@@ -262,7 +261,7 @@ dup2 :: (fn(oldfd: i32, newfd: i32) -> IOFuture)(...);
 // std/io/copy.yo
 
 // Copy file using kernel acceleration (sendfile/copy_file_range)
-copyfile :: (fn(src: str, dst: str, flags: i32) -> IOFuture)(...);
+copyfile :: (fn(src: *(u8), dst: *(u8), flags: i32) -> IOFuture)(...);
 
 // Transfer data between fds (sendfile)
 sendfile :: (fn(out_fd: i32, in_fd: i32, offset: i64, count: usize) -> IOFuture)(...);
@@ -482,6 +481,8 @@ std/io/
 - **macOS sync wrappers**: Many macOS operations (mkdir, stat, rename, etc.) use synchronous POSIX calls wrapped in completed futures. This is acceptable because these operations are fast and `dispatch_io` only supports read/write. A future optimization could use `dispatch_async` on a global queue to avoid blocking the event loop for slow operations.
 
 - **Windows IOCP model**: Unlike io_uring (which can do arbitrary syscalls async), IOCP only supports file handles opened with `FILE_FLAG_OVERLAPPED`. Directory operations, stat, chmod, etc. will use sync wrappers like macOS.
+
+- **`*(u8)` not `str` for paths**: The low-level `std/io` functions use `*(u8)` raw pointers to match the C extern signatures directly. `str` is a higher-level newtype wrapping `Slice(u8)` — the `std/fs` module will accept `str` and extract the pointer before calling into `std/io`.
 
 - **Error handling**: All functions return `IOFuture` (which resolves to `i32`). The pattern is: positive = success (often bytes count), negative = `-errno`. The `IOError.from_result(result)` helper converts this to `Result(i32, IOError)`.
 
