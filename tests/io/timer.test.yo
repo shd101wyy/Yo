@@ -1,4 +1,4 @@
-io :: import "std/io";
+{ sleep, timeout } :: import "std/io/timer";
 open import "std/libc/stdio";
 { yield } :: import "std/async";
 
@@ -13,14 +13,14 @@ test "Test IO timer", {
     value.* = (value.* + 1); // 1
 
     printf("Timer test: sleeping 50ms...\n");
-    result := await io.sleep(u64(50));
+    result := await sleep(u64(50));
     printf("Timer test: woke up with result=%d\n", result);
     assert(result > i32(0));
     assert(value.* == 3); // yield() resumed block2 first, which set it to 3
     value.* = (value.* + 1); // 4
 
     printf("Timer test: timeout 3000ms...\n");
-    result2 := await io.timeout(u64(3000));
+    result2 := await timeout(u64(3000));
     printf("Timer test: timeout returned result=%d\n", result2);
     assert(result2 > i32(0));
     assert(value.* == 4); // 4

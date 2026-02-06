@@ -1,4 +1,8 @@
-io :: import "std/io";
+constants :: import "std/io/constants";
+socket :: import "std/io/socket";
+signals :: import "std/io/signals";
+events :: import "std/io/events";
+{ IOError } :: import "std/io/errors";
 { platform, Platform } :: import "std/process";
 
 test "Test IO constants", {
@@ -7,77 +11,77 @@ test "Test IO constants", {
   // =========================================================================
 
   // File mode constants
-  assert(io.S_IFREG == u32(0o100000));
-  assert(io.S_IFDIR == u32(0o040000));
-  assert(io.DEFAULT_FILE_MODE == u32(0o644));
-  assert(io.DEFAULT_DIR_MODE == u32(0o755));
+  assert(constants.S_IFREG == u32(0o100000));
+  assert(constants.S_IFDIR == u32(0o040000));
+  assert(constants.DEFAULT_FILE_MODE == u32(0o644));
+  assert(constants.DEFAULT_DIR_MODE == u32(0o755));
 
   // AT_* flags
-  assert(io.AT_FDCWD == i32(-100));
+  assert(constants.AT_FDCWD == i32(-100));
 
   // Access mode constants
-  assert(io.F_OK == i32(0));
-  assert(io.R_OK == i32(4));
-  assert(io.W_OK == i32(2));
-  assert(io.X_OK == i32(1));
+  assert(constants.F_OK == i32(0));
+  assert(constants.R_OK == i32(4));
+  assert(constants.W_OK == i32(2));
+  assert(constants.X_OK == i32(1));
 
   // DT_* directory entry types
-  assert(io.DT_REG == u8(8));
-  assert(io.DT_DIR == u8(4));
-  assert(io.DT_LNK == u8(10));
+  assert(constants.DT_REG == u8(8));
+  assert(constants.DT_DIR == u8(4));
+  assert(constants.DT_LNK == u8(10));
 
   // Socket constants - platform-aware
-  assert(io.AF_INET == i32(2));
-  assert(io.AF_UNIX == i32(1));
-  assert(io.SOCK_STREAM == i32(1));
-  assert(io.SOCK_DGRAM == i32(2));
-  assert(io.SHUT_RD == i32(0));
-  assert(io.SHUT_WR == i32(1));
-  assert(io.SHUT_RDWR == i32(2));
+  assert(socket.AF_INET == i32(2));
+  assert(socket.AF_UNIX == i32(1));
+  assert(socket.SOCK_STREAM == i32(1));
+  assert(socket.SOCK_DGRAM == i32(2));
+  assert(socket.SHUT_RD == i32(0));
+  assert(socket.SHUT_WR == i32(1));
+  assert(socket.SHUT_RDWR == i32(2));
 
   // Platform-specific socket constants
   cond(
     (platform == Platform.Darwin) => {
-      assert(io.AF_INET6 == i32(30));
-      assert(io.SOL_SOCKET == i32(0xFFFF));
+      assert(socket.AF_INET6 == i32(30));
+      assert(socket.SOL_SOCKET == i32(0xFFFF));
     },
     (platform == Platform.Linux) => {
-      assert(io.AF_INET6 == i32(10));
-      assert(io.SOL_SOCKET == i32(1));
+      assert(socket.AF_INET6 == i32(10));
+      assert(socket.SOL_SOCKET == i32(1));
     },
     true => ()
   );
 
   // Signal constants
-  assert(io.SIGINT == i32(2));
-  assert(io.SIGTERM == i32(15));
-  assert(io.SIGKILL == i32(9));
+  assert(signals.SIGINT == i32(2));
+  assert(signals.SIGTERM == i32(15));
+  assert(signals.SIGKILL == i32(9));
 
   // Platform-specific signal constants
   cond(
     (platform == Platform.Darwin) => {
-      assert(io.SIGCHLD == i32(20));
-      assert(io.SIGCONT == i32(19));
-      assert(io.SIGSTOP == i32(17));
-      assert(io.SIGTSTP == i32(18));
+      assert(signals.SIGCHLD == i32(20));
+      assert(signals.SIGCONT == i32(19));
+      assert(signals.SIGSTOP == i32(17));
+      assert(signals.SIGTSTP == i32(18));
     },
     (platform == Platform.Linux) => {
-      assert(io.SIGCHLD == i32(17));
-      assert(io.SIGCONT == i32(18));
-      assert(io.SIGSTOP == i32(19));
-      assert(io.SIGTSTP == i32(20));
+      assert(signals.SIGCHLD == i32(17));
+      assert(signals.SIGCONT == i32(18));
+      assert(signals.SIGSTOP == i32(19));
+      assert(signals.SIGTSTP == i32(20));
     },
     true => ()
   );
 
   // Event constants
-  assert(io.TTY_MODE_NORMAL == i32(0));
-  assert(io.TTY_MODE_RAW == i32(1));
-  assert(io.POLL_READABLE == i32(1));
-  assert(io.POLL_WRITABLE == i32(2));
+  assert(events.TTY_MODE_NORMAL == i32(0));
+  assert(events.TTY_MODE_RAW == i32(1));
+  assert(events.POLL_READABLE == i32(1));
+  assert(events.POLL_WRITABLE == i32(2));
 
   // IOError
-  err := io.IOError.from_errno(i32(2));
+  err := IOError.from_errno(i32(2));
   match(err,
     .NotFound => assert(true),
     _ => assert(false)
