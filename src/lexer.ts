@@ -275,7 +275,7 @@ export function tokenize(input: string, modulePath: string): Token[] {
       case "'": {
         let value = "";
 
-        for (let k = i + 1; k < input.length; j++) {
+        for (let k = i + 1; k < input.length; k++) {
           if (input[k] === "\\") {
             value += input[k];
             k = k + 1;
