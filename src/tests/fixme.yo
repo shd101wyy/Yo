@@ -1,43 +1,6 @@
-open import "std/libc/stdio";
-{ platform, Platform } :: import "std/process";
-io :: import "std/io";
-{ yield } :: import "std/async";
-
 main :: (fn() -> unit) {
-  printf("All IO module tests passed!\n");
-
-  // =========================================================================
-  // Test: async timer operations
-  // =========================================================================
-
-  value := Box(i32)(0);
-  async {
-    assert(value.* == 0); // 0
-    value.* = (value.* + 1); // 1
-
-    printf("Timer test: sleeping 50ms...\n");
-    result := await io.sleep(u64(50));
-    printf("Timer test: woke up with result=%d\n", result);
-    assert(result > i32(0));
-    assert(value.* == 3); // yield() resumed block2 first, which set it to 3
-    value.* = (value.* + 1); // 4
-
-    printf("Timer test: timeout 3000ms...\n");
-    result2 := await io.timeout(u64(3000));
-    printf("Timer test: timeout returned result=%d\n", result2);
-    assert(result2 > i32(0));
-    assert(value.* == 4); // 4
-
-    printf("All async timer tests passed!\n");
-  };
-
-  async {
-    assert(value.* == 1); // 1
-    value.* = (value.* + 1); // 2
-  
-    await yield();
-    assert(value.* == 2); // yield() resumes before sleep(50ms), nobody changed it
-    value.* = (value.* + 1); // 3
-  };
+  (x : *(u8)) = "Hello, world!\n";
+  y := *(u8)("Hello, world!\n");
+  // z := c"Hello, world!\n";
 };
 export main;

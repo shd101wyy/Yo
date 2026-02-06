@@ -10,8 +10,16 @@ import {
 } from "../../expr";
 import { TokenType } from "../../token";
 import type { Type } from "../../types/definitions";
-import { isPtrType } from "../../types/guards";
-import { typeToString } from "../../types/utils";
+import {
+  isCharType,
+  isComptimeStringType,
+  isPtrType,
+  isU8Type,
+} from "../../types/guards";
+import {
+  convertComptimeTypeToRuntimeType,
+  typeToString,
+} from "../../types/utils";
 import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 
@@ -53,11 +61,37 @@ export function tryToConvertToPointerType({
   const env = evaluatedArg.$.env;
   const argType = evaluatedArg.$.type;
 
+  // Handle comptime_string -> *(u8) or *(char) conversion
+  if (
+    isComptimeStringType(argType) &&
+    (isU8Type(targetType.childType) || isCharType(targetType.childType))
+  ) {
+    const convertedType = convertComptimeTypeToRuntimeType({
+      type: argType,
+      expectedType: targetType,
+      expr: evaluatedArg,
+      env,
+    });
+
+    evaluatedArg.$ = {
+      ...evaluatedArg.$,
+      type: convertedType,
+      convertedRuntimeType: convertedType,
+    };
+
+    // Replace the original expression with the evaluated argument
+    // (the comptime_string value is already a C string literal in codegen)
+    Object.assign(expr, evaluatedArg);
+    expr.$ = evaluatedArg.$;
+
+    return { expr, env };
+  }
+
   // Check if the source is also a pointer type
   if (!isPtrType(argType)) {
     throw formatErrorMessage({
       token: argExpr.token,
-      errorMessage: `Cannot cast ${typeToString(argType)} to ${typeToString(targetType)}. Expected a pointer type.`,
+      errorMessage: `Cannot cast ${typeToString(argType)} to ${typeToString(targetType)}. Expected a pointer type or comptime_string.`,
     });
   }
 
