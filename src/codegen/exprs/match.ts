@@ -253,7 +253,9 @@ export function generateMatchExpression(
         // Destructuring pattern: .Some(value)
         const destructuredVar = pointerCase.casePattern.args[0];
         if (destructuredVar && exprIsAtom(destructuredVar)) {
-          destructuredVarName = destructuredVar.token.value;
+          destructuredVarName = sanitizeForCIdentifier(
+            destructuredVar.token.value
+          );
           const varType = nullablePointerType;
           // Declare and bind the destructured variable to the pointer
           context.emitter.emitLine(
@@ -469,10 +471,11 @@ export function generateMatchExpression(
 
                   // Handle the variable part (could be identifier or _)
                   if (exprIsAtom(variableExpr)) {
-                    const varName = variableExpr.token.value;
+                    const rawVarName = variableExpr.token.value;
 
                     // Skip if variable name is "_" (ignore pattern)
-                    if (varName !== "_") {
+                    if (rawVarName !== "_") {
+                      const varName = sanitizeForCIdentifier(rawVarName);
                       const fieldName = sanitizeForCIdentifier(label);
                       const fieldType = getTypeString(
                         variantElement.type,
@@ -484,9 +487,6 @@ export function generateMatchExpression(
                         ptrOrRefType === "ref_semantics" || ptrOrRefType
                           ? "->"
                           : ".";
-                      context.emitter.emitLine(
-                        `${indent}  /* MARKER: Generating labeled destructured variable ${varName} from field ${label} */`
-                      );
                       context.emitter.emitLine(
                         `${indent}  ${fieldType} ${varName} = ${matchedValueCode}${accessPrefix}data.${variantName}.${fieldName};`
                       );
@@ -503,7 +503,7 @@ export function generateMatchExpression(
                         if (variableExpr.$?.env) {
                           const vars = getVariablesFromEnv(
                             variableExpr.$.env,
-                            varName
+                            rawVarName
                           );
                           if (vars.length > 0) {
                             varId = vars[vars.length - 1]!.id;
@@ -541,10 +541,11 @@ export function generateMatchExpression(
                     continue;
                   }
 
-                  const varName = destructuredVar.token.value;
+                  const rawVarName = destructuredVar.token.value;
 
                   // Skip if variable name is "_" (ignore pattern)
-                  if (varName !== "_") {
+                  if (rawVarName !== "_") {
+                    const varName = sanitizeForCIdentifier(rawVarName);
                     const fieldName = sanitizeForCIdentifier(
                       variantElement.label
                     );
@@ -558,9 +559,6 @@ export function generateMatchExpression(
                       ptrOrRefType === "ref_semantics" || ptrOrRefType
                         ? "->"
                         : ".";
-                    context.emitter.emitLine(
-                      `${indent}  /* MARKER: Generating destructured variable ${varName} */`
-                    );
                     context.emitter.emitLine(
                       `${indent}  ${fieldType} ${varName} = ${matchedValueCode}${accessPrefix}data.${variantName}.${fieldName};`
                     );
@@ -585,7 +583,7 @@ export function generateMatchExpression(
                         // Try to look up in environment
                         const vars = getVariablesFromEnv(
                           destructuredVar.$.env,
-                          varName
+                          rawVarName
                         );
                         if (vars.length > 0) {
                           varId = vars[vars.length - 1]!.id;
@@ -615,7 +613,7 @@ export function generateMatchExpression(
         ) {
           const renameExpr = caseBody.args[0]!;
           context.emitter.emitLine(
-            `${indent}  ${getTypeString(matchValueType, context)} ${renameExpr.token.value} = ${matchedValueCode};`
+            `${indent}  ${getTypeString(matchValueType, context)} ${sanitizeForCIdentifier(renameExpr.token.value)} = ${matchedValueCode};`
           );
 
           caseBody = caseBody.args[1]!; // Get the value part of the case
@@ -688,10 +686,11 @@ export function generateMatchExpression(
 
                 // Handle the variable part (could be identifier or _)
                 if (exprIsAtom(variableExpr)) {
-                  const varName = variableExpr.token.value;
+                  const rawVarName = variableExpr.token.value;
 
                   // Skip if variable name is "_" (ignore pattern)
-                  if (varName !== "_") {
+                  if (rawVarName !== "_") {
+                    const varName = sanitizeForCIdentifier(rawVarName);
                     if (isUnitType(variantElement.type)) {
                       context.emitter.emitLine(
                         `${indent}  // ${varName} is unit type (no value)`
@@ -757,10 +756,11 @@ export function generateMatchExpression(
               const variantElement = variant.fields[fieldIndex];
 
               if (destructuredVar.tag === ExprTag.Atom && variantElement) {
-                const varName = destructuredVar.token.value;
+                const rawVarName = destructuredVar.token.value;
 
                 // Skip if variable name is "_" (ignore pattern)
-                if (varName !== "_") {
+                if (rawVarName !== "_") {
+                  const varName = sanitizeForCIdentifier(rawVarName);
                   // For unit type fields, generate a comment instead of a variable
                   // This allows the variable name to be "declared" without generating invalid C
                   if (isUnitType(variantElement.type)) {
@@ -802,7 +802,7 @@ export function generateMatchExpression(
                       if (destructuredVar.$?.env) {
                         const vars = getVariablesFromEnv(
                           destructuredVar.$.env,
-                          varName
+                          rawVarName
                         );
                         if (vars.length > 0) {
                           varId = vars[vars.length - 1]!.id;
@@ -832,7 +832,7 @@ export function generateMatchExpression(
         ) {
           const renameExpr = caseBody.args[0]!;
           context.emitter.emitLine(
-            `${indent}  ${getTypeString(matchValueType, context)} ${renameExpr.token.value} = ${matchedValueCode};`
+            `${indent}  ${getTypeString(matchValueType, context)} ${sanitizeForCIdentifier(renameExpr.token.value)} = ${matchedValueCode};`
           );
 
           caseBody = caseBody.args[1]!; // Get the value part of the case

@@ -917,7 +917,8 @@ function generateMatchWithAwait(
               const variantField = variant.fields[fieldIndex];
 
               if (exprIsAtom(destructuredVar) && variantField) {
-                const varName = destructuredVar.token.value;
+                const rawVarName = destructuredVar.token.value;
+                const varName = sanitizeForCIdentifier(rawVarName);
 
                 // Check if this variable is captured in the state machine
                 const functionContext = context as FunctionGenerationContext;
@@ -929,7 +930,7 @@ function generateMatchWithAwait(
                     id,
                     varInfo,
                   ] of functionContext.stateMachineVariables) {
-                    if (varInfo.name === varName) {
+                    if (varInfo.name === rawVarName) {
                       isStateMachineVar = true;
                       varId = id;
                       break;

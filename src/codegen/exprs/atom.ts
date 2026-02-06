@@ -3,7 +3,11 @@ import type { AtomExpr } from "../../expr";
 import { isFunctionType, isUnitType } from "../../types/guards";
 import { isFunctionValue, isUnknownValue } from "../../value";
 import type { FunctionGenerationContext } from "../functions/context";
-import { type CodeGenContext, getVariableNameForCodegen } from "../utils";
+import {
+  type CodeGenContext,
+  getVariableNameForCodegen,
+  sanitizeForCIdentifier,
+} from "../utils";
 import { checkVariableIsClosureCaptured } from "./closures";
 import { generateComptimeValue } from "./comptime-value";
 
@@ -54,7 +58,7 @@ export function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
     // Check if this variable is locally shadowed (e.g., in match destructuring)
     // If so, use the local C variable instead of the state machine field
     if (functionContext.localShadowedVariables?.has(varName)) {
-      return varName;
+      return sanitizeForCIdentifier(varName);
     }
 
     // Check if this variable is in the state machine
