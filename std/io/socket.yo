@@ -1,0 +1,136 @@
+// std/io/socket.yo - Socket constants
+//
+// Platform-aware socket constants for TCP, UDP, and Unix domain sockets.
+// Uses process.platform for values that differ between Linux and macOS.
+
+{ platform, Platform } :: import "../process";
+
+// ============================================================================
+// Address Families (AF_*)
+// ============================================================================
+
+AF_UNSPEC :: i32(0);
+AF_UNIX   :: i32(1);
+AF_LOCAL  :: i32(1);
+AF_INET   :: i32(2);
+AF_INET6  :: cond(
+  (platform == Platform.Darwin) => i32(30),
+  true => i32(10)
+);
+
+// ============================================================================
+// Socket Types (SOCK_*)
+// ============================================================================
+
+SOCK_STREAM    :: i32(1);
+SOCK_DGRAM     :: i32(2);
+SOCK_RAW       :: i32(3);
+SOCK_SEQPACKET :: i32(5);
+
+// ============================================================================
+// Socket Option Levels
+// ============================================================================
+
+SOL_SOCKET :: cond(
+  (platform == Platform.Darwin) => i32(0xFFFF),
+  true => i32(1)
+);
+IPPROTO_TCP  :: i32(6);
+IPPROTO_UDP  :: i32(17);
+IPPROTO_IP   :: i32(0);
+IPPROTO_IPV6 :: i32(41);
+
+// ============================================================================
+// Socket Options (SO_*)
+// ============================================================================
+
+SO_REUSEADDR :: cond(
+  (platform == Platform.Darwin) => i32(0x0004),
+  true => i32(2)
+);
+SO_KEEPALIVE :: cond(
+  (platform == Platform.Darwin) => i32(0x0008),
+  true => i32(9)
+);
+SO_BROADCAST :: cond(
+  (platform == Platform.Darwin) => i32(0x0020),
+  true => i32(6)
+);
+SO_RCVBUF :: cond(
+  (platform == Platform.Darwin) => i32(0x1002),
+  true => i32(8)
+);
+SO_SNDBUF :: cond(
+  (platform == Platform.Darwin) => i32(0x1001),
+  true => i32(7)
+);
+SO_RCVTIMEO :: cond(
+  (platform == Platform.Darwin) => i32(0x1006),
+  true => i32(20)
+);
+SO_SNDTIMEO :: cond(
+  (platform == Platform.Darwin) => i32(0x1005),
+  true => i32(21)
+);
+SO_ERROR :: cond(
+  (platform == Platform.Darwin) => i32(0x1007),
+  true => i32(4)
+);
+SO_TYPE :: cond(
+  (platform == Platform.Darwin) => i32(0x1008),
+  true => i32(3)
+);
+SO_LINGER :: cond(
+  (platform == Platform.Darwin) => i32(0x0080),
+  true => i32(13)
+);
+SO_REUSEPORT :: cond(
+  (platform == Platform.Darwin) => i32(0x0200),
+  true => i32(15)
+);
+
+// ============================================================================
+// TCP Options (TCP_*)
+// ============================================================================
+
+TCP_NODELAY   :: i32(1);
+TCP_KEEPIDLE  :: cond(
+  (platform == Platform.Darwin) => i32(0x10),
+  true => i32(4)
+);
+TCP_KEEPINTVL :: cond(
+  (platform == Platform.Darwin) => i32(0x101),
+  true => i32(5)
+);
+TCP_KEEPCNT :: cond(
+  (platform == Platform.Darwin) => i32(0x102),
+  true => i32(6)
+);
+
+// ============================================================================
+// shutdown() how parameter
+// ============================================================================
+
+SHUT_RD   :: i32(0);
+SHUT_WR   :: i32(1);
+SHUT_RDWR :: i32(2);
+
+// ============================================================================
+// Special IP Addresses
+// ============================================================================
+
+INADDR_ANY       :: u32(0x00000000);
+INADDR_LOOPBACK  :: u32(0x7F000001);
+INADDR_BROADCAST :: u32(0xFFFFFFFF);
+
+export
+  AF_UNSPEC, AF_UNIX, AF_LOCAL, AF_INET, AF_INET6,
+  SOCK_STREAM, SOCK_DGRAM, SOCK_RAW, SOCK_SEQPACKET,
+  SOL_SOCKET, IPPROTO_TCP, IPPROTO_UDP, IPPROTO_IP, IPPROTO_IPV6,
+  SO_REUSEADDR, SO_REUSEPORT, SO_KEEPALIVE, SO_BROADCAST,
+  SO_RCVBUF, SO_SNDBUF, SO_RCVTIMEO, SO_SNDTIMEO, SO_ERROR, SO_TYPE,
+  SO_LINGER,
+  TCP_NODELAY, TCP_KEEPIDLE, TCP_KEEPINTVL, TCP_KEEPCNT,
+  SHUT_RD, SHUT_WR, SHUT_RDWR,
+  INADDR_ANY, INADDR_LOOPBACK, INADDR_BROADCAST
+;

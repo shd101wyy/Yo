@@ -1,0 +1,311 @@
+// std/io/externs.yo - Extern C runtime function declarations
+//
+// All low-level extern functions for async I/O operations.
+
+{ IOFuture } :: import "./future.yo";
+
+// ============================================================================
+// Extern C runtime functions
+// ============================================================================
+
+extern "Yo",
+  // ========================================================================
+  // File Operations
+  // ========================================================================
+  __yo_async_read_start : (fn(fd: i32, buffer: *(u8), size: u32, offset: u64) -> IOFuture),
+  __yo_async_write_start : (fn(fd: i32, buffer: *(u8), size: u32, offset: u64) -> IOFuture),
+  __yo_async_openat_start : (fn(dirfd: i32, path: *(u8), flags: i32, mode: i32) -> IOFuture),
+  __yo_async_close_start : (fn(fd: i32) -> IOFuture),
+  __yo_async_statx_start : (fn(dirfd: i32, path: *(u8), flags: i32, mask: u32, statxbuf: *(u8)) -> IOFuture),
+  __yo_async_mkdirat_start : (fn(dirfd: i32, path: *(u8), mode: i32) -> IOFuture),
+  __yo_async_unlinkat_start : (fn(dirfd: i32, path: *(u8), flags: i32) -> IOFuture),
+  __yo_async_renameat_start : (fn(olddirfd: i32, oldpath: *(u8), newdirfd: i32, newpath: *(u8)) -> IOFuture),
+  __yo_async_symlinkat_start : (fn(target: *(u8), newdirfd: i32, linkpath: *(u8)) -> IOFuture),
+  __yo_async_linkat_start : (fn(olddirfd: i32, oldpath: *(u8), newdirfd: i32, newpath: *(u8), flags: i32) -> IOFuture),
+  __yo_async_fsync_start : (fn(fd: i32) -> IOFuture),
+  __yo_async_fdatasync_start : (fn(fd: i32) -> IOFuture),
+  __yo_async_ftruncate_start : (fn(fd: i32, length: i64) -> IOFuture),
+
+  // ========================================================================
+  // Directory Listing (for fs.readdir)
+  // ========================================================================
+  __yo_async_getdents_start : (fn(fd: i32, buf: *(u8), buf_size: u32) -> IOFuture),
+  __yo_dirent_size : (fn() -> usize),
+  __yo_dirent_reclen : (fn(entry: *(u8)) -> u16),
+  __yo_dirent_type : (fn(entry: *(u8)) -> u8),
+  __yo_dirent_name : (fn(entry: *(u8)) -> *(u8)),
+  __yo_dirent_ino : (fn(entry: *(u8)) -> u64),
+
+  // ========================================================================
+  // Permission Changes (for fs.chmod, fs.chown)
+  // ========================================================================
+  __yo_async_fchmod_start : (fn(fd: i32, mode: u32) -> IOFuture),
+  __yo_async_fchmodat_start : (fn(dirfd: i32, path: *(u8), mode: u32, flags: i32) -> IOFuture),
+  __yo_async_fchown_start : (fn(fd: i32, uid: u32, gid: u32) -> IOFuture),
+  __yo_async_fchownat_start : (fn(dirfd: i32, path: *(u8), uid: u32, gid: u32, flags: i32) -> IOFuture),
+
+  // ========================================================================
+  // Symbolic Link Resolution (for fs.readlink)
+  // ========================================================================
+  __yo_async_readlinkat_start : (fn(dirfd: i32, path: *(u8), buf: *(u8), bufsize: usize) -> IOFuture),
+
+  // ========================================================================
+  // File Descriptor Operations
+  // ========================================================================
+  __yo_async_dup_start : (fn(oldfd: i32) -> IOFuture),
+  __yo_async_dup2_start : (fn(oldfd: i32, newfd: i32) -> IOFuture),
+  __yo_async_pipe_start : (fn(pipefd: *(i32)) -> IOFuture),
+
+  // ========================================================================
+  // Socket Operations (for tcp, udp, unix sockets)
+  // ========================================================================
+  __yo_async_socket_start : (fn(domain: i32, sock_type: i32, protocol: i32) -> IOFuture),
+  __yo_async_bind_start : (fn(sockfd: i32, addr: *(u8), addrlen: u32) -> IOFuture),
+  __yo_async_listen_start : (fn(sockfd: i32, backlog: i32) -> IOFuture),
+  __yo_async_accept_start : (fn(sockfd: i32, addr: *(u8), addrlen: *(u32)) -> IOFuture),
+  __yo_async_connect_start : (fn(sockfd: i32, addr: *(u8), addrlen: u32) -> IOFuture),
+  __yo_async_send_start : (fn(sockfd: i32, buf: *(u8), len: usize, flags: i32) -> IOFuture),
+  __yo_async_recv_start : (fn(sockfd: i32, buf: *(u8), len: usize, flags: i32) -> IOFuture),
+  __yo_async_sendto_start : (fn(sockfd: i32, buf: *(u8), len: usize, flags: i32, dest_addr: *(u8), addrlen: u32) -> IOFuture),
+  __yo_async_recvfrom_start : (fn(sockfd: i32, buf: *(u8), len: usize, flags: i32, src_addr: *(u8), addrlen: *(u32)) -> IOFuture),
+  __yo_async_shutdown_start : (fn(sockfd: i32, how: i32) -> IOFuture),
+  __yo_async_setsockopt_start : (fn(sockfd: i32, level: i32, optname: i32, optval: *(u8), optlen: u32) -> IOFuture),
+  __yo_async_getsockopt_start : (fn(sockfd: i32, level: i32, optname: i32, optval: *(u8), optlen: *(u32)) -> IOFuture),
+
+  // ========================================================================
+  // Synchronous File Helpers
+  // ========================================================================
+  __yo_file_open : (fn(path: *(u8), flags: i32, mode: i32) -> i32),
+  __yo_file_close : (fn(fd: i32) -> unit),
+  __yo_file_size : (fn(fd: i32) -> i64),
+
+  // ========================================================================
+  // Stat Buffer Accessors
+  // ========================================================================
+  __yo_statx_buf_size : (fn() -> usize),
+  __yo_statx_size : (fn(statxbuf: *(u8)) -> i64),
+  __yo_statx_mode : (fn(statxbuf: *(u8)) -> u32),
+  __yo_statx_mtime_sec : (fn(statxbuf: *(u8)) -> i64),
+  __yo_statx_mtime_nsec : (fn(statxbuf: *(u8)) -> u32),
+  __yo_statx_atime_sec : (fn(statxbuf: *(u8)) -> i64),
+  __yo_statx_atime_nsec : (fn(statxbuf: *(u8)) -> u32),
+  __yo_statx_ctime_sec : (fn(statxbuf: *(u8)) -> i64),
+  __yo_statx_ctime_nsec : (fn(statxbuf: *(u8)) -> u32),
+  __yo_statx_btime_sec : (fn(statxbuf: *(u8)) -> i64),
+  __yo_statx_btime_nsec : (fn(statxbuf: *(u8)) -> u32),
+  __yo_statx_uid : (fn(statxbuf: *(u8)) -> u32),
+  __yo_statx_gid : (fn(statxbuf: *(u8)) -> u32),
+  __yo_statx_ino : (fn(statxbuf: *(u8)) -> u64),
+  __yo_statx_dev_major : (fn(statxbuf: *(u8)) -> u64),
+  __yo_statx_dev_minor : (fn(statxbuf: *(u8)) -> u64),
+  __yo_statx_nlink : (fn(statxbuf: *(u8)) -> u64),
+  __yo_statx_blksize : (fn(statxbuf: *(u8)) -> u64),
+  __yo_statx_blocks : (fn(statxbuf: *(u8)) -> u64),
+
+  // ========================================================================
+  // Socket Address Helpers
+  // ========================================================================
+  __yo_sockaddr_in_size : (fn() -> usize),
+  __yo_sockaddr_in6_size : (fn() -> usize),
+  __yo_sockaddr_un_size : (fn() -> usize),
+  __yo_sockaddr_storage_size : (fn() -> usize),
+  __yo_sockaddr_set_family : (fn(addr: *(u8), family: u16) -> unit),
+  __yo_sockaddr_get_family : (fn(addr: *(u8)) -> u16),
+  __yo_sockaddr_in_set_port : (fn(addr: *(u8), port: u16) -> unit),
+  __yo_sockaddr_in_get_port : (fn(addr: *(u8)) -> u16),
+  __yo_sockaddr_in_set_addr : (fn(addr: *(u8), ip: u32) -> unit),
+  __yo_sockaddr_in_get_addr : (fn(addr: *(u8)) -> u32),
+  __yo_sockaddr_in6_set_port : (fn(addr: *(u8), port: u16) -> unit),
+  __yo_sockaddr_in6_get_port : (fn(addr: *(u8)) -> u16),
+  __yo_sockaddr_in6_set_addr : (fn(addr: *(u8), ip: *(u8)) -> unit),
+  __yo_sockaddr_in6_get_addr : (fn(addr: *(u8), out: *(u8)) -> unit),
+  __yo_sockaddr_un_set_path : (fn(addr: *(u8), path: *(u8)) -> unit),
+  __yo_sockaddr_un_get_path : (fn(addr: *(u8)) -> *(u8)),
+  __yo_inet_pton : (fn(af: i32, src: *(u8), dst: *(u8)) -> i32),
+  __yo_inet_ntop : (fn(af: i32, src: *(u8), dst: *(u8), size: u32) -> *(u8)),
+  __yo_htons : (fn(hostshort: u16) -> u16),
+  __yo_ntohs : (fn(netshort: u16) -> u16),
+  __yo_htonl : (fn(hostlong: u32) -> u32),
+  __yo_ntohl : (fn(netlong: u32) -> u32),
+
+  // ========================================================================
+  // Timer Operations
+  // ========================================================================
+  __yo_async_sleep_start : (fn(milliseconds: u64) -> IOFuture),
+  __yo_async_timeout_start : (fn(milliseconds: u64) -> IOFuture),
+
+  // ========================================================================
+  // File Extra Operations
+  // ========================================================================
+  __yo_async_access_start : (fn(dirfd: i32, path: *(u8), mode: i32) -> IOFuture),
+  __yo_async_realpath_start : (fn(path: *(u8), resolved: *(u8)) -> IOFuture),
+  __yo_async_utime_start : (fn(path: *(u8), atime_sec: i64, atime_nsec: i64, mtime_sec: i64, mtime_nsec: i64) -> IOFuture),
+  __yo_async_futime_start : (fn(fd: i32, atime_sec: i64, atime_nsec: i64, mtime_sec: i64, mtime_nsec: i64) -> IOFuture),
+  __yo_async_lutime_start : (fn(path: *(u8), atime_sec: i64, atime_nsec: i64, mtime_sec: i64, mtime_nsec: i64) -> IOFuture),
+  __yo_async_mkdtemp_start : (fn(template: *(u8)) -> IOFuture),
+  __yo_async_mkstemp_start : (fn(template: *(u8)) -> IOFuture),
+  __yo_async_copyfile_start : (fn(src_path: *(u8), dst_path: *(u8), flags: i32) -> IOFuture),
+  __yo_async_sendfile_start : (fn(out_fd: i32, in_fd: i32, offset: i64, count: usize) -> IOFuture),
+  __yo_async_statfs_start : (fn(path: *(u8), statfsbuf: *(u8)) -> IOFuture),
+  __yo_statfs_buf_size : (fn() -> usize),
+  __yo_statfs_type : (fn(buf: *(u8)) -> u64),
+  __yo_statfs_bsize : (fn(buf: *(u8)) -> u64),
+  __yo_statfs_blocks : (fn(buf: *(u8)) -> u64),
+  __yo_statfs_bfree : (fn(buf: *(u8)) -> u64),
+  __yo_statfs_bavail : (fn(buf: *(u8)) -> u64),
+  __yo_statfs_files : (fn(buf: *(u8)) -> u64),
+  __yo_statfs_ffree : (fn(buf: *(u8)) -> u64),
+
+  // ========================================================================
+  // Directory Scanning
+  // ========================================================================
+  __yo_async_scandir_start : (fn(dirfd: i32, path: *(u8)) -> IOFuture),
+  __yo_async_opendir_start : (fn(path: *(u8)) -> IOFuture),
+  __yo_async_readdir_start : (fn(dir: *(u8), entries: *(u8), max_entries: usize) -> IOFuture),
+  __yo_async_closedir_start : (fn(dir: *(u8)) -> IOFuture),
+
+  // ========================================================================
+  // DNS Operations
+  // ========================================================================
+  __yo_async_getaddrinfo_start : (fn(node: *(u8), service: *(u8), hints: *(u8), result: *(*(u8))) -> IOFuture),
+  __yo_async_getnameinfo_start : (fn(addr: *(u8), addrlen: u32, host: *(u8), hostlen: usize, service: *(u8), servlen: usize, flags: i32) -> IOFuture),
+  __yo_freeaddrinfo : (fn(res: *(u8)) -> unit),
+  __yo_addrinfo_size : (fn() -> usize),
+  __yo_addrinfo_flags : (fn(ai: *(u8)) -> i32),
+  __yo_addrinfo_family : (fn(ai: *(u8)) -> i32),
+  __yo_addrinfo_socktype : (fn(ai: *(u8)) -> i32),
+  __yo_addrinfo_protocol : (fn(ai: *(u8)) -> i32),
+  __yo_addrinfo_addrlen : (fn(ai: *(u8)) -> u32),
+  __yo_addrinfo_addr : (fn(ai: *(u8)) -> *(u8)),
+  __yo_addrinfo_canonname : (fn(ai: *(u8)) -> *(u8)),
+  __yo_addrinfo_next : (fn(ai: *(u8)) -> *(u8)),
+
+  // ========================================================================
+  // Signal Operations
+  // ========================================================================
+  __yo_signal_start : (fn(signum: i32, handler: *(u8)) -> i32),
+  __yo_signal_stop : (fn(signum: i32) -> i32),
+  __yo_kill : (fn(pid: i32, signum: i32) -> i32),
+
+  // ========================================================================
+  // TTY Operations
+  // ========================================================================
+  __yo_tty_init : (fn(fd: i32) -> i32),
+  __yo_tty_set_mode : (fn(fd: i32, mode: i32) -> i32),
+  __yo_tty_reset_mode : (fn() -> i32),
+  __yo_tty_get_winsize : (fn(fd: i32, width: *(i32), height: *(i32)) -> i32),
+  __yo_isatty : (fn(fd: i32) -> i32),
+
+  // ========================================================================
+  // FS Event Operations
+  // ========================================================================
+  __yo_fs_event_init : (fn() -> *(u8)),
+  __yo_fs_event_start : (fn(handle: *(u8), path: *(u8), flags: u32, callback: *(u8)) -> i32),
+  __yo_fs_event_stop : (fn(handle: *(u8)) -> i32),
+  __yo_fs_event_close : (fn(handle: *(u8)) -> unit),
+
+  // ========================================================================
+  // Poll Operations
+  // ========================================================================
+  __yo_poll_init : (fn(fd: i32) -> *(u8)),
+  __yo_poll_start : (fn(handle: *(u8), events: i32, callback: *(u8)) -> i32),
+  __yo_poll_stop : (fn(handle: *(u8)) -> i32),
+  __yo_poll_close : (fn(handle: *(u8)) -> unit)
+;
+
+export
+  // File operations
+  __yo_async_read_start, __yo_async_write_start,
+  __yo_async_openat_start, __yo_async_close_start,
+  __yo_async_statx_start, __yo_async_mkdirat_start,
+  __yo_async_unlinkat_start, __yo_async_renameat_start,
+  __yo_async_symlinkat_start, __yo_async_linkat_start,
+  __yo_async_fsync_start, __yo_async_fdatasync_start,
+  __yo_async_ftruncate_start,
+
+  // Directory listing
+  __yo_async_getdents_start,
+  __yo_dirent_size, __yo_dirent_reclen, __yo_dirent_type,
+  __yo_dirent_name, __yo_dirent_ino,
+
+  // Permission changes
+  __yo_async_fchmod_start, __yo_async_fchmodat_start,
+  __yo_async_fchown_start, __yo_async_fchownat_start,
+
+  // Symbolic link resolution
+  __yo_async_readlinkat_start,
+
+  // File descriptor operations
+  __yo_async_dup_start, __yo_async_dup2_start, __yo_async_pipe_start,
+
+  // Socket operations
+  __yo_async_socket_start, __yo_async_bind_start,
+  __yo_async_listen_start, __yo_async_accept_start,
+  __yo_async_connect_start, __yo_async_send_start,
+  __yo_async_recv_start, __yo_async_sendto_start,
+  __yo_async_recvfrom_start, __yo_async_shutdown_start,
+  __yo_async_setsockopt_start, __yo_async_getsockopt_start,
+
+  // Synchronous file helpers
+  __yo_file_open, __yo_file_close, __yo_file_size,
+
+  // Stat buffer accessors
+  __yo_statx_buf_size, __yo_statx_size, __yo_statx_mode,
+  __yo_statx_mtime_sec, __yo_statx_mtime_nsec,
+  __yo_statx_atime_sec, __yo_statx_atime_nsec,
+  __yo_statx_ctime_sec, __yo_statx_ctime_nsec,
+  __yo_statx_btime_sec, __yo_statx_btime_nsec,
+  __yo_statx_uid, __yo_statx_gid, __yo_statx_ino,
+  __yo_statx_dev_major, __yo_statx_dev_minor,
+  __yo_statx_nlink, __yo_statx_blksize, __yo_statx_blocks,
+
+  // Socket address helpers
+  __yo_sockaddr_in_size, __yo_sockaddr_in6_size,
+  __yo_sockaddr_un_size, __yo_sockaddr_storage_size,
+  __yo_sockaddr_set_family, __yo_sockaddr_get_family,
+  __yo_sockaddr_in_set_port, __yo_sockaddr_in_get_port,
+  __yo_sockaddr_in_set_addr, __yo_sockaddr_in_get_addr,
+  __yo_sockaddr_in6_set_port, __yo_sockaddr_in6_get_port,
+  __yo_sockaddr_in6_set_addr, __yo_sockaddr_in6_get_addr,
+  __yo_sockaddr_un_set_path, __yo_sockaddr_un_get_path,
+  __yo_inet_pton, __yo_inet_ntop,
+  __yo_htons, __yo_ntohs, __yo_htonl, __yo_ntohl,
+
+  // Timer operations
+  __yo_async_sleep_start, __yo_async_timeout_start,
+
+  // File extra operations
+  __yo_async_access_start, __yo_async_realpath_start,
+  __yo_async_utime_start, __yo_async_futime_start, __yo_async_lutime_start,
+  __yo_async_mkdtemp_start, __yo_async_mkstemp_start,
+  __yo_async_copyfile_start, __yo_async_sendfile_start,
+  __yo_async_statfs_start,
+  __yo_statfs_buf_size, __yo_statfs_type, __yo_statfs_bsize,
+  __yo_statfs_blocks, __yo_statfs_bfree, __yo_statfs_bavail,
+  __yo_statfs_files, __yo_statfs_ffree,
+
+  // Directory scanning
+  __yo_async_scandir_start, __yo_async_opendir_start,
+  __yo_async_readdir_start, __yo_async_closedir_start,
+
+  // DNS operations
+  __yo_async_getaddrinfo_start, __yo_async_getnameinfo_start,
+  __yo_freeaddrinfo,
+  __yo_addrinfo_size, __yo_addrinfo_flags, __yo_addrinfo_family,
+  __yo_addrinfo_socktype, __yo_addrinfo_protocol, __yo_addrinfo_addrlen,
+  __yo_addrinfo_addr, __yo_addrinfo_canonname, __yo_addrinfo_next,
+
+  // Signal operations
+  __yo_signal_start, __yo_signal_stop, __yo_kill,
+
+  // TTY operations
+  __yo_tty_init, __yo_tty_set_mode, __yo_tty_reset_mode,
+  __yo_tty_get_winsize, __yo_isatty,
+
+  // FS Event operations
+  __yo_fs_event_init, __yo_fs_event_start,
+  __yo_fs_event_stop, __yo_fs_event_close,
+
+  // Poll operations
+  __yo_poll_init, __yo_poll_start, __yo_poll_stop, __yo_poll_close
+;
