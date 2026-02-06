@@ -1,7 +1,7 @@
-import { FunctionValue } from "../../function-value";
-import { TypeValue } from "../../type-value";
-import { UnitValue } from "../../unit-value";
-import {
+import type { FunctionValue } from "../../function-value";
+import type { TypeValue } from "../../type-value";
+import type { UnitValue } from "../../unit-value";
+import type {
   ArrayValue,
   BooleanValue,
   ComptimeListValue,

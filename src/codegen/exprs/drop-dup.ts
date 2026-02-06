@@ -1,5 +1,5 @@
-import { BuiltinFunctions, Expr, exprIsFunctionCall } from "../../expr";
-import { Type } from "../../types/definitions";
+import { BuiltinFunctions, type Expr, exprIsFunctionCall } from "../../expr";
+import type { Type } from "../../types/definitions";
 import {
   isArrayType,
   isDynType,
@@ -13,8 +13,8 @@ import {
 import { typeContainsRcType } from "../../types/utils";
 import { randomId } from "../../utils";
 import { isFunctionValue, isNumberValue } from "../../value";
-import { FunctionGenerationContext } from "../functions/context";
-import { CodeGenContext, getTypeString } from "../utils";
+import type { FunctionGenerationContext } from "../functions/context";
+import { type CodeGenContext, getTypeString } from "../utils";
 import { generateExpr } from "./expr";
 
 /**

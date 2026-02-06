@@ -1,6 +1,6 @@
 import {
   addVariableToEnv,
-  Environment,
+  type Environment,
   getVariablesFromEnv,
   pushEnvFrame,
 } from "../../env";
@@ -9,13 +9,13 @@ import {
   attachTempVariableToExpr,
   BuiltinFunctions,
   expectExprToBeFunctionCallOf,
-  Expr,
+  type Expr,
   exprToString,
-  FnCallExpr,
+  type FnCallExpr,
 } from "../../expr";
 import { PlaceholderToken } from "../../token";
 import { createType0 } from "../../types/creators";
-import { EnumType, Type } from "../../types/definitions";
+import type { EnumType, Type } from "../../types/definitions";
 import {
   isArrayType,
   isFunctionType,
@@ -31,7 +31,7 @@ import {
   isTypeValue,
 } from "../../value";
 import { evaluateComptimeFunctionCall } from "../calls/comptime-fn";
-import { EvaluatorContext } from "../context";
+import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 
 /**

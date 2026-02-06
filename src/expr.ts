@@ -1,20 +1,20 @@
 /* eslint-disable no-constant-condition */
 import {
   addVariableToEnv,
-  Environment,
-  Frame,
+  type Environment,
+  type Frame,
   getVariablesFromEnv,
   updateExistingVariable,
-  Variable,
+  type Variable,
 } from "./env";
 import { formatErrorMessage, formatErrorMessages } from "./error";
 import type { AwaitAnalysisResult } from "./evaluator/async/await-analysis-types";
-import { EvaluatorContext } from "./evaluator/context";
+import type { EvaluatorContext } from "./evaluator/context";
 import { evaluateExpression } from "./evaluator/exprs/expr";
 import { generateExprFromCode } from "./parser";
-import { Token, TokenType } from "./token";
+import { type Token, TokenType } from "./token";
 import { areTypesCompatible } from "./types/compatibility";
-import { StructType, Type } from "./types/definitions";
+import type { StructType, Type } from "./types/definitions";
 import { isSomeType } from "./types/guards";
 import { typeContainsRcType, typeToString } from "./types/utils";
 import {
@@ -22,7 +22,12 @@ import {
   generateVarialeId,
   isTempVariableName,
 } from "./utils";
-import { ArrayValue, isTypeValue, TraitValue, Value } from "./value";
+import {
+  type ArrayValue,
+  isTypeValue,
+  type TraitValue,
+  type Value,
+} from "./value";
 import { ValueTag } from "./value-tag";
 
 /**
@@ -580,9 +585,9 @@ export const BuiltinKeywords = {
   ComptimeList: ["ComptimeList"],
 
   // data values
-  tuple: "tuple",
-  array: "array",
-  comptime_list: "comptime_list", // comptime_list
+  tuple: ["tuple"],
+  array: ["array"],
+  comptime_list: ["comptime_list"], // comptime_list
 };
 
 export const BuiltinFunctions = {
@@ -1146,7 +1151,7 @@ function exprToCompactString(expr: Expr): string {
       if (
         expr.func.tag === "Atom" &&
         expr.func.token.type === TokenType.Identifier &&
-        expr.func.token.value === BuiltinKeywords.tuple
+        expr.func.token.value === BuiltinKeywords.tuple[0]!
       ) {
         if (expr.args.length === 1) {
           printed = `(${exprToCompactString(expr.args[0]!)},)`;
@@ -1239,7 +1244,7 @@ function exprToPrettyString(
       if (
         expr.func.tag === "Atom" &&
         expr.func.token.type === TokenType.Identifier &&
-        expr.func.token.value === BuiltinKeywords.tuple
+        expr.func.token.value === BuiltinKeywords.tuple[0]!
       ) {
         if (expr.args.length === 0) {
           return "()";

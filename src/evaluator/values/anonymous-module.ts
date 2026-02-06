@@ -1,5 +1,5 @@
 import {
-  Environment,
+  type Environment,
   getVariablesFromEnv,
   popEnvFrame,
   pushEnvFrame,
@@ -7,7 +7,7 @@ import {
 import { formatErrorMessage } from "../../error";
 import {
   BuiltinKeywords,
-  Expr,
+  type Expr,
   exprIsAtom,
   exprIsAtomOf,
   exprIsFunctionCall,
@@ -15,11 +15,11 @@ import {
   exprToString,
 } from "../../expr";
 import { createModuleType } from "../../types/creators";
-import { ModuleType } from "../../types/definitions";
+import type { ModuleType } from "../../types/definitions";
 import { isModuleType } from "../../types/guards";
 import { typeToString } from "../../types/utils";
-import { createModuleValue, ModuleValue, Value } from "../../value";
-import { EvaluatorContext } from "../context";
+import { createModuleValue, type ModuleValue, type Value } from "../../value";
+import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { isValidVariableName } from "../utils";
 
@@ -356,7 +356,7 @@ export function evaluateAnonymousModuleBeginExprs({
       }
     } catch (error) {
       if (allowPartialModule) {
-        partialModuleError = error;
+        partialModuleError = error as Error;
         break;
       } else {
         throw error;
@@ -373,7 +373,7 @@ export function evaluateAnonymousModuleBeginExprs({
     }
   } catch (error) {
     if (allowPartialModule) {
-      partialModuleError = error;
+      partialModuleError = error as Error;
     } else {
       throw error;
     }

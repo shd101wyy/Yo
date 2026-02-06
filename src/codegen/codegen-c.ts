@@ -1,6 +1,6 @@
 import { Emitter } from "../emitter";
 import { generateModuleId } from "../utils";
-import { ModuleValue } from "../value";
+import type { ModuleValue } from "../value";
 import { collectCIncludes, emitCIncludes } from "./c/collection";
 import {
   generateDeferredAsyncBlocks,
@@ -10,7 +10,7 @@ import {
   collectDisposeMethodsFromGenericImpls,
   collectRequiredFunctions,
 } from "./functions/collection";
-import { FunctionGenerationContext } from "./functions/context";
+import type { FunctionGenerationContext } from "./functions/context";
 import {
   generateFunctionDeclarations,
   generateSpecializedFunctionDeclarations,

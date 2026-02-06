@@ -1,20 +1,20 @@
-import { Environment } from "../../env";
+import { type Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   attachTempVariableToExpr,
   BuiltinKeywords,
-  ControlFlowKind,
-  Expr,
+  type ControlFlowKind,
+  type Expr,
   exprIsAtom,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
-  FnCallExpr,
+  type FnCallExpr,
   mergeAndCheckEnvs,
 } from "../../expr";
 import { areTypesCompatible } from "../../types/compatibility";
 import { createBooleanType } from "../../types/creators";
-import { Type } from "../../types/definitions";
+import { type Type } from "../../types/definitions";
 import {
   isBooleanType,
   isFunctionTypeAndReturnsComptimeValue,
@@ -25,13 +25,13 @@ import {
 } from "../../types/utils";
 import { VUnit } from "../../unit-value";
 import {
-  BooleanValue,
+  type BooleanValue,
   createUnknownValue,
   isBooleanValue,
-  UnknownValue,
-  Value,
+  type UnknownValue,
+  type Value,
 } from "../../value";
-import { EvaluatorContext } from "../context";
+import type { EvaluatorContext } from "../context";
 import { evaluateBeginExpression } from "./begin";
 import { evaluateExpression } from "./expr";
 

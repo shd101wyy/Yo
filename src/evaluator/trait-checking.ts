@@ -9,11 +9,11 @@
  * generic impl registry, which is in the evaluator layer.
  */
 
-import { Environment, getWhereClauseConstraintsForSomeType } from "../env";
+import { type Environment, getWhereClauseConstraintsForSomeType } from "../env";
 import { formatErrorMessage } from "../error";
-import { Token } from "../token";
+import type { Token } from "../token";
 import { areTypesCompatible } from "../types/compatibility";
-import {
+import type {
   DynType,
   FnTraitType,
   FutureTraitType,
@@ -35,8 +35,8 @@ import {
 } from "../types/guards";
 import { TypeTag } from "../types/tags";
 import { typeContainsSomeType, typeToString } from "../types/utils";
-import { isTraitValue, TraitValue } from "../value";
-import { EvaluatorContext } from "./context";
+import { isTraitValue, type TraitValue } from "../value";
+import type { EvaluatorContext } from "./context";
 import { findMatchingGenericImpl } from "./values/impl";
 
 /**

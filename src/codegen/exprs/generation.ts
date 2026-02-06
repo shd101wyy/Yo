@@ -2,19 +2,19 @@ import { typeImplementsFuture } from "../../evaluator/trait-checking";
 import {
   BuiltinFunctions,
   BuiltinKeywords,
-  Expr,
+  type Expr,
   exprIsAtom,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   ExprTag,
   exprToString,
-  FnCallExpr,
+  type FnCallExpr,
 } from "../../expr";
 import { isSomeType, isUnitType } from "../../types/guards";
-import { isFunctionValue, isUnknownValue, Value } from "../../value";
+import { isFunctionValue, isUnknownValue, type Value } from "../../value";
 import { BuiltinYoInlineFunctions } from "../constants";
-import { FunctionGenerationContext } from "../functions/context";
-import { CodeGenContext, getVariableNameForCodegen } from "../utils";
+import type { FunctionGenerationContext } from "../functions/context";
+import { type CodeGenContext, getVariableNameForCodegen } from "../utils";
 import { generateOpAnd, generateOpOr } from "./and-or";
 import { generateAnonymousArray, generateYoArrayFill } from "./array-fns";
 import { generateAssignment } from "./assignment";

@@ -1,26 +1,26 @@
-import { Environment } from "../../env";
+import type { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
-  Expr,
+  type Expr,
   exprIsAtom,
   exprIsAtomOf,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
-  FnCallExpr,
+  type FnCallExpr,
 } from "../../expr";
 import { areTypesCompatible } from "../../types/compatibility";
 import { createSliceType, createUsizeType } from "../../types/creators";
-import { ArrayType, SliceType } from "../../types/definitions";
+import type { ArrayType, SliceType } from "../../types/definitions";
 import { typeToString } from "../../types/utils";
 import {
-  ArrayValue,
+  type ArrayValue,
   createSliceValue,
   createUnknownValue,
   isNumberValue,
-  SliceValue,
+  type SliceValue,
 } from "../../value";
-import { ArrayCallResult, EvaluatorContext } from "../context";
+import type { ArrayCallResult, EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 
 /**

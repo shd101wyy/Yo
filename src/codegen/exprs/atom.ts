@@ -1,9 +1,9 @@
 import { getVariablesFromEnv } from "../../env";
-import { AtomExpr } from "../../expr";
+import type { AtomExpr } from "../../expr";
 import { isFunctionType, isUnitType } from "../../types/guards";
 import { isFunctionValue, isUnknownValue } from "../../value";
-import { FunctionGenerationContext } from "../functions/context";
-import { CodeGenContext, getVariableNameForCodegen } from "../utils";
+import type { FunctionGenerationContext } from "../functions/context";
+import { type CodeGenContext, getVariableNameForCodegen } from "../utils";
 import { checkVariableIsClosureCaptured } from "./closures";
 import { generateComptimeValue } from "./comptime-value";
 

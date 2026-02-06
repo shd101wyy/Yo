@@ -1,4 +1,4 @@
-import { Expr } from "../../expr";
+import type { Expr } from "../../expr";
 import {
   isNewtypeType,
   isPtrType,
@@ -19,13 +19,13 @@ import {
   isStructValue,
   isTupleValue,
   isTypeValue,
-  Value,
+  type Value,
   valueToString,
 } from "../../value";
 import {
   canOptimizeAsNullablePointer,
   canOptimizeAsSimpleEnum,
-  CodeGenContext,
+  type CodeGenContext,
   getEnumVariantCName,
   getTypeString,
   sanitizeForCIdentifier,

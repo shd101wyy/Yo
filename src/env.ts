@@ -1,11 +1,16 @@
 import { formatErrorMessages } from "./error";
-import { EvaluatorContext } from "./evaluator/context";
+import type { EvaluatorContext } from "./evaluator/context";
 import { typeImplementsFuture } from "./evaluator/trait-checking";
 import { cloneValue } from "./evaluator/values/clone-value";
 import { findMethodsFromGenericImpls } from "./evaluator/values/impl";
-import { Token } from "./token";
+import type { Token } from "./token";
 import { areTypesCompatible } from "./types/compatibility";
-import { FunctionType, SomeType, TraitType, Type } from "./types/definitions";
+import type {
+  FunctionType,
+  SomeType,
+  TraitType,
+  Type,
+} from "./types/definitions";
 import {
   isComptimeFloatType,
   isComptimeIntType,
@@ -34,8 +39,8 @@ import {
   isTupleValue,
   isTypeValue,
   isUnknownValue,
-  ModuleValue,
-  Value,
+  type ModuleValue,
+  type Value,
   valueToString,
 } from "./value";
 

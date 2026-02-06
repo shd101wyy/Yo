@@ -1,6 +1,6 @@
 import {
   addVariableToEnv,
-  Environment,
+  type Environment,
   popEnvFrame,
   pushEnvFrame,
 } from "../../env";
@@ -8,19 +8,19 @@ import { formatErrorMessage } from "../../error";
 import {
   attachTempVariableToExpr,
   BuiltinKeywords,
-  ControlFlowKind,
-  Expr,
+  type ControlFlowKind,
+  type Expr,
   exprIsAtom,
   exprIsAtomOf,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
-  FnCallExpr,
+  type FnCallExpr,
   mergeAndCheckEnvs,
 } from "../../expr";
 import { areTypesCompatible } from "../../types/compatibility";
 import { createPtrType } from "../../types/creators";
-import { EnumType, PtrType, Type } from "../../types/definitions";
+import type { EnumType, PtrType, Type } from "../../types/definitions";
 import {
   isBooleanType,
   isCCompatibleType,
@@ -44,10 +44,10 @@ import {
   createUnknownValue,
   isEnumValue,
   isUnknownValue,
-  Value,
+  type Value,
   valueToString,
 } from "../../value";
-import { EvaluatorContext } from "../context";
+import type { EvaluatorContext } from "../context";
 import { evaluateBeginExpression } from "./begin";
 import { evaluateExpression } from "./expr";
 

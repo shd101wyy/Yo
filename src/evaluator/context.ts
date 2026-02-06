@@ -1,10 +1,10 @@
-import { Environment, Variable } from "../env";
+import type { Environment, Variable } from "../env";
 import { YoError } from "../error";
-import { Expr, FnCallExpr, PathCollection } from "../expr";
-import { FunctionValue } from "../function-value";
-import { Token } from "../token";
-import { FunctionType, Type } from "../types/definitions";
-import { ArrayValue, ModuleValue, TraitValue, Value } from "../value";
+import type { Expr, FnCallExpr, PathCollection } from "../expr";
+import type { FunctionValue } from "../function-value";
+import type { Token } from "../token";
+import type { FunctionType, Type } from "../types/definitions";
+import type { ArrayValue, ModuleValue, TraitValue, Value } from "../value";
 
 export interface FunctionEvaluationContext {
   kind: "function-body";

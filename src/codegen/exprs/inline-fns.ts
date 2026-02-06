@@ -1,8 +1,8 @@
-import { BuiltinFunctions, FnCallExpr } from "../../expr";
+import { BuiltinFunctions, type FnCallExpr } from "../../expr";
 import { isEnumType } from "../../types/guards";
 import {
   canOptimizeAsSimpleEnum,
-  CodeGenContext,
+  type CodeGenContext,
   getTypeString,
 } from "../utils";
 

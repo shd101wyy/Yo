@@ -1,6 +1,6 @@
 import {
   addVariableToEnv,
-  Environment,
+  type Environment,
   getVariablesFromEnv,
   getWhereClauseConstraintsForSomeType,
   popEnvFrame,
@@ -10,22 +10,22 @@ import { formatErrorMessage } from "../../error";
 import {
   BuiltinKeywords,
   cloneExpr,
-  Expr,
+  type Expr,
   exprIsAtom,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
-  FnCallExpr,
+  type FnCallExpr,
 } from "../../expr";
-import { FunctionValue } from "../../function-value";
-import { PlaceholderToken, Token } from "../../token";
-import { TypeValue } from "../../type-value";
+import type { FunctionValue } from "../../function-value";
+import { PlaceholderToken, type Token } from "../../token";
+import type { TypeValue } from "../../type-value";
 import {
   createTraitType,
   createType0,
   createTypeHierarchy,
 } from "../../types/creators";
-import {
+import type {
   FunctionParameter,
   FunctionType,
   SomeType,
@@ -51,12 +51,12 @@ import {
   isTraitValue,
   isTypeValue,
   isUnknownValue,
-  TraitValue,
-  UnknownValue,
-  Value,
+  type TraitValue,
+  type UnknownValue,
+  type Value,
   valueToString,
 } from "../../value";
-import { EvaluatorContext } from "../context";
+import type { EvaluatorContext } from "../context";
 import { evaluateBeginExpression } from "../exprs/begin";
 import { evaluateExpression } from "../exprs/expr";
 import {

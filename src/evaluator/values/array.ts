@@ -1,23 +1,23 @@
-import { Environment } from "../../env";
+import type { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   attachTempVariableToExpr,
-  Expr,
+  type Expr,
   exprToString,
-  FnCallExpr,
+  type FnCallExpr,
   setExprAsNeedsToCallDup,
 } from "../../expr";
 import { areTypesCompatible } from "../../types/compatibility";
 import { createArrayType } from "../../types/creators";
-import { Type } from "../../types/definitions";
+import type { Type } from "../../types/definitions";
 import { isArrayType } from "../../types/guards";
 import {
   convertComptimeTypeToRuntimeType,
   typeToString,
 } from "../../types/utils";
-import { createArrayValue, createNumberValue, Value } from "../../value";
+import { createArrayValue, createNumberValue, type Value } from "../../value";
 import { ValueTag } from "../../value-tag";
-import { EvaluatorContext } from "../context";
+import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 
 export function evaluateArrayValue({

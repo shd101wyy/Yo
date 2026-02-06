@@ -1,15 +1,15 @@
-import { Environment } from "../../env";
+import type { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   BuiltinFunctions,
-  Expr,
+  type Expr,
   ExprTag,
   exprToString,
-  FnCallExpr,
+  type FnCallExpr,
   replaceExprWithFuncCallExpr,
 } from "../../expr";
 import { TokenType } from "../../token";
-import { Type } from "../../types/definitions";
+import type { Type } from "../../types/definitions";
 import {
   isCCompatibleType,
   isComptimeFloatType,
@@ -25,16 +25,16 @@ import {
   createComptimeIntValue,
   createNumberValue,
   createUnknownValue,
-  EnumValue,
+  type EnumValue,
   isComptimeFloatValue,
   isComptimeIntValue,
   isEnumValue,
   isNumberValue,
-  NumberValue,
-  Value,
+  type NumberValue,
+  type Value,
 } from "../../value";
 import { ValueTag } from "../../value-tag";
-import { EvaluatorContext } from "../context";
+import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { typeImplementsComptime } from "../trait-checking";
 

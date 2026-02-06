@@ -1,7 +1,7 @@
 import {
   addVariableToEnv,
   addWhereClauseConstraintToEnv,
-  Environment,
+  type Environment,
   getVariablesFromEnv,
   popEnvFrame,
   pushEnvFrame,
@@ -9,12 +9,12 @@ import {
 import { formatErrorMessage } from "../../error";
 import {
   BuiltinKeywords,
-  Expr,
+  type Expr,
   exprIsAtom,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
-  FnCallExpr,
+  type FnCallExpr,
 } from "../../expr";
 import { areTypesCompatible } from "../../types/compatibility";
 import {
@@ -22,7 +22,12 @@ import {
   createTraitType,
   createType0,
 } from "../../types/creators";
-import { SomeType, TraitField, TraitType, Type } from "../../types/definitions";
+import type {
+  SomeType,
+  TraitField,
+  TraitType,
+  Type,
+} from "../../types/definitions";
 import { getTraitTypeFromEnv } from "../../types/env-lookup";
 import {
   isFunctionType,
@@ -38,9 +43,9 @@ import {
   createTypeValue,
   createUnknownValue,
   isTypeValue,
-  Value,
+  type Value,
 } from "../../value";
-import { EvaluatorContext } from "../context";
+import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { isValidVariableName } from "../utils";
 import { attachTraitToReceiverType } from "./utils";

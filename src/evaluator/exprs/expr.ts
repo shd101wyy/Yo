@@ -1,6 +1,6 @@
-import { Environment } from "../../env";
-import { Expr } from "../../expr";
-import { EvaluateExpressionFn, EvaluatorContext } from "../context";
+import type { Environment } from "../../env";
+import type { Expr } from "../../expr";
+import type { EvaluateExpressionFn, EvaluatorContext } from "../context";
 
 let _evaluateExpression: EvaluateExpressionFn | undefined = undefined;
 

@@ -1,14 +1,14 @@
-import { Environment } from "../../env";
+import type { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   BuiltinKeywords,
-  Expr,
+  type Expr,
   exprIsAtom,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
 } from "../../expr";
-import { Type } from "../../types/definitions";
+import type { Type } from "../../types/definitions";
 import {
   isEnumType,
   isModuleType,
@@ -21,7 +21,7 @@ import { typeOfType } from "../../types/hierarchy";
 import { typeToString } from "../../types/utils";
 import { createTypeValue } from "../../value";
 import { evaluateFunctionCall } from "../calls/function";
-import { EvaluatorContext } from "../context";
+import type { EvaluatorContext } from "../context";
 import { synthesizeTypes } from "./synthesizer";
 
 /**

@@ -1,16 +1,16 @@
-import { addVariableToEnv, Environment } from "../../env";
+import { addVariableToEnv, type Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   BuiltinKeywords,
-  Expr,
+  type Expr,
   exprIsAtom,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
-  RuntimeDestructuring,
+  type RuntimeDestructuring,
 } from "../../expr";
-import { Token } from "../../token";
-import { Type } from "../../types/definitions";
+import type { Token } from "../../token";
+import type { Type } from "../../types/definitions";
 import {
   isEnumType,
   isModuleType,
@@ -24,9 +24,9 @@ import {
   isModuleValue,
   isStructValue,
   isTupleValue,
-  Value,
+  type Value,
 } from "../../value";
-import { EvaluatorContext } from "../context";
+import type { EvaluatorContext } from "../context";
 import { isValidVariableName } from "../utils";
 import { cloneValue } from "../values/clone-value";
 

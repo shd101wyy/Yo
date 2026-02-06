@@ -1,17 +1,17 @@
-import { Environment } from "../../env";
+import type { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   BuiltinKeywords,
-  Expr,
+  type Expr,
   exprIsAtom,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
-  FnCallExpr,
+  type FnCallExpr,
 } from "../../expr";
 import { areTypesCompatible } from "../../types/compatibility";
 import { createModuleType } from "../../types/creators";
-import { ModuleField, ModuleType, Type } from "../../types/definitions";
+import type { ModuleField, ModuleType, Type } from "../../types/definitions";
 import { isFunctionType, isModuleType } from "../../types/guards";
 import { typeToString } from "../../types/utils";
 import { VUnit } from "../../unit-value";
@@ -23,9 +23,9 @@ import {
   isModuleValue,
   isTypeValue,
   isUnknownValue,
-  Value,
+  type Value,
 } from "../../value";
-import { EvaluatorContext } from "../context";
+import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { isValidVariableName } from "../utils";
 

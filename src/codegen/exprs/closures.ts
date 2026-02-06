@@ -1,15 +1,21 @@
-import { Environment, getVariablesFromEnv } from "../../env";
+import { type Environment, getVariablesFromEnv } from "../../env";
 import {
   extractFnTraitFromType,
   typeImplementsFn,
 } from "../../evaluator/trait-checking";
-import { AtomExpr, Expr, exprIsAtom, ExprTag, FnCallExpr } from "../../expr";
-import { SomeType, StructType } from "../../types/definitions";
+import {
+  type AtomExpr,
+  type Expr,
+  exprIsAtom,
+  ExprTag,
+  type FnCallExpr,
+} from "../../expr";
+import type { SomeType, StructType } from "../../types/definitions";
 import { isDynType, isStructType } from "../../types/guards";
 import { TypeTag } from "../../types/tags";
-import { FunctionGenerationContext } from "../functions/context";
+import type { FunctionGenerationContext } from "../functions/context";
 import {
-  CodeGenContext,
+  type CodeGenContext,
   getDeferredDupTargetAtomName,
   getTypeString,
 } from "../utils";

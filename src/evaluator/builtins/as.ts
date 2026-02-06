@@ -1,11 +1,11 @@
-import { Environment } from "../../env";
+import type { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
-import { exprToString, FnCallExpr } from "../../expr";
-import { TypeValue } from "../../type-value";
+import { exprToString, type FnCallExpr } from "../../expr";
+import type { TypeValue } from "../../type-value";
 import { areTypesCompatible } from "../../types/compatibility";
 import { typeToString } from "../../types/utils";
 import { isTypeValue } from "../../value";
-import { EvaluatorContext } from "../context";
+import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 
 /**

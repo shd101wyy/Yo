@@ -1,18 +1,18 @@
-import { Environment, popEnvFrame } from "../../env";
+import { type Environment, popEnvFrame } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   BuiltinKeywords,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
-  FnCallExpr,
+  type FnCallExpr,
 } from "../../expr";
 import { createFunctionType, createTraitType } from "../../types/creators";
-import { FunctionForallParameter, Type } from "../../types/definitions";
+import type { FunctionForallParameter, Type } from "../../types/definitions";
 import { typeOfType } from "../../types/hierarchy";
 import { randomId } from "../../utils";
 import { createTypeValue, isTypeValue } from "../../value";
-import { EvaluatorContext } from "../context";
+import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { evaluateFunctionParameters } from "./function";
 

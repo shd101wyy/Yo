@@ -1,5 +1,5 @@
 import { BuiltinFunctions } from "../../expr";
-import {
+import type {
   EnumType,
   FunctionType,
   PtrType,
@@ -23,7 +23,7 @@ import { typeContainsSomeType, typeToString } from "../../types/utils";
 import {
   canOptimizeAsNullablePointer,
   canOptimizeAsSimpleEnum,
-  CodeGenContext,
+  type CodeGenContext,
   getEnumVariantCName,
   getTypeString,
   sanitizeForCIdentifier,

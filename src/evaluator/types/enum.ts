@@ -1,19 +1,19 @@
-import { Environment } from "../../env";
+import type { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   BuiltinKeywords,
-  Expr,
+  type Expr,
   exprIsAtom,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
-  FnCallExpr,
+  type FnCallExpr,
 } from "../../expr";
 import { createEnumType } from "../../types/creators";
-import { EnumVariant, TypeField } from "../../types/definitions";
+import type { EnumVariant, TypeField } from "../../types/definitions";
 import { isComptimeIntType } from "../../types/guards";
 import { createTypeValue, isComptimeIntValue } from "../../value";
-import { EvaluatorContext } from "../context";
+import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { isValidVariableName } from "../utils";
 import { evaluateTypeField } from "./field";

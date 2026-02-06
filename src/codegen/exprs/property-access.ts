@@ -1,5 +1,5 @@
-import { BuiltinFunctions, exprIsAtom, FnCallExpr } from "../../expr";
-import { TraitType, Type } from "../../types/definitions";
+import { BuiltinFunctions, exprIsAtom, type FnCallExpr } from "../../expr";
+import type { TraitType, Type } from "../../types/definitions";
 import {
   isDynType,
   isEnumType,
@@ -13,7 +13,7 @@ import {
 import { isFunctionValue, isTypeValue } from "../../value";
 import {
   canOptimizeAsNullablePointer,
-  CodeGenContext,
+  type CodeGenContext,
   getEnumVariantCName,
   sanitizeForCIdentifier,
 } from "../utils";

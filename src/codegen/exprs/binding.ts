@@ -3,9 +3,9 @@ import {
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
-  FnCallExpr,
+  type FnCallExpr,
 } from "../../expr";
-import { CodeGenContext, getVariableTypeString } from "../utils";
+import { type CodeGenContext, getVariableTypeString } from "../utils";
 
 /**
  * bindings `:`

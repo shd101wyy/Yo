@@ -1,25 +1,25 @@
-import { addVariableToEnv, Environment } from "../../env";
+import { addVariableToEnv, type Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   attachTempVariableToExpr,
-  Expr,
+  type Expr,
   exprIsAtom,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
-  FnCallExpr,
+  type FnCallExpr,
   setExprAsNeedsToCallDup,
 } from "../../expr";
 import { createStructType } from "../../types/creators";
-import { TypeField } from "../../types/definitions";
+import { type TypeField } from "../../types/definitions";
 import { randomId } from "../../utils";
 import {
   createStructValue,
   createTypeValue,
-  StructValue,
-  Value,
+  type StructValue,
+  type Value,
 } from "../../value";
-import { EvaluatorContext } from "../context";
+import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { autoDeriveTraitsAndAddRcFunctionsForStructType } from "../types/utils";
 import { isValidVariableName } from "../utils";

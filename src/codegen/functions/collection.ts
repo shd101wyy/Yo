@@ -3,12 +3,12 @@ import { findMethodsFromGenericImpls } from "../../evaluator/values/impl";
 import {
   BuiltinFunctions,
   BuiltinKeywords,
-  Expr,
+  type Expr,
   exprIsAtom,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
 } from "../../expr";
-import { Type } from "../../types/definitions";
+import type { Type } from "../../types/definitions";
 import {
   isBoxedType,
   isDynType,
@@ -23,11 +23,11 @@ import {
   isFunctionValue,
   isTypeValue,
   isUnknownValue,
-  ModuleValue,
-  TraitValue,
+  type ModuleValue,
+  type TraitValue,
 } from "../../value";
 import { collectType, collectTypesFromFunctionType } from "../types/collection";
-import { CodeGenContext, sanitizeForCIdentifier } from "../utils";
+import { type CodeGenContext, sanitizeForCIdentifier } from "../utils";
 
 /**
  * Check if an expression tree contains any UnknownValue.

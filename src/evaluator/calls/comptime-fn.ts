@@ -1,13 +1,13 @@
-import { Environment } from "../../env";
+import type { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
-import { cloneExpr, Expr } from "../../expr";
+import { cloneExpr, type Expr } from "../../expr";
 import {
-  CalledComptimeFunctionCache,
-  FunctionValue,
+  type CalledComptimeFunctionCache,
+  type FunctionValue,
 } from "../../function-value";
 import { PlaceholderToken } from "../../token";
 import { areTypesCompatible } from "../../types/compatibility";
-import { FunctionType } from "../../types/definitions";
+import { type FunctionType } from "../../types/definitions";
 import {
   isEnumType,
   isModuleType,
@@ -23,10 +23,10 @@ import {
   areValuesEqual,
   createUnknownValue,
   isTypeValue,
-  Value,
+  type Value,
   valueToString,
 } from "../../value";
-import { ArgValues, EvaluatorContext } from "../context";
+import type { ArgValues, EvaluatorContext } from "../context";
 import { evaluateBeginExpression } from "../exprs/begin";
 
 /**

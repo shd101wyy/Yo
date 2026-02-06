@@ -1,17 +1,17 @@
-import { Environment } from "../../env";
+import type { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   attachTempVariableToExpr,
   BuiltinKeywords,
-  Expr,
+  type Expr,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
-  FnCallExpr,
+  type FnCallExpr,
   setExprAsNeedsToCallDup,
 } from "../../expr";
 import { createTupleType } from "../../types/creators";
-import { TupleType, Type, TypeField } from "../../types/definitions";
+import type { TupleType, Type, TypeField } from "../../types/definitions";
 import { isTupleType } from "../../types/guards";
 import {
   convertComptimeTypeToRuntimeType,
@@ -19,8 +19,13 @@ import {
   typeToString,
 } from "../../types/utils";
 import { VUnit } from "../../unit-value";
-import { createTupleValue, isTypeValue, TupleValue, Value } from "../../value";
-import { EvaluatorContext } from "../context";
+import {
+  createTupleValue,
+  isTypeValue,
+  type TupleValue,
+  type Value,
+} from "../../value";
+import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 
 /**

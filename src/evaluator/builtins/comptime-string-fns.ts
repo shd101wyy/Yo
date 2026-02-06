@@ -1,10 +1,10 @@
-import { Environment } from "../../env";
+import type { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   BuiltinFunctions,
   exprIsFunctionCallOf,
   exprToString,
-  FnCallExpr,
+  type FnCallExpr,
 } from "../../expr";
 import {
   createBooleanType,
@@ -19,9 +19,9 @@ import {
   createUnknownValue,
   isComptimeIntValue,
   isComptimeStringValue,
-  Value,
+  type Value,
 } from "../../value";
-import { EvaluatorContext } from "../context";
+import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 
 export function evaluateYoComptimeStringFunctions({

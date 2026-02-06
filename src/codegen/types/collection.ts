@@ -6,11 +6,11 @@ import {
 } from "../../evaluator/trait-checking";
 import {
   BuiltinKeywords,
-  Expr,
+  type Expr,
   exprIsFunctionCallOf,
   ExprTag,
 } from "../../expr";
-import {
+import type {
   ArrayType,
   DynType,
   FunctionType,
@@ -39,7 +39,7 @@ import {
   isNumberValue,
   isTraitValue,
   isTypeValue,
-  ModuleValue,
+  type ModuleValue,
 } from "../../value";
 import { PrimitiveTypeTags } from "../constants";
 import {
@@ -47,7 +47,7 @@ import {
   findFunctionCallsInExpr,
 } from "../functions/collection";
 import {
-  CodeGenContext,
+  type CodeGenContext,
   getTypeString,
   sanitizeForCIdentifier,
 } from "../utils";

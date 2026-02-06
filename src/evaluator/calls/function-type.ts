@@ -1,25 +1,25 @@
 import {
   addVariableToEnv,
-  Environment,
+  type Environment,
   keepTopLevelFrameAndComptimeVariablesFromEnv,
   popEnvFrame,
   pushEnvFrame,
 } from "../../env";
 import { formatErrorMessage } from "../../error";
-import { cloneExpr, Expr, FnCallExpr } from "../../expr";
-import { FunctionValue } from "../../function-value";
+import { cloneExpr, type Expr, type FnCallExpr } from "../../expr";
+import type { FunctionValue } from "../../function-value";
 import { PlaceholderToken } from "../../token";
 import { areTypesCompatible } from "../../types/compatibility";
-import { FunctionType } from "../../types/definitions";
+import type { FunctionType } from "../../types/definitions";
 import { isFunctionType, isSomeType } from "../../types/guards";
 import { typeContainsSomeType, typeToString } from "../../types/utils";
 import { randomId } from "../../utils";
 import { createUnknownValue } from "../../value";
 import { ValueTag } from "../../value-tag";
 import {
-  CapturedVariableInfo,
-  EvaluatorContext,
-  FunctionEvaluationContext,
+  type CapturedVariableInfo,
+  type EvaluatorContext,
+  type FunctionEvaluationContext,
 } from "../context";
 import { analyzeCtfeCapability } from "../ctfe/ctfe-analysis";
 import { evaluateBeginExpression } from "../exprs/begin";

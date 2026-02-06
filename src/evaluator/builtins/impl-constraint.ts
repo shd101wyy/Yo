@@ -1,17 +1,17 @@
-import { Environment } from "../../env";
+import type { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   BuiltinKeywords,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
-  FnCallExpr,
+  type FnCallExpr,
 } from "../../expr";
 import { createSomeType, createType0 } from "../../types/creators";
-import { TraitType, Type } from "../../types/definitions";
+import type { TraitType, Type } from "../../types/definitions";
 import { isConcreteTraitType, isTraitType } from "../../types/guards";
 import { createTypeValue, isTypeValue } from "../../value";
-import { EvaluatorContext } from "../context";
+import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 
 /**

@@ -1,7 +1,7 @@
-import { Environment, Frame } from "../env";
-import { Expr } from "../expr";
-import { FunctionValue } from "../function-value";
-import { Value } from "../value";
+import type { Environment, Frame } from "../env";
+import type { Expr } from "../expr";
+import type { FunctionValue } from "../function-value";
+import type { Value } from "../value";
 import { TypeTag } from "./tags";
 
 export type TypeId = string;

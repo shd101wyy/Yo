@@ -1,11 +1,11 @@
 import {
   addVariableToEnv,
-  Environment,
+  type Environment,
   getVariablesFromEnv,
   updateExistingVariable,
 } from "../../env";
 import { PlaceholderToken } from "../../token";
-import { Type } from "../../types/definitions";
+import type { Type } from "../../types/definitions";
 import { getValueOfSomeTypeFromEnv } from "../../types/env-lookup";
 import {
   isArrayType,

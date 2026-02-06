@@ -1,10 +1,10 @@
-import {
+import type {
   AwaitAnalysisResult,
   CapturedVariable,
 } from "../../evaluator/async/await-analysis";
-import { Expr } from "../../expr";
-import { FunctionValue, FuncValueId } from "../../function-value";
-import {
+import type { Expr } from "../../expr";
+import type { FunctionValue, FuncValueId } from "../../function-value";
+import type {
   DynType,
   FunctionType,
   FutureTraitType,
@@ -13,7 +13,7 @@ import {
   Type,
   TypeId,
 } from "../../types/definitions";
-import { CodeGenContext } from "../utils";
+import type { CodeGenContext } from "../utils";
 
 export interface FunctionGenerationContext extends CodeGenContext {
   functions: Record<FuncValueId, { value: FunctionValue; cName: string }>;

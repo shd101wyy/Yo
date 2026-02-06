@@ -1,16 +1,16 @@
-import { Environment } from "../../env";
+import type { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
-import { attachTempVariableToExpr, FnCallExpr } from "../../expr";
+import { attachTempVariableToExpr, type FnCallExpr } from "../../expr";
 import { areTypesCompatible } from "../../types/compatibility";
 import {
   createFutureTraitType,
   createSomeType,
   createType0,
 } from "../../types/creators";
-import { FutureTraitType, SomeType, Type } from "../../types/definitions";
+import type { FutureTraitType, SomeType, Type } from "../../types/definitions";
 import { convertComptimeTypeToRuntimeType } from "../../types/utils";
 import { analyzeAwaitPoints } from "../async/await-analysis";
-import { CapturedVariableInfo, EvaluatorContext } from "../context";
+import type { CapturedVariableInfo, EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { extractFutureTraitFromType } from "../trait-checking";
 import {

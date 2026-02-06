@@ -1,5 +1,5 @@
 import { Emitter } from "../../emitter";
-import { Environment, getVariablesFromEnv } from "../../env";
+import { type Environment, getVariablesFromEnv } from "../../env";
 import {
   extractFutureTraitFromType,
   typeImplementsFn,
@@ -7,14 +7,14 @@ import {
 } from "../../evaluator/trait-checking";
 import {
   BuiltinFunctions,
-  Expr,
+  type Expr,
   exprIsAtom,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
-  FnCallExpr,
+  type FnCallExpr,
 } from "../../expr";
-import { FunctionValue, FuncValueId } from "../../function-value";
-import {
+import type { FunctionValue, FuncValueId } from "../../function-value";
+import type {
   ArrayType,
   DynType,
   EnumType,
@@ -38,7 +38,7 @@ import {
 } from "../../types/guards";
 import { TypeTag } from "../../types/tags";
 import { typeToString } from "../../types/utils";
-import { isNumberValue, TraitValue } from "../../value";
+import { isNumberValue, type TraitValue } from "../../value";
 import { BuiltinYoInlineFunctions } from "../constants";
 
 export interface CodeGenContext {

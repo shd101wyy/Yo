@@ -1,15 +1,15 @@
-import { Environment } from "../../env";
+import type { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   attachTempVariableToExpr,
   exprIsAtom,
   exprIsFunctionCallOf,
   exprToString,
-  FnCallExpr,
+  type FnCallExpr,
 } from "../../expr";
 import { TokenType } from "../../token";
 import { areTypesCompatible } from "../../types/compatibility";
-import { EnumType, ModuleField, TypeField } from "../../types/definitions";
+import type { EnumType, ModuleField, TypeField } from "../../types/definitions";
 import { getValueOfSomeTypeFromEnv } from "../../types/env-lookup";
 import {
   isEnumType,
@@ -37,9 +37,9 @@ import {
   isTupleValue,
   isTypeValue,
   isUnknownValue,
-  Value,
+  type Value,
 } from "../../value";
-import { EvaluatorContext } from "../context";
+import type { EvaluatorContext } from "../context";
 import { isValidVariableName } from "../utils";
 import {
   findMethodFromGenericImplForTrait,

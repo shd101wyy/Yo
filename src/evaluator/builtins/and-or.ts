@@ -1,10 +1,10 @@
-import { Environment } from "../../env";
+import type { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   BuiltinKeywords,
   exprIsFunctionCallOf,
   exprToString,
-  FnCallExpr,
+  type FnCallExpr,
 } from "../../expr";
 import { createBooleanType } from "../../types/creators";
 import { isBooleanType } from "../../types/guards";
@@ -13,9 +13,9 @@ import {
   createUnknownValue,
   isBooleanValue,
   isUnknownValue,
-  Value,
+  type Value,
 } from "../../value";
-import { EvaluatorContext } from "../context";
+import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 
 export function evaluateAndOr({

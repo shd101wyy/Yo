@@ -1,25 +1,25 @@
-import { Environment, pushEnvFrame } from "../../env";
+import { type Environment, pushEnvFrame } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   cloneExpr,
-  Expr,
+  type Expr,
   exprIsAtom,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
 } from "../../expr";
 import { areTypesCompatible } from "../../types/compatibility";
-import { FunctionType, ModuleType, Type } from "../../types/definitions";
+import type { FunctionType, ModuleType, Type } from "../../types/definitions";
 import { isFunctionType } from "../../types/guards";
 import { typeToString } from "../../types/utils";
 import {
   createModuleValue,
   isFunctionValue,
   isTypeValue,
-  Value,
+  type Value,
   valueToString,
 } from "../../value";
-import { EvaluatorContext, ModuleTypeCallResult } from "../context";
+import type { EvaluatorContext, ModuleTypeCallResult } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 
 export function tryToImplementModuleWithArgumentsByModuleType({

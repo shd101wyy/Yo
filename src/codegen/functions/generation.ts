@@ -1,16 +1,16 @@
-import { Environment } from "../../env";
+import { type Environment } from "../../env";
 import { typeImplementsFuture } from "../../evaluator/trait-checking";
 import { findMatchingGenericImpl } from "../../evaluator/values/impl";
 import {
   BuiltinFunctions,
   BuiltinKeywords,
-  Expr,
+  type Expr,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
 } from "../../expr";
-import { FunctionValue } from "../../function-value";
+import { type FunctionValue } from "../../function-value";
 import { areTypesCompatible } from "../../types/compatibility";
-import {
+import type {
   EnumType,
   FunctionType,
   TraitType,
@@ -30,7 +30,7 @@ import {
   typeToString,
 } from "../../types/utils";
 import { isTempVariableName } from "../../utils";
-import { isFunctionValue, isTraitValue, TraitValue } from "../../value";
+import { isFunctionValue, isTraitValue, type TraitValue } from "../../value";
 import { generateAsyncRuntime } from "../async/runtime";
 import {
   generateDeferredDropExpressions,
@@ -42,7 +42,7 @@ import { generateParallelismRuntime } from "../parallelism/runtime";
 import { generateIsoTypeDeclarations } from "../types/generation";
 import {
   canOptimizeAsNullablePointer,
-  CodeGenContext,
+  type CodeGenContext,
   findReturnedAsyncBlock,
   getTypeString,
   getVariableNameForCodegen,
@@ -50,7 +50,7 @@ import {
   isFunctionValueWithOnlyBuiltinYoInlineFunctionCall,
   sanitizeForCIdentifier,
 } from "../utils";
-import { FunctionGenerationContext } from "./context";
+import type { FunctionGenerationContext } from "./context";
 import { generateFunctionPrototype } from "./declarations";
 
 /**

@@ -1,14 +1,14 @@
 import { getVariablesFromEnv } from "../../env";
 import {
   BuiltinKeywords,
-  Expr,
+  type Expr,
   exprIsAtom,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   ExprTag,
-  FnCallExpr,
+  type FnCallExpr,
 } from "../../expr";
-import { Type } from "../../types/definitions";
+import type { Type } from "../../types/definitions";
 import {
   isEnumType,
   isObjectType,
@@ -16,12 +16,12 @@ import {
   isUnitType,
 } from "../../types/guards";
 import { TypeTag } from "../../types/tags";
-import { isBooleanValue, isNumberValue, Value } from "../../value";
-import { FunctionGenerationContext } from "../functions/context";
+import { isBooleanValue, isNumberValue, type Value } from "../../value";
+import { type FunctionGenerationContext } from "../functions/context";
 import {
   canOptimizeAsNullablePointer,
   canOptimizeAsSimpleEnum,
-  CodeGenContext,
+  type CodeGenContext,
   getEnumVariantCName,
   getTypeString,
   getVariableNameForCodegen,

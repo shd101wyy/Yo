@@ -1,4 +1,4 @@
-import { CodeGenContext } from "../utils";
+import type { CodeGenContext } from "../utils";
 
 /**
  * Collect C include headers from variables used in the module

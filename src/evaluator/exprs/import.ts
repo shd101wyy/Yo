@@ -1,15 +1,15 @@
 import { existsSync } from "fs";
 import path from "path";
-import { Environment } from "../../env";
+import type { Environment } from "../../env";
 import { formatErrorMessage, YoError, YoLexerError } from "../../error";
 import {
   BuiltinKeywords,
   exprIsFunctionCallOf,
   exprToString,
-  FnCallExpr,
+  type FnCallExpr,
 } from "../../expr";
 import { isComptimeStringValue } from "../../value";
-import { EvaluatorContext } from "../context";
+import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 
 /**

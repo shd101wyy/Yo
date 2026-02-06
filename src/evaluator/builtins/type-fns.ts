@@ -1,17 +1,17 @@
-import { Environment } from "../../env";
+import type { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   BuiltinFunctions,
   expectExprToBeFunctionCallOf,
   exprToString,
-  FnCallExpr,
+  type FnCallExpr,
 } from "../../expr";
 import { areTypesCompatible } from "../../types/compatibility";
 import {
   createBooleanType,
   createComptimeStringType,
 } from "../../types/creators";
-import { TraitType } from "../../types/definitions";
+import type { TraitType } from "../../types/definitions";
 import { isTraitType, isTypeHierarchyType } from "../../types/guards";
 import {
   canTypeFormRcCycle,
@@ -24,7 +24,7 @@ import {
   createUnknownValue,
   isTypeValue,
 } from "../../value";
-import { EvaluatorContext } from "../context";
+import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { typeImplementsTrait } from "../trait-checking";
 

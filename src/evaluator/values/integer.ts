@@ -1,6 +1,6 @@
-import { Environment } from "../../env";
+import type { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
-import { AtomExpr } from "../../expr";
+import type { AtomExpr } from "../../expr";
 import { TokenType } from "../../token";
 import {
   isI16Type,
@@ -16,7 +16,7 @@ import {
 } from "../../types/guards";
 import { createNumberValue } from "../../value";
 import { ValueTag } from "../../value-tag";
-import { EvaluatorContext } from "../context";
+import type { EvaluatorContext } from "../context";
 
 /**
  * Evaluates literal expressions (integers, floats, strings, booleans)

@@ -1,6 +1,6 @@
-import { Environment } from "../../env";
-import { FnCallExpr } from "../../expr";
-import { EvaluatorContext } from "../context";
+import type { Environment } from "../../env";
+import type { FnCallExpr } from "../../expr";
+import type { EvaluatorContext } from "../context";
 import { evaluateFunctionType } from "./function";
 
 export function evaluateClosureType({

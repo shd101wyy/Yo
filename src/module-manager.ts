@@ -12,7 +12,7 @@ import Evaluator, {
   clearImplsFromModule,
 } from "./evaluator/index";
 import { clearAllModuleCounters, resetModuleIdCounter } from "./utils";
-import { ModuleValue } from "./value";
+import type { ModuleValue } from "./value";
 
 function findStdDirectory(startPath: string): string {
   let currentPath = startPath;

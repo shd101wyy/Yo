@@ -1,4 +1,4 @@
-import { Environment } from "../env";
+import type { Environment } from "../env";
 import { formatErrorMessages } from "../error";
 import {
   typeImplementsAcyclic,
@@ -7,11 +7,11 @@ import {
   typeImplementsFuture,
   typeImplementsRuntime,
 } from "../evaluator/trait-checking";
-import { Expr, exprToString } from "../expr";
-import { stringIsOperator, Token } from "../token";
+import { type Expr, exprToString } from "../expr";
+import { stringIsOperator, type Token } from "../token";
 import { isNumberValue, isUnknownValue, valueToString } from "../value";
 import { createF64Type, createI32Type, createStrType } from "./creators";
-import {
+import type {
   ArrayType,
   ComptimeListType,
   DynType,

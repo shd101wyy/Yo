@@ -1,9 +1,9 @@
-import { exprIsFunctionCall, FnCallExpr } from "../../expr";
+import { exprIsFunctionCall, type FnCallExpr } from "../../expr";
 import { isUnitType } from "../../types/guards";
 import { isTempVariableName } from "../../utils";
-import { FunctionGenerationContext } from "../functions/context";
+import { type FunctionGenerationContext } from "../functions/context";
 import {
-  CodeGenContext,
+  type CodeGenContext,
   getTypeString,
   getVariableNameForCodegen,
 } from "../utils";

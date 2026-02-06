@@ -1,16 +1,16 @@
-import { Environment, getVariablesFromEnv } from "../../env";
+import { type Environment, getVariablesFromEnv } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   attachTempVariableToExpr,
   exprToString,
-  FnCallExpr,
+  type FnCallExpr,
   setExprAsConsumed,
 } from "../../expr";
 import { createIsoType } from "../../types/creators";
-import { IsoType } from "../../types/definitions";
+import type { IsoType } from "../../types/definitions";
 import { canTypeFormRcCycle } from "../../types/utils";
 import { createTypeValue, isTypeValue } from "../../value";
-import { EvaluatorContext } from "../context";
+import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { addRcFunctionsToIsoType } from "../types/utils";
 

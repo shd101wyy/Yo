@@ -1,9 +1,9 @@
-import { FnCallExpr } from "../../expr";
-import { TypeValue } from "../../type-value";
-import { IsoType } from "../../types/definitions";
+import type { FnCallExpr } from "../../expr";
+import type { TypeValue } from "../../type-value";
+import type { IsoType } from "../../types/definitions";
 import { isIsoType } from "../../types/guards";
 import { isTypeValue } from "../../value";
-import { CodeGenContext, getTypeString } from "../utils";
+import { type CodeGenContext, getTypeString } from "../utils";
 import { generateExpr } from "./expr";
 
 /**

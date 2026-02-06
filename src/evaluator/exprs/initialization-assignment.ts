@@ -1,16 +1,16 @@
-import { addVariableToEnv, Environment } from "../../env";
+import { addVariableToEnv, type Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   exprIsAtom,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
-  FnCallExpr,
+  type FnCallExpr,
   requireExprNotConsumed,
   setExprAsNeedsToCallDup,
 } from "../../expr";
 import { areTypesCompatible } from "../../types/compatibility";
-import { SomeType } from "../../types/definitions";
+import type { SomeType } from "../../types/definitions";
 import { isSomeType } from "../../types/guards";
 import {
   convertComptimeTypeToRuntimeType,
@@ -28,7 +28,7 @@ import {
   isTraitValue,
   isTypeValue,
 } from "../../value";
-import { EvaluatorContext } from "../context";
+import type { EvaluatorContext } from "../context";
 import { synthesizeExprAndType } from "../types/expr-synthesizer";
 import { findRcValueOwnerRelationship, isValidVariableName } from "../utils";
 import { cloneValue } from "../values/clone-value";

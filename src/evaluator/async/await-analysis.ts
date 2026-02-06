@@ -9,7 +9,7 @@ import { getVariablesFromEnv } from "../../env";
 import {
   BuiltinFunctions,
   BuiltinKeywords,
-  Expr,
+  type Expr,
   exprIsFunctionCallOf,
   ExprTag,
 } from "../../expr";

@@ -1,14 +1,14 @@
-import { Environment } from "../../env";
+import type { Environment } from "../../env";
 import {
   BuiltinFunctions,
-  Expr,
+  type Expr,
   exprIsFunctionCall,
   exprToString,
 } from "../../expr";
 import { generateExprFromCode } from "../../parser";
-import { Token } from "../../token";
+import type { Token } from "../../token";
 import { createTypeHierarchy } from "../../types/creators";
-import {
+import type {
   DynType,
   EnumType,
   IsoType,
@@ -39,7 +39,7 @@ import {
 } from "../../types/utils";
 import { randomId } from "../../utils";
 import { isFunctionValue, isTraitValue, isTypeValue } from "../../value";
-import { EvaluatorContext } from "../context";
+import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import {
   typeImplementsAcyclic,

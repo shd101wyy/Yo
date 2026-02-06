@@ -1,12 +1,12 @@
-import { Environment } from "../../env";
+import type { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
-import { exprToString, FnCallExpr } from "../../expr";
+import { exprToString, type FnCallExpr } from "../../expr";
 import { areTypesCompatible } from "../../types/compatibility";
-import { Type } from "../../types/definitions";
+import type { Type } from "../../types/definitions";
 import { isComptimeListType } from "../../types/guards";
 import { typeToString } from "../../types/utils";
-import { createComptimeListValue, Value } from "../../value";
-import { EvaluatorContext } from "../context";
+import { createComptimeListValue, type Value } from "../../value";
+import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 
 export function evaluateComptimeListValue({

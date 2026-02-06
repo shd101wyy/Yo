@@ -5,7 +5,7 @@ import {
   exprIsAtom,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
-  FnCallExpr,
+  type FnCallExpr,
 } from "../../expr";
 import {
   isArrayType,
@@ -16,9 +16,9 @@ import {
   isUnitType,
 } from "../../types/guards";
 import { isTempVariableName } from "../../utils";
-import { FunctionGenerationContext } from "../functions/context";
+import type { FunctionGenerationContext } from "../functions/context";
 import {
-  CodeGenContext,
+  type CodeGenContext,
   getTypeString,
   getVariableNameForCodegen,
   getVariableTypeString,

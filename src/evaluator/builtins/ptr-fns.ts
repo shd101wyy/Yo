@@ -1,11 +1,11 @@
-import { Environment } from "../../env";
+import type { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   attachTempVariableToExpr,
   BuiltinFunctions,
   expectExprToBeFunctionCallOf,
   exprToString,
-  FnCallExpr,
+  type FnCallExpr,
 } from "../../expr";
 import { createPtrType } from "../../types/creators";
 import {
@@ -16,7 +16,7 @@ import {
 } from "../../types/guards";
 import { convertComptimeTypeToRuntimeType } from "../../types/utils";
 import { createPtrValue, isTypeValue } from "../../value";
-import { EvaluatorContext } from "../context";
+import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 
 /**

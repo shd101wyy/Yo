@@ -1,19 +1,24 @@
-import { Environment, popEnvFrame, pushEnvFrame } from "../../env";
+import { type Environment, popEnvFrame, pushEnvFrame } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   attachTempVariableToExpr,
   cloneExpr,
-  Expr,
-  FnCallExpr,
+  type Expr,
+  type FnCallExpr,
 } from "../../expr";
-import { FunctionValue } from "../../function-value";
+import type { FunctionValue } from "../../function-value";
 import { areTypesCompatible } from "../../types/compatibility";
-import { DynType, FnTraitType, SomeType, Type } from "../../types/definitions";
+import type {
+  DynType,
+  FnTraitType,
+  SomeType,
+  Type,
+} from "../../types/definitions";
 import { isDynType, isSomeType } from "../../types/guards";
 import { typeToString } from "../../types/utils";
 import { randomId } from "../../utils";
 import { ValueTag } from "../../value-tag";
-import { EvaluatorContext } from "../context";
+import type { EvaluatorContext } from "../context";
 import { evaluateBeginExpression } from "../exprs/begin";
 import { applyWhereClauseConstraints } from "../types/function";
 import {

@@ -1,4 +1,4 @@
-import { Environment } from "../../env";
+import type { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   BuiltinFunctions,
@@ -6,7 +6,7 @@ import {
   exprIsAtom,
   exprIsFunctionCall,
   exprToString,
-  FnCallExpr,
+  type FnCallExpr,
 } from "../../expr";
 import {
   createBooleanType,
@@ -17,16 +17,16 @@ import {
 import { isExprType } from "../../types/guards";
 import {
   areValuesEqual,
-  BooleanValue,
+  type BooleanValue,
   createBooleanValue,
   createComptimeListValue,
   createComptimeStringValue,
   createExprValue,
   createUnknownValue,
   isExprValue,
-  UnknownValue,
+  type UnknownValue,
 } from "../../value";
-import { EvaluatorContext } from "../context";
+import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 
 export function evaluateYoExprIsAtom({

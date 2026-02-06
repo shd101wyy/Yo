@@ -1,11 +1,11 @@
-import { Environment, getWhereClauseConstraintsForSomeType } from "../env";
+import { type Environment, getWhereClauseConstraintsForSomeType } from "../env";
 import { typeImplementsTrait } from "../evaluator/trait-checking";
 import {
   canAssignTypeHierarchy,
   synthesizeTypes,
 } from "../evaluator/types/synthesizer";
 import { areValuesEqual } from "../value";
-import { FunctionType, SomeType, TraitType, Type } from "./definitions";
+import type { FunctionType, SomeType, TraitType, Type } from "./definitions";
 import { getValueOfSomeTypeFromEnv } from "./env-lookup";
 import {
   isArrayType,

@@ -8,9 +8,9 @@ import {
   exprIsAtom,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
-  FnCallExpr,
+  type FnCallExpr,
 } from "../../expr";
-import { ArrayType, SomeType } from "../../types/definitions";
+import type { ArrayType, SomeType } from "../../types/definitions";
 import {
   isArrayType,
   isDynType,
@@ -31,11 +31,11 @@ import {
   isUnknownValue,
 } from "../../value";
 import { BuiltinYoInlineFunctions } from "../constants";
-import { FunctionGenerationContext } from "../functions/context";
+import type { FunctionGenerationContext } from "../functions/context";
 import {
   canOptimizeAsNullablePointer,
   canOptimizeAsSimpleEnum,
-  CodeGenContext,
+  type CodeGenContext,
   getDeferredDupTargetAtomName,
   getEnumVariantCName,
   getTypeString,

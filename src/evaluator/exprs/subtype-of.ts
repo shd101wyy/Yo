@@ -1,4 +1,4 @@
-import { addWhereClauseConstraintToEnv, Environment } from "../../env";
+import { addWhereClauseConstraintToEnv, type Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   BuiltinKeywords,
@@ -6,13 +6,13 @@ import {
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
-  FnCallExpr,
+  type FnCallExpr,
 } from "../../expr";
-import { TraitType } from "../../types/definitions";
+import type { TraitType } from "../../types/definitions";
 import { isSomeType, isTraitType } from "../../types/guards";
 import { typeToString } from "../../types/utils";
 import { createTypeValue, isTypeValue } from "../../value";
-import { EvaluatorContext } from "../context";
+import type { EvaluatorContext } from "../context";
 import { typeImplementsTrait } from "../trait-checking";
 import { evaluateExpression } from "./expr";
 

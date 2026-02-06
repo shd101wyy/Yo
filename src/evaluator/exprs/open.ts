@@ -1,15 +1,15 @@
-import { addVariableToEnv, Environment } from "../../env";
+import { addVariableToEnv, type Environment } from "../../env";
 import { formatErrorMessage, formatErrorMessages, YoError } from "../../error";
 import {
   BuiltinKeywords,
   exprToString,
-  FnCallExpr,
-  RuntimeDestructuring,
+  type FnCallExpr,
+  type RuntimeDestructuring,
 } from "../../expr";
 import { isStructType } from "../../types/guards";
 import { VUnit } from "../../unit-value";
-import { isModuleValue, isStructValue, Value } from "../../value";
-import { EvaluatorContext } from "../context";
+import { isModuleValue, isStructValue, type Value } from "../../value";
+import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 
 /**
@@ -125,7 +125,8 @@ export function evaluateOpen({
             : [
                 {
                   token: argExpr.token,
-                  errorMessage: error.toString(),
+                  errorMessage:
+                    error instanceof Error ? error.message : String(error),
                 },
               ]),
         ]);

@@ -1,5 +1,5 @@
 import { typeImplementsFuture } from "../../evaluator/trait-checking";
-import { BuiltinFunctions, FnCallExpr } from "../../expr";
+import { BuiltinFunctions, type FnCallExpr } from "../../expr";
 import {
   isArrayType,
   isRcType,
@@ -7,8 +7,8 @@ import {
   isTupleType,
 } from "../../types/guards";
 import { isFunctionValue, isNumberValue } from "../../value";
-import { FunctionGenerationContext } from "../functions/context";
-import { CodeGenContext, getTypeString } from "../utils";
+import type { FunctionGenerationContext } from "../functions/context";
+import { type CodeGenContext, getTypeString } from "../utils";
 import {
   generateDropCodeForValue,
   generateDupCodeForValue,

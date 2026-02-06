@@ -2,33 +2,36 @@ import { sanitizeForCIdentifier } from "../../codegen/utils";
 import {
   addVariableToEnv,
   addWhereClauseConstraintToEnv,
-  Environment,
+  type Environment,
   getVariablesFromEnv,
   getVariablesFromEnvByFilter,
   getVariablesNeedingDrop,
   getWhereClauseConstraintsForSomeType,
   pushEnvFrame,
   updateExistingVariable,
-  Variable,
+  type Variable,
 } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   BuiltinFunctions,
   BuiltinKeywords,
   cloneExpr,
-  Expr,
+  type Expr,
   exprIsAtom,
   exprIsAtomOf,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
-  FnCallExpr,
-  PathCollection,
+  type FnCallExpr,
+  type PathCollection,
   requireExprNotConsumed,
   setExprAsConsumed,
   setExprAsNeedsToCallDup,
 } from "../../expr";
-import { FunctionValue, SpecializedFunctionCache } from "../../function-value";
+import type {
+  FunctionValue,
+  SpecializedFunctionCache,
+} from "../../function-value";
 import { generateExprFromCode } from "../../parser";
 import { PlaceholderToken } from "../../token";
 import { areTypesCompatible } from "../../types/compatibility";
@@ -37,7 +40,7 @@ import {
   createFunctionType,
   createSomeType,
 } from "../../types/creators";
-import {
+import type {
   FunctionParameter,
   FunctionType,
   SomeType,
@@ -66,13 +69,17 @@ import {
   createExprValue,
   createTypeValue,
   createUnknownValue,
-  ExprValue,
+  type ExprValue,
   isFunctionValue,
   isTypeValue,
-  Value,
+  type Value,
   valueToString,
 } from "../../value";
-import { ArgValues, EvaluatorContext, FunctionCallResult } from "../context";
+import type {
+  ArgValues,
+  EvaluatorContext,
+  FunctionCallResult,
+} from "../context";
 import { evaluateBeginExpression } from "../exprs/begin";
 import { evaluateExpression } from "../exprs/expr";
 import { typeImplementsFn, typeImplementsFuture } from "../trait-checking";

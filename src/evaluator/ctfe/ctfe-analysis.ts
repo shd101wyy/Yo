@@ -13,18 +13,18 @@
 
 import {
   addVariableToEnv,
-  Environment,
+  type Environment,
   popEnvFrame,
   pushEnvFrame,
 } from "../../env";
 import { cloneExpr } from "../../expr";
-import { FunctionValue } from "../../function-value";
+import type { FunctionValue } from "../../function-value";
 import { PlaceholderToken } from "../../token";
-import { FunctionType } from "../../types/definitions";
+import type { FunctionType } from "../../types/definitions";
 import { typeProhibitsComptimeModifier } from "../../types/utils";
 import { createUnknownValue } from "../../value";
 import { ValueTag } from "../../value-tag";
-import { EvaluatorContext } from "../context";
+import type { EvaluatorContext } from "../context";
 import { evaluateBeginExpression } from "../exprs/begin";
 
 /**

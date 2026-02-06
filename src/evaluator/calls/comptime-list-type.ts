@@ -1,11 +1,15 @@
-import { Environment } from "../../env";
+import type { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
-import { Expr, FnCallExpr, setExprAsNeedsToCallDup } from "../../expr";
+import {
+  type Expr,
+  type FnCallExpr,
+  setExprAsNeedsToCallDup,
+} from "../../expr";
 import { areTypesCompatible } from "../../types/compatibility";
-import { ComptimeListType } from "../../types/definitions";
+import type { ComptimeListType } from "../../types/definitions";
 import { typeToString } from "../../types/utils";
-import { createComptimeListValue, Value } from "../../value";
-import { EvaluatorContext } from "../context";
+import { createComptimeListValue, type Value } from "../../value";
+import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 
 /**

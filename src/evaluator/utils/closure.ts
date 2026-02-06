@@ -1,24 +1,24 @@
 import {
-  Environment,
+  type Environment,
   getVariablesFromEnv,
   updateExistingVariable,
 } from "../../env";
 import { formatErrorMessage } from "../../error";
-import { BuiltinFunctions, Expr, ExprTag } from "../../expr";
-import { FunctionCapturedVariableInfo } from "../../function-value";
+import { BuiltinFunctions, type Expr, ExprTag } from "../../expr";
+import type { FunctionCapturedVariableInfo } from "../../function-value";
 import { generateExprFromCode } from "../../parser";
-import { Token } from "../../token";
+import type { Token } from "../../token";
 import { areTypesCompatible } from "../../types/compatibility";
 import { createStructType } from "../../types/creators";
-import { StructType, TypeField } from "../../types/definitions";
+import type { StructType, TypeField } from "../../types/definitions";
 import { typeContainsRcType, typeToString } from "../../types/utils";
 import {
   createStructValue,
-  StructValue,
-  UnknownValue,
-  Value,
+  type StructValue,
+  type UnknownValue,
+  type Value,
 } from "../../value";
-import { CapturedVariableInfo, EvaluatorContext } from "../context";
+import type { CapturedVariableInfo, EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { autoDeriveTraitsAndAddRcFunctionsForStructType } from "../types/utils";
 

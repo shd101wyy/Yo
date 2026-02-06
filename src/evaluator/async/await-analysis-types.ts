@@ -5,7 +5,7 @@
  * This file should NOT import from expr.ts or other files that import from here.
  */
 
-import { Type } from "../../types/definitions";
+import type { Type } from "../../types/definitions";
 
 /**
  * Information about a single await expression found in an async function.

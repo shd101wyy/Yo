@@ -1,5 +1,5 @@
 import { BuiltinFunctions } from "../../expr";
-import { FunctionType } from "../../types/definitions";
+import type { FunctionType } from "../../types/definitions";
 import {
   isBoxedType,
   isFnTraitType,
@@ -8,9 +8,9 @@ import {
   isSomeType,
   isVoidType,
 } from "../../types/guards";
-import { isFunctionValue } from "../../value";
+import { isFunctionValue, type Value } from "../../value";
 import { getTypeString, sanitizeForCIdentifier } from "../utils";
-import { FunctionGenerationContext } from "./context";
+import type { FunctionGenerationContext } from "./context";
 
 /**
  * Generate dup/drop functions for dyn types
@@ -298,7 +298,7 @@ export function generateDynWrapperFunctions(
           continue;
         }
 
-        const fieldValue = moduleValue.fields[i];
+        const fieldValue: Value | undefined = moduleValue.fields[i];
 
         if (!fieldValue || !isFunctionValue(fieldValue)) {
           emitter.emitDeclarationLine(

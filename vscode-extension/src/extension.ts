@@ -42,13 +42,17 @@ import { isModuleValue, ModuleValue, valueToString } from "@yo/value";
 import { ValueTag } from "@yo/value-tag";
 
 const basicKeywords: string[] = [];
-for (const keyword in BuiltinKeywords) {
+for (const keyword of Object.keys(BuiltinKeywords) as Array<
+  keyof typeof BuiltinKeywords
+>) {
   basicKeywords.push(...BuiltinKeywords[keyword]);
 }
-for (const keyword in BuiltinFunctions) {
+for (const keyword of Object.keys(BuiltinFunctions) as Array<
+  keyof typeof BuiltinFunctions
+>) {
   basicKeywords.push(...BuiltinFunctions[keyword]);
 }
-for (const key in TypeTag) {
+for (const key of Object.keys(TypeTag) as Array<keyof typeof TypeTag>) {
   basicKeywords.push(TypeTag[key]);
 }
 
@@ -401,7 +405,7 @@ export function activate(context: vscode.ExtensionContext) {
         // Create a diagnostic
         const diagnostic = new vscode.Diagnostic(
           range,
-          error.toString(),
+          String(error),
           vscode.DiagnosticSeverity.Error
         );
 

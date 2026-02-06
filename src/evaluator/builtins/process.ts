@@ -1,9 +1,13 @@
-import { Environment } from "../../env";
+import type { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
-import { BuiltinFunctions, exprIsFunctionCallOf, FnCallExpr } from "../../expr";
+import {
+  BuiltinFunctions,
+  exprIsFunctionCallOf,
+  type FnCallExpr,
+} from "../../expr";
 import { createComptimeStringType } from "../../types/creators";
 import { createComptimeStringValue } from "../../value";
-import { EvaluatorContext } from "../context";
+import type { EvaluatorContext } from "../context";
 
 /**
  * Evaluate process-related builtin functions

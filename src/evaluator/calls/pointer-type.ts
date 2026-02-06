@@ -1,18 +1,18 @@
-import { Environment } from "../../env";
+import type { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   BuiltinFunctions,
-  Expr,
+  type Expr,
   ExprTag,
   exprToString,
-  FnCallExpr,
+  type FnCallExpr,
   replaceExprWithFuncCallExpr,
 } from "../../expr";
 import { TokenType } from "../../token";
-import { Type } from "../../types/definitions";
+import type { Type } from "../../types/definitions";
 import { isPtrType } from "../../types/guards";
 import { typeToString } from "../../types/utils";
-import { EvaluatorContext } from "../context";
+import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 
 /**

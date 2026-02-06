@@ -1,7 +1,7 @@
-import { exprIsFunctionCall, FnCallExpr } from "../../expr";
-import { FunctionGenerationContext } from "../functions/context";
+import { exprIsFunctionCall, type FnCallExpr } from "../../expr";
+import type { FunctionGenerationContext } from "../functions/context";
 import {
-  CodeGenContext,
+  type CodeGenContext,
   getVariableNameForCodegen,
   getVariableTypeString,
 } from "../utils";

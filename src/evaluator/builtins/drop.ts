@@ -1,5 +1,5 @@
 import {
-  Environment,
+  type Environment,
   getVariablesFromEnv,
   updateExistingVariable,
 } from "../../env";
@@ -7,10 +7,10 @@ import { formatErrorMessage } from "../../error";
 import {
   BuiltinFunctions,
   expectExprToBeFunctionCallOf,
-  Expr,
+  type Expr,
   exprIsFunctionCall,
   exprToString,
-  FnCallExpr,
+  type FnCallExpr,
   replaceFuncCallExprWithFuncCallExpr,
   setExprAsConsumed,
 } from "../../expr";
@@ -20,7 +20,7 @@ import { typeContainsRcType } from "../../types/utils";
 import { VUnit } from "../../unit-value";
 import { isNumberValue } from "../../value";
 import { evaluateFunctionCall } from "../calls/function";
-import { EvaluatorContext } from "../context";
+import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { typeImplementsFuture } from "../trait-checking";
 

@@ -1,4 +1,4 @@
-import { addVariableToEnv, Environment } from "../../env";
+import { addVariableToEnv, type Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   BuiltinKeywords,
@@ -6,13 +6,13 @@ import {
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
-  FnCallExpr,
+  type FnCallExpr,
 } from "../../expr";
-import { ModuleField } from "../../types/definitions";
+import { type ModuleField } from "../../types/definitions";
 import { isFunctionType, isTypeHierarchyType } from "../../types/guards";
 import { VUnit } from "../../unit-value";
 import { createUnknownValue, isComptimeStringValue } from "../../value";
-import { EvaluatorContext } from "../context";
+import { type EvaluatorContext } from "../context";
 import { evaluateModuleField } from "../types/module";
 import { evaluateExpression } from "./expr";
 

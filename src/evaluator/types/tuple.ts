@@ -1,11 +1,11 @@
-import { Environment } from "../../env";
+import type { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
-import { Expr, exprIsFunctionCall, FnCallExpr } from "../../expr";
+import { type Expr, exprIsFunctionCall, type FnCallExpr } from "../../expr";
 import { createTupleType, createUnitType } from "../../types/creators";
-import { TupleType, TypeField } from "../../types/definitions";
+import type { TupleType, TypeField } from "../../types/definitions";
 import { typeOfType } from "../../types/hierarchy";
 import { createTypeValue } from "../../value";
-import { EvaluatorContext } from "../context";
+import type { EvaluatorContext } from "../context";
 import { evaluateTypeField } from "./field";
 import { autoDeriveTraitsAndAddRcFunctionsForTupleType } from "./utils";
 

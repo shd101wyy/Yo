@@ -1,6 +1,6 @@
-import { FnCallExpr } from "../../expr";
+import type { FnCallExpr } from "../../expr";
 import { isBooleanValue } from "../../value";
-import { CodeGenContext } from "../utils";
+import type { CodeGenContext } from "../utils";
 import { generateExpr } from "./expr";
 
 /**

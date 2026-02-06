@@ -2,17 +2,17 @@
 import { formatErrorMessage } from "./error";
 import {
   BuiltinKeywords,
-  Expr,
+  type Expr,
   exprIsAtom,
   ExprTag,
   exprToString,
-  FnCallExpr,
+  type FnCallExpr,
 } from "./expr";
 import { tokenize } from "./lexer";
 import {
   findMatchingBracketTokenIndex,
   PlaceholderToken,
-  Token,
+  type Token,
   TokenType,
 } from "./token";
 
@@ -358,7 +358,7 @@ export default class Parser {
             tag: ExprTag.Atom,
             token: {
               type: TokenType.Identifier,
-              value: BuiltinKeywords.tuple,
+              value: BuiltinKeywords.tuple[0]!,
               position: tokens[index]!.position,
               modulePath: this.modulePath,
               inputString: this.inputString,
@@ -446,7 +446,7 @@ export default class Parser {
               type: TokenType.Identifier,
               value: isTupleType
                 ? BuiltinKeywords.Tuple[0]!
-                : BuiltinKeywords.tuple,
+                : BuiltinKeywords.tuple[0]!,
               position: tokens[startIndex]!.position,
               modulePath: this.modulePath,
               inputString: this.inputString,
@@ -544,7 +544,7 @@ export default class Parser {
               ? BuiltinKeywords.Array[0]!
               : isSliceType
                 ? BuiltinKeywords.Slice[0]!
-                : BuiltinKeywords.array,
+                : BuiltinKeywords.array[0]!,
             position: tokens[startIndex]!.position,
             modulePath: this.modulePath,
             inputString: this.inputString,
@@ -619,7 +619,7 @@ export default class Parser {
         ) {
           const token: Token = {
             type: TokenType.Identifier,
-            value: BuiltinKeywords.tuple,
+            value: BuiltinKeywords.tuple[0]!,
             position: lastNonWhiteSpaceToken.position,
             modulePath: this.modulePath,
             inputString: this.inputString,
@@ -1370,7 +1370,7 @@ or ) to end the function call`,
         exprs.push(expr);
         index = nextIndex;
       } catch (error) {
-        this.parserError = error;
+        this.parserError = error as Error;
         break;
       }
     }
@@ -1384,7 +1384,7 @@ or ) to end the function call`,
     ) {
       const token: Token = {
         type: TokenType.Identifier,
-        value: BuiltinKeywords.tuple,
+        value: BuiltinKeywords.tuple[0]!,
         position: lastNonWhiteSpaceToken.position,
         modulePath: this.modulePath,
         inputString: this.inputString,

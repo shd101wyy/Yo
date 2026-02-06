@@ -1,29 +1,29 @@
 import {
   cloneEnvForCTFECheck,
-  Environment,
+  type Environment,
   getReceiverMethodsByNameFromEnv,
   getTypeTraitMethodsByNameFromEnv,
   popEnvFrame,
 } from "../../env";
 import { formatErrorMessage, formatErrorMessages, YoError } from "../../error";
 import {
-  AtomExpr,
+  type AtomExpr,
   attachTempVariableToExpr,
   cloneExpr,
-  Expr,
+  type Expr,
   exprIsAtom,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   ExprTag,
   exprToString,
-  FnCallExpr,
+  type FnCallExpr,
 } from "../../expr";
-import { FunctionValue } from "../../function-value";
+import type { FunctionValue } from "../../function-value";
 import { stringIsOperator, TokenType } from "../../token";
-import { TypeValue } from "../../type-value";
+import type { TypeValue } from "../../type-value";
 import { areTypesCompatible } from "../../types/compatibility";
 import { createExprType } from "../../types/creators";
-import { FunctionType, SomeType, Type } from "../../types/definitions";
+import type { FunctionType, SomeType, Type } from "../../types/definitions";
 import {
   isArrayType,
   isComptimeFloatType,
@@ -59,13 +59,13 @@ import {
   isSliceValue,
   isTupleValue,
   isTypeValue,
-  Value,
+  type Value,
   valueToString,
 } from "../../value";
 import {
-  EvaluatorContext,
-  FunctionCallResult,
-  FunctionToCall,
+  type EvaluatorContext,
+  type FunctionCallResult,
+  type FunctionToCall,
   getArrayCallResult,
   getFunctionCallResult,
   getModuleTypeCallResult,

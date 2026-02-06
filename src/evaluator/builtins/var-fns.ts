@@ -1,13 +1,17 @@
-import { Environment, getVariableInfo, getVariablesFromEnv } from "../../env";
+import {
+  getVariableInfo,
+  getVariablesFromEnv,
+  type Environment,
+} from "../../env";
 import {
   BuiltinFunctions,
   expectExprToBeFunctionCallOf,
-  FnCallExpr,
+  type FnCallExpr,
 } from "../../expr";
 import { createBooleanType } from "../../types/creators";
 import { VUnit } from "../../unit-value";
 import { createBooleanValue } from "../../value";
-import { EvaluatorContext } from "../context";
+import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 
 export function evaluateYoVarPrintInfo({

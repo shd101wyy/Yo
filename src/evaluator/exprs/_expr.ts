@@ -1,15 +1,15 @@
-import { Environment } from "../../env";
+import { type Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   BuiltinFunctions,
   BuiltinKeywords,
-  Expr,
+  type Expr,
   exprIsAtom,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   ExprTag,
   exprToString,
-  FnCallExpr,
+  type FnCallExpr,
 } from "../../expr";
 import { TokenType } from "../../token";
 import { evaluateAlignOf } from "../builtins/alignof";
@@ -87,7 +87,7 @@ import {
 import { evaluateFunctionCall } from "../calls/function";
 import { evaluateIsoTypeCall } from "../calls/iso";
 import { evaluateRawPointerCall } from "../calls/pointer";
-import { EvaluatorContext } from "../context";
+import type { EvaluatorContext } from "../context";
 import { evaluateArrayType } from "../types/array";
 import { evaluateClosureType } from "../types/closure";
 import { evaluateComptimeListType } from "../types/comptime-list";

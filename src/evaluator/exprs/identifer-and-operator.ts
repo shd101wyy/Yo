@@ -1,6 +1,6 @@
-import { Environment, getVariablesFromEnv } from "../../env";
+import { type Environment, getVariablesFromEnv } from "../../env";
 import { formatErrorMessage } from "../../error";
-import { AtomExpr } from "../../expr";
+import { type AtomExpr } from "../../expr";
 import {
   createBooleanType,
   createCharType,
@@ -37,7 +37,7 @@ import {
 import { isFunctionType } from "../../types/guards";
 import { TypeTag } from "../../types/tags";
 import { createTypeValue, isTypeValue } from "../../value";
-import { EvaluatorContext, trackVariableUsage } from "../context";
+import { type EvaluatorContext, trackVariableUsage } from "../context";
 
 export function evaluateIdentifierAndOperator({
   expr,

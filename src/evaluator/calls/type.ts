@@ -1,24 +1,24 @@
-import { Environment } from "../../env";
+import type { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
-  Expr,
+  type Expr,
   exprIsAtom,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
-  PathCollection,
+  type PathCollection,
   setExprAsNeedsToCallDup,
 } from "../../expr";
 import { areTypesCompatible } from "../../types/compatibility";
-import { TypeField } from "../../types/definitions";
+import type { TypeField } from "../../types/definitions";
 import {
   convertComptimeTypeToRuntimeType,
   isComptimeOnlyType,
   tupleFieldToString,
   typeToString,
 } from "../../types/utils";
-import { Value } from "../../value";
-import { EvaluatorContext, TypeCallResult } from "../context";
+import type { Value } from "../../value";
+import type { EvaluatorContext, TypeCallResult } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 
 /**

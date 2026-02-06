@@ -1,12 +1,12 @@
-import { Environment } from "../../env";
+import type { Environment } from "../../env";
 import { formatErrorMessage, YoError } from "../../error";
-import { exprIsFunctionCall, exprToString, FnCallExpr } from "../../expr";
+import { exprIsFunctionCall, exprToString, type FnCallExpr } from "../../expr";
 import { createExprType } from "../../types/creators";
 import { isComptimeIntType, isExprType } from "../../types/guards";
 import { typeToString } from "../../types/utils";
 import { createExprValue, isComptimeIntValue, isExprValue } from "../../value";
 import { evaluateFunctionCall } from "../calls/function";
-import { EvaluatorContext } from "../context";
+import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { processUnquotesInExpr } from "./quote";
 

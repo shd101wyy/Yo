@@ -3,9 +3,9 @@ import {
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
-  FnCallExpr,
+  type FnCallExpr,
 } from "../../expr";
-import { ArrayType, SliceType } from "../../types/definitions";
+import type { ArrayType, SliceType } from "../../types/definitions";
 import { isArrayType, isPtrType, isSliceType } from "../../types/guards";
 import {
   isBooleanValue,
@@ -13,7 +13,7 @@ import {
   isNumberValue,
 } from "../../value";
 import {
-  CodeGenContext,
+  type CodeGenContext,
   getTypeString,
   sanitizeForCIdentifier,
 } from "../utils";

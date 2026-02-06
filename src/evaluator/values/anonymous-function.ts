@@ -1,6 +1,6 @@
 import {
   addVariableToEnv,
-  Environment,
+  type Environment,
   keepTopLevelFrameAndComptimeVariablesFromEnv,
   popEnvFrame,
   pushEnvFrame,
@@ -10,21 +10,21 @@ import {
   attachTempVariableToExpr,
   BuiltinKeywords,
   cloneExpr,
-  Expr,
+  type Expr,
   exprIsAtom,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
-  FnCallExpr,
+  type FnCallExpr,
 } from "../../expr";
-import {
+import type {
   FunctionCapturedVariableInfo,
   FunctionValue,
 } from "../../function-value";
 import { PlaceholderToken } from "../../token";
 import { areTypesCompatible } from "../../types/compatibility";
 import { createFnTraitType } from "../../types/creators";
-import {
+import type {
   FnTraitType,
   FunctionType,
   SomeType,
@@ -34,10 +34,10 @@ import {
 import { isDynType, isFunctionType, isSomeType } from "../../types/guards";
 import { typeContainsSomeType, typeToString } from "../../types/utils";
 import { randomId } from "../../utils";
-import { createUnknownValue, Value } from "../../value";
+import { createUnknownValue, type Value } from "../../value";
 import { ValueTag } from "../../value-tag";
 import { createFunctionBodyEvaluationContext } from "../calls/function-type";
-import { EvaluatorContext } from "../context";
+import { type EvaluatorContext } from "../context";
 import { analyzeCtfeCapability } from "../ctfe/ctfe-analysis";
 import { evaluateBeginExpression } from "../exprs/begin";
 import { extractFnTraitFromType } from "../trait-checking";

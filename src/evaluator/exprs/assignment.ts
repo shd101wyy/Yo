@@ -1,5 +1,5 @@
 import {
-  Environment,
+  type Environment,
   getVariablesFromEnv,
   getVariablesFromEnvByFilter,
   updateExistingVariable,
@@ -8,19 +8,19 @@ import { formatErrorMessage, formatErrorMessages } from "../../error";
 import {
   attachTempVariableToExpr,
   BuiltinKeywords,
-  ControlFlowKind,
-  Expr,
+  type ControlFlowKind,
+  type Expr,
   exprIsAtom,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
-  FnCallExpr,
+  type FnCallExpr,
   requireExprNotConsumed,
   setExprAsNeedsToCallDup,
 } from "../../expr";
 import { areTypesCompatible } from "../../types/compatibility";
 import { createArrayType } from "../../types/creators";
-import {
+import type {
   ArrayType,
   EnumType,
   SomeType,
@@ -57,11 +57,11 @@ import {
   isTupleValue,
   isTypeValue,
   isUnknownValue,
-  StructValue,
-  TupleValue,
-  Value,
+  type StructValue,
+  type TupleValue,
+  type Value,
 } from "../../value";
-import { EvaluatorContext, trackVariableUsage } from "../context";
+import { type EvaluatorContext, trackVariableUsage } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { synthesizeExprAndType } from "../types/expr-synthesizer";
 import { findRcValueOwnerRelationship } from "../utils";

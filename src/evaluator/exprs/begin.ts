@@ -1,12 +1,12 @@
 import {
   addVariableToEnv,
-  Environment,
+  type Environment,
   getVariablesFromEnv,
   getVariablesNeedingDrop,
   popEnvFrame,
   pushEnvFrame,
   updateExistingVariable,
-  Variable,
+  type Variable,
 } from "../../env";
 import { formatErrorMessage, formatErrorMessages } from "../../error";
 import {
@@ -15,14 +15,14 @@ import {
   BuiltinKeywords,
   cloneExpr,
   expectExprToBeFunctionCallOf,
-  Expr,
+  type Expr,
   exprIsAtom,
   exprIsAtomOf,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   ExprTag,
   exprToString,
-  FnCallExpr,
+  type FnCallExpr,
   replaceFuncCallExprWithFuncCallExpr,
   setExprAsNeedsToCallDup,
 } from "../../expr";
@@ -31,7 +31,7 @@ import { areTypesCompatible } from "../../types/compatibility";
 import { isObjectType, isSomeType } from "../../types/guards";
 import { typeContainsRcType, typeToString } from "../../types/utils";
 import { VUnit } from "../../unit-value";
-import { EvaluatorContext } from "../context";
+import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { synthesizeTypes } from "../types/synthesizer";
 

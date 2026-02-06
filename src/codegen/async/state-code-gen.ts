@@ -6,22 +6,22 @@
  */
 
 import { getVariablesFromEnv } from "../../env";
-import { AwaitPoint } from "../../evaluator/async/await-analysis";
+import type { AwaitPoint } from "../../evaluator/async/await-analysis";
 import {
   BuiltinFunctions,
   BuiltinKeywords,
-  Expr,
+  type Expr,
   ExprTag,
   exprIsAtom,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
 } from "../../expr";
 import { TokenType } from "../../token";
-import { EnumType } from "../../types/definitions";
+import type { EnumType } from "../../types/definitions";
 import { isEnumType } from "../../types/guards";
 import { isTempVariableName } from "../../utils";
 import { generateExpr } from "../exprs/expr";
-import { FunctionGenerationContext } from "../functions/context";
+import type { FunctionGenerationContext } from "../functions/context";
 import {
   canOptimizeAsNullablePointer,
   getTypeString,

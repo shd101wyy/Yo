@@ -1,8 +1,8 @@
-import { Environment } from "../../env";
+import type { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
-import { FnCallExpr } from "../../expr";
+import type { FnCallExpr } from "../../expr";
 import { typeToString } from "../../types/utils";
-import { EvaluatorContext } from "../context";
+import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { extractFutureTraitFromType } from "../trait-checking";
 

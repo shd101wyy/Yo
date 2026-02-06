@@ -1,5 +1,5 @@
-import { FnCallExpr } from "../../expr";
-import { CodeGenContext } from "../utils";
+import type { FnCallExpr } from "../../expr";
+import type { CodeGenContext } from "../utils";
 
 /**
  * __yo_gc_collect - trigger garbage collection

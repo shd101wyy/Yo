@@ -1,24 +1,24 @@
 import {
   addVariableToEnv,
-  Environment,
+  type Environment,
   getVariablesFromEnv,
   pushEnvFrame,
 } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
-  AtomExpr,
+  type AtomExpr,
   attachTempVariableToExpr,
   BuiltinKeywords,
   expectExprToBeFunctionCallOf,
-  Expr,
+  type Expr,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   ExprTag,
   exprToString,
-  FnCallExpr,
+  type FnCallExpr,
   setExprAsNeedsToCallDup,
 } from "../../expr";
-import { FunctionValue } from "../../function-value";
+import type { FunctionValue } from "../../function-value";
 import { PlaceholderToken, TokenType } from "../../token";
 import { areTypesCompatible } from "../../types/compatibility";
 import {
@@ -26,7 +26,7 @@ import {
   createSomeType,
   createType0,
 } from "../../types/creators";
-import {
+import type {
   DynType,
   SomeType,
   StructType,
@@ -47,11 +47,11 @@ import {
   isFunctionValue,
   isTraitValue,
   isTypeValue,
-  TraitValue,
-  Value,
+  type TraitValue,
+  type Value,
 } from "../../value";
 import { evaluateComptimeFunctionCall } from "../calls/comptime-fn";
-import { EvaluatorContext } from "../context";
+import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { typeImplementsFuture } from "../trait-checking";
 import { addRcFunctionsToDynType } from "../types/utils";

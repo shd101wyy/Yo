@@ -1,15 +1,15 @@
-import { Environment } from "../../env";
+import type { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   BuiltinKeywords,
-  Expr,
+  type Expr,
   exprIsAtom,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
 } from "../../expr";
 import { areTypesCompatible } from "../../types/compatibility";
-import { Type, TypeField } from "../../types/definitions";
+import type { Type, TypeField } from "../../types/definitions";
 import {
   isModuleType,
   isStructType,
@@ -18,8 +18,8 @@ import {
 } from "../../types/guards";
 import { prohibitVoidType, typeToString } from "../../types/utils";
 import { VUnit } from "../../unit-value";
-import { isTypeValue, Value } from "../../value";
-import { EvaluatorContext } from "../context";
+import { isTypeValue, type Value } from "../../value";
+import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { isValidVariableName } from "../utils";
 

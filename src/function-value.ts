@@ -1,7 +1,7 @@
-import { Environment } from "./env";
-import { CapturedVariableInfo } from "./evaluator/context";
-import { Expr } from "./expr";
-import { FnTraitType, FunctionType, Type } from "./types/definitions";
+import type { Environment } from "./env";
+import type { CapturedVariableInfo } from "./evaluator/context";
+import type { Expr } from "./expr";
+import type { FnTraitType, FunctionType, Type } from "./types/definitions";
 import type { Value } from "./value";
 import { ValueTag } from "./value-tag";
 

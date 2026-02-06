@@ -1,5 +1,5 @@
 import { typeImplementsFuture } from "../evaluator/trait-checking";
-import {
+import type {
   ArrayType,
   ComptimeListType,
   ConcreteModuleType,

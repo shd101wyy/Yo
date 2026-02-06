@@ -1,5 +1,10 @@
 import { YoLexerError } from "./error";
-import { charIsOperator, IdentifierRegex, Token, TokenType } from "./token";
+import {
+  charIsOperator,
+  IdentifierRegex,
+  type Token,
+  TokenType,
+} from "./token";
 
 /**
  * Lexer

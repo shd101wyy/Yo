@@ -1,5 +1,5 @@
 import { createUnitType } from "./types/creators";
-import { Type } from "./types/definitions";
+import type { Type } from "./types/definitions";
 import { ValueTag } from "./value-tag";
 
 export type UnitValue = {

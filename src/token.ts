@@ -160,7 +160,7 @@ export function findMatchingBracketTokenIndex(
   } else if (startBracketType === TokenType.LBracket) {
     endBracketType = TokenType.RBracket;
   } else {
-    throw this.formatErrorMessage(tokens[index], "Expected '{', '(' or '['");
+    throw new Error("Expected '{', '(' or '['");
   }
   index = index + 1;
   let count = 1;

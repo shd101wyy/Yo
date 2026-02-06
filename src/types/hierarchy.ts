@@ -1,7 +1,7 @@
 import { formatErrorMessage } from "../error";
-import { Token } from "../token";
+import type { Token } from "../token";
 import { createType0, createTypeHierarchy } from "./creators";
-import {
+import type {
   FunctionParameter,
   Type,
   TypeField,

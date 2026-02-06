@@ -1,22 +1,22 @@
-import { Environment } from "../../env";
+import type { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   BuiltinFunctions,
   expectExprToBeFunctionCallOf,
-  FnCallExpr,
+  type FnCallExpr,
 } from "../../expr";
 import { createUsizeType } from "../../types/creators";
-import { Type } from "../../types/definitions";
+import type { Type } from "../../types/definitions";
 import { getAlignmentOfType } from "../../types/utils";
 import {
   createNumberValue,
   createUnknownValue,
   isTypeValue,
-  NumberValue,
-  UnknownValue,
+  type NumberValue,
+  type UnknownValue,
 } from "../../value";
 import { ValueTag } from "../../value-tag";
-import { EvaluatorContext } from "../context";
+import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 
 export function evaluateAlignOf({

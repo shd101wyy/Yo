@@ -1,9 +1,9 @@
-import { Environment } from "../../env";
+import type { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
-import { exprToString, FnCallExpr } from "../../expr";
+import { exprToString, type FnCallExpr } from "../../expr";
 import { VUnit } from "../../unit-value";
 import { isComptimeStringValue, valueToString } from "../../value";
-import { EvaluatorContext } from "../context";
+import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 
 export function evaluateComptimePrint({

@@ -1,9 +1,13 @@
-import { Environment } from "../../env";
+import type { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
-import { Expr, FnCallExpr, setExprAsNeedsToCallDup } from "../../expr";
+import {
+  type Expr,
+  type FnCallExpr,
+  setExprAsNeedsToCallDup,
+} from "../../expr";
 import { areTypesCompatible } from "../../types/compatibility";
 import { createArrayType } from "../../types/creators";
-import { ArrayType } from "../../types/definitions";
+import type { ArrayType } from "../../types/definitions";
 import { isArrayType } from "../../types/guards";
 import { typeToString } from "../../types/utils";
 import {
@@ -12,9 +16,9 @@ import {
   createUnknownValue,
   isNumberValue,
   isUnknownValue,
-  Value,
+  type Value,
 } from "../../value";
-import { EvaluatorContext } from "../context";
+import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 
 /**

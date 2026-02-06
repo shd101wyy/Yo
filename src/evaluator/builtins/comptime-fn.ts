@@ -1,8 +1,8 @@
-import { Environment } from "../../env";
+import type { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
-import { FnCallExpr } from "../../expr";
+import type { FnCallExpr } from "../../expr";
 import { isFunctionValue, valueToString } from "../../value";
-import { EvaluatorContext } from "../context";
+import type { EvaluatorContext } from "../context";
 import { analyzeCtfeCapability } from "../ctfe/ctfe-analysis";
 import { evaluateExpression } from "../exprs/expr";
 

@@ -1,19 +1,19 @@
 import {
   createEmptyEnv,
-  Environment,
-  Frame,
+  type Environment,
+  type Frame,
   getVariablesFromEnv,
 } from "../env";
-import { EvaluatorContext } from "../evaluator/context";
+import type { EvaluatorContext } from "../evaluator/context";
 import {
   addRcFunctionsToSomeType,
   attachTraitToReceiverType,
 } from "../evaluator/types/utils";
-import { Expr } from "../expr";
-import { FunctionValue } from "../function-value";
+import type { Expr } from "../expr";
+import type { FunctionValue } from "../function-value";
 import { hashString, randomId } from "../utils";
-import { isTypeValue, Value, valueToString } from "../value";
-import {
+import { isTypeValue, type Value, valueToString } from "../value";
+import type {
   ArrayType,
   ComptimeListType,
   DynType,

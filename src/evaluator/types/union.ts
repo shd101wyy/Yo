@@ -1,17 +1,17 @@
-import { Environment } from "../../env";
+import type { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   BuiltinKeywords,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
-  FnCallExpr,
+  type FnCallExpr,
 } from "../../expr";
 import { createUnionType } from "../../types/creators";
-import { TypeField } from "../../types/definitions";
+import { type TypeField } from "../../types/definitions";
 import { typeContainsRcType } from "../../types/utils";
 import { createTypeValue } from "../../value";
-import { EvaluatorContext } from "../context";
+import { type EvaluatorContext } from "../context";
 import { typeImplementsRuntime, typeIsComptimeOnly } from "../trait-checking";
 import { evaluateTypeField } from "./field";
 import {

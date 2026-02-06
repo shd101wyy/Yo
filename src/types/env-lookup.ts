@@ -5,11 +5,11 @@
  * These functions are used by both types/utils.ts and evaluator/trait-checking.ts.
  */
 
-import { Environment, getVariablesFromEnv } from "../env";
-import { TypeValue } from "../type-value";
+import { type Environment, getVariablesFromEnv } from "../env";
+import type { TypeValue } from "../type-value";
 import { isTypeValue } from "../value";
 import { ValueTag } from "../value-tag";
-import { SomeType, TraitType, Type } from "./definitions";
+import type { SomeType, TraitType, Type } from "./definitions";
 import { isSomeType, isTraitType } from "./guards";
 
 /**

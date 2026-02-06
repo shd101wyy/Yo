@@ -1,7 +1,7 @@
 import { typeImplementsFuture } from "../../evaluator/trait-checking";
-import { Expr } from "../../expr";
-import { FuncValueId } from "../../function-value";
-import { FunctionType } from "../../types/definitions";
+import type { Expr } from "../../expr";
+import type { FuncValueId } from "../../function-value";
+import type { FunctionType } from "../../types/definitions";
 import {
   isFunctionSpecializable,
   isFunctionType,
@@ -10,14 +10,14 @@ import {
 } from "../../types/guards";
 import { typeContainsSomeType, typeToString } from "../../types/utils";
 import {
-  CodeGenContext,
+  type CodeGenContext,
   findReturnedAsyncBlock,
   getTypeString,
   isComptimeFunction,
   isFunctionValueWithOnlyBuiltinYoInlineFunctionCall,
   sanitizeForCIdentifier,
 } from "../utils";
-import { FunctionGenerationContext } from "./context";
+import type { FunctionGenerationContext } from "./context";
 
 /**
  * Generate function declarations (prototypes)

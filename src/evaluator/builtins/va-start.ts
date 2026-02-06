@@ -1,5 +1,5 @@
 import {
-  Environment,
+  type Environment,
   getVariablesFromEnv,
   updateExistingVariable,
 } from "../../env";
@@ -9,10 +9,10 @@ import {
   expectExprToBeFunctionCallOf,
   exprIsAtom,
   exprToString,
-  FnCallExpr,
+  type FnCallExpr,
 } from "../../expr";
 import { VUnit } from "../../unit-value";
-import { EvaluatorContext } from "../context";
+import type { EvaluatorContext } from "../context";
 import { isValidVariableName } from "../utils";
 
 /**

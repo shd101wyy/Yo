@@ -4,20 +4,20 @@
  * Generates C code for async function state machines.
  */
 
-import {
+import type {
   AwaitAnalysisResult,
   AwaitPoint,
   CapturedVariable,
 } from "../../evaluator/async/await-analysis";
 import { extractFutureTraitFromType } from "../../evaluator/trait-checking";
-import { Expr, exprIsFunctionCallOf, ExprTag } from "../../expr";
-import { DynType, SomeType, StructType } from "../../types/definitions";
+import { type Expr, exprIsFunctionCallOf, ExprTag } from "../../expr";
+import type { DynType, SomeType, StructType } from "../../types/definitions";
 import { isDynType, isSomeType, isUnitType } from "../../types/guards";
 import { typeContainsRcType } from "../../types/utils";
 import { isTempVariableName } from "../../utils";
 import { getDupFunctionForType } from "../exprs/drop-dup";
 import { generateExpr } from "../exprs/expr";
-import { FunctionGenerationContext } from "../functions/context";
+import type { FunctionGenerationContext } from "../functions/context";
 import { sanitizeForCIdentifier } from "../utils";
 import {
   generateStateSegmentCode,

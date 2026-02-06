@@ -2,13 +2,13 @@ import {
   BuiltinKeywords,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
-  FnCallExpr,
+  type FnCallExpr,
 } from "../../expr";
 import { isUnitType } from "../../types/guards";
 import { isTempVariableName } from "../../utils";
 import { isBooleanValue } from "../../value";
-import { FunctionGenerationContext } from "../functions/context";
-import { CodeGenContext, getTypeString } from "../utils";
+import { type FunctionGenerationContext } from "../functions/context";
+import { type CodeGenContext, getTypeString } from "../utils";
 import {
   generateDeferredDropExpressions,
   generateDeferredDupExpressions,

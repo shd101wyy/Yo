@@ -1,9 +1,9 @@
-import { Environment, getVariablesFromEnv } from "./env";
-import { EvaluatorContext } from "./evaluator/context";
-import { Expr, exprsAreEqual, exprToString } from "./expr";
-import { FunctionValue } from "./function-value";
+import { type Environment, getVariablesFromEnv } from "./env";
+import { type EvaluatorContext } from "./evaluator/context";
+import { type Expr, exprsAreEqual, exprToString } from "./expr";
+import type { FunctionValue } from "./function-value";
 import { stringIsOperator } from "./token";
-import { TypeValue } from "./type-value";
+import type { TypeValue } from "./type-value";
 import { areTypesCompatible } from "./types/compatibility";
 import {
   createBooleanType,
@@ -26,7 +26,7 @@ import {
   createU8Type,
   createUsizeType,
 } from "./types/creators";
-import {
+import type {
   ArrayType,
   ComptimeListType,
   EnumType,
@@ -42,7 +42,7 @@ import {
 import { isExprType, isTypeHierarchyType } from "./types/guards";
 import { typeOfType } from "./types/hierarchy";
 import { typeToString } from "./types/utils";
-import { UnitValue } from "./unit-value";
+import type { UnitValue } from "./unit-value";
 import { ValueTag } from "./value-tag";
 
 export type ComptimeStringValue = {

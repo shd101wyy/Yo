@@ -1,11 +1,11 @@
-import { Environment } from "../../env";
+import type { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
-import { Expr, exprToString, FnCallExpr } from "../../expr";
+import { type Expr, exprToString, type FnCallExpr } from "../../expr";
 import { isBooleanType, isUnitType } from "../../types/guards";
 import { typeToString } from "../../types/utils";
 import { VUnit } from "../../unit-value";
 import { isBooleanValue } from "../../value";
-import { EvaluatorContext } from "../context";
+import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { evaluateBeginExpression } from "./begin";
 

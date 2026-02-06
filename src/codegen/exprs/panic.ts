@@ -1,6 +1,6 @@
-import { FnCallExpr } from "../../expr";
+import type { FnCallExpr } from "../../expr";
 import { isComptimeStringValue } from "../../value";
-import { CodeGenContext, getTypeString } from "../utils";
+import { type CodeGenContext, getTypeString } from "../utils";
 import { generateExpr } from "./expr";
 
 export function generatePanic(

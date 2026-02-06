@@ -1,7 +1,7 @@
-import { Environment } from "../../env";
+import type { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
-import { FnCallExpr, exprToString } from "../../expr";
-import { Token } from "../../token";
+import { exprToString, type FnCallExpr } from "../../expr";
+import type { Token } from "../../token";
 import {
   createBooleanType,
   createComptimeFloatType,
@@ -20,7 +20,7 @@ import {
   createU8Type,
   createUsizeType,
 } from "../../types/creators";
-import { Type } from "../../types/definitions";
+import type { Type } from "../../types/definitions";
 import {
   isCCompatibleType,
   isFloatType,
@@ -28,8 +28,6 @@ import {
 } from "../../types/guards";
 import { TypeTag } from "../../types/tags";
 import {
-  NumberValue,
-  Value,
   createBooleanValue,
   createComptimeFloatValue,
   createComptimeIntValue,
@@ -39,10 +37,12 @@ import {
   isComptimeFloatValue,
   isComptimeIntValue,
   isNumberValue,
+  type NumberValue,
+  type Value,
 } from "../../value";
 import { ValueTag } from "../../value-tag";
 import { getNumericBounds } from "../calls/numeric-type";
-import { EvaluatorContext } from "../context";
+import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 
 // Helper function to extract numeric value from a Value

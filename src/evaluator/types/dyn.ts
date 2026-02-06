@@ -1,4 +1,4 @@
-import { Environment } from "../../env";
+import type { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   BuiltinFunctions,
@@ -6,14 +6,14 @@ import {
   expectExprToBeFunctionCallOf,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
-  FnCallExpr,
+  type FnCallExpr,
 } from "../../expr";
 import { createDynType } from "../../types/creators";
-import { TraitType } from "../../types/definitions";
+import type { TraitType } from "../../types/definitions";
 import { isFunctionType, isTraitType } from "../../types/guards";
 import { typeToString } from "../../types/utils";
 import { createTypeValue, isTypeValue } from "../../value";
-import { EvaluatorContext } from "../context";
+import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { addRcFunctionsToDynType } from "./utils";
 

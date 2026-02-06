@@ -1,12 +1,12 @@
 import {
   BuiltinKeywords,
-  Expr,
+  type Expr,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
-  FnCallExpr,
+  type FnCallExpr,
 } from "../../expr";
-import { FunctionGenerationContext } from "../functions/context";
-import { CodeGenContext } from "../utils";
+import type { FunctionGenerationContext } from "../functions/context";
+import type { CodeGenContext } from "../utils";
 import { generateExpr } from "./expr";
 
 /**

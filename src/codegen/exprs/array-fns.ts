@@ -1,10 +1,10 @@
-import { exprIsFunctionCall, FnCallExpr } from "../../expr";
+import { exprIsFunctionCall, type FnCallExpr } from "../../expr";
 import { isArrayType } from "../../types/guards";
 import { randomId } from "../../utils";
 import { isNumberValue, isTypeValue } from "../../value";
-import { FunctionGenerationContext } from "../functions/context";
+import { type FunctionGenerationContext } from "../functions/context";
 import {
-  CodeGenContext,
+  type CodeGenContext,
   getTypeString,
   getVariableNameForCodegen,
   getVariableTypeString,

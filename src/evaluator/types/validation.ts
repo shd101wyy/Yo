@@ -1,7 +1,7 @@
 import { formatErrorMessage } from "../../error";
 import { BuiltinFunctions } from "../../expr";
-import { Token } from "../../token";
-import { ModuleField } from "../../types/definitions";
+import type { Token } from "../../token";
+import type { ModuleField } from "../../types/definitions";
 import { isFunctionType, isUnitType } from "../../types/guards";
 
 /**

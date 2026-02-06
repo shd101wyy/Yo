@@ -1,12 +1,12 @@
-import { Environment } from "../../env";
+import type { Environment } from "../../env";
 import {
   BuiltinFunctions,
-  Expr,
-  FnCallExpr,
+  type Expr,
+  type FnCallExpr,
   expectExprToBeFunctionCallOf,
 } from "../../expr";
 import { VUnit } from "../../unit-value";
-import { EvaluatorContext } from "../context";
+import type { EvaluatorContext } from "../context";
 
 /**
  * Evaluate __yo_gc_collect() builtin function
