@@ -69,9 +69,16 @@ export function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
       const variables = getVariablesFromEnv(expr.$.env, varName);
       if (variables.length > 0) {
         const variable = variables[variables.length - 1]!; // Most recent scope
-        const varId = variable.isOwningTheSameRcValueAs
+        let varId = variable.isOwningTheSameRcValueAs
           ? variable.isOwningTheSameRcValueAs.id
           : variable.id;
+
+        // Resolve SSA-renamed variable IDs to their original/canonical IDs.
+        // When a variable is reassigned in a loop, the evaluator creates a new SSA ID
+        // (e.g., "offset" -> "offset_1"), but both must map to the same struct field.
+        if (functionContext.variableIdRemapping?.has(varId)) {
+          varId = functionContext.variableIdRemapping.get(varId)!;
+        }
 
         // Check if this variable ID is in the state machine
         const capturedVar = functionContext.stateMachineVariables.get(varId);
@@ -83,7 +90,7 @@ export function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
           const fieldName =
             capturedVar.kind === "outer"
               ? `__capture.${varName}`
-              : `var_${varId}`;
+              : `var_${capturedVar.id}`;
           foundInStateMachine = true;
           return `sm->${fieldName}`;
         }

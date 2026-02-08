@@ -109,4 +109,13 @@ export interface AwaitAnalysisResult {
    * Whether this function contains any await expressions
    */
   hasAwaits: boolean;
+
+  /**
+   * Maps SSA-renamed variable IDs to their original/canonical IDs.
+   * When a variable is reassigned inside an async block, the evaluator creates
+   * a new SSA variable ID. This remapping allows the codegen to resolve all
+   * versions of a variable to the same state machine struct field, which is
+   * essential for loops where the condition and body must reference the same field.
+   */
+  variableIdRemapping: Map<string, string>;
 }
