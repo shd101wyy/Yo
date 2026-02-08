@@ -4,6 +4,8 @@
 // access mode constants, copyfile flags, directory entry types,
 // and default permission modes.
 
+{ platform, Platform } :: import "../process";
+
 // Import platform-correct open flags from libc
 {
   O_RDONLY, O_WRONLY, O_RDWR, O_CREAT, O_EXCL, O_TRUNC, O_APPEND,
@@ -14,7 +16,10 @@
 // AT_* Flags
 // ============================================================================
 
-AT_FDCWD :: i32(-100);
+AT_FDCWD :: cond(
+  (platform == Platform.Darwin) => i32(-2),
+  true => i32(-100)
+);
 AT_REMOVEDIR :: i32(0x200);
 AT_EMPTY_PATH :: i32(0x1000);
 AT_SYMLINK_NOFOLLOW :: i32(0x100);

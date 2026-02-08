@@ -207,3 +207,12 @@ The SomeType in Yo by defaults automatically implements the `Runtime` trait
 Never try to write function to resolve SomeType, as struct/enum/union etc are all nominal types, simply replacing SomeType in them will cause problem.
 
 There is no `loop` function. You need to use `while runtime(true), body` for runtime, or `while true, body` for comptime.
+
+The current goal is to make Yo work on Linux, macOS, and Windows. You can use `process.yo` module `platform` and `Platform` to do platform-specific code, eg:
+
+```
+AF_INET6  :: cond(
+  (platform == Platform.Darwin) => i32(30),
+  true => i32(10)
+);
+```

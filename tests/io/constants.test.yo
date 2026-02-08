@@ -17,7 +17,10 @@ test "Test IO constants", {
   assert(constants.DEFAULT_DIR_MODE == u32(0o755));
 
   // AT_* flags
-  assert(constants.AT_FDCWD == i32(-100));
+  cond(
+    (platform == Platform.Darwin) => assert(constants.AT_FDCWD == i32(-2)),
+    true => assert(constants.AT_FDCWD == i32(-100))
+  );
 
   // Access mode constants
   assert(constants.F_OK == i32(0));
