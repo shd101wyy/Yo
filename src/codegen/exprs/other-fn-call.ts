@@ -58,6 +58,48 @@ import {
 } from "./parallelism";
 
 /**
+ * In async state machine context, stores a local temp variable to its
+ * corresponding sm->var_xxx field. This ensures deferred drops in the final
+ * state can access a valid value instead of the zero-initialized struct field.
+ */
+function storeTempVarToStateMachineIfNeeded(
+  tempVar: string,
+  indent: string,
+  context: CodeGenContext
+): void {
+  const functionContext = context as FunctionGenerationContext;
+  if (
+    !functionContext.inStateMachine ||
+    !functionContext.stateMachineVariables
+  ) {
+    return;
+  }
+
+  let capturedVar = functionContext.stateMachineVariables.get(tempVar);
+  if (!capturedVar) {
+    for (const [, cv] of functionContext.stateMachineVariables) {
+      if (cv.name === tempVar) {
+        capturedVar = cv;
+        break;
+      }
+    }
+  }
+  if (capturedVar && capturedVar.kind !== "outer") {
+    // Skip Future-typed temps — their lifecycle is managed by the await logic
+    // (await_future_X fields), and the deferred drops already have NULL checks.
+    // Storing them here would cause double-free.
+    if (capturedVar.type && typeImplementsFuture(capturedVar.type)) {
+      return;
+    }
+    const smFieldName = `var_${capturedVar.id}`;
+    const sanitizedTempVar = sanitizeForCIdentifier(tempVar);
+    context.emitter.emitLine(
+      `${indent}sm->${smFieldName} = ${sanitizedTempVar};`
+    );
+  }
+}
+
+/**
  * Other function call
  */
 export function generateOtherFunctionCall(
@@ -158,6 +200,11 @@ export function generateOtherFunctionCall(
                 `${indent}${varTypeAndName} = ${argCode};`
               );
               emittedTempVarDeclaration = true;
+              storeTempVarToStateMachineIfNeeded(
+                arg.$.variableName,
+                indent,
+                context
+              );
             }
           }
 
@@ -435,6 +482,7 @@ export function generateOtherFunctionCall(
               context.emitter.emitLine(
                 `${indent}${cTypeString} ${tempVar} = ${cFuncName}(${argsList});`
               );
+              storeTempVarToStateMachineIfNeeded(tempVar, indent, context);
 
               // Handle deferred drop expressions if they exist
               if (expr.$?.deferredDropExpressions) {
@@ -491,6 +539,7 @@ export function generateOtherFunctionCall(
               context.emitter.emitLine(
                 `${indent}${getTypeString(typeToUse, context)} ${tempVar} = ${funcCode}(${argsList});`
               );
+              storeTempVarToStateMachineIfNeeded(tempVar, indent, context);
 
               // Handle deferred drop expressions if they exist
               if (expr.$?.deferredDropExpressions) {
@@ -562,6 +611,11 @@ export function generateOtherFunctionCall(
               );
               context.emitter.emitLine(
                 `${indent}${varTypeAndName} = ${argCode};`
+              );
+              storeTempVarToStateMachineIfNeeded(
+                arg.$.variableName,
+                indent,
+                context
               );
             }
           }
@@ -671,6 +725,7 @@ export function generateOtherFunctionCall(
             context.emitter.emitLine(
               `${indent}${getTypeString(returnType, context)} ${tempVar} = ${closureCall};`
             );
+            storeTempVarToStateMachineIfNeeded(tempVar, indent, context);
 
             // Handle deferred drop expressions if they exist
             if (expr.$?.deferredDropExpressions) {
@@ -760,6 +815,7 @@ export function generateOtherFunctionCall(
             context.emitter.emitLine(
               `${indent}${varTypeAndName} = ${newtypeValue};`
             );
+            storeTempVarToStateMachineIfNeeded(tempVar, indent, context);
             return tempVar;
           } else {
             return newtypeValue;
@@ -826,6 +882,7 @@ export function generateOtherFunctionCall(
             context.emitter.emitLine(
               `${indent}${varTypeAndName} = ${structValue};`
             );
+            storeTempVarToStateMachineIfNeeded(tempVar, indent, context);
             return tempVar;
           } else {
             return structValue;
@@ -896,6 +953,7 @@ export function generateOtherFunctionCall(
             context.emitter.emitLine(
               `${indent}${varTypeAndName} = ${structValue};`
             );
+            storeTempVarToStateMachineIfNeeded(tempVar, indent, context);
             return tempVar;
           } else {
             return structValue;
@@ -955,6 +1013,7 @@ export function generateOtherFunctionCall(
             context.emitter.emitLine(
               `${indent}${varTypeAndName} = ${unionValue};`
             );
+            storeTempVarToStateMachineIfNeeded(tempVar, indent, context);
             return tempVar;
           } else {
             return unionValue;
@@ -989,6 +1048,7 @@ export function generateOtherFunctionCall(
                 context.emitter.emitLine(
                   `${indent}${varTypeAndName} = ${enumValue};`
                 );
+                storeTempVarToStateMachineIfNeeded(tempVar, indent, context);
                 return tempVar;
               } else {
                 return enumValue;
@@ -1009,6 +1069,7 @@ export function generateOtherFunctionCall(
                 context.emitter.emitLine(
                   `${indent}${varTypeAndName} = ${pointerValue};`
                 );
+                storeTempVarToStateMachineIfNeeded(tempVar, indent, context);
                 return tempVar;
               } else {
                 return pointerValue;
@@ -1032,6 +1093,7 @@ export function generateOtherFunctionCall(
             context.emitter.emitLine(
               `${indent}${varTypeAndName} = ${enumValue};`
             );
+            storeTempVarToStateMachineIfNeeded(tempVar, indent, context);
             return tempVar;
           } else {
             return enumValue;
@@ -1103,6 +1165,11 @@ export function generateOtherFunctionCall(
                           `${indent}${varTypeAndName} = ${argCode};`
                         );
                         emittedTempVarDeclaration = true;
+                        storeTempVarToStateMachineIfNeeded(
+                          arg.$.variableName,
+                          indent,
+                          context
+                        );
                       }
                     }
 
@@ -1161,6 +1228,7 @@ export function generateOtherFunctionCall(
             context.emitter.emitLine(
               `${indent}${varTypeAndName} = ${enumValue};`
             );
+            storeTempVarToStateMachineIfNeeded(tempVar, indent, context);
             return tempVar;
           } else {
             return enumValue;
