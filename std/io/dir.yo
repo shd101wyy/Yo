@@ -20,7 +20,10 @@
 {
   __yo_async_mkdirat_start, __yo_async_unlinkat_start,
   __yo_async_renameat_start, __yo_async_symlinkat_start,
-  __yo_async_linkat_start, __yo_async_readlinkat_start
+  __yo_async_linkat_start, __yo_async_readlinkat_start,
+  __yo_async_getdents_start,
+  __yo_dirent_size, __yo_dirent_reclen, __yo_dirent_type,
+  __yo_dirent_name, __yo_dirent_ino
 } :: import "./externs.yo";
 
 // ============================================================================
@@ -64,7 +67,81 @@ readlink :: (fn(dirfd: i32, path: *(u8), buf: *(u8), bufsize: usize) -> IOFuture
   __yo_async_readlinkat_start(dirfd, path, buf, bufsize)
 );
 
+// ============================================================================
+// Directory Listing
+// ============================================================================
+
+// Read directory entries from an open directory fd into buf.
+// The fd should be opened with O_RDONLY | O_DIRECTORY.
+// Returns the number of bytes read into buf on success (0 means end of directory).
+// Returns negative -errno on failure.
+// Iterate entries using dirent_reclen to advance through the buffer.
+//
+// Usage pattern:
+//   { openat, close } :: import "std/io/file";
+//   { AT_FDCWD, O_RDONLY, O_DIRECTORY } :: import "std/io/constants";
+//   { getdents, dirent_name, dirent_type } :: import "std/io/dir";
+//
+//   async {
+//     fd := await openat(AT_FDCWD, *(u8)("/tmp"), (O_RDONLY | O_DIRECTORY), i32(0));
+//     buf := *(u8)(malloc(usize(4096)).unwrap());
+//     offset := u32(0);
+//     while runtime(true), {
+//       n := await getdents(fd, buf, u32(4096));
+//       cond(
+//         (n <= i32(0)) => { break; },
+//         true => {
+//           offset := u32(0);
+//           while runtime((offset < u32(n))), {
+//             entry := (buf &+ usize(offset));
+//             name := dirent_name(entry);
+//             entry_type := dirent_type(entry);
+//             printf("  %s (type=%d)\n", name, i32(entry_type));
+//             offset = (offset + u32(dirent_reclen(entry)));
+//           };
+//         }
+//       );
+//     };
+//     free(.Some(*(void)(buf)));
+//     await close(fd);
+//   };
+getdents :: (fn(fd: i32, buf: *(u8), buf_size: u32) -> IOFuture)(
+  __yo_async_getdents_start(fd, buf, buf_size)
+);
+
+// ============================================================================
+// Directory Entry Accessor Functions
+// ============================================================================
+
+// Get the size of a struct dirent (for buffer allocation).
+dirent_size :: (fn() -> usize)(
+  __yo_dirent_size()
+);
+
+// Get the record length of a directory entry (used to advance to next entry).
+dirent_reclen :: (fn(entry: *(u8)) -> u16)(
+  __yo_dirent_reclen(entry)
+);
+
+// Get the file type of a directory entry (DT_REG, DT_DIR, etc).
+// Returns DT_UNKNOWN (0) if not available on the platform.
+dirent_type :: (fn(entry: *(u8)) -> u8)(
+  __yo_dirent_type(entry)
+);
+
+// Get the name of a directory entry as a null-terminated C string.
+dirent_name :: (fn(entry: *(u8)) -> *(u8))(
+  __yo_dirent_name(entry)
+);
+
+// Get the inode number of a directory entry.
+dirent_ino :: (fn(entry: *(u8)) -> u64)(
+  __yo_dirent_ino(entry)
+);
+
 export
   mkdir, unlink, rename,
-  symlink, link, readlink
+  symlink, link, readlink,
+  getdents,
+  dirent_size, dirent_reclen, dirent_type, dirent_name, dirent_ino
 ;

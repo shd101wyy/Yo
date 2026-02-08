@@ -8,7 +8,6 @@ open import "std/libc/stdio";
   openat, close, read, write
 } :: import "std/io/file";
 dir :: import "std/io/dir";
-readdir :: import "std/io/readdir";
 
 test "async mkdir and rmdir", {
   async {
@@ -209,7 +208,7 @@ test "async getdents lists directory entries", {
     file_count := i32(0);
 
     while runtime(true), {
-      n := await readdir.getdents(dir_fd, buf, u32(4096));
+      n := await dir.getdents(dir_fd, buf, u32(4096));
       printf("  getdents = %d\n", n);
       cond(
         (n <= i32(0)) => { break; },
@@ -220,8 +219,8 @@ test "async getdents lists directory entries", {
               (offset >= u32(n)) => { break; },
               true => {
                 entry := (buf &+ usize(offset));
-                name := readdir.dirent_name(entry);
-                entry_type := readdir.dirent_type(entry);
+                name := dir.dirent_name(entry);
+                entry_type := dir.dirent_type(entry);
                 printf("    entry: %s (type=%d)\n", name, i32(entry_type));
                 entry_count = (entry_count + i32(1));
                 cond(
@@ -229,7 +228,7 @@ test "async getdents lists directory entries", {
                   (entry_type == DT_REG) => { file_count = (file_count + i32(1)); },
                   true => { unit; }
                 );
-                reclen := readdir.dirent_reclen(entry);
+                reclen := dir.dirent_reclen(entry);
                 offset = (offset + u32(reclen));
               }
             );
