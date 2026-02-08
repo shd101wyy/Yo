@@ -699,6 +699,7 @@ static uint64_t __yo_dirent_ino(void* entry) {
 }
 
 #if defined(__linux__)
+#include <sys/syscall.h>
 static yo_io_future_t* __yo_async_getdents_start(int32_t fd, void* buf, uint32_t buf_size) {
   __yo_io_init();
   
