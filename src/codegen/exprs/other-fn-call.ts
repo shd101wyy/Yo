@@ -311,7 +311,8 @@ export function generateOtherFunctionCall(
             externFuncName,
             args,
             expr,
-            context
+            context,
+            indent
           );
         } else if (externFuncName === "__yo_thread_spawn") {
           // Special handling for __yo_thread_spawn(cb : Impl(Fn() -> unit, Send))
@@ -348,7 +349,8 @@ export function generateOtherFunctionCall(
             operatorFunctionName,
             args,
             expr,
-            context
+            context,
+            indent
           );
         }
 

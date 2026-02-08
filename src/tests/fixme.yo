@@ -1,101 +1,19 @@
-open import "std/libc/stdio";
-{ malloc, free } :: import "std/libc/stdlib";
-{
-  O_RDONLY, O_DIRECTORY, AT_FDCWD, DT_DIR, DT_REG
-} :: import "std/io/constants";
-{
-  openat, close
-} :: import "std/io/file";
-dir :: import "std/io/dir";
-readdir :: import "std/io/readdir";
 
 main :: (fn() -> unit) {
-  printf("Test: getdents on a known directory\n");
-  async {
-    test_dir := *(u8)("/tmp/yo_io_readdir_test");
-    await dir.unlink(AT_FDCWD, *(u8)("/tmp/yo_io_readdir_test/file_a.txt"), i32(0));
-    await dir.unlink(AT_FDCWD, *(u8)("/tmp/yo_io_readdir_test/file_b.txt"), i32(0));
-    await dir.unlink(AT_FDCWD, *(u8)("/tmp/yo_io_readdir_test/subdir"), i32(0x200));
-    await dir.unlink(AT_FDCWD, test_dir, i32(0x200));
+  uninit_arr := MaybeUninit(Array(i32, usize(2))).new();
 
-    mk := await dir.mkdir(AT_FDCWD, test_dir, i32(0o755));
-    printf("  mkdir = %d\n", mk);
-    assert(mk == i32(0));
+  p := uninit_arr.as_ptr();
+  (p.*)(0) = 1;
+  
+  // initialize the array
+  arr := uninit_arr.assume_init();
 
-    write_flags := i32(((65) | (64)) | (512));
-    fd_a := await openat(AT_FDCWD, *(u8)("/tmp/yo_io_readdir_test/file_a.txt"), write_flags, i32(0o644));
-    printf("  create file_a = %d\n", fd_a);
-    assert(fd_a >= i32(0));
-    await close(fd_a);
+  // uninit_arr should be consumed after assume_init, so this should be an error:
+  comptime_expect_error(arr2 := uninit_arr.assume_init());
 
-    fd_b := await openat(AT_FDCWD, *(u8)("/tmp/yo_io_readdir_test/file_b.txt"), write_flags, i32(0o644));
-    printf("  create file_b = %d\n", fd_b);
-    assert(fd_b >= i32(0));
-    await close(fd_b);
-
-    subdir_mk := await dir.mkdir(AT_FDCWD, *(u8)("/tmp/yo_io_readdir_test/subdir"), i32(0o755));
-    printf("  mkdir subdir = %d\n", subdir_mk);
-    assert(subdir_mk == i32(0));
-
-    open_flags := (O_RDONLY | O_DIRECTORY);
-    dir_fd := await openat(AT_FDCWD, test_dir, open_flags, i32(0));
-    printf("  open dir = %d\n", dir_fd);
-    assert(dir_fd >= i32(0));
-
-    buf := *(u8)(malloc(usize(4096)).unwrap());
-    entry_count := i32(0);
-    dir_count := i32(0);
-    file_count := i32(0);
-
-    while runtime(true), {
-      n := await readdir.getdents(dir_fd, buf, u32(4096));
-      printf("  getdents = %d\n", n);
-      cond(
-        (n <= i32(0)) => { break; },
-        true => {
-          offset := u32(0);
-          while runtime(true), {
-            cond(
-              (offset >= u32(n)) => { break; },
-              true => {
-                entry := (buf &+ usize(offset));
-                name := readdir.dirent_name(entry);
-                entry_type := readdir.dirent_type(entry);
-                printf("    entry: %s (type=%d)\n", name, i32(entry_type));
-                entry_count = (entry_count + i32(1));
-                cond(
-                  (entry_type == DT_DIR) => { dir_count = (dir_count + i32(1)); },
-                  (entry_type == DT_REG) => { file_count = (file_count + i32(1)); },
-                  true => { unit; }
-                );
-                reclen := readdir.dirent_reclen(entry);
-                offset = (offset + u32(reclen));
-              }
-            );
-          };
-        }
-      );
-    };
-
-    printf("  total entries = %d\n", entry_count);
-    printf("  dir entries = %d\n", dir_count);
-    printf("  file entries = %d\n", file_count);
-
-    assert(entry_count >= i32(5));
-    assert(dir_count >= i32(3));
-    assert(file_count >= i32(2));
-
-    free(.Some(*(void)(buf)));
-    await close(dir_fd);
-
-    await dir.unlink(AT_FDCWD, *(u8)("/tmp/yo_io_readdir_test/file_a.txt"), i32(0));
-    await dir.unlink(AT_FDCWD, *(u8)("/tmp/yo_io_readdir_test/file_b.txt"), i32(0));
-    await dir.unlink(AT_FDCWD, *(u8)("/tmp/yo_io_readdir_test/subdir"), i32(0x200));
-    await dir.unlink(AT_FDCWD, test_dir, i32(0x200));
-
-    printf("  passed!\n");
-  };
-
-  printf("All readdir tests passed!\n");
+  arr(0) = (arr(0) + 1);
+  arr(1) = 99;
+  assert(arr(0) == 2);
+  assert(arr(1) == 99);
 };
 export main;

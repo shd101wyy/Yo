@@ -1068,6 +1068,11 @@ export const BuiltinFunctions = {
   __yo_return_self: ["__yo_return_self"],
   __yo_ms_sleep: ["__yo_ms_sleep"],
 
+  // MaybeUninit
+  __yo_maybe_uninit_new: ["__yo_maybe_uninit_new"],
+  __yo_maybe_uninit_as_ptr: ["__yo_maybe_uninit_as_ptr"],
+  __yo_maybe_uninit_assume_init: ["__yo_maybe_uninit_assume_init"],
+
   // Process related functions
   __yo_process_platform: ["__yo_process_platform"], // returns process.platform as comptime_string
   __yo_process_arch: ["__yo_process_arch"], // returns process.arch as comptime_string

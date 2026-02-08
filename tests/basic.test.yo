@@ -2349,3 +2349,21 @@ test "Test 'comptime_fn' function call and function overloading", {
   val2 :: op2.comptime_unwrap();
   comptime_assert(val2 == 55);
 };
+
+test "Test 'MaybeUninit'", {
+  uninit_arr := MaybeUninit(Array(i32, usize(2))).new();
+
+  p := uninit_arr.as_ptr();
+  (p.*)(0) = 1;
+  
+  // initialize the array
+  arr := uninit_arr.assume_init();
+
+  // uninit_arr should be consumed after assume_init, so this should be an error:
+  comptime_expect_error(arr2 := uninit_arr.assume_init());
+
+  arr(0) = (arr(0) + 1);
+  arr(1) = 99;
+  assert(arr(0) == 2);
+  assert(arr(1) == 99);
+};
