@@ -70,6 +70,7 @@ The runtime has been refactored into 4 modules:
 - ✅ **Runtime refactored**: 4012-line `runtime.ts` split into 4 focused modules for maintainability.
 - ✅ **SSA variable mutation in async loops**: Variable reassignment inside loops in async state machines created new SSA variable IDs (e.g., `offset` → `offset_1`) but the loop condition always read the original, causing infinite loops. Fixed by adding `variableIdRemapping` to the await analysis that maps all SSA-renamed IDs back to the first version's captured variable. Also fixed `break` inside async while loop resume code breaking the C `switch` instead of the loop.
 - ✅ **macOS async continuation threading**: GCD callbacks run on background threads, but the async task queue is thread-local. Added a cross-thread continuation queue in the macOS runtime and drain it on the event-loop thread during polling to ensure `sleep/timeout` and dispatch_io completions resume correctly.
+- ✅ **macOS getdents linker fix**: Replaced the unavailable `getdirentries` call with a `readdir`-based emulation using `dup(fd)` + `fdopendir` to avoid 64-bit inode stub symbols on arm64.
 
 ---
 

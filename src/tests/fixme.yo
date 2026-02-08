@@ -1,40 +1,75 @@
 open import "std/libc/stdio";
 { malloc, free } :: import "std/libc/stdlib";
+open import "std/string";
+{ platform, Platform, env } :: import "std/process";
 {
-  O_RDONLY, O_WRONLY, O_CREAT, O_TRUNC, AT_FDCWD
+  O_RDONLY, O_WRONLY, O_CREAT, O_TRUNC, O_DIRECTORY,
+  AT_FDCWD, AT_REMOVEDIR, DT_DIR, DT_REG
 } :: import "std/io/constants";
 {
-  openat, close, read, write,
-  open_sync, close_sync, file_size
+  openat, close, read, write
 } :: import "std/io/file";
+dir :: import "std/io/dir";
+
+temp_dir :: (fn() -> String)(
+  cond(
+    (platform == Platform.Win32) => {
+      temp := env.get(`TEMP`);
+      match(temp,
+        .Some(v) => v,
+        .None => {
+          tmp := env.get(`TMP`);
+          match(tmp,
+            .Some(v2) => v2,
+            .None => `C:\\Temp`
+          )
+        }
+      )
+    },
+    true => {
+      tmp := env.get(`TMPDIR`);
+      match(tmp,
+        .Some(v) => v,
+        .None => {
+          tmp2 := env.get(`TMP`);
+          match(tmp2,
+            .Some(v2) => v2,
+            .None => `/tmp`
+          )
+        }
+      )
+    }
+  )
+);
+
+path_join :: (fn(base: String, name: String) -> String)({
+  sep := cond(
+    (platform == Platform.Win32) => `\\`,
+    true => `/`
+  );
+  cond(
+    base.ends_with(sep) => `${base}${name}`,
+    true => `${base}${sep}${name}`
+  )
+});
 
 main :: (fn() -> unit) {
   async {
-    async_path := *(u8)("tests/fixtures/test_file.txt");
-    open_result := await openat(AT_FDCWD, async_path, O_RDONLY, i32(0));
-    printf("  openat result = %d\n", open_result);
-    assert(open_result >= i32(0));
+    tmp_dir := temp_dir();
+    dir_path_str := path_join(tmp_dir, `yo_io_dir_test`);
+    dir_path_c := dir_path_str.to_cstr();
+    dir_path := dir_path_c.ptr().unwrap();
+    unlink_result := await dir.unlink(AT_FDCWD, dir_path, AT_REMOVEDIR);
+    printf("  cleanup = %d\n", unlink_result);
+    mk_result := await dir.mkdir(AT_FDCWD, dir_path, i32(0o755));
+    printf("  mkdir = %d\n", mk_result);
+    assert(mk_result == i32(0));
+    rm_result := await dir.unlink(AT_FDCWD, dir_path, AT_REMOVEDIR);
+    printf("  rmdir = %d\n", rm_result);
+    assert(rm_result == i32(0));
 
-    afd := open_result;
-
-    buf := *(u8)(malloc(usize(256)).unwrap());
-
-    read_result := await read(afd, buf, u32(256), u64(0));
-    printf("  read result = %d\n", read_result);
-    assert(read_result > i32(0));
-
-    // "Hello from Yo async I/O!\n" - check first 5 bytes: H=72, e=101, l=108, l=108, o=111
-    assert((buf &+ usize(0)).* == u8(72));
-    assert((buf &+ usize(1)).* == u8(101));
-    assert((buf &+ usize(2)).* == u8(108));
-    assert((buf &+ usize(3)).* == u8(108));
-    assert((buf &+ usize(4)).* == u8(111));
-
-    close_result := await close(afd);
-    printf("  close result = %d\n", close_result);
-    assert(close_result == i32(0));
-
-    free(.Some(*(void)(buf)));
+    // Keep C string buffer alive across awaits
+    dir_path_c.len();
   };
 };
 export main;

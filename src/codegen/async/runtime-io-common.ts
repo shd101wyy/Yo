@@ -23,8 +23,14 @@ export function generateAsyncRuntimeIOCommon(emitter: Emitter): void {
 // These functions help extract fields from struct stat, which has platform-specific layout.
 
 #ifndef _WIN32
+#include <sys/types.h>
 #include <sys/stat.h>
 #include <dirent.h>
+#include <string.h>
+#if defined(__APPLE__)
+#include <sys/dirent.h>
+#include <unistd.h>
+#endif
 
 // Get size of stat buffer (for allocation)
 static size_t __yo_stat_buf_size(void) {
@@ -728,10 +734,41 @@ static yo_io_future_t* __yo_async_getdents_start(int32_t fd, void* buf, uint32_t
   atomic_init(&future->continuation_fn, NULL);
   atomic_init(&future->continuation_sm, NULL);
   
-  // macOS doesn't have getdents, use getdirentries
-  long basep = 0;
-  ssize_t nread = getdirentries(fd, (char*)buf, (int)buf_size, &basep);
-  future->result = (nread < 0) ? -errno : (int32_t)nread;
+  // macOS doesn't have getdents; emulate using readdir on a dup()'d fd
+  int dup_fd = dup(fd);
+  if (dup_fd < 0) {
+    future->result = -errno;
+    atomic_init(&future->state, -1);
+    return future;
+  }
+
+  DIR* dir = fdopendir(dup_fd);
+  if (!dir) {
+    int err = errno;
+    close(dup_fd);
+    future->result = -err;
+    atomic_init(&future->state, -1);
+    return future;
+  }
+
+  size_t total = 0;
+  long last_pos = telldir(dir);
+  struct dirent* entry = NULL;
+
+  while ((entry = readdir(dir)) != NULL) {
+    size_t reclen = (size_t)entry->d_reclen;
+    if (total + reclen > (size_t)buf_size) {
+      // Roll back to the previous position so the entry is returned next time
+      seekdir(dir, last_pos);
+      break;
+    }
+    memcpy((char*)buf + total, entry, reclen);
+    total += reclen;
+    last_pos = telldir(dir);
+  }
+
+  closedir(dir);  // closes dup_fd
+  future->result = (int32_t)total;
   atomic_init(&future->state, -1);
   
   return future;
