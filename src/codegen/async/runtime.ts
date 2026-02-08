@@ -11,14 +11,16 @@
  * - runtime-core.ts: Scheduler, continuation queue, spawn/wait, concurrency helpers
  * - runtime-io-linux.ts: Linux io_uring async I/O operations
  * - runtime-io-macos.ts: macOS Grand Central Dispatch async I/O operations
+ * - runtime-io-windows.ts: Windows IOCP-based async I/O operations
  * - runtime-io-common.ts: Cross-platform stat helpers, timer, file extras, DNS, signals, TTY, FS events, poll
  */
 
 import { Emitter } from "../../emitter";
 import { generateAsyncRuntimeCore } from "./runtime-core";
+import { generateAsyncRuntimeIOCommon } from "./runtime-io-common";
 import { generateAsyncRuntimeIOLinux } from "./runtime-io-linux";
 import { generateAsyncRuntimeIOMacOS } from "./runtime-io-macos";
-import { generateAsyncRuntimeIOCommon } from "./runtime-io-common";
+import { generateAsyncRuntimeIOWindows } from "./runtime-io-windows";
 
 /**
  * Generates the async runtime code with a single-threaded event loop.
@@ -31,5 +33,6 @@ export function generateAsyncRuntime(
   generateAsyncRuntimeCore(emitter);
   generateAsyncRuntimeIOLinux(emitter);
   generateAsyncRuntimeIOMacOS(emitter);
+  generateAsyncRuntimeIOWindows(emitter);
   generateAsyncRuntimeIOCommon(emitter);
 }

@@ -32,34 +32,35 @@ The runtime has been refactored into 4 modules:
 - `runtime-core.ts` — Core scheduler (continuation queue, spawn, wait, concurrency helpers)
 - `runtime-io-linux.ts` — Linux io_uring async I/O
 - `runtime-io-macos.ts` — macOS GCD async I/O
+- `runtime-io-windows.ts` — Windows IOCP async I/O
 - `runtime-io-common.ts` — Cross-platform stat helpers, timer, file extras, DNS, signals, TTY, FS events, poll
 
-| Category                   | Linux (io_uring)      | macOS (dispatch_io) | Windows (IOCP)         |
-| -------------------------- | --------------------- | ------------------- | ---------------------- |
-| **Event loop integration** | ✅                    | ✅                  | ❌ (queue only, no IO) |
-| **File read/write**        | ✅                    | ✅                  | ❌                     |
-| **File open/close**        | ✅                    | ✅                  | ❌                     |
-| **Stat**                   | ✅ (statx)            | ✅ (struct stat)    | ❌                     |
-| **mkdir/unlink/rename**    | ✅                    | ✅ (sync wrappers)  | ❌                     |
-| **symlink/link**           | ✅                    | ✅ (sync wrappers)  | ❌                     |
-| **fsync/fdatasync**        | ✅                    | ✅ (sync wrappers)  | ❌                     |
-| **ftruncate**              | ✅                    | ✅ (sync wrapper)   | ❌                     |
-| **chmod/chown**            | ✅                    | ✅                  | ❌                     |
-| **readlink**               | ✅                    | ✅                  | ❌                     |
-| **dup/dup2/pipe**          | ✅                    | ✅                  | ❌                     |
-| **Socket ops**             | ✅                    | ✅                  | ❌                     |
-| **Timer (sleep/timeout)**  | ✅ (timerfd+io_uring) | ✅ (dispatch_after) | ✅ (ThreadpoolTimer)   |
-| **getdents/readdir**       | ✅ (getdents64)       | ✅ (getdirentries)  | ❌                     |
-| **access/realpath**        | ✅ (sync)             | ✅ (sync)           | ❌                     |
-| **utime**                  | ✅ (sync)             | ✅ (sync)           | ❌                     |
-| **mkdtemp/mkstemp**        | ✅ (sync)             | ✅ (sync)           | ❌                     |
-| **copyfile/sendfile**      | ✅ (sync)             | ✅ (sync)           | ❌                     |
-| **statfs**                 | ✅ (sync)             | ✅ (sync)           | ❌                     |
-| **DNS**                    | ✅ (sync)             | ✅ (sync)           | ❌                     |
-| **Signals**                | ✅ (sync)             | ✅ (sync)           | ❌                     |
-| **TTY**                    | ✅ (sync)             | ✅ (sync)           | ❌                     |
-| **FS Events**              | ❌                    | ❌                  | ❌                     |
-| **Poll**                   | ❌                    | ❌                  | ❌                     |
+| Category                   | Linux (io_uring)      | macOS (dispatch_io) | Windows (IOCP)                           |
+| -------------------------- | --------------------- | ------------------- | ---------------------------------------- |
+| **Event loop integration** | ✅                    | ✅                  | ✅ (IOCP)                                |
+| **File read/write**        | ✅                    | ✅                  | ✅ (IOCP)                                |
+| **File open/close**        | ✅                    | ✅                  | ✅ (sync wrappers)                       |
+| **Stat**                   | ✅ (statx)            | ✅ (struct stat)    | ✅ (\_stat64)                            |
+| **mkdir/unlink/rename**    | ✅                    | ✅ (sync wrappers)  | ✅ (sync wrappers)                       |
+| **symlink/link**           | ✅                    | ✅ (sync wrappers)  | ✅ (CreateSymbolicLinkW/CreateHardLinkW) |
+| **fsync/fdatasync**        | ✅                    | ✅ (sync wrappers)  | ✅ (\_commit)                            |
+| **ftruncate**              | ✅                    | ✅ (sync wrapper)   | ✅ (\_chsize_s)                          |
+| **chmod/chown**            | ✅                    | ✅                  | ⚠️ (chmod only)                          |
+| **readlink**               | ✅                    | ✅                  | ✅ (GetFinalPathNameByHandleW)           |
+| **dup/dup2/pipe**          | ✅                    | ✅                  | ✅                                       |
+| **Socket ops**             | ✅                    | ✅                  | ✅ (Winsock sync)                        |
+| **Timer (sleep/timeout)**  | ✅ (timerfd+io_uring) | ✅ (dispatch_after) | ✅ (ThreadpoolTimer)                     |
+| **getdents/readdir**       | ✅ (getdents64)       | ✅ (getdirentries)  | ✅ (getdents only)                       |
+| **access/realpath**        | ✅ (sync)             | ✅ (sync)           | ✅ (sync)                                |
+| **utime**                  | ✅ (sync)             | ✅ (sync)           | ✅ (sync)                                |
+| **mkdtemp/mkstemp**        | ✅ (sync)             | ✅ (sync)           | ✅ (sync)                                |
+| **copyfile/sendfile**      | ✅ (sync)             | ✅ (sync)           | ⚠️ (copyfile only)                       |
+| **statfs**                 | ✅ (sync)             | ✅ (sync)           | ✅ (GetDiskFreeSpaceEx)                  |
+| **DNS**                    | ✅ (sync)             | ✅ (sync)           | ✅ (sync)                                |
+| **Signals**                | ✅ (sync)             | ✅ (sync)           | ❌                                       |
+| **TTY**                    | ✅ (sync)             | ✅ (sync)           | ⚠️ (isatty only)                         |
+| **FS Events**              | ❌                    | ❌                  | ❌                                       |
+| **Poll**                   | ❌                    | ❌                  | ❌                                       |
 
 ### Known Issues Fixed
 
@@ -325,6 +326,11 @@ isatty :: (fn(fd: i32) -> bool)(...);
 ## Phase 6: Windows IOCP Backend (Priority: Medium-High)
 
 **Goal**: Implement the Windows async I/O backend using I/O Completion Ports.
+
+Windows now has an IOCP backend in `runtime-io-windows.ts` for overlapped file
+read/write. Other Windows operations are synchronous wrappers or stubs; socket
+operations remain synchronous until AcceptEx/ConnectEx/WSARecv/WSASend
+overlapped support is added.
 
 This is the largest remaining gap. The timer is now implemented using `CreateThreadpoolTimer`, but all other IO operations are missing.
 
