@@ -34,7 +34,7 @@ import {
   createUsizeType,
   createVoidType,
 } from "../../types/creators";
-import { isFunctionType } from "../../types/guards";
+import { isFunctionType, isTypeHierarchyType } from "../../types/guards";
 import { TypeTag } from "../../types/tags";
 import { createTypeValue, isTypeValue, isUnknownValue } from "../../value";
 import { type EvaluatorContext, trackVariableUsage } from "../context";
@@ -480,7 +480,14 @@ export function evaluateIdentifierAndOperator({
       // Treat them as runtime values so operators like | use runtime BitOr
       // instead of ComptimeBitOr which can't fold the unknown values.
       const resolvedValue =
-        variable.type.isExtern === "c" && isUnknownValue(variable.value?.[0])
+        variable.type.isExtern === "c" &&
+        isUnknownValue(variable.value?.[0]) &&
+        /**
+         * Skip the case like:
+         *    SomeType : Type,
+         *    some_func : (fn() -> unit),
+         */
+        !(isFunctionType(variable.type) || isTypeHierarchyType(variable.type))
           ? undefined
           : variable.value?.[0];
 
