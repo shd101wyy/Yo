@@ -183,11 +183,16 @@ static yo_io_future_t* __yo_async_read_start(int32_t fd, void* buffer, uint32_t 
     ASYNC_DEBUG("[IO] Failed to create dispatch_io channel: %d\\n", errno);
     return future;
   }
+
+  // Ensure callbacks deliver data promptly
+  dispatch_io_set_low_water(channel, 1);
+  dispatch_io_set_high_water(channel, (size_t)size);
   
   // Capture buffer pointer for the block
   void* buf = buffer;
   yo_io_future_t* fut = future;
   uint32_t sz = size;
+  __block size_t total = 0;
   
   dispatch_io_read(channel, (off_t)offset, (size_t)size, __yo_io_queue,
     ^(bool done, dispatch_data_t data, int error) {
@@ -201,23 +206,29 @@ static yo_io_future_t* __yo_async_read_start(int32_t fd, void* buffer, uint32_t 
       }
       
       if (data) {
-        // Copy data to buffer
-        __block size_t copied = 0;
+        // Copy data to buffer (respect region offsets)
         dispatch_data_apply(data, ^bool(dispatch_data_t region, size_t region_offset, const void* region_buffer, size_t region_size) {
           (void)region;
-          (void)region_offset;
           size_t to_copy = region_size;
-          if (copied + to_copy > sz) {
-            to_copy = sz - copied;
+          if (region_offset >= sz) {
+            return false;
           }
-          memcpy((char*)buf + copied, region_buffer, to_copy);
-          copied += to_copy;
+          if (region_offset + to_copy > sz) {
+            to_copy = sz - region_offset;
+          }
+          if (to_copy > 0) {
+            memcpy((char*)buf + region_offset, region_buffer, to_copy);
+            size_t end = region_offset + to_copy;
+            if (end > total) {
+              total = end;
+            }
+          }
           return true;
         });
-        fut->result = (int32_t)copied;
       }
       
       if (done) {
+        fut->result = (int32_t)total;
         dispatch_io_close(channel, 0);
         ASYNC_DEBUG("[IO] Read completed: %d bytes\\n", fut->result);
         __yo_io_wake_continuation(fut);
