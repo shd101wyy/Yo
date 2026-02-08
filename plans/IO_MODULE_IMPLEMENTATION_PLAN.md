@@ -112,6 +112,16 @@ Wraps extern directory functions into async operations. All functions take `AT_F
 
 Implemented functions: `mkdir`, `unlink`, `rename`, `symlink`, `link`, `readlink`.
 
+Tests in `tests/io/dir.test.yo` (7 tests):
+
+- `async mkdir and rmdir` — create/remove directory
+- `mkdir existing returns -EEXIST` — duplicate mkdir error
+- `async rename` — rename file, verify old gone/new readable
+- `async symlink and readlink` — symlink creation and target readback
+- `async hard link` — hard link, read data through link
+- `async unlink file` — create file, unlink, verify gone
+- `unlink nonexistent returns -ENOENT` — error on missing file
+
 ### 1.3 Implement `getdents`/directory listing in C Runtime
 
 The `__yo_async_getdents_start` and dirent helpers are declared in externs but not yet implemented in the C runtime.

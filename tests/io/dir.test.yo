@@ -106,3 +106,69 @@ test "async symlink and readlink", {
     await dir.unlink(AT_FDCWD, target, i32(0));
   };
 };
+
+test "async hard link", {
+  async {
+    orig_path := *(u8)("/tmp/yo_io_link_orig");
+    link_path := *(u8)("/tmp/yo_io_link_hard");
+    await dir.unlink(AT_FDCWD, link_path, i32(0));
+    await dir.unlink(AT_FDCWD, orig_path, i32(0));
+    write_flags := ((O_WRONLY | O_CREAT) | O_TRUNC);
+    fd := await openat(AT_FDCWD, orig_path, write_flags, i32(0o644));
+    printf("  create orig = %d\n", fd);
+    assert(fd >= i32(0));
+    data := *(u8)("hardlink data");
+    wr := await write(fd, data, u32(13), u64(0));
+    assert(wr == i32(13));
+    await close(fd);
+    link_result := await dir.link(AT_FDCWD, orig_path, AT_FDCWD, link_path, i32(0));
+    printf("  link = %d\n", link_result);
+    assert(link_result == i32(0));
+    fd2 := await openat(AT_FDCWD, link_path, O_RDONLY, i32(0));
+    printf("  open link = %d\n", fd2);
+    assert(fd2 >= i32(0));
+    buf := *(u8)(malloc(usize(64)).unwrap());
+    rd := await read(fd2, buf, u32(64), u64(0));
+    printf("  read via link = %d\n", rd);
+    assert(rd == i32(13));
+    assert((buf &+ usize(0)).* == u8(104));
+    await close(fd2);
+    free(.Some(*(void)(buf)));
+    await dir.unlink(AT_FDCWD, orig_path, i32(0));
+    await dir.unlink(AT_FDCWD, link_path, i32(0));
+  };
+};
+
+test "async unlink file", {
+  async {
+    file_path := *(u8)("/tmp/yo_io_unlink_file");
+    await dir.unlink(AT_FDCWD, file_path, i32(0));
+    write_flags := ((O_WRONLY | O_CREAT) | O_TRUNC);
+    fd := await openat(AT_FDCWD, file_path, write_flags, i32(0o644));
+    printf("  create = %d\n", fd);
+    assert(fd >= i32(0));
+    data := *(u8)("delete me");
+    wr := await write(fd, data, u32(9), u64(0));
+    assert(wr == i32(9));
+    await close(fd);
+    check_fd := await openat(AT_FDCWD, file_path, O_RDONLY, i32(0));
+    printf("  exists = %d\n", check_fd);
+    assert(check_fd >= i32(0));
+    await close(check_fd);
+    unlink_result := await dir.unlink(AT_FDCWD, file_path, i32(0));
+    printf("  unlink = %d\n", unlink_result);
+    assert(unlink_result == i32(0));
+    gone_fd := await openat(AT_FDCWD, file_path, O_RDONLY, i32(0));
+    printf("  after unlink = %d\n", gone_fd);
+    assert(gone_fd < i32(0));
+  };
+};
+
+test "unlink nonexistent returns -ENOENT", {
+  async {
+    bad_path := *(u8)("/tmp/yo_io_nonexistent_file_999");
+    result := await dir.unlink(AT_FDCWD, bad_path, i32(0));
+    printf("  unlink nonexistent = %d\n", result);
+    assert(result < i32(0));
+  };
+};
