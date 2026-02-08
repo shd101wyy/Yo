@@ -84,7 +84,7 @@ static const char* __yo_dirent_name(void* entry) {
 }
 
 static uint8_t __yo_dirent_type(void* entry) {
-#ifdef _DIRENT_HAVE_D_TYPE
+#if defined(_DIRENT_HAVE_D_TYPE) || defined(__APPLE__)
   return ((struct dirent*)entry)->d_type;
 #else
   // d_type not available on some systems, return DT_UNKNOWN
@@ -751,12 +751,35 @@ static yo_io_future_t* __yo_async_getdents_start(int32_t fd, void* buf, uint32_t
     return future;
   }
 
+  int dir_fd = dirfd(dir);
   size_t total = 0;
   long last_pos = telldir(dir);
   struct dirent* entry = NULL;
 
   while ((entry = readdir(dir)) != NULL) {
     size_t reclen = (size_t)entry->d_reclen;
+    if (entry->d_type == DT_UNKNOWN) {
+      struct stat st;
+      if (dir_fd >= 0 && fstatat(dir_fd, entry->d_name, &st, AT_SYMLINK_NOFOLLOW) == 0) {
+        if (S_ISDIR(st.st_mode)) {
+          entry->d_type = DT_DIR;
+        } else if (S_ISREG(st.st_mode)) {
+          entry->d_type = DT_REG;
+        } else if (S_ISLNK(st.st_mode)) {
+          entry->d_type = DT_LNK;
+        } else if (S_ISCHR(st.st_mode)) {
+          entry->d_type = DT_CHR;
+        } else if (S_ISBLK(st.st_mode)) {
+          entry->d_type = DT_BLK;
+        } else if (S_ISFIFO(st.st_mode)) {
+          entry->d_type = DT_FIFO;
+        } else if (S_ISSOCK(st.st_mode)) {
+          entry->d_type = DT_SOCK;
+        } else {
+          entry->d_type = DT_UNKNOWN;
+        }
+      }
+    }
     if (total + reclen > (size_t)buf_size) {
       // Roll back to the previous position so the entry is returned next time
       seekdir(dir, last_pos);
