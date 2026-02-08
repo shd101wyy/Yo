@@ -199,7 +199,7 @@ static yo_io_future_t* __yo_async_sleep_start(uint64_t milliseconds) {
     dispatch_time(DISPATCH_TIME_NOW, (int64_t)(milliseconds * NSEC_PER_MSEC)),
     __yo_io_queue,
     ^{
-      fut->result = 0;  // Success
+      fut->result = (int32_t)sizeof(uint64_t);  // Match timerfd read size on Linux
       __yo_io_wake_continuation(fut);
     }
   );
@@ -235,7 +235,7 @@ static VOID CALLBACK __yo_timer_callback(PTP_CALLBACK_INSTANCE instance, PVOID c
   (void)instance;
   (void)timer;
   yo_io_future_t* future = (yo_io_future_t*)context;
-  future->result = 0;
+  future->result = (int32_t)sizeof(uint64_t);  // Match timerfd read size on Linux
   atomic_store_explicit(&future->state, -1, memory_order_release);
   
   void (*cont_fn)(void*) = atomic_load_explicit(&future->continuation_fn, memory_order_acquire);

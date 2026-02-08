@@ -31,6 +31,17 @@ static _Atomic size_t __yo_pending_io_count = 0;
 // Semaphore for blocking wait
 static dispatch_semaphore_t __yo_io_semaphore = NULL;
 
+// Cross-thread continuation queue (dispatch callbacks run on GCD threads)
+typedef struct yo_io_continuation_t {
+  void (*resume_fn)(void*);
+  void* state_machine;
+  struct yo_io_continuation_t* next;
+} yo_io_continuation_t;
+
+static pthread_mutex_t __yo_io_ready_mutex = PTHREAD_MUTEX_INITIALIZER;
+static yo_io_continuation_t* __yo_io_ready_head = NULL;
+static yo_io_continuation_t* __yo_io_ready_tail = NULL;
+
 // Initialize dispatch_io subsystem
 static void __yo_io_init(void) {
   if (__yo_io_initialized) return;
@@ -65,10 +76,32 @@ static inline bool __yo_has_pending_io(void) {
 // Process completions - on macOS, GCD handles this automatically via callback
 // This function processes any completions that have been queued
 static int __yo_io_poll(void) {
-  // dispatch_io delivers completions to our queue automatically
-  // We need to process any pending continuations that were enqueued
-  // This is handled by the main event loop processing the task queue
-  return 0;
+  // dispatch_io delivers completions on GCD threads.
+  // Drain cross-thread ready continuations and enqueue to event-loop thread.
+  yo_io_continuation_t* local_head = NULL;
+  yo_io_continuation_t* local_tail = NULL;
+
+  pthread_mutex_lock(&__yo_io_ready_mutex);
+  local_head = __yo_io_ready_head;
+  local_tail = __yo_io_ready_tail;
+  __yo_io_ready_head = NULL;
+  __yo_io_ready_tail = NULL;
+  pthread_mutex_unlock(&__yo_io_ready_mutex);
+
+  int count = 0;
+  yo_io_continuation_t* node = local_head;
+  while (node) {
+    yo_io_continuation_t* next = node->next;
+    yo_async_spawn_task(node->resume_fn, node->state_machine);
+    __yo_free(node);
+    count++;
+    node = next;
+  }
+
+  if (count > 0) {
+    ASYNC_DEBUG("[IO] Polled %d completions from GCD threads\\n", count);
+  }
+  return count;
 }
 
 // Wait for at least one I/O completion
@@ -94,7 +127,20 @@ static void __yo_io_wake_continuation(yo_io_future_t* future) {
               (void*)cont_fn, cont_sm, future->result);
   
   if (cont_fn && cont_sm) {
-    yo_async_spawn_task(cont_fn, cont_sm);
+    yo_io_continuation_t* node = (yo_io_continuation_t*)__yo_malloc(sizeof(yo_io_continuation_t));
+    node->resume_fn = cont_fn;
+    node->state_machine = cont_sm;
+    node->next = NULL;
+
+    pthread_mutex_lock(&__yo_io_ready_mutex);
+    if (__yo_io_ready_tail) {
+      __yo_io_ready_tail->next = node;
+      __yo_io_ready_tail = node;
+    } else {
+      __yo_io_ready_head = node;
+      __yo_io_ready_tail = node;
+    }
+    pthread_mutex_unlock(&__yo_io_ready_mutex);
   }
   
   // Signal semaphore for waiting threads
