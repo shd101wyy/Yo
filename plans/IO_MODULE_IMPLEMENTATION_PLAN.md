@@ -8,19 +8,21 @@ The `std/io` module provides Yo's low-level async I/O foundation. It sits betwee
 
 ### What's Done
 
-| Component            | File                  | Status      | Notes                                            |
-| -------------------- | --------------------- | ----------- | ------------------------------------------------ |
-| **Constants**        | `std/io/constants.yo` | ✅ Complete | File mode, permissions, AT*\*, DT*\*, open flags |
-| **Socket Constants** | `std/io/socket.yo`    | ✅ Complete | Platform-aware AF*\*, SOCK*\_, SO\_\_, TCP\_\*   |
-| **Signals**          | `std/io/signals.yo`   | ✅ Complete | Platform-aware POSIX signal numbers              |
-| **Events**           | `std/io/events.yo`    | ✅ Complete | TTY, poll, FS event constants                    |
-| **IOError**          | `std/io/errors.yo`    | ✅ Complete | Enum with errno mapping, ToString impl           |
-| **IOFuture**         | `std/io/future.yo`    | ✅ Complete | Extern type wrapping `yo_io_future_t`            |
-| **Externs**          | `std/io/externs.yo`   | ✅ Complete | All C extern function declarations               |
-| **Statx**            | `std/io/statx.yo`     | ✅ Complete | File metadata accessor object                    |
-| **Timer**            | `std/io/timer.yo`     | ✅ Complete | `sleep(ms)`, `timeout(ms)`                       |
-| **File**             | `std/io/file.yo`      | ✅ Complete | Async+sync file ops (openat, read, write, etc.)  |
-| **Index**            | `std/io/index.yo`     | ❌ Removed  | Users import submodules directly                 |
+| Component            | File                  | Status      | Notes                                                      |
+| -------------------- | --------------------- | ----------- | ---------------------------------------------------------- |
+| **Constants**        | `std/io/constants.yo` | ✅ Complete | File mode, permissions, AT*\*, DT*\*, open flags           |
+| **Socket Constants** | `std/io/socket.yo`    | ✅ Complete | Platform-aware AF*\*, SOCK*\_, SO\_\_, TCP\_\*             |
+| **Signals**          | `std/io/signals.yo`   | ✅ Complete | Platform-aware POSIX signal numbers                        |
+| **Events**           | `std/io/events.yo`    | ✅ Complete | TTY, poll, FS event constants                              |
+| **IOError**          | `std/io/errors.yo`    | ✅ Complete | Enum with errno mapping, ToString impl                     |
+| **IOFuture**         | `std/io/future.yo`    | ✅ Complete | Extern type wrapping `yo_io_future_t`                      |
+| **Externs**          | `std/io/externs.yo`   | ✅ Complete | All C extern function declarations                         |
+| **Statx**            | `std/io/statx.yo`     | ✅ Complete | File metadata accessor object                              |
+| **Timer**            | `std/io/timer.yo`     | ✅ Complete | `sleep(ms)`, `timeout(ms)`                                 |
+| **File**             | `std/io/file.yo`      | ✅ Complete | Async+sync file ops (openat, read, write, etc.)            |
+| **Dir**              | `std/io/dir.yo`       | ✅ Complete | mkdir, unlink, rename, symlink, link, readlink             |
+| **Readdir**          | `std/io/readdir.yo`   | ✅ Complete | getdents, dirent accessors (size, reclen, type, name, ino) |
+| **Index**            | `std/io/index.yo`     | ❌ Removed  | Users import submodules directly                           |
 
 ### C Runtime Status (in `src/codegen/async/runtime*.ts`)
 
@@ -47,7 +49,7 @@ The runtime has been refactored into 4 modules:
 | **dup/dup2/pipe**          | ✅                    | ✅                  | ❌                     |
 | **Socket ops**             | ✅                    | ✅                  | ❌                     |
 | **Timer (sleep/timeout)**  | ✅ (timerfd+io_uring) | ✅ (dispatch_after) | ✅ (ThreadpoolTimer)   |
-| **getdents/readdir**       | ❌                    | ❌                  | ❌                     |
+| **getdents/readdir**       | ✅ (getdents64)       | ✅ (getdirentries)  | ❌                     |
 | **access/realpath**        | ✅ (sync)             | ✅ (sync)           | ❌                     |
 | **utime**                  | ✅ (sync)             | ✅ (sync)           | ❌                     |
 | **mkdtemp/mkstemp**        | ✅ (sync)             | ✅ (sync)           | ❌                     |
@@ -66,6 +68,7 @@ The runtime has been refactored into 4 modules:
 - ✅ **Bitwise OR on c_include constants**: `c_include` constants (O_WRONLY, O_CREAT, etc.) had `UnknownValue` causing `ComptimeBitOr` to be selected. Fixed in `identifer-and-operator.ts` to treat extern "c" unknowns as runtime values.
 - ✅ **Barrel re-export removed**: `std/io/index.yo` removed to avoid naming conflicts. Users now import submodules directly: `import "std/io/file"`, `import "std/io/timer"`, etc.
 - ✅ **Runtime refactored**: 4012-line `runtime.ts` split into 4 focused modules for maintainability.
+- ✅ **SSA variable mutation in async loops**: Variable reassignment inside loops in async state machines created new SSA variable IDs (e.g., `offset` → `offset_1`) but the loop condition always read the original, causing infinite loops. Fixed by adding `variableIdRemapping` to the await analysis that maps all SSA-renamed IDs back to the first version's captured variable. Also fixed `break` inside async while loop resume code breaking the C `switch` instead of the loop.
 
 ---
 
@@ -112,7 +115,7 @@ Wraps extern directory functions into async operations. All functions take `AT_F
 
 Implemented functions: `mkdir`, `unlink`, `rename`, `symlink`, `link`, `readlink`.
 
-Tests in `tests/io/dir.test.yo` (7 tests):
+Tests in `tests/io/dir.test.yo` (8 tests):
 
 - `async mkdir and rmdir` — create/remove directory
 - `mkdir existing returns -EEXIST` — duplicate mkdir error
@@ -121,16 +124,22 @@ Tests in `tests/io/dir.test.yo` (7 tests):
 - `async hard link` — hard link, read data through link
 - `async unlink file` — create file, unlink, verify gone
 - `unlink nonexistent returns -ENOENT` — error on missing file
+- `async getdents lists directory entries` — getdents with dirent iteration, counts files/dirs/entries
 
-### 1.3 Implement `getdents`/directory listing in C Runtime
+### 1.3 Create `std/io/readdir.yo` — Directory Listing ✅
 
-The `__yo_async_getdents_start` and dirent helpers are declared in externs but not yet implemented in the C runtime.
+Wraps the `__yo_async_getdents_start` and dirent accessor externs. The C runtime uses `getdents64` syscall on Linux and `getdirentries` on macOS. Dirent accessors (`dirent_size`, `dirent_reclen`, `dirent_type`, `dirent_name`, `dirent_ino`) use the platform's `struct dirent` layout.
 
-**Linux**: Use `io_uring_prep_getdents` (kernel 5.19+) or fallback to `getdents64` syscall.
+Implemented functions: `getdents`, `dirent_size`, `dirent_reclen`, `dirent_type`, `dirent_name`, `dirent_ino`.
 
-**macOS**: Use `opendir()/readdir_r()` synchronously in a completed future (same pattern as mkdir/stat).
+Required compiler fixes:
 
-**Windows**: Use `FindFirstFileW`/`FindNextFileW` in completed future pattern.
+- Added `#include <sys/syscall.h>` for `SYS_getdents64` in `runtime-io-common.ts`
+- Added `O_DIRECTORY` to `std/io/constants.yo` exports
+- Fixed SSA variable mutation bug in async loops (see Known Issues Fixed)
+- Fixed `break` in async while loop resume code
+
+**Windows**: Not yet implemented. Will use `FindFirstFileW`/`FindNextFileW` in completed future pattern.
 
 ---
 

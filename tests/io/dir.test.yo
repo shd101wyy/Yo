@@ -1,12 +1,14 @@
 open import "std/libc/stdio";
 { malloc, free } :: import "std/libc/stdlib";
 {
-  O_RDONLY, O_WRONLY, O_CREAT, O_TRUNC, AT_FDCWD, AT_REMOVEDIR
+  O_RDONLY, O_WRONLY, O_CREAT, O_TRUNC, O_DIRECTORY,
+  AT_FDCWD, AT_REMOVEDIR, DT_DIR, DT_REG
 } :: import "std/io/constants";
 {
   openat, close, read, write
 } :: import "std/io/file";
 dir :: import "std/io/dir";
+readdir :: import "std/io/readdir";
 
 test "async mkdir and rmdir", {
   async {
@@ -170,5 +172,86 @@ test "unlink nonexistent returns -ENOENT", {
     result := await dir.unlink(AT_FDCWD, bad_path, i32(0));
     printf("  unlink nonexistent = %d\n", result);
     assert(result < i32(0));
+  };
+};
+
+test "async getdents lists directory entries", {
+  async {
+    test_dir := *(u8)("/tmp/yo_io_readdir_test");
+    await dir.unlink(AT_FDCWD, *(u8)("/tmp/yo_io_readdir_test/file_a.txt"), i32(0));
+    await dir.unlink(AT_FDCWD, *(u8)("/tmp/yo_io_readdir_test/file_b.txt"), i32(0));
+    await dir.unlink(AT_FDCWD, *(u8)("/tmp/yo_io_readdir_test/subdir"), AT_REMOVEDIR);
+    await dir.unlink(AT_FDCWD, test_dir, AT_REMOVEDIR);
+
+    mk := await dir.mkdir(AT_FDCWD, test_dir, i32(0o755));
+    assert(mk == i32(0));
+
+    write_flags := ((O_WRONLY | O_CREAT) | O_TRUNC);
+    fd_a := await openat(AT_FDCWD, *(u8)("/tmp/yo_io_readdir_test/file_a.txt"), write_flags, i32(0o644));
+    assert(fd_a >= i32(0));
+    await close(fd_a);
+
+    fd_b := await openat(AT_FDCWD, *(u8)("/tmp/yo_io_readdir_test/file_b.txt"), write_flags, i32(0o644));
+    assert(fd_b >= i32(0));
+    await close(fd_b);
+
+    subdir_mk := await dir.mkdir(AT_FDCWD, *(u8)("/tmp/yo_io_readdir_test/subdir"), i32(0o755));
+    assert(subdir_mk == i32(0));
+
+    open_flags := (O_RDONLY | O_DIRECTORY);
+    dir_fd := await openat(AT_FDCWD, test_dir, open_flags, i32(0));
+    printf("  open dir = %d\n", dir_fd);
+    assert(dir_fd >= i32(0));
+
+    buf := *(u8)(malloc(usize(4096)).unwrap());
+    entry_count := i32(0);
+    dir_count := i32(0);
+    file_count := i32(0);
+
+    while runtime(true), {
+      n := await readdir.getdents(dir_fd, buf, u32(4096));
+      printf("  getdents = %d\n", n);
+      cond(
+        (n <= i32(0)) => { break; },
+        true => {
+          offset := u32(0);
+          while runtime(true), {
+            cond(
+              (offset >= u32(n)) => { break; },
+              true => {
+                entry := (buf &+ usize(offset));
+                name := readdir.dirent_name(entry);
+                entry_type := readdir.dirent_type(entry);
+                printf("    entry: %s (type=%d)\n", name, i32(entry_type));
+                entry_count = (entry_count + i32(1));
+                cond(
+                  (entry_type == DT_DIR) => { dir_count = (dir_count + i32(1)); },
+                  (entry_type == DT_REG) => { file_count = (file_count + i32(1)); },
+                  true => { unit; }
+                );
+                reclen := readdir.dirent_reclen(entry);
+                offset = (offset + u32(reclen));
+              }
+            );
+          };
+        }
+      );
+    };
+
+    printf("  total entries = %d\n", entry_count);
+    printf("  dir entries = %d\n", dir_count);
+    printf("  file entries = %d\n", file_count);
+
+    assert(entry_count >= i32(5));
+    assert(dir_count >= i32(3));
+    assert(file_count >= i32(2));
+
+    free(.Some(*(void)(buf)));
+    await close(dir_fd);
+
+    await dir.unlink(AT_FDCWD, *(u8)("/tmp/yo_io_readdir_test/file_a.txt"), i32(0));
+    await dir.unlink(AT_FDCWD, *(u8)("/tmp/yo_io_readdir_test/file_b.txt"), i32(0));
+    await dir.unlink(AT_FDCWD, *(u8)("/tmp/yo_io_readdir_test/subdir"), AT_REMOVEDIR);
+    await dir.unlink(AT_FDCWD, test_dir, AT_REMOVEDIR);
   };
 };

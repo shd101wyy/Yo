@@ -54,6 +54,7 @@ If running a command didn't produce any output for a long time, let's write it t
 - `-v` or `--verbose` - Show detailed error messages
 - `--test-name-pattern "Test XXX"` to run a specific test
 - Tests automatically use AddressSanitizer for memory leak detection
+- Let's always save the log output of test, e.g., `./yo-cli test src/tests/fixme.test.yo --bail --verbose &> test_output.txt` as it might take a long time to run and we might want to analyze the output later.
 
 Feel free to run `gdb` on `./a.out` to debug the generated C code. Let's better not use GNU extension because we might target other C compilers. Let's stick with C11 standard.
 
