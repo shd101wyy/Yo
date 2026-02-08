@@ -31,6 +31,12 @@ export function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
   }
 
   if (expr.token.value === "break") {
+    // When generating async while loop resume body, break must exit the C switch
+    // and jump to the after-loop label (plain "break" only exits the switch, not the loop)
+    if (functionContext.asyncWhileBreakInfo) {
+      const { label, index } = functionContext.asyncWhileBreakInfo;
+      return `{ sm->while_loop_${index}_active = false; goto ${label}; }`;
+    }
     // When we're inside a match (which compiles to switch in C) and inside a loop,
     // we need to use goto to break out of the loop, not just the switch
     if (functionContext.insideMatch && functionContext.currentLoopLabel) {

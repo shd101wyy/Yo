@@ -388,6 +388,14 @@ export function generateAsyncBlockResumeFunction(
             }
             context.stateMachineVariables = combinedVariables;
 
+            // Set up break handling: in the state machine switch, plain "break" exits
+            // the switch, not the conceptual while loop. We need goto instead.
+            const previousAsyncWhileBreakInfo = context.asyncWhileBreakInfo;
+            context.asyncWhileBreakInfo = {
+              label: `after_while_loop_${prevAwait.index}`,
+              index: prevAwait.index,
+            };
+
             // Generate the remaining expressions
             for (const expr of whileLoopData.bodyExprsAfterAwait) {
               const code = generateExpr(expr, "        ", context);
@@ -404,6 +412,7 @@ export function generateAsyncBlockResumeFunction(
             }
 
             // Restore context
+            context.asyncWhileBreakInfo = previousAsyncWhileBreakInfo;
             context.inStateMachine = previousInStateMachineForLoop;
             context.stateMachineVariables =
               previousStateMachineVariablesForLoop;

@@ -79,4 +79,7 @@ export interface FunctionGenerationContext extends CodeGenContext {
   // Variables that are locally shadowed (e.g., in match destructuring patterns)
   // When a variable name is in this set, use the local C variable instead of sm->var_...
   localShadowedVariables?: Set<string>;
+  // When generating async while loop resume body, this holds the label and index
+  // needed for break to correctly exit the state machine's switch and jump to after-loop code
+  asyncWhileBreakInfo?: { label: string; index: number };
 }
