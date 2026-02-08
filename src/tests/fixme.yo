@@ -1,19 +1,20 @@
+Point :: struct(x : i32, y : i32);
 
 main :: (fn() -> unit) {
-  uninit_arr := MaybeUninit(Array(i32, usize(2))).new();
+  uninit_point := MaybeUninit(Point).new();
 
-  p := uninit_arr.as_ptr();
-  (p.*)(0) = 1;
+  p := uninit_point.as_ptr();
+  p.x = 1;
   
-  // initialize the array
-  arr := uninit_arr.assume_init();
+  // initialize the point
+  point := uninit_point.assume_init();
 
-  // uninit_arr should be consumed after assume_init, so this should be an error:
-  comptime_expect_error(arr2 := uninit_arr.assume_init());
+  // uninit_point should be consumed after assume_init, so this should be an error:
+  comptime_expect_error(point2 := uninit_point.assume_init());
 
-  arr(0) = (arr(0) + 1);
-  arr(1) = 99;
-  assert(arr(0) == 2);
-  assert(arr(1) == 99);
+  point.x = (point.x + 1);
+  point.y = 99;
+  assert(point.x == 2);
+  assert(point.y == 99);
 };
 export main;
