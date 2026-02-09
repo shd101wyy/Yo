@@ -765,7 +765,7 @@ static yo_io_future_t* __yo_async_getaddrinfo_start(const uint8_t* node, const u
     *result = (uint8_t*)res;
     future->result = 0;
   } else {
-    future->result = -ret;  // Return negative gai error code
+    future->result = ret;  // Return raw gai error code (already negative on glibc)
   }
   atomic_init(&future->state, -1);
   
@@ -784,7 +784,7 @@ static yo_io_future_t* __yo_async_getnameinfo_start(const uint8_t* addr, uint32_
   
   int ret = getnameinfo((const struct sockaddr*)addr, (socklen_t)addrlen,
                         (char*)host, (socklen_t)hostlen, (char*)service, (socklen_t)servlen, flags);
-  future->result = (ret == 0) ? 0 : -ret;
+  future->result = ret;  // Return raw gai error code
   atomic_init(&future->state, -1);
   
   return future;
