@@ -24,6 +24,7 @@ The `std/io` module provides Yo's low-level async I/O foundation. It sits betwee
 | **Readdir**          | `std/io/readdir.yo`   | ✅ Complete | getdents, dirent accessors (size, reclen, type, name, ino) |
 | **TCP**              | `std/io/tcp.yo`       | ✅ Complete | Socket, bind, listen, accept, connect, send, recv, close   |
 | **UDP**              | `std/io/udp.yo`       | ✅ Complete | Socket, bind, sendto, recvfrom, send, recv, close          |
+| **DNS**              | `std/io/dns.yo`       | ✅ Complete | getaddrinfo, getnameinfo, addrinfo accessors               |
 
 ### C Runtime Status (in `src/codegen/async/runtime*.ts`)
 
@@ -79,6 +80,8 @@ The runtime has been refactored into 4 modules:
 - ✅ **Windows winsock.h/winsock2.h header conflict**: When `.yo` files import `std/process` (which uses `c_include "<windows.h>"` via `std/libc/windows.yo`), the bare `#include <windows.h>` pulls in `winsock.h` before the IOCP runtime's `winsock2.h`, causing redefinition errors. Fixed by emitting `WIN32_LEAN_AND_MEAN` and `_WINSOCKAPI_` defines at the top of every generated C file on Windows (in `c/collection.ts`), and adding the same guards to `runtime-io-common.ts`.
 - ✅ **Windows file test path**: `file.test.yo` hardcoded `/tmp/` which doesn't exist on Windows. Fixed by using cross-platform `temp_dir()` + `path_join()` (same pattern as `dir.test.yo`).
 - ✅ **Comptime constant C macro name collision**: When compile-time-only constants (e.g., `AF_INET :: i32(2)`) were passed directly as function call arguments, the C codegen created local variables with the original names (`int32_t AF_INET = 2;`), which conflicted with C preprocessor macros from system headers. Fixed in `src/codegen/exprs/other-fn-call.ts` by detecting `isCompileTimeOnly` variables and skipping temp variable creation — the inlined literal is used directly as the call argument.
+- ✅ **Pointer-to-nullable-pointer codegen bug**: `*(?*(T))` (pointer to nullable-pointer-optimized enum) generated `uint8_t*` in C instead of `uint8_t**`. The nullable pointer optimization makes `?*(T)` a bare pointer in C, so a pointer TO that needs an extra `*`. Fixed in `src/codegen/utils/index.ts` `getTypeString()` PtrType case to return `${baseTypeStr}*` instead of `baseTypeStr` for nullable-pointer-optimized enum children.
+- ✅ **Async state machine dangling reassignment temps**: In async state machine codegen, reassignment expressions (e.g., `count = (count + 1)`) inside begin blocks emitted undeclared temp variable references as bare statements. The `skipTempVar` path in `generateAssignment` skipped declaring the temp (correct for state machines where variables are in `sm->var_xxx`) but still returned the temp name. Fixed in `src/codegen/exprs/assignment.ts` to return `""` when `skippedTempVar` is true.
 
 ---
 
@@ -231,41 +234,43 @@ Wraps the extern socket functions into async UDP operations. Reuses `SockAddr` a
 5. `UDP bidirectional ping-pong` — Server and client exchange datagrams using `recvfrom` sender address for reply
 6. `UDP sockaddr helpers from tcp module` — Verify tcp address helpers work for UDP
 
-### 2.3 Create `std/io/addr.yo` — Socket Address Helpers
+### 2.3 ~~Create `std/io/addr.yo`~~ — Skipped
 
-Wraps the extern `__yo_sockaddr_*` helpers into a typed Yo API:
-
-```yo
-// std/io/addr.yo
-
-SockAddrIn :: object(
-  _buf: [u8]
-);
-
-impl(SockAddrIn,
-  new :: (fn(ip: *(u8), port: u16) -> Self)(...),
-  ip :: (fn(self: Self) -> u32)(...),
-  port :: (fn(self: Self) -> u16)(...),
-  as_ptr :: (fn(self: Self) -> *(u8))(...),
-  size :: (fn() -> u32)(...)
-);
-```
+Skipped. Typed socket address wrappers with `object`/`Slice` types don't belong in the low-level `std/io` layer. The raw `*(u8)` + `u32` pattern used by `tcp.yo` and `udp.yo` is appropriate here. Typed wrappers belong in a future `std/net` high-level module.
 
 ---
 
 ## Phase 3: DNS and Network Utilities (Priority: Medium)
 
-### 3.1 Create `std/io/dns.yo` — DNS Resolution
+### 3.1 Create `std/io/dns.yo` — DNS Resolution ✅
 
-```yo
-// std/io/dns.yo
+Wraps `getaddrinfo`/`getnameinfo` externs into async DNS operations, plus accessors for iterating the linked list of `addrinfo` results. Tests in `tests/io/dns.test.yo`.
 
-// Resolve hostname to addresses
-getaddrinfo :: (fn(host: *(u8), service: *(u8)) -> IOFuture)(...);
+**Implementation highlights:**
 
-// Reverse lookup
-getnameinfo :: (fn(addr: *(u8), addrlen: u32) -> IOFuture)(...);
-```
+- `getaddrinfo(node, service, hints, result)` — Resolve hostname (async, returns `IOFuture`)
+- `getnameinfo(addr, addrlen, host, hostlen, service, servlen, flags)` — Reverse lookup (async)
+- `freeaddrinfo(ai)` — Free the result linked list
+- Addrinfo accessors: `addrinfo_family`, `addrinfo_socktype`, `addrinfo_protocol`, `addrinfo_addrlen`, `addrinfo_addr`, `addrinfo_canonname`, `addrinfo_next`
+- `alloc_result() -> *(?*(u8))` / `get_result(ptr) -> ?*(u8)` / `free_result(ptr)` — Result pointer helpers
+- `alloc_hints() -> *(u8)` / `free_hints(ptr)` — Hints allocation helpers
+- `addrinfo_size() -> usize` — Get `struct addrinfo` size
+
+**Design notes:**
+
+- Uses `?*(u8)` (nullable pointer optimization) for optional params: `service`, `hints`, addrinfo `next`/`canonname`
+- Uses `*(?*(u8))` (pointer to nullable pointer) for the result output parameter
+- Error codes returned as-is from `getaddrinfo()` (already negative on glibc, positive on macOS)
+- Addrinfo results form a linked list navigated via `addrinfo_next(ai) -> ?*(u8)` with `match`
+
+**Tests (6 tests, all passing on Linux):**
+
+1. `DNS resolve localhost` — Resolve "localhost", walk linked list, verify family and addrlen
+2. `DNS resolve numeric IP 127.0.0.1` — Verify AF_INET, addrlen=16, sockaddr family matches
+3. `DNS resolve with service port` — Resolve with service "80", verify port in result address
+4. `DNS getnameinfo reverse lookup` — Reverse lookup 127.0.0.1, verify "127.0.0.1" returned
+5. `DNS failed resolution for nonexistent host` — Verify non-zero error for invalid hostname
+6. `DNS alloc_hints and addrinfo_size` — Verify struct size > 0, alloc/free hints
 
 ---
 

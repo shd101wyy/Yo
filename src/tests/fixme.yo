@@ -139,9 +139,9 @@ main :: (fn() -> unit) {
     printf("Test 5: Failed resolution\n");
     result_ptr5 := dns.alloc_result();
     ret5 := await dns.getaddrinfo(*(u8)("this.host.definitely.does.not.exist.invalid"), .None, .None, result_ptr5);
-    printf("  getaddrinfo ret = %d (should be negative)\n", ret5);
-    // Should fail with some EAI_* error (negative)
-    assert(ret5 < i32(0));
+    printf("  getaddrinfo ret = %d (should be non-zero)\n", ret5);
+    // Should fail with some EAI_* error (non-zero)
+    assert(ret5 != i32(0));
 
     dns.free_result(result_ptr5);
 

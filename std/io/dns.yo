@@ -5,7 +5,7 @@
 //
 // All async operations return IOFuture which resolves to:
 //   - 0: success
-//   - Negative value: -gai_error on failure (EAI_NONAME, EAI_AGAIN, etc.)
+//   - Non-zero: raw gai_error code (EAI_NONAME, EAI_AGAIN, etc.)
 //
 // Example:
 //   { GlobalAllocator } :: import "../allocator";
@@ -57,7 +57,7 @@
 // service: service name or port string (e.g. "http", "80"), or .None
 // hints: pointer to an addrinfo struct for filtering, or .None
 // result: pointer to a ?*(u8) that will receive the head of the result list
-// Returns 0 on success, -gai_error on failure.
+// Returns 0 on success, non-zero gai_error on failure.
 // Caller must call freeaddrinfo() on the result when done.
 getaddrinfo :: (fn(node: *(u8), service: ?*(u8), hints: ?*(u8), result: *(?*(u8))) -> IOFuture)(
   __yo_async_getaddrinfo_start(node, service, hints, result)
