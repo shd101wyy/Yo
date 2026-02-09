@@ -26,6 +26,7 @@ The `std/io` module provides Yo's low-level async I/O foundation. It sits betwee
 | **UDP**              | `std/io/udp.yo`       | ✅ Complete | Socket, bind, sendto, recvfrom, send, recv, close          |
 | **DNS**              | `std/io/dns.yo`       | ✅ Complete | getaddrinfo, getnameinfo, addrinfo accessors               |
 | **Perm**             | `std/io/perm.yo`      | ✅ Complete | fchmod, chmodat, fchown, chownat, access                   |
+| **Time**             | `std/io/time.yo`      | ✅ Complete | utime, futime, lutime (file timestamp operations)          |
 
 ### C Runtime Status (in `src/codegen/async/runtime*.ts`)
 
@@ -301,14 +302,38 @@ Wraps `fchmod`/`fchmodat`/`fchown`/`fchownat`/`access` externs into async permis
 5. `chmodat on nonexistent file returns -ENOENT` — Error on missing file
 6. `fchown with -1 -1 succeeds (no change)` — No-op ownership change succeeds
 
-### 4.2 Create `std/io/time.yo` — File Timestamps
+### 4.2 Create `std/io/time.yo` — File Timestamps ✅
 
-```yo
-// std/io/time.yo
+Wraps `utime`/`futime`/`lutime` externs into async timestamp operations. Tests in `tests/io/time.test.yo`.
 
-// Update file access and modification times
-utime :: (fn(path: *(u8), atime_sec: i64, atime_nsec: i64, mtime_sec: i64, mtime_nsec: i64) -> IOFuture)(...);
-```
+**Implementation highlights:**
+
+- `utime(path, atime_sec, atime_nsec, mtime_sec, mtime_nsec)` — Change file timestamps by path (uses `utimensat` with `AT_FDCWD`)
+- `futime(fd, atime_sec, atime_nsec, mtime_sec, mtime_nsec)` — Change file timestamps by fd (uses `futimens`)
+- `lutime(path, atime_sec, atime_nsec, mtime_sec, mtime_nsec)` — Change symlink timestamps without following (uses `utimensat` with `AT_SYMLINK_NOFOLLOW`)
+
+**Design notes:**
+
+- All operations return `IOFuture` resolving to 0 on success, `-errno` on failure
+- Timestamps use `(i64 seconds, i64 nanoseconds)` pairs for both atime and mtime
+- `lutime` modifies the symlink itself, not the target file
+- C runtime uses `utimensat`/`futimens` (sync wrappers in completed futures)
+
+**Additional changes:**
+
+- `Statx` type changed from `object` to `struct` (it's a lightweight wrapper, no ownership semantics needed)
+- Added `atime_sec`, `atime_nsec`, `ctime_sec`, `ctime_nsec` accessors to `Statx` (previously only had `mtime`)
+- Tests use `MaybeUninit(Array(u8, usize(256)))` for stack-allocated statx buffers instead of manual `malloc`/`free`
+- Tests use `ArrayList(u8)` return from `make_test_file` to avoid dangling pointer from dropped cstr
+
+**Tests (6 tests, all passing on Linux):**
+
+1. `utime sets specific timestamps` — Set atime/mtime, verify via statx
+2. `futime sets timestamps by fd with nanosecond precision` — Set via fd, verify sec+nsec fields
+3. `utime on nonexistent file returns -ENOENT` — Error on missing file
+4. `lutime changes symlink timestamps without affecting target` — Verify target timestamps unchanged
+5. `utime with nanosecond precision` — Verify nanosecond-level accuracy
+6. `futime preserves file content` — Verify file data unchanged after timestamp update
 
 ---
 
@@ -531,6 +556,7 @@ std/io/
   udp.yo           ← UDP socket operations                ✅
   dns.yo           ← DNS resolution                       ✅
   perm.yo          ← File permissions                     ✅
+  time.yo          ← File timestamp operations             ✅
   pipe.yo          ← Pipe/dup operations                  Phase 5
   copy.yo          ← Zero-copy file transfer              Phase 5
   signal.yo        ← Signal handling functions            Phase 5
