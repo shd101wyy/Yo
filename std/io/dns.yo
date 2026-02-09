@@ -1,0 +1,188 @@
+// std/io/dns.yo - DNS resolution operations
+//
+// Provides async DNS resolution wrapping getaddrinfo/getnameinfo, plus
+// accessors for iterating the linked list of addrinfo results.
+//
+// All async operations return IOFuture which resolves to:
+//   - 0: success
+//   - Negative value: -gai_error on failure (EAI_NONAME, EAI_AGAIN, etc.)
+//
+// Example:
+//   { GlobalAllocator } :: import "../allocator";
+//   { malloc, free } :: GlobalAllocator;
+//   dns :: import "std/io/dns";
+//   { AF_INET } :: import "std/io/socket";
+//
+//   async {
+//     result_ptr := dns.alloc_result();
+//     ret := await dns.getaddrinfo("localhost", .None, .None, result_ptr);
+//     assert(ret == i32(0));
+//
+//     cur := dns.get_result(result_ptr);
+//     while runtime(true), {
+//       match(cur,
+//         .Some(ai) => {
+//           family := dns.addrinfo_family(ai);
+//           addr := dns.addrinfo_addr(ai);
+//           cur = dns.addrinfo_next(ai);
+//         },
+//         .None => { break; }
+//       );
+//     };
+//
+//     match(dns.get_result(result_ptr),
+//       .Some(ai) => dns.freeaddrinfo(ai),
+//       .None => unit
+//     );
+//     dns.free_result(result_ptr);
+//   };
+
+{ GlobalAllocator } :: import "../allocator";
+{ malloc, free } :: GlobalAllocator;
+{ IOFuture } :: import "./future.yo";
+{
+  __yo_async_getaddrinfo_start, __yo_async_getnameinfo_start,
+  __yo_freeaddrinfo,
+  __yo_addrinfo_size, __yo_addrinfo_flags, __yo_addrinfo_family,
+  __yo_addrinfo_socktype, __yo_addrinfo_protocol, __yo_addrinfo_addrlen,
+  __yo_addrinfo_addr, __yo_addrinfo_canonname, __yo_addrinfo_next
+} :: import "./externs.yo";
+
+// ============================================================================
+// DNS Resolution (return IOFuture, use with await)
+// ============================================================================
+
+// Resolve hostname to a linked list of addrinfo results.
+// node: hostname or IP string (e.g. "localhost", "example.com")
+// service: service name or port string (e.g. "http", "80"), or .None
+// hints: pointer to an addrinfo struct for filtering, or .None
+// result: pointer to a ?*(u8) that will receive the head of the result list
+// Returns 0 on success, -gai_error on failure.
+// Caller must call freeaddrinfo() on the result when done.
+getaddrinfo :: (fn(node: *(u8), service: ?*(u8), hints: ?*(u8), result: *(?*(u8))) -> IOFuture)(
+  __yo_async_getaddrinfo_start(node, service, hints, result)
+);
+
+// Reverse lookup: convert a socket address to hostname and service strings.
+// addr: pointer to sockaddr buffer
+// addrlen: size of the sockaddr
+// host: buffer to receive the hostname
+// hostlen: size of host buffer
+// service: buffer to receive the service name
+// servlen: size of service buffer
+// flags: NI_NUMERICHOST, NI_NUMERICSERV, etc.
+// Returns 0 on success, -gai_error on failure.
+getnameinfo :: (fn(addr: *(u8), addrlen: u32, host: *(u8), hostlen: usize, service: *(u8), servlen: usize, flags: i32) -> IOFuture)(
+  __yo_async_getnameinfo_start(addr, addrlen, host, hostlen, service, servlen, flags)
+);
+
+// Free an addrinfo result list returned by getaddrinfo.
+freeaddrinfo :: (fn(res: *(u8)) -> unit)(
+  __yo_freeaddrinfo(res)
+);
+
+// ============================================================================
+// Result Pointer Helpers
+// ============================================================================
+
+// Allocate a *(?*(u8)) to hold the getaddrinfo result pointer.
+// Initialized to .None. Caller must free with free_result() after use.
+alloc_result :: (fn() -> *(?*(u8))) {
+  ptr := *(?*(u8))(malloc(usize(8)).unwrap());
+  ptr.* = .None;
+  ptr
+};
+
+// Read the addrinfo head pointer from the result slot.
+// Returns .Some(ai) if the result is non-null, .None otherwise.
+get_result :: (fn(result: *(?*(u8))) -> ?*(u8))(
+  result.*
+);
+
+// Free the result pointer slot (not the addrinfo list itself).
+free_result :: (fn(result: *(?*(u8))) -> unit)(
+  free(.Some(*(void)(result)))
+);
+
+// ============================================================================
+// Addrinfo Accessors (for iterating the linked list)
+// ============================================================================
+
+// Get the size of a C struct addrinfo (useful for hints allocation).
+addrinfo_size :: (fn() -> usize)(
+  __yo_addrinfo_size()
+);
+
+// Get the ai_flags field.
+addrinfo_flags :: (fn(ai: *(u8)) -> i32)(
+  __yo_addrinfo_flags(ai)
+);
+
+// Get the ai_family field (AF_INET, AF_INET6, etc.).
+addrinfo_family :: (fn(ai: *(u8)) -> i32)(
+  __yo_addrinfo_family(ai)
+);
+
+// Get the ai_socktype field (SOCK_STREAM, SOCK_DGRAM, etc.).
+addrinfo_socktype :: (fn(ai: *(u8)) -> i32)(
+  __yo_addrinfo_socktype(ai)
+);
+
+// Get the ai_protocol field.
+addrinfo_protocol :: (fn(ai: *(u8)) -> i32)(
+  __yo_addrinfo_protocol(ai)
+);
+
+// Get the ai_addrlen field.
+addrinfo_addrlen :: (fn(ai: *(u8)) -> u32)(
+  __yo_addrinfo_addrlen(ai)
+);
+
+// Get the ai_addr pointer (sockaddr buffer, always non-null in valid results).
+addrinfo_addr :: (fn(ai: *(u8)) -> *(u8))(
+  __yo_addrinfo_addr(ai)
+);
+
+// Get the ai_canonname string (may be .None).
+addrinfo_canonname :: (fn(ai: *(u8)) -> ?*(u8))(
+  __yo_addrinfo_canonname(ai)
+);
+
+// Get the next addrinfo in the linked list (.None if end of list).
+addrinfo_next :: (fn(ai: *(u8)) -> ?*(u8))(
+  __yo_addrinfo_next(ai)
+);
+
+// ============================================================================
+// Hints Helper
+// ============================================================================
+
+// Allocate and zero-initialize a hints struct for getaddrinfo.
+// Set family, socktype, protocol, and flags as needed before passing to getaddrinfo.
+// Caller must free with free_hints() after the getaddrinfo call.
+alloc_hints :: (fn() -> *(u8)) {
+  size := __yo_addrinfo_size();
+  ptr := *(u8)(malloc(size).unwrap());
+  i := usize(0);
+  while (i < size), {
+    (ptr &+ i).* = u8(0);
+    i = (i + usize(1));
+  };
+  ptr
+};
+
+// Free a hints buffer allocated with alloc_hints.
+free_hints :: (fn(hints: *(u8)) -> unit)(
+  free(.Some(*(void)(hints)))
+);
+
+export
+  getaddrinfo, getnameinfo,
+  freeaddrinfo,
+  alloc_result, get_result, free_result,
+  addrinfo_size,
+  addrinfo_flags, addrinfo_family, addrinfo_socktype,
+  addrinfo_protocol, addrinfo_addrlen, addrinfo_addr,
+  addrinfo_canonname, addrinfo_next,
+  alloc_hints, free_hints
+;

@@ -3,161 +3,160 @@ open import "std/libc/stdio";
 { malloc, free } :: GlobalAllocator;
 open import "std/string";
 { platform, Platform, env } :: import "std/process";
-udp :: import "std/io/udp";
+dns :: import "std/io/dns";
 tcp :: import "std/io/tcp";
 {
-  AF_INET, SOCK_DGRAM,
-  SOL_SOCKET, SO_REUSEADDR
+  AF_INET, AF_INET6,
+  SOCK_STREAM, SOCK_DGRAM
 } :: import "std/io/socket";
 
 main :: (fn() -> unit) {
   async {
     // =============================================
-    // Test 1: Create a UDP socket
+    // Test 1: Resolve "localhost" with getaddrinfo
     // =============================================
-    printf("Test 1: Create UDP socket\n");
-    sockfd := await udp.socket(AF_INET, i32(0));
-    printf("  socket fd = %d\n", sockfd);
-    assert(sockfd >= i32(0));
+    printf("Test 1: Resolve localhost\n");
+    result_ptr := dns.alloc_result();
+    ret := await dns.getaddrinfo(*(u8)("localhost"), .None, .None, result_ptr);
+    printf("  getaddrinfo ret = %d\n", ret);
+    assert(ret == i32(0));
 
-    // =============================================
-    // Test 2: Bind to loopback
-    // =============================================
-    printf("Test 2: Bind to loopback\n");
-    server_addr := tcp.make_sockaddr_in_loopback(u16(19878));
-    bind_result := await udp.bind(sockfd, server_addr.buf, server_addr.len);
-    printf("  bind = %d\n", bind_result);
-    assert(bind_result == i32(0));
+    first_ai := dns.get_result(result_ptr);
+    match(first_ai,
+      .Some(_) => { printf("  got result\n"); },
+      .None => { printf("  no result!\n"); assert(false); }
+    );
 
-    // =============================================
-    // Test 3: Create a second UDP socket (client) and bind it
-    // =============================================
-    printf("Test 3: Create client UDP socket\n");
-    client_fd := await udp.socket(AF_INET, i32(0));
-    printf("  client fd = %d\n", client_fd);
-    assert(client_fd >= i32(0));
+    // Walk the linked list, count results
+    count := i32(0);
+    cur := dns.get_result(result_ptr);
+    while runtime(true), {
+      match(cur,
+        .Some(ai) => {
+          family := dns.addrinfo_family(ai);
+          addrlen := dns.addrinfo_addrlen(ai);
+          printf("  result %d: family=%d addrlen=%u\n", count, family, addrlen);
+          assert(((family == AF_INET) || (family == AF_INET6)));
+          assert(addrlen > u32(0));
+          count = (count + i32(1));
+          cur = dns.addrinfo_next(ai);
+        },
+        .None => { break; }
+      );
+    };
+    printf("  total results = %d\n", count);
+    assert(count >= i32(1));
 
-    // Bind client to a known port upfront (must bind before any sendto)
-    client_addr := tcp.make_sockaddr_in_loopback(u16(19879));
-    bind2 := await udp.bind(client_fd, client_addr.buf, client_addr.len);
-    printf("  client bind = %d\n", bind2);
-    assert(bind2 == i32(0));
-
-    // =============================================
-    // Test 4: sendto from client to server
-    // =============================================
-    printf("Test 4: sendto\n");
-    dest_addr := tcp.make_sockaddr_in_loopback(u16(19878));
-    msg := *(u8)("Hello UDP!");
-    sent := await udp.sendto(client_fd, msg, usize(10), i32(0), dest_addr.buf, dest_addr.len);
-    printf("  sent = %d\n", sent);
-    assert(sent == i32(10));
-    tcp.free_sockaddr(dest_addr);
-
-    // =============================================
-    // Test 5: recvfrom on server
-    // =============================================
-    printf("Test 5: recvfrom\n");
-    recv_buf := *(u8)(malloc(usize(256)).unwrap());
-    src_addr_buf := *(u8)(malloc(usize(128)).unwrap());
-    src_addr_len := *(u32)(malloc(usize(4)).unwrap());
-    src_addr_len.* = u32(128);
-
-    received := await udp.recvfrom(sockfd, recv_buf, usize(256), i32(0), src_addr_buf, src_addr_len);
-    printf("  received = %d\n", received);
-    assert(received == i32(10));
-
-    // Verify: "Hello UDP!" = H(72) e(101) l(108) l(108) o(111) (32) U(85) D(68) P(80) !(33)
-    assert((recv_buf &+ usize(0)).* == u8(72));
-    assert((recv_buf &+ usize(1)).* == u8(101));
-    assert((recv_buf &+ usize(2)).* == u8(108));
-    assert((recv_buf &+ usize(3)).* == u8(108));
-    assert((recv_buf &+ usize(4)).* == u8(111));
-    assert((recv_buf &+ usize(5)).* == u8(32));
-    assert((recv_buf &+ usize(6)).* == u8(85));
-    assert((recv_buf &+ usize(7)).* == u8(68));
-    assert((recv_buf &+ usize(8)).* == u8(80));
-    assert((recv_buf &+ usize(9)).* == u8(33));
-
-    // Verify source address is AF_INET
-    src_family := tcp.get_family(src_addr_buf);
-    printf("  src family = %u\n", src_family);
-    assert(src_family == u16(AF_INET));
-
-    free(.Some(*(void)(recv_buf)));
-    free(.Some(*(void)(src_addr_buf)));
-    free(.Some(*(void)(src_addr_len)));
+    match(dns.get_result(result_ptr),
+      .Some(ai) => dns.freeaddrinfo(ai),
+      .None => ()
+    );
+    dns.free_result(result_ptr);
 
     // =============================================
-    // Test 6: Bidirectional - server sends back
+    // Test 2: Resolve "127.0.0.1" (numeric IP)
     // =============================================
-    printf("Test 6: Bidirectional sendto/recvfrom\n");
+    printf("Test 2: Resolve numeric IP 127.0.0.1\n");
+    result_ptr2 := dns.alloc_result();
+    ret2 := await dns.getaddrinfo(*(u8)("127.0.0.1"), .None, .None, result_ptr2);
+    printf("  getaddrinfo ret = %d\n", ret2);
+    assert(ret2 == i32(0));
 
-    // Client sends to server
-    reply_dest := tcp.make_sockaddr_in_loopback(u16(19878));
-    msg2 := *(u8)("Ping");
-    sent2 := await udp.sendto(client_fd, msg2, usize(4), i32(0), reply_dest.buf, reply_dest.len);
-    printf("  client sent = %d\n", sent2);
-    assert(sent2 == i32(4));
-    tcp.free_sockaddr(reply_dest);
+    match(dns.get_result(result_ptr2),
+      .Some(ai2) => {
+        // Should be AF_INET for 127.0.0.1
+        family2 := dns.addrinfo_family(ai2);
+        printf("  family = %d (expect %d)\n", family2, AF_INET);
+        assert(family2 == AF_INET);
 
-    // Server receives
-    recv_buf2 := *(u8)(malloc(usize(256)).unwrap());
-    from_buf := *(u8)(malloc(usize(128)).unwrap());
-    from_len := *(u32)(malloc(usize(4)).unwrap());
-    from_len.* = u32(128);
-    received2 := await udp.recvfrom(sockfd, recv_buf2, usize(256), i32(0), from_buf, from_len);
-    printf("  server received = %d\n", received2);
-    assert(received2 == i32(4));
-    // Verify "Ping" = P(80) i(105) n(110) g(103)
-    assert((recv_buf2 &+ usize(0)).* == u8(80));
-    assert((recv_buf2 &+ usize(1)).* == u8(105));
+        // The addrlen should be sizeof(sockaddr_in) = 16
+        addrlen2 := dns.addrinfo_addrlen(ai2);
+        printf("  addrlen = %u\n", addrlen2);
+        assert(addrlen2 == u32(16));
 
-    // Server sends back to client using the from address
-    msg3 := *(u8)("Pong");
-    sent3 := await udp.sendto(sockfd, msg3, usize(4), i32(0), from_buf, from_len.*);
-    printf("  server sent = %d\n", sent3);
-    assert(sent3 == i32(4));
+        // The address should point to a valid sockaddr_in
+        addr_ptr := dns.addrinfo_addr(ai2);
+        resolved_family := tcp.get_family(addr_ptr);
+        printf("  resolved family = %u\n", resolved_family);
+        assert(resolved_family == u16(AF_INET));
 
-    free(.Some(*(void)(recv_buf2)));
-    free(.Some(*(void)(from_buf)));
-    free(.Some(*(void)(from_len)));
-
-    // Client receives reply
-    recv_buf3 := *(u8)(malloc(usize(256)).unwrap());
-    from_buf2 := *(u8)(malloc(usize(128)).unwrap());
-    from_len2 := *(u32)(malloc(usize(4)).unwrap());
-    from_len2.* = u32(128);
-    received3 := await udp.recvfrom(client_fd, recv_buf3, usize(256), i32(0), from_buf2, from_len2);
-    printf("  client received = %d\n", received3);
-    assert(received3 == i32(4));
-    // Verify "Pong" = P(80) o(111) n(110) g(103)
-    assert((recv_buf3 &+ usize(0)).* == u8(80));
-    assert((recv_buf3 &+ usize(1)).* == u8(111));
-    assert((recv_buf3 &+ usize(2)).* == u8(110));
-    assert((recv_buf3 &+ usize(3)).* == u8(103));
-
-    free(.Some(*(void)(recv_buf3)));
-    free(.Some(*(void)(from_buf2)));
-    free(.Some(*(void)(from_len2)));
-
-    tcp.free_sockaddr(client_addr);
+        dns.freeaddrinfo(ai2);
+      },
+      .None => { printf("  no result!\n"); assert(false); }
+    );
+    dns.free_result(result_ptr2);
 
     // =============================================
-    // Test 7: Close sockets
+    // Test 3: Resolve with service (port)
     // =============================================
-    printf("Test 7: Close sockets\n");
-    c1 := await udp.close(client_fd);
-    printf("  close client = %d\n", c1);
-    assert(c1 == i32(0));
+    printf("Test 3: Resolve with service port\n");
+    result_ptr3 := dns.alloc_result();
+    ret3 := await dns.getaddrinfo(*(u8)("127.0.0.1"), .Some(*(u8)("80")), .None, result_ptr3);
+    printf("  getaddrinfo ret = %d\n", ret3);
+    assert(ret3 == i32(0));
 
-    c2 := await udp.close(sockfd);
-    printf("  close server = %d\n", c2);
-    assert(c2 == i32(0));
+    match(dns.get_result(result_ptr3),
+      .Some(ai3) => {
+        // Check the resolved address has port 80
+        addr_ptr3 := dns.addrinfo_addr(ai3);
+        port3 := tcp.get_port_in(addr_ptr3);
+        printf("  resolved port = %u\n", port3);
+        assert(port3 == u16(80));
 
-    tcp.free_sockaddr(server_addr);
+        dns.freeaddrinfo(ai3);
+      },
+      .None => { printf("  no result!\n"); assert(false); }
+    );
+    dns.free_result(result_ptr3);
 
-    printf("All UDP tests passed!\n");
+    // =============================================
+    // Test 4: getnameinfo reverse lookup
+    // =============================================
+    printf("Test 4: getnameinfo reverse lookup\n");
+    // Create a sockaddr_in for 127.0.0.1:0
+    sa := tcp.make_sockaddr_in_loopback(u16(0));
+
+    host_buf := *(u8)(malloc(usize(256)).unwrap());
+    serv_buf := *(u8)(malloc(usize(64)).unwrap());
+
+    // NI_NUMERICHOST = 1 on Linux
+    ret4 := await dns.getnameinfo(sa.buf, sa.len, host_buf, usize(256), serv_buf, usize(64), i32(1));
+    printf("  getnameinfo ret = %d\n", ret4);
+    assert(ret4 == i32(0));
+
+    // host_buf should contain "127.0.0.1" with NI_NUMERICHOST
+    printf("  host = %s\n", host_buf);
+    // Verify first char is '1' (0x31) for "127.0.0.1"
+    assert(host_buf.* == u8(49));
+
+    free(.Some(*(void)(host_buf)));
+    free(.Some(*(void)(serv_buf)));
+    tcp.free_sockaddr(sa);
+
+    // =============================================
+    // Test 5: Failed resolution (nonexistent host)
+    // =============================================
+    printf("Test 5: Failed resolution\n");
+    result_ptr5 := dns.alloc_result();
+    ret5 := await dns.getaddrinfo(*(u8)("this.host.definitely.does.not.exist.invalid"), .None, .None, result_ptr5);
+    printf("  getaddrinfo ret = %d (should be negative)\n", ret5);
+    // Should fail with some EAI_* error (negative)
+    assert(ret5 < i32(0));
+
+    dns.free_result(result_ptr5);
+
+    // =============================================
+    // Test 6: alloc_hints and addrinfo_size
+    // =============================================
+    printf("Test 6: alloc_hints and addrinfo_size\n");
+    size := dns.addrinfo_size();
+    printf("  addrinfo_size = %lu\n", size);
+    assert(size > usize(0));
+
+    hints := dns.alloc_hints();
+    dns.free_hints(hints);
+
+    printf("All DNS tests passed!\n");
   };
 };
 export main;

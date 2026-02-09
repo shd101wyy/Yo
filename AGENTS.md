@@ -204,6 +204,8 @@ The Pointer type in Yo can be used in both compile-time and runtime contexts. It
 
 Pointer arithmetic operations are using &+, &-, &<, &>, &<=, &>= operators with `&` prefix.
 
+There is no NULL in Yo. Nullable pointer is represented using `Option(*(T))`, or `?*(T)` enum type. We optimize `Option(*(T)).None` as NULL pointer in C codegen.
+
 The SomeType in Yo by defaults automatically implements the `Runtime` trait
 
 Never try to write function to resolve SomeType, as struct/enum/union etc are all nominal types, simply replacing SomeType in them will cause problem.
