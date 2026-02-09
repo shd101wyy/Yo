@@ -88,6 +88,7 @@ export function generateAssignment(
   const lhsCode = generateExpr(lhs, indent, context);
 
   // Check if we need to save the old value into temp variable
+  let skippedTempVar = false;
   if (expr.$?.variableName) {
     const tempVarName = expr.$.variableName;
 
@@ -95,6 +96,10 @@ export function generateAssignment(
     const functionContext = context as FunctionGenerationContext;
     const skipTempVar =
       functionContext.inStateMachine && lhsCode.startsWith("sm->");
+
+    if (skipTempVar) {
+      skippedTempVar = true;
+    }
 
     if (!skipTempVar) {
       const tempVarNameAndType = getVariableTypeString(
@@ -299,5 +304,5 @@ export function generateAssignment(
     }
   }
 
-  return expr.$?.variableName ?? "";
+  return skippedTempVar ? "" : (expr.$?.variableName ?? "");
 }
