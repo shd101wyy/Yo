@@ -77,6 +77,7 @@ The runtime has been refactored into 4 modules:
 - ✅ **Windows IOCP double handle association**: `openat` associated the file handle with IOCP, then `read`/`write` tried to associate the same handle again. The second `CreateIoCompletionPort` call fails with `ERROR_INVALID_PARAMETER` (87), causing reads to return -87. Fixed by making `__yo_win_associate_handle` tolerate already-associated handles (returns true on `ERROR_INVALID_PARAMETER`) and making read/write call it best-effort instead of failing.
 - ✅ **Windows winsock.h/winsock2.h header conflict**: When `.yo` files import `std/process` (which uses `c_include "<windows.h>"` via `std/libc/windows.yo`), the bare `#include <windows.h>` pulls in `winsock.h` before the IOCP runtime's `winsock2.h`, causing redefinition errors. Fixed by emitting `WIN32_LEAN_AND_MEAN` and `_WINSOCKAPI_` defines at the top of every generated C file on Windows (in `c/collection.ts`), and adding the same guards to `runtime-io-common.ts`.
 - ✅ **Windows file test path**: `file.test.yo` hardcoded `/tmp/` which doesn't exist on Windows. Fixed by using cross-platform `temp_dir()` + `path_join()` (same pattern as `dir.test.yo`).
+- ✅ **Comptime constant C macro name collision**: When compile-time-only constants (e.g., `AF_INET :: i32(2)`) were passed directly as function call arguments, the C codegen created local variables with the original names (`int32_t AF_INET = 2;`), which conflicted with C preprocessor macros from system headers. Fixed in `src/codegen/exprs/other-fn-call.ts` by detecting `isCompileTimeOnly` variables and skipping temp variable creation — the inlined literal is used directly as the call argument.
 
 ---
 
@@ -188,7 +189,7 @@ Wraps the extern socket functions into async TCP operations. Provides both raw s
 
 **Known issue fixed:**
 
-- C macro name conflict: `AF_INET` and `AF_INET6` are C macros from `<sys/socket.h>`. When passed directly as function arguments, the C codegen created local variables with these names, causing compilation errors. Fixed by assigning to local variables with safe names (`af_inet := AF_INET`) before passing to functions.
+- C macro name conflict: `AF_INET` and `AF_INET6` are C macros from `<sys/socket.h>`. When compile-time constants with those names (e.g., `AF_INET :: i32(2)`) were passed directly as function call arguments, the C codegen created local variables with the original names (e.g., `int32_t AF_INET = 2;`), causing preprocessor conflicts. Fixed in `src/codegen/exprs/other-fn-call.ts` by detecting `isCompileTimeOnly` variables and skipping temp variable creation — the inlined literal value (e.g., `2`) is used directly as the call argument instead.
 
 **Tests (6 tests, all passing on Linux):**
 
