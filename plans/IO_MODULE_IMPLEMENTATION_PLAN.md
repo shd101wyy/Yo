@@ -8,25 +8,25 @@ The `std/io` module provides Yo's low-level async I/O foundation. It sits betwee
 
 ### What's Done
 
-| Component            | File                  | Status      | Notes                                                      |
-| -------------------- | --------------------- | ----------- | ---------------------------------------------------------- |
-| **Constants**        | `std/io/constants.yo` | ✅ Complete | File mode, permissions, AT*\*, DT*\*, open flags           |
-| **Socket Constants** | `std/io/socket.yo`    | ✅ Complete | Platform-aware AF*\*, SOCK*\_, SO\_\_, TCP\_\*             |
-| **Signals**          | `std/io/signals.yo`   | ✅ Complete | Platform-aware POSIX signal numbers                        |
-| **Events**           | `std/io/events.yo`    | ✅ Complete | TTY, poll, FS event constants                              |
-| **IOError**          | `std/io/errors.yo`    | ✅ Complete | Enum with errno mapping, ToString impl                     |
-| **IOFuture**         | `std/io/future.yo`    | ✅ Complete | Extern type wrapping `yo_io_future_t`                      |
-| **Externs**          | `std/io/externs.yo`   | ✅ Complete | All C extern function declarations                         |
-| **Statx**            | `std/io/statx.yo`     | ✅ Complete | File metadata accessor object                              |
-| **Timer**            | `std/io/timer.yo`     | ✅ Complete | `sleep(ms)`                                                |
-| **File**             | `std/io/file.yo`      | ✅ Complete | Async+sync file ops (openat, read, write, etc.)            |
-| **Dir**              | `std/io/dir.yo`       | ✅ Complete | mkdir, unlink, rename, symlink, link, readlink             |
-| **Readdir**          | `std/io/readdir.yo`   | ✅ Complete | getdents, dirent accessors (size, reclen, type, name, ino) |
-| **TCP**              | `std/io/tcp.yo`       | ✅ Complete | Socket, bind, listen, accept, connect, send, recv, close   |
-| **UDP**              | `std/io/udp.yo`       | ✅ Complete | Socket, bind, sendto, recvfrom, send, recv, close          |
-| **DNS**              | `std/io/dns.yo`       | ✅ Complete | getaddrinfo, getnameinfo, addrinfo accessors               |
-| **Perm**             | `std/io/perm.yo`      | ✅ Complete | fchmod, chmodat, fchown, chownat, access                   |
-| **Time**             | `std/io/time.yo`      | ✅ Complete | utime, futime, lutime (file timestamp operations)          |
+| Component            | File                                       | Status      | Notes                                                      |
+| -------------------- | ------------------------------------------ | ----------- | ---------------------------------------------------------- |
+| **Constants**        | `std/io/constants.yo`                      | ✅ Complete | File mode, permissions, AT*\*, DT*\*, open flags           |
+| **Socket Constants** | `std/io/socket.yo`                         | ✅ Complete | Platform-aware AF*\*, SOCK*\_, SO\_\_, TCP\_\*             |
+| **Signals**          | `std/io/signals.yo`                        | ✅ Complete | Platform-aware POSIX signal numbers                        |
+| **Events**           | `std/io/events.yo`                         | ✅ Complete | TTY, poll, FS event constants                              |
+| **IOError**          | `std/io/errors.yo`                         | ✅ Complete | Enum with errno mapping, ToString impl                     |
+| **IOFuture**         | `std/io/future.yo`                         | ✅ Complete | Extern type wrapping `yo_io_future_t`                      |
+| **Externs**          | `std/io/externs.yo`                        | ✅ Complete | All C extern function declarations                         |
+| **Statx**            | `std/io/statx.yo`                          | ✅ Complete | File metadata accessor object                              |
+| **Timer**            | `std/io/timer.yo`                          | ✅ Complete | `sleep(ms)`                                                |
+| **File**             | `std/io/file.yo`                           | ✅ Complete | Async+sync file ops (openat, read, write, etc.)            |
+| **Dir**              | `std/io/dir.yo`                            | ✅ Complete | mkdir, unlink, rename, symlink, link, readlink             |
+| **Readdir**          | `std/io/readdir.yo` (merged into `dir.yo`) | ✅ Complete | getdents, dirent accessors (size, reclen, type, name, ino) |
+| **TCP**              | `std/io/tcp.yo`                            | ✅ Complete | Socket, bind, listen, accept, connect, send, recv, close   |
+| **UDP**              | `std/io/udp.yo`                            | ✅ Complete | Socket, bind, sendto, recvfrom, send, recv, close          |
+| **DNS**              | `std/io/dns.yo`                            | ✅ Complete | getaddrinfo, getnameinfo, addrinfo accessors               |
+| **Perm**             | `std/io/perm.yo`                           | ✅ Complete | fchmod, chmodat, fchown, chownat, access                   |
+| **Time**             | `std/io/time.yo`                           | ✅ Complete | utime, futime, lutime (file timestamp operations)          |
 
 ### C Runtime Status (in `src/codegen/async/runtime*.ts`)
 
@@ -63,6 +63,11 @@ The runtime has been refactored into 4 modules:
 | **DNS**                    | ✅ (sync)             | ✅ (sync)           | ✅ (sync)                                |
 | **Signals**                | ✅ (sync)             | ✅ (sync)           | ❌                                       |
 | **TTY**                    | ✅ (sync)             | ✅ (sync)           | ⚠️ (isatty only)                         |
+| **Unix sockets**           | ✅ (sockaddr_un)      | ✅ (sockaddr_un)    | ⚠️ (AF_UNIX Win10 1803+)                 |
+| **Process spawn**          | ❌                    | ❌                  | ❌                                       |
+| **fcntl**                  | ❌                    | ❌                  | ❌ (different model)                     |
+| **mmap**                   | ❌                    | ❌                  | ❌ (CreateFileMapping)                   |
+| **flock**                  | ❌                    | ❌                  | ❌ (LockFileEx)                          |
 | **FS Events**              | ❌                    | ❌                  | ❌                                       |
 | **Poll**                   | ❌                    | ❌                  | ❌                                       |
 
@@ -400,6 +405,76 @@ tty_winsize :: (fn(fd: i32) -> struct(width: i32, height: i32))(...);
 isatty :: (fn(fd: i32) -> bool)(...);
 ```
 
+### 5.5 Create `std/io/temp.yo` — Temporary File/Directory Operations
+
+Wraps `mkdtemp`/`mkstemp` externs. Externs and C runtime already exist on all 3 platforms (sync wrappers).
+
+```yo
+// std/io/temp.yo
+
+// Create a temporary directory from template (e.g., "/tmp/myapp-XXXXXX")
+// The template is modified in-place with the actual path. Returns 0 on success.
+mkdtemp :: (fn(template: *(u8)) -> IOFuture)(...);
+
+// Create a temporary file from template (e.g., "/tmp/myfile-XXXXXX")
+// The template is modified in-place. Returns the fd on success.
+mkstemp :: (fn(template: *(u8)) -> IOFuture)(...);
+```
+
+**Cross-platform notes:**
+
+- Linux/macOS: Uses POSIX `mkdtemp()`/`mkstemp()` directly
+- Windows: Uses `_mktemp_s()` + `_wmkdir()`/`CreateFileW()` in sync wrappers
+- Template must end with `XXXXXX` (6 X's replaced with unique suffix)
+
+### 5.6 Create `std/io/path.yo` — Path Resolution
+
+Wraps `realpath` extern. Externs and C runtime already exist on all 3 platforms.
+
+```yo
+// std/io/path.yo
+
+// Resolve a path to its canonical absolute form (resolves symlinks, . and ..)
+// Writes result to `resolved` buffer (must be at least PATH_MAX bytes).
+// Returns 0 on success, -errno on failure.
+realpath :: (fn(path: *(u8), resolved: *(u8)) -> IOFuture)(...);
+```
+
+**Cross-platform notes:**
+
+- Linux/macOS: Uses POSIX `realpath()` directly
+- Windows: Uses `GetFullPathNameW()` in sync wrapper
+
+### 5.7 Create `std/io/statfs.yo` — Filesystem Statistics
+
+Wraps `statfs` extern and provides typed accessors. Externs and C runtime already exist on all 3 platforms.
+
+```yo
+// std/io/statfs.yo
+
+// Get filesystem statistics for the given path.
+// Writes result to `buf` (use statfs_buf_size() to allocate).
+statfs :: (fn(path: *(u8), buf: *(u8)) -> IOFuture)(...);
+
+// Get required buffer size for statfs
+statfs_buf_size :: (fn() -> usize)(...);
+
+// Accessors for statfs result buffer
+statfs_type   :: (fn(buf: *(u8)) -> u64)(...);
+statfs_bsize  :: (fn(buf: *(u8)) -> u64)(...);
+statfs_blocks :: (fn(buf: *(u8)) -> u64)(...);
+statfs_bfree  :: (fn(buf: *(u8)) -> u64)(...);
+statfs_bavail :: (fn(buf: *(u8)) -> u64)(...);
+statfs_files  :: (fn(buf: *(u8)) -> u64)(...);
+statfs_ffree  :: (fn(buf: *(u8)) -> u64)(...);
+```
+
+**Cross-platform notes:**
+
+- Linux: `statfs()` syscall
+- macOS: `statfs()` syscall (slightly different struct layout)
+- Windows: `GetDiskFreeSpaceExW()` mapped to block-style fields
+
 ---
 
 ## Phase 6: Windows IOCP Backend ✅ (Completed)
@@ -495,29 +570,288 @@ the macOS approach.
 
 ---
 
+## Phase 8: Unix Domain Sockets (Priority: Medium)
+
+**Goal**: Provide Unix domain socket (IPC) operations reusing the existing TCP/UDP socket infrastructure.
+
+The C runtime already has `sockaddr_un` helpers (`__yo_sockaddr_un_size`, `__yo_sockaddr_un_set_path`, `__yo_sockaddr_un_get_path`) on all 3 platforms. The socket operations (`socket`, `bind`, `listen`, `accept`, `connect`, `send`, `recv`, `close`) from `tcp.yo` work with any address family, so `unix.yo` primarily provides address helpers and convenience wrappers.
+
+### 8.1 Create `std/io/unix.yo` — Unix Domain Socket Operations
+
+```yo
+// std/io/unix.yo
+
+// Unix socket address helpers
+UnixAddr :: struct(
+  buf : *(u8),
+  len : u32
+);
+
+// Create a Unix socket (SOCK_STREAM for connection-oriented)
+socket_stream :: (fn() -> IOFuture)(...);
+
+// Create a Unix socket (SOCK_DGRAM for datagram)
+socket_dgram :: (fn() -> IOFuture)(...);
+
+// Create a sockaddr_un from a filesystem path
+make_sockaddr_un :: (fn(path: *(u8)) -> UnixAddr)(...);
+
+// Extract the path from a sockaddr_un buffer
+get_path :: (fn(addr_buf: *(u8)) -> *(u8))(...);
+
+// Free a UnixAddr buffer
+free_addr :: (fn(addr: UnixAddr) -> unit)(...);
+
+// Bind, listen, accept, connect, send, recv, close reused from tcp.yo
+```
+
+**Cross-platform notes:**
+
+- Linux/macOS: Full `AF_UNIX` support with filesystem and abstract sockets
+- Windows: `AF_UNIX` supported since Windows 10 version 1803. Our runtime currently returns 0 for `sockaddr_un_size` (needs implementation). Filesystem paths only (no abstract sockets).
+- Abstract sockets (Linux-only, path starts with `\0`) can be supported later
+
+---
+
+## Phase 9: Process Management (Priority: Medium)
+
+**Goal**: Provide cross-platform child process spawning, waiting, and signal delivery.
+
+This requires **new C runtime externs** — no process management functions exist in the runtime yet.
+
+### 9.1 Create `std/io/process.yo` — Child Process Operations
+
+```yo
+// std/io/process.yo
+
+// Spawn a child process.
+// Returns the child PID on success, -errno on failure.
+// `argv` is a NULL-terminated array of argument strings.
+// `envp` is a NULL-terminated array of "KEY=VALUE" strings (or null for inherit).
+// `stdin_fd`, `stdout_fd`, `stderr_fd`: fd redirections (-1 = inherit)
+spawn :: (fn(
+  file: *(u8),
+  argv: *(*(u8)),
+  envp: ?*(*(u8)),
+  stdin_fd: i32,
+  stdout_fd: i32,
+  stderr_fd: i32
+) -> IOFuture)(...);
+
+// Wait for a child process to exit.
+// Returns the exit status (encoded: use WEXITSTATUS/WTERMSIG macros).
+waitpid :: (fn(pid: i32, options: i32) -> IOFuture)(...);
+
+// Send a signal to a process.
+// Returns 0 on success, -errno on failure.
+kill :: (fn(pid: i32, signum: i32) -> i32)(...);
+
+// Helper: extract exit code from waitpid status
+exit_status :: (fn(status: i32) -> i32)(...);
+
+// Helper: check if process was terminated by signal
+term_signal :: (fn(status: i32) -> i32)(...);
+```
+
+**Cross-platform implementation:**
+
+| Operation | Linux/macOS                          | Windows                                          |
+| --------- | ------------------------------------ | ------------------------------------------------ |
+| spawn     | `posix_spawn()` or `fork()+execvp()` | `CreateProcessW()`                               |
+| waitpid   | `waitpid()` (sync wrapper)           | `WaitForSingleObject()` + `GetExitCodeProcess()` |
+| kill      | `kill()` (POSIX)                     | `TerminateProcess()` (SIGKILL only)              |
+
+**Design notes:**
+
+- `spawn` takes explicit fd redirections for stdin/stdout/stderr, enabling pipe-based IPC (combine with `pipe.yo`)
+- `envp` is nullable — pass null to inherit parent environment
+- `waitpid` with `options=0` blocks; `WNOHANG` polls without blocking
+- On Windows, signal support is limited: only `SIGKILL` → `TerminateProcess()` is reliable
+- Exit status encoding follows POSIX conventions on Unix; Windows maps directly to exit code
+
+### 9.2 Runtime Implementation Needed
+
+New C runtime functions required in `runtime-io-common.ts` (or platform-specific files):
+
+```c
+// Spawn child process
+yo_io_future_t* __yo_async_spawn_start(
+  const char* file, char* const argv[], char* const envp[],
+  int stdin_fd, int stdout_fd, int stderr_fd);
+
+// Wait for child process
+yo_io_future_t* __yo_async_waitpid_start(int32_t pid, int32_t options);
+
+// Extract exit status from waitpid result
+int32_t __yo_process_exit_status(int32_t status);
+int32_t __yo_process_term_signal(int32_t status);
+```
+
+---
+
+## Phase 10: Advanced System Operations (Priority: Low)
+
+**Goal**: Provide low-level system operations for fd control, memory mapping, and file locking.
+
+All of these require **new C runtime externs**.
+
+### 10.1 Create `std/io/fcntl.yo` — File Descriptor Control
+
+```yo
+// std/io/fcntl.yo
+
+// Get file descriptor flags
+getfl :: (fn(fd: i32) -> i32)(...);
+
+// Set file descriptor flags
+setfl :: (fn(fd: i32, flags: i32) -> i32)(...);
+
+// Get file descriptor close-on-exec flag
+getfd :: (fn(fd: i32) -> i32)(...);
+
+// Set file descriptor close-on-exec flag
+setfd :: (fn(fd: i32, flags: i32) -> i32)(...);
+
+// Constants
+O_NONBLOCK :: i32(...);
+FD_CLOEXEC :: i32(...);
+```
+
+**Cross-platform implementation:**
+
+| Operation | Linux/macOS          | Windows                                     |
+| --------- | -------------------- | ------------------------------------------- |
+| getfl     | `fcntl(fd, F_GETFL)` | `ioctlsocket(FIONBIO)` for sockets          |
+| setfl     | `fcntl(fd, F_SETFL)` | `ioctlsocket(FIONBIO)` for sockets          |
+| getfd     | `fcntl(fd, F_GETFD)` | N/A (handles inherit by default)            |
+| setfd     | `fcntl(fd, F_SETFD)` | `SetHandleInformation(HANDLE_FLAG_INHERIT)` |
+
+**Design notes:**
+
+- Primary use case: toggling `O_NONBLOCK` on sockets/pipes
+- Windows has a fundamentally different model — `ioctlsocket` for sockets, `SetNamedPipeHandleState` for pipes. The Yo wrapper abstracts this.
+- Close-on-exec (`FD_CLOEXEC`) is less relevant on Windows where handles don't survive `CreateProcess` unless explicitly inherited
+
+### 10.2 Create `std/io/mmap.yo` — Memory-Mapped I/O
+
+```yo
+// std/io/mmap.yo
+
+// Map a file or device into memory.
+// Returns pointer to mapped region, or -errno cast to pointer on failure.
+mmap :: (fn(
+  addr: ?*(u8),
+  length: usize,
+  prot: i32,
+  flags: i32,
+  fd: i32,
+  offset: i64
+) -> ?*(u8))(...);
+
+// Unmap a previously mapped region
+munmap :: (fn(addr: *(u8), length: usize) -> i32)(...);
+
+// Change protection flags on a mapped region
+mprotect :: (fn(addr: *(u8), length: usize, prot: i32) -> i32)(...);
+
+// Sync mapped region to disk
+msync :: (fn(addr: *(u8), length: usize, flags: i32) -> i32)(...);
+
+// Protection constants
+PROT_NONE  :: i32(0);
+PROT_READ  :: i32(1);
+PROT_WRITE :: i32(2);
+PROT_EXEC  :: i32(4);
+
+// Mapping flags
+MAP_SHARED    :: i32(...);
+MAP_PRIVATE   :: i32(...);
+MAP_ANONYMOUS :: i32(...);
+```
+
+**Cross-platform implementation:**
+
+| Operation | Linux/macOS  | Windows                                    |
+| --------- | ------------ | ------------------------------------------ |
+| mmap      | `mmap()`     | `CreateFileMappingW()` + `MapViewOfFile()` |
+| munmap    | `munmap()`   | `UnmapViewOfFile()`                        |
+| mprotect  | `mprotect()` | `VirtualProtect()`                         |
+| msync     | `msync()`    | `FlushViewOfFile()`                        |
+
+**Design notes:**
+
+- Windows mmap requires a two-step process (create mapping object, then map view), so the runtime will combine both into one call
+- `MAP_ANONYMOUS` + `fd=-1` for anonymous mappings (useful for custom allocators)
+- Prot/flag constants will be platform-aware (values differ between Linux and macOS for some flags)
+
+### 10.3 Create `std/io/lock.yo` — Advisory File Locking
+
+```yo
+// std/io/lock.yo
+
+// Acquire an advisory lock on a file.
+// operation: LOCK_SH (shared), LOCK_EX (exclusive), LOCK_UN (unlock)
+// Can be OR'd with LOCK_NB for non-blocking.
+flock :: (fn(fd: i32, operation: i32) -> i32)(...);
+
+// Lock constants
+LOCK_SH :: i32(1);  // Shared lock
+LOCK_EX :: i32(2);  // Exclusive lock
+LOCK_UN :: i32(8);  // Unlock
+LOCK_NB :: i32(4);  // Non-blocking
+```
+
+**Cross-platform implementation:**
+
+| Operation | Linux/macOS     | Windows                           |
+| --------- | --------------- | --------------------------------- |
+| flock     | `flock()` (BSD) | `LockFileEx()` / `UnlockFileEx()` |
+
+**Design notes:**
+
+- Advisory locks only — they don't prevent other processes from accessing the file unless they also use `flock`
+- On Windows, `LockFileEx` is mandatory (not advisory), but this is acceptable for most use cases (database locks, PID files, etc.)
+- `LOCK_NB` returns `-EWOULDBLOCK` if lock cannot be acquired immediately
+
+---
+
 ## Implementation Order & Dependencies
 
 ```
-Phase 1 (File I/O wrappers)    ← START HERE
-  └── Depends on: existing externs + C runtime ✅
+Phase 1 (File I/O wrappers)         ✅ DONE
+  └── Depends on: existing externs + C runtime
 
-Phase 2 (Socket wrappers)
+Phase 2 (Socket wrappers)           ✅ DONE
   └── Depends on: Phase 1 patterns
 
-Phase 3 (DNS)
+Phase 3 (DNS)                        ✅ DONE
   └── Depends on: Phase 2 (socket types)
 
-Phase 4 (Permissions/Metadata)
+Phase 4 (Permissions/Metadata)       ✅ DONE
   └── Depends on: Phase 1 (file operations)
 
-Phase 5 (Advanced ops)
-  └── Depends on: Phase 1 + Phase 2
+Phase 5 (Advanced ops)               ← CURRENT
+  ├── 5.1-5.4 (pipe, copy, signal, tty)
+  │     └── Depends on: Phase 1 + Phase 2
+  └── 5.5-5.7 (temp, path, statfs)   ← Easy wins, externs exist
+        └── Depends on: Phase 1 only
 
-Phase 6 (Windows IOCP)          ← Can be done in parallel
+Phase 6 (Windows IOCP)               ✅ DONE
   └── Independent of Yo-side wrappers
 
 Phase 7 (FS Events + Poll)
   └── Depends on: Phase 6 for Windows support
+
+Phase 8 (Unix Domain Sockets)
+  └── Depends on: Phase 2 (reuses socket infra)
+
+Phase 9 (Process Management)         ← Needs new runtime
+  └── Depends on: Phase 5.1 (pipe for stdio redirection)
+
+Phase 10 (System Operations)         ← Needs new runtime
+  ├── 10.1 fcntl    └── Independent
+  ├── 10.2 mmap     └── Independent
+  └── 10.3 flock    └── Independent
 ```
 
 ## Testing Strategy
@@ -530,6 +864,15 @@ Each phase should include a `.test.yo` file exercising the new APIs:
 4. **Socket tests** — TCP echo server/client on localhost
 5. **DNS tests** — Resolve `localhost`
 6. **Permission tests** — chmod, access checks
+7. **Timestamp tests** — utime, futime, lutime, verify via statx
+8. **Pipe tests** — pipe creation, dup/dup2, read/write through pipe
+9. **Temp file tests** — mkdtemp, mkstemp, verify creation and cleanup
+10. **Path tests** — realpath on symlinks, relative paths, nonexistent paths
+11. **Statfs tests** — filesystem stats, verify block size > 0
+12. **Unix socket tests** — stream echo server/client, dgram send/recv
+13. **Process tests** — spawn child, wait for exit, pipe stdout capture
+14. **Mmap tests** — map file, read/write, msync, munmap
+15. **Lock tests** — flock exclusive/shared, non-blocking conflict detection
 
 For cross-platform validation:
 
@@ -556,11 +899,19 @@ std/io/
   udp.yo           ← UDP socket operations                ✅
   dns.yo           ← DNS resolution                       ✅
   perm.yo          ← File permissions                     ✅
-  time.yo          ← File timestamp operations             ✅
+  time.yo          ← File timestamp operations            ✅
   pipe.yo          ← Pipe/dup operations                  Phase 5
   copy.yo          ← Zero-copy file transfer              Phase 5
   signal.yo        ← Signal handling functions            Phase 5
   tty.yo           ← TTY mode/winsize                     Phase 5
+  temp.yo          ← Temporary files/directories          Phase 5
+  path.yo          ← Path resolution (realpath)           Phase 5
+  statfs.yo        ← Filesystem statistics                Phase 5
+  unix.yo          ← Unix domain sockets                  Phase 8
+  process.yo       ← Child process management             Phase 9
+  fcntl.yo         ← FD flags control                     Phase 10
+  mmap.yo          ← Memory-mapped I/O                    Phase 10
+  lock.yo          ← Advisory file locking                Phase 10
 ```
 
 ## Notes
@@ -576,3 +927,11 @@ std/io/
 - **Error handling**: All functions return `IOFuture` (which resolves to `i32`). The pattern is: positive = success (often bytes count), negative = `-errno`. The `IOError.from_result(result)` helper converts this to `Result(i32, IOError)`.
 
 - **Breaking changes are OK**: Per project guidelines, the Yo language is still evolving. API surface can change between phases.
+
+- **Process management on Windows**: `CreateProcessW` has a very different API from `posix_spawn`/`fork+exec`. The runtime abstraction will normalize to a common interface: file path, argv array, envp array, and stdio fd redirections. Signal delivery via `kill()` is limited to `SIGKILL` → `TerminateProcess()` on Windows.
+
+- **Unix sockets on Windows**: `AF_UNIX` is supported since Windows 10 version 1803, but only filesystem-path sockets (no abstract sockets). The runtime currently stubs `sockaddr_un_size` to 0 on Windows — this needs to be implemented for Phase 8.
+
+- **mmap on Windows**: Requires a two-step `CreateFileMappingW()` + `MapViewOfFile()` dance internally. The runtime will present a unified `mmap()`-style interface. Anonymous mappings use `INVALID_HANDLE_VALUE` as the file handle.
+
+- **fcntl on Windows**: There is no direct equivalent. Non-blocking mode for sockets uses `ioctlsocket(FIONBIO)`. For files/pipes, Windows uses overlapped I/O instead of non-blocking mode. The runtime will provide best-effort abstraction.
