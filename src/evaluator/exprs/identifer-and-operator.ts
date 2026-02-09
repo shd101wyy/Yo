@@ -34,9 +34,9 @@ import {
   createUsizeType,
   createVoidType,
 } from "../../types/creators";
-import { isFunctionType } from "../../types/guards";
+import { isFunctionType, isTypeHierarchyType } from "../../types/guards";
 import { TypeTag } from "../../types/tags";
-import { createTypeValue, isTypeValue } from "../../value";
+import { createTypeValue, isTypeValue, isUnknownValue } from "../../value";
 import { type EvaluatorContext, trackVariableUsage } from "../context";
 
 export function evaluateIdentifierAndOperator({
@@ -475,10 +475,26 @@ export function evaluateIdentifierAndOperator({
         // We support FunctionType and TypeValue for mutual recursion
       }
 
+      // c_include constants (e.g., O_RDONLY : i32 from <fcntl.h>) have UnknownValue
+      // because their actual values are only known to the C compiler.
+      // Treat them as runtime values so operators like | use runtime BitOr
+      // instead of ComptimeBitOr which can't fold the unknown values.
+      const resolvedValue =
+        variable.type.isExtern === "c" &&
+        isUnknownValue(variable.value?.[0]) &&
+        /**
+         * Skip the case like:
+         *    SomeType : Type,
+         *    some_func : (fn() -> unit),
+         */
+        !(isFunctionType(variable.type) || isTypeHierarchyType(variable.type))
+          ? undefined
+          : variable.value?.[0];
+
       expr.$ = {
         env,
         type: variable.type,
-        value: variable.value?.[0],
+        value: resolvedValue,
         originType: variable.type, // Set origin type for direct variable access
         variableName: variable.name,
         pathCollection: [[variable.name]],

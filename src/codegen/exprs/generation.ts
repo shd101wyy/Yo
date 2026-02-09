@@ -417,7 +417,8 @@ function generateFuncCall(
         expr.func.token.value,
         args,
         expr,
-        context
+        context,
+        indent
       );
     }
   }

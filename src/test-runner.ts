@@ -383,6 +383,14 @@ function runSingleTest(
           testOutputPath,
         ];
 
+    if (isWindows) {
+      if (isMSVC) {
+        compileArgs.splice(-1, 0, "ws2_32.lib");
+      } else {
+        compileArgs.splice(-2, 0, "-lws2_32");
+      }
+    }
+
     // Add liburing on Linux for async I/O (uses system-installed liburing)
     if (!isMSVC && isLiburingAvailable()) {
       compileArgs.splice(-2, 0, "-luring");

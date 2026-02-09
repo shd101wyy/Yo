@@ -1,3 +1,15 @@
+test "Test 'Box'", {
+  // test `Box` Eq trait.
+  {
+    x := box(1);
+    y := box(1);
+    assert(x == y);
+
+    z := box(2);
+    assert(x != z);
+  };
+};
+
 test "Test TryFrom/TryInto traits", {
   EvenNumber :: struct(value : i32);
   impl(EvenNumber, TryFrom(i32)(
@@ -39,4 +51,64 @@ test "Test TryFrom/TryInto traits", {
 
   b := y.unwrap().try_into(i64).unwrap();
   assert(b == i64(10));
+};
+
+
+test "Test 'Rc' and 'Dispose' traits", {
+  MyBox :: object(
+    value: i32
+  );
+  comptime_assert(Type.impls(MyBox, Rc));
+  impl(MyBox, Dispose(
+    dispose : (fn(self: Self) -> unit)({
+      ();
+    })
+  ));
+
+  AnotherBox :: struct(value : i32);
+  comptime_assert(Type.impls(AnotherBox, Rc) == false);
+  comptime_expect_error(
+    impl(AnotherBox, Dispose(
+      dispose : (fn(self: Self) -> unit)({
+        printf("Disposing AnotherBox with value: %d\n", self.value);
+      })
+    )));
+};
+
+test "Test 'MaybeUninit'", {
+  {
+    uninit_arr := MaybeUninit(Array(i32, usize(2))).new();
+
+    p := uninit_arr.as_ptr();
+    (p.*)(0) = 1;
+    
+    // initialize the array
+    arr := uninit_arr.assume_init();
+
+    // uninit_arr should be consumed after assume_init, so this should be an error:
+    comptime_expect_error(arr2 := uninit_arr.assume_init());
+
+    arr(0) = (arr(0) + 1);
+    arr(1) = 99;
+    assert(arr(0) == 2);
+    assert(arr(1) == 99);
+  };
+  {
+    Point :: struct(x : i32, y : i32);
+    uninit_point := MaybeUninit(Point).new();
+
+    p := uninit_point.as_ptr();
+    p.x = 1;
+    
+    // initialize the point
+    point := uninit_point.assume_init();
+
+    // uninit_point should be consumed after assume_init, so this should be an error:
+    comptime_expect_error(point2 := uninit_point.assume_init());
+
+    point.x = (point.x + 1);
+    point.y = 99;
+    assert(point.x == 2);
+    assert(point.y == 99);
+  };
 };

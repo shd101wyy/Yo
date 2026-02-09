@@ -46,6 +46,11 @@ export const BuiltinYoInlineFunctions = [
   // Type casting
   ...BuiltinFunctions.__yo_as, // __yo_as (generic primitive type cast)
 
+  // MaybeUninit
+  ...BuiltinFunctions.__yo_maybe_uninit_new,
+  ...BuiltinFunctions.__yo_maybe_uninit_as_ptr,
+  ...BuiltinFunctions.__yo_maybe_uninit_assume_init,
+
   // Others
   ...BuiltinFunctions.__yo_noop, // __yo_noop
   ...BuiltinFunctions.__yo_return_self, // __yo_return_self

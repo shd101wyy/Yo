@@ -316,6 +316,7 @@ A type can have the following **Kind**:
 
 #### Primitive Types
 
+- `unit` (unit type)
 - `bool` (true or false)
 - `u8` (8-bit unsigned integer)
 - `u16` (16-bit unsigned integer)
@@ -329,9 +330,52 @@ A type can have the following **Kind**:
 - `f64` (64-bit floating point)
 - `usize` (pointer size. It's `u32` on 32-bit system, `u64` on 64-bit system)
 - `isize` (signed pointer size. It's `i32` on 32-bit system, `i64` on 64-bit system)
-- `()` (unit type, same as the `void` in C)
-- `rune` (Unicode code point, 32-bit, similar to Go's rune. See `std/string/rune.yo`)
-- `char` (C char type, 8-bit)
+
+#### Compile-time known types:
+
+- `comptime_int` (compile-time known integer type)
+- `comptime_float` (compile-time known float type)
+- `comptime_string` (compile-time known string type)
+- `ComptimeList` (compile-time known list type)
+- `Expr` (compile-time known expression type, used for macros and compile-time evaluation)
+
+#### C compatible types:
+
+- `char` (C char type)
+- `short` (C short type)
+- `ushort` (C unsigned short type)
+- `int` (C int type)
+- `uint` (C unsigned int type)
+- `long` (C long type)
+- `ulong` (C unsigned long type)
+- `longlong` (C long long type)
+- `ulonglong` (C unsigned long long type)
+- `longdouble` (C long double type)
+- `void` (C void type, mainly used for pointers like `*(void)`)
+
+#### Type universes:
+
+- `Type` (the type of all types)
+
+#### Composite types:
+
+- Structs defined with `struct(...)`
+- Enums/ADTs defined with `enum(...)`
+- Unions defined with `union(...)`
+- Reference-counted object types defined with `object(...)`
+- Fixed-size arrays: `Array(T, N)` or `[T; N]`
+- Slices: `Slice(T)` or `[T]`
+- Newtypes defined with `newtype(...)`
+- Tuples: `Tuple(T1, T2, ...)` or `(T1; T2; ...)`
+
+#### Pointer types:
+
+- `*(T)` (pointer to T)
+
+#### Static/Dynamic dispatch types:
+
+- `Impl(Trait)` (static dispatch type that implements Trait)
+- `Dyn(Trait)` (dynamic dispatch type that implements Trait)
 
 #### Value Types vs Object Types
 
@@ -341,8 +385,8 @@ A type can have the following **Kind**:
 - Structs defined with `struct(...)`
 - Enums/ADTs defined with `enum(...)`
 - Unions defined with `union(...)`
-- Fixed-size arrays: `Array(T, N)`
-- Tuples: `Tuple(T1, T2, ...)`
+- Fixed-size arrays: `Array(T, N)` or `[T; N]`
+- Tuples: `Tuple(T1, T2, ...)` or `(T1; T2; ...)`
 
 **Object Types** (heap-allocated, reference-counted):
 
@@ -875,7 +919,7 @@ MyTuple := (i32,);
 ## Array & Slice
 
 ```rust
-i32_array := [1, 2, 3, 4, 5]; // i32_array: [i32; 5]
+i32_array := [i32;_](1, 2, 3); // i32_array: [i32; 5]
                               // In C: int i32_array[5] = {1, 2, 3, 4, 5};
 i32_array.len(); // 5, compile-time known
 
@@ -1130,10 +1174,10 @@ m := Message.ChangeColor(r: 1, g: 2, b: 3);
 ```rust
 Point :: struct(x: i32, y: i32);
 
-my_point := Point {
-  x: 10.as(i32),
-  y: 20.as(i32)
-};
+my_point := Point(
+  x: i32(10),
+  y: i32(20)
+);
 
 ```
 
@@ -1177,7 +1221,7 @@ impl(rune,
   // Constructor with validation
   from_u32 : ((fn(value: u32) -> Option(Self))
     cond(
-      ((value <= 0x10FFFF.as(u32)) && (((value < 0xD800) || (value > 0xDFFF)))) => .Some(Self(c: value)),
+      ((value <= u32(0x10FFFF)) && (((value < 0xD800) || (value > 0xDFFF)))) => .Some(Self(c: value)),
       true => .None
     )
   ),
@@ -1373,22 +1417,22 @@ Dynamic array with automatic resizing.
 list := ArrayList(i32).new();
 
 // Push elements
-list.push((42).as(i32));
-list.push((100).as(i32));
-list.push((200).as(i32));
+list.push(i32(42));
+list.push(i32(100));
+list.push(i32(200));
 
 printf("Length: %zu\n", list.length());
 printf("Capacity: %zu\n", list.capacity());
 
 // Get elements by index
-first := list.get((0).as(usize));
+first := list.get(usize(0));
 match(first,
   .Some(value) => printf("First element: %d\n", value),
   .None => printf("No first element\n")
 );
 
 // Set an element
-list.set((1).as(usize), (150).as(i32));
+list.set(usize(1), usize(150));
 
 // Pop an element
 popped := list.pop();
@@ -1398,7 +1442,7 @@ match(popped,
 );
 
 // Create with initial capacity
-list2 := ArrayList(i32).with_capacity((10).as(usize));
+list2 := ArrayList(i32).with_capacity(usize(10));
 
 // Clear and shrink
 list.clear();
@@ -1416,7 +1460,7 @@ Hash map with key-value pairs.
 map := HashMap(i32, i32).new();
 
 // Insert key-value pairs
-result := map.set(1.as(i32), 100.as(i32));
+result := map.set(i32(1), i32(100));
 match(result,
   .Ok(opt) => match(opt,
     .None => printf("Inserted new key\n"),
@@ -1426,7 +1470,7 @@ match(result,
 );
 
 // Get a value
-value_opt := map.get(1.as(i32));
+value_opt := map.get(i32(1));
 match(value_opt,
   .Some(v) => printf("Value: %d\n", v),
   .None => printf("Key not found\n")
@@ -1434,12 +1478,12 @@ match(value_opt,
 
 // Check if key exists
 cond(
-  (map.has(1.as(i32))) => printf("Contains key 1\n"),
+  (map.has(i32(1))) => printf("Contains key 1\n"),
   true => printf("Does not contain key 1\n")
 );
 
 // Remove a key
-removed := map.remove(1.as(i32));
+removed := map.remove(i32(1));
 match(removed,
   .Some(v) => printf("Removed value: %d\n", v),
   .None => printf("Key not found\n")
@@ -1467,7 +1511,7 @@ Hash set for unique values.
 set := HashSet(i32).new();
 
 // Insert elements
-result := set.add(42.as(i32));
+result := set.add(i32(42));
 match(result,
   .Ok(was_new) => cond(
     was_new => printf("Inserted new element\n"),
@@ -1478,12 +1522,12 @@ match(result,
 
 // Check if has
 cond(
-  (set.has(42.as(i32))) => printf("Contains 42\n"),
+  (set.has(i32(42))) => printf("Contains 42\n"),
   true => printf("Does not contain 42\n")
 );
 
 // Remove element
-removed := set.remove(42.as(i32));
+removed := set.remove(i32(42));
 cond(
   removed => printf("Removed element\n"),
   true => printf("Element not found\n")
@@ -1493,13 +1537,13 @@ cond(
 set1 := HashSet(i32).new();
 set2 := HashSet(i32).new();
 
-set1.add(1.as(i32));
-set1.add(2.as(i32));
-set1.add(3.as(i32));
+set1.add(i32(1));
+set1.add(i32(2));
+set1.add(i32(3));
 
-set2.add(2.as(i32));
-set2.add(3.as(i32));
-set2.add(4.as(i32));
+set2.add(i32(2));
+set2.add(i32(3));
+set2.add(i32(4));
 
 // Union
 union_result := set1.union(set2);
@@ -1534,9 +1578,9 @@ Doubly-linked list.
 list := LinkedList(i32).new();
 
 // Push to front and back
-list.push_front(1.as(i32));
-list.push_back(2.as(i32));
-list.push_front(0.as(i32));
+list.push_front(i32(1));
+list.push_back(i32(2));
+list.push_front(i32(0));
 
 printf("Length: %zu\n", list.len());
 
@@ -1563,13 +1607,13 @@ match(list.pop_back(),
 );
 
 // Get by index
-match(list.get((0).as(usize)),
+match(list.get(usize(0)),
   .Some(v) => printf("At index 0: %d\n", v),
   .None => printf("Index out of bounds\n")
 );
 
 // Insert at index
-match(list.set((1).as(usize), 20.as(i32)),
+match(list.set(usize(1), i32(20)),
   .Ok(_) => printf("Inserted at index 1\n"),
   .Error(err) => match(err,
     .IndexOutOfBounds => printf("Index out of bounds\n"),
@@ -1578,14 +1622,14 @@ match(list.set((1).as(usize), 20.as(i32)),
 );
 
 // Remove at index
-match(list.remove((0).as(usize)),
+match(list.remove(usize(0)),
   .Ok(v) => printf("Removed: %d\n", v),
   .Error(err) => printf("Remove failed\n")
 );
 
 // Check if has
 cond(
-  (list.has(20.as(i32), i32.Eq)) => printf("Contains 20\n"),
+  (list.has(i32(20))) => printf("Contains 20\n"),
   true => printf("Does not contain 20\n")
 );
 

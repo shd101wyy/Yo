@@ -36,7 +36,7 @@ export function generateOpen(
       // Generate local variable declarations for each field
       for (const destructuring of runtimeDestructurings) {
         const fieldType = getTypeString(destructuring.type, context);
-        const varName = destructuring.variableName;
+        const varName = sanitizeForCIdentifier(destructuring.variableName);
         const fieldLabel = sanitizeForCIdentifier(destructuring.label);
 
         // Generate: type varName = structCode.fieldLabel;

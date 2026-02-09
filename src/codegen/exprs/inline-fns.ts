@@ -6,6 +6,8 @@ import {
   getTypeString,
 } from "../utils";
 
+let _maybeUninitCounter = 0;
+
 /**
  * Generate Yo operator function call - extracted from original codegen-c.ts
  */
@@ -13,7 +15,8 @@ export function generateYoInlineFunctionCall(
   functionName: string,
   args: string[],
   expr: FnCallExpr,
-  context: CodeGenContext
+  context: CodeGenContext,
+  indent: string = "  "
 ): string {
   // +
   if (BuiltinFunctions.__yo_op_add.includes(functionName)) {
@@ -172,6 +175,30 @@ usleep((${args[0]!}) * 1000)
   // __yo_slice_len - access the length field of a slice fat pointer
   else if (BuiltinFunctions.__yo_slice_len.includes(functionName)) {
     return `(${args[0]!}.length)`;
+  }
+  // __yo_maybe_uninit_new - declare uninitialized storage (no runtime args, return type is Self)
+  else if (
+    BuiltinFunctions.__yo_maybe_uninit_new.includes(functionName) &&
+    expr.$?.type
+  ) {
+    const selfCType = getTypeString(expr.$.type, context);
+    const uninitVar = `__yo_uninit_${_maybeUninitCounter++}`;
+    context.emitter.emitLine(`${indent}${selfCType} ${uninitVar};`);
+    return uninitVar;
+  }
+  // __yo_maybe_uninit_as_ptr - cast pointer (newtype is transparent, no .value field)
+  else if (
+    BuiltinFunctions.__yo_maybe_uninit_as_ptr.includes(functionName) &&
+    expr.$?.type
+  ) {
+    const returnCType = getTypeString(expr.$.type, context);
+    return `((${returnCType})(${args[0]!}))`;
+  }
+  // __yo_maybe_uninit_assume_init - identity (newtype is transparent)
+  else if (
+    BuiltinFunctions.__yo_maybe_uninit_assume_init.includes(functionName)
+  ) {
+    return `(${args[0]!})`;
   }
   // Handle other operators that are not defined in Yo
   else {

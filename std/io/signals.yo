@@ -1,0 +1,60 @@
+// std/io/signals.yo - POSIX signal constants
+//
+// Platform-aware signal numbers.
+// Uses process.platform for values that differ between Linux and macOS.
+
+{ platform, Platform } :: import "../process";
+
+// ============================================================================
+// Signal Constants (POSIX signals)
+// ============================================================================
+
+SIGHUP    :: i32(1);
+SIGINT    :: i32(2);
+SIGQUIT   :: i32(3);
+SIGILL    :: i32(4);
+SIGTRAP   :: i32(5);
+SIGABRT   :: i32(6);
+SIGBUS    :: i32(7);
+SIGFPE    :: i32(8);
+SIGKILL   :: i32(9);
+SIGUSR1   :: i32(10);
+SIGSEGV   :: i32(11);
+SIGUSR2   :: i32(12);
+SIGPIPE   :: i32(13);
+SIGALRM   :: i32(14);
+SIGTERM   :: i32(15);
+
+// Platform-dependent signal numbers
+SIGCHLD :: cond(
+  (platform == Platform.Darwin) => i32(20),
+  true => i32(17)
+);
+SIGCONT :: cond(
+  (platform == Platform.Darwin) => i32(19),
+  true => i32(18)
+);
+SIGSTOP :: cond(
+  (platform == Platform.Darwin) => i32(17),
+  true => i32(19)
+);
+SIGTSTP :: cond(
+  (platform == Platform.Darwin) => i32(18),
+  true => i32(20)
+);
+
+SIGTTIN   :: i32(21);
+SIGTTOU   :: i32(22);
+SIGURG    :: i32(23);
+SIGXCPU   :: i32(24);
+SIGXFSZ   :: i32(25);
+SIGVTALRM :: i32(26);
+SIGPROF   :: i32(27);
+SIGWINCH  :: i32(28);
+
+export
+  SIGHUP, SIGINT, SIGQUIT, SIGILL, SIGTRAP, SIGABRT, SIGBUS, SIGFPE,
+  SIGKILL, SIGUSR1, SIGSEGV, SIGUSR2, SIGPIPE, SIGALRM, SIGTERM,
+  SIGCHLD, SIGCONT, SIGSTOP, SIGTSTP, SIGTTIN, SIGTTOU, SIGURG,
+  SIGXCPU, SIGXFSZ, SIGVTALRM, SIGPROF, SIGWINCH
+;

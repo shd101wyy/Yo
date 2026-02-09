@@ -257,9 +257,11 @@ export function generateAsyncBlockResumeFunction(
                 const previousInStateMachineForBranch = context.inStateMachine;
                 const previousStateMachineVariablesForBranch =
                   context.stateMachineVariables;
+                const previousVariableIdRemappingForBranch =
+                  context.variableIdRemapping;
 
                 context.inStateMachine = { futureType };
-
+                context.variableIdRemapping = analysis.variableIdRemapping;
                 // Combine outer captured variables and local variables
                 const combinedVariables = new Map<string, CapturedVariable>();
                 for (const v of analysis.capturedVariables) {
@@ -314,6 +316,8 @@ export function generateAsyncBlockResumeFunction(
                 context.inStateMachine = previousInStateMachineForBranch;
                 context.stateMachineVariables =
                   previousStateMachineVariablesForBranch;
+                context.variableIdRemapping =
+                  previousVariableIdRemappingForBranch;
               }
 
               emitter.emitLine(`          break;`);
@@ -360,8 +364,11 @@ export function generateAsyncBlockResumeFunction(
             const previousInStateMachineForLoop = context.inStateMachine;
             const previousStateMachineVariablesForLoop =
               context.stateMachineVariables;
+            const previousVariableIdRemappingForLoop =
+              context.variableIdRemapping;
 
             context.inStateMachine = { futureType };
+            context.variableIdRemapping = analysis.variableIdRemapping;
 
             // Combine outer captured variables and local variables
             const combinedVariables = new Map<string, CapturedVariable>();
@@ -381,6 +388,14 @@ export function generateAsyncBlockResumeFunction(
             }
             context.stateMachineVariables = combinedVariables;
 
+            // Set up break handling: in the state machine switch, plain "break" exits
+            // the switch, not the conceptual while loop. We need goto instead.
+            const previousAsyncWhileBreakInfo = context.asyncWhileBreakInfo;
+            context.asyncWhileBreakInfo = {
+              label: `after_while_loop_${prevAwait.index}`,
+              index: prevAwait.index,
+            };
+
             // Generate the remaining expressions
             for (const expr of whileLoopData.bodyExprsAfterAwait) {
               const code = generateExpr(expr, "        ", context);
@@ -397,9 +412,11 @@ export function generateAsyncBlockResumeFunction(
             }
 
             // Restore context
+            context.asyncWhileBreakInfo = previousAsyncWhileBreakInfo;
             context.inStateMachine = previousInStateMachineForLoop;
             context.stateMachineVariables =
               previousStateMachineVariablesForLoop;
+            context.variableIdRemapping = previousVariableIdRemappingForLoop;
           }
 
           // Re-evaluate the loop condition
@@ -411,8 +428,11 @@ export function generateAsyncBlockResumeFunction(
           const previousInStateMachineForCond = context.inStateMachine;
           const previousStateMachineVariablesForCond =
             context.stateMachineVariables;
+          const previousVariableIdRemappingForCond =
+            context.variableIdRemapping;
 
           context.inStateMachine = { futureType };
+          context.variableIdRemapping = analysis.variableIdRemapping;
 
           // Combine outer captured variables and local variables
           const combinedVariablesForCond = new Map<string, CapturedVariable>();
@@ -442,6 +462,7 @@ export function generateAsyncBlockResumeFunction(
           // Restore context
           context.inStateMachine = previousInStateMachineForCond;
           context.stateMachineVariables = previousStateMachineVariablesForCond;
+          context.variableIdRemapping = previousVariableIdRemappingForCond;
 
           emitter.emitLine(`        if (!(${condCode})) {`);
           emitter.emitLine(
@@ -479,9 +500,10 @@ export function generateAsyncBlockResumeFunction(
     // Set up state machine context
     const previousInStateMachine = context.inStateMachine;
     const previousStateMachineVariables = context.stateMachineVariables;
+    const previousVariableIdRemapping = context.variableIdRemapping;
 
     context.inStateMachine = { futureType };
-
+    context.variableIdRemapping = analysis.variableIdRemapping;
     // Combine outer captured variables and local variables into stateMachineVariables
     // This allows generateAtom to find all variables that should be accessed via sm->
     const combinedVariables = new Map<string, CapturedVariable>();
@@ -535,6 +557,7 @@ export function generateAsyncBlockResumeFunction(
       // Restore previous context before await logic
       context.inStateMachine = previousInStateMachine;
       context.stateMachineVariables = previousStateMachineVariables;
+      context.variableIdRemapping = previousVariableIdRemapping;
 
       // This segment ends with an await - generate the await logic
       const nextState = stateNumber + 1;
@@ -663,10 +686,12 @@ export function generateAsyncBlockResumeFunction(
       // Restore previous context after final state
       context.inStateMachine = previousInStateMachine;
       context.stateMachineVariables = previousStateMachineVariables;
+      context.variableIdRemapping = previousVariableIdRemapping;
     } else {
       // Restore previous context for non-await, non-final segments
       context.inStateMachine = previousInStateMachine;
       context.stateMachineVariables = previousStateMachineVariables;
+      context.variableIdRemapping = previousVariableIdRemapping;
     }
 
     emitter.emitLine(`    }`);

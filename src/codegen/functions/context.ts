@@ -31,6 +31,9 @@ export interface FunctionGenerationContext extends CodeGenContext {
   // FIXME: OUTDATED, it used to be { futureType: FutureType }
   inStateMachine?: { futureType: SomeType | DynType }; // Set when generating code inside a state machine, contains the Future type being generated
   stateMachineVariables?: Map<string, CapturedVariable>; // Variables captured in state machine (id -> variable)
+  // Maps SSA-renamed variable IDs to their original/canonical IDs.
+  // Used to resolve all versions of a reassigned variable to the same struct field in loops.
+  variableIdRemapping?: Map<string, string>;
   // Pending deferred drops from enclosing begin blocks that need to run before async completion
   // This is used to ensure local variables are dropped when an async function completes
   // from within a nested expression (e.g., a cond branch that returns early)
@@ -76,4 +79,7 @@ export interface FunctionGenerationContext extends CodeGenContext {
   // Variables that are locally shadowed (e.g., in match destructuring patterns)
   // When a variable name is in this set, use the local C variable instead of sm->var_...
   localShadowedVariables?: Set<string>;
+  // When generating async while loop resume body, this holds the label and index
+  // needed for break to correctly exit the state machine's switch and jump to after-loop code
+  asyncWhileBreakInfo?: { label: string; index: number };
 }

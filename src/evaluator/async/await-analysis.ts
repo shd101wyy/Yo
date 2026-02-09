@@ -41,14 +41,30 @@ import type {
 export function analyzeAwaitPoints(body: Expr): AwaitAnalysisResult {
   const awaitPoints: AwaitPoint[] = [];
   const capturedVariables = new Map<string, CapturedVariable>();
+  // Track SSA-renamed variable IDs: maps "name:frameLevel" to the first captured variable ID
+  const nameFrameToOriginalId = new Map<string, string>();
+  // Maps SSA-renamed variable IDs to their original/canonical IDs
+  const variableIdRemapping = new Map<string, string>();
 
   // Walk the expression tree and collect await points
-  walkExprForAwaits(body, awaitPoints, capturedVariables);
+  walkExprForAwaits(
+    body,
+    awaitPoints,
+    capturedVariables,
+    nameFrameToOriginalId,
+    variableIdRemapping
+  );
 
   // Also walk through deferred drop expressions to capture variables referenced there
   if (body.$?.deferredDropExpressions) {
     for (const dropExpr of body.$.deferredDropExpressions) {
-      walkExprForAwaits(dropExpr, awaitPoints, capturedVariables);
+      walkExprForAwaits(
+        dropExpr,
+        awaitPoints,
+        capturedVariables,
+        nameFrameToOriginalId,
+        variableIdRemapping
+      );
     }
   }
 
@@ -62,6 +78,7 @@ export function analyzeAwaitPoints(body: Expr): AwaitAnalysisResult {
     awaitPoints,
     capturedVariables: Array.from(capturedVariables.values()),
     hasAwaits: awaitPoints.length > 0,
+    variableIdRemapping,
   };
 }
 
@@ -72,6 +89,8 @@ function walkExprForAwaits(
   expr: Expr,
   awaitPoints: AwaitPoint[],
   capturedVariables: Map<string, CapturedVariable>,
+  nameFrameToOriginalId: Map<string, string>,
+  variableIdRemapping: Map<string, string>,
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   parentExpr?: Expr
 ): void {
@@ -101,8 +120,20 @@ function walkExprForAwaits(
             !capturedVariables.has(variable.id) &&
             !variable.isCompileTimeOnly
           ) {
-            // Check if this variable is borrowing from another variable
-            if (variable.isOwningTheSameRcValueAs) {
+            // Check if this variable is an SSA rename of an already-captured variable.
+            // When a variable is reassigned in a loop, the evaluator creates a new ID
+            // (e.g., "offset" -> "offset_1"). Both IDs must map to the same state machine
+            // struct field to make loops work correctly.
+            const nameFrameKey = `${variable.name}:${variable.frameLevel}`;
+            const existingOriginalId = nameFrameToOriginalId.get(nameFrameKey);
+
+            if (existingOriginalId && existingOriginalId !== variable.id) {
+              // This is an SSA rename of an already-captured variable.
+              // Don't create a new captured variable; instead, record the remapping
+              // so the codegen resolves this ID to the original's struct field.
+              variableIdRemapping.set(variable.id, existingOriginalId);
+            } else if (variable.isOwningTheSameRcValueAs) {
+              // Check if this variable is borrowing from another variable
               const ownerVar = variable.isOwningTheSameRcValueAs;
               // Only capture the owner variable, not the borrower
               // The borrower is just an alias and doesn't need separate storage
@@ -115,6 +146,11 @@ function walkExprForAwaits(
                   isOwningTheSameRcValueAs: undefined,
                 };
                 capturedVariables.set(ownerVar.id, ownerCaptured);
+                // Track the owner's name:frameLevel for SSA dedup
+                const ownerNameFrameKey = `${ownerVar.name}:${ownerVar.frameLevel}`;
+                if (!nameFrameToOriginalId.has(ownerNameFrameKey)) {
+                  nameFrameToOriginalId.set(ownerNameFrameKey, ownerVar.id);
+                }
               }
               // Don't capture the borrower itself - it's just an alias
             } else {
@@ -126,6 +162,10 @@ function walkExprForAwaits(
                 kind: "local",
                 isOwningTheSameRcValueAs: undefined,
               });
+              // Track this variable's name:frameLevel for SSA dedup
+              if (!nameFrameToOriginalId.has(nameFrameKey)) {
+                nameFrameToOriginalId.set(nameFrameKey, variable.id);
+              }
             }
           }
         }
@@ -139,9 +179,23 @@ function walkExprForAwaits(
         const initialAwaitCount = awaitPoints.length;
 
         // Walk through the condition and body
-        walkExprForAwaits(expr.func, awaitPoints, capturedVariables, expr);
+        walkExprForAwaits(
+          expr.func,
+          awaitPoints,
+          capturedVariables,
+          nameFrameToOriginalId,
+          variableIdRemapping,
+          expr
+        );
         for (const arg of expr.args) {
-          walkExprForAwaits(arg, awaitPoints, capturedVariables, expr);
+          walkExprForAwaits(
+            arg,
+            awaitPoints,
+            capturedVariables,
+            nameFrameToOriginalId,
+            variableIdRemapping,
+            expr
+          );
         }
 
         // Mark all awaits found in this while loop as isInsideWhile
@@ -160,9 +214,23 @@ function walkExprForAwaits(
         const initialAwaitCount = awaitPoints.length;
 
         // Walk through all branches
-        walkExprForAwaits(expr.func, awaitPoints, capturedVariables, expr);
+        walkExprForAwaits(
+          expr.func,
+          awaitPoints,
+          capturedVariables,
+          nameFrameToOriginalId,
+          variableIdRemapping,
+          expr
+        );
         for (const arg of expr.args) {
-          walkExprForAwaits(arg, awaitPoints, capturedVariables, expr);
+          walkExprForAwaits(
+            arg,
+            awaitPoints,
+            capturedVariables,
+            nameFrameToOriginalId,
+            variableIdRemapping,
+            expr
+          );
         }
 
         // If multiple await points were added, merge them to use the same index
@@ -197,9 +265,23 @@ function walkExprForAwaits(
         const initialAwaitCount = awaitPoints.length;
 
         // Walk through all branches
-        walkExprForAwaits(expr.func, awaitPoints, capturedVariables, expr);
+        walkExprForAwaits(
+          expr.func,
+          awaitPoints,
+          capturedVariables,
+          nameFrameToOriginalId,
+          variableIdRemapping,
+          expr
+        );
         for (const arg of expr.args) {
-          walkExprForAwaits(arg, awaitPoints, capturedVariables, expr);
+          walkExprForAwaits(
+            arg,
+            awaitPoints,
+            capturedVariables,
+            nameFrameToOriginalId,
+            variableIdRemapping,
+            expr
+          );
         }
 
         // If multiple await points were added, merge them to use the same index
@@ -306,9 +388,23 @@ function walkExprForAwaits(
       }
 
       // Recursively walk the function and arguments, passing current expr as parent
-      walkExprForAwaits(expr.func, awaitPoints, capturedVariables, expr);
+      walkExprForAwaits(
+        expr.func,
+        awaitPoints,
+        capturedVariables,
+        nameFrameToOriginalId,
+        variableIdRemapping,
+        expr
+      );
       for (const arg of expr.args) {
-        walkExprForAwaits(arg, awaitPoints, capturedVariables, expr);
+        walkExprForAwaits(
+          arg,
+          awaitPoints,
+          capturedVariables,
+          nameFrameToOriginalId,
+          variableIdRemapping,
+          expr
+        );
       }
       break;
     }

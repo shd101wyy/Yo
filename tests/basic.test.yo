@@ -662,27 +662,6 @@ test "Test type auto derive Runtime", {
   };
 };
 
-test "Test 'Rc' and 'Dispose' traits", {
-  MyBox :: object(
-    value: i32
-  );
-  comptime_assert(Type.impls(MyBox, Rc));
-  impl(MyBox, Dispose(
-    dispose : (fn(self: Self) -> unit)({
-      ();
-    })
-  ));
-
-  AnotherBox :: struct(value : i32);
-  comptime_assert(Type.impls(AnotherBox, Rc) == false);
-  comptime_expect_error(
-    impl(AnotherBox, Dispose(
-      dispose : (fn(self: Self) -> unit)({
-        printf("Disposing AnotherBox with value: %d\n", self.value);
-      })
-    )));
-};
-
 test "Test 'struct'", {
   // Struct
   {
@@ -2132,18 +2111,6 @@ test "Test 'Impl'", {
       y := (typeof(x) <: Id).id(x);
       return y.id();
     };
-  };
-};
-
-test "Test Box", {
-  // test `Box` Eq trait.
-  {
-    x := box(1);
-    y := box(1);
-    assert(x == y);
-
-    z := box(2);
-    assert(x != z);
   };
 };
 

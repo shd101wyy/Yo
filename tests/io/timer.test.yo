@@ -1,0 +1,39 @@
+{ sleep } :: import "std/io/timer";
+open import "std/libc/stdio";
+{ yield } :: import "std/async";
+
+test "Test IO timer", {
+  // =========================================================================
+  // Test: async timer operations
+  // =========================================================================
+
+  value := Box(i32)(0);
+  async {
+    assert(value.* == 0); // 0
+    value.* = (value.* + 1); // 1
+
+    printf("Timer test: sleeping 50ms...\n");
+    result := await sleep(u64(50));
+    printf("Timer test: woke up with result=%d\n", result);
+    assert(result > i32(0));
+    assert(value.* == 3); // yield() resumed block2 first, which set it to 3
+    value.* = (value.* + 1); // 4
+
+    printf("Timer test: sleeping 3000ms...\n");
+    result2 := await sleep(u64(3000));
+    printf("Timer test: woke up with result=%d\n", result2);
+    assert(result2 > i32(0));
+    assert(value.* == 4); // 4
+
+    printf("All async timer tests passed!\n");
+  };
+
+  async {
+    assert(value.* == 1); // 1
+    value.* = (value.* + 1); // 2
+  
+    await yield();
+    assert(value.* == 2); // yield() resumes before sleep(50ms), nobody changed it
+    value.* = (value.* + 1); // 3
+  };
+};

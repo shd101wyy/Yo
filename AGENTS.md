@@ -21,13 +21,21 @@ Always go with a proper implementation. No shortcut. Don't simplify the problem.
 
 Always run `bun run build && ...` to make sure there is no TypeScript error before you run other `bun` or `./yo-cli` commands.
 
-To test the Yo codegen transpiler, you can run the command `./yo-cli compile src/tests/fixme.yo --release` to compile the `fixme.yo`. Or run `./yo-cli compile src/tests/fixme.yo --emit-c --skip-c-compiler --release` on any `.yo` file to test its C code generation. Then run `clang -std=c11 -Wall -Wextra a.out.c vendor/mimalloc/src/static.c -Ivendor/mimalloc/include -o ./a.out` to compile the generated `./a.out.c`.
+You need to make sure the command runs successfully without error. Don't ask me to run. You should run it yourself. Don't end the conversation until the command runs successfully.
+
+To test the Yo codegen transpiler, you can run the command `./yo-cli compile src/tests/fixme.yo --release` to compile the `fixme.yo`. Or run `./yo-cli compile src/tests/fixme.yo --emit-c --skip-c-compiler --release` on any `.yo` file to test its C code generation.
+
+Then run `clang -std=c11 -Wall -Wextra a.out.c vendor/mimalloc/src/static.c -Ivendor/mimalloc/include -o ./a.out` to compile the generated `./a.out.c`. Add `-luring` if you are on Linux and want to test the async IO features.
 
 If you are on Windows, use `zig` instead of `clang` to compile the generated C code. Use command like `.\yo-cli.ps1 compile .\src\tests\fixme.yo --release -o test_fixme.exe`.
 
 Or you can run `./yo-cli compile src/tests/fixme.yo --release -o a.out && ./a.out` directly to test the full pipeline. Use `--debug-gc` to debug the garbage collector and reference counting, and `--debug-parallelism` to debug the parallel worker threads, and `--debug-async-await` for debugging async/await.
 
 For debugging running command, always use `| head` or `| tail` to limit the output.
+
+Let's never skip the bug that you discovered/meet during implementation.
+
+If running a command didn't produce any output for a long time, let's write it to a file instead, like `./yo-cli compile src/tests/fixme.yo --release &> compile_output.txt` and then we can check the output file.
 
 **Memory Allocator Options:**
 
@@ -48,6 +56,7 @@ For debugging running command, always use `| head` or `| tail` to limit the outp
 - `-v` or `--verbose` - Show detailed error messages
 - `--test-name-pattern "Test XXX"` to run a specific test
 - Tests automatically use AddressSanitizer for memory leak detection
+- Let's always save the log output of test, e.g., `./yo-cli test src/tests/fixme.test.yo --bail --verbose &> test_output.txt` as it might take a long time to run and we might want to analyze the output later.
 
 Feel free to run `gdb` on `./a.out` to debug the generated C code. Let's better not use GNU extension because we might target other C compilers. Let's stick with C11 standard.
 
@@ -198,3 +207,14 @@ Pointer arithmetic operations are using &+, &-, &<, &>, &<=, &>= operators with 
 The SomeType in Yo by defaults automatically implements the `Runtime` trait
 
 Never try to write function to resolve SomeType, as struct/enum/union etc are all nominal types, simply replacing SomeType in them will cause problem.
+
+There is no `loop` function. You need to use `while runtime(true), body` for runtime, or `while true, body` for comptime.
+
+The current goal is to make Yo work on Linux, macOS, and Windows. You can use `process.yo` module `platform` and `Platform` to do platform-specific code, eg:
+
+```
+AF_INET6  :: cond(
+  (platform == Platform.Darwin) => i32(30),
+  true => i32(10)
+);
+```
