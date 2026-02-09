@@ -1942,8 +1942,8 @@ static yo_io_future_t* __yo_async_closedir_start(void* dir) {
 // DNS Operations (Windows)
 // ============================================================================
 
-static yo_io_future_t* __yo_async_getaddrinfo_start(const char* node, const char* service,
-                                                     const void* hints, void** result) {
+static yo_io_future_t* __yo_async_getaddrinfo_start(const uint8_t* node, const uint8_t* service,
+                                                     const uint8_t* hints, uint8_t** result) {
   yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
   memset(future, 0, sizeof(yo_io_future_t));
 
@@ -1952,10 +1952,10 @@ static yo_io_future_t* __yo_async_getaddrinfo_start(const char* node, const char
   atomic_init(&future->continuation_sm, NULL);
 
   struct addrinfo* res = NULL;
-  int ret = getaddrinfo(node, service, (const struct addrinfo*)hints, &res);
+  int ret = getaddrinfo((const char*)node, (const char*)service, (const struct addrinfo*)hints, &res);
 
   if (ret == 0) {
-    *result = res;
+    *result = (uint8_t*)res;
     future->result = 0;
   } else {
     future->result = -ret;
@@ -1965,9 +1965,9 @@ static yo_io_future_t* __yo_async_getaddrinfo_start(const char* node, const char
   return future;
 }
 
-static yo_io_future_t* __yo_async_getnameinfo_start(const void* addr, uint32_t addrlen,
-                                                     char* host, size_t hostlen,
-                                                     char* service, size_t servlen, int32_t flags) {
+static yo_io_future_t* __yo_async_getnameinfo_start(const uint8_t* addr, uint32_t addrlen,
+                                                     uint8_t* host, size_t hostlen,
+                                                     uint8_t* service, size_t servlen, int32_t flags) {
   yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
   memset(future, 0, sizeof(yo_io_future_t));
 
@@ -1976,26 +1976,26 @@ static yo_io_future_t* __yo_async_getnameinfo_start(const void* addr, uint32_t a
   atomic_init(&future->continuation_sm, NULL);
 
   int ret = getnameinfo((const struct sockaddr*)addr, (socklen_t)addrlen,
-                        host, (socklen_t)hostlen, service, (socklen_t)servlen, flags);
+                        (char*)host, (socklen_t)hostlen, (char*)service, (socklen_t)servlen, flags);
   future->result = (ret == 0) ? 0 : -ret;
   atomic_init(&future->state, -1);
 
   return future;
 }
 
-static void __yo_freeaddrinfo(void* res) {
+static void __yo_freeaddrinfo(uint8_t* res) {
   if (res) freeaddrinfo((struct addrinfo*)res);
 }
 
 static size_t __yo_addrinfo_size(void) { return sizeof(struct addrinfo); }
-static int32_t __yo_addrinfo_flags(void* ai) { return ((struct addrinfo*)ai)->ai_flags; }
-static int32_t __yo_addrinfo_family(void* ai) { return ((struct addrinfo*)ai)->ai_family; }
-static int32_t __yo_addrinfo_socktype(void* ai) { return ((struct addrinfo*)ai)->ai_socktype; }
-static int32_t __yo_addrinfo_protocol(void* ai) { return ((struct addrinfo*)ai)->ai_protocol; }
-static uint32_t __yo_addrinfo_addrlen(void* ai) { return (uint32_t)((struct addrinfo*)ai)->ai_addrlen; }
-static void* __yo_addrinfo_addr(void* ai) { return ((struct addrinfo*)ai)->ai_addr; }
-static char* __yo_addrinfo_canonname(void* ai) { return ((struct addrinfo*)ai)->ai_canonname; }
-static void* __yo_addrinfo_next(void* ai) { return ((struct addrinfo*)ai)->ai_next; }
+static int32_t __yo_addrinfo_flags(uint8_t* ai) { return ((struct addrinfo*)ai)->ai_flags; }
+static int32_t __yo_addrinfo_family(uint8_t* ai) { return ((struct addrinfo*)ai)->ai_family; }
+static int32_t __yo_addrinfo_socktype(uint8_t* ai) { return ((struct addrinfo*)ai)->ai_socktype; }
+static int32_t __yo_addrinfo_protocol(uint8_t* ai) { return ((struct addrinfo*)ai)->ai_protocol; }
+static uint32_t __yo_addrinfo_addrlen(uint8_t* ai) { return (uint32_t)((struct addrinfo*)ai)->ai_addrlen; }
+static uint8_t* __yo_addrinfo_addr(uint8_t* ai) { return (uint8_t*)((struct addrinfo*)ai)->ai_addr; }
+static uint8_t* __yo_addrinfo_canonname(uint8_t* ai) { return (uint8_t*)((struct addrinfo*)ai)->ai_canonname; }
+static uint8_t* __yo_addrinfo_next(uint8_t* ai) { return (uint8_t*)((struct addrinfo*)ai)->ai_next; }
 
 // ============================================================================
 // Signal Operations (stubs)
