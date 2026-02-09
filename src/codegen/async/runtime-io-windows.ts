@@ -59,7 +59,7 @@ export function generateAsyncRuntimeIOWindows(emitter: Emitter): void {
 #endif
 
 #ifndef O_DIRECTORY
-#define O_DIRECTORY 0
+#define O_DIRECTORY 0x200000
 #endif
 #ifndef AT_FDCWD
 #define AT_FDCWD -100
@@ -465,10 +465,12 @@ static yo_io_future_t* __yo_async_openat_start(int32_t dirfd, const char* path, 
   DWORD access = __yo_win_access_flags(flags);
   DWORD creation = __yo_win_creation_flags(flags);
   DWORD attrs = FILE_ATTRIBUTE_NORMAL;
-  if (flags & O_DIRECTORY) {
+  bool is_directory = (flags & O_DIRECTORY) != 0;
+  if (is_directory) {
     attrs |= FILE_FLAG_BACKUP_SEMANTICS;
+  } else {
+    attrs |= FILE_FLAG_OVERLAPPED;
   }
-  attrs |= FILE_FLAG_OVERLAPPED;
 
   HANDLE handle = CreateFileW(wpath, access, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
                               NULL, creation, attrs, NULL);
@@ -480,14 +482,17 @@ static yo_io_future_t* __yo_async_openat_start(int32_t dirfd, const char* path, 
     return future;
   }
 
-  if (!__yo_win_associate_handle(handle)) {
-    CloseHandle(handle);
-    future->result = -__yo_win_last_error_to_errno();
-    atomic_init(&future->state, -1);
-    return future;
+  if (!is_directory) {
+    if (!__yo_win_associate_handle(handle)) {
+      CloseHandle(handle);
+      future->result = -__yo_win_last_error_to_errno();
+      atomic_init(&future->state, -1);
+      return future;
+    }
   }
 
-  int fd = _open_osfhandle((intptr_t)handle, flags);
+  int osfhandle_flags = flags & ~O_DIRECTORY;
+  int fd = _open_osfhandle((intptr_t)handle, osfhandle_flags);
   if (fd < 0) {
     CloseHandle(handle);
     future->result = -errno;
@@ -1059,22 +1064,6 @@ static yo_io_future_t* __yo_async_getdents_start(int32_t fd, void* buf, uint32_t
   char* out = (char*)buf;
 
   while (total < buf_size) {
-    if (state->phase == 0) {
-      size_t written = __yo_win_dirent_write(out + total, buf_size - total, ".", DT_DIR);
-      if (!written) break;
-      total += written;
-      state->phase = 1;
-      continue;
-    }
-
-    if (state->phase == 1) {
-      size_t written = __yo_win_dirent_write(out + total, buf_size - total, "..", DT_DIR);
-      if (!written) break;
-      total += written;
-      state->phase = 2;
-      continue;
-    }
-
     if (!state->has_data) {
       break;
     }

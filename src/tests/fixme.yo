@@ -1,51 +1,157 @@
 open import "std/libc/stdio";
 { malloc, free } :: import "std/libc/stdlib";
+open import "std/string";
+{ platform, Platform, env } :: import "std/process";
 {
-  O_RDONLY, O_WRONLY, O_CREAT, O_TRUNC, AT_FDCWD
+  O_RDONLY, O_WRONLY, O_CREAT, O_TRUNC, O_DIRECTORY,
+  AT_FDCWD, AT_REMOVEDIR, DT_DIR, DT_REG
 } :: import "std/io/constants";
 {
-  openat, close, read, write,
-  open_sync, close_sync, file_size
+  openat, close, read, write
 } :: import "std/io/file";
+dir :: import "std/io/dir";
+
+temp_dir :: (fn() -> String)(
+  cond(
+    (platform == Platform.Win32) => {
+      temp := env.get(`TEMP`);
+      match(temp,
+        .Some(v) => v,
+        .None => {
+          tmp := env.get(`TMP`);
+          match(tmp,
+            .Some(v2) => v2,
+            .None => `C:\\Temp`
+          )
+        }
+      )
+    },
+    true => {
+      tmp := env.get(`TMPDIR`);
+      match(tmp,
+        .Some(v) => v,
+        .None => {
+          tmp2 := env.get(`TMP`);
+          match(tmp2,
+            .Some(v2) => v2,
+            .None => `/tmp`
+          )
+        }
+      )
+    }
+  )
+);
+export temp_dir;
+
+path_join :: (fn(base: String, name: String) -> String)({
+  sep := cond(
+    (platform == Platform.Win32) => `\\`,
+    true => `/`
+  );
+  cond(
+    base.ends_with(sep) => `${base}${name}`,
+    true => `${base}${sep}${name}`
+  )
+});
+export path_join;
 
 main :: (fn() -> unit) {
-  write_open_flags := ((O_WRONLY | O_CREAT) | O_TRUNC);
   async {
-    write_path := *(u8)("yo_io_file_test.txt");
-    open_result := await openat(AT_FDCWD, write_path, write_open_flags, i32(0o644));
-    printf("  write openat result = %d\n", open_result);
-    assert(open_result >= i32(0));
+    tmp_dir := temp_dir();
+    test_dir_str := path_join(tmp_dir, `yo_io_readdir_test`);
+    file_a_str := path_join(test_dir_str, `file_a.txt`);
+    file_b_str := path_join(test_dir_str, `file_b.txt`);
+    subdir_str := path_join(test_dir_str, `subdir`);
 
-    wfd := open_result;
+    test_dir_c := test_dir_str.to_cstr();
+    file_a_c := file_a_str.to_cstr();
+    file_b_c := file_b_str.to_cstr();
+    subdir_c := subdir_str.to_cstr();
 
-    data := *(u8)("Hello from Yo file test!");
-    write_result := await write(wfd, data, u32(24), u64(0));
-    printf("  write result = %d\n", write_result);
-    assert(write_result == i32(24));
+    test_dir := test_dir_c.ptr().unwrap();
+    file_a := file_a_c.ptr().unwrap();
+    file_b := file_b_c.ptr().unwrap();
+    subdir := subdir_c.ptr().unwrap();
 
-    close1 := await close(wfd);
-    assert(close1 == i32(0));
+    await dir.unlink(AT_FDCWD, file_a, i32(0));
+    await dir.unlink(AT_FDCWD, file_b, i32(0));
+    await dir.unlink(AT_FDCWD, subdir, AT_REMOVEDIR);
+    await dir.unlink(AT_FDCWD, test_dir, AT_REMOVEDIR);
 
-    // Read back
-    open_result2 := await openat(AT_FDCWD, write_path, O_RDONLY, i32(0));
-    assert(open_result2 >= i32(0));
-    rfd := open_result2;
+    mk := await dir.mkdir(AT_FDCWD, test_dir, i32(0o755));
+    printf("  mkdir = %d\n", mk);
+    assert(mk == i32(0));
 
-    buf := *(u8)(malloc(usize(64)).unwrap());
+    write_flags := ((O_WRONLY | O_CREAT) | O_TRUNC);
+    fd_a := await openat(AT_FDCWD, file_a, write_flags, i32(0o644));
+    printf("  create file_a = %d\n", fd_a);
+    assert(fd_a >= i32(0));
+    await close(fd_a);
 
-    read_result := await read(rfd, buf, u32(64), u64(0));
-    printf("  read back result = %d\n", read_result);
-    assert(read_result == i32(24));
+    fd_b := await openat(AT_FDCWD, file_b, write_flags, i32(0o644));
+    printf("  create file_b = %d\n", fd_b);
+    assert(fd_b >= i32(0));
+    await close(fd_b);
 
-    // Check: H=72, space=32 after "Hello", f=102
-    assert((buf &+ usize(0)).* == u8(72));
-    assert((buf &+ usize(5)).* == u8(32));
-    assert((buf &+ usize(6)).* == u8(102));
+    subdir_mk := await dir.mkdir(AT_FDCWD, subdir, i32(0o755));
+    printf("  mkdir subdir = %d\n", subdir_mk);
+    assert(subdir_mk == i32(0));
 
-    close2 := await close(rfd);
-    assert(close2 == i32(0));
+    open_flags := (O_RDONLY | O_DIRECTORY);
+    dir_fd := await openat(AT_FDCWD, test_dir, open_flags, i32(0));
+    printf("  open dir = %d\n", dir_fd);
+    assert(dir_fd >= i32(0));
+
+    buf := *(u8)(malloc(usize(4096)).unwrap());
+    entry_count := i32(0);
+    dir_count := i32(0);
+    file_count := i32(0);
+
+    while runtime(true), {
+      n := await dir.getdents(dir_fd, buf, u32(4096));
+      printf("  getdents = %d\n", n);
+      cond(
+        (n <= i32(0)) => { break; },
+        true => {
+          offset := u32(0);
+          while runtime(true), {
+            cond(
+              (offset >= u32(n)) => { break; },
+              true => {
+                entry := (buf &+ usize(offset));
+                name := dir.dirent_name(entry);
+                entry_type := dir.dirent_type(entry);
+                printf("    entry: %s (type=%d)\n", name, i32(entry_type));
+                entry_count = (entry_count + i32(1));
+                cond(
+                  (entry_type == DT_DIR) => { dir_count = (dir_count + i32(1)); },
+                  (entry_type == DT_REG) => { file_count = (file_count + i32(1)); },
+                  true => { unit; }
+                );
+                reclen := dir.dirent_reclen(entry);
+                offset = (offset + u32(reclen));
+              }
+            );
+          };
+        }
+      );
+    };
+
+    printf("  total entries = %d\n", entry_count);
+    printf("  dir entries = %d\n", dir_count);
+    printf("  file entries = %d\n", file_count);
+
+    assert(entry_count >= i32(5));
+    assert(dir_count >= i32(3));
+    assert(file_count >= i32(2));
 
     free(.Some(*(void)(buf)));
+    await close(dir_fd);
+
+    await dir.unlink(AT_FDCWD, file_a, i32(0));
+    await dir.unlink(AT_FDCWD, file_b, i32(0));
+    await dir.unlink(AT_FDCWD, subdir, AT_REMOVEDIR);
+    await dir.unlink(AT_FDCWD, test_dir, AT_REMOVEDIR);
   };
 };
 export main;
