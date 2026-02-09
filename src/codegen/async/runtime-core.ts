@@ -47,13 +47,7 @@ typedef struct {
 static bool yo_async_scheduler_initialized = false;
 
 // Forward declarations for I/O functions (defined later, may be stubs if liburing unavailable)
-#if defined(__linux__)
-static void __yo_io_init(void);
-static void __yo_io_cleanup(void);
-static bool __yo_has_pending_io(void);
-static int __yo_io_poll(void);
-static int __yo_io_wait(void);
-#elif defined(__APPLE__)
+#if defined(__linux__) || defined(__APPLE__) || defined(_WIN32)
 static void __yo_io_init(void);
 static void __yo_io_cleanup(void);
 static bool __yo_has_pending_io(void);
@@ -112,7 +106,7 @@ void __yo_async_run_until_complete(void* future_ptr) {
     __yo_async_scheduler_init();
   }
   
-#if defined(__linux__) || defined(__APPLE__)
+#if defined(__linux__) || defined(__APPLE__) || defined(_WIN32)
   __yo_io_init();  // Initialize platform-specific async I/O
 #endif
   
@@ -149,7 +143,7 @@ void __yo_async_run_until_complete(void* future_ptr) {
       tasks_run++;
     }
     
-#if defined(__linux__) || defined(__APPLE__)
+#if defined(__linux__) || defined(__APPLE__) || defined(_WIN32)
     // 2. Poll I/O completions (non-blocking)
     __yo_io_poll();
     
@@ -163,7 +157,7 @@ void __yo_async_run_until_complete(void* future_ptr) {
     
     // 4. If no tasks and no I/O, check if future is complete
     if (!yo_thread_async_queue.head) {
-#if defined(__linux__) || defined(__APPLE__)
+#if defined(__linux__) || defined(__APPLE__) || defined(_WIN32)
       if (!__yo_has_pending_io()) {
         // No tasks, no I/O - future must be waiting on something else or complete
         ASYNC_DEBUG("[ASYNC] No tasks or I/O, future state=%d\\n",
@@ -183,7 +177,7 @@ void __yo_async_run_until_complete(void* future_ptr) {
     }
   }
   
-#if defined(__linux__) || defined(__APPLE__)
+#if defined(__linux__) || defined(__APPLE__) || defined(_WIN32)
   __yo_io_cleanup();
 #endif
   
@@ -198,7 +192,7 @@ void __yo_async_wait_all(void) {
   
   ASYNC_DEBUG("[ASYNC] Waiting for all tasks to complete (queue_count=%zu)\\n", yo_thread_async_queue.count);
   
-#if defined(__linux__) || defined(__APPLE__)
+#if defined(__linux__) || defined(__APPLE__) || defined(_WIN32)
   __yo_io_init();  // Ensure async I/O is initialized
 #endif
   
@@ -222,7 +216,7 @@ void __yo_async_wait_all(void) {
       tasks_processed = true;
     }
     
-#if defined(__linux__) || defined(__APPLE__)
+#if defined(__linux__) || defined(__APPLE__) || defined(_WIN32)
     // 2. Poll for I/O completions (non-blocking)
     __yo_io_poll();
     

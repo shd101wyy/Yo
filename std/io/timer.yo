@@ -2,9 +2,8 @@
 //
 // Provides high-level async timer functions:
 //   sleep(ms)   - async sleep for the given number of milliseconds
-//   timeout(ms) - alias for sleep (useful for naming intent)
 //
-// These return an IOFuture that resolves to a positive value on success
+// Returns an IOFuture that resolves to a positive value on success
 // (timerfd read size on Linux) or a negative errno.
 // Use with `await` in async contexts.
 //
@@ -19,17 +18,12 @@
 
 { IOFuture } :: import "./future.yo";
 { IOError } :: import "./errors.yo";
-{ __yo_async_sleep_start, __yo_async_timeout_start } :: import "./externs.yo";
+{ __yo_async_sleep_start } :: import "./externs.yo";
 
 sleep :: (fn(milliseconds: u64) -> IOFuture)(
   __yo_async_sleep_start(milliseconds)
 );
 
-timeout :: (fn(milliseconds: u64) -> IOFuture)(
-  __yo_async_timeout_start(milliseconds)
-);
-
 export
-  sleep,
-  timeout
+  sleep
 ;

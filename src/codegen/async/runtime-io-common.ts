@@ -179,11 +179,6 @@ static yo_io_future_t* __yo_async_sleep_start(uint64_t milliseconds) {
   return future;
 }
 
-// Async timeout - same as sleep for now
-static yo_io_future_t* __yo_async_timeout_start(uint64_t milliseconds) {
-  return __yo_async_sleep_start(milliseconds);
-}
-
 #elif defined(__APPLE__)
 // macOS timer using dispatch_after
 static yo_io_future_t* __yo_async_sleep_start(uint64_t milliseconds) {
@@ -216,85 +211,30 @@ static yo_io_future_t* __yo_async_sleep_start(uint64_t milliseconds) {
   return future;
 }
 
-static yo_io_future_t* __yo_async_timeout_start(uint64_t milliseconds) {
-  return __yo_async_sleep_start(milliseconds);
-}
-
 #elif defined(_WIN32)
 #include <windows.h>
 
-// Windows timer using thread pool timer (CreateThreadpoolTimer)
-typedef struct {
-  yo_io_future_t base;
-  PTP_TIMER tp_timer;
-} yo_win_timer_future_t;
-
-static void __yo_win_timer_dispose(void* ptr) {
-  yo_win_timer_future_t* tf = (yo_win_timer_future_t*)ptr;
-  if (tf->tp_timer) {
-    CloseThreadpoolTimer(tf->tp_timer);
-    tf->tp_timer = NULL;
-  }
-}
-
-static VOID CALLBACK __yo_timer_callback(PTP_CALLBACK_INSTANCE instance, PVOID context, PTP_TIMER timer) {
-  (void)instance;
-  (void)timer;
-  yo_io_future_t* future = (yo_io_future_t*)context;
-  future->result = (int32_t)sizeof(uint64_t);  // Match timerfd read size on Linux
-  atomic_store_explicit(&future->state, -1, memory_order_release);
-  
-  void (*cont_fn)(void*) = atomic_load_explicit(&future->continuation_fn, memory_order_acquire);
-  void* cont_sm = atomic_load_explicit(&future->continuation_sm, memory_order_acquire);
-  if (cont_fn && cont_sm) {
-    yo_async_spawn_task(cont_fn, cont_sm);
-  }
-}
+static void __yo_io_init(void);
+static void __yo_win_timer_add(yo_io_future_t* future, uint64_t milliseconds);
 
 static yo_io_future_t* __yo_async_sleep_start(uint64_t milliseconds) {
-  yo_win_timer_future_t* timer_future = (yo_win_timer_future_t*)__yo_malloc(sizeof(yo_win_timer_future_t));
-  memset(timer_future, 0, sizeof(yo_win_timer_future_t));
-  
-  yo_io_future_t* future = &timer_future->base;
+  __yo_io_init();
+
+  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
+  memset(future, 0, sizeof(yo_io_future_t));
   future->header.ref_count = 1;
-  future->header.dispose_fn = __yo_win_timer_dispose;
   atomic_init(&future->state, 0);
   future->result = 0;
   atomic_init(&future->continuation_fn, NULL);
   atomic_init(&future->continuation_sm, NULL);
-  timer_future->tp_timer = NULL;
-  
-  PTP_TIMER tp_timer = CreateThreadpoolTimer(__yo_timer_callback, future, NULL);
-  if (!tp_timer) {
-    future->result = -(int32_t)GetLastError();
-    atomic_store(&future->state, -1);
-    return future;
-  }
-  timer_future->tp_timer = tp_timer;
-  
-  // SetThreadpoolTimer expects a negative FILETIME for relative delay
-  // 1 millisecond = 10000 * 100-nanosecond intervals
-  ULARGE_INTEGER delay;
-  delay.QuadPart = (ULONGLONG)milliseconds * 10000ULL;
-  FILETIME ft;
-  ft.dwHighDateTime = delay.HighPart;
-  ft.dwLowDateTime = delay.LowPart;
-  // Negate for relative time
-  LARGE_INTEGER li;
-  li.QuadPart = -(LONGLONG)delay.QuadPart;
-  ft.dwLowDateTime = (DWORD)li.LowPart;
-  ft.dwHighDateTime = (DWORD)li.HighPart;
-  
-  SetThreadpoolTimer(tp_timer, &ft, 0, 0);
+
+  __yo_win_timer_add(future, milliseconds);
   
   ASYNC_DEBUG("[TIMER] Started async sleep: %llu ms\\n", (unsigned long long)milliseconds);
   
   return future;
 }
 
-static yo_io_future_t* __yo_async_timeout_start(uint64_t milliseconds) {
-  return __yo_async_sleep_start(milliseconds);
-}
 #endif
 
 // ============================================================================

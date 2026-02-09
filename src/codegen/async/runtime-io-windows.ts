@@ -32,7 +32,6 @@ export function generateAsyncRuntimeIOWindows(emitter: Emitter): void {
 #include <stddef.h>
 #include <string.h>
 
-void _dosmaperr(unsigned long err);
 
 #ifndef DT_UNKNOWN
 #define DT_UNKNOWN 0
@@ -77,6 +76,14 @@ static _Atomic size_t __yo_pending_io_count = 0;
 static HANDLE __yo_io_iocp = NULL;
 static CRITICAL_SECTION __yo_dir_state_mutex;
 
+typedef struct yo_win_timer_entry_t {
+  uint64_t due_ms;
+  yo_io_future_t* future;
+  struct yo_win_timer_entry_t* next;
+} yo_win_timer_entry_t;
+
+static yo_win_timer_entry_t* __yo_win_timer_head = NULL;
+
 typedef struct {
   OVERLAPPED overlapped;
   yo_io_future_t* future;
@@ -91,13 +98,13 @@ static bool __yo_is_at_fdcwd(int32_t dirfd) {
 
 static int __yo_win_last_error_to_errno(void) {
   DWORD err = GetLastError();
-  _dosmaperr(err);
-  return errno ? errno : (int)err;
+  errno = (int)err;
+  return (int)err;
 }
 
 static int __yo_win_error_to_errno(DWORD err) {
-  _dosmaperr(err);
-  return errno ? errno : (int)err;
+  errno = (int)err;
+  return (int)err;
 }
 
 static wchar_t* __yo_win_utf8_to_wide(const char* str) {
@@ -140,6 +147,22 @@ static void __yo_io_init(void) {
   ASYNC_DEBUG("[IO] Windows async runtime initialized\\n");
 }
 
+static void __yo_io_cleanup(void) {
+  if (!__yo_io_initialized) return;
+  if (__yo_io_iocp) {
+    CloseHandle(__yo_io_iocp);
+    __yo_io_iocp = NULL;
+  }
+  while (__yo_win_timer_head) {
+    yo_win_timer_entry_t* node = __yo_win_timer_head;
+    __yo_win_timer_head = node->next;
+    __yo_free(node);
+  }
+  DeleteCriticalSection(&__yo_dir_state_mutex);
+  WSACleanup();
+  __yo_io_initialized = false;
+}
+
 static bool __yo_win_associate_handle(HANDLE handle) {
   if (!__yo_io_iocp) return false;
   HANDLE res = CreateIoCompletionPort(handle, __yo_io_iocp, 0, 0);
@@ -161,6 +184,60 @@ static void __yo_io_wake_continuation(yo_io_future_t* future) {
   }
 
   atomic_fetch_sub(&__yo_pending_io_count, 1);
+}
+
+static uint64_t __yo_win_now_ms(void) {
+  return (uint64_t)GetTickCount64();
+}
+
+static void __yo_win_timer_add(yo_io_future_t* future, uint64_t milliseconds) {
+  atomic_fetch_add(&__yo_pending_io_count, 1);
+
+  yo_win_timer_entry_t* node = (yo_win_timer_entry_t*)__yo_malloc(sizeof(yo_win_timer_entry_t));
+  if (!node) {
+    future->result = -ENOMEM;
+    __yo_io_wake_continuation(future);
+    return;
+  }
+
+  uint64_t now_ms = __yo_win_now_ms();
+  node->due_ms = now_ms + milliseconds;
+  node->future = future;
+  node->next = NULL;
+
+  if (!__yo_win_timer_head || node->due_ms < __yo_win_timer_head->due_ms) {
+    node->next = __yo_win_timer_head;
+    __yo_win_timer_head = node;
+    return;
+  }
+
+  yo_win_timer_entry_t* cur = __yo_win_timer_head;
+  while (cur->next && cur->next->due_ms <= node->due_ms) {
+    cur = cur->next;
+  }
+  node->next = cur->next;
+  cur->next = node;
+}
+
+static int __yo_win_timer_process_due(uint64_t now_ms) {
+  int fired = 0;
+  while (__yo_win_timer_head && __yo_win_timer_head->due_ms <= now_ms) {
+    yo_win_timer_entry_t* node = __yo_win_timer_head;
+    __yo_win_timer_head = node->next;
+    node->future->result = (int32_t)sizeof(uint64_t);
+    __yo_io_wake_continuation(node->future);
+    __yo_free(node);
+    fired++;
+  }
+  return fired;
+}
+
+static DWORD __yo_win_timer_next_timeout(uint64_t now_ms) {
+  if (!__yo_win_timer_head) return INFINITE;
+  if (__yo_win_timer_head->due_ms <= now_ms) return 0;
+  uint64_t delta = __yo_win_timer_head->due_ms - now_ms;
+  if (delta > 0xFFFFFFFFULL) return 0xFFFFFFFFU;
+  return (DWORD)delta;
 }
 
 static void __yo_win_process_completion(yo_win_overlapped_t* ov, DWORD bytes) {
@@ -200,7 +277,12 @@ static int __yo_io_poll(void) {
   OVERLAPPED_ENTRY entries[64];
   ULONG count = 0;
   BOOL ok = GetQueuedCompletionStatusEx(__yo_io_iocp, entries, 64, &count, 0, FALSE);
-  if (!ok && GetLastError() == WAIT_TIMEOUT) return 0;
+  if (!ok && GetLastError() == WAIT_TIMEOUT) {
+    return __yo_win_timer_process_due(__yo_win_now_ms());
+  }
+  if (!ok) {
+    return __yo_win_timer_process_due(__yo_win_now_ms());
+  }
 
   int processed = 0;
   for (ULONG i = 0; i < count; i++) {
@@ -209,6 +291,7 @@ static int __yo_io_poll(void) {
                                 entries[i].dwNumberOfBytesTransferred);
     processed++;
   }
+  processed += __yo_win_timer_process_due(__yo_win_now_ms());
   return processed;
 }
 
@@ -218,11 +301,18 @@ static int __yo_io_wait(void) {
   DWORD bytes = 0;
   ULONG_PTR key = 0;
   OVERLAPPED* ov = NULL;
-  BOOL ok = GetQueuedCompletionStatus(__yo_io_iocp, &bytes, &key, &ov, INFINITE);
+  DWORD timeout_ms = __yo_win_timer_next_timeout(__yo_win_now_ms());
+  BOOL ok = GetQueuedCompletionStatus(__yo_io_iocp, &bytes, &key, &ov, timeout_ms);
+  if (!ok && GetLastError() == WAIT_TIMEOUT) {
+    return __yo_win_timer_process_due(__yo_win_now_ms());
+  }
+  if (!ok) {
+    return __yo_win_timer_process_due(__yo_win_now_ms());
+  }
   if (!ov) return 0;
-  (void)ok;
+
   __yo_win_process_completion((yo_win_overlapped_t*)ov, bytes);
-  return 1;
+  return 1 + __yo_win_timer_process_due(__yo_win_now_ms());
 }
 
 // ============================================================================
@@ -946,10 +1036,10 @@ static yo_io_future_t* __yo_async_getdents_start(int32_t fd, void* buf, uint32_t
     if (pattern[path_len - 1] != L'\\\\' && pattern[path_len - 1] != L'/') {
       pattern[path_len] = L'\\\\';
       pattern[path_len + 1] = L'*';
-      pattern[path_len + 2] = L'\0';
+      pattern[path_len + 2] = L'\\0';
     } else {
       pattern[path_len] = L'*';
-      pattern[path_len + 1] = L'\0';
+      pattern[path_len + 1] = L'\\0';
     }
     state->pattern = pattern;
 

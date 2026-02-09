@@ -1,93 +1,40 @@
-constants :: import "std/io/constants";
-socket :: import "std/io/socket";
-signals :: import "std/io/signals";
-events :: import "std/io/events";
-{ IOError } :: import "std/io/errors";
-{ platform, Platform } :: import "std/process";
+{ sleep } :: import "std/io/timer";
+open import "std/libc/stdio";
+{ yield } :: import "std/async";
 
 main :: (fn() -> unit) {
   // =========================================================================
-  // Test: module structure and constant imports
+  // Test: async timer operations
   // =========================================================================
 
-  // File mode constants
-  assert(constants.S_IFREG == u32(0o100000));
-  assert(constants.S_IFDIR == u32(0o040000));
-  assert(constants.DEFAULT_FILE_MODE == u32(0o644));
-  assert(constants.DEFAULT_DIR_MODE == u32(0o755));
+  value := Box(i32)(0);
+  async {
+    assert(value.* == 0); // 0
+    value.* = (value.* + 1); // 1
 
-  // AT_* flags
-  cond(
-    (platform == Platform.Darwin) => assert(constants.AT_FDCWD == i32(-2)),
-    true => assert(constants.AT_FDCWD == i32(-100))
-  );
+    printf("Timer test: sleeping 50ms...\n");
+    result := await sleep(u64(50));
+    printf("Timer test: woke up with result=%d\n", result);
+    assert(result > i32(0));
+    assert(value.* == 3); // yield() resumed block2 first, which set it to 3
+    value.* = (value.* + 1); // 4
 
-  // Access mode constants
-  assert(constants.F_OK == i32(0));
-  assert(constants.R_OK == i32(4));
-  assert(constants.W_OK == i32(2));
-  assert(constants.X_OK == i32(1));
+    printf("Timer test: sleeping 3000ms...\n");
+    result2 := await sleep(u64(3000));
+    printf("Timer test: woke up with result=%d\n", result2);
+    assert(result2 > i32(0));
+    assert(value.* == 4); // 4
 
-  // DT_* directory entry types
-  assert(constants.DT_REG == u8(8));
-  assert(constants.DT_DIR == u8(4));
-  assert(constants.DT_LNK == u8(10));
+    printf("All async timer tests passed!\n");
+  };
 
-  // Socket constants - platform-aware
-  assert(socket.AF_INET == i32(2));
-  assert(socket.AF_UNIX == i32(1));
-  assert(socket.SOCK_STREAM == i32(1));
-  assert(socket.SOCK_DGRAM == i32(2));
-  assert(socket.SHUT_RD == i32(0));
-  assert(socket.SHUT_WR == i32(1));
-  assert(socket.SHUT_RDWR == i32(2));
-
-  // Platform-specific socket constants
-  cond(
-    (platform == Platform.Darwin) => {
-      assert(socket.AF_INET6 == i32(30));
-      assert(socket.SOL_SOCKET == i32(0xFFFF));
-    },
-    (platform == Platform.Linux) => {
-      assert(socket.AF_INET6 == i32(10));
-      assert(socket.SOL_SOCKET == i32(1));
-    },
-    true => ()
-  );
-
-  // Signal constants
-  assert(signals.SIGINT == i32(2));
-  assert(signals.SIGTERM == i32(15));
-  assert(signals.SIGKILL == i32(9));
-
-  // Platform-specific signal constants
-  cond(
-    (platform == Platform.Darwin) => {
-      assert(signals.SIGCHLD == i32(20));
-      assert(signals.SIGCONT == i32(19));
-      assert(signals.SIGSTOP == i32(17));
-      assert(signals.SIGTSTP == i32(18));
-    },
-    (platform == Platform.Linux) => {
-      assert(signals.SIGCHLD == i32(17));
-      assert(signals.SIGCONT == i32(18));
-      assert(signals.SIGSTOP == i32(19));
-      assert(signals.SIGTSTP == i32(20));
-    },
-    true => ()
-  );
-
-  // Event constants
-  assert(events.TTY_MODE_NORMAL == i32(0));
-  assert(events.TTY_MODE_RAW == i32(1));
-  assert(events.POLL_READABLE == i32(1));
-  assert(events.POLL_WRITABLE == i32(2));
-
-  // IOError
-  err := IOError.from_errno(i32(2));
-  match(err,
-    .NotFound => assert(true),
-    _ => assert(false)
-  );
+  async {
+    assert(value.* == 1); // 1
+    value.* = (value.* + 1); // 2
+  
+    await yield();
+    assert(value.* == 2); // yield() resumes before sleep(50ms), nobody changed it
+    value.* = (value.* + 1); // 3
+  };
 };
 export main;

@@ -18,7 +18,7 @@ The `std/io` module provides Yo's low-level async I/O foundation. It sits betwee
 | **IOFuture**         | `std/io/future.yo`    | ✅ Complete | Extern type wrapping `yo_io_future_t`                      |
 | **Externs**          | `std/io/externs.yo`   | ✅ Complete | All C extern function declarations                         |
 | **Statx**            | `std/io/statx.yo`     | ✅ Complete | File metadata accessor object                              |
-| **Timer**            | `std/io/timer.yo`     | ✅ Complete | `sleep(ms)`, `timeout(ms)`                                 |
+| **Timer**            | `std/io/timer.yo`     | ✅ Complete | `sleep(ms)`                                                |
 | **File**             | `std/io/file.yo`      | ✅ Complete | Async+sync file ops (openat, read, write, etc.)            |
 | **Dir**              | `std/io/dir.yo`       | ✅ Complete | mkdir, unlink, rename, symlink, link, readlink             |
 | **Readdir**          | `std/io/readdir.yo`   | ✅ Complete | getdents, dirent accessors (size, reclen, type, name, ino) |
@@ -49,7 +49,7 @@ The runtime has been refactored into 4 modules:
 | **readlink**               | ✅                    | ✅                  | ✅ (GetFinalPathNameByHandleW)           |
 | **dup/dup2/pipe**          | ✅                    | ✅                  | ✅                                       |
 | **Socket ops**             | ✅                    | ✅                  | ✅ (Winsock sync)                        |
-| **Timer (sleep/timeout)**  | ✅ (timerfd+io_uring) | ✅ (dispatch_after) | ✅ (ThreadpoolTimer)                     |
+| **Timer (sleep)**          | ✅ (timerfd+io_uring) | ✅ (dispatch_after) | ✅ (IOCP wait timeout)                   |
 | **getdents/readdir**       | ✅ (getdents64)       | ✅ (getdirentries)  | ✅ (getdents only)                       |
 | **access/realpath**        | ✅ (sync)             | ✅ (sync)           | ✅ (sync)                                |
 | **utime**                  | ✅ (sync)             | ✅ (sync)           | ✅ (sync)                                |
@@ -70,7 +70,7 @@ The runtime has been refactored into 4 modules:
 - ✅ **Barrel re-export removed**: `std/io/index.yo` removed to avoid naming conflicts. Users now import submodules directly: `import "std/io/file"`, `import "std/io/timer"`, etc.
 - ✅ **Runtime refactored**: 4012-line `runtime.ts` split into 4 focused modules for maintainability.
 - ✅ **SSA variable mutation in async loops**: Variable reassignment inside loops in async state machines created new SSA variable IDs (e.g., `offset` → `offset_1`) but the loop condition always read the original, causing infinite loops. Fixed by adding `variableIdRemapping` to the await analysis that maps all SSA-renamed IDs back to the first version's captured variable. Also fixed `break` inside async while loop resume code breaking the C `switch` instead of the loop.
-- ✅ **macOS async continuation threading**: GCD callbacks run on background threads, but the async task queue is thread-local. Added a cross-thread continuation queue in the macOS runtime and drain it on the event-loop thread during polling to ensure `sleep/timeout` and dispatch_io completions resume correctly.
+- ✅ **macOS async continuation threading**: GCD callbacks run on background threads, but the async task queue is thread-local. Added a cross-thread continuation queue in the macOS runtime and drain it on the event-loop thread during polling to ensure `sleep` and dispatch_io completions resume correctly.
 - ✅ **macOS getdents linker fix**: Replaced the unavailable `getdirentries` call with a `readdir`-based emulation using `dup(fd)` + `fdopendir` to avoid 64-bit inode stub symbols on arm64.
 
 ---
@@ -332,7 +332,7 @@ read/write. Other Windows operations are synchronous wrappers or stubs; socket
 operations remain synchronous until AcceptEx/ConnectEx/WSARecv/WSASend
 overlapped support is added.
 
-This is the largest remaining gap. The timer is now implemented using `CreateThreadpoolTimer`, but all other IO operations are missing.
+This is the largest remaining gap. The timer now integrates with IOCP wait timeouts (no thread pool), but other IO operations were originally missing.
 
 ### 6.1 Windows Event Loop Integration
 
@@ -459,7 +459,7 @@ Phase 7 (FS Events + Poll)
 
 Each phase should include a `.test.yo` file exercising the new APIs:
 
-1. **Timer tests** — ✅ Done in `fixme.yo` (sleep, timeout)
+1. **Timer tests** — ✅ Done in `fixme.yo` (sleep)
 2. **File I/O tests** — Open, read, write, close, stat a temp file
 3. **Directory tests** — mkdir, readdir, rmdir
 4. **Socket tests** — TCP echo server/client on localhost
@@ -484,7 +484,7 @@ std/io/
   signals.yo       ← Signal constants                     ✅
   events.yo        ← TTY/poll/FS event constants           ✅
   statx.yo         ← File metadata accessors              ✅
-  timer.yo         ← sleep, timeout                       ✅
+  timer.yo         ← sleep                                ✅
   file.yo          ← Async file operations                ✅
   dir.yo           ← Async directory operations           ✅
   tcp.yo           ← TCP socket operations                Phase 2

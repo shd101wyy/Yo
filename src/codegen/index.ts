@@ -270,7 +270,10 @@ export class CodeGenerator {
         });
 
         // Add libraries from -l option
-        const libraries = options.libraries ?? [];
+        const libraries = [...(options.libraries ?? [])];
+        if (process.platform === "win32" && !libraries.includes("ws2_32")) {
+          libraries.push("ws2_32");
+        }
         libraries.forEach((library) => {
           if (isMSVC) {
             // MSVC uses library.lib format
