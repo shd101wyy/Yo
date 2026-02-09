@@ -21,6 +21,8 @@ Always go with a proper implementation. No shortcut. Don't simplify the problem.
 
 Always run `bun run build && ...` to make sure there is no TypeScript error before you run other `bun` or `./yo-cli` commands.
 
+You need to make sure the command runs successfully without error. Don't ask me to run. You should run it yourself. Don't end the conversation until the command runs successfully.
+
 To test the Yo codegen transpiler, you can run the command `./yo-cli compile src/tests/fixme.yo --release` to compile the `fixme.yo`. Or run `./yo-cli compile src/tests/fixme.yo --emit-c --skip-c-compiler --release` on any `.yo` file to test its C code generation.
 
 Then run `clang -std=c11 -Wall -Wextra a.out.c vendor/mimalloc/src/static.c -Ivendor/mimalloc/include -o ./a.out` to compile the generated `./a.out.c`. Add `-luring` if you are on Linux and want to test the async IO features.

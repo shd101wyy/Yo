@@ -17,16 +17,22 @@ export function generateAsyncRuntimeIOWindows(emitter: Emitter): void {
 #define WIN32_LEAN_AND_MEAN
 #include <winsock2.h>
 #include <ws2tcpip.h>
+#ifndef _WINSOCKAPI_
+#define _WINSOCKAPI_
+#endif
 #include <windows.h>
 #include <io.h>
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <direct.h>
+#include <stdlib.h>
 #include <errno.h>
 #include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <string.h>
+
+void _dosmaperr(unsigned long err);
 
 #ifndef DT_UNKNOWN
 #define DT_UNKNOWN 0
@@ -121,17 +127,17 @@ static void __yo_io_init(void) {
   InitializeCriticalSection(&__yo_dir_state_mutex);
   __yo_io_iocp = CreateIoCompletionPort(INVALID_HANDLE_VALUE, NULL, 0, 1);
   if (!__yo_io_iocp) {
-    ASYNC_DEBUG("[IO] CreateIoCompletionPort failed: %lu\n", GetLastError());
+    ASYNC_DEBUG("[IO] CreateIoCompletionPort failed: %lu\\n", GetLastError());
   }
 
   WSADATA wsa;
   int wsa_result = WSAStartup(MAKEWORD(2, 2), &wsa);
   if (wsa_result != 0) {
-    ASYNC_DEBUG("[IO] WSAStartup failed: %d\n", wsa_result);
+    ASYNC_DEBUG("[IO] WSAStartup failed: %d\\n", wsa_result);
   }
 
   __yo_io_initialized = true;
-  ASYNC_DEBUG("[IO] Windows async runtime initialized\n");
+  ASYNC_DEBUG("[IO] Windows async runtime initialized\\n");
 }
 
 static bool __yo_win_associate_handle(HANDLE handle) {
@@ -937,8 +943,8 @@ static yo_io_future_t* __yo_async_getdents_start(int32_t fd, void* buf, uint32_t
     size_t path_len = wcslen(path_buf);
     wchar_t* pattern = (wchar_t*)__yo_malloc((path_len + 3) * sizeof(wchar_t));
     wcscpy(pattern, path_buf);
-    if (pattern[path_len - 1] != L'\\' && pattern[path_len - 1] != L'/') {
-      pattern[path_len] = L'\\';
+    if (pattern[path_len - 1] != L'\\\\' && pattern[path_len - 1] != L'/') {
+      pattern[path_len] = L'\\\\';
       pattern[path_len + 1] = L'*';
       pattern[path_len + 2] = L'\0';
     } else {

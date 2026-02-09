@@ -94,6 +94,12 @@ typedef enum {
 #ifndef YO_THREAD_SYNC_TYPE
 #if defined(_WIN32)
   // Windows: Use native Windows APIs for better compatibility
+  #ifndef WIN32_LEAN_AND_MEAN
+  #define WIN32_LEAN_AND_MEAN
+  #endif
+  #ifndef _WINSOCKAPI_
+  #define _WINSOCKAPI_
+  #endif
   #include <windows.h>
   #include <process.h>
   typedef CRITICAL_SECTION YO_THREAD_SYNC_TYPE;
