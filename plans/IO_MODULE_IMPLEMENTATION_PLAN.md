@@ -23,6 +23,7 @@ The `std/io` module provides Yo's low-level async I/O foundation. It sits betwee
 | **Dir**              | `std/io/dir.yo`       | ✅ Complete | mkdir, unlink, rename, symlink, link, readlink             |
 | **Readdir**          | `std/io/readdir.yo`   | ✅ Complete | getdents, dirent accessors (size, reclen, type, name, ino) |
 | **TCP**              | `std/io/tcp.yo`       | ✅ Complete | Socket, bind, listen, accept, connect, send, recv, close   |
+| **UDP**              | `std/io/udp.yo`       | ✅ Complete | Socket, bind, sendto, recvfrom, send, recv, close          |
 
 ### C Runtime Status (in `src/codegen/async/runtime*.ts`)
 
@@ -199,17 +200,36 @@ Wraps the extern socket functions into async TCP operations. Provides both raw s
 4. `TCP echo server-client` — Full connection: bind, listen, connect, accept, send, recv, shutdown, close
 5. `SockAddr helper functions` — sockaddr creation and accessors
 
-### 2.2 Create `std/io/udp.yo` — UDP Socket Operations
+### 2.2 Create `std/io/udp.yo` — UDP Socket Operations ✅
 
-```yo
-// std/io/udp.yo
+Wraps the extern socket functions into async UDP operations. Reuses `SockAddr` and address helpers from `tcp.yo`. Tests in `tests/io/udp.test.yo`.
 
-// Send datagram to address
-sendto :: (fn(fd: i32, buf: *(u8), len: usize, dest: *(u8), addrlen: u32) -> IOFuture)(...);
+**Implementation highlights:**
 
-// Receive datagram with source address
-recvfrom :: (fn(fd: i32, buf: *(u8), len: usize, src: *(u8), addrlen: *(u32)) -> IOFuture)(...);
-```
+- `socket(domain, protocol)` — Create UDP socket (hardcodes `SOCK_DGRAM` internally)
+- `bind(fd, addr_buf, addr_len)` — Bind socket to local address
+- `sendto(fd, buf, len, flags, dest_addr, addrlen)` — Send datagram to specific address
+- `recvfrom(fd, buf, len, flags, src_addr, addrlen_ptr)` — Receive datagram with sender address
+- `send(fd, buf, len, flags)` — Send on connected UDP socket
+- `recv(fd, buf, len, flags)` — Receive on connected UDP socket
+- `close(fd)` — Close socket descriptor
+- `setsockopt(fd, level, optname, optval, optlen)` — Set socket option
+- `getsockopt(fd, level, optname, optval, optlen_ptr)` — Get socket option
+
+**Design notes:**
+
+- `socket()` takes `(domain, protocol)` and hardcodes `SOCK_DGRAM` — users don't need to specify socket type
+- Address helpers (`make_sockaddr_in_loopback`, `free_sockaddr`, `get_family`, etc.) are reused from `tcp.yo`
+- Must bind UDP sockets before first `sendto` if you need to receive replies on a known port (kernel auto-bind on unbound `sendto` prevents later explicit bind)
+
+**Tests (6 tests, all passing on Linux):**
+
+1. `UDP socket creation and close` — Basic socket lifecycle
+2. `UDP socket bind to loopback` — Bind to specific port
+3. `UDP setsockopt SO_REUSEADDR` — Socket option test
+4. `UDP sendto and recvfrom` — Send datagram, receive with byte verification and source address check
+5. `UDP bidirectional ping-pong` — Server and client exchange datagrams using `recvfrom` sender address for reply
+6. `UDP sockaddr helpers from tcp module` — Verify tcp address helpers work for UDP
 
 ### 2.3 Create `std/io/addr.yo` — Socket Address Helpers
 
