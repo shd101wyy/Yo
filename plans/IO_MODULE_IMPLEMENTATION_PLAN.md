@@ -22,6 +22,7 @@ The `std/io` module provides Yo's low-level async I/O foundation. It sits betwee
 | **File**             | `std/io/file.yo`      | ✅ Complete | Async+sync file ops (openat, read, write, etc.)            |
 | **Dir**              | `std/io/dir.yo`       | ✅ Complete | mkdir, unlink, rename, symlink, link, readlink             |
 | **Readdir**          | `std/io/readdir.yo`   | ✅ Complete | getdents, dirent accessors (size, reclen, type, name, ino) |
+| **TCP**              | `std/io/tcp.yo`       | ✅ Complete | Socket, bind, listen, accept, connect, send, recv, close   |
 
 ### C Runtime Status (in `src/codegen/async/runtime*.ts`)
 
@@ -154,35 +155,48 @@ Required compiler fixes:
 
 **Goal**: Provide typed socket operations for TCP/UDP/Unix sockets.
 
-### 2.1 Create `std/io/tcp.yo` — TCP Socket Operations
+### 2.1 Create `std/io/tcp.yo` — TCP Socket Operations ✅
 
-```yo
-// std/io/tcp.yo
+Wraps the extern socket functions into async TCP operations. Provides both raw socket operations (socket, bind, listen, accept, connect, send, recv, shutdown, close) and helper functions for socket address creation. Tests in `tests/io/tcp.test.yo`.
 
-// Create a TCP socket
-socket :: (fn(domain: i32) -> IOFuture)(...);
+**Implementation highlights:**
 
-// Bind to an address
-bind :: (fn(fd: i32, addr: *(u8), addrlen: u32) -> IOFuture)(...);
+- `socket(domain, type, protocol)` — Create TCP socket (uses `AF_INET`/`AF_INET6` and `SOCK_STREAM`)
+- `bind(fd, addr_buf, addr_len)` — Bind socket to address
+- `listen(fd, backlog)` — Listen for incoming connections
+- `accept(fd, peer_addr_buf, peer_addr_len)` — Accept client connection
+- `connect(fd, addr_buf, addr_len)` — Connect to remote server
+- `send(fd, buf, len, flags)` — Send data
+- `recv(fd, buf, len, flags)` — Receive data
+- `shutdown(fd, how)` — Shutdown socket (SHUT_RD/SHUT_WR/SHUT_RDWR)
+- `close(fd)` — Close socket descriptor
+- `setsockopt(fd, level, optname, optval, optlen)` — Set socket option (e.g. SO_REUSEADDR)
+- `getsockopt(fd, level, optname, optval, optlen_ptr)` — Get socket option
 
-// Listen for connections
-listen :: (fn(fd: i32, backlog: i32) -> IOFuture)(...);
+**Socket address helpers:**
 
-// Accept an incoming connection
-accept :: (fn(fd: i32) -> IOFuture)(...);
+- `SockAddr` struct with `buf: *(u8)` and `len: u32`
+- `make_sockaddr_in(ip, port)` — Create IPv4 address from IP string
+- `make_sockaddr_in6(ip, port)` — Create IPv6 address from IP string
+- `make_sockaddr_in_any(port)` — Create INADDR_ANY (0.0.0.0) address
+- `make_sockaddr_in_loopback(port)` — Create loopback (127.0.0.1) address
+- `free_sockaddr(addr)` — Free socket address buffer
+- `get_port_in(addr_buf)` — Extract port from IPv4 address
+- `get_addr_in(addr_buf)` — Extract IPv4 address as u32
+- `get_family(addr_buf)` — Get address family (AF_INET/AF_INET6)
+- `htons/ntohs/htonl/ntohl` — Byte order conversion
 
-// Connect to a remote address
-connect :: (fn(fd: i32, addr: *(u8), addrlen: u32) -> IOFuture)(...);
+**Known issue fixed:**
 
-// Send data
-send :: (fn(fd: i32, buf: *(u8), len: usize) -> IOFuture)(...);
+- C macro name conflict: `AF_INET` and `AF_INET6` are C macros from `<sys/socket.h>`. When passed directly as function arguments, the C codegen created local variables with these names, causing compilation errors. Fixed by assigning to local variables with safe names (`af_inet := AF_INET`) before passing to functions.
 
-// Receive data
-recv :: (fn(fd: i32, buf: *(u8), len: usize) -> IOFuture)(...);
+**Tests (6 tests, all passing on Linux):**
 
-// Shutdown a socket
-shutdown :: (fn(fd: i32, how: i32) -> IOFuture)(...);
-```
+1. `TCP socket creation and close` — Basic socket lifecycle
+2. `Set SO_REUSEADDR socket option` — setsockopt test
+3. `Bind to loopback and listen` — Server setup test
+4. `TCP echo server-client` — Full connection: bind, listen, connect, accept, send, recv, shutdown, close
+5. `SockAddr helper functions` — sockaddr creation and accessors
 
 ### 2.2 Create `std/io/udp.yo` — UDP Socket Operations
 
