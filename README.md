@@ -87,13 +87,32 @@ $ scoop install llvm
 
 Alternatively, you can use other C compilers like `gcc` or `zig` by specifying the compiler with the `--c-compiler` flag.
 
+### Linux liburing Requirement
+
+On Linux, Yo uses `io_uring` for async I/O, which requires **liburing** to be installed.
+
+#### Installing liburing (Linux)
+
+```bash
+# Ubuntu/Debian
+$ sudo apt-get update
+$ sudo apt-get install liburing-dev
+
+# Fedora/RHEL
+$ sudo dnf install liburing-devel
+
+# Arch Linux
+$ sudo pacman -S liburing
+```
+
 ## Code examples
 
-Check the `./tests` and `./std` folders for code examples.
+Check the [./tests](./tests/) and [./std](./std/) folders for code examples.
 
 ### Hello World
 
 ```typescript
+// main.yo
 { println } :: import "std/fmt";
 
 main :: (fn() -> unit) {
@@ -101,6 +120,9 @@ main :: (fn() -> unit) {
 };
 
 export main;
+
+// $ yo compile main.yo --release -o main
+// $ ./main
 ```
 
 ## Development
