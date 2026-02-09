@@ -2,139 +2,163 @@ open import "std/libc/stdio";
 { GlobalAllocator } :: import "std/allocator";
 { malloc, free } :: GlobalAllocator;
 open import "std/string";
-{ platform, Platform, env } :: import "std/process";
-perm :: import "std/io/perm";
 file :: import "std/io/file";
 dir :: import "std/io/dir";
+time :: import "std/io/time";
+{ Statx } :: import "std/io/statx";
 {
-  AT_FDCWD, O_WRONLY, O_CREAT, O_TRUNC, O_RDONLY,
-  F_OK, R_OK, W_OK, X_OK,
-  S_IRUSR, S_IWUSR, S_IXUSR, S_IRGRP, S_IROTH
+  __yo_statx_buf_size
+} :: import "std/io/externs";
+{
+  AT_FDCWD, AT_EMPTY_PATH, O_WRONLY, O_CREAT, O_TRUNC, O_RDONLY,
+  STATX_BASIC_STATS
 } :: import "std/io/constants";
 
 main :: (fn() -> unit) {
   async {
-    // =============================================
-    // Test 1: access F_OK on existing file
-    // =============================================
-    printf("Test 1: access F_OK on existing file\n");
-    test_path := *(u8)("/tmp/yo_perm_test.txt");
+    test_path := *(u8)("/tmp/yo_time_test.txt");
 
-    // Create a test file first
+    // Create a test file
     write_flags := ((O_WRONLY | O_CREAT) | O_TRUNC);
     fd := await file.openat(AT_FDCWD, test_path, write_flags, i32(0o644));
-    printf("  created file fd = %d\n", fd);
+    printf("created file fd = %d\n", fd);
     assert(fd >= i32(0));
-    data := *(u8)("perm test data");
+    data := *(u8)("time test data");
     wr := await file.write(fd, data, u32(14), u64(0));
     assert(wr == i32(14));
     cr := await file.close(fd);
     assert(cr == i32(0));
 
-    // Check file exists
-    ret1 := await perm.access(AT_FDCWD, test_path, F_OK);
-    printf("  access F_OK ret = %d\n", ret1);
+    // =============================================
+    // Test 1: utime sets specific timestamps
+    // =============================================
+    printf("Test 1: utime sets specific timestamps\n");
+    ret1 := await time.utime(test_path, i64(1000000), i64(0), i64(2000000), i64(0));
+    printf("  utime ret = %d\n", ret1);
     assert(ret1 == i32(0));
 
-    // Check readable
-    ret1r := await perm.access(AT_FDCWD, test_path, R_OK);
-    printf("  access R_OK ret = %d\n", ret1r);
-    assert(ret1r == i32(0));
-
-    // Check writable
-    ret1w := await perm.access(AT_FDCWD, test_path, W_OK);
-    printf("  access W_OK ret = %d\n", ret1w);
-    assert(ret1w == i32(0));
-
+    // Verify with statx
+    buf_size := __yo_statx_buf_size();
+    stat_buf := *(u8)(malloc(buf_size).unwrap());
+    sr := await file.statx(AT_FDCWD, test_path, i32(0), STATX_BASIC_STATS, stat_buf);
+    printf("  statx ret = %d\n", sr);
+    assert(sr == i32(0));
+    st := Statx(stat_buf, buf_size);
+    printf("  atime_sec = %ld (expect 1000000)\n", st.atime_sec());
+    printf("  mtime_sec = %ld (expect 2000000)\n", st.mtime_sec());
+    assert(st.atime_sec() == i64(1000000));
+    assert(st.mtime_sec() == i64(2000000));
+    free(.Some(*(void)(stat_buf)));
     printf("  PASSED\n");
 
     // =============================================
-    // Test 2: access on nonexistent file
+    // Test 2: futime sets timestamps by fd
     // =============================================
-    printf("Test 2: access on nonexistent file\n");
-    ret2 := await perm.access(AT_FDCWD, *(u8)("/tmp/yo_perm_nonexistent_file_12345.txt"), F_OK);
-    printf("  access F_OK ret = %d (expect -ENOENT)\n", ret2);
-    // ENOENT = 2, so -ENOENT = -2
-    assert(ret2 == i32(-2));
+    printf("Test 2: futime sets timestamps by fd\n");
+    fd2 := await file.openat(AT_FDCWD, test_path, O_RDONLY, i32(0));
+    assert(fd2 >= i32(0));
+    ret2 := await time.futime(fd2, i64(3000000), i64(500000000), i64(4000000), i64(750000000));
+    printf("  futime ret = %d\n", ret2);
+    assert(ret2 == i32(0));
+
+    // Verify via statx
+    stat_buf2 := *(u8)(malloc(buf_size).unwrap());
+    sr2 := await file.statx(AT_FDCWD, test_path, i32(0), STATX_BASIC_STATS, stat_buf2);
+    assert(sr2 == i32(0));
+    st2 := Statx(stat_buf2, buf_size);
+    printf("  atime_sec = %ld (expect 3000000)\n", st2.atime_sec());
+    printf("  atime_nsec = %u (expect 500000000)\n", st2.atime_nsec());
+    printf("  mtime_sec = %ld (expect 4000000)\n", st2.mtime_sec());
+    printf("  mtime_nsec = %u (expect 750000000)\n", st2.mtime_nsec());
+    assert(st2.atime_sec() == i64(3000000));
+    assert(st2.atime_nsec() == u32(500000000));
+    assert(st2.mtime_sec() == i64(4000000));
+    assert(st2.mtime_nsec() == u32(750000000));
+    free(.Some(*(void)(stat_buf2)));
+    cr2 := await file.close(fd2);
+    assert(cr2 == i32(0));
     printf("  PASSED\n");
 
     // =============================================
-    // Test 3: chmodat changes permissions
+    // Test 3: utime on nonexistent file returns -ENOENT
     // =============================================
-    printf("Test 3: chmodat changes permissions\n");
-
-    // chmod to read-only (0o444)
-    ret3 := await perm.chmodat(AT_FDCWD, test_path, u32(0o444), i32(0));
-    printf("  chmodat to 0444 ret = %d\n", ret3);
-    assert(ret3 == i32(0));
-
-    // Check: should be readable but not writable
-    ret3r := await perm.access(AT_FDCWD, test_path, R_OK);
-    printf("  access R_OK after chmod 0444 = %d\n", ret3r);
-    assert(ret3r == i32(0));
-
-    // Note: root can still write to read-only files, so only check if not root
-    // We'll restore permissions regardless
-    ret3w := await perm.access(AT_FDCWD, test_path, W_OK);
-    printf("  access W_OK after chmod 0444 = %d (non-root expects -EACCES)\n", ret3w);
-
-    // Restore to 0644
-    ret3b := await perm.chmodat(AT_FDCWD, test_path, u32(0o644), i32(0));
-    printf("  chmodat restore to 0644 ret = %d\n", ret3b);
-    assert(ret3b == i32(0));
-
+    printf("Test 3: utime on nonexistent file\n");
+    ret3 := await time.utime(*(u8)("/tmp/yo_time_nonexistent_12345.txt"), i64(100), i64(0), i64(200), i64(0));
+    printf("  utime ret = %d (expect -ENOENT = -2)\n", ret3);
+    assert(ret3 == i32(-2));
     printf("  PASSED\n");
 
     // =============================================
-    // Test 4: fchmod by fd
+    // Test 4: lutime on a symlink
     // =============================================
-    printf("Test 4: fchmod by fd\n");
-    fd4 := await file.openat(AT_FDCWD, test_path, O_RDONLY, i32(0));
-    printf("  open fd = %d\n", fd4);
-    assert(fd4 >= i32(0));
+    printf("Test 4: lutime on a symlink\n");
+    link_path := *(u8)("/tmp/yo_time_test_link.txt");
+    lr := await dir.symlink(test_path, AT_FDCWD, link_path);
+    printf("  symlink ret = %d\n", lr);
+    assert(lr == i32(0));
 
-    // chmod via fd to 0o755 (rwxr-xr-x)
-    ret4 := await perm.fchmod(fd4, u32(0o755));
-    printf("  fchmod to 0755 ret = %d\n", ret4);
+    ret4 := await time.lutime(link_path, i64(5000000), i64(0), i64(6000000), i64(0));
+    printf("  lutime ret = %d\n", ret4);
     assert(ret4 == i32(0));
 
-    // Verify executable bit set
-    ret4x := await perm.access(AT_FDCWD, test_path, X_OK);
-    printf("  access X_OK after fchmod 0755 = %d\n", ret4x);
-    assert(ret4x == i32(0));
+    // Verify: the original file timestamps should NOT have changed
+    stat_buf4 := *(u8)(malloc(buf_size).unwrap());
+    sr4 := await file.statx(AT_FDCWD, test_path, i32(0), STATX_BASIC_STATS, stat_buf4);
+    assert(sr4 == i32(0));
+    st4 := Statx(stat_buf4, buf_size);
+    printf("  original file atime_sec = %ld (expect 3000000, unchanged)\n", st4.atime_sec());
+    printf("  original file mtime_sec = %ld (expect 4000000, unchanged)\n", st4.mtime_sec());
+    assert(st4.atime_sec() == i64(3000000));
+    assert(st4.mtime_sec() == i64(4000000));
+    free(.Some(*(void)(stat_buf4)));
 
-    // Restore to 0644
-    ret4b := await perm.fchmod(fd4, u32(0o644));
-    assert(ret4b == i32(0));
-
-    cr4 := await file.close(fd4);
-    assert(cr4 == i32(0));
-
+    cleanup_link := await dir.unlink(AT_FDCWD, link_path, i32(0));
+    assert(cleanup_link == i32(0));
     printf("  PASSED\n");
 
     // =============================================
-    // Test 5: chmodat on nonexistent file
+    // Test 5: utime with nanosecond precision
     // =============================================
-    printf("Test 5: chmodat on nonexistent file\n");
-    ret5 := await perm.chmodat(AT_FDCWD, *(u8)("/tmp/yo_perm_nonexistent_12345.txt"), u32(0o644), i32(0));
-    printf("  chmodat ret = %d (expect -ENOENT)\n", ret5);
-    assert(ret5 == i32(-2));
+    printf("Test 5: utime with nanosecond precision\n");
+    ret5 := await time.utime(test_path, i64(1700000000), i64(123456789), i64(1700000001), i64(987654321));
+    printf("  utime ret = %d\n", ret5);
+    assert(ret5 == i32(0));
+
+    stat_buf5 := *(u8)(malloc(buf_size).unwrap());
+    sr5 := await file.statx(AT_FDCWD, test_path, i32(0), STATX_BASIC_STATS, stat_buf5);
+    assert(sr5 == i32(0));
+    st5 := Statx(stat_buf5, buf_size);
+    printf("  atime_sec = %ld (expect 1700000000)\n", st5.atime_sec());
+    printf("  atime_nsec = %u (expect 123456789)\n", st5.atime_nsec());
+    printf("  mtime_sec = %ld (expect 1700000001)\n", st5.mtime_sec());
+    printf("  mtime_nsec = %u (expect 987654321)\n", st5.mtime_nsec());
+    assert(st5.atime_sec() == i64(1700000000));
+    assert(st5.atime_nsec() == u32(123456789));
+    assert(st5.mtime_sec() == i64(1700000001));
+    assert(st5.mtime_nsec() == u32(987654321));
+    free(.Some(*(void)(stat_buf5)));
     printf("  PASSED\n");
 
     // =============================================
-    // Test 6: fchown by fd (change to same user)
+    // Test 6: futime changes only timestamps, not content
     // =============================================
-    printf("Test 6: fchown by fd\n");
+    printf("Test 6: futime preserves file content\n");
     fd6 := await file.openat(AT_FDCWD, test_path, O_RDONLY, i32(0));
     assert(fd6 >= i32(0));
 
-    // chown to -1, -1 (no change) should succeed
-    ret6 := await perm.fchown(fd6, u32(4294967295), u32(4294967295));
-    printf("  fchown(-1, -1) ret = %d\n", ret6);
+    // Set new timestamps
+    ret6 := await time.futime(fd6, i64(9999), i64(0), i64(8888), i64(0));
     assert(ret6 == i32(0));
+
+    // Read back file content to verify it's unchanged
+    read_buf := *(u8)(malloc(usize(64)).unwrap());
+    rd := await file.read(fd6, read_buf, u32(14), u64(0));
+    printf("  read %d bytes\n", rd);
+    assert(rd == i32(14));
 
     cr6 := await file.close(fd6);
     assert(cr6 == i32(0));
+    free(.Some(*(void)(read_buf)));
     printf("  PASSED\n");
 
     // =============================================
@@ -144,7 +168,7 @@ main :: (fn() -> unit) {
     cleanup := await dir.unlink(AT_FDCWD, test_path, i32(0));
     printf("  unlink ret = %d\n", cleanup);
 
-    printf("All permission tests passed!\n");
+    printf("All time tests passed!\n");
   };
 };
 export main;

@@ -9,14 +9,17 @@
 
 {
   __yo_statx_mode, __yo_statx_size, __yo_statx_uid, __yo_statx_gid,
-  __yo_statx_ino, __yo_statx_nlink, __yo_statx_mtime_sec, __yo_statx_mtime_nsec
+  __yo_statx_ino, __yo_statx_nlink,
+  __yo_statx_mtime_sec, __yo_statx_mtime_nsec,
+  __yo_statx_atime_sec, __yo_statx_atime_nsec,
+  __yo_statx_ctime_sec, __yo_statx_ctime_nsec
 } :: import "./externs.yo";
 
 // ============================================================================
 // Statx - File status from async stat operations
 // ============================================================================
 
-Statx :: object(
+Statx :: struct(
   _buf_ptr: *(u8),
   _buf_size: usize
 );
@@ -70,6 +73,22 @@ impl(Statx,
 
   mtime_nsec : (fn(self: Self) -> u32)(
     __yo_statx_mtime_nsec(self._buf_ptr)
+  ),
+
+  atime_sec : (fn(self: Self) -> i64)(
+    __yo_statx_atime_sec(self._buf_ptr)
+  ),
+
+  atime_nsec : (fn(self: Self) -> u32)(
+    __yo_statx_atime_nsec(self._buf_ptr)
+  ),
+
+  ctime_sec : (fn(self: Self) -> i64)(
+    __yo_statx_ctime_sec(self._buf_ptr)
+  ),
+
+  ctime_nsec : (fn(self: Self) -> u32)(
+    __yo_statx_ctime_nsec(self._buf_ptr)
   )
 );
 
