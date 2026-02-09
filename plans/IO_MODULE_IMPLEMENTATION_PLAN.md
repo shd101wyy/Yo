@@ -25,6 +25,7 @@ The `std/io` module provides Yo's low-level async I/O foundation. It sits betwee
 | **TCP**              | `std/io/tcp.yo`       | ✅ Complete | Socket, bind, listen, accept, connect, send, recv, close   |
 | **UDP**              | `std/io/udp.yo`       | ✅ Complete | Socket, bind, sendto, recvfrom, send, recv, close          |
 | **DNS**              | `std/io/dns.yo`       | ✅ Complete | getaddrinfo, getnameinfo, addrinfo accessors               |
+| **Perm**             | `std/io/perm.yo`      | ✅ Complete | fchmod, chmodat, fchown, chownat, access                   |
 
 ### C Runtime Status (in `src/codegen/async/runtime*.ts`)
 
@@ -234,10 +235,6 @@ Wraps the extern socket functions into async UDP operations. Reuses `SockAddr` a
 5. `UDP bidirectional ping-pong` — Server and client exchange datagrams using `recvfrom` sender address for reply
 6. `UDP sockaddr helpers from tcp module` — Verify tcp address helpers work for UDP
 
-### 2.3 ~~Create `std/io/addr.yo`~~ — Skipped
-
-Skipped. Typed socket address wrappers with `object`/`Slice` types don't belong in the low-level `std/io` layer. The raw `*(u8)` + `u32` pattern used by `tcp.yo` and `udp.yo` is appropriate here. Typed wrappers belong in a future `std/net` high-level module.
-
 ---
 
 ## Phase 3: DNS and Network Utilities (Priority: Medium)
@@ -276,20 +273,33 @@ Wraps `getaddrinfo`/`getnameinfo` externs into async DNS operations, plus access
 
 ## Phase 4: Permission and Metadata Operations (Priority: Medium)
 
-### 4.1 Create `std/io/perm.yo` — File Permissions
+### 4.1 Create `std/io/perm.yo` — File Permissions ✅
 
-```yo
-// std/io/perm.yo
+Wraps `fchmod`/`fchmodat`/`fchown`/`fchownat`/`access` externs into async permission operations. Tests in `tests/io/perm.test.yo`.
 
-// Change file permissions
-chmod :: (fn(dirfd: i32, path: *(u8), mode: u32, flags: i32) -> IOFuture)(...);
+**Implementation highlights:**
 
-// Change file ownership
-chown :: (fn(dirfd: i32, path: *(u8), uid: u32, gid: u32, flags: i32) -> IOFuture)(...);
+- `fchmod(fd, mode)` — Change file permissions by fd
+- `chmodat(dirfd, path, mode, flags)` — Change file permissions by path (AT_FDCWD for cwd)
+- `fchown(fd, uid, gid)` — Change file ownership by fd
+- `chownat(dirfd, path, uid, gid, flags)` — Change file ownership by path
+- `access(dirfd, path, mode)` — Check file accessibility (F_OK, R_OK, W_OK, X_OK)
 
-// Check file accessibility
-access :: (fn(dirfd: i32, path: *(u8), mode: i32, flags: i32) -> IOFuture)(...);
-```
+**Design notes:**
+
+- All operations return `IOFuture` resolving to 0 on success, `-errno` on failure
+- Uses constants from `std/io/constants.yo`: `F_OK`, `R_OK`, `W_OK`, `X_OK`, `S_I*`, `AT_FDCWD`, `AT_SYMLINK_NOFOLLOW`
+- `fchown` with uid/gid = `4294967295` (u32 max, i.e. `-1`) means "no change" (POSIX semantics)
+- Root can bypass permission checks, so write-after-chmod-readonly tests check for `-EACCES` only as non-root
+
+**Tests (6 tests, all passing on Linux):**
+
+1. `access F_OK R_OK W_OK on existing file` — Create file, verify exists/readable/writable
+2. `access on nonexistent file returns -ENOENT` — Verify -2 for missing file
+3. `chmodat changes and restores permissions` — chmod to 0444, verify read-only, restore to 0644
+4. `fchmod by fd sets executable bit` — fchmod to 0755, verify X_OK, restore
+5. `chmodat on nonexistent file returns -ENOENT` — Error on missing file
+6. `fchown with -1 -1 succeeds (no change)` — No-op ownership change succeeds
 
 ### 4.2 Create `std/io/time.yo` — File Timestamps
 
@@ -517,11 +527,10 @@ std/io/
   timer.yo         ← sleep                                ✅
   file.yo          ← Async file operations                ✅
   dir.yo           ← Async directory operations           ✅
-  tcp.yo           ← TCP socket operations                Phase 2
-  udp.yo           ← UDP socket operations                Phase 2
-  addr.yo          ← Socket address helpers               Phase 2
-  dns.yo           ← DNS resolution                       Phase 3
-  perm.yo          ← File permissions                     Phase 4
+  tcp.yo           ← TCP socket operations                ✅
+  udp.yo           ← UDP socket operations                ✅
+  dns.yo           ← DNS resolution                       ✅
+  perm.yo          ← File permissions                     ✅
   pipe.yo          ← Pipe/dup operations                  Phase 5
   copy.yo          ← Zero-copy file transfer              Phase 5
   signal.yo        ← Signal handling functions            Phase 5
