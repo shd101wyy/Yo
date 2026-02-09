@@ -22,7 +22,6 @@ The `std/io` module provides Yo's low-level async I/O foundation. It sits betwee
 | **File**             | `std/io/file.yo`      | ✅ Complete | Async+sync file ops (openat, read, write, etc.)            |
 | **Dir**              | `std/io/dir.yo`       | ✅ Complete | mkdir, unlink, rename, symlink, link, readlink             |
 | **Readdir**          | `std/io/readdir.yo`   | ✅ Complete | getdents, dirent accessors (size, reclen, type, name, ino) |
-| **Index**            | `std/io/index.yo`     | ❌ Removed  | Users import submodules directly                           |
 
 ### C Runtime Status (in `src/codegen/async/runtime*.ts`)
 
