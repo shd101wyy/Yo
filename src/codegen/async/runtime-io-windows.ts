@@ -61,6 +61,9 @@ export function generateAsyncRuntimeIOWindows(emitter: Emitter): void {
 #ifndef O_DIRECTORY
 #define O_DIRECTORY 0
 #endif
+#ifndef AT_FDCWD
+#define AT_FDCWD -100
+#endif
 #ifndef AT_REMOVEDIR
 #define AT_REMOVEDIR 0x200
 #endif
@@ -166,7 +169,8 @@ static void __yo_io_cleanup(void) {
 static bool __yo_win_associate_handle(HANDLE handle) {
   if (!__yo_io_iocp) return false;
   HANDLE res = CreateIoCompletionPort(handle, __yo_io_iocp, 0, 0);
-  return res != NULL;
+  if (res != NULL) return true;
+  return GetLastError() == ERROR_INVALID_PARAMETER;
 }
 
 static inline bool __yo_has_pending_io(void) {
@@ -365,11 +369,8 @@ static yo_io_future_t* __yo_async_read_start(int32_t fd, void* buffer, uint32_t 
     atomic_store(&future->state, -1);
     return future;
   }
-  if (!__yo_win_associate_handle(handle)) {
-    future->result = -__yo_win_last_error_to_errno();
-    atomic_store(&future->state, -1);
-    return future;
-  }
+
+  __yo_win_associate_handle(handle);
 
   yo_win_overlapped_t* ov = __yo_win_alloc_overlapped(future, handle, offset);
   if (!ov) {
@@ -383,7 +384,11 @@ static yo_io_future_t* __yo_async_read_start(int32_t fd, void* buffer, uint32_t 
     DWORD err = GetLastError();
     if (err != ERROR_IO_PENDING) {
       __yo_free(ov);
-      future->result = -__yo_win_error_to_errno(err);
+      if (err == ERROR_HANDLE_EOF) {
+        future->result = 0;
+      } else {
+        future->result = -__yo_win_error_to_errno(err);
+      }
       atomic_store(&future->state, -1);
       return future;
     }
@@ -410,11 +415,8 @@ static yo_io_future_t* __yo_async_write_start(int32_t fd, const void* buffer, ui
     atomic_store(&future->state, -1);
     return future;
   }
-  if (!__yo_win_associate_handle(handle)) {
-    future->result = -__yo_win_last_error_to_errno();
-    atomic_store(&future->state, -1);
-    return future;
-  }
+
+  __yo_win_associate_handle(handle);
 
   yo_win_overlapped_t* ov = __yo_win_alloc_overlapped(future, handle, offset);
   if (!ov) {
