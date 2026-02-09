@@ -160,10 +160,9 @@ make_sockaddr_in :: (fn(ip: *(u8), port: u16) -> SockAddr)({
     (buf &+ i).* = u8(0);
     i = (i + usize(1));
   };
-  af_inet := AF_INET;
-  __yo_sockaddr_set_family(buf, u16(af_inet));
+  __yo_sockaddr_set_family(buf, u16(AF_INET));
   __yo_sockaddr_in_set_port(buf, port);
-  __yo_inet_pton(af_inet, ip, (buf &+ usize(4)));
+  __yo_inet_pton(AF_INET, ip, (buf &+ usize(4)));
   SockAddr(buf, u32(size))
 });
 
@@ -178,10 +177,9 @@ make_sockaddr_in6 :: (fn(ip: *(u8), port: u16) -> SockAddr)({
     (buf &+ i).* = u8(0);
     i = (i + usize(1));
   };
-  af_inet6 := AF_INET6;
-  __yo_sockaddr_set_family(buf, u16(af_inet6));
+  __yo_sockaddr_set_family(buf, u16(AF_INET6));
   __yo_sockaddr_in6_set_port(buf, port);
-  __yo_inet_pton(af_inet6, ip, (buf &+ usize(8)));
+  __yo_inet_pton(AF_INET6, ip, (buf &+ usize(8)));
   SockAddr(buf, u32(size))
 });
 
@@ -195,8 +193,7 @@ make_sockaddr_in_any :: (fn(port: u16) -> SockAddr)({
     (buf &+ i).* = u8(0);
     i = (i + usize(1));
   };
-  af_inet := AF_INET;
-  __yo_sockaddr_set_family(buf, u16(af_inet));
+  __yo_sockaddr_set_family(buf, u16(AF_INET));
   __yo_sockaddr_in_set_port(buf, port);
   __yo_sockaddr_in_set_addr(buf, u32(0));
   SockAddr(buf, u32(size))
@@ -212,8 +209,7 @@ make_sockaddr_in_loopback :: (fn(port: u16) -> SockAddr)({
     (buf &+ i).* = u8(0);
     i = (i + usize(1));
   };
-  af_inet := AF_INET;
-  __yo_sockaddr_set_family(buf, u16(af_inet));
+  __yo_sockaddr_set_family(buf, u16(AF_INET));
   __yo_sockaddr_in_set_port(buf, port);
   __yo_sockaddr_in_set_addr(buf, __yo_htonl(u32(0x7F000001)));
   SockAddr(buf, u32(size))
