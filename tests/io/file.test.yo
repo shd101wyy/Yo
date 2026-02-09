@@ -1,5 +1,7 @@
 open import "std/libc/stdio";
 { malloc, free } :: import "std/libc/stdlib";
+open import "std/string";
+{ platform, Platform, env } :: import "std/process";
 {
   O_RDONLY, O_WRONLY, O_CREAT, O_TRUNC, AT_FDCWD
 } :: import "std/io/constants";
@@ -7,6 +9,7 @@ open import "std/libc/stdio";
   openat, close, read, write,
   open_sync, close_sync, file_size
 } :: import "std/io/file";
+{ temp_dir, path_join } :: import "./helper";
 
 test "sync open, file_size, close", {
   (path : *(u8)) = "tests/fixtures/test_file.txt";
@@ -61,7 +64,10 @@ test "async openat, read, close", {
 test "async write and read back", {
   write_open_flags := ((O_WRONLY | O_CREAT) | O_TRUNC);
   async {
-    write_path := *(u8)("/tmp/yo_io_file_test.txt");
+    tmp := temp_dir();
+    write_path_str := path_join(tmp, `yo_io_file_test.txt`);
+    write_path_c := write_path_str.to_cstr();
+    write_path := write_path_c.ptr().unwrap();
     open_result := await openat(AT_FDCWD, write_path, write_open_flags, i32(0o644));
     printf("  write openat result = %d\n", open_result);
     assert(open_result >= i32(0));

@@ -32,6 +32,13 @@ export function emitCIncludes(context: CodeGenContext): void {
   context.emitter.emitHeaderLine(
     `#define _GNU_SOURCE  // Needed for sched_getcpu() on Linux`
   );
+  context.emitter.emitHeaderLine(`#else`);
+  context.emitter.emitHeaderLine(`#ifndef WIN32_LEAN_AND_MEAN`);
+  context.emitter.emitHeaderLine(`#define WIN32_LEAN_AND_MEAN`);
+  context.emitter.emitHeaderLine(`#endif`);
+  context.emitter.emitHeaderLine(`#ifndef _WINSOCKAPI_`);
+  context.emitter.emitHeaderLine(`#define _WINSOCKAPI_`);
+  context.emitter.emitHeaderLine(`#endif`);
   context.emitter.emitHeaderLine(`#endif`);
   context.emitter.emitHeaderLine(``);
 

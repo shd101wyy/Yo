@@ -72,6 +72,11 @@ The runtime has been refactored into 4 modules:
 - ✅ **SSA variable mutation in async loops**: Variable reassignment inside loops in async state machines created new SSA variable IDs (e.g., `offset` → `offset_1`) but the loop condition always read the original, causing infinite loops. Fixed by adding `variableIdRemapping` to the await analysis that maps all SSA-renamed IDs back to the first version's captured variable. Also fixed `break` inside async while loop resume code breaking the C `switch` instead of the loop.
 - ✅ **macOS async continuation threading**: GCD callbacks run on background threads, but the async task queue is thread-local. Added a cross-thread continuation queue in the macOS runtime and drain it on the event-loop thread during polling to ensure `sleep` and dispatch_io completions resume correctly.
 - ✅ **macOS getdents linker fix**: Replaced the unavailable `getdirentries` call with a `readdir`-based emulation using `dup(fd)` + `fdopendir` to avoid 64-bit inode stub symbols on arm64.
+- ✅ **Windows test runner missing ws2_32**: The test runner (`src/test-runner.ts`) did not link `-lws2_32` on Windows, causing all Windows async I/O tests to fail with linker errors. Fixed by adding ws2_32 linking in the test runner compile step.
+- ✅ **Windows AT_FDCWD not defined**: The Windows IOCP runtime used `AT_FDCWD` without defining it. Fixed by adding `#ifndef AT_FDCWD / #define AT_FDCWD -100 / #endif`.
+- ✅ **Windows IOCP double handle association**: `openat` associated the file handle with IOCP, then `read`/`write` tried to associate the same handle again. The second `CreateIoCompletionPort` call fails with `ERROR_INVALID_PARAMETER` (87), causing reads to return -87. Fixed by making `__yo_win_associate_handle` tolerate already-associated handles (returns true on `ERROR_INVALID_PARAMETER`) and making read/write call it best-effort instead of failing.
+- ✅ **Windows winsock.h/winsock2.h header conflict**: When `.yo` files import `std/process` (which uses `c_include "<windows.h>"` via `std/libc/windows.yo`), the bare `#include <windows.h>` pulls in `winsock.h` before the IOCP runtime's `winsock2.h`, causing redefinition errors. Fixed by emitting `WIN32_LEAN_AND_MEAN` and `_WINSOCKAPI_` defines at the top of every generated C file on Windows (in `c/collection.ts`), and adding the same guards to `runtime-io-common.ts`.
+- ✅ **Windows file test path**: `file.test.yo` hardcoded `/tmp/` which doesn't exist on Windows. Fixed by using cross-platform `temp_dir()` + `path_join()` (same pattern as `dir.test.yo`).
 
 ---
 
@@ -323,71 +328,55 @@ isatty :: (fn(fd: i32) -> bool)(...);
 
 ---
 
-## Phase 6: Windows IOCP Backend (Priority: Medium-High)
+## Phase 6: Windows IOCP Backend ✅ (Completed)
 
-**Goal**: Implement the Windows async I/O backend using I/O Completion Ports.
+**Status**: Fully implemented and tested. All 4 file I/O tests pass on Windows.
 
-Windows now has an IOCP backend in `runtime-io-windows.ts` for overlapped file
-read/write. Other Windows operations are synchronous wrappers or stubs; socket
-operations remain synchronous until AcceptEx/ConnectEx/WSARecv/WSASend
-overlapped support is added.
+The Windows async I/O backend uses I/O Completion Ports (IOCP) for true async
+file read/write. Other operations (close, stat, mkdir, unlink, rename, symlink,
+fsync, ftruncate, chmod) use synchronous wrappers in completed futures, matching
+the macOS approach.
 
-This is the largest remaining gap. The timer now integrates with IOCP wait timeouts (no thread pool), but other IO operations were originally missing.
+### Architecture
 
-### 6.1 Windows Event Loop Integration
+- **Event loop**: Single IOCP handle created with `CreateIoCompletionPort(INVALID_HANDLE_VALUE, NULL, 0, 1)`
+- **Poll**: `GetQueuedCompletionStatusEx` (batched, non-blocking) with up to 64 entries
+- **Wait**: `GetQueuedCompletionStatus` (blocking) with timer-aware timeout
+- **Timer**: Software timer list integrated with IOCP wait timeout (no thread pool)
+- **Handle association**: `openat` opens files with `FILE_FLAG_OVERLAPPED`, associates handle with IOCP via `CreateIoCompletionPort`. Tolerates double-association (returns true on `ERROR_INVALID_PARAMETER`).
+- **fd round-trip**: `CreateFileW` → `_open_osfhandle` (HANDLE→fd) in openat, then `_get_osfhandle` (fd→HANDLE) in read/write
+- **Overlapped I/O**: Custom `yo_win_overlapped_t` struct embeds `OVERLAPPED` + future pointer + handle info
+- **Winsock**: `WSAStartup` at init, links `-lws2_32` for future socket support
 
-Add IOCP initialization, poll, and wait to `__yo_async_run_until_complete`:
+### Implementation Files
 
-```c
-#if defined(_WIN32)
-static HANDLE __yo_io_iocp = NULL;
-static _Atomic size_t __yo_pending_io_count = 0;
+| File                                      | Purpose                                                            |
+| ----------------------------------------- | ------------------------------------------------------------------ |
+| `src/codegen/async/runtime-io-windows.ts` | IOCP event loop, file ops, dir ops, socket stubs                   |
+| `src/codegen/async/runtime-io-common.ts`  | Cross-platform timer sleep, stat helpers                           |
+| `src/codegen/c/collection.ts`             | Emits `WIN32_LEAN_AND_MEAN` / `_WINSOCKAPI_` at top of generated C |
+| `src/test-runner.ts`                      | Links `-lws2_32` on Windows                                        |
 
-static void __yo_io_init(void) {
-  if (__yo_io_iocp) return;
-  __yo_io_iocp = CreateIoCompletionPort(INVALID_HANDLE_VALUE, NULL, 0, 1);
-}
+### Windows File I/O (Implemented)
 
-static int __yo_io_poll(void) {
-  OVERLAPPED_ENTRY entries[64];
-  ULONG count = 0;
-  BOOL ok = GetQueuedCompletionStatusEx(__yo_io_iocp, entries, 64, &count, 0, FALSE);
-  if (!ok || count == 0) return 0;
-  for (ULONG i = 0; i < count; i++) {
-    yo_io_future_t* future = (yo_io_future_t*)entries[i].lpOverlapped;
-    // Process completion...
-  }
-  return (int)count;
-}
+| Operation | Win32 API                      | Status | Notes                            |
+| --------- | ------------------------------ | ------ | -------------------------------- |
+| read      | `ReadFile` + `OVERLAPPED`      | ✅     | IOCP overlapped I/O              |
+| write     | `WriteFile` + `OVERLAPPED`     | ✅     | IOCP overlapped I/O              |
+| open      | `CreateFileW`                  | ✅     | `FILE_FLAG_OVERLAPPED` for async |
+| close     | `_close`                       | ✅     | Sync wrapper                     |
+| stat      | `_wstat64`                     | ✅     | Sync wrapper                     |
+| mkdir     | `_wmkdir`                      | ✅     | Sync wrapper                     |
+| unlink    | `_wunlink`/`_wrmdir`           | ✅     | Sync wrapper                     |
+| rename    | `_wrename`                     | ✅     | Sync wrapper                     |
+| symlink   | `CreateSymbolicLinkW`          | ✅     | Requires privileges              |
+| link      | `CreateHardLinkW`              | ✅     | Sync wrapper                     |
+| fsync     | `_commit`                      | ✅     | Sync wrapper                     |
+| truncate  | `_chsize_s`                    | ✅     | Sync wrapper                     |
+| readlink  | `GetFinalPathNameByHandleW`    | ✅     | Sync wrapper                     |
+| readdir   | `FindFirstFileW/FindNextFileW` | ✅     | Sync wrapper via getdents        |
 
-static void __yo_io_wait(void) {
-  OVERLAPPED_ENTRY entry;
-  ULONG count = 0;
-  GetQueuedCompletionStatusEx(__yo_io_iocp, &entry, 1, &count, INFINITE, FALSE);
-  if (count > 0) {
-    yo_io_future_t* future = (yo_io_future_t*)entry.lpOverlapped;
-    // Process completion...
-  }
-}
-```
-
-### 6.2 Windows File I/O
-
-| Operation | Win32 API                      | Notes                            |
-| --------- | ------------------------------ | -------------------------------- |
-| read      | `ReadFile` + `OVERLAPPED`      | Associate handle with IOCP       |
-| write     | `WriteFile` + `OVERLAPPED`     | Associate handle with IOCP       |
-| open      | `CreateFileW`                  | `FILE_FLAG_OVERLAPPED` for async |
-| close     | `CloseHandle`                  | Sync                             |
-| stat      | `GetFileInformationByHandleEx` | Sync wrapper                     |
-| mkdir     | `CreateDirectoryW`             | Sync wrapper                     |
-| unlink    | `DeleteFileW`                  | Sync wrapper                     |
-| rename    | `MoveFileExW`                  | Sync wrapper                     |
-| symlink   | `CreateSymbolicLinkW`          | Requires privileges              |
-| fsync     | `FlushFileBuffers`             | Sync wrapper                     |
-| truncate  | `SetFileInformationByHandle`   | Sync wrapper                     |
-
-### 6.3 Windows Socket I/O
+### 6.3 Windows Socket I/O (Planned)
 
 | Operation | Win32 API          | Notes                 |
 | --------- | ------------------ | --------------------- |
@@ -402,11 +391,13 @@ static void __yo_io_wait(void) {
 
 ### 6.4 Windows-Specific Considerations
 
-- Need `#include <winsock2.h>` and `#include <ws2tcpip.h>` before `<windows.h>`
-- Must call `WSAStartup` before any Winsock operations
-- File paths need `\\?\` prefix for long path support
-- Statx doesn't exist — use `GetFileInformationByHandleEx`
-- Symlinks require `SE_CREATE_SYMBOLIC_LINK_NAME` privilege
+- `WIN32_LEAN_AND_MEAN` and `_WINSOCKAPI_` are emitted at the top of every generated C file to prevent `winsock.h`/`winsock2.h` conflicts
+- `winsock2.h` + `ws2tcpip.h` are included before `windows.h` in the IOCP runtime
+- `WSAStartup` is called during I/O initialization
+- File paths are converted via `MultiByteToWideChar` (UTF-8 → UTF-16) for `CreateFileW` and other W-suffix APIs
+- `_open_osfhandle` / `_get_osfhandle` convert between Windows HANDLEs and POSIX-style fds
+- `AT_FDCWD` is defined as -100 (matching Linux convention)
+- Test runner links `-lws2_32` on Windows
 
 ---
 
@@ -470,7 +461,7 @@ For cross-platform validation:
 
 - Linux: Run tests with `./yo-cli test` (uses AddressSanitizer)
 - macOS: Same but links with system frameworks instead of liburing
-- Windows: Use `zig` compiler, link with `ws2_32.lib`, `kernel32.lib`
+- Windows: Use `clang -std=c11 -w -O2 -lws2_32`, or `zig` compiler. Tests use `temp_dir()` + `path_join()` for cross-platform temp paths.
 
 ## File Layout After All Phases
 
