@@ -2004,6 +2004,7 @@ static yo_io_future_t* __yo_async_closedir_start(void* dir) {
 
 static yo_io_future_t* __yo_async_getaddrinfo_start(const uint8_t* node, const uint8_t* service,
                                                      const uint8_t* hints, uint8_t** result) {
+  __yo_io_init();
   yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
   memset(future, 0, sizeof(yo_io_future_t));
 
@@ -2028,6 +2029,7 @@ static yo_io_future_t* __yo_async_getaddrinfo_start(const uint8_t* node, const u
 static yo_io_future_t* __yo_async_getnameinfo_start(const uint8_t* addr, uint32_t addrlen,
                                                      uint8_t* host, size_t hostlen,
                                                      uint8_t* service, size_t servlen, int32_t flags) {
+  __yo_io_init();
   yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
   memset(future, 0, sizeof(yo_io_future_t));
 
