@@ -2,173 +2,129 @@ open import "std/libc/stdio";
 { GlobalAllocator } :: import "std/allocator";
 { malloc, free } :: GlobalAllocator;
 open import "std/string";
-file :: import "std/io/file";
-dir :: import "std/io/dir";
-time :: import "std/io/time";
-{ Statx } :: import "std/io/statx";
+tcp :: import "std/io/tcp";
 {
-  __yo_statx_buf_size
-} :: import "std/io/externs";
-{
-  AT_FDCWD, AT_EMPTY_PATH, O_WRONLY, O_CREAT, O_TRUNC, O_RDONLY,
-  STATX_BASIC_STATS
-} :: import "std/io/constants";
+  AF_INET, SOCK_STREAM,
+  SOL_SOCKET, SO_REUSEADDR, IPPROTO_TCP,
+  SHUT_RDWR
+} :: import "std/io/socket";
 
 main :: (fn() -> unit) {
   async {
-    test_path := *(u8)("/tmp/yo_time_test.txt");
-
-    // Create a test file
-    write_flags := ((O_WRONLY | O_CREAT) | O_TRUNC);
-    fd := await file.openat(AT_FDCWD, test_path, write_flags, i32(0o644));
-    printf("created file fd = %d\n", fd);
-    assert(fd >= i32(0));
-    data := *(u8)("time test data");
-    wr := await file.write(fd, data, u32(14), u64(0));
-    assert(wr == i32(14));
-    cr := await file.close(fd);
-    assert(cr == i32(0));
-
-    // =============================================
-    // Test 1: utime sets specific timestamps
-    // =============================================
-    printf("Test 1: utime sets specific timestamps\n");
-    ret1 := await time.utime(test_path, i64(1000000), i64(0), i64(2000000), i64(0));
-    printf("  utime ret = %d\n", ret1);
-    assert(ret1 == i32(0));
-
-    // Verify with statx
-    buf_size := __yo_statx_buf_size();
-    stat_buf := *(u8)(malloc(buf_size).unwrap());
-    sr := await file.statx(AT_FDCWD, test_path, i32(0), STATX_BASIC_STATS, stat_buf);
-    printf("  statx ret = %d\n", sr);
-    assert(sr == i32(0));
-    st := Statx(stat_buf, buf_size);
-    printf("  atime_sec = %ld (expect 1000000)\n", st.atime_sec());
-    printf("  mtime_sec = %ld (expect 2000000)\n", st.mtime_sec());
-    assert(st.atime_sec() == i64(1000000));
-    assert(st.mtime_sec() == i64(2000000));
-    free(.Some(*(void)(stat_buf)));
+    printf("=== Test 1: Socket create and close ===\n");
+    server_fd := await tcp.socket(AF_INET, SOCK_STREAM, i32(0));
+    printf("  socket fd = %d\n", server_fd);
+    assert(server_fd >= i32(0));
+    close_result := await tcp.close(server_fd);
+    printf("  close = %d\n", close_result);
+    assert(close_result == i32(0));
     printf("  PASSED\n");
 
-    // =============================================
-    // Test 2: futime sets timestamps by fd
-    // =============================================
-    printf("Test 2: futime sets timestamps by fd\n");
-    fd2 := await file.openat(AT_FDCWD, test_path, O_RDONLY, i32(0));
-    assert(fd2 >= i32(0));
-    ret2 := await time.futime(fd2, i64(3000000), i64(500000000), i64(4000000), i64(750000000));
-    printf("  futime ret = %d\n", ret2);
-    assert(ret2 == i32(0));
-
-    // Verify via statx
-    stat_buf2 := *(u8)(malloc(buf_size).unwrap());
-    sr2 := await file.statx(AT_FDCWD, test_path, i32(0), STATX_BASIC_STATS, stat_buf2);
-    assert(sr2 == i32(0));
-    st2 := Statx(stat_buf2, buf_size);
-    printf("  atime_sec = %ld (expect 3000000)\n", st2.atime_sec());
-    printf("  atime_nsec = %u (expect 500000000)\n", st2.atime_nsec());
-    printf("  mtime_sec = %ld (expect 4000000)\n", st2.mtime_sec());
-    printf("  mtime_nsec = %u (expect 750000000)\n", st2.mtime_nsec());
-    assert(st2.atime_sec() == i64(3000000));
-    assert(st2.atime_nsec() == u32(500000000));
-    assert(st2.mtime_sec() == i64(4000000));
-    assert(st2.mtime_nsec() == u32(750000000));
-    free(.Some(*(void)(stat_buf2)));
-    cr2 := await file.close(fd2);
+    printf("=== Test 2: Set SO_REUSEADDR ===\n");
+    s2 := await tcp.socket(AF_INET, SOCK_STREAM, i32(0));
+    assert(s2 >= i32(0));
+    optval := *(u8)(malloc(usize(4)).unwrap());
+    (optval &+ usize(0)).* = u8(1);
+    (optval &+ usize(1)).* = u8(0);
+    (optval &+ usize(2)).* = u8(0);
+    (optval &+ usize(3)).* = u8(0);
+    sso := await tcp.setsockopt(s2, SOL_SOCKET, SO_REUSEADDR, optval, u32(4));
+    printf("  setsockopt = %d\n", sso);
+    assert(sso == i32(0));
+    free(.Some(*(void)(optval)));
+    cr2 := await tcp.close(s2);
     assert(cr2 == i32(0));
     printf("  PASSED\n");
 
-    // =============================================
-    // Test 3: utime on nonexistent file returns -ENOENT
-    // =============================================
-    printf("Test 3: utime on nonexistent file\n");
-    ret3 := await time.utime(*(u8)("/tmp/yo_time_nonexistent_12345.txt"), i64(100), i64(0), i64(200), i64(0));
-    printf("  utime ret = %d (expect -ENOENT = -2)\n", ret3);
-    assert(ret3 == i32(-2));
+    printf("=== Test 3: Bind and listen ===\n");
+    s3 := await tcp.socket(AF_INET, SOCK_STREAM, i32(0));
+    assert(s3 >= i32(0));
+    addr3 := tcp.make_sockaddr_in_loopback(u16(0));
+    bind3 := await tcp.bind(s3, addr3.buf, addr3.len);
+    printf("  bind = %d\n", bind3);
+    assert(bind3 == i32(0));
+    listen3 := await tcp.listen(s3, i32(128));
+    printf("  listen = %d\n", listen3);
+    assert(listen3 == i32(0));
+    tcp.free_sockaddr(addr3);
+    cr3 := await tcp.close(s3);
+    assert(cr3 == i32(0));
     printf("  PASSED\n");
 
-    // =============================================
-    // Test 4: lutime on a symlink
-    // =============================================
-    printf("Test 4: lutime on a symlink\n");
-    link_path := *(u8)("/tmp/yo_time_test_link.txt");
-    lr := await dir.symlink(test_path, AT_FDCWD, link_path);
-    printf("  symlink ret = %d\n", lr);
-    assert(lr == i32(0));
+    printf("=== Test 4: Echo server-client ===\n");
+    srv := await tcp.socket(AF_INET, SOCK_STREAM, i32(0));
+    printf("  server fd = %d\n", srv);
+    assert(srv >= i32(0));
 
-    ret4 := await time.lutime(link_path, i64(5000000), i64(0), i64(6000000), i64(0));
-    printf("  lutime ret = %d\n", ret4);
-    assert(ret4 == i32(0));
+    optval2 := *(u8)(malloc(usize(4)).unwrap());
+    (optval2 &+ usize(0)).* = u8(1);
+    (optval2 &+ usize(1)).* = u8(0);
+    (optval2 &+ usize(2)).* = u8(0);
+    (optval2 &+ usize(3)).* = u8(0);
+    sso2 := await tcp.setsockopt(srv, SOL_SOCKET, SO_REUSEADDR, optval2, u32(4));
+    assert(sso2 == i32(0));
+    free(.Some(*(void)(optval2)));
 
-    // Verify: the original file timestamps should NOT have changed
-    stat_buf4 := *(u8)(malloc(buf_size).unwrap());
-    sr4 := await file.statx(AT_FDCWD, test_path, i32(0), STATX_BASIC_STATS, stat_buf4);
-    assert(sr4 == i32(0));
-    st4 := Statx(stat_buf4, buf_size);
-    printf("  original file atime_sec = %ld (expect 3000000, unchanged)\n", st4.atime_sec());
-    printf("  original file mtime_sec = %ld (expect 4000000, unchanged)\n", st4.mtime_sec());
-    assert(st4.atime_sec() == i64(3000000));
-    assert(st4.mtime_sec() == i64(4000000));
-    free(.Some(*(void)(stat_buf4)));
+    addr4 := tcp.make_sockaddr_in_loopback(u16(19877));
+    bind4 := await tcp.bind(srv, addr4.buf, addr4.len);
+    printf("  bind = %d\n", bind4);
+    assert(bind4 == i32(0));
+    listen4 := await tcp.listen(srv, i32(128));
+    printf("  listen = %d\n", listen4);
+    assert(listen4 == i32(0));
 
-    cleanup_link := await dir.unlink(AT_FDCWD, link_path, i32(0));
-    assert(cleanup_link == i32(0));
+    cli := await tcp.socket(AF_INET, SOCK_STREAM, i32(0));
+    printf("  client fd = %d\n", cli);
+    assert(cli >= i32(0));
+
+    conn_addr := tcp.make_sockaddr_in_loopback(u16(19877));
+    conn4 := await tcp.connect(cli, conn_addr.buf, conn_addr.len);
+    printf("  connect = %d\n", conn4);
+    assert(conn4 == i32(0));
+    tcp.free_sockaddr(conn_addr);
+
+    peer_buf := *(u8)(malloc(usize(128)).unwrap());
+    peer_len := *(u32)(malloc(usize(4)).unwrap());
+    peer_len.* = u32(128);
+    acc := await tcp.accept(srv, peer_buf, peer_len);
+    printf("  accepted fd = %d\n", acc);
+    assert(acc >= i32(0));
+    free(.Some(*(void)(peer_buf)));
+    free(.Some(*(void)(peer_len)));
+
+    msg := *(u8)("Hello TCP!");
+    sent := await tcp.send(cli, msg, usize(10), i32(0));
+    printf("  sent = %d\n", sent);
+    assert(sent == i32(10));
+
+    recv_buf := *(u8)(malloc(usize(256)).unwrap());
+    received := await tcp.recv(acc, recv_buf, usize(256), i32(0));
+    printf("  received = %d\n", received);
+    assert(received == i32(10));
+
+    assert((recv_buf &+ usize(0)).* == u8(72));
+    assert((recv_buf &+ usize(1)).* == u8(101));
+    assert((recv_buf &+ usize(2)).* == u8(108));
+    assert((recv_buf &+ usize(3)).* == u8(108));
+    assert((recv_buf &+ usize(4)).* == u8(111));
+    free(.Some(*(void)(recv_buf)));
+
+    shut := await tcp.shutdown(cli, SHUT_RDWR);
+    printf("  shutdown = %d\n", shut);
+
+    c1 := await tcp.close(cli);
+    printf("  close client = %d\n", c1);
+    assert(c1 == i32(0));
+    c2 := await tcp.close(acc);
+    printf("  close accepted = %d\n", c2);
+    assert(c2 == i32(0));
+    c3 := await tcp.close(srv);
+    printf("  close server = %d\n", c3);
+    assert(c3 == i32(0));
+    tcp.free_sockaddr(addr4);
     printf("  PASSED\n");
 
-    // =============================================
-    // Test 5: utime with nanosecond precision
-    // =============================================
-    printf("Test 5: utime with nanosecond precision\n");
-    ret5 := await time.utime(test_path, i64(1700000000), i64(123456789), i64(1700000001), i64(987654321));
-    printf("  utime ret = %d\n", ret5);
-    assert(ret5 == i32(0));
-
-    stat_buf5 := *(u8)(malloc(buf_size).unwrap());
-    sr5 := await file.statx(AT_FDCWD, test_path, i32(0), STATX_BASIC_STATS, stat_buf5);
-    assert(sr5 == i32(0));
-    st5 := Statx(stat_buf5, buf_size);
-    printf("  atime_sec = %ld (expect 1700000000)\n", st5.atime_sec());
-    printf("  atime_nsec = %u (expect 123456789)\n", st5.atime_nsec());
-    printf("  mtime_sec = %ld (expect 1700000001)\n", st5.mtime_sec());
-    printf("  mtime_nsec = %u (expect 987654321)\n", st5.mtime_nsec());
-    assert(st5.atime_sec() == i64(1700000000));
-    assert(st5.atime_nsec() == u32(123456789));
-    assert(st5.mtime_sec() == i64(1700000001));
-    assert(st5.mtime_nsec() == u32(987654321));
-    free(.Some(*(void)(stat_buf5)));
-    printf("  PASSED\n");
-
-    // =============================================
-    // Test 6: futime changes only timestamps, not content
-    // =============================================
-    printf("Test 6: futime preserves file content\n");
-    fd6 := await file.openat(AT_FDCWD, test_path, O_RDONLY, i32(0));
-    assert(fd6 >= i32(0));
-
-    // Set new timestamps
-    ret6 := await time.futime(fd6, i64(9999), i64(0), i64(8888), i64(0));
-    assert(ret6 == i32(0));
-
-    // Read back file content to verify it's unchanged
-    read_buf := *(u8)(malloc(usize(64)).unwrap());
-    rd := await file.read(fd6, read_buf, u32(14), u64(0));
-    printf("  read %d bytes\n", rd);
-    assert(rd == i32(14));
-
-    cr6 := await file.close(fd6);
-    assert(cr6 == i32(0));
-    free(.Some(*(void)(read_buf)));
-    printf("  PASSED\n");
-
-    // =============================================
-    // Cleanup
-    // =============================================
-    printf("Cleaning up test file\n");
-    cleanup := await dir.unlink(AT_FDCWD, test_path, i32(0));
-    printf("  unlink ret = %d\n", cleanup);
-
-    printf("All time tests passed!\n");
+    printf("All TCP tests passed!\n");
   };
 };
 export main;

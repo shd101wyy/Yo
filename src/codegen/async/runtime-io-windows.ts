@@ -93,6 +93,8 @@ typedef struct {
   HANDLE handle;
   bool is_socket;
   SOCKET sock;
+  WSABUF wsabuf;
+  DWORD sock_flags;
 } yo_win_overlapped_t;
 
 static bool __yo_is_at_fdcwd(int32_t dirfd) {
@@ -515,8 +517,19 @@ static yo_io_future_t* __yo_async_close_start(int32_t fd) {
   atomic_init(&future->continuation_fn, NULL);
   atomic_init(&future->continuation_sm, NULL);
 
-  int result = _close(fd);
-  future->result = (result < 0) ? -errno : 0;
+  SOCKET s = (SOCKET)(uintptr_t)(uint32_t)fd;
+  int cs = closesocket(s);
+  if (cs == 0) {
+    future->result = 0;
+  } else {
+    DWORD wsa_err = WSAGetLastError();
+    if (wsa_err == WSAENOTSOCK) {
+      int result = _close(fd);
+      future->result = (result < 0) ? -errno : 0;
+    } else {
+      future->result = -(int32_t)wsa_err;
+    }
+  }
   atomic_init(&future->state, -1);
   return future;
 }
@@ -1132,6 +1145,9 @@ static yo_io_future_t* __yo_async_socket_start(int32_t domain, int32_t type, int
   if (s == INVALID_SOCKET) {
     future->result = -(int32_t)WSAGetLastError();
   } else {
+    if (__yo_io_iocp) {
+      CreateIoCompletionPort((HANDLE)s, __yo_io_iocp, 0, 0);
+    }
     future->result = (int32_t)(uintptr_t)s;
   }
   atomic_init(&future->state, -1);
@@ -1183,6 +1199,9 @@ static yo_io_future_t* __yo_async_accept_start(int32_t sockfd, void* addr, uint3
     future->result = -(int32_t)WSAGetLastError();
   } else {
     *addrlen = (uint32_t)len;
+    if (__yo_io_iocp) {
+      CreateIoCompletionPort((HANDLE)result, __yo_io_iocp, 0, 0);
+    }
     future->result = (int32_t)(uintptr_t)result;
   }
   atomic_init(&future->state, -1);
@@ -1215,11 +1234,31 @@ static yo_io_future_t* __yo_async_send_start(int32_t sockfd, const void* buf, si
 
   if (len > INT_MAX) {
     future->result = -EINVAL;
-  } else {
-    int result = send((SOCKET)(uintptr_t)sockfd, (const char*)buf, (int)len, flags);
-    future->result = (result == SOCKET_ERROR) ? -(int32_t)WSAGetLastError() : result;
+    atomic_init(&future->state, -1);
+    return future;
   }
+
+  SOCKET s = (SOCKET)(uintptr_t)sockfd;
+  yo_win_overlapped_t* ov = (yo_win_overlapped_t*)__yo_malloc(sizeof(yo_win_overlapped_t));
+  memset(ov, 0, sizeof(yo_win_overlapped_t));
+  ov->future = future;
+  ov->is_socket = true;
+  ov->sock = s;
+  ov->wsabuf.buf = (char*)buf;
+  ov->wsabuf.len = (ULONG)len;
+
+  DWORD sent = 0;
+  int result = WSASend(s, &ov->wsabuf, 1, &sent, (DWORD)flags, &ov->overlapped, NULL);
+
+  if (result == 0 || (result == SOCKET_ERROR && WSAGetLastError() == WSA_IO_PENDING)) {
+    atomic_init(&future->state, 0);
+    atomic_fetch_add(&__yo_pending_io_count, 1);
+    return future;
+  }
+
+  future->result = -(int32_t)WSAGetLastError();
   atomic_init(&future->state, -1);
+  __yo_free(ov);
   return future;
 }
 
@@ -1234,11 +1273,32 @@ static yo_io_future_t* __yo_async_recv_start(int32_t sockfd, void* buf, size_t l
 
   if (len > INT_MAX) {
     future->result = -EINVAL;
-  } else {
-    int result = recv((SOCKET)(uintptr_t)sockfd, (char*)buf, (int)len, flags);
-    future->result = (result == SOCKET_ERROR) ? -(int32_t)WSAGetLastError() : result;
+    atomic_init(&future->state, -1);
+    return future;
   }
+
+  SOCKET s = (SOCKET)(uintptr_t)sockfd;
+  yo_win_overlapped_t* ov = (yo_win_overlapped_t*)__yo_malloc(sizeof(yo_win_overlapped_t));
+  memset(ov, 0, sizeof(yo_win_overlapped_t));
+  ov->future = future;
+  ov->is_socket = true;
+  ov->sock = s;
+  ov->wsabuf.buf = (char*)buf;
+  ov->wsabuf.len = (ULONG)len;
+  ov->sock_flags = (DWORD)flags;
+
+  DWORD received = 0;
+  int result = WSARecv(s, &ov->wsabuf, 1, &received, &ov->sock_flags, &ov->overlapped, NULL);
+
+  if (result == 0 || (result == SOCKET_ERROR && WSAGetLastError() == WSA_IO_PENDING)) {
+    atomic_init(&future->state, 0);
+    atomic_fetch_add(&__yo_pending_io_count, 1);
+    return future;
+  }
+
+  future->result = -(int32_t)WSAGetLastError();
   atomic_init(&future->state, -1);
+  __yo_free(ov);
   return future;
 }
 
@@ -1485,11 +1545,11 @@ static uint16_t __yo_sockaddr_in_get_port(void* addr) {
 }
 
 static void __yo_sockaddr_in_set_addr(void* addr, uint32_t ip) {
-  ((struct sockaddr_in*)addr)->sin_addr.s_addr = htonl(ip);
+  ((struct sockaddr_in*)addr)->sin_addr.s_addr = ip;
 }
 
 static uint32_t __yo_sockaddr_in_get_addr(void* addr) {
-  return ntohl(((struct sockaddr_in*)addr)->sin_addr.s_addr);
+  return ((struct sockaddr_in*)addr)->sin_addr.s_addr;
 }
 
 static void __yo_sockaddr_in6_set_port(void* addr, uint16_t port) {

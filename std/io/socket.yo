@@ -15,6 +15,7 @@ AF_LOCAL  :: i32(1);
 AF_INET   :: i32(2);
 AF_INET6  :: cond(
   (platform == Platform.Darwin) => i32(30),
+  (platform == Platform.Win32) => i32(23),
   true => i32(10)
 );
 
@@ -32,7 +33,7 @@ SOCK_SEQPACKET :: i32(5);
 // ============================================================================
 
 SOL_SOCKET :: cond(
-  (platform == Platform.Darwin) => i32(0xFFFF),
+  ((platform == Platform.Darwin) || (platform == Platform.Win32)) => i32(0xFFFF),
   true => i32(1)
 );
 IPPROTO_TCP  :: i32(6);
@@ -45,47 +46,48 @@ IPPROTO_IPV6 :: i32(41);
 // ============================================================================
 
 SO_REUSEADDR :: cond(
-  (platform == Platform.Darwin) => i32(0x0004),
+  ((platform == Platform.Darwin) || (platform == Platform.Win32)) => i32(0x0004),
   true => i32(2)
 );
 SO_KEEPALIVE :: cond(
-  (platform == Platform.Darwin) => i32(0x0008),
+  ((platform == Platform.Darwin) || (platform == Platform.Win32)) => i32(0x0008),
   true => i32(9)
 );
 SO_BROADCAST :: cond(
-  (platform == Platform.Darwin) => i32(0x0020),
+  ((platform == Platform.Darwin) || (platform == Platform.Win32)) => i32(0x0020),
   true => i32(6)
 );
 SO_RCVBUF :: cond(
-  (platform == Platform.Darwin) => i32(0x1002),
+  ((platform == Platform.Darwin) || (platform == Platform.Win32)) => i32(0x1002),
   true => i32(8)
 );
 SO_SNDBUF :: cond(
-  (platform == Platform.Darwin) => i32(0x1001),
+  ((platform == Platform.Darwin) || (platform == Platform.Win32)) => i32(0x1001),
   true => i32(7)
 );
 SO_RCVTIMEO :: cond(
-  (platform == Platform.Darwin) => i32(0x1006),
+  ((platform == Platform.Darwin) || (platform == Platform.Win32)) => i32(0x1006),
   true => i32(20)
 );
 SO_SNDTIMEO :: cond(
-  (platform == Platform.Darwin) => i32(0x1005),
+  ((platform == Platform.Darwin) || (platform == Platform.Win32)) => i32(0x1005),
   true => i32(21)
 );
 SO_ERROR :: cond(
-  (platform == Platform.Darwin) => i32(0x1007),
+  ((platform == Platform.Darwin) || (platform == Platform.Win32)) => i32(0x1007),
   true => i32(4)
 );
 SO_TYPE :: cond(
-  (platform == Platform.Darwin) => i32(0x1008),
+  ((platform == Platform.Darwin) || (platform == Platform.Win32)) => i32(0x1008),
   true => i32(3)
 );
 SO_LINGER :: cond(
-  (platform == Platform.Darwin) => i32(0x0080),
+  ((platform == Platform.Darwin) || (platform == Platform.Win32)) => i32(0x0080),
   true => i32(13)
 );
 SO_REUSEPORT :: cond(
   (platform == Platform.Darwin) => i32(0x0200),
+  (platform == Platform.Win32) => i32(0),
   true => i32(15)
 );
 
@@ -96,14 +98,17 @@ SO_REUSEPORT :: cond(
 TCP_NODELAY   :: i32(1);
 TCP_KEEPIDLE  :: cond(
   (platform == Platform.Darwin) => i32(0x10),
+  (platform == Platform.Win32) => i32(3),
   true => i32(4)
 );
 TCP_KEEPINTVL :: cond(
   (platform == Platform.Darwin) => i32(0x101),
+  (platform == Platform.Win32) => i32(17),
   true => i32(5)
 );
 TCP_KEEPCNT :: cond(
   (platform == Platform.Darwin) => i32(0x102),
+  (platform == Platform.Win32) => i32(16),
   true => i32(6)
 );
 
@@ -128,19 +133,19 @@ INADDR_BROADCAST :: u32(0xFFFFFFFF);
 // ============================================================================
 
 NI_NUMERICHOST :: cond(
-  (platform == Platform.Darwin) => i32(2),
+  ((platform == Platform.Darwin) || (platform == Platform.Win32)) => i32(2),
   true => i32(1)
 );
 NI_NUMERICSERV :: cond(
-  (platform == Platform.Darwin) => i32(8),
+  ((platform == Platform.Darwin) || (platform == Platform.Win32)) => i32(8),
   true => i32(2)
 );
 NI_NOFQDN :: cond(
-  (platform == Platform.Darwin) => i32(1),
+  ((platform == Platform.Darwin) || (platform == Platform.Win32)) => i32(1),
   true => i32(4)
 );
 NI_NAMEREQD :: cond(
-  (platform == Platform.Darwin) => i32(4),
+  ((platform == Platform.Darwin) || (platform == Platform.Win32)) => i32(4),
   true => i32(8)
 );
 NI_DGRAM :: i32(16);
