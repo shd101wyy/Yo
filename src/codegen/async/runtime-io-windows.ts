@@ -832,7 +832,7 @@ static yo_io_future_t* __yo_async_fchmodat_start(int32_t dirfd, const char* path
 
 static yo_io_future_t* __yo_async_fchown_start(int32_t fd, uint32_t uid, uint32_t gid) {
   __yo_io_init();
-  (void)fd; (void)uid; (void)gid;
+  (void)fd;
 
   yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
   memset(future, 0, sizeof(yo_io_future_t));
@@ -840,14 +840,21 @@ static yo_io_future_t* __yo_async_fchown_start(int32_t fd, uint32_t uid, uint32_
   atomic_init(&future->continuation_fn, NULL);
   atomic_init(&future->continuation_sm, NULL);
 
-  future->result = -ENOSYS;
+  // Windows has no concept of Unix UID/GID ownership.
+  // uid/gid of (uint32_t)-1 means "no change" - succeed as no-op.
+  // Any other values: return -ENOSYS since we can't implement real chown.
+  if (uid == (uint32_t)0xFFFFFFFF && gid == (uint32_t)0xFFFFFFFF) {
+    future->result = 0;
+  } else {
+    future->result = -ENOSYS;
+  }
   atomic_init(&future->state, -1);
   return future;
 }
 
 static yo_io_future_t* __yo_async_fchownat_start(int32_t dirfd, const char* path, uint32_t uid, uint32_t gid, int32_t flags) {
   __yo_io_init();
-  (void)dirfd; (void)path; (void)uid; (void)gid; (void)flags;
+  (void)dirfd; (void)path; (void)flags;
 
   yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
   memset(future, 0, sizeof(yo_io_future_t));
@@ -855,7 +862,11 @@ static yo_io_future_t* __yo_async_fchownat_start(int32_t dirfd, const char* path
   atomic_init(&future->continuation_fn, NULL);
   atomic_init(&future->continuation_sm, NULL);
 
-  future->result = -ENOSYS;
+  if (uid == (uint32_t)0xFFFFFFFF && gid == (uint32_t)0xFFFFFFFF) {
+    future->result = 0;
+  } else {
+    future->result = -ENOSYS;
+  }
   atomic_init(&future->state, -1);
   return future;
 }
@@ -1616,7 +1627,12 @@ static yo_io_future_t* __yo_async_access_start(int32_t dirfd, const char* path, 
     return future;
   }
 
-  int result = _waccess(wpath, mode);
+  // Windows _waccess only supports F_OK(0), R_OK(4), W_OK(2).
+  // X_OK(1) is not supported - treat it as F_OK since Windows has no executable bit.
+  int win_mode = mode & ~1;  // Strip X_OK bit
+  if (win_mode == 0 && mode != 0) win_mode = 0;  // X_OK alone -> F_OK
+
+  int result = _waccess(wpath, win_mode);
   __yo_free(wpath);
   future->result = (result < 0) ? -errno : 0;
   atomic_init(&future->state, -1);
