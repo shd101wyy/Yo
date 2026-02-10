@@ -123,6 +123,28 @@ INADDR_ANY       :: u32(0x00000000);
 INADDR_LOOPBACK  :: u32(0x7F000001);
 INADDR_BROADCAST :: u32(0xFFFFFFFF);
 
+// ============================================================================
+// getnameinfo() flags (NI_*)
+// ============================================================================
+
+NI_NUMERICHOST :: cond(
+  (platform == Platform.Darwin) => i32(2),
+  true => i32(1)
+);
+NI_NUMERICSERV :: cond(
+  (platform == Platform.Darwin) => i32(8),
+  true => i32(2)
+);
+NI_NOFQDN :: cond(
+  (platform == Platform.Darwin) => i32(1),
+  true => i32(4)
+);
+NI_NAMEREQD :: cond(
+  (platform == Platform.Darwin) => i32(4),
+  true => i32(8)
+);
+NI_DGRAM :: i32(16);
+
 export
   AF_UNSPEC, AF_UNIX, AF_LOCAL, AF_INET, AF_INET6,
   SOCK_STREAM, SOCK_DGRAM, SOCK_RAW, SOCK_SEQPACKET,
@@ -132,5 +154,6 @@ export
   SO_LINGER,
   TCP_NODELAY, TCP_KEEPIDLE, TCP_KEEPINTVL, TCP_KEEPCNT,
   SHUT_RD, SHUT_WR, SHUT_RDWR,
-  INADDR_ANY, INADDR_LOOPBACK, INADDR_BROADCAST
+  INADDR_ANY, INADDR_LOOPBACK, INADDR_BROADCAST,
+  NI_NUMERICHOST, NI_NUMERICSERV, NI_NOFQDN, NI_NAMEREQD, NI_DGRAM
 ;

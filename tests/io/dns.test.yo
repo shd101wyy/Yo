@@ -7,7 +7,8 @@ dns :: import "std/io/dns";
 tcp :: import "std/io/tcp";
 {
   AF_INET, AF_INET6,
-  SOCK_STREAM, SOCK_DGRAM
+  SOCK_STREAM, SOCK_DGRAM,
+  NI_NUMERICHOST
 } :: import "std/io/socket";
 
 test "DNS resolve localhost", {
@@ -95,8 +96,8 @@ test "DNS getnameinfo reverse lookup", {
     host_buf := *(u8)(malloc(usize(256)).unwrap());
     serv_buf := *(u8)(malloc(usize(64)).unwrap());
 
-    // NI_NUMERICHOST = 1 on Linux
-    ret := await dns.getnameinfo(sa.buf, sa.len, host_buf, usize(256), serv_buf, usize(64), i32(1));
+    // NI_NUMERICHOST: return numeric address string
+    ret := await dns.getnameinfo(sa.buf, sa.len, host_buf, usize(256), serv_buf, usize(64), NI_NUMERICHOST);
     assert(ret == i32(0));
 
     // host_buf should contain "127.0.0.1" (first char '1' = 0x31 = 49)
