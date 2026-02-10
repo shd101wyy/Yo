@@ -435,7 +435,7 @@ static yo_io_future_t* __yo_async_unlinkat_start(int32_t dirfd, const char* path
   
   int result;
   if (dirfd == -100) {
-    if (flags & 0x200) {  // AT_REMOVEDIR
+    if (flags & 0x80) {  // AT_REMOVEDIR (macOS value)
       result = rmdir(path);
     } else {
       result = unlink(path);
