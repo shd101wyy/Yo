@@ -319,8 +319,11 @@ export function generateOtherFunctionCall(
           } else {
             // If this is a closure-captured variable, use the generated code (inline access)
             // If this is a state machine variable, use the generated code (sm->var_xxx access)
+            // If this is a compile-time-only constant, use the generated code (inlined literal)
             // Otherwise use the sanitized variable name (potentially duped)
-            return isClosureCapturedVariable || isStateMachineCapturedVariable
+            return isClosureCapturedVariable ||
+              isStateMachineCapturedVariable ||
+              isComptimeOnlyArg
               ? argCode
               : sanitizeForCIdentifier(
                   finalArgVarName,

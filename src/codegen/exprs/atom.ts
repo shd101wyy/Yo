@@ -150,8 +150,19 @@ export function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
     }
 
     // Variable not in stateMachineVariables - it's a local C variable in the resume function
-    // Just use the variable name (don't regenerate its value)
+    // But first check if it's a compile-time only constant - if so, inline its value
+    // (compile-time constants like STATX_BASIC_STATS are not captured in the state machine,
+    // but their names may not exist as C identifiers on all platforms)
     if (expr.$?.variableName) {
+      if (expr.$?.env && expr.$?.value && !isUnknownValue(expr.$.value)) {
+        const variables = getVariablesFromEnv(expr.$.env, expr.$.variableName);
+        if (
+          variables.length > 0 &&
+          variables[variables.length - 1]!.isCompileTimeOnly
+        ) {
+          return generateComptimeValue(expr.$.value, context, expr);
+        }
+      }
       return getVariableNameForCodegen(expr.$.variableName, expr.$.env);
     }
   }
