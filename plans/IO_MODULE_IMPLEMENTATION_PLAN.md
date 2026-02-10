@@ -39,37 +39,37 @@ The runtime has been refactored into 4 modules:
 - `runtime-io-windows.ts` — Windows IOCP async I/O
 - `runtime-io-common.ts` — Cross-platform stat helpers, timer, file extras, DNS, signals, TTY, FS events, poll
 
-| Category                   | Linux (io_uring)      | macOS (dispatch_io) | Windows (IOCP)                           |
-| -------------------------- | --------------------- | ------------------- | ---------------------------------------- |
-| **Event loop integration** | ✅                    | ✅                  | ✅ (IOCP)                                |
-| **File read/write**        | ✅                    | ✅                  | ✅ (IOCP)                                |
-| **File open/close**        | ✅                    | ✅                  | ✅ (sync wrappers)                       |
-| **Stat**                   | ✅ (statx)            | ✅ (struct stat)    | ✅ (\_stat64)                            |
-| **mkdir/unlink/rename**    | ✅                    | ✅ (sync wrappers)  | ✅ (sync wrappers)                       |
-| **symlink/link**           | ✅                    | ✅ (sync wrappers)  | ✅ (CreateSymbolicLinkW/CreateHardLinkW) |
-| **fsync/fdatasync**        | ✅                    | ✅ (sync wrappers)  | ✅ (\_commit)                            |
-| **ftruncate**              | ✅                    | ✅ (sync wrapper)   | ✅ (\_chsize_s)                          |
-| **chmod/chown**            | ✅                    | ✅                  | ⚠️ (chmod only)                          |
-| **readlink**               | ✅                    | ✅                  | ✅ (GetFinalPathNameByHandleW)           |
-| **dup/dup2/pipe**          | ✅                    | ✅                  | ✅                                       |
-| **Socket ops**             | ✅                    | ✅                  | ✅ (Winsock sync)                        |
-| **Timer (sleep)**          | ✅ (timerfd+io_uring) | ✅ (dispatch_after) | ✅ (IOCP wait timeout)                   |
-| **getdents/readdir**       | ✅ (getdents64)       | ✅ (getdirentries)  | ✅ (getdents only)                       |
-| **access/realpath**        | ✅ (sync)             | ✅ (sync)           | ✅ (sync)                                |
-| **utime**                  | ✅ (sync)             | ✅ (sync)           | ✅ (sync)                                |
-| **mkdtemp/mkstemp**        | ✅ (sync)             | ✅ (sync)           | ✅ (sync)                                |
-| **copyfile/sendfile**      | ✅ (sync)             | ✅ (sync)           | ⚠️ (copyfile only)                       |
-| **statfs**                 | ✅ (sync)             | ✅ (sync)           | ✅ (GetDiskFreeSpaceEx)                  |
-| **DNS**                    | ✅ (sync)             | ✅ (sync)           | ✅ (sync)                                |
-| **Signals**                | ✅ (sync)             | ✅ (sync)           | ❌                                       |
-| **TTY**                    | ✅ (sync)             | ✅ (sync)           | ⚠️ (isatty only)                         |
-| **Unix sockets**           | ✅ (sockaddr_un)      | ✅ (sockaddr_un)    | ⚠️ (AF_UNIX Win10 1803+)                 |
-| **Process spawn**          | ❌                    | ❌                  | ❌                                       |
-| **fcntl**                  | ❌                    | ❌                  | ❌ (different model)                     |
-| **mmap**                   | ❌                    | ❌                  | ❌ (CreateFileMapping)                   |
-| **flock**                  | ❌                    | ❌                  | ❌ (LockFileEx)                          |
-| **FS Events**              | ❌                    | ❌                  | ❌                                       |
-| **Poll**                   | ❌                    | ❌                  | ❌                                       |
+| Category                   | Linux (io_uring)      | macOS (dispatch_io)  | Windows (IOCP)                           |
+| -------------------------- | --------------------- | -------------------- | ---------------------------------------- |
+| **Event loop integration** | ✅                    | ✅                   | ✅ (IOCP)                                |
+| **File read/write**        | ✅                    | ✅                   | ✅ (IOCP)                                |
+| **File open/close**        | ✅                    | ✅                   | ✅ (sync wrappers)                       |
+| **Stat**                   | ✅ (statx)            | ✅ (struct stat)     | ✅ (\_stat64)                            |
+| **mkdir/unlink/rename**    | ✅                    | ✅ (sync wrappers)   | ✅ (sync wrappers)                       |
+| **symlink/link**           | ✅                    | ✅ (sync wrappers)   | ✅ (CreateSymbolicLinkW/CreateHardLinkW) |
+| **fsync/fdatasync**        | ✅                    | ✅ (sync wrappers)   | ✅ (\_commit)                            |
+| **ftruncate**              | ✅                    | ✅ (sync wrapper)    | ✅ (\_chsize_s)                          |
+| **chmod/chown**            | ✅                    | ✅                   | ⚠️ (chmod only)                          |
+| **readlink**               | ✅                    | ✅                   | ✅ (GetFinalPathNameByHandleW)           |
+| **dup/dup2/pipe**          | ✅                    | ✅                   | ✅                                       |
+| **Socket ops**             | ✅                    | ✅ (dispatch_source) | ✅ (Winsock sync)                        |
+| **Timer (sleep)**          | ✅ (timerfd+io_uring) | ✅ (dispatch_after)  | ✅ (IOCP wait timeout)                   |
+| **getdents/readdir**       | ✅ (getdents64)       | ✅ (getdirentries)   | ✅ (getdents only)                       |
+| **access/realpath**        | ✅ (sync)             | ✅ (sync)            | ✅ (sync)                                |
+| **utime**                  | ✅ (sync)             | ✅ (sync)            | ✅ (sync)                                |
+| **mkdtemp/mkstemp**        | ✅ (sync)             | ✅ (sync)            | ✅ (sync)                                |
+| **copyfile/sendfile**      | ✅ (sync)             | ✅ (sync)            | ⚠️ (copyfile only)                       |
+| **statfs**                 | ✅ (sync)             | ✅ (sync)            | ✅ (GetDiskFreeSpaceEx)                  |
+| **DNS**                    | ✅ (sync)             | ✅ (sync)            | ✅ (sync)                                |
+| **Signals**                | ✅ (sync)             | ✅ (sync)            | ❌                                       |
+| **TTY**                    | ✅ (sync)             | ✅ (sync)            | ⚠️ (isatty only)                         |
+| **Unix sockets**           | ✅ (sockaddr_un)      | ✅ (sockaddr_un)     | ⚠️ (AF_UNIX Win10 1803+)                 |
+| **Process spawn**          | ❌                    | ❌                   | ❌                                       |
+| **fcntl**                  | ❌                    | ❌                   | ❌ (different model)                     |
+| **mmap**                   | ❌                    | ❌                   | ❌ (CreateFileMapping)                   |
+| **flock**                  | ❌                    | ❌                   | ❌ (LockFileEx)                          |
+| **FS Events**              | ❌                    | ❌                   | ❌                                       |
+| **Poll**                   | ❌                    | ❌                   | ❌                                       |
 
 ### Known Issues Fixed
 
@@ -89,6 +89,9 @@ The runtime has been refactored into 4 modules:
 - ✅ **Comptime constant C macro name collision**: When compile-time-only constants (e.g., `AF_INET :: i32(2)`) were passed directly as function call arguments, the C codegen created local variables with the original names (`int32_t AF_INET = 2;`), which conflicted with C preprocessor macros from system headers. Fixed in `src/codegen/exprs/other-fn-call.ts` by detecting `isCompileTimeOnly` variables and skipping temp variable creation — the inlined literal is used directly as the call argument.
 - ✅ **Pointer-to-nullable-pointer codegen bug**: `*(?*(T))` (pointer to nullable-pointer-optimized enum) generated `uint8_t*` in C instead of `uint8_t**`. The nullable pointer optimization makes `?*(T)` a bare pointer in C, so a pointer TO that needs an extra `*`. Fixed in `src/codegen/utils/index.ts` `getTypeString()` PtrType case to return `${baseTypeStr}*` instead of `baseTypeStr` for nullable-pointer-optimized enum children.
 - ✅ **Async state machine dangling reassignment temps**: In async state machine codegen, reassignment expressions (e.g., `count = (count + 1)`) inside begin blocks emitted undeclared temp variable references as bare statements. The `skipTempVar` path in `generateAssignment` skipped declaring the temp (correct for state machines where variables are in `sm->var_xxx`) but still returned the temp name. Fixed in `src/codegen/exprs/assignment.ts` to return `""` when `skippedTempVar` is true.
+- ✅ **macOS socket ops were synchronous (blocking event loop)**: `accept`, `connect`, `send`, `recv`, `sendto`, `recvfrom` on macOS used blocking POSIX calls wrapped in immediately-completed futures. Fixed by setting `O_NONBLOCK` on socket creation and using GCD `dispatch_source` for true async: `DISPATCH_SOURCE_TYPE_READ` for accept/recv/recvfrom, `DISPATCH_SOURCE_TYPE_WRITE` for connect/send/sendto. Each operation first attempts a non-blocking call, and only creates a dispatch_source if `EAGAIN`/`EWOULDBLOCK`/`EINPROGRESS` occurs. Connect uses `SO_ERROR` check after writable event. Accepted sockets also get `O_NONBLOCK` set automatically.
+- ✅ **macOS getnameinfo NI_NUMERICHOST wrong value**: The `dns.test.yo` test hardcoded `i32(1)` for `NI_NUMERICHOST` (Linux value). On macOS, `NI_NUMERICHOST = 2` (and `1` is `NI_NOFQDN`). Added platform-aware `NI_*` constants (`NI_NUMERICHOST`, `NI_NUMERICSERV`, `NI_NOFQDN`, `NI_NAMEREQD`, `NI_DGRAM`) to `std/io/socket.yo` and updated the test.
+- ✅ **Compile-time constants not inlined in async state machines**: Compile-time-only constants (e.g., `STATX_BASIC_STATS`, `AT_FDCWD`) were emitted as raw C identifiers inside async state machine resume functions instead of being inlined to their literal values. Two bugs: (1) In `src/codegen/exprs/atom.ts`, the state machine variable lookup fallback returned the raw variable name without checking `isCompileTimeOnly`. (2) In `src/codegen/exprs/other-fn-call.ts`, inlined literal values (e.g., `"-2"` for `AT_FDCWD`) were passed through `sanitizeForCIdentifier()`, mangling them (e.g., `-2` → `_u45_2`). Fixed by adding comptime-only check before the state machine fallback, and bypassing sanitization for comptime-only args.
 
 ---
 
@@ -202,13 +205,24 @@ Wraps the extern socket functions into async TCP operations. Provides both raw s
 
 - C macro name conflict: `AF_INET` and `AF_INET6` are C macros from `<sys/socket.h>`. When compile-time constants with those names (e.g., `AF_INET :: i32(2)`) were passed directly as function call arguments, the C codegen created local variables with the original names (e.g., `int32_t AF_INET = 2;`), causing preprocessor conflicts. Fixed in `src/codegen/exprs/other-fn-call.ts` by detecting `isCompileTimeOnly` variables and skipping temp variable creation — the inlined literal value (e.g., `2`) is used directly as the call argument instead.
 
-**Tests (6 tests, all passing on Linux):**
+**Tests (6 tests, all passing on Linux and macOS):**
 
 1. `TCP socket creation and close` — Basic socket lifecycle
 2. `Set SO_REUSEADDR socket option` — setsockopt test
 3. `Bind to loopback and listen` — Server setup test
 4. `TCP echo server-client` — Full connection: bind, listen, connect, accept, send, recv, shutdown, close
 5. `SockAddr helper functions` — sockaddr creation and accessors
+
+**macOS async implementation:**
+
+All blocking socket operations use GCD `dispatch_source` for true async on macOS:
+
+- `socket()` sets `O_NONBLOCK` via `fcntl` after creation
+- `accept()` uses `DISPATCH_SOURCE_TYPE_READ` on the listening socket
+- `connect()` uses `DISPATCH_SOURCE_TYPE_WRITE` with `SO_ERROR` check after `EINPROGRESS`
+- `send()` uses `DISPATCH_SOURCE_TYPE_WRITE` on `EAGAIN`/`EWOULDBLOCK`
+- `recv()` uses `DISPATCH_SOURCE_TYPE_READ` on `EAGAIN`/`EWOULDBLOCK`
+- Instant operations (`socket`, `bind`, `listen`, `shutdown`, `setsockopt`, `getsockopt`, `close`) use sync wrappers (correct — these are fast kernel calls)
 
 ### 2.2 Create `std/io/udp.yo` — UDP Socket Operations ✅
 
@@ -232,7 +246,7 @@ Wraps the extern socket functions into async UDP operations. Reuses `SockAddr` a
 - Address helpers (`make_sockaddr_in_loopback`, `free_sockaddr`, `get_family`, etc.) are reused from `tcp.yo`
 - Must bind UDP sockets before first `sendto` if you need to receive replies on a known port (kernel auto-bind on unbound `sendto` prevents later explicit bind)
 
-**Tests (6 tests, all passing on Linux):**
+**Tests (6 tests, all passing on Linux and macOS):**
 
 1. `UDP socket creation and close` — Basic socket lifecycle
 2. `UDP socket bind to loopback` — Bind to specific port
@@ -240,6 +254,12 @@ Wraps the extern socket functions into async UDP operations. Reuses `SockAddr` a
 4. `UDP sendto and recvfrom` — Send datagram, receive with byte verification and source address check
 5. `UDP bidirectional ping-pong` — Server and client exchange datagrams using `recvfrom` sender address for reply
 6. `UDP sockaddr helpers from tcp module` — Verify tcp address helpers work for UDP
+
+**macOS async implementation:**
+
+- `sendto()` uses `DISPATCH_SOURCE_TYPE_WRITE` on `EAGAIN`/`EWOULDBLOCK`
+- `recvfrom()` uses `DISPATCH_SOURCE_TYPE_READ` on `EAGAIN`/`EWOULDBLOCK`
+- UDP sockets are also set to `O_NONBLOCK` at creation time
 
 ---
 
@@ -266,7 +286,7 @@ Wraps `getaddrinfo`/`getnameinfo` externs into async DNS operations, plus access
 - Error codes returned as-is from `getaddrinfo()` (already negative on glibc, positive on macOS)
 - Addrinfo results form a linked list navigated via `addrinfo_next(ai) -> ?*(u8)` with `match`
 
-**Tests (6 tests, all passing on Linux):**
+**Tests (6 tests, all passing on Linux and macOS):**
 
 1. `DNS resolve localhost` — Resolve "localhost", walk linked list, verify family and addrlen
 2. `DNS resolve numeric IP 127.0.0.1` — Verify AF_INET, addrlen=16, sockaddr family matches
@@ -274,6 +294,8 @@ Wraps `getaddrinfo`/`getnameinfo` externs into async DNS operations, plus access
 4. `DNS getnameinfo reverse lookup` — Reverse lookup 127.0.0.1, verify "127.0.0.1" returned
 5. `DNS failed resolution for nonexistent host` — Verify non-zero error for invalid hostname
 6. `DNS alloc_hints and addrinfo_size` — Verify struct size > 0, alloc/free hints
+
+**macOS fix:** Added platform-aware `NI_*` constants to `std/io/socket.yo` — `NI_NUMERICHOST` differs between Linux (1) and macOS (2). Test updated to use the constant instead of hardcoded value.
 
 ---
 
@@ -298,7 +320,7 @@ Wraps `fchmod`/`fchmodat`/`fchown`/`fchownat`/`access` externs into async permis
 - `fchown` with uid/gid = `4294967295` (u32 max, i.e. `-1`) means "no change" (POSIX semantics)
 - Root can bypass permission checks, so write-after-chmod-readonly tests check for `-EACCES` only as non-root
 
-**Tests (6 tests, all passing on Linux):**
+**Tests (6 tests, all passing on Linux and macOS):**
 
 1. `access F_OK R_OK W_OK on existing file` — Create file, verify exists/readable/writable
 2. `access on nonexistent file returns -ENOENT` — Verify -2 for missing file
@@ -306,6 +328,8 @@ Wraps `fchmod`/`fchmodat`/`fchown`/`fchownat`/`access` externs into async permis
 4. `fchmod by fd sets executable bit` — fchmod to 0755, verify X_OK, restore
 5. `chmodat on nonexistent file returns -ENOENT` — Error on missing file
 6. `fchown with -1 -1 succeeds (no change)` — No-op ownership change succeeds
+
+**macOS async assessment:** All permission operations (`fchmod`, `fchmodat`, `fchown`, `fchownat`, `access`) are inherently fast kernel metadata operations (inode permission/ownership changes). Sync wrappers are correct — making them async via GCD would add overhead with no benefit.
 
 ### 4.2 Create `std/io/time.yo` — File Timestamps ✅
 
@@ -331,7 +355,7 @@ Wraps `utime`/`futime`/`lutime` externs into async timestamp operations. Tests i
 - Tests use `MaybeUninit(Array(u8, usize(256)))` for stack-allocated statx buffers instead of manual `malloc`/`free`
 - Tests use `ArrayList(u8)` return from `make_test_file` to avoid dangling pointer from dropped cstr
 
-**Tests (6 tests, all passing on Linux):**
+**Tests (6 tests, all passing on Linux and macOS):**
 
 1. `utime sets specific timestamps` — Set atime/mtime, verify via statx
 2. `futime sets timestamps by fd with nanosecond precision` — Set via fd, verify sec+nsec fields
@@ -339,6 +363,10 @@ Wraps `utime`/`futime`/`lutime` externs into async timestamp operations. Tests i
 4. `lutime changes symlink timestamps without affecting target` — Verify target timestamps unchanged
 5. `utime with nanosecond precision` — Verify nanosecond-level accuracy
 6. `futime preserves file content` — Verify file data unchanged after timestamp update
+
+**macOS async assessment:** All timestamp operations (`utimensat`, `futimens`) are inherently fast kernel metadata operations (inode timestamp updates). Sync wrappers are correct — no benefit from GCD async.
+
+**macOS compilation fix:** Tests failed on macOS because compile-time constants (`STATX_BASIC_STATS`, `AT_FDCWD`) were not inlined in async state machine contexts. Fixed in `atom.ts` and `other-fn-call.ts` (see Known Issues Fixed).
 
 ---
 
