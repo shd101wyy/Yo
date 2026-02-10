@@ -85,7 +85,7 @@ export function _generateExpr(
       result = generateFuncCall(expr, indent, context);
       break;
     case ExprTag.Atom:
-      result = generateAtom(expr, context);
+      result = generateAtom(expr, context, indent);
       break;
   }
 

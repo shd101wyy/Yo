@@ -1,20 +1,28 @@
 import { getVariablesFromEnv } from "../../env";
+import { extractFutureTraitFromType } from "../../evaluator/trait-checking";
 import type { AtomExpr } from "../../expr";
 import { isFunctionType, isUnitType } from "../../types/guards";
 import { isFunctionValue, isUnknownValue } from "../../value";
 import type { FunctionGenerationContext } from "../functions/context";
 import {
   type CodeGenContext,
+  getTypeString,
   getVariableNameForCodegen,
   sanitizeForCIdentifier,
 } from "../utils";
+import { emitAsyncFutureCompletion } from "./async-completion";
 import { checkVariableIsClosureCaptured } from "./closures";
 import { generateComptimeValue } from "./comptime-value";
+import { generateExpr } from "./expr";
 
 /**
  * Generate C code for an atom expression - extracted from original codegen-c.ts
  */
-export function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
+export function generateAtom(
+  expr: AtomExpr,
+  context: CodeGenContext,
+  indent: string = ""
+): string {
   const functionContext = context as FunctionGenerationContext;
 
   // Handle control flow atoms first (before checking unit type or other values)
@@ -46,6 +54,53 @@ export function generateAtom(expr: AtomExpr, context: CodeGenContext): string {
   }
 
   if (expr.token.value === "return") {
+    if (functionContext.inStateMachine) {
+      const emitter = context.emitter;
+      const futureType = functionContext.inStateMachine.futureType;
+      const futureModuleType = extractFutureTraitFromType(futureType)!;
+      const childType = futureModuleType.isFuture.outputType;
+      const isUnitResult = isUnitType(childType);
+
+      // Generate deferred drops, but only those that resolve to state machine fields
+      if (expr.$?.deferredDropExpressions) {
+        for (const dropExpr of expr.$.deferredDropExpressions) {
+          const dropCode = generateExpr(dropExpr, indent, context);
+          if (dropCode && dropCode.includes("sm->")) {
+            emitter.emitLine(`${indent}${dropCode};`);
+          }
+        }
+      }
+
+      // Generate pending deferred drops from enclosing scopes (only state machine fields)
+      if (
+        functionContext.pendingDeferredDrops &&
+        functionContext.pendingDeferredDrops.length > 0
+      ) {
+        emitter.emitLine(
+          `${indent}// Drop local variables before early completion`
+        );
+        for (const dropExpr of functionContext.pendingDeferredDrops) {
+          const dropCode = generateExpr(dropExpr, indent, context);
+          if (dropCode && dropCode.includes("sm->")) {
+            emitter.emitLine(`${indent}${dropCode};`);
+          }
+        }
+      }
+
+      emitter.emitLine(`${indent}// Early return - complete the result Future`);
+
+      const resultCode = !isUnitResult
+        ? `(${getTypeString(childType, context)}){0}`
+        : undefined;
+
+      emitAsyncFutureCompletion({
+        emitter,
+        indent,
+        resultCode,
+        debugLabel: context.currentFunctionName,
+      });
+      return ``;
+    }
     return "return";
   }
 

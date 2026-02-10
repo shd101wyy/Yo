@@ -1,7 +1,7 @@
 open import "std/libc/stdio";
-{ GlobalAllocator } :: import "std/allocator";
-{ malloc, free } :: GlobalAllocator;
 open import "std/string";
+open import "std/collections/array_list";
+{ platform, Platform, env } :: import "std/process";
 file :: import "std/io/file";
 dir :: import "std/io/dir";
 time :: import "std/io/time";
@@ -10,51 +10,60 @@ time :: import "std/io/time";
   AT_FDCWD, O_WRONLY, O_CREAT, O_TRUNC, O_RDONLY,
   STATX_BASIC_STATS
 } :: import "std/io/constants";
+{ temp_dir, path_join } :: import "../../tests/io/helper";
+make_test_file :: (fn(name: String) -> ArrayList(u8)) {
+  tmp := temp_dir();
+  p := path_join(tmp, name);
+  p.to_cstr()
+};
+
+create_file :: (fn(test_path: *(u8), content: *(u8), content_len: u32) -> Impl(Future(unit)))(async {
+  write_flags := ((O_WRONLY | O_CREAT) | O_TRUNC);
+  fd := await file.openat(AT_FDCWD, test_path, write_flags, i32(0o644));
+  assert(fd >= i32(0));
+  wr := await file.write(fd, content, content_len, u64(0));
+  assert(wr == i32(content_len));
+  cr := await file.close(fd);
+  assert(cr == i32(0));
+});
 
 main :: (fn() -> unit) {
   async {
-    printf("=== futime nsec test ===\n");
-    test_path := *(u8)("yo_futime_debug.txt");
+    path_cstr := make_test_file(`yo_time_lutime_target.txt`);
+    test_path := path_cstr.ptr().unwrap();
+    await create_file(test_path, *(u8)("lutime test"), u32(11));
 
-    write_flags := ((O_WRONLY | O_CREAT) | O_TRUNC);
-    fd_w := await file.openat(AT_FDCWD, test_path, write_flags, i32(0o644));
-    printf("  openat write fd = %d\n", fd_w);
-    assert(fd_w >= i32(0));
-    data := *(u8)("futime test");
-    wr := await file.write(fd_w, data, u32(11), u64(0));
-    assert(wr == i32(11));
-    cr_w := await file.close(fd_w);
-    assert(cr_w == i32(0));
+    ret_t := await time.utime(test_path, i64(3000000), i64(0), i64(4000000), i64(0));
+    assert(ret_t == i32(0));
 
-    fd := await file.openat(AT_FDCWD, test_path, O_RDONLY, i32(0));
-    printf("  openat read fd = %d\n", fd);
-    assert(fd >= i32(0));
+    link_cstr := make_test_file(`yo_time_lutime_link.txt`);
+    link_path := link_cstr.ptr().unwrap();
+    lr := await dir.symlink(test_path, AT_FDCWD, link_path);
+    cond(
+      // Could be on Windows where symlink requires admin priviledge.
+      (lr != i32(0)) => {
+        cleanup := await dir.unlink(AT_FDCWD, test_path, i32(0));
+        assert(cleanup == i32(0));
+        return;
+      },
+      true => ()
+    );
 
-    ret := await time.futime(fd, i64(3000000), i64(500000000), i64(4000000), i64(750000000));
-    printf("  futime ret = %d\n", ret);
+    ret := await time.lutime(link_path, i64(5000000), i64(0), i64(6000000), i64(0));
     assert(ret == i32(0));
 
     statx_uninit := MaybeUninit(Array(u8, usize(256))).new();
     stat_buf := *(u8)(statx_uninit.as_ptr());
     sr := await file.statx(AT_FDCWD, test_path, i32(0), STATX_BASIC_STATS, stat_buf);
-    printf("  statx ret = %d\n", sr);
     assert(sr == i32(0));
     st := Statx(stat_buf, usize(256));
-    printf("  atime_sec  = %lld\n", st.atime_sec());
-    printf("  atime_nsec = %u\n", st.atime_nsec());
-    printf("  mtime_sec  = %lld\n", st.mtime_sec());
-    printf("  mtime_nsec = %u\n", st.mtime_nsec());
-
     assert(st.atime_sec() == i64(3000000));
-    assert(st.atime_nsec() == u32(500000000));
     assert(st.mtime_sec() == i64(4000000));
-    assert(st.mtime_nsec() == u32(750000000));
 
-    cr := await file.close(fd);
-    assert(cr == i32(0));
+    cleanup_link := await dir.unlink(AT_FDCWD, link_path, i32(0));
+    assert(cleanup_link == i32(0));
     cleanup := await dir.unlink(AT_FDCWD, test_path, i32(0));
     assert(cleanup == i32(0));
-    printf("  PASSED\n");
   };
 };
 export main;
