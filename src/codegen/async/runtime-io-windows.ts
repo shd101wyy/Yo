@@ -103,13 +103,50 @@ static bool __yo_is_at_fdcwd(int32_t dirfd) {
 
 static int __yo_win_last_error_to_errno(void) {
   DWORD err = GetLastError();
-  errno = (int)err;
-  return (int)err;
+  switch (err) {
+    case ERROR_FILE_NOT_FOUND:
+    case ERROR_PATH_NOT_FOUND:
+    case ERROR_INVALID_NAME:
+      return ENOENT;
+    case ERROR_ACCESS_DENIED:
+    case ERROR_SHARING_VIOLATION:
+    case ERROR_LOCK_VIOLATION:
+      return EACCES;
+    case ERROR_FILE_EXISTS:
+    case ERROR_ALREADY_EXISTS:
+      return EEXIST;
+    case ERROR_NOT_ENOUGH_MEMORY:
+    case ERROR_OUTOFMEMORY:
+      return ENOMEM;
+    case ERROR_INVALID_HANDLE:
+      return EBADF;
+    case ERROR_INVALID_PARAMETER:
+    case ERROR_INVALID_FLAGS:
+      return EINVAL;
+    case ERROR_BROKEN_PIPE:
+    case ERROR_NO_DATA:
+      return EPIPE;
+    case ERROR_DISK_FULL:
+      return ENOSPC;
+    case ERROR_DIR_NOT_EMPTY:
+      return ENOTEMPTY;
+    case ERROR_NOT_SUPPORTED:
+    case ERROR_CALL_NOT_IMPLEMENTED:
+      return ENOSYS;
+    case ERROR_DIRECTORY:
+      return ENOTDIR;
+    case ERROR_TOO_MANY_OPEN_FILES:
+      return EMFILE;
+    case ERROR_PRIVILEGE_NOT_HELD:
+      return EPERM;
+    default:
+      return (int)err;
+  }
 }
 
 static int __yo_win_error_to_errno(DWORD err) {
-  errno = (int)err;
-  return (int)err;
+  SetLastError(err);
+  return __yo_win_last_error_to_errno();
 }
 
 static wchar_t* __yo_win_utf8_to_wide(const char* str) {
@@ -534,6 +571,21 @@ static yo_io_future_t* __yo_async_close_start(int32_t fd) {
   return future;
 }
 
+typedef struct {
+  struct _stat64 stat;
+  uint32_t atime_nsec;
+  uint32_t mtime_nsec;
+  uint32_t ctime_nsec;
+  int64_t btime_sec;
+  uint32_t btime_nsec;
+} yo_win_stat_t;
+
+static void __yo_win_filetime_to_timespec(FILETIME ft, int64_t* sec, uint32_t* nsec) {
+  ULONGLONG t = ((ULONGLONG)ft.dwHighDateTime << 32) | ft.dwLowDateTime;
+  *sec = (int64_t)(t / 10000000ULL) - 11644473600LL;
+  *nsec = (uint32_t)((t % 10000000ULL) * 100ULL);
+}
+
 static yo_io_future_t* __yo_async_statx_start(int32_t dirfd, const char* path, int32_t flags, uint32_t mask, void* statxbuf) {
   __yo_io_init();
 
@@ -553,7 +605,19 @@ static yo_io_future_t* __yo_async_statx_start(int32_t dirfd, const char* path, i
     }
     (void)flags;
     (void)mask;
-    result = _wstat64(wpath, (struct _stat64*)statxbuf);
+    yo_win_stat_t* ws = (yo_win_stat_t*)statxbuf;
+    memset(ws, 0, sizeof(yo_win_stat_t));
+    result = _wstat64(wpath, &ws->stat);
+    if (result == 0) {
+      WIN32_FILE_ATTRIBUTE_DATA fad;
+      if (GetFileAttributesExW(wpath, GetFileExInfoStandard, &fad)) {
+        int64_t sec; uint32_t nsec;
+        __yo_win_filetime_to_timespec(fad.ftLastAccessTime, &sec, &ws->atime_nsec);
+        __yo_win_filetime_to_timespec(fad.ftLastWriteTime, &sec, &ws->mtime_nsec);
+        __yo_win_filetime_to_timespec(fad.ftCreationTime, &ws->btime_sec, &ws->btime_nsec);
+        ws->ctime_nsec = ws->mtime_nsec;
+      }
+    }
     __yo_free(wpath);
   } else {
     future->result = -EINVAL;
@@ -1439,65 +1503,63 @@ static int64_t __yo_file_size(int32_t fd) {
 // ============================================================================
 
 static size_t __yo_statx_buf_size(void) {
-  return sizeof(struct _stat64);
+  return sizeof(yo_win_stat_t);
 }
 
 static int64_t __yo_statx_size(void* statxbuf) {
-  return (int64_t)((struct _stat64*)statxbuf)->st_size;
+  return (int64_t)((yo_win_stat_t*)statxbuf)->stat.st_size;
 }
 
 static uint32_t __yo_statx_mode(void* statxbuf) {
-  return (uint32_t)((struct _stat64*)statxbuf)->st_mode;
+  return (uint32_t)((yo_win_stat_t*)statxbuf)->stat.st_mode;
 }
 
 static int64_t __yo_statx_mtime_sec(void* statxbuf) {
-  return (int64_t)((struct _stat64*)statxbuf)->st_mtime;
+  return (int64_t)((yo_win_stat_t*)statxbuf)->stat.st_mtime;
 }
 
 static uint32_t __yo_statx_mtime_nsec(void* statxbuf) {
-  return 0;
+  return ((yo_win_stat_t*)statxbuf)->mtime_nsec;
 }
 
 static int64_t __yo_statx_atime_sec(void* statxbuf) {
-  return (int64_t)((struct _stat64*)statxbuf)->st_atime;
+  return (int64_t)((yo_win_stat_t*)statxbuf)->stat.st_atime;
 }
 
 static uint32_t __yo_statx_atime_nsec(void* statxbuf) {
-  return 0;
+  return ((yo_win_stat_t*)statxbuf)->atime_nsec;
 }
 
 static int64_t __yo_statx_ctime_sec(void* statxbuf) {
-  return (int64_t)((struct _stat64*)statxbuf)->st_ctime;
+  return (int64_t)((yo_win_stat_t*)statxbuf)->stat.st_ctime;
 }
 
 static uint32_t __yo_statx_ctime_nsec(void* statxbuf) {
-  return 0;
+  return ((yo_win_stat_t*)statxbuf)->ctime_nsec;
 }
 
 static int64_t __yo_statx_btime_sec(void* statxbuf) {
-  (void)statxbuf;
-  return 0;
+  return ((yo_win_stat_t*)statxbuf)->btime_sec;
 }
 
 static uint32_t __yo_statx_btime_nsec(void* statxbuf) {
-  (void)statxbuf;
-  return 0;
+  return ((yo_win_stat_t*)statxbuf)->btime_nsec;
 }
 
 static uint32_t __yo_statx_uid(void* statxbuf) {
-  return (uint32_t)((struct _stat64*)statxbuf)->st_uid;
+  return (uint32_t)((yo_win_stat_t*)statxbuf)->stat.st_uid;
 }
 
 static uint32_t __yo_statx_gid(void* statxbuf) {
-  return (uint32_t)((struct _stat64*)statxbuf)->st_gid;
+  return (uint32_t)((yo_win_stat_t*)statxbuf)->stat.st_gid;
 }
 
 static uint64_t __yo_statx_ino(void* statxbuf) {
-  return (uint64_t)((struct _stat64*)statxbuf)->st_ino;
+  return (uint64_t)((yo_win_stat_t*)statxbuf)->stat.st_ino;
 }
 
 static uint64_t __yo_statx_dev_major(void* statxbuf) {
-  return (uint64_t)((struct _stat64*)statxbuf)->st_dev;
+  return (uint64_t)((yo_win_stat_t*)statxbuf)->stat.st_dev;
 }
 
 static uint64_t __yo_statx_dev_minor(void* statxbuf) {
@@ -1506,7 +1568,7 @@ static uint64_t __yo_statx_dev_minor(void* statxbuf) {
 }
 
 static uint64_t __yo_statx_nlink(void* statxbuf) {
-  return (uint64_t)((struct _stat64*)statxbuf)->st_nlink;
+  return (uint64_t)((yo_win_stat_t*)statxbuf)->stat.st_nlink;
 }
 
 static uint64_t __yo_statx_blksize(void* statxbuf) {
@@ -1722,9 +1784,28 @@ static yo_io_future_t* __yo_async_futime_start(int32_t fd, int64_t atime_sec, in
   atomic_init(&future->continuation_fn, NULL);
   atomic_init(&future->continuation_sm, NULL);
 
-  HANDLE handle = (HANDLE)_get_osfhandle(fd);
-  if (handle == INVALID_HANDLE_VALUE) {
+  HANDLE orig_handle = (HANDLE)_get_osfhandle(fd);
+  if (orig_handle == INVALID_HANDLE_VALUE) {
     future->result = -EBADF;
+    atomic_init(&future->state, -1);
+    return future;
+  }
+
+  // Get path from handle, then reopen with FILE_WRITE_ATTRIBUTES
+  // since the original fd may be read-only
+  wchar_t path_buf[MAX_PATH];
+  DWORD len = GetFinalPathNameByHandleW(orig_handle, path_buf, MAX_PATH, FILE_NAME_NORMALIZED);
+  if (len == 0 || len >= MAX_PATH) {
+    future->result = -__yo_win_last_error_to_errno();
+    atomic_init(&future->state, -1);
+    return future;
+  }
+
+  HANDLE handle = CreateFileW(path_buf, FILE_WRITE_ATTRIBUTES,
+                              FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                              NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL);
+  if (handle == INVALID_HANDLE_VALUE) {
+    future->result = -__yo_win_last_error_to_errno();
     atomic_init(&future->state, -1);
     return future;
   }
@@ -1732,6 +1813,7 @@ static yo_io_future_t* __yo_async_futime_start(int32_t fd, int64_t atime_sec, in
   FILETIME at = __yo_win_timespec_to_filetime(atime_sec, atime_nsec);
   FILETIME mt = __yo_win_timespec_to_filetime(mtime_sec, mtime_nsec);
   BOOL ok = SetFileTime(handle, NULL, &at, &mt);
+  CloseHandle(handle);
   future->result = ok ? 0 : -__yo_win_last_error_to_errno();
   atomic_init(&future->state, -1);
   return future;

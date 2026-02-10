@@ -96,6 +96,18 @@ The runtime has been refactored into 4 modules:
 - ✅ **Windows socket constants used Linux values**: `SOL_SOCKET`, `SO_REUSEADDR`, `SO_KEEPALIVE`, `SO_BROADCAST`, etc. in `std/io/socket.yo` only had Darwin-specific branches — the `true` default gave Linux values. Windows uses BSD-style values (same as macOS for most). Added `Platform.Win32` to all platform-aware socket constant conditions. Also added Windows-specific `AF_INET6 = 23` and `TCP_KEEP*` values.
 - ✅ **Windows double `htonl` in `__yo_sockaddr_in_set_addr`**: The Windows runtime called `htonl(ip)` inside `set_addr`, but Yo code already called `__yo_htonl()` before passing the value, causing double byte-swap (binding to `1.0.0.127` instead of `127.0.0.1`). Fixed to match Linux/macOS: direct assignment (`= ip`).
 - ✅ **Windows TCP send/recv now truly async**: `__yo_async_send_start` and `__yo_async_recv_start` now use `WSASend`/`WSARecv` with OVERLAPPED I/O through the IOCP event loop instead of blocking `send()`/`recv()` calls. Sockets are associated with IOCP at creation (`__yo_async_socket_start`) and accept (`__yo_async_accept_start`) time.
+- ✅ **Windows DNS `WSANOTINITIALISED` (10093)**: `__yo_async_getaddrinfo_start` and `__yo_async_getnameinfo_start` did not call `__yo_io_init()`, so `WSAStartup` was never called if DNS was the first Winsock operation. Fixed by adding `__yo_io_init()` at the start of both functions.
+- ✅ **Windows `_waccess` does not support `X_OK`**: Windows CRT `_waccess()` only supports F_OK(0), R_OK(4), W_OK(2). Passing X_OK(1) caused `EINVAL`. Since Windows has no executable permission bit, fixed by stripping X_OK from the mode before calling `_waccess`.
+- ✅ **Windows `fchown(-1,-1)` returned `-ENOSYS`**: The test expects `fchown(fd, -1, -1)` (no change) to succeed. Windows has no Unix UID/GID, so `fchown` was stubbed returning `-ENOSYS`. Fixed to return 0 when both uid and gid are `(uint32_t)-1` (no-change sentinel).
+- ✅ **Windows `futime` failed on read-only fd**: `__yo_async_futime_start` used `_get_osfhandle(fd)` directly, but `SetFileTime` requires `FILE_WRITE_ATTRIBUTES` access which a read-only fd doesn't have. Fixed by getting the file path via `GetFinalPathNameByHandleW` and reopening with `FILE_WRITE_ATTRIBUTES`.
+- ✅ **Windows statx nanosecond timestamps always 0**: `_wstat64` only provides second-precision timestamps. Introduced `yo_win_stat_t` struct extending `_stat64` with nsec fields, populated via `GetFileAttributesExW` which returns FILETIME (100ns precision). Also added birth time (`btime_sec`/`btime_nsec`) from creation time.
+- ✅ **Windows Win32 error codes not mapped to POSIX errno**: `__yo_win_last_error_to_errno` returned raw Win32 error codes (e.g., `ERROR_PATH_NOT_FOUND`=3) instead of POSIX errno (e.g., `ENOENT`=2). Added proper mapping for common Win32 errors: `ERROR_FILE_NOT_FOUND`/`ERROR_PATH_NOT_FOUND` → `ENOENT`, `ERROR_ACCESS_DENIED` → `EACCES`, `ERROR_FILE_EXISTS` → `EEXIST`, etc.
+
+### Known Windows Limitations
+
+- **Symlinks require elevated privileges**: `CreateSymbolicLinkW` requires admin privileges or Developer Mode on Windows. The `lutime` symlink test is expected to fail without elevation.
+- **NTFS nanosecond precision is 100ns**: FILETIME stores time in 100-nanosecond intervals. Nanosecond values not divisible by 100 are truncated (e.g., 123456789ns → 123456700ns). The `utime with nanosecond precision` test expects exact ns values that exceed NTFS precision.
+- **UDP sendto/recvfrom are synchronous**: Unlike TCP send/recv (which use WSASend/WSARecv via IOCP), UDP sendto/recvfrom use blocking Winsock calls. Acceptable for UDP datagrams which complete instantly, but noted as a potential future improvement.
 
 ---
 
