@@ -25,6 +25,7 @@ The `std/io` module provides Yo's low-level async I/O foundation. It sits betwee
 | **TCP**              | `std/io/tcp.yo`                            | ✅ Complete | Socket, bind, listen, accept, connect, send, recv, close   |
 | **UDP**              | `std/io/udp.yo`                            | ✅ Complete | Socket, bind, sendto, recvfrom, send, recv, close          |
 | **Unix**             | `std/io/unix.yo`                           | ✅ Complete | Unix domain sockets + tests                                |
+| **Process**          | `std/io/process.yo`                        | ✅ Complete | spawn, waitpid, kill + tests                               |
 | **DNS**              | `std/io/dns.yo`                            | ✅ Complete | getaddrinfo, getnameinfo, addrinfo accessors               |
 | **Perm**             | `std/io/perm.yo`                           | ✅ Complete | fchmod, chmodat, fchown, chownat, access                   |
 | **Time**             | `std/io/time.yo`                           | ✅ Complete | utime, futime, lutime (file timestamp operations)          |
@@ -72,7 +73,7 @@ The runtime has been refactored into 4 modules:
 | **Signals**                | ✅ (sync)             | ✅ (sync)            | ❌                                       |
 | **TTY**                    | ✅ (sync)             | ✅ (sync)            | ⚠️ (isatty only)                         |
 | **Unix sockets**           | ✅ (sockaddr_un)      | ✅ (sockaddr_un)     | ⚠️ (AF_UNIX Win10 1803+)                 |
-| **Process spawn**          | ❌                    | ❌                   | ❌                                       |
+| **Process spawn**          | ✅ (posix_spawn)      | ✅ (posix_spawn)     | ✅ (CreateProcessW)                      |
 | **fcntl**                  | ❌                    | ❌                   | ❌ (different model)                     |
 | **mmap**                   | ❌                    | ❌                   | ❌ (CreateFileMapping)                   |
 | **flock**                  | ❌                    | ❌                   | ❌ (LockFileEx)                          |
@@ -722,13 +723,11 @@ free_addr :: (fn(addr: UnixAddr) -> unit)(...);
 
 ---
 
-## Phase 9: Process Management (Priority: Medium)
+## Phase 9: Process Management (Priority: Medium) ✅ DONE
 
 **Goal**: Provide cross-platform child process spawning, waiting, and signal delivery.
 
-This requires **new C runtime externs** — no process management functions exist in the runtime yet.
-
-### 9.1 Create `std/io/process.yo` — Child Process Operations
+### 9.1 Create `std/io/process.yo` — Child Process Operations ✅
 
 ```yo
 // std/io/process.yo
@@ -740,8 +739,8 @@ This requires **new C runtime externs** — no process management functions exis
 // `stdin_fd`, `stdout_fd`, `stderr_fd`: fd redirections (-1 = inherit)
 spawn :: (fn(
   file: *(u8),
-  argv: *(*(u8)),
-  envp: ?*(*(u8)),
+  argv: *(?*(u8)),
+  envp: ?*(?*(u8)),
   stdin_fd: i32,
   stdout_fd: i32,
   stderr_fd: i32
@@ -764,21 +763,22 @@ term_signal :: (fn(status: i32) -> i32)(...);
 
 **Cross-platform implementation:**
 
-| Operation | Linux/macOS                          | Windows                                          |
-| --------- | ------------------------------------ | ------------------------------------------------ |
-| spawn     | `posix_spawn()` or `fork()+execvp()` | `CreateProcessW()`                               |
-| waitpid   | `waitpid()` (sync wrapper)           | `WaitForSingleObject()` + `GetExitCodeProcess()` |
-| kill      | `kill()` (POSIX)                     | `TerminateProcess()` (SIGKILL only)              |
+| Operation | Linux/macOS                | Windows                                          |
+| --------- | -------------------------- | ------------------------------------------------ |
+| spawn     | `posix_spawnp()`           | `CreateProcessW()`                               |
+| waitpid   | `waitpid()` (sync wrapper) | `WaitForSingleObject()` + `GetExitCodeProcess()` |
+| kill      | `kill()` (POSIX)           | `TerminateProcess()` (SIGKILL only)              |
 
 **Design notes:**
 
 - `spawn` takes explicit fd redirections for stdin/stdout/stderr, enabling pipe-based IPC (combine with `pipe.yo`)
-- `envp` is nullable — pass null to inherit parent environment
+- `argv` and `envp` are NULL-terminated arrays of C strings using `?*(u8)` so `.None` can be used as the terminator
+- `envp` is nullable — pass .None to inherit parent environment
 - `waitpid` with `options=0` blocks; `WNOHANG` polls without blocking
 - On Windows, signal support is limited: only `SIGKILL` → `TerminateProcess()` is reliable
 - Exit status encoding follows POSIX conventions on Unix; Windows maps directly to exit code
 
-### 9.2 Runtime Implementation Needed
+### 9.2 Runtime Implementation Added ✅
 
 New C runtime functions required in `runtime-io-common.ts` (or platform-specific files):
 
@@ -795,6 +795,10 @@ yo_io_future_t* __yo_async_waitpid_start(int32_t pid, int32_t options);
 int32_t __yo_process_exit_status(int32_t status);
 int32_t __yo_process_term_signal(int32_t status);
 ```
+
+**Tests**: `tests/io/process.test.yo` (spawn + waitpid + stdout pipe capture; skips on Windows).
+
+````
 
 ---
 
@@ -824,7 +828,7 @@ setfd :: (fn(fd: i32, flags: i32) -> i32)(...);
 // Constants
 O_NONBLOCK :: i32(...);
 FD_CLOEXEC :: i32(...);
-```
+````
 
 **Cross-platform implementation:**
 
@@ -984,7 +988,7 @@ Each phase should include a `.test.yo` file exercising the new APIs:
 15. **FS event tests** — ✅ init/start/stop/close (`tests/io/fs_event.test.yo`)
 16. **Poll tests** — ✅ init/start/stop/close (`tests/io/poll.test.yo`)
 17. **Unix socket tests** — ✅ `tests/io/unix.test.yo` (stream echo)
-18. **Process tests** — spawn child, wait for exit, pipe stdout capture
+18. ✅ **Process tests** — spawn child, wait for exit, pipe stdout capture
 19. **Mmap tests** — map file, read/write, msync, munmap
 20. **Lock tests** — flock exclusive/shared, non-blocking conflict detection
 
@@ -1022,7 +1026,7 @@ std/io/
   path.yo          ← Path resolution (realpath, sync)      ✅
   statfs.yo        ← Filesystem statistics (sync)          ✅
   unix.yo          ← Unix domain sockets                  ✅
-  process.yo       ← Child process management             Phase 9
+  process.yo       ← Child process management             ✅
   fcntl.yo         ← FD flags control                     Phase 10
   mmap.yo          ← Memory-mapped I/O                    Phase 10
   lock.yo          ← Advisory file locking                Phase 10

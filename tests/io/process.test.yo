@@ -4,7 +4,7 @@ pipe_io :: import "std/io/pipe";
 process :: import "std/io/process";
 { platform, Platform } :: import "std/process";
 
-main :: (fn() -> unit) {
+test "spawn and waitpid", {
   async {
     pipefd_uninit := MaybeUninit(Array(i32, usize(2))).new();
     pipefd := *(i32)(pipefd_uninit.as_ptr());
@@ -83,4 +83,3 @@ main :: (fn() -> unit) {
     assert((sig == i32(0)), "term signal mismatch");
   };
 };
-export main;

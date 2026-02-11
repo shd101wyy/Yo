@@ -963,6 +963,88 @@ static uint8_t* __yo_addrinfo_next(uint8_t* ai) {
 }
 
 // ============================================================================
+// Process Operations
+// ============================================================================
+#include <spawn.h>
+#include <sys/wait.h>
+
+extern char** environ;
+
+static yo_io_future_t* __yo_async_spawn_start(const uint8_t* file, uint8_t** argv, uint8_t** envp,
+                                              int32_t stdin_fd, int32_t stdout_fd, int32_t stderr_fd) {
+  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
+  memset(future, 0, sizeof(yo_io_future_t));
+
+  future->header.ref_count = 1;
+  atomic_init(&future->continuation_fn, NULL);
+  atomic_init(&future->continuation_sm, NULL);
+
+  posix_spawn_file_actions_t actions;
+  posix_spawn_file_actions_init(&actions);
+
+  if (stdin_fd >= 0) {
+    posix_spawn_file_actions_adddup2(&actions, stdin_fd, 0);
+  }
+  if (stdout_fd >= 0) {
+    posix_spawn_file_actions_adddup2(&actions, stdout_fd, 1);
+  }
+  if (stderr_fd >= 0) {
+    posix_spawn_file_actions_adddup2(&actions, stderr_fd, 2);
+  }
+
+  pid_t pid = 0;
+  char* const* envp_actual = envp ? (char* const*)envp : environ;
+  int result = posix_spawnp(&pid, (const char*)file, &actions, NULL, (char* const*)argv, envp_actual);
+  posix_spawn_file_actions_destroy(&actions);
+
+  if (result != 0) {
+    future->result = -result;
+  } else {
+    future->result = (int32_t)pid;
+  }
+  atomic_init(&future->state, -1);
+
+  return future;
+}
+
+static yo_io_future_t* __yo_async_waitpid_start(int32_t pid, int32_t options) {
+  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
+  memset(future, 0, sizeof(yo_io_future_t));
+
+  future->header.ref_count = 1;
+  atomic_init(&future->continuation_fn, NULL);
+  atomic_init(&future->continuation_sm, NULL);
+
+  int status = 0;
+  pid_t result = waitpid((pid_t)pid, &status, options);
+  if (result < 0) {
+    future->result = -errno;
+  } else if (result == 0) {
+    // WNOHANG and child still running
+    future->result = 0;
+  } else {
+    future->result = status;
+  }
+  atomic_init(&future->state, -1);
+
+  return future;
+}
+
+static int32_t __yo_process_exit_status(int32_t status) {
+  if (WIFEXITED(status)) {
+    return (int32_t)WEXITSTATUS(status);
+  }
+  return -1;
+}
+
+static int32_t __yo_process_term_signal(int32_t status) {
+  if (WIFSIGNALED(status)) {
+    return (int32_t)WTERMSIG(status);
+  }
+  return 0;
+}
+
+// ============================================================================
 // Signal Operations
 // ============================================================================
 #include <signal.h>

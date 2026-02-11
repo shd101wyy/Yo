@@ -2389,12 +2389,335 @@ static uint8_t* __yo_addrinfo_canonname(uint8_t* ai) { return (uint8_t*)((struct
 static uint8_t* __yo_addrinfo_next(uint8_t* ai) { return (uint8_t*)((struct addrinfo*)ai)->ai_next; }
 
 // ============================================================================
+// Process Operations (Windows)
+// ============================================================================
+
+typedef struct yo_process_handle_entry {
+  int32_t pid;
+  HANDLE handle;
+  struct yo_process_handle_entry* next;
+} yo_process_handle_entry;
+
+static yo_process_handle_entry* __yo_process_handles = NULL;
+
+static void __yo_process_add_handle(int32_t pid, HANDLE handle) {
+  yo_process_handle_entry* entry = (yo_process_handle_entry*)__yo_malloc(sizeof(yo_process_handle_entry));
+  entry->pid = pid;
+  entry->handle = handle;
+  entry->next = __yo_process_handles;
+  __yo_process_handles = entry;
+}
+
+static HANDLE __yo_process_get_handle(int32_t pid) {
+  yo_process_handle_entry* cur = __yo_process_handles;
+  while (cur) {
+    if (cur->pid == pid) return cur->handle;
+    cur = cur->next;
+  }
+  return NULL;
+}
+
+static void __yo_process_remove_handle(int32_t pid) {
+  yo_process_handle_entry* prev = NULL;
+  yo_process_handle_entry* cur = __yo_process_handles;
+  while (cur) {
+    if (cur->pid == pid) {
+      if (prev) {
+        prev->next = cur->next;
+      } else {
+        __yo_process_handles = cur->next;
+      }
+      if (cur->handle) CloseHandle(cur->handle);
+      __yo_free(cur);
+      return;
+    }
+    prev = cur;
+    cur = cur->next;
+  }
+}
+
+static bool __yo_win_arg_needs_quotes(const char* arg) {
+  if (!arg || arg[0] == '\\0') return true;
+  for (const char* p = arg; *p; p++) {
+    if (*p == ' ' || *p == '\\t' || *p == '\\n' || *p == '"') return true;
+  }
+  return false;
+}
+
+static size_t __yo_win_quoted_arg_length(const char* arg) {
+  if (!__yo_win_arg_needs_quotes(arg)) return strlen(arg);
+  size_t len = 2; // quotes
+  size_t backslashes = 0;
+  for (const char* p = arg; *p; p++) {
+    if (*p == '\\\\') {
+      backslashes++;
+    } else if (*p == '"') {
+      len += backslashes * 2 + 2; // escaped backslashes + escaped quote
+      backslashes = 0;
+    } else {
+      len += backslashes + 1;
+      backslashes = 0;
+    }
+  }
+  len += backslashes * 2; // trailing backslashes before closing quote
+  return len;
+}
+
+static char* __yo_win_append_quoted_arg(char* dst, const char* arg) {
+  if (!__yo_win_arg_needs_quotes(arg)) {
+    size_t len = strlen(arg);
+    memcpy(dst, arg, len);
+    return dst + len;
+  }
+
+  *dst++ = '"';
+  size_t backslashes = 0;
+  for (const char* p = arg; *p; p++) {
+    if (*p == '\\\\') {
+      backslashes++;
+    } else if (*p == '"') {
+      for (size_t i = 0; i < backslashes * 2 + 1; i++) *dst++ = '\\\\';
+      *dst++ = '"';
+      backslashes = 0;
+    } else {
+      for (size_t i = 0; i < backslashes; i++) *dst++ = '\\\\';
+      *dst++ = *p;
+      backslashes = 0;
+    }
+  }
+  for (size_t i = 0; i < backslashes * 2; i++) *dst++ = '\\\\';
+  *dst++ = '"';
+  return dst;
+}
+
+static char* __yo_win_build_command_line(char* const argv[]) {
+  if (!argv || !argv[0]) return NULL;
+
+  size_t total = 0;
+  int count = 0;
+  for (char* const* p = argv; *p; p++) {
+    if (count > 0) total += 1; // space
+    total += __yo_win_quoted_arg_length(*p);
+    count++;
+  }
+
+  char* buf = (char*)__yo_malloc(total + 1);
+  char* out = buf;
+  count = 0;
+  for (char* const* p = argv; *p; p++) {
+    if (count > 0) *out++ = ' ';
+    out = __yo_win_append_quoted_arg(out, *p);
+    count++;
+  }
+  *out = '\\0';
+  return buf;
+}
+
+static wchar_t* __yo_win_build_env_block(char* const envp[]) {
+  if (!envp) return NULL;
+
+  size_t total_wchars = 1; // final double-null
+  for (char* const* p = envp; *p; p++) {
+    int len = MultiByteToWideChar(CP_UTF8, 0, *p, -1, NULL, 0);
+    if (len <= 0) return NULL;
+    total_wchars += (size_t)len;
+  }
+
+  wchar_t* block = (wchar_t*)__yo_malloc(sizeof(wchar_t) * total_wchars);
+  wchar_t* out = block;
+
+  for (char* const* p = envp; *p; p++) {
+    int len = MultiByteToWideChar(CP_UTF8, 0, *p, -1, out, (int)(total_wchars - (out - block)));
+    if (len <= 0) {
+      __yo_free(block);
+      return NULL;
+    }
+    out += len; // includes null terminator
+  }
+
+  *out = L'\\0';
+  return block;
+}
+
+static HANDLE __yo_win_dup_inheritable_handle(HANDLE handle) {
+  if (!handle || handle == INVALID_HANDLE_VALUE) return NULL;
+  HANDLE dup = NULL;
+  if (!DuplicateHandle(GetCurrentProcess(), handle, GetCurrentProcess(), &dup, 0, TRUE, DUPLICATE_SAME_ACCESS)) {
+    return NULL;
+  }
+  return dup;
+}
+
+static yo_io_future_t* __yo_async_spawn_start(const uint8_t* file, uint8_t** argv, uint8_t** envp,
+                                              int32_t stdin_fd, int32_t stdout_fd, int32_t stderr_fd) {
+  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
+  memset(future, 0, sizeof(yo_io_future_t));
+
+  future->header.ref_count = 1;
+  atomic_init(&future->continuation_fn, NULL);
+  atomic_init(&future->continuation_sm, NULL);
+
+  wchar_t* wfile = __yo_win_utf8_to_wide((const char*)file);
+  if (!wfile) {
+    future->result = -__yo_win_last_error_to_errno();
+    atomic_init(&future->state, -1);
+    return future;
+  }
+
+  char* cmd_utf8 = __yo_win_build_command_line((char* const*)argv);
+  if (!cmd_utf8) {
+    __yo_free(wfile);
+    future->result = -EINVAL;
+    atomic_init(&future->state, -1);
+    return future;
+  }
+  wchar_t* cmdline = __yo_win_utf8_to_wide(cmd_utf8);
+  __yo_free(cmd_utf8);
+  if (!cmdline) {
+    __yo_free(wfile);
+    future->result = -__yo_win_last_error_to_errno();
+    atomic_init(&future->state, -1);
+    return future;
+  }
+
+  wchar_t* env_block = __yo_win_build_env_block((char* const*)envp);
+  if (envp && !env_block) {
+    __yo_free(cmdline);
+    __yo_free(wfile);
+    future->result = -__yo_win_last_error_to_errno();
+    atomic_init(&future->state, -1);
+    return future;
+  }
+
+  HANDLE hStdIn = (stdin_fd >= 0) ? (HANDLE)_get_osfhandle(stdin_fd) : GetStdHandle(STD_INPUT_HANDLE);
+  HANDLE hStdOut = (stdout_fd >= 0) ? (HANDLE)_get_osfhandle(stdout_fd) : GetStdHandle(STD_OUTPUT_HANDLE);
+  HANDLE hStdErr = (stderr_fd >= 0) ? (HANDLE)_get_osfhandle(stderr_fd) : GetStdHandle(STD_ERROR_HANDLE);
+
+  if (hStdIn == INVALID_HANDLE_VALUE || hStdOut == INVALID_HANDLE_VALUE || hStdErr == INVALID_HANDLE_VALUE) {
+    if (env_block) __yo_free(env_block);
+    __yo_free(cmdline);
+    __yo_free(wfile);
+    future->result = -EBADF;
+    atomic_init(&future->state, -1);
+    return future;
+  }
+
+  HANDLE hStdInInherit = __yo_win_dup_inheritable_handle(hStdIn);
+  HANDLE hStdOutInherit = __yo_win_dup_inheritable_handle(hStdOut);
+  HANDLE hStdErrInherit = __yo_win_dup_inheritable_handle(hStdErr);
+  if (!hStdInInherit || !hStdOutInherit || !hStdErrInherit) {
+    if (hStdInInherit) CloseHandle(hStdInInherit);
+    if (hStdOutInherit) CloseHandle(hStdOutInherit);
+    if (hStdErrInherit) CloseHandle(hStdErrInherit);
+    if (env_block) __yo_free(env_block);
+    __yo_free(cmdline);
+    __yo_free(wfile);
+    future->result = -__yo_win_last_error_to_errno();
+    atomic_init(&future->state, -1);
+    return future;
+  }
+
+  STARTUPINFOW si;
+  PROCESS_INFORMATION pi;
+  ZeroMemory(&si, sizeof(si));
+  ZeroMemory(&pi, sizeof(pi));
+  si.cb = sizeof(si);
+  si.dwFlags = STARTF_USESTDHANDLES;
+  si.hStdInput = hStdInInherit;
+  si.hStdOutput = hStdOutInherit;
+  si.hStdError = hStdErrInherit;
+
+  DWORD flags = 0;
+  if (env_block) flags |= CREATE_UNICODE_ENVIRONMENT;
+
+  BOOL ok = CreateProcessW(wfile, cmdline, NULL, NULL, TRUE, flags, env_block, NULL, &si, &pi);
+
+  CloseHandle(hStdInInherit);
+  CloseHandle(hStdOutInherit);
+  CloseHandle(hStdErrInherit);
+  if (env_block) __yo_free(env_block);
+  __yo_free(cmdline);
+  __yo_free(wfile);
+
+  if (!ok) {
+    future->result = -__yo_win_last_error_to_errno();
+    atomic_init(&future->state, -1);
+    return future;
+  }
+
+  CloseHandle(pi.hThread);
+  __yo_process_add_handle((int32_t)pi.dwProcessId, pi.hProcess);
+  future->result = (int32_t)pi.dwProcessId;
+  atomic_init(&future->state, -1);
+  return future;
+}
+
+static yo_io_future_t* __yo_async_waitpid_start(int32_t pid, int32_t options) {
+  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
+  memset(future, 0, sizeof(yo_io_future_t));
+
+  future->header.ref_count = 1;
+  atomic_init(&future->continuation_fn, NULL);
+  atomic_init(&future->continuation_sm, NULL);
+
+  HANDLE handle = __yo_process_get_handle(pid);
+  if (!handle) {
+    future->result = -ESRCH;
+    atomic_init(&future->state, -1);
+    return future;
+  }
+
+  DWORD timeout = (options != 0) ? 0 : INFINITE;
+  DWORD wait_result = WaitForSingleObject(handle, timeout);
+  if (wait_result == WAIT_TIMEOUT) {
+    future->result = 0;
+    atomic_init(&future->state, -1);
+    return future;
+  }
+  if (wait_result != WAIT_OBJECT_0) {
+    future->result = -__yo_win_last_error_to_errno();
+    atomic_init(&future->state, -1);
+    return future;
+  }
+
+  DWORD exit_code = 0;
+  if (!GetExitCodeProcess(handle, &exit_code)) {
+    future->result = -__yo_win_last_error_to_errno();
+    atomic_init(&future->state, -1);
+    return future;
+  }
+
+  __yo_process_remove_handle(pid);
+  future->result = (int32_t)exit_code;
+  atomic_init(&future->state, -1);
+  return future;
+}
+
+static int32_t __yo_process_exit_status(int32_t status) {
+  return status;
+}
+
+static int32_t __yo_process_term_signal(int32_t status) {
+  (void)status;
+  return 0;
+}
+
+// ============================================================================
 // Signal Operations (stubs)
 // ============================================================================
 
 static int32_t __yo_signal_start(int32_t signum, void* handler) { (void)signum; (void)handler; return -ENOSYS; }
 static int32_t __yo_signal_stop(int32_t signum) { (void)signum; return -ENOSYS; }
-static int32_t __yo_kill(int32_t pid, int32_t signum) { (void)pid; (void)signum; return -ENOSYS; }
+static int32_t __yo_kill(int32_t pid, int32_t signum) {
+  HANDLE handle = __yo_process_get_handle(pid);
+  if (!handle) return -ESRCH;
+  if (signum == 0) return 0;
+  if (signum != 9) return -ENOSYS; // SIGKILL only
+  if (!TerminateProcess(handle, 1)) {
+    return -__yo_win_last_error_to_errno();
+  }
+  return 0;
+}
 
 // ============================================================================
 // TTY Operations (minimal)

@@ -60,6 +60,14 @@ extern "Yo",
   __yo_async_getsockopt_start : (fn(sockfd: i32, level: i32, optname: i32, optval: *(u8), optlen: *(u32)) -> IOFuture),
 
   // ========================================================================
+  // Process Operations
+  // ========================================================================
+  __yo_async_spawn_start : (fn(file: *(u8), argv: *(?*(u8)), envp: ?*(?*(u8)), stdin_fd: i32, stdout_fd: i32, stderr_fd: i32) -> IOFuture),
+  __yo_async_waitpid_start : (fn(pid: i32, options: i32) -> IOFuture),
+  __yo_process_exit_status : (fn(status: i32) -> i32),
+  __yo_process_term_signal : (fn(status: i32) -> i32),
+
+  // ========================================================================
   // Synchronous File Helpers
   // ========================================================================
   __yo_file_open : (fn(path: *(u8), flags: i32, mode: i32) -> i32),
@@ -233,6 +241,10 @@ export
   __yo_async_recv_start, __yo_async_sendto_start,
   __yo_async_recvfrom_start, __yo_async_shutdown_start,
   __yo_async_setsockopt_start, __yo_async_getsockopt_start,
+
+  // Process operations
+  __yo_async_spawn_start, __yo_async_waitpid_start,
+  __yo_process_exit_status, __yo_process_term_signal,
 
   // Synchronous file helpers
   __yo_file_open, __yo_file_close, __yo_file_size,
