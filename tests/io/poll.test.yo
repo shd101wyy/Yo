@@ -8,7 +8,7 @@ on_poll :: (fn(events_mask: i32, status: i32, user_data: *(u8)) -> unit)({
   user_data;
 });
 
-main :: (fn() -> unit) {
+test "poll init/start/stop", {
   async {
     pipefd_uninit := MaybeUninit(Array(i32, usize(2))).new();
     pipefd := *(i32)(pipefd_uninit.as_ptr());
@@ -42,5 +42,3 @@ main :: (fn() -> unit) {
     assert(cr2 == i32(0));
   };
 };
-
-export main;

@@ -2,7 +2,9 @@
 
 {
   __yo_fs_event_init, __yo_fs_event_start,
-  __yo_fs_event_stop, __yo_fs_event_close
+  __yo_fs_event_stop, __yo_fs_event_close,
+  __yo_poll_init, __yo_poll_start,
+  __yo_poll_stop, __yo_poll_close
 } :: import "./externs.yo";
 
 // ============================================================================
@@ -33,6 +35,38 @@ FS_EVENT_RECURSIVE   :: u32(4);
 // FS Event Types (callback event types)
 FS_EVENT_RENAME :: i32(1);
 FS_EVENT_CHANGE :: i32(2);
+
+// ============================================================================
+// Poll Operations (sync wrappers around runtime callbacks)
+// ============================================================================
+
+PollCallback :: (fn(events: i32, status: i32, user_data: *(u8)) -> unit);
+
+PollHandle :: struct(
+  handle: *(u8)
+);
+
+// Allocate a new poll handle bound to a fd.
+poll_init :: (fn(fd: i32) -> PollHandle)(
+  PollHandle(__yo_poll_init(fd))
+);
+
+// Start polling for events.
+// Returns 0 on success, -errno on failure.
+poll_start :: (fn(handle: PollHandle, events: i32, callback: PollCallback) -> i32)(
+  __yo_poll_start(handle.handle, events, __yo_as(callback, *(u8)))
+);
+
+// Stop polling.
+// Returns 0 on success, -errno on failure.
+poll_stop :: (fn(handle: PollHandle) -> i32)(
+  __yo_poll_stop(handle.handle)
+);
+
+// Close and free the handle.
+poll_close :: (fn(handle: PollHandle) -> unit)({
+  __yo_poll_close(handle.handle);
+});
 
 // ============================================================================
 // FS Event Operations (sync wrappers around runtime callbacks)
@@ -71,6 +105,8 @@ export
   POLL_READABLE, POLL_WRITABLE, POLL_DISCONNECT, POLL_PRIORITIZED,
   FS_EVENT_WATCH_ENTRY, FS_EVENT_STAT, FS_EVENT_RECURSIVE,
   FS_EVENT_RENAME, FS_EVENT_CHANGE,
+  PollCallback, PollHandle,
+  poll_init, poll_start, poll_stop, poll_close,
   FsEventCallback, FsEventHandle,
   fs_event_init, fs_event_start, fs_event_stop, fs_event_close
 ;

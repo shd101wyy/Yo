@@ -13,7 +13,7 @@ The `std/io` module provides Yo's low-level async I/O foundation. It sits betwee
 | **Constants**        | `std/io/constants.yo`                      | ✅ Complete | File mode, permissions, AT*\*, DT*\*, open flags           |
 | **Socket Constants** | `std/io/socket.yo`                         | ✅ Complete | Platform-aware AF*\*, SOCK*\_, SO\_\_, TCP\_\*             |
 | **Signals**          | `std/io/signals.yo`                        | ✅ Complete | Platform-aware POSIX signal numbers                        |
-| **Events**           | `std/io/events.yo`                         | ✅ Complete | TTY/poll/FS event constants + FS event wrappers            |
+| **Events**           | `std/io/events.yo`                         | ✅ Complete | TTY/poll/FS event constants + FS/poll wrappers             |
 | **IOError**          | `std/io/errors.yo`                         | ✅ Complete | Enum with errno mapping, ToString impl                     |
 | **IOFuture**         | `std/io/future.yo`                         | ✅ Complete | Extern type wrapping `yo_io_future_t`                      |
 | **Externs**          | `std/io/externs.yo`                        | ✅ Complete | All C extern function declarations                         |
@@ -558,7 +558,7 @@ statfs_ffree  :: (fn(buf: *(u8)) -> u64)(...);
 
 - Implemented in `std/io/statfs.yo` using `__yo_sync_statfs` and `__yo_statfs_*` accessors.
 - Returns `i32` directly (sync — no IOFuture overhead).
-- Tests TBD.
+- Tests in `tests/io/statfs.test.yo`.
 
 **Cross-platform notes:**
 
@@ -664,6 +664,12 @@ the macOS approach.
 | Linux    | `io_uring_prep_poll_add`      | True async poll |
 | macOS    | `dispatch_source` on fd       | GCD-based       |
 | Windows  | `WSAPoll` or `WSAEventSelect` | Winsock events  |
+
+**Implementation status:**
+
+- Yo-side wrapper implemented in `std/io/events.yo` (init/start/stop/close + callback type).
+- Runtime remains placeholder: `__yo_poll_start` returns `-ENOTSUP` on Linux/macOS and `-ENOSYS` on Windows until platform backends are implemented.
+- Basic test added in `tests/io/poll.test.yo` to ensure init/start/stop/close are callable and handle not-supported return codes.
 
 ---
 
@@ -970,10 +976,11 @@ Each phase should include a `.test.yo` file exercising the new APIs:
 13. **Path tests** — ✅ realpath on symlinks, relative paths, nonexistent paths
 14. **Statfs tests** — ✅ filesystem stats, verify block size > 0 (`tests/io/statfs.test.yo`)
 15. **FS event tests** — ✅ init/start/stop/close (`tests/io/fs_event.test.yo`)
-16. **Unix socket tests** — stream echo server/client, dgram send/recv
-17. **Process tests** — spawn child, wait for exit, pipe stdout capture
-18. **Mmap tests** — map file, read/write, msync, munmap
-19. **Lock tests** — flock exclusive/shared, non-blocking conflict detection
+16. **Poll tests** — ✅ init/start/stop/close (`tests/io/poll.test.yo`)
+17. **Unix socket tests** — stream echo server/client, dgram send/recv
+18. **Process tests** — spawn child, wait for exit, pipe stdout capture
+19. **Mmap tests** — map file, read/write, msync, munmap
+20. **Lock tests** — flock exclusive/shared, non-blocking conflict detection
 
 For cross-platform validation:
 
@@ -991,7 +998,7 @@ std/io/
   externs.yo       ← C extern declarations                ✅
   socket.yo        ← Socket constants                     ✅
   signals.yo       ← Signal constants                     ✅
-  events.yo        ← TTY/poll/FS event constants + FS events ✅
+  events.yo        ← TTY/poll/FS event constants + wrappers ✅
   statx.yo         ← File metadata accessors              ✅
   timer.yo         ← sleep                                ✅
   file.yo          ← Async file operations                ✅
