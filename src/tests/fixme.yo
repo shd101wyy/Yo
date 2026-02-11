@@ -1,45 +1,45 @@
 open import "std/libc/stdio";
-file :: import "std/io/file";
-pipe_io :: import "std/io/pipe";
-events :: import "std/io/events";
-
-on_poll :: (fn(events_mask: i32, status: i32, user_data: *(u8)) -> unit)({
-  printf("poll: %d %d\n", events_mask, status);
-  user_data;
-});
+unix :: import "std/io/unix";
+dir :: import "std/io/dir";
+{ AT_FDCWD } :: import "std/io/constants";
 
 main :: (fn() -> unit) {
   async {
-    pipefd_uninit := MaybeUninit(Array(i32, usize(2))).new();
-    pipefd := *(i32)(pipefd_uninit.as_ptr());
-    pr := pipe_io.pipe(pipefd);
-    assert(pr == i32(0));
+    sock_path := *(u8)("/tmp/yo_unix_bind_test");
 
-    read_fd := (pipefd &+ usize(0)).*;
-    write_fd := (pipefd &+ usize(1)).*;
+    // Best-effort cleanup
+    await dir.unlink(AT_FDCWD, sock_path, i32(0));
 
-    handle := events.poll_init(read_fd);
-    ret := events.poll_start(handle, events.POLL_READABLE, on_poll);
-    cond(
-      (ret < i32(0)) => {
-        events.poll_close(handle);
-        cr1 := await file.close(read_fd);
-        cr2 := await file.close(write_fd);
-        assert(cr1 == i32(0));
-        assert(cr2 == i32(0));
+    server_fd := await unix.socket_stream();
+    printf("server fd = %d\n", server_fd);
+    assert((server_fd >= i32(0)), "socket_stream failed");
+
+    addr := unix.make_sockaddr_un(sock_path);
+    printf("addr.len = %u\n", addr.len);
+
+    addr_buf := match(addr.buf,
+      .Some(p) => p,
+      .None => {
+        printf("sockaddr_un not supported\n");
+        await unix.close(server_fd);
         return;
-      },
-      true => ()
+      }
     );
 
-    stop_ret := events.poll_stop(handle);
-    assert(stop_ret == i32(0));
-    events.poll_close(handle);
+    printf("addr_buf ptr = %p\n", addr_buf);
 
-    cr1 := await file.close(read_fd);
-    cr2 := await file.close(write_fd);
-    assert(cr1 == i32(0));
-    assert(cr2 == i32(0));
+    bind_result := await unix.bind(server_fd, addr_buf, addr.len);
+    printf("bind result = %d\n", bind_result);
+    assert((bind_result == i32(0)), "bind failed");
+
+    // cleanup
+    c1 := await unix.close(server_fd);
+    printf("close = %d\n", c1);
+
+    await dir.unlink(AT_FDCWD, sock_path, i32(0));
+
+    unix.free_addr(addr);
+    printf("DONE\n");
   };
 };
 

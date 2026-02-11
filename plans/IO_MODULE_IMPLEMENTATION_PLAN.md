@@ -24,6 +24,7 @@ The `std/io` module provides Yo's low-level async I/O foundation. It sits betwee
 | **Readdir**          | `std/io/readdir.yo` (merged into `dir.yo`) | ✅ Complete | getdents, dirent accessors (size, reclen, type, name, ino) |
 | **TCP**              | `std/io/tcp.yo`                            | ✅ Complete | Socket, bind, listen, accept, connect, send, recv, close   |
 | **UDP**              | `std/io/udp.yo`                            | ✅ Complete | Socket, bind, sendto, recvfrom, send, recv, close          |
+| **Unix**             | `std/io/unix.yo`                           | ✅ Complete | Unix domain sockets + tests                                |
 | **DNS**              | `std/io/dns.yo`                            | ✅ Complete | getaddrinfo, getnameinfo, addrinfo accessors               |
 | **Perm**             | `std/io/perm.yo`                           | ✅ Complete | fchmod, chmodat, fchown, chownat, access                   |
 | **Time**             | `std/io/time.yo`                           | ✅ Complete | utime, futime, lutime (file timestamp operations)          |
@@ -714,6 +715,11 @@ free_addr :: (fn(addr: UnixAddr) -> unit)(...);
 - Windows: `AF_UNIX` supported since Windows 10 version 1803. Our runtime currently returns 0 for `sockaddr_un_size` (needs implementation). Filesystem paths only (no abstract sockets).
 - Abstract sockets (Linux-only, path starts with `\0`) can be supported later
 
+**Implementation status:**
+
+- ✅ Implemented `std/io/unix.yo` with `socket_stream`, `socket_dgram`, `make_sockaddr_un`, `get_path`, `free_addr`, and socket ops wrappers.
+- ✅ Added `tests/io/unix.test.yo` (skips on Windows or when `sockaddr_un_size` is 0).
+
 ---
 
 ## Phase 9: Process Management (Priority: Medium)
@@ -945,7 +951,7 @@ Phase 6 (Windows IOCP)               ✅ DONE
 Phase 7 (FS Events + Poll)           ← IN PROGRESS (wrappers only)
   └── Depends on: Phase 6 for Windows support
 
-Phase 8 (Unix Domain Sockets)
+Phase 8 (Unix Domain Sockets)       ✅ DONE
   └── Depends on: Phase 2 (reuses socket infra)
 
 Phase 9 (Process Management)         ← Needs new runtime
@@ -977,7 +983,7 @@ Each phase should include a `.test.yo` file exercising the new APIs:
 14. **Statfs tests** — ✅ filesystem stats, verify block size > 0 (`tests/io/statfs.test.yo`)
 15. **FS event tests** — ✅ init/start/stop/close (`tests/io/fs_event.test.yo`)
 16. **Poll tests** — ✅ init/start/stop/close (`tests/io/poll.test.yo`)
-17. **Unix socket tests** — stream echo server/client, dgram send/recv
+17. **Unix socket tests** — ✅ `tests/io/unix.test.yo` (stream echo)
 18. **Process tests** — spawn child, wait for exit, pipe stdout capture
 19. **Mmap tests** — map file, read/write, msync, munmap
 20. **Lock tests** — flock exclusive/shared, non-blocking conflict detection
@@ -1015,7 +1021,7 @@ std/io/
   temp.yo          ← Temporary files/directories (sync)    ✅
   path.yo          ← Path resolution (realpath, sync)      ✅
   statfs.yo        ← Filesystem statistics (sync)          ✅
-  unix.yo          ← Unix domain sockets                  Phase 8
+  unix.yo          ← Unix domain sockets                  ✅
   process.yo       ← Child process management             Phase 9
   fcntl.yo         ← FD flags control                     Phase 10
   mmap.yo          ← Memory-mapped I/O                    Phase 10
