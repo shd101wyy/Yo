@@ -93,6 +93,8 @@ typedef struct {
   HANDLE handle;
   bool is_socket;
   SOCKET sock;
+  WSABUF wsabuf;
+  DWORD sock_flags;
 } yo_win_overlapped_t;
 
 static bool __yo_is_at_fdcwd(int32_t dirfd) {
@@ -101,13 +103,50 @@ static bool __yo_is_at_fdcwd(int32_t dirfd) {
 
 static int __yo_win_last_error_to_errno(void) {
   DWORD err = GetLastError();
-  errno = (int)err;
-  return (int)err;
+  switch (err) {
+    case ERROR_FILE_NOT_FOUND:
+    case ERROR_PATH_NOT_FOUND:
+    case ERROR_INVALID_NAME:
+      return ENOENT;
+    case ERROR_ACCESS_DENIED:
+    case ERROR_SHARING_VIOLATION:
+    case ERROR_LOCK_VIOLATION:
+      return EACCES;
+    case ERROR_FILE_EXISTS:
+    case ERROR_ALREADY_EXISTS:
+      return EEXIST;
+    case ERROR_NOT_ENOUGH_MEMORY:
+    case ERROR_OUTOFMEMORY:
+      return ENOMEM;
+    case ERROR_INVALID_HANDLE:
+      return EBADF;
+    case ERROR_INVALID_PARAMETER:
+    case ERROR_INVALID_FLAGS:
+      return EINVAL;
+    case ERROR_BROKEN_PIPE:
+    case ERROR_NO_DATA:
+      return EPIPE;
+    case ERROR_DISK_FULL:
+      return ENOSPC;
+    case ERROR_DIR_NOT_EMPTY:
+      return ENOTEMPTY;
+    case ERROR_NOT_SUPPORTED:
+    case ERROR_CALL_NOT_IMPLEMENTED:
+      return ENOSYS;
+    case ERROR_DIRECTORY:
+      return ENOTDIR;
+    case ERROR_TOO_MANY_OPEN_FILES:
+      return EMFILE;
+    case ERROR_PRIVILEGE_NOT_HELD:
+      return EPERM;
+    default:
+      return (int)err;
+  }
 }
 
 static int __yo_win_error_to_errno(DWORD err) {
-  errno = (int)err;
-  return (int)err;
+  SetLastError(err);
+  return __yo_win_last_error_to_errno();
 }
 
 static wchar_t* __yo_win_utf8_to_wide(const char* str) {
@@ -515,10 +554,36 @@ static yo_io_future_t* __yo_async_close_start(int32_t fd) {
   atomic_init(&future->continuation_fn, NULL);
   atomic_init(&future->continuation_sm, NULL);
 
-  int result = _close(fd);
-  future->result = (result < 0) ? -errno : 0;
+  SOCKET s = (SOCKET)(uintptr_t)(uint32_t)fd;
+  int cs = closesocket(s);
+  if (cs == 0) {
+    future->result = 0;
+  } else {
+    DWORD wsa_err = WSAGetLastError();
+    if (wsa_err == WSAENOTSOCK) {
+      int result = _close(fd);
+      future->result = (result < 0) ? -errno : 0;
+    } else {
+      future->result = -(int32_t)wsa_err;
+    }
+  }
   atomic_init(&future->state, -1);
   return future;
+}
+
+typedef struct {
+  struct _stat64 stat;
+  uint32_t atime_nsec;
+  uint32_t mtime_nsec;
+  uint32_t ctime_nsec;
+  int64_t btime_sec;
+  uint32_t btime_nsec;
+} yo_win_stat_t;
+
+static void __yo_win_filetime_to_timespec(FILETIME ft, int64_t* sec, uint32_t* nsec) {
+  ULONGLONG t = ((ULONGLONG)ft.dwHighDateTime << 32) | ft.dwLowDateTime;
+  *sec = (int64_t)(t / 10000000ULL) - 11644473600LL;
+  *nsec = (uint32_t)((t % 10000000ULL) * 100ULL);
 }
 
 static yo_io_future_t* __yo_async_statx_start(int32_t dirfd, const char* path, int32_t flags, uint32_t mask, void* statxbuf) {
@@ -540,7 +605,19 @@ static yo_io_future_t* __yo_async_statx_start(int32_t dirfd, const char* path, i
     }
     (void)flags;
     (void)mask;
-    result = _wstat64(wpath, (struct _stat64*)statxbuf);
+    yo_win_stat_t* ws = (yo_win_stat_t*)statxbuf;
+    memset(ws, 0, sizeof(yo_win_stat_t));
+    result = _wstat64(wpath, &ws->stat);
+    if (result == 0) {
+      WIN32_FILE_ATTRIBUTE_DATA fad;
+      if (GetFileAttributesExW(wpath, GetFileExInfoStandard, &fad)) {
+        int64_t sec; uint32_t nsec;
+        __yo_win_filetime_to_timespec(fad.ftLastAccessTime, &sec, &ws->atime_nsec);
+        __yo_win_filetime_to_timespec(fad.ftLastWriteTime, &sec, &ws->mtime_nsec);
+        __yo_win_filetime_to_timespec(fad.ftCreationTime, &ws->btime_sec, &ws->btime_nsec);
+        ws->ctime_nsec = ws->mtime_nsec;
+      }
+    }
     __yo_free(wpath);
   } else {
     future->result = -EINVAL;
@@ -819,7 +896,7 @@ static yo_io_future_t* __yo_async_fchmodat_start(int32_t dirfd, const char* path
 
 static yo_io_future_t* __yo_async_fchown_start(int32_t fd, uint32_t uid, uint32_t gid) {
   __yo_io_init();
-  (void)fd; (void)uid; (void)gid;
+  (void)fd;
 
   yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
   memset(future, 0, sizeof(yo_io_future_t));
@@ -827,14 +904,21 @@ static yo_io_future_t* __yo_async_fchown_start(int32_t fd, uint32_t uid, uint32_
   atomic_init(&future->continuation_fn, NULL);
   atomic_init(&future->continuation_sm, NULL);
 
-  future->result = -ENOSYS;
+  // Windows has no concept of Unix UID/GID ownership.
+  // uid/gid of (uint32_t)-1 means "no change" - succeed as no-op.
+  // Any other values: return -ENOSYS since we can't implement real chown.
+  if (uid == (uint32_t)0xFFFFFFFF && gid == (uint32_t)0xFFFFFFFF) {
+    future->result = 0;
+  } else {
+    future->result = -ENOSYS;
+  }
   atomic_init(&future->state, -1);
   return future;
 }
 
 static yo_io_future_t* __yo_async_fchownat_start(int32_t dirfd, const char* path, uint32_t uid, uint32_t gid, int32_t flags) {
   __yo_io_init();
-  (void)dirfd; (void)path; (void)uid; (void)gid; (void)flags;
+  (void)dirfd; (void)path; (void)flags;
 
   yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
   memset(future, 0, sizeof(yo_io_future_t));
@@ -842,7 +926,11 @@ static yo_io_future_t* __yo_async_fchownat_start(int32_t dirfd, const char* path
   atomic_init(&future->continuation_fn, NULL);
   atomic_init(&future->continuation_sm, NULL);
 
-  future->result = -ENOSYS;
+  if (uid == (uint32_t)0xFFFFFFFF && gid == (uint32_t)0xFFFFFFFF) {
+    future->result = 0;
+  } else {
+    future->result = -ENOSYS;
+  }
   atomic_init(&future->state, -1);
   return future;
 }
@@ -1132,6 +1220,9 @@ static yo_io_future_t* __yo_async_socket_start(int32_t domain, int32_t type, int
   if (s == INVALID_SOCKET) {
     future->result = -(int32_t)WSAGetLastError();
   } else {
+    if (__yo_io_iocp) {
+      CreateIoCompletionPort((HANDLE)s, __yo_io_iocp, 0, 0);
+    }
     future->result = (int32_t)(uintptr_t)s;
   }
   atomic_init(&future->state, -1);
@@ -1183,6 +1274,9 @@ static yo_io_future_t* __yo_async_accept_start(int32_t sockfd, void* addr, uint3
     future->result = -(int32_t)WSAGetLastError();
   } else {
     *addrlen = (uint32_t)len;
+    if (__yo_io_iocp) {
+      CreateIoCompletionPort((HANDLE)result, __yo_io_iocp, 0, 0);
+    }
     future->result = (int32_t)(uintptr_t)result;
   }
   atomic_init(&future->state, -1);
@@ -1215,11 +1309,31 @@ static yo_io_future_t* __yo_async_send_start(int32_t sockfd, const void* buf, si
 
   if (len > INT_MAX) {
     future->result = -EINVAL;
-  } else {
-    int result = send((SOCKET)(uintptr_t)sockfd, (const char*)buf, (int)len, flags);
-    future->result = (result == SOCKET_ERROR) ? -(int32_t)WSAGetLastError() : result;
+    atomic_init(&future->state, -1);
+    return future;
   }
+
+  SOCKET s = (SOCKET)(uintptr_t)sockfd;
+  yo_win_overlapped_t* ov = (yo_win_overlapped_t*)__yo_malloc(sizeof(yo_win_overlapped_t));
+  memset(ov, 0, sizeof(yo_win_overlapped_t));
+  ov->future = future;
+  ov->is_socket = true;
+  ov->sock = s;
+  ov->wsabuf.buf = (char*)buf;
+  ov->wsabuf.len = (ULONG)len;
+
+  DWORD sent = 0;
+  int result = WSASend(s, &ov->wsabuf, 1, &sent, (DWORD)flags, &ov->overlapped, NULL);
+
+  if (result == 0 || (result == SOCKET_ERROR && WSAGetLastError() == WSA_IO_PENDING)) {
+    atomic_init(&future->state, 0);
+    atomic_fetch_add(&__yo_pending_io_count, 1);
+    return future;
+  }
+
+  future->result = -(int32_t)WSAGetLastError();
   atomic_init(&future->state, -1);
+  __yo_free(ov);
   return future;
 }
 
@@ -1234,11 +1348,32 @@ static yo_io_future_t* __yo_async_recv_start(int32_t sockfd, void* buf, size_t l
 
   if (len > INT_MAX) {
     future->result = -EINVAL;
-  } else {
-    int result = recv((SOCKET)(uintptr_t)sockfd, (char*)buf, (int)len, flags);
-    future->result = (result == SOCKET_ERROR) ? -(int32_t)WSAGetLastError() : result;
+    atomic_init(&future->state, -1);
+    return future;
   }
+
+  SOCKET s = (SOCKET)(uintptr_t)sockfd;
+  yo_win_overlapped_t* ov = (yo_win_overlapped_t*)__yo_malloc(sizeof(yo_win_overlapped_t));
+  memset(ov, 0, sizeof(yo_win_overlapped_t));
+  ov->future = future;
+  ov->is_socket = true;
+  ov->sock = s;
+  ov->wsabuf.buf = (char*)buf;
+  ov->wsabuf.len = (ULONG)len;
+  ov->sock_flags = (DWORD)flags;
+
+  DWORD received = 0;
+  int result = WSARecv(s, &ov->wsabuf, 1, &received, &ov->sock_flags, &ov->overlapped, NULL);
+
+  if (result == 0 || (result == SOCKET_ERROR && WSAGetLastError() == WSA_IO_PENDING)) {
+    atomic_init(&future->state, 0);
+    atomic_fetch_add(&__yo_pending_io_count, 1);
+    return future;
+  }
+
+  future->result = -(int32_t)WSAGetLastError();
   atomic_init(&future->state, -1);
+  __yo_free(ov);
   return future;
 }
 
@@ -1368,65 +1503,63 @@ static int64_t __yo_file_size(int32_t fd) {
 // ============================================================================
 
 static size_t __yo_statx_buf_size(void) {
-  return sizeof(struct _stat64);
+  return sizeof(yo_win_stat_t);
 }
 
 static int64_t __yo_statx_size(void* statxbuf) {
-  return (int64_t)((struct _stat64*)statxbuf)->st_size;
+  return (int64_t)((yo_win_stat_t*)statxbuf)->stat.st_size;
 }
 
 static uint32_t __yo_statx_mode(void* statxbuf) {
-  return (uint32_t)((struct _stat64*)statxbuf)->st_mode;
+  return (uint32_t)((yo_win_stat_t*)statxbuf)->stat.st_mode;
 }
 
 static int64_t __yo_statx_mtime_sec(void* statxbuf) {
-  return (int64_t)((struct _stat64*)statxbuf)->st_mtime;
+  return (int64_t)((yo_win_stat_t*)statxbuf)->stat.st_mtime;
 }
 
 static uint32_t __yo_statx_mtime_nsec(void* statxbuf) {
-  return 0;
+  return ((yo_win_stat_t*)statxbuf)->mtime_nsec;
 }
 
 static int64_t __yo_statx_atime_sec(void* statxbuf) {
-  return (int64_t)((struct _stat64*)statxbuf)->st_atime;
+  return (int64_t)((yo_win_stat_t*)statxbuf)->stat.st_atime;
 }
 
 static uint32_t __yo_statx_atime_nsec(void* statxbuf) {
-  return 0;
+  return ((yo_win_stat_t*)statxbuf)->atime_nsec;
 }
 
 static int64_t __yo_statx_ctime_sec(void* statxbuf) {
-  return (int64_t)((struct _stat64*)statxbuf)->st_ctime;
+  return (int64_t)((yo_win_stat_t*)statxbuf)->stat.st_ctime;
 }
 
 static uint32_t __yo_statx_ctime_nsec(void* statxbuf) {
-  return 0;
+  return ((yo_win_stat_t*)statxbuf)->ctime_nsec;
 }
 
 static int64_t __yo_statx_btime_sec(void* statxbuf) {
-  (void)statxbuf;
-  return 0;
+  return ((yo_win_stat_t*)statxbuf)->btime_sec;
 }
 
 static uint32_t __yo_statx_btime_nsec(void* statxbuf) {
-  (void)statxbuf;
-  return 0;
+  return ((yo_win_stat_t*)statxbuf)->btime_nsec;
 }
 
 static uint32_t __yo_statx_uid(void* statxbuf) {
-  return (uint32_t)((struct _stat64*)statxbuf)->st_uid;
+  return (uint32_t)((yo_win_stat_t*)statxbuf)->stat.st_uid;
 }
 
 static uint32_t __yo_statx_gid(void* statxbuf) {
-  return (uint32_t)((struct _stat64*)statxbuf)->st_gid;
+  return (uint32_t)((yo_win_stat_t*)statxbuf)->stat.st_gid;
 }
 
 static uint64_t __yo_statx_ino(void* statxbuf) {
-  return (uint64_t)((struct _stat64*)statxbuf)->st_ino;
+  return (uint64_t)((yo_win_stat_t*)statxbuf)->stat.st_ino;
 }
 
 static uint64_t __yo_statx_dev_major(void* statxbuf) {
-  return (uint64_t)((struct _stat64*)statxbuf)->st_dev;
+  return (uint64_t)((yo_win_stat_t*)statxbuf)->stat.st_dev;
 }
 
 static uint64_t __yo_statx_dev_minor(void* statxbuf) {
@@ -1435,7 +1568,7 @@ static uint64_t __yo_statx_dev_minor(void* statxbuf) {
 }
 
 static uint64_t __yo_statx_nlink(void* statxbuf) {
-  return (uint64_t)((struct _stat64*)statxbuf)->st_nlink;
+  return (uint64_t)((yo_win_stat_t*)statxbuf)->stat.st_nlink;
 }
 
 static uint64_t __yo_statx_blksize(void* statxbuf) {
@@ -1485,11 +1618,11 @@ static uint16_t __yo_sockaddr_in_get_port(void* addr) {
 }
 
 static void __yo_sockaddr_in_set_addr(void* addr, uint32_t ip) {
-  ((struct sockaddr_in*)addr)->sin_addr.s_addr = htonl(ip);
+  ((struct sockaddr_in*)addr)->sin_addr.s_addr = ip;
 }
 
 static uint32_t __yo_sockaddr_in_get_addr(void* addr) {
-  return ntohl(((struct sockaddr_in*)addr)->sin_addr.s_addr);
+  return ((struct sockaddr_in*)addr)->sin_addr.s_addr;
 }
 
 static void __yo_sockaddr_in6_set_port(void* addr, uint16_t port) {
@@ -1556,7 +1689,12 @@ static yo_io_future_t* __yo_async_access_start(int32_t dirfd, const char* path, 
     return future;
   }
 
-  int result = _waccess(wpath, mode);
+  // Windows _waccess only supports F_OK(0), R_OK(4), W_OK(2).
+  // X_OK(1) is not supported - treat it as F_OK since Windows has no executable bit.
+  int win_mode = mode & ~1;  // Strip X_OK bit
+  if (win_mode == 0 && mode != 0) win_mode = 0;  // X_OK alone -> F_OK
+
+  int result = _waccess(wpath, win_mode);
   __yo_free(wpath);
   future->result = (result < 0) ? -errno : 0;
   atomic_init(&future->state, -1);
@@ -1646,9 +1784,28 @@ static yo_io_future_t* __yo_async_futime_start(int32_t fd, int64_t atime_sec, in
   atomic_init(&future->continuation_fn, NULL);
   atomic_init(&future->continuation_sm, NULL);
 
-  HANDLE handle = (HANDLE)_get_osfhandle(fd);
-  if (handle == INVALID_HANDLE_VALUE) {
+  HANDLE orig_handle = (HANDLE)_get_osfhandle(fd);
+  if (orig_handle == INVALID_HANDLE_VALUE) {
     future->result = -EBADF;
+    atomic_init(&future->state, -1);
+    return future;
+  }
+
+  // Get path from handle, then reopen with FILE_WRITE_ATTRIBUTES
+  // since the original fd may be read-only
+  wchar_t path_buf[MAX_PATH];
+  DWORD len = GetFinalPathNameByHandleW(orig_handle, path_buf, MAX_PATH, FILE_NAME_NORMALIZED);
+  if (len == 0 || len >= MAX_PATH) {
+    future->result = -__yo_win_last_error_to_errno();
+    atomic_init(&future->state, -1);
+    return future;
+  }
+
+  HANDLE handle = CreateFileW(path_buf, FILE_WRITE_ATTRIBUTES,
+                              FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                              NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL);
+  if (handle == INVALID_HANDLE_VALUE) {
+    future->result = -__yo_win_last_error_to_errno();
     atomic_init(&future->state, -1);
     return future;
   }
@@ -1656,6 +1813,7 @@ static yo_io_future_t* __yo_async_futime_start(int32_t fd, int64_t atime_sec, in
   FILETIME at = __yo_win_timespec_to_filetime(atime_sec, atime_nsec);
   FILETIME mt = __yo_win_timespec_to_filetime(mtime_sec, mtime_nsec);
   BOOL ok = SetFileTime(handle, NULL, &at, &mt);
+  CloseHandle(handle);
   future->result = ok ? 0 : -__yo_win_last_error_to_errno();
   atomic_init(&future->state, -1);
   return future;
@@ -1942,8 +2100,9 @@ static yo_io_future_t* __yo_async_closedir_start(void* dir) {
 // DNS Operations (Windows)
 // ============================================================================
 
-static yo_io_future_t* __yo_async_getaddrinfo_start(const char* node, const char* service,
-                                                     const void* hints, void** result) {
+static yo_io_future_t* __yo_async_getaddrinfo_start(const uint8_t* node, const uint8_t* service,
+                                                     const uint8_t* hints, uint8_t** result) {
+  __yo_io_init();
   yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
   memset(future, 0, sizeof(yo_io_future_t));
 
@@ -1952,22 +2111,23 @@ static yo_io_future_t* __yo_async_getaddrinfo_start(const char* node, const char
   atomic_init(&future->continuation_sm, NULL);
 
   struct addrinfo* res = NULL;
-  int ret = getaddrinfo(node, service, (const struct addrinfo*)hints, &res);
+  int ret = getaddrinfo((const char*)node, (const char*)service, (const struct addrinfo*)hints, &res);
 
   if (ret == 0) {
-    *result = res;
+    *result = (uint8_t*)res;
     future->result = 0;
   } else {
-    future->result = -ret;
+    future->result = ret;  // Return raw gai error code
   }
   atomic_init(&future->state, -1);
 
   return future;
 }
 
-static yo_io_future_t* __yo_async_getnameinfo_start(const void* addr, uint32_t addrlen,
-                                                     char* host, size_t hostlen,
-                                                     char* service, size_t servlen, int32_t flags) {
+static yo_io_future_t* __yo_async_getnameinfo_start(const uint8_t* addr, uint32_t addrlen,
+                                                     uint8_t* host, size_t hostlen,
+                                                     uint8_t* service, size_t servlen, int32_t flags) {
+  __yo_io_init();
   yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
   memset(future, 0, sizeof(yo_io_future_t));
 
@@ -1976,26 +2136,26 @@ static yo_io_future_t* __yo_async_getnameinfo_start(const void* addr, uint32_t a
   atomic_init(&future->continuation_sm, NULL);
 
   int ret = getnameinfo((const struct sockaddr*)addr, (socklen_t)addrlen,
-                        host, (socklen_t)hostlen, service, (socklen_t)servlen, flags);
-  future->result = (ret == 0) ? 0 : -ret;
+                        (char*)host, (socklen_t)hostlen, (char*)service, (socklen_t)servlen, flags);
+  future->result = ret;  // Return raw gai error code
   atomic_init(&future->state, -1);
 
   return future;
 }
 
-static void __yo_freeaddrinfo(void* res) {
+static void __yo_freeaddrinfo(uint8_t* res) {
   if (res) freeaddrinfo((struct addrinfo*)res);
 }
 
 static size_t __yo_addrinfo_size(void) { return sizeof(struct addrinfo); }
-static int32_t __yo_addrinfo_flags(void* ai) { return ((struct addrinfo*)ai)->ai_flags; }
-static int32_t __yo_addrinfo_family(void* ai) { return ((struct addrinfo*)ai)->ai_family; }
-static int32_t __yo_addrinfo_socktype(void* ai) { return ((struct addrinfo*)ai)->ai_socktype; }
-static int32_t __yo_addrinfo_protocol(void* ai) { return ((struct addrinfo*)ai)->ai_protocol; }
-static uint32_t __yo_addrinfo_addrlen(void* ai) { return (uint32_t)((struct addrinfo*)ai)->ai_addrlen; }
-static void* __yo_addrinfo_addr(void* ai) { return ((struct addrinfo*)ai)->ai_addr; }
-static char* __yo_addrinfo_canonname(void* ai) { return ((struct addrinfo*)ai)->ai_canonname; }
-static void* __yo_addrinfo_next(void* ai) { return ((struct addrinfo*)ai)->ai_next; }
+static int32_t __yo_addrinfo_flags(uint8_t* ai) { return ((struct addrinfo*)ai)->ai_flags; }
+static int32_t __yo_addrinfo_family(uint8_t* ai) { return ((struct addrinfo*)ai)->ai_family; }
+static int32_t __yo_addrinfo_socktype(uint8_t* ai) { return ((struct addrinfo*)ai)->ai_socktype; }
+static int32_t __yo_addrinfo_protocol(uint8_t* ai) { return ((struct addrinfo*)ai)->ai_protocol; }
+static uint32_t __yo_addrinfo_addrlen(uint8_t* ai) { return (uint32_t)((struct addrinfo*)ai)->ai_addrlen; }
+static uint8_t* __yo_addrinfo_addr(uint8_t* ai) { return (uint8_t*)((struct addrinfo*)ai)->ai_addr; }
+static uint8_t* __yo_addrinfo_canonname(uint8_t* ai) { return (uint8_t*)((struct addrinfo*)ai)->ai_canonname; }
+static uint8_t* __yo_addrinfo_next(uint8_t* ai) { return (uint8_t*)((struct addrinfo*)ai)->ai_next; }
 
 // ============================================================================
 // Signal Operations (stubs)

@@ -20,9 +20,15 @@ AT_FDCWD :: cond(
   (platform == Platform.Darwin) => i32(-2),
   true => i32(-100)
 );
-AT_REMOVEDIR :: i32(0x200);
+AT_REMOVEDIR :: cond(
+  (platform == Platform.Darwin) => i32(0x80),
+  true => i32(0x200)
+);
 AT_EMPTY_PATH :: i32(0x1000);
-AT_SYMLINK_NOFOLLOW :: i32(0x100);
+AT_SYMLINK_NOFOLLOW :: cond(
+  (platform == Platform.Darwin) => i32(0x20),
+  true => i32(0x100)
+);
 AT_STATX_SYNC_AS_STAT :: i32(0x0000);
 
 // STATX_BASIC_STATS - request basic stats (Linux-specific)

@@ -57,6 +57,7 @@ If running a command didn't produce any output for a long time, let's write it t
 - `--test-name-pattern "Test XXX"` to run a specific test
 - Tests automatically use AddressSanitizer for memory leak detection
 - Let's always save the log output of test, e.g., `./yo-cli test src/tests/fixme.test.yo --bail --verbose &> test_output.txt` as it might take a long time to run and we might want to analyze the output later.
+- Please note you cannot `./yo-cli compile tests/io/dns.test.yo`. To test a failing test, move that part of code into a new `.yo` file with a `main` function and `export main;` at the end, then compile that file.
 
 Feel free to run `gdb` on `./a.out` to debug the generated C code. Let's better not use GNU extension because we might target other C compilers. Let's stick with C11 standard.
 
@@ -203,6 +204,8 @@ No typescript index.ts barrel files are allowed, as they can easily cause circul
 The Pointer type in Yo can be used in both compile-time and runtime contexts. Its `Runtime` and `Comptime` traits are implemented in prelude.yo.
 
 Pointer arithmetic operations are using &+, &-, &<, &>, &<=, &>= operators with `&` prefix.
+
+There is no NULL in Yo. Nullable pointer is represented using `Option(*(T))`, or `?*(T)` enum type. We optimize `Option(*(T)).None` as NULL pointer in C codegen.
 
 The SomeType in Yo by defaults automatically implements the `Runtime` trait
 

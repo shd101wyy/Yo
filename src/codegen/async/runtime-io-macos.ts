@@ -435,7 +435,7 @@ static yo_io_future_t* __yo_async_unlinkat_start(int32_t dirfd, const char* path
   
   int result;
   if (dirfd == -100) {
-    if (flags & 0x200) {  // AT_REMOVEDIR
+    if (flags & 0x80) {  // AT_REMOVEDIR (macOS value)
       result = rmdir(path);
     } else {
       result = unlink(path);
@@ -779,7 +779,7 @@ static yo_io_future_t* __yo_async_pipe_start(int32_t* pipefd) {
 #include <arpa/inet.h>
 #include <sys/un.h>
 
-// Async socket - create socket
+// Async socket - create socket (non-blocking for async dispatch_source operations)
 static yo_io_future_t* __yo_async_socket_start(int32_t domain, int32_t type, int32_t protocol) {
   __yo_io_init();
   
@@ -791,6 +791,10 @@ static yo_io_future_t* __yo_async_socket_start(int32_t domain, int32_t type, int
   atomic_init(&future->continuation_sm, NULL);
   
   int result = socket(domain, type, protocol);
+  if (result >= 0) {
+    int flags = fcntl(result, F_GETFL, 0);
+    if (flags >= 0) fcntl(result, F_SETFL, flags | O_NONBLOCK);
+  }
   future->result = (result < 0) ? -errno : result;
   atomic_init(&future->state, -1);
   
@@ -840,7 +844,7 @@ static yo_io_future_t* __yo_async_listen_start(int32_t sockfd, int32_t backlog) 
   return future;
 }
 
-// Async accept - accept incoming connection (using kqueue for true async)
+// Async accept - accept incoming connection using dispatch_source for true async
 static yo_io_future_t* __yo_async_accept_start(int32_t sockfd, void* addr, uint32_t* addrlen) {
   __yo_io_init();
   
@@ -851,18 +855,66 @@ static yo_io_future_t* __yo_async_accept_start(int32_t sockfd, void* addr, uint3
   atomic_init(&future->continuation_fn, NULL);
   atomic_init(&future->continuation_sm, NULL);
   
-  // For now, use synchronous accept - true async would use kqueue
-  // TODO: Implement kqueue-based async accept for non-blocking sockets
+  // Try non-blocking accept first
   int result = accept(sockfd, (struct sockaddr*)addr, (socklen_t*)addrlen);
-  future->result = (result < 0) ? -errno : result;
-  atomic_init(&future->state, -1);
+  if (result >= 0) {
+    // Set accepted socket to non-blocking too
+    int fl = fcntl(result, F_GETFL, 0);
+    if (fl >= 0) fcntl(result, F_SETFL, fl | O_NONBLOCK);
+    future->result = result;
+    atomic_init(&future->state, -1);
+    ASYNC_DEBUG("[IO] accept completed immediately: sockfd=%d result=%d\\n", sockfd, result);
+    return future;
+  }
   
-  ASYNC_DEBUG("[IO] accept completed: sockfd=%d result=%d\\n", sockfd, future->result);
+  if (errno != EAGAIN && errno != EWOULDBLOCK) {
+    future->result = -errno;
+    atomic_init(&future->state, -1);
+    ASYNC_DEBUG("[IO] accept failed: sockfd=%d errno=%d\\n", sockfd, errno);
+    return future;
+  }
   
+  // Socket not ready — wait for readable via dispatch_source
+  atomic_init(&future->state, 0);
+  future->result = 0;
+  atomic_fetch_add(&__yo_pending_io_count, 1);
+  
+  yo_io_future_t* fut = future;
+  int32_t sfd = sockfd;
+  void* a = addr;
+  uint32_t* al = addrlen;
+  
+  dispatch_source_t source = dispatch_source_create(
+    DISPATCH_SOURCE_TYPE_READ, (uintptr_t)sockfd, 0, __yo_io_queue);
+  
+  dispatch_source_set_event_handler(source, ^{
+    int r = accept(sfd, (struct sockaddr*)a, (socklen_t*)al);
+    if (r < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+      return; // Spurious wake, wait for next event
+    }
+    if (r >= 0) {
+      int fl = fcntl(r, F_GETFL, 0);
+      if (fl >= 0) fcntl(r, F_SETFL, fl | O_NONBLOCK);
+      fut->result = r;
+    } else {
+      fut->result = -errno;
+    }
+    dispatch_source_cancel(source);
+    __yo_io_wake_continuation(fut);
+    ASYNC_DEBUG("[IO] accept completed via dispatch: sockfd=%d result=%d\\n", sfd, fut->result);
+  });
+  
+  dispatch_source_set_cancel_handler(source, ^{
+    dispatch_release(source);
+  });
+  
+  dispatch_resume(source);
+  
+  ASYNC_DEBUG("[IO] accept waiting via dispatch_source: sockfd=%d\\n", sockfd);
   return future;
 }
 
-// Async connect - connect to remote address
+// Async connect - connect to remote address using dispatch_source for true async
 static yo_io_future_t* __yo_async_connect_start(int32_t sockfd, const void* addr, uint32_t addrlen) {
   __yo_io_init();
   
@@ -873,18 +925,54 @@ static yo_io_future_t* __yo_async_connect_start(int32_t sockfd, const void* addr
   atomic_init(&future->continuation_fn, NULL);
   atomic_init(&future->continuation_sm, NULL);
   
-  // For now, use synchronous connect - true async would use kqueue
-  // TODO: Implement kqueue-based async connect for non-blocking sockets
+  // Try non-blocking connect
   int result = connect(sockfd, (const struct sockaddr*)addr, (socklen_t)addrlen);
-  future->result = (result < 0) ? -errno : 0;
-  atomic_init(&future->state, -1);
+  if (result == 0) {
+    future->result = 0;
+    atomic_init(&future->state, -1);
+    ASYNC_DEBUG("[IO] connect completed immediately: sockfd=%d\\n", sockfd);
+    return future;
+  }
   
-  ASYNC_DEBUG("[IO] connect completed: sockfd=%d result=%d\\n", sockfd, future->result);
+  if (errno != EINPROGRESS) {
+    future->result = -errno;
+    atomic_init(&future->state, -1);
+    ASYNC_DEBUG("[IO] connect failed: sockfd=%d errno=%d\\n", sockfd, errno);
+    return future;
+  }
   
+  // Connection in progress — wait for writable via dispatch_source
+  atomic_init(&future->state, 0);
+  future->result = 0;
+  atomic_fetch_add(&__yo_pending_io_count, 1);
+  
+  yo_io_future_t* fut = future;
+  int32_t sfd = sockfd;
+  
+  dispatch_source_t source = dispatch_source_create(
+    DISPATCH_SOURCE_TYPE_WRITE, (uintptr_t)sockfd, 0, __yo_io_queue);
+  
+  dispatch_source_set_event_handler(source, ^{
+    int so_error = 0;
+    socklen_t len = sizeof(so_error);
+    getsockopt(sfd, SOL_SOCKET, SO_ERROR, &so_error, &len);
+    fut->result = (so_error == 0) ? 0 : -so_error;
+    dispatch_source_cancel(source);
+    __yo_io_wake_continuation(fut);
+    ASYNC_DEBUG("[IO] connect completed via dispatch: sockfd=%d result=%d\\n", sfd, fut->result);
+  });
+  
+  dispatch_source_set_cancel_handler(source, ^{
+    dispatch_release(source);
+  });
+  
+  dispatch_resume(source);
+  
+  ASYNC_DEBUG("[IO] connect waiting via dispatch_source: sockfd=%d\\n", sockfd);
   return future;
 }
 
-// Async send - send data on socket
+// Async send - send data on socket using dispatch_source for true async
 static yo_io_future_t* __yo_async_send_start(int32_t sockfd, const void* buf, size_t len, int32_t flags) {
   __yo_io_init();
   
@@ -895,18 +983,58 @@ static yo_io_future_t* __yo_async_send_start(int32_t sockfd, const void* buf, si
   atomic_init(&future->continuation_fn, NULL);
   atomic_init(&future->continuation_sm, NULL);
   
-  // For now, use synchronous send
-  // TODO: Implement true async send using kqueue or dispatch_source
+  // Try non-blocking send first
   ssize_t result = send(sockfd, buf, len, flags);
-  future->result = (result < 0) ? -errno : (int32_t)result;
-  atomic_init(&future->state, -1);
+  if (result >= 0) {
+    future->result = (int32_t)result;
+    atomic_init(&future->state, -1);
+    ASYNC_DEBUG("[IO] send completed immediately: sockfd=%d len=%zu result=%d\\n", sockfd, len, future->result);
+    return future;
+  }
   
-  ASYNC_DEBUG("[IO] send completed: sockfd=%d len=%zu result=%d\\n", sockfd, len, future->result);
+  if (errno != EAGAIN && errno != EWOULDBLOCK) {
+    future->result = -errno;
+    atomic_init(&future->state, -1);
+    ASYNC_DEBUG("[IO] send failed: sockfd=%d errno=%d\\n", sockfd, errno);
+    return future;
+  }
   
+  // Socket not writable — wait via dispatch_source
+  atomic_init(&future->state, 0);
+  future->result = 0;
+  atomic_fetch_add(&__yo_pending_io_count, 1);
+  
+  yo_io_future_t* fut = future;
+  int32_t sfd = sockfd;
+  const void* b = buf;
+  size_t l = len;
+  int32_t f = flags;
+  
+  dispatch_source_t source = dispatch_source_create(
+    DISPATCH_SOURCE_TYPE_WRITE, (uintptr_t)sockfd, 0, __yo_io_queue);
+  
+  dispatch_source_set_event_handler(source, ^{
+    ssize_t r = send(sfd, b, l, f);
+    if (r < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+      return; // Spurious wake, wait for next event
+    }
+    fut->result = (r >= 0) ? (int32_t)r : -errno;
+    dispatch_source_cancel(source);
+    __yo_io_wake_continuation(fut);
+    ASYNC_DEBUG("[IO] send completed via dispatch: sockfd=%d result=%d\\n", sfd, fut->result);
+  });
+  
+  dispatch_source_set_cancel_handler(source, ^{
+    dispatch_release(source);
+  });
+  
+  dispatch_resume(source);
+  
+  ASYNC_DEBUG("[IO] send waiting via dispatch_source: sockfd=%d\\n", sockfd);
   return future;
 }
 
-// Async recv - receive data from socket
+// Async recv - receive data from socket using dispatch_source for true async
 static yo_io_future_t* __yo_async_recv_start(int32_t sockfd, void* buf, size_t len, int32_t flags) {
   __yo_io_init();
   
@@ -917,18 +1045,58 @@ static yo_io_future_t* __yo_async_recv_start(int32_t sockfd, void* buf, size_t l
   atomic_init(&future->continuation_fn, NULL);
   atomic_init(&future->continuation_sm, NULL);
   
-  // For now, use synchronous recv
-  // TODO: Implement true async recv using kqueue or dispatch_source
+  // Try non-blocking recv first
   ssize_t result = recv(sockfd, buf, len, flags);
-  future->result = (result < 0) ? -errno : (int32_t)result;
-  atomic_init(&future->state, -1);
+  if (result >= 0) {
+    future->result = (int32_t)result;
+    atomic_init(&future->state, -1);
+    ASYNC_DEBUG("[IO] recv completed immediately: sockfd=%d len=%zu result=%d\\n", sockfd, len, future->result);
+    return future;
+  }
   
-  ASYNC_DEBUG("[IO] recv completed: sockfd=%d len=%zu result=%d\\n", sockfd, len, future->result);
+  if (errno != EAGAIN && errno != EWOULDBLOCK) {
+    future->result = -errno;
+    atomic_init(&future->state, -1);
+    ASYNC_DEBUG("[IO] recv failed: sockfd=%d errno=%d\\n", sockfd, errno);
+    return future;
+  }
   
+  // No data available — wait for readable via dispatch_source
+  atomic_init(&future->state, 0);
+  future->result = 0;
+  atomic_fetch_add(&__yo_pending_io_count, 1);
+  
+  yo_io_future_t* fut = future;
+  int32_t sfd = sockfd;
+  void* b = buf;
+  size_t l = len;
+  int32_t f = flags;
+  
+  dispatch_source_t source = dispatch_source_create(
+    DISPATCH_SOURCE_TYPE_READ, (uintptr_t)sockfd, 0, __yo_io_queue);
+  
+  dispatch_source_set_event_handler(source, ^{
+    ssize_t r = recv(sfd, b, l, f);
+    if (r < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+      return; // Spurious wake, wait for next event
+    }
+    fut->result = (r >= 0) ? (int32_t)r : -errno;
+    dispatch_source_cancel(source);
+    __yo_io_wake_continuation(fut);
+    ASYNC_DEBUG("[IO] recv completed via dispatch: sockfd=%d result=%d\\n", sfd, fut->result);
+  });
+  
+  dispatch_source_set_cancel_handler(source, ^{
+    dispatch_release(source);
+  });
+  
+  dispatch_resume(source);
+  
+  ASYNC_DEBUG("[IO] recv waiting via dispatch_source: sockfd=%d\\n", sockfd);
   return future;
 }
 
-// Async sendto - send data to specific address (UDP)
+// Async sendto - send data to specific address (UDP) using dispatch_source for true async
 static yo_io_future_t* __yo_async_sendto_start(int32_t sockfd, const void* buf, size_t len, int32_t flags,
                                                 const void* dest_addr, uint32_t addrlen) {
   __yo_io_init();
@@ -940,16 +1108,60 @@ static yo_io_future_t* __yo_async_sendto_start(int32_t sockfd, const void* buf, 
   atomic_init(&future->continuation_fn, NULL);
   atomic_init(&future->continuation_sm, NULL);
   
+  // Try non-blocking sendto first
   ssize_t result = sendto(sockfd, buf, len, flags, (const struct sockaddr*)dest_addr, (socklen_t)addrlen);
-  future->result = (result < 0) ? -errno : (int32_t)result;
-  atomic_init(&future->state, -1);
+  if (result >= 0) {
+    future->result = (int32_t)result;
+    atomic_init(&future->state, -1);
+    ASYNC_DEBUG("[IO] sendto completed immediately: sockfd=%d len=%zu result=%d\\n", sockfd, len, future->result);
+    return future;
+  }
   
-  ASYNC_DEBUG("[IO] sendto completed: sockfd=%d len=%zu result=%d\\n", sockfd, len, future->result);
+  if (errno != EAGAIN && errno != EWOULDBLOCK) {
+    future->result = -errno;
+    atomic_init(&future->state, -1);
+    ASYNC_DEBUG("[IO] sendto failed: sockfd=%d errno=%d\\n", sockfd, errno);
+    return future;
+  }
   
+  // Socket not writable — wait via dispatch_source
+  atomic_init(&future->state, 0);
+  future->result = 0;
+  atomic_fetch_add(&__yo_pending_io_count, 1);
+  
+  yo_io_future_t* fut = future;
+  int32_t sfd = sockfd;
+  const void* b = buf;
+  size_t l = len;
+  int32_t f = flags;
+  const void* da = dest_addr;
+  uint32_t al = addrlen;
+  
+  dispatch_source_t source = dispatch_source_create(
+    DISPATCH_SOURCE_TYPE_WRITE, (uintptr_t)sockfd, 0, __yo_io_queue);
+  
+  dispatch_source_set_event_handler(source, ^{
+    ssize_t r = sendto(sfd, b, l, f, (const struct sockaddr*)da, (socklen_t)al);
+    if (r < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+      return; // Spurious wake, wait for next event
+    }
+    fut->result = (r >= 0) ? (int32_t)r : -errno;
+    dispatch_source_cancel(source);
+    __yo_io_wake_continuation(fut);
+    ASYNC_DEBUG("[IO] sendto completed via dispatch: sockfd=%d result=%d\\n", sfd, fut->result);
+  });
+  
+  dispatch_source_set_cancel_handler(source, ^{
+    dispatch_release(source);
+  });
+  
+  dispatch_resume(source);
+  
+  ASYNC_DEBUG("[IO] sendto waiting via dispatch_source: sockfd=%d\\n", sockfd);
   return future;
 }
 
-// Async recvfrom - receive data with source address (UDP)
+// Async recvfrom - receive data with source address (UDP) using dispatch_source for true async
 static yo_io_future_t* __yo_async_recvfrom_start(int32_t sockfd, void* buf, size_t len, int32_t flags,
                                                   void* src_addr, uint32_t* addrlen) {
   __yo_io_init();
@@ -961,12 +1173,56 @@ static yo_io_future_t* __yo_async_recvfrom_start(int32_t sockfd, void* buf, size
   atomic_init(&future->continuation_fn, NULL);
   atomic_init(&future->continuation_sm, NULL);
   
+  // Try non-blocking recvfrom first
   ssize_t result = recvfrom(sockfd, buf, len, flags, (struct sockaddr*)src_addr, (socklen_t*)addrlen);
-  future->result = (result < 0) ? -errno : (int32_t)result;
-  atomic_init(&future->state, -1);
+  if (result >= 0) {
+    future->result = (int32_t)result;
+    atomic_init(&future->state, -1);
+    ASYNC_DEBUG("[IO] recvfrom completed immediately: sockfd=%d len=%zu result=%d\\n", sockfd, len, future->result);
+    return future;
+  }
   
-  ASYNC_DEBUG("[IO] recvfrom completed: sockfd=%d len=%zu result=%d\\n", sockfd, len, future->result);
+  if (errno != EAGAIN && errno != EWOULDBLOCK) {
+    future->result = -errno;
+    atomic_init(&future->state, -1);
+    ASYNC_DEBUG("[IO] recvfrom failed: sockfd=%d errno=%d\\n", sockfd, errno);
+    return future;
+  }
   
+  // No data available — wait for readable via dispatch_source
+  atomic_init(&future->state, 0);
+  future->result = 0;
+  atomic_fetch_add(&__yo_pending_io_count, 1);
+  
+  yo_io_future_t* fut = future;
+  int32_t sfd = sockfd;
+  void* b = buf;
+  size_t l = len;
+  int32_t f = flags;
+  void* sa = src_addr;
+  uint32_t* al = addrlen;
+  
+  dispatch_source_t source = dispatch_source_create(
+    DISPATCH_SOURCE_TYPE_READ, (uintptr_t)sockfd, 0, __yo_io_queue);
+  
+  dispatch_source_set_event_handler(source, ^{
+    ssize_t r = recvfrom(sfd, b, l, f, (struct sockaddr*)sa, (socklen_t*)al);
+    if (r < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+      return; // Spurious wake, wait for next event
+    }
+    fut->result = (r >= 0) ? (int32_t)r : -errno;
+    dispatch_source_cancel(source);
+    __yo_io_wake_continuation(fut);
+    ASYNC_DEBUG("[IO] recvfrom completed via dispatch: sockfd=%d result=%d\\n", sfd, fut->result);
+  });
+  
+  dispatch_source_set_cancel_handler(source, ^{
+    dispatch_release(source);
+  });
+  
+  dispatch_resume(source);
+  
+  ASYNC_DEBUG("[IO] recvfrom waiting via dispatch_source: sockfd=%d\\n", sockfd);
   return future;
 }
 

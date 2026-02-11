@@ -15,6 +15,7 @@ import type { DynType, SomeType, StructType } from "../../types/definitions";
 import { isDynType, isSomeType, isUnitType } from "../../types/guards";
 import { typeContainsRcType } from "../../types/utils";
 import { isTempVariableName } from "../../utils";
+import { emitAsyncFutureCompletion } from "../exprs/async-completion";
 import { getDupFunctionForType } from "../exprs/drop-dup";
 import { generateExpr } from "../exprs/expr";
 import type { FunctionGenerationContext } from "../functions/context";
@@ -158,6 +159,12 @@ export function generateAsyncBlockResumeFunction(
       const prevAwait = analysis.awaitPoints[stateNumber - 1]!;
       const prevFutureFieldName = getFutureFieldName(prevAwait, analysis);
 
+      // When previous await was inside a cond, the future may be NULL
+      // (non-await branch was taken). Guard all result extraction and cond handling.
+      if (prevAwait.isInsideCond) {
+        emitter.emitLine(`      if (sm->${prevFutureFieldName} != NULL) {`);
+      }
+
       if (prevAwait && !isUnitType(prevAwait.resultType)) {
         emitter.emitLine(
           `      // Extract result from await ${stateNumber - 1}`
@@ -259,9 +266,16 @@ export function generateAsyncBlockResumeFunction(
                   context.stateMachineVariables;
                 const previousVariableIdRemappingForBranch =
                   context.variableIdRemapping;
+                const previousPendingDeferredDropsForBranch =
+                  context.pendingDeferredDrops;
 
                 context.inStateMachine = { futureType };
                 context.variableIdRemapping = analysis.variableIdRemapping;
+                // Set pending deferred drops so early returns in cond branches
+                // can drop async block local variables
+                context.pendingDeferredDrops = [
+                  ...(bodyExpr.$?.deferredDropExpressions ?? []),
+                ];
                 // Combine outer captured variables and local variables
                 const combinedVariables = new Map<string, CapturedVariable>();
                 for (const v of analysis.capturedVariables) {
@@ -318,6 +332,8 @@ export function generateAsyncBlockResumeFunction(
                   previousStateMachineVariablesForBranch;
                 context.variableIdRemapping =
                   previousVariableIdRemappingForBranch;
+                context.pendingDeferredDrops =
+                  previousPendingDeferredDropsForBranch;
               }
 
               emitter.emitLine(`          break;`);
@@ -340,6 +356,11 @@ export function generateAsyncBlockResumeFunction(
           }
 
           emitter.emitLine(``);
+        }
+
+        // Close the isInsideCond NULL guard
+        if (prevAwait.isInsideCond) {
+          emitter.emitLine(`      }`);
         }
 
         // Check if this await was part of a while loop
@@ -563,6 +584,16 @@ export function generateAsyncBlockResumeFunction(
       const nextState = stateNumber + 1;
       const futureFieldName = getFutureFieldName(segment.awaitPoint, analysis);
 
+      // If this await is inside a cond expression, the future may not be set
+      // (the non-await branch was taken). Guard the await logic with a NULL check.
+      const isInsideCond = segment.awaitPoint?.isInsideCond;
+      if (isInsideCond) {
+        emitter.emitLine(
+          `      // Only await if the cond branch with await was taken`
+        );
+        emitter.emitLine(`      if (sm->${futureFieldName} != NULL) {`);
+      }
+
       // If this await is inside a while loop, wrap the await logic in a check for loop active flag
       const isInsideWhile = segment.awaitPoint?.isInsideWhile;
       if (isInsideWhile) {
@@ -614,6 +645,16 @@ export function generateAsyncBlockResumeFunction(
         emitter.emitLine(`        goto after_while_loop_${whileLoopIndex};`);
         emitter.emitLine(`      }`);
       }
+
+      if (isInsideCond) {
+        emitter.emitLine(`      } else {`);
+        emitter.emitLine(
+          `        // Non-await cond branch was taken, skip directly to next state`
+        );
+        emitter.emitLine(`        sm->state = ${nextState};`);
+        emitter.emitLine(`        goto state_${nextState};`);
+        emitter.emitLine(`      }`);
+      }
     } else if (isLastSegment) {
       // Last segment - complete the Future
       const hasReturnStatement = segment.expressions.some((expr: Expr) =>
@@ -635,52 +676,12 @@ export function generateAsyncBlockResumeFunction(
         }
 
         emitter.emitLine(`      // Final state - complete the Future`);
-        emitter.emitLine(
-          `      atomic_store_explicit(&sm->state, -1, memory_order_release);  // -1 = completed`
-        );
 
-        emitter.emitLine(``);
-        emitter.emitLine(`      // Check if there's a continuation to invoke`);
-        emitter.emitLine(
-          `      void (*continuation_fn)(void*) = (void (*)(void*))atomic_load_explicit(&sm->continuation_fn, memory_order_acquire);`
-        );
-        emitter.emitLine(
-          `      void* continuation_sm = atomic_load_explicit(&sm->continuation_sm, memory_order_acquire);`
-        );
-        emitter.emitLine(``);
-        emitter.emitLine(`      if (continuation_fn != NULL) {`);
-        emitter.emitLine(
-          `        ASYNC_DEBUG("Future %p completed, spawning continuation: resume_fn=%p, sm=%p\\n", (void*)sm, (void*)continuation_fn, continuation_sm);`
-        );
-        emitter.emitLine(``);
-        emitter.emitLine(
-          `        // Clear the continuation (prevent double-spawn)`
-        );
-        emitter.emitLine(
-          `        atomic_store_explicit(&sm->continuation_fn, NULL, memory_order_relaxed);`
-        );
-        emitter.emitLine(
-          `        atomic_store_explicit(&sm->continuation_sm, NULL, memory_order_relaxed);`
-        );
-        emitter.emitLine(``);
-        emitter.emitLine(`        // Spawn the continuation as a new task`);
-        emitter.emitLine(
-          `        yo_async_spawn_task(continuation_fn, continuation_sm);`
-        );
-        emitter.emitLine(`      }`);
-        emitter.emitLine(``);
-
-        emitter.emitLine(
-          `      // Release event loop's reference now that task is complete`
-        );
-        emitter.emitLine(
-          `      // This balances the __yo_incr_rc in yo_async_spawn_task`
-        );
-        emitter.emitLine(`      __yo_decr_rc((void*)sm);`);
-
-        emitter.emitLine(``);
-        emitter.emitLine(`      // Stay in terminal state (-1)`);
-        emitter.emitLine(`      return;`);
+        emitAsyncFutureCompletion({
+          emitter,
+          indent: "      ",
+          debugLabel: `Future %p completed`,
+        });
       }
 
       // Restore previous context after final state

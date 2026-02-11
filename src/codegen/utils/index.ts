@@ -654,12 +654,12 @@ export function getTypeString(
         return `${baseTypeStr}*`;
       }
       // Borrowing an enum that is represented as a pointer (nullable pointer optimization)
-      // should also keep the same C type string.
+      // needs an extra level of indirection, same as object types.
       if (
         isEnumType(childType) &&
         canOptimizeAsNullablePointer(childType as EnumType)
       ) {
-        return baseTypeStr;
+        return `${baseTypeStr}*`;
       }
 
       // For value types, a borrow is a pointer to the value.

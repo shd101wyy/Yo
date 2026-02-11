@@ -18,6 +18,7 @@ import {
   getVariableNameForCodegen,
   sanitizeForCIdentifier,
 } from "../utils";
+import { emitAsyncFutureCompletion } from "./async-completion";
 import { generateAtom } from "./atom";
 import {
   generateDeferredDropExpressions,
@@ -272,64 +273,23 @@ export function generateReturn(
       context.emitter.emitLine(
         `${indent}// Final state - complete the result Future`
       );
-      context.emitter.emitLine(
-        `${indent}ASYNC_DEBUG("${context.currentFunctionName}: Completing async function\\n");`
-      );
 
-      // Store the result if not unit
+      // Compute the result value if not unit
+      let resultCode: string | undefined;
       if (!isUnitResult) {
-        // Use argCode directly if we didn't need a temp variable, otherwise use the temp variable
         const resultValue =
           expr.$.variableName && needsTempVarDeclaration
             ? expr.$.variableName
             : expr.$.variableName || argCode;
-        context.emitter.emitLine(`${indent}sm->result = ${resultValue};`);
+        resultCode = resultValue;
       }
 
-      // Set state to COMPLETED with release semantics
-      // This ensures the result write above is visible to other threads
-      context.emitter.emitLine(
-        `${indent}ASYNC_DEBUG("${context.currentFunctionName}: Setting state to COMPLETED\\n");`
-      );
-      context.emitter.emitLine(
-        `${indent}atomic_store_explicit(&sm->state, -1, memory_order_release);  // -1 = completed`
-      );
-
-      // Check if there's a continuation waiting (with acquire semantics to see the continuation registration)
-      context.emitter.emitLine(``);
-      context.emitter.emitLine(
-        `${indent}// Check if there's a continuation waiting for this Future to complete`
-      );
-      context.emitter.emitLine(
-        `${indent}void (*continuation_fn)(void*) = atomic_load_explicit(&sm->continuation_fn, memory_order_acquire);`
-      );
-      context.emitter.emitLine(
-        `${indent}void* continuation_sm = atomic_load_explicit(&sm->continuation_sm, memory_order_acquire);`
-      );
-      context.emitter.emitLine(`${indent}if (continuation_fn != NULL) {`);
-      context.emitter.emitLine(
-        `${indent}  ASYNC_DEBUG("${context.currentFunctionName}: Spawning continuation: resume_fn=%p, sm=%p\\n", (void*)continuation_fn, continuation_sm);`
-      );
-      context.emitter.emitLine(
-        `${indent}  yo_async_spawn_task(continuation_fn, continuation_sm);`
-      );
-      context.emitter.emitLine(`${indent}}`);
-
-      context.emitter.emitLine(
-        `${indent}sm->state = ${Number.MAX_SAFE_INTEGER};  // Terminal state`
-      );
-      context.emitter.emitLine(``);
-      context.emitter.emitLine(
-        `${indent}// Release the "running task" reference now that task is complete`
-      );
-      context.emitter.emitLine(
-        `${indent}// This balances the __yo_incr_rc in the constructor`
-      );
-      context.emitter.emitLine(`${indent}__yo_decr_rc((void*)sm);`);
-      context.emitter.emitLine(``);
-      // Return from the void resume function
-      context.emitter.emitLine(`${indent}return;`);
-      // Return empty string so no additional code is generated
+      emitAsyncFutureCompletion({
+        emitter: context.emitter,
+        indent,
+        resultCode,
+        debugLabel: context.currentFunctionName,
+      });
       return ``;
     }
 
@@ -351,6 +311,33 @@ export function generateReturn(
     }
 
     const functionContext = context as FunctionGenerationContext;
+
+    // Check if we're in a state machine - if so, complete the Future instead of returning
+    if (functionContext.inStateMachine) {
+      const futureType = functionContext.inStateMachine.futureType;
+      const futureModuleType = extractFutureTraitFromType(futureType)!;
+      const childType = futureModuleType.isFuture.outputType;
+      const isUnitResult = isUnitType(childType);
+
+      generatePendingDeferredDrops(indent, functionContext, expr, true);
+
+      context.emitter.emitLine(
+        `${indent}// Final state - complete the result Future (early unit return)`
+      );
+
+      const resultCode = !isUnitResult
+        ? `(${getTypeString(childType, context)}){0}`
+        : undefined;
+
+      emitAsyncFutureCompletion({
+        emitter: context.emitter,
+        indent,
+        resultCode,
+        debugLabel: context.currentFunctionName,
+      });
+      return ``;
+    }
+
     generatePendingDeferredDrops(indent, functionContext, expr);
 
     return "return";

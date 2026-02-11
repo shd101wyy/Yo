@@ -1,3 +1,4 @@
+import { getVariablesFromEnv } from "../../env";
 import {
   extractFnTraitFromType,
   typeImplementsFn,
@@ -166,6 +167,24 @@ export function generateOtherFunctionCall(
           // Generate the argument expression and declare it as a temp variable
           const argCode = generateExpr(arg, indent, context);
 
+          // Check if this is a compile-time-only constant (e.g., AF_INET :: i32(2)).
+          // In that case, generateExpr already inlined the value (e.g., "2"),
+          // so we must NOT create a temp variable with the original name because
+          // it could conflict with C preprocessor macros (e.g., AF_INET from <sys/socket.h>).
+          let isComptimeOnlyArg = false;
+          if (exprIsAtom(arg) && arg.$.env && arg.$.variableName) {
+            const variables = getVariablesFromEnv(
+              arg.$.env,
+              arg.$.variableName
+            );
+            if (
+              variables.length > 0 &&
+              variables[variables.length - 1]!.isCompileTimeOnly
+            ) {
+              isComptimeOnlyArg = true;
+            }
+          }
+
           // Check if this variable is captured by a state machine
           const isStateMachineCapturedVariable =
             functionContext.inStateMachine && argCode.startsWith("sm->");
@@ -177,7 +196,8 @@ export function generateOtherFunctionCall(
             argCode &&
             argCode !== arg.$.variableName &&
             !isClosureCapturedVariable &&
-            !isStateMachineCapturedVariable
+            !isStateMachineCapturedVariable &&
+            !isComptimeOnlyArg
           ) {
             // Only emit declaration if:
             // 1. The expression doesn't already handle it
@@ -299,8 +319,11 @@ export function generateOtherFunctionCall(
           } else {
             // If this is a closure-captured variable, use the generated code (inline access)
             // If this is a state machine variable, use the generated code (sm->var_xxx access)
+            // If this is a compile-time-only constant, use the generated code (inlined literal)
             // Otherwise use the sanitized variable name (potentially duped)
-            return isClosureCapturedVariable || isStateMachineCapturedVariable
+            return isClosureCapturedVariable ||
+              isStateMachineCapturedVariable ||
+              isComptimeOnlyArg
               ? argCode
               : sanitizeForCIdentifier(
                   finalArgVarName,
@@ -588,6 +611,21 @@ export function generateOtherFunctionCall(
             // Generate the argument expression and declare it as a temp variable
             const argCode = generateExpr(arg, indent, context);
 
+            // Check if this is a compile-time-only constant - skip temp variable creation
+            let isComptimeOnlyArg = false;
+            if (exprIsAtom(arg) && arg.$.env && arg.$.variableName) {
+              const variables = getVariablesFromEnv(
+                arg.$.env,
+                arg.$.variableName
+              );
+              if (
+                variables.length > 0 &&
+                variables[variables.length - 1]!.isCompileTimeOnly
+              ) {
+                isComptimeOnlyArg = true;
+              }
+            }
+
             // Check if this variable is captured by a state machine
             const isStateMachineCapturedVariable =
               functionContext.inStateMachine && argCode.startsWith("sm->");
@@ -596,7 +634,8 @@ export function generateOtherFunctionCall(
               argCode &&
               argCode !== arg.$.variableName &&
               !isClosureCapturedVariable &&
-              !isStateMachineCapturedVariable
+              !isStateMachineCapturedVariable &&
+              !isComptimeOnlyArg
             ) {
               // Only emit declaration if:
               // 1. The expression doesn't already handle it
@@ -1143,13 +1182,28 @@ export function generateOtherFunctionCall(
                       functionContext.inStateMachine &&
                       argCode.startsWith("sm->");
 
+                    let isComptimeOnlyArg = false;
+                    if (exprIsAtom(arg) && arg.$.env && arg.$.variableName) {
+                      const variables = getVariablesFromEnv(
+                        arg.$.env,
+                        arg.$.variableName
+                      );
+                      if (
+                        variables.length > 0 &&
+                        variables[variables.length - 1]!.isCompileTimeOnly
+                      ) {
+                        isComptimeOnlyArg = true;
+                      }
+                    }
+
                     let emittedTempVarDeclaration = false;
 
                     if (
                       argCode &&
                       argCode !== arg.$.variableName &&
                       !isClosureCapturedVariable &&
-                      !isStateMachineCapturedVariable
+                      !isStateMachineCapturedVariable &&
+                      !isComptimeOnlyArg
                     ) {
                       const sanitizedVarName = getVariableNameForCodegen(
                         arg.$.variableName,

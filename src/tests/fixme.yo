@@ -1,157 +1,69 @@
 open import "std/libc/stdio";
-{ malloc, free } :: import "std/libc/stdlib";
 open import "std/string";
+open import "std/collections/array_list";
 { platform, Platform, env } :: import "std/process";
-{
-  O_RDONLY, O_WRONLY, O_CREAT, O_TRUNC, O_DIRECTORY,
-  AT_FDCWD, AT_REMOVEDIR, DT_DIR, DT_REG
-} :: import "std/io/constants";
-{
-  openat, close, read, write
-} :: import "std/io/file";
+file :: import "std/io/file";
 dir :: import "std/io/dir";
+time :: import "std/io/time";
+{ Statx } :: import "std/io/statx";
+{
+  AT_FDCWD, O_WRONLY, O_CREAT, O_TRUNC, O_RDONLY,
+  STATX_BASIC_STATS
+} :: import "std/io/constants";
+{ temp_dir, path_join } :: import "../../tests/io/helper";
+make_test_file :: (fn(name: String) -> ArrayList(u8)) {
+  tmp := temp_dir();
+  p := path_join(tmp, name);
+  p.to_cstr()
+};
 
-temp_dir :: (fn() -> String)(
-  cond(
-    (platform == Platform.Win32) => {
-      temp := env.get(`TEMP`);
-      match(temp,
-        .Some(v) => v,
-        .None => {
-          tmp := env.get(`TMP`);
-          match(tmp,
-            .Some(v2) => v2,
-            .None => `C:\\Temp`
-          )
-        }
-      )
-    },
-    true => {
-      tmp := env.get(`TMPDIR`);
-      match(tmp,
-        .Some(v) => v,
-        .None => {
-          tmp2 := env.get(`TMP`);
-          match(tmp2,
-            .Some(v2) => v2,
-            .None => `/tmp`
-          )
-        }
-      )
-    }
-  )
-);
-export temp_dir;
-
-path_join :: (fn(base: String, name: String) -> String)({
-  sep := cond(
-    (platform == Platform.Win32) => `\\`,
-    true => `/`
-  );
-  cond(
-    base.ends_with(sep) => `${base}${name}`,
-    true => `${base}${sep}${name}`
-  )
+create_file :: (fn(test_path: *(u8), content: *(u8), content_len: u32) -> Impl(Future(unit)))(async {
+  write_flags := ((O_WRONLY | O_CREAT) | O_TRUNC);
+  fd := await file.openat(AT_FDCWD, test_path, write_flags, i32(0o644));
+  assert(fd >= i32(0));
+  wr := await file.write(fd, content, content_len, u64(0));
+  assert(wr == i32(content_len));
+  cr := await file.close(fd);
+  assert(cr == i32(0));
 });
-export path_join;
 
 main :: (fn() -> unit) {
   async {
-    tmp_dir := temp_dir();
-    test_dir_str := path_join(tmp_dir, `yo_io_readdir_test`);
-    file_a_str := path_join(test_dir_str, `file_a.txt`);
-    file_b_str := path_join(test_dir_str, `file_b.txt`);
-    subdir_str := path_join(test_dir_str, `subdir`);
+    path_cstr := make_test_file(`yo_time_lutime_target.txt`);
+    test_path := path_cstr.ptr().unwrap();
+    await create_file(test_path, *(u8)("lutime test"), u32(11));
 
-    test_dir_c := test_dir_str.to_cstr();
-    file_a_c := file_a_str.to_cstr();
-    file_b_c := file_b_str.to_cstr();
-    subdir_c := subdir_str.to_cstr();
+    ret_t := await time.utime(test_path, i64(3000000), i64(0), i64(4000000), i64(0));
+    assert(ret_t == i32(0));
 
-    test_dir := test_dir_c.ptr().unwrap();
-    file_a := file_a_c.ptr().unwrap();
-    file_b := file_b_c.ptr().unwrap();
-    subdir := subdir_c.ptr().unwrap();
+    link_cstr := make_test_file(`yo_time_lutime_link.txt`);
+    link_path := link_cstr.ptr().unwrap();
+    lr := await dir.symlink(test_path, AT_FDCWD, link_path);
+    cond(
+      // Could be on Windows where symlink requires admin priviledge.
+      (lr != i32(0)) => {
+        cleanup := await dir.unlink(AT_FDCWD, test_path, i32(0));
+        assert(cleanup == i32(0));
+        return;
+      },
+      true => ()
+    );
 
-    await dir.unlink(AT_FDCWD, file_a, i32(0));
-    await dir.unlink(AT_FDCWD, file_b, i32(0));
-    await dir.unlink(AT_FDCWD, subdir, AT_REMOVEDIR);
-    await dir.unlink(AT_FDCWD, test_dir, AT_REMOVEDIR);
+    ret := await time.lutime(link_path, i64(5000000), i64(0), i64(6000000), i64(0));
+    assert(ret == i32(0));
 
-    mk := await dir.mkdir(AT_FDCWD, test_dir, i32(0o755));
-    printf("  mkdir = %d\n", mk);
-    assert(mk == i32(0));
+    statx_uninit := MaybeUninit(Array(u8, usize(256))).new();
+    stat_buf := *(u8)(statx_uninit.as_ptr());
+    sr := await file.statx(AT_FDCWD, test_path, i32(0), STATX_BASIC_STATS, stat_buf);
+    assert(sr == i32(0));
+    st := Statx(stat_buf, usize(256));
+    assert(st.atime_sec() == i64(3000000));
+    assert(st.mtime_sec() == i64(4000000));
 
-    write_flags := ((O_WRONLY | O_CREAT) | O_TRUNC);
-    fd_a := await openat(AT_FDCWD, file_a, write_flags, i32(0o644));
-    printf("  create file_a = %d\n", fd_a);
-    assert(fd_a >= i32(0));
-    await close(fd_a);
-
-    fd_b := await openat(AT_FDCWD, file_b, write_flags, i32(0o644));
-    printf("  create file_b = %d\n", fd_b);
-    assert(fd_b >= i32(0));
-    await close(fd_b);
-
-    subdir_mk := await dir.mkdir(AT_FDCWD, subdir, i32(0o755));
-    printf("  mkdir subdir = %d\n", subdir_mk);
-    assert(subdir_mk == i32(0));
-
-    open_flags := (O_RDONLY | O_DIRECTORY);
-    dir_fd := await openat(AT_FDCWD, test_dir, open_flags, i32(0));
-    printf("  open dir = %d\n", dir_fd);
-    assert(dir_fd >= i32(0));
-
-    buf := *(u8)(malloc(usize(4096)).unwrap());
-    entry_count := i32(0);
-    dir_count := i32(0);
-    file_count := i32(0);
-
-    while runtime(true), {
-      n := await dir.getdents(dir_fd, buf, u32(4096));
-      printf("  getdents = %d\n", n);
-      cond(
-        (n <= i32(0)) => { break; },
-        true => {
-          offset := u32(0);
-          while runtime(true), {
-            cond(
-              (offset >= u32(n)) => { break; },
-              true => {
-                entry := (buf &+ usize(offset));
-                name := dir.dirent_name(entry);
-                entry_type := dir.dirent_type(entry);
-                printf("    entry: %s (type=%d)\n", name, i32(entry_type));
-                entry_count = (entry_count + i32(1));
-                cond(
-                  (entry_type == DT_DIR) => { dir_count = (dir_count + i32(1)); },
-                  (entry_type == DT_REG) => { file_count = (file_count + i32(1)); },
-                  true => { unit; }
-                );
-                reclen := dir.dirent_reclen(entry);
-                offset = (offset + u32(reclen));
-              }
-            );
-          };
-        }
-      );
-    };
-
-    printf("  total entries = %d\n", entry_count);
-    printf("  dir entries = %d\n", dir_count);
-    printf("  file entries = %d\n", file_count);
-
-    assert(entry_count >= i32(5));
-    assert(dir_count >= i32(3));
-    assert(file_count >= i32(2));
-
-    free(.Some(*(void)(buf)));
-    await close(dir_fd);
-
-    await dir.unlink(AT_FDCWD, file_a, i32(0));
-    await dir.unlink(AT_FDCWD, file_b, i32(0));
-    await dir.unlink(AT_FDCWD, subdir, AT_REMOVEDIR);
-    await dir.unlink(AT_FDCWD, test_dir, AT_REMOVEDIR);
+    cleanup_link := await dir.unlink(AT_FDCWD, link_path, i32(0));
+    assert(cleanup_link == i32(0));
+    cleanup := await dir.unlink(AT_FDCWD, test_path, i32(0));
+    assert(cleanup == i32(0));
   };
 };
 export main;
