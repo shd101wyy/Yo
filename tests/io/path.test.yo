@@ -47,7 +47,7 @@ test "realpath resolves . and ..", {
     buf_uninit := MaybeUninit(Array(u8, usize(4096))).new();
     buf := *(u8)(buf_uninit.as_ptr());
 
-    rp := await path_io.realpath(dot_path, buf);
+    rp := path_io.realpath(dot_path, buf);
     printf("  realpath = %d\n", rp);
     assert(rp == i32(0));
 
@@ -99,7 +99,7 @@ test "realpath resolves symlink target", {
       (sym_result == i32(0)) => {
         buf_uninit := MaybeUninit(Array(u8, usize(4096))).new();
         buf := *(u8)(buf_uninit.as_ptr());
-        rp := await path_io.realpath(link_path, buf);
+        rp := path_io.realpath(link_path, buf);
         printf("  realpath link = %d\n", rp);
         assert(rp == i32(0));
         resolved_str := String.from_cstr(buf).unwrap();
@@ -129,7 +129,7 @@ test "realpath on nonexistent returns error", {
     buf_uninit := MaybeUninit(Array(u8, usize(4096))).new();
     buf := *(u8)(buf_uninit.as_ptr());
 
-    rp := await path_io.realpath(bad_path, buf);
+    rp := path_io.realpath(bad_path, buf);
     printf("  realpath missing = %d\n", rp);
     assert(rp < i32(0));
   };

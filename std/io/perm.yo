@@ -1,8 +1,11 @@
 // std/io/perm.yo - File permission and access operations
 //
-// Provides async wrappers for chmod, chown, and access operations.
+// Provides wrappers for chmod, chown, and access operations.
 //
-// All async operations return IOFuture which resolves to:
+// chmod/chown operations return IOFuture (async).
+// access is synchronous and returns i32 directly.
+//
+// IOFuture resolves to:
 //   - 0: success
 //   - Negative value: -errno on failure
 //
@@ -11,11 +14,11 @@
 //   { AT_FDCWD, S_IRUSR, S_IWUSR, S_IRGRP, S_IROTH, F_OK, R_OK, W_OK } :: import "std/io/constants";
 //
 //   async {
-//     // Check if file exists and is readable
-//     ret := await perm.access(AT_FDCWD, *(u8)("/tmp/test.txt"), (R_OK | W_OK));
+//     // Check if file exists and is readable (sync - no await needed)
+//     ret := perm.access(AT_FDCWD, *(u8)("/tmp/test.txt"), (R_OK | W_OK));
 //     assert(ret == i32(0));
 //
-//     // Change file permissions to 0644
+//     // Change file permissions to 0644 (async - needs await)
 //     ret2 := await perm.chmodat(AT_FDCWD, *(u8)("/tmp/test.txt"), u32(0o644), i32(0));
 //     assert(ret2 == i32(0));
 //   };
@@ -24,7 +27,7 @@
 {
   __yo_async_fchmod_start, __yo_async_fchmodat_start,
   __yo_async_fchown_start, __yo_async_fchownat_start,
-  __yo_async_access_start
+  __yo_sync_access
 } :: import "./externs.yo";
 
 // ============================================================================
@@ -64,7 +67,7 @@ chownat :: (fn(dirfd: i32, path: *(u8), uid: u32, gid: u32, flags: i32) -> IOFut
 );
 
 // ============================================================================
-// access — Check file accessibility
+// access — Check file accessibility (synchronous)
 // ============================================================================
 
 // Check if file is accessible with given mode.
@@ -73,8 +76,8 @@ chownat :: (fn(dirfd: i32, path: *(u8), uid: u32, gid: u32, flags: i32) -> IOFut
 // mode: F_OK (exists), R_OK (readable), W_OK (writable), X_OK (executable)
 //       Combine with bitwise OR: (R_OK | W_OK)
 // Returns 0 on success, -errno on failure (e.g. -ENOENT, -EACCES).
-access :: (fn(dirfd: i32, path: *(u8), mode: i32) -> IOFuture)(
-  __yo_async_access_start(dirfd, path, mode)
+access :: (fn(dirfd: i32, path: *(u8), mode: i32) -> i32)(
+  __yo_sync_access(dirfd, path, mode)
 );
 
 export fchmod, chmodat, fchown, chownat, access;

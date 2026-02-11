@@ -30,7 +30,7 @@ test "copyfile copies file contents", {
     c1 := await file.close(src_fd);
     assert(c1 == i32(0));
 
-    cr := await copy_io.copyfile(src_path, dst_path, i32(0));
+    cr := copy_io.copyfile(src_path, dst_path, i32(0));
     printf("  copyfile = %d\n", cr);
     assert(cr == i32(0));
 
@@ -82,7 +82,7 @@ test "sendfile transfers bytes", {
     out_fd := await file.openat(AT_FDCWD, dst_path, write_flags, i32(0o644));
     assert(out_fd >= i32(0));
 
-    sent := await copy_io.sendfile(out_fd, in_fd, i64(0), usize(data_len));
+    sent := copy_io.sendfile(out_fd, in_fd, i64(0), usize(data_len));
     printf("  sendfile = %d\n", sent);
     assert(sent == i32(data_len));
 

@@ -209,7 +209,20 @@ extern "Yo",
   __yo_poll_init : (fn(fd: i32) -> *(u8)),
   __yo_poll_start : (fn(handle: *(u8), events: i32, callback: *(u8)) -> i32),
   __yo_poll_stop : (fn(handle: *(u8)) -> i32),
-  __yo_poll_close : (fn(handle: *(u8)) -> unit)
+  __yo_poll_close : (fn(handle: *(u8)) -> unit),
+
+  // ========================================================================
+  // Synchronous Operations (no IOFuture overhead)
+  // ========================================================================
+  __yo_sync_pipe : (fn(pipefd: *(i32)) -> i32),
+  __yo_sync_dup : (fn(oldfd: i32) -> i32),
+  __yo_sync_dup2 : (fn(oldfd: i32, newfd: i32) -> i32),
+  __yo_sync_access : (fn(dirfd: i32, path: *(u8), mode: i32) -> i32),
+  __yo_sync_realpath : (fn(path: *(u8), resolved: *(u8)) -> i32),
+  __yo_sync_mkdtemp : (fn(template: *(u8)) -> i32),
+  __yo_sync_mkstemp : (fn(template: *(u8)) -> i32),
+  __yo_sync_copyfile : (fn(src: *(u8), dst: *(u8), flags: i32) -> i32),
+  __yo_sync_sendfile : (fn(out_fd: i32, in_fd: i32, offset: i64, count: usize) -> i32)
 ;
 
 export
@@ -306,5 +319,11 @@ export
   __yo_fs_event_stop, __yo_fs_event_close,
 
   // Poll operations
-  __yo_poll_init, __yo_poll_start, __yo_poll_stop, __yo_poll_close
+  __yo_poll_init, __yo_poll_start, __yo_poll_stop, __yo_poll_close,
+
+  // Synchronous operations
+  __yo_sync_pipe, __yo_sync_dup, __yo_sync_dup2,
+  __yo_sync_access, __yo_sync_realpath,
+  __yo_sync_mkdtemp, __yo_sync_mkstemp,
+  __yo_sync_copyfile, __yo_sync_sendfile
 ;

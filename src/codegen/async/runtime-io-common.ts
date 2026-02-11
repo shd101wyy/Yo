@@ -503,6 +503,100 @@ static yo_io_future_t* __yo_async_sendfile_start(int32_t out_fd, int32_t in_fd, 
   return future;
 }
 
+// ============================================================================
+// Synchronous Operations (POSIX-only) - no IOFuture overhead
+// ============================================================================
+
+static int32_t __yo_sync_access(int32_t dirfd, const char* path, int32_t mode) {
+  int result;
+  if (dirfd == -100) {  // AT_FDCWD
+    result = access(path, mode);
+  } else {
+    result = faccessat(dirfd, path, mode, 0);
+  }
+  return (result < 0) ? -errno : 0;
+}
+
+static int32_t __yo_sync_realpath(const char* path, char* resolved) {
+  char* result = realpath(path, resolved);
+  return result ? 0 : -errno;
+}
+
+static int32_t __yo_sync_mkdtemp(char* template) {
+  char* result = mkdtemp(template);
+  return result ? 0 : -errno;
+}
+
+static int32_t __yo_sync_mkstemp(char* template) {
+  int fd = mkstemp(template);
+  return (fd < 0) ? -errno : fd;
+}
+
+static int32_t __yo_sync_copyfile(const char* src, const char* dst, int32_t flags) {
+#if defined(__linux__)
+  int src_fd = open(src, O_RDONLY);
+  if (src_fd < 0) return -errno;
+
+  struct stat st;
+  if (fstat(src_fd, &st) < 0) {
+    int err = errno;
+    close(src_fd);
+    return -err;
+  }
+
+  int open_flags = O_WRONLY | O_CREAT | O_TRUNC;
+  if (flags & 1) open_flags |= O_EXCL;
+
+  int dst_fd = open(dst, open_flags, st.st_mode);
+  if (dst_fd < 0) {
+    int err = errno;
+    close(src_fd);
+    return -err;
+  }
+
+  ssize_t copied = 0;
+  off_t off_in = 0;
+#ifdef __NR_copy_file_range
+  copied = syscall(__NR_copy_file_range, src_fd, &off_in, dst_fd, NULL, (size_t)st.st_size, 0);
+#endif
+  if (copied < 0) {
+    off_t offset = 0;
+    copied = sendfile(dst_fd, src_fd, &offset, (size_t)st.st_size);
+  }
+
+  close(src_fd);
+  close(dst_fd);
+  return (copied < 0) ? -errno : 0;
+
+#elif defined(__APPLE__)
+  copyfile_flags_t cf_flags = COPYFILE_ALL;
+  if (flags & 1) cf_flags |= COPYFILE_EXCL;
+  if (flags & 2) cf_flags |= COPYFILE_CLONE;
+  if (flags & 4) cf_flags |= COPYFILE_CLONE_FORCE;
+
+  int result = copyfile(src, dst, NULL, cf_flags);
+  return (result < 0) ? -errno : 0;
+#else
+  (void)src; (void)dst; (void)flags;
+  return -ENOSYS;
+#endif
+}
+
+static int32_t __yo_sync_sendfile(int32_t out_fd, int32_t in_fd, int64_t offset, size_t count) {
+#if defined(__linux__)
+  off_t off = (off_t)offset;
+  ssize_t sent = sendfile(out_fd, in_fd, &off, count);
+  return (sent < 0) ? -errno : (int32_t)sent;
+#elif defined(__APPLE__)
+  off_t len = (off_t)count;
+  int result = sendfile(in_fd, out_fd, (off_t)offset, &len, NULL, 0);
+  return (result < 0) ? -errno : (int32_t)len;
+#else
+  (void)out_fd; (void)in_fd; (void)offset; (void)count;
+  return -ENOSYS;
+#endif
+}
+
 // Statfs support
 #include <sys/statvfs.h>
 

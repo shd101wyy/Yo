@@ -6,7 +6,7 @@ test "pipe read/write", {
   async {
     pipefd_uninit := MaybeUninit(Array(i32, usize(2))).new();
     pipefd := *(i32)(pipefd_uninit.as_ptr());
-    pr := await pipe_io.pipe(pipefd);
+    pr := pipe_io.pipe(pipefd);
     printf("  pipe = %d\n", pr);
     assert(pr == i32(0));
 
@@ -41,13 +41,13 @@ test "dup reads from original pipe", {
   async {
     pipefd_uninit := MaybeUninit(Array(i32, usize(2))).new();
     pipefd := *(i32)(pipefd_uninit.as_ptr());
-    pr := await pipe_io.pipe(pipefd);
+    pr := pipe_io.pipe(pipefd);
     assert(pr == i32(0));
 
     read_fd := (pipefd &+ usize(0)).*;
     write_fd := (pipefd &+ usize(1)).*;
 
-    dup_fd := await pipe_io.dup(read_fd);
+    dup_fd := pipe_io.dup(read_fd);
     printf("  dup = %d\n", dup_fd);
     assert(dup_fd >= i32(0));
 
@@ -77,12 +77,12 @@ test "dup2 redirects to target fd", {
   async {
     pipefd_a_uninit := MaybeUninit(Array(i32, usize(2))).new();
     pipefd_a := *(i32)(pipefd_a_uninit.as_ptr());
-    pr1 := await pipe_io.pipe(pipefd_a);
+    pr1 := pipe_io.pipe(pipefd_a);
     assert(pr1 == i32(0));
 
     pipefd_b_uninit := MaybeUninit(Array(i32, usize(2))).new();
     pipefd_b := *(i32)(pipefd_b_uninit.as_ptr());
-    pr2 := await pipe_io.pipe(pipefd_b);
+    pr2 := pipe_io.pipe(pipefd_b);
     assert(pr2 == i32(0));
 
     read_fd := (pipefd_a &+ usize(0)).*;
@@ -90,7 +90,7 @@ test "dup2 redirects to target fd", {
     read_fd_b := (pipefd_b &+ usize(0)).*;
     write_fd_dst := (pipefd_b &+ usize(1)).*;
 
-    dup2_fd := await pipe_io.dup2(write_fd_src, write_fd_dst);
+    dup2_fd := pipe_io.dup2(write_fd_src, write_fd_dst);
     printf("  dup2 = %d\n", dup2_fd);
     assert(dup2_fd == write_fd_dst);
 

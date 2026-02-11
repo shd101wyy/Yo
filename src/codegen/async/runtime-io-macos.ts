@@ -771,6 +771,25 @@ static yo_io_future_t* __yo_async_pipe_start(int32_t* pipefd) {
 }
 
 // ============================================================================
+// Synchronous FD Operations (macOS) - no IOFuture overhead
+// ============================================================================
+
+static int32_t __yo_sync_pipe(int32_t* pipefd) {
+  int result = pipe((int*)pipefd);
+  return (result < 0) ? -errno : 0;
+}
+
+static int32_t __yo_sync_dup(int32_t oldfd) {
+  int result = dup(oldfd);
+  return (result < 0) ? -errno : result;
+}
+
+static int32_t __yo_sync_dup2(int32_t oldfd, int32_t newfd) {
+  int result = dup2(oldfd, newfd);
+  return (result < 0) ? -errno : result;
+}
+
+// ============================================================================
 // Socket Operations (macOS)
 // ============================================================================
 #include <sys/socket.h>

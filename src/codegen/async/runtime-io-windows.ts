@@ -1031,6 +1031,25 @@ static yo_io_future_t* __yo_async_pipe_start(int32_t* pipefd) {
 }
 
 // ============================================================================
+// Synchronous FD Operations (Windows) - no IOFuture overhead
+// ============================================================================
+
+static int32_t __yo_sync_pipe(int32_t* pipefd) {
+  int result = _pipe(pipefd, 4096, _O_BINARY);
+  return (result < 0) ? -errno : 0;
+}
+
+static int32_t __yo_sync_dup(int32_t oldfd) {
+  int result = _dup(oldfd);
+  return (result < 0) ? -errno : result;
+}
+
+static int32_t __yo_sync_dup2(int32_t oldfd, int32_t newfd) {
+  int result = _dup2(oldfd, newfd);
+  return (result < 0) ? -errno : result;
+}
+
+// ============================================================================
 // Directory Listing (Windows)
 // ============================================================================
 
@@ -1963,6 +1982,92 @@ static yo_io_future_t* __yo_async_sendfile_start(int32_t out_fd, int32_t in_fd, 
   future->result = -ENOSYS;
   atomic_init(&future->state, -1);
   return future;
+}
+
+// ============================================================================
+// Synchronous Operations (Windows) - no IOFuture overhead
+// ============================================================================
+
+static int32_t __yo_sync_access(int32_t dirfd, const char* path, int32_t mode) {
+  if (!__yo_is_at_fdcwd(dirfd)) return -EINVAL;
+
+  wchar_t* wpath = __yo_win_utf8_to_wide(path);
+  if (!wpath) return -__yo_win_last_error_to_errno();
+
+  int win_mode = mode & ~1;
+  if (win_mode == 0 && mode != 0) win_mode = 0;
+
+  int result = _waccess(wpath, win_mode);
+  __yo_free(wpath);
+  return (result < 0) ? -errno : 0;
+}
+
+static int32_t __yo_sync_realpath(const char* path, char* resolved) {
+  wchar_t* wpath = __yo_win_utf8_to_wide(path);
+  if (!wpath) return -__yo_win_last_error_to_errno();
+
+  wchar_t wbuf[MAX_PATH];
+  DWORD len = GetFullPathNameW(wpath, MAX_PATH, wbuf, NULL);
+  __yo_free(wpath);
+  if (len == 0 || len >= MAX_PATH) return -__yo_win_last_error_to_errno();
+
+  int written = __yo_win_wide_to_utf8(wbuf, resolved, MAX_PATH);
+  return (written < 0) ? written : 0;
+}
+
+static int32_t __yo_sync_mkdtemp(char* template_str) {
+  wchar_t* wtemplate = __yo_win_utf8_to_wide(template_str);
+  if (!wtemplate) return -__yo_win_last_error_to_errno();
+
+  if (_wmktemp_s(wtemplate, wcslen(wtemplate) + 1) != 0) {
+    __yo_free(wtemplate);
+    return -errno;
+  }
+
+  int result = _wmkdir(wtemplate);
+  if (result == 0) {
+    __yo_win_wide_to_utf8(wtemplate, template_str, MAX_PATH);
+  }
+  __yo_free(wtemplate);
+  return (result < 0) ? -errno : 0;
+}
+
+static int32_t __yo_sync_mkstemp(char* template_str) {
+  wchar_t* wtemplate = __yo_win_utf8_to_wide(template_str);
+  if (!wtemplate) return -__yo_win_last_error_to_errno();
+
+  if (_wmktemp_s(wtemplate, wcslen(wtemplate) + 1) != 0) {
+    __yo_free(wtemplate);
+    return -errno;
+  }
+
+  int fd = _wopen(wtemplate, _O_CREAT | _O_EXCL | _O_RDWR | _O_BINARY, _S_IREAD | _S_IWRITE);
+  if (fd >= 0) {
+    __yo_win_wide_to_utf8(wtemplate, template_str, MAX_PATH);
+  }
+  __yo_free(wtemplate);
+  return (fd < 0) ? -errno : fd;
+}
+
+static int32_t __yo_sync_copyfile(const char* src_path, const char* dst_path, int32_t flags) {
+  (void)flags;
+  wchar_t* wsrc = __yo_win_utf8_to_wide(src_path);
+  wchar_t* wdst = __yo_win_utf8_to_wide(dst_path);
+  if (!wsrc || !wdst) {
+    if (wsrc) __yo_free(wsrc);
+    if (wdst) __yo_free(wdst);
+    return -__yo_win_last_error_to_errno();
+  }
+
+  BOOL ok = CopyFileW(wsrc, wdst, FALSE);
+  __yo_free(wsrc);
+  __yo_free(wdst);
+  return ok ? 0 : -__yo_win_last_error_to_errno();
+}
+
+static int32_t __yo_sync_sendfile(int32_t out_fd, int32_t in_fd, int64_t offset, size_t count) {
+  (void)out_fd; (void)in_fd; (void)offset; (void)count;
+  return -ENOSYS;
 }
 
 typedef struct {

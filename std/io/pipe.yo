@@ -1,28 +1,28 @@
 // std/io/pipe.yo - Pipe and file descriptor duplication operations
 //
-// Provides low-level async wrappers for pipe/dup/dup2.
+// Synchronous wrappers for pipe/dup/dup2.
+// These are inherently synchronous kernel operations on all platforms.
 //
-// Async operations return IOFuture which resolves to:
+// Return values:
 //   - pipe: 0 on success, -errno on failure
 //   - dup/dup2: new fd on success, -errno on failure
 
-{ IOFuture } :: import "./future.yo";
-{ __yo_async_pipe_start, __yo_async_dup_start, __yo_async_dup2_start } :: import "./externs.yo";
+{ __yo_sync_pipe, __yo_sync_dup, __yo_sync_dup2 } :: import "./externs.yo";
 
 // Create a pipe pair (pipefd[0] = read, pipefd[1] = write).
 // Returns 0 on success, -errno on failure.
-pipe :: (fn(pipefd: *(i32)) -> IOFuture)(
-  __yo_async_pipe_start(pipefd)
+pipe :: (fn(pipefd: *(i32)) -> i32)(
+  __yo_sync_pipe(pipefd)
 );
 
 // Duplicate a file descriptor. Returns new fd on success, -errno on failure.
-dup :: (fn(fd: i32) -> IOFuture)(
-  __yo_async_dup_start(fd)
+dup :: (fn(fd: i32) -> i32)(
+  __yo_sync_dup(fd)
 );
 
 // Duplicate a file descriptor to a specific fd. Returns new fd on success, -errno on failure.
-dup2 :: (fn(oldfd: i32, newfd: i32) -> IOFuture)(
-  __yo_async_dup2_start(oldfd, newfd)
+dup2 :: (fn(oldfd: i32, newfd: i32) -> i32)(
+  __yo_sync_dup2(oldfd, newfd)
 );
 
 export

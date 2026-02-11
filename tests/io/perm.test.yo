@@ -32,11 +32,11 @@ test "access F_OK R_OK W_OK on existing file", {
     cr := await file.close(fd);
     assert(cr == i32(0));
 
-    ret_f := await perm.access(AT_FDCWD, test_path, F_OK);
+    ret_f := perm.access(AT_FDCWD, test_path, F_OK);
     assert(ret_f == i32(0));
-    ret_r := await perm.access(AT_FDCWD, test_path, R_OK);
+    ret_r := perm.access(AT_FDCWD, test_path, R_OK);
     assert(ret_r == i32(0));
-    ret_w := await perm.access(AT_FDCWD, test_path, W_OK);
+    ret_w := perm.access(AT_FDCWD, test_path, W_OK);
     assert(ret_w == i32(0));
 
     cleanup := await dir.unlink(AT_FDCWD, test_path, i32(0));
@@ -46,7 +46,7 @@ test "access F_OK R_OK W_OK on existing file", {
 
 test "access on nonexistent file returns -ENOENT", {
   async {
-    ret := await perm.access(AT_FDCWD, *(u8)("/tmp/yo_perm_nonexistent_file_12345.txt"), F_OK);
+    ret := perm.access(AT_FDCWD, *(u8)("/tmp/yo_perm_nonexistent_file_12345.txt"), F_OK);
     assert(ret == i32(-2));
   };
 };
@@ -68,11 +68,11 @@ test "chmodat changes and restores permissions", {
     assert(ret == i32(0));
 
     // Should be readable
-    ret_r := await perm.access(AT_FDCWD, test_path, R_OK);
+    ret_r := perm.access(AT_FDCWD, test_path, R_OK);
     assert(ret_r == i32(0));
 
     // Should NOT be writable (non-root: -EACCES = -13)
-    ret_w := await perm.access(AT_FDCWD, test_path, W_OK);
+    ret_w := perm.access(AT_FDCWD, test_path, W_OK);
     assert(ret_w == i32(-13));
 
     // Restore to 0644
@@ -104,7 +104,7 @@ test "fchmod by fd sets executable bit", {
     assert(ret == i32(0));
 
     // Verify executable bit
-    ret_x := await perm.access(AT_FDCWD, test_path, X_OK);
+    ret_x := perm.access(AT_FDCWD, test_path, X_OK);
     assert(ret_x == i32(0));
 
     // Restore to 0644
