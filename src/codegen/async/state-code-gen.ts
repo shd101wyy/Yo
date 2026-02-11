@@ -371,6 +371,36 @@ function generateAwaitExpression(
       );
       return;
     }
+
+    // Check if the value is a match with await in branches
+    if (
+      valueExpr.tag === ExprTag.FnCall &&
+      exprIsFunctionCallOf(valueExpr, BuiltinKeywords.match)
+    ) {
+      // This is: varName := match(... await ...)
+      // Get the variable ID for the target variable
+      let targetVarId: string | undefined;
+      if (
+        varNameExpr.tag === ExprTag.Atom &&
+        varNameExpr.token.type === TokenType.Identifier &&
+        varNameExpr.$
+      ) {
+        const varName = varNameExpr.token.value;
+        const variables = getVariablesFromEnv(varNameExpr.$.env, varName);
+        if (variables.length > 0) {
+          targetVarId = variables[variables.length - 1]!.id;
+        }
+      }
+      // First generate the match (which will store future in await_future_X)
+      generateMatchWithAwait(
+        valueExpr,
+        awaitPoint,
+        indent,
+        context,
+        targetVarId
+      );
+      return;
+    }
   }
 
   // Handle cond expression with await in branches
@@ -639,7 +669,8 @@ function generateMatchWithAwait(
   matchExpr: Expr,
   awaitPoint: AwaitPoint,
   indent: string,
-  context: FunctionGenerationContext
+  context: FunctionGenerationContext,
+  targetVariableId?: string
 ): void {
   const emitter = context.emitter;
 
@@ -764,37 +795,57 @@ function generateMatchWithAwait(
 
         emitter.emitLine(
           `${indent}  sm->cond_branch_${awaitPoint.index} = ${pointerCaseIndex};`
-        ); // Process the case body looking for await
-        const remainingExprs = generateCondBranchWithAwait(
-          caseBody,
-          awaitPoint,
-          indent + "  ",
-          context
         );
 
-        // Store remaining expressions for resume state
-        if (remainingExprs.length > 0) {
-          // Store in context for state machine generation
-          const functionContext = context as FunctionGenerationContext;
-          if (!functionContext.condBranchInfo) {
-            functionContext.condBranchInfo = new Map();
+        if (branchHasAwait(caseBody)) {
+          // Process the case body looking for await
+          const remainingExprs = generateCondBranchWithAwait(
+            caseBody,
+            awaitPoint,
+            indent + "  ",
+            context
+          );
+
+          // Store remaining expressions for resume state
+          if (remainingExprs.length > 0) {
+            // Store in context for state machine generation
+            const functionContext = context as FunctionGenerationContext;
+            if (!functionContext.condBranchInfo) {
+              functionContext.condBranchInfo = new Map();
+            }
+
+            const branchData = functionContext.condBranchInfo.get(
+              awaitPoint.index
+            ) || {
+              branches: [],
+            };
+
+            branchData.branches.push({
+              index: pointerCaseIndex,
+              value: caseBody,
+              hasAwait: true,
+              remainingExprs,
+              deferredDropExpressions: caseBody.$?.deferredDropExpressions,
+            });
+
+            functionContext.condBranchInfo.set(awaitPoint.index, branchData);
           }
-
-          const branchData = functionContext.condBranchInfo.get(
-            awaitPoint.index
-          ) || {
-            branches: [],
-          };
-
-          branchData.branches.push({
-            index: pointerCaseIndex,
-            value: caseBody,
-            hasAwait: true,
-            remainingExprs,
-            deferredDropExpressions: caseBody.$?.deferredDropExpressions,
-          });
-
-          functionContext.condBranchInfo.set(awaitPoint.index, branchData);
+        } else {
+          // No await in pointer case - generate normally
+          const code = generateExpr(caseBody, indent + "  ", context);
+          if (targetVariableId) {
+            // Assign the branch result to the target variable
+            const fieldName = sanitizeForCIdentifier(`var_${targetVariableId}`);
+            if (code) {
+              emitter.emitLine(`${indent}  sm->${fieldName} = ${code};`);
+            }
+          } else if (
+            code &&
+            caseBody.$ &&
+            !isTempVariableName(caseBody.$.env.modulePath, code)
+          ) {
+            emitter.emitLine(`${indent}  ${code};`);
+          }
         }
       }
     }
@@ -846,7 +897,13 @@ function generateMatchWithAwait(
         } else {
           // No await in null case - generate normally
           const code = generateExpr(caseBody, indent + "  ", context);
-          if (
+          if (targetVariableId) {
+            // Assign the branch result to the target variable
+            const fieldName = sanitizeForCIdentifier(`var_${targetVariableId}`);
+            if (code) {
+              emitter.emitLine(`${indent}  sm->${fieldName} = ${code};`);
+            }
+          } else if (
             code &&
             caseBody.$ &&
             !isTempVariableName(caseBody.$.env.modulePath, code)
@@ -1005,7 +1062,13 @@ function generateMatchWithAwait(
       } else {
         // No await - generate normally
         const code = generateExpr(caseBody, indent + "    ", context);
-        if (
+        if (targetVariableId) {
+          // Assign the branch result to the target variable
+          const fieldName = sanitizeForCIdentifier(`var_${targetVariableId}`);
+          if (code) {
+            emitter.emitLine(`${indent}    sm->${fieldName} = ${code};`);
+          }
+        } else if (
           code &&
           caseBody.$ &&
           !isTempVariableName(caseBody.$.env.modulePath, code)
