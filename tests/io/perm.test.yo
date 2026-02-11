@@ -64,7 +64,7 @@ test "chmodat changes and restores permissions", {
     assert(cr == i32(0));
 
     // chmod to read-only (0o444)
-    ret := await perm.chmodat(AT_FDCWD, test_path, u32(0o444), i32(0));
+    ret := perm.chmodat(AT_FDCWD, test_path, u32(0o444), i32(0));
     assert(ret == i32(0));
 
     // Should be readable
@@ -76,7 +76,7 @@ test "chmodat changes and restores permissions", {
     assert(ret_w == i32(-13));
 
     // Restore to 0644
-    ret_b := await perm.chmodat(AT_FDCWD, test_path, u32(0o644), i32(0));
+    ret_b := perm.chmodat(AT_FDCWD, test_path, u32(0o644), i32(0));
     assert(ret_b == i32(0));
 
     cleanup := await dir.unlink(AT_FDCWD, test_path, i32(0));
@@ -100,7 +100,7 @@ test "fchmod by fd sets executable bit", {
     assert(fd >= i32(0));
 
     // fchmod to 0o755 (rwxr-xr-x)
-    ret := await perm.fchmod(fd, u32(0o755));
+    ret := perm.fchmod(fd, u32(0o755));
     assert(ret == i32(0));
 
     // Verify executable bit
@@ -108,7 +108,7 @@ test "fchmod by fd sets executable bit", {
     assert(ret_x == i32(0));
 
     // Restore to 0644
-    ret_b := await perm.fchmod(fd, u32(0o644));
+    ret_b := perm.fchmod(fd, u32(0o644));
     assert(ret_b == i32(0));
 
     cr := await file.close(fd);
@@ -121,7 +121,7 @@ test "fchmod by fd sets executable bit", {
 
 test "chmodat on nonexistent file returns -ENOENT", {
   async {
-    ret := await perm.chmodat(AT_FDCWD, *(u8)("/tmp/yo_perm_nonexistent_12345.txt"), u32(0o644), i32(0));
+    ret := perm.chmodat(AT_FDCWD, *(u8)("/tmp/yo_perm_nonexistent_12345.txt"), u32(0o644), i32(0));
     assert(ret == i32(-2));
   };
 };
@@ -142,7 +142,7 @@ test "fchown with -1 -1 succeeds (no change)", {
     assert(fd >= i32(0));
 
     // chown to -1, -1 (no change) should succeed
-    ret := await perm.fchown(fd, u32(4294967295), u32(4294967295));
+    ret := perm.fchown(fd, u32(4294967295), u32(4294967295));
     assert(ret == i32(0));
 
     cr := await file.close(fd);

@@ -37,24 +37,11 @@ extern "Yo",
   __yo_dirent_ino : (fn(entry: *(u8)) -> u64),
 
   // ========================================================================
-  // Permission Changes (for fs.chmod, fs.chown)
-  // ========================================================================
-  __yo_async_fchmod_start : (fn(fd: i32, mode: u32) -> IOFuture),
-  __yo_async_fchmodat_start : (fn(dirfd: i32, path: *(u8), mode: u32, flags: i32) -> IOFuture),
-  __yo_async_fchown_start : (fn(fd: i32, uid: u32, gid: u32) -> IOFuture),
-  __yo_async_fchownat_start : (fn(dirfd: i32, path: *(u8), uid: u32, gid: u32, flags: i32) -> IOFuture),
-
-  // ========================================================================
   // Symbolic Link Resolution (for fs.readlink)
   // ========================================================================
-  __yo_async_readlinkat_start : (fn(dirfd: i32, path: *(u8), buf: *(u8), bufsize: usize) -> IOFuture),
-
   // ========================================================================
-  // File Descriptor Operations
+  // File Descriptor Operations (async dup/dup2/pipe removed - now sync)
   // ========================================================================
-  __yo_async_dup_start : (fn(oldfd: i32) -> IOFuture),
-  __yo_async_dup2_start : (fn(oldfd: i32, newfd: i32) -> IOFuture),
-  __yo_async_pipe_start : (fn(pipefd: *(i32)) -> IOFuture),
 
   // ========================================================================
   // Socket Operations (for tcp, udp, unix sockets)
@@ -134,18 +121,8 @@ extern "Yo",
   __yo_async_sleep_start : (fn(milliseconds: u64) -> IOFuture),
 
   // ========================================================================
-  // File Extra Operations
+  // File Extra Operations (async only: sleep remains async)
   // ========================================================================
-  __yo_async_access_start : (fn(dirfd: i32, path: *(u8), mode: i32) -> IOFuture),
-  __yo_async_realpath_start : (fn(path: *(u8), resolved: *(u8)) -> IOFuture),
-  __yo_async_utime_start : (fn(path: *(u8), atime_sec: i64, atime_nsec: i64, mtime_sec: i64, mtime_nsec: i64) -> IOFuture),
-  __yo_async_futime_start : (fn(fd: i32, atime_sec: i64, atime_nsec: i64, mtime_sec: i64, mtime_nsec: i64) -> IOFuture),
-  __yo_async_lutime_start : (fn(path: *(u8), atime_sec: i64, atime_nsec: i64, mtime_sec: i64, mtime_nsec: i64) -> IOFuture),
-  __yo_async_mkdtemp_start : (fn(template: *(u8)) -> IOFuture),
-  __yo_async_mkstemp_start : (fn(template: *(u8)) -> IOFuture),
-  __yo_async_copyfile_start : (fn(src_path: *(u8), dst_path: *(u8), flags: i32) -> IOFuture),
-  __yo_async_sendfile_start : (fn(out_fd: i32, in_fd: i32, offset: i64, count: usize) -> IOFuture),
-  __yo_async_statfs_start : (fn(path: *(u8), statfsbuf: *(u8)) -> IOFuture),
   __yo_statfs_buf_size : (fn() -> usize),
   __yo_statfs_type : (fn(buf: *(u8)) -> u64),
   __yo_statfs_bsize : (fn(buf: *(u8)) -> u64),
@@ -222,7 +199,16 @@ extern "Yo",
   __yo_sync_mkdtemp : (fn(template: *(u8)) -> i32),
   __yo_sync_mkstemp : (fn(template: *(u8)) -> i32),
   __yo_sync_copyfile : (fn(src: *(u8), dst: *(u8), flags: i32) -> i32),
-  __yo_sync_sendfile : (fn(out_fd: i32, in_fd: i32, offset: i64, count: usize) -> i32)
+  __yo_sync_sendfile : (fn(out_fd: i32, in_fd: i32, offset: i64, count: usize) -> i32),
+  __yo_sync_fchmod : (fn(fd: i32, mode: u32) -> i32),
+  __yo_sync_fchmodat : (fn(dirfd: i32, path: *(u8), mode: u32, flags: i32) -> i32),
+  __yo_sync_fchown : (fn(fd: i32, uid: u32, gid: u32) -> i32),
+  __yo_sync_fchownat : (fn(dirfd: i32, path: *(u8), uid: u32, gid: u32, flags: i32) -> i32),
+  __yo_sync_readlinkat : (fn(dirfd: i32, path: *(u8), buf: *(u8), bufsize: usize) -> i32),
+  __yo_sync_utime : (fn(path: *(u8), atime_sec: i64, atime_nsec: i64, mtime_sec: i64, mtime_nsec: i64) -> i32),
+  __yo_sync_futime : (fn(fd: i32, atime_sec: i64, atime_nsec: i64, mtime_sec: i64, mtime_nsec: i64) -> i32),
+  __yo_sync_lutime : (fn(path: *(u8), atime_sec: i64, atime_nsec: i64, mtime_sec: i64, mtime_nsec: i64) -> i32),
+  __yo_sync_statfs : (fn(path: *(u8), statfsbuf: *(u8)) -> i32)
 ;
 
 export
@@ -239,16 +225,6 @@ export
   __yo_async_getdents_start,
   __yo_dirent_size, __yo_dirent_reclen, __yo_dirent_type,
   __yo_dirent_name, __yo_dirent_ino,
-
-  // Permission changes
-  __yo_async_fchmod_start, __yo_async_fchmodat_start,
-  __yo_async_fchown_start, __yo_async_fchownat_start,
-
-  // Symbolic link resolution
-  __yo_async_readlinkat_start,
-
-  // File descriptor operations
-  __yo_async_dup_start, __yo_async_dup2_start, __yo_async_pipe_start,
 
   // Socket operations
   __yo_async_socket_start, __yo_async_bind_start,
@@ -286,12 +262,7 @@ export
   // Timer operations
   __yo_async_sleep_start,
 
-  // File extra operations
-  __yo_async_access_start, __yo_async_realpath_start,
-  __yo_async_utime_start, __yo_async_futime_start, __yo_async_lutime_start,
-  __yo_async_mkdtemp_start, __yo_async_mkstemp_start,
-  __yo_async_copyfile_start, __yo_async_sendfile_start,
-  __yo_async_statfs_start,
+  // File extra operations (statfs accessors only - statfs itself is now sync)
   __yo_statfs_buf_size, __yo_statfs_type, __yo_statfs_bsize,
   __yo_statfs_blocks, __yo_statfs_bfree, __yo_statfs_bavail,
   __yo_statfs_files, __yo_statfs_ffree,
@@ -325,5 +296,10 @@ export
   __yo_sync_pipe, __yo_sync_dup, __yo_sync_dup2,
   __yo_sync_access, __yo_sync_realpath,
   __yo_sync_mkdtemp, __yo_sync_mkstemp,
-  __yo_sync_copyfile, __yo_sync_sendfile
+  __yo_sync_copyfile, __yo_sync_sendfile,
+  __yo_sync_fchmod, __yo_sync_fchmodat,
+  __yo_sync_fchown, __yo_sync_fchownat,
+  __yo_sync_readlinkat,
+  __yo_sync_utime, __yo_sync_futime, __yo_sync_lutime,
+  __yo_sync_statfs
 ;

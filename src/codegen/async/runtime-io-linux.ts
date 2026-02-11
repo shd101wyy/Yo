@@ -761,6 +761,31 @@ static int32_t __yo_sync_dup2(int32_t oldfd, int32_t newfd) {
   return (result < 0) ? -errno : result;
 }
 
+static int32_t __yo_sync_fchmod(int32_t fd, uint32_t mode) {
+  int result = fchmod(fd, (mode_t)mode);
+  return (result < 0) ? -errno : 0;
+}
+
+static int32_t __yo_sync_fchmodat(int32_t dirfd, const char* path, uint32_t mode, int32_t flags) {
+  int result = fchmodat(dirfd, path, (mode_t)mode, flags);
+  return (result < 0) ? -errno : 0;
+}
+
+static int32_t __yo_sync_fchown(int32_t fd, uint32_t uid, uint32_t gid) {
+  int result = fchown(fd, (uid_t)uid, (gid_t)gid);
+  return (result < 0) ? -errno : 0;
+}
+
+static int32_t __yo_sync_fchownat(int32_t dirfd, const char* path, uint32_t uid, uint32_t gid, int32_t flags) {
+  int result = fchownat(dirfd, path, (uid_t)uid, (gid_t)gid, flags);
+  return (result < 0) ? -errno : 0;
+}
+
+static int32_t __yo_sync_readlinkat(int32_t dirfd, const char* path, char* buf, size_t bufsize) {
+  ssize_t result = readlinkat(dirfd, path, buf, bufsize);
+  return (result < 0) ? -errno : (int32_t)result;
+}
+
 // ============================================================================
 // Socket Operations (Linux io_uring)
 // ============================================================================
@@ -1549,6 +1574,31 @@ static int32_t __yo_sync_dup(int32_t oldfd) {
 static int32_t __yo_sync_dup2(int32_t oldfd, int32_t newfd) {
   int result = dup2(oldfd, newfd);
   return (result < 0) ? -errno : result;
+}
+
+static int32_t __yo_sync_fchmod(int32_t fd, uint32_t mode) {
+  int result = fchmod(fd, (mode_t)mode);
+  return (result < 0) ? -errno : 0;
+}
+
+static int32_t __yo_sync_fchmodat(int32_t dirfd, const char* path, uint32_t mode, int32_t flags) {
+  int result = fchmodat(dirfd, path, (mode_t)mode, flags);
+  return (result < 0) ? -errno : 0;
+}
+
+static int32_t __yo_sync_fchown(int32_t fd, uint32_t uid, uint32_t gid) {
+  int result = fchown(fd, (uid_t)uid, (gid_t)gid);
+  return (result < 0) ? -errno : 0;
+}
+
+static int32_t __yo_sync_fchownat(int32_t dirfd, const char* path, uint32_t uid, uint32_t gid, int32_t flags) {
+  int result = fchownat(dirfd, path, (uid_t)uid, (gid_t)gid, flags);
+  return (result < 0) ? -errno : 0;
+}
+
+static int32_t __yo_sync_readlinkat(int32_t dirfd, const char* path, char* buf, size_t bufsize) {
+  ssize_t result = readlinkat(dirfd, path, buf, bufsize);
+  return (result < 0) ? -errno : (int32_t)result;
 }
 
 #endif // YO_HAS_LIBURING

@@ -597,8 +597,46 @@ static int32_t __yo_sync_sendfile(int32_t out_fd, int32_t in_fd, int64_t offset,
 #endif
 }
 
+static int32_t __yo_sync_utime(const char* path, int64_t atime_sec, int64_t atime_nsec,
+                               int64_t mtime_sec, int64_t mtime_nsec) {
+  struct timespec times[2];
+  times[0].tv_sec = (time_t)atime_sec;
+  times[0].tv_nsec = (long)atime_nsec;
+  times[1].tv_sec = (time_t)mtime_sec;
+  times[1].tv_nsec = (long)mtime_nsec;
+  int result = utimensat(AT_FDCWD, path, times, 0);
+  return (result < 0) ? -errno : 0;
+}
+
+static int32_t __yo_sync_futime(int32_t fd, int64_t atime_sec, int64_t atime_nsec,
+                                int64_t mtime_sec, int64_t mtime_nsec) {
+  struct timespec times[2];
+  times[0].tv_sec = (time_t)atime_sec;
+  times[0].tv_nsec = (long)atime_nsec;
+  times[1].tv_sec = (time_t)mtime_sec;
+  times[1].tv_nsec = (long)mtime_nsec;
+  int result = futimens(fd, times);
+  return (result < 0) ? -errno : 0;
+}
+
+static int32_t __yo_sync_lutime(const char* path, int64_t atime_sec, int64_t atime_nsec,
+                                int64_t mtime_sec, int64_t mtime_nsec) {
+  struct timespec times[2];
+  times[0].tv_sec = (time_t)atime_sec;
+  times[0].tv_nsec = (long)atime_nsec;
+  times[1].tv_sec = (time_t)mtime_sec;
+  times[1].tv_nsec = (long)mtime_nsec;
+  int result = utimensat(AT_FDCWD, path, times, AT_SYMLINK_NOFOLLOW);
+  return (result < 0) ? -errno : 0;
+}
+
 // Statfs support
 #include <sys/statvfs.h>
+
+static int32_t __yo_sync_statfs(const char* path, void* buf) {
+  int result = statvfs(path, (struct statvfs*)buf);
+  return (result < 0) ? -errno : 0;
+}
 
 static yo_io_future_t* __yo_async_statfs_start(const char* path, void* buf) {
   yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));

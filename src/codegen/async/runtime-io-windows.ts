@@ -1049,6 +1049,57 @@ static int32_t __yo_sync_dup2(int32_t oldfd, int32_t newfd) {
   return (result < 0) ? -errno : result;
 }
 
+static int32_t __yo_sync_fchmod(int32_t fd, uint32_t mode) {
+  HANDLE handle = (HANDLE)_get_osfhandle(fd);
+  if (handle == INVALID_HANDLE_VALUE) return -EBADF;
+  wchar_t path_buf[MAX_PATH];
+  DWORD len = GetFinalPathNameByHandleW(handle, path_buf, MAX_PATH, FILE_NAME_NORMALIZED);
+  if (len == 0 || len >= MAX_PATH) return -__yo_win_last_error_to_errno();
+  int result = _wchmod(path_buf, (int)mode);
+  return (result < 0) ? -errno : 0;
+}
+
+static int32_t __yo_sync_fchmodat(int32_t dirfd, const char* path, uint32_t mode, int32_t flags) {
+  if (!__yo_is_at_fdcwd(dirfd)) return -EINVAL;
+  (void)flags;
+  wchar_t* wpath = __yo_win_utf8_to_wide(path);
+  if (!wpath) return -__yo_win_last_error_to_errno();
+  int result = _wchmod(wpath, (int)mode);
+  __yo_free(wpath);
+  return (result < 0) ? -errno : 0;
+}
+
+static int32_t __yo_sync_fchown(int32_t fd, uint32_t uid, uint32_t gid) {
+  (void)fd;
+  if (uid == (uint32_t)0xFFFFFFFF && gid == (uint32_t)0xFFFFFFFF) return 0;
+  return -ENOSYS;
+}
+
+static int32_t __yo_sync_fchownat(int32_t dirfd, const char* path, uint32_t uid, uint32_t gid, int32_t flags) {
+  (void)dirfd; (void)path; (void)flags;
+  if (uid == (uint32_t)0xFFFFFFFF && gid == (uint32_t)0xFFFFFFFF) return 0;
+  return -ENOSYS;
+}
+
+static int32_t __yo_sync_readlinkat(int32_t dirfd, const char* path, char* buf, size_t bufsize) {
+  if (!__yo_is_at_fdcwd(dirfd)) return -EINVAL;
+  wchar_t* wpath = __yo_win_utf8_to_wide(path);
+  if (!wpath) return -__yo_win_last_error_to_errno();
+  HANDLE handle = CreateFileW(wpath, 0,
+                              FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                              NULL, OPEN_EXISTING,
+                              FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS,
+                              NULL);
+  __yo_free(wpath);
+  if (handle == INVALID_HANDLE_VALUE) return -__yo_win_last_error_to_errno();
+  wchar_t wbuf[MAX_PATH];
+  DWORD len = GetFinalPathNameByHandleW(handle, wbuf, MAX_PATH, FILE_NAME_NORMALIZED);
+  CloseHandle(handle);
+  if (len == 0 || len >= MAX_PATH) return -__yo_win_last_error_to_errno();
+  int written = __yo_win_wide_to_utf8(wbuf, buf, bufsize);
+  return (written < 0) ? written : written;
+}
+
 // ============================================================================
 // Directory Listing (Windows)
 // ============================================================================
@@ -2068,6 +2119,81 @@ static int32_t __yo_sync_copyfile(const char* src_path, const char* dst_path, in
 static int32_t __yo_sync_sendfile(int32_t out_fd, int32_t in_fd, int64_t offset, size_t count) {
   (void)out_fd; (void)in_fd; (void)offset; (void)count;
   return -ENOSYS;
+}
+
+static int32_t __yo_sync_utime(const char* path, int64_t atime_sec, int64_t atime_nsec, int64_t mtime_sec, int64_t mtime_nsec) {
+  wchar_t* wpath = __yo_win_utf8_to_wide(path);
+  if (!wpath) return -__yo_win_last_error_to_errno();
+  HANDLE handle = CreateFileW(wpath, FILE_WRITE_ATTRIBUTES,
+                              FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                              NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL);
+  __yo_free(wpath);
+  if (handle == INVALID_HANDLE_VALUE) return -__yo_win_last_error_to_errno();
+  FILETIME at = __yo_win_timespec_to_filetime(atime_sec, atime_nsec);
+  FILETIME mt = __yo_win_timespec_to_filetime(mtime_sec, mtime_nsec);
+  BOOL ok = SetFileTime(handle, NULL, &at, &mt);
+  CloseHandle(handle);
+  return ok ? 0 : -__yo_win_last_error_to_errno();
+}
+
+static int32_t __yo_sync_futime(int32_t fd, int64_t atime_sec, int64_t atime_nsec, int64_t mtime_sec, int64_t mtime_nsec) {
+  HANDLE orig_handle = (HANDLE)_get_osfhandle(fd);
+  if (orig_handle == INVALID_HANDLE_VALUE) return -EBADF;
+  wchar_t path_buf[MAX_PATH];
+  DWORD len = GetFinalPathNameByHandleW(orig_handle, path_buf, MAX_PATH, FILE_NAME_NORMALIZED);
+  if (len == 0 || len >= MAX_PATH) return -__yo_win_last_error_to_errno();
+  HANDLE handle = CreateFileW(path_buf, FILE_WRITE_ATTRIBUTES,
+                              FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                              NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL);
+  if (handle == INVALID_HANDLE_VALUE) return -__yo_win_last_error_to_errno();
+  FILETIME at = __yo_win_timespec_to_filetime(atime_sec, atime_nsec);
+  FILETIME mt = __yo_win_timespec_to_filetime(mtime_sec, mtime_nsec);
+  BOOL ok = SetFileTime(handle, NULL, &at, &mt);
+  CloseHandle(handle);
+  return ok ? 0 : -__yo_win_last_error_to_errno();
+}
+
+static int32_t __yo_sync_lutime(const char* path, int64_t atime_sec, int64_t atime_nsec, int64_t mtime_sec, int64_t mtime_nsec) {
+  wchar_t* wpath = __yo_win_utf8_to_wide(path);
+  if (!wpath) return -__yo_win_last_error_to_errno();
+  HANDLE handle = CreateFileW(wpath, FILE_WRITE_ATTRIBUTES,
+                              FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                              NULL, OPEN_EXISTING,
+                              FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS,
+                              NULL);
+  __yo_free(wpath);
+  if (handle == INVALID_HANDLE_VALUE) return -__yo_win_last_error_to_errno();
+  FILETIME at = __yo_win_timespec_to_filetime(atime_sec, atime_nsec);
+  FILETIME mt = __yo_win_timespec_to_filetime(mtime_sec, mtime_nsec);
+  BOOL ok = SetFileTime(handle, NULL, &at, &mt);
+  CloseHandle(handle);
+  return ok ? 0 : -__yo_win_last_error_to_errno();
+}
+
+static int32_t __yo_sync_statfs(const char* path, void* statfsbuf) {
+  wchar_t* wpath = __yo_win_utf8_to_wide(path);
+  if (!wpath) return -__yo_win_last_error_to_errno();
+  ULARGE_INTEGER free_avail, total_bytes, free_bytes;
+  if (!GetDiskFreeSpaceExW(wpath, &free_avail, &total_bytes, &free_bytes)) {
+    __yo_free(wpath);
+    return -__yo_win_last_error_to_errno();
+  }
+  DWORD sectors_per_cluster = 0, bytes_per_sector = 0, num_free_clusters = 0, total_clusters = 0;
+  if (!GetDiskFreeSpaceW(wpath, &sectors_per_cluster, &bytes_per_sector, &num_free_clusters, &total_clusters)) {
+    __yo_free(wpath);
+    return -__yo_win_last_error_to_errno();
+  }
+  __yo_free(wpath);
+  uint64_t bsize = (uint64_t)sectors_per_cluster * (uint64_t)bytes_per_sector;
+  yo_win_statfs_t* fs = (yo_win_statfs_t*)statfsbuf;
+  fs->type = 0;
+  fs->bsize = bsize;
+  fs->blocks = bsize ? (total_bytes.QuadPart / bsize) : 0;
+  fs->bfree = bsize ? (free_bytes.QuadPart / bsize) : 0;
+  fs->bavail = bsize ? (free_avail.QuadPart / bsize) : 0;
+  fs->files = 0;
+  fs->ffree = 0;
+  return 0;
 }
 
 typedef struct {

@@ -55,9 +55,9 @@ The runtime has been refactored into 4 modules:
 | **symlink/link**           | ✅                    | ✅ (sync wrappers)   | ✅ (CreateSymbolicLinkW/CreateHardLinkW) |
 | **fsync/fdatasync**        | ✅                    | ✅ (sync wrappers)   | ✅ (\_commit)                            |
 | **ftruncate**              | ✅                    | ✅ (sync wrapper)    | ✅ (\_chsize_s)                          |
-| **chmod/chown**            | ✅                    | ✅                   | ⚠️ (chmod only)                          |
-| **readlink**               | ✅                    | ✅                   | ✅ (GetFinalPathNameByHandleW)           |
-| **dup/dup2/pipe**          | ✅                    | ✅                   | ✅                                       |
+| **chmod/chown**            | ✅ (sync)             | ✅ (sync)            | ⚠️ (sync, chmod only)                    |
+| **readlink**               | ✅ (sync)             | ✅ (sync)            | ✅ (sync, GetFinalPathNameByHandleW)     |
+| **dup/dup2/pipe**          | ✅ (sync)             | ✅ (sync)            | ✅ (sync)                                |
 | **Socket ops**             | ✅                    | ✅ (dispatch_source) | ✅ (IOCP WSASend/WSARecv)                |
 | **Timer (sleep)**          | ✅ (timerfd+io_uring) | ✅ (dispatch_after)  | ✅ (IOCP wait timeout)                   |
 | **getdents/readdir**       | ✅ (getdents64)       | ✅ (getdirentries)   | ✅ (getdents only)                       |
@@ -154,7 +154,7 @@ truncate :: (fn(fd: i32, length: i64) -> IOFuture)(...);
 
 ### 1.2 Create `std/io/dir.yo` — Async Directory Operations ✅
 
-Wraps extern directory functions into async operations. All functions take `AT_FDCWD` for relative paths. Uses `AT_REMOVEDIR` flag with `unlink` for removing directories. Tests in `tests/io/dir.test.yo`.
+Wraps extern directory functions into operations. Async operations (mkdir, unlink, rename, symlink, link, getdents) return IOFuture. Readlink is synchronous and returns i32 directly. All functions take `AT_FDCWD` for relative paths. Uses `AT_REMOVEDIR` flag with `unlink` for removing directories. Tests in `tests/io/dir.test.yo`.
 
 **Import pattern**: Use namespace import (`dir :: import "std/io/dir"`) to avoid naming conflicts with libc's `rename` brought in by `open import "std/libc/stdio"`.
 
@@ -325,7 +325,7 @@ Wraps `getaddrinfo`/`getnameinfo` externs into async DNS operations, plus access
 
 ### 4.1 Create `std/io/perm.yo` — File Permissions ✅
 
-Wraps `fchmod`/`fchmodat`/`fchown`/`fchownat`/`access` externs into async permission operations. Tests in `tests/io/perm.test.yo`.
+Wraps `fchmod`/`fchmodat`/`fchown`/`fchownat`/`access` externs into synchronous permission operations. All operations return `i32` directly (no IOFuture overhead). Tests in `tests/io/perm.test.yo`.
 
 **Implementation highlights:**
 
@@ -337,7 +337,7 @@ Wraps `fchmod`/`fchmodat`/`fchown`/`fchownat`/`access` externs into async permis
 
 **Design notes:**
 
-- All operations return `IOFuture` resolving to 0 on success, `-errno` on failure
+- All operations return `i32` directly: 0 on success, `-errno` on failure (converted from IOFuture to sync — these are inherently fast kernel metadata ops on all platforms)
 - Uses constants from `std/io/constants.yo`: `F_OK`, `R_OK`, `W_OK`, `X_OK`, `S_I*`, `AT_FDCWD`, `AT_SYMLINK_NOFOLLOW`
 - `fchown` with uid/gid = `4294967295` (u32 max, i.e. `-1`) means "no change" (POSIX semantics)
 - Root can bypass permission checks, so write-after-chmod-readonly tests check for `-EACCES` only as non-root
@@ -355,7 +355,7 @@ Wraps `fchmod`/`fchmodat`/`fchown`/`fchownat`/`access` externs into async permis
 
 ### 4.2 Create `std/io/time.yo` — File Timestamps ✅
 
-Wraps `utime`/`futime`/`lutime` externs into async timestamp operations. Tests in `tests/io/time.test.yo`.
+Wraps `utime`/`futime`/`lutime` externs into synchronous timestamp operations. All operations return `i32` directly (no IOFuture overhead). Tests in `tests/io/time.test.yo`.
 
 **Implementation highlights:**
 
@@ -365,7 +365,7 @@ Wraps `utime`/`futime`/`lutime` externs into async timestamp operations. Tests i
 
 **Design notes:**
 
-- All operations return `IOFuture` resolving to 0 on success, `-errno` on failure
+- All operations return `i32` directly: 0 on success, `-errno` on failure (converted from IOFuture to sync — these are inherently fast kernel metadata ops)
 - Timestamps use `(i64 seconds, i64 nanoseconds)` pairs for both atime and mtime
 - `lutime` modifies the symlink itself, not the target file
 - C runtime uses `utimensat`/`futimens` (sync wrappers in completed futures)
@@ -399,17 +399,18 @@ Wraps `utime`/`futime`/`lutime` externs into async timestamp operations. Tests i
 ```yo
 // std/io/pipe.yo
 
-// Create a pipe pair (returns read_fd, write_fd via IOFuture)
-pipe :: (fn(pipefd: *(i32)) -> IOFuture)(...);
+// Create a pipe pair (writes read_fd and write_fd into pipefd array)
+pipe :: (fn(pipefd: *(i32)) -> i32)(...);
 
 // Duplicate a file descriptor
-dup :: (fn(fd: i32) -> IOFuture)(...);
-dup2 :: (fn(oldfd: i32, newfd: i32) -> IOFuture)(...);
+dup :: (fn(fd: i32) -> i32)(...);
+dup2 :: (fn(oldfd: i32, newfd: i32) -> i32)(...);
 ```
 
 **Implementation notes:**
 
-- Implemented in `std/io/pipe.yo` using `__yo_async_pipe_start`, `__yo_async_dup_start`, `__yo_async_dup2_start`.
+- Implemented in `std/io/pipe.yo` using `__yo_sync_pipe`, `__yo_sync_dup`, `__yo_sync_dup2`.
+- All operations return `i32` directly (sync — no IOFuture overhead).
 - Tests in `tests/io/pipe.test.yo` (pipe read/write, dup, dup2).
 
 ### 5.2 Create `std/io/copy.yo` — Zero-Copy File Operations ✅
@@ -418,15 +419,16 @@ dup2 :: (fn(oldfd: i32, newfd: i32) -> IOFuture)(...);
 // std/io/copy.yo
 
 // Copy file using kernel acceleration (sendfile/copy_file_range)
-copyfile :: (fn(src: *(u8), dst: *(u8), flags: i32) -> IOFuture)(...);
+copyfile :: (fn(src: *(u8), dst: *(u8), flags: i32) -> i32)(...);
 
 // Transfer data between fds (sendfile)
-sendfile :: (fn(out_fd: i32, in_fd: i32, offset: i64, count: usize) -> IOFuture)(...);
+sendfile :: (fn(out_fd: i32, in_fd: i32, offset: i64, count: usize) -> i32)(...);
 ```
 
 **Implementation notes:**
 
-- Implemented in `std/io/copy.yo` using `__yo_async_copyfile_start` and `__yo_async_sendfile_start`.
+- Implemented in `std/io/copy.yo` using `__yo_sync_copyfile` and `__yo_sync_sendfile`.
+- All operations return `i32` directly (sync — no IOFuture overhead).
 - Tests in `tests/io/copy.test.yo` (copyfile + sendfile verification).
 
 ### 5.3 Create `std/io/signal.yo` — Signal Handling Functions ✅
@@ -484,16 +486,17 @@ Wraps `mkdtemp`/`mkstemp` externs. Externs and C runtime already exist on all 3 
 
 // Create a temporary directory from template (e.g., "/tmp/myapp-XXXXXX")
 // The template is modified in-place with the actual path. Returns 0 on success.
-mkdtemp :: (fn(template: *(u8)) -> IOFuture)(...);
+mkdtemp :: (fn(template: *(u8)) -> i32)(...);
 
 // Create a temporary file from template (e.g., "/tmp/myfile-XXXXXX")
 // The template is modified in-place. Returns the fd on success.
-mkstemp :: (fn(template: *(u8)) -> IOFuture)(...);
+mkstemp :: (fn(template: *(u8)) -> i32)(...);
 ```
 
 **Implementation notes:**
 
-- Implemented in `std/io/temp.yo` using `__yo_async_mkdtemp_start` and `__yo_async_mkstemp_start`.
+- Implemented in `std/io/temp.yo` using `__yo_sync_mkdtemp` and `__yo_sync_mkstemp`.
+- All operations return `i32` directly (sync — no IOFuture overhead).
 - Tests in `tests/io/temp.test.yo` (mkdtemp + mkstemp creation/cleanup).
 
 **Cross-platform notes:**
@@ -512,12 +515,13 @@ Wraps `realpath` extern. Externs and C runtime already exist on all 3 platforms.
 // Resolve a path to its canonical absolute form (resolves symlinks, . and ..)
 // Writes result to `resolved` buffer (must be at least PATH_MAX bytes).
 // Returns 0 on success, -errno on failure.
-realpath :: (fn(path: *(u8), resolved: *(u8)) -> IOFuture)(...);
+realpath :: (fn(path: *(u8), resolved: *(u8)) -> i32)(...);
 ```
 
 **Implementation notes:**
 
-- Implemented in `std/io/path.yo` using `__yo_async_realpath_start`.
+- Implemented in `std/io/path.yo` using `__yo_sync_realpath`.
+- Returns `i32` directly (sync — no IOFuture overhead).
 - Tests in `tests/io/path.test.yo` cover `.`/`..` resolution, symlink targets (skips if symlink creation fails), and nonexistent paths.
 
 **Cross-platform notes:**
@@ -534,7 +538,7 @@ Wraps `statfs` extern and provides typed accessors. Externs and C runtime alread
 
 // Get filesystem statistics for the given path.
 // Writes result to `buf` (use statfs_buf_size() to allocate).
-statfs :: (fn(path: *(u8), buf: *(u8)) -> IOFuture)(...);
+statfs :: (fn(path: *(u8), buf: *(u8)) -> i32)(...);  // sync — no IOFuture overhead
 
 // Get required buffer size for statfs
 statfs_buf_size :: (fn() -> usize)(...);
@@ -977,19 +981,19 @@ std/io/
   statx.yo         ← File metadata accessors              ✅
   timer.yo         ← sleep                                ✅
   file.yo          ← Async file operations                ✅
-  dir.yo           ← Async directory operations           ✅
+  dir.yo           ← Directory operations (async+sync)    ✅
   tcp.yo           ← TCP socket operations                ✅
   udp.yo           ← UDP socket operations                ✅
   dns.yo           ← DNS resolution                       ✅
-  perm.yo          ← File permissions                     ✅
-  time.yo          ← File timestamp operations            ✅
-  pipe.yo          ← Pipe/dup operations                  ✅
-  copy.yo          ← Zero-copy file transfer              ✅
-  signal.yo        ← Signal handling functions            ✅
-  tty.yo           ← TTY mode/winsize                     ✅
-  temp.yo          ← Temporary files/directories          ✅
-  path.yo          ← Path resolution (realpath)           Phase 5
-  statfs.yo        ← Filesystem statistics                Phase 5
+  perm.yo          ← File permissions (sync)              ✅
+  time.yo          ← File timestamp operations (sync)     ✅
+  pipe.yo          ← Pipe/dup operations (sync)            ✅
+  copy.yo          ← Zero-copy file transfer (sync)        ✅
+  signal.yo        ← Signal handling functions (sync)      ✅
+  tty.yo           ← TTY mode/winsize (sync)               ✅
+  temp.yo          ← Temporary files/directories (sync)    ✅
+  path.yo          ← Path resolution (realpath, sync)      ✅
+  statfs.yo        ← Filesystem statistics (sync)          Phase 5
   unix.yo          ← Unix domain sockets                  Phase 8
   process.yo       ← Child process management             Phase 9
   fcntl.yo         ← FD flags control                     Phase 10
@@ -1018,3 +1022,30 @@ std/io/
 - **mmap on Windows**: Requires a two-step `CreateFileMappingW()` + `MapViewOfFile()` dance internally. The runtime will present a unified `mmap()`-style interface. Anonymous mappings use `INVALID_HANDLE_VALUE` as the file handle.
 
 - **fcntl on Windows**: There is no direct equivalent. Non-blocking mode for sockets uses `ioctlsocket(FIONBIO)`. For files/pipes, Windows uses overlapped I/O instead of non-blocking mode. The runtime will provide best-effort abstraction.
+
+- **Sync vs Async operation classification**: Operations are classified based on whether they can benefit from true async I/O on any supported platform:
+
+  **Truly async (keep IOFuture)** — operations that use io_uring on Linux or dispatch_io/GCD on macOS:
+
+  - File read/write (`__yo_async_read_start`, `__yo_async_write_start`)
+  - File open/close (`__yo_async_openat_start`, `__yo_async_close_start`)
+  - File stat (`__yo_async_statx_start`)
+  - Directory mutation: mkdir, unlink, rename, symlink, link (`__yo_async_mkdirat_start`, etc.)
+  - fsync, fdatasync, ftruncate
+  - Socket operations (socket, bind, listen, accept, connect, send, recv, etc.)
+  - Directory listing (getdents)
+  - DNS resolution (getaddrinfo, getnameinfo) — blocking but kept as IOFuture for future true-async
+  - Timer (sleep)
+  - Directory scanning (opendir, readdir, closedir)
+
+  **Sync (return i32 directly)** — operations that are inherently fast kernel metadata ops or instant syscalls on all platforms, wrapped in `__yo_sync_*` C functions that avoid heap allocation and atomics:
+
+  - Permissions: fchmod, fchmodat, fchown, fchownat, access
+  - Timestamps: utime, futime, lutime
+  - Path resolution: readlinkat, realpath
+  - File descriptor ops: pipe, dup, dup2
+  - Temp files: mkdtemp, mkstemp
+  - File copy: copyfile, sendfile
+  - Filesystem stats: statfs
+  - Signals: signal_start, signal_stop, kill
+  - TTY: tty_init, tty_set_mode, tty_reset_mode, tty_get_winsize, isatty

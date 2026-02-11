@@ -1,8 +1,9 @@
 // std/io/time.yo - File timestamp operations
 //
-// Provides async wrappers for utime/futime/lutime to change file timestamps.
+// Provides synchronous wrappers for utime/futime/lutime to change file timestamps.
+// All operations return i32 directly (no IOFuture overhead).
 //
-// All async operations return IOFuture which resolves to:
+// Returns:
 //   - 0: success
 //   - Negative value: -errno on failure
 //
@@ -12,21 +13,17 @@
 //
 // Example:
 //   time :: import "std/io/time";
-//   { AT_FDCWD } :: import "std/io/constants";
 //
-//   async {
-//     // Set both atime and mtime to specific values
-//     ret := await time.utime(*(u8)("/tmp/test.txt"), i64(1000000), i64(0), i64(2000000), i64(0));
-//     assert(ret == i32(0));
+//   // Set both atime and mtime to specific values
+//   ret := time.utime(*(u8)("/tmp/test.txt"), i64(1000000), i64(0), i64(2000000), i64(0));
+//   assert(ret == i32(0));
 //
-//     // Set timestamps on an open fd
-//     ret2 := await time.futime(fd, i64(1000000), i64(0), i64(2000000), i64(0));
-//     assert(ret2 == i32(0));
-//   };
+//   // Set timestamps on an open fd
+//   ret2 := time.futime(fd, i64(1000000), i64(0), i64(2000000), i64(0));
+//   assert(ret2 == i32(0));
 
-{ IOFuture } :: import "./future.yo";
 {
-  __yo_async_utime_start, __yo_async_futime_start, __yo_async_lutime_start
+  __yo_sync_utime, __yo_sync_futime, __yo_sync_lutime
 } :: import "./externs.yo";
 
 // ============================================================================
@@ -38,8 +35,8 @@
 // atime_sec, atime_nsec: access time (seconds + nanoseconds)
 // mtime_sec, mtime_nsec: modification time (seconds + nanoseconds)
 // Returns 0 on success, -errno on failure.
-utime :: (fn(path: *(u8), atime_sec: i64, atime_nsec: i64, mtime_sec: i64, mtime_nsec: i64) -> IOFuture)(
-  __yo_async_utime_start(path, atime_sec, atime_nsec, mtime_sec, mtime_nsec)
+utime :: (fn(path: *(u8), atime_sec: i64, atime_nsec: i64, mtime_sec: i64, mtime_nsec: i64) -> i32)(
+  __yo_sync_utime(path, atime_sec, atime_nsec, mtime_sec, mtime_nsec)
 );
 
 // ============================================================================
@@ -51,8 +48,8 @@ utime :: (fn(path: *(u8), atime_sec: i64, atime_nsec: i64, mtime_sec: i64, mtime
 // atime_sec, atime_nsec: access time (seconds + nanoseconds)
 // mtime_sec, mtime_nsec: modification time (seconds + nanoseconds)
 // Returns 0 on success, -errno on failure.
-futime :: (fn(fd: i32, atime_sec: i64, atime_nsec: i64, mtime_sec: i64, mtime_nsec: i64) -> IOFuture)(
-  __yo_async_futime_start(fd, atime_sec, atime_nsec, mtime_sec, mtime_nsec)
+futime :: (fn(fd: i32, atime_sec: i64, atime_nsec: i64, mtime_sec: i64, mtime_nsec: i64) -> i32)(
+  __yo_sync_futime(fd, atime_sec, atime_nsec, mtime_sec, mtime_nsec)
 );
 
 // ============================================================================
@@ -65,8 +62,8 @@ futime :: (fn(fd: i32, atime_sec: i64, atime_nsec: i64, mtime_sec: i64, mtime_ns
 // atime_sec, atime_nsec: access time (seconds + nanoseconds)
 // mtime_sec, mtime_nsec: modification time (seconds + nanoseconds)
 // Returns 0 on success, -errno on failure.
-lutime :: (fn(path: *(u8), atime_sec: i64, atime_nsec: i64, mtime_sec: i64, mtime_nsec: i64) -> IOFuture)(
-  __yo_async_lutime_start(path, atime_sec, atime_nsec, mtime_sec, mtime_nsec)
+lutime :: (fn(path: *(u8), atime_sec: i64, atime_nsec: i64, mtime_sec: i64, mtime_nsec: i64) -> i32)(
+  __yo_sync_lutime(path, atime_sec, atime_nsec, mtime_sec, mtime_nsec)
 );
 
 export utime, futime, lutime;
