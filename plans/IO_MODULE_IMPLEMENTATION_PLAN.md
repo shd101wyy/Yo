@@ -31,6 +31,7 @@ The `std/io` module provides Yo's low-level async I/O foundation. It sits betwee
 | **Copy**             | `std/io/copy.yo`                           | ✅ Complete | copyfile, sendfile + tests                                 |
 | **Signal**           | `std/io/signal.yo`                         | ✅ Complete | on_signal, off_signal, kill + tests                        |
 | **TTY**              | `std/io/tty.yo`                            | ✅ Complete | tty init/mode/winsize/isatty + tests                       |
+| **Temp**             | `std/io/temp.yo`                           | ✅ Complete | mkdtemp, mkstemp + tests                                   |
 
 ### C Runtime Status (in `src/codegen/async/runtime*.ts`)
 
@@ -473,7 +474,7 @@ isatty :: (fn(fd: i32) -> bool)(...);
 - Implemented in `std/io/tty.yo` using `__yo_tty_init`, `__yo_tty_set_mode`, `__yo_tty_reset_mode`, `__yo_tty_get_winsize`, `__yo_isatty`.
 - Tests in `tests/io/tty.test.yo` (isatty + winsize; set/reset mode; skip on Windows or non-tty).
 
-### 5.5 Create `std/io/temp.yo` — Temporary File/Directory Operations
+### 5.5 Create `std/io/temp.yo` — Temporary File/Directory Operations ✅
 
 Wraps `mkdtemp`/`mkstemp` externs. Externs and C runtime already exist on all 3 platforms (sync wrappers).
 
@@ -488,6 +489,11 @@ mkdtemp :: (fn(template: *(u8)) -> IOFuture)(...);
 // The template is modified in-place. Returns the fd on success.
 mkstemp :: (fn(template: *(u8)) -> IOFuture)(...);
 ```
+
+**Implementation notes:**
+
+- Implemented in `std/io/temp.yo` using `__yo_async_mkdtemp_start` and `__yo_async_mkstemp_start`.
+- Tests in `tests/io/temp.test.yo` (mkdtemp + mkstemp creation/cleanup).
 
 **Cross-platform notes:**
 
@@ -937,7 +943,7 @@ Each phase should include a `.test.yo` file exercising the new APIs:
 9. **Copy tests** — ✅ Done in `tests/io/copy.test.yo`
 10. **Signal tests** — ✅ Done in `tests/io/signal.test.yo`
 11. **TTY tests** — ✅ Done in `tests/io/tty.test.yo`
-12. **Temp file tests** — mkdtemp, mkstemp, verify creation and cleanup
+12. **Temp file tests** — ✅ Done in `tests/io/temp.test.yo`
 13. **Path tests** — realpath on symlinks, relative paths, nonexistent paths
 14. **Statfs tests** — filesystem stats, verify block size > 0
 15. **Unix socket tests** — stream echo server/client, dgram send/recv
@@ -975,7 +981,7 @@ std/io/
   copy.yo          ← Zero-copy file transfer              ✅
   signal.yo        ← Signal handling functions            ✅
   tty.yo           ← TTY mode/winsize                     ✅
-  temp.yo          ← Temporary files/directories          Phase 5
+  temp.yo          ← Temporary files/directories          ✅
   path.yo          ← Path resolution (realpath)           Phase 5
   statfs.yo        ← Filesystem statistics                Phase 5
   unix.yo          ← Unix domain sockets                  Phase 8

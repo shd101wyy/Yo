@@ -1,0 +1,50 @@
+open import "std/libc/stdio";
+open import "std/string";
+{ platform, Platform } :: import "std/process";
+{ temp_dir, path_join } :: import "./helper";
+dir :: import "std/io/dir";
+file :: import "std/io/file";
+{ AT_FDCWD, AT_REMOVEDIR, O_RDONLY } :: import "std/io/constants";
+temp_io :: import "std/io/temp";
+
+test "mkdtemp creates and removes directory", {
+  async {
+    tmp := temp_dir();
+    template_str := path_join(tmp, `yo_io_mkdtemp_XXXXXX`);
+    template_c := template_str.to_cstr();
+    template_path := template_c.ptr().unwrap();
+
+    mk := await temp_io.mkdtemp(template_path);
+    printf("  mkdtemp = %d\n", mk);
+    assert(mk == i32(0));
+
+    open_dir := await file.openat(AT_FDCWD, template_path, O_RDONLY, i32(0));
+    printf("  open dir = %d\n", open_dir);
+    assert(open_dir >= i32(0));
+    await file.close(open_dir);
+
+    rm := await dir.unlink(AT_FDCWD, template_path, AT_REMOVEDIR);
+    printf("  rmdir = %d\n", rm);
+    assert(rm == i32(0));
+  };
+};
+
+test "mkstemp creates and removes file", {
+  async {
+    tmp := temp_dir();
+    template_str := path_join(tmp, `yo_io_mkstemp_XXXXXX`);
+    template_c := template_str.to_cstr();
+    template_path := template_c.ptr().unwrap();
+
+    fd := await temp_io.mkstemp(template_path);
+    printf("  mkstemp = %d\n", fd);
+    assert(fd >= i32(0));
+
+    close_result := await file.close(fd);
+    assert(close_result == i32(0));
+
+    rm := await dir.unlink(AT_FDCWD, template_path, i32(0));
+    printf("  unlink = %d\n", rm);
+    assert(rm == i32(0));
+  };
+};

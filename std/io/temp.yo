@@ -1,0 +1,27 @@
+// std/io/temp.yo - Temporary file/directory operations
+//
+// Async operations return IOFuture which resolves to:
+//   - mkdtemp: 0 on success, -errno on failure
+//   - mkstemp: fd on success, -errno on failure
+
+{ IOFuture } :: import "./future.yo";
+{ __yo_async_mkdtemp_start, __yo_async_mkstemp_start } :: import "./externs.yo";
+
+// Create a temporary directory from template (e.g., "/tmp/myapp-XXXXXX").
+// The template is modified in-place with the actual path.
+// Returns 0 on success, -errno on failure.
+mkdtemp :: (fn(template: *(u8)) -> IOFuture)(
+  __yo_async_mkdtemp_start(template)
+);
+
+// Create a temporary file from template (e.g., "/tmp/myfile-XXXXXX").
+// The template is modified in-place with the actual path.
+// Returns fd on success, -errno on failure.
+mkstemp :: (fn(template: *(u8)) -> IOFuture)(
+  __yo_async_mkstemp_start(template)
+);
+
+export
+  mkdtemp,
+  mkstemp
+;
