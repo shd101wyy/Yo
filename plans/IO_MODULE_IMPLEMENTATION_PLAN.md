@@ -33,6 +33,7 @@ The `std/io` module provides Yo's low-level async I/O foundation. It sits betwee
 | **TTY**              | `std/io/tty.yo`                            | ✅ Complete | tty init/mode/winsize/isatty + tests                       |
 | **Temp**             | `std/io/temp.yo`                           | ✅ Complete | mkdtemp, mkstemp + tests                                   |
 | **Path**             | `std/io/path.yo`                           | ✅ Complete | realpath + tests                                           |
+| **Statfs**           | `std/io/statfs.yo`                         | ✅ Complete | statfs + accessors (sync)                                  |
 
 ### C Runtime Status (in `src/codegen/async/runtime*.ts`)
 
@@ -529,7 +530,7 @@ realpath :: (fn(path: *(u8), resolved: *(u8)) -> i32)(...);
 - Linux/macOS: Uses POSIX `realpath()` directly
 - Windows: Uses `GetFullPathNameW()` in sync wrapper
 
-### 5.7 Create `std/io/statfs.yo` — Filesystem Statistics
+### 5.7 Create `std/io/statfs.yo` — Filesystem Statistics ✅
 
 Wraps `statfs` extern and provides typed accessors. Externs and C runtime already exist on all 3 platforms.
 
@@ -553,10 +554,16 @@ statfs_files  :: (fn(buf: *(u8)) -> u64)(...);
 statfs_ffree  :: (fn(buf: *(u8)) -> u64)(...);
 ```
 
+**Implementation notes:**
+
+- Implemented in `std/io/statfs.yo` using `__yo_sync_statfs` and `__yo_statfs_*` accessors.
+- Returns `i32` directly (sync — no IOFuture overhead).
+- Tests TBD.
+
 **Cross-platform notes:**
 
-- Linux: `statfs()` syscall
-- macOS: `statfs()` syscall (slightly different struct layout)
+- Linux: `statvfs()` syscall
+- macOS: `statvfs()` syscall (slightly different struct layout)
 - Windows: `GetDiskFreeSpaceExW()` mapped to block-style fields
 
 ---
@@ -914,10 +921,10 @@ Phase 3 (DNS)                        ✅ DONE
 Phase 4 (Permissions/Metadata)       ✅ DONE
   └── Depends on: Phase 1 (file operations)
 
-Phase 5 (Advanced ops)               ← CURRENT
+Phase 5 (Advanced ops)               ✅ DONE
   ├── 5.1-5.4 (pipe, copy, signal, tty)
   │     └── Depends on: Phase 1 + Phase 2
-  └── 5.5-5.7 (temp, path, statfs)   ← Easy wins, externs exist
+  └── 5.5-5.7 (temp, path, statfs)
         └── Depends on: Phase 1 only
 
 Phase 6 (Windows IOCP)               ✅ DONE
@@ -955,7 +962,7 @@ Each phase should include a `.test.yo` file exercising the new APIs:
 11. **TTY tests** — ✅ Done in `tests/io/tty.test.yo`
 12. **Temp file tests** — ✅ Done in `tests/io/temp.test.yo`
 13. **Path tests** — ✅ realpath on symlinks, relative paths, nonexistent paths
-14. **Statfs tests** — filesystem stats, verify block size > 0
+14. **Statfs tests** — ✅ filesystem stats, verify block size > 0 (`tests/io/statfs.test.yo`)
 15. **Unix socket tests** — stream echo server/client, dgram send/recv
 16. **Process tests** — spawn child, wait for exit, pipe stdout capture
 17. **Mmap tests** — map file, read/write, msync, munmap
@@ -993,7 +1000,7 @@ std/io/
   tty.yo           ← TTY mode/winsize (sync)               ✅
   temp.yo          ← Temporary files/directories (sync)    ✅
   path.yo          ← Path resolution (realpath, sync)      ✅
-  statfs.yo        ← Filesystem statistics (sync)          Phase 5
+  statfs.yo        ← Filesystem statistics (sync)          ✅
   unix.yo          ← Unix domain sockets                  Phase 8
   process.yo       ← Child process management             Phase 9
   fcntl.yo         ← FD flags control                     Phase 10
@@ -1011,7 +1018,7 @@ std/io/
 
 - **`*(u8)` not `str` for paths**: The low-level `std/io` functions use `*(u8)` raw pointers to match the C extern signatures directly. `str` is a higher-level newtype wrapping `Slice(u8)` — the `std/fs` module will accept `str` and extract the pointer before calling into `std/io`.
 
-- **Error handling**: All functions return `IOFuture` (which resolves to `i32`). The pattern is: positive = success (often bytes count), negative = `-errno`. The `IOError.from_result(result)` helper converts this to `Result(i32, IOError)`.
+- **Error handling**: Async functions return `IOFuture` (which resolves to `i32`), while sync functions return `i32` directly. The pattern is: positive = success (often bytes count), negative = `-errno`. The `IOError.from_result(result)` helper converts this to `Result(i32, IOError)`.
 
 - **Breaking changes are OK**: Per project guidelines, the Yo language is still evolving. API surface can change between phases.
 
