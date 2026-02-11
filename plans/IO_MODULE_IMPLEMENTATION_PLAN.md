@@ -30,6 +30,7 @@ The `std/io` module provides Yo's low-level async I/O foundation. It sits betwee
 | **Pipe**             | `std/io/pipe.yo`                           | ✅ Complete | pipe, dup, dup2 + tests                                    |
 | **Copy**             | `std/io/copy.yo`                           | ✅ Complete | copyfile, sendfile + tests                                 |
 | **Signal**           | `std/io/signal.yo`                         | ✅ Complete | on_signal, off_signal, kill + tests                        |
+| **TTY**              | `std/io/tty.yo`                            | ✅ Complete | tty init/mode/winsize/isatty + tests                       |
 
 ### C Runtime Status (in `src/codegen/async/runtime*.ts`)
 
@@ -446,7 +447,7 @@ kill :: (fn(pid: i32, signum: i32) -> i32)(...);
 - Implemented in `std/io/signal.yo` using `__yo_signal_start`, `__yo_signal_stop`, `__yo_kill`.
 - Tests in `tests/io/signal.test.yo` (install handler, send SIGUSR1, remove handler; skipped on Windows).
 
-### 5.4 Create `std/io/tty.yo` — TTY Operations
+### 5.4 Create `std/io/tty.yo` — TTY Operations ✅
 
 ```yo
 // std/io/tty.yo
@@ -466,6 +467,11 @@ tty_winsize :: (fn(fd: i32) -> struct(width: i32, height: i32))(...);
 // Check if fd is a TTY
 isatty :: (fn(fd: i32) -> bool)(...);
 ```
+
+**Implementation notes:**
+
+- Implemented in `std/io/tty.yo` using `__yo_tty_init`, `__yo_tty_set_mode`, `__yo_tty_reset_mode`, `__yo_tty_get_winsize`, `__yo_isatty`.
+- Tests in `tests/io/tty.test.yo` (isatty + winsize; set/reset mode; skip on Windows or non-tty).
 
 ### 5.5 Create `std/io/temp.yo` — Temporary File/Directory Operations
 
@@ -930,13 +936,14 @@ Each phase should include a `.test.yo` file exercising the new APIs:
 8. **Pipe tests** — ✅ Done in `tests/io/pipe.test.yo`
 9. **Copy tests** — ✅ Done in `tests/io/copy.test.yo`
 10. **Signal tests** — ✅ Done in `tests/io/signal.test.yo`
-11. **Temp file tests** — mkdtemp, mkstemp, verify creation and cleanup
-12. **Path tests** — realpath on symlinks, relative paths, nonexistent paths
-13. **Statfs tests** — filesystem stats, verify block size > 0
-14. **Unix socket tests** — stream echo server/client, dgram send/recv
-15. **Process tests** — spawn child, wait for exit, pipe stdout capture
-16. **Mmap tests** — map file, read/write, msync, munmap
-17. **Lock tests** — flock exclusive/shared, non-blocking conflict detection
+11. **TTY tests** — ✅ Done in `tests/io/tty.test.yo`
+12. **Temp file tests** — mkdtemp, mkstemp, verify creation and cleanup
+13. **Path tests** — realpath on symlinks, relative paths, nonexistent paths
+14. **Statfs tests** — filesystem stats, verify block size > 0
+15. **Unix socket tests** — stream echo server/client, dgram send/recv
+16. **Process tests** — spawn child, wait for exit, pipe stdout capture
+17. **Mmap tests** — map file, read/write, msync, munmap
+18. **Lock tests** — flock exclusive/shared, non-blocking conflict detection
 
 For cross-platform validation:
 
@@ -967,7 +974,7 @@ std/io/
   pipe.yo          ← Pipe/dup operations                  ✅
   copy.yo          ← Zero-copy file transfer              ✅
   signal.yo        ← Signal handling functions            ✅
-  tty.yo           ← TTY mode/winsize                     Phase 5
+  tty.yo           ← TTY mode/winsize                     ✅
   temp.yo          ← Temporary files/directories          Phase 5
   path.yo          ← Path resolution (realpath)           Phase 5
   statfs.yo        ← Filesystem statistics                Phase 5

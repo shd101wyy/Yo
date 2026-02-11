@@ -81,6 +81,22 @@ You can ignore the editor erros for the `.yo` files, because the vscode extensio
 
      // CORRECT - begin block with statements:
      result := { x := 1; y := 2; .Ok(()) }
+
+     // WRONG - invalid anonymous struct value:
+     print_bool :: (fn(value: bool) -> i32)({
+       cond(
+         value => i32(1),
+         true => i32(0)
+       )
+     });
+
+     // CORRECT - just the expression:
+     print_bool :: (fn(value: bool) -> i32)(
+       cond(
+         value => i32(1),
+         true => i32(0)
+       )
+     );
      ```
 
 2. **Always write `cond(...)` and `match(...)` with parentheses:**
