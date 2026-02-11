@@ -1,0 +1,24 @@
+// std/io/copy.yo - Zero-copy file operations
+//
+// Async operations return IOFuture which resolves to:
+//   - copyfile: 0 on success, -errno on failure
+//   - sendfile: bytes sent on success, -errno on failure
+
+{ IOFuture } :: import "./future.yo";
+{ __yo_async_copyfile_start, __yo_async_sendfile_start } :: import "./externs.yo";
+
+// Copy file using kernel acceleration (sendfile/copy_file_range).
+// Returns 0 on success, -errno on failure.
+copyfile :: (fn(src: *(u8), dst: *(u8), flags: i32) -> IOFuture)(
+  __yo_async_copyfile_start(src, dst, flags)
+);
+
+// Transfer data between fds (sendfile).
+// Returns bytes sent on success, -errno on failure.
+sendfile :: (fn(out_fd: i32, in_fd: i32, offset: i64, count: usize) -> IOFuture)(
+  __yo_async_sendfile_start(out_fd, in_fd, offset, count)
+);
+
+export
+  copyfile, sendfile
+;

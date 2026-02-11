@@ -28,6 +28,7 @@ The `std/io` module provides Yo's low-level async I/O foundation. It sits betwee
 | **Perm**             | `std/io/perm.yo`                           | ✅ Complete | fchmod, chmodat, fchown, chownat, access                   |
 | **Time**             | `std/io/time.yo`                           | ✅ Complete | utime, futime, lutime (file timestamp operations)          |
 | **Pipe**             | `std/io/pipe.yo`                           | ✅ Complete | pipe, dup, dup2 + tests                                    |
+| **Copy**             | `std/io/copy.yo`                           | ✅ Complete | copyfile, sendfile + tests                                 |
 
 ### C Runtime Status (in `src/codegen/async/runtime*.ts`)
 
@@ -407,7 +408,7 @@ dup2 :: (fn(oldfd: i32, newfd: i32) -> IOFuture)(...);
 - Implemented in `std/io/pipe.yo` using `__yo_async_pipe_start`, `__yo_async_dup_start`, `__yo_async_dup2_start`.
 - Tests in `tests/io/pipe.test.yo` (pipe read/write, dup, dup2).
 
-### 5.2 Create `std/io/copy.yo` — Zero-Copy File Operations
+### 5.2 Create `std/io/copy.yo` — Zero-Copy File Operations ✅
 
 ```yo
 // std/io/copy.yo
@@ -418,6 +419,11 @@ copyfile :: (fn(src: *(u8), dst: *(u8), flags: i32) -> IOFuture)(...);
 // Transfer data between fds (sendfile)
 sendfile :: (fn(out_fd: i32, in_fd: i32, offset: i64, count: usize) -> IOFuture)(...);
 ```
+
+**Implementation notes:**
+
+- Implemented in `std/io/copy.yo` using `__yo_async_copyfile_start` and `__yo_async_sendfile_start`.
+- Tests in `tests/io/copy.test.yo` (copyfile + sendfile verification).
 
 ### 5.3 Create `std/io/signal.yo` — Signal Handling Functions
 
@@ -916,13 +922,14 @@ Each phase should include a `.test.yo` file exercising the new APIs:
 6. **Permission tests** — chmod, access checks
 7. **Timestamp tests** — utime, futime, lutime, verify via statx
 8. **Pipe tests** — ✅ Done in `tests/io/pipe.test.yo`
-9. **Temp file tests** — mkdtemp, mkstemp, verify creation and cleanup
-10. **Path tests** — realpath on symlinks, relative paths, nonexistent paths
-11. **Statfs tests** — filesystem stats, verify block size > 0
-12. **Unix socket tests** — stream echo server/client, dgram send/recv
-13. **Process tests** — spawn child, wait for exit, pipe stdout capture
-14. **Mmap tests** — map file, read/write, msync, munmap
-15. **Lock tests** — flock exclusive/shared, non-blocking conflict detection
+9. **Copy tests** — ✅ Done in `tests/io/copy.test.yo`
+10. **Temp file tests** — mkdtemp, mkstemp, verify creation and cleanup
+11. **Path tests** — realpath on symlinks, relative paths, nonexistent paths
+12. **Statfs tests** — filesystem stats, verify block size > 0
+13. **Unix socket tests** — stream echo server/client, dgram send/recv
+14. **Process tests** — spawn child, wait for exit, pipe stdout capture
+15. **Mmap tests** — map file, read/write, msync, munmap
+16. **Lock tests** — flock exclusive/shared, non-blocking conflict detection
 
 For cross-platform validation:
 
@@ -951,7 +958,7 @@ std/io/
   perm.yo          ← File permissions                     ✅
   time.yo          ← File timestamp operations            ✅
   pipe.yo          ← Pipe/dup operations                  ✅
-  copy.yo          ← Zero-copy file transfer              Phase 5
+  copy.yo          ← Zero-copy file transfer              ✅
   signal.yo        ← Signal handling functions            Phase 5
   tty.yo           ← TTY mode/winsize                     Phase 5
   temp.yo          ← Temporary files/directories          Phase 5
