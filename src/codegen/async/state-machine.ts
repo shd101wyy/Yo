@@ -159,6 +159,12 @@ export function generateAsyncBlockResumeFunction(
       const prevAwait = analysis.awaitPoints[stateNumber - 1]!;
       const prevFutureFieldName = getFutureFieldName(prevAwait, analysis);
 
+      // When previous await was inside a cond, the future may be NULL
+      // (non-await branch was taken). Guard all result extraction and cond handling.
+      if (prevAwait.isInsideCond) {
+        emitter.emitLine(`      if (sm->${prevFutureFieldName} != NULL) {`);
+      }
+
       if (prevAwait && !isUnitType(prevAwait.resultType)) {
         emitter.emitLine(
           `      // Extract result from await ${stateNumber - 1}`
@@ -350,6 +356,11 @@ export function generateAsyncBlockResumeFunction(
           }
 
           emitter.emitLine(``);
+        }
+
+        // Close the isInsideCond NULL guard
+        if (prevAwait.isInsideCond) {
+          emitter.emitLine(`      }`);
         }
 
         // Check if this await was part of a while loop
@@ -573,6 +584,16 @@ export function generateAsyncBlockResumeFunction(
       const nextState = stateNumber + 1;
       const futureFieldName = getFutureFieldName(segment.awaitPoint, analysis);
 
+      // If this await is inside a cond expression, the future may not be set
+      // (the non-await branch was taken). Guard the await logic with a NULL check.
+      const isInsideCond = segment.awaitPoint?.isInsideCond;
+      if (isInsideCond) {
+        emitter.emitLine(
+          `      // Only await if the cond branch with await was taken`
+        );
+        emitter.emitLine(`      if (sm->${futureFieldName} != NULL) {`);
+      }
+
       // If this await is inside a while loop, wrap the await logic in a check for loop active flag
       const isInsideWhile = segment.awaitPoint?.isInsideWhile;
       if (isInsideWhile) {
@@ -622,6 +643,16 @@ export function generateAsyncBlockResumeFunction(
           `        // While loop was broken, jump to code after loop`
         );
         emitter.emitLine(`        goto after_while_loop_${whileLoopIndex};`);
+        emitter.emitLine(`      }`);
+      }
+
+      if (isInsideCond) {
+        emitter.emitLine(`      } else {`);
+        emitter.emitLine(
+          `        // Non-await cond branch was taken, skip directly to next state`
+        );
+        emitter.emitLine(`        sm->state = ${nextState};`);
+        emitter.emitLine(`        goto state_${nextState};`);
         emitter.emitLine(`      }`);
       }
     } else if (isLastSegment) {
