@@ -1,0 +1,31 @@
+open import "std/libc/stdio";
+open import "std/string";
+{ temp_dir } :: import "./helper";
+events :: import "std/io/events";
+
+on_fs_event :: (fn(path: *(u8), events_mask: i32, user_data: *(u8)) -> unit)({
+  printf("fs event: %s %d\n", path, events_mask);
+  user_data;
+});
+
+test "fs_event start/stop", {
+  async {
+    handle := events.fs_event_init();
+    dir_str := temp_dir();
+    dir_c := dir_str.to_cstr();
+    dir_path := dir_c.ptr().unwrap();
+
+    ret := events.fs_event_start(handle, dir_path, events.FS_EVENT_WATCH_ENTRY, on_fs_event);
+    cond(
+      (ret < i32(0)) => {
+        events.fs_event_close(handle);
+        return;
+      },
+      true => ()
+    );
+
+    stop_ret := events.fs_event_stop(handle);
+    assert(stop_ret == i32(0));
+    events.fs_event_close(handle);
+  };
+};
