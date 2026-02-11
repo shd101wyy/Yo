@@ -27,6 +27,7 @@ The `std/io` module provides Yo's low-level async I/O foundation. It sits betwee
 | **DNS**              | `std/io/dns.yo`                            | ✅ Complete | getaddrinfo, getnameinfo, addrinfo accessors               |
 | **Perm**             | `std/io/perm.yo`                           | ✅ Complete | fchmod, chmodat, fchown, chownat, access                   |
 | **Time**             | `std/io/time.yo`                           | ✅ Complete | utime, futime, lutime (file timestamp operations)          |
+| **Pipe**             | `std/io/pipe.yo`                           | ✅ Complete | pipe, dup, dup2 + tests                                    |
 
 ### C Runtime Status (in `src/codegen/async/runtime*.ts`)
 
@@ -388,7 +389,7 @@ Wraps `utime`/`futime`/`lutime` externs into async timestamp operations. Tests i
 
 ## Phase 5: Advanced Operations (Priority: Low)
 
-### 5.1 Create `std/io/pipe.yo` — Pipe Operations
+### 5.1 Create `std/io/pipe.yo` — Pipe Operations ✅
 
 ```yo
 // std/io/pipe.yo
@@ -400,6 +401,11 @@ pipe :: (fn(pipefd: *(i32)) -> IOFuture)(...);
 dup :: (fn(fd: i32) -> IOFuture)(...);
 dup2 :: (fn(oldfd: i32, newfd: i32) -> IOFuture)(...);
 ```
+
+**Implementation notes:**
+
+- Implemented in `std/io/pipe.yo` using `__yo_async_pipe_start`, `__yo_async_dup_start`, `__yo_async_dup2_start`.
+- Tests in `tests/io/pipe.test.yo` (pipe read/write, dup, dup2).
 
 ### 5.2 Create `std/io/copy.yo` — Zero-Copy File Operations
 
@@ -909,7 +915,7 @@ Each phase should include a `.test.yo` file exercising the new APIs:
 5. **DNS tests** — Resolve `localhost`
 6. **Permission tests** — chmod, access checks
 7. **Timestamp tests** — utime, futime, lutime, verify via statx
-8. **Pipe tests** — pipe creation, dup/dup2, read/write through pipe
+8. **Pipe tests** — ✅ Done in `tests/io/pipe.test.yo`
 9. **Temp file tests** — mkdtemp, mkstemp, verify creation and cleanup
 10. **Path tests** — realpath on symlinks, relative paths, nonexistent paths
 11. **Statfs tests** — filesystem stats, verify block size > 0
@@ -944,7 +950,7 @@ std/io/
   dns.yo           ← DNS resolution                       ✅
   perm.yo          ← File permissions                     ✅
   time.yo          ← File timestamp operations            ✅
-  pipe.yo          ← Pipe/dup operations                  Phase 5
+  pipe.yo          ← Pipe/dup operations                  ✅
   copy.yo          ← Zero-copy file transfer              Phase 5
   signal.yo        ← Signal handling functions            Phase 5
   tty.yo           ← TTY mode/winsize                     Phase 5

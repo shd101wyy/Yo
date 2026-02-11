@@ -1,69 +1,113 @@
 open import "std/libc/stdio";
-open import "std/string";
-open import "std/collections/array_list";
-{ platform, Platform, env } :: import "std/process";
 file :: import "std/io/file";
-dir :: import "std/io/dir";
-time :: import "std/io/time";
-{ Statx } :: import "std/io/statx";
-{
-  AT_FDCWD, O_WRONLY, O_CREAT, O_TRUNC, O_RDONLY,
-  STATX_BASIC_STATS
-} :: import "std/io/constants";
-{ temp_dir, path_join } :: import "../../tests/io/helper";
-make_test_file :: (fn(name: String) -> ArrayList(u8)) {
-  tmp := temp_dir();
-  p := path_join(tmp, name);
-  p.to_cstr()
-};
-
-create_file :: (fn(test_path: *(u8), content: *(u8), content_len: u32) -> Impl(Future(unit)))(async {
-  write_flags := ((O_WRONLY | O_CREAT) | O_TRUNC);
-  fd := await file.openat(AT_FDCWD, test_path, write_flags, i32(0o644));
-  assert(fd >= i32(0));
-  wr := await file.write(fd, content, content_len, u64(0));
-  assert(wr == i32(content_len));
-  cr := await file.close(fd);
-  assert(cr == i32(0));
-});
+pipe_io :: import "std/io/pipe";
 
 main :: (fn() -> unit) {
   async {
-    path_cstr := make_test_file(`yo_time_lutime_target.txt`);
-    test_path := path_cstr.ptr().unwrap();
-    await create_file(test_path, *(u8)("lutime test"), u32(11));
+    pipefd_uninit := MaybeUninit(Array(i32, usize(2))).new();
+    pipefd := *(i32)(pipefd_uninit.as_ptr());
+    pr := await pipe_io.pipe(pipefd);
+    printf("  pipe = %d\n", pr);
+    assert(pr == i32(0));
 
-    ret_t := await time.utime(test_path, i64(3000000), i64(0), i64(4000000), i64(0));
-    assert(ret_t == i32(0));
+    read_fd := (pipefd &+ usize(0)).*;
+    write_fd := (pipefd &+ usize(1)).*;
+    assert(read_fd >= i32(0));
+    assert(write_fd >= i32(0));
 
-    link_cstr := make_test_file(`yo_time_lutime_link.txt`);
-    link_path := link_cstr.ptr().unwrap();
-    lr := await dir.symlink(test_path, AT_FDCWD, link_path);
-    cond(
-      // Could be on Windows where symlink requires admin priviledge.
-      (lr != i32(0)) => {
-        cleanup := await dir.unlink(AT_FDCWD, test_path, i32(0));
-        assert(cleanup == i32(0));
-        return;
-      },
-      true => ()
-    );
+    data := *(u8)("hello pipe");
+    data_len := u32(10);
+    wr := await file.write(write_fd, data, data_len, u64(0));
+    printf("  write = %d\n", wr);
+    assert(wr == i32(data_len));
 
-    ret := await time.lutime(link_path, i64(5000000), i64(0), i64(6000000), i64(0));
-    assert(ret == i32(0));
+    buf_uninit := MaybeUninit(Array(u8, usize(16))).new();
+    buf := *(u8)(buf_uninit.as_ptr());
+    rd := await file.read(read_fd, buf, u32(16), u64(0));
+    printf("  read = %d\n", rd);
+    assert(rd == i32(data_len));
+    assert((buf &+ usize(0)).* == u8(104));
+    assert((buf &+ usize(6)).* == u8(112));
+    assert((buf &+ usize(9)).* == u8(101));
 
-    statx_uninit := MaybeUninit(Array(u8, usize(256))).new();
-    stat_buf := *(u8)(statx_uninit.as_ptr());
-    sr := await file.statx(AT_FDCWD, test_path, i32(0), STATX_BASIC_STATS, stat_buf);
-    assert(sr == i32(0));
-    st := Statx(stat_buf, usize(256));
-    assert(st.atime_sec() == i64(3000000));
-    assert(st.mtime_sec() == i64(4000000));
+    c1 := await file.close(read_fd);
+    c2 := await file.close(write_fd);
+    assert(c1 == i32(0));
+    assert(c2 == i32(0));
 
-    cleanup_link := await dir.unlink(AT_FDCWD, link_path, i32(0));
-    assert(cleanup_link == i32(0));
-    cleanup := await dir.unlink(AT_FDCWD, test_path, i32(0));
-    assert(cleanup == i32(0));
+    pipefd2_uninit := MaybeUninit(Array(i32, usize(2))).new();
+    pipefd2 := *(i32)(pipefd2_uninit.as_ptr());
+    pr2 := await pipe_io.pipe(pipefd2);
+    printf("  pipe2 = %d\n", pr2);
+    assert(pr2 == i32(0));
+
+    read_fd2 := (pipefd2 &+ usize(0)).*;
+    write_fd2 := (pipefd2 &+ usize(1)).*;
+
+    dup_fd := await pipe_io.dup(read_fd2);
+    printf("  dup = %d\n", dup_fd);
+    assert(dup_fd >= i32(0));
+
+    close_read := await file.close(read_fd2);
+    assert(close_read == i32(0));
+
+    data2 := *(u8)("dup test");
+    data2_len := u32(8);
+    wr2 := await file.write(write_fd2, data2, data2_len, u64(0));
+    assert(wr2 == i32(data2_len));
+
+    buf2_uninit := MaybeUninit(Array(u8, usize(16))).new();
+    buf2 := *(u8)(buf2_uninit.as_ptr());
+    rd2 := await file.read(dup_fd, buf2, u32(16), u64(0));
+    assert(rd2 == i32(data2_len));
+    assert((buf2 &+ usize(0)).* == u8(100));
+    assert((buf2 &+ usize(7)).* == u8(116));
+
+    c3 := await file.close(dup_fd);
+    c4 := await file.close(write_fd2);
+    assert(c3 == i32(0));
+    assert(c4 == i32(0));
+
+    pipefd3_uninit := MaybeUninit(Array(i32, usize(2))).new();
+    pipefd3 := *(i32)(pipefd3_uninit.as_ptr());
+    pr3 := await pipe_io.pipe(pipefd3);
+    assert(pr3 == i32(0));
+
+    pipefd4_uninit := MaybeUninit(Array(i32, usize(2))).new();
+    pipefd4 := *(i32)(pipefd4_uninit.as_ptr());
+    pr4 := await pipe_io.pipe(pipefd4);
+    assert(pr4 == i32(0));
+
+    read_fd3 := (pipefd3 &+ usize(0)).*;
+    write_fd3 := (pipefd3 &+ usize(1)).*;
+    read_fd4 := (pipefd4 &+ usize(0)).*;
+    write_fd4 := (pipefd4 &+ usize(1)).*;
+
+    dup2_fd := await pipe_io.dup2(write_fd3, write_fd4);
+    printf("  dup2 = %d\n", dup2_fd);
+    assert(dup2_fd == write_fd4);
+
+    c5 := await file.close(write_fd3);
+    c6 := await file.close(read_fd4);
+    assert(c5 == i32(0));
+    assert(c6 == i32(0));
+
+    data3 := *(u8)("dup2 ok");
+    data3_len := u32(7);
+    wr3 := await file.write(write_fd4, data3, data3_len, u64(0));
+    assert(wr3 == i32(data3_len));
+
+    buf3_uninit := MaybeUninit(Array(u8, usize(16))).new();
+    buf3 := *(u8)(buf3_uninit.as_ptr());
+    rd3 := await file.read(read_fd3, buf3, u32(16), u64(0));
+    assert(rd3 == i32(data3_len));
+    assert((buf3 &+ usize(0)).* == u8(100));
+    assert((buf3 &+ usize(6)).* == u8(107));
+
+    c7 := await file.close(read_fd3);
+    c8 := await file.close(write_fd4);
+    assert(c7 == i32(0));
+    assert(c8 == i32(0));
   };
 };
 export main;
