@@ -222,7 +222,11 @@ function walkExprForAwaits(
           variableIdRemapping,
           expr
         );
+
+        // Walk each branch separately to track per-branch awaits
+        const perBranchAwaits: AwaitPoint[][] = [];
         for (const arg of expr.args) {
+          const branchStart = awaitPoints.length;
           walkExprForAwaits(
             arg,
             awaitPoints,
@@ -231,28 +235,42 @@ function walkExprForAwaits(
             variableIdRemapping,
             expr
           );
+          perBranchAwaits.push(awaitPoints.slice(branchStart));
         }
 
-        // If multiple await points were added, merge them to use the same index
-        // and mark them as inside cond
-        const newAwaitCount = awaitPoints.length;
-        if (newAwaitCount > initialAwaitCount) {
-          // Mark all awaits found in this cond as isInsideCond
-          for (let i = initialAwaitCount; i < newAwaitCount; i++) {
-            awaitPoints[i]!.isInsideCond = true;
-          }
+        // Compute the maximum number of sequential awaits in any single branch
+        const maxAwaitDepth = Math.max(
+          ...perBranchAwaits.map((b) => b.length),
+          0
+        );
 
-          if (newAwaitCount > initialAwaitCount + 1) {
-            // Multiple awaits were found in branches - make them share the same index
-            const firstAwaitIndex = initialAwaitCount;
-            for (let i = initialAwaitCount + 1; i < newAwaitCount; i++) {
-              awaitPoints[i]!.index = firstAwaitIndex;
+        if (maxAwaitDepth > 0) {
+          // Remove all new await points added during branch walking
+          awaitPoints.splice(initialAwaitCount);
+
+          // Re-add merged by position across branches:
+          // Position 0: first await from each branch (mutually exclusive) -> share same index
+          // Position 1: second await from each branch -> share same index
+          // etc.
+          const firstCondAwaitIndex = initialAwaitCount;
+          for (let pos = 0; pos < maxAwaitDepth; pos++) {
+            // Pick representative from the first branch that has an await at this position
+            let representative: AwaitPoint | undefined;
+            for (const branchList of perBranchAwaits) {
+              if (pos < branchList.length) {
+                representative = branchList[pos];
+                break;
+              }
             }
-            // Remove duplicate entries, keeping only the first one
-            awaitPoints.splice(
-              initialAwaitCount + 1,
-              newAwaitCount - initialAwaitCount - 1
-            );
+            if (representative) {
+              representative.index = awaitPoints.length;
+              representative.isInsideCond = true;
+              // For positions > 0, reference the first position's index for cond_branch sharing
+              if (pos > 0) {
+                representative.condBranchSourceIndex = firstCondAwaitIndex;
+              }
+              awaitPoints.push(representative);
+            }
           }
         }
         break;
@@ -260,11 +278,9 @@ function walkExprForAwaits(
 
       // Check if this is a match expression - handle specially
       if (exprIsFunctionCallOf(expr, BuiltinKeywords.match)) {
-        // For match expressions, all awaits in branches are mutually exclusive
-        // They should share the same await index
         const initialAwaitCount = awaitPoints.length;
 
-        // Walk through all branches
+        // Walk the func (match keyword + matched value)
         walkExprForAwaits(
           expr.func,
           awaitPoints,
@@ -273,7 +289,11 @@ function walkExprForAwaits(
           variableIdRemapping,
           expr
         );
+
+        // Walk each branch separately to track per-branch awaits
+        const perBranchAwaits: AwaitPoint[][] = [];
         for (const arg of expr.args) {
+          const branchStart = awaitPoints.length;
           walkExprForAwaits(
             arg,
             awaitPoints,
@@ -282,29 +302,34 @@ function walkExprForAwaits(
             variableIdRemapping,
             expr
           );
+          perBranchAwaits.push(awaitPoints.slice(branchStart));
         }
 
-        // If multiple await points were added, merge them to use the same index
-        // and mark them as inside match
-        const newAwaitCount = awaitPoints.length;
-        if (newAwaitCount > initialAwaitCount) {
-          // Mark all awaits found in this match as isInsideMatch
-          for (let i = initialAwaitCount; i < newAwaitCount; i++) {
-            // Use isInsideCond since match branches work similarly to cond branches
-            awaitPoints[i]!.isInsideCond = true;
-          }
+        const maxAwaitDepth = Math.max(
+          ...perBranchAwaits.map((b) => b.length),
+          0
+        );
 
-          if (newAwaitCount > initialAwaitCount + 1) {
-            // Multiple awaits were found in branches - make them share the same index
-            const firstAwaitIndex = initialAwaitCount;
-            for (let i = initialAwaitCount + 1; i < newAwaitCount; i++) {
-              awaitPoints[i]!.index = firstAwaitIndex;
+        if (maxAwaitDepth > 0) {
+          awaitPoints.splice(initialAwaitCount);
+
+          const firstCondAwaitIndex = initialAwaitCount;
+          for (let pos = 0; pos < maxAwaitDepth; pos++) {
+            let representative: AwaitPoint | undefined;
+            for (const branchList of perBranchAwaits) {
+              if (pos < branchList.length) {
+                representative = branchList[pos];
+                break;
+              }
             }
-            // Remove duplicate entries, keeping only the first one
-            awaitPoints.splice(
-              initialAwaitCount + 1,
-              newAwaitCount - initialAwaitCount - 1
-            );
+            if (representative) {
+              representative.index = awaitPoints.length;
+              representative.isInsideCond = true;
+              if (pos > 0) {
+                representative.condBranchSourceIndex = firstCondAwaitIndex;
+              }
+              awaitPoints.push(representative);
+            }
           }
         }
         break;

@@ -403,7 +403,9 @@ function emitAsyncBlockStructDefinition(
   }
 
   // cond_branch_X fields
-  const condAwaitPoints = analysis.awaitPoints.filter((ap) => ap.isInsideCond);
+  const condAwaitPoints = analysis.awaitPoints.filter(
+    (ap) => ap.isInsideCond && ap.condBranchSourceIndex === undefined
+  );
   if (condAwaitPoints.length > 0) {
     emitter.emitDeclarationLine(
       `  // Branch tracking for cond expressions with await`

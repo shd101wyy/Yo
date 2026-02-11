@@ -102,6 +102,15 @@ export function splitIntoStateSegments(
       currentSegment.push(expr);
       segmentExpressions.push(currentSegment);
       currentSegment = [];
+      // Check for additional await points inside this expression
+      // (e.g., sequential awaits in the same cond/match branch)
+      for (let extra = awaitIndex + 1; extra < awaitPoints.length; extra++) {
+        if (containsAwaitExpr(expr, awaitPoints[extra]!.expr as Expr)) {
+          segmentExpressions.push([]);
+        } else {
+          break;
+        }
+      }
     } else if (isReturn) {
       // This is a return statement - end this segment after including the return
       currentSegment.push(expr);
@@ -151,7 +160,7 @@ function findAwaitInExpr(expr: Expr, awaitPoints: AwaitPoint[]): number {
 /**
  * Checks if an expression contains a specific await expression.
  */
-function containsAwaitExpr(expr: Expr, awaitExpr: Expr): boolean {
+export function containsAwaitExpr(expr: Expr, awaitExpr: Expr): boolean {
   if (expr === awaitExpr) {
     return true;
   }
@@ -1315,7 +1324,7 @@ function generateWhileBodyWithAwait(
 /**
  * Checks if an expression contains any await
  */
-function exprContainsAwait(expr: Expr): boolean {
+export function exprContainsAwait(expr: Expr): boolean {
   if (
     expr.tag === ExprTag.FnCall &&
     exprIsFunctionCallOf(expr, BuiltinFunctions.await)

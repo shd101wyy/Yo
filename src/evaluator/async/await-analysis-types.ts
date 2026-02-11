@@ -55,6 +55,13 @@ export interface AwaitPoint {
    * If true, the state machine needs a while_loop_X_active field to track loop state
    */
   isInsideWhile?: boolean;
+
+  /**
+   * For sequential await points within the same cond/match branch,
+   * this references the index of the first await point in that cond/match.
+   * Used to share the same cond_branch_X field in the state machine struct.
+   */
+  condBranchSourceIndex?: number;
 }
 
 /**

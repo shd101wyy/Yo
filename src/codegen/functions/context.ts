@@ -65,6 +65,7 @@ export interface FunctionGenerationContext extends CodeGenContext {
         deferredDropExpressions?: Expr[]; // Drop expressions for the branch's begin block
       }>;
       targetVariableId?: string; // Variable that receives the cond result (if any)
+      condBranchFieldIndex?: number; // The cond_branch_X index to use in the switch (for continuation states)
     }
   >;
   // Loop tracking for while loops with await

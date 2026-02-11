@@ -10,7 +10,12 @@ import type {
   CapturedVariable,
 } from "../../evaluator/async/await-analysis";
 import { extractFutureTraitFromType } from "../../evaluator/trait-checking";
-import { type Expr, exprIsFunctionCallOf, ExprTag } from "../../expr";
+import {
+  type Expr,
+  BuiltinFunctions,
+  exprIsFunctionCallOf,
+  ExprTag,
+} from "../../expr";
 import type { DynType, SomeType, StructType } from "../../types/definitions";
 import { isDynType, isSomeType, isUnitType } from "../../types/guards";
 import { typeContainsRcType } from "../../types/utils";
@@ -21,6 +26,7 @@ import { generateExpr } from "../exprs/expr";
 import type { FunctionGenerationContext } from "../functions/context";
 import { sanitizeForCIdentifier } from "../utils";
 import {
+  exprContainsAwait,
   generateStateSegmentCode,
   splitIntoStateSegments,
 } from "./state-code-gen";
@@ -244,12 +250,19 @@ export function generateAsyncBlockResumeFunction(
           prevAwait.index
         );
         if (condBranchData && condBranchData.branches.some((b) => b.hasAwait)) {
+          // Use condBranchFieldIndex if set (for continuation states), otherwise use prevAwait.index
+          const condBranchFieldIndex =
+            condBranchData.condBranchFieldIndex ?? prevAwait.index;
           emitter.emitLine(
             `      // Execute remaining code from chosen cond branch`
           );
           emitter.emitLine(
-            `      switch (sm->cond_branch_${prevAwait.index}) {`
+            `      switch (sm->cond_branch_${condBranchFieldIndex}) {`
           );
+
+          // Check if the current segment has an additional cond await point
+          const hasAdditionalCondAwait =
+            segment.awaitPoint?.isInsideCond ?? false;
 
           for (const branch of condBranchData.branches) {
             if (branch.hasAwait) {
@@ -294,8 +307,31 @@ export function generateAsyncBlockResumeFunction(
                 }
                 context.stateMachineVariables = combinedVariables;
 
-                // Generate the remaining expressions
+                // Generate remaining expressions, detecting additional awaits
+                let foundAdditionalAwait = false;
+                const additionalRemainingExprs: Expr[] = [];
+
                 for (const expr of branch.remainingExprs) {
+                  if (foundAdditionalAwait) {
+                    additionalRemainingExprs.push(expr);
+                    continue;
+                  }
+
+                  // Check if this expression contains an additional await
+                  if (hasAdditionalCondAwait && exprContainsAwait(expr)) {
+                    foundAdditionalAwait = true;
+                    // Store the future for the next await point
+                    generateRemainingExprFuture(
+                      expr,
+                      segment.awaitPoint!,
+                      analysis,
+                      "          ",
+                      context
+                    );
+                    continue;
+                  }
+
+                  // Normal expression
                   const code = generateExpr(expr, "          ", context);
                   // Skip empty code, expressions without metadata, and temp variable references
                   if (
@@ -309,19 +345,46 @@ export function generateAsyncBlockResumeFunction(
                   }
                 }
 
-                // Generate deferred drop expressions for the branch's begin block
-                // Filter out drops that reference temp variables not in state machine scope
-                if (branch.deferredDropExpressions) {
-                  for (const dropExpr of branch.deferredDropExpressions) {
-                    const dropCode = generateExpr(
-                      dropExpr,
-                      "          ",
-                      context
-                    );
-                    // Skip drops that don't use state machine fields (sm->var_*)
-                    // These are temp variables from the original scope that aren't accessible
-                    if (dropCode && dropCode.includes("sm->")) {
-                      emitter.emitLine(`          ${dropCode};`);
+                if (foundAdditionalAwait && segment.awaitPoint) {
+                  // Store continuation info for the next state
+                  const nextIndex = segment.awaitPoint.index;
+                  if (!functionContext.condBranchInfo) {
+                    functionContext.condBranchInfo = new Map();
+                  }
+                  const existing = functionContext.condBranchInfo.get(
+                    nextIndex
+                  ) || {
+                    branches: [],
+                    condBranchFieldIndex: condBranchFieldIndex,
+                  };
+                  existing.branches.push({
+                    index: branch.index,
+                    value: branch.value,
+                    hasAwait:
+                      additionalRemainingExprs.length > 0 ||
+                      additionalRemainingExprs.some((e) =>
+                        exprContainsAwait(e)
+                      ),
+                    remainingExprs: additionalRemainingExprs,
+                    deferredDropExpressions: branch.deferredDropExpressions,
+                  });
+                  existing.condBranchFieldIndex = condBranchFieldIndex;
+                  functionContext.condBranchInfo.set(nextIndex, existing);
+                } else {
+                  // No more awaits - generate deferred drop expressions
+                  // Filter out drops that reference temp variables not in state machine scope
+                  if (branch.deferredDropExpressions) {
+                    for (const dropExpr of branch.deferredDropExpressions) {
+                      const dropCode = generateExpr(
+                        dropExpr,
+                        "          ",
+                        context
+                      );
+                      // Skip drops that don't use state machine fields (sm->var_*)
+                      // These are temp variables from the original scope that aren't accessible
+                      if (dropCode && dropCode.includes("sm->")) {
+                        emitter.emitLine(`          ${dropCode};`);
+                      }
                     }
                   }
                 }
@@ -701,4 +764,59 @@ export function generateAsyncBlockResumeFunction(
   emitter.emitLine(`  }`);
   emitter.emitLine(`}`);
   emitter.emitLine(``);
+}
+
+/**
+ * Generates code to store the future from an await expression found in cond branch remaining expressions.
+ * This handles the case where a cond branch has multiple sequential awaits.
+ */
+function generateRemainingExprFuture(
+  expr: Expr,
+  awaitPoint: AwaitPoint,
+  analysis: AwaitAnalysisResult,
+  indent: string,
+  context: FunctionGenerationContext
+): void {
+  const emitter = context.emitter;
+  const futureFieldName = getFutureFieldName(awaitPoint, analysis);
+
+  // Handle: varName := await(futureExpr)
+  if (expr.tag === ExprTag.FnCall && exprIsFunctionCallOf(expr, ":=")) {
+    const valueExpr = expr.args[1];
+    if (
+      valueExpr &&
+      valueExpr.tag === ExprTag.FnCall &&
+      exprIsFunctionCallOf(valueExpr, BuiltinFunctions.await)
+    ) {
+      const futureExpr = valueExpr.args[0];
+      if (futureExpr) {
+        const futureCode = generateExpr(futureExpr, indent, context);
+        emitter.emitLine(
+          `${indent}// Store Future for additional await in cond branch`
+        );
+        emitter.emitLine(`${indent}sm->${futureFieldName} = ${futureCode};`);
+      }
+    }
+    return;
+  }
+
+  // Handle: await(futureExpr)
+  if (
+    expr.tag === ExprTag.FnCall &&
+    exprIsFunctionCallOf(expr, BuiltinFunctions.await)
+  ) {
+    const futureExpr = expr.args[0];
+    if (futureExpr) {
+      const futureCode = generateExpr(futureExpr, indent, context);
+      emitter.emitLine(
+        `${indent}// Store Future for additional await in cond branch`
+      );
+      emitter.emitLine(`${indent}sm->${futureFieldName} = ${futureCode};`);
+    }
+    return;
+  }
+
+  emitter.emitLine(
+    `${indent}// Warning: unhandled await pattern in remaining expressions`
+  );
 }
