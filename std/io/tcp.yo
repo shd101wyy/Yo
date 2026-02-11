@@ -44,7 +44,6 @@
   __yo_async_recv_start, __yo_async_shutdown_start,
   __yo_async_setsockopt_start, __yo_async_getsockopt_start,
   __yo_async_close_start,
-  __yo_sockaddr_in_size, __yo_sockaddr_in6_size,
   __yo_sockaddr_set_family, __yo_sockaddr_get_family,
   __yo_sockaddr_in_set_port, __yo_sockaddr_in_get_port,
   __yo_sockaddr_in_set_addr, __yo_sockaddr_in_get_addr,
@@ -54,7 +53,8 @@
   __yo_htons, __yo_ntohs, __yo_htonl, __yo_ntohl
 } :: import "./externs.yo";
 {
-  AF_INET, AF_INET6, SOCK_STREAM
+  AF_INET, AF_INET6, SOCK_STREAM,
+  sockaddr_in_size, sockaddr_in6_size
 } :: import "./socket.yo";
 
 // ============================================================================
@@ -153,7 +153,7 @@ getsockopt :: (fn(sockfd: i32, level: i32, optname: i32, optval: *(u8), optlen: 
 // The IP string must be a null-terminated C string (e.g. "127.0.0.1").
 // Returns a SockAddr with an allocated buffer. Caller must free buf when done.
 make_sockaddr_in :: (fn(ip: *(u8), port: u16) -> SockAddr)({
-  size := __yo_sockaddr_in_size();
+  size := sockaddr_in_size();
   buf := *(u8)(malloc(size).unwrap());
   i := usize(0);
   while runtime((i < size)), {
@@ -170,7 +170,7 @@ make_sockaddr_in :: (fn(ip: *(u8), port: u16) -> SockAddr)({
 // The IP string must be a null-terminated C string (e.g. "::1").
 // Returns a SockAddr with an allocated buffer. Caller must free buf when done.
 make_sockaddr_in6 :: (fn(ip: *(u8), port: u16) -> SockAddr)({
-  size := __yo_sockaddr_in6_size();
+  size := sockaddr_in6_size();
   buf := *(u8)(malloc(size).unwrap());
   i := usize(0);
   while runtime((i < size)), {
@@ -186,7 +186,7 @@ make_sockaddr_in6 :: (fn(ip: *(u8), port: u16) -> SockAddr)({
 // Create an IPv4 socket address for INADDR_ANY (0.0.0.0) with a given port.
 // Returns a SockAddr with an allocated buffer. Caller must free buf when done.
 make_sockaddr_in_any :: (fn(port: u16) -> SockAddr)({
-  size := __yo_sockaddr_in_size();
+  size := sockaddr_in_size();
   buf := *(u8)(malloc(size).unwrap());
   i := usize(0);
   while runtime((i < size)), {
@@ -202,7 +202,7 @@ make_sockaddr_in_any :: (fn(port: u16) -> SockAddr)({
 // Create an IPv4 socket address for loopback (127.0.0.1) with a given port.
 // Returns a SockAddr with an allocated buffer. Caller must free buf when done.
 make_sockaddr_in_loopback :: (fn(port: u16) -> SockAddr)({
-  size := __yo_sockaddr_in_size();
+  size := sockaddr_in_size();
   buf := *(u8)(malloc(size).unwrap());
   i := usize(0);
   while runtime((i < size)), {

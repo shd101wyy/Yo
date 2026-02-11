@@ -4,9 +4,9 @@ open import "std/string";
 { malloc, free } :: GlobalAllocator;
 { platform, Platform } :: import "std/process";
 { AT_FDCWD } :: import "std/io/constants";
-{ __yo_sockaddr_storage_size } :: import "std/io/externs";
 { temp_dir, path_join } :: import "./helper";
 unix :: import "std/io/unix";
+{ sockaddr_storage_size } :: import "std/io/socket";
 dir :: import "std/io/dir";
 
 // Unix domain sockets are not supported in the Windows runtime yet.
@@ -69,7 +69,7 @@ test "Unix stream socket echo", {
     printf("  connect = %d\n", conn_result);
     assert(conn_result == i32(0), "connect failed");
 
-    peer_size := __yo_sockaddr_storage_size();
+    peer_size := sockaddr_storage_size();
     peer_buf := *(u8)(malloc(peer_size).unwrap());
     peer_len := *(u32)(malloc(usize(4)).unwrap());
     peer_len.* = u32(peer_size);

@@ -12,11 +12,12 @@
   __yo_async_listen_start, __yo_async_accept_start,
   __yo_async_connect_start, __yo_async_send_start,
   __yo_async_recv_start, __yo_async_close_start,
-  __yo_sockaddr_un_size, __yo_sockaddr_un_set_path,
+  __yo_sockaddr_un_set_path,
   __yo_sockaddr_un_get_path, __yo_sockaddr_set_family
 } :: import "./externs.yo";
 {
-  AF_UNIX, SOCK_STREAM, SOCK_DGRAM
+  AF_UNIX, SOCK_STREAM, SOCK_DGRAM,
+  sockaddr_un_size
 } :: import "./socket.yo";
 
 // ============================================================================
@@ -95,7 +96,7 @@ close :: (fn(fd: i32) -> IOFuture)(
 // The path must be a null-terminated C string.
 // Returns a UnixAddr with allocated buffer. Caller must free the buffer.
 make_sockaddr_un :: (fn(path: *(u8)) -> UnixAddr)({
-  size := __yo_sockaddr_un_size();
+  size := sockaddr_un_size();
   cond(
     (size == usize(0)) => UnixAddr(.None, u32(0)),
     true => {
