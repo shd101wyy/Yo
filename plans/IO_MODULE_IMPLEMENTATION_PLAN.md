@@ -29,6 +29,7 @@ The `std/io` module provides Yo's low-level async I/O foundation. It sits betwee
 | **Time**             | `std/io/time.yo`                           | ✅ Complete | utime, futime, lutime (file timestamp operations)          |
 | **Pipe**             | `std/io/pipe.yo`                           | ✅ Complete | pipe, dup, dup2 + tests                                    |
 | **Copy**             | `std/io/copy.yo`                           | ✅ Complete | copyfile, sendfile + tests                                 |
+| **Signal**           | `std/io/signal.yo`                         | ✅ Complete | on_signal, off_signal, kill + tests                        |
 
 ### C Runtime Status (in `src/codegen/async/runtime*.ts`)
 
@@ -425,7 +426,7 @@ sendfile :: (fn(out_fd: i32, in_fd: i32, offset: i64, count: usize) -> IOFuture)
 - Implemented in `std/io/copy.yo` using `__yo_async_copyfile_start` and `__yo_async_sendfile_start`.
 - Tests in `tests/io/copy.test.yo` (copyfile + sendfile verification).
 
-### 5.3 Create `std/io/signal.yo` — Signal Handling Functions
+### 5.3 Create `std/io/signal.yo` — Signal Handling Functions ✅
 
 ```yo
 // std/io/signal.yo
@@ -439,6 +440,11 @@ off_signal :: (fn(signum: i32) -> i32)(...);
 // Send a signal to a process
 kill :: (fn(pid: i32, signum: i32) -> i32)(...);
 ```
+
+**Implementation notes:**
+
+- Implemented in `std/io/signal.yo` using `__yo_signal_start`, `__yo_signal_stop`, `__yo_kill`.
+- Tests in `tests/io/signal.test.yo` (install handler, send SIGUSR1, remove handler; skipped on Windows).
 
 ### 5.4 Create `std/io/tty.yo` — TTY Operations
 
@@ -923,13 +929,14 @@ Each phase should include a `.test.yo` file exercising the new APIs:
 7. **Timestamp tests** — utime, futime, lutime, verify via statx
 8. **Pipe tests** — ✅ Done in `tests/io/pipe.test.yo`
 9. **Copy tests** — ✅ Done in `tests/io/copy.test.yo`
-10. **Temp file tests** — mkdtemp, mkstemp, verify creation and cleanup
-11. **Path tests** — realpath on symlinks, relative paths, nonexistent paths
-12. **Statfs tests** — filesystem stats, verify block size > 0
-13. **Unix socket tests** — stream echo server/client, dgram send/recv
-14. **Process tests** — spawn child, wait for exit, pipe stdout capture
-15. **Mmap tests** — map file, read/write, msync, munmap
-16. **Lock tests** — flock exclusive/shared, non-blocking conflict detection
+10. **Signal tests** — ✅ Done in `tests/io/signal.test.yo`
+11. **Temp file tests** — mkdtemp, mkstemp, verify creation and cleanup
+12. **Path tests** — realpath on symlinks, relative paths, nonexistent paths
+13. **Statfs tests** — filesystem stats, verify block size > 0
+14. **Unix socket tests** — stream echo server/client, dgram send/recv
+15. **Process tests** — spawn child, wait for exit, pipe stdout capture
+16. **Mmap tests** — map file, read/write, msync, munmap
+17. **Lock tests** — flock exclusive/shared, non-blocking conflict detection
 
 For cross-platform validation:
 
@@ -959,7 +966,7 @@ std/io/
   time.yo          ← File timestamp operations            ✅
   pipe.yo          ← Pipe/dup operations                  ✅
   copy.yo          ← Zero-copy file transfer              ✅
-  signal.yo        ← Signal handling functions            Phase 5
+  signal.yo        ← Signal handling functions            ✅
   tty.yo           ← TTY mode/winsize                     Phase 5
   temp.yo          ← Temporary files/directories          Phase 5
   path.yo          ← Path resolution (realpath)           Phase 5
