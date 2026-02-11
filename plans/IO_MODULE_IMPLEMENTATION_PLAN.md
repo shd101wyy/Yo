@@ -32,6 +32,7 @@ The `std/io` module provides Yo's low-level async I/O foundation. It sits betwee
 | **Signal**           | `std/io/signal.yo`                         | ✅ Complete | on_signal, off_signal, kill + tests                        |
 | **TTY**              | `std/io/tty.yo`                            | ✅ Complete | tty init/mode/winsize/isatty + tests                       |
 | **Temp**             | `std/io/temp.yo`                           | ✅ Complete | mkdtemp, mkstemp + tests                                   |
+| **Path**             | `std/io/path.yo`                           | ✅ Complete | realpath + tests                                           |
 
 ### C Runtime Status (in `src/codegen/async/runtime*.ts`)
 
@@ -501,7 +502,7 @@ mkstemp :: (fn(template: *(u8)) -> IOFuture)(...);
 - Windows: Uses `_mktemp_s()` + `_wmkdir()`/`CreateFileW()` in sync wrappers
 - Template must end with `XXXXXX` (6 X's replaced with unique suffix)
 
-### 5.6 Create `std/io/path.yo` — Path Resolution
+### 5.6 Create `std/io/path.yo` — Path Resolution ✅
 
 Wraps `realpath` extern. Externs and C runtime already exist on all 3 platforms.
 
@@ -513,6 +514,11 @@ Wraps `realpath` extern. Externs and C runtime already exist on all 3 platforms.
 // Returns 0 on success, -errno on failure.
 realpath :: (fn(path: *(u8), resolved: *(u8)) -> IOFuture)(...);
 ```
+
+**Implementation notes:**
+
+- Implemented in `std/io/path.yo` using `__yo_async_realpath_start`.
+- Tests in `tests/io/path.test.yo` cover `.`/`..` resolution, symlink targets (skips if symlink creation fails), and nonexistent paths.
 
 **Cross-platform notes:**
 
@@ -944,7 +950,7 @@ Each phase should include a `.test.yo` file exercising the new APIs:
 10. **Signal tests** — ✅ Done in `tests/io/signal.test.yo`
 11. **TTY tests** — ✅ Done in `tests/io/tty.test.yo`
 12. **Temp file tests** — ✅ Done in `tests/io/temp.test.yo`
-13. **Path tests** — realpath on symlinks, relative paths, nonexistent paths
+13. **Path tests** — ✅ realpath on symlinks, relative paths, nonexistent paths
 14. **Statfs tests** — filesystem stats, verify block size > 0
 15. **Unix socket tests** — stream echo server/client, dgram send/recv
 16. **Process tests** — spawn child, wait for exit, pipe stdout capture

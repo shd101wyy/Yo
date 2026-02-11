@@ -237,3 +237,5 @@ AF_INET6  :: cond(
   true => i32(10)
 );
 ```
+
+`unit` is a type not value, `()` is the unit value.
