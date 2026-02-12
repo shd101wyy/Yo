@@ -1139,6 +1139,11 @@ static int32_t __yo_sync_dup2(int32_t oldfd, int32_t newfd) {
   return (result < 0) ? -errno : result;
 }
 
+static int64_t __yo_sync_lseek(int32_t fd, int64_t offset, int32_t whence) {
+  __int64 result = _lseeki64(fd, (__int64)offset, whence);
+  return (result < 0) ? (int64_t)(-errno) : (int64_t)result;
+}
+
 static int32_t __yo_sync_fcntl_getfl(int32_t fd) {
   if (__yo_win_is_socket_fd(fd)) {
     // Winsock does not provide a portable way to query current FIONBIO mode.

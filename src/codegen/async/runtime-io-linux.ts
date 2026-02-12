@@ -762,6 +762,11 @@ static int32_t __yo_sync_dup2(int32_t oldfd, int32_t newfd) {
   return (result < 0) ? -errno : result;
 }
 
+static int64_t __yo_sync_lseek(int32_t fd, int64_t offset, int32_t whence) {
+  off_t result = lseek(fd, (off_t)offset, whence);
+  return (result < 0) ? (int64_t)(-errno) : (int64_t)result;
+}
+
 static int32_t __yo_sync_fcntl_getfl(int32_t fd) {
   int result = fcntl(fd, F_GETFL);
   return (result < 0) ? -errno : result;

@@ -82,7 +82,7 @@ The runtime has been refactored into 4 modules:
 | **flock**                   | ✅ (sync)             | ✅ (sync)            | ✅ (LockFileEx/UnlockFileEx)             |
 | **FS Events**               | ❌ (stub)             | ❌ (stub)            | ❌ (stub)                                |
 | **Poll**                    | ❌ (stub)             | ❌ (stub)            | ❌ (stub)                                |
-| **lseek**                   | ❌                    | ❌                   | ❌                                       |
+| **lseek**                   | ✅ (sync)             | ✅ (sync)            | ✅ (sync, \_lseeki64)                    |
 | **getsockname/getpeername** | ❌                    | ❌                   | ❌                                       |
 | **socketpair**              | ❌                    | ❌                   | ❌ (emulation needed)                    |
 | **clock_gettime**           | ❌                    | ❌                   | ❌ (QueryPerformanceCounter)             |
@@ -978,7 +978,7 @@ LOCK_NB :: i32(4);  // Non-blocking
 
 **Goal**: Provide file seek and space pre-allocation primitives.
 
-### 11.1 Create `std/io/seek.yo` — File Position Control
+### 11.1 Create `std/io/seek.yo` — File Position Control ✅
 
 ```yo
 // std/io/seek.yo
@@ -1005,6 +1005,14 @@ SEEK_END :: i32(2);  // Set offset to end-of-file + `offset`
 - Essential for sequential I/O on pipes, stdin, and streaming read patterns
 - Returns `i64` (not `i32`) because file offsets can exceed 2GB
 - `SEEK_DATA`/`SEEK_HOLE` (Linux 3.1+) can be added later for sparse file support
+
+**Implementation status:**
+
+- ✅ Implemented `std/io/seek.yo` with sync wrapper: `lseek`.
+- ✅ Added C runtime sync extern `__yo_sync_lseek` in all backends:
+  - Linux/macOS: direct `lseek(fd, offset, whence)` wrapper returning `i64` offset on success, `-errno` on failure.
+  - Windows: `_lseeki64(fd, offset, whence)` wrapper returning `i64` offset on success, `-errno` on failure.
+- ✅ Added tests in `tests/io/seek.test.yo` (3 tests: SEEK_SET/SEEK_CUR/SEEK_END on regular file, invalid fd/invalid whence/negative offset errors, pipe seek non-seekable error).
 
 ### 11.2 Create `std/io/fallocate.yo` — File Space Pre-allocation
 
@@ -1317,7 +1325,8 @@ Phase 10 (System Operations)         ✅ DONE
   └── 10.3 flock    ✅ DONE
 
 Phase 11 (File Position & Allocation)
-  ├── 11.1 seek     └── Depends on: Phase 1 (file I/O)
+  ├── 11.1 seek      ✅ DONE
+  │     └── Depends on: Phase 1 (file I/O)
   └── 11.2 fallocate └── Independent
 
 Phase 12 (Socket Extensions)
@@ -1359,7 +1368,7 @@ Each phase should include a `.test.yo` file exercising the new APIs:
 19. **Fcntl tests** — ✅ `tests/io/fcntl.test.yo` (getfl/setfl/getfd/setfd)
 20. **Mmap tests** — ✅ `tests/io/mmap.test.yo` (8 tests: error handling, anonymous mmap, file-backed mmap + msync, PROT_NONE, MS_ASYNC, MS_INVALIDATE)
 21. **Lock tests** — ✅ `tests/io/lock.test.yo` (7 tests: invalid fd, exclusive lock+unlock, shared lock+unlock, LOCK_NB conflict, shared coexist/exclusive blocked, upgrade shared→exclusive, unlock no-op)
-22. **Seek tests** — lseek SEEK_SET/SEEK_CUR/SEEK_END, invalid fd, pipe seek error
+22. **Seek tests** — ✅ `tests/io/seek.test.yo` (SEEK_SET/SEEK_CUR/SEEK_END, invalid fd, invalid whence/negative offset, pipe seek error)
 23. **Fallocate tests** — pre-allocate space, verify file size, punch hole (Linux)
 24. **Sockinfo tests** — getsockname after bind, getpeername after connect, getsockopt/setsockopt
 25. **Socketpair tests** — create pair, bidirectional send/recv
@@ -1407,7 +1416,7 @@ std/io/
   fcntl.yo         ← FD flags control                     ✅
   mmap.yo          ← Memory-mapped I/O                    ✅
   lock.yo          ← Advisory file locking                ✅
-  seek.yo          ← File position control (lseek)         Phase 11
+  seek.yo          ← File position control (lseek)         ✅
   fallocate.yo     ← File space pre-allocation             Phase 11
   sockinfo.yo      ← Socket address query                  Phase 12
   socketpair.yo    ← Connected socket pair                 Phase 12
