@@ -480,6 +480,41 @@ static yo_io_future_t* __yo_async_copyfile_start(const char* src, const char* ds
 }
 #endif
 
+// Fallback for platforms where sendfile cannot handle all fd combinations
+// (e.g. macOS sendfile requires socket destination).
+#if defined(__linux__) || defined(__APPLE__)
+static int32_t __yo_sendfile_fallback_copy(int32_t out_fd, int32_t in_fd, int64_t offset, size_t count) {
+  unsigned char buffer[65536];
+  size_t total = 0;
+
+  while (total < count) {
+    size_t remaining = count - total;
+    size_t chunk = remaining < sizeof(buffer) ? remaining : sizeof(buffer);
+
+    ssize_t nread = pread(in_fd, buffer, chunk, (off_t)(offset + (int64_t)total));
+    if (nread < 0) {
+      return -errno;
+    }
+    if (nread == 0) {
+      break;
+    }
+
+    size_t written = 0;
+    while (written < (size_t)nread) {
+      ssize_t nwrite = write(out_fd, buffer + written, (size_t)nread - written);
+      if (nwrite < 0) {
+        return -errno;
+      }
+      written += (size_t)nwrite;
+    }
+
+    total += (size_t)nread;
+  }
+
+  return (int32_t)total;
+}
+#endif
+
 // Async sendfile
 static yo_io_future_t* __yo_async_sendfile_start(int32_t out_fd, int32_t in_fd, int64_t offset, size_t count) {
   yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
@@ -496,7 +531,15 @@ static yo_io_future_t* __yo_async_sendfile_start(int32_t out_fd, int32_t in_fd, 
 #elif defined(__APPLE__)
   off_t len = (off_t)count;
   int result = sendfile(in_fd, out_fd, (off_t)offset, &len, NULL, 0);
-  future->result = (result < 0) ? -errno : (int32_t)len;
+  if (result < 0) {
+    if (errno == ENOTSOCK || errno == EINVAL || errno == ENOSYS) {
+      future->result = __yo_sendfile_fallback_copy(out_fd, in_fd, offset, count);
+    } else {
+      future->result = -errno;
+    }
+  } else {
+    future->result = (int32_t)len;
+  }
 #endif
   
   atomic_init(&future->state, -1);
@@ -590,7 +633,13 @@ static int32_t __yo_sync_sendfile(int32_t out_fd, int32_t in_fd, int64_t offset,
 #elif defined(__APPLE__)
   off_t len = (off_t)count;
   int result = sendfile(in_fd, out_fd, (off_t)offset, &len, NULL, 0);
-  return (result < 0) ? -errno : (int32_t)len;
+  if (result < 0) {
+    if (errno == ENOTSOCK || errno == EINVAL || errno == ENOSYS) {
+      return __yo_sendfile_fallback_copy(out_fd, in_fd, offset, count);
+    }
+    return -errno;
+  }
+  return (int32_t)len;
 #else
   (void)out_fd; (void)in_fd; (void)offset; (void)count;
   return -ENOSYS;
