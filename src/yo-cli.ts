@@ -6,6 +6,8 @@ import { CodeGenerator } from "./codegen";
 import { findAvailableCompiler } from "./compiler-utils";
 import { findTestFiles, runTests } from "./test-runner";
 
+const TEST_SUMMARY_MARKER = "__YO_TEST_SUMMARY__";
+
 yargs(hideBin(process.argv))
   .wrap(null)
   .usage(
@@ -277,6 +279,12 @@ yo --version                     Show version number
             "Keep generated .yo and .c test files for debugging (not deleted after test)",
           type: "boolean",
           default: false,
+        })
+        .option("json-summary", {
+          describe:
+            "Internal: print machine-readable summary line for isolated parallel test execution",
+          type: "boolean",
+          default: false,
         });
     },
     async (argv) => {
@@ -314,6 +322,10 @@ yo --version                     Show version number
         parallel,
         keepGeneratedFiles: argv.keepGeneratedFiles as boolean,
       });
+
+      if (argv.jsonSummary as boolean) {
+        console.log(`${TEST_SUMMARY_MARKER}${JSON.stringify(summary)}`);
+      }
 
       process.exit(summary.failed > 0 ? 1 : 0);
     }
