@@ -1226,6 +1226,14 @@ static int32_t __yo_isatty(int32_t fd) {
 #include <sys/inotify.h>
 #elif defined(__APPLE__)
 #include <sys/event.h>
+
+typedef struct yo_fs_event_entry_s {
+  char* name;
+  int64_t mtime_sec;
+  int64_t mtime_nsec;
+  int64_t size;
+  struct yo_fs_event_entry_s* next;
+} yo_fs_event_entry_t;
 #endif
 
 typedef struct yo_fs_event_s {
@@ -1234,16 +1242,160 @@ typedef struct yo_fs_event_s {
   void (*callback)(const char*, int, void*);
   void* user_data;
   int active;
+#if defined(__APPLE__)
+  char* path;
+  int is_dir;
+  int exists;
+  int64_t mtime_sec;
+  int64_t mtime_nsec;
+  int64_t size;
+  yo_fs_event_entry_t* entries;
+#endif
   struct yo_fs_event_s* next;
 } yo_fs_event_t;
 
 static yo_fs_event_t* __yo_active_fs_events = NULL;
+
+#if defined(__APPLE__)
+static void __yo_fs_event_free_entries(yo_fs_event_entry_t* head) {
+  while (head) {
+    yo_fs_event_entry_t* next = head->next;
+    if (head->name) __yo_free(head->name);
+    __yo_free(head);
+    head = next;
+  }
+}
+
+static yo_fs_event_entry_t* __yo_fs_event_find_entry(yo_fs_event_entry_t* head, const char* name) {
+  while (head) {
+    if (strcmp(head->name, name) == 0) {
+      return head;
+    }
+    head = head->next;
+  }
+  return NULL;
+}
+
+static yo_fs_event_entry_t* __yo_fs_event_snapshot_dir(const char* path, int* err_out) {
+  *err_out = 0;
+  DIR* dir = opendir(path);
+  if (!dir) {
+    *err_out = errno;
+    return NULL;
+  }
+
+  yo_fs_event_entry_t* head = NULL;
+  struct dirent* ent = NULL;
+  while ((ent = readdir(dir)) != NULL) {
+    if ((strcmp(ent->d_name, ".") == 0) || (strcmp(ent->d_name, "..") == 0)) {
+      continue;
+    }
+
+    size_t path_len = strlen(path);
+    size_t name_len = strlen(ent->d_name);
+    char* full_path = (char*)__yo_malloc(path_len + 1 + name_len + 1);
+    memcpy(full_path, path, path_len);
+    full_path[path_len] = '/';
+    memcpy(full_path + path_len + 1, ent->d_name, name_len + 1);
+
+    struct stat st;
+    if (stat(full_path, &st) == 0) {
+      yo_fs_event_entry_t* node = (yo_fs_event_entry_t*)__yo_malloc(sizeof(yo_fs_event_entry_t));
+      memset(node, 0, sizeof(yo_fs_event_entry_t));
+      node->name = (char*)__yo_malloc(name_len + 1);
+      memcpy(node->name, ent->d_name, name_len + 1);
+      node->mtime_sec = (int64_t)st.st_mtimespec.tv_sec;
+      node->mtime_nsec = (int64_t)st.st_mtimespec.tv_nsec;
+      node->size = (int64_t)st.st_size;
+      node->next = head;
+      head = node;
+    }
+
+    __yo_free(full_path);
+  }
+
+  closedir(dir);
+  return head;
+}
+
+static int __yo_fs_event_detect_snapshot_changes(yo_fs_event_t* handle) {
+  int yo_event = 0;
+
+  if (handle->is_dir) {
+    int snap_err = 0;
+    yo_fs_event_entry_t* next_entries = __yo_fs_event_snapshot_dir(handle->path, &snap_err);
+    if (snap_err != 0) {
+      if (snap_err == ENOENT) {
+        yo_event |= 1; // FS_EVENT_RENAME
+      }
+      return yo_event;
+    }
+
+    yo_fs_event_entry_t* ne = next_entries;
+    while (ne) {
+      yo_fs_event_entry_t* oe = __yo_fs_event_find_entry(handle->entries, ne->name);
+      if (!oe) {
+        yo_event |= 1; // FS_EVENT_RENAME (create)
+      } else if ((oe->mtime_sec != ne->mtime_sec) ||
+                 (oe->mtime_nsec != ne->mtime_nsec) ||
+                 (oe->size != ne->size)) {
+        yo_event |= 2; // FS_EVENT_CHANGE (modify)
+      }
+      ne = ne->next;
+    }
+
+    yo_fs_event_entry_t* oe = handle->entries;
+    while (oe) {
+      if (!__yo_fs_event_find_entry(next_entries, oe->name)) {
+        yo_event |= 1; // FS_EVENT_RENAME (delete)
+      }
+      oe = oe->next;
+    }
+
+    __yo_fs_event_free_entries(handle->entries);
+    handle->entries = next_entries;
+    return yo_event;
+  }
+
+  struct stat st;
+  if (stat(handle->path, &st) < 0) {
+    if (errno == ENOENT && handle->exists) {
+      handle->exists = 0;
+      return 1; // FS_EVENT_RENAME (delete)
+    }
+    return 0;
+  }
+
+  if (!handle->exists) {
+    handle->exists = 1;
+    handle->mtime_sec = (int64_t)st.st_mtimespec.tv_sec;
+    handle->mtime_nsec = (int64_t)st.st_mtimespec.tv_nsec;
+    handle->size = (int64_t)st.st_size;
+    return 1; // FS_EVENT_RENAME (create)
+  }
+
+  if ((handle->mtime_sec != (int64_t)st.st_mtimespec.tv_sec) ||
+      (handle->mtime_nsec != (int64_t)st.st_mtimespec.tv_nsec) ||
+      (handle->size != (int64_t)st.st_size)) {
+    handle->mtime_sec = (int64_t)st.st_mtimespec.tv_sec;
+    handle->mtime_nsec = (int64_t)st.st_mtimespec.tv_nsec;
+    handle->size = (int64_t)st.st_size;
+    return 2; // FS_EVENT_CHANGE
+  }
+
+  return 0;
+}
+#endif
 
 static void* __yo_fs_event_init(void) {
   yo_fs_event_t* handle = (yo_fs_event_t*)__yo_malloc(sizeof(yo_fs_event_t));
   memset(handle, 0, sizeof(yo_fs_event_t));
   handle->fd = -1;
   handle->watch_fd = -1;
+#if defined(__APPLE__)
+  handle->path = NULL;
+  handle->entries = NULL;
+#endif
   return handle;
 }
 
@@ -1265,15 +1417,60 @@ static int32_t __yo_fs_event_start(void* h, const char* path, uint32_t flags, vo
     return -err;
   }
 #elif defined(__APPLE__)
+  handle->path = (char*)__yo_malloc(strlen(path) + 1);
+  strcpy(handle->path, path);
+
+  struct stat path_st;
+  if (stat(path, &path_st) < 0) {
+    int err = errno;
+    __yo_free(handle->path);
+    handle->path = NULL;
+    return -err;
+  }
+  handle->is_dir = S_ISDIR(path_st.st_mode) ? 1 : 0;
+  handle->exists = 1;
+  handle->mtime_sec = (int64_t)path_st.st_mtimespec.tv_sec;
+  handle->mtime_nsec = (int64_t)path_st.st_mtimespec.tv_nsec;
+  handle->size = (int64_t)path_st.st_size;
+
+  if (handle->is_dir) {
+    int snap_err = 0;
+    handle->entries = __yo_fs_event_snapshot_dir(path, &snap_err);
+    if (snap_err != 0) {
+      __yo_free(handle->path);
+      handle->path = NULL;
+      return -snap_err;
+    }
+  }
+
   // Open the path to get an fd for kqueue EVFILT_VNODE
   handle->fd = open(path, O_EVTONLY | O_CLOEXEC);
-  if (handle->fd < 0) return -errno;
+  if (handle->fd < 0) {
+    int err = errno;
+    if (handle->entries) {
+      __yo_fs_event_free_entries(handle->entries);
+      handle->entries = NULL;
+    }
+    if (handle->path) {
+      __yo_free(handle->path);
+      handle->path = NULL;
+    }
+    return -err;
+  }
 
   handle->watch_fd = kqueue();
   if (handle->watch_fd < 0) {
     int err = errno;
     close(handle->fd);
     handle->fd = -1;
+    if (handle->entries) {
+      __yo_fs_event_free_entries(handle->entries);
+      handle->entries = NULL;
+    }
+    if (handle->path) {
+      __yo_free(handle->path);
+      handle->path = NULL;
+    }
     return -err;
   }
 
@@ -1287,6 +1484,14 @@ static int32_t __yo_fs_event_start(void* h, const char* path, uint32_t flags, vo
     close(handle->fd);
     handle->fd = -1;
     handle->watch_fd = -1;
+    if (handle->entries) {
+      __yo_fs_event_free_entries(handle->entries);
+      handle->entries = NULL;
+    }
+    if (handle->path) {
+      __yo_free(handle->path);
+      handle->path = NULL;
+    }
     return -err;
   }
 #else
@@ -1329,6 +1534,14 @@ static int32_t __yo_fs_event_stop(void* h) {
   if (handle->fd >= 0) {
     close(handle->fd);
     handle->fd = -1;
+  }
+  if (handle->entries) {
+    __yo_fs_event_free_entries(handle->entries);
+    handle->entries = NULL;
+  }
+  if (handle->path) {
+    __yo_free(handle->path);
+    handle->path = NULL;
   }
 #endif
 
@@ -1464,17 +1677,21 @@ static int __yo_poll_and_fs_event_tick(void) {
     while (fse) {
       yo_fs_event_t* next = fse->next;
       if (fse->active && fse->watch_fd >= 0) {
+        int yo_event = __yo_fs_event_detect_snapshot_changes(fse);
+
         struct kevent ev;
         struct timespec ts = {0, 0}; // Non-blocking
         int n = kevent(fse->watch_fd, NULL, 0, &ev, 1, &ts);
         if (n > 0) {
-          int yo_event = 0;
           if (ev.fflags & (NOTE_DELETE | NOTE_RENAME)) {
-            yo_event = 1; // FS_EVENT_RENAME
+            yo_event |= 1; // FS_EVENT_RENAME
           }
           if (ev.fflags & (NOTE_WRITE | NOTE_ATTRIB | NOTE_EXTEND)) {
             yo_event |= 2; // FS_EVENT_CHANGE
           }
+        }
+
+        if (yo_event != 0) {
           if (fse->callback && fse->active) {
             fse->callback("", yo_event, fse->user_data);
             count++;
