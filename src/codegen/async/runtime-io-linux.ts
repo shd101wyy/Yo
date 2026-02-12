@@ -767,6 +767,11 @@ static int64_t __yo_sync_lseek(int32_t fd, int64_t offset, int32_t whence) {
   return (result < 0) ? (int64_t)(-errno) : (int64_t)result;
 }
 
+static int32_t __yo_sync_fallocate(int32_t fd, int32_t mode, int64_t offset, int64_t length) {
+  int result = fallocate(fd, mode, (off_t)offset, (off_t)length);
+  return (result < 0) ? -errno : 0;
+}
+
 static int32_t __yo_sync_fcntl_getfl(int32_t fd) {
   int result = fcntl(fd, F_GETFL);
   return (result < 0) ? -errno : result;

@@ -855,6 +855,36 @@ static int64_t __yo_sync_lseek(int32_t fd, int64_t offset, int32_t whence) {
   return (result < 0) ? (int64_t)(-errno) : (int64_t)result;
 }
 
+static int32_t __yo_sync_fallocate(int32_t fd, int32_t mode, int64_t offset, int64_t length) {
+  if (offset < 0 || length < 0) return -EINVAL;
+
+  fstore_t store;
+  memset(&store, 0, sizeof(store));
+  store.fst_flags = F_ALLOCATECONTIG;
+  store.fst_posmode = F_VOLPOSMODE;
+  store.fst_offset = (off_t)offset;
+  store.fst_length = (off_t)length;
+
+  int result = fcntl(fd, F_PREALLOCATE, &store);
+  if (result < 0) {
+    store.fst_flags = F_ALLOCATEALL;
+    result = fcntl(fd, F_PREALLOCATE, &store);
+  }
+  if (result < 0) return -errno;
+
+  // FALLOC_FL_KEEP_SIZE = 0x01
+  if ((mode & 0x01) == 0) {
+    off_t target = (off_t)(offset + length);
+    struct stat st;
+    if (fstat(fd, &st) < 0) return -errno;
+    if (st.st_size < target) {
+      if (ftruncate(fd, target) < 0) return -errno;
+    }
+  }
+
+  return 0;
+}
+
 static int32_t __yo_sync_fcntl_getfl(int32_t fd) {
   int result = fcntl(fd, F_GETFL, 0);
   return (result < 0) ? -errno : result;

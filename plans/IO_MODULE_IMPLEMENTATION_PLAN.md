@@ -89,7 +89,7 @@ The runtime has been refactored into 4 modules:
 | **uname/gethostname**       | ❌                    | ❌                   | ❌ (GetComputerNameW)                    |
 | **umask**                   | ❌                    | ❌                   | ❌ (\_umask)                             |
 | **readv/writev**            | ❌                    | ❌                   | ❌                                       |
-| **fallocate**               | ❌                    | ❌                   | ❌                                       |
+| **fallocate**               | ✅ (sync)             | ✅ (sync)            | ✅ (sync, FileAllocationInfo)            |
 | **fadvise/madvise**         | ❌                    | ❌                   | ❌                                       |
 
 ### Known Issues Fixed
@@ -1014,7 +1014,7 @@ SEEK_END :: i32(2);  // Set offset to end-of-file + `offset`
   - Windows: `_lseeki64(fd, offset, whence)` wrapper returning `i64` offset on success, `-errno` on failure.
 - ✅ Added tests in `tests/io/seek.test.yo` (3 tests: SEEK_SET/SEEK_CUR/SEEK_END on regular file, invalid fd/invalid whence/negative offset errors, pipe seek non-seekable error).
 
-### 11.2 Create `std/io/fallocate.yo` — File Space Pre-allocation
+### 11.2 Create `std/io/fallocate.yo` — File Space Pre-allocation ✅
 
 ```yo
 // std/io/fallocate.yo
@@ -1041,6 +1041,15 @@ FALLOC_FL_ZERO_RANGE     :: i32(0x10);  // Zero out range
 - macOS doesn't support `fallocate()` directly — uses `fcntl(F_PREALLOCATE)` with `fstore_t`
 - Mode flags are Linux-specific; macOS/Windows implementation ignores modes beyond basic allocation
 - `FALLOC_FL_PUNCH_HOLE` is useful for sparse files but Linux-only
+
+**Implementation status:**
+
+- ✅ Implemented `std/io/fallocate.yo` with sync wrapper: `fallocate`.
+- ✅ Added C runtime sync extern `__yo_sync_fallocate` in all backends:
+  - Linux: direct `fallocate(fd, mode, offset, length)` wrapper returning `0` or `-errno`.
+  - macOS: `fcntl(F_PREALLOCATE)` with `F_ALLOCATECONTIG`/`F_ALLOCATEALL` fallback; when `FALLOC_FL_KEEP_SIZE` is not set, extends EOF via `ftruncate` to match Linux-style allocation semantics.
+  - Windows: `SetFileInformationByHandle(FileAllocationInfo)`; when `FALLOC_FL_KEEP_SIZE` is not set, extends EOF via `_chsize_s`.
+- ✅ Added tests in `tests/io/fallocate.test.yo` (4 tests: invalid fd, mode-0 allocation/size growth, KEEP_SIZE preservation, Linux-only ZERO_RANGE/PUNCH_HOLE behavior with filesystem-capability-aware assertions).
 
 ---
 
@@ -1327,7 +1336,8 @@ Phase 10 (System Operations)         ✅ DONE
 Phase 11 (File Position & Allocation)
   ├── 11.1 seek      ✅ DONE
   │     └── Depends on: Phase 1 (file I/O)
-  └── 11.2 fallocate └── Independent
+  ├── 11.2 fallocate ✅ DONE
+  │     └── Independent
 
 Phase 12 (Socket Extensions)
   ├── 12.1 sockinfo  └── Depends on: Phase 2 (socket ops)
@@ -1369,7 +1379,7 @@ Each phase should include a `.test.yo` file exercising the new APIs:
 20. **Mmap tests** — ✅ `tests/io/mmap.test.yo` (8 tests: error handling, anonymous mmap, file-backed mmap + msync, PROT_NONE, MS_ASYNC, MS_INVALIDATE)
 21. **Lock tests** — ✅ `tests/io/lock.test.yo` (7 tests: invalid fd, exclusive lock+unlock, shared lock+unlock, LOCK_NB conflict, shared coexist/exclusive blocked, upgrade shared→exclusive, unlock no-op)
 22. **Seek tests** — ✅ `tests/io/seek.test.yo` (SEEK_SET/SEEK_CUR/SEEK_END, invalid fd, invalid whence/negative offset, pipe seek error)
-23. **Fallocate tests** — pre-allocate space, verify file size, punch hole (Linux)
+23. **Fallocate tests** — ✅ `tests/io/fallocate.test.yo` (invalid fd, pre-allocate + size verification, KEEP_SIZE semantics, Linux punch-hole/zero-range)
 24. **Sockinfo tests** — getsockname after bind, getpeername after connect, getsockopt/setsockopt
 25. **Socketpair tests** — create pair, bidirectional send/recv
 26. **Clock tests** — clock_gettime monotonic (non-decreasing), realtime (reasonable epoch)
@@ -1417,7 +1427,7 @@ std/io/
   mmap.yo          ← Memory-mapped I/O                    ✅
   lock.yo          ← Advisory file locking                ✅
   seek.yo          ← File position control (lseek)         ✅
-  fallocate.yo     ← File space pre-allocation             Phase 11
+  fallocate.yo     ← File space pre-allocation             ✅
   sockinfo.yo      ← Socket address query                  Phase 12
   socketpair.yo    ← Connected socket pair                 Phase 12
   clock.yo         ← High-resolution time                  Phase 13

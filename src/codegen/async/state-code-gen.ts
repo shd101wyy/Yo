@@ -20,6 +20,7 @@ import { TokenType } from "../../token";
 import type { EnumType } from "../../types/definitions";
 import { isEnumType } from "../../types/guards";
 import { isTempVariableName } from "../../utils";
+import { isBooleanValue } from "../../value";
 import { generateExpr } from "../exprs/expr";
 import type { FunctionGenerationContext } from "../functions/context";
 import {
@@ -482,7 +483,149 @@ function generateCondWithAwait(
     deferredDropExpressions?: Expr[]; // Drop expressions for the branch's begin block
   }> = [];
 
+  // First pass: check for compile-time constant conditions to optimize dead branches.
+  // If the evaluator determined a branch condition is compile-time false, skip it.
+  // If a branch condition is compile-time true, only generate that branch.
+  let firstNonFalseBranchIndex = -1;
+  for (let i = 0; i < args.length; i++) {
+    const pairExpr = args[i]!;
+    if (
+      pairExpr.tag === ExprTag.FnCall &&
+      exprIsFunctionCallOf(pairExpr, "=>")
+    ) {
+      const condition = pairExpr.args[0];
+      if (condition) {
+        const isFalse =
+          isBooleanValue(condition.$?.value) &&
+          condition.$.value.value === false;
+        if (!isFalse) {
+          firstNonFalseBranchIndex = i;
+          break;
+        }
+      }
+    }
+  }
+
+  // Check if the first non-false branch is a compile-time true
+  let canOptimizeToDirect = false;
+  if (firstNonFalseBranchIndex >= 0) {
+    const firstArg = args[firstNonFalseBranchIndex]!;
+    if (
+      firstArg.tag === ExprTag.FnCall &&
+      exprIsFunctionCallOf(firstArg, "=>")
+    ) {
+      const firstCondition = firstArg.args[0];
+      if (
+        firstCondition &&
+        isBooleanValue(firstCondition.$?.value) &&
+        firstCondition.$.value.value === true
+      ) {
+        canOptimizeToDirect = true;
+      }
+    }
+  }
+
+  // If the condition is compile-time known, only generate the taken branch
+  if (canOptimizeToDirect && firstNonFalseBranchIndex >= 0) {
+    const pairExpr = args[firstNonFalseBranchIndex]!;
+    const value = exprIsFunctionCall(pairExpr) ? pairExpr.args[1] : undefined;
+    if (value) {
+      const branchContainsAwait = branchHasAwait(value);
+      if (branchContainsAwait) {
+        const remainingExprs = generateCondBranchWithAwait(
+          value,
+          awaitPoint,
+          indent,
+          context
+        );
+        branchesWithAwait.push({
+          index: firstNonFalseBranchIndex,
+          value,
+          hasAwait: true,
+          remainingExprs,
+          deferredDropExpressions: value.$?.deferredDropExpressions,
+        });
+      } else {
+        if (
+          exprIsFunctionCall(value) &&
+          exprIsFunctionCallOf(value, BuiltinKeywords.begin)
+        ) {
+          const beginArgs = value.args;
+          for (let j = 0; j < beginArgs.length; j++) {
+            const arg = beginArgs[j]!;
+            const argCode = generateExpr(arg, indent, context);
+            if (argCode === "break" && awaitPoint.isInsideWhile) {
+              emitter.emitLine(
+                `${indent}sm->while_loop_${awaitPoint.index}_active = false;`
+              );
+              emitter.emitLine(
+                `${indent}goto while_loop_${awaitPoint.index}_end;`
+              );
+            } else {
+              const isControlFlow =
+                argCode === "break" ||
+                argCode === "continue" ||
+                argCode?.includes("return");
+              if (
+                argCode &&
+                (isControlFlow ||
+                  (arg.$ && !isTempVariableName(arg.$.env.modulePath, argCode)))
+              ) {
+                emitter.emitLine(`${indent}${argCode};`);
+              }
+            }
+          }
+          if (value.$?.deferredDropExpressions) {
+            for (const dropExpr of value.$.deferredDropExpressions) {
+              const dropCode = generateExpr(dropExpr, indent, context);
+              if (dropCode) {
+                emitter.emitLine(`${indent}${dropCode};`);
+              }
+            }
+          }
+        } else {
+          const code = generateExpr(value, indent, context);
+          if (code === "break" && awaitPoint.isInsideWhile) {
+            emitter.emitLine(
+              `${indent}sm->while_loop_${awaitPoint.index}_active = false;`
+            );
+            emitter.emitLine(
+              `${indent}goto while_loop_${awaitPoint.index}_end;`
+            );
+          } else {
+            const isControlFlow =
+              code === "break" ||
+              code === "continue" ||
+              code?.includes("return");
+            if (
+              code &&
+              (isControlFlow ||
+                (value.$ && !isTempVariableName(value.$.env.modulePath, code)))
+            ) {
+              emitter.emitLine(`${indent}${code};`);
+            }
+          }
+        }
+        branchesWithAwait.push({
+          index: firstNonFalseBranchIndex,
+          value,
+          hasAwait: false,
+        });
+      }
+    }
+
+    if (!context.condBranchInfo) {
+      context.condBranchInfo = new Map();
+    }
+    context.condBranchInfo.set(awaitPoint.index, {
+      branches: branchesWithAwait,
+      targetVariableId,
+    });
+    return;
+  }
+
   // Generate if-else chain
+  let hasEmittedBranch = false;
   for (let i = 0; i < args.length; i++) {
     const pairExpr = args[i]!;
 
@@ -503,6 +646,14 @@ function generateCondWithAwait(
       continue;
     }
 
+    // Skip compile-time false conditions
+    if (
+      isBooleanValue(condition.$?.value) &&
+      condition.$.value.value === false
+    ) {
+      continue;
+    }
+
     const condCode =
       i === args.length - 1 &&
       condition.tag === ExprTag.Atom &&
@@ -512,11 +663,12 @@ function generateCondWithAwait(
 
     if (condCode) {
       emitter.emitLine(
-        `${indent}${i === 0 ? "if" : "else if"} (${condCode}) {`
+        `${indent}${!hasEmittedBranch ? "if" : "else if"} (${condCode}) {`
       );
     } else {
-      emitter.emitLine(`${indent}${i === 0 ? "{" : "else {"}`);
+      emitter.emitLine(`${indent}${!hasEmittedBranch ? "{" : "else {"}`);
     }
+    hasEmittedBranch = true;
 
     // Check if this branch contains an await
     const branchContainsAwait = branchHasAwait(value);

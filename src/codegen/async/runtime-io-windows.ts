@@ -1144,6 +1144,36 @@ static int64_t __yo_sync_lseek(int32_t fd, int64_t offset, int32_t whence) {
   return (result < 0) ? (int64_t)(-errno) : (int64_t)result;
 }
 
+static int32_t __yo_sync_fallocate(int32_t fd, int32_t mode, int64_t offset, int64_t length) {
+  if (offset < 0 || length < 0) return -EINVAL;
+
+  uint64_t target_u = (uint64_t)offset + (uint64_t)length;
+  if (target_u > 0x7FFFFFFFFFFFFFFFULL) return -EINVAL;
+  __int64 target = (__int64)target_u;
+
+  intptr_t handle_value = _get_osfhandle(fd);
+  if (handle_value == -1) return -EBADF;
+  HANDLE handle = (HANDLE)handle_value;
+
+  FILE_ALLOCATION_INFO alloc_info;
+  alloc_info.AllocationSize.QuadPart = target;
+  if (!SetFileInformationByHandle(handle, FileAllocationInfo, &alloc_info, sizeof(alloc_info))) {
+    return -__yo_win_last_error_to_errno();
+  }
+
+  // FALLOC_FL_KEEP_SIZE = 0x01
+  if ((mode & 0x01) == 0) {
+    struct _stat64 st;
+    if (_fstat64(fd, &st) != 0) return -errno;
+    if ((__int64)st.st_size < target) {
+      int result = _chsize_s(fd, target);
+      if (result != 0) return -errno;
+    }
+  }
+
+  return 0;
+}
+
 static int32_t __yo_sync_fcntl_getfl(int32_t fd) {
   if (__yo_win_is_socket_fd(fd)) {
     // Winsock does not provide a portable way to query current FIONBIO mode.
