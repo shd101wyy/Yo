@@ -526,7 +526,6 @@ function runSingleTest(
 interface TestToRun {
   test: TestDeclaration;
   nonTestExprs: Expr[];
-  relativePath: string;
 }
 
 /**
@@ -720,18 +719,18 @@ export async function runTests(
     );
   }
 
-  // Collect all tests to run, grouped by file
-  const testsByFile: Map<string, TestToRun[]> = new Map();
-  let _totalTests = 0;
-
   // Initialize result tracking variables early so they can be used in error handling
   const allResults: TestResult[] = [];
   let passedTests = 0;
   let failedTests = 0;
   let bailed = false;
 
+  // Process files incrementally so users get immediate feedback
   for (const filePath of testFiles) {
+    if (bailed) break;
+
     const relativePath = path.relative(process.cwd(), filePath);
+    console.log(`${colors.dim}${relativePath}${colors.reset}`);
 
     let tests: TestDeclaration[];
     let nonTestExprs: Expr[];
@@ -741,7 +740,6 @@ export async function runTests(
       nonTestExprs = result.nonTestExprs;
     } catch (error) {
       // Module evaluation failed - treat as a single failed test for this file
-      console.log(`${colors.dim}${relativePath}${colors.reset}`);
       console.log(`  ${colors.red}✗${colors.reset} Module evaluation failed`);
       const errorMessage =
         error instanceof Error ? error.message : String(error);
@@ -763,28 +761,18 @@ export async function runTests(
       tests = tests.filter((test) => testNameRegex.test(test.name));
     }
 
-    if (tests.length > 0) {
-      const testsToRun = tests.map((test) => ({
-        test,
-        nonTestExprs,
-        relativePath,
-      }));
-      testsByFile.set(relativePath, testsToRun);
-      _totalTests += tests.length;
-    }
-  }
-
-  // Run tests file by file (parallel within each file if concurrency > 1)
-  for (const [relativePath, testsToRun] of testsByFile) {
-    if (bailed) break;
-
-    console.log(`${colors.dim}${relativePath}${colors.reset}`);
-
-    if (testsToRun.length === 0) {
+    if (tests.length === 0) {
       console.log(`  ${colors.yellow}(no tests found)${colors.reset}`);
       console.log();
+      // Try to force garbage collection between files to prevent memory accumulation
+      tryForceGC();
       continue;
     }
+
+    const testsToRun = tests.map((test) => ({
+      test,
+      nonTestExprs,
+    }));
 
     const result = await runTestsWithConcurrency(
       testsToRun,
