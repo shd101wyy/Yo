@@ -36,6 +36,7 @@ The `std/io` module provides Yo's low-level async I/O foundation. It sits betwee
 | **Temp**             | `std/io/temp.yo`                           | ✅ Complete | mkdtemp, mkstemp + tests                                   |
 | **Path**             | `std/io/path.yo`                           | ✅ Complete | realpath + tests                                           |
 | **Statfs**           | `std/io/statfs.yo`                         | ✅ Complete | statfs + accessors (sync)                                  |
+| **Fcntl**            | `std/io/fcntl.yo`                          | ✅ Complete | getfl/setfl/getfd/setfd + tests                            |
 
 ### C Runtime Status (in `src/codegen/async/runtime*.ts`)
 
@@ -74,7 +75,7 @@ The runtime has been refactored into 4 modules:
 | **TTY**                    | ✅ (sync)             | ✅ (sync)            | ⚠️ (isatty only)                         |
 | **Unix sockets**           | ✅ (sockaddr_un)      | ✅ (sockaddr_un)     | ⚠️ (AF_UNIX Win10 1803+)                 |
 | **Process spawn**          | ✅ (posix_spawn)      | ✅ (posix_spawn)     | ✅ (CreateProcessW)                      |
-| **fcntl**                  | ❌                    | ❌                   | ❌ (different model)                     |
+| **fcntl**                  | ✅ (sync)             | ✅ (sync)            | ✅ (best-effort abstraction)             |
 | **mmap**                   | ❌                    | ❌                   | ❌ (CreateFileMapping)                   |
 | **flock**                  | ❌                    | ❌                   | ❌ (LockFileEx)                          |
 | **FS Events**              | ❌                    | ❌                   | ❌                                       |
@@ -85,6 +86,7 @@ The runtime has been refactored into 4 modules:
 - ✅ **errno naming conflict**: Enum variant destructuring (`.Other(errno)`) now properly sanitizes variable names in C codegen to avoid conflicts with C's `errno` macro.
 - ✅ **Timer resource leak (Linux)**: timerfd and read buffer are now properly tracked and cleaned up via `dispose_fn` on an extended future struct.
 - ✅ **Bitwise OR on c_include constants**: `c_include` constants (O_WRONLY, O_CREAT, etc.) had `UnknownValue` causing `ComptimeBitOr` to be selected. Fixed in `identifer-and-operator.ts` to treat extern "c" unknowns as runtime values.
+- ✅ **Module namespace constant access in C codegen**: Expressions like `fcntl_io.O_NONBLOCK` (namespace import + field access) emitted invalid C (`/* skip generating: module */.FIELD`) because module values have no runtime representation. Fixed in `src/codegen/exprs/property-access.ts` by resolving module field access directly to the field value/identifier (including UnknownValue extern constants).
 - ✅ **Barrel re-export removed**: `std/io/index.yo` removed to avoid naming conflicts. Users now import submodules directly: `import "std/io/file"`, `import "std/io/timer"`, etc.
 - ✅ **Runtime refactored**: 4012-line `runtime.ts` split into 4 focused modules for maintainability.
 - ✅ **SSA variable mutation in async loops**: Variable reassignment inside loops in async state machines created new SSA variable IDs (e.g., `offset` → `offset_1`) but the loop condition always read the original, causing infinite loops. Fixed by adding `variableIdRemapping` to the await analysis that maps all SSA-renamed IDs back to the first version's captured variable. Also fixed `break` inside async while loop resume code breaking the C `switch` instead of the loop.
@@ -808,7 +810,7 @@ int32_t __yo_process_term_signal(int32_t status);
 
 All of these require **new C runtime externs**.
 
-### 10.1 Create `std/io/fcntl.yo` — File Descriptor Control
+### 10.1 Create `std/io/fcntl.yo` — File Descriptor Control ✅
 
 ```yo
 // std/io/fcntl.yo
@@ -844,6 +846,14 @@ FD_CLOEXEC :: i32(...);
 - Primary use case: toggling `O_NONBLOCK` on sockets/pipes
 - Windows has a fundamentally different model — `ioctlsocket` for sockets, `SetNamedPipeHandleState` for pipes. The Yo wrapper abstracts this.
 - Close-on-exec (`FD_CLOEXEC`) is less relevant on Windows where handles don't survive `CreateProcess` unless explicitly inherited
+
+**Implementation status:**
+
+- ✅ Implemented `std/io/fcntl.yo` with sync wrappers: `getfl`, `setfl`, `getfd`, `setfd`.
+- ✅ Added C runtime sync externs in all backends:
+  - Linux/macOS: direct `fcntl(..., F_GETFL/F_SETFL/F_GETFD/F_SETFD)` wrappers.
+  - Windows: best-effort abstraction (`ioctlsocket(FIONBIO)` for sockets, handle inheritance for `FD_CLOEXEC`, pipe fallback via `SetNamedPipeHandleState`).
+- ✅ Added tests in `tests/io/fcntl.test.yo` covering all four APIs (valid/invalid fd paths and flag toggling).
 
 ### 10.2 Create `std/io/mmap.yo` — Memory-Mapped I/O
 
@@ -958,11 +968,11 @@ Phase 7 (FS Events + Poll)           ← IN PROGRESS (wrappers only)
 Phase 8 (Unix Domain Sockets)       ✅ DONE
   └── Depends on: Phase 2 (reuses socket infra)
 
-Phase 9 (Process Management)         ← Needs new runtime
+Phase 9 (Process Management)         ✅ DONE
   └── Depends on: Phase 5.1 (pipe for stdio redirection)
 
-Phase 10 (System Operations)         ← Needs new runtime
-  ├── 10.1 fcntl    └── Independent
+Phase 10 (System Operations)         ← IN PROGRESS
+  ├── 10.1 fcntl    ✅ DONE
   ├── 10.2 mmap     └── Independent
   └── 10.3 flock    └── Independent
 ```
@@ -989,8 +999,9 @@ Each phase should include a `.test.yo` file exercising the new APIs:
 16. **Poll tests** — ✅ init/start/stop/close (`tests/io/poll.test.yo`)
 17. **Unix socket tests** — ✅ `tests/io/unix.test.yo` (stream echo)
 18. ✅ **Process tests** — spawn child, wait for exit, pipe stdout capture
-19. **Mmap tests** — map file, read/write, msync, munmap
-20. **Lock tests** — flock exclusive/shared, non-blocking conflict detection
+19. **Fcntl tests** — ✅ `tests/io/fcntl.test.yo` (getfl/setfl/getfd/setfd)
+20. **Mmap tests** — map file, read/write, msync, munmap
+21. **Lock tests** — flock exclusive/shared, non-blocking conflict detection
 
 For cross-platform validation:
 
@@ -1027,7 +1038,7 @@ std/io/
   statfs.yo        ← Filesystem statistics (sync)          ✅
   unix.yo          ← Unix domain sockets                  ✅
   process.yo       ← Child process management             ✅
-  fcntl.yo         ← FD flags control                     Phase 10
+  fcntl.yo         ← FD flags control                     ✅
   mmap.yo          ← Memory-mapped I/O                    Phase 10
   lock.yo          ← Advisory file locking                Phase 10
 ```
@@ -1075,6 +1086,7 @@ std/io/
   - Timestamps: utime, futime, lutime
   - Path resolution: readlinkat, realpath
   - File descriptor ops: pipe, dup, dup2
+  - File descriptor control: fcntl getfl/setfl/getfd/setfd
   - Temp files: mkdtemp, mkstemp
   - File copy: copyfile, sendfile
   - Filesystem stats: statfs

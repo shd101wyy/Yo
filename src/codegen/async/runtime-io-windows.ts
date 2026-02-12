@@ -61,6 +61,12 @@ export function generateAsyncRuntimeIOWindows(emitter: Emitter): void {
 #ifndef O_DIRECTORY
 #define O_DIRECTORY 0x200000
 #endif
+#ifndef O_NONBLOCK
+#define O_NONBLOCK 0x0004
+#endif
+#ifndef FD_CLOEXEC
+#define FD_CLOEXEC 1
+#endif
 #ifndef AT_FDCWD
 #define AT_FDCWD -100
 #endif
@@ -169,6 +175,13 @@ static int __yo_win_wide_to_utf8(const wchar_t* wstr, char* out, size_t out_size
     return -__yo_win_last_error_to_errno();
   }
   return len - 1;
+}
+
+static bool __yo_win_is_socket_fd(int32_t fd) {
+  SOCKET s = (SOCKET)(uintptr_t)(uint32_t)fd;
+  int sock_type = 0;
+  int optlen = (int)sizeof(sock_type);
+  return getsockopt(s, SOL_SOCKET, SO_TYPE, (char*)&sock_type, &optlen) == 0;
 }
 
 static void __yo_io_init(void) {
@@ -1047,6 +1060,68 @@ static int32_t __yo_sync_dup(int32_t oldfd) {
 static int32_t __yo_sync_dup2(int32_t oldfd, int32_t newfd) {
   int result = _dup2(oldfd, newfd);
   return (result < 0) ? -errno : result;
+}
+
+static int32_t __yo_sync_fcntl_getfl(int32_t fd) {
+  if (__yo_win_is_socket_fd(fd)) {
+    // Winsock does not provide a portable way to query current FIONBIO mode.
+    // Return 0 (blocking) as best-effort default.
+    return 0;
+  }
+
+  intptr_t handle_value = _get_osfhandle(fd);
+  if (handle_value == -1) return -EBADF;
+  return 0;
+}
+
+static int32_t __yo_sync_fcntl_setfl(int32_t fd, int32_t flags) {
+  if (__yo_win_is_socket_fd(fd)) {
+    u_long mode = ((flags & O_NONBLOCK) != 0) ? 1UL : 0UL;
+    int result = ioctlsocket((SOCKET)(uintptr_t)(uint32_t)fd, FIONBIO, &mode);
+    return (result == SOCKET_ERROR) ? -(int32_t)WSAGetLastError() : 0;
+  }
+
+  intptr_t handle_value = _get_osfhandle(fd);
+  if (handle_value == -1) return -EBADF;
+
+  if ((flags & O_NONBLOCK) != 0) {
+    HANDLE handle = (HANDLE)handle_value;
+    if (GetFileType(handle) == FILE_TYPE_PIPE) {
+      DWORD pipe_mode = PIPE_NOWAIT;
+      if (SetNamedPipeHandleState(handle, &pipe_mode, NULL, NULL)) {
+        return 0;
+      }
+      return -__yo_win_last_error_to_errno();
+    }
+    return -ENOSYS;
+  }
+
+  return 0;
+}
+
+static int32_t __yo_sync_fcntl_getfd(int32_t fd) {
+  intptr_t handle_value = _get_osfhandle(fd);
+  if (handle_value == -1) {
+    return __yo_win_is_socket_fd(fd) ? 0 : -EBADF;
+  }
+
+  DWORD handle_flags = 0;
+  if (!GetHandleInformation((HANDLE)handle_value, &handle_flags)) {
+    return -__yo_win_last_error_to_errno();
+  }
+
+  return ((handle_flags & HANDLE_FLAG_INHERIT) != 0) ? 0 : FD_CLOEXEC;
+}
+
+static int32_t __yo_sync_fcntl_setfd(int32_t fd, int32_t flags) {
+  intptr_t handle_value = _get_osfhandle(fd);
+  if (handle_value == -1) {
+    return __yo_win_is_socket_fd(fd) ? 0 : -EBADF;
+  }
+
+  DWORD inherit_value = ((flags & FD_CLOEXEC) != 0) ? 0 : HANDLE_FLAG_INHERIT;
+  BOOL ok = SetHandleInformation((HANDLE)handle_value, HANDLE_FLAG_INHERIT, inherit_value);
+  return ok ? 0 : -__yo_win_last_error_to_errno();
 }
 
 static int32_t __yo_sync_fchmod(int32_t fd, uint32_t mode) {

@@ -789,6 +789,26 @@ static int32_t __yo_sync_dup2(int32_t oldfd, int32_t newfd) {
   return (result < 0) ? -errno : result;
 }
 
+static int32_t __yo_sync_fcntl_getfl(int32_t fd) {
+  int result = fcntl(fd, F_GETFL, 0);
+  return (result < 0) ? -errno : result;
+}
+
+static int32_t __yo_sync_fcntl_setfl(int32_t fd, int32_t flags) {
+  int result = fcntl(fd, F_SETFL, flags);
+  return (result < 0) ? -errno : 0;
+}
+
+static int32_t __yo_sync_fcntl_getfd(int32_t fd) {
+  int result = fcntl(fd, F_GETFD, 0);
+  return (result < 0) ? -errno : result;
+}
+
+static int32_t __yo_sync_fcntl_setfd(int32_t fd, int32_t flags) {
+  int result = fcntl(fd, F_SETFD, flags);
+  return (result < 0) ? -errno : 0;
+}
+
 static int32_t __yo_sync_fchmod(int32_t fd, uint32_t mode) {
   int result = fchmod(fd, (mode_t)mode);
   return (result < 0) ? -errno : 0;
