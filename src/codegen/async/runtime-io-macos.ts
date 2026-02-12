@@ -180,18 +180,31 @@ static yo_io_future_t* __yo_async_read_start(int32_t fd, void* buffer, uint32_t 
   
   atomic_fetch_add(&__yo_pending_io_count, 1);
   
-  // Use dispatch_read for async file read
-  dispatch_fd_t dispatch_fd = (dispatch_fd_t)fd;
+  // Use random I/O only for seekable regular/block files.
+  // Pipes/sockets/ttys must use stream mode or writes/reads fail with ESPIPE.
+  dispatch_fd_t dispatch_fd = (dispatch_fd_t)dup(fd);
+  if (dispatch_fd < 0) {
+    future->result = -errno;
+    atomic_store(&future->state, -1);
+    atomic_fetch_sub(&__yo_pending_io_count, 1);
+    ASYNC_DEBUG("[IO] Failed to dup fd for read: fd=%d errno=%d\\n", fd, errno);
+    return future;
+  }
+  struct stat st;
+  bool use_random = false;
+  if (fstat(fd, &st) == 0) {
+    use_random = S_ISREG(st.st_mode) || S_ISBLK(st.st_mode);
+  }
+  dispatch_io_type_t io_type = use_random ? DISPATCH_IO_RANDOM : DISPATCH_IO_STREAM;
   
-  // For files, we need to use pread-style positioning
-  // dispatch_read reads from current position, so we use dispatch_io for positioned reads
-  dispatch_io_t channel = dispatch_io_create(DISPATCH_IO_RANDOM, dispatch_fd, __yo_io_queue, ^(int error) {
+  dispatch_io_t channel = dispatch_io_create(io_type, dispatch_fd, __yo_io_queue, ^(int error) {
     if (error) {
       ASYNC_DEBUG("[IO] Channel cleanup error: %d\\n", error);
     }
   });
   
   if (!channel) {
+    close((int)dispatch_fd);
     future->result = -errno;
     atomic_store(&future->state, -1);
     atomic_fetch_sub(&__yo_pending_io_count, 1);
@@ -208,12 +221,18 @@ static yo_io_future_t* __yo_async_read_start(int32_t fd, void* buffer, uint32_t 
   yo_io_future_t* fut = future;
   uint32_t sz = size;
   __block size_t total = 0;
+  __block bool completed = false;
+  off_t read_offset = use_random ? (off_t)offset : 0;
   
-  dispatch_io_read(channel, (off_t)offset, (size_t)size, __yo_io_queue,
+  dispatch_io_read(channel, read_offset, (size_t)size, __yo_io_queue,
     ^(bool done, dispatch_data_t data, int error) {
+      if (completed) {
+        return;
+      }
       if (error) {
         fut->result = -error;
-        if (done) {
+        if (done || !use_random) {
+          completed = true;
           dispatch_io_close(channel, DISPATCH_IO_STOP);
           __yo_io_wake_continuation(fut);
         }
@@ -241,8 +260,20 @@ static yo_io_future_t* __yo_async_read_start(int32_t fd, void* buffer, uint32_t 
           return true;
         });
       }
+
+      // For stream descriptors (pipes/sockets/ttys), complete as soon as any data arrives,
+      // matching read(2) semantics for "up to size" bytes.
+      if (!use_random && total > 0) {
+        completed = true;
+        fut->result = (int32_t)total;
+        dispatch_io_close(channel, DISPATCH_IO_STOP);
+        ASYNC_DEBUG("[IO] Stream read completed: %d bytes\\n", fut->result);
+        __yo_io_wake_continuation(fut);
+        return;
+      }
       
       if (done) {
+        completed = true;
         fut->result = (int32_t)total;
         dispatch_io_close(channel, 0);
         ASYNC_DEBUG("[IO] Read completed: %d bytes\\n", fut->result);
@@ -271,15 +302,29 @@ static yo_io_future_t* __yo_async_write_start(int32_t fd, const void* buffer, ui
   
   atomic_fetch_add(&__yo_pending_io_count, 1);
   
-  dispatch_fd_t dispatch_fd = (dispatch_fd_t)fd;
+  dispatch_fd_t dispatch_fd = (dispatch_fd_t)dup(fd);
+  if (dispatch_fd < 0) {
+    future->result = -errno;
+    atomic_store(&future->state, -1);
+    atomic_fetch_sub(&__yo_pending_io_count, 1);
+    ASYNC_DEBUG("[IO] Failed to dup fd for write: fd=%d errno=%d\\n", fd, errno);
+    return future;
+  }
+  struct stat st;
+  bool use_random = false;
+  if (fstat(fd, &st) == 0) {
+    use_random = S_ISREG(st.st_mode) || S_ISBLK(st.st_mode);
+  }
+  dispatch_io_type_t io_type = use_random ? DISPATCH_IO_RANDOM : DISPATCH_IO_STREAM;
   
-  dispatch_io_t channel = dispatch_io_create(DISPATCH_IO_RANDOM, dispatch_fd, __yo_io_queue, ^(int error) {
+  dispatch_io_t channel = dispatch_io_create(io_type, dispatch_fd, __yo_io_queue, ^(int error) {
     if (error) {
       ASYNC_DEBUG("[IO] Channel cleanup error: %d\\n", error);
     }
   });
   
   if (!channel) {
+    close((int)dispatch_fd);
     future->result = -errno;
     atomic_store(&future->state, -1);
     atomic_fetch_sub(&__yo_pending_io_count, 1);
@@ -290,8 +335,9 @@ static yo_io_future_t* __yo_async_write_start(int32_t fd, const void* buffer, ui
   dispatch_data_t data = dispatch_data_create(buffer, size, __yo_io_queue, DISPATCH_DATA_DESTRUCTOR_DEFAULT);
   
   yo_io_future_t* fut = future;
+  off_t write_offset = use_random ? (off_t)offset : 0;
   
-  dispatch_io_write(channel, (off_t)offset, data, __yo_io_queue,
+  dispatch_io_write(channel, write_offset, data, __yo_io_queue,
     ^(bool done, dispatch_data_t remaining, int error) {
       if (error) {
         fut->result = -error;
