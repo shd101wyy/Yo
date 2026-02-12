@@ -67,6 +67,36 @@ export function generateAsyncRuntimeIOWindows(emitter: Emitter): void {
 #ifndef FD_CLOEXEC
 #define FD_CLOEXEC 1
 #endif
+#ifndef PROT_NONE
+#define PROT_NONE 0
+#endif
+#ifndef PROT_READ
+#define PROT_READ 1
+#endif
+#ifndef PROT_WRITE
+#define PROT_WRITE 2
+#endif
+#ifndef PROT_EXEC
+#define PROT_EXEC 4
+#endif
+#ifndef MAP_SHARED
+#define MAP_SHARED 1
+#endif
+#ifndef MAP_PRIVATE
+#define MAP_PRIVATE 2
+#endif
+#ifndef MAP_ANONYMOUS
+#define MAP_ANONYMOUS 0x20
+#endif
+#ifndef MS_ASYNC
+#define MS_ASYNC 1
+#endif
+#ifndef MS_INVALIDATE
+#define MS_INVALIDATE 2
+#endif
+#ifndef MS_SYNC
+#define MS_SYNC 4
+#endif
 #ifndef AT_FDCWD
 #define AT_FDCWD -100
 #endif
@@ -182,6 +212,53 @@ static bool __yo_win_is_socket_fd(int32_t fd) {
   int sock_type = 0;
   int optlen = (int)sizeof(sock_type);
   return getsockopt(s, SOL_SOCKET, SO_TYPE, (char*)&sock_type, &optlen) == 0;
+}
+
+static DWORD __yo_win_mmap_page_protect(int32_t prot, int32_t flags, bool anonymous_map) {
+  bool can_read = ((prot & PROT_READ) != 0);
+  bool can_write = ((prot & PROT_WRITE) != 0);
+  bool can_exec = ((prot & PROT_EXEC) != 0);
+  bool private_map = ((flags & MAP_PRIVATE) != 0);
+
+  if (can_exec) {
+    if (can_write) {
+      if (private_map && !anonymous_map) return PAGE_EXECUTE_WRITECOPY;
+      return PAGE_EXECUTE_READWRITE;
+    }
+    if (can_read) return PAGE_EXECUTE_READ;
+    return PAGE_EXECUTE;
+  }
+
+  if (can_write) {
+    if (private_map && !anonymous_map) return PAGE_WRITECOPY;
+    return PAGE_READWRITE;
+  }
+  if (can_read) return PAGE_READONLY;
+  return PAGE_NOACCESS;
+}
+
+static DWORD __yo_win_mmap_view_access(int32_t prot, int32_t flags, bool anonymous_map) {
+  bool private_map = ((flags & MAP_PRIVATE) != 0);
+  bool can_read = ((prot & PROT_READ) != 0);
+  bool can_write = ((prot & PROT_WRITE) != 0);
+  bool can_exec = ((prot & PROT_EXEC) != 0);
+
+  if (private_map && !anonymous_map) {
+    DWORD access = FILE_MAP_COPY;
+#ifdef FILE_MAP_EXECUTE
+    if (can_exec) access = (access | FILE_MAP_EXECUTE);
+#endif
+    return access;
+  }
+
+  DWORD access = 0;
+  if (can_read || can_write) access = (access | FILE_MAP_READ);
+  if (can_write) access = (access | FILE_MAP_WRITE);
+#ifdef FILE_MAP_EXECUTE
+  if (can_exec) access = (access | FILE_MAP_EXECUTE);
+#endif
+  if (access == 0) access = FILE_MAP_READ;
+  return access;
 }
 
 static void __yo_io_init(void) {
@@ -1121,6 +1198,105 @@ static int32_t __yo_sync_fcntl_setfd(int32_t fd, int32_t flags) {
 
   DWORD inherit_value = ((flags & FD_CLOEXEC) != 0) ? 0 : HANDLE_FLAG_INHERIT;
   BOOL ok = SetHandleInformation((HANDLE)handle_value, HANDLE_FLAG_INHERIT, inherit_value);
+  return ok ? 0 : -__yo_win_last_error_to_errno();
+}
+
+static uint8_t* __yo_sync_mmap(uint8_t* addr, size_t length, int32_t prot, int32_t flags, int32_t fd, int64_t offset) {
+  if (length == 0) {
+    return (uint8_t*)(intptr_t)(-EINVAL);
+  }
+  if (offset < 0) {
+    return (uint8_t*)(intptr_t)(-EINVAL);
+  }
+
+  bool anonymous_map = ((flags & MAP_ANONYMOUS) != 0);
+  HANDLE file_handle = INVALID_HANDLE_VALUE;
+
+  if (!anonymous_map) {
+    intptr_t handle_value = _get_osfhandle(fd);
+    if (handle_value == -1) {
+      return (uint8_t*)(intptr_t)(-EBADF);
+    }
+    file_handle = (HANDLE)handle_value;
+  }
+
+  uint64_t map_end = ((uint64_t)offset + (uint64_t)length);
+  DWORD protect = __yo_win_mmap_page_protect(prot, flags, anonymous_map);
+  HANDLE mapping = CreateFileMappingW(
+    file_handle,
+    NULL,
+    protect,
+    (DWORD)(map_end >> 32),
+    (DWORD)(map_end & 0xFFFFFFFFu),
+    NULL
+  );
+  if (!mapping) {
+    return (uint8_t*)(intptr_t)(-__yo_win_last_error_to_errno());
+  }
+
+  DWORD desired_access = __yo_win_mmap_view_access(prot, flags, anonymous_map);
+  uint64_t offset_u64 = (uint64_t)offset;
+  void* view = NULL;
+
+  if (addr) {
+    view = MapViewOfFileEx(
+      mapping,
+      desired_access,
+      (DWORD)(offset_u64 >> 32),
+      (DWORD)(offset_u64 & 0xFFFFFFFFu),
+      (SIZE_T)length,
+      (LPVOID)addr
+    );
+  } else {
+    view = MapViewOfFile(
+      mapping,
+      desired_access,
+      (DWORD)(offset_u64 >> 32),
+      (DWORD)(offset_u64 & 0xFFFFFFFFu),
+      (SIZE_T)length
+    );
+  }
+
+  if (!CloseHandle(mapping)) {
+    // Ignore mapping handle close failure after map attempt.
+  }
+
+  if (!view) {
+    return (uint8_t*)(intptr_t)(-__yo_win_last_error_to_errno());
+  }
+
+  return (uint8_t*)view;
+}
+
+static bool __yo_sync_mmap_is_error(uint8_t* addr) {
+  intptr_t value = (intptr_t)addr;
+  return (value < 0) && (value >= -65535);
+}
+
+static int32_t __yo_sync_mmap_errno(uint8_t* addr) {
+  intptr_t value = (intptr_t)addr;
+  if ((value < 0) && (value >= -65535)) {
+    return (int32_t)(-value);
+  }
+  return 0;
+}
+
+static int32_t __yo_sync_munmap(uint8_t* addr, size_t length) {
+  (void)length;
+  BOOL ok = UnmapViewOfFile((LPCVOID)addr);
+  return ok ? 0 : -__yo_win_last_error_to_errno();
+}
+
+static int32_t __yo_sync_mprotect(uint8_t* addr, size_t length, int32_t prot) {
+  DWORD old_protect = 0;
+  DWORD new_protect = __yo_win_mmap_page_protect(prot, MAP_SHARED, true);
+  BOOL ok = VirtualProtect((LPVOID)addr, (SIZE_T)length, new_protect, &old_protect);
+  return ok ? 0 : -__yo_win_last_error_to_errno();
+}
+
+static int32_t __yo_sync_msync(uint8_t* addr, size_t length, int32_t flags) {
+  (void)flags;
+  BOOL ok = FlushViewOfFile((LPCVOID)addr, (SIZE_T)length);
   return ok ? 0 : -__yo_win_last_error_to_errno();
 }
 

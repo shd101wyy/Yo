@@ -20,6 +20,7 @@ export function generateAsyncRuntimeIOMacOS(emitter: Emitter): void {
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include <sys/mman.h>
 #include <errno.h>
 #include <pthread.h>
 
@@ -806,6 +807,42 @@ static int32_t __yo_sync_fcntl_getfd(int32_t fd) {
 
 static int32_t __yo_sync_fcntl_setfd(int32_t fd, int32_t flags) {
   int result = fcntl(fd, F_SETFD, flags);
+  return (result < 0) ? -errno : 0;
+}
+
+static uint8_t* __yo_sync_mmap(uint8_t* addr, size_t length, int32_t prot, int32_t flags, int32_t fd, int64_t offset) {
+  void* result = mmap((void*)addr, length, prot, flags, fd, (off_t)offset);
+  if (result == MAP_FAILED) {
+    return (uint8_t*)(intptr_t)(-errno);
+  }
+  return (uint8_t*)result;
+}
+
+static bool __yo_sync_mmap_is_error(uint8_t* addr) {
+  intptr_t value = (intptr_t)addr;
+  return (value < 0) && (value >= -65535);
+}
+
+static int32_t __yo_sync_mmap_errno(uint8_t* addr) {
+  intptr_t value = (intptr_t)addr;
+  if ((value < 0) && (value >= -65535)) {
+    return (int32_t)(-value);
+  }
+  return 0;
+}
+
+static int32_t __yo_sync_munmap(uint8_t* addr, size_t length) {
+  int result = munmap((void*)addr, length);
+  return (result < 0) ? -errno : 0;
+}
+
+static int32_t __yo_sync_mprotect(uint8_t* addr, size_t length, int32_t prot) {
+  int result = mprotect((void*)addr, length, prot);
+  return (result < 0) ? -errno : 0;
+}
+
+static int32_t __yo_sync_msync(uint8_t* addr, size_t length, int32_t flags) {
+  int result = msync((void*)addr, length, flags);
   return (result < 0) ? -errno : 0;
 }
 

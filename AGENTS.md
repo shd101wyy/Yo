@@ -239,3 +239,5 @@ AF_INET6  :: cond(
 ```
 
 `unit` is a type not value, `()` is the unit value.
+
+When calling `assert` function, please always add 2nd argument as the error message, eg: `assert(condition, "error message");`
