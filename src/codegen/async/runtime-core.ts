@@ -46,6 +46,9 @@ typedef struct {
 // Async scheduler initialized flag
 static bool yo_async_scheduler_initialized = false;
 
+// Count of active poll/fs_event watches (used by all platforms)
+static size_t __yo_active_watch_count = 0;
+
 // Forward declarations for I/O functions (defined later, may be stubs if liburing unavailable)
 #if defined(__linux__) || defined(__APPLE__) || defined(_WIN32)
 static void __yo_io_init(void);

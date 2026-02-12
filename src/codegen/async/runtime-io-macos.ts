@@ -72,8 +72,11 @@ static void __yo_io_cleanup(void) {
 
 // Check if there are pending I/O operations
 static inline bool __yo_has_pending_io(void) {
-  return atomic_load(&__yo_pending_io_count) > 0;
+  return atomic_load(&__yo_pending_io_count) > 0 || __yo_active_watch_count > 0;
 }
+
+// Forward declaration for poll/fs_event tick (defined in runtime-io-common)
+static int __yo_poll_and_fs_event_tick(void);
 
 // Process completions - on macOS, GCD handles this automatically via callback
 // This function processes any completions that have been queued
@@ -103,11 +106,21 @@ static int __yo_io_poll(void) {
   if (count > 0) {
     ASYNC_DEBUG("[IO] Polled %d completions from GCD threads\\n", count);
   }
+  
+  // Also tick poll/fs_event handles
+  count += __yo_poll_and_fs_event_tick();
+  
   return count;
 }
 
 // Wait for at least one I/O completion
 static int __yo_io_wait(void) {
+  if (atomic_load(&__yo_pending_io_count) == 0 && __yo_active_watch_count > 0) {
+    // Only watches pending, use short sleep then tick
+    dispatch_time_t timeout = dispatch_time(DISPATCH_TIME_NOW, 10 * NSEC_PER_MSEC);
+    dispatch_semaphore_wait(__yo_io_semaphore, timeout);
+    return __yo_poll_and_fs_event_tick();
+  }
   if (atomic_load(&__yo_pending_io_count) == 0) return 0;
   
   // Wait on semaphore with timeout

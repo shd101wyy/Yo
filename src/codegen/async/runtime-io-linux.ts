@@ -59,8 +59,11 @@ static void __yo_io_cleanup(void) {
 
 // Check if there are pending I/O operations
 static inline bool __yo_has_pending_io(void) {
-  return __yo_pending_io_count > 0;
+  return __yo_pending_io_count > 0 || __yo_active_watch_count > 0;
 }
+
+// Forward declaration for poll/fs_event tick (defined in runtime-io-common)
+static int __yo_poll_and_fs_event_tick(void);
 
 // Process completions from CQ
 // The future pointer is stored directly in the SQE user data
@@ -101,6 +104,9 @@ static int __yo_io_poll(void) {
     count++;
   }
   
+  // Also tick poll/fs_event handles
+  count += __yo_poll_and_fs_event_tick();
+  
   if (count > 0) {
     ASYNC_DEBUG("[IO] Polled %d completions\\n", count);
   }
@@ -109,6 +115,13 @@ static int __yo_io_poll(void) {
 
 // Wait for at least one I/O completion (blocking)
 static int __yo_io_wait(void) {
+  // If only poll/fs_event watches are pending (no io_uring ops), use a short sleep
+  if (__yo_pending_io_count == 0 && __yo_active_watch_count > 0) {
+    struct timespec ts = {0, 10 * 1000 * 1000}; // 10ms
+    nanosleep(&ts, NULL);
+    return __yo_poll_and_fs_event_tick();
+  }
+  
   struct io_uring_cqe* cqe;
   int ret = io_uring_wait_cqe(&__yo_io_ring, &cqe);
   if (ret < 0) {
@@ -1353,12 +1366,21 @@ static inline void __yo_io_init(void) {
 static inline void __yo_io_cleanup(void) {}
 
 static inline bool __yo_has_pending_io(void) {
-  return false;
+  return __yo_active_watch_count > 0;
 }
 
-static inline int __yo_io_poll(void) { return 0; }
+static int __yo_poll_and_fs_event_tick(void);
 
-static inline int __yo_io_wait(void) { return 0; }
+static inline int __yo_io_poll(void) { return __yo_poll_and_fs_event_tick(); }
+
+static inline int __yo_io_wait(void) {
+  if (__yo_active_watch_count > 0) {
+    struct timespec ts = {0, 10 * 1000 * 1000};
+    nanosleep(&ts, NULL);
+    return __yo_poll_and_fs_event_tick();
+  }
+  return 0;
+}
 
 static inline void* __yo_async_read_start(int32_t fd, void* buffer, uint32_t size, uint64_t offset) {
   (void)fd; (void)buffer; (void)size; (void)offset;

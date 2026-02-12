@@ -1169,49 +1169,154 @@ static int32_t __yo_isatty(int32_t fd) {
 }
 
 // ============================================================================
-// FS Event Operations (placeholder - needs kqueue/inotify)
+// FS Event Operations (inotify on Linux, kqueue on macOS)
 // ============================================================================
 
-typedef struct {
+#include <poll.h>
+#if defined(__linux__)
+#include <sys/inotify.h>
+#elif defined(__APPLE__)
+#include <sys/event.h>
+#endif
+
+typedef struct yo_fs_event_s {
   int fd;
+  int watch_fd;
   void (*callback)(const char*, int, void*);
   void* user_data;
+  int active;
+  struct yo_fs_event_s* next;
 } yo_fs_event_t;
+
+static yo_fs_event_t* __yo_active_fs_events = NULL;
 
 static void* __yo_fs_event_init(void) {
   yo_fs_event_t* handle = (yo_fs_event_t*)__yo_malloc(sizeof(yo_fs_event_t));
   memset(handle, 0, sizeof(yo_fs_event_t));
+  handle->fd = -1;
+  handle->watch_fd = -1;
   return handle;
 }
 
-static int32_t __yo_fs_event_start(void* handle, const char* path, uint32_t flags, void* callback) {
-  (void)handle;
-  (void)path;
-  (void)flags;
-  (void)callback;
-  // TODO: Implement with inotify (Linux) or kqueue (macOS)
-  return -ENOTSUP;
-}
+static int32_t __yo_fs_event_start(void* h, const char* path, uint32_t flags, void* callback, void* user_data) {
+  yo_fs_event_t* handle = (yo_fs_event_t*)h;
+  if (!handle || !path || !callback) return -EINVAL;
 
-static int32_t __yo_fs_event_stop(void* handle) {
-  (void)handle;
+#if defined(__linux__)
+  handle->fd = inotify_init1(IN_NONBLOCK | IN_CLOEXEC);
+  if (handle->fd < 0) return -errno;
+
+  uint32_t mask = IN_MODIFY | IN_CREATE | IN_DELETE | IN_MOVED_FROM | IN_MOVED_TO | IN_ATTRIB;
+  if (flags & 4) mask |= IN_ISDIR; // FS_EVENT_RECURSIVE hint (inotify doesn't do recursive natively)
+  handle->watch_fd = inotify_add_watch(handle->fd, path, mask);
+  if (handle->watch_fd < 0) {
+    int err = errno;
+    close(handle->fd);
+    handle->fd = -1;
+    return -err;
+  }
+#elif defined(__APPLE__)
+  // Open the path to get an fd for kqueue EVFILT_VNODE
+  handle->fd = open(path, O_EVTONLY | O_CLOEXEC);
+  if (handle->fd < 0) return -errno;
+
+  handle->watch_fd = kqueue();
+  if (handle->watch_fd < 0) {
+    int err = errno;
+    close(handle->fd);
+    handle->fd = -1;
+    return -err;
+  }
+
+  // Register EVFILT_VNODE for common file/directory changes
+  struct kevent ev;
+  unsigned int fflags = NOTE_WRITE | NOTE_DELETE | NOTE_RENAME | NOTE_ATTRIB | NOTE_EXTEND;
+  EV_SET(&ev, handle->fd, EVFILT_VNODE, EV_ADD | EV_CLEAR, fflags, 0, NULL);
+  if (kevent(handle->watch_fd, &ev, 1, NULL, 0, NULL) < 0) {
+    int err = errno;
+    close(handle->watch_fd);
+    close(handle->fd);
+    handle->fd = -1;
+    handle->watch_fd = -1;
+    return -err;
+  }
+#else
+  return -ENOTSUP;
+#endif
+
+  handle->callback = (void (*)(const char*, int, void*))callback;
+  handle->user_data = user_data;
+  handle->active = 1;
+
+  // Add to linked list
+  handle->next = __yo_active_fs_events;
+  __yo_active_fs_events = handle;
+  __yo_active_watch_count++;
   return 0;
 }
 
-static void __yo_fs_event_close(void* handle) {
-  if (handle) __yo_free(handle);
+static int32_t __yo_fs_event_stop(void* h) {
+  yo_fs_event_t* handle = (yo_fs_event_t*)h;
+  if (!handle) return -EINVAL;
+  if (!handle->active) return 0;
+
+  handle->active = 0;
+  __yo_active_watch_count--;
+
+#if defined(__linux__)
+  if (handle->watch_fd >= 0 && handle->fd >= 0) {
+    inotify_rm_watch(handle->fd, handle->watch_fd);
+    handle->watch_fd = -1;
+  }
+  if (handle->fd >= 0) {
+    close(handle->fd);
+    handle->fd = -1;
+  }
+#elif defined(__APPLE__)
+  if (handle->watch_fd >= 0) {
+    close(handle->watch_fd);
+    handle->watch_fd = -1;
+  }
+  if (handle->fd >= 0) {
+    close(handle->fd);
+    handle->fd = -1;
+  }
+#endif
+
+  // Remove from linked list
+  yo_fs_event_t** pp = &__yo_active_fs_events;
+  while (*pp) {
+    if (*pp == handle) {
+      *pp = handle->next;
+      break;
+    }
+    pp = &(*pp)->next;
+  }
+  handle->next = NULL;
+  return 0;
+}
+
+static void __yo_fs_event_close(void* h) {
+  yo_fs_event_t* handle = (yo_fs_event_t*)h;
+  if (!handle) return;
+  if (handle->active) __yo_fs_event_stop(h);
+  __yo_free(handle);
 }
 
 // ============================================================================
-// Poll Operations (placeholder - needs kqueue/epoll)
+// Poll Operations (POSIX poll() on Linux/macOS)
 // ============================================================================
 
-typedef struct {
+typedef struct yo_poll_s {
   int fd;
   int events;
   void (*callback)(int, int, void*);
   void* user_data;
+  int active;
+  struct yo_poll_s* next;
 } yo_poll_t;
+
+static yo_poll_t* __yo_active_polls = NULL;
 
 static void* __yo_poll_init(int32_t fd) {
   yo_poll_t* handle = (yo_poll_t*)__yo_malloc(sizeof(yo_poll_t));
@@ -1220,21 +1325,155 @@ static void* __yo_poll_init(int32_t fd) {
   return handle;
 }
 
-static int32_t __yo_poll_start(void* handle, int32_t events, void* callback) {
-  (void)handle;
-  (void)events;
-  (void)callback;
-  // TODO: Implement with epoll (Linux) or kqueue (macOS)
-  return -ENOTSUP;
-}
+static int32_t __yo_poll_start(void* h, int32_t events, void* callback, void* user_data) {
+  yo_poll_t* handle = (yo_poll_t*)h;
+  if (!handle || !callback) return -EINVAL;
 
-static int32_t __yo_poll_stop(void* handle) {
-  (void)handle;
+  handle->events = events;
+  handle->callback = (void (*)(int, int, void*))callback;
+  handle->user_data = user_data;
+  handle->active = 1;
+
+  // Add to linked list
+  handle->next = __yo_active_polls;
+  __yo_active_polls = handle;
+  __yo_active_watch_count++;
   return 0;
 }
 
-static void __yo_poll_close(void* handle) {
-  if (handle) __yo_free(handle);
+static int32_t __yo_poll_stop(void* h) {
+  yo_poll_t* handle = (yo_poll_t*)h;
+  if (!handle) return -EINVAL;
+  if (!handle->active) return 0;
+
+  handle->active = 0;
+  __yo_active_watch_count--;
+
+  // Remove from linked list
+  yo_poll_t** pp = &__yo_active_polls;
+  while (*pp) {
+    if (*pp == handle) {
+      *pp = handle->next;
+      break;
+    }
+    pp = &(*pp)->next;
+  }
+  handle->next = NULL;
+  return 0;
+}
+
+static void __yo_poll_close(void* h) {
+  yo_poll_t* handle = (yo_poll_t*)h;
+  if (!handle) return;
+  if (handle->active) __yo_poll_stop(h);
+  __yo_free(handle);
+}
+
+// ============================================================================
+// Tick function: check all active poll and fs_event handles (non-blocking)
+// Called from __yo_io_poll() in platform-specific runtime files.
+// ============================================================================
+
+static int __yo_poll_and_fs_event_tick(void) {
+  int count = 0;
+
+  // --- Tick FS event handles ---
+#if defined(__linux__)
+  {
+    yo_fs_event_t* fse = __yo_active_fs_events;
+    while (fse) {
+      yo_fs_event_t* next = fse->next;
+      if (fse->active && fse->fd >= 0) {
+        char buf[4096] __attribute__((aligned(__alignof__(struct inotify_event))));
+        ssize_t len = read(fse->fd, buf, sizeof(buf));
+        if (len > 0) {
+          char* ptr = buf;
+          while (ptr < buf + len) {
+            struct inotify_event* event = (struct inotify_event*)ptr;
+            int yo_event = 0;
+            if (event->mask & (IN_CREATE | IN_DELETE | IN_MOVED_FROM | IN_MOVED_TO)) {
+              yo_event = 1; // FS_EVENT_RENAME
+            }
+            if (event->mask & (IN_MODIFY | IN_ATTRIB)) {
+              yo_event |= 2; // FS_EVENT_CHANGE
+            }
+            const char* name = (event->len > 0) ? event->name : "";
+            if (fse->callback && fse->active) {
+              fse->callback(name, yo_event, fse->user_data);
+              count++;
+            }
+            ptr += sizeof(struct inotify_event) + event->len;
+          }
+        }
+      }
+      fse = next;
+    }
+  }
+#elif defined(__APPLE__)
+  {
+    yo_fs_event_t* fse = __yo_active_fs_events;
+    while (fse) {
+      yo_fs_event_t* next = fse->next;
+      if (fse->active && fse->watch_fd >= 0) {
+        struct kevent ev;
+        struct timespec ts = {0, 0}; // Non-blocking
+        int n = kevent(fse->watch_fd, NULL, 0, &ev, 1, &ts);
+        if (n > 0) {
+          int yo_event = 0;
+          if (ev.fflags & (NOTE_DELETE | NOTE_RENAME)) {
+            yo_event = 1; // FS_EVENT_RENAME
+          }
+          if (ev.fflags & (NOTE_WRITE | NOTE_ATTRIB | NOTE_EXTEND)) {
+            yo_event |= 2; // FS_EVENT_CHANGE
+          }
+          if (fse->callback && fse->active) {
+            fse->callback("", yo_event, fse->user_data);
+            count++;
+          }
+        }
+      }
+      fse = next;
+    }
+  }
+#endif
+
+  // --- Tick poll handles ---
+  {
+    yo_poll_t* ph = __yo_active_polls;
+    while (ph) {
+      yo_poll_t* next = ph->next;
+      if (ph->active) {
+        struct pollfd pfd;
+        pfd.fd = ph->fd;
+        pfd.events = 0;
+        if (ph->events & 1) pfd.events |= POLLIN;   // POLL_READABLE
+        if (ph->events & 2) pfd.events |= POLLOUT;  // POLL_WRITABLE
+        if (ph->events & 8) pfd.events |= POLLPRI;  // POLL_PRIORITIZED
+        pfd.revents = 0;
+
+        int ret = poll(&pfd, 1, 0); // Non-blocking
+        if (ret > 0) {
+          int yo_events = 0;
+          if (pfd.revents & POLLIN)  yo_events |= 1; // POLL_READABLE
+          if (pfd.revents & POLLOUT) yo_events |= 2; // POLL_WRITABLE
+          if (pfd.revents & POLLHUP) yo_events |= 4; // POLL_DISCONNECT
+          if (pfd.revents & POLLPRI) yo_events |= 8; // POLL_PRIORITIZED
+          if (ph->callback && ph->active) {
+            ph->callback(yo_events, 0, ph->user_data);
+            count++;
+          }
+        } else if (ret < 0) {
+          if (ph->callback && ph->active) {
+            ph->callback(0, -errno, ph->user_data);
+            count++;
+          }
+        }
+      }
+      ph = next;
+    }
+  }
+
+  return count;
 }
 
 #endif // !defined(_WIN32) - End of POSIX-only File Extra Operations

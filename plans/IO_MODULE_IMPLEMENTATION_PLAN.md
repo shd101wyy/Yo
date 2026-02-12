@@ -668,9 +668,11 @@ the macOS approach.
 
 **Implementation status:**
 
-- Yo-side wrapper implemented in `std/io/events.yo` (init/start/stop/close + callback type).
-- Runtime remains placeholder: `__yo_fs_event_start` returns `-ENOTSUP` on Linux/macOS and `-ENOSYS` on Windows until platform backends are implemented.
-- Basic test added in `tests/io/fs_event.test.yo` to ensure init/start/stop/close are callable and handle not-supported return codes.
+- ✅ Yo-side wrapper implemented in `std/io/events.yo` (init/start/stop/close + callback type with user_data).
+- ✅ Linux: inotify backend (`inotify_init1`, `inotify_add_watch`, non-blocking read in event loop tick).
+- ✅ macOS: kqueue backend (`EVFILT_VNODE` with `NOTE_WRITE | NOTE_DELETE | NOTE_RENAME | NOTE_ATTRIB | NOTE_EXTEND`).
+- ✅ Windows: stub returns `-ENOSYS` (needs `ReadDirectoryChangesW` implementation).
+- ✅ 5 tests in `tests/io/fs_event.test.yo` (init/stop, file creation, modification, deletion, stop-prevents-callbacks).
 
 ### 7.2 Poll Operations
 
@@ -682,9 +684,10 @@ the macOS approach.
 
 **Implementation status:**
 
-- Yo-side wrapper implemented in `std/io/events.yo` (init/start/stop/close + callback type).
-- Runtime remains placeholder: `__yo_poll_start` returns `-ENOTSUP` on Linux/macOS and `-ENOSYS` on Windows until platform backends are implemented.
-- Basic test added in `tests/io/poll.test.yo` to ensure init/start/stop/close are callable and handle not-supported return codes.
+- ✅ Yo-side wrapper implemented in `std/io/events.yo` (init/start/stop/close + callback type with user_data).
+- ✅ Linux/macOS: POSIX `poll()` backend (non-blocking tick in event loop, maps POLLIN/POLLOUT/POLLHUP/POLLPRI to Yo constants).
+- ✅ Windows: stub returns `-ENOSYS` (needs `WSAPoll` implementation).
+- ✅ 5 tests in `tests/io/poll.test.yo` (init/stop, readable pipe, writable pipe, disconnect detection, stop-prevents-callbacks).
 
 ---
 
@@ -1296,7 +1299,7 @@ Phase 5 (Advanced ops)               ✅ DONE
 Phase 6 (Windows IOCP)               ✅ DONE
   └── Independent of Yo-side wrappers
 
-Phase 7 (FS Events + Poll)           ← IN PROGRESS (stubs only, 2 placeholder tests)
+Phase 7 (FS Events + Poll)           ✅ DONE (inotify/kqueue/poll backends, 10 tests)
   └── Depends on: Phase 6 for Windows support
 
 Phase 8 (Unix Domain Sockets)       ✅ DONE
@@ -1346,8 +1349,8 @@ Each phase should include a `.test.yo` file exercising the new APIs:
 12. **Temp file tests** — ✅ Done in `tests/io/temp.test.yo`
 13. **Path tests** — ✅ realpath on symlinks, relative paths, nonexistent paths
 14. **Statfs tests** — ✅ filesystem stats, verify block size > 0 (`tests/io/statfs.test.yo`)
-15. **FS event tests** — ⚠️ Placeholder only: `tests/io/fs_event.test.yo` (init/start/stop/close with stub runtime returning -ENOTSUP)
-16. **Poll tests** — ⚠️ Placeholder only: `tests/io/poll.test.yo` (init/start/stop/close with stub runtime returning -ENOTSUP)
+15. **FS event tests** — ✅ `tests/io/fs_event.test.yo` (5 tests: init/stop, file creation, modification, deletion, stop-prevents-callbacks)
+16. **Poll tests** — ✅ `tests/io/poll.test.yo` (5 tests: init/stop, readable pipe, writable pipe, disconnect detection, stop-prevents-callbacks)
 17. **Unix socket tests** — ✅ `tests/io/unix.test.yo` (stream echo)
 18. ✅ **Process tests** — spawn child, wait for exit, pipe stdout capture
 19. **Fcntl tests** — ✅ `tests/io/fcntl.test.yo` (getfl/setfl/getfd/setfd)

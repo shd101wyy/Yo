@@ -3007,7 +3007,7 @@ static int32_t __yo_isatty(int32_t fd) { return _isatty(fd) ? 1 : 0; }
 // ============================================================================
 
 static void* __yo_fs_event_init(void) { return NULL; }
-static int32_t __yo_fs_event_start(void* handle, const char* path, uint32_t flags, void* callback) { (void)handle; (void)path; (void)flags; (void)callback; return -ENOSYS; }
+static int32_t __yo_fs_event_start(void* handle, const char* path, uint32_t flags, void* callback, void* user_data) { (void)handle; (void)path; (void)flags; (void)callback; (void)user_data; return -ENOSYS; }
 static int32_t __yo_fs_event_stop(void* handle) { (void)handle; return -ENOSYS; }
 static void __yo_fs_event_close(void* handle) { (void)handle; }
 
@@ -3016,7 +3016,7 @@ static void __yo_fs_event_close(void* handle) { (void)handle; }
 // ============================================================================
 
 static void* __yo_poll_init(int32_t fd) { (void)fd; return NULL; }
-static int32_t __yo_poll_start(void* handle, int32_t events, void* callback) { (void)handle; (void)events; (void)callback; return -ENOSYS; }
+static int32_t __yo_poll_start(void* handle, int32_t events, void* callback, void* user_data) { (void)handle; (void)events; (void)callback; (void)user_data; return -ENOSYS; }
 static int32_t __yo_poll_stop(void* handle) { (void)handle; return -ENOSYS; }
 static void __yo_poll_close(void* handle) { (void)handle; }
 
