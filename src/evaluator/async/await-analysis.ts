@@ -431,6 +431,22 @@ function walkExprForAwaits(
           expr
         );
       }
+
+      // Walk deferred drop expressions for nested begin blocks and other expressions.
+      // These contain variable references that may need to be captured in the state machine
+      // when the drop crosses an await boundary.
+      if (expr.$?.deferredDropExpressions) {
+        for (const dropExpr of expr.$.deferredDropExpressions) {
+          walkExprForAwaits(
+            dropExpr,
+            awaitPoints,
+            capturedVariables,
+            nameFrameToOriginalId,
+            variableIdRemapping,
+            expr
+          );
+        }
+      }
       break;
     }
   }
