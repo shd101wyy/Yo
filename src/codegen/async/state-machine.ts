@@ -13,6 +13,7 @@ import { extractFutureTraitFromType } from "../../evaluator/trait-checking";
 import {
   type Expr,
   BuiltinFunctions,
+  BuiltinKeywords,
   exprIsFunctionCallOf,
   ExprTag,
 } from "../../expr";
@@ -27,6 +28,7 @@ import type { FunctionGenerationContext } from "../functions/context";
 import { sanitizeForCIdentifier } from "../utils";
 import {
   exprContainsAwait,
+  generateAwaitExpression,
   generateStateSegmentCode,
   splitIntoStateSegments,
 } from "./state-code-gen";
@@ -351,25 +353,51 @@ export function generateAsyncBlockResumeFunction(
                   if (!functionContext.condBranchInfo) {
                     functionContext.condBranchInfo = new Map();
                   }
-                  const existing = functionContext.condBranchInfo.get(
-                    nextIndex
-                  ) || {
-                    branches: [],
-                    condBranchFieldIndex: condBranchFieldIndex,
-                  };
-                  existing.branches.push({
-                    index: branch.index,
-                    value: branch.value,
-                    hasAwait:
-                      additionalRemainingExprs.length > 0 ||
-                      additionalRemainingExprs.some((e) =>
-                        exprContainsAwait(e)
-                      ),
-                    remainingExprs: additionalRemainingExprs,
-                    deferredDropExpressions: branch.deferredDropExpressions,
-                  });
-                  existing.condBranchFieldIndex = condBranchFieldIndex;
-                  functionContext.condBranchInfo.set(nextIndex, existing);
+                  const existing =
+                    functionContext.condBranchInfo.get(nextIndex);
+                  if (existing) {
+                    // Entry already exists (from a nested cond's generateCondWithAwait).
+                    // Chain the outer cond's remaining code as a separate layer.
+                    if (!existing.chainedBranches) {
+                      existing.chainedBranches = [];
+                    }
+                    existing.chainedBranches.push({
+                      branches: [
+                        {
+                          index: branch.index,
+                          value: branch.value,
+                          hasAwait:
+                            additionalRemainingExprs.length > 0 ||
+                            additionalRemainingExprs.some((e) =>
+                              exprContainsAwait(e)
+                            ),
+                          remainingExprs: additionalRemainingExprs,
+                          deferredDropExpressions:
+                            branch.deferredDropExpressions,
+                        },
+                      ],
+                      condBranchFieldIndex: condBranchFieldIndex,
+                    });
+                  } else {
+                    const newEntry = {
+                      branches: [
+                        {
+                          index: branch.index,
+                          value: branch.value,
+                          hasAwait:
+                            additionalRemainingExprs.length > 0 ||
+                            additionalRemainingExprs.some((e) =>
+                              exprContainsAwait(e)
+                            ),
+                          remainingExprs: additionalRemainingExprs,
+                          deferredDropExpressions:
+                            branch.deferredDropExpressions,
+                        },
+                      ],
+                      condBranchFieldIndex: condBranchFieldIndex,
+                    };
+                    functionContext.condBranchInfo.set(nextIndex, newEntry);
+                  }
                 } else {
                   // No more awaits - generate deferred drop expressions
                   // Filter out drops that reference temp variables not in state machine scope
@@ -405,6 +433,162 @@ export function generateAsyncBlockResumeFunction(
           }
 
           emitter.emitLine(`      }`);
+
+          // Process chained branches (outer cond's remaining code after nested cond's switch)
+          if (condBranchData.chainedBranches) {
+            for (const chainedLayer of condBranchData.chainedBranches) {
+              for (const chainedBranch of chainedLayer.branches) {
+                if (
+                  chainedBranch.hasAwait &&
+                  chainedBranch.remainingExprs &&
+                  chainedBranch.remainingExprs.length > 0
+                ) {
+                  // Set up state machine context for code generation
+                  const previousInStateMachineForChained =
+                    context.inStateMachine;
+                  const previousStateMachineVariablesForChained =
+                    context.stateMachineVariables;
+                  const previousVariableIdRemappingForChained =
+                    context.variableIdRemapping;
+                  const previousPendingDeferredDropsForChained =
+                    context.pendingDeferredDrops;
+
+                  context.inStateMachine = { futureType };
+                  context.variableIdRemapping = analysis.variableIdRemapping;
+                  context.pendingDeferredDrops = [
+                    ...(bodyExpr.$?.deferredDropExpressions ?? []),
+                  ];
+                  const combinedVariablesChained = new Map<
+                    string,
+                    CapturedVariable
+                  >();
+                  for (const v of analysis.capturedVariables) {
+                    combinedVariablesChained.set(v.id, v);
+                  }
+                  if (captureType) {
+                    for (const field of captureType.fields) {
+                      combinedVariablesChained.set(field.label, {
+                        id: field.label,
+                        name: field.label,
+                        type: field.type,
+                        kind: "outer",
+                        isOwningTheSameRcValueAs: undefined,
+                      });
+                    }
+                  }
+                  context.stateMachineVariables = combinedVariablesChained;
+
+                  const hasAdditionalCondAwaitChained =
+                    segment.awaitPoint?.isInsideCond ?? false;
+                  let foundAdditionalAwaitChained = false;
+                  const additionalRemainingExprsChained: Expr[] = [];
+
+                  for (const expr of chainedBranch.remainingExprs) {
+                    if (foundAdditionalAwaitChained) {
+                      additionalRemainingExprsChained.push(expr);
+                      continue;
+                    }
+
+                    if (
+                      hasAdditionalCondAwaitChained &&
+                      exprContainsAwait(expr)
+                    ) {
+                      foundAdditionalAwaitChained = true;
+                      generateRemainingExprFuture(
+                        expr,
+                        segment.awaitPoint!,
+                        analysis,
+                        "      ",
+                        context
+                      );
+                      continue;
+                    }
+
+                    const code = generateExpr(expr, "      ", context);
+                    if (
+                      !code ||
+                      !expr.$ ||
+                      isTempVariableName(expr.$.env.modulePath, code)
+                    ) {
+                      // Skip
+                    } else {
+                      emitter.emitLine(`      ${code};`);
+                    }
+                  }
+
+                  if (foundAdditionalAwaitChained && segment.awaitPoint) {
+                    const nextIndex = segment.awaitPoint.index;
+                    if (!functionContext.condBranchInfo) {
+                      functionContext.condBranchInfo = new Map();
+                    }
+                    const existingChained =
+                      functionContext.condBranchInfo.get(nextIndex);
+                    if (existingChained) {
+                      if (!existingChained.chainedBranches) {
+                        existingChained.chainedBranches = [];
+                      }
+                      existingChained.chainedBranches.push({
+                        branches: [
+                          {
+                            index: chainedBranch.index,
+                            value: chainedBranch.value,
+                            hasAwait:
+                              additionalRemainingExprsChained.length > 0 ||
+                              additionalRemainingExprsChained.some((e) =>
+                                exprContainsAwait(e)
+                              ),
+                            remainingExprs: additionalRemainingExprsChained,
+                            deferredDropExpressions:
+                              chainedBranch.deferredDropExpressions,
+                          },
+                        ],
+                        condBranchFieldIndex: chainedLayer.condBranchFieldIndex,
+                      });
+                    } else {
+                      functionContext.condBranchInfo.set(nextIndex, {
+                        branches: [
+                          {
+                            index: chainedBranch.index,
+                            value: chainedBranch.value,
+                            hasAwait:
+                              additionalRemainingExprsChained.length > 0 ||
+                              additionalRemainingExprsChained.some((e) =>
+                                exprContainsAwait(e)
+                              ),
+                            remainingExprs: additionalRemainingExprsChained,
+                            deferredDropExpressions:
+                              chainedBranch.deferredDropExpressions,
+                          },
+                        ],
+                        condBranchFieldIndex: chainedLayer.condBranchFieldIndex,
+                      });
+                    }
+                  } else {
+                    if (chainedBranch.deferredDropExpressions) {
+                      for (const dropExpr of chainedBranch.deferredDropExpressions) {
+                        const dropCode = generateExpr(
+                          dropExpr,
+                          "      ",
+                          context
+                        );
+                        if (dropCode && dropCode.includes("sm->")) {
+                          emitter.emitLine(`      ${dropCode};`);
+                        }
+                      }
+                    }
+                  }
+
+                  context.inStateMachine = previousInStateMachineForChained;
+                  context.stateMachineVariables =
+                    previousStateMachineVariablesForChained;
+                  context.variableIdRemapping =
+                    previousVariableIdRemappingForChained;
+                  context.pendingDeferredDrops =
+                    previousPendingDeferredDropsForChained;
+                }
+              }
+            }
+          }
 
           // If the cond result is assigned to a variable, assign the await result now
           if (condBranchData.targetVariableId) {
@@ -813,6 +997,42 @@ function generateRemainingExprFuture(
       );
       emitter.emitLine(`${indent}sm->${futureFieldName} = ${futureCode};`);
     }
+    return;
+  }
+
+  // Handle: cond(... => { await ... }, ...) - nested cond with await in branches
+  if (
+    expr.tag === ExprTag.FnCall &&
+    exprIsFunctionCallOf(expr, BuiltinKeywords.cond)
+  ) {
+    generateAwaitExpression(expr, awaitPoint, 0, indent, context);
+    return;
+  }
+
+  // Handle: match(... => { await ... }, ...) - nested match with await in branches
+  if (
+    expr.tag === ExprTag.FnCall &&
+    exprIsFunctionCallOf(expr, BuiltinKeywords.match)
+  ) {
+    generateAwaitExpression(expr, awaitPoint, 0, indent, context);
+    return;
+  }
+
+  // Handle: while ... { await ... } - while loop with await in body
+  if (
+    expr.tag === ExprTag.FnCall &&
+    exprIsFunctionCallOf(expr, BuiltinKeywords.while)
+  ) {
+    generateAwaitExpression(expr, awaitPoint, 0, indent, context);
+    return;
+  }
+
+  // Handle: begin block that contains an await somewhere inside
+  if (
+    expr.tag === ExprTag.FnCall &&
+    exprIsFunctionCallOf(expr, BuiltinKeywords.begin)
+  ) {
+    generateAwaitExpression(expr, awaitPoint, 0, indent, context);
     return;
   }
 

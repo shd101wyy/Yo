@@ -205,12 +205,13 @@ export function generateStateSegmentCode(
       segment.awaitPoint &&
       containsAwaitExpr(expr, segment.awaitPoint.expr as Expr);
 
-    // Also check if this is a while/cond that contains await (even if it's not THE await expr)
+    // Also check if this is a while/cond/match that contains await (even if it's not THE await expr)
     const isWhileOrCondWithAwait =
       segment.awaitPoint &&
       expr.tag === ExprTag.FnCall &&
       (exprIsFunctionCallOf(expr, BuiltinKeywords.while) ||
-        exprIsFunctionCallOf(expr, BuiltinKeywords.cond)) &&
+        exprIsFunctionCallOf(expr, BuiltinKeywords.cond) ||
+        exprIsFunctionCallOf(expr, BuiltinKeywords.match)) &&
       exprContainsAwait(expr);
 
     if ((isAwaitExpr || isWhileOrCondWithAwait) && segment.awaitPoint) {
@@ -250,7 +251,7 @@ export function generateStateSegmentCode(
  * 2. Calling the async function and storing the Future
  * 3. Checking if the Future is ready and either continuing or yielding
  */
-function generateAwaitExpression(
+export function generateAwaitExpression(
   expr: Expr,
   awaitPoint: AwaitPoint,
   _stateNumber: number,
@@ -1327,10 +1328,22 @@ function generateCondBranchWithAwait(
         }
       } else if (
         expr.tag === ExprTag.FnCall &&
+        exprIsFunctionCallOf(expr, BuiltinKeywords.cond)
+      ) {
+        // Nested cond expression with await in one of its branches
+        generateCondWithAwait(expr, awaitPoint, indent, context);
+      } else if (
+        expr.tag === ExprTag.FnCall &&
         exprIsFunctionCallOf(expr, BuiltinKeywords.match)
       ) {
         // Match expression with await in one of its branches
         generateMatchWithAwait(expr, awaitPoint, indent, context);
+      } else if (
+        expr.tag === ExprTag.FnCall &&
+        exprIsFunctionCallOf(expr, BuiltinKeywords.while)
+      ) {
+        // While loop with await in the body
+        generateWhileWithAwait(expr, awaitPoint, indent, context);
       }
     } else {
       // Expression doesn't contain await - generate normally

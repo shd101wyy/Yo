@@ -404,7 +404,7 @@ function emitAsyncBlockStructDefinition(
 
   // cond_branch_X fields
   const condAwaitPoints = analysis.awaitPoints.filter(
-    (ap) => ap.isInsideCond && ap.condBranchSourceIndex === undefined
+    (ap) => ap.needsOwnCondBranchField
   );
   if (condAwaitPoints.length > 0) {
     emitter.emitDeclarationLine(

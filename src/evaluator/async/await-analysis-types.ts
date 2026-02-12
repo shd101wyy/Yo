@@ -62,6 +62,13 @@ export interface AwaitPoint {
    * Used to share the same cond_branch_X field in the state machine struct.
    */
   condBranchSourceIndex?: number;
+
+  /**
+   * Whether this await point needs its own cond_branch_X field in the state machine struct.
+   * This is true for the primary (position 0) await point of each cond/match expression.
+   * Even if the outer cond sets condBranchSourceIndex, a nested cond still needs its own field.
+   */
+  needsOwnCondBranchField?: boolean;
 }
 
 /**

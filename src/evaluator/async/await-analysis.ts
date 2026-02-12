@@ -265,6 +265,9 @@ function walkExprForAwaits(
             if (representative) {
               representative.index = awaitPoints.length;
               representative.isInsideCond = true;
+              if (pos === 0) {
+                representative.needsOwnCondBranchField = true;
+              }
               // For positions > 0, reference the first position's index for cond_branch sharing
               if (pos > 0) {
                 representative.condBranchSourceIndex = firstCondAwaitIndex;
@@ -325,6 +328,9 @@ function walkExprForAwaits(
             if (representative) {
               representative.index = awaitPoints.length;
               representative.isInsideCond = true;
+              if (pos === 0) {
+                representative.needsOwnCondBranchField = true;
+              }
               if (pos > 0) {
                 representative.condBranchSourceIndex = firstCondAwaitIndex;
               }

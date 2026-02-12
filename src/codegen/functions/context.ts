@@ -66,6 +66,18 @@ export interface FunctionGenerationContext extends CodeGenContext {
       }>;
       targetVariableId?: string; // Variable that receives the cond result (if any)
       condBranchFieldIndex?: number; // The cond_branch_X index to use in the switch (for continuation states)
+      // When a nested cond stores its continuation at the same key as an outer cond's remaining code,
+      // the outer code goes into chainedBranches (processed as a separate switch AFTER the nested cond's switch)
+      chainedBranches?: Array<{
+        branches: Array<{
+          index: number;
+          value: Expr;
+          hasAwait: boolean;
+          remainingExprs?: Expr[];
+          deferredDropExpressions?: Expr[];
+        }>;
+        condBranchFieldIndex: number;
+      }>;
     }
   >;
   // Loop tracking for while loops with await
