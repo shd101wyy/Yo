@@ -124,6 +124,7 @@ The runtime has been refactored into 4 modules:
 - ✅ **Windows `futime` failed on read-only fd**: `__yo_async_futime_start` used `_get_osfhandle(fd)` directly, but `SetFileTime` requires `FILE_WRITE_ATTRIBUTES` access which a read-only fd doesn't have. Fixed by getting the file path via `GetFinalPathNameByHandleW` and reopening with `FILE_WRITE_ATTRIBUTES`.
 - ✅ **Windows statx nanosecond timestamps always 0**: `_wstat64` only provides second-precision timestamps. Introduced `yo_win_stat_t` struct extending `_stat64` with nsec fields, populated via `GetFileAttributesExW` which returns FILETIME (100ns precision). Also added birth time (`btime_sec`/`btime_nsec`) from creation time.
 - ✅ **Windows Win32 error codes not mapped to POSIX errno**: `__yo_win_last_error_to_errno` returned raw Win32 error codes (e.g., `ERROR_PATH_NOT_FOUND`=3) instead of POSIX errno (e.g., `ENOENT`=2). Added proper mapping for common Win32 errors: `ERROR_FILE_NOT_FOUND`/`ERROR_PATH_NOT_FOUND` → `ENOENT`, `ERROR_ACCESS_DENIED` → `EACCES`, `ERROR_FILE_EXISTS` → `EEXIST`, etc.
+- ✅ **Path test canonicalization on macOS (`/tmp` vs `/private/tmp`)**: `realpath` tests previously compared against lexical input paths, which fails on macOS because `realpath` canonicalizes `/tmp` to `/private/tmp`. Updated `tests/io/path.test.yo` to compare `realpath(input)` with `realpath(expected_target)` so assertions are based on canonical paths on all platforms.
 
 ### Known Windows Limitations
 
