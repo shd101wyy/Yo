@@ -24,6 +24,7 @@ export function generateAsyncRuntimeIOLinux(emitter: Emitter): void {
 #include <unistd.h>
 #include <sys/stat.h>
 #include <sys/mman.h>
+#include <sys/file.h>
 #include <errno.h>
 
 static struct io_uring __yo_io_ring;
@@ -765,6 +766,11 @@ static int32_t __yo_sync_fcntl_getfd(int32_t fd) {
 
 static int32_t __yo_sync_fcntl_setfd(int32_t fd, int32_t flags) {
   int result = fcntl(fd, F_SETFD, flags);
+  return (result < 0) ? -errno : 0;
+}
+
+static int32_t __yo_sync_flock(int32_t fd, int32_t operation) {
+  int result = flock(fd, operation);
   return (result < 0) ? -errno : 0;
 }
 

@@ -1201,6 +1201,28 @@ static int32_t __yo_sync_fcntl_setfd(int32_t fd, int32_t flags) {
   return ok ? 0 : -__yo_win_last_error_to_errno();
 }
 
+#define LOCK_SH 1
+#define LOCK_EX 2
+#define LOCK_NB 4
+#define LOCK_UN 8
+
+static int32_t __yo_sync_flock(int32_t fd, int32_t operation) {
+  intptr_t handle_value = _get_osfhandle(fd);
+  if (handle_value == -1) return -EBADF;
+  HANDLE handle = (HANDLE)handle_value;
+  OVERLAPPED ov;
+  memset(&ov, 0, sizeof(ov));
+  if ((operation & LOCK_UN) != 0) {
+    BOOL ok = UnlockFileEx(handle, 0, 0xFFFFFFFF, 0xFFFFFFFF, &ov);
+    return ok ? 0 : -__yo_win_last_error_to_errno();
+  }
+  DWORD flags = 0;
+  if ((operation & LOCK_EX) != 0) flags |= LOCKFILE_EXCLUSIVE_LOCK;
+  if ((operation & LOCK_NB) != 0) flags |= LOCKFILE_FAIL_IMMEDIATELY;
+  BOOL ok = LockFileEx(handle, flags, 0, 0xFFFFFFFF, 0xFFFFFFFF, &ov);
+  return ok ? 0 : -__yo_win_last_error_to_errno();
+}
+
 static uint8_t* __yo_sync_mmap(uint8_t* addr, size_t length, int32_t prot, int32_t flags, int32_t fd, int64_t offset) {
   if (length == 0) {
     return (uint8_t*)(intptr_t)(-EINVAL);

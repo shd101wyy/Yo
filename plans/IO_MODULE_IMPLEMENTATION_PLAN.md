@@ -37,6 +37,8 @@ The `std/io` module provides Yo's low-level async I/O foundation. It sits betwee
 | **Path**             | `std/io/path.yo`                           | ✅ Complete | realpath + tests                                           |
 | **Statfs**           | `std/io/statfs.yo`                         | ✅ Complete | statfs + accessors (sync)                                  |
 | **Fcntl**            | `std/io/fcntl.yo`                          | ✅ Complete | getfl/setfl/getfd/setfd + tests                            |
+| **Mmap**             | `std/io/mmap.yo`                           | ✅ Complete | mmap, munmap, mprotect, msync + tests                      |
+| **Lock**             | `std/io/lock.yo`                           | ✅ Complete | flock advisory locking + tests                             |
 
 ### C Runtime Status (in `src/codegen/async/runtime*.ts`)
 
@@ -77,7 +79,7 @@ The runtime has been refactored into 4 modules:
 | **Process spawn**          | ✅ (posix_spawn)      | ✅ (posix_spawn)     | ✅ (CreateProcessW)                      |
 | **fcntl**                  | ✅ (sync)             | ✅ (sync)            | ✅ (best-effort abstraction)             |
 | **mmap**                   | ❌                    | ❌                   | ❌ (CreateFileMapping)                   |
-| **flock**                  | ❌                    | ❌                   | ❌ (LockFileEx)                          |
+| **flock**                  | ✅ (sync)             | ✅ (sync)            | ✅ (LockFileEx/UnlockFileEx)             |
 | **FS Events**              | ❌                    | ❌                   | ❌                                       |
 | **Poll**                   | ❌                    | ❌                   | ❌                                       |
 
@@ -855,7 +857,7 @@ FD_CLOEXEC :: i32(...);
   - Windows: best-effort abstraction (`ioctlsocket(FIONBIO)` for sockets, handle inheritance for `FD_CLOEXEC`, pipe fallback via `SetNamedPipeHandleState`).
 - ✅ Added tests in `tests/io/fcntl.test.yo` covering all four APIs (valid/invalid fd paths and flag toggling).
 
-### 10.2 Create `std/io/mmap.yo` — Memory-Mapped I/O
+### 10.2 Create `std/io/mmap.yo` — Memory-Mapped I/O ✅
 
 ```yo
 // std/io/mmap.yo
@@ -907,7 +909,17 @@ MAP_ANONYMOUS :: i32(...);
 - `MAP_ANONYMOUS` + `fd=-1` for anonymous mappings (useful for custom allocators)
 - Prot/flag constants will be platform-aware (values differ between Linux and macOS for some flags)
 
-### 10.3 Create `std/io/lock.yo` — Advisory File Locking
+**Implementation status:**
+
+- ✅ Implemented `std/io/mmap.yo` with sync wrappers: `mmap`, `is_error`, `error_code`, `munmap`, `mprotect`, `msync`.
+- ✅ Added C runtime sync externs in all backends:
+  - Linux/macOS: Direct `mmap()`/`munmap()`/`mprotect()`/`msync()` wrappers. Error encoding uses negative errno cast to pointer; `is_error()` and `error_code()` decode it.
+  - Windows: `CreateFileMappingW()` + `MapViewOfFile()` for mmap, `UnmapViewOfFile()` for munmap, `VirtualProtect()` for mprotect, `FlushViewOfFile()` for msync.
+- ✅ Platform-aware constants: `MAP_ANONYMOUS` (Darwin=0x1000, else=0x20), `MS_SYNC` (Darwin=0x10, else=4).
+- ✅ Added tests in `tests/io/mmap.test.yo` (8 tests: invalid fd error, anonymous mmap read/write, file-backed shared mmap + msync, PROT_NONE + mprotect restore, error_code on valid pointer, MS_ASYNC, MS_INVALIDATE, zero-length error).
+- ✅ Fixed ftruncate bug: removed broken compat code that hardcoded wrong `IORING_OP_FTRUNCATE` value (46 instead of 55).
+
+### 10.3 Create `std/io/lock.yo` — Advisory File Locking ✅
 
 ```yo
 // std/io/lock.yo
@@ -935,6 +947,15 @@ LOCK_NB :: i32(4);  // Non-blocking
 - Advisory locks only — they don't prevent other processes from accessing the file unless they also use `flock`
 - On Windows, `LockFileEx` is mandatory (not advisory), but this is acceptable for most use cases (database locks, PID files, etc.)
 - `LOCK_NB` returns `-EWOULDBLOCK` if lock cannot be acquired immediately
+
+**Implementation status:**
+
+- ✅ Implemented `std/io/lock.yo` with sync wrapper: `flock`.
+- ✅ Added C runtime sync extern `__yo_sync_flock` in all backends:
+  - Linux/macOS: Direct `flock()` wrapper via `<sys/file.h>`. Returns 0 on success, `-errno` on failure.
+  - Windows: `LockFileEx()`/`UnlockFileEx()` via `_get_osfhandle()`. Maps `LOCK_SH`→shared, `LOCK_EX`→`LOCKFILE_EXCLUSIVE_LOCK`, `LOCK_NB`→`LOCKFILE_FAIL_IMMEDIATELY`, `LOCK_UN`→`UnlockFileEx`. Locks entire file range (`0xFFFFFFFF, 0xFFFFFFFF`).
+- ✅ Constants: `LOCK_SH`(1), `LOCK_EX`(2), `LOCK_NB`(4), `LOCK_UN`(8).
+- ✅ Added tests in `tests/io/lock.test.yo` (7 tests: invalid fd EBADF, exclusive lock+unlock, shared lock+unlock, LOCK_NB conflict detection with EWOULDBLOCK, multiple shared locks coexist but block exclusive, upgrade shared→exclusive, unlock without prior lock).
 
 ---
 
@@ -971,10 +992,10 @@ Phase 8 (Unix Domain Sockets)       ✅ DONE
 Phase 9 (Process Management)         ✅ DONE
   └── Depends on: Phase 5.1 (pipe for stdio redirection)
 
-Phase 10 (System Operations)         ← IN PROGRESS
+Phase 10 (System Operations)         ✅ DONE
   ├── 10.1 fcntl    ✅ DONE
-  ├── 10.2 mmap     └── Independent
-  └── 10.3 flock    └── Independent
+  ├── 10.2 mmap     ✅ DONE
+  └── 10.3 flock    ✅ DONE
 ```
 
 ## Testing Strategy
@@ -1000,8 +1021,8 @@ Each phase should include a `.test.yo` file exercising the new APIs:
 17. **Unix socket tests** — ✅ `tests/io/unix.test.yo` (stream echo)
 18. ✅ **Process tests** — spawn child, wait for exit, pipe stdout capture
 19. **Fcntl tests** — ✅ `tests/io/fcntl.test.yo` (getfl/setfl/getfd/setfd)
-20. **Mmap tests** — map file, read/write, msync, munmap
-21. **Lock tests** — flock exclusive/shared, non-blocking conflict detection
+20. **Mmap tests** — ✅ `tests/io/mmap.test.yo` (8 tests: error handling, anonymous mmap, file-backed mmap + msync, PROT_NONE, MS_ASYNC, MS_INVALIDATE)
+21. **Lock tests** — ✅ `tests/io/lock.test.yo` (7 tests: invalid fd, exclusive lock+unlock, shared lock+unlock, LOCK_NB conflict, shared coexist/exclusive blocked, upgrade shared→exclusive, unlock no-op)
 
 For cross-platform validation:
 
@@ -1039,8 +1060,8 @@ std/io/
   unix.yo          ← Unix domain sockets                  ✅
   process.yo       ← Child process management             ✅
   fcntl.yo         ← FD flags control                     ✅
-  mmap.yo          ← Memory-mapped I/O                    Phase 10
-  lock.yo          ← Advisory file locking                Phase 10
+  mmap.yo          ← Memory-mapped I/O                    ✅
+  lock.yo          ← Advisory file locking                ✅
 ```
 
 ## Notes
