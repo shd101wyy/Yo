@@ -51,37 +51,46 @@ The runtime has been refactored into 4 modules:
 - `runtime-io-windows.ts` — Windows IOCP async I/O
 - `runtime-io-common.ts` — Cross-platform stat helpers, timer, file extras, DNS, signals, TTY, FS events, poll
 
-| Category                   | Linux (io_uring)      | macOS (dispatch_io)  | Windows (IOCP)                           |
-| -------------------------- | --------------------- | -------------------- | ---------------------------------------- |
-| **Event loop integration** | ✅                    | ✅                   | ✅ (IOCP)                                |
-| **File read/write**        | ✅                    | ✅                   | ✅ (IOCP)                                |
-| **File open/close**        | ✅                    | ✅                   | ✅ (sync wrappers)                       |
-| **Stat**                   | ✅ (statx)            | ✅ (struct stat)     | ✅ (\_stat64)                            |
-| **mkdir/unlink/rename**    | ✅                    | ✅ (sync wrappers)   | ✅ (sync wrappers)                       |
-| **symlink/link**           | ✅                    | ✅ (sync wrappers)   | ✅ (CreateSymbolicLinkW/CreateHardLinkW) |
-| **fsync/fdatasync**        | ✅                    | ✅ (sync wrappers)   | ✅ (\_commit)                            |
-| **ftruncate**              | ✅                    | ✅ (sync wrapper)    | ✅ (\_chsize_s)                          |
-| **chmod/chown**            | ✅ (sync)             | ✅ (sync)            | ⚠️ (sync, chmod only)                    |
-| **readlink**               | ✅ (sync)             | ✅ (sync)            | ✅ (sync, GetFinalPathNameByHandleW)     |
-| **dup/dup2/pipe**          | ✅ (sync)             | ✅ (sync)            | ✅ (sync)                                |
-| **Socket ops**             | ✅                    | ✅ (dispatch_source) | ✅ (IOCP WSASend/WSARecv)                |
-| **Timer (sleep)**          | ✅ (timerfd+io_uring) | ✅ (dispatch_after)  | ✅ (IOCP wait timeout)                   |
-| **getdents/readdir**       | ✅ (getdents64)       | ✅ (getdirentries)   | ✅ (getdents only)                       |
-| **access/realpath**        | ✅ (sync)             | ✅ (sync)            | ✅ (sync)                                |
-| **utime**                  | ✅ (sync)             | ✅ (sync)            | ✅ (sync)                                |
-| **mkdtemp/mkstemp**        | ✅ (sync)             | ✅ (sync)            | ✅ (sync)                                |
-| **copyfile/sendfile**      | ✅ (sync)             | ✅ (sync)            | ⚠️ (copyfile only)                       |
-| **statfs**                 | ✅ (sync)             | ✅ (sync)            | ✅ (GetDiskFreeSpaceEx)                  |
-| **DNS**                    | ✅ (sync)             | ✅ (sync)            | ✅ (sync)                                |
-| **Signals**                | ✅ (sync)             | ✅ (sync)            | ❌                                       |
-| **TTY**                    | ✅ (sync)             | ✅ (sync)            | ⚠️ (isatty only)                         |
-| **Unix sockets**           | ✅ (sockaddr_un)      | ✅ (sockaddr_un)     | ⚠️ (AF_UNIX Win10 1803+)                 |
-| **Process spawn**          | ✅ (posix_spawn)      | ✅ (posix_spawn)     | ✅ (CreateProcessW)                      |
-| **fcntl**                  | ✅ (sync)             | ✅ (sync)            | ✅ (best-effort abstraction)             |
-| **mmap**                   | ❌                    | ❌                   | ❌ (CreateFileMapping)                   |
-| **flock**                  | ✅ (sync)             | ✅ (sync)            | ✅ (LockFileEx/UnlockFileEx)             |
-| **FS Events**              | ❌                    | ❌                   | ❌                                       |
-| **Poll**                   | ❌                    | ❌                   | ❌                                       |
+| Category                    | Linux (io_uring)      | macOS (dispatch_io)  | Windows (IOCP)                           |
+| --------------------------- | --------------------- | -------------------- | ---------------------------------------- |
+| **Event loop integration**  | ✅                    | ✅                   | ✅ (IOCP)                                |
+| **File read/write**         | ✅                    | ✅                   | ✅ (IOCP)                                |
+| **File open/close**         | ✅                    | ✅                   | ✅ (sync wrappers)                       |
+| **Stat**                    | ✅ (statx)            | ✅ (struct stat)     | ✅ (\_stat64)                            |
+| **mkdir/unlink/rename**     | ✅                    | ✅ (sync wrappers)   | ✅ (sync wrappers)                       |
+| **symlink/link**            | ✅                    | ✅ (sync wrappers)   | ✅ (CreateSymbolicLinkW/CreateHardLinkW) |
+| **fsync/fdatasync**         | ✅                    | ✅ (sync wrappers)   | ✅ (\_commit)                            |
+| **ftruncate**               | ✅                    | ✅ (sync wrapper)    | ✅ (\_chsize_s)                          |
+| **chmod/chown**             | ✅ (sync)             | ✅ (sync)            | ⚠️ (sync, chmod only)                    |
+| **readlink**                | ✅ (sync)             | ✅ (sync)            | ✅ (sync, GetFinalPathNameByHandleW)     |
+| **dup/dup2/pipe**           | ✅ (sync)             | ✅ (sync)            | ✅ (sync)                                |
+| **Socket ops**              | ✅                    | ✅ (dispatch_source) | ✅ (IOCP WSASend/WSARecv)                |
+| **Timer (sleep)**           | ✅ (timerfd+io_uring) | ✅ (dispatch_after)  | ✅ (IOCP wait timeout)                   |
+| **getdents/readdir**        | ✅ (getdents64)       | ✅ (getdirentries)   | ✅ (getdents only)                       |
+| **access/realpath**         | ✅ (sync)             | ✅ (sync)            | ✅ (sync)                                |
+| **utime**                   | ✅ (sync)             | ✅ (sync)            | ✅ (sync)                                |
+| **mkdtemp/mkstemp**         | ✅ (sync)             | ✅ (sync)            | ✅ (sync)                                |
+| **copyfile/sendfile**       | ✅ (sync)             | ✅ (sync)            | ⚠️ (copyfile only)                       |
+| **statfs**                  | ✅ (sync)             | ✅ (sync)            | ✅ (GetDiskFreeSpaceEx)                  |
+| **DNS**                     | ✅ (sync)             | ✅ (sync)            | ✅ (sync)                                |
+| **Signals**                 | ✅ (sync)             | ✅ (sync)            | ❌                                       |
+| **TTY**                     | ✅ (sync)             | ✅ (sync)            | ⚠️ (isatty only)                         |
+| **Unix sockets**            | ✅ (sockaddr_un)      | ✅ (sockaddr_un)     | ⚠️ (AF_UNIX Win10 1803+)                 |
+| **Process spawn**           | ✅ (posix_spawn)      | ✅ (posix_spawn)     | ✅ (CreateProcessW)                      |
+| **fcntl**                   | ✅ (sync)             | ✅ (sync)            | ✅ (best-effort abstraction)             |
+| **mmap**                    | ✅ (sync)             | ✅ (sync)            | ✅ (CreateFileMapping/MapViewOfFile)     |
+| **flock**                   | ✅ (sync)             | ✅ (sync)            | ✅ (LockFileEx/UnlockFileEx)             |
+| **FS Events**               | ❌ (stub)             | ❌ (stub)            | ❌ (stub)                                |
+| **Poll**                    | ❌ (stub)             | ❌ (stub)            | ❌ (stub)                                |
+| **lseek**                   | ❌                    | ❌                   | ❌                                       |
+| **getsockname/getpeername** | ❌                    | ❌                   | ❌                                       |
+| **socketpair**              | ❌                    | ❌                   | ❌ (emulation needed)                    |
+| **clock_gettime**           | ❌                    | ❌                   | ❌ (QueryPerformanceCounter)             |
+| **uname/gethostname**       | ❌                    | ❌                   | ❌ (GetComputerNameW)                    |
+| **umask**                   | ❌                    | ❌                   | ❌ (\_umask)                             |
+| **readv/writev**            | ❌                    | ❌                   | ❌                                       |
+| **fallocate**               | ❌                    | ❌                   | ❌                                       |
+| **fadvise/madvise**         | ❌                    | ❌                   | ❌                                       |
 
 ### Known Issues Fixed
 
@@ -959,7 +968,311 @@ LOCK_NB :: i32(4);  // Non-blocking
 
 ---
 
-## Implementation Order & Dependencies
+## Phase 11: File Position & Allocation (Priority: Medium)
+
+**Goal**: Provide file seek and space pre-allocation primitives.
+
+### 11.1 Create `std/io/seek.yo` — File Position Control
+
+```yo
+// std/io/seek.yo
+
+// Reposition read/write file offset.
+// Returns the resulting offset from the beginning of the file, or -errno on failure.
+lseek :: (fn(fd: i32, offset: i64, whence: i32) -> i64)(...);
+
+// Whence constants
+SEEK_SET :: i32(0);  // Set offset to `offset` bytes
+SEEK_CUR :: i32(1);  // Set offset to current + `offset`
+SEEK_END :: i32(2);  // Set offset to end-of-file + `offset`
+```
+
+**Cross-platform implementation:**
+
+| Operation | Linux/macOS           | Windows       |
+| --------- | --------------------- | ------------- |
+| lseek     | `lseek()`/`lseek64()` | `_lseeki64()` |
+
+**Design notes:**
+
+- Current `read`/`write` take an explicit offset parameter, but there's no way to manage a file position cursor
+- Essential for sequential I/O on pipes, stdin, and streaming read patterns
+- Returns `i64` (not `i32`) because file offsets can exceed 2GB
+- `SEEK_DATA`/`SEEK_HOLE` (Linux 3.1+) can be added later for sparse file support
+
+### 11.2 Create `std/io/fallocate.yo` — File Space Pre-allocation
+
+```yo
+// std/io/fallocate.yo
+
+// Pre-allocate disk space for a file.
+// Ensures that subsequent writes within the range [offset, offset+length) will not fail due to ENOSPC.
+fallocate :: (fn(fd: i32, mode: i32, offset: i64, length: i64) -> i32)(...);
+
+// Mode constants
+FALLOC_FL_KEEP_SIZE      :: i32(0x01);  // Don't modify file size
+FALLOC_FL_PUNCH_HOLE     :: i32(0x02);  // Deallocate space (create hole)
+FALLOC_FL_ZERO_RANGE     :: i32(0x10);  // Zero out range
+```
+
+**Cross-platform implementation:**
+
+| Operation | Linux         | macOS                                  | Windows                                          |
+| --------- | ------------- | -------------------------------------- | ------------------------------------------------ |
+| fallocate | `fallocate()` | `fcntl(F_PREALLOCATE)` + `ftruncate()` | `SetFileInformationByHandle(FileAllocationInfo)` |
+
+**Design notes:**
+
+- Prevents ENOSPC mid-write for databases, log files, and large file creation
+- macOS doesn't support `fallocate()` directly — uses `fcntl(F_PREALLOCATE)` with `fstore_t`
+- Mode flags are Linux-specific; macOS/Windows implementation ignores modes beyond basic allocation
+- `FALLOC_FL_PUNCH_HOLE` is useful for sparse files but Linux-only
+
+---
+
+## Phase 12: Socket Extensions (Priority: Medium)
+
+**Goal**: Provide socket address query and connected socket pair primitives.
+
+### 12.1 Create `std/io/sockinfo.yo` — Socket Address Query
+
+```yo
+// std/io/sockinfo.yo
+
+// Get local address of a socket.
+// Writes the address into `addr` buffer, updates `addrlen` with actual size.
+getsockname :: (fn(sockfd: i32, addr: *(u8), addrlen: *(u32)) -> i32)(...);
+
+// Get remote address of a connected socket.
+getpeername :: (fn(sockfd: i32, addr: *(u8), addrlen: *(u32)) -> i32)(...);
+
+// Get socket option value.
+getsockopt :: (fn(sockfd: i32, level: i32, optname: i32, optval: *(u8), optlen: *(u32)) -> i32)(...);
+
+// Set socket option value.
+setsockopt :: (fn(sockfd: i32, level: i32, optname: i32, optval: *(u8), optlen: u32) -> i32)(...);
+```
+
+**Cross-platform implementation:**
+
+| Operation   | Linux/macOS     | Windows                   |
+| ----------- | --------------- | ------------------------- |
+| getsockname | `getsockname()` | `getsockname()` (Winsock) |
+| getpeername | `getpeername()` | `getpeername()` (Winsock) |
+| getsockopt  | `getsockopt()`  | `getsockopt()` (Winsock)  |
+| setsockopt  | `setsockopt()`  | `setsockopt()` (Winsock)  |
+
+**Design notes:**
+
+- Essential for knowing what address/port a socket is bound to (after bind with port 0) or connected to
+- `getsockopt`/`setsockopt` enable SO_REUSEADDR, TCP_NODELAY, SO_RCVBUF, SO_SNDBUF, etc.
+- Winsock API is nearly identical to POSIX for these functions
+- The `addr` buffer + `addrlen` pattern matches the existing sockaddr helpers in tcp.yo/udp.yo
+
+### 12.2 Create `std/io/socketpair.yo` — Connected Socket Pair
+
+```yo
+// std/io/socketpair.yo
+
+// Create a pair of connected sockets.
+// Writes two file descriptors into `sv` buffer.
+socketpair :: (fn(domain: i32, sock_type: i32, protocol: i32, sv: *(i32)) -> i32)(...);
+```
+
+**Cross-platform implementation:**
+
+| Operation  | Linux/macOS    | Windows                                 |
+| ---------- | -------------- | --------------------------------------- |
+| socketpair | `socketpair()` | Emulated: AF_INET loopback connect pair |
+
+**Design notes:**
+
+- Common IPC primitive for parent-child communication, internal event notification
+- Windows has no native `socketpair()` — emulated using a temporary TCP listener on loopback
+- Typically used with `AF_UNIX, SOCK_STREAM` on POSIX
+
+---
+
+## Phase 13: System Information & Utilities (Priority: Low)
+
+**Goal**: Provide system identification, high-resolution time, and file creation mask.
+
+Note: `env` (getenv/setenv), `cwd` (getcwd/chdir), and process identity (`getpid`/`getppid`) are already covered by `std/process.yo`.
+
+### 13.1 Create `std/io/clock.yo` — High-Resolution Time
+
+```yo
+// std/io/clock.yo
+
+// Get the current time from a clock source.
+// Writes seconds into `sec` and nanoseconds into `nsec`.
+clock_gettime :: (fn(clock_id: i32, sec: *(i64), nsec: *(i64)) -> i32)(...);
+
+// Clock IDs
+CLOCK_REALTIME  :: i32(0);  // Wall clock time (affected by NTP adjustments)
+CLOCK_MONOTONIC :: i32(1);  // Monotonic clock (never goes backwards, for measuring durations)
+```
+
+**Cross-platform implementation:**
+
+| Operation     | Linux             | macOS             | Windows                                                                            |
+| ------------- | ----------------- | ----------------- | ---------------------------------------------------------------------------------- |
+| clock_gettime | `clock_gettime()` | `clock_gettime()` | `QueryPerformanceCounter` (monotonic), `GetSystemTimePreciseAsFileTime` (realtime) |
+
+**Design notes:**
+
+- Currently there's `sleep` (timer.yo) but no way to _read_ the clock
+- Monotonic clock is essential for benchmarking, timeouts, and rate limiting
+- Realtime clock provides wall-clock time for timestamps and logging
+- Returns seconds + nanoseconds separately via pointers to match the `struct timespec` pattern
+- `CLOCK_MONOTONIC` value differs on macOS (6 on some versions), will use platform-aware constants
+
+### 13.2 Create `std/io/sysinfo.yo` — System Identification
+
+```yo
+// std/io/sysinfo.yo
+
+// Get system identification.
+// Writes into a fixed-size buffer: sysname, nodename, release, version, machine
+// Each field is a null-terminated C string.
+uname :: (fn(buf: *(u8)) -> i32)(...);
+
+// Get the hostname.
+// Writes hostname into `name` buffer, up to `len` bytes.
+gethostname :: (fn(name: *(u8), len: usize) -> i32)(...);
+
+// utsname field offsets (each field is 65 bytes on Linux, 256 on macOS)
+UTSNAME_SIZE      :: usize(...);  // Platform-aware total struct size
+UTSNAME_SYSNAME   :: usize(0);    // OS name ("Linux", "Darwin")
+UTSNAME_NODENAME  :: usize(...);  // Network hostname
+UTSNAME_RELEASE   :: usize(...);  // OS release ("6.1.0")
+UTSNAME_VERSION   :: usize(...);  // OS version string
+UTSNAME_MACHINE   :: usize(...);  // Hardware type ("x86_64", "aarch64")
+```
+
+**Cross-platform implementation:**
+
+| Operation   | Linux/macOS     | Windows                                               |
+| ----------- | --------------- | ----------------------------------------------------- |
+| uname       | `uname()`       | Emulated from `GetVersionExW` + `GetNativeSystemInfo` |
+| gethostname | `gethostname()` | `GetComputerNameExW(ComputerNameDnsHostname)`         |
+
+**Design notes:**
+
+- Useful for logging, diagnostics, and platform-specific behavior
+- `utsname` struct layout differs between Linux (65-byte fields) and macOS (256-byte fields)
+- Windows requires emulation using multiple Win32 APIs
+- The `std/process.yo` module already provides compile-time `platform` and `arch`; this provides **runtime** system identification
+
+### 13.3 Create `std/io/umask.yo` — File Creation Mask
+
+```yo
+// std/io/umask.yo
+
+// Set the file mode creation mask.
+// Returns the previous mask value.
+umask :: (fn(mask: i32) -> i32)(...);
+```
+
+**Cross-platform implementation:**
+
+| Operation | Linux/macOS | Windows    |
+| --------- | ----------- | ---------- |
+| umask     | `umask()`   | `_umask()` |
+
+**Design notes:**
+
+- Important for servers/daemons that need to control default file permissions
+- The mask is inherited by child processes
+- Windows `_umask()` only supports `S_IWRITE` (read-only flag)
+- Thread-safety: `umask` is process-wide and not thread-safe; callers must coordinate
+
+---
+
+## Phase 14: Advanced I/O (Priority: Low)
+
+**Goal**: Provide scatter/gather I/O and kernel advisory hints for performance optimization.
+
+### 14.1 Create `std/io/iov.yo` — Scatter/Gather I/O
+
+```yo
+// std/io/iov.yo
+
+// Read data from fd into multiple buffers (scatter read).
+readv :: (fn(fd: i32, iov: *(u8), iovcnt: i32) -> i32)(...);
+
+// Write data from multiple buffers to fd (gather write).
+writev :: (fn(fd: i32, iov: *(u8), iovcnt: i32) -> i32)(...);
+
+// Positional scatter read.
+preadv :: (fn(fd: i32, iov: *(u8), iovcnt: i32, offset: i64) -> i32)(...);
+
+// Positional gather write.
+pwritev :: (fn(fd: i32, iov: *(u8), iovcnt: i32, offset: i64) -> i32)(...);
+
+// iovec struct helpers
+// struct iovec { void *iov_base; size_t iov_len; }
+IOVEC_SIZE :: usize(...);  // sizeof(struct iovec), platform-aware
+iovec_set :: (fn(iov: *(u8), index: usize, base: *(u8), len: usize) -> unit)(...);
+```
+
+**Cross-platform implementation:**
+
+| Operation | Linux/macOS | Windows                                     |
+| --------- | ----------- | ------------------------------------------- |
+| readv     | `readv()`   | Emulated with loop or `WSARecv` for sockets |
+| writev    | `writev()`  | Emulated with loop or `WSASend` for sockets |
+| preadv    | `preadv()`  | Emulated with `_lseeki64` + loop            |
+| pwritev   | `pwritev()` | Emulated with `_lseeki64` + loop            |
+
+**Design notes:**
+
+- Avoids memcpy when reading/writing from multiple buffers (protocol headers + payload)
+- io_uring supports `IORING_OP_READV`/`IORING_OP_WRITEV` natively
+- Windows doesn't have a direct equivalent for files; emulation is acceptable for correctness
+- `iov` parameter is `*(u8)` (raw pointer to `struct iovec` array) to match the low-level pattern
+
+### 14.2 Create `std/io/advise.yo` — Kernel Advisory Hints
+
+```yo
+// std/io/advise.yo
+
+// Announce an access pattern for file data.
+fadvise :: (fn(fd: i32, offset: i64, len: i64, advice: i32) -> i32)(...);
+
+// Give advice about use of memory-mapped region.
+madvise :: (fn(addr: *(u8), length: usize, advice: i32) -> i32)(...);
+
+// fadvise constants
+POSIX_FADV_NORMAL     :: i32(0);  // No special treatment
+POSIX_FADV_SEQUENTIAL :: i32(2);  // Expect sequential access
+POSIX_FADV_RANDOM     :: i32(1);  // Expect random access
+POSIX_FADV_WILLNEED   :: i32(3);  // Will need this data soon (prefetch)
+POSIX_FADV_DONTNEED   :: i32(4);  // Won't need this data soon (evict from cache)
+POSIX_FADV_NOREUSE    :: i32(5);  // Data will be accessed once
+
+// madvise constants
+MADV_NORMAL      :: i32(0);
+MADV_RANDOM      :: i32(1);
+MADV_SEQUENTIAL  :: i32(2);
+MADV_WILLNEED    :: i32(3);
+MADV_DONTNEED    :: i32(4);
+```
+
+**Cross-platform implementation:**
+
+| Operation | Linux             | macOS             | Windows                                 |
+| --------- | ----------------- | ----------------- | --------------------------------------- |
+| fadvise   | `posix_fadvise()` | No-op (returns 0) | No-op (returns 0)                       |
+| madvise   | `madvise()`       | `madvise()`       | `VirtualAlloc` (MEM_RESET for DONTNEED) |
+
+**Design notes:**
+
+- Advisory only — kernel may ignore hints
+- `fadvise` is Linux-only; macOS and Windows have no equivalent (safe to no-op)
+- `madvise` works on macOS but not all flags are supported
+- `MADV_DONTNEED` is particularly useful for releasing pages in mmap'd regions without unmapping
+- Pairs naturally with mmap.yo for memory-mapped file access patterns
 
 ```
 Phase 1 (File I/O wrappers)         ✅ DONE
@@ -983,7 +1296,7 @@ Phase 5 (Advanced ops)               ✅ DONE
 Phase 6 (Windows IOCP)               ✅ DONE
   └── Independent of Yo-side wrappers
 
-Phase 7 (FS Events + Poll)           ← IN PROGRESS (wrappers only)
+Phase 7 (FS Events + Poll)           ← IN PROGRESS (stubs only, 2 placeholder tests)
   └── Depends on: Phase 6 for Windows support
 
 Phase 8 (Unix Domain Sockets)       ✅ DONE
@@ -996,6 +1309,23 @@ Phase 10 (System Operations)         ✅ DONE
   ├── 10.1 fcntl    ✅ DONE
   ├── 10.2 mmap     ✅ DONE
   └── 10.3 flock    ✅ DONE
+
+Phase 11 (File Position & Allocation)
+  ├── 11.1 seek     └── Depends on: Phase 1 (file I/O)
+  └── 11.2 fallocate └── Independent
+
+Phase 12 (Socket Extensions)
+  ├── 12.1 sockinfo  └── Depends on: Phase 2 (socket ops)
+  └── 12.2 socketpair └── Depends on: Phase 2 (socket ops)
+
+Phase 13 (System Info & Utilities)
+  ├── 13.1 clock     └── Independent
+  ├── 13.2 sysinfo   └── Independent
+  └── 13.3 umask     └── Independent
+
+Phase 14 (Advanced I/O)
+  ├── 14.1 iov       └── Depends on: Phase 1 (file I/O)
+  └── 14.2 advise    └── Depends on: Phase 10.2 (mmap)
 ```
 
 ## Testing Strategy
@@ -1016,13 +1346,22 @@ Each phase should include a `.test.yo` file exercising the new APIs:
 12. **Temp file tests** — ✅ Done in `tests/io/temp.test.yo`
 13. **Path tests** — ✅ realpath on symlinks, relative paths, nonexistent paths
 14. **Statfs tests** — ✅ filesystem stats, verify block size > 0 (`tests/io/statfs.test.yo`)
-15. **FS event tests** — ✅ init/start/stop/close (`tests/io/fs_event.test.yo`)
-16. **Poll tests** — ✅ init/start/stop/close (`tests/io/poll.test.yo`)
+15. **FS event tests** — ⚠️ Placeholder only: `tests/io/fs_event.test.yo` (init/start/stop/close with stub runtime returning -ENOTSUP)
+16. **Poll tests** — ⚠️ Placeholder only: `tests/io/poll.test.yo` (init/start/stop/close with stub runtime returning -ENOTSUP)
 17. **Unix socket tests** — ✅ `tests/io/unix.test.yo` (stream echo)
 18. ✅ **Process tests** — spawn child, wait for exit, pipe stdout capture
 19. **Fcntl tests** — ✅ `tests/io/fcntl.test.yo` (getfl/setfl/getfd/setfd)
 20. **Mmap tests** — ✅ `tests/io/mmap.test.yo` (8 tests: error handling, anonymous mmap, file-backed mmap + msync, PROT_NONE, MS_ASYNC, MS_INVALIDATE)
 21. **Lock tests** — ✅ `tests/io/lock.test.yo` (7 tests: invalid fd, exclusive lock+unlock, shared lock+unlock, LOCK_NB conflict, shared coexist/exclusive blocked, upgrade shared→exclusive, unlock no-op)
+22. **Seek tests** — lseek SEEK_SET/SEEK_CUR/SEEK_END, invalid fd, pipe seek error
+23. **Fallocate tests** — pre-allocate space, verify file size, punch hole (Linux)
+24. **Sockinfo tests** — getsockname after bind, getpeername after connect, getsockopt/setsockopt
+25. **Socketpair tests** — create pair, bidirectional send/recv
+26. **Clock tests** — clock_gettime monotonic (non-decreasing), realtime (reasonable epoch)
+27. **Sysinfo tests** — uname fields non-empty, gethostname
+28. **Umask tests** — set/restore umask, verify file creation permissions
+29. **Iov tests** — readv/writev with multiple buffers, preadv/pwritev at offset
+30. **Advise tests** — fadvise on file (no-op verification), madvise on mmap'd region
 
 For cross-platform validation:
 
@@ -1062,6 +1401,15 @@ std/io/
   fcntl.yo         ← FD flags control                     ✅
   mmap.yo          ← Memory-mapped I/O                    ✅
   lock.yo          ← Advisory file locking                ✅
+  seek.yo          ← File position control (lseek)         Phase 11
+  fallocate.yo     ← File space pre-allocation             Phase 11
+  sockinfo.yo      ← Socket address query                  Phase 12
+  socketpair.yo    ← Connected socket pair                 Phase 12
+  clock.yo         ← High-resolution time                  Phase 13
+  sysinfo.yo       ← System identification (uname)         Phase 13
+  umask.yo         ← File creation mask                    Phase 13
+  iov.yo           ← Scatter/gather I/O                    Phase 14
+  advise.yo        ← Kernel advisory hints                 Phase 14
 ```
 
 ## Notes
@@ -1085,6 +1433,10 @@ std/io/
 - **mmap on Windows**: Requires a two-step `CreateFileMappingW()` + `MapViewOfFile()` dance internally. The runtime will present a unified `mmap()`-style interface. Anonymous mappings use `INVALID_HANDLE_VALUE` as the file handle.
 
 - **fcntl on Windows**: There is no direct equivalent. Non-blocking mode for sockets uses `ioctlsocket(FIONBIO)`. For files/pipes, Windows uses overlapped I/O instead of non-blocking mode. The runtime will provide best-effort abstraction.
+
+- **`std/io` is low-level, like libuv**: The `std/io` library provides raw syscall-level wrappers. Higher-level ergonomic APIs (buffered readers, path builders, typed sockets, etc.) will be built on top in separate `std/fs`, `std/net`, `std/os` modules. This separation keeps `std/io` minimal, composable, and easy to audit.
+
+- **Overlap with `std/process.yo`**: Environment variables (`getenv`/`setenv`), working directory (`getcwd`/`chdir`), and process identity (`getpid`/`getppid`) are already provided by `std/process.yo` at a higher level. They are intentionally NOT duplicated in `std/io` — the process module owns these. The `std/io` modules focus on file descriptor, socket, and memory-mapping operations.
 
 - **Sync vs Async operation classification**: Operations are classified based on whether they can benefit from true async I/O on any supported platform:
 
