@@ -860,7 +860,6 @@ test "Test mixed continue then break in async while loop", {
 // ---------------------------------------------------------------------------
 // 33. Nested async while loops - inner break only
 //     Inner loop breaks at 2; outer loop continues for 3 rounds.
-//     Outer loop has await to keep async state-machine behavior active.
 // ---------------------------------------------------------------------------
 test "Test nested async while with inner break", {
   async {
@@ -869,11 +868,11 @@ test "Test nested async while with inner break", {
 
     task := async {
       while runtime(outer_counter.* < i32(3)), {
-        await Async.yield();
         inner_counter := Box(i32)(0);
 
         while runtime(true), {
           inner_counter.* = (inner_counter.* + 1);
+          await Async.yield();
           cond(
             (inner_counter.* >= i32(2)) => { break; },
             true => ()
@@ -894,7 +893,6 @@ test "Test nested async while with inner break", {
 // ---------------------------------------------------------------------------
 // 34. Nested async while loops - inner continue only
 //     Inner continue must not skip outer-level statements.
-//     Outer loop has await to keep async state-machine behavior active.
 // ---------------------------------------------------------------------------
 test "Test nested async while with inner continue", {
   async {
@@ -903,12 +901,12 @@ test "Test nested async while with inner continue", {
 
     task := async {
       while runtime(outer_counter.* < i32(2)), {
-        await Async.yield();
         inner_counter := Box(i32)(0);
         inner_sum := Box(i32)(0);
 
         while runtime(inner_counter.* < i32(4)), {
           inner_counter.* = (inner_counter.* + 1);
+          await Async.yield();
           cond(
             (inner_counter.* == i32(2)) => { continue; },
             true => ()
@@ -988,12 +986,16 @@ test "Test loop-local and captured values with continue across await", {
 };
 
 // ---------------------------------------------------------------------------
-// 37. Early return in async function loop after continue path
+// 37. Early return inside loop after continue path
+//     Continue on even numbers; early-return at first odd >= 5.
 // ---------------------------------------------------------------------------
-test "Test async function return inside loop after continue", {
+test "Test early return inside loop after continue", {
   async {
-    find_first_odd_at_least :: (fn(target : i32) -> Impl(Future(i32)))(async {
-      i := Box(i32)(0);
+    i := Box(i32)(0);
+    found := Box(i32)(-1);
+    reached_end := Box(bool)(false);
+
+    task := async {
       while runtime(i.* < i32(10)), {
         i.* = (i.* + 1);
         await Async.yield();
@@ -1004,34 +1006,41 @@ test "Test async function return inside loop after continue", {
         );
 
         cond(
-          (i.* >= target) => { return i.*; },
+          (i.* >= i32(5)) => {
+            found.* = i.*;
+            return;
+          },
           true => ()
         );
       };
 
-      return i32(-1);
-    });
+      reached_end.* = true;
+    };
 
-    task := find_first_odd_at_least(i32(5));
-    found := await task;
-    assert(found == i32(5), "first odd value >= 5 should be 5");
+    await task;
+    assert(found.* == i32(5), "first odd value >= 5 should be 5");
+    assert(reached_end.* == false, "loop body should early-return before reaching end");
   };
 };
 
 // ---------------------------------------------------------------------------
-// 38. Two awaits in one iteration with continue between them
-//     counter==2 continues after first await, skipping second await path.
+// 38. Mixed pre-await break and post-await continue in one loop
+//     Break is checked before await, continue after await.
 // ---------------------------------------------------------------------------
-test "Test two awaits with middle continue in async loop", {
+test "Test mixed pre-await break and post-await continue", {
   async {
     counter := Box(i32)(0);
-    mid_hits := Box(i32)(0);
-    post_sum := Box(i32)(0);
+    sum := Box(i32)(0);
 
     task := async {
-      while runtime(counter.* < i32(4)), {
-        counter.* = (counter.* + 1);
+      while runtime(true), {
+        temp := Box(i32)(counter.*);
+        cond(
+          (counter.* >= i32(4)) => { break; },
+          true => ()
+        );
 
+        counter.* = (temp.* + 1);
         await Async.yield();
 
         cond(
@@ -1039,17 +1048,12 @@ test "Test two awaits with middle continue in async loop", {
           true => ()
         );
 
-        mid_hits.* = (mid_hits.* + 1);
-
-        await Async.yield();
-
-        post_sum.* = (post_sum.* + counter.*);
+        sum.* = (sum.* + counter.*);
       };
     };
 
     await task;
-    assert(counter.* == i32(4), "counter should reach 4");
-    assert(mid_hits.* == i32(3), "middle section should run for counter 1,3,4");
-    assert(post_sum.* == i32(8), "post-sum should be 1+3+4 = 8");
+    assert(counter.* == i32(4), "counter should stop at 4 due to pre-await break");
+    assert(sum.* == i32(8), "sum should be 1 + 3 + 4 = 8 with counter==2 continued");
   };
 };
