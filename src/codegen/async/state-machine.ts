@@ -635,9 +635,14 @@ export function generateAsyncBlockResumeFunction(
               context.stateMachineVariables;
             const previousVariableIdRemappingForLoop =
               context.variableIdRemapping;
+            const previousPendingDeferredDropsForLoop =
+              context.pendingDeferredDrops;
 
             context.inStateMachine = { futureType };
             context.variableIdRemapping = analysis.variableIdRemapping;
+            context.pendingDeferredDrops = [
+              ...(bodyExpr.$?.deferredDropExpressions ?? []),
+            ];
 
             // Combine outer captured variables and local variables
             const combinedVariables = new Map<string, CapturedVariable>();
@@ -686,6 +691,7 @@ export function generateAsyncBlockResumeFunction(
             context.stateMachineVariables =
               previousStateMachineVariablesForLoop;
             context.variableIdRemapping = previousVariableIdRemappingForLoop;
+            context.pendingDeferredDrops = previousPendingDeferredDropsForLoop;
           }
 
           // Re-evaluate the loop condition
