@@ -241,3 +241,5 @@ AF_INET6  :: cond(
 `unit` is a type not value, `()` is the unit value.
 
 When calling `assert` function, please always add 2nd argument as the error message, eg: `assert(condition, "error message");`
+
+When you find a test that causes C codegen bug, don't try to weaken the test. Instead, create a new `.yo` file with minimal code that reproduces the bug, with a `main` function and `export main;` at the end, then we can focus on fixing the bug directly.

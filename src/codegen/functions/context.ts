@@ -87,8 +87,17 @@ export interface FunctionGenerationContext extends CodeGenContext {
       conditionExpr: Expr; // The loop condition expression
       bodyExpr: Expr; // The loop body expression
       bodyExprsAfterAwait?: Expr[]; // Expressions after the await in the loop body
+      outerWhileLoop?: {
+        whileLoopIndex: number;
+        conditionExpr: Expr;
+        bodyExpr: Expr;
+        bodyExprsAfterAwait: Expr[];
+      };
     }
   >;
+  // Counter for allocating unique while loop indices for nested while-with-await.
+  // Starts at awaitPoints.length so outer while indices don't collide with await point indices.
+  nextWhileLoopIndex?: number;
   // Variables that are locally shadowed (e.g., in match destructuring patterns)
   // When a variable name is in this set, use the local C variable instead of sm->var_...
   localShadowedVariables?: Set<string>;

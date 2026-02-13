@@ -426,10 +426,20 @@ function emitAsyncBlockStructDefinition(
     emitter.emitDeclarationLine(
       `  // Loop state tracking for while loops with await`
     );
+    let nextExtraWhileIndex = analysis.awaitPoints.length;
     for (const awaitPoint of whileAwaitPoints) {
+      // Innermost while uses the awaitPoint.index
       emitter.emitDeclarationLine(
         `  _Bool while_loop_${awaitPoint.index}_active;  // Whether while loop ${awaitPoint.index} should continue`
       );
+      // Outer while loops (nesting depth > 1) need additional active fields
+      const extraDepth = (awaitPoint.whileNestingDepth ?? 1) - 1;
+      for (let d = 0; d < extraDepth; d++) {
+        emitter.emitDeclarationLine(
+          `  _Bool while_loop_${nextExtraWhileIndex}_active;  // Whether outer while loop ${nextExtraWhileIndex} should continue`
+        );
+        nextExtraWhileIndex++;
+      }
     }
     emitter.emitDeclarationLine(``);
   }

@@ -203,6 +203,8 @@ function walkExprForAwaits(
         if (newAwaitCount > initialAwaitCount) {
           for (let i = initialAwaitCount; i < newAwaitCount; i++) {
             awaitPoints[i]!.isInsideWhile = true;
+            awaitPoints[i]!.whileNestingDepth =
+              (awaitPoints[i]!.whileNestingDepth ?? 0) + 1;
           }
         }
         break;

@@ -136,6 +136,13 @@ export function generateAsyncBlockResumeFunction(
   // Each async block should only see its own branch information.
   context.condBranchInfo = new Map();
 
+  // Initialize the while loop index counter for allocating unique indices
+  // to outer while loops in nested while-with-await scenarios.
+  // Indices 0..awaitPoints.length-1 are reserved for innermost while loops
+  // (matching their await point indices). Outer while loops get indices starting
+  // from awaitPoints.length.
+  context.nextWhileLoopIndex = analysis.awaitPoints.length;
+
   // Split the body into state segments
   const segments = splitIntoStateSegments(bodyExpr, analysis.awaitPoints);
 
@@ -825,6 +832,181 @@ export function generateAsyncBlockResumeFunction(
           emitter.emitLine(``);
           // Add label for code after while loop (for break to jump to)
           emitter.emitLine(`      after_while_loop_${prevAwait.index}:`);
+
+          // Handle outer while loop continuation (for nested while-with-await)
+          if (whileLoopData.outerWhileLoop) {
+            const outerWhile = whileLoopData.outerWhileLoop;
+            const outerIndex = outerWhile.whileLoopIndex;
+
+            emitter.emitLine(
+              `      // Execute remaining code from outer while loop body`
+            );
+            emitter.emitLine(
+              `      if (sm->while_loop_${outerIndex}_active) {`
+            );
+
+            // Generate the outer while's remaining body expressions
+            if (outerWhile.bodyExprsAfterAwait.length > 0) {
+              const prevInSMOuter = context.inStateMachine;
+              const prevSMVarsOuter = context.stateMachineVariables;
+              const prevVarRemapOuter = context.variableIdRemapping;
+              const prevPendingDropsOuter = context.pendingDeferredDrops;
+
+              context.inStateMachine = { futureType };
+              context.variableIdRemapping = analysis.variableIdRemapping;
+              context.pendingDeferredDrops = [
+                ...(outerWhile.bodyExpr.$?.deferredDropExpressions ?? []),
+                ...(bodyExpr.$?.deferredDropExpressions ?? []),
+              ];
+
+              const outerCombinedVars = new Map<string, CapturedVariable>();
+              for (const v of analysis.capturedVariables) {
+                outerCombinedVars.set(v.id, v);
+              }
+              if (captureType) {
+                for (const field of captureType.fields) {
+                  outerCombinedVars.set(field.label, {
+                    id: field.label,
+                    name: field.label,
+                    type: field.type,
+                    kind: "outer",
+                    isOwningTheSameRcValueAs: undefined,
+                  });
+                }
+              }
+              context.stateMachineVariables = outerCombinedVars;
+
+              const prevBreakInfoOuter = context.asyncWhileBreakInfo;
+              const prevContinueInfoOuter = context.asyncWhileContinueInfo;
+              const prevBodyDropsOuter = context.asyncWhileBodyDrops;
+              context.asyncWhileBreakInfo = {
+                label: `after_while_loop_${outerIndex}`,
+                index: outerIndex,
+              };
+              context.asyncWhileContinueInfo = {
+                label: `while_loop_${outerIndex}_continue`,
+              };
+              context.asyncWhileBodyDrops = [
+                ...(outerWhile.bodyExpr.$?.deferredDropExpressions ?? []),
+              ];
+
+              for (const expr of outerWhile.bodyExprsAfterAwait) {
+                const code = generateExpr(expr, "        ", context);
+                if (
+                  !code ||
+                  !expr.$ ||
+                  isTempVariableName(expr.$.env.modulePath, code)
+                ) {
+                  // Skip
+                } else {
+                  emitter.emitLine(`        ${code};`);
+                }
+              }
+
+              context.asyncWhileBreakInfo = prevBreakInfoOuter;
+              context.asyncWhileContinueInfo = prevContinueInfoOuter;
+              context.asyncWhileBodyDrops = prevBodyDropsOuter;
+              context.inStateMachine = prevInSMOuter;
+              context.stateMachineVariables = prevSMVarsOuter;
+              context.variableIdRemapping = prevVarRemapOuter;
+              context.pendingDeferredDrops = prevPendingDropsOuter;
+            }
+
+            // Label for outer while continue
+            emitter.emitLine(`      while_loop_${outerIndex}_continue:`);
+
+            // Drop outer while body locals before condition re-evaluation
+            {
+              const outerDrops =
+                outerWhile.bodyExpr.$?.deferredDropExpressions ?? [];
+              if (outerDrops.length > 0) {
+                const prevInSM2 = context.inStateMachine;
+                const prevSMVars2 = context.stateMachineVariables;
+                const prevVarRemap2 = context.variableIdRemapping;
+                context.inStateMachine = { futureType };
+                context.variableIdRemapping = analysis.variableIdRemapping;
+
+                const dropVars2 = new Map<string, CapturedVariable>();
+                for (const v of analysis.capturedVariables) {
+                  dropVars2.set(v.id, v);
+                }
+                if (captureType) {
+                  for (const field of captureType.fields) {
+                    dropVars2.set(field.label, {
+                      id: field.label,
+                      name: field.label,
+                      type: field.type,
+                      kind: "outer",
+                      isOwningTheSameRcValueAs: undefined,
+                    });
+                  }
+                }
+                context.stateMachineVariables = dropVars2;
+
+                for (const dropExpr of outerDrops) {
+                  const dropCode = generateExpr(dropExpr, "        ", context);
+                  if (dropCode && dropCode.includes("sm->")) {
+                    emitter.emitLine(`        ${dropCode};`);
+                  }
+                }
+
+                context.inStateMachine = prevInSM2;
+                context.stateMachineVariables = prevSMVars2;
+                context.variableIdRemapping = prevVarRemap2;
+              }
+            }
+
+            // Re-evaluate outer while condition
+            {
+              const prevInSM3 = context.inStateMachine;
+              const prevSMVars3 = context.stateMachineVariables;
+              const prevVarRemap3 = context.variableIdRemapping;
+              context.inStateMachine = { futureType };
+              context.variableIdRemapping = analysis.variableIdRemapping;
+
+              const condVars3 = new Map<string, CapturedVariable>();
+              for (const v of analysis.capturedVariables) {
+                condVars3.set(v.id, v);
+              }
+              if (captureType) {
+                for (const field of captureType.fields) {
+                  condVars3.set(field.label, {
+                    id: field.label,
+                    name: field.label,
+                    type: field.type,
+                    kind: "outer",
+                    isOwningTheSameRcValueAs: undefined,
+                  });
+                }
+              }
+              context.stateMachineVariables = condVars3;
+
+              const outerCondCode = generateExpr(
+                outerWhile.conditionExpr,
+                "        ",
+                context
+              );
+
+              context.inStateMachine = prevInSM3;
+              context.stateMachineVariables = prevSMVars3;
+              context.variableIdRemapping = prevVarRemap3;
+
+              emitter.emitLine(`        if (!(${outerCondCode})) {`);
+              emitter.emitLine(
+                `          sm->while_loop_${outerIndex}_active = false;`
+              );
+              emitter.emitLine(`        } else {`);
+              emitter.emitLine(`          sm->state = ${prevAwait.index};`);
+              emitter.emitLine(
+                `          goto while_loop_${outerIndex}_start;`
+              );
+              emitter.emitLine(`        }`);
+            }
+
+            emitter.emitLine(`      }`);
+            emitter.emitLine(``);
+            emitter.emitLine(`      after_while_loop_${outerIndex}:`);
+          }
         }
       }
     }

@@ -57,6 +57,13 @@ export interface AwaitPoint {
   isInsideWhile?: boolean;
 
   /**
+   * The number of nested while loops this await is inside.
+   * For example, if the await is inside two nested while loops, this is 2.
+   * Used to allocate the correct number of while_loop_N_active fields in the state machine struct.
+   */
+  whileNestingDepth?: number;
+
+  /**
    * For sequential await points within the same cond/match branch,
    * this references the index of the first await point in that cond/match.
    * Used to share the same cond_branch_X field in the state machine struct.

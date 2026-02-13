@@ -1402,21 +1402,34 @@ function generateWhileWithAwait(
   const conditionExpr = args[0]!;
   const bodyExpr = args[1]!;
 
+  // Check if the body contains a nested while-with-await.
+  // If so, this is an outer while and needs a separate while loop index
+  // so labels don't collide with the inner while.
+  const hasNestedWhileWithAwait = bodyContainsWhileWithAwait(bodyExpr);
+
+  let whileLoopIndex: number;
+  if (hasNestedWhileWithAwait) {
+    // Allocate a fresh while loop index for this outer while
+    whileLoopIndex = context.nextWhileLoopIndex ?? awaitPoint.index + 1;
+    context.nextWhileLoopIndex = whileLoopIndex + 1;
+  } else {
+    // Innermost while uses the await point index
+    whileLoopIndex = awaitPoint.index;
+  }
+
   // Initialize loop as active
-  emitter.emitLine(
-    `${indent}sm->while_loop_${awaitPoint.index}_active = true;`
-  );
+  emitter.emitLine(`${indent}sm->while_loop_${whileLoopIndex}_active = true;`);
 
   // Generate label for loop start (so we can jump back after await)
-  emitter.emitLine(`${indent}while_loop_${awaitPoint.index}_start:`);
+  emitter.emitLine(`${indent}while_loop_${whileLoopIndex}_start:`);
 
   // Evaluate condition
   const condCode = generateExpr(conditionExpr, indent, context);
   emitter.emitLine(`${indent}if (!(${condCode})) {`);
   emitter.emitLine(
-    `${indent}  sm->while_loop_${awaitPoint.index}_active = false;`
+    `${indent}  sm->while_loop_${whileLoopIndex}_active = false;`
   );
-  emitter.emitLine(`${indent}  goto while_loop_${awaitPoint.index}_end;`);
+  emitter.emitLine(`${indent}  goto while_loop_${whileLoopIndex}_end;`);
   emitter.emitLine(`${indent}}`);
 
   // Generate body up to await
@@ -1424,21 +1437,39 @@ function generateWhileWithAwait(
     bodyExpr,
     awaitPoint,
     indent,
-    context
+    context,
+    whileLoopIndex
   );
 
   // Generate label for loop end
-  emitter.emitLine(`${indent}while_loop_${awaitPoint.index}_end:`);
+  emitter.emitLine(`${indent}while_loop_${whileLoopIndex}_end:`);
 
   // Store loop information in context for resume state generation
   if (!context.whileLoopInfo) {
     context.whileLoopInfo = new Map();
   }
-  context.whileLoopInfo.set(awaitPoint.index, {
-    conditionExpr,
-    bodyExpr,
-    bodyExprsAfterAwait,
-  });
+
+  if (hasNestedWhileWithAwait) {
+    // This is an outer while. The inner while has already stored its info
+    // at awaitPoint.index via the recursive generateWhileWithAwait call.
+    // Attach outer while info to the inner while's entry for the resume state.
+    const innerWhileInfo = context.whileLoopInfo.get(awaitPoint.index);
+    if (innerWhileInfo) {
+      innerWhileInfo.outerWhileLoop = {
+        whileLoopIndex,
+        conditionExpr,
+        bodyExpr,
+        bodyExprsAfterAwait,
+      };
+    }
+  } else {
+    // Innermost while - store directly
+    context.whileLoopInfo.set(awaitPoint.index, {
+      conditionExpr,
+      bodyExpr,
+      bodyExprsAfterAwait,
+    });
+  }
 }
 
 /**
@@ -1449,7 +1480,8 @@ function generateWhileBodyWithAwait(
   bodyExpr: Expr,
   awaitPoint: AwaitPoint,
   indent: string,
-  context: FunctionGenerationContext
+  context: FunctionGenerationContext,
+  whileLoopIndex: number
 ): Expr[] {
   const emitter = context.emitter;
   const remainingExprs: Expr[] = [];
@@ -1485,15 +1517,16 @@ function generateWhileBodyWithAwait(
 
   // Pre-await body expressions are generated in state 0 where we use labels
   // (not a real C while loop). Configure break/continue handling explicitly.
+  // Use the current while loop's index for labels.
   const previousAsyncWhileBreakInfo = context.asyncWhileBreakInfo;
   const previousAsyncWhileContinueInfo = context.asyncWhileContinueInfo;
   const previousAsyncWhileBodyDrops = context.asyncWhileBodyDrops;
   context.asyncWhileBreakInfo = {
-    label: `while_loop_${awaitPoint.index}_end`,
-    index: awaitPoint.index,
+    label: `while_loop_${whileLoopIndex}_end`,
+    index: whileLoopIndex,
   };
   context.asyncWhileContinueInfo = {
-    label: `while_loop_${awaitPoint.index}_start`,
+    label: `while_loop_${whileLoopIndex}_start`,
     emitDropsBeforeGoto: true,
   };
   context.asyncWhileBodyDrops = [
@@ -1516,6 +1549,22 @@ function generateWhileBodyWithAwait(
 
   // Generate code to store the Future at the await point
   const awaitExpr = bodyExprs[awaitFoundIndex]!;
+
+  // Check if the await-containing expression is a nested while loop
+  if (
+    exprIsFunctionCall(awaitExpr) &&
+    exprIsFunctionCallOf(awaitExpr, BuiltinKeywords.while) &&
+    exprContainsAwait(awaitExpr)
+  ) {
+    // Nested while-with-await: recursively generate the inner while
+    generateWhileWithAwait(awaitExpr, awaitPoint, indent, context);
+    // Collect remaining expressions after the inner while
+    for (let i = awaitFoundIndex + 1; i < bodyExprs.length; i++) {
+      remainingExprs.push(bodyExprs[i]!);
+    }
+    return remainingExprs;
+  }
+
   if (exprIsFunctionCall(awaitExpr) && exprIsFunctionCallOf(awaitExpr, ":=")) {
     // This is an assignment with await: varName := await(futureExpr)
     const valueExpr = awaitExpr.args[1];
@@ -1604,5 +1653,27 @@ export function exprContainsAwait(expr: Expr): boolean {
     }
   }
 
+  return false;
+}
+
+/**
+ * Checks if a while loop body contains a nested while loop that itself contains await.
+ * This is used to detect outer whiles that need separate while loop indices.
+ */
+function bodyContainsWhileWithAwait(bodyExpr: Expr): boolean {
+  const bodyExprs =
+    bodyExpr.tag === ExprTag.FnCall && exprIsFunctionCallOf(bodyExpr, "begin")
+      ? bodyExpr.args
+      : [bodyExpr];
+
+  for (const expr of bodyExprs) {
+    if (
+      expr.tag === ExprTag.FnCall &&
+      exprIsFunctionCallOf(expr, BuiltinKeywords.while) &&
+      exprContainsAwait(expr)
+    ) {
+      return true;
+    }
+  }
   return false;
 }
