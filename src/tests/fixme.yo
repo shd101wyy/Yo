@@ -1,78 +1,16 @@
 open import "std/libc/stdio";
-open import "std/string";
-{ platform, Platform } :: import "std/process";
-{ temp_dir, path_join } :: import "../../tests/io/helper";
-{ AT_FDCWD } :: import "std/io/constants";
-file :: import "std/io/file";
-dir :: import "std/io/dir";
-temp_io :: import "std/io/temp";
-fallocate_io :: import "std/io/fallocate";
+Async :: import "std/async";
 
 main :: (fn() -> unit) {
-  async {
-    cond(
-      (platform == Platform.Linux) => {
-        tmp := temp_dir();
-        template_str := path_join(tmp, `yo_io_fallocate_linux_flags_XXXXXX`);
-        template_c := template_str.to_cstr();
-        template_path := template_c.ptr().unwrap();
+  reached_end := Box(bool)(false);
+  reached_middle := Box(bool)(false);
 
-        fd := temp_io.mkstemp(template_path);
-        assert((fd >= i32(0)), "mkstemp for Linux flag test should succeed");
-
-        trunc := await file.ftruncate(fd, i64(4096));
-        assert((trunc == i32(0)), "ftruncate to 4096 for Linux flag test should succeed");
-
-        byte_ff := *(u8)("Z");
-        wr1 := await file.write(fd, byte_ff, u32(1), u64(1024));
-        wr2 := await file.write(fd, byte_ff, u32(1), u64(2048));
-        assert((wr1 == i32(1)), "writing sentinel at offset 1024 should succeed");
-        assert((wr2 == i32(1)), "writing sentinel at offset 2048 should succeed");
-
-        zero_ret := fallocate_io.fallocate(fd, fallocate_io.FALLOC_FL_ZERO_RANGE, i64(1024), i64(1024));
-        cond(
-          (zero_ret == i32(0)) => {
-            byte_uninit := MaybeUninit(Array(u8, usize(1))).new();
-            byte_buf := *(u8)(byte_uninit.as_ptr());
-            rd := await file.read(fd, byte_buf, u32(1), u64(1024));
-            assert((rd == i32(1)), "reading byte from ZERO_RANGE segment should succeed");
-            assert((byte_buf.* == u8(0)), "ZERO_RANGE should zero data at the start of the range");
-          },
-          true => {
-            supported_err := ((zero_ret == i32(-95)) || ((zero_ret == i32(-22)) || (zero_ret == i32(-38))));
-            assert(supported_err, "ZERO_RANGE failure should be one of -EOPNOTSUPP/-EINVAL/-ENOSYS");
-          }
-        );
-
-        punch_mode := (fallocate_io.FALLOC_FL_KEEP_SIZE | fallocate_io.FALLOC_FL_PUNCH_HOLE);
-        punch_ret := fallocate_io.fallocate(fd, punch_mode, i64(2048), i64(1024));
-        cond(
-          (punch_ret == i32(0)) => {
-            byte_uninit2 := MaybeUninit(Array(u8, usize(1))).new();
-            byte_buf2 := *(u8)(byte_uninit2.as_ptr());
-            rd2 := await file.read(fd, byte_buf2, u32(1), u64(2048));
-            assert((rd2 == i32(1)), "reading byte from PUNCH_HOLE segment should succeed");
-            assert((byte_buf2.* == u8(0)), "PUNCH_HOLE should read as zero from punched range");
-
-            size_after := file.file_size(fd);
-            assert((size_after == i64(4096)), "PUNCH_HOLE with KEEP_SIZE should preserve file size");
-          },
-          true => {
-            supported_err2 := ((punch_ret == i32(-95)) || ((punch_ret == i32(-22)) || (punch_ret == i32(-38))));
-            assert(supported_err2, "PUNCH_HOLE failure should be one of -EOPNOTSUPP/-EINVAL/-ENOSYS");
-          }
-        );
-
-        close_ret := await file.close(fd);
-        assert((close_ret == i32(0)), "closing temp file after Linux flag test should succeed");
-
-        rm := await dir.unlink(AT_FDCWD, template_path, i32(0));
-        assert((rm == i32(0)), "unlinking temp file after Linux flag test should succeed");
-      },
-      true => {
-        printf("  skipping Linux-specific fallocate flag test on non-Linux\n");
-      }
-    );
+  task := async {
+    reached_middle.* = true;
+    return;
   };
+
+  assert(reached_middle.* == true, "should have reached middle");
+  assert(reached_end.* == false, "should NOT have reached end");
 };
 export main;

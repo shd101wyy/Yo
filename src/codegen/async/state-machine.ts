@@ -14,6 +14,7 @@ import {
   type Expr,
   BuiltinFunctions,
   BuiltinKeywords,
+  exprIsAtomOf,
   exprIsFunctionCallOf,
   ExprTag,
 } from "../../expr";
@@ -905,7 +906,7 @@ export function generateAsyncBlockResumeFunction(
     } else if (isLastSegment) {
       // Last segment - complete the Future
       const hasReturnStatement = segment.expressions.some((expr: Expr) =>
-        exprIsFunctionCallOf(expr, "return")
+        exprContainsReturn(expr)
       );
 
       if (!hasReturnStatement) {
@@ -1039,4 +1040,29 @@ function generateRemainingExprFuture(
   emitter.emitLine(
     `${indent}// Warning: unhandled await pattern in remaining expressions`
   );
+}
+
+/**
+ * Recursively checks if an expression contains a return statement.
+ * Handles both bare `return` atoms and `return(value)` function calls,
+ * and recurses into begin blocks, cond branches, etc.
+ */
+function exprContainsReturn(expr: Expr): boolean {
+  // Bare `return` atom (no return value)
+  if (exprIsAtomOf(expr, "return")) {
+    return true;
+  }
+  // `return(value)` function call
+  if (exprIsFunctionCallOf(expr, "return")) {
+    return true;
+  }
+  // Recurse into begin blocks, cond branches, etc.
+  if (expr.tag === ExprTag.FnCall) {
+    for (const arg of expr.args) {
+      if (exprContainsReturn(arg)) {
+        return true;
+      }
+    }
+  }
+  return false;
 }

@@ -13,6 +13,7 @@ import {
   type Expr,
   ExprTag,
   exprIsAtom,
+  exprIsAtomOf,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
 } from "../../expr";
@@ -96,7 +97,9 @@ export function splitIntoStateSegments(
     const awaitIndex = findAwaitInExpr(expr, awaitPoints);
 
     // Check if this expression is a return statement
-    const isReturn = exprIsFunctionCallOf(expr, "return");
+    // `return` can be either a bare atom (no return value) or a function call `return(value)`
+    const isReturn =
+      exprIsAtomOf(expr, "return") || exprIsFunctionCallOf(expr, "return");
 
     if (awaitIndex !== -1) {
       // This expression contains an await - end this segment
