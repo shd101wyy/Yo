@@ -1,6 +1,7 @@
 import { getVariablesFromEnv } from "../../env";
 import { typeImplementsFn } from "../../evaluator/trait-checking";
 import {
+  BuiltinFunctions,
   BuiltinKeywords,
   exprIsAtom,
   exprIsFunctionCall,
@@ -263,6 +264,12 @@ export function generateInitializationAssignment(
         rhs.$?.type &&
         typeImplementsFn(rhs.$.type);
 
+      // Async blocks handle their own deferred dup expressions internally
+      // (as part of capture struct construction in generateAsyncBlock)
+      const rhsIsAsyncBlock =
+        exprIsFunctionCall(rhs) &&
+        exprIsFunctionCallOf(rhs, BuiltinFunctions.async);
+
       // If RHS has a temp variable name (e.g., for Rc values), we need to:
       // 1. First generate the RHS expression and assign it to the temp variable
       // 2. Then use the temp variable for the assignment
@@ -285,6 +292,7 @@ export function generateInitializationAssignment(
           // Handle deferred dup expressions even for simple variable references
           if (
             !rhsIsClosureConstruction &&
+            !rhsIsAsyncBlock &&
             rhs.$?.deferredDupExpressions &&
             rhs.$.deferredDupExpressions.length > 0
           ) {
@@ -307,6 +315,7 @@ export function generateInitializationAssignment(
           // Handle deferred dup expressions even for simple variable references
           if (
             !rhsIsClosureConstruction &&
+            !rhsIsAsyncBlock &&
             rhs.$?.deferredDupExpressions &&
             rhs.$.deferredDupExpressions.length > 0
           ) {
@@ -374,6 +383,7 @@ export function generateInitializationAssignment(
             // After generating the RHS temp variable, check if we need to dup it
             if (
               !rhsIsClosureConstruction &&
+              !rhsIsAsyncBlock &&
               rhs.$?.deferredDupExpressions &&
               rhs.$.deferredDupExpressions.length > 0
             ) {
@@ -401,6 +411,7 @@ export function generateInitializationAssignment(
         // Handle deferred dup expressions for RHS without temp variable
         if (
           !rhsIsClosureConstruction &&
+          !rhsIsAsyncBlock &&
           rhs.$?.deferredDupExpressions &&
           rhs.$.deferredDupExpressions.length > 0
         ) {
