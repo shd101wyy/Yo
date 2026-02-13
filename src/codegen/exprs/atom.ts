@@ -30,6 +30,15 @@ export function generateAtom(
 
   // Handle control flow atoms first (before checking computed values or variable names)
   if (expr.token.value === "continue") {
+    // If we're inside a regular generated loop, use regular continue behavior.
+    // This must take precedence over async pseudo-loop handling.
+    if (functionContext.currentContinueLabel) {
+      return `goto ${functionContext.currentContinueLabel}`;
+    }
+    if (functionContext.currentLoopLabel) {
+      return "continue";
+    }
+
     // In async while loop resume body, continue must jump to the condition
     // re-evaluation label (plain "continue" doesn't work inside a switch)
     // Drops are emitted at the continue label site, not here, to avoid double-drop
@@ -51,15 +60,19 @@ export function generateAtom(
       }
       return `goto ${functionContext.asyncWhileContinueInfo.label}`;
     }
-    // For 3-argument while loops, continue should jump to the continue label
-    // which is before the step expression
-    if (functionContext.currentContinueLabel) {
-      return `goto ${functionContext.currentContinueLabel}`;
-    }
     return "continue";
   }
 
   if (expr.token.value === "break") {
+    // If we're inside a regular generated loop, use regular break behavior.
+    // This must take precedence over async pseudo-loop handling.
+    if (functionContext.currentLoopLabel) {
+      if (functionContext.insideMatch) {
+        return `goto ${functionContext.currentLoopLabel}`;
+      }
+      return "break";
+    }
+
     // When generating async while loop resume body, break must exit the C switch
     // and jump to the after-loop label (plain "break" only exits the switch, not the loop)
     if (functionContext.asyncWhileBreakInfo) {
@@ -78,11 +91,6 @@ export function generateAtom(
         }
       }
       return `{ sm->while_loop_${index}_active = false; goto ${label}; }`;
-    }
-    // When we're inside a match (which compiles to switch in C) and inside a loop,
-    // we need to use goto to break out of the loop, not just the switch
-    if (functionContext.insideMatch && functionContext.currentLoopLabel) {
-      return `goto ${functionContext.currentLoopLabel}`;
     }
     return "break";
   }
