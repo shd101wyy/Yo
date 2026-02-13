@@ -97,7 +97,7 @@ export interface FunctionGenerationContext extends CodeGenContext {
   asyncWhileBreakInfo?: { label: string; index: number };
   // When generating async while loop resume body, this holds the label
   // needed for continue to skip remaining body and jump to condition re-evaluation
-  asyncWhileContinueInfo?: { label: string };
+  asyncWhileContinueInfo?: { label: string; emitDropsBeforeGoto?: boolean };
   // Deferred drops for the while loop body's local variables.
   // These must be emitted before break/continue/normal-exit in async while loop resume code.
   asyncWhileBodyDrops?: import("../../expr").Expr[];

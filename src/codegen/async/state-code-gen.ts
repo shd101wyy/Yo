@@ -1483,6 +1483,23 @@ function generateWhileBodyWithAwait(
     return remainingExprs;
   }
 
+  // Pre-await body expressions are generated in state 0 where we use labels
+  // (not a real C while loop). Configure break/continue handling explicitly.
+  const previousAsyncWhileBreakInfo = context.asyncWhileBreakInfo;
+  const previousAsyncWhileContinueInfo = context.asyncWhileContinueInfo;
+  const previousAsyncWhileBodyDrops = context.asyncWhileBodyDrops;
+  context.asyncWhileBreakInfo = {
+    label: `while_loop_${awaitPoint.index}_end`,
+    index: awaitPoint.index,
+  };
+  context.asyncWhileContinueInfo = {
+    label: `while_loop_${awaitPoint.index}_start`,
+    emitDropsBeforeGoto: true,
+  };
+  context.asyncWhileBodyDrops = [
+    ...(bodyExpr.$?.deferredDropExpressions ?? []),
+  ];
+
   // Generate expressions before the await
   for (let i = 0; i < awaitFoundIndex; i++) {
     const expr = bodyExprs[i]!;
@@ -1491,6 +1508,11 @@ function generateWhileBodyWithAwait(
       emitter.emitLine(`${indent}${code};`);
     }
   }
+
+  // Restore async while control-flow context before generating await handling.
+  context.asyncWhileBreakInfo = previousAsyncWhileBreakInfo;
+  context.asyncWhileContinueInfo = previousAsyncWhileContinueInfo;
+  context.asyncWhileBodyDrops = previousAsyncWhileBodyDrops;
 
   // Generate code to store the Future at the await point
   const awaitExpr = bodyExprs[awaitFoundIndex]!;

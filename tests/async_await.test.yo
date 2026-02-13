@@ -741,3 +741,315 @@ test "Test continue drops local allocations in async while loop", {
     assert(sum.* == i32(9), "sum of odd 1+3+5 = 9");
   };
 };
+
+// ---------------------------------------------------------------------------
+// 29. Break before first await in loop body
+//     Local allocation happens before break check; break path should drop it.
+// ---------------------------------------------------------------------------
+test "Test break before first await in async while loop", {
+  async {
+    counter := Box(i32)(0);
+    resumed := Box(i32)(0);
+
+    task := async {
+      while runtime(true), {
+        temp := Box(i32)(counter.*);
+        cond(
+          (counter.* >= i32(3)) => { break; },
+          true => ()
+        );
+        counter.* = (temp.* + 1);
+        await Async.yield();
+        resumed.* = (resumed.* + 1);
+      };
+    };
+
+    assert(counter.* == i32(1), "counter should be 1 after first eager iteration");
+    await task;
+    assert(counter.* == i32(3), "counter should stop at 3 via pre-await break");
+    assert(resumed.* == i32(3), "resumed should count exactly 3 awaited iterations");
+  };
+};
+
+// ---------------------------------------------------------------------------
+// 30. Continue before first await in loop body
+//     Even snapshots continue without suspension; odd snapshots await and count.
+// ---------------------------------------------------------------------------
+test "Test continue before first await in async while loop", {
+  async {
+    counter := Box(i32)(0);
+    odd_resumed := Box(i32)(0);
+
+    task := async {
+      while runtime(counter.* < i32(6)), {
+        snapshot := Box(i32)(counter.*);
+        counter.* = (counter.* + 1);
+        cond(
+          ((snapshot.* % i32(2)) == i32(0)) => { continue; },
+          true => ()
+        );
+        await Async.yield();
+        odd_resumed.* = (odd_resumed.* + 1);
+      };
+    };
+
+    await task;
+    assert(counter.* == i32(6), "counter should reach 6");
+    assert(odd_resumed.* == i32(3), "odd snapshots 1,3,5 should await and resume");
+  };
+};
+
+// ---------------------------------------------------------------------------
+// 31. Zero-iteration async while loop
+//     Body should never run; no await should execute.
+// ---------------------------------------------------------------------------
+test "Test zero-iteration async while loop", {
+  ran_body := Box(bool)(false);
+  touched_after_await := Box(bool)(false);
+  done := Box(bool)(false);
+
+  task := async {
+    while runtime(false), {
+      temp := Box(i32)(123);
+      ran_body.* = true;
+      await Async.yield();
+      touched_after_await.* = (temp.* == i32(123));
+    };
+    done.* = true;
+  };
+
+  assert(done.* == true, "task should complete eagerly when loop never executes");
+  assert(ran_body.* == false, "loop body must not execute");
+  assert(touched_after_await.* == false, "after-await code must remain untouched");
+};
+
+// ---------------------------------------------------------------------------
+// 32. Mixed continue and break in same async loop
+//     1,2 continue; 3,4 accumulate; 5 breaks.
+// ---------------------------------------------------------------------------
+test "Test mixed continue then break in async while loop", {
+  async {
+    counter := Box(i32)(0);
+    sum := Box(i32)(0);
+
+    task := async {
+      while runtime(true), {
+        counter.* = (counter.* + 1);
+        await Async.yield();
+
+        cond(
+          (counter.* <= i32(2)) => { continue; },
+          true => ()
+        );
+
+        cond(
+          (counter.* >= i32(5)) => { break; },
+          true => ()
+        );
+
+        sum.* = (sum.* + counter.*);
+      };
+    };
+
+    await task;
+    assert(counter.* == i32(5), "counter should stop at 5");
+    assert(sum.* == i32(7), "sum should be 3+4 after continue/continue/break pattern");
+  };
+};
+
+// ---------------------------------------------------------------------------
+// 33. Nested async while loops - inner break only
+//     Inner loop breaks at 2; outer loop continues for 3 rounds.
+//     Outer loop has await to keep async state-machine behavior active.
+// ---------------------------------------------------------------------------
+test "Test nested async while with inner break", {
+  async {
+    outer_counter := Box(i32)(0);
+    outer_sum := Box(i32)(0);
+
+    task := async {
+      while runtime(outer_counter.* < i32(3)), {
+        await Async.yield();
+        inner_counter := Box(i32)(0);
+
+        while runtime(true), {
+          inner_counter.* = (inner_counter.* + 1);
+          cond(
+            (inner_counter.* >= i32(2)) => { break; },
+            true => ()
+          );
+        };
+
+        outer_sum.* = (outer_sum.* + inner_counter.*);
+        outer_counter.* = (outer_counter.* + 1);
+      };
+    };
+
+    await task;
+    assert(outer_counter.* == i32(3), "outer loop should complete 3 rounds");
+    assert(outer_sum.* == i32(6), "inner break at 2 contributes 2 per round");
+  };
+};
+
+// ---------------------------------------------------------------------------
+// 34. Nested async while loops - inner continue only
+//     Inner continue must not skip outer-level statements.
+//     Outer loop has await to keep async state-machine behavior active.
+// ---------------------------------------------------------------------------
+test "Test nested async while with inner continue", {
+  async {
+    outer_counter := Box(i32)(0);
+    outer_sum := Box(i32)(0);
+
+    task := async {
+      while runtime(outer_counter.* < i32(2)), {
+        await Async.yield();
+        inner_counter := Box(i32)(0);
+        inner_sum := Box(i32)(0);
+
+        while runtime(inner_counter.* < i32(4)), {
+          inner_counter.* = (inner_counter.* + 1);
+          cond(
+            (inner_counter.* == i32(2)) => { continue; },
+            true => ()
+          );
+          inner_sum.* = (inner_sum.* + inner_counter.*);
+        };
+
+        outer_sum.* = (outer_sum.* + inner_sum.*);
+        outer_counter.* = (outer_counter.* + 1);
+      };
+    };
+
+    await task;
+    assert(outer_counter.* == i32(2), "outer loop should run exactly twice");
+    assert(outer_sum.* == i32(16), "each inner loop contributes 1+3+4 = 8");
+  };
+};
+
+// ---------------------------------------------------------------------------
+// 35. Match branches with continue/break after await
+// ---------------------------------------------------------------------------
+test "Test match branches with continue and break in async loop", {
+  async {
+    counter := Box(i32)(0);
+    sum := Box(i32)(0);
+
+    task := async {
+      while runtime(true), {
+        counter.* = (counter.* + 1);
+        await Async.yield();
+
+        match(counter.*,
+          (2 | 4) => { continue; },
+          7 => { break; },
+          _ => {
+            sum.* = (sum.* + counter.*);
+          }
+        );
+      };
+    };
+
+    await task;
+    assert(counter.* == i32(7), "counter should stop at match break value 7");
+    assert(sum.* == i32(15), "sum should be 1+3+5+6 when 2,4 continue and 7 breaks");
+  };
+};
+
+// ---------------------------------------------------------------------------
+// 36. Loop-local + captured outer values across await with continue
+//     Local loop value and captured outer value must both stay correct.
+// ---------------------------------------------------------------------------
+test "Test loop-local and captured values with continue across await", {
+  async {
+    outer_value := Box(i32)(100);
+    offset := Box(i32)(1);
+    counter := Box(i32)(0);
+    sum := Box(i32)(0);
+
+    task := async {
+      while runtime(counter.* < i32(5)), {
+        loop_value := Box(i32)(counter.*);
+        counter.* = (counter.* + 1);
+        await Async.yield();
+        cond(
+          (loop_value.* == i32(2)) => { continue; },
+          true => ()
+        );
+        sum.* = (sum.* + (loop_value.* + offset.*));
+      };
+    };
+
+    await task;
+    assert(counter.* == i32(5), "counter should reach 5");
+    assert(outer_value.* == i32(100), "outer captured value must remain unchanged");
+    assert(sum.* == i32(12), "sum should be (0+1)+(1+1)+(3+1)+(4+1) = 12");
+  };
+};
+
+// ---------------------------------------------------------------------------
+// 37. Early return in async function loop after continue path
+// ---------------------------------------------------------------------------
+test "Test async function return inside loop after continue", {
+  async {
+    find_first_odd_at_least :: (fn(target : i32) -> Impl(Future(i32)))(async {
+      i := Box(i32)(0);
+      while runtime(i.* < i32(10)), {
+        i.* = (i.* + 1);
+        await Async.yield();
+
+        cond(
+          ((i.* % i32(2)) == i32(0)) => { continue; },
+          true => ()
+        );
+
+        cond(
+          (i.* >= target) => { return i.*; },
+          true => ()
+        );
+      };
+
+      return i32(-1);
+    });
+
+    task := find_first_odd_at_least(i32(5));
+    found := await task;
+    assert(found == i32(5), "first odd value >= 5 should be 5");
+  };
+};
+
+// ---------------------------------------------------------------------------
+// 38. Two awaits in one iteration with continue between them
+//     counter==2 continues after first await, skipping second await path.
+// ---------------------------------------------------------------------------
+test "Test two awaits with middle continue in async loop", {
+  async {
+    counter := Box(i32)(0);
+    mid_hits := Box(i32)(0);
+    post_sum := Box(i32)(0);
+
+    task := async {
+      while runtime(counter.* < i32(4)), {
+        counter.* = (counter.* + 1);
+
+        await Async.yield();
+
+        cond(
+          (counter.* == i32(2)) => { continue; },
+          true => ()
+        );
+
+        mid_hits.* = (mid_hits.* + 1);
+
+        await Async.yield();
+
+        post_sum.* = (post_sum.* + counter.*);
+      };
+    };
+
+    await task;
+    assert(counter.* == i32(4), "counter should reach 4");
+    assert(mid_hits.* == i32(3), "middle section should run for counter 1,3,4");
+    assert(post_sum.* == i32(8), "post-sum should be 1+3+4 = 8");
+  };
+};

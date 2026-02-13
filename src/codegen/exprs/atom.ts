@@ -35,6 +35,20 @@ export function generateAtom(
     // Drops are emitted at the continue label site, not here, to avoid double-drop
     // when normal fall-through also reaches the same label.
     if (functionContext.asyncWhileContinueInfo) {
+      if (functionContext.asyncWhileContinueInfo.emitDropsBeforeGoto) {
+        if (
+          functionContext.asyncWhileBodyDrops &&
+          functionContext.asyncWhileBodyDrops.length > 0
+        ) {
+          const emitter = context.emitter;
+          for (const dropExpr of functionContext.asyncWhileBodyDrops) {
+            const dropCode = generateExpr(dropExpr, indent, context);
+            if (dropCode && dropCode.includes("sm->")) {
+              emitter.emitLine(`${indent}${dropCode};`);
+            }
+          }
+        }
+      }
       return `goto ${functionContext.asyncWhileContinueInfo.label}`;
     }
     // For 3-argument while loops, continue should jump to the continue label
