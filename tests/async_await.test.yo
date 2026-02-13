@@ -1,57 +1,549 @@
 open import "std/libc/stdio";
 Async :: import "std/async";
 
-// Expected to print:
-//
-// Task started
-// Running main...
-// Task completed
-//
-//
+// ---------------------------------------------------------------------------
+// 1. Basic eager async – verify interleaved execution
+// ---------------------------------------------------------------------------
 test "Test eager async", {
   b := Box(i32)(0);
 
-  // Simple test without nested async blocks
   task := async {
     printf("Task started %d\n", b.*);
-    assert(b.* == 0);
+    assert(b.* == 0, "b should be 0 at task start");
 
     c := Box(i32)(10);
 
     b.* = (b.* + 1);
     await Async.yield();
-    
+
     printf("Task completed %d\n", b.*);
-    assert(b.* == 2);
-    assert(c.* == 10);
+    assert(b.* == 2, "b should be 2 after main incremented");
+    assert(c.* == 10, "captured Box should still be 10");
   };
-  
+
   printf("Running main... %d\n", b.*);
-  assert(b.* == 1);
+  assert(b.* == 1, "b should be 1 after task's first half");
   b.* = (b.* + 1);
 };
 
+// ---------------------------------------------------------------------------
+// 2. Async function returning a value
+// ---------------------------------------------------------------------------
 test "Test async function", {
   run_task :: (fn(b : Box(i32)) -> Impl(Future(i32)))(async {
-      printf("Task started %d\n", b.*);
-      assert(b.* == 0);
+    printf("Task started %d\n", b.*);
+    assert(b.* == 0, "b should be 0");
 
-      c := Box(i32)(10);
+    c := Box(i32)(10);
 
-      b.* = (b.* + 1);
-      await Async.yield();
-      
-      printf("Task completed %d\n", b.*);
-      assert(b.* == 2);
-      assert(c.* == 10);
+    b.* = (b.* + 1);
+    await Async.yield();
 
-      return b.*;
+    printf("Task completed %d\n", b.*);
+    assert(b.* == 2, "b should be 2");
+    assert(c.* == 10, "c should be 10");
+
+    return b.*;
   });
 
   bb := Box(i32)(0);
   task := run_task(bb);
-  
+
   printf("Running main... %d\n", bb.*);
-  assert(bb.* == 1);
+  assert(bb.* == 1, "bb should be 1");
   bb.* = (bb.* + 1);
+};
+
+// ---------------------------------------------------------------------------
+// 3. Multiple sequential awaits
+// ---------------------------------------------------------------------------
+test "Test multiple sequential awaits", {
+  counter := Box(i32)(0);
+
+  task := async {
+    counter.* = (counter.* + 1);
+    assert(counter.* == 1, "after first increment");
+    await Async.yield();
+
+    counter.* = (counter.* + 1);
+    assert(counter.* == 2, "after second increment");
+    await Async.yield();
+
+    counter.* = (counter.* + 1);
+    assert(counter.* == 3, "after third increment");
+    await Async.yield();
+
+    counter.* = (counter.* + 1);
+    assert(counter.* == 4, "after fourth increment");
+  };
+};
+
+// ---------------------------------------------------------------------------
+// 4. Cond with await in one branch only (the non-await branch taken)
+//    Regression test for NULL future dereference when non-await branch executes
+// ---------------------------------------------------------------------------
+test "Test cond with await in one branch - non-await path", {
+  flag := Box(bool)(false);
+  result := Box(i32)(0);
+
+  task := async {
+    value := i32(42);
+    cond(
+      flag.* => {
+        await Async.yield();
+        result.* = i32(1);
+      },
+      true => {
+        result.* = value;
+      }
+    );
+    assert(result.* == i32(42), "non-await branch should have set result to 42");
+  };
+
+  assert(result.* == i32(42), "result should be 42");
+};
+
+// ---------------------------------------------------------------------------
+// 5. Cond with await in one branch only (the await branch taken)
+// ---------------------------------------------------------------------------
+test "Test cond with await in one branch - await path", {
+  flag := Box(bool)(true);
+  result := Box(i32)(0);
+
+  task := async {
+    value := i32(99);
+    cond(
+      flag.* => {
+        await Async.yield();
+        result.* = value;
+      },
+      true => {
+        result.* = i32(0);
+      }
+    );
+    assert(result.* == i32(99), "await branch should have set result to 99");
+  };
+
+  assert(result.* == i32(99), "result should be 99");
+};
+
+// ---------------------------------------------------------------------------
+// 6. Cond with await in BOTH branches
+// ---------------------------------------------------------------------------
+test "Test cond with await in both branches", {
+  flag := Box(bool)(true);
+  result := Box(i32)(0);
+
+  task := async {
+    cond(
+      flag.* => {
+        await Async.yield();
+        result.* = i32(10);
+      },
+      true => {
+        await Async.yield();
+        result.* = i32(20);
+      }
+    );
+    assert(result.* == i32(10), "true branch should have set result to 10");
+  };
+
+  assert(result.* == i32(10), "result should be 10");
+};
+
+// ---------------------------------------------------------------------------
+// 7. Cond with await in both branches – false branch taken
+// ---------------------------------------------------------------------------
+test "Test cond with await in both branches - false path", {
+  flag := Box(bool)(false);
+  result := Box(i32)(0);
+
+  task := async {
+    cond(
+      flag.* => {
+        await Async.yield();
+        result.* = i32(10);
+      },
+      true => {
+        await Async.yield();
+        result.* = i32(20);
+      }
+    );
+    assert(result.* == i32(20), "false branch should have set result to 20");
+  };
+
+  assert(result.* == i32(20), "result should be 20");
+};
+
+// ---------------------------------------------------------------------------
+// 8. Early return from async block (no value)
+// ---------------------------------------------------------------------------
+test "Test early return from async block", {
+  reached_end := Box(bool)(false);
+  reached_middle := Box(bool)(false);
+
+  task := async {
+    reached_middle.* = true;
+    return;
+  };
+
+  assert(reached_middle.* == true, "should have reached middle");
+  assert(reached_end.* == false, "should NOT have reached end");
+};
+
+// ---------------------------------------------------------------------------
+// 9. Early return from cond branch inside async (regression test)
+//    This ensures local variables are properly dropped on early return
+// ---------------------------------------------------------------------------
+test "Test early return from cond branch in async", {
+  flag := Box(bool)(true);
+  result := Box(i32)(0);
+
+  task := async {
+    s := Box(i32)(100);
+    cond(
+      flag.* => {
+        await Async.yield();
+        result.* = s.*;
+        return;
+      },
+      true => ()
+    );
+    result.* = i32(999);
+  };
+
+  assert(result.* == i32(100), "early return path should set result to 100");
+};
+
+// ---------------------------------------------------------------------------
+// 10. Early return from non-await cond branch inside async
+// ---------------------------------------------------------------------------
+test "Test early return from non-await cond branch in async", {
+  flag := Box(bool)(true);
+  result := Box(i32)(0);
+
+  task := async {
+    s := Box(i32)(200);
+    cond(
+      flag.* => {
+        result.* = s.*;
+        return;
+      },
+      true => {
+        await Async.yield();
+      }
+    );
+    result.* = i32(999);
+  };
+
+  assert(result.* == i32(200), "early return from non-await branch should set result to 200");
+};
+
+// ---------------------------------------------------------------------------
+// 11. Captured Box variables across multiple await points
+// ---------------------------------------------------------------------------
+test "Test captured Box across multiple awaits", {
+  a := Box(i32)(1);
+  b := Box(i32)(2);
+  c := Box(i32)(3);
+
+  task := async {
+    assert(a.* == 1, "a should be 1");
+    assert(b.* == 2, "b should be 2");
+    assert(c.* == 3, "c should be 3");
+    await Async.yield();
+
+    a.* = (a.* + 10);
+    assert(a.* == 11, "a should be 11 after increment");
+    await Async.yield();
+
+    b.* = (b.* + 20);
+    assert(b.* == 22, "b should be 22 after increment");
+    await Async.yield();
+
+    c.* = (c.* + 30);
+    assert(c.* == 33, "c should be 33 after increment");
+  };
+
+  assert(a.* == 11, "a should be 11 at end");
+  assert(b.* == 22, "b should be 22 at end");
+  assert(c.* == 33, "c should be 33 at end");
+};
+
+// ---------------------------------------------------------------------------
+// 12. Async function returning value through cond branches
+// ---------------------------------------------------------------------------
+test "Test async function return through cond", {
+  compute :: (fn(flag : bool) -> Impl(Future(i32)))(async {
+    await Async.yield();
+    v := cond(
+      flag => i32(42),
+      true => i32(0)
+    );
+    return v;
+  });
+
+  task_true := compute(true);
+  task_false := compute(false);
+};
+
+// ---------------------------------------------------------------------------
+// 13. While loop with await inside
+// ---------------------------------------------------------------------------
+test "Test while loop with await", {
+  counter := Box(i32)(0);
+  iterations := Box(i32)(0);
+
+  task := async {
+    while runtime(counter.* < i32(5)), {
+      counter.* = (counter.* + 1);
+      await Async.yield();
+      iterations.* = (iterations.* + 1);
+    };
+  };
+
+  assert(counter.* == i32(5), "counter should be 5");
+  assert(iterations.* == i32(5), "iterations should be 5");
+};
+
+// ---------------------------------------------------------------------------
+// 14. While loop with break after await
+// ---------------------------------------------------------------------------
+test "Test while loop with break after await", {
+  counter := Box(i32)(0);
+
+  task := async {
+    while runtime(true), {
+      counter.* = (counter.* + 1);
+      await Async.yield();
+      cond(
+        (counter.* >= i32(3)) => { break; },
+        true => ()
+      );
+    };
+  };
+
+  assert(counter.* == i32(3), "counter should be 3 after break");
+};
+
+// ---------------------------------------------------------------------------
+// 15. Nested cond with await at different levels
+// ---------------------------------------------------------------------------
+test "Test nested cond with await", {
+  outer_flag := Box(bool)(true);
+  inner_flag := Box(bool)(true);
+  result := Box(i32)(0);
+
+  task := async {
+    cond(
+      outer_flag.* => {
+        await Async.yield();
+        cond(
+          inner_flag.* => {
+            result.* = i32(42);
+          },
+          true => {
+            result.* = i32(0);
+          }
+        );
+      },
+      true => {
+        result.* = i32(-1);
+      }
+    );
+  };
+
+  assert(result.* == i32(42), "nested cond should set result to 42");
+};
+
+// ---------------------------------------------------------------------------
+// 16. Multiple async tasks interleaving
+// ---------------------------------------------------------------------------
+test "Test multiple async tasks interleaving", {
+  order := Box(i32)(0);
+
+  task1 := async {
+    assert(order.* == i32(0), "task1 starts first");
+    order.* = i32(1);
+    await Async.yield();
+    assert(order.* == i32(2), "task1 resumes after task2 first half");
+    order.* = i32(3);
+  };
+
+  assert(order.* == i32(1), "after task1 yields");
+
+  task2 := async {
+    assert(order.* == i32(1), "task2 starts after task1 yields");
+    order.* = i32(2);
+    await Async.yield();
+    assert(order.* == i32(3), "task2 resumes after task1 completes");
+    order.* = i32(4);
+  };
+
+  assert(order.* == i32(4), "both tasks completed");
+};
+
+// ---------------------------------------------------------------------------
+// 17. Async block with local allocations that must be dropped
+// ---------------------------------------------------------------------------
+test "Test async block drops local allocations", {
+  task := async {
+    a := Box(i32)(100);
+    b := Box(i32)(200);
+    await Async.yield();
+    c := Box(i32)(300);
+    assert(a.* == i32(100), "a should survive await");
+    assert(b.* == i32(200), "b should survive await");
+    assert(c.* == i32(300), "c created after await");
+  };
+};
+
+// ---------------------------------------------------------------------------
+// 18. Async function with multiple await and early return
+// ---------------------------------------------------------------------------
+test "Test async function with multiple awaits and early return", {
+  find_value :: (fn(target : i32) -> Impl(Future(i32)))(async {
+    i := Box(i32)(0);
+    while runtime(i.* < i32(10)), {
+      await Async.yield();
+      cond(
+        (i.* == target) => {
+          return i.*;
+        },
+        true => ()
+      );
+      i.* = (i.* + 1);
+    };
+    return i32(-1);
+  });
+
+  task := find_value(i32(5));
+};
+
+// ---------------------------------------------------------------------------
+// 19. Cond with await and code after cond
+// ---------------------------------------------------------------------------
+test "Test code after cond with await", {
+  flag := Box(bool)(true);
+  result := Box(i32)(0);
+
+  task := async {
+    x := i32(10);
+    cond(
+      flag.* => {
+        await Async.yield();
+        x = i32(20);
+      },
+      true => ()
+    );
+    result.* = x;
+  };
+
+  assert(result.* == i32(20), "code after cond should see updated x");
+};
+
+// ---------------------------------------------------------------------------
+// 20. Cond with await – non-await branch, then code after cond
+// ---------------------------------------------------------------------------
+test "Test code after cond with await - non-await path", {
+  flag := Box(bool)(false);
+  result := Box(i32)(0);
+
+  task := async {
+    x := i32(10);
+    cond(
+      flag.* => {
+        await Async.yield();
+        x = i32(20);
+      },
+      true => {
+        x = i32(30);
+      }
+    );
+    result.* = x;
+  };
+
+  assert(result.* == i32(30), "non-await path should set x to 30");
+};
+
+// ---------------------------------------------------------------------------
+// 21. Multiple cond expressions with await in sequence
+// ---------------------------------------------------------------------------
+test "Test sequential conds with await", {
+  a_flag := Box(bool)(true);
+  b_flag := Box(bool)(false);
+  result := Box(i32)(0);
+
+  task := async {
+    x := i32(0);
+
+    cond(
+      a_flag.* => {
+        await Async.yield();
+        x = (x + i32(10));
+      },
+      true => {
+        x = (x + i32(1));
+      }
+    );
+
+    cond(
+      b_flag.* => {
+        await Async.yield();
+        x = (x + i32(100));
+      },
+      true => {
+        x = (x + i32(2));
+      }
+    );
+
+    result.* = x;
+  };
+
+  assert(result.* == i32(12), "10 from first cond + 2 from second cond");
+};
+
+// ---------------------------------------------------------------------------
+// 22. Async block completing without any awaits (degenerate case)
+// ---------------------------------------------------------------------------
+test "Test async block with no awaits", {
+  result := Box(i32)(0);
+
+  task := async {
+    result.* = i32(42);
+  };
+
+  assert(result.* == i32(42), "sync-completing async block should work");
+};
+
+// ---------------------------------------------------------------------------
+// 23. Deeply nested awaits (stress test for state machine)
+// ---------------------------------------------------------------------------
+test "Test many sequential awaits", {
+  counter := Box(i32)(0);
+
+  task := async {
+    await Async.yield();
+    counter.* = (counter.* + 1);
+    await Async.yield();
+    counter.* = (counter.* + 1);
+    await Async.yield();
+    counter.* = (counter.* + 1);
+    await Async.yield();
+    counter.* = (counter.* + 1);
+    await Async.yield();
+    counter.* = (counter.* + 1);
+    await Async.yield();
+    counter.* = (counter.* + 1);
+    await Async.yield();
+    counter.* = (counter.* + 1);
+    await Async.yield();
+    counter.* = (counter.* + 1);
+    await Async.yield();
+    counter.* = (counter.* + 1);
+    await Async.yield();
+    counter.* = (counter.* + 1);
+  };
+
+  assert(counter.* == i32(10), "counter should be 10 after 10 yields");
 };
