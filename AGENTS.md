@@ -106,8 +106,12 @@ You can ignore the editor erros for the `.yo` files, because the vscode extensio
    - The parentheses are **required** and must not be omitted.
 
 3. Define a function like this:
+
    - `(fn(param1 : Type1, param2 : Type2) -> ReturnType)({ body; return expr; })`
    - NOTE, no space between `(fn() -> ReturnType)` and `({ body; })`
+
+4. The last expression in `{ ... }` without semicolon is the return value of the struct or enum constructor.
+   With semicolon, like `{ expr; }`, then the return value is `unit`.
 
 When I ask you to refactor the code. Refactor everything. Don't make assumptions. Don't miss any lines. Don't put placeholders or TODOs.
 
