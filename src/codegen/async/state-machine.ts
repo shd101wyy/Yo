@@ -641,6 +641,7 @@ export function generateAsyncBlockResumeFunction(
             context.inStateMachine = { futureType };
             context.variableIdRemapping = analysis.variableIdRemapping;
             context.pendingDeferredDrops = [
+              ...(whileLoopData.bodyExpr.$?.deferredDropExpressions ?? []),
               ...(bodyExpr.$?.deferredDropExpressions ?? []),
             ];
 
@@ -662,13 +663,22 @@ export function generateAsyncBlockResumeFunction(
             }
             context.stateMachineVariables = combinedVariables;
 
-            // Set up break handling: in the state machine switch, plain "break" exits
-            // the switch, not the conceptual while loop. We need goto instead.
+            // Set up break/continue handling: in the state machine switch, plain "break"
+            // and "continue" don't work as expected. We need goto instead.
             const previousAsyncWhileBreakInfo = context.asyncWhileBreakInfo;
+            const previousAsyncWhileContinueInfo =
+              context.asyncWhileContinueInfo;
+            const previousAsyncWhileBodyDrops = context.asyncWhileBodyDrops;
             context.asyncWhileBreakInfo = {
               label: `after_while_loop_${prevAwait.index}`,
               index: prevAwait.index,
             };
+            context.asyncWhileContinueInfo = {
+              label: `while_loop_${prevAwait.index}_continue`,
+            };
+            context.asyncWhileBodyDrops = [
+              ...(whileLoopData.bodyExpr.$?.deferredDropExpressions ?? []),
+            ];
 
             // Generate the remaining expressions
             for (const expr of whileLoopData.bodyExprsAfterAwait) {
@@ -687,12 +697,17 @@ export function generateAsyncBlockResumeFunction(
 
             // Restore context
             context.asyncWhileBreakInfo = previousAsyncWhileBreakInfo;
+            context.asyncWhileContinueInfo = previousAsyncWhileContinueInfo;
+            context.asyncWhileBodyDrops = previousAsyncWhileBodyDrops;
             context.inStateMachine = previousInStateMachineForLoop;
             context.stateMachineVariables =
               previousStateMachineVariablesForLoop;
             context.variableIdRemapping = previousVariableIdRemappingForLoop;
             context.pendingDeferredDrops = previousPendingDeferredDropsForLoop;
           }
+
+          // Label for continue to jump to (skip rest of body, re-evaluate condition)
+          emitter.emitLine(`      while_loop_${prevAwait.index}_continue:`);
 
           // Re-evaluate the loop condition
           emitter.emitLine(
@@ -739,6 +754,9 @@ export function generateAsyncBlockResumeFunction(
           context.stateMachineVariables = previousStateMachineVariablesForCond;
           context.variableIdRemapping = previousVariableIdRemappingForCond;
 
+          const whileBodyDrops =
+            whileLoopData.bodyExpr.$?.deferredDropExpressions ?? [];
+
           emitter.emitLine(`        if (!(${condCode})) {`);
           emitter.emitLine(
             `          sm->while_loop_${prevAwait.index}_active = false;`
@@ -746,10 +764,55 @@ export function generateAsyncBlockResumeFunction(
           emitter.emitLine(
             `          ASYNC_DEBUG("${asyncBlockId}: While loop condition false, exiting loop\\n");`
           );
+
+          // Drop while loop body locals from the last iteration before exiting
+          if (whileBodyDrops.length > 0) {
+            // Set up context for drop code generation
+            const prevInSM = context.inStateMachine;
+            const prevSMVars = context.stateMachineVariables;
+            const prevVarRemap = context.variableIdRemapping;
+            context.inStateMachine = { futureType };
+            context.variableIdRemapping = analysis.variableIdRemapping;
+            context.stateMachineVariables = combinedVariablesForCond;
+
+            for (const dropExpr of whileBodyDrops) {
+              const dropCode = generateExpr(dropExpr, "          ", context);
+              if (dropCode && dropCode.includes("sm->")) {
+                emitter.emitLine(`          ${dropCode};`);
+              }
+            }
+
+            context.inStateMachine = prevInSM;
+            context.stateMachineVariables = prevSMVars;
+            context.variableIdRemapping = prevVarRemap;
+          }
+
           emitter.emitLine(`        } else {`);
           emitter.emitLine(
             `          ASYNC_DEBUG("${asyncBlockId}: While loop condition true, continuing iteration\\n");`
           );
+
+          // Drop while loop body locals before re-entering the loop
+          // (state 0 will re-create them)
+          if (whileBodyDrops.length > 0) {
+            const prevInSM = context.inStateMachine;
+            const prevSMVars = context.stateMachineVariables;
+            const prevVarRemap = context.variableIdRemapping;
+            context.inStateMachine = { futureType };
+            context.variableIdRemapping = analysis.variableIdRemapping;
+            context.stateMachineVariables = combinedVariablesForCond;
+
+            for (const dropExpr of whileBodyDrops) {
+              const dropCode = generateExpr(dropExpr, "          ", context);
+              if (dropCode && dropCode.includes("sm->")) {
+                emitter.emitLine(`          ${dropCode};`);
+              }
+            }
+
+            context.inStateMachine = prevInSM;
+            context.stateMachineVariables = prevSMVars;
+            context.variableIdRemapping = prevVarRemap;
+          }
 
           // Transition back to the state where the while loop started
           // The while loop is in the state that contains the await - which is prevAwait.index

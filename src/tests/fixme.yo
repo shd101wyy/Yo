@@ -2,15 +2,23 @@ open import "std/libc/stdio";
 Async :: import "std/async";
 
 main :: (fn() -> unit) {
-  reached_end := Box(bool)(false);
-  reached_middle := Box(bool)(false);
+  async {
+    counter := Box(i32)(0);
 
-  task := async {
-    reached_middle.* = true;
-    return;
+    task := async {
+      while runtime(true), {
+        temp := Box(i32)(counter.*);
+        await Async.yield();
+        counter.* = (temp.* + 1);
+        cond(
+          (counter.* >= i32(3)) => { break; },
+          true => ()
+        );
+      };
+    };
+
+    await task;
+    assert(counter.* == i32(3), "counter should be 3 after break");
   };
-
-  assert(reached_middle.* == true, "should have reached middle");
-  assert(reached_end.* == false, "should NOT have reached end");
 };
 export main;

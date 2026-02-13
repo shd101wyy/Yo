@@ -604,3 +604,140 @@ test "Test many sequential awaits", {
     assert(counter.* == i32(10), "counter should be 10 after task completes");
   };
 };
+
+// ---------------------------------------------------------------------------
+// 24. Continue in async while loop (after await)
+//     Loop counts from 0 to 9, skipping odd numbers via continue.
+//     sum should equal 0+2+4+6+8 = 20.
+// ---------------------------------------------------------------------------
+test "Test continue in async while loop", {
+  async {
+    sum := Box(i32)(0);
+    counter := Box(i32)(0);
+
+    task := async {
+      while runtime(counter.* < i32(10)), {
+        i := counter.*;
+        counter.* = (counter.* + 1);
+        await Async.yield();
+        cond(
+          ((i % i32(2)) != i32(0)) => { continue; },
+          true => ()
+        );
+        sum.* = (sum.* + i);
+      };
+    };
+
+    await task;
+    assert(sum.* == i32(20), "sum of even numbers 0..9 should be 20");
+  };
+};
+
+// ---------------------------------------------------------------------------
+// 25. Break from nested cond inside async while loop (after await)
+//     Loop until counter reaches 5, then break from within a cond.
+// ---------------------------------------------------------------------------
+test "Test break from cond in async while loop", {
+  async {
+    counter := Box(i32)(0);
+    sum := Box(i32)(0);
+
+    task := async {
+      while runtime(true), {
+        await Async.yield();
+        counter.* = (counter.* + 1);
+        cond(
+          (counter.* >= i32(5)) => { break; },
+          true => ()
+        );
+        sum.* = (sum.* + counter.*);
+      };
+    };
+
+    await task;
+    assert(counter.* == i32(5), "counter should be 5 after break");
+    assert(sum.* == i32(10), "sum should be 1+2+3+4 = 10");
+  };
+};
+
+// ---------------------------------------------------------------------------
+// 26. Continue skips rest of body but keeps looping (after await)
+//     Increment counter each iteration; if counter is 3 or 7, continue
+//     without adding to sum. sum should be 1+2+4+5+6+8+9+10 = 45.
+// ---------------------------------------------------------------------------
+test "Test continue skips body after await", {
+  async {
+    counter := Box(i32)(0);
+    sum := Box(i32)(0);
+
+    task := async {
+      while runtime(counter.* < i32(10)), {
+        counter.* = (counter.* + 1);
+        await Async.yield();
+        cond(
+          ((counter.* == i32(3)) || (counter.* == i32(7))) => { continue; },
+          true => ()
+        );
+        sum.* = (sum.* + counter.*);
+      };
+    };
+
+    await task;
+    assert(counter.* == i32(10), "counter should be 10");
+    assert(sum.* == i32(45), "sum should be 55-3-7 = 45");
+  };
+};
+
+// ---------------------------------------------------------------------------
+// 27. Break with local Box allocation (must be dropped, no leak)
+//     Allocate a Box each iteration; break at iteration 3.
+//     AddressSanitizer will catch leaks.
+// ---------------------------------------------------------------------------
+test "Test break drops local allocations in async while loop", {
+  async {
+    counter := Box(i32)(0);
+
+    task := async {
+      while runtime(true), {
+        temp := Box(i32)(counter.*);
+        await Async.yield();
+        counter.* = (temp.* + 1);
+        cond(
+          (counter.* >= i32(3)) => { break; },
+          true => ()
+        );
+      };
+    };
+
+    await task;
+    assert(counter.* == i32(3), "counter should be 3 after break");
+  };
+};
+
+// ---------------------------------------------------------------------------
+// 28. Continue with local Box allocation (must be dropped, no leak)
+//     Allocate a Box each iteration; continue on even iterations.
+// ---------------------------------------------------------------------------
+test "Test continue drops local allocations in async while loop", {
+  async {
+    counter := Box(i32)(0);
+    sum := Box(i32)(0);
+
+    task := async {
+      while runtime(counter.* < i32(6)), {
+        counter.* = (counter.* + 1);
+        temp := Box(i32)(counter.*);
+        await Async.yield();
+        cond(
+          ((temp.* % i32(2)) == i32(0)) => { continue; },
+          true => ()
+        );
+        sum.* = (sum.* + temp.*);
+      };
+    };
+
+    await task;
+    assert(counter.* == i32(6), "counter should be 6");
+    assert(sum.* == i32(9), "sum of odd 1+3+5 = 9");
+  };
+};
