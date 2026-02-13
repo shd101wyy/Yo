@@ -709,6 +709,48 @@ export function generateAsyncBlockResumeFunction(
           // Label for continue to jump to (skip rest of body, re-evaluate condition)
           emitter.emitLine(`      while_loop_${prevAwait.index}_continue:`);
 
+          // Drop while loop body locals before condition re-evaluation
+          // Both normal fall-through and explicit 'continue' reach this label
+          {
+            const whileBodyDrops =
+              whileLoopData.bodyExpr.$?.deferredDropExpressions ?? [];
+            if (whileBodyDrops.length > 0) {
+              const prevInSM = context.inStateMachine;
+              const prevSMVars = context.stateMachineVariables;
+              const prevVarRemap = context.variableIdRemapping;
+              context.inStateMachine = { futureType };
+              context.variableIdRemapping = analysis.variableIdRemapping;
+
+              const dropCombinedVars = new Map<string, CapturedVariable>();
+              for (const v of analysis.capturedVariables) {
+                dropCombinedVars.set(v.id, v);
+              }
+              if (captureType) {
+                for (const field of captureType.fields) {
+                  dropCombinedVars.set(field.label, {
+                    id: field.label,
+                    name: field.label,
+                    type: field.type,
+                    kind: "outer",
+                    isOwningTheSameRcValueAs: undefined,
+                  });
+                }
+              }
+              context.stateMachineVariables = dropCombinedVars;
+
+              for (const dropExpr of whileBodyDrops) {
+                const dropCode = generateExpr(dropExpr, "        ", context);
+                if (dropCode && dropCode.includes("sm->")) {
+                  emitter.emitLine(`        ${dropCode};`);
+                }
+              }
+
+              context.inStateMachine = prevInSM;
+              context.stateMachineVariables = prevSMVars;
+              context.variableIdRemapping = prevVarRemap;
+            }
+          }
+
           // Re-evaluate the loop condition
           emitter.emitLine(
             `        ASYNC_DEBUG("${asyncBlockId}: Re-evaluating while loop condition\\n");`
@@ -754,9 +796,6 @@ export function generateAsyncBlockResumeFunction(
           context.stateMachineVariables = previousStateMachineVariablesForCond;
           context.variableIdRemapping = previousVariableIdRemappingForCond;
 
-          const whileBodyDrops =
-            whileLoopData.bodyExpr.$?.deferredDropExpressions ?? [];
-
           emitter.emitLine(`        if (!(${condCode})) {`);
           emitter.emitLine(
             `          sm->while_loop_${prevAwait.index}_active = false;`
@@ -764,55 +803,10 @@ export function generateAsyncBlockResumeFunction(
           emitter.emitLine(
             `          ASYNC_DEBUG("${asyncBlockId}: While loop condition false, exiting loop\\n");`
           );
-
-          // Drop while loop body locals from the last iteration before exiting
-          if (whileBodyDrops.length > 0) {
-            // Set up context for drop code generation
-            const prevInSM = context.inStateMachine;
-            const prevSMVars = context.stateMachineVariables;
-            const prevVarRemap = context.variableIdRemapping;
-            context.inStateMachine = { futureType };
-            context.variableIdRemapping = analysis.variableIdRemapping;
-            context.stateMachineVariables = combinedVariablesForCond;
-
-            for (const dropExpr of whileBodyDrops) {
-              const dropCode = generateExpr(dropExpr, "          ", context);
-              if (dropCode && dropCode.includes("sm->")) {
-                emitter.emitLine(`          ${dropCode};`);
-              }
-            }
-
-            context.inStateMachine = prevInSM;
-            context.stateMachineVariables = prevSMVars;
-            context.variableIdRemapping = prevVarRemap;
-          }
-
           emitter.emitLine(`        } else {`);
           emitter.emitLine(
             `          ASYNC_DEBUG("${asyncBlockId}: While loop condition true, continuing iteration\\n");`
           );
-
-          // Drop while loop body locals before re-entering the loop
-          // (state 0 will re-create them)
-          if (whileBodyDrops.length > 0) {
-            const prevInSM = context.inStateMachine;
-            const prevSMVars = context.stateMachineVariables;
-            const prevVarRemap = context.variableIdRemapping;
-            context.inStateMachine = { futureType };
-            context.variableIdRemapping = analysis.variableIdRemapping;
-            context.stateMachineVariables = combinedVariablesForCond;
-
-            for (const dropExpr of whileBodyDrops) {
-              const dropCode = generateExpr(dropExpr, "          ", context);
-              if (dropCode && dropCode.includes("sm->")) {
-                emitter.emitLine(`          ${dropCode};`);
-              }
-            }
-
-            context.inStateMachine = prevInSM;
-            context.stateMachineVariables = prevSMVars;
-            context.variableIdRemapping = prevVarRemap;
-          }
 
           // Transition back to the state where the while loop started
           // The while loop is in the state that contains the await - which is prevAwait.index

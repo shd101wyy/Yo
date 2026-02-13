@@ -4,21 +4,24 @@ Async :: import "std/async";
 main :: (fn() -> unit) {
   async {
     counter := Box(i32)(0);
+    sum := Box(i32)(0);
 
     task := async {
-      while runtime(true), {
+      while runtime(counter.* < i32(6)), {
+        counter.* = (counter.* + 1);
         temp := Box(i32)(counter.*);
         await Async.yield();
-        counter.* = (temp.* + 1);
         cond(
-          (counter.* >= i32(3)) => { break; },
+          ((temp.* % i32(2)) == i32(0)) => { continue; },
           true => ()
         );
+        sum.* = (sum.* + temp.*);
       };
     };
 
     await task;
-    assert(counter.* == i32(3), "counter should be 3 after break");
+    assert(counter.* == i32(6), "counter should be 6");
+    assert(sum.* == i32(9), "sum of odd 1+3+5 = 9");
   };
 };
 export main;

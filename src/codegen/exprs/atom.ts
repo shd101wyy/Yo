@@ -32,20 +32,9 @@ export function generateAtom(
   if (expr.token.value === "continue") {
     // In async while loop resume body, continue must jump to the condition
     // re-evaluation label (plain "continue" doesn't work inside a switch)
+    // Drops are emitted at the continue label site, not here, to avoid double-drop
+    // when normal fall-through also reaches the same label.
     if (functionContext.asyncWhileContinueInfo) {
-      // Drop while loop body locals before continuing to next iteration
-      if (
-        functionContext.asyncWhileBodyDrops &&
-        functionContext.asyncWhileBodyDrops.length > 0
-      ) {
-        const emitter = context.emitter;
-        for (const dropExpr of functionContext.asyncWhileBodyDrops) {
-          const dropCode = generateExpr(dropExpr, indent, context);
-          if (dropCode && dropCode.includes("sm->")) {
-            emitter.emitLine(`${indent}${dropCode};`);
-          }
-        }
-      }
       return `goto ${functionContext.asyncWhileContinueInfo.label}`;
     }
     // For 3-argument while loops, continue should jump to the continue label
