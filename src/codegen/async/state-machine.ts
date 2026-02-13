@@ -322,7 +322,20 @@ export function generateAsyncBlockResumeFunction(
                 let foundAdditionalAwait = false;
                 const additionalRemainingExprs: Expr[] = [];
 
-                for (const expr of branch.remainingExprs) {
+                // Determine assignment target for the last remaining expression
+                // (used by match/cond with await where branch result != await result)
+                const branchTargetAssignmentCode =
+                  condBranchData.targetAssignmentCode;
+
+                for (
+                  let exprIdx = 0;
+                  exprIdx < branch.remainingExprs.length;
+                  exprIdx++
+                ) {
+                  const expr = branch.remainingExprs[exprIdx]!;
+                  const isLastExpr =
+                    exprIdx === branch.remainingExprs.length - 1;
+
                   if (foundAdditionalAwait) {
                     additionalRemainingExprs.push(expr);
                     continue;
@@ -351,9 +364,24 @@ export function generateAsyncBlockResumeFunction(
                     isTempVariableName(expr.$.env.modulePath, code)
                   ) {
                     // Skip
+                  } else if (isLastExpr && branchTargetAssignmentCode) {
+                    emitter.emitLine(
+                      `          ${branchTargetAssignmentCode} = ${code};`
+                    );
                   } else {
                     emitter.emitLine(`          ${code};`);
                   }
+                }
+
+                // If this branch has no remaining expressions and there's a target,
+                // assign from await_result (the await result IS the branch value)
+                if (
+                  branch.remainingExprs.length === 0 &&
+                  branchTargetAssignmentCode
+                ) {
+                  emitter.emitLine(
+                    `          ${branchTargetAssignmentCode} = sm->await_result_${prevAwait.index};`
+                  );
                 }
 
                 if (foundAdditionalAwait && segment.awaitPoint) {
@@ -610,6 +638,8 @@ export function generateAsyncBlockResumeFunction(
               `      sm->${fieldName} = sm->await_result_${prevAwait.index};`
             );
           }
+          // Note: targetAssignmentCode is handled inside each branch's remaining
+          // expression generation (the last expression is assigned to the target)
 
           emitter.emitLine(``);
         }

@@ -65,6 +65,7 @@ export interface FunctionGenerationContext extends CodeGenContext {
         deferredDropExpressions?: Expr[]; // Drop expressions for the branch's begin block
       }>;
       targetVariableId?: string; // Variable that receives the cond result (if any)
+      targetAssignmentCode?: string; // C code for the assignment target (for `= (target, cond/match(...))`)
       condBranchFieldIndex?: number; // The cond_branch_X index to use in the switch (for continuation states)
       // When a nested cond stores its continuation at the same key as an outer cond's remaining code,
       // the outer code goes into chainedBranches (processed as a separate switch AFTER the nested cond's switch)

@@ -21,7 +21,8 @@ import { TokenType } from "../../token";
 import type { EnumType } from "../../types/definitions";
 import { isEnumType } from "../../types/guards";
 import { isTempVariableName } from "../../utils";
-import { isBooleanValue, isNumberValue, type Value } from "../../value";
+import { isBooleanValue } from "../../value";
+import { generateComptimeValue } from "../exprs/comptime-value";
 import { generateExpr } from "../exprs/expr";
 import type { FunctionGenerationContext } from "../functions/context";
 import {
@@ -412,6 +413,46 @@ export function generateAwaitExpression(
     }
   }
 
+  // Handle assignment with cond/match containing await: target = cond/match(... await ...)
+  if (expr.tag === ExprTag.FnCall && exprIsFunctionCallOf(expr, "=")) {
+    const targetExpr = expr.args[0];
+    const valueExpr = expr.args[1];
+
+    if (targetExpr && valueExpr) {
+      if (
+        valueExpr.tag === ExprTag.FnCall &&
+        exprIsFunctionCallOf(valueExpr, BuiltinKeywords.cond)
+      ) {
+        const targetCode = generateExpr(targetExpr, indent, context);
+        generateCondWithAwait(
+          valueExpr,
+          awaitPoint,
+          indent,
+          context,
+          undefined,
+          targetCode || undefined
+        );
+        return;
+      }
+
+      if (
+        valueExpr.tag === ExprTag.FnCall &&
+        exprIsFunctionCallOf(valueExpr, BuiltinKeywords.match)
+      ) {
+        const targetCode = generateExpr(targetExpr, indent, context);
+        generateMatchWithAwait(
+          valueExpr,
+          awaitPoint,
+          indent,
+          context,
+          undefined,
+          targetCode || undefined
+        );
+        return;
+      }
+    }
+  }
+
   // Handle cond expression with await in branches
   if (
     expr.tag === ExprTag.FnCall &&
@@ -461,7 +502,8 @@ function generateCondWithAwait(
   awaitPoint: AwaitPoint,
   indent: string,
   context: FunctionGenerationContext,
-  targetVariableId?: string // Variable that receives the cond result
+  targetVariableId?: string, // Variable that receives the cond result
+  targetAssignmentCode?: string // C code for assignment target (for `= (target, cond(...))`)
 ): void {
   const emitter = context.emitter;
 
@@ -628,6 +670,7 @@ function generateCondWithAwait(
     context.condBranchInfo.set(awaitPoint.index, {
       branches: branchesWithAwait,
       targetVariableId,
+      targetAssignmentCode,
     });
     return;
   }
@@ -790,6 +833,7 @@ function generateCondWithAwait(
   context.condBranchInfo.set(awaitPoint.index, {
     branches: branchesWithAwait,
     targetVariableId,
+    targetAssignmentCode,
   });
 }
 
@@ -830,7 +874,8 @@ function generateMatchWithAwait(
   awaitPoint: AwaitPoint,
   indent: string,
   context: FunctionGenerationContext,
-  targetVariableId?: string
+  targetVariableId?: string,
+  targetAssignmentCode?: string
 ): void {
   const emitter = context.emitter;
 
@@ -871,7 +916,8 @@ function generateMatchWithAwait(
       awaitPoint,
       indent,
       context,
-      targetVariableId
+      targetVariableId,
+      targetAssignmentCode
     );
     return;
   }
@@ -1020,6 +1066,10 @@ function generateMatchWithAwait(
             if (code) {
               emitter.emitLine(`${indent}  sm->${fieldName} = ${code};`);
             }
+          } else if (targetAssignmentCode) {
+            if (code) {
+              emitter.emitLine(`${indent}  ${targetAssignmentCode} = ${code};`);
+            }
           } else if (
             code &&
             caseBody.$ &&
@@ -1083,6 +1133,10 @@ function generateMatchWithAwait(
             const fieldName = sanitizeForCIdentifier(`var_${targetVariableId}`);
             if (code) {
               emitter.emitLine(`${indent}  sm->${fieldName} = ${code};`);
+            }
+          } else if (targetAssignmentCode) {
+            if (code) {
+              emitter.emitLine(`${indent}  ${targetAssignmentCode} = ${code};`);
             }
           } else if (
             code &&
@@ -1249,6 +1303,10 @@ function generateMatchWithAwait(
           if (code) {
             emitter.emitLine(`${indent}    sm->${fieldName} = ${code};`);
           }
+        } else if (targetAssignmentCode) {
+          if (code) {
+            emitter.emitLine(`${indent}    ${targetAssignmentCode} = ${code};`);
+          }
         } else if (
           code &&
           caseBody.$ &&
@@ -1270,17 +1328,6 @@ function generateMatchWithAwait(
 /**
  * Gets a C literal from a compile-time value (for primitive match patterns).
  */
-function getCLiteralFromValue(value: Value | undefined): string | undefined {
-  if (value === undefined) return undefined;
-  if (isNumberValue(value)) {
-    return String(value.value);
-  }
-  if (isBooleanValue(value)) {
-    return value.value ? "true" : "false";
-  }
-  return undefined;
-}
-
 /**
  * Helper function to check if an expression is an or-pattern (using `|`)
  */
@@ -1313,7 +1360,8 @@ function generatePrimitiveMatchWithAwait(
   awaitPoint: AwaitPoint,
   indent: string,
   context: FunctionGenerationContext,
-  targetVariableId?: string
+  targetVariableId?: string,
+  targetAssignmentCode?: string
 ): void {
   const emitter = context.emitter;
 
@@ -1348,8 +1396,8 @@ function generatePrimitiveMatchWithAwait(
       const patternValues = caseValue.$?.primitivePatternValues;
       if (patternValues && patternValues.length > 0) {
         for (const value of patternValues) {
-          const cLiteral = getCLiteralFromValue(value);
-          if (cLiteral !== undefined) {
+          if (value !== undefined) {
+            const cLiteral = generateComptimeValue(value, context);
             emitter.emitLine(`${indent}  case ${cLiteral}:`);
           }
         }
@@ -1358,8 +1406,8 @@ function generatePrimitiveMatchWithAwait(
         const flattenedPatterns = flattenOrPatternExpr(caseValue);
         for (const patternExpr of flattenedPatterns) {
           const patternValue = patternExpr.$?.value;
-          const cLiteral = getCLiteralFromValue(patternValue);
-          if (cLiteral !== undefined) {
+          if (patternValue !== undefined) {
+            const cLiteral = generateComptimeValue(patternValue, context);
             emitter.emitLine(`${indent}  case ${cLiteral}:`);
           }
         }
@@ -1392,6 +1440,10 @@ function generatePrimitiveMatchWithAwait(
         if (code) {
           emitter.emitLine(`${indent}    sm->${fieldName} = ${code};`);
         }
+      } else if (targetAssignmentCode) {
+        if (code) {
+          emitter.emitLine(`${indent}    ${targetAssignmentCode} = ${code};`);
+        }
       } else if (
         code &&
         caseBody.$ &&
@@ -1418,6 +1470,7 @@ function generatePrimitiveMatchWithAwait(
   context.condBranchInfo.set(awaitPoint.index, {
     branches: branchesWithAwait,
     targetVariableId,
+    targetAssignmentCode,
   });
 }
 
