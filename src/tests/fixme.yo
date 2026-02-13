@@ -3,30 +3,21 @@ Async :: import "std/async";
 
 main :: (fn() -> unit) {
   async {
-    outer_counter := Box(i32)(0);
-    outer_sum := Box(i32)(0);
+    counter := Box(i32)(0);
+    result := Box(i32)(0);
 
     task := async {
-      while runtime(outer_counter.* < i32(3)), {
-        inner_counter := Box(i32)(0);
-
-        while runtime(true), {
-          inner_counter.* = (inner_counter.* + 1);
-          await Async.yield();
-          cond(
-            (inner_counter.* >= i32(2)) => { break; },
-            true => ()
-          );
-        };
-
-        outer_sum.* = (outer_sum.* + inner_counter.*);
-        outer_counter.* = (outer_counter.* + 1);
+      while runtime(counter.* < i32(1)), {
+        counter.* = (counter.* + 1);
+        temp := Box(i32)(42);
+        await Async.yield();
+        result.* = temp.*;
       };
     };
 
     await task;
-    assert(outer_counter.* == i32(3), "outer loop should complete 3 rounds");
-    assert(outer_sum.* == i32(6), "inner break at 2 contributes 2 per round");
+    assert(counter.* == i32(1), "loop runs exactly once");
+    assert(result.* == i32(42), "result from single iteration");
   };
 };
 export main;
