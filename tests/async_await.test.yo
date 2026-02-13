@@ -1445,3 +1445,93 @@ test "Test cond non-await path then code after cond in async", {
     assert(after_cond.* == i32(12), "code after cond should run: 2+10=12");
   };
 };
+
+// ---------------------------------------------------------------------------
+// 52. Await of async subtask inside while loop
+//     Each iteration creates and awaits a subtask that captures RC values.
+//     Tests proper dup of captured RC values when creating async blocks
+//     inside a state machine (while loop body).
+// ---------------------------------------------------------------------------
+test "Test await of async subtask inside while loop", {
+  async {
+    total := Box(i32)(0);
+    counter := Box(i32)(0);
+
+    task := async {
+      while runtime(counter.* < i32(3)), {
+        counter.* = (counter.* + 1);
+        val := counter.*;
+
+        subtask := async {
+          await Async.yield();
+          total.* = (total.* + val);
+        };
+
+        await subtask;
+      };
+    };
+
+    await task;
+    assert(counter.* == i32(3), "outer loop should run 3 times");
+    assert(total.* == i32(6), "total should be 1+2+3 = 6");
+  };
+};
+
+// ---------------------------------------------------------------------------
+// 53. Match with await on primitive integer type
+//     Tests match expression with integer values containing await in branches.
+// ---------------------------------------------------------------------------
+test "Test match with await on primitive integer", {
+  async {
+    result := Box(i32)(0);
+
+    task := async {
+      x := i32(2);
+      result.* = match(x,
+        1 => {
+          await Async.yield();
+          i32(10);
+        },
+        2 => {
+          await Async.yield();
+          i32(20);
+        },
+        _ => {
+          i32(30);
+        }
+      );
+    };
+
+    await task;
+    assert(result.* == i32(20), "match should take branch 2 and return 20");
+  };
+};
+
+// ---------------------------------------------------------------------------
+// 54. Match with await on primitive integer - default branch
+//     Tests that the default/wildcard branch with await works correctly.
+// ---------------------------------------------------------------------------
+test "Test match with await on primitive integer default branch", {
+  async {
+    result := Box(i32)(0);
+
+    task := async {
+      x := i32(99);
+      result.* = match(x,
+        1 => {
+          i32(10);
+        },
+        2 => {
+          i32(20);
+        },
+        _ => {
+          await Async.yield();
+          i32(30);
+        }
+      );
+    };
+
+    await task;
+    assert(result.* == i32(30), "match should take default branch and return 30");
+  };
+};

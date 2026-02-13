@@ -131,10 +131,11 @@ export function generateAsyncBlockResumeFunction(
   const childType = futureModuleType.isFuture.outputType;
   const isUnitResult = isUnitType(childType);
 
-  // Clear condBranchInfo for this async block to prevent branch info
-  // from other async blocks (or outer scopes) from leaking in.
-  // Each async block should only see its own branch information.
+  // Clear condBranchInfo and whileLoopInfo for this async block to prevent
+  // data from other async blocks (or outer scopes) from leaking in.
+  // Each async block should only see its own branch/loop information.
   context.condBranchInfo = new Map();
+  context.whileLoopInfo = new Map();
 
   // Initialize the while loop index counter for allocating unique indices
   // to outer while loops in nested while-with-await scenarios.

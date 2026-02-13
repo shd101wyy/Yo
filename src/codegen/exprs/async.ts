@@ -29,7 +29,7 @@ import {
 import type { FunctionGenerationContext } from "../functions/context";
 import { getTypeString, getVariableTypeString } from "../utils";
 import { generateAtom } from "./atom";
-import { getDropFunctionForType } from "./drop-dup";
+import { getDropFunctionForType, getDupFunctionForType } from "./drop-dup";
 import { generateExpr } from "./expr";
 
 /**
@@ -224,7 +224,23 @@ export function generateAsyncBlock(
       })
       .join(", ");
 
-    const captureStructLiteral = `(${captureStructName}){${captureFields}}`;
+    let captureStructLiteral = `(${captureStructName}){${captureFields}}`;
+
+    // When in a special context (state machine/closure), deferredDupExpressions are skipped
+    // because they reference variables by original names that don't exist in the special context.
+    // But we still need to dup RC fields in the capture struct to maintain proper ref counts.
+    // Use the capture struct type's dup function to dup all RC fields at once.
+    if (
+      inSpecialContext &&
+      expr.$?.deferredDupExpressions &&
+      expr.$.deferredDupExpressions.length > 0
+    ) {
+      const dupFnName = getDupFunctionForType(captureType, context);
+      if (dupFnName) {
+        captureStructLiteral = `${dupFnName}(${captureStructLiteral})`;
+      }
+    }
+
     const resultVar = expr.$?.variableName || `async_result`;
     const constructorCall = `${constructorName}(${captureStructLiteral})`;
 

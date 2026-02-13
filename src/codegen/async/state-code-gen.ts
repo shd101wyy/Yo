@@ -10,18 +10,18 @@ import type { AwaitPoint } from "../../evaluator/async/await-analysis";
 import {
   BuiltinFunctions,
   BuiltinKeywords,
-  type Expr,
   ExprTag,
   exprIsAtom,
   exprIsAtomOf,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
+  type Expr,
 } from "../../expr";
 import { TokenType } from "../../token";
 import type { EnumType } from "../../types/definitions";
 import { isEnumType } from "../../types/guards";
 import { isTempVariableName } from "../../utils";
-import { isBooleanValue } from "../../value";
+import { isBooleanValue, isNumberValue, type Value } from "../../value";
 import { generateExpr } from "../exprs/expr";
 import type { FunctionGenerationContext } from "../functions/context";
 import {
@@ -857,8 +857,29 @@ function generateMatchWithAwait(
   const matchedValueCode = generateExpr(matchedValueExpr, indent, context);
   const matchValueType = matchedValueExpr.$?.type;
 
-  if (!matchValueType || !isEnumType(matchValueType)) {
-    emitter.emitLine(`${indent}// Error: match requires an enum type`);
+  if (!matchValueType) {
+    emitter.emitLine(`${indent}// Error: match value has no type`);
+    return;
+  }
+
+  // Check if this is a primitive match (integer, bool) via the isPrimitiveMatch flag
+  if (matchExpr.$?.isPrimitiveMatch) {
+    generatePrimitiveMatchWithAwait(
+      matchExpr,
+      cases,
+      matchedValueCode,
+      awaitPoint,
+      indent,
+      context,
+      targetVariableId
+    );
+    return;
+  }
+
+  if (!isEnumType(matchValueType)) {
+    emitter.emitLine(
+      `${indent}// Error: match requires an enum type or primitive type`
+    );
     return;
   }
 
@@ -1247,6 +1268,160 @@ function generateMatchWithAwait(
 }
 
 /**
+ * Gets a C literal from a compile-time value (for primitive match patterns).
+ */
+function getCLiteralFromValue(value: Value | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  if (isNumberValue(value)) {
+    return String(value.value);
+  }
+  if (isBooleanValue(value)) {
+    return value.value ? "true" : "false";
+  }
+  return undefined;
+}
+
+/**
+ * Helper function to check if an expression is an or-pattern (using `|`)
+ */
+function isOrPatternExpr(expr: Expr): boolean {
+  if (!exprIsFunctionCall(expr)) return false;
+  return exprIsFunctionCallOf(expr, "|", 2);
+}
+
+/**
+ * Helper function to flatten an or-pattern into a list of individual patterns
+ */
+function flattenOrPatternExpr(expr: Expr): Expr[] {
+  if (!isOrPatternExpr(expr)) {
+    return [expr];
+  }
+  if (expr.tag !== ExprTag.FnCall) return [expr];
+  const left = expr.args[0]!;
+  const right = expr.args[1]!;
+  return [...flattenOrPatternExpr(left), ...flattenOrPatternExpr(right)];
+}
+
+/**
+ * Generates async-aware code for a primitive match (integer, bool) containing await in branches.
+ * Similar to generateCondWithAwait but uses switch/case for primitive pattern matching.
+ */
+function generatePrimitiveMatchWithAwait(
+  matchExpr: Expr,
+  cases: Expr[],
+  matchedValueCode: string,
+  awaitPoint: AwaitPoint,
+  indent: string,
+  context: FunctionGenerationContext,
+  targetVariableId?: string
+): void {
+  const emitter = context.emitter;
+
+  // Store branch info for later generation
+  const branchesWithAwait: Array<{
+    index: number;
+    value: Expr;
+    hasAwait: boolean;
+    remainingExprs?: Expr[];
+    deferredDropExpressions?: Expr[];
+  }> = [];
+
+  emitter.emitLine(`${indent}switch (${matchedValueCode}) {`);
+
+  for (let i = 0; i < cases.length; i++) {
+    const caseExpr = cases[i]!;
+    if (
+      !exprIsFunctionCall(caseExpr) ||
+      !exprIsFunctionCallOf(caseExpr, "=>", 2)
+    ) {
+      continue;
+    }
+
+    const caseValue = caseExpr.args[0]!;
+    const caseBody = caseExpr.args[1]!;
+
+    // Check for wildcard pattern "_"
+    if (exprIsAtomOf(caseValue, "_")) {
+      emitter.emitLine(`${indent}  default:`);
+    } else {
+      // Get pattern values from the or-pattern or single pattern
+      const patternValues = caseValue.$?.primitivePatternValues;
+      if (patternValues && patternValues.length > 0) {
+        for (const value of patternValues) {
+          const cLiteral = getCLiteralFromValue(value);
+          if (cLiteral !== undefined) {
+            emitter.emitLine(`${indent}  case ${cLiteral}:`);
+          }
+        }
+      } else {
+        // Fallback: try to get values from flattened pattern expressions
+        const flattenedPatterns = flattenOrPatternExpr(caseValue);
+        for (const patternExpr of flattenedPatterns) {
+          const patternValue = patternExpr.$?.value;
+          const cLiteral = getCLiteralFromValue(patternValue);
+          if (cLiteral !== undefined) {
+            emitter.emitLine(`${indent}  case ${cLiteral}:`);
+          }
+        }
+      }
+    }
+
+    emitter.emitLine(
+      `${indent}    sm->cond_branch_${awaitPoint.index} = ${i};`
+    );
+
+    if (branchHasAwait(caseBody)) {
+      const remainingExprs = generateCondBranchWithAwait(
+        caseBody,
+        awaitPoint,
+        indent + "    ",
+        context
+      );
+
+      branchesWithAwait.push({
+        index: i,
+        value: caseBody,
+        hasAwait: true,
+        remainingExprs,
+        deferredDropExpressions: caseBody.$?.deferredDropExpressions,
+      });
+    } else {
+      const code = generateExpr(caseBody, indent + "    ", context);
+      if (targetVariableId) {
+        const fieldName = sanitizeForCIdentifier(`var_${targetVariableId}`);
+        if (code) {
+          emitter.emitLine(`${indent}    sm->${fieldName} = ${code};`);
+        }
+      } else if (
+        code &&
+        caseBody.$ &&
+        !isTempVariableName(caseBody.$.env.modulePath, code)
+      ) {
+        emitter.emitLine(`${indent}    ${code};`);
+      }
+      branchesWithAwait.push({
+        index: i,
+        value: caseBody,
+        hasAwait: false,
+      });
+    }
+
+    emitter.emitLine(`${indent}    break;`);
+  }
+
+  emitter.emitLine(`${indent}}`);
+
+  // Store branch information in context for resume state generation
+  if (!context.condBranchInfo) {
+    context.condBranchInfo = new Map();
+  }
+  context.condBranchInfo.set(awaitPoint.index, {
+    branches: branchesWithAwait,
+    targetVariableId,
+  });
+}
+
+/**
  * Generates code for a cond branch that contains an await.
  * The branch value should be a begin block with await inside.
  * Returns the expressions that come AFTER the await, to be executed in the resume state.
@@ -1591,13 +1766,15 @@ function generateWhileBodyWithAwait(
     // Standalone await
     const futureExpr = awaitExpr.args[0];
     if (futureExpr) {
-      const futureCode = generateExpr(futureExpr, indent, context);
-      emitter.emitLine(
-        `${indent}// Store Future for await ${awaitPoint.index} (while loop body)`
-      );
-      emitter.emitLine(
-        `${indent}sm->await_future_${awaitPoint.index} = ${futureCode};`
-      );
+      if (awaitPoint.futureVariableId === undefined) {
+        const futureCode = generateExpr(futureExpr, indent, context);
+        emitter.emitLine(
+          `${indent}// Store Future for await ${awaitPoint.index} (while loop body)`
+        );
+        emitter.emitLine(
+          `${indent}sm->await_future_${awaitPoint.index} = ${futureCode};`
+        );
+      }
     }
   } else if (
     exprIsFunctionCall(awaitExpr) &&

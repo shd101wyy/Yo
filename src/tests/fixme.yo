@@ -3,21 +3,27 @@ Async :: import "std/async";
 
 main :: (fn() -> unit) {
   async {
+    total := Box(i32)(0);
     counter := Box(i32)(0);
-    result := Box(i32)(0);
 
     task := async {
-      while runtime(counter.* < i32(1)), {
+      while runtime(counter.* < i32(3)), {
         counter.* = (counter.* + 1);
-        temp := Box(i32)(42);
-        await Async.yield();
-        result.* = temp.*;
+        val := counter.*;
+
+        subtask := async {
+          await Async.yield();
+          total.* = (total.* + val);
+        };
+
+        await subtask;
       };
     };
 
     await task;
-    assert(counter.* == i32(1), "loop runs exactly once");
-    assert(result.* == i32(42), "result from single iteration");
+    assert(counter.* == i32(3), "outer loop should run 3 times");
+    assert(total.* == i32(6), "total should be 1+2+3 = 6");
+    printf("Subtask in while loop passed: counter=%d total=%d\n", counter.*, total.*);
   };
 };
 export main;
