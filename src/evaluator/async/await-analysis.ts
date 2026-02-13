@@ -419,6 +419,29 @@ function walkExprForAwaits(
       }
 
       // Recursively walk the function and arguments, passing current expr as parent
+      // IMPORTANT: Do NOT recurse into nested async block bodies.
+      // A nested async block (e.g., `task := async { await(Async.yield()); ... }`) has its OWN
+      // await analysis. Walking into its body would incorrectly attribute the inner async's
+      // await points to the outer async, causing state machine segment misalignment.
+      if (exprIsFunctionCallOf(expr, BuiltinFunctions.async)) {
+        // For nested async blocks, only walk deferred dup/drop expressions
+        // (which reference outer-scope variables for the capture struct),
+        // but skip the body argument (args[0]).
+        if (expr.$?.deferredDupExpressions) {
+          for (const dupExpr of expr.$.deferredDupExpressions) {
+            walkExprForAwaits(
+              dupExpr,
+              awaitPoints,
+              capturedVariables,
+              nameFrameToOriginalId,
+              variableIdRemapping,
+              expr
+            );
+          }
+        }
+        break;
+      }
+
       walkExprForAwaits(
         expr.func,
         awaitPoints,

@@ -168,6 +168,10 @@ export function containsAwaitExpr(expr: Expr, awaitExpr: Expr): boolean {
 
   switch (expr.tag) {
     case ExprTag.FnCall:
+      // Do NOT recurse into nested async blocks - their awaits belong to the inner async
+      if (exprIsFunctionCallOf(expr, BuiltinFunctions.async)) {
+        return false;
+      }
       if (containsAwaitExpr(expr.func, awaitExpr)) {
         return true;
       }
@@ -1561,6 +1565,10 @@ export function exprContainsAwait(expr: Expr): boolean {
   }
 
   if (expr.tag === ExprTag.FnCall) {
+    // Do NOT recurse into nested async blocks - their awaits belong to the inner async
+    if (exprIsFunctionCallOf(expr, BuiltinFunctions.async)) {
+      return false;
+    }
     if (exprContainsAwait(expr.func)) {
       return true;
     }

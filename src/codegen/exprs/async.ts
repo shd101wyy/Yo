@@ -825,7 +825,14 @@ export function generateDeferredAsyncBlocks(
 
   emitter.emitLine(`// Deferred async block implementations`);
 
-  for (const asyncBlockInfo of context.deferredAsyncBlocks) {
+  // Use index-based loop because generating resume functions for outer async blocks
+  // may discover nested async blocks (e.g., `async { task := async { ... }; await task; }`)
+  // which get pushed to deferredAsyncBlocks during iteration.
+  let i = 0;
+  while (i < context.deferredAsyncBlocks.length) {
+    const asyncBlockInfo = context.deferredAsyncBlocks[i]!;
+    const prevLength = context.deferredAsyncBlocks.length;
+
     const {
       bodyExpr,
       asyncBlockId,
@@ -883,6 +890,27 @@ export function generateDeferredAsyncBlocks(
     );
 
     emitter.emitLine(``);
+
+    // If new async blocks were discovered during resume function generation
+    // (nested async blocks), emit their struct definitions now before processing them
+    if (context.deferredAsyncBlocks.length > prevLength) {
+      const newBlocks = context.deferredAsyncBlocks.slice(prevLength);
+      for (const newBlock of newBlocks) {
+        emitAsyncBlockStructDefinition(
+          {
+            asyncBlockId: newBlock.asyncBlockId,
+            structName: newBlock.structName,
+            resultType: newBlock.resultType,
+            resultTypeCName: newBlock.resultTypeCName,
+            captureType: newBlock.captureType,
+            analysis: newBlock.analysis,
+          },
+          context
+        );
+      }
+    }
+
+    i++;
   }
 }
 
