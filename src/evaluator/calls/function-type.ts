@@ -49,10 +49,9 @@ export function createFunctionBodyEvaluationContext(
   };
 
   // Create captured variables map for tracking variable captures
-  // This is always created since we determine closure behavior from context
-  const capturedVariables = context.capturedVariables
-    ? context.capturedVariables
-    : new Map<string, CapturedVariableInfo>();
+  // Always create a fresh map for each function body to avoid contaminating
+  // the caller's captured variables map (e.g., an async block's capture map)
+  const capturedVariables = new Map<string, CapturedVariableInfo>();
 
   const evaluationContext: EvaluatorContext = {
     ...context,

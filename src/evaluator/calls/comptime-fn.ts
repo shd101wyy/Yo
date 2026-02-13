@@ -195,9 +195,7 @@ export function evaluateComptimeFunctionCall({
           evaluationEnv: calleeEnv,
         },
         isEvaluatingLoopBody: undefined, // Clear loop body context for function body
-        capturedVariables: context.capturedVariables
-          ? context.capturedVariables
-          : undefined,
+        capturedVariables: undefined,
         // Only set isExecuting=true if we're not in validation mode
         isExecuting: context.isValidatingFunctionDefinition ? false : true,
         functionReturnImplConcreteType: [], // Fresh array for each call
