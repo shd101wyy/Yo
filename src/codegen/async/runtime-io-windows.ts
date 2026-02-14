@@ -507,6 +507,15 @@ static yo_io_future_t* __yo_async_read_start(int32_t fd, void* buffer, uint32_t 
     return future;
   }
 
+  DWORD handle_type = GetFileType(handle);
+  if (handle_type == FILE_TYPE_PIPE || handle_type == FILE_TYPE_CHAR) {
+    (void)offset;
+    int result = _read(fd, buffer, (unsigned int)size);
+    future->result = (result < 0) ? -errno : result;
+    atomic_store(&future->state, -1);
+    return future;
+  }
+
   __yo_win_associate_handle(handle);
 
   yo_win_overlapped_t* ov = __yo_win_alloc_overlapped(future, handle, offset);
@@ -549,6 +558,15 @@ static yo_io_future_t* __yo_async_write_start(int32_t fd, const void* buffer, ui
   HANDLE handle = (HANDLE)_get_osfhandle(fd);
   if (handle == INVALID_HANDLE_VALUE) {
     future->result = -EBADF;
+    atomic_store(&future->state, -1);
+    return future;
+  }
+
+  DWORD handle_type = GetFileType(handle);
+  if (handle_type == FILE_TYPE_PIPE || handle_type == FILE_TYPE_CHAR) {
+    (void)offset;
+    int result = _write(fd, buffer, (unsigned int)size);
+    future->result = (result < 0) ? -errno : result;
     atomic_store(&future->state, -1);
     return future;
   }
@@ -1108,7 +1126,7 @@ static yo_io_future_t* __yo_async_dup2_start(int32_t oldfd, int32_t newfd) {
   atomic_init(&future->continuation_sm, NULL);
 
   int result = _dup2(oldfd, newfd);
-  future->result = (result < 0) ? -errno : result;
+  future->result = (result < 0) ? -errno : newfd;
   atomic_init(&future->state, -1);
   return future;
 }
@@ -1144,7 +1162,7 @@ static int32_t __yo_sync_dup(int32_t oldfd) {
 
 static int32_t __yo_sync_dup2(int32_t oldfd, int32_t newfd) {
   int result = _dup2(oldfd, newfd);
-  return (result < 0) ? -errno : result;
+  return (result < 0) ? -errno : newfd;
 }
 
 static int64_t __yo_sync_lseek(int32_t fd, int64_t offset, int32_t whence) {
@@ -2942,6 +2960,16 @@ static int32_t __yo_sync_lutime(const char* path, int64_t atime_sec, int64_t ati
   return ok ? 0 : -__yo_win_last_error_to_errno();
 }
 
+typedef struct {
+  uint64_t type;
+  uint64_t bsize;
+  uint64_t blocks;
+  uint64_t bfree;
+  uint64_t bavail;
+  uint64_t files;
+  uint64_t ffree;
+} yo_win_statfs_t;
+
 static int32_t __yo_sync_statfs(const char* path, void* statfsbuf) {
   wchar_t* wpath = __yo_win_utf8_to_wide(path);
   if (!wpath) return -__yo_win_last_error_to_errno();
@@ -2967,16 +2995,6 @@ static int32_t __yo_sync_statfs(const char* path, void* statfsbuf) {
   fs->ffree = 0;
   return 0;
 }
-
-typedef struct {
-  uint64_t type;
-  uint64_t bsize;
-  uint64_t blocks;
-  uint64_t bfree;
-  uint64_t bavail;
-  uint64_t files;
-  uint64_t ffree;
-} yo_win_statfs_t;
 
 static yo_io_future_t* __yo_async_statfs_start(const char* path, void* statfsbuf) {
   __yo_io_init();
