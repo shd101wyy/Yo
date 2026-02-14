@@ -1,5 +1,5 @@
 open import "std/libc/stdio";
-Async :: import "std/async";
+{ yield } :: import "std/async";
 
 // ---------------------------------------------------------------------------
 // 1. Basic eager async – verify interleaved execution
@@ -14,7 +14,7 @@ test "Test eager async", {
     c := Box(i32)(10);
 
     b.* = (b.* + 1);
-    await Async.yield();
+    await yield();
 
     printf("Task completed %d\n", b.*);
     assert(b.* == 2, "b should be 2 after main incremented");
@@ -37,7 +37,7 @@ test "Test async function", {
     c := Box(i32)(10);
 
     b.* = (b.* + 1);
-    await Async.yield();
+    await yield();
 
     printf("Task completed %d\n", b.*);
     assert(b.* == 2, "b should be 2");
@@ -63,15 +63,15 @@ test "Test multiple sequential awaits", {
   task := async {
     counter.* = (counter.* + 1);
     assert(counter.* == 1, "after first increment");
-    await Async.yield();
+    await yield();
 
     counter.* = (counter.* + 1);
     assert(counter.* == 2, "after second increment");
-    await Async.yield();
+    await yield();
 
     counter.* = (counter.* + 1);
     assert(counter.* == 3, "after third increment");
-    await Async.yield();
+    await yield();
 
     counter.* = (counter.* + 1);
     assert(counter.* == 4, "after fourth increment");
@@ -90,7 +90,7 @@ test "Test cond with await in one branch - non-await path", {
     value := i32(42);
     cond(
       flag.* => {
-        await Async.yield();
+        await yield();
         result.* = i32(1);
       },
       true => {
@@ -118,7 +118,7 @@ test "Test cond with await in one branch - await path", {
       value := i32(99);
       cond(
         flag.* => {
-          await Async.yield();
+          await yield();
           result.* = value;
         },
         true => {
@@ -146,11 +146,11 @@ test "Test cond with await in both branches", {
     task := async {
       cond(
         flag.* => {
-          await Async.yield();
+          await yield();
           result.* = i32(10);
         },
         true => {
-          await Async.yield();
+          await yield();
           result.* = i32(20);
         }
       );
@@ -174,11 +174,11 @@ test "Test cond with await in both branches - false path", {
     task := async {
       cond(
         flag.* => {
-          await Async.yield();
+          await yield();
           result.* = i32(10);
         },
         true => {
-          await Async.yield();
+          await yield();
           result.* = i32(20);
         }
       );
@@ -220,7 +220,7 @@ test "Test early return from cond branch in async", {
       s := Box(i32)(100);
       cond(
         flag.* => {
-          await Async.yield();
+          await yield();
           result.* = s.*;
           return;
         },
@@ -250,7 +250,7 @@ test "Test early return from non-await cond branch in async", {
         return;
       },
       true => {
-        await Async.yield();
+        await yield();
       }
     );
     result.* = i32(999);
@@ -271,15 +271,15 @@ test "Test captured Box across multiple awaits", {
     assert(a.* == 1, "a should be 1");
     assert(b.* == 2, "b should be 2");
     assert(c.* == 3, "c should be 3");
-    await Async.yield();
+    await yield();
 
     a.* = (a.* + 10);
     assert(a.* == 11, "a should be 11 after increment");
-    await Async.yield();
+    await yield();
 
     b.* = (b.* + 20);
     assert(b.* == 22, "b should be 22 after increment");
-    await Async.yield();
+    await yield();
 
     c.* = (c.* + 30);
     assert(c.* == 33, "c should be 33 after increment");
@@ -295,7 +295,7 @@ test "Test captured Box across multiple awaits", {
 // ---------------------------------------------------------------------------
 test "Test async function return through cond", {
   compute :: (fn(flag : bool) -> Impl(Future(i32)))(async {
-    await Async.yield();
+    await yield();
     v := cond(
       flag => i32(42),
       true => i32(0)
@@ -318,7 +318,7 @@ test "Test while loop with await", {
     task := async {
       while runtime(counter.* < i32(5)), {
         counter.* = (counter.* + 1);
-        await Async.yield();
+        await yield();
         iterations.* = (iterations.* + 1);
       };
     };
@@ -340,7 +340,7 @@ test "Test while loop with break after await", {
     task := async {
       while runtime(true), {
         counter.* = (counter.* + 1);
-        await Async.yield();
+        await yield();
         cond(
           (counter.* >= i32(3)) => { break; },
           true => ()
@@ -366,7 +366,7 @@ test "Test nested cond with await", {
     task := async {
       cond(
         outer_flag.* => {
-          await Async.yield();
+          await yield();
           cond(
             inner_flag.* => {
               result.* = i32(42);
@@ -401,7 +401,7 @@ test "Test multiple async tasks interleaving", {
   task1 := async {
     assert(order.* == i32(0), "task1 starts first");
     order.* = i32(1);
-    await Async.yield();
+    await yield();
     assert(order.* == i32(2), "task1 resumes after task2 first half");
     order.* = i32(3);
   };
@@ -411,7 +411,7 @@ test "Test multiple async tasks interleaving", {
   task2 := async {
     assert(order.* == i32(1), "task2 starts after task1 yields");
     order.* = i32(2);
-    await Async.yield();
+    await yield();
     assert(order.* == i32(3), "task2 resumes after task1 completes");
     order.* = i32(4);
   };
@@ -427,7 +427,7 @@ test "Test async block drops local allocations", {
   task := async {
     a := Box(i32)(100);
     b := Box(i32)(200);
-    await Async.yield();
+    await yield();
     c := Box(i32)(300);
     assert(a.* == i32(100), "a should survive await");
     assert(b.* == i32(200), "b should survive await");
@@ -442,7 +442,7 @@ test "Test async function with multiple awaits and early return", {
   find_value :: (fn(target : i32) -> Impl(Future(i32)))(async {
     i := Box(i32)(0);
     while runtime(i.* < i32(10)), {
-      await Async.yield();
+      await yield();
       cond(
         (i.* == target) => {
           return i.*;
@@ -471,7 +471,7 @@ test "Test code after cond with await", {
       x := i32(10);
       cond(
         flag.* => {
-          await Async.yield();
+          await yield();
           x = i32(20);
         },
         true => ()
@@ -497,7 +497,7 @@ test "Test code after cond with await - non-await path", {
     x := i32(10);
     cond(
       flag.* => {
-        await Async.yield();
+        await yield();
         x = i32(20);
       },
       true => {
@@ -528,7 +528,7 @@ test "Test sequential conds with await", {
 
       cond(
         a_flag.* => {
-          await Async.yield();
+          await yield();
           x = (x + i32(10));
         },
         true => {
@@ -538,7 +538,7 @@ test "Test sequential conds with await", {
 
       cond(
         b_flag.* => {
-          await Async.yield();
+          await yield();
           x = (x + i32(100));
         },
         true => {
@@ -577,25 +577,25 @@ test "Test many sequential awaits", {
     counter := Box(i32)(0);
 
     task := async {
-      await Async.yield();
+      await yield();
       counter.* = (counter.* + 1);
-      await Async.yield();
+      await yield();
       counter.* = (counter.* + 1);
-      await Async.yield();
+      await yield();
       counter.* = (counter.* + 1);
-      await Async.yield();
+      await yield();
       counter.* = (counter.* + 1);
-      await Async.yield();
+      await yield();
       counter.* = (counter.* + 1);
-      await Async.yield();
+      await yield();
       counter.* = (counter.* + 1);
-      await Async.yield();
+      await yield();
       counter.* = (counter.* + 1);
-      await Async.yield();
+      await yield();
       counter.* = (counter.* + 1);
-      await Async.yield();
+      await yield();
       counter.* = (counter.* + 1);
-      await Async.yield();
+      await yield();
       counter.* = (counter.* + 1);
     };
 
@@ -619,7 +619,7 @@ test "Test continue in async while loop", {
       while runtime(counter.* < i32(10)), {
         i := counter.*;
         counter.* = (counter.* + 1);
-        await Async.yield();
+        await yield();
         cond(
           ((i % i32(2)) != i32(0)) => { continue; },
           true => ()
@@ -644,7 +644,7 @@ test "Test break from cond in async while loop", {
 
     task := async {
       while runtime(true), {
-        await Async.yield();
+        await yield();
         counter.* = (counter.* + 1);
         cond(
           (counter.* >= i32(5)) => { break; },
@@ -673,7 +673,7 @@ test "Test continue skips body after await", {
     task := async {
       while runtime(counter.* < i32(10)), {
         counter.* = (counter.* + 1);
-        await Async.yield();
+        await yield();
         cond(
           ((counter.* == i32(3)) || (counter.* == i32(7))) => { continue; },
           true => ()
@@ -700,7 +700,7 @@ test "Test break drops local allocations in async while loop", {
     task := async {
       while runtime(true), {
         temp := Box(i32)(counter.*);
-        await Async.yield();
+        await yield();
         counter.* = (temp.* + 1);
         cond(
           (counter.* >= i32(3)) => { break; },
@@ -727,7 +727,7 @@ test "Test continue drops local allocations in async while loop", {
       while runtime(counter.* < i32(6)), {
         counter.* = (counter.* + 1);
         temp := Box(i32)(counter.*);
-        await Async.yield();
+        await yield();
         cond(
           ((temp.* % i32(2)) == i32(0)) => { continue; },
           true => ()
@@ -759,7 +759,7 @@ test "Test break before first await in async while loop", {
           true => ()
         );
         counter.* = (temp.* + 1);
-        await Async.yield();
+        await yield();
         resumed.* = (resumed.* + 1);
       };
     };
@@ -788,7 +788,7 @@ test "Test continue before first await in async while loop", {
           ((snapshot.* % i32(2)) == i32(0)) => { continue; },
           true => ()
         );
-        await Async.yield();
+        await yield();
         odd_resumed.* = (odd_resumed.* + 1);
       };
     };
@@ -812,7 +812,7 @@ test "Test zero-iteration async while loop", {
     while runtime(false), {
       temp := Box(i32)(123);
       ran_body.* = true;
-      await Async.yield();
+      await yield();
       touched_after_await.* = (temp.* == i32(123));
     };
     done.* = true;
@@ -835,7 +835,7 @@ test "Test mixed continue then break in async while loop", {
     task := async {
       while runtime(true), {
         counter.* = (counter.* + 1);
-        await Async.yield();
+        await yield();
 
         cond(
           (counter.* <= i32(2)) => { continue; },
@@ -872,7 +872,7 @@ test "Test nested async while with inner break", {
 
         while runtime(true), {
           inner_counter.* = (inner_counter.* + 1);
-          await Async.yield();
+          await yield();
           cond(
             (inner_counter.* >= i32(2)) => { break; },
             true => ()
@@ -906,7 +906,7 @@ test "Test nested async while with inner continue", {
 
         while runtime(inner_counter.* < i32(4)), {
           inner_counter.* = (inner_counter.* + 1);
-          await Async.yield();
+          await yield();
           cond(
             (inner_counter.* == i32(2)) => { continue; },
             true => ()
@@ -936,7 +936,7 @@ test "Test match branches with continue and break in async loop", {
     task := async {
       while runtime(true), {
         counter.* = (counter.* + 1);
-        await Async.yield();
+        await yield();
 
         match(counter.*,
           (2 | 4) => { continue; },
@@ -969,7 +969,7 @@ test "Test loop-local and captured values with continue across await", {
       while runtime(counter.* < i32(5)), {
         loop_value := Box(i32)(counter.*);
         counter.* = (counter.* + 1);
-        await Async.yield();
+        await yield();
         cond(
           (loop_value.* == i32(2)) => { continue; },
           true => ()
@@ -998,7 +998,7 @@ test "Test early return inside loop after continue", {
     task := async {
       while runtime(i.* < i32(10)), {
         i.* = (i.* + 1);
-        await Async.yield();
+        await yield();
 
         cond(
           ((i.* % i32(2)) == i32(0)) => { continue; },
@@ -1041,7 +1041,7 @@ test "Test mixed pre-await break and post-await continue", {
         );
 
         counter.* = (temp.* + 1);
-        await Async.yield();
+        await yield();
 
         cond(
           (counter.* == i32(2)) => { continue; },
@@ -1081,7 +1081,7 @@ test "Test non-async inner while with break inside async while", {
           );
         };
 
-        await Async.yield();
+        await yield();
         total.* = (total.* + inner.*);
       };
     };
@@ -1116,7 +1116,7 @@ test "Test non-async inner while with continue inside async while", {
           inner_sum.* = (inner_sum.* + inner.*);
         };
 
-        await Async.yield();
+        await yield();
         sum.* = (sum.* + inner_sum.*);
       };
     };
@@ -1140,12 +1140,12 @@ test "Test sequential while-with-await loops", {
     task := async {
       while runtime(a.* < i32(3)), {
         a.* = (a.* + 1);
-        await Async.yield();
+        await yield();
       };
 
       while runtime(b.* < i32(4)), {
         b.* = (b.* + 1);
-        await Async.yield();
+        await yield();
       };
     };
 
@@ -1166,7 +1166,7 @@ test "Test while with await as last expression in body", {
     task := async {
       while runtime(counter.* < i32(5)), {
         counter.* = (counter.* + 1);
-        await Async.yield();
+        await yield();
       };
     };
 
@@ -1189,7 +1189,7 @@ test "Test single-iteration while-with-await", {
       while runtime(counter.* < i32(1)), {
         counter.* = (counter.* + 1);
         temp := Box(i32)(42);
-        await Async.yield();
+        await yield();
         result.* = temp.*;
       };
     };
@@ -1212,7 +1212,7 @@ test "Test code after while-with-await loop", {
     task := async {
       while runtime(counter.* < i32(3)), {
         counter.* = (counter.* + 1);
-        await Async.yield();
+        await yield();
       };
       result.* = (counter.* * i32(10));
     };
@@ -1236,7 +1236,7 @@ test "Test cond-with-await then while-with-await", {
     task := async {
       cond(
         flag.* => {
-          await Async.yield();
+          await yield();
           result.* = i32(10);
         },
         true => {
@@ -1246,7 +1246,7 @@ test "Test cond-with-await then while-with-await", {
 
       while runtime(counter.* < i32(3)), {
         counter.* = (counter.* + 1);
-        await Async.yield();
+        await yield();
       };
 
       result.* = (result.* + counter.*);
@@ -1270,12 +1270,12 @@ test "Test while-with-await then cond-with-await", {
     task := async {
       while runtime(counter.* < i32(3)), {
         counter.* = (counter.* + 1);
-        await Async.yield();
+        await yield();
       };
 
       cond(
         (counter.* == i32(3)) => {
-          await Async.yield();
+          await yield();
           result.* = i32(100);
         },
         true => {
@@ -1303,7 +1303,7 @@ test "Test while-with-await break on first iteration", {
       while runtime(true), {
         counter.* = (counter.* + 1);
         temp := Box(i32)(99);
-        await Async.yield();
+        await yield();
         assert(temp.* == i32(99), "temp should survive await");
         break;
       };
@@ -1333,7 +1333,7 @@ test "Test nested async while with code after outer loop", {
 
         while runtime(true), {
           inner_counter.* = (inner_counter.* + 1);
-          await Async.yield();
+          await yield();
           cond(
             (inner_counter.* >= i32(3)) => { break; },
             true => ()
@@ -1372,7 +1372,7 @@ test "Test multiple captured variables in nested while-with-await", {
         inner := Box(i32)(0);
         while runtime(true), {
           inner.* = (inner.* + 1);
-          await Async.yield();
+          await yield();
           cond(
             (inner.* >= i32(2)) => { break; },
             true => ()
@@ -1403,7 +1403,7 @@ test "Test while-with-await early break with local allocations", {
       while runtime(counter.* < i32(10)), {
         counter.* = (counter.* + 1);
         temp := Box(i32)(counter.* * counter.*);
-        await Async.yield();
+        await yield();
         sum.* = (sum.* + temp.*);
         cond(
           (counter.* >= i32(3)) => { break; },
@@ -1431,7 +1431,7 @@ test "Test cond non-await path then code after cond in async", {
     task := async {
       cond(
         flag.* => {
-          await Async.yield();
+          await yield();
           result.* = i32(1);
         },
         true => {
@@ -1463,7 +1463,7 @@ test "Test await of async subtask inside while loop", {
         val := counter.*;
 
         subtask := async {
-          await Async.yield();
+          await yield();
           total.* = (total.* + val);
         };
 
@@ -1489,11 +1489,11 @@ test "Test match with await on primitive integer", {
       x := i32(2);
       result.* = match(x,
         1 => {
-          await Async.yield();
+          await yield();
           i32(10)
         },
         2 => {
-          await Async.yield();
+          await yield();
           i32(20)
         },
         _ => i32(30)
@@ -1523,7 +1523,7 @@ test "Test match with await on primitive integer default branch", {
           i32(20)
         },
         _ => {
-          await Async.yield();
+          await yield();
           i32(30)
         }
       );

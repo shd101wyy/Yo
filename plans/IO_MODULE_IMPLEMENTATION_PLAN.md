@@ -67,7 +67,7 @@ The runtime has been refactored into 4 modules:
 | **symlink/link**            | ✅                    | ✅ (sync wrappers)   | ✅ (CreateSymbolicLinkW/CreateHardLinkW)             |
 | **fsync/fdatasync**         | ✅                    | ✅ (sync wrappers)   | ✅ (\_commit)                                        |
 | **ftruncate**               | ✅                    | ✅ (sync wrapper)    | ✅ (\_chsize_s)                                      |
-| **chmod/chown**             | ✅ (sync)             | ✅ (sync)            | ⚠️ (sync, chmod only)                                |
+| **chmod/chown**             | ✅ (sync)             | ✅ (sync)            | ✅ (sync, chmod only; chown returns -ENOSYS)         |
 | **readlink**                | ✅ (sync)             | ✅ (sync)            | ✅ (sync, GetFinalPathNameByHandleW)                 |
 | **dup/dup2/pipe**           | ✅ (sync)             | ✅ (sync)            | ✅ (sync)                                            |
 | **Socket ops**              | ✅                    | ✅ (dispatch_source) | ✅ (IOCP WSASend/WSARecv)                            |
@@ -76,12 +76,12 @@ The runtime has been refactored into 4 modules:
 | **access/realpath**         | ✅ (sync)             | ✅ (sync)            | ✅ (sync)                                            |
 | **utime**                   | ✅ (sync)             | ✅ (sync)            | ✅ (sync)                                            |
 | **mkdtemp/mkstemp**         | ✅ (sync)             | ✅ (sync)            | ✅ (sync)                                            |
-| **copyfile/sendfile**       | ✅ (sync)             | ✅ (sync)            | ⚠️ (copyfile only)                                   |
+| **copyfile/sendfile**       | ✅ (sync)             | ✅ (sync)            | ✅ (CopyFileW; sendfile emulated via read/write)     |
 | **statfs**                  | ✅ (sync)             | ✅ (sync)            | ✅ (GetDiskFreeSpaceEx)                              |
 | **DNS**                     | ✅ (sync)             | ✅ (sync)            | ✅ (sync)                                            |
-| **Signals**                 | ✅ (sync)             | ✅ (sync)            | ⚠️ (local handlers + SIGKILL/kill(0) support)        |
+| **Signals**                 | ✅ (sync)             | ✅ (sync)            | ✅ (local handlers + SIGKILL/kill(0) support)        |
 | **TTY**                     | ✅ (sync)             | ✅ (sync)            | ✅ (Console API)                                     |
-| **Unix sockets**            | ✅ (sockaddr_un)      | ✅ (sockaddr_un)     | ⚠️ (AF_UNIX Win10 1803+)                             |
+| **Unix sockets**            | ✅ (sockaddr_un)      | ✅ (sockaddr_un)     | ✅ (AF_UNIX Win10 1803+, sockaddr_un implemented)    |
 | **Process spawn**           | ✅ (posix_spawn)      | ✅ (posix_spawn)     | ✅ (CreateProcessW)                                  |
 | **fcntl**                   | ✅ (sync)             | ✅ (sync)            | ✅ (best-effort abstraction)                         |
 | **mmap**                    | ✅ (sync)             | ✅ (sync)            | ✅ (CreateFileMapping/MapViewOfFile)                 |
@@ -93,8 +93,8 @@ The runtime has been refactored into 4 modules:
 | **socketpair**              | ✅ (sync)             | ✅ (sync)            | ✅ (loopback emulation)                              |
 | **clock_gettime**           | ✅ (sync)             | ✅ (sync)            | ✅ (realtime FILETIME + monotonic QPC)               |
 | **uname/gethostname**       | ✅ (sync)             | ✅ (sync)            | ✅ (Winsock gethostname + uname emu)                 |
-| **umask**                   | ✅ (sync)             | ✅ (sync)            | ✅ (sync, \_umask)                                   |
-| **readv/writev**            | ✅ (sync)             | ✅ (sync)            | ✅ (sync emulation + WSA for sockets)                |
+| **umask**                   | ✅ (sync)             | ✅ (sync)            | ✅ (sync, custom emulation — CRT `_umask` broken)    |
+| **readv/writev**            | ✅ (sync)             | ✅ (sync)            | ✅ (Win32 ReadFile/WriteFile + WSA for sockets)      |
 | **fallocate**               | ✅ (sync)             | ✅ (sync)            | ✅ (sync, FileAllocationInfo)                        |
 | **fadvise/madvise**         | ✅ (sync)             | ✅ (sync)            | ✅ (sync, fadvise no-op + MADV_DONTNEED best-effort) |
 
@@ -751,7 +751,7 @@ free_addr :: (fn(addr: UnixAddr) -> unit)(...);
 **Implementation status:**
 
 - ✅ Implemented `std/io/unix.yo` with `socket_stream`, `socket_dgram`, `make_sockaddr_un`, `get_path`, `free_addr`, and socket ops wrappers.
-- ✅ Added `tests/io/unix.test.yo` (skips on Windows or when `sockaddr_un_size` is 0).
+- ✅ Added `tests/io/unix.test.yo` (all platforms including Windows).
 
 ---
 
@@ -1539,7 +1539,7 @@ std/io/
 
 - **Process management on Windows**: `CreateProcessW` has a very different API from `posix_spawn`/`fork+exec`. The runtime abstraction will normalize to a common interface: file path, argv array, envp array, and stdio fd redirections. Signal delivery via `kill()` is limited to `SIGKILL` → `TerminateProcess()` on Windows.
 
-- **Unix sockets on Windows**: `AF_UNIX` is supported since Windows 10 version 1803, but only filesystem-path sockets (no abstract sockets). The runtime currently stubs `sockaddr_un_size` to 0 on Windows — this needs to be implemented for Phase 8.
+- **Unix sockets on Windows**: `AF_UNIX` is supported since Windows 10 version 1803, but only filesystem-path sockets (no abstract sockets). The runtime implements `sockaddr_un_t` struct with `sun_family` and `sun_path[108]`, matching the Winsock2 layout. All 3 helper functions (`sockaddr_un_size`, `sockaddr_un_set_path`, `sockaddr_un_get_path`) are fully implemented.
 
 - **mmap on Windows**: Requires a two-step `CreateFileMappingW()` + `MapViewOfFile()` dance internally. The runtime will present a unified `mmap()`-style interface. Anonymous mappings use `INVALID_HANDLE_VALUE` as the file handle.
 
@@ -1576,3 +1576,58 @@ std/io/
   - Filesystem stats: statfs
   - Signals: signal_start, signal_stop, kill
   - TTY: tty_init, tty_set_mode, tty_reset_mode, tty_get_winsize, isatty
+
+---
+
+## C Runtime Stub Audit (February 2026)
+
+A comprehensive audit of all platform runtime files for stubs, no-ops, and minimal implementations.
+
+### Windows (`runtime-io-windows.ts`) — Stubs & Limitations
+
+| Function                   | Status            | Notes                                                                              |
+| -------------------------- | ----------------- | ---------------------------------------------------------------------------------- |
+| `__yo_sync_fadvise`        | Intentional no-op | No Windows equivalent; advisory-only API, returns 0                                |
+| `__yo_sync_madvise`        | Partial           | Only handles `MADV_DONTNEED` via `MEM_RESET`; other advice values silently ignored |
+| `__yo_sync_fchown`         | Returns `-ENOSYS` | Windows has no POSIX ownership model; returns 0 for no-change (-1,-1)              |
+| `__yo_sync_fchownat`       | Returns `-ENOSYS` | Same as fchown — no POSIX ownership on Windows                                     |
+| `__yo_sync_fcntl_getfl`    | Minimal           | Always returns 0 (blocking, no flags) regardless of actual state                   |
+| `__yo_statx_dev_minor`     | Hardcoded 0       | Windows `_stat64` doesn't split dev into major/minor                               |
+| `__yo_statx_blksize`       | Hardcoded 0       | Could compute via `GetDiskFreeSpace` but `_stat64` lacks this field                |
+| `__yo_statx_blocks`        | Hardcoded 0       | Could compute `(st_size + 511) / 512` but not currently done                       |
+| `__yo_process_term_signal` | Hardcoded 0       | Windows has no signal-based termination; intentional                               |
+| `__yo_kill`                | Partial           | Only supports signum 0 (existence check), 9 (SIGKILL), and local CRT signals       |
+| `__yo_sync_umask`          | Software-only     | Mask stored in static variable but never applied to file creation ops              |
+| `__yo_tty_get_mode`        | Ignores `fd`      | Always saves modes for STD_INPUT/STD_OUTPUT regardless of fd param                 |
+| `__yo_statfs` type         | Hardcoded 0       | Could query `GetVolumeInformationW` for filesystem type                            |
+| `__yo_statfs` files/ffree  | Hardcoded 0       | NTFS doesn't expose inode counts                                                   |
+
+### macOS (`runtime-io-macos.ts`) — Stubs & Limitations
+
+| Function                     | Status               | Notes                                                  |
+| ---------------------------- | -------------------- | ------------------------------------------------------ |
+| `__yo_sync_fadvise`          | Intentional no-op    | macOS has no `posix_fadvise`; advisory-only, returns 0 |
+| `__yo_async_fdatasync_start` | Delegates to fsync   | macOS lacks `fdatasync`; `fsync` is a correct superset |
+| `__yo_io_cleanup`            | Leaks dispatch queue | Intentional — only runs at process exit                |
+
+### Linux (`runtime-io-uring.ts`) — Stubs & Limitations
+
+| Function                                  | Status            | Notes                                                                                                                                                                    |
+| ----------------------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| All `!YO_HAS_LIBURING` fallbacks          | Abort stubs       | 29 functions print error + `abort()` when liburing is not installed                                                                                                      |
+| `!YO_HAS_LIBURING` sync helpers           | Missing           | `lseek`, `fallocate`, `fcntl_*`, `flock`, `mmap/*`, all `sockaddr_*` helpers, all `statx_*` extractors are missing from the no-liburing path — would cause linker errors |
+| `__yo_file_open/close/size` (no-liburing) | Unnecessary stubs | These only use POSIX `open`/`close`/`fstat` and don't need liburing                                                                                                      |
+
+### Common (`runtime-io-common.ts`) — Stubs & Limitations
+
+| Function                       | Status      | Notes                                                       |
+| ------------------------------ | ----------- | ----------------------------------------------------------- |
+| `__yo_statfs_type`             | Hardcoded 0 | POSIX `statvfs` genuinely lacks filesystem type field       |
+| `__yo_sync_copyfile` (`#else`) | `-ENOSYS`   | Platform stub for non-Linux/non-macOS — Windows has its own |
+| `__yo_sync_sendfile` (`#else`) | `-ENOSYS`   | Same — only applies to unsupported platforms                |
+
+### Classification
+
+- **Acceptable/Intentional**: `fadvise` (advisory no-op), `fdatasync→fsync` on macOS, `fchown` on Windows (no POSIX ownership), `statx_dev_minor` (no minor device on Windows), `process_term_signal` (no signal termination on Windows), `statfs_type` on POSIX (no type in `statvfs`)
+- **Could be improved**: `statx_blksize` (compute from sector size), `statx_blocks` (compute from file size), `kill` (could map SIGTERM→TerminateProcess, SIGINT→GenerateConsoleCtrlEvent), `fcntl_getfl` (track flags in runtime state), `umask` (apply mask to file creation), `statfs.type` on Windows (query volume info)
+- **Needs attention**: Linux no-liburing path missing many sync helper functions (would cause linker errors if io_uring is unavailable)
