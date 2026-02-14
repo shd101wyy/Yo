@@ -536,21 +536,30 @@ static yo_io_future_t* __yo_async_ftruncate_start(int32_t fd, int64_t length) {
   future->result = 0;
   atomic_init(&future->continuation_fn, NULL);
   atomic_init(&future->continuation_sm, NULL);
-  
+
+#if defined(IORING_OP_FTRUNCATE)
   struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
   if (!sqe) {
     future->result = -EAGAIN;
     atomic_store(&future->state, -1);
     return future;
   }
-  
-  io_uring_prep_ftruncate(sqe, fd, (loff_t)length);
+
+  io_uring_prep_rw(IORING_OP_FTRUNCATE, sqe, fd, NULL, 0, (uint64_t)length);
   io_uring_sqe_set_data(sqe, future);
   io_uring_submit(&__yo_io_ring);
   __yo_pending_io_count++;
-  
+
   ASYNC_DEBUG("[IO] Started async ftruncate: fd=%d length=%lld (pending=%zu)\\n",
               fd, (long long)length, __yo_pending_io_count);
+#else
+  int result = ftruncate(fd, (off_t)length);
+  future->result = (result < 0) ? -errno : 0;
+  atomic_store(&future->state, -1);
+
+  ASYNC_DEBUG("[IO] Completed ftruncate synchronously (liburing fallback): fd=%d length=%lld result=%d\\n",
+              fd, (long long)length, future->result);
+#endif
   
   return future;
 }
