@@ -686,7 +686,13 @@ static yo_io_future_t* __yo_async_openat_start(int32_t dirfd, const char* path, 
     }
   }
 
-  int osfhandle_flags = flags & ~O_DIRECTORY;
+  int osfhandle_flags = _O_BINARY;
+  if ((flags & O_RDWR) == 0 && (flags & O_WRONLY) == 0) {
+    osfhandle_flags |= _O_RDONLY;
+  }
+  if (flags & O_APPEND) {
+    osfhandle_flags |= _O_APPEND;
+  }
   int fd = _open_osfhandle((intptr_t)handle, osfhandle_flags);
   if (fd < 0) {
     CloseHandle(handle);
@@ -1173,28 +1179,69 @@ static int32_t __yo_sync_readv(int32_t fd, void* iov, int32_t iovcnt) {
     return (result == SOCKET_ERROR) ? -(int32_t)WSAGetLastError() : (int32_t)recvd;
   }
 
+  intptr_t hv = _get_osfhandle(fd);
+  if (hv == -1) return -EBADF;
+  HANDLE handle = (HANDLE)hv;
+
+  HANDLE evt = CreateEvent(NULL, TRUE, FALSE, NULL);
+  if (!evt) return -ENOMEM;
+
+  LARGE_INTEGER cur_pos;
+  LARGE_INTEGER zero_dist;
+  zero_dist.QuadPart = 0;
+  if (!SetFilePointerEx(handle, zero_dist, &cur_pos, FILE_CURRENT)) {
+    cur_pos.QuadPart = 0;
+  }
+
   int32_t total = 0;
   for (int32_t i = 0; i < iovcnt; i++) {
     char* ptr = (char*)vec[i].iov_base;
     size_t remaining = vec[i].iov_len;
     while (remaining > 0) {
-      unsigned int chunk = (remaining > (size_t)0x7FFFFFFF) ? (unsigned int)0x7FFFFFFF : (unsigned int)remaining;
-      int n = _read(fd, ptr, chunk);
-      if (n < 0) {
-        return (total > 0) ? total : -errno;
+      DWORD chunk = (remaining > 0x7FFFFFFF) ? 0x7FFFFFFF : (DWORD)remaining;
+      OVERLAPPED ov;
+      memset(&ov, 0, sizeof(ov));
+      ov.Offset = (DWORD)(cur_pos.QuadPart & 0xFFFFFFFF);
+      ov.OffsetHigh = (DWORD)(cur_pos.QuadPart >> 32);
+      ov.hEvent = (HANDLE)((uintptr_t)evt | 1);
+      ResetEvent(evt);
+      DWORD bytes_read = 0;
+      BOOL ok = ReadFile(handle, ptr, chunk, &bytes_read, &ov);
+      if (!ok) {
+        DWORD err = GetLastError();
+        if (err == ERROR_IO_PENDING) {
+          WaitForSingleObject(evt, INFINITE);
+          ok = GetOverlappedResult(handle, &ov, &bytes_read, FALSE);
+          if (!ok) {
+            CloseHandle(evt);
+            return (total > 0) ? total : -__yo_win_last_error_to_errno();
+          }
+        } else if (err == ERROR_HANDLE_EOF) {
+          CloseHandle(evt);
+          return total;
+        } else {
+          CloseHandle(evt);
+          return (total > 0) ? total : -__yo_win_last_error_to_errno();
+        }
       }
-      if (n == 0) {
+      if (bytes_read == 0) {
+        CloseHandle(evt);
         return total;
       }
-      total += n;
-      if ((unsigned int)n < chunk) {
+      total += (int32_t)bytes_read;
+      cur_pos.QuadPart += bytes_read;
+      if (bytes_read < chunk) {
+        SetFilePointerEx(handle, cur_pos, NULL, FILE_BEGIN);
+        CloseHandle(evt);
         return total;
       }
-      ptr += n;
-      remaining -= (size_t)n;
+      ptr += bytes_read;
+      remaining -= bytes_read;
     }
   }
 
+  SetFilePointerEx(handle, cur_pos, NULL, FILE_BEGIN);
+  CloseHandle(evt);
   return total;
 }
 
@@ -1224,25 +1271,62 @@ static int32_t __yo_sync_writev(int32_t fd, void* iov, int32_t iovcnt) {
     return (result == SOCKET_ERROR) ? -(int32_t)WSAGetLastError() : (int32_t)sent;
   }
 
+  intptr_t whv = _get_osfhandle(fd);
+  if (whv == -1) return -EBADF;
+  HANDLE whandle = (HANDLE)whv;
+
+  HANDLE wevt = CreateEvent(NULL, TRUE, FALSE, NULL);
+  if (!wevt) return -ENOMEM;
+
+  LARGE_INTEGER wcur_pos;
+  LARGE_INTEGER wzero_dist;
+  wzero_dist.QuadPart = 0;
+  if (!SetFilePointerEx(whandle, wzero_dist, &wcur_pos, FILE_CURRENT)) {
+    wcur_pos.QuadPart = 0;
+  }
+
   int32_t total = 0;
   for (int32_t i = 0; i < iovcnt; i++) {
     char* ptr = (char*)vec[i].iov_base;
     size_t remaining = vec[i].iov_len;
     while (remaining > 0) {
-      unsigned int chunk = (remaining > (size_t)0x7FFFFFFF) ? (unsigned int)0x7FFFFFFF : (unsigned int)remaining;
-      int n = _write(fd, ptr, chunk);
-      if (n < 0) {
-        return (total > 0) ? total : -errno;
+      DWORD chunk = (remaining > 0x7FFFFFFF) ? 0x7FFFFFFF : (DWORD)remaining;
+      OVERLAPPED ov;
+      memset(&ov, 0, sizeof(ov));
+      ov.Offset = (DWORD)(wcur_pos.QuadPart & 0xFFFFFFFF);
+      ov.OffsetHigh = (DWORD)(wcur_pos.QuadPart >> 32);
+      ov.hEvent = (HANDLE)((uintptr_t)wevt | 1);
+      ResetEvent(wevt);
+      DWORD bytes_written = 0;
+      BOOL ok = WriteFile(whandle, ptr, chunk, &bytes_written, &ov);
+      if (!ok) {
+        DWORD err = GetLastError();
+        if (err == ERROR_IO_PENDING) {
+          WaitForSingleObject(wevt, INFINITE);
+          ok = GetOverlappedResult(whandle, &ov, &bytes_written, FALSE);
+          if (!ok) {
+            CloseHandle(wevt);
+            return (total > 0) ? total : -__yo_win_last_error_to_errno();
+          }
+        } else {
+          CloseHandle(wevt);
+          return (total > 0) ? total : -__yo_win_last_error_to_errno();
+        }
       }
-      total += n;
-      if ((unsigned int)n < chunk) {
+      total += (int32_t)bytes_written;
+      wcur_pos.QuadPart += bytes_written;
+      if (bytes_written < chunk) {
+        SetFilePointerEx(whandle, wcur_pos, NULL, FILE_BEGIN);
+        CloseHandle(wevt);
         return total;
       }
-      ptr += n;
-      remaining -= (size_t)n;
+      ptr += bytes_written;
+      remaining -= bytes_written;
     }
   }
 
+  SetFilePointerEx(whandle, wcur_pos, NULL, FILE_BEGIN);
+  CloseHandle(wevt);
   return total;
 }
 

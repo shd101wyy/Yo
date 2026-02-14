@@ -1,10 +1,10 @@
 open import "std/libc/stdio";
 open import "std/string";
+open import "std/libc/stdlib";
 { temp_dir, path_join } :: import "../../tests/io/helper";
 file :: import "std/io/file";
 dir :: import "std/io/dir";
 iov_io :: import "std/io/iov";
-seek_io :: import "std/io/seek";
 { AT_FDCWD, O_RDWR, O_CREAT, O_TRUNC } :: import "std/io/constants";
 
 main :: (fn() -> unit) {
@@ -17,26 +17,22 @@ main :: (fn() -> unit) {
     flags := ((O_RDWR | O_CREAT) | O_TRUNC);
     fd := await file.openat(AT_FDCWD, path, flags, i32(0o644));
     printf("fd = %d\n", fd);
-    assert(fd >= i32(0), "openat should create file");
 
     iov_bytes := (iov_io.iovec_size() * usize(2));
-    printf("iov_bytes = %zu\n", iov_bytes);
-
     write_iov := *(u8)(malloc(iov_bytes).unwrap());
     part1 := *(u8)("hello ");
     part2 := *(u8)("world");
     iov_io.iovec_set(write_iov, usize(0), part1, usize(6));
     iov_io.iovec_set(write_iov, usize(1), part2, usize(5));
 
-    wr := iov_io.pwritev(fd, write_iov, i32(2), i64(0));
-    printf("pwritev result = %d\n", wr);
+    wr := iov_io.writev(fd, write_iov, i32(2));
+    printf("writev result = %d\n", wr);
+
+    wr2 := iov_io.pwritev(fd, write_iov, i32(2), i64(0));
+    printf("pwritev result = %d\n", wr2);
 
     close_ret := await file.close(fd);
-    printf("close = %d\n", close_ret);
-
     rm := await dir.unlink(AT_FDCWD, path, i32(0));
-    printf("rm = %d\n", rm);
-
     free(.Some(*(void)(write_iov)));
     printf("done\n");
   };
