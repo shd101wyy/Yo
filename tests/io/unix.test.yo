@@ -2,26 +2,14 @@ open import "std/libc/stdio";
 open import "std/string";
 { GlobalAllocator } :: import "std/allocator";
 { malloc, free } :: GlobalAllocator;
-{ platform, Platform } :: import "std/process";
 { AT_FDCWD } :: import "std/io/constants";
 { temp_dir, path_join } :: import "./helper";
 unix :: import "std/io/unix";
 { sockaddr_storage_size } :: import "std/io/socket";
 dir :: import "std/io/dir";
 
-// Unix domain sockets are not supported in the Windows runtime yet.
-// Skip tests on Windows.
-
 test "Unix stream socket echo", {
   async {
-    cond(
-      (platform == Platform.Win32) => {
-        printf("  skipping Unix socket test on Windows\n");
-        return;
-      },
-      true => ()
-    );
-
     tmp_dir := temp_dir();
     sock_path_str := path_join(tmp_dir, `yo_unix_sock_test`);
     sock_path_c := sock_path_str.to_cstr();

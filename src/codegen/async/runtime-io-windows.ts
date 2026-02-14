@@ -110,6 +110,13 @@ export function generateAsyncRuntimeIOWindows(emitter: Emitter): void {
 #ifndef AF_UNIX
 #define AF_UNIX 1
 #endif
+#ifndef UNIX_PATH_MAX
+#define UNIX_PATH_MAX 108
+#endif
+typedef struct __yo_sockaddr_un {
+  ADDRESS_FAMILY sun_family;
+  char sun_path[UNIX_PATH_MAX];
+} __yo_sockaddr_un_t;
 #ifndef SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE
 #define SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE 0x2
 #endif
@@ -2415,7 +2422,7 @@ static size_t __yo_sockaddr_in6_size(void) {
 }
 
 static size_t __yo_sockaddr_un_size(void) {
-  return 0;  // Unix sockets are unsupported on Windows
+  return sizeof(__yo_sockaddr_un_t);
 }
 
 static size_t __yo_sockaddr_storage_size(void) {
@@ -2463,12 +2470,13 @@ static void __yo_sockaddr_in6_get_addr(void* addr, void* out) {
 }
 
 static void __yo_sockaddr_un_set_path(void* addr, const char* path) {
-  (void)addr; (void)path;
+  __yo_sockaddr_un_t* un = (__yo_sockaddr_un_t*)addr;
+  strncpy(un->sun_path, path, UNIX_PATH_MAX - 1);
+  un->sun_path[UNIX_PATH_MAX - 1] = '\0';
 }
 
 static const char* __yo_sockaddr_un_get_path(void* addr) {
-  (void)addr;
-  return "";
+  return ((__yo_sockaddr_un_t*)addr)->sun_path;
 }
 
 static int32_t __yo_inet_pton(int32_t af, const char* src, void* dst) {
