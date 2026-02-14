@@ -106,6 +106,9 @@ export function generateAsyncRuntimeIOWindows(emitter: Emitter): void {
 #ifndef AT_SYMLINK_NOFOLLOW
 #define AT_SYMLINK_NOFOLLOW 0x100
 #endif
+#ifndef AF_UNIX
+#define AF_UNIX 1
+#endif
 #ifndef SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE
 #define SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE 0x2
 #endif
@@ -1897,6 +1900,95 @@ static int32_t __yo_sync_getsockopt(int32_t sockfd, int32_t level, int32_t optna
   }
 
   *optlen = (uint32_t)len;
+  return 0;
+}
+
+static int32_t __yo_sync_socketpair(int32_t domain, int32_t sock_type, int32_t protocol, int32_t* sv) {
+  __yo_io_init();
+
+  if (!sv) {
+    return -EINVAL;
+  }
+
+  if (sock_type != SOCK_STREAM) {
+    return -WSAESOCKTNOSUPPORT;
+  }
+
+  // Windows has no native socketpair(); emulate with loopback TCP.
+  // Accept common caller domains used for socketpair APIs.
+  if (!(domain == AF_UNIX || domain == AF_INET || domain == AF_UNSPEC)) {
+    return -WSAEAFNOSUPPORT;
+  }
+
+  if (!(protocol == 0 || protocol == IPPROTO_TCP)) {
+    return -WSAEPROTONOSUPPORT;
+  }
+
+  SOCKET listener = INVALID_SOCKET;
+  SOCKET client = INVALID_SOCKET;
+  SOCKET server = INVALID_SOCKET;
+
+  struct sockaddr_in addr;
+  memset(&addr, 0, sizeof(addr));
+  addr.sin_family = AF_INET;
+  addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+  addr.sin_port = 0;
+
+  listener = WSASocketW(AF_INET, SOCK_STREAM, IPPROTO_TCP, NULL, 0, WSA_FLAG_OVERLAPPED);
+  if (listener == INVALID_SOCKET) {
+    return -(int32_t)WSAGetLastError();
+  }
+
+  if (bind(listener, (const struct sockaddr*)&addr, (int)sizeof(addr)) == SOCKET_ERROR) {
+    int32_t err = -(int32_t)WSAGetLastError();
+    closesocket(listener);
+    return err;
+  }
+
+  if (listen(listener, 1) == SOCKET_ERROR) {
+    int32_t err = -(int32_t)WSAGetLastError();
+    closesocket(listener);
+    return err;
+  }
+
+  int addrlen = (int)sizeof(addr);
+  if (getsockname(listener, (struct sockaddr*)&addr, &addrlen) == SOCKET_ERROR) {
+    int32_t err = -(int32_t)WSAGetLastError();
+    closesocket(listener);
+    return err;
+  }
+
+  client = WSASocketW(AF_INET, SOCK_STREAM, IPPROTO_TCP, NULL, 0, WSA_FLAG_OVERLAPPED);
+  if (client == INVALID_SOCKET) {
+    int32_t err = -(int32_t)WSAGetLastError();
+    closesocket(listener);
+    return err;
+  }
+
+  if (connect(client, (const struct sockaddr*)&addr, addrlen) == SOCKET_ERROR) {
+    int32_t err = -(int32_t)WSAGetLastError();
+    closesocket(client);
+    closesocket(listener);
+    return err;
+  }
+
+  server = accept(listener, NULL, NULL);
+  if (server == INVALID_SOCKET) {
+    int32_t err = -(int32_t)WSAGetLastError();
+    closesocket(client);
+    closesocket(listener);
+    return err;
+  }
+
+  closesocket(listener);
+
+  if (__yo_io_iocp) {
+    CreateIoCompletionPort((HANDLE)client, __yo_io_iocp, 0, 0);
+    CreateIoCompletionPort((HANDLE)server, __yo_io_iocp, 0, 0);
+  }
+
+  sv[0] = (int32_t)(uintptr_t)client;
+  sv[1] = (int32_t)(uintptr_t)server;
   return 0;
 }
 

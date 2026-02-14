@@ -40,6 +40,7 @@ The `std/io` module provides Yo's low-level async I/O foundation. It sits betwee
 | **Mmap**             | `std/io/mmap.yo`                           | ✅ Complete | mmap, munmap, mprotect, msync + tests                      |
 | **Lock**             | `std/io/lock.yo`                           | ✅ Complete | flock advisory locking + tests                             |
 | **SockInfo**         | `std/io/sockinfo.yo`                       | ✅ Complete | getsockname, getpeername, getsockopt, setsockopt + tests   |
+| **SocketPair**       | `std/io/socketpair.yo`                     | ✅ Complete | connected socket pair + tests                              |
 
 ### C Runtime Status (in `src/codegen/async/runtime*.ts`)
 
@@ -85,7 +86,7 @@ The runtime has been refactored into 4 modules:
 | **Poll**                    | ❌ (stub)             | ❌ (stub)            | ❌ (stub)                                |
 | **lseek**                   | ✅ (sync)             | ✅ (sync)            | ✅ (sync, \_lseeki64)                    |
 | **getsockname/getpeername** | ✅ (sync)             | ✅ (sync)            | ✅ (sync, Winsock)                       |
-| **socketpair**              | ❌                    | ❌                   | ❌ (emulation needed)                    |
+| **socketpair**              | ✅ (sync)             | ✅ (sync)            | ✅ (loopback emulation)                  |
 | **clock_gettime**           | ❌                    | ❌                   | ❌ (QueryPerformanceCounter)             |
 | **uname/gethostname**       | ❌                    | ❌                   | ❌ (GetComputerNameW)                    |
 | **umask**                   | ❌                    | ❌                   | ❌ (\_umask)                             |
@@ -1126,6 +1127,18 @@ socketpair :: (fn(domain: i32, sock_type: i32, protocol: i32, sv: *(i32)) -> i32
 - Windows has no native `socketpair()` — emulated using a temporary TCP listener on loopback
 - Typically used with `AF_UNIX, SOCK_STREAM` on POSIX
 
+**Implementation status:**
+
+- ✅ Implemented `std/io/socketpair.yo` with sync wrapper: `socketpair`.
+- ✅ Added C runtime sync extern `__yo_sync_socketpair` in all backends:
+  - Linux/macOS: direct `socketpair(domain, sock_type, protocol, sv)` wrapper returning `0` or `-errno`.
+  - Windows: loopback emulation (`AF_INET` listener on `127.0.0.1:0`, connect + accept) returning two connected socket handles.
+  - Windows sockets are associated with IOCP after creation so async `send`/`recv` works on returned fds.
+  - Linux no-liburing fallback: sync wrapper available even when async io_uring is disabled.
+- ✅ Added tests in `tests/io/socketpair.test.yo` (2 tests):
+  1. Create/close socket pair
+  2. Bidirectional data transfer (`send`/`recv` both directions)
+
 ---
 
 ## Phase 13: System Information & Utilities (Priority: Low)
@@ -1354,7 +1367,8 @@ Phase 11 (File Position & Allocation)
 Phase 12 (Socket Extensions)
   ├── 12.1 sockinfo  ✅ DONE
   │     └── Depends on: Phase 2 (socket ops)
-  └── 12.2 socketpair └── Depends on: Phase 2 (socket ops)
+  └── 12.2 socketpair ✅ DONE
+  │     └── Depends on: Phase 2 (socket ops)
 
 Phase 13 (System Info & Utilities)
   ├── 13.1 clock     └── Independent
@@ -1394,7 +1408,7 @@ Each phase should include a `.test.yo` file exercising the new APIs:
 22. **Seek tests** — ✅ `tests/io/seek.test.yo` (SEEK_SET/SEEK_CUR/SEEK_END, invalid fd, invalid whence/negative offset, pipe seek error)
 23. **Fallocate tests** — ✅ `tests/io/fallocate.test.yo` (invalid fd, pre-allocate + size verification, KEEP_SIZE semantics, Linux punch-hole/zero-range)
 24. **Sockinfo tests** — ✅ `tests/io/sockinfo.test.yo` (getsockname after bind/listen, getpeername after connect/accept, getsockopt/setsockopt)
-25. **Socketpair tests** — create pair, bidirectional send/recv
+25. **Socketpair tests** — ✅ `tests/io/socketpair.test.yo` (create pair, bidirectional send/recv)
 26. **Clock tests** — clock_gettime monotonic (non-decreasing), realtime (reasonable epoch)
 27. **Sysinfo tests** — uname fields non-empty, gethostname
 28. **Umask tests** — set/restore umask, verify file creation permissions
@@ -1442,7 +1456,7 @@ std/io/
   seek.yo          ← File position control (lseek)         ✅
   fallocate.yo     ← File space pre-allocation             ✅
   sockinfo.yo      ← Socket address query                  ✅
-  socketpair.yo    ← Connected socket pair                 Phase 12
+  socketpair.yo    ← Connected socket pair                 ✅
   clock.yo         ← High-resolution time                  Phase 13
   sysinfo.yo       ← System identification (uname)         Phase 13
   umask.yo         ← File creation mask                    Phase 13

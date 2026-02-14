@@ -1551,6 +1551,12 @@ static int32_t __yo_sync_getsockopt(int32_t sockfd, int32_t level, int32_t optna
   return 0;
 }
 
+// Sync socketpair - create a connected socket pair
+static int32_t __yo_sync_socketpair(int32_t domain, int32_t sock_type, int32_t protocol, int32_t* sv) {
+  int result = socketpair(domain, sock_type, protocol, (int*)sv);
+  return (result < 0) ? -errno : 0;
+}
+
 // ============================================================================
 // Socket Address Helpers (macOS)
 // ============================================================================
