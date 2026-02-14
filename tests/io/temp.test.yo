@@ -4,7 +4,7 @@ open import "std/string";
 { temp_dir, path_join } :: import "./helper";
 dir :: import "std/io/dir";
 file :: import "std/io/file";
-{ AT_FDCWD, AT_REMOVEDIR, O_RDONLY } :: import "std/io/constants";
+{ AT_FDCWD, AT_REMOVEDIR, O_RDONLY, O_DIRECTORY } :: import "std/io/constants";
 temp_io :: import "std/io/temp";
 
 test "mkdtemp creates and removes directory", {
@@ -18,7 +18,8 @@ test "mkdtemp creates and removes directory", {
     printf("  mkdtemp = %d\n", mk);
     assert(mk == i32(0));
 
-    open_dir := await file.openat(AT_FDCWD, template_path, O_RDONLY, i32(0));
+    open_flags := (O_RDONLY | O_DIRECTORY);
+    open_dir := await file.openat(AT_FDCWD, template_path, open_flags, i32(0));
     printf("  open dir = %d\n", open_dir);
     assert(open_dir >= i32(0));
     await file.close(open_dir);
