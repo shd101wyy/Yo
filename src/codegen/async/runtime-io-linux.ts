@@ -862,6 +862,16 @@ static void __yo_iovec_set(void* iov, size_t index, void* base, size_t len) {
   vec[index].iov_len = len;
 }
 
+static int32_t __yo_sync_fadvise(int32_t fd, int64_t offset, int64_t len, int32_t advice) {
+  int result = posix_fadvise(fd, (off_t)offset, (off_t)len, advice);
+  return (result == 0) ? 0 : -result;
+}
+
+static int32_t __yo_sync_madvise(uint8_t* addr, size_t length, int32_t advice) {
+  int result = madvise((void*)addr, length, advice);
+  return (result < 0) ? -errno : 0;
+}
+
 static uint8_t* __yo_sync_mmap(uint8_t* addr, size_t length, int32_t prot, int32_t flags, int32_t fd, int64_t offset) {
   void* result = mmap((void*)addr, length, prot, flags, fd, (off_t)offset);
   if (result == MAP_FAILED) {
@@ -1944,6 +1954,16 @@ static void __yo_iovec_set(void* iov, size_t index, void* base, size_t len) {
   struct iovec* vec = (struct iovec*)iov;
   vec[index].iov_base = base;
   vec[index].iov_len = len;
+}
+
+static int32_t __yo_sync_fadvise(int32_t fd, int64_t offset, int64_t len, int32_t advice) {
+  int result = posix_fadvise(fd, (off_t)offset, (off_t)len, advice);
+  return (result == 0) ? 0 : -result;
+}
+
+static int32_t __yo_sync_madvise(uint8_t* addr, size_t length, int32_t advice) {
+  int result = madvise((void*)addr, length, advice);
+  return (result < 0) ? -errno : 0;
 }
 
 static int32_t __yo_sync_fchmod(int32_t fd, uint32_t mode) {

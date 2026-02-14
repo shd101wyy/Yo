@@ -57,46 +57,46 @@ The runtime has been refactored into 4 modules:
 - `runtime-io-windows.ts` — Windows IOCP async I/O
 - `runtime-io-common.ts` — Cross-platform stat helpers, timer, file extras, DNS, signals, TTY, FS events, poll
 
-| Category                    | Linux (io_uring)      | macOS (dispatch_io)  | Windows (IOCP)                           |
-| --------------------------- | --------------------- | -------------------- | ---------------------------------------- |
-| **Event loop integration**  | ✅                    | ✅                   | ✅ (IOCP)                                |
-| **File read/write**         | ✅                    | ✅                   | ✅ (IOCP)                                |
-| **File open/close**         | ✅                    | ✅                   | ✅ (sync wrappers)                       |
-| **Stat**                    | ✅ (statx)            | ✅ (struct stat)     | ✅ (\_stat64)                            |
-| **mkdir/unlink/rename**     | ✅                    | ✅ (sync wrappers)   | ✅ (sync wrappers)                       |
-| **symlink/link**            | ✅                    | ✅ (sync wrappers)   | ✅ (CreateSymbolicLinkW/CreateHardLinkW) |
-| **fsync/fdatasync**         | ✅                    | ✅ (sync wrappers)   | ✅ (\_commit)                            |
-| **ftruncate**               | ✅                    | ✅ (sync wrapper)    | ✅ (\_chsize_s)                          |
-| **chmod/chown**             | ✅ (sync)             | ✅ (sync)            | ⚠️ (sync, chmod only)                    |
-| **readlink**                | ✅ (sync)             | ✅ (sync)            | ✅ (sync, GetFinalPathNameByHandleW)     |
-| **dup/dup2/pipe**           | ✅ (sync)             | ✅ (sync)            | ✅ (sync)                                |
-| **Socket ops**              | ✅                    | ✅ (dispatch_source) | ✅ (IOCP WSASend/WSARecv)                |
-| **Timer (sleep)**           | ✅ (timerfd+io_uring) | ✅ (dispatch_after)  | ✅ (IOCP wait timeout)                   |
-| **getdents/readdir**        | ✅ (getdents64)       | ✅ (getdirentries)   | ✅ (getdents only)                       |
-| **access/realpath**         | ✅ (sync)             | ✅ (sync)            | ✅ (sync)                                |
-| **utime**                   | ✅ (sync)             | ✅ (sync)            | ✅ (sync)                                |
-| **mkdtemp/mkstemp**         | ✅ (sync)             | ✅ (sync)            | ✅ (sync)                                |
-| **copyfile/sendfile**       | ✅ (sync)             | ✅ (sync)            | ⚠️ (copyfile only)                       |
-| **statfs**                  | ✅ (sync)             | ✅ (sync)            | ✅ (GetDiskFreeSpaceEx)                  |
-| **DNS**                     | ✅ (sync)             | ✅ (sync)            | ✅ (sync)                                |
-| **Signals**                 | ✅ (sync)             | ✅ (sync)            | ❌                                       |
-| **TTY**                     | ✅ (sync)             | ✅ (sync)            | ⚠️ (isatty only)                         |
-| **Unix sockets**            | ✅ (sockaddr_un)      | ✅ (sockaddr_un)     | ⚠️ (AF_UNIX Win10 1803+)                 |
-| **Process spawn**           | ✅ (posix_spawn)      | ✅ (posix_spawn)     | ✅ (CreateProcessW)                      |
-| **fcntl**                   | ✅ (sync)             | ✅ (sync)            | ✅ (best-effort abstraction)             |
-| **mmap**                    | ✅ (sync)             | ✅ (sync)            | ✅ (CreateFileMapping/MapViewOfFile)     |
-| **flock**                   | ✅ (sync)             | ✅ (sync)            | ✅ (LockFileEx/UnlockFileEx)             |
-| **FS Events**               | ❌ (stub)             | ❌ (stub)            | ❌ (stub)                                |
-| **Poll**                    | ❌ (stub)             | ❌ (stub)            | ❌ (stub)                                |
-| **lseek**                   | ✅ (sync)             | ✅ (sync)            | ✅ (sync, \_lseeki64)                    |
-| **getsockname/getpeername** | ✅ (sync)             | ✅ (sync)            | ✅ (sync, Winsock)                       |
-| **socketpair**              | ✅ (sync)             | ✅ (sync)            | ✅ (loopback emulation)                  |
-| **clock_gettime**           | ✅ (sync)             | ✅ (sync)            | ✅ (realtime FILETIME + monotonic QPC)   |
-| **uname/gethostname**       | ✅ (sync)             | ✅ (sync)            | ✅ (Winsock gethostname + uname emu)     |
-| **umask**                   | ✅ (sync)             | ✅ (sync)            | ✅ (sync, \_umask)                       |
-| **readv/writev**            | ✅ (sync)             | ✅ (sync)            | ✅ (sync emulation + WSA for sockets)    |
-| **fallocate**               | ✅ (sync)             | ✅ (sync)            | ✅ (sync, FileAllocationInfo)            |
-| **fadvise/madvise**         | ❌                    | ❌                   | ❌                                       |
+| Category                    | Linux (io_uring)      | macOS (dispatch_io)  | Windows (IOCP)                                       |
+| --------------------------- | --------------------- | -------------------- | ---------------------------------------------------- |
+| **Event loop integration**  | ✅                    | ✅                   | ✅ (IOCP)                                            |
+| **File read/write**         | ✅                    | ✅                   | ✅ (IOCP)                                            |
+| **File open/close**         | ✅                    | ✅                   | ✅ (sync wrappers)                                   |
+| **Stat**                    | ✅ (statx)            | ✅ (struct stat)     | ✅ (\_stat64)                                        |
+| **mkdir/unlink/rename**     | ✅                    | ✅ (sync wrappers)   | ✅ (sync wrappers)                                   |
+| **symlink/link**            | ✅                    | ✅ (sync wrappers)   | ✅ (CreateSymbolicLinkW/CreateHardLinkW)             |
+| **fsync/fdatasync**         | ✅                    | ✅ (sync wrappers)   | ✅ (\_commit)                                        |
+| **ftruncate**               | ✅                    | ✅ (sync wrapper)    | ✅ (\_chsize_s)                                      |
+| **chmod/chown**             | ✅ (sync)             | ✅ (sync)            | ⚠️ (sync, chmod only)                                |
+| **readlink**                | ✅ (sync)             | ✅ (sync)            | ✅ (sync, GetFinalPathNameByHandleW)                 |
+| **dup/dup2/pipe**           | ✅ (sync)             | ✅ (sync)            | ✅ (sync)                                            |
+| **Socket ops**              | ✅                    | ✅ (dispatch_source) | ✅ (IOCP WSASend/WSARecv)                            |
+| **Timer (sleep)**           | ✅ (timerfd+io_uring) | ✅ (dispatch_after)  | ✅ (IOCP wait timeout)                               |
+| **getdents/readdir**        | ✅ (getdents64)       | ✅ (getdirentries)   | ✅ (getdents only)                                   |
+| **access/realpath**         | ✅ (sync)             | ✅ (sync)            | ✅ (sync)                                            |
+| **utime**                   | ✅ (sync)             | ✅ (sync)            | ✅ (sync)                                            |
+| **mkdtemp/mkstemp**         | ✅ (sync)             | ✅ (sync)            | ✅ (sync)                                            |
+| **copyfile/sendfile**       | ✅ (sync)             | ✅ (sync)            | ⚠️ (copyfile only)                                   |
+| **statfs**                  | ✅ (sync)             | ✅ (sync)            | ✅ (GetDiskFreeSpaceEx)                              |
+| **DNS**                     | ✅ (sync)             | ✅ (sync)            | ✅ (sync)                                            |
+| **Signals**                 | ✅ (sync)             | ✅ (sync)            | ❌                                                   |
+| **TTY**                     | ✅ (sync)             | ✅ (sync)            | ⚠️ (isatty only)                                     |
+| **Unix sockets**            | ✅ (sockaddr_un)      | ✅ (sockaddr_un)     | ⚠️ (AF_UNIX Win10 1803+)                             |
+| **Process spawn**           | ✅ (posix_spawn)      | ✅ (posix_spawn)     | ✅ (CreateProcessW)                                  |
+| **fcntl**                   | ✅ (sync)             | ✅ (sync)            | ✅ (best-effort abstraction)                         |
+| **mmap**                    | ✅ (sync)             | ✅ (sync)            | ✅ (CreateFileMapping/MapViewOfFile)                 |
+| **flock**                   | ✅ (sync)             | ✅ (sync)            | ✅ (LockFileEx/UnlockFileEx)                         |
+| **FS Events**               | ❌ (stub)             | ❌ (stub)            | ❌ (stub)                                            |
+| **Poll**                    | ❌ (stub)             | ❌ (stub)            | ❌ (stub)                                            |
+| **lseek**                   | ✅ (sync)             | ✅ (sync)            | ✅ (sync, \_lseeki64)                                |
+| **getsockname/getpeername** | ✅ (sync)             | ✅ (sync)            | ✅ (sync, Winsock)                                   |
+| **socketpair**              | ✅ (sync)             | ✅ (sync)            | ✅ (loopback emulation)                              |
+| **clock_gettime**           | ✅ (sync)             | ✅ (sync)            | ✅ (realtime FILETIME + monotonic QPC)               |
+| **uname/gethostname**       | ✅ (sync)             | ✅ (sync)            | ✅ (Winsock gethostname + uname emu)                 |
+| **umask**                   | ✅ (sync)             | ✅ (sync)            | ✅ (sync, \_umask)                                   |
+| **readv/writev**            | ✅ (sync)             | ✅ (sync)            | ✅ (sync emulation + WSA for sockets)                |
+| **fallocate**               | ✅ (sync)             | ✅ (sync)            | ✅ (sync, FileAllocationInfo)                        |
+| **fadvise/madvise**         | ✅ (sync)             | ✅ (sync)            | ✅ (sync, fadvise no-op + MADV_DONTNEED best-effort) |
 
 ### Known Issues Fixed
 
@@ -1428,7 +1428,8 @@ Phase 13 (System Info & Utilities)
 Phase 14 (Advanced I/O)
   ├── 14.1 iov       ✅ DONE
   │     └── Depends on: Phase 1 (file I/O)
-  └── 14.2 advise    └── Depends on: Phase 10.2 (mmap)
+  └── 14.2 advise    ✅ DONE
+        └── Depends on: Phase 10.2 (mmap)
 ```
 
 ## Testing Strategy
@@ -1464,7 +1465,7 @@ Each phase should include a `.test.yo` file exercising the new APIs:
 27. **Sysinfo tests** — ✅ `tests/io/sysinfo.test.yo` (uname fields non-empty, gethostname non-empty)
 28. **Umask tests** — ✅ `tests/io/umask.test.yo` (set/restore umask, verify file mode after create)
 29. **Iov tests** — ✅ `tests/io/iov.test.yo` (pipe readv/writev, regular-file preadv/pwritev, offset preservation)
-30. **Advise tests** — fadvise on file (no-op verification), madvise on mmap'd region
+30. **Advise tests** — ✅ `tests/io/advise.test.yo` (fadvise file hint success, madvise MADV_DONTNEED on anonymous mmap)
 
 For cross-platform validation:
 
@@ -1512,7 +1513,7 @@ std/io/
   sysinfo.yo       ← System identification (uname)         ✅
   umask.yo         ← File creation mask                    ✅
   iov.yo           ← Scatter/gather I/O                    ✅
-  advise.yo        ← Kernel advisory hints                 Phase 14
+  advise.yo        ← Kernel advisory hints                 ✅
 ```
 
 ## Notes

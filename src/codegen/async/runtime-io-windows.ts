@@ -1414,6 +1414,28 @@ static void __yo_iovec_set(void* iov, size_t index, void* base, size_t len) {
   vec[index].iov_len = len;
 }
 
+static int32_t __yo_sync_fadvise(int32_t fd, int64_t offset, int64_t len, int32_t advice) {
+  (void)fd;
+  (void)offset;
+  (void)len;
+  (void)advice;
+  // No direct equivalent on Windows; treat as advisory no-op.
+  return 0;
+}
+
+static int32_t __yo_sync_madvise(uint8_t* addr, size_t length, int32_t advice) {
+  if (!addr || length == 0) {
+    return -EINVAL;
+  }
+
+  // Best effort: map MADV_DONTNEED to MEM_RESET to hint pages are discardable.
+  if (advice == 4) {
+    (void)VirtualAlloc((void*)addr, length, MEM_RESET, PAGE_NOACCESS);
+  }
+
+  return 0;
+}
+
 static uint8_t* __yo_sync_mmap(uint8_t* addr, size_t length, int32_t prot, int32_t flags, int32_t fd, int64_t offset) {
   if (length == 0) {
     return (uint8_t*)(intptr_t)(-EINVAL);

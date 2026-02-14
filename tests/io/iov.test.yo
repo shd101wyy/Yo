@@ -70,7 +70,7 @@ test "iov pwritev and preadv on regular file", {
 
     flags := ((O_RDWR | O_CREAT) | O_TRUNC);
     fd := await file.openat(AT_FDCWD, path, flags, i32(0o644));
-    assert((fd >= i32(0)), "openat should create a regular file for iov test");
+    assert(fd >= i32(0), "openat should create a regular file for iov test");
 
     iov_bytes := (iov_io.iovec_size() * usize(2));
 
@@ -81,10 +81,10 @@ test "iov pwritev and preadv on regular file", {
     iov_io.iovec_set(write_iov, usize(1), part2, usize(5));
 
     wr := iov_io.pwritev(fd, write_iov, i32(2), i64(0));
-    assert((wr == i32(11)), "pwritev should write 11 bytes at offset 0");
+    assert(wr == i32(11), "pwritev should write 11 bytes at offset 0");
 
     pos_after_pwrite := seek_io.lseek(fd, i64(0), seek_io.SEEK_CUR);
-    assert((pos_after_pwrite == i64(0)), "pwritev should not change current file offset");
+    assert(pos_after_pwrite == i64(0), "pwritev should not change current file offset");
 
     recv_a := *(u8)(malloc(usize(2)).unwrap());
     recv_b := *(u8)(malloc(usize(3)).unwrap());
@@ -93,16 +93,16 @@ test "iov pwritev and preadv on regular file", {
     iov_io.iovec_set(read_iov, usize(1), recv_b, usize(3));
 
     rd := iov_io.preadv(fd, read_iov, i32(2), i64(6));
-    assert((rd == i32(5)), "preadv should read 5 bytes from offset 6");
+    assert(rd == i32(5), "preadv should read 5 bytes from offset 6");
 
     pos_after_pread := seek_io.lseek(fd, i64(0), seek_io.SEEK_CUR);
     assert((pos_after_pread == i64(0)), "preadv should not change current file offset");
 
-    assert(((recv_a &+ usize(0)).* == u8(119)), "first preadv byte should be 'w'");
-    assert(((recv_a &+ usize(1)).* == u8(111)), "second preadv byte should be 'o'");
-    assert(((recv_b &+ usize(0)).* == u8(114)), "third preadv byte should be 'r'");
-    assert(((recv_b &+ usize(1)).* == u8(108)), "fourth preadv byte should be 'l'");
-    assert(((recv_b &+ usize(2)).* == u8(100)), "fifth preadv byte should be 'd'");
+    assert((recv_a &+ usize(0)).* == u8(119), "first preadv byte should be 'w'");
+    assert((recv_a &+ usize(1)).* == u8(111), "second preadv byte should be 'o'");
+    assert((recv_b &+ usize(0)).* == u8(114), "third preadv byte should be 'r'");
+    assert((recv_b &+ usize(1)).* == u8(108), "fourth preadv byte should be 'l'");
+    assert((recv_b &+ usize(2)).* == u8(100), "fifth preadv byte should be 'd'");
 
     close_ret := await file.close(fd);
     assert((close_ret == i32(0)), "closing regular file should succeed");
