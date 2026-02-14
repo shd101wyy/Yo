@@ -310,7 +310,10 @@ static void __yo_io_cleanup(void) {
 static bool __yo_win_associate_handle(HANDLE handle) {
   if (!__yo_io_iocp) return false;
   HANDLE res = CreateIoCompletionPort(handle, __yo_io_iocp, 0, 0);
-  if (res != NULL) return true;
+  if (res != NULL) {
+    SetFileCompletionNotificationModes(handle, FILE_SKIP_COMPLETION_PORT_ON_SUCCESS);
+    return true;
+  }
   return GetLastError() == ERROR_INVALID_PARAMETER;
 }
 
@@ -541,18 +544,24 @@ static yo_io_future_t* __yo_async_read_start(int32_t fd, void* buffer, uint32_t 
   }
 
   BOOL ok = ReadFile(handle, buffer, (DWORD)size, NULL, &ov->overlapped);
-  if (!ok) {
-    DWORD err = GetLastError();
-    if (err != ERROR_IO_PENDING) {
-      __yo_free(ov);
-      if (err == ERROR_HANDLE_EOF) {
-        future->result = 0;
-      } else {
-        future->result = -__yo_win_error_to_errno(err);
-      }
-      atomic_store(&future->state, -1);
-      return future;
+  if (ok) {
+    DWORD bytes_transferred = 0;
+    GetOverlappedResult(handle, &ov->overlapped, &bytes_transferred, FALSE);
+    future->result = (int32_t)bytes_transferred;
+    __yo_free(ov);
+    atomic_store(&future->state, -1);
+    return future;
+  }
+  DWORD err = GetLastError();
+  if (err != ERROR_IO_PENDING) {
+    __yo_free(ov);
+    if (err == ERROR_HANDLE_EOF) {
+      future->result = 0;
+    } else {
+      future->result = -__yo_win_error_to_errno(err);
     }
+    atomic_store(&future->state, -1);
+    return future;
   }
 
   atomic_fetch_add(&__yo_pending_io_count, 1);
@@ -596,14 +605,20 @@ static yo_io_future_t* __yo_async_write_start(int32_t fd, const void* buffer, ui
   }
 
   BOOL ok = WriteFile(handle, buffer, (DWORD)size, NULL, &ov->overlapped);
-  if (!ok) {
-    DWORD err = GetLastError();
-    if (err != ERROR_IO_PENDING) {
-      __yo_free(ov);
-      future->result = -__yo_win_error_to_errno(err);
-      atomic_store(&future->state, -1);
-      return future;
-    }
+  if (ok) {
+    DWORD bytes_transferred = 0;
+    GetOverlappedResult(handle, &ov->overlapped, &bytes_transferred, FALSE);
+    future->result = (int32_t)bytes_transferred;
+    __yo_free(ov);
+    atomic_store(&future->state, -1);
+    return future;
+  }
+  DWORD err = GetLastError();
+  if (err != ERROR_IO_PENDING) {
+    __yo_free(ov);
+    future->result = -__yo_win_error_to_errno(err);
+    atomic_store(&future->state, -1);
+    return future;
   }
 
   atomic_fetch_add(&__yo_pending_io_count, 1);
@@ -1020,6 +1035,7 @@ static int32_t __yo_sync_fallocate(int32_t fd, int32_t mode, int64_t offset, int
 }
 
 static int32_t __yo_sync_fcntl_getfl(int32_t fd) {
+  if (fd < 0) return -EBADF;
   if (__yo_win_is_socket_fd(fd)) {
     // Winsock does not provide a portable way to query current FIONBIO mode.
     // Return 0 (blocking) as best-effort default.
@@ -1032,6 +1048,7 @@ static int32_t __yo_sync_fcntl_getfl(int32_t fd) {
 }
 
 static int32_t __yo_sync_fcntl_setfl(int32_t fd, int32_t flags) {
+  if (fd < 0) return -EBADF;
   if (__yo_win_is_socket_fd(fd)) {
     u_long mode = ((flags & O_NONBLOCK) != 0) ? 1UL : 0UL;
     int result = ioctlsocket((SOCKET)(uintptr_t)(uint32_t)fd, FIONBIO, &mode);
@@ -1057,6 +1074,7 @@ static int32_t __yo_sync_fcntl_setfl(int32_t fd, int32_t flags) {
 }
 
 static int32_t __yo_sync_fcntl_getfd(int32_t fd) {
+  if (fd < 0) return -EBADF;
   intptr_t handle_value = _get_osfhandle(fd);
   if (handle_value == -1) {
     return __yo_win_is_socket_fd(fd) ? 0 : -EBADF;
@@ -1071,6 +1089,7 @@ static int32_t __yo_sync_fcntl_getfd(int32_t fd) {
 }
 
 static int32_t __yo_sync_fcntl_setfd(int32_t fd, int32_t flags) {
+  if (fd < 0) return -EBADF;
   intptr_t handle_value = _get_osfhandle(fd);
   if (handle_value == -1) {
     return __yo_win_is_socket_fd(fd) ? 0 : -EBADF;
@@ -1285,6 +1304,9 @@ static uint8_t* __yo_sync_mmap(uint8_t* addr, size_t length, int32_t prot, int32
   HANDLE file_handle = INVALID_HANDLE_VALUE;
 
   if (!anonymous_map) {
+    if (fd < 0) {
+      return (uint8_t*)(intptr_t)(-EBADF);
+    }
     intptr_t handle_value = _get_osfhandle(fd);
     if (handle_value == -1) {
       return (uint8_t*)(intptr_t)(-EBADF);
@@ -1293,7 +1315,8 @@ static uint8_t* __yo_sync_mmap(uint8_t* addr, size_t length, int32_t prot, int32
   }
 
   uint64_t map_end = ((uint64_t)offset + (uint64_t)length);
-  DWORD protect = __yo_win_mmap_page_protect(prot, flags, anonymous_map);
+  bool prot_none = (prot == 0);
+  DWORD protect = prot_none ? PAGE_READWRITE : __yo_win_mmap_page_protect(prot, flags, anonymous_map);
   HANDLE mapping = CreateFileMappingW(
     file_handle,
     NULL,
@@ -1306,7 +1329,7 @@ static uint8_t* __yo_sync_mmap(uint8_t* addr, size_t length, int32_t prot, int32
     return (uint8_t*)(intptr_t)(-__yo_win_last_error_to_errno());
   }
 
-  DWORD desired_access = __yo_win_mmap_view_access(prot, flags, anonymous_map);
+  DWORD desired_access = prot_none ? (FILE_MAP_READ | FILE_MAP_WRITE) : __yo_win_mmap_view_access(prot, flags, anonymous_map);
   uint64_t offset_u64 = (uint64_t)offset;
   void* view = NULL;
 
@@ -1335,6 +1358,11 @@ static uint8_t* __yo_sync_mmap(uint8_t* addr, size_t length, int32_t prot, int32
 
   if (!view) {
     return (uint8_t*)(intptr_t)(-__yo_win_last_error_to_errno());
+  }
+
+  if (prot_none) {
+    DWORD old_protect;
+    VirtualProtect(view, length, PAGE_NOACCESS, &old_protect);
   }
 
   return (uint8_t*)view;
@@ -3116,7 +3144,7 @@ static yo_io_future_t* __yo_async_spawn_start(const uint8_t* file, uint8_t** arg
   DWORD flags = 0;
   if (env_block) flags |= CREATE_UNICODE_ENVIRONMENT;
 
-  BOOL ok = CreateProcessW(wfile, cmdline, NULL, NULL, TRUE, flags, env_block, NULL, &si, &pi);
+  BOOL ok = CreateProcessW(NULL, cmdline, NULL, NULL, TRUE, flags, env_block, NULL, &si, &pi);
 
   CloseHandle(hStdInInherit);
   CloseHandle(hStdOutInherit);

@@ -1,56 +1,67 @@
 open import "std/libc/stdio";
 open import "std/string";
-open import "std/collections/array_list";
-umask_io :: import "std/io/umask";
+{ temp_dir, path_join } :: import "../../tests/io/helper";
 file :: import "std/io/file";
 dir :: import "std/io/dir";
-{ Statx } :: import "std/io/statx";
-{ temp_dir, path_join } :: import "../../tests/io/helper";
-{ AT_FDCWD, O_WRONLY, O_CREAT, O_TRUNC, STATX_BASIC_STATS } :: import "std/io/constants";
-
-make_test_file :: (fn(name: String) -> ArrayList(u8)) {
-  tmp := temp_dir();
-  p := path_join(tmp, name);
-  p.to_cstr()
-};
+{ AT_FDCWD } :: import "std/io/constants";
+temp_io :: import "std/io/temp";
+mmap_io :: import "std/io/mmap";
 
 main :: (fn() -> unit) {
   async {
-    path_cstr := make_test_file(`yo_umask_test.txt`);
-    test_path := path_cstr.ptr().unwrap();
+    tmp := temp_dir();
+    template_str := path_join(tmp, `yo_io_mmap_XXXXXX`);
+    template_c := template_str.to_cstr();
+    template_path := template_c.ptr().unwrap();
 
-    old_mask := umask_io.umask(i32(0));
-    set_prev := umask_io.umask(i32(0o022));
+    fd := temp_io.mkstemp(template_path);
+    printf("fd = %d\n", fd);
+    assert((fd >= i32(0)), "mkstemp should return a valid fd");
 
-    open_flags := ((O_WRONLY | O_CREAT) | O_TRUNC);
-    fd := await file.openat(AT_FDCWD, test_path, open_flags, i32(0o666));
+    trunc := await file.ftruncate(fd, i64(4096));
+    printf("trunc = %d\n", trunc);
+    assert((trunc == i32(0)), "ftruncate to 4096 should succeed");
 
-    close_result := cond(
-      (fd >= i32(0)) => await(file.close(fd)),
-      true => i32(-1)
+    mapped := mmap_io.mmap(
+      .None,
+      usize(4096),
+      (mmap_io.PROT_READ | mmap_io.PROT_WRITE),
+      mmap_io.MAP_SHARED,
+      fd,
+      i64(0)
     );
 
-    statx_uninit := MaybeUninit(Array(u8, usize(256))).new();
-    stat_buf := *(u8)(statx_uninit.as_ptr());
-    sr := await file.statx(AT_FDCWD, test_path, i32(0), STATX_BASIC_STATS, stat_buf);
+    assert((!mmap_io.is_error(mapped)), "file-backed shared mmap should succeed");
+    ptr := mapped.unwrap();
+    printf("mapped ptr ok\n");
 
-    st := Statx(stat_buf, usize(256));
-    mode_bits := (st.mode() & u32(0o777));
+    (ptr &+ usize(0)).* = u8(90);
+    (ptr &+ usize(1)).* = u8(89);
+    printf("wrote bytes\n");
 
-    restore_prev := umask_io.umask(old_mask);
+    sync_ret := mmap_io.msync(ptr, usize(4096), mmap_io.MS_SYNC);
+    printf("msync = %d\n", sync_ret);
+    assert((sync_ret == i32(0)), "msync(MS_SYNC) should succeed");
 
-    assert((old_mask >= i32(0)), "initial umask call should return previous mask");
-    assert((set_prev == i32(0)), "setting umask to 022 after clearing should return 0");
-    assert((fd >= i32(0)), "openat should create file successfully");
-    assert((close_result == i32(0)), "close should succeed");
-    assert((sr == i32(0)), "statx should succeed on created file");
-    assert((mode_bits == u32(0o644)), "created file mode should reflect umask 022 (0666 -> 0644)");
-    assert((restore_prev == i32(0o022)), "restoring old umask should return current mask 022");
+    unmap_ret := mmap_io.munmap(ptr, usize(4096));
+    printf("munmap = %d\n", unmap_ret);
+    assert((unmap_ret == i32(0)), "munmap for file-backed mapping should succeed");
 
-    cleanup := await dir.unlink(AT_FDCWD, test_path, i32(0));
-    assert((cleanup == i32(0)), "cleanup unlink should succeed");
+    printf("about to read...\n");
+    read_buf_uninit := MaybeUninit(Array(u8, usize(2))).new();
+    read_buf := *(u8)(read_buf_uninit.as_ptr());
+    rd := await file.read(fd, read_buf, u32(2), u64(0));
+    printf("read = %d\n", rd);
+    assert((rd == i32(2)), "reading first 2 bytes after msync should return 2");
+    assert(((read_buf &+ usize(0)).* == u8(90)), "persisted byte 0 should be 90");
+    assert(((read_buf &+ usize(1)).* == u8(89)), "persisted byte 1 should be 89");
 
-    printf("  umask behavior validated\n");
+    close_ret := await file.close(fd);
+    printf("close = %d\n", close_ret);
+
+    rm := await dir.unlink(AT_FDCWD, template_path, i32(0));
+    printf("unlink = %d\n", rm);
+    printf("done\n");
   };
 };
 export main;
