@@ -518,6 +518,11 @@ static yo_io_future_t* __yo_async_read_start(int32_t fd, void* buffer, uint32_t 
   atomic_init(&future->continuation_fn, NULL);
   atomic_init(&future->continuation_sm, NULL);
 
+  if (fd < 0) {
+    future->result = -EBADF;
+    atomic_store(&future->state, -1);
+    return future;
+  }
   HANDLE handle = (HANDLE)_get_osfhandle(fd);
   if (handle == INVALID_HANDLE_VALUE) {
     future->result = -EBADF;
@@ -579,6 +584,11 @@ static yo_io_future_t* __yo_async_write_start(int32_t fd, const void* buffer, ui
   atomic_init(&future->continuation_fn, NULL);
   atomic_init(&future->continuation_sm, NULL);
 
+  if (fd < 0) {
+    future->result = -EBADF;
+    atomic_store(&future->state, -1);
+    return future;
+  }
   HANDLE handle = (HANDLE)_get_osfhandle(fd);
   if (handle == INVALID_HANDLE_VALUE) {
     future->result = -EBADF;
@@ -1000,11 +1010,18 @@ static int32_t __yo_sync_dup2(int32_t oldfd, int32_t newfd) {
 }
 
 static int64_t __yo_sync_lseek(int32_t fd, int64_t offset, int32_t whence) {
+  if (fd < 0) return (int64_t)(-EBADF);
+  if (__yo_win_is_socket_fd(fd)) return (int64_t)(-ESPIPE);
+  intptr_t hv = _get_osfhandle(fd);
+  if (hv == -1) return (int64_t)(-EBADF);
+  DWORD ft = GetFileType((HANDLE)hv);
+  if (ft == FILE_TYPE_PIPE || ft == FILE_TYPE_CHAR) return (int64_t)(-ESPIPE);
   __int64 result = _lseeki64(fd, (__int64)offset, whence);
   return (result < 0) ? (int64_t)(-errno) : (int64_t)result;
 }
 
 static int32_t __yo_sync_fallocate(int32_t fd, int32_t mode, int64_t offset, int64_t length) {
+  if (fd < 0) return -EBADF;
   if (offset < 0 || length < 0) return -EINVAL;
 
   uint64_t target_u = (uint64_t)offset + (uint64_t)length;
@@ -1106,6 +1123,7 @@ static int32_t __yo_sync_fcntl_setfd(int32_t fd, int32_t flags) {
 #define LOCK_UN 8
 
 static int32_t __yo_sync_flock(int32_t fd, int32_t operation) {
+  if (fd < 0) return -EBADF;
   intptr_t handle_value = _get_osfhandle(fd);
   if (handle_value == -1) return -EBADF;
   HANDLE handle = (HANDLE)handle_value;
@@ -1113,16 +1131,23 @@ static int32_t __yo_sync_flock(int32_t fd, int32_t operation) {
   memset(&ov, 0, sizeof(ov));
   if ((operation & LOCK_UN) != 0) {
     BOOL ok = UnlockFileEx(handle, 0, 0xFFFFFFFF, 0xFFFFFFFF, &ov);
+    if (!ok && GetLastError() == ERROR_NOT_LOCKED) return 0;
     return ok ? 0 : -__yo_win_last_error_to_errno();
   }
+  UnlockFileEx(handle, 0, 0xFFFFFFFF, 0xFFFFFFFF, &ov);
+  memset(&ov, 0, sizeof(ov));
   DWORD flags = 0;
   if ((operation & LOCK_EX) != 0) flags |= LOCKFILE_EXCLUSIVE_LOCK;
   if ((operation & LOCK_NB) != 0) flags |= LOCKFILE_FAIL_IMMEDIATELY;
   BOOL ok = LockFileEx(handle, flags, 0, 0xFFFFFFFF, 0xFFFFFFFF, &ov);
+  if (!ok && (operation & LOCK_NB) != 0 && GetLastError() == ERROR_LOCK_VIOLATION) {
+    return -EAGAIN;
+  }
   return ok ? 0 : -__yo_win_last_error_to_errno();
 }
 
 static int32_t __yo_sync_readv(int32_t fd, void* iov, int32_t iovcnt) {
+  if (fd < 0) return -EBADF;
   if (iovcnt < 0) return -EINVAL;
   if (iovcnt == 0) return 0;
 
@@ -1174,6 +1199,7 @@ static int32_t __yo_sync_readv(int32_t fd, void* iov, int32_t iovcnt) {
 }
 
 static int32_t __yo_sync_writev(int32_t fd, void* iov, int32_t iovcnt) {
+  if (fd < 0) return -EBADF;
   if (iovcnt < 0) return -EINVAL;
   if (iovcnt == 0) return 0;
 
@@ -1401,6 +1427,7 @@ static int32_t __yo_sync_msync(uint8_t* addr, size_t length, int32_t flags) {
 }
 
 static int32_t __yo_sync_fchmod(int32_t fd, uint32_t mode) {
+  if (fd < 0) return -EBADF;
   HANDLE handle = (HANDLE)_get_osfhandle(fd);
   if (handle == INVALID_HANDLE_VALUE) return -EBADF;
   wchar_t path_buf[MAX_PATH];
@@ -2178,9 +2205,12 @@ static int32_t __yo_sync_gethostname(char* name, size_t len) {
   return 0;
 }
 
+static int32_t __yo_process_umask = 0;
+
 static int32_t __yo_sync_umask(int32_t mask) {
-  int prev = _umask(mask & 0777);
-  return (int32_t)prev;
+  int32_t prev = __yo_process_umask;
+  __yo_process_umask = mask & 0777;
+  return prev;
 }
 
 // ============================================================================
@@ -2599,6 +2629,7 @@ static int32_t __yo_sync_utime(const char* path, int64_t atime_sec, int64_t atim
 }
 
 static int32_t __yo_sync_futime(int32_t fd, int64_t atime_sec, int64_t atime_nsec, int64_t mtime_sec, int64_t mtime_nsec) {
+  if (fd < 0) return -EBADF;
   HANDLE orig_handle = (HANDLE)_get_osfhandle(fd);
   if (orig_handle == INVALID_HANDLE_VALUE) return -EBADF;
   wchar_t path_buf[MAX_PATH];
@@ -3370,6 +3401,7 @@ static int32_t __yo_tty_init(int32_t fd) {
 }
 
 static int32_t __yo_tty_set_mode(int32_t fd, int32_t mode) {
+  if (fd < 0) return -EBADF;
   HANDLE handle = (HANDLE)_get_osfhandle(fd);
   if (handle == INVALID_HANDLE_VALUE) return -EBADF;
 
@@ -3425,6 +3457,7 @@ static int32_t __yo_tty_reset_mode(void) {
 }
 
 static int32_t __yo_tty_get_winsize(int32_t fd, int32_t* width, int32_t* height) {
+  if (fd < 0) return -EBADF;
   HANDLE handle = (HANDLE)_get_osfhandle(fd);
   if (handle == INVALID_HANDLE_VALUE) return -EBADF;
 

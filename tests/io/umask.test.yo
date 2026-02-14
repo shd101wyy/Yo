@@ -8,6 +8,7 @@ dir :: import "std/io/dir";
 { Statx } :: import "std/io/statx";
 { temp_dir, path_join } :: import "./helper";
 { AT_FDCWD, O_WRONLY, O_CREAT, O_TRUNC, STATX_BASIC_STATS } :: import "std/io/constants";
+{ platform, Platform } :: import "std/process";
 
 make_test_file :: (fn(name: String) -> ArrayList(u8)) {
   tmp := temp_dir();
@@ -41,7 +42,12 @@ test "umask affects file creation mode and can be restored", {
     assert(fd >= i32(0), "openat should create file successfully");
     assert(close_result == i32(0), "close should succeed");
     assert(sr == i32(0), "statx should succeed on created file");
-    assert(mode_bits == u32(0o644), "created file mode should reflect umask 022 (0666 -> 0644)");
+    cond(
+      (platform == Platform.Win32) =>
+        assert(mode_bits == u32(0o666), "Windows reports 0666 for read-write files (no group/other distinction)"),
+      true =>
+        assert(mode_bits == u32(0o644), "created file mode should reflect umask 022 (0666 -> 0644)")
+    );
     assert(restore_prev == i32(0o022), "restoring old umask should return current mask 022");
 
     cleanup := await dir.unlink(AT_FDCWD, test_path, i32(0));
