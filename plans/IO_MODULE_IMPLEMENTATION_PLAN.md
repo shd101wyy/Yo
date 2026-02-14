@@ -72,7 +72,7 @@ The runtime has been refactored into 4 modules:
 | **dup/dup2/pipe**           | ✅ (sync)             | ✅ (sync)            | ✅ (sync)                                            |
 | **Socket ops**              | ✅                    | ✅ (dispatch_source) | ✅ (IOCP WSASend/WSARecv)                            |
 | **Timer (sleep)**           | ✅ (timerfd+io_uring) | ✅ (dispatch_after)  | ✅ (IOCP wait timeout)                               |
-| **getdents/readdir**        | ✅ (getdents64)       | ✅ (getdirentries)   | ✅ (getdents only)                                   |
+| **getdents/readdir**        | ✅ (getdents64)       | ✅ (getdirentries)   | ✅ (getdents + opendir/readdir/closedir)             |
 | **access/realpath**         | ✅ (sync)             | ✅ (sync)            | ✅ (sync)                                            |
 | **utime**                   | ✅ (sync)             | ✅ (sync)            | ✅ (sync)                                            |
 | **mkdtemp/mkstemp**         | ✅ (sync)             | ✅ (sync)            | ✅ (sync)                                            |
@@ -80,14 +80,14 @@ The runtime has been refactored into 4 modules:
 | **statfs**                  | ✅ (sync)             | ✅ (sync)            | ✅ (GetDiskFreeSpaceEx)                              |
 | **DNS**                     | ✅ (sync)             | ✅ (sync)            | ✅ (sync)                                            |
 | **Signals**                 | ✅ (sync)             | ✅ (sync)            | ⚠️ (local handlers + SIGKILL/kill(0) support)        |
-| **TTY**                     | ✅ (sync)             | ✅ (sync)            | ⚠️ (isatty only)                                     |
+| **TTY**                     | ✅ (sync)             | ✅ (sync)            | ✅ (Console API)                                     |
 | **Unix sockets**            | ✅ (sockaddr_un)      | ✅ (sockaddr_un)     | ⚠️ (AF_UNIX Win10 1803+)                             |
 | **Process spawn**           | ✅ (posix_spawn)      | ✅ (posix_spawn)     | ✅ (CreateProcessW)                                  |
 | **fcntl**                   | ✅ (sync)             | ✅ (sync)            | ✅ (best-effort abstraction)                         |
 | **mmap**                    | ✅ (sync)             | ✅ (sync)            | ✅ (CreateFileMapping/MapViewOfFile)                 |
 | **flock**                   | ✅ (sync)             | ✅ (sync)            | ✅ (LockFileEx/UnlockFileEx)                         |
-| **FS Events**               | ❌ (stub)             | ❌ (stub)            | ❌ (stub)                                            |
-| **Poll**                    | ❌ (stub)             | ❌ (stub)            | ❌ (stub)                                            |
+| **FS Events**               | ✅ (inotify)          | ✅ (kqueue)          | ✅ (ReadDirectoryChangesW)                           |
+| **Poll**                    | ✅ (poll)             | ✅ (poll)            | ✅ (select/PeekNamedPipe)                            |
 | **lseek**                   | ✅ (sync)             | ✅ (sync)            | ✅ (sync, \_lseeki64)                                |
 | **getsockname/getpeername** | ✅ (sync)             | ✅ (sync)            | ✅ (sync, Winsock)                                   |
 | **socketpair**              | ✅ (sync)             | ✅ (sync)            | ✅ (loopback emulation)                              |
@@ -136,6 +136,10 @@ The runtime has been refactored into 4 modules:
 - ✅ **Path test canonicalization on macOS (`/tmp` vs `/private/tmp`)**: `realpath` tests previously compared against lexical input paths, which fails on macOS because `realpath` canonicalizes `/tmp` to `/private/tmp`. Updated `tests/io/path.test.yo` to compare `realpath(input)` with `realpath(expected_target)` so assertions are based on canonical paths on all platforms.
 - ✅ **macOS FS event directory modification/delete detection**: kqueue `EVFILT_VNODE` on directories does not reliably emit per-child modification semantics compatible with Linux inotify. Added snapshot-based diffing for macOS fs_event handles (directory/file metadata tracking) and merged it with kqueue flags in the event tick path. This correctly reports `FS_EVENT_CHANGE` for file content updates and `FS_EVENT_RENAME` for create/delete transitions when watching directories.
 - ✅ **`flock` EWOULDBLOCK errno differs on macOS**: `LOCK_EX | LOCK_NB` conflict tests assumed Linux `-EWOULDBLOCK` value `-11`. On macOS/BSD, `EWOULDBLOCK` is `35`, so the expected value is `-35`. Updated `tests/io/lock.test.yo` to use a platform-aware expected errno for lock conflict assertions.
+- ✅ **Windows directory scanning implemented (no stubs)**: Replaced `-ENOSYS` stubs for `scandir`, `opendir`, `readdir`, `closedir` with real Windows implementations using `FindFirstFileW`/`FindNextFileW`. `opendir` creates an enumeration state with `FindFirstFileW`, `readdir` iterates with `FindNextFileW`, `closedir` frees resources. `scandir` opens the directory fd as a regular CRT file descriptor for compatibility with `getdents`. All 8 dir tests pass on Windows.
+- ✅ **Windows TTY operations implemented (no stubs)**: Replaced `-ENOSYS` stubs for `tty_set_mode`, `tty_reset_mode`, `tty_get_winsize` with real Windows Console API implementations. `tty_init` saves original console modes via `GetConsoleMode`. `tty_set_mode` uses `SetConsoleMode` with `ENABLE_VIRTUAL_TERMINAL_INPUT` for raw mode. `tty_get_winsize` uses `GetConsoleScreenBufferInfo` to get window dimensions. `tty_reset_mode` restores saved modes. Both TTY tests pass.
+- ✅ **Windows FS event operations implemented (no stubs)**: Replaced `-ENOSYS` stubs for `fs_event_init`, `fs_event_start`, `fs_event_stop`, `fs_event_close` with real Windows implementations. Directory watching uses `ReadDirectoryChangesW` with `FILE_FLAG_OVERLAPPED` and `GetOverlappedResult` for non-blocking polling. Individual file watching uses `FindFirstChangeNotificationW`. The tick function is integrated into `__yo_io_poll` and `__yo_io_wait`. All 5 fs_event tests pass on Windows.
+- ✅ **Windows poll operations implemented (no stubs)**: Replaced `-ENOSYS` stubs for `poll_init`, `poll_start`, `poll_stop`, `poll_close` with real Windows implementations. Socket polling uses `select()`. Pipe polling uses `PeekNamedPipe` for readability and `WaitForSingleObject` for generic handles. Includes disconnect detection via `ERROR_BROKEN_PIPE`. The `__yo_poll_and_fs_event_tick` function is called from `__yo_io_poll` (non-blocking) and `__yo_io_wait` (with 50ms timeout cap when watches are active). All 5 poll tests pass on Windows.
 
 ### Known Windows Limitations
 

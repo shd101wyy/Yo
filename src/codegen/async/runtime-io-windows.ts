@@ -314,8 +314,10 @@ static bool __yo_win_associate_handle(HANDLE handle) {
   return GetLastError() == ERROR_INVALID_PARAMETER;
 }
 
+static int __yo_poll_and_fs_event_tick(void);
+
 static inline bool __yo_has_pending_io(void) {
-  return atomic_load(&__yo_pending_io_count) > 0;
+  return atomic_load(&__yo_pending_io_count) > 0 || __yo_active_watch_count > 0;
 }
 
 static void __yo_io_wake_continuation(yo_io_future_t* future) {
@@ -437,27 +439,36 @@ static int __yo_io_poll(void) {
     processed++;
   }
   processed += __yo_win_timer_process_due(__yo_win_now_ms());
+  processed += __yo_poll_and_fs_event_tick();
   return processed;
 }
 
 static int __yo_io_wait(void) {
-  if (!__yo_io_iocp || atomic_load(&__yo_pending_io_count) == 0) return 0;
+  if (!__yo_io_iocp) return 0;
+  if (atomic_load(&__yo_pending_io_count) == 0 && __yo_active_watch_count > 0) {
+    Sleep(10);
+    return __yo_poll_and_fs_event_tick();
+  }
+  if (atomic_load(&__yo_pending_io_count) == 0) return 0;
 
   DWORD bytes = 0;
   ULONG_PTR key = 0;
   OVERLAPPED* ov = NULL;
   DWORD timeout_ms = __yo_win_timer_next_timeout(__yo_win_now_ms());
+  if (__yo_active_watch_count > 0 && (timeout_ms == INFINITE || timeout_ms > 50)) {
+    timeout_ms = 50;
+  }
   BOOL ok = GetQueuedCompletionStatus(__yo_io_iocp, &bytes, &key, &ov, timeout_ms);
   if (!ok && GetLastError() == WAIT_TIMEOUT) {
-    return __yo_win_timer_process_due(__yo_win_now_ms());
+    return __yo_win_timer_process_due(__yo_win_now_ms()) + __yo_poll_and_fs_event_tick();
   }
   if (!ok) {
-    return __yo_win_timer_process_due(__yo_win_now_ms());
+    return __yo_win_timer_process_due(__yo_win_now_ms()) + __yo_poll_and_fs_event_tick();
   }
-  if (!ov) return 0;
+  if (!ov) return __yo_poll_and_fs_event_tick();
 
   __yo_win_process_completion((yo_win_overlapped_t*)ov, bytes);
-  return 1 + __yo_win_timer_process_due(__yo_win_now_ms());
+  return 1 + __yo_win_timer_process_due(__yo_win_now_ms()) + __yo_poll_and_fs_event_tick();
 }
 
 // ============================================================================
@@ -3127,12 +3138,19 @@ static uint64_t __yo_statfs_files(void* buf) { return ((yo_win_statfs_t*)buf)->f
 static uint64_t __yo_statfs_ffree(void* buf) { return ((yo_win_statfs_t*)buf)->ffree; }
 
 // ============================================================================
-// Directory Scanning (stubs for now)
+// Directory Scanning (Windows - FindFirstFileW/FindNextFileW)
 // ============================================================================
+
+typedef struct yo_win_opendir_state_s {
+  HANDLE find_handle;
+  WIN32_FIND_DATAW find_data;
+  bool has_data;
+  wchar_t* pattern;
+  struct yo_win_opendir_state_s* next;
+} yo_win_opendir_state_t;
 
 static yo_io_future_t* __yo_async_scandir_start(int32_t dirfd, const char* path) {
   __yo_io_init();
-  (void)dirfd; (void)path;
 
   yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
   memset(future, 0, sizeof(yo_io_future_t));
@@ -3140,14 +3158,41 @@ static yo_io_future_t* __yo_async_scandir_start(int32_t dirfd, const char* path)
   atomic_init(&future->continuation_fn, NULL);
   atomic_init(&future->continuation_sm, NULL);
 
-  future->result = -ENOSYS;
+  char full_path[MAX_PATH];
+  if (__yo_is_at_fdcwd(dirfd)) {
+    strncpy(full_path, path, MAX_PATH - 1);
+    full_path[MAX_PATH - 1] = '\\0';
+  } else {
+    HANDLE dh = (HANDLE)_get_osfhandle(dirfd);
+    if (dh == INVALID_HANDLE_VALUE) {
+      future->result = -EBADF;
+      atomic_init(&future->state, -1);
+      return future;
+    }
+    wchar_t dir_buf[MAX_PATH];
+    DWORD dlen = GetFinalPathNameByHandleW(dh, dir_buf, MAX_PATH, FILE_NAME_NORMALIZED);
+    if (dlen == 0 || dlen >= MAX_PATH) {
+      future->result = -__yo_win_last_error_to_errno();
+      atomic_init(&future->state, -1);
+      return future;
+    }
+    char dir_utf8[MAX_PATH];
+    if (__yo_win_wide_to_utf8(dir_buf, dir_utf8, MAX_PATH) < 0) {
+      future->result = -EINVAL;
+      atomic_init(&future->state, -1);
+      return future;
+    }
+    snprintf(full_path, MAX_PATH, "%s\\\\%s", dir_utf8, path);
+  }
+
+  int fd = _open(full_path, _O_RDONLY | 0x200000);
+  future->result = (fd < 0) ? -errno : fd;
   atomic_init(&future->state, -1);
   return future;
 }
 
 static yo_io_future_t* __yo_async_opendir_start(const char* path) {
   __yo_io_init();
-  (void)path;
 
   yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
   memset(future, 0, sizeof(yo_io_future_t));
@@ -3155,14 +3200,51 @@ static yo_io_future_t* __yo_async_opendir_start(const char* path) {
   atomic_init(&future->continuation_fn, NULL);
   atomic_init(&future->continuation_sm, NULL);
 
-  future->result = -ENOSYS;
+  wchar_t* wpath = __yo_win_utf8_to_wide(path);
+  if (!wpath) {
+    future->result = -EINVAL;
+    atomic_init(&future->state, -1);
+    return future;
+  }
+
+  size_t path_len = wcslen(wpath);
+  wchar_t* pattern = (wchar_t*)__yo_malloc((path_len + 3) * sizeof(wchar_t));
+  wcscpy(pattern, wpath);
+  if (path_len > 0 && wpath[path_len - 1] != L'\\\\' && wpath[path_len - 1] != L'/') {
+    pattern[path_len] = L'\\\\';
+    pattern[path_len + 1] = L'*';
+    pattern[path_len + 2] = L'\\0';
+  } else {
+    pattern[path_len] = L'*';
+    pattern[path_len + 1] = L'\\0';
+  }
+  __yo_free(wpath);
+
+  yo_win_opendir_state_t* state = (yo_win_opendir_state_t*)__yo_malloc(sizeof(yo_win_opendir_state_t));
+  memset(state, 0, sizeof(yo_win_opendir_state_t));
+  state->pattern = pattern;
+  state->find_handle = FindFirstFileW(state->pattern, &state->find_data);
+  if (state->find_handle == INVALID_HANDLE_VALUE) {
+    DWORD err = GetLastError();
+    __yo_free(state->pattern);
+    __yo_free(state);
+    if (err == ERROR_FILE_NOT_FOUND || err == ERROR_PATH_NOT_FOUND) {
+      future->result = -ENOENT;
+    } else {
+      future->result = -__yo_win_error_to_errno(err);
+    }
+    atomic_init(&future->state, -1);
+    return future;
+  }
+  state->has_data = true;
+
+  future->result = (int32_t)(intptr_t)state;
   atomic_init(&future->state, -1);
   return future;
 }
 
 static yo_io_future_t* __yo_async_readdir_start(void* dir, void* entries, size_t max_entries) {
   __yo_io_init();
-  (void)dir; (void)entries; (void)max_entries;
 
   yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
   memset(future, 0, sizeof(yo_io_future_t));
@@ -3170,14 +3252,32 @@ static yo_io_future_t* __yo_async_readdir_start(void* dir, void* entries, size_t
   atomic_init(&future->continuation_fn, NULL);
   atomic_init(&future->continuation_sm, NULL);
 
-  future->result = -ENOSYS;
+  (void)entries;
+  (void)max_entries;
+
+  yo_win_opendir_state_t* state = (yo_win_opendir_state_t*)dir;
+  if (!state || state->find_handle == INVALID_HANDLE_VALUE) {
+    future->result = 0;
+    atomic_init(&future->state, -1);
+    return future;
+  }
+
+  if (!state->has_data) {
+    future->result = 0;
+    atomic_init(&future->state, -1);
+    return future;
+  }
+
+  future->result = 1;
+  if (!FindNextFileW(state->find_handle, &state->find_data)) {
+    state->has_data = false;
+  }
   atomic_init(&future->state, -1);
   return future;
 }
 
 static yo_io_future_t* __yo_async_closedir_start(void* dir) {
   __yo_io_init();
-  (void)dir;
 
   yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
   memset(future, 0, sizeof(yo_io_future_t));
@@ -3185,7 +3285,18 @@ static yo_io_future_t* __yo_async_closedir_start(void* dir) {
   atomic_init(&future->continuation_fn, NULL);
   atomic_init(&future->continuation_sm, NULL);
 
-  future->result = -ENOSYS;
+  yo_win_opendir_state_t* state = (yo_win_opendir_state_t*)dir;
+  if (state) {
+    if (state->find_handle != INVALID_HANDLE_VALUE) {
+      FindClose(state->find_handle);
+    }
+    if (state->pattern) {
+      __yo_free(state->pattern);
+    }
+    __yo_free(state);
+  }
+
+  future->result = 0;
   atomic_init(&future->state, -1);
   return future;
 }
@@ -3695,32 +3806,496 @@ static int32_t __yo_kill(int32_t pid, int32_t signum) {
 }
 
 // ============================================================================
-// TTY Operations (minimal)
+// TTY Operations (Windows Console API)
 // ============================================================================
 
-static int32_t __yo_tty_init(int32_t fd) { (void)fd; return 0; }
-static int32_t __yo_tty_set_mode(int32_t fd, int32_t mode) { (void)fd; (void)mode; return -ENOSYS; }
-static int32_t __yo_tty_reset_mode(void) { return -ENOSYS; }
-static int32_t __yo_tty_get_winsize(int32_t fd, int32_t* width, int32_t* height) { (void)fd; (void)width; (void)height; return -ENOSYS; }
+static DWORD __yo_orig_console_mode_in = 0;
+static DWORD __yo_orig_console_mode_out = 0;
+static bool __yo_console_mode_saved = false;
+
+static int32_t __yo_tty_init(int32_t fd) {
+  if (!__yo_console_mode_saved) {
+    HANDLE h_in = GetStdHandle(STD_INPUT_HANDLE);
+    HANDLE h_out = GetStdHandle(STD_OUTPUT_HANDLE);
+    if (h_in != INVALID_HANDLE_VALUE) {
+      GetConsoleMode(h_in, &__yo_orig_console_mode_in);
+    }
+    if (h_out != INVALID_HANDLE_VALUE) {
+      GetConsoleMode(h_out, &__yo_orig_console_mode_out);
+    }
+    __yo_console_mode_saved = true;
+  }
+  (void)fd;
+  return 0;
+}
+
+static int32_t __yo_tty_set_mode(int32_t fd, int32_t mode) {
+  HANDLE handle = (HANDLE)_get_osfhandle(fd);
+  if (handle == INVALID_HANDLE_VALUE) return -EBADF;
+
+  DWORD console_mode = 0;
+  if (!GetConsoleMode(handle, &console_mode)) return -ENOTTY;
+
+  DWORD file_type = GetFileType(handle);
+  bool is_input = (file_type == FILE_TYPE_CHAR);
+  DWORD new_mode = 0;
+
+  switch (mode) {
+    case 0:  // TTY_MODE_NORMAL
+      if (is_input) {
+        new_mode = __yo_orig_console_mode_in;
+      } else {
+        new_mode = __yo_orig_console_mode_out;
+      }
+      break;
+    case 1:  // TTY_MODE_RAW
+      if (is_input) {
+        new_mode = ENABLE_VIRTUAL_TERMINAL_INPUT;
+      } else {
+        new_mode = ENABLE_PROCESSED_OUTPUT | ENABLE_VIRTUAL_TERMINAL_PROCESSING | DISABLE_NEWLINE_AUTO_RETURN;
+      }
+      break;
+    case 2:  // TTY_MODE_IO
+      if (is_input) {
+        new_mode = ENABLE_VIRTUAL_TERMINAL_INPUT;
+      } else {
+        new_mode = ENABLE_PROCESSED_OUTPUT | ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+      }
+      break;
+    default:
+      return -EINVAL;
+  }
+
+  if (!SetConsoleMode(handle, new_mode)) return -__yo_win_last_error_to_errno();
+  return 0;
+}
+
+static int32_t __yo_tty_reset_mode(void) {
+  if (__yo_console_mode_saved) {
+    HANDLE h_in = GetStdHandle(STD_INPUT_HANDLE);
+    HANDLE h_out = GetStdHandle(STD_OUTPUT_HANDLE);
+    if (h_in != INVALID_HANDLE_VALUE) {
+      SetConsoleMode(h_in, __yo_orig_console_mode_in);
+    }
+    if (h_out != INVALID_HANDLE_VALUE) {
+      SetConsoleMode(h_out, __yo_orig_console_mode_out);
+    }
+  }
+  return 0;
+}
+
+static int32_t __yo_tty_get_winsize(int32_t fd, int32_t* width, int32_t* height) {
+  HANDLE handle = (HANDLE)_get_osfhandle(fd);
+  if (handle == INVALID_HANDLE_VALUE) return -EBADF;
+
+  CONSOLE_SCREEN_BUFFER_INFO csbi;
+  if (!GetConsoleScreenBufferInfo(handle, &csbi)) {
+    HANDLE h_out = GetStdHandle(STD_OUTPUT_HANDLE);
+    if (h_out == INVALID_HANDLE_VALUE || !GetConsoleScreenBufferInfo(h_out, &csbi)) {
+      return -__yo_win_last_error_to_errno();
+    }
+  }
+  *width = (int32_t)(csbi.srWindow.Right - csbi.srWindow.Left + 1);
+  *height = (int32_t)(csbi.srWindow.Bottom - csbi.srWindow.Top + 1);
+  return 0;
+}
+
 static int32_t __yo_isatty(int32_t fd) { return _isatty(fd) ? 1 : 0; }
 
 // ============================================================================
-// FS Events (stubs)
+// FS Events (Windows - ReadDirectoryChangesW / FindFirstChangeNotification)
 // ============================================================================
 
-static void* __yo_fs_event_init(void) { return NULL; }
-static int32_t __yo_fs_event_start(void* handle, const char* path, uint32_t flags, void* callback, void* user_data) { (void)handle; (void)path; (void)flags; (void)callback; (void)user_data; return -ENOSYS; }
-static int32_t __yo_fs_event_stop(void* handle) { (void)handle; return -ENOSYS; }
-static void __yo_fs_event_close(void* handle) { (void)handle; }
+typedef struct yo_fs_event_s {
+  HANDLE dir_handle;
+  HANDLE change_handle;
+  void (*callback)(const char*, int, void*);
+  void* user_data;
+  int active;
+  char* path;
+  int is_dir;
+  OVERLAPPED overlapped;
+  char notify_buf[4096];
+  int use_rdcw;
+  struct yo_fs_event_s* next;
+} yo_fs_event_t;
+
+static yo_fs_event_t* __yo_active_fs_events = NULL;
+
+static void* __yo_fs_event_init(void) {
+  yo_fs_event_t* handle = (yo_fs_event_t*)__yo_malloc(sizeof(yo_fs_event_t));
+  memset(handle, 0, sizeof(yo_fs_event_t));
+  handle->dir_handle = INVALID_HANDLE_VALUE;
+  handle->change_handle = INVALID_HANDLE_VALUE;
+  return handle;
+}
+
+static int32_t __yo_fs_event_start(void* h, const char* path, uint32_t flags, void* callback, void* user_data) {
+  yo_fs_event_t* handle = (yo_fs_event_t*)h;
+  if (!handle || !path || !callback) return -EINVAL;
+
+  handle->path = (char*)__yo_malloc(strlen(path) + 1);
+  strcpy(handle->path, path);
+  handle->callback = (void (*)(const char*, int, void*))callback;
+  handle->user_data = user_data;
+
+  wchar_t* wpath = __yo_win_utf8_to_wide(path);
+  if (!wpath) {
+    __yo_free(handle->path);
+    handle->path = NULL;
+    return -EINVAL;
+  }
+
+  DWORD attrs = GetFileAttributesW(wpath);
+  if (attrs == INVALID_FILE_ATTRIBUTES) {
+    int err = __yo_win_last_error_to_errno();
+    __yo_free(wpath);
+    __yo_free(handle->path);
+    handle->path = NULL;
+    return -err;
+  }
+
+  handle->is_dir = (attrs & FILE_ATTRIBUTE_DIRECTORY) ? 1 : 0;
+
+  if (handle->is_dir) {
+    handle->dir_handle = CreateFileW(wpath,
+      FILE_LIST_DIRECTORY,
+      FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+      NULL, OPEN_EXISTING,
+      FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OVERLAPPED,
+      NULL);
+
+    if (handle->dir_handle == INVALID_HANDLE_VALUE) {
+      int err = __yo_win_last_error_to_errno();
+      __yo_free(wpath);
+      __yo_free(handle->path);
+      handle->path = NULL;
+      return -err;
+    }
+    handle->use_rdcw = 1;
+
+    memset(&handle->overlapped, 0, sizeof(OVERLAPPED));
+    handle->overlapped.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
+
+    BOOL watch_subtree = (flags & 4) ? TRUE : FALSE;
+    DWORD filter = FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_DIR_NAME |
+                   FILE_NOTIFY_CHANGE_ATTRIBUTES | FILE_NOTIFY_CHANGE_SIZE |
+                   FILE_NOTIFY_CHANGE_LAST_WRITE | FILE_NOTIFY_CHANGE_CREATION;
+
+    BOOL ok = ReadDirectoryChangesW(handle->dir_handle,
+      handle->notify_buf, sizeof(handle->notify_buf),
+      watch_subtree, filter, NULL, &handle->overlapped, NULL);
+
+    if (!ok) {
+      int err = __yo_win_last_error_to_errno();
+      CloseHandle(handle->overlapped.hEvent);
+      CloseHandle(handle->dir_handle);
+      handle->dir_handle = INVALID_HANDLE_VALUE;
+      __yo_free(wpath);
+      __yo_free(handle->path);
+      handle->path = NULL;
+      return -err;
+    }
+  } else {
+    wchar_t dir_part[MAX_PATH];
+    wcscpy(dir_part, wpath);
+    wchar_t* last_sep = wcsrchr(dir_part, L'\\\\');
+    if (!last_sep) last_sep = wcsrchr(dir_part, L'/');
+    if (last_sep) {
+      *last_sep = L'\\0';
+    } else {
+      dir_part[0] = L'.';
+      dir_part[1] = L'\\0';
+    }
+
+    BOOL watch_subtree = FALSE;
+    DWORD filter = FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_ATTRIBUTES |
+                   FILE_NOTIFY_CHANGE_SIZE | FILE_NOTIFY_CHANGE_LAST_WRITE;
+
+    handle->change_handle = FindFirstChangeNotificationW(dir_part, watch_subtree, filter);
+    if (handle->change_handle == INVALID_HANDLE_VALUE) {
+      int err = __yo_win_last_error_to_errno();
+      __yo_free(wpath);
+      __yo_free(handle->path);
+      handle->path = NULL;
+      return -err;
+    }
+    handle->use_rdcw = 0;
+  }
+
+  __yo_free(wpath);
+
+  handle->active = 1;
+  handle->next = __yo_active_fs_events;
+  __yo_active_fs_events = handle;
+  __yo_active_watch_count++;
+  return 0;
+}
+
+static int32_t __yo_fs_event_stop(void* h) {
+  yo_fs_event_t* handle = (yo_fs_event_t*)h;
+  if (!handle) return -EINVAL;
+  if (!handle->active) return 0;
+
+  handle->active = 0;
+  __yo_active_watch_count--;
+
+  if (handle->use_rdcw) {
+    if (handle->dir_handle != INVALID_HANDLE_VALUE) {
+      CancelIo(handle->dir_handle);
+      if (handle->overlapped.hEvent) {
+        CloseHandle(handle->overlapped.hEvent);
+        handle->overlapped.hEvent = NULL;
+      }
+      CloseHandle(handle->dir_handle);
+      handle->dir_handle = INVALID_HANDLE_VALUE;
+    }
+  } else {
+    if (handle->change_handle != INVALID_HANDLE_VALUE) {
+      FindCloseChangeNotification(handle->change_handle);
+      handle->change_handle = INVALID_HANDLE_VALUE;
+    }
+  }
+
+  if (handle->path) {
+    __yo_free(handle->path);
+    handle->path = NULL;
+  }
+
+  yo_fs_event_t** pp = &__yo_active_fs_events;
+  while (*pp) {
+    if (*pp == handle) {
+      *pp = handle->next;
+      break;
+    }
+    pp = &(*pp)->next;
+  }
+  handle->next = NULL;
+  return 0;
+}
+
+static void __yo_fs_event_close(void* h) {
+  yo_fs_event_t* handle = (yo_fs_event_t*)h;
+  if (!handle) return;
+  if (handle->active) __yo_fs_event_stop(h);
+  __yo_free(handle);
+}
 
 // ============================================================================
-// Poll Operations (stubs)
+// Poll Operations (Windows - WaitForSingleObject / PeekNamedPipe / select)
 // ============================================================================
 
-static void* __yo_poll_init(int32_t fd) { (void)fd; return NULL; }
-static int32_t __yo_poll_start(void* handle, int32_t events, void* callback, void* user_data) { (void)handle; (void)events; (void)callback; (void)user_data; return -ENOSYS; }
-static int32_t __yo_poll_stop(void* handle) { (void)handle; return -ENOSYS; }
-static void __yo_poll_close(void* handle) { (void)handle; }
+typedef struct yo_poll_s {
+  int fd;
+  int events;
+  void (*callback)(int, int, void*);
+  void* user_data;
+  int active;
+  struct yo_poll_s* next;
+} yo_poll_t;
+
+static yo_poll_t* __yo_active_polls = NULL;
+
+static void* __yo_poll_init(int32_t fd) {
+  yo_poll_t* handle = (yo_poll_t*)__yo_malloc(sizeof(yo_poll_t));
+  memset(handle, 0, sizeof(yo_poll_t));
+  handle->fd = fd;
+  return handle;
+}
+
+static int32_t __yo_poll_start(void* h, int32_t events, void* callback, void* user_data) {
+  yo_poll_t* handle = (yo_poll_t*)h;
+  if (!handle || !callback) return -EINVAL;
+
+  handle->events = events;
+  handle->callback = (void (*)(int, int, void*))callback;
+  handle->user_data = user_data;
+  handle->active = 1;
+
+  handle->next = __yo_active_polls;
+  __yo_active_polls = handle;
+  __yo_active_watch_count++;
+  return 0;
+}
+
+static int32_t __yo_poll_stop(void* h) {
+  yo_poll_t* handle = (yo_poll_t*)h;
+  if (!handle) return -EINVAL;
+  if (!handle->active) return 0;
+
+  handle->active = 0;
+  __yo_active_watch_count--;
+
+  yo_poll_t** pp = &__yo_active_polls;
+  while (*pp) {
+    if (*pp == handle) {
+      *pp = handle->next;
+      break;
+    }
+    pp = &(*pp)->next;
+  }
+  handle->next = NULL;
+  return 0;
+}
+
+static void __yo_poll_close(void* h) {
+  yo_poll_t* handle = (yo_poll_t*)h;
+  if (!handle) return;
+  if (handle->active) __yo_poll_stop(h);
+  __yo_free(handle);
+}
+
+// ============================================================================
+// Tick function: check all active poll and fs_event handles (non-blocking)
+// Called from __yo_io_poll() and __yo_io_wait()
+// ============================================================================
+
+static int __yo_poll_and_fs_event_tick(void) {
+  int count = 0;
+
+  // --- Tick FS event handles ---
+  {
+    yo_fs_event_t* fse = __yo_active_fs_events;
+    while (fse) {
+      yo_fs_event_t* next = fse->next;
+      if (fse->active) {
+        if (fse->use_rdcw && fse->dir_handle != INVALID_HANDLE_VALUE) {
+          DWORD bytes_returned = 0;
+          BOOL ok = GetOverlappedResult(fse->dir_handle, &fse->overlapped, &bytes_returned, FALSE);
+          if (ok && bytes_returned > 0) {
+            char* ptr = fse->notify_buf;
+            while (1) {
+              FILE_NOTIFY_INFORMATION* info = (FILE_NOTIFY_INFORMATION*)ptr;
+              int yo_event = 0;
+              switch (info->Action) {
+                case FILE_ACTION_ADDED:
+                case FILE_ACTION_REMOVED:
+                case FILE_ACTION_RENAMED_OLD_NAME:
+                case FILE_ACTION_RENAMED_NEW_NAME:
+                  yo_event = 1;
+                  break;
+                case FILE_ACTION_MODIFIED:
+                  yo_event = 2;
+                  break;
+              }
+              if (yo_event != 0 && fse->callback && fse->active) {
+                char name_buf[MAX_PATH];
+                int name_len = WideCharToMultiByte(CP_UTF8, 0,
+                  info->FileName, (int)(info->FileNameLength / sizeof(wchar_t)),
+                  name_buf, MAX_PATH - 1, NULL, NULL);
+                if (name_len > 0) {
+                  name_buf[name_len] = '\\0';
+                } else {
+                  name_buf[0] = '\\0';
+                }
+                fse->callback(name_buf, yo_event, fse->user_data);
+                count++;
+              }
+              if (info->NextEntryOffset == 0) break;
+              ptr += info->NextEntryOffset;
+            }
+
+            ResetEvent(fse->overlapped.hEvent);
+            memset(&fse->overlapped, 0, sizeof(OVERLAPPED));
+            fse->overlapped.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
+            ReadDirectoryChangesW(fse->dir_handle,
+              fse->notify_buf, sizeof(fse->notify_buf),
+              FALSE,
+              FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_DIR_NAME |
+              FILE_NOTIFY_CHANGE_ATTRIBUTES | FILE_NOTIFY_CHANGE_SIZE |
+              FILE_NOTIFY_CHANGE_LAST_WRITE | FILE_NOTIFY_CHANGE_CREATION,
+              NULL, &fse->overlapped, NULL);
+          }
+        } else if (!fse->use_rdcw && fse->change_handle != INVALID_HANDLE_VALUE) {
+          DWORD wait_result = WaitForSingleObject(fse->change_handle, 0);
+          if (wait_result == WAIT_OBJECT_0) {
+            if (fse->callback && fse->active) {
+              fse->callback("", 2, fse->user_data);
+              count++;
+            }
+            FindNextChangeNotification(fse->change_handle);
+          }
+        }
+      }
+      fse = next;
+    }
+  }
+
+  // --- Tick poll handles ---
+  {
+    yo_poll_t* ph = __yo_active_polls;
+    while (ph) {
+      yo_poll_t* next = ph->next;
+      if (ph->active) {
+        HANDLE handle = (HANDLE)_get_osfhandle(ph->fd);
+        int yo_events = 0;
+
+        if (handle != INVALID_HANDLE_VALUE && __yo_win_is_socket_fd(ph->fd)) {
+          SOCKET sock = (SOCKET)(uintptr_t)(uint32_t)ph->fd;
+          fd_set read_fds, write_fds, except_fds;
+          struct timeval tv = {0, 0};
+
+          FD_ZERO(&read_fds);
+          FD_ZERO(&write_fds);
+          FD_ZERO(&except_fds);
+
+          if (ph->events & 1) FD_SET(sock, &read_fds);
+          if (ph->events & 2) FD_SET(sock, &write_fds);
+          FD_SET(sock, &except_fds);
+
+          int ret = select(0, &read_fds, &write_fds, &except_fds, &tv);
+          if (ret > 0) {
+            if (FD_ISSET(sock, &read_fds))  yo_events |= 1;
+            if (FD_ISSET(sock, &write_fds)) yo_events |= 2;
+            if (FD_ISSET(sock, &except_fds)) yo_events |= 4;
+          } else if (ret < 0) {
+            if (ph->callback && ph->active) {
+              ph->callback(0, -(int)WSAGetLastError(), ph->user_data);
+              count++;
+            }
+            ph = next;
+            continue;
+          }
+        } else if (handle != INVALID_HANDLE_VALUE) {
+          DWORD file_type = GetFileType(handle);
+          if (file_type == FILE_TYPE_PIPE) {
+            if (ph->events & 1) {
+              DWORD avail = 0;
+              BOOL ok = PeekNamedPipe(handle, NULL, 0, NULL, &avail, NULL);
+              if (ok) {
+                if (avail > 0) yo_events |= 1;
+              } else {
+                DWORD err = GetLastError();
+                if (err == ERROR_BROKEN_PIPE || err == ERROR_NO_DATA) {
+                  yo_events |= 1;
+                  yo_events |= 4;
+                }
+              }
+            }
+            if (ph->events & 2) {
+              yo_events |= 2;
+            }
+          } else {
+            DWORD wait_result = WaitForSingleObject(handle, 0);
+            if (wait_result == WAIT_OBJECT_0) {
+              if (ph->events & 1) yo_events |= 1;
+            }
+          }
+        }
+
+        if (yo_events != 0) {
+          if (ph->callback && ph->active) {
+            ph->callback(yo_events, 0, ph->user_data);
+            count++;
+          }
+        }
+      }
+      ph = next;
+    }
+  }
+
+  return count;
+}
 
 #endif // _WIN32
 `);
