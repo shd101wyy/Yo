@@ -79,7 +79,7 @@ The runtime has been refactored into 4 modules:
 | **copyfile/sendfile**       | ✅ (sync)             | ✅ (sync)            | ⚠️ (copyfile only)                                   |
 | **statfs**                  | ✅ (sync)             | ✅ (sync)            | ✅ (GetDiskFreeSpaceEx)                              |
 | **DNS**                     | ✅ (sync)             | ✅ (sync)            | ✅ (sync)                                            |
-| **Signals**                 | ✅ (sync)             | ✅ (sync)            | ❌                                                   |
+| **Signals**                 | ✅ (sync)             | ✅ (sync)            | ⚠️ (local handlers + SIGKILL/kill(0) support)        |
 | **TTY**                     | ✅ (sync)             | ✅ (sync)            | ⚠️ (isatty only)                                     |
 | **Unix sockets**            | ✅ (sockaddr_un)      | ✅ (sockaddr_un)     | ⚠️ (AF_UNIX Win10 1803+)                             |
 | **Process spawn**           | ✅ (posix_spawn)      | ✅ (posix_spawn)     | ✅ (CreateProcessW)                                  |
@@ -112,6 +112,7 @@ The runtime has been refactored into 4 modules:
 - ✅ **Windows test runner missing ws2_32**: The test runner (`src/test-runner.ts`) did not link `-lws2_32` on Windows, causing all Windows async I/O tests to fail with linker errors. Fixed by adding ws2_32 linking in the test runner compile step.
 - ✅ **Windows tty test unistd header include**: `tests/io/tty.test.yo` imported `std/libc/unistd` at top level, which emits `#include <unistd.h>` and fails C compilation on Windows. Fixed by moving `STDIN_FILENO` import into the non-Windows branch so Windows builds no longer include `unistd.h` while Linux/macOS keep using `STDIN_FILENO`.
 - ✅ **Windows temp directory open requires `O_DIRECTORY`**: `tests/io/temp.test.yo` opened the `mkdtemp` result with `O_RDONLY` only. On Windows, directory handles require `FILE_FLAG_BACKUP_SEMANTICS`, which is enabled in `openat` via `O_DIRECTORY`. Fixed by opening with `(O_RDONLY | O_DIRECTORY)` in the temp test.
+- ✅ **Windows signal support implemented (no stubs)**: Replaced `__yo_signal_start`/`__yo_signal_stop` stubs with Windows handler registration and local signal delivery. `kill(pid=0, signum)` now delivers to the current process when a handler is registered; `kill(pid, 0)` probes process existence; `kill(pid, SIGKILL)` terminates by pid via `OpenProcess(PROCESS_TERMINATE)` when needed.
 - ✅ **Windows AT_FDCWD not defined**: The Windows IOCP runtime used `AT_FDCWD` without defining it. Fixed by adding `#ifndef AT_FDCWD / #define AT_FDCWD -100 / #endif`.
 - ✅ **Windows IOCP double handle association**: `openat` associated the file handle with IOCP, then `read`/`write` tried to associate the same handle again. The second `CreateIoCompletionPort` call fails with `ERROR_INVALID_PARAMETER` (87), causing reads to return -87. Fixed by making `__yo_win_associate_handle` tolerate already-associated handles (returns true on `ERROR_INVALID_PARAMETER`) and making read/write call it best-effort instead of failing.
 - ✅ **Windows winsock.h/winsock2.h header conflict**: When `.yo` files import `std/process` (which uses `c_include "<windows.h>"` via `std/libc/windows.yo`), the bare `#include <windows.h>` pulls in `winsock.h` before the IOCP runtime's `winsock2.h`, causing redefinition errors. Fixed by emitting `WIN32_LEAN_AND_MEAN` and `_WINSOCKAPI_` defines at the top of every generated C file on Windows (in `c/collection.ts`), and adding the same guards to `runtime-io-common.ts`.
@@ -476,7 +477,7 @@ kill :: (fn(pid: i32, signum: i32) -> i32)(...);
 **Implementation notes:**
 
 - Implemented in `std/io/signal.yo` using `__yo_signal_start`, `__yo_signal_stop`, `__yo_kill`.
-- Tests in `tests/io/signal.test.yo` (install handler, send SIGUSR1, remove handler; skipped on Windows).
+- Tests in `tests/io/signal.test.yo` (install handler, send SIGUSR1, remove handler; Windows uses local self-delivery path).
 
 ### 5.4 Create `std/io/tty.yo` — TTY Operations ✅
 
