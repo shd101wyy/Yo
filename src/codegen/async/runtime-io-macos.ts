@@ -861,6 +861,11 @@ static int64_t __yo_sync_lseek(int32_t fd, int64_t offset, int32_t whence) {
 static int32_t __yo_sync_fallocate(int32_t fd, int32_t mode, int64_t offset, int64_t length) {
   if (offset < 0 || length < 0) return -EINVAL;
 
+  uint64_t target_u = (uint64_t)offset + (uint64_t)length;
+  if (target_u > 0x7FFFFFFFFFFFFFFFULL) return -EINVAL;
+  off_t target = (off_t)target_u;
+  if ((uint64_t)target != target_u) return -EINVAL;
+
   fstore_t store;
   memset(&store, 0, sizeof(store));
   store.fst_flags = F_ALLOCATECONTIG;
@@ -873,11 +878,25 @@ static int32_t __yo_sync_fallocate(int32_t fd, int32_t mode, int64_t offset, int
     store.fst_flags = F_ALLOCATEALL;
     result = fcntl(fd, F_PREALLOCATE, &store);
   }
-  if (result < 0) return -errno;
+  if (result < 0) {
+    int alloc_errno = errno;
+
+    // Some filesystems may not support F_PREALLOCATE. Keep a best-effort
+    // fallocate behavior for basic allocation modes.
+    if (alloc_errno == ENOTSUP || alloc_errno == EOPNOTSUPP || alloc_errno == ENOSYS || alloc_errno == EINVAL) {
+      // FALLOC_FL_KEEP_SIZE = 0x01
+      if ((mode & 0x01) != 0) {
+        return 0;
+      }
+      if (ftruncate(fd, target) < 0) return -errno;
+      return 0;
+    }
+
+    return -alloc_errno;
+  }
 
   // FALLOC_FL_KEEP_SIZE = 0x01
   if ((mode & 0x01) == 0) {
-    off_t target = (off_t)(offset + length);
     struct stat st;
     if (fstat(fd, &st) < 0) return -errno;
     if (st.st_size < target) {
