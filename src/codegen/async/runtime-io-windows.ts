@@ -2782,47 +2782,117 @@ static yo_io_future_t* __yo_async_mkstemp_start(char* template_str) {
   return future;
 }
 
-static yo_io_future_t* __yo_async_copyfile_start(const char* src_path, const char* dst_path, int32_t flags) {
-  __yo_io_init();
+static int32_t __yo_win_sendfile_fallback_copy(int32_t out_fd, int32_t in_fd, int64_t offset, size_t count) {
+  if (offset < 0) return -EINVAL;
 
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
-  future->header.ref_count = 1;
-  atomic_init(&future->continuation_fn, NULL);
-  atomic_init(&future->continuation_sm, NULL);
+  HANDLE in_handle = (HANDLE)_get_osfhandle(in_fd);
+  HANDLE out_handle = (HANDLE)_get_osfhandle(out_fd);
+  if (in_handle == INVALID_HANDLE_VALUE || out_handle == INVALID_HANDLE_VALUE) return -EBADF;
 
-  (void)flags;
-  wchar_t* wsrc = __yo_win_utf8_to_wide(src_path);
-  wchar_t* wdst = __yo_win_utf8_to_wide(dst_path);
-  if (!wsrc || !wdst) {
-    if (wsrc) __yo_free(wsrc);
-    if (wdst) __yo_free(wdst);
-    future->result = -__yo_win_last_error_to_errno();
-    atomic_init(&future->state, -1);
-    return future;
+  wchar_t in_path[MAX_PATH];
+  DWORD in_len = GetFinalPathNameByHandleW(in_handle, in_path, MAX_PATH, FILE_NAME_NORMALIZED);
+  if (in_len == 0 || in_len >= MAX_PATH) {
+    return -__yo_win_last_error_to_errno();
   }
 
-  BOOL ok = CopyFileW(wsrc, wdst, FALSE);
-  __yo_free(wsrc);
-  __yo_free(wdst);
-  future->result = ok ? 0 : -__yo_win_last_error_to_errno();
-  atomic_init(&future->state, -1);
-  return future;
-}
+  wchar_t out_path[MAX_PATH];
+  DWORD out_len = GetFinalPathNameByHandleW(out_handle, out_path, MAX_PATH, FILE_NAME_NORMALIZED);
+  if (out_len == 0 || out_len >= MAX_PATH) {
+    return -__yo_win_last_error_to_errno();
+  }
 
-static yo_io_future_t* __yo_async_sendfile_start(int32_t out_fd, int32_t in_fd, int64_t offset, size_t count) {
-  __yo_io_init();
-  (void)out_fd; (void)in_fd; (void)offset; (void)count;
+  HANDLE in_sync = CreateFileW(
+    in_path,
+    GENERIC_READ,
+    FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+    NULL,
+    OPEN_EXISTING,
+    FILE_ATTRIBUTE_NORMAL,
+    NULL
+  );
+  if (in_sync == INVALID_HANDLE_VALUE) {
+    return -__yo_win_last_error_to_errno();
+  }
 
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
-  future->header.ref_count = 1;
-  atomic_init(&future->continuation_fn, NULL);
-  atomic_init(&future->continuation_sm, NULL);
+  HANDLE out_sync = CreateFileW(
+    out_path,
+    GENERIC_WRITE,
+    FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+    NULL,
+    OPEN_EXISTING,
+    FILE_ATTRIBUTE_NORMAL,
+    NULL
+  );
+  if (out_sync == INVALID_HANDLE_VALUE) {
+    CloseHandle(in_sync);
+    return -__yo_win_last_error_to_errno();
+  }
 
-  future->result = -ENOSYS;
-  atomic_init(&future->state, -1);
-  return future;
+  __int64 out_pos = _lseeki64(out_fd, 0, SEEK_CUR);
+  if (out_pos < 0) out_pos = 0;
+
+  LARGE_INTEGER in_start;
+  in_start.QuadPart = (LONGLONG)offset;
+  if (!SetFilePointerEx(in_sync, in_start, NULL, FILE_BEGIN)) {
+    CloseHandle(in_sync);
+    CloseHandle(out_sync);
+    return -__yo_win_last_error_to_errno();
+  }
+
+  LARGE_INTEGER out_start;
+  out_start.QuadPart = out_pos;
+  if (!SetFilePointerEx(out_sync, out_start, NULL, FILE_BEGIN)) {
+    CloseHandle(in_sync);
+    CloseHandle(out_sync);
+    return -__yo_win_last_error_to_errno();
+  }
+
+  unsigned char buffer[65536];
+  size_t total = 0;
+  while (total < count) {
+    size_t remaining = count - total;
+    size_t chunk = remaining < sizeof(buffer) ? remaining : sizeof(buffer);
+    DWORD to_read = (chunk > (size_t)0xFFFFFFFFu) ? 0xFFFFFFFFu : (DWORD)chunk;
+    DWORD read_bytes = 0;
+    if (!ReadFile(in_sync, buffer, to_read, &read_bytes, NULL)) {
+      int32_t err = -__yo_win_last_error_to_errno();
+      CloseHandle(in_sync);
+      CloseHandle(out_sync);
+      return err;
+    }
+    if (read_bytes == 0) {
+      break;
+    }
+
+    size_t written = 0;
+    while (written < (size_t)read_bytes) {
+      size_t write_remaining = (size_t)read_bytes - written;
+      DWORD to_write =
+        (write_remaining > (size_t)0xFFFFFFFFu) ? 0xFFFFFFFFu : (DWORD)write_remaining;
+      DWORD written_bytes = 0;
+      if (!WriteFile(out_sync, (const char*)(buffer + written), to_write, &written_bytes, NULL)) {
+        int32_t err = -__yo_win_last_error_to_errno();
+        CloseHandle(in_sync);
+        CloseHandle(out_sync);
+        return err;
+      }
+      if (written_bytes == 0) {
+        CloseHandle(in_sync);
+        CloseHandle(out_sync);
+        return -EIO;
+      }
+      written += (size_t)written_bytes;
+    }
+
+    total += (size_t)read_bytes;
+  }
+
+  CloseHandle(in_sync);
+  CloseHandle(out_sync);
+
+  (void)_lseeki64(out_fd, out_pos + (__int64)total, SEEK_SET);
+
+  return (int32_t)total;
 }
 
 // ============================================================================
@@ -2907,8 +2977,7 @@ static int32_t __yo_sync_copyfile(const char* src_path, const char* dst_path, in
 }
 
 static int32_t __yo_sync_sendfile(int32_t out_fd, int32_t in_fd, int64_t offset, size_t count) {
-  (void)out_fd; (void)in_fd; (void)offset; (void)count;
-  return -ENOSYS;
+  return __yo_win_sendfile_fallback_copy(out_fd, in_fd, offset, count);
 }
 
 static int32_t __yo_sync_utime(const char* path, int64_t atime_sec, int64_t atime_nsec, int64_t mtime_sec, int64_t mtime_nsec) {

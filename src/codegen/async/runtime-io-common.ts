@@ -390,94 +390,10 @@ static yo_io_future_t* __yo_async_mkstemp_start(char* template) {
   return future;
 }
 
-// Async copyfile
 #if defined(__linux__)
 #include <sys/sendfile.h>
-
-static yo_io_future_t* __yo_async_copyfile_start(const char* src, const char* dst, int32_t flags) {
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
-  
-  future->header.ref_count = 1;
-  atomic_init(&future->continuation_fn, NULL);
-  atomic_init(&future->continuation_sm, NULL);
-  
-  // Open source
-  int src_fd = open(src, O_RDONLY);
-  if (src_fd < 0) {
-    future->result = -errno;
-    atomic_init(&future->state, -1);
-    return future;
-  }
-  
-  // Get source size
-  struct stat st;
-  if (fstat(src_fd, &st) < 0) {
-    int err = errno;
-    close(src_fd);
-    future->result = -err;
-    atomic_init(&future->state, -1);
-    return future;
-  }
-  
-  // Open/create destination
-  int open_flags = O_WRONLY | O_CREAT | O_TRUNC;
-  if (flags & 1) open_flags |= O_EXCL;  // COPYFILE_EXCL
-  
-  int dst_fd = open(dst, open_flags, st.st_mode);
-  if (dst_fd < 0) {
-    int err = errno;
-    close(src_fd);
-    future->result = -err;
-    atomic_init(&future->state, -1);
-    return future;
-  }
-  
-  // Try copy_file_range first (supports clone), fall back to sendfile
-  ssize_t copied = 0;
-  off_t off_in = 0;
-  
-#ifdef __NR_copy_file_range
-  copied = syscall(__NR_copy_file_range, src_fd, &off_in, dst_fd, NULL, (size_t)st.st_size, 0);
-#endif
-  
-  if (copied < 0) {
-    // Fall back to sendfile
-    off_t offset = 0;
-    copied = sendfile(dst_fd, src_fd, &offset, (size_t)st.st_size);
-  }
-  
-  close(src_fd);
-  close(dst_fd);
-  
-  future->result = (copied < 0) ? -errno : 0;
-  atomic_init(&future->state, -1);
-  
-  return future;
-}
-
 #elif defined(__APPLE__)
 #include <copyfile.h>
-
-static yo_io_future_t* __yo_async_copyfile_start(const char* src, const char* dst, int32_t flags) {
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
-  
-  future->header.ref_count = 1;
-  atomic_init(&future->continuation_fn, NULL);
-  atomic_init(&future->continuation_sm, NULL);
-  
-  copyfile_flags_t cf_flags = COPYFILE_ALL;
-  if (flags & 1) cf_flags |= COPYFILE_EXCL;  // COPYFILE_EXCL
-  if (flags & 2) cf_flags |= COPYFILE_CLONE;  // COPYFILE_FICLONE
-  if (flags & 4) cf_flags |= COPYFILE_CLONE_FORCE;  // COPYFILE_FICLONE_FORCE
-  
-  int result = copyfile(src, dst, NULL, cf_flags);
-  future->result = (result < 0) ? -errno : 0;
-  atomic_init(&future->state, -1);
-  
-  return future;
-}
 #endif
 
 // Fallback for platforms where sendfile cannot handle all fd combinations
@@ -514,37 +430,6 @@ static int32_t __yo_sendfile_fallback_copy(int32_t out_fd, int32_t in_fd, int64_
   return (int32_t)total;
 }
 #endif
-
-// Async sendfile
-static yo_io_future_t* __yo_async_sendfile_start(int32_t out_fd, int32_t in_fd, int64_t offset, size_t count) {
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
-  
-  future->header.ref_count = 1;
-  atomic_init(&future->continuation_fn, NULL);
-  atomic_init(&future->continuation_sm, NULL);
-  
-#if defined(__linux__)
-  off_t off = (off_t)offset;
-  ssize_t sent = sendfile(out_fd, in_fd, &off, count);
-  future->result = (sent < 0) ? -errno : (int32_t)sent;
-#elif defined(__APPLE__)
-  off_t len = (off_t)count;
-  int result = sendfile(in_fd, out_fd, (off_t)offset, &len, NULL, 0);
-  if (result < 0) {
-    if (errno == ENOTSOCK || errno == EINVAL || errno == ENOSYS) {
-      future->result = __yo_sendfile_fallback_copy(out_fd, in_fd, offset, count);
-    } else {
-      future->result = -errno;
-    }
-  } else {
-    future->result = (int32_t)len;
-  }
-#endif
-  
-  atomic_init(&future->state, -1);
-  return future;
-}
 
 // ============================================================================
 // Synchronous Operations (POSIX-only) - no IOFuture overhead
