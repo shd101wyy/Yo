@@ -1992,6 +1992,157 @@ static int32_t __yo_sync_socketpair(int32_t domain, int32_t sock_type, int32_t p
   return 0;
 }
 
+static int32_t __yo_sync_clock_gettime(int32_t clock_id, int64_t* sec, int64_t* nsec) {
+  if (!sec || !nsec) {
+    return -EINVAL;
+  }
+
+  // CLOCK_REALTIME (0): wall clock time since Unix epoch
+  if (clock_id == 0) {
+    FILETIME ft;
+    HMODULE kernel = GetModuleHandleW(L"kernel32.dll");
+    typedef VOID (WINAPI *get_precise_time_fn)(LPFILETIME);
+    get_precise_time_fn get_precise = NULL;
+    if (kernel) {
+      get_precise = (get_precise_time_fn)GetProcAddress(kernel, "GetSystemTimePreciseAsFileTime");
+    }
+    if (get_precise) {
+      get_precise(&ft);
+    } else {
+      GetSystemTimeAsFileTime(&ft);
+    }
+
+    ULARGE_INTEGER ts100;
+    ts100.LowPart = ft.dwLowDateTime;
+    ts100.HighPart = ft.dwHighDateTime;
+
+    const uint64_t WINDOWS_TO_UNIX_EPOCH_SECONDS = 11644473600ULL;
+    uint64_t total_100ns = ts100.QuadPart;
+    uint64_t total_seconds = total_100ns / 10000000ULL;
+    uint64_t rem_100ns = total_100ns % 10000000ULL;
+
+    if (total_seconds < WINDOWS_TO_UNIX_EPOCH_SECONDS) {
+      return -EINVAL;
+    }
+
+    *sec = (int64_t)(total_seconds - WINDOWS_TO_UNIX_EPOCH_SECONDS);
+    *nsec = (int64_t)(rem_100ns * 100ULL);
+    return 0;
+  }
+
+  // CLOCK_MONOTONIC (Linux=1, macOS commonly=6)
+  if (clock_id == 1 || clock_id == 6) {
+    LARGE_INTEGER freq;
+    LARGE_INTEGER counter;
+    if (!QueryPerformanceFrequency(&freq) || freq.QuadPart <= 0) {
+      return -EINVAL;
+    }
+    if (!QueryPerformanceCounter(&counter)) {
+      return -EINVAL;
+    }
+
+    int64_t s = (int64_t)(counter.QuadPart / freq.QuadPart);
+    int64_t rem = (int64_t)(counter.QuadPart % freq.QuadPart);
+    int64_t ns = (int64_t)((rem * 1000000000LL) / freq.QuadPart);
+
+    *sec = s;
+    *nsec = ns;
+    return 0;
+  }
+
+  return -EINVAL;
+}
+
+static void __yo_win_copy_cstr_field(char* dst, size_t dst_len, const char* src) {
+  if (!dst || dst_len == 0) return;
+  if (!src) {
+    dst[0] = '\0';
+    return;
+  }
+
+  size_t i = 0;
+  while (i + 1 < dst_len && src[i] != '\0') {
+    dst[i] = src[i];
+    i++;
+  }
+  dst[i] = '\0';
+}
+
+static int32_t __yo_sync_uname(void* buf) {
+  if (!buf) {
+    return -EINVAL;
+  }
+
+  __yo_io_init();
+
+  const size_t field_size = 256;
+  const size_t total_size = (field_size * 5);
+  char* out = (char*)buf;
+  memset(out, 0, total_size);
+
+  // sysname
+  __yo_win_copy_cstr_field(out + (field_size * 0), field_size, "Windows");
+
+  // nodename
+  char host[256];
+  host[0] = '\0';
+  if (gethostname(host, (int)sizeof(host)) == SOCKET_ERROR) {
+    __yo_win_copy_cstr_field(out + (field_size * 1), field_size, "localhost");
+  } else {
+    host[sizeof(host) - 1] = '\0';
+    __yo_win_copy_cstr_field(out + (field_size * 1), field_size, host);
+  }
+
+  // release / version
+  __yo_win_copy_cstr_field(out + (field_size * 2), field_size, "win32");
+  __yo_win_copy_cstr_field(out + (field_size * 3), field_size, "nt");
+
+  // machine
+  SYSTEM_INFO si;
+  GetNativeSystemInfo(&si);
+  const char* machine = "unknown";
+  switch (si.wProcessorArchitecture) {
+    case PROCESSOR_ARCHITECTURE_AMD64:
+      machine = "x86_64";
+      break;
+    case PROCESSOR_ARCHITECTURE_ARM64:
+      machine = "aarch64";
+      break;
+    case PROCESSOR_ARCHITECTURE_INTEL:
+      machine = "x86";
+      break;
+    case PROCESSOR_ARCHITECTURE_ARM:
+      machine = "arm";
+      break;
+    default:
+      machine = "unknown";
+      break;
+  }
+  __yo_win_copy_cstr_field(out + (field_size * 4), field_size, machine);
+
+  return 0;
+}
+
+static int32_t __yo_sync_gethostname(char* name, size_t len) {
+  __yo_io_init();
+
+  if (!name || len == 0) {
+    return -EINVAL;
+  }
+
+  int result = gethostname(name, (int)len);
+  if (result == SOCKET_ERROR) {
+    return -(int32_t)WSAGetLastError();
+  }
+  name[len - 1] = '\0';
+  return 0;
+}
+
+static int32_t __yo_sync_umask(int32_t mask) {
+  int prev = _umask(mask & 0777);
+  return (int32_t)prev;
+}
+
 // ============================================================================
 // Synchronous File Helpers (Windows)
 // ============================================================================

@@ -23,8 +23,10 @@ export function generateAsyncRuntimeIOLinux(emitter: Emitter): void {
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include <sys/utsname.h>
 #include <sys/mman.h>
 #include <sys/file.h>
+#include <time.h>
 #include <errno.h>
 
 static struct io_uring __yo_io_ring;
@@ -1219,6 +1221,42 @@ static int32_t __yo_sync_socketpair(int32_t domain, int32_t sock_type, int32_t p
   return (result < 0) ? -errno : 0;
 }
 
+// Sync clock_gettime - read current clock time
+static int32_t __yo_sync_clock_gettime(int32_t clock_id, int64_t* sec, int64_t* nsec) {
+  struct timespec ts;
+  int result = clock_gettime((clockid_t)clock_id, &ts);
+  if (result < 0) {
+    return -errno;
+  }
+  *sec = (int64_t)ts.tv_sec;
+  *nsec = (int64_t)ts.tv_nsec;
+  return 0;
+}
+
+// Sync uname - system identification
+static int32_t __yo_sync_uname(void* buf) {
+  int result = uname((struct utsname*)buf);
+  return (result < 0) ? -errno : 0;
+}
+
+// Sync gethostname - read host name
+static int32_t __yo_sync_gethostname(char* name, size_t len) {
+  int result = gethostname(name, len);
+  if (result < 0) {
+    return -errno;
+  }
+  if (len > 0) {
+    name[len - 1] = '\0';
+  }
+  return 0;
+}
+
+// Sync umask - set process file mode creation mask
+static int32_t __yo_sync_umask(int32_t mask) {
+  mode_t prev = umask((mode_t)mask);
+  return (int32_t)prev;
+}
+
 // ============================================================================
 // Socket Address Helpers (Cross-platform)
 // ============================================================================
@@ -1416,6 +1454,8 @@ static uint64_t __yo_statx_blocks(void* statxbuf) {
 #else // !YO_HAS_LIBURING
 
 #include <sys/socket.h>
+#include <sys/utsname.h>
+#include <time.h>
 
 // Stub functions when liburing is not available
 static inline void __yo_io_init(void) {
@@ -1716,6 +1756,38 @@ static int32_t __yo_sync_getsockopt(int32_t sockfd, int32_t level, int32_t optna
 static int32_t __yo_sync_socketpair(int32_t domain, int32_t sock_type, int32_t protocol, int32_t* sv) {
   int result = socketpair(domain, sock_type, protocol, (int*)sv);
   return (result < 0) ? -errno : 0;
+}
+
+static int32_t __yo_sync_clock_gettime(int32_t clock_id, int64_t* sec, int64_t* nsec) {
+  struct timespec ts;
+  int result = clock_gettime((clockid_t)clock_id, &ts);
+  if (result < 0) {
+    return -errno;
+  }
+  *sec = (int64_t)ts.tv_sec;
+  *nsec = (int64_t)ts.tv_nsec;
+  return 0;
+}
+
+static int32_t __yo_sync_uname(void* buf) {
+  int result = uname((struct utsname*)buf);
+  return (result < 0) ? -errno : 0;
+}
+
+static int32_t __yo_sync_gethostname(char* name, size_t len) {
+  int result = gethostname(name, len);
+  if (result < 0) {
+    return -errno;
+  }
+  if (len > 0) {
+    name[len - 1] = '\0';
+  }
+  return 0;
+}
+
+static int32_t __yo_sync_umask(int32_t mask) {
+  mode_t prev = umask((mode_t)mask);
+  return (int32_t)prev;
 }
 
 static int32_t __yo_file_open(const char* path, int32_t flags, int32_t mode) {

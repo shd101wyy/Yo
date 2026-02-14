@@ -41,6 +41,9 @@ The `std/io` module provides Yo's low-level async I/O foundation. It sits betwee
 | **Lock**             | `std/io/lock.yo`                           | ✅ Complete | flock advisory locking + tests                             |
 | **SockInfo**         | `std/io/sockinfo.yo`                       | ✅ Complete | getsockname, getpeername, getsockopt, setsockopt + tests   |
 | **SocketPair**       | `std/io/socketpair.yo`                     | ✅ Complete | connected socket pair + tests                              |
+| **Clock**            | `std/io/clock.yo`                          | ✅ Complete | clock_gettime (realtime + monotonic) + tests               |
+| **SysInfo**          | `std/io/sysinfo.yo`                        | ✅ Complete | uname, gethostname + tests                                 |
+| **Umask**            | `std/io/umask.yo`                          | ✅ Complete | process file creation mask + tests                         |
 
 ### C Runtime Status (in `src/codegen/async/runtime*.ts`)
 
@@ -87,9 +90,9 @@ The runtime has been refactored into 4 modules:
 | **lseek**                   | ✅ (sync)             | ✅ (sync)            | ✅ (sync, \_lseeki64)                    |
 | **getsockname/getpeername** | ✅ (sync)             | ✅ (sync)            | ✅ (sync, Winsock)                       |
 | **socketpair**              | ✅ (sync)             | ✅ (sync)            | ✅ (loopback emulation)                  |
-| **clock_gettime**           | ❌                    | ❌                   | ❌ (QueryPerformanceCounter)             |
-| **uname/gethostname**       | ❌                    | ❌                   | ❌ (GetComputerNameW)                    |
-| **umask**                   | ❌                    | ❌                   | ❌ (\_umask)                             |
+| **clock_gettime**           | ✅ (sync)             | ✅ (sync)            | ✅ (realtime FILETIME + monotonic QPC)   |
+| **uname/gethostname**       | ✅ (sync)             | ✅ (sync)            | ✅ (Winsock gethostname + uname emu)     |
+| **umask**                   | ✅ (sync)             | ✅ (sync)            | ✅ (sync, \_umask)                       |
 | **readv/writev**            | ❌                    | ❌                   | ❌                                       |
 | **fallocate**               | ✅ (sync)             | ✅ (sync)            | ✅ (sync, FileAllocationInfo)            |
 | **fadvise/madvise**         | ❌                    | ❌                   | ❌                                       |
@@ -1175,6 +1178,16 @@ CLOCK_MONOTONIC :: i32(1);  // Monotonic clock (never goes backwards, for measur
 - Returns seconds + nanoseconds separately via pointers to match the `struct timespec` pattern
 - `CLOCK_MONOTONIC` value differs on macOS (6 on some versions), will use platform-aware constants
 
+**Implementation status:**
+
+- ✅ Implemented `std/io/clock.yo` with `clock_gettime`, `CLOCK_REALTIME`, and platform-aware `CLOCK_MONOTONIC`.
+- ✅ Added C runtime sync extern `__yo_sync_clock_gettime` in all backends:
+  - Linux/macOS: direct `clock_gettime(clock_id, &ts)` wrapper.
+  - Windows: `FILETIME` conversion for realtime and `QueryPerformanceCounter` for monotonic.
+- ✅ Added tests in `tests/io/clock.test.yo`:
+  1. monotonic clock is non-decreasing
+  2. realtime clock returns plausible epoch + valid nanoseconds range
+
 ### 13.2 Create `std/io/sysinfo.yo` — System Identification
 
 ```yo
@@ -1212,6 +1225,17 @@ UTSNAME_MACHINE   :: usize(...);  // Hardware type ("x86_64", "aarch64")
 - Windows requires emulation using multiple Win32 APIs
 - The `std/process.yo` module already provides compile-time `platform` and `arch`; this provides **runtime** system identification
 
+**Implementation status:**
+
+- ✅ Implemented `std/io/sysinfo.yo` with sync wrappers: `uname`, `gethostname`.
+- ✅ Added C runtime sync externs in all backends:
+  - Linux/macOS: direct `uname()` and `gethostname()` wrappers.
+  - Windows: `uname` emulation (sysname/nodename/release/version/machine) and Winsock `gethostname()`.
+- ✅ Added `UTSNAME_*` layout constants for field parsing.
+- ✅ Added tests in `tests/io/sysinfo.test.yo`:
+  1. uname required fields are non-empty
+  2. gethostname returns a non-empty hostname
+
 ### 13.3 Create `std/io/umask.yo` — File Creation Mask
 
 ```yo
@@ -1234,6 +1258,16 @@ umask :: (fn(mask: i32) -> i32)(...);
 - The mask is inherited by child processes
 - Windows `_umask()` only supports `S_IWRITE` (read-only flag)
 - Thread-safety: `umask` is process-wide and not thread-safe; callers must coordinate
+
+**Implementation status:**
+
+- ✅ Implemented `std/io/umask.yo` with sync wrapper: `umask`.
+- ✅ Added C runtime sync extern `__yo_sync_umask` in all backends:
+  - Linux/macOS: direct `umask()` wrapper returning previous mask.
+  - Windows: `_umask()` wrapper returning previous mask.
+- ✅ Added tests in `tests/io/umask.test.yo`:
+  1. set/restore umask
+  2. verify created file permissions reflect the current umask
 
 ---
 
@@ -1371,9 +1405,12 @@ Phase 12 (Socket Extensions)
   │     └── Depends on: Phase 2 (socket ops)
 
 Phase 13 (System Info & Utilities)
-  ├── 13.1 clock     └── Independent
-  ├── 13.2 sysinfo   └── Independent
-  └── 13.3 umask     └── Independent
+  ├── 13.1 clock     ✅ DONE
+  │     └── Independent
+  ├── 13.2 sysinfo   ✅ DONE
+  │     └── Independent
+  └── 13.3 umask     ✅ DONE
+        └── Independent
 
 Phase 14 (Advanced I/O)
   ├── 14.1 iov       └── Depends on: Phase 1 (file I/O)
@@ -1409,9 +1446,9 @@ Each phase should include a `.test.yo` file exercising the new APIs:
 23. **Fallocate tests** — ✅ `tests/io/fallocate.test.yo` (invalid fd, pre-allocate + size verification, KEEP_SIZE semantics, Linux punch-hole/zero-range)
 24. **Sockinfo tests** — ✅ `tests/io/sockinfo.test.yo` (getsockname after bind/listen, getpeername after connect/accept, getsockopt/setsockopt)
 25. **Socketpair tests** — ✅ `tests/io/socketpair.test.yo` (create pair, bidirectional send/recv)
-26. **Clock tests** — clock_gettime monotonic (non-decreasing), realtime (reasonable epoch)
-27. **Sysinfo tests** — uname fields non-empty, gethostname
-28. **Umask tests** — set/restore umask, verify file creation permissions
+26. **Clock tests** — ✅ `tests/io/clock.test.yo` (monotonic non-decreasing, realtime plausible epoch)
+27. **Sysinfo tests** — ✅ `tests/io/sysinfo.test.yo` (uname fields non-empty, gethostname non-empty)
+28. **Umask tests** — ✅ `tests/io/umask.test.yo` (set/restore umask, verify file mode after create)
 29. **Iov tests** — readv/writev with multiple buffers, preadv/pwritev at offset
 30. **Advise tests** — fadvise on file (no-op verification), madvise on mmap'd region
 
@@ -1457,9 +1494,9 @@ std/io/
   fallocate.yo     ← File space pre-allocation             ✅
   sockinfo.yo      ← Socket address query                  ✅
   socketpair.yo    ← Connected socket pair                 ✅
-  clock.yo         ← High-resolution time                  Phase 13
-  sysinfo.yo       ← System identification (uname)         Phase 13
-  umask.yo         ← File creation mask                    Phase 13
+  clock.yo         ← High-resolution time                  ✅
+  sysinfo.yo       ← System identification (uname)         ✅
+  umask.yo         ← File creation mask                    ✅
   iov.yo           ← Scatter/gather I/O                    Phase 14
   advise.yo        ← Kernel advisory hints                 Phase 14
 ```

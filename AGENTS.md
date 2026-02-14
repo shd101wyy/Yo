@@ -113,6 +113,29 @@ You can ignore the editor erros for the `.yo` files, because the vscode extensio
 4. The last expression in `{ ... }` without semicolon is the return value of the struct or enum constructor.
    With semicolon, like `{ expr; }`, then the return value is `unit`.
 
+5. Let's always add `()` after function name. For example, because we didn't write `await(...`, the code like:
+
+   ```
+   cond(
+     (fd >= i32(0)) => await file.close(fd),
+     true => ()
+   );
+   ```
+
+   will get parsed into:
+
+   ```
+   cond(
+     (fd >= i32(0)) =>
+     await(
+       file.close(fd),
+       true => ()
+     )
+   );
+   ```
+
+   so it's important to always add `()` after function name to avoid parsing ambiguity.
+
 When I ask you to refactor the code. Refactor everything. Don't make assumptions. Don't miss any lines. Don't put placeholders or TODOs.
 
 Ignore the `DESIGN.md` and other markdown files because they are out of date.

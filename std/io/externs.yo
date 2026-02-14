@@ -65,6 +65,14 @@ extern "Yo",
   __yo_sync_socketpair : (fn(domain: i32, sock_type: i32, protocol: i32, sv: *(i32)) -> i32),
 
   // ========================================================================
+  // System Information & Utilities
+  // ========================================================================
+  __yo_sync_clock_gettime : (fn(clock_id: i32, sec: *(i64), nsec: *(i64)) -> i32),
+  __yo_sync_uname : (fn(buf: *(u8)) -> i32),
+  __yo_sync_gethostname : (fn(name: *(u8), len: usize) -> i32),
+  __yo_sync_umask : (fn(mask: i32) -> i32),
+
+  // ========================================================================
   // Process Operations
   // ========================================================================
   __yo_async_spawn_start : (fn(file: *(u8), argv: *(?*(u8)), envp: ?*(?*(u8)), stdin_fd: i32, stdout_fd: i32, stderr_fd: i32) -> IOFuture),
@@ -262,6 +270,11 @@ export
   __yo_sync_getsockname, __yo_sync_getpeername,
   __yo_sync_setsockopt, __yo_sync_getsockopt,
   __yo_sync_socketpair,
+
+  // System information & utilities
+  __yo_sync_clock_gettime,
+  __yo_sync_uname, __yo_sync_gethostname,
+  __yo_sync_umask,
 
   // Process operations
   __yo_async_spawn_start, __yo_async_waitpid_start,
