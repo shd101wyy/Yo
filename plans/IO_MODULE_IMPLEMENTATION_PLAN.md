@@ -39,6 +39,7 @@ The `std/io` module provides Yo's low-level async I/O foundation. It sits betwee
 | **Fcntl**            | `std/io/fcntl.yo`                          | ✅ Complete | getfl/setfl/getfd/setfd + tests                            |
 | **Mmap**             | `std/io/mmap.yo`                           | ✅ Complete | mmap, munmap, mprotect, msync + tests                      |
 | **Lock**             | `std/io/lock.yo`                           | ✅ Complete | flock advisory locking + tests                             |
+| **SockInfo**         | `std/io/sockinfo.yo`                       | ✅ Complete | getsockname, getpeername, getsockopt, setsockopt + tests   |
 
 ### C Runtime Status (in `src/codegen/async/runtime*.ts`)
 
@@ -83,7 +84,7 @@ The runtime has been refactored into 4 modules:
 | **FS Events**               | ❌ (stub)             | ❌ (stub)            | ❌ (stub)                                |
 | **Poll**                    | ❌ (stub)             | ❌ (stub)            | ❌ (stub)                                |
 | **lseek**                   | ✅ (sync)             | ✅ (sync)            | ✅ (sync, \_lseeki64)                    |
-| **getsockname/getpeername** | ❌                    | ❌                   | ❌                                       |
+| **getsockname/getpeername** | ✅ (sync)             | ✅ (sync)            | ✅ (sync, Winsock)                       |
 | **socketpair**              | ❌                    | ❌                   | ❌ (emulation needed)                    |
 | **clock_gettime**           | ❌                    | ❌                   | ❌ (QueryPerformanceCounter)             |
 | **uname/gethostname**       | ❌                    | ❌                   | ❌ (GetComputerNameW)                    |
@@ -1092,6 +1093,17 @@ setsockopt :: (fn(sockfd: i32, level: i32, optname: i32, optval: *(u8), optlen: 
 - Winsock API is nearly identical to POSIX for these functions
 - The `addr` buffer + `addrlen` pattern matches the existing sockaddr helpers in tcp.yo/udp.yo
 
+**Implementation status:**
+
+- ✅ Implemented `std/io/sockinfo.yo` with sync wrappers: `getsockname`, `getpeername`, `getsockopt`, `setsockopt`.
+- ✅ Added C runtime sync externs in all backends:
+  - Linux/macOS: direct POSIX wrappers for `getsockname()`/`getpeername()`/`getsockopt()`/`setsockopt()` returning `0` or `-errno` and updating output lengths.
+  - Windows: direct Winsock wrappers for `getsockname()`/`getpeername()`/`getsockopt()`/`setsockopt()` returning `0` or negative WSA error, and updating output lengths.
+  - Linux no-liburing fallback: sync wrappers available even when async io_uring is disabled.
+- ✅ Added tests in `tests/io/sockinfo.test.yo` (2 tests):
+  1. `getsockname` + `getpeername` on a real TCP connection (ephemeral bind + connect/accept)
+  2. `getsockopt` + `setsockopt` for `SO_REUSEADDR` and `SO_TYPE`
+
 ### 12.2 Create `std/io/socketpair.yo` — Connected Socket Pair
 
 ```yo
@@ -1340,7 +1352,8 @@ Phase 11 (File Position & Allocation)
   │     └── Independent
 
 Phase 12 (Socket Extensions)
-  ├── 12.1 sockinfo  └── Depends on: Phase 2 (socket ops)
+  ├── 12.1 sockinfo  ✅ DONE
+  │     └── Depends on: Phase 2 (socket ops)
   └── 12.2 socketpair └── Depends on: Phase 2 (socket ops)
 
 Phase 13 (System Info & Utilities)
@@ -1380,7 +1393,7 @@ Each phase should include a `.test.yo` file exercising the new APIs:
 21. **Lock tests** — ✅ `tests/io/lock.test.yo` (7 tests: invalid fd, exclusive lock+unlock, shared lock+unlock, LOCK_NB conflict, shared coexist/exclusive blocked, upgrade shared→exclusive, unlock no-op)
 22. **Seek tests** — ✅ `tests/io/seek.test.yo` (SEEK_SET/SEEK_CUR/SEEK_END, invalid fd, invalid whence/negative offset, pipe seek error)
 23. **Fallocate tests** — ✅ `tests/io/fallocate.test.yo` (invalid fd, pre-allocate + size verification, KEEP_SIZE semantics, Linux punch-hole/zero-range)
-24. **Sockinfo tests** — getsockname after bind, getpeername after connect, getsockopt/setsockopt
+24. **Sockinfo tests** — ✅ `tests/io/sockinfo.test.yo` (getsockname after bind/listen, getpeername after connect/accept, getsockopt/setsockopt)
 25. **Socketpair tests** — create pair, bidirectional send/recv
 26. **Clock tests** — clock_gettime monotonic (non-decreasing), realtime (reasonable epoch)
 27. **Sysinfo tests** — uname fields non-empty, gethostname
@@ -1428,7 +1441,7 @@ std/io/
   lock.yo          ← Advisory file locking                ✅
   seek.yo          ← File position control (lseek)         ✅
   fallocate.yo     ← File space pre-allocation             ✅
-  sockinfo.yo      ← Socket address query                  Phase 12
+  sockinfo.yo      ← Socket address query                  ✅
   socketpair.yo    ← Connected socket pair                 Phase 12
   clock.yo         ← High-resolution time                  Phase 13
   sysinfo.yo       ← System identification (uname)         Phase 13

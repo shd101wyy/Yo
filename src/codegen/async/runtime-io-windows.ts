@@ -1854,6 +1854,52 @@ static yo_io_future_t* __yo_async_getsockopt_start(int32_t sockfd, int32_t level
   return future;
 }
 
+static int32_t __yo_sync_getsockname(int32_t sockfd, void* addr, uint32_t* addrlen) {
+  __yo_io_init();
+
+  int len = (int)(*addrlen);
+  int result = getsockname((SOCKET)(uintptr_t)sockfd, (struct sockaddr*)addr, &len);
+  if (result == SOCKET_ERROR) {
+    return -(int32_t)WSAGetLastError();
+  }
+
+  *addrlen = (uint32_t)len;
+  return 0;
+}
+
+static int32_t __yo_sync_getpeername(int32_t sockfd, void* addr, uint32_t* addrlen) {
+  __yo_io_init();
+
+  int len = (int)(*addrlen);
+  int result = getpeername((SOCKET)(uintptr_t)sockfd, (struct sockaddr*)addr, &len);
+  if (result == SOCKET_ERROR) {
+    return -(int32_t)WSAGetLastError();
+  }
+
+  *addrlen = (uint32_t)len;
+  return 0;
+}
+
+static int32_t __yo_sync_setsockopt(int32_t sockfd, int32_t level, int32_t optname, const void* optval, uint32_t optlen) {
+  __yo_io_init();
+
+  int result = setsockopt((SOCKET)(uintptr_t)sockfd, level, optname, (const char*)optval, (int)optlen);
+  return (result == SOCKET_ERROR) ? -(int32_t)WSAGetLastError() : 0;
+}
+
+static int32_t __yo_sync_getsockopt(int32_t sockfd, int32_t level, int32_t optname, void* optval, uint32_t* optlen) {
+  __yo_io_init();
+
+  int len = (int)(*optlen);
+  int result = getsockopt((SOCKET)(uintptr_t)sockfd, level, optname, (char*)optval, &len);
+  if (result == SOCKET_ERROR) {
+    return -(int32_t)WSAGetLastError();
+  }
+
+  *optlen = (uint32_t)len;
+  return 0;
+}
+
 // ============================================================================
 // Synchronous File Helpers (Windows)
 // ============================================================================

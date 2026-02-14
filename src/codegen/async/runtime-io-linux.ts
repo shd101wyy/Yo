@@ -1172,6 +1172,47 @@ static yo_io_future_t* __yo_async_getsockopt_start(int32_t sockfd, int32_t level
   return future;
 }
 
+// Sync getsockname - get local socket address
+static int32_t __yo_sync_getsockname(int32_t sockfd, void* addr, uint32_t* addrlen) {
+  socklen_t len = (socklen_t)(*addrlen);
+  int result = getsockname(sockfd, (struct sockaddr*)addr, &len);
+  if (result < 0) {
+    return -errno;
+  }
+  *addrlen = (uint32_t)len;
+  return 0;
+}
+
+// Sync getpeername - get remote peer address
+static int32_t __yo_sync_getpeername(int32_t sockfd, void* addr, uint32_t* addrlen) {
+  socklen_t len = (socklen_t)(*addrlen);
+  int result = getpeername(sockfd, (struct sockaddr*)addr, &len);
+  if (result < 0) {
+    return -errno;
+  }
+  *addrlen = (uint32_t)len;
+  return 0;
+}
+
+// Sync setsockopt - set socket option value
+static int32_t __yo_sync_setsockopt(int32_t sockfd, int32_t level, int32_t optname,
+                                     const void* optval, uint32_t optlen) {
+  int result = setsockopt(sockfd, level, optname, optval, (socklen_t)optlen);
+  return (result < 0) ? -errno : 0;
+}
+
+// Sync getsockopt - get socket option value
+static int32_t __yo_sync_getsockopt(int32_t sockfd, int32_t level, int32_t optname,
+                                     void* optval, uint32_t* optlen) {
+  socklen_t len = (socklen_t)(*optlen);
+  int result = getsockopt(sockfd, level, optname, optval, &len);
+  if (result < 0) {
+    return -errno;
+  }
+  *optlen = (uint32_t)len;
+  return 0;
+}
+
 // ============================================================================
 // Socket Address Helpers (Cross-platform)
 // ============================================================================
@@ -1367,6 +1408,8 @@ static uint64_t __yo_statx_blocks(void* statxbuf) {
 }
 
 #else // !YO_HAS_LIBURING
+
+#include <sys/socket.h>
 
 // Stub functions when liburing is not available
 static inline void __yo_io_init(void) {
@@ -1625,6 +1668,43 @@ static inline void* __yo_async_getsockopt_start(int32_t sockfd, int32_t level, i
   fprintf(stderr, "[Yo] Error: async getsockopt not supported without liburing\\n");
   abort();
   return NULL;
+}
+
+static int32_t __yo_sync_getsockname(int32_t sockfd, void* addr, uint32_t* addrlen) {
+  socklen_t len = (socklen_t)(*addrlen);
+  int result = getsockname(sockfd, (struct sockaddr*)addr, &len);
+  if (result < 0) {
+    return -errno;
+  }
+  *addrlen = (uint32_t)len;
+  return 0;
+}
+
+static int32_t __yo_sync_getpeername(int32_t sockfd, void* addr, uint32_t* addrlen) {
+  socklen_t len = (socklen_t)(*addrlen);
+  int result = getpeername(sockfd, (struct sockaddr*)addr, &len);
+  if (result < 0) {
+    return -errno;
+  }
+  *addrlen = (uint32_t)len;
+  return 0;
+}
+
+static int32_t __yo_sync_setsockopt(int32_t sockfd, int32_t level, int32_t optname,
+                                     const void* optval, uint32_t optlen) {
+  int result = setsockopt(sockfd, level, optname, optval, (socklen_t)optlen);
+  return (result < 0) ? -errno : 0;
+}
+
+static int32_t __yo_sync_getsockopt(int32_t sockfd, int32_t level, int32_t optname,
+                                     void* optval, uint32_t* optlen) {
+  socklen_t len = (socklen_t)(*optlen);
+  int result = getsockopt(sockfd, level, optname, optval, &len);
+  if (result < 0) {
+    return -errno;
+  }
+  *optlen = (uint32_t)len;
+  return 0;
 }
 
 static int32_t __yo_file_open(const char* path, int32_t flags, int32_t mode) {
