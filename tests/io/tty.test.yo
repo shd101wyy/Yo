@@ -1,5 +1,4 @@
 open import "std/libc/stdio";
-open import "std/libc/unistd";
 { platform, Platform } :: import "std/process";
 tty :: import "std/io/tty";
 
@@ -11,15 +10,17 @@ print_bool :: (fn(value: bool) -> i32)(
 );
 
 test "isatty and winsize", {
-  stdin_fd := i32(STDIN_FILENO);
-  is_tty := tty.isatty(stdin_fd);
-  printf("  isatty = %d\n", print_bool(is_tty));
-
   cond(
     (platform == Platform.Win32) => {
       ();
     },
     true => {
+      { STDIN_FILENO } :: import "std/libc/unistd";
+
+      stdin_fd := i32(STDIN_FILENO);
+      is_tty := tty.isatty(stdin_fd);
+      printf("  isatty = %d\n", print_bool(is_tty));
+
       cond(
         is_tty => {
           init := tty.tty_init(stdin_fd);
@@ -45,6 +46,8 @@ test "set and reset tty mode", {
       ();
     },
     true => {
+      { STDIN_FILENO } :: import "std/libc/unistd";
+
       stdin_fd := i32(STDIN_FILENO);
       is_tty := tty.isatty(stdin_fd);
       cond(
