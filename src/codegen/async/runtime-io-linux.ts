@@ -26,6 +26,7 @@ export function generateAsyncRuntimeIOLinux(emitter: Emitter): void {
 #include <sys/utsname.h>
 #include <sys/mman.h>
 #include <sys/file.h>
+#include <sys/uio.h>
 #include <time.h>
 #include <errno.h>
 
@@ -799,6 +800,68 @@ static int32_t __yo_sync_flock(int32_t fd, int32_t operation) {
   return (result < 0) ? -errno : 0;
 }
 
+static int32_t __yo_sync_readv(int32_t fd, void* iov, int32_t iovcnt) {
+  ssize_t result = readv(fd, (const struct iovec*)iov, (int)iovcnt);
+  return (result < 0) ? -errno : (int32_t)result;
+}
+
+static int32_t __yo_sync_writev(int32_t fd, void* iov, int32_t iovcnt) {
+  ssize_t result = writev(fd, (const struct iovec*)iov, (int)iovcnt);
+  return (result < 0) ? -errno : (int32_t)result;
+}
+
+static int32_t __yo_sync_preadv(int32_t fd, void* iov, int32_t iovcnt, int64_t offset) {
+  struct iovec* vec = (struct iovec*)iov;
+  ssize_t total = 0;
+  off_t current = (off_t)offset;
+
+  for (int32_t i = 0; i < iovcnt; i++) {
+    if (vec[i].iov_len == 0) continue;
+    ssize_t n = pread(fd, vec[i].iov_base, vec[i].iov_len, current);
+    if (n < 0) {
+      return (total > 0) ? (int32_t)total : -errno;
+    }
+    total += n;
+    if ((size_t)n < vec[i].iov_len) {
+      break;
+    }
+    current += (off_t)n;
+  }
+
+  return (int32_t)total;
+}
+
+static int32_t __yo_sync_pwritev(int32_t fd, void* iov, int32_t iovcnt, int64_t offset) {
+  struct iovec* vec = (struct iovec*)iov;
+  ssize_t total = 0;
+  off_t current = (off_t)offset;
+
+  for (int32_t i = 0; i < iovcnt; i++) {
+    if (vec[i].iov_len == 0) continue;
+    ssize_t n = pwrite(fd, vec[i].iov_base, vec[i].iov_len, current);
+    if (n < 0) {
+      return (total > 0) ? (int32_t)total : -errno;
+    }
+    total += n;
+    if ((size_t)n < vec[i].iov_len) {
+      break;
+    }
+    current += (off_t)n;
+  }
+
+  return (int32_t)total;
+}
+
+static size_t __yo_iovec_size(void) {
+  return sizeof(struct iovec);
+}
+
+static void __yo_iovec_set(void* iov, size_t index, void* base, size_t len) {
+  struct iovec* vec = (struct iovec*)iov;
+  vec[index].iov_base = base;
+  vec[index].iov_len = len;
+}
+
 static uint8_t* __yo_sync_mmap(uint8_t* addr, size_t length, int32_t prot, int32_t flags, int32_t fd, int64_t offset) {
   void* result = mmap((void*)addr, length, prot, flags, fd, (off_t)offset);
   if (result == MAP_FAILED) {
@@ -1454,6 +1517,7 @@ static uint64_t __yo_statx_blocks(void* statxbuf) {
 #else // !YO_HAS_LIBURING
 
 #include <sys/socket.h>
+#include <sys/uio.h>
 #include <sys/utsname.h>
 #include <time.h>
 
@@ -1818,6 +1882,68 @@ static int32_t __yo_sync_dup(int32_t oldfd) {
 static int32_t __yo_sync_dup2(int32_t oldfd, int32_t newfd) {
   int result = dup2(oldfd, newfd);
   return (result < 0) ? -errno : result;
+}
+
+static int32_t __yo_sync_readv(int32_t fd, void* iov, int32_t iovcnt) {
+  ssize_t result = readv(fd, (const struct iovec*)iov, (int)iovcnt);
+  return (result < 0) ? -errno : (int32_t)result;
+}
+
+static int32_t __yo_sync_writev(int32_t fd, void* iov, int32_t iovcnt) {
+  ssize_t result = writev(fd, (const struct iovec*)iov, (int)iovcnt);
+  return (result < 0) ? -errno : (int32_t)result;
+}
+
+static int32_t __yo_sync_preadv(int32_t fd, void* iov, int32_t iovcnt, int64_t offset) {
+  struct iovec* vec = (struct iovec*)iov;
+  ssize_t total = 0;
+  off_t current = (off_t)offset;
+
+  for (int32_t i = 0; i < iovcnt; i++) {
+    if (vec[i].iov_len == 0) continue;
+    ssize_t n = pread(fd, vec[i].iov_base, vec[i].iov_len, current);
+    if (n < 0) {
+      return (total > 0) ? (int32_t)total : -errno;
+    }
+    total += n;
+    if ((size_t)n < vec[i].iov_len) {
+      break;
+    }
+    current += (off_t)n;
+  }
+
+  return (int32_t)total;
+}
+
+static int32_t __yo_sync_pwritev(int32_t fd, void* iov, int32_t iovcnt, int64_t offset) {
+  struct iovec* vec = (struct iovec*)iov;
+  ssize_t total = 0;
+  off_t current = (off_t)offset;
+
+  for (int32_t i = 0; i < iovcnt; i++) {
+    if (vec[i].iov_len == 0) continue;
+    ssize_t n = pwrite(fd, vec[i].iov_base, vec[i].iov_len, current);
+    if (n < 0) {
+      return (total > 0) ? (int32_t)total : -errno;
+    }
+    total += n;
+    if ((size_t)n < vec[i].iov_len) {
+      break;
+    }
+    current += (off_t)n;
+  }
+
+  return (int32_t)total;
+}
+
+static size_t __yo_iovec_size(void) {
+  return sizeof(struct iovec);
+}
+
+static void __yo_iovec_set(void* iov, size_t index, void* base, size_t len) {
+  struct iovec* vec = (struct iovec*)iov;
+  vec[index].iov_base = base;
+  vec[index].iov_len = len;
 }
 
 static int32_t __yo_sync_fchmod(int32_t fd, uint32_t mode) {

@@ -136,6 +136,11 @@ typedef struct {
   DWORD sock_flags;
 } yo_win_overlapped_t;
 
+typedef struct {
+  void* iov_base;
+  size_t iov_len;
+} yo_iovec_t;
+
 static bool __yo_is_at_fdcwd(int32_t dirfd) {
   return (dirfd == -100 || dirfd == -2);
 }
@@ -1259,6 +1264,154 @@ static int32_t __yo_sync_flock(int32_t fd, int32_t operation) {
   if ((operation & LOCK_NB) != 0) flags |= LOCKFILE_FAIL_IMMEDIATELY;
   BOOL ok = LockFileEx(handle, flags, 0, 0xFFFFFFFF, 0xFFFFFFFF, &ov);
   return ok ? 0 : -__yo_win_last_error_to_errno();
+}
+
+static int32_t __yo_sync_readv(int32_t fd, void* iov, int32_t iovcnt) {
+  if (iovcnt < 0) return -EINVAL;
+  if (iovcnt == 0) return 0;
+
+  yo_iovec_t* vec = (yo_iovec_t*)iov;
+
+  if (__yo_win_is_socket_fd(fd)) {
+    WSABUF* bufs = (WSABUF*)__yo_malloc(sizeof(WSABUF) * (size_t)iovcnt);
+    if (!bufs) return -ENOMEM;
+
+    for (int32_t i = 0; i < iovcnt; i++) {
+      if (vec[i].iov_len > 0xFFFFFFFFu) {
+        __yo_free(bufs);
+        return -EINVAL;
+      }
+      bufs[i].buf = (CHAR*)vec[i].iov_base;
+      bufs[i].len = (ULONG)vec[i].iov_len;
+    }
+
+    DWORD recvd = 0;
+    DWORD flags = 0;
+    int result = WSARecv((SOCKET)(uintptr_t)(uint32_t)fd, bufs, (DWORD)iovcnt, &recvd, &flags, NULL, NULL);
+    __yo_free(bufs);
+    return (result == SOCKET_ERROR) ? -(int32_t)WSAGetLastError() : (int32_t)recvd;
+  }
+
+  int32_t total = 0;
+  for (int32_t i = 0; i < iovcnt; i++) {
+    char* ptr = (char*)vec[i].iov_base;
+    size_t remaining = vec[i].iov_len;
+    while (remaining > 0) {
+      unsigned int chunk = (remaining > (size_t)0x7FFFFFFF) ? (unsigned int)0x7FFFFFFF : (unsigned int)remaining;
+      int n = _read(fd, ptr, chunk);
+      if (n < 0) {
+        return (total > 0) ? total : -errno;
+      }
+      if (n == 0) {
+        return total;
+      }
+      total += n;
+      if ((unsigned int)n < chunk) {
+        return total;
+      }
+      ptr += n;
+      remaining -= (size_t)n;
+    }
+  }
+
+  return total;
+}
+
+static int32_t __yo_sync_writev(int32_t fd, void* iov, int32_t iovcnt) {
+  if (iovcnt < 0) return -EINVAL;
+  if (iovcnt == 0) return 0;
+
+  yo_iovec_t* vec = (yo_iovec_t*)iov;
+
+  if (__yo_win_is_socket_fd(fd)) {
+    WSABUF* bufs = (WSABUF*)__yo_malloc(sizeof(WSABUF) * (size_t)iovcnt);
+    if (!bufs) return -ENOMEM;
+
+    for (int32_t i = 0; i < iovcnt; i++) {
+      if (vec[i].iov_len > 0xFFFFFFFFu) {
+        __yo_free(bufs);
+        return -EINVAL;
+      }
+      bufs[i].buf = (CHAR*)vec[i].iov_base;
+      bufs[i].len = (ULONG)vec[i].iov_len;
+    }
+
+    DWORD sent = 0;
+    int result = WSASend((SOCKET)(uintptr_t)(uint32_t)fd, bufs, (DWORD)iovcnt, &sent, 0, NULL, NULL);
+    __yo_free(bufs);
+    return (result == SOCKET_ERROR) ? -(int32_t)WSAGetLastError() : (int32_t)sent;
+  }
+
+  int32_t total = 0;
+  for (int32_t i = 0; i < iovcnt; i++) {
+    char* ptr = (char*)vec[i].iov_base;
+    size_t remaining = vec[i].iov_len;
+    while (remaining > 0) {
+      unsigned int chunk = (remaining > (size_t)0x7FFFFFFF) ? (unsigned int)0x7FFFFFFF : (unsigned int)remaining;
+      int n = _write(fd, ptr, chunk);
+      if (n < 0) {
+        return (total > 0) ? total : -errno;
+      }
+      total += n;
+      if ((unsigned int)n < chunk) {
+        return total;
+      }
+      ptr += n;
+      remaining -= (size_t)n;
+    }
+  }
+
+  return total;
+}
+
+static int32_t __yo_sync_preadv(int32_t fd, void* iov, int32_t iovcnt, int64_t offset) {
+  if (iovcnt < 0 || offset < 0) return -EINVAL;
+  if (__yo_win_is_socket_fd(fd)) return -ESPIPE;
+
+  int64_t saved = __yo_sync_lseek(fd, 0, 1);
+  if (saved < 0) return (int32_t)saved;
+
+  int64_t seeked = __yo_sync_lseek(fd, offset, 0);
+  if (seeked < 0) return (int32_t)seeked;
+
+  int32_t result = __yo_sync_readv(fd, iov, iovcnt);
+
+  int64_t restored = __yo_sync_lseek(fd, saved, 0);
+  if (restored < 0 && result >= 0) {
+    return (int32_t)restored;
+  }
+
+  return result;
+}
+
+static int32_t __yo_sync_pwritev(int32_t fd, void* iov, int32_t iovcnt, int64_t offset) {
+  if (iovcnt < 0 || offset < 0) return -EINVAL;
+  if (__yo_win_is_socket_fd(fd)) return -ESPIPE;
+
+  int64_t saved = __yo_sync_lseek(fd, 0, 1);
+  if (saved < 0) return (int32_t)saved;
+
+  int64_t seeked = __yo_sync_lseek(fd, offset, 0);
+  if (seeked < 0) return (int32_t)seeked;
+
+  int32_t result = __yo_sync_writev(fd, iov, iovcnt);
+
+  int64_t restored = __yo_sync_lseek(fd, saved, 0);
+  if (restored < 0 && result >= 0) {
+    return (int32_t)restored;
+  }
+
+  return result;
+}
+
+static size_t __yo_iovec_size(void) {
+  return sizeof(yo_iovec_t);
+}
+
+static void __yo_iovec_set(void* iov, size_t index, void* base, size_t len) {
+  yo_iovec_t* vec = (yo_iovec_t*)iov;
+  vec[index].iov_base = base;
+  vec[index].iov_len = len;
 }
 
 static uint8_t* __yo_sync_mmap(uint8_t* addr, size_t length, int32_t prot, int32_t flags, int32_t fd, int64_t offset) {

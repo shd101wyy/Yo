@@ -242,7 +242,13 @@ extern "Yo",
   __yo_sync_fcntl_setfd : (fn(fd: i32, flags: i32) -> i32),
   __yo_sync_lseek : (fn(fd: i32, offset: i64, whence: i32) -> i64),
   __yo_sync_fallocate : (fn(fd: i32, mode: i32, offset: i64, length: i64) -> i32),
-  __yo_sync_flock : (fn(fd: i32, operation: i32) -> i32)
+  __yo_sync_flock : (fn(fd: i32, operation: i32) -> i32),
+  __yo_sync_readv : (fn(fd: i32, iov: *(u8), iovcnt: i32) -> i32),
+  __yo_sync_writev : (fn(fd: i32, iov: *(u8), iovcnt: i32) -> i32),
+  __yo_sync_preadv : (fn(fd: i32, iov: *(u8), iovcnt: i32, offset: i64) -> i32),
+  __yo_sync_pwritev : (fn(fd: i32, iov: *(u8), iovcnt: i32, offset: i64) -> i32),
+  __yo_iovec_size : (fn() -> usize),
+  __yo_iovec_set : (fn(iov: *(u8), index: usize, base: *(u8), len: usize) -> unit)
 ;
 
 export
@@ -354,5 +360,8 @@ export
   __yo_sync_fcntl_getfd, __yo_sync_fcntl_setfd,
   __yo_sync_lseek,
   __yo_sync_fallocate,
-  __yo_sync_flock
+  __yo_sync_flock,
+  __yo_sync_readv, __yo_sync_writev,
+  __yo_sync_preadv, __yo_sync_pwritev,
+  __yo_iovec_size, __yo_iovec_set
 ;

@@ -44,6 +44,7 @@ The `std/io` module provides Yo's low-level async I/O foundation. It sits betwee
 | **Clock**            | `std/io/clock.yo`                          | ✅ Complete | clock_gettime (realtime + monotonic) + tests               |
 | **SysInfo**          | `std/io/sysinfo.yo`                        | ✅ Complete | uname, gethostname + tests                                 |
 | **Umask**            | `std/io/umask.yo`                          | ✅ Complete | process file creation mask + tests                         |
+| **Iov**              | `std/io/iov.yo`                            | ✅ Complete | readv/writev/preadv/pwritev + iovec helpers + tests        |
 
 ### C Runtime Status (in `src/codegen/async/runtime*.ts`)
 
@@ -93,7 +94,7 @@ The runtime has been refactored into 4 modules:
 | **clock_gettime**           | ✅ (sync)             | ✅ (sync)            | ✅ (realtime FILETIME + monotonic QPC)   |
 | **uname/gethostname**       | ✅ (sync)             | ✅ (sync)            | ✅ (Winsock gethostname + uname emu)     |
 | **umask**                   | ✅ (sync)             | ✅ (sync)            | ✅ (sync, \_umask)                       |
-| **readv/writev**            | ❌                    | ❌                   | ❌                                       |
+| **readv/writev**            | ✅ (sync)             | ✅ (sync)            | ✅ (sync emulation + WSA for sockets)    |
 | **fallocate**               | ✅ (sync)             | ✅ (sync)            | ✅ (sync, FileAllocationInfo)            |
 | **fadvise/madvise**         | ❌                    | ❌                   | ❌                                       |
 
@@ -1294,7 +1295,7 @@ pwritev :: (fn(fd: i32, iov: *(u8), iovcnt: i32, offset: i64) -> i32)(...);
 
 // iovec struct helpers
 // struct iovec { void *iov_base; size_t iov_len; }
-IOVEC_SIZE :: usize(...);  // sizeof(struct iovec), platform-aware
+iovec_size :: usize(...);  // sizeof(struct iovec), platform-aware
 iovec_set :: (fn(iov: *(u8), index: usize, base: *(u8), len: usize) -> unit)(...);
 ```
 
@@ -1313,6 +1314,18 @@ iovec_set :: (fn(iov: *(u8), index: usize, base: *(u8), len: usize) -> unit)(...
 - io_uring supports `IORING_OP_READV`/`IORING_OP_WRITEV` natively
 - Windows doesn't have a direct equivalent for files; emulation is acceptable for correctness
 - `iov` parameter is `*(u8)` (raw pointer to `struct iovec` array) to match the low-level pattern
+
+**Implementation status:**
+
+- ✅ Implemented `std/io/iov.yo` with sync wrappers: `readv`, `writev`, `preadv`, `pwritev`.
+- ✅ Added iovec helpers: `iovec_size`, `iovec_set`.
+- ✅ Added C runtime sync externs in all backends:
+  - Linux/macOS: `readv`/`writev` direct wrappers; `preadv`/`pwritev` implemented with positional read/write loops.
+  - Windows: file-descriptor emulation loops for readv/writev; socket fast-path via `WSARecv`/`WSASend`; `preadv`/`pwritev` via seek + readv/writev with offset restoration.
+  - Linux no-liburing fallback: sync wrappers and iovec helpers available without io_uring.
+- ✅ Added tests in `tests/io/iov.test.yo` (2 tests):
+  1. `writev` + `readv` on a pipe
+  2. `pwritev` + `preadv` on a regular file with file-offset-preservation assertions
 
 ### 14.2 Create `std/io/advise.yo` — Kernel Advisory Hints
 
@@ -1413,7 +1426,8 @@ Phase 13 (System Info & Utilities)
         └── Independent
 
 Phase 14 (Advanced I/O)
-  ├── 14.1 iov       └── Depends on: Phase 1 (file I/O)
+  ├── 14.1 iov       ✅ DONE
+  │     └── Depends on: Phase 1 (file I/O)
   └── 14.2 advise    └── Depends on: Phase 10.2 (mmap)
 ```
 
@@ -1449,7 +1463,7 @@ Each phase should include a `.test.yo` file exercising the new APIs:
 26. **Clock tests** — ✅ `tests/io/clock.test.yo` (monotonic non-decreasing, realtime plausible epoch)
 27. **Sysinfo tests** — ✅ `tests/io/sysinfo.test.yo` (uname fields non-empty, gethostname non-empty)
 28. **Umask tests** — ✅ `tests/io/umask.test.yo` (set/restore umask, verify file mode after create)
-29. **Iov tests** — readv/writev with multiple buffers, preadv/pwritev at offset
+29. **Iov tests** — ✅ `tests/io/iov.test.yo` (pipe readv/writev, regular-file preadv/pwritev, offset preservation)
 30. **Advise tests** — fadvise on file (no-op verification), madvise on mmap'd region
 
 For cross-platform validation:
@@ -1497,7 +1511,7 @@ std/io/
   clock.yo         ← High-resolution time                  ✅
   sysinfo.yo       ← System identification (uname)         ✅
   umask.yo         ← File creation mask                    ✅
-  iov.yo           ← Scatter/gather I/O                    Phase 14
+  iov.yo           ← Scatter/gather I/O                    ✅
   advise.yo        ← Kernel advisory hints                 Phase 14
 ```
 
