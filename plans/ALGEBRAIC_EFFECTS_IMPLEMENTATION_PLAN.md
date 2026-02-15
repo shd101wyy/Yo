@@ -25,15 +25,15 @@ Both phases build on Yo's existing async/await state machine infrastructure.
 
 ## Design Decisions (Resolved)
 
-| Question                          | Decision          | Rationale                                                                                 |
-| --------------------------------- | ----------------- | ----------------------------------------------------------------------------------------- |
-| `given` vs. auto-resolve from env | **Use `given`**   | Explicit marking avoids ambiguity, better error messages, follows Scala 3 precedent       |
-| State machine for `ctl`?          | **Yes**           | Same architecture as async/await — effect invocation = suspension point                   |
-| Transform callers too?            | **Yes**           | All functions in the "effect scope" (between handler and effect site) must be transformed |
-| One-shot vs. multi-shot           | **One-shot**      | Fits RC model, simpler implementation, covers 99% of use cases, `resume` is linear        |
-| `resume` dispatch                 | **Impl (static)** | Handler is lexically scoped, compiler knows types, zero overhead                          |
-| `resume` semantics                | **Linear**        | Must be called exactly once or explicitly dropped; compiler enforces this                 |
-| `do`/`perform` keyword            | **No**            | Type system already distinguishes `ctl` from `fn`; no ambiguity; matches Koka's design    |
+| Question                          | Decision                     | Rationale                                                                                 |
+| --------------------------------- | ---------------------------- | ----------------------------------------------------------------------------------------- |
+| `given` vs. auto-resolve from env | **Use `given`**              | Explicit marking avoids ambiguity, better error messages, follows Scala 3 precedent       |
+| State machine for `ctl`?          | **Yes**                      | Same architecture as async/await — effect invocation = suspension point                   |
+| Transform callers too?            | **Yes**                      | All functions in the "effect scope" (between handler and effect site) must be transformed |
+| One-shot vs. multi-shot           | **One-shot**                 | Fits RC model, simpler implementation, covers 99% of use cases, `resume` is linear        |
+| `resume` dispatch                 | **Impl (static)**            | Handler is lexically scoped, compiler knows types, zero overhead                          |
+| `resume` semantics                | **Runtime-checked one-shot** | OCaml-style: no linear type system required; runtime rejects double resume                |
+| `do`/`perform` keyword            | **No**                       | Type system already distinguishes `ctl` from `fn`; no ambiguity; matches Koka's design    |
 
 ---
 
@@ -225,7 +225,10 @@ raise_resume :: (fn() -> i32) {
 - The handler can:
   - **Discard** the continuation (don't call `resume`) — acts like an exception/early return.
   - **Resume** the continuation once (call `resume(value)`) — continues execution with `value` as the result of the effect call.
-- `resume` is **one-shot** (linear) — it must be called at most once. The compiler enforces this.
+- `resume` is **one-shot** — it must be called at most once.
+- Enforcement is **runtime-based** (OCaml-style), not linear types:
+  - Second `resume` on the same continuation raises a runtime error (e.g. `ContinuationAlreadyResumed`).
+  - We still keep ownership/RC cleanup paths for non-resumed continuations (`discontinue`/drop path).
 - Effect operations compose with `using` — the effect is an implicit parameter resolved via `given`.
 
 ### 2.3 Effect Coloring / Propagation
@@ -465,11 +468,12 @@ The `resume` function type:
 #### Step 5: Reference Counting for Continuations
 
 - One-shot continuations own the state machine. Calling `resume` consumes ownership.
-- If `resume` is not called, the state machine is dropped (all captured variables are dropped).
-- The compiler ensures `resume` is used linearly:
-  - Using `resume` twice is a compile error.
-  - Not using `resume` is allowed (continuation is dropped, like an exception).
-  - The `resume` value has `own()` semantics — it is consumed on use.
+- Add runtime continuation state flag (e.g. `Fresh | Resumed | Discontinued`).
+- Runtime checks:
+  - `resume` allowed only in `Fresh` state; transition to `Resumed`.
+  - `discontinue` allowed only in `Fresh` state; transition to `Discontinued`.
+  - Any second `resume`/`discontinue` raises runtime error (`ContinuationAlreadyResumed`).
+- If neither `resume` nor `discontinue` is called, cleanup path must still release captured resources (drop/finalizer strategy).
 
 #### Step 6: Integration with `using` / `given`
 
@@ -621,5 +625,5 @@ However, this unification is a Phase 3+ goal. For now, async/await and effects c
 3. `ctl` effects with resume handlers work (continuation-like usage).
 4. No memory leaks detected by AddressSanitizer in all effect scenarios.
 5. Nested effects and effect propagation through call chains work correctly.
-6. One-shot enforcement: compile error on double `resume`.
+6. One-shot enforcement: runtime error on double `resume`/`discontinue` (OCaml-style).
 7. Performance: no overhead for functions that don't use effects.
