@@ -180,6 +180,12 @@ export interface Variable {
    * In C codegen, we use `self` in the function signature but reference `self2` in the body.
    */
   parameterAlias?: string;
+
+  /**
+   * Whether this variable is declared with `given`, making it available
+   * for implicit parameter resolution (`using` parameters in function calls).
+   */
+  isImplicit?: boolean;
 }
 
 export type WhereClauseConstraints = {

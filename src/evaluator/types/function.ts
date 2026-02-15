@@ -30,6 +30,7 @@ import {
 } from "../../types/creators";
 import type {
   FunctionForallParameter,
+  FunctionImplicitParameter,
   FunctionParameter,
   FunctionType,
   SomeType,
@@ -678,6 +679,7 @@ use_id :: (fn(forall(T : Type),
       isCompileTimeOnly,
       isQuote,
       isOwningTheRcValue,
+      isImplicit: false,
       assignedValue,
     },
     env,
@@ -1439,6 +1441,7 @@ export function evaluateFunctionParameters({
 }): {
   parameters: FunctionParameter[];
   forallParameters: FunctionParameter[];
+  implicitParameters: FunctionImplicitParameter[];
   variadicParameter?: FunctionParameter;
   whereClauseExprs?: Expr[];
   env: Environment;
@@ -1447,6 +1450,7 @@ export function evaluateFunctionParameters({
 
   const parameters: FunctionParameter[] = [];
   const forallParameters: FunctionParameter[] = [];
+  const implicitParameters: FunctionImplicitParameter[] = [];
   let variadicParameter: FunctionParameter | undefined = undefined;
   let whereClauseExprs: Expr[] | undefined = undefined;
 
@@ -1490,6 +1494,60 @@ export function evaluateFunctionParameters({
     }
   }
 
+  // Using pass: find and process using() implicit parameters
+  // using can appear after forall. using(name : Type) parameters are implicit and compile-time only.
+  for (let i = 0; i < parameterExprs.length; i++) {
+    const paramExpr = parameterExprs[i]!;
+    if (
+      exprIsFunctionCall(paramExpr) &&
+      exprIsFunctionCallOf(paramExpr, BuiltinKeywords.using)
+    ) {
+      const implicitParamExprs = paramExpr.args;
+
+      for (let j = 0; j < implicitParamExprs.length; j++) {
+        const implicitParamExpr = implicitParamExprs[j]!;
+        const { parameter, env: nextEnv } = evaluateFunctionParameter({
+          expr: implicitParamExpr,
+          env,
+          context: {
+            ...context,
+          },
+          isParameterComptimeByDefault: true,
+        });
+
+        // Check for duplicate labels against all parameter kinds
+        const duplicateInForall = forallParameters.find(
+          (element) => element.label === parameter.label
+        );
+        if (duplicateInForall) {
+          throw formatErrorMessage({
+            token: implicitParamExpr.token,
+            errorMessage: `Duplicate label "${parameter.label}" in implicit parameter (already in forall)`,
+          });
+        }
+        const duplicateInImplicit = implicitParameters.find(
+          (element) => element.label === parameter.label
+        );
+        if (duplicateInImplicit) {
+          throw formatErrorMessage({
+            token: implicitParamExpr.token,
+            errorMessage: `Duplicate label "${parameter.label}" in implicit parameter`,
+          });
+        }
+
+        // Override the isImplicit flag to true
+        const implicitParameter: FunctionImplicitParameter = {
+          ...parameter,
+          isCompileTimeOnly: true as const,
+          isImplicit: true as const,
+        };
+
+        implicitParameters.push(implicitParameter);
+        env = nextEnv;
+      }
+    }
+  }
+
   // Second pass: pre-add all comptime parameters to the environment
   // This is necessary because where clauses may reference comptime parameters that appear
   // later in the parameter list. For example:
@@ -1499,10 +1557,11 @@ export function evaluateFunctionParameters({
   const preAddedComptimeParams = new Set<number>();
   for (let i = 0; i < parameterExprs.length; i++) {
     const paramExpr = parameterExprs[i]!;
-    // Skip forall and where
+    // Skip forall, using, and where
     if (
       exprIsFunctionCall(paramExpr) &&
       (exprIsFunctionCallOf(paramExpr, BuiltinKeywords.forall) ||
+        exprIsFunctionCallOf(paramExpr, BuiltinKeywords.using) ||
         exprIsFunctionCallOf(paramExpr, BuiltinKeywords.where) ||
         exprIsFunctionCallOf(paramExpr, "..."))
     ) {
@@ -1604,6 +1663,13 @@ export function evaluateFunctionParameters({
           errorMessage: `Expected type parameters to be the first argument, got ${i + 1}`,
         });
       }
+      continue;
+    }
+    // Skip using (already processed in using pass)
+    else if (
+      exprIsFunctionCall(parameterExpr) &&
+      exprIsFunctionCallOf(parameterExpr, BuiltinKeywords.using)
+    ) {
       continue;
     }
     // Skip where clause (already processed in third pass)
@@ -1726,6 +1792,7 @@ export function evaluateFunctionParameters({
         label: parameterName,
         type: parameterType,
         isOwningTheRcValue: false,
+        isImplicit: false,
       };
       variadicParameter = createdVariadicParameter;
 
@@ -1874,6 +1941,7 @@ export function evaluateFunctionParameters({
   return {
     parameters,
     forallParameters,
+    implicitParameters,
     variadicParameter,
     whereClauseExprs,
     env,
@@ -1928,6 +1996,7 @@ export function evaluateFunctionType({
   const {
     parameters,
     forallParameters,
+    implicitParameters,
     variadicParameter,
     whereClauseExprs,
     env: nextEnv,
@@ -2159,6 +2228,7 @@ ${typeToString(returnType)}`,
   const functionType = createFunctionType({
     parameters,
     forallParameters: forallParameters as FunctionForallParameter[],
+    implicitParameters: implicitParameters as FunctionImplicitParameter[],
     variadicParameter,
     whereClauseExprs,
     return_: {

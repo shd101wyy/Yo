@@ -631,12 +631,31 @@ export function tryToCallFunctionWithArguments({
     regularArgStartIndex = 1;
   }
 
+  // Split arguments: detect using(...) args for implicit parameters
+  let usingArgsExpr: FnCallExpr | undefined = undefined;
+  let adjustedArgExprs = argExprs.slice(regularArgStartIndex);
+
+  // Check if any argument is using(...) — it provides explicit values for implicit parameters
+  const usingArgIndex = adjustedArgExprs.findIndex(
+    (arg) =>
+      exprIsFunctionCall(arg) &&
+      exprIsFunctionCallOf(arg, BuiltinKeywords.using)
+  );
+  if (usingArgIndex !== -1) {
+    usingArgsExpr = adjustedArgExprs[usingArgIndex]! as FnCallExpr;
+    // Remove the using(...) arg from the regular args
+    adjustedArgExprs = [
+      ...adjustedArgExprs.slice(0, usingArgIndex),
+      ...adjustedArgExprs.slice(usingArgIndex + 1),
+    ];
+  }
+
   // Split arguments into regular and implicit
   // Regular parameters come first, implicit parameters come after
   const regularArgCount = functionType.parameters.length;
 
   // Check argument count BEFORE slicing - this ensures we catch too many/few args
-  const regularArgsToCheck = argExprs.slice(regularArgStartIndex);
+  const regularArgsToCheck = adjustedArgExprs;
   if (!functionType.variadicParameter) {
     if (regularArgsToCheck.length > regularArgCount) {
       // Check if the last function parameter is quote with ExprList
@@ -672,13 +691,8 @@ Got:   ${regularArgsToCheck.length} arguments`,
     }
   }
 
-  const regularArgExprs = argExprs.slice(
-    regularArgStartIndex,
-    regularArgStartIndex + regularArgCount
-  );
-  const variadicArgExprs = argExprs.slice(
-    regularArgStartIndex + regularArgCount
-  );
+  const regularArgExprs = adjustedArgExprs.slice(0, regularArgCount);
+  const variadicArgExprs = adjustedArgExprs.slice(regularArgCount);
 
   // Replace argExprs with just regular args for the rest of the function
   argExprs = regularArgExprs;
@@ -1186,9 +1200,155 @@ Got:   ${typeToString(typeValue.type)}`,
 
   const pathCollection: PathCollection = [];
 
+  // Resolve implicit parameters (using() params in function type)
+  const implicitArgValues: {
+    value: Value;
+    parameterType: Type;
+    argType: Type;
+  }[] = [];
+  if (functionType.implicitParameters.length > 0) {
+    for (let i = 0; i < functionType.implicitParameters.length; i++) {
+      const implicitParam = functionType.implicitParameters[i]!;
+      let resolved = false;
+
+      // First, check if there's an explicit using(...) arg at the call site
+      if (usingArgsExpr) {
+        const usingArgExpr = usingArgsExpr.args[i];
+        if (usingArgExpr) {
+          // Evaluate the explicit using arg
+          const evaluatedUsingArg = evaluateExpression({
+            expr: usingArgExpr,
+            env: callerEnv,
+            context: { ...context },
+          });
+          if (!evaluatedUsingArg.$) {
+            throw formatErrorMessage({
+              token: usingArgExpr.token,
+              errorMessage: `Failed to evaluate using() argument: ${exprToString(usingArgExpr)}`,
+            });
+          }
+          callerEnv = evaluatedUsingArg.$.env;
+          const argValue = evaluatedUsingArg.$.value;
+          const argType = evaluatedUsingArg.$.type;
+
+          if (!argValue) {
+            throw formatErrorMessage({
+              token: usingArgExpr.token,
+              errorMessage: `Expected compile-time value for using() argument, got runtime value: ${exprToString(usingArgExpr)}`,
+            });
+          }
+
+          // Check type compatibility
+          if (
+            !areTypesCompatible(
+              { type: implicitParam.type, env: calleeEnv },
+              { type: argType, env: callerEnv }
+            )
+          ) {
+            throw formatErrorMessage({
+              token: usingArgExpr.token,
+              errorMessage: `Incompatible type for implicit parameter "${implicitParam.label}":
+Expected: ${typeToString(implicitParam.type)}
+Got:      ${typeToString(argType)}`,
+            });
+          }
+
+          implicitArgValues.push({
+            value: argValue,
+            parameterType: implicitParam.type,
+            argType,
+          });
+
+          // Add implicit arg to calleeEnv
+          const { env: nextEnv } = addVariableToEnv({
+            env: calleeEnv,
+            variable: {
+              name: implicitParam.label,
+              type: implicitParam.type,
+              isCompileTimeOnly: true,
+              value: [argValue],
+              token: implicitParam.exprs.labelExpr?.token ?? PlaceholderToken,
+              initializedAtToken:
+                implicitParam.exprs.labelExpr?.token ?? PlaceholderToken,
+              consumedAtToken: undefined,
+              isOwningTheRcValue: false,
+            },
+          });
+          calleeEnv = nextEnv;
+          resolved = true;
+        }
+      }
+
+      // If not explicitly provided, search caller env for given variables
+      if (!resolved) {
+        const givenVariables = getVariablesFromEnvByFilter(
+          callerEnv,
+          (v) =>
+            v.isImplicit === true &&
+            v.isCompileTimeOnly === true &&
+            areTypesCompatible(
+              { type: implicitParam.type, env: calleeEnv },
+              { type: v.type, env: callerEnv }
+            )
+        );
+
+        if (givenVariables.length === 0) {
+          throw formatErrorMessage({
+            token: functionCalleeExpr?.token ?? expr?.token ?? PlaceholderToken,
+            errorMessage: `No "given" variable found for implicit parameter "${implicitParam.label}" of type ${typeToString(implicitParam.type)}.
+Please declare a given variable with a compatible type, e.g.:
+  given(${implicitParam.label}) := <value>;
+Or pass it explicitly:
+  ${functionValue?.funcName ?? "func"}(..., using(<value>))`,
+          });
+        }
+        if (givenVariables.length > 1) {
+          throw formatErrorMessage({
+            token: functionCalleeExpr?.token ?? expr?.token ?? PlaceholderToken,
+            errorMessage: `Ambiguous implicit parameter "${implicitParam.label}": found ${givenVariables.length} "given" variables with compatible type ${typeToString(implicitParam.type)}.
+Please use explicit using() to disambiguate.`,
+          });
+        }
+
+        const givenVar = givenVariables[0]!;
+        const givenValue = givenVar.value?.[0];
+        if (!givenValue) {
+          throw formatErrorMessage({
+            token: functionCalleeExpr?.token ?? expr?.token ?? PlaceholderToken,
+            errorMessage: `The "given" variable "${givenVar.name}" has no compile-time value.`,
+          });
+        }
+
+        implicitArgValues.push({
+          value: givenValue,
+          parameterType: implicitParam.type,
+          argType: givenVar.type,
+        });
+
+        // Add implicit arg to calleeEnv
+        const { env: nextEnv } = addVariableToEnv({
+          env: calleeEnv,
+          variable: {
+            name: implicitParam.label,
+            type: implicitParam.type,
+            isCompileTimeOnly: true,
+            value: [givenValue],
+            token: implicitParam.exprs.labelExpr?.token ?? PlaceholderToken,
+            initializedAtToken:
+              implicitParam.exprs.labelExpr?.token ?? PlaceholderToken,
+            consumedAtToken: undefined,
+            isOwningTheRcValue: false,
+          },
+        });
+        calleeEnv = nextEnv;
+      }
+    }
+  }
+
   const argValues_: ArgValues = {
     args: argValues,
     forallArgs: forallArgValues,
+    implicitArgs: implicitArgValues,
     variadicArgs,
   };
 

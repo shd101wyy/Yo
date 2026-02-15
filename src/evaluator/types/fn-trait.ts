@@ -66,6 +66,7 @@ export function evaluateFnTraitType({
   const {
     parameters,
     forallParameters,
+    // implicitParameters are not used in Fn trait types (closures can't have implicit params)
     variadicParameter,
     whereClauseExprs,
     env: envWithParams,

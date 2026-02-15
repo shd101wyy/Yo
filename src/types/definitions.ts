@@ -327,6 +327,11 @@ export interface FunctionParameter {
    */
   isOwningTheRcValue: boolean;
   /**
+   * Whether this parameter is an implicit parameter (from `using(...)`).
+   * Implicit parameters are resolved from `given` variables in scope at the call site.
+   */
+  isImplicit: boolean;
+  /**
    * The expression information of the parameter.
    */
   exprs: FunctionParameterExprs;
@@ -340,6 +345,11 @@ export interface FunctionParameter {
 
 export type FunctionForallParameter = FunctionParameter & {
   isCompileTimeOnly: true;
+};
+
+export type FunctionImplicitParameter = FunctionParameter & {
+  isCompileTimeOnly: true;
+  isImplicit: true;
 };
 
 export interface StructType extends Type {
@@ -713,6 +723,13 @@ export interface FunctionType extends Type {
    *   (forall(T: Type), x: T)-> T;
    */
   forallParameters: FunctionForallParameter[];
+
+  /**
+   * The implicit parameters, defined in using(...):
+   * eg:
+   *   (fn(x: i32, using(add_fn : (fn(a : i32, b : i32) -> i32))) -> i32)
+   */
+  implicitParameters: FunctionImplicitParameter[];
 
   /**
    * Variadic parameters are parameters that can take a variable number of arguments.

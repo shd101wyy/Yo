@@ -1,41 +1,28 @@
-open import "std/libc/stdio";
-open import "std/string";
-open import "std/libc/stdlib";
-{ temp_dir, path_join } :: import "../../tests/io/helper";
-file :: import "std/io/file";
-dir :: import "std/io/dir";
-iov_io :: import "std/io/iov";
-{ AT_FDCWD, O_RDWR, O_CREAT, O_TRUNC } :: import "std/io/constants";
+add_numbers :: (fn(
+  x : i32,
+  y : i32,
+  using(add_fn : (fn(a : i32, b : i32) -> i32))
+) -> i32)(
+  add_fn(x, y)
+);
 
 main :: (fn() -> unit) {
-  async {
-    tmp := temp_dir();
-    path_str := path_join(tmp, `yo_iov_pwritev_test.txt`);
-    path_c := path_str.to_cstr();
-    path := path_c.ptr().unwrap();
+  // `given` can work with either `:=` or `:`, not `::`.  
+  // All `given` variables are also `comptime` variables.  
+  // 1. `given` with `:=`
+  given(my_add) := (fn(x : i32, y : i32) -> i32)(
+    x + y 
+  );
 
-    flags := ((O_RDWR | O_CREAT) | O_TRUNC);
-    fd := await file.openat(AT_FDCWD, path, flags, i32(0o644));
-    printf("fd = %d\n", fd);
+  // 2. `given` with `:` binding
+  // (given(my_div) : (fn(x : i32, y : i32) -> i32)) = 
+  //   (x, y) -> (x / y) // anonymous function value
+  // ;
 
-    iov_bytes := (iov_io.iovec_size() * usize(2));
-    write_iov := *(u8)(malloc(iov_bytes).unwrap());
-    part1 := *(u8)("hello ");
-    part2 := *(u8)("world");
-    iov_io.iovec_set(write_iov, usize(0), part1, usize(6));
-    iov_io.iovec_set(write_iov, usize(1), part2, usize(5));
+  result1 := add_numbers(3, 4); // implicit call
+  result2 := add_numbers(5, 6, using(my_add)); // explicit call
 
-    wr := iov_io.writev(fd, write_iov, i32(2));
-    printf("writev result = %d\n", wr);
-
-    wr2 := iov_io.pwritev(fd, write_iov, i32(2), i64(0));
-    printf("pwritev result = %d\n", wr2);
-
-    close_ret := await file.close(fd);
-    rm := await dir.unlink(AT_FDCWD, path, i32(0));
-    free(.Some(*(void)(write_iov)));
-    printf("done\n");
-  };
+  assert(result1 == 7, "expected result1 == 7");
+  assert(result2 == 11, "expected result2 == 11");
 };
-
 export main;
