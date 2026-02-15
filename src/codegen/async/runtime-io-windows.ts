@@ -2644,10 +2644,27 @@ static int32_t __yo_sync_realpath(const char* path, char* resolved) {
   __yo_free(wpath);
   if (len == 0 || len >= MAX_PATH) return -__yo_win_last_error_to_errno();
 
-  DWORD attrs = GetFileAttributesW(wbuf);
-  if (attrs == INVALID_FILE_ATTRIBUTES) return -__yo_win_last_error_to_errno();
+  HANDLE handle = CreateFileW(wbuf, FILE_READ_ATTRIBUTES,
+                              FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                              NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL);
+  if (handle == INVALID_HANDLE_VALUE) return -__yo_win_last_error_to_errno();
 
-  int written = __yo_win_wide_to_utf8(wbuf, resolved, MAX_PATH);
+  DWORD final_len = GetFinalPathNameByHandleW(handle, wbuf, MAX_PATH, FILE_NAME_NORMALIZED | VOLUME_NAME_DOS);
+  CloseHandle(handle);
+  if (final_len == 0 || final_len >= MAX_PATH) return -__yo_win_last_error_to_errno();
+
+  wchar_t* normalized = wbuf;
+    if (wbuf[0] == L'\\\\' && wbuf[1] == L'\\\\' && wbuf[2] == L'?' && wbuf[3] == L'\\\\' &&
+      wbuf[4] == L'U' && wbuf[5] == L'N' && wbuf[6] == L'C' && wbuf[7] == L'\\\\') {
+    size_t tail_len = wcslen(wbuf + 8);
+    wbuf[0] = L'\\\\';
+    wbuf[1] = L'\\\\';
+    memmove(wbuf + 2, wbuf + 8, (tail_len + 1) * sizeof(wchar_t));
+  } else if (wbuf[0] == L'\\\\' && wbuf[1] == L'\\\\' && wbuf[2] == L'?' && wbuf[3] == L'\\\\') {
+    normalized = wbuf + 4;
+  }
+
+  int written = __yo_win_wide_to_utf8(normalized, resolved, MAX_PATH);
   return (written < 0) ? written : 0;
 }
 
