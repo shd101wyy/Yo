@@ -636,12 +636,26 @@ export function tryToCallFunctionWithArguments({
   let adjustedArgExprs = argExprs.slice(regularArgStartIndex);
 
   // Check if any argument is using(...) — it provides explicit values for implicit parameters
+  // Only one using() is allowed at the call site.
   const usingArgIndex = adjustedArgExprs.findIndex(
     (arg) =>
       exprIsFunctionCall(arg) &&
       exprIsFunctionCallOf(arg, BuiltinKeywords.using)
   );
   if (usingArgIndex !== -1) {
+    // Verify there's only one using() at the call site
+    const secondUsingIndex = adjustedArgExprs.findIndex(
+      (arg, idx) =>
+        idx > usingArgIndex &&
+        exprIsFunctionCall(arg) &&
+        exprIsFunctionCallOf(arg, BuiltinKeywords.using)
+    );
+    if (secondUsingIndex !== -1) {
+      throw formatErrorMessage({
+        token: adjustedArgExprs[secondUsingIndex]!.token,
+        errorMessage: `Only one "using(...)" is allowed per function call. Combine all implicit arguments into a single using(), e.g.: func(..., using(a, b))`,
+      });
+    }
     usingArgsExpr = adjustedArgExprs[usingArgIndex]! as FnCallExpr;
     // Remove the using(...) arg from the regular args
     adjustedArgExprs = [
@@ -1211,10 +1225,32 @@ Got:   ${typeToString(typeValue.type)}`,
       const implicitParam = functionType.implicitParameters[i]!;
       let resolved = false;
 
+      // Re-evaluate the implicit parameter type in the current calleeEnv.
+      // This is necessary because implicit parameter types may reference SomeTypes
+      // (e.g., forall type variables like T) that have been resolved during regular
+      // argument processing. Without this, the type would still contain unresolved
+      // SomeTypes and type compatibility checks would fail.
+      const { parameterType: resolvedImplicitType, calleeEnv: nextCalleeEnv_ } =
+        evaluateFunctionParameterTypeAgain({
+          parameter: implicitParam,
+          calleeEnv,
+          context: {
+            ...context,
+            isEvaluatingFunctionType: true,
+          },
+          functionType,
+        });
+      calleeEnv = nextCalleeEnv_;
+
       // First, check if there's an explicit using(...) arg at the call site
       if (usingArgsExpr) {
         const usingArgExpr = usingArgsExpr.args[i];
-        if (usingArgExpr) {
+        // using(undefined) means "skip explicit, use given variable lookup"
+        const isUsingUndefined =
+          usingArgExpr &&
+          exprIsAtom(usingArgExpr) &&
+          exprIsAtomOf(usingArgExpr, BuiltinKeywords.undefined);
+        if (usingArgExpr && !isUsingUndefined) {
           // Evaluate the explicit using arg
           const evaluatedUsingArg = evaluateExpression({
             expr: usingArgExpr,
@@ -1241,21 +1277,21 @@ Got:   ${typeToString(typeValue.type)}`,
           // Check type compatibility
           if (
             !areTypesCompatible(
-              { type: implicitParam.type, env: calleeEnv },
+              { type: resolvedImplicitType, env: calleeEnv },
               { type: argType, env: callerEnv }
             )
           ) {
             throw formatErrorMessage({
               token: usingArgExpr.token,
               errorMessage: `Incompatible type for implicit parameter "${implicitParam.label}":
-Expected: ${typeToString(implicitParam.type)}
+Expected: ${typeToString(resolvedImplicitType)}
 Got:      ${typeToString(argType)}`,
             });
           }
 
           implicitArgValues.push({
             value: argValue,
-            parameterType: implicitParam.type,
+            parameterType: resolvedImplicitType,
             argType,
           });
 
@@ -1264,7 +1300,7 @@ Got:      ${typeToString(argType)}`,
             env: calleeEnv,
             variable: {
               name: implicitParam.label,
-              type: implicitParam.type,
+              type: resolvedImplicitType,
               isCompileTimeOnly: true,
               value: [argValue],
               token: implicitParam.exprs.labelExpr?.token ?? PlaceholderToken,
@@ -1287,7 +1323,7 @@ Got:      ${typeToString(argType)}`,
             v.isImplicit === true &&
             v.isCompileTimeOnly === true &&
             areTypesCompatible(
-              { type: implicitParam.type, env: calleeEnv },
+              { type: resolvedImplicitType, env: calleeEnv },
               { type: v.type, env: callerEnv }
             )
         );
@@ -1295,7 +1331,7 @@ Got:      ${typeToString(argType)}`,
         if (givenVariables.length === 0) {
           throw formatErrorMessage({
             token: functionCalleeExpr?.token ?? expr?.token ?? PlaceholderToken,
-            errorMessage: `No "given" variable found for implicit parameter "${implicitParam.label}" of type ${typeToString(implicitParam.type)}.
+            errorMessage: `No "given" variable found for implicit parameter "${implicitParam.label}" of type ${typeToString(resolvedImplicitType)}.
 Please declare a given variable with a compatible type, e.g.:
   given(${implicitParam.label}) := <value>;
 Or pass it explicitly:
@@ -1305,7 +1341,7 @@ Or pass it explicitly:
         if (givenVariables.length > 1) {
           throw formatErrorMessage({
             token: functionCalleeExpr?.token ?? expr?.token ?? PlaceholderToken,
-            errorMessage: `Ambiguous implicit parameter "${implicitParam.label}": found ${givenVariables.length} "given" variables with compatible type ${typeToString(implicitParam.type)}.
+            errorMessage: `Ambiguous implicit parameter "${implicitParam.label}": found ${givenVariables.length} "given" variables with compatible type ${typeToString(resolvedImplicitType)}.
 Please use explicit using() to disambiguate.`,
           });
         }
@@ -1321,7 +1357,7 @@ Please use explicit using() to disambiguate.`,
 
         implicitArgValues.push({
           value: givenValue,
-          parameterType: implicitParam.type,
+          parameterType: resolvedImplicitType,
           argType: givenVar.type,
         });
 
@@ -1330,7 +1366,7 @@ Please use explicit using() to disambiguate.`,
           env: calleeEnv,
           variable: {
             name: implicitParam.label,
-            type: implicitParam.type,
+            type: resolvedImplicitType,
             isCompileTimeOnly: true,
             value: [givenValue],
             token: implicitParam.exprs.labelExpr?.token ?? PlaceholderToken,

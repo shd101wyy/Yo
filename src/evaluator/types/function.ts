@@ -1496,12 +1496,21 @@ export function evaluateFunctionParameters({
 
   // Using pass: find and process using() implicit parameters
   // using can appear after forall. using(name : Type) parameters are implicit and compile-time only.
+  // Only one using() clause is allowed per function signature.
+  let usingClauseCount = 0;
   for (let i = 0; i < parameterExprs.length; i++) {
     const paramExpr = parameterExprs[i]!;
     if (
       exprIsFunctionCall(paramExpr) &&
       exprIsFunctionCallOf(paramExpr, BuiltinKeywords.using)
     ) {
+      usingClauseCount++;
+      if (usingClauseCount > 1) {
+        throw formatErrorMessage({
+          token: paramExpr.token,
+          errorMessage: `Only one "using(...)" clause is allowed per function signature. Combine all implicit parameters into a single using(), e.g.: using(a : TypeA, b : TypeB)`,
+        });
+      }
       const implicitParamExprs = paramExpr.args;
 
       for (let j = 0; j < implicitParamExprs.length; j++) {

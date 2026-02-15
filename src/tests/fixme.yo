@@ -1,28 +1,14 @@
-add_numbers :: (fn(
-  x : i32,
-  y : i32,
-  using(add_fn : (fn(a : i32, b : i32) -> i32))
-) -> i32)(
-  add_fn(x, y)
-);
-
 main :: (fn() -> unit) {
-  // `given` can work with either `:=` or `:`, not `::`.  
-  // All `given` variables are also `comptime` variables.  
-  // 1. `given` with `:=`
-  given(my_add) := (fn(x : i32, y : i32) -> i32)(
-    x + y 
+  apply :: (fn(
+    forall(T : Type),
+    x : T,
+    using(op : (fn(a : T) -> T))
+  ) -> T)(
+    op(x)
   );
 
-  // 2. `given` with `:` binding
-  // (given(my_div) : (fn(x : i32, y : i32) -> i32)) = 
-  //   (x, y) -> (x / y) // anonymous function value
-  // ;
-
-  result1 := add_numbers(3, 4); // implicit call
-  result2 := add_numbers(5, 6, using(my_add)); // explicit call
-
-  assert(result1 == 7, "expected result1 == 7");
-  assert(result2 == 11, "expected result2 == 11");
+  given(inc) := (fn(a : i32) -> i32)(a + 1);
+  result := apply(41);
+  assert(result == 42, "forall + using failed");
 };
 export main;
