@@ -1526,6 +1526,11 @@ function createSpecializedFunctionInline({
     compileTimeArgValues.push(...argValues.forallArgs.map((v) => v.value));
   }
 
+  // Add implicit arguments (always compile-time)
+  if (argValues.implicitArgs) {
+    compileTimeArgValues.push(...argValues.implicitArgs.map((v) => v.value));
+  }
+
   // Add regular compile-time parameters
   functionType.parameters.forEach((param, index) => {
     const arg = argValues.args[index]!;
@@ -1724,6 +1729,15 @@ function createSpecializedFunctionInline({
       }
     }
   });
+
+  // Include implicit parameter values in the compile-time signature
+  if (argValues.implicitArgs) {
+    argValues.implicitArgs.forEach((arg) => {
+      compileTimeSignatureParts.push(
+        sanitizeForCIdentifier(valueToSignatureString(arg.value))
+      );
+    });
+  }
 
   // Include runtime parameter types if they contain anonymous types
   // This ensures different concrete types get different specializations
