@@ -1,0 +1,564 @@
+# Algebraic Effects Implementation Plan for Yo
+
+## Overview
+
+This plan describes how to add **algebraic effects** to the Yo language in two phases:
+
+1. **Phase 1: Implicit Parameters** — `using` and `given` keywords for contextual parameter passing
+2. **Phase 2: Effect Handlers** — `ctl` keyword for effectful operations with `resume` (one-shot delimited continuations)
+
+Both phases build on Yo's existing async/await state machine infrastructure.
+
+---
+
+## Design Decisions (Resolved)
+
+| Question                          | Decision          | Rationale                                                                                 |
+| --------------------------------- | ----------------- | ----------------------------------------------------------------------------------------- |
+| `given` vs. auto-resolve from env | **Use `given`**   | Explicit marking avoids ambiguity, better error messages, follows Scala 3 precedent       |
+| State machine for `ctl`?          | **Yes**           | Same architecture as async/await — effect invocation = suspension point                   |
+| Transform callers too?            | **Yes**           | All functions in the "effect scope" (between handler and effect site) must be transformed |
+| One-shot vs. multi-shot           | **One-shot**      | Fits RC model, simpler implementation, covers 99% of use cases, `resume` is linear        |
+| `resume` dispatch                 | **Impl (static)** | Handler is lexically scoped, compiler knows types, zero overhead                          |
+| `resume` semantics                | **Linear**        | Must be called exactly once or explicitly dropped; compiler enforces this                 |
+| `do`/`perform` keyword            | **No**            | Type system already distinguishes `ctl` from `fn`; no ambiguity; matches Koka's design    |
+
+---
+
+## Phase 1: Implicit Parameters (`using` / `given`)
+
+### 1.1 Syntax
+
+```yo
+// Declaring a function with implicit parameters
+add_numbers :: (fn(
+  x : i32,
+  y : i32,
+  using(add_fn : (fn(a : i32, b : i32) -> i32))
+) -> i32)(
+  add_fn(x, y)
+);
+
+// Providing an implicit value with `given`
+given(my_add) : (fn(x : i32, y : i32) -> i32)(
+  x + y
+);
+
+// Calling — implicit parameter resolved automatically
+result := add_numbers(3, 4);  // resolves add_fn = my_add
+```
+
+### 1.2 Semantics
+
+- `using(name : Type)` in a function signature marks a parameter as **implicit**.
+- At call sites, the caller can omit implicit arguments. The compiler resolves them by searching the environment for a `given` binding whose type matches.
+- The caller can also provide implicit arguments explicitly: `add_numbers(3, 4, my_custom_add)`.
+- `given` bindings are lexically scoped — inner scopes can shadow outer `given` values.
+- Resolution is by **structural type matching** (the function signature must match), not by name.
+- If no matching `given` is found, it's a **compile-time error** with a clear message: `"No given value of type (fn(i32, i32) -> i32) found in scope"`.
+- If multiple matching `given` values exist, the **innermost** (most recent) one wins (lexical scoping).
+
+### 1.3 Implementation Steps
+
+#### Step 1: Lexer — Add `using` and `given` tokens
+
+**File:** `src/lexer.ts`
+
+- Add `using` and `given` as keywords to the keyword table.
+- Token types: `TokenType.Using`, `TokenType.Given`.
+
+#### Step 2: Parser — Parse `using` parameters and `given` declarations
+
+**File:** `src/parser.ts`
+
+- **Function parameters:** After parsing regular parameters, check for `using(name : Type)` syntax. Store these in a new `usingParams` field on the function expression AST node.
+- **`given` declarations:** Parse `given(name) : Type = expr;` as a new statement type `GivenDeclaration`. The `given` binding enters the current scope.
+
+**AST additions:**
+
+```typescript
+// In function type expression
+interface FnTypeExpr {
+  // ... existing fields ...
+  usingParams?: Array<{ name: string; type: TypeExpr }>;
+}
+
+// New statement
+interface GivenDeclaration {
+  kind: "GivenDeclaration";
+  name: string;
+  type: TypeExpr;
+  value: Expr;
+}
+```
+
+#### Step 3: Evaluator — Resolve implicit parameters
+
+**File:** `src/evaluator.ts` (or relevant evaluator files)
+
+- **Environment frame extension:** Each env frame tracks `given` bindings in a `givenBindings: Map<string, Value>` alongside normal variable bindings.
+- **Function call resolution:** When calling a function with `using` parameters:
+  1. Count the explicit arguments provided.
+  2. For each missing `using` parameter, search the environment frames (innermost first) for a `given` binding whose type is compatible with the `using` parameter's type.
+  3. If found, inject it as an argument. If not found, report a compile error.
+- **Type checking:** The `using` parameter's type must match the `given` binding's type via `areTypesCompatible`.
+
+#### Step 4: C Codegen — Pass implicit parameters as regular parameters
+
+**File:** `src/codegen/` (relevant codegen files)
+
+- In the generated C code, `using` parameters become regular C function parameters — no special treatment needed at the C level.
+- At call sites, the resolved `given` values are passed as explicit arguments in the generated C code.
+
+#### Step 5: Tests
+
+- Test basic `using` + `given` resolution.
+- Test explicit override of `using` parameters.
+- Test lexical scoping / shadowing of `given`.
+- Test error case: no matching `given` in scope.
+- Test error case: `given` type mismatch.
+- Test with generic types: `using(eq : (fn(a : T, b : T) -> bool))`.
+- Test interaction with closures (captured `given` bindings).
+
+---
+
+## Phase 2: Effect Handlers (`ctl` / `resume`)
+
+### 2.1 Syntax
+
+```yo
+// Define an effect operation
+Raise :: (ctl(forall(T : Type), msg : String) -> T);
+
+// Use an effect in a function (effect becomes an implicit parameter)
+safe_divide :: (fn(x : i32, y : i32, using(raise : Raise)) -> i32)(
+  cond(
+    (y == 0) => raise(`div-by-zero`),
+    true => (x / y)
+  )
+);
+
+// Handle the effect — without resume (discarding continuation)
+raise_const :: (fn() -> i32) {
+  given(raise) : Raise = (fn(msg : String) -> i32)(42);
+  8 + safe_divide(1, 0) + 10
+};
+// Returns 42 — continuation is discarded
+
+// Handle the effect — with resume (invoking continuation)
+raise_resume :: (fn() -> i32) {
+  given(raise) : Raise = (fn(msg : String, resume : (fn(i32) -> i32)) -> i32)(
+    resume(42)
+  );
+  8 + safe_divide(1, 0) + 10
+};
+// Returns 60 — resume(42) continues after the raise call site
+```
+
+### 2.2 Semantics
+
+- `ctl` defines an **effect operation type** — a function that can suspend computation and transfer control to a handler.
+- When an effect operation is invoked, execution is **suspended** at that point. A continuation (the rest of the computation up to the handler) is captured.
+- The handler receives:
+  - The effect's arguments (e.g., `msg`).
+  - A `resume` function representing the captured continuation.
+- The handler can:
+  - **Discard** the continuation (don't call `resume`) — acts like an exception/early return.
+  - **Resume** the continuation once (call `resume(value)`) — continues execution with `value` as the result of the effect call.
+- `resume` is **one-shot** (linear) — it must be called at most once. The compiler enforces this.
+- Effect operations compose with `using` — the effect is an implicit parameter resolved via `given`.
+
+### 2.3 Effect Coloring / Propagation
+
+Functions are "colored" by the effects they use:
+
+```yo
+// This function uses the Raise effect — it propagates via `using`
+safe_divide :: (fn(x : i32, y : i32, using(raise : Raise)) -> i32)(...);
+
+// Any function calling safe_divide must either:
+// 1. Handle the effect (provide `given(raise)`)
+// 2. Propagate it (add `using(raise : Raise)` to its own signature)
+
+// Option 1: Handle
+handler :: (fn() -> i32) {
+  given(raise) : Raise = ...;
+  safe_divide(10, 0)
+};
+
+// Option 2: Propagate
+wrapper :: (fn(x : i32, y : i32, using(raise : Raise)) -> i32)(
+  safe_divide(x, y)
+);
+```
+
+### 2.3.1 Signature-Based Detection: What Needs Transformation?
+
+The `using` parameter with a `ctl` type is the **sole marker** for whether a function may suspend due to an effect. The rule is:
+
+| Signature                                           | Role                                   | Needs state machine?          | Callers need transformation?            |
+| --------------------------------------------------- | -------------------------------------- | ----------------------------- | --------------------------------------- |
+| `fn(..., using(raise : Raise)) -> T`                | **Propagates** the effect              | Yes (within a handler scope)  | Only if they also propagate via `using` |
+| `fn() -> T` (handles effect internally via `given`) | **Handles** the effect                 | Internally yes, externally no | **No** — callers see a plain function   |
+| `fn(using(f : (fn() -> i32))) -> T`                 | Implicit param (plain `fn`, not `ctl`) | No                            | No                                      |
+
+**Key insight:** The handler is the boundary. The state machine transformation is scoped to the region **between** the `given` handler site and the `ctl` invocation site. Nothing outside the handler is affected.
+
+```yo
+raise_const :: (fn() -> i32) {     // ← plain fn signature, callers unaffected
+  given(raise) : Raise = ...;      // ← handler boundary (START)
+  8 + safe_divide(1, 0) + 10       // ← state machine transformation here
+};                                  // ← handler boundary (END)
+
+// Callers of raise_const see (fn() -> i32) — a normal function.
+// No transformation needed at the call site:
+result := raise_const();  // just a regular function call
+```
+
+**Distinguishing `fn` vs `ctl` in `using`:**
+
+```yo
+// This is Phase 1 ONLY — implicit parameter passing, no effects:
+X :: (fn(using(f : (fn() -> i32))) -> i32)(f() + 1);
+
+// This is Phase 2 — effectful, ctl type triggers state machine:
+Y :: (fn(using(raise : Raise)) -> i32)(raise("error"));
+// where Raise :: (ctl(forall(T : Type), msg : String) -> T)
+```
+
+The `ctl` keyword in the type is what distinguishes effectful `using` from plain implicit parameters.
+
+### 2.3.2 No `do`/`perform` Keyword for Effect Invocation
+
+Effect operations are invoked like regular function calls — no special keyword:
+
+```yo
+// Just call the effect operation directly:
+safe_divide :: (fn(x : i32, y : i32, using(raise : Raise)) -> i32)(
+  cond(
+    (y == 0) => raise(`div-by-zero`),   // ← direct call, no do/perform
+    true => (x / y)
+  )
+);
+```
+
+**Rationale:**
+
+- The type system already distinguishes `ctl` from `fn` — no ambiguity for the compiler.
+- The `using(raise : Raise)` in the signature already tells the reader this function uses effects.
+- Matches Koka's proven design (no keyword needed).
+- Reduces syntactic noise at every effect call site.
+- Effects are a synchronous control flow mechanism, unlike `await` which marks an async scheduling point.
+
+### 2.4 State Machine Transformation
+
+The effect system reuses Yo's async/await state machine architecture:
+
+#### Transformation Overview
+
+1. **Effect site** (calling `raise(...)`) = suspension point (like `await`).
+2. **Handler scope** = event loop (like `async { ... }`).
+3. **`resume`** = continuation callback (like waking a future).
+
+#### What Gets Transformed
+
+Every function in the call chain between the handler and the effect site must become a state machine:
+
+```
+handler scope (given(raise) : Raise = ...)
+  └─ fn_a(...)                    ← state machine
+       └─ fn_b(...)               ← state machine
+            └─ raise(msg)         ← suspension point (effect invocation)
+```
+
+#### State Machine Struct
+
+Similar to async state machines:
+
+```c
+typedef struct {
+  int state;                     // Current state (0..N, -1 = completed)
+  // Captured variables that cross effect suspension points
+  int32_t local_x;
+  int32_t local_y;
+  // Result storage
+  int32_t result;
+  // Continuation info
+  void* handler_ctx;             // Pointer to handler's context
+  void (*on_resume)(void*, void*); // Resume callback
+} safe_divide_effect_sm_t;
+```
+
+#### Resume Function
+
+```c
+int32_t safe_divide_resume(safe_divide_effect_sm_t* sm, int32_t resume_value) {
+  switch (sm->state) {
+    case 0:
+      // Initial state — evaluate up to effect call
+      if (sm->local_y == 0) {
+        sm->state = 1;
+        // Suspend: call handler with (msg, resume_fn)
+        return handler_invoke(sm->handler_ctx, "div-by-zero", sm);
+      }
+      sm->result = sm->local_x / sm->local_y;
+      sm->state = -1;
+      return sm->result;
+
+    case 1:
+      // Resumed after raise — resume_value is the substitute result
+      sm->result = resume_value;
+      sm->state = -1;
+      return sm->result;
+  }
+}
+```
+
+### 2.5 Optimization: Static Effect Resolution
+
+When the handler and effect site are in the same compilation unit (which is common), the compiler can **inline** the effect handling:
+
+- **No-resume handlers** (like exceptions): The state machine is unnecessary. The handler can directly return the value. Compile to a simple jump/return.
+- **Always-resume handlers**: The state machine can be optimized to a direct function call where the handler wraps/transforms the result inline.
+- **Known handler at compile time**: Monomorphize the entire effect chain, eliminating the `resume` closure overhead.
+
+### 2.6 Implementation Steps
+
+#### Step 1: Effect Type — `ctl` keyword
+
+**Files:** `src/lexer.ts`, `src/parser.ts`, `src/evaluator.ts`
+
+- Add `ctl` as a keyword.
+- Parse `ctl(params...) -> ReturnType` as a new type form: `EffectOperationType`.
+- In the evaluator, `ctl` types are similar to `fn` types but marked as effectful.
+- An `EffectOperationType` carries:
+  - Parameter types (including `forall` type parameters).
+  - Return type.
+  - A flag indicating this is an effect operation.
+
+#### Step 2: Effect Analysis Pass
+
+**New file:** `src/codegen/analysis/effect-analysis.ts`
+
+Analogous to `await-point-analysis.ts`:
+
+- Walk the AST of functions that use effects (have `using` parameters of `ctl` type).
+- Identify **effect invocation points** (calls to `ctl`-typed parameters).
+- Track local variables that are live across effect invocation points.
+- Determine which functions in the call chain need state machine transformation.
+
+Key data structure:
+
+```typescript
+interface EffectPoint {
+  effectName: string;
+  effectType: EffectOperationType;
+  resultVar: string; // Variable receiving the resume value
+  capturedVars: CapturedVar[];
+  stateIndex: number;
+}
+
+interface EffectAnalysis {
+  effectPoints: EffectPoint[];
+  capturedVars: CapturedVar[];
+  needsStateMachine: boolean;
+}
+```
+
+#### Step 3: Effect State Machine Generation
+
+**New file:** `src/codegen/functions/effect-statemachine.ts`
+
+Analogous to `async-statemachine.ts`:
+
+- For each function that needs transformation (identified by effect analysis):
+  1. Generate a state machine struct (like async state machines).
+  2. Generate a resume function with a `switch` statement over states.
+  3. At each effect invocation point:
+     - Save live variables to the state machine struct.
+     - Set the next state.
+     - Call the handler, passing the effect arguments and the resume function pointer.
+  4. At resume entry points:
+     - Restore live variables from the state machine struct.
+     - Continue execution with the resume value.
+
+#### Step 4: Handler Codegen
+
+**Files:** `src/codegen/` (relevant files)
+
+When a `given` binding provides a handler for a `ctl` type:
+
+- **No-resume handler:** Generate a direct function that returns the handler's result. No state machine needed for the calling function. Optimize to early return / longjmp semantics.
+- **Resume handler:** Generate a closure that captures:
+  - The state machine pointer of the suspended computation.
+  - The resume entry function pointer.
+  - When `resume(value)` is called, it invokes `sm_resume(sm, value)`.
+
+The `resume` function type:
+
+```typescript
+// resume : (fn(T) -> R)
+// where T is the return type of the ctl operation
+// and R is the return type of the entire handled computation
+```
+
+#### Step 5: Reference Counting for Continuations
+
+- One-shot continuations own the state machine. Calling `resume` consumes ownership.
+- If `resume` is not called, the state machine is dropped (all captured variables are dropped).
+- The compiler ensures `resume` is used linearly:
+  - Using `resume` twice is a compile error.
+  - Not using `resume` is allowed (continuation is dropped, like an exception).
+  - The `resume` value has `own()` semantics — it is consumed on use.
+
+#### Step 6: Integration with `using` / `given`
+
+Effects compose naturally with Phase 1's implicit parameters:
+
+- `using(raise : Raise)` makes the effect an implicit parameter.
+- `given(raise) : Raise = handler_fn` provides the handler.
+- The evaluator resolves `ctl`-typed `using` parameters through the same `given` resolution mechanism.
+- The codegen detects when a `given` binding is a `ctl` handler and generates the state machine + handler code.
+
+#### Step 7: Tests
+
+- **Basic effect + discard:** `Raise` effect that returns a constant (no `resume`).
+- **Basic effect + resume:** `Raise` effect that resumes with a value.
+- **Nested effects:** Multiple effect operations in the same function.
+- **Effect propagation:** Effect passing through multiple function calls.
+- **Polymorphic effects:** `ctl(forall(T : Type), ...) -> T`.
+- **Multiple effect types:** Function using two different effects.
+- **RC correctness:** Ensure no leaks when continuations are discarded.
+- **RC correctness:** Ensure no leaks when continuations are resumed.
+- **One-shot enforcement:** Compile error when `resume` is used twice.
+- **Interaction with async:** Using effects inside async functions (if supported).
+- **Optimization:** Verify no-resume handlers compile to direct returns.
+
+---
+
+## Phase 3: Advanced Features (Future Work)
+
+### 3.1 Named Effect Instances
+
+```yo
+// Multiple instances of the same effect type
+Logger :: (ctl(msg : String) -> unit);
+
+program :: (fn(using(info : Logger), using(error : Logger)) -> unit) {
+  info("starting");
+  error("something went wrong");
+};
+```
+
+### 3.2 Effect Polymorphism
+
+```yo
+// Functions polymorphic over effects
+map :: (fn(forall(A : Type, B : Type, E : Effect),
+           list : List(A),
+           f : (fn(A, using(E)) -> B)
+       ) -> List(B));
+```
+
+### 3.3 Effect Inference
+
+Automatically infer `using` effect parameters from function bodies, reducing annotation burden:
+
+```yo
+// Compiler infers: using(raise : Raise)
+safe_divide :: (fn(x : i32, y : i32) -> i32)(
+  cond(
+    (y == 0) => raise(`div-by-zero`),
+    true => (x / y)
+  )
+);
+```
+
+### 3.4 Standard Effects Library
+
+```yo
+// std/effects/
+Raise   :: (ctl(forall(T : Type), msg : String) -> T);
+State   :: (ctl(forall(S : Type), op : StateOp(S)) -> S);
+Reader  :: (ctl(forall(R : Type)) -> R);
+Writer  :: (ctl(forall(W : Type), value : W) -> unit);
+Choose  :: (ctl(forall(T : Type), options : Array(T)) -> T);
+Yield   :: (ctl(forall(T : Type), value : T) -> unit);  // generators
+```
+
+---
+
+## Implementation Order
+
+```
+Phase 1 — Implicit Parameters
+  ├── Step 1: Lexer tokens (using, given)
+  ├── Step 2: Parser (using params, given declarations)
+  ├── Step 3: Evaluator (given resolution)
+  ├── Step 4: C codegen (pass-through)
+  └── Step 5: Tests
+
+Phase 2 — Effect Handlers
+  ├── Step 1: ctl keyword + effect type
+  ├── Step 2: Effect analysis pass
+  ├── Step 3: State machine generation
+  ├── Step 4: Handler codegen (no-resume + resume)
+  ├── Step 5: RC for continuations
+  ├── Step 6: Integration with using/given
+  └── Step 7: Tests
+
+Phase 3 — Advanced (Future)
+  ├── Named effect instances
+  ├── Effect polymorphism
+  ├── Effect inference
+  └── Standard effects library
+```
+
+---
+
+## Relationship to Existing Async/Await
+
+Effects and async/await are related but independent:
+
+| Aspect           | Async/Await                   | Algebraic Effects            |
+| ---------------- | ----------------------------- | ---------------------------- |
+| Suspension point | `await expr`                  | `effect_op(args)`            |
+| Who resumes      | Event loop (IO completion)    | Handler (calling `resume`)   |
+| State machine    | Per async function            | Per effectful function chain |
+| Continuation     | Implicit (event loop manages) | Explicit (`resume` function) |
+| Thread model     | Single-threaded event loop    | Synchronous (same thread)    |
+| Use cases        | IO concurrency                | Control flow abstraction     |
+
+**Long-term unification:** Algebraic effects are strictly more general than async/await. In theory, async/await can be implemented _as_ an effect:
+
+```yo
+Async :: (ctl(forall(T : Type), future : Future(T)) -> T);
+// await = invoking the Async effect
+// event loop = handler for Async effect
+```
+
+However, this unification is a Phase 3+ goal. For now, async/await and effects coexist independently, sharing the state machine infrastructure.
+
+---
+
+## Risk Assessment
+
+| Risk                                | Severity | Mitigation                                                                     |
+| ----------------------------------- | -------- | ------------------------------------------------------------------------------ |
+| State machine complexity            | High     | Reuse async/await infrastructure, start with no-resume case                    |
+| RC leaks in discarded continuations | Medium   | Comprehensive drop generation, test with `--sanitize address`                  |
+| Compilation time increase           | Medium   | Only transform functions that actually use effects                             |
+| Effect coloring ergonomics          | Low      | Plan effect inference for Phase 3                                              |
+| Interaction with existing features  | Medium   | Test combinations: effects + closures, effects + generics, effects + ownership |
+
+---
+
+## Success Criteria
+
+1. `using` + `given` works for plain function types (Phase 1 complete).
+2. `ctl` effects with no-resume handlers work (exception-like usage).
+3. `ctl` effects with resume handlers work (continuation-like usage).
+4. No memory leaks detected by AddressSanitizer in all effect scenarios.
+5. Nested effects and effect propagation through call chains work correctly.
+6. One-shot enforcement: compile error on double `resume`.
+7. Performance: no overhead for functions that don't use effects.
