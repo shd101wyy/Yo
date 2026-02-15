@@ -9,6 +9,18 @@ This plan describes how to add **algebraic effects** to the Yo language in two p
 
 Both phases build on Yo's existing async/await state machine infrastructure.
 
+## Current Status (2026-02-15)
+
+- ✅ **Phase 1 (using/given)** is implemented and passing tests.
+- ✅ Supports:
+  - implicit contextual parameter declaration via `using(...)`
+  - contextual values via `given(name) := ...` and `(given(name) : Type) = ...`
+  - explicit contextual args via `using(...)` at call site
+  - explicit skip/fallback via `using(undefined)`
+  - generic `forall + using` inference in calls like `apply(41)`
+- ✅ Enforces exactly one `using(...)` clause in function signature and one `using(...)` in call arguments.
+- ⏳ **Phase 2 (`ctl` / handlers / resume)** not started yet.
+
 ---
 
 ## Design Decisions (Resolved)
@@ -39,86 +51,134 @@ add_numbers :: (fn(
   add_fn(x, y)
 );
 
-// Providing an implicit value with `given`
-given(my_add) : (fn(x : i32, y : i32) -> i32)(
+// Providing an implicit value with `given` (:= form)
+given(my_add) := (fn(x : i32, y : i32) -> i32)(
   x + y
 );
 
+// Alternative `given` form with `:` binding
+(given(my_add2) : (fn(x : i32, y : i32) -> i32)) =
+  (x, y) -> (x + y)
+;
+
 // Calling — implicit parameter resolved automatically
 result := add_numbers(3, 4);  // resolves add_fn = my_add
+
+// Calling — explicit contextual argument
+result2 := add_numbers(5, 6, using(my_add));
+
+// Calling — explicitly skip provided contextual arg and fallback to `given` lookup
+result3 := add_numbers(7, 8, using(undefined));
 ```
 
 ### 1.2 Semantics
 
 - `using(name : Type)` in a function signature marks a parameter as **implicit**.
 - At call sites, the caller can omit implicit arguments. The compiler resolves them by searching the environment for a `given` binding whose type matches.
-- The caller can also provide implicit arguments explicitly: `add_numbers(3, 4, my_custom_add)`.
-- `given` bindings are lexically scoped — inner scopes can shadow outer `given` values.
+- The caller can also provide implicit arguments explicitly via `using(...)`: `add_numbers(3, 4, using(my_custom_add))`.
+- `using(undefined)` at call site means: skip explicit value for this contextual slot and fallback to `given` lookup.
+- `given` bindings are lexically scoped, but current resolution behavior is:
+  - exactly one compatible `given` required,
+  - zero matches => compile-time error,
+  - multiple matches => compile-time ambiguity error (must disambiguate with explicit `using(...)`).
 - Resolution is by **structural type matching** (the function signature must match), not by name.
 - If no matching `given` is found, it's a **compile-time error** with a clear message: `"No given value of type (fn(i32, i32) -> i32) found in scope"`.
-- If multiple matching `given` values exist, the **innermost** (most recent) one wins (lexical scoping).
+- If multiple matching `given` values exist, it's a compile-time ambiguity error.
+- Function signatures allow only one `using(...)` clause; calls allow only one `using(...)` argument expression.
 
 ### 1.3 Implementation Steps
 
-#### Step 1: Lexer — Add `using` and `given` tokens
+#### ✅ Step 1: Keywords and type model
 
-**File:** `src/lexer.ts`
+**Implemented in:**
 
-- Add `using` and `given` as keywords to the keyword table.
-- Token types: `TokenType.Using`, `TokenType.Given`.
+- `src/expr.ts`
+- `src/types/definitions.ts`
+- `src/types/creators.ts`
+- `src/env.ts`
 
-#### Step 2: Parser — Parse `using` parameters and `given` declarations
+**Completed work:**
 
-**File:** `src/parser.ts`
+- Added `using` and `given` built-in keywords.
+- Extended function parameter model with:
+  - `FunctionParameter.isImplicit`
+  - `FunctionImplicitParameter`
+  - `FunctionType.implicitParameters`
+- Extended env variable model with `Variable.isImplicit`.
 
-- **Function parameters:** After parsing regular parameters, check for `using(name : Type)` syntax. Store these in a new `usingParams` field on the function expression AST node.
-- **`given` declarations:** Parse `given(name) : Type = expr;` as a new statement type `GivenDeclaration`. The `given` binding enters the current scope.
+#### ✅ Step 2: Function type evaluation for `using(...)`
 
-**AST additions:**
+**Implemented in:**
 
-```typescript
-// In function type expression
-interface FnTypeExpr {
-  // ... existing fields ...
-  usingParams?: Array<{ name: string; type: TypeExpr }>;
-}
+- `src/evaluator/types/function.ts`
 
-// New statement
-interface GivenDeclaration {
-  kind: "GivenDeclaration";
-  name: string;
-  type: TypeExpr;
-  value: Expr;
-}
-```
+**Completed work:**
 
-#### Step 3: Evaluator — Resolve implicit parameters
+- Added dedicated `using` pass in function parameter processing.
+- Enforced exactly one `using(...)` clause in function signatures.
+- Parsed implicit parameters from the single `using(...)` clause and marked them compile-time + implicit.
 
-**File:** `src/evaluator.ts` (or relevant evaluator files)
+#### ✅ Step 3: `given(...)` declarations
 
-- **Environment frame extension:** Each env frame tracks `given` bindings in a `givenBindings: Map<string, Value>` alongside normal variable bindings.
-- **Function call resolution:** When calling a function with `using` parameters:
-  1. Count the explicit arguments provided.
-  2. For each missing `using` parameter, search the environment frames (innermost first) for a `given` binding whose type is compatible with the `using` parameter's type.
-  3. If found, inject it as an argument. If not found, report a compile error.
-- **Type checking:** The `using` parameter's type must match the `given` binding's type via `areTypesCompatible`.
+**Implemented in:**
 
-#### Step 4: C Codegen — Pass implicit parameters as regular parameters
+- `src/evaluator/exprs/initialization-assignment.ts`
+- `src/evaluator/exprs/binding.ts`
 
-**File:** `src/codegen/` (relevant codegen files)
+**Completed work:**
 
-- In the generated C code, `using` parameters become regular C function parameters — no special treatment needed at the C level.
-- At call sites, the resolved `given` values are passed as explicit arguments in the generated C code.
+- Implemented `given(name) := value`.
+- Implemented `(given(name) : Type) = value`.
+- `given` variables are stored as compile-time values with `isImplicit: true`.
 
-#### Step 5: Tests
+#### ✅ Step 4: Call-site resolution
 
-- Test basic `using` + `given` resolution.
-- Test explicit override of `using` parameters.
-- Test lexical scoping / shadowing of `given`.
-- Test error case: no matching `given` in scope.
-- Test error case: `given` type mismatch.
-- Test with generic types: `using(eq : (fn(a : T, b : T) -> bool))`.
-- Test interaction with closures (captured `given` bindings).
+**Implemented in:**
+
+- `src/evaluator/calls/helper.ts`
+
+**Completed work:**
+
+- Supports call-site explicit contextual args via `using(...)`.
+- Supports `using(undefined)` fallback for per-slot implicit lookup.
+- Enforces exactly one `using(...)` argument expression per call.
+- Resolves missing contextual args from `given` variables by type compatibility.
+- Ambiguity handling: multiple compatible `given` values => compile-time error.
+- Fixed `forall + using` bug by re-evaluating implicit parameter types in current callee env before matching (ensures `fn(a : T) -> T` resolves correctly after inference, e.g. `T = i32`).
+
+#### ✅ Step 5: Codegen and specialization integration
+
+**Implemented in:**
+
+- `src/codegen/exprs/initialization-assignment.ts`
+- `src/types/guards.ts`
+- `src/evaluator/context.ts`
+- `src/evaluator/calls/helper.ts`
+- `src/types/utils.ts`
+
+**Completed work:**
+
+- `given(...)` assignments are skipped in runtime codegen (compile-time only declaration form).
+- Functions with implicit parameters participate in specialization.
+- Implicit args are included in specialization signature/cache inputs.
+- Type string formatting includes `using(...)` section.
+
+#### ✅ Step 6: Tests
+
+**Implemented in:**
+
+- `src/tests/fixme.yo`
+- `tests/fn.test.yo`
+
+**Covered cases:**
+
+- Basic implicit lookup via `given`.
+- Explicit contextual args via `using(...)`.
+- `using(undefined)` full and partial fallback behavior.
+- Multiple implicit parameters in a single `using(...)` clause.
+- Ambiguous `given` error.
+- No matching `given` error.
+- `forall + using` inference scenario (`apply(41)` with `given(inc)` for `i32`).
 
 ---
 
@@ -491,14 +551,15 @@ Yield   :: (ctl(forall(T : Type), value : T) -> unit);  // generators
 ## Implementation Order
 
 ```
-Phase 1 — Implicit Parameters
-  ├── Step 1: Lexer tokens (using, given)
-  ├── Step 2: Parser (using params, given declarations)
-  ├── Step 3: Evaluator (given resolution)
-  ├── Step 4: C codegen (pass-through)
-  └── Step 5: Tests
+Phase 1 — Implicit Parameters ✅ COMPLETE
+  ├── Step 1: Keywords + type model
+  ├── Step 2: Function type `using(...)` evaluation
+  ├── Step 3: `given(...)` declaration forms
+  ├── Step 4: Call-site implicit resolution (`using(...)` / `using(undefined)`)
+  ├── Step 5: Codegen + specialization integration
+  └── Step 6: Tests
 
-Phase 2 — Effect Handlers
+Phase 2 — Effect Handlers ⏳ NEXT
   ├── Step 1: ctl keyword + effect type
   ├── Step 2: Effect analysis pass
   ├── Step 3: State machine generation
@@ -555,7 +616,7 @@ However, this unification is a Phase 3+ goal. For now, async/await and effects c
 
 ## Success Criteria
 
-1. `using` + `given` works for plain function types (Phase 1 complete).
+1. ✅ `using` + `given` works for plain function types (Phase 1 complete).
 2. `ctl` effects with no-resume handlers work (exception-like usage).
 3. `ctl` effects with resume handlers work (continuation-like usage).
 4. No memory leaks detected by AddressSanitizer in all effect scenarios.
