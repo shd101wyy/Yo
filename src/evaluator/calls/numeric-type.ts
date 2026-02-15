@@ -17,6 +17,7 @@ import {
   isEnumType,
   isFloatType,
   isIntegerType,
+  isSomeType,
 } from "../../types/guards";
 import { TypeTag } from "../../types/tags";
 import { typeToString } from "../../types/utils";
@@ -120,7 +121,8 @@ export function isConvertibleNumericType(type: Type): boolean {
     isFloatType(type) ||
     isComptimeIntType(type) ||
     isComptimeFloatType(type) ||
-    isCCompatibleType(type)
+    isCCompatibleType(type) ||
+    (type.isExtern === "c" && isSomeType(type))
   );
 }
 

@@ -108,7 +108,7 @@ test "async symlink and readlink", {
     printf("  symlink = %d\n", sym_result);
     sym_ok := (sym_result == i32(0));
     readlink_buf := *(u8)(malloc(usize(256)).unwrap());
-    rl_result := await dir.readlink(AT_FDCWD, link_path, readlink_buf, usize(256));
+    rl_result := dir.readlink(AT_FDCWD, link_path, readlink_buf, usize(256));
     printf("  readlink = %d\n", rl_result);
     assert(((!sym_ok) || (rl_result > i32(0))));
     first_byte := (readlink_buf &+ usize(0)).*;

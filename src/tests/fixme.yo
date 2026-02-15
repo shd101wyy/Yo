@@ -1,69 +1,41 @@
 open import "std/libc/stdio";
 open import "std/string";
-open import "std/collections/array_list";
-{ platform, Platform, env } :: import "std/process";
+open import "std/libc/stdlib";
+{ temp_dir, path_join } :: import "../../tests/io/helper";
 file :: import "std/io/file";
 dir :: import "std/io/dir";
-time :: import "std/io/time";
-{ Statx } :: import "std/io/statx";
-{
-  AT_FDCWD, O_WRONLY, O_CREAT, O_TRUNC, O_RDONLY,
-  STATX_BASIC_STATS
-} :: import "std/io/constants";
-{ temp_dir, path_join } :: import "../../tests/io/helper";
-make_test_file :: (fn(name: String) -> ArrayList(u8)) {
-  tmp := temp_dir();
-  p := path_join(tmp, name);
-  p.to_cstr()
-};
-
-create_file :: (fn(test_path: *(u8), content: *(u8), content_len: u32) -> Impl(Future(unit)))(async {
-  write_flags := ((O_WRONLY | O_CREAT) | O_TRUNC);
-  fd := await file.openat(AT_FDCWD, test_path, write_flags, i32(0o644));
-  assert(fd >= i32(0));
-  wr := await file.write(fd, content, content_len, u64(0));
-  assert(wr == i32(content_len));
-  cr := await file.close(fd);
-  assert(cr == i32(0));
-});
+iov_io :: import "std/io/iov";
+{ AT_FDCWD, O_RDWR, O_CREAT, O_TRUNC } :: import "std/io/constants";
 
 main :: (fn() -> unit) {
   async {
-    path_cstr := make_test_file(`yo_time_lutime_target.txt`);
-    test_path := path_cstr.ptr().unwrap();
-    await create_file(test_path, *(u8)("lutime test"), u32(11));
+    tmp := temp_dir();
+    path_str := path_join(tmp, `yo_iov_pwritev_test.txt`);
+    path_c := path_str.to_cstr();
+    path := path_c.ptr().unwrap();
 
-    ret_t := await time.utime(test_path, i64(3000000), i64(0), i64(4000000), i64(0));
-    assert(ret_t == i32(0));
+    flags := ((O_RDWR | O_CREAT) | O_TRUNC);
+    fd := await file.openat(AT_FDCWD, path, flags, i32(0o644));
+    printf("fd = %d\n", fd);
 
-    link_cstr := make_test_file(`yo_time_lutime_link.txt`);
-    link_path := link_cstr.ptr().unwrap();
-    lr := await dir.symlink(test_path, AT_FDCWD, link_path);
-    cond(
-      // Could be on Windows where symlink requires admin priviledge.
-      (lr != i32(0)) => {
-        cleanup := await dir.unlink(AT_FDCWD, test_path, i32(0));
-        assert(cleanup == i32(0));
-        return;
-      },
-      true => ()
-    );
+    iov_bytes := (iov_io.iovec_size() * usize(2));
+    write_iov := *(u8)(malloc(iov_bytes).unwrap());
+    part1 := *(u8)("hello ");
+    part2 := *(u8)("world");
+    iov_io.iovec_set(write_iov, usize(0), part1, usize(6));
+    iov_io.iovec_set(write_iov, usize(1), part2, usize(5));
 
-    ret := await time.lutime(link_path, i64(5000000), i64(0), i64(6000000), i64(0));
-    assert(ret == i32(0));
+    wr := iov_io.writev(fd, write_iov, i32(2));
+    printf("writev result = %d\n", wr);
 
-    statx_uninit := MaybeUninit(Array(u8, usize(256))).new();
-    stat_buf := *(u8)(statx_uninit.as_ptr());
-    sr := await file.statx(AT_FDCWD, test_path, i32(0), STATX_BASIC_STATS, stat_buf);
-    assert(sr == i32(0));
-    st := Statx(stat_buf, usize(256));
-    assert(st.atime_sec() == i64(3000000));
-    assert(st.mtime_sec() == i64(4000000));
+    wr2 := iov_io.pwritev(fd, write_iov, i32(2), i64(0));
+    printf("pwritev result = %d\n", wr2);
 
-    cleanup_link := await dir.unlink(AT_FDCWD, link_path, i32(0));
-    assert(cleanup_link == i32(0));
-    cleanup := await dir.unlink(AT_FDCWD, test_path, i32(0));
-    assert(cleanup == i32(0));
+    close_ret := await file.close(fd);
+    rm := await dir.unlink(AT_FDCWD, path, i32(0));
+    free(.Some(*(void)(write_iov)));
+    printf("done\n");
   };
 };
+
 export main;

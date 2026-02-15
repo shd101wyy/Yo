@@ -81,6 +81,22 @@ You can ignore the editor erros for the `.yo` files, because the vscode extensio
 
      // CORRECT - begin block with statements:
      result := { x := 1; y := 2; .Ok(()) }
+
+     // WRONG - invalid anonymous struct value:
+     print_bool :: (fn(value: bool) -> i32)({
+       cond(
+         value => i32(1),
+         true => i32(0)
+       )
+     });
+
+     // CORRECT - just the expression:
+     print_bool :: (fn(value: bool) -> i32)(
+       cond(
+         value => i32(1),
+         true => i32(0)
+       )
+     );
      ```
 
 2. **Always write `cond(...)` and `match(...)` with parentheses:**
@@ -90,8 +106,35 @@ You can ignore the editor erros for the `.yo` files, because the vscode extensio
    - The parentheses are **required** and must not be omitted.
 
 3. Define a function like this:
+
    - `(fn(param1 : Type1, param2 : Type2) -> ReturnType)({ body; return expr; })`
    - NOTE, no space between `(fn() -> ReturnType)` and `({ body; })`
+
+4. The last expression in `{ ... }` without semicolon is the return value of the struct or enum constructor.
+   With semicolon, like `{ expr; }`, then the return value is `unit`.
+
+5. Let's always add `()` after function name. For example, because we didn't write `await(...`, the code like:
+
+   ```
+   cond(
+     (fd >= i32(0)) => await file.close(fd),
+     true => ()
+   );
+   ```
+
+   will get parsed into:
+
+   ```
+   cond(
+     (fd >= i32(0)) =>
+     await(
+       file.close(fd),
+       true => ()
+     )
+   );
+   ```
+
+   so it's important to always add `()` after function name to avoid parsing ambiguity.
 
 When I ask you to refactor the code. Refactor everything. Don't make assumptions. Don't miss any lines. Don't put placeholders or TODOs.
 
@@ -221,3 +264,9 @@ AF_INET6  :: cond(
   true => i32(10)
 );
 ```
+
+`unit` is a type not value, `()` is the unit value.
+
+When calling `assert` function, please always add 2nd argument as the error message, eg: `assert(condition, "error message");`
+
+When you find a test that causes C codegen bug, don't try to weaken the test. Instead, create a new `.yo` file with minimal code that reproduces the bug, with a `main` function and `export main;` at the end, then we can focus on fixing the bug directly.

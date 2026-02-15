@@ -1,0 +1,30 @@
+// std/io/pipe.yo - Pipe and file descriptor duplication operations
+//
+// Synchronous wrappers for pipe/dup/dup2.
+// These are inherently synchronous kernel operations on all platforms.
+//
+// Return values:
+//   - pipe: 0 on success, -errno on failure
+//   - dup/dup2: new fd on success, -errno on failure
+
+{ __yo_sync_pipe, __yo_sync_dup, __yo_sync_dup2 } :: import "./externs.yo";
+
+// Create a pipe pair (pipefd[0] = read, pipefd[1] = write).
+// Returns 0 on success, -errno on failure.
+pipe :: (fn(pipefd: *(i32)) -> i32)(
+  __yo_sync_pipe(pipefd)
+);
+
+// Duplicate a file descriptor. Returns new fd on success, -errno on failure.
+dup :: (fn(fd: i32) -> i32)(
+  __yo_sync_dup(fd)
+);
+
+// Duplicate a file descriptor to a specific fd. Returns new fd on success, -errno on failure.
+dup2 :: (fn(oldfd: i32, newfd: i32) -> i32)(
+  __yo_sync_dup2(oldfd, newfd)
+);
+
+export
+  pipe, dup, dup2
+;

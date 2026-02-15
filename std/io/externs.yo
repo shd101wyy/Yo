@@ -37,24 +37,11 @@ extern "Yo",
   __yo_dirent_ino : (fn(entry: *(u8)) -> u64),
 
   // ========================================================================
-  // Permission Changes (for fs.chmod, fs.chown)
-  // ========================================================================
-  __yo_async_fchmod_start : (fn(fd: i32, mode: u32) -> IOFuture),
-  __yo_async_fchmodat_start : (fn(dirfd: i32, path: *(u8), mode: u32, flags: i32) -> IOFuture),
-  __yo_async_fchown_start : (fn(fd: i32, uid: u32, gid: u32) -> IOFuture),
-  __yo_async_fchownat_start : (fn(dirfd: i32, path: *(u8), uid: u32, gid: u32, flags: i32) -> IOFuture),
-
-  // ========================================================================
   // Symbolic Link Resolution (for fs.readlink)
   // ========================================================================
-  __yo_async_readlinkat_start : (fn(dirfd: i32, path: *(u8), buf: *(u8), bufsize: usize) -> IOFuture),
-
   // ========================================================================
-  // File Descriptor Operations
+  // File Descriptor Operations (async dup/dup2/pipe removed - now sync)
   // ========================================================================
-  __yo_async_dup_start : (fn(oldfd: i32) -> IOFuture),
-  __yo_async_dup2_start : (fn(oldfd: i32, newfd: i32) -> IOFuture),
-  __yo_async_pipe_start : (fn(pipefd: *(i32)) -> IOFuture),
 
   // ========================================================================
   // Socket Operations (for tcp, udp, unix sockets)
@@ -71,6 +58,27 @@ extern "Yo",
   __yo_async_shutdown_start : (fn(sockfd: i32, how: i32) -> IOFuture),
   __yo_async_setsockopt_start : (fn(sockfd: i32, level: i32, optname: i32, optval: *(u8), optlen: u32) -> IOFuture),
   __yo_async_getsockopt_start : (fn(sockfd: i32, level: i32, optname: i32, optval: *(u8), optlen: *(u32)) -> IOFuture),
+  __yo_sync_getsockname : (fn(sockfd: i32, addr: *(u8), addrlen: *(u32)) -> i32),
+  __yo_sync_getpeername : (fn(sockfd: i32, addr: *(u8), addrlen: *(u32)) -> i32),
+  __yo_sync_setsockopt : (fn(sockfd: i32, level: i32, optname: i32, optval: *(u8), optlen: u32) -> i32),
+  __yo_sync_getsockopt : (fn(sockfd: i32, level: i32, optname: i32, optval: *(u8), optlen: *(u32)) -> i32),
+  __yo_sync_socketpair : (fn(domain: i32, sock_type: i32, protocol: i32, sv: *(i32)) -> i32),
+
+  // ========================================================================
+  // System Information & Utilities
+  // ========================================================================
+  __yo_sync_clock_gettime : (fn(clock_id: i32, sec: *(i64), nsec: *(i64)) -> i32),
+  __yo_sync_uname : (fn(buf: *(u8)) -> i32),
+  __yo_sync_gethostname : (fn(name: *(u8), len: usize) -> i32),
+  __yo_sync_umask : (fn(mask: i32) -> i32),
+
+  // ========================================================================
+  // Process Operations
+  // ========================================================================
+  __yo_async_spawn_start : (fn(file: *(u8), argv: *(?*(u8)), envp: ?*(?*(u8)), stdin_fd: i32, stdout_fd: i32, stderr_fd: i32) -> IOFuture),
+  __yo_async_waitpid_start : (fn(pid: i32, options: i32) -> IOFuture),
+  __yo_process_exit_status : (fn(status: i32) -> i32),
+  __yo_process_term_signal : (fn(status: i32) -> i32),
 
   // ========================================================================
   // Synchronous File Helpers
@@ -134,18 +142,8 @@ extern "Yo",
   __yo_async_sleep_start : (fn(milliseconds: u64) -> IOFuture),
 
   // ========================================================================
-  // File Extra Operations
+  // File Extra Operations (async only: sleep remains async)
   // ========================================================================
-  __yo_async_access_start : (fn(dirfd: i32, path: *(u8), mode: i32) -> IOFuture),
-  __yo_async_realpath_start : (fn(path: *(u8), resolved: *(u8)) -> IOFuture),
-  __yo_async_utime_start : (fn(path: *(u8), atime_sec: i64, atime_nsec: i64, mtime_sec: i64, mtime_nsec: i64) -> IOFuture),
-  __yo_async_futime_start : (fn(fd: i32, atime_sec: i64, atime_nsec: i64, mtime_sec: i64, mtime_nsec: i64) -> IOFuture),
-  __yo_async_lutime_start : (fn(path: *(u8), atime_sec: i64, atime_nsec: i64, mtime_sec: i64, mtime_nsec: i64) -> IOFuture),
-  __yo_async_mkdtemp_start : (fn(template: *(u8)) -> IOFuture),
-  __yo_async_mkstemp_start : (fn(template: *(u8)) -> IOFuture),
-  __yo_async_copyfile_start : (fn(src_path: *(u8), dst_path: *(u8), flags: i32) -> IOFuture),
-  __yo_async_sendfile_start : (fn(out_fd: i32, in_fd: i32, offset: i64, count: usize) -> IOFuture),
-  __yo_async_statfs_start : (fn(path: *(u8), statfsbuf: *(u8)) -> IOFuture),
   __yo_statfs_buf_size : (fn() -> usize),
   __yo_statfs_type : (fn(buf: *(u8)) -> u64),
   __yo_statfs_bsize : (fn(buf: *(u8)) -> u64),
@@ -199,7 +197,7 @@ extern "Yo",
   // FS Event Operations
   // ========================================================================
   __yo_fs_event_init : (fn() -> *(u8)),
-  __yo_fs_event_start : (fn(handle: *(u8), path: *(u8), flags: u32, callback: *(u8)) -> i32),
+  __yo_fs_event_start : (fn(handle: *(u8), path: *(u8), flags: u32, callback: *(u8), user_data: *(u8)) -> i32),
   __yo_fs_event_stop : (fn(handle: *(u8)) -> i32),
   __yo_fs_event_close : (fn(handle: *(u8)) -> unit),
 
@@ -207,9 +205,52 @@ extern "Yo",
   // Poll Operations
   // ========================================================================
   __yo_poll_init : (fn(fd: i32) -> *(u8)),
-  __yo_poll_start : (fn(handle: *(u8), events: i32, callback: *(u8)) -> i32),
+  __yo_poll_start : (fn(handle: *(u8), events: i32, callback: *(u8), user_data: *(u8)) -> i32),
   __yo_poll_stop : (fn(handle: *(u8)) -> i32),
-  __yo_poll_close : (fn(handle: *(u8)) -> unit)
+  __yo_poll_close : (fn(handle: *(u8)) -> unit),
+
+  // ========================================================================
+  // Synchronous Operations (no IOFuture overhead)
+  // ========================================================================
+  __yo_sync_pipe : (fn(pipefd: *(i32)) -> i32),
+  __yo_sync_dup : (fn(oldfd: i32) -> i32),
+  __yo_sync_dup2 : (fn(oldfd: i32, newfd: i32) -> i32),
+  __yo_sync_access : (fn(dirfd: i32, path: *(u8), mode: i32) -> i32),
+  __yo_sync_realpath : (fn(path: *(u8), resolved: *(u8)) -> i32),
+  __yo_sync_mkdtemp : (fn(template: *(u8)) -> i32),
+  __yo_sync_mkstemp : (fn(template: *(u8)) -> i32),
+  __yo_sync_copyfile : (fn(src: *(u8), dst: *(u8), flags: i32) -> i32),
+  __yo_sync_sendfile : (fn(out_fd: i32, in_fd: i32, offset: i64, count: usize) -> i32),
+  __yo_sync_fchmod : (fn(fd: i32, mode: u32) -> i32),
+  __yo_sync_fchmodat : (fn(dirfd: i32, path: *(u8), mode: u32, flags: i32) -> i32),
+  __yo_sync_fchown : (fn(fd: i32, uid: u32, gid: u32) -> i32),
+  __yo_sync_fchownat : (fn(dirfd: i32, path: *(u8), uid: u32, gid: u32, flags: i32) -> i32),
+  __yo_sync_readlinkat : (fn(dirfd: i32, path: *(u8), buf: *(u8), bufsize: usize) -> i32),
+  __yo_sync_utime : (fn(path: *(u8), atime_sec: i64, atime_nsec: i64, mtime_sec: i64, mtime_nsec: i64) -> i32),
+  __yo_sync_futime : (fn(fd: i32, atime_sec: i64, atime_nsec: i64, mtime_sec: i64, mtime_nsec: i64) -> i32),
+  __yo_sync_lutime : (fn(path: *(u8), atime_sec: i64, atime_nsec: i64, mtime_sec: i64, mtime_nsec: i64) -> i32),
+  __yo_sync_statfs : (fn(path: *(u8), statfsbuf: *(u8)) -> i32),
+  __yo_sync_mmap : (fn(addr: ?*(u8), length: usize, prot: i32, flags: i32, fd: i32, offset: i64) -> ?*(u8)),
+  __yo_sync_mmap_is_error : (fn(addr: ?*(u8)) -> bool),
+  __yo_sync_mmap_errno : (fn(addr: ?*(u8)) -> i32),
+  __yo_sync_munmap : (fn(addr: *(u8), length: usize) -> i32),
+  __yo_sync_mprotect : (fn(addr: *(u8), length: usize, prot: i32) -> i32),
+  __yo_sync_msync : (fn(addr: *(u8), length: usize, flags: i32) -> i32),
+  __yo_sync_fcntl_getfl : (fn(fd: i32) -> i32),
+  __yo_sync_fcntl_setfl : (fn(fd: i32, flags: i32) -> i32),
+  __yo_sync_fcntl_getfd : (fn(fd: i32) -> i32),
+  __yo_sync_fcntl_setfd : (fn(fd: i32, flags: i32) -> i32),
+  __yo_sync_lseek : (fn(fd: i32, offset: i64, whence: i32) -> i64),
+  __yo_sync_fallocate : (fn(fd: i32, mode: i32, offset: i64, length: i64) -> i32),
+  __yo_sync_flock : (fn(fd: i32, operation: i32) -> i32),
+  __yo_sync_readv : (fn(fd: i32, iov: *(u8), iovcnt: i32) -> i32),
+  __yo_sync_writev : (fn(fd: i32, iov: *(u8), iovcnt: i32) -> i32),
+  __yo_sync_preadv : (fn(fd: i32, iov: *(u8), iovcnt: i32, offset: i64) -> i32),
+  __yo_sync_pwritev : (fn(fd: i32, iov: *(u8), iovcnt: i32, offset: i64) -> i32),
+  __yo_iovec_size : (fn() -> usize),
+  __yo_iovec_set : (fn(iov: *(u8), index: usize, base: *(u8), len: usize) -> unit),
+  __yo_sync_fadvise : (fn(fd: i32, offset: i64, len: i64, advice: i32) -> i32),
+  __yo_sync_madvise : (fn(addr: *(u8), length: usize, advice: i32) -> i32)
 ;
 
 export
@@ -227,16 +268,6 @@ export
   __yo_dirent_size, __yo_dirent_reclen, __yo_dirent_type,
   __yo_dirent_name, __yo_dirent_ino,
 
-  // Permission changes
-  __yo_async_fchmod_start, __yo_async_fchmodat_start,
-  __yo_async_fchown_start, __yo_async_fchownat_start,
-
-  // Symbolic link resolution
-  __yo_async_readlinkat_start,
-
-  // File descriptor operations
-  __yo_async_dup_start, __yo_async_dup2_start, __yo_async_pipe_start,
-
   // Socket operations
   __yo_async_socket_start, __yo_async_bind_start,
   __yo_async_listen_start, __yo_async_accept_start,
@@ -244,6 +275,18 @@ export
   __yo_async_recv_start, __yo_async_sendto_start,
   __yo_async_recvfrom_start, __yo_async_shutdown_start,
   __yo_async_setsockopt_start, __yo_async_getsockopt_start,
+  __yo_sync_getsockname, __yo_sync_getpeername,
+  __yo_sync_setsockopt, __yo_sync_getsockopt,
+  __yo_sync_socketpair,
+
+  // System information & utilities
+  __yo_sync_clock_gettime,
+  __yo_sync_uname, __yo_sync_gethostname,
+  __yo_sync_umask,
+
+  // Process operations
+  __yo_async_spawn_start, __yo_async_waitpid_start,
+  __yo_process_exit_status, __yo_process_term_signal,
 
   // Synchronous file helpers
   __yo_file_open, __yo_file_close, __yo_file_size,
@@ -273,12 +316,7 @@ export
   // Timer operations
   __yo_async_sleep_start,
 
-  // File extra operations
-  __yo_async_access_start, __yo_async_realpath_start,
-  __yo_async_utime_start, __yo_async_futime_start, __yo_async_lutime_start,
-  __yo_async_mkdtemp_start, __yo_async_mkstemp_start,
-  __yo_async_copyfile_start, __yo_async_sendfile_start,
-  __yo_async_statfs_start,
+  // File extra operations (statfs accessors only - statfs itself is now sync)
   __yo_statfs_buf_size, __yo_statfs_type, __yo_statfs_bsize,
   __yo_statfs_blocks, __yo_statfs_bfree, __yo_statfs_bavail,
   __yo_statfs_files, __yo_statfs_ffree,
@@ -306,5 +344,27 @@ export
   __yo_fs_event_stop, __yo_fs_event_close,
 
   // Poll operations
-  __yo_poll_init, __yo_poll_start, __yo_poll_stop, __yo_poll_close
+  __yo_poll_init, __yo_poll_start, __yo_poll_stop, __yo_poll_close,
+
+  // Synchronous operations
+  __yo_sync_pipe, __yo_sync_dup, __yo_sync_dup2,
+  __yo_sync_access, __yo_sync_realpath,
+  __yo_sync_mkdtemp, __yo_sync_mkstemp,
+  __yo_sync_copyfile, __yo_sync_sendfile,
+  __yo_sync_fchmod, __yo_sync_fchmodat,
+  __yo_sync_fchown, __yo_sync_fchownat,
+  __yo_sync_readlinkat,
+  __yo_sync_utime, __yo_sync_futime, __yo_sync_lutime,
+  __yo_sync_statfs,
+  __yo_sync_mmap, __yo_sync_mmap_is_error, __yo_sync_mmap_errno,
+  __yo_sync_munmap, __yo_sync_mprotect, __yo_sync_msync,
+  __yo_sync_fcntl_getfl, __yo_sync_fcntl_setfl,
+  __yo_sync_fcntl_getfd, __yo_sync_fcntl_setfd,
+  __yo_sync_lseek,
+  __yo_sync_fallocate,
+  __yo_sync_flock,
+  __yo_sync_readv, __yo_sync_writev,
+  __yo_sync_preadv, __yo_sync_pwritev,
+  __yo_iovec_size, __yo_iovec_set,
+  __yo_sync_fadvise, __yo_sync_madvise
 ;

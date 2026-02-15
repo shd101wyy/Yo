@@ -34,7 +34,7 @@ test "utime sets specific timestamps", {
     test_path := path_cstr.ptr().unwrap();
     await create_file(test_path, *(u8)("utime test"), u32(10));
 
-    ret := await time.utime(test_path, i64(1000000), i64(0), i64(2000000), i64(0));
+    ret := time.utime(test_path, i64(1000000), i64(0), i64(2000000), i64(0));
     assert(ret == i32(0));
 
     statx_uninit := MaybeUninit(Array(u8, usize(256))).new();
@@ -59,7 +59,7 @@ test "futime sets timestamps by fd with nanosecond precision", {
     fd := await file.openat(AT_FDCWD, test_path, O_RDONLY, i32(0));
     assert(fd >= i32(0));
 
-    ret := await time.futime(fd, i64(3000000), i64(500000000), i64(4000000), i64(750000000));
+    ret := time.futime(fd, i64(3000000), i64(500000000), i64(4000000), i64(750000000));
     assert(ret == i32(0));
 
     statx_uninit := MaybeUninit(Array(u8, usize(256))).new();
@@ -81,7 +81,7 @@ test "futime sets timestamps by fd with nanosecond precision", {
 
 test "utime on nonexistent file returns -ENOENT", {
   async {
-    ret := await time.utime(*(u8)("/tmp/yo_time_nonexistent_12345.txt"), i64(100), i64(0), i64(200), i64(0));
+    ret := time.utime(*(u8)("/tmp/yo_time_nonexistent_12345.txt"), i64(100), i64(0), i64(200), i64(0));
     assert(ret == i32(-2));
   };
 };
@@ -92,7 +92,7 @@ test "lutime changes symlink timestamps without affecting target", {
     test_path := path_cstr.ptr().unwrap();
     await create_file(test_path, *(u8)("lutime test"), u32(11));
 
-    ret_t := await time.utime(test_path, i64(3000000), i64(0), i64(4000000), i64(0));
+    ret_t := time.utime(test_path, i64(3000000), i64(0), i64(4000000), i64(0));
     assert(ret_t == i32(0));
 
     link_cstr := make_test_file(`yo_time_lutime_link.txt`);
@@ -108,7 +108,7 @@ test "lutime changes symlink timestamps without affecting target", {
       true => ()
     );
 
-    ret := await time.lutime(link_path, i64(5000000), i64(0), i64(6000000), i64(0));
+    ret := time.lutime(link_path, i64(5000000), i64(0), i64(6000000), i64(0));
     assert(ret == i32(0));
 
     statx_uninit := MaybeUninit(Array(u8, usize(256))).new();
@@ -132,7 +132,7 @@ test "utime with nanosecond precision", {
     test_path := path_cstr.ptr().unwrap();
     await create_file(test_path, *(u8)("nsec test"), u32(9));
 
-    ret := await time.utime(test_path, i64(1700000000), i64(123456789), i64(1700000001), i64(987654321));
+    ret := time.utime(test_path, i64(1700000000), i64(123456789), i64(1700000001), i64(987654321));
     assert(ret == i32(0));
 
     statx_uninit := MaybeUninit(Array(u8, usize(256))).new();
@@ -161,7 +161,7 @@ test "futime preserves file content", {
     fd := await file.openat(AT_FDCWD, test_path, O_RDONLY, i32(0));
     assert(fd >= i32(0));
 
-    ret := await time.futime(fd, i64(9999), i64(0), i64(8888), i64(0));
+    ret := time.futime(fd, i64(9999), i64(0), i64(8888), i64(0));
     assert(ret == i32(0));
 
     read_uninit := MaybeUninit(Array(u8, usize(64))).new();

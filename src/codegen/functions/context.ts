@@ -65,6 +65,20 @@ export interface FunctionGenerationContext extends CodeGenContext {
         deferredDropExpressions?: Expr[]; // Drop expressions for the branch's begin block
       }>;
       targetVariableId?: string; // Variable that receives the cond result (if any)
+      targetAssignmentCode?: string; // C code for the assignment target (for `= (target, cond/match(...))`)
+      condBranchFieldIndex?: number; // The cond_branch_X index to use in the switch (for continuation states)
+      // When a nested cond stores its continuation at the same key as an outer cond's remaining code,
+      // the outer code goes into chainedBranches (processed as a separate switch AFTER the nested cond's switch)
+      chainedBranches?: Array<{
+        branches: Array<{
+          index: number;
+          value: Expr;
+          hasAwait: boolean;
+          remainingExprs?: Expr[];
+          deferredDropExpressions?: Expr[];
+        }>;
+        condBranchFieldIndex: number;
+      }>;
     }
   >;
   // Loop tracking for while loops with await
@@ -74,12 +88,27 @@ export interface FunctionGenerationContext extends CodeGenContext {
       conditionExpr: Expr; // The loop condition expression
       bodyExpr: Expr; // The loop body expression
       bodyExprsAfterAwait?: Expr[]; // Expressions after the await in the loop body
+      outerWhileLoop?: {
+        whileLoopIndex: number;
+        conditionExpr: Expr;
+        bodyExpr: Expr;
+        bodyExprsAfterAwait: Expr[];
+      };
     }
   >;
+  // Counter for allocating unique while loop indices for nested while-with-await.
+  // Starts at awaitPoints.length so outer while indices don't collide with await point indices.
+  nextWhileLoopIndex?: number;
   // Variables that are locally shadowed (e.g., in match destructuring patterns)
   // When a variable name is in this set, use the local C variable instead of sm->var_...
   localShadowedVariables?: Set<string>;
   // When generating async while loop resume body, this holds the label and index
   // needed for break to correctly exit the state machine's switch and jump to after-loop code
   asyncWhileBreakInfo?: { label: string; index: number };
+  // When generating async while loop resume body, this holds the label
+  // needed for continue to skip remaining body and jump to condition re-evaluation
+  asyncWhileContinueInfo?: { label: string; emitDropsBeforeGoto?: boolean };
+  // Deferred drops for the while loop body's local variables.
+  // These must be emitted before break/continue/normal-exit in async while loop resume code.
+  asyncWhileBodyDrops?: import("../../expr").Expr[];
 }

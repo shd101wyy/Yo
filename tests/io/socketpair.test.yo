@@ -1,0 +1,67 @@
+open import "std/libc/stdio";
+
+socketpair_io :: import "std/io/socketpair";
+tcp :: import "std/io/tcp";
+{ AF_UNIX, SOCK_STREAM } :: import "std/io/socket";
+
+test "socketpair create and close", {
+  async {
+    sv_uninit := MaybeUninit(Array(i32, usize(2))).new();
+    sv := *(i32)(sv_uninit.as_ptr());
+
+    sp := socketpair_io.socketpair(AF_UNIX, SOCK_STREAM, i32(0), sv);
+    printf("  socketpair = %d\n", sp);
+    assert((sp == i32(0)), "socketpair should succeed");
+
+    fd0 := (sv &+ usize(0)).*;
+    fd1 := (sv &+ usize(1)).*;
+    assert((fd0 >= i32(0)), "socketpair fd0 should be valid");
+    assert((fd1 >= i32(0)), "socketpair fd1 should be valid");
+    assert((fd0 != fd1), "socketpair fds should be distinct");
+
+    c0 := await tcp.close(fd0);
+    c1 := await tcp.close(fd1);
+    assert((c0 == i32(0)), "closing socketpair fd0 should succeed");
+    assert((c1 == i32(0)), "closing socketpair fd1 should succeed");
+  };
+};
+
+test "socketpair bidirectional send and recv", {
+  async {
+    sv_uninit := MaybeUninit(Array(i32, usize(2))).new();
+    sv := *(i32)(sv_uninit.as_ptr());
+
+    sp := socketpair_io.socketpair(AF_UNIX, SOCK_STREAM, i32(0), sv);
+    assert((sp == i32(0)), "socketpair should succeed for data exchange");
+
+    fd0 := (sv &+ usize(0)).*;
+    fd1 := (sv &+ usize(1)).*;
+
+    msg1 := *(u8)("hello");
+    sent1 := await tcp.send(fd0, msg1, usize(5), i32(0));
+    assert((sent1 == i32(5)), "sending first message should write 5 bytes");
+
+    buf1_uninit := MaybeUninit(Array(u8, usize(16))).new();
+    buf1 := *(u8)(buf1_uninit.as_ptr());
+    recv1 := await tcp.recv(fd1, buf1, usize(16), i32(0));
+    assert((recv1 == i32(5)), "receiving first message should read 5 bytes");
+    assert(((buf1 &+ usize(0)).* == u8(104)), "first byte should be 'h'");
+    assert(((buf1 &+ usize(4)).* == u8(111)), "last byte should be 'o'");
+
+    msg2 := *(u8)("world!");
+    sent2 := await tcp.send(fd1, msg2, usize(6), i32(0));
+    assert((sent2 == i32(6)), "sending second message should write 6 bytes");
+
+    buf2_uninit := MaybeUninit(Array(u8, usize(16))).new();
+    buf2 := *(u8)(buf2_uninit.as_ptr());
+    recv2 := await tcp.recv(fd0, buf2, usize(16), i32(0));
+    assert((recv2 == i32(6)), "receiving second message should read 6 bytes");
+    assert(((buf2 &+ usize(0)).* == u8(119)), "first byte should be 'w'");
+    assert(((buf2 &+ usize(5)).* == u8(33)), "last byte should be '!'");
+
+    c0 := await tcp.close(fd0);
+    c1 := await tcp.close(fd1);
+    assert((c0 == i32(0)), "closing socketpair fd0 should succeed after transfer");
+    assert((c1 == i32(0)), "closing socketpair fd1 should succeed after transfer");
+  };
+};

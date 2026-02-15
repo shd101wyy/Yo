@@ -1,0 +1,29 @@
+// std/io/temp.yo - Temporary file/directory operations
+//
+// Synchronous wrappers for mkdtemp/mkstemp.
+// These are inherently synchronous on all platforms.
+//
+// Return values:
+//   - mkdtemp: 0 on success, -errno on failure
+//   - mkstemp: fd on success, -errno on failure
+
+{ __yo_sync_mkdtemp, __yo_sync_mkstemp } :: import "./externs.yo";
+
+// Create a temporary directory from template (e.g., "/tmp/myapp-XXXXXX").
+// The template is modified in-place with the actual path.
+// Returns 0 on success, -errno on failure.
+mkdtemp :: (fn(template: *(u8)) -> i32)(
+  __yo_sync_mkdtemp(template)
+);
+
+// Create a temporary file from template (e.g., "/tmp/myfile-XXXXXX").
+// The template is modified in-place with the actual path.
+// Returns fd on success, -errno on failure.
+mkstemp :: (fn(template: *(u8)) -> i32)(
+  __yo_sync_mkstemp(template)
+);
+
+export
+  mkdtemp,
+  mkstemp
+;

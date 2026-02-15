@@ -10,7 +10,14 @@ import type {
   CapturedVariable,
 } from "../../evaluator/async/await-analysis";
 import { extractFutureTraitFromType } from "../../evaluator/trait-checking";
-import { type Expr, exprIsFunctionCallOf, ExprTag } from "../../expr";
+import {
+  type Expr,
+  BuiltinFunctions,
+  BuiltinKeywords,
+  exprIsAtomOf,
+  exprIsFunctionCallOf,
+  ExprTag,
+} from "../../expr";
 import type { DynType, SomeType, StructType } from "../../types/definitions";
 import { isDynType, isSomeType, isUnitType } from "../../types/guards";
 import { typeContainsRcType } from "../../types/utils";
@@ -21,6 +28,8 @@ import { generateExpr } from "../exprs/expr";
 import type { FunctionGenerationContext } from "../functions/context";
 import { sanitizeForCIdentifier } from "../utils";
 import {
+  exprContainsAwait,
+  generateAwaitExpression,
   generateStateSegmentCode,
   splitIntoStateSegments,
 } from "./state-code-gen";
@@ -122,10 +131,18 @@ export function generateAsyncBlockResumeFunction(
   const childType = futureModuleType.isFuture.outputType;
   const isUnitResult = isUnitType(childType);
 
-  // Clear condBranchInfo for this async block to prevent branch info
-  // from other async blocks (or outer scopes) from leaking in.
-  // Each async block should only see its own branch information.
+  // Clear condBranchInfo and whileLoopInfo for this async block to prevent
+  // data from other async blocks (or outer scopes) from leaking in.
+  // Each async block should only see its own branch/loop information.
   context.condBranchInfo = new Map();
+  context.whileLoopInfo = new Map();
+
+  // Initialize the while loop index counter for allocating unique indices
+  // to outer while loops in nested while-with-await scenarios.
+  // Indices 0..awaitPoints.length-1 are reserved for innermost while loops
+  // (matching their await point indices). Outer while loops get indices starting
+  // from awaitPoints.length.
+  context.nextWhileLoopIndex = analysis.awaitPoints.length;
 
   // Split the body into state segments
   const segments = splitIntoStateSegments(bodyExpr, analysis.awaitPoints);
@@ -244,12 +261,19 @@ export function generateAsyncBlockResumeFunction(
           prevAwait.index
         );
         if (condBranchData && condBranchData.branches.some((b) => b.hasAwait)) {
+          // Use condBranchFieldIndex if set (for continuation states), otherwise use prevAwait.index
+          const condBranchFieldIndex =
+            condBranchData.condBranchFieldIndex ?? prevAwait.index;
           emitter.emitLine(
             `      // Execute remaining code from chosen cond branch`
           );
           emitter.emitLine(
-            `      switch (sm->cond_branch_${prevAwait.index}) {`
+            `      switch (sm->cond_branch_${condBranchFieldIndex}) {`
           );
+
+          // Check if the current segment has an additional cond await point
+          const hasAdditionalCondAwait =
+            segment.awaitPoint?.isInsideCond ?? false;
 
           for (const branch of condBranchData.branches) {
             if (branch.hasAwait) {
@@ -294,8 +318,44 @@ export function generateAsyncBlockResumeFunction(
                 }
                 context.stateMachineVariables = combinedVariables;
 
-                // Generate the remaining expressions
-                for (const expr of branch.remainingExprs) {
+                // Generate remaining expressions, detecting additional awaits
+                let foundAdditionalAwait = false;
+                const additionalRemainingExprs: Expr[] = [];
+
+                // Determine assignment target for the last remaining expression
+                // (used by match/cond with await where branch result != await result)
+                const branchTargetAssignmentCode =
+                  condBranchData.targetAssignmentCode;
+
+                for (
+                  let exprIdx = 0;
+                  exprIdx < branch.remainingExprs.length;
+                  exprIdx++
+                ) {
+                  const expr = branch.remainingExprs[exprIdx]!;
+                  const isLastExpr =
+                    exprIdx === branch.remainingExprs.length - 1;
+
+                  if (foundAdditionalAwait) {
+                    additionalRemainingExprs.push(expr);
+                    continue;
+                  }
+
+                  // Check if this expression contains an additional await
+                  if (hasAdditionalCondAwait && exprContainsAwait(expr)) {
+                    foundAdditionalAwait = true;
+                    // Store the future for the next await point
+                    generateRemainingExprFuture(
+                      expr,
+                      segment.awaitPoint!,
+                      analysis,
+                      "          ",
+                      context
+                    );
+                    continue;
+                  }
+
+                  // Normal expression
                   const code = generateExpr(expr, "          ", context);
                   // Skip empty code, expressions without metadata, and temp variable references
                   if (
@@ -304,24 +364,92 @@ export function generateAsyncBlockResumeFunction(
                     isTempVariableName(expr.$.env.modulePath, code)
                   ) {
                     // Skip
+                  } else if (isLastExpr && branchTargetAssignmentCode) {
+                    emitter.emitLine(
+                      `          ${branchTargetAssignmentCode} = ${code};`
+                    );
                   } else {
                     emitter.emitLine(`          ${code};`);
                   }
                 }
 
-                // Generate deferred drop expressions for the branch's begin block
-                // Filter out drops that reference temp variables not in state machine scope
-                if (branch.deferredDropExpressions) {
-                  for (const dropExpr of branch.deferredDropExpressions) {
-                    const dropCode = generateExpr(
-                      dropExpr,
-                      "          ",
-                      context
-                    );
-                    // Skip drops that don't use state machine fields (sm->var_*)
-                    // These are temp variables from the original scope that aren't accessible
-                    if (dropCode && dropCode.includes("sm->")) {
-                      emitter.emitLine(`          ${dropCode};`);
+                // If this branch has no remaining expressions and there's a target,
+                // assign from await_result (the await result IS the branch value)
+                if (
+                  branch.remainingExprs.length === 0 &&
+                  branchTargetAssignmentCode
+                ) {
+                  emitter.emitLine(
+                    `          ${branchTargetAssignmentCode} = sm->await_result_${prevAwait.index};`
+                  );
+                }
+
+                if (foundAdditionalAwait && segment.awaitPoint) {
+                  // Store continuation info for the next state
+                  const nextIndex = segment.awaitPoint.index;
+                  if (!functionContext.condBranchInfo) {
+                    functionContext.condBranchInfo = new Map();
+                  }
+                  const existing =
+                    functionContext.condBranchInfo.get(nextIndex);
+                  if (existing) {
+                    // Entry already exists (from a nested cond's generateCondWithAwait).
+                    // Chain the outer cond's remaining code as a separate layer.
+                    if (!existing.chainedBranches) {
+                      existing.chainedBranches = [];
+                    }
+                    existing.chainedBranches.push({
+                      branches: [
+                        {
+                          index: branch.index,
+                          value: branch.value,
+                          hasAwait:
+                            additionalRemainingExprs.length > 0 ||
+                            additionalRemainingExprs.some((e) =>
+                              exprContainsAwait(e)
+                            ),
+                          remainingExprs: additionalRemainingExprs,
+                          deferredDropExpressions:
+                            branch.deferredDropExpressions,
+                        },
+                      ],
+                      condBranchFieldIndex: condBranchFieldIndex,
+                    });
+                  } else {
+                    const newEntry = {
+                      branches: [
+                        {
+                          index: branch.index,
+                          value: branch.value,
+                          hasAwait:
+                            additionalRemainingExprs.length > 0 ||
+                            additionalRemainingExprs.some((e) =>
+                              exprContainsAwait(e)
+                            ),
+                          remainingExprs: additionalRemainingExprs,
+                          deferredDropExpressions:
+                            branch.deferredDropExpressions,
+                        },
+                      ],
+                      condBranchFieldIndex: condBranchFieldIndex,
+                    };
+                    functionContext.condBranchInfo.set(nextIndex, newEntry);
+                  }
+                } else {
+                  // No more awaits - generate deferred drop expressions
+                  // Filter out drops that reference temp variables not in state machine scope
+                  if (branch.deferredDropExpressions) {
+                    for (const dropExpr of branch.deferredDropExpressions) {
+                      const dropCode = generateExpr(
+                        dropExpr,
+                        "          ",
+                        context
+                      );
+                      // Skip drops that don't use state machine fields (sm->var_*)
+                      // These are temp variables from the original scope that aren't accessible
+                      if (dropCode && dropCode.includes("sm->")) {
+                        emitter.emitLine(`          ${dropCode};`);
+                      }
                     }
                   }
                 }
@@ -343,6 +471,162 @@ export function generateAsyncBlockResumeFunction(
 
           emitter.emitLine(`      }`);
 
+          // Process chained branches (outer cond's remaining code after nested cond's switch)
+          if (condBranchData.chainedBranches) {
+            for (const chainedLayer of condBranchData.chainedBranches) {
+              for (const chainedBranch of chainedLayer.branches) {
+                if (
+                  chainedBranch.hasAwait &&
+                  chainedBranch.remainingExprs &&
+                  chainedBranch.remainingExprs.length > 0
+                ) {
+                  // Set up state machine context for code generation
+                  const previousInStateMachineForChained =
+                    context.inStateMachine;
+                  const previousStateMachineVariablesForChained =
+                    context.stateMachineVariables;
+                  const previousVariableIdRemappingForChained =
+                    context.variableIdRemapping;
+                  const previousPendingDeferredDropsForChained =
+                    context.pendingDeferredDrops;
+
+                  context.inStateMachine = { futureType };
+                  context.variableIdRemapping = analysis.variableIdRemapping;
+                  context.pendingDeferredDrops = [
+                    ...(bodyExpr.$?.deferredDropExpressions ?? []),
+                  ];
+                  const combinedVariablesChained = new Map<
+                    string,
+                    CapturedVariable
+                  >();
+                  for (const v of analysis.capturedVariables) {
+                    combinedVariablesChained.set(v.id, v);
+                  }
+                  if (captureType) {
+                    for (const field of captureType.fields) {
+                      combinedVariablesChained.set(field.label, {
+                        id: field.label,
+                        name: field.label,
+                        type: field.type,
+                        kind: "outer",
+                        isOwningTheSameRcValueAs: undefined,
+                      });
+                    }
+                  }
+                  context.stateMachineVariables = combinedVariablesChained;
+
+                  const hasAdditionalCondAwaitChained =
+                    segment.awaitPoint?.isInsideCond ?? false;
+                  let foundAdditionalAwaitChained = false;
+                  const additionalRemainingExprsChained: Expr[] = [];
+
+                  for (const expr of chainedBranch.remainingExprs) {
+                    if (foundAdditionalAwaitChained) {
+                      additionalRemainingExprsChained.push(expr);
+                      continue;
+                    }
+
+                    if (
+                      hasAdditionalCondAwaitChained &&
+                      exprContainsAwait(expr)
+                    ) {
+                      foundAdditionalAwaitChained = true;
+                      generateRemainingExprFuture(
+                        expr,
+                        segment.awaitPoint!,
+                        analysis,
+                        "      ",
+                        context
+                      );
+                      continue;
+                    }
+
+                    const code = generateExpr(expr, "      ", context);
+                    if (
+                      !code ||
+                      !expr.$ ||
+                      isTempVariableName(expr.$.env.modulePath, code)
+                    ) {
+                      // Skip
+                    } else {
+                      emitter.emitLine(`      ${code};`);
+                    }
+                  }
+
+                  if (foundAdditionalAwaitChained && segment.awaitPoint) {
+                    const nextIndex = segment.awaitPoint.index;
+                    if (!functionContext.condBranchInfo) {
+                      functionContext.condBranchInfo = new Map();
+                    }
+                    const existingChained =
+                      functionContext.condBranchInfo.get(nextIndex);
+                    if (existingChained) {
+                      if (!existingChained.chainedBranches) {
+                        existingChained.chainedBranches = [];
+                      }
+                      existingChained.chainedBranches.push({
+                        branches: [
+                          {
+                            index: chainedBranch.index,
+                            value: chainedBranch.value,
+                            hasAwait:
+                              additionalRemainingExprsChained.length > 0 ||
+                              additionalRemainingExprsChained.some((e) =>
+                                exprContainsAwait(e)
+                              ),
+                            remainingExprs: additionalRemainingExprsChained,
+                            deferredDropExpressions:
+                              chainedBranch.deferredDropExpressions,
+                          },
+                        ],
+                        condBranchFieldIndex: chainedLayer.condBranchFieldIndex,
+                      });
+                    } else {
+                      functionContext.condBranchInfo.set(nextIndex, {
+                        branches: [
+                          {
+                            index: chainedBranch.index,
+                            value: chainedBranch.value,
+                            hasAwait:
+                              additionalRemainingExprsChained.length > 0 ||
+                              additionalRemainingExprsChained.some((e) =>
+                                exprContainsAwait(e)
+                              ),
+                            remainingExprs: additionalRemainingExprsChained,
+                            deferredDropExpressions:
+                              chainedBranch.deferredDropExpressions,
+                          },
+                        ],
+                        condBranchFieldIndex: chainedLayer.condBranchFieldIndex,
+                      });
+                    }
+                  } else {
+                    if (chainedBranch.deferredDropExpressions) {
+                      for (const dropExpr of chainedBranch.deferredDropExpressions) {
+                        const dropCode = generateExpr(
+                          dropExpr,
+                          "      ",
+                          context
+                        );
+                        if (dropCode && dropCode.includes("sm->")) {
+                          emitter.emitLine(`      ${dropCode};`);
+                        }
+                      }
+                    }
+                  }
+
+                  context.inStateMachine = previousInStateMachineForChained;
+                  context.stateMachineVariables =
+                    previousStateMachineVariablesForChained;
+                  context.variableIdRemapping =
+                    previousVariableIdRemappingForChained;
+                  context.pendingDeferredDrops =
+                    previousPendingDeferredDropsForChained;
+                }
+              }
+            }
+          }
+
           // If the cond result is assigned to a variable, assign the await result now
           if (condBranchData.targetVariableId) {
             const fieldName = getStateMachineFieldName(
@@ -354,6 +638,8 @@ export function generateAsyncBlockResumeFunction(
               `      sm->${fieldName} = sm->await_result_${prevAwait.index};`
             );
           }
+          // Note: targetAssignmentCode is handled inside each branch's remaining
+          // expression generation (the last expression is assigned to the target)
 
           emitter.emitLine(``);
         }
@@ -387,9 +673,15 @@ export function generateAsyncBlockResumeFunction(
               context.stateMachineVariables;
             const previousVariableIdRemappingForLoop =
               context.variableIdRemapping;
+            const previousPendingDeferredDropsForLoop =
+              context.pendingDeferredDrops;
 
             context.inStateMachine = { futureType };
             context.variableIdRemapping = analysis.variableIdRemapping;
+            context.pendingDeferredDrops = [
+              ...(whileLoopData.bodyExpr.$?.deferredDropExpressions ?? []),
+              ...(bodyExpr.$?.deferredDropExpressions ?? []),
+            ];
 
             // Combine outer captured variables and local variables
             const combinedVariables = new Map<string, CapturedVariable>();
@@ -409,13 +701,22 @@ export function generateAsyncBlockResumeFunction(
             }
             context.stateMachineVariables = combinedVariables;
 
-            // Set up break handling: in the state machine switch, plain "break" exits
-            // the switch, not the conceptual while loop. We need goto instead.
+            // Set up break/continue handling: in the state machine switch, plain "break"
+            // and "continue" don't work as expected. We need goto instead.
             const previousAsyncWhileBreakInfo = context.asyncWhileBreakInfo;
+            const previousAsyncWhileContinueInfo =
+              context.asyncWhileContinueInfo;
+            const previousAsyncWhileBodyDrops = context.asyncWhileBodyDrops;
             context.asyncWhileBreakInfo = {
               label: `after_while_loop_${prevAwait.index}`,
               index: prevAwait.index,
             };
+            context.asyncWhileContinueInfo = {
+              label: `while_loop_${prevAwait.index}_continue`,
+            };
+            context.asyncWhileBodyDrops = [
+              ...(whileLoopData.bodyExpr.$?.deferredDropExpressions ?? []),
+            ];
 
             // Generate the remaining expressions
             for (const expr of whileLoopData.bodyExprsAfterAwait) {
@@ -434,10 +735,58 @@ export function generateAsyncBlockResumeFunction(
 
             // Restore context
             context.asyncWhileBreakInfo = previousAsyncWhileBreakInfo;
+            context.asyncWhileContinueInfo = previousAsyncWhileContinueInfo;
+            context.asyncWhileBodyDrops = previousAsyncWhileBodyDrops;
             context.inStateMachine = previousInStateMachineForLoop;
             context.stateMachineVariables =
               previousStateMachineVariablesForLoop;
             context.variableIdRemapping = previousVariableIdRemappingForLoop;
+            context.pendingDeferredDrops = previousPendingDeferredDropsForLoop;
+          }
+
+          // Label for continue to jump to (skip rest of body, re-evaluate condition)
+          emitter.emitLine(`      while_loop_${prevAwait.index}_continue:`);
+
+          // Drop while loop body locals before condition re-evaluation
+          // Both normal fall-through and explicit 'continue' reach this label
+          {
+            const whileBodyDrops =
+              whileLoopData.bodyExpr.$?.deferredDropExpressions ?? [];
+            if (whileBodyDrops.length > 0) {
+              const prevInSM = context.inStateMachine;
+              const prevSMVars = context.stateMachineVariables;
+              const prevVarRemap = context.variableIdRemapping;
+              context.inStateMachine = { futureType };
+              context.variableIdRemapping = analysis.variableIdRemapping;
+
+              const dropCombinedVars = new Map<string, CapturedVariable>();
+              for (const v of analysis.capturedVariables) {
+                dropCombinedVars.set(v.id, v);
+              }
+              if (captureType) {
+                for (const field of captureType.fields) {
+                  dropCombinedVars.set(field.label, {
+                    id: field.label,
+                    name: field.label,
+                    type: field.type,
+                    kind: "outer",
+                    isOwningTheSameRcValueAs: undefined,
+                  });
+                }
+              }
+              context.stateMachineVariables = dropCombinedVars;
+
+              for (const dropExpr of whileBodyDrops) {
+                const dropCode = generateExpr(dropExpr, "        ", context);
+                if (dropCode && dropCode.includes("sm->")) {
+                  emitter.emitLine(`        ${dropCode};`);
+                }
+              }
+
+              context.inStateMachine = prevInSM;
+              context.stateMachineVariables = prevSMVars;
+              context.variableIdRemapping = prevVarRemap;
+            }
           }
 
           // Re-evaluate the loop condition
@@ -514,6 +863,181 @@ export function generateAsyncBlockResumeFunction(
           emitter.emitLine(``);
           // Add label for code after while loop (for break to jump to)
           emitter.emitLine(`      after_while_loop_${prevAwait.index}:`);
+
+          // Handle outer while loop continuation (for nested while-with-await)
+          if (whileLoopData.outerWhileLoop) {
+            const outerWhile = whileLoopData.outerWhileLoop;
+            const outerIndex = outerWhile.whileLoopIndex;
+
+            emitter.emitLine(
+              `      // Execute remaining code from outer while loop body`
+            );
+            emitter.emitLine(
+              `      if (sm->while_loop_${outerIndex}_active) {`
+            );
+
+            // Generate the outer while's remaining body expressions
+            if (outerWhile.bodyExprsAfterAwait.length > 0) {
+              const prevInSMOuter = context.inStateMachine;
+              const prevSMVarsOuter = context.stateMachineVariables;
+              const prevVarRemapOuter = context.variableIdRemapping;
+              const prevPendingDropsOuter = context.pendingDeferredDrops;
+
+              context.inStateMachine = { futureType };
+              context.variableIdRemapping = analysis.variableIdRemapping;
+              context.pendingDeferredDrops = [
+                ...(outerWhile.bodyExpr.$?.deferredDropExpressions ?? []),
+                ...(bodyExpr.$?.deferredDropExpressions ?? []),
+              ];
+
+              const outerCombinedVars = new Map<string, CapturedVariable>();
+              for (const v of analysis.capturedVariables) {
+                outerCombinedVars.set(v.id, v);
+              }
+              if (captureType) {
+                for (const field of captureType.fields) {
+                  outerCombinedVars.set(field.label, {
+                    id: field.label,
+                    name: field.label,
+                    type: field.type,
+                    kind: "outer",
+                    isOwningTheSameRcValueAs: undefined,
+                  });
+                }
+              }
+              context.stateMachineVariables = outerCombinedVars;
+
+              const prevBreakInfoOuter = context.asyncWhileBreakInfo;
+              const prevContinueInfoOuter = context.asyncWhileContinueInfo;
+              const prevBodyDropsOuter = context.asyncWhileBodyDrops;
+              context.asyncWhileBreakInfo = {
+                label: `after_while_loop_${outerIndex}`,
+                index: outerIndex,
+              };
+              context.asyncWhileContinueInfo = {
+                label: `while_loop_${outerIndex}_continue`,
+              };
+              context.asyncWhileBodyDrops = [
+                ...(outerWhile.bodyExpr.$?.deferredDropExpressions ?? []),
+              ];
+
+              for (const expr of outerWhile.bodyExprsAfterAwait) {
+                const code = generateExpr(expr, "        ", context);
+                if (
+                  !code ||
+                  !expr.$ ||
+                  isTempVariableName(expr.$.env.modulePath, code)
+                ) {
+                  // Skip
+                } else {
+                  emitter.emitLine(`        ${code};`);
+                }
+              }
+
+              context.asyncWhileBreakInfo = prevBreakInfoOuter;
+              context.asyncWhileContinueInfo = prevContinueInfoOuter;
+              context.asyncWhileBodyDrops = prevBodyDropsOuter;
+              context.inStateMachine = prevInSMOuter;
+              context.stateMachineVariables = prevSMVarsOuter;
+              context.variableIdRemapping = prevVarRemapOuter;
+              context.pendingDeferredDrops = prevPendingDropsOuter;
+            }
+
+            // Label for outer while continue
+            emitter.emitLine(`      while_loop_${outerIndex}_continue:`);
+
+            // Drop outer while body locals before condition re-evaluation
+            {
+              const outerDrops =
+                outerWhile.bodyExpr.$?.deferredDropExpressions ?? [];
+              if (outerDrops.length > 0) {
+                const prevInSM2 = context.inStateMachine;
+                const prevSMVars2 = context.stateMachineVariables;
+                const prevVarRemap2 = context.variableIdRemapping;
+                context.inStateMachine = { futureType };
+                context.variableIdRemapping = analysis.variableIdRemapping;
+
+                const dropVars2 = new Map<string, CapturedVariable>();
+                for (const v of analysis.capturedVariables) {
+                  dropVars2.set(v.id, v);
+                }
+                if (captureType) {
+                  for (const field of captureType.fields) {
+                    dropVars2.set(field.label, {
+                      id: field.label,
+                      name: field.label,
+                      type: field.type,
+                      kind: "outer",
+                      isOwningTheSameRcValueAs: undefined,
+                    });
+                  }
+                }
+                context.stateMachineVariables = dropVars2;
+
+                for (const dropExpr of outerDrops) {
+                  const dropCode = generateExpr(dropExpr, "        ", context);
+                  if (dropCode && dropCode.includes("sm->")) {
+                    emitter.emitLine(`        ${dropCode};`);
+                  }
+                }
+
+                context.inStateMachine = prevInSM2;
+                context.stateMachineVariables = prevSMVars2;
+                context.variableIdRemapping = prevVarRemap2;
+              }
+            }
+
+            // Re-evaluate outer while condition
+            {
+              const prevInSM3 = context.inStateMachine;
+              const prevSMVars3 = context.stateMachineVariables;
+              const prevVarRemap3 = context.variableIdRemapping;
+              context.inStateMachine = { futureType };
+              context.variableIdRemapping = analysis.variableIdRemapping;
+
+              const condVars3 = new Map<string, CapturedVariable>();
+              for (const v of analysis.capturedVariables) {
+                condVars3.set(v.id, v);
+              }
+              if (captureType) {
+                for (const field of captureType.fields) {
+                  condVars3.set(field.label, {
+                    id: field.label,
+                    name: field.label,
+                    type: field.type,
+                    kind: "outer",
+                    isOwningTheSameRcValueAs: undefined,
+                  });
+                }
+              }
+              context.stateMachineVariables = condVars3;
+
+              const outerCondCode = generateExpr(
+                outerWhile.conditionExpr,
+                "        ",
+                context
+              );
+
+              context.inStateMachine = prevInSM3;
+              context.stateMachineVariables = prevSMVars3;
+              context.variableIdRemapping = prevVarRemap3;
+
+              emitter.emitLine(`        if (!(${outerCondCode})) {`);
+              emitter.emitLine(
+                `          sm->while_loop_${outerIndex}_active = false;`
+              );
+              emitter.emitLine(`        } else {`);
+              emitter.emitLine(`          sm->state = ${prevAwait.index};`);
+              emitter.emitLine(
+                `          goto while_loop_${outerIndex}_start;`
+              );
+              emitter.emitLine(`        }`);
+            }
+
+            emitter.emitLine(`      }`);
+            emitter.emitLine(``);
+            emitter.emitLine(`      after_while_loop_${outerIndex}:`);
+          }
         }
       }
     }
@@ -658,7 +1182,7 @@ export function generateAsyncBlockResumeFunction(
     } else if (isLastSegment) {
       // Last segment - complete the Future
       const hasReturnStatement = segment.expressions.some((expr: Expr) =>
-        exprIsFunctionCallOf(expr, "return")
+        exprContainsReturn(expr)
       );
 
       if (!hasReturnStatement) {
@@ -701,4 +1225,120 @@ export function generateAsyncBlockResumeFunction(
   emitter.emitLine(`  }`);
   emitter.emitLine(`}`);
   emitter.emitLine(``);
+}
+
+/**
+ * Generates code to store the future from an await expression found in cond branch remaining expressions.
+ * This handles the case where a cond branch has multiple sequential awaits.
+ */
+function generateRemainingExprFuture(
+  expr: Expr,
+  awaitPoint: AwaitPoint,
+  analysis: AwaitAnalysisResult,
+  indent: string,
+  context: FunctionGenerationContext
+): void {
+  const emitter = context.emitter;
+  const futureFieldName = getFutureFieldName(awaitPoint, analysis);
+
+  // Handle: varName := await(futureExpr)
+  if (expr.tag === ExprTag.FnCall && exprIsFunctionCallOf(expr, ":=")) {
+    const valueExpr = expr.args[1];
+    if (
+      valueExpr &&
+      valueExpr.tag === ExprTag.FnCall &&
+      exprIsFunctionCallOf(valueExpr, BuiltinFunctions.await)
+    ) {
+      const futureExpr = valueExpr.args[0];
+      if (futureExpr) {
+        const futureCode = generateExpr(futureExpr, indent, context);
+        emitter.emitLine(
+          `${indent}// Store Future for additional await in cond branch`
+        );
+        emitter.emitLine(`${indent}sm->${futureFieldName} = ${futureCode};`);
+      }
+    }
+    return;
+  }
+
+  // Handle: await(futureExpr)
+  if (
+    expr.tag === ExprTag.FnCall &&
+    exprIsFunctionCallOf(expr, BuiltinFunctions.await)
+  ) {
+    const futureExpr = expr.args[0];
+    if (futureExpr) {
+      const futureCode = generateExpr(futureExpr, indent, context);
+      emitter.emitLine(
+        `${indent}// Store Future for additional await in cond branch`
+      );
+      emitter.emitLine(`${indent}sm->${futureFieldName} = ${futureCode};`);
+    }
+    return;
+  }
+
+  // Handle: cond(... => { await ... }, ...) - nested cond with await in branches
+  if (
+    expr.tag === ExprTag.FnCall &&
+    exprIsFunctionCallOf(expr, BuiltinKeywords.cond)
+  ) {
+    generateAwaitExpression(expr, awaitPoint, 0, indent, context);
+    return;
+  }
+
+  // Handle: match(... => { await ... }, ...) - nested match with await in branches
+  if (
+    expr.tag === ExprTag.FnCall &&
+    exprIsFunctionCallOf(expr, BuiltinKeywords.match)
+  ) {
+    generateAwaitExpression(expr, awaitPoint, 0, indent, context);
+    return;
+  }
+
+  // Handle: while ... { await ... } - while loop with await in body
+  if (
+    expr.tag === ExprTag.FnCall &&
+    exprIsFunctionCallOf(expr, BuiltinKeywords.while)
+  ) {
+    generateAwaitExpression(expr, awaitPoint, 0, indent, context);
+    return;
+  }
+
+  // Handle: begin block that contains an await somewhere inside
+  if (
+    expr.tag === ExprTag.FnCall &&
+    exprIsFunctionCallOf(expr, BuiltinKeywords.begin)
+  ) {
+    generateAwaitExpression(expr, awaitPoint, 0, indent, context);
+    return;
+  }
+
+  emitter.emitLine(
+    `${indent}// Warning: unhandled await pattern in remaining expressions`
+  );
+}
+
+/**
+ * Recursively checks if an expression contains a return statement.
+ * Handles both bare `return` atoms and `return(value)` function calls,
+ * and recurses into begin blocks, cond branches, etc.
+ */
+function exprContainsReturn(expr: Expr): boolean {
+  // Bare `return` atom (no return value)
+  if (exprIsAtomOf(expr, "return")) {
+    return true;
+  }
+  // `return(value)` function call
+  if (exprIsFunctionCallOf(expr, "return")) {
+    return true;
+  }
+  // Recurse into begin blocks, cond branches, etc.
+  if (expr.tag === ExprTag.FnCall) {
+    for (const arg of expr.args) {
+      if (exprContainsReturn(arg)) {
+        return true;
+      }
+    }
+  }
+  return false;
 }

@@ -248,277 +248,186 @@ static yo_io_future_t* __yo_async_sleep_start(uint64_t milliseconds) {
 // ============================================================================
 #if !defined(_WIN32)
 
-// Async access - check file accessibility
-static yo_io_future_t* __yo_async_access_start(int32_t dirfd, const char* path, int32_t mode) {
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
-  
-  future->header.ref_count = 1;
-  atomic_init(&future->continuation_fn, NULL);
-  atomic_init(&future->continuation_sm, NULL);
-  
+#if defined(__linux__)
+#include <sys/sendfile.h>
+#elif defined(__APPLE__)
+#include <copyfile.h>
+#endif
+
+// Fallback for platforms where sendfile cannot handle all fd combinations
+// (e.g. macOS sendfile requires socket destination).
+#if defined(__linux__) || defined(__APPLE__)
+static int32_t __yo_sendfile_fallback_copy(int32_t out_fd, int32_t in_fd, int64_t offset, size_t count) {
+  unsigned char buffer[65536];
+  size_t total = 0;
+
+  while (total < count) {
+    size_t remaining = count - total;
+    size_t chunk = remaining < sizeof(buffer) ? remaining : sizeof(buffer);
+
+    ssize_t nread = pread(in_fd, buffer, chunk, (off_t)(offset + (int64_t)total));
+    if (nread < 0) {
+      return -errno;
+    }
+    if (nread == 0) {
+      break;
+    }
+
+    size_t written = 0;
+    while (written < (size_t)nread) {
+      ssize_t nwrite = write(out_fd, buffer + written, (size_t)nread - written);
+      if (nwrite < 0) {
+        return -errno;
+      }
+      written += (size_t)nwrite;
+    }
+
+    total += (size_t)nread;
+  }
+
+  return (int32_t)total;
+}
+#endif
+
+// ============================================================================
+// Synchronous Operations (POSIX-only) - no IOFuture overhead
+// ============================================================================
+
+static int32_t __yo_sync_access(int32_t dirfd, const char* path, int32_t mode) {
   int result;
   if (dirfd == -100) {  // AT_FDCWD
     result = access(path, mode);
   } else {
     result = faccessat(dirfd, path, mode, 0);
   }
-  future->result = (result < 0) ? -errno : 0;
-  atomic_init(&future->state, -1);
-  
-  ASYNC_DEBUG("[IO] access completed: path=%s mode=%d result=%d\\n", path, mode, future->result);
-  
-  return future;
+  return (result < 0) ? -errno : 0;
 }
 
-// Async realpath - resolve canonical path
-static yo_io_future_t* __yo_async_realpath_start(const char* path, char* resolved) {
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
-  
-  future->header.ref_count = 1;
-  atomic_init(&future->continuation_fn, NULL);
-  atomic_init(&future->continuation_sm, NULL);
-  
+static int32_t __yo_sync_realpath(const char* path, char* resolved) {
   char* result = realpath(path, resolved);
-  future->result = result ? 0 : -errno;
-  atomic_init(&future->state, -1);
-  
-  ASYNC_DEBUG("[IO] realpath completed: path=%s result=%d\\n", path, future->result);
-  
-  return future;
+  return result ? 0 : -errno;
 }
 
-// Async utime - change file timestamps
-static yo_io_future_t* __yo_async_utime_start(const char* path, int64_t atime_sec, int64_t atime_nsec,
-                                               int64_t mtime_sec, int64_t mtime_nsec) {
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
-  
-  future->header.ref_count = 1;
-  atomic_init(&future->continuation_fn, NULL);
-  atomic_init(&future->continuation_sm, NULL);
-  
-  struct timespec times[2];
-  times[0].tv_sec = (time_t)atime_sec;
-  times[0].tv_nsec = (long)atime_nsec;
-  times[1].tv_sec = (time_t)mtime_sec;
-  times[1].tv_nsec = (long)mtime_nsec;
-  
-  int result = utimensat(AT_FDCWD, path, times, 0);
-  future->result = (result < 0) ? -errno : 0;
-  atomic_init(&future->state, -1);
-  
-  return future;
-}
-
-// Async futime - change file timestamps by fd
-static yo_io_future_t* __yo_async_futime_start(int32_t fd, int64_t atime_sec, int64_t atime_nsec,
-                                                int64_t mtime_sec, int64_t mtime_nsec) {
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
-  
-  future->header.ref_count = 1;
-  atomic_init(&future->continuation_fn, NULL);
-  atomic_init(&future->continuation_sm, NULL);
-  
-  struct timespec times[2];
-  times[0].tv_sec = (time_t)atime_sec;
-  times[0].tv_nsec = (long)atime_nsec;
-  times[1].tv_sec = (time_t)mtime_sec;
-  times[1].tv_nsec = (long)mtime_nsec;
-  
-  int result = futimens(fd, times);
-  future->result = (result < 0) ? -errno : 0;
-  atomic_init(&future->state, -1);
-  
-  return future;
-}
-
-// Async lutime - change symlink timestamps
-static yo_io_future_t* __yo_async_lutime_start(const char* path, int64_t atime_sec, int64_t atime_nsec,
-                                                int64_t mtime_sec, int64_t mtime_nsec) {
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
-  
-  future->header.ref_count = 1;
-  atomic_init(&future->continuation_fn, NULL);
-  atomic_init(&future->continuation_sm, NULL);
-  
-  struct timespec times[2];
-  times[0].tv_sec = (time_t)atime_sec;
-  times[0].tv_nsec = (long)atime_nsec;
-  times[1].tv_sec = (time_t)mtime_sec;
-  times[1].tv_nsec = (long)mtime_nsec;
-  
-  int result = utimensat(AT_FDCWD, path, times, AT_SYMLINK_NOFOLLOW);
-  future->result = (result < 0) ? -errno : 0;
-  atomic_init(&future->state, -1);
-  
-  return future;
-}
-
-// Async mkdtemp - create temporary directory
-static yo_io_future_t* __yo_async_mkdtemp_start(char* template) {
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
-  
-  future->header.ref_count = 1;
-  atomic_init(&future->continuation_fn, NULL);
-  atomic_init(&future->continuation_sm, NULL);
-  
+static int32_t __yo_sync_mkdtemp(char* template) {
   char* result = mkdtemp(template);
-  future->result = result ? 0 : -errno;
-  atomic_init(&future->state, -1);
-  
-  return future;
+  return result ? 0 : -errno;
 }
 
-// Async mkstemp - create temporary file
-static yo_io_future_t* __yo_async_mkstemp_start(char* template) {
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
-  
-  future->header.ref_count = 1;
-  atomic_init(&future->continuation_fn, NULL);
-  atomic_init(&future->continuation_sm, NULL);
-  
+static int32_t __yo_sync_mkstemp(char* template) {
   int fd = mkstemp(template);
-  future->result = (fd < 0) ? -errno : fd;
-  atomic_init(&future->state, -1);
-  
-  return future;
+  return (fd < 0) ? -errno : fd;
 }
 
-// Async copyfile
+static int32_t __yo_sync_copyfile(const char* src, const char* dst, int32_t flags) {
 #if defined(__linux__)
-#include <sys/sendfile.h>
-
-static yo_io_future_t* __yo_async_copyfile_start(const char* src, const char* dst, int32_t flags) {
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
-  
-  future->header.ref_count = 1;
-  atomic_init(&future->continuation_fn, NULL);
-  atomic_init(&future->continuation_sm, NULL);
-  
-  // Open source
   int src_fd = open(src, O_RDONLY);
-  if (src_fd < 0) {
-    future->result = -errno;
-    atomic_init(&future->state, -1);
-    return future;
-  }
-  
-  // Get source size
+  if (src_fd < 0) return -errno;
+
   struct stat st;
   if (fstat(src_fd, &st) < 0) {
     int err = errno;
     close(src_fd);
-    future->result = -err;
-    atomic_init(&future->state, -1);
-    return future;
+    return -err;
   }
-  
-  // Open/create destination
+
   int open_flags = O_WRONLY | O_CREAT | O_TRUNC;
-  if (flags & 1) open_flags |= O_EXCL;  // COPYFILE_EXCL
-  
+  if (flags & 1) open_flags |= O_EXCL;
+
   int dst_fd = open(dst, open_flags, st.st_mode);
   if (dst_fd < 0) {
     int err = errno;
     close(src_fd);
-    future->result = -err;
-    atomic_init(&future->state, -1);
-    return future;
+    return -err;
   }
-  
-  // Try copy_file_range first (supports clone), fall back to sendfile
+
   ssize_t copied = 0;
   off_t off_in = 0;
-  
 #ifdef __NR_copy_file_range
   copied = syscall(__NR_copy_file_range, src_fd, &off_in, dst_fd, NULL, (size_t)st.st_size, 0);
 #endif
-  
   if (copied < 0) {
-    // Fall back to sendfile
     off_t offset = 0;
     copied = sendfile(dst_fd, src_fd, &offset, (size_t)st.st_size);
   }
-  
+
   close(src_fd);
   close(dst_fd);
-  
-  future->result = (copied < 0) ? -errno : 0;
-  atomic_init(&future->state, -1);
-  
-  return future;
-}
+  return (copied < 0) ? -errno : 0;
 
 #elif defined(__APPLE__)
-#include <copyfile.h>
-
-static yo_io_future_t* __yo_async_copyfile_start(const char* src, const char* dst, int32_t flags) {
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
-  
-  future->header.ref_count = 1;
-  atomic_init(&future->continuation_fn, NULL);
-  atomic_init(&future->continuation_sm, NULL);
-  
   copyfile_flags_t cf_flags = COPYFILE_ALL;
-  if (flags & 1) cf_flags |= COPYFILE_EXCL;  // COPYFILE_EXCL
-  if (flags & 2) cf_flags |= COPYFILE_CLONE;  // COPYFILE_FICLONE
-  if (flags & 4) cf_flags |= COPYFILE_CLONE_FORCE;  // COPYFILE_FICLONE_FORCE
-  
-  int result = copyfile(src, dst, NULL, cf_flags);
-  future->result = (result < 0) ? -errno : 0;
-  atomic_init(&future->state, -1);
-  
-  return future;
-}
-#endif
+  if (flags & 1) cf_flags |= COPYFILE_EXCL;
+  if (flags & 2) cf_flags |= COPYFILE_CLONE;
+  if (flags & 4) cf_flags |= COPYFILE_CLONE_FORCE;
 
-// Async sendfile
-static yo_io_future_t* __yo_async_sendfile_start(int32_t out_fd, int32_t in_fd, int64_t offset, size_t count) {
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
-  
-  future->header.ref_count = 1;
-  atomic_init(&future->continuation_fn, NULL);
-  atomic_init(&future->continuation_sm, NULL);
-  
+  int result = copyfile(src, dst, NULL, cf_flags);
+  return (result < 0) ? -errno : 0;
+#else
+  (void)src; (void)dst; (void)flags;
+  return -ENOSYS;
+#endif
+}
+
+static int32_t __yo_sync_sendfile(int32_t out_fd, int32_t in_fd, int64_t offset, size_t count) {
 #if defined(__linux__)
   off_t off = (off_t)offset;
   ssize_t sent = sendfile(out_fd, in_fd, &off, count);
-  future->result = (sent < 0) ? -errno : (int32_t)sent;
+  return (sent < 0) ? -errno : (int32_t)sent;
 #elif defined(__APPLE__)
   off_t len = (off_t)count;
   int result = sendfile(in_fd, out_fd, (off_t)offset, &len, NULL, 0);
-  future->result = (result < 0) ? -errno : (int32_t)len;
+  if (result < 0) {
+    if (errno == ENOTSOCK || errno == EINVAL || errno == ENOSYS) {
+      return __yo_sendfile_fallback_copy(out_fd, in_fd, offset, count);
+    }
+    return -errno;
+  }
+  return (int32_t)len;
+#else
+  (void)out_fd; (void)in_fd; (void)offset; (void)count;
+  return -ENOSYS;
 #endif
-  
-  atomic_init(&future->state, -1);
-  return future;
+}
+
+static int32_t __yo_sync_utime(const char* path, int64_t atime_sec, int64_t atime_nsec,
+                               int64_t mtime_sec, int64_t mtime_nsec) {
+  struct timespec times[2];
+  times[0].tv_sec = (time_t)atime_sec;
+  times[0].tv_nsec = (long)atime_nsec;
+  times[1].tv_sec = (time_t)mtime_sec;
+  times[1].tv_nsec = (long)mtime_nsec;
+  int result = utimensat(AT_FDCWD, path, times, 0);
+  return (result < 0) ? -errno : 0;
+}
+
+static int32_t __yo_sync_futime(int32_t fd, int64_t atime_sec, int64_t atime_nsec,
+                                int64_t mtime_sec, int64_t mtime_nsec) {
+  struct timespec times[2];
+  times[0].tv_sec = (time_t)atime_sec;
+  times[0].tv_nsec = (long)atime_nsec;
+  times[1].tv_sec = (time_t)mtime_sec;
+  times[1].tv_nsec = (long)mtime_nsec;
+  int result = futimens(fd, times);
+  return (result < 0) ? -errno : 0;
+}
+
+static int32_t __yo_sync_lutime(const char* path, int64_t atime_sec, int64_t atime_nsec,
+                                int64_t mtime_sec, int64_t mtime_nsec) {
+  struct timespec times[2];
+  times[0].tv_sec = (time_t)atime_sec;
+  times[0].tv_nsec = (long)atime_nsec;
+  times[1].tv_sec = (time_t)mtime_sec;
+  times[1].tv_nsec = (long)mtime_nsec;
+  int result = utimensat(AT_FDCWD, path, times, AT_SYMLINK_NOFOLLOW);
+  return (result < 0) ? -errno : 0;
 }
 
 // Statfs support
 #include <sys/statvfs.h>
 
-static yo_io_future_t* __yo_async_statfs_start(const char* path, void* buf) {
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
-  
-  future->header.ref_count = 1;
-  atomic_init(&future->continuation_fn, NULL);
-  atomic_init(&future->continuation_sm, NULL);
-  
+static int32_t __yo_sync_statfs(const char* path, void* buf) {
   int result = statvfs(path, (struct statvfs*)buf);
-  future->result = (result < 0) ? -errno : 0;
-  atomic_init(&future->state, -1);
-  
-  return future;
+  return (result < 0) ? -errno : 0;
 }
 
 static size_t __yo_statfs_buf_size(void) {
@@ -831,6 +740,88 @@ static uint8_t* __yo_addrinfo_next(uint8_t* ai) {
 }
 
 // ============================================================================
+// Process Operations
+// ============================================================================
+#include <spawn.h>
+#include <sys/wait.h>
+
+extern char** environ;
+
+static yo_io_future_t* __yo_async_spawn_start(const uint8_t* file, uint8_t** argv, uint8_t** envp,
+                                              int32_t stdin_fd, int32_t stdout_fd, int32_t stderr_fd) {
+  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
+  memset(future, 0, sizeof(yo_io_future_t));
+
+  future->header.ref_count = 1;
+  atomic_init(&future->continuation_fn, NULL);
+  atomic_init(&future->continuation_sm, NULL);
+
+  posix_spawn_file_actions_t actions;
+  posix_spawn_file_actions_init(&actions);
+
+  if (stdin_fd >= 0) {
+    posix_spawn_file_actions_adddup2(&actions, stdin_fd, 0);
+  }
+  if (stdout_fd >= 0) {
+    posix_spawn_file_actions_adddup2(&actions, stdout_fd, 1);
+  }
+  if (stderr_fd >= 0) {
+    posix_spawn_file_actions_adddup2(&actions, stderr_fd, 2);
+  }
+
+  pid_t pid = 0;
+  char* const* envp_actual = envp ? (char* const*)envp : environ;
+  int result = posix_spawnp(&pid, (const char*)file, &actions, NULL, (char* const*)argv, envp_actual);
+  posix_spawn_file_actions_destroy(&actions);
+
+  if (result != 0) {
+    future->result = -result;
+  } else {
+    future->result = (int32_t)pid;
+  }
+  atomic_init(&future->state, -1);
+
+  return future;
+}
+
+static yo_io_future_t* __yo_async_waitpid_start(int32_t pid, int32_t options) {
+  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
+  memset(future, 0, sizeof(yo_io_future_t));
+
+  future->header.ref_count = 1;
+  atomic_init(&future->continuation_fn, NULL);
+  atomic_init(&future->continuation_sm, NULL);
+
+  int status = 0;
+  pid_t result = waitpid((pid_t)pid, &status, options);
+  if (result < 0) {
+    future->result = -errno;
+  } else if (result == 0) {
+    // WNOHANG and child still running
+    future->result = 0;
+  } else {
+    future->result = status;
+  }
+  atomic_init(&future->state, -1);
+
+  return future;
+}
+
+static int32_t __yo_process_exit_status(int32_t status) {
+  if (WIFEXITED(status)) {
+    return (int32_t)WEXITSTATUS(status);
+  }
+  return -1;
+}
+
+static int32_t __yo_process_term_signal(int32_t status) {
+  if (WIFSIGNALED(status)) {
+    return (int32_t)WTERMSIG(status);
+  }
+  return 0;
+}
+
+// ============================================================================
 // Signal Operations
 // ============================================================================
 #include <signal.h>
@@ -955,49 +946,367 @@ static int32_t __yo_isatty(int32_t fd) {
 }
 
 // ============================================================================
-// FS Event Operations (placeholder - needs kqueue/inotify)
+// FS Event Operations (inotify on Linux, kqueue on macOS)
 // ============================================================================
 
-typedef struct {
+#include <poll.h>
+#if defined(__linux__)
+#include <sys/inotify.h>
+#elif defined(__APPLE__)
+#include <sys/event.h>
+
+typedef struct yo_fs_event_entry_s {
+  char* name;
+  int64_t mtime_sec;
+  int64_t mtime_nsec;
+  int64_t size;
+  struct yo_fs_event_entry_s* next;
+} yo_fs_event_entry_t;
+#endif
+
+typedef struct yo_fs_event_s {
   int fd;
+  int watch_fd;
   void (*callback)(const char*, int, void*);
   void* user_data;
+  int active;
+#if defined(__APPLE__)
+  char* path;
+  int is_dir;
+  int exists;
+  int64_t mtime_sec;
+  int64_t mtime_nsec;
+  int64_t size;
+  yo_fs_event_entry_t* entries;
+#endif
+  struct yo_fs_event_s* next;
 } yo_fs_event_t;
+
+static yo_fs_event_t* __yo_active_fs_events = NULL;
+
+#if defined(__APPLE__)
+static void __yo_fs_event_free_entries(yo_fs_event_entry_t* head) {
+  while (head) {
+    yo_fs_event_entry_t* next = head->next;
+    if (head->name) __yo_free(head->name);
+    __yo_free(head);
+    head = next;
+  }
+}
+
+static yo_fs_event_entry_t* __yo_fs_event_find_entry(yo_fs_event_entry_t* head, const char* name) {
+  while (head) {
+    if (strcmp(head->name, name) == 0) {
+      return head;
+    }
+    head = head->next;
+  }
+  return NULL;
+}
+
+static yo_fs_event_entry_t* __yo_fs_event_snapshot_dir(const char* path, int* err_out) {
+  *err_out = 0;
+  DIR* dir = opendir(path);
+  if (!dir) {
+    *err_out = errno;
+    return NULL;
+  }
+
+  yo_fs_event_entry_t* head = NULL;
+  struct dirent* ent = NULL;
+  while ((ent = readdir(dir)) != NULL) {
+    if ((strcmp(ent->d_name, ".") == 0) || (strcmp(ent->d_name, "..") == 0)) {
+      continue;
+    }
+
+    size_t path_len = strlen(path);
+    size_t name_len = strlen(ent->d_name);
+    char* full_path = (char*)__yo_malloc(path_len + 1 + name_len + 1);
+    memcpy(full_path, path, path_len);
+    full_path[path_len] = '/';
+    memcpy(full_path + path_len + 1, ent->d_name, name_len + 1);
+
+    struct stat st;
+    if (stat(full_path, &st) == 0) {
+      yo_fs_event_entry_t* node = (yo_fs_event_entry_t*)__yo_malloc(sizeof(yo_fs_event_entry_t));
+      memset(node, 0, sizeof(yo_fs_event_entry_t));
+      node->name = (char*)__yo_malloc(name_len + 1);
+      memcpy(node->name, ent->d_name, name_len + 1);
+      node->mtime_sec = (int64_t)st.st_mtimespec.tv_sec;
+      node->mtime_nsec = (int64_t)st.st_mtimespec.tv_nsec;
+      node->size = (int64_t)st.st_size;
+      node->next = head;
+      head = node;
+    }
+
+    __yo_free(full_path);
+  }
+
+  closedir(dir);
+  return head;
+}
+
+static int __yo_fs_event_detect_snapshot_changes(yo_fs_event_t* handle) {
+  int yo_event = 0;
+
+  if (handle->is_dir) {
+    int snap_err = 0;
+    yo_fs_event_entry_t* next_entries = __yo_fs_event_snapshot_dir(handle->path, &snap_err);
+    if (snap_err != 0) {
+      if (snap_err == ENOENT) {
+        yo_event |= 1; // FS_EVENT_RENAME
+      }
+      return yo_event;
+    }
+
+    yo_fs_event_entry_t* ne = next_entries;
+    while (ne) {
+      yo_fs_event_entry_t* oe = __yo_fs_event_find_entry(handle->entries, ne->name);
+      if (!oe) {
+        yo_event |= 1; // FS_EVENT_RENAME (create)
+      } else if ((oe->mtime_sec != ne->mtime_sec) ||
+                 (oe->mtime_nsec != ne->mtime_nsec) ||
+                 (oe->size != ne->size)) {
+        yo_event |= 2; // FS_EVENT_CHANGE (modify)
+      }
+      ne = ne->next;
+    }
+
+    yo_fs_event_entry_t* oe = handle->entries;
+    while (oe) {
+      if (!__yo_fs_event_find_entry(next_entries, oe->name)) {
+        yo_event |= 1; // FS_EVENT_RENAME (delete)
+      }
+      oe = oe->next;
+    }
+
+    __yo_fs_event_free_entries(handle->entries);
+    handle->entries = next_entries;
+    return yo_event;
+  }
+
+  struct stat st;
+  if (stat(handle->path, &st) < 0) {
+    if (errno == ENOENT && handle->exists) {
+      handle->exists = 0;
+      return 1; // FS_EVENT_RENAME (delete)
+    }
+    return 0;
+  }
+
+  if (!handle->exists) {
+    handle->exists = 1;
+    handle->mtime_sec = (int64_t)st.st_mtimespec.tv_sec;
+    handle->mtime_nsec = (int64_t)st.st_mtimespec.tv_nsec;
+    handle->size = (int64_t)st.st_size;
+    return 1; // FS_EVENT_RENAME (create)
+  }
+
+  if ((handle->mtime_sec != (int64_t)st.st_mtimespec.tv_sec) ||
+      (handle->mtime_nsec != (int64_t)st.st_mtimespec.tv_nsec) ||
+      (handle->size != (int64_t)st.st_size)) {
+    handle->mtime_sec = (int64_t)st.st_mtimespec.tv_sec;
+    handle->mtime_nsec = (int64_t)st.st_mtimespec.tv_nsec;
+    handle->size = (int64_t)st.st_size;
+    return 2; // FS_EVENT_CHANGE
+  }
+
+  return 0;
+}
+#endif
 
 static void* __yo_fs_event_init(void) {
   yo_fs_event_t* handle = (yo_fs_event_t*)__yo_malloc(sizeof(yo_fs_event_t));
   memset(handle, 0, sizeof(yo_fs_event_t));
+  handle->fd = -1;
+  handle->watch_fd = -1;
+#if defined(__APPLE__)
+  handle->path = NULL;
+  handle->entries = NULL;
+#endif
   return handle;
 }
 
-static int32_t __yo_fs_event_start(void* handle, const char* path, uint32_t flags, void* callback) {
-  (void)handle;
-  (void)path;
-  (void)flags;
-  (void)callback;
-  // TODO: Implement with inotify (Linux) or kqueue (macOS)
-  return -ENOTSUP;
-}
+static int32_t __yo_fs_event_start(void* h, const char* path, uint32_t flags, void* callback, void* user_data) {
+  yo_fs_event_t* handle = (yo_fs_event_t*)h;
+  if (!handle || !path || !callback) return -EINVAL;
 
-static int32_t __yo_fs_event_stop(void* handle) {
-  (void)handle;
+#if defined(__linux__)
+  handle->fd = inotify_init1(IN_NONBLOCK | IN_CLOEXEC);
+  if (handle->fd < 0) return -errno;
+
+  uint32_t mask = IN_MODIFY | IN_CREATE | IN_DELETE | IN_MOVED_FROM | IN_MOVED_TO | IN_ATTRIB;
+  if (flags & 4) mask |= IN_ISDIR; // FS_EVENT_RECURSIVE hint (inotify doesn't do recursive natively)
+  handle->watch_fd = inotify_add_watch(handle->fd, path, mask);
+  if (handle->watch_fd < 0) {
+    int err = errno;
+    close(handle->fd);
+    handle->fd = -1;
+    return -err;
+  }
+#elif defined(__APPLE__)
+  handle->path = (char*)__yo_malloc(strlen(path) + 1);
+  strcpy(handle->path, path);
+
+  struct stat path_st;
+  if (stat(path, &path_st) < 0) {
+    int err = errno;
+    __yo_free(handle->path);
+    handle->path = NULL;
+    return -err;
+  }
+  handle->is_dir = S_ISDIR(path_st.st_mode) ? 1 : 0;
+  handle->exists = 1;
+  handle->mtime_sec = (int64_t)path_st.st_mtimespec.tv_sec;
+  handle->mtime_nsec = (int64_t)path_st.st_mtimespec.tv_nsec;
+  handle->size = (int64_t)path_st.st_size;
+
+  if (handle->is_dir) {
+    int snap_err = 0;
+    handle->entries = __yo_fs_event_snapshot_dir(path, &snap_err);
+    if (snap_err != 0) {
+      __yo_free(handle->path);
+      handle->path = NULL;
+      return -snap_err;
+    }
+  }
+
+  // Open the path to get an fd for kqueue EVFILT_VNODE
+  handle->fd = open(path, O_EVTONLY | O_CLOEXEC);
+  if (handle->fd < 0) {
+    int err = errno;
+    if (handle->entries) {
+      __yo_fs_event_free_entries(handle->entries);
+      handle->entries = NULL;
+    }
+    if (handle->path) {
+      __yo_free(handle->path);
+      handle->path = NULL;
+    }
+    return -err;
+  }
+
+  handle->watch_fd = kqueue();
+  if (handle->watch_fd < 0) {
+    int err = errno;
+    close(handle->fd);
+    handle->fd = -1;
+    if (handle->entries) {
+      __yo_fs_event_free_entries(handle->entries);
+      handle->entries = NULL;
+    }
+    if (handle->path) {
+      __yo_free(handle->path);
+      handle->path = NULL;
+    }
+    return -err;
+  }
+
+  // Register EVFILT_VNODE for common file/directory changes
+  struct kevent ev;
+  unsigned int fflags = NOTE_WRITE | NOTE_DELETE | NOTE_RENAME | NOTE_ATTRIB | NOTE_EXTEND;
+  EV_SET(&ev, handle->fd, EVFILT_VNODE, EV_ADD | EV_CLEAR, fflags, 0, NULL);
+  if (kevent(handle->watch_fd, &ev, 1, NULL, 0, NULL) < 0) {
+    int err = errno;
+    close(handle->watch_fd);
+    close(handle->fd);
+    handle->fd = -1;
+    handle->watch_fd = -1;
+    if (handle->entries) {
+      __yo_fs_event_free_entries(handle->entries);
+      handle->entries = NULL;
+    }
+    if (handle->path) {
+      __yo_free(handle->path);
+      handle->path = NULL;
+    }
+    return -err;
+  }
+#else
+  return -ENOTSUP;
+#endif
+
+  handle->callback = (void (*)(const char*, int, void*))callback;
+  handle->user_data = user_data;
+  handle->active = 1;
+
+  // Add to linked list
+  handle->next = __yo_active_fs_events;
+  __yo_active_fs_events = handle;
+  __yo_active_watch_count++;
   return 0;
 }
 
-static void __yo_fs_event_close(void* handle) {
-  if (handle) __yo_free(handle);
+static int32_t __yo_fs_event_stop(void* h) {
+  yo_fs_event_t* handle = (yo_fs_event_t*)h;
+  if (!handle) return -EINVAL;
+  if (!handle->active) return 0;
+
+  handle->active = 0;
+  __yo_active_watch_count--;
+
+#if defined(__linux__)
+  if (handle->watch_fd >= 0 && handle->fd >= 0) {
+    inotify_rm_watch(handle->fd, handle->watch_fd);
+    handle->watch_fd = -1;
+  }
+  if (handle->fd >= 0) {
+    close(handle->fd);
+    handle->fd = -1;
+  }
+#elif defined(__APPLE__)
+  if (handle->watch_fd >= 0) {
+    close(handle->watch_fd);
+    handle->watch_fd = -1;
+  }
+  if (handle->fd >= 0) {
+    close(handle->fd);
+    handle->fd = -1;
+  }
+  if (handle->entries) {
+    __yo_fs_event_free_entries(handle->entries);
+    handle->entries = NULL;
+  }
+  if (handle->path) {
+    __yo_free(handle->path);
+    handle->path = NULL;
+  }
+#endif
+
+  // Remove from linked list
+  yo_fs_event_t** pp = &__yo_active_fs_events;
+  while (*pp) {
+    if (*pp == handle) {
+      *pp = handle->next;
+      break;
+    }
+    pp = &(*pp)->next;
+  }
+  handle->next = NULL;
+  return 0;
+}
+
+static void __yo_fs_event_close(void* h) {
+  yo_fs_event_t* handle = (yo_fs_event_t*)h;
+  if (!handle) return;
+  if (handle->active) __yo_fs_event_stop(h);
+  __yo_free(handle);
 }
 
 // ============================================================================
-// Poll Operations (placeholder - needs kqueue/epoll)
+// Poll Operations (POSIX poll() on Linux/macOS)
 // ============================================================================
 
-typedef struct {
+typedef struct yo_poll_s {
   int fd;
   int events;
   void (*callback)(int, int, void*);
   void* user_data;
+  int active;
+  struct yo_poll_s* next;
 } yo_poll_t;
+
+static yo_poll_t* __yo_active_polls = NULL;
 
 static void* __yo_poll_init(int32_t fd) {
   yo_poll_t* handle = (yo_poll_t*)__yo_malloc(sizeof(yo_poll_t));
@@ -1006,21 +1315,159 @@ static void* __yo_poll_init(int32_t fd) {
   return handle;
 }
 
-static int32_t __yo_poll_start(void* handle, int32_t events, void* callback) {
-  (void)handle;
-  (void)events;
-  (void)callback;
-  // TODO: Implement with epoll (Linux) or kqueue (macOS)
-  return -ENOTSUP;
-}
+static int32_t __yo_poll_start(void* h, int32_t events, void* callback, void* user_data) {
+  yo_poll_t* handle = (yo_poll_t*)h;
+  if (!handle || !callback) return -EINVAL;
 
-static int32_t __yo_poll_stop(void* handle) {
-  (void)handle;
+  handle->events = events;
+  handle->callback = (void (*)(int, int, void*))callback;
+  handle->user_data = user_data;
+  handle->active = 1;
+
+  // Add to linked list
+  handle->next = __yo_active_polls;
+  __yo_active_polls = handle;
+  __yo_active_watch_count++;
   return 0;
 }
 
-static void __yo_poll_close(void* handle) {
-  if (handle) __yo_free(handle);
+static int32_t __yo_poll_stop(void* h) {
+  yo_poll_t* handle = (yo_poll_t*)h;
+  if (!handle) return -EINVAL;
+  if (!handle->active) return 0;
+
+  handle->active = 0;
+  __yo_active_watch_count--;
+
+  // Remove from linked list
+  yo_poll_t** pp = &__yo_active_polls;
+  while (*pp) {
+    if (*pp == handle) {
+      *pp = handle->next;
+      break;
+    }
+    pp = &(*pp)->next;
+  }
+  handle->next = NULL;
+  return 0;
+}
+
+static void __yo_poll_close(void* h) {
+  yo_poll_t* handle = (yo_poll_t*)h;
+  if (!handle) return;
+  if (handle->active) __yo_poll_stop(h);
+  __yo_free(handle);
+}
+
+// ============================================================================
+// Tick function: check all active poll and fs_event handles (non-blocking)
+// Called from __yo_io_poll() in platform-specific runtime files.
+// ============================================================================
+
+static int __yo_poll_and_fs_event_tick(void) {
+  int count = 0;
+
+  // --- Tick FS event handles ---
+#if defined(__linux__)
+  {
+    yo_fs_event_t* fse = __yo_active_fs_events;
+    while (fse) {
+      yo_fs_event_t* next = fse->next;
+      if (fse->active && fse->fd >= 0) {
+        char buf[4096] __attribute__((aligned(__alignof__(struct inotify_event))));
+        ssize_t len = read(fse->fd, buf, sizeof(buf));
+        if (len > 0) {
+          char* ptr = buf;
+          while (ptr < buf + len) {
+            struct inotify_event* event = (struct inotify_event*)ptr;
+            int yo_event = 0;
+            if (event->mask & (IN_CREATE | IN_DELETE | IN_MOVED_FROM | IN_MOVED_TO)) {
+              yo_event = 1; // FS_EVENT_RENAME
+            }
+            if (event->mask & (IN_MODIFY | IN_ATTRIB)) {
+              yo_event |= 2; // FS_EVENT_CHANGE
+            }
+            const char* name = (event->len > 0) ? event->name : "";
+            if (fse->callback && fse->active) {
+              fse->callback(name, yo_event, fse->user_data);
+              count++;
+            }
+            ptr += sizeof(struct inotify_event) + event->len;
+          }
+        }
+      }
+      fse = next;
+    }
+  }
+#elif defined(__APPLE__)
+  {
+    yo_fs_event_t* fse = __yo_active_fs_events;
+    while (fse) {
+      yo_fs_event_t* next = fse->next;
+      if (fse->active && fse->watch_fd >= 0) {
+        int yo_event = __yo_fs_event_detect_snapshot_changes(fse);
+
+        struct kevent ev;
+        struct timespec ts = {0, 0}; // Non-blocking
+        int n = kevent(fse->watch_fd, NULL, 0, &ev, 1, &ts);
+        if (n > 0) {
+          if (ev.fflags & (NOTE_DELETE | NOTE_RENAME)) {
+            yo_event |= 1; // FS_EVENT_RENAME
+          }
+          if (ev.fflags & (NOTE_WRITE | NOTE_ATTRIB | NOTE_EXTEND)) {
+            yo_event |= 2; // FS_EVENT_CHANGE
+          }
+        }
+
+        if (yo_event != 0) {
+          if (fse->callback && fse->active) {
+            fse->callback("", yo_event, fse->user_data);
+            count++;
+          }
+        }
+      }
+      fse = next;
+    }
+  }
+#endif
+
+  // --- Tick poll handles ---
+  {
+    yo_poll_t* ph = __yo_active_polls;
+    while (ph) {
+      yo_poll_t* next = ph->next;
+      if (ph->active) {
+        struct pollfd pfd;
+        pfd.fd = ph->fd;
+        pfd.events = 0;
+        if (ph->events & 1) pfd.events |= POLLIN;   // POLL_READABLE
+        if (ph->events & 2) pfd.events |= POLLOUT;  // POLL_WRITABLE
+        if (ph->events & 8) pfd.events |= POLLPRI;  // POLL_PRIORITIZED
+        pfd.revents = 0;
+
+        int ret = poll(&pfd, 1, 0); // Non-blocking
+        if (ret > 0) {
+          int yo_events = 0;
+          if (pfd.revents & POLLIN)  yo_events |= 1; // POLL_READABLE
+          if (pfd.revents & POLLOUT) yo_events |= 2; // POLL_WRITABLE
+          if (pfd.revents & POLLHUP) yo_events |= 4; // POLL_DISCONNECT
+          if (pfd.revents & POLLPRI) yo_events |= 8; // POLL_PRIORITIZED
+          if (ph->callback && ph->active) {
+            ph->callback(yo_events, 0, ph->user_data);
+            count++;
+          }
+        } else if (ret < 0) {
+          if (ph->callback && ph->active) {
+            ph->callback(0, -errno, ph->user_data);
+            count++;
+          }
+        }
+      }
+      ph = next;
+    }
+  }
+
+  return count;
 }
 
 #endif // !defined(_WIN32) - End of POSIX-only File Extra Operations

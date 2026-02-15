@@ -1,57 +1,1535 @@
 open import "std/libc/stdio";
-Async :: import "std/async";
+{ yield } :: import "std/async";
 
-// Expected to print:
-//
-// Task started
-// Running main...
-// Task completed
-//
-//
+// ---------------------------------------------------------------------------
+// 1. Basic eager async – verify interleaved execution
+// ---------------------------------------------------------------------------
 test "Test eager async", {
   b := Box(i32)(0);
 
-  // Simple test without nested async blocks
   task := async {
     printf("Task started %d\n", b.*);
-    assert(b.* == 0);
+    assert(b.* == 0, "b should be 0 at task start");
 
     c := Box(i32)(10);
 
     b.* = (b.* + 1);
-    await Async.yield();
-    
+    await yield();
+
     printf("Task completed %d\n", b.*);
-    assert(b.* == 2);
-    assert(c.* == 10);
+    assert(b.* == 2, "b should be 2 after main incremented");
+    assert(c.* == 10, "captured Box should still be 10");
   };
-  
+
   printf("Running main... %d\n", b.*);
-  assert(b.* == 1);
+  assert(b.* == 1, "b should be 1 after task's first half");
   b.* = (b.* + 1);
 };
 
+// ---------------------------------------------------------------------------
+// 2. Async function returning a value
+// ---------------------------------------------------------------------------
 test "Test async function", {
   run_task :: (fn(b : Box(i32)) -> Impl(Future(i32)))(async {
-      printf("Task started %d\n", b.*);
-      assert(b.* == 0);
+    printf("Task started %d\n", b.*);
+    assert(b.* == 0, "b should be 0");
 
-      c := Box(i32)(10);
+    c := Box(i32)(10);
 
-      b.* = (b.* + 1);
-      await Async.yield();
-      
-      printf("Task completed %d\n", b.*);
-      assert(b.* == 2);
-      assert(c.* == 10);
+    b.* = (b.* + 1);
+    await yield();
 
-      return b.*;
+    printf("Task completed %d\n", b.*);
+    assert(b.* == 2, "b should be 2");
+    assert(c.* == 10, "c should be 10");
+
+    return b.*;
   });
 
   bb := Box(i32)(0);
   task := run_task(bb);
-  
+
   printf("Running main... %d\n", bb.*);
-  assert(bb.* == 1);
+  assert(bb.* == 1, "bb should be 1");
   bb.* = (bb.* + 1);
+};
+
+// ---------------------------------------------------------------------------
+// 3. Multiple sequential awaits
+// ---------------------------------------------------------------------------
+test "Test multiple sequential awaits", {
+  counter := Box(i32)(0);
+
+  task := async {
+    counter.* = (counter.* + 1);
+    assert(counter.* == 1, "after first increment");
+    await yield();
+
+    counter.* = (counter.* + 1);
+    assert(counter.* == 2, "after second increment");
+    await yield();
+
+    counter.* = (counter.* + 1);
+    assert(counter.* == 3, "after third increment");
+    await yield();
+
+    counter.* = (counter.* + 1);
+    assert(counter.* == 4, "after fourth increment");
+  };
+};
+
+// ---------------------------------------------------------------------------
+// 4. Cond with await in one branch only (the non-await branch taken)
+//    Regression test for NULL future dereference when non-await branch executes
+// ---------------------------------------------------------------------------
+test "Test cond with await in one branch - non-await path", {
+  flag := Box(bool)(false);
+  result := Box(i32)(0);
+
+  task := async {
+    value := i32(42);
+    cond(
+      flag.* => {
+        await yield();
+        result.* = i32(1);
+      },
+      true => {
+        result.* = value;
+      }
+    );
+    assert(result.* == i32(42), "non-await branch should have set result to 42");
+  };
+
+  assert(result.* == i32(42), "result should be 42");
+};
+
+// ---------------------------------------------------------------------------
+// 5. Cond with await in one branch only (the await branch taken)
+//    When the await branch is taken, the task suspends at yield.
+//    Result is set AFTER the yield, so by the time the event loop
+//    completes the task, the inner assertion should pass.
+// ---------------------------------------------------------------------------
+test "Test cond with await in one branch - await path", {
+  async {
+    flag := Box(bool)(true);
+    result := Box(i32)(0);
+
+    task := async {
+      value := i32(99);
+      cond(
+        flag.* => {
+          await yield();
+          result.* = value;
+        },
+        true => {
+          result.* = i32(0);
+        }
+      );
+      assert(result.* == i32(99), "await branch should have set result to 99");
+    };
+
+    assert(result.* == i32(0), "result should still be 0 before task resumes");
+    await task;
+    assert(result.* == i32(99), "result should be 99 after task completes");
+  };
+};
+
+// ---------------------------------------------------------------------------
+// 6. Cond with await in BOTH branches – true branch taken
+//    Both branches have await, so the task always suspends.
+// ---------------------------------------------------------------------------
+test "Test cond with await in both branches", {
+  async {
+    flag := Box(bool)(true);
+    result := Box(i32)(0);
+
+    task := async {
+      cond(
+        flag.* => {
+          await yield();
+          result.* = i32(10);
+        },
+        true => {
+          await yield();
+          result.* = i32(20);
+        }
+      );
+      assert(result.* == i32(10), "true branch should have set result to 10");
+    };
+
+    assert(result.* == i32(0), "result should still be 0 before task resumes");
+    await task;
+    assert(result.* == i32(10), "result should be 10 after task completes");
+  };
+};
+
+// ---------------------------------------------------------------------------
+// 7. Cond with await in both branches – false branch taken
+// ---------------------------------------------------------------------------
+test "Test cond with await in both branches - false path", {
+  async {
+    flag := Box(bool)(false);
+    result := Box(i32)(0);
+
+    task := async {
+      cond(
+        flag.* => {
+          await yield();
+          result.* = i32(10);
+        },
+        true => {
+          await yield();
+          result.* = i32(20);
+        }
+      );
+      assert(result.* == i32(20), "false branch should have set result to 20");
+    };
+
+    assert(result.* == i32(0), "result should still be 0 before task resumes");
+    await task;
+    assert(result.* == i32(20), "result should be 20 after task completes");
+  };
+};
+
+// ---------------------------------------------------------------------------
+// 8. Early return from async block (no value)
+// ---------------------------------------------------------------------------
+test "Test early return from async block", {
+  reached_end := Box(bool)(false);
+  reached_middle := Box(bool)(false);
+
+  task := async {
+    reached_middle.* = true;
+    return;
+  };
+
+  assert(reached_middle.* == true, "should have reached middle");
+  assert(reached_end.* == false, "should NOT have reached end");
+};
+
+// ---------------------------------------------------------------------------
+// 9. Early return from cond branch inside async (regression test)
+//    This ensures local variables are properly dropped on early return
+// ---------------------------------------------------------------------------
+test "Test early return from cond branch in async", {
+  async {
+    flag := Box(bool)(true);
+    result := Box(i32)(0);
+
+    task := async {
+      s := Box(i32)(100);
+      cond(
+        flag.* => {
+          await yield();
+          result.* = s.*;
+          return;
+        },
+        true => ()
+      );
+      result.* = i32(999);
+    };
+
+    assert(result.* == i32(0), "result should still be 0 before task resumes");
+    await task;
+    assert(result.* == i32(100), "early return should have set result to 100");
+  };
+};
+
+// ---------------------------------------------------------------------------
+// 10. Early return from non-await cond branch inside async
+// ---------------------------------------------------------------------------
+test "Test early return from non-await cond branch in async", {
+  flag := Box(bool)(true);
+  result := Box(i32)(0);
+
+  task := async {
+    s := Box(i32)(200);
+    cond(
+      flag.* => {
+        result.* = s.*;
+        return;
+      },
+      true => {
+        await yield();
+      }
+    );
+    result.* = i32(999);
+  };
+
+  assert(result.* == i32(200), "early return from non-await branch should set result to 200");
+};
+
+// ---------------------------------------------------------------------------
+// 11. Captured Box variables across multiple await points
+// ---------------------------------------------------------------------------
+test "Test captured Box across multiple awaits", {
+  a := Box(i32)(1);
+  b := Box(i32)(2);
+  c := Box(i32)(3);
+
+  task := async {
+    assert(a.* == 1, "a should be 1");
+    assert(b.* == 2, "b should be 2");
+    assert(c.* == 3, "c should be 3");
+    await yield();
+
+    a.* = (a.* + 10);
+    assert(a.* == 11, "a should be 11 after increment");
+    await yield();
+
+    b.* = (b.* + 20);
+    assert(b.* == 22, "b should be 22 after increment");
+    await yield();
+
+    c.* = (c.* + 30);
+    assert(c.* == 33, "c should be 33 after increment");
+  };
+
+  // After first yield, a/b/c are still unchanged from outer perspective
+  // because modifications happen after subsequent yields
+  // The inner assertions verify correctness when the event loop completes
+};
+
+// ---------------------------------------------------------------------------
+// 12. Async function returning value through cond branches
+// ---------------------------------------------------------------------------
+test "Test async function return through cond", {
+  compute :: (fn(flag : bool) -> Impl(Future(i32)))(async {
+    await yield();
+    v := cond(
+      flag => i32(42),
+      true => i32(0)
+    );
+    return v;
+  });
+
+  task_true := compute(true);
+  task_false := compute(false);
+};
+
+// ---------------------------------------------------------------------------
+// 13. While loop with await inside
+// ---------------------------------------------------------------------------
+test "Test while loop with await", {
+  async {
+    counter := Box(i32)(0);
+    iterations := Box(i32)(0);
+
+    task := async {
+      while runtime(counter.* < i32(5)), {
+        counter.* = (counter.* + 1);
+        await yield();
+        iterations.* = (iterations.* + 1);
+      };
+    };
+
+    assert(counter.* == i32(1), "counter should be 1 after first yield");
+    await task;
+    assert(counter.* == i32(5), "counter should be 5 after task completes");
+    assert(iterations.* == i32(5), "iterations should be 5 after task completes");
+  };
+};
+
+// ---------------------------------------------------------------------------
+// 14. While loop with break after await
+// ---------------------------------------------------------------------------
+test "Test while loop with break after await", {
+  async {
+    counter := Box(i32)(0);
+
+    task := async {
+      while runtime(true), {
+        counter.* = (counter.* + 1);
+        await yield();
+        cond(
+          (counter.* >= i32(3)) => { break; },
+          true => ()
+        );
+      };
+    };
+
+    assert(counter.* == i32(1), "counter should be 1 after first yield");
+    await task;
+    assert(counter.* == i32(3), "counter should be 3 after break");
+  };
+};
+
+// ---------------------------------------------------------------------------
+// 15. Nested cond with await at different levels
+// ---------------------------------------------------------------------------
+test "Test nested cond with await", {
+  async {
+    outer_flag := Box(bool)(true);
+    inner_flag := Box(bool)(true);
+    result := Box(i32)(0);
+
+    task := async {
+      cond(
+        outer_flag.* => {
+          await yield();
+          cond(
+            inner_flag.* => {
+              result.* = i32(42);
+            },
+            true => {
+              result.* = i32(0);
+            }
+          );
+        },
+        true => {
+          result.* = i32(-1);
+        }
+      );
+      assert(result.* == i32(42), "nested cond should set result to 42");
+    };
+
+    assert(result.* == i32(0), "result should still be 0 before task resumes");
+    await task;
+    assert(result.* == i32(42), "result should be 42 after task completes");
+  };
+};
+
+// ---------------------------------------------------------------------------
+// 16. Multiple async tasks interleaving
+//     Task1 runs eagerly until yield (order becomes 1), returns to caller.
+//     Task2 runs eagerly until yield (order becomes 2), returns to caller.
+//     Then event loop completes task1 (order becomes 3), then task2 (order becomes 4).
+// ---------------------------------------------------------------------------
+test "Test multiple async tasks interleaving", {
+  order := Box(i32)(0);
+
+  task1 := async {
+    assert(order.* == i32(0), "task1 starts first");
+    order.* = i32(1);
+    await yield();
+    assert(order.* == i32(2), "task1 resumes after task2 first half");
+    order.* = i32(3);
+  };
+
+  assert(order.* == i32(1), "after task1 yields");
+
+  task2 := async {
+    assert(order.* == i32(1), "task2 starts after task1 yields");
+    order.* = i32(2);
+    await yield();
+    assert(order.* == i32(3), "task2 resumes after task1 completes");
+    order.* = i32(4);
+  };
+
+  // After task2 yields, order is 2. Tasks complete when event loop runs.
+  assert(order.* == i32(2), "after task2 yields");
+};
+
+// ---------------------------------------------------------------------------
+// 17. Async block with local allocations that must be dropped
+// ---------------------------------------------------------------------------
+test "Test async block drops local allocations", {
+  task := async {
+    a := Box(i32)(100);
+    b := Box(i32)(200);
+    await yield();
+    c := Box(i32)(300);
+    assert(a.* == i32(100), "a should survive await");
+    assert(b.* == i32(200), "b should survive await");
+    assert(c.* == i32(300), "c created after await");
+  };
+};
+
+// ---------------------------------------------------------------------------
+// 18. Async function with multiple await and early return
+// ---------------------------------------------------------------------------
+test "Test async function with multiple awaits and early return", {
+  find_value :: (fn(target : i32) -> Impl(Future(i32)))(async {
+    i := Box(i32)(0);
+    while runtime(i.* < i32(10)), {
+      await yield();
+      cond(
+        (i.* == target) => {
+          return i.*;
+        },
+        true => ()
+      );
+      i.* = (i.* + 1);
+    };
+    return i32(-1);
+  });
+
+  task := find_value(i32(5));
+};
+
+// ---------------------------------------------------------------------------
+// 19. Cond with await and code after cond
+//     flag is true, so the await branch is taken. x is set to 20 after yield.
+//     Then result.* = x happens after the cond completes.
+// ---------------------------------------------------------------------------
+test "Test code after cond with await", {
+  async {
+    flag := Box(bool)(true);
+    result := Box(i32)(0);
+
+    task := async {
+      x := i32(10);
+      cond(
+        flag.* => {
+          await yield();
+          x = i32(20);
+        },
+        true => ()
+      );
+      result.* = x;
+      assert(result.* == i32(20), "code after cond should see updated x");
+    };
+
+    assert(result.* == i32(0), "result should still be 0 before task resumes");
+    await task;
+    assert(result.* == i32(20), "result should be 20 after task completes");
+  };
+};
+
+// ---------------------------------------------------------------------------
+// 20. Cond with await – non-await branch, then code after cond
+// ---------------------------------------------------------------------------
+test "Test code after cond with await - non-await path", {
+  flag := Box(bool)(false);
+  result := Box(i32)(0);
+
+  task := async {
+    x := i32(10);
+    cond(
+      flag.* => {
+        await yield();
+        x = i32(20);
+      },
+      true => {
+        x = i32(30);
+      }
+    );
+    result.* = x;
+  };
+
+  assert(result.* == i32(30), "non-await path should set x to 30");
+};
+
+// ---------------------------------------------------------------------------
+// 21. Multiple cond expressions with await in sequence
+//     a_flag is true → first cond takes await branch, yields
+//     After resume: x += 10
+//     b_flag is false → second cond takes non-await branch: x += 2
+//     result.* = x = 12
+// ---------------------------------------------------------------------------
+test "Test sequential conds with await", {
+  async {
+    a_flag := Box(bool)(true);
+    b_flag := Box(bool)(false);
+    result := Box(i32)(0);
+
+    task := async {
+      x := i32(0);
+
+      cond(
+        a_flag.* => {
+          await yield();
+          x = (x + i32(10));
+        },
+        true => {
+          x = (x + i32(1));
+        }
+      );
+
+      cond(
+        b_flag.* => {
+          await yield();
+          x = (x + i32(100));
+        },
+        true => {
+          x = (x + i32(2));
+        }
+      );
+
+      result.* = x;
+      assert(result.* == i32(12), "10 from first cond + 2 from second cond");
+    };
+
+    assert(result.* == i32(0), "result should still be 0 before task resumes");
+    await task;
+    assert(result.* == i32(12), "result should be 12 after task completes");
+  };
+};
+
+// ---------------------------------------------------------------------------
+// 22. Async block completing without any awaits (degenerate case)
+// ---------------------------------------------------------------------------
+test "Test async block with no awaits", {
+  result := Box(i32)(0);
+
+  task := async {
+    result.* = i32(42);
+  };
+
+  assert(result.* == i32(42), "sync-completing async block should work");
+};
+
+// ---------------------------------------------------------------------------
+// 23. Deeply nested awaits (stress test for state machine)
+// ---------------------------------------------------------------------------
+test "Test many sequential awaits", {
+  async {
+    counter := Box(i32)(0);
+
+    task := async {
+      await yield();
+      counter.* = (counter.* + 1);
+      await yield();
+      counter.* = (counter.* + 1);
+      await yield();
+      counter.* = (counter.* + 1);
+      await yield();
+      counter.* = (counter.* + 1);
+      await yield();
+      counter.* = (counter.* + 1);
+      await yield();
+      counter.* = (counter.* + 1);
+      await yield();
+      counter.* = (counter.* + 1);
+      await yield();
+      counter.* = (counter.* + 1);
+      await yield();
+      counter.* = (counter.* + 1);
+      await yield();
+      counter.* = (counter.* + 1);
+    };
+
+    assert(counter.* == i32(0), "counter should be 0 before task resumes");
+    await task;
+    assert(counter.* == i32(10), "counter should be 10 after task completes");
+  };
+};
+
+// ---------------------------------------------------------------------------
+// 24. Continue in async while loop (after await)
+//     Loop counts from 0 to 9, skipping odd numbers via continue.
+//     sum should equal 0+2+4+6+8 = 20.
+// ---------------------------------------------------------------------------
+test "Test continue in async while loop", {
+  async {
+    sum := Box(i32)(0);
+    counter := Box(i32)(0);
+
+    task := async {
+      while runtime(counter.* < i32(10)), {
+        i := counter.*;
+        counter.* = (counter.* + 1);
+        await yield();
+        cond(
+          ((i % i32(2)) != i32(0)) => { continue; },
+          true => ()
+        );
+        sum.* = (sum.* + i);
+      };
+    };
+
+    await task;
+    assert(sum.* == i32(20), "sum of even numbers 0..9 should be 20");
+  };
+};
+
+// ---------------------------------------------------------------------------
+// 25. Break from nested cond inside async while loop (after await)
+//     Loop until counter reaches 5, then break from within a cond.
+// ---------------------------------------------------------------------------
+test "Test break from cond in async while loop", {
+  async {
+    counter := Box(i32)(0);
+    sum := Box(i32)(0);
+
+    task := async {
+      while runtime(true), {
+        await yield();
+        counter.* = (counter.* + 1);
+        cond(
+          (counter.* >= i32(5)) => { break; },
+          true => ()
+        );
+        sum.* = (sum.* + counter.*);
+      };
+    };
+
+    await task;
+    assert(counter.* == i32(5), "counter should be 5 after break");
+    assert(sum.* == i32(10), "sum should be 1+2+3+4 = 10");
+  };
+};
+
+// ---------------------------------------------------------------------------
+// 26. Continue skips rest of body but keeps looping (after await)
+//     Increment counter each iteration; if counter is 3 or 7, continue
+//     without adding to sum. sum should be 1+2+4+5+6+8+9+10 = 45.
+// ---------------------------------------------------------------------------
+test "Test continue skips body after await", {
+  async {
+    counter := Box(i32)(0);
+    sum := Box(i32)(0);
+
+    task := async {
+      while runtime(counter.* < i32(10)), {
+        counter.* = (counter.* + 1);
+        await yield();
+        cond(
+          ((counter.* == i32(3)) || (counter.* == i32(7))) => { continue; },
+          true => ()
+        );
+        sum.* = (sum.* + counter.*);
+      };
+    };
+
+    await task;
+    assert(counter.* == i32(10), "counter should be 10");
+    assert(sum.* == i32(45), "sum should be 55-3-7 = 45");
+  };
+};
+
+// ---------------------------------------------------------------------------
+// 27. Break with local Box allocation (must be dropped, no leak)
+//     Allocate a Box each iteration; break at iteration 3.
+//     AddressSanitizer will catch leaks.
+// ---------------------------------------------------------------------------
+test "Test break drops local allocations in async while loop", {
+  async {
+    counter := Box(i32)(0);
+
+    task := async {
+      while runtime(true), {
+        temp := Box(i32)(counter.*);
+        await yield();
+        counter.* = (temp.* + 1);
+        cond(
+          (counter.* >= i32(3)) => { break; },
+          true => ()
+        );
+      };
+    };
+
+    await task;
+    assert(counter.* == i32(3), "counter should be 3 after break");
+  };
+};
+
+// ---------------------------------------------------------------------------
+// 28. Continue with local Box allocation (must be dropped, no leak)
+//     Allocate a Box each iteration; continue on even iterations.
+// ---------------------------------------------------------------------------
+test "Test continue drops local allocations in async while loop", {
+  async {
+    counter := Box(i32)(0);
+    sum := Box(i32)(0);
+
+    task := async {
+      while runtime(counter.* < i32(6)), {
+        counter.* = (counter.* + 1);
+        temp := Box(i32)(counter.*);
+        await yield();
+        cond(
+          ((temp.* % i32(2)) == i32(0)) => { continue; },
+          true => ()
+        );
+        sum.* = (sum.* + temp.*);
+      };
+    };
+
+    await task;
+    assert(counter.* == i32(6), "counter should be 6");
+    assert(sum.* == i32(9), "sum of odd 1+3+5 = 9");
+  };
+};
+
+// ---------------------------------------------------------------------------
+// 29. Break before first await in loop body
+//     Local allocation happens before break check; break path should drop it.
+// ---------------------------------------------------------------------------
+test "Test break before first await in async while loop", {
+  async {
+    counter := Box(i32)(0);
+    resumed := Box(i32)(0);
+
+    task := async {
+      while runtime(true), {
+        temp := Box(i32)(counter.*);
+        cond(
+          (counter.* >= i32(3)) => { break; },
+          true => ()
+        );
+        counter.* = (temp.* + 1);
+        await yield();
+        resumed.* = (resumed.* + 1);
+      };
+    };
+
+    assert(counter.* == i32(1), "counter should be 1 after first eager iteration");
+    await task;
+    assert(counter.* == i32(3), "counter should stop at 3 via pre-await break");
+    assert(resumed.* == i32(3), "resumed should count exactly 3 awaited iterations");
+  };
+};
+
+// ---------------------------------------------------------------------------
+// 30. Continue before first await in loop body
+//     Even snapshots continue without suspension; odd snapshots await and count.
+// ---------------------------------------------------------------------------
+test "Test continue before first await in async while loop", {
+  async {
+    counter := Box(i32)(0);
+    odd_resumed := Box(i32)(0);
+
+    task := async {
+      while runtime(counter.* < i32(6)), {
+        snapshot := Box(i32)(counter.*);
+        counter.* = (counter.* + 1);
+        cond(
+          ((snapshot.* % i32(2)) == i32(0)) => { continue; },
+          true => ()
+        );
+        await yield();
+        odd_resumed.* = (odd_resumed.* + 1);
+      };
+    };
+
+    await task;
+    assert(counter.* == i32(6), "counter should reach 6");
+    assert(odd_resumed.* == i32(3), "odd snapshots 1,3,5 should await and resume");
+  };
+};
+
+// ---------------------------------------------------------------------------
+// 31. Zero-iteration async while loop
+//     Body should never run; no await should execute.
+// ---------------------------------------------------------------------------
+test "Test zero-iteration async while loop", {
+  ran_body := Box(bool)(false);
+  touched_after_await := Box(bool)(false);
+  done := Box(bool)(false);
+
+  task := async {
+    while runtime(false), {
+      temp := Box(i32)(123);
+      ran_body.* = true;
+      await yield();
+      touched_after_await.* = (temp.* == i32(123));
+    };
+    done.* = true;
+  };
+
+  assert(done.* == true, "task should complete eagerly when loop never executes");
+  assert(ran_body.* == false, "loop body must not execute");
+  assert(touched_after_await.* == false, "after-await code must remain untouched");
+};
+
+// ---------------------------------------------------------------------------
+// 32. Mixed continue and break in same async loop
+//     1,2 continue; 3,4 accumulate; 5 breaks.
+// ---------------------------------------------------------------------------
+test "Test mixed continue then break in async while loop", {
+  async {
+    counter := Box(i32)(0);
+    sum := Box(i32)(0);
+
+    task := async {
+      while runtime(true), {
+        counter.* = (counter.* + 1);
+        await yield();
+
+        cond(
+          (counter.* <= i32(2)) => { continue; },
+          true => ()
+        );
+
+        cond(
+          (counter.* >= i32(5)) => { break; },
+          true => ()
+        );
+
+        sum.* = (sum.* + counter.*);
+      };
+    };
+
+    await task;
+    assert(counter.* == i32(5), "counter should stop at 5");
+    assert(sum.* == i32(7), "sum should be 3+4 after continue/continue/break pattern");
+  };
+};
+
+// ---------------------------------------------------------------------------
+// 33. Nested async while loops - inner break only
+//     Inner loop breaks at 2; outer loop continues for 3 rounds.
+// ---------------------------------------------------------------------------
+test "Test nested async while with inner break", {
+  async {
+    outer_counter := Box(i32)(0);
+    outer_sum := Box(i32)(0);
+
+    task := async {
+      while runtime(outer_counter.* < i32(3)), {
+        inner_counter := Box(i32)(0);
+
+        while runtime(true), {
+          inner_counter.* = (inner_counter.* + 1);
+          await yield();
+          cond(
+            (inner_counter.* >= i32(2)) => { break; },
+            true => ()
+          );
+        };
+
+        outer_sum.* = (outer_sum.* + inner_counter.*);
+        outer_counter.* = (outer_counter.* + 1);
+      };
+    };
+
+    await task;
+    assert(outer_counter.* == i32(3), "outer loop should complete 3 rounds");
+    assert(outer_sum.* == i32(6), "inner break at 2 contributes 2 per round");
+  };
+};
+
+// ---------------------------------------------------------------------------
+// 34. Nested async while loops - inner continue only
+//     Inner continue must not skip outer-level statements.
+// ---------------------------------------------------------------------------
+test "Test nested async while with inner continue", {
+  async {
+    outer_counter := Box(i32)(0);
+    outer_sum := Box(i32)(0);
+
+    task := async {
+      while runtime(outer_counter.* < i32(2)), {
+        inner_counter := Box(i32)(0);
+        inner_sum := Box(i32)(0);
+
+        while runtime(inner_counter.* < i32(4)), {
+          inner_counter.* = (inner_counter.* + 1);
+          await yield();
+          cond(
+            (inner_counter.* == i32(2)) => { continue; },
+            true => ()
+          );
+          inner_sum.* = (inner_sum.* + inner_counter.*);
+        };
+
+        outer_sum.* = (outer_sum.* + inner_sum.*);
+        outer_counter.* = (outer_counter.* + 1);
+      };
+    };
+
+    await task;
+    assert(outer_counter.* == i32(2), "outer loop should run exactly twice");
+    assert(outer_sum.* == i32(16), "each inner loop contributes 1+3+4 = 8");
+  };
+};
+
+// ---------------------------------------------------------------------------
+// 35. Match branches with continue/break after await
+// ---------------------------------------------------------------------------
+test "Test match branches with continue and break in async loop", {
+  async {
+    counter := Box(i32)(0);
+    sum := Box(i32)(0);
+
+    task := async {
+      while runtime(true), {
+        counter.* = (counter.* + 1);
+        await yield();
+
+        match(counter.*,
+          (2 | 4) => { continue; },
+          7 => { break; },
+          _ => {
+            sum.* = (sum.* + counter.*);
+          }
+        );
+      };
+    };
+
+    await task;
+    assert(counter.* == i32(7), "counter should stop at match break value 7");
+    assert(sum.* == i32(15), "sum should be 1+3+5+6 when 2,4 continue and 7 breaks");
+  };
+};
+
+// ---------------------------------------------------------------------------
+// 36. Loop-local + captured outer values across await with continue
+//     Local loop value and captured outer value must both stay correct.
+// ---------------------------------------------------------------------------
+test "Test loop-local and captured values with continue across await", {
+  async {
+    outer_value := Box(i32)(100);
+    offset := Box(i32)(1);
+    counter := Box(i32)(0);
+    sum := Box(i32)(0);
+
+    task := async {
+      while runtime(counter.* < i32(5)), {
+        loop_value := Box(i32)(counter.*);
+        counter.* = (counter.* + 1);
+        await yield();
+        cond(
+          (loop_value.* == i32(2)) => { continue; },
+          true => ()
+        );
+        sum.* = (sum.* + (loop_value.* + offset.*));
+      };
+    };
+
+    await task;
+    assert(counter.* == i32(5), "counter should reach 5");
+    assert(outer_value.* == i32(100), "outer captured value must remain unchanged");
+    assert(sum.* == i32(12), "sum should be (0+1)+(1+1)+(3+1)+(4+1) = 12");
+  };
+};
+
+// ---------------------------------------------------------------------------
+// 37. Early return inside loop after continue path
+//     Continue on even numbers; early-return at first odd >= 5.
+// ---------------------------------------------------------------------------
+test "Test early return inside loop after continue", {
+  async {
+    i := Box(i32)(0);
+    found := Box(i32)(-1);
+    reached_end := Box(bool)(false);
+
+    task := async {
+      while runtime(i.* < i32(10)), {
+        i.* = (i.* + 1);
+        await yield();
+
+        cond(
+          ((i.* % i32(2)) == i32(0)) => { continue; },
+          true => ()
+        );
+
+        cond(
+          (i.* >= i32(5)) => {
+            found.* = i.*;
+            return;
+          },
+          true => ()
+        );
+      };
+
+      reached_end.* = true;
+    };
+
+    await task;
+    assert(found.* == i32(5), "first odd value >= 5 should be 5");
+    assert(reached_end.* == false, "loop body should early-return before reaching end");
+  };
+};
+
+// ---------------------------------------------------------------------------
+// 38. Mixed pre-await break and post-await continue in one loop
+//     Break is checked before await, continue after await.
+// ---------------------------------------------------------------------------
+test "Test mixed pre-await break and post-await continue", {
+  async {
+    counter := Box(i32)(0);
+    sum := Box(i32)(0);
+
+    task := async {
+      while runtime(true), {
+        temp := Box(i32)(counter.*);
+        cond(
+          (counter.* >= i32(4)) => { break; },
+          true => ()
+        );
+
+        counter.* = (temp.* + 1);
+        await yield();
+
+        cond(
+          (counter.* == i32(2)) => { continue; },
+          true => ()
+        );
+
+        sum.* = (sum.* + counter.*);
+      };
+    };
+
+    await task;
+    assert(counter.* == i32(4), "counter should stop at 4 due to pre-await break");
+    assert(sum.* == i32(8), "sum should be 1 + 3 + 4 = 8 with counter==2 continued");
+  };
+};
+
+// ---------------------------------------------------------------------------
+// 39. Non-async inner while with break inside async outer while
+//     Inner while (no await) runs to completion before outer await.
+//     Break inside the inner while must NOT affect the outer loop.
+// ---------------------------------------------------------------------------
+test "Test non-async inner while with break inside async while", {
+  async {
+    counter := Box(i32)(0);
+    total := Box(i32)(0);
+
+    task := async {
+      while runtime(counter.* < i32(3)), {
+        counter.* = (counter.* + 1);
+
+        inner := Box(i32)(0);
+        while runtime(true), {
+          inner.* = (inner.* + 1);
+          cond(
+            (inner.* >= counter.*) => { break; },
+            true => ()
+          );
+        };
+
+        await yield();
+        total.* = (total.* + inner.*);
+      };
+    };
+
+    await task;
+    assert(counter.* == i32(3), "outer loop should complete 3 iterations");
+    assert(total.* == i32(6), "total should be 1+2+3 = 6");
+  };
+};
+
+// ---------------------------------------------------------------------------
+// 40. Non-async inner while with continue inside async outer while
+//     Continue inside the inner while must only affect the inner loop.
+// ---------------------------------------------------------------------------
+test "Test non-async inner while with continue inside async while", {
+  async {
+    counter := Box(i32)(0);
+    sum := Box(i32)(0);
+
+    task := async {
+      while runtime(counter.* < i32(3)), {
+        counter.* = (counter.* + 1);
+
+        inner := Box(i32)(0);
+        inner_sum := Box(i32)(0);
+        while runtime(inner.* < i32(5)), {
+          inner.* = (inner.* + 1);
+          cond(
+            ((inner.* % i32(2)) == i32(0)) => { continue; },
+            true => ()
+          );
+          inner_sum.* = (inner_sum.* + inner.*);
+        };
+
+        await yield();
+        sum.* = (sum.* + inner_sum.*);
+      };
+    };
+
+    await task;
+    assert(counter.* == i32(3), "outer should run 3 times");
+    assert(sum.* == i32(27), "inner odd sums 1+3+5=9 per iteration, 9*3=27");
+  };
+};
+
+// ---------------------------------------------------------------------------
+// 41. Sequential while-with-await loops in one async block
+//     Two separate while loops with await, one after the other.
+//     The second loop must start only after the first finishes.
+// ---------------------------------------------------------------------------
+test "Test sequential while-with-await loops", {
+  async {
+    a := Box(i32)(0);
+    b := Box(i32)(0);
+
+    task := async {
+      while runtime(a.* < i32(3)), {
+        a.* = (a.* + 1);
+        await yield();
+      };
+
+      while runtime(b.* < i32(4)), {
+        b.* = (b.* + 1);
+        await yield();
+      };
+    };
+
+    await task;
+    assert(a.* == i32(3), "first loop should count to 3");
+    assert(b.* == i32(4), "second loop should count to 4");
+  };
+};
+
+// ---------------------------------------------------------------------------
+// 42. While loop where await is the last expression in body
+//     No post-await expressions; bodyExprsAfterAwait is empty.
+// ---------------------------------------------------------------------------
+test "Test while with await as last expression in body", {
+  async {
+    counter := Box(i32)(0);
+
+    task := async {
+      while runtime(counter.* < i32(5)), {
+        counter.* = (counter.* + 1);
+        await yield();
+      };
+    };
+
+    await task;
+    assert(counter.* == i32(5), "counter should reach 5");
+  };
+};
+
+// ---------------------------------------------------------------------------
+// 43. Single-iteration while-with-await
+//     Condition becomes false after exactly one iteration.
+//     Tests that the state machine correctly exits after one await.
+// ---------------------------------------------------------------------------
+test "Test single-iteration while-with-await", {
+  async {
+    counter := Box(i32)(0);
+    result := Box(i32)(0);
+
+    task := async {
+      while runtime(counter.* < i32(1)), {
+        counter.* = (counter.* + 1);
+        temp := Box(i32)(42);
+        await yield();
+        result.* = temp.*;
+      };
+    };
+
+    await task;
+    assert(counter.* == i32(1), "loop runs exactly once");
+    assert(result.* == i32(42), "result from single iteration");
+  };
+};
+
+// ---------------------------------------------------------------------------
+// 44. While-with-await followed by code after the loop
+//     Expressions after the while must run after loop exits.
+// ---------------------------------------------------------------------------
+test "Test code after while-with-await loop", {
+  async {
+    counter := Box(i32)(0);
+    result := Box(i32)(0);
+
+    task := async {
+      while runtime(counter.* < i32(3)), {
+        counter.* = (counter.* + 1);
+        await yield();
+      };
+      result.* = (counter.* * i32(10));
+    };
+
+    await task;
+    assert(counter.* == i32(3), "counter should reach 3");
+    assert(result.* == i32(30), "code after loop should set result to 30");
+  };
+};
+
+// ---------------------------------------------------------------------------
+// 45. Cond-with-await followed by while-with-await
+//     Sequential mixing of different async control flow patterns.
+// ---------------------------------------------------------------------------
+test "Test cond-with-await then while-with-await", {
+  async {
+    flag := Box(bool)(true);
+    counter := Box(i32)(0);
+    result := Box(i32)(0);
+
+    task := async {
+      cond(
+        flag.* => {
+          await yield();
+          result.* = i32(10);
+        },
+        true => {
+          result.* = i32(20);
+        }
+      );
+
+      while runtime(counter.* < i32(3)), {
+        counter.* = (counter.* + 1);
+        await yield();
+      };
+
+      result.* = (result.* + counter.*);
+    };
+
+    await task;
+    assert(result.* == i32(13), "10 from cond + 3 from counter");
+    assert(counter.* == i32(3), "counter should reach 3");
+  };
+};
+
+// ---------------------------------------------------------------------------
+// 46. While-with-await followed by cond-with-await
+//     The cond sees the loop's final state.
+// ---------------------------------------------------------------------------
+test "Test while-with-await then cond-with-await", {
+  async {
+    counter := Box(i32)(0);
+    result := Box(i32)(0);
+
+    task := async {
+      while runtime(counter.* < i32(3)), {
+        counter.* = (counter.* + 1);
+        await yield();
+      };
+
+      cond(
+        (counter.* == i32(3)) => {
+          await yield();
+          result.* = i32(100);
+        },
+        true => {
+          result.* = i32(0);
+        }
+      );
+    };
+
+    await task;
+    assert(counter.* == i32(3), "counter should reach 3");
+    assert(result.* == i32(100), "cond should take true branch after loop");
+  };
+};
+
+// ---------------------------------------------------------------------------
+// 47. While-with-await with break in first iteration
+//     The loop runs once and breaks immediately after the first await.
+// ---------------------------------------------------------------------------
+test "Test while-with-await break on first iteration", {
+  async {
+    counter := Box(i32)(0);
+    done := Box(bool)(false);
+
+    task := async {
+      while runtime(true), {
+        counter.* = (counter.* + 1);
+        temp := Box(i32)(99);
+        await yield();
+        assert(temp.* == i32(99), "temp should survive await");
+        break;
+      };
+      done.* = true;
+    };
+
+    await task;
+    assert(counter.* == i32(1), "loop should execute exactly once");
+    assert(done.* == true, "code after loop should run");
+  };
+};
+
+// ---------------------------------------------------------------------------
+// 48. Nested async while with inner break + outer code after loop
+//     Outer while runs 2 rounds. Inner while breaks at 3.
+//     After outer loop, additional code runs.
+// ---------------------------------------------------------------------------
+test "Test nested async while with code after outer loop", {
+  async {
+    outer := Box(i32)(0);
+    inner_total := Box(i32)(0);
+    final_result := Box(i32)(0);
+
+    task := async {
+      while runtime(outer.* < i32(2)), {
+        inner_counter := Box(i32)(0);
+
+        while runtime(true), {
+          inner_counter.* = (inner_counter.* + 1);
+          await yield();
+          cond(
+            (inner_counter.* >= i32(3)) => { break; },
+            true => ()
+          );
+        };
+
+        inner_total.* = (inner_total.* + inner_counter.*);
+        outer.* = (outer.* + 1);
+      };
+
+      final_result.* = ((inner_total.* * i32(10)) + outer.*);
+    };
+
+    await task;
+    assert(outer.* == i32(2), "outer loop should run twice");
+    assert(inner_total.* == i32(6), "inner breaks at 3 each round, total 6");
+    assert(final_result.* == i32(62), "final should be 6*10 + 2 = 62");
+  };
+};
+
+// ---------------------------------------------------------------------------
+// 49. Multiple captured variables modified in nested while-with-await
+//     All captured variables must remain consistent across iterations.
+// ---------------------------------------------------------------------------
+test "Test multiple captured variables in nested while-with-await", {
+  async {
+    x := Box(i32)(0);
+    y := Box(i32)(100);
+    z := Box(i32)(0);
+
+    task := async {
+      while runtime(x.* < i32(3)), {
+        x.* = (x.* + 1);
+        y.* = (y.* - i32(10));
+
+        inner := Box(i32)(0);
+        while runtime(true), {
+          inner.* = (inner.* + 1);
+          await yield();
+          cond(
+            (inner.* >= i32(2)) => { break; },
+            true => ()
+          );
+        };
+
+        z.* = (z.* + (x.* + inner.*));
+      };
+    };
+
+    await task;
+    assert(x.* == i32(3), "x should count to 3");
+    assert(y.* == i32(70), "y should be 100 - 3*10 = 70");
+    assert(z.* == i32(12), "z should be (1+2)+(2+2)+(3+2) = 12");
+  };
+};
+
+// ---------------------------------------------------------------------------
+// 50. While-with-await early break skips remaining iterations
+//     Break after 2 of 10 planned iterations. Resources must be properly freed.
+// ---------------------------------------------------------------------------
+test "Test while-with-await early break with local allocations", {
+  async {
+    counter := Box(i32)(0);
+    sum := Box(i32)(0);
+
+    task := async {
+      while runtime(counter.* < i32(10)), {
+        counter.* = (counter.* + 1);
+        temp := Box(i32)(counter.* * counter.*);
+        await yield();
+        sum.* = (sum.* + temp.*);
+        cond(
+          (counter.* >= i32(3)) => { break; },
+          true => ()
+        );
+      };
+    };
+
+    await task;
+    assert(counter.* == i32(3), "loop should break at 3");
+    assert(sum.* == i32(14), "sum of squares 1+4+9 = 14");
+  };
+};
+
+// ---------------------------------------------------------------------------
+// 51. Cond with await in non-await branch followed by code
+//     Non-await branch is taken; code after cond should still execute.
+// ---------------------------------------------------------------------------
+test "Test cond non-await path then code after cond in async", {
+  async {
+    flag := Box(bool)(false);
+    result := Box(i32)(0);
+    after_cond := Box(i32)(0);
+
+    task := async {
+      cond(
+        flag.* => {
+          await yield();
+          result.* = i32(1);
+        },
+        true => {
+          result.* = i32(2);
+        }
+      );
+      after_cond.* = (result.* + i32(10));
+    };
+
+    assert(result.* == i32(2), "non-await branch should set result to 2");
+    assert(after_cond.* == i32(12), "code after cond should run: 2+10=12");
+  };
+};
+
+// ---------------------------------------------------------------------------
+// 52. Await of async subtask inside while loop
+//     Each iteration creates and awaits a subtask that captures RC values.
+//     Tests proper dup of captured RC values when creating async blocks
+//     inside a state machine (while loop body).
+// ---------------------------------------------------------------------------
+test "Test await of async subtask inside while loop", {
+  async {
+    total := Box(i32)(0);
+    counter := Box(i32)(0);
+
+    task := async {
+      while runtime(counter.* < i32(3)), {
+        counter.* = (counter.* + 1);
+        val := counter.*;
+
+        subtask := async {
+          await yield();
+          total.* = (total.* + val);
+        };
+
+        await subtask;
+      };
+    };
+
+    await task;
+    assert(counter.* == i32(3), "outer loop should run 3 times");
+    assert(total.* == i32(6), "total should be 1+2+3 = 6");
+  };
+};
+
+// ---------------------------------------------------------------------------
+// 53. Match with await on primitive integer type
+//     Tests match expression with integer values containing await in branches.
+// ---------------------------------------------------------------------------
+test "Test match with await on primitive integer", {
+  async {
+    result := Box(i32)(0);
+
+    task := async {
+      x := i32(2);
+      result.* = match(x,
+        1 => {
+          await yield();
+          i32(10)
+        },
+        2 => {
+          await yield();
+          i32(20)
+        },
+        _ => i32(30)
+      );
+    };
+
+    await task;
+    assert(result.* == i32(20), "match should take branch 2 and return 20");
+  };
+};
+
+// ---------------------------------------------------------------------------
+// 54. Match with await on primitive integer - default branch
+//     Tests that the default/wildcard branch with await works correctly.
+// ---------------------------------------------------------------------------
+test "Test match with await on primitive integer default branch", {
+  async {
+    result := Box(i32)(0);
+
+    task := async {
+      x := i32(99);
+      result.* = match(x,
+        1 => {
+          i32(10)
+        },
+        2 => {
+          i32(20)
+        },
+        _ => {
+          await yield();
+          i32(30)
+        }
+      );
+    };
+
+    await task;
+    assert(result.* == i32(30), "match should take default branch and return 30");
+  };
 };

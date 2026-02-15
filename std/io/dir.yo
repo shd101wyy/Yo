@@ -1,10 +1,14 @@
-// std/io/dir.yo - Async directory operations
+// std/io/dir.yo - Directory operations
 //
-// Provides low-level async directory manipulation wrappers around C runtime externs.
+// Provides low-level directory manipulation wrappers around C runtime externs.
 //
-// Async operations return IOFuture which resolves to:
+// Async operations (mkdir, unlink, rename, symlink, link, getdents) return IOFuture which resolves to:
 //   - 0 on success (for mkdir, unlink, rename, symlink, link)
-//   - Bytes read for readlink
+//   - Bytes read for getdents
+//   - Negative value: -errno on failure
+//
+// Sync operations (readlink) return i32 directly:
+//   - Bytes read on success
 //   - Negative value: -errno on failure
 //
 // Example:
@@ -20,7 +24,8 @@
 {
   __yo_async_mkdirat_start, __yo_async_unlinkat_start,
   __yo_async_renameat_start, __yo_async_symlinkat_start,
-  __yo_async_linkat_start, __yo_async_readlinkat_start,
+  __yo_async_linkat_start,
+  __yo_sync_readlinkat,
   __yo_async_getdents_start,
   __yo_dirent_size, __yo_dirent_reclen, __yo_dirent_type,
   __yo_dirent_name, __yo_dirent_ino
@@ -63,8 +68,8 @@ link :: (fn(olddirfd: i32, oldpath: *(u8), newdirfd: i32, newpath: *(u8), flags:
 
 // Read the target of a symbolic link into buf.
 // Returns number of bytes read on success, -errno on failure.
-readlink :: (fn(dirfd: i32, path: *(u8), buf: *(u8), bufsize: usize) -> IOFuture)(
-  __yo_async_readlinkat_start(dirfd, path, buf, bufsize)
+readlink :: (fn(dirfd: i32, path: *(u8), buf: *(u8), bufsize: usize) -> i32)(
+  __yo_sync_readlinkat(dirfd, path, buf, bufsize)
 );
 
 // ============================================================================

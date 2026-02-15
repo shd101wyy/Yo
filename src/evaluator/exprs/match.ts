@@ -372,6 +372,19 @@ export function evaluateMatch({
         env: poppedEnv,
       };
 
+      if (
+        context.expectedType &&
+        !areTypesCompatible(context.expectedType, {
+          type: evaluatedBody.$.type,
+          env: evaluatedBody.$.env,
+        })
+      ) {
+        throw formatErrorMessage({
+          token: evaluatedBody.token,
+          errorMessage: `Incompatible type with expected type:\n- Expected: ${typeToString(context.expectedType.type)}\n- Actual  : ${typeToString(evaluatedBody.$.type)}`,
+        });
+      }
+
       // If scrutinee is a runtime value (undefined), unset the body's compile-time value
       // to force codegen to generate all statements
       // Note: UnknownValue means compile-time but unknown concrete value, keep the body value
@@ -1142,6 +1155,19 @@ function evaluatePrimitiveMatch({
         env: poppedEnv,
       };
 
+      if (
+        context.expectedType &&
+        !areTypesCompatible(context.expectedType, {
+          type: evaluatedBody.$.type,
+          env: evaluatedBody.$.env,
+        })
+      ) {
+        throw formatErrorMessage({
+          token: evaluatedBody.token,
+          errorMessage: `Incompatible type with expected type:\n- Expected: ${typeToString(context.expectedType.type)}\n- Actual  : ${typeToString(evaluatedBody.$.type)}`,
+        });
+      }
+
       // If scrutinee is a runtime value (undefined), unset the body's compile-time value
       // Note: UnknownValue means compile-time but unknown concrete value, keep the body value
       if (scrutineeValue === undefined && evaluatedBody.$) {
@@ -1343,6 +1369,19 @@ Hint: Use "::" to define compile-time constants, e.g., "myConst :: 42"`,
       ...evaluatedBody.$,
       env: poppedEnv,
     };
+
+    if (
+      context.expectedType &&
+      !areTypesCompatible(context.expectedType, {
+        type: evaluatedBody.$.type,
+        env: evaluatedBody.$.env,
+      })
+    ) {
+      throw formatErrorMessage({
+        token: evaluatedBody.token,
+        errorMessage: `Incompatible type with expected type:\n- Expected: ${typeToString(context.expectedType.type)}\n- Actual  : ${typeToString(evaluatedBody.$.type)}`,
+      });
+    }
 
     // If scrutinee is a runtime value, unset the body's compile-time value
     // Note: UnknownValue means compile-time but unknown concrete value, keep the body value

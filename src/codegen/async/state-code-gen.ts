@@ -10,16 +10,19 @@ import type { AwaitPoint } from "../../evaluator/async/await-analysis";
 import {
   BuiltinFunctions,
   BuiltinKeywords,
-  type Expr,
   ExprTag,
   exprIsAtom,
+  exprIsAtomOf,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
+  type Expr,
 } from "../../expr";
 import { TokenType } from "../../token";
 import type { EnumType } from "../../types/definitions";
 import { isEnumType } from "../../types/guards";
 import { isTempVariableName } from "../../utils";
+import { isBooleanValue } from "../../value";
+import { generateComptimeValue } from "../exprs/comptime-value";
 import { generateExpr } from "../exprs/expr";
 import type { FunctionGenerationContext } from "../functions/context";
 import {
@@ -95,13 +98,24 @@ export function splitIntoStateSegments(
     const awaitIndex = findAwaitInExpr(expr, awaitPoints);
 
     // Check if this expression is a return statement
-    const isReturn = exprIsFunctionCallOf(expr, "return");
+    // `return` can be either a bare atom (no return value) or a function call `return(value)`
+    const isReturn =
+      exprIsAtomOf(expr, "return") || exprIsFunctionCallOf(expr, "return");
 
     if (awaitIndex !== -1) {
       // This expression contains an await - end this segment
       currentSegment.push(expr);
       segmentExpressions.push(currentSegment);
       currentSegment = [];
+      // Check for additional await points inside this expression
+      // (e.g., sequential awaits in the same cond/match branch)
+      for (let extra = awaitIndex + 1; extra < awaitPoints.length; extra++) {
+        if (containsAwaitExpr(expr, awaitPoints[extra]!.expr as Expr)) {
+          segmentExpressions.push([]);
+        } else {
+          break;
+        }
+      }
     } else if (isReturn) {
       // This is a return statement - end this segment after including the return
       currentSegment.push(expr);
@@ -151,13 +165,17 @@ function findAwaitInExpr(expr: Expr, awaitPoints: AwaitPoint[]): number {
 /**
  * Checks if an expression contains a specific await expression.
  */
-function containsAwaitExpr(expr: Expr, awaitExpr: Expr): boolean {
+export function containsAwaitExpr(expr: Expr, awaitExpr: Expr): boolean {
   if (expr === awaitExpr) {
     return true;
   }
 
   switch (expr.tag) {
     case ExprTag.FnCall:
+      // Do NOT recurse into nested async blocks - their awaits belong to the inner async
+      if (exprIsFunctionCallOf(expr, BuiltinFunctions.async)) {
+        return false;
+      }
       if (containsAwaitExpr(expr.func, awaitExpr)) {
         return true;
       }
@@ -195,12 +213,13 @@ export function generateStateSegmentCode(
       segment.awaitPoint &&
       containsAwaitExpr(expr, segment.awaitPoint.expr as Expr);
 
-    // Also check if this is a while/cond that contains await (even if it's not THE await expr)
+    // Also check if this is a while/cond/match that contains await (even if it's not THE await expr)
     const isWhileOrCondWithAwait =
       segment.awaitPoint &&
       expr.tag === ExprTag.FnCall &&
       (exprIsFunctionCallOf(expr, BuiltinKeywords.while) ||
-        exprIsFunctionCallOf(expr, BuiltinKeywords.cond)) &&
+        exprIsFunctionCallOf(expr, BuiltinKeywords.cond) ||
+        exprIsFunctionCallOf(expr, BuiltinKeywords.match)) &&
       exprContainsAwait(expr);
 
     if ((isAwaitExpr || isWhileOrCondWithAwait) && segment.awaitPoint) {
@@ -240,7 +259,7 @@ export function generateStateSegmentCode(
  * 2. Calling the async function and storing the Future
  * 3. Checking if the Future is ready and either continuing or yielding
  */
-function generateAwaitExpression(
+export function generateAwaitExpression(
   expr: Expr,
   awaitPoint: AwaitPoint,
   _stateNumber: number,
@@ -362,6 +381,76 @@ function generateAwaitExpression(
       );
       return;
     }
+
+    // Check if the value is a match with await in branches
+    if (
+      valueExpr.tag === ExprTag.FnCall &&
+      exprIsFunctionCallOf(valueExpr, BuiltinKeywords.match)
+    ) {
+      // This is: varName := match(... await ...)
+      // Get the variable ID for the target variable
+      let targetVarId: string | undefined;
+      if (
+        varNameExpr.tag === ExprTag.Atom &&
+        varNameExpr.token.type === TokenType.Identifier &&
+        varNameExpr.$
+      ) {
+        const varName = varNameExpr.token.value;
+        const variables = getVariablesFromEnv(varNameExpr.$.env, varName);
+        if (variables.length > 0) {
+          targetVarId = variables[variables.length - 1]!.id;
+        }
+      }
+      // First generate the match (which will store future in await_future_X)
+      generateMatchWithAwait(
+        valueExpr,
+        awaitPoint,
+        indent,
+        context,
+        targetVarId
+      );
+      return;
+    }
+  }
+
+  // Handle assignment with cond/match containing await: target = cond/match(... await ...)
+  if (expr.tag === ExprTag.FnCall && exprIsFunctionCallOf(expr, "=")) {
+    const targetExpr = expr.args[0];
+    const valueExpr = expr.args[1];
+
+    if (targetExpr && valueExpr) {
+      if (
+        valueExpr.tag === ExprTag.FnCall &&
+        exprIsFunctionCallOf(valueExpr, BuiltinKeywords.cond)
+      ) {
+        const targetCode = generateExpr(targetExpr, indent, context);
+        generateCondWithAwait(
+          valueExpr,
+          awaitPoint,
+          indent,
+          context,
+          undefined,
+          targetCode || undefined
+        );
+        return;
+      }
+
+      if (
+        valueExpr.tag === ExprTag.FnCall &&
+        exprIsFunctionCallOf(valueExpr, BuiltinKeywords.match)
+      ) {
+        const targetCode = generateExpr(targetExpr, indent, context);
+        generateMatchWithAwait(
+          valueExpr,
+          awaitPoint,
+          indent,
+          context,
+          undefined,
+          targetCode || undefined
+        );
+        return;
+      }
+    }
   }
 
   // Handle cond expression with await in branches
@@ -413,7 +502,8 @@ function generateCondWithAwait(
   awaitPoint: AwaitPoint,
   indent: string,
   context: FunctionGenerationContext,
-  targetVariableId?: string // Variable that receives the cond result
+  targetVariableId?: string, // Variable that receives the cond result
+  targetAssignmentCode?: string // C code for assignment target (for `= (target, cond(...))`)
 ): void {
   const emitter = context.emitter;
 
@@ -443,7 +533,150 @@ function generateCondWithAwait(
     deferredDropExpressions?: Expr[]; // Drop expressions for the branch's begin block
   }> = [];
 
+  // First pass: check for compile-time constant conditions to optimize dead branches.
+  // If the evaluator determined a branch condition is compile-time false, skip it.
+  // If a branch condition is compile-time true, only generate that branch.
+  let firstNonFalseBranchIndex = -1;
+  for (let i = 0; i < args.length; i++) {
+    const pairExpr = args[i]!;
+    if (
+      pairExpr.tag === ExprTag.FnCall &&
+      exprIsFunctionCallOf(pairExpr, "=>")
+    ) {
+      const condition = pairExpr.args[0];
+      if (condition) {
+        const isFalse =
+          isBooleanValue(condition.$?.value) &&
+          condition.$.value.value === false;
+        if (!isFalse) {
+          firstNonFalseBranchIndex = i;
+          break;
+        }
+      }
+    }
+  }
+
+  // Check if the first non-false branch is a compile-time true
+  let canOptimizeToDirect = false;
+  if (firstNonFalseBranchIndex >= 0) {
+    const firstArg = args[firstNonFalseBranchIndex]!;
+    if (
+      firstArg.tag === ExprTag.FnCall &&
+      exprIsFunctionCallOf(firstArg, "=>")
+    ) {
+      const firstCondition = firstArg.args[0];
+      if (
+        firstCondition &&
+        isBooleanValue(firstCondition.$?.value) &&
+        firstCondition.$.value.value === true
+      ) {
+        canOptimizeToDirect = true;
+      }
+    }
+  }
+
+  // If the condition is compile-time known, only generate the taken branch
+  if (canOptimizeToDirect && firstNonFalseBranchIndex >= 0) {
+    const pairExpr = args[firstNonFalseBranchIndex]!;
+    const value = exprIsFunctionCall(pairExpr) ? pairExpr.args[1] : undefined;
+    if (value) {
+      const branchContainsAwait = branchHasAwait(value);
+      if (branchContainsAwait) {
+        const remainingExprs = generateCondBranchWithAwait(
+          value,
+          awaitPoint,
+          indent,
+          context
+        );
+        branchesWithAwait.push({
+          index: firstNonFalseBranchIndex,
+          value,
+          hasAwait: true,
+          remainingExprs,
+          deferredDropExpressions: value.$?.deferredDropExpressions,
+        });
+      } else {
+        if (
+          exprIsFunctionCall(value) &&
+          exprIsFunctionCallOf(value, BuiltinKeywords.begin)
+        ) {
+          const beginArgs = value.args;
+          for (let j = 0; j < beginArgs.length; j++) {
+            const arg = beginArgs[j]!;
+            const argCode = generateExpr(arg, indent, context);
+            if (argCode === "break" && awaitPoint.isInsideWhile) {
+              emitter.emitLine(
+                `${indent}sm->while_loop_${awaitPoint.index}_active = false;`
+              );
+              emitter.emitLine(
+                `${indent}goto while_loop_${awaitPoint.index}_end;`
+              );
+            } else {
+              const isControlFlow =
+                argCode === "break" ||
+                argCode === "continue" ||
+                argCode?.includes("return");
+              if (
+                argCode &&
+                (isControlFlow ||
+                  (arg.$ && !isTempVariableName(arg.$.env.modulePath, argCode)))
+              ) {
+                emitter.emitLine(`${indent}${argCode};`);
+              }
+            }
+          }
+          if (value.$?.deferredDropExpressions) {
+            for (const dropExpr of value.$.deferredDropExpressions) {
+              const dropCode = generateExpr(dropExpr, indent, context);
+              if (dropCode) {
+                emitter.emitLine(`${indent}${dropCode};`);
+              }
+            }
+          }
+        } else {
+          const code = generateExpr(value, indent, context);
+          if (code === "break" && awaitPoint.isInsideWhile) {
+            emitter.emitLine(
+              `${indent}sm->while_loop_${awaitPoint.index}_active = false;`
+            );
+            emitter.emitLine(
+              `${indent}goto while_loop_${awaitPoint.index}_end;`
+            );
+          } else {
+            const isControlFlow =
+              code === "break" ||
+              code === "continue" ||
+              code?.includes("return");
+            if (
+              code &&
+              (isControlFlow ||
+                (value.$ && !isTempVariableName(value.$.env.modulePath, code)))
+            ) {
+              emitter.emitLine(`${indent}${code};`);
+            }
+          }
+        }
+        branchesWithAwait.push({
+          index: firstNonFalseBranchIndex,
+          value,
+          hasAwait: false,
+        });
+      }
+    }
+
+    if (!context.condBranchInfo) {
+      context.condBranchInfo = new Map();
+    }
+    context.condBranchInfo.set(awaitPoint.index, {
+      branches: branchesWithAwait,
+      targetVariableId,
+      targetAssignmentCode,
+    });
+    return;
+  }
+
   // Generate if-else chain
+  let hasEmittedBranch = false;
   for (let i = 0; i < args.length; i++) {
     const pairExpr = args[i]!;
 
@@ -464,6 +697,14 @@ function generateCondWithAwait(
       continue;
     }
 
+    // Skip compile-time false conditions
+    if (
+      isBooleanValue(condition.$?.value) &&
+      condition.$.value.value === false
+    ) {
+      continue;
+    }
+
     const condCode =
       i === args.length - 1 &&
       condition.tag === ExprTag.Atom &&
@@ -473,11 +714,12 @@ function generateCondWithAwait(
 
     if (condCode) {
       emitter.emitLine(
-        `${indent}${i === 0 ? "if" : "else if"} (${condCode}) {`
+        `${indent}${!hasEmittedBranch ? "if" : "else if"} (${condCode}) {`
       );
     } else {
-      emitter.emitLine(`${indent}${i === 0 ? "{" : "else {"}`);
+      emitter.emitLine(`${indent}${!hasEmittedBranch ? "{" : "else {"}`);
     }
+    hasEmittedBranch = true;
 
     // Check if this branch contains an await
     const branchContainsAwait = branchHasAwait(value);
@@ -591,6 +833,7 @@ function generateCondWithAwait(
   context.condBranchInfo.set(awaitPoint.index, {
     branches: branchesWithAwait,
     targetVariableId,
+    targetAssignmentCode,
   });
 }
 
@@ -630,7 +873,9 @@ function generateMatchWithAwait(
   matchExpr: Expr,
   awaitPoint: AwaitPoint,
   indent: string,
-  context: FunctionGenerationContext
+  context: FunctionGenerationContext,
+  targetVariableId?: string,
+  targetAssignmentCode?: string
 ): void {
   const emitter = context.emitter;
 
@@ -657,8 +902,30 @@ function generateMatchWithAwait(
   const matchedValueCode = generateExpr(matchedValueExpr, indent, context);
   const matchValueType = matchedValueExpr.$?.type;
 
-  if (!matchValueType || !isEnumType(matchValueType)) {
-    emitter.emitLine(`${indent}// Error: match requires an enum type`);
+  if (!matchValueType) {
+    emitter.emitLine(`${indent}// Error: match value has no type`);
+    return;
+  }
+
+  // Check if this is a primitive match (integer, bool) via the isPrimitiveMatch flag
+  if (matchExpr.$?.isPrimitiveMatch) {
+    generatePrimitiveMatchWithAwait(
+      matchExpr,
+      cases,
+      matchedValueCode,
+      awaitPoint,
+      indent,
+      context,
+      targetVariableId,
+      targetAssignmentCode
+    );
+    return;
+  }
+
+  if (!isEnumType(matchValueType)) {
+    emitter.emitLine(
+      `${indent}// Error: match requires an enum type or primitive type`
+    );
     return;
   }
 
@@ -755,37 +1022,61 @@ function generateMatchWithAwait(
 
         emitter.emitLine(
           `${indent}  sm->cond_branch_${awaitPoint.index} = ${pointerCaseIndex};`
-        ); // Process the case body looking for await
-        const remainingExprs = generateCondBranchWithAwait(
-          caseBody,
-          awaitPoint,
-          indent + "  ",
-          context
         );
 
-        // Store remaining expressions for resume state
-        if (remainingExprs.length > 0) {
-          // Store in context for state machine generation
-          const functionContext = context as FunctionGenerationContext;
-          if (!functionContext.condBranchInfo) {
-            functionContext.condBranchInfo = new Map();
+        if (branchHasAwait(caseBody)) {
+          // Process the case body looking for await
+          const remainingExprs = generateCondBranchWithAwait(
+            caseBody,
+            awaitPoint,
+            indent + "  ",
+            context
+          );
+
+          // Store remaining expressions for resume state
+          if (remainingExprs.length > 0) {
+            // Store in context for state machine generation
+            const functionContext = context as FunctionGenerationContext;
+            if (!functionContext.condBranchInfo) {
+              functionContext.condBranchInfo = new Map();
+            }
+
+            const branchData = functionContext.condBranchInfo.get(
+              awaitPoint.index
+            ) || {
+              branches: [],
+            };
+
+            branchData.branches.push({
+              index: pointerCaseIndex,
+              value: caseBody,
+              hasAwait: true,
+              remainingExprs,
+              deferredDropExpressions: caseBody.$?.deferredDropExpressions,
+            });
+
+            functionContext.condBranchInfo.set(awaitPoint.index, branchData);
           }
-
-          const branchData = functionContext.condBranchInfo.get(
-            awaitPoint.index
-          ) || {
-            branches: [],
-          };
-
-          branchData.branches.push({
-            index: pointerCaseIndex,
-            value: caseBody,
-            hasAwait: true,
-            remainingExprs,
-            deferredDropExpressions: caseBody.$?.deferredDropExpressions,
-          });
-
-          functionContext.condBranchInfo.set(awaitPoint.index, branchData);
+        } else {
+          // No await in pointer case - generate normally
+          const code = generateExpr(caseBody, indent + "  ", context);
+          if (targetVariableId) {
+            // Assign the branch result to the target variable
+            const fieldName = sanitizeForCIdentifier(`var_${targetVariableId}`);
+            if (code) {
+              emitter.emitLine(`${indent}  sm->${fieldName} = ${code};`);
+            }
+          } else if (targetAssignmentCode) {
+            if (code) {
+              emitter.emitLine(`${indent}  ${targetAssignmentCode} = ${code};`);
+            }
+          } else if (
+            code &&
+            caseBody.$ &&
+            !isTempVariableName(caseBody.$.env.modulePath, code)
+          ) {
+            emitter.emitLine(`${indent}  ${code};`);
+          }
         }
       }
     }
@@ -837,7 +1128,17 @@ function generateMatchWithAwait(
         } else {
           // No await in null case - generate normally
           const code = generateExpr(caseBody, indent + "  ", context);
-          if (
+          if (targetVariableId) {
+            // Assign the branch result to the target variable
+            const fieldName = sanitizeForCIdentifier(`var_${targetVariableId}`);
+            if (code) {
+              emitter.emitLine(`${indent}  sm->${fieldName} = ${code};`);
+            }
+          } else if (targetAssignmentCode) {
+            if (code) {
+              emitter.emitLine(`${indent}  ${targetAssignmentCode} = ${code};`);
+            }
+          } else if (
             code &&
             caseBody.$ &&
             !isTempVariableName(caseBody.$.env.modulePath, code)
@@ -996,7 +1297,17 @@ function generateMatchWithAwait(
       } else {
         // No await - generate normally
         const code = generateExpr(caseBody, indent + "    ", context);
-        if (
+        if (targetVariableId) {
+          // Assign the branch result to the target variable
+          const fieldName = sanitizeForCIdentifier(`var_${targetVariableId}`);
+          if (code) {
+            emitter.emitLine(`${indent}    sm->${fieldName} = ${code};`);
+          }
+        } else if (targetAssignmentCode) {
+          if (code) {
+            emitter.emitLine(`${indent}    ${targetAssignmentCode} = ${code};`);
+          }
+        } else if (
           code &&
           caseBody.$ &&
           !isTempVariableName(caseBody.$.env.modulePath, code)
@@ -1012,6 +1323,155 @@ function generateMatchWithAwait(
     emitter.emitLine(`${indent}  default: break;`);
     emitter.emitLine(`${indent}}`);
   }
+}
+
+/**
+ * Gets a C literal from a compile-time value (for primitive match patterns).
+ */
+/**
+ * Helper function to check if an expression is an or-pattern (using `|`)
+ */
+function isOrPatternExpr(expr: Expr): boolean {
+  if (!exprIsFunctionCall(expr)) return false;
+  return exprIsFunctionCallOf(expr, "|", 2);
+}
+
+/**
+ * Helper function to flatten an or-pattern into a list of individual patterns
+ */
+function flattenOrPatternExpr(expr: Expr): Expr[] {
+  if (!isOrPatternExpr(expr)) {
+    return [expr];
+  }
+  if (expr.tag !== ExprTag.FnCall) return [expr];
+  const left = expr.args[0]!;
+  const right = expr.args[1]!;
+  return [...flattenOrPatternExpr(left), ...flattenOrPatternExpr(right)];
+}
+
+/**
+ * Generates async-aware code for a primitive match (integer, bool) containing await in branches.
+ * Similar to generateCondWithAwait but uses switch/case for primitive pattern matching.
+ */
+function generatePrimitiveMatchWithAwait(
+  matchExpr: Expr,
+  cases: Expr[],
+  matchedValueCode: string,
+  awaitPoint: AwaitPoint,
+  indent: string,
+  context: FunctionGenerationContext,
+  targetVariableId?: string,
+  targetAssignmentCode?: string
+): void {
+  const emitter = context.emitter;
+
+  // Store branch info for later generation
+  const branchesWithAwait: Array<{
+    index: number;
+    value: Expr;
+    hasAwait: boolean;
+    remainingExprs?: Expr[];
+    deferredDropExpressions?: Expr[];
+  }> = [];
+
+  emitter.emitLine(`${indent}switch (${matchedValueCode}) {`);
+
+  for (let i = 0; i < cases.length; i++) {
+    const caseExpr = cases[i]!;
+    if (
+      !exprIsFunctionCall(caseExpr) ||
+      !exprIsFunctionCallOf(caseExpr, "=>", 2)
+    ) {
+      continue;
+    }
+
+    const caseValue = caseExpr.args[0]!;
+    const caseBody = caseExpr.args[1]!;
+
+    // Check for wildcard pattern "_"
+    if (exprIsAtomOf(caseValue, "_")) {
+      emitter.emitLine(`${indent}  default:`);
+    } else {
+      // Get pattern values from the or-pattern or single pattern
+      const patternValues = caseValue.$?.primitivePatternValues;
+      if (patternValues && patternValues.length > 0) {
+        for (const value of patternValues) {
+          if (value !== undefined) {
+            const cLiteral = generateComptimeValue(value, context);
+            emitter.emitLine(`${indent}  case ${cLiteral}:`);
+          }
+        }
+      } else {
+        // Fallback: try to get values from flattened pattern expressions
+        const flattenedPatterns = flattenOrPatternExpr(caseValue);
+        for (const patternExpr of flattenedPatterns) {
+          const patternValue = patternExpr.$?.value;
+          if (patternValue !== undefined) {
+            const cLiteral = generateComptimeValue(patternValue, context);
+            emitter.emitLine(`${indent}  case ${cLiteral}:`);
+          }
+        }
+      }
+    }
+
+    emitter.emitLine(
+      `${indent}    sm->cond_branch_${awaitPoint.index} = ${i};`
+    );
+
+    if (branchHasAwait(caseBody)) {
+      const remainingExprs = generateCondBranchWithAwait(
+        caseBody,
+        awaitPoint,
+        indent + "    ",
+        context
+      );
+
+      branchesWithAwait.push({
+        index: i,
+        value: caseBody,
+        hasAwait: true,
+        remainingExprs,
+        deferredDropExpressions: caseBody.$?.deferredDropExpressions,
+      });
+    } else {
+      const code = generateExpr(caseBody, indent + "    ", context);
+      if (targetVariableId) {
+        const fieldName = sanitizeForCIdentifier(`var_${targetVariableId}`);
+        if (code) {
+          emitter.emitLine(`${indent}    sm->${fieldName} = ${code};`);
+        }
+      } else if (targetAssignmentCode) {
+        if (code) {
+          emitter.emitLine(`${indent}    ${targetAssignmentCode} = ${code};`);
+        }
+      } else if (
+        code &&
+        caseBody.$ &&
+        !isTempVariableName(caseBody.$.env.modulePath, code)
+      ) {
+        emitter.emitLine(`${indent}    ${code};`);
+      }
+      branchesWithAwait.push({
+        index: i,
+        value: caseBody,
+        hasAwait: false,
+      });
+    }
+
+    emitter.emitLine(`${indent}    break;`);
+  }
+
+  emitter.emitLine(`${indent}}`);
+
+  // Store branch information in context for resume state generation
+  if (!context.condBranchInfo) {
+    context.condBranchInfo = new Map();
+  }
+  context.condBranchInfo.set(awaitPoint.index, {
+    branches: branchesWithAwait,
+    targetVariableId,
+    targetAssignmentCode,
+  });
 }
 
 /**
@@ -1103,10 +1563,22 @@ function generateCondBranchWithAwait(
         }
       } else if (
         expr.tag === ExprTag.FnCall &&
+        exprIsFunctionCallOf(expr, BuiltinKeywords.cond)
+      ) {
+        // Nested cond expression with await in one of its branches
+        generateCondWithAwait(expr, awaitPoint, indent, context);
+      } else if (
+        expr.tag === ExprTag.FnCall &&
         exprIsFunctionCallOf(expr, BuiltinKeywords.match)
       ) {
         // Match expression with await in one of its branches
         generateMatchWithAwait(expr, awaitPoint, indent, context);
+      } else if (
+        expr.tag === ExprTag.FnCall &&
+        exprIsFunctionCallOf(expr, BuiltinKeywords.while)
+      ) {
+        // While loop with await in the body
+        generateWhileWithAwait(expr, awaitPoint, indent, context);
       }
     } else {
       // Expression doesn't contain await - generate normally
@@ -1158,21 +1630,34 @@ function generateWhileWithAwait(
   const conditionExpr = args[0]!;
   const bodyExpr = args[1]!;
 
+  // Check if the body contains a nested while-with-await.
+  // If so, this is an outer while and needs a separate while loop index
+  // so labels don't collide with the inner while.
+  const hasNestedWhileWithAwait = bodyContainsWhileWithAwait(bodyExpr);
+
+  let whileLoopIndex: number;
+  if (hasNestedWhileWithAwait) {
+    // Allocate a fresh while loop index for this outer while
+    whileLoopIndex = context.nextWhileLoopIndex ?? awaitPoint.index + 1;
+    context.nextWhileLoopIndex = whileLoopIndex + 1;
+  } else {
+    // Innermost while uses the await point index
+    whileLoopIndex = awaitPoint.index;
+  }
+
   // Initialize loop as active
-  emitter.emitLine(
-    `${indent}sm->while_loop_${awaitPoint.index}_active = true;`
-  );
+  emitter.emitLine(`${indent}sm->while_loop_${whileLoopIndex}_active = true;`);
 
   // Generate label for loop start (so we can jump back after await)
-  emitter.emitLine(`${indent}while_loop_${awaitPoint.index}_start:`);
+  emitter.emitLine(`${indent}while_loop_${whileLoopIndex}_start:`);
 
   // Evaluate condition
   const condCode = generateExpr(conditionExpr, indent, context);
   emitter.emitLine(`${indent}if (!(${condCode})) {`);
   emitter.emitLine(
-    `${indent}  sm->while_loop_${awaitPoint.index}_active = false;`
+    `${indent}  sm->while_loop_${whileLoopIndex}_active = false;`
   );
-  emitter.emitLine(`${indent}  goto while_loop_${awaitPoint.index}_end;`);
+  emitter.emitLine(`${indent}  goto while_loop_${whileLoopIndex}_end;`);
   emitter.emitLine(`${indent}}`);
 
   // Generate body up to await
@@ -1180,21 +1665,39 @@ function generateWhileWithAwait(
     bodyExpr,
     awaitPoint,
     indent,
-    context
+    context,
+    whileLoopIndex
   );
 
   // Generate label for loop end
-  emitter.emitLine(`${indent}while_loop_${awaitPoint.index}_end:`);
+  emitter.emitLine(`${indent}while_loop_${whileLoopIndex}_end:`);
 
   // Store loop information in context for resume state generation
   if (!context.whileLoopInfo) {
     context.whileLoopInfo = new Map();
   }
-  context.whileLoopInfo.set(awaitPoint.index, {
-    conditionExpr,
-    bodyExpr,
-    bodyExprsAfterAwait,
-  });
+
+  if (hasNestedWhileWithAwait) {
+    // This is an outer while. The inner while has already stored its info
+    // at awaitPoint.index via the recursive generateWhileWithAwait call.
+    // Attach outer while info to the inner while's entry for the resume state.
+    const innerWhileInfo = context.whileLoopInfo.get(awaitPoint.index);
+    if (innerWhileInfo) {
+      innerWhileInfo.outerWhileLoop = {
+        whileLoopIndex,
+        conditionExpr,
+        bodyExpr,
+        bodyExprsAfterAwait,
+      };
+    }
+  } else {
+    // Innermost while - store directly
+    context.whileLoopInfo.set(awaitPoint.index, {
+      conditionExpr,
+      bodyExpr,
+      bodyExprsAfterAwait,
+    });
+  }
 }
 
 /**
@@ -1205,7 +1708,8 @@ function generateWhileBodyWithAwait(
   bodyExpr: Expr,
   awaitPoint: AwaitPoint,
   indent: string,
-  context: FunctionGenerationContext
+  context: FunctionGenerationContext,
+  whileLoopIndex: number
 ): Expr[] {
   const emitter = context.emitter;
   const remainingExprs: Expr[] = [];
@@ -1239,6 +1743,24 @@ function generateWhileBodyWithAwait(
     return remainingExprs;
   }
 
+  // Pre-await body expressions are generated in state 0 where we use labels
+  // (not a real C while loop). Configure break/continue handling explicitly.
+  // Use the current while loop's index for labels.
+  const previousAsyncWhileBreakInfo = context.asyncWhileBreakInfo;
+  const previousAsyncWhileContinueInfo = context.asyncWhileContinueInfo;
+  const previousAsyncWhileBodyDrops = context.asyncWhileBodyDrops;
+  context.asyncWhileBreakInfo = {
+    label: `while_loop_${whileLoopIndex}_end`,
+    index: whileLoopIndex,
+  };
+  context.asyncWhileContinueInfo = {
+    label: `while_loop_${whileLoopIndex}_start`,
+    emitDropsBeforeGoto: true,
+  };
+  context.asyncWhileBodyDrops = [
+    ...(bodyExpr.$?.deferredDropExpressions ?? []),
+  ];
+
   // Generate expressions before the await
   for (let i = 0; i < awaitFoundIndex; i++) {
     const expr = bodyExprs[i]!;
@@ -1248,8 +1770,29 @@ function generateWhileBodyWithAwait(
     }
   }
 
+  // Restore async while control-flow context before generating await handling.
+  context.asyncWhileBreakInfo = previousAsyncWhileBreakInfo;
+  context.asyncWhileContinueInfo = previousAsyncWhileContinueInfo;
+  context.asyncWhileBodyDrops = previousAsyncWhileBodyDrops;
+
   // Generate code to store the Future at the await point
   const awaitExpr = bodyExprs[awaitFoundIndex]!;
+
+  // Check if the await-containing expression is a nested while loop
+  if (
+    exprIsFunctionCall(awaitExpr) &&
+    exprIsFunctionCallOf(awaitExpr, BuiltinKeywords.while) &&
+    exprContainsAwait(awaitExpr)
+  ) {
+    // Nested while-with-await: recursively generate the inner while
+    generateWhileWithAwait(awaitExpr, awaitPoint, indent, context);
+    // Collect remaining expressions after the inner while
+    for (let i = awaitFoundIndex + 1; i < bodyExprs.length; i++) {
+      remainingExprs.push(bodyExprs[i]!);
+    }
+    return remainingExprs;
+  }
+
   if (exprIsFunctionCall(awaitExpr) && exprIsFunctionCallOf(awaitExpr, ":=")) {
     // This is an assignment with await: varName := await(futureExpr)
     const valueExpr = awaitExpr.args[1];
@@ -1276,13 +1819,15 @@ function generateWhileBodyWithAwait(
     // Standalone await
     const futureExpr = awaitExpr.args[0];
     if (futureExpr) {
-      const futureCode = generateExpr(futureExpr, indent, context);
-      emitter.emitLine(
-        `${indent}// Store Future for await ${awaitPoint.index} (while loop body)`
-      );
-      emitter.emitLine(
-        `${indent}sm->await_future_${awaitPoint.index} = ${futureCode};`
-      );
+      if (awaitPoint.futureVariableId === undefined) {
+        const futureCode = generateExpr(futureExpr, indent, context);
+        emitter.emitLine(
+          `${indent}// Store Future for await ${awaitPoint.index} (while loop body)`
+        );
+        emitter.emitLine(
+          `${indent}sm->await_future_${awaitPoint.index} = ${futureCode};`
+        );
+      }
     }
   } else if (
     exprIsFunctionCall(awaitExpr) &&
@@ -1315,7 +1860,7 @@ function generateWhileBodyWithAwait(
 /**
  * Checks if an expression contains any await
  */
-function exprContainsAwait(expr: Expr): boolean {
+export function exprContainsAwait(expr: Expr): boolean {
   if (
     expr.tag === ExprTag.FnCall &&
     exprIsFunctionCallOf(expr, BuiltinFunctions.await)
@@ -1324,6 +1869,10 @@ function exprContainsAwait(expr: Expr): boolean {
   }
 
   if (expr.tag === ExprTag.FnCall) {
+    // Do NOT recurse into nested async blocks - their awaits belong to the inner async
+    if (exprIsFunctionCallOf(expr, BuiltinFunctions.async)) {
+      return false;
+    }
     if (exprContainsAwait(expr.func)) {
       return true;
     }
@@ -1334,5 +1883,27 @@ function exprContainsAwait(expr: Expr): boolean {
     }
   }
 
+  return false;
+}
+
+/**
+ * Checks if a while loop body contains a nested while loop that itself contains await.
+ * This is used to detect outer whiles that need separate while loop indices.
+ */
+function bodyContainsWhileWithAwait(bodyExpr: Expr): boolean {
+  const bodyExprs =
+    bodyExpr.tag === ExprTag.FnCall && exprIsFunctionCallOf(bodyExpr, "begin")
+      ? bodyExpr.args
+      : [bodyExpr];
+
+  for (const expr of bodyExprs) {
+    if (
+      expr.tag === ExprTag.FnCall &&
+      exprIsFunctionCallOf(expr, BuiltinKeywords.while) &&
+      exprContainsAwait(expr)
+    ) {
+      return true;
+    }
+  }
   return false;
 }

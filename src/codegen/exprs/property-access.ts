@@ -3,6 +3,7 @@ import type { TraitType, Type } from "../../types/definitions";
 import {
   isDynType,
   isEnumType,
+  isModuleType,
   isNewtypeType,
   isObjectType,
   isPtrType,
@@ -10,13 +11,20 @@ import {
   isStructType,
   isTupleType,
 } from "../../types/guards";
-import { isFunctionValue, isTypeValue } from "../../value";
+import {
+  isFunctionValue,
+  isModuleValue,
+  isTypeValue,
+  isUnknownValue,
+} from "../../value";
 import {
   canOptimizeAsNullablePointer,
   type CodeGenContext,
   getEnumVariantCName,
+  getVariableNameForCodegen,
   sanitizeForCIdentifier,
 } from "../utils";
+import { generateComptimeValue } from "./comptime-value";
 import { generateExpr } from "./expr";
 
 /**
@@ -95,6 +103,28 @@ export function generateFieldAccess(
       } else {
         return `/* ERROR: No module found for Rc method ${fieldName} */`;
       }
+    }
+
+    // Module namespace field access (e.g. fcntl_io.O_NONBLOCK)
+    // Modules are compile-time values and have no runtime C representation.
+    // The field access should resolve directly to the field value/identifier.
+    if (isModuleType(objectType) || isModuleValue(objectValue)) {
+      const fieldValue = expr.$?.value;
+
+      if (fieldValue) {
+        if (isUnknownValue(fieldValue)) {
+          if (fieldValue.variableName) {
+            return getVariableNameForCodegen(
+              fieldValue.variableName,
+              expr.$?.env
+            );
+          }
+        } else if (!isModuleValue(fieldValue)) {
+          return generateComptimeValue(fieldValue, context, expr);
+        }
+      }
+
+      return getVariableNameForCodegen(fieldName, expr.$?.env);
     }
 
     // Handle newtype field access - just return the object itself (zero-cost abstraction)

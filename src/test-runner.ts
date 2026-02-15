@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -37,6 +37,8 @@ const colors = {
   bold: "\x1b[1m",
   dim: "\x1b[2m",
 };
+
+const TEST_SUMMARY_MARKER = "__YO_TEST_SUMMARY__";
 
 /**
  * Try to force garbage collection if running with --expose-gc flag
@@ -526,16 +528,277 @@ function runSingleTest(
 interface TestToRun {
   test: TestDeclaration;
   nonTestExprs: Expr[];
-  relativePath: string;
+}
+
+interface IsolatedFileRunResult {
+  filePath: string;
+  summary?: TestRunSummary;
+  errorMessage?: string;
+}
+
+function parseTestSummaryFromOutput(
+  output: string
+): TestRunSummary | undefined {
+  const markerIndex = output.lastIndexOf(TEST_SUMMARY_MARKER);
+  if (markerIndex < 0) {
+    return undefined;
+  }
+
+  const jsonPart = output
+    .slice(markerIndex + TEST_SUMMARY_MARKER.length)
+    .trim();
+  const jsonLine = jsonPart.split(/\r?\n/)[0];
+  if (!jsonLine) {
+    return undefined;
+  }
+
+  try {
+    const parsed = JSON.parse(jsonLine) as TestRunSummary;
+    if (
+      typeof parsed.totalTests === "number" &&
+      typeof parsed.passed === "number" &&
+      typeof parsed.failed === "number" &&
+      Array.isArray(parsed.results) &&
+      typeof parsed.duration === "number"
+    ) {
+      return parsed;
+    }
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function runSingleFileInIsolatedProcess({
+  filePath,
+  cCompiler,
+  verbose,
+  bail,
+  testNamePattern,
+  keepGeneratedFiles,
+}: {
+  filePath: string;
+  cCompiler: string;
+  verbose?: boolean;
+  bail?: boolean;
+  testNamePattern?: string;
+  keepGeneratedFiles?: boolean;
+}): Promise<IsolatedFileRunResult> {
+  return await new Promise((resolve) => {
+    const bunExecutable = process.env.BUN || "bun";
+    const cliEntryPath = path.join(process.cwd(), "src/yo-cli.ts");
+    const args = [
+      "run",
+      cliEntryPath,
+      "test",
+      filePath,
+      "--parallel",
+      "1",
+      "--json-summary",
+      "--cc",
+      cCompiler,
+    ];
+
+    if (verbose) {
+      args.push("--verbose");
+    }
+    if (bail) {
+      args.push("--bail");
+    }
+    if (testNamePattern) {
+      args.push("--test-name-pattern", testNamePattern);
+    }
+    if (keepGeneratedFiles) {
+      args.push("--keep-generated-files");
+    }
+
+    const child = spawn(bunExecutable, args, {
+      stdio: ["ignore", "pipe", "pipe"],
+      cwd: process.cwd(),
+      env: process.env,
+    });
+
+    let stdout = "";
+    let stderr = "";
+
+    child.stdout?.on("data", (chunk: Buffer | string) => {
+      stdout += chunk.toString();
+    });
+
+    child.stderr?.on("data", (chunk: Buffer | string) => {
+      stderr += chunk.toString();
+    });
+
+    child.on("error", (error) => {
+      resolve({
+        filePath,
+        errorMessage: `Failed to spawn isolated test process: ${error.message}`,
+      });
+    });
+
+    child.on("close", (code) => {
+      const summary = parseTestSummaryFromOutput(stdout);
+      if (summary) {
+        resolve({ filePath, summary });
+        return;
+      }
+
+      const outputTail = `${stdout}\n${stderr}`
+        .trim()
+        .split(/\r?\n/)
+        .slice(-12);
+      const outputHint =
+        outputTail.length > 0 ? `\n${outputTail.join("\n")}` : "";
+      resolve({
+        filePath,
+        errorMessage: `Isolated test process failed to produce summary (exit code ${code ?? "unknown"}).${outputHint}`,
+      });
+    });
+  });
+}
+
+async function runTestsInIsolatedProcesses({
+  testFiles,
+  cCompiler,
+  concurrency,
+  verbose,
+  bail,
+  testNamePattern,
+  keepGeneratedFiles,
+  startTime,
+}: {
+  testFiles: string[];
+  cCompiler: string;
+  concurrency: number;
+  verbose?: boolean;
+  bail?: boolean;
+  testNamePattern?: string;
+  keepGeneratedFiles?: boolean;
+  startTime: number;
+}): Promise<TestRunSummary> {
+  const allResults: TestResult[] = [];
+  let passedTests = 0;
+  let failedTests = 0;
+  let nextFileIndex = 0;
+  let bailed = false;
+
+  const workerCount = Math.min(concurrency, testFiles.length);
+  const workers = Array.from({ length: workerCount }, async () => {
+    while (nextFileIndex < testFiles.length && !bailed) {
+      const fileIndex = nextFileIndex;
+      nextFileIndex += 1;
+
+      const filePath = testFiles[fileIndex]!;
+      const result = await runSingleFileInIsolatedProcess({
+        filePath,
+        cCompiler,
+        verbose,
+        bail,
+        testNamePattern,
+        keepGeneratedFiles,
+      });
+
+      const relativePath = path.relative(process.cwd(), filePath);
+      console.log(`${colors.dim}${relativePath}${colors.reset}`);
+
+      if (!result.summary) {
+        const errorMessage =
+          result.errorMessage ?? "Unknown isolated test process error";
+        console.log(
+          `  ${colors.red}✗${colors.reset} Isolated test runner failed`
+        );
+        console.log(`    ${colors.red}${errorMessage}${colors.reset}`);
+        console.log();
+
+        allResults.push({
+          testName: "Isolated test runner",
+          filePath,
+          passed: false,
+          errorMessage,
+          duration: 0,
+        });
+        failedTests += 1;
+      } else if (result.summary.results.length === 0) {
+        console.log(`  ${colors.yellow}(no tests found)${colors.reset}`);
+        console.log();
+      } else {
+        for (const testResult of result.summary.results) {
+          allResults.push(testResult);
+          if (testResult.passed) {
+            passedTests += 1;
+            console.log(
+              `  ${colors.green}✓${colors.reset} ${testResult.testName} ${colors.dim}(${testResult.duration}ms)${colors.reset}`
+            );
+          } else {
+            failedTests += 1;
+            console.log(
+              `  ${colors.red}✗${colors.reset} ${testResult.testName} ${colors.dim}(${testResult.duration}ms)${colors.reset}`
+            );
+
+            if (testResult.errorMessage && verbose) {
+              const indentedError = testResult.errorMessage
+                .split("\n")
+                .map((l) => `    ${l}`)
+                .join("\n");
+              console.log(`${colors.red}${indentedError}${colors.reset}`);
+            } else if (testResult.errorMessage) {
+              const firstLine = testResult.errorMessage.split("\n")[0];
+              console.log(`    ${colors.red}${firstLine}${colors.reset}`);
+            }
+          }
+        }
+        console.log();
+      }
+
+      if (
+        bail &&
+        ((result.summary && result.summary.failed > 0) || !result.summary)
+      ) {
+        bailed = true;
+      }
+    }
+  });
+
+  await Promise.all(workers);
+
+  if (bailed) {
+    console.log(
+      `\n${colors.yellow}Bailing out early due to test failure (--bail)${colors.reset}\n`
+    );
+  }
+
+  const totalDuration = Date.now() - startTime;
+
+  console.log(`${colors.bold}Test Summary${colors.reset}`);
+  console.log(`─────────────────────────────────`);
+  if (passedTests > 0) {
+    console.log(`${colors.green}${passedTests} passed${colors.reset}`);
+  }
+  if (failedTests > 0) {
+    console.log(`${colors.red}${failedTests} failed${colors.reset}`);
+  }
+  console.log(
+    `${colors.dim}${passedTests + failedTests} total (${totalDuration}ms)${colors.reset}`
+  );
+  console.log();
+
+  return {
+    totalTests: passedTests + failedTests,
+    passed: passedTests,
+    failed: failedTests,
+    results: allResults,
+    duration: totalDuration,
+  };
 }
 
 /**
- * Run tests with a concurrency limit using a simple async pool pattern
+ * Run tests sequentially within a single file.
+ *
+ * Parallel execution is handled at file level via isolated child processes.
  */
-async function runTestsWithConcurrency(
+async function runTestsSequentially(
   testsToRun: TestToRun[],
   cCompiler: string,
-  concurrency: number,
   options: {
     verbose?: boolean;
     bail?: boolean;
@@ -552,109 +815,40 @@ async function runTestsWithConcurrency(
   let failedTests = 0;
   let bailed = false;
 
-  if (concurrency === 1) {
-    // Sequential execution - original behavior with immediate output
-    for (const { test, nonTestExprs } of testsToRun) {
-      if (bailed) break;
+  for (const { test, nonTestExprs } of testsToRun) {
+    if (bailed) break;
 
-      const result = runSingleTest(
-        test,
-        nonTestExprs,
-        cCompiler,
-        options.keepGeneratedFiles
+    const result = runSingleTest(
+      test,
+      nonTestExprs,
+      cCompiler,
+      options.keepGeneratedFiles
+    );
+    results.push(result);
+
+    if (result.passed) {
+      passedTests++;
+      console.log(
+        `  ${colors.green}✓${colors.reset} ${test.name} ${colors.dim}(${result.duration}ms)${colors.reset}`
       );
-      results.push(result);
-
-      if (result.passed) {
-        passedTests++;
-        console.log(
-          `  ${colors.green}✓${colors.reset} ${test.name} ${colors.dim}(${result.duration}ms)${colors.reset}`
-        );
-      } else {
-        failedTests++;
-        console.log(
-          `  ${colors.red}✗${colors.reset} ${test.name} ${colors.dim}(${result.duration}ms)${colors.reset}`
-        );
-        if (result.errorMessage && options.verbose) {
-          const indentedError = result.errorMessage
-            .split("\n")
-            .map((l) => `    ${l}`)
-            .join("\n");
-          console.log(`${colors.red}${indentedError}${colors.reset}`);
-        } else if (result.errorMessage) {
-          const firstLine = result.errorMessage.split("\n")[0];
-          console.log(`    ${colors.red}${firstLine}${colors.reset}`);
-        }
-
-        if (options.bail) {
-          bailed = true;
-        }
+    } else {
+      failedTests++;
+      console.log(
+        `  ${colors.red}✗${colors.reset} ${test.name} ${colors.dim}(${result.duration}ms)${colors.reset}`
+      );
+      if (result.errorMessage && options.verbose) {
+        const indentedError = result.errorMessage
+          .split("\n")
+          .map((l) => `    ${l}`)
+          .join("\n");
+        console.log(`${colors.red}${indentedError}${colors.reset}`);
+      } else if (result.errorMessage) {
+        const firstLine = result.errorMessage.split("\n")[0];
+        console.log(`    ${colors.red}${firstLine}${colors.reset}`);
       }
-    }
-  } else {
-    // Parallel execution
-    let currentIndex = 0;
-    const inFlight: Promise<void>[] = [];
-    const testResultsMap = new Map<number, TestResult>();
 
-    const runNext = async (): Promise<void> => {
-      while (currentIndex < testsToRun.length && !bailed) {
-        const index = currentIndex++;
-        const { test, nonTestExprs } = testsToRun[index]!;
-
-        // Run test synchronously in this "worker"
-        const result = runSingleTest(
-          test,
-          nonTestExprs,
-          cCompiler,
-          options.keepGeneratedFiles
-        );
-        testResultsMap.set(index, result);
-
-        if (result.passed) {
-          passedTests++;
-        } else {
-          failedTests++;
-          if (options.bail) {
-            bailed = true;
-          }
-        }
-      }
-    };
-
-    // Start workers up to concurrency limit
-    for (let i = 0; i < concurrency && i < testsToRun.length; i++) {
-      inFlight.push(runNext());
-    }
-
-    await Promise.all(inFlight);
-
-    // Collect results in order and print them
-    for (let i = 0; i < testsToRun.length; i++) {
-      const result = testResultsMap.get(i);
-      if (!result) break; // Bailed before this test ran
-
-      const { test } = testsToRun[i]!;
-      results.push(result);
-
-      if (result.passed) {
-        console.log(
-          `  ${colors.green}✓${colors.reset} ${test.name} ${colors.dim}(${result.duration}ms)${colors.reset}`
-        );
-      } else {
-        console.log(
-          `  ${colors.red}✗${colors.reset} ${test.name} ${colors.dim}(${result.duration}ms)${colors.reset}`
-        );
-        if (result.errorMessage && options.verbose) {
-          const indentedError = result.errorMessage
-            .split("\n")
-            .map((l) => `    ${l}`)
-            .join("\n");
-          console.log(`${colors.red}${indentedError}${colors.reset}`);
-        } else if (result.errorMessage) {
-          const firstLine = result.errorMessage.split("\n")[0];
-          console.log(`    ${colors.red}${firstLine}${colors.reset}`);
-        }
+      if (options.bail) {
+        bailed = true;
       }
     }
   }
@@ -720,9 +914,20 @@ export async function runTests(
     );
   }
 
-  // Collect all tests to run, grouped by file
-  const testsByFile: Map<string, TestToRun[]> = new Map();
-  let _totalTests = 0;
+  // For parallel mode, run each test file in an isolated child process.
+  // This avoids interference from global mutable state in the compiler/evaluator.
+  if (concurrency > 1) {
+    return await runTestsInIsolatedProcesses({
+      testFiles,
+      cCompiler,
+      concurrency,
+      verbose: options.verbose,
+      bail: options.bail,
+      testNamePattern: options.testNamePattern,
+      keepGeneratedFiles: options.keepGeneratedFiles,
+      startTime,
+    });
+  }
 
   // Initialize result tracking variables early so they can be used in error handling
   const allResults: TestResult[] = [];
@@ -730,8 +935,12 @@ export async function runTests(
   let failedTests = 0;
   let bailed = false;
 
+  // Process files incrementally so users get immediate feedback
   for (const filePath of testFiles) {
+    if (bailed) break;
+
     const relativePath = path.relative(process.cwd(), filePath);
+    console.log(`${colors.dim}${relativePath}${colors.reset}`);
 
     let tests: TestDeclaration[];
     let nonTestExprs: Expr[];
@@ -741,7 +950,6 @@ export async function runTests(
       nonTestExprs = result.nonTestExprs;
     } catch (error) {
       // Module evaluation failed - treat as a single failed test for this file
-      console.log(`${colors.dim}${relativePath}${colors.reset}`);
       console.log(`  ${colors.red}✗${colors.reset} Module evaluation failed`);
       const errorMessage =
         error instanceof Error ? error.message : String(error);
@@ -763,39 +971,24 @@ export async function runTests(
       tests = tests.filter((test) => testNameRegex.test(test.name));
     }
 
-    if (tests.length > 0) {
-      const testsToRun = tests.map((test) => ({
-        test,
-        nonTestExprs,
-        relativePath,
-      }));
-      testsByFile.set(relativePath, testsToRun);
-      _totalTests += tests.length;
-    }
-  }
-
-  // Run tests file by file (parallel within each file if concurrency > 1)
-  for (const [relativePath, testsToRun] of testsByFile) {
-    if (bailed) break;
-
-    console.log(`${colors.dim}${relativePath}${colors.reset}`);
-
-    if (testsToRun.length === 0) {
+    if (tests.length === 0) {
       console.log(`  ${colors.yellow}(no tests found)${colors.reset}`);
       console.log();
+      // Try to force garbage collection between files to prevent memory accumulation
+      tryForceGC();
       continue;
     }
 
-    const result = await runTestsWithConcurrency(
-      testsToRun,
-      cCompiler,
-      concurrency,
-      {
-        verbose: options.verbose,
-        bail: options.bail,
-        keepGeneratedFiles: options.keepGeneratedFiles,
-      }
-    );
+    const testsToRun = tests.map((test) => ({
+      test,
+      nonTestExprs,
+    }));
+
+    const result = await runTestsSequentially(testsToRun, cCompiler, {
+      verbose: options.verbose,
+      bail: options.bail,
+      keepGeneratedFiles: options.keepGeneratedFiles,
+    });
 
     allResults.push(...result.results);
     passedTests += result.passedTests;

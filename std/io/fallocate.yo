@@ -1,0 +1,24 @@
+// std/io/fallocate.yo - File space pre-allocation
+//
+// Synchronous wrapper for fallocate-style allocation.
+// Returns 0 on success, -errno on failure.
+
+{ __yo_sync_fallocate } :: import "./externs.yo";
+
+// Mode constants
+FALLOC_FL_KEEP_SIZE :: i32(0x01);  // Do not change file size
+FALLOC_FL_PUNCH_HOLE :: i32(0x02);  // Deallocate range (Linux-specific)
+FALLOC_FL_ZERO_RANGE :: i32(0x10);  // Zero range (Linux-specific)
+
+// Pre-allocate disk space for a file range.
+// Ensures writes in [offset, offset + length) have space reserved.
+fallocate :: (fn(fd: i32, mode: i32, offset: i64, length: i64) -> i32)(
+  __yo_sync_fallocate(fd, mode, offset, length)
+);
+
+export
+  fallocate,
+  FALLOC_FL_KEEP_SIZE,
+  FALLOC_FL_PUNCH_HOLE,
+  FALLOC_FL_ZERO_RANGE
+;

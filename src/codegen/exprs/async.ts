@@ -29,7 +29,7 @@ import {
 import type { FunctionGenerationContext } from "../functions/context";
 import { getTypeString, getVariableTypeString } from "../utils";
 import { generateAtom } from "./atom";
-import { getDropFunctionForType } from "./drop-dup";
+import { getDropFunctionForType, getDupFunctionForType } from "./drop-dup";
 import { generateExpr } from "./expr";
 
 /**
@@ -224,7 +224,23 @@ export function generateAsyncBlock(
       })
       .join(", ");
 
-    const captureStructLiteral = `(${captureStructName}){${captureFields}}`;
+    let captureStructLiteral = `(${captureStructName}){${captureFields}}`;
+
+    // When in a special context (state machine/closure), deferredDupExpressions are skipped
+    // because they reference variables by original names that don't exist in the special context.
+    // But we still need to dup RC fields in the capture struct to maintain proper ref counts.
+    // Use the capture struct type's dup function to dup all RC fields at once.
+    if (
+      inSpecialContext &&
+      expr.$?.deferredDupExpressions &&
+      expr.$.deferredDupExpressions.length > 0
+    ) {
+      const dupFnName = getDupFunctionForType(captureType, context);
+      if (dupFnName) {
+        captureStructLiteral = `${dupFnName}(${captureStructLiteral})`;
+      }
+    }
+
     const resultVar = expr.$?.variableName || `async_result`;
     const constructorCall = `${constructorName}(${captureStructLiteral})`;
 
@@ -403,7 +419,9 @@ function emitAsyncBlockStructDefinition(
   }
 
   // cond_branch_X fields
-  const condAwaitPoints = analysis.awaitPoints.filter((ap) => ap.isInsideCond);
+  const condAwaitPoints = analysis.awaitPoints.filter(
+    (ap) => ap.needsOwnCondBranchField
+  );
   if (condAwaitPoints.length > 0) {
     emitter.emitDeclarationLine(
       `  // Branch tracking for cond expressions with await`
@@ -424,10 +442,20 @@ function emitAsyncBlockStructDefinition(
     emitter.emitDeclarationLine(
       `  // Loop state tracking for while loops with await`
     );
+    let nextExtraWhileIndex = analysis.awaitPoints.length;
     for (const awaitPoint of whileAwaitPoints) {
+      // Innermost while uses the awaitPoint.index
       emitter.emitDeclarationLine(
         `  _Bool while_loop_${awaitPoint.index}_active;  // Whether while loop ${awaitPoint.index} should continue`
       );
+      // Outer while loops (nesting depth > 1) need additional active fields
+      const extraDepth = (awaitPoint.whileNestingDepth ?? 1) - 1;
+      for (let d = 0; d < extraDepth; d++) {
+        emitter.emitDeclarationLine(
+          `  _Bool while_loop_${nextExtraWhileIndex}_active;  // Whether outer while loop ${nextExtraWhileIndex} should continue`
+        );
+        nextExtraWhileIndex++;
+      }
     }
     emitter.emitDeclarationLine(``);
   }
@@ -823,7 +851,14 @@ export function generateDeferredAsyncBlocks(
 
   emitter.emitLine(`// Deferred async block implementations`);
 
-  for (const asyncBlockInfo of context.deferredAsyncBlocks) {
+  // Use index-based loop because generating resume functions for outer async blocks
+  // may discover nested async blocks (e.g., `async { task := async { ... }; await task; }`)
+  // which get pushed to deferredAsyncBlocks during iteration.
+  let i = 0;
+  while (i < context.deferredAsyncBlocks.length) {
+    const asyncBlockInfo = context.deferredAsyncBlocks[i]!;
+    const prevLength = context.deferredAsyncBlocks.length;
+
     const {
       bodyExpr,
       asyncBlockId,
@@ -881,6 +916,27 @@ export function generateDeferredAsyncBlocks(
     );
 
     emitter.emitLine(``);
+
+    // If new async blocks were discovered during resume function generation
+    // (nested async blocks), emit their struct definitions now before processing them
+    if (context.deferredAsyncBlocks.length > prevLength) {
+      const newBlocks = context.deferredAsyncBlocks.slice(prevLength);
+      for (const newBlock of newBlocks) {
+        emitAsyncBlockStructDefinition(
+          {
+            asyncBlockId: newBlock.asyncBlockId,
+            structName: newBlock.structName,
+            resultType: newBlock.resultType,
+            resultTypeCName: newBlock.resultTypeCName,
+            captureType: newBlock.captureType,
+            analysis: newBlock.analysis,
+          },
+          context
+        );
+      }
+    }
+
+    i++;
   }
 }
 

@@ -20,6 +20,11 @@ export function generateAsyncRuntimeIOMacOS(emitter: Emitter): void {
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/stat.h>
+#include <sys/utsname.h>
+#include <sys/mman.h>
+#include <sys/file.h>
+#include <sys/uio.h>
+#include <time.h>
 #include <errno.h>
 #include <pthread.h>
 
@@ -70,8 +75,11 @@ static void __yo_io_cleanup(void) {
 
 // Check if there are pending I/O operations
 static inline bool __yo_has_pending_io(void) {
-  return atomic_load(&__yo_pending_io_count) > 0;
+  return atomic_load(&__yo_pending_io_count) > 0 || __yo_active_watch_count > 0;
 }
+
+// Forward declaration for poll/fs_event tick (defined in runtime-io-common)
+static int __yo_poll_and_fs_event_tick(void);
 
 // Process completions - on macOS, GCD handles this automatically via callback
 // This function processes any completions that have been queued
@@ -101,11 +109,21 @@ static int __yo_io_poll(void) {
   if (count > 0) {
     ASYNC_DEBUG("[IO] Polled %d completions from GCD threads\\n", count);
   }
+  
+  // Also tick poll/fs_event handles
+  count += __yo_poll_and_fs_event_tick();
+  
   return count;
 }
 
 // Wait for at least one I/O completion
 static int __yo_io_wait(void) {
+  if (atomic_load(&__yo_pending_io_count) == 0 && __yo_active_watch_count > 0) {
+    // Only watches pending, use short sleep then tick
+    dispatch_time_t timeout = dispatch_time(DISPATCH_TIME_NOW, 10 * NSEC_PER_MSEC);
+    dispatch_semaphore_wait(__yo_io_semaphore, timeout);
+    return __yo_poll_and_fs_event_tick();
+  }
   if (atomic_load(&__yo_pending_io_count) == 0) return 0;
   
   // Wait on semaphore with timeout
@@ -165,18 +183,31 @@ static yo_io_future_t* __yo_async_read_start(int32_t fd, void* buffer, uint32_t 
   
   atomic_fetch_add(&__yo_pending_io_count, 1);
   
-  // Use dispatch_read for async file read
-  dispatch_fd_t dispatch_fd = (dispatch_fd_t)fd;
+  // Use random I/O only for seekable regular/block files.
+  // Pipes/sockets/ttys must use stream mode or writes/reads fail with ESPIPE.
+  dispatch_fd_t dispatch_fd = (dispatch_fd_t)dup(fd);
+  if (dispatch_fd < 0) {
+    future->result = -errno;
+    atomic_store(&future->state, -1);
+    atomic_fetch_sub(&__yo_pending_io_count, 1);
+    ASYNC_DEBUG("[IO] Failed to dup fd for read: fd=%d errno=%d\\n", fd, errno);
+    return future;
+  }
+  struct stat st;
+  bool use_random = false;
+  if (fstat(fd, &st) == 0) {
+    use_random = S_ISREG(st.st_mode) || S_ISBLK(st.st_mode);
+  }
+  dispatch_io_type_t io_type = use_random ? DISPATCH_IO_RANDOM : DISPATCH_IO_STREAM;
   
-  // For files, we need to use pread-style positioning
-  // dispatch_read reads from current position, so we use dispatch_io for positioned reads
-  dispatch_io_t channel = dispatch_io_create(DISPATCH_IO_RANDOM, dispatch_fd, __yo_io_queue, ^(int error) {
+  dispatch_io_t channel = dispatch_io_create(io_type, dispatch_fd, __yo_io_queue, ^(int error) {
     if (error) {
       ASYNC_DEBUG("[IO] Channel cleanup error: %d\\n", error);
     }
   });
   
   if (!channel) {
+    close((int)dispatch_fd);
     future->result = -errno;
     atomic_store(&future->state, -1);
     atomic_fetch_sub(&__yo_pending_io_count, 1);
@@ -193,12 +224,18 @@ static yo_io_future_t* __yo_async_read_start(int32_t fd, void* buffer, uint32_t 
   yo_io_future_t* fut = future;
   uint32_t sz = size;
   __block size_t total = 0;
+  __block bool completed = false;
+  off_t read_offset = use_random ? (off_t)offset : 0;
   
-  dispatch_io_read(channel, (off_t)offset, (size_t)size, __yo_io_queue,
+  dispatch_io_read(channel, read_offset, (size_t)size, __yo_io_queue,
     ^(bool done, dispatch_data_t data, int error) {
+      if (completed) {
+        return;
+      }
       if (error) {
         fut->result = -error;
-        if (done) {
+        if (done || !use_random) {
+          completed = true;
           dispatch_io_close(channel, DISPATCH_IO_STOP);
           __yo_io_wake_continuation(fut);
         }
@@ -226,8 +263,20 @@ static yo_io_future_t* __yo_async_read_start(int32_t fd, void* buffer, uint32_t 
           return true;
         });
       }
+
+      // For stream descriptors (pipes/sockets/ttys), complete as soon as any data arrives,
+      // matching read(2) semantics for "up to size" bytes.
+      if (!use_random && total > 0) {
+        completed = true;
+        fut->result = (int32_t)total;
+        dispatch_io_close(channel, DISPATCH_IO_STOP);
+        ASYNC_DEBUG("[IO] Stream read completed: %d bytes\\n", fut->result);
+        __yo_io_wake_continuation(fut);
+        return;
+      }
       
       if (done) {
+        completed = true;
         fut->result = (int32_t)total;
         dispatch_io_close(channel, 0);
         ASYNC_DEBUG("[IO] Read completed: %d bytes\\n", fut->result);
@@ -256,15 +305,29 @@ static yo_io_future_t* __yo_async_write_start(int32_t fd, const void* buffer, ui
   
   atomic_fetch_add(&__yo_pending_io_count, 1);
   
-  dispatch_fd_t dispatch_fd = (dispatch_fd_t)fd;
+  dispatch_fd_t dispatch_fd = (dispatch_fd_t)dup(fd);
+  if (dispatch_fd < 0) {
+    future->result = -errno;
+    atomic_store(&future->state, -1);
+    atomic_fetch_sub(&__yo_pending_io_count, 1);
+    ASYNC_DEBUG("[IO] Failed to dup fd for write: fd=%d errno=%d\\n", fd, errno);
+    return future;
+  }
+  struct stat st;
+  bool use_random = false;
+  if (fstat(fd, &st) == 0) {
+    use_random = S_ISREG(st.st_mode) || S_ISBLK(st.st_mode);
+  }
+  dispatch_io_type_t io_type = use_random ? DISPATCH_IO_RANDOM : DISPATCH_IO_STREAM;
   
-  dispatch_io_t channel = dispatch_io_create(DISPATCH_IO_RANDOM, dispatch_fd, __yo_io_queue, ^(int error) {
+  dispatch_io_t channel = dispatch_io_create(io_type, dispatch_fd, __yo_io_queue, ^(int error) {
     if (error) {
       ASYNC_DEBUG("[IO] Channel cleanup error: %d\\n", error);
     }
   });
   
   if (!channel) {
+    close((int)dispatch_fd);
     future->result = -errno;
     atomic_store(&future->state, -1);
     atomic_fetch_sub(&__yo_pending_io_count, 1);
@@ -275,8 +338,9 @@ static yo_io_future_t* __yo_async_write_start(int32_t fd, const void* buffer, ui
   dispatch_data_t data = dispatch_data_create(buffer, size, __yo_io_queue, DISPATCH_DATA_DESTRUCTOR_DEFAULT);
   
   yo_io_future_t* fut = future;
+  off_t write_offset = use_random ? (off_t)offset : 0;
   
-  dispatch_io_write(channel, (off_t)offset, data, __yo_io_queue,
+  dispatch_io_write(channel, write_offset, data, __yo_io_queue,
     ^(bool done, dispatch_data_t remaining, int error) {
       if (error) {
         fut->result = -error;
@@ -579,88 +643,239 @@ static yo_io_future_t* __yo_async_ftruncate_start(int32_t fd, int64_t length) {
 }
 
 // ============================================================================
-// Permission Operations (macOS)
+// Synchronous FD Operations (macOS) - no IOFuture overhead
 // ============================================================================
 
-// Async fchmod - change file permissions by fd
-static yo_io_future_t* __yo_async_fchmod_start(int32_t fd, uint32_t mode) {
-  __yo_io_init();
-  
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
-  
-  future->header.ref_count = 1;
-  atomic_init(&future->continuation_fn, NULL);
-  atomic_init(&future->continuation_sm, NULL);
-  
-  int result = fchmod(fd, (mode_t)mode);
-  future->result = (result < 0) ? -errno : 0;
-  atomic_init(&future->state, -1);
-  
-  ASYNC_DEBUG("[IO] fchmod completed: fd=%d mode=0%o result=%d\\n", fd, mode, future->result);
-  
-  return future;
+static int32_t __yo_sync_pipe(int32_t* pipefd) {
+  int result = pipe((int*)pipefd);
+  return (result < 0) ? -errno : 0;
 }
 
-// Async fchmodat - change file permissions by path
-static yo_io_future_t* __yo_async_fchmodat_start(int32_t dirfd, const char* path, uint32_t mode, int32_t flags) {
-  __yo_io_init();
-  
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
-  
-  future->header.ref_count = 1;
-  atomic_init(&future->continuation_fn, NULL);
-  atomic_init(&future->continuation_sm, NULL);
-  
+static int32_t __yo_sync_dup(int32_t oldfd) {
+  int result = dup(oldfd);
+  return (result < 0) ? -errno : result;
+}
+
+static int32_t __yo_sync_dup2(int32_t oldfd, int32_t newfd) {
+  int result = dup2(oldfd, newfd);
+  return (result < 0) ? -errno : result;
+}
+
+static int64_t __yo_sync_lseek(int32_t fd, int64_t offset, int32_t whence) {
+  off_t result = lseek(fd, (off_t)offset, whence);
+  return (result < 0) ? (int64_t)(-errno) : (int64_t)result;
+}
+
+static int32_t __yo_sync_fallocate(int32_t fd, int32_t mode, int64_t offset, int64_t length) {
+  if (offset < 0 || length < 0) return -EINVAL;
+
+  uint64_t target_u = (uint64_t)offset + (uint64_t)length;
+  if (target_u > 0x7FFFFFFFFFFFFFFFULL) return -EINVAL;
+  off_t target = (off_t)target_u;
+  if ((uint64_t)target != target_u) return -EINVAL;
+
+  fstore_t store;
+  memset(&store, 0, sizeof(store));
+  store.fst_flags = F_ALLOCATECONTIG;
+  store.fst_posmode = F_VOLPOSMODE;
+  store.fst_offset = (off_t)offset;
+  store.fst_length = (off_t)length;
+
+  int result = fcntl(fd, F_PREALLOCATE, &store);
+  if (result < 0) {
+    store.fst_flags = F_ALLOCATEALL;
+    result = fcntl(fd, F_PREALLOCATE, &store);
+  }
+  if (result < 0) {
+    int alloc_errno = errno;
+
+    // Some filesystems may not support F_PREALLOCATE. Keep a best-effort
+    // fallocate behavior for basic allocation modes.
+    if (alloc_errno == ENOTSUP || alloc_errno == EOPNOTSUPP || alloc_errno == ENOSYS || alloc_errno == EINVAL) {
+      // FALLOC_FL_KEEP_SIZE = 0x01
+      if ((mode & 0x01) != 0) {
+        return 0;
+      }
+      if (ftruncate(fd, target) < 0) return -errno;
+      return 0;
+    }
+
+    return -alloc_errno;
+  }
+
+  // FALLOC_FL_KEEP_SIZE = 0x01
+  if ((mode & 0x01) == 0) {
+    struct stat st;
+    if (fstat(fd, &st) < 0) return -errno;
+    if (st.st_size < target) {
+      if (ftruncate(fd, target) < 0) return -errno;
+    }
+  }
+
+  return 0;
+}
+
+static int32_t __yo_sync_fcntl_getfl(int32_t fd) {
+  int result = fcntl(fd, F_GETFL, 0);
+  return (result < 0) ? -errno : result;
+}
+
+static int32_t __yo_sync_fcntl_setfl(int32_t fd, int32_t flags) {
+  int result = fcntl(fd, F_SETFL, flags);
+  return (result < 0) ? -errno : 0;
+}
+
+static int32_t __yo_sync_fcntl_getfd(int32_t fd) {
+  int result = fcntl(fd, F_GETFD, 0);
+  return (result < 0) ? -errno : result;
+}
+
+static int32_t __yo_sync_fcntl_setfd(int32_t fd, int32_t flags) {
+  int result = fcntl(fd, F_SETFD, flags);
+  return (result < 0) ? -errno : 0;
+}
+
+static int32_t __yo_sync_flock(int32_t fd, int32_t operation) {
+  int result = flock(fd, operation);
+  return (result < 0) ? -errno : 0;
+}
+
+static int32_t __yo_sync_readv(int32_t fd, void* iov, int32_t iovcnt) {
+  ssize_t result = readv(fd, (const struct iovec*)iov, (int)iovcnt);
+  return (result < 0) ? -errno : (int32_t)result;
+}
+
+static int32_t __yo_sync_writev(int32_t fd, void* iov, int32_t iovcnt) {
+  ssize_t result = writev(fd, (const struct iovec*)iov, (int)iovcnt);
+  return (result < 0) ? -errno : (int32_t)result;
+}
+
+static int32_t __yo_sync_preadv(int32_t fd, void* iov, int32_t iovcnt, int64_t offset) {
+  struct iovec* vec = (struct iovec*)iov;
+  ssize_t total = 0;
+  off_t current = (off_t)offset;
+
+  for (int32_t i = 0; i < iovcnt; i++) {
+    if (vec[i].iov_len == 0) continue;
+    ssize_t n = pread(fd, vec[i].iov_base, vec[i].iov_len, current);
+    if (n < 0) {
+      return (total > 0) ? (int32_t)total : -errno;
+    }
+    total += n;
+    if ((size_t)n < vec[i].iov_len) {
+      break;
+    }
+    current += (off_t)n;
+  }
+
+  return (int32_t)total;
+}
+
+static int32_t __yo_sync_pwritev(int32_t fd, void* iov, int32_t iovcnt, int64_t offset) {
+  struct iovec* vec = (struct iovec*)iov;
+  ssize_t total = 0;
+  off_t current = (off_t)offset;
+
+  for (int32_t i = 0; i < iovcnt; i++) {
+    if (vec[i].iov_len == 0) continue;
+    ssize_t n = pwrite(fd, vec[i].iov_base, vec[i].iov_len, current);
+    if (n < 0) {
+      return (total > 0) ? (int32_t)total : -errno;
+    }
+    total += n;
+    if ((size_t)n < vec[i].iov_len) {
+      break;
+    }
+    current += (off_t)n;
+  }
+
+  return (int32_t)total;
+}
+
+static size_t __yo_iovec_size(void) {
+  return sizeof(struct iovec);
+}
+
+static void __yo_iovec_set(void* iov, size_t index, void* base, size_t len) {
+  struct iovec* vec = (struct iovec*)iov;
+  vec[index].iov_base = base;
+  vec[index].iov_len = len;
+}
+
+static int32_t __yo_sync_fadvise(int32_t fd, int64_t offset, int64_t len, int32_t advice) {
+  (void)fd;
+  (void)offset;
+  (void)len;
+  (void)advice;
+  // No direct equivalent on macOS; treat as advisory no-op.
+  return 0;
+}
+
+static int32_t __yo_sync_madvise(uint8_t* addr, size_t length, int32_t advice) {
+  int result = madvise((void*)addr, length, advice);
+  return (result < 0) ? -errno : 0;
+}
+
+static uint8_t* __yo_sync_mmap(uint8_t* addr, size_t length, int32_t prot, int32_t flags, int32_t fd, int64_t offset) {
+  void* result = mmap((void*)addr, length, prot, flags, fd, (off_t)offset);
+  if (result == MAP_FAILED) {
+    return (uint8_t*)(intptr_t)(-errno);
+  }
+  return (uint8_t*)result;
+}
+
+static bool __yo_sync_mmap_is_error(uint8_t* addr) {
+  intptr_t value = (intptr_t)addr;
+  return (value < 0) && (value >= -65535);
+}
+
+static int32_t __yo_sync_mmap_errno(uint8_t* addr) {
+  intptr_t value = (intptr_t)addr;
+  if ((value < 0) && (value >= -65535)) {
+    return (int32_t)(-value);
+  }
+  return 0;
+}
+
+static int32_t __yo_sync_munmap(uint8_t* addr, size_t length) {
+  int result = munmap((void*)addr, length);
+  return (result < 0) ? -errno : 0;
+}
+
+static int32_t __yo_sync_mprotect(uint8_t* addr, size_t length, int32_t prot) {
+  int result = mprotect((void*)addr, length, prot);
+  return (result < 0) ? -errno : 0;
+}
+
+static int32_t __yo_sync_msync(uint8_t* addr, size_t length, int32_t flags) {
+  int result = msync((void*)addr, length, flags);
+  return (result < 0) ? -errno : 0;
+}
+
+static int32_t __yo_sync_fchmod(int32_t fd, uint32_t mode) {
+  int result = fchmod(fd, (mode_t)mode);
+  return (result < 0) ? -errno : 0;
+}
+
+static int32_t __yo_sync_fchmodat(int32_t dirfd, const char* path, uint32_t mode, int32_t flags) {
   int result;
-  if (dirfd == -100) {  // AT_FDCWD
+  if (dirfd == -100) {
     result = chmod(path, (mode_t)mode);
   } else {
     result = fchmodat(dirfd, path, (mode_t)mode, flags);
   }
-  future->result = (result < 0) ? -errno : 0;
-  atomic_init(&future->state, -1);
-  
-  ASYNC_DEBUG("[IO] fchmodat completed: path=%s mode=0%o result=%d\\n", path, mode, future->result);
-  
-  return future;
+  return (result < 0) ? -errno : 0;
 }
 
-// Async fchown - change file ownership by fd
-static yo_io_future_t* __yo_async_fchown_start(int32_t fd, uint32_t uid, uint32_t gid) {
-  __yo_io_init();
-  
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
-  
-  future->header.ref_count = 1;
-  atomic_init(&future->continuation_fn, NULL);
-  atomic_init(&future->continuation_sm, NULL);
-  
+static int32_t __yo_sync_fchown(int32_t fd, uint32_t uid, uint32_t gid) {
   int result = fchown(fd, (uid_t)uid, (gid_t)gid);
-  future->result = (result < 0) ? -errno : 0;
-  atomic_init(&future->state, -1);
-  
-  ASYNC_DEBUG("[IO] fchown completed: fd=%d uid=%u gid=%u result=%d\\n", fd, uid, gid, future->result);
-  
-  return future;
+  return (result < 0) ? -errno : 0;
 }
 
-// Async fchownat - change file ownership by path
-static yo_io_future_t* __yo_async_fchownat_start(int32_t dirfd, const char* path, uint32_t uid, uint32_t gid, int32_t flags) {
-  __yo_io_init();
-  
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
-  
-  future->header.ref_count = 1;
-  atomic_init(&future->continuation_fn, NULL);
-  atomic_init(&future->continuation_sm, NULL);
-  
+static int32_t __yo_sync_fchownat(int32_t dirfd, const char* path, uint32_t uid, uint32_t gid, int32_t flags) {
   int result;
-  if (dirfd == -100) {  // AT_FDCWD
-    if (flags & 0x100) {  // AT_SYMLINK_NOFOLLOW
+  if (dirfd == -100) {
+    if (flags & 0x100) {
       result = lchown(path, (uid_t)uid, (gid_t)gid);
     } else {
       result = chown(path, (uid_t)uid, (gid_t)gid);
@@ -668,106 +883,17 @@ static yo_io_future_t* __yo_async_fchownat_start(int32_t dirfd, const char* path
   } else {
     result = fchownat(dirfd, path, (uid_t)uid, (gid_t)gid, flags);
   }
-  future->result = (result < 0) ? -errno : 0;
-  atomic_init(&future->state, -1);
-  
-  ASYNC_DEBUG("[IO] fchownat completed: path=%s uid=%u gid=%u result=%d\\n", path, uid, gid, future->result);
-  
-  return future;
+  return (result < 0) ? -errno : 0;
 }
 
-// ============================================================================
-// Symbolic Link Operations (macOS)
-// ============================================================================
-
-// Async readlinkat - read symbolic link target
-static yo_io_future_t* __yo_async_readlinkat_start(int32_t dirfd, const char* path, char* buf, size_t bufsize) {
-  __yo_io_init();
-  
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
-  
-  future->header.ref_count = 1;
-  atomic_init(&future->continuation_fn, NULL);
-  atomic_init(&future->continuation_sm, NULL);
-  
+static int32_t __yo_sync_readlinkat(int32_t dirfd, const char* path, char* buf, size_t bufsize) {
   ssize_t result;
-  if (dirfd == -100) {  // AT_FDCWD
+  if (dirfd == -100) {
     result = readlink(path, buf, bufsize);
   } else {
     result = readlinkat(dirfd, path, buf, bufsize);
   }
-  future->result = (result < 0) ? -errno : (int32_t)result;
-  atomic_init(&future->state, -1);
-  
-  ASYNC_DEBUG("[IO] readlinkat completed: path=%s result=%d\\n", path, future->result);
-  
-  return future;
-}
-
-// ============================================================================
-// File Descriptor Operations (macOS)
-// ============================================================================
-
-// Async dup - duplicate file descriptor
-static yo_io_future_t* __yo_async_dup_start(int32_t oldfd) {
-  __yo_io_init();
-  
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
-  
-  future->header.ref_count = 1;
-  atomic_init(&future->continuation_fn, NULL);
-  atomic_init(&future->continuation_sm, NULL);
-  
-  int result = dup(oldfd);
-  future->result = (result < 0) ? -errno : result;
-  atomic_init(&future->state, -1);
-  
-  ASYNC_DEBUG("[IO] dup completed: oldfd=%d result=%d\\n", oldfd, future->result);
-  
-  return future;
-}
-
-// Async dup2 - duplicate file descriptor to specific fd
-static yo_io_future_t* __yo_async_dup2_start(int32_t oldfd, int32_t newfd) {
-  __yo_io_init();
-  
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
-  
-  future->header.ref_count = 1;
-  atomic_init(&future->continuation_fn, NULL);
-  atomic_init(&future->continuation_sm, NULL);
-  
-  int result = dup2(oldfd, newfd);
-  future->result = (result < 0) ? -errno : result;
-  atomic_init(&future->state, -1);
-  
-  ASYNC_DEBUG("[IO] dup2 completed: oldfd=%d newfd=%d result=%d\\n", oldfd, newfd, future->result);
-  
-  return future;
-}
-
-// Async pipe - create pipe
-static yo_io_future_t* __yo_async_pipe_start(int32_t* pipefd) {
-  __yo_io_init();
-  
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
-  
-  future->header.ref_count = 1;
-  atomic_init(&future->continuation_fn, NULL);
-  atomic_init(&future->continuation_sm, NULL);
-  
-  int result = pipe((int*)pipefd);
-  future->result = (result < 0) ? -errno : 0;
-  atomic_init(&future->state, -1);
-  
-  ASYNC_DEBUG("[IO] pipe completed: result=%d readfd=%d writefd=%d\\n",
-              future->result, pipefd[0], pipefd[1]);
-  
-  return future;
+  return (result < 0) ? -errno : (int32_t)result;
 }
 
 // ============================================================================
@@ -1288,6 +1414,89 @@ static yo_io_future_t* __yo_async_getsockopt_start(int32_t sockfd, int32_t level
               sockfd, level, optname, future->result);
   
   return future;
+}
+
+// Sync getsockname - get local socket address
+static int32_t __yo_sync_getsockname(int32_t sockfd, void* addr, uint32_t* addrlen) {
+  socklen_t len = (socklen_t)(*addrlen);
+  int result = getsockname(sockfd, (struct sockaddr*)addr, &len);
+  if (result < 0) {
+    return -errno;
+  }
+  *addrlen = (uint32_t)len;
+  return 0;
+}
+
+// Sync getpeername - get remote peer address
+static int32_t __yo_sync_getpeername(int32_t sockfd, void* addr, uint32_t* addrlen) {
+  socklen_t len = (socklen_t)(*addrlen);
+  int result = getpeername(sockfd, (struct sockaddr*)addr, &len);
+  if (result < 0) {
+    return -errno;
+  }
+  *addrlen = (uint32_t)len;
+  return 0;
+}
+
+// Sync setsockopt - set socket option value
+static int32_t __yo_sync_setsockopt(int32_t sockfd, int32_t level, int32_t optname,
+                                     const void* optval, uint32_t optlen) {
+  int result = setsockopt(sockfd, level, optname, optval, (socklen_t)optlen);
+  return (result < 0) ? -errno : 0;
+}
+
+// Sync getsockopt - get socket option value
+static int32_t __yo_sync_getsockopt(int32_t sockfd, int32_t level, int32_t optname,
+                                     void* optval, uint32_t* optlen) {
+  socklen_t len = (socklen_t)(*optlen);
+  int result = getsockopt(sockfd, level, optname, optval, &len);
+  if (result < 0) {
+    return -errno;
+  }
+  *optlen = (uint32_t)len;
+  return 0;
+}
+
+// Sync socketpair - create a connected socket pair
+static int32_t __yo_sync_socketpair(int32_t domain, int32_t sock_type, int32_t protocol, int32_t* sv) {
+  int result = socketpair(domain, sock_type, protocol, (int*)sv);
+  return (result < 0) ? -errno : 0;
+}
+
+// Sync clock_gettime - read current clock time
+static int32_t __yo_sync_clock_gettime(int32_t clock_id, int64_t* sec, int64_t* nsec) {
+  struct timespec ts;
+  int result = clock_gettime((clockid_t)clock_id, &ts);
+  if (result < 0) {
+    return -errno;
+  }
+  *sec = (int64_t)ts.tv_sec;
+  *nsec = (int64_t)ts.tv_nsec;
+  return 0;
+}
+
+// Sync uname - system identification
+static int32_t __yo_sync_uname(void* buf) {
+  int result = uname((struct utsname*)buf);
+  return (result < 0) ? -errno : 0;
+}
+
+// Sync gethostname - read host name
+static int32_t __yo_sync_gethostname(char* name, size_t len) {
+  int result = gethostname(name, len);
+  if (result < 0) {
+    return -errno;
+  }
+  if (len > 0) {
+    name[len - 1] = '\0';
+  }
+  return 0;
+}
+
+// Sync umask - set process file mode creation mask
+static int32_t __yo_sync_umask(int32_t mask) {
+  mode_t prev = umask((mode_t)mask);
+  return (int32_t)prev;
 }
 
 // ============================================================================
