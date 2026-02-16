@@ -523,6 +523,8 @@ export const BuiltinKeywords = {
   recur: ["recur"],
   fn: ["fn"],
   unsafe_fn: ["unsafe_fn"], // The function that skips the prohibitVoidType check
+  ctl: ["ctl"],
+  resume: ["resume"],
   extern: ["extern"],
   cond: ["cond"],
   type: ["type"],

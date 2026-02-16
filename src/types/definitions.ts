@@ -712,6 +712,13 @@ export interface FunctionReturn {
 
 export interface FunctionType extends Type {
   tag: TypeTag.Function;
+
+  /**
+   * Whether this function type is declared with `ctl(...) -> ...`.
+   * Control function types represent algebraic effect operations.
+   */
+  isControlFunction?: boolean;
+
   /**
    * The normal parameters of the function.
    */

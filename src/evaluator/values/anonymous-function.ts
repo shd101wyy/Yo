@@ -417,6 +417,17 @@ Got:      "${paramName}"`,
       functionValue,
       env
     );
+
+    if (functionType.isControlFunction) {
+      ctx = {
+        ...ctx,
+        controlHandlerContext: {
+          operationResultType: functionType.return.type,
+          handlerResultType: functionType.return.type,
+        },
+      };
+    }
+
     evaluationContext = ctx;
 
     evaluatedBody = evaluateBeginExpression({

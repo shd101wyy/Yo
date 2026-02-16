@@ -1991,13 +1991,14 @@ export function evaluateFunctionType({
   if (
     exprIsFunctionCall(argListExpr) &&
     (exprIsFunctionCallOf(argListExpr, BuiltinKeywords.fn) ||
-      exprIsFunctionCallOf(argListExpr, BuiltinKeywords.unsafe_fn))
+      exprIsFunctionCallOf(argListExpr, BuiltinKeywords.unsafe_fn) ||
+      exprIsFunctionCallOf(argListExpr, BuiltinKeywords.ctl))
   ) {
     argList = argListExpr.args;
   } else {
     throw formatErrorMessage({
       token: argListExpr.token,
-      errorMessage: `Expected a "fn" call for parameter list, got:\n${exprToString(argListExpr)}`,
+      errorMessage: `Expected a "fn", "unsafe_fn", or "ctl" call for parameter list, got:\n${exprToString(argListExpr)}`,
     });
   }
 
@@ -2254,6 +2255,7 @@ ${typeToString(returnType)}`,
       context.isEvaluatingFunctionBodyOrAsyncBlock?.kind === "function-body"
         ? context.isEvaluatingFunctionBodyOrAsyncBlock.type
         : undefined,
+    isControlFunction: context.isControlFunctionType,
   });
 
   // Pop the environment frame

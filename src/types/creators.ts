@@ -815,6 +815,7 @@ export function createFunctionType({
   SelfType,
   ParentFunctionType,
   isClosure,
+  isControlFunction,
 }: {
   parameters: FunctionParameter[];
   forallParameters: FunctionForallParameter[];
@@ -827,6 +828,7 @@ export function createFunctionType({
   SelfType?: Type;
   ParentFunctionType?: FunctionType;
   isClosure?: boolean;
+  isControlFunction?: boolean;
 }): FunctionType {
   const emptyEnv = createEmptyEnv();
   const trait = createTraitType(emptyEnv);
@@ -834,6 +836,7 @@ export function createFunctionType({
   const functionType: FunctionType = {
     id: `fn_${randomId(env.modulePath)}`,
     tag: TypeTag.Function,
+    isControlFunction,
     parameters: parameters,
     forallParameters,
     implicitParameters: implicitParameters ?? [],

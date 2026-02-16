@@ -403,6 +403,12 @@ export function isFunctionSpecializable(functionType: FunctionType): boolean {
     return false;
   }
 
+  // Control functions (`ctl`) use effect-handler semantics and should not
+  // go through normal generic function specialization.
+  if (functionType.isControlFunction) {
+    return false;
+  }
+
   // If the return type is compile-time only, this function is not specializable
   // for runtime code generation
   if (functionType.return?.isCompileTimeOnly) {

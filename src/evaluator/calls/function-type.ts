@@ -284,6 +284,16 @@ export function tryToImplementFunctionByFunctionType({
     );
     evaluationContext = ctx.evaluationContext;
 
+    if (newFunctionType.isControlFunction) {
+      evaluationContext = {
+        ...evaluationContext,
+        controlHandlerContext: {
+          operationResultType: newFunctionType.return.type,
+          handlerResultType: newFunctionType.return.type,
+        },
+      };
+    }
+
     evaluatedFunctionBody = evaluateBeginExpression({
       expr: functionBodyExpr, // Use transformed body
       env,

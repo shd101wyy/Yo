@@ -12,6 +12,7 @@ import {
   type FnCallExpr,
 } from "../../expr";
 import { TokenType } from "../../token";
+import { areTypesCompatible } from "../../types/compatibility";
 import { evaluateAlignOf } from "../builtins/alignof";
 import { evaluateAndOr } from "../builtins/and-or";
 import { evaluateYoArrayFill } from "../builtins/array-fns";
@@ -198,7 +199,8 @@ ${exprToString(expr)}`,
         // (fn(x : i32) -> i32)
         exprIsFunctionCall(expr.args[0]) &&
         (exprIsFunctionCallOf(expr.args[0], BuiltinKeywords.fn) ||
-          exprIsFunctionCallOf(expr.args[0], BuiltinKeywords.unsafe_fn))
+          exprIsFunctionCallOf(expr.args[0], BuiltinKeywords.unsafe_fn) ||
+          exprIsFunctionCallOf(expr.args[0], BuiltinKeywords.ctl))
       ) {
         return evaluateFunctionType({
           expr,
@@ -208,6 +210,10 @@ ${exprToString(expr)}`,
             isUnsafeFunctionType: exprIsFunctionCallOf(
               expr.args[0],
               BuiltinKeywords.unsafe_fn
+            ),
+            isControlFunctionType: exprIsFunctionCallOf(
+              expr.args[0],
+              BuiltinKeywords.ctl
             ),
           },
         });
@@ -263,6 +269,62 @@ ${exprToString(expr)}`,
         env,
         context: { ...context },
       });
+    } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.resume)) {
+      const controlHandlerContext = context.controlHandlerContext;
+      if (!controlHandlerContext) {
+        throw formatErrorMessage({
+          token: expr.token,
+          errorMessage: `"resume(...)" can only be used inside a "ctl" handler body.`,
+        });
+      }
+
+      if (expr.args.length !== 1) {
+        throw formatErrorMessage({
+          token: expr.token,
+          errorMessage: `Expected exactly one argument for "resume", got ${expr.args.length}.`,
+        });
+      }
+
+      const resumeArgExpr = _evaluateExpression({
+        expr: expr.args[0]!,
+        env,
+        context: {
+          ...context,
+          expectedType: {
+            type: controlHandlerContext.operationResultType,
+            env,
+          },
+        },
+      });
+
+      if (!resumeArgExpr.$) {
+        throw formatErrorMessage({
+          token: expr.token,
+          errorMessage: `Failed to evaluate resume argument.`,
+        });
+      }
+
+      env = resumeArgExpr.$.env;
+
+      if (
+        !areTypesCompatible(
+          { type: controlHandlerContext.operationResultType, env },
+          { type: resumeArgExpr.$.type, env }
+        )
+      ) {
+        throw formatErrorMessage({
+          token: expr.args[0]!.token,
+          errorMessage: `Incompatible resume argument type.`,
+        });
+      }
+
+      expr.$ = {
+        env,
+        type: controlHandlerContext.handlerResultType,
+        value: undefined,
+        pathCollection: resumeArgExpr.$.pathCollection,
+      };
+      return expr;
     } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.recur)) {
       // recur
       return evaluateRecur({ expr, env, context: { ...context } });

@@ -870,6 +870,10 @@ export function areFunctionTypesCompatible(
     return true;
   }
 
+  if (!!expected.type.isControlFunction !== !!given.type.isControlFunction) {
+    return false;
+  }
+
   // Check if the type parameters have the same count
   if (expected.type.parameters.length !== given.type.parameters.length) {
     return false;

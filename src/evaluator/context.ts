@@ -149,6 +149,20 @@ export interface EvaluatorContext {
   isUnsafeFunctionType?: boolean;
 
   /**
+   * Whether the function type currently being evaluated is declared with `ctl`.
+   */
+  isControlFunctionType?: boolean;
+
+  /**
+   * Context available only while evaluating a `ctl` handler body.
+   * `resume(...)` is only valid when this is set.
+   */
+  controlHandlerContext?: {
+    operationResultType: Type;
+    handlerResultType: Type;
+  };
+
+  /**
    * Whether we are currently evaluating a where clause constraint.
    * When true, the LHS of `<:` must be a SomeType, and the constraint
    * will be added to the SomeType's module rather than creating a new module type.
