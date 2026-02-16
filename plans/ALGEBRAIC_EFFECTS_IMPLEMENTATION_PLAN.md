@@ -19,21 +19,41 @@ Both phases build on Yo's existing async/await state machine infrastructure.
   - explicit skip/fallback via `using(undefined)`
   - generic `forall + using` inference in calls like `apply(41)`
 - ✅ Enforces exactly one `using(...)` clause in function signature and one `using(...)` in call arguments.
-- ⏳ **Phase 2 (`ctl` / handlers / resume)** not started yet.
+- ✅ **Phase 2 (`ctl` / handlers / `return` + `abort`)** is implemented and passing tests.
+- ✅ Phase 2 supports:
+  - `ctl` keyword for effect operation types: `Raise :: (ctl(forall(T : Type), msg : String) -> T)`
+  - Multi-parameter ctl operations: `ctl(forall(T : Type), msg : String, msg2 : String) -> T`
+  - Using `ctl` effects in functions via `using(raise : Raise)` implicit parameter
+  - **Resume handlers** (invoke continuation): `return(value)` inside handler body resumes the continuation with `value`
+  - **Abort handlers** (discard continuation): `abort expr` inside handler body discards the continuation and returns `expr` from the enclosing function
+  - Handler body may contain arbitrary function calls (e.g., `println(msg)`)
+  - `forall` type parameters in ctl types with concrete type inference at call sites
+  - Effect analysis pass (detecting ctl call points and capturing variables across suspension points)
+  - Stack-allocated state machine generation (no RC needed — effects are synchronous one-shot)
+  - Handler body inlining at call sites
+  - Proper RC drop of handler parameters before abort return
+  - `abort` control flow handling in `cond`, `match`, and `while` expressions
+  - All tests passing with AddressSanitizer (no memory leaks)
+- ⏳ **Phase 2 remaining work:**
+  - Nested effects (multiple ctl operations in same function body)
+  - Effect propagation through call chains (caller also needs SM transformation)
+  - Multiple effect types in same function
+  - Runtime one-shot enforcement (double `return` detection)
+  - Interaction with closures and async/await
 
 ---
 
 ## Design Decisions (Resolved)
 
-| Question                          | Decision                     | Rationale                                                                                 |
-| --------------------------------- | ---------------------------- | ----------------------------------------------------------------------------------------- |
-| `given` vs. auto-resolve from env | **Use `given`**              | Explicit marking avoids ambiguity, better error messages, follows Scala 3 precedent       |
-| State machine for `ctl`?          | **Yes**                      | Same architecture as async/await — effect invocation = suspension point                   |
-| Transform callers too?            | **Yes**                      | All functions in the "effect scope" (between handler and effect site) must be transformed |
-| One-shot vs. multi-shot           | **One-shot**                 | Fits RC model, simpler implementation, covers 99% of use cases, `resume` is linear        |
-| `resume` dispatch                 | **Impl (static)**            | Handler is lexically scoped, compiler knows types, zero overhead                          |
-| `resume` semantics                | **Runtime-checked one-shot** | OCaml-style: no linear type system required; runtime rejects double resume                |
-| `do`/`perform` keyword            | **No**                       | Type system already distinguishes `ctl` from `fn`; no ambiguity; matches Koka's design    |
+| Question                          | Decision                             | Rationale                                                                                 |
+| --------------------------------- | ------------------------------------ | ----------------------------------------------------------------------------------------- |
+| `given` vs. auto-resolve from env | **Use `given`**                      | Explicit marking avoids ambiguity, better error messages, follows Scala 3 precedent       |
+| State machine for `ctl`?          | **Yes**                              | Same architecture as async/await — effect invocation = suspension point                   |
+| Transform callers too?            | **Yes**                              | All functions in the "effect scope" (between handler and effect site) must be transformed |
+| One-shot vs. multi-shot           | **One-shot**                         | Fits RC model, simpler implementation, covers 99% of use cases, `resume` is linear        |
+| `resume` dispatch                 | **Impl (static)**                    | Handler is lexically scoped, compiler knows types, zero overhead                          |
+| `return` semantics                | **One-shot (runtime check pending)** | OCaml-style target semantics; runtime double-`return` check is TODO                       |
+| `do`/`perform` keyword            | **No**                               | Type system already distinguishes `ctl` from `fn`; no ambiguity; matches Koka's design    |
 
 ---
 
@@ -182,53 +202,60 @@ result3 := add_numbers(7, 8, using(undefined));
 
 ---
 
-## Phase 2: Effect Handlers (`ctl` / `resume`)
+## Phase 2: Effect Handlers (`ctl` / `return` + `abort`)
 
-### 2.1 Syntax
+### 2.1 Syntax (Implemented)
 
 ```yo
-// Define an effect operation
-Raise :: (ctl(forall(T : Type), msg : String) -> T);
+// Define an effect operation (multi-parameter supported)
+Raise :: (ctl(forall(T : Type), msg : String, msg2 : String) -> T);
 
 // Use an effect in a function (effect becomes an implicit parameter)
 safe_divide :: (fn(x : i32, y : i32, using(raise : Raise)) -> i32)(
   cond(
-    (y == 0) => raise(`div-by-zero`),
+    (y == 0) => raise(`div-by-zero`, `I don't like it`),
     true => (x / y)
   )
 );
 
-// Handle the effect — without resume (discarding continuation)
-raise_const :: (fn() -> i32) {
-  given(raise) : Raise = (fn(msg : String) -> i32)(42);
-  8 + safe_divide(1, 0) + 10
+// Handle the effect — without resume (discarding continuation via `abort`)
+raise_const :: (fn() -> i64) {
+  (given(raise) : Raise) = ((msg, msg2) -> {
+    println(msg);
+    println(msg2);
+    abort i64(42); // abort returns from enclosing function with this value
+  });
+  (i64(8) + i64(safe_divide(1, 0))) + i64(10)
 };
 // Returns 42 — continuation is discarded
 
-// Handle the effect — with resume (invoking continuation)
-raise_resume :: (fn() -> i32) {
-  given(raise) : Raise = (fn(msg : String, resume : (fn(i32) -> i32)) -> i32)(
-    resume(42)
-  );
-  8 + safe_divide(1, 0) + 10
+// Handle the effect — with resume (invoking continuation via `return`)
+raise_resume :: (fn() -> i64) {
+  (given(raise) : Raise) = (ctl(forall(T : Type), msg : String, msg2 : String) -> T)({
+    println(msg);
+    println(msg2);
+    return i32(42); // return(value) resumes the continuation with value
+  });
+  (i64(8) + i64(safe_divide(1, 0))) + i64(10)
 };
-// Returns 60 — resume(42) continues after the raise call site
+// Returns 60 — return(42) continues after the raise call site
 ```
 
 ### 2.2 Semantics
 
 - `ctl` defines an **effect operation type** — a function that can suspend computation and transfer control to a handler.
-- When an effect operation is invoked, execution is **suspended** at that point. A continuation (the rest of the computation up to the handler) is captured.
-- The handler receives:
-  - The effect's arguments (e.g., `msg`).
-  - A `resume` function representing the captured continuation.
-- The handler can:
-  - **Discard** the continuation (don't call `resume`) — acts like an exception/early return.
-  - **Resume** the continuation once (call `resume(value)`) — continues execution with `value` as the result of the effect call.
-- `resume` is **one-shot** — it must be called at most once.
+- When an effect operation is invoked, execution is **suspended** at that point. A continuation (the rest of the computation up to the handler) is captured as a stack-allocated state machine.
+- The handler body receives the effect's arguments (e.g., `msg`, `msg2`).
+- Inside the handler body:
+  - **`return(value)`** — resumes the captured continuation with `value` as the result of the effect call. Execution continues from where the effect was invoked.
+  - **`abort expr`** — discards the continuation entirely and returns `expr` from the enclosing function that installed the handler. Acts like an exception/early return.
+- Two handler forms:
+  - **Anonymous function handler** (no-resume): `(given(raise) : Raise) = ((msg, msg2) -> { abort expr; });` — lightweight syntax for discard-only handlers.
+  - **ctl-typed handler** (with resume): `(given(raise) : Raise) = (ctl(...) -> T)({ return(value); });` — full handler that can resume the continuation.
+- Continuations are **one-shot** — `return` can be called at most once.
 - Enforcement is **runtime-based** (OCaml-style), not linear types:
-  - Second `resume` on the same continuation raises a runtime error (e.g. `ContinuationAlreadyResumed`).
-  - We still keep ownership/RC cleanup paths for non-resumed continuations (`discontinue`/drop path).
+  - Runtime check for second `return` on the same continuation is planned (not fully implemented yet).
+  - When using `abort`, the continuation's captured variables are properly cleaned up.
 - Effect operations compose with `using` — the effect is an implicit parameter resolved via `given`.
 
 ### 2.3 Effect Coloring / Propagation
@@ -321,7 +348,7 @@ The effect system reuses Yo's async/await state machine architecture:
 
 1. **Effect site** (calling `raise(...)`) = suspension point (like `await`).
 2. **Handler scope** = event loop (like `async { ... }`).
-3. **`resume`** = continuation callback (like waking a future).
+3. **`return(value)`** = continuation resume (like waking a future). **`abort expr`** = continuation discard (like cancellation).
 
 #### What Gets Transformed
 
@@ -451,29 +478,23 @@ Analogous to `async-statemachine.ts`:
 
 When a `given` binding provides a handler for a `ctl` type:
 
-- **No-resume handler:** Generate a direct function that returns the handler's result. No state machine needed for the calling function. Optimize to early return / longjmp semantics.
-- **Resume handler:** Generate a closure that captures:
-  - The state machine pointer of the suspended computation.
-  - The resume entry function pointer.
-  - When `resume(value)` is called, it invokes `sm_resume(sm, value)`.
-
-The `resume` function type:
-
-```typescript
-// resume : (fn(T) -> R)
-// where T is the return type of the ctl operation
-// and R is the return type of the entire handled computation
-```
+- **No-resume handler (anonymous function with `abort`):** Generate a handler that executes the handler body and uses `abort` to return a value from the enclosing function, discarding the continuation. The state machine is still generated for the effectful call chain, but the handler never resumes it.
+- **Resume handler (ctl-typed with `return`):** Generate a handler that:
+  - Receives the effect arguments.
+  - Stores the resume value in the state machine's `resume_value` field.
+  - Calls the state machine's resume function to continue execution.
+  - `return(value)` sets `resume_value = value` and re-enters the state machine switch at the next state.
 
 #### Step 5: Reference Counting for Continuations
 
-- One-shot continuations own the state machine. Calling `resume` consumes ownership.
-- Add runtime continuation state flag (e.g. `Fresh | Resumed | Discontinued`).
+- One-shot continuations own the state machine. Calling `return(value)` consumes ownership.
+- The state machine is stack-allocated, so no heap allocation overhead.
+- The `completed` flag in the state machine tracks whether the continuation has been resumed.
 - Runtime checks:
-  - `resume` allowed only in `Fresh` state; transition to `Resumed`.
-  - `discontinue` allowed only in `Fresh` state; transition to `Discontinued`.
-  - Any second `resume`/`discontinue` raises runtime error (`ContinuationAlreadyResumed`).
-- If neither `resume` nor `discontinue` is called, cleanup path must still release captured resources (drop/finalizer strategy).
+  - `return(value)` resumes the continuation and sets `completed = true`.
+  - `abort expr` discards the continuation — the state machine is simply abandoned on the stack.
+- When using `abort`, any captured variables in the state machine that have been initialized are properly cleaned up via drop/RC decrement.
+- The state machine struct includes: `state`, `completed`, `result`, `yield_0..N` (effect arguments), `resume_value`, function parameters, and captured variables that cross suspension points.
 
 #### Step 6: Integration with `using` / `given`
 
@@ -494,7 +515,7 @@ Effects compose naturally with Phase 1's implicit parameters:
 - **Multiple effect types:** Function using two different effects.
 - **RC correctness:** Ensure no leaks when continuations are discarded.
 - **RC correctness:** Ensure no leaks when continuations are resumed.
-- **One-shot enforcement:** Compile error when `resume` is used twice.
+- **One-shot enforcement:** Runtime error when `return` is used twice (pending implementation).
 - **Interaction with async:** Using effects inside async functions (if supported).
 - **Optimization:** Verify no-resume handlers compile to direct returns.
 
@@ -563,14 +584,14 @@ Phase 1 — Implicit Parameters ✅ COMPLETE
   ├── Step 5: Codegen + specialization integration
   └── Step 6: Tests
 
-Phase 2 — Effect Handlers ⏳ NEXT
-  ├── Step 1: ctl keyword + effect type
-  ├── Step 2: Effect analysis pass
-  ├── Step 3: State machine generation
-  ├── Step 4: Handler codegen (no-resume + resume)
-  ├── Step 5: RC for continuations
-  ├── Step 6: Integration with using/given
-  └── Step 7: Tests
+Phase 2 — Effect Handlers ✅ CORE COMPLETE
+  ├── Step 1: ctl keyword + effect type ✅
+  ├── Step 2: Effect analysis pass ✅
+  ├── Step 3: State machine generation ✅
+  ├── Step 4: Handler codegen (abort + return) ✅
+  ├── Step 5: RC for continuations ✅
+  ├── Step 6: Integration with using/given ✅
+  └── Step 7: Tests (basic cases ✅, advanced cases pending)
 
 Phase 3 — Advanced (Future)
   ├── Named effect instances
@@ -585,14 +606,14 @@ Phase 3 — Advanced (Future)
 
 Effects and async/await are related but independent:
 
-| Aspect           | Async/Await                   | Algebraic Effects            |
-| ---------------- | ----------------------------- | ---------------------------- |
-| Suspension point | `await expr`                  | `effect_op(args)`            |
-| Who resumes      | Event loop (IO completion)    | Handler (calling `resume`)   |
-| State machine    | Per async function            | Per effectful function chain |
-| Continuation     | Implicit (event loop manages) | Explicit (`resume` function) |
-| Thread model     | Single-threaded event loop    | Synchronous (same thread)    |
-| Use cases        | IO concurrency                | Control flow abstraction     |
+| Aspect           | Async/Await                   | Algebraic Effects                        |
+| ---------------- | ----------------------------- | ---------------------------------------- |
+| Suspension point | `await expr`                  | `effect_op(args)`                        |
+| Who resumes      | Event loop (IO completion)    | Handler (calling `return`)               |
+| State machine    | Per async function            | Per effectful function chain             |
+| Continuation     | Implicit (event loop manages) | Explicit (`return` / `abort` in handler) |
+| Thread model     | Single-threaded event loop    | Synchronous (same thread)                |
+| Use cases        | IO concurrency                | Control flow abstraction                 |
 
 **Long-term unification:** Algebraic effects are strictly more general than async/await. In theory, async/await can be implemented _as_ an effect:
 
@@ -602,7 +623,7 @@ Async :: (ctl(forall(T : Type), future : Future(T)) -> T);
 // event loop = handler for Async effect
 ```
 
-However, this unification is a Phase 3+ goal. For now, async/await and effects coexist independently, sharing the state machine infrastructure.
+However, this unification is a Phase 3+ goal. For now, async/await and effects coexist independently, sharing similar state machine infrastructure patterns.
 
 ---
 
@@ -621,9 +642,9 @@ However, this unification is a Phase 3+ goal. For now, async/await and effects c
 ## Success Criteria
 
 1. ✅ `using` + `given` works for plain function types (Phase 1 complete).
-2. `ctl` effects with no-resume handlers work (exception-like usage).
-3. `ctl` effects with resume handlers work (continuation-like usage).
-4. No memory leaks detected by AddressSanitizer in all effect scenarios.
+2. ✅ `ctl` effects with no-resume handlers work (exception-like usage via `abort`).
+3. ✅ `ctl` effects with resume handlers work (continuation-like usage via `return`).
+4. ✅ No memory leaks detected by AddressSanitizer in all effect scenarios.
 5. Nested effects and effect propagation through call chains work correctly.
-6. One-shot enforcement: runtime error on double `resume`/`discontinue` (OCaml-style).
+6. One-shot enforcement: runtime error on double `return` (OCaml-style).
 7. Performance: no overhead for functions that don't use effects.

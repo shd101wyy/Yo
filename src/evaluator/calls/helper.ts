@@ -52,6 +52,7 @@ import {
   isExprListType,
   isExprType,
   isFunctionSpecializable,
+  isFunctionType,
   isSomeType,
   isTypeHierarchyType,
 } from "../../types/guards";
@@ -80,6 +81,8 @@ import type {
   EvaluatorContext,
   FunctionCallResult,
 } from "../context";
+import { analyzeEffectCallPoints } from "../effects/effect-analysis";
+import { _evaluateExpression } from "../exprs/_expr";
 import { evaluateBeginExpression } from "../exprs/begin";
 import { evaluateExpression } from "../exprs/expr";
 import { typeImplementsFn, typeImplementsFuture } from "../trait-checking";
@@ -1712,6 +1715,133 @@ function createSpecializedFunctionInline({
     });
   }
 
+  // Run effect analysis on the specialized body if it has implicit ctl parameters.
+  // This detects ctl call points (e.g., raise(msg)) and prepares for state machine generation.
+  for (let i = 0; i < functionType.implicitParameters.length; i++) {
+    const implicitParam = functionType.implicitParameters[i]!;
+    if (
+      isFunctionType(implicitParam.type) &&
+      implicitParam.type.isControlFunction
+    ) {
+      const effectAnalysis = analyzeEffectCallPoints(
+        specializedBody,
+        implicitParam.label,
+        implicitParam.type
+      );
+      if (effectAnalysis.hasEffects) {
+        // Store the handler value on the effectAnalysis so codegen can inline it.
+        // The implicit args correspond to implicit parameters by index.
+        const handlerArg = argValues.implicitArgs?.[i];
+        if (handlerArg && isFunctionValue(handlerArg.value)) {
+          const handlerFn = handlerArg.value;
+          const ctlType = implicitParam.type;
+
+          // If the handler's ctl type has forall parameters, the handler body
+          // was deferred (not evaluated). We need to re-evaluate it now with
+          // concrete types from the effect call site.
+          if (
+            isFunctionType(ctlType) &&
+            ctlType.forallParameters.length > 0 &&
+            effectAnalysis.effectCallPoints.length > 0
+          ) {
+            // Build a mapping from forall SomeType to concrete type
+            // For ctl(forall(T : Type), msg : String) -> T, T maps to operationResultType
+            const forallTypeMap = new Map<string, Type>();
+            const returnType = ctlType.return.type;
+            const concreteReturnType =
+              effectAnalysis.effectCallPoints[0]!.operationResultType;
+
+            // If the return type IS a forall parameter directly, map it
+            if (isSomeType(returnType)) {
+              forallTypeMap.set(returnType.name, concreteReturnType);
+            }
+            // TODO: handle more complex patterns like Array(T) -> Array(i32)
+
+            // Re-evaluate the handler body with concrete types
+            if (forallTypeMap.size > 0) {
+              const clonedHandlerFnBody = cloneExpr(handlerFn.body);
+              let handlerEnv = handlerFn.body.$?.env ?? specializedEnv;
+              handlerEnv = pushEnvFrame(handlerEnv);
+
+              // Bind forall parameters to their concrete types
+              for (const forallParam of ctlType.forallParameters) {
+                const concreteType = forallTypeMap.get(forallParam.label);
+                if (concreteType) {
+                  const result = addVariableToEnv({
+                    env: handlerEnv,
+                    variable: {
+                      name: forallParam.label,
+                      type: forallParam.type,
+                      isCompileTimeOnly: true,
+                      value: [createTypeValue(concreteType)],
+                      token: PlaceholderToken,
+                      initializedAtToken: PlaceholderToken,
+                      consumedAtToken: undefined,
+                      isOwningTheRcValue: false,
+                    },
+                    allowVariableShadowing: true,
+                  });
+                  handlerEnv = result.env;
+                }
+              }
+
+              const handlerFnType = handlerFn.specializedType ?? handlerFn.type;
+              const enclosingReturnType =
+                context.isEvaluatingFunctionBodyOrAsyncBlock?.kind ===
+                "function-body"
+                  ? context.isEvaluatingFunctionBodyOrAsyncBlock.type.return
+                      .type
+                  : handlerFnType.ParentFunctionType
+                    ? handlerFnType.ParentFunctionType.return.type
+                    : concreteReturnType;
+
+              const handlerContext: EvaluatorContext = {
+                ...context,
+                expectedType: undefined,
+                controlHandlerContext: {
+                  operationResultType: concreteReturnType,
+                  enclosingFunctionReturnType: enclosingReturnType,
+                },
+                isEvaluatingFunctionBodyOrAsyncBlock: {
+                  kind: "function-body",
+                  type: handlerFnType,
+                  value: handlerFn,
+                  evaluationEnv: handlerEnv,
+                },
+              };
+
+              try {
+                const evaluatedBody = _evaluateExpression({
+                  expr: clonedHandlerFnBody,
+                  env: handlerEnv,
+                  context: handlerContext,
+                });
+
+                // Create a new handler function value with the evaluated body
+                const reEvaluatedHandler: FunctionValue = {
+                  ...handlerFn,
+                  body: evaluatedBody,
+                };
+                effectAnalysis.handlerValue = reEvaluatedHandler;
+              } catch (e) {
+                // If re-evaluation fails, fall back to the original handler
+                console.error("Handler body re-evaluation failed:", e);
+                effectAnalysis.handlerValue = handlerFn;
+              }
+            } else {
+              effectAnalysis.handlerValue = handlerFn;
+            }
+          } else {
+            effectAnalysis.handlerValue = handlerFn;
+          }
+        } else if (handlerArg) {
+          effectAnalysis.handlerValue = handlerArg.value;
+        }
+        specializedBody.$.effectAnalysis = effectAnalysis;
+      }
+    }
+  }
+
   // Create signature for the specialized function
   const compileTimeSignatureParts: string[] = [];
 
@@ -1724,6 +1854,11 @@ function createSpecializedFunctionInline({
       if (!type.typeName && type.id) {
         return `${valueToString(value)}_id${type.id}`;
       }
+    }
+    if (isFunctionValue(value)) {
+      // Include funcId for function values to distinguish different anonymous functions
+      // (e.g., different ctl effect handlers passed as implicit arguments)
+      return `fn_${value.funcId}`;
     }
     return valueToString(value);
   };

@@ -106,8 +106,11 @@ export function evaluateWhile({
     // NOTE: In reality, we might not even enter the while loop body.
     if (evaluatedBodyExpr.$.controlFlow) {
       // Handle different control flow types
-      if (evaluatedBodyExpr.$.controlFlow === "return") {
-        // Guaranteed that we meet "return"
+      if (
+        evaluatedBodyExpr.$.controlFlow === "return" ||
+        evaluatedBodyExpr.$.controlFlow === "abort"
+      ) {
+        // Guaranteed that we meet "return" or "abort"
         // If the body has a return value, we should return it
         if (isBooleanValue(conditionValue) && conditionValue.value === true) {
           expr.$ = {

@@ -49,6 +49,14 @@ export function generateAssignment(
     return "";
   }
 
+  if (
+    exprIsFunctionCall(lhs) &&
+    exprIsFunctionCallOf(lhs, BuiltinKeywords.given)
+  ) {
+    // given (implicit) variable — compile-time only, skip in codegen
+    return "";
+  }
+
   // Check if LHS is a field/index access into a compile-time variable
   // e.g., p1.x = 5 where p1 is compile-time
   // e.g., arr(0) = 10 where arr is compile-time

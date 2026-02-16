@@ -155,11 +155,13 @@ export interface EvaluatorContext {
 
   /**
    * Context available only while evaluating a `ctl` handler body.
-   * `resume(...)` is only valid when this is set.
+   * `return(value)` resumes the continuation (type matches operationResultType).
+   * `abort expr` discards the continuation and returns from the enclosing function
+   * (type matches enclosingFunctionReturnType).
    */
   controlHandlerContext?: {
     operationResultType: Type;
-    handlerResultType: Type;
+    enclosingFunctionReturnType: Type;
   };
 
   /**

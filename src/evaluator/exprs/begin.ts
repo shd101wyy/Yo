@@ -580,9 +580,13 @@ export function evaluateBeginExpression({
           env,
           context: {
             ...context,
-            expectedType:
-              context.isEvaluatingFunctionBodyOrAsyncBlock.kind ===
-              "function-body"
+            expectedType: context.controlHandlerContext
+              ? {
+                  type: context.controlHandlerContext.operationResultType,
+                  env: env,
+                }
+              : context.isEvaluatingFunctionBodyOrAsyncBlock.kind ===
+                  "function-body"
                 ? {
                     type: context.isEvaluatingFunctionBodyOrAsyncBlock.type
                       .return.type,
@@ -744,6 +748,87 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
       lastExpr = exprToEvaluate;
       break;
     }
+    // Check if it's the "abort" keyword (ctl handler discontinue)
+    else if (
+      exprIsFunctionCall(exprToEvaluate) &&
+      exprIsFunctionCallOf(exprToEvaluate, BuiltinKeywords.abort)
+    ) {
+      if (
+        i !== beginExpressions.length - 1 &&
+        !(
+          i === beginExpressions.length - 2 &&
+          isUnitValueExpression(beginExpressions[beginExpressions.length - 1]!)
+        )
+      ) {
+        throw formatErrorMessage({
+          token: exprToEvaluate.token,
+          errorMessage: `The "abort" keyword can only be used as the last expression.`,
+        });
+      }
+
+      if (!context.controlHandlerContext) {
+        throw formatErrorMessage({
+          token: exprToEvaluate.token,
+          errorMessage: `The "abort" keyword can only be used inside a ctl handler body.`,
+        });
+      }
+
+      returnExpr = exprToEvaluate;
+
+      expectExprToBeFunctionCallOf(exprToEvaluate, BuiltinKeywords.abort, 1);
+      const abortArg = exprToEvaluate.args[0]!;
+
+      const evaluatedAbortArgExpr = evaluateExpression({
+        expr: abortArg,
+        env,
+        context: {
+          ...context,
+          expectedType: {
+            type: context.controlHandlerContext.enclosingFunctionReturnType,
+            env: env,
+          },
+        },
+      });
+      if (!evaluatedAbortArgExpr.$) {
+        throw formatErrorMessage({
+          token: abortArg.token,
+          errorMessage: `Abort expression is not evaluated correctly:\n${exprToString(abortArg)}`,
+        });
+      }
+
+      exprToEvaluate.args[0] = evaluatedAbortArgExpr;
+
+      if (
+        !areTypesCompatible(
+          {
+            type: context.controlHandlerContext.enclosingFunctionReturnType,
+            env,
+          },
+          { type: evaluatedAbortArgExpr.$.type, env }
+        )
+      ) {
+        throw formatErrorMessage({
+          token: abortArg.token,
+          errorMessage: `Incompatible type for \`abort\` argument:
+- Expected (enclosing function return type): ${typeToString(context.controlHandlerContext.enclosingFunctionReturnType)}
+- Got: ${typeToString(evaluatedAbortArgExpr.$.type)}`,
+        });
+      }
+
+      attachTempVariableToExpr(evaluatedAbortArgExpr, true);
+      env = evaluatedAbortArgExpr.$.env;
+
+      exprToEvaluate.$ = {
+        env,
+        type: evaluatedAbortArgExpr.$.type,
+        value: evaluatedAbortArgExpr.$.value,
+        pathCollection: evaluatedAbortArgExpr.$.pathCollection,
+        variableName: evaluatedAbortArgExpr.$.variableName,
+        controlFlow: "abort",
+      };
+      lastExpr = exprToEvaluate;
+      break;
+    }
     // Normal expression evaluation
     else {
       const evaluatedExpr = evaluateExpression({
@@ -776,7 +861,25 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
 
   // Check if return type is compatible
   if (lastExpr.$.controlFlow === "return") {
-    if (
+    if (context.controlHandlerContext) {
+      // Inside a ctl handler body: return(value) resumes the continuation.
+      // Type-check against operationResultType (the ctl's return type T).
+      const expectedReturnType =
+        context.controlHandlerContext.operationResultType;
+      if (
+        !areTypesCompatible(
+          { type: expectedReturnType, env },
+          { type: returnType, env }
+        )
+      ) {
+        throw formatErrorMessage({
+          token: lastExpr.token,
+          errorMessage: `Return type mismatch in ctl handler. Expected type "${typeToString(
+            expectedReturnType
+          )}" (ctl return type), but got "${typeToString(returnType)}".`,
+        });
+      }
+    } else if (
       context.isEvaluatingFunctionBodyOrAsyncBlock?.kind === "function-body"
     ) {
       // First try to synthesize the types to handle cases like [i32; n] vs [i32; 5]

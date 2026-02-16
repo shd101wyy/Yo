@@ -419,11 +419,21 @@ Got:      "${paramName}"`,
     );
 
     if (functionType.isControlFunction) {
+      if (!functionType.ParentFunctionType) {
+        throw formatErrorMessage({
+          token: expr.token,
+          errorMessage: `ctl function value can only be defined inside a function.`,
+        });
+      }
+
+      // Set controlHandlerContext so that `return(value)` and `abort expr`
+      // keywords are valid inside this handler body and can be type-checked.
       ctx = {
         ...ctx,
         controlHandlerContext: {
-          operationResultType: functionType.return.type,
-          handlerResultType: functionType.return.type,
+          operationResultType: functionType.return.type, // T from ctl(...) -> T
+          enclosingFunctionReturnType:
+            functionType.ParentFunctionType!.return.type,
         },
       };
     }
@@ -451,8 +461,12 @@ Got:      "${paramName}"`,
   const capturedVariables = evaluationContext.capturedVariables;
 
   // Check if the return type is compatible
+  // Skip for ctl functions: the handler body's return type is the enclosing function's
+  // return type (handlerResultType), not the ctl operation's return type (T).
+  // The type checking happens at the use site instead.
   const evaluatedBodyReturnType = evaluatedBody.$?.type;
   if (
+    !functionType.isControlFunction &&
     evaluatedBodyReturnType &&
     !areTypesCompatible(
       { type: functionType.return.type, env },

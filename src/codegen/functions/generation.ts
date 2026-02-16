@@ -1,4 +1,5 @@
 import { type Environment } from "../../env";
+import type { EffectAnalysisResult } from "../../evaluator/effects/effect-analysis-types";
 import { typeImplementsFuture } from "../../evaluator/trait-checking";
 import { findMatchingGenericImpl } from "../../evaluator/values/impl";
 import {
@@ -32,6 +33,12 @@ import {
 import { isTempVariableName } from "../../utils";
 import { isFunctionValue, isTraitValue, type TraitValue } from "../../value";
 import { generateAsyncRuntime } from "../async/runtime";
+import {
+  type EffectStateMachineInfo,
+  generateEffectResumeFunction,
+  generateEffectResumeFunctionDeclaration,
+  generateEffectStateMachineStruct,
+} from "../effects/effect-state-machine";
 import {
   generateDeferredDropExpressions,
   generateDeferredDupExpressions,
@@ -225,8 +232,26 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
       continue;
     }
 
+    // Check if this is an effectful function (body has effect call points)
+    const effectAnalysis = value.body?.$?.effectAnalysis;
+    if (effectAnalysis && effectAnalysis.hasEffects) {
+      // Effectful function: generate state machine struct + resume function
+      generateEffectfulFunction(value, cName, context);
+      continue;
+    }
+
     // Generate the function body
     generateFunction(value, cName, context);
+  }
+
+  // Generate deferred effectful function resume functions
+  if (context.deferredEffectfulFunctions) {
+    for (const deferred of context.deferredEffectfulFunctions) {
+      const { functionValue, info } = deferred;
+      if (functionValue.body) {
+        generateEffectResumeFunction(functionValue.body, info, context);
+      }
+    }
   }
 
   // Generate Iso type declarations if any were collected during expression generation
@@ -296,6 +321,147 @@ int main(int argc, char** argv) {
 }
 `);
   }
+}
+
+/**
+ * Pre-register all effectful functions across both regular and specialized function sets.
+ * This must run BEFORE any function bodies are generated, so that call sites can find
+ * the effectStateMachineInfo when generating calls to effectful functions.
+ *
+ * This pass:
+ * 1. Scans all functions for effect analysis
+ * 2. Creates SM info and stores it on funcEntries
+ * 3. Generates SM struct definitions and forward declarations
+ * 4. Defers resume function body generation
+ */
+export function preRegisterEffectfulFunctions(
+  context: FunctionGenerationContext
+): void {
+  for (const funcId in context.functions) {
+    const { value: functionValue, cName: cFunctionName } =
+      context.functions[funcId]!;
+
+    if (isComptimeFunction(functionValue)) {
+      continue;
+    }
+
+    // Check if this function has effect analysis
+    const effectAnalysis = functionValue.body?.$?.effectAnalysis;
+    if (!effectAnalysis || !effectAnalysis.hasEffects) {
+      continue;
+    }
+
+    // Determine the function type (use specialized if available)
+    const functionType = functionValue.specializedType ?? functionValue.type;
+
+    // Skip if the specialized type still has unresolved type parameters
+    if (functionValue.specializedType) {
+      if (isFunctionSpecializable(functionValue.specializedType)) {
+        continue;
+      }
+      const hasGenericParams = functionValue.specializedType.parameters.some(
+        (p) => typeContainsSomeType(p.type)
+      );
+      const hasGenericReturnType = typeContainsSomeType(
+        functionValue.specializedType.return.type
+      );
+      if (hasGenericParams || hasGenericReturnType) {
+        continue;
+      }
+    }
+
+    registerEffectfulFunction(
+      functionValue,
+      cFunctionName,
+      functionType,
+      effectAnalysis,
+      context
+    );
+  }
+}
+
+/**
+ * Register a single effectful function: create SM info, generate struct + forward decl,
+ * store info on funcEntry, and defer resume function body generation.
+ */
+function registerEffectfulFunction(
+  functionValue: FunctionValue,
+  cFunctionName: string,
+  functionType: FunctionType,
+  effectAnalysis: EffectAnalysisResult,
+  context: FunctionGenerationContext
+): void {
+  // Determine types for the state machine
+  const returnTypeCName = isUnitType(functionType.return.type)
+    ? "void"
+    : getTypeString(functionType.return.type, context);
+
+  // The yield types are the argument types of the ctl operation
+  const yieldTypeCNames: string[] =
+    effectAnalysis.effectCallPoints.length > 0
+      ? effectAnalysis.effectCallPoints[0]!.operationArgTypes.map((t) =>
+          getTypeString(t, context)
+        )
+      : [];
+
+  // The resume type is the return type of the ctl operation at call site
+  const resumeTypeCName =
+    effectAnalysis.effectCallPoints.length > 0
+      ? getTypeString(
+          effectAnalysis.effectCallPoints[0]!.operationResultType,
+          context
+        )
+      : "void";
+
+  const structName = `${sanitizeForCIdentifier(cFunctionName)}_sm`;
+  const resumeFunctionName = `${sanitizeForCIdentifier(cFunctionName)}_resume`;
+
+  const info: EffectStateMachineInfo = {
+    structName,
+    resumeFunctionName,
+    analysis: effectAnalysis,
+    functionType,
+    returnTypeCName,
+    yieldTypeCNames,
+    resumeTypeCName,
+  };
+
+  // Generate the struct definition
+  generateEffectStateMachineStruct(info, context);
+
+  // Generate forward declaration for resume function
+  generateEffectResumeFunctionDeclaration(info, context);
+
+  // Store the info for call-site codegen to use
+  if (!context.deferredEffectfulFunctions) {
+    context.deferredEffectfulFunctions = [];
+  }
+  context.deferredEffectfulFunctions.push({
+    functionValue,
+    cFunctionName,
+    info,
+  });
+
+  // Store the effect SM info on the function entry so call sites can find it
+  const funcEntry = context.functions[functionValue.funcId];
+  if (funcEntry) {
+    funcEntry.effectStateMachineInfo = info;
+  }
+}
+
+/**
+ * Generate C code for an effectful function as a state machine.
+ * The SM info has already been pre-registered by preRegisterEffectfulFunctions.
+ * This function is now a no-op since all work was done during pre-registration.
+ */
+function generateEffectfulFunction(
+  _functionValue: FunctionValue,
+  _cFunctionName: string,
+  _context: FunctionGenerationContext
+): void {
+  // All SM struct generation, forward declarations, and funcEntry registration
+  // are handled by preRegisterEffectfulFunctions which runs before any function
+  // body generation. This ensures call sites can find effectStateMachineInfo.
 }
 
 /**
@@ -743,6 +909,17 @@ export function generateSpecializedFunctions(context: CodeGenContext): void {
       functionValue.specializedType.return.type
     );
     if (hasGenericParams || hasGenericReturnType) {
+      continue;
+    }
+
+    // Check if this is an effectful function (body has effect call points)
+    const effectAnalysis = functionValue.body?.$?.effectAnalysis;
+    if (effectAnalysis && effectAnalysis.hasEffects) {
+      generateEffectfulFunction(
+        functionValue,
+        cFunctionName,
+        context as FunctionGenerationContext
+      );
       continue;
     }
 

@@ -10,6 +10,7 @@ import { cloneExpr, type Expr, type FnCallExpr } from "../../expr";
 import type { FunctionValue } from "../../function-value";
 import { PlaceholderToken } from "../../token";
 import { areTypesCompatible } from "../../types/compatibility";
+
 import type { FunctionType } from "../../types/definitions";
 import { isFunctionType, isSomeType } from "../../types/guards";
 import { typeContainsSomeType, typeToString } from "../../types/utils";
@@ -285,11 +286,21 @@ export function tryToImplementFunctionByFunctionType({
     evaluationContext = ctx.evaluationContext;
 
     if (newFunctionType.isControlFunction) {
+      if (!newFunctionType.ParentFunctionType) {
+        throw formatErrorMessage({
+          token: expr.token,
+          errorMessage: `ctl function value can only be defined inside a function.`,
+        });
+      }
+
+      // Set controlHandlerContext so that `return(value)` and `abort expr`
+      // keywords are valid inside this handler body and can be type-checked.
       evaluationContext = {
         ...evaluationContext,
         controlHandlerContext: {
-          operationResultType: newFunctionType.return.type,
-          handlerResultType: newFunctionType.return.type,
+          operationResultType: newFunctionType.return.type, // T from ctl(...) -> T
+          enclosingFunctionReturnType:
+            newFunctionType.ParentFunctionType!.return.type,
         },
       };
     }
@@ -317,7 +328,10 @@ export function tryToImplementFunctionByFunctionType({
   const functionBodyReturnType = evaluatedFunctionBody.$?.type;
 
   // Regular function: body type must match return type exactly
+  // Skip for ctl functions: the handler body's return type is the enclosing function's
+  // return type (handlerResultType), not the ctl operation's return type (T).
   if (
+    !newFunctionType.isControlFunction &&
     functionBodyReturnType &&
     !areTypesCompatible(
       { type: newFunctionType.return.type, env },

@@ -13,10 +13,18 @@ import type {
   Type,
   TypeId,
 } from "../../types/definitions";
+import type { EffectStateMachineInfo } from "../effects/effect-state-machine";
 import type { CodeGenContext } from "../utils";
 
 export interface FunctionGenerationContext extends CodeGenContext {
-  functions: Record<FuncValueId, { value: FunctionValue; cName: string }>;
+  functions: Record<
+    FuncValueId,
+    {
+      value: FunctionValue;
+      cName: string;
+      effectStateMachineInfo?: unknown;
+    }
+  >;
   externFunctions: Record<
     TypeId,
     { type: FunctionType; cName: string; cInclude?: string }
@@ -31,6 +39,21 @@ export interface FunctionGenerationContext extends CodeGenContext {
   // FIXME: OUTDATED, it used to be { futureType: FutureType }
   inStateMachine?: { futureType: SomeType | DynType }; // Set when generating code inside a state machine, contains the Future type being generated
   stateMachineVariables?: Map<string, CapturedVariable>; // Variables captured in state machine (id -> variable)
+  // Effect state machine context (when generating code inside an effectful function's state machine)
+  inEffectStateMachine?: EffectStateMachineInfo; // Set when generating code inside an effect state machine
+  // Deferred effectful function generation - effectful functions are generated after regular functions
+  deferredEffectfulFunctions?: Array<{
+    functionValue: FunctionValue;
+    cFunctionName: string;
+    info: EffectStateMachineInfo;
+  }>;
+  // Map from continuation variable names to their state machine info.
+  // Used when generating handler body inline — resume calls are intercepted
+  // and generate SM copy + resume code instead of normal function calls.
+  continuationVariables?: Map<
+    string,
+    { smVar: string; smInfo: EffectStateMachineInfo }
+  >;
   // Maps SSA-renamed variable IDs to their original/canonical IDs.
   // Used to resolve all versions of a reassigned variable to the same struct field in loops.
   variableIdRemapping?: Map<string, string>;
@@ -111,4 +134,7 @@ export interface FunctionGenerationContext extends CodeGenContext {
   // Deferred drops for the while loop body's local variables.
   // These must be emitted before break/continue/normal-exit in async while loop resume code.
   asyncWhileBodyDrops?: import("../../expr").Expr[];
+  // Drop code strings for effect handler parameters (e.g., msg: String from ctl yield_value).
+  // These are emitted before abort returns to prevent leaking handler params.
+  effectHandlerParamDrops?: string[];
 }

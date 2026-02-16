@@ -6,11 +6,14 @@ import {
 } from "../../evaluator/trait-checking";
 import {
   BuiltinFunctions,
+  BuiltinKeywords,
   exprIsAtom,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
+  type Expr,
   type FnCallExpr,
 } from "../../expr";
+import type { FunctionValue } from "../../function-value";
 import type { ArrayType, SomeType } from "../../types/definitions";
 import {
   isArrayType,
@@ -32,11 +35,14 @@ import {
   isUnknownValue,
 } from "../../value";
 import { BuiltinYoInlineFunctions } from "../constants";
+import {
+  generateEffectCallSite,
+  type EffectStateMachineInfo,
+} from "../effects/effect-state-machine";
 import type { FunctionGenerationContext } from "../functions/context";
 import {
   canOptimizeAsNullablePointer,
   canOptimizeAsSimpleEnum,
-  type CodeGenContext,
   getDeferredDupTargetAtomName,
   getEnumVariantCName,
   getTypeString,
@@ -44,6 +50,7 @@ import {
   getVariableTypeString,
   isFunctionValueWithOnlyBuiltinYoInlineFunctionCall,
   sanitizeForCIdentifier,
+  type CodeGenContext,
 } from "../utils";
 import { checkVariableIsClosureCaptured } from "./closures";
 import { generateComptimeValue } from "./comptime-value";
@@ -57,6 +64,29 @@ import {
   generateThreadSpawnCall,
   generateWorkerSpawnCall,
 } from "./parallelism";
+
+/**
+ * Recursively check if an expression tree contains an abort() call.
+ * If abort is present, the handler discards the continuation (discontinue).
+ * If abort is absent, the handler uses return(value) to resume the continuation.
+ */
+function exprContainsAbort(expr: Expr): boolean {
+  if (exprIsFunctionCallOf(expr, BuiltinKeywords.abort)) {
+    return true;
+  }
+  if (exprIsFunctionCall(expr)) {
+    for (const arg of (expr as FnCallExpr).args) {
+      if (exprContainsAbort(arg)) return true;
+    }
+    if (
+      (expr as FnCallExpr).func &&
+      exprContainsAbort((expr as FnCallExpr).func)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
 
 /**
  * In async state machine context, stores a local temp variable to its
@@ -432,6 +462,45 @@ export function generateOtherFunctionCall(
         const cFuncName = context.functions[functionValue.funcId]?.cName;
 
         if (cFuncName) {
+          // Check if this is an effectful function call (has effect state machine)
+          const funcEntry = context.functions[functionValue.funcId];
+          const effectSmInfo = funcEntry?.effectStateMachineInfo as
+            | EffectStateMachineInfo
+            | undefined;
+
+          if (effectSmInfo) {
+            // Effectful function call — generate call-site dispatch with handler inlining
+            const effectAnalysis = functionValue.body?.$?.effectAnalysis;
+            const handlerValue = effectAnalysis?.handlerValue as
+              | FunctionValue
+              | undefined;
+
+            if (handlerValue && isFunctionValue(handlerValue)) {
+              const handlerType =
+                handlerValue.specializedType ?? handlerValue.type;
+              const handlerBody = handlerValue.body;
+              const handlerHasResume = handlerBody
+                ? !exprContainsAbort(handlerBody)
+                : false;
+
+              const tempVar = expr.$?.variableName;
+              const callerReturnType = expr.$?.type;
+
+              return generateEffectCallSite(
+                effectSmInfo,
+                args,
+                functionValueType,
+                handlerBody!,
+                handlerType,
+                handlerHasResume,
+                callerReturnType,
+                tempVar,
+                indent,
+                context as FunctionGenerationContext
+              );
+            }
+          }
+
           // Generate function call
           if (isUnitType(functionValueType.return.type)) {
             // If the function returns unit, just call it without assignment

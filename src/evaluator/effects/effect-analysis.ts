@@ -1,0 +1,417 @@
+/**
+ * effect-analysis.ts
+ *
+ * Analyzes function bodies to identify ctl effect call points and local variables
+ * that need to be captured in state machine structs.
+ *
+ * This is analogous to await-analysis.ts but for algebraic effects (ctl/resume).
+ * When a function body calls a ctl operation (e.g., raise(msg)), the function
+ * needs to be transformed into a state machine that can suspend at those points.
+ */
+
+import { getVariablesFromEnv } from "../../env";
+import {
+  BuiltinFunctions,
+  BuiltinKeywords,
+  type Expr,
+  exprIsFunctionCallOf,
+  ExprTag,
+} from "../../expr";
+import { TokenType } from "../../token";
+import { isFunctionType } from "../../types/guards";
+
+export type {
+  EffectAnalysisResult,
+  EffectCallPoint,
+  EffectCapturedVariable,
+} from "./effect-analysis-types";
+
+import type { Type } from "../../types/definitions";
+import type {
+  EffectAnalysisResult,
+  EffectCallPoint,
+  EffectCapturedVariable,
+} from "./effect-analysis-types";
+
+/**
+ * Analyzes a function body to find all ctl effect call points.
+ *
+ * A ctl effect call point is a call to a variable whose type has isControlFunction: true.
+ * These are analogous to await points in async functions.
+ *
+ * @param body The function body expression
+ * @param effectParameterName The name of the ctl parameter (e.g., "raise")
+ * @param effectParameterType The type of the ctl parameter
+ * @returns Analysis result containing effect call points and captured variables
+ */
+export function analyzeEffectCallPoints(
+  body: Expr,
+  effectParameterName: string,
+  effectParameterType: Type
+): EffectAnalysisResult {
+  const effectCallPoints: EffectCallPoint[] = [];
+  const capturedVariables = new Map<string, EffectCapturedVariable>();
+  const nameFrameToOriginalId = new Map<string, string>();
+  const variableIdRemapping = new Map<string, string>();
+
+  walkExprForEffects(
+    body,
+    effectCallPoints,
+    capturedVariables,
+    nameFrameToOriginalId,
+    variableIdRemapping,
+    effectParameterName
+  );
+
+  if (body.$?.deferredDropExpressions) {
+    for (const dropExpr of body.$.deferredDropExpressions) {
+      walkExprForEffects(
+        dropExpr,
+        effectCallPoints,
+        capturedVariables,
+        nameFrameToOriginalId,
+        variableIdRemapping,
+        effectParameterName
+      );
+    }
+  }
+
+  if (effectCallPoints.length === 0) {
+    capturedVariables.clear();
+  }
+
+  return {
+    effectCallPoints,
+    capturedVariables: Array.from(capturedVariables.values()),
+    hasEffects: effectCallPoints.length > 0,
+    variableIdRemapping,
+    effectParameterName,
+    effectParameterType,
+  };
+}
+
+/**
+ * Recursively walks an expression tree to find ctl effect call points.
+ */
+function walkExprForEffects(
+  expr: Expr,
+  effectCallPoints: EffectCallPoint[],
+  capturedVariables: Map<string, EffectCapturedVariable>,
+  nameFrameToOriginalId: Map<string, string>,
+  variableIdRemapping: Map<string, string>,
+  effectParameterName: string,
+  parentExpr?: Expr
+): void {
+  switch (expr.tag) {
+    case ExprTag.Atom:
+      if (expr.$ && expr.token.type === TokenType.Identifier) {
+        const varName = expr.token.value;
+        const varType = expr.$.type;
+        const variables = getVariablesFromEnv(expr.$.env, varName);
+        if (variables.length > 0) {
+          const variable = variables[variables.length - 1]!;
+          if (
+            variable &&
+            !capturedVariables.has(variable.id) &&
+            !variable.isCompileTimeOnly
+          ) {
+            const nameFrameKey = `${variable.name}:${variable.frameLevel}`;
+            const existingOriginalId = nameFrameToOriginalId.get(nameFrameKey);
+
+            if (existingOriginalId && existingOriginalId !== variable.id) {
+              variableIdRemapping.set(variable.id, existingOriginalId);
+            } else if (variable.isOwningTheSameRcValueAs) {
+              const ownerVar = variable.isOwningTheSameRcValueAs;
+              if (!capturedVariables.has(ownerVar.id)) {
+                const ownerCaptured: EffectCapturedVariable = {
+                  id: ownerVar.id,
+                  name: ownerVar.name,
+                  type: ownerVar.type,
+                  isOwningTheSameRcValueAs: undefined,
+                };
+                capturedVariables.set(ownerVar.id, ownerCaptured);
+                const ownerNameFrameKey = `${ownerVar.name}:${ownerVar.frameLevel}`;
+                if (!nameFrameToOriginalId.has(ownerNameFrameKey)) {
+                  nameFrameToOriginalId.set(ownerNameFrameKey, ownerVar.id);
+                }
+              }
+            } else {
+              capturedVariables.set(variable.id, {
+                id: variable.id,
+                name: varName,
+                type: varType,
+                isOwningTheSameRcValueAs: undefined,
+              });
+              if (!nameFrameToOriginalId.has(nameFrameKey)) {
+                nameFrameToOriginalId.set(nameFrameKey, variable.id);
+              }
+            }
+          }
+        }
+      }
+      break;
+
+    case ExprTag.FnCall: {
+      // Check if this is a while loop
+      if (exprIsFunctionCallOf(expr, BuiltinKeywords.while)) {
+        const initialCount = effectCallPoints.length;
+        walkExprForEffects(
+          expr.func,
+          effectCallPoints,
+          capturedVariables,
+          nameFrameToOriginalId,
+          variableIdRemapping,
+          effectParameterName,
+          expr
+        );
+        for (const arg of expr.args) {
+          walkExprForEffects(
+            arg,
+            effectCallPoints,
+            capturedVariables,
+            nameFrameToOriginalId,
+            variableIdRemapping,
+            effectParameterName,
+            expr
+          );
+        }
+        const newCount = effectCallPoints.length;
+        if (newCount > initialCount) {
+          for (let i = initialCount; i < newCount; i++) {
+            effectCallPoints[i]!.isInsideWhile = true;
+            effectCallPoints[i]!.whileNestingDepth =
+              (effectCallPoints[i]!.whileNestingDepth ?? 0) + 1;
+          }
+        }
+        break;
+      }
+
+      // Check if this is a cond expression
+      if (exprIsFunctionCallOf(expr, BuiltinKeywords.cond)) {
+        const initialCount = effectCallPoints.length;
+        walkExprForEffects(
+          expr.func,
+          effectCallPoints,
+          capturedVariables,
+          nameFrameToOriginalId,
+          variableIdRemapping,
+          effectParameterName,
+          expr
+        );
+        const perBranchEffects: EffectCallPoint[][] = [];
+        for (const arg of expr.args) {
+          const branchStart = effectCallPoints.length;
+          walkExprForEffects(
+            arg,
+            effectCallPoints,
+            capturedVariables,
+            nameFrameToOriginalId,
+            variableIdRemapping,
+            effectParameterName,
+            expr
+          );
+          perBranchEffects.push(effectCallPoints.slice(branchStart));
+        }
+        const maxDepth = Math.max(...perBranchEffects.map((b) => b.length), 0);
+        if (maxDepth > 0) {
+          effectCallPoints.splice(initialCount);
+          const firstIndex = initialCount;
+          for (let pos = 0; pos < maxDepth; pos++) {
+            let representative: EffectCallPoint | undefined;
+            for (const branchList of perBranchEffects) {
+              if (pos < branchList.length) {
+                representative = branchList[pos];
+                break;
+              }
+            }
+            if (representative) {
+              representative.index = effectCallPoints.length;
+              representative.isInsideCond = true;
+              if (pos === 0) {
+                representative.needsOwnCondBranchField = true;
+              }
+              if (pos > 0) {
+                representative.condBranchSourceIndex = firstIndex;
+              }
+              effectCallPoints.push(representative);
+            }
+          }
+        }
+        break;
+      }
+
+      // Check if this is a match expression
+      if (exprIsFunctionCallOf(expr, BuiltinKeywords.match)) {
+        const initialCount = effectCallPoints.length;
+        walkExprForEffects(
+          expr.func,
+          effectCallPoints,
+          capturedVariables,
+          nameFrameToOriginalId,
+          variableIdRemapping,
+          effectParameterName,
+          expr
+        );
+        const perBranchEffects: EffectCallPoint[][] = [];
+        for (const arg of expr.args) {
+          const branchStart = effectCallPoints.length;
+          walkExprForEffects(
+            arg,
+            effectCallPoints,
+            capturedVariables,
+            nameFrameToOriginalId,
+            variableIdRemapping,
+            effectParameterName,
+            expr
+          );
+          perBranchEffects.push(effectCallPoints.slice(branchStart));
+        }
+        const maxDepth = Math.max(...perBranchEffects.map((b) => b.length), 0);
+        if (maxDepth > 0) {
+          effectCallPoints.splice(initialCount);
+          const firstIndex = initialCount;
+          for (let pos = 0; pos < maxDepth; pos++) {
+            let representative: EffectCallPoint | undefined;
+            for (const branchList of perBranchEffects) {
+              if (pos < branchList.length) {
+                representative = branchList[pos];
+                break;
+              }
+            }
+            if (representative) {
+              representative.index = effectCallPoints.length;
+              representative.isInsideCond = true;
+              if (pos === 0) {
+                representative.needsOwnCondBranchField = true;
+              }
+              if (pos > 0) {
+                representative.condBranchSourceIndex = firstIndex;
+              }
+              effectCallPoints.push(representative);
+            }
+          }
+        }
+        break;
+      }
+
+      // Check if this is a ctl effect call (call to the effect parameter)
+      if (isEffectCall(expr, effectParameterName)) {
+        // Collect all runtime argument types from the ctl call
+        const operationArgTypes: Type[] = [];
+        for (const arg of expr.args) {
+          if (arg.$?.type) {
+            operationArgTypes.push(arg.$.type);
+          }
+        }
+        const operationResultType = expr.$?.type;
+
+        if (operationArgTypes.length > 0 && operationResultType) {
+          let targetVariableId: string | undefined;
+          if (
+            parentExpr &&
+            parentExpr.tag === ExprTag.FnCall &&
+            exprIsFunctionCallOf(parentExpr, ":=")
+          ) {
+            const varExpr = parentExpr.args[0];
+            if (
+              varExpr &&
+              varExpr.tag === ExprTag.Atom &&
+              varExpr.token.type === TokenType.Identifier &&
+              varExpr.$
+            ) {
+              const varName = varExpr.token.value;
+              const variables = getVariablesFromEnv(varExpr.$.env, varName);
+              if (variables.length > 0) {
+                targetVariableId = variables[variables.length - 1]!.id;
+              }
+            }
+          }
+
+          effectCallPoints.push({
+            index: effectCallPoints.length,
+            expr,
+            operationArgTypes,
+            operationResultType,
+            targetVariableId,
+          });
+        }
+      }
+
+      // Skip async block bodies (they have their own analysis)
+      if (exprIsFunctionCallOf(expr, BuiltinFunctions.async)) {
+        if (expr.$?.deferredDupExpressions) {
+          for (const dupExpr of expr.$.deferredDupExpressions) {
+            walkExprForEffects(
+              dupExpr,
+              effectCallPoints,
+              capturedVariables,
+              nameFrameToOriginalId,
+              variableIdRemapping,
+              effectParameterName,
+              expr
+            );
+          }
+        }
+        break;
+      }
+
+      // Recurse into function and arguments
+      walkExprForEffects(
+        expr.func,
+        effectCallPoints,
+        capturedVariables,
+        nameFrameToOriginalId,
+        variableIdRemapping,
+        effectParameterName,
+        expr
+      );
+      for (const arg of expr.args) {
+        walkExprForEffects(
+          arg,
+          effectCallPoints,
+          capturedVariables,
+          nameFrameToOriginalId,
+          variableIdRemapping,
+          effectParameterName,
+          expr
+        );
+      }
+
+      // Walk deferred drop expressions
+      if (expr.$?.deferredDropExpressions) {
+        for (const dropExpr of expr.$.deferredDropExpressions) {
+          walkExprForEffects(
+            dropExpr,
+            effectCallPoints,
+            capturedVariables,
+            nameFrameToOriginalId,
+            variableIdRemapping,
+            effectParameterName,
+            expr
+          );
+        }
+      }
+      break;
+    }
+  }
+}
+
+/**
+ * Checks if an expression is a call to the ctl effect parameter.
+ * This detects calls like `raise(msg)` where `raise` is the effect parameter name.
+ */
+function isEffectCall(expr: Expr, effectParameterName: string): boolean {
+  if (expr.tag !== ExprTag.FnCall) return false;
+
+  // Check if the function being called is the effect parameter name
+  const func = expr.func;
+  if (func.tag !== ExprTag.Atom) return false;
+  if (func.token.value !== effectParameterName) return false;
+
+  // Verify the function's type is a control function type
+  const funcType = func.$?.type;
+  if (!funcType || !isFunctionType(funcType)) return false;
+  if (!funcType.isControlFunction) return false;
+
+  return true;
+}

@@ -8,6 +8,7 @@ import {
   exprIsFunctionCall,
   exprIsFunctionCallOf,
 } from "../../expr";
+import type { FunctionValue } from "../../function-value";
 import type { Type } from "../../types/definitions";
 import {
   isBoxedType,
@@ -148,6 +149,17 @@ export function findFunctionCallsInExpr(
   // If this is a macro expansion, recursively collect from the expanded expression
   if (expr.$ && expr.$.macroExpansion) {
     findFunctionCallsInExpr(expr.$.macroExpansion, context);
+  }
+
+  // Collect functions from effect handler bodies (re-evaluated handler bodies may
+  // contain function calls like println that need to be collected for codegen)
+  if (expr.$?.effectAnalysis) {
+    const handlerValue = expr.$.effectAnalysis.handlerValue as
+      | FunctionValue
+      | undefined;
+    if (handlerValue && isFunctionValue(handlerValue)) {
+      findFunctionCallsInExpr(handlerValue.body, context);
+    }
   }
 
   // For closure construction, collect the closure function

@@ -150,6 +150,31 @@ function generatePendingDeferredDrops(
   }
 }
 
+import type { EffectStateMachineInfo } from "../effects/effect-state-machine";
+
+/**
+ * Generate C code for `return(value)` inside a ctl handler body.
+ * This resumes the continuation by setting the SM's resume_value and calling the resume function.
+ */
+function generateReturnAsResume(
+  expr: FnCallExpr,
+  indent: string,
+  context: CodeGenContext,
+  resumeInfo: { smVar: string; smInfo: EffectStateMachineInfo }
+): string {
+  const { smVar, smInfo } = resumeInfo;
+  const emitter = context.emitter;
+
+  const arg = expr.args[0];
+  if (arg) {
+    const argCode = generateExpr(arg, indent, context);
+    emitter.emitLine(`${indent}${smVar}.resume_value = ${argCode};`);
+  }
+  emitter.emitLine(`${indent}${smInfo.resumeFunctionName}(&${smVar});`);
+
+  return "";
+}
+
 /**
  * Generate a return statement for `return` expressions
  * Function with explicit return:
@@ -160,6 +185,16 @@ export function generateReturn(
   indent: string,
   context: CodeGenContext
 ): string {
+  const functionContext = context as FunctionGenerationContext;
+
+  // Check if we're inside a ctl handler body (return = resume continuation)
+  if (functionContext.continuationVariables) {
+    const resumeInfo = functionContext.continuationVariables.get("resume");
+    if (resumeInfo) {
+      return generateReturnAsResume(expr, indent, context, resumeInfo);
+    }
+  }
+
   const arg = expr.args[0];
   if (arg) {
     if (!expr.$) {
@@ -173,7 +208,6 @@ export function generateReturn(
 
     // Special handling for async functions: we need to get the raw value code
     // without temp variable indirection to properly declare the temp variable
-    const functionContext = context as FunctionGenerationContext;
     let argCode: string;
     let needsTempVarDeclaration = false;
 
@@ -309,8 +343,6 @@ export function generateReturn(
     if (expr.$?.deferredDropExpressions) {
       generateDeferredDropExpressions(expr, indent, context);
     }
-
-    const functionContext = context as FunctionGenerationContext;
 
     // Check if we're in a state machine - if so, complete the Future instead of returning
     if (functionContext.inStateMachine) {
