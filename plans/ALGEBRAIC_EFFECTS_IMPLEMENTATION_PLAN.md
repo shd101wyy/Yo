@@ -33,6 +33,7 @@ Both phases build on Yo's existing async/await state machine infrastructure.
   - Handler body inlining at call sites
   - Proper RC drop of handler parameters before abort return
   - `abort` control flow handling in `cond`, `match`, and `while` expressions
+  - **Direct ctl call in handler scope** (no intermediate `using` function): `raise(...)` can be called directly in the same scope as the `given` binding, without an intermediate `fn(..., using(raise : Raise))` wrapper. The handler body is evaluated lazily with concrete types inferred from the enclosing function's return type, and the call is inlined at the call site.
   - All tests passing with AddressSanitizer (no memory leaks)
 - ⏳ **Phase 2 remaining work:**
   - Nested effects (multiple ctl operations in same function body)
@@ -507,17 +508,17 @@ Effects compose naturally with Phase 1's implicit parameters:
 
 #### Step 7: Tests
 
-- **Basic effect + discard:** `Raise` effect that returns a constant (no `resume`).
-- **Basic effect + resume:** `Raise` effect that resumes with a value.
+- **Basic effect + discard:** `Raise` effect that returns a constant (no `resume`). ✅
+- **Basic effect + resume:** `Raise` effect that resumes with a value. ✅
+- **Direct ctl call without `using`:** `raise(...)` called directly in handler scope, no intermediate function. ✅
 - **Nested effects:** Multiple effect operations in the same function.
 - **Effect propagation:** Effect passing through multiple function calls.
-- **Polymorphic effects:** `ctl(forall(T : Type), ...) -> T`.
+- **Polymorphic effects:** `ctl(forall(T : Type), ...) -> T`. ✅
 - **Multiple effect types:** Function using two different effects.
-- **RC correctness:** Ensure no leaks when continuations are discarded.
-- **RC correctness:** Ensure no leaks when continuations are resumed.
+- **RC correctness:** Ensure no leaks when continuations are discarded. ✅
+- **RC correctness:** Ensure no leaks when continuations are resumed. ✅
 - **One-shot enforcement:** Runtime error when `return` is used twice (pending implementation).
 - **Interaction with async:** Using effects inside async functions (if supported).
-- **Optimization:** Verify no-resume handlers compile to direct returns.
 
 ---
 

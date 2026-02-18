@@ -1508,6 +1508,36 @@ Please use explicit using() to disambiguate.`,
     });
   }
 
+  // Direct ctl function call: the ctl function is called without an intermediate
+  // function with `using(ctl)`. The function body was deferred because of forall
+  // parameters. We need to evaluate it with concrete types so codegen can inline it.
+  //
+  // Only do this when NOT inside a function that receives the ctl handler via
+  // an implicit `using(raise: Raise)` parameter — in that case the call is handled
+  // by the effect state machine (createSpecializedFunctionInline resolves the body).
+  const isInsideFunctionWithCtlImplicitParam =
+    context.isEvaluatingFunctionBodyOrAsyncBlock?.kind === "function-body" &&
+    context.isEvaluatingFunctionBodyOrAsyncBlock.type.implicitParameters.some(
+      (param) => isFunctionType(param.type) && param.type.isControlFunction
+    );
+  if (
+    !skipSpecialization &&
+    functionValue &&
+    isFunctionValue(functionValue) &&
+    functionType.isControlFunction &&
+    functionType.forallParameters.length > 0 &&
+    !specializedFunctionValue &&
+    !isInsideFunctionWithCtlImplicitParam
+  ) {
+    specializedFunctionValue = evaluateCtlFunctionBodyInline({
+      originalFunction: functionValue,
+      argValues: argValues_,
+      calleeEnv,
+      callerEnv,
+      context,
+    });
+  }
+
   // Handle automatic drop insertion for RAII before returning from function call
   // Get variables that need drop calls from the caller environment (function arguments)
   const variablesNeedingDrop = getVariablesNeedingDrop(callerEnv);
@@ -1976,6 +2006,119 @@ function createSpecializedFunctionInline({
   return specializedFunction;
 }
 
+/**
+ * Evaluate a ctl function body with concrete types for a direct ctl call.
+ *
+ * When a `ctl` function is called directly (not through a `using` parameter),
+ * its body was deferred (not evaluated at definition time) because of forall parameters.
+ * We need to evaluate it here with the concrete types from the call context.
+ *
+ * The forall type parameter T is resolved from the enclosing function's return type
+ * (since `abort val` exits the enclosing function with a value of type T).
+ */
+function evaluateCtlFunctionBodyInline({
+  originalFunction,
+  calleeEnv,
+  context,
+}: {
+  originalFunction: FunctionValue;
+  argValues: ArgValues;
+  calleeEnv: Environment;
+  callerEnv: Environment;
+  context: EvaluatorContext;
+}): FunctionValue {
+  const functionType = originalFunction.type;
+
+  // Determine the concrete type for the forall parameter T.
+  // For `abort` handlers, T is the enclosing function's return type.
+  // For `return` handlers, T is the return type of the ctl operation at the call site.
+  const enclosingReturnType =
+    context.isEvaluatingFunctionBodyOrAsyncBlock?.kind === "function-body"
+      ? context.isEvaluatingFunctionBodyOrAsyncBlock.type.return.type
+      : functionType.return.type;
+
+  // Check specialization cache using a type-based signature
+  const ctlSignature = sanitizeForCIdentifier(
+    typeToString(enclosingReturnType)
+  );
+  const existingCache = originalFunction.specializedFunctionCaches.find(
+    (cache) =>
+      cache.specializedFunction.funcId ===
+      `${originalFunction.funcId}_ctl_${ctlSignature}`
+  );
+  if (existingCache) {
+    return existingCache.specializedFunction;
+  }
+
+  // Build an env with forall parameters bound to their concrete types
+  let specializedEnv = pushEnvFrame(calleeEnv);
+
+  for (const forallParam of functionType.forallParameters) {
+    // Map the forall type variable to the concrete type
+    const concreteType = enclosingReturnType;
+    const { env: nextEnv } = addVariableToEnv({
+      env: specializedEnv,
+      variable: {
+        name: forallParam.label,
+        type: forallParam.type,
+        isCompileTimeOnly: true,
+        value: [createTypeValue(concreteType)],
+        token: PlaceholderToken,
+        initializedAtToken: PlaceholderToken,
+        consumedAtToken: undefined,
+        isOwningTheRcValue: false,
+      },
+      allowVariableShadowing: true,
+    });
+    specializedEnv = nextEnv;
+  }
+
+  const clonedBody = cloneExpr(originalFunction.body);
+
+  const handlerContext: EvaluatorContext = {
+    ...context,
+    expectedType: undefined,
+    controlHandlerContext: {
+      operationResultType: enclosingReturnType,
+      enclosingFunctionReturnType: enclosingReturnType,
+    },
+    isEvaluatingFunctionBodyOrAsyncBlock: {
+      kind: "function-body",
+      type: functionType,
+      value: originalFunction,
+      evaluationEnv: specializedEnv,
+    },
+  };
+
+  const evaluatedBody = _evaluateExpression({
+    expr: clonedBody,
+    env: specializedEnv,
+    context: handlerContext,
+  });
+
+  const specializedFunction: FunctionValue = {
+    ...originalFunction,
+    body: evaluatedBody,
+    funcId: `${originalFunction.funcId}_ctl_${ctlSignature}`,
+    funcName: `${originalFunction.funcName ?? originalFunction.funcId}_ctl_${ctlSignature}`,
+    calledComptimeFunctionCaches: [],
+    specializedFunctionCaches: [],
+  };
+
+  // Cache to avoid re-evaluating on repeated calls
+  originalFunction.specializedFunctionCaches = [
+    ...originalFunction.specializedFunctionCaches,
+    {
+      funcId: originalFunction.funcId,
+      compileTimeArgValues: [],
+      runtimeParameterTypes: [],
+      specializedFunction,
+      env: evaluatedBody.$?.env ?? specializedEnv,
+    },
+  ];
+
+  return specializedFunction;
+}
 /**
  * Check if the returnType contains any SomeType that doesn't exist in the callerEnv;
  * If yes, then throw error

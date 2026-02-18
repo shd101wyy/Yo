@@ -14,7 +14,11 @@ import {
   type FnCallExpr,
 } from "../../expr";
 import type { FunctionValue } from "../../function-value";
-import type { ArrayType, SomeType } from "../../types/definitions";
+import type {
+  ArrayType,
+  FunctionType,
+  SomeType,
+} from "../../types/definitions";
 import {
   isArrayType,
   isDynType,
@@ -28,6 +32,7 @@ import {
   isUnionType,
   isUnitType,
 } from "../../types/guards";
+import { typeContainsRcType } from "../../types/utils";
 import {
   isFunctionValue,
   isNumberValue,
@@ -57,6 +62,7 @@ import { generateComptimeValue } from "./comptime-value";
 import {
   generateDeferredDropExpressions,
   generateDeferredDupExpressions,
+  generateDropCodeForValue,
 } from "./drop-dup";
 import { generateExpr } from "./expr";
 import { generateYoInlineFunctionCall } from "./inline-fns";
@@ -499,6 +505,20 @@ export function generateOtherFunctionCall(
                 context as FunctionGenerationContext
               );
             }
+          }
+
+          // Direct ctl function call (handler invoked in same scope as given binding).
+          // In this case the function value itself IS the handler. There is no intermediate
+          // function with `using(raise)`, so no state machine was generated. Instead we
+          // inline the handler body directly at the call site.
+          if (functionValueType.isControlFunction && functionValue.body) {
+            return generateDirectCtlCall(
+              functionValue,
+              functionValueType,
+              args,
+              indent,
+              context as FunctionGenerationContext
+            );
           }
 
           // Generate function call
@@ -1469,4 +1489,76 @@ export function generateOtherFunctionCall(
     const indexCode = generateExpr(expr.args[0]!, indent, context);
     return `${sliceCode}.data[${indexCode}]`; // Access the element at the index in the slice
   }
+}
+/**
+ * Generate an inline invocation of a ctl function when it is called directly
+ * in the same scope that provides the `given` handler (i.e. there is no
+ * intermediate function with `using(ctl)` that would create a state machine).
+ *
+ * The ctl function IS the handler. We bind call arguments to handler parameters
+ * as local C variables and generate the body inline. `abort(val)` inside the
+ * body becomes `return val;` which exits the enclosing C function (the handler
+ * scope). `return(val)` inside the body treats `val` as the result of the call.
+ */
+function generateDirectCtlCall(
+  functionValue: FunctionValue,
+  functionType: FunctionType,
+  argCodes: string[],
+  indent: string,
+  context: FunctionGenerationContext
+): string {
+  const emitter = context.emitter;
+
+  const runtimeParams = functionType.parameters.filter(
+    (p) => !p.isCompileTimeOnly
+  );
+
+  const paramDropCodes: string[] = [];
+
+  emitter.emitLine(`${indent}{`);
+  const innerIndent = `${indent}  `;
+
+  for (let i = 0; i < runtimeParams.length && i < argCodes.length; i++) {
+    const param = runtimeParams[i]!;
+    const paramTypeCName = getTypeString(param.type, context);
+    const paramCName = sanitizeForCIdentifier(param.label);
+    emitter.emitLine(
+      `${innerIndent}${paramTypeCName} ${paramCName} = ${argCodes[i]};`
+    );
+    if (typeContainsRcType(param.type)) {
+      const dropCode = generateDropCodeForValue(
+        paramCName,
+        param.type,
+        context
+      );
+      if (dropCode) {
+        paramDropCodes.push(dropCode);
+      }
+    }
+  }
+
+  const handlerHasResume = functionValue.body
+    ? !exprContainsAbort(functionValue.body)
+    : false;
+
+  if (handlerHasResume) {
+    const bodyCode = generateExpr(functionValue.body!, innerIndent, context);
+    if (bodyCode) {
+      emitter.emitLine(`${innerIndent}${bodyCode};`);
+    }
+    for (const dropCode of paramDropCodes) {
+      emitter.emitLine(`${innerIndent}${dropCode};`);
+    }
+  } else {
+    const prevHandlerDrops = context.effectHandlerParamDrops;
+    context.effectHandlerParamDrops = paramDropCodes;
+    const bodyCode = generateExpr(functionValue.body!, innerIndent, context);
+    if (bodyCode) {
+      emitter.emitLine(`${innerIndent}${bodyCode};`);
+    }
+    context.effectHandlerParamDrops = prevHandlerDrops;
+  }
+
+  emitter.emitLine(`${indent}}`);
+  return "";
 }

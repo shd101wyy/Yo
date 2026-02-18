@@ -1,0 +1,62 @@
+open import "std/string"; // Let's use `String` instead of `str`
+open import "std/fmt";
+
+test "Test ctl abort and return via using parameter", {
+  Raise :: (ctl(forall(T : Type), msg : String, msg2 : String) -> T);
+
+  // Use an effect in a function (effect becomes an implicit parameter)
+  safe_divide :: (fn(x : i32, y : i32, using(raise : Raise)) -> i32)(
+    cond(
+      (y == 0) => raise(`div-by-zero`, `I don't like it`),
+      true => (x / y)
+    )
+  );
+
+  // Handle the effect — without resume (discarding continuation)
+  raise_const :: (fn() -> i64) {
+    (given(raise) : Raise) = ((msg, msg2) -> {// values/anonymous-function.ts
+      println(msg);
+      println(msg2);
+      abort i64(42); // abort type should match the outer function return type, which is i64 in this case
+                    // `abort` is only allowed in `ctl` function value.  
+    });
+    (i64(8) + i64(safe_divide(1, 0))) + i64(10)
+  };
+  // Returns 42 — continuation is discarded
+
+  // Handle the effect — with resume (invoking continuation)
+  raise_resume :: (fn() -> i64) {
+    (given(raise) : Raise) = (ctl(forall(T : Type), msg : String, msg2 : String) -> T)({ // calls/function-type.ts
+      println(msg);
+      println(msg2);
+      return i32(42);
+    });
+    (i64(8) + i64(safe_divide(1, 0))) + i64(10)
+  };
+  // Returns 60 — return(42) continues after the raise call site
+
+  result1 := raise_const();
+  result2 := raise_resume();
+
+  assert(result1 == i64(42));
+  assert(result2 == i64(60));
+};
+
+test "Test ctl abort called directly without intermediate using function", {
+  Raise :: (ctl(forall(T : Type), msg : String, msg2 : String) -> T);
+
+  // The ctl function is called directly in the handler scope — no intermediate
+  // function with `using(raise : Raise)`. The handler runs, prints the messages,
+  // and aborts with `()`, matching the enclosing function's return type (unit).
+  did_abort := false;
+  run_test :: (fn() -> unit) {
+    (given(raise) : Raise) = ((msg, msg2) -> {
+      println(msg);
+      println(msg2);
+      abort ();
+    });
+    raise(`direct-call`, `No using parameter needed`);
+    assert(false, "This line should not be reached");
+  };
+  run_test();
+};
