@@ -33,7 +33,9 @@ Both phases build on Yo's existing async/await state machine infrastructure.
   - Handler body inlining at call sites
   - Proper RC drop of handler parameters before abort return
   - `abort` control flow handling in `cond`, `match`, and `while` expressions
-  - **Direct ctl call in handler scope** (no intermediate `using` function): `raise(...)` can be called directly in the same scope as the `given` binding, without an intermediate `fn(..., using(raise : Raise))` wrapper. The handler body is evaluated lazily with concrete types inferred from the enclosing function's return type, and the call is inlined at the call site.
+  - **Direct ctl call in handler scope** (no intermediate `using` function): `raise(...)` can be called directly in the same scope as the `given` binding, without an intermediate `fn(..., using(raise : Raise))` wrapper. Supports both:
+    - **Abort (discard)**: `abort value` — exits the enclosing function immediately
+    - **Resume (continue)**: `return(value)` — `raise(...)` evaluates to `value` and execution continues at the call site. The handler body is inlined using a temp variable to capture the returned value. Params are borrowed from the caller (no double-drop).
   - All tests passing with AddressSanitizer (no memory leaks)
 - ⏳ **Phase 2 remaining work:**
   - Nested effects (multiple ctl operations in same function body)
@@ -510,7 +512,8 @@ Effects compose naturally with Phase 1's implicit parameters:
 
 - **Basic effect + discard:** `Raise` effect that returns a constant (no `resume`). ✅
 - **Basic effect + resume:** `Raise` effect that resumes with a value. ✅
-- **Direct ctl call without `using`:** `raise(...)` called directly in handler scope, no intermediate function. ✅
+- **Direct ctl abort without `using`:** `raise(...)` called directly, `abort ()` exits the handler scope. ✅
+- **Direct ctl resume without `using`:** `raise(...)` called directly, `return(value)` resumes — `result := raise(...)` captures the value and execution continues. ✅
 - **Nested effects:** Multiple effect operations in the same function.
 - **Effect propagation:** Effect passing through multiple function calls.
 - **Polymorphic effects:** `ctl(forall(T : Type), ...) -> T`. ✅

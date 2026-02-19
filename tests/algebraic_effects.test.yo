@@ -42,13 +42,30 @@ test "Test ctl abort and return via using parameter", {
   assert(result2 == i64(60));
 };
 
+test "Test ctl resume called directly without intermediate using function", {
+  Raise :: (ctl(forall(T : Type), msg : String, msg2 : String) -> T);
+
+  // The ctl function is called directly. The handler uses `return(value)` to
+  // resume the continuation — execution continues after the raise(...) call
+  // and `result` receives the handler's returned value.
+  run_test :: (fn() -> unit) {
+    (given(raise) : Raise) = ((msg, msg2) -> {
+      println(msg);
+      println(msg2);
+      return i32(16);
+    });
+    result := raise(`direct-resume`, `Handler returns a value`);
+    println("After raise");
+    assert(result == 16, "result should be 16");
+  };
+  run_test();
+};
 test "Test ctl abort called directly without intermediate using function", {
   Raise :: (ctl(forall(T : Type), msg : String, msg2 : String) -> T);
 
   // The ctl function is called directly in the handler scope — no intermediate
   // function with `using(raise : Raise)`. The handler runs, prints the messages,
   // and aborts with `()`, matching the enclosing function's return type (unit).
-  did_abort := false;
   run_test :: (fn() -> unit) {
     (given(raise) : Raise) = ((msg, msg2) -> {
       println(msg);

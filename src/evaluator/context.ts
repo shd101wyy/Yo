@@ -162,6 +162,12 @@ export interface EvaluatorContext {
   controlHandlerContext?: {
     operationResultType: Type;
     enclosingFunctionReturnType: Type;
+    /**
+     * True when the ctl handler is invoked directly at the call site (no intermediate
+     * `using` function). In this case the `return(value)` type is inferred from the
+     * value expression itself, so we skip the strict operationResultType check.
+     */
+    isDirectCtlCall?: boolean;
   };
 
   /**

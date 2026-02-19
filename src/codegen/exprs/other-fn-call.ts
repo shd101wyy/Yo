@@ -1513,11 +1513,23 @@ function generateDirectCtlCall(
     (p) => !p.isCompileTimeOnly
   );
 
-  const paramDropCodes: string[] = [];
+  const handlerHasResume = functionValue.body
+    ? !exprContainsAbort(functionValue.body)
+    : false;
 
-  emitter.emitLine(`${indent}{`);
+  // For the resume case, declare the result variable BEFORE the inner block so that
+  // it stays in scope after the block closes and can be used as the call expression.
+  const resultType = handlerHasResume ? functionValue.body!.$?.type : undefined;
+  const tmpResultVar = `__ctl_direct_result_${sanitizeForCIdentifier(functionValue.funcId)}`;
+  if (handlerHasResume && resultType && !isUnitType(resultType)) {
+    const resultTypeCName = getTypeString(resultType, context);
+    emitter.emitLine(`${indent}${resultTypeCName} ${tmpResultVar};`);
+  }
+
   const innerIndent = `${indent}  `;
+  emitter.emitLine(`${indent}{`);
 
+  const paramDropCodes: string[] = [];
   for (let i = 0; i < runtimeParams.length && i < argCodes.length; i++) {
     const param = runtimeParams[i]!;
     const paramTypeCName = getTypeString(param.type, context);
@@ -1537,19 +1549,29 @@ function generateDirectCtlCall(
     }
   }
 
-  const handlerHasResume = functionValue.body
-    ? !exprContainsAbort(functionValue.body)
-    : false;
-
   if (handlerHasResume) {
+    // Resume case: intercept `return(value)` to assign into tmpResultVar.
+    // The params are aliases of the caller's args (borrowed, not moved) because
+    // execution continues past the call site. The CALLER is responsible for
+    // dropping the args at end of its own scope — don't drop them here.
+    const prevContinuationVars = context.continuationVariables;
+    const continuationVars = new Map(prevContinuationVars);
+    continuationVars.set("resume", { directReturnVar: tmpResultVar });
+    context.continuationVariables = continuationVars;
+
     const bodyCode = generateExpr(functionValue.body!, innerIndent, context);
     if (bodyCode) {
       emitter.emitLine(`${innerIndent}${bodyCode};`);
     }
-    for (const dropCode of paramDropCodes) {
-      emitter.emitLine(`${innerIndent}${dropCode};`);
-    }
+    // No paramDropCodes here: params are borrowed from the outer scope.
+
+    context.continuationVariables = prevContinuationVars;
+    emitter.emitLine(`${indent}}`);
+    return resultType && !isUnitType(resultType) ? tmpResultVar : "";
   } else {
+    // Abort case: `abort(value)` in the body generates `return value;` in C,
+    // exiting the enclosing C function. Use effectHandlerParamDrops so that
+    // param cleanup runs before the abort return.
     const prevHandlerDrops = context.effectHandlerParamDrops;
     context.effectHandlerParamDrops = paramDropCodes;
     const bodyCode = generateExpr(functionValue.body!, innerIndent, context);

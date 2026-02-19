@@ -191,6 +191,18 @@ export function generateReturn(
   if (functionContext.continuationVariables) {
     const resumeInfo = functionContext.continuationVariables.get("resume");
     if (resumeInfo) {
+      if ("directReturnVar" in resumeInfo) {
+        // Direct ctl call (no state machine): assign the return value to the
+        // captured temp variable so the call site can use it as an expression.
+        const arg = expr.args[0];
+        if (arg) {
+          const argCode = generateExpr(arg, indent, context);
+          context.emitter.emitLine(
+            `${indent}${resumeInfo.directReturnVar} = ${argCode};`
+          );
+        }
+        return "";
+      }
       return generateReturnAsResume(expr, indent, context, resumeInfo);
     }
   }

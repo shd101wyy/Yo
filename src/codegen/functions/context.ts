@@ -50,9 +50,11 @@ export interface FunctionGenerationContext extends CodeGenContext {
   // Map from continuation variable names to their state machine info.
   // Used when generating handler body inline — resume calls are intercepted
   // and generate SM copy + resume code instead of normal function calls.
+  // For direct ctl calls (no SM), the entry carries { directReturnVar } instead.
   continuationVariables?: Map<
     string,
-    { smVar: string; smInfo: EffectStateMachineInfo }
+    | { smVar: string; smInfo: EffectStateMachineInfo }
+    | { directReturnVar: string }
   >;
   // Maps SSA-renamed variable IDs to their original/canonical IDs.
   // Used to resolve all versions of a reassigned variable to the same struct field in loops.

@@ -864,20 +864,24 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
     if (context.controlHandlerContext) {
       // Inside a ctl handler body: return(value) resumes the continuation.
       // Type-check against operationResultType (the ctl's return type T).
-      const expectedReturnType =
-        context.controlHandlerContext.operationResultType;
-      if (
-        !areTypesCompatible(
-          { type: expectedReturnType, env },
-          { type: returnType, env }
-        )
-      ) {
-        throw formatErrorMessage({
-          token: lastExpr.token,
-          errorMessage: `Return type mismatch in ctl handler. Expected type "${typeToString(
-            expectedReturnType
-          )}" (ctl return type), but got "${typeToString(returnType)}".`,
-        });
+      // For direct ctl calls (no intermediate `using` function), T is inferred
+      // from the return value itself — skip the strict operationResultType check.
+      if (!context.controlHandlerContext.isDirectCtlCall) {
+        const expectedReturnType =
+          context.controlHandlerContext.operationResultType;
+        if (
+          !areTypesCompatible(
+            { type: expectedReturnType, env },
+            { type: returnType, env }
+          )
+        ) {
+          throw formatErrorMessage({
+            token: lastExpr.token,
+            errorMessage: `Return type mismatch in ctl handler. Expected type "${typeToString(
+              expectedReturnType
+            )}" (ctl return type), but got "${typeToString(returnType)}".`,
+          });
+        }
       }
     } else if (
       context.isEvaluatingFunctionBodyOrAsyncBlock?.kind === "function-body"

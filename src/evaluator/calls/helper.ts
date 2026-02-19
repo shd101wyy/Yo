@@ -1536,6 +1536,14 @@ Please use explicit using() to disambiguate.`,
       callerEnv,
       context,
     });
+    // For `return(value)` (resume) handlers, update returnType to the concrete
+    // type from the evaluated body so the call site gets the right type.
+    if (specializedFunctionValue && isSomeType(returnType)) {
+      const bodyType = specializedFunctionValue.body?.$?.type;
+      if (bodyType && !isSomeType(bodyType)) {
+        returnType = bodyType;
+      }
+    }
   }
 
   // Handle automatic drop insertion for RAII before returning from function call
@@ -2079,8 +2087,11 @@ function evaluateCtlFunctionBodyInline({
     ...context,
     expectedType: undefined,
     controlHandlerContext: {
-      operationResultType: enclosingReturnType,
+      // operationResultType is only used for the via-using state-machine path.
+      // For direct ctl calls, `return(value)` type is checked by isDirectCtlCall flag.
+      operationResultType: functionType.return.type,
       enclosingFunctionReturnType: enclosingReturnType,
+      isDirectCtlCall: true,
     },
     isEvaluatingFunctionBodyOrAsyncBlock: {
       kind: "function-body",

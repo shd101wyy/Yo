@@ -7,10 +7,10 @@ main :: (fn() -> unit) {
  (given(raise) : Raise) = ((msg, msg2) -> {// values/anonymous-function.ts
     println(msg);
     println(msg2);
-    abort (); // abort unit value (), whose type matches the enclosing function `main` function return type
+    return i32(16);
   });
-  raise(`fixme`, `This is a fixme test`); // This should trigger the effect handler above, printing the messages and aborting the program
-  println("This line should not be printed");
-  assert(false, "This assertion should not be reached");
+  result := raise(`fixme`, `This is a fixme test`); // This should trigger the effect handler above, printing the messages and aborting the program
+  println("This line should be printed");
+  assert(result == 16, "This assertion should be true");
 };
 export main;
