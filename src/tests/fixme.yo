@@ -2,28 +2,35 @@ open import "std/string";
 open import "std/fmt";
 
 Raise :: (ctl(forall(T : Type), msg : String) -> T);
-Log :: (ctl(msg : String, counter : Box(i32)) -> unit);
+
+// Function that USES the effect (propagates via using parameter)
+safe_divide :: (fn(x : i32, y : i32, using(raise : Raise)) -> i32)(
+  cond(
+    (y == 0) => raise(`division by zero`),
+    true => (x / y)
+  )
+);
+
+// Two levels of propagation
+compute :: (fn(a : i32, b : i32, using(raise : Raise)) -> i32)(
+  (safe_divide(a, b) + i32(10))
+);
 
 main :: (fn() -> unit) {
-  log_count := box(i32(0));
-
-  (given(log) : Log) = ((msg, counter) -> {
-    println(msg);
-    counter.* = (counter.* + i32(1));
-    return ();
-  });
-
+  // Test 1: single-level propagation with resume
   (given(raise) : Raise) = ((msg) -> {
     println(msg);
-    return i32(42);
+    return i32(0);
   });
+  result1 := safe_divide(10, 0);
+  assert((result1 == i32(0)), "single-level propagation: should return 0");
+  println(`Test 1 passed: single-level propagation`);
 
-  log(`first log`, log_count);
-  log(`second log`, log_count);
-  result := raise(`error!`);
+  // Test 2: two-level propagation with resume
+  result2 := compute(50, 0);
+  assert((result2 == i32(10)), "two-level propagation: 0 + 10 = 10");
+  println(`Test 2 passed: two-level propagation`);
 
-  assert((log_count.* == i32(2)), "log_count should be 2");
-  assert((result == i32(42)), "result should be 42");
-  println(`All nested effects tests passed!`);
+  println(`All effect propagation tests passed!`);
 };
 export main;

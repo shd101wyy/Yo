@@ -1298,13 +1298,15 @@ Got:      ${typeToString(argType)}`,
             argType,
           });
 
-          // Add implicit arg to calleeEnv
+          // Add implicit arg to calleeEnv (mark as isImplicit so it can be
+          // found by nested using() parameter resolution)
           const { env: nextEnv } = addVariableToEnv({
             env: calleeEnv,
             variable: {
               name: implicitParam.label,
               type: resolvedImplicitType,
               isCompileTimeOnly: true,
+              isImplicit: true,
               value: [argValue],
               token: implicitParam.exprs.labelExpr?.token ?? PlaceholderToken,
               initializedAtToken:
@@ -1364,13 +1366,15 @@ Please use explicit using() to disambiguate.`,
           argType: givenVar.type,
         });
 
-        // Add implicit arg to calleeEnv
+        // Add implicit arg to calleeEnv (mark as isImplicit so it can be
+        // found by nested using() parameter resolution)
         const { env: nextEnv } = addVariableToEnv({
           env: calleeEnv,
           variable: {
             name: implicitParam.label,
             type: resolvedImplicitType,
             isCompileTimeOnly: true,
+            isImplicit: true,
             value: [givenValue],
             token: implicitParam.exprs.labelExpr?.token ?? PlaceholderToken,
             initializedAtToken:

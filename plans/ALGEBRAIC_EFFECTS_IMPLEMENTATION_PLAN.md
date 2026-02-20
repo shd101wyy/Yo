@@ -9,7 +9,7 @@ This plan describes how to add **algebraic effects** to the Yo language in two p
 
 Both phases build on Yo's existing async/await state machine infrastructure.
 
-## Current Status (2026-02-15)
+## Current Status (2026-02-16)
 
 - ✅ **Phase 1 (using/given)** is implemented and passing tests.
 - ✅ Supports:
@@ -38,9 +38,12 @@ Both phases build on Yo's existing async/await state machine infrastructure.
     - **Resume (continue)**: `return(value)` — `raise(...)` evaluates to `value` and execution continues at the call site. The handler body is inlined using a temp variable to capture the returned value. Params are borrowed from the caller (no double-drop).
   - All tests passing with AddressSanitizer (no memory leaks)
 - ⏳ **Phase 2 remaining work:**
-  - Nested effects (multiple ctl operations in same function body)
-  - Effect propagation through call chains (caller also needs SM transformation)
-  - Multiple effect types in same function
+  - Nested effects: direct ctl handling of two different ctl types in same scope (e.g., Log + Raise) ✅
+  - Effect propagation through call chains: single-level via `using` ✅, two-level via `using` ✅
+  - Handler bodies for module-level ctl types (without `forall`): evaluator now derives `enclosingFunctionReturnType` from calling context when `ParentFunctionType` is unset ✅
+  - `using` parameter propagation: `using` params are now marked `isImplicit` in env so nested `using` resolution finds them automatically ✅
+  - Deferred drop correctness in direct ctl handlers: `pendingDeferredDrops` cleared during handler body codegen to avoid dropping caller-scope variables ✅
+  - Multiple effect types in same function ✅ (covered by nested effects test)
   - Runtime one-shot enforcement (double `return` detection)
   - Interaction with closures and async/await
 
@@ -514,10 +517,11 @@ Effects compose naturally with Phase 1's implicit parameters:
 - **Basic effect + resume:** `Raise` effect that resumes with a value. ✅
 - **Direct ctl abort without `using`:** `raise(...)` called directly, `abort ()` exits the handler scope. ✅
 - **Direct ctl resume without `using`:** `raise(...)` called directly, `return(value)` resumes — `result := raise(...)` captures the value and execution continues. ✅
-- **Nested effects:** Multiple effect operations in the same function.
-- **Effect propagation:** Effect passing through multiple function calls.
+- **Nested effects:** Multiple effect operations in the same function. ✅
+- **Effect propagation:** Effect passing through multiple function calls. ✅
+- **Effect propagation (two-level):** Effect passing through two levels of `using` functions. ✅
 - **Polymorphic effects:** `ctl(forall(T : Type), ...) -> T`. ✅
-- **Multiple effect types:** Function using two different effects.
+- **Multiple effect types:** Function using two different effects (Log + Raise). ✅
 - **RC correctness:** Ensure no leaks when continuations are discarded. ✅
 - **RC correctness:** Ensure no leaks when continuations are resumed. ✅
 - **One-shot enforcement:** Runtime error when `return` is used twice (pending implementation).
@@ -533,7 +537,7 @@ Effects compose naturally with Phase 1's implicit parameters:
 // Multiple instances of the same effect type
 Logger :: (ctl(msg : String) -> unit);
 
-program :: (fn(using(info : Logger), using(error : Logger)) -> unit) {
+program :: (fn(using(info : Logger, error : Logger)) -> unit) {
   info("starting");
   error("something went wrong");
 };
@@ -649,6 +653,6 @@ However, this unification is a Phase 3+ goal. For now, async/await and effects c
 2. ✅ `ctl` effects with no-resume handlers work (exception-like usage via `abort`).
 3. ✅ `ctl` effects with resume handlers work (continuation-like usage via `return`).
 4. ✅ No memory leaks detected by AddressSanitizer in all effect scenarios.
-5. Nested effects and effect propagation through call chains work correctly.
+5. ✅ Nested effects and effect propagation through call chains work correctly.
 6. One-shot enforcement: runtime error on double `return` (OCaml-style).
 7. Performance: no overhead for functions that don't use effects.

@@ -354,3 +354,43 @@ test "Test two different ctl types in same scope (Log + Raise)", {
   assert((log_count.* == i32(2)), "log_count should be 2");
   assert((result == i32(42)), "result should be 42");
 };
+
+test "Test single-level effect propagation via using parameter", {
+  Raise :: (ctl(forall(T : Type), msg : String) -> T);
+
+  safe_divide :: (fn(x : i32, y : i32, using(raise : Raise)) -> i32)(
+    cond(
+      (y == 0) => raise(`division by zero`),
+      true => (x / y)
+    )
+  );
+
+  (given(raise) : Raise) = ((msg) -> {
+    println(msg);
+    return i32(0);
+  });
+  result := safe_divide(10, 0);
+  assert((result == i32(0)), "single-level propagation: should return 0");
+};
+
+test "Test two-level effect propagation via using parameter", {
+  Raise :: (ctl(forall(T : Type), msg : String) -> T);
+
+  safe_divide :: (fn(x : i32, y : i32, using(raise : Raise)) -> i32)(
+    cond(
+      (y == 0) => raise(`division by zero`),
+      true => (x / y)
+    )
+  );
+
+  compute :: (fn(a : i32, b : i32, using(raise : Raise)) -> i32)(
+    (safe_divide(a, b) + i32(10))
+  );
+
+  (given(raise) : Raise) = ((msg) -> {
+    println(msg);
+    return i32(0);
+  });
+  result := compute(50, 0);
+  assert((result == i32(10)), "two-level propagation: 0 + 10 = 10");
+};

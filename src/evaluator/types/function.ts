@@ -1552,6 +1552,15 @@ export function evaluateFunctionParameters({
         };
 
         implicitParameters.push(implicitParameter);
+
+        // Also mark the variable in the env as isImplicit so that nested
+        // using() parameter resolution can find it (for effect propagation)
+        const frame = nextEnv.frames[nextEnv.frames.length - 1]!;
+        const envVar = frame.variables.find((v) => v.name === parameter.label);
+        if (envVar) {
+          envVar.isImplicit = true;
+        }
+
         env = nextEnv;
       }
     }
