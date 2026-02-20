@@ -90,6 +90,45 @@ function generateAbort(
 ): string {
   const functionContext = context as FunctionGenerationContext;
   const arg = expr.args[0];
+
+  // Check if we're inside a resume handler's body (nested abort).
+  // If so, the abort should set the outer handler's result variable and
+  // goto its exit label instead of doing a C `return`.
+  const resumeInfo = functionContext.continuationVariables?.get("resume");
+  const hasDirectExit =
+    resumeInfo && "directReturnVar" in resumeInfo && resumeInfo.directExitLabel;
+
+  if (hasDirectExit) {
+    // Nested abort: assign to outer handler's result var and goto exit label
+    if (arg) {
+      const argCode = generateExpr(arg, indent, context);
+      // Emit handler param drops before the goto
+      if (functionContext.effectHandlerParamDrops) {
+        for (const dropCode of functionContext.effectHandlerParamDrops) {
+          functionContext.emitter.emitLine(`${indent}${dropCode};`);
+        }
+      }
+      functionContext.emitter.emitLine(
+        `${indent}${resumeInfo.directReturnVar} = ${argCode};`
+      );
+      functionContext.emitter.emitLine(
+        `${indent}goto ${resumeInfo.directExitLabel};`
+      );
+    } else {
+      // Emit handler param drops before the goto
+      if (functionContext.effectHandlerParamDrops) {
+        for (const dropCode of functionContext.effectHandlerParamDrops) {
+          functionContext.emitter.emitLine(`${indent}${dropCode};`);
+        }
+      }
+      functionContext.emitter.emitLine(
+        `${indent}goto ${resumeInfo.directExitLabel};`
+      );
+    }
+    return "";
+  }
+
+  // Normal abort: emit a C `return` from the enclosing function
   if (!arg) {
     // Emit handler param drops before returning
     if (functionContext.effectHandlerParamDrops) {

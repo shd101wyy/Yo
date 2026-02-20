@@ -2027,6 +2027,7 @@ function createSpecializedFunctionInline({
 function evaluateCtlFunctionBodyInline({
   originalFunction,
   calleeEnv,
+  callerEnv,
   context,
 }: {
   originalFunction: FunctionValue;
@@ -2058,8 +2059,31 @@ function evaluateCtlFunctionBodyInline({
     return existingCache.specializedFunction;
   }
 
-  // Build an env with forall parameters bound to their concrete types
+  // Build an env with forall parameters bound to their concrete types.
+  // Start with calleeEnv (function closure + parameters), then add compile-time
+  // bindings from callerEnv that aren't already in calleeEnv. This is needed because
+  // the handler's closure env comes from the ctl type definition (e.g., Raise) which
+  // doesn't include bindings defined after the type itself (like Raise itself, or
+  // other ctl types defined later). The callerEnv has these bindings.
   let specializedEnv = pushEnvFrame(calleeEnv);
+
+  // Add compile-time bindings from caller's scope that are missing from calleeEnv.
+  // This allows the handler body to reference types like Raise that are visible at
+  // the call site but not in the handler's closure (which comes from the ctl type's env).
+  for (const frame of callerEnv.frames) {
+    for (const variable of frame.variables) {
+      if (!variable.isCompileTimeOnly) continue;
+      // Check if this variable already exists in specializedEnv
+      const existing = getVariablesFromEnv(specializedEnv, variable.name);
+      if (existing.length > 0) continue;
+      const { env: nextEnv } = addVariableToEnv({
+        env: specializedEnv,
+        variable: { ...variable },
+        allowVariableShadowing: true,
+      });
+      specializedEnv = nextEnv;
+    }
+  }
 
   for (const forallParam of functionType.forallParameters) {
     // Map the forall type variable to the concrete type

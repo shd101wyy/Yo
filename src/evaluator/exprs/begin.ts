@@ -798,7 +798,11 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
 
       exprToEvaluate.args[0] = evaluatedAbortArgExpr;
 
+      // For direct ctl calls (no state machine), the enclosingFunctionReturnType
+      // may be a SomeType (T) that hasn't resolved yet. Skip the strict check
+      // in this case — the abort value's type will determine the actual return type.
       if (
+        !context.controlHandlerContext.isDirectCtlCall &&
         !areTypesCompatible(
           {
             type: context.controlHandlerContext.enclosingFunctionReturnType,

@@ -191,7 +191,10 @@ Got:      "${paramName}"`,
   for (let i = 0; i < functionType.forallParameters.length; i++) {
     const paramExpr = forallParamExprs[i];
     const expectedParam = functionType.forallParameters[i]!;
-    // Add forall parameter to environment
+    // Add forall parameter to environment.
+    // Allow variable shadowing because in nested ctl handlers, the inner handler's
+    // forall T needs to shadow the outer handler's T that exists in the env chain
+    // (e.g., raise2's T inside raise's handler body which already has T bound).
     const { env: nextEnv } = addVariableToEnv({
       env,
       variable: {
@@ -210,6 +213,7 @@ Got:      "${paramName}"`,
         consumedAtToken: undefined,
         isOwningTheRcValue: false,
       },
+      allowVariableShadowing: true,
     });
     env = nextEnv;
 

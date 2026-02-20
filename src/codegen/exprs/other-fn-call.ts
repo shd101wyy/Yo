@@ -81,6 +81,12 @@ function exprContainsAbort(expr: Expr): boolean {
     return true;
   }
   if (exprIsFunctionCall(expr)) {
+    // Don't recurse into nested anonymous function bodies (->).
+    // An `abort` inside a nested handler is scoped to that inner handler,
+    // not the current one.
+    if (exprIsFunctionCallOf(expr, "->")) {
+      return false;
+    }
     for (const arg of (expr as FnCallExpr).args) {
       if (exprContainsAbort(arg)) return true;
     }
@@ -1554,9 +1560,17 @@ function generateDirectCtlCall(
     // The params are aliases of the caller's args (borrowed, not moved) because
     // execution continues past the call site. The CALLER is responsible for
     // dropping the args at end of its own scope — don't drop them here.
+    //
+    // Also create an exit label so nested abort handlers can `goto` here
+    // instead of using `return` (which would exit the C function entirely).
+    const exitLabel = `__ctl_direct_exit_${sanitizeForCIdentifier(functionValue.funcId)}`;
+
     const prevContinuationVars = context.continuationVariables;
     const continuationVars = new Map(prevContinuationVars);
-    continuationVars.set("resume", { directReturnVar: tmpResultVar });
+    continuationVars.set("resume", {
+      directReturnVar: tmpResultVar,
+      directExitLabel: exitLabel,
+    });
     context.continuationVariables = continuationVars;
 
     const bodyCode = generateExpr(functionValue.body!, innerIndent, context);
@@ -1567,6 +1581,8 @@ function generateDirectCtlCall(
 
     context.continuationVariables = prevContinuationVars;
     emitter.emitLine(`${indent}}`);
+    // Emit the exit label after the block for nested abort goto targets
+    emitter.emitLine(`${indent}${exitLabel}:;`);
     return resultType && !isUnitType(resultType) ? tmpResultVar : "";
   } else {
     // Abort case: `abort(value)` in the body generates `return value;` in C,

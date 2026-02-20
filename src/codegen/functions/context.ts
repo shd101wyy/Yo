@@ -51,10 +51,12 @@ export interface FunctionGenerationContext extends CodeGenContext {
   // Used when generating handler body inline — resume calls are intercepted
   // and generate SM copy + resume code instead of normal function calls.
   // For direct ctl calls (no SM), the entry carries { directReturnVar } instead.
+  // For resume handlers, directExitLabel is also set so nested abort handlers
+  // can jump to the end of the enclosing handler's block.
   continuationVariables?: Map<
     string,
     | { smVar: string; smInfo: EffectStateMachineInfo }
-    | { directReturnVar: string }
+    | { directReturnVar: string; directExitLabel?: string }
   >;
   // Maps SSA-renamed variable IDs to their original/canonical IDs.
   // Used to resolve all versions of a reassigned variable to the same struct field in loops.

@@ -4,13 +4,20 @@ open import "std/fmt";
 Raise :: (ctl(forall(T : Type), msg : String, msg2 : String) -> T);
 
 main :: (fn() -> unit) {
- (given(raise) : Raise) = ((msg, msg2) -> {// values/anonymous-function.ts
+  (given(raise) : Raise) = ((msg, msg2) -> {
     println(msg);
     println(msg2);
-    return i32(16);
+    // Define raise2 inside raise's handler body
+    (given(raise2) : Raise) = ((m1, m2) -> {
+      println(m1);
+      println(m2);
+      abort i32(18); // abort should exit `raise`
+    });
+    raise2(`inner msg1`, `inner msg2`);
+    assert(false, "This assertion should not be reached if raise2 aborts");
+    return i32(16); // should NOT be reached because raise2 aborts
   });
-  result := raise(`fixme`, `This is a fixme test`); // This should trigger the effect handler above, printing the messages and aborting the program
-  println("This line should be printed");
-  assert(result == 16, "This assertion should be true");
+  result := raise(`outer msg1`, `outer msg2`);
+  assert(result == 18, "This assertion should not be reached");
 };
 export main;
