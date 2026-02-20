@@ -15,6 +15,30 @@ import { checkVariableIsClosureCaptured } from "./closures";
 import { generateComptimeValue } from "./comptime-value";
 import { generateExpr } from "./expr";
 
+function emitLoopBodyDropsBeforeExit(
+  functionContext: FunctionGenerationContext,
+  indent: string,
+  context: CodeGenContext
+): void {
+  if (
+    functionContext.pendingDeferredDrops &&
+    functionContext.loopBodyDropsBaselineCount !== undefined
+  ) {
+    const baselineCount = functionContext.loopBodyDropsBaselineCount;
+    const totalCount = functionContext.pendingDeferredDrops.length;
+    const dropsToEmit = functionContext.pendingDeferredDrops.slice(
+      0,
+      totalCount - baselineCount
+    );
+    for (const dropExpr of dropsToEmit) {
+      const dropCode = generateExpr(dropExpr, indent, context);
+      if (dropCode) {
+        context.emitter.emitLine(`${indent}${dropCode};`);
+      }
+    }
+  }
+}
+
 /**
  * Generate C code for an atom expression - extracted from original codegen-c.ts
  */
@@ -33,9 +57,11 @@ export function generateAtom(
     // If we're inside a regular generated loop, use regular continue behavior.
     // This must take precedence over async pseudo-loop handling.
     if (functionContext.currentContinueLabel) {
+      emitLoopBodyDropsBeforeExit(functionContext, indent, context);
       return `goto ${functionContext.currentContinueLabel}`;
     }
     if (functionContext.currentLoopLabel) {
+      emitLoopBodyDropsBeforeExit(functionContext, indent, context);
       return "continue";
     }
 
@@ -67,6 +93,7 @@ export function generateAtom(
     // If we're inside a regular generated loop, use regular break behavior.
     // This must take precedence over async pseudo-loop handling.
     if (functionContext.currentLoopLabel) {
+      emitLoopBodyDropsBeforeExit(functionContext, indent, context);
       if (functionContext.insideMatch) {
         return `goto ${functionContext.currentLoopLabel}`;
       }

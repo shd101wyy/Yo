@@ -125,3 +125,207 @@ test "Test nested ctl resume inside resume handler", {
   };
   run_test();
 };
+test "Test while loop calling ctl with resume", {
+  Raise :: (ctl(forall(T : Type), msg : String, msg2 : String) -> T);
+
+  // Analogous to async_await test #13: While loop with await inside.
+  // Each iteration calls the ctl handler which resumes with i32(10).
+  run_test :: (fn() -> unit) {
+    sum := Box(i32)(0);
+    counter := Box(i32)(0);
+
+    (given(raise) : Raise) = ((msg, msg2) -> {
+      return i32(10);
+    });
+
+    while runtime(counter.* < i32(5)), {
+      result := raise(`msg1`, `msg2`);
+      sum.* = (sum.* + result);
+      counter.* = (counter.* + 1);
+    };
+
+    assert(counter.* == i32(5), "counter should be 5");
+    assert(sum.* == i32(50), "sum should be 5*10 = 50");
+  };
+  run_test();
+};
+test "Test while loop with break after ctl resume", {
+  Raise :: (ctl(forall(T : Type), msg : String, msg2 : String) -> T);
+
+  // Analogous to async_await test #14: While loop with break after await.
+  // The handler resumes, then break is used after the ctl call.
+  run_test :: (fn() -> unit) {
+    counter := Box(i32)(0);
+
+    (given(raise) : Raise) = ((msg, msg2) -> {
+      return i32(1);
+    });
+
+    while runtime(true), {
+      result := raise(`msg1`, `msg2`);
+      counter.* = (counter.* + result);
+      cond(
+        (counter.* >= i32(3)) => { break; },
+        true => ()
+      );
+    };
+
+    assert(counter.* == i32(3), "counter should be 3 after break");
+  };
+  run_test();
+};
+test "Test while loop with continue after ctl resume", {
+  Raise :: (ctl(forall(T : Type), msg : String, msg2 : String) -> T);
+
+  // Analogous to async_await test #24: Continue in async while loop.
+  // Loop calls ctl with resume, then continues (skips sum) on odd iterations.
+  run_test :: (fn() -> unit) {
+    sum := Box(i32)(0);
+    counter := Box(i32)(0);
+
+    (given(raise) : Raise) = ((msg, msg2) -> {
+      return i32(1);
+    });
+
+    while runtime(counter.* < i32(10)), {
+      raise(`msg1`, `msg2`);
+      i := counter.*;
+      counter.* = (counter.* + 1);
+      cond(
+        ((i % i32(2)) != i32(0)) => { continue; },
+        true => ()
+      );
+      sum.* = (sum.* + i);
+    };
+
+    assert(counter.* == i32(10), "counter should be 10");
+    assert(sum.* == i32(20), "sum of even numbers 0+2+4+6+8 = 20");
+  };
+  run_test();
+};
+test "Test break from cond after ctl resume", {
+  Raise :: (ctl(forall(T : Type), msg : String, msg2 : String) -> T);
+
+  // Analogous to async_await test #25: Break from cond in async while loop.
+  // while(true), call ctl, increment counter, break from cond when counter >= 5.
+  // sum = 1+2+3+4 = 10
+  run_test :: (fn() -> unit) {
+    counter := Box(i32)(0);
+    sum := Box(i32)(0);
+
+    (given(raise) : Raise) = ((msg, msg2) -> {
+      return i32(1);
+    });
+
+    while runtime(true), {
+      raise(`msg1`, `msg2`);
+      counter.* = (counter.* + 1);
+      cond(
+        (counter.* >= i32(5)) => { break; },
+        true => ()
+      );
+      sum.* = (sum.* + counter.*);
+    };
+
+    assert(counter.* == i32(5), "counter should be 5 after break");
+    assert(sum.* == i32(10), "sum should be 1+2+3+4 = 10");
+  };
+  run_test();
+};
+test "Test break drops local allocations after ctl resume", {
+  Raise :: (ctl(forall(T : Type), msg : String, msg2 : String) -> T);
+
+  // Analogous to async_await test #27: Break drops local allocations.
+  // Allocate a Box each iteration; break at iteration 3.
+  // ASan will catch leaks of the Box or String ctl args.
+  run_test :: (fn() -> unit) {
+    counter := Box(i32)(0);
+
+    (given(raise) : Raise) = ((msg, msg2) -> {
+      return i32(1);
+    });
+
+    while runtime(true), {
+      temp := Box(i32)(counter.*);
+      raise(`msg1`, `msg2`);
+      counter.* = (temp.* + 1);
+      cond(
+        (counter.* >= i32(3)) => { break; },
+        true => ()
+      );
+    };
+
+    assert(counter.* == i32(3), "counter should be 3 after break");
+  };
+  run_test();
+};
+test "Test mixed continue then break after ctl resume", {
+  Raise :: (ctl(forall(T : Type), msg : String, msg2 : String) -> T);
+
+  // Analogous to async_await test #32: Mixed continue then break.
+  // 1,2 continue; 3,4 accumulate; 5 breaks. sum = 3+4 = 7.
+  run_test :: (fn() -> unit) {
+    counter := Box(i32)(0);
+    sum := Box(i32)(0);
+
+    (given(raise) : Raise) = ((msg, msg2) -> {
+      return i32(1);
+    });
+
+    while runtime(true), {
+      counter.* = (counter.* + 1);
+      raise(`msg1`, `msg2`);
+
+      cond(
+        (counter.* <= i32(2)) => { continue; },
+        true => ()
+      );
+
+      cond(
+        (counter.* >= i32(5)) => { break; },
+        true => ()
+      );
+
+      sum.* = (sum.* + counter.*);
+    };
+
+    assert(counter.* == i32(5), "counter should stop at 5");
+    assert(sum.* == i32(7), "sum should be 3+4 = 7");
+  };
+  run_test();
+};
+test "Test early return inside loop after ctl resume", {
+  Raise :: (ctl(forall(T : Type), msg : String, msg2 : String) -> T);
+
+  // Analogous to async_await test #37: Early return inside loop after continue.
+  // Continue on even numbers; early-return at first odd >= 5.
+  find_first_odd :: (fn() -> i32) {
+    i := Box(i32)(0);
+
+    (given(raise) : Raise) = ((msg, msg2) -> {
+      return i32(1);
+    });
+
+    while runtime(i.* < i32(10)), {
+      i.* = (i.* + 1);
+      raise(`msg1`, `msg2`);
+
+      cond(
+        ((i.* % i32(2)) == i32(0)) => { continue; },
+        true => ()
+      );
+
+      cond(
+        (i.* >= i32(5)) => {
+          return i.*;
+        },
+        true => ()
+      );
+    };
+
+    return i32(-1);
+  };
+
+  result := find_first_odd();
+  assert(result == i32(5), "first odd value >= 5 should be 5");
+};

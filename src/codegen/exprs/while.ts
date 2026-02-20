@@ -136,6 +136,11 @@ export function generateWhileLoop(
     const loopLabel = `loop_${Math.random().toString(36).substr(2, 9)}`;
     context.currentLoopLabel = loopLabel;
 
+    const functionContext = context as FunctionGenerationContext;
+    const savedBaselineCount = functionContext.loopBodyDropsBaselineCount;
+    functionContext.loopBodyDropsBaselineCount =
+      functionContext.pendingDeferredDrops?.length ?? 0;
+
     context.emitter.emitLine(`${indent}while (true) {`);
     const conditionCode = generateExpr(conditionExpr, indent + "  ", context);
     context.emitter.emitLine(`${indent}  if (!(${conditionCode})) {`);
@@ -145,6 +150,7 @@ export function generateWhileLoop(
     context.emitter.emitLine(`${indent}}`);
     context.emitter.emitLine(`${indent}${loopLabel}:;`);
 
+    functionContext.loopBodyDropsBaselineCount = savedBaselineCount;
     context.currentLoopLabel = savedLoopLabel;
 
     return "";
@@ -163,6 +169,11 @@ export function generateWhileLoop(
     context.currentLoopLabel = loopLabel;
     context.currentContinueLabel = continueLabel;
 
+    const functionContext3 = context as FunctionGenerationContext;
+    const savedBaselineCount3 = functionContext3.loopBodyDropsBaselineCount;
+    functionContext3.loopBodyDropsBaselineCount =
+      functionContext3.pendingDeferredDrops?.length ?? 0;
+
     context.emitter.emitLine(`${indent}while (true) {`);
     const conditionCode = generateExpr(conditionExpr, indent + "  ", context);
     context.emitter.emitLine(`${indent}  if (!(${conditionCode})) {`);
@@ -175,6 +186,7 @@ export function generateWhileLoop(
     context.emitter.emitLine(`${indent}}`);
     context.emitter.emitLine(`${indent}${loopLabel}:;`);
 
+    functionContext3.loopBodyDropsBaselineCount = savedBaselineCount3;
     context.currentLoopLabel = savedLoopLabel;
     context.currentContinueLabel = savedContinueLabel;
 

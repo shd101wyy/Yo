@@ -141,4 +141,8 @@ export interface FunctionGenerationContext extends CodeGenContext {
   // Drop code strings for effect handler parameters (e.g., msg: String from ctl yield_value).
   // These are emitted before abort returns to prevent leaking handler params.
   effectHandlerParamDrops?: string[];
+  // Baseline count of pendingDeferredDrops when entering the current loop body.
+  // Used to determine which drops belong to the loop body scope and must be
+  // emitted before break/continue (which would otherwise skip end-of-body drops).
+  loopBodyDropsBaselineCount?: number;
 }
