@@ -22,6 +22,7 @@ import {
   type Value,
   valueToString,
 } from "../../value";
+import { ValueTag } from "../../value-tag";
 import {
   canOptimizeAsNullablePointer,
   canOptimizeAsSimpleEnum,
@@ -40,8 +41,29 @@ export function generateComptimeValue(
   _sourceExpr?: Expr
 ): string {
   if (isNumberValue(value)) {
-    // For numbers, we can directly return the value as a string
-    return valueToString(value);
+    const str =
+      typeof value.value === "bigint"
+        ? value.value.toString()
+        : value.value.toString();
+    if (value.tag === ValueTag.F32) {
+      // Ensure float literal has decimal point and 'f' suffix for C
+      const floatStr = str.includes(".") ? str : str + ".0";
+      return floatStr + "f";
+    }
+    if (value.tag === ValueTag.F64 || value.tag === ValueTag.ComptimeFloat) {
+      // Ensure double literal has decimal point
+      return str.includes(".") ? str : str + ".0";
+    }
+    if (value.tag === ValueTag.U64 || value.tag === ValueTag.Usize) {
+      return str + "ULL";
+    }
+    if (value.tag === ValueTag.I64 || value.tag === ValueTag.Isize) {
+      return str + "LL";
+    }
+    if (value.tag === ValueTag.U32) {
+      return str + "U";
+    }
+    return str;
   } else if (isBooleanValue(value)) {
     // For booleans, return true/false
     return value.value ? "true" : "false";

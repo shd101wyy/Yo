@@ -11,13 +11,13 @@ main :: (fn() -> unit) {
     (given(raise2) : Raise) = ((m1, m2) -> {
       println(m1);
       println(m2);
-      abort i32(18); // abort should exit `raise`
+      return f32(3.14); 
     });
-    raise2(`inner msg1`, `inner msg2`);
-    assert(false, "This assertion should not be reached if raise2 aborts");
-    return i32(16); // should NOT be reached because raise2 aborts
+    raise2_result := raise2(`inner msg1`, `inner msg2`);
+    assert(raise2_result == f32(3.14), "raise2 should return 3.14");
+    return i32(16); // This return value will be the result of the outer raise call
   });
   result := raise(`outer msg1`, `outer msg2`);
-  assert(result == 18, "This assertion should not be reached");
+  assert(result == 16, "This assertion should not be reached");
 };
 export main;

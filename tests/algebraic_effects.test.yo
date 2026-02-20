@@ -77,3 +77,51 @@ test "Test ctl abort called directly without intermediate using function", {
   };
   run_test();
 };
+test "Test nested ctl abort inside resume handler", {
+  Raise :: (ctl(forall(T : Type), msg : String, msg2 : String) -> T);
+
+  // raise2 is defined inside raise's handler body. raise2 aborts with i32(18),
+  // which becomes the result of the outer raise call (since abort exits the
+  // nearest enclosing ctl handler, which is raise's handler).
+  run_test :: (fn() -> unit) {
+    (given(raise) : Raise) = ((msg, msg2) -> {
+      println(msg);
+      println(msg2);
+      (given(raise2) : Raise) = ((m1, m2) -> {
+        println(m1);
+        println(m2);
+        abort i32(18);
+      });
+      raise2(`inner msg1`, `inner msg2`);
+      assert(false, "This should not be reached if raise2 aborts");
+      return i32(16);
+    });
+    result := raise(`outer msg1`, `outer msg2`);
+    assert(result == 18, "result should be 18 from raise2's abort");
+  };
+  run_test();
+};
+test "Test nested ctl resume inside resume handler", {
+  Raise :: (ctl(forall(T : Type), msg : String, msg2 : String) -> T);
+
+  // raise2 is defined inside raise's handler body. raise2 resumes with f32(3.14),
+  // then raise resumes with i32(16). Both handlers use return (resume) so
+  // execution continues after each call site.
+  run_test :: (fn() -> unit) {
+    (given(raise) : Raise) = ((msg, msg2) -> {
+      println(msg);
+      println(msg2);
+      (given(raise2) : Raise) = ((m1, m2) -> {
+        println(m1);
+        println(m2);
+        return f32(3.14);
+      });
+      raise2_result := raise2(`inner msg1`, `inner msg2`);
+      assert(raise2_result == f32(3.14), "raise2 should return 3.14");
+      return i32(16);
+    });
+    result := raise(`outer msg1`, `outer msg2`);
+    assert(result == 16, "result should be 16 from raise's return");
+  };
+  run_test();
+};

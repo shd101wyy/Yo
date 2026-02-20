@@ -2123,6 +2123,8 @@ function evaluateCtlFunctionBodyInline({
       value: originalFunction,
       evaluationEnv: specializedEnv,
     },
+    // Fresh array so nested ctl handler return types don't conflict with the outer handler's.
+    functionReturnImplConcreteType: [],
   };
 
   const evaluatedBody = _evaluateExpression({
