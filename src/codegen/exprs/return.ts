@@ -102,14 +102,17 @@ function generatePendingDeferredDrops(
   indent: string,
   context: FunctionGenerationContext,
   expr: Expr,
-  isCompletion: boolean = false
+  isCompletion: boolean = false,
+  skipAlreadyDroppedCheck: boolean = false
 ): void {
   if (context.pendingDeferredDrops && context.pendingDeferredDrops.length > 0) {
     // Filter drops to only include variables that exist in the return expression's environment.
     // Variables declared after the return point won't be in expr.$.env yet.
-    // Also exclude variables that were already dropped by the expression's own deferredDropExpressions.
+    // Also exclude variables that were already dropped by the expression's own deferredDropExpressions,
+    // UNLESS skipAlreadyDroppedCheck is true (used for direct ctl returns where the goto
+    // skips the scope-exit drops that would normally run after the expression).
     const alreadyDroppedVars = new Set<string>();
-    if (expr.$?.deferredDropExpressions) {
+    if (!skipAlreadyDroppedCheck && expr.$?.deferredDropExpressions) {
       for (const dropExpr of expr.$.deferredDropExpressions) {
         const varName = getDeferredDropTargetAtomName(dropExpr);
         if (varName) {
@@ -194,11 +197,36 @@ export function generateReturn(
       if ("directReturnVar" in resumeInfo) {
         // Direct ctl call (no state machine): assign the return value to the
         // captured temp variable so the call site can use it as an expression.
-        const arg = expr.args[0];
-        if (arg) {
-          const argCode = generateExpr(arg, indent, context);
+        // For unit-returning handlers, skip the assignment entirely.
+        if (!resumeInfo.isUnitReturn) {
+          const arg = expr.args[0];
+          if (arg) {
+            const argCode = generateExpr(arg, indent, context);
+            if (argCode) {
+              context.emitter.emitLine(
+                `${indent}${resumeInfo.directReturnVar} = ${argCode};`
+              );
+            }
+          }
+        }
+        // Emit pending deferred drops before the goto. For direct ctl returns,
+        // we skip the alreadyDroppedVars exclusion because the goto will jump
+        // past the scope-exit drops that would normally run — so those drops
+        // MUST be emitted here from pendingDeferredDrops instead.
+        // We do NOT emit deferredDropExpressions because those may include drops
+        // for the caller's variables (e.g. ctl call arguments) that are borrowed
+        // by the handler, not owned.
+        generatePendingDeferredDrops(
+          indent,
+          functionContext,
+          expr,
+          false,
+          true
+        );
+        // Goto exit label to skip any remaining handler code after `return`
+        if (resumeInfo.directExitLabel) {
           context.emitter.emitLine(
-            `${indent}${resumeInfo.directReturnVar} = ${argCode};`
+            `${indent}goto ${resumeInfo.directExitLabel};`
           );
         }
         return "";

@@ -23,7 +23,7 @@ import type {
 } from "../../function-value";
 import { PlaceholderToken } from "../../token";
 import { areTypesCompatible } from "../../types/compatibility";
-import { createFnTraitType } from "../../types/creators";
+import { createFnTraitType, createUnitType } from "../../types/creators";
 import type {
   FnTraitType,
   FunctionType,
@@ -423,7 +423,24 @@ Got:      "${paramName}"`,
     );
 
     if (functionType.isControlFunction) {
-      if (!functionType.ParentFunctionType) {
+      // ParentFunctionType may be unset if the ctl type was defined at module
+      // scope and the handler is being defined inside a function or test body.
+      // Derive the enclosing function return type from the current context.
+      let enclosingReturnType = functionType.ParentFunctionType?.return.type;
+      if (
+        !enclosingReturnType &&
+        context.isEvaluatingFunctionBodyOrAsyncBlock
+      ) {
+        const block = context.isEvaluatingFunctionBodyOrAsyncBlock;
+        if (block.kind === "function-body") {
+          enclosingReturnType = block.type.return.type;
+        } else {
+          // test-block or async-block: enclosing return type is unit
+          enclosingReturnType = createUnitType();
+        }
+      }
+
+      if (!enclosingReturnType) {
         throw formatErrorMessage({
           token: expr.token,
           errorMessage: `ctl function value can only be defined inside a function.`,
@@ -436,8 +453,7 @@ Got:      "${paramName}"`,
         ...ctx,
         controlHandlerContext: {
           operationResultType: functionType.return.type, // T from ctl(...) -> T
-          enclosingFunctionReturnType:
-            functionType.ParentFunctionType!.return.type,
+          enclosingFunctionReturnType: enclosingReturnType,
         },
       };
     }

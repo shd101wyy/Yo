@@ -11,6 +11,7 @@ import type { FunctionValue } from "../../function-value";
 import { PlaceholderToken } from "../../token";
 import { areTypesCompatible } from "../../types/compatibility";
 
+import { createUnitType } from "../../types/creators";
 import type { FunctionType } from "../../types/definitions";
 import { isFunctionType, isSomeType } from "../../types/guards";
 import { typeContainsSomeType, typeToString } from "../../types/utils";
@@ -286,7 +287,20 @@ export function tryToImplementFunctionByFunctionType({
     evaluationContext = ctx.evaluationContext;
 
     if (newFunctionType.isControlFunction) {
-      if (!newFunctionType.ParentFunctionType) {
+      let enclosingReturnType = newFunctionType.ParentFunctionType?.return.type;
+      if (
+        !enclosingReturnType &&
+        context.isEvaluatingFunctionBodyOrAsyncBlock
+      ) {
+        const block = context.isEvaluatingFunctionBodyOrAsyncBlock;
+        if (block.kind === "function-body") {
+          enclosingReturnType = block.type.return.type;
+        } else {
+          enclosingReturnType = createUnitType();
+        }
+      }
+
+      if (!enclosingReturnType) {
         throw formatErrorMessage({
           token: expr.token,
           errorMessage: `ctl function value can only be defined inside a function.`,
@@ -299,8 +313,7 @@ export function tryToImplementFunctionByFunctionType({
         ...evaluationContext,
         controlHandlerContext: {
           operationResultType: newFunctionType.return.type, // T from ctl(...) -> T
-          enclosingFunctionReturnType:
-            newFunctionType.ParentFunctionType!.return.type,
+          enclosingFunctionReturnType: enclosingReturnType,
         },
       };
     }

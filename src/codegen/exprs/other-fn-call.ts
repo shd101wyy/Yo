@@ -1506,6 +1506,8 @@ export function generateOtherFunctionCall(
  * body becomes `return val;` which exits the enclosing C function (the handler
  * scope). `return(val)` inside the body treats `val` as the result of the call.
  */
+let directCtlCallSiteCounter = 0;
+
 function generateDirectCtlCall(
   functionValue: FunctionValue,
   functionType: FunctionType,
@@ -1514,6 +1516,7 @@ function generateDirectCtlCall(
   context: FunctionGenerationContext
 ): string {
   const emitter = context.emitter;
+  const callSiteId = directCtlCallSiteCounter++;
 
   const runtimeParams = functionType.parameters.filter(
     (p) => !p.isCompileTimeOnly
@@ -1526,9 +1529,10 @@ function generateDirectCtlCall(
   // For the resume case, declare the result variable BEFORE the inner block so that
   // it stays in scope after the block closes and can be used as the call expression.
   const resultType = handlerHasResume ? functionValue.body!.$?.type : undefined;
-  const tmpResultVar = `__ctl_direct_result_${sanitizeForCIdentifier(functionValue.funcId)}`;
-  if (handlerHasResume && resultType && !isUnitType(resultType)) {
-    const resultTypeCName = getTypeString(resultType, context);
+  const isUnitReturn = !resultType || isUnitType(resultType);
+  const tmpResultVar = `__ctl_direct_result_${callSiteId}`;
+  if (handlerHasResume && !isUnitReturn) {
+    const resultTypeCName = getTypeString(resultType!, context);
     emitter.emitLine(`${indent}${resultTypeCName} ${tmpResultVar};`);
   }
 
@@ -1563,15 +1567,22 @@ function generateDirectCtlCall(
     //
     // Also create an exit label so nested abort handlers can `goto` here
     // instead of using `return` (which would exit the C function entirely).
-    const exitLabel = `__ctl_direct_exit_${sanitizeForCIdentifier(functionValue.funcId)}`;
+    const exitLabel = `__ctl_direct_exit_${callSiteId}`;
 
     const prevContinuationVars = context.continuationVariables;
     const continuationVars = new Map(prevContinuationVars);
     continuationVars.set("resume", {
-      directReturnVar: tmpResultVar,
+      directReturnVar: isUnitReturn ? "" : tmpResultVar,
       directExitLabel: exitLabel,
+      isUnitReturn,
     });
     context.continuationVariables = continuationVars;
+
+    // Save and clear pendingDeferredDrops so that `return()` inside the handler
+    // body only sees drops from the handler's own scopes, not from the caller's
+    // outer scope. The caller's drops should persist after the call site.
+    const savedPendingDrops = context.pendingDeferredDrops;
+    context.pendingDeferredDrops = undefined;
 
     const bodyCode = generateExpr(functionValue.body!, innerIndent, context);
     if (bodyCode) {
@@ -1579,11 +1590,12 @@ function generateDirectCtlCall(
     }
     // No paramDropCodes here: params are borrowed from the outer scope.
 
+    context.pendingDeferredDrops = savedPendingDrops;
     context.continuationVariables = prevContinuationVars;
     emitter.emitLine(`${indent}}`);
     // Emit the exit label after the block for nested abort goto targets
     emitter.emitLine(`${indent}${exitLabel}:;`);
-    return resultType && !isUnitType(resultType) ? tmpResultVar : "";
+    return isUnitReturn ? "" : tmpResultVar;
   } else {
     // Abort case: `abort(value)` in the body generates `return value;` in C,
     // exiting the enclosing C function. Use effectHandlerParamDrops so that

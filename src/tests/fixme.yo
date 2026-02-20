@@ -1,39 +1,29 @@
 open import "std/string";
 open import "std/fmt";
 
-Raise :: (ctl(forall(T : Type), msg : String, msg2 : String) -> T);
-
-// Analogous to async_await test #37: Early return inside loop after continue.
-// Continue on even numbers; early-return at first odd >= 5.
-find_first_odd :: (fn() -> i32) {
-  i := Box(i32)(0);
-
-  (given(raise) : Raise) = ((msg, msg2) -> {
-    return i32(1);
-  });
-
-  while runtime(i.* < i32(10)), {
-    i.* = (i.* + 1);
-    raise(`msg1`, `msg2`);
-
-    cond(
-      ((i.* % i32(2)) == i32(0)) => { continue; },
-      true => ()
-    );
-
-    cond(
-      (i.* >= i32(5)) => {
-        return i.*;
-      },
-      true => ()
-    );
-  };
-
-  return i32(-1);
-};
+Raise :: (ctl(forall(T : Type), msg : String) -> T);
+Log :: (ctl(msg : String, counter : Box(i32)) -> unit);
 
 main :: (fn() -> unit) {
-  result := find_first_odd();
-  assert(result == i32(5), "first odd value >= 5 should be 5");
+  log_count := box(i32(0));
+
+  (given(log) : Log) = ((msg, counter) -> {
+    println(msg);
+    counter.* = (counter.* + i32(1));
+    return ();
+  });
+
+  (given(raise) : Raise) = ((msg) -> {
+    println(msg);
+    return i32(42);
+  });
+
+  log(`first log`, log_count);
+  log(`second log`, log_count);
+  result := raise(`error!`);
+
+  assert((log_count.* == i32(2)), "log_count should be 2");
+  assert((result == i32(42)), "result should be 42");
+  println(`All nested effects tests passed!`);
 };
 export main;

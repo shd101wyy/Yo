@@ -323,6 +323,11 @@ export function findFunctionCallsInExpr(
   const functionType = expr.$?.type;
   const functionValue = expr.$?.value;
   if (isFunctionType(functionType)) {
+    // Skip collecting ctl handler functions — they are inlined at their call sites
+    // by generateDirectCtlCall and should not be generated as standalone C functions.
+    if (functionType.isControlFunction) {
+      return;
+    }
     if (isFunctionValue(functionValue)) {
       // Skip collecting generic functions that haven't been specialized
       if (

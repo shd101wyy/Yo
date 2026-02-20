@@ -329,3 +329,28 @@ test "Test early return inside loop after ctl resume", {
   result := find_first_odd();
   assert(result == i32(5), "first odd value >= 5 should be 5");
 };
+
+test "Test two different ctl types in same scope (Log + Raise)", {
+  Raise :: (ctl(forall(T : Type), msg : String) -> T);
+  Log :: (ctl(msg : String, counter : Box(i32)) -> unit);
+
+  log_count := box(i32(0));
+
+  (given(log) : Log) = ((msg, counter) -> {
+    println(msg);
+    counter.* = (counter.* + i32(1));
+    return ();
+  });
+
+  (given(raise) : Raise) = ((msg) -> {
+    println(msg);
+    return i32(42);
+  });
+
+  log(`first log`, log_count);
+  log(`second log`, log_count);
+  result := raise(`error!`);
+
+  assert((log_count.* == i32(2)), "log_count should be 2");
+  assert((result == i32(42)), "result should be 42");
+};

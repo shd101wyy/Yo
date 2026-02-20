@@ -56,7 +56,11 @@ export interface FunctionGenerationContext extends CodeGenContext {
   continuationVariables?: Map<
     string,
     | { smVar: string; smInfo: EffectStateMachineInfo }
-    | { directReturnVar: string; directExitLabel?: string }
+    | {
+        directReturnVar: string;
+        directExitLabel?: string;
+        isUnitReturn?: boolean;
+      }
   >;
   // Maps SSA-renamed variable IDs to their original/canonical IDs.
   // Used to resolve all versions of a reassigned variable to the same struct field in loops.
