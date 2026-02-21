@@ -1,4 +1,4 @@
-# Algebraic Effects Implementation Plan for Yo
+# Algebraic Effects for Yo
 
 ## Overview
 
