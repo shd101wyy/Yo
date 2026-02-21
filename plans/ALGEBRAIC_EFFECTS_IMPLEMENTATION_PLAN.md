@@ -5,59 +5,17 @@
 This plan describes how to add **algebraic effects** to the Yo language in two phases:
 
 1. **Phase 1: Implicit Parameters** — `using` and `given` keywords for contextual parameter passing
-2. **Phase 2: Effect Handlers** — `ctl` keyword for effectful operations with `resume` (one-shot delimited continuations)
+2. **Phase 2: Effect Handlers** — `ctl` keyword for effectful operations with `resume` and `abort` (one-shot delimited continuations)
 
 Both phases build on Yo's existing async/await state machine infrastructure.
 
-## Current Status (2026-02-16)
+## Current Status (2026-02-21)
 
-- ✅ **Phase 1 (using/given)** is implemented and passing tests.
-- ✅ Supports:
-  - implicit contextual parameter declaration via `using(...)`
-  - contextual values via `given(name) := ...` and `(given(name) : Type) = ...`
-  - explicit contextual args via `using(...)` at call site
-  - explicit skip/fallback via `using(undefined)`
-  - generic `forall + using` inference in calls like `apply(41)`
-- ✅ Enforces exactly one `using(...)` clause in function signature and one `using(...)` in call arguments.
-- ✅ **Phase 2 (`ctl` / handlers / `return` + `abort`)** is implemented and passing tests.
-- ✅ Phase 2 supports:
-  - `ctl` keyword for effect operation types: `Raise :: (ctl(forall(T : Type), msg : String) -> T)`
-  - Multi-parameter ctl operations: `ctl(forall(T : Type), msg : String, msg2 : String) -> T`
-  - Using `ctl` effects in functions via `using(raise : Raise)` implicit parameter
-  - **Resume handlers** (invoke continuation): `return(value)` inside handler body resumes the continuation with `value`
-  - **Abort handlers** (discard continuation): `abort expr` inside handler body discards the continuation and returns `expr` from the enclosing function
-  - Handler body may contain arbitrary function calls (e.g., `println(msg)`)
-  - `forall` type parameters in ctl types with concrete type inference at call sites
-  - Effect analysis pass (detecting ctl call points and capturing variables across suspension points)
-  - Stack-allocated state machine generation (no RC needed — effects are synchronous one-shot)
-  - Handler body inlining at call sites
-  - Proper RC drop of handler parameters before abort return
-  - `abort` control flow handling in `cond`, `match`, and `while` expressions
-  - **Direct ctl call in handler scope** (no intermediate `using` function): `raise(...)` can be called directly in the same scope as the `given` binding, without an intermediate `fn(..., using(raise : Raise))` wrapper. Supports both:
-    - **Abort (discard)**: `abort value` — exits the enclosing function immediately
-    - **Resume (continue)**: `return(value)` — `raise(...)` evaluates to `value` and execution continues at the call site. The handler body is inlined using a temp variable to capture the returned value. Params are borrowed from the caller (no double-drop).
-  - **Closure + effect SM support**: closures with `using(ctl)` implicit parameters generate proper effect state machines:
-    - SM struct includes `void* closure_context` field for passing closure captures to the resume function
-    - Closure-captured variables are excluded from SM struct fields (accessed via `closure_context` instead)
-    - Resume function initializes closure context and sets up capture access for SM code segments
-    - Call site passes `&(closureVar)` as `closure_context` to the SM
-    - Third pass in `preRegisterEffectfulFunctions` analyzes closure bodies for ctl calls
-    - Fn trait types now support `using()` implicit parameters: `Fn(v: i32, using(log: Log)) -> i32`
-    - Anonymous function `=>` syntax parses `using()` parameters and adds them to environment
-    - Both resume and abort paths work correctly with closures
-  - **Abort ownership tracking**: SM arguments are passed without dup (ownership transferred). For abort handlers, `effectSmConsumedArgCNames` tracks which arg C names were consumed, and `generatePendingDeferredDrops` skips them to prevent double-free. Applied to both SM call sites and direct ctl calls.
-  - **Handler implicit resume guard**: `handlerBodyContainsExplicitReturn()` prevents emitting implicit resume for handlers with explicit `return(value)`, avoiding double-resume and double-drops.
-  - 29 tests passing with AddressSanitizer (no memory leaks or use-after-free)
-- ⏳ **Phase 2 remaining work:**
-  - Nested effects: direct ctl handling of two different ctl types in same scope (e.g., Log + Raise) ✅
-  - Effect propagation through call chains: single-level via `using` ✅, two-level via `using` ✅
-  - Handler bodies for module-level ctl types (without `forall`): evaluator now derives `enclosingFunctionReturnType` from calling context when `ParentFunctionType` is unset ✅
-  - `using` parameter propagation: `using` params are now marked `isImplicit` in env so nested `using` resolution finds them automatically ✅
-  - Deferred drop correctness in direct ctl handlers: `pendingDeferredDrops` cleared during handler body codegen to avoid dropping caller-scope variables ✅
-  - Multiple effect types in same function ✅ (covered by nested effects test)
-  - Given variable shadowing: inner scope `given` shadows outer scope `given` of same type, with ambiguity only for same-frame conflicts ✅
-  - Closures with `using()` effect parameters (both resume and abort) ✅
-  - Abort RC ownership: track SM-consumed args to prevent double-free in pending deferred drops ✅
+- ✅ **Phase 1 (using/given)** — fully implemented and tested.
+- ✅ **Phase 2 (ctl / handlers / return + abort)** — fully implemented and tested.
+- ✅ **Effect polymorphism** — `...(E)` effect row spreads in `forall`/`using` implemented and tested.
+- ✅ **29 tests passing** with AddressSanitizer (no memory leaks or use-after-free).
+- ⏳ **Remaining:** One-shot runtime enforcement (double-resume check), async/await unification.
 
 ---
 
@@ -115,114 +73,52 @@ result3 := add_numbers(7, 8, using(undefined));
 - At call sites, the caller can omit implicit arguments. The compiler resolves them by searching the environment for a `given` binding whose type matches.
 - The caller can also provide implicit arguments explicitly via `using(...)`: `add_numbers(3, 4, using(my_custom_add))`.
 - `using(undefined)` at call site means: skip explicit value for this contextual slot and fallback to `given` lookup.
-- `given` bindings are lexically scoped, but current resolution behavior is:
+- `given` bindings are lexically scoped:
   - exactly one compatible `given` required,
   - zero matches => compile-time error,
   - multiple matches => compile-time ambiguity error (must disambiguate with explicit `using(...)`).
 - Resolution is by **structural type matching** (the function signature must match), not by name.
-- If no matching `given` is found, it's a **compile-time error** with a clear message: `"No given value of type (fn(i32, i32) -> i32) found in scope"`.
-- If multiple matching `given` values exist, it's a compile-time ambiguity error.
 - Function signatures allow only one `using(...)` clause; calls allow only one `using(...)` argument expression.
+- Inner scope `given` shadows outer scope `given` of same type; ambiguity only for same-frame conflicts.
 
-### 1.3 Implementation Steps
+### 1.3 Implementation ✅
 
-#### ✅ Step 1: Keywords and type model
-
-**Implemented in:**
-
-- `src/expr.ts`
-- `src/types/definitions.ts`
-- `src/types/creators.ts`
-- `src/env.ts`
-
-**Completed work:**
+**Step 1: Keywords and type model** — `src/expr.ts`, `src/types/definitions.ts`, `src/types/creators.ts`, `src/env.ts`
 
 - Added `using` and `given` built-in keywords.
-- Extended function parameter model with:
-  - `FunctionParameter.isImplicit`
-  - `FunctionImplicitParameter`
-  - `FunctionType.implicitParameters`
+- Extended function parameter model: `FunctionParameter.isImplicit`, `FunctionImplicitParameter`, `FunctionType.implicitParameters`.
 - Extended env variable model with `Variable.isImplicit`.
 
-#### ✅ Step 2: Function type evaluation for `using(...)`
+**Step 2: Function type evaluation** — `src/evaluator/types/function.ts`
 
-**Implemented in:**
-
-- `src/evaluator/types/function.ts`
-
-**Completed work:**
-
-- Added dedicated `using` pass in function parameter processing.
+- Dedicated `using` pass in function parameter processing.
 - Enforced exactly one `using(...)` clause in function signatures.
-- Parsed implicit parameters from the single `using(...)` clause and marked them compile-time + implicit.
 
-#### ✅ Step 3: `given(...)` declarations
+**Step 3: `given(...)` declarations** — `src/evaluator/exprs/initialization-assignment.ts`, `src/evaluator/exprs/binding.ts`
 
-**Implemented in:**
+- `given(name) := value` and `(given(name) : Type) = value` forms.
+- `given` variables stored as compile-time values with `isImplicit: true`.
 
-- `src/evaluator/exprs/initialization-assignment.ts`
-- `src/evaluator/exprs/binding.ts`
+**Step 4: Call-site resolution** — `src/evaluator/calls/helper.ts`
 
-**Completed work:**
-
-- Implemented `given(name) := value`.
-- Implemented `(given(name) : Type) = value`.
-- `given` variables are stored as compile-time values with `isImplicit: true`.
-
-#### ✅ Step 4: Call-site resolution
-
-**Implemented in:**
-
-- `src/evaluator/calls/helper.ts`
-
-**Completed work:**
-
-- Supports call-site explicit contextual args via `using(...)`.
-- Supports `using(undefined)` fallback for per-slot implicit lookup.
-- Enforces exactly one `using(...)` argument expression per call.
+- Explicit contextual args via `using(...)`, `using(undefined)` fallback.
 - Resolves missing contextual args from `given` variables by type compatibility.
-- Ambiguity handling: multiple compatible `given` values => compile-time error.
-- Fixed `forall + using` bug by re-evaluating implicit parameter types in current callee env before matching (ensures `fn(a : T) -> T` resolves correctly after inference, e.g. `T = i32`).
+- Fixed `forall + using` bug by re-evaluating implicit parameter types in current callee env.
 
-#### ✅ Step 5: Codegen and specialization integration
+**Step 5: Codegen and specialization** — `src/codegen/exprs/initialization-assignment.ts`, `src/types/guards.ts`, `src/evaluator/context.ts`, `src/types/utils.ts`
 
-**Implemented in:**
+- `given(...)` assignments skipped in runtime codegen (compile-time only).
+- Implicit args included in specialization signature/cache inputs.
 
-- `src/codegen/exprs/initialization-assignment.ts`
-- `src/types/guards.ts`
-- `src/evaluator/context.ts`
-- `src/evaluator/calls/helper.ts`
-- `src/types/utils.ts`
+**Step 6: Tests** — `tests/fn.test.yo`
 
-**Completed work:**
-
-- `given(...)` assignments are skipped in runtime codegen (compile-time only declaration form).
-- Functions with implicit parameters participate in specialization.
-- Implicit args are included in specialization signature/cache inputs.
-- Type string formatting includes `using(...)` section.
-
-#### ✅ Step 6: Tests
-
-**Implemented in:**
-
-- `src/tests/fixme.yo`
-- `tests/fn.test.yo`
-
-**Covered cases:**
-
-- Basic implicit lookup via `given`.
-- Explicit contextual args via `using(...)`.
-- `using(undefined)` full and partial fallback behavior.
-- Multiple implicit parameters in a single `using(...)` clause.
-- Ambiguous `given` error.
-- No matching `given` error.
-- `forall + using` inference scenario (`apply(41)` with `given(inc)` for `i32`).
+- Basic implicit lookup, explicit `using(...)`, `using(undefined)` fallback, multiple implicit params, ambiguous `given` error, no matching `given` error, `forall + using` inference.
 
 ---
 
 ## Phase 2: Effect Handlers (`ctl` / `return` + `abort`)
 
-### 2.1 Syntax (Implemented)
+### 2.1 Syntax
 
 ```yo
 // Define an effect operation (multi-parameter supported)
@@ -265,15 +161,12 @@ raise_resume :: (fn() -> i64) {
 - When an effect operation is invoked, execution is **suspended** at that point. A continuation (the rest of the computation up to the handler) is captured as a stack-allocated state machine.
 - The handler body receives the effect's arguments (e.g., `msg`, `msg2`).
 - Inside the handler body:
-  - **`return(value)`** — resumes the captured continuation with `value` as the result of the effect call. Execution continues from where the effect was invoked.
-  - **`abort expr`** — discards the continuation entirely and returns `expr` from the enclosing function that installed the handler. Acts like an exception/early return.
+  - **`return(value)`** — resumes the captured continuation with `value` as the result of the effect call.
+  - **`abort expr`** — discards the continuation entirely and returns `expr` from the enclosing function that installed the handler.
 - Two handler forms:
-  - **Anonymous function handler** (no-resume): `(given(raise) : Raise) = ((msg, msg2) -> { abort expr; });` — lightweight syntax for discard-only handlers.
-  - **ctl-typed handler** (with resume): `(given(raise) : Raise) = (ctl(...) -> T)({ return(value); });` — full handler that can resume the continuation.
-- Continuations are **one-shot** — `return` can be called at most once.
-- Enforcement is **runtime-based** (OCaml-style), not linear types:
-  - Runtime check for second `return` on the same continuation is planned (not fully implemented yet).
-  - When using `abort`, the continuation's captured variables are properly cleaned up.
+  - **Anonymous function handler** (no-resume): `(given(raise) : Raise) = ((msg, msg2) -> { abort expr; });`
+  - **ctl-typed handler** (with resume): `(given(raise) : Raise) = (ctl(...) -> T)({ return(value); });`
+- Continuations are **one-shot** — `return` can be called at most once (syntactically enforced as last expression; runtime double-resume check is planned but not yet implemented).
 - Effect operations compose with `using` — the effect is an implicit parameter resolved via `given`.
 
 ### 2.3 Effect Coloring / Propagation
@@ -281,7 +174,6 @@ raise_resume :: (fn() -> i64) {
 Functions are "colored" by the effects they use:
 
 ```yo
-// This function uses the Raise effect — it propagates via `using`
 safe_divide :: (fn(x : i32, y : i32, using(raise : Raise)) -> i32)(...);
 
 // Any function calling safe_divide must either:
@@ -300,9 +192,7 @@ wrapper :: (fn(x : i32, y : i32, using(raise : Raise)) -> i32)(
 );
 ```
 
-### 2.3.1 Signature-Based Detection: What Needs Transformation?
-
-The `using` parameter with a `ctl` type is the **sole marker** for whether a function may suspend due to an effect. The rule is:
+The `using` parameter with a `ctl` type is the **sole marker** for whether a function may suspend due to an effect:
 
 | Signature                                           | Role                                   | Needs state machine?          | Callers need transformation?            |
 | --------------------------------------------------- | -------------------------------------- | ----------------------------- | --------------------------------------- |
@@ -310,238 +200,145 @@ The `using` parameter with a `ctl` type is the **sole marker** for whether a fun
 | `fn() -> T` (handles effect internally via `given`) | **Handles** the effect                 | Internally yes, externally no | **No** — callers see a plain function   |
 | `fn(using(f : (fn() -> i32))) -> T`                 | Implicit param (plain `fn`, not `ctl`) | No                            | No                                      |
 
-**Key insight:** The handler is the boundary. The state machine transformation is scoped to the region **between** the `given` handler site and the `ctl` invocation site. Nothing outside the handler is affected.
-
-```yo
-raise_const :: (fn() -> i32) {     // ← plain fn signature, callers unaffected
-  given(raise) : Raise = ...;      // ← handler boundary (START)
-  8 + safe_divide(1, 0) + 10       // ← state machine transformation here
-};                                  // ← handler boundary (END)
-
-// Callers of raise_const see (fn() -> i32) — a normal function.
-// No transformation needed at the call site:
-result := raise_const();  // just a regular function call
-```
-
-**Distinguishing `fn` vs `ctl` in `using`:**
-
-```yo
-// This is Phase 1 ONLY — implicit parameter passing, no effects:
-X :: (fn(using(f : (fn() -> i32))) -> i32)(f() + 1);
-
-// This is Phase 2 — effectful, ctl type triggers state machine:
-Y :: (fn(using(raise : Raise)) -> i32)(raise("error"));
-// where Raise :: (ctl(forall(T : Type), msg : String) -> T)
-```
-
-The `ctl` keyword in the type is what distinguishes effectful `using` from plain implicit parameters.
-
-### 2.3.2 No `do`/`perform` Keyword for Effect Invocation
-
-Effect operations are invoked like regular function calls — no special keyword:
-
-```yo
-// Just call the effect operation directly:
-safe_divide :: (fn(x : i32, y : i32, using(raise : Raise)) -> i32)(
-  cond(
-    (y == 0) => raise(`div-by-zero`),   // ← direct call, no do/perform
-    true => (x / y)
-  )
-);
-```
-
-**Rationale:**
-
-- The type system already distinguishes `ctl` from `fn` — no ambiguity for the compiler.
-- The `using(raise : Raise)` in the signature already tells the reader this function uses effects.
-- Matches Koka's proven design (no keyword needed).
-- Reduces syntactic noise at every effect call site.
-- Effects are a synchronous control flow mechanism, unlike `await` which marks an async scheduling point.
+The handler is the boundary. The state machine transformation is scoped to the region **between** the `given` handler site and the `ctl` invocation site.
 
 ### 2.4 State Machine Transformation
 
 The effect system reuses Yo's async/await state machine architecture:
 
-#### Transformation Overview
-
 1. **Effect site** (calling `raise(...)`) = suspension point (like `await`).
 2. **Handler scope** = event loop (like `async { ... }`).
-3. **`return(value)`** = continuation resume (like waking a future). **`abort expr`** = continuation discard (like cancellation).
+3. **`return(value)`** = continuation resume. **`abort expr`** = continuation discard.
 
-#### What Gets Transformed
-
-Every function in the call chain between the handler and the effect site must become a state machine:
+Every function in the call chain between the handler and the effect site becomes a state machine:
 
 ```
 handler scope (given(raise) : Raise = ...)
-  └─ fn_a(...)                    ← state machine
-       └─ fn_b(...)               ← state machine
-            └─ raise(msg)         ← suspension point (effect invocation)
+  +-- fn_a(...)                    <-- state machine
+       +-- fn_b(...)               <-- state machine
+            +-- raise(msg)         <-- suspension point (effect invocation)
 ```
 
-#### State Machine Struct
+The state machine struct includes: `state`, `completed`, `result`, `yield_0..N` (effect arguments), function parameters, and captured variables that cross suspension points.
 
-Similar to async state machines:
+### 2.5 Effect Polymorphism (`...(E)` Row Spreads) ✅
 
-```c
-typedef struct {
-  int state;                     // Current state (0..N, -1 = completed)
-  // Captured variables that cross effect suspension points
-  int32_t local_x;
-  int32_t local_y;
-  // Result storage
-  int32_t result;
-  // Continuation info
-  void* handler_ctx;             // Pointer to handler's context
-  void (*on_resume)(void*, void*); // Resume callback
-} safe_divide_effect_sm_t;
+Effect row variables are declared with `...(Name)` inside `forall`. Named rows allow **independent effect sets** (like Koka's `e1 e2`).
+
+```yo
+// Single named effect row variable E
+run :: (fn(forall(T : Type, ...(E)),
+    f : (fn(using(...(E))) -> T),
+    using(...(E))) -> T)(f());
+
+// Two independent effect rows E1, E2
+some_func :: (fn(forall(T : Type, U : Type, ...(E1), ...(E2)),
+    xs : List(T),
+    f1 : (fn(a : T, using(...(E1))) -> U),
+    f2 : (fn(a : T, using(...(E2))) -> U),
+    using(...(E1), ...(E2))) -> List(U));
 ```
 
-#### Resume Function
+Semantics:
 
-```c
-int32_t safe_divide_resume(safe_divide_effect_sm_t* sm, int32_t resume_value) {
-  switch (sm->state) {
-    case 0:
-      // Initial state — evaluate up to effect call
-      if (sm->local_y == 0) {
-        sm->state = 1;
-        // Suspend: call handler with (msg, resume_fn)
-        return handler_invoke(sm->handler_ctx, "div-by-zero", sm);
-      }
-      sm->result = sm->local_x / sm->local_y;
-      sm->state = -1;
-      return sm->result;
+- `...(E)` in `forall(...)` declares **E as an effect row variable** — ranging over sets of implicit parameters.
+- `...(E)` in `using(...)` **spreads** the effect row's bound parameters into implicit parameters.
+- Type unification: calling `run(might_fail)` where `might_fail : fn(using(raise : Raise)) -> i32` unifies `T = i32`, `E = (raise : Raise)`.
+- Two rows: `...(E1)` and `...(E2)` are inferred independently from their respective function parameters; `using(...(E1), ...(E2))` is their union.
 
-    case 1:
-      // Resumed after raise — resume_value is the substitute result
-      sm->result = resume_value;
-      sm->state = -1;
-      return sm->result;
-  }
-}
+Type compatibility rules:
+
+| Expected                            | Given                             | Compatible?                       |
+| ----------------------------------- | --------------------------------- | --------------------------------- |
+| `fn(using(...(E))) -> T`            | `fn(using(raise : Raise)) -> i32` | ✅ E = `(raise : Raise)`, T = i32 |
+| `fn(using(...(E))) -> T`            | `fn() -> i32`                     | ✅ E = empty, T = i32             |
+| `fn(using(r : Raise, ...(E))) -> T` | `fn(using(r : Raise)) -> i32`     | ✅ named param matches, E = empty |
+| `fn(using(r : Raise)) -> T`         | `fn(using(l : Log)) -> i32`       | ❌ named params don't match       |
+
+### 2.6 Named Effect Instances
+
+Multiple instances of the same effect type are supported via explicit `using(...)` at call sites:
+
+```yo
+Logger :: (ctl(msg : String) -> unit);
+
+program :: (fn(using(info : Logger, error : Logger)) -> unit) {
+  info("starting");
+  error("something went wrong");
+};
+
+program(using(info_logger, error_logger));
 ```
 
-### 2.5 Optimization: Static Effect Resolution
+No special language support needed — this falls out of the existing `using`/`given` mechanism.
 
-When the handler and effect site are in the same compilation unit (which is common), the compiler can **inline** the effect handling:
+### 2.7 Implementation ✅
 
-- **No-resume handlers** (like exceptions): The state machine is unnecessary. The handler can directly return the value. Compile to a simple jump/return.
-- **Always-resume handlers**: The state machine can be optimized to a direct function call where the handler wraps/transforms the result inline.
-- **Known handler at compile time**: Monomorphize the entire effect chain, eliminating the `resume` closure overhead.
+**Step 1: Effect type — `ctl` keyword** — `src/lexer.ts`, `src/parser.ts`, evaluator
 
-### 2.6 Implementation Steps
+- `ctl` as a keyword; parsed as effect operation type with parameter types (including `forall`), return type, and effectful flag.
 
-#### Step 1: Effect Type — `ctl` keyword
+**Step 2: Effect analysis pass** — `src/evaluator/effects/effect-analysis.ts`
 
-**Files:** `src/lexer.ts`, `src/parser.ts`, `src/evaluator.ts`
+- Walks AST of effectful functions to identify ctl call points and capture variables across suspension points.
+- Determines which functions in the call chain need state machine transformation.
+- Supports module-based effects via `effectFieldPath` for `using(ModuleType)` auto-destructuring.
 
-- Add `ctl` as a keyword.
-- Parse `ctl(params...) -> ReturnType` as a new type form: `EffectOperationType`.
-- In the evaluator, `ctl` types are similar to `fn` types but marked as effectful.
-- An `EffectOperationType` carries:
-  - Parameter types (including `forall` type parameters).
-  - Return type.
-  - A flag indicating this is an effect operation.
+**Step 3: State machine generation** — `src/codegen/effects/effect-state-machine.ts`
 
-#### Step 2: Effect Analysis Pass
+- SM struct generation, resume function with switch/case, call site generation, handler body inlining.
+- Closure support: SM struct includes `void* closure_context`; closure-captured variables excluded from SM struct (accessed via context pointer).
+- Multi-effect SM architecture for functions using multiple ctl types.
 
-**New file:** `src/codegen/analysis/effect-analysis.ts`
+**Step 4: Handler codegen** — `src/codegen/exprs/generation.ts`, `src/codegen/exprs/other-fn-call.ts`
 
-Analogous to `await-point-analysis.ts`:
+- Abort handlers: `abort expr` generates pending deferred drops + return from enclosing function.
+- Resume handlers: `return(value)` resumes continuation via SM resume function.
+- Direct ctl call in handler scope (no intermediate `using` function) — both abort and resume paths.
+- `handlerBodyContainsExplicitReturn()` guard prevents implicit resume for handlers with explicit `return(value)`.
 
-- Walk the AST of functions that use effects (have `using` parameters of `ctl` type).
-- Identify **effect invocation points** (calls to `ctl`-typed parameters).
-- Track local variables that are live across effect invocation points.
-- Determine which functions in the call chain need state machine transformation.
+**Step 5: RC correctness**
 
-Key data structure:
+- SM arguments passed without dup (ownership transferred). `effectSmConsumedArgCNames` tracks consumed args to prevent double-free in `generatePendingDeferredDrops`.
+- `pendingDeferredDrops` cleared during handler body codegen to avoid dropping caller-scope variables.
+- Applied to SM call sites, multi-effect call sites, and direct ctl calls.
 
-```typescript
-interface EffectPoint {
-  effectName: string;
-  effectType: EffectOperationType;
-  resultVar: string; // Variable receiving the resume value
-  capturedVars: CapturedVar[];
-  stateIndex: number;
-}
+**Step 6: Effect polymorphism** — `src/evaluator/types/function.ts`, `src/evaluator/types/synthesizer.ts`, `src/evaluator/calls/helper.ts`, `src/types/`
 
-interface EffectAnalysis {
-  effectPoints: EffectPoint[];
-  capturedVars: CapturedVar[];
-  needsStateMachine: boolean;
-}
-```
+- `...(E)` in `forall` creates `EffectsRow` SomeType; `...(E)` in `using` stored with `isEffectRowSpread: true`.
+- Type synthesis matches named params first, then binds row variable to remainder.
+- Call site resolution looks up each bound `FunctionImplicitParameter[]` from callee env.
 
-#### Step 3: Effect State Machine Generation
+**Step 7: Integration with using/given**
 
-**New file:** `src/codegen/functions/effect-statemachine.ts`
+- `using(raise : Raise)` makes the effect an implicit parameter resolved via `given`.
+- `using` params marked `isImplicit` in env for automatic nested resolution.
+- Fn trait types support `using()` implicit parameters: `Fn(v: i32, using(log: Log)) -> i32`.
+- Anonymous function `=>` syntax parses `using()` parameters.
+- `using(ModuleType)` auto-destructuring with `isModuleDestructured` flag.
 
-Analogous to `async-statemachine.ts`:
+**Step 8: Tests** — `tests/algebraic_effects.test.yo` (29 tests)
 
-- For each function that needs transformation (identified by effect analysis):
-  1. Generate a state machine struct (like async state machines).
-  2. Generate a resume function with a `switch` statement over states.
-  3. At each effect invocation point:
-     - Save live variables to the state machine struct.
-     - Set the next state.
-     - Call the handler, passing the effect arguments and the resume function pointer.
-  4. At resume entry points:
-     - Restore live variables from the state machine struct.
-     - Continue execution with the resume value.
-
-#### Step 4: Handler Codegen
-
-**Files:** `src/codegen/` (relevant files)
-
-When a `given` binding provides a handler for a `ctl` type:
-
-- **No-resume handler (anonymous function with `abort`):** Generate a handler that executes the handler body and uses `abort` to return a value from the enclosing function, discarding the continuation. The state machine is still generated for the effectful call chain, but the handler never resumes it.
-- **Resume handler (ctl-typed with `return`):** Generate a handler that:
-  - Receives the effect arguments.
-  - Stores the resume value in the state machine's `resume_value` field.
-  - Calls the state machine's resume function to continue execution.
-  - `return(value)` sets `resume_value = value` and re-enters the state machine switch at the next state.
-
-#### Step 5: Reference Counting for Continuations
-
-- One-shot continuations own the state machine. Calling `return(value)` consumes ownership.
-- The state machine is stack-allocated, so no heap allocation overhead.
-- The `completed` flag in the state machine tracks whether the continuation has been resumed.
-- Runtime checks:
-  - `return(value)` resumes the continuation and sets `completed = true`.
-  - `abort expr` discards the continuation — the state machine is simply abandoned on the stack.
-- When using `abort`, any captured variables in the state machine that have been initialized are properly cleaned up via drop/RC decrement.
-- The state machine struct includes: `state`, `completed`, `result`, `yield_0..N` (effect arguments), `resume_value`, function parameters, and captured variables that cross suspension points.
-
-#### Step 6: Integration with `using` / `given`
-
-Effects compose naturally with Phase 1's implicit parameters:
-
-- `using(raise : Raise)` makes the effect an implicit parameter.
-- `given(raise) : Raise = handler_fn` provides the handler.
-- The evaluator resolves `ctl`-typed `using` parameters through the same `given` resolution mechanism.
-- The codegen detects when a `given` binding is a `ctl` handler and generates the state machine + handler code.
-
-#### Step 7: Tests
-
-- **Basic effect + discard:** `Raise` effect that returns a constant (no `resume`). ✅
-- **Basic effect + resume:** `Raise` effect that resumes with a value. ✅
-- **Direct ctl abort without `using`:** `raise(...)` called directly, `abort ()` exits the handler scope. ✅
-- **Direct ctl resume without `using`:** `raise(...)` called directly, `return(value)` resumes — `result := raise(...)` captures the value and execution continues. ✅
-- **Nested effects:** Multiple effect operations in the same function. ✅
-- **Effect propagation:** Effect passing through multiple function calls. ✅
-- **Effect propagation (two-level):** Effect passing through two levels of `using` functions. ✅
-- **Polymorphic effects:** `ctl(forall(T : Type), ...) -> T`. ✅
-- **Multiple effect types:** Function using two different effects (Log + Raise). ✅
-- **RC correctness:** Ensure no leaks when continuations are discarded. ✅
-- **RC correctness:** Ensure no leaks when continuations are resumed. ✅
-- **One-shot enforcement:** Runtime error when `return` is used twice (pending implementation).
-- **Interaction with async:** Using effects inside async functions (if supported).
+- Basic abort and resume via `using` parameter ✅
+- Direct ctl abort/resume without intermediate `using` function ✅
+- Nested ctl abort/resume inside resume handler ✅
+- While loop with ctl resume (basic, break, continue, mixed continue-then-break) ✅
+- Break from cond after ctl resume ✅
+- Break drops local allocations after ctl resume ✅
+- Early return inside loop after ctl resume ✅
+- Two different ctl types in same scope (Log + Raise) ✅
+- Single-level and two-level effect propagation via `using` ✅
+- Given variable shadowing (resume and abort variants) ✅
+- Effect polymorphism with `using` spread (resume and abort) ✅
+- Module-based effect with abort/resume ✅
+- Nested module-based effect with abort/resume ✅
+- Module destructured `using(ModuleType)` with abort/resume ✅
+- Multiple effect row spreads with resume/abort ✅
+- Closure with `using()` effect — resume and abort ✅
 
 ---
 
-## Phase 3: Advanced Features (Future Work)
+## Phase 3: Future Work
 
 ### 3.1 Async/Await Unification via Async Effect
 
@@ -553,149 +350,23 @@ Async :: (ctl(forall(T : Type), future : Future(T)) -> T);
 // event loop = handler for Async effect
 ```
 
-The current `async { ... }` takes a begin block. It should be changed to accept a closure of type `Impl(Fn() -> T)`, making the async block a regular value that can be handled by the Async effect handler. This would:
+This would eliminate the separate async/await state machine infrastructure and allow user-defined async runtimes via custom Async effect handlers.
 
-- Eliminate the separate async/await state machine infrastructure
-- Unify suspension points under the effect system
-- Allow user-defined async runtimes via custom Async effect handlers
+### 3.2 One-Shot Runtime Enforcement
 
-### 3.2 Effect Polymorphism
+Currently one-shot is enforced syntactically (`return` and `abort` must be the last expression). A runtime check for double-resume (calling `return` twice on the same continuation) is planned but not yet implemented.
 
-Effect row variables are declared with `...(Name)` inside `forall`. No new keyword is introduced — `...` already exists. Named rows allow **independent effect sets** (like Koka's `e1 e2`).
+### 3.3 Optimization: Static Effect Resolution
 
-#### Core Syntax
+When the handler and effect site are in the same compilation unit, the compiler could **inline** the effect handling:
 
-```yo
-// Single named effect row variable E
-run :: (fn(forall(T : Type, ...(E)),
-    f : (fn(using(...(E))) -> T),
-    using(...(E))) -> T)(f());
-
-// Two independent effect rows E1, E2 (Koka: `e1 e2`)
-some_func :: (fn(forall(T : Type, U : Type, ...(E1), ...(E2)),
-    xs : List(T),
-    f1 : (fn(a : T, using(...(E1))) -> U),
-    f2 : (fn(a : T, using(...(E2))) -> U),
-    using(...(E1), ...(E2))) -> List(U));
-```
-
-#### Semantics
-
-- `...(E)` in `forall(...)` declares **E as an effect row variable** — ranging over sets of implicit parameters (effects).
-- `...(E)` in `using(...)` **spreads** the effect row E's bound parameters into implicit parameters at that position.
-- **Type unification:** calling `run(might_fail)` where `might_fail : fn(using(raise : Raise)) -> i32`:
-  - `T` unifies with `i32`
-  - `E` unifies with `(raise : Raise)` — the whole implicit parameter set
-- **Two rows:** `some_func` with `...(E1)` and `...(E2)` infers E1 from f1's concrete effects and E2 from f2's independently; `using(...(E1), ...(E2))` is their union.
-- **Threading:** inside `run`, calling `f()` automatically threads all parameters bound to E from the callerEnv.
-
-#### Example
-
-```yo
-Raise :: (ctl(forall(T : Type), msg : String) -> T);
-
-might_fail :: (fn(using(raise : Raise)) -> i32)(raise(`oops`));
-
-run :: (fn(forall(T : Type, ...(E)),
-    f : (fn(using(...(E))) -> T),
-    using(...(E))) -> T)(f());
-
-main :: (fn() -> unit) {
-    (given(raise) : Raise) = ((msg) -> { return i32(42); });
-    result := run(might_fail);   // E = (raise : Raise), T = i32
-    assert((result == i32(42)), "should be 42");
-};
-```
-
-#### Type Compatibility Rules
-
-| Expected                            | Given                             | Compatible?                       |
-| ----------------------------------- | --------------------------------- | --------------------------------- |
-| `fn(using(...(E))) -> T`            | `fn(using(raise : Raise)) -> i32` | ✅ E = `(raise : Raise)`, T = i32 |
-| `fn(using(...(E))) -> T`            | `fn() -> i32`                     | ✅ E = empty, T = i32             |
-| `fn(using(r : Raise, ...(E))) -> T` | `fn(using(r : Raise)) -> i32`     | ✅ named param matches, E = empty |
-| `fn(using(r : Raise)) -> T`         | `fn(using(l : Log)) -> i32`       | ❌ named params don't match       |
-
-#### Implementation Plan
-
-**1. Effect row variable representation:**
-
-- `...(E)` in `forall` creates a SomeType whose kind is an **EffectsRow** level — encoded as `TypeHierarchyType` with `level = 1` and `isEffectsRow: true` flag, OR a new `TypeTag.EffectsRow`.
-- The bound value of E is a list of `FunctionImplicitParameter` (label + type pairs).
-
-**2. `forall` parsing pass (`evaluateFunctionParameters`):**
-
-- When reading `forall(...)` args, detect `...(name)` (a call-expr named `...` with one atom arg) and treat it as an effect row variable declaration.
-- Create a SomeType for E with EffectsRow kind. Add E to env as a compile-time variable.
-
-**3. `using(...)` parsing pass:**
-
-- Detect `...(name)` (effect row spread) among the `using()` args.
-- Store effect row spreads in `implicitParameters` with `isEffectRowSpread: true`.
-- Named implicit params (e.g., `raise : Raise`) are still processed normally.
-
-**4. Type synthesis (`synthesizeTypes`):**
-
-- When expected function type has effect row spreads, match against given's `implicitParameters` in order: named params first, then bind row variable E to the remainder.
-
-**5. Call sites (`helper.ts`):**
-
-- When resolving implicit args for a function with `effectRowSpreads`, look up each E's bound `FunctionImplicitParameter[]` in calleeEnv, then resolve each one from callerEnv exactly as named implicit params.
-
-**6. `areFunctionTypesCompatible` / `areFunctionTypesCompatible`:**
-
-- Two function types with effect rows are compatible when named implicit params match and row variables can unify against the given's implicit param list.
-
-### 3.3 Named Effect Instances
-
-Multiple instances of the same effect type are already supported via explicit `using(...)` at call sites:
-
-```yo
-Logger :: (ctl(msg : String) -> unit);
-
-program :: (fn(using(info : Logger, error : Logger)) -> unit) {
-  info("starting");
-  error("something went wrong");
-};
-
-// Caller explicitly passes different handlers:
-program(using(info_logger, error_logger));
-```
-
-No special language support needed — this falls out of the existing `using`/`given` mechanism.
-
----
-
-## Implementation Order
-
-```
-Phase 1 — Implicit Parameters ✅ COMPLETE
-  ├── Step 1: Keywords + type model
-  ├── Step 2: Function type `using(...)` evaluation
-  ├── Step 3: `given(...)` declaration forms
-  ├── Step 4: Call-site implicit resolution (`using(...)` / `using(undefined)`)
-  ├── Step 5: Codegen + specialization integration
-  └── Step 6: Tests
-
-Phase 2 — Effect Handlers ✅ CORE COMPLETE
-  ├── Step 1: ctl keyword + effect type ✅
-  ├── Step 2: Effect analysis pass ✅
-  ├── Step 3: State machine generation ✅
-  ├── Step 4: Handler codegen (abort + return) ✅
-  ├── Step 5: RC for continuations ✅
-  ├── Step 6: Integration with using/given ✅
-  └── Step 7: Tests (basic cases ✅, advanced cases pending)
-
-Phase 3 — Advanced (Future)
-  ├── Async/await unification via Async effect
-  └── Effect polymorphism: named row vars `...(E)` in forall + spread in using(...)
-```
+- **No-resume handlers**: eliminate the state machine, compile to a simple jump/return.
+- **Always-resume handlers**: optimize to a direct function call with inline result wrapping.
+- **Known handler at compile time**: monomorphize the entire effect chain.
 
 ---
 
 ## Relationship to Existing Async/Await
-
-Effects and async/await are related but independent:
 
 | Aspect           | Async/Await                   | Algebraic Effects                        |
 | ---------------- | ----------------------------- | ---------------------------------------- |
@@ -706,7 +377,7 @@ Effects and async/await are related but independent:
 | Thread model     | Single-threaded event loop    | Synchronous (same thread)                |
 | Use cases        | IO concurrency                | Control flow abstraction                 |
 
-**Planned unification:** Algebraic effects are strictly more general than async/await. Async/await will be reimplemented as an Async effect (see Phase 3.1). The current `async { ... }` block will be changed to accept a closure `Impl(Fn() -> T)`, making it a regular value handled by the Async effect. For now, async/await and effects coexist independently, sharing similar state machine infrastructure patterns.
+For now, async/await and effects coexist independently, sharing similar state machine infrastructure patterns. See Phase 3.1 for planned unification.
 
 ---
 
@@ -724,10 +395,11 @@ Effects and async/await are related but independent:
 
 ## Success Criteria
 
-1. ✅ `using` + `given` works for plain function types (Phase 1 complete).
+1. ✅ `using` + `given` works for plain function types (Phase 1).
 2. ✅ `ctl` effects with no-resume handlers work (exception-like usage via `abort`).
 3. ✅ `ctl` effects with resume handlers work (continuation-like usage via `return`).
 4. ✅ No memory leaks detected by AddressSanitizer in all effect scenarios.
-5. ✅ Nested effects and effect propagation through call chains work correctly.
+5. ✅ Nested effects, effect propagation, and effect polymorphism work correctly.
 6. ✅ One-shot enforcement: `return` and `abort` are keywords, syntactically enforced as last expression.
-7. Performance: no overhead for functions that don't use effects.
+7. ✅ Closures with `using()` effect parameters work (both resume and abort).
+8. Performance: no overhead for functions that don't use effects.
