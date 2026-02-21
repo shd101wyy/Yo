@@ -24,6 +24,14 @@ export function generateBinding(
     return "";
   }
 
+  if (
+    exprIsFunctionCall(lhs) &&
+    exprIsFunctionCallOf(lhs, BuiltinKeywords.given, 1)
+  ) {
+    // given (implicit) variable — compile-time only, skip in codegen
+    return "";
+  }
+
   if (!lhs.$?.type) {
     return `// Error: No type information for left-hand side ${exprToString(lhs)}\n`;
   }

@@ -80,7 +80,7 @@ export function generateFunctionDeclarations(
     const { cName, value } = context.functions[funcId]!;
 
     if (
-      isFunctionSpecializable(value.type) ||
+      (isFunctionSpecializable(value.type) && !value.type.isClosure) ||
       isComptimeFunction(value) ||
       isFunctionValueWithOnlyBuiltinYoInlineFunctionCall(value)
     ) {

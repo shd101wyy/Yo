@@ -3,6 +3,7 @@ import {
   addVariableToEnv,
   addWhereClauseConstraintToEnv,
   type Environment,
+  findInnermostFrameWithGivenVariable,
   getVariablesFromEnv,
   getVariablesFromEnvByFilter,
   getVariablesNeedingDrop,
@@ -21,6 +22,7 @@ import {
   exprIsAtomOf,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
+  ExprTag,
   exprToString,
   type FnCallExpr,
   type PathCollection,
@@ -41,17 +43,23 @@ import {
   createSomeType,
 } from "../../types/creators";
 import type {
+  EffectsRowType,
+  FunctionImplicitParameter,
   FunctionParameter,
   FunctionType,
+  ModuleType,
   SomeType,
   Type,
   TypeHierarchyType,
 } from "../../types/definitions";
 import { getValueOfSomeTypeFromEnv } from "../../types/env-lookup";
 import {
+  isEffectsRowType,
   isExprListType,
   isExprType,
   isFunctionSpecializable,
+  isFunctionType,
+  isModuleType,
   isSomeType,
   isTypeHierarchyType,
 } from "../../types/guards";
@@ -71,6 +79,7 @@ import {
   createUnknownValue,
   type ExprValue,
   isFunctionValue,
+  isModuleValue,
   isTypeValue,
   type Value,
   valueToString,
@@ -80,6 +89,14 @@ import type {
   EvaluatorContext,
   FunctionCallResult,
 } from "../context";
+import { analyzeEffectCallPoints } from "../effects/effect-analysis";
+import type {
+  EffectAnalysisResult,
+  EffectCallPoint,
+  EffectCapturedVariable,
+  EffectHandlerInfo,
+} from "../effects/effect-analysis-types";
+import { _evaluateExpression } from "../exprs/_expr";
 import { evaluateBeginExpression } from "../exprs/begin";
 import { evaluateExpression } from "../exprs/expr";
 import { typeImplementsFn, typeImplementsFuture } from "../trait-checking";
@@ -90,6 +107,15 @@ import {
 } from "../types/function";
 import { synthesizeTypes } from "../types/synthesizer";
 import { evaluateComptimeFunctionCall } from "./comptime-fn";
+
+function moduleTypeContainsCtlField(type: ModuleType): boolean {
+  for (const field of type.fields) {
+    if (isFunctionType(field.type) && field.type.isControlFunction) return true;
+    if (isModuleType(field.type) && moduleTypeContainsCtlField(field.type))
+      return true;
+  }
+  return false;
+}
 
 /**
  * Generate ___drop expressions for variables that need cleanup during function calls.
@@ -208,6 +234,12 @@ export function checkIfFunctionParameterMatchesArgument({
     }
 
     const label = labelExpr.token.value;
+    if (parameter.label === "") {
+      throw formatErrorMessage({
+        token: labelExpr.token,
+        errorMessage: `Named argument call is not allowed for this parameter (it has no label).`,
+      });
+    }
     if (parameter.label !== label) {
       throw formatErrorMessage({
         token: labelExpr.token,
@@ -631,12 +663,45 @@ export function tryToCallFunctionWithArguments({
     regularArgStartIndex = 1;
   }
 
+  // Split arguments: detect using(...) args for implicit parameters
+  let usingArgsExpr: FnCallExpr | undefined = undefined;
+  let adjustedArgExprs = argExprs.slice(regularArgStartIndex);
+
+  // Check if any argument is using(...) — it provides explicit values for implicit parameters
+  // Only one using() is allowed at the call site.
+  const usingArgIndex = adjustedArgExprs.findIndex(
+    (arg) =>
+      exprIsFunctionCall(arg) &&
+      exprIsFunctionCallOf(arg, BuiltinKeywords.using)
+  );
+  if (usingArgIndex !== -1) {
+    // Verify there's only one using() at the call site
+    const secondUsingIndex = adjustedArgExprs.findIndex(
+      (arg, idx) =>
+        idx > usingArgIndex &&
+        exprIsFunctionCall(arg) &&
+        exprIsFunctionCallOf(arg, BuiltinKeywords.using)
+    );
+    if (secondUsingIndex !== -1) {
+      throw formatErrorMessage({
+        token: adjustedArgExprs[secondUsingIndex]!.token,
+        errorMessage: `Only one "using(...)" is allowed per function call. Combine all implicit arguments into a single using(), e.g.: func(..., using(a, b))`,
+      });
+    }
+    usingArgsExpr = adjustedArgExprs[usingArgIndex]! as FnCallExpr;
+    // Remove the using(...) arg from the regular args
+    adjustedArgExprs = [
+      ...adjustedArgExprs.slice(0, usingArgIndex),
+      ...adjustedArgExprs.slice(usingArgIndex + 1),
+    ];
+  }
+
   // Split arguments into regular and implicit
   // Regular parameters come first, implicit parameters come after
   const regularArgCount = functionType.parameters.length;
 
   // Check argument count BEFORE slicing - this ensures we catch too many/few args
-  const regularArgsToCheck = argExprs.slice(regularArgStartIndex);
+  const regularArgsToCheck = adjustedArgExprs;
   if (!functionType.variadicParameter) {
     if (regularArgsToCheck.length > regularArgCount) {
       // Check if the last function parameter is quote with ExprList
@@ -672,13 +737,8 @@ Got:   ${regularArgsToCheck.length} arguments`,
     }
   }
 
-  const regularArgExprs = argExprs.slice(
-    regularArgStartIndex,
-    regularArgStartIndex + regularArgCount
-  );
-  const variadicArgExprs = argExprs.slice(
-    regularArgStartIndex + regularArgCount
-  );
+  const regularArgExprs = adjustedArgExprs.slice(0, regularArgCount);
+  const variadicArgExprs = adjustedArgExprs.slice(regularArgCount);
 
   // Replace argExprs with just regular args for the rest of the function
   argExprs = regularArgExprs;
@@ -1186,9 +1246,402 @@ Got:   ${typeToString(typeValue.type)}`,
 
   const pathCollection: PathCollection = [];
 
+  // Resolve implicit parameters (using() params in function type)
+  const implicitArgValues: {
+    value: Value;
+    parameterType: Type;
+    argType: Type;
+  }[] = [];
+  if (functionType.implicitParameters.length > 0) {
+    for (let i = 0; i < functionType.implicitParameters.length; i++) {
+      const implicitParam = functionType.implicitParameters[i]!;
+      let resolved = false;
+
+      // Handle effect row spread: ...(E) or bare ...
+      if (implicitParam.isEffectRowSpread) {
+        // Determine the concrete implicit params from the bound effect row variable
+        let concreteParams: FunctionImplicitParameter[] = [];
+
+        // Named spread ...(E): look up E's bound EffectsRowType in calleeEnv
+        const eVariables = getVariablesFromEnv(calleeEnv, implicitParam.label);
+        const eVarValue = eVariables.at(-1)?.value?.[0];
+        let effectsRowType: EffectsRowType | undefined;
+        if (
+          eVarValue &&
+          isTypeValue(eVarValue) &&
+          isEffectsRowType(eVarValue.value)
+        ) {
+          effectsRowType = eVarValue.value;
+        } else if (
+          isSomeType(implicitParam.type) &&
+          implicitParam.type.isEffectsRow
+        ) {
+          // Try via SomeType lookup
+          const boundType = getValueOfSomeTypeFromEnv(
+            calleeEnv,
+            implicitParam.type as SomeType
+          );
+          if (isEffectsRowType(boundType)) {
+            effectsRowType = boundType;
+          }
+        } else if (isEffectsRowType(implicitParam.type)) {
+          // Already resolved during re-evaluation
+          effectsRowType = implicitParam.type;
+        }
+        concreteParams = effectsRowType?.implicitParameters ?? [];
+
+        // For each concrete param, resolve from callerEnv (same as named implicit params)
+        for (const concreteParam of concreteParams) {
+          const {
+            parameterType: resolvedConcreteType,
+            calleeEnv: nextCalleeEnv__,
+          } = evaluateFunctionParameterTypeAgain({
+            parameter: concreteParam,
+            calleeEnv,
+            context: {
+              ...context,
+              isEvaluatingFunctionType: true,
+            },
+            functionType,
+          });
+          calleeEnv = nextCalleeEnv__;
+
+          // Search for matching given variable in callerEnv
+          const givenVariables = getVariablesFromEnvByFilter(
+            callerEnv,
+            (v) =>
+              v.isImplicit === true &&
+              v.isCompileTimeOnly === true &&
+              v.name === concreteParam.label &&
+              areTypesCompatible(
+                { type: resolvedConcreteType, env: calleeEnv },
+                { type: v.type, env: callerEnv }
+              )
+          );
+
+          const givenVar = givenVariables.at(-1);
+          if (!givenVar?.value?.[0]) {
+            // Also try by type only (name might differ)
+            const givenByType = getVariablesFromEnvByFilter(
+              callerEnv,
+              (v) =>
+                v.isImplicit === true &&
+                v.isCompileTimeOnly === true &&
+                areTypesCompatible(
+                  { type: resolvedConcreteType, env: calleeEnv },
+                  { type: v.type, env: callerEnv }
+                )
+            );
+            const byTypeVar = givenByType.at(-1);
+            if (!byTypeVar?.value?.[0]) {
+              throw formatErrorMessage({
+                token:
+                  functionCalleeExpr?.token ?? expr?.token ?? PlaceholderToken,
+                errorMessage: `No "given" variable found for effect row parameter "${concreteParam.label}" of type ${typeToString(resolvedConcreteType)} (expanded from effect row ...(${implicitParam.label})).
+Please ensure a given variable of matching type is in scope.`,
+              });
+            }
+            const givenValue = byTypeVar.value[0];
+            implicitArgValues.push({
+              value: givenValue,
+              parameterType: resolvedConcreteType,
+              argType: byTypeVar.type,
+            });
+            const { env: nextEnv } = addVariableToEnv({
+              env: calleeEnv,
+              variable: {
+                name: concreteParam.label,
+                type: resolvedConcreteType,
+                isCompileTimeOnly: true,
+                isImplicit: true,
+                value: [givenValue],
+                token: PlaceholderToken,
+                initializedAtToken: PlaceholderToken,
+                consumedAtToken: undefined,
+                isOwningTheRcValue: false,
+              },
+              allowVariableShadowing: true,
+            });
+            calleeEnv = nextEnv;
+          } else {
+            const givenValue = givenVar.value[0];
+            implicitArgValues.push({
+              value: givenValue,
+              parameterType: resolvedConcreteType,
+              argType: givenVar.type,
+            });
+            const { env: nextEnv } = addVariableToEnv({
+              env: calleeEnv,
+              variable: {
+                name: concreteParam.label,
+                type: resolvedConcreteType,
+                isCompileTimeOnly: true,
+                isImplicit: true,
+                value: [givenValue],
+                token: PlaceholderToken,
+                initializedAtToken: PlaceholderToken,
+                consumedAtToken: undefined,
+                isOwningTheRcValue: false,
+              },
+              allowVariableShadowing: true,
+            });
+            calleeEnv = nextEnv;
+          }
+        }
+        continue; // Spread handled
+      }
+
+      // Re-evaluate the implicit parameter type in the current calleeEnv.
+      // This is necessary because implicit parameter types may reference SomeTypes
+      // (e.g., forall type variables like T) that have been resolved during regular
+      // argument processing. Without this, the type would still contain unresolved
+      // SomeTypes and type compatibility checks would fail.
+      const { parameterType: resolvedImplicitType, calleeEnv: nextCalleeEnv_ } =
+        evaluateFunctionParameterTypeAgain({
+          parameter: implicitParam,
+          calleeEnv,
+          context: {
+            ...context,
+            isEvaluatingFunctionType: true,
+          },
+          functionType,
+        });
+      calleeEnv = nextCalleeEnv_;
+
+      // First, check if there's an explicit using(...) arg at the call site
+      if (usingArgsExpr) {
+        const usingArgExpr = usingArgsExpr.args[i];
+        // using(undefined) means "skip explicit, use given variable lookup"
+        const isUsingUndefined =
+          usingArgExpr &&
+          exprIsAtom(usingArgExpr) &&
+          exprIsAtomOf(usingArgExpr, BuiltinKeywords.undefined);
+        if (usingArgExpr && !isUsingUndefined) {
+          // Evaluate the explicit using arg
+          const evaluatedUsingArg = evaluateExpression({
+            expr: usingArgExpr,
+            env: callerEnv,
+            context: { ...context },
+          });
+          if (!evaluatedUsingArg.$) {
+            throw formatErrorMessage({
+              token: usingArgExpr.token,
+              errorMessage: `Failed to evaluate using() argument: ${exprToString(usingArgExpr)}`,
+            });
+          }
+          callerEnv = evaluatedUsingArg.$.env;
+          const argValue = evaluatedUsingArg.$.value;
+          const argType = evaluatedUsingArg.$.type;
+
+          if (!argValue) {
+            throw formatErrorMessage({
+              token: usingArgExpr.token,
+              errorMessage: `Expected compile-time value for using() argument, got runtime value: ${exprToString(usingArgExpr)}`,
+            });
+          }
+
+          // Check type compatibility
+          if (
+            !areTypesCompatible(
+              { type: resolvedImplicitType, env: calleeEnv },
+              { type: argType, env: callerEnv }
+            )
+          ) {
+            throw formatErrorMessage({
+              token: usingArgExpr.token,
+              errorMessage: `Incompatible type for implicit parameter "${implicitParam.label}":
+Expected: ${typeToString(resolvedImplicitType)}
+Got:      ${typeToString(argType)}`,
+            });
+          }
+
+          implicitArgValues.push({
+            value: argValue,
+            parameterType: resolvedImplicitType,
+            argType,
+          });
+
+          // Add implicit arg to calleeEnv (mark as isImplicit so it can be
+          // found by nested using() parameter resolution)
+          const { env: nextEnv } = addVariableToEnv({
+            env: calleeEnv,
+            variable: {
+              name: implicitParam.label,
+              type: resolvedImplicitType,
+              isCompileTimeOnly: true,
+              isImplicit: true,
+              value: [argValue],
+              token: implicitParam.exprs.labelExpr?.token ?? PlaceholderToken,
+              initializedAtToken:
+                implicitParam.exprs.labelExpr?.token ?? PlaceholderToken,
+              consumedAtToken: undefined,
+              isOwningTheRcValue: false,
+            },
+            allowVariableShadowing: true,
+          });
+          calleeEnv = nextEnv;
+          resolved = true;
+        }
+      }
+
+      // If not explicitly provided, search caller env for given variables
+      if (!resolved) {
+        const givenVariables = getVariablesFromEnvByFilter(
+          callerEnv,
+          (v) =>
+            v.isImplicit === true &&
+            v.isCompileTimeOnly === true &&
+            areTypesCompatible(
+              { type: resolvedImplicitType, env: calleeEnv },
+              { type: v.type, env: callerEnv }
+            )
+        );
+
+        if (givenVariables.length === 0) {
+          throw formatErrorMessage({
+            token: functionCalleeExpr?.token ?? expr?.token ?? PlaceholderToken,
+            errorMessage: `No "given" variable found for implicit parameter "${implicitParam.label}" of type ${typeToString(resolvedImplicitType)}.
+Please declare a given variable with a compatible type, e.g.:
+  given(${implicitParam.label}) := <value>;
+Or pass it explicitly:
+  ${functionValue?.funcName ?? "func"}(..., using(<value>))`,
+          });
+        }
+
+        // When multiple given variables match, prefer the one from the innermost
+        // (most recent) frame. Only report ambiguity if there are multiple matches
+        // at the same innermost frame level. This allows inner scopes to shadow
+        // outer given bindings of the same type.
+        let candidates = givenVariables;
+        if (candidates.length > 1) {
+          // getVariablesFromEnvByFilter returns variables in frame order
+          // (outer first, inner last). Find the innermost frame that has matches
+          // by searching from the end.
+          const innermostFrameIdx = findInnermostFrameWithGivenVariable(
+            callerEnv,
+            (v) =>
+              v.isImplicit === true &&
+              v.isCompileTimeOnly === true &&
+              areTypesCompatible(
+                { type: resolvedImplicitType, env: calleeEnv },
+                { type: v.type, env: callerEnv }
+              )
+          );
+          if (innermostFrameIdx >= 0) {
+            const frame = callerEnv.frames[innermostFrameIdx]!;
+            const innermostMatches = frame.variables.filter(
+              (v) =>
+                v.isImplicit === true &&
+                v.isCompileTimeOnly === true &&
+                areTypesCompatible(
+                  { type: resolvedImplicitType, env: calleeEnv },
+                  { type: v.type, env: callerEnv }
+                )
+            );
+            if (innermostMatches.length > 0) {
+              candidates = innermostMatches;
+            }
+          }
+        }
+
+        if (candidates.length > 1) {
+          throw formatErrorMessage({
+            token: functionCalleeExpr?.token ?? expr?.token ?? PlaceholderToken,
+            errorMessage: `Ambiguous implicit parameter "${implicitParam.label}": found ${candidates.length} "given" variables with compatible type ${typeToString(resolvedImplicitType)} in the same scope.
+Please use explicit using() to disambiguate.`,
+          });
+        }
+
+        const givenVar = candidates[candidates.length - 1]!;
+        const givenValue = givenVar.value?.[0];
+        if (!givenValue) {
+          throw formatErrorMessage({
+            token: functionCalleeExpr?.token ?? expr?.token ?? PlaceholderToken,
+            errorMessage: `The "given" variable "${givenVar.name}" has no compile-time value.`,
+          });
+        }
+
+        implicitArgValues.push({
+          value: givenValue,
+          parameterType: resolvedImplicitType,
+          argType: givenVar.type,
+        });
+
+        // Add implicit arg to calleeEnv (mark as isImplicit so it can be
+        // found by nested using() parameter resolution)
+        const { env: nextEnv } = addVariableToEnv({
+          env: calleeEnv,
+          variable: {
+            name: implicitParam.label,
+            type: resolvedImplicitType,
+            isCompileTimeOnly: true,
+            isImplicit: true,
+            value: [givenValue],
+            token: implicitParam.exprs.labelExpr?.token ?? PlaceholderToken,
+            initializedAtToken:
+              implicitParam.exprs.labelExpr?.token ?? PlaceholderToken,
+            consumedAtToken: undefined,
+            isOwningTheRcValue: false,
+          },
+          allowVariableShadowing: true,
+        });
+        calleeEnv = nextEnv;
+      }
+
+      // For module-destructured implicit params, add the destructured fields
+      // to calleeEnv so the function body can access them directly.
+      if (
+        implicitParam.isModuleDestructured &&
+        isModuleType(resolvedImplicitType)
+      ) {
+        const moduleValue =
+          implicitArgValues[implicitArgValues.length - 1]?.value;
+        const moduleType = resolvedImplicitType as ModuleType;
+        for (let fi = 0; fi < moduleType.fields.length; fi++) {
+          const field = moduleType.fields[fi]!;
+          // Extract field value from the module value if available
+          let fieldValue: Value | undefined;
+          if (moduleValue && isModuleValue(moduleValue)) {
+            fieldValue = moduleValue.fields[fi];
+          }
+          if (!fieldValue) {
+            fieldValue = createUnknownValue(field.type, {
+              variableName: field.label,
+              env: calleeEnv,
+              context,
+            });
+          }
+          const { env: envWithField } = addVariableToEnv({
+            env: calleeEnv,
+            variable: {
+              name: field.label,
+              type: field.type,
+              isCompileTimeOnly: true,
+              isImplicit: true,
+              value: [fieldValue],
+              token:
+                implicitParam.exprs.labelExpr?.token ??
+                implicitParam.exprs.typeExpr?.token ??
+                PlaceholderToken,
+              initializedAtToken:
+                implicitParam.exprs.labelExpr?.token ??
+                implicitParam.exprs.typeExpr?.token ??
+                PlaceholderToken,
+              consumedAtToken: undefined,
+              isOwningTheRcValue: false,
+            },
+            allowVariableShadowing: true,
+          });
+          calleeEnv = envWithField;
+        }
+      }
+    }
+  }
+
   const argValues_: ArgValues = {
     args: argValues,
     forallArgs: forallArgValues,
+    implicitArgs: implicitArgValues,
     variadicArgs,
   };
 
@@ -1307,6 +1760,80 @@ Got:   ${typeToString(typeValue.type)}`,
       callerEnv: callerEnv,
       context,
     });
+
+    // Filter runtimeArgExprsInOrder to exclude effectful function args.
+    // These were treated as compile-time in the specialization (not in the C function
+    // signature), so they must also be excluded from the caller's argument list.
+    if (specializedFunctionValue) {
+      const indicesToRemove = new Set<number>();
+      let runtimeArgIdx = 0;
+      for (let i = 0; i < functionType.parameters.length; i++) {
+        const param = functionType.parameters[i]!;
+        if (!param.isCompileTimeOnly) {
+          const arg = argValues_.args[i];
+          const argType = arg?.argType;
+          if (
+            argType &&
+            isFunctionType(argType) &&
+            argType.implicitParameters.some(
+              (p) =>
+                (isFunctionType(p.type) && p.type.isControlFunction) ||
+                (isModuleType(p.type) && moduleTypeContainsCtlField(p.type))
+            )
+          ) {
+            indicesToRemove.add(runtimeArgIdx);
+          }
+          runtimeArgIdx++;
+        }
+      }
+      if (indicesToRemove.size > 0) {
+        for (let idx = runtimeArgExprsInOrder.length - 1; idx >= 0; idx--) {
+          if (indicesToRemove.has(idx)) {
+            runtimeArgExprsInOrder.splice(idx, 1);
+          }
+        }
+      }
+    }
+  }
+
+  // Direct ctl function call: the ctl function is called without an intermediate
+  // function with `using(ctl)`. The function body was deferred because of forall
+  // parameters. We need to evaluate it with concrete types so codegen can inline it.
+  //
+  // Only do this when NOT inside a function that receives the ctl handler via
+  // an implicit `using(raise: Raise)` parameter — in that case the call is handled
+  // by the effect state machine (createSpecializedFunctionInline resolves the body).
+  const isInsideFunctionWithCtlImplicitParam =
+    context.isEvaluatingFunctionBodyOrAsyncBlock?.kind === "function-body" &&
+    context.isEvaluatingFunctionBodyOrAsyncBlock.type.implicitParameters.some(
+      (param) =>
+        (isFunctionType(param.type) && param.type.isControlFunction) ||
+        (isModuleType(param.type) && moduleTypeContainsCtlField(param.type))
+    );
+  if (
+    !skipSpecialization &&
+    functionValue &&
+    isFunctionValue(functionValue) &&
+    functionType.isControlFunction &&
+    functionType.forallParameters.length > 0 &&
+    !specializedFunctionValue &&
+    !isInsideFunctionWithCtlImplicitParam
+  ) {
+    specializedFunctionValue = evaluateCtlFunctionBodyInline({
+      originalFunction: functionValue,
+      argValues: argValues_,
+      calleeEnv,
+      callerEnv,
+      context,
+    });
+    // For `return(value)` (resume) handlers, update returnType to the concrete
+    // type from the evaluated body so the call site gets the right type.
+    if (specializedFunctionValue && isSomeType(returnType)) {
+      const bodyType = specializedFunctionValue.body?.$?.type;
+      if (bodyType && !isSomeType(bodyType)) {
+        returnType = bodyType;
+      }
+    }
   }
 
   // Handle automatic drop insertion for RAII before returning from function call
@@ -1366,6 +1893,11 @@ function createSpecializedFunctionInline({
     compileTimeArgValues.push(...argValues.forallArgs.map((v) => v.value));
   }
 
+  // Add implicit arguments (always compile-time)
+  if (argValues.implicitArgs) {
+    compileTimeArgValues.push(...argValues.implicitArgs.map((v) => v.value));
+  }
+
   // Add regular compile-time parameters
   functionType.parameters.forEach((param, index) => {
     const arg = argValues.args[index]!;
@@ -1374,20 +1906,38 @@ function createSpecializedFunctionInline({
         compileTimeArgValues.push(arg.value);
       }
     } else {
-      // Use argType (the actual concrete argument type) for cache comparison,
-      // not parameterType (which might be a SomeType like Impl(...))
-      // If argType is a SomeType with resolvedConcreteType, use the concrete type
-      // so that the specialized function's parameters are fully resolved.
-      // EXCEPTION: For Future types, do NOT unwrap to concrete type because
-      // Futures are heap-backed ref-counted and need SomeType-level ARC methods.
-      const shouldUseConcreteType =
-        isSomeType(arg.argType) &&
-        arg.argType.resolvedConcreteType &&
-        !typeImplementsFuture(arg.argType);
-      const concreteType = shouldUseConcreteType
-        ? (arg.argType as SomeType).resolvedConcreteType!
-        : arg.argType;
-      runtimeParameters.push({ ...param, type: concreteType });
+      // Effectful function parameters (functions with implicit ctl handlers) must be
+      // treated as compile-time because effectful functions are compiled as state machines,
+      // not regular C functions. The concrete function value is needed at compile time
+      // for effect call site generation (handler inlining + state machine dispatch).
+      const isEffectfulFuncParam =
+        isFunctionType(arg.argType) &&
+        arg.argType.implicitParameters.some(
+          (p) =>
+            (isFunctionType(p.type) && p.type.isControlFunction) ||
+            (isModuleType(p.type) && moduleTypeContainsCtlField(p.type))
+        );
+
+      if (isEffectfulFuncParam) {
+        if (arg.value) {
+          compileTimeArgValues.push(arg.value);
+        }
+      } else {
+        // Use argType (the actual concrete argument type) for cache comparison,
+        // not parameterType (which might be a SomeType like Impl(...))
+        // If argType is a SomeType with resolvedConcreteType, use the concrete type
+        // so that the specialized function's parameters are fully resolved.
+        // EXCEPTION: For Future types, do NOT unwrap to concrete type because
+        // Futures are heap-backed ref-counted and need SomeType-level ARC methods.
+        const shouldUseConcreteType =
+          isSomeType(arg.argType) &&
+          arg.argType.resolvedConcreteType &&
+          !typeImplementsFuture(arg.argType);
+        const concreteType = shouldUseConcreteType
+          ? (arg.argType as SomeType).resolvedConcreteType!
+          : arg.argType;
+        runtimeParameters.push({ ...param, type: concreteType });
+      }
     }
   });
 
@@ -1511,6 +2061,397 @@ function createSpecializedFunctionInline({
     });
   }
 
+  // Run effect analysis on the specialized body if it has implicit ctl parameters.
+  // This detects ctl call points (e.g., raise(msg)) and prepares for state machine generation.
+  // Also handles effect row spread parameters (using(...(E))) by extracting the individual
+  // ctl parameters from the bound EffectsRowType.
+  const effectCtlParams: Array<{
+    handlerArgIndex: number;
+    label: string;
+    type: FunctionType;
+    fromSpread: boolean;
+    effectFieldPath?: string[];
+    handlerFieldPath?: string[];
+  }> = [];
+  // Compute the mapping from implicit param index to implicitArgValues index.
+  // Spread params expand into multiple entries, so we need to track the offset.
+  let argOffset = 0;
+  for (let i = 0; i < functionType.implicitParameters.length; i++) {
+    const implicitParam = functionType.implicitParameters[i]!;
+    if (
+      isFunctionType(implicitParam.type) &&
+      implicitParam.type.isControlFunction
+    ) {
+      effectCtlParams.push({
+        handlerArgIndex: argOffset,
+        label: implicitParam.label,
+        type: implicitParam.type,
+        fromSpread: false,
+      });
+      argOffset += 1;
+    } else if (implicitParam.isEffectRowSpread) {
+      // Effect row spread: resolve the type (might be a SomeType that needs lookup)
+      let resolvedType = implicitParam.type;
+      if (isSomeType(resolvedType)) {
+        // Try looking up by variable name in environment first
+        const eVars = getVariablesFromEnv(specializedEnv, implicitParam.label);
+        const eVarValue = eVars.at(-1)?.value?.[0];
+        if (
+          eVarValue &&
+          isTypeValue(eVarValue) &&
+          isEffectsRowType(eVarValue.value)
+        ) {
+          resolvedType = eVarValue.value;
+        } else {
+          const boundType = getValueOfSomeTypeFromEnv(
+            specializedEnv,
+            resolvedType
+          );
+          if (boundType) {
+            resolvedType = boundType;
+          }
+        }
+      }
+      if (isEffectsRowType(resolvedType)) {
+        // Extract individual ctl parameters from the resolved EffectsRowType
+        for (let k = 0; k < resolvedType.implicitParameters.length; k++) {
+          const innerParam = resolvedType.implicitParameters[k]!;
+          if (
+            isFunctionType(innerParam.type) &&
+            innerParam.type.isControlFunction
+          ) {
+            effectCtlParams.push({
+              handlerArgIndex: argOffset + k,
+              label: innerParam.label,
+              type: innerParam.type,
+              fromSpread: true,
+            });
+          }
+        }
+        argOffset += resolvedType.implicitParameters.length;
+      } else {
+        argOffset += 1;
+      }
+    } else if (isModuleType(implicitParam.type)) {
+      // Module-based effects: recursively find ctl fields in possibly nested modules
+      const ctlFields: Array<{ path: string[]; type: FunctionType }> = [];
+      const findCtlFieldsInModule = (
+        moduleType: ModuleType,
+        pathSoFar: string[]
+      ) => {
+        for (const field of moduleType.fields) {
+          if (isFunctionType(field.type) && field.type.isControlFunction) {
+            ctlFields.push({
+              path: [...pathSoFar, field.label],
+              type: field.type,
+            });
+          } else if (isModuleType(field.type)) {
+            findCtlFieldsInModule(field.type, [...pathSoFar, field.label]);
+          }
+        }
+      };
+      findCtlFieldsInModule(implicitParam.type, []);
+
+      if (implicitParam.isModuleDestructured) {
+        // Module destructured: using(Raise) — fields are in scope directly.
+        // Use the field name as effectParameterName with effectFieldPath: undefined
+        // so isEffectCall Case 1 (direct call) matches raise(msg).
+        // handlerFieldPath is used to extract the handler from the module value.
+        for (const ctlField of ctlFields) {
+          const fieldName = ctlField.path[ctlField.path.length - 1]!;
+          effectCtlParams.push({
+            handlerArgIndex: argOffset,
+            label: fieldName,
+            type: ctlField.type,
+            fromSpread: false,
+            effectFieldPath: undefined,
+            handlerFieldPath: ctlField.path,
+          });
+        }
+      } else {
+        // Non-destructured: using(raise_mod : Raise) — access via mod.field.
+        for (const ctlField of ctlFields) {
+          effectCtlParams.push({
+            handlerArgIndex: argOffset,
+            label: implicitParam.label,
+            type: ctlField.type,
+            fromSpread: false,
+            effectFieldPath: ctlField.path,
+          });
+        }
+      }
+      argOffset += 1;
+    } else {
+      argOffset += 1;
+    }
+  }
+
+  // Collect all effect analyses (one per ctl parameter)
+  const allEffectAnalyses: Array<{
+    analysis: EffectAnalysisResult;
+    ctlParam: (typeof effectCtlParams)[0];
+  }> = [];
+
+  for (const ctlParam of effectCtlParams) {
+    const effectAnalysis = analyzeEffectCallPoints(
+      specializedBody,
+      ctlParam.label,
+      ctlParam.type,
+      ctlParam.fromSpread,
+      ctlParam.effectFieldPath
+    );
+    if (effectAnalysis.hasEffects) {
+      // Store the handler value on the effectAnalysis so codegen can inline it.
+      // The implicit args correspond to implicit parameters by index.
+      const handlerArg = argValues.implicitArgs?.[ctlParam.handlerArgIndex];
+      // For module-based effects, extract the ctl function by walking the field path
+      let resolvedHandlerFn: FunctionValue | undefined;
+      const fieldPathForHandler =
+        ctlParam.handlerFieldPath ?? ctlParam.effectFieldPath;
+      if (handlerArg && isFunctionValue(handlerArg.value)) {
+        resolvedHandlerFn = handlerArg.value;
+      } else if (
+        handlerArg &&
+        isModuleValue(handlerArg.value) &&
+        fieldPathForHandler &&
+        fieldPathForHandler.length > 0
+      ) {
+        // Walk through nested modules following the field path
+        let currentValue: Value | undefined = handlerArg.value;
+        for (const fieldName of fieldPathForHandler) {
+          if (!isModuleValue(currentValue)) {
+            currentValue = undefined;
+            break;
+          }
+          const fieldIndex = currentValue.type.fields.findIndex(
+            (f) => f.label === fieldName
+          );
+          if (fieldIndex < 0 || !currentValue.fields[fieldIndex]) {
+            currentValue = undefined;
+            break;
+          }
+          currentValue = currentValue.fields[fieldIndex]!;
+        }
+        if (currentValue && isFunctionValue(currentValue)) {
+          resolvedHandlerFn = currentValue;
+        }
+      }
+      if (resolvedHandlerFn) {
+        const handlerFn = resolvedHandlerFn;
+        const ctlType = ctlParam.type;
+
+        // If the handler's ctl type has forall parameters and the handler body
+        // was deferred (not evaluated — no $ annotations), we need to re-evaluate
+        // it now with concrete types from the effect call site.
+        // If the body was already evaluated (has $ annotations), skip re-evaluation
+        // since codegen can handle SomeType T in handler bodies.
+        const handlerBodyWasDeferred = !handlerFn.body.$;
+        if (
+          handlerBodyWasDeferred &&
+          isFunctionType(ctlType) &&
+          ctlType.forallParameters.length > 0 &&
+          effectAnalysis.effectCallPoints.length > 0
+        ) {
+          // Build a mapping from forall SomeType to concrete type
+          // For ctl(forall(T : Type), msg : String) -> T, T maps to operationResultType
+          const forallTypeMap = new Map<string, Type>();
+          const returnType = ctlType.return.type;
+          const concreteReturnType =
+            effectAnalysis.effectCallPoints[0]!.operationResultType;
+
+          // If the return type IS a forall parameter directly, map it
+          if (isSomeType(returnType)) {
+            forallTypeMap.set(returnType.name, concreteReturnType);
+          }
+
+          // Re-evaluate the handler body with concrete types
+          if (forallTypeMap.size > 0) {
+            const clonedHandlerFnBody = cloneExpr(handlerFn.body);
+            let handlerEnv = handlerFn.body.$?.env ?? specializedEnv;
+            handlerEnv = pushEnvFrame(handlerEnv);
+
+            // Bind forall parameters to their concrete types
+            for (const forallParam of ctlType.forallParameters) {
+              const concreteType = forallTypeMap.get(forallParam.label);
+              if (concreteType) {
+                const result = addVariableToEnv({
+                  env: handlerEnv,
+                  variable: {
+                    name: forallParam.label,
+                    type: forallParam.type,
+                    isCompileTimeOnly: true,
+                    value: [createTypeValue(concreteType)],
+                    token: PlaceholderToken,
+                    initializedAtToken: PlaceholderToken,
+                    consumedAtToken: undefined,
+                    isOwningTheRcValue: false,
+                  },
+                  allowVariableShadowing: true,
+                });
+                handlerEnv = result.env;
+              }
+            }
+
+            const handlerFnType = handlerFn.specializedType ?? handlerFn.type;
+            const enclosingReturnType =
+              context.isEvaluatingFunctionBodyOrAsyncBlock?.kind ===
+              "function-body"
+                ? context.isEvaluatingFunctionBodyOrAsyncBlock.type.return.type
+                : handlerFnType.ParentFunctionType
+                  ? handlerFnType.ParentFunctionType.return.type
+                  : concreteReturnType;
+
+            const handlerContext: EvaluatorContext = {
+              ...context,
+              expectedType: undefined,
+              controlHandlerContext: {
+                operationResultType: concreteReturnType,
+                enclosingFunctionReturnType: enclosingReturnType,
+              },
+              isEvaluatingFunctionBodyOrAsyncBlock: {
+                kind: "function-body",
+                type: handlerFnType,
+                value: handlerFn,
+                evaluationEnv: handlerEnv,
+              },
+            };
+
+            try {
+              const evaluatedBody = _evaluateExpression({
+                expr: clonedHandlerFnBody,
+                env: handlerEnv,
+                context: handlerContext,
+              });
+
+              const reEvaluatedHandler: FunctionValue = {
+                ...handlerFn,
+                body: evaluatedBody,
+              };
+              effectAnalysis.handlerValue = reEvaluatedHandler;
+            } catch (e) {
+              // If re-evaluation fails, fall back to the original handler
+              console.error("Handler body re-evaluation failed:", e);
+              effectAnalysis.handlerValue = handlerFn;
+            }
+          } else {
+            effectAnalysis.handlerValue = handlerFn;
+          }
+        } else {
+          effectAnalysis.handlerValue = handlerFn;
+        }
+      } else if (handlerArg) {
+        effectAnalysis.handlerValue = handlerArg.value;
+      }
+
+      allEffectAnalyses.push({ analysis: effectAnalysis, ctlParam });
+    }
+  }
+
+  // Merge effect analyses: if there's only one, use it directly.
+  // If there are multiple, merge all effect call points into one analysis
+  // with effectIndex on each call point and effectHandlerInfos array.
+  if (allEffectAnalyses.length === 1) {
+    specializedBody.$.effectAnalysis = allEffectAnalyses[0]!.analysis;
+  } else if (allEffectAnalyses.length > 1) {
+    // Merge multiple effect analyses into one
+    const mergedCallPoints: EffectCallPoint[] = [];
+    const mergedCapturedVars = new Map<string, EffectCapturedVariable>();
+    const mergedVariableIdRemapping = new Map<string, string>();
+    const effectHandlerInfos: EffectHandlerInfo[] = [];
+
+    for (let effectIdx = 0; effectIdx < allEffectAnalyses.length; effectIdx++) {
+      const { analysis } = allEffectAnalyses[effectIdx]!;
+
+      // Build handler info for this effect
+      effectHandlerInfos.push({
+        effectParameterName: analysis.effectParameterName,
+        effectParameterType: analysis.effectParameterType,
+        effectFieldPath: analysis.effectFieldPath,
+        handlerValue: analysis.handlerValue,
+        operationArgTypes:
+          analysis.effectCallPoints.length > 0
+            ? analysis.effectCallPoints[0]!.operationArgTypes
+            : [],
+        operationResultType:
+          analysis.effectCallPoints.length > 0
+            ? analysis.effectCallPoints[0]!.operationResultType
+            : ({ tag: "unit" } as Type),
+      });
+
+      // Add call points with effectIndex
+      for (const cp of analysis.effectCallPoints) {
+        mergedCallPoints.push({
+          ...cp,
+          effectIndex: effectIdx,
+        });
+      }
+
+      // Merge captured variables
+      for (const cv of analysis.capturedVariables) {
+        if (!mergedCapturedVars.has(cv.id)) {
+          mergedCapturedVars.set(cv.id, cv);
+        }
+      }
+
+      // Merge variable ID remappings
+      for (const [key, value] of analysis.variableIdRemapping) {
+        mergedVariableIdRemapping.set(key, value);
+      }
+    }
+
+    // Re-index merged call points. They need to be ordered by position in the
+    // function body. Since each per-parameter analysis walks the body in order,
+    // the call points from each analysis are already in body order. We need to
+    // interleave them based on their expression position.
+    // Use a simple approach: sort by the expression's position in the begin block.
+    // For now, keep them in the order they were collected (each analysis walks
+    // the same body, so transitive calls from different params at different body
+    // positions will appear in body order within each analysis).
+    // We sort by walking the body's begin block to determine expr position.
+    if (
+      specializedBody.tag === ExprTag.FnCall &&
+      exprIsFunctionCallOf(specializedBody, "begin")
+    ) {
+      const bodyExprs = specializedBody.args;
+      // Build a map from each top-level body expression to its index
+      const exprPositionMap = new Map<unknown, number>();
+      for (let i = 0; i < bodyExprs.length; i++) {
+        exprPositionMap.set(bodyExprs[i], i);
+      }
+      // For each merged call point, find which top-level body expr contains it
+      const getExprPosition = (cp: EffectCallPoint): number => {
+        for (let i = 0; i < bodyExprs.length; i++) {
+          if (containsExpr(bodyExprs[i]!, cp.expr as Expr)) {
+            return i;
+          }
+        }
+        return 999;
+      };
+      mergedCallPoints.sort((a, b) => getExprPosition(a) - getExprPosition(b));
+    }
+
+    // Re-index after sorting
+    for (let i = 0; i < mergedCallPoints.length; i++) {
+      mergedCallPoints[i]!.index = i;
+    }
+
+    // Use the first analysis as the base and override with merged data
+    const firstAnalysis = allEffectAnalyses[0]!.analysis;
+    const mergedAnalysis: EffectAnalysisResult = {
+      effectCallPoints: mergedCallPoints,
+      capturedVariables: Array.from(mergedCapturedVars.values()),
+      hasEffects: true,
+      variableIdRemapping: mergedVariableIdRemapping,
+      effectParameterName: firstAnalysis.effectParameterName,
+      effectParameterType: firstAnalysis.effectParameterType,
+      effectFieldPath: firstAnalysis.effectFieldPath,
+      handlerValue: firstAnalysis.handlerValue,
+      effectHandlerInfos,
+    };
+
+    specializedBody.$.effectAnalysis = mergedAnalysis;
+  }
+
   // Create signature for the specialized function
   const compileTimeSignatureParts: string[] = [];
 
@@ -1523,6 +2464,11 @@ function createSpecializedFunctionInline({
       if (!type.typeName && type.id) {
         return `${valueToString(value)}_id${type.id}`;
       }
+    }
+    if (isFunctionValue(value)) {
+      // Include funcId for function values to distinguish different anonymous functions
+      // (e.g., different ctl effect handlers passed as implicit arguments)
+      return `fn_${value.funcId}`;
     }
     return valueToString(value);
   };
@@ -1564,6 +2510,15 @@ function createSpecializedFunctionInline({
       }
     }
   });
+
+  // Include implicit parameter values in the compile-time signature
+  if (argValues.implicitArgs) {
+    argValues.implicitArgs.forEach((arg) => {
+      compileTimeSignatureParts.push(
+        sanitizeForCIdentifier(valueToSignatureString(arg.value))
+      );
+    });
+  }
 
   // Include runtime parameter types if they contain anonymous types
   // This ensures different concrete types get different specializations
@@ -1631,6 +2586,148 @@ function createSpecializedFunctionInline({
   return specializedFunction;
 }
 
+/**
+ * Evaluate a ctl function body with concrete types for a direct ctl call.
+ *
+ * When a `ctl` function is called directly (not through a `using` parameter),
+ * its body was deferred (not evaluated at definition time) because of forall parameters.
+ * We need to evaluate it here with the concrete types from the call context.
+ *
+ * The forall type parameter T is resolved from the enclosing function's return type
+ * (since `abort val` exits the enclosing function with a value of type T).
+ */
+function evaluateCtlFunctionBodyInline({
+  originalFunction,
+  calleeEnv,
+  callerEnv,
+  context,
+}: {
+  originalFunction: FunctionValue;
+  argValues: ArgValues;
+  calleeEnv: Environment;
+  callerEnv: Environment;
+  context: EvaluatorContext;
+}): FunctionValue {
+  const functionType = originalFunction.type;
+
+  // Determine the concrete type for the forall parameter T.
+  // For `abort` handlers, T is the enclosing function's return type.
+  // For `return` handlers, T is the return type of the ctl operation at the call site.
+  const enclosingReturnType =
+    context.isEvaluatingFunctionBodyOrAsyncBlock?.kind === "function-body"
+      ? context.isEvaluatingFunctionBodyOrAsyncBlock.type.return.type
+      : functionType.return.type;
+
+  // Check specialization cache using a type-based signature
+  const ctlSignature = sanitizeForCIdentifier(
+    typeToString(enclosingReturnType)
+  );
+  const existingCache = originalFunction.specializedFunctionCaches.find(
+    (cache) =>
+      cache.specializedFunction.funcId ===
+      `${originalFunction.funcId}_ctl_${ctlSignature}`
+  );
+  if (existingCache) {
+    return existingCache.specializedFunction;
+  }
+
+  // Build an env with forall parameters bound to their concrete types.
+  // Start with calleeEnv (function closure + parameters), then add compile-time
+  // bindings from callerEnv that aren't already in calleeEnv. This is needed because
+  // the handler's closure env comes from the ctl type definition (e.g., Raise) which
+  // doesn't include bindings defined after the type itself (like Raise itself, or
+  // other ctl types defined later). The callerEnv has these bindings.
+  let specializedEnv = pushEnvFrame(calleeEnv);
+
+  // Add compile-time bindings from caller's scope that are missing from calleeEnv.
+  // This allows the handler body to reference types like Raise that are visible at
+  // the call site but not in the handler's closure (which comes from the ctl type's env).
+  for (const frame of callerEnv.frames) {
+    for (const variable of frame.variables) {
+      if (!variable.isCompileTimeOnly) continue;
+      // Check if this variable already exists in specializedEnv
+      const existing = getVariablesFromEnv(specializedEnv, variable.name);
+      if (existing.length > 0) continue;
+      const { env: nextEnv } = addVariableToEnv({
+        env: specializedEnv,
+        variable: { ...variable },
+        allowVariableShadowing: true,
+      });
+      specializedEnv = nextEnv;
+    }
+  }
+
+  for (const forallParam of functionType.forallParameters) {
+    // Map the forall type variable to the concrete type
+    const concreteType = enclosingReturnType;
+    const { env: nextEnv } = addVariableToEnv({
+      env: specializedEnv,
+      variable: {
+        name: forallParam.label,
+        type: forallParam.type,
+        isCompileTimeOnly: true,
+        value: [createTypeValue(concreteType)],
+        token: PlaceholderToken,
+        initializedAtToken: PlaceholderToken,
+        consumedAtToken: undefined,
+        isOwningTheRcValue: false,
+      },
+      allowVariableShadowing: true,
+    });
+    specializedEnv = nextEnv;
+  }
+
+  const clonedBody = cloneExpr(originalFunction.body);
+
+  const handlerContext: EvaluatorContext = {
+    ...context,
+    expectedType: undefined,
+    controlHandlerContext: {
+      // operationResultType is only used for the via-using state-machine path.
+      // For direct ctl calls, `return(value)` type is checked by isDirectCtlCall flag.
+      operationResultType: functionType.return.type,
+      enclosingFunctionReturnType: enclosingReturnType,
+      isDirectCtlCall: true,
+    },
+    isEvaluatingFunctionBodyOrAsyncBlock: {
+      kind: "function-body",
+      type: functionType,
+      value: originalFunction,
+      evaluationEnv: specializedEnv,
+    },
+    // Fresh array so nested ctl handler return types don't conflict with the outer handler's.
+    functionReturnImplConcreteType: [],
+  };
+
+  const evaluatedBody = _evaluateExpression({
+    expr: clonedBody,
+    env: specializedEnv,
+    context: handlerContext,
+  });
+
+  const specializedFunction: FunctionValue = {
+    ...originalFunction,
+    body: evaluatedBody,
+    funcId: `${originalFunction.funcId}_ctl_${ctlSignature}`,
+    funcName: `${originalFunction.funcName ?? originalFunction.funcId}_ctl_${ctlSignature}`,
+    calledComptimeFunctionCaches: [],
+    specializedFunctionCaches: [],
+  };
+
+  // Cache to avoid re-evaluating on repeated calls
+  originalFunction.specializedFunctionCaches = [
+    ...originalFunction.specializedFunctionCaches,
+    {
+      funcId: originalFunction.funcId,
+      compileTimeArgValues: [],
+      runtimeParameterTypes: [],
+      specializedFunction,
+      env: evaluatedBody.$?.env ?? specializedEnv,
+    },
+  ];
+
+  return specializedFunction;
+}
 /**
  * Check if the returnType contains any SomeType that doesn't exist in the callerEnv;
  * If yes, then throw error
@@ -1721,4 +2818,15 @@ Please consider providing the expected type.`,
       });
     }
   }
+}
+
+function containsExpr(root: Expr, target: Expr): boolean {
+  if (root === target) return true;
+  if (root.tag === ExprTag.FnCall) {
+    if (containsExpr(root.func, target)) return true;
+    for (const arg of root.args) {
+      if (containsExpr(arg, target)) return true;
+    }
+  }
+  return false;
 }

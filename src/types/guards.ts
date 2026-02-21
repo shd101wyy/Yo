@@ -4,6 +4,7 @@ import type {
   ComptimeListType,
   ConcreteModuleType,
   DynType,
+  EffectsRowType,
   EnumType,
   FnTraitType,
   FunctionType,
@@ -403,6 +404,12 @@ export function isFunctionSpecializable(functionType: FunctionType): boolean {
     return false;
   }
 
+  // Control functions (`ctl`) use effect-handler semantics and should not
+  // go through normal generic function specialization.
+  if (functionType.isControlFunction) {
+    return false;
+  }
+
   // If the return type is compile-time only, this function is not specializable
   // for runtime code generation
   if (functionType.return?.isCompileTimeOnly) {
@@ -412,7 +419,8 @@ export function isFunctionSpecializable(functionType: FunctionType): boolean {
   // Check if this function has compile-time parameters and needs specialization
   const hasCompileTimeParams =
     functionType.parameters.some((p) => p.isCompileTimeOnly) ||
-    functionType.forallParameters.length > 0;
+    functionType.forallParameters.length > 0 ||
+    functionType.implicitParameters.length > 0;
 
   // Check if this function has SomeType parameters (like Impl(Fn(...)))
   // that need monomorphization for different concrete types
@@ -444,4 +452,8 @@ export function isBoxedType(
       !!type.typeName?.startsWith("Box(")
     );
   }
+}
+
+export function isEffectsRowType(type?: Type): type is EffectsRowType {
+  return type?.tag === TypeTag.EffectsRow;
 }

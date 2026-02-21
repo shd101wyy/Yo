@@ -26,6 +26,7 @@ import {
   generateClosureDisposeFunctions,
   generateMainWrapper,
   generateSpecializedFunctions,
+  preRegisterEffectfulFunctions,
 } from "./functions/generation";
 import { collectRequiredTypes } from "./types/collection";
 import {
@@ -146,6 +147,11 @@ static Slice_uint8_t_u42_ __yo_args;
 
     // Third pass: Generate function declarations (prototypes) for regular functions
     generateFunctionDeclarations(context);
+
+    // Pre-register effectful functions (SM structs + forward declarations)
+    // This must run before any function bodies are generated, so that call sites
+    // can find effectStateMachineInfo when generating calls to effectful functions.
+    preRegisterEffectfulFunctions(context);
 
     // Fourth pass: Generate all collected functions
     generateAllFunctions(context);

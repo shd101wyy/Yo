@@ -150,7 +150,13 @@ export function collectTypesFromExpr(
   // This handles cases like method lookups (e.g., temp.___drop)
   if (expr.$ && expr.$.value && isFunctionValue(expr.$.value)) {
     const functionValue = expr.$.value;
-    if (!context.functions[functionValue.funcId]) {
+    // Skip ctl handler functions — they are inlined by the effect SM call site
+    if (functionValue.type.isControlFunction) {
+      // Still collect types from the function signature
+      collectTypesFromFunctionType(functionValue.type, context);
+      // Recursively collect sub-functions called by the handler body (e.g., println)
+      findFunctionCallsInExpr(functionValue.body, context);
+    } else if (!context.functions[functionValue.funcId]) {
       // Skip collecting SomeType's ARC functions that have Impl(Future) params without resolvedConcreteType
       // These are just wrapper functions that codegen handles specially
       const paramTypes = functionValue.type.parameters.map((p) => p.type);

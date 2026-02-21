@@ -180,6 +180,12 @@ export interface Variable {
    * In C codegen, we use `self` in the function signature but reference `self2` in the body.
    */
   parameterAlias?: string;
+
+  /**
+   * Whether this variable is declared with `given`, making it available
+   * for implicit parameter resolution (`using` parameters in function calls).
+   */
+  isImplicit?: boolean;
 }
 
 export type WhereClauseConstraints = {
@@ -665,6 +671,23 @@ export function getVariablesFromEnvByFilter(
     variables.push(...variablesInFrame);
   }
   return variables;
+}
+
+/**
+ * Find the innermost (highest index) frame that contains at least one variable
+ * matching the filter. Returns the frame index, or -1 if none found.
+ */
+export function findInnermostFrameWithGivenVariable(
+  env: Environment,
+  variableFilter: (variable: Variable) => boolean
+): number {
+  for (let i = env.frames.length - 1; i >= 0; i--) {
+    const frame = env.frames[i]!;
+    if (frame.variables.some(variableFilter)) {
+      return i;
+    }
+  }
+  return -1;
 }
 
 export function pushEnvFrame(

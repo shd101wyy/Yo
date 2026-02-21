@@ -10,6 +10,7 @@ import {
 import { formatErrorMessage, formatErrorMessages } from "./error";
 import type { AwaitAnalysisResult } from "./evaluator/async/await-analysis-types";
 import type { EvaluatorContext } from "./evaluator/context";
+import type { EffectAnalysisResult } from "./evaluator/effects/effect-analysis-types";
 import { evaluateExpression } from "./evaluator/exprs/expr";
 import { generateExprFromCode } from "./parser";
 import { type Token, TokenType } from "./token";
@@ -101,7 +102,11 @@ export interface RuntimeDestructuring {
   variableName: string;
 }
 
-export type ControlFlowKind = "return" | "break" | "continue";
+/**
+ * 'return' is used for both normal function return and ctl handler resume.
+ * 'abort' is used for ctl handler discontinue (early return from enclosing function).
+ */
+export type ControlFlowKind = "return" | "break" | "continue" | "abort";
 
 export interface EvaluatedExprData {
   /**
@@ -267,6 +272,15 @@ export interface EvaluatedExprData {
    * information about both await points and the variables x and y.
    */
   awaitAnalysis?: AwaitAnalysisResult;
+
+  /**
+   * For effectful function call expressions, this contains the effect analysis result.
+   * It includes all ctl call points and captured variables needed by the effect state machine.
+   *
+   * This is computed during evaluation when a function with `using(ctl)` parameters
+   * is specialized and its body contains calls to the ctl parameter.
+   */
+  effectAnalysis?: EffectAnalysisResult;
 
   /**
    * For closure construction expressions (calling a closure type with a body),
@@ -509,6 +523,8 @@ export const BuiltinKeywords = {
   ref: ["ref"], // Reference semantics for struct/enum
 
   forall: ["forall", "∀"],
+  using: ["using"],
+  given: ["given"],
   where: ["where"],
   // Exists: ["exists", "∃"],
   // In: ["in", "∈"],
@@ -521,6 +537,8 @@ export const BuiltinKeywords = {
   recur: ["recur"],
   fn: ["fn"],
   unsafe_fn: ["unsafe_fn"], // The function that skips the prohibitVoidType check
+  ctl: ["ctl"],
+  abort: ["abort"],
   extern: ["extern"],
   cond: ["cond"],
   type: ["type"],

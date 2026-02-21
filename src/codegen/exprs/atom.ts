@@ -15,6 +15,30 @@ import { checkVariableIsClosureCaptured } from "./closures";
 import { generateComptimeValue } from "./comptime-value";
 import { generateExpr } from "./expr";
 
+function emitLoopBodyDropsBeforeExit(
+  functionContext: FunctionGenerationContext,
+  indent: string,
+  context: CodeGenContext
+): void {
+  if (
+    functionContext.pendingDeferredDrops &&
+    functionContext.loopBodyDropsBaselineCount !== undefined
+  ) {
+    const baselineCount = functionContext.loopBodyDropsBaselineCount;
+    const totalCount = functionContext.pendingDeferredDrops.length;
+    const dropsToEmit = functionContext.pendingDeferredDrops.slice(
+      0,
+      totalCount - baselineCount
+    );
+    for (const dropExpr of dropsToEmit) {
+      const dropCode = generateExpr(dropExpr, indent, context);
+      if (dropCode) {
+        context.emitter.emitLine(`${indent}${dropCode};`);
+      }
+    }
+  }
+}
+
 /**
  * Generate C code for an atom expression - extracted from original codegen-c.ts
  */
@@ -33,9 +57,11 @@ export function generateAtom(
     // If we're inside a regular generated loop, use regular continue behavior.
     // This must take precedence over async pseudo-loop handling.
     if (functionContext.currentContinueLabel) {
+      emitLoopBodyDropsBeforeExit(functionContext, indent, context);
       return `goto ${functionContext.currentContinueLabel}`;
     }
     if (functionContext.currentLoopLabel) {
+      emitLoopBodyDropsBeforeExit(functionContext, indent, context);
       return "continue";
     }
 
@@ -67,6 +93,7 @@ export function generateAtom(
     // If we're inside a regular generated loop, use regular break behavior.
     // This must take precedence over async pseudo-loop handling.
     if (functionContext.currentLoopLabel) {
+      emitLoopBodyDropsBeforeExit(functionContext, indent, context);
       if (functionContext.insideMatch) {
         return `goto ${functionContext.currentLoopLabel}`;
       }
@@ -246,7 +273,21 @@ export function generateAtom(
       }
     }
 
-    // Variable not in stateMachineVariables - it's a local C variable in the resume function
+    // Variable not in stateMachineVariables - check if it's a closure-captured variable.
+    // For closure+effect SM, captured variables are accessed through closure_context, not SM struct.
+    if (
+      functionContext.currentClosureCaptures &&
+      functionContext.currentClosureCaptures.includes(varName) &&
+      functionContext.currentClosureCaptureFrameLevel !== undefined
+    ) {
+      const captureTypeCName = functionContext.currentClosureCaptureTypeCName;
+      if (captureTypeCName) {
+        return `((${captureTypeCName}*)closure_context)->${getVariableNameForCodegen(varName, expr.$?.env)}`;
+      }
+      return `closure_context->${getVariableNameForCodegen(varName, expr.$?.env)}`;
+    }
+
+    // It's a local C variable in the resume function.
     // But first check if it's a compile-time only constant - if so, inline its value
     // (compile-time constants like STATX_BASIC_STATS are not captured in the state machine,
     // but their names may not exist as C identifiers on all platforms)

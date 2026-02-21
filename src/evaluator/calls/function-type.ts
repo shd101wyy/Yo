@@ -10,7 +10,9 @@ import { cloneExpr, type Expr, type FnCallExpr } from "../../expr";
 import type { FunctionValue } from "../../function-value";
 import { PlaceholderToken } from "../../token";
 import { areTypesCompatible } from "../../types/compatibility";
-import type { FunctionType } from "../../types/definitions";
+
+import { createUnitType } from "../../types/creators";
+import type { FunctionType, Type } from "../../types/definitions";
 import { isFunctionType, isSomeType } from "../../types/guards";
 import { typeContainsSomeType, typeToString } from "../../types/utils";
 import { randomId } from "../../utils";
@@ -240,13 +242,18 @@ export function tryToImplementFunctionByFunctionType({
   // If the function depends on generic type variables, we should NOT evaluate the body
   // at definition time. The body will be evaluated when the function is specialized
   // with concrete type arguments.
+  //
+  // Exception: ctl handler functions should NOT be deferred even with forall parameters.
+  // The forall params on a ctl type (e.g., ctl(forall(T : Type), ...) -> T) represent
+  // the operation's result type, which is resolved at each call site.
   const shouldDeferBodyEvaluation =
-    newFunctionType.forallParameters.length > 0 ||
-    newFunctionType.parameters.some((param) =>
-      typeContainsSomeType(param.type)
-    ) ||
-    (newFunctionType.SelfType &&
-      typeContainsSomeType(newFunctionType.SelfType));
+    !newFunctionType.isControlFunction &&
+    (newFunctionType.forallParameters.length > 0 ||
+      newFunctionType.parameters.some((param) =>
+        typeContainsSomeType(param.type)
+      ) ||
+      (newFunctionType.SelfType &&
+        typeContainsSomeType(newFunctionType.SelfType)));
 
   let evaluatedFunctionBody: Expr;
   let evaluationContext: EvaluatorContext;
@@ -284,6 +291,42 @@ export function tryToImplementFunctionByFunctionType({
     );
     evaluationContext = ctx.evaluationContext;
 
+    if (newFunctionType.isControlFunction) {
+      // The enclosing function return type determines what `abort` returns.
+      // Prefer the current evaluation context (the actual enclosing function where
+      // the handler is being DEFINED) over ParentFunctionType (which was set when
+      // the ctl TYPE was defined, possibly in a different scope).
+      let enclosingReturnType: Type | undefined;
+      if (context.isEvaluatingFunctionBodyOrAsyncBlock) {
+        const block = context.isEvaluatingFunctionBodyOrAsyncBlock;
+        if (block.kind === "function-body") {
+          enclosingReturnType = block.type.return.type;
+        } else {
+          enclosingReturnType = createUnitType();
+        }
+      }
+      if (!enclosingReturnType) {
+        enclosingReturnType = newFunctionType.ParentFunctionType?.return.type;
+      }
+
+      if (!enclosingReturnType) {
+        throw formatErrorMessage({
+          token: expr.token,
+          errorMessage: `ctl function value can only be defined inside a function.`,
+        });
+      }
+
+      // Set controlHandlerContext so that `return(value)` and `abort expr`
+      // keywords are valid inside this handler body and can be type-checked.
+      evaluationContext = {
+        ...evaluationContext,
+        controlHandlerContext: {
+          operationResultType: newFunctionType.return.type, // T from ctl(...) -> T
+          enclosingFunctionReturnType: enclosingReturnType,
+        },
+      };
+    }
+
     evaluatedFunctionBody = evaluateBeginExpression({
       expr: functionBodyExpr, // Use transformed body
       env,
@@ -307,7 +350,10 @@ export function tryToImplementFunctionByFunctionType({
   const functionBodyReturnType = evaluatedFunctionBody.$?.type;
 
   // Regular function: body type must match return type exactly
+  // Skip for ctl functions: the handler body's return type is the enclosing function's
+  // return type (handlerResultType), not the ctl operation's return type (T).
   if (
+    !newFunctionType.isControlFunction &&
     functionBodyReturnType &&
     !areTypesCompatible(
       { type: newFunctionType.return.type, env },

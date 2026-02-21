@@ -392,7 +392,7 @@ export function evaluateMatch({
         evaluatedBody.$.value = undefined;
       }
 
-      // Check if the the evaluatedBody has "return"/"break"/"continue" expression
+      // Check if the the evaluatedBody has "return"/"abort"/"break"/"continue" expression
       if (evaluatedBody.$.controlFlow) {
         controlFlows.push(evaluatedBody.$.controlFlow);
         // Collect bodies with return control flow for validation
@@ -869,6 +869,8 @@ Supported patterns:
   let finalControlFlow: ControlFlowKind | undefined = undefined;
   if (controlFlows.every((cf) => cf === "return")) {
     finalControlFlow = "return";
+  } else if (controlFlows.every((cf) => cf === "abort")) {
+    finalControlFlow = "abort";
   } else if (controlFlows.every((cf) => cf === "break")) {
     finalControlFlow = "break";
   } else if (controlFlows.every((cf) => cf === "continue")) {
@@ -881,9 +883,15 @@ Supported patterns:
         finalControlFlow = "break"; // At least one case breaks the loop
       } else if (controlFlows.find((cf) => cf === "return")) {
         finalControlFlow = "return"; // At least one case returns from function
+      } else if (controlFlows.find((cf) => cf === "abort")) {
+        finalControlFlow = "abort"; // At least one case aborts (ctl handler discontinue)
       }
     } else {
-      finalControlFlow = undefined; // Mixed control flows
+      if (controlFlows.find((cf) => cf === "abort")) {
+        finalControlFlow = "abort"; // At least one case aborts
+      } else {
+        finalControlFlow = undefined; // Mixed control flows
+      }
     }
   }
 
@@ -920,7 +928,10 @@ Supported patterns:
     // mergeAndCheckEnvs is for runtime unknown conditions where we need to merge metadata.
     // Using the branch's environment directly preserves compile-time values like updated variables.
     const nonReturnBodies = bodies.filter(
-      (body) => body.$ && body.$.controlFlow !== "return"
+      (body) =>
+        body.$ &&
+        body.$.controlFlow !== "return" &&
+        body.$.controlFlow !== "abort"
     );
 
     // For compile-time known enum value, find the matched body's value
@@ -1011,6 +1022,23 @@ Supported patterns:
             : undefined,
         pathCollection: [],
         controlFlow: "return",
+      };
+    } else if (finalControlFlow === "abort") {
+      // All cases are aborting (ctl handler discontinue)
+      if (!context.controlHandlerContext) {
+        throw formatErrorMessage({
+          token: expr.token,
+          errorMessage: `All cases in match use "abort", but not inside a ctl handler body.`,
+        });
+      }
+      const abortType =
+        context.controlHandlerContext.enclosingFunctionReturnType;
+      expr.$ = {
+        env,
+        type: abortType,
+        value: undefined,
+        pathCollection: [],
+        controlFlow: "abort",
       };
     } else if (finalControlFlow === "break") {
       // All cases break from loop
@@ -1208,7 +1236,12 @@ function evaluatePrimitiveMatch({
           // Merge and check all environments
           env = mergeAndCheckEnvs(
             env,
-            bodies.filter((body) => body.$ && body.$.controlFlow !== "return")
+            bodies.filter(
+              (body) =>
+                body.$ &&
+                body.$.controlFlow !== "return" &&
+                body.$.controlFlow !== "abort"
+            )
           );
 
           expr.$ = {
@@ -1504,6 +1537,8 @@ Hint: Use "::" to define compile-time constants, e.g., "myConst :: 42"`,
   let finalControlFlow: ControlFlowKind | undefined = undefined;
   if (controlFlows.every((cf) => cf === "return")) {
     finalControlFlow = "return";
+  } else if (controlFlows.every((cf) => cf === "abort")) {
+    finalControlFlow = "abort";
   } else if (controlFlows.every((cf) => cf === "break")) {
     finalControlFlow = "break";
   } else if (controlFlows.every((cf) => cf === "continue")) {
@@ -1516,9 +1551,15 @@ Hint: Use "::" to define compile-time constants, e.g., "myConst :: 42"`,
         finalControlFlow = "break";
       } else if (controlFlows.find((cf) => cf === "return")) {
         finalControlFlow = "return";
+      } else if (controlFlows.find((cf) => cf === "abort")) {
+        finalControlFlow = "abort";
       }
     } else {
-      finalControlFlow = undefined;
+      if (controlFlows.find((cf) => cf === "abort")) {
+        finalControlFlow = "abort";
+      } else {
+        finalControlFlow = undefined;
+      }
     }
   }
 
@@ -1537,7 +1578,10 @@ Hint: Use "::" to define compile-time constants, e.g., "myConst :: 42"`,
     // mergeAndCheckEnvs is for runtime unknown conditions where we need to merge metadata.
     // Using the branch's environment directly preserves compile-time values like updated variables.
     const nonReturnBodies = bodies.filter(
-      (body) => body.$ && body.$.controlFlow !== "return"
+      (body) =>
+        body.$ &&
+        body.$.controlFlow !== "return" &&
+        body.$.controlFlow !== "abort"
     );
     if (
       scrutineeValue !== undefined &&
@@ -1616,6 +1660,23 @@ Hint: Use "::" to define compile-time constants, e.g., "myConst :: 42"`,
             : undefined,
         pathCollection: [],
         controlFlow: "return",
+        isPrimitiveMatch: true,
+      };
+    } else if (finalControlFlow === "abort") {
+      if (!context.controlHandlerContext) {
+        throw formatErrorMessage({
+          token: expr.token,
+          errorMessage: `All cases in match use "abort", but not inside a ctl handler body.`,
+        });
+      }
+      const abortType =
+        context.controlHandlerContext.enclosingFunctionReturnType;
+      expr.$ = {
+        env,
+        type: abortType,
+        value: undefined,
+        pathCollection: [],
+        controlFlow: "abort",
         isPrimitiveMatch: true,
       };
     } else if (finalControlFlow === "break") {

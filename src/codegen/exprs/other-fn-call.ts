@@ -6,12 +6,19 @@ import {
 } from "../../evaluator/trait-checking";
 import {
   BuiltinFunctions,
+  BuiltinKeywords,
   exprIsAtom,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
+  type Expr,
   type FnCallExpr,
 } from "../../expr";
-import type { ArrayType, SomeType } from "../../types/definitions";
+import type { FunctionValue } from "../../function-value";
+import type {
+  ArrayType,
+  FunctionType,
+  SomeType,
+} from "../../types/definitions";
 import {
   isArrayType,
   isDynType,
@@ -25,6 +32,7 @@ import {
   isUnionType,
   isUnitType,
 } from "../../types/guards";
+import { typeContainsRcType } from "../../types/utils";
 import {
   isFunctionValue,
   isNumberValue,
@@ -32,11 +40,16 @@ import {
   isUnknownValue,
 } from "../../value";
 import { BuiltinYoInlineFunctions } from "../constants";
+import {
+  generateEffectCallSite,
+  generateMultiEffectCallSite,
+  type EffectCallSiteHandler,
+  type EffectStateMachineInfo,
+} from "../effects/effect-state-machine";
 import type { FunctionGenerationContext } from "../functions/context";
 import {
   canOptimizeAsNullablePointer,
   canOptimizeAsSimpleEnum,
-  type CodeGenContext,
   getDeferredDupTargetAtomName,
   getEnumVariantCName,
   getTypeString,
@@ -44,12 +57,14 @@ import {
   getVariableTypeString,
   isFunctionValueWithOnlyBuiltinYoInlineFunctionCall,
   sanitizeForCIdentifier,
+  type CodeGenContext,
 } from "../utils";
 import { checkVariableIsClosureCaptured } from "./closures";
 import { generateComptimeValue } from "./comptime-value";
 import {
   generateDeferredDropExpressions,
   generateDeferredDupExpressions,
+  generateDropCodeForValue,
 } from "./drop-dup";
 import { generateExpr } from "./expr";
 import { generateYoInlineFunctionCall } from "./inline-fns";
@@ -57,6 +72,35 @@ import {
   generateThreadSpawnCall,
   generateWorkerSpawnCall,
 } from "./parallelism";
+
+/**
+ * Recursively check if an expression tree contains an abort() call.
+ * If abort is present, the handler discards the continuation (discontinue).
+ * If abort is absent, the handler uses return(value) to resume the continuation.
+ */
+function exprContainsAbort(expr: Expr): boolean {
+  if (exprIsFunctionCallOf(expr, BuiltinKeywords.abort)) {
+    return true;
+  }
+  if (exprIsFunctionCall(expr)) {
+    // Don't recurse into nested anonymous function bodies (->).
+    // An `abort` inside a nested handler is scoped to that inner handler,
+    // not the current one.
+    if (exprIsFunctionCallOf(expr, "->")) {
+      return false;
+    }
+    for (const arg of (expr as FnCallExpr).args) {
+      if (exprContainsAbort(arg)) return true;
+    }
+    if (
+      (expr as FnCallExpr).func &&
+      exprContainsAbort((expr as FnCallExpr).func)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
 
 /**
  * In async state machine context, stores a local temp variable to its
@@ -428,10 +472,106 @@ export function generateOtherFunctionCall(
         const functionValueType =
           functionValue.specializedType ?? functionValue.type;
 
+        // Direct ctl function call (handler invoked in same scope as given binding).
+        // In this case the function value itself IS the handler. There is no intermediate
+        // function with `using(raise)`, so no state machine was generated. Instead we
+        // inline the handler body directly at the call site.
+        // NOTE: This check must be BEFORE the cFuncName check because ctl handler functions
+        // may not be collected as standalone functions (they're inlined at call sites).
+        if (functionValueType.isControlFunction && functionValue.body) {
+          return generateDirectCtlCall(
+            functionValue,
+            functionValueType,
+            args,
+            indent,
+            context as FunctionGenerationContext
+          );
+        }
+
         // Normal function call
         const cFuncName = context.functions[functionValue.funcId]?.cName;
 
         if (cFuncName) {
+          // Check if this is an effectful function call (has effect state machine)
+          const funcEntry = context.functions[functionValue.funcId];
+          const effectSmInfo = funcEntry?.effectStateMachineInfo as
+            | EffectStateMachineInfo
+            | undefined;
+
+          if (effectSmInfo) {
+            // Effectful function call — generate call-site dispatch with handler inlining
+            const effectAnalysis = functionValue.body?.$?.effectAnalysis;
+
+            // Check for multi-effect (multiple effect handler infos)
+            if (
+              effectAnalysis?.effectHandlerInfos &&
+              effectAnalysis.effectHandlerInfos.length > 1
+            ) {
+              const handlers: EffectCallSiteHandler[] = [];
+              for (
+                let eIdx = 0;
+                eIdx < effectAnalysis.effectHandlerInfos.length;
+                eIdx++
+              ) {
+                const hi = effectAnalysis.effectHandlerInfos[eIdx]!;
+                const hv = hi.handlerValue as FunctionValue | undefined;
+                if (hv && isFunctionValue(hv)) {
+                  const hType = hv.specializedType ?? hv.type;
+                  const hBody = hv.body;
+                  const hHasResume = hBody ? !exprContainsAbort(hBody) : false;
+                  handlers.push({
+                    handlerBody: hBody!,
+                    handlerType: hType,
+                    hasResume: hHasResume,
+                    effectIndex: eIdx,
+                  });
+                }
+              }
+              if (handlers.length > 0) {
+                const tempVar = expr.$?.variableName;
+                return generateMultiEffectCallSite(
+                  effectSmInfo,
+                  args,
+                  functionValueType,
+                  handlers,
+                  tempVar,
+                  indent,
+                  context as FunctionGenerationContext
+                );
+              }
+            }
+
+            // Single-effect: use original single-handler call site
+            const handlerValue = effectAnalysis?.handlerValue as
+              | FunctionValue
+              | undefined;
+
+            if (handlerValue && isFunctionValue(handlerValue)) {
+              const handlerType =
+                handlerValue.specializedType ?? handlerValue.type;
+              const handlerBody = handlerValue.body;
+              const handlerHasResume = handlerBody
+                ? !exprContainsAbort(handlerBody)
+                : false;
+
+              const tempVar = expr.$?.variableName;
+              const callerReturnType = expr.$?.type;
+
+              return generateEffectCallSite(
+                effectSmInfo,
+                args,
+                functionValueType,
+                handlerBody!,
+                handlerType,
+                handlerHasResume,
+                callerReturnType,
+                tempVar,
+                indent,
+                context as FunctionGenerationContext
+              );
+            }
+          }
+
           // Generate function call
           if (isUnitType(functionValueType.return.type)) {
             // If the function returns unit, just call it without assignment
@@ -683,13 +823,18 @@ export function generateOtherFunctionCall(
               // Return the inline access expression
               return generateExpr(arg, indent, context);
             } else {
-              // Check if this is a state machine variable
-              const argCode = generateExpr(arg, indent, context);
+              // The pre-processing loop above already called generateExpr to emit
+              // temp variable declarations. Use the variable name directly to avoid
+              // re-generating the same code.
+              const argVarName = getVariableNameForCodegen(
+                arg.$.variableName,
+                arg.$.env
+              );
               const isStateMachineCapturedVariable =
-                functionContext.inStateMachine && argCode.startsWith("sm->");
+                functionContext.inStateMachine && argVarName.startsWith("sm->");
 
               // Handle deferred dup expressions for closure call arguments
-              let finalArgVarName = arg.$.variableName;
+              let finalArgVarName = argVarName;
               if (
                 arg.$?.deferredDupExpressions &&
                 arg.$.deferredDupExpressions.length > 0
@@ -705,7 +850,9 @@ export function generateOtherFunctionCall(
                 }
               }
 
-              return isStateMachineCapturedVariable ? argCode : finalArgVarName;
+              return isStateMachineCapturedVariable
+                ? argVarName
+                : finalArgVarName;
             }
           } else {
             return generateExpr(arg, indent, context);
@@ -733,6 +880,59 @@ export function generateOtherFunctionCall(
           const mapped = concreteTypeId
             ? context.implClosureCallMap.get(concreteTypeId)
             : undefined;
+
+          // Check if the closure body function has an effect state machine
+          if (mapped) {
+            const closureFuncEntry = Object.values(
+              functionContext.functions
+            ).find((f) => f.cName === mapped.functionCName);
+            const effectSmInfo = closureFuncEntry?.effectStateMachineInfo as
+              | EffectStateMachineInfo
+              | undefined;
+            if (effectSmInfo && closureFuncEntry) {
+              // Find the handler value from the given binding in the enclosing scope.
+              // The effect analysis knows the ctl parameter name (e.g., "log").
+              const analysis = effectSmInfo.analysis;
+              const effectParamName = analysis.effectParameterName;
+              const callEnv = expr.func.$?.env ?? expr.$?.env;
+              if (effectParamName && callEnv) {
+                const givenVars = getVariablesFromEnv(callEnv, effectParamName);
+                const givenVar = givenVars[givenVars.length - 1];
+                const handlerVal = givenVar?.value?.[0];
+                if (handlerVal && isFunctionValue(handlerVal)) {
+                  const handlerType =
+                    (handlerVal as FunctionValue).specializedType ??
+                    (handlerVal as FunctionValue).type;
+                  const handlerHasResume = (handlerVal as FunctionValue).body
+                    ? !exprContainsAbort((handlerVal as FunctionValue).body!)
+                    : false;
+                  const tempVar = expr.$?.variableName;
+                  const closureContextCode = `&(${closureCode})`;
+                  const result = generateEffectCallSite(
+                    effectSmInfo,
+                    args,
+                    effectSmInfo.functionType,
+                    (handlerVal as FunctionValue).body!,
+                    handlerType,
+                    handlerHasResume,
+                    functionContext.currentFunctionType?.return.type,
+                    tempVar,
+                    indent,
+                    functionContext,
+                    closureContextCode
+                  );
+                  if (expr.$?.deferredDropExpressions) {
+                    generateDeferredDropExpressions(
+                      expr,
+                      indent,
+                      functionContext
+                    );
+                  }
+                  return result;
+                }
+              }
+            }
+          }
 
           if (!mapped) {
             // Fallback to old representation if mapping is missing.
@@ -1400,4 +1600,137 @@ export function generateOtherFunctionCall(
     const indexCode = generateExpr(expr.args[0]!, indent, context);
     return `${sliceCode}.data[${indexCode}]`; // Access the element at the index in the slice
   }
+}
+/**
+ * Generate an inline invocation of a ctl function when it is called directly
+ * in the same scope that provides the `given` handler (i.e. there is no
+ * intermediate function with `using(ctl)` that would create a state machine).
+ *
+ * The ctl function IS the handler. We bind call arguments to handler parameters
+ * as local C variables and generate the body inline. `abort(val)` inside the
+ * body becomes `return val;` which exits the enclosing C function (the handler
+ * scope). `return(val)` inside the body treats `val` as the result of the call.
+ */
+let directCtlCallSiteCounter = 0;
+
+function generateDirectCtlCall(
+  functionValue: FunctionValue,
+  functionType: FunctionType,
+  argCodes: string[],
+  indent: string,
+  context: FunctionGenerationContext
+): string {
+  const emitter = context.emitter;
+  const callSiteId = directCtlCallSiteCounter++;
+
+  const runtimeParams = functionType.parameters.filter(
+    (p) => !p.isCompileTimeOnly
+  );
+
+  const handlerHasResume = functionValue.body
+    ? !exprContainsAbort(functionValue.body)
+    : false;
+
+  // For the resume case, declare the result variable BEFORE the inner block so that
+  // it stays in scope after the block closes and can be used as the call expression.
+  const resultType = handlerHasResume ? functionValue.body!.$?.type : undefined;
+  const isUnitReturn = !resultType || isUnitType(resultType);
+  const tmpResultVar = `__ctl_direct_result_${callSiteId}`;
+  if (handlerHasResume && !isUnitReturn) {
+    const resultTypeCName = getTypeString(resultType!, context);
+    emitter.emitLine(`${indent}${resultTypeCName} ${tmpResultVar};`);
+  }
+
+  const innerIndent = `${indent}  `;
+  emitter.emitLine(`${indent}{`);
+
+  const paramDropCodes: string[] = [];
+  for (let i = 0; i < runtimeParams.length && i < argCodes.length; i++) {
+    const param = runtimeParams[i]!;
+    const paramTypeCName = getTypeString(param.type, context);
+    const paramCName = sanitizeForCIdentifier(param.label);
+    emitter.emitLine(
+      `${innerIndent}${paramTypeCName} ${paramCName} = ${argCodes[i]};`
+    );
+    if (typeContainsRcType(param.type)) {
+      const dropCode = generateDropCodeForValue(
+        paramCName,
+        param.type,
+        context
+      );
+      if (dropCode) {
+        paramDropCodes.push(dropCode);
+      }
+    }
+  }
+
+  if (handlerHasResume) {
+    // Resume case: intercept `return(value)` to assign into tmpResultVar.
+    // The params are aliases of the caller's args (borrowed, not moved) because
+    // execution continues past the call site. The CALLER is responsible for
+    // dropping the args at end of its own scope — don't drop them here.
+    //
+    // Also create an exit label so nested abort handlers can `goto` here
+    // instead of using `return` (which would exit the C function entirely).
+    const exitLabel = `__ctl_direct_exit_${callSiteId}`;
+
+    const prevContinuationVars = context.continuationVariables;
+    const continuationVars = new Map(prevContinuationVars);
+    continuationVars.set("resume", {
+      directReturnVar: isUnitReturn ? "" : tmpResultVar,
+      directExitLabel: exitLabel,
+      isUnitReturn,
+    });
+    context.continuationVariables = continuationVars;
+
+    // Save and clear pendingDeferredDrops so that `return()` inside the handler
+    // body only sees drops from the handler's own scopes, not from the caller's
+    // outer scope. The caller's drops should persist after the call site.
+    const savedPendingDrops = context.pendingDeferredDrops;
+    context.pendingDeferredDrops = undefined;
+
+    const bodyCode = generateExpr(functionValue.body!, innerIndent, context);
+    if (bodyCode) {
+      emitter.emitLine(`${innerIndent}${bodyCode};`);
+    }
+    // No paramDropCodes here: params are borrowed from the outer scope.
+
+    context.pendingDeferredDrops = savedPendingDrops;
+    context.continuationVariables = prevContinuationVars;
+    emitter.emitLine(`${indent}}`);
+    // Emit the exit label after the block for nested abort goto targets
+    emitter.emitLine(`${indent}${exitLabel}:;`);
+    return isUnitReturn ? "" : tmpResultVar;
+  } else {
+    // Abort case: `abort(value)` in the body generates `return value;` in C,
+    // exiting the enclosing C function. Use effectHandlerParamDrops so that
+    // param cleanup runs before the abort return.
+    const prevHandlerDrops = context.effectHandlerParamDrops;
+    context.effectHandlerParamDrops = paramDropCodes;
+
+    // Track RC-type arg C names as consumed — handler param drops already free
+    // these pointers (params are aliases of argCodes, no dup). Pending deferred
+    // drops must skip them to avoid double-free.
+    const prevConsumedArgs = context.effectSmConsumedArgCNames;
+    const consumedArgs = new Set<string>();
+    for (let i = 0; i < runtimeParams.length && i < argCodes.length; i++) {
+      const param = runtimeParams[i]!;
+      if (typeContainsRcType(param.type)) {
+        consumedArgs.add(argCodes[i]!);
+      }
+    }
+    if (consumedArgs.size > 0) {
+      context.effectSmConsumedArgCNames = consumedArgs;
+    }
+
+    const bodyCode = generateExpr(functionValue.body!, innerIndent, context);
+    if (bodyCode) {
+      emitter.emitLine(`${innerIndent}${bodyCode};`);
+    }
+    context.effectSmConsumedArgCNames = prevConsumedArgs;
+    context.effectHandlerParamDrops = prevHandlerDrops;
+  }
+
+  emitter.emitLine(`${indent}}`);
+  return "";
 }

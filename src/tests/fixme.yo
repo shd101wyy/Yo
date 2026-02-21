@@ -1,41 +1,31 @@
-open import "std/libc/stdio";
 open import "std/string";
-open import "std/libc/stdlib";
-{ temp_dir, path_join } :: import "../../tests/io/helper";
-file :: import "std/io/file";
-dir :: import "std/io/dir";
-iov_io :: import "std/io/iov";
-{ AT_FDCWD, O_RDWR, O_CREAT, O_TRUNC } :: import "std/io/constants";
+open import "std/fmt";
+
+Log :: (ctl(msg : String) -> unit);
 
 main :: (fn() -> unit) {
-  async {
-    tmp := temp_dir();
-    path_str := path_join(tmp, `yo_iov_pwritev_test.txt`);
-    path_c := path_str.to_cstr();
-    path := path_c.ptr().unwrap();
+  run_test :: (fn() -> i32) {
+    x := Box(i32)(0);
 
-    flags := ((O_RDWR | O_CREAT) | O_TRUNC);
-    fd := await file.openat(AT_FDCWD, path, flags, i32(0o644));
-    printf("fd = %d\n", fd);
+    (given(log) : Log) = ((msg) -> {
+      println(msg);
+      abort i32(99);
+    });
 
-    iov_bytes := (iov_io.iovec_size() * usize(2));
-    write_iov := *(u8)(malloc(iov_bytes).unwrap());
-    part1 := *(u8)("hello ");
-    part2 := *(u8)("world");
-    iov_io.iovec_set(write_iov, usize(0), part1, usize(6));
-    iov_io.iovec_set(write_iov, usize(1), part2, usize(5));
+    (closure : Impl(Fn(v : i32, msg : String, using(log : Log)) -> i32)) =
+      (v, msg, using(log)) => {
+        log(msg);
+        x.* = (x.* + v);
+        return x.*;
+      };
 
-    wr := iov_io.writev(fd, write_iov, i32(2));
-    printf("writev result = %d\n", wr);
-
-    wr2 := iov_io.pwritev(fd, write_iov, i32(2), i64(0));
-    printf("pwritev result = %d\n", wr2);
-
-    close_ret := await file.close(fd);
-    rm := await dir.unlink(AT_FDCWD, path, i32(0));
-    free(.Some(*(void)(write_iov)));
-    printf("done\n");
+    result := closure(1, `hello`);
+    assert(false, "should not reach here");
+    return result;
   };
-};
 
+  val := run_test();
+  assert(val == 99, "Expected 99 from abort");
+  println(`done`);
+};
 export main;

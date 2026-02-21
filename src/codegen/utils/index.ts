@@ -50,7 +50,14 @@ export interface CodeGenContext {
   /**
    * Collected functions that need to be generated
    */
-  functions: Record<FuncValueId, { value: FunctionValue; cName: string }>;
+  functions: Record<
+    FuncValueId,
+    {
+      value: FunctionValue;
+      cName: string;
+      effectStateMachineInfo?: unknown;
+    }
+  >;
 
   /**
    * Extern functions

@@ -1,6 +1,7 @@
 import { addVariableToEnv, type Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
+  BuiltinKeywords,
   exprIsAtom,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
@@ -83,14 +84,31 @@ export function evaluateInitializationAssignment({
   const lhs = expr.args[0]!;
   let rhs = expr.args[1]!;
 
+  // Detect given(name) wrapper on LHS for implicit parameter declaration
+  let isImplicit = false;
+  let actualLhs = lhs;
+  if (
+    exprIsFunctionCall(lhs) &&
+    exprIsFunctionCallOf(lhs, BuiltinKeywords.given)
+  ) {
+    if (lhs.args.length !== 1) {
+      throw formatErrorMessage({
+        token: lhs.token,
+        errorMessage: `Expected exactly one argument for "given", got ${lhs.args.length}`,
+      });
+    }
+    isImplicit = true;
+    actualLhs = lhs.args[0]!;
+  }
+
   // Prevent declaring variable type using :: or :=
-  if (exprIsFunctionCall(lhs) && exprIsFunctionCallOf(lhs, ":")) {
+  if (exprIsFunctionCall(actualLhs) && exprIsFunctionCallOf(actualLhs, ":")) {
     throw formatErrorMessage({
-      token: lhs.token,
+      token: actualLhs.token,
       errorMessage: `Unexpected use of ":" in type declaration with "${
         expr.token.value
       }". Please consider using "=":
-(${exprToString(lhs)}) = ${exprToString(rhs)}`,
+(${exprToString(actualLhs)}) = ${exprToString(rhs)}`,
     });
   }
 
@@ -118,7 +136,7 @@ export function evaluateInitializationAssignment({
     throwRhsContainsControlFlowExpressionError(rhs, rhs.$.controlFlow);
   }
 
-  if (exprIsAtom(lhs)) {
+  if (exprIsAtom(actualLhs)) {
     // Check if the RHS variable has been consumed (moved)
     requireExprNotConsumed(rhs, env);
 
@@ -130,16 +148,22 @@ export function evaluateInitializationAssignment({
       env = rhs.$?.env;
     }
 
-    if (!isValidVariableName(lhs)) {
+    if (!isValidVariableName(actualLhs)) {
       throw formatErrorMessage({
-        token: lhs.token,
-        errorMessage: `Invalid assignment to ${lhs.token.value}, expected identifier or operator`,
+        token: actualLhs.token,
+        errorMessage: `Invalid assignment to ${actualLhs.token.value}, expected identifier or operator`,
       });
     }
 
+    // When using given, force compile-time only regardless of := or ::
+    const effectiveIsCompileTimeOnly = isImplicit || isCompileTimeOnly;
+    const effectiveShouldConvertToRuntimeType = isImplicit
+      ? false
+      : shouldConvertToRuntimeType;
+
     // Set the variable type
     let rhsType = rhs.$?.type;
-    if (!lhs.$?.type) {
+    if (!actualLhs.$?.type) {
       if (!rhsType) {
         throw formatErrorMessage({
           token: rhs.token,
@@ -152,7 +176,7 @@ export function evaluateInitializationAssignment({
       // comptime_float -> f64
       // etc...
       let lhsType = rhsType;
-      if (shouldConvertToRuntimeType) {
+      if (effectiveShouldConvertToRuntimeType) {
         lhsType = convertComptimeTypeToRuntimeType({
           type: rhsType,
           expectedType: undefined,
@@ -162,8 +186,8 @@ export function evaluateInitializationAssignment({
       }
 
       // user didn't specify the type
-      lhs.$ = {
-        ...lhs.$,
+      actualLhs.$ = {
+        ...actualLhs.$,
         env,
         type: lhsType,
         pathCollection: [],
@@ -178,7 +202,7 @@ export function evaluateInitializationAssignment({
           env: nextEnv,
         } = synthesizeExprAndType({
           expr: rhs,
-          type: lhs.$?.type,
+          type: actualLhs.$?.type,
           env: env,
           context: { ...context },
         });
@@ -197,32 +221,41 @@ export function evaluateInitializationAssignment({
 
       // Check if the type is compatible
       if (
-        !areTypesCompatible({ type: lhs.$.type, env }, { type: rhsType, env })
+        !areTypesCompatible(
+          { type: actualLhs.$.type, env },
+          { type: rhsType, env }
+        )
       ) {
         throw formatErrorMessage({
-          token: lhs.token,
+          token: actualLhs.token,
           errorMessage: `Incompatible types:
-- Defined: ${typeToString(lhs.$.type)}
+- Defined: ${typeToString(actualLhs.$.type)}
 - Given  : ${typeToString(rhsType)}`,
         });
       }
     }
 
     // Check some value that requires compile-time only
-    if (!isCompileTimeOnly && typeRequiresComptimeModifier(lhs.$.type, env)) {
+    if (
+      !effectiveIsCompileTimeOnly &&
+      typeRequiresComptimeModifier(actualLhs.$.type, env)
+    ) {
       throw formatErrorMessage({
         token: expr.token,
         errorMessage: `Expected "::" instead of ":=" for compile-time known value assignment:
 ${exprToString(expr)}
 
 Type:
-${typeToString(lhs.$.type)}`,
+${typeToString(actualLhs.$.type)}`,
       });
     }
-    if (isCompileTimeOnly && typeProhibitsComptimeModifier(lhs.$.type, env)) {
+    if (
+      effectiveIsCompileTimeOnly &&
+      typeProhibitsComptimeModifier(actualLhs.$.type, env)
+    ) {
       throw formatErrorMessage({
         token: expr.token,
-        errorMessage: `Expected ":=" instead of "::" for value type "${typeToString(lhs.$.type)}" which can only be used at the runtime:
+        errorMessage: `Expected ":=" instead of "::" for value type "${typeToString(actualLhs.$.type)}" which can only be used at the runtime:
 ${exprToString(expr)}`,
       });
     }
@@ -241,25 +274,25 @@ ${exprToString(expr)}`,
       !rhsValue.value.typeName &&
       rhsValue.value !== context.SelfType
     ) {
-      rhsValue.value.typeName = lhs.token.value;
+      rhsValue.value.typeName = actualLhs.token.value;
     } else if (isFunctionValue(rhsValue) && !rhsValue.funcName) {
-      rhsValue.funcName = lhs.token.value;
-      rhsValue.funcId += `_${lhs.token.value}`;
+      rhsValue.funcName = actualLhs.token.value;
+      rhsValue.funcId += `_${actualLhs.token.value}`;
     } else if (
       (isModuleValue(rhsValue) || isTraitValue(rhsValue)) &&
       !rhsValue.type.typeName &&
       rhsValue.type !== context.SelfType
     ) {
-      rhsValue.type.typeName = lhs.token.value;
+      rhsValue.type.typeName = actualLhs.token.value;
     }
 
     // No consumption logic needed
 
     // Prohibit assigning runtime value to comptime-only variable
-    if (!rhsValue && isCompileTimeOnly) {
+    if (!rhsValue && effectiveIsCompileTimeOnly) {
       throw formatErrorMessage({
-        token: lhs.token,
-        errorMessage: `Expected compile-time value for "${lhs.token.value}".
+        token: actualLhs.token,
+        errorMessage: `Expected compile-time value for "${actualLhs.token.value}".
 Got runtime value. Please consider using ":=" instead of "::":
 ${exprToString(rhs)}`,
       });
@@ -271,15 +304,15 @@ ${exprToString(rhs)}`,
     // e.g., arr2 :: arr1 should create an independent copy
     // cloneValue with preservePointerReferences=true (default) ensures that pointers
     // maintain reference semantics even when nested in data structures
-    lhs.$ = {
-      ...lhs.$,
+    actualLhs.$ = {
+      ...actualLhs.$,
       env,
-      type: lhs.$.type,
-      value: isCompileTimeOnly
+      type: actualLhs.$.type,
+      value: effectiveIsCompileTimeOnly
         ? rhsValue
           ? cloneValue(rhsValue) // preservePointerReferences=true by default
-          : createUnknownValue(lhs.$.type, {
-              variableName: lhs.token.value,
+          : createUnknownValue(actualLhs.$.type, {
+              variableName: actualLhs.token.value,
               env,
               context,
             })
@@ -294,7 +327,7 @@ ${exprToString(rhs)}`,
     // This is crucial for closures where the capture struct type is determined at initialization time.
     // The resolvedConcreteType is needed by mergeAndCheckEnvs to verify that all branches
     // have compatible concrete types (Impl uses static dispatch, so concrete type must be known).
-    let finalLhsType = lhs.$.type;
+    let finalLhsType = actualLhs.$.type;
     if (
       isSomeType(finalLhsType) &&
       rhsType &&
@@ -305,7 +338,7 @@ ${exprToString(rhs)}`,
         ...finalLhsType,
         resolvedConcreteType: rhsType.resolvedConcreteType,
       } as SomeType;
-      lhs.$.type = finalLhsType;
+      actualLhs.$.type = finalLhsType;
     }
 
     // Under the new simplified ownership model:
@@ -331,12 +364,12 @@ ${exprToString(rhs)}`,
     const { env: nextEnv } = addVariableToEnv({
       env,
       variable: {
-        name: lhs.token.value,
+        name: actualLhs.token.value,
         type: finalLhsType,
-        isCompileTimeOnly,
-        value: lhs.$.value ? [lhs.$.value] : undefined,
-        token: lhs.token,
-        initializedAtToken: lhs.token,
+        isCompileTimeOnly: effectiveIsCompileTimeOnly,
+        value: actualLhs.$.value ? [actualLhs.$.value] : undefined,
+        token: actualLhs.token,
+        initializedAtToken: actualLhs.token,
         consumedAtToken: undefined, // Not consumed yet
         // Under new ownership model: variables always own their values (or false for non-ARC types)
         isOwningTheRcValue: typeContainsRcType(finalLhsType),
@@ -344,11 +377,20 @@ ${exprToString(rhs)}`,
         // If RHS was moved, LHS becomes the primary owner
         isOwningTheSameRcValueAs,
         isReassignable: true, // This is not a function parameter
+        isImplicit,
       },
     });
     env = nextEnv;
 
-    lhs.$.env = env;
+    actualLhs.$.env = env;
+    if (isImplicit) {
+      lhs.$ = {
+        env,
+        value: VUnit,
+        type: VUnit.type,
+        pathCollection: [],
+      };
+    }
     expr.$ = {
       env,
       value: VUnit,
@@ -359,10 +401,10 @@ ${exprToString(rhs)}`,
   } else {
     const { env: nextEnv, runtimeDestructurings } =
       evaluateDestructuringAssignment({
-        lhs,
+        lhs: actualLhs,
         rhs,
         env,
-        isCompileTimeOnly,
+        isCompileTimeOnly: isImplicit || isCompileTimeOnly,
         context: { ...context },
       });
     env = nextEnv;

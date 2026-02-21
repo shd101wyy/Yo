@@ -66,6 +66,7 @@ export function evaluateFnTraitType({
   const {
     parameters,
     forallParameters,
+    implicitParameters,
     variadicParameter,
     whereClauseExprs,
     env: envWithParams,
@@ -107,6 +108,7 @@ export function evaluateFnTraitType({
   const fnType = createFunctionType({
     parameters,
     forallParameters: forallParameters as FunctionForallParameter[],
+    implicitParameters,
     variadicParameter,
     whereClauseExprs,
     return_: {

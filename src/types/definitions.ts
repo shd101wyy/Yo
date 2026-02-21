@@ -210,6 +210,24 @@ export interface SomeType extends Type {
     functionValue: FunctionValue;
     argValues: Value[];
   };
+
+  /**
+   * If true, this SomeType represents an effect row variable (declared via `...(E)` in forall).
+   * When bound, its value will be an EffectsRowType containing the concrete implicit parameters.
+   */
+  isEffectsRow?: boolean;
+}
+
+/**
+ * EffectsRowType holds the concrete list of implicit parameters that an effect row variable
+ * (declared via `...(E)` in forall) was bound to.
+ * For example, after `run(might_fail)` with might_fail : fn(using(raise : Raise)) -> i32,
+ * E is bound to EffectsRowType { implicitParameters: [{ label: "raise", type: RaiseType }] }.
+ */
+export interface EffectsRowType extends Type {
+  tag: TypeTag.EffectsRow;
+  implicitParameters: FunctionImplicitParameter[];
+  trait: TraitType;
 }
 
 // Extended Type interface for compound types
@@ -327,6 +345,26 @@ export interface FunctionParameter {
    */
   isOwningTheRcValue: boolean;
   /**
+   * Whether this parameter is an implicit parameter (from `using(...)`).
+   * Implicit parameters are resolved from `given` variables in scope at the call site.
+   */
+  isImplicit: boolean;
+  /**
+   * If true, this entry in implicitParameters is an effect row spread marker.
+   * - Named spread `...(E)`: label = "E", type = SomeType_E (isEffectsRow: true)
+   * - Anonymous spread `...`:  label = "...", type = unit (placeholder)
+   * At call sites, spread entries are expanded to the concrete implicit params
+   * bound to the effect row variable.
+   */
+  isEffectRowSpread?: boolean;
+  /**
+   * Whether this implicit parameter was created from auto-destructuring a module type.
+   * e.g., `using(Raise)` where `Raise :: module(raise : ctl(...))` creates an implicit
+   * parameter with type Raise and isModuleDestructured: true. The module's fields
+   * (e.g., raise) are destructured into the function body env as direct variables.
+   */
+  isModuleDestructured?: boolean;
+  /**
    * The expression information of the parameter.
    */
   exprs: FunctionParameterExprs;
@@ -340,6 +378,11 @@ export interface FunctionParameter {
 
 export type FunctionForallParameter = FunctionParameter & {
   isCompileTimeOnly: true;
+};
+
+export type FunctionImplicitParameter = FunctionParameter & {
+  isCompileTimeOnly: true;
+  isImplicit: true;
 };
 
 export interface StructType extends Type {
@@ -702,6 +745,13 @@ export interface FunctionReturn {
 
 export interface FunctionType extends Type {
   tag: TypeTag.Function;
+
+  /**
+   * Whether this function type is declared with `ctl(...) -> ...`.
+   * Control function types represent algebraic effect operations.
+   */
+  isControlFunction?: boolean;
+
   /**
    * The normal parameters of the function.
    */
@@ -713,6 +763,13 @@ export interface FunctionType extends Type {
    *   (forall(T: Type), x: T)-> T;
    */
   forallParameters: FunctionForallParameter[];
+
+  /**
+   * The implicit parameters, defined in using(...):
+   * eg:
+   *   (fn(x: i32, using(add_fn : (fn(a : i32, b : i32) -> i32))) -> i32)
+   */
+  implicitParameters: FunctionImplicitParameter[];
 
   /**
    * Variadic parameters are parameters that can take a variable number of arguments.

@@ -85,6 +85,7 @@ Use explicit length like 'Array(i32, 3)' or omit the type annotation and initial
 
   // Evaluate the lhs expression
   let isCompileTimeOnly = false;
+  let isImplicit = false;
   if (
     exprIsFunctionCall(lhs) &&
     exprIsFunctionCallOf(lhs, BuiltinKeywords.comptime)
@@ -98,6 +99,23 @@ Use explicit length like 'Array(i32, 3)' or omit the type annotation and initial
     }
     lhs = lhs.args[0]!;
   }
+
+  // Detect given(name) wrapper for implicit variable declaration
+  if (
+    exprIsFunctionCall(lhs) &&
+    exprIsFunctionCallOf(lhs, BuiltinKeywords.given)
+  ) {
+    if (lhs.args.length !== 1) {
+      throw formatErrorMessage({
+        token: lhs.token,
+        errorMessage: `Expected exactly one argument for "given", got ${lhs.args.length}`,
+      });
+    }
+    isImplicit = true;
+    isCompileTimeOnly = true;
+    lhs = lhs.args[0]!;
+  }
+
   isCompileTimeOnly =
     isCompileTimeOnly || context.forceCompileTimeBindings === true;
 
@@ -173,6 +191,7 @@ comptime(${variableName}) : ${typeToString(userDefinedType)}`,
       consumedAtToken: undefined,
       isReassignable: true,
       isOwningTheRcValue: typeContainsRcType(userDefinedType),
+      isImplicit,
     },
   });
   env = nextEnv;

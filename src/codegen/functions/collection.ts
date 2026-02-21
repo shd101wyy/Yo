@@ -8,6 +8,7 @@ import {
   exprIsFunctionCall,
   exprIsFunctionCallOf,
 } from "../../expr";
+import type { FunctionValue } from "../../function-value";
 import type { Type } from "../../types/definitions";
 import {
   isBoxedType,
@@ -150,6 +151,17 @@ export function findFunctionCallsInExpr(
     findFunctionCallsInExpr(expr.$.macroExpansion, context);
   }
 
+  // Collect functions from effect handler bodies (re-evaluated handler bodies may
+  // contain function calls like println that need to be collected for codegen)
+  if (expr.$?.effectAnalysis) {
+    const handlerValue = expr.$.effectAnalysis.handlerValue as
+      | FunctionValue
+      | undefined;
+    if (handlerValue && isFunctionValue(handlerValue)) {
+      findFunctionCallsInExpr(handlerValue.body, context);
+    }
+  }
+
   // For closure construction, collect the closure function
   if (expr.$ && expr.$.closureFunctionValue) {
     const closureFunctionValue = expr.$.closureFunctionValue;
@@ -212,6 +224,18 @@ export function findFunctionCallsInExpr(
     }
 
     if (isFunctionType(functionType)) {
+      // If the callee type is a ctl function, the handler will be inlined by
+      // the effect state machine. Don't collect it as a standalone function,
+      // but still recurse into its body to collect sub-function calls (e.g., println).
+      if (functionType.isControlFunction && isFunctionValue(functionValue)) {
+        findFunctionCallsInExpr(functionValue.body, context);
+        // Still recurse into args
+        for (const arg of expr.args) {
+          findFunctionCallsInExpr(arg, context);
+        }
+        return;
+      }
+
       if (isFunctionValue(functionValue)) {
         // Skip collecting CTFE (compile-time function evaluation) functions.
         // These are functions whose return type is isCompileTimeOnly, meaning
@@ -311,6 +335,21 @@ export function findFunctionCallsInExpr(
   const functionType = expr.$?.type;
   const functionValue = expr.$?.value;
   if (isFunctionType(functionType)) {
+    // Skip collecting ctl handler functions — they are inlined at their call sites
+    // by generateDirectCtlCall and should not be generated as standalone C functions.
+    if (functionType.isControlFunction) {
+      return;
+    }
+    // Also skip handler functions that are assigned to given bindings.
+    // These handlers will be inlined by the effect SM call site.
+    if (
+      isFunctionValue(functionValue) &&
+      functionValue.body &&
+      functionValue.type.isControlFunction
+    ) {
+      findFunctionCallsInExpr(functionValue.body, context);
+      return;
+    }
     if (isFunctionValue(functionValue)) {
       // Skip collecting generic functions that haven't been specialized
       if (
@@ -333,7 +372,7 @@ export function findFunctionCallsInExpr(
         // Collect the function if it's not already collected
         context.functions[functionValue.funcId] = {
           value: functionValue,
-          cName: sanitizeForCIdentifier(functionValue.funcId), // Use the function id as the C name
+          cName: sanitizeForCIdentifier(functionValue.funcId),
         };
 
         // Recursively collect functions called by this function

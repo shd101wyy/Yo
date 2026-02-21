@@ -116,6 +116,7 @@ import { evaluateModuleValue } from "../values/impl";
 import { evaluateIntegerLiteral } from "../values/integer";
 import { evaluateStringLiteral } from "../values/string";
 import { evaluateTupleValue } from "../values/tuple";
+import { evaluateAbort } from "./abort";
 import { evaluateAssignment } from "./assignment";
 import { evaluateBeginExpression } from "./begin";
 import { evaluateBinding } from "./binding";
@@ -198,7 +199,8 @@ ${exprToString(expr)}`,
         // (fn(x : i32) -> i32)
         exprIsFunctionCall(expr.args[0]) &&
         (exprIsFunctionCallOf(expr.args[0], BuiltinKeywords.fn) ||
-          exprIsFunctionCallOf(expr.args[0], BuiltinKeywords.unsafe_fn))
+          exprIsFunctionCallOf(expr.args[0], BuiltinKeywords.unsafe_fn) ||
+          exprIsFunctionCallOf(expr.args[0], BuiltinKeywords.ctl))
       ) {
         return evaluateFunctionType({
           expr,
@@ -208,6 +210,10 @@ ${exprToString(expr)}`,
             isUnsafeFunctionType: exprIsFunctionCallOf(
               expr.args[0],
               BuiltinKeywords.unsafe_fn
+            ),
+            isControlFunctionType: exprIsFunctionCallOf(
+              expr.args[0],
+              BuiltinKeywords.ctl
             ),
           },
         });
@@ -528,6 +534,13 @@ ${exprToString(expr)}`,
     ) {
       // && ||
       return evaluateAndOr({ expr, env, context: { ...context } });
+    } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.abort)) {
+      // abort
+      return evaluateAbort({
+        expr,
+        env,
+        context: { ...context },
+      });
     } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.consume)) {
       // consume
       return evaluateConsume({

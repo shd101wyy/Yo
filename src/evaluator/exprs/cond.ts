@@ -392,6 +392,8 @@ export function evaluateCond({
     let finalControlFlow: ControlFlowKind | undefined = undefined;
     if (controlFlows.every((cf) => cf === "return")) {
       finalControlFlow = "return";
+    } else if (controlFlows.every((cf) => cf === "abort")) {
+      finalControlFlow = "abort";
     } else if (controlFlows.every((cf) => cf === "break")) {
       finalControlFlow = "break";
     } else if (controlFlows.every((cf) => cf === "continue")) {
@@ -404,9 +406,15 @@ export function evaluateCond({
           finalControlFlow = "break"; // At least one case breaks the loop
         } else if (controlFlows.find((cf) => cf === "return")) {
           finalControlFlow = "return"; // At least one case returns from function
+        } else if (controlFlows.find((cf) => cf === "abort")) {
+          finalControlFlow = "abort"; // At least one case aborts (ctl handler discontinue)
         }
       } else {
-        finalControlFlow = undefined; // Mixed control flows
+        if (controlFlows.find((cf) => cf === "abort")) {
+          finalControlFlow = "abort"; // At least one case aborts
+        } else {
+          finalControlFlow = undefined; // Mixed control flows
+        }
       }
     }
 
@@ -426,7 +434,12 @@ export function evaluateCond({
       // Merge and check all environments
       env = mergeAndCheckEnvs(
         env,
-        bodies.filter((body) => body.$ && body.$.controlFlow !== "return")
+        bodies.filter(
+          (body) =>
+            body.$ &&
+            body.$.controlFlow !== "return" &&
+            body.$.controlFlow !== "abort"
+        )
       );
 
       // Determine the compile-time value
@@ -496,6 +509,23 @@ export function evaluateCond({
               : undefined,
           pathCollection: [],
           controlFlow: "return",
+        };
+      } else if (finalControlFlow === "abort") {
+        // All cases are aborting (ctl handler discontinue)
+        if (!context.controlHandlerContext) {
+          throw formatErrorMessage({
+            token: expr.token,
+            errorMessage: `All cases in cond use "abort", but not inside a ctl handler body.`,
+          });
+        }
+        const abortType =
+          context.controlHandlerContext.enclosingFunctionReturnType;
+        expr.$ = {
+          env,
+          type: abortType,
+          value: undefined,
+          pathCollection: [],
+          controlFlow: "abort",
         };
       } else if (finalControlFlow === "break") {
         // All cases break from loop

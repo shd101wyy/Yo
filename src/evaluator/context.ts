@@ -149,6 +149,28 @@ export interface EvaluatorContext {
   isUnsafeFunctionType?: boolean;
 
   /**
+   * Whether the function type currently being evaluated is declared with `ctl`.
+   */
+  isControlFunctionType?: boolean;
+
+  /**
+   * Context available only while evaluating a `ctl` handler body.
+   * `return(value)` resumes the continuation (type matches operationResultType).
+   * `abort expr` discards the continuation and returns from the enclosing function
+   * (type matches enclosingFunctionReturnType).
+   */
+  controlHandlerContext?: {
+    operationResultType: Type;
+    enclosingFunctionReturnType: Type;
+    /**
+     * True when the ctl handler is invoked directly at the call site (no intermediate
+     * `using` function). In this case the `return(value)` type is inferred from the
+     * value expression itself, so we skip the strict operationResultType check.
+     */
+    isDirectCtlCall?: boolean;
+  };
+
+  /**
    * Whether we are currently evaluating a where clause constraint.
    * When true, the LHS of `<:` must be a SomeType, and the constraint
    * will be added to the SomeType's module rather than creating a new module type.
@@ -210,6 +232,7 @@ export interface EvaluatorContext {
 export interface ArgValues {
   forallArgs: { value: Value; parameterType: Type; argType: Type }[];
   args: { value: Value | undefined; parameterType: Type; argType: Type }[];
+  implicitArgs?: { value: Value; parameterType: Type; argType: Type }[];
   variadicArgs: {
     value: Value | undefined;
     argType: Type;

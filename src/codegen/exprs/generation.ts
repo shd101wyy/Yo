@@ -11,7 +11,13 @@ import {
   type FnCallExpr,
 } from "../../expr";
 import { isSomeType, isUnitType } from "../../types/guards";
-import { isFunctionValue, isUnknownValue, type Value } from "../../value";
+import { typeToString } from "../../types/utils";
+import {
+  isFunctionValue,
+  isTypeValue,
+  isUnknownValue,
+  type Value,
+} from "../../value";
 import { BuiltinYoInlineFunctions } from "../constants";
 import type { FunctionGenerationContext } from "../functions/context";
 import { type CodeGenContext, getVariableNameForCodegen } from "../utils";
@@ -65,10 +71,103 @@ import {
   generateYoSomeTypeDup,
 } from "./rc-fns";
 import { generateRecur } from "./recur";
-import { generateReturn } from "./return";
+import { generatePendingDeferredDrops, generateReturn } from "./return";
 import { generateSizeOf } from "./sizeof";
 import { generateAnonymousTuple } from "./tuple-fn";
 import { generateWhileLoop } from "./while";
+
+/**
+ * Generate C code for `abort(value)` — ctl handler discontinue.
+ *
+ * Inside a ctl handler body, `abort(value)` discards the continuation
+ * and returns from the enclosing function with the given value.
+ * In C codegen, this translates to dropping handler params then `return <value>;`.
+ */
+function generateAbort(
+  expr: FnCallExpr,
+  indent: string,
+  context: CodeGenContext
+): string {
+  const functionContext = context as FunctionGenerationContext;
+  const arg = expr.args[0];
+
+  // Check if we're inside a resume handler's body (nested abort).
+  // If so, the abort should set the outer handler's result variable and
+  // goto its exit label instead of doing a C `return`.
+  const resumeInfo = functionContext.continuationVariables?.get("resume");
+  const hasDirectExit =
+    resumeInfo && "directReturnVar" in resumeInfo && resumeInfo.directExitLabel;
+
+  if (hasDirectExit) {
+    // Nested abort: assign to outer handler's result var and goto exit label
+    if (arg) {
+      const argCode = generateExpr(arg, indent, context);
+      // Emit handler param drops before the goto
+      if (functionContext.effectHandlerParamDrops) {
+        for (const dropCode of functionContext.effectHandlerParamDrops) {
+          functionContext.emitter.emitLine(`${indent}${dropCode};`);
+        }
+      }
+      functionContext.emitter.emitLine(
+        `${indent}${resumeInfo.directReturnVar} = ${argCode};`
+      );
+      functionContext.emitter.emitLine(
+        `${indent}goto ${resumeInfo.directExitLabel};`
+      );
+    } else {
+      // Emit handler param drops before the goto
+      if (functionContext.effectHandlerParamDrops) {
+        for (const dropCode of functionContext.effectHandlerParamDrops) {
+          functionContext.emitter.emitLine(`${indent}${dropCode};`);
+        }
+      }
+      functionContext.emitter.emitLine(
+        `${indent}goto ${resumeInfo.directExitLabel};`
+      );
+    }
+    return "";
+  }
+
+  // Normal abort: emit a C `return` from the enclosing function.
+  // Must drop local variables from enclosing scopes (pendingDeferredDrops)
+  // before returning, to avoid memory leaks.
+  // Use skipEnvCheck=true because the abort expression's environment is from
+  // the handler's scope, not the enclosing function's scope where the
+  // local variables actually live.
+  if (!arg) {
+    // Emit handler param drops before returning
+    if (functionContext.effectHandlerParamDrops) {
+      for (const dropCode of functionContext.effectHandlerParamDrops) {
+        functionContext.emitter.emitLine(`${indent}${dropCode};`);
+      }
+    }
+    generatePendingDeferredDrops(
+      indent,
+      functionContext,
+      expr,
+      false,
+      false,
+      true
+    );
+    return `return`;
+  }
+  const argCode = generateExpr(arg, indent, context);
+  // Emit handler param drops before returning
+  if (functionContext.effectHandlerParamDrops) {
+    for (const dropCode of functionContext.effectHandlerParamDrops) {
+      functionContext.emitter.emitLine(`${indent}${dropCode};`);
+    }
+  }
+  generatePendingDeferredDrops(
+    indent,
+    functionContext,
+    expr,
+    false,
+    false,
+    true
+  );
+  return `return ${argCode}`;
+}
 
 /**
  * Generate C code for an expression - extracted from original codegen-c.ts
@@ -307,6 +406,11 @@ function generateFuncCall(
     return generateReturn(expr, indent, context);
   }
 
+  // abort(value) — ctl handler discontinue keyword
+  if (exprIsFunctionCallOf(expr, BuiltinKeywords.abort)) {
+    return generateAbort(expr, indent, context);
+  }
+
   // __yo_array_fill builtin (handled similarly to Array.fill)
   if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_array_fill, 2)) {
     return generateYoArrayFill(expr, indent, context);
@@ -333,10 +437,13 @@ function generateFuncCall(
     return generateAssignment(expr, indent, context);
   }
   // already computed and it's not unit value
+  // Skip this optimization if controlFlow is set (e.g., abort/return) because
+  // we need to generate the actual control flow code, not just the value.
   else if (
     expr.$?.value &&
     !isUnknownValue(expr.$?.value) &&
-    !isUnitType(expr.$.type)
+    !isUnitType(expr.$.type) &&
+    !expr.$?.controlFlow
   ) {
     const value: Value = expr.$.value;
     return generateComptimeValue(value, context, expr);
@@ -472,7 +579,17 @@ function generateFuncCall(
   }
 
   if (exprIsFunctionCall(expr)) {
-    throw new Error(`Unhandled function call: ${exprToString(expr)}`);
+    const fnCallExpr = expr as FnCallExpr;
+    const funcType = fnCallExpr.func.$?.type;
+    const funcValue = fnCallExpr.func.$?.value;
+    throw new Error(
+      `Unhandled function call: ${exprToString(expr)}\n` +
+        `  expr.$.value: ${expr.$?.value}, isUnknown: ${expr.$?.value !== undefined ? isUnknownValue(expr.$!.value!) : "N/A"}\n` +
+        `  expr.$.type: ${expr.$?.type ? typeToString(expr.$.type) : "undefined"}\n` +
+        `  func.$.type: ${funcType ? typeToString(funcType) : "undefined"}\n` +
+        `  func.$.value type: ${typeof funcValue}, isFV: ${funcValue ? isFunctionValue(funcValue) : "N/A"}, isTV: ${funcValue ? isTypeValue(funcValue) : "N/A"}\n` +
+        `  func.$.value: ${funcValue}`
+    );
   }
 
   return `// Failed to transpile ${exprToString(expr)}`;

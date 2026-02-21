@@ -22,25 +22,31 @@ import { generateExprFromCode } from "../../parser";
 import { PlaceholderToken, type Token } from "../../token";
 import { areTypesCompatible } from "../../types/compatibility";
 import {
+  createEffectsRowSomeType,
   createExprListType,
   createFunctionType,
   createSomeType,
   createType0,
+  createTypeHierarchy,
   getFunctionParameterExprs,
 } from "../../types/creators";
 import type {
   FunctionForallParameter,
+  FunctionImplicitParameter,
   FunctionParameter,
   FunctionType,
+  ModuleType,
   SomeType,
   Type,
 } from "../../types/definitions";
 import { getValueOfSomeTypeFromEnv } from "../../types/env-lookup";
 import {
+  isEffectsRowType,
   isExprListType,
   isExprType,
   isFnTraitType,
   isFunctionType,
+  isModuleType,
   isSomeType,
   isTraitType,
 } from "../../types/guards";
@@ -58,6 +64,7 @@ import {
   createTypeValue,
   createUnknownValue,
   isTypeValue,
+  isUnknownValue,
   type Value,
   valueToString,
 } from "../../value";
@@ -128,11 +135,13 @@ export function evaluateFunctionParameter({
   env,
   context,
   isParameterComptimeByDefault,
+  allowVariableShadowing,
 }: {
   expr: Expr;
   env: Environment;
   context: EvaluatorContext & { isEvaluatingFunctionType: true };
   isParameterComptimeByDefault: boolean;
+  allowVariableShadowing: boolean;
 }): { parameter: FunctionParameter; env: Environment } {
   let label: string | undefined = undefined;
   let isCompileTimeOnly: boolean = isParameterComptimeByDefault;
@@ -636,6 +645,7 @@ use_id :: (fn(forall(T : Type),
         isOwningTheSameRcValueAs: undefined, // Parameters don't borrow from other variables
         isReassignable: false, // Mark as not reassigable
       },
+      allowVariableShadowing,
     });
     env = nextEnv;
   }
@@ -678,6 +688,7 @@ use_id :: (fn(forall(T : Type),
       isCompileTimeOnly,
       isQuote,
       isOwningTheRcValue,
+      isImplicit: false,
       assignedValue,
     },
     env,
@@ -1439,6 +1450,7 @@ export function evaluateFunctionParameters({
 }): {
   parameters: FunctionParameter[];
   forallParameters: FunctionParameter[];
+  implicitParameters: FunctionImplicitParameter[];
   variadicParameter?: FunctionParameter;
   whereClauseExprs?: Expr[];
   env: Environment;
@@ -1447,6 +1459,7 @@ export function evaluateFunctionParameters({
 
   const parameters: FunctionParameter[] = [];
   const forallParameters: FunctionParameter[] = [];
+  const implicitParameters: FunctionImplicitParameter[] = [];
   let variadicParameter: FunctionParameter | undefined = undefined;
   let whereClauseExprs: Expr[] | undefined = undefined;
 
@@ -1464,6 +1477,74 @@ export function evaluateFunctionParameters({
 
       for (let j = 0; j < typeParameterExprs.length; j++) {
         const typeParameterExpr = typeParameterExprs[j]!;
+
+        // Detect ...(E) — effect row variable declaration
+        if (
+          exprIsFunctionCall(typeParameterExpr) &&
+          exprIsFunctionCallOf(typeParameterExpr, "...") &&
+          typeParameterExpr.args.length === 1 &&
+          exprIsAtom(typeParameterExpr.args[0]!)
+        ) {
+          const rowVarName = typeParameterExpr.args[0]!.token.value;
+
+          // Duplicate check
+          const duplicateLabel = forallParameters.find(
+            (element) => element.label === rowVarName
+          );
+          if (duplicateLabel) {
+            throw formatErrorMessage({
+              token: typeParameterExpr.token,
+              errorMessage: `Duplicate label "${rowVarName}" in type parameter`,
+            });
+          }
+
+          // Create a SomeType marked as an effect row variable
+          const effRowSomeType = createEffectsRowSomeType(rowVarName, env);
+          const rowKindType = createTypeHierarchy(1); // Type(1) level
+
+          // Add E to env (initially unbound — will be bound at call-site synthesis)
+          const { env: nextEnv } = addVariableToEnv({
+            env,
+            variable: {
+              name: rowVarName,
+              type: rowKindType,
+              isCompileTimeOnly: true,
+              value: [createTypeValue(effRowSomeType)],
+              token: typeParameterExpr.args[0]!.token,
+              initializedAtToken: typeParameterExpr.args[0]!.token,
+              consumedAtToken: undefined,
+              isOwningTheRcValue: false,
+            },
+          });
+          env = nextEnv;
+
+          typeParameterExpr.$ = {
+            env,
+            type: rowKindType,
+            value: createTypeValue(effRowSomeType),
+            pathCollection: [],
+          };
+
+          const forallParam: FunctionForallParameter = {
+            label: rowVarName,
+            type: rowKindType,
+            isCompileTimeOnly: true,
+            isQuote: false,
+            isOwningTheRcValue: false,
+            isImplicit: false,
+            isEffectRowSpread: false, // forall parameter, not a spread in using()
+            exprs: getFunctionParameterExprs({
+              expr: typeParameterExpr,
+              labelExpr: typeParameterExpr.args[0],
+              typeExpr: typeParameterExpr.args[0]!,
+              defaultValueExpr: undefined,
+              assignedValueExpr: undefined,
+            }),
+          };
+          forallParameters.push(forallParam);
+          continue;
+        }
+
         const { parameter, env: nextEnv } = evaluateFunctionParameter({
           expr: typeParameterExpr,
           env,
@@ -1471,6 +1552,7 @@ export function evaluateFunctionParameters({
             ...context,
           },
           isParameterComptimeByDefault: true,
+          allowVariableShadowing: true,
         });
 
         // Check if there is duplicate labels
@@ -1490,6 +1572,262 @@ export function evaluateFunctionParameters({
     }
   }
 
+  // Using pass: find and process using() implicit parameters
+  // using can appear after forall. using(name : Type) parameters are implicit and compile-time only.
+  // Only one using() clause is allowed per function signature.
+  let usingClauseCount = 0;
+  for (let i = 0; i < parameterExprs.length; i++) {
+    const paramExpr = parameterExprs[i]!;
+    if (
+      exprIsFunctionCall(paramExpr) &&
+      exprIsFunctionCallOf(paramExpr, BuiltinKeywords.using)
+    ) {
+      usingClauseCount++;
+      if (usingClauseCount > 1) {
+        throw formatErrorMessage({
+          token: paramExpr.token,
+          errorMessage: `Only one "using(...)" clause is allowed per function signature. Combine all implicit parameters into a single using(), e.g.: using(a : TypeA, b : TypeB)`,
+        });
+      }
+      const implicitParamExprs = paramExpr.args;
+
+      for (let j = 0; j < implicitParamExprs.length; j++) {
+        const implicitParamExpr = implicitParamExprs[j]!;
+
+        // Detect ...(E) — named effect row spread
+        if (
+          exprIsFunctionCall(implicitParamExpr) &&
+          exprIsFunctionCallOf(implicitParamExpr, "...") &&
+          implicitParamExpr.args.length === 1 &&
+          exprIsAtom(implicitParamExpr.args[0]!)
+        ) {
+          const rowVarName = implicitParamExpr.args[0]!.token.value;
+
+          // Look up the SomeType for E (must have been declared in forall)
+          const rowVarVariables = getVariablesFromEnv(env, rowVarName);
+          const rowVarVariable = rowVarVariables.at(-1);
+          if (!rowVarVariable) {
+            throw formatErrorMessage({
+              token: implicitParamExpr.token,
+              errorMessage: `Effect row variable "${rowVarName}" not found in scope. Declare it with forall(..., ...(${rowVarName}))`,
+            });
+          }
+
+          // Determine the SomeType for E.
+          // During initial evaluation, E's value is a TypeValue wrapping the SomeType.
+          // During re-evaluation at call sites (CTFE), E's value may be an UnknownValue.
+          let rowSomeType: Type;
+          const eValue = rowVarVariable.value?.[0];
+          if (eValue && isTypeValue(eValue)) {
+            rowSomeType = eValue.value;
+          } else if (
+            eValue &&
+            isUnknownValue(eValue) &&
+            isEffectsRowType(eValue.type)
+          ) {
+            // E was bound to a concrete EffectsRowType during synthesis
+            rowSomeType = eValue.type;
+          } else if (eValue && isUnknownValue(eValue)) {
+            // Re-evaluation context: E is an UnknownValue with Type(1) kind.
+            // Re-create the effect row SomeType for this re-evaluation.
+            rowSomeType = createEffectsRowSomeType(rowVarName, env);
+          } else {
+            throw formatErrorMessage({
+              token: implicitParamExpr.token,
+              errorMessage: `Effect row variable "${rowVarName}" has invalid value. Expected a type.`,
+            });
+          }
+          // Create a spread marker entry in implicitParameters
+          const spreadMarker: FunctionImplicitParameter = {
+            label: rowVarName,
+            type: rowSomeType,
+            isCompileTimeOnly: true as const,
+            isImplicit: true as const,
+            isEffectRowSpread: true,
+            isQuote: false,
+            isOwningTheRcValue: false,
+            exprs: getFunctionParameterExprs({
+              expr: implicitParamExpr,
+              labelExpr: implicitParamExpr.args[0],
+              typeExpr: implicitParamExpr.args[0]!,
+              defaultValueExpr: undefined,
+              assignedValueExpr: undefined,
+            }),
+          };
+          implicitParameters.push(spreadMarker);
+          continue;
+        }
+
+        // Check for module type destructuring: using(ModuleType)
+        // When a bare module type is passed without a label (no "name : Type" syntax),
+        // auto-destructure the module fields into the function body env.
+        const hasExplicitLabel =
+          exprIsFunctionCall(implicitParamExpr) &&
+          (exprIsFunctionCallOf(implicitParamExpr, ":") ||
+            exprIsFunctionCallOf(implicitParamExpr, "=") ||
+            exprIsFunctionCallOf(implicitParamExpr, "?=") ||
+            exprIsFunctionCallOf(implicitParamExpr, ":="));
+
+        if (!hasExplicitLabel) {
+          const evaluated = evaluateExpression({
+            expr: implicitParamExpr,
+            env,
+            context: { ...context },
+          });
+          if (
+            evaluated.$ &&
+            isTypeValue(evaluated.$.value) &&
+            isModuleType(evaluated.$.value.value)
+          ) {
+            const moduleType = evaluated.$.value.value as ModuleType;
+            env = evaluated.$.env;
+
+            // Check for duplicate field names against all param kinds and previously destructured fields
+            for (const field of moduleType.fields) {
+              const dupForall = forallParameters.find(
+                (p) => p.label === field.label
+              );
+              if (dupForall) {
+                throw formatErrorMessage({
+                  token: implicitParamExpr.token,
+                  errorMessage: `Destructured field "${field.label}" from module type ${typeToString(moduleType)} conflicts with forall parameter`,
+                });
+              }
+              const dupImplicit = implicitParameters.find(
+                (p) => p.label === field.label
+              );
+              if (dupImplicit) {
+                throw formatErrorMessage({
+                  token: implicitParamExpr.token,
+                  errorMessage: `Destructured field "${field.label}" from module type ${typeToString(moduleType)} conflicts with another implicit parameter`,
+                });
+              }
+            }
+
+            // Create the implicit parameter with module type and empty label
+            const autoLabel = "";
+            const implicitParameter: FunctionImplicitParameter = {
+              label: autoLabel,
+              type: moduleType,
+              isCompileTimeOnly: true as const,
+              isImplicit: true as const,
+              isModuleDestructured: true,
+              isQuote: false,
+              isOwningTheRcValue: false,
+              exprs: getFunctionParameterExprs({
+                expr: implicitParamExpr,
+                labelExpr: undefined,
+                typeExpr: implicitParamExpr,
+                defaultValueExpr: undefined,
+                assignedValueExpr: undefined,
+              }),
+            };
+            implicitParameters.push(implicitParameter);
+
+            // Add the auto-generated module variable to env
+            const moduleValue = createUnknownValue(moduleType, {
+              variableName: autoLabel,
+              env,
+              context,
+            });
+            const { env: envWithModule } = addVariableToEnv({
+              env,
+              variable: {
+                name: autoLabel,
+                type: moduleType,
+                isCompileTimeOnly: true,
+                isImplicit: true,
+                value: [moduleValue],
+                token: implicitParamExpr.token,
+                initializedAtToken: implicitParamExpr.token,
+                consumedAtToken: undefined,
+                isOwningTheRcValue: false,
+              },
+              allowVariableShadowing: true,
+            });
+            env = envWithModule;
+
+            // Destructure module fields into the env as direct variables
+            for (const field of moduleType.fields) {
+              const fieldValue = createUnknownValue(field.type, {
+                variableName: field.label,
+                env,
+                context,
+              });
+              const { env: envWithField } = addVariableToEnv({
+                env,
+                variable: {
+                  name: field.label,
+                  type: field.type,
+                  isCompileTimeOnly: true,
+                  isImplicit: true,
+                  value: [fieldValue],
+                  token: implicitParamExpr.token,
+                  initializedAtToken: implicitParamExpr.token,
+                  consumedAtToken: undefined,
+                  isOwningTheRcValue: false,
+                },
+                allowVariableShadowing: true,
+              });
+              env = envWithField;
+            }
+
+            continue;
+          }
+        }
+
+        const { parameter, env: nextEnv } = evaluateFunctionParameter({
+          expr: implicitParamExpr,
+          env,
+          context: {
+            ...context,
+          },
+          isParameterComptimeByDefault: true,
+          allowVariableShadowing: true,
+        });
+
+        // Check for duplicate labels against all parameter kinds
+        const duplicateInForall = forallParameters.find(
+          (element) => element.label === parameter.label
+        );
+        if (duplicateInForall) {
+          throw formatErrorMessage({
+            token: implicitParamExpr.token,
+            errorMessage: `Duplicate label "${parameter.label}" in implicit parameter (already in forall)`,
+          });
+        }
+        const duplicateInImplicit = implicitParameters.find(
+          (element) => element.label === parameter.label
+        );
+        if (duplicateInImplicit) {
+          throw formatErrorMessage({
+            token: implicitParamExpr.token,
+            errorMessage: `Duplicate label "${parameter.label}" in implicit parameter`,
+          });
+        }
+
+        // Override the isImplicit flag to true
+        const implicitParameter: FunctionImplicitParameter = {
+          ...parameter,
+          isCompileTimeOnly: true as const,
+          isImplicit: true as const,
+        };
+
+        implicitParameters.push(implicitParameter);
+
+        // Also mark the variable in the env as isImplicit so that nested
+        // using() parameter resolution can find it (for effect propagation)
+        const frame = nextEnv.frames[nextEnv.frames.length - 1]!;
+        const envVar = frame.variables.find((v) => v.name === parameter.label);
+        if (envVar) {
+          envVar.isImplicit = true;
+        }
+
+        env = nextEnv;
+      }
+    }
+  }
+
   // Second pass: pre-add all comptime parameters to the environment
   // This is necessary because where clauses may reference comptime parameters that appear
   // later in the parameter list. For example:
@@ -1499,10 +1837,11 @@ export function evaluateFunctionParameters({
   const preAddedComptimeParams = new Set<number>();
   for (let i = 0; i < parameterExprs.length; i++) {
     const paramExpr = parameterExprs[i]!;
-    // Skip forall and where
+    // Skip forall, using, and where
     if (
       exprIsFunctionCall(paramExpr) &&
       (exprIsFunctionCallOf(paramExpr, BuiltinKeywords.forall) ||
+        exprIsFunctionCallOf(paramExpr, BuiltinKeywords.using) ||
         exprIsFunctionCallOf(paramExpr, BuiltinKeywords.where) ||
         exprIsFunctionCallOf(paramExpr, "..."))
     ) {
@@ -1604,6 +1943,13 @@ export function evaluateFunctionParameters({
           errorMessage: `Expected type parameters to be the first argument, got ${i + 1}`,
         });
       }
+      continue;
+    }
+    // Skip using (already processed in using pass)
+    else if (
+      exprIsFunctionCall(parameterExpr) &&
+      exprIsFunctionCallOf(parameterExpr, BuiltinKeywords.using)
+    ) {
       continue;
     }
     // Skip where clause (already processed in third pass)
@@ -1726,6 +2072,7 @@ export function evaluateFunctionParameters({
         label: parameterName,
         type: parameterType,
         isOwningTheRcValue: false,
+        isImplicit: false,
       };
       variadicParameter = createdVariadicParameter;
 
@@ -1787,6 +2134,7 @@ export function evaluateFunctionParameters({
           ...context,
         },
         isParameterComptimeByDefault: false,
+        allowVariableShadowing: true,
       });
 
       // Check if there is duplicate labels
@@ -1874,6 +2222,7 @@ export function evaluateFunctionParameters({
   return {
     parameters,
     forallParameters,
+    implicitParameters,
     variadicParameter,
     whereClauseExprs,
     env,
@@ -1914,13 +2263,14 @@ export function evaluateFunctionType({
   if (
     exprIsFunctionCall(argListExpr) &&
     (exprIsFunctionCallOf(argListExpr, BuiltinKeywords.fn) ||
-      exprIsFunctionCallOf(argListExpr, BuiltinKeywords.unsafe_fn))
+      exprIsFunctionCallOf(argListExpr, BuiltinKeywords.unsafe_fn) ||
+      exprIsFunctionCallOf(argListExpr, BuiltinKeywords.ctl))
   ) {
     argList = argListExpr.args;
   } else {
     throw formatErrorMessage({
       token: argListExpr.token,
-      errorMessage: `Expected a "fn" call for parameter list, got:\n${exprToString(argListExpr)}`,
+      errorMessage: `Expected a "fn", "unsafe_fn", or "ctl" call for parameter list, got:\n${exprToString(argListExpr)}`,
     });
   }
 
@@ -1928,6 +2278,7 @@ export function evaluateFunctionType({
   const {
     parameters,
     forallParameters,
+    implicitParameters,
     variadicParameter,
     whereClauseExprs,
     env: nextEnv,
@@ -2159,6 +2510,7 @@ ${typeToString(returnType)}`,
   const functionType = createFunctionType({
     parameters,
     forallParameters: forallParameters as FunctionForallParameter[],
+    implicitParameters: implicitParameters as FunctionImplicitParameter[],
     variadicParameter,
     whereClauseExprs,
     return_: {
@@ -2175,6 +2527,7 @@ ${typeToString(returnType)}`,
       context.isEvaluatingFunctionBodyOrAsyncBlock?.kind === "function-body"
         ? context.isEvaluatingFunctionBodyOrAsyncBlock.type
         : undefined,
+    isControlFunction: context.isControlFunctionType,
   });
 
   // Pop the environment frame

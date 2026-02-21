@@ -15,6 +15,7 @@ import type {
   ArrayType,
   ComptimeListType,
   DynType,
+  EffectsRowType,
   EnumType,
   FunctionParameter,
   FunctionType,
@@ -626,6 +627,9 @@ export function functionParameterToString(
 
   if (parameter.isQuote) {
     label = `quote(${label})`;
+  } else if (parameter.isImplicit) {
+    // isImplicit implies isCompileTimeOnly, show as using(label)
+    // Don't wrap in comptime() since using() already implies comptime
   } else if (parameter.isCompileTimeOnly) {
     label = `comptime(${label})`;
   }
@@ -635,6 +639,10 @@ export function functionParameterToString(
   const defaultValueStr = parameter.exprs.defaultValueExpr
     ? exprToString(parameter.exprs.defaultValueExpr)
     : "";
+
+  if (label === "") {
+    return typeStr;
+  }
 
   if (defaultValueStr) {
     return `(${label} : ${typeStr}) ?= ${defaultValueStr}`;
@@ -750,11 +758,22 @@ function functionTypeToString(
     }
   }
 
-  const paramsString = [typeParams, params, variadicParam]
+  const implicitParams =
+    func.implicitParameters.length > 0
+      ? `using(${func.implicitParameters
+          .map((param) =>
+            param.isEffectRowSpread
+              ? `...(${param.label})`
+              : functionParameterToString(param, visited)
+          )
+          .join(", ")})`
+      : "";
+
+  const paramsString = [typeParams, params, implicitParams, variadicParam]
     .filter((x) => !!x)
     .join(", ");
   const from = func.SelfType?.typeName;
-  const fnKind = "fn";
+  const fnKind = func.isControlFunction ? "ctl" : "fn";
   return `${from ? `(${from}) ` : ""}${fnKind}(${paramsString}) -> ${returnString}`;
 }
 
@@ -1035,6 +1054,14 @@ function typeToStringInternal(type: Type, visited: Set<string>): string {
 
     case TypeTag.ComptimeList: {
       return `ComptimeList(${typeToString((type as ComptimeListType).childType)})`;
+    }
+
+    case TypeTag.EffectsRow: {
+      const effectsRowType = type as EffectsRowType;
+      if (effectsRowType.implicitParameters.length === 0) {
+        return "EffectsRow()";
+      }
+      return `EffectsRow(${effectsRowType.implicitParameters.map((p) => `${p.label} : ${typeToString(p.type, visited)}`).join(", ")})`;
     }
 
     case TypeTag.Dyn: {

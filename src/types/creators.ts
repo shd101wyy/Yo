@@ -17,9 +17,11 @@ import type {
   ArrayType,
   ComptimeListType,
   DynType,
+  EffectsRowType,
   EnumType,
   FnTraitType,
   FunctionForallParameter,
+  FunctionImplicitParameter,
   FunctionParameter,
   FunctionParameterExprs,
   FunctionReturn,
@@ -805,6 +807,7 @@ export function createUnionType(env: Environment): UnionType {
 export function createFunctionType({
   parameters,
   forallParameters,
+  implicitParameters,
   variadicParameter,
   whereClauseExprs,
   return_,
@@ -813,9 +816,11 @@ export function createFunctionType({
   SelfType,
   ParentFunctionType,
   isClosure,
+  isControlFunction,
 }: {
   parameters: FunctionParameter[];
   forallParameters: FunctionForallParameter[];
+  implicitParameters?: FunctionImplicitParameter[];
   variadicParameter: FunctionParameter | undefined;
   whereClauseExprs?: Expr[];
   return_: FunctionReturn;
@@ -824,6 +829,7 @@ export function createFunctionType({
   SelfType?: Type;
   ParentFunctionType?: FunctionType;
   isClosure?: boolean;
+  isControlFunction?: boolean;
 }): FunctionType {
   const emptyEnv = createEmptyEnv();
   const trait = createTraitType(emptyEnv);
@@ -831,8 +837,10 @@ export function createFunctionType({
   const functionType: FunctionType = {
     id: `fn_${randomId(env.modulePath)}`,
     tag: TypeTag.Function,
+    isControlFunction,
     parameters: parameters,
     forallParameters,
+    implicitParameters: implicitParameters ?? [],
     variadicParameter,
     whereClauseExprs,
     return: return_,
@@ -981,6 +989,49 @@ const cachedTypeMap: Map<
   number,
   Map<Type | undefined, TypeHierarchyType>
 > = new Map();
+/**
+ * Creates a SomeType that represents an effect row variable (declared via `...(E)` in forall).
+ * Unlike createSomeType, this does NOT require level 0 and does NOT attach Runtime/RC functions
+ * since effect row variables are purely compile-time constructs.
+ */
+export function createEffectsRowSomeType(
+  variableName: string,
+  env: Environment
+): SomeType {
+  const trait = createTraitType(env);
+  const parentType = createTypeHierarchy(1); // Effect rows are at Type(1) level like Module/Trait
+  const someType: SomeType = {
+    id: `effects_row_sometype_${randomId(env.modulePath)}`,
+    tag: TypeTag.SomeType,
+    name: variableName,
+    definitionFrameLevel:
+      env.frames.length > 0 ? env.frames.length - 1 : undefined,
+    parentType,
+    size: undefined,
+    requiredTraits: [],
+    negativeTraits: [],
+    trait,
+    isEffectsRow: true,
+  };
+  trait.receiverType = someType;
+  return someType;
+}
+
+export function createEffectsRowType(
+  implicitParameters: FunctionImplicitParameter[]
+): EffectsRowType {
+  const emptyEnv = createEmptyEnv();
+  const trait = createTraitType(emptyEnv);
+  const type: EffectsRowType = {
+    id: `EffectsRow_${randomId(emptyEnv.modulePath)}`,
+    tag: TypeTag.EffectsRow,
+    implicitParameters,
+    trait,
+  };
+  trait.receiverType = type;
+  return type;
+}
+
 export function createTypeHierarchy(
   level: number,
   baseType?: Type

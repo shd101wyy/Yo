@@ -1,4 +1,6 @@
 import { type Environment } from "../../env";
+import { analyzeEffectCallPoints } from "../../evaluator/effects/effect-analysis";
+import type { EffectAnalysisResult } from "../../evaluator/effects/effect-analysis-types";
 import { typeImplementsFuture } from "../../evaluator/trait-checking";
 import { findMatchingGenericImpl } from "../../evaluator/values/impl";
 import {
@@ -7,6 +9,7 @@ import {
   type Expr,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
+  type FnCallExpr,
 } from "../../expr";
 import { type FunctionValue } from "../../function-value";
 import { areTypesCompatible } from "../../types/compatibility";
@@ -20,6 +23,7 @@ import { getTraitTypeFromEnv } from "../../types/env-lookup";
 import {
   isEnumType,
   isFunctionSpecializable,
+  isFunctionType,
   isSomeType,
   isStructType,
   isUnitType,
@@ -32,6 +36,12 @@ import {
 import { isTempVariableName } from "../../utils";
 import { isFunctionValue, isTraitValue, type TraitValue } from "../../value";
 import { generateAsyncRuntime } from "../async/runtime";
+import {
+  type EffectStateMachineInfo,
+  generateEffectResumeFunction,
+  generateEffectResumeFunctionDeclaration,
+  generateEffectStateMachineStruct,
+} from "../effects/effect-state-machine";
 import {
   generateDeferredDropExpressions,
   generateDeferredDupExpressions,
@@ -198,7 +208,7 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
       value.specializedType && !isFunctionSpecializable(value.type);
 
     if (
-      isFunctionSpecializable(value.type) ||
+      (isFunctionSpecializable(value.type) && !value.type.isClosure) ||
       (value.specializedType && !isSpecializedImplMethod) ||
       isComptimeFunction(value) ||
       isFunctionValueWithOnlyBuiltinYoInlineFunctionCall(value)
@@ -225,8 +235,31 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
       continue;
     }
 
+    // Check if this is an effectful function (body has effect call points)
+    const effectAnalysis = value.body?.$?.effectAnalysis;
+    if (effectAnalysis && effectAnalysis.hasEffects) {
+      // Effectful function: generate state machine struct + resume function
+      generateEffectfulFunction(value, cName, context);
+      continue;
+    }
+
     // Generate the function body
     generateFunction(value, cName, context);
+  }
+
+  // Generate deferred effectful function resume functions
+  if (context.deferredEffectfulFunctions) {
+    for (const deferred of context.deferredEffectfulFunctions) {
+      const { functionValue, info } = deferred;
+      if (functionValue.body) {
+        generateEffectResumeFunction(
+          functionValue.body,
+          info,
+          context,
+          functionValue
+        );
+      }
+    }
   }
 
   // Generate Iso type declarations if any were collected during expression generation
@@ -296,6 +329,298 @@ int main(int argc, char** argv) {
 }
 `);
   }
+}
+
+/**
+ * Pre-register all effectful functions across both regular and specialized function sets.
+ * This must run BEFORE any function bodies are generated, so that call sites can find
+ * the effectStateMachineInfo when generating calls to effectful functions.
+ *
+ * This pass:
+ * 1. Scans all functions for effect analysis
+ * 2. Creates SM info and stores it on funcEntries
+ * 3. Generates SM struct definitions and forward declarations
+ * 4. Defers resume function body generation
+ */
+export function preRegisterEffectfulFunctions(
+  context: FunctionGenerationContext
+): void {
+  // Collect effectful functions into two groups:
+  // 1. Direct: functions that directly call ctl operations
+  // 2. Transitive: functions that call other effectful functions
+  // Direct functions must be registered first so their SM structs are defined
+  // before transitive functions reference them as inner SM fields.
+  const directFunctions: Array<{
+    functionValue: FunctionValue;
+    cFunctionName: string;
+    functionType: FunctionType;
+    effectAnalysis: EffectAnalysisResult;
+  }> = [];
+  const transitiveFunctions: Array<{
+    functionValue: FunctionValue;
+    cFunctionName: string;
+    functionType: FunctionType;
+    effectAnalysis: EffectAnalysisResult;
+  }> = [];
+
+  for (const funcId in context.functions) {
+    const { value: functionValue, cName: cFunctionName } =
+      context.functions[funcId]!;
+
+    if (isComptimeFunction(functionValue)) {
+      continue;
+    }
+
+    // Check if this function has effect analysis
+    const effectAnalysis = functionValue.body?.$?.effectAnalysis;
+    if (!effectAnalysis || !effectAnalysis.hasEffects) {
+      continue;
+    }
+
+    // Determine the function type (use specialized if available)
+    const functionType = functionValue.specializedType ?? functionValue.type;
+
+    // Skip if the specialized type still has unresolved type parameters
+    if (functionValue.specializedType) {
+      if (isFunctionSpecializable(functionValue.specializedType)) {
+        continue;
+      }
+      const hasGenericParams = functionValue.specializedType.parameters.some(
+        (p) => typeContainsSomeType(p.type)
+      );
+      const hasGenericReturnType = typeContainsSomeType(
+        functionValue.specializedType.return.type
+      );
+      if (hasGenericParams || hasGenericReturnType) {
+        continue;
+      }
+    }
+
+    const hasTransitiveCalls = effectAnalysis.effectCallPoints.some(
+      (cp) => cp.isTransitiveEffectCall
+    );
+    const hasDirectCalls = effectAnalysis.effectCallPoints.some(
+      (cp) => !cp.isTransitiveEffectCall
+    );
+
+    if (hasDirectCalls || !hasTransitiveCalls) {
+      directFunctions.push({
+        functionValue,
+        cFunctionName,
+        functionType,
+        effectAnalysis,
+      });
+    } else {
+      transitiveFunctions.push({
+        functionValue,
+        cFunctionName,
+        functionType,
+        effectAnalysis,
+      });
+    }
+  }
+
+  // Register direct-call functions first (their SM structs must be defined first)
+  for (const func of directFunctions) {
+    registerEffectfulFunction(
+      func.functionValue,
+      func.cFunctionName,
+      func.functionType,
+      func.effectAnalysis,
+      context
+    );
+  }
+  // Then register transitive-call functions
+  for (const func of transitiveFunctions) {
+    registerEffectfulFunction(
+      func.functionValue,
+      func.cFunctionName,
+      func.functionType,
+      func.effectAnalysis,
+      context
+    );
+  }
+
+  // Third pass: handle closure body functions that have ctl handler calls.
+  // The evaluator doesn't run effect analysis for closures (functionValue is
+  // undefined for closure calls in tryToCallFunctionWithArguments), so we
+  // perform the analysis here in the codegen phase.
+  for (const funcId in context.functions) {
+    const { value: functionValue, cName: cFunctionName } =
+      context.functions[funcId]!;
+
+    if (!functionValue.type.isClosure) continue;
+    if (!functionValue.body?.$) continue;
+    if (functionValue.body.$.effectAnalysis?.hasEffects) continue;
+
+    const functionType = functionValue.type;
+    const implicitParams = functionType.implicitParameters;
+
+    for (const implicitParam of implicitParams) {
+      if (
+        !isFunctionType(implicitParam.type) ||
+        !implicitParam.type.isControlFunction
+      ) {
+        continue;
+      }
+
+      const effectAnalysis = analyzeEffectCallPoints(
+        functionValue.body,
+        implicitParam.label,
+        implicitParam.type
+      );
+
+      if (!effectAnalysis.hasEffects) continue;
+
+      // Find the handler value from the first ctl call expression in the body
+      const firstCallPoint = effectAnalysis.effectCallPoints[0];
+      if (firstCallPoint) {
+        const callExpr = firstCallPoint.expr as FnCallExpr;
+        if (callExpr && "func" in callExpr) {
+          const handlerValue = callExpr.func.$?.value;
+          if (handlerValue && isFunctionValue(handlerValue)) {
+            effectAnalysis.handlerValue = handlerValue;
+          }
+        }
+      }
+
+      functionValue.body.$.effectAnalysis = effectAnalysis;
+
+      // Find the capture type C name for the SM
+      let closureCaptureTypeCName: string | undefined;
+      const closureInfo = functionValue.closureInfo;
+      if (closureInfo?.captureType && isStructType(closureInfo.captureType)) {
+        closureCaptureTypeCName =
+          context.types[closureInfo.captureType.id]?.cName;
+      }
+
+      registerEffectfulFunction(
+        functionValue,
+        cFunctionName,
+        functionType,
+        effectAnalysis,
+        context,
+        true,
+        closureCaptureTypeCName
+      );
+      break;
+    }
+  }
+}
+
+/**
+ * Register a single effectful function: create SM info, generate struct + forward decl,
+ * store info on funcEntry, and defer resume function body generation.
+ */
+function registerEffectfulFunction(
+  functionValue: FunctionValue,
+  cFunctionName: string,
+  functionType: FunctionType,
+  effectAnalysis: EffectAnalysisResult,
+  context: FunctionGenerationContext,
+  isClosure: boolean = false,
+  closureCaptureTypeCName?: string
+): void {
+  // Determine types for the state machine
+  const returnTypeCName = isUnitType(functionType.return.type)
+    ? "void"
+    : getTypeString(functionType.return.type, context);
+
+  // The yield types are the argument types of the ctl operation
+  const yieldTypeCNames: string[] =
+    effectAnalysis.effectCallPoints.length > 0
+      ? effectAnalysis.effectCallPoints[0]!.operationArgTypes.map((t) =>
+          getTypeString(t, context)
+        )
+      : [];
+
+  // The resume type is the return type of the ctl operation at call site
+  const resumeTypeCName =
+    effectAnalysis.effectCallPoints.length > 0
+      ? getTypeString(
+          effectAnalysis.effectCallPoints[0]!.operationResultType,
+          context
+        )
+      : "void";
+
+  const structName = `${sanitizeForCIdentifier(cFunctionName)}_sm`;
+  const resumeFunctionName = `${sanitizeForCIdentifier(cFunctionName)}_resume`;
+
+  // Build per-effect type info for multi-effect functions
+  let effectInfos:
+    | import("../effects/effect-state-machine").EffectSmTypeInfo[]
+    | undefined;
+  if (
+    effectAnalysis.effectHandlerInfos &&
+    effectAnalysis.effectHandlerInfos.length > 1
+  ) {
+    effectInfos = effectAnalysis.effectHandlerInfos.map((hi) => ({
+      yieldTypeCNames: hi.operationArgTypes.map((t) =>
+        getTypeString(t, context)
+      ),
+      resumeTypeCName: getTypeString(hi.operationResultType, context),
+    }));
+  }
+
+  // Compute closure-captured variable names for the SM to exclude from struct/varmap
+  let closureCapturedVarNames: Set<string> | undefined;
+  if (isClosure && functionValue.closureInfo?.captureType) {
+    const ct = functionValue.closureInfo.captureType;
+    if (isStructType(ct) && ct.fields.length > 0) {
+      closureCapturedVarNames = new Set(ct.fields.map((f) => f.label));
+    }
+  }
+
+  const info: EffectStateMachineInfo = {
+    structName,
+    resumeFunctionName,
+    analysis: effectAnalysis,
+    functionType,
+    returnTypeCName,
+    yieldTypeCNames,
+    resumeTypeCName,
+    effectInfos,
+    isClosure,
+    closureCaptureTypeCName,
+    closureCapturedVarNames,
+  };
+
+  // Generate the struct definition
+  generateEffectStateMachineStruct(info, context);
+
+  // Generate forward declaration for resume function
+  generateEffectResumeFunctionDeclaration(info, context);
+
+  // Store the info for call-site codegen to use
+  if (!context.deferredEffectfulFunctions) {
+    context.deferredEffectfulFunctions = [];
+  }
+  context.deferredEffectfulFunctions.push({
+    functionValue,
+    cFunctionName,
+    info,
+  });
+
+  // Store the effect SM info on the function entry so call sites can find it
+  const funcEntry = context.functions[functionValue.funcId];
+  if (funcEntry) {
+    funcEntry.effectStateMachineInfo = info;
+  }
+}
+
+/**
+ * Generate C code for an effectful function as a state machine.
+ * The SM info has already been pre-registered by preRegisterEffectfulFunctions.
+ * This function is now a no-op since all work was done during pre-registration.
+ */
+function generateEffectfulFunction(
+  _functionValue: FunctionValue,
+  _cFunctionName: string,
+  _context: FunctionGenerationContext
+): void {
+  // All SM struct generation, forward declarations, and funcEntry registration
+  // are handled by preRegisterEffectfulFunctions which runs before any function
+  // body generation. This ensures call sites can find effectStateMachineInfo.
 }
 
 /**
@@ -743,6 +1068,17 @@ export function generateSpecializedFunctions(context: CodeGenContext): void {
       functionValue.specializedType.return.type
     );
     if (hasGenericParams || hasGenericReturnType) {
+      continue;
+    }
+
+    // Check if this is an effectful function (body has effect call points)
+    const effectAnalysis = functionValue.body?.$?.effectAnalysis;
+    if (effectAnalysis && effectAnalysis.hasEffects) {
+      generateEffectfulFunction(
+        functionValue,
+        cFunctionName,
+        context as FunctionGenerationContext
+      );
       continue;
     }
 

@@ -1,0 +1,788 @@
+open import "std/string"; // Let's use `String` instead of `str`
+open import "std/fmt";
+
+test "Test ctl abort and return via using parameter", {
+  Raise :: (ctl(forall(T : Type), msg : String, msg2 : String) -> T);
+
+  // Use an effect in a function (effect becomes an implicit parameter)
+  safe_divide :: (fn(x : i32, y : i32, using(raise : Raise)) -> i32)(
+    cond(
+      (y == 0) => raise(`div-by-zero`, `I don't like it`),
+      true => (x / y)
+    )
+  );
+
+  // Handle the effect — without resume (discarding continuation)
+  raise_const :: (fn() -> i64) {
+    (given(raise) : Raise) = ((msg, msg2) -> {// values/anonymous-function.ts
+      println(msg);
+      println(msg2);
+      abort i64(42); // abort type should match the outer function return type, which is i64 in this case
+                    // `abort` is only allowed in `ctl` function value.  
+    });
+    (i64(8) + i64(safe_divide(1, 0))) + i64(10)
+  };
+  // Returns 42 — continuation is discarded
+
+  // Handle the effect — with resume (invoking continuation)
+  raise_resume :: (fn() -> i64) {
+    (given(raise) : Raise) = (ctl(forall(T : Type), msg : String, msg2 : String) -> T)({ // calls/function-type.ts
+      println(msg);
+      println(msg2);
+      return i32(42);
+    });
+    (i64(8) + i64(safe_divide(1, 0))) + i64(10)
+  };
+  // Returns 60 — return(42) continues after the raise call site
+
+  result1 := raise_const();
+  result2 := raise_resume();
+
+  assert(result1 == i64(42));
+  assert(result2 == i64(60));
+};
+
+test "Test ctl resume called directly without intermediate using function", {
+  Raise :: (ctl(forall(T : Type), msg : String, msg2 : String) -> T);
+
+  // The ctl function is called directly. The handler uses `return(value)` to
+  // resume the continuation — execution continues after the raise(...) call
+  // and `result` receives the handler's returned value.
+  run_test :: (fn() -> unit) {
+    (given(raise) : Raise) = ((msg, msg2) -> {
+      println(msg);
+      println(msg2);
+      return i32(16);
+    });
+    result := raise(`direct-resume`, `Handler returns a value`);
+    println("After raise");
+    assert(result == 16, "result should be 16");
+  };
+  run_test();
+};
+test "Test ctl abort called directly without intermediate using function", {
+  Raise :: (ctl(forall(T : Type), msg : String, msg2 : String) -> T);
+
+  // The ctl function is called directly in the handler scope — no intermediate
+  // function with `using(raise : Raise)`. The handler runs, prints the messages,
+  // and aborts with `()`, matching the enclosing function's return type (unit).
+  run_test :: (fn() -> unit) {
+    (given(raise) : Raise) = ((msg, msg2) -> {
+      println(msg);
+      println(msg2);
+      abort ();
+    });
+    raise(`direct-call`, `No using parameter needed`);
+    assert(false, "This line should not be reached");
+  };
+  run_test();
+};
+test "Test nested ctl abort inside resume handler", {
+  Raise :: (ctl(forall(T : Type), msg : String, msg2 : String) -> T);
+
+  // raise2 is defined inside raise's handler body. raise2 aborts with i32(18),
+  // which becomes the result of the outer raise call (since abort exits the
+  // nearest enclosing ctl handler, which is raise's handler).
+  run_test :: (fn() -> unit) {
+    (given(raise) : Raise) = ((msg, msg2) -> {
+      println(msg);
+      println(msg2);
+      (given(raise2) : Raise) = ((m1, m2) -> {
+        println(m1);
+        println(m2);
+        abort i32(18);
+      });
+      raise2(`inner msg1`, `inner msg2`);
+      assert(false, "This should not be reached if raise2 aborts");
+      return i32(16);
+    });
+    result := raise(`outer msg1`, `outer msg2`);
+    assert(result == 18, "result should be 18 from raise2's abort");
+  };
+  run_test();
+};
+test "Test nested ctl resume inside resume handler", {
+  Raise :: (ctl(forall(T : Type), msg : String, msg2 : String) -> T);
+
+  // raise2 is defined inside raise's handler body. raise2 resumes with f32(3.14),
+  // then raise resumes with i32(16). Both handlers use return (resume) so
+  // execution continues after each call site.
+  run_test :: (fn() -> unit) {
+    (given(raise) : Raise) = ((msg, msg2) -> {
+      println(msg);
+      println(msg2);
+      (given(raise2) : Raise) = ((m1, m2) -> {
+        println(m1);
+        println(m2);
+        return f32(3.14);
+      });
+      raise2_result := raise2(`inner msg1`, `inner msg2`);
+      assert(raise2_result == f32(3.14), "raise2 should return 3.14");
+      return i32(16);
+    });
+    result := raise(`outer msg1`, `outer msg2`);
+    assert(result == 16, "result should be 16 from raise's return");
+  };
+  run_test();
+};
+test "Test while loop calling ctl with resume", {
+  Raise :: (ctl(forall(T : Type), msg : String, msg2 : String) -> T);
+
+  // Analogous to async_await test #13: While loop with await inside.
+  // Each iteration calls the ctl handler which resumes with i32(10).
+  run_test :: (fn() -> unit) {
+    sum := Box(i32)(0);
+    counter := Box(i32)(0);
+
+    (given(raise) : Raise) = ((msg, msg2) -> {
+      return i32(10);
+    });
+
+    while runtime(counter.* < i32(5)), {
+      result := raise(`msg1`, `msg2`);
+      sum.* = (sum.* + result);
+      counter.* = (counter.* + 1);
+    };
+
+    assert(counter.* == i32(5), "counter should be 5");
+    assert(sum.* == i32(50), "sum should be 5*10 = 50");
+  };
+  run_test();
+};
+test "Test while loop with break after ctl resume", {
+  Raise :: (ctl(forall(T : Type), msg : String, msg2 : String) -> T);
+
+  // Analogous to async_await test #14: While loop with break after await.
+  // The handler resumes, then break is used after the ctl call.
+  run_test :: (fn() -> unit) {
+    counter := Box(i32)(0);
+
+    (given(raise) : Raise) = ((msg, msg2) -> {
+      return i32(1);
+    });
+
+    while runtime(true), {
+      result := raise(`msg1`, `msg2`);
+      counter.* = (counter.* + result);
+      cond(
+        (counter.* >= i32(3)) => { break; },
+        true => ()
+      );
+    };
+
+    assert(counter.* == i32(3), "counter should be 3 after break");
+  };
+  run_test();
+};
+test "Test while loop with continue after ctl resume", {
+  Raise :: (ctl(forall(T : Type), msg : String, msg2 : String) -> T);
+
+  // Analogous to async_await test #24: Continue in async while loop.
+  // Loop calls ctl with resume, then continues (skips sum) on odd iterations.
+  run_test :: (fn() -> unit) {
+    sum := Box(i32)(0);
+    counter := Box(i32)(0);
+
+    (given(raise) : Raise) = ((msg, msg2) -> {
+      return i32(1);
+    });
+
+    while runtime(counter.* < i32(10)), {
+      raise(`msg1`, `msg2`);
+      i := counter.*;
+      counter.* = (counter.* + 1);
+      cond(
+        ((i % i32(2)) != i32(0)) => { continue; },
+        true => ()
+      );
+      sum.* = (sum.* + i);
+    };
+
+    assert(counter.* == i32(10), "counter should be 10");
+    assert(sum.* == i32(20), "sum of even numbers 0+2+4+6+8 = 20");
+  };
+  run_test();
+};
+test "Test break from cond after ctl resume", {
+  Raise :: (ctl(forall(T : Type), msg : String, msg2 : String) -> T);
+
+  // Analogous to async_await test #25: Break from cond in async while loop.
+  // while(true), call ctl, increment counter, break from cond when counter >= 5.
+  // sum = 1+2+3+4 = 10
+  run_test :: (fn() -> unit) {
+    counter := Box(i32)(0);
+    sum := Box(i32)(0);
+
+    (given(raise) : Raise) = ((msg, msg2) -> {
+      return i32(1);
+    });
+
+    while runtime(true), {
+      raise(`msg1`, `msg2`);
+      counter.* = (counter.* + 1);
+      cond(
+        (counter.* >= i32(5)) => { break; },
+        true => ()
+      );
+      sum.* = (sum.* + counter.*);
+    };
+
+    assert(counter.* == i32(5), "counter should be 5 after break");
+    assert(sum.* == i32(10), "sum should be 1+2+3+4 = 10");
+  };
+  run_test();
+};
+test "Test break drops local allocations after ctl resume", {
+  Raise :: (ctl(forall(T : Type), msg : String, msg2 : String) -> T);
+
+  // Analogous to async_await test #27: Break drops local allocations.
+  // Allocate a Box each iteration; break at iteration 3.
+  // ASan will catch leaks of the Box or String ctl args.
+  run_test :: (fn() -> unit) {
+    counter := Box(i32)(0);
+
+    (given(raise) : Raise) = ((msg, msg2) -> {
+      return i32(1);
+    });
+
+    while runtime(true), {
+      temp := Box(i32)(counter.*);
+      raise(`msg1`, `msg2`);
+      counter.* = (temp.* + 1);
+      cond(
+        (counter.* >= i32(3)) => { break; },
+        true => ()
+      );
+    };
+
+    assert(counter.* == i32(3), "counter should be 3 after break");
+  };
+  run_test();
+};
+test "Test mixed continue then break after ctl resume", {
+  Raise :: (ctl(forall(T : Type), msg : String, msg2 : String) -> T);
+
+  // Analogous to async_await test #32: Mixed continue then break.
+  // 1,2 continue; 3,4 accumulate; 5 breaks. sum = 3+4 = 7.
+  run_test :: (fn() -> unit) {
+    counter := Box(i32)(0);
+    sum := Box(i32)(0);
+
+    (given(raise) : Raise) = ((msg, msg2) -> {
+      return i32(1);
+    });
+
+    while runtime(true), {
+      counter.* = (counter.* + 1);
+      raise(`msg1`, `msg2`);
+
+      cond(
+        (counter.* <= i32(2)) => { continue; },
+        true => ()
+      );
+
+      cond(
+        (counter.* >= i32(5)) => { break; },
+        true => ()
+      );
+
+      sum.* = (sum.* + counter.*);
+    };
+
+    assert(counter.* == i32(5), "counter should stop at 5");
+    assert(sum.* == i32(7), "sum should be 3+4 = 7");
+  };
+  run_test();
+};
+test "Test early return inside loop after ctl resume", {
+  Raise :: (ctl(forall(T : Type), msg : String, msg2 : String) -> T);
+
+  // Analogous to async_await test #37: Early return inside loop after continue.
+  // Continue on even numbers; early-return at first odd >= 5.
+  find_first_odd :: (fn() -> i32) {
+    i := Box(i32)(0);
+
+    (given(raise) : Raise) = ((msg, msg2) -> {
+      return i32(1);
+    });
+
+    while runtime(i.* < i32(10)), {
+      i.* = (i.* + 1);
+      raise(`msg1`, `msg2`);
+
+      cond(
+        ((i.* % i32(2)) == i32(0)) => { continue; },
+        true => ()
+      );
+
+      cond(
+        (i.* >= i32(5)) => {
+          return i.*;
+        },
+        true => ()
+      );
+    };
+
+    return i32(-1);
+  };
+
+  result := find_first_odd();
+  assert(result == i32(5), "first odd value >= 5 should be 5");
+};
+
+test "Test two different ctl types in same scope (Log + Raise)", {
+  Raise :: (ctl(forall(T : Type), msg : String) -> T);
+  Log :: (ctl(msg : String, counter : Box(i32)) -> unit);
+
+  log_count := box(i32(0));
+
+  (given(log) : Log) = ((msg, counter) -> {
+    println(msg);
+    counter.* = (counter.* + i32(1));
+    return ();
+  });
+
+  (given(raise) : Raise) = ((msg) -> {
+    println(msg);
+    return i32(42);
+  });
+
+  log(`first log`, log_count);
+  log(`second log`, log_count);
+  result := raise(`error!`);
+
+  assert((log_count.* == i32(2)), "log_count should be 2");
+  assert((result == i32(42)), "result should be 42");
+};
+
+test "Test single-level effect propagation via using parameter", {
+  Raise :: (ctl(forall(T : Type), msg : String) -> T);
+
+  safe_divide :: (fn(x : i32, y : i32, using(raise : Raise)) -> i32)(
+    cond(
+      (y == 0) => raise(`division by zero`),
+      true => (x / y)
+    )
+  );
+
+  (given(raise) : Raise) = ((msg) -> {
+    println(msg);
+    return i32(0);
+  });
+  result := safe_divide(10, 0);
+  assert((result == i32(0)), "single-level propagation: should return 0");
+};
+
+test "Test two-level effect propagation via using parameter", {
+  Raise :: (ctl(forall(T : Type), msg : String) -> T);
+
+  safe_divide :: (fn(x : i32, y : i32, using(raise : Raise)) -> i32)(
+    cond(
+      (y == 0) => raise(`division by zero`),
+      true => (x / y)
+    )
+  );
+
+  compute :: (fn(a : i32, b : i32, using(raise : Raise)) -> i32)(
+    (safe_divide(a, b) + i32(10))
+  );
+
+  (given(raise) : Raise) = ((msg) -> {
+    println(msg);
+    return i32(0);
+  });
+  result := compute(50, 0);
+  assert((result == i32(10)), "two-level propagation: 0 + 10 = 10");
+};
+
+test "Test given variable shadowing (inner scope shadows outer)", {
+  Raise :: (ctl(forall(T : Type), msg : String) -> T);
+
+  safe_divide :: (fn(x : i32, y : i32, using(raise : Raise)) -> i32)(
+    cond(
+      (y == 0) => raise(`division by zero`),
+      true => (x / y)
+    )
+  );
+
+  (given(raise) : Raise) = ((msg) -> {
+    return i32(0);
+  });
+
+  result1 := safe_divide(10, 0);
+  assert((result1 == i32(0)), "outer handler should return 0");
+
+  result2 := {
+    (given(raise_inner) : Raise) = ((msg) -> {
+      return i32(-1);
+    });
+    safe_divide(20, 0)
+  };
+  assert((result2 == i32(-1)), "inner handler should shadow outer and return -1");
+
+  result3 := safe_divide(30, 0);
+  assert((result3 == i32(0)), "outer handler should still work after inner scope");
+};
+
+test "Test given variable shadowing (inner scope shadows outer) with abort", {
+  Raise :: (ctl(forall(T : Type), msg : String) -> T);
+
+  // Function that USES the effect (propagates via using parameter)
+  safe_divide :: (fn(x : i32, y : i32, using(raise : Raise)) -> i32)(
+    cond(
+      (y == 0) => raise(`division by zero`),
+      true => (x / y)
+    )
+  );
+
+  // Define `raise` at top level
+  (given(raise) : Raise) = ((msg) -> {
+    println(msg);
+    return i32(0);
+  });
+
+
+  {
+    // Define a new `raise` that overrides the outer one, simulating multi-level propagation
+    (given(raise2) : Raise) = ((msg) -> {
+      println(msg);
+      abort ();
+    });
+
+    result := safe_divide(10, 0);
+    assert(false, "multi-level propagation: should not reach here");
+  };
+
+  assert(false, "should not reach here");
+};
+
+test "Test effect polymorphism with using spread", {
+  Raise :: (ctl(forall(T : Type), msg : String) -> T);
+
+  might_fail :: (fn(using(raise : Raise)) -> i32)(
+    raise(`oops`)
+  );
+
+  // Effect-polymorphic function: forwards whatever effects f needs
+  run :: (fn(forall(T : Type, ...(E)),
+      f : (fn(using(...(E))) -> T),
+      using(...(E))) -> T)(f());
+
+  (given(raise) : Raise) = ((msg) -> {
+    println(msg);
+    return i32(42);
+  });
+
+  result := run(might_fail);
+  assert(result == i32(42), "effect polymorphism: should be 42");
+};
+
+test "Test effect polymorphism with using spread and abort", {
+  Raise :: (ctl(forall(T : Type), msg : String) -> T);
+
+  might_fail :: (fn(using(raise : Raise)) -> i32)(
+    raise(`oops`)
+  );
+
+  // Effect-polymorphic function: forwards whatever effects f needs
+  run :: (fn(forall(T : Type, ...(E)),
+      f : (fn(using(...(E))) -> T),
+      using(...(E))) -> T)(f());
+
+  (given(raise) : Raise) = ((msg) -> {
+    println(msg);
+    abort ();
+  });
+
+  result := run(might_fail);
+  assert(false, "This line should not be reached since might_fail raises an error");
+};
+
+test "Test module-based effect with abort", {
+  Raise :: module(
+    raise : (ctl(forall(T : Type), msg : String) -> T)
+  );
+
+  safe_divide :: (fn(x : i32, y : i32, using(raise_mod : Raise)) -> i32)(
+    cond(
+      (y == 0) => raise_mod.raise(`div-by-zero`),
+      true => (x / y)
+    )
+  );
+
+  (given(raise_mod) : Raise) = Raise(
+    raise :
+      (msg) -> {
+        println(msg);
+        abort ();
+      }
+  );
+
+  result := safe_divide(10, 0);
+  assert(false, "Should not reach here after abort");
+};
+
+test "Test module-based effect with resume", {
+  Raise :: module(
+    raise : (ctl(forall(T : Type), msg : String) -> T)
+  );
+
+  safe_divide :: (fn(x : i32, y : i32, using(raise_mod : Raise)) -> i32)(
+    cond(
+      (y == 0) => raise_mod.raise(`div-by-zero`),
+      true => (x / y)
+    )
+  );
+
+  (given(raise_mod) : Raise) = Raise(
+    raise :
+      (msg) -> {
+        println(msg);
+        return i32(0);
+      }
+  );
+
+  result := safe_divide(10, 0);
+  assert((result == 0), "module-based effect with resume: should be 0");
+  result2 := safe_divide(10, 2);
+  assert((result2 == 5), "module-based effect with resume: should be 5");
+};
+
+test "Test nested module-based effect with abort", {
+  Errors :: module(
+    raise : (ctl(forall(T : Type), msg : String) -> T)
+  );
+
+  Effects :: module(
+    errors : Errors
+  );
+
+  safe_divide :: (fn(x : i32, y : i32, using(fx : Effects)) -> i32)(
+    cond(
+      (y == 0) => fx.errors.raise(`div-by-zero`),
+      true => (x / y)
+    )
+  );
+
+  (given(fx) : Effects) = Effects(
+    errors : Errors(
+      raise :
+        (msg) -> {
+          println(msg);
+          abort ();
+        }
+    )
+  );
+
+  result := safe_divide(10, 0);
+  assert(false, "Should not reach here after abort");
+};
+
+test "Test nested module-based effect with resume", {
+  Errors :: module(
+    raise : (ctl(forall(T : Type), msg : String) -> T)
+  );
+
+  Effects :: module(
+    errors : Errors
+  );
+
+  safe_divide :: (fn(x : i32, y : i32, using(fx : Effects)) -> i32)(
+    cond(
+      (y == 0) => fx.errors.raise(`div-by-zero`),
+      true => (x / y)
+    )
+  );
+
+  (given(fx) : Effects) = Effects(
+    errors : Errors(
+      raise :
+        (msg) -> {
+          println(msg);
+          return i32(0);
+        }
+    )
+  );
+
+  result := safe_divide(10, 0);
+  assert((result == 0), "nested module effect with resume: should be 0");
+  result2 := safe_divide(10, 2);
+  assert((result2 == 5), "nested module effect with resume: should be 5");
+};
+
+test "Test module destructured using(ModuleType) with abort", {
+  Raise :: module(
+    raise : (ctl(forall(T : Type), msg : String) -> T)
+  );
+
+  safe_divide :: (fn(x : i32, y : i32, using(Raise)) -> i32)(
+    cond(
+      (y == 0) => raise(`div-by-zero`),
+      true => (x / y)
+    )
+  );
+
+  (given(raise_mod) : Raise) = Raise(
+    raise :
+      (msg) -> {
+        println(msg);
+        abort ();
+      }
+  );
+
+  result := safe_divide(10, 0);
+  assert(false, "Should not reach here after abort");
+};
+
+test "Test module destructured using(ModuleType) with resume", {
+  Raise :: module(
+    raise : (ctl(forall(T : Type), msg : String) -> T)
+  );
+
+  safe_divide :: (fn(x : i32, y : i32, using(Raise)) -> i32)(
+    cond(
+      (y == 0) => raise(`div-by-zero`),
+      true => (x / y)
+    )
+  );
+
+  (given(raise_mod) : Raise) = Raise(
+    raise :
+      (msg) -> {
+        println(msg);
+        return i32(0);
+      }
+  );
+
+  result := safe_divide(10, 0);
+  assert((result == 0), "module destructured with resume: should be 0");
+  result2 := safe_divide(10, 2);
+  assert((result2 == 5), "module destructured with resume: should be 5");
+};
+
+test "Test multiple effect row spreads with resume", {
+  Raise :: (ctl(forall(T : Type), msg : String) -> T);
+  Log :: (ctl(msg : String) -> unit);
+
+  might_fail :: (fn(using(raise : Raise)) -> i32)(
+    raise(`oops`)
+  );
+
+  might_log :: (fn(using(log : Log)) -> unit)(
+    log(`logged something`)
+  );
+
+  run_both :: (fn(
+      forall(T1 : Type, T2 : Type, ...(E1), ...(E2)),
+      f1 : (fn(using(...(E1))) -> T1),
+      f2 : (fn(using(...(E2))) -> T2),
+      using(...(E1), ...(E2))
+    ) -> T1)
+  {
+    f2();
+    f1()
+  };
+
+  (given(raise) : Raise) = ((msg) -> {
+    println(msg);
+    return i32(42);
+  });
+
+  (given(log) : Log) = ((msg) -> {
+    println(msg);
+    return ();
+  });
+
+  result := run_both(might_fail, might_log);
+  assert((result == i32(42)), "multiple spreads resume: should be 42");
+};
+
+test "Test multiple effect row spreads with abort", {
+  Raise :: (ctl(forall(T : Type), msg : String) -> T);
+  Log :: (ctl(msg : String) -> unit);
+
+  might_fail :: (fn(using(raise : Raise)) -> i32)(
+    raise(`oops`)
+  );
+
+  might_log :: (fn(using(log : Log)) -> unit)(
+    log(`logged something`)
+  );
+
+  run_both :: (fn(
+      forall(T1 : Type, T2 : Type, ...(E1), ...(E2)),
+      f1 : (fn(using(...(E1))) -> T1),
+      f2 : (fn(using(...(E2))) -> T2),
+      using(...(E1), ...(E2))
+    ) -> T1)
+  {
+    f2();
+    f1()
+  };
+
+  (given(raise) : Raise) = ((msg) -> {
+    println(msg);
+    abort ();
+  });
+
+  (given(log) : Log) = ((msg) -> {
+    println(msg);
+    return ();
+  });
+
+  run_both(might_fail, might_log);
+  assert(false, "multiple spreads abort: should not reach here");
+};
+
+test "Test closure with using() effect - resume", {
+  Log :: (ctl(msg : String) -> unit);
+
+  x := Box(i32)(0);
+
+  (given(log) : Log) = ((msg) -> {
+    println(msg);
+    return ();
+  });
+
+  (closure : Impl(Fn(v : i32, msg : String, using(log : Log)) -> i32)) =
+    (v, msg, using(log)) => {
+      log(msg);
+      x.* = (x.* + v);
+      return x.*;
+    };
+
+  result1 := closure(1, `hello`);
+  assert((result1 == 1), "closure+effect resume: expected result1 to be 1");
+  assert((x.* == 1), "closure+effect resume: expected x to be 1");
+
+  result2 := closure(2, `world`);
+  assert((result2 == 3), "closure+effect resume: expected result2 to be 3");
+  assert((x.* == 3), "closure+effect resume: expected x to be 3");
+};
+
+test "Test closure with using() effect - abort", {
+  Log :: (ctl(msg : String) -> unit);
+
+  run_test :: (fn() -> i32) {
+    x := Box(i32)(0);
+
+    (given(log) : Log) = ((msg) -> {
+      println(msg);
+      abort i32(99);
+    });
+
+    (closure : Impl(Fn(v : i32, msg : String, using(log : Log)) -> i32)) =
+      (v, msg, using(log)) => {
+        log(msg);
+        x.* = (x.* + v);
+        return x.*;
+      };
+
+    result := closure(1, `hello`);
+    assert(false, "closure+effect abort: should not reach here");
+    return result;
+  };
+
+  val := run_test();
+  assert((val == 99), "closure+effect abort: expected abort value 99");
+};

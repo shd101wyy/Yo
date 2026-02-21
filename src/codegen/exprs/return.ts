@@ -2,8 +2,10 @@ import { getVariablesFromEnv } from "../../env";
 import { extractFutureTraitFromType } from "../../evaluator/trait-checking";
 import {
   type AtomExpr,
+  BuiltinFunctions,
   BuiltinKeywords,
   type Expr,
+  exprIsAtom,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   ExprTag,
@@ -90,6 +92,38 @@ function handleFuncCallDeferredDup(
 }
 
 /**
+ * Get the C codegen variable name from a deferred drop expression.
+ * Used to match pending drops against SM-consumed arg C names.
+ */
+function getDeferredDropTargetCName(dropExpr: Expr): string | undefined {
+  // ___drop(varName) form
+  if (
+    exprIsFunctionCall(dropExpr) &&
+    exprIsFunctionCallOf(dropExpr, BuiltinFunctions.___drop) &&
+    dropExpr.args.length >= 1
+  ) {
+    const firstArg = dropExpr.args[0];
+    if (firstArg && exprIsAtom(firstArg)) {
+      return getVariableNameForCodegen(firstArg.token.value, firstArg.$?.env);
+    }
+  }
+  // varName.drop() form (method call syntax)
+  if (
+    exprIsFunctionCall(dropExpr) &&
+    dropExpr.args.length === 0 &&
+    exprIsFunctionCall(dropExpr.func) &&
+    exprIsFunctionCallOf(dropExpr.func, ".", 2) &&
+    exprIsAtom(dropExpr.func.args[1]!) &&
+    dropExpr.func.args[1]!.token.value === BuiltinFunctions.___drop[0] &&
+    exprIsAtom(dropExpr.func.args[0]!)
+  ) {
+    const atom = dropExpr.func.args[0]!;
+    return getVariableNameForCodegen(atom.token.value, atom.$?.env);
+  }
+  return undefined;
+}
+
+/**
  * Helper: Generate pending deferred drops from enclosing begin blocks.
  * Only drops variables that have been declared before the early return.
  * Variables that would be declared after the return point are filtered out
@@ -98,18 +132,26 @@ function handleFuncCallDeferredDup(
  * This function should be called AFTER the expression's own deferredDropExpressions
  * have been emitted, to drop variables from enclosing scopes.
  */
-function generatePendingDeferredDrops(
+export function generatePendingDeferredDrops(
   indent: string,
   context: FunctionGenerationContext,
   expr: Expr,
-  isCompletion: boolean = false
+  isCompletion: boolean = false,
+  skipAlreadyDroppedCheck: boolean = false,
+  skipEnvCheck: boolean = false
 ): void {
   if (context.pendingDeferredDrops && context.pendingDeferredDrops.length > 0) {
     // Filter drops to only include variables that exist in the return expression's environment.
     // Variables declared after the return point won't be in expr.$.env yet.
-    // Also exclude variables that were already dropped by the expression's own deferredDropExpressions.
+    // Also exclude variables that were already dropped by the expression's own deferredDropExpressions,
+    // UNLESS skipAlreadyDroppedCheck is true (used for direct ctl returns where the goto
+    // skips the scope-exit drops that would normally run after the expression).
+    //
+    // When skipEnvCheck is true (e.g., for abort inside inlined handler bodies),
+    // we skip the environment check entirely because the abort expression's env
+    // is from the handler's scope, not the enclosing function's scope.
     const alreadyDroppedVars = new Set<string>();
-    if (expr.$?.deferredDropExpressions) {
+    if (!skipAlreadyDroppedCheck && expr.$?.deferredDropExpressions) {
       for (const dropExpr of expr.$.deferredDropExpressions) {
         const varName = getDeferredDropTargetAtomName(dropExpr);
         if (varName) {
@@ -118,22 +160,30 @@ function generatePendingDeferredDrops(
       }
     }
 
-    const dropsToEmit = expr.$?.env
-      ? context.pendingDeferredDrops.filter((dropExpr) => {
-          const varName = getDeferredDropTargetAtomName(dropExpr);
-          if (!varName) return false;
-          // Skip if already dropped by the expression's own drops
-          if (alreadyDroppedVars.has(varName)) return false;
-          // Check if the variable exists in the environment at the return point
-          const variables = getVariablesFromEnv(expr.$!.env, varName);
-          return variables.length > 0;
-        })
-      : context.pendingDeferredDrops.filter((dropExpr) => {
-          const varName = getDeferredDropTargetAtomName(dropExpr);
-          if (!varName) return false;
-          // Skip if already dropped by the expression's own drops
-          return !alreadyDroppedVars.has(varName);
-        });
+    // SM-consumed arg C names: for abort handlers, some pending drop targets
+    // have their ownership transferred to the SM. The handler param drops already
+    // free them, so we must skip them here to avoid double-free.
+    const consumedArgCNames = context.effectSmConsumedArgCNames;
+
+    const dropsToEmit =
+      expr.$?.env && !skipEnvCheck
+        ? context.pendingDeferredDrops.filter((dropExpr) => {
+            const varName = getDeferredDropTargetAtomName(dropExpr);
+            if (!varName) return false;
+            if (alreadyDroppedVars.has(varName)) return false;
+            const variables = getVariablesFromEnv(expr.$!.env, varName);
+            return variables.length > 0;
+          })
+        : context.pendingDeferredDrops.filter((dropExpr) => {
+            const varName = getDeferredDropTargetAtomName(dropExpr);
+            if (!varName) return false;
+            if (alreadyDroppedVars.has(varName)) return false;
+            if (consumedArgCNames && consumedArgCNames.size > 0) {
+              const cName = getDeferredDropTargetCName(dropExpr);
+              if (cName && consumedArgCNames.has(cName)) return false;
+            }
+            return true;
+          });
 
     if (dropsToEmit.length > 0) {
       const message = isCompletion
@@ -150,6 +200,60 @@ function generatePendingDeferredDrops(
   }
 }
 
+import type { EffectStateMachineInfo } from "../effects/effect-state-machine";
+
+/**
+ * Generate C code for `return(value)` inside a ctl handler body.
+ * This resumes the continuation by setting the SM's resume_value and calling the resume function.
+ */
+function generateReturnAsResume(
+  expr: FnCallExpr,
+  indent: string,
+  context: CodeGenContext,
+  resumeInfo: {
+    smVar: string;
+    smInfo: EffectStateMachineInfo;
+    effectIndex?: number;
+  }
+): string {
+  const { smVar, smInfo, effectIndex } = resumeInfo;
+  const emitter = context.emitter;
+  const functionContext = context as FunctionGenerationContext;
+
+  const arg = expr.args[0];
+  // Determine the resume_value field name based on effect index
+  const resumeField =
+    effectIndex !== undefined &&
+    smInfo.effectInfos &&
+    smInfo.effectInfos.length > 1
+      ? `resume_value_${effectIndex}`
+      : `resume_value`;
+  const resumeTypeCName =
+    effectIndex !== undefined &&
+    smInfo.effectInfos &&
+    smInfo.effectInfos.length > 1
+      ? smInfo.effectInfos[effectIndex]!.resumeTypeCName
+      : smInfo.resumeTypeCName;
+
+  if (arg && resumeTypeCName !== "void") {
+    const argCode = generateExpr(arg, indent, context);
+    emitter.emitLine(`${indent}${smVar}.${resumeField} = ${argCode};`);
+  }
+
+  // Drop handler parameters BEFORE resuming the state machine.
+  // The SM may free yielded data during resume, so params extracted from
+  // yield fields must be dropped first to avoid use-after-free.
+  if (functionContext.effectHandlerParamDrops) {
+    for (const dropCode of functionContext.effectHandlerParamDrops) {
+      emitter.emitLine(`${indent}${dropCode};`);
+    }
+  }
+
+  emitter.emitLine(`${indent}${smInfo.resumeFunctionName}(&${smVar});`);
+
+  return "";
+}
+
 /**
  * Generate a return statement for `return` expressions
  * Function with explicit return:
@@ -160,6 +264,53 @@ export function generateReturn(
   indent: string,
   context: CodeGenContext
 ): string {
+  const functionContext = context as FunctionGenerationContext;
+
+  // Check if we're inside a ctl handler body (return = resume continuation)
+  if (functionContext.continuationVariables) {
+    const resumeInfo = functionContext.continuationVariables.get("resume");
+    if (resumeInfo) {
+      if ("directReturnVar" in resumeInfo) {
+        // Direct ctl call (no state machine): assign the return value to the
+        // captured temp variable so the call site can use it as an expression.
+        // For unit-returning handlers, skip the assignment entirely.
+        if (!resumeInfo.isUnitReturn) {
+          const arg = expr.args[0];
+          if (arg) {
+            const argCode = generateExpr(arg, indent, context);
+            if (argCode) {
+              context.emitter.emitLine(
+                `${indent}${resumeInfo.directReturnVar} = ${argCode};`
+              );
+            }
+          }
+        }
+        // Emit pending deferred drops before the goto. For direct ctl returns,
+        // we skip the alreadyDroppedVars exclusion because the goto will jump
+        // past the scope-exit drops that would normally run — so those drops
+        // MUST be emitted here from pendingDeferredDrops instead.
+        // We do NOT emit deferredDropExpressions because those may include drops
+        // for the caller's variables (e.g. ctl call arguments) that are borrowed
+        // by the handler, not owned.
+        generatePendingDeferredDrops(
+          indent,
+          functionContext,
+          expr,
+          false,
+          true
+        );
+        // Goto exit label to skip any remaining handler code after `return`
+        if (resumeInfo.directExitLabel) {
+          context.emitter.emitLine(
+            `${indent}goto ${resumeInfo.directExitLabel};`
+          );
+        }
+        return "";
+      }
+      return generateReturnAsResume(expr, indent, context, resumeInfo);
+    }
+  }
+
   const arg = expr.args[0];
   if (arg) {
     if (!expr.$) {
@@ -173,7 +324,6 @@ export function generateReturn(
 
     // Special handling for async functions: we need to get the raw value code
     // without temp variable indirection to properly declare the temp variable
-    const functionContext = context as FunctionGenerationContext;
     let argCode: string;
     let needsTempVarDeclaration = false;
 
@@ -260,9 +410,22 @@ export function generateReturn(
       generateDeferredDropExpressions(expr, indent, context);
     }
 
-    // Check if we're in a state machine - if so, complete the Future instead of returning
+    // Check if we're in a state machine - if so, complete the SM instead of returning
     if (functionContext.inStateMachine) {
-      // State machine return - complete the Future and clean up
+      if (functionContext.inEffectStateMachine) {
+        // Effect state machine return - set result and mark completed
+        generatePendingDeferredDrops(indent, functionContext, expr, true);
+        const returnValue = handledDeferredDup
+          ? argCode
+          : (returnTempVar ?? argCode);
+        if (!isUnitType(expr.$.type)) {
+          context.emitter.emitLine(`${indent}sm->result = ${returnValue};`);
+        }
+        context.emitter.emitLine(`${indent}sm->completed = 1;`);
+        return `return`;
+      }
+
+      // Async state machine return - complete the Future and clean up
       const futureType = functionContext.inStateMachine.futureType;
       const futureModuleType = extractFutureTraitFromType(futureType)!;
       const childType = futureModuleType.isFuture.outputType;
@@ -310,10 +473,15 @@ export function generateReturn(
       generateDeferredDropExpressions(expr, indent, context);
     }
 
-    const functionContext = context as FunctionGenerationContext;
-
-    // Check if we're in a state machine - if so, complete the Future instead of returning
+    // Check if we're in a state machine - if so, complete the SM instead of returning
     if (functionContext.inStateMachine) {
+      if (functionContext.inEffectStateMachine) {
+        // Effect state machine unit return - mark completed
+        generatePendingDeferredDrops(indent, functionContext, expr, true);
+        context.emitter.emitLine(`${indent}sm->completed = 1;`);
+        return `return`;
+      }
+
       const futureType = functionContext.inStateMachine.futureType;
       const futureModuleType = extractFutureTraitFromType(futureType)!;
       const childType = futureModuleType.isFuture.outputType;
