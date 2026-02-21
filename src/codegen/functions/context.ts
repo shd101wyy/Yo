@@ -141,7 +141,7 @@ export interface FunctionGenerationContext extends CodeGenContext {
   asyncWhileContinueInfo?: { label: string; emitDropsBeforeGoto?: boolean };
   // Deferred drops for the while loop body's local variables.
   // These must be emitted before break/continue/normal-exit in async while loop resume code.
-  asyncWhileBodyDrops?: import("../../expr").Expr[];
+  asyncWhileBodyDrops?: Expr[];
   // Drop code strings for effect handler parameters (e.g., msg: String from ctl yield_value).
   // These are emitted before abort returns to prevent leaking handler params.
   effectHandlerParamDrops?: string[];

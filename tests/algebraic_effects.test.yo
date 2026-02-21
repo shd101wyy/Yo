@@ -497,3 +497,115 @@ test "Test effect polymorphism with using spread and abort", {
   result := run(might_fail);
   assert(false, "This line should not be reached since might_fail raises an error");
 };
+
+test "Test module-based effect with abort", {
+  Raise :: module(
+    raise : (ctl(forall(T : Type), msg : String) -> T)
+  );
+
+  safe_divide :: (fn(x : i32, y : i32, using(raise_mod : Raise)) -> i32)(
+    cond(
+      (y == 0) => raise_mod.raise(`div-by-zero`),
+      true => (x / y)
+    )
+  );
+
+  (given(raise_mod) : Raise) = Raise(
+    raise :
+      (msg) -> {
+        println(msg);
+        abort ();
+      }
+  );
+
+  result := safe_divide(10, 0);
+  assert(false, "Should not reach here after abort");
+};
+
+test "Test module-based effect with resume", {
+  Raise :: module(
+    raise : (ctl(forall(T : Type), msg : String) -> T)
+  );
+
+  safe_divide :: (fn(x : i32, y : i32, using(raise_mod : Raise)) -> i32)(
+    cond(
+      (y == 0) => raise_mod.raise(`div-by-zero`),
+      true => (x / y)
+    )
+  );
+
+  (given(raise_mod) : Raise) = Raise(
+    raise :
+      (msg) -> {
+        println(msg);
+        return i32(0);
+      }
+  );
+
+  result := safe_divide(10, 0);
+  assert((result == 0), "module-based effect with resume: should be 0");
+  result2 := safe_divide(10, 2);
+  assert((result2 == 5), "module-based effect with resume: should be 5");
+};
+
+test "Test nested module-based effect with abort", {
+  Errors :: module(
+    raise : (ctl(forall(T : Type), msg : String) -> T)
+  );
+
+  Effects :: module(
+    errors : Errors
+  );
+
+  safe_divide :: (fn(x : i32, y : i32, using(fx : Effects)) -> i32)(
+    cond(
+      (y == 0) => fx.errors.raise(`div-by-zero`),
+      true => (x / y)
+    )
+  );
+
+  (given(fx) : Effects) = Effects(
+    errors : Errors(
+      raise :
+        (msg) -> {
+          println(msg);
+          abort ();
+        }
+    )
+  );
+
+  result := safe_divide(10, 0);
+  assert(false, "Should not reach here after abort");
+};
+
+test "Test nested module-based effect with resume", {
+  Errors :: module(
+    raise : (ctl(forall(T : Type), msg : String) -> T)
+  );
+
+  Effects :: module(
+    errors : Errors
+  );
+
+  safe_divide :: (fn(x : i32, y : i32, using(fx : Effects)) -> i32)(
+    cond(
+      (y == 0) => fx.errors.raise(`div-by-zero`),
+      true => (x / y)
+    )
+  );
+
+  (given(fx) : Effects) = Effects(
+    errors : Errors(
+      raise :
+        (msg) -> {
+          println(msg);
+          return i32(0);
+        }
+    )
+  );
+
+  result := safe_divide(10, 0);
+  assert((result == 0), "nested module effect with resume: should be 0");
+  result2 := safe_divide(10, 2);
+  assert((result2 == 5), "nested module effect with resume: should be 5");
+};

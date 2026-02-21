@@ -128,6 +128,16 @@ export interface EffectAnalysisResult {
   effectParameterType: Type;
 
   /**
+   * For module-based effects, the path of field names from the module parameter
+   * to the ctl field. Supports arbitrarily nested modules.
+   * e.g., for `using(raise_mod : Raise)` where `Raise = module(raise : ctl(...))`,
+   * effectParameterName is "raise_mod" and effectFieldPath is ["raise"].
+   * For nested modules like `module(errors : module(raise : ctl(...)))`,
+   * effectFieldPath would be ["errors", "raise"].
+   */
+  effectFieldPath?: string[];
+
+  /**
    * The handler function value resolved from the given(...) variable at the call site.
    * Stored during specialization so the codegen can inline the handler body.
    * Typed as `unknown` to avoid circular imports with value types.

@@ -312,6 +312,28 @@ export function generateEffectResumeFunction(
 
     emitter.emitLine(`    case ${segment.stateNumber}: {`);
 
+    if (segment.stateNumber === 0) {
+      // Copy parameter values into corresponding captured variable fields.
+      // The call site sets sm->paramName, but the SM body reads sm->var_{capturedId}.
+      const runtimeParams = info.functionType.parameters.filter(
+        (p) => !p.isCompileTimeOnly && !p.isImplicit
+      );
+      for (const param of runtimeParams) {
+        const capturedVar = analysis.capturedVariables.find(
+          (cv) => cv.name === param.label
+        );
+        if (capturedVar) {
+          const capturedFieldName = sanitizeForCIdentifier(
+            `var_${capturedVar.id}`
+          );
+          const paramFieldName = sanitizeForCIdentifier(param.label);
+          emitter.emitLine(
+            `      sm->${capturedFieldName} = sm->${paramFieldName};`
+          );
+        }
+      }
+    }
+
     if (
       segment.stateNumber > 0 &&
       analysis.effectCallPoints[segment.stateNumber - 1]

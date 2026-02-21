@@ -46,6 +46,7 @@ import type {
   FunctionImplicitParameter,
   FunctionParameter,
   FunctionType,
+  ModuleType,
   SomeType,
   Type,
   TypeHierarchyType,
@@ -57,6 +58,7 @@ import {
   isExprType,
   isFunctionSpecializable,
   isFunctionType,
+  isModuleType,
   isSomeType,
   isTypeHierarchyType,
 } from "../../types/guards";
@@ -76,6 +78,7 @@ import {
   createUnknownValue,
   type ExprValue,
   isFunctionValue,
+  isModuleValue,
   isTypeValue,
   type Value,
   valueToString,
@@ -97,6 +100,15 @@ import {
 } from "../types/function";
 import { synthesizeTypes } from "../types/synthesizer";
 import { evaluateComptimeFunctionCall } from "./comptime-fn";
+
+function moduleTypeContainsCtlField(type: ModuleType): boolean {
+  for (const field of type.fields) {
+    if (isFunctionType(field.type) && field.type.isControlFunction) return true;
+    if (isModuleType(field.type) && moduleTypeContainsCtlField(field.type))
+      return true;
+  }
+  return false;
+}
 
 /**
  * Generate ___drop expressions for variables that need cleanup during function calls.
@@ -1699,7 +1711,9 @@ Please use explicit using() to disambiguate.`,
             argType &&
             isFunctionType(argType) &&
             argType.implicitParameters.some(
-              (p) => isFunctionType(p.type) && p.type.isControlFunction
+              (p) =>
+                (isFunctionType(p.type) && p.type.isControlFunction) ||
+                (isModuleType(p.type) && moduleTypeContainsCtlField(p.type))
             )
           ) {
             indicesToRemove.add(runtimeArgIdx);
@@ -1727,7 +1741,9 @@ Please use explicit using() to disambiguate.`,
   const isInsideFunctionWithCtlImplicitParam =
     context.isEvaluatingFunctionBodyOrAsyncBlock?.kind === "function-body" &&
     context.isEvaluatingFunctionBodyOrAsyncBlock.type.implicitParameters.some(
-      (param) => isFunctionType(param.type) && param.type.isControlFunction
+      (param) =>
+        (isFunctionType(param.type) && param.type.isControlFunction) ||
+        (isModuleType(param.type) && moduleTypeContainsCtlField(param.type))
     );
   if (
     !skipSpecialization &&
@@ -1832,7 +1848,9 @@ function createSpecializedFunctionInline({
       const isEffectfulFuncParam =
         isFunctionType(arg.argType) &&
         arg.argType.implicitParameters.some(
-          (p) => isFunctionType(p.type) && p.type.isControlFunction
+          (p) =>
+            (isFunctionType(p.type) && p.type.isControlFunction) ||
+            (isModuleType(p.type) && moduleTypeContainsCtlField(p.type))
         );
 
       if (isEffectfulFuncParam) {
@@ -1987,6 +2005,7 @@ function createSpecializedFunctionInline({
     label: string;
     type: FunctionType;
     fromSpread: boolean;
+    effectFieldPath?: string[];
   }> = [];
   // Compute the mapping from implicit param index to implicitArgValues index.
   // Spread params expand into multiple entries, so we need to track the offset.
@@ -2047,6 +2066,35 @@ function createSpecializedFunctionInline({
       } else {
         argOffset += 1;
       }
+    } else if (isModuleType(implicitParam.type)) {
+      // Module-based effects: recursively find ctl fields in possibly nested modules
+      const ctlFields: Array<{ path: string[]; type: FunctionType }> = [];
+      const findCtlFieldsInModule = (
+        moduleType: ModuleType,
+        pathSoFar: string[]
+      ) => {
+        for (const field of moduleType.fields) {
+          if (isFunctionType(field.type) && field.type.isControlFunction) {
+            ctlFields.push({
+              path: [...pathSoFar, field.label],
+              type: field.type,
+            });
+          } else if (isModuleType(field.type)) {
+            findCtlFieldsInModule(field.type, [...pathSoFar, field.label]);
+          }
+        }
+      };
+      findCtlFieldsInModule(implicitParam.type, []);
+      for (const ctlField of ctlFields) {
+        effectCtlParams.push({
+          handlerArgIndex: argOffset,
+          label: implicitParam.label,
+          type: ctlField.type,
+          fromSpread: false,
+          effectFieldPath: ctlField.path,
+        });
+      }
+      argOffset += 1;
     } else {
       argOffset += 1;
     }
@@ -2056,14 +2104,45 @@ function createSpecializedFunctionInline({
       specializedBody,
       ctlParam.label,
       ctlParam.type,
-      ctlParam.fromSpread
+      ctlParam.fromSpread,
+      ctlParam.effectFieldPath
     );
     if (effectAnalysis.hasEffects) {
       // Store the handler value on the effectAnalysis so codegen can inline it.
       // The implicit args correspond to implicit parameters by index.
       const handlerArg = argValues.implicitArgs?.[ctlParam.handlerArgIndex];
+      // For module-based effects, extract the ctl function by walking the field path
+      let resolvedHandlerFn: FunctionValue | undefined;
       if (handlerArg && isFunctionValue(handlerArg.value)) {
-        const handlerFn = handlerArg.value;
+        resolvedHandlerFn = handlerArg.value;
+      } else if (
+        handlerArg &&
+        isModuleValue(handlerArg.value) &&
+        ctlParam.effectFieldPath &&
+        ctlParam.effectFieldPath.length > 0
+      ) {
+        // Walk through nested modules following the field path
+        let currentValue: Value | undefined = handlerArg.value;
+        for (const fieldName of ctlParam.effectFieldPath) {
+          if (!isModuleValue(currentValue)) {
+            currentValue = undefined;
+            break;
+          }
+          const fieldIndex = currentValue.type.fields.findIndex(
+            (f) => f.label === fieldName
+          );
+          if (fieldIndex < 0 || !currentValue.fields[fieldIndex]) {
+            currentValue = undefined;
+            break;
+          }
+          currentValue = currentValue.fields[fieldIndex]!;
+        }
+        if (currentValue && isFunctionValue(currentValue)) {
+          resolvedHandlerFn = currentValue;
+        }
+      }
+      if (resolvedHandlerFn) {
+        const handlerFn = resolvedHandlerFn;
         const ctlType = ctlParam.type;
 
         // If the handler's ctl type has forall parameters and the handler body

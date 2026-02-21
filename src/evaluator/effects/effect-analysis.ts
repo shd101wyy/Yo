@@ -48,7 +48,8 @@ export function analyzeEffectCallPoints(
   body: Expr,
   effectParameterName: string,
   effectParameterType: Type,
-  includeTransitiveCalls: boolean = false
+  includeTransitiveCalls: boolean = false,
+  effectFieldPath?: string[]
 ): EffectAnalysisResult {
   const effectCallPoints: EffectCallPoint[] = [];
   const capturedVariables = new Map<string, EffectCapturedVariable>();
@@ -63,7 +64,8 @@ export function analyzeEffectCallPoints(
     variableIdRemapping,
     effectParameterName,
     effectParameterType,
-    includeTransitiveCalls
+    includeTransitiveCalls,
+    effectFieldPath
   );
 
   if (body.$?.deferredDropExpressions) {
@@ -76,7 +78,8 @@ export function analyzeEffectCallPoints(
         variableIdRemapping,
         effectParameterName,
         effectParameterType,
-        includeTransitiveCalls
+        includeTransitiveCalls,
+        effectFieldPath
       );
     }
   }
@@ -92,6 +95,7 @@ export function analyzeEffectCallPoints(
     variableIdRemapping,
     effectParameterName,
     effectParameterType,
+    effectFieldPath,
   };
 }
 
@@ -107,6 +111,7 @@ function walkExprForEffects(
   effectParameterName: string,
   effectParameterType: Type,
   includeTransitiveCalls: boolean,
+  effectFieldPath: string[] | undefined,
   parentExpr?: Expr
 ): void {
   switch (expr.tag) {
@@ -171,6 +176,7 @@ function walkExprForEffects(
           effectParameterName,
           effectParameterType,
           includeTransitiveCalls,
+          effectFieldPath,
           expr
         );
         for (const arg of expr.args) {
@@ -183,6 +189,7 @@ function walkExprForEffects(
             effectParameterName,
             effectParameterType,
             includeTransitiveCalls,
+            effectFieldPath,
             expr
           );
         }
@@ -209,6 +216,7 @@ function walkExprForEffects(
           effectParameterName,
           effectParameterType,
           includeTransitiveCalls,
+          effectFieldPath,
           expr
         );
         const perBranchEffects: EffectCallPoint[][] = [];
@@ -223,6 +231,7 @@ function walkExprForEffects(
             effectParameterName,
             effectParameterType,
             includeTransitiveCalls,
+            effectFieldPath,
             expr
           );
           perBranchEffects.push(effectCallPoints.slice(branchStart));
@@ -267,6 +276,7 @@ function walkExprForEffects(
           effectParameterName,
           effectParameterType,
           includeTransitiveCalls,
+          effectFieldPath,
           expr
         );
         const perBranchEffects: EffectCallPoint[][] = [];
@@ -281,6 +291,7 @@ function walkExprForEffects(
             effectParameterName,
             effectParameterType,
             includeTransitiveCalls,
+            effectFieldPath,
             expr
           );
           perBranchEffects.push(effectCallPoints.slice(branchStart));
@@ -314,7 +325,7 @@ function walkExprForEffects(
       }
 
       // Check if this is a ctl effect call (call to the effect parameter)
-      if (isEffectCall(expr, effectParameterName)) {
+      if (isEffectCall(expr, effectParameterName, effectFieldPath)) {
         // Collect all runtime argument types from the ctl call
         const operationArgTypes: Type[] = [];
         for (const arg of expr.args) {
@@ -363,7 +374,7 @@ function walkExprForEffects(
       // not for functions that directly declare their ctl parameters.
       if (
         includeTransitiveCalls &&
-        !isEffectCall(expr, effectParameterName) &&
+        !isEffectCall(expr, effectParameterName, effectFieldPath) &&
         isTransitiveEffectCall(expr, effectParameterName)
       ) {
         // Get yield types from the ctl type's runtime parameters
@@ -420,6 +431,7 @@ function walkExprForEffects(
               effectParameterName,
               effectParameterType,
               includeTransitiveCalls,
+              effectFieldPath,
               expr
             );
           }
@@ -437,6 +449,7 @@ function walkExprForEffects(
         effectParameterName,
         effectParameterType,
         includeTransitiveCalls,
+        effectFieldPath,
         expr
       );
       for (const arg of expr.args) {
@@ -449,6 +462,7 @@ function walkExprForEffects(
           effectParameterName,
           effectParameterType,
           includeTransitiveCalls,
+          effectFieldPath,
           expr
         );
       }
@@ -465,6 +479,7 @@ function walkExprForEffects(
             effectParameterName,
             effectParameterType,
             includeTransitiveCalls,
+            effectFieldPath,
             expr
           );
         }
@@ -476,17 +491,60 @@ function walkExprForEffects(
 
 /**
  * Checks if an expression is a call to the ctl effect parameter.
- * This detects calls like `raise(msg)` where `raise` is the effect parameter name.
+ * This detects:
+ * 1. Direct calls like `raise(msg)` where `raise` is the effect parameter name.
+ * 2. Module member calls like `raise_mod.raise(msg)` or nested like
+ *    `mod.errors.raise(msg)` where the effectFieldPath traces the field access chain.
  */
-function isEffectCall(expr: Expr, effectParameterName: string): boolean {
+function isEffectCall(
+  expr: Expr,
+  effectParameterName: string,
+  effectFieldPath?: string[]
+): boolean {
   if (expr.tag !== ExprTag.FnCall) return false;
 
-  // Check if the function being called is the effect parameter name
   const func = expr.func;
-  if (func.tag !== ExprTag.Atom) return false;
-  if (func.token.value !== effectParameterName) return false;
 
-  // Verify the function's type is a control function type
+  // Case 1: Direct ctl call — raise(msg)
+  if (!effectFieldPath || effectFieldPath.length === 0) {
+    if (func.tag !== ExprTag.Atom) return false;
+    if (func.token.value !== effectParameterName) return false;
+
+    const funcType = func.$?.type;
+    if (!funcType || !isFunctionType(funcType)) return false;
+    if (!funcType.isControlFunction) return false;
+
+    return true;
+  }
+
+  // Case 2: Module member ctl call — mod.raise(msg) or mod.errors.raise(msg)
+  // Unwrap the nested "." chain to extract the full access path.
+  // e.g., mod.errors.raise(msg) has func = FnCall(".", [FnCall(".", [Atom("mod"), Atom("errors")]), Atom("raise")])
+  // We unwrap to get: root = "mod", path = ["errors", "raise"]
+  const accessPath: string[] = [];
+  let current: Expr = func;
+  while (
+    current.tag === ExprTag.FnCall &&
+    exprIsFunctionCallOf(current, ".") &&
+    current.args.length >= 2
+  ) {
+    const fieldArg = current.args[1];
+    if (!fieldArg || fieldArg.tag !== ExprTag.Atom) return false;
+    accessPath.unshift(fieldArg.token.value);
+    current = current.args[0]!;
+  }
+
+  // The root should be an atom matching the effect parameter name
+  if (current.tag !== ExprTag.Atom) return false;
+  if (current.token.value !== effectParameterName) return false;
+
+  // The access path should match effectFieldPath exactly
+  if (accessPath.length !== effectFieldPath.length) return false;
+  for (let i = 0; i < accessPath.length; i++) {
+    if (accessPath[i] !== effectFieldPath[i]) return false;
+  }
+
+  // Verify the resolved type of the outermost "." expression is a ctl function
   const funcType = func.$?.type;
   if (!funcType || !isFunctionType(funcType)) return false;
   if (!funcType.isControlFunction) return false;
