@@ -1700,8 +1700,8 @@ export function evaluateFunctionParameters({
               }
             }
 
-            // Create the implicit parameter with module type and auto-generated label
-            const autoLabel = `__using_${j}`;
+            // Create the implicit parameter with module type and empty label
+            const autoLabel = "";
             const implicitParameter: FunctionImplicitParameter = {
               label: autoLabel,
               type: moduleType,

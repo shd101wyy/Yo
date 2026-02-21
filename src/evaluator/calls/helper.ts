@@ -227,6 +227,12 @@ export function checkIfFunctionParameterMatchesArgument({
     }
 
     const label = labelExpr.token.value;
+    if (parameter.label === "") {
+      throw formatErrorMessage({
+        token: labelExpr.token,
+        errorMessage: `Named argument call is not allowed for this parameter (it has no label).`,
+      });
+    }
     if (parameter.label !== label) {
       throw formatErrorMessage({
         token: labelExpr.token,

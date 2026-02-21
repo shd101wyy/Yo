@@ -640,6 +640,10 @@ export function functionParameterToString(
     ? exprToString(parameter.exprs.defaultValueExpr)
     : "";
 
+  if (label === "") {
+    return typeStr;
+  }
+
   if (defaultValueStr) {
     return `(${label} : ${typeStr}) ?= ${defaultValueStr}`;
   } else {
