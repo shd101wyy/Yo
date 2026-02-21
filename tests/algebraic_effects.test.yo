@@ -455,3 +455,24 @@ test "Test given variable shadowing (inner scope shadows outer) with abort", {
 
   assert(false, "should not reach here");
 };
+
+test "Test effect polymorphism with using spread", {
+  Raise :: (ctl(forall(T : Type), msg : String) -> T);
+
+  might_fail :: (fn(using(raise : Raise)) -> i32)(
+    raise(`oops`)
+  );
+
+  // Effect-polymorphic function: forwards whatever effects f needs
+  run :: (fn(forall(T : Type, ...(E)),
+      f : (fn(using(...(E))) -> T),
+      using(...(E))) -> T)(f());
+
+  (given(raise) : Raise) = ((msg) -> {
+    println(msg);
+    return i32(42);
+  });
+
+  result := run(might_fail);
+  assert(result == i32(42), "effect polymorphism: should be 42");
+};

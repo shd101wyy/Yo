@@ -22,10 +22,12 @@ import { generateExprFromCode } from "../../parser";
 import { PlaceholderToken, type Token } from "../../token";
 import { areTypesCompatible } from "../../types/compatibility";
 import {
+  createEffectsRowSomeType,
   createExprListType,
   createFunctionType,
   createSomeType,
   createType0,
+  createTypeHierarchy,
   getFunctionParameterExprs,
 } from "../../types/creators";
 import type {
@@ -38,6 +40,7 @@ import type {
 } from "../../types/definitions";
 import { getValueOfSomeTypeFromEnv } from "../../types/env-lookup";
 import {
+  isEffectsRowType,
   isExprListType,
   isExprType,
   isFnTraitType,
@@ -59,6 +62,7 @@ import {
   createTypeValue,
   createUnknownValue,
   isTypeValue,
+  isUnknownValue,
   type Value,
   valueToString,
 } from "../../value";
@@ -1468,6 +1472,74 @@ export function evaluateFunctionParameters({
 
       for (let j = 0; j < typeParameterExprs.length; j++) {
         const typeParameterExpr = typeParameterExprs[j]!;
+
+        // Detect ...(E) — effect row variable declaration
+        if (
+          exprIsFunctionCall(typeParameterExpr) &&
+          exprIsFunctionCallOf(typeParameterExpr, "...") &&
+          typeParameterExpr.args.length === 1 &&
+          exprIsAtom(typeParameterExpr.args[0]!)
+        ) {
+          const rowVarName = typeParameterExpr.args[0]!.token.value;
+
+          // Duplicate check
+          const duplicateLabel = forallParameters.find(
+            (element) => element.label === rowVarName
+          );
+          if (duplicateLabel) {
+            throw formatErrorMessage({
+              token: typeParameterExpr.token,
+              errorMessage: `Duplicate label "${rowVarName}" in type parameter`,
+            });
+          }
+
+          // Create a SomeType marked as an effect row variable
+          const effRowSomeType = createEffectsRowSomeType(rowVarName, env);
+          const rowKindType = createTypeHierarchy(1); // Type(1) level
+
+          // Add E to env (initially unbound — will be bound at call-site synthesis)
+          const { env: nextEnv } = addVariableToEnv({
+            env,
+            variable: {
+              name: rowVarName,
+              type: rowKindType,
+              isCompileTimeOnly: true,
+              value: [createTypeValue(effRowSomeType)],
+              token: typeParameterExpr.args[0]!.token,
+              initializedAtToken: typeParameterExpr.args[0]!.token,
+              consumedAtToken: undefined,
+              isOwningTheRcValue: false,
+            },
+          });
+          env = nextEnv;
+
+          typeParameterExpr.$ = {
+            env,
+            type: rowKindType,
+            value: createTypeValue(effRowSomeType),
+            pathCollection: [],
+          };
+
+          const forallParam: FunctionForallParameter = {
+            label: rowVarName,
+            type: rowKindType,
+            isCompileTimeOnly: true,
+            isQuote: false,
+            isOwningTheRcValue: false,
+            isImplicit: false,
+            isEffectRowSpread: false, // forall parameter, not a spread in using()
+            exprs: getFunctionParameterExprs({
+              expr: typeParameterExpr,
+              labelExpr: typeParameterExpr.args[0],
+              typeExpr: typeParameterExpr.args[0]!,
+              defaultValueExpr: undefined,
+              assignedValueExpr: undefined,
+            }),
+          };
+          forallParameters.push(forallParam);
+          continue;
+        }
+
         const { parameter, env: nextEnv } = evaluateFunctionParameter({
           expr: typeParameterExpr,
           env,
@@ -1515,6 +1587,71 @@ export function evaluateFunctionParameters({
 
       for (let j = 0; j < implicitParamExprs.length; j++) {
         const implicitParamExpr = implicitParamExprs[j]!;
+
+        // Detect ...(E) — named effect row spread
+        if (
+          exprIsFunctionCall(implicitParamExpr) &&
+          exprIsFunctionCallOf(implicitParamExpr, "...") &&
+          implicitParamExpr.args.length === 1 &&
+          exprIsAtom(implicitParamExpr.args[0]!)
+        ) {
+          const rowVarName = implicitParamExpr.args[0]!.token.value;
+
+          // Look up the SomeType for E (must have been declared in forall)
+          const rowVarVariables = getVariablesFromEnv(env, rowVarName);
+          const rowVarVariable = rowVarVariables.at(-1);
+          if (!rowVarVariable) {
+            throw formatErrorMessage({
+              token: implicitParamExpr.token,
+              errorMessage: `Effect row variable "${rowVarName}" not found in scope. Declare it with forall(..., ...(${rowVarName}))`,
+            });
+          }
+
+          // Determine the SomeType for E.
+          // During initial evaluation, E's value is a TypeValue wrapping the SomeType.
+          // During re-evaluation at call sites (CTFE), E's value may be an UnknownValue.
+          let rowSomeType: Type;
+          const eValue = rowVarVariable.value?.[0];
+          if (eValue && isTypeValue(eValue)) {
+            rowSomeType = eValue.value;
+          } else if (
+            eValue &&
+            isUnknownValue(eValue) &&
+            isEffectsRowType(eValue.type)
+          ) {
+            // E was bound to a concrete EffectsRowType during synthesis
+            rowSomeType = eValue.type;
+          } else if (eValue && isUnknownValue(eValue)) {
+            // Re-evaluation context: E is an UnknownValue with Type(1) kind.
+            // Re-create the effect row SomeType for this re-evaluation.
+            rowSomeType = createEffectsRowSomeType(rowVarName, env);
+          } else {
+            throw formatErrorMessage({
+              token: implicitParamExpr.token,
+              errorMessage: `Effect row variable "${rowVarName}" has invalid value. Expected a type.`,
+            });
+          }
+          // Create a spread marker entry in implicitParameters
+          const spreadMarker: FunctionImplicitParameter = {
+            label: rowVarName,
+            type: rowSomeType,
+            isCompileTimeOnly: true as const,
+            isImplicit: true as const,
+            isEffectRowSpread: true,
+            isQuote: false,
+            isOwningTheRcValue: false,
+            exprs: getFunctionParameterExprs({
+              expr: implicitParamExpr,
+              labelExpr: implicitParamExpr.args[0],
+              typeExpr: implicitParamExpr.args[0]!,
+              defaultValueExpr: undefined,
+              assignedValueExpr: undefined,
+            }),
+          };
+          implicitParameters.push(spreadMarker);
+          continue;
+        }
+
         const { parameter, env: nextEnv } = evaluateFunctionParameter({
           expr: implicitParamExpr,
           env,

@@ -548,15 +548,90 @@ The current `async { ... }` takes a begin block. It should be changed to accept 
 
 ### 3.2 Effect Polymorphism
 
-Functions polymorphic over effects — the function accepts any effect type as a type parameter:
+Effect row variables are declared with `...(Name)` inside `forall`. No new keyword is introduced — `...` already exists. Named rows allow **independent effect sets** (like Koka's `e1 e2`).
+
+#### Core Syntax
 
 ```yo
-// Functions polymorphic over effects
-map :: (fn(forall(A : Type, B : Type, E : Effect),
-           list : List(A),
-           f : (fn(A, using(E)) -> B)
-       ) -> List(B));
+// Single named effect row variable E
+run :: (fn(forall(T : Type, ...(E)),
+    f : (fn(using(...(E))) -> T),
+    using(...(E))) -> T)(f());
+
+// Two independent effect rows E1, E2 (Koka: `e1 e2`)
+some_func :: (fn(forall(T : Type, U : Type, ...(E1), ...(E2)),
+    xs : List(T),
+    f1 : (fn(a : T, using(...(E1))) -> U),
+    f2 : (fn(a : T, using(...(E2))) -> U),
+    using(...(E1), ...(E2))) -> List(U));
 ```
+
+#### Semantics
+
+- `...(E)` in `forall(...)` declares **E as an effect row variable** — ranging over sets of implicit parameters (effects).
+- `...(E)` in `using(...)` **spreads** the effect row E's bound parameters into implicit parameters at that position.
+- **Type unification:** calling `run(might_fail)` where `might_fail : fn(using(raise : Raise)) -> i32`:
+  - `T` unifies with `i32`
+  - `E` unifies with `(raise : Raise)` — the whole implicit parameter set
+- **Two rows:** `some_func` with `...(E1)` and `...(E2)` infers E1 from f1's concrete effects and E2 from f2's independently; `using(...(E1), ...(E2))` is their union.
+- **Threading:** inside `run`, calling `f()` automatically threads all parameters bound to E from the callerEnv.
+
+#### Example
+
+```yo
+Raise :: (ctl(forall(T : Type), msg : String) -> T);
+
+might_fail :: (fn(using(raise : Raise)) -> i32)(raise(`oops`));
+
+run :: (fn(forall(T : Type, ...(E)),
+    f : (fn(using(...(E))) -> T),
+    using(...(E))) -> T)(f());
+
+main :: (fn() -> unit) {
+    (given(raise) : Raise) = ((msg) -> { return i32(42); });
+    result := run(might_fail);   // E = (raise : Raise), T = i32
+    assert((result == i32(42)), "should be 42");
+};
+```
+
+#### Type Compatibility Rules
+
+| Expected                            | Given                             | Compatible?                       |
+| ----------------------------------- | --------------------------------- | --------------------------------- |
+| `fn(using(...(E))) -> T`            | `fn(using(raise : Raise)) -> i32` | ✅ E = `(raise : Raise)`, T = i32 |
+| `fn(using(...(E))) -> T`            | `fn() -> i32`                     | ✅ E = empty, T = i32             |
+| `fn(using(r : Raise, ...(E))) -> T` | `fn(using(r : Raise)) -> i32`     | ✅ named param matches, E = empty |
+| `fn(using(r : Raise)) -> T`         | `fn(using(l : Log)) -> i32`       | ❌ named params don't match       |
+
+#### Implementation Plan
+
+**1. Effect row variable representation:**
+
+- `...(E)` in `forall` creates a SomeType whose kind is an **EffectsRow** level — encoded as `TypeHierarchyType` with `level = 1` and `isEffectsRow: true` flag, OR a new `TypeTag.EffectsRow`.
+- The bound value of E is a list of `FunctionImplicitParameter` (label + type pairs).
+
+**2. `forall` parsing pass (`evaluateFunctionParameters`):**
+
+- When reading `forall(...)` args, detect `...(name)` (a call-expr named `...` with one atom arg) and treat it as an effect row variable declaration.
+- Create a SomeType for E with EffectsRow kind. Add E to env as a compile-time variable.
+
+**3. `using(...)` parsing pass:**
+
+- Detect `...(name)` (effect row spread) among the `using()` args.
+- Store effect row spreads in `implicitParameters` with `isEffectRowSpread: true`.
+- Named implicit params (e.g., `raise : Raise`) are still processed normally.
+
+**4. Type synthesis (`synthesizeTypes`):**
+
+- When expected function type has effect row spreads, match against given's `implicitParameters` in order: named params first, then bind row variable E to the remainder.
+
+**5. Call sites (`helper.ts`):**
+
+- When resolving implicit args for a function with `effectRowSpreads`, look up each E's bound `FunctionImplicitParameter[]` in calleeEnv, then resolve each one from callerEnv exactly as named implicit params.
+
+**6. `areFunctionTypesCompatible` / `areFunctionTypesCompatible`:**
+
+- Two function types with effect rows are compatible when named implicit params match and row variables can unify against the given's implicit param list.
 
 ### 3.3 Named Effect Instances
 
@@ -600,7 +675,7 @@ Phase 2 — Effect Handlers ✅ CORE COMPLETE
 
 Phase 3 — Advanced (Future)
   ├── Async/await unification via Async effect
-  └── Effect polymorphism
+  └── Effect polymorphism: named row vars `...(E)` in forall + spread in using(...)
 ```
 
 ---

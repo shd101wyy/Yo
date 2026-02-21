@@ -5,11 +5,13 @@ import {
   updateExistingVariable,
 } from "../../env";
 import { PlaceholderToken } from "../../token";
-import type { Type } from "../../types/definitions";
+import { createEffectsRowType } from "../../types/creators";
+import type { FunctionImplicitParameter, Type } from "../../types/definitions";
 import { getValueOfSomeTypeFromEnv } from "../../types/env-lookup";
 import {
   isArrayType,
   isComptimeListType,
+  isEffectsRowType,
   isEnumType,
   isFnTraitType,
   isFunctionType,
@@ -767,6 +769,84 @@ export function synthesizeTypes(
       );
       expected.env = expectedEnv;
       given.env = givenEnv;
+    }
+
+    // Synthesize implicit parameters, handling effect row spreads.
+    // Named (non-spread) params are matched by position.
+    // Spread markers (..( E) or bare ...) collect the remaining concrete params
+    // from the given function type and bind the effect row SomeType to them.
+    {
+      const expectedImplicit = expectedFunction.implicitParameters;
+      const givenImplicit = givenFunction.implicitParameters.filter(
+        (p) => !p.isEffectRowSpread
+      );
+
+      let givenIdx = 0;
+      for (let i = 0; i < expectedImplicit.length; i++) {
+        const expectedParam = expectedImplicit[i]!;
+        if (expectedParam.isEffectRowSpread) {
+          if (isEffectsRowType(expectedParam.type)) {
+            // Spread already bound to a concrete EffectsRowType — accept, consume remaining
+            givenIdx = givenImplicit.length;
+          } else {
+            // Named spread ...(E): collect remaining given params and bind E
+            const remaining = givenImplicit.slice(
+              givenIdx
+            ) as FunctionImplicitParameter[];
+            givenIdx = givenImplicit.length;
+
+            // expectedParam.type is the SomeType for E
+            if (
+              isSomeType(expectedParam.type) &&
+              expectedParam.type.isEffectsRow
+            ) {
+              const effectsRow = createEffectsRowType(remaining);
+              const typeValue = createTypeValue(effectsRow);
+
+              // Bind E in expected.env
+              const existingVars = getVariablesFromEnv(
+                expected.env,
+                expectedParam.type.name
+              );
+              const variable = existingVars[existingVars.length - 1];
+              if (!variable) {
+                const { env: nextEnv } = addVariableToEnv({
+                  env: expected.env,
+                  variable: {
+                    name: expectedParam.type.name,
+                    value: [typeValue],
+                    type: typeValue.type,
+                    isCompileTimeOnly: true,
+                    token: PlaceholderToken,
+                    initializedAtToken: PlaceholderToken,
+                    consumedAtToken: undefined,
+                    isOwningTheRcValue: false,
+                  },
+                });
+                expected.env = nextEnv;
+              } else {
+                expected.env = updateExistingVariable(expected.env, variable, {
+                  ...variable,
+                  value: [typeValue],
+                });
+              }
+            }
+          }
+        } else {
+          // Named regular implicit param — synthesize type against corresponding given param
+          const givenParam = givenImplicit[givenIdx];
+          if (givenParam) {
+            const { expectedEnv, givenEnv } = synthesizeTypes(
+              { type: expectedParam.type, env: expected.env },
+              { type: givenParam.type, env: given.env },
+              checkedTypePairs
+            );
+            expected.env = expectedEnv;
+            given.env = givenEnv;
+            givenIdx++;
+          }
+        }
+      }
     }
 
     // Synthesize the return types

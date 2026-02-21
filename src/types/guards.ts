@@ -4,6 +4,7 @@ import type {
   ComptimeListType,
   ConcreteModuleType,
   DynType,
+  EffectsRowType,
   EnumType,
   FnTraitType,
   FunctionType,
@@ -451,4 +452,8 @@ export function isBoxedType(
       !!type.typeName?.startsWith("Box(")
     );
   }
+}
+
+export function isEffectsRowType(type?: Type): type is EffectsRowType {
+  return type?.tag === TypeTag.EffectsRow;
 }

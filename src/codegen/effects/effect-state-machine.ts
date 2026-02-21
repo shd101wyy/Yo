@@ -48,6 +48,7 @@ import { isTempVariableName } from "../../utils";
 import {
   generateDeferredDropExpressions,
   generateDropCodeForValue,
+  generateDupCodeForValue,
 } from "../exprs/drop-dup";
 import { generateExpr } from "../exprs/expr";
 import type { FunctionGenerationContext } from "../functions/context";
@@ -334,6 +335,11 @@ export function generateEffectResumeFunction(
     if (isLastSegment && !segment.effectCallPoint) {
       if (bodyExpr.$?.deferredDropExpressions) {
         generateDeferredDropExpressions(bodyExpr, "      ", context);
+      } else {
+        // bodyExpr has no deferred drops (e.g., effect call is inside a cond branch
+        // whose drops are in the cond scope, not the body scope). Drop yield fields
+        // directly since they alias captured vars that won't be cleaned up otherwise.
+        generateYieldFieldDrops(analysis, "      ", context);
       }
       emitter.emitLine(`      sm->completed = 1;`);
       emitter.emitLine(`      return;`);
@@ -364,6 +370,9 @@ export function generateEffectResumeFunction(
       }
       if (bodyExpr.$?.deferredDropExpressions) {
         generateDeferredDropExpressions(bodyExpr, "      ", context);
+      } else {
+        // bodyExpr has no deferred drops — drop yield fields directly.
+        generateYieldFieldDrops(analysis, "      ", context);
       }
       emitter.emitLine(`      sm->completed = 1;`);
       emitter.emitLine(`      return;`);
@@ -662,6 +671,36 @@ export function generateEffectCallSite(
 }
 
 /**
+ * Drop all RC-typed yield fields in the SM. Used in continuation states
+ * when bodyExpr has no deferred drop expressions (e.g., effect call inside
+ * a cond branch where drops are in the branch scope, not body scope).
+ * Since yield fields alias captured vars, this serves as the cleanup
+ * that bodyExpr deferred drops would normally provide.
+ */
+function generateYieldFieldDrops(
+  analysis: EffectAnalysisResult,
+  indent: string,
+  context: FunctionGenerationContext
+): void {
+  const emitter = context.emitter;
+  for (const effectCallPoint of analysis.effectCallPoints) {
+    for (let i = 0; i < effectCallPoint.operationArgTypes.length; i++) {
+      const argType = effectCallPoint.operationArgTypes[i]!;
+      if (typeContainsRcType(argType)) {
+        const dropCode = generateDropCodeForValue(
+          `sm->yield_${i}`,
+          argType,
+          context
+        );
+        if (dropCode) {
+          emitter.emitLine(`${indent}${dropCode};`);
+        }
+      }
+    }
+  }
+}
+
+/**
  * Generate the handler body inline at the effect call site.
  *
  * For resume (handler uses `return(value)`):
@@ -683,7 +722,11 @@ function generateHandlerBodyInline(
 ): void {
   const emitter = context.emitter;
 
-  // Bind all handler runtime parameters to their respective sm.yield_N fields
+  // Bind all handler runtime parameters to their respective sm.yield_N fields.
+  // For RESUME handlers: DUP RC values so the handler has its own reference.
+  //   The SM retains its reference and will drop it when completed.
+  // For ABORT handlers: NO DUP — handler "steals" the SM's reference.
+  //   The SM is abandoned (never resumes/completes), so no double-free.
   const runtimeParams = handlerType.parameters.filter(
     (p) => !p.isCompileTimeOnly
   );
@@ -692,9 +735,27 @@ function generateHandlerBodyInline(
     const handlerParam = runtimeParams[i]!;
     const paramTypeCName = getTypeString(handlerParam.type, context);
     const paramCName = sanitizeForCIdentifier(handlerParam.label);
-    emitter.emitLine(
-      `${indent}${paramTypeCName} ${paramCName} = ${smVar}.yield_${i};`
-    );
+    if (hasResume && typeContainsRcType(handlerParam.type)) {
+      // DUP for resume handlers to avoid use-after-free during SM resume.
+      const dupCode = generateDupCodeForValue(
+        `${smVar}.yield_${i}`,
+        handlerParam.type,
+        context
+      );
+      if (dupCode) {
+        emitter.emitLine(
+          `${indent}${paramTypeCName} ${paramCName} = ${dupCode};`
+        );
+      } else {
+        emitter.emitLine(
+          `${indent}${paramTypeCName} ${paramCName} = ${smVar}.yield_${i};`
+        );
+      }
+    } else {
+      emitter.emitLine(
+        `${indent}${paramTypeCName} ${paramCName} = ${smVar}.yield_${i};`
+      );
+    }
     if (typeContainsRcType(handlerParam.type)) {
       const dropCode = generateDropCodeForValue(
         paramCName,
@@ -715,16 +776,18 @@ function generateHandlerBodyInline(
     continuationVars.set("resume", { smVar, smInfo: info });
     context.continuationVariables = continuationVars;
 
+    // Make handler param drops available to generateReturnAsResume so it can
+    // emit them BEFORE the resume call. This prevents use-after-free: the SM
+    // may free yielded data during resume, so params must be dropped first.
+    const prevHandlerDrops = context.effectHandlerParamDrops;
+    context.effectHandlerParamDrops = paramDropCodes;
+
     const bodyCode = generateExpr(handlerBody, indent, context);
     if (bodyCode) {
       emitter.emitLine(`${indent}${bodyCode};`);
     }
 
-    // Drop handler parameters after handler body completes (resume doesn't return from function)
-    for (const dropCode of paramDropCodes) {
-      emitter.emitLine(`${indent}${dropCode};`);
-    }
-
+    context.effectHandlerParamDrops = prevHandlerDrops;
     context.continuationVariables = prevContinuationVars;
   } else {
     // Discontinue (abort): handler body contains abort(value) which generates

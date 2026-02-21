@@ -210,6 +210,24 @@ export interface SomeType extends Type {
     functionValue: FunctionValue;
     argValues: Value[];
   };
+
+  /**
+   * If true, this SomeType represents an effect row variable (declared via `...(E)` in forall).
+   * When bound, its value will be an EffectsRowType containing the concrete implicit parameters.
+   */
+  isEffectsRow?: boolean;
+}
+
+/**
+ * EffectsRowType holds the concrete list of implicit parameters that an effect row variable
+ * (declared via `...(E)` in forall) was bound to.
+ * For example, after `run(might_fail)` with might_fail : fn(using(raise : Raise)) -> i32,
+ * E is bound to EffectsRowType { implicitParameters: [{ label: "raise", type: RaiseType }] }.
+ */
+export interface EffectsRowType extends Type {
+  tag: TypeTag.EffectsRow;
+  implicitParameters: FunctionImplicitParameter[];
+  trait: TraitType;
 }
 
 // Extended Type interface for compound types
@@ -331,6 +349,14 @@ export interface FunctionParameter {
    * Implicit parameters are resolved from `given` variables in scope at the call site.
    */
   isImplicit: boolean;
+  /**
+   * If true, this entry in implicitParameters is an effect row spread marker.
+   * - Named spread `...(E)`: label = "E", type = SomeType_E (isEffectsRow: true)
+   * - Anonymous spread `...`:  label = "...", type = unit (placeholder)
+   * At call sites, spread entries are expanded to the concrete implicit params
+   * bound to the effect row variable.
+   */
+  isEffectRowSpread?: boolean;
   /**
    * The expression information of the parameter.
    */

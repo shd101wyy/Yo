@@ -167,12 +167,23 @@ function generateReturnAsResume(
 ): string {
   const { smVar, smInfo } = resumeInfo;
   const emitter = context.emitter;
+  const functionContext = context as FunctionGenerationContext;
 
   const arg = expr.args[0];
   if (arg) {
     const argCode = generateExpr(arg, indent, context);
     emitter.emitLine(`${indent}${smVar}.resume_value = ${argCode};`);
   }
+
+  // Drop handler parameters BEFORE resuming the state machine.
+  // The SM may free yielded data during resume, so params extracted from
+  // yield fields must be dropped first to avoid use-after-free.
+  if (functionContext.effectHandlerParamDrops) {
+    for (const dropCode of functionContext.effectHandlerParamDrops) {
+      emitter.emitLine(`${indent}${dropCode};`);
+    }
+  }
+
   emitter.emitLine(`${indent}${smInfo.resumeFunctionName}(&${smVar});`);
 
   return "";

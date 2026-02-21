@@ -42,6 +42,8 @@ import {
   createSomeType,
 } from "../../types/creators";
 import type {
+  EffectsRowType,
+  FunctionImplicitParameter,
   FunctionParameter,
   FunctionType,
   SomeType,
@@ -50,6 +52,7 @@ import type {
 } from "../../types/definitions";
 import { getValueOfSomeTypeFromEnv } from "../../types/env-lookup";
 import {
+  isEffectsRowType,
   isExprListType,
   isExprType,
   isFunctionSpecializable,
@@ -1229,6 +1232,138 @@ Got:   ${typeToString(typeValue.type)}`,
       const implicitParam = functionType.implicitParameters[i]!;
       let resolved = false;
 
+      // Handle effect row spread: ...(E) or bare ...
+      if (implicitParam.isEffectRowSpread) {
+        // Determine the concrete implicit params from the bound effect row variable
+        let concreteParams: FunctionImplicitParameter[] = [];
+
+        // Named spread ...(E): look up E's bound EffectsRowType in calleeEnv
+        const eVariables = getVariablesFromEnv(calleeEnv, implicitParam.label);
+        const eVarValue = eVariables.at(-1)?.value?.[0];
+        let effectsRowType: EffectsRowType | undefined;
+        if (
+          eVarValue &&
+          isTypeValue(eVarValue) &&
+          isEffectsRowType(eVarValue.value)
+        ) {
+          effectsRowType = eVarValue.value;
+        } else if (
+          isSomeType(implicitParam.type) &&
+          implicitParam.type.isEffectsRow
+        ) {
+          // Try via SomeType lookup
+          const boundType = getValueOfSomeTypeFromEnv(
+            calleeEnv,
+            implicitParam.type as SomeType
+          );
+          if (isEffectsRowType(boundType)) {
+            effectsRowType = boundType;
+          }
+        } else if (isEffectsRowType(implicitParam.type)) {
+          // Already resolved during re-evaluation
+          effectsRowType = implicitParam.type;
+        }
+        concreteParams = effectsRowType?.implicitParameters ?? [];
+
+        // For each concrete param, resolve from callerEnv (same as named implicit params)
+        for (const concreteParam of concreteParams) {
+          const {
+            parameterType: resolvedConcreteType,
+            calleeEnv: nextCalleeEnv__,
+          } = evaluateFunctionParameterTypeAgain({
+            parameter: concreteParam,
+            calleeEnv,
+            context: {
+              ...context,
+              isEvaluatingFunctionType: true,
+            },
+            functionType,
+          });
+          calleeEnv = nextCalleeEnv__;
+
+          // Search for matching given variable in callerEnv
+          const givenVariables = getVariablesFromEnvByFilter(
+            callerEnv,
+            (v) =>
+              v.isImplicit === true &&
+              v.isCompileTimeOnly === true &&
+              v.name === concreteParam.label &&
+              areTypesCompatible(
+                { type: resolvedConcreteType, env: calleeEnv },
+                { type: v.type, env: callerEnv }
+              )
+          );
+
+          const givenVar = givenVariables.at(-1);
+          if (!givenVar?.value?.[0]) {
+            // Also try by type only (name might differ)
+            const givenByType = getVariablesFromEnvByFilter(
+              callerEnv,
+              (v) =>
+                v.isImplicit === true &&
+                v.isCompileTimeOnly === true &&
+                areTypesCompatible(
+                  { type: resolvedConcreteType, env: calleeEnv },
+                  { type: v.type, env: callerEnv }
+                )
+            );
+            const byTypeVar = givenByType.at(-1);
+            if (!byTypeVar?.value?.[0]) {
+              throw formatErrorMessage({
+                token:
+                  functionCalleeExpr?.token ?? expr?.token ?? PlaceholderToken,
+                errorMessage: `No "given" variable found for effect row parameter "${concreteParam.label}" of type ${typeToString(resolvedConcreteType)} (expanded from effect row ...(${implicitParam.label})).
+Please ensure a given variable of matching type is in scope.`,
+              });
+            }
+            const givenValue = byTypeVar.value[0];
+            implicitArgValues.push({
+              value: givenValue,
+              parameterType: resolvedConcreteType,
+              argType: byTypeVar.type,
+            });
+            const { env: nextEnv } = addVariableToEnv({
+              env: calleeEnv,
+              variable: {
+                name: concreteParam.label,
+                type: resolvedConcreteType,
+                isCompileTimeOnly: true,
+                isImplicit: true,
+                value: [givenValue],
+                token: PlaceholderToken,
+                initializedAtToken: PlaceholderToken,
+                consumedAtToken: undefined,
+                isOwningTheRcValue: false,
+              },
+            });
+            calleeEnv = nextEnv;
+          } else {
+            const givenValue = givenVar.value[0];
+            implicitArgValues.push({
+              value: givenValue,
+              parameterType: resolvedConcreteType,
+              argType: givenVar.type,
+            });
+            const { env: nextEnv } = addVariableToEnv({
+              env: calleeEnv,
+              variable: {
+                name: concreteParam.label,
+                type: resolvedConcreteType,
+                isCompileTimeOnly: true,
+                isImplicit: true,
+                value: [givenValue],
+                token: PlaceholderToken,
+                initializedAtToken: PlaceholderToken,
+                consumedAtToken: undefined,
+                isOwningTheRcValue: false,
+              },
+            });
+            calleeEnv = nextEnv;
+          }
+        }
+        continue; // Spread handled
+      }
+
       // Re-evaluate the implicit parameter type in the current calleeEnv.
       // This is necessary because implicit parameter types may reference SomeTypes
       // (e.g., forall type variables like T) that have been resolved during regular
@@ -1548,6 +1683,38 @@ Please use explicit using() to disambiguate.`,
       callerEnv: callerEnv,
       context,
     });
+
+    // Filter runtimeArgExprsInOrder to exclude effectful function args.
+    // These were treated as compile-time in the specialization (not in the C function
+    // signature), so they must also be excluded from the caller's argument list.
+    if (specializedFunctionValue) {
+      const indicesToRemove = new Set<number>();
+      let runtimeArgIdx = 0;
+      for (let i = 0; i < functionType.parameters.length; i++) {
+        const param = functionType.parameters[i]!;
+        if (!param.isCompileTimeOnly) {
+          const arg = argValues_.args[i];
+          const argType = arg?.argType;
+          if (
+            argType &&
+            isFunctionType(argType) &&
+            argType.implicitParameters.some(
+              (p) => isFunctionType(p.type) && p.type.isControlFunction
+            )
+          ) {
+            indicesToRemove.add(runtimeArgIdx);
+          }
+          runtimeArgIdx++;
+        }
+      }
+      if (indicesToRemove.size > 0) {
+        for (let idx = runtimeArgExprsInOrder.length - 1; idx >= 0; idx--) {
+          if (indicesToRemove.has(idx)) {
+            runtimeArgExprsInOrder.splice(idx, 1);
+          }
+        }
+      }
+    }
   }
 
   // Direct ctl function call: the ctl function is called without an intermediate
@@ -1658,20 +1825,36 @@ function createSpecializedFunctionInline({
         compileTimeArgValues.push(arg.value);
       }
     } else {
-      // Use argType (the actual concrete argument type) for cache comparison,
-      // not parameterType (which might be a SomeType like Impl(...))
-      // If argType is a SomeType with resolvedConcreteType, use the concrete type
-      // so that the specialized function's parameters are fully resolved.
-      // EXCEPTION: For Future types, do NOT unwrap to concrete type because
-      // Futures are heap-backed ref-counted and need SomeType-level ARC methods.
-      const shouldUseConcreteType =
-        isSomeType(arg.argType) &&
-        arg.argType.resolvedConcreteType &&
-        !typeImplementsFuture(arg.argType);
-      const concreteType = shouldUseConcreteType
-        ? (arg.argType as SomeType).resolvedConcreteType!
-        : arg.argType;
-      runtimeParameters.push({ ...param, type: concreteType });
+      // Effectful function parameters (functions with implicit ctl handlers) must be
+      // treated as compile-time because effectful functions are compiled as state machines,
+      // not regular C functions. The concrete function value is needed at compile time
+      // for effect call site generation (handler inlining + state machine dispatch).
+      const isEffectfulFuncParam =
+        isFunctionType(arg.argType) &&
+        arg.argType.implicitParameters.some(
+          (p) => isFunctionType(p.type) && p.type.isControlFunction
+        );
+
+      if (isEffectfulFuncParam) {
+        if (arg.value) {
+          compileTimeArgValues.push(arg.value);
+        }
+      } else {
+        // Use argType (the actual concrete argument type) for cache comparison,
+        // not parameterType (which might be a SomeType like Impl(...))
+        // If argType is a SomeType with resolvedConcreteType, use the concrete type
+        // so that the specialized function's parameters are fully resolved.
+        // EXCEPTION: For Future types, do NOT unwrap to concrete type because
+        // Futures are heap-backed ref-counted and need SomeType-level ARC methods.
+        const shouldUseConcreteType =
+          isSomeType(arg.argType) &&
+          arg.argType.resolvedConcreteType &&
+          !typeImplementsFuture(arg.argType);
+        const concreteType = shouldUseConcreteType
+          ? (arg.argType as SomeType).resolvedConcreteType!
+          : arg.argType;
+        runtimeParameters.push({ ...param, type: concreteType });
+      }
     }
   });
 
@@ -1919,6 +2102,7 @@ function createSpecializedFunctionInline({
         } else if (handlerArg) {
           effectAnalysis.handlerValue = handlerArg.value;
         }
+
         specializedBody.$.effectAnalysis = effectAnalysis;
       }
     }

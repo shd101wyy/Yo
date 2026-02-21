@@ -15,6 +15,7 @@ import type {
   ArrayType,
   ComptimeListType,
   DynType,
+  EffectsRowType,
   EnumType,
   FunctionParameter,
   FunctionType,
@@ -756,7 +757,11 @@ function functionTypeToString(
   const implicitParams =
     func.implicitParameters.length > 0
       ? `using(${func.implicitParameters
-          .map((param) => functionParameterToString(param, visited))
+          .map((param) =>
+            param.isEffectRowSpread
+              ? `...(${param.label})`
+              : functionParameterToString(param, visited)
+          )
           .join(", ")})`
       : "";
 
@@ -1045,6 +1050,14 @@ function typeToStringInternal(type: Type, visited: Set<string>): string {
 
     case TypeTag.ComptimeList: {
       return `ComptimeList(${typeToString((type as ComptimeListType).childType)})`;
+    }
+
+    case TypeTag.EffectsRow: {
+      const effectsRowType = type as EffectsRowType;
+      if (effectsRowType.implicitParameters.length === 0) {
+        return "EffectsRow()";
+      }
+      return `EffectsRow(${effectsRowType.implicitParameters.map((p) => `${p.label} : ${typeToString(p.type, visited)}`).join(", ")})`;
     }
 
     case TypeTag.Dyn: {
