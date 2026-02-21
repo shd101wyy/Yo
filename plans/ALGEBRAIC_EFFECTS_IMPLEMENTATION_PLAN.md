@@ -44,22 +44,21 @@ Both phases build on Yo's existing async/await state machine infrastructure.
   - `using` parameter propagation: `using` params are now marked `isImplicit` in env so nested `using` resolution finds them automatically ✅
   - Deferred drop correctness in direct ctl handlers: `pendingDeferredDrops` cleared during handler body codegen to avoid dropping caller-scope variables ✅
   - Multiple effect types in same function ✅ (covered by nested effects test)
-  - Runtime one-shot enforcement (double `return` detection)
-  - Interaction with closures and async/await
+  - Given variable shadowing: inner scope `given` shadows outer scope `given` of same type, with ambiguity only for same-frame conflicts ✅
 
 ---
 
 ## Design Decisions (Resolved)
 
-| Question                          | Decision                             | Rationale                                                                                 |
-| --------------------------------- | ------------------------------------ | ----------------------------------------------------------------------------------------- |
-| `given` vs. auto-resolve from env | **Use `given`**                      | Explicit marking avoids ambiguity, better error messages, follows Scala 3 precedent       |
-| State machine for `ctl`?          | **Yes**                              | Same architecture as async/await — effect invocation = suspension point                   |
-| Transform callers too?            | **Yes**                              | All functions in the "effect scope" (between handler and effect site) must be transformed |
-| One-shot vs. multi-shot           | **One-shot**                         | Fits RC model, simpler implementation, covers 99% of use cases, `resume` is linear        |
-| `resume` dispatch                 | **Impl (static)**                    | Handler is lexically scoped, compiler knows types, zero overhead                          |
-| `return` semantics                | **One-shot (runtime check pending)** | OCaml-style target semantics; runtime double-`return` check is TODO                       |
-| `do`/`perform` keyword            | **No**                               | Type system already distinguishes `ctl` from `fn`; no ambiguity; matches Koka's design    |
+| Question                          | Decision                          | Rationale                                                                                 |
+| --------------------------------- | --------------------------------- | ----------------------------------------------------------------------------------------- |
+| `given` vs. auto-resolve from env | **Use `given`**                   | Explicit marking avoids ambiguity, better error messages, follows Scala 3 precedent       |
+| State machine for `ctl`?          | **Yes**                           | Same architecture as async/await — effect invocation = suspension point                   |
+| Transform callers too?            | **Yes**                           | All functions in the "effect scope" (between handler and effect site) must be transformed |
+| One-shot vs. multi-shot           | **One-shot**                      | Fits RC model, simpler implementation, covers 99% of use cases, `resume` is linear        |
+| `resume` dispatch                 | **Impl (static)**                 | Handler is lexically scoped, compiler knows types, zero overhead                          |
+| `return` semantics                | **One-shot (enforced by syntax)** | `return` and `abort` are keywords that must be the last expression — can only appear once |
+| `do`/`perform` keyword            | **No**                            | Type system already distinguishes `ctl` from `fn`; no ambiguity; matches Koka's design    |
 
 ---
 
@@ -531,19 +530,25 @@ Effects compose naturally with Phase 1's implicit parameters:
 
 ## Phase 3: Advanced Features (Future Work)
 
-### 3.1 Named Effect Instances
+### 3.1 Async/Await Unification via Async Effect
+
+Async/await can be reimplemented as an algebraic effect, unifying the two systems:
 
 ```yo
-// Multiple instances of the same effect type
-Logger :: (ctl(msg : String) -> unit);
-
-program :: (fn(using(info : Logger, error : Logger)) -> unit) {
-  info("starting");
-  error("something went wrong");
-};
+Async :: (ctl(forall(T : Type), future : Future(T)) -> T);
+// await = invoking the Async effect
+// event loop = handler for Async effect
 ```
 
+The current `async { ... }` takes a begin block. It should be changed to accept a closure of type `Impl(Fn() -> T)`, making the async block a regular value that can be handled by the Async effect handler. This would:
+
+- Eliminate the separate async/await state machine infrastructure
+- Unify suspension points under the effect system
+- Allow user-defined async runtimes via custom Async effect handlers
+
 ### 3.2 Effect Polymorphism
+
+Functions polymorphic over effects — the function accepts any effect type as a type parameter:
 
 ```yo
 // Functions polymorphic over effects
@@ -553,31 +558,23 @@ map :: (fn(forall(A : Type, B : Type, E : Effect),
        ) -> List(B));
 ```
 
-### 3.3 Effect Inference
+### 3.3 Named Effect Instances
 
-Automatically infer `using` effect parameters from function bodies, reducing annotation burden:
-
-```yo
-// Compiler infers: using(raise : Raise)
-safe_divide :: (fn(x : i32, y : i32) -> i32)(
-  cond(
-    (y == 0) => raise(`div-by-zero`),
-    true => (x / y)
-  )
-);
-```
-
-### 3.4 Standard Effects Library
+Multiple instances of the same effect type are already supported via explicit `using(...)` at call sites:
 
 ```yo
-// std/effects/
-Raise   :: (ctl(forall(T : Type), msg : String) -> T);
-State   :: (ctl(forall(S : Type), op : StateOp(S)) -> S);
-Reader  :: (ctl(forall(R : Type)) -> R);
-Writer  :: (ctl(forall(W : Type), value : W) -> unit);
-Choose  :: (ctl(forall(T : Type), options : Array(T)) -> T);
-Yield   :: (ctl(forall(T : Type), value : T) -> unit);  // generators
+Logger :: (ctl(msg : String) -> unit);
+
+program :: (fn(using(info : Logger, error : Logger)) -> unit) {
+  info("starting");
+  error("something went wrong");
+};
+
+// Caller explicitly passes different handlers:
+program(using(info_logger, error_logger));
 ```
+
+No special language support needed — this falls out of the existing `using`/`given` mechanism.
 
 ---
 
@@ -602,10 +599,8 @@ Phase 2 — Effect Handlers ✅ CORE COMPLETE
   └── Step 7: Tests (basic cases ✅, advanced cases pending)
 
 Phase 3 — Advanced (Future)
-  ├── Named effect instances
-  ├── Effect polymorphism
-  ├── Effect inference
-  └── Standard effects library
+  ├── Async/await unification via Async effect
+  └── Effect polymorphism
 ```
 
 ---
@@ -623,15 +618,7 @@ Effects and async/await are related but independent:
 | Thread model     | Single-threaded event loop    | Synchronous (same thread)                |
 | Use cases        | IO concurrency                | Control flow abstraction                 |
 
-**Long-term unification:** Algebraic effects are strictly more general than async/await. In theory, async/await can be implemented _as_ an effect:
-
-```yo
-Async :: (ctl(forall(T : Type), future : Future(T)) -> T);
-// await = invoking the Async effect
-// event loop = handler for Async effect
-```
-
-However, this unification is a Phase 3+ goal. For now, async/await and effects coexist independently, sharing similar state machine infrastructure patterns.
+**Planned unification:** Algebraic effects are strictly more general than async/await. Async/await will be reimplemented as an Async effect (see Phase 3.1). The current `async { ... }` block will be changed to accept a closure `Impl(Fn() -> T)`, making it a regular value handled by the Async effect. For now, async/await and effects coexist independently, sharing similar state machine infrastructure patterns.
 
 ---
 
@@ -642,7 +629,7 @@ However, this unification is a Phase 3+ goal. For now, async/await and effects c
 | State machine complexity            | High     | Reuse async/await infrastructure, start with no-resume case                    |
 | RC leaks in discarded continuations | Medium   | Comprehensive drop generation, test with `--sanitize address`                  |
 | Compilation time increase           | Medium   | Only transform functions that actually use effects                             |
-| Effect coloring ergonomics          | Low      | Plan effect inference for Phase 3                                              |
+| Effect coloring ergonomics          | Low      | Explicit `using` is preferred — no inference planned                           |
 | Interaction with existing features  | Medium   | Test combinations: effects + closures, effects + generics, effects + ownership |
 
 ---
@@ -654,5 +641,5 @@ However, this unification is a Phase 3+ goal. For now, async/await and effects c
 3. ✅ `ctl` effects with resume handlers work (continuation-like usage via `return`).
 4. ✅ No memory leaks detected by AddressSanitizer in all effect scenarios.
 5. ✅ Nested effects and effect propagation through call chains work correctly.
-6. One-shot enforcement: runtime error on double `return` (OCaml-style).
+6. ✅ One-shot enforcement: `return` and `abort` are keywords, syntactically enforced as last expression.
 7. Performance: no overhead for functions that don't use effects.
