@@ -242,13 +242,18 @@ export function tryToImplementFunctionByFunctionType({
   // If the function depends on generic type variables, we should NOT evaluate the body
   // at definition time. The body will be evaluated when the function is specialized
   // with concrete type arguments.
+  //
+  // Exception: ctl handler functions should NOT be deferred even with forall parameters.
+  // The forall params on a ctl type (e.g., ctl(forall(T : Type), ...) -> T) represent
+  // the operation's result type, which is resolved at each call site.
   const shouldDeferBodyEvaluation =
-    newFunctionType.forallParameters.length > 0 ||
-    newFunctionType.parameters.some((param) =>
-      typeContainsSomeType(param.type)
-    ) ||
-    (newFunctionType.SelfType &&
-      typeContainsSomeType(newFunctionType.SelfType));
+    !newFunctionType.isControlFunction &&
+    (newFunctionType.forallParameters.length > 0 ||
+      newFunctionType.parameters.some((param) =>
+        typeContainsSomeType(param.type)
+      ) ||
+      (newFunctionType.SelfType &&
+        typeContainsSomeType(newFunctionType.SelfType)));
 
   let evaluatedFunctionBody: Expr;
   let evaluationContext: EvaluatorContext;

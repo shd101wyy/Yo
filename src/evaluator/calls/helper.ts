@@ -1816,10 +1816,14 @@ function createSpecializedFunctionInline({
           const handlerFn = handlerArg.value;
           const ctlType = implicitParam.type;
 
-          // If the handler's ctl type has forall parameters, the handler body
-          // was deferred (not evaluated). We need to re-evaluate it now with
-          // concrete types from the effect call site.
+          // If the handler's ctl type has forall parameters and the handler body
+          // was deferred (not evaluated — no $ annotations), we need to re-evaluate
+          // it now with concrete types from the effect call site.
+          // If the body was already evaluated (has $ annotations), skip re-evaluation
+          // since codegen can handle SomeType T in handler bodies.
+          const handlerBodyWasDeferred = !handlerFn.body.$;
           if (
+            handlerBodyWasDeferred &&
             isFunctionType(ctlType) &&
             ctlType.forallParameters.length > 0 &&
             effectAnalysis.effectCallPoints.length > 0
@@ -1835,7 +1839,6 @@ function createSpecializedFunctionInline({
             if (isSomeType(returnType)) {
               forallTypeMap.set(returnType.name, concreteReturnType);
             }
-            // TODO: handle more complex patterns like Array(T) -> Array(i32)
 
             // Re-evaluate the handler body with concrete types
             if (forallTypeMap.size > 0) {
@@ -1897,7 +1900,6 @@ function createSpecializedFunctionInline({
                   context: handlerContext,
                 });
 
-                // Create a new handler function value with the evaluated body
                 const reEvaluatedHandler: FunctionValue = {
                   ...handlerFn,
                   body: evaluatedBody,
