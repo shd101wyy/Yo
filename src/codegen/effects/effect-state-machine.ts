@@ -36,13 +36,14 @@ import {
   type Expr,
   type FnCallExpr,
 } from "../../expr";
+import type { FunctionValue } from "../../function-value";
 import type {
   DynType,
   FunctionType,
   SomeType,
   Type,
 } from "../../types/definitions";
-import { isUnitType } from "../../types/guards";
+import { isStructType, isUnitType } from "../../types/guards";
 import { typeContainsRcType } from "../../types/utils";
 import { isTempVariableName } from "../../utils";
 import { isFunctionValue } from "../../value";
@@ -57,6 +58,31 @@ import { getTypeString, sanitizeForCIdentifier } from "../utils/index";
 
 function isMultiEffect(info: EffectStateMachineInfo): boolean {
   return !!info.effectInfos && info.effectInfos.length > 1;
+}
+
+/**
+ * Check if a handler body contains an explicit return(value) call.
+ * Handlers with explicit return resume the SM within the generated body code,
+ * so we must NOT emit an implicit resume after them.
+ * Does not recurse into nested anonymous function bodies (->).
+ */
+function handlerBodyContainsExplicitReturn(expr: Expr): boolean {
+  if (exprIsFunctionCallOf(expr, BuiltinKeywords.return)) {
+    return true;
+  }
+  if (expr.tag === ExprTag.FnCall) {
+    const fnCall = expr as FnCallExpr;
+    if (exprIsFunctionCallOf(expr, "->")) {
+      return false;
+    }
+    for (const arg of fnCall.args) {
+      if (handlerBodyContainsExplicitReturn(arg)) return true;
+    }
+    if (fnCall.func && handlerBodyContainsExplicitReturn(fnCall.func)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function yieldFieldName(
@@ -107,6 +133,9 @@ export interface EffectStateMachineInfo {
   yieldTypeCNames: string[];
   resumeTypeCName: string;
   effectInfos?: EffectSmTypeInfo[];
+  isClosure?: boolean;
+  closureCaptureTypeCName?: string;
+  closureCapturedVarNames?: Set<string>;
 }
 
 /**
@@ -161,6 +190,9 @@ export function generateEffectStateMachineStruct(
   }
 
   // Generate fields for function parameters (runtime only, skip implicit/comptime)
+  if (info.isClosure) {
+    emitter.emitDeclarationLine(`  void* closure_context;`);
+  }
   for (const param of functionType.parameters) {
     if (param.isCompileTimeOnly || param.isImplicit) continue;
     const paramTypeCName = getTypeString(param.type, context);
@@ -169,8 +201,9 @@ export function generateEffectStateMachineStruct(
     );
   }
 
-  // Generate fields for captured local variables
+  // Generate fields for captured local variables (exclude closure captures)
   for (const capturedVar of analysis.capturedVariables) {
+    if (info.closureCapturedVarNames?.has(capturedVar.name)) continue;
     const varTypeCName = getTypeString(capturedVar.type, context);
     const fieldName = sanitizeForCIdentifier(`var_${capturedVar.id}`);
     emitter.emitDeclarationLine(`  ${varTypeCName} ${fieldName};`);
@@ -341,7 +374,8 @@ function containsEffectCallExpr(expr: Expr, effectExpr: Expr): boolean {
 export function generateEffectResumeFunction(
   bodyExpr: Expr,
   info: EffectStateMachineInfo,
-  context: FunctionGenerationContext
+  context: FunctionGenerationContext,
+  functionValue?: FunctionValue
 ): void {
   const emitter = context.emitter;
   const { structName, resumeFunctionName, analysis } = info;
@@ -351,7 +385,39 @@ export function generateEffectResumeFunction(
   const previousStateMachineVariables = context.stateMachineVariables;
   const previousVariableIdRemapping = context.variableIdRemapping;
 
+  // Save and set up closure context for SM generation
+  const previousClosureCaptures = context.currentClosureCaptures;
+  const previousClosureCaptureFrameLevel =
+    context.currentClosureCaptureFrameLevel;
+  const previousClosureCaptureTypeCName =
+    context.currentClosureCaptureTypeCName;
+
+  if (info.isClosure && functionValue?.closureInfo) {
+    const captureType = functionValue.closureInfo.captureType;
+    if (
+      captureType &&
+      isStructType(captureType) &&
+      captureType.fields.length > 0
+    ) {
+      context.currentClosureCaptures = captureType.fields.map((f) => f.label);
+      context.currentClosureCaptureFrameLevel = functionValue.frameLevel;
+      if (info.closureCaptureTypeCName) {
+        context.currentClosureCaptureTypeCName = info.closureCaptureTypeCName;
+      }
+    }
+  }
+
+  // Build the SM variable map, excluding closure-captured variables.
+  // Closure captures are accessed through closure_context, not SM struct fields.
+  const closureCaptureNames = info.closureCapturedVarNames ?? new Set<string>();
   const variableMap = buildStateMachineVariableMap(analysis);
+  if (closureCaptureNames.size > 0) {
+    for (const [id, cv] of variableMap) {
+      if (closureCaptureNames.has(cv.name)) {
+        variableMap.delete(id);
+      }
+    }
+  }
 
   context.inEffectStateMachine = info;
   context.inStateMachine = {
@@ -366,6 +432,9 @@ export function generateEffectResumeFunction(
   );
 
   emitter.emitLine(`void ${resumeFunctionName}(${structName}* sm) {`);
+  if (info.isClosure) {
+    emitter.emitLine(`  void* closure_context = sm->closure_context;`);
+  }
   emitter.emitLine(`  switch (sm->state) {`);
 
   for (let segmentIndex = 0; segmentIndex < segments.length; segmentIndex++) {
@@ -606,6 +675,9 @@ export function generateEffectResumeFunction(
   context.inStateMachine = previousInStateMachine;
   context.stateMachineVariables = previousStateMachineVariables;
   context.variableIdRemapping = previousVariableIdRemapping;
+  context.currentClosureCaptures = previousClosureCaptures;
+  context.currentClosureCaptureFrameLevel = previousClosureCaptureFrameLevel;
+  context.currentClosureCaptureTypeCName = previousClosureCaptureTypeCName;
 }
 
 function generateExprWithEffectCall(
@@ -959,7 +1031,8 @@ export function generateEffectCallSite(
   callerReturnType: Type | undefined,
   tempVar: string | undefined,
   indent: string,
-  context: FunctionGenerationContext
+  context: FunctionGenerationContext,
+  closureContextCode?: string
 ): string {
   const emitter = context.emitter;
   const { structName, resumeFunctionName } = info;
@@ -969,6 +1042,12 @@ export function generateEffectCallSite(
     : `_eff_sm`;
 
   emitter.emitLine(`${indent}${structName} ${smVar} = {0};`);
+
+  if (closureContextCode) {
+    emitter.emitLine(
+      `${indent}${smVar}.closure_context = ${closureContextCode};`
+    );
+  }
 
   const runtimeParams = functionType.parameters.filter(
     (p) => !p.isCompileTimeOnly && !p.isImplicit
@@ -982,6 +1061,23 @@ export function generateEffectCallSite(
 
   emitter.emitLine(`${indent}${resumeFunctionName}(&${smVar});`);
 
+  // For abort handlers, track which arg C names are RC-type SM arguments.
+  // Their ownership is transferred to the SM (no dup), so the handler param drops
+  // already free them. Pending deferred drops must skip these to avoid double-free.
+  const prevConsumedArgs = context.effectSmConsumedArgCNames;
+  if (!handlerHasResume) {
+    const consumedArgs = new Set<string>();
+    for (let i = 0; i < runtimeParams.length && i < argCodes.length; i++) {
+      const param = runtimeParams[i]!;
+      if (typeContainsRcType(param.type)) {
+        consumedArgs.add(argCodes[i]!);
+      }
+    }
+    if (consumedArgs.size > 0) {
+      context.effectSmConsumedArgCNames = consumedArgs;
+    }
+  }
+
   emitter.emitLine(`${indent}if (!${smVar}.completed) {`);
   generateHandlerBodyInline(
     handlerBody,
@@ -993,6 +1089,8 @@ export function generateEffectCallSite(
     handlerHasResume
   );
   emitter.emitLine(`${indent}}`);
+
+  context.effectSmConsumedArgCNames = prevConsumedArgs;
 
   if (tempVar && !isUnitType(functionType.return.type)) {
     const resultTypeCName = info.returnTypeCName;
@@ -1057,6 +1155,22 @@ export function generateMultiEffectCallSite(
 
   emitter.emitLine(`${indent}${resumeFunctionName}(&${smVar});`);
 
+  // For abort handlers in multi-effect, track consumed RC arg C names.
+  const hasAnyAbortHandler = handlers.some((h) => !h.hasResume);
+  const prevConsumedArgs = context.effectSmConsumedArgCNames;
+  if (hasAnyAbortHandler) {
+    const consumedArgs = new Set<string>();
+    for (let i = 0; i < runtimeParams.length && i < argCodes.length; i++) {
+      const param = runtimeParams[i]!;
+      if (typeContainsRcType(param.type)) {
+        consumedArgs.add(argCodes[i]!);
+      }
+    }
+    if (consumedArgs.size > 0) {
+      context.effectSmConsumedArgCNames = consumedArgs;
+    }
+  }
+
   emitter.emitLine(`${indent}while (!${smVar}.completed) {`);
   emitter.emitLine(`${indent}  switch (${smVar}.effect_tag) {`);
 
@@ -1079,6 +1193,7 @@ export function generateMultiEffectCallSite(
   emitter.emitLine(`${indent}  }`);
   emitter.emitLine(`${indent}}`);
 
+  context.effectSmConsumedArgCNames = prevConsumedArgs;
   if (tempVar && !isUnitType(functionType.return.type)) {
     const resultTypeCName = info.returnTypeCName;
     emitter.emitLine(
@@ -1217,6 +1332,35 @@ function generateHandlerBodyInline(
       emitter.emitLine(`${indent}${bodyCode};`);
     }
 
+    // Implicit resume: only needed when the handler body has NO explicit return(value).
+    // Handlers with explicit return(value) resume the SM within generateReturnAsResume.
+    // Emitting an implicit resume for such handlers would cause double-resume and
+    // double-drops of handler parameters.
+    if (!handlerBodyContainsExplicitReturn(handlerBody)) {
+      emitter.emitLine(`${indent}if (!${smVar}.completed) {`);
+      for (const dropCode of paramDropCodes) {
+        emitter.emitLine(`${indent}  ${dropCode};`);
+      }
+      const resumeField =
+        effectIndex !== undefined &&
+        info.effectInfos &&
+        info.effectInfos.length > 1
+          ? `resume_value_${effectIndex}`
+          : `resume_value`;
+      const resumeTypeCName =
+        effectIndex !== undefined &&
+        info.effectInfos &&
+        info.effectInfos.length > 1
+          ? info.effectInfos[effectIndex]!.resumeTypeCName
+          : info.resumeTypeCName;
+      if (resumeTypeCName !== "void") {
+        emitter.emitLine(
+          `${indent}  ${smVar}.${resumeField} = (${resumeTypeCName}){0};`
+        );
+      }
+      emitter.emitLine(`${indent}  ${info.resumeFunctionName}(&${smVar});`);
+      emitter.emitLine(`${indent}}`);
+    }
     context.effectHandlerParamDrops = prevHandlerDrops;
     context.continuationVariables = prevContinuationVars;
   } else {

@@ -1,4 +1,5 @@
 import { type Environment } from "../../env";
+import { analyzeEffectCallPoints } from "../../evaluator/effects/effect-analysis";
 import type { EffectAnalysisResult } from "../../evaluator/effects/effect-analysis-types";
 import { typeImplementsFuture } from "../../evaluator/trait-checking";
 import { findMatchingGenericImpl } from "../../evaluator/values/impl";
@@ -8,6 +9,7 @@ import {
   type Expr,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
+  type FnCallExpr,
 } from "../../expr";
 import { type FunctionValue } from "../../function-value";
 import { areTypesCompatible } from "../../types/compatibility";
@@ -21,6 +23,7 @@ import { getTraitTypeFromEnv } from "../../types/env-lookup";
 import {
   isEnumType,
   isFunctionSpecializable,
+  isFunctionType,
   isSomeType,
   isStructType,
   isUnitType,
@@ -205,7 +208,7 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
       value.specializedType && !isFunctionSpecializable(value.type);
 
     if (
-      isFunctionSpecializable(value.type) ||
+      (isFunctionSpecializable(value.type) && !value.type.isClosure) ||
       (value.specializedType && !isSpecializedImplMethod) ||
       isComptimeFunction(value) ||
       isFunctionValueWithOnlyBuiltinYoInlineFunctionCall(value)
@@ -249,7 +252,12 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
     for (const deferred of context.deferredEffectfulFunctions) {
       const { functionValue, info } = deferred;
       if (functionValue.body) {
-        generateEffectResumeFunction(functionValue.body, info, context);
+        generateEffectResumeFunction(
+          functionValue.body,
+          info,
+          context,
+          functionValue
+        );
       }
     }
   }
@@ -432,6 +440,72 @@ export function preRegisterEffectfulFunctions(
       context
     );
   }
+
+  // Third pass: handle closure body functions that have ctl handler calls.
+  // The evaluator doesn't run effect analysis for closures (functionValue is
+  // undefined for closure calls in tryToCallFunctionWithArguments), so we
+  // perform the analysis here in the codegen phase.
+  for (const funcId in context.functions) {
+    const { value: functionValue, cName: cFunctionName } =
+      context.functions[funcId]!;
+
+    if (!functionValue.type.isClosure) continue;
+    if (!functionValue.body?.$) continue;
+    if (functionValue.body.$.effectAnalysis?.hasEffects) continue;
+
+    const functionType = functionValue.type;
+    const implicitParams = functionType.implicitParameters;
+
+    for (const implicitParam of implicitParams) {
+      if (
+        !isFunctionType(implicitParam.type) ||
+        !implicitParam.type.isControlFunction
+      ) {
+        continue;
+      }
+
+      const effectAnalysis = analyzeEffectCallPoints(
+        functionValue.body,
+        implicitParam.label,
+        implicitParam.type
+      );
+
+      if (!effectAnalysis.hasEffects) continue;
+
+      // Find the handler value from the first ctl call expression in the body
+      const firstCallPoint = effectAnalysis.effectCallPoints[0];
+      if (firstCallPoint) {
+        const callExpr = firstCallPoint.expr as FnCallExpr;
+        if (callExpr && "func" in callExpr) {
+          const handlerValue = callExpr.func.$?.value;
+          if (handlerValue && isFunctionValue(handlerValue)) {
+            effectAnalysis.handlerValue = handlerValue;
+          }
+        }
+      }
+
+      functionValue.body.$.effectAnalysis = effectAnalysis;
+
+      // Find the capture type C name for the SM
+      let closureCaptureTypeCName: string | undefined;
+      const closureInfo = functionValue.closureInfo;
+      if (closureInfo?.captureType && isStructType(closureInfo.captureType)) {
+        closureCaptureTypeCName =
+          context.types[closureInfo.captureType.id]?.cName;
+      }
+
+      registerEffectfulFunction(
+        functionValue,
+        cFunctionName,
+        functionType,
+        effectAnalysis,
+        context,
+        true,
+        closureCaptureTypeCName
+      );
+      break;
+    }
+  }
 }
 
 /**
@@ -443,7 +517,9 @@ function registerEffectfulFunction(
   cFunctionName: string,
   functionType: FunctionType,
   effectAnalysis: EffectAnalysisResult,
-  context: FunctionGenerationContext
+  context: FunctionGenerationContext,
+  isClosure: boolean = false,
+  closureCaptureTypeCName?: string
 ): void {
   // Determine types for the state machine
   const returnTypeCName = isUnitType(functionType.return.type)
@@ -486,6 +562,15 @@ function registerEffectfulFunction(
     }));
   }
 
+  // Compute closure-captured variable names for the SM to exclude from struct/varmap
+  let closureCapturedVarNames: Set<string> | undefined;
+  if (isClosure && functionValue.closureInfo?.captureType) {
+    const ct = functionValue.closureInfo.captureType;
+    if (isStructType(ct) && ct.fields.length > 0) {
+      closureCapturedVarNames = new Set(ct.fields.map((f) => f.label));
+    }
+  }
+
   const info: EffectStateMachineInfo = {
     structName,
     resumeFunctionName,
@@ -495,6 +580,9 @@ function registerEffectfulFunction(
     yieldTypeCNames,
     resumeTypeCName,
     effectInfos,
+    isClosure,
+    closureCaptureTypeCName,
+    closureCapturedVarNames,
   };
 
   // Generate the struct definition

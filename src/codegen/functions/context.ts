@@ -145,6 +145,10 @@ export interface FunctionGenerationContext extends CodeGenContext {
   // Drop code strings for effect handler parameters (e.g., msg: String from ctl yield_value).
   // These are emitted before abort returns to prevent leaking handler params.
   effectHandlerParamDrops?: string[];
+  // C variable names of SM arguments whose ownership was transferred to the SM (no dup).
+  // For abort handlers, the handler params alias these variables, so handler param drops
+  // already free them. Pending deferred drops must skip these to avoid double-free.
+  effectSmConsumedArgCNames?: Set<string>;
   // Baseline count of pendingDeferredDrops when entering the current loop body.
   // Used to determine which drops belong to the loop body scope and must be
   // emitted before break/continue (which would otherwise skip end-of-body drops).

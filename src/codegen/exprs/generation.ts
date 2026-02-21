@@ -71,7 +71,7 @@ import {
   generateYoSomeTypeDup,
 } from "./rc-fns";
 import { generateRecur } from "./recur";
-import { generateReturn } from "./return";
+import { generatePendingDeferredDrops, generateReturn } from "./return";
 import { generateSizeOf } from "./sizeof";
 import { generateAnonymousTuple } from "./tuple-fn";
 import { generateWhileLoop } from "./while";
@@ -128,7 +128,12 @@ function generateAbort(
     return "";
   }
 
-  // Normal abort: emit a C `return` from the enclosing function
+  // Normal abort: emit a C `return` from the enclosing function.
+  // Must drop local variables from enclosing scopes (pendingDeferredDrops)
+  // before returning, to avoid memory leaks.
+  // Use skipEnvCheck=true because the abort expression's environment is from
+  // the handler's scope, not the enclosing function's scope where the
+  // local variables actually live.
   if (!arg) {
     // Emit handler param drops before returning
     if (functionContext.effectHandlerParamDrops) {
@@ -136,6 +141,14 @@ function generateAbort(
         functionContext.emitter.emitLine(`${indent}${dropCode};`);
       }
     }
+    generatePendingDeferredDrops(
+      indent,
+      functionContext,
+      expr,
+      false,
+      false,
+      true
+    );
     return `return`;
   }
   const argCode = generateExpr(arg, indent, context);
@@ -145,6 +158,14 @@ function generateAbort(
       functionContext.emitter.emitLine(`${indent}${dropCode};`);
     }
   }
+  generatePendingDeferredDrops(
+    indent,
+    functionContext,
+    expr,
+    false,
+    false,
+    true
+  );
   return `return ${argCode}`;
 }
 

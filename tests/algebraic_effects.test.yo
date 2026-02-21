@@ -733,3 +733,56 @@ test "Test multiple effect row spreads with abort", {
   run_both(might_fail, might_log);
   assert(false, "multiple spreads abort: should not reach here");
 };
+
+test "Test closure with using() effect - resume", {
+  Log :: (ctl(msg : String) -> unit);
+
+  x := Box(i32)(0);
+
+  (given(log) : Log) = ((msg) -> {
+    println(msg);
+    return ();
+  });
+
+  (closure : Impl(Fn(v : i32, msg : String, using(log : Log)) -> i32)) =
+    (v, msg, using(log)) => {
+      log(msg);
+      x.* = (x.* + v);
+      return x.*;
+    };
+
+  result1 := closure(1, `hello`);
+  assert((result1 == 1), "closure+effect resume: expected result1 to be 1");
+  assert((x.* == 1), "closure+effect resume: expected x to be 1");
+
+  result2 := closure(2, `world`);
+  assert((result2 == 3), "closure+effect resume: expected result2 to be 3");
+  assert((x.* == 3), "closure+effect resume: expected x to be 3");
+};
+
+test "Test closure with using() effect - abort", {
+  Log :: (ctl(msg : String) -> unit);
+
+  run_test :: (fn() -> i32) {
+    x := Box(i32)(0);
+
+    (given(log) : Log) = ((msg) -> {
+      println(msg);
+      abort i32(99);
+    });
+
+    (closure : Impl(Fn(v : i32, msg : String, using(log : Log)) -> i32)) =
+      (v, msg, using(log)) => {
+        log(msg);
+        x.* = (x.* + v);
+        return x.*;
+      };
+
+    result := closure(1, `hello`);
+    assert(false, "closure+effect abort: should not reach here");
+    return result;
+  };
+
+  val := run_test();
+  assert((val == 99), "closure+effect abort: expected abort value 99");
+};

@@ -135,11 +135,13 @@ export function evaluateFunctionParameter({
   env,
   context,
   isParameterComptimeByDefault,
+  allowVariableShadowing,
 }: {
   expr: Expr;
   env: Environment;
   context: EvaluatorContext & { isEvaluatingFunctionType: true };
   isParameterComptimeByDefault: boolean;
+  allowVariableShadowing: boolean;
 }): { parameter: FunctionParameter; env: Environment } {
   let label: string | undefined = undefined;
   let isCompileTimeOnly: boolean = isParameterComptimeByDefault;
@@ -643,6 +645,7 @@ use_id :: (fn(forall(T : Type),
         isOwningTheSameRcValueAs: undefined, // Parameters don't borrow from other variables
         isReassignable: false, // Mark as not reassigable
       },
+      allowVariableShadowing,
     });
     env = nextEnv;
   }
@@ -1549,6 +1552,7 @@ export function evaluateFunctionParameters({
             ...context,
           },
           isParameterComptimeByDefault: true,
+          allowVariableShadowing: true,
         });
 
         // Check if there is duplicate labels
@@ -1739,6 +1743,7 @@ export function evaluateFunctionParameters({
                 consumedAtToken: undefined,
                 isOwningTheRcValue: false,
               },
+              allowVariableShadowing: true,
             });
             env = envWithModule;
 
@@ -1762,6 +1767,7 @@ export function evaluateFunctionParameters({
                   consumedAtToken: undefined,
                   isOwningTheRcValue: false,
                 },
+                allowVariableShadowing: true,
               });
               env = envWithField;
             }
@@ -1777,6 +1783,7 @@ export function evaluateFunctionParameters({
             ...context,
           },
           isParameterComptimeByDefault: true,
+          allowVariableShadowing: true,
         });
 
         // Check for duplicate labels against all parameter kinds
@@ -2127,6 +2134,7 @@ export function evaluateFunctionParameters({
           ...context,
         },
         isParameterComptimeByDefault: false,
+        allowVariableShadowing: true,
       });
 
       // Check if there is duplicate labels

@@ -36,7 +36,18 @@ Both phases build on Yo's existing async/await state machine infrastructure.
   - **Direct ctl call in handler scope** (no intermediate `using` function): `raise(...)` can be called directly in the same scope as the `given` binding, without an intermediate `fn(..., using(raise : Raise))` wrapper. Supports both:
     - **Abort (discard)**: `abort value` — exits the enclosing function immediately
     - **Resume (continue)**: `return(value)` — `raise(...)` evaluates to `value` and execution continues at the call site. The handler body is inlined using a temp variable to capture the returned value. Params are borrowed from the caller (no double-drop).
-  - All tests passing with AddressSanitizer (no memory leaks)
+  - **Closure + effect SM support**: closures with `using(ctl)` implicit parameters generate proper effect state machines:
+    - SM struct includes `void* closure_context` field for passing closure captures to the resume function
+    - Closure-captured variables are excluded from SM struct fields (accessed via `closure_context` instead)
+    - Resume function initializes closure context and sets up capture access for SM code segments
+    - Call site passes `&(closureVar)` as `closure_context` to the SM
+    - Third pass in `preRegisterEffectfulFunctions` analyzes closure bodies for ctl calls
+    - Fn trait types now support `using()` implicit parameters: `Fn(v: i32, using(log: Log)) -> i32`
+    - Anonymous function `=>` syntax parses `using()` parameters and adds them to environment
+    - Both resume and abort paths work correctly with closures
+  - **Abort ownership tracking**: SM arguments are passed without dup (ownership transferred). For abort handlers, `effectSmConsumedArgCNames` tracks which arg C names were consumed, and `generatePendingDeferredDrops` skips them to prevent double-free. Applied to both SM call sites and direct ctl calls.
+  - **Handler implicit resume guard**: `handlerBodyContainsExplicitReturn()` prevents emitting implicit resume for handlers with explicit `return(value)`, avoiding double-resume and double-drops.
+  - 29 tests passing with AddressSanitizer (no memory leaks or use-after-free)
 - ⏳ **Phase 2 remaining work:**
   - Nested effects: direct ctl handling of two different ctl types in same scope (e.g., Log + Raise) ✅
   - Effect propagation through call chains: single-level via `using` ✅, two-level via `using` ✅
@@ -45,6 +56,8 @@ Both phases build on Yo's existing async/await state machine infrastructure.
   - Deferred drop correctness in direct ctl handlers: `pendingDeferredDrops` cleared during handler body codegen to avoid dropping caller-scope variables ✅
   - Multiple effect types in same function ✅ (covered by nested effects test)
   - Given variable shadowing: inner scope `given` shadows outer scope `given` of same type, with ambiguity only for same-frame conflicts ✅
+  - Closures with `using()` effect parameters (both resume and abort) ✅
+  - Abort RC ownership: track SM-consumed args to prevent double-free in pending deferred drops ✅
 
 ---
 

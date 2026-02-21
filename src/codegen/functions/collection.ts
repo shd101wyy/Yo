@@ -224,6 +224,18 @@ export function findFunctionCallsInExpr(
     }
 
     if (isFunctionType(functionType)) {
+      // If the callee type is a ctl function, the handler will be inlined by
+      // the effect state machine. Don't collect it as a standalone function,
+      // but still recurse into its body to collect sub-function calls (e.g., println).
+      if (functionType.isControlFunction && isFunctionValue(functionValue)) {
+        findFunctionCallsInExpr(functionValue.body, context);
+        // Still recurse into args
+        for (const arg of expr.args) {
+          findFunctionCallsInExpr(arg, context);
+        }
+        return;
+      }
+
       if (isFunctionValue(functionValue)) {
         // Skip collecting CTFE (compile-time function evaluation) functions.
         // These are functions whose return type is isCompileTimeOnly, meaning
@@ -328,6 +340,16 @@ export function findFunctionCallsInExpr(
     if (functionType.isControlFunction) {
       return;
     }
+    // Also skip handler functions that are assigned to given bindings.
+    // These handlers will be inlined by the effect SM call site.
+    if (
+      isFunctionValue(functionValue) &&
+      functionValue.body &&
+      functionValue.type.isControlFunction
+    ) {
+      findFunctionCallsInExpr(functionValue.body, context);
+      return;
+    }
     if (isFunctionValue(functionValue)) {
       // Skip collecting generic functions that haven't been specialized
       if (
@@ -350,7 +372,7 @@ export function findFunctionCallsInExpr(
         // Collect the function if it's not already collected
         context.functions[functionValue.funcId] = {
           value: functionValue,
-          cName: sanitizeForCIdentifier(functionValue.funcId), // Use the function id as the C name
+          cName: sanitizeForCIdentifier(functionValue.funcId),
         };
 
         // Recursively collect functions called by this function

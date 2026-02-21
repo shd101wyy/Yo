@@ -472,6 +472,22 @@ export function generateOtherFunctionCall(
         const functionValueType =
           functionValue.specializedType ?? functionValue.type;
 
+        // Direct ctl function call (handler invoked in same scope as given binding).
+        // In this case the function value itself IS the handler. There is no intermediate
+        // function with `using(raise)`, so no state machine was generated. Instead we
+        // inline the handler body directly at the call site.
+        // NOTE: This check must be BEFORE the cFuncName check because ctl handler functions
+        // may not be collected as standalone functions (they're inlined at call sites).
+        if (functionValueType.isControlFunction && functionValue.body) {
+          return generateDirectCtlCall(
+            functionValue,
+            functionValueType,
+            args,
+            indent,
+            context as FunctionGenerationContext
+          );
+        }
+
         // Normal function call
         const cFuncName = context.functions[functionValue.funcId]?.cName;
 
@@ -554,20 +570,6 @@ export function generateOtherFunctionCall(
                 context as FunctionGenerationContext
               );
             }
-          }
-
-          // Direct ctl function call (handler invoked in same scope as given binding).
-          // In this case the function value itself IS the handler. There is no intermediate
-          // function with `using(raise)`, so no state machine was generated. Instead we
-          // inline the handler body directly at the call site.
-          if (functionValueType.isControlFunction && functionValue.body) {
-            return generateDirectCtlCall(
-              functionValue,
-              functionValueType,
-              args,
-              indent,
-              context as FunctionGenerationContext
-            );
           }
 
           // Generate function call
@@ -821,13 +823,18 @@ export function generateOtherFunctionCall(
               // Return the inline access expression
               return generateExpr(arg, indent, context);
             } else {
-              // Check if this is a state machine variable
-              const argCode = generateExpr(arg, indent, context);
+              // The pre-processing loop above already called generateExpr to emit
+              // temp variable declarations. Use the variable name directly to avoid
+              // re-generating the same code.
+              const argVarName = getVariableNameForCodegen(
+                arg.$.variableName,
+                arg.$.env
+              );
               const isStateMachineCapturedVariable =
-                functionContext.inStateMachine && argCode.startsWith("sm->");
+                functionContext.inStateMachine && argVarName.startsWith("sm->");
 
               // Handle deferred dup expressions for closure call arguments
-              let finalArgVarName = arg.$.variableName;
+              let finalArgVarName = argVarName;
               if (
                 arg.$?.deferredDupExpressions &&
                 arg.$.deferredDupExpressions.length > 0
@@ -843,7 +850,9 @@ export function generateOtherFunctionCall(
                 }
               }
 
-              return isStateMachineCapturedVariable ? argCode : finalArgVarName;
+              return isStateMachineCapturedVariable
+                ? argVarName
+                : finalArgVarName;
             }
           } else {
             return generateExpr(arg, indent, context);
@@ -871,6 +880,59 @@ export function generateOtherFunctionCall(
           const mapped = concreteTypeId
             ? context.implClosureCallMap.get(concreteTypeId)
             : undefined;
+
+          // Check if the closure body function has an effect state machine
+          if (mapped) {
+            const closureFuncEntry = Object.values(
+              functionContext.functions
+            ).find((f) => f.cName === mapped.functionCName);
+            const effectSmInfo = closureFuncEntry?.effectStateMachineInfo as
+              | EffectStateMachineInfo
+              | undefined;
+            if (effectSmInfo && closureFuncEntry) {
+              // Find the handler value from the given binding in the enclosing scope.
+              // The effect analysis knows the ctl parameter name (e.g., "log").
+              const analysis = effectSmInfo.analysis;
+              const effectParamName = analysis.effectParameterName;
+              const callEnv = expr.func.$?.env ?? expr.$?.env;
+              if (effectParamName && callEnv) {
+                const givenVars = getVariablesFromEnv(callEnv, effectParamName);
+                const givenVar = givenVars[givenVars.length - 1];
+                const handlerVal = givenVar?.value?.[0];
+                if (handlerVal && isFunctionValue(handlerVal)) {
+                  const handlerType =
+                    (handlerVal as FunctionValue).specializedType ??
+                    (handlerVal as FunctionValue).type;
+                  const handlerHasResume = (handlerVal as FunctionValue).body
+                    ? !exprContainsAbort((handlerVal as FunctionValue).body!)
+                    : false;
+                  const tempVar = expr.$?.variableName;
+                  const closureContextCode = `&(${closureCode})`;
+                  const result = generateEffectCallSite(
+                    effectSmInfo,
+                    args,
+                    effectSmInfo.functionType,
+                    (handlerVal as FunctionValue).body!,
+                    handlerType,
+                    handlerHasResume,
+                    functionContext.currentFunctionType?.return.type,
+                    tempVar,
+                    indent,
+                    functionContext,
+                    closureContextCode
+                  );
+                  if (expr.$?.deferredDropExpressions) {
+                    generateDeferredDropExpressions(
+                      expr,
+                      indent,
+                      functionContext
+                    );
+                  }
+                  return result;
+                }
+              }
+            }
+          }
 
           if (!mapped) {
             // Fallback to old representation if mapping is missing.
@@ -1645,10 +1707,27 @@ function generateDirectCtlCall(
     // param cleanup runs before the abort return.
     const prevHandlerDrops = context.effectHandlerParamDrops;
     context.effectHandlerParamDrops = paramDropCodes;
+
+    // Track RC-type arg C names as consumed — handler param drops already free
+    // these pointers (params are aliases of argCodes, no dup). Pending deferred
+    // drops must skip them to avoid double-free.
+    const prevConsumedArgs = context.effectSmConsumedArgCNames;
+    const consumedArgs = new Set<string>();
+    for (let i = 0; i < runtimeParams.length && i < argCodes.length; i++) {
+      const param = runtimeParams[i]!;
+      if (typeContainsRcType(param.type)) {
+        consumedArgs.add(argCodes[i]!);
+      }
+    }
+    if (consumedArgs.size > 0) {
+      context.effectSmConsumedArgCNames = consumedArgs;
+    }
+
     const bodyCode = generateExpr(functionValue.body!, innerIndent, context);
     if (bodyCode) {
       emitter.emitLine(`${innerIndent}${bodyCode};`);
     }
+    context.effectSmConsumedArgCNames = prevConsumedArgs;
     context.effectHandlerParamDrops = prevHandlerDrops;
   }
 

@@ -124,6 +124,7 @@ export function evaluateAnonymousFunctionImplementation({
 
   // Parse parameter expressions to separate forall, using, and regular parameters
   let forallParamExprs: Expr[] = [];
+  let usingParamExprs: Expr[] = [];
   const regularParamExprs: Expr[] = [];
 
   for (let i = 0; i < parameterExprs.length; i++) {
@@ -140,6 +141,11 @@ export function evaluateAnonymousFunctionImplementation({
         });
       }
       forallParamExprs = paramExpr.args;
+    } else if (
+      exprIsFunctionCall(paramExpr) &&
+      exprIsFunctionCallOf(paramExpr, BuiltinKeywords.using)
+    ) {
+      usingParamExprs = paramExpr.args;
     } else {
       regularParamExprs.push(paramExpr);
     }
@@ -223,6 +229,67 @@ Got:      "${paramName}"`,
         type: expectedParam.type,
         value: createUnknownValue(expectedParam.type, {
           variableName: expectedParam.label,
+          env,
+          context,
+        }),
+        pathCollection: [],
+      };
+    }
+  }
+
+  // Check implicit parameters from using(...)
+  // Validate count: if using(...) was provided, it should match the expected implicit parameters
+  if (
+    usingParamExprs.length > 0 &&
+    usingParamExprs.length !== functionType.implicitParameters.length
+  ) {
+    throw formatErrorMessage({
+      token: expr.token,
+      errorMessage: `Expected ${functionType.implicitParameters.length} implicit parameters in using(...), got ${usingParamExprs.length}`,
+    });
+  }
+  for (let i = 0; i < functionType.implicitParameters.length; i++) {
+    const expectedParam = functionType.implicitParameters[i]!;
+    const paramExpr = usingParamExprs[i];
+
+    // Determine the parameter name: from the using() expr if provided, otherwise from expected
+    let paramName = expectedParam.label;
+    if (paramExpr && exprIsAtom(paramExpr)) {
+      paramName = paramExpr.token.value;
+    }
+
+    // Add implicit parameter to environment as compile-time variable.
+    // Allow variable shadowing so that using(log) in a closure can shadow
+    // a given(log) binding from the outer scope.
+    const { env: nextEnv } = addVariableToEnv({
+      env,
+      variable: {
+        name: paramName,
+        type: expectedParam.type,
+        isCompileTimeOnly: true,
+        isImplicit: true,
+        value: [
+          createUnknownValue(expectedParam.type, {
+            variableName: paramName,
+            env,
+            context,
+          }),
+        ],
+        token: paramExpr?.token ?? PlaceholderToken,
+        initializedAtToken: paramExpr?.token ?? PlaceholderToken,
+        consumedAtToken: undefined,
+        isOwningTheRcValue: false,
+      },
+      allowVariableShadowing: true,
+    });
+    env = nextEnv;
+
+    if (paramExpr) {
+      paramExpr.$ = {
+        env: env,
+        type: expectedParam.type,
+        value: createUnknownValue(expectedParam.type, {
+          variableName: paramName,
           env,
           context,
         }),

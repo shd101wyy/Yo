@@ -1360,6 +1360,7 @@ Please ensure a given variable of matching type is in scope.`,
                 consumedAtToken: undefined,
                 isOwningTheRcValue: false,
               },
+              allowVariableShadowing: true,
             });
             calleeEnv = nextEnv;
           } else {
@@ -1382,6 +1383,7 @@ Please ensure a given variable of matching type is in scope.`,
                 consumedAtToken: undefined,
                 isOwningTheRcValue: false,
               },
+              allowVariableShadowing: true,
             });
             calleeEnv = nextEnv;
           }
@@ -1475,6 +1477,7 @@ Got:      ${typeToString(argType)}`,
               consumedAtToken: undefined,
               isOwningTheRcValue: false,
             },
+            allowVariableShadowing: true,
           });
           calleeEnv = nextEnv;
           resolved = true;
@@ -1580,6 +1583,7 @@ Please use explicit using() to disambiguate.`,
             consumedAtToken: undefined,
             isOwningTheRcValue: false,
           },
+          allowVariableShadowing: true,
         });
         calleeEnv = nextEnv;
       }
@@ -1626,6 +1630,7 @@ Please use explicit using() to disambiguate.`,
               consumedAtToken: undefined,
               isOwningTheRcValue: false,
             },
+            allowVariableShadowing: true,
           });
           calleeEnv = envWithField;
         }

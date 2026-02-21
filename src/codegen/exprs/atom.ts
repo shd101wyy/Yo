@@ -273,7 +273,21 @@ export function generateAtom(
       }
     }
 
-    // Variable not in stateMachineVariables - it's a local C variable in the resume function
+    // Variable not in stateMachineVariables - check if it's a closure-captured variable.
+    // For closure+effect SM, captured variables are accessed through closure_context, not SM struct.
+    if (
+      functionContext.currentClosureCaptures &&
+      functionContext.currentClosureCaptures.includes(varName) &&
+      functionContext.currentClosureCaptureFrameLevel !== undefined
+    ) {
+      const captureTypeCName = functionContext.currentClosureCaptureTypeCName;
+      if (captureTypeCName) {
+        return `((${captureTypeCName}*)closure_context)->${getVariableNameForCodegen(varName, expr.$?.env)}`;
+      }
+      return `closure_context->${getVariableNameForCodegen(varName, expr.$?.env)}`;
+    }
+
+    // It's a local C variable in the resume function.
     // But first check if it's a compile-time only constant - if so, inline its value
     // (compile-time constants like STATX_BASIC_STATS are not captured in the state machine,
     // but their names may not exist as C identifiers on all platforms)
