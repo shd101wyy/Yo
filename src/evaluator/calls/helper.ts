@@ -1570,6 +1570,53 @@ Please use explicit using() to disambiguate.`,
         });
         calleeEnv = nextEnv;
       }
+
+      // For module-destructured implicit params, add the destructured fields
+      // to calleeEnv so the function body can access them directly.
+      if (
+        implicitParam.isModuleDestructured &&
+        isModuleType(resolvedImplicitType)
+      ) {
+        const moduleValue =
+          implicitArgValues[implicitArgValues.length - 1]?.value;
+        const moduleType = resolvedImplicitType as ModuleType;
+        for (let fi = 0; fi < moduleType.fields.length; fi++) {
+          const field = moduleType.fields[fi]!;
+          // Extract field value from the module value if available
+          let fieldValue: Value | undefined;
+          if (moduleValue && isModuleValue(moduleValue)) {
+            fieldValue = moduleValue.fields[fi];
+          }
+          if (!fieldValue) {
+            fieldValue = createUnknownValue(field.type, {
+              variableName: field.label,
+              env: calleeEnv,
+              context,
+            });
+          }
+          const { env: envWithField } = addVariableToEnv({
+            env: calleeEnv,
+            variable: {
+              name: field.label,
+              type: field.type,
+              isCompileTimeOnly: true,
+              isImplicit: true,
+              value: [fieldValue],
+              token:
+                implicitParam.exprs.labelExpr?.token ??
+                implicitParam.exprs.typeExpr?.token ??
+                PlaceholderToken,
+              initializedAtToken:
+                implicitParam.exprs.labelExpr?.token ??
+                implicitParam.exprs.typeExpr?.token ??
+                PlaceholderToken,
+              consumedAtToken: undefined,
+              isOwningTheRcValue: false,
+            },
+          });
+          calleeEnv = envWithField;
+        }
+      }
     }
   }
 
@@ -2006,6 +2053,7 @@ function createSpecializedFunctionInline({
     type: FunctionType;
     fromSpread: boolean;
     effectFieldPath?: string[];
+    handlerFieldPath?: string[];
   }> = [];
   // Compute the mapping from implicit param index to implicitArgValues index.
   // Spread params expand into multiple entries, so we need to track the offset.
@@ -2085,14 +2133,34 @@ function createSpecializedFunctionInline({
         }
       };
       findCtlFieldsInModule(implicitParam.type, []);
-      for (const ctlField of ctlFields) {
-        effectCtlParams.push({
-          handlerArgIndex: argOffset,
-          label: implicitParam.label,
-          type: ctlField.type,
-          fromSpread: false,
-          effectFieldPath: ctlField.path,
-        });
+
+      if (implicitParam.isModuleDestructured) {
+        // Module destructured: using(Raise) — fields are in scope directly.
+        // Use the field name as effectParameterName with effectFieldPath: undefined
+        // so isEffectCall Case 1 (direct call) matches raise(msg).
+        // handlerFieldPath is used to extract the handler from the module value.
+        for (const ctlField of ctlFields) {
+          const fieldName = ctlField.path[ctlField.path.length - 1]!;
+          effectCtlParams.push({
+            handlerArgIndex: argOffset,
+            label: fieldName,
+            type: ctlField.type,
+            fromSpread: false,
+            effectFieldPath: undefined,
+            handlerFieldPath: ctlField.path,
+          });
+        }
+      } else {
+        // Non-destructured: using(raise_mod : Raise) — access via mod.field.
+        for (const ctlField of ctlFields) {
+          effectCtlParams.push({
+            handlerArgIndex: argOffset,
+            label: implicitParam.label,
+            type: ctlField.type,
+            fromSpread: false,
+            effectFieldPath: ctlField.path,
+          });
+        }
       }
       argOffset += 1;
     } else {
@@ -2113,17 +2181,19 @@ function createSpecializedFunctionInline({
       const handlerArg = argValues.implicitArgs?.[ctlParam.handlerArgIndex];
       // For module-based effects, extract the ctl function by walking the field path
       let resolvedHandlerFn: FunctionValue | undefined;
+      const fieldPathForHandler =
+        ctlParam.handlerFieldPath ?? ctlParam.effectFieldPath;
       if (handlerArg && isFunctionValue(handlerArg.value)) {
         resolvedHandlerFn = handlerArg.value;
       } else if (
         handlerArg &&
         isModuleValue(handlerArg.value) &&
-        ctlParam.effectFieldPath &&
-        ctlParam.effectFieldPath.length > 0
+        fieldPathForHandler &&
+        fieldPathForHandler.length > 0
       ) {
         // Walk through nested modules following the field path
         let currentValue: Value | undefined = handlerArg.value;
-        for (const fieldName of ctlParam.effectFieldPath) {
+        for (const fieldName of fieldPathForHandler) {
           if (!isModuleValue(currentValue)) {
             currentValue = undefined;
             break;

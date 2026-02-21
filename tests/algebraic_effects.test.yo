@@ -609,3 +609,53 @@ test "Test nested module-based effect with resume", {
   result2 := safe_divide(10, 2);
   assert((result2 == 5), "nested module effect with resume: should be 5");
 };
+
+test "Test module destructured using(ModuleType) with abort", {
+  Raise :: module(
+    raise : (ctl(forall(T : Type), msg : String) -> T)
+  );
+
+  safe_divide :: (fn(x : i32, y : i32, using(Raise)) -> i32)(
+    cond(
+      (y == 0) => raise(`div-by-zero`),
+      true => (x / y)
+    )
+  );
+
+  (given(raise_mod) : Raise) = Raise(
+    raise :
+      (msg) -> {
+        println(msg);
+        abort ();
+      }
+  );
+
+  result := safe_divide(10, 0);
+  assert(false, "Should not reach here after abort");
+};
+
+test "Test module destructured using(ModuleType) with resume", {
+  Raise :: module(
+    raise : (ctl(forall(T : Type), msg : String) -> T)
+  );
+
+  safe_divide :: (fn(x : i32, y : i32, using(Raise)) -> i32)(
+    cond(
+      (y == 0) => raise(`div-by-zero`),
+      true => (x / y)
+    )
+  );
+
+  (given(raise_mod) : Raise) = Raise(
+    raise :
+      (msg) -> {
+        println(msg);
+        return i32(0);
+      }
+  );
+
+  result := safe_divide(10, 0);
+  assert((result == 0), "module destructured with resume: should be 0");
+  result2 := safe_divide(10, 2);
+  assert((result2 == 5), "module destructured with resume: should be 5");
+};
