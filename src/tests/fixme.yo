@@ -11,26 +11,25 @@ safe_divide :: (fn(x : i32, y : i32, using(raise : Raise)) -> i32)(
   )
 );
 
-// Two levels of propagation
-compute :: (fn(a : i32, b : i32, using(raise : Raise)) -> i32)(
-  (safe_divide(a, b) + i32(10))
-);
-
 main :: (fn() -> unit) {
-  // Test 1: single-level propagation with resume
+  // Define `raise` at top level
   (given(raise) : Raise) = ((msg) -> {
     println(msg);
     return i32(0);
   });
-  result1 := safe_divide(10, 0);
-  assert((result1 == i32(0)), "single-level propagation: should return 0");
-  println(`Test 1 passed: single-level propagation`);
 
-  // Test 2: two-level propagation with resume
-  result2 := compute(50, 0);
-  assert((result2 == i32(10)), "two-level propagation: 0 + 10 = 10");
-  println(`Test 2 passed: two-level propagation`);
 
-  println(`All effect propagation tests passed!`);
+  {
+    // Define a new `raise` that overrides the outer one, simulating multi-level propagation
+    (given(raise2) : Raise) = ((msg) -> {
+      println(msg);
+      abort ();
+    });
+
+    result := safe_divide(10, 0);
+    assert(false, "multi-level propagation: should not reach here");
+  };
+
+  assert(false, "should not reach here");
 };
 export main;

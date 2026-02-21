@@ -12,7 +12,7 @@ import { PlaceholderToken } from "../../token";
 import { areTypesCompatible } from "../../types/compatibility";
 
 import { createUnitType } from "../../types/creators";
-import type { FunctionType } from "../../types/definitions";
+import type { FunctionType, Type } from "../../types/definitions";
 import { isFunctionType, isSomeType } from "../../types/guards";
 import { typeContainsSomeType, typeToString } from "../../types/utils";
 import { randomId } from "../../utils";
@@ -287,17 +287,21 @@ export function tryToImplementFunctionByFunctionType({
     evaluationContext = ctx.evaluationContext;
 
     if (newFunctionType.isControlFunction) {
-      let enclosingReturnType = newFunctionType.ParentFunctionType?.return.type;
-      if (
-        !enclosingReturnType &&
-        context.isEvaluatingFunctionBodyOrAsyncBlock
-      ) {
+      // The enclosing function return type determines what `abort` returns.
+      // Prefer the current evaluation context (the actual enclosing function where
+      // the handler is being DEFINED) over ParentFunctionType (which was set when
+      // the ctl TYPE was defined, possibly in a different scope).
+      let enclosingReturnType: Type | undefined;
+      if (context.isEvaluatingFunctionBodyOrAsyncBlock) {
         const block = context.isEvaluatingFunctionBodyOrAsyncBlock;
         if (block.kind === "function-body") {
           enclosingReturnType = block.type.return.type;
         } else {
           enclosingReturnType = createUnitType();
         }
+      }
+      if (!enclosingReturnType) {
+        enclosingReturnType = newFunctionType.ParentFunctionType?.return.type;
       }
 
       if (!enclosingReturnType) {

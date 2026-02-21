@@ -394,3 +394,64 @@ test "Test two-level effect propagation via using parameter", {
   result := compute(50, 0);
   assert((result == i32(10)), "two-level propagation: 0 + 10 = 10");
 };
+
+test "Test given variable shadowing (inner scope shadows outer)", {
+  Raise :: (ctl(forall(T : Type), msg : String) -> T);
+
+  safe_divide :: (fn(x : i32, y : i32, using(raise : Raise)) -> i32)(
+    cond(
+      (y == 0) => raise(`division by zero`),
+      true => (x / y)
+    )
+  );
+
+  (given(raise) : Raise) = ((msg) -> {
+    return i32(0);
+  });
+
+  result1 := safe_divide(10, 0);
+  assert((result1 == i32(0)), "outer handler should return 0");
+
+  result2 := {
+    (given(raise_inner) : Raise) = ((msg) -> {
+      return i32(-1);
+    });
+    safe_divide(20, 0)
+  };
+  assert((result2 == i32(-1)), "inner handler should shadow outer and return -1");
+
+  result3 := safe_divide(30, 0);
+  assert((result3 == i32(0)), "outer handler should still work after inner scope");
+};
+
+test "Test given variable shadowing (inner scope shadows outer) with abort", {
+  Raise :: (ctl(forall(T : Type), msg : String) -> T);
+
+  // Function that USES the effect (propagates via using parameter)
+  safe_divide :: (fn(x : i32, y : i32, using(raise : Raise)) -> i32)(
+    cond(
+      (y == 0) => raise(`division by zero`),
+      true => (x / y)
+    )
+  );
+
+  // Define `raise` at top level
+  (given(raise) : Raise) = ((msg) -> {
+    println(msg);
+    return i32(0);
+  });
+
+
+  {
+    // Define a new `raise` that overrides the outer one, simulating multi-level propagation
+    (given(raise2) : Raise) = ((msg) -> {
+      println(msg);
+      abort ();
+    });
+
+    result := safe_divide(10, 0);
+    assert(false, "multi-level propagation: should not reach here");
+  };
+
+  assert(false, "should not reach here");
+};

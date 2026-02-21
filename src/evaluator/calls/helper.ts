@@ -3,6 +3,7 @@ import {
   addVariableToEnv,
   addWhereClauseConstraintToEnv,
   type Environment,
+  findInnermostFrameWithGivenVariable,
   getVariablesFromEnv,
   getVariablesFromEnvByFilter,
   getVariablesNeedingDrop,
@@ -1343,15 +1344,52 @@ Or pass it explicitly:
   ${functionValue?.funcName ?? "func"}(..., using(<value>))`,
           });
         }
-        if (givenVariables.length > 1) {
+
+        // When multiple given variables match, prefer the one from the innermost
+        // (most recent) frame. Only report ambiguity if there are multiple matches
+        // at the same innermost frame level. This allows inner scopes to shadow
+        // outer given bindings of the same type.
+        let candidates = givenVariables;
+        if (candidates.length > 1) {
+          // getVariablesFromEnvByFilter returns variables in frame order
+          // (outer first, inner last). Find the innermost frame that has matches
+          // by searching from the end.
+          const innermostFrameIdx = findInnermostFrameWithGivenVariable(
+            callerEnv,
+            (v) =>
+              v.isImplicit === true &&
+              v.isCompileTimeOnly === true &&
+              areTypesCompatible(
+                { type: resolvedImplicitType, env: calleeEnv },
+                { type: v.type, env: callerEnv }
+              )
+          );
+          if (innermostFrameIdx >= 0) {
+            const frame = callerEnv.frames[innermostFrameIdx]!;
+            const innermostMatches = frame.variables.filter(
+              (v) =>
+                v.isImplicit === true &&
+                v.isCompileTimeOnly === true &&
+                areTypesCompatible(
+                  { type: resolvedImplicitType, env: calleeEnv },
+                  { type: v.type, env: callerEnv }
+                )
+            );
+            if (innermostMatches.length > 0) {
+              candidates = innermostMatches;
+            }
+          }
+        }
+
+        if (candidates.length > 1) {
           throw formatErrorMessage({
             token: functionCalleeExpr?.token ?? expr?.token ?? PlaceholderToken,
-            errorMessage: `Ambiguous implicit parameter "${implicitParam.label}": found ${givenVariables.length} "given" variables with compatible type ${typeToString(resolvedImplicitType)}.
+            errorMessage: `Ambiguous implicit parameter "${implicitParam.label}": found ${candidates.length} "given" variables with compatible type ${typeToString(resolvedImplicitType)} in the same scope.
 Please use explicit using() to disambiguate.`,
           });
         }
 
-        const givenVar = givenVariables[0]!;
+        const givenVar = candidates[candidates.length - 1]!;
         const givenValue = givenVar.value?.[0];
         if (!givenValue) {
           throw formatErrorMessage({

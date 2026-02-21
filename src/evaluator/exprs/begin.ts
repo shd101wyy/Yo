@@ -803,6 +803,9 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
       // in this case — the abort value's type will determine the actual return type.
       if (
         !context.controlHandlerContext.isDirectCtlCall &&
+        !isSomeType(
+          context.controlHandlerContext.enclosingFunctionReturnType
+        ) &&
         !areTypesCompatible(
           {
             type: context.controlHandlerContext.enclosingFunctionReturnType,
@@ -870,10 +873,13 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
       // Type-check against operationResultType (the ctl's return type T).
       // For direct ctl calls (no intermediate `using` function), T is inferred
       // from the return value itself — skip the strict operationResultType check.
+      // Also skip when operationResultType is an unresolved SomeType (e.g., forall T),
+      // because T will be resolved to the concrete type at each call site.
       if (!context.controlHandlerContext.isDirectCtlCall) {
         const expectedReturnType =
           context.controlHandlerContext.operationResultType;
         if (
+          !isSomeType(expectedReturnType) &&
           !areTypesCompatible(
             { type: expectedReturnType, env },
             { type: returnType, env }

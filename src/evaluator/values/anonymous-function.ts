@@ -378,10 +378,21 @@ Got:      "${paramName}"`,
   // If so, we should NOT evaluate the body at definition time because we can't
   // execute code that uses unresolved type variables. The body will be evaluated
   // when the function is specialized with concrete type arguments.
+  //
+  // Exception: ctl handler functions should NOT be deferred even with forall parameters.
+  // The forall params on a ctl type (e.g., ctl(forall(T : Type), ...) -> T) represent
+  // the operation's result type, which is resolved at each call site. The handler body
+  // can be evaluated with T as SomeType because:
+  // 1. The handler's return semantics are governed by controlHandlerContext
+  // 2. return(value) resumes the computation, typed by the call site's concrete type
+  // 3. The body's actual return type is the enclosing function's return type, not T
   const shouldDeferBodyEvaluation =
-    functionType.forallParameters.length > 0 ||
-    functionType.parameters.some((param) => typeContainsSomeType(param.type)) ||
-    (functionType.SelfType && typeContainsSomeType(functionType.SelfType));
+    !functionType.isControlFunction &&
+    (functionType.forallParameters.length > 0 ||
+      functionType.parameters.some((param) =>
+        typeContainsSomeType(param.type)
+      ) ||
+      (functionType.SelfType && typeContainsSomeType(functionType.SelfType)));
 
   let evaluationContext: EvaluatorContext;
   let evaluatedBody: Expr;
@@ -423,14 +434,12 @@ Got:      "${paramName}"`,
     );
 
     if (functionType.isControlFunction) {
-      // ParentFunctionType may be unset if the ctl type was defined at module
-      // scope and the handler is being defined inside a function or test body.
-      // Derive the enclosing function return type from the current context.
-      let enclosingReturnType = functionType.ParentFunctionType?.return.type;
-      if (
-        !enclosingReturnType &&
-        context.isEvaluatingFunctionBodyOrAsyncBlock
-      ) {
+      // The enclosing function return type determines what `abort` returns.
+      // Prefer the current evaluation context (the actual enclosing function where
+      // the handler is being DEFINED) over ParentFunctionType (which was set when
+      // the ctl TYPE was defined, possibly in a different scope).
+      let enclosingReturnType: Type | undefined;
+      if (context.isEvaluatingFunctionBodyOrAsyncBlock) {
         const block = context.isEvaluatingFunctionBodyOrAsyncBlock;
         if (block.kind === "function-body") {
           enclosingReturnType = block.type.return.type;
@@ -438,6 +447,9 @@ Got:      "${paramName}"`,
           // test-block or async-block: enclosing return type is unit
           enclosingReturnType = createUnitType();
         }
+      }
+      if (!enclosingReturnType) {
+        enclosingReturnType = functionType.ParentFunctionType?.return.type;
       }
 
       if (!enclosingReturnType) {

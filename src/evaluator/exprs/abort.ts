@@ -2,6 +2,7 @@ import { type Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import { type Expr, type FnCallExpr } from "../../expr";
 import { areTypesCompatible } from "../../types/compatibility";
+import { isSomeType } from "../../types/guards";
 import { typeToString } from "../../types/utils";
 import type { EvaluatorContext } from "../context";
 import { _evaluateExpression } from "./_expr";
@@ -53,8 +54,11 @@ export function evaluateAbort({
     });
   }
 
-  // Type-check: the argument type must be compatible with enclosingFunctionReturnType
+  // Type-check: the argument type must be compatible with enclosingFunctionReturnType.
+  // Skip when enclosingFunctionReturnType is SomeType (unresolved forall param like T),
+  // because T will be resolved to the concrete type at each call site.
   if (
+    !isSomeType(handlerCtx.enclosingFunctionReturnType) &&
     !areTypesCompatible(
       { type: handlerCtx.enclosingFunctionReturnType, env },
       { type: evaluatedArg.$.type, env }
