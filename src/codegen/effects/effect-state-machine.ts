@@ -45,6 +45,7 @@ import type {
 import { isUnitType } from "../../types/guards";
 import { typeContainsRcType } from "../../types/utils";
 import { isTempVariableName } from "../../utils";
+import { isFunctionValue } from "../../value";
 import {
   generateDeferredDropExpressions,
   generateDropCodeForValue,
@@ -113,6 +114,18 @@ export function generateEffectStateMachineStruct(
     emitter.emitDeclarationLine(`  ${varTypeCName} ${fieldName};`);
   }
 
+  // Generate inner SM fields for transitive effect call points
+  for (const callPoint of analysis.effectCallPoints) {
+    if (callPoint.isTransitiveEffectCall) {
+      const innerSmInfo = getInnerSmInfo(callPoint, context);
+      if (innerSmInfo) {
+        emitter.emitDeclarationLine(
+          `  ${innerSmInfo.structName} _inner_sm_${callPoint.index};`
+        );
+      }
+    }
+  }
+
   emitter.emitDeclarationLine(`} ${structName};`);
   emitter.emitDeclarationLine(``);
 }
@@ -128,6 +141,23 @@ export function generateEffectResumeFunctionDeclaration(
   emitter.emitDeclarationLine(
     `void ${info.resumeFunctionName}(${info.structName}* sm);`
   );
+}
+
+/**
+ * Look up the inner function's EffectStateMachineInfo for a transitive effect call point.
+ */
+function getInnerSmInfo(
+  callPoint: EffectCallPoint,
+  context: FunctionGenerationContext
+): EffectStateMachineInfo | undefined {
+  const callExpr = callPoint.expr as FnCallExpr;
+  const funcValue = callExpr.func.$?.value;
+  if (!funcValue || !isFunctionValue(funcValue)) return undefined;
+  // funcValue is narrowed to FunctionValue here
+  const funcId = funcValue.funcId;
+  const funcEntry = context.functions[funcId];
+  if (!funcEntry) return undefined;
+  return funcEntry.effectStateMachineInfo as EffectStateMachineInfo | undefined;
 }
 
 /**
@@ -359,21 +389,59 @@ export function generateEffectResumeFunction(
     // Only generate if this resume state is not already covered by a segment
     if (resumeState > maxSegmentState) {
       emitter.emitLine(`    case ${resumeState}: {`);
-      if (effectCallPoint.targetVariableId) {
-        const fieldName = sanitizeForCIdentifier(
-          `var_${effectCallPoint.targetVariableId}`
-        );
-        emitter.emitLine(`      sm->${fieldName} = sm->resume_value;`);
-      }
-      if (!isUnitType(info.functionType.return.type)) {
-        emitter.emitLine(`      sm->result = sm->resume_value;`);
-      }
-      if (bodyExpr.$?.deferredDropExpressions) {
-        generateDeferredDropExpressions(bodyExpr, "      ", context);
+
+      if (effectCallPoint.isTransitiveEffectCall) {
+        // Transitive resume: forward resume value to inner SM and drive it
+        const innerSmInfo = getInnerSmInfo(effectCallPoint, context);
+        if (innerSmInfo) {
+          const innerSmField = `sm->_inner_sm_${effectCallPoint.index}`;
+          emitter.emitLine(
+            `      ${innerSmField}.resume_value = sm->resume_value;`
+          );
+          emitter.emitLine(
+            `      ${innerSmInfo.resumeFunctionName}(&${innerSmField});`
+          );
+          emitter.emitLine(`      if (!${innerSmField}.completed) {`);
+          // Inner SM yielded again — re-yield
+          for (let i = 0; i < info.yieldTypeCNames.length; i++) {
+            emitter.emitLine(
+              `        sm->yield_${i} = ${innerSmField}.yield_${i};`
+            );
+          }
+          emitter.emitLine(`        return;`);
+          emitter.emitLine(`      }`);
+          // Inner SM completed
+          if (effectCallPoint.targetVariableId) {
+            const fieldName = sanitizeForCIdentifier(
+              `var_${effectCallPoint.targetVariableId}`
+            );
+            emitter.emitLine(
+              `      sm->${fieldName} = ${innerSmField}.result;`
+            );
+          }
+          if (!isUnitType(info.functionType.return.type)) {
+            emitter.emitLine(`      sm->result = ${innerSmField}.result;`);
+          }
+        }
       } else {
-        // bodyExpr has no deferred drops — drop yield fields directly.
-        generateYieldFieldDrops(analysis, "      ", context);
+        // Direct resume: store resume value
+        if (effectCallPoint.targetVariableId) {
+          const fieldName = sanitizeForCIdentifier(
+            `var_${effectCallPoint.targetVariableId}`
+          );
+          emitter.emitLine(`      sm->${fieldName} = sm->resume_value;`);
+        }
+        if (!isUnitType(info.functionType.return.type)) {
+          emitter.emitLine(`      sm->result = sm->resume_value;`);
+        }
+        if (bodyExpr.$?.deferredDropExpressions) {
+          generateDeferredDropExpressions(bodyExpr, "      ", context);
+        } else {
+          // bodyExpr has no deferred drops — drop yield fields directly.
+          generateYieldFieldDrops(analysis, "      ", context);
+        }
       }
+
       emitter.emitLine(`      sm->completed = 1;`);
       emitter.emitLine(`      return;`);
       emitter.emitLine(`    }`);
@@ -404,14 +472,25 @@ function generateExprWithEffectCall(
   if (exprIsFunctionCallOf(expr, ":=")) {
     const rhs = (expr as FnCallExpr).args[1]!;
     if (rhs === effectExpr) {
-      generateEffectYield(
-        effectExpr,
-        effectCallPoint,
-        stateNumber,
-        indent,
-        context,
-        info
-      );
+      if (effectCallPoint.isTransitiveEffectCall) {
+        generateTransitiveEffectYield(
+          effectExpr,
+          effectCallPoint,
+          stateNumber,
+          indent,
+          context,
+          info
+        );
+      } else {
+        generateEffectYield(
+          effectExpr,
+          effectCallPoint,
+          stateNumber,
+          indent,
+          context,
+          info
+        );
+      }
       return;
     }
     if (containsEffectCallExpr(rhs, effectExpr)) {
@@ -433,14 +512,25 @@ function generateExprWithEffectCall(
   }
 
   if (expr === effectExpr) {
-    generateEffectYield(
-      effectExpr,
-      effectCallPoint,
-      stateNumber,
-      indent,
-      context,
-      info
-    );
+    if (effectCallPoint.isTransitiveEffectCall) {
+      generateTransitiveEffectYield(
+        effectExpr,
+        effectCallPoint,
+        stateNumber,
+        indent,
+        context,
+        info
+      );
+    } else {
+      generateEffectYield(
+        effectExpr,
+        effectCallPoint,
+        stateNumber,
+        indent,
+        context,
+        info
+      );
+    }
     return;
   }
 
@@ -518,6 +608,81 @@ function generateEffectYield(
     emitter.emitLine(`${indent}sm->yield_${i} = ${argCode};`);
   }
   emitter.emitLine(`${indent}sm->state = ${nextState};`);
+  emitter.emitLine(`${indent}return;`);
+}
+
+/**
+ * Generate a transitive effect yield — creates the inner SM, drives it,
+ * and re-yields if the inner SM yields. If the inner SM completes immediately
+ * (no effect triggered), stores the result and continues.
+ */
+function generateTransitiveEffectYield(
+  effectExpr: Expr,
+  effectCallPoint: EffectCallPoint,
+  _stateNumber: number,
+  indent: string,
+  context: FunctionGenerationContext,
+  info: EffectStateMachineInfo
+): void {
+  const emitter = context.emitter;
+  const innerSmInfo = getInnerSmInfo(effectCallPoint, context);
+  if (!innerSmInfo) {
+    emitter.emitLine(
+      `${indent}// ERROR: Could not find inner SM info for transitive effect call`
+    );
+    return;
+  }
+
+  const nextState = effectCallPoint.index + 1;
+  const innerSmField = `sm->_inner_sm_${effectCallPoint.index}`;
+
+  // Initialize the inner SM
+  emitter.emitLine(
+    `${indent}${innerSmField} = (${innerSmInfo.structName}){0};`
+  );
+
+  // Set inner SM's runtime parameters from the call expression's arguments
+  const innerFuncType = innerSmInfo.functionType;
+  const innerRuntimeParams = innerFuncType.parameters.filter(
+    (p) => !p.isCompileTimeOnly && !p.isImplicit
+  );
+  const callArgs = (effectExpr as FnCallExpr).args;
+  for (let i = 0; i < innerRuntimeParams.length && i < callArgs.length; i++) {
+    const param = innerRuntimeParams[i]!;
+    const argCode = generateExpr(callArgs[i]!, indent, context);
+    emitter.emitLine(
+      `${indent}${innerSmField}.${sanitizeForCIdentifier(param.label)} = ${argCode};`
+    );
+  }
+
+  // Drive the inner SM
+  emitter.emitLine(
+    `${indent}${innerSmInfo.resumeFunctionName}(&${innerSmField});`
+  );
+
+  // Check if inner SM yielded
+  emitter.emitLine(`${indent}if (!${innerSmField}.completed) {`);
+
+  // Copy yield values from inner to outer SM (move semantics — no DUP needed,
+  // the inner SM's captured variable owns the RC reference)
+  for (let i = 0; i < info.yieldTypeCNames.length; i++) {
+    emitter.emitLine(`${indent}  sm->yield_${i} = ${innerSmField}.yield_${i};`);
+  }
+  emitter.emitLine(`${indent}  sm->state = ${nextState};`);
+  emitter.emitLine(`${indent}  return;`);
+  emitter.emitLine(`${indent}}`);
+
+  // Inner SM completed immediately (no effect was triggered)
+  if (!isUnitType(info.functionType.return.type)) {
+    if (effectCallPoint.targetVariableId) {
+      const fieldName = sanitizeForCIdentifier(
+        `var_${effectCallPoint.targetVariableId}`
+      );
+      emitter.emitLine(`${indent}sm->${fieldName} = ${innerSmField}.result;`);
+    }
+    emitter.emitLine(`${indent}sm->result = ${innerSmField}.result;`);
+  }
+  emitter.emitLine(`${indent}sm->completed = 1;`);
   emitter.emitLine(`${indent}return;`);
 }
 

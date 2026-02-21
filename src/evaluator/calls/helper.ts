@@ -1980,131 +1980,196 @@ function createSpecializedFunctionInline({
 
   // Run effect analysis on the specialized body if it has implicit ctl parameters.
   // This detects ctl call points (e.g., raise(msg)) and prepares for state machine generation.
+  // Also handles effect row spread parameters (using(...(E))) by extracting the individual
+  // ctl parameters from the bound EffectsRowType.
+  const effectCtlParams: Array<{
+    handlerArgIndex: number;
+    label: string;
+    type: FunctionType;
+    fromSpread: boolean;
+  }> = [];
+  // Compute the mapping from implicit param index to implicitArgValues index.
+  // Spread params expand into multiple entries, so we need to track the offset.
+  let argOffset = 0;
   for (let i = 0; i < functionType.implicitParameters.length; i++) {
     const implicitParam = functionType.implicitParameters[i]!;
     if (
       isFunctionType(implicitParam.type) &&
       implicitParam.type.isControlFunction
     ) {
-      const effectAnalysis = analyzeEffectCallPoints(
-        specializedBody,
-        implicitParam.label,
-        implicitParam.type
-      );
-      if (effectAnalysis.hasEffects) {
-        // Store the handler value on the effectAnalysis so codegen can inline it.
-        // The implicit args correspond to implicit parameters by index.
-        const handlerArg = argValues.implicitArgs?.[i];
-        if (handlerArg && isFunctionValue(handlerArg.value)) {
-          const handlerFn = handlerArg.value;
-          const ctlType = implicitParam.type;
-
-          // If the handler's ctl type has forall parameters and the handler body
-          // was deferred (not evaluated — no $ annotations), we need to re-evaluate
-          // it now with concrete types from the effect call site.
-          // If the body was already evaluated (has $ annotations), skip re-evaluation
-          // since codegen can handle SomeType T in handler bodies.
-          const handlerBodyWasDeferred = !handlerFn.body.$;
+      effectCtlParams.push({
+        handlerArgIndex: argOffset,
+        label: implicitParam.label,
+        type: implicitParam.type,
+        fromSpread: false,
+      });
+      argOffset += 1;
+    } else if (implicitParam.isEffectRowSpread) {
+      // Effect row spread: resolve the type (might be a SomeType that needs lookup)
+      let resolvedType = implicitParam.type;
+      if (isSomeType(resolvedType)) {
+        // Try looking up by variable name in environment first
+        const eVars = getVariablesFromEnv(specializedEnv, implicitParam.label);
+        const eVarValue = eVars.at(-1)?.value?.[0];
+        if (
+          eVarValue &&
+          isTypeValue(eVarValue) &&
+          isEffectsRowType(eVarValue.value)
+        ) {
+          resolvedType = eVarValue.value;
+        } else {
+          const boundType = getValueOfSomeTypeFromEnv(
+            specializedEnv,
+            resolvedType
+          );
+          if (boundType) {
+            resolvedType = boundType;
+          }
+        }
+      }
+      if (isEffectsRowType(resolvedType)) {
+        // Extract individual ctl parameters from the resolved EffectsRowType
+        for (let k = 0; k < resolvedType.implicitParameters.length; k++) {
+          const innerParam = resolvedType.implicitParameters[k]!;
           if (
-            handlerBodyWasDeferred &&
-            isFunctionType(ctlType) &&
-            ctlType.forallParameters.length > 0 &&
-            effectAnalysis.effectCallPoints.length > 0
+            isFunctionType(innerParam.type) &&
+            innerParam.type.isControlFunction
           ) {
-            // Build a mapping from forall SomeType to concrete type
-            // For ctl(forall(T : Type), msg : String) -> T, T maps to operationResultType
-            const forallTypeMap = new Map<string, Type>();
-            const returnType = ctlType.return.type;
-            const concreteReturnType =
-              effectAnalysis.effectCallPoints[0]!.operationResultType;
+            effectCtlParams.push({
+              handlerArgIndex: argOffset + k,
+              label: innerParam.label,
+              type: innerParam.type,
+              fromSpread: true,
+            });
+          }
+        }
+        argOffset += resolvedType.implicitParameters.length;
+      } else {
+        argOffset += 1;
+      }
+    } else {
+      argOffset += 1;
+    }
+  }
+  for (const ctlParam of effectCtlParams) {
+    const effectAnalysis = analyzeEffectCallPoints(
+      specializedBody,
+      ctlParam.label,
+      ctlParam.type,
+      ctlParam.fromSpread
+    );
+    if (effectAnalysis.hasEffects) {
+      // Store the handler value on the effectAnalysis so codegen can inline it.
+      // The implicit args correspond to implicit parameters by index.
+      const handlerArg = argValues.implicitArgs?.[ctlParam.handlerArgIndex];
+      if (handlerArg && isFunctionValue(handlerArg.value)) {
+        const handlerFn = handlerArg.value;
+        const ctlType = ctlParam.type;
 
-            // If the return type IS a forall parameter directly, map it
-            if (isSomeType(returnType)) {
-              forallTypeMap.set(returnType.name, concreteReturnType);
+        // If the handler's ctl type has forall parameters and the handler body
+        // was deferred (not evaluated — no $ annotations), we need to re-evaluate
+        // it now with concrete types from the effect call site.
+        // If the body was already evaluated (has $ annotations), skip re-evaluation
+        // since codegen can handle SomeType T in handler bodies.
+        const handlerBodyWasDeferred = !handlerFn.body.$;
+        if (
+          handlerBodyWasDeferred &&
+          isFunctionType(ctlType) &&
+          ctlType.forallParameters.length > 0 &&
+          effectAnalysis.effectCallPoints.length > 0
+        ) {
+          // Build a mapping from forall SomeType to concrete type
+          // For ctl(forall(T : Type), msg : String) -> T, T maps to operationResultType
+          const forallTypeMap = new Map<string, Type>();
+          const returnType = ctlType.return.type;
+          const concreteReturnType =
+            effectAnalysis.effectCallPoints[0]!.operationResultType;
+
+          // If the return type IS a forall parameter directly, map it
+          if (isSomeType(returnType)) {
+            forallTypeMap.set(returnType.name, concreteReturnType);
+          }
+
+          // Re-evaluate the handler body with concrete types
+          if (forallTypeMap.size > 0) {
+            const clonedHandlerFnBody = cloneExpr(handlerFn.body);
+            let handlerEnv = handlerFn.body.$?.env ?? specializedEnv;
+            handlerEnv = pushEnvFrame(handlerEnv);
+
+            // Bind forall parameters to their concrete types
+            for (const forallParam of ctlType.forallParameters) {
+              const concreteType = forallTypeMap.get(forallParam.label);
+              if (concreteType) {
+                const result = addVariableToEnv({
+                  env: handlerEnv,
+                  variable: {
+                    name: forallParam.label,
+                    type: forallParam.type,
+                    isCompileTimeOnly: true,
+                    value: [createTypeValue(concreteType)],
+                    token: PlaceholderToken,
+                    initializedAtToken: PlaceholderToken,
+                    consumedAtToken: undefined,
+                    isOwningTheRcValue: false,
+                  },
+                  allowVariableShadowing: true,
+                });
+                handlerEnv = result.env;
+              }
             }
 
-            // Re-evaluate the handler body with concrete types
-            if (forallTypeMap.size > 0) {
-              const clonedHandlerFnBody = cloneExpr(handlerFn.body);
-              let handlerEnv = handlerFn.body.$?.env ?? specializedEnv;
-              handlerEnv = pushEnvFrame(handlerEnv);
+            const handlerFnType = handlerFn.specializedType ?? handlerFn.type;
+            const enclosingReturnType =
+              context.isEvaluatingFunctionBodyOrAsyncBlock?.kind ===
+              "function-body"
+                ? context.isEvaluatingFunctionBodyOrAsyncBlock.type.return.type
+                : handlerFnType.ParentFunctionType
+                  ? handlerFnType.ParentFunctionType.return.type
+                  : concreteReturnType;
 
-              // Bind forall parameters to their concrete types
-              for (const forallParam of ctlType.forallParameters) {
-                const concreteType = forallTypeMap.get(forallParam.label);
-                if (concreteType) {
-                  const result = addVariableToEnv({
-                    env: handlerEnv,
-                    variable: {
-                      name: forallParam.label,
-                      type: forallParam.type,
-                      isCompileTimeOnly: true,
-                      value: [createTypeValue(concreteType)],
-                      token: PlaceholderToken,
-                      initializedAtToken: PlaceholderToken,
-                      consumedAtToken: undefined,
-                      isOwningTheRcValue: false,
-                    },
-                    allowVariableShadowing: true,
-                  });
-                  handlerEnv = result.env;
-                }
-              }
+            const handlerContext: EvaluatorContext = {
+              ...context,
+              expectedType: undefined,
+              controlHandlerContext: {
+                operationResultType: concreteReturnType,
+                enclosingFunctionReturnType: enclosingReturnType,
+              },
+              isEvaluatingFunctionBodyOrAsyncBlock: {
+                kind: "function-body",
+                type: handlerFnType,
+                value: handlerFn,
+                evaluationEnv: handlerEnv,
+              },
+            };
 
-              const handlerFnType = handlerFn.specializedType ?? handlerFn.type;
-              const enclosingReturnType =
-                context.isEvaluatingFunctionBodyOrAsyncBlock?.kind ===
-                "function-body"
-                  ? context.isEvaluatingFunctionBodyOrAsyncBlock.type.return
-                      .type
-                  : handlerFnType.ParentFunctionType
-                    ? handlerFnType.ParentFunctionType.return.type
-                    : concreteReturnType;
+            try {
+              const evaluatedBody = _evaluateExpression({
+                expr: clonedHandlerFnBody,
+                env: handlerEnv,
+                context: handlerContext,
+              });
 
-              const handlerContext: EvaluatorContext = {
-                ...context,
-                expectedType: undefined,
-                controlHandlerContext: {
-                  operationResultType: concreteReturnType,
-                  enclosingFunctionReturnType: enclosingReturnType,
-                },
-                isEvaluatingFunctionBodyOrAsyncBlock: {
-                  kind: "function-body",
-                  type: handlerFnType,
-                  value: handlerFn,
-                  evaluationEnv: handlerEnv,
-                },
+              const reEvaluatedHandler: FunctionValue = {
+                ...handlerFn,
+                body: evaluatedBody,
               };
-
-              try {
-                const evaluatedBody = _evaluateExpression({
-                  expr: clonedHandlerFnBody,
-                  env: handlerEnv,
-                  context: handlerContext,
-                });
-
-                const reEvaluatedHandler: FunctionValue = {
-                  ...handlerFn,
-                  body: evaluatedBody,
-                };
-                effectAnalysis.handlerValue = reEvaluatedHandler;
-              } catch (e) {
-                // If re-evaluation fails, fall back to the original handler
-                console.error("Handler body re-evaluation failed:", e);
-                effectAnalysis.handlerValue = handlerFn;
-              }
-            } else {
+              effectAnalysis.handlerValue = reEvaluatedHandler;
+            } catch (e) {
+              // If re-evaluation fails, fall back to the original handler
+              console.error("Handler body re-evaluation failed:", e);
               effectAnalysis.handlerValue = handlerFn;
             }
           } else {
             effectAnalysis.handlerValue = handlerFn;
           }
-        } else if (handlerArg) {
-          effectAnalysis.handlerValue = handlerArg.value;
+        } else {
+          effectAnalysis.handlerValue = handlerFn;
         }
-
-        specializedBody.$.effectAnalysis = effectAnalysis;
+      } else if (handlerArg) {
+        effectAnalysis.handlerValue = handlerArg.value;
       }
+
+      specializedBody.$.effectAnalysis = effectAnalysis;
     }
   }
 

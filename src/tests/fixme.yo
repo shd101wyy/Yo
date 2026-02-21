@@ -16,11 +16,10 @@ run :: (fn(forall(T : Type, ...(E)),
 main :: (fn() -> unit) {
   (given(raise) : Raise) = ((msg) -> {
     println(msg);
-    return i32(42);
+    abort ();
   });
 
   result := run(might_fail);
-  assert(result == i32(42), "effect polymorphism: should be 42");
-  println(`result: ${result}`);
+  assert(false, "This line should not be reached since might_fail raises an error");
 };
 export main;

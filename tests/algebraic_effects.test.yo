@@ -476,3 +476,24 @@ test "Test effect polymorphism with using spread", {
   result := run(might_fail);
   assert(result == i32(42), "effect polymorphism: should be 42");
 };
+
+test "Test effect polymorphism with using spread and abort", {
+  Raise :: (ctl(forall(T : Type), msg : String) -> T);
+
+  might_fail :: (fn(using(raise : Raise)) -> i32)(
+    raise(`oops`)
+  );
+
+  // Effect-polymorphic function: forwards whatever effects f needs
+  run :: (fn(forall(T : Type, ...(E)),
+      f : (fn(using(...(E))) -> T),
+      using(...(E))) -> T)(f());
+
+  (given(raise) : Raise) = ((msg) -> {
+    println(msg);
+    abort ();
+  });
+
+  result := run(might_fail);
+  assert(false, "This line should not be reached since might_fail raises an error");
+};

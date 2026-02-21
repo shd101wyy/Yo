@@ -337,6 +337,24 @@ int main(int argc, char** argv) {
 export function preRegisterEffectfulFunctions(
   context: FunctionGenerationContext
 ): void {
+  // Collect effectful functions into two groups:
+  // 1. Direct: functions that directly call ctl operations
+  // 2. Transitive: functions that call other effectful functions
+  // Direct functions must be registered first so their SM structs are defined
+  // before transitive functions reference them as inner SM fields.
+  const directFunctions: Array<{
+    functionValue: FunctionValue;
+    cFunctionName: string;
+    functionType: FunctionType;
+    effectAnalysis: EffectAnalysisResult;
+  }> = [];
+  const transitiveFunctions: Array<{
+    functionValue: FunctionValue;
+    cFunctionName: string;
+    functionType: FunctionType;
+    effectAnalysis: EffectAnalysisResult;
+  }> = [];
+
   for (const funcId in context.functions) {
     const { value: functionValue, cName: cFunctionName } =
       context.functions[funcId]!;
@@ -370,11 +388,47 @@ export function preRegisterEffectfulFunctions(
       }
     }
 
+    const hasTransitiveCalls = effectAnalysis.effectCallPoints.some(
+      (cp) => cp.isTransitiveEffectCall
+    );
+    const hasDirectCalls = effectAnalysis.effectCallPoints.some(
+      (cp) => !cp.isTransitiveEffectCall
+    );
+
+    if (hasDirectCalls || !hasTransitiveCalls) {
+      directFunctions.push({
+        functionValue,
+        cFunctionName,
+        functionType,
+        effectAnalysis,
+      });
+    } else {
+      transitiveFunctions.push({
+        functionValue,
+        cFunctionName,
+        functionType,
+        effectAnalysis,
+      });
+    }
+  }
+
+  // Register direct-call functions first (their SM structs must be defined first)
+  for (const func of directFunctions) {
     registerEffectfulFunction(
-      functionValue,
-      cFunctionName,
-      functionType,
-      effectAnalysis,
+      func.functionValue,
+      func.cFunctionName,
+      func.functionType,
+      func.effectAnalysis,
+      context
+    );
+  }
+  // Then register transitive-call functions
+  for (const func of transitiveFunctions) {
+    registerEffectfulFunction(
+      func.functionValue,
+      func.cFunctionName,
+      func.functionType,
+      func.effectAnalysis,
       context
     );
   }

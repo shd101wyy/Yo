@@ -26,7 +26,7 @@ export type {
   EffectCapturedVariable,
 } from "./effect-analysis-types";
 
-import type { Type } from "../../types/definitions";
+import type { FunctionType, Type } from "../../types/definitions";
 import type {
   EffectAnalysisResult,
   EffectCallPoint,
@@ -47,7 +47,8 @@ import type {
 export function analyzeEffectCallPoints(
   body: Expr,
   effectParameterName: string,
-  effectParameterType: Type
+  effectParameterType: Type,
+  includeTransitiveCalls: boolean = false
 ): EffectAnalysisResult {
   const effectCallPoints: EffectCallPoint[] = [];
   const capturedVariables = new Map<string, EffectCapturedVariable>();
@@ -60,7 +61,9 @@ export function analyzeEffectCallPoints(
     capturedVariables,
     nameFrameToOriginalId,
     variableIdRemapping,
-    effectParameterName
+    effectParameterName,
+    effectParameterType,
+    includeTransitiveCalls
   );
 
   if (body.$?.deferredDropExpressions) {
@@ -71,7 +74,9 @@ export function analyzeEffectCallPoints(
         capturedVariables,
         nameFrameToOriginalId,
         variableIdRemapping,
-        effectParameterName
+        effectParameterName,
+        effectParameterType,
+        includeTransitiveCalls
       );
     }
   }
@@ -100,6 +105,8 @@ function walkExprForEffects(
   nameFrameToOriginalId: Map<string, string>,
   variableIdRemapping: Map<string, string>,
   effectParameterName: string,
+  effectParameterType: Type,
+  includeTransitiveCalls: boolean,
   parentExpr?: Expr
 ): void {
   switch (expr.tag) {
@@ -162,6 +169,8 @@ function walkExprForEffects(
           nameFrameToOriginalId,
           variableIdRemapping,
           effectParameterName,
+          effectParameterType,
+          includeTransitiveCalls,
           expr
         );
         for (const arg of expr.args) {
@@ -172,6 +181,8 @@ function walkExprForEffects(
             nameFrameToOriginalId,
             variableIdRemapping,
             effectParameterName,
+            effectParameterType,
+            includeTransitiveCalls,
             expr
           );
         }
@@ -196,6 +207,8 @@ function walkExprForEffects(
           nameFrameToOriginalId,
           variableIdRemapping,
           effectParameterName,
+          effectParameterType,
+          includeTransitiveCalls,
           expr
         );
         const perBranchEffects: EffectCallPoint[][] = [];
@@ -208,6 +221,8 @@ function walkExprForEffects(
             nameFrameToOriginalId,
             variableIdRemapping,
             effectParameterName,
+            effectParameterType,
+            includeTransitiveCalls,
             expr
           );
           perBranchEffects.push(effectCallPoints.slice(branchStart));
@@ -250,6 +265,8 @@ function walkExprForEffects(
           nameFrameToOriginalId,
           variableIdRemapping,
           effectParameterName,
+          effectParameterType,
+          includeTransitiveCalls,
           expr
         );
         const perBranchEffects: EffectCallPoint[][] = [];
@@ -262,6 +279,8 @@ function walkExprForEffects(
             nameFrameToOriginalId,
             variableIdRemapping,
             effectParameterName,
+            effectParameterType,
+            includeTransitiveCalls,
             expr
           );
           perBranchEffects.push(effectCallPoints.slice(branchStart));
@@ -337,6 +356,57 @@ function walkExprForEffects(
         }
       }
 
+      // Check if this is a transitive effect call — a call to a function
+      // that itself has a matching `using` ctl parameter. The outer function
+      // must become a state machine that re-yields when the inner SM yields.
+      // This is only needed for effect-polymorphic functions (using ...(E) spread),
+      // not for functions that directly declare their ctl parameters.
+      if (
+        includeTransitiveCalls &&
+        !isEffectCall(expr, effectParameterName) &&
+        isTransitiveEffectCall(expr, effectParameterName)
+      ) {
+        // Get yield types from the ctl type's runtime parameters
+        const ctlType = effectParameterType as FunctionType;
+        const operationArgTypes: Type[] = ctlType.parameters
+          .filter((p) => !p.isCompileTimeOnly)
+          .map((p) => p.type);
+        // The result type is the transitive call's return type
+        const operationResultType = expr.$?.type;
+
+        if (operationArgTypes.length > 0 && operationResultType) {
+          let targetVariableId: string | undefined;
+          if (
+            parentExpr &&
+            parentExpr.tag === ExprTag.FnCall &&
+            exprIsFunctionCallOf(parentExpr, ":=")
+          ) {
+            const varExpr = parentExpr.args[0];
+            if (
+              varExpr &&
+              varExpr.tag === ExprTag.Atom &&
+              varExpr.token.type === TokenType.Identifier &&
+              varExpr.$
+            ) {
+              const varName = varExpr.token.value;
+              const variables = getVariablesFromEnv(varExpr.$.env, varName);
+              if (variables.length > 0) {
+                targetVariableId = variables[variables.length - 1]!.id;
+              }
+            }
+          }
+
+          effectCallPoints.push({
+            index: effectCallPoints.length,
+            expr,
+            operationArgTypes,
+            operationResultType,
+            targetVariableId,
+            isTransitiveEffectCall: true,
+          });
+        }
+      }
+
       // Skip async block bodies (they have their own analysis)
       if (exprIsFunctionCallOf(expr, BuiltinFunctions.async)) {
         if (expr.$?.deferredDupExpressions) {
@@ -348,6 +418,8 @@ function walkExprForEffects(
               nameFrameToOriginalId,
               variableIdRemapping,
               effectParameterName,
+              effectParameterType,
+              includeTransitiveCalls,
               expr
             );
           }
@@ -363,6 +435,8 @@ function walkExprForEffects(
         nameFrameToOriginalId,
         variableIdRemapping,
         effectParameterName,
+        effectParameterType,
+        includeTransitiveCalls,
         expr
       );
       for (const arg of expr.args) {
@@ -373,6 +447,8 @@ function walkExprForEffects(
           nameFrameToOriginalId,
           variableIdRemapping,
           effectParameterName,
+          effectParameterType,
+          includeTransitiveCalls,
           expr
         );
       }
@@ -387,6 +463,8 @@ function walkExprForEffects(
             nameFrameToOriginalId,
             variableIdRemapping,
             effectParameterName,
+            effectParameterType,
+            includeTransitiveCalls,
             expr
           );
         }
@@ -414,4 +492,32 @@ function isEffectCall(expr: Expr, effectParameterName: string): boolean {
   if (!funcType.isControlFunction) return false;
 
   return true;
+}
+
+/**
+ * Checks if an expression is a transitive effect call — a call to a function
+ * that itself has a matching `using` ctl parameter. For example, calling
+ * `might_fail()` where `might_fail` has `using(raise : Raise)`.
+ */
+function isTransitiveEffectCall(
+  expr: Expr,
+  effectParameterName: string
+): boolean {
+  if (expr.tag !== ExprTag.FnCall) return false;
+
+  const funcType = expr.func.$?.type;
+  if (!funcType || !isFunctionType(funcType)) return false;
+  if (funcType.isControlFunction) return false;
+
+  if (!funcType.implicitParameters) return false;
+  for (const implicitParam of funcType.implicitParameters) {
+    if (
+      implicitParam.label === effectParameterName &&
+      isFunctionType(implicitParam.type) &&
+      implicitParam.type.isControlFunction
+    ) {
+      return true;
+    }
+  }
+  return false;
 }

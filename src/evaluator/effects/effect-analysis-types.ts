@@ -67,6 +67,13 @@ export interface EffectCallPoint {
    * in the state machine struct.
    */
   needsOwnCondBranchField?: boolean;
+
+  /**
+   * Whether this is a transitive effect call — a call to a function that
+   * itself has a matching `using` ctl parameter, rather than a direct call
+   * to the ctl operation. The outer SM must re-yield when the inner SM yields.
+   */
+  isTransitiveEffectCall?: boolean;
 }
 
 /**
