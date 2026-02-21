@@ -55,9 +55,49 @@ import { generateExpr } from "../exprs/expr";
 import type { FunctionGenerationContext } from "../functions/context";
 import { getTypeString, sanitizeForCIdentifier } from "../utils/index";
 
+function isMultiEffect(info: EffectStateMachineInfo): boolean {
+  return !!info.effectInfos && info.effectInfos.length > 1;
+}
+
+function yieldFieldName(
+  info: EffectStateMachineInfo,
+  effectCallPoint: EffectCallPoint,
+  argIndex: number
+): string {
+  if (isMultiEffect(info) && effectCallPoint.effectIndex !== undefined) {
+    return `yield_${effectCallPoint.effectIndex}_${argIndex}`;
+  }
+  return `yield_${argIndex}`;
+}
+
+function resumeValueFieldName(
+  info: EffectStateMachineInfo,
+  effectCallPoint: EffectCallPoint
+): string {
+  if (isMultiEffect(info) && effectCallPoint.effectIndex !== undefined) {
+    return `resume_value_${effectCallPoint.effectIndex}`;
+  }
+  return `resume_value`;
+}
+
+function getEffectResumeTypeCName(
+  info: EffectStateMachineInfo,
+  effectCallPoint: EffectCallPoint
+): string {
+  if (isMultiEffect(info) && effectCallPoint.effectIndex !== undefined) {
+    return info.effectInfos![effectCallPoint.effectIndex]!.resumeTypeCName;
+  }
+  return info.resumeTypeCName;
+}
+
 /**
  * Information about a generated effect state machine.
  */
+export interface EffectSmTypeInfo {
+  yieldTypeCNames: string[];
+  resumeTypeCName: string;
+}
+
 export interface EffectStateMachineInfo {
   structName: string;
   resumeFunctionName: string;
@@ -66,6 +106,7 @@ export interface EffectStateMachineInfo {
   returnTypeCName: string;
   yieldTypeCNames: string[];
   resumeTypeCName: string;
+  effectInfos?: EffectSmTypeInfo[];
 }
 
 /**
@@ -93,10 +134,31 @@ export function generateEffectStateMachineStruct(
     emitter.emitDeclarationLine(`  ${returnTypeCName} result;`);
   }
 
-  for (let i = 0; i < yieldTypeCNames.length; i++) {
-    emitter.emitDeclarationLine(`  ${yieldTypeCNames[i]} yield_${i};`);
+  if (info.effectInfos) {
+    // Multi-effect: per-effect yield and resume fields, plus effect_tag
+    emitter.emitDeclarationLine(`  int effect_tag;`);
+    for (let e = 0; e < info.effectInfos.length; e++) {
+      const ei = info.effectInfos[e]!;
+      for (let i = 0; i < ei.yieldTypeCNames.length; i++) {
+        emitter.emitDeclarationLine(
+          `  ${ei.yieldTypeCNames[i]} yield_${e}_${i};`
+        );
+      }
+      if (ei.resumeTypeCName !== "void") {
+        emitter.emitDeclarationLine(
+          `  ${ei.resumeTypeCName} resume_value_${e};`
+        );
+      }
+    }
+  } else {
+    // Single-effect: original field layout
+    for (let i = 0; i < yieldTypeCNames.length; i++) {
+      emitter.emitDeclarationLine(`  ${yieldTypeCNames[i]} yield_${i};`);
+    }
+    if (resumeTypeCName !== "void") {
+      emitter.emitDeclarationLine(`  ${resumeTypeCName} resume_value;`);
+    }
   }
-  emitter.emitDeclarationLine(`  ${resumeTypeCName} resume_value;`);
 
   // Generate fields for function parameters (runtime only, skip implicit/comptime)
   for (const param of functionType.parameters) {
@@ -339,11 +401,56 @@ export function generateEffectResumeFunction(
       analysis.effectCallPoints[segment.stateNumber - 1]
     ) {
       const prevEffect = analysis.effectCallPoints[segment.stateNumber - 1]!;
-      if (prevEffect.targetVariableId) {
-        const fieldName = sanitizeForCIdentifier(
-          `var_${prevEffect.targetVariableId}`
-        );
-        emitter.emitLine(`      sm->${fieldName} = sm->resume_value;`);
+      if (prevEffect.isTransitiveEffectCall) {
+        // Transitive resume: forward resume value to inner SM and drive it
+        const innerSmInfo = getInnerSmInfo(prevEffect, context);
+        if (innerSmInfo) {
+          const innerSmField = `sm->_inner_sm_${prevEffect.index}`;
+          const outerResumeField = resumeValueFieldName(info, prevEffect);
+          if (innerSmInfo.resumeTypeCName !== "void") {
+            emitter.emitLine(
+              `      ${innerSmField}.resume_value = sm->${outerResumeField};`
+            );
+          }
+          emitter.emitLine(
+            `      ${innerSmInfo.resumeFunctionName}(&${innerSmField});`
+          );
+          emitter.emitLine(`      if (!${innerSmField}.completed) {`);
+          // Inner SM yielded again — re-yield
+          for (let yi = 0; yi < innerSmInfo.yieldTypeCNames.length; yi++) {
+            const outerField = yieldFieldName(info, prevEffect, yi);
+            emitter.emitLine(
+              `        sm->${outerField} = ${innerSmField}.yield_${yi};`
+            );
+          }
+          if (isMultiEffect(info) && prevEffect.effectIndex !== undefined) {
+            emitter.emitLine(
+              `        sm->effect_tag = ${prevEffect.effectIndex};`
+            );
+          }
+          emitter.emitLine(`        return;`);
+          emitter.emitLine(`      }`);
+          // Inner SM completed — store result in target variable if needed
+          const innerReturnIsVoid = innerSmInfo.returnTypeCName === "void";
+          if (prevEffect.targetVariableId && !innerReturnIsVoid) {
+            const fieldName = sanitizeForCIdentifier(
+              `var_${prevEffect.targetVariableId}`
+            );
+            emitter.emitLine(
+              `      sm->${fieldName} = ${innerSmField}.result;`
+            );
+          }
+        }
+      } else {
+        // Direct resume: store resume value into target variable
+        const prevResumeField = resumeValueFieldName(info, prevEffect);
+        const prevResumeType = getEffectResumeTypeCName(info, prevEffect);
+        if (prevEffect.targetVariableId && prevResumeType !== "void") {
+          const fieldName = sanitizeForCIdentifier(
+            `var_${prevEffect.targetVariableId}`
+          );
+          emitter.emitLine(`      sm->${fieldName} = sm->${prevResumeField};`);
+        }
       }
     }
 
@@ -417,23 +524,36 @@ export function generateEffectResumeFunction(
         const innerSmInfo = getInnerSmInfo(effectCallPoint, context);
         if (innerSmInfo) {
           const innerSmField = `sm->_inner_sm_${effectCallPoint.index}`;
-          emitter.emitLine(
-            `      ${innerSmField}.resume_value = sm->resume_value;`
-          );
+          const outerResumeField = resumeValueFieldName(info, effectCallPoint);
+          if (innerSmInfo.resumeTypeCName !== "void") {
+            emitter.emitLine(
+              `      ${innerSmField}.resume_value = sm->${outerResumeField};`
+            );
+          }
           emitter.emitLine(
             `      ${innerSmInfo.resumeFunctionName}(&${innerSmField});`
           );
           emitter.emitLine(`      if (!${innerSmField}.completed) {`);
-          // Inner SM yielded again — re-yield
-          for (let i = 0; i < info.yieldTypeCNames.length; i++) {
+          // Inner SM yielded again — re-yield to outer SM's per-effect fields
+          for (let i = 0; i < innerSmInfo.yieldTypeCNames.length; i++) {
+            const outerField = yieldFieldName(info, effectCallPoint, i);
             emitter.emitLine(
-              `        sm->yield_${i} = ${innerSmField}.yield_${i};`
+              `        sm->${outerField} = ${innerSmField}.yield_${i};`
+            );
+          }
+          if (
+            isMultiEffect(info) &&
+            effectCallPoint.effectIndex !== undefined
+          ) {
+            emitter.emitLine(
+              `        sm->effect_tag = ${effectCallPoint.effectIndex};`
             );
           }
           emitter.emitLine(`        return;`);
           emitter.emitLine(`      }`);
           // Inner SM completed
-          if (effectCallPoint.targetVariableId) {
+          const innerReturnIsVoid = innerSmInfo.returnTypeCName === "void";
+          if (effectCallPoint.targetVariableId && !innerReturnIsVoid) {
             const fieldName = sanitizeForCIdentifier(
               `var_${effectCallPoint.targetVariableId}`
             );
@@ -441,20 +561,28 @@ export function generateEffectResumeFunction(
               `      sm->${fieldName} = ${innerSmField}.result;`
             );
           }
-          if (!isUnitType(info.functionType.return.type)) {
+          if (
+            !isUnitType(info.functionType.return.type) &&
+            !innerReturnIsVoid
+          ) {
             emitter.emitLine(`      sm->result = ${innerSmField}.result;`);
           }
         }
       } else {
         // Direct resume: store resume value
-        if (effectCallPoint.targetVariableId) {
+        const resumeField = resumeValueFieldName(info, effectCallPoint);
+        const resumeType = getEffectResumeTypeCName(info, effectCallPoint);
+        if (effectCallPoint.targetVariableId && resumeType !== "void") {
           const fieldName = sanitizeForCIdentifier(
             `var_${effectCallPoint.targetVariableId}`
           );
-          emitter.emitLine(`      sm->${fieldName} = sm->resume_value;`);
+          emitter.emitLine(`      sm->${fieldName} = sm->${resumeField};`);
         }
-        if (!isUnitType(info.functionType.return.type)) {
-          emitter.emitLine(`      sm->result = sm->resume_value;`);
+        if (
+          !isUnitType(info.functionType.return.type) &&
+          resumeType !== "void"
+        ) {
+          emitter.emitLine(`      sm->result = sm->${resumeField};`);
         }
         if (bodyExpr.$?.deferredDropExpressions) {
           generateDeferredDropExpressions(bodyExpr, "      ", context);
@@ -619,7 +747,7 @@ function generateEffectYield(
   stateNumber: number,
   indent: string,
   context: FunctionGenerationContext,
-  _info: EffectStateMachineInfo
+  info: EffectStateMachineInfo
 ): void {
   const emitter = context.emitter;
   const nextState = effectCallPoint.index + 1;
@@ -627,7 +755,14 @@ function generateEffectYield(
   for (let i = 0; i < effectArgs.length; i++) {
     const arg = effectArgs[i]!;
     const argCode = generateExpr(arg, indent, context);
-    emitter.emitLine(`${indent}sm->yield_${i} = ${argCode};`);
+    emitter.emitLine(
+      `${indent}sm->${yieldFieldName(info, effectCallPoint, i)} = ${argCode};`
+    );
+  }
+  if (isMultiEffect(info) && effectCallPoint.effectIndex !== undefined) {
+    emitter.emitLine(
+      `${indent}sm->effect_tag = ${effectCallPoint.effectIndex};`
+    );
   }
   emitter.emitLine(`${indent}sm->state = ${nextState};`);
   emitter.emitLine(`${indent}return;`);
@@ -687,15 +822,26 @@ function generateTransitiveEffectYield(
 
   // Copy yield values from inner to outer SM (move semantics — no DUP needed,
   // the inner SM's captured variable owns the RC reference)
-  for (let i = 0; i < info.yieldTypeCNames.length; i++) {
-    emitter.emitLine(`${indent}  sm->yield_${i} = ${innerSmField}.yield_${i};`);
+  // The inner SM is typically single-effect with yield_0, yield_1, etc.
+  // Copy to the outer SM's per-effect yield fields when multi-effect.
+  for (let i = 0; i < innerSmInfo.yieldTypeCNames.length; i++) {
+    const outerField = yieldFieldName(info, effectCallPoint, i);
+    emitter.emitLine(
+      `${indent}  sm->${outerField} = ${innerSmField}.yield_${i};`
+    );
+  }
+  if (isMultiEffect(info) && effectCallPoint.effectIndex !== undefined) {
+    emitter.emitLine(
+      `${indent}  sm->effect_tag = ${effectCallPoint.effectIndex};`
+    );
   }
   emitter.emitLine(`${indent}  sm->state = ${nextState};`);
   emitter.emitLine(`${indent}  return;`);
   emitter.emitLine(`${indent}}`);
 
   // Inner SM completed immediately (no effect was triggered)
-  if (!isUnitType(info.functionType.return.type)) {
+  const innerReturnIsVoid = innerSmInfo.returnTypeCName === "void";
+  if (!isUnitType(info.functionType.return.type) && !innerReturnIsVoid) {
     if (effectCallPoint.targetVariableId) {
       const fieldName = sanitizeForCIdentifier(
         `var_${effectCallPoint.targetVariableId}`
@@ -858,6 +1004,91 @@ export function generateEffectCallSite(
 }
 
 /**
+ * Handler entry for multi-effect call site generation.
+ */
+export interface EffectCallSiteHandler {
+  handlerBody: Expr;
+  handlerType: FunctionType;
+  hasResume: boolean;
+  effectIndex: number;
+}
+
+/**
+ * Generate call-site code for calling a multi-effect function.
+ *
+ * Uses a while+switch pattern to dispatch to the correct handler based on effect_tag:
+ *   SM sm = {0}; sm.params = args;
+ *   resumeFn(&sm);
+ *   while (!sm.completed) {
+ *     switch (sm.effect_tag) {
+ *       case 0: { handler0 body; break; }
+ *       case 1: { handler1 body; break; }
+ *     }
+ *   }
+ *   result = sm.result;
+ */
+export function generateMultiEffectCallSite(
+  info: EffectStateMachineInfo,
+  argCodes: string[],
+  functionType: FunctionType,
+  handlers: EffectCallSiteHandler[],
+  tempVar: string | undefined,
+  indent: string,
+  context: FunctionGenerationContext
+): string {
+  const emitter = context.emitter;
+  const { structName, resumeFunctionName } = info;
+
+  const smVar = tempVar
+    ? `_eff_sm_${sanitizeForCIdentifier(tempVar)}`
+    : `_eff_sm`;
+
+  emitter.emitLine(`${indent}${structName} ${smVar} = {0};`);
+
+  const runtimeParams = functionType.parameters.filter(
+    (p) => !p.isCompileTimeOnly && !p.isImplicit
+  );
+  for (let i = 0; i < runtimeParams.length && i < argCodes.length; i++) {
+    const param = runtimeParams[i]!;
+    emitter.emitLine(
+      `${indent}${smVar}.${sanitizeForCIdentifier(param.label)} = ${argCodes[i]};`
+    );
+  }
+
+  emitter.emitLine(`${indent}${resumeFunctionName}(&${smVar});`);
+
+  emitter.emitLine(`${indent}while (!${smVar}.completed) {`);
+  emitter.emitLine(`${indent}  switch (${smVar}.effect_tag) {`);
+
+  for (const handler of handlers) {
+    emitter.emitLine(`${indent}    case ${handler.effectIndex}: {`);
+    generateHandlerBodyInline(
+      handler.handlerBody,
+      handler.handlerType,
+      smVar,
+      info,
+      `${indent}      `,
+      context,
+      handler.hasResume,
+      handler.effectIndex
+    );
+    emitter.emitLine(`${indent}      break;`);
+    emitter.emitLine(`${indent}    }`);
+  }
+
+  emitter.emitLine(`${indent}  }`);
+  emitter.emitLine(`${indent}}`);
+
+  if (tempVar && !isUnitType(functionType.return.type)) {
+    const resultTypeCName = info.returnTypeCName;
+    emitter.emitLine(
+      `${indent}${resultTypeCName} ${tempVar} = ${smVar}.result;`
+    );
+  }
+  return tempVar ?? "";
+}
+
+/**
  * Drop all RC-typed yield fields in the SM. Used in continuation states
  * when bodyExpr has no deferred drop expressions (e.g., effect call inside
  * a cond branch where drops are in the branch scope, not body scope).
@@ -870,12 +1101,18 @@ function generateYieldFieldDrops(
   context: FunctionGenerationContext
 ): void {
   const emitter = context.emitter;
+  const isMulti =
+    analysis.effectHandlerInfos && analysis.effectHandlerInfos.length > 1;
   for (const effectCallPoint of analysis.effectCallPoints) {
     for (let i = 0; i < effectCallPoint.operationArgTypes.length; i++) {
       const argType = effectCallPoint.operationArgTypes[i]!;
       if (typeContainsRcType(argType)) {
+        const fieldName =
+          isMulti && effectCallPoint.effectIndex !== undefined
+            ? `yield_${effectCallPoint.effectIndex}_${i}`
+            : `yield_${i}`;
         const dropCode = generateDropCodeForValue(
-          `sm->yield_${i}`,
+          `sm->${fieldName}`,
           argType,
           context
         );
@@ -905,11 +1142,13 @@ function generateHandlerBodyInline(
   info: EffectStateMachineInfo,
   indent: string,
   context: FunctionGenerationContext,
-  hasResume: boolean
+  hasResume: boolean,
+  effectIndex?: number
 ): void {
   const emitter = context.emitter;
 
   // Bind all handler runtime parameters to their respective sm.yield_N fields.
+  // For multi-effect, use sm.yield_{effectIndex}_{i} fields.
   // For RESUME handlers: DUP RC values so the handler has its own reference.
   //   The SM retains its reference and will drop it when completed.
   // For ABORT handlers: NO DUP — handler "steals" the SM's reference.
@@ -922,10 +1161,14 @@ function generateHandlerBodyInline(
     const handlerParam = runtimeParams[i]!;
     const paramTypeCName = getTypeString(handlerParam.type, context);
     const paramCName = sanitizeForCIdentifier(handlerParam.label);
+    const yieldField =
+      effectIndex !== undefined
+        ? `${smVar}.yield_${effectIndex}_${i}`
+        : `${smVar}.yield_${i}`;
     if (hasResume && typeContainsRcType(handlerParam.type)) {
       // DUP for resume handlers to avoid use-after-free during SM resume.
       const dupCode = generateDupCodeForValue(
-        `${smVar}.yield_${i}`,
+        yieldField,
         handlerParam.type,
         context
       );
@@ -935,12 +1178,12 @@ function generateHandlerBodyInline(
         );
       } else {
         emitter.emitLine(
-          `${indent}${paramTypeCName} ${paramCName} = ${smVar}.yield_${i};`
+          `${indent}${paramTypeCName} ${paramCName} = ${yieldField};`
         );
       }
     } else {
       emitter.emitLine(
-        `${indent}${paramTypeCName} ${paramCName} = ${smVar}.yield_${i};`
+        `${indent}${paramTypeCName} ${paramCName} = ${yieldField};`
       );
     }
     if (typeContainsRcType(handlerParam.type)) {
@@ -960,7 +1203,7 @@ function generateHandlerBodyInline(
     // generates SM driving code (sm.resume_value = value; resumeFn(&sm);).
     const prevContinuationVars = context.continuationVariables;
     const continuationVars = new Map(prevContinuationVars);
-    continuationVars.set("resume", { smVar, smInfo: info });
+    continuationVars.set("resume", { smVar, smInfo: info, effectIndex });
     context.continuationVariables = continuationVars;
 
     // Make handler param drops available to generateReturnAsResume so it can

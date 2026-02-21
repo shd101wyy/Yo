@@ -470,6 +470,22 @@ function registerEffectfulFunction(
   const structName = `${sanitizeForCIdentifier(cFunctionName)}_sm`;
   const resumeFunctionName = `${sanitizeForCIdentifier(cFunctionName)}_resume`;
 
+  // Build per-effect type info for multi-effect functions
+  let effectInfos:
+    | import("../effects/effect-state-machine").EffectSmTypeInfo[]
+    | undefined;
+  if (
+    effectAnalysis.effectHandlerInfos &&
+    effectAnalysis.effectHandlerInfos.length > 1
+  ) {
+    effectInfos = effectAnalysis.effectHandlerInfos.map((hi) => ({
+      yieldTypeCNames: hi.operationArgTypes.map((t) =>
+        getTypeString(t, context)
+      ),
+      resumeTypeCName: getTypeString(hi.operationResultType, context),
+    }));
+  }
+
   const info: EffectStateMachineInfo = {
     structName,
     resumeFunctionName,
@@ -478,6 +494,7 @@ function registerEffectfulFunction(
     returnTypeCName,
     yieldTypeCNames,
     resumeTypeCName,
+    effectInfos,
   };
 
   // Generate the struct definition

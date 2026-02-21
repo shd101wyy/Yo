@@ -659,3 +659,77 @@ test "Test module destructured using(ModuleType) with resume", {
   result2 := safe_divide(10, 2);
   assert((result2 == 5), "module destructured with resume: should be 5");
 };
+
+test "Test multiple effect row spreads with resume", {
+  Raise :: (ctl(forall(T : Type), msg : String) -> T);
+  Log :: (ctl(msg : String) -> unit);
+
+  might_fail :: (fn(using(raise : Raise)) -> i32)(
+    raise(`oops`)
+  );
+
+  might_log :: (fn(using(log : Log)) -> unit)(
+    log(`logged something`)
+  );
+
+  run_both :: (fn(
+      forall(T1 : Type, T2 : Type, ...(E1), ...(E2)),
+      f1 : (fn(using(...(E1))) -> T1),
+      f2 : (fn(using(...(E2))) -> T2),
+      using(...(E1), ...(E2))
+    ) -> T1)
+  {
+    f2();
+    f1()
+  };
+
+  (given(raise) : Raise) = ((msg) -> {
+    println(msg);
+    return i32(42);
+  });
+
+  (given(log) : Log) = ((msg) -> {
+    println(msg);
+    return ();
+  });
+
+  result := run_both(might_fail, might_log);
+  assert((result == i32(42)), "multiple spreads resume: should be 42");
+};
+
+test "Test multiple effect row spreads with abort", {
+  Raise :: (ctl(forall(T : Type), msg : String) -> T);
+  Log :: (ctl(msg : String) -> unit);
+
+  might_fail :: (fn(using(raise : Raise)) -> i32)(
+    raise(`oops`)
+  );
+
+  might_log :: (fn(using(log : Log)) -> unit)(
+    log(`logged something`)
+  );
+
+  run_both :: (fn(
+      forall(T1 : Type, T2 : Type, ...(E1), ...(E2)),
+      f1 : (fn(using(...(E1))) -> T1),
+      f2 : (fn(using(...(E2))) -> T2),
+      using(...(E1), ...(E2))
+    ) -> T1)
+  {
+    f2();
+    f1()
+  };
+
+  (given(raise) : Raise) = ((msg) -> {
+    println(msg);
+    abort ();
+  });
+
+  (given(log) : Log) = ((msg) -> {
+    println(msg);
+    return ();
+  });
+
+  run_both(might_fail, might_log);
+  assert(false, "multiple spreads abort: should not reach here");
+};

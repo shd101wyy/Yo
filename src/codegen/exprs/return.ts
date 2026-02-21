@@ -163,16 +163,34 @@ function generateReturnAsResume(
   expr: FnCallExpr,
   indent: string,
   context: CodeGenContext,
-  resumeInfo: { smVar: string; smInfo: EffectStateMachineInfo }
+  resumeInfo: {
+    smVar: string;
+    smInfo: EffectStateMachineInfo;
+    effectIndex?: number;
+  }
 ): string {
-  const { smVar, smInfo } = resumeInfo;
+  const { smVar, smInfo, effectIndex } = resumeInfo;
   const emitter = context.emitter;
   const functionContext = context as FunctionGenerationContext;
 
   const arg = expr.args[0];
-  if (arg) {
+  // Determine the resume_value field name based on effect index
+  const resumeField =
+    effectIndex !== undefined &&
+    smInfo.effectInfos &&
+    smInfo.effectInfos.length > 1
+      ? `resume_value_${effectIndex}`
+      : `resume_value`;
+  const resumeTypeCName =
+    effectIndex !== undefined &&
+    smInfo.effectInfos &&
+    smInfo.effectInfos.length > 1
+      ? smInfo.effectInfos[effectIndex]!.resumeTypeCName
+      : smInfo.resumeTypeCName;
+
+  if (arg && resumeTypeCName !== "void") {
     const argCode = generateExpr(arg, indent, context);
-    emitter.emitLine(`${indent}${smVar}.resume_value = ${argCode};`);
+    emitter.emitLine(`${indent}${smVar}.${resumeField} = ${argCode};`);
   }
 
   // Drop handler parameters BEFORE resuming the state machine.

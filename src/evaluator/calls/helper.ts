@@ -22,6 +22,7 @@ import {
   exprIsAtomOf,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
+  ExprTag,
   exprToString,
   type FnCallExpr,
   type PathCollection,
@@ -89,6 +90,12 @@ import type {
   FunctionCallResult,
 } from "../context";
 import { analyzeEffectCallPoints } from "../effects/effect-analysis";
+import type {
+  EffectAnalysisResult,
+  EffectCallPoint,
+  EffectCapturedVariable,
+  EffectHandlerInfo,
+} from "../effects/effect-analysis-types";
 import { _evaluateExpression } from "../exprs/_expr";
 import { evaluateBeginExpression } from "../exprs/begin";
 import { evaluateExpression } from "../exprs/expr";
@@ -2173,6 +2180,13 @@ function createSpecializedFunctionInline({
       argOffset += 1;
     }
   }
+
+  // Collect all effect analyses (one per ctl parameter)
+  const allEffectAnalyses: Array<{
+    analysis: EffectAnalysisResult;
+    ctlParam: (typeof effectCtlParams)[0];
+  }> = [];
+
   for (const ctlParam of effectCtlParams) {
     const effectAnalysis = analyzeEffectCallPoints(
       specializedBody,
@@ -2324,8 +2338,113 @@ function createSpecializedFunctionInline({
         effectAnalysis.handlerValue = handlerArg.value;
       }
 
-      specializedBody.$.effectAnalysis = effectAnalysis;
+      allEffectAnalyses.push({ analysis: effectAnalysis, ctlParam });
     }
+  }
+
+  // Merge effect analyses: if there's only one, use it directly.
+  // If there are multiple, merge all effect call points into one analysis
+  // with effectIndex on each call point and effectHandlerInfos array.
+  if (allEffectAnalyses.length === 1) {
+    specializedBody.$.effectAnalysis = allEffectAnalyses[0]!.analysis;
+  } else if (allEffectAnalyses.length > 1) {
+    // Merge multiple effect analyses into one
+    const mergedCallPoints: EffectCallPoint[] = [];
+    const mergedCapturedVars = new Map<string, EffectCapturedVariable>();
+    const mergedVariableIdRemapping = new Map<string, string>();
+    const effectHandlerInfos: EffectHandlerInfo[] = [];
+
+    for (let effectIdx = 0; effectIdx < allEffectAnalyses.length; effectIdx++) {
+      const { analysis } = allEffectAnalyses[effectIdx]!;
+
+      // Build handler info for this effect
+      effectHandlerInfos.push({
+        effectParameterName: analysis.effectParameterName,
+        effectParameterType: analysis.effectParameterType,
+        effectFieldPath: analysis.effectFieldPath,
+        handlerValue: analysis.handlerValue,
+        operationArgTypes:
+          analysis.effectCallPoints.length > 0
+            ? analysis.effectCallPoints[0]!.operationArgTypes
+            : [],
+        operationResultType:
+          analysis.effectCallPoints.length > 0
+            ? analysis.effectCallPoints[0]!.operationResultType
+            : ({ tag: "unit" } as Type),
+      });
+
+      // Add call points with effectIndex
+      for (const cp of analysis.effectCallPoints) {
+        mergedCallPoints.push({
+          ...cp,
+          effectIndex: effectIdx,
+        });
+      }
+
+      // Merge captured variables
+      for (const cv of analysis.capturedVariables) {
+        if (!mergedCapturedVars.has(cv.id)) {
+          mergedCapturedVars.set(cv.id, cv);
+        }
+      }
+
+      // Merge variable ID remappings
+      for (const [key, value] of analysis.variableIdRemapping) {
+        mergedVariableIdRemapping.set(key, value);
+      }
+    }
+
+    // Re-index merged call points. They need to be ordered by position in the
+    // function body. Since each per-parameter analysis walks the body in order,
+    // the call points from each analysis are already in body order. We need to
+    // interleave them based on their expression position.
+    // Use a simple approach: sort by the expression's position in the begin block.
+    // For now, keep them in the order they were collected (each analysis walks
+    // the same body, so transitive calls from different params at different body
+    // positions will appear in body order within each analysis).
+    // We sort by walking the body's begin block to determine expr position.
+    if (
+      specializedBody.tag === ExprTag.FnCall &&
+      exprIsFunctionCallOf(specializedBody, "begin")
+    ) {
+      const bodyExprs = specializedBody.args;
+      // Build a map from each top-level body expression to its index
+      const exprPositionMap = new Map<unknown, number>();
+      for (let i = 0; i < bodyExprs.length; i++) {
+        exprPositionMap.set(bodyExprs[i], i);
+      }
+      // For each merged call point, find which top-level body expr contains it
+      const getExprPosition = (cp: EffectCallPoint): number => {
+        for (let i = 0; i < bodyExprs.length; i++) {
+          if (containsExpr(bodyExprs[i]!, cp.expr as Expr)) {
+            return i;
+          }
+        }
+        return 999;
+      };
+      mergedCallPoints.sort((a, b) => getExprPosition(a) - getExprPosition(b));
+    }
+
+    // Re-index after sorting
+    for (let i = 0; i < mergedCallPoints.length; i++) {
+      mergedCallPoints[i]!.index = i;
+    }
+
+    // Use the first analysis as the base and override with merged data
+    const firstAnalysis = allEffectAnalyses[0]!.analysis;
+    const mergedAnalysis: EffectAnalysisResult = {
+      effectCallPoints: mergedCallPoints,
+      capturedVariables: Array.from(mergedCapturedVars.values()),
+      hasEffects: true,
+      variableIdRemapping: mergedVariableIdRemapping,
+      effectParameterName: firstAnalysis.effectParameterName,
+      effectParameterType: firstAnalysis.effectParameterType,
+      effectFieldPath: firstAnalysis.effectFieldPath,
+      handlerValue: firstAnalysis.handlerValue,
+      effectHandlerInfos,
+    };
+
+    specializedBody.$.effectAnalysis = mergedAnalysis;
   }
 
   // Create signature for the specialized function
@@ -2694,4 +2813,15 @@ Please consider providing the expected type.`,
       });
     }
   }
+}
+
+function containsExpr(root: Expr, target: Expr): boolean {
+  if (root === target) return true;
+  if (root.tag === ExprTag.FnCall) {
+    if (containsExpr(root.func, target)) return true;
+    for (const arg of root.args) {
+      if (containsExpr(arg, target)) return true;
+    }
+  }
+  return false;
 }

@@ -1,30 +1,40 @@
 open import "std/string";
 open import "std/fmt";
 
-Raise :: module(
-  raise : (ctl(forall(T : Type), msg : String) -> T)
+Raise :: (ctl(forall(T : Type), msg : String) -> T);
+Log :: (ctl(msg : String) -> unit);
+
+might_fail :: (fn(using(raise : Raise)) -> i32)(
+  raise(`oops`)
 );
 
-safe_divide :: (fn(x : i32, y : i32, using(Raise)) -> i32)(
-  cond(
-    (y == 0) => raise(`div-by-zero`),
-    true => (x / y)
-  )
+might_log :: (fn(using(log : Log)) -> unit)(
+  log(`logged something`)
 );
+
+run_both :: (fn(
+    forall(T1 : Type, T2 : Type, ...(E1), ...(E2)),
+    f1 : (fn(using(...(E1))) -> T1),
+    f2 : (fn(using(...(E2))) -> T2),
+    using(...(E1), ...(E2))
+  ) -> T1)
+{
+  f2();
+  f1()
+};
 
 main :: (fn() -> unit) {
-  (given(raise_mod) : Raise) = Raise(
-    raise :
-      (msg) -> {
-        println(msg);
-        return i32(0);
-      }
-  );
+  (given(raise) : Raise) = ((msg) -> {
+    println(msg);
+    abort ();
+  });
 
-  result := safe_divide(10, 0);
-  assert((result == 0), "should be 0");
-  result2 := safe_divide(10, 2);
-  assert((result2 == 5), "should be 5");
-  println("all good");
+  (given(log) : Log) = ((msg) -> {
+    println(msg);
+    return ();
+  });
+
+  run_both(might_fail, might_log);
+  assert(false, "should not reach here");
 };
 export main;

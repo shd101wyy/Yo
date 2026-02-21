@@ -55,7 +55,7 @@ export interface FunctionGenerationContext extends CodeGenContext {
   // can jump to the end of the enclosing handler's block.
   continuationVariables?: Map<
     string,
-    | { smVar: string; smInfo: EffectStateMachineInfo }
+    | { smVar: string; smInfo: EffectStateMachineInfo; effectIndex?: number }
     | {
         directReturnVar: string;
         directExitLabel?: string;

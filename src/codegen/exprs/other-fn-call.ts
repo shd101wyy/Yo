@@ -42,6 +42,8 @@ import {
 import { BuiltinYoInlineFunctions } from "../constants";
 import {
   generateEffectCallSite,
+  generateMultiEffectCallSite,
+  type EffectCallSiteHandler,
   type EffectStateMachineInfo,
 } from "../effects/effect-state-machine";
 import type { FunctionGenerationContext } from "../functions/context";
@@ -483,6 +485,47 @@ export function generateOtherFunctionCall(
           if (effectSmInfo) {
             // Effectful function call — generate call-site dispatch with handler inlining
             const effectAnalysis = functionValue.body?.$?.effectAnalysis;
+
+            // Check for multi-effect (multiple effect handler infos)
+            if (
+              effectAnalysis?.effectHandlerInfos &&
+              effectAnalysis.effectHandlerInfos.length > 1
+            ) {
+              const handlers: EffectCallSiteHandler[] = [];
+              for (
+                let eIdx = 0;
+                eIdx < effectAnalysis.effectHandlerInfos.length;
+                eIdx++
+              ) {
+                const hi = effectAnalysis.effectHandlerInfos[eIdx]!;
+                const hv = hi.handlerValue as FunctionValue | undefined;
+                if (hv && isFunctionValue(hv)) {
+                  const hType = hv.specializedType ?? hv.type;
+                  const hBody = hv.body;
+                  const hHasResume = hBody ? !exprContainsAbort(hBody) : false;
+                  handlers.push({
+                    handlerBody: hBody!,
+                    handlerType: hType,
+                    hasResume: hHasResume,
+                    effectIndex: eIdx,
+                  });
+                }
+              }
+              if (handlers.length > 0) {
+                const tempVar = expr.$?.variableName;
+                return generateMultiEffectCallSite(
+                  effectSmInfo,
+                  args,
+                  functionValueType,
+                  handlers,
+                  tempVar,
+                  indent,
+                  context as FunctionGenerationContext
+                );
+              }
+            }
+
+            // Single-effect: use original single-handler call site
             const handlerValue = effectAnalysis?.handlerValue as
               | FunctionValue
               | undefined;

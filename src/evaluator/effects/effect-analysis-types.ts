@@ -74,6 +74,12 @@ export interface EffectCallPoint {
    * to the ctl operation. The outer SM must re-yield when the inner SM yields.
    */
   isTransitiveEffectCall?: boolean;
+
+  /**
+   * For multi-effect functions, identifies which effect this call point belongs to.
+   * Index into the EffectAnalysisResult.effectHandlerInfos array.
+   */
+  effectIndex?: number;
 }
 
 /**
@@ -143,4 +149,23 @@ export interface EffectAnalysisResult {
    * Typed as `unknown` to avoid circular imports with value types.
    */
   handlerValue?: unknown;
+
+  /**
+   * For multi-effect functions (multiple using(ctl) parameters), stores per-effect
+   * handler info. Each entry corresponds to one ctl parameter.
+   * When present, effectCallPoints have effectIndex pointing into this array.
+   */
+  effectHandlerInfos?: EffectHandlerInfo[];
+}
+
+/**
+ * Per-effect handler information for multi-effect functions.
+ */
+export interface EffectHandlerInfo {
+  effectParameterName: string;
+  effectParameterType: Type;
+  effectFieldPath?: string[];
+  handlerValue?: unknown;
+  operationArgTypes: Type[];
+  operationResultType: Type;
 }
