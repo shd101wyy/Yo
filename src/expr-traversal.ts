@@ -24,18 +24,15 @@ import { isTypeValue } from "./value";
  * (anonymous function, closure, or function type) that should NOT be recursed into
  * during abort/await traversal.
  *
- * Three cases are handled:
+ * IMPORTANT: This function should NOT be called on `=>` that are direct children
+ * of `cond(...)` or `match(...)` — those are branch arrows, not function boundaries.
+ * The traversal functions handle cond/match explicitly to avoid this ambiguity.
+ *
+ * Two cases are handled:
  * 1. Evaluated anonymous function: `expr.$?.isAnonymousFunctionDefinition === true`
  *    (set by evaluateAnonymousFunctionImplementation)
  * 2. Function type arrow: `fn(...) -> T` or `Fn(...) -> T`
- *    (set by evaluateFunctionType, recognized by syntax)
- * 3. Unevaluated anonymous function: `->` or `=>` with no `$` data.
- *    When a function body is deferred (e.g., because of forall parameters),
- *    inner anonymous functions won't have `$` data. We fall back to syntax:
- *    any `->` or `=>` whose LHS is NOT `fn(...)` / `Fn(...)` / `unsafe_fn(...)`
- *    is an anonymous function definition, not a cond/match branch arrow.
- *    (cond/match branches ALWAYS get `$` set because they're part of evaluated
- *    cond/match expressions — they're never inside a deferred body without `$`.)
+ *    (recognized by syntax: the LHS of `->` is a `fn`/`Fn`/`unsafe_fn` call)
  */
 function isFunctionBoundaryArrow(expr: Expr): boolean {
   if (!exprIsFunctionCallOf(expr, ["->", "=>"])) return false;
@@ -55,11 +52,40 @@ function isFunctionBoundaryArrow(expr: Expr): boolean {
   }
 
   // Case 3: Unevaluated anonymous function — no $ data means the body was deferred
-  // (function has forall parameters). In a deferred body, cond/match branches
-  // already have their $ set (they're part of the enclosing evaluated expression),
-  // so an arrow without $ is always an anonymous function definition.
+  // (function has forall parameters). In a deferred body, the only way to reach
+  // this function is through the explicit cond/match handling below, which skips
+  // branch arrows. So any unrecognized arrow without $ is an anonymous function.
   if (!expr.$) return true;
 
+  return false;
+}
+
+/**
+ * Recurse into a cond or match expression's branch arms.
+ * Branch arrows (`condition => body`) are NOT function boundaries — we recurse
+ * directly into condition and body sub-expressions, bypassing `isFunctionBoundaryArrow`.
+ */
+function traverseCondMatchBranches(
+  expr: Expr,
+  visitor: (e: Expr) => boolean
+): boolean {
+  if (!exprIsFunctionCall(expr)) return false;
+  if (visitor(expr.func)) {
+    return true;
+  }
+  for (const arg of expr.args) {
+    if (exprIsFunctionCall(arg) && exprIsFunctionCallOf(arg, "=>")) {
+      for (const branchPart of arg.args) {
+        if (visitor(branchPart)) {
+          return true;
+        }
+      }
+    } else {
+      if (visitor(arg)) {
+        return true;
+      }
+    }
+  }
   return false;
 }
 
@@ -80,6 +106,15 @@ export function evaluatedBodyContainsAbort(expr: Expr): boolean {
     if (expr.$?.macroExpansion) {
       return evaluatedBodyContainsAbort(expr.$.macroExpansion);
     }
+
+    // Handle cond/match explicitly — recurse into branches without treating => as function boundary
+    if (
+      exprIsFunctionCallOf(expr, BuiltinKeywords.cond) ||
+      exprIsFunctionCallOf(expr, BuiltinKeywords.match)
+    ) {
+      return traverseCondMatchBranches(expr, evaluatedBodyContainsAbort);
+    }
+
     if (isFunctionBoundaryArrow(expr)) {
       return false;
     }
@@ -125,6 +160,14 @@ export function exprContainsAwait(expr: Expr): boolean {
 
     if (expr.$?.macroExpansion) {
       return exprContainsAwait(expr.$.macroExpansion);
+    }
+
+    // Handle cond/match explicitly — recurse into branches without treating => as function boundary
+    if (
+      exprIsFunctionCallOf(expr, BuiltinKeywords.cond) ||
+      exprIsFunctionCallOf(expr, BuiltinKeywords.match)
+    ) {
+      return traverseCondMatchBranches(expr, exprContainsAwait);
     }
 
     if (
