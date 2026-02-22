@@ -17,13 +17,14 @@ import {
   exprToString,
   type FnCallExpr,
 } from "../../expr";
+import { evaluatedBodyContainsAbort } from "../../expr-traversal";
 import type {
   FunctionCapturedVariableInfo,
   FunctionValue,
 } from "../../function-value";
 import { PlaceholderToken } from "../../token";
 import { areTypesCompatible } from "../../types/compatibility";
-import { createFnTraitType, createUnitType } from "../../types/creators";
+import { createFnTraitType } from "../../types/creators";
 import type {
   FnTraitType,
   FunctionType,
@@ -433,6 +434,10 @@ Got:      "${paramName}"`,
     body: functionBodyExpr,
     frameLevel: env.frames.length - 1,
     funcId: `fn_${randomId(env.modulePath)}`,
+    definitionSiteEnclosingFunctionType:
+      context.isEvaluatingFunctionBodyOrAsyncBlock?.kind === "function-body"
+        ? context.isEvaluatingFunctionBodyOrAsyncBlock.type
+        : undefined,
     calledComptimeFunctionCaches: [],
     specializedFunctionCaches: [],
   };
@@ -445,21 +450,10 @@ Got:      "${paramName}"`,
   // If so, we should NOT evaluate the body at definition time because we can't
   // execute code that uses unresolved type variables. The body will be evaluated
   // when the function is specialized with concrete type arguments.
-  //
-  // Exception: ctl handler functions should NOT be deferred even with forall parameters.
-  // The forall params on a ctl type (e.g., ctl(forall(T : Type), ...) -> T) represent
-  // the operation's result type, which is resolved at each call site. The handler body
-  // can be evaluated with T as SomeType because:
-  // 1. The handler's return semantics are governed by controlHandlerContext
-  // 2. return(value) resumes the computation, typed by the call site's concrete type
-  // 3. The body's actual return type is the enclosing function's return type, not T
   const shouldDeferBodyEvaluation =
-    !functionType.isControlFunction &&
-    (functionType.forallParameters.length > 0 ||
-      functionType.parameters.some((param) =>
-        typeContainsSomeType(param.type)
-      ) ||
-      (functionType.SelfType && typeContainsSomeType(functionType.SelfType)));
+    functionType.forallParameters.length > 0 ||
+    functionType.parameters.some((param) => typeContainsSomeType(param.type)) ||
+    (functionType.SelfType && typeContainsSomeType(functionType.SelfType));
 
   let evaluationContext: EvaluatorContext;
   let evaluatedBody: Expr;
@@ -500,43 +494,6 @@ Got:      "${paramName}"`,
       env
     );
 
-    if (functionType.isControlFunction) {
-      // The enclosing function return type determines what `abort` returns.
-      // Prefer the current evaluation context (the actual enclosing function where
-      // the handler is being DEFINED) over ParentFunctionType (which was set when
-      // the ctl TYPE was defined, possibly in a different scope).
-      let enclosingReturnType: Type | undefined;
-      if (context.isEvaluatingFunctionBodyOrAsyncBlock) {
-        const block = context.isEvaluatingFunctionBodyOrAsyncBlock;
-        if (block.kind === "function-body") {
-          enclosingReturnType = block.type.return.type;
-        } else {
-          // test-block or async-block: enclosing return type is unit
-          enclosingReturnType = createUnitType();
-        }
-      }
-      if (!enclosingReturnType) {
-        enclosingReturnType = functionType.ParentFunctionType?.return.type;
-      }
-
-      if (!enclosingReturnType) {
-        throw formatErrorMessage({
-          token: expr.token,
-          errorMessage: `ctl function value can only be defined inside a function.`,
-        });
-      }
-
-      // Set controlHandlerContext so that `return(value)` and `abort expr`
-      // keywords are valid inside this handler body and can be type-checked.
-      ctx = {
-        ...ctx,
-        controlHandlerContext: {
-          operationResultType: functionType.return.type, // T from ctl(...) -> T
-          enclosingFunctionReturnType: enclosingReturnType,
-        },
-      };
-    }
-
     evaluationContext = ctx;
 
     evaluatedBody = evaluateBeginExpression({
@@ -559,13 +516,20 @@ Got:      "${paramName}"`,
   // Get captured variables from the evaluation context
   const capturedVariables = evaluationContext.capturedVariables;
 
+  // If the body uses `abort`, mark this function value as isControlFunction.
+  // This propagates to effect analysis and codegen so they know to generate
+  // state machines for functions that call this handler through `using`.
+  if (evaluatedBodyContainsAbort(evaluatedBody)) {
+    functionValue.isControlFunction = true;
+  }
+
   // Check if the return type is compatible
-  // Skip for ctl functions: the handler body's return type is the enclosing function's
-  // return type (handlerResultType), not the ctl operation's return type (T).
-  // The type checking happens at the use site instead.
+  // Skip when body uses abort because the abort returns
+  // from the enclosing function, not this function. The body's type is the abort value
+  // type, which may not match the handler function's declared return type.
   const evaluatedBodyReturnType = evaluatedBody.$?.type;
   if (
-    !functionType.isControlFunction &&
+    !functionValue.isControlFunction &&
     evaluatedBodyReturnType &&
     !areTypesCompatible(
       { type: functionType.return.type, env },
@@ -689,6 +653,7 @@ Got:      "${paramName}"`,
         : undefined,
     captureType: isCreatingClosure ? captureType : undefined, // Store the capture struct type for codegen (used for both closures and async blocks)
     closureFunctionValue: isCreatingClosure ? finalFunctionValue : undefined,
+    isAnonymousFunctionDefinition: true,
   };
 
   // For closures, attach a temporary variable so they can be consumed

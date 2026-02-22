@@ -34,9 +34,10 @@ import type {
 } from "./effect-analysis-types";
 
 /**
- * Analyzes a function body to find all ctl effect call points.
+ * Analyzes a function body to find all effect call points.
  *
- * A ctl effect call point is a call to a variable whose type has isControlFunction: true.
+ * An effect call point is a call to a variable whose handler function value
+ * has isControlFunction: true (set when the handler body uses `abort`).
  * These are analogous to await points in async functions.
  *
  * @param body The function body expression
@@ -490,7 +491,7 @@ function walkExprForEffects(
 }
 
 /**
- * Checks if an expression is a call to the ctl effect parameter.
+ * Checks if an expression is a call to the effect parameter.
  * This detects:
  * 1. Direct calls like `raise(msg)` where `raise` is the effect parameter name.
  * 2. Module member calls like `raise_mod.raise(msg)` or nested like
@@ -505,22 +506,18 @@ function isEffectCall(
 
   const func = expr.func;
 
-  // Case 1: Direct ctl call — raise(msg)
+  // Case 1: Direct effect call — raise(msg)
   if (!effectFieldPath || effectFieldPath.length === 0) {
     if (func.tag !== ExprTag.Atom) return false;
     if (func.token.value !== effectParameterName) return false;
 
     const funcType = func.$?.type;
     if (!funcType || !isFunctionType(funcType)) return false;
-    if (!funcType.isControlFunction) return false;
 
     return true;
   }
 
-  // Case 2: Module member ctl call — mod.raise(msg) or mod.errors.raise(msg)
-  // Unwrap the nested "." chain to extract the full access path.
-  // e.g., mod.errors.raise(msg) has func = FnCall(".", [FnCall(".", [Atom("mod"), Atom("errors")]), Atom("raise")])
-  // We unwrap to get: root = "mod", path = ["errors", "raise"]
+  // Case 2: Module member effect call — mod.raise(msg) or mod.errors.raise(msg)
   const accessPath: string[] = [];
   let current: Expr = func;
   while (
@@ -544,18 +541,17 @@ function isEffectCall(
     if (accessPath[i] !== effectFieldPath[i]) return false;
   }
 
-  // Verify the resolved type of the outermost "." expression is a ctl function
+  // Verify the resolved type of the outermost "." expression is a function
   const funcType = func.$?.type;
   if (!funcType || !isFunctionType(funcType)) return false;
-  if (!funcType.isControlFunction) return false;
 
   return true;
 }
 
 /**
  * Checks if an expression is a transitive effect call — a call to a function
- * that itself has a matching `using` ctl parameter. For example, calling
- * `might_fail()` where `might_fail` has `using(raise : Raise)`.
+ * that itself has a matching `using` parameter for the effect. For example,
+ * calling `might_fail()` where `might_fail` has `using(raise : Raise)`.
  */
 function isTransitiveEffectCall(
   expr: Expr,
@@ -565,14 +561,12 @@ function isTransitiveEffectCall(
 
   const funcType = expr.func.$?.type;
   if (!funcType || !isFunctionType(funcType)) return false;
-  if (funcType.isControlFunction) return false;
 
   if (!funcType.implicitParameters) return false;
   for (const implicitParam of funcType.implicitParameters) {
     if (
       implicitParam.label === effectParameterName &&
-      isFunctionType(implicitParam.type) &&
-      implicitParam.type.isControlFunction
+      isFunctionType(implicitParam.type)
     ) {
       return true;
     }

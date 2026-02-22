@@ -345,6 +345,14 @@ export interface EvaluatedExprData {
    * Example: For `p.* = i32(20)` where p is a compile-time pointer, this would be true.
    */
   isCompileTimeOnlyAssignment?: boolean;
+
+  /**
+   * True when this expression is a `->` or `=>` that defines an anonymous function or closure.
+   * Used by expression traversal utilities to distinguish function-defining arrows
+   * (which are new function boundaries and should not be recursed into) from
+   * cond/match branch arrows (which are not function boundaries).
+   */
+  isAnonymousFunctionDefinition?: boolean;
 }
 
 export type AtomExpr = {
@@ -537,7 +545,6 @@ export const BuiltinKeywords = {
   recur: ["recur"],
   fn: ["fn"],
   unsafe_fn: ["unsafe_fn"], // The function that skips the prohibitVoidType check
-  ctl: ["ctl"],
   abort: ["abort"],
   extern: ["extern"],
   cond: ["cond"],

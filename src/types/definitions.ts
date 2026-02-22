@@ -747,12 +747,6 @@ export interface FunctionType extends Type {
   tag: TypeTag.Function;
 
   /**
-   * Whether this function type is declared with `ctl(...) -> ...`.
-   * Control function types represent algebraic effect operations.
-   */
-  isControlFunction?: boolean;
-
-  /**
    * The normal parameters of the function.
    */
   parameters: FunctionParameter[];
@@ -811,24 +805,6 @@ export interface FunctionType extends Type {
    * Under which struct/enum/union this function is defined.
    */
   SelfType?: Type;
-
-  /**
-   * The parent function type in which this function type was defined.
-   * This is used for `recur` to reference the correct function when evaluating
-   * nested function types. For example:
-   *
-   *   Worker :: (fn(comptime(T): Type) -> comptime(Type)) {
-   *     return object(
-   *       spawn_local :: (fn(
-   *         callback : (fn(child : recur(T)) -> unit)  // <-- This function type
-   *       ) -> Self)
-   *     );
-   *   };
-   *
-   * The callback function type's ParentFunctionType would be Worker's function type,
-   * so `recur(T)` can resolve to `Worker(T)` instead of the callback's function type.
-   */
-  ParentFunctionType?: FunctionType;
 
   /**
    * The trait that contains this function's methods (like ___drop, ___dup for closures).

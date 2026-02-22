@@ -17,6 +17,7 @@ import {
   exprIsFunctionCallOf,
   type Expr,
 } from "../../expr";
+import { exprContainsAwait } from "../../expr-traversal";
 import { TokenType } from "../../token";
 import type { EnumType } from "../../types/definitions";
 import { isEnumType } from "../../types/guards";
@@ -1855,35 +1856,6 @@ function generateWhileBodyWithAwait(
   }
 
   return remainingExprs;
-}
-
-/**
- * Checks if an expression contains any await
- */
-export function exprContainsAwait(expr: Expr): boolean {
-  if (
-    expr.tag === ExprTag.FnCall &&
-    exprIsFunctionCallOf(expr, BuiltinFunctions.await)
-  ) {
-    return true;
-  }
-
-  if (expr.tag === ExprTag.FnCall) {
-    // Do NOT recurse into nested async blocks - their awaits belong to the inner async
-    if (exprIsFunctionCallOf(expr, BuiltinFunctions.async)) {
-      return false;
-    }
-    if (exprContainsAwait(expr.func)) {
-      return true;
-    }
-    for (const arg of expr.args) {
-      if (exprContainsAwait(arg)) {
-        return true;
-      }
-    }
-  }
-
-  return false;
 }
 
 /**

@@ -149,7 +149,7 @@ The **Yo** language is inspired by the following programming languages and absor
   - [Clojure](https://clojure.org/)
 - [C](https://www.c-language.org/)/[C++](https://isocpp.org/)
 - [Rust](https://www.rust-lang.org/)
-- [Haskell](https://www.haskell.org/), [OCaml](https://ocaml.org/), [PureScript](https://www.purescript.org/)
+- [Haskell](https://www.haskell.org/), [OCaml](https://ocaml.org/), [PureScript](https://www.purescript.org/), [Scala](https://www.scala-lang.org/)
 - [JavaScript](https://developer.mozilla.org/en-US/docs/Web/JavaScript), [TypeScript](https://www.typescriptlang.org/)
 - [Jai](https://github.com/Ivo-Balbaert/The_Way_to_Jai), [Zig](https://ziglang.org/), [Odin](https://odin-lang.org/)
 - [Nim](https://nim-lang.org/)
@@ -2030,9 +2030,9 @@ Please check [PARALLELISM.md](./PARALLELISM.md) for details on parallel programm
 
 Please check [ISOLATED.md](./ISOLATED.md) for details on isolated types in Yo.
 
-## Async IO
+## IO Module
 
-Please check [ASYNC_IO.md](./ASYNC_IO.md) for details on asynchronous IO in Yo.
+Please check [STD_IO_MODULE.md](./STD_IO_MODULE.md) for details on asynchronous IO in Yo.
 
 ## Module importing and exporting
 

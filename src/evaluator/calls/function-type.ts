@@ -7,6 +7,7 @@ import {
 } from "../../env";
 import { formatErrorMessage } from "../../error";
 import { cloneExpr, type Expr, type FnCallExpr } from "../../expr";
+import { evaluatedBodyContainsAbort } from "../../expr-traversal";
 import type { FunctionValue } from "../../function-value";
 import { PlaceholderToken } from "../../token";
 import { areTypesCompatible } from "../../types/compatibility";
@@ -55,6 +56,19 @@ export function createFunctionBodyEvaluationContext(
   // the caller's captured variables map (e.g., an async block's capture map)
   const capturedVariables = new Map<string, CapturedVariableInfo>();
 
+  // Compute the enclosing function's return type so that `abort` can type-check.
+  // This is derived from the parent context's current function/block, or from
+  let enclosingFunctionReturnType: Type | undefined;
+  if (context.isEvaluatingFunctionBodyOrAsyncBlock) {
+    const block = context.isEvaluatingFunctionBodyOrAsyncBlock;
+    if (block.kind === "function-body") {
+      enclosingFunctionReturnType = block.type.return.type;
+    } else {
+      // test-block or async-block: enclosing return type is unit
+      enclosingFunctionReturnType = createUnitType();
+    }
+  }
+
   const evaluationContext: EvaluatorContext = {
     ...context,
     isExecuting: false, // We're analyzing, not executing
@@ -68,6 +82,7 @@ export function createFunctionBodyEvaluationContext(
       env: env,
     },
     functionReturnImplConcreteType: [], // Empty array for each function
+    enclosingFunctionReturnType,
 
     // Clear CTFE
     forceCompileTimeBindings: false,
@@ -219,6 +234,10 @@ export function tryToImplementFunctionByFunctionType({
     frameLevel: env.frames.length - 1,
     funcName: undefined,
     funcId: `fn_${randomId(env.modulePath)}`,
+    definitionSiteEnclosingFunctionType:
+      context.isEvaluatingFunctionBodyOrAsyncBlock?.kind === "function-body"
+        ? context.isEvaluatingFunctionBodyOrAsyncBlock.type
+        : undefined,
     calledComptimeFunctionCaches: [],
     specializedFunctionCaches: [],
   };
@@ -242,18 +261,13 @@ export function tryToImplementFunctionByFunctionType({
   // If the function depends on generic type variables, we should NOT evaluate the body
   // at definition time. The body will be evaluated when the function is specialized
   // with concrete type arguments.
-  //
-  // Exception: ctl handler functions should NOT be deferred even with forall parameters.
-  // The forall params on a ctl type (e.g., ctl(forall(T : Type), ...) -> T) represent
-  // the operation's result type, which is resolved at each call site.
   const shouldDeferBodyEvaluation =
-    !newFunctionType.isControlFunction &&
-    (newFunctionType.forallParameters.length > 0 ||
-      newFunctionType.parameters.some((param) =>
-        typeContainsSomeType(param.type)
-      ) ||
-      (newFunctionType.SelfType &&
-        typeContainsSomeType(newFunctionType.SelfType)));
+    newFunctionType.forallParameters.length > 0 ||
+    newFunctionType.parameters.some((param) =>
+      typeContainsSomeType(param.type)
+    ) ||
+    (newFunctionType.SelfType &&
+      typeContainsSomeType(newFunctionType.SelfType));
 
   let evaluatedFunctionBody: Expr;
   let evaluationContext: EvaluatorContext;
@@ -291,42 +305,6 @@ export function tryToImplementFunctionByFunctionType({
     );
     evaluationContext = ctx.evaluationContext;
 
-    if (newFunctionType.isControlFunction) {
-      // The enclosing function return type determines what `abort` returns.
-      // Prefer the current evaluation context (the actual enclosing function where
-      // the handler is being DEFINED) over ParentFunctionType (which was set when
-      // the ctl TYPE was defined, possibly in a different scope).
-      let enclosingReturnType: Type | undefined;
-      if (context.isEvaluatingFunctionBodyOrAsyncBlock) {
-        const block = context.isEvaluatingFunctionBodyOrAsyncBlock;
-        if (block.kind === "function-body") {
-          enclosingReturnType = block.type.return.type;
-        } else {
-          enclosingReturnType = createUnitType();
-        }
-      }
-      if (!enclosingReturnType) {
-        enclosingReturnType = newFunctionType.ParentFunctionType?.return.type;
-      }
-
-      if (!enclosingReturnType) {
-        throw formatErrorMessage({
-          token: expr.token,
-          errorMessage: `ctl function value can only be defined inside a function.`,
-        });
-      }
-
-      // Set controlHandlerContext so that `return(value)` and `abort expr`
-      // keywords are valid inside this handler body and can be type-checked.
-      evaluationContext = {
-        ...evaluationContext,
-        controlHandlerContext: {
-          operationResultType: newFunctionType.return.type, // T from ctl(...) -> T
-          enclosingFunctionReturnType: enclosingReturnType,
-        },
-      };
-    }
-
     evaluatedFunctionBody = evaluateBeginExpression({
       expr: functionBodyExpr, // Use transformed body
       env,
@@ -349,11 +327,16 @@ export function tryToImplementFunctionByFunctionType({
   // Check if the function body type matches the function return type
   const functionBodyReturnType = evaluatedFunctionBody.$?.type;
 
+  // If the body uses `abort`, mark this function value as isControlFunction.
+  if (evaluatedBodyContainsAbort(evaluatedFunctionBody)) {
+    functionValue.isControlFunction = true;
+  }
+
   // Regular function: body type must match return type exactly
-  // Skip for ctl functions: the handler body's return type is the enclosing function's
-  // return type (handlerResultType), not the ctl operation's return type (T).
+  // Skip when body uses abort because the abort returns
+  // from the enclosing function, not this function.
   if (
-    !newFunctionType.isControlFunction &&
+    !functionValue.isControlFunction &&
     functionBodyReturnType &&
     !areTypesCompatible(
       { type: newFunctionType.return.type, env },

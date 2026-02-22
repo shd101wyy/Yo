@@ -30,6 +30,7 @@ import {
   setExprAsConsumed,
   setExprAsNeedsToCallDup,
 } from "../../expr";
+import { evaluatedBodyContainsAbort } from "../../expr-traversal";
 import type {
   FunctionValue,
   SpecializedFunctionCache,
@@ -41,6 +42,7 @@ import {
   createExprType,
   createFunctionType,
   createSomeType,
+  createUnitType,
 } from "../../types/creators";
 import type {
   EffectsRowType,
@@ -81,6 +83,8 @@ import {
   isFunctionValue,
   isModuleValue,
   isTypeValue,
+  isUnknownValue,
+  type ModuleValue,
   type Value,
   valueToString,
 } from "../../value";
@@ -108,11 +112,29 @@ import {
 import { synthesizeTypes } from "../types/synthesizer";
 import { evaluateComptimeFunctionCall } from "./comptime-fn";
 
-function moduleTypeContainsCtlField(type: ModuleType): boolean {
-  for (const field of type.fields) {
-    if (isFunctionType(field.type) && field.type.isControlFunction) return true;
-    if (isModuleType(field.type) && moduleTypeContainsCtlField(field.type))
-      return true;
+function moduleTypeContainsCtlField(
+  type: ModuleType,
+  moduleVal?: ModuleValue
+): boolean {
+  for (let fi = 0; fi < type.fields.length; fi++) {
+    const field = type.fields[fi]!;
+    if (isFunctionType(field.type)) {
+      const fieldVal = moduleVal?.fields[fi];
+      if (fieldVal && isFunctionValue(fieldVal) && fieldVal.isControlFunction)
+        return true;
+    }
+    if (isModuleType(field.type)) {
+      const innerModuleVal = moduleVal?.fields[fi];
+      if (
+        moduleTypeContainsCtlField(
+          field.type,
+          innerModuleVal && isModuleValue(innerModuleVal)
+            ? innerModuleVal
+            : undefined
+        )
+      )
+        return true;
+    }
   }
   return false;
 }
@@ -183,6 +205,7 @@ function generateDeferredDropExpressions({
 
 export function checkIfFunctionParameterMatchesArgument({
   functionType,
+  definitionSiteEnclosingFunctionType,
   parameter,
   argExprs,
   argIndex,
@@ -193,6 +216,7 @@ export function checkIfFunctionParameterMatchesArgument({
   runtimeArgExprsInOrder,
 }: {
   functionType: FunctionType;
+  definitionSiteEnclosingFunctionType?: FunctionType;
   /**
    * It could be forallParameters, parameters, or implicitParameters
    */
@@ -256,6 +280,7 @@ export function checkIfFunctionParameterMatchesArgument({
   const { parameterType, calleeEnv: updatedCalleeEnv } =
     evaluateFunctionParameterTypeAgain({
       functionType,
+      definitionSiteEnclosingFunctionType,
       parameter,
       calleeEnv,
       context: {
@@ -529,6 +554,7 @@ ${(error as Error).message}`,
   const { parameterType: resolvedParameterType, calleeEnv: finalCalleeEnv } =
     evaluateFunctionParameterTypeAgain({
       functionType,
+      definitionSiteEnclosingFunctionType,
       parameter,
       calleeEnv,
       context: {
@@ -650,6 +676,8 @@ export function tryToCallFunctionWithArguments({
   }[] = [];
 
   const runtimeArgExprsInOrder: Expr[] = [];
+  const definitionSiteEnclosingFunctionType =
+    functionValue?.definitionSiteEnclosingFunctionType;
 
   // Check if there is `forall(...)` argument.
   // If yes, then it should be the first argument
@@ -920,6 +948,7 @@ Got:   ${regularArgsToCheck.length} arguments`,
       } = evaluateFunctionParameterTypeAgain({
         parameter: forallParameter,
         calleeEnv,
+        definitionSiteEnclosingFunctionType,
         context: {
           ...context,
           isEvaluatingFunctionType: true,
@@ -1036,6 +1065,7 @@ Got:   ${typeToString(typeValue.type)}`,
       parameterType: newParameterType,
     } = checkIfFunctionParameterMatchesArgument({
       functionType,
+      definitionSiteEnclosingFunctionType,
       parameter,
       argExprs,
       argIndex: argIndex,
@@ -1298,6 +1328,7 @@ Got:   ${typeToString(typeValue.type)}`,
           } = evaluateFunctionParameterTypeAgain({
             parameter: concreteParam,
             calleeEnv,
+            definitionSiteEnclosingFunctionType,
             context: {
               ...context,
               isEvaluatingFunctionType: true,
@@ -1400,6 +1431,7 @@ Please ensure a given variable of matching type is in scope.`,
         evaluateFunctionParameterTypeAgain({
           parameter: implicitParam,
           calleeEnv,
+          definitionSiteEnclosingFunctionType,
           context: {
             ...context,
             isEvaluatingFunctionType: true,
@@ -1750,8 +1782,13 @@ Please use explicit using() to disambiguate.`,
     !skipSpecialization &&
     functionValue &&
     isFunctionValue(functionValue) && // functionValue might be UnknownValue, so this condition check is necessary
+    !functionValue.isControlFunction && // Effect handlers skip normal specialization — handled by effect system
     isFunctionSpecializable(functionType) &&
-    !isRecursiveCallDuringSpecialization // Don't specialize if we're already specializing this function
+    !isRecursiveCallDuringSpecialization && // Don't specialize if we're already specializing this function
+    // Skip specialization when implicit args contain UnknownValue (e.g., at function
+    // definition time when the handler hasn't been concretely provided yet).
+    // This prevents creating broken specializations that reference unresolved functions.
+    !argValues_.implicitArgs?.some((arg) => isUnknownValue(arg.value))
   ) {
     specializedFunctionValue = createSpecializedFunctionInline({
       originalFunction: functionValue,
@@ -1761,8 +1798,32 @@ Please use explicit using() to disambiguate.`,
       context,
     });
 
+    // For generic functions where the return type is a SomeType (e.g., forall(T) -> T),
+    // update returnType to the concrete type from the evaluated body so the call site
+    // gets the right type. This handles resume handlers and other generic functions
+    // where T can only be resolved after body evaluation.
+    if (specializedFunctionValue && isSomeType(returnType)) {
+      const bodyType = specializedFunctionValue.body?.$?.type;
+      if (bodyType && !isSomeType(bodyType)) {
+        returnType = bodyType;
+        // Also update the specialized function's return type so codegen uses the concrete type
+        // and collection doesn't skip it (isFunctionSpecializable checks for SomeType in return).
+        if (specializedFunctionValue.specializedType) {
+          specializedFunctionValue.specializedType = {
+            ...specializedFunctionValue.specializedType,
+            return: {
+              ...specializedFunctionValue.specializedType.return,
+              type: bodyType,
+            },
+          };
+        }
+      }
+    }
+
     // Filter runtimeArgExprsInOrder to exclude effectful function args.
-    // These were treated as compile-time in the specialization (not in the C function
+    // Functions with implicit parameters of function/module type (i.e., `using(...)` params)
+    // are always resolved at compile time — they should not be passed as runtime function
+    // pointers. They're treated as compile-time in the specialization (not in the C function
     // signature), so they must also be excluded from the caller's argument list.
     if (specializedFunctionValue) {
       const indicesToRemove = new Set<number>();
@@ -1771,14 +1832,12 @@ Please use explicit using() to disambiguate.`,
         const param = functionType.parameters[i]!;
         if (!param.isCompileTimeOnly) {
           const arg = argValues_.args[i];
-          const argType = arg?.argType;
+          const argVal = arg?.value;
           if (
-            argType &&
-            isFunctionType(argType) &&
-            argType.implicitParameters.some(
-              (p) =>
-                (isFunctionType(p.type) && p.type.isControlFunction) ||
-                (isModuleType(p.type) && moduleTypeContainsCtlField(p.type))
+            argVal &&
+            isFunctionValue(argVal) &&
+            argVal.type.implicitParameters.some(
+              (p) => isFunctionType(p.type) || isModuleType(p.type)
             )
           ) {
             indicesToRemove.add(runtimeArgIdx);
@@ -1804,17 +1863,12 @@ Please use explicit using() to disambiguate.`,
   // an implicit `using(raise: Raise)` parameter — in that case the call is handled
   // by the effect state machine (createSpecializedFunctionInline resolves the body).
   const isInsideFunctionWithCtlImplicitParam =
-    context.isEvaluatingFunctionBodyOrAsyncBlock?.kind === "function-body" &&
-    context.isEvaluatingFunctionBodyOrAsyncBlock.type.implicitParameters.some(
-      (param) =>
-        (isFunctionType(param.type) && param.type.isControlFunction) ||
-        (isModuleType(param.type) && moduleTypeContainsCtlField(param.type))
-    );
+    context.hasControlFunctionImplicitParams ?? false;
   if (
     !skipSpecialization &&
     functionValue &&
     isFunctionValue(functionValue) &&
-    functionType.isControlFunction &&
+    functionValue.isControlFunction &&
     functionType.forallParameters.length > 0 &&
     !specializedFunctionValue &&
     !isInsideFunctionWithCtlImplicitParam
@@ -1832,6 +1886,15 @@ Please use explicit using() to disambiguate.`,
       const bodyType = specializedFunctionValue.body?.$?.type;
       if (bodyType && !isSomeType(bodyType)) {
         returnType = bodyType;
+        if (specializedFunctionValue.specializedType) {
+          specializedFunctionValue.specializedType = {
+            ...specializedFunctionValue.specializedType,
+            return: {
+              ...specializedFunctionValue.specializedType.return,
+              type: bodyType,
+            },
+          };
+        }
       }
     }
   }
@@ -1906,16 +1969,15 @@ function createSpecializedFunctionInline({
         compileTimeArgValues.push(arg.value);
       }
     } else {
-      // Effectful function parameters (functions with implicit ctl handlers) must be
-      // treated as compile-time because effectful functions are compiled as state machines,
-      // not regular C functions. The concrete function value is needed at compile time
-      // for effect call site generation (handler inlining + state machine dispatch).
+      // Functions with implicit parameters of function/module type (i.e., using(...)
+      // effects) must be treated as compile-time because they are compiled as state
+      // machines or inlined, not as regular C functions. The concrete function value
+      // is needed at compile time for effect call site generation.
       const isEffectfulFuncParam =
-        isFunctionType(arg.argType) &&
-        arg.argType.implicitParameters.some(
-          (p) =>
-            (isFunctionType(p.type) && p.type.isControlFunction) ||
-            (isModuleType(p.type) && moduleTypeContainsCtlField(p.type))
+        arg.value &&
+        isFunctionValue(arg.value) &&
+        arg.value.type.implicitParameters.some(
+          (p) => isFunctionType(p.type) || isModuleType(p.type)
         );
 
       if (isEffectfulFuncParam) {
@@ -1990,6 +2052,25 @@ function createSpecializedFunctionInline({
   // Create specialized environment with compile-time arguments bound
   let specializedEnv = calleeEnv;
 
+  // Add compile-time bindings from caller's scope that are missing from calleeEnv.
+  // This is needed because the function's closure env may not include bindings defined
+  // after the function type itself (e.g., handler functions bound via `given` may need
+  // access to types like Raise that are visible at the call site but not captured in
+  // the handler's closure).
+  for (const frame of callerEnv.frames) {
+    for (const variable of frame.variables) {
+      if (!variable.isCompileTimeOnly) continue;
+      const existing = getVariablesFromEnv(specializedEnv, variable.name);
+      if (existing.length > 0) continue;
+      const { env: nextEnv } = addVariableToEnv({
+        env: specializedEnv,
+        variable: { ...variable },
+        allowVariableShadowing: true,
+      });
+      specializedEnv = nextEnv;
+    }
+  }
+
   // CRITICAL: Clear the values of runtime parameters in the specialized environment.
   // The calleeEnv has runtime parameter values from the specific call site (e.g., x=1 for comptime_add(1, 1)).
   // We need to clear these so that codegen generates proper variable references (e.g., "x + 1")
@@ -2032,6 +2113,21 @@ function createSpecializedFunctionInline({
   specializedEnv = _updatedSpecializedEnv;
 
   // Evaluate the function body in the specialized environment
+  // For effect handlers, propagate the enclosing function return type from
+  // so `abort` can type-check during re-evaluation.
+  const specializedEnclosingReturnType = context.enclosingFunctionReturnType;
+
+  // Detect whether any implicit args are control function handlers.
+  // This is used to set hasControlFunctionImplicitParams on the context so that
+  // calls inside this function's body know not to do direct ctl call handling.
+  const hasControlFunctionImplicitParams =
+    argValues.implicitArgs?.some(
+      (arg) =>
+        (isFunctionValue(arg.value) && arg.value.isControlFunction) ||
+        (isModuleValue(arg.value) &&
+          moduleTypeContainsCtlField(arg.value.type as ModuleType, arg.value))
+    ) ?? false;
+
   const specializedBody = evaluateBeginExpression({
     expr: clonedBody,
     env: specializedEnv,
@@ -2050,6 +2146,10 @@ function createSpecializedFunctionInline({
       isEvaluatingLoopBody: undefined, // Clear loop body context for function body
       capturedVariables: undefined,
       functionReturnImplConcreteType: [], // Fresh array for each specialization
+      hasControlFunctionImplicitParams,
+      ...(specializedEnclosingReturnType
+        ? { enclosingFunctionReturnType: specializedEnclosingReturnType }
+        : {}),
     },
     variablesToAdd: [],
     isEvaluatingFunctionBodyBeginBlock: true,
@@ -2061,10 +2161,13 @@ function createSpecializedFunctionInline({
     });
   }
 
-  // Run effect analysis on the specialized body if it has implicit ctl parameters.
-  // This detects ctl call points (e.g., raise(msg)) and prepares for state machine generation.
+  // If the specialized body uses `abort`, mark the function type as isControlFunction.
+  // This handles deferred handler bodies that couldn't be detected at definition time.
+  // Run effect analysis on the specialized body if it has implicit parameters
+  // whose resolved handlers use abort (isControlFunction).
+  // This detects effect call points (e.g., raise(msg)) and prepares for state machine generation.
   // Also handles effect row spread parameters (using(...(E))) by extracting the individual
-  // ctl parameters from the bound EffectsRowType.
+  // effect parameters from the bound EffectsRowType.
   const effectCtlParams: Array<{
     handlerArgIndex: number;
     label: string;
@@ -2078,16 +2181,21 @@ function createSpecializedFunctionInline({
   let argOffset = 0;
   for (let i = 0; i < functionType.implicitParameters.length; i++) {
     const implicitParam = functionType.implicitParameters[i]!;
-    if (
-      isFunctionType(implicitParam.type) &&
-      implicitParam.type.isControlFunction
-    ) {
-      effectCtlParams.push({
-        handlerArgIndex: argOffset,
-        label: implicitParam.label,
-        type: implicitParam.type,
-        fromSpread: false,
-      });
+    if (isFunctionType(implicitParam.type)) {
+      // Check if the resolved handler uses abort (has isControlFunction set)
+      const handlerArg = argValues.implicitArgs?.[argOffset];
+      const handlerValue =
+        handlerArg && isFunctionValue(handlerArg.value)
+          ? handlerArg.value
+          : undefined;
+      if (handlerValue?.isControlFunction) {
+        effectCtlParams.push({
+          handlerArgIndex: argOffset,
+          label: implicitParam.label,
+          type: implicitParam.type,
+          fromSpread: false,
+        });
+      }
       argOffset += 1;
     } else if (implicitParam.isEffectRowSpread) {
       // Effect row spread: resolve the type (might be a SomeType that needs lookup)
@@ -2113,19 +2221,23 @@ function createSpecializedFunctionInline({
         }
       }
       if (isEffectsRowType(resolvedType)) {
-        // Extract individual ctl parameters from the resolved EffectsRowType
+        // Extract individual effect parameters from the resolved EffectsRowType
         for (let k = 0; k < resolvedType.implicitParameters.length; k++) {
           const innerParam = resolvedType.implicitParameters[k]!;
-          if (
-            isFunctionType(innerParam.type) &&
-            innerParam.type.isControlFunction
-          ) {
-            effectCtlParams.push({
-              handlerArgIndex: argOffset + k,
-              label: innerParam.label,
-              type: innerParam.type,
-              fromSpread: true,
-            });
+          if (isFunctionType(innerParam.type)) {
+            const innerHandlerArg = argValues.implicitArgs?.[argOffset + k];
+            const innerHandlerValue =
+              innerHandlerArg && isFunctionValue(innerHandlerArg.value)
+                ? innerHandlerArg.value
+                : undefined;
+            if (innerHandlerValue?.isControlFunction) {
+              effectCtlParams.push({
+                handlerArgIndex: argOffset + k,
+                label: innerParam.label,
+                type: innerParam.type,
+                fromSpread: true,
+              });
+            }
           }
         }
         argOffset += resolvedType.implicitParameters.length;
@@ -2133,24 +2245,48 @@ function createSpecializedFunctionInline({
         argOffset += 1;
       }
     } else if (isModuleType(implicitParam.type)) {
-      // Module-based effects: recursively find ctl fields in possibly nested modules
+      // Module-based effects: recursively find effect fields in possibly nested modules.
+      // Check the handler VALUE's isControlFunction flag (set when a handler body uses abort).
       const ctlFields: Array<{ path: string[]; type: FunctionType }> = [];
+      const handlerArg = argValues.implicitArgs?.[argOffset];
       const findCtlFieldsInModule = (
         moduleType: ModuleType,
-        pathSoFar: string[]
+        pathSoFar: string[],
+        moduleVal?: ModuleValue
       ) => {
-        for (const field of moduleType.fields) {
-          if (isFunctionType(field.type) && field.type.isControlFunction) {
-            ctlFields.push({
-              path: [...pathSoFar, field.label],
-              type: field.type,
-            });
+        for (let fi = 0; fi < moduleType.fields.length; fi++) {
+          const field = moduleType.fields[fi]!;
+          if (isFunctionType(field.type)) {
+            const fieldVal = moduleVal?.fields[fi];
+            if (
+              fieldVal &&
+              isFunctionValue(fieldVal) &&
+              fieldVal.isControlFunction
+            ) {
+              ctlFields.push({
+                path: [...pathSoFar, field.label],
+                type: field.type as FunctionType,
+              });
+            }
           } else if (isModuleType(field.type)) {
-            findCtlFieldsInModule(field.type, [...pathSoFar, field.label]);
+            const innerModuleVal = moduleVal?.fields[fi];
+            findCtlFieldsInModule(
+              field.type,
+              [...pathSoFar, field.label],
+              innerModuleVal && isModuleValue(innerModuleVal)
+                ? innerModuleVal
+                : undefined
+            );
           }
         }
       };
-      findCtlFieldsInModule(implicitParam.type, []);
+      findCtlFieldsInModule(
+        implicitParam.type,
+        [],
+        handlerArg && isModuleValue(handlerArg.value)
+          ? handlerArg.value
+          : undefined
+      );
 
       if (implicitParam.isModuleDestructured) {
         // Module destructured: using(Raise) — fields are in scope directly.
@@ -2197,7 +2333,7 @@ function createSpecializedFunctionInline({
       specializedBody,
       ctlParam.label,
       ctlParam.type,
-      ctlParam.fromSpread,
+      true,
       ctlParam.effectFieldPath
     );
     if (effectAnalysis.hasEffects) {
@@ -2240,100 +2376,119 @@ function createSpecializedFunctionInline({
         const handlerFn = resolvedHandlerFn;
         const ctlType = ctlParam.type;
 
-        // If the handler's ctl type has forall parameters and the handler body
-        // was deferred (not evaluated — no $ annotations), we need to re-evaluate
-        // it now with concrete types from the effect call site.
-        // If the body was already evaluated (has $ annotations), skip re-evaluation
-        // since codegen can handle SomeType T in handler bodies.
-        const handlerBodyWasDeferred = !handlerFn.body.$;
+        // Re-evaluate handler body with concrete types from the effect call site.
+        // Check whether the handler body was truly deferred (sub-expressions unevaluated).
+        // anonymous-function.ts sets a shallow $ on the body (with env/type info),
+        // but sub-expressions like println(msg) won't have $ annotations.
+        // For isControlFunction handlers that skip normal specialization, the body
+        // may have only this shallow $ — detect this by checking the begin block's args.
+        let handlerBodyNeedsReEvaluation = !handlerFn.body.$;
         if (
-          handlerBodyWasDeferred &&
+          !handlerBodyNeedsReEvaluation &&
+          handlerFn.isControlFunction &&
+          exprIsFunctionCall(handlerFn.body) &&
+          handlerFn.body.args.length > 0 &&
+          !handlerFn.body.args[0]?.$
+        ) {
+          handlerBodyNeedsReEvaluation = true;
+        }
+        if (
+          handlerBodyNeedsReEvaluation &&
           isFunctionType(ctlType) &&
           ctlType.forallParameters.length > 0 &&
           effectAnalysis.effectCallPoints.length > 0
         ) {
-          // Build a mapping from forall SomeType to concrete type
-          // For ctl(forall(T : Type), msg : String) -> T, T maps to operationResultType
           const forallTypeMap = new Map<string, Type>();
           const returnType = ctlType.return.type;
           const concreteReturnType =
             effectAnalysis.effectCallPoints[0]!.operationResultType;
 
-          // If the return type IS a forall parameter directly, map it
           if (isSomeType(returnType)) {
             forallTypeMap.set(returnType.name, concreteReturnType);
           }
 
-          // Re-evaluate the handler body with concrete types
-          if (forallTypeMap.size > 0) {
-            const clonedHandlerFnBody = cloneExpr(handlerFn.body);
-            let handlerEnv = handlerFn.body.$?.env ?? specializedEnv;
-            handlerEnv = pushEnvFrame(handlerEnv);
+          // Fallback inference for common effect signatures like
+          //   Raise :: fn(forall(T : Type), ...) -> T
+          // If we couldn't infer from returnType SomeType name, bind the single
+          // forall parameter to the concrete operation result type.
+          if (
+            forallTypeMap.size === 0 &&
+            ctlType.forallParameters.length === 1
+          ) {
+            const onlyForall = ctlType.forallParameters[0]!;
+            forallTypeMap.set(onlyForall.label, concreteReturnType);
+          }
 
-            // Bind forall parameters to their concrete types
-            for (const forallParam of ctlType.forallParameters) {
-              const concreteType = forallTypeMap.get(forallParam.label);
-              if (concreteType) {
-                const result = addVariableToEnv({
-                  env: handlerEnv,
-                  variable: {
-                    name: forallParam.label,
-                    type: forallParam.type,
-                    isCompileTimeOnly: true,
-                    value: [createTypeValue(concreteType)],
-                    token: PlaceholderToken,
-                    initializedAtToken: PlaceholderToken,
-                    consumedAtToken: undefined,
-                    isOwningTheRcValue: false,
-                  },
-                  allowVariableShadowing: true,
-                });
-                handlerEnv = result.env;
-              }
-            }
+          const clonedHandlerFnBody = cloneExpr(handlerFn.body);
+          let handlerEnv = handlerFn.body.$?.env ?? specializedEnv;
+          handlerEnv = pushEnvFrame(handlerEnv);
 
-            const handlerFnType = handlerFn.specializedType ?? handlerFn.type;
-            const enclosingReturnType =
-              context.isEvaluatingFunctionBodyOrAsyncBlock?.kind ===
-              "function-body"
-                ? context.isEvaluatingFunctionBodyOrAsyncBlock.type.return.type
-                : handlerFnType.ParentFunctionType
-                  ? handlerFnType.ParentFunctionType.return.type
-                  : concreteReturnType;
-
-            const handlerContext: EvaluatorContext = {
-              ...context,
-              expectedType: undefined,
-              controlHandlerContext: {
-                operationResultType: concreteReturnType,
-                enclosingFunctionReturnType: enclosingReturnType,
-              },
-              isEvaluatingFunctionBodyOrAsyncBlock: {
-                kind: "function-body",
-                type: handlerFnType,
-                value: handlerFn,
-                evaluationEnv: handlerEnv,
-              },
-            };
-
-            try {
-              const evaluatedBody = _evaluateExpression({
-                expr: clonedHandlerFnBody,
+          for (const forallParam of ctlType.forallParameters) {
+            const concreteType = forallTypeMap.get(forallParam.label);
+            if (concreteType) {
+              const result = addVariableToEnv({
                 env: handlerEnv,
-                context: handlerContext,
+                variable: {
+                  name: forallParam.label,
+                  type: forallParam.type,
+                  isCompileTimeOnly: true,
+                  value: [createTypeValue(concreteType)],
+                  token: PlaceholderToken,
+                  initializedAtToken: PlaceholderToken,
+                  consumedAtToken: undefined,
+                  isOwningTheRcValue: false,
+                },
+                allowVariableShadowing: true,
               });
-
-              const reEvaluatedHandler: FunctionValue = {
-                ...handlerFn,
-                body: evaluatedBody,
-              };
-              effectAnalysis.handlerValue = reEvaluatedHandler;
-            } catch (e) {
-              // If re-evaluation fails, fall back to the original handler
-              console.error("Handler body re-evaluation failed:", e);
-              effectAnalysis.handlerValue = handlerFn;
+              handlerEnv = result.env;
             }
-          } else {
+          }
+
+          const handlerFnType = handlerFn.specializedType ?? handlerFn.type;
+          // For abort type-checking, the enclosing return type should be the
+          // handler's definition-site enclosing function's return type, NOT the
+          // call-site function's return type. E.g., handler defined in main (-> unit)
+          // but inlined at compute (-> i32): abort () should match main's unit.
+          // When definitionSiteEnclosingFunctionType is undefined (e.g., handler
+          // defined in a test block), default to unit — abort exits the top-level scope.
+          const enclosingReturnType =
+            handlerFn.definitionSiteEnclosingFunctionType?.return.type ??
+            createUnitType();
+
+          const handlerContext: EvaluatorContext = {
+            ...context,
+            expectedType: undefined,
+            enclosingFunctionReturnType: enclosingReturnType,
+            isEvaluatingFunctionBodyOrAsyncBlock: {
+              kind: "function-body",
+              type: handlerFnType,
+              value: handlerFn,
+              evaluationEnv: handlerEnv,
+            },
+          };
+
+          try {
+            const evaluatedBody = _evaluateExpression({
+              expr: clonedHandlerFnBody,
+              env: handlerEnv,
+              context: handlerContext,
+            });
+
+            const reEvaluatedHandler: FunctionValue = {
+              ...handlerFn,
+              body: evaluatedBody,
+            };
+            effectAnalysis.handlerValue = reEvaluatedHandler;
+          } catch (e) {
+            const bodyIsStillUnevaluated =
+              exprIsFunctionCall(handlerFn.body) &&
+              handlerFn.body.args.length > 0 &&
+              !handlerFn.body.args[0]?.$;
+
+            if (bodyIsStillUnevaluated) {
+              throw e;
+            }
+
             effectAnalysis.handlerValue = handlerFn;
           }
         } else {
@@ -2409,8 +2564,8 @@ function createSpecializedFunctionInline({
     // positions will appear in body order within each analysis).
     // We sort by walking the body's begin block to determine expr position.
     if (
-      specializedBody.tag === ExprTag.FnCall &&
-      exprIsFunctionCallOf(specializedBody, "begin")
+      exprIsFunctionCall(specializedBody) &&
+      exprIsFunctionCallOf(specializedBody, BuiltinKeywords.begin)
     ) {
       const bodyExprs = specializedBody.args;
       // Build a map from each top-level body expression to its index
@@ -2561,6 +2716,10 @@ function createSpecializedFunctionInline({
     ...originalFunction,
     specializedType: specializedFunctionType,
     body: specializedBody,
+    // Detect isControlFunction from the specialized body
+    isControlFunction:
+      originalFunction.isControlFunction ||
+      evaluatedBodyContainsAbort(specializedBody),
     // Use a signature-based ID for the specialized function
     funcId: `${originalFunction.funcId}_${compileTimeSignature}`,
     funcName: `${originalFunction.funcName}_${compileTimeSignature}`,
@@ -2611,16 +2770,25 @@ function evaluateCtlFunctionBodyInline({
   const functionType = originalFunction.type;
 
   // Determine the concrete type for the forall parameter T.
-  // For `abort` handlers, T is the enclosing function's return type.
   // For `return` handlers, T is the return type of the ctl operation at the call site.
-  const enclosingReturnType =
+  // For `abort` handlers, T can be anything (continuation is discarded), but we
+  // use the call-site type for consistent forall binding.
+  const concreteTypeForForall =
     context.isEvaluatingFunctionBodyOrAsyncBlock?.kind === "function-body"
       ? context.isEvaluatingFunctionBodyOrAsyncBlock.type.return.type
       : functionType.return.type;
 
+  // For abort type-checking, the enclosing return type should be from the handler's
+  // definition-site enclosing function (e.g., main -> unit), not the call-site.
+  // When definitionSiteEnclosingFunctionType is undefined (e.g., handler defined
+  // in a test block), default to unit.
+  const enclosingReturnType =
+    originalFunction.definitionSiteEnclosingFunctionType?.return.type ??
+    createUnitType();
+
   // Check specialization cache using a type-based signature
   const ctlSignature = sanitizeForCIdentifier(
-    typeToString(enclosingReturnType)
+    typeToString(concreteTypeForForall)
   );
   const existingCache = originalFunction.specializedFunctionCaches.find(
     (cache) =>
@@ -2658,8 +2826,8 @@ function evaluateCtlFunctionBodyInline({
   }
 
   for (const forallParam of functionType.forallParameters) {
-    // Map the forall type variable to the concrete type
-    const concreteType = enclosingReturnType;
+    // Map the forall type variable to the concrete call-site type
+    const concreteType = concreteTypeForForall;
     const { env: nextEnv } = addVariableToEnv({
       env: specializedEnv,
       variable: {
@@ -2682,20 +2850,13 @@ function evaluateCtlFunctionBodyInline({
   const handlerContext: EvaluatorContext = {
     ...context,
     expectedType: undefined,
-    controlHandlerContext: {
-      // operationResultType is only used for the via-using state-machine path.
-      // For direct ctl calls, `return(value)` type is checked by isDirectCtlCall flag.
-      operationResultType: functionType.return.type,
-      enclosingFunctionReturnType: enclosingReturnType,
-      isDirectCtlCall: true,
-    },
+    enclosingFunctionReturnType: enclosingReturnType,
     isEvaluatingFunctionBodyOrAsyncBlock: {
       kind: "function-body",
       type: functionType,
       value: originalFunction,
       evaluationEnv: specializedEnv,
     },
-    // Fresh array so nested ctl handler return types don't conflict with the outer handler's.
     functionReturnImplConcreteType: [],
   };
 
@@ -2708,6 +2869,9 @@ function evaluateCtlFunctionBodyInline({
   const specializedFunction: FunctionValue = {
     ...originalFunction,
     body: evaluatedBody,
+    isControlFunction:
+      originalFunction.isControlFunction ||
+      evaluatedBodyContainsAbort(evaluatedBody),
     funcId: `${originalFunction.funcId}_ctl_${ctlSignature}`,
     funcName: `${originalFunction.funcName ?? originalFunction.funcId}_ctl_${ctlSignature}`,
     calledComptimeFunctionCaches: [],

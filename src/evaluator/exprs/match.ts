@@ -1024,15 +1024,14 @@ Supported patterns:
         controlFlow: "return",
       };
     } else if (finalControlFlow === "abort") {
-      // All cases are aborting (ctl handler discontinue)
-      if (!context.controlHandlerContext) {
+      // All cases are aborting (returning from enclosing function)
+      if (!context.enclosingFunctionReturnType) {
         throw formatErrorMessage({
           token: expr.token,
-          errorMessage: `All cases in match use "abort", but not inside a ctl handler body.`,
+          errorMessage: `All cases in match use "abort", but not inside a function with an enclosing function.`,
         });
       }
-      const abortType =
-        context.controlHandlerContext.enclosingFunctionReturnType;
+      const abortType = context.enclosingFunctionReturnType;
       expr.$ = {
         env,
         type: abortType,
@@ -1663,14 +1662,13 @@ Hint: Use "::" to define compile-time constants, e.g., "myConst :: 42"`,
         isPrimitiveMatch: true,
       };
     } else if (finalControlFlow === "abort") {
-      if (!context.controlHandlerContext) {
+      if (!context.enclosingFunctionReturnType) {
         throw formatErrorMessage({
           token: expr.token,
-          errorMessage: `All cases in match use "abort", but not inside a ctl handler body.`,
+          errorMessage: `All cases in match use "abort", but not inside a function with an enclosing function.`,
         });
       }
-      const abortType =
-        context.controlHandlerContext.enclosingFunctionReturnType;
+      const abortType = context.enclosingFunctionReturnType;
       expr.$ = {
         env,
         type: abortType,
