@@ -814,7 +814,6 @@ export function createFunctionType({
   env,
   parametersFrame,
   SelfType,
-  parentFunctionType,
   isClosure,
 }: {
   parameters: FunctionParameter[];
@@ -826,7 +825,6 @@ export function createFunctionType({
   env: Environment;
   parametersFrame: Frame;
   SelfType?: Type;
-  parentFunctionType?: FunctionType;
   isClosure?: boolean;
 }): FunctionType {
   const emptyEnv = createEmptyEnv();
@@ -844,7 +842,6 @@ export function createFunctionType({
     env,
     parametersFrame,
     SelfType,
-    parentFunctionType,
     trait,
     isClosure,
   };

@@ -146,6 +146,8 @@ export function analyzeCtfeCapability(
         ? `${functionValue.funcName}_comptime`
         : undefined,
       funcId: `${functionValue.funcId}_comptime`,
+      definitionSiteEnclosingFunctionType:
+        functionValue.definitionSiteEnclosingFunctionType,
       calledComptimeFunctionCaches: [],
       specializedFunctionCaches: [],
     };

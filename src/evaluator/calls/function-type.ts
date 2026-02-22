@@ -238,6 +238,10 @@ export function tryToImplementFunctionByFunctionType({
     frameLevel: env.frames.length - 1,
     funcName: undefined,
     funcId: `fn_${randomId(env.modulePath)}`,
+    definitionSiteEnclosingFunctionType:
+      context.isEvaluatingFunctionBodyOrAsyncBlock?.kind === "function-body"
+        ? context.isEvaluatingFunctionBodyOrAsyncBlock.type
+        : undefined,
     calledComptimeFunctionCaches: [],
     specializedFunctionCaches: [],
   };

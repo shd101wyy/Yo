@@ -88,6 +88,10 @@ export function tryToImplementClosureByFnModuleType({
     frameLevel: env.frames.length - 1,
     funcName: undefined,
     funcId: `closure_${randomId(env.modulePath)}`,
+    definitionSiteEnclosingFunctionType:
+      context.isEvaluatingFunctionBodyOrAsyncBlock?.kind === "function-body"
+        ? context.isEvaluatingFunctionBodyOrAsyncBlock.type
+        : undefined,
     calledComptimeFunctionCaches: [],
     specializedFunctionCaches: [],
   };

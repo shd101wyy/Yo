@@ -2522,10 +2522,6 @@ ${typeToString(returnType)}`,
     env: popEnvFrame(env, true),
     parametersFrame: env.frames[env.frames.length - 1]!,
     SelfType: context.SelfType,
-    parentFunctionType:
-      context.isEvaluatingFunctionBodyOrAsyncBlock?.kind === "function-body"
-        ? context.isEvaluatingFunctionBodyOrAsyncBlock.type
-        : undefined,
   });
 
   // Pop the environment frame
@@ -2545,17 +2541,25 @@ export function evaluateFunctionParameterTypeAgain({
   parameter,
   calleeEnv,
   context,
+  definitionSiteEnclosingFunctionType,
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   functionType,
 }: {
   parameter: FunctionParameter;
   calleeEnv: Environment;
   context: EvaluatorContext & { isEvaluatingFunctionType: true };
+  definitionSiteEnclosingFunctionType?: FunctionType;
   functionType: FunctionType;
 }): { parameterType: Type; calleeEnv: Environment } {
   const typeExpr = parameter.exprs.typeExpr;
   const defaultValueExpr = parameter.exprs.defaultValueExpr;
   if (typeExpr) {
+    const recurEnclosingFunctionType =
+      definitionSiteEnclosingFunctionType ??
+      (context.isEvaluatingFunctionBodyOrAsyncBlock?.kind === "function-body"
+        ? context.isEvaluatingFunctionBodyOrAsyncBlock.type
+        : undefined);
+
     const evaluatedTypeExpr = evaluateExpression({
       expr: cloneExpr(typeExpr),
       env: calleeEnv,
@@ -2564,10 +2568,10 @@ export function evaluateFunctionParameterTypeAgain({
         expectedType: undefined,
         SelfType: functionType.SelfType,
 
-        isEvaluatingFunctionBodyOrAsyncBlock: functionType.parentFunctionType
+        isEvaluatingFunctionBodyOrAsyncBlock: recurEnclosingFunctionType
           ? {
               kind: "function-body",
-              type: functionType.parentFunctionType,
+              type: recurEnclosingFunctionType,
               evaluationEnv: calleeEnv,
               // QUESTION: Is this evaluationEnv correct?
               // QUESTION: Should we also set `value`?

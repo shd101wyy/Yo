@@ -204,6 +204,7 @@ function generateDeferredDropExpressions({
 
 export function checkIfFunctionParameterMatchesArgument({
   functionType,
+  definitionSiteEnclosingFunctionType,
   parameter,
   argExprs,
   argIndex,
@@ -214,6 +215,7 @@ export function checkIfFunctionParameterMatchesArgument({
   runtimeArgExprsInOrder,
 }: {
   functionType: FunctionType;
+  definitionSiteEnclosingFunctionType?: FunctionType;
   /**
    * It could be forallParameters, parameters, or implicitParameters
    */
@@ -277,6 +279,7 @@ export function checkIfFunctionParameterMatchesArgument({
   const { parameterType, calleeEnv: updatedCalleeEnv } =
     evaluateFunctionParameterTypeAgain({
       functionType,
+      definitionSiteEnclosingFunctionType,
       parameter,
       calleeEnv,
       context: {
@@ -550,6 +553,7 @@ ${(error as Error).message}`,
   const { parameterType: resolvedParameterType, calleeEnv: finalCalleeEnv } =
     evaluateFunctionParameterTypeAgain({
       functionType,
+      definitionSiteEnclosingFunctionType,
       parameter,
       calleeEnv,
       context: {
@@ -671,6 +675,8 @@ export function tryToCallFunctionWithArguments({
   }[] = [];
 
   const runtimeArgExprsInOrder: Expr[] = [];
+  const definitionSiteEnclosingFunctionType =
+    functionValue?.definitionSiteEnclosingFunctionType;
 
   // Check if there is `forall(...)` argument.
   // If yes, then it should be the first argument
@@ -941,6 +947,7 @@ Got:   ${regularArgsToCheck.length} arguments`,
       } = evaluateFunctionParameterTypeAgain({
         parameter: forallParameter,
         calleeEnv,
+        definitionSiteEnclosingFunctionType,
         context: {
           ...context,
           isEvaluatingFunctionType: true,
@@ -1057,6 +1064,7 @@ Got:   ${typeToString(typeValue.type)}`,
       parameterType: newParameterType,
     } = checkIfFunctionParameterMatchesArgument({
       functionType,
+      definitionSiteEnclosingFunctionType,
       parameter,
       argExprs,
       argIndex: argIndex,
@@ -1319,6 +1327,7 @@ Got:   ${typeToString(typeValue.type)}`,
           } = evaluateFunctionParameterTypeAgain({
             parameter: concreteParam,
             calleeEnv,
+            definitionSiteEnclosingFunctionType,
             context: {
               ...context,
               isEvaluatingFunctionType: true,
@@ -1421,6 +1430,7 @@ Please ensure a given variable of matching type is in scope.`,
         evaluateFunctionParameterTypeAgain({
           parameter: implicitParam,
           calleeEnv,
+          definitionSiteEnclosingFunctionType,
           context: {
             ...context,
             isEvaluatingFunctionType: true,
