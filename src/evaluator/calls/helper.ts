@@ -1086,6 +1086,38 @@ Got:   ${typeToString(typeValue.type)}`,
     });
   }
 
+  // After processing regular arguments, propagate resolvedConcreteType from forall SomeTypes
+  // back to the calleeEnv. This handles the case where closure evaluation resolves
+  // type parameters (e.g., T = i32) via resolvedConcreteType on the SomeType objects,
+  // but the calleeEnv variable bindings still point to the SomeType.
+  // Without this, evaluateFunctionReturnTypeAgain would re-evaluate the return type
+  // and still see T as SomeType instead of i32.
+  if (!forallArgsExpr && functionType.forallParameters.length > 0) {
+    for (const forallParameter of functionType.forallParameters) {
+      if (forallParameter.label) {
+        const variables = getVariablesFromEnv(calleeEnv, forallParameter.label);
+        const variable = variables.at(-1);
+        if (variable?.value?.[0] && isTypeValue(variable.value[0])) {
+          const typeVal = variable.value[0];
+          if (
+            isSomeType(typeVal.value) &&
+            typeVal.value.resolvedConcreteType &&
+            (!typeVal.value.requiredTraits ||
+              typeVal.value.requiredTraits.length === 0)
+          ) {
+            const concreteTypeValue = createTypeValue(
+              typeVal.value.resolvedConcreteType
+            );
+            calleeEnv = updateExistingVariable(calleeEnv, variable, {
+              ...variable,
+              value: [concreteTypeValue],
+            });
+          }
+        }
+      }
+    }
+  }
+
   // If forall arguments were not explicitly provided (i.e., forallArgsExpr is undefined),
   // we need to extract the inferred type parameter values from calleeEnv after
   // argument type checking has resolved them via synthesizeTypes.
@@ -1137,6 +1169,7 @@ Got:   ${typeToString(typeValue.type)}`,
     },
     functionCalleeExpr,
   });
+
   calleeEnv = nextCalleeEnv;
 
   // Synthesize the returnType if context.expectedType is giving

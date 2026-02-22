@@ -6,8 +6,9 @@ This plan describes how to migrate Yo's `async`/`await` from built-in keywords t
 
 ## Current Status (2026-02-22)
 
-- ✅ Async/await with heap-allocated state machines: 51 tests passing
+- ✅ Async/await with heap-allocated state machines: 54 tests passing
 - ✅ Algebraic effects with stack-allocated state machines: 30 tests passing
+- ✅ **Phase 0 complete**: `IO` module type defined in `prelude.yo`, `main :: (fn(using(io : IO)) -> unit)` compiles and runs
 - ❌ No interaction between the two systems (effect analysis skips async blocks and vice versa)
 - ❌ Cannot combine effects and async in the same function
 
@@ -308,58 +309,53 @@ A unified system would:
 
 ## Migration Phases
 
-### Phase 0: Define the IO Module Type (Evaluator Only)
+### Phase 0: Define the IO Module Type (Evaluator Only) — ✅ COMPLETE
 
-**Goal**: Define the `IO` module as a built-in type that the evaluator recognizes, exposed via `prelude.yo` so it is always in scope. No codegen changes.
+**Goal**: Define the `IO` module as a built-in type that the evaluator recognizes, exposed via `prelude.yo` so it is always in scope. Minimal codegen changes to support `main :: (fn(using(io : IO)) -> unit)`.
 
-**Steps**:
+**Implementation Summary**:
 
-1. **Define `IO` module type in the evaluator** (`src/evaluator/` or `src/types/`)
+1. **`IO` module type** was already defined in `std/prelude.yo` (lines 158-162). No evaluator changes needed — the existing `module(...)` type system handles it.
 
-   - Add `IO` as a built-in module type recognized by the compiler
-   - Define the two effect operations:
-     ```
-     async : (fn(forall(T : Type, ...(E)), action : Impl(Fn(using(...(E))) -> T)) -> Impl(Future(T)))
-     await : (fn(forall(T : Type), fut : Impl(Future(T))) -> T)
-     ```
-   - Mark `await` as a control function (it's the suspension point)
-   - `async` is NOT a control function (it creates a future, doesn't suspend the caller)
+2. **`extern "Yo"` functions** added to `std/prelude.yo` for the two IO operations:
 
-2. **Support `using(io : IO)` in function signatures**
+   ```yo
+   extern "Yo",
+     __yo_io_async : (fn(forall(T : Type, ...(E)), action : Impl(Fn(using(...(E))) -> T)) -> Impl(Future(T))),
+     __yo_io_await : (fn(forall(T : Type), fut : Impl(Future(T))) -> T)
+   ;
+   ```
 
-   - The evaluator already supports `using(name : ModuleType)` with auto-destructuring
-   - `IO` module works with existing `using` infrastructure
-   - Functions with `using(io : IO)` are typed as effectful
+   These produce `UnknownValue` at eval time and will be matched against `BuiltinYoInlineFunctions` at codegen time in later phases.
 
-3. **Recognize `io.await(future)` as an async await point**
+3. **`__builtin_io` given binding** added to `std/prelude.yo`:
 
-   - When evaluating `io.await(future)` where `io : IO`:
-     - Check `context.isEvaluatingFunctionBodyOrAsyncBlock` has appropriate kind
-     - Extract `T` from `Future(T)` (same as current `evaluateAwait`)
-     - Attach await metadata to the expression
-   - This reuses the existing `FutureTraitType` extraction logic
+   ```yo
+   given(__builtin_io) :: IO(
+     async : __yo_io_async,
+     await : __yo_io_await
+   );
+   export __builtin_io;
+   ```
 
-4. **Recognize `io.async(closure)` as a future constructor**
+   This provides the IO handler automatically to any function with `using(io : IO)` via the existing `given`/`using` resolution mechanism.
 
-   - When evaluating `io.async(closure)` where `io : IO`:
-     - Evaluate the closure to get its return type `T`
-     - Create `Impl(Future(T))` type (same as current `evaluateAsync`)
-     - Attach async block metadata (capture type, await analysis)
+4. **Codegen fix for `main :: (fn(using(io : IO)) -> unit)`**: Functions with only module-typed implicit parameters (like `IO`) that are never specialized at call sites were silently dropped by codegen. Fixed in `src/codegen/functions/generation.ts` and `src/codegen/functions/declarations.ts` with an `isSpecializableOnlyByModuleImplicitParams` check that bypasses the `isFunctionSpecializable` skip condition when:
 
-5. **Support `main :: (fn(using(io : IO)) -> unit)`**
+   - The function is specializable (has implicit params)
+   - It has no `specializedType` and no `specializedFunctionCaches` (never specialized at a call site)
+   - It has no `forall` or `comptime` regular parameters
+   - ALL implicit parameters have module types (`isModuleType`)
 
-   - The evaluator allows `main` to have implicit `using` parameters
-   - Resolve the `IO` handler from a built-in compiler-provided `given` binding
+   This correctly identifies functions like `main` whose `using` parameters carry module-typed effects that are resolved at compile time, while still allowing normal effect functions (like `safe_divide(using(raise : Raise))`) to go through the specialization pipeline.
 
-6. **Expose `IO` in `prelude.yo`**
+5. **Tests verified**: 30 algebraic effects tests, 54 async/await tests, 16 function tests all pass. ASAN clean.
 
-   - Add `IO` to `std/prelude.yo` so every program has it in scope without an explicit import
-   - The compiler injects a built-in `given(io) := __builtin_io_handler` into the top-level `main` scope
-   - No user code is required to import or construct the handler
+**What Phase 0 does NOT include** (deferred to Phase 1+):
 
-7. **Tests**: Evaluator-level tests that type-check the new syntax without running codegen
-
-**Deliverables**: Functions can be typed with `using(io : IO)`, evaluator recognizes `io.await` and `io.async` as built-in operations and attaches the same metadata as current `await`/`async { ... }`.
+- No codegen for `io.await(future)` — calling `io.await` at runtime will not produce correct async SM code yet
+- No codegen for `io.async(closure)` — calling `io.async` at runtime will not produce correct future-creating code yet
+- No event loop integration in the main wrapper — `main :: (fn(using(io : IO)) -> unit)` compiles but the IO effect is a no-op at runtime
 
 ### Phase 1: Codegen — `await` as Effect, `async` as Built-in (Hybrid)
 

@@ -33,7 +33,11 @@ import type {
   Type,
 } from "../../types/definitions";
 import { isDynType, isFunctionType, isSomeType } from "../../types/guards";
-import { typeContainsSomeType, typeToString } from "../../types/utils";
+import {
+  convertComptimeTypeToRuntimeType,
+  typeContainsSomeType,
+  typeToString,
+} from "../../types/utils";
 import { randomId } from "../../utils";
 import { createUnknownValue, type Value } from "../../value";
 import { ValueTag } from "../../value-tag";
@@ -528,6 +532,26 @@ Got:      "${paramName}"`,
   // from the enclosing function, not this function. The body's type is the abort value
   // type, which may not match the handler function's declared return type.
   const evaluatedBodyReturnType = evaluatedBody.$?.type;
+
+  // For closures with SomeType return type (from forall parameters, e.g., T : Type),
+  // resolve the body's runtime type as the concrete type for the SomeType.
+  // This handles cases like io.async(() => { return 12; }) where T is inferred
+  // from the closure body's return type.
+  if (
+    isSomeType(functionType.return.type) &&
+    !functionType.return.type.resolvedConcreteType &&
+    evaluatedBodyReturnType &&
+    !isSomeType(evaluatedBodyReturnType)
+  ) {
+    const runtimeType = convertComptimeTypeToRuntimeType({
+      type: evaluatedBodyReturnType,
+      expectedType: undefined,
+      expr: evaluatedBody,
+      env,
+    });
+    functionType.return.type.resolvedConcreteType = runtimeType;
+  }
+
   if (
     !functionValue.isControlFunction &&
     evaluatedBodyReturnType &&

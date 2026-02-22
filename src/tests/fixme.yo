@@ -1,5 +1,9 @@
 main :: (fn(using(io : IO)) -> unit) {
-  return ();
+  fut := io.async(() => {
+    return 12;
+  });
+  result := io.await(fut);
+  assert(result == 12);
 };
 
 export main;

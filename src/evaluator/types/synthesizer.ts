@@ -277,9 +277,53 @@ export function synthesizeTypes(
         }
       }
     }
+
+    // After unifying the two SomeTypes, recursively synthesize their required trait
+    // type parameters. For example, when expected=Impl(Future(T)) and given=Impl(Future(i32)),
+    // we need to match Future(T) with Future(i32) to resolve T = i32.
+    // Only do this when the two SomeTypes are from DIFFERENT declarations (different IDs).
+    // When they are the same object (e.g., closure takes on expected type), recursion is unnecessary.
+    if (
+      expected.type.id !== given.type.id &&
+      expected.type.requiredTraits &&
+      given.type.requiredTraits
+    ) {
+      const expectedTraits = expected.type.requiredTraits;
+      const givenTraits = given.type.requiredTraits;
+      for (
+        let i = 0;
+        i < Math.min(expectedTraits.length, givenTraits.length);
+        i++
+      ) {
+        const expectedTrait = expectedTraits[i]!.traitType;
+        const givenTrait = givenTraits[i]!.traitType;
+        if (isFnTraitType(expectedTrait) && isFnTraitType(givenTrait)) {
+          const { expectedEnv, givenEnv } = synthesizeTypes(
+            { type: expectedTrait.isFn.callType, env: expected.env },
+            { type: givenTrait.isFn.callType, env: given.env },
+            checkedTypePairs
+          );
+          expected.env = expectedEnv;
+          given.env = givenEnv;
+        } else if (
+          isFutureTraitType(expectedTrait) &&
+          isFutureTraitType(givenTrait)
+        ) {
+          const { expectedEnv, givenEnv } = synthesizeTypes(
+            { type: expectedTrait.isFuture.outputType, env: expected.env },
+            { type: givenTrait.isFuture.outputType, env: given.env },
+            checkedTypePairs
+          );
+          expected.env = expectedEnv;
+          given.env = givenEnv;
+        }
+      }
+    }
   } else if (isSomeType(expected.type)) {
     // Check if the env has
+
     const type = getValueOfSomeTypeFromEnv(expected.env, expected.type);
+
     if (
       isSomeType(type) &&
       (type.id === expected.type.id ||
@@ -322,6 +366,36 @@ export function synthesizeTypes(
           ...variable,
           value: [value],
         });
+      }
+
+      // After binding the SomeType, recursively synthesize required trait type parameters.
+      // For Impl(Fn(using(...(E)) -> T)) matched with fn() -> i32,
+      // this resolves T = i32 and E = empty by matching the Fn trait's call type
+      // with the given function type.
+      if (expected.type.requiredTraits) {
+        for (const { traitType } of expected.type.requiredTraits) {
+          if (isFnTraitType(traitType) && isFunctionType(given.type)) {
+            const fnCallType = traitType.isFn.callType;
+            const { expectedEnv, givenEnv } = synthesizeTypes(
+              { type: fnCallType, env: expected.env },
+              { type: given.type, env: given.env },
+              checkedTypePairs
+            );
+            expected.env = expectedEnv;
+            given.env = givenEnv;
+          } else if (
+            isFutureTraitType(traitType) &&
+            isFutureTraitType(given.type)
+          ) {
+            const { expectedEnv, givenEnv } = synthesizeTypes(
+              { type: traitType.isFuture.outputType, env: expected.env },
+              { type: given.type.isFuture.outputType, env: given.env },
+              checkedTypePairs
+            );
+            expected.env = expectedEnv;
+            given.env = givenEnv;
+          }
+        }
       }
     } else if (!isSomeType(type)) {
       const { expectedEnv, givenEnv } = synthesizeTypes(

@@ -743,11 +743,29 @@ export function areTypesCompatible(
       return true;
     } else {
       // Given is a concrete type, expected is SomeType (e.g., Impl(Trait))
+
+      // If the SomeType already has a resolvedConcreteType, compare against that
+      if (expected.type.resolvedConcreteType) {
+        return areTypesCompatible(
+          { type: expected.type.resolvedConcreteType, env: expected.env },
+          given,
+          requireExactMatch,
+          visitedPairs
+        );
+      }
+
       // Check if given implements all required modules of expected
       const requiredTraitTypes = getEffectiveRequiredTraitTypes(
         expected.env,
         expected.type
       );
+
+      // Unconstrained SomeType (bare forall type parameter like T : Type with no
+      // required traits and no where-clause constraints) is compatible with any
+      // concrete type. This is the semantics of a universal type parameter.
+      if (requiredTraitTypes.length === 0) {
+        return true;
+      }
       if (requiredTraitTypes.length > 0) {
         // Check that given implements all required modules
         for (const requiredTrait of requiredTraitTypes) {
