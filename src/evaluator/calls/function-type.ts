@@ -6,12 +6,8 @@ import {
   pushEnvFrame,
 } from "../../env";
 import { formatErrorMessage } from "../../error";
-import {
-  cloneExpr,
-  evaluatedBodyContainsAbort,
-  type Expr,
-  type FnCallExpr,
-} from "../../expr";
+import { cloneExpr, type Expr, type FnCallExpr } from "../../expr";
+import { evaluatedBodyContainsAbort } from "../../expr-traversal";
 import type { FunctionValue } from "../../function-value";
 import { PlaceholderToken } from "../../token";
 import { areTypesCompatible } from "../../types/compatibility";

@@ -1,26 +1,52 @@
+open import "std/libc/stdio";
 open import "std/string";
-open import "std/fmt";
-
-Raise :: (fn(forall(T : Type), msg : String) -> T);
+{ platform, Platform } :: import "std/process";
+file :: import "std/io/file";
 
 main :: (fn() -> unit) {
-  safe_divide :: (fn(x : i32, y : i32, using(raise : Raise)) -> i32)(
+  async {
     cond(
-      (y == 0) => raise(`division by zero`),
-      true => (x / y)
-    )
-  );
+      (platform == Platform.Linux) => {
+        fd := i32(1);
 
-  compute :: (fn(a : i32, b : i32, using(raise : Raise)) -> i32)(
-    (safe_divide(a, b) + i32(10))
-  );
+        trunc := await file.ftruncate(fd, i64(4096));
 
-  (given(raise) : Raise) = ((msg) -> {
-    println(msg);
-    abort ();
-  });
-  b := Box(i32)(12);
-  result := compute(50, 0);
-  assert(false, "Expected to abort");
+        wr1 := await file.write(fd, *(u8)("Z"), u32(1), u64(1024));
+        wr2 := await file.write(fd, *(u8)("Z"), u32(1), u64(2048));
+
+        zero_ret := i32(0);
+        cond(
+          (zero_ret == i32(0)) => {
+            byte_uninit := MaybeUninit(Array(u8, usize(1))).new();
+            byte_buf := *(u8)(byte_uninit.as_ptr());
+            rd := await file.read(fd, byte_buf, u32(1), u64(1024));
+            printf("rd = %d\n", rd);
+          },
+          true => {
+            printf("skipped1\n");
+          }
+        );
+
+        punch_ret := i32(0);
+        cond(
+          (punch_ret == i32(0)) => {
+            byte_uninit2 := MaybeUninit(Array(u8, usize(1))).new();
+            byte_buf2 := *(u8)(byte_uninit2.as_ptr());
+            rd2 := await file.read(fd, byte_buf2, u32(1), u64(2048));
+            printf("rd2 = %d\n", rd2);
+          },
+          true => {
+            printf("skipped2\n");
+          }
+        );
+
+        close_ret := await file.close(fd);
+        printf("done\n");
+      },
+      true => {
+        printf("  skipping Linux-specific test on non-Linux\n");
+      }
+    );
+  };
 };
 export main;

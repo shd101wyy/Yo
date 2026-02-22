@@ -7,7 +7,6 @@
 
 import { getVariablesFromEnv } from "../../env";
 import type { AwaitPoint } from "../../evaluator/async/await-analysis";
-import { typeImplementsFn } from "../../evaluator/trait-checking";
 import {
   BuiltinFunctions,
   BuiltinKeywords,
@@ -18,11 +17,12 @@ import {
   exprIsFunctionCallOf,
   type Expr,
 } from "../../expr";
+import { exprContainsAwait } from "../../expr-traversal";
 import { TokenType } from "../../token";
 import type { EnumType } from "../../types/definitions";
-import { isEnumType, isFunctionType } from "../../types/guards";
+import { isEnumType } from "../../types/guards";
 import { isTempVariableName } from "../../utils";
-import { isBooleanValue, isTypeValue } from "../../value";
+import { isBooleanValue } from "../../value";
 import { generateComptimeValue } from "../exprs/comptime-value";
 import { generateExpr } from "../exprs/expr";
 import type { FunctionGenerationContext } from "../functions/context";
@@ -1856,49 +1856,6 @@ function generateWhileBodyWithAwait(
   }
 
   return remainingExprs;
-}
-
-/**
- * Checks if an expression contains any await
- */
-export function exprContainsAwait(expr: Expr): boolean {
-  if (exprIsFunctionCall(expr)) {
-    if (exprIsFunctionCallOf(expr, BuiltinFunctions.await)) {
-      return true;
-    }
-
-    // Do NOT recurse into nested async blocks - their awaits belong to the inner async
-    if (
-      exprIsFunctionCallOf(expr, BuiltinFunctions.async) ||
-      // DO NOT recurse into anonymous function bodys - their awaits belong to the function, not the containing expression
-      exprIsFunctionCallOf(expr, ["->", "=>"]) ||
-      (isTypeValue(expr.func.$?.value) &&
-        isFunctionType(expr.func.$.value.value))
-    ) {
-      return false;
-    }
-
-    // Skip closure type calls: WrapperType(closureBody) where WrapperType is SomeType or DynType containing a FnTraitType
-    if (
-      exprIsFunctionCall(expr.func) &&
-      expr.func.$?.value !== undefined &&
-      isTypeValue(expr.func.$.value) &&
-      typeImplementsFn(expr.func.$.value.value)
-    ) {
-      return false;
-    }
-
-    if (exprContainsAwait(expr.func)) {
-      return true;
-    }
-    for (const arg of expr.args) {
-      if (exprContainsAwait(arg)) {
-        return true;
-      }
-    }
-  }
-
-  return false;
 }
 
 /**

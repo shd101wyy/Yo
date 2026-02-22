@@ -10,7 +10,6 @@ import {
   attachTempVariableToExpr,
   BuiltinKeywords,
   cloneExpr,
-  evaluatedBodyContainsAbort,
   type Expr,
   exprIsAtom,
   exprIsFunctionCall,
@@ -18,6 +17,7 @@ import {
   exprToString,
   type FnCallExpr,
 } from "../../expr";
+import { evaluatedBodyContainsAbort } from "../../expr-traversal";
 import type {
   FunctionCapturedVariableInfo,
   FunctionValue,
@@ -653,6 +653,7 @@ Got:      "${paramName}"`,
         : undefined,
     captureType: isCreatingClosure ? captureType : undefined, // Store the capture struct type for codegen (used for both closures and async blocks)
     closureFunctionValue: isCreatingClosure ? finalFunctionValue : undefined,
+    isAnonymousFunctionDefinition: true,
   };
 
   // For closures, attach a temporary variable so they can be consumed

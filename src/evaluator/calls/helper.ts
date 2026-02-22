@@ -17,7 +17,6 @@ import {
   BuiltinFunctions,
   BuiltinKeywords,
   cloneExpr,
-  evaluatedBodyContainsAbort,
   type Expr,
   exprIsAtom,
   exprIsAtomOf,
@@ -31,6 +30,7 @@ import {
   setExprAsConsumed,
   setExprAsNeedsToCallDup,
 } from "../../expr";
+import { evaluatedBodyContainsAbort } from "../../expr-traversal";
 import type {
   FunctionValue,
   SpecializedFunctionCache,

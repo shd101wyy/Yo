@@ -18,6 +18,7 @@ import {
   exprIsFunctionCallOf,
   ExprTag,
 } from "../../expr";
+import { exprContainsAwait } from "../../expr-traversal";
 import type { DynType, SomeType, StructType } from "../../types/definitions";
 import { isDynType, isSomeType, isUnitType } from "../../types/guards";
 import { typeContainsRcType } from "../../types/utils";
@@ -28,7 +29,6 @@ import { generateExpr } from "../exprs/expr";
 import type { FunctionGenerationContext } from "../functions/context";
 import { sanitizeForCIdentifier } from "../utils";
 import {
-  exprContainsAwait,
   generateAwaitExpression,
   generateStateSegmentCode,
   splitIntoStateSegments,
