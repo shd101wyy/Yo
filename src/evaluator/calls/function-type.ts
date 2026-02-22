@@ -62,8 +62,6 @@ export function createFunctionBodyEvaluationContext(
 
   // Compute the enclosing function's return type so that `abort` can type-check.
   // This is derived from the parent context's current function/block, or from
-  // ParentFunctionType as fallback (for specialization contexts where the parent
-  // function body context may not be available).
   let enclosingFunctionReturnType: Type | undefined;
   if (context.isEvaluatingFunctionBodyOrAsyncBlock) {
     const block = context.isEvaluatingFunctionBodyOrAsyncBlock;
@@ -73,9 +71,6 @@ export function createFunctionBodyEvaluationContext(
       // test-block or async-block: enclosing return type is unit
       enclosingFunctionReturnType = createUnitType();
     }
-  }
-  if (!enclosingFunctionReturnType) {
-    enclosingFunctionReturnType = functionType.ParentFunctionType?.return.type;
   }
 
   const evaluationContext: EvaluatorContext = {

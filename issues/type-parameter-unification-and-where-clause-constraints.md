@@ -349,7 +349,7 @@ if (methods.length === 0) {
       // ... use constraints to find methods
     }
     // Move to parent function
-    funcToCheck = funcToCheck.ParentFunctionType;
+    funcToCheck = funcToCheck.parentFunctionType;
   }
 }
 ```

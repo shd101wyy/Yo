@@ -380,13 +380,13 @@ Got:      "${paramName}"`,
     ...functionType,
     // forall parameters must use expected names/types entirely (they're always comptime)
     forallParameters: functionType.forallParameters,
-    // Override ParentFunctionType to the enclosing function at the DEFINITION SITE of
+    // Override parentFunctionType to the enclosing function at the DEFINITION SITE of
     // this anonymous function (not where the TYPE was defined). This is needed so that
     // deferred handler bodies can find the enclosing return type during specialization.
-    ParentFunctionType:
+    parentFunctionType:
       context.isEvaluatingFunctionBodyOrAsyncBlock?.kind === "function-body"
         ? context.isEvaluatingFunctionBodyOrAsyncBlock.type
-        : functionType.ParentFunctionType,
+        : undefined,
     // For regular parameters: use expected types but allow anonymous names for non-comptime parameters
     parameters: functionType.parameters.map((expectedParam, index) => {
       if (expectedParam.isCompileTimeOnly) {

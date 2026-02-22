@@ -2522,7 +2522,7 @@ ${typeToString(returnType)}`,
     env: popEnvFrame(env, true),
     parametersFrame: env.frames[env.frames.length - 1]!,
     SelfType: context.SelfType,
-    ParentFunctionType:
+    parentFunctionType:
       context.isEvaluatingFunctionBodyOrAsyncBlock?.kind === "function-body"
         ? context.isEvaluatingFunctionBodyOrAsyncBlock.type
         : undefined,
@@ -2564,10 +2564,10 @@ export function evaluateFunctionParameterTypeAgain({
         expectedType: undefined,
         SelfType: functionType.SelfType,
 
-        isEvaluatingFunctionBodyOrAsyncBlock: functionType.ParentFunctionType
+        isEvaluatingFunctionBodyOrAsyncBlock: functionType.parentFunctionType
           ? {
               kind: "function-body",
-              type: functionType.ParentFunctionType,
+              type: functionType.parentFunctionType,
               evaluationEnv: calleeEnv,
               // QUESTION: Is this evaluationEnv correct?
               // QUESTION: Should we also set `value`?

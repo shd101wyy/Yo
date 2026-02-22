@@ -2103,10 +2103,8 @@ function createSpecializedFunctionInline({
 
   // Evaluate the function body in the specialized environment
   // For effect handlers, propagate the enclosing function return type from
-  // ParentFunctionType so `abort` can type-check during re-evaluation.
-  const specializedEnclosingReturnType =
-    functionType.ParentFunctionType?.return.type ??
-    context.enclosingFunctionReturnType;
+  // so `abort` can type-check during re-evaluation.
+  const specializedEnclosingReturnType = context.enclosingFunctionReturnType;
 
   // Detect whether any implicit args are control function handlers.
   // This is used to set hasControlFunctionImplicitParams on the context so that
@@ -2429,9 +2427,7 @@ function createSpecializedFunctionInline({
               context.isEvaluatingFunctionBodyOrAsyncBlock?.kind ===
               "function-body"
                 ? context.isEvaluatingFunctionBodyOrAsyncBlock.type.return.type
-                : handlerFnType.ParentFunctionType
-                  ? handlerFnType.ParentFunctionType.return.type
-                  : concreteReturnType;
+                : concreteReturnType;
 
             const handlerContext: EvaluatorContext = {
               ...context,
@@ -2458,7 +2454,7 @@ function createSpecializedFunctionInline({
               };
               effectAnalysis.handlerValue = reEvaluatedHandler;
             } catch (e) {
-              console.error("Handler body re-evaluation failed:", e);
+              // console.error("Handler body re-evaluation failed:", e);
               effectAnalysis.handlerValue = handlerFn;
             }
           } else {

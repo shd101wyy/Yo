@@ -819,10 +819,10 @@ export interface FunctionType extends Type {
    *     );
    *   };
    *
-   * The callback function type's ParentFunctionType would be Worker's function type,
+   * The callback function type's parentFunctionType would be Worker's function type,
    * so `recur(T)` can resolve to `Worker(T)` instead of the callback's function type.
    */
-  ParentFunctionType?: FunctionType;
+  parentFunctionType?: FunctionType;
 
   /**
    * The trait that contains this function's methods (like ___drop, ___dup for closures).
