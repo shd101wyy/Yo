@@ -42,6 +42,7 @@ import {
   createExprType,
   createFunctionType,
   createSomeType,
+  createUnitType,
 } from "../../types/creators";
 import type {
   EffectsRowType,
@@ -2332,7 +2333,7 @@ function createSpecializedFunctionInline({
       specializedBody,
       ctlParam.label,
       ctlParam.type,
-      ctlParam.fromSpread,
+      true,
       ctlParam.effectFieldPath
     );
     if (effectAnalysis.hasEffects) {
@@ -2406,68 +2407,88 @@ function createSpecializedFunctionInline({
             forallTypeMap.set(returnType.name, concreteReturnType);
           }
 
-          if (forallTypeMap.size > 0) {
-            const clonedHandlerFnBody = cloneExpr(handlerFn.body);
-            let handlerEnv = handlerFn.body.$?.env ?? specializedEnv;
-            handlerEnv = pushEnvFrame(handlerEnv);
+          // Fallback inference for common effect signatures like
+          //   Raise :: fn(forall(T : Type), ...) -> T
+          // If we couldn't infer from returnType SomeType name, bind the single
+          // forall parameter to the concrete operation result type.
+          if (
+            forallTypeMap.size === 0 &&
+            ctlType.forallParameters.length === 1
+          ) {
+            const onlyForall = ctlType.forallParameters[0]!;
+            forallTypeMap.set(onlyForall.label, concreteReturnType);
+          }
 
-            for (const forallParam of ctlType.forallParameters) {
-              const concreteType = forallTypeMap.get(forallParam.label);
-              if (concreteType) {
-                const result = addVariableToEnv({
-                  env: handlerEnv,
-                  variable: {
-                    name: forallParam.label,
-                    type: forallParam.type,
-                    isCompileTimeOnly: true,
-                    value: [createTypeValue(concreteType)],
-                    token: PlaceholderToken,
-                    initializedAtToken: PlaceholderToken,
-                    consumedAtToken: undefined,
-                    isOwningTheRcValue: false,
-                  },
-                  allowVariableShadowing: true,
-                });
-                handlerEnv = result.env;
-              }
-            }
+          const clonedHandlerFnBody = cloneExpr(handlerFn.body);
+          let handlerEnv = handlerFn.body.$?.env ?? specializedEnv;
+          handlerEnv = pushEnvFrame(handlerEnv);
 
-            const handlerFnType = handlerFn.specializedType ?? handlerFn.type;
-            const enclosingReturnType =
-              context.isEvaluatingFunctionBodyOrAsyncBlock?.kind ===
-              "function-body"
-                ? context.isEvaluatingFunctionBodyOrAsyncBlock.type.return.type
-                : concreteReturnType;
-
-            const handlerContext: EvaluatorContext = {
-              ...context,
-              expectedType: undefined,
-              enclosingFunctionReturnType: enclosingReturnType,
-              isEvaluatingFunctionBodyOrAsyncBlock: {
-                kind: "function-body",
-                type: handlerFnType,
-                value: handlerFn,
-                evaluationEnv: handlerEnv,
-              },
-            };
-
-            try {
-              const evaluatedBody = _evaluateExpression({
-                expr: clonedHandlerFnBody,
+          for (const forallParam of ctlType.forallParameters) {
+            const concreteType = forallTypeMap.get(forallParam.label);
+            if (concreteType) {
+              const result = addVariableToEnv({
                 env: handlerEnv,
-                context: handlerContext,
+                variable: {
+                  name: forallParam.label,
+                  type: forallParam.type,
+                  isCompileTimeOnly: true,
+                  value: [createTypeValue(concreteType)],
+                  token: PlaceholderToken,
+                  initializedAtToken: PlaceholderToken,
+                  consumedAtToken: undefined,
+                  isOwningTheRcValue: false,
+                },
+                allowVariableShadowing: true,
               });
-
-              const reEvaluatedHandler: FunctionValue = {
-                ...handlerFn,
-                body: evaluatedBody,
-              };
-              effectAnalysis.handlerValue = reEvaluatedHandler;
-            } catch (e) {
-              // console.error("Handler body re-evaluation failed:", e);
-              effectAnalysis.handlerValue = handlerFn;
+              handlerEnv = result.env;
             }
-          } else {
+          }
+
+          const handlerFnType = handlerFn.specializedType ?? handlerFn.type;
+          // For abort type-checking, the enclosing return type should be the
+          // handler's definition-site enclosing function's return type, NOT the
+          // call-site function's return type. E.g., handler defined in main (-> unit)
+          // but inlined at compute (-> i32): abort () should match main's unit.
+          // When definitionSiteEnclosingFunctionType is undefined (e.g., handler
+          // defined in a test block), default to unit — abort exits the top-level scope.
+          const enclosingReturnType =
+            handlerFn.definitionSiteEnclosingFunctionType?.return.type ??
+            createUnitType();
+
+          const handlerContext: EvaluatorContext = {
+            ...context,
+            expectedType: undefined,
+            enclosingFunctionReturnType: enclosingReturnType,
+            isEvaluatingFunctionBodyOrAsyncBlock: {
+              kind: "function-body",
+              type: handlerFnType,
+              value: handlerFn,
+              evaluationEnv: handlerEnv,
+            },
+          };
+
+          try {
+            const evaluatedBody = _evaluateExpression({
+              expr: clonedHandlerFnBody,
+              env: handlerEnv,
+              context: handlerContext,
+            });
+
+            const reEvaluatedHandler: FunctionValue = {
+              ...handlerFn,
+              body: evaluatedBody,
+            };
+            effectAnalysis.handlerValue = reEvaluatedHandler;
+          } catch (e) {
+            const bodyIsStillUnevaluated =
+              exprIsFunctionCall(handlerFn.body) &&
+              handlerFn.body.args.length > 0 &&
+              !handlerFn.body.args[0]?.$;
+
+            if (bodyIsStillUnevaluated) {
+              throw e;
+            }
+
             effectAnalysis.handlerValue = handlerFn;
           }
         } else {
@@ -2749,16 +2770,25 @@ function evaluateCtlFunctionBodyInline({
   const functionType = originalFunction.type;
 
   // Determine the concrete type for the forall parameter T.
-  // For `abort` handlers, T is the enclosing function's return type.
   // For `return` handlers, T is the return type of the ctl operation at the call site.
-  const enclosingReturnType =
+  // For `abort` handlers, T can be anything (continuation is discarded), but we
+  // use the call-site type for consistent forall binding.
+  const concreteTypeForForall =
     context.isEvaluatingFunctionBodyOrAsyncBlock?.kind === "function-body"
       ? context.isEvaluatingFunctionBodyOrAsyncBlock.type.return.type
       : functionType.return.type;
 
+  // For abort type-checking, the enclosing return type should be from the handler's
+  // definition-site enclosing function (e.g., main -> unit), not the call-site.
+  // When definitionSiteEnclosingFunctionType is undefined (e.g., handler defined
+  // in a test block), default to unit.
+  const enclosingReturnType =
+    originalFunction.definitionSiteEnclosingFunctionType?.return.type ??
+    createUnitType();
+
   // Check specialization cache using a type-based signature
   const ctlSignature = sanitizeForCIdentifier(
-    typeToString(enclosingReturnType)
+    typeToString(concreteTypeForForall)
   );
   const existingCache = originalFunction.specializedFunctionCaches.find(
     (cache) =>
@@ -2796,8 +2826,8 @@ function evaluateCtlFunctionBodyInline({
   }
 
   for (const forallParam of functionType.forallParameters) {
-    // Map the forall type variable to the concrete type
-    const concreteType = enclosingReturnType;
+    // Map the forall type variable to the concrete call-site type
+    const concreteType = concreteTypeForForall;
     const { env: nextEnv } = addVariableToEnv({
       env: specializedEnv,
       variable: {

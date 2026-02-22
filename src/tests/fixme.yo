@@ -3,21 +3,24 @@ open import "std/fmt";
 
 Raise :: (fn(forall(T : Type), msg : String) -> T);
 
-might_fail :: (fn(using(raise : Raise)) -> i32)(
-  raise(`oops`)
-);
-
-run :: (fn(forall(T : Type, ...(E)),
-    f : (fn(using(...(E))) -> T),
-    using(...(E))) -> T)(f());
-
 main :: (fn() -> unit) {
+  safe_divide :: (fn(x : i32, y : i32, using(raise : Raise)) -> i32)(
+    cond(
+      (y == 0) => raise(`division by zero`),
+      true => (x / y)
+    )
+  );
+
+  compute :: (fn(a : i32, b : i32, using(raise : Raise)) -> i32)(
+    (safe_divide(a, b) + i32(10))
+  );
+
   (given(raise) : Raise) = ((msg) -> {
     println(msg);
-    return i32(42);
+    abort ();
   });
-  result := run(might_fail);
-  assert(result == i32(42), "effect polymorphism: should be 42");
-  println("pass");
+  b := Box(i32)(12);
+  result := compute(50, 0);
+  assert(false, "Expected to abort");
 };
 export main;

@@ -12,6 +12,7 @@ import type { AwaitAnalysisResult } from "./evaluator/async/await-analysis-types
 import type { EvaluatorContext } from "./evaluator/context";
 import type { EffectAnalysisResult } from "./evaluator/effects/effect-analysis-types";
 import { evaluateExpression } from "./evaluator/exprs/expr";
+import { typeImplementsFn } from "./evaluator/trait-checking";
 import { generateExprFromCode } from "./parser";
 import { type Token, TokenType } from "./token";
 import { areTypesCompatible } from "./types/compatibility";
@@ -434,6 +435,16 @@ export function evaluatedBodyContainsAbort(expr: Expr): boolean {
     ) {
       return false;
     }
+    // Skip closure type calls: WrapperType(closureBody) where WrapperType is SomeType or DynType containing a FnTraitType
+    if (
+      exprIsFunctionCall(expr.func) &&
+      expr.func.$?.value !== undefined &&
+      isTypeValue(expr.func.$.value) &&
+      typeImplementsFn(expr.func.$.value.value)
+    ) {
+      return false;
+    }
+
     // Recurse into function call's func and args
     if (evaluatedBodyContainsAbort(expr.func)) {
       return true;

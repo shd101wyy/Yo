@@ -7,6 +7,7 @@
 
 import { getVariablesFromEnv } from "../../env";
 import type { AwaitPoint } from "../../evaluator/async/await-analysis";
+import { typeImplementsFn } from "../../evaluator/trait-checking";
 import {
   BuiltinFunctions,
   BuiltinKeywords,
@@ -1873,6 +1874,16 @@ export function exprContainsAwait(expr: Expr): boolean {
       exprIsFunctionCallOf(expr, ["->", "=>"]) ||
       (isTypeValue(expr.func.$?.value) &&
         isFunctionType(expr.func.$.value.value))
+    ) {
+      return false;
+    }
+
+    // Skip closure type calls: WrapperType(closureBody) where WrapperType is SomeType or DynType containing a FnTraitType
+    if (
+      exprIsFunctionCall(expr.func) &&
+      expr.func.$?.value !== undefined &&
+      isTypeValue(expr.func.$.value) &&
+      typeImplementsFn(expr.func.$.value.value)
     ) {
       return false;
     }
