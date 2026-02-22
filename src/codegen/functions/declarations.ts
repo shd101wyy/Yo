@@ -79,8 +79,15 @@ export function generateFunctionDeclarations(
   for (const funcId in context.functions) {
     const { cName, value } = context.functions[funcId]!;
 
+    const isUnspecializedFunction =
+      isFunctionSpecializable(value.type) &&
+      !value.specializedType &&
+      value.specializedFunctionCaches.length === 0;
+
     if (
-      (isFunctionSpecializable(value.type) && !value.type.isClosure) ||
+      (isFunctionSpecializable(value.type) &&
+        !value.type.isClosure &&
+        !isUnspecializedFunction) ||
       isComptimeFunction(value) ||
       isFunctionValueWithOnlyBuiltinYoInlineFunctionCall(value)
     ) {

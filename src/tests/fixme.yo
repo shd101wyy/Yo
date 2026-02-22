@@ -1,50 +1,5 @@
-open import "std/libc/stdio";
-open import "std/string";
-open import "std/fmt";
-file :: import "std/io/file";
-{ platform, Platform } :: import "std/process";
-
-main :: (fn() -> unit) {
-  async {
-    cond(
-      (platform == Platform.Linux) => {
-        fd := i32(1);
-
-        trunc := await file.ftruncate(fd, i64(4096));
-        printf("trunc = %d\n", trunc);
-
-        wr1 := await file.write(fd, *(u8)("Z"), u32(1), u64(1024));
-        printf("wr1 = %d\n", wr1);
-
-        zero_ret := i32(0);
-        cond(
-          (zero_ret == i32(0)) => {
-            rd := await file.read(fd, *(u8)("Z"), u32(1), u64(1024));
-            printf("rd = %d\n", rd);
-          },
-          true => {
-            printf("zero_ret failed\n");
-          }
-        );
-
-        punch_ret := i32(0);
-        cond(
-          (punch_ret == i32(0)) => {
-            rd2 := await file.read(fd, *(u8)("Z"), u32(1), u64(2048));
-            printf("rd2 = %d\n", rd2);
-          },
-          true => {
-            printf("punch_ret failed\n");
-          }
-        );
-
-        close_ret := await file.close(fd);
-        printf("close_ret = %d\n", close_ret);
-      },
-      true => {
-        printf("skipping\n");
-      }
-    );
-  };
+main :: (fn(using(io : IO)) -> unit) {
+  return ();
 };
+
 export main;

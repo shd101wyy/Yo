@@ -207,8 +207,19 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
     const isSpecializedImplMethod =
       value.specializedType && !isFunctionSpecializable(value.type);
 
+    // Functions that are technically specializable (e.g., have using(...) implicit
+    // params) but were never actually specialized should be generated directly.
+    // This happens for functions like `main :: (fn(using(io : IO)) -> unit)`
+    // which are only called from the C wrapper, not from Yo code.
+    const isUnspecializedFunction =
+      isFunctionSpecializable(value.type) &&
+      !value.specializedType &&
+      value.specializedFunctionCaches.length === 0;
+
     if (
-      (isFunctionSpecializable(value.type) && !value.type.isClosure) ||
+      (isFunctionSpecializable(value.type) &&
+        !value.type.isClosure &&
+        !isUnspecializedFunction) ||
       (value.specializedType && !isSpecializedImplMethod) ||
       isComptimeFunction(value) ||
       isFunctionValueWithOnlyBuiltinYoInlineFunctionCall(value)
