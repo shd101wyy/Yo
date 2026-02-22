@@ -1,3 +1,7 @@
+import {
+  isIoAsyncCall,
+  isIoAwaitCall,
+} from "../../evaluator/async/await-analysis";
 import { typeImplementsFuture } from "../../evaluator/trait-checking";
 import {
   BuiltinFunctions,
@@ -391,6 +395,11 @@ function generateFuncCall(
     return generateAsyncBlock(expr, indent, context);
   }
 
+  // io.async(closure) - creates a Future from closure body
+  if (isIoAsyncCall(expr) && expr.$?.awaitAnalysis) {
+    return generateAsyncBlock(expr, indent, context);
+  }
+
   // dyn() - dynamic dispatch constructor
   if (exprIsFunctionCallOf(expr, BuiltinKeywords.dyn)) {
     return generateDynCall(expr, indent, context);
@@ -398,6 +407,11 @@ function generateFuncCall(
 
   // await - extract value from Future
   if (exprIsFunctionCallOf(expr, BuiltinFunctions.await)) {
+    return generateAwait(expr, indent, context);
+  }
+
+  // io.await(future) - extract value from Future (via IO module)
+  if (isIoAwaitCall(expr)) {
     return generateAwait(expr, indent, context);
   }
 

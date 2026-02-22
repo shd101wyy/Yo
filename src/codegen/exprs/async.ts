@@ -1,3 +1,4 @@
+import { isIoAsyncCall } from "../../evaluator/async/await-analysis";
 import type { AwaitAnalysisResult } from "../../evaluator/async/await-analysis-types";
 import {
   extractFutureTraitFromType,
@@ -42,7 +43,8 @@ export function generateAsyncBlock(
   indent: string,
   context: FunctionGenerationContext
 ): string {
-  const bodyExpr = expr.args[0];
+  // For io.async(closure) calls, use the closure body stored during evaluation
+  const bodyExpr = expr.$?.ioAsyncClosureBody ?? expr.args[0];
   if (!bodyExpr) {
     return `/* Error: async requires exactly 1 argument */`;
   }
@@ -1001,6 +1003,32 @@ function preRegisterAsyncBlocksInExpr(
           // The full struct definition will be emitted later during generateAsyncBlock
           context.emitter.emitDeclarationLine(
             `typedef struct ${structName}_struct ${structName}; // Forward declaration for async state machine`
+          );
+        }
+      }
+    }
+
+    // Check if this is an io.async(closure) call
+    if (isIoAsyncCall(expr) && expr.$?.awaitAnalysis) {
+      const futureType = expr.$?.type;
+      if (futureType && typeImplementsFuture(futureType)) {
+        const futureModuleType = extractFutureTraitFromType(futureType);
+        if (futureModuleType) {
+          const asyncBlockId =
+            expr.$?.variableName || `io_async_block_${Date.now()}`;
+          const structName = `${asyncBlockId}_state_t`;
+
+          if (expr.$) {
+            expr.$.asyncStateMachineStructName = structName;
+          }
+
+          context.types[futureType.id] = {
+            type: futureType,
+            cName: structName,
+          };
+
+          context.emitter.emitDeclarationLine(
+            `typedef struct ${structName}_struct ${structName}; // Forward declaration for io.async state machine`
           );
         }
       }

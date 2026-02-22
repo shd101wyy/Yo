@@ -1,10 +1,17 @@
+import { isIoAwaitCall } from "../../evaluator/async/await-analysis";
 import {
   extractFutureTraitFromType,
   typeImplementsFuture,
 } from "../../evaluator/trait-checking";
 import type { FnCallExpr } from "../../expr";
+import { isUnitType } from "../../types/guards";
 import type { FunctionGenerationContext } from "../functions/context";
-import type { CodeGenContext } from "../utils";
+import {
+  getTypeString,
+  getVariableTypeString,
+  type CodeGenContext,
+} from "../utils";
+import { generateExpr } from "./expr";
 
 /**
  * await - extract value from Future
@@ -19,7 +26,6 @@ export function generateAwait(
     return `// Error: await requires exactly 1 argument`;
   }
 
-  // const futureCode = generateExpr(futureArg, indent, context);
   const futureType = futureArg.$?.type;
 
   // Check if the type implements Future (handles both FutureTraitType and SomeType with Future impl)
@@ -41,6 +47,35 @@ export function generateAwait(
     // Return empty string - the actual await logic is handled by state machine generator
     // The result will be available in the target variable in the next state
     return ``;
+  }
+
+  // For io.await outside a state machine, generate synchronous blocking wait
+  if (isIoAwaitCall(expr)) {
+    const futureCode = generateExpr(futureArg, indent, context);
+    const futureTypeName = getTypeString(futureType, context);
+    const resultType = futureModuleType.isFuture.outputType;
+    const emitter = functionContext.emitter;
+
+    emitter.emitLine(
+      `${indent}// Synchronous await (io.await outside state machine)`
+    );
+    emitter.emitLine(
+      `${indent}${futureTypeName} __sync_future = ${futureCode};`
+    );
+    emitter.emitLine(
+      `${indent}while (atomic_load_explicit(&__sync_future->state, memory_order_acquire) != -1) {`
+    );
+    emitter.emitLine(`${indent}  yo_async_run_ready_tasks();`);
+    emitter.emitLine(`${indent}}`);
+
+    if (!isUnitType(resultType)) {
+      const resultVar = expr.$?.variableName || `__sync_await_result`;
+      const varDecl = getVariableTypeString(resultType, resultVar, context);
+      emitter.emitLine(`${indent}${varDecl} = __sync_future->result;`);
+      return resultVar;
+    } else {
+      return ``;
+    }
   }
 
   // Outside async context - this is an error

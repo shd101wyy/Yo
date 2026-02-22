@@ -32,7 +32,12 @@ import type {
   StructType,
   Type,
 } from "../../types/definitions";
-import { isDynType, isFunctionType, isSomeType } from "../../types/guards";
+import {
+  isDynType,
+  isFunctionType,
+  isModuleType,
+  isSomeType,
+} from "../../types/guards";
 import {
   convertComptimeTypeToRuntimeType,
   typeContainsSomeType,
@@ -41,6 +46,7 @@ import {
 import { randomId } from "../../utils";
 import { createUnknownValue, type Value } from "../../value";
 import { ValueTag } from "../../value-tag";
+import { analyzeAwaitPoints } from "../async/await-analysis";
 import { createFunctionBodyEvaluationContext } from "../calls/function-type";
 import { type EvaluatorContext } from "../context";
 import { analyzeCtfeCapability } from "../ctfe/ctfe-analysis";
@@ -525,6 +531,19 @@ Got:      "${paramName}"`,
   // state machines for functions that call this handler through `using`.
   if (evaluatedBodyContainsAbort(evaluatedBody)) {
     functionValue.isControlFunction = true;
+  }
+
+  // For functions with using(IO) implicit parameters, run await analysis
+  // on the body to detect io.await calls and mark the function as async.
+  // This enables the codegen to generate the function as a state machine.
+  if (
+    evaluatedBody.$ &&
+    functionType.implicitParameters.some((p) => isModuleType(p.type))
+  ) {
+    const awaitAnalysis = analyzeAwaitPoints(evaluatedBody);
+    if (awaitAnalysis.hasAwaits) {
+      evaluatedBody.$.awaitAnalysis = awaitAnalysis;
+    }
   }
 
   // Check if the return type is compatible

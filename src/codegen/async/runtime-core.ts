@@ -101,6 +101,21 @@ void yo_async_spawn_task(void (*resume_fn)(void*), void* state_machine) {
   yo_async_enqueue_continuation(resume_fn, state_machine);
 }
 
+// Process all ready tasks in the queue (non-blocking).
+// Used by synchronous io.await to drain the task queue and allow futures to complete.
+void yo_async_run_ready_tasks(void) {
+  while (yo_thread_async_queue.head) {
+    yo_continuation_t* cont = yo_thread_async_queue.head;
+    yo_thread_async_queue.head = cont->next;
+    if (!yo_thread_async_queue.head) {
+      yo_thread_async_queue.tail = NULL;
+    }
+    yo_thread_async_queue.count--;
+    cont->resume_fn(cont->state_machine);
+    __yo_free(cont);
+  }
+}
+
 // Run event loop until a specific Future completes (for async main)
 // The Future must have an '_Atomic int state' field at offset 0
 // State -1 means completed

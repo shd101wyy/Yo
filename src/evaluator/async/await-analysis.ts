@@ -14,6 +14,7 @@ import {
   ExprTag,
 } from "../../expr";
 import { TokenType } from "../../token";
+
 import {
   extractFutureTraitFromType,
   typeImplementsFuture,
@@ -444,6 +445,23 @@ function walkExprForAwaits(
         break;
       }
 
+      // Also skip io.async(closure) bodies - these create their own state machines
+      if (isIoAsyncCall(expr)) {
+        if (expr.$?.deferredDupExpressions) {
+          for (const dupExpr of expr.$.deferredDupExpressions) {
+            walkExprForAwaits(
+              dupExpr,
+              awaitPoints,
+              capturedVariables,
+              nameFrameToOriginalId,
+              variableIdRemapping,
+              expr
+            );
+          }
+        }
+        break;
+      }
+
       walkExprForAwaits(
         expr.func,
         awaitPoints,
@@ -485,9 +503,31 @@ function walkExprForAwaits(
 
 /**
  * Checks if an expression is an await function call.
+ * Matches both `await(future)` builtin and `io.await(future)` module field call.
  */
 function isAwaitCall(expr: Expr): boolean {
-  return exprIsFunctionCallOf(expr, BuiltinFunctions.await);
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.await)) {
+    return true;
+  }
+  return isIoAwaitCall(expr);
+}
+
+/**
+ * Checks if an expression is an io.async(closure) call.
+ * Uses the isIoAsync flag set by the evaluator during function call processing.
+ */
+export function isIoAsyncCall(expr: Expr): boolean {
+  if (expr.tag !== ExprTag.FnCall) return false;
+  return expr.$?.isIoAsync === true;
+}
+
+/**
+ * Checks if an expression is an io.await(future) call.
+ * Uses the isIoAwait flag set by the evaluator during function call processing.
+ */
+export function isIoAwaitCall(expr: Expr): boolean {
+  if (expr.tag !== ExprTag.FnCall) return false;
+  return expr.$?.isIoAwait === true;
 }
 
 /**

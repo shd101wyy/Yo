@@ -62,6 +62,7 @@ import {
   type Value,
   valueToString,
 } from "../../value";
+import { analyzeAwaitPoints } from "../async/await-analysis";
 import {
   type EvaluatorContext,
   type FunctionCallResult,
@@ -1610,6 +1611,90 @@ ${functionsWithMatchingTypes.map((matchedFunction) => `${typeToString(matchedFun
           value: specializedFunctionValue || functionToCall.value,
           pathCollection: [],
         };
+      }
+
+      // Detect io.async/io.await calls structurally by checking if the callee
+      // is a module field access on a module type with 'async' and 'await' fields.
+      // We can't use externName because module field types don't carry it.
+      let isIoAsyncDetected = false;
+      let isIoAwaitDetected = false;
+      if (exprIsFunctionCall(func) && exprIsFunctionCallOf(func, ".", 2)) {
+        const receiverExpr = func.args[0];
+        const propertyExpr = func.args[1];
+        if (
+          receiverExpr?.$?.type &&
+          isModuleType(receiverExpr.$.type) &&
+          exprIsAtom(propertyExpr)
+        ) {
+          const moduleType = receiverExpr.$.type;
+          const fieldName = propertyExpr.token.value;
+          const hasAsyncField = moduleType.fields.some(
+            (f) => f.label === "async" && isFunctionType(f.type)
+          );
+          const hasAwaitField = moduleType.fields.some(
+            (f) => f.label === "await" && isFunctionType(f.type)
+          );
+          if (hasAsyncField && hasAwaitField) {
+            if (fieldName === "async") isIoAsyncDetected = true;
+            if (fieldName === "await") isIoAwaitDetected = true;
+          }
+        }
+      }
+
+      // Set isIoAwait flag on the expression
+      if (isIoAwaitDetected && expr.$) {
+        expr.$.isIoAwait = true;
+      }
+
+      // Post-process io.async(closure) calls: attach async metadata so codegen
+      // can generate a state machine from the closure body, just like async { body }.
+      if (isIoAsyncDetected && expr.$) {
+        expr.$.isIoAsync = true;
+        // Find the closure argument from runtime args
+        const closureArgExpr = runtimeArgExprsInOrder?.[0];
+        if (closureArgExpr?.$) {
+          // Get the FunctionValue: either from closureFunctionValue (closure with captures)
+          // or directly from the value (simple function)
+          const closureFV =
+            closureArgExpr.$.closureFunctionValue ||
+            (closureArgExpr.$.value && isFunctionValue(closureArgExpr.$.value)
+              ? closureArgExpr.$.value
+              : undefined);
+
+          if (closureFV && closureFV.body) {
+            const closureBody = closureFV.body;
+
+            // Run await analysis on the closure body
+            const awaitAnalysis = analyzeAwaitPoints(closureBody);
+
+            // Get capture type from the closure (if any)
+            const closureCaptureType = closureArgExpr.$.captureType;
+
+            // Filter out outer captured variables from awaitAnalysis
+            if (closureCaptureType) {
+              const outerVarNames = new Set(
+                closureCaptureType.fields.map((f) => f.label)
+              );
+              awaitAnalysis.capturedVariables =
+                awaitAnalysis.capturedVariables.filter(
+                  (v) => !outerVarNames.has(v.name)
+                );
+            }
+
+            // Attach async metadata to the io.async call expression
+            expr.$.awaitAnalysis = awaitAnalysis;
+            expr.$.captureType = closureCaptureType;
+            expr.$.deferredDupExpressions =
+              closureArgExpr.$.deferredDupExpressions;
+            expr.$.ioAsyncClosureBody = closureBody;
+
+            // Set resolvedConcreteType on the SomeType so codegen can find the struct
+            if (isSomeType(expr.$.type)) {
+              (expr.$.type as SomeType).resolvedConcreteType =
+                closureCaptureType;
+            }
+          }
+        }
       }
     }
 

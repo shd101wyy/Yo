@@ -411,10 +411,19 @@ export function isFunctionSpecializable(functionType: FunctionType): boolean {
   }
 
   // Check if this function has compile-time parameters and needs specialization
+  // NOTE: implicitParameters are checked separately below because
+  // module-typed-only implicit params (e.g., using(io : IO)) don't require
+  // per-call-site specialization — they're resolved at compile time.
   const hasCompileTimeParams =
     functionType.parameters.some((p) => p.isCompileTimeOnly) ||
-    functionType.forallParameters.length > 0 ||
-    functionType.implicitParameters.length > 0;
+    functionType.forallParameters.length > 0;
+
+  // Implicit parameters require specialization UNLESS they are all module-typed.
+  // Module-typed implicit params are compile-time constants resolved via `given` bindings
+  // and don't produce different code per call site.
+  const hasSpecializableImplicitParams =
+    functionType.implicitParameters.length > 0 &&
+    !functionType.implicitParameters.every((p) => isModuleType(p.type));
 
   // Check if this function has SomeType parameters (like Impl(Fn(...)))
   // that need monomorphization for different concrete types
@@ -425,7 +434,9 @@ export function isFunctionSpecializable(functionType: FunctionType): boolean {
       !typeImplementsFuture(p.type)
   );
 
-  return hasCompileTimeParams || hasSomeTypeParams;
+  return (
+    hasCompileTimeParams || hasSpecializableImplicitParams || hasSomeTypeParams
+  );
 }
 
 /**
