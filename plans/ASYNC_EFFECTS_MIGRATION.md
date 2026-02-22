@@ -2,12 +2,12 @@
 
 ## Overview
 
-This plan describes how to migrate Yo's `async`/`await` from built-in keywords to **algebraic effect operations** within an `Async` module. The async event loop becomes the built-in effect handler for the `Async` effect.
+This plan describes how to migrate Yo's `async`/`await` from built-in keywords to **algebraic effect operations** within an `IO` module. The async event loop becomes the built-in effect handler for the `IO` effect.
 
 ## Current Status (2026-02-22)
 
 - ✅ Async/await with heap-allocated state machines: 51 tests passing
-- ✅ Algebraic effects with stack-allocated state machines: 29 tests passing
+- ✅ Algebraic effects with stack-allocated state machines: 30 tests passing
 - ❌ No interaction between the two systems (effect analysis skips async blocks and vice versa)
 - ❌ Cannot combine effects and async in the same function
 
@@ -15,33 +15,33 @@ This plan describes how to migrate Yo's `async`/`await` from built-in keywords t
 
 ## Design Decisions
 
-### Naming: `Async` (not `IO`)
+### Naming: `IO` (not `Async`)
 
-**Decision: Use `Async`**
+**Decision: Use `IO`**
 
-| Option  | Pros                                                                        | Cons                                                                             |
-| ------- | --------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| `IO`    | Classic FP name (Haskell), concise                                          | Conflicts with existing `std/io/` module (file ops, network, etc.), overly broad |
-| `Async` | Descriptive of mechanism, no conflicts, matches `async`/`await` terminology | Slightly longer                                                                  |
+| Option  | Pros                                                          | Cons                                                              |
+| ------- | ------------------------------------------------------------- | ----------------------------------------------------------------- |
+| `IO`    | Classic FP name (Haskell), concise, used by Zig 0.15+         | Name overlap with `std/io/` module (addressable with namespacing) |
+| `Async` | Descriptive of mechanism, matches `async`/`await` terminology | Less idiomatic in FP tradition                                    |
 
 Reasoning:
 
-- `std/io/` already provides file, network, and socket operations — naming the effect module `IO` would confuse the async runtime with specific IO operations
-- The module specifically provides `async` (create future) and `await` (suspend until ready), both async-specific operations
-- `Async` is self-documenting and matches the terminology used in C#, JavaScript, Python, etc.
+- `IO` follows the classic FP tradition (Haskell's IO monad, Zig 0.15+'s `Io`), unifying all effectful operations under one roof
+- Async concurrency IS an IO effect — waiting for I/O to complete is fundamentally IO
+- Potential overlap with `std/io/` module can be addressed via namespacing or module aliasing; user can write `{ IO } :: import "std/builtin/io"` vs `io :: import "std/io"`
 
 ### Module Definition
 
 ```yo
-Async :: module(
+IO :: module(
   async : (fn(forall(T : Type, ...(E)), action : Impl(Fn(using(...(E))) -> T)) -> Impl(Future(T))),
   await : (fn(forall(T : Type), fut : Impl(Future(T))) -> T)
 );
 ```
 
-**`Async.async`** — Creates a Future from a closure. Starts eager execution (runs until first `await` inside the closure). The `...(E)` effect row parameter allows the closure to carry other effects (e.g., `Raise`, `Log`).
+**`IO.async`** — Creates a Future from a closure. Starts eager execution (runs until first `await` inside the closure). The `...(E)` effect row parameter allows the closure to carry other effects (e.g., `Raise`, `Log`).
 
-**`Async.await`** — The core suspension point. Takes a Future and returns its result when ready. This is the operation that makes a function "async-colored" — any function calling `await` (directly or transitively) must have `using(Async)` in its signature or handle the effect.
+**`IO.await`** — The core suspension point. Takes a Future and returns its result when ready. This is the operation that makes a function "async-colored" — any function calling `await` (directly or transitively) must have `using(IO)` in its signature or handle the effect.
 
 ### Why `await` is an Effect
 
@@ -51,7 +51,7 @@ In the current algebraic effect model, an effect operation:
 2. Transfers control to the handler
 3. The handler can `return(value)` (resume) or `abort` (discard)
 
-For `Async.await`:
+For `IO.await`:
 
 1. The function suspends at the `await` call point
 2. The handler (event loop) receives the Future argument
@@ -60,7 +60,7 @@ For `Async.await`:
 
 The "deferred resume" is a **third handler mode** beyond `return`/`abort`:
 
-| Handler Action  | Current Effects                       | Async Effects                                         |
+| Handler Action  | Current Effects                       | IO Effects (via `IO.await`)                           |
 | --------------- | ------------------------------------- | ----------------------------------------------------- |
 | `return(value)` | Resume SM immediately                 | Resume SM immediately (future was ready)              |
 | `abort expr`    | Discard SM, return from handler scope | N/A for await                                         |
@@ -68,13 +68,13 @@ The "deferred resume" is a **third handler mode** beyond `return`/`abort`:
 
 This "deferred resume" is the key extension to the effect handler model.
 
-### How `Async` Handler is Provided
+### How the `IO` Handler is Provided
 
-**Decision: `main :: (fn(using(io : Async)) -> unit)` with runtime-provided handler**
+**Decision: `main :: (fn(using(io : IO)) -> unit)` with runtime-provided handler**
 
 ```yo
-// The runtime automatically provides the Async handler to main
-main :: (fn(using(io : Async)) -> unit) {
+// The runtime automatically provides the IO handler to main
+main :: (fn(using(io : IO)) -> unit) {
   future := io.async((using(io)) => fetch("http://example.com"));
   result := io.await(future);
   println(result);
@@ -83,7 +83,7 @@ main :: (fn(using(io : Async)) -> unit) {
 
 The generated C `main()` wrapper:
 
-1. Creates the `Async` handler (backed by the event loop)
+1. Creates the `IO` handler (backed by the event loop)
 2. Passes it to `__yo_user_main(async_handler)`
 3. Runs the event loop until `main` completes
 
@@ -108,13 +108,13 @@ Rejection reasons:
 Programs that don't use async effects can still have a plain `main`:
 
 ```yo
-// This still works — no Async effect needed for sync programs
+// This still works — no IO effect needed for sync programs
 main :: (fn() -> unit) {
   println("Hello, world!");
 };
 ```
 
-The codegen detects whether `main` has `using(Async)` and generates the appropriate wrapper.
+The codegen detects whether `main` has `using(IO)` and generates the appropriate wrapper.
 
 ---
 
@@ -132,7 +132,7 @@ main :: (fn() -> unit) {
 };
 
 // AFTER (with effects):
-main :: (fn(using(io : Async)) -> unit) {
+main :: (fn(using(io : IO)) -> unit) {
   result := io.await(fetch("http://example.com"));
   println(result);
 };
@@ -154,7 +154,7 @@ main :: (fn() -> unit) {
 };
 
 // AFTER:
-main :: (fn(using(io : Async)) -> unit) {
+main :: (fn(using(io : IO)) -> unit) {
   f1 := io.async((using(io)) => fetch(url1));
   f2 := io.async((using(io)) => fetch(url2));
   r1 := io.await(f1);
@@ -173,7 +173,7 @@ fetch :: (fn(url : String) -> Impl(Future(String)))(async {
 });
 
 // AFTER:
-fetch :: (fn(url : String, using(io : Async)) -> String) {
+fetch :: (fn(url : String, using(io : IO)) -> String) {
   response := io.await(http_get(url));
   body := io.await(response.read_body());
   body
@@ -183,17 +183,17 @@ fetch :: (fn(url : String, using(io : Async)) -> String) {
 Key differences:
 
 - Return type is `String` (not `Impl(Future(String))`) — the effect system handles the async coloring
-- `using(io : Async)` declares the function uses async effects
+- `using(io : IO)` declares the function uses async effects
 - No `async { ... }` block needed — the function body IS the async body
-- Callers must either propagate `using(io : Async)` or handle it
+- Callers must either propagate `using(io : IO)` or handle it
 
 ### Combining Async with Other Effects
 
 ```yo
 Raise :: (fn(forall(T : Type), msg : String) -> T);
 
-// Function uses both Async and Raise effects
-fetch_or_fail :: (fn(url : String, using(io : Async, raise : Raise)) -> String) {
+// Function uses both IO and Raise effects
+fetch_or_fail :: (fn(url : String, using(io : IO, raise : Raise)) -> String) {
   result := io.await(http_get(url));
   cond(
     (result.status != i32(200)) => raise(`HTTP error`),
@@ -201,7 +201,7 @@ fetch_or_fail :: (fn(url : String, using(io : Async, raise : Raise)) -> String) 
   )
 };
 
-main :: (fn(using(io : Async)) -> unit) {
+main :: (fn(using(io : IO)) -> unit) {
   (given(raise) : Raise) = ((msg) -> {
     println(`Error: `, msg);
     abort ();
@@ -219,7 +219,7 @@ main :: (fn(using(io : Async)) -> unit) {
 spawn_task :: (fn(
     forall(T : Type, ...(E)),
     action : Impl(Fn(using(...(E))) -> T),
-    using(io : Async, ...(E))
+    using(io : IO, ...(E))
   ) -> Impl(Future(T)))(
   io.async(action)
 );
@@ -229,7 +229,7 @@ spawn_task :: (fn(
 
 ```yo
 // std/async.yo
-yield :: (fn(using(io : Async)) -> unit) {
+yield :: (fn(using(io : IO)) -> unit) {
   io.await(immediately_ready_future());
 };
 ```
@@ -238,11 +238,11 @@ yield :: (fn(using(io : Async)) -> unit) {
 
 ## Architecture Analysis
 
-### Current Async State Machine (heap-allocated)
+### Current Async State Machine (heap-allocated, pre-migration)
 
 ```
 ┌──────────────────────────────────────────┐
-│ Async State Machine (heap, RC-managed)   │
+│ Async State Machine (heap, RC-managed)   │  <- pre-migration
 ├──────────────────────────────────────────┤
 │ yo_ref_header_t header;     // RC        │
 │ _Atomic int state;          // 0..N, -1  │
@@ -299,7 +299,7 @@ yield :: (fn(using(io : Async)) -> unit) {
 
 A unified system would:
 
-1. Use **heap allocation** for functions with `Async` effect (futures must outlive scope)
+1. Use **heap allocation** for functions with `IO` effect (futures must outlive scope)
 2. Use **stack allocation** for functions with only synchronous effects (one-shot, scoped)
 3. Support **both async and sync effects in the same function** — heap-allocated SM with both await points and effect yield points
 4. Generate **event loop integration** for async effects and **inline handler code** for sync effects
@@ -308,15 +308,15 @@ A unified system would:
 
 ## Migration Phases
 
-### Phase 0: Define the Async Module Type (Evaluator Only)
+### Phase 0: Define the IO Module Type (Evaluator Only)
 
-**Goal**: Define the `Async` module as a built-in type that the evaluator recognizes. No codegen changes.
+**Goal**: Define the `IO` module as a built-in type that the evaluator recognizes, exposed via `prelude.yo` so it is always in scope. No codegen changes.
 
 **Steps**:
 
-1. **Define `Async` module type in the evaluator** (`src/evaluator/` or `src/types/`)
+1. **Define `IO` module type in the evaluator** (`src/evaluator/` or `src/types/`)
 
-   - Add `Async` as a built-in module type recognized by the compiler
+   - Add `IO` as a built-in module type recognized by the compiler
    - Define the two effect operations:
      ```
      async : (fn(forall(T : Type, ...(E)), action : Impl(Fn(using(...(E))) -> T)) -> Impl(Future(T)))
@@ -325,15 +325,15 @@ A unified system would:
    - Mark `await` as a control function (it's the suspension point)
    - `async` is NOT a control function (it creates a future, doesn't suspend the caller)
 
-2. **Support `using(io : Async)` in function signatures**
+2. **Support `using(io : IO)` in function signatures**
 
    - The evaluator already supports `using(name : ModuleType)` with auto-destructuring
-   - `Async` module works with existing `using` infrastructure
-   - Functions with `using(io : Async)` are typed as effectful
+   - `IO` module works with existing `using` infrastructure
+   - Functions with `using(io : IO)` are typed as effectful
 
 3. **Recognize `io.await(future)` as an async await point**
 
-   - When evaluating `io.await(future)` where `io : Async`:
+   - When evaluating `io.await(future)` where `io : IO`:
      - Check `context.isEvaluatingFunctionBodyOrAsyncBlock` has appropriate kind
      - Extract `T` from `Future(T)` (same as current `evaluateAwait`)
      - Attach await metadata to the expression
@@ -341,19 +341,25 @@ A unified system would:
 
 4. **Recognize `io.async(closure)` as a future constructor**
 
-   - When evaluating `io.async(closure)` where `io : Async`:
+   - When evaluating `io.async(closure)` where `io : IO`:
      - Evaluate the closure to get its return type `T`
      - Create `Impl(Future(T))` type (same as current `evaluateAsync`)
      - Attach async block metadata (capture type, await analysis)
 
-5. **Support `main :: (fn(using(io : Async)) -> unit)`**
+5. **Support `main :: (fn(using(io : IO)) -> unit)`**
 
    - The evaluator allows `main` to have implicit `using` parameters
-   - Resolve `Async` handler from a built-in `given` binding
+   - Resolve the `IO` handler from a built-in compiler-provided `given` binding
 
-6. **Tests**: Evaluator-level tests that type-check the new syntax without running codegen
+6. **Expose `IO` in `prelude.yo`**
 
-**Deliverables**: Functions can be typed with `using(io : Async)`, evaluator recognizes `io.await` and `io.async` as built-in operations and attaches the same metadata as current `await`/`async { ... }`.
+   - Add `IO` to `std/prelude.yo` so every program has it in scope without an explicit import
+   - The compiler injects a built-in `given(io) := __builtin_io_handler` into the top-level `main` scope
+   - No user code is required to import or construct the handler
+
+7. **Tests**: Evaluator-level tests that type-check the new syntax without running codegen
+
+**Deliverables**: Functions can be typed with `using(io : IO)`, evaluator recognizes `io.await` and `io.async` as built-in operations and attaches the same metadata as current `await`/`async { ... }`.
 
 ### Phase 1: Codegen — `await` as Effect, `async` as Built-in (Hybrid)
 
@@ -366,7 +372,7 @@ A unified system would:
 1. **Codegen recognizes `io.await(future)` call expressions**
 
    - In `src/codegen/exprs/other-fn-call.ts` or a new dispatch path:
-     - Detect calls to `Async.await` (via module field access pattern)
+     - Detect calls to `IO.await` (via module field access pattern)
      - Generate the same async SM code as current `await` handling:
        - Store future pointer in SM field
        - Register continuation (CAS on `continuation_fn`)
@@ -375,14 +381,14 @@ A unified system would:
 
 2. **Codegen recognizes `io.async(closure)` call expressions**
 
-   - Detect calls to `Async.async`
+   - Detect calls to `IO.async`
    - Generate the same code as current `async { ... }`:
      - Create heap-allocated SM struct
      - Initialize captured variables
      - Call resume function for eager start
      - Return `Impl(Future(T))` handle
 
-3. **State machine generation for functions with `using(io : Async)`**
+3. **State machine generation for functions with `using(io : IO)`**
 
    - When a function body contains `io.await` calls:
      - Run await analysis (same as current `analyzeAwaitPoints`)
@@ -391,13 +397,13 @@ A unified system would:
      - Generate constructor and dispose functions
    - This is the same async SM infrastructure, triggered by different syntax
 
-4. **Main wrapper for `main :: (fn(using(io : Async)) -> unit)`**
+4. **Main wrapper for `main :: (fn(using(io : IO)) -> unit)`**
 
    - Generate C `main()` that:
      - Initializes the async scheduler
-     - Calls `__yo_user_main()` (the `Async` handler is implicit — the event loop IS the handler)
+     - Calls `__yo_user_main()` (the `IO` handler is implicit — the event loop IS the handler)
      - Calls `__yo_async_wait_all()`
-   - The `using(Async)` parameter is resolved at compile time to the built-in handler
+   - The `using(IO)` parameter is resolved at compile time to the built-in handler
 
 5. **Backward compatibility**: Keep `async { ... }` and `await expr` working
 
@@ -409,9 +415,9 @@ A unified system would:
 
 **Deliverables**: Programs using `io.await(future)` and `io.async(closure)` compile to the same C code as current `await`/`async { ... }`.
 
-### Phase 2: Async + Sync Effects in Same Function
+### Phase 2: IO + Sync Effects in Same Function
 
-**Goal**: Allow a function to use both `Async` and synchronous effects (e.g., `Raise`, `Log`) in the same function.
+**Goal**: Allow a function to use both `IO` and synchronous effects (e.g., `Raise`, `Log`) in the same function.
 
 **This is the hard phase.** Currently, async SM and effect SM are completely separate codegen paths.
 
@@ -422,7 +428,7 @@ A unified system would:
 The function gets an **async SM** (heap-allocated, for `await` points) with an embedded **effect SM** (for `raise`/`log` points). At `await` points, the async SM suspends normally. At effect points, the inner SM yields to the handler.
 
 ```
-┌─ Async SM (heap) ────────────────────┐
+┌─ IO SM (heap) ───────────────────────┐
 │ yo_ref_header_t header;              │
 │ _Atomic int state;                   │
 │ ResultType result;                   │
@@ -461,15 +467,15 @@ One SM handles both async and sync effects. Each suspension point (whether `awai
 
 The resume function `switch(sm->state)` has both async states and effect states:
 
-- Async states: store future, register continuation, return
-- Effect states: store yield value, set effect_tag, return (handler runs inline)
+- IO/await states: store future, register continuation, return
+- Sync effect states: store yield value, set effect_tag, return (handler runs inline)
 
 Pros: Single SM, clean state enumeration, no nesting overhead
 Cons: SM generator must handle both paradigms, more complex codegen
 
 **Recommendation**: Option B (unified). Both async and effect SMs already use the same `switch(sm->state)` pattern. The differences are:
 
-- Heap vs stack allocation → decided by presence of `Async` effect
+- Heap vs stack allocation → decided by presence of `IO` effect
 - Atomic vs plain fields → decided by allocation mode
 - Continuation registration vs inline handler → decided by effect type
 
@@ -489,17 +495,17 @@ Cons: SM generator must handle both paradigms, more complex codegen
 
 3. **Unified resume function generation**
 
-   - Each state is either an async state or an effect state
-   - Async states: generate continuation registration code
+   - Each state is either an async (IO) state or a sync effect state
+   - IO/async states: generate continuation registration code
    - Effect states: generate yield code (same as current effect SM)
 
 4. **Call site generation**
 
-   - For functions with only `Async`: generate heap SM + event loop integration (same as current async)
+   - For functions with only `IO`: generate heap SM + event loop integration (same as current async)
    - For functions with only sync effects: generate stack SM + inline handler (same as current effects)
    - For functions with both: generate heap SM + event loop + inline handlers for sync effects
 
-5. **Tests**: Functions combining `Async` + `Raise`, `Async` + `Log`, `Async` + multiple sync effects
+5. **Tests**: Functions combining `IO` + `Raise`, `IO` + `Log`, `IO` + multiple sync effects
 
 ### Phase 3: Deferred Resume for Event Loop Integration
 
@@ -514,7 +520,7 @@ For async, the event loop handler needs:
 
 - **deferred resume** → store continuation, resume later when I/O completes
 
-**Design**: The `Async.await` handler is always built-in. At the codegen level:
+**Design**: The `IO.await` handler is always built-in. At the codegen level:
 
 ```c
 // At await(future) call site in an effect-based model:
@@ -540,7 +546,7 @@ This is essentially the same code as current async await, but expressed in the e
 
 **Steps**:
 
-1. Model the `Async.await` handler body as built-in codegen (not user-written Yo code)
+1. Model the `IO.await` handler body as built-in codegen (not user-written Yo code)
 2. Generate the deferred resume pattern at `await` effect call sites
 3. Ensure RC correctness: the SM must be ref-counted since deferred resume means it outlives the call site
 
@@ -554,14 +560,14 @@ This is essentially the same code as current async await, but expressed in the e
 2. **Migrate all tests** from old syntax to new syntax:
    - `tests/async_await.test.yo` (51 tests)
    - `tests/io/*.test.yo` (32 test files)
-3. **Migrate `std/async.yo`** — `yield` function uses `using(io : Async)`
+3. **Migrate `std/async.yo`** — `yield` function uses `using(io : IO)`
 4. **Migrate `std/io/*.yo`** — IO operations return `IOFuture`, callers use `io.await`
 5. **Remove old evaluator code**: `evaluateAsync`, `evaluateAwait` in `async-fns.ts` and `future-fns.ts`
 6. **Remove old codegen code**: `src/codegen/exprs/async.ts` (replaced by effect-based codegen)
 7. **Merge SM generators**: Remove `src/codegen/async/state-machine.ts` and `src/codegen/async/state-code-gen.ts`, unified into effect SM
 8. **Keep event loop runtime**: `src/codegen/async/runtime-core.ts` and platform-specific IO still needed
 
-**Deliverables**: Only the effect-based API exists. All async functionality goes through the `Async` effect module.
+**Deliverables**: Only the effect-based API exists. All async functionality goes through the `IO` effect module.
 
 ---
 
@@ -581,7 +587,7 @@ This is essentially the same code as current async await, but expressed in the e
 - Pros: Can be intercepted by custom handlers (e.g., deterministic testing scheduler)
 - Cons: More complex, possibly unnecessary overhead
 
-**Current recommendation**: Start with Option A (regular function). The `Async` module's `async` field is a built-in function backed by compiler codegen, not a user-handleable effect. Only `await` is a true effect (suspension point).
+**Current recommendation**: Start with Option A (regular function). The `IO` module's `async` field is a built-in function backed by compiler codegen, not a user-handleable effect. Only `await` is a true effect (suspension point).
 
 If we need custom schedulers in the future, we can promote `async` to an effect.
 
@@ -598,19 +604,19 @@ Since `IOFuture = Impl(Concrete(yo_io_future_t), Future(i32))`, and `io.await` a
 
 ### 3. Interaction with `spawn` (Parallelism)
 
-`spawn` creates a task on a DIFFERENT thread (true parallelism). It's fundamentally different from `Async` (same-thread concurrency). They should remain separate:
+`spawn` creates a task on a DIFFERENT thread (true parallelism). It's fundamentally different from `IO` (same-thread concurrency). They should remain separate:
 
-- `Async` effect: single-threaded concurrency (event loop)
+- `IO` effect: single-threaded concurrency (event loop)
 - `spawn` / `Task`: multi-threaded parallelism (isolated threads)
 
-A `spawn`-ed task could use `Async` internally (its own event loop on its thread), but the `Async` effect does not cross thread boundaries.
+A `spawn`-ed task could use `IO` internally (its own event loop on its thread), but the `IO` effect does not cross thread boundaries.
 
 ### 4. Nested Async Scopes
 
 Currently, `async { ... }` creates nested scopes. With effects, nesting would look like:
 
 ```yo
-main :: (fn(using(io : Async)) -> unit) {
+main :: (fn(using(io : IO)) -> unit) {
   // main is already in async context
   // Creating a sub-task:
   future := io.async((using(io)) => {
@@ -636,9 +642,9 @@ result := io.await(future);
 result := await(future);
 ```
 
-The `using(ModuleType)` auto-destructuring already supports this. With `using(io : Async)`, the fields `io.await` and `io.async` could be auto-destructured if the module supports it.
+The `using(ModuleType)` auto-destructuring already supports this. With `using(io : IO)`, the fields `io.await` and `io.async` could be auto-destructured if the module supports it.
 
-However, `await` as a bare function name conflicts with the current `await` builtin. During the migration period, we should keep both and use distinct syntax. After Phase 4, the old `await` is removed and `await` from destructured `Async` can be used freely.
+However, `await` as a bare function name conflicts with the current `await` builtin. During the migration period, we should keep both and use distinct syntax. After Phase 4, the old `await` is removed and `await` from destructured `IO` can be used freely.
 
 ---
 
@@ -647,10 +653,10 @@ However, `await` as a bare function name conflicts with the current `await` buil
 | Risk                                             | Severity | Mitigation                                                                           |
 | ------------------------------------------------ | -------- | ------------------------------------------------------------------------------------ |
 | Heap vs stack allocation decision complexity     | High     | Phase 2 carefully separates async (heap) from sync (stack) effects                   |
-| Combining async + sync effects in one SM         | High     | Phase 2 Option B (unified SM) addresses this; can fall back to Option A (nested)     |
+| Combining IO + sync effects in one SM            | High     | Phase 2 Option B (unified SM) addresses this; can fall back to Option A (nested)     |
 | Breaking 51 async tests during migration         | High     | Phase 1 maintains backward compatibility; old syntax works alongside new             |
 | Event loop integration with effect handler model | Medium   | Phase 3 models deferred resume as built-in codegen, not user-level handler           |
-| Performance regression from effect overhead      | Medium   | Built-in `Async` effect uses same codegen as current async (no indirection)          |
+| Performance regression from effect overhead      | Medium   | Built-in `IO` effect uses same codegen as current async (no indirection)             |
 | `IOFuture` compatibility                         | Low      | `Impl(Future(T))` structural matching handles both user and IO futures               |
 | Interaction with closures (`Impl(Fn(...))`)      | Medium   | Closure + effect already works; `io.async` closure follows same pattern              |
 | RC correctness for unified SM                    | High     | Test extensively with `--sanitize address`; deferred resume means SM must be heap-RC |
@@ -664,10 +670,10 @@ Phase 0 ──→ Phase 1 ──→ Phase 2 ──→ Phase 3 ──→ Phase 4
 (types)     (codegen)    (unified)   (deferred)   (cleanup)
 
   │            │            │           │
-  ├─ Async     ├─ Same      ├─ Merge    ├─ Deferred
+  ├─ IO        ├─ Same      ├─ Merge    ├─ Deferred
   │  module    │  codegen   │  SM       │  resume
   │  type      │  as today  │  gens     │  handler
-  ├─ using()   ├─ io.await  ├─ Async    ├─ event
+  ├─ using()   ├─ io.await  ├─ IO       ├─ event
   │  support   │  io.async  │  +Raise   │  loop
   └─ eval      └─ backward  └─ unified  └─ built-in
      only         compat       SM          handler
@@ -679,11 +685,11 @@ Phase 0 ──→ Phase 1 ──→ Phase 2 ──→ Phase 3 ──→ Phase 4
 
 ## Success Criteria
 
-1. ✅ `Async` module type is defined and recognized by the evaluator
-2. ✅ Functions with `using(io : Async)` type-check correctly
+1. ✅ `IO` module type is defined and recognized by the evaluator
+2. ✅ Functions with `using(io : IO)` type-check correctly
 3. ✅ `io.await(future)` generates same async SM code as current `await`
 4. ✅ `io.async(closure)` generates same code as current `async { ... }`
-5. ✅ `main :: (fn(using(io : Async)) -> unit)` works
+5. ✅ `main :: (fn(using(io : IO)) -> unit)` works
 6. ✅ All 51 existing async tests pass (backward compatibility)
 7. ✅ New effect-based async tests pass with AddressSanitizer (no leaks)
 8. ✅ Combined async + sync effects work in the same function

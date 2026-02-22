@@ -14,7 +14,7 @@ Both phases build on Yo's existing async/await state machine infrastructure.
 - ✅ **Phase 1 (using/given)** — fully implemented and tested.
 - ✅ **Phase 2 (handlers / return + abort)** — fully implemented and tested.
 - ✅ **Effect polymorphism** — `...(E)` effect row spreads in `forall`/`using` implemented and tested.
-- ✅ **29 tests passing** with AddressSanitizer (no memory leaks or use-after-free).
+- ✅ **30 tests passing** with AddressSanitizer (no memory leaks or use-after-free).
 - ⏳ **Remaining:** One-shot runtime enforcement (double-resume check), async/await unification.
 
 ---
@@ -319,7 +319,7 @@ No special language support needed — this falls out of the existing `using`/`g
 - Anonymous function `=>` syntax parses `using()` parameters.
 - `using(ModuleType)` auto-destructuring with `isModuleDestructured` flag.
 
-**Step 8: Tests** — `tests/algebraic_effects.test.yo` (29 tests)
+**Step 8: Tests** — `tests/algebraic_effects.test.yo` (30 tests)
 
 - Basic abort and resume via `using` parameter ✅
 - Direct effect abort/resume without intermediate `using` function ✅
