@@ -155,7 +155,7 @@ Don't add unnecessary comments to the code.
 For understanding the compile-time reference counting ownership model, please read `COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md` document.
 For understanding the async/await concurrency design, please read `ASYNC_AWAIT.md` document.
 For understanding the parallelism design, please read `PARALLELISM.md` document.
-For understanding the async IO, please read `ASYNC_IO.md` document.
+For understanding the async IO module, please read `STD_IO_MODULE.md` document.
 For understanding the thread-local cycle collector, please read `CYCLE_COLLECTION.md` document.
 
 While making design decisions, don't worry about making breaking changes to the Yo language! It is a new language and it is still evolving. Breaking changes are acceptable.

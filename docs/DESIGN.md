@@ -2030,9 +2030,9 @@ Please check [PARALLELISM.md](./PARALLELISM.md) for details on parallel programm
 
 Please check [ISOLATED.md](./ISOLATED.md) for details on isolated types in Yo.
 
-## Async IO
+## IO Module
 
-Please check [ASYNC_IO.md](./ASYNC_IO.md) for details on asynchronous IO in Yo.
+Please check [STD_IO_MODULE.md](./STD_IO_MODULE.md) for details on asynchronous IO in Yo.
 
 ## Module importing and exporting
 
