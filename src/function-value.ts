@@ -107,6 +107,13 @@ export type FunctionValue = {
   specializedFunctionCaches: SpecializedFunctionCache[];
 
   /**
+   * Whether this function's body uses `abort` to return from the enclosing function.
+   * Set after evaluating the function body. Used by effect analysis and codegen
+   * to determine which functions are effect handlers that need state machine generation.
+   */
+  isControlFunction?: boolean;
+
+  /**
    * Closure-specific information.
    * Only set for functions that are closure implementations.
    * Contains the FnTraitType and capture struct type for easy access during codegen.

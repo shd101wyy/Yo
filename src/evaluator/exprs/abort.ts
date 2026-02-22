@@ -16,14 +16,13 @@ export function evaluateAbort({
   env: Environment;
   context: EvaluatorContext;
 }): Expr {
-  // abort(value) — discontinue keyword for ctl handlers.
-  // Discards the continuation and returns from the enclosing function.
-  // Only valid inside a ctl handler body where controlHandlerContext is set.
-  const handlerCtx = context.controlHandlerContext;
-  if (!handlerCtx) {
+  // abort(value) — returns from the enclosing function with the given value.
+  // Only valid inside a function that has an enclosing function available.
+  const enclosingReturnType = context.enclosingFunctionReturnType;
+  if (!enclosingReturnType) {
     throw formatErrorMessage({
       token: expr.func.token,
-      errorMessage: `\`abort\` can only be used inside a ctl handler body.`,
+      errorMessage: `\`abort\` can only be used inside a function that has an enclosing function.`,
     });
   }
 
@@ -42,7 +41,7 @@ export function evaluateAbort({
     context: {
       ...context,
       expectedType: {
-        type: handlerCtx.enclosingFunctionReturnType,
+        type: enclosingReturnType,
         env,
       },
     },
@@ -58,16 +57,16 @@ export function evaluateAbort({
   // Skip when enclosingFunctionReturnType is SomeType (unresolved forall param like T),
   // because T will be resolved to the concrete type at each call site.
   if (
-    !isSomeType(handlerCtx.enclosingFunctionReturnType) &&
+    !isSomeType(enclosingReturnType) &&
     !areTypesCompatible(
-      { type: handlerCtx.enclosingFunctionReturnType, env },
+      { type: enclosingReturnType, env },
       { type: evaluatedArg.$.type, env }
     )
   ) {
     throw formatErrorMessage({
       token: arg.token,
       errorMessage: `Incompatible type for \`abort\` argument:
-- Expected (enclosing function return type): ${typeToString(handlerCtx.enclosingFunctionReturnType)}
+- Expected (enclosing function return type): ${typeToString(enclosingReturnType)}
 - Got: ${typeToString(evaluatedArg.$.type)}`,
     });
   }

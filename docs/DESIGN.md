@@ -149,7 +149,7 @@ The **Yo** language is inspired by the following programming languages and absor
   - [Clojure](https://clojure.org/)
 - [C](https://www.c-language.org/)/[C++](https://isocpp.org/)
 - [Rust](https://www.rust-lang.org/)
-- [Haskell](https://www.haskell.org/), [OCaml](https://ocaml.org/), [PureScript](https://www.purescript.org/)
+- [Haskell](https://www.haskell.org/), [OCaml](https://ocaml.org/), [PureScript](https://www.purescript.org/), [Scala](https://www.scala-lang.org/)
 - [JavaScript](https://developer.mozilla.org/en-US/docs/Web/JavaScript), [TypeScript](https://www.typescriptlang.org/)
 - [Jai](https://github.com/Ivo-Balbaert/The_Way_to_Jai), [Zig](https://ziglang.org/), [Odin](https://odin-lang.org/)
 - [Nim](https://nim-lang.org/)

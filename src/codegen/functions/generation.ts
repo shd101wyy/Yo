@@ -457,10 +457,7 @@ export function preRegisterEffectfulFunctions(
     const implicitParams = functionType.implicitParameters;
 
     for (const implicitParam of implicitParams) {
-      if (
-        !isFunctionType(implicitParam.type) ||
-        !implicitParam.type.isControlFunction
-      ) {
+      if (!isFunctionType(implicitParam.type)) {
         continue;
       }
 

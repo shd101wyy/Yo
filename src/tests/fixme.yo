@@ -1,31 +1,23 @@
 open import "std/string";
 open import "std/fmt";
 
-Log :: (ctl(msg : String) -> unit);
+Raise :: (fn(forall(T : Type), msg : String) -> T);
+
+might_fail :: (fn(using(raise : Raise)) -> i32)(
+  raise(`oops`)
+);
+
+run :: (fn(forall(T : Type, ...(E)),
+    f : (fn(using(...(E))) -> T),
+    using(...(E))) -> T)(f());
 
 main :: (fn() -> unit) {
-  run_test :: (fn() -> i32) {
-    x := Box(i32)(0);
-
-    (given(log) : Log) = ((msg) -> {
-      println(msg);
-      abort i32(99);
-    });
-
-    (closure : Impl(Fn(v : i32, msg : String, using(log : Log)) -> i32)) =
-      (v, msg, using(log)) => {
-        log(msg);
-        x.* = (x.* + v);
-        return x.*;
-      };
-
-    result := closure(1, `hello`);
-    assert(false, "should not reach here");
-    return result;
-  };
-
-  val := run_test();
-  assert(val == 99, "Expected 99 from abort");
-  println(`done`);
+  (given(raise) : Raise) = ((msg) -> {
+    println(msg);
+    return i32(42);
+  });
+  result := run(might_fail);
+  assert(result == i32(42), "effect polymorphism: should be 42");
+  println("pass");
 };
 export main;

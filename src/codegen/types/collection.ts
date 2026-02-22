@@ -151,7 +151,7 @@ export function collectTypesFromExpr(
   if (expr.$ && expr.$.value && isFunctionValue(expr.$.value)) {
     const functionValue = expr.$.value;
     // Skip ctl handler functions — they are inlined by the effect SM call site
-    if (functionValue.type.isControlFunction) {
+    if (functionValue.isControlFunction) {
       // Still collect types from the function signature
       collectTypesFromFunctionType(functionValue.type, context);
       // Recursively collect sub-functions called by the handler body (e.g., println)

@@ -149,26 +149,19 @@ export interface EvaluatorContext {
   isUnsafeFunctionType?: boolean;
 
   /**
-   * Whether the function type currently being evaluated is declared with `ctl`.
+   * The return type of the enclosing (parent) function.
+   * This is set when evaluating a nested function body, enabling `abort expr`
+   * to return from the enclosing function. `abort` is valid in any function
+   * that has an enclosing function - the abort value's type must match this type.
    */
-  isControlFunctionType?: boolean;
+  enclosingFunctionReturnType?: Type;
 
   /**
-   * Context available only while evaluating a `ctl` handler body.
-   * `return(value)` resumes the continuation (type matches operationResultType).
-   * `abort expr` discards the continuation and returns from the enclosing function
-   * (type matches enclosingFunctionReturnType).
+   * Whether the enclosing function being specialized has implicit params
+   * bound to control function handlers (handlers whose body uses `abort`).
+   * Set during specialization when handler values with isControlFunction are detected.
    */
-  controlHandlerContext?: {
-    operationResultType: Type;
-    enclosingFunctionReturnType: Type;
-    /**
-     * True when the ctl handler is invoked directly at the call site (no intermediate
-     * `using` function). In this case the `return(value)` type is inferred from the
-     * value expression itself, so we skip the strict operationResultType check.
-     */
-    isDirectCtlCall?: boolean;
-  };
+  hasControlFunctionImplicitParams?: boolean;
 
   /**
    * Whether we are currently evaluating a where clause constraint.

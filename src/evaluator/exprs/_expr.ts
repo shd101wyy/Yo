@@ -199,8 +199,7 @@ ${exprToString(expr)}`,
         // (fn(x : i32) -> i32)
         exprIsFunctionCall(expr.args[0]) &&
         (exprIsFunctionCallOf(expr.args[0], BuiltinKeywords.fn) ||
-          exprIsFunctionCallOf(expr.args[0], BuiltinKeywords.unsafe_fn) ||
-          exprIsFunctionCallOf(expr.args[0], BuiltinKeywords.ctl))
+          exprIsFunctionCallOf(expr.args[0], BuiltinKeywords.unsafe_fn))
       ) {
         return evaluateFunctionType({
           expr,
@@ -210,10 +209,6 @@ ${exprToString(expr)}`,
             isUnsafeFunctionType: exprIsFunctionCallOf(
               expr.args[0],
               BuiltinKeywords.unsafe_fn
-            ),
-            isControlFunctionType: exprIsFunctionCallOf(
-              expr.args[0],
-              BuiltinKeywords.ctl
             ),
           },
         });

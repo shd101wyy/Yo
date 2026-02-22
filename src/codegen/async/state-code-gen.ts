@@ -19,9 +19,9 @@ import {
 } from "../../expr";
 import { TokenType } from "../../token";
 import type { EnumType } from "../../types/definitions";
-import { isEnumType } from "../../types/guards";
+import { isEnumType, isFunctionType } from "../../types/guards";
 import { isTempVariableName } from "../../utils";
-import { isBooleanValue } from "../../value";
+import { isBooleanValue, isTypeValue } from "../../value";
 import { generateComptimeValue } from "../exprs/comptime-value";
 import { generateExpr } from "../exprs/expr";
 import type { FunctionGenerationContext } from "../functions/context";
@@ -1861,18 +1861,22 @@ function generateWhileBodyWithAwait(
  * Checks if an expression contains any await
  */
 export function exprContainsAwait(expr: Expr): boolean {
-  if (
-    expr.tag === ExprTag.FnCall &&
-    exprIsFunctionCallOf(expr, BuiltinFunctions.await)
-  ) {
-    return true;
-  }
+  if (exprIsFunctionCall(expr)) {
+    if (exprIsFunctionCallOf(expr, BuiltinFunctions.await)) {
+      return true;
+    }
 
-  if (expr.tag === ExprTag.FnCall) {
     // Do NOT recurse into nested async blocks - their awaits belong to the inner async
-    if (exprIsFunctionCallOf(expr, BuiltinFunctions.async)) {
+    if (
+      exprIsFunctionCallOf(expr, BuiltinFunctions.async) ||
+      // DO NOT recurse into anonymous function bodys - their awaits belong to the function, not the containing expression
+      exprIsFunctionCallOf(expr, ["->", "=>"]) ||
+      (isTypeValue(expr.func.$?.value) &&
+        isFunctionType(expr.func.$.value.value))
+    ) {
       return false;
     }
+
     if (exprContainsAwait(expr.func)) {
       return true;
     }

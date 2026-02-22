@@ -16,7 +16,7 @@ import { generateExprFromCode } from "./parser";
 import { type Token, TokenType } from "./token";
 import { areTypesCompatible } from "./types/compatibility";
 import type { StructType, Type } from "./types/definitions";
-import { isSomeType } from "./types/guards";
+import { isFunctionType, isSomeType } from "./types/guards";
 import { typeContainsRcType, typeToString } from "./types/utils";
 import {
   generateNewTempVariableName,
@@ -402,6 +402,51 @@ export function exprIsAtom(expr: Expr | undefined): expr is AtomExpr {
   return expr?.tag === ExprTag.Atom;
 }
 
+/**
+ * Traverse an EVALUATED function body expression tree to check if it contains
+ * an `abort` keyword usage. This skips into nested scopes that would create
+ * a new function boundary:
+ * - `->` anonymous function value
+ * - `=>` anonymous closure value
+ * - `(fn(...) -> T)({body})` function type call to create function value
+ */
+export function evaluatedBodyContainsAbort(expr: Expr): boolean {
+  if (exprIsAtom(expr)) {
+    return exprIsAtomOf(expr, BuiltinKeywords.abort);
+  }
+  if (exprIsFunctionCall(expr)) {
+    // `fn` keyword is also used to define function values
+    // Skip `->` anonymous function definitions
+    // The `->` operator is used for anonymous functions: (params) -> { body }
+    // Skip `=>` anonymous closure definitions
+    if (
+      exprIsFunctionCallOf(expr, BuiltinKeywords.fn) ||
+      exprIsFunctionCallOf(expr, ["->", "=>"])
+    ) {
+      return false;
+    }
+    // Skip (fn(...) -> T)({body}) - function type call creating a new function value
+    if (
+      exprIsFunctionCall(expr.func) &&
+      expr.func.$?.value !== undefined &&
+      isTypeValue(expr.func.$.value) &&
+      isFunctionType(expr.func.$.value.value)
+    ) {
+      return false;
+    }
+    // Recurse into function call's func and args
+    if (evaluatedBodyContainsAbort(expr.func)) {
+      return true;
+    }
+    for (const arg of expr.args) {
+      if (evaluatedBodyContainsAbort(arg)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 export function exprIsAtomOf(expr: Expr, values: string | string[]): boolean {
   return (
     expr.tag === ExprTag.Atom &&
@@ -537,7 +582,6 @@ export const BuiltinKeywords = {
   recur: ["recur"],
   fn: ["fn"],
   unsafe_fn: ["unsafe_fn"], // The function that skips the prohibitVoidType check
-  ctl: ["ctl"],
   abort: ["abort"],
   extern: ["extern"],
   cond: ["cond"],

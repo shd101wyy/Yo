@@ -511,15 +511,14 @@ export function evaluateCond({
           controlFlow: "return",
         };
       } else if (finalControlFlow === "abort") {
-        // All cases are aborting (ctl handler discontinue)
-        if (!context.controlHandlerContext) {
+        // All cases are aborting (returning from enclosing function)
+        if (!context.enclosingFunctionReturnType) {
           throw formatErrorMessage({
             token: expr.token,
-            errorMessage: `All cases in cond use "abort", but not inside a ctl handler body.`,
+            errorMessage: `All cases in cond use "abort", but not inside a function with an enclosing function.`,
           });
         }
-        const abortType =
-          context.controlHandlerContext.enclosingFunctionReturnType;
+        const abortType = context.enclosingFunctionReturnType;
         expr.$ = {
           env,
           type: abortType,

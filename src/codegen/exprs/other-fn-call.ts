@@ -6,11 +6,9 @@ import {
 } from "../../evaluator/trait-checking";
 import {
   BuiltinFunctions,
-  BuiltinKeywords,
   exprIsAtom,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
-  type Expr,
   type FnCallExpr,
 } from "../../expr";
 import type { FunctionValue } from "../../function-value";
@@ -72,35 +70,6 @@ import {
   generateThreadSpawnCall,
   generateWorkerSpawnCall,
 } from "./parallelism";
-
-/**
- * Recursively check if an expression tree contains an abort() call.
- * If abort is present, the handler discards the continuation (discontinue).
- * If abort is absent, the handler uses return(value) to resume the continuation.
- */
-function exprContainsAbort(expr: Expr): boolean {
-  if (exprIsFunctionCallOf(expr, BuiltinKeywords.abort)) {
-    return true;
-  }
-  if (exprIsFunctionCall(expr)) {
-    // Don't recurse into nested anonymous function bodies (->).
-    // An `abort` inside a nested handler is scoped to that inner handler,
-    // not the current one.
-    if (exprIsFunctionCallOf(expr, "->")) {
-      return false;
-    }
-    for (const arg of (expr as FnCallExpr).args) {
-      if (exprContainsAbort(arg)) return true;
-    }
-    if (
-      (expr as FnCallExpr).func &&
-      exprContainsAbort((expr as FnCallExpr).func)
-    ) {
-      return true;
-    }
-  }
-  return false;
-}
 
 /**
  * In async state machine context, stores a local temp variable to its
@@ -478,7 +447,7 @@ export function generateOtherFunctionCall(
         // inline the handler body directly at the call site.
         // NOTE: This check must be BEFORE the cFuncName check because ctl handler functions
         // may not be collected as standalone functions (they're inlined at call sites).
-        if (functionValueType.isControlFunction && functionValue.body) {
+        if (functionValue.isControlFunction && functionValue.body) {
           return generateDirectCtlCall(
             functionValue,
             functionValueType,
@@ -518,7 +487,7 @@ export function generateOtherFunctionCall(
                 if (hv && isFunctionValue(hv)) {
                   const hType = hv.specializedType ?? hv.type;
                   const hBody = hv.body;
-                  const hHasResume = hBody ? !exprContainsAbort(hBody) : false;
+                  const hHasResume = hBody ? !hv.isControlFunction : false;
                   handlers.push({
                     handlerBody: hBody!,
                     handlerType: hType,
@@ -551,7 +520,7 @@ export function generateOtherFunctionCall(
                 handlerValue.specializedType ?? handlerValue.type;
               const handlerBody = handlerValue.body;
               const handlerHasResume = handlerBody
-                ? !exprContainsAbort(handlerBody)
+                ? !handlerValue.isControlFunction
                 : false;
 
               const tempVar = expr.$?.variableName;
@@ -904,7 +873,7 @@ export function generateOtherFunctionCall(
                     (handlerVal as FunctionValue).specializedType ??
                     (handlerVal as FunctionValue).type;
                   const handlerHasResume = (handlerVal as FunctionValue).body
-                    ? !exprContainsAbort((handlerVal as FunctionValue).body!)
+                    ? !(handlerVal as FunctionValue).isControlFunction
                     : false;
                   const tempVar = expr.$?.variableName;
                   const closureContextCode = `&(${closureCode})`;
@@ -1628,7 +1597,7 @@ function generateDirectCtlCall(
   );
 
   const handlerHasResume = functionValue.body
-    ? !exprContainsAbort(functionValue.body)
+    ? !functionValue.isControlFunction
     : false;
 
   // For the resume case, declare the result variable BEFORE the inner block so that

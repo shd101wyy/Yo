@@ -773,7 +773,7 @@ function functionTypeToString(
     .filter((x) => !!x)
     .join(", ");
   const from = func.SelfType?.typeName;
-  const fnKind = func.isControlFunction ? "ctl" : "fn";
+  const fnKind = "fn";
   return `${from ? `(${from}) ` : ""}${fnKind}(${paramsString}) -> ${returnString}`;
 }
 
