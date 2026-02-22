@@ -1,7 +1,8 @@
 open import "std/libc/stdio";
 open import "std/string";
-{ platform, Platform } :: import "std/process";
+open import "std/fmt";
 file :: import "std/io/file";
+{ platform, Platform } :: import "std/process";
 
 main :: (fn() -> unit) {
   async {
@@ -10,41 +11,38 @@ main :: (fn() -> unit) {
         fd := i32(1);
 
         trunc := await file.ftruncate(fd, i64(4096));
+        printf("trunc = %d\n", trunc);
 
         wr1 := await file.write(fd, *(u8)("Z"), u32(1), u64(1024));
-        wr2 := await file.write(fd, *(u8)("Z"), u32(1), u64(2048));
+        printf("wr1 = %d\n", wr1);
 
         zero_ret := i32(0);
         cond(
           (zero_ret == i32(0)) => {
-            byte_uninit := MaybeUninit(Array(u8, usize(1))).new();
-            byte_buf := *(u8)(byte_uninit.as_ptr());
-            rd := await file.read(fd, byte_buf, u32(1), u64(1024));
+            rd := await file.read(fd, *(u8)("Z"), u32(1), u64(1024));
             printf("rd = %d\n", rd);
           },
           true => {
-            printf("skipped1\n");
+            printf("zero_ret failed\n");
           }
         );
 
         punch_ret := i32(0);
         cond(
           (punch_ret == i32(0)) => {
-            byte_uninit2 := MaybeUninit(Array(u8, usize(1))).new();
-            byte_buf2 := *(u8)(byte_uninit2.as_ptr());
-            rd2 := await file.read(fd, byte_buf2, u32(1), u64(2048));
+            rd2 := await file.read(fd, *(u8)("Z"), u32(1), u64(2048));
             printf("rd2 = %d\n", rd2);
           },
           true => {
-            printf("skipped2\n");
+            printf("punch_ret failed\n");
           }
         );
 
         close_ret := await file.close(fd);
-        printf("done\n");
+        printf("close_ret = %d\n", close_ret);
       },
       true => {
-        printf("  skipping Linux-specific test on non-Linux\n");
+        printf("skipping\n");
       }
     );
   };
