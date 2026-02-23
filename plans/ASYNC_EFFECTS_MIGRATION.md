@@ -4,11 +4,12 @@
 
 This plan describes how to migrate Yo's `async`/`await` from built-in keywords to **algebraic effect operations** within an `IO` module. The async event loop becomes the built-in effect handler for the `IO` effect.
 
-## Current Status (2026-02-22)
+## Current Status (2026-02-23)
 
 - ✅ Async/await with heap-allocated state machines: 54 tests passing
 - ✅ Algebraic effects with stack-allocated state machines: 30 tests passing
 - ✅ **Phase 0 complete**: `IO` module type defined in `prelude.yo`, `main :: (fn(using(io : IO)) -> unit)` compiles and runs
+- ✅ **Phase 1 in progress**: `io.async(closure)` and `io.await(future)` generate working C code for synchronous (non-state-machine) case
 - ❌ No interaction between the two systems (effect analysis skips async blocks and vice versa)
 - ❌ Cannot combine effects and async in the same function
 
@@ -36,13 +37,13 @@ Reasoning:
 ```yo
 IO :: module(
   async : (fn(forall(T : Type, ...(E)), action : Impl(Fn(using(...(E))) -> T)) -> Impl(Future(T))),
-  await : (fn(forall(T : Type), fut : Impl(Future(T))) -> T)
+  await : (fn(forall(T : Type), own(fut) : Impl(Future(T))) -> T)
 );
 ```
 
-**`IO.async`** — Creates a Future from a closure. Starts eager execution (runs until first `await` inside the closure). The `...(E)` effect row parameter allows the closure to carry other effects (e.g., `Raise`, `Log`).
+**`IO.async`** — Creates a Future from a closure. Starts eager execution (runs until first `await` inside the closure). The `...(E)` effect row parameter allows the closure to carry other effects (e.g., `Raise`, `Log`). The `action` parameter is NOT `own` — the caller retains ownership of the closure and its captures, which are dropped at end of scope.
 
-**`IO.await`** — The core suspension point. Takes a Future and returns its result when ready. This is the operation that makes a function "async-colored" — any function calling `await` (directly or transitively) must have `using(IO)` in its signature or handle the effect.
+**`IO.await`** — The core suspension point. Takes `own(fut)` to consume the Future and returns its result when ready. The `own` parameter transfers ownership of the future to the await call, which frees it after extracting the result. This is the operation that makes a function "async-colored" — any function calling `await` (directly or transitively) must have `using(IO)` in its signature or handle the effect.
 
 ### Why `await` is an Effect
 
@@ -357,59 +358,72 @@ A unified system would:
 - No codegen for `io.async(closure)` — calling `io.async` at runtime will not produce correct future-creating code yet
 - No event loop integration in the main wrapper — `main :: (fn(using(io : IO)) -> unit)` compiles but the IO effect is a no-op at runtime
 
-### Phase 1: Codegen — `await` as Effect, `async` as Built-in (Hybrid)
+### Phase 1: Codegen — `await` as Effect, `async` as Built-in (Hybrid) — IN PROGRESS
 
 **Goal**: Generate correct C code for the new `io.await(future)` and `io.async(closure)` syntax, reusing existing async state machine infrastructure.
 
-**Strategy**: The evaluator in Phase 0 attaches the same metadata (`awaitAnalysis`, `captureType`, etc.) as current `async`/`await`. Phase 1 makes codegen recognize and process this metadata from the new syntax.
+**Completed Steps**:
 
-**Steps**:
+1. **`ioBuiltin` type field for detecting IO calls** — Added `ioBuiltin?: "io_async" | "io_await"` field to `Type` in `definitions.ts`. The field is propagated from `extern "Yo"` function types to IO module field types during module construction. Detection functions `isIoAsyncCall`/`isIoAwaitCall` in `await-analysis.ts` check `expr.func.$?.type?.ioBuiltin`. Removed redundant `isIoAsync`/`isIoAwait` boolean flags from `EvaluatedExprData`.
 
-1. **Codegen recognizes `io.await(future)` call expressions**
+2. **Removed `ioAsyncClosureBody` from evaluator** — The old approach tried to extract the closure function body during evaluation, which only worked for inline closures (not variable references like `io.async(action)`). Completely removed all closure body extraction code from `evaluator/calls/function.ts`. Detection now happens purely in codegen.
 
-   - In `src/codegen/exprs/other-fn-call.ts` or a new dispatch path:
-     - Detect calls to `IO.await` (via module field access pattern)
-     - Generate the same async SM code as current `await` handling:
-       - Store future pointer in SM field
-       - Register continuation (CAS on `continuation_fn`)
-       - Advance state and return (suspend)
-       - Next state: extract result from future
+3. **Sync future codegen (`generateIoAsyncSyncCall`)** — For `io.async(closure)` calls outside a state machine, generates a "sync future" in `codegen/exprs/async.ts`:
 
-2. **Codegen recognizes `io.async(closure)` call expressions**
+   - Emits a sync future struct: `{ yo_ref_header_t header, _Atomic int state, ResultType result, continuation_fn, continuation_sm }`
+   - Emits a dispose function for RC cleanup
+   - Calls the closure via `implClosureCallMap` (static dispatch through Impl(Fn) interface)
+   - Allocates the sync future, stores result, sets `state = -1` (completed)
+   - The closure is called by reference (`&(action)`) — ownership remains with the caller
 
-   - Detect calls to `IO.async`
-   - Generate the same code as current `async { ... }`:
-     - Create heap-allocated SM struct
-     - Initialize captured variables
-     - Call resume function for eager start
-     - Return `Impl(Future(T))` handle
+4. **Synchronous `io.await` with `own(fut)` and proper cleanup** — The `io.await` codegen in `codegen/exprs/await.ts`:
 
-3. **State machine generation for functions with `using(io : IO)`**
+   - Spins on `__sync_future->state` until `-1` (completed)
+   - Extracts the result
+   - Sets `state = -2` (consumed, so dispose won't double-drop the result)
+   - Calls `__yo_decr_rc(__sync_future)` to free the future
+   - Uses `own(fut)` parameter to signal ownership transfer — the evaluator marks `fut` as consumed (no end-of-scope drop)
 
-   - When a function body contains `io.await` calls:
-     - Run await analysis (same as current `analyzeAwaitPoints`)
-     - Generate SM struct with RC header (heap-allocated)
+5. **Codegen dispatch** — Updated `codegen/exprs/generation.ts` to route `isIoAsyncCall(expr)` to `generateIoAsyncSyncCall` (without requiring `awaitAnalysis`).
+
+6. **Ownership design decision**: `io.async` does NOT take `own(action)` because the closure's captured variables may still be used after the async call. Dropping the closure immediately would cause use-after-free. The caller's end-of-scope drops handle the closure cleanup. `io.await` DOES take `own(fut)` because the future is fully consumed and freed after extracting its result.
+
+7. **ASAN verified** — Tested with `--sanitize address --allocator libc`: no leaks, no memory errors for closures with captured RC types (e.g., `Box(i32)`).
+
+**Remaining Steps**:
+
+1. **State machine generation for `io.async(closure)` with `io.await` inside the closure**
+
+   - When the closure body contains `io.await` calls:
+     - Run await analysis (same as current `analyzeAwaitPoints`) on the closure body
+     - Generate a heap-allocated SM struct with RC header, continuation fields, captured variables
      - Generate resume function with `switch(sm->state)` dispatch
      - Generate constructor and dispose functions
-   - This is the same async SM infrastructure, triggered by different syntax
+     - Return `Impl(Future(T))` handle
+   - This replaces the current `generateIoAsyncSyncCall` path for closures that actually suspend
 
-4. **Main wrapper for `main :: (fn(using(io : IO)) -> unit)`**
+2. **State machine `io.await` inside a state machine**
 
-   - Generate C `main()` that:
-     - Initializes the async scheduler
-     - Calls `__yo_user_main()` (the `IO` handler is implicit — the event loop IS the handler)
-     - Calls `__yo_async_wait_all()`
-   - The `using(IO)` parameter is resolved at compile time to the built-in handler
+   - When `io.await(future)` appears inside an async state machine (not at top level):
+     - Store future pointer in SM field
+     - Register continuation (CAS on `continuation_fn` / `continuation_sm`)
+     - Advance state and return (suspend)
+     - Next state: extract result from future
+   - Currently only synchronous `io.await` (spin-wait outside SM) is implemented
 
-5. **Backward compatibility**: Keep `async { ... }` and `await expr` working
+3. **Main wrapper for `main :: (fn(using(io : IO)) -> unit)` with async body**
 
-   - The old syntax continues to work alongside the new API
-   - Both paths generate the same SM code
-   - Both attach the same metadata
+   - When `main` body itself contains `io.await`, generate C `main()` that:
+     - Initializes the async scheduler (event loop)
+     - Creates SM for `__yo_user_main`
+     - Runs event loop until main completes
+   - Currently `main` calls `__yo_user_main()` directly (synchronous)
 
-6. **Tests**: Port a subset of existing 51 async tests to new syntax, verify same behavior
+4. **Backward compatibility**: Keep `async { ... }` and `await expr` working alongside new syntax
 
-**Deliverables**: Programs using `io.await(future)` and `io.async(closure)` compile to the same C code as current `await`/`async { ... }`.
+5. **Tests**: Port a subset of existing 54 async tests to new syntax, verify same behavior
+
+**Deliverables**: Programs using `io.await(future)` and `io.async(closure)` compile to correct async SM code, supporting both synchronous (inline-resolved) and asynchronous (event-loop-driven) futures.
 
 ### Phase 2: IO + Sync Effects in Same Function
 

@@ -2,14 +2,22 @@ main :: (fn(using(io : IO)) -> unit) {
   my_async :: io.async;
   my_await :: io.await;
 
-  (action : Impl(Fn() -> i32)) =
-    () => {
-      return 12;
-    };
+  b := Box(i32)(0);
 
-  fut := my_async(action);
-  result := my_await(fut);
-  assert(result == 12);
+  task := my_async(()=> {
+    assert(b.* == 0, "b should be 0 at task start");
+
+    c := Box(i32)(10);
+
+    b.* = (b.* + 1);
+    await yield();
+
+    assert(b.* == 2, "b should be 2 after main incremented");
+    assert(c.* == 10, "captured Box should still be 10");
+  });
+
+  assert(b.* == 1, "b should be 1 after task's first half");
+  b.* = (b.* + 1);
 };
 
 export main;
