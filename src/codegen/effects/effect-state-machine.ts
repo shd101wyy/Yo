@@ -66,7 +66,7 @@ function isMultiEffect(info: EffectStateMachineInfo): boolean {
  * so we must NOT emit an implicit resume after them.
  * Does not recurse into nested anonymous function bodies (->).
  */
-function handlerBodyContainsExplicitReturn(expr: Expr): boolean {
+export function handlerBodyContainsExplicitReturn(expr: Expr): boolean {
   if (exprIsFunctionCallOf(expr, BuiltinKeywords.return)) {
     return true;
   }
@@ -1097,8 +1097,9 @@ export function generateEffectCallSite(
     emitter.emitLine(
       `${indent}${resultTypeCName} ${tempVar} = ${smVar}.result;`
     );
+    return tempVar;
   }
-  return tempVar ?? "";
+  return "";
 }
 
 /**
@@ -1199,8 +1200,9 @@ export function generateMultiEffectCallSite(
     emitter.emitLine(
       `${indent}${resultTypeCName} ${tempVar} = ${smVar}.result;`
     );
+    return tempVar;
   }
-  return tempVar ?? "";
+  return "";
 }
 
 /**

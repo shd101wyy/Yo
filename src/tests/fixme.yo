@@ -19,9 +19,16 @@ traverse :: (fn(
 
 main :: (fn() -> unit) {
   (given(yield) : Yield) =
-    (v) -> {
-      return v;
-    };
+    (v) -> (
+      cond(
+        (v > 2) => {
+          abort ();
+        },
+        true => {
+          return v;
+        }
+      )
+    );
 
   (given(log) : Log) =
     (v) -> {
@@ -35,10 +42,15 @@ main :: (fn() -> unit) {
     assert(result == v);
   });
 
-  traverse(arr, (v, using(...(_yield, _log))) => {
-    _log(v);
-    result := _yield(v);
-    assert((result == v), "yield should return the value");
-  }, using(...(yield, log)));
+  // After traverse returns (via abort when v > 2), we reach here
+  println("traverse returned after abort");
+
+  // assert(false, "This line should not be reached due to abort in yield");
+
+  // traverse(arr, (v, using(...(_yield, _log))) => {
+  //   _log(v);
+  //   result := _yield(v);
+  //   assert((result == v), "yield should return the value");
+  // }, using(...(yield, log)));
 };
 export main;

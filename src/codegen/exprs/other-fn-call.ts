@@ -41,6 +41,7 @@ import { BuiltinYoInlineFunctions } from "../constants";
 import {
   generateEffectCallSite,
   generateMultiEffectCallSite,
+  handlerBodyContainsExplicitReturn,
   type EffectCallSiteHandler,
   type EffectStateMachineInfo,
 } from "../effects/effect-state-machine";
@@ -487,7 +488,10 @@ export function generateOtherFunctionCall(
                 if (hv && isFunctionValue(hv)) {
                   const hType = hv.specializedType ?? hv.type;
                   const hBody = hv.body;
-                  const hHasResume = hBody ? !hv.isControlFunction : false;
+                  const hHasResume = hBody
+                    ? !hv.isControlFunction ||
+                      handlerBodyContainsExplicitReturn(hBody)
+                    : false;
                   handlers.push({
                     handlerBody: hBody!,
                     handlerType: hType,
@@ -520,7 +524,8 @@ export function generateOtherFunctionCall(
                 handlerValue.specializedType ?? handlerValue.type;
               const handlerBody = handlerValue.body;
               const handlerHasResume = handlerBody
-                ? !handlerValue.isControlFunction
+                ? !handlerValue.isControlFunction ||
+                  handlerBodyContainsExplicitReturn(handlerBody)
                 : false;
 
               const tempVar = expr.$?.variableName;
@@ -873,7 +878,10 @@ export function generateOtherFunctionCall(
                     (handlerVal as FunctionValue).specializedType ??
                     (handlerVal as FunctionValue).type;
                   const handlerHasResume = (handlerVal as FunctionValue).body
-                    ? !(handlerVal as FunctionValue).isControlFunction
+                    ? !(handlerVal as FunctionValue).isControlFunction ||
+                      handlerBodyContainsExplicitReturn(
+                        (handlerVal as FunctionValue).body!
+                      )
                     : false;
                   const tempVar = expr.$?.variableName;
                   const closureContextCode = `&(${closureCode})`;
@@ -1597,7 +1605,8 @@ function generateDirectCtlCall(
   );
 
   const handlerHasResume = functionValue.body
-    ? !functionValue.isControlFunction
+    ? !functionValue.isControlFunction ||
+      handlerBodyContainsExplicitReturn(functionValue.body!)
     : false;
 
   // For the resume case, declare the result variable BEFORE the inner block so that
