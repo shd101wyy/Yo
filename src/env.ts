@@ -1887,9 +1887,11 @@ export function keepTopLevelFrameAndComptimeVariablesFromEnv(
     const newVariables = frame.variables.filter((variable) => {
       if (!variable.isCompileTimeOnly) {
         return false;
-      } else {
-        return true;
       }
+      if (variable.isImplicit) {
+        return false;
+      }
+      return true;
     });
     return { ...frame, variables: newVariables };
   });

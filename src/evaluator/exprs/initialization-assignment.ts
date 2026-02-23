@@ -123,6 +123,7 @@ export function evaluateInitializationAssignment({
     context: {
       ...context,
       expectedType: undefined,
+      isInsideGivenHandler: isImplicit ? true : context.isInsideGivenHandler,
     },
   });
 
@@ -412,7 +413,6 @@ ${exprToString(rhs)}`,
         rhs,
         env,
         isCompileTimeOnly: isImplicit || isCompileTimeOnly,
-        isImplicit,
         context: { ...context },
       });
     env = nextEnv;

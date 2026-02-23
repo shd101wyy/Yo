@@ -225,6 +225,9 @@ You can mutate fields (e.g., ${variableName}.field = value) but cannot reassign 
       context: {
         ...context,
         expectedType: { type: variable.type, env },
+        isInsideGivenHandler: variable.isImplicit
+          ? true
+          : context.isInsideGivenHandler,
       },
     });
     if (!rhs.$) {

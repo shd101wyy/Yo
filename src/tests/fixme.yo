@@ -1,65 +1,29 @@
-// yield :: (fn(using(io : IO)) -> Impl(Future(unit)))(
-//   io.async(()=> {
-//     return ();
-//   })
-// );
-// 
-// main :: (fn(using(io : IO)) -> unit) {
-//   my_async :: io.async;
-//   my_await :: io.await;
-// 
-//   b := Box(i32)(0);
-// 
-//   task := my_async((using(io))=> {
-//     assert(b.* == 0, "b should be 0 at task start");
-// 
-//     c := Box(i32)(10);
-// 
-//     b.* = (b.* + 1);
-//     io.await(yield());
-// 
-//     assert(b.* == 2, "b should be 2 after main incremented");
-//     assert(c.* == 10, "captured Box should still be 10");
-//   });
-// 
-//   assert(b.* == 1, "b should be 1 after task's first half");
-//   b.* = (b.* + 1);
-// };
-
-open import "std/string";
-open import "std/fmt";
-
-Errors :: module(
-  raise : (fn(forall(T : Type), msg : String) -> T)
+yield :: (fn(using(io : IO)) -> Impl(Future(unit)))(
+  io.async(()=> {
+    return ();
+  })
 );
 
-Effects :: module(
-  errors : Errors
-);
+main :: (fn(using(io : IO)) -> unit) {
+  my_async :: io.async;
+  my_await :: io.await;
 
-safe_divide :: (fn(x : i32, y : i32, using(fx : Effects)) -> i32)(
-  cond(
-    (y == 0) => fx.errors.raise(`div-by-zero`),
-    true => (x / y)
-  )
-);
+  b := Box(i32)(0);
 
-main :: (fn() -> unit) {
-  (given(fx) : Effects) = Effects(
-    errors : Errors(
-      raise :
-        (msg) -> {
-          println(msg);
-          abort ();
-        }
-    )
-  );
+  task := my_async((using(io))=> {
+    assert(b.* == 0, "b should be 0 at task start");
 
-  // f1 :: fx.errors.raise;
-  // f2 :: fx.errors;
+    c := Box(i32)(10);
 
-  result := safe_divide(10, 0);
-  assert(false, "Should not reach here after abort");
+    b.* = (b.* + 1);
+    io.await(yield());
+
+    assert(b.* == 2, "b should be 2 after main incremented");
+    assert(c.* == 10, "captured Box should still be 10");
+  });
+
+  assert(b.* == 1, "b should be 1 after task's first half");
+  b.* = (b.* + 1);
 };
 
 export main;

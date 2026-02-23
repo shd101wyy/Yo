@@ -41,7 +41,6 @@ export function handleMemberDestructuring({
   env,
   // context,
   isCompileTimeOnly,
-  isImplicit,
   isDestructuringAtomVariable,
 }: {
   lhsFunc: Expr;
@@ -57,7 +56,6 @@ export function handleMemberDestructuring({
   env: Environment;
   context: EvaluatorContext;
   isCompileTimeOnly: boolean;
-  isImplicit: boolean;
   isDestructuringAtomVariable: boolean;
 }): { env: Environment; runtimeDestructurings: RuntimeDestructuring[] } {
   const requireUnderscore = !isTupleType(rhsType);
@@ -170,7 +168,6 @@ export function handleMemberDestructuring({
             value: _fieldValue ? [cloneValue(_fieldValue)] : undefined,
             type: field.type,
             isCompileTimeOnly,
-            isImplicit,
             token: lhsField.token,
             initializedAtToken: lhsField.token,
             consumedAtToken: undefined,
@@ -353,7 +350,6 @@ export function handleMemberDestructuring({
           name: variableName,
           type: rhsField.type,
           isCompileTimeOnly: isCompileTimeOnly,
-          isImplicit,
           // Use cloneValue to ensure value semantics for compile-time values
           value: fieldValue ? [cloneValue(fieldValue)] : undefined,
           token: variableToken,
@@ -417,14 +413,12 @@ export function evaluateDestructuringAssignment({
   rhs,
   env,
   isCompileTimeOnly,
-  isImplicit,
   context,
 }: {
   lhs: Expr;
   rhs: Expr;
   env: Environment;
   isCompileTimeOnly: boolean;
-  isImplicit: boolean;
   context: EvaluatorContext;
 }): { env: Environment; runtimeDestructurings: RuntimeDestructuring[] } {
   if (!rhs.$?.type) {
@@ -451,7 +445,6 @@ export function evaluateDestructuringAssignment({
       env,
       context: { ...context },
       isCompileTimeOnly,
-      isImplicit,
       isDestructuringAtomVariable: exprIsAtom(rhs),
     });
   }
@@ -471,7 +464,6 @@ export function evaluateDestructuringAssignment({
       env,
       context: { ...context },
       isCompileTimeOnly,
-      isImplicit,
       isDestructuringAtomVariable: exprIsAtom(rhs),
     });
   }
@@ -511,7 +503,6 @@ export function evaluateDestructuringAssignment({
       env,
       context: { ...context },
       isCompileTimeOnly,
-      isImplicit,
       isDestructuringAtomVariable: exprIsAtom(rhs),
     });
   }

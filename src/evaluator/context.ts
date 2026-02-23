@@ -224,6 +224,13 @@ export interface EvaluatorContext {
    * (kind: "async-block") so that `await` expressions are allowed inside.
    */
   isInsideIoAsyncCall?: boolean;
+
+  /**
+   * Whether we are currently evaluating the RHS of a `given(...)` assignment.
+   * When true, `abort` is allowed inside handler functions.
+   * `abort` is only valid inside given handler definitions.
+   */
+  isInsideGivenHandler?: boolean;
 }
 
 /**
