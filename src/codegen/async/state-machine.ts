@@ -9,6 +9,7 @@ import type {
   AwaitPoint,
   CapturedVariable,
 } from "../../evaluator/async/await-analysis";
+import { isIoAwaitCall } from "../../evaluator/async/await-analysis";
 import { extractFutureTraitFromType } from "../../evaluator/trait-checking";
 import {
   type Expr,
@@ -182,7 +183,13 @@ export function generateAsyncBlockResumeFunction(
         emitter.emitLine(`      if (sm->${prevFutureFieldName} != NULL) {`);
       }
 
-      if (prevAwait && !isUnitType(prevAwait.resultType)) {
+      // When the output type is an unresolved SomeType (e.g., forall(T) from
+      // io.await evaluated with io=UnknownValue), treat it as unit.
+      const isPrevAwaitResultUnit =
+        isUnitType(prevAwait.resultType) ||
+        (isSomeType(prevAwait.resultType) &&
+          !(prevAwait.resultType as SomeType).resolvedConcreteType);
+      if (prevAwait && !isPrevAwaitResultUnit) {
         emitter.emitLine(
           `      // Extract result from await ${stateNumber - 1}`
         );
@@ -1247,7 +1254,8 @@ function generateRemainingExprFuture(
     if (
       valueExpr &&
       valueExpr.tag === ExprTag.FnCall &&
-      exprIsFunctionCallOf(valueExpr, BuiltinFunctions.await)
+      (exprIsFunctionCallOf(valueExpr, BuiltinFunctions.await) ||
+        isIoAwaitCall(valueExpr))
     ) {
       const futureExpr = valueExpr.args[0];
       if (futureExpr) {
@@ -1264,7 +1272,7 @@ function generateRemainingExprFuture(
   // Handle: await(futureExpr)
   if (
     expr.tag === ExprTag.FnCall &&
-    exprIsFunctionCallOf(expr, BuiltinFunctions.await)
+    (exprIsFunctionCallOf(expr, BuiltinFunctions.await) || isIoAwaitCall(expr))
   ) {
     const futureExpr = expr.args[0];
     if (futureExpr) {

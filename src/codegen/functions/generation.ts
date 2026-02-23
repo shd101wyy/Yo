@@ -25,6 +25,7 @@ import {
   isFunctionSpecializable,
   isFunctionType,
   isSomeType,
+  isSpecializableOnlyDueToImplicitParams,
   isStructType,
   isUnitType,
 } from "../../types/guards";
@@ -201,6 +202,10 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
   for (const funcId in context.functions) {
     const { value, cName } = context.functions[funcId]!;
 
+    // Never skip __yo_user_main - it's the entry point and its implicit
+    // IO parameter is resolved at compile time
+    const isUserMain = cName === "__yo_user_main";
+
     // If the function is generic or has been specialized, we will handle it later
     // EXCEPTION: Specialized functions from impl methods (not generic at function level)
     // should be generated here, not in generateSpecializedFunctions
@@ -208,11 +213,14 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
       value.specializedType && !isFunctionSpecializable(value.type);
 
     if (
-      (isFunctionSpecializable(value.type) && !value.type.isClosure) ||
-      (value.specializedType && !isSpecializedImplMethod) ||
-      isComptimeFunction(value) ||
-      isFunctionValueWithOnlyBuiltinYoInlineFunctionCall(value) ||
-      value.isIoAsyncStateMachineClosure
+      !isUserMain &&
+      ((isFunctionSpecializable(value.type) &&
+        !value.type.isClosure &&
+        !isSpecializableOnlyDueToImplicitParams(value.type)) ||
+        (value.specializedType && !isSpecializedImplMethod) ||
+        isComptimeFunction(value) ||
+        isFunctionValueWithOnlyBuiltinYoInlineFunctionCall(value) ||
+        value.isIoAsyncStateMachineClosure)
     ) {
       continue;
     }

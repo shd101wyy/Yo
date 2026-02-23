@@ -380,7 +380,14 @@ function emitAsyncBlockStructDefinition(
   if (analysis.awaitPoints.length > 0) {
     emitter.emitDeclarationLine(`  // Await result temporaries`);
     for (const awaitPoint of analysis.awaitPoints) {
-      if (!isUnitType(awaitPoint.resultType)) {
+      // When the output type is an unresolved SomeType (e.g., forall(T) from
+      // io.await evaluated with io=UnknownValue), treat it as unit since the
+      // generic type parameter couldn't be resolved to a concrete type.
+      const isEffectivelyUnit =
+        isUnitType(awaitPoint.resultType) ||
+        (isSomeType(awaitPoint.resultType) &&
+          !awaitPoint.resultType.resolvedConcreteType);
+      if (!isEffectivelyUnit) {
         // Determine the correct type for await_result_X:
         // For extern futures (e.g., io_uring), use the Future's result type directly
         // For async block futures, use awaitPoint.resultType (which matches the block's result)

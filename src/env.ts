@@ -1932,8 +1932,14 @@ export function getVariablesNeedingDrop(env: Environment): Variable[] {
     // We can't generate proper drop code for abstract type parameters.
     // This handles cases like compile-time generic functions: `comptime(id) : (fn(forall(T), x: T) -> T)`
     // where temp variables may have type `T` that isn't resolved to a concrete type.
+    // BUT: Don't skip SomeType that has required traits (like Impl(Future(T))) - these
+    // have ___drop methods added by addRcFunctionsToSomeType and can be dropped.
     const varType = variable.type;
-    if (isSomeType(varType) && !varType.resolvedConcreteType) {
+    if (
+      isSomeType(varType) &&
+      !varType.resolvedConcreteType &&
+      varType.requiredTraits.length === 0
+    ) {
       return false;
     }
 

@@ -6,6 +6,7 @@ import {
   isFunctionSpecializable,
   isFunctionType,
   isSomeType,
+  isSpecializableOnlyDueToImplicitParams,
   isStructType,
 } from "../../types/guards";
 import { typeContainsSomeType, typeToString } from "../../types/utils";
@@ -79,11 +80,16 @@ export function generateFunctionDeclarations(
   for (const funcId in context.functions) {
     const { cName, value } = context.functions[funcId]!;
 
+    const isUserMain = cName === "__yo_user_main";
+
     if (
-      (isFunctionSpecializable(value.type) && !value.type.isClosure) ||
-      isComptimeFunction(value) ||
-      isFunctionValueWithOnlyBuiltinYoInlineFunctionCall(value) ||
-      value.isIoAsyncStateMachineClosure
+      !isUserMain &&
+      ((isFunctionSpecializable(value.type) &&
+        !value.type.isClosure &&
+        !isSpecializableOnlyDueToImplicitParams(value.type)) ||
+        isComptimeFunction(value) ||
+        isFunctionValueWithOnlyBuiltinYoInlineFunctionCall(value) ||
+        value.isIoAsyncStateMachineClosure)
     ) {
       continue;
     }

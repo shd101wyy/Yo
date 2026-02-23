@@ -17,6 +17,7 @@ import {
   isFunctionType,
   isObjectType,
   isSomeType,
+  isSpecializableOnlyDueToImplicitParams,
   isStructType,
   isUnitType,
 } from "../../types/guards";
@@ -250,9 +251,9 @@ export function findFunctionCallsInExpr(
         // return types even though they don't need specialization.
         if (
           isFunctionSpecializable(functionValue.type) &&
-          !functionValue.specializedType
+          !functionValue.specializedType &&
+          !isSpecializableOnlyDueToImplicitParams(functionValue.type)
         ) {
-          // This is a generic function that hasn't been specialized - skip it
           return;
         }
 
@@ -345,7 +346,8 @@ export function findFunctionCallsInExpr(
       // Skip collecting generic functions that haven't been specialized
       if (
         isFunctionSpecializable(functionValue.type) &&
-        !functionValue.specializedFunctionCaches
+        !functionValue.specializedFunctionCaches &&
+        !isSpecializableOnlyDueToImplicitParams(functionValue.type)
       ) {
         return;
       }

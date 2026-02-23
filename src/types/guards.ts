@@ -449,6 +449,33 @@ export function isFunctionSpecializable(functionType: FunctionType): boolean {
 }
 
 /**
+ * Check if a function is specializable ONLY because of implicit module params
+ * with function fields (e.g., `using(io : IO)` where IO has async/await fields).
+ * Such functions don't need per-call-site specialization at runtime because
+ * the implicit module is always the same instance (e.g., __yo_builtin_io).
+ */
+export function isSpecializableOnlyDueToImplicitParams(
+  functionType: FunctionType
+): boolean {
+  if (!isFunctionSpecializable(functionType)) {
+    return false;
+  }
+
+  const hasCompileTimeParams =
+    functionType.parameters.some((p) => p.isCompileTimeOnly) ||
+    functionType.forallParameters.length > 0;
+
+  const hasSomeTypeParams = functionType.parameters.some(
+    (p) =>
+      !p.isCompileTimeOnly &&
+      isSomeType(p.type) &&
+      !typeImplementsFuture(p.type)
+  );
+
+  return !hasCompileTimeParams && !hasSomeTypeParams;
+}
+
+/**
  * Check if the given type is a Boxed type (Box(T)).
  * @param type
  * @returns

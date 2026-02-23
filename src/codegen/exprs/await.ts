@@ -4,7 +4,7 @@ import {
   typeImplementsFuture,
 } from "../../evaluator/trait-checking";
 import type { FnCallExpr } from "../../expr";
-import { isUnitType } from "../../types/guards";
+import { isSomeType, isUnitType } from "../../types/guards";
 import type { FunctionGenerationContext } from "../functions/context";
 import {
   getTypeString,
@@ -56,6 +56,13 @@ export function generateAwait(
     const resultType = futureModuleType.isFuture.outputType;
     const emitter = functionContext.emitter;
 
+    // When the output type is an unresolved SomeType (e.g., from forall(T) in
+    // io.await's signature evaluated with io=UnknownValue), check if the await
+    // call expression's type gives us a more concrete result.
+    const isResultUnit =
+      isUnitType(resultType) ||
+      (isSomeType(resultType) && isUnitType(expr.$?.type ?? resultType));
+
     emitter.emitLine(
       `${indent}// Synchronous await (io.await outside state machine)`
     );
@@ -68,7 +75,7 @@ export function generateAwait(
     emitter.emitLine(`${indent}  yo_async_run_ready_tasks();`);
     emitter.emitLine(`${indent}}`);
 
-    if (!isUnitType(resultType)) {
+    if (!isResultUnit) {
       const resultVar = expr.$?.variableName || `__sync_await_result`;
       const varDecl = getVariableTypeString(resultType, resultVar, context);
       emitter.emitLine(`${indent}${varDecl} = __sync_future->result;`);

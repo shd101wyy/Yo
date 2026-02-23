@@ -7,6 +7,7 @@
 
 import { getVariablesFromEnv } from "../../env";
 import type { AwaitPoint } from "../../evaluator/async/await-analysis";
+import { isIoAwaitCall } from "../../evaluator/async/await-analysis";
 import {
   BuiltinFunctions,
   BuiltinKeywords,
@@ -269,10 +270,10 @@ export function generateAwaitExpression(
 ): void {
   const emitter = context.emitter;
 
-  // Check if this is a standalone await expression: await(futureExpr)
+  // Check if this is a standalone await expression: await(futureExpr) or io.await(futureExpr)
   if (
     expr.tag === ExprTag.FnCall &&
-    exprIsFunctionCallOf(expr, BuiltinFunctions.await)
+    (exprIsFunctionCallOf(expr, BuiltinFunctions.await) || isIoAwaitCall(expr))
   ) {
     // This is a standalone await: await(futureExpr)
     const futureExpr = expr.args[0];
@@ -316,7 +317,8 @@ export function generateAwaitExpression(
     // Check if the value is an await expression
     if (
       valueExpr.tag === ExprTag.FnCall &&
-      exprIsFunctionCallOf(valueExpr, BuiltinFunctions.await)
+      (exprIsFunctionCallOf(valueExpr, BuiltinFunctions.await) ||
+        isIoAwaitCall(valueExpr))
     ) {
       // This is: varName := await(futureExpr)
       const futureExpr = valueExpr.args[0];
@@ -844,7 +846,7 @@ function generateCondWithAwait(
 function branchHasAwait(expr: Expr): boolean {
   if (
     expr.tag === ExprTag.FnCall &&
-    exprIsFunctionCallOf(expr, BuiltinFunctions.await)
+    (exprIsFunctionCallOf(expr, BuiltinFunctions.await) || isIoAwaitCall(expr))
   ) {
     return true;
   }
@@ -1525,7 +1527,8 @@ function generateCondBranchWithAwait(
         if (
           valueExpr &&
           valueExpr.tag === ExprTag.FnCall &&
-          exprIsFunctionCallOf(valueExpr, BuiltinFunctions.await)
+          (exprIsFunctionCallOf(valueExpr, BuiltinFunctions.await) ||
+            isIoAwaitCall(valueExpr))
         ) {
           const futureExpr = valueExpr.args[0];
           if (futureExpr) {
@@ -1541,7 +1544,8 @@ function generateCondBranchWithAwait(
         }
       } else if (
         expr.tag === ExprTag.FnCall &&
-        exprIsFunctionCallOf(expr, BuiltinFunctions.await)
+        (exprIsFunctionCallOf(expr, BuiltinFunctions.await) ||
+          isIoAwaitCall(expr))
       ) {
         // Standalone await
         const futureExpr = expr.args[0];
@@ -1800,7 +1804,8 @@ function generateWhileBodyWithAwait(
     if (
       valueExpr &&
       valueExpr.tag === ExprTag.FnCall &&
-      exprIsFunctionCallOf(valueExpr, BuiltinFunctions.await)
+      (exprIsFunctionCallOf(valueExpr, BuiltinFunctions.await) ||
+        isIoAwaitCall(valueExpr))
     ) {
       const futureExpr = valueExpr.args[0];
       if (futureExpr) {
@@ -1815,7 +1820,8 @@ function generateWhileBodyWithAwait(
     }
   } else if (
     awaitExpr.tag === ExprTag.FnCall &&
-    exprIsFunctionCallOf(awaitExpr, BuiltinFunctions.await)
+    (exprIsFunctionCallOf(awaitExpr, BuiltinFunctions.await) ||
+      isIoAwaitCall(awaitExpr))
   ) {
     // Standalone await
     const futureExpr = awaitExpr.args[0];
