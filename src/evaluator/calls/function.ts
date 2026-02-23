@@ -1245,34 +1245,6 @@ ${isTypeValue(value) ? typeToString(value.value) : typeToString(functionToCall.t
     (functionToCall) => functionToCall.result.kind !== "error"
   );
 
-  // DEBUG: Log io.await call resolution details
-  if (functionsWithMatchingTypes.length === 0 && functionsToCall.length > 0) {
-    const calleeName = exprToString(func);
-    if (calleeName.includes("await")) {
-      console.log(
-        "DEBUG io.await: functionsToCall count =",
-        functionsToCall.length
-      );
-      for (const f of functionsToCall) {
-        console.log("  candidate type:", typeToString(f.type));
-        console.log("  result kind:", f.result.kind);
-        if (f.result.kind === "error") {
-          const err = f.result.error;
-          console.log(
-            "  error:",
-            err instanceof Error ? err.message : String(err)
-          );
-          if (err instanceof Error && err.stack) {
-            console.log(
-              "  stack:",
-              err.stack.split("\n").slice(0, 8).join("\n")
-            );
-          }
-        }
-      }
-    }
-  }
-
   // Check if there is only one comptime function call,
   // If yes, then we use that function.
   // Comptime function call has higher priority than normal function call.

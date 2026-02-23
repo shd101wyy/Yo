@@ -528,15 +528,6 @@ export function areTypesCompatible(
 
   // *
   if (isPtrType(expected.type) && isPtrType(given.type)) {
-    // NOTE: This causes some problem with type synthesize.
-    //       So let's be specific here.
-    // if (isVoidType(expected.type.type)) {
-    //   return true; // *(void) is compatible with any pointer type
-    // }
-
-    // Pointers are INVARIANT in their child type.
-    // *(comptime_int) is NOT compatible with *(i32), even though comptime_int is compatible with i32.
-    // This is a strict design choice to prevent pointer type coercion issues.
     return areTypesCompatible(
       { type: expected.type.childType, env: expected.env },
       { type: given.type.childType, env: given.env },
@@ -763,7 +754,12 @@ export function areTypesCompatible(
       // Unconstrained SomeType (bare forall type parameter like T : Type with no
       // required traits and no where-clause constraints) is compatible with any
       // concrete type. This is the semantics of a universal type parameter.
+      // However, for exact matching (cache comparisons), an unconstrained SomeType
+      // should NOT match a concrete type — they are different types.
       if (requiredTraitTypes.length === 0) {
+        if (requireExactMatch) {
+          return false;
+        }
         return true;
       }
       if (requiredTraitTypes.length > 0) {
