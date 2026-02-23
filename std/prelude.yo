@@ -161,6 +161,17 @@ IO :: module(
 );
 export IO;
 
+/*
+IDEA: Extend `Future` to save `...(E)`.
+IDEA: Change async/await from eager to lazy, which means `async` will not execute the action immediately, but return a lazy future. 
+      The future will execute the action when `await` is called. This allows us to save the `...(E)` in the future and use it in `await`.
+IO :: module(
+  async : (fn(forall(T : Type, ...(E)), action : Impl(Fn(using(...(E))) -> T)) -> Impl(Future(T, ...(E)))), // NOTE: `async` doesn't need using(...(E)) as it shouldn't require effects. Only `await` call requires the effects.
+  await : (fn(forall(T : Type, ...(E)), own(fut) : Impl(Future(T, ...(E))), using(...(E))) -> T)
+);
+export IO;
+*/
+
 extern "Yo",
   __yo_io_async : (fn(forall(T : Type, ...(E)), action : Impl(Fn(using(...(E))) -> T)) -> Impl(Future(T))),
   __yo_io_await : (fn(forall(T : Type), own(fut) : Impl(Future(T))) -> T)

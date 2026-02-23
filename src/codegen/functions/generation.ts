@@ -480,15 +480,21 @@ export function preRegisterEffectfulFunctions(
 
       // Find the handler value from the first ctl call expression in the body
       const firstCallPoint = effectAnalysis.effectCallPoints[0];
+      let handlerIsControlFunction = false;
       if (firstCallPoint) {
         const callExpr = firstCallPoint.expr as FnCallExpr;
         if (callExpr && "func" in callExpr) {
           const handlerValue = callExpr.func.$?.value;
           if (handlerValue && isFunctionValue(handlerValue)) {
             effectAnalysis.handlerValue = handlerValue;
+            handlerIsControlFunction = !!handlerValue.isControlFunction;
           }
         }
       }
+
+      // Only register as effectful if the handler uses abort (is a control function).
+      // Regular function calls via using() don't need state machine transformation.
+      if (!handlerIsControlFunction) continue;
 
       functionValue.body.$.effectAnalysis = effectAnalysis;
 

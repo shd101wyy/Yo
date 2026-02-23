@@ -251,6 +251,40 @@ some_func :: (fn(forall(T : Type, U : Type, ...(E1), ...(E2)),
     using(...(E1), ...(E2))) -> List(U));
 ```
 
+**Effect row spread with closures** — The `...(E)` spread also works with closures (`Impl(Fn(...))`) and supports renaming implicit parameters in the callback. The closure receives the handler value from the outer scope at the call site:
+
+```yo
+Yield :: (fn(v : i32) -> i32);
+Log :: (fn(v : i32) -> unit);
+
+// traverse is polymorphic over ANY set of effects E that the callback needs
+traverse :: (fn(
+  forall(S : usize, ...(E)),
+  arr : Array(i32, S),
+  callback : (Impl(Fn(v : i32, using(...(E))) -> unit)),
+  using(...(E))
+  ) -> unit) {
+    i := usize(0);
+    while i < S, i = (i + 1), {
+      callback(arr(i));
+    };
+  };
+
+// Set up handlers
+(given(yield) : Yield) = (v) -> { return v; };
+(given(log)   : Log)   = (v) -> { println(v); };
+
+arr := Array(i32, 5)(0, 1, 2, 3, 4);
+
+// The callback renames effects as _yield and _log in its local scope.
+// E is inferred as (yield : Yield, log : Log) from using(yield, log).
+traverse(arr, (v, using(_yield, _log)) => {
+  _log(v);
+  result := _yield(v);
+  assert((result == v), "yield should return the value");
+}, using(yield, log));
+```
+
 Semantics:
 
 - `...(E)` in `forall(...)` declares **E as an effect row variable** — ranging over sets of implicit parameters.
@@ -330,7 +364,7 @@ No special language support needed — this falls out of the existing `using`/`g
 - Anonymous function `=>` syntax parses `using()` parameters.
 - `using(ModuleType)` auto-destructuring with `isModuleDestructured` flag.
 
-**Step 8: Tests** — `tests/algebraic_effects.test.yo` (30 tests)
+**Step 8: Tests** — `tests/algebraic_effects.test.yo` (31 tests)
 
 - Basic abort and resume via `using` parameter ✅
 - Direct effect abort/resume without intermediate `using` function ✅
@@ -348,6 +382,7 @@ No special language support needed — this falls out of the existing `using`/`g
 - Module destructured `using(ModuleType)` with abort/resume ✅
 - Multiple effect row spreads with resume/abort ✅
 - Closure with `using()` effect — resume and abort ✅
+- Effect row polymorphism with `...(E)` spread in closure callbacks, with parameter renaming ✅
 
 ---
 

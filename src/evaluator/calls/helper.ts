@@ -39,6 +39,7 @@ import { generateExprFromCode } from "../../parser";
 import { PlaceholderToken } from "../../token";
 import { areTypesCompatible } from "../../types/compatibility";
 import {
+  createEffectsRowType,
   createExprType,
   createFunctionType,
   createSomeType,
@@ -1048,6 +1049,89 @@ Got:   ${typeToString(typeValue.type)}`,
       calleeEnv = expectedEnv;
     } catch {
       // Silently ignore errors - synthesis will happen again later after arguments
+    }
+  }
+
+  // Early effect row resolution: when the function has effect row spread implicit
+  // parameters (e.g., using(...(E))) and the call site provides using(...) args,
+  // resolve the effect rows BEFORE processing regular arguments. This is necessary
+  // because regular parameters (e.g., callback : Impl(Fn(v: i32, using(...(E))) -> unit))
+  // may reference the effect row variable E, and evaluateFunctionParameterTypeAgain
+  // needs E to be bound in calleeEnv to produce the correct expected type.
+  if (usingArgsExpr && functionType.implicitParameters.length > 0) {
+    const hasEffectRowSpread = functionType.implicitParameters.some(
+      (p) => p.isEffectRowSpread
+    );
+    if (hasEffectRowSpread) {
+      // Count non-spread implicit params to figure out which using args go to spreads
+      const nonSpreadParams = functionType.implicitParameters.filter(
+        (p) => !p.isEffectRowSpread
+      );
+      const nonSpreadCount = nonSpreadParams.length;
+
+      // The first nonSpreadCount using args correspond to named implicit params;
+      // remaining args go to the effect row spread(s).
+      const spreadArgs = usingArgsExpr.args.slice(nonSpreadCount);
+
+      if (spreadArgs.length > 0) {
+        // Resolve each spread arg's type from callerEnv via variable lookup
+        const concreteImplicitParams: FunctionImplicitParameter[] = [];
+        for (const spreadArgExpr of spreadArgs) {
+          if (!exprIsAtom(spreadArgExpr)) {
+            throw formatErrorMessage({
+              token: spreadArgExpr.token,
+              errorMessage: `Expected identifier for using() argument in effect row spread, got ${exprToString(spreadArgExpr)}`,
+            });
+          }
+          const argName = spreadArgExpr.token.value;
+          const outerVariables = getVariablesFromEnv(callerEnv, argName);
+          const outerVar = outerVariables.at(-1);
+          if (!outerVar) {
+            throw formatErrorMessage({
+              token: spreadArgExpr.token,
+              errorMessage: `Variable "${argName}" not found for using() argument in effect row spread.`,
+            });
+          }
+          concreteImplicitParams.push({
+            label: argName,
+            type: outerVar.type,
+            isCompileTimeOnly: true,
+            isImplicit: true,
+            isOwningTheRcValue: false,
+            isQuote: false,
+            exprs: {
+              expr: spreadArgExpr,
+              labelExpr: spreadArgExpr,
+              typeExpr: undefined as unknown as Expr,
+              defaultValueExpr: undefined,
+            },
+          });
+        }
+
+        // Create EffectsRowType and bind it to each effect row spread variable in calleeEnv
+        const effectsRow = createEffectsRowType(concreteImplicitParams);
+        const effectsRowTypeValue = createTypeValue(effectsRow);
+
+        for (const implicitParam of functionType.implicitParameters) {
+          if (!implicitParam.isEffectRowSpread) continue;
+          const rowVarName = implicitParam.label;
+          const variables = getVariablesFromEnv(calleeEnv, rowVarName);
+          const variable = variables.at(-1);
+          if (variable) {
+            calleeEnv = updateExistingVariable(calleeEnv, variable, {
+              ...variable,
+              value: [effectsRowTypeValue],
+            });
+          }
+          // Also set resolvedConcreteType on the SomeType if applicable
+          if (
+            isSomeType(implicitParam.type) &&
+            implicitParam.type.isEffectsRow
+          ) {
+            (implicitParam.type as SomeType).resolvedConcreteType = effectsRow;
+          }
+        }
+      }
     }
   }
 

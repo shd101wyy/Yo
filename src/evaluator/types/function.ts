@@ -31,6 +31,7 @@ import {
   getFunctionParameterExprs,
 } from "../../types/creators";
 import type {
+  EffectsRowType,
   FunctionForallParameter,
   FunctionImplicitParameter,
   FunctionParameter,
@@ -1614,9 +1615,21 @@ export function evaluateFunctionParameters({
           // Determine the SomeType for E.
           // During initial evaluation, E's value is a TypeValue wrapping the SomeType.
           // During re-evaluation at call sites (CTFE), E's value may be an UnknownValue.
+          // If E is already bound to a concrete EffectsRowType, expand it into
+          // concrete implicit parameters instead of creating another spread marker.
           let rowSomeType: Type;
           const eValue = rowVarVariable.value?.[0];
-          if (eValue && isTypeValue(eValue)) {
+          if (eValue && isTypeValue(eValue) && isEffectsRowType(eValue.value)) {
+            // E is bound to a concrete EffectsRowType — expand into concrete params
+            const effectsRow = eValue.value as EffectsRowType;
+            for (const concreteParam of effectsRow.implicitParameters) {
+              implicitParameters.push({
+                ...concreteParam,
+                isEffectRowSpread: false,
+              });
+            }
+            continue;
+          } else if (eValue && isTypeValue(eValue)) {
             rowSomeType = eValue.value;
           } else if (
             eValue &&
@@ -1624,7 +1637,15 @@ export function evaluateFunctionParameters({
             isEffectsRowType(eValue.type)
           ) {
             // E was bound to a concrete EffectsRowType during synthesis
-            rowSomeType = eValue.type;
+            // Expand into concrete implicit parameters
+            const effectsRow = eValue.type as EffectsRowType;
+            for (const concreteParam of effectsRow.implicitParameters) {
+              implicitParameters.push({
+                ...concreteParam,
+                isEffectRowSpread: false,
+              });
+            }
+            continue;
           } else if (eValue && isUnknownValue(eValue)) {
             // Re-evaluation context: E is an UnknownValue with Type(1) kind.
             // Re-create the effect row SomeType for this re-evaluation.

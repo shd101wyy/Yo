@@ -47,7 +47,7 @@ import {
   typeToString,
 } from "../../types/utils";
 import { randomId } from "../../utils";
-import { createUnknownValue, type Value } from "../../value";
+import { createUnknownValue, isFunctionValue, type Value } from "../../value";
 import { ValueTag } from "../../value-tag";
 import { analyzeAwaitPoints } from "../async/await-analysis";
 import { createFunctionBodyEvaluationContext } from "../calls/function-type";
@@ -328,6 +328,32 @@ Got:      "${paramName}"`,
       paramName = paramExpr.token.value;
     }
 
+    // For function-typed implicit parameters, try to resolve the actual handler
+    // value from the outer env (before implicit variables were stripped).
+    // This allows the codegen to resolve calls like `_yield(v)` to direct
+    // C function calls when the handler is a non-control function (no abort),
+    // and allows the codegen third pass to check `isControlFunction` on control
+    // function handlers for proper state machine registration.
+    let resolvedHandlerValue: Value | undefined;
+    if (isFunctionType(expectedParam.type)) {
+      const handlerVars = getVariablesFromEnv(outerEnv, expectedParam.label);
+      const handlerVar = handlerVars[handlerVars.length - 1];
+      if (handlerVar?.value && handlerVar.value.length > 0) {
+        const hv = handlerVar.value[0];
+        if (hv && isFunctionValue(hv)) {
+          resolvedHandlerValue = hv;
+        }
+      }
+    }
+
+    const paramValue = resolvedHandlerValue
+      ? resolvedHandlerValue
+      : createUnknownValue(expectedParam.type, {
+          variableName: paramName,
+          env,
+          context,
+        });
+
     // Add implicit parameter to environment as compile-time variable.
     // Allow variable shadowing so that using(log) in a closure can shadow
     // a given(log) binding from the outer scope.
@@ -338,13 +364,7 @@ Got:      "${paramName}"`,
         type: expectedParam.type,
         isCompileTimeOnly: true,
         isImplicit: true,
-        value: [
-          createUnknownValue(expectedParam.type, {
-            variableName: paramName,
-            env,
-            context,
-          }),
-        ],
+        value: [paramValue],
         token: paramExpr?.token ?? PlaceholderToken,
         initializedAtToken: paramExpr?.token ?? PlaceholderToken,
         consumedAtToken: undefined,
@@ -358,11 +378,7 @@ Got:      "${paramName}"`,
       paramExpr.$ = {
         env: env,
         type: expectedParam.type,
-        value: createUnknownValue(expectedParam.type, {
-          variableName: paramName,
-          env,
-          context,
-        }),
+        value: paramValue,
         pathCollection: [],
       };
     }
@@ -450,7 +466,17 @@ Got:      "${paramName}"`,
     // forall parameters must use expected names/types entirely (they're always comptime)
     forallParameters: functionType.forallParameters,
     // Use the resolved implicit parameters (expanded from effect row if applicable)
-    implicitParameters: resolvedImplicitParameters,
+    // Update labels to match user-provided names from using() in the anonymous function
+    implicitParameters: resolvedImplicitParameters.map((param, index) => {
+      const paramExpr = usingParamExprs[index];
+      if (paramExpr && exprIsAtom(paramExpr)) {
+        const userLabel = paramExpr.token.value;
+        if (userLabel !== param.label) {
+          return { ...param, label: userLabel };
+        }
+      }
+      return param;
+    }),
     // For regular parameters: use expected types but allow anonymous names for non-comptime parameters
     parameters: functionType.parameters.map((expectedParam, index) => {
       if (expectedParam.isCompileTimeOnly) {
