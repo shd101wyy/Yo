@@ -1,6 +1,7 @@
 import {
   addVariableToEnv,
   type Environment,
+  getVariablesFromEnv,
   keepTopLevelFrameAndComptimeVariablesFromEnv,
   popEnvFrame,
   pushEnvFrame,
@@ -28,6 +29,7 @@ import { areTypesCompatible } from "../../types/compatibility";
 import { createFnTraitType } from "../../types/creators";
 import type {
   FnTraitType,
+  FunctionImplicitParameter,
   FunctionType,
   SomeType,
   StructType,
@@ -257,18 +259,67 @@ Got:      "${paramName}"`,
   }
 
   // Check implicit parameters from using(...)
-  // Validate count: if using(...) was provided, it should match the expected implicit parameters
-  if (
-    usingParamExprs.length > 0 &&
-    usingParamExprs.length !== functionType.implicitParameters.length
-  ) {
-    throw formatErrorMessage({
-      token: expr.token,
-      errorMessage: `Expected ${functionType.implicitParameters.length} implicit parameters in using(...), got ${usingParamExprs.length}`,
-    });
+  // When the function type has effect row spreads (e.g., ...(E)), and the user
+  // provides using(...) params, we need to expand the effect row by resolving
+  // each user-provided param name from the outer (pre-stripped) environment.
+  const hasEffectRowSpread = functionType.implicitParameters.some(
+    (p) => p.isEffectRowSpread
+  );
+
+  let resolvedImplicitParameters: FunctionImplicitParameter[];
+  if (hasEffectRowSpread && usingParamExprs.length > 0) {
+    // The function type has an unexpanded effect row spread like ...(E).
+    // The user explicitly lists the implicit params they want (e.g., using(io)).
+    // Resolve each one from the outer env (before implicit stripping) to get its type.
+    resolvedImplicitParameters = [];
+    for (const paramExpr of usingParamExprs) {
+      if (!exprIsAtom(paramExpr)) {
+        throw formatErrorMessage({
+          token: paramExpr.token,
+          errorMessage: `Expected identifier for using() parameter, got ${exprToString(paramExpr)}`,
+        });
+      }
+      const paramName = paramExpr.token.value;
+      const outerVariables = getVariablesFromEnv(outerEnv, paramName);
+      const outerVar = outerVariables.at(-1);
+      if (!outerVar) {
+        throw formatErrorMessage({
+          token: paramExpr.token,
+          errorMessage: `Variable "${paramName}" not found. Cannot infer type for using() parameter.`,
+        });
+      }
+      resolvedImplicitParameters.push({
+        label: paramName,
+        type: outerVar.type,
+        isCompileTimeOnly: true,
+        isImplicit: true,
+        isOwningTheRcValue: false,
+        isQuote: false,
+        exprs: {
+          expr: paramExpr,
+          labelExpr: paramExpr,
+          typeExpr: paramExpr,
+          defaultValueExpr: undefined,
+        },
+      });
+    }
+  } else {
+    // No effect row spread, or no user-provided using() params.
+    // Validate count: if using(...) was provided, it should match the expected implicit parameters
+    if (
+      usingParamExprs.length > 0 &&
+      usingParamExprs.length !== functionType.implicitParameters.length
+    ) {
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `Expected ${functionType.implicitParameters.length} implicit parameters in using(...), got ${usingParamExprs.length}`,
+      });
+    }
+    resolvedImplicitParameters = functionType.implicitParameters;
   }
-  for (let i = 0; i < functionType.implicitParameters.length; i++) {
-    const expectedParam = functionType.implicitParameters[i]!;
+
+  for (let i = 0; i < resolvedImplicitParameters.length; i++) {
+    const expectedParam = resolvedImplicitParameters[i]!;
     const paramExpr = usingParamExprs[i];
 
     // Determine the parameter name: from the using() expr if provided, otherwise from expected
@@ -398,6 +449,8 @@ Got:      "${paramName}"`,
     ...functionType,
     // forall parameters must use expected names/types entirely (they're always comptime)
     forallParameters: functionType.forallParameters,
+    // Use the resolved implicit parameters (expanded from effect row if applicable)
+    implicitParameters: resolvedImplicitParameters,
     // For regular parameters: use expected types but allow anonymous names for non-comptime parameters
     parameters: functionType.parameters.map((expectedParam, index) => {
       if (expectedParam.isCompileTimeOnly) {
