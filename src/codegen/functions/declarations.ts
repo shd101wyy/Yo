@@ -3,10 +3,10 @@ import type { Expr } from "../../expr";
 import type { FuncValueId } from "../../function-value";
 import type { FunctionType } from "../../types/definitions";
 import {
-  isFunctionSpecializable,
   isFunctionType,
+  isFunctionTypeGeneric,
+  isFunctionTypeHardGeneric,
   isSomeType,
-  isSpecializableOnlyDueToImplicitParams,
   isStructType,
 } from "../../types/guards";
 import { typeContainsSomeType, typeToString } from "../../types/utils";
@@ -84,9 +84,9 @@ export function generateFunctionDeclarations(
 
     if (
       !isUserMain &&
-      ((isFunctionSpecializable(value.type) &&
-        !value.type.isClosure &&
-        !isSpecializableOnlyDueToImplicitParams(value.type)) ||
+      ((isFunctionTypeHardGeneric(value.type) && !value.type.isClosure) ||
+        (value.specializedFunctionCaches?.length > 0 &&
+          !value.type.isClosure) ||
         isComptimeFunction(value) ||
         isFunctionValueWithOnlyBuiltinYoInlineFunctionCall(value) ||
         value.isIoAsyncStateMachineClosure)
@@ -386,7 +386,7 @@ export function generateSpecializedFunctionDeclarations(
 
     if (
       !specializedFunctionType ||
-      !isFunctionSpecializable(functionValue.type)
+      !isFunctionTypeGeneric(functionValue.type)
     ) {
       continue; // Skip non-generic functions
     }
@@ -394,7 +394,7 @@ export function generateSpecializedFunctionDeclarations(
     // Skip if the specialized type still has unresolved type parameters
     // This can happen when type substitution is incomplete or when collecting
     // methods from generic modules that weren't properly specialized
-    if (isFunctionSpecializable(specializedFunctionType)) {
+    if (isFunctionTypeGeneric(specializedFunctionType)) {
       continue;
     }
 

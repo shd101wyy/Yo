@@ -59,8 +59,8 @@ import {
   isEffectsRowType,
   isExprListType,
   isExprType,
-  isFunctionSpecializable,
   isFunctionType,
+  isFunctionTypeGeneric,
   isModuleType,
   isSomeType,
   isTypeHierarchyType,
@@ -1774,7 +1774,7 @@ Please use explicit using() to disambiguate.`,
     functionValue &&
     isFunctionValue(functionValue) && // functionValue might be UnknownValue, so this condition check is necessary
     !functionValue.isControlFunction && // Effect handlers skip normal specialization — handled by effect system
-    isFunctionSpecializable(functionType) &&
+    isFunctionTypeGeneric(functionType) &&
     !isRecursiveCallDuringSpecialization && // Don't specialize if we're already specializing this function
     // Skip specialization when implicit args contain UnknownValue (e.g., at function
     // definition time when the handler hasn't been concretely provided yet).

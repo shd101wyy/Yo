@@ -15,9 +15,9 @@ import {
   isDynType,
   isFunctionSpecializable,
   isFunctionType,
+  isFunctionTypeGeneric,
   isObjectType,
   isSomeType,
-  isSpecializableOnlyDueToImplicitParams,
   isStructType,
   isUnitType,
 } from "../../types/guards";
@@ -250,9 +250,8 @@ export function findFunctionCallsInExpr(
         // Note: typeContainsSomeType is too broad - it would skip functions with Impl(Module)
         // return types even though they don't need specialization.
         if (
-          isFunctionSpecializable(functionValue.type) &&
-          !functionValue.specializedType &&
-          !isSpecializableOnlyDueToImplicitParams(functionValue.type)
+          isFunctionSpecializable(functionValue) &&
+          !functionValue.specializedType
         ) {
           return;
         }
@@ -261,7 +260,7 @@ export function findFunctionCallsInExpr(
         // This can happen when type substitution is incomplete
         if (
           functionValue.specializedType &&
-          isFunctionSpecializable(functionValue.specializedType)
+          isFunctionTypeGeneric(functionValue.specializedType)
         ) {
           return;
         }
@@ -345,9 +344,8 @@ export function findFunctionCallsInExpr(
     if (isFunctionValue(functionValue)) {
       // Skip collecting generic functions that haven't been specialized
       if (
-        isFunctionSpecializable(functionValue.type) &&
-        !functionValue.specializedFunctionCaches &&
-        !isSpecializableOnlyDueToImplicitParams(functionValue.type)
+        isFunctionSpecializable(functionValue) &&
+        !functionValue.specializedFunctionCaches
       ) {
         return;
       }

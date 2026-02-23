@@ -10,8 +10,8 @@ import {
 } from "../../expr";
 import {
   isArrayType,
-  isFunctionSpecializable,
   isFunctionType,
+  isFunctionTypeGeneric,
 } from "../../types/guards";
 import {
   prohibitVoidType,
@@ -164,7 +164,7 @@ Use explicit length like 'Array(i32, 3)' or omit the type annotation and initial
   if (
     !isCompileTimeOnly &&
     isFunctionType(userDefinedType) &&
-    isFunctionSpecializable(userDefinedType)
+    isFunctionTypeGeneric(userDefinedType)
   ) {
     throw formatErrorMessage({
       token: lhs.token,

@@ -465,7 +465,7 @@ ${typeToString(parameterType)}`,
     if (
       !isCompileTimeOnly &&
       isFunctionType(parameterType) &&
-      // NOTE: Don't use isFunctionSpecializable here. It's too broad.
+      // NOTE: Don't use isFunctionTypeGeneric/isFunctionSpecializable here. Too broad.
       (parameterType.forallParameters.length > 0 ||
         parameterType.parameters.some((p) => p.isCompileTimeOnly))
     ) {

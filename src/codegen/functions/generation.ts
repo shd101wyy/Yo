@@ -22,10 +22,10 @@ import type {
 import { getTraitTypeFromEnv } from "../../types/env-lookup";
 import {
   isEnumType,
-  isFunctionSpecializable,
   isFunctionType,
+  isFunctionTypeGeneric,
+  isFunctionTypeHardGeneric,
   isSomeType,
-  isSpecializableOnlyDueToImplicitParams,
   isStructType,
   isUnitType,
 } from "../../types/guards";
@@ -210,13 +210,13 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
     // EXCEPTION: Specialized functions from impl methods (not generic at function level)
     // should be generated here, not in generateSpecializedFunctions
     const isSpecializedImplMethod =
-      value.specializedType && !isFunctionSpecializable(value.type);
+      value.specializedType && !isFunctionTypeGeneric(value.type);
 
     if (
       !isUserMain &&
-      ((isFunctionSpecializable(value.type) &&
-        !value.type.isClosure &&
-        !isSpecializableOnlyDueToImplicitParams(value.type)) ||
+      ((isFunctionTypeHardGeneric(value.type) && !value.type.isClosure) ||
+        (value.specializedFunctionCaches?.length > 0 &&
+          !value.type.isClosure) ||
         (value.specializedType && !isSpecializedImplMethod) ||
         isComptimeFunction(value) ||
         isFunctionValueWithOnlyBuiltinYoInlineFunctionCall(value) ||
@@ -391,7 +391,7 @@ export function preRegisterEffectfulFunctions(
 
     // Skip if the specialized type still has unresolved type parameters
     if (functionValue.specializedType) {
-      if (isFunctionSpecializable(functionValue.specializedType)) {
+      if (isFunctionTypeGeneric(functionValue.specializedType)) {
         continue;
       }
       const hasGenericParams = functionValue.specializedType.parameters.some(
@@ -1055,13 +1055,13 @@ export function generateSpecializedFunctions(context: CodeGenContext): void {
     // Skip if not a generic function
     if (
       !functionValue.specializedType ||
-      !isFunctionSpecializable(functionValue.type)
+      !isFunctionTypeGeneric(functionValue.type)
     ) {
       continue;
     }
 
     // Skip if the specialized type still has unresolved type parameters
-    if (isFunctionSpecializable(functionValue.specializedType)) {
+    if (isFunctionTypeGeneric(functionValue.specializedType)) {
       continue;
     }
 
