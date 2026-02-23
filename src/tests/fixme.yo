@@ -2,9 +2,12 @@ main :: (fn(using(io : IO)) -> unit) {
   my_async :: io.async;
   my_await :: io.await;
 
-  fut := my_async(() => {
-    return 12;
-  });
+  (action : Impl(Fn() -> i32)) =
+    () => {
+      return 12;
+    };
+
+  fut := my_async(action);
   result := my_await(fut);
   assert(result == 12);
 };

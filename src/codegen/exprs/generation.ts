@@ -28,7 +28,7 @@ import { type CodeGenContext, getVariableNameForCodegen } from "../utils";
 import { generateOpAnd, generateOpOr } from "./and-or";
 import { generateAnonymousArray, generateYoArrayFill } from "./array-fns";
 import { generateAssignment } from "./assignment";
-import { generateAsyncBlock } from "./async";
+import { generateAsyncBlock, generateIoAsyncSyncCall } from "./async";
 import { generateAtom } from "./atom";
 import { generateAwait } from "./await";
 import { generateBegin } from "./begin";
@@ -395,9 +395,9 @@ function generateFuncCall(
     return generateAsyncBlock(expr, indent, context);
   }
 
-  // io.async(closure) - creates a Future from closure body
-  if (isIoAsyncCall(expr) && expr.$?.awaitAnalysis) {
-    return generateAsyncBlock(expr, indent, context);
+  // io.async(closure) - creates a sync Future by calling closure immediately
+  if (isIoAsyncCall(expr)) {
+    return generateIoAsyncSyncCall(expr, indent, context);
   }
 
   // dyn() - dynamic dispatch constructor

@@ -20,7 +20,7 @@ import type {
   StructType,
   Type,
 } from "../../types/definitions";
-import { isUnitType } from "../../types/guards";
+import { isSomeType, isUnitType } from "../../types/guards";
 import { typeContainsRcType, typeToString } from "../../types/utils";
 import { isFunctionValue } from "../../value";
 import {
@@ -43,8 +43,7 @@ export function generateAsyncBlock(
   indent: string,
   context: FunctionGenerationContext
 ): string {
-  // For io.async(closure) calls, use the closure body stored during evaluation
-  const bodyExpr = expr.$?.ioAsyncClosureBody ?? expr.args[0];
+  const bodyExpr = expr.args[0];
   if (!bodyExpr) {
     return `/* Error: async requires exactly 1 argument */`;
   }
@@ -1009,14 +1008,14 @@ function preRegisterAsyncBlocksInExpr(
     }
 
     // Check if this is an io.async(closure) call
-    if (isIoAsyncCall(expr) && expr.$?.awaitAnalysis) {
+    if (isIoAsyncCall(expr)) {
       const futureType = expr.$?.type;
       if (futureType && typeImplementsFuture(futureType)) {
         const futureModuleType = extractFutureTraitFromType(futureType);
         if (futureModuleType) {
           const asyncBlockId =
             expr.$?.variableName || `io_async_block_${Date.now()}`;
-          const structName = `${asyncBlockId}_state_t`;
+          const structName = `${asyncBlockId}_sync_fut_t`;
 
           if (expr.$) {
             expr.$.asyncStateMachineStructName = structName;
@@ -1028,7 +1027,7 @@ function preRegisterAsyncBlocksInExpr(
           };
 
           context.emitter.emitDeclarationLine(
-            `typedef struct ${structName}_struct ${structName}; // Forward declaration for io.async state machine`
+            `typedef struct ${structName}_struct ${structName}; // Forward declaration for io.async sync future`
           );
         }
       }
@@ -1039,4 +1038,129 @@ function preRegisterAsyncBlocksInExpr(
       preRegisterAsyncBlocksInExpr(arg, context);
     }
   }
+}
+
+/**
+ * Generate C code for io.async(closure) as a synchronous call.
+ * Calls the closure immediately and wraps the result in a completed future.
+ */
+export function generateIoAsyncSyncCall(
+  expr: FnCallExpr,
+  indent: string,
+  context: FunctionGenerationContext
+): string {
+  const futureType = expr.$?.type;
+  if (!futureType || !typeImplementsFuture(futureType)) {
+    return `/* Error: io.async must return a Future type */`;
+  }
+
+  const futureModuleType = extractFutureTraitFromType(futureType);
+  if (!futureModuleType) {
+    return `/* Error: Could not extract Future module type */`;
+  }
+
+  const resultType = futureModuleType.isFuture.outputType;
+  const resultTypeCName = getTypeString(resultType, context);
+  const structName = expr.$?.asyncStateMachineStructName;
+  if (!structName) {
+    return `/* Error: Missing sync future struct name */`;
+  }
+
+  const disposeFunctionName = `${structName}_dispose`;
+  const emitter = context.emitter;
+
+  // Emit struct definition
+  emitter.emitDeclarationLine(`struct ${structName}_struct {`);
+  emitter.emitDeclarationLine(`  yo_ref_header_t header;`);
+  emitter.emitDeclarationLine(`  _Atomic int state;`);
+  if (isUnitType(resultType)) {
+    emitter.emitDeclarationLine(`  uint8_t result;`);
+  } else {
+    emitter.emitDeclarationLine(`  ${resultTypeCName} result;`);
+  }
+  emitter.emitDeclarationLine(`  _Atomic(void (*)(void*)) continuation_fn;`);
+  emitter.emitDeclarationLine(`  _Atomic(void*) continuation_sm;`);
+  emitter.emitDeclarationLine(`};`);
+  emitter.emitDeclarationLine(``);
+
+  // Emit dispose function
+  const resultDropFn = getDropFunctionForType(resultType, context);
+  emitter.emitDeclarationLine(`void ${disposeFunctionName}(void* ptr) {`);
+  if (resultDropFn) {
+    emitter.emitDeclarationLine(`  ${structName}* sm = (${structName}*)ptr;`);
+    emitter.emitDeclarationLine(
+      `  if (atomic_load_explicit(&sm->state, memory_order_acquire) == -1) {`
+    );
+    emitter.emitDeclarationLine(`    ${resultDropFn}(&sm->result);`);
+    emitter.emitDeclarationLine(`  }`);
+  }
+  emitter.emitDeclarationLine(`}`);
+  emitter.emitDeclarationLine(``);
+
+  // Get the closure argument expression
+  const closureArgExpr = expr.$?.runtimeArgExprsInOrder?.[0];
+  if (!closureArgExpr?.$) {
+    return `/* Error: Missing closure argument for io.async */`;
+  }
+
+  // Generate the closure argument value
+  const closureCode = generateExpr(closureArgExpr, indent, context);
+
+  // Generate the closure call
+  const closureValueType = closureArgExpr.$.type;
+  let closureCallCode: string;
+
+  if (isSomeType(closureValueType) && closureValueType.resolvedConcreteType) {
+    const concreteTypeId = closureValueType.resolvedConcreteType.id;
+    const mapped = context.implClosureCallMap.get(concreteTypeId);
+    if (mapped) {
+      closureCallCode = `${mapped.functionCName}(&(${closureCode}))`;
+    } else {
+      closureCallCode = `/* Error: no implClosureCallMap entry for closure */`;
+    }
+  } else {
+    closureCallCode = `/* Error: closure type is not Impl(Fn) */`;
+  }
+
+  // Generate the sync future allocation and initialization
+  const resultVar = expr.$?.variableName || `__io_async_result`;
+
+  // Call the closure and store the result
+  if (!isUnitType(resultType)) {
+    emitter.emitLine(
+      `${indent}${resultTypeCName} __io_async_call_result = ${closureCallCode};`
+    );
+  } else {
+    emitter.emitLine(`${indent}${closureCallCode};`);
+  }
+
+  // Allocate and initialize the sync future
+  const varTypeAndName = getVariableTypeString(futureType, resultVar, context);
+  emitter.emitLine(
+    `${indent}${varTypeAndName} = (${structName}*)__yo_malloc(sizeof(${structName}));`
+  );
+  emitter.emitLine(`${indent}memset(${resultVar}, 0, sizeof(${structName}));`);
+  emitter.emitLine(`${indent}${resultVar}->header.ref_count = 1;`);
+  emitter.emitLine(`${indent}${resultVar}->header.gc_flags = 0;`);
+  emitter.emitLine(`${indent}${resultVar}->header.gc_mark = YO_GC_UNMARKED;`);
+  emitter.emitLine(`${indent}${resultVar}->header.gc_next = NULL;`);
+  emitter.emitLine(`${indent}${resultVar}->header.gc_prev = NULL;`);
+  emitter.emitLine(
+    `${indent}${resultVar}->header.dispose_fn = (void(*)(void*))${disposeFunctionName};`
+  );
+  emitter.emitLine(`${indent}${resultVar}->header.traverse_fn = NULL;`);
+  if (!isUnitType(resultType)) {
+    emitter.emitLine(`${indent}${resultVar}->result = __io_async_call_result;`);
+  }
+  emitter.emitLine(
+    `${indent}atomic_store_explicit(&${resultVar}->state, -1, memory_order_release);`
+  );
+  emitter.emitLine(
+    `${indent}atomic_store_explicit(&${resultVar}->continuation_fn, NULL, memory_order_relaxed);`
+  );
+  emitter.emitLine(
+    `${indent}atomic_store_explicit(&${resultVar}->continuation_sm, NULL, memory_order_relaxed);`
+  );
+
+  return resultVar;
 }

@@ -62,7 +62,7 @@ import {
   type Value,
   valueToString,
 } from "../../value";
-import { analyzeAwaitPoints } from "../async/await-analysis";
+
 import {
   type EvaluatorContext,
   type FunctionCallResult,
@@ -1611,61 +1611,6 @@ ${functionsWithMatchingTypes.map((matchedFunction) => `${typeToString(matchedFun
           value: specializedFunctionValue || functionToCall.value,
           pathCollection: [],
         };
-      }
-
-      // Detect io.async calls via ioBuiltin marker on the callee's type.
-      // The ioBuiltin field is propagated from extern function types to IO module
-      // field types during module construction, so it works even when aliased.
-      const isIoAsyncDetected = functionToCall.type?.ioBuiltin === "io_async";
-
-      // Post-process io.async(closure) calls: attach async metadata so codegen
-      // can generate a state machine from the closure body, just like async { body }.
-      if (isIoAsyncDetected && expr.$) {
-        // Find the closure argument from runtime args
-        const closureArgExpr = runtimeArgExprsInOrder?.[0];
-        if (closureArgExpr?.$) {
-          // Get the FunctionValue: either from closureFunctionValue (closure with captures)
-          // or directly from the value (simple function)
-          const closureFV =
-            closureArgExpr.$.closureFunctionValue ||
-            (closureArgExpr.$.value && isFunctionValue(closureArgExpr.$.value)
-              ? closureArgExpr.$.value
-              : undefined);
-
-          if (closureFV && closureFV.body) {
-            const closureBody = closureFV.body;
-
-            // Run await analysis on the closure body
-            const awaitAnalysis = analyzeAwaitPoints(closureBody);
-
-            // Get capture type from the closure (if any)
-            const closureCaptureType = closureArgExpr.$.captureType;
-
-            // Filter out outer captured variables from awaitAnalysis
-            if (closureCaptureType) {
-              const outerVarNames = new Set(
-                closureCaptureType.fields.map((f) => f.label)
-              );
-              awaitAnalysis.capturedVariables =
-                awaitAnalysis.capturedVariables.filter(
-                  (v) => !outerVarNames.has(v.name)
-                );
-            }
-
-            // Attach async metadata to the io.async call expression
-            expr.$.awaitAnalysis = awaitAnalysis;
-            expr.$.captureType = closureCaptureType;
-            expr.$.deferredDupExpressions =
-              closureArgExpr.$.deferredDupExpressions;
-            expr.$.ioAsyncClosureBody = closureBody;
-
-            // Set resolvedConcreteType on the SomeType so codegen can find the struct
-            if (isSomeType(expr.$.type)) {
-              (expr.$.type as SomeType).resolvedConcreteType =
-                closureCaptureType;
-            }
-          }
-        }
       }
     }
 

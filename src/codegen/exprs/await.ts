@@ -72,8 +72,18 @@ export function generateAwait(
       const resultVar = expr.$?.variableName || `__sync_await_result`;
       const varDecl = getVariableTypeString(resultType, resultVar, context);
       emitter.emitLine(`${indent}${varDecl} = __sync_future->result;`);
+      // Mark as consumed so dispose won't drop the result, then release the future
+      emitter.emitLine(
+        `${indent}atomic_store_explicit(&__sync_future->state, -2, memory_order_release);`
+      );
+      emitter.emitLine(`${indent}__yo_decr_rc(__sync_future);`);
       return resultVar;
     } else {
+      // Mark as consumed and release the future
+      emitter.emitLine(
+        `${indent}atomic_store_explicit(&__sync_future->state, -2, memory_order_release);`
+      );
+      emitter.emitLine(`${indent}__yo_decr_rc(__sync_future);`);
       return ``;
     }
   }
