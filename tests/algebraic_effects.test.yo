@@ -632,14 +632,14 @@ test "Test nested module-based effect with resume", {
   assert((result2 == 5), "nested module effect with resume: should be 5");
 };
 
-test "Test module destructured using(ModuleType) with abort", {
+test "Test module labeled using(name : ModuleType) with abort", {
   Raise :: module(
     raise : (fn(forall(T : Type), msg : String) -> T)
   );
 
-  safe_divide :: (fn(x : i32, y : i32, using(Raise)) -> i32)(
+  safe_divide :: (fn(x : i32, y : i32, using(raise_mod : Raise)) -> i32)(
     cond(
-      (y == 0) => raise(`div-by-zero`),
+      (y == 0) => raise_mod.raise(`div-by-zero`),
       true => (x / y)
     )
   );
@@ -656,14 +656,14 @@ test "Test module destructured using(ModuleType) with abort", {
   assert(false, "Should not reach here after abort");
 };
 
-test "Test module destructured using(ModuleType) with resume", {
+test "Test module labeled using(name : ModuleType) with resume", {
   Raise :: module(
     raise : (fn(forall(T : Type), msg : String) -> T)
   );
 
-  safe_divide :: (fn(x : i32, y : i32, using(Raise)) -> i32)(
+  safe_divide :: (fn(x : i32, y : i32, using(raise_mod : Raise)) -> i32)(
     cond(
-      (y == 0) => raise(`div-by-zero`),
+      (y == 0) => raise_mod.raise(`div-by-zero`),
       true => (x / y)
     )
   );
@@ -677,9 +677,9 @@ test "Test module destructured using(ModuleType) with resume", {
   );
 
   result := safe_divide(10, 0);
-  assert((result == 0), "module destructured with resume: should be 0");
+  assert((result == 0), "module labeled with resume: should be 0");
   result2 := safe_divide(10, 2);
-  assert((result2 == 5), "module destructured with resume: should be 5");
+  assert((result2 == 5), "module labeled with resume: should be 5");
 };
 
 test "Test multiple effect row spreads with resume", {

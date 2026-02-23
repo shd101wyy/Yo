@@ -1658,8 +1658,6 @@ Please use explicit using() to disambiguate.`,
         });
         calleeEnv = nextEnv;
       }
-
-
     }
   }
 
@@ -2281,14 +2279,14 @@ function createSpecializedFunctionInline({
       );
 
       for (const ctlField of ctlFields) {
-          effectCtlParams.push({
-            handlerArgIndex: argOffset,
-            label: implicitParam.label,
-            type: ctlField.type,
-            fromSpread: false,
-            effectFieldPath: ctlField.path,
-          });
-        }
+        effectCtlParams.push({
+          handlerArgIndex: argOffset,
+          label: implicitParam.label,
+          type: ctlField.type,
+          fromSpread: false,
+          effectFieldPath: ctlField.path,
+        });
+      }
       argOffset += 1;
     } else {
       argOffset += 1;
@@ -2315,8 +2313,7 @@ function createSpecializedFunctionInline({
       const handlerArg = argValues.implicitArgs?.[ctlParam.handlerArgIndex];
       // For module-based effects, extract the ctl function by walking the field path
       let resolvedHandlerFn: FunctionValue | undefined;
-      const fieldPathForHandler =
-        ctlParam.handlerFieldPath ?? ctlParam.effectFieldPath;
+      const fieldPathForHandler = ctlParam.effectFieldPath;
       if (handlerArg && isFunctionValue(handlerArg.value)) {
         resolvedHandlerFn = handlerArg.value;
       } else if (

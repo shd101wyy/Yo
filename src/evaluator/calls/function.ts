@@ -605,17 +605,6 @@ export function evaluateFunctionCall({
               },
             };
           } catch (error) {
-            // DEBUG: Log ALL checking phase errors to find io.await issue
-            const maybeAwait = exprToString(func);
-            if (maybeAwait.includes("await") || maybeAwait.includes("io")) {
-              console.log("DEBUG checking error for callee:", maybeAwait);
-              console.log("  type:", typeToString(functionToCall.type));
-              console.log("  ioBuiltin:", (functionToCall.type as any)?.ioBuiltin);
-              console.log("  error:", error instanceof Error ? error.message : String(error));
-              if (error instanceof Error && error.stack) {
-                console.log("  stack:", error.stack.split("\n").slice(0, 15).join("\n"));
-              }
-            }
             // Re-throw overflow errors immediately - they should not be caught
             if (error instanceof YoError && error.kind === "overflow") {
               throw formatErrorMessages(

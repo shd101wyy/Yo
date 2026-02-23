@@ -35,7 +35,6 @@ import type {
   FunctionImplicitParameter,
   FunctionParameter,
   FunctionType,
-  ModuleType,
   SomeType,
   Type,
 } from "../../types/definitions";
@@ -46,7 +45,6 @@ import {
   isExprType,
   isFnTraitType,
   isFunctionType,
-  isModuleType,
   isSomeType,
   isTraitType,
 } from "../../types/guards";
@@ -1658,9 +1656,8 @@ export function evaluateFunctionParameters({
           continue;
         }
 
-        // Check for module type destructuring: using(ModuleType)
-        // When a bare module type is passed without a label (no "name : Type" syntax),
-        // auto-destructure the module fields into the function body env.
+        // Bare types without labels are not allowed.
+        // e.g., using(Raise) must be using(raise : Raise)
         const hasExplicitLabel =
           exprIsFunctionCall(implicitParamExpr) &&
           (exprIsFunctionCallOf(implicitParamExpr, ":") ||
@@ -1669,111 +1666,10 @@ export function evaluateFunctionParameters({
             exprIsFunctionCallOf(implicitParamExpr, ":="));
 
         if (!hasExplicitLabel) {
-          const evaluated = evaluateExpression({
-            expr: implicitParamExpr,
-            env,
-            context: { ...context },
+          throw formatErrorMessage({
+            token: implicitParamExpr.token,
+            errorMessage: `Implicit parameter requires a label. Use "using(name : Type)" instead of "using(Type)".`,
           });
-          if (
-            evaluated.$ &&
-            isTypeValue(evaluated.$.value) &&
-            isModuleType(evaluated.$.value.value)
-          ) {
-            const moduleType = evaluated.$.value.value as ModuleType;
-            env = evaluated.$.env;
-
-            // Check for duplicate field names against all param kinds and previously destructured fields
-            for (const field of moduleType.fields) {
-              const dupForall = forallParameters.find(
-                (p) => p.label === field.label
-              );
-              if (dupForall) {
-                throw formatErrorMessage({
-                  token: implicitParamExpr.token,
-                  errorMessage: `Destructured field "${field.label}" from module type ${typeToString(moduleType)} conflicts with forall parameter`,
-                });
-              }
-              const dupImplicit = implicitParameters.find(
-                (p) => p.label === field.label
-              );
-              if (dupImplicit) {
-                throw formatErrorMessage({
-                  token: implicitParamExpr.token,
-                  errorMessage: `Destructured field "${field.label}" from module type ${typeToString(moduleType)} conflicts with another implicit parameter`,
-                });
-              }
-            }
-
-            // Create the implicit parameter with module type and empty label
-            const autoLabel = "";
-            const implicitParameter: FunctionImplicitParameter = {
-              label: autoLabel,
-              type: moduleType,
-              isCompileTimeOnly: true as const,
-              isImplicit: true as const,
-              isModuleDestructured: true,
-              isQuote: false,
-              isOwningTheRcValue: false,
-              exprs: getFunctionParameterExprs({
-                expr: implicitParamExpr,
-                labelExpr: undefined,
-                typeExpr: implicitParamExpr,
-                defaultValueExpr: undefined,
-                assignedValueExpr: undefined,
-              }),
-            };
-            implicitParameters.push(implicitParameter);
-
-            // Add the auto-generated module variable to env
-            const moduleValue = createUnknownValue(moduleType, {
-              variableName: autoLabel,
-              env,
-              context,
-            });
-            const { env: envWithModule } = addVariableToEnv({
-              env,
-              variable: {
-                name: autoLabel,
-                type: moduleType,
-                isCompileTimeOnly: true,
-                isImplicit: true,
-                value: [moduleValue],
-                token: implicitParamExpr.token,
-                initializedAtToken: implicitParamExpr.token,
-                consumedAtToken: undefined,
-                isOwningTheRcValue: false,
-              },
-              allowVariableShadowing: true,
-            });
-            env = envWithModule;
-
-            // Destructure module fields into the env as direct variables
-            for (const field of moduleType.fields) {
-              const fieldValue = createUnknownValue(field.type, {
-                variableName: field.label,
-                env,
-                context,
-              });
-              const { env: envWithField } = addVariableToEnv({
-                env,
-                variable: {
-                  name: field.label,
-                  type: field.type,
-                  isCompileTimeOnly: true,
-                  isImplicit: true,
-                  value: [fieldValue],
-                  token: implicitParamExpr.token,
-                  initializedAtToken: implicitParamExpr.token,
-                  consumedAtToken: undefined,
-                  isOwningTheRcValue: false,
-                },
-                allowVariableShadowing: true,
-              });
-              env = envWithField;
-            }
-
-            continue;
-          }
         }
 
         const { parameter, env: nextEnv } = evaluateFunctionParameter({

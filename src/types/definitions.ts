@@ -364,13 +364,7 @@ export interface FunctionParameter {
    * bound to the effect row variable.
    */
   isEffectRowSpread?: boolean;
-  /**
-   * Whether this implicit parameter was created from auto-destructuring a module type.
-   * e.g., `using(Raise)` where `Raise :: module(raise : ctl(...))` creates an implicit
-   * parameter with type Raise and isModuleDestructured: true. The module's fields
-   * (e.g., raise) are destructured into the function body env as direct variables.
-   */
-  isModuleDestructured?: boolean;
+
   /**
    * The expression information of the parameter.
    */

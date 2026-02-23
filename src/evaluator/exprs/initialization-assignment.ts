@@ -1,4 +1,8 @@
-import { addVariableToEnv, type Environment } from "../../env";
+import {
+  addVariableToEnv,
+  getVariablesFromEnv,
+  type Environment,
+} from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   BuiltinKeywords,
@@ -6,9 +10,9 @@ import {
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
-  type FnCallExpr,
   requireExprNotConsumed,
   setExprAsNeedsToCallDup,
+  type FnCallExpr,
 } from "../../expr";
 import { areTypesCompatible } from "../../types/compatibility";
 import type { SomeType } from "../../types/definitions";
@@ -153,6 +157,21 @@ export function evaluateInitializationAssignment({
         token: actualLhs.token,
         errorMessage: `Invalid assignment to ${actualLhs.token.value}, expected identifier or operator`,
       });
+    }
+
+    // Propagate implicit flag from RHS: if the RHS references an implicit variable
+    // (e.g., my_async :: io.async where io is implicit), the new variable is also implicit.
+    if (!isImplicit && rhs.$?.pathCollection) {
+      for (const path of rhs.$.pathCollection) {
+        if (path.length > 0 && typeof path[0] === "string") {
+          const rootVars = getVariablesFromEnv(env, path[0]);
+          const rootVar = rootVars[rootVars.length - 1];
+          if (rootVar?.isImplicit) {
+            isImplicit = true;
+            break;
+          }
+        }
+      }
     }
 
     // When using given, force compile-time only regardless of := or ::
@@ -376,7 +395,7 @@ ${exprToString(rhs)}`,
         // Only set shared ownership for Copy types (shared references)
         // If RHS was moved, LHS becomes the primary owner
         isOwningTheSameRcValueAs,
-        isReassignable: true, // This is not a function parameter
+        isReassignable: !isImplicit,
         isImplicit,
       },
     });
