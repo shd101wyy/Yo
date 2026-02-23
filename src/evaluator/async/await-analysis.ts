@@ -514,20 +514,20 @@ function isAwaitCall(expr: Expr): boolean {
 
 /**
  * Checks if an expression is an io.async(closure) call.
- * Uses the isIoAsync flag set by the evaluator during function call processing.
+ * Uses the ioBuiltin marker on the callee's type.
  */
 export function isIoAsyncCall(expr: Expr): boolean {
   if (expr.tag !== ExprTag.FnCall) return false;
-  return expr.$?.isIoAsync === true;
+  return expr.func.$?.type?.ioBuiltin === "io_async";
 }
 
 /**
  * Checks if an expression is an io.await(future) call.
- * Uses the isIoAwait flag set by the evaluator during function call processing.
+ * Uses the ioBuiltin marker on the callee's type.
  */
 export function isIoAwaitCall(expr: Expr): boolean {
   if (expr.tag !== ExprTag.FnCall) return false;
-  return expr.$?.isIoAwait === true;
+  return expr.func.$?.type?.ioBuiltin === "io_await";
 }
 
 /**

@@ -290,18 +290,6 @@ export interface EvaluatedExprData {
   ioAsyncClosureBody?: Expr;
 
   /**
-   * Set to true when this expression is an io.async(closure) call.
-   * Detected structurally during evaluation (module field access on IO-like module).
-   */
-  isIoAsync?: boolean;
-
-  /**
-   * Set to true when this expression is an io.await(future) call.
-   * Detected structurally during evaluation (module field access on IO-like module).
-   */
-  isIoAwait?: boolean;
-
-  /**
    * For closure construction expressions (calling a closure type with a body),
    * this holds the FunctionValue that implements the closure body.
    * This is used during C code generation to find the function to call.

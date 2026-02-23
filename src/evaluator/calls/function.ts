@@ -1613,43 +1613,14 @@ ${functionsWithMatchingTypes.map((matchedFunction) => `${typeToString(matchedFun
         };
       }
 
-      // Detect io.async/io.await calls structurally by checking if the callee
-      // is a module field access on a module type with 'async' and 'await' fields.
-      // We can't use externName because module field types don't carry it.
-      let isIoAsyncDetected = false;
-      let isIoAwaitDetected = false;
-      if (exprIsFunctionCall(func) && exprIsFunctionCallOf(func, ".", 2)) {
-        const receiverExpr = func.args[0];
-        const propertyExpr = func.args[1];
-        if (
-          receiverExpr?.$?.type &&
-          isModuleType(receiverExpr.$.type) &&
-          exprIsAtom(propertyExpr)
-        ) {
-          const moduleType = receiverExpr.$.type;
-          const fieldName = propertyExpr.token.value;
-          const hasAsyncField = moduleType.fields.some(
-            (f) => f.label === "async" && isFunctionType(f.type)
-          );
-          const hasAwaitField = moduleType.fields.some(
-            (f) => f.label === "await" && isFunctionType(f.type)
-          );
-          if (hasAsyncField && hasAwaitField) {
-            if (fieldName === "async") isIoAsyncDetected = true;
-            if (fieldName === "await") isIoAwaitDetected = true;
-          }
-        }
-      }
-
-      // Set isIoAwait flag on the expression
-      if (isIoAwaitDetected && expr.$) {
-        expr.$.isIoAwait = true;
-      }
+      // Detect io.async calls via ioBuiltin marker on the callee's type.
+      // The ioBuiltin field is propagated from extern function types to IO module
+      // field types during module construction, so it works even when aliased.
+      const isIoAsyncDetected = functionToCall.type?.ioBuiltin === "io_async";
 
       // Post-process io.async(closure) calls: attach async metadata so codegen
       // can generate a state machine from the closure body, just like async { body }.
       if (isIoAsyncDetected && expr.$) {
-        expr.$.isIoAsync = true;
         // Find the closure argument from runtime args
         const closureArgExpr = runtimeArgExprsInOrder?.[0];
         if (closureArgExpr?.$) {

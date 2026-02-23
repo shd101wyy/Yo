@@ -74,6 +74,13 @@ export interface Type {
    * Used for orphan rule checks to ensure coherence.
    */
   definedInModulePath?: string;
+
+  /**
+   * Marks this type as an IO module builtin function.
+   * Set on IO module field types so that io.async and io.await
+   * can be detected even when aliased (e.g., `my_async :: io.async`).
+   */
+  ioBuiltin?: "io_async" | "io_await";
 }
 
 /*

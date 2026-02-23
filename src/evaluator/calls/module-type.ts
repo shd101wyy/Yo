@@ -201,6 +201,12 @@ Got:   ${typeToString(argType)}`,
         }
         const argValue = evaluatedArgExpr.$?.value;
 
+        // Propagate ioBuiltin from extern function types to module field types.
+        // This ensures io.async/io.await can be detected even when aliased.
+        if (argType.ioBuiltin) {
+          moduleType.fields[i]!.type.ioBuiltin = argType.ioBuiltin;
+        }
+
         if (isFunctionValue(argValue)) {
           argValue.funcId += `_${moduleField.label}`;
           // If the function value's type contains SomeType but moduleFieldType doesn't,
