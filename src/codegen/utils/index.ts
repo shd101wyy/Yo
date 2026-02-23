@@ -586,6 +586,21 @@ export function getTypeString(
           }
         }
 
+        // Fallback: resolvedConcreteType is itself a SomeType with Impl(Future(T)),
+        // e.g., when a function wraps io.async and its return type's resolvedConcreteType
+        // points to the io.async call expression's SomeType.
+        if (
+          someType.resolvedConcreteType &&
+          isSomeType(someType.resolvedConcreteType) &&
+          typeImplementsFuture(someType.resolvedConcreteType)
+        ) {
+          const innerSomeType = someType.resolvedConcreteType;
+          const innerCName = context.types[innerSomeType.id]?.cName;
+          if (innerCName) {
+            return `${innerCName}*`;
+          }
+        }
+
         // No fallback - all Impl(Future) types must have a concrete type
         throw new Error(
           `Impl(Future) type has no registered concrete type. ` +

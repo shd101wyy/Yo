@@ -506,6 +506,18 @@ Got:      "${paramName}"`,
 
     evaluationContext = ctx;
 
+    // For io.async closures, override the evaluation context to async-block
+    // so that `await` expressions are allowed inside the closure body.
+    if (context.isInsideIoAsyncCall && isCreatingClosure) {
+      evaluationContext = {
+        ...evaluationContext,
+        isEvaluatingFunctionBodyOrAsyncBlock: {
+          kind: "async-block",
+          evaluationEnv: env,
+        },
+      };
+    }
+
     evaluatedBody = evaluateBeginExpression({
       expr: functionBodyExpr,
       env,
@@ -533,12 +545,13 @@ Got:      "${paramName}"`,
     functionValue.isControlFunction = true;
   }
 
-  // For functions with using(IO) implicit parameters, run await analysis
-  // on the body to detect io.await calls and mark the function as async.
+  // For functions with using(IO) implicit parameters or io.async closures,
+  // run await analysis on the body to detect io.await calls and mark as async.
   // This enables the codegen to generate the function as a state machine.
   if (
     evaluatedBody.$ &&
-    functionType.implicitParameters.some((p) => isModuleType(p.type))
+    (functionType.implicitParameters.some((p) => isModuleType(p.type)) ||
+      context.isInsideIoAsyncCall)
   ) {
     const awaitAnalysis = analyzeAwaitPoints(evaluatedBody);
     if (awaitAnalysis.hasAwaits) {

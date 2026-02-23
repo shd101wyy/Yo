@@ -126,6 +126,12 @@ export type FunctionValue = {
    * Contains the FnTraitType and capture struct type for easy access during codegen.
    */
   closureInfo?: ClosureInfo;
+
+  /**
+   * When true, this closure's body is handled by an io.async state machine.
+   * The codegen should NOT generate a separate C function for this closure.
+   */
+  isIoAsyncStateMachineClosure?: boolean;
 };
 
 export interface FunctionCapturedVariableInfo extends CapturedVariableInfo {

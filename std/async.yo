@@ -1,5 +1,6 @@
 // Async yield - suspends current task and allows other tasks to run
 // Implemented as an immediately-completing async block that forces a suspension point
+/*
 yield :: (fn() -> Impl(Future(unit)))
   async {
     // Empty async block that just completes immediately
@@ -7,6 +8,13 @@ yield :: (fn() -> Impl(Future(unit)))
     return ();
   }
 ;
+*/
+
+yield :: (fn(using(io : IO)) -> Impl(Future(unit)))(
+  io.async(()=> {
+    return ();
+  })
+);
 
 export
   yield

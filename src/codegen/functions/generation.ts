@@ -211,7 +211,8 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
       (isFunctionSpecializable(value.type) && !value.type.isClosure) ||
       (value.specializedType && !isSpecializedImplMethod) ||
       isComptimeFunction(value) ||
-      isFunctionValueWithOnlyBuiltinYoInlineFunctionCall(value)
+      isFunctionValueWithOnlyBuiltinYoInlineFunctionCall(value) ||
+      value.isIoAsyncStateMachineClosure
     ) {
       continue;
     }

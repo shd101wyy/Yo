@@ -43,7 +43,18 @@ export function generateAsyncBlock(
   indent: string,
   context: FunctionGenerationContext
 ): string {
-  const bodyExpr = expr.args[0];
+  // For io.async(closure) calls, extract the body from the closure's function value.
+  // For regular async { body } blocks, the body is expr.args[0].
+  let bodyExpr: Expr | undefined;
+  if (isIoAsyncCall(expr)) {
+    const closureArg = expr.$?.runtimeArgExprsInOrder?.[0];
+    const closureFnValue = closureArg?.$?.closureFunctionValue;
+    if (closureFnValue && isFunctionValue(closureFnValue)) {
+      bodyExpr = closureFnValue.body;
+    }
+  } else {
+    bodyExpr = expr.args[0];
+  }
   if (!bodyExpr) {
     return `/* Error: async requires exactly 1 argument */`;
   }
@@ -349,10 +360,13 @@ function emitAsyncBlockStructDefinition(
     emitter.emitDeclarationLine(``);
   }
 
-  // Local variables
-  if (analysis.capturedVariables.length > 0) {
+  // Local variables (exclude "outer" variables which are in the __capture struct)
+  const localVariables = analysis.capturedVariables.filter(
+    (v) => v.kind !== "outer"
+  );
+  if (localVariables.length > 0) {
     emitter.emitDeclarationLine(`  // Local variables`);
-    for (const variable of analysis.capturedVariables) {
+    for (const variable of localVariables) {
       const varTypeCName = getTypeString(variable.type, context);
       const fieldName = getStateMachineFieldName(variable.id, "local");
       emitter.emitDeclarationLine(
@@ -1015,7 +1029,11 @@ function preRegisterAsyncBlocksInExpr(
         if (futureModuleType) {
           const asyncBlockId =
             expr.$?.variableName || `io_async_block_${Date.now()}`;
-          const structName = `${asyncBlockId}_sync_fut_t`;
+          // Use _state_t for async closures (with await points), _sync_fut_t for sync
+          const hasAwaitAnalysis = !!expr.$?.awaitAnalysis;
+          const structName = hasAwaitAnalysis
+            ? `${asyncBlockId}_state_t`
+            : `${asyncBlockId}_sync_fut_t`;
 
           if (expr.$) {
             expr.$.asyncStateMachineStructName = structName;
@@ -1027,7 +1045,7 @@ function preRegisterAsyncBlocksInExpr(
           };
 
           context.emitter.emitDeclarationLine(
-            `typedef struct ${structName}_struct ${structName}; // Forward declaration for io.async sync future`
+            `typedef struct ${structName}_struct ${structName}; // Forward declaration for io.async ${hasAwaitAnalysis ? "state machine" : "sync future"}`
           );
         }
       }

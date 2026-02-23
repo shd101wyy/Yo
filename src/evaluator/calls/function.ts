@@ -3,7 +3,9 @@ import {
   type Environment,
   getReceiverMethodsByNameFromEnv,
   getTypeTraitMethodsByNameFromEnv,
+  getVariablesFromEnv,
   popEnvFrame,
+  updateExistingVariable,
 } from "../../env";
 import { formatErrorMessage, formatErrorMessages, YoError } from "../../error";
 import {
@@ -603,6 +605,17 @@ export function evaluateFunctionCall({
               },
             };
           } catch (error) {
+            // DEBUG: Log ALL checking phase errors to find io.await issue
+            const maybeAwait = exprToString(func);
+            if (maybeAwait.includes("await") || maybeAwait.includes("io")) {
+              console.log("DEBUG checking error for callee:", maybeAwait);
+              console.log("  type:", typeToString(functionToCall.type));
+              console.log("  ioBuiltin:", (functionToCall.type as any)?.ioBuiltin);
+              console.log("  error:", error instanceof Error ? error.message : String(error));
+              if (error instanceof Error && error.stack) {
+                console.log("  stack:", error.stack.split("\n").slice(0, 15).join("\n"));
+              }
+            }
             // Re-throw overflow errors immediately - they should not be caught
             if (error instanceof YoError && error.kind === "overflow") {
               throw formatErrorMessages(
@@ -1243,6 +1256,34 @@ ${isTypeValue(value) ? typeToString(value.value) : typeToString(functionToCall.t
     (functionToCall) => functionToCall.result.kind !== "error"
   );
 
+  // DEBUG: Log io.await call resolution details
+  if (functionsWithMatchingTypes.length === 0 && functionsToCall.length > 0) {
+    const calleeName = exprToString(func);
+    if (calleeName.includes("await")) {
+      console.log(
+        "DEBUG io.await: functionsToCall count =",
+        functionsToCall.length
+      );
+      for (const f of functionsToCall) {
+        console.log("  candidate type:", typeToString(f.type));
+        console.log("  result kind:", f.result.kind);
+        if (f.result.kind === "error") {
+          const err = f.result.error;
+          console.log(
+            "  error:",
+            err instanceof Error ? err.message : String(err)
+          );
+          if (err instanceof Error && err.stack) {
+            console.log(
+              "  stack:",
+              err.stack.split("\n").slice(0, 8).join("\n")
+            );
+          }
+        }
+      }
+    }
+  }
+
   // Check if there is only one comptime function call,
   // If yes, then we use that function.
   // Comptime function call has higher priority than normal function call.
@@ -1288,17 +1329,17 @@ ${isTypeValue(value) ? typeToString(value.value) : typeToString(functionToCall.t
     ) {
       const error = functionsToCall[0]!.result.error;
       if (error instanceof YoError) {
-        // console.log("Error type:", error?.constructor?.name);
-        // console.log(
-        //   "Error message:",
-        //   error instanceof Error ? error.message : String(error)
-        // );
-        // console.log(
-        //   "Error stack:",
-        //   error instanceof Error
-        //     ? error.stack?.split("\n").slice(0, 10).join("\n")
-        //     : "no stack"
-        // );
+        console.log("Error type:", error?.constructor?.name);
+        console.log(
+          "Error message:",
+          error instanceof Error ? error.message : String(error)
+        );
+        console.log(
+          "Error stack:",
+          error instanceof Error
+            ? error.stack?.split("\n").slice(0, 10).join("\n")
+            : "no stack"
+        );
         // console.trace(exprToString(expr));
         throw formatErrorMessages(
           [
@@ -1593,6 +1634,58 @@ ${functionsWithMatchingTypes.map((matchedFunction) => `${typeToString(matchedFun
         deferredDropExpressions,
         variableName: previousVariableName,
       };
+
+      // For io.async calls, propagate awaitAnalysis and captureType from the closure
+      // argument to the call expression. This enables codegen to generate a state machine
+      // instead of a sync future when the closure contains await points.
+      if (functionType.ioBuiltin === "io_async" && runtimeArgExprsInOrder[0]) {
+        const closureArg = runtimeArgExprsInOrder[0];
+        const closureFnValue = closureArg.$?.closureFunctionValue as
+          | FunctionValue
+          | undefined;
+        if (closureFnValue?.body?.$?.awaitAnalysis) {
+          expr.$.awaitAnalysis = closureFnValue.body.$.awaitAnalysis;
+          expr.$.captureType = closureArg.$?.captureType;
+          expr.$.deferredDupExpressions = closureArg.$?.deferredDupExpressions;
+
+          // Mark closure-captured variables as "outer" in the await analysis.
+          // These variables live in the __capture struct, not as local SM fields.
+          const closureCaptureType = closureArg.$?.captureType;
+          if (closureCaptureType && expr.$.awaitAnalysis) {
+            const captureFieldNames = new Set(
+              closureCaptureType.fields.map((f: { label: string }) => f.label)
+            );
+            expr.$.awaitAnalysis = {
+              ...expr.$.awaitAnalysis,
+              capturedVariables: expr.$.awaitAnalysis.capturedVariables.map(
+                (v) =>
+                  captureFieldNames.has(v.name)
+                    ? { ...v, kind: "outer" as const }
+                    : v
+              ),
+            };
+          }
+
+          // Mark the closure so codegen skips generating its C function
+          // (the body is handled by the state machine's resume function)
+          closureFnValue.isIoAsyncStateMachineClosure = true;
+
+          // Mark the closure's temp variable as consumed so it won't get a
+          // deferred drop in the parent scope — the captures are now owned
+          // by the state machine, not the closure struct.
+          const closureVarName = closureArg.$?.variableName;
+          if (closureVarName && expr.$.env) {
+            const vars = getVariablesFromEnv(expr.$.env, closureVarName);
+            const closureVar = vars[vars.length - 1];
+            if (closureVar) {
+              expr.$.env = updateExistingVariable(expr.$.env, closureVar, {
+                ...closureVar,
+                consumedAtToken: expr.token,
+              });
+            }
+          }
+        }
+      }
 
       // Set temp variable which holds the result of the function call
       attachTempVariableToExpr(expr, true);

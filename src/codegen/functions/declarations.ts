@@ -82,7 +82,8 @@ export function generateFunctionDeclarations(
     if (
       (isFunctionSpecializable(value.type) && !value.type.isClosure) ||
       isComptimeFunction(value) ||
-      isFunctionValueWithOnlyBuiltinYoInlineFunctionCall(value)
+      isFunctionValueWithOnlyBuiltinYoInlineFunctionCall(value) ||
+      value.isIoAsyncStateMachineClosure
     ) {
       continue;
     }

@@ -1051,6 +1051,12 @@ Got:   ${typeToString(typeValue.type)}`,
     }
   }
 
+  // If this is an io.async call, set context flag so the closure argument
+  // is evaluated with async-block context (allowing `await` inside).
+  if (functionType.ioBuiltin === "io_async") {
+    context = { ...context, isInsideIoAsyncCall: true };
+  }
+
   // Check if the regular parameters match the arguments
   const parametersToProcess = functionType.parameters.length;
 
@@ -1653,53 +1659,7 @@ Please use explicit using() to disambiguate.`,
         calleeEnv = nextEnv;
       }
 
-      // For module-destructured implicit params, add the destructured fields
-      // to calleeEnv so the function body can access them directly.
-      if (
-        implicitParam.isModuleDestructured &&
-        isModuleType(resolvedImplicitType)
-      ) {
-        const moduleValue =
-          implicitArgValues[implicitArgValues.length - 1]?.value;
-        const moduleType = resolvedImplicitType as ModuleType;
-        for (let fi = 0; fi < moduleType.fields.length; fi++) {
-          const field = moduleType.fields[fi]!;
-          // Extract field value from the module value if available
-          let fieldValue: Value | undefined;
-          if (moduleValue && isModuleValue(moduleValue)) {
-            fieldValue = moduleValue.fields[fi];
-          }
-          if (!fieldValue) {
-            fieldValue = createUnknownValue(field.type, {
-              variableName: field.label,
-              env: calleeEnv,
-              context,
-            });
-          }
-          const { env: envWithField } = addVariableToEnv({
-            env: calleeEnv,
-            variable: {
-              name: field.label,
-              type: field.type,
-              isCompileTimeOnly: true,
-              isImplicit: true,
-              value: [fieldValue],
-              token:
-                implicitParam.exprs.labelExpr?.token ??
-                implicitParam.exprs.typeExpr?.token ??
-                PlaceholderToken,
-              initializedAtToken:
-                implicitParam.exprs.labelExpr?.token ??
-                implicitParam.exprs.typeExpr?.token ??
-                PlaceholderToken,
-              consumedAtToken: undefined,
-              isOwningTheRcValue: false,
-            },
-            allowVariableShadowing: true,
-          });
-          calleeEnv = envWithField;
-        }
-      }
+
     }
   }
 
@@ -2207,7 +2167,6 @@ function createSpecializedFunctionInline({
     type: FunctionType;
     fromSpread: boolean;
     effectFieldPath?: string[];
-    handlerFieldPath?: string[];
   }> = [];
   // Compute the mapping from implicit param index to implicitArgValues index.
   // Spread params expand into multiple entries, so we need to track the offset.
@@ -2321,25 +2280,7 @@ function createSpecializedFunctionInline({
           : undefined
       );
 
-      if (implicitParam.isModuleDestructured) {
-        // Module destructured: using(Raise) — fields are in scope directly.
-        // Use the field name as effectParameterName with effectFieldPath: undefined
-        // so isEffectCall Case 1 (direct call) matches raise(msg).
-        // handlerFieldPath is used to extract the handler from the module value.
-        for (const ctlField of ctlFields) {
-          const fieldName = ctlField.path[ctlField.path.length - 1]!;
-          effectCtlParams.push({
-            handlerArgIndex: argOffset,
-            label: fieldName,
-            type: ctlField.type,
-            fromSpread: false,
-            effectFieldPath: undefined,
-            handlerFieldPath: ctlField.path,
-          });
-        }
-      } else {
-        // Non-destructured: using(raise_mod : Raise) — access via mod.field.
-        for (const ctlField of ctlFields) {
+      for (const ctlField of ctlFields) {
           effectCtlParams.push({
             handlerArgIndex: argOffset,
             label: implicitParam.label,
@@ -2348,7 +2289,6 @@ function createSpecializedFunctionInline({
             effectFieldPath: ctlField.path,
           });
         }
-      }
       argOffset += 1;
     } else {
       argOffset += 1;

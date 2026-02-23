@@ -1,16 +1,22 @@
+yield :: (fn(using(io : IO)) -> Impl(Future(unit)))(
+  io.async(()=> {
+    return ();
+  })
+);
+
 main :: (fn(using(io : IO)) -> unit) {
   my_async :: io.async;
   my_await :: io.await;
 
   b := Box(i32)(0);
 
-  task := my_async(()=> {
+  task := my_async((using(io))=> {
     assert(b.* == 0, "b should be 0 at task start");
 
     c := Box(i32)(10);
 
     b.* = (b.* + 1);
-    await yield();
+    io.await(yield());
 
     assert(b.* == 2, "b should be 2 after main incremented");
     assert(c.* == 10, "captured Box should still be 10");

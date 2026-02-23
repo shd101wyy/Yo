@@ -395,8 +395,12 @@ function generateFuncCall(
     return generateAsyncBlock(expr, indent, context);
   }
 
-  // io.async(closure) - creates a sync Future by calling closure immediately
+  // io.async(closure) - with await points: generates a state machine (same as async block)
+  // io.async(closure) - without await points: creates a sync Future by calling closure immediately
   if (isIoAsyncCall(expr)) {
+    if (expr.$?.awaitAnalysis) {
+      return generateAsyncBlock(expr, indent, context);
+    }
     return generateIoAsyncSyncCall(expr, indent, context);
   }
 
