@@ -1071,7 +1071,17 @@ Got:   ${typeToString(typeValue.type)}`,
 
       // The first nonSpreadCount using args correspond to named implicit params;
       // remaining args go to the effect row spread(s).
-      const spreadArgs = usingArgsExpr.args.slice(nonSpreadCount);
+      const rawSpreadArgs = usingArgsExpr.args.slice(nonSpreadCount);
+
+      // Unwrap ...(name, ...) grouping: using(...(yield, log)) → atoms [yield, log]
+      const spreadArgs: Expr[] = [];
+      for (const rawArg of rawSpreadArgs) {
+        if (exprIsFunctionCall(rawArg) && exprIsFunctionCallOf(rawArg, "...")) {
+          spreadArgs.push(...(rawArg as FnCallExpr).args);
+        } else {
+          spreadArgs.push(rawArg);
+        }
+      }
 
       if (spreadArgs.length > 0) {
         // Resolve each spread arg's type from callerEnv via variable lookup

@@ -15,7 +15,7 @@ Both phases build on Yo's existing async/await state machine infrastructure.
 - ✅ **Phase 2 (handlers / return + abort)** — fully implemented and tested.
 - ✅ **Effect polymorphism** — `...(E)` effect row spreads in `forall`/`using` implemented and tested.
 - ✅ **Three-tier function classification** — `isFunctionTypeGeneric`, `isFunctionTypeHardGeneric`, `isFunctionSpecializable` correctly handle all function categories in C codegen.
-- ✅ **30 tests passing** with AddressSanitizer (no memory leaks or use-after-free).
+- ✅ **32 tests passing** with AddressSanitizer (no memory leaks or use-after-free).
 - ⏳ **Remaining:** One-shot runtime enforcement (double-resume check), async/await unification.
 
 ---
@@ -251,7 +251,7 @@ some_func :: (fn(forall(T : Type, U : Type, ...(E1), ...(E2)),
     using(...(E1), ...(E2))) -> List(U));
 ```
 
-**Effect row spread with closures** — The `...(E)` spread also works with closures (`Impl(Fn(...))`) and supports renaming implicit parameters in the callback. The closure receives the handler value from the outer scope at the call site:
+**Effect row spread with closures** — The `...(E)` spread also works with closures (`Impl(Fn(...))`) and supports two styles for declaring the closure's effects:
 
 ```yo
 Yield :: (fn(v : i32) -> i32);
@@ -276,14 +276,26 @@ traverse :: (fn(
 
 arr := Array(i32, 5)(0, 1, 2, 3, 4);
 
-// The callback renames effects as _yield and _log in its local scope.
-// E is inferred as (yield : Yield, log : Log) from using(yield, log).
-traverse(arr, (v, using(_yield, _log)) => {
+// Style 1: Inline typed declaration — closure declares effect row with types.
+// No call-site using() needed; E is inferred from the closure's declaration.
+traverse(arr, (v, using(...(yield : Yield, log : Log))) => {
+  log(v);
+  result := yield(v);
+  assert((result == v), "yield should return the value");
+});
+
+// Style 2: Call-site resolution — E is resolved from using(...(yield, log))
+// at the call site, and the closure renames them with using(...(_yield, _log)).
+traverse(arr, (v, using(...(_yield, _log))) => {
   _log(v);
   result := _yield(v);
   assert((result == v), "yield should return the value");
-}, using(yield, log));
+}, using(...(yield, log)));
 ```
+
+The `...()` grouping is required because a function may have multiple effect row variables (e.g., `...(E1)` and `...(E2)`), and the grouping distinguishes which arguments belong to which row.
+
+If both the closure and call site declare effects, the types must match or the compiler reports an error.
 
 Semantics:
 
@@ -364,7 +376,7 @@ No special language support needed — this falls out of the existing `using`/`g
 - Anonymous function `=>` syntax parses `using()` parameters.
 - `using(ModuleType)` auto-destructuring with `isModuleDestructured` flag.
 
-**Step 8: Tests** — `tests/algebraic_effects.test.yo` (31 tests)
+**Step 8: Tests** — `tests/algebraic_effects.test.yo` (32 tests)
 
 - Basic abort and resume via `using` parameter ✅
 - Direct effect abort/resume without intermediate `using` function ✅
@@ -383,6 +395,7 @@ No special language support needed — this falls out of the existing `using`/`g
 - Multiple effect row spreads with resume/abort ✅
 - Closure with `using()` effect — resume and abort ✅
 - Effect row polymorphism with `...(E)` spread in closure callbacks, with parameter renaming ✅
+- Inline typed effect row declaration `using(...(name : Type))` in closures ✅
 
 ---
 
