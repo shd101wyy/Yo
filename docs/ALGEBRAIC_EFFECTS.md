@@ -9,11 +9,12 @@ This plan describes how to add **algebraic effects** to the Yo language in two p
 
 Both phases build on Yo's existing async/await state machine infrastructure.
 
-## Current Status (2026-02-21)
+## Current Status (2026-02-23)
 
 - ✅ **Phase 1 (using/given)** — fully implemented and tested.
 - ✅ **Phase 2 (handlers / return + abort)** — fully implemented and tested.
 - ✅ **Effect polymorphism** — `...(E)` effect row spreads in `forall`/`using` implemented and tested.
+- ✅ **Three-tier function classification** — `isFunctionTypeGeneric`, `isFunctionTypeHardGeneric`, `isFunctionSpecializable` correctly handle all function categories in C codegen.
 - ✅ **30 tests passing** with AddressSanitizer (no memory leaks or use-after-free).
 - ⏳ **Remaining:** One-shot runtime enforcement (double-resume check), async/await unification.
 
@@ -105,10 +106,20 @@ result3 := add_numbers(7, 8, using(undefined));
 - Resolves missing contextual args from `given` variables by type compatibility.
 - Fixed `forall + using` bug by re-evaluating implicit parameter types in current callee env.
 
-**Step 5: Codegen and specialization** — `src/codegen/exprs/initialization-assignment.ts`, `src/types/guards.ts`, `src/evaluator/context.ts`, `src/types/utils.ts`
+**Step 5: Codegen and specialization** — `src/codegen/exprs/initialization-assignment.ts`, `src/types/guards.ts`, `src/evaluator/context.ts`, `src/types/utils.ts`, `src/codegen/functions/declarations.ts`, `src/codegen/functions/generation.ts`, `src/codegen/functions/collection.ts`
 
 - `given(...)` assignments skipped in runtime codegen (compile-time only).
 - Implicit args included in specialization signature/cache inputs.
+- Three-tier function classification in C codegen (`src/types/guards.ts`):
+  - **`isFunctionTypeGeneric(FunctionType)`** — pure type-level check; returns true if the function has any unresolved generic parameters (comptime, forall, implicit, or SomeType params). Used by the evaluator at call sites to decide whether to specialize.
+  - **`isFunctionTypeHardGeneric(FunctionType)`** — type-level; returns true only for comptime/forall/SomeType params — NOT for implicit-params-only. Functions that are generic only because of implicit params can still be generated as plain C functions because implicit params are resolved at compile time and don't appear in the C signature.
+  - **`isFunctionSpecializable(FunctionValue)`** — value-level; `isFunctionTypeGeneric(type) && specializedFunctionCaches.length > 0`. True only when the evaluator actually created per-call-site specialized copies.
+- This resolves three categories of functions in codegen:
+  1. **Hard-generic** (comptime/forall/SomeType params): unspecialized C form is invalid — always skipped from regular generation; only specialized copies are emitted.
+  2. **Implicit-only with evaluator caches** (e.g., `using(raise : Raise)` where the handler is specialized): skip the original, emit only the specialized copies.
+  3. **Implicit-only without caches** (e.g., `yield` with auto-added IO param, or resolved-at-compile-time `using(io)`): implicit params don't appear in C signature — generate as a normal C function.
+- Regular C generation skip condition: `isFunctionTypeHardGeneric(type) || specializedFunctionCaches.length > 0`.
+- Specialized generation skip condition: `!specializedType || !isFunctionTypeGeneric(type)`.
 
 **Step 6: Tests** — `tests/fn.test.yo`
 

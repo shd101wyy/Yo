@@ -341,14 +341,13 @@ A unified system would:
 
    This provides the IO handler automatically to any function with `using(io : IO)` via the existing `given`/`using` resolution mechanism.
 
-4. **Codegen fix for `main :: (fn(using(io : IO)) -> unit)`**: Functions with only module-typed implicit parameters (like `IO`) that are never specialized at call sites were silently dropped by codegen. Fixed in `src/codegen/functions/generation.ts` and `src/codegen/functions/declarations.ts` with an `isSpecializableOnlyByModuleImplicitParams` check that bypasses the `isFunctionSpecializable` skip condition when:
+4. **Codegen fix for `main :: (fn(using(io : IO)) -> unit)`**: Functions with only module-typed implicit parameters (like `IO`) that are never specialized at call sites were silently dropped by codegen. This is now handled correctly by the three-tier function classification in `src/types/guards.ts`:
 
-   - The function is specializable (has implicit params)
-   - It has no `specializedType` and no `specializedFunctionCaches` (never specialized at a call site)
-   - It has no `forall` or `comptime` regular parameters
-   - ALL implicit parameters have module types (`isModuleType`)
+   - **`isFunctionTypeHardGeneric(FunctionType)`** — returns `true` only for comptime/forall/SomeType params; returning `false` for implicit-params-only functions. `main :: (fn(using(io : IO)) -> unit)` has `isFunctionTypeHardGeneric = false` because its only generic marker is the implicit `io` parameter.
+   - **`isFunctionSpecializable(FunctionValue)`** — `isFunctionTypeGeneric(type) && specializedFunctionCaches.length > 0`. For `main`, `specializedFunctionCaches` is empty (it is never specialized at a call site), so `isFunctionSpecializable = false`.
+   - The regular generation skip condition is `isFunctionTypeHardGeneric(type) || specializedFunctionCaches.length > 0`. Since both are false for `main`, it passes through to regular C generation.
 
-   This correctly identifies functions like `main` whose `using` parameters carry module-typed effects that are resolved at compile time, while still allowing normal effect functions (like `safe_divide(using(raise : Raise))`) to go through the specialization pipeline.
+   This replaces the old `isSpecializableOnlyByModuleImplicitParams` heuristic. The new design correctly generalises: any function whose implicit parameters are resolved at compile time (module-typed or otherwise) with no call-site specializations will be emitted as a plain C function. Normal effect functions (like `safe_divide(using(raise : Raise))`) still go through the specialization pipeline because their `specializedFunctionCaches` is non-empty.
 
 5. **Tests verified**: 30 algebraic effects tests, 54 async/await tests, 16 function tests all pass. ASAN clean.
 
