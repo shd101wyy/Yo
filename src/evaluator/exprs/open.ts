@@ -1,8 +1,15 @@
-import { addVariableToEnv, type Environment } from "../../env";
+import {
+  addVariableToEnv,
+  getVariablesFromEnv,
+  type Environment,
+} from "../../env";
 import { formatErrorMessage, formatErrorMessages, YoError } from "../../error";
 import {
   BuiltinKeywords,
+  exprIsAtom,
+  exprIsFunctionCallOf,
   exprToString,
+  type Expr,
   type FnCallExpr,
   type RuntimeDestructuring,
 } from "../../expr";
@@ -32,6 +39,27 @@ export function evaluateOpen({
       token: expr.token,
       errorMessage: `Expected "using" with 1 argument, got:\n${exprToString(expr)}`,
     });
+  }
+
+  // Disallow open on implicit variables or property access of implicit variables.
+  {
+    let rootExpr: Expr = argExpr;
+    while (
+      exprIsFunctionCallOf(rootExpr, ".") &&
+      (rootExpr as FnCallExpr).args.length >= 1
+    ) {
+      rootExpr = (rootExpr as FnCallExpr).args[0]!;
+    }
+    if (exprIsAtom(rootExpr)) {
+      const rootVars = getVariablesFromEnv(env, rootExpr.token.value);
+      const rootVar = rootVars[rootVars.length - 1];
+      if (rootVar?.isImplicit) {
+        throw formatErrorMessage({
+          token: argExpr.token,
+          errorMessage: `Cannot use "open" on implicit variable "${rootVar.name}". Implicit variables must be passed via using() parameters.`,
+        });
+      }
+    }
   }
 
   // Evaluate the module

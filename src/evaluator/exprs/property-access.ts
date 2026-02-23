@@ -700,17 +700,19 @@ export function evaluatePropertyAccess({
         // Set origin type: use existing originType or the original object type
         const fieldOriginType = objectExpr.$.originType || originalObjectType;
 
+        const indexPathCollection =
+          objectExpr.$.pathCollection && objectExpr.$.pathCollection.length > 0
+            ? objectExpr.$.pathCollection.map((p) => [
+                ...p,
+                propertyExpr.token.value,
+              ])
+            : [[objectExpr.$.variableName ?? "?", propertyExpr.token.value]];
         expr.$ = {
           env,
           type: tupleElement.type,
           originType: fieldOriginType,
           isAccessingProperty: true,
-          pathCollection: [
-            [
-              objectExpr.$.variableName ?? "?", // FIXME
-              propertyExpr.token.value,
-            ],
-          ],
+          pathCollection: indexPathCollection,
         };
         propertyExpr.$ = expr.$;
 
@@ -755,17 +757,20 @@ export function evaluatePropertyAccess({
           const fieldOriginType =
             objectExpr.$?.originType || originalObjectType;
 
+          const labelPathCollection =
+            objectExpr.$!.pathCollection &&
+            objectExpr.$!.pathCollection.length > 0
+              ? objectExpr.$!.pathCollection.map((p) => [
+                  ...p,
+                  propertyExpr.token.value,
+                ])
+              : [[objectExpr.$!.variableName ?? "?", propertyExpr.token.value]];
           expr.$ = {
             env,
             type: tupleElement.type,
             originType: fieldOriginType,
             isAccessingProperty: true,
-            pathCollection: [
-              [
-                objectExpr.$!.variableName ?? "?", // FIXME
-                propertyExpr.token.value,
-              ],
-            ],
+            pathCollection: labelPathCollection,
           };
           propertyExpr.$ = expr.$;
 
@@ -834,16 +839,19 @@ export function evaluatePropertyAccess({
             return expr;
           }
           const moduleField = fields[moduleFieldIndex]!;
+          const modulePathCollection =
+            objectExpr.$!.pathCollection &&
+            objectExpr.$!.pathCollection.length > 0
+              ? objectExpr.$!.pathCollection.map((p) => [
+                  ...p,
+                  propertyExpr.token.value,
+                ])
+              : [[objectExpr.$!.variableName ?? "?", propertyExpr.token.value]];
           expr.$ = {
             env,
             type: moduleField.type,
             isAccessingProperty: true,
-            pathCollection: [
-              [
-                objectExpr.$!.variableName ?? "?", // FIXME
-                propertyExpr.token.value,
-              ],
-            ],
+            pathCollection: modulePathCollection,
           };
           propertyExpr.$ = expr.$;
 

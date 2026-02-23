@@ -1,8 +1,4 @@
-import {
-  addVariableToEnv,
-  getVariablesFromEnv,
-  type Environment,
-} from "../../env";
+import { addVariableToEnv, type Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   BuiltinKeywords,
@@ -35,7 +31,11 @@ import {
 } from "../../value";
 import type { EvaluatorContext } from "../context";
 import { synthesizeExprAndType } from "../types/expr-synthesizer";
-import { findRcValueOwnerRelationship, isValidVariableName } from "../utils";
+import {
+  findRcValueOwnerRelationship,
+  isValidVariableName,
+  throwExprIsImplicitVariableError,
+} from "../utils";
 import { cloneValue } from "../values/clone-value";
 import { throwRhsContainsControlFlowExpressionError } from "./assignment";
 import { evaluateDestructuringAssignment } from "./destructuring-assignment";
@@ -140,20 +140,8 @@ export function evaluateInitializationAssignment({
     throwRhsContainsControlFlowExpressionError(rhs, rhs.$.controlFlow);
   }
 
-  // Propagate implicit flag from RHS: if the RHS references an implicit variable
-  // (e.g., my_async :: io.async where io is implicit), the new variable is also implicit.
-  if (!isImplicit && rhs.$?.pathCollection) {
-    for (const path of rhs.$.pathCollection) {
-      if (path.length > 0 && typeof path[0] === "string") {
-        const rootVars = getVariablesFromEnv(env, path[0]);
-        const rootVar = rootVars[rootVars.length - 1];
-        if (rootVar?.isImplicit) {
-          isImplicit = true;
-          break;
-        }
-      }
-    }
-  }
+  // Disallow using implicit variables (or property access of them) as the RHS
+  throwExprIsImplicitVariableError(rhs);
 
   if (exprIsAtom(actualLhs)) {
     // Check if the RHS variable has been consumed (moved)

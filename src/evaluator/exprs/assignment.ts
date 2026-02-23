@@ -64,7 +64,10 @@ import {
 import { type EvaluatorContext, trackVariableUsage } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { synthesizeExprAndType } from "../types/expr-synthesizer";
-import { findRcValueOwnerRelationship } from "../utils";
+import {
+  findRcValueOwnerRelationship,
+  throwExprIsImplicitVariableError,
+} from "../utils";
 import { cloneValue } from "../values/clone-value";
 import { evaluateBinding } from "./binding";
 import { evaluateIdentifierAndOperator } from "./identifer-and-operator";
@@ -234,6 +237,9 @@ You can mutate fields (e.g., ${variableName}.field = value) but cannot reassign 
 
     // Check if the RHS variable has been consumed (moved)
     requireExprNotConsumed(rhs, env);
+
+    // Disallow using implicit variables (or property access of them) as the RHS
+    throwExprIsImplicitVariableError(rhs);
 
     // Under the new ownership model, all assignments transfer ownership
     // so we always need to call dup on the RHS
@@ -696,6 +702,9 @@ Consider using Dyn(...) for dynamic dispatch if you need to reassign to differen
 
     // Check if the RHS variable has been consumed (moved)
     requireExprNotConsumed(rhs, env);
+
+    // Disallow using implicit variables (or property access of them) as the RHS
+    throwExprIsImplicitVariableError(rhs);
 
     setExprAsNeedsToCallDup(rhs, context);
     env = rhs.$.env;

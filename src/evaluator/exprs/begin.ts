@@ -34,6 +34,7 @@ import { VUnit } from "../../unit-value";
 import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { synthesizeTypes } from "../types/synthesizer";
+import { throwExprIsImplicitVariableError } from "../utils";
 
 /**
  * For debugging the dup/drop optimization.
@@ -969,6 +970,19 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
   // Simplified ownership model for begin blocks:
   // Call dup when returning a value from an outer scope.
   // This ensures clean ownership semantics.
+
+  // Disallow returning implicit variables from begin blocks
+  if (returnExpr) {
+    const returnValueExprForCheck =
+      exprIsFunctionCall(returnExpr) &&
+      exprIsFunctionCallOf(returnExpr, BuiltinKeywords.return, 1)
+        ? returnExpr.args[0]!
+        : returnExpr;
+    throwExprIsImplicitVariableError(returnValueExprForCheck);
+  } else {
+    throwExprIsImplicitVariableError(lastExpr);
+  }
+
   let returnVariable: Variable | undefined = undefined;
   let returnValueExpr: Expr | undefined = lastExpr;
   if (

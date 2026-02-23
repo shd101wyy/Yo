@@ -29,25 +29,34 @@
 open import "std/string";
 open import "std/fmt";
 
-Raise :: module(
+Errors :: module(
   raise : (fn(forall(T : Type), msg : String) -> T)
 );
 
-safe_divide :: (fn(x : i32, y : i32, using(raise_mod : Raise)) -> i32)(
+Effects :: module(
+  errors : Errors
+);
+
+safe_divide :: (fn(x : i32, y : i32, using(fx : Effects)) -> i32)(
   cond(
-    (y == 0) => raise_mod.raise(`div-by-zero`),
+    (y == 0) => fx.errors.raise(`div-by-zero`),
     true => (x / y)
   )
 );
 
 main :: (fn() -> unit) {
-  (given(raise_mod) : Raise) = Raise(
-    raise :
-      (msg) -> {
-        println(msg);
-        abort ();
-      }
+  (given(fx) : Effects) = Effects(
+    errors : Errors(
+      raise :
+        (msg) -> {
+          println(msg);
+          abort ();
+        }
+    )
   );
+
+  // f1 :: fx.errors.raise;
+  // f2 :: fx.errors;
 
   result := safe_divide(10, 0);
   assert(false, "Should not reach here after abort");
