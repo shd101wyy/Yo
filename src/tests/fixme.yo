@@ -1,26 +1,9 @@
-yield :: (fn(using(io : IO)) -> Impl(Future(unit)))(
-  io.async(()=> {
-    return ();
-  })
-);
+open import "std/fmt";
+{ ArrayList } :: import "std/collections/array_list.yo";
 
-main :: (fn(using(io : IO)) -> unit) {
-  b := Box(i32)(0);
-
-  task := io.async((using(io))=> {
-    assert(b.* == 0, "b should be 0 at task start");
-
-    c := Box(i32)(10);
-
-    b.* = (b.* + 1);
-    io.await(yield());
-
-    assert(b.* == 2, "b should be 2 after main incremented");
-    assert(c.* == 10, "captured Box should still be 10");
-  });
-
-  assert(b.* == 1, "b should be 1 after task's first half");
-  b.* = (b.* + 1);
+main :: (fn() -> unit) {
+  list := ArrayList(u8).with_capacity(usize(10));
+  println(i32(12));
 };
 
 export main;
