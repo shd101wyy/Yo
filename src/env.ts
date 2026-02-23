@@ -1876,6 +1876,14 @@ export function getReceiverMethodsByNameFromEnv({
  * except for the first (top) frame.
  * @param env Environment
  */
+export function stripImplicitVariablesFromEnv(env: Environment): Environment {
+  const newFrames = env.frames.map((frame) => ({
+    ...frame,
+    variables: frame.variables.filter((v) => !v.isImplicit),
+  }));
+  return { ...env, frames: newFrames };
+}
+
 export function keepTopLevelFrameAndComptimeVariablesFromEnv(
   env: Environment
 ): Environment {

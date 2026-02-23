@@ -4,6 +4,7 @@ import {
   keepTopLevelFrameAndComptimeVariablesFromEnv,
   popEnvFrame,
   pushEnvFrame,
+  stripImplicitVariablesFromEnv,
 } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
@@ -179,8 +180,15 @@ export function evaluateAnonymousFunctionImplementation({
     });
   }
 
-  // Add parameters to environment
-  env = pushEnvFrame(env);
+  // Add parameters to environment.
+  // Strip implicit variables from the base env so that closures cannot
+  // accidentally capture implicit variables (e.g. `io`) from an outer scope.
+  // Closures must re-declare them explicitly via using() parameters.
+  // Save outerEnv first so we can restore it after body evaluation — the
+  // stripped env must not leak back to the caller (e.g. assignment.ts needs
+  // to find a just-created `given(raise)` variable in the returned env).
+  const outerEnv = env;
+  env = pushEnvFrame(stripImplicitVariablesFromEnv(env));
 
   // Validate parameter names for comptime parameters (forall, implicit, and comptime regular parameters)
   // Check forall parameters (always comptime)
@@ -605,6 +613,11 @@ Got:      "${paramName}"`,
   }
   // Restore the env frame
   env = popEnvFrame(env, true);
+
+  // Restore outer env so callers can still find variables that existed
+  // before this anonymous function was evaluated (e.g. a `given(raise)`
+  // variable created by evaluateBinding just before evaluating the RHS).
+  env = outerEnv;
 
   // For closures, prepare captured variables with values and types for the function value
   // NOTE: This must happen BEFORE consuming the variables, using the current env
