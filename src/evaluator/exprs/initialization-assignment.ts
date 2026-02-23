@@ -140,6 +140,21 @@ export function evaluateInitializationAssignment({
     throwRhsContainsControlFlowExpressionError(rhs, rhs.$.controlFlow);
   }
 
+  // Propagate implicit flag from RHS: if the RHS references an implicit variable
+  // (e.g., my_async :: io.async where io is implicit), the new variable is also implicit.
+  if (!isImplicit && rhs.$?.pathCollection) {
+    for (const path of rhs.$.pathCollection) {
+      if (path.length > 0 && typeof path[0] === "string") {
+        const rootVars = getVariablesFromEnv(env, path[0]);
+        const rootVar = rootVars[rootVars.length - 1];
+        if (rootVar?.isImplicit) {
+          isImplicit = true;
+          break;
+        }
+      }
+    }
+  }
+
   if (exprIsAtom(actualLhs)) {
     // Check if the RHS variable has been consumed (moved)
     requireExprNotConsumed(rhs, env);
@@ -157,21 +172,6 @@ export function evaluateInitializationAssignment({
         token: actualLhs.token,
         errorMessage: `Invalid assignment to ${actualLhs.token.value}, expected identifier or operator`,
       });
-    }
-
-    // Propagate implicit flag from RHS: if the RHS references an implicit variable
-    // (e.g., my_async :: io.async where io is implicit), the new variable is also implicit.
-    if (!isImplicit && rhs.$?.pathCollection) {
-      for (const path of rhs.$.pathCollection) {
-        if (path.length > 0 && typeof path[0] === "string") {
-          const rootVars = getVariablesFromEnv(env, path[0]);
-          const rootVar = rootVars[rootVars.length - 1];
-          if (rootVar?.isImplicit) {
-            isImplicit = true;
-            break;
-          }
-        }
-      }
     }
 
     // When using given, force compile-time only regardless of := or ::
@@ -424,6 +424,7 @@ ${exprToString(rhs)}`,
         rhs,
         env,
         isCompileTimeOnly: isImplicit || isCompileTimeOnly,
+        isImplicit,
         context: { ...context },
       });
     env = nextEnv;

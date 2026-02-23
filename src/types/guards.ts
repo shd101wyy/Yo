@@ -418,12 +418,21 @@ export function isFunctionSpecializable(functionType: FunctionType): boolean {
     functionType.parameters.some((p) => p.isCompileTimeOnly) ||
     functionType.forallParameters.length > 0;
 
-  // Implicit parameters require specialization UNLESS they are all module-typed.
-  // Module-typed implicit params are compile-time constants resolved via `given` bindings
-  // and don't produce different code per call site.
+  // Implicit parameters require specialization UNLESS they are all module-typed
+  // without any function-type fields (which could be effect operations needing
+  // state machine generation). Check recursively for nested modules.
+  const moduleHasFunctionFields = (mt: ModuleType): boolean =>
+    mt.fields.some(
+      (f) =>
+        isFunctionType(f.type) ||
+        (isModuleType(f.type) && moduleHasFunctionFields(f.type as ModuleType))
+    );
   const hasSpecializableImplicitParams =
     functionType.implicitParameters.length > 0 &&
-    !functionType.implicitParameters.every((p) => isModuleType(p.type));
+    !functionType.implicitParameters.every(
+      (p) =>
+        isModuleType(p.type) && !moduleHasFunctionFields(p.type as ModuleType)
+    );
 
   // Check if this function has SomeType parameters (like Impl(Fn(...)))
   // that need monomorphization for different concrete types

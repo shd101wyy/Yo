@@ -1,29 +1,56 @@
-yield :: (fn(using(io : IO)) -> Impl(Future(unit)))(
-  io.async(()=> {
-    return ();
-  })
+// yield :: (fn(using(io : IO)) -> Impl(Future(unit)))(
+//   io.async(()=> {
+//     return ();
+//   })
+// );
+// 
+// main :: (fn(using(io : IO)) -> unit) {
+//   my_async :: io.async;
+//   my_await :: io.await;
+// 
+//   b := Box(i32)(0);
+// 
+//   task := my_async((using(io))=> {
+//     assert(b.* == 0, "b should be 0 at task start");
+// 
+//     c := Box(i32)(10);
+// 
+//     b.* = (b.* + 1);
+//     io.await(yield());
+// 
+//     assert(b.* == 2, "b should be 2 after main incremented");
+//     assert(c.* == 10, "captured Box should still be 10");
+//   });
+// 
+//   assert(b.* == 1, "b should be 1 after task's first half");
+//   b.* = (b.* + 1);
+// };
+
+open import "std/string";
+open import "std/fmt";
+
+Raise :: module(
+  raise : (fn(forall(T : Type), msg : String) -> T)
 );
 
-main :: (fn(using(io : IO)) -> unit) {
-  my_async :: io.async;
-  my_await :: io.await;
+safe_divide :: (fn(x : i32, y : i32, using(raise_mod : Raise)) -> i32)(
+  cond(
+    (y == 0) => raise_mod.raise(`div-by-zero`),
+    true => (x / y)
+  )
+);
 
-  b := Box(i32)(0);
+main :: (fn() -> unit) {
+  (given(raise_mod) : Raise) = Raise(
+    raise :
+      (msg) -> {
+        println(msg);
+        abort ();
+      }
+  );
 
-  task := my_async((using(io))=> {
-    assert(b.* == 0, "b should be 0 at task start");
-
-    c := Box(i32)(10);
-
-    b.* = (b.* + 1);
-    io.await(yield());
-
-    assert(b.* == 2, "b should be 2 after main incremented");
-    assert(c.* == 10, "captured Box should still be 10");
-  });
-
-  assert(b.* == 1, "b should be 1 after task's first half");
-  b.* = (b.* + 1);
+  result := safe_divide(10, 0);
+  assert(false, "Should not reach here after abort");
 };
 
 export main;
