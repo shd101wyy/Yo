@@ -266,17 +266,7 @@ export function generateAsyncBlock(
       context.emitter.emitLine(
         `${indent}${varTypeAndName} = ${constructorCall};`
       );
-      // In sync context (not inside a state machine), eagerly start the future.
-      // This is equivalent to Rust's tokio::spawn — starting it on the runtime.
-      // In async context, futures are lazy and only start when await-ed or join-ed.
-      if (!context.inStateMachine) {
-        context.emitter.emitLine(
-          `${indent}__yo_incr_rc((void*)${resultVar});  // event loop reference`
-        );
-        context.emitter.emitLine(
-          `${indent}${resultVar}->__yo_resume_fn((void*)${resultVar});  // eager start in sync context`
-        );
-      }
+      // Lazy execution: future stays cold until await/join starts it.
       return resultVar;
     } else {
       return constructorCall;
@@ -295,15 +285,7 @@ export function generateAsyncBlock(
       context.emitter.emitLine(
         `${indent}${varTypeAndName} = ${constructorCall};`
       );
-      // In sync context (not inside a state machine), eagerly start the future.
-      if (!context.inStateMachine) {
-        context.emitter.emitLine(
-          `${indent}__yo_incr_rc((void*)${resultVar});  // event loop reference`
-        );
-        context.emitter.emitLine(
-          `${indent}${resultVar}->__yo_resume_fn((void*)${resultVar});  // eager start in sync context`
-        );
-      }
+      // Lazy execution: future stays cold until await/join starts it.
       return resultVar;
     } else {
       return constructorCall;

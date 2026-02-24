@@ -775,3 +775,82 @@ if (future_state == -1) {
 - Variadic: `join(a, b, c, ...)` via comptime (more complex)
 
 **Recommendation**: Start with variadic (any number of arguments). The codegen just loops over the arguments. The await analysis treats it as one suspension point regardless of argument count.
+
+---
+
+## Implementation Progress
+
+### Completed: Core Lazy Execution (Steps 1, 2, 4, 6)
+
+All core lazy execution changes are complete. **54/54 async tests pass.**
+
+#### Changes Made
+
+**Step 1: Made `async { ... }` Constructor Lazy**
+
+File: `src/codegen/exprs/async.ts` — `generateAsyncBlockConstructor()`
+
+- Removed `__yo_incr_rc` and resume call from constructor
+- Constructor now just allocates, initializes fields, and returns the cold SM with `refcount=1`
+- Also removed the sync-context eager start that was in `generateAsyncBlock()` — previously, when `!context.inStateMachine`, the call site would eagerly start the future after construction. This defeated lazy semantics. Now ALL contexts are lazy.
+
+**Step 2: Updated `await` to Start Cold Futures**
+
+File: `src/codegen/async/state-machine.ts`
+
+- Added cold-start logic at await points: if `state == 0`, call `__yo_resume_fn` to start the future
+- Added sync completion fast-path: after starting, if the future completed synchronously, `goto` next state (no suspension)
+- Pre-completed futures (like `yield()`) still yield to the event loop via `yo_async_spawn_task` for fairness
+
+Await codegen now follows three paths:
+
+1. **Pre-completed** (`state == -1`): microtask yield to event loop, then resume
+2. **Cold** (`state == 0`): start via `__yo_resume_fn`, check sync completion, suspend if still pending
+3. **In-progress** (`state > 0`): register continuation and suspend
+
+**Step 4: Added `__yo_resume_fn` Field to SM Structs**
+
+File: `src/codegen/exprs/async.ts`
+
+- Added `void (*__yo_resume_fn)(void*)` field to every async state machine struct
+- Set in constructor: `sm->__yo_resume_fn = (void(*)(void*))resume_fn`
+- Enables generic cold-start at await: `sm->future_field->__yo_resume_fn(sm->future_field)`
+
+**Step 6: Updated Tests for Lazy Semantics**
+
+File: `tests/async_await.test.yo`
+
+13 tests updated:
+
+- Wrapped test bodies in `async { ... }` blocks where needed (tests that were in sync context)
+- Added `await task` before assertions that depend on task completion
+- Added pre-await assertions verifying lazy behavior (e.g., `assert(b.* == 0, "before await (lazy)")`)
+- Renamed "Test eager async" → "Test lazy async"
+- Renamed "Test multiple async tasks interleaving" → "Test lazy sequential async tasks" (rewritten to test sequential lazy semantics — no interleaving without `join`)
+- Fixed 4 tests that were passing vacuously (assertions only inside unawaited tasks)
+
+**Bug Fix: Type Resolution for Async Functions in State Machine Context**
+
+File: `src/codegen/utils/index.ts` — `getTypeString()`
+
+When an async function definition was placed inside an `async { ... }` block (state machine context), the function's return type `Impl(Future(T))` was resolved to a generic trait type name (e.g., `yo_future_trait_i32`) instead of the specific state machine struct type. This happened because:
+
+1. The function's return `SomeType` has a different ID than the inner async block's `SomeType`
+2. The fallback chain checked the `FutureTraitType` (shared across all async blocks with the same output type) before checking `resolvedConcreteType`
+3. The `FutureTraitType` was registered but pointed to a forward-declared-only struct
+
+Fix: Reordered the type resolution fallback chain to check `resolvedConcreteType` (which points to the actual state machine struct's `SomeType`) BEFORE the `FutureTraitType` fallback.
+
+#### RC Lifecycle with Lazy Execution
+
+```
+async { body }  →  SM allocated, refcount=1 (user ref), state=0 (cold)
+await future    →  __yo_incr_rc (event loop ref), start via __yo_resume_fn
+                   (refcount=2: user ref + event loop ref)
+completion      →  __yo_decr_rc (release event loop ref, refcount=1)
+user drop       →  __yo_decr_rc (release user ref, refcount=0, freed)
+```
+
+### Not Yet Implemented: `join` (Step 5)
+
+`join` is needed for concurrent execution of multiple futures. Currently deferred — sequential `await` is sufficient for all existing tests. `join` will be implemented when concurrent patterns are needed.

@@ -548,20 +548,31 @@ export function getTypeString(
           return `${someTypeCName}*`;
         }
 
-        // Fallback: try the FutureTraitType (for backward compatibility with extern futures)
-        const futureModule = extractFutureTraitFromType(someType);
-        if (futureModule) {
-          const cTypeName = context.types[futureModule.id]?.cName;
-          if (cTypeName) {
-            // Impl futures are heap-backed state machines.
-            // Use pointer type so the address is stable across suspension and returns.
-            return `${cTypeName}*`;
+        // Check resolvedConcreteType BEFORE the FutureTraitType fallback.
+        // When a function returns Impl(Future(T)), the function's return SomeType
+        // has a different ID than the async block's SomeType. But resolvedConcreteType
+        // may point to the async block's SomeType or its capture struct, allowing us
+        // to find the correct state machine struct name.
+
+        // resolvedConcreteType is itself a SomeType with Impl(Future(T)):
+        // e.g., when a function wraps an async block and its return type's
+        // resolvedConcreteType points to the async block's own SomeType.
+        if (
+          someType.resolvedConcreteType &&
+          isSomeType(someType.resolvedConcreteType) &&
+          typeImplementsFuture(someType.resolvedConcreteType)
+        ) {
+          const innerSomeType = someType.resolvedConcreteType;
+          const innerCName = context.types[innerSomeType.id]?.cName;
+          if (innerCName) {
+            return `${innerCName}*`;
           }
         }
 
-        // Fallback: Check if resolvedConcreteType matches any registered async block's capture struct
-        // This happens when a function returns an async block - the function's return type is a fresh
-        // SomeType, but its resolvedConcreteType points to the async block's capture struct
+        // resolvedConcreteType matches a registered async block's capture struct:
+        // This happens when a function returns an async block - the function's return
+        // type is a fresh SomeType, but its resolvedConcreteType points to the async
+        // block's capture struct.
         if (
           someType.resolvedConcreteType &&
           isStructType(someType.resolvedConcreteType)
@@ -586,18 +597,18 @@ export function getTypeString(
           }
         }
 
-        // Fallback: resolvedConcreteType is itself a SomeType with Impl(Future(T)),
-        // e.g., when a function wraps io.async and its return type's resolvedConcreteType
-        // points to the io.async call expression's SomeType.
-        if (
-          someType.resolvedConcreteType &&
-          isSomeType(someType.resolvedConcreteType) &&
-          typeImplementsFuture(someType.resolvedConcreteType)
-        ) {
-          const innerSomeType = someType.resolvedConcreteType;
-          const innerCName = context.types[innerSomeType.id]?.cName;
-          if (innerCName) {
-            return `${innerCName}*`;
+        // Fallback: try the FutureTraitType (for extern futures only)
+        // NOTE: This must come AFTER resolvedConcreteType checks above, because
+        // the FutureTraitType is shared across all async blocks with the same
+        // output type and would return a generic trait type name instead of the
+        // specific state machine struct.
+        const futureModule = extractFutureTraitFromType(someType);
+        if (futureModule) {
+          const cTypeName = context.types[futureModule.id]?.cName;
+          if (cTypeName) {
+            // Impl futures are heap-backed state machines.
+            // Use pointer type so the address is stable across suspension and returns.
+            return `${cTypeName}*`;
           }
         }
 
