@@ -172,6 +172,7 @@ export function generateAsyncBlock(
       functionContext.currentClosureCaptures !== undefined ||
       functionContext.inStateMachine !== undefined;
 
+    let usedDeferredDups = false;
     const captureFields = captureType.fields
       .map((elem) => {
         // Find the dup expression for this variable by checking the variable name
@@ -213,6 +214,7 @@ export function generateAsyncBlock(
         }
 
         if (dupExpr) {
+          usedDeferredDups = true;
           // Generate the dup expression
           // If the dup expression has a temp variable, we need to generate it outside the struct literal
           if (dupExpr.$?.variableName) {
@@ -238,15 +240,14 @@ export function generateAsyncBlock(
 
     let captureStructLiteral = `(${captureStructName}){${captureFields}}`;
 
-    // When in a special context (state machine/closure), deferredDupExpressions are skipped
-    // because they reference variables by original names that don't exist in the special context.
-    // But we still need to dup RC fields in the capture struct to maintain proper ref counts.
-    // Use the capture struct type's dup function to dup all RC fields at once.
-    if (
-      inSpecialContext &&
-      expr.$?.deferredDupExpressions &&
-      expr.$.deferredDupExpressions.length > 0
-    ) {
+    // Dup the capture struct to ensure proper RC for all captured variables.
+    // This is needed when:
+    // 1. In a special context (SM/closure): deferredDupExpressions are skipped
+    //    because they reference variables by original names that don't exist.
+    // 2. Not in a special context but no deferred dups were used: the async block
+    //    is created in a regular function body where deferred dups may not exist.
+    // In both cases, use the capture struct type's dup function.
+    if (!usedDeferredDups) {
       const dupFnName = getDupFunctionForType(captureType, context);
       if (dupFnName) {
         captureStructLiteral = `${dupFnName}(${captureStructLiteral})`;

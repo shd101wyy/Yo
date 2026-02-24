@@ -63,25 +63,30 @@ export function generateAwait(
       isUnitType(resultType) ||
       (isSomeType(resultType) && isUnitType(expr.$?.type ?? resultType));
 
+    // Use a unique variable name per io.await call to avoid redefinition errors
+    const syncFutureVar = expr.$?.variableName
+      ? `__sync_future_${expr.$.variableName}`
+      : `__sync_future`;
+
     emitter.emitLine(
       `${indent}// Synchronous await (io.await outside state machine)`
     );
     emitter.emitLine(
-      `${indent}${futureTypeName} __sync_future = ${futureCode};`
+      `${indent}${futureTypeName} ${syncFutureVar} = ${futureCode};`
     );
     // Start cold future if needed (lazy execution: state==0 means not started)
     emitter.emitLine(
-      `${indent}if (atomic_load_explicit(&__sync_future->state, memory_order_acquire) == 0 && __sync_future->__yo_resume_fn) {`
+      `${indent}if (atomic_load_explicit(&${syncFutureVar}->state, memory_order_acquire) == 0 && ${syncFutureVar}->__yo_resume_fn) {`
     );
     emitter.emitLine(
-      `${indent}  __yo_incr_rc((void*)__sync_future);  // event loop reference`
+      `${indent}  __yo_incr_rc((void*)${syncFutureVar});  // event loop reference`
     );
     emitter.emitLine(
-      `${indent}  __sync_future->__yo_resume_fn((void*)__sync_future);`
+      `${indent}  ${syncFutureVar}->__yo_resume_fn((void*)${syncFutureVar});`
     );
     emitter.emitLine(`${indent}}`);
     emitter.emitLine(
-      `${indent}while (atomic_load_explicit(&__sync_future->state, memory_order_acquire) != -1) {`
+      `${indent}while (atomic_load_explicit(&${syncFutureVar}->state, memory_order_acquire) != -1) {`
     );
     emitter.emitLine(`${indent}  yo_async_run_ready_tasks();`);
     emitter.emitLine(`${indent}}`);
@@ -89,19 +94,19 @@ export function generateAwait(
     if (!isResultUnit) {
       const resultVar = expr.$?.variableName || `__sync_await_result`;
       const varDecl = getVariableTypeString(resultType, resultVar, context);
-      emitter.emitLine(`${indent}${varDecl} = __sync_future->result;`);
+      emitter.emitLine(`${indent}${varDecl} = ${syncFutureVar}->result;`);
       // Mark as consumed so dispose won't drop the result, then release the future
       emitter.emitLine(
-        `${indent}atomic_store_explicit(&__sync_future->state, -2, memory_order_release);`
+        `${indent}atomic_store_explicit(&${syncFutureVar}->state, -2, memory_order_release);`
       );
-      emitter.emitLine(`${indent}__yo_decr_rc(__sync_future);`);
+      emitter.emitLine(`${indent}__yo_decr_rc(${syncFutureVar});`);
       return resultVar;
     } else {
       // Mark as consumed and release the future
       emitter.emitLine(
-        `${indent}atomic_store_explicit(&__sync_future->state, -2, memory_order_release);`
+        `${indent}atomic_store_explicit(&${syncFutureVar}->state, -2, memory_order_release);`
       );
-      emitter.emitLine(`${indent}__yo_decr_rc(__sync_future);`);
+      emitter.emitLine(`${indent}__yo_decr_rc(${syncFutureVar});`);
       return ``;
     }
   }

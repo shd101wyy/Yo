@@ -110,11 +110,16 @@ export function evaluateJoin({
     });
   }
 
-  // Check if we're in an async block
-  if (context.isEvaluatingFunctionBodyOrAsyncBlock?.kind !== "async-block") {
+  // Check if we're in a valid context (async block, function body, or test block)
+  const blockKind = context.isEvaluatingFunctionBodyOrAsyncBlock?.kind;
+  if (
+    blockKind !== "async-block" &&
+    blockKind !== "function-body" &&
+    blockKind !== "test-block"
+  ) {
     throw formatErrorMessage({
       token: expr.token,
-      errorMessage: `"join" can only be used inside an "async" block.`,
+      errorMessage: `"join" can only be used inside an "async" block or a function body.`,
     });
   }
 

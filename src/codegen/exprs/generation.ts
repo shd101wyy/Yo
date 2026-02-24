@@ -24,7 +24,11 @@ import {
 } from "../../value";
 import { BuiltinYoInlineFunctions } from "../constants";
 import type { FunctionGenerationContext } from "../functions/context";
-import { type CodeGenContext, getVariableNameForCodegen } from "../utils";
+import {
+  type CodeGenContext,
+  getTypeString,
+  getVariableNameForCodegen,
+} from "../utils";
 import { generateOpAnd, generateOpOr } from "./and-or";
 import { generateAnonymousArray, generateYoArrayFill } from "./array-fns";
 import { generateAssignment } from "./assignment";
@@ -426,8 +430,42 @@ function generateFuncCall(
     if (functionContext.inStateMachine) {
       return ``;
     }
-    // Outside async context - error
-    return `// Error: join should only be used inside async blocks`;
+    // Outside async context — synchronous join via busy-poll
+    const emitter = functionContext.emitter;
+    emitter.emitLine(
+      `${indent}// Synchronous join — start all cold futures, busy-poll until all complete`
+    );
+    const futureVars: string[] = [];
+    for (let i = 0; i < expr.args.length; i++) {
+      const argExpr = expr.args[i]!;
+      const futureCode = generateExpr(argExpr, indent, context);
+      const futureType = argExpr.$?.type;
+      const futureTypeName = futureType
+        ? getTypeString(futureType, context)
+        : "void*";
+      const varName = `__sync_join_${i}`;
+      emitter.emitLine(
+        `${indent}${futureTypeName} ${varName} = ${futureCode};`
+      );
+      futureVars.push(varName);
+    }
+    for (const varName of futureVars) {
+      emitter.emitLine(
+        `${indent}if (atomic_load_explicit(&${varName}->state, memory_order_acquire) == 0 && ${varName}->__yo_resume_fn) {`
+      );
+      emitter.emitLine(`${indent}  __yo_incr_rc((void*)${varName});`);
+      emitter.emitLine(
+        `${indent}  ${varName}->__yo_resume_fn((void*)${varName});`
+      );
+      emitter.emitLine(`${indent}}`);
+    }
+    const conditions = futureVars.map(
+      (v) => `atomic_load_explicit(&${v}->state, memory_order_acquire) != -1`
+    );
+    emitter.emitLine(`${indent}while (${conditions.join(" || ")}) {`);
+    emitter.emitLine(`${indent}  yo_async_run_ready_tasks();`);
+    emitter.emitLine(`${indent}}`);
+    return ``;
   }
 
   // return

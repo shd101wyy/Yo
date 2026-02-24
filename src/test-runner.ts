@@ -52,6 +52,7 @@ function tryForceGC(): void {
 export interface TestDeclaration {
   name: string;
   bodyExpr: Expr;
+  usingExpr?: Expr;
   filePath: string;
   lineNumber: number;
 }
@@ -184,7 +185,11 @@ export function extractTests(filePath: string): ExtractTestsResult {
       ) {
         if (expr.args.length >= 2) {
           const testNameExpr = expr.args[0]!;
-          const testBodyExpr = expr.args[1]!;
+          // 3 args: test "name", using(...), { body }
+          // 2 args: test "name", { body }
+          const hasUsingClause = expr.args.length === 3;
+          const testUsingExpr = hasUsingClause ? expr.args[1]! : undefined;
+          const testBodyExpr = hasUsingClause ? expr.args[2]! : expr.args[1]!;
 
           // Get the test name from the evaluated expression
           let testName = "unnamed_test";
@@ -203,6 +208,7 @@ export function extractTests(filePath: string): ExtractTestsResult {
           tests.push({
             name: testName,
             bodyExpr: testBodyExpr,
+            usingExpr: testUsingExpr,
             filePath,
             lineNumber: testNameExpr.token.position.row + 1,
           });
@@ -248,11 +254,18 @@ function generateTestProgram(
     test.bodyExpr.$?.originalExpr ?? test.bodyExpr
   );
 
+  // If the test has a using clause, include it in the main function signature
+  // e.g., main :: (fn(using(io : IO)) -> unit) { testBody };
+  const usingClauseString = test.usingExpr
+    ? exprToString(test.usingExpr.$?.originalExpr ?? test.usingExpr)
+    : "";
+  const mainParams = usingClauseString ? `${usingClauseString}` : "";
+
   // Build the program from non-test expressions plus the main function
   return `${nonTestContent};
 
 // Auto-generated main function for test: ${test.name}
-main :: (fn() -> unit) {
+main :: (fn(${mainParams}) -> unit) {
   ${testBodyString};
 };
 

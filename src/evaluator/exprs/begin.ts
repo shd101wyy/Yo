@@ -31,6 +31,7 @@ import { areTypesCompatible } from "../../types/compatibility";
 import { isObjectType, isSomeType } from "../../types/guards";
 import { typeContainsRcType, typeToString } from "../../types/utils";
 import { VUnit } from "../../unit-value";
+import { isIoAsyncCall } from "../async/await-analysis";
 import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { synthesizeTypes } from "../types/synthesizer";
@@ -137,7 +138,15 @@ function searchRecursively(
   varsWithPartialBranchDups: Set<string>
 ): void {
   // Check the captured dup expressions first
-  if (expr.$?.deferredDupExpressions) {
+  // BUT skip async block captures — they need BOTH the dup (to share RC ownership
+  // with the state machine) AND the scope-exit drop (to release the outer scope's
+  // reference after io.await frees the SM). The optimization would incorrectly
+  // cancel both, causing a memory leak.
+  const isAsyncBlockCapture =
+    exprIsFunctionCall(expr) &&
+    (exprIsFunctionCallOf(expr, BuiltinFunctions.async) || isIoAsyncCall(expr));
+
+  if (expr.$?.deferredDupExpressions && !isAsyncBlockCapture) {
     for (const dupExpr of expr.$.deferredDupExpressions) {
       searchRecursively(dupExpr, dupCalls, varsWithPartialBranchDups);
     }
