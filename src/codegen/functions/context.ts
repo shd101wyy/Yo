@@ -149,6 +149,14 @@ export interface FunctionGenerationContext extends CodeGenContext {
   // For abort handlers, the handler params alias these variables, so handler param drops
   // already free them. Pending deferred drops must skip these to avoid double-free.
   effectSmConsumedArgCNames?: Set<string>;
+  // When generating an effect call inside a while loop's body,
+  // this stores the goto label and step expression so that
+  // generateTransitiveEffectYield can emit step + goto instead of completed=1.
+  effectWhileLoopContinuation?: {
+    label: string;
+    stepExpr: Expr | undefined;
+    whileDoneLabel: string;
+  };
   // Baseline count of pendingDeferredDrops when entering the current loop body.
   // Used to determine which drops belong to the loop body scope and must be
   // emitted before break/continue (which would otherwise skip end-of-body drops).

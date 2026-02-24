@@ -95,6 +95,7 @@ export function evaluateWhile({
       },
       variablesToAdd: [],
     });
+
     if (!evaluatedBodyExpr.$) {
       throw formatErrorMessage({
         token: bodyExpr.token,

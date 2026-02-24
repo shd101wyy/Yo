@@ -70,7 +70,6 @@ import {
   type FunctionCallResult,
   type FunctionToCall,
   getArrayCallResult,
-  getFunctionCallResult,
   getModuleTypeCallResult,
   getTraitTypeCallResult,
   getTypeCallResult,
@@ -1665,6 +1664,13 @@ ${functionsWithMatchingTypes.map((matchedFunction) => `${typeToString(matchedFun
   ) {
     // Handle calling a SomeType or DynType that implements Fn (e.g., Impl(Fn(...) -> ...) or Dyn(Fn(...) -> ...))
     const fnModuleType = extractFnTraitFromType(functionToCall.type)!;
+
+    // Re-call tryToCallFunctionWithArguments with the ORIGINAL args (not clones).
+    // The checking phase used cloned args (which get $ annotations but are discarded),
+    // so the original arg expressions still lack $ annotations.
+    // This real call evaluates the original args in-place, setting their $ fields,
+    // which is necessary for codegen (e.g., effect state machine generation needs
+    // annotated sub-expressions like arr(i) in callback(arr(i))).
     const {
       returnType,
       returnValue,
@@ -1673,7 +1679,16 @@ ${functionsWithMatchingTypes.map((matchedFunction) => `${typeToString(matchedFun
       specializedFunctionValue,
       runtimeArgExprsInOrder,
       deferredDropExpressions,
-    } = getFunctionCallResult(functionToCall);
+    } = tryToCallFunctionWithArguments({
+      functionValue: extractFunctionValue(functionToCall.value),
+      functionType: fnModuleType.isFn.callType,
+      expr: expr,
+      functionCalleeExpr: func,
+      argExprs: functionToCall.args ?? args,
+      callerEnv: env,
+      context,
+      isMethodCall: Boolean(methodExpr),
+    });
 
     env = popEnvFrame(callerEnv);
 

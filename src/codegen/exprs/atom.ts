@@ -235,7 +235,6 @@ export function generateAtom(
         capturedVar,
       ] of functionContext.stateMachineVariables) {
         if (capturedVar.name === varName) {
-          // Found by name - this should only happen for outer captured variables
           const fieldName =
             capturedVar.kind === "outer"
               ? `__capture.${varName}`

@@ -52,6 +52,12 @@ export interface EffectCallPoint {
   isInsideWhile?: boolean;
 
   /**
+   * The enclosing while loop expression (typed as unknown to avoid circular import).
+   * Used by codegen to generate the while loop continuation logic in the SM.
+   */
+  enclosingWhileExpr?: unknown;
+
+  /**
    * The number of nested while loops this effect call is inside.
    */
   whileNestingDepth?: number;
@@ -74,6 +80,14 @@ export interface EffectCallPoint {
    * to the ctl operation. The outer SM must re-yield when the inner SM yields.
    */
   isTransitiveEffectCall?: boolean;
+
+  /**
+   * Whether this transitive call is to a closure (Impl(Fn(...))) rather than
+   * a regular function. Closure calls need special handling in the SM generation:
+   * - closure_context must be set on the inner SM
+   * - The inner SM info is looked up via implClosureCallMap
+   */
+  isTransitiveClosureCall?: boolean;
 
   /**
    * For multi-effect functions, identifies which effect this call point belongs to.

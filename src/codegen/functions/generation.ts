@@ -439,18 +439,10 @@ export function preRegisterEffectfulFunctions(
       context
     );
   }
-  // Then register transitive-call functions
-  for (const func of transitiveFunctions) {
-    registerEffectfulFunction(
-      func.functionValue,
-      func.cFunctionName,
-      func.functionType,
-      func.effectAnalysis,
-      context
-    );
-  }
 
-  // Third pass: handle closure body functions that have ctl handler calls.
+  // Second pass: handle closure body functions that have ctl handler calls.
+  // These must be registered BEFORE transitive-call functions because
+  // transitive functions reference closure SM structs as inner SM fields.
   // The evaluator doesn't run effect analysis for closures (functionValue is
   // undefined for closure calls in tryToCallFunctionWithArguments), so we
   // perform the analysis here in the codegen phase.
@@ -517,6 +509,18 @@ export function preRegisterEffectfulFunctions(
       );
       break;
     }
+  }
+
+  // Third: register transitive-call functions (they reference inner SM structs
+  // from direct-call or closure functions, which are now all registered)
+  for (const func of transitiveFunctions) {
+    registerEffectfulFunction(
+      func.functionValue,
+      func.cFunctionName,
+      func.functionType,
+      func.effectAnalysis,
+      context
+    );
   }
 }
 

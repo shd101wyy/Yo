@@ -9,7 +9,7 @@
  * needs to be transformed into a state machine that can suspend at those points.
  */
 
-import { getVariablesFromEnv } from "../../env";
+import { type Environment, getVariablesFromEnv } from "../../env";
 import {
   BuiltinFunctions,
   BuiltinKeywords,
@@ -18,7 +18,14 @@ import {
   ExprTag,
 } from "../../expr";
 import { TokenType } from "../../token";
-import { isFunctionType } from "../../types/guards";
+import { getValueOfSomeTypeFromEnv } from "../../types/env-lookup";
+import {
+  isEffectsRowType,
+  isFunctionType,
+  isSomeType,
+} from "../../types/guards";
+import { isTypeValue } from "../../value";
+import { extractFnTraitFromType } from "../trait-checking";
 
 export type {
   EffectAnalysisResult,
@@ -26,7 +33,11 @@ export type {
   EffectCapturedVariable,
 } from "./effect-analysis-types";
 
-import type { FunctionType, Type } from "../../types/definitions";
+import type {
+  EffectsRowType,
+  FunctionType,
+  Type,
+} from "../../types/definitions";
 import type {
   EffectAnalysisResult,
   EffectCallPoint,
@@ -200,6 +211,9 @@ function walkExprForEffects(
             effectCallPoints[i]!.isInsideWhile = true;
             effectCallPoints[i]!.whileNestingDepth =
               (effectCallPoints[i]!.whileNestingDepth ?? 0) + 1;
+            if (!effectCallPoints[i]!.enclosingWhileExpr) {
+              effectCallPoints[i]!.enclosingWhileExpr = expr;
+            }
           }
         }
         break;
@@ -375,47 +389,59 @@ function walkExprForEffects(
       // not for functions that directly declare their ctl parameters.
       if (
         includeTransitiveCalls &&
-        !isEffectCall(expr, effectParameterName, effectFieldPath) &&
-        isTransitiveEffectCall(expr, effectParameterName)
+        !isEffectCall(expr, effectParameterName, effectFieldPath)
       ) {
-        // Get yield types from the ctl type's runtime parameters
-        const ctlType = effectParameterType as FunctionType;
-        const operationArgTypes: Type[] = ctlType.parameters
-          .filter((p) => !p.isCompileTimeOnly)
-          .map((p) => p.type);
-        // The result type is the transitive call's return type
-        const operationResultType = expr.$?.type;
+        const transitiveResult = isTransitiveEffectCall(
+          expr,
+          effectParameterName
+        );
+        if (transitiveResult) {
+          // Get yield types from the ctl type's runtime parameters
+          const ctlType = effectParameterType as FunctionType;
+          const operationArgTypes: Type[] = ctlType.parameters
+            .filter((p) => !p.isCompileTimeOnly)
+            .map((p) => p.type);
+          // For closure transitive calls (Impl(Fn(...))), use the ctl type's
+          // return type as the resume type, since the closure's return type
+          // may differ from the effect's resume type.
+          // For regular transitive calls, the function's return type matches
+          // the effect's resume type by construction.
+          const operationResultType = transitiveResult.viaClosure
+            ? ctlType.return.type
+            : expr.$?.type;
 
-        if (operationArgTypes.length > 0 && operationResultType) {
-          let targetVariableId: string | undefined;
-          if (
-            parentExpr &&
-            parentExpr.tag === ExprTag.FnCall &&
-            exprIsFunctionCallOf(parentExpr, ":=")
-          ) {
-            const varExpr = parentExpr.args[0];
+          if (operationArgTypes.length > 0 && operationResultType) {
+            let targetVariableId: string | undefined;
             if (
-              varExpr &&
-              varExpr.tag === ExprTag.Atom &&
-              varExpr.token.type === TokenType.Identifier &&
-              varExpr.$
+              parentExpr &&
+              parentExpr.tag === ExprTag.FnCall &&
+              exprIsFunctionCallOf(parentExpr, ":=")
             ) {
-              const varName = varExpr.token.value;
-              const variables = getVariablesFromEnv(varExpr.$.env, varName);
-              if (variables.length > 0) {
-                targetVariableId = variables[variables.length - 1]!.id;
+              const varExpr = parentExpr.args[0];
+              if (
+                varExpr &&
+                varExpr.tag === ExprTag.Atom &&
+                varExpr.token.type === TokenType.Identifier &&
+                varExpr.$
+              ) {
+                const varName = varExpr.token.value;
+                const variables = getVariablesFromEnv(varExpr.$.env, varName);
+                if (variables.length > 0) {
+                  targetVariableId = variables[variables.length - 1]!.id;
+                }
               }
             }
-          }
 
-          effectCallPoints.push({
-            index: effectCallPoints.length,
-            expr,
-            operationArgTypes,
-            operationResultType,
-            targetVariableId,
-            isTransitiveEffectCall: true,
-          });
+            effectCallPoints.push({
+              index: effectCallPoints.length,
+              expr,
+              operationArgTypes,
+              operationResultType,
+              targetVariableId,
+              isTransitiveEffectCall: true,
+              isTransitiveClosureCall: transitiveResult.viaClosure,
+            });
+          }
         }
       }
 
@@ -552,23 +578,121 @@ function isEffectCall(
  * Checks if an expression is a transitive effect call — a call to a function
  * that itself has a matching `using` parameter for the effect. For example,
  * calling `might_fail()` where `might_fail` has `using(raise : Raise)`.
+ * Also detects calls to closures typed as Impl(Fn(..., using(effect))) via
+ * FnTrait extraction.
+ *
+ * Returns the matched implicit parameter type if found, or undefined.
+ * When matched via FnTrait extraction (closure/Impl), the returned type
+ * indicates the caller should use ctlType.return.type as operationResultType.
  */
 function isTransitiveEffectCall(
   expr: Expr,
   effectParameterName: string
-): boolean {
-  if (expr.tag !== ExprTag.FnCall) return false;
+): { matched: true; viaClosure: boolean } | undefined {
+  if (expr.tag !== ExprTag.FnCall) return undefined;
 
   const funcType = expr.func.$?.type;
-  if (!funcType || !isFunctionType(funcType)) return false;
+  if (!funcType) return undefined;
 
-  if (!funcType.implicitParameters) return false;
-  for (const implicitParam of funcType.implicitParameters) {
+  // Check direct function type
+  if (isFunctionType(funcType)) {
+    if (!funcType.implicitParameters) return undefined;
+    for (const implicitParam of funcType.implicitParameters) {
+      if (
+        implicitParam.label === effectParameterName &&
+        isFunctionType(implicitParam.type)
+      ) {
+        return { matched: true, viaClosure: false };
+      }
+      // Handle effect row spread: ...(E) — resolve E to check for the effect
+      if (implicitParam.isEffectRowSpread) {
+        if (
+          hasEffectInSpread(
+            implicitParam,
+            effectParameterName,
+            expr.func.$?.env
+          )
+        ) {
+          return { matched: true, viaClosure: false };
+        }
+      }
+    }
+    return undefined;
+  }
+
+  // Check Impl(Fn(...)) / Dyn(Fn(...)) types by extracting the callType
+  const fnTrait = extractFnTraitFromType(funcType);
+  if (fnTrait) {
+    const callType = fnTrait.isFn.callType;
+    if (callType.implicitParameters) {
+      for (const implicitParam of callType.implicitParameters) {
+        if (
+          implicitParam.label === effectParameterName &&
+          isFunctionType(implicitParam.type)
+        ) {
+          return { matched: true, viaClosure: true };
+        }
+        // Handle effect row spread: ...(E) — resolve E to check for the effect
+        if (implicitParam.isEffectRowSpread) {
+          if (
+            hasEffectInSpread(
+              implicitParam,
+              effectParameterName,
+              expr.func.$?.env
+            )
+          ) {
+            return { matched: true, viaClosure: true };
+          }
+        }
+      }
+    }
+  }
+
+  return undefined;
+}
+
+/**
+ * Check if an effect row spread parameter contains the target effect.
+ * Resolves the SomeType from the env to get the concrete EffectsRowType.
+ */
+function hasEffectInSpread(
+  implicitParam: { label: string; type: Type; isEffectRowSpread?: boolean },
+  effectParameterName: string,
+  env: Environment | undefined
+): boolean {
+  if (!env) return false;
+  const paramType = implicitParam.type;
+
+  // Try to resolve the SomeType to an EffectsRowType
+  let effectsRowType: EffectsRowType | undefined;
+  if (isSomeType(paramType) && paramType.isEffectsRow) {
+    // Look up by variable name
+    const eVars = getVariablesFromEnv(env, implicitParam.label);
+    const eVarValue = eVars.at(-1)?.value?.[0];
     if (
-      implicitParam.label === effectParameterName &&
-      isFunctionType(implicitParam.type)
+      eVarValue &&
+      isTypeValue(eVarValue) &&
+      isEffectsRowType(eVarValue.value)
     ) {
-      return true;
+      effectsRowType = eVarValue.value;
+    } else {
+      const boundType = getValueOfSomeTypeFromEnv(env, paramType);
+      if (isEffectsRowType(boundType)) {
+        effectsRowType = boundType;
+      }
+    }
+  } else if (isEffectsRowType(paramType)) {
+    effectsRowType = paramType as EffectsRowType;
+  }
+
+  if (effectsRowType) {
+    for (const innerParam of effectsRowType.implicitParameters) {
+      if (
+        innerParam.label === effectParameterName &&
+        isFunctionType(innerParam.type)
+      ) {
+        return true;
+      }
     }
   }
   return false;

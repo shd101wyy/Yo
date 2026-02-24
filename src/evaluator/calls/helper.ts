@@ -1451,6 +1451,87 @@ Got:   ${typeToString(typeValue.type)}`,
           // Already resolved during re-evaluation
           effectsRowType = implicitParam.type;
         }
+
+        // Fallback: when E is an unresolved SomeType with isEffectsRow=true,
+        // infer the concrete effects from the caller's given variables.
+        // This handles the case where E isn't resolved through type inference
+        // (e.g., forall(...(E)) where E is inferred from the closure argument).
+        if (
+          !effectsRowType &&
+          isSomeType(implicitParam.type) &&
+          implicitParam.type.isEffectsRow
+        ) {
+          const givenEffectVars = getVariablesFromEnvByFilter(
+            callerEnv,
+            (v) =>
+              v.isImplicit === true &&
+              v.isCompileTimeOnly === true &&
+              isFunctionType(v.type)
+          );
+          if (givenEffectVars.length > 0) {
+            // Directly add the given handler values as implicit args and create
+            // an EffectsRowType so downstream code can resolve E.
+            for (const gv of givenEffectVars) {
+              const givenValue = gv.value?.[0];
+              if (givenValue) {
+                implicitArgValues.push({
+                  value: givenValue,
+                  parameterType: gv.type,
+                  argType: gv.type,
+                });
+                const { env: nextEnv } = addVariableToEnv({
+                  env: calleeEnv,
+                  variable: {
+                    name: gv.name,
+                    type: gv.type,
+                    isCompileTimeOnly: true,
+                    isImplicit: true,
+                    value: [givenValue],
+                    token: PlaceholderToken,
+                    initializedAtToken: PlaceholderToken,
+                    consumedAtToken: undefined,
+                    isOwningTheRcValue: false,
+                  },
+                  allowVariableShadowing: true,
+                });
+                calleeEnv = nextEnv;
+              }
+            }
+            // Build and bind EffectsRowType so createSpecializedFunctionInline can find E
+            const effectsRowForBinding = createEffectsRowType(
+              givenEffectVars.map((v) => ({
+                label: v.name,
+                type: v.type,
+                isCompileTimeOnly: true as const,
+                isQuote: false,
+                isOwningTheRcValue: false,
+                isImplicit: true as const,
+                exprs: {
+                  expr: undefined!,
+                  labelExpr: undefined,
+                  typeExpr: undefined!,
+                },
+              }))
+            );
+            const effectsRowTypeValue = createTypeValue(effectsRowForBinding);
+            // Update the existing E variable with the resolved EffectsRowType
+            const eVarsForUpdate = getVariablesFromEnv(
+              calleeEnv,
+              implicitParam.label
+            );
+            const eVarForUpdate = eVarsForUpdate.at(-1);
+            if (eVarForUpdate) {
+              calleeEnv = updateExistingVariable(calleeEnv, eVarForUpdate, {
+                ...eVarForUpdate,
+                value: [effectsRowTypeValue],
+                type: effectsRowForBinding,
+              });
+            }
+            resolved = true;
+            continue;
+          }
+        }
+
         concreteParams = effectsRowType?.implicitParameters ?? [];
 
         // For each concrete param, resolve from callerEnv (same as named implicit params)
