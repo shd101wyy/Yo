@@ -156,7 +156,18 @@ export interface FunctionGenerationContext extends CodeGenContext {
     label: string;
     stepExpr: Expr | undefined;
     whileDoneLabel: string;
+    remainingExprs: Expr[];
+    bodyDropExprs: Expr[];
   };
+  // When inside an effect SM while loop, break must goto the done label
+  effectWhileBreakInfo?: { doneLabel: string };
+  // When inside an effect SM while loop, continue must goto the loop label with step
+  effectWhileContinueInfo?: {
+    label: string;
+    stepExpr: Expr | undefined;
+  };
+  // Deferred drops for the effect while loop body's local variables.
+  effectWhileBodyDrops?: Expr[];
   // Baseline count of pendingDeferredDrops when entering the current loop body.
   // Used to determine which drops belong to the loop body scope and must be
   // emitted before break/continue (which would otherwise skip end-of-body drops).

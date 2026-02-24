@@ -569,19 +569,44 @@ export function generateEffectResumeFunction(
         }
       }
 
-      // If the previous effect was inside a while loop, emit step + goto
-      // back to the while condition check instead of falling through to
+      // If the previous effect was inside a while loop, emit remaining
+      // body expressions (with break/continue context) then step + goto
+      // back to while_loop_{index} in case 0 (which has the full while body
+      // including the inner SM init + call) instead of falling through to
       // the segment's remaining expressions.
       if (prevEffect.isInsideWhile && prevEffect.enclosingWhileExpr) {
         const whileExpr = prevEffect.enclosingWhileExpr as Expr;
         const whileArgs = (whileExpr as FnCallExpr).args;
+        let whileStep: Expr | undefined;
+        let whileBody: Expr;
         if (whileArgs.length === 3) {
-          const stepCode = generateExpr(whileArgs[1]!, "      ", context);
-          if (stepCode) {
-            emitter.emitLine(`      ${stepCode};`);
-          }
+          whileStep = whileArgs[1]!;
+          whileBody = whileArgs[2]!;
+        } else {
+          whileBody = whileArgs[1]!;
         }
-        emitter.emitLine(`      goto while_loop_${prevEffect.index};`);
+
+        // Original loop label in case 0 (goto across cases works in C)
+        const originalLoopLabel = `while_loop_${prevEffect.index}`;
+        // Unique done label for break in this case block
+        const doneLabel = `while_done_${prevEffect.index}_s${segment.stateNumber}`;
+
+        const { remainingExprs, bodyDropExprs } =
+          extractWhileBodyRemainingExprs(whileBody, prevEffect);
+
+        generateEffectWhileRemainingExprs(
+          remainingExprs,
+          bodyDropExprs,
+          originalLoopLabel,
+          whileStep,
+          doneLabel,
+          "      ",
+          context
+        );
+
+        emitter.emitLine(`      ${doneLabel}:;`);
+        emitter.emitLine(`      sm->completed = 1;`);
+        emitter.emitLine(`      return;`);
         emitter.emitLine(`    }`);
         continue;
       }
@@ -722,18 +747,43 @@ export function generateEffectResumeFunction(
         }
       }
 
-      // If the effect call is inside a while loop, emit step + goto
-      // back to the while condition check label instead of completing the SM.
+      // If the effect call is inside a while loop, emit remaining body
+      // expressions with break/continue context, then step + goto
+      // back to while_loop_{index} in case 0 (which has the full while body
+      // including the inner SM init + call) instead of completing the SM.
       if (effectCallPoint.isInsideWhile && effectCallPoint.enclosingWhileExpr) {
         const whileExpr = effectCallPoint.enclosingWhileExpr as Expr;
         const whileArgs = (whileExpr as FnCallExpr).args;
+        let whileStep: Expr | undefined;
+        let whileBody: Expr;
         if (whileArgs.length === 3) {
-          const stepCode = generateExpr(whileArgs[1]!, "      ", context);
-          if (stepCode) {
-            emitter.emitLine(`      ${stepCode};`);
-          }
+          whileStep = whileArgs[1]!;
+          whileBody = whileArgs[2]!;
+        } else {
+          whileBody = whileArgs[1]!;
         }
-        emitter.emitLine(`      goto while_loop_${effectCallPoint.index};`);
+
+        // Original loop label in case 0 (goto across cases works in C)
+        const originalLoopLabel = `while_loop_${effectCallPoint.index}`;
+        // Unique done label for break in this case block
+        const doneLabel = `while_done_${effectCallPoint.index}_r${resumeState}`;
+
+        const { remainingExprs, bodyDropExprs } =
+          extractWhileBodyRemainingExprs(whileBody, effectCallPoint);
+
+        generateEffectWhileRemainingExprs(
+          remainingExprs,
+          bodyDropExprs,
+          originalLoopLabel,
+          whileStep,
+          doneLabel,
+          "      ",
+          context
+        );
+
+        emitter.emitLine(`      ${doneLabel}:;`);
+        emitter.emitLine(`      sm->completed = 1;`);
+        emitter.emitLine(`      return;`);
       } else {
         emitter.emitLine(`      sm->completed = 1;`);
         emitter.emitLine(`      return;`);
@@ -1020,22 +1070,115 @@ function generateTransitiveEffectYield(
       emitter.emitLine(`${indent}sm->${fieldName} = ${innerSmField}.result;`);
     }
     emitter.emitLine(`${indent}sm->result = ${innerSmField}.result;`);
+  } else if (effectCallPoint.targetVariableId && !innerReturnIsVoid) {
+    const fieldName = sanitizeForCIdentifier(
+      `var_${effectCallPoint.targetVariableId}`
+    );
+    emitter.emitLine(`${indent}sm->${fieldName} = ${innerSmField}.result;`);
   }
 
-  // If inside a while loop, emit step + goto back to condition check
+  // If inside a while loop, emit remaining body expressions + step + goto
   const whileLoop = context.effectWhileLoopContinuation;
   if (whileLoop) {
-    if (whileLoop.stepExpr) {
-      const stepCode = generateExpr(whileLoop.stepExpr, indent, context);
-      if (stepCode) {
-        emitter.emitLine(`${indent}${stepCode};`);
-      }
-    }
-    emitter.emitLine(`${indent}goto ${whileLoop.label};`);
+    generateEffectWhileRemainingExprs(
+      whileLoop.remainingExprs,
+      whileLoop.bodyDropExprs,
+      whileLoop.label,
+      whileLoop.stepExpr,
+      whileLoop.whileDoneLabel,
+      indent,
+      context
+    );
+    // Emit the done label for break to target
+    emitter.emitLine(`${indent}${whileLoop.whileDoneLabel}:;`);
+    emitter.emitLine(`${indent}sm->completed = 1;`);
+    emitter.emitLine(`${indent}return;`);
   } else {
     emitter.emitLine(`${indent}sm->completed = 1;`);
     emitter.emitLine(`${indent}return;`);
   }
+}
+
+/**
+ * Extract remaining expressions from a while body begin block after the effect call.
+ */
+function extractWhileBodyRemainingExprs(
+  whileBody: Expr,
+  effectCallPoint: EffectCallPoint
+): { remainingExprs: Expr[]; bodyDropExprs: Expr[] } {
+  const effectExpr = effectCallPoint.expr as Expr;
+  const bodyDropExprs = whileBody.$?.deferredDropExpressions ?? [];
+
+  let bodyExprs: Expr[];
+  if (
+    whileBody.tag === ExprTag.FnCall &&
+    exprIsFunctionCallOf(whileBody, "begin")
+  ) {
+    bodyExprs = whileBody.args;
+  } else {
+    bodyExprs = [whileBody];
+  }
+
+  const remainingExprs: Expr[] = [];
+  let effectFoundIndex = -1;
+  for (let i = 0; i < bodyExprs.length; i++) {
+    if (containsEffectCallExpr(bodyExprs[i]!, effectExpr)) {
+      effectFoundIndex = i;
+      break;
+    }
+  }
+  if (effectFoundIndex !== -1) {
+    for (let i = effectFoundIndex + 1; i < bodyExprs.length; i++) {
+      remainingExprs.push(bodyExprs[i]!);
+    }
+  }
+  return { remainingExprs, bodyDropExprs };
+}
+
+/**
+ * Generate remaining while body expressions after an effect call completes,
+ * with break/continue context set so atom.ts generates correct gotos.
+ * After remaining expressions, emit step + goto to loop back.
+ */
+function generateEffectWhileRemainingExprs(
+  remainingExprs: Expr[],
+  bodyDropExprs: Expr[],
+  loopLabel: string,
+  stepExpr: Expr | undefined,
+  doneLabel: string,
+  indent: string,
+  context: FunctionGenerationContext
+): void {
+  const emitter = context.emitter;
+
+  if (remainingExprs.length > 0) {
+    const prevBreak = context.effectWhileBreakInfo;
+    const prevContinue = context.effectWhileContinueInfo;
+    const prevBodyDrops = context.effectWhileBodyDrops;
+    context.effectWhileBreakInfo = { doneLabel };
+    context.effectWhileContinueInfo = { label: loopLabel, stepExpr };
+    context.effectWhileBodyDrops = [...bodyDropExprs];
+
+    for (const expr of remainingExprs) {
+      const code = generateExpr(expr, indent, context);
+      if (code && expr.$ && !isTempVariableName(expr.$.env.modulePath, code)) {
+        emitter.emitLine(`${indent}${code};`);
+      }
+    }
+
+    context.effectWhileBreakInfo = prevBreak;
+    context.effectWhileContinueInfo = prevContinue;
+    context.effectWhileBodyDrops = prevBodyDrops;
+  }
+
+  // Normal loop continuation: emit step + goto
+  if (stepExpr) {
+    const stepCode = generateExpr(stepExpr, indent, context);
+    if (stepCode) {
+      emitter.emitLine(`${indent}${stepCode};`);
+    }
+  }
+  emitter.emitLine(`${indent}goto ${loopLabel};`);
 }
 
 function generateWhileWithEffectCall(
@@ -1073,6 +1216,57 @@ function generateWhileWithEffectCall(
   emitter.emitLine(`${indent}  return;`);
   emitter.emitLine(`${indent}}`);
 
+  // Split the while body begin block to find expressions before/after the effect call.
+  // This lets us generate pre-effect expressions now and store post-effect ones
+  // for the resume path (where break/continue need special goto handling).
+  let bodyExprs: Expr[];
+  if (
+    bodyExpr.tag === ExprTag.FnCall &&
+    exprIsFunctionCallOf(bodyExpr, "begin")
+  ) {
+    bodyExprs = bodyExpr.args;
+  } else {
+    bodyExprs = [bodyExpr];
+  }
+
+  const effectExpr = effectCallPoint.expr as Expr;
+  let effectFoundIndex = -1;
+  for (let i = 0; i < bodyExprs.length; i++) {
+    if (containsEffectCallExpr(bodyExprs[i]!, effectExpr)) {
+      effectFoundIndex = i;
+      break;
+    }
+  }
+
+  const remainingExprs: Expr[] = [];
+  if (effectFoundIndex !== -1) {
+    for (let i = effectFoundIndex + 1; i < bodyExprs.length; i++) {
+      remainingExprs.push(bodyExprs[i]!);
+    }
+  }
+
+  const bodyDropExprs = bodyExpr.$?.deferredDropExpressions ?? [];
+
+  // Generate pre-effect expressions with break/continue context
+  const prevBreak = context.effectWhileBreakInfo;
+  const prevContinue = context.effectWhileContinueInfo;
+  const prevBodyDrops = context.effectWhileBodyDrops;
+  context.effectWhileBreakInfo = { doneLabel };
+  context.effectWhileContinueInfo = { label: loopLabel, stepExpr };
+  context.effectWhileBodyDrops = [...bodyDropExprs];
+
+  for (let i = 0; i < effectFoundIndex; i++) {
+    const expr = bodyExprs[i]!;
+    const code = generateExpr(expr, indent, context);
+    if (code && expr.$ && !isTempVariableName(expr.$.env.modulePath, code)) {
+      emitter.emitLine(`${indent}${code};`);
+    }
+  }
+
+  context.effectWhileBreakInfo = prevBreak;
+  context.effectWhileContinueInfo = prevContinue;
+  context.effectWhileBodyDrops = prevBodyDrops;
+
   // Set up while loop continuation context so that generateTransitiveEffectYield
   // (or generateEffectYield) emits step + goto instead of completed=1.
   const prevWhileLoop = context.effectWhileLoopContinuation;
@@ -1080,17 +1274,21 @@ function generateWhileWithEffectCall(
     label: loopLabel,
     stepExpr,
     whileDoneLabel: doneLabel,
+    remainingExprs,
+    bodyDropExprs,
   };
 
-  // Generate the body with the effect call
-  generateExprWithEffectCall(
-    bodyExpr,
-    effectCallPoint,
-    stateNumber,
-    indent,
-    context,
-    info
-  );
+  // Generate the expression containing the effect call
+  if (effectFoundIndex !== -1) {
+    generateExprWithEffectCall(
+      bodyExprs[effectFoundIndex]!,
+      effectCallPoint,
+      stateNumber,
+      indent,
+      context,
+      info
+    );
+  }
 
   // Restore context
   context.effectWhileLoopContinuation = prevWhileLoop;

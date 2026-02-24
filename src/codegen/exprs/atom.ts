@@ -86,6 +86,33 @@ export function generateAtom(
       }
       return `goto ${functionContext.asyncWhileContinueInfo.label}`;
     }
+
+    // In effect SM while loop body, continue must emit body drops + step + goto loop label
+    if (functionContext.effectWhileContinueInfo) {
+      const emitter = context.emitter;
+      if (
+        functionContext.effectWhileBodyDrops &&
+        functionContext.effectWhileBodyDrops.length > 0
+      ) {
+        for (const dropExpr of functionContext.effectWhileBodyDrops) {
+          const dropCode = generateExpr(dropExpr, indent, context);
+          if (dropCode && dropCode.includes("sm->")) {
+            emitter.emitLine(`${indent}${dropCode};`);
+          }
+        }
+      }
+      if (functionContext.effectWhileContinueInfo.stepExpr) {
+        const stepCode = generateExpr(
+          functionContext.effectWhileContinueInfo.stepExpr,
+          indent,
+          context
+        );
+        if (stepCode) {
+          emitter.emitLine(`${indent}${stepCode};`);
+        }
+      }
+      return `goto ${functionContext.effectWhileContinueInfo.label}`;
+    }
     return "continue";
   }
 
@@ -118,6 +145,23 @@ export function generateAtom(
         }
       }
       return `{ sm->while_loop_${index}_active = false; goto ${label}; }`;
+    }
+
+    // In effect SM while loop body, break must emit body drops + goto done label
+    if (functionContext.effectWhileBreakInfo) {
+      const emitter = context.emitter;
+      if (
+        functionContext.effectWhileBodyDrops &&
+        functionContext.effectWhileBodyDrops.length > 0
+      ) {
+        for (const dropExpr of functionContext.effectWhileBodyDrops) {
+          const dropCode = generateExpr(dropExpr, indent, context);
+          if (dropCode && dropCode.includes("sm->")) {
+            emitter.emitLine(`${indent}${dropCode};`);
+          }
+        }
+      }
+      return `goto ${functionContext.effectWhileBreakInfo.doneLabel}`;
     }
     return "break";
   }
