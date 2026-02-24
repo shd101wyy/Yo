@@ -158,6 +158,11 @@ export function exprContainsAwait(expr: Expr): boolean {
       return true;
     }
 
+    // Also detect io.await(future) calls via the ioBuiltin marker
+    if (expr.func.$?.type?.ioBuiltin === "io_await") {
+      return true;
+    }
+
     if (exprIsFunctionCallOf(expr, BuiltinFunctions.join)) {
       return true;
     }
@@ -176,6 +181,8 @@ export function exprContainsAwait(expr: Expr): boolean {
 
     if (
       exprIsFunctionCallOf(expr, BuiltinFunctions.async) ||
+      // Also skip io.async(closure) calls — they create new async scopes
+      expr.func.$?.type?.ioBuiltin === "io_async" ||
       isFunctionBoundaryArrow(expr) ||
       (isTypeValue(expr.func.$?.value) &&
         isFunctionType(expr.func.$.value.value))

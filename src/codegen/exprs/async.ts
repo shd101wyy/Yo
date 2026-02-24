@@ -1108,8 +1108,11 @@ function preRegisterAsyncBlocksInExpr(
 }
 
 /**
- * Generate C code for io.async(closure) as a synchronous call.
- * Calls the closure immediately and wraps the result in a completed future.
+ * Generate C code for io.async(closure) as a lazy synchronous future.
+ * The closure is NOT called at io.async time. Instead, the closure function
+ * pointer and capture data are stored in the future struct. When io.await
+ * detects state==0 and a resume function, it calls the resume function which
+ * executes the closure and completes the future.
  */
 export function generateIoAsyncSyncCall(
   expr: FnCallExpr,
@@ -1134,9 +1137,43 @@ export function generateIoAsyncSyncCall(
   }
 
   const disposeFunctionName = `${structName}_dispose`;
+  const resumeFunctionName = `${structName}_resume`;
   const emitter = context.emitter;
 
-  // Emit struct definition
+  // Get the closure argument expression
+  const closureArgExpr = expr.$?.runtimeArgExprsInOrder?.[0];
+  if (!closureArgExpr?.$) {
+    return `/* Error: Missing closure argument for io.async */`;
+  }
+
+  // Generate the closure argument value — this also registers the closure
+  // function in implClosureCallMap and emits capture struct declarations.
+  const closureCode = generateExpr(closureArgExpr, indent, context);
+
+  // Look up the closure function name from implClosureCallMap
+  const closureValueType = closureArgExpr.$.type;
+  let closureFunctionCName: string | undefined;
+  let captureCName: string | undefined;
+
+  if (isSomeType(closureValueType) && closureValueType.resolvedConcreteType) {
+    const concreteType = closureValueType.resolvedConcreteType;
+    const mapped = context.implClosureCallMap.get(concreteType.id);
+    if (mapped) {
+      closureFunctionCName = mapped.functionCName;
+    }
+    // Get the C name for the capture/context type
+    const captureTypeEntry = context.types[concreteType.id];
+    if (captureTypeEntry) {
+      captureCName = captureTypeEntry.cName;
+    }
+  }
+
+  if (!closureFunctionCName || !captureCName) {
+    return `/* Error: no closure function or capture type for io.async sync path */`;
+  }
+
+  // Emit struct definition — includes an embedded __capture field so the
+  // capture data lives as long as the future (heap-allocated).
   emitter.emitDeclarationLine(`struct ${structName}_struct {`);
   emitter.emitDeclarationLine(`  yo_ref_header_t header;`);
   emitter.emitDeclarationLine(`  _Atomic int state;`);
@@ -1148,7 +1185,34 @@ export function generateIoAsyncSyncCall(
   emitter.emitDeclarationLine(`  _Atomic(void (*)(void*)) continuation_fn;`);
   emitter.emitDeclarationLine(`  _Atomic(void*) continuation_sm;`);
   emitter.emitDeclarationLine(`  void (*__yo_resume_fn)(void*);`);
+  emitter.emitDeclarationLine(`  ${captureCName} __capture;`);
   emitter.emitDeclarationLine(`};`);
+  emitter.emitDeclarationLine(``);
+
+  // Emit resume function — calls the closure with the embedded capture data
+  emitter.emitDeclarationLine(`void ${resumeFunctionName}(void* ptr) {`);
+  emitter.emitDeclarationLine(`  ${structName}* sm = (${structName}*)ptr;`);
+  if (!isUnitType(resultType)) {
+    emitter.emitDeclarationLine(
+      `  sm->result = ${closureFunctionCName}(&sm->__capture);`
+    );
+  } else {
+    emitter.emitDeclarationLine(`  ${closureFunctionCName}(&sm->__capture);`);
+  }
+  emitter.emitDeclarationLine(
+    `  atomic_store_explicit(&sm->state, -1, memory_order_release);`
+  );
+  emitter.emitDeclarationLine(
+    `  void (*continuation)(void*) = atomic_load_explicit(&sm->continuation_fn, memory_order_acquire);`
+  );
+  emitter.emitDeclarationLine(`  if (continuation) {`);
+  emitter.emitDeclarationLine(
+    `    void* cont_sm = atomic_load_explicit(&sm->continuation_sm, memory_order_acquire);`
+  );
+  emitter.emitDeclarationLine(`    continuation(cont_sm);`);
+  emitter.emitDeclarationLine(`  }`);
+  emitter.emitDeclarationLine(`  __yo_decr_rc(ptr);`);
+  emitter.emitDeclarationLine(`}`);
   emitter.emitDeclarationLine(``);
 
   // Emit dispose function
@@ -1165,44 +1229,8 @@ export function generateIoAsyncSyncCall(
   emitter.emitDeclarationLine(`}`);
   emitter.emitDeclarationLine(``);
 
-  // Get the closure argument expression
-  const closureArgExpr = expr.$?.runtimeArgExprsInOrder?.[0];
-  if (!closureArgExpr?.$) {
-    return `/* Error: Missing closure argument for io.async */`;
-  }
-
-  // Generate the closure argument value
-  const closureCode = generateExpr(closureArgExpr, indent, context);
-
-  // Generate the closure call
-  const closureValueType = closureArgExpr.$.type;
-  let closureCallCode: string;
-
-  if (isSomeType(closureValueType) && closureValueType.resolvedConcreteType) {
-    const concreteTypeId = closureValueType.resolvedConcreteType.id;
-    const mapped = context.implClosureCallMap.get(concreteTypeId);
-    if (mapped) {
-      closureCallCode = `${mapped.functionCName}(&(${closureCode}))`;
-    } else {
-      closureCallCode = `/* Error: no implClosureCallMap entry for closure */`;
-    }
-  } else {
-    closureCallCode = `/* Error: closure type is not Impl(Fn) */`;
-  }
-
-  // Generate the sync future allocation and initialization
+  // Generate the sync future allocation and initialization (body code)
   const resultVar = expr.$?.variableName || `__io_async_result`;
-
-  // Call the closure and store the result
-  if (!isUnitType(resultType)) {
-    emitter.emitLine(
-      `${indent}${resultTypeCName} __io_async_call_result = ${closureCallCode};`
-    );
-  } else {
-    emitter.emitLine(`${indent}${closureCallCode};`);
-  }
-
-  // Allocate and initialize the sync future
   const varTypeAndName = getVariableTypeString(futureType, resultVar, context);
   emitter.emitLine(
     `${indent}${varTypeAndName} = (${structName}*)__yo_malloc(sizeof(${structName}));`
@@ -1217,11 +1245,14 @@ export function generateIoAsyncSyncCall(
     `${indent}${resultVar}->header.dispose_fn = (void(*)(void*))${disposeFunctionName};`
   );
   emitter.emitLine(`${indent}${resultVar}->header.traverse_fn = NULL;`);
-  if (!isUnitType(resultType)) {
-    emitter.emitLine(`${indent}${resultVar}->result = __io_async_call_result;`);
-  }
+  // Copy capture data from stack-allocated struct into the heap-allocated future
+  emitter.emitLine(`${indent}${resultVar}->__capture = ${closureCode};`);
+  // State 0 = not started (lazy), resume function will execute the closure
   emitter.emitLine(
-    `${indent}atomic_store_explicit(&${resultVar}->state, -1, memory_order_release);`
+    `${indent}atomic_store_explicit(&${resultVar}->state, 0, memory_order_release);`
+  );
+  emitter.emitLine(
+    `${indent}${resultVar}->__yo_resume_fn = ${resumeFunctionName};`
   );
   emitter.emitLine(
     `${indent}atomic_store_explicit(&${resultVar}->continuation_fn, NULL, memory_order_relaxed);`

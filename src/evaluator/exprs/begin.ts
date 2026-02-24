@@ -146,7 +146,18 @@ function searchRecursively(
     exprIsFunctionCall(expr) &&
     (exprIsFunctionCallOf(expr, BuiltinFunctions.async) || isIoAsyncCall(expr));
 
-  if (expr.$?.deferredDupExpressions && !isAsyncBlockCapture) {
+  if (isAsyncBlockCapture) {
+    // Don't recurse into async block captures at all.
+    // For the state machine path: dups are propagated to the io.async expression
+    //   and handled by the codegen. The closure's dups are already cleared.
+    // For the sync path: the closure's capture struct is stack-allocated, so
+    //   captures are borrowed — no dups are needed. Recursing would let the
+    //   optimizer find closure-level dups and cancel them along with the
+    //   captured variable's scope-exit drop, causing leaks.
+    return;
+  }
+
+  if (expr.$?.deferredDupExpressions) {
     for (const dupExpr of expr.$.deferredDupExpressions) {
       searchRecursively(dupExpr, dupCalls, varsWithPartialBranchDups);
     }

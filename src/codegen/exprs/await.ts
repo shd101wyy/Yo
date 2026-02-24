@@ -95,18 +95,17 @@ export function generateAwait(
       const resultVar = expr.$?.variableName || `__sync_await_result`;
       const varDecl = getVariableTypeString(resultType, resultVar, context);
       emitter.emitLine(`${indent}${varDecl} = ${syncFutureVar}->result;`);
-      // Mark as consumed so dispose won't drop the result, then release the future
+      // Mark as consumed so dispose won't drop the result when the future
+      // variable's scope-exit drop frees the state machine.
       emitter.emitLine(
         `${indent}atomic_store_explicit(&${syncFutureVar}->state, -2, memory_order_release);`
       );
-      emitter.emitLine(`${indent}__yo_decr_rc(${syncFutureVar});`);
       return resultVar;
     } else {
-      // Mark as consumed and release the future
+      // Mark as consumed; scope-exit drop handles SM cleanup.
       emitter.emitLine(
         `${indent}atomic_store_explicit(&${syncFutureVar}->state, -2, memory_order_release);`
       );
-      emitter.emitLine(`${indent}__yo_decr_rc(${syncFutureVar});`);
       return ``;
     }
   }

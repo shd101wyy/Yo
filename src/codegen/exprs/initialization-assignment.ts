@@ -1,4 +1,5 @@
 import { getVariablesFromEnv } from "../../env";
+import { isIoAsyncCall } from "../../evaluator/async/await-analysis";
 import { typeImplementsFn } from "../../evaluator/trait-checking";
 import {
   BuiltinFunctions,
@@ -276,7 +277,8 @@ export function generateInitializationAssignment(
       // (as part of capture struct construction in generateAsyncBlock)
       const rhsIsAsyncBlock =
         exprIsFunctionCall(rhs) &&
-        exprIsFunctionCallOf(rhs, BuiltinFunctions.async);
+        (exprIsFunctionCallOf(rhs, BuiltinFunctions.async) ||
+          isIoAsyncCall(rhs));
 
       // If RHS has a temp variable name (e.g., for Rc values), we need to:
       // 1. First generate the RHS expression and assign it to the temp variable

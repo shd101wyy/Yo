@@ -1596,6 +1596,11 @@ ${functionsWithMatchingTypes.map((matchedFunction) => `${typeToString(matchedFun
           expr.$.awaitAnalysis = closureFnValue.body.$.awaitAnalysis;
           expr.$.captureType = closureArg.$?.captureType;
           expr.$.deferredDupExpressions = closureArg.$?.deferredDupExpressions;
+          // Clear from closure to prevent the dup/drop optimizer from collecting
+          // these dups twice (once on io.async, once on the closure argument).
+          if (closureArg.$?.deferredDupExpressions) {
+            closureArg.$.deferredDupExpressions = undefined;
+          }
 
           // Mark closure-captured variables as "outer" in the await analysis.
           // These variables live in the __capture struct, not as local SM fields.
@@ -1618,20 +1623,33 @@ ${functionsWithMatchingTypes.map((matchedFunction) => `${typeToString(matchedFun
           // Mark the closure so codegen skips generating its C function
           // (the body is handled by the state machine's resume function)
           closureFnValue.isIoAsyncStateMachineClosure = true;
+        } else {
+          // Sync path (no await points in the closure body).
+          // The closure's capture struct is stack-allocated (Impl closure),
+          // so captures are just borrowed pointers — no RC dups needed.
+          // Clear deferredDupExpressions to prevent closures.ts from
+          // generating unnecessary dups that would leak (no matching Drop
+          // on stack-allocated capture structs).
+          if (closureArg.$?.deferredDupExpressions) {
+            closureArg.$.deferredDupExpressions = undefined;
+          }
+        }
 
-          // Mark the closure's temp variable as consumed so it won't get a
-          // deferred drop in the parent scope — the captures are now owned
-          // by the state machine, not the closure struct.
-          const closureVarName = closureArg.$?.variableName;
-          if (closureVarName && expr.$.env) {
-            const vars = getVariablesFromEnv(expr.$.env, closureVarName);
-            const closureVar = vars[vars.length - 1];
-            if (closureVar) {
-              expr.$.env = updateExistingVariable(expr.$.env, closureVar, {
-                ...closureVar,
-                consumedAtToken: expr.token,
-              });
-            }
+        // Mark the closure's temp variable as consumed so it won't get a
+        // deferred drop in the parent scope — the capture struct is either
+        // owned by the state machine (async path) or stack-allocated (sync path).
+        // In either case, the evaluator's temp variable name doesn't correspond
+        // to a declared C variable, so a scope-exit drop would reference an
+        // undeclared identifier.
+        const closureVarName = closureArg.$?.variableName;
+        if (closureVarName && expr.$.env) {
+          const vars = getVariablesFromEnv(expr.$.env, closureVarName);
+          const closureVar = vars[vars.length - 1];
+          if (closureVar) {
+            expr.$.env = updateExistingVariable(expr.$.env, closureVar, {
+              ...closureVar,
+              consumedAtToken: expr.token,
+            });
           }
         }
       }

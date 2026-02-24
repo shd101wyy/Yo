@@ -1,16 +1,32 @@
 open import "std/libc/stdio";
 
-main :: (fn(using(io : IO)) -> unit)({
-  printf("Hello from io-based main\n");
+yield :: (fn(using(io : IO)) -> Impl(Future(unit)))(
+  io.async(()=> {
+    return ();
+  })
+);
 
-  task := io.async((using(...(io : IO))) => {
-    printf("Task started\n");
-    return i32(42);
+main :: (fn(using(io : IO)) -> unit)({
+  b := Box(i32)(0);
+
+  task := io.async((using(...(io : IO)))=> {
+    printf("Task started %d\n", b.*);
+
+    c := Box(i32)(10);
+
+    b.* = (b.* + 1);
+    io.await yield();
+
+    printf("Task completed %d\n", b.*);
+    assert(c.* == 10, "captured Box should still be 10");
   });
 
-  result := io.await(task);
-  printf("result = %d\n", result);
-  assert((result == i32(42)), "result should be 42");
+  // With lazy execution, task hasn't started yet
+  printf("Running main... %d\n", b.*);
+  assert(b.* == 0, "b should be 0 before await (lazy)");
+
+  io.await(task);
+  assert(b.* == 1, "b should be 1 after task completes");
 });
 
 export main;
