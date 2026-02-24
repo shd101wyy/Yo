@@ -157,13 +157,15 @@ export unsafe;
 /// === Modules ===
 IO :: module(
   async : (fn(forall(T : Type, ...(E)), action : Impl(Fn(using(...(E))) -> T)) -> Impl(Future(T, ...(E)))),
-  await : (fn(forall(T : Type, ...(E)), fut : Impl(Future(T, ...(E))), using(...(E))) -> T)
+  await : (fn(forall(T : Type, ...(E)), fut : Impl(Future(T, ...(E))), using(...(E))) -> T),
+  join : (fn(...) -> unit)
 );
 export IO;
 
 extern "Yo",
   __yo_io_async : (fn(forall(T : Type, ...(E)), action : Impl(Fn(using(...(E))) -> T)) -> Impl(Future(T, ...(E)))),
-  __yo_io_await : (fn(forall(T : Type, ...(E)), fut : Impl(Future(T, ...(E))), using(...(E))) -> T)
+  __yo_io_await : (fn(forall(T : Type, ...(E)), fut : Impl(Future(T, ...(E))), using(...(E))) -> T),
+  __yo_io_join : (fn(...) -> unit)
 ;
 
 // It's intended not to use `given` here.
@@ -171,7 +173,8 @@ extern "Yo",
 // So it won't automatically inject to other functions.
 __yo_builtin_io :: IO(
   async : __yo_io_async,
-  await : __yo_io_await
+  await : __yo_io_await,
+  join : __yo_io_join
 );
 export __yo_builtin_io;
 

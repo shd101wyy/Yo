@@ -342,13 +342,10 @@ Given type: ${typeToString(defaultValueType)}`,
   // This is required because we re-evaluate type expressions instead of substituting types
   // for nominal types like Option(T) to get correct funcIds
   if (isForEvaluatingModuleType && isFunctionType(fieldType)) {
-    if (fieldType.variadicParameter) {
-      throw formatErrorMessage({
-        token: expr.token,
-        errorMessage: `Variadic function parameters are not allowed in module field "${label ?? "unnamed"}".
-Type expressions are required for all function parameters in module fields to support proper type specialization.`,
-      });
-    }
+    // Note: variadic function parameters are allowed in module fields for
+    // builtin-intercepted functions like io.join. The type specialization
+    // constraint doesn't apply because these calls are intercepted before
+    // reaching the normal function call path.
     for (const param of fieldType.forallParameters) {
       if (!param.exprs.typeExpr) {
         throw formatErrorMessage({

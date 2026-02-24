@@ -167,6 +167,11 @@ export function exprContainsAwait(expr: Expr): boolean {
       return true;
     }
 
+    // Also detect io.join calls via the ioBuiltin marker
+    if (expr.func.$?.type?.ioBuiltin === "io_join") {
+      return true;
+    }
+
     if (expr.$?.macroExpansion) {
       return exprContainsAwait(expr.$.macroExpansion);
     }

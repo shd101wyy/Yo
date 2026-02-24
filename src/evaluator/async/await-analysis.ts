@@ -581,10 +581,12 @@ function isAwaitCall(expr: Expr): boolean {
 
 /**
  * Checks if an expression is a join function call.
- * Matches `join(future1, future2, ...)` builtin.
+ * Matches both `join(future1, future2, ...)` builtin and `io.join(...)` module field call.
  */
 function isJoinCall(expr: Expr): boolean {
-  return exprIsFunctionCallOf(expr, BuiltinFunctions.join);
+  return (
+    exprIsFunctionCallOf(expr, BuiltinFunctions.join) || isIoJoinCall(expr)
+  );
 }
 
 /**
@@ -603,6 +605,15 @@ export function isIoAsyncCall(expr: Expr): boolean {
 export function isIoAwaitCall(expr: Expr): boolean {
   if (expr.tag !== ExprTag.FnCall) return false;
   return expr.func.$?.type?.ioBuiltin === "io_await";
+}
+
+/**
+ * Checks if an expression is an io.join(...) call.
+ * Uses the ioBuiltin marker on the callee's type.
+ */
+export function isIoJoinCall(expr: Expr): boolean {
+  if (expr.tag !== ExprTag.FnCall) return false;
+  return expr.func.$?.type?.ioBuiltin === "io_join";
 }
 
 /**

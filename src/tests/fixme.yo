@@ -1,32 +1,37 @@
 open import "std/libc/stdio";
-
-yield :: (fn(using(io : IO)) -> Impl(Future(unit)))(
-  io.async(()=> {
-    return ();
-  })
-);
+{ yield } :: import "std/async";
 
 main :: (fn(using(io : IO)) -> unit)({
-  b := Box(i32)(0);
+  counter := Box(i32)(0);
 
-  task := io.async((using(...(io : IO)))=> {
-    printf("Task started %d\n", b.*);
-
-    c := Box(i32)(10);
-
-    b.* = (b.* + 1);
-    io.await yield();
-
-    printf("Task completed %d\n", b.*);
-    assert(c.* == 10, "captured Box should still be 10");
+  task1 := io.async((using(...(io : IO)))=> {
+    assert((counter.* == i32(0)), "counter should be 0 at start of task1");
+    counter.* = (counter.* + 1);
+    io.await(yield());
+    assert((counter.* == i32(11)), "counter should be 11 after yield in task1");
+    counter.* = (counter.* + 1);
+    return counter.*;
   });
 
-  // With lazy execution, task hasn't started yet
-  printf("Running main... %d\n", b.*);
-  assert(b.* == 0, "b should be 0 before await (lazy)");
+  task2 := io.async((using(...(io : IO)))=> {
+    assert((counter.* == i32(1)), "counter should be 1 at start of task2");
+    counter.* = (counter.* + 10);
+    io.await(yield());
+    assert((counter.* == i32(12)), "counter should be 12 after yield in task2");
+    counter.* = (counter.* + 10);
+    return counter.*;
+  });
 
-  io.await(task);
-  assert(b.* == 1, "b should be 1 after task completes");
+  // Both tasks are cold (not started).
+  // join starts both and waits for all to complete.
+  io.join(task1, task2);
+
+  // After join, both are complete — io.await just extracts results.
+  result1 := io.await(task1);
+  result2 := io.await(task2);
+
+  // Both tasks incremented counter: +2 from task1, +20 from task2
+  assert((counter.* == i32(22)), "counter should be 22 after join");
 });
 
 export main;

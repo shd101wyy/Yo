@@ -1486,10 +1486,9 @@ test "Test match with await on primitive integer default branch", using(io : IO)
   assert(result.* == i32(30), "match should take default branch and return 30");
 };
 
-/*
 // ---------------------------------------------------------------------------
 // 55. Basic join — two cold futures started concurrently
-//     join(task1, task2) starts both, waits for all to complete.
+//     io.join(task1, task2) starts both, waits for all to complete.
 //     After join, individual io.await extracts results immediately.
 // ---------------------------------------------------------------------------
 test "Test basic join of two futures", using(io : IO), {
@@ -1511,7 +1510,7 @@ test "Test basic join of two futures", using(io : IO), {
 
   // Both tasks are cold (not started).
   // join starts both and waits for all to complete.
-  join(task1, task2);
+  io.join(task1, task2);
 
   // After join, both are complete — io.await just extracts results.
   result1 := io.await(task1);
@@ -1523,7 +1522,7 @@ test "Test basic join of two futures", using(io : IO), {
 
 // ---------------------------------------------------------------------------
 // 56. Join single future — edge case
-//     join(task) with one argument should work like starting + waiting.
+//     io.join(task) with one argument should work like starting + waiting.
 // ---------------------------------------------------------------------------
 test "Test join single future", using(io : IO), {
   counter := Box(i32)(0);
@@ -1535,7 +1534,7 @@ test "Test join single future", using(io : IO), {
     return counter.*;
   });
 
-  join(task);
+  io.join(task);
 
   result := io.await(task);
   assert((counter.* == i32(50)), "counter should be 50 after single join");
@@ -1567,7 +1566,7 @@ test "Test join with multi-yield futures", using(io : IO), {
     return counter.*;
   });
 
-  join(task1, task2);
+  io.join(task1, task2);
 
   result1 := io.await(task1);
   result2 := io.await(task2);
@@ -1587,7 +1586,7 @@ test "Test code after join", using(io : IO), {
     flag.* = true;
   });
 
-  join(task);
+  io.join(task);
 
   // After join, flag should be set
   assert(flag.*, "flag should be true after join");
@@ -1599,5 +1598,3 @@ test "Test code after join", using(io : IO), {
   io.await(task2);
   assert(flag.*, "flag should still be true after yield");
 };
-
-*/

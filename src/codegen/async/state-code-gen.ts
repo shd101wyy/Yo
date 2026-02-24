@@ -7,7 +7,10 @@
 
 import { getVariablesFromEnv } from "../../env";
 import type { AwaitPoint } from "../../evaluator/async/await-analysis";
-import { isIoAwaitCall } from "../../evaluator/async/await-analysis";
+import {
+  isIoAwaitCall,
+  isIoJoinCall,
+} from "../../evaluator/async/await-analysis";
 import {
   BuiltinFunctions,
   BuiltinKeywords,
@@ -273,7 +276,7 @@ export function generateAwaitExpression(
   // Join expressions are handled directly by state-machine.ts codegen
   if (
     expr.tag === ExprTag.FnCall &&
-    exprIsFunctionCallOf(expr, BuiltinFunctions.join)
+    (exprIsFunctionCallOf(expr, BuiltinFunctions.join) || isIoJoinCall(expr))
   ) {
     return;
   }
@@ -856,7 +859,8 @@ function branchHasAwait(expr: Expr): boolean {
     expr.tag === ExprTag.FnCall &&
     (exprIsFunctionCallOf(expr, BuiltinFunctions.await) ||
       exprIsFunctionCallOf(expr, BuiltinFunctions.join) ||
-      isIoAwaitCall(expr))
+      isIoAwaitCall(expr) ||
+      isIoJoinCall(expr))
   ) {
     return true;
   }

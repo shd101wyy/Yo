@@ -80,7 +80,7 @@ export interface Type {
    * Set on IO module field types so that io.async and io.await
    * can be detected even when aliased (e.g., `my_async :: io.async`).
    */
-  ioBuiltin?: "io_async" | "io_await";
+  ioBuiltin?: "io_async" | "io_await" | "io_join";
 }
 
 /*

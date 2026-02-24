@@ -92,6 +92,7 @@ import {
 } from "./numeric-type";
 import { tryToConvertToPointerType } from "./pointer-type";
 import { tryToImplementTraitWithArgumentsByTraitType } from "./trait-type";
+import { evaluateJoin } from "../builtins/future-fns";
 import { tryToCallTypeWithArguments } from "./type";
 
 /**
@@ -1476,6 +1477,15 @@ ${functionsWithMatchingTypes.map((matchedFunction) => `${typeToString(matchedFun
 
   if (isFunctionType(functionToCall.type)) {
     const functionType = functionToCall.type;
+
+    // Intercept io.join(...) calls and redirect to evaluateJoin,
+    // which handles argument evaluation, Future type checking, and
+    // await analysis marking. This must happen before
+    // tryToCallFunctionWithArguments since join has a variadic type
+    // that doesn't carry per-parameter type information.
+    if (functionType.ioBuiltin === "io_join") {
+      return evaluateJoin({ expr, env, context });
+    }
 
     {
       // It's
