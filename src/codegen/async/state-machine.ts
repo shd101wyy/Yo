@@ -1146,25 +1146,57 @@ export function generateAsyncBlockResumeFunction(
       );
       emitter.emitLine(`      if (future_state == -1) {  // -1 = completed`);
       emitter.emitLine(
-        `        // Yield once even when ready (microtask semantics), then resume in next tick`
+        `        // Already complete (e.g., yield() or pre-completed IO)`
+      );
+      emitter.emitLine(
+        `        // Yield once to event loop for fairness (microtask yield)`
       );
       emitter.emitLine(
         `        yo_async_spawn_task((void (*)(void*))${resumeFunctionName}, (void*)sm);`
       );
       emitter.emitLine(`        return;`);
-      emitter.emitLine(`      } else {`);
+      emitter.emitLine(`      }`);
+      emitter.emitLine(``);
+      // Cold future: start it via stored resume function pointer
+      emitter.emitLine(
+        `      // Future not complete — take event loop reference and start if cold`
+      );
+      emitter.emitLine(
+        `      __yo_incr_rc((void*)sm->${futureFieldName});  // event loop reference`
+      );
+      emitter.emitLine(
+        `      if (future_state == 0) {  // 0 = cold (not started)`
+      );
+      emitter.emitLine(
+        `        // Cold future — start it via stored resume function pointer`
+      );
+      emitter.emitLine(
+        `        sm->${futureFieldName}->__yo_resume_fn((void*)sm->${futureFieldName});`
+      );
+      emitter.emitLine(``);
+      emitter.emitLine(`        // Re-check: may have completed synchronously`);
+      emitter.emitLine(
+        `        future_state = atomic_load_explicit(&sm->${futureFieldName}->state, memory_order_acquire);`
+      );
+      emitter.emitLine(`        if (future_state == -1) {`);
+      emitter.emitLine(
+        `          // Completed synchronously — event loop ref already released by completion handler`
+      );
+      emitter.emitLine(`          goto state_${nextState};`);
+      emitter.emitLine(`        }`);
+      emitter.emitLine(`      }`);
+      emitter.emitLine(``);
       // Register continuation directly on the future (type-specific access)
       emitter.emitLine(
-        `        // Register continuation to be called when future completes`
+        `      // Still pending — register continuation and suspend`
       );
       emitter.emitLine(
-        `        atomic_store_explicit(&sm->${futureFieldName}->continuation_fn, (void (*)(void*))${resumeFunctionName}, memory_order_release);`
+        `      atomic_store_explicit(&sm->${futureFieldName}->continuation_fn, (void (*)(void*))${resumeFunctionName}, memory_order_release);`
       );
       emitter.emitLine(
-        `        atomic_store_explicit(&sm->${futureFieldName}->continuation_sm, (void*)sm, memory_order_release);`
+        `      atomic_store_explicit(&sm->${futureFieldName}->continuation_sm, (void*)sm, memory_order_release);`
       );
-      emitter.emitLine(`        return;`);
-      emitter.emitLine(`      }`);
+      emitter.emitLine(`      return;`);
 
       if (isInsideWhile) {
         const whileLoopIndex = segment.awaitPoint.index;

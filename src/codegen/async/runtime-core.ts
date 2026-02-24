@@ -16,11 +16,16 @@ export function generateAsyncRuntimeCore(emitter: Emitter): void {
 // All async tasks run on the SAME thread - no parallelism, just interleaving.
 // Uses non-atomic reference counting (everything is thread-local).
 //
-// LIFETIME MODEL: Event loop holds references to running tasks
-// - When a task is spawned/queued, the event loop increments its refcount
-// - When a task completes, the event loop decrements its refcount
-// - Tasks stay alive as long as they're running, even if user code drops them
-// - Standard RC drop semantics: freed when refcount hits 0
+// LAZY EXECUTION MODEL:
+// - async { ... } blocks are LAZY: the constructor returns a cold (unstarted)
+//   future with refcount = 1 (only user ref). No execution happens at creation.
+// - In sync context (not inside a state machine), the call site eagerly starts
+//   the future after construction (equivalent to Rust's tokio::spawn).
+// - In async context, futures stay cold until explicitly await-ed or join-ed.
+// - await starts the cold future (via __yo_resume_fn), takes an event loop
+//   reference, and suspends the caller until the future completes.
+// - Completion decrements the event loop reference; user drop decrements the user ref.
+// - State machine is freed when refcount hits 0.
 
 // Continuation - represents a suspended async task waiting to be resumed
 typedef struct yo_continuation_t {
@@ -91,10 +96,10 @@ static void yo_async_enqueue_continuation(void (*resume_fn)(void*), void* state_
 }
 
 // Spawn an async task by enqueueing it to the current thread's event loop
-// This is for EAGER execution - task starts running immediately until first await
 // NOTE: This does NOT increment refcount. The task lifetime is managed by:
-// - Constructor: starts with refcount = 2 (user ref + running task ref)
-// - Completion: decrements refcount (releases running task ref)
+// - Constructor: starts with refcount = 1 (user ref)
+// - Await/join: increments refcount (event loop ref) before starting cold future
+// - Completion: decrements refcount (releases event loop ref)
 // - User drop: decrements refcount (releases user ref)
 void yo_async_spawn_task(void (*resume_fn)(void*), void* state_machine) {
   ASYNC_DEBUG("[ASYNC] Spawning task: resume_fn=%p, sm=%p\\n", (void*)resume_fn, state_machine);

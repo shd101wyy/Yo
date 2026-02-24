@@ -323,7 +323,7 @@ test "Test while loop with await", {
       };
     };
 
-    assert(counter.* == i32(1), "counter should be 1 after first yield");
+    assert(counter.* == i32(0), "counter should be 0 before await (lazy)");
     await task;
     assert(counter.* == i32(5), "counter should be 5 after task completes");
     assert(iterations.* == i32(5), "iterations should be 5 after task completes");
@@ -348,7 +348,7 @@ test "Test while loop with break after await", {
       };
     };
 
-    assert(counter.* == i32(1), "counter should be 1 after first yield");
+    assert(counter.* == i32(0), "counter should be 0 before await (lazy)");
     await task;
     assert(counter.* == i32(3), "counter should be 3 after break");
   };
@@ -764,7 +764,7 @@ test "Test break before first await in async while loop", {
       };
     };
 
-    assert(counter.* == i32(1), "counter should be 1 after first eager iteration");
+    assert(counter.* == i32(0), "counter should be 0 before await (lazy)");
     await task;
     assert(counter.* == i32(3), "counter should stop at 3 via pre-await break");
     assert(resumed.* == i32(3), "resumed should count exactly 3 awaited iterations");
@@ -1441,6 +1441,7 @@ test "Test cond non-await path then code after cond in async", {
       after_cond.* = (result.* + i32(10));
     };
 
+    await task;
     assert(result.* == i32(2), "non-await branch should set result to 2");
     assert(after_cond.* == i32(12), "code after cond should run: 2+10=12");
   };

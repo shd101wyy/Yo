@@ -266,6 +266,17 @@ export function generateAsyncBlock(
       context.emitter.emitLine(
         `${indent}${varTypeAndName} = ${constructorCall};`
       );
+      // In sync context (not inside a state machine), eagerly start the future.
+      // This is equivalent to Rust's tokio::spawn — starting it on the runtime.
+      // In async context, futures are lazy and only start when await-ed or join-ed.
+      if (!context.inStateMachine) {
+        context.emitter.emitLine(
+          `${indent}__yo_incr_rc((void*)${resultVar});  // event loop reference`
+        );
+        context.emitter.emitLine(
+          `${indent}${resultVar}->__yo_resume_fn((void*)${resultVar});  // eager start in sync context`
+        );
+      }
       return resultVar;
     } else {
       return constructorCall;
@@ -284,6 +295,15 @@ export function generateAsyncBlock(
       context.emitter.emitLine(
         `${indent}${varTypeAndName} = ${constructorCall};`
       );
+      // In sync context (not inside a state machine), eagerly start the future.
+      if (!context.inStateMachine) {
+        context.emitter.emitLine(
+          `${indent}__yo_incr_rc((void*)${resultVar});  // event loop reference`
+        );
+        context.emitter.emitLine(
+          `${indent}${resultVar}->__yo_resume_fn((void*)${resultVar});  // eager start in sync context`
+        );
+      }
       return resultVar;
     } else {
       return constructorCall;
@@ -344,6 +364,12 @@ function emitAsyncBlockStructDefinition(
   );
   emitter.emitDeclarationLine(
     `  _Atomic(void*) continuation_sm;  // State machine of awaiting task`
+  );
+  emitter.emitDeclarationLine(``);
+
+  // Resume function pointer for lazy start at await
+  emitter.emitDeclarationLine(
+    `  void (*__yo_resume_fn)(void*);  // Resume function pointer (for lazy start at await/join)`
   );
   emitter.emitDeclarationLine(``);
 
@@ -733,12 +759,12 @@ function generateAsyncBlockStateDisposeFunction(
 /**
  * Generate the constructor function for an async block.
  * The constructor allocates the state machine and Future, initializes captured variables,
- * and starts eager execution.
+ * and returns a cold (unstarted) future.
  *
- * LIFETIME MODEL:
+ * LIFETIME MODEL (lazy execution):
  * - State machine starts with refcount = 1 (owned by caller)
- * - Event loop increments refcount when task is queued
- * - Event loop decrements refcount when task completes
+ * - await/join increments refcount when starting the task (event loop reference)
+ * - Completion decrements refcount (releases event loop reference)
  * - User code decrements refcount when dropping the Future
  * - State machine is freed when refcount hits 0
  */
@@ -827,22 +853,10 @@ function generateAsyncBlockConstructor(
   }
   emitter.emitLine(``);
 
-  // Eager execution: start running the async block immediately
-  // Execute until the first await point or completion
+  // Store resume function pointer for lazy start at await/join
   emitter.emitLine(
-    `  // Eager execution: start running immediately (C#/C++ style)`
+    `  sm->__yo_resume_fn = (void(*)(void*))${resumeFunctionName};`
   );
-  emitter.emitLine(
-    `  // Before running, increment refcount for the "running task" reference`
-  );
-  emitter.emitLine(
-    `  // This ensures the task stays alive until completion, even if user drops early`
-  );
-  emitter.emitLine(`  __yo_incr_rc((void*)sm);  // refcount: 1 -> 2`);
-  emitter.emitLine(
-    `  GC_DEBUG("AsyncBlock ${structName}: Eager increment ptr=%p RC=2\\n", (void*)sm);`
-  );
-  emitter.emitLine(`  ${resumeFunctionName}(sm);`);
   emitter.emitLine(``);
 
   emitter.emitLine(`  return sm;`);
