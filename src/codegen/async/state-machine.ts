@@ -64,6 +64,25 @@ export function getFutureFieldName(
 }
 
 /**
+ * Gets the state machine field name for a future variable by its ID.
+ * Used by join codegen to reference each future being joined.
+ */
+export function getFutureFieldNameByVariableId(
+  futureVariableId: string,
+  analysis: AwaitAnalysisResult
+): string {
+  const capturedVar = analysis.capturedVariables.find(
+    (v) => v.id === futureVariableId
+  );
+  if (capturedVar) {
+    return capturedVar.kind === "outer"
+      ? capturedVar.name
+      : `var_${capturedVar.id}`;
+  }
+  return `var_${futureVariableId}`;
+}
+
+/**
  * Information about a generated state machine.
  */
 export interface StateMachineInfo {
@@ -243,7 +262,8 @@ export function generateAsyncBlockResumeFunction(
       // If the awaited Future was a temporary stored in await_future_X, drop it now.
       // (Captured Future variables may outlive the await and are handled by normal drops.)
       // Since Futures are ref-counted, we use __yo_decr_rc instead of direct dispose.
-      if (!prevAwait.futureVariableId) {
+      // Skip for join points — join futures are always captured variables.
+      if (!prevAwait.futureVariableId && !prevAwait.isJoinPoint) {
         const awaitExpr = prevAwait.expr as Expr;
         if (awaitExpr.tag === ExprTag.FnCall) {
           const futureArg = awaitExpr.args[0];
@@ -1111,113 +1131,198 @@ export function generateAsyncBlockResumeFunction(
       context.stateMachineVariables = previousStateMachineVariables;
       context.variableIdRemapping = previousVariableIdRemapping;
 
-      // This segment ends with an await - generate the await logic
+      // This segment ends with an await or join - generate the suspension logic
       const nextState = stateNumber + 1;
-      const futureFieldName = getFutureFieldName(segment.awaitPoint, analysis);
 
-      // If this await is inside a cond expression, the future may not be set
-      // (the non-await branch was taken). Guard the await logic with a NULL check.
-      const isInsideCond = segment.awaitPoint?.isInsideCond;
-      if (isInsideCond) {
-        emitter.emitLine(
-          `      // Only await if the cond branch with await was taken`
-        );
-        emitter.emitLine(`      if (sm->${futureFieldName} != NULL) {`);
-      }
+      if (segment.awaitPoint.isJoinPoint) {
+        // === JOIN POINT: wait for multiple futures concurrently ===
+        const joinIndex = segment.awaitPoint.index;
+        const futureVarIds = segment.awaitPoint.joinFutureVariableIds!;
+        const futureCount = segment.awaitPoint.joinFutureCount!;
+        const notifyFnName = `${asyncBlockId}_join_${joinIndex}_notify`;
 
-      // If this await is inside a while loop, wrap the await logic in a check for loop active flag
-      const isInsideWhile = segment.awaitPoint?.isInsideWhile;
-      if (isInsideWhile) {
-        const whileLoopIndex = segment.awaitPoint.index;
         emitter.emitLine(
-          `      // Only await if while loop is still active (not broken)`
+          `      // Join point ${joinIndex} — wait for ${futureCount} futures`
         );
+        emitter.emitLine(`      sm->state = ${nextState};`);
         emitter.emitLine(
-          `      if (sm->while_loop_${whileLoopIndex}_active) {`
+          `      atomic_store_explicit(&sm->join_pending_${joinIndex}, ${futureCount}, memory_order_release);`
         );
-      }
+        emitter.emitLine(``);
 
-      emitter.emitLine(`      // Transition to next state after await`);
-      emitter.emitLine(`      sm->state = ${nextState};`);
-      emitter.emitLine(``);
-      emitter.emitLine(`      // Check if future is ready`);
-      emitter.emitLine(
-        `      int future_state = atomic_load_explicit(&sm->${futureFieldName}->state, memory_order_acquire);`
-      );
-      emitter.emitLine(`      if (future_state == -1) {  // -1 = completed`);
-      emitter.emitLine(
-        `        // Already complete (e.g., yield() or pre-completed IO)`
-      );
-      emitter.emitLine(
-        `        // Yield once to event loop for fairness (microtask yield)`
-      );
-      emitter.emitLine(
-        `        yo_async_spawn_task((void (*)(void*))${resumeFunctionName}, (void*)sm);`
-      );
-      emitter.emitLine(`        return;`);
-      emitter.emitLine(`      }`);
-      emitter.emitLine(``);
-      // Cold future: start it via stored resume function pointer
-      emitter.emitLine(
-        `      // Future not complete — take event loop reference and start if cold`
-      );
-      emitter.emitLine(
-        `      __yo_incr_rc((void*)sm->${futureFieldName});  // event loop reference`
-      );
-      emitter.emitLine(
-        `      if (future_state == 0) {  // 0 = cold (not started)`
-      );
-      emitter.emitLine(
-        `        // Cold future — start it via stored resume function pointer`
-      );
-      emitter.emitLine(
-        `        sm->${futureFieldName}->__yo_resume_fn((void*)sm->${futureFieldName});`
-      );
-      emitter.emitLine(``);
-      emitter.emitLine(`        // Re-check: may have completed synchronously`);
-      emitter.emitLine(
-        `        future_state = atomic_load_explicit(&sm->${futureFieldName}->state, memory_order_acquire);`
-      );
-      emitter.emitLine(`        if (future_state == -1) {`);
-      emitter.emitLine(
-        `          // Completed synchronously — event loop ref already released by completion handler`
-      );
-      emitter.emitLine(`          goto state_${nextState};`);
-      emitter.emitLine(`        }`);
-      emitter.emitLine(`      }`);
-      emitter.emitLine(``);
-      // Register continuation directly on the future (type-specific access)
-      emitter.emitLine(
-        `      // Still pending — register continuation and suspend`
-      );
-      emitter.emitLine(
-        `      atomic_store_explicit(&sm->${futureFieldName}->continuation_fn, (void (*)(void*))${resumeFunctionName}, memory_order_release);`
-      );
-      emitter.emitLine(
-        `      atomic_store_explicit(&sm->${futureFieldName}->continuation_sm, (void*)sm, memory_order_release);`
-      );
-      emitter.emitLine(`      return;`);
+        // For each future being joined, generate start/register logic
+        for (let fi = 0; fi < futureVarIds.length; fi++) {
+          const futureFieldName = getFutureFieldNameByVariableId(
+            futureVarIds[fi]!,
+            analysis
+          );
+          emitter.emitLine(
+            `      // Join future ${fi}: sm->${futureFieldName}`
+          );
+          emitter.emitLine(`      {`);
+          emitter.emitLine(
+            `        int fs_${fi} = atomic_load_explicit(&sm->${futureFieldName}->state, memory_order_acquire);`
+          );
+          emitter.emitLine(`        if (fs_${fi} == -1) {`);
+          emitter.emitLine(
+            `          // Already complete — decrement counter directly`
+          );
+          emitter.emitLine(
+            `          int prev_${fi} = atomic_fetch_sub_explicit(&sm->join_pending_${joinIndex}, 1, memory_order_acq_rel);`
+          );
+          emitter.emitLine(`          if (prev_${fi} == 1) {`);
+          emitter.emitLine(
+            `            // All futures complete (all were pre-completed) — resume immediately`
+          );
+          emitter.emitLine(`            goto state_${nextState};`);
+          emitter.emitLine(`          }`);
+          emitter.emitLine(`        } else {`);
+          emitter.emitLine(
+            `          // Not complete — take event loop refs and start/register`
+          );
+          emitter.emitLine(
+            `          __yo_incr_rc((void*)sm);  // event loop ref for notify`
+          );
+          emitter.emitLine(
+            `          __yo_incr_rc((void*)sm->${futureFieldName});  // event loop ref for future`
+          );
+          emitter.emitLine(
+            `          // Set notify function as continuation BEFORE starting`
+          );
+          emitter.emitLine(
+            `          atomic_store_explicit(&sm->${futureFieldName}->continuation_fn, (void (*)(void*))${notifyFnName}, memory_order_release);`
+          );
+          emitter.emitLine(
+            `          atomic_store_explicit(&sm->${futureFieldName}->continuation_sm, (void*)sm, memory_order_release);`
+          );
+          emitter.emitLine(`          if (fs_${fi} == 0) {`);
+          emitter.emitLine(`            // Cold future — start it`);
+          emitter.emitLine(
+            `            sm->${futureFieldName}->__yo_resume_fn((void*)sm->${futureFieldName});`
+          );
+          emitter.emitLine(`          }`);
+          emitter.emitLine(`        }`);
+          emitter.emitLine(`      }`);
+          emitter.emitLine(``);
+        }
 
-      if (isInsideWhile) {
-        const whileLoopIndex = segment.awaitPoint.index;
-        // Add else branch to jump to code after while loop when broken
-        emitter.emitLine(`      } else {`);
         emitter.emitLine(
-          `        // While loop was broken, jump to code after loop`
+          `      // All futures started/registered — suspend, notify will resume us`
         );
-        emitter.emitLine(`        goto after_while_loop_${whileLoopIndex};`);
+        emitter.emitLine(`      return;`);
+      } else {
+        // === SINGLE AWAIT POINT ===
+        const futureFieldName = getFutureFieldName(
+          segment.awaitPoint,
+          analysis
+        );
+
+        // If this await is inside a cond expression, the future may not be set
+        // (the non-await branch was taken). Guard the await logic with a NULL check.
+        const isInsideCond = segment.awaitPoint?.isInsideCond;
+        if (isInsideCond) {
+          emitter.emitLine(
+            `      // Only await if the cond branch with await was taken`
+          );
+          emitter.emitLine(`      if (sm->${futureFieldName} != NULL) {`);
+        }
+
+        // If this await is inside a while loop, wrap the await logic in a check for loop active flag
+        const isInsideWhile = segment.awaitPoint?.isInsideWhile;
+        if (isInsideWhile) {
+          const whileLoopIndex = segment.awaitPoint.index;
+          emitter.emitLine(
+            `      // Only await if while loop is still active (not broken)`
+          );
+          emitter.emitLine(
+            `      if (sm->while_loop_${whileLoopIndex}_active) {`
+          );
+        }
+
+        emitter.emitLine(`      // Transition to next state after await`);
+        emitter.emitLine(`      sm->state = ${nextState};`);
+        emitter.emitLine(``);
+        emitter.emitLine(`      // Check if future is ready`);
+        emitter.emitLine(
+          `      int future_state = atomic_load_explicit(&sm->${futureFieldName}->state, memory_order_acquire);`
+        );
+        emitter.emitLine(`      if (future_state == -1) {  // -1 = completed`);
+        emitter.emitLine(
+          `        // Already complete (e.g., yield() or pre-completed IO)`
+        );
+        emitter.emitLine(
+          `        // Yield once to event loop for fairness (microtask yield)`
+        );
+        emitter.emitLine(
+          `        yo_async_spawn_task((void (*)(void*))${resumeFunctionName}, (void*)sm);`
+        );
+        emitter.emitLine(`        return;`);
         emitter.emitLine(`      }`);
-      }
-
-      if (isInsideCond) {
-        emitter.emitLine(`      } else {`);
+        emitter.emitLine(``);
+        // Cold future: start it via stored resume function pointer
         emitter.emitLine(
-          `        // Non-await cond branch was taken, skip directly to next state`
+          `      // Future not complete — take event loop reference and start if cold`
         );
-        emitter.emitLine(`        sm->state = ${nextState};`);
-        emitter.emitLine(`        goto state_${nextState};`);
+        emitter.emitLine(
+          `      __yo_incr_rc((void*)sm->${futureFieldName});  // event loop reference`
+        );
+        emitter.emitLine(
+          `      if (future_state == 0) {  // 0 = cold (not started)`
+        );
+        emitter.emitLine(
+          `        // Cold future — start it via stored resume function pointer`
+        );
+        emitter.emitLine(
+          `        sm->${futureFieldName}->__yo_resume_fn((void*)sm->${futureFieldName});`
+        );
+        emitter.emitLine(``);
+        emitter.emitLine(
+          `        // Re-check: may have completed synchronously`
+        );
+        emitter.emitLine(
+          `        future_state = atomic_load_explicit(&sm->${futureFieldName}->state, memory_order_acquire);`
+        );
+        emitter.emitLine(`        if (future_state == -1) {`);
+        emitter.emitLine(
+          `          // Completed synchronously — event loop ref already released by completion handler`
+        );
+        emitter.emitLine(`          goto state_${nextState};`);
+        emitter.emitLine(`        }`);
         emitter.emitLine(`      }`);
-      }
+        emitter.emitLine(``);
+        // Register continuation directly on the future (type-specific access)
+        emitter.emitLine(
+          `      // Still pending — register continuation and suspend`
+        );
+        emitter.emitLine(
+          `      atomic_store_explicit(&sm->${futureFieldName}->continuation_fn, (void (*)(void*))${resumeFunctionName}, memory_order_release);`
+        );
+        emitter.emitLine(
+          `      atomic_store_explicit(&sm->${futureFieldName}->continuation_sm, (void*)sm, memory_order_release);`
+        );
+        emitter.emitLine(`      return;`);
+
+        if (isInsideWhile) {
+          const whileLoopIndex = segment.awaitPoint.index;
+          // Add else branch to jump to code after while loop when broken
+          emitter.emitLine(`      } else {`);
+          emitter.emitLine(
+            `        // While loop was broken, jump to code after loop`
+          );
+          emitter.emitLine(`        goto after_while_loop_${whileLoopIndex};`);
+          emitter.emitLine(`      }`);
+        }
+
+        if (isInsideCond) {
+          emitter.emitLine(`      } else {`);
+          emitter.emitLine(
+            `        // Non-await cond branch was taken, skip directly to next state`
+          );
+          emitter.emitLine(`        sm->state = ${nextState};`);
+          emitter.emitLine(`        goto state_${nextState};`);
+          emitter.emitLine(`      }`);
+        }
+      } // end of else (single await) branch
     } else if (isLastSegment) {
       // Last segment - complete the Future
       const hasReturnStatement = segment.expressions.some((expr: Expr) =>

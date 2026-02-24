@@ -1,50 +1,33 @@
-open import "std/string";
-open import "std/fmt";
+open import "std/libc/stdio";
+{ yield } :: import "std/async";
 
-Yield :: (fn(v : i32) -> i32);
+main :: (fn() -> unit)({
+  async {
+    counter := Box(i32)(0);
 
-Log :: (fn(v : i32) -> unit);
-
-traverse :: (fn(
-  forall(S : usize, ...(E)), 
-  arr : Array(i32, S),
-  callback : (Impl(Fn(v : i32, using(...(E))) -> unit)),
-  using(...(E))
-  ) -> unit) {
-    i := usize(0);
-    while i < S, i = (i + 1), {
-      callback(arr(i));
+    task1 := async {
+      counter.* = (counter.* + 1);
+      await yield();
+      counter.* = (counter.* + 1);
+      return counter.*;
     };
+
+    task2 := async {
+      counter.* = (counter.* + 10);
+      await yield();
+      counter.* = (counter.* + 10);
+      return counter.*;
+    };
+
+    join(task1, task2);
+
+    result1 := await task1;
+    result2 := await task2;
+
+    printf("counter = %d\n", counter.*);
+    printf("result1 = %d, result2 = %d\n", result1, result2);
+    assert((counter.* == i32(22)), "counter should be 22");
   };
+});
 
-main :: (fn() -> unit) {
-  (given(yield) : Yield) =
-    (v) -> (
-      cond(
-        (v > 2) => {
-          abort ();
-        },
-        true => {
-          return v;
-        }
-      )
-    );
-
-  (given(log) : Log) =
-    (v) -> {
-      println(v);
-    };
-
-  arr := Array(i32, 5)(0, 1, 2, 3, 4);
-  traverse(arr, (v, using(...(yield : Yield, log : Log))) => {
-    log(v);
-    result := yield(v);
-    assert(result == v);
-  });
-
-  // After traverse returns (via abort when v > 2), we reach here
-  // println("traverse returned after abort");
-
-  assert(false, "This line should not be reached due to abort in yield");
-};
 export main;

@@ -76,6 +76,30 @@ export interface AwaitPoint {
    * Even if the outer cond sets condBranchSourceIndex, a nested cond still needs its own field.
    */
   needsOwnCondBranchField?: boolean;
+
+  /**
+   * Whether this is a join point (join(...) call) rather than a single await.
+   * Join points wait for multiple futures concurrently using an atomic counter.
+   */
+  isJoinPoint?: boolean;
+
+  /**
+   * For join points: the variable IDs of all futures being joined.
+   * Used to reference the captured future variables in the state machine struct.
+   */
+  joinFutureVariableIds?: string[];
+
+  /**
+   * For join points: the number of futures being joined.
+   * Used to initialize the atomic pending counter.
+   */
+  joinFutureCount?: number;
+
+  /**
+   * For join points: the types of each future being joined.
+   * Used for generating correct C type casts in the join codegen.
+   */
+  joinFutureTypes?: Type[];
 }
 
 /**

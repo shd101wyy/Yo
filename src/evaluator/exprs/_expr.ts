@@ -42,7 +42,7 @@ import {
   evaluateYoExprIsFnCall,
   evaluateYoExprToString,
 } from "../builtins/expr-fns";
-import { evaluateAwait } from "../builtins/future-fns";
+import { evaluateAwait, evaluateJoin } from "../builtins/future-fns";
 import { evaluateYoGcCollect } from "../builtins/gc";
 import { evaluateGensym } from "../builtins/gensym";
 import { evaluateImplConstraint } from "../builtins/impl-constraint";
@@ -387,6 +387,9 @@ ${exprToString(expr)}`,
     } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.await)) {
       // await
       return evaluateAwait({ expr, env, context: { ...context } });
+    } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.join)) {
+      // join
+      return evaluateJoin({ expr, env, context: { ...context } });
     } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.import)) {
       // import
       return evaluateImport({

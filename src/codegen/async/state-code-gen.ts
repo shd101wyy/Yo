@@ -270,6 +270,14 @@ export function generateAwaitExpression(
 ): void {
   const emitter = context.emitter;
 
+  // Join expressions are handled directly by state-machine.ts codegen
+  if (
+    expr.tag === ExprTag.FnCall &&
+    exprIsFunctionCallOf(expr, BuiltinFunctions.join)
+  ) {
+    return;
+  }
+
   // Check if this is a standalone await expression: await(futureExpr) or io.await(futureExpr)
   if (
     expr.tag === ExprTag.FnCall &&
@@ -846,7 +854,9 @@ function generateCondWithAwait(
 function branchHasAwait(expr: Expr): boolean {
   if (
     expr.tag === ExprTag.FnCall &&
-    (exprIsFunctionCallOf(expr, BuiltinFunctions.await) || isIoAwaitCall(expr))
+    (exprIsFunctionCallOf(expr, BuiltinFunctions.await) ||
+      exprIsFunctionCallOf(expr, BuiltinFunctions.join) ||
+      isIoAwaitCall(expr))
   ) {
     return true;
   }

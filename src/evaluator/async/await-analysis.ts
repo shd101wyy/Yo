@@ -14,6 +14,8 @@ import {
   ExprTag,
 } from "../../expr";
 import { TokenType } from "../../token";
+import { createUnitType } from "../../types/creators";
+import type { Type } from "../../types/definitions";
 
 import {
   extractFutureTraitFromType,
@@ -421,6 +423,71 @@ function walkExprForAwaits(
         }
       }
 
+      // Check if this is a join call
+      if (isJoinCall(expr)) {
+        const joinFutureVariableIds: string[] = [];
+        const joinFutureTypes: Type[] = [];
+        let allArgsAreFutures = true;
+
+        for (const arg of expr.args) {
+          const futureType = arg.$?.type;
+          if (!futureType || !typeImplementsFuture(futureType)) {
+            allArgsAreFutures = false;
+            break;
+          }
+
+          const futureModuleType = extractFutureTraitFromType(futureType);
+          if (!futureModuleType) {
+            allArgsAreFutures = false;
+            break;
+          }
+
+          joinFutureTypes.push(futureType);
+
+          // Get the Future variable ID from the argument (same logic as await)
+          let futureVariableId: string | undefined;
+          if (
+            arg.tag === ExprTag.Atom &&
+            arg.token.type === TokenType.Identifier &&
+            arg.$
+          ) {
+            const futureVarName = arg.token.value;
+            const futureVariables = getVariablesFromEnv(
+              arg.$.env,
+              futureVarName
+            );
+            if (futureVariables.length > 0) {
+              const futureVar = futureVariables[futureVariables.length - 1]!;
+              if (futureVar.isOwningTheSameRcValueAs) {
+                futureVariableId = futureVar.isOwningTheSameRcValueAs.id;
+              } else {
+                futureVariableId = futureVar.id;
+              }
+            }
+          }
+
+          if (futureVariableId) {
+            joinFutureVariableIds.push(futureVariableId);
+          } else {
+            // Non-variable future expression in join — not yet supported
+            allArgsAreFutures = false;
+            break;
+          }
+        }
+
+        if (allArgsAreFutures && joinFutureVariableIds.length > 0) {
+          awaitPoints.push({
+            index: awaitPoints.length,
+            expr,
+            resultType: createUnitType(),
+            isJoinPoint: true,
+            joinFutureVariableIds,
+            joinFutureCount: expr.args.length,
+            joinFutureTypes,
+          });
+        }
+      }
+
       // Recursively walk the function and arguments, passing current expr as parent
       // IMPORTANT: Do NOT recurse into nested async block bodies.
       // A nested async block (e.g., `task := async { await(Async.yield()); ... }`) has its OWN
@@ -510,6 +577,14 @@ function isAwaitCall(expr: Expr): boolean {
     return true;
   }
   return isIoAwaitCall(expr);
+}
+
+/**
+ * Checks if an expression is a join function call.
+ * Matches `join(future1, future2, ...)` builtin.
+ */
+function isJoinCall(expr: Expr): boolean {
+  return exprIsFunctionCallOf(expr, BuiltinFunctions.join);
 }
 
 /**

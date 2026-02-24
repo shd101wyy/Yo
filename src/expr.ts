@@ -642,6 +642,7 @@ export const BuiltinFunctions = {
   // Async/await functions
   async: ["async"],
   await: ["await"],
+  join: ["join"],
   __yo_thread_set_maximum_threads: ["__yo_thread_set_maximum_threads"],
 
   // Pointer related functions

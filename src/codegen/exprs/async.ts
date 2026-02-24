@@ -423,7 +423,7 @@ function emitAsyncBlockStructDefinition(
   // await_future_X fields (used when awaiting an expression that isn't a captured Future variable)
   if (analysis.awaitPoints.length > 0) {
     const awaitPointsNeedingFutureStorage = analysis.awaitPoints.filter(
-      (ap) => ap.futureVariableId === undefined
+      (ap) => ap.futureVariableId === undefined && !ap.isJoinPoint
     );
     if (awaitPointsNeedingFutureStorage.length > 0) {
       emitter.emitDeclarationLine(`  // Future references for awaits`);
@@ -486,6 +486,18 @@ function emitAsyncBlockStructDefinition(
         );
         nextExtraWhileIndex++;
       }
+    }
+    emitter.emitDeclarationLine(``);
+  }
+
+  // join_pending_N fields (atomic counter for join points)
+  const joinPoints = analysis.awaitPoints.filter((ap) => ap.isJoinPoint);
+  if (joinPoints.length > 0) {
+    emitter.emitDeclarationLine(`  // Join pending counters`);
+    for (const jp of joinPoints) {
+      emitter.emitDeclarationLine(
+        `  _Atomic int join_pending_${jp.index};  // Pending count for join ${jp.index}`
+      );
     }
     emitter.emitDeclarationLine(``);
   }
@@ -904,6 +916,39 @@ export function generateDeferredAsyncBlocks(
     );
 
     emitter.emitLine(``);
+
+    // Generate join notify functions for each join point
+    if (analysis.awaitPoints.some((ap) => ap.isJoinPoint)) {
+      for (const awaitPoint of analysis.awaitPoints) {
+        if (!awaitPoint.isJoinPoint) continue;
+        const joinIndex = awaitPoint.index;
+        const notifyFnName = `${asyncBlockId}_join_${joinIndex}_notify`;
+
+        emitter.emitLine(
+          `// Notify function for join point ${joinIndex} in ${asyncBlockId}`
+        );
+        emitter.emitLine(`static void ${notifyFnName}(void* sm_ptr) {`);
+        emitter.emitLine(`  ${structName}* sm = (${structName}*)sm_ptr;`);
+        emitter.emitLine(
+          `  int prev = atomic_fetch_sub_explicit(&sm->join_pending_${joinIndex}, 1, memory_order_acq_rel);`
+        );
+        emitter.emitLine(
+          `  ASYNC_DEBUG("${asyncBlockId}_join_${joinIndex}_notify: pending=%d\\n", prev - 1);`
+        );
+        emitter.emitLine(`  if (prev == 1) {`);
+        emitter.emitLine(`    // All futures complete — resume the caller`);
+        emitter.emitLine(
+          `    yo_async_spawn_task((void (*)(void*))${resumeFunctionName}, (void*)sm);`
+        );
+        emitter.emitLine(`  }`);
+        emitter.emitLine(
+          `  // Release the event loop reference taken per-future at join time`
+        );
+        emitter.emitLine(`  __yo_decr_rc((void*)sm);`);
+        emitter.emitLine(`}`);
+        emitter.emitLine(``);
+      }
+    }
 
     // Generate resume function implementation
     generateAsyncBlockResumeFunction(

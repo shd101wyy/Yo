@@ -851,6 +851,74 @@ completion      →  __yo_decr_rc (release event loop ref, refcount=1)
 user drop       →  __yo_decr_rc (release user ref, refcount=0, freed)
 ```
 
-### Not Yet Implemented: `join` (Step 5)
+### Completed: `join` Builtin (Step 5)
 
-`join` is needed for concurrent execution of multiple futures. Currently deferred — sequential `await` is sufficient for all existing tests. `join` will be implemented when concurrent patterns are needed.
+`join` is now fully implemented as a builtin function for concurrent execution of multiple futures. **58/58 async tests pass** (54 original + 4 new join tests).
+
+#### Changes Made
+
+**Evaluator:**
+
+- `src/expr.ts`: Registered `join` in `BuiltinFunctions` alongside `await`
+- `src/evaluator/builtins/future-fns.ts`: Added `evaluateJoin()` — accepts 1+ Future arguments, requires async-block context, returns `unit`
+- `src/evaluator/exprs/_expr.ts`: Added dispatch for `join` after `await`
+
+**Await Analysis:**
+
+- `src/evaluator/async/await-analysis-types.ts`: Extended `AwaitPoint` with `isJoinPoint`, `joinFutureVariableIds`, `joinFutureCount`, `joinFutureTypes`
+- `src/evaluator/async/await-analysis.ts`: Added join detection in `walkExprForAwaits()` — extracts future variable IDs and types from each argument, creates a single `AwaitPoint` with `isJoinPoint: true`
+- `src/expr-traversal.ts`: Added `BuiltinFunctions.join` to `exprContainsAwait()`
+- `src/codegen/async/state-code-gen.ts`: Added `BuiltinFunctions.join` to `branchHasAwait()`
+
+**Code Generation:**
+
+- `src/codegen/exprs/async.ts`:
+
+  - SM struct: Added `_Atomic int join_pending_N` fields for each join point
+  - Filtered join points from generating `await_future_X` fields (join futures are already captured variables)
+  - Generated per-join-site notify functions:
+    ```c
+    static void X_join_N_notify(void* sm_ptr) {
+      X_state_t* sm = (X_state_t*)sm_ptr;
+      int prev = atomic_fetch_sub_explicit(&sm->join_pending_N, 1, memory_order_acq_rel);
+      if (prev == 1) {
+        yo_async_spawn_task((void (*)(void*))X_resume, (void*)sm);
+      }
+      __yo_decr_rc((void*)sm);  // Release per-future event loop ref
+    }
+    ```
+
+- `src/codegen/async/state-machine.ts`:
+
+  - Added join codegen in resume function: sets state, initializes atomic counter, loops through futures
+  - For each future: if pre-completed → decrement counter directly; if cold/pending → `incr_rc`, set notify as continuation, start if cold
+  - Skips temp future cleanup for join points (futures remain as captured variables for later `await`)
+
+- `src/codegen/exprs/generation.ts`: Added dispatch for `BuiltinFunctions.join` that returns empty string in state machine context
+
+#### Join RC Lifecycle
+
+```
+join(fa, fb)    →  For each cold/pending future:
+                     __yo_incr_rc(sm)      // event loop ref for notify callback
+                     __yo_incr_rc(future)  // event loop ref for future
+                     Set continuation_fn = join_N_notify
+                     Start if cold
+                   Initialize atomic counter to number of futures
+
+notify callback →  atomic_fetch_sub(join_pending_N, 1)
+                   if (prev == 1): spawn resume task
+                   __yo_decr_rc(sm)  // release per-future event loop ref
+
+await(fa)       →  Future already complete (state == -1) after join
+                   Extracts result, yields to event loop for fairness
+```
+
+#### Tests Added
+
+4 new join tests in `tests/async_await.test.yo`:
+
+1. **Test basic join of two futures** — two cold futures started concurrently, counter incremented by both
+2. **Test join single future** — edge case with one argument
+3. **Test join with multi-yield futures** — futures with multiple `await yield()` inside
+4. **Test code after join** — verify execution continues normally after join, including subsequent awaits

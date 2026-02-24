@@ -419,6 +419,17 @@ function generateFuncCall(
     return generateAwait(expr, indent, context);
   }
 
+  // join - wait for multiple futures concurrently
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.join)) {
+    // In state machine context, join is handled by the state machine generator
+    const functionContext = context as FunctionGenerationContext;
+    if (functionContext.inStateMachine) {
+      return ``;
+    }
+    // Outside async context - error
+    return `// Error: join should only be used inside async blocks`;
+  }
+
   // return
   if (exprIsFunctionCallOf(expr, BuiltinKeywords.return)) {
     return generateReturn(expr, indent, context);

@@ -158,6 +158,10 @@ export function exprContainsAwait(expr: Expr): boolean {
       return true;
     }
 
+    if (exprIsFunctionCallOf(expr, BuiltinFunctions.join)) {
+      return true;
+    }
+
     if (expr.$?.macroExpansion) {
       return exprContainsAwait(expr.$.macroExpansion);
     }

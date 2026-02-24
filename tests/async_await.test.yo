@@ -1589,3 +1589,121 @@ test "Test match with await on primitive integer default branch", {
     assert(result.* == i32(30), "match should take default branch and return 30");
   };
 };
+
+// ---------------------------------------------------------------------------
+// 55. Basic join — two cold futures started concurrently
+//     join(task1, task2) starts both, waits for all to complete.
+//     After join, individual awaits extract results immediately.
+// ---------------------------------------------------------------------------
+test "Test basic join of two futures", {
+  async {
+    counter := Box(i32)(0);
+
+    task1 := async {
+      counter.* = (counter.* + 1);
+      await yield();
+      counter.* = (counter.* + 1);
+      return counter.*;
+    };
+
+    task2 := async {
+      counter.* = (counter.* + 10);
+      await yield();
+      counter.* = (counter.* + 10);
+      return counter.*;
+    };
+
+    // Both tasks are cold (not started).
+    // join starts both and waits for all to complete.
+    join(task1, task2);
+
+    // After join, both are complete — await just extracts results.
+    result1 := await task1;
+    result2 := await task2;
+
+    // Both tasks incremented counter: +2 from task1, +20 from task2
+    assert((counter.* == i32(22)), "counter should be 22 after join");
+  };
+};
+
+// ---------------------------------------------------------------------------
+// 56. Join single future — edge case
+//     join(task) with one argument should work like starting + waiting.
+// ---------------------------------------------------------------------------
+test "Test join single future", {
+  async {
+    counter := Box(i32)(0);
+
+    task := async {
+      counter.* = (counter.* + 42);
+      await yield();
+      counter.* = (counter.* + 8);
+      return counter.*;
+    };
+
+    join(task);
+
+    result := await task;
+    assert((counter.* == i32(50)), "counter should be 50 after single join");
+    assert((result == i32(50)), "result should be 50");
+  };
+};
+
+// ---------------------------------------------------------------------------
+// 57. Join with futures that have multiple awaits inside
+//     Each future yields multiple times; join waits for full completion.
+// ---------------------------------------------------------------------------
+test "Test join with multi-yield futures", {
+  async {
+    counter := Box(i32)(0);
+
+    task1 := async {
+      counter.* = (counter.* + 1);
+      await yield();
+      counter.* = (counter.* + 1);
+      await yield();
+      counter.* = (counter.* + 1);
+      return counter.*;
+    };
+
+    task2 := async {
+      counter.* = (counter.* + 10);
+      await yield();
+      counter.* = (counter.* + 10);
+      await yield();
+      counter.* = (counter.* + 10);
+      return counter.*;
+    };
+
+    join(task1, task2);
+
+    result1 := await task1;
+    result2 := await task2;
+
+    // task1 adds 3, task2 adds 30; total = 33
+    assert((counter.* == i32(33)), "counter should be 33 after join of multi-yield futures");
+  };
+};
+
+// ---------------------------------------------------------------------------
+// 58. Join then code after — verify execution continues after join
+// ---------------------------------------------------------------------------
+test "Test code after join", {
+  async {
+    flag := Box(bool)(false);
+
+    task := async {
+      await yield();
+      flag.* = true;
+    };
+
+    join(task);
+
+    // After join, flag should be set
+    assert(flag.*, "flag should be true after join");
+
+    // Code after join should execute normally
+    await yield();
+    assert(flag.*, "flag should still be true after yield");
+  };
+};
