@@ -1284,9 +1284,12 @@ export function generateAsyncBlockResumeFunction(
         );
         emitter.emitLine(`        if (future_state == -1) {`);
         emitter.emitLine(
-          `          // Completed synchronously — event loop ref already released by completion handler`
+          `          // Completed synchronously — yield for fairness so join can interleave`
         );
-        emitter.emitLine(`          goto state_${nextState};`);
+        emitter.emitLine(
+          `          yo_async_spawn_task((void (*)(void*))${resumeFunctionName}, (void*)sm);`
+        );
+        emitter.emitLine(`          return;`);
         emitter.emitLine(`        }`);
         emitter.emitLine(`      }`);
         emitter.emitLine(``);

@@ -6,18 +6,22 @@ main :: (fn(using(io : IO)) -> unit)({
 
   task1 := io.async((using(...(io : IO)))=> {
     assert((counter.* == i32(0)), "counter should be 0 at start of task1");
+    printf("task1: counter = %d\n", counter.*);
     counter.* = (counter.* + 1);
     io.await(yield());
     assert((counter.* == i32(11)), "counter should be 11 after yield in task1");
+    printf("task1: counter = %d\n", counter.*);
     counter.* = (counter.* + 1);
     return counter.*;
   });
 
   task2 := io.async((using(...(io : IO)))=> {
     assert((counter.* == i32(1)), "counter should be 1 at start of task2");
+    printf("task2: counter = %d\n", counter.*);
     counter.* = (counter.* + 10);
     io.await(yield());
     assert((counter.* == i32(12)), "counter should be 12 after yield in task2");
+    printf("task2: counter = %d\n", counter.*);
     counter.* = (counter.* + 10);
     return counter.*;
   });
@@ -32,6 +36,7 @@ main :: (fn(using(io : IO)) -> unit)({
 
   // Both tasks incremented counter: +2 from task1, +20 from task2
   assert((counter.* == i32(22)), "counter should be 22 after join");
+  printf("main: counter = %d\n", counter.*);
 });
 
 export main;

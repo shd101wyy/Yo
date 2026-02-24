@@ -1488,22 +1488,27 @@ test "Test match with await on primitive integer default branch", using(io : IO)
 
 // ---------------------------------------------------------------------------
 // 55. Basic join — two cold futures started concurrently
-//     io.join(task1, task2) starts both, waits for all to complete.
+//     io.join(task1, task2) starts both, interleaves at yield points.
 //     After join, individual io.await extracts results immediately.
+//     Verifies interleaving order: task1 state0 → task2 state0 → task1 state1 → task2 state1
 // ---------------------------------------------------------------------------
 test "Test basic join of two futures", using(io : IO), {
   counter := Box(i32)(0);
 
   task1 := io.async((using(...(io : IO)))=> {
+    assert((counter.* == i32(0)), "counter should be 0 at start of task1");
     counter.* = (counter.* + 1);
     io.await(yield());
+    assert((counter.* == i32(11)), "counter should be 11 after yield in task1");
     counter.* = (counter.* + 1);
     return counter.*;
   });
 
   task2 := io.async((using(...(io : IO)))=> {
+    assert((counter.* == i32(1)), "counter should be 1 at start of task2");
     counter.* = (counter.* + 10);
     io.await(yield());
+    assert((counter.* == i32(12)), "counter should be 12 after yield in task2");
     counter.* = (counter.* + 10);
     return counter.*;
   });
@@ -1543,25 +1548,38 @@ test "Test join single future", using(io : IO), {
 
 // ---------------------------------------------------------------------------
 // 57. Join with futures that have multiple awaits inside
-//     Each future yields multiple times; join waits for full completion.
+//     Each future yields multiple times; join interleaves at each yield.
+//     Verifies round-robin interleaving across all yield points.
 // ---------------------------------------------------------------------------
 test "Test join with multi-yield futures", using(io : IO), {
   counter := Box(i32)(0);
 
   task1 := io.async((using(...(io : IO)))=> {
+    // Round 1: task1 runs first
+    assert((counter.* == i32(0)), "counter should be 0 at task1 round 1");
     counter.* = (counter.* + 1);
     io.await(yield());
+    // Round 2: after task2's round 1 (+10)
+    assert((counter.* == i32(11)), "counter should be 11 at task1 round 2");
     counter.* = (counter.* + 1);
     io.await(yield());
+    // Round 3: after task2's round 2 (+10)
+    assert((counter.* == i32(22)), "counter should be 22 at task1 round 3");
     counter.* = (counter.* + 1);
     return counter.*;
   });
 
   task2 := io.async((using(...(io : IO)))=> {
+    // Round 1: after task1's round 1 (+1)
+    assert((counter.* == i32(1)), "counter should be 1 at task2 round 1");
     counter.* = (counter.* + 10);
     io.await(yield());
+    // Round 2: after task1's round 2 (+1)
+    assert((counter.* == i32(12)), "counter should be 12 at task2 round 2");
     counter.* = (counter.* + 10);
     io.await(yield());
+    // Round 3: after task1's round 3 (+1)
+    assert((counter.* == i32(23)), "counter should be 23 at task2 round 3");
     counter.* = (counter.* + 10);
     return counter.*;
   });
