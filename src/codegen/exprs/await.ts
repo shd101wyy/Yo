@@ -69,6 +69,17 @@ export function generateAwait(
     emitter.emitLine(
       `${indent}${futureTypeName} __sync_future = ${futureCode};`
     );
+    // Start cold future if needed (lazy execution: state==0 means not started)
+    emitter.emitLine(
+      `${indent}if (atomic_load_explicit(&__sync_future->state, memory_order_acquire) == 0 && __sync_future->__yo_resume_fn) {`
+    );
+    emitter.emitLine(
+      `${indent}  __yo_incr_rc((void*)__sync_future);  // event loop reference`
+    );
+    emitter.emitLine(
+      `${indent}  __sync_future->__yo_resume_fn((void*)__sync_future);`
+    );
+    emitter.emitLine(`${indent}}`);
     emitter.emitLine(
       `${indent}while (atomic_load_explicit(&__sync_future->state, memory_order_acquire) != -1) {`
     );

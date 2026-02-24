@@ -1,33 +1,16 @@
 open import "std/libc/stdio";
-{ yield } :: import "std/async";
 
-main :: (fn() -> unit)({
-  async {
-    counter := Box(i32)(0);
+main :: (fn(using(io : IO)) -> unit)({
+  printf("Hello from io-based main\n");
 
-    task1 := async {
-      counter.* = (counter.* + 1);
-      await yield();
-      counter.* = (counter.* + 1);
-      return counter.*;
-    };
+  task := io.async((using(...(io : IO))) => {
+    printf("Task started\n");
+    return i32(42);
+  });
 
-    task2 := async {
-      counter.* = (counter.* + 10);
-      await yield();
-      counter.* = (counter.* + 10);
-      return counter.*;
-    };
-
-    join(task1, task2);
-
-    result1 := await task1;
-    result2 := await task2;
-
-    printf("counter = %d\n", counter.*);
-    printf("result1 = %d, result2 = %d\n", result1, result2);
-    assert((counter.* == i32(22)), "counter should be 22");
-  };
+  result := io.await(task);
+  printf("result = %d\n", result);
+  assert((result == i32(42)), "result should be 42");
 });
 
 export main;

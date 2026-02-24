@@ -1146,6 +1146,7 @@ export function generateIoAsyncSyncCall(
   }
   emitter.emitDeclarationLine(`  _Atomic(void (*)(void*)) continuation_fn;`);
   emitter.emitDeclarationLine(`  _Atomic(void*) continuation_sm;`);
+  emitter.emitDeclarationLine(`  void (*__yo_resume_fn)(void*);`);
   emitter.emitDeclarationLine(`};`);
   emitter.emitDeclarationLine(``);
 

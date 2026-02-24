@@ -461,7 +461,7 @@ export function areTypesCompatible(
         return true;
       }
 
-      // Special case: FutureTraitType uses structural comparison (output type)
+      // Special case: FutureTraitType uses structural comparison (output type + effects row)
       if (isFutureTraitType(expected.type)) {
         if (!isFutureTraitType(given.type)) {
           return false; // Expected is Future but given is not
@@ -479,6 +479,24 @@ export function areTypesCompatible(
           )
         ) {
           return false;
+        }
+        // Compare effects rows if both present
+        // If one has effects and the other doesn't, they're still compatible
+        // (backwards compatibility with Future(T) without effects)
+        if (
+          expected.type.isFuture.effectsRow &&
+          given.type.isFuture.effectsRow
+        ) {
+          if (
+            !areTypesCompatible(
+              { type: expected.type.isFuture.effectsRow, env: expected.env },
+              { type: given.type.isFuture.effectsRow, env: given.env },
+              requireExactMatch,
+              visitedPairs
+            )
+          ) {
+            return false;
+          }
         }
         // FutureTraitType matched structurally
         return true;

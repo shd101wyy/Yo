@@ -588,7 +588,7 @@ export interface TraitType extends Type {
    * If this trait represents a Future type, this contains the child type.
    * Set for traits created via `Future(T)` syntax.
    */
-  isFuture?: { outputType: Type };
+  isFuture?: { outputType: Type; effectsRow?: Type };
 
   /**
    * If this trait represents a Concrete type marker, this contains the concrete type.
@@ -624,7 +624,9 @@ export type FnTraitType = TraitType & { isFn: { callType: FunctionType } };
  * - Impl(Future(i32)) for static dispatch with futures
  * - Dyn(Future(i32)) for dynamic dispatch
  */
-export type FutureTraitType = TraitType & { isFuture: { outputType: Type } };
+export type FutureTraitType = TraitType & {
+  isFuture: { outputType: Type; effectsRow?: Type };
+};
 
 /**
  * ConcreteModuleType is a marker module that specifies the concrete type for Impl.

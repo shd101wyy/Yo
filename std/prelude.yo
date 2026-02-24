@@ -156,30 +156,19 @@ export unsafe;
 
 /// === Modules ===
 IO :: module(
-  async : (fn(forall(T : Type, ...(E)), action : Impl(Fn(using(...(E))) -> T)) -> Impl(Future(T))),
-  await : (fn(forall(T : Type), own(fut) : Impl(Future(T))) -> T)
-);
-export IO;
-
-/*
-IDEA: Extend `Future` to save `...(E)`.
-IDEA: Change async/await from eager to lazy, which means `async` will not execute the action immediately, but return a lazy future. 
-      The future will execute the action when `await` is called. This allows us to save the `...(E)` in the future and use it in `await`.
-IO :: module(
-  async : (fn(forall(T : Type, ...(E)), action : Impl(Fn(using(...(E))) -> T)) -> Impl(Future(T, ...(E)))), // NOTE: `async` doesn't need using(...(E)) as it shouldn't require effects. Only `await` call requires the effects.
+  async : (fn(forall(T : Type, ...(E)), action : Impl(Fn(using(...(E))) -> T)) -> Impl(Future(T, ...(E)))),
   await : (fn(forall(T : Type, ...(E)), own(fut) : Impl(Future(T, ...(E))), using(...(E))) -> T)
 );
 export IO;
-*/
 
 extern "Yo",
-  __yo_io_async : (fn(forall(T : Type, ...(E)), action : Impl(Fn(using(...(E))) -> T)) -> Impl(Future(T))),
-  __yo_io_await : (fn(forall(T : Type), own(fut) : Impl(Future(T))) -> T)
+  __yo_io_async : (fn(forall(T : Type, ...(E)), action : Impl(Fn(using(...(E))) -> T)) -> Impl(Future(T, ...(E)))),
+  __yo_io_await : (fn(forall(T : Type, ...(E)), own(fut) : Impl(Future(T, ...(E))), using(...(E))) -> T)
 ;
 
 // It's intended not to use `given` here.
 // For `main` function with `using(io : IO)`, the compiler will automatically inject the `__yo_builtin_io` in the caller side, which allows the user to use `async` and `await` in `main` without manually passing `__yo_builtin_io`.
-// So it won't automatically inject to other functions.  
+// So it won't automatically inject to other functions.
 __yo_builtin_io :: IO(
   async : __yo_io_async,
   await : __yo_io_await
