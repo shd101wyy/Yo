@@ -54,6 +54,10 @@ import {
 } from "../exprs/drop-dup";
 import { generateExpr } from "../exprs/expr";
 import type { FunctionGenerationContext } from "../functions/context";
+import {
+  containsSuspensionExpr,
+  splitBodyAtSuspensionPoints,
+} from "../shared/suspension-codegen";
 import { getTypeString, sanitizeForCIdentifier } from "../utils/index";
 
 function isMultiEffect(info: EffectStateMachineInfo): boolean {
@@ -343,76 +347,30 @@ interface EffectStateSegment {
 
 /**
  * Split the function body at effect call points into state segments.
+ *
+ * Thin wrapper around the shared `splitBodyAtSuspensionPoints`, mapping
+ * the generic `suspensionPoint` field to the effect-specific `effectCallPoint`.
  */
 function splitBodyAtEffectCallPoints(
   body: Expr,
   effectCallPoints: EffectCallPoint[]
 ): EffectStateSegment[] {
-  const segments: EffectStateSegment[] = [];
+  const shared = splitBodyAtSuspensionPoints(body, effectCallPoints);
 
-  if (body.tag !== ExprTag.FnCall || !exprIsFunctionCallOf(body, "begin")) {
-    if (effectCallPoints.length === 0) {
-      return [{ stateNumber: 0, expressions: [body], effectCallPoint: null }];
-    }
-    return [
-      {
-        stateNumber: 0,
-        expressions: [body],
-        effectCallPoint: effectCallPoints[0] ?? null,
-      },
-    ];
-  }
-
-  const expressions = body.args;
-  const segmentExpressions: Expr[][] = [];
-  let currentSegment: Expr[] = [];
-
-  for (const expr of expressions) {
-    const effectIndex = findEffectCallInExpr(expr, effectCallPoints);
-    if (effectIndex !== -1) {
-      currentSegment.push(expr);
-      segmentExpressions.push(currentSegment);
-      currentSegment = [];
-    } else {
-      currentSegment.push(expr);
-    }
-  }
-
-  if (currentSegment.length > 0) {
-    segmentExpressions.push(currentSegment);
-  }
-
-  for (let i = 0; i < segmentExpressions.length; i++) {
-    const exprs = segmentExpressions[i]!;
-    const effectCallPoint =
-      i < effectCallPoints.length ? effectCallPoints[i]! : null;
-    segments.push({ stateNumber: i, expressions: exprs, effectCallPoint });
-  }
-
-  return segments;
+  return shared.map((seg) => ({
+    stateNumber: seg.stateNumber,
+    expressions: seg.expressions,
+    effectCallPoint: seg.suspensionPoint,
+  }));
 }
 
-function findEffectCallInExpr(
-  expr: Expr,
-  effectCallPoints: EffectCallPoint[]
-): number {
-  for (let i = 0; i < effectCallPoints.length; i++) {
-    if (containsEffectCallExpr(expr, effectCallPoints[i]!.expr as Expr)) {
-      return i;
-    }
-  }
-  return -1;
-}
-
+/**
+ * Checks if an expression tree contains a specific effect call expression.
+ *
+ * Thin wrapper around the shared `containsSuspensionExpr`.
+ */
 function containsEffectCallExpr(expr: Expr, effectExpr: Expr): boolean {
-  if (expr === effectExpr) return true;
-  if (expr.tag === ExprTag.FnCall) {
-    if (containsEffectCallExpr(expr.func, effectExpr)) return true;
-    for (const arg of expr.args) {
-      if (containsEffectCallExpr(arg, effectExpr)) return true;
-    }
-  }
-  return false;
+  return containsSuspensionExpr(expr, effectExpr);
 }
 
 /**

@@ -31,6 +31,10 @@ import { generateComptimeValue } from "../exprs/comptime-value";
 import { generateExpr } from "../exprs/expr";
 import type { FunctionGenerationContext } from "../functions/context";
 import {
+  containsSuspensionExpr,
+  splitBodyAtSuspensionPoints,
+} from "../shared/suspension-codegen";
+import {
   canOptimizeAsNullablePointer,
   getTypeString,
   sanitizeForCIdentifier,
@@ -59,140 +63,35 @@ export interface StateSegment {
 /**
  * Splits a function body into segments at await points.
  * Each segment contains the expressions to execute before reaching the next await.
+ *
+ * Thin wrapper around the shared `splitBodyAtSuspensionPoints`, mapping
+ * the generic `suspensionPoint` field to the async-specific `awaitPoint`.
  */
 export function splitIntoStateSegments(
   body: Expr,
   awaitPoints: AwaitPoint[]
 ): StateSegment[] {
-  const segments: StateSegment[] = [];
+  const shared = splitBodyAtSuspensionPoints(body, awaitPoints, {
+    shouldSkipBody: isIoAsyncCall,
+    handleReturnStatements: true,
+    handleSequentialSuspensions: true,
+  });
 
-  // For now, we'll implement a simple version that handles the common case:
-  // A begin block with sequential expressions containing await calls
-
-  if (body.tag !== ExprTag.FnCall || !exprIsFunctionCallOf(body, "begin")) {
-    // Not a begin block - check if we need to transform it
-    if (awaitPoints.length === 0) {
-      // No awaits - single segment
-      return [
-        {
-          stateNumber: 0,
-          expressions: [body],
-          awaitPoint: null,
-        },
-      ];
-    }
-
-    // Body is a single expression with await(s) - treat as single segment
-    // The await handling will be done in generateAwaitExpression
-    return [
-      {
-        stateNumber: 0,
-        expressions: [body],
-        awaitPoint: awaitPoints[0] ?? null,
-      },
-    ];
-  }
-
-  // Begin block - split at await points and return statements
-  const expressions = body.args;
-  const segmentExpressions: Expr[][] = [];
-  let currentSegment: Expr[] = [];
-
-  for (const expr of expressions) {
-    // Check if this expression contains an await
-    const awaitIndex = findAwaitInExpr(expr, awaitPoints);
-
-    // Check if this expression is a return statement
-    // `return` can be either a bare atom (no return value) or a function call `return(value)`
-    const isReturn =
-      exprIsAtomOf(expr, "return") || exprIsFunctionCallOf(expr, "return");
-
-    if (awaitIndex !== -1) {
-      // This expression contains an await - end this segment
-      currentSegment.push(expr);
-      segmentExpressions.push(currentSegment);
-      currentSegment = [];
-      // Check for additional await points inside this expression
-      // (e.g., sequential awaits in the same cond/match branch)
-      for (let extra = awaitIndex + 1; extra < awaitPoints.length; extra++) {
-        if (containsAwaitExpr(expr, awaitPoints[extra]!.expr as Expr)) {
-          segmentExpressions.push([]);
-        } else {
-          break;
-        }
-      }
-    } else if (isReturn) {
-      // This is a return statement - end this segment after including the return
-      currentSegment.push(expr);
-      segmentExpressions.push(currentSegment);
-      currentSegment = [];
-      // Don't process any more expressions after a return
-      break;
-    } else {
-      // No await or return in this expression
-      currentSegment.push(expr);
-    }
-  }
-
-  // Add final segment if there are remaining expressions
-  if (currentSegment.length > 0) {
-    segmentExpressions.push(currentSegment);
-  }
-
-  // Create state segments
-  for (let i = 0; i < segmentExpressions.length; i++) {
-    const exprs = segmentExpressions[i]!;
-    const awaitPoint = i < awaitPoints.length ? awaitPoints[i]! : null;
-
-    segments.push({
-      stateNumber: i,
-      expressions: exprs,
-      awaitPoint,
-    });
-  }
-
-  return segments;
+  return shared.map((seg) => ({
+    stateNumber: seg.stateNumber,
+    expressions: seg.expressions,
+    awaitPoint: seg.suspensionPoint,
+  }));
 }
 
 /**
- * Finds the index of an await point that matches an expression.
- * Returns -1 if no await is found in the expression.
- */
-function findAwaitInExpr(expr: Expr, awaitPoints: AwaitPoint[]): number {
-  for (let i = 0; i < awaitPoints.length; i++) {
-    if (containsAwaitExpr(expr, awaitPoints[i]!.expr as Expr)) {
-      return i;
-    }
-  }
-  return -1;
-}
-
-/**
- * Checks if an expression contains a specific await expression.
+ * Checks if an expression tree contains a specific await expression.
+ * Skips nested async blocks (their awaits belong to the inner state machine).
+ *
+ * Thin wrapper around the shared `containsSuspensionExpr`.
  */
 export function containsAwaitExpr(expr: Expr, awaitExpr: Expr): boolean {
-  if (expr === awaitExpr) {
-    return true;
-  }
-
-  switch (expr.tag) {
-    case ExprTag.FnCall:
-      // Do NOT recurse into nested async blocks - their awaits belong to the inner async
-      if (isIoAsyncCall(expr)) {
-        return false;
-      }
-      if (containsAwaitExpr(expr.func, awaitExpr)) {
-        return true;
-      }
-      for (const arg of expr.args) {
-        if (containsAwaitExpr(arg, awaitExpr)) {
-          return true;
-        }
-      }
-      break;
-  }
-
-  return false;
+  return containsSuspensionExpr(expr, awaitExpr, isIoAsyncCall);
 }
 
 /**
