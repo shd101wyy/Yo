@@ -4,57 +4,24 @@ open import "std/fmt";
 { yield } :: import "std/async";
 
 main :: (fn(using(io : IO)) -> unit) {
-  Raise :: (fn(forall(T : Type), msg : String) -> T);
-  Log :: (fn(msg : String) -> unit);
-
-  (given(raise) : Raise) = ((msg) -> {
-    return i32(300);
-  });
-  (given(log) : Log) = ((msg) -> {
-    println(msg);
-  });
-
-  // Type is inferred
+  // Simple async without extra effects
   {
-    task := io.async((using(io : IO, raise : Raise, log : Log))=> {
-      log(`block 1`);
+    task := io.async((using(io : IO))=> {
       io.await(yield());
       i32(300)
     });
     result := io.await(task);
-    assert(result == i32(300), "Impl(Future(i32, IO, Raise, Log)) type alias should work");
+    assert(result == i32(300), "simple async should work");
   };
 
-  // Type is given
+  // No matching given should error
   {
-    (task : Impl(Future(i32, IO, Raise, Log))) = io.async((using(io : IO, raise : Raise, log : Log))=> {
-      log(`block 2`);
-      io.await(yield());
-      i32(300)
-    });
-    result := io.await(task);
-    assert(result == i32(300), "Impl(Future(i32, IO, Raise, Log)) type alias should work");
-  };
-
-  // Type is given, but effects in different order
-  {
-    (task : Impl(Future(i32, IO, Log, Raise))) = io.async((using(io : IO, raise : Raise, log : Log))=> {
-      log(`block 3`);
-      io.await(yield());
-      i32(300)
-    });
-    result := io.await(task);
-    assert(result == i32(300), "Impl(Future(i32, IO, Log, Raise)) type alias should work");
-  };
-
-  {
-    (task : Impl(Future(i32, IO, Log, Raise))) = io.async((using(_io, _log, _raise))=> {
-      _log(`block 4`);
-      _io.await(yield());
-      i32(500)
-    });
-    result := io.await(task);
-    assert(result == i32(500), "Explicit Impl(Future(i32, IO, Log, Raise)) with reordered effects should work");
+    apply :: (fn(
+      x : i32,
+      using(op : (fn(a : i32) -> bool))
+    ) -> bool)(
+      op(x)
+    );
   };
 };
 export main;

@@ -207,6 +207,19 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
     // IO parameter is resolved at compile time
     const isUserMain = cName === "__yo_user_main";
 
+    const hasUnresolvedFunctionImplicitParams =
+      !isUserMain &&
+      !value.specializedType &&
+      (value.specializedFunctionCaches?.length ?? 0) === 0 &&
+      [
+        ...value.type.implicitParameters,
+        ...value.type.parameters.filter((p) => p.isImplicit),
+      ].some((param) => isFunctionType(param.type));
+
+    if (hasUnresolvedFunctionImplicitParams) {
+      continue;
+    }
+
     // If the function is generic or has been specialized, we will handle it later
     // EXCEPTION: Specialized functions from impl methods (not generic at function level)
     // should be generated here, not in generateSpecializedFunctions

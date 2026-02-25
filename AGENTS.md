@@ -272,3 +272,5 @@ When calling `assert` function, please always add 2nd argument as the error mess
 When you find a test that causes C codegen bug, don't try to weaken the test. Instead, create a new `.yo` file with minimal code that reproduces the bug, with a `main` function and `export main;` at the end, then we can focus on fixing the bug directly.
 
 Please note when implementing state machine generation for algebraic effects and async/await, no setjmp/longjmp are allowed to use.
+
+After you fix a bug, verify the uncommited changes again to see if any changes could be refactored or deleted, and make sure there is no leftover code that is not used anymore.

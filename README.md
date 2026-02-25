@@ -1,6 +1,6 @@
 # Yo
 
-<img src="./Yo_logo.png" width=156 height=156 />
+<img src="./Yo_logo.png" width=96 height=96 />
 
 **Work in Progress :) Not Ready!**
 

@@ -82,6 +82,19 @@ export function generateFunctionDeclarations(
 
     const isUserMain = cName === "__yo_user_main";
 
+    const hasUnresolvedFunctionImplicitParams =
+      !isUserMain &&
+      !value.specializedType &&
+      (value.specializedFunctionCaches?.length ?? 0) === 0 &&
+      [
+        ...value.type.implicitParameters,
+        ...value.type.parameters.filter((p) => p.isImplicit),
+      ].some((param) => isFunctionType(param.type));
+
+    if (hasUnresolvedFunctionImplicitParams) {
+      continue;
+    }
+
     if (
       !isUserMain &&
       ((isFunctionTypeHardGeneric(value.type) && !value.type.isClosure) ||

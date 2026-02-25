@@ -147,6 +147,16 @@ export function findFunctionCallsInExpr(
     return;
   }
 
+  // Skip comptime_expect_error blocks - they are no-ops in C codegen.
+  // Functions only called inside comptime_expect_error may have unresolved
+  // implicit parameters and should not be collected for code generation.
+  if (
+    exprIsFunctionCall(expr) &&
+    exprIsFunctionCallOf(expr, BuiltinFunctions.comptime_expect_error)
+  ) {
+    return;
+  }
+
   // If this is a macro expansion, recursively collect from the expanded expression
   if (expr.$ && expr.$.macroExpansion) {
     findFunctionCallsInExpr(expr.$.macroExpansion, context);

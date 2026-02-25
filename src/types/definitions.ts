@@ -379,6 +379,7 @@ export interface FunctionParameter {
 
 export type FunctionForallParameter = FunctionParameter & {
   isCompileTimeOnly: true;
+  isImplicit: false;
 };
 
 export type FunctionImplicitParameter = FunctionParameter & {
