@@ -34,6 +34,7 @@ import { generateOpAnd, generateOpOr } from "./and-or";
 import { generateAnonymousArray, generateYoArrayFill } from "./array-fns";
 import { generateAssignment } from "./assignment";
 import { generateAsyncBlock, generateIoAsyncSyncCall } from "./async";
+import { emitAsyncFutureAbortion } from "./async-completion";
 import { generateAtom } from "./atom";
 import { generateAwait } from "./await";
 import { generateBegin } from "./begin";
@@ -143,6 +144,50 @@ function generateAbort(
   // Use skipEnvCheck=true because the abort expression's environment is from
   // the handler's scope, not the enclosing function's scope where the
   // local variables actually live.
+
+  // In async state machine context, abort must properly mark the Future as
+  // ABORTED (-3) and notify any waiting continuation, instead of just returning
+  // from the resume function (which would leave the Future stuck in an
+  // intermediate state forever).
+  if (functionContext.inAsyncStateMachine) {
+    const emitter = functionContext.emitter;
+
+    // Compute the abort value for side effects, but don't store it as the
+    // Future's result — the abort value's type matches the enclosing fn's
+    // return type, which may differ from the Future's result type.
+    if (arg) {
+      const argCode = generateExpr(arg, indent, context);
+      // If the computed value is non-trivial, emit it as a statement for side effects
+      if (argCode && argCode !== "(void)0") {
+        emitter.emitLine(`${indent}(void)${argCode};`);
+      }
+    }
+
+    // Emit handler param drops
+    if (functionContext.effectHandlerParamDrops) {
+      for (const dropCode of functionContext.effectHandlerParamDrops) {
+        emitter.emitLine(`${indent}${dropCode};`);
+      }
+    }
+
+    // Drop pending local variables from enclosing scopes
+    generatePendingDeferredDrops(
+      indent,
+      functionContext,
+      expr,
+      false,
+      false,
+      true
+    );
+
+    emitAsyncFutureAbortion({
+      emitter,
+      indent,
+      debugLabel: functionContext.currentFunctionName,
+    });
+    return ``;
+  }
+
   if (!arg) {
     // Emit handler param drops before returning
     if (functionContext.effectHandlerParamDrops) {
@@ -453,13 +498,34 @@ function generateFuncCall(
       );
       emitter.emitLine(`${indent}}`);
     }
-    // Run the event loop (task queue + I/O polling) until all futures complete.
-    const conditions = futureVars.map(
-      (v) => `atomic_load_explicit(&${v}->state, memory_order_acquire) != -1`
-    );
-    emitter.emitLine(`${indent}while (${conditions.join(" || ")}) {`);
+    // Run the event loop (task queue + I/O polling) until all futures complete or are aborted.
+    // State -1 = completed, -3 = aborted; both are terminal states.
+    emitter.emitLine(`${indent}while (1) {`);
+    emitter.emitLine(`${indent}  int __all_done = 1;`);
+    for (const varName of futureVars) {
+      emitter.emitLine(`${indent}  {`);
+      emitter.emitLine(
+        `${indent}    int __s = atomic_load_explicit(&${varName}->state, memory_order_acquire);`
+      );
+      emitter.emitLine(
+        `${indent}    if (__s != -1 && __s != -3) __all_done = 0;`
+      );
+      emitter.emitLine(`${indent}  }`);
+    }
+    emitter.emitLine(`${indent}  if (__all_done) break;`);
     emitter.emitLine(`${indent}  yo_async_poll_step();`);
     emitter.emitLine(`${indent}}`);
+    // Check if any Future was aborted
+    for (const varName of futureVars) {
+      emitter.emitLine(
+        `${indent}if (atomic_load_explicit(&${varName}->state, memory_order_acquire) == -3) {`
+      );
+      emitter.emitLine(
+        `${indent}  fprintf(stderr, "panic: attempted to join an aborted Future\\n");`
+      );
+      emitter.emitLine(`${indent}  abort();`);
+      emitter.emitLine(`${indent}}`);
+    }
     return ``;
   }
 

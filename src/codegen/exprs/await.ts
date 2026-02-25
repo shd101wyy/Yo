@@ -88,10 +88,24 @@ export function generateAwait(
       `${indent}  ${syncFutureVar}->__yo_resume_fn((void*)${syncFutureVar});`
     );
     emitter.emitLine(`${indent}}`);
+    emitter.emitLine(`${indent}{`);
     emitter.emitLine(
-      `${indent}while (atomic_load_explicit(&${syncFutureVar}->state, memory_order_acquire) != -1) {`
+      `${indent}  int __await_state = atomic_load_explicit(&${syncFutureVar}->state, memory_order_acquire);`
     );
-    emitter.emitLine(`${indent}  yo_async_poll_step();`);
+    emitter.emitLine(
+      `${indent}  while (__await_state != -1 && __await_state != -3) {`
+    );
+    emitter.emitLine(`${indent}    yo_async_poll_step();`);
+    emitter.emitLine(
+      `${indent}    __await_state = atomic_load_explicit(&${syncFutureVar}->state, memory_order_acquire);`
+    );
+    emitter.emitLine(`${indent}  }`);
+    emitter.emitLine(`${indent}  if (__await_state == -3) {`);
+    emitter.emitLine(
+      `${indent}    fprintf(stderr, "panic: attempted to await an aborted Future\\n");`
+    );
+    emitter.emitLine(`${indent}    abort();`);
+    emitter.emitLine(`${indent}  }`);
     emitter.emitLine(`${indent}}`);
 
     if (!isResultUnit) {

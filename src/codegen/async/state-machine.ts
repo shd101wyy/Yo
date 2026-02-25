@@ -245,6 +245,20 @@ export function generateAsyncBlockResumeFunction(
         isUnitType(prevAwait.resultType) ||
         (isSomeType(prevAwait.resultType) &&
           !(prevAwait.resultType as SomeType).resolvedConcreteType);
+
+      // Always check if the awaited Future was aborted by an effect handler
+      if (!prevAwait.isJoinPoint) {
+        emitter.emitLine(`      // Check if the awaited Future was aborted`);
+        emitter.emitLine(
+          `      if (atomic_load_explicit(&sm->${prevFutureFieldName}->state, memory_order_acquire) == -3) {`
+        );
+        emitter.emitLine(
+          `        fprintf(stderr, "panic: attempted to await an aborted Future\\n");`
+        );
+        emitter.emitLine(`        abort();`);
+        emitter.emitLine(`      }`);
+      }
+
       if (prevAwait && !isPrevAwaitResultUnit) {
         emitter.emitLine(
           `      // Extract result from await ${stateNumber - 1}`
@@ -255,7 +269,6 @@ export function generateAsyncBlockResumeFunction(
         emitter.emitLine(
           `      ASYNC_DEBUG("${asyncBlockId}: Reading result from await ${stateNumber - 1}, state=%d\\n", state_before_read);`
         );
-
         // If the result contains Rc-managed data, we need to dup it before copying
         // because the Future's dispose function will drop it, and we need our own reference
         if (typeContainsRcType(prevAwait.resultType)) {
@@ -1207,16 +1220,16 @@ export function generateAsyncBlockResumeFunction(
           emitter.emitLine(
             `        int fs_${fi} = atomic_load_explicit(&sm->${futureFieldName}->state, memory_order_acquire);`
           );
-          emitter.emitLine(`        if (fs_${fi} == -1) {`);
+          emitter.emitLine(`        if (fs_${fi} == -1 || fs_${fi} == -3) {`);
           emitter.emitLine(
-            `          // Already complete — decrement counter directly`
+            `          // Already complete or aborted — decrement counter directly`
           );
           emitter.emitLine(
             `          int prev_${fi} = atomic_fetch_sub_explicit(&sm->join_pending_${joinIndex}, 1, memory_order_acq_rel);`
           );
           emitter.emitLine(`          if (prev_${fi} == 1) {`);
           emitter.emitLine(
-            `            // All futures complete (all were pre-completed) — resume immediately`
+            `            // All futures done (all were pre-completed/aborted) — resume immediately`
           );
           emitter.emitLine(`            goto state_${nextState};`);
           emitter.emitLine(`          }`);
@@ -1300,9 +1313,11 @@ export function generateAsyncBlockResumeFunction(
         emitter.emitLine(
           `      int future_state = atomic_load_explicit(&sm->${futureFieldName}->state, memory_order_acquire);`
         );
-        emitter.emitLine(`      if (future_state == -1) {  // -1 = completed`);
         emitter.emitLine(
-          `        // Already complete (e.g., yield() or pre-completed IO)`
+          `      if (future_state == -1 || future_state == -3) {  // -1 = completed, -3 = aborted`
+        );
+        emitter.emitLine(
+          `        // Already complete or aborted — yield once for fairness`
         );
         emitter.emitLine(
           `        // Yield once to event loop for fairness (microtask yield)`
@@ -1339,9 +1354,11 @@ export function generateAsyncBlockResumeFunction(
           emitter.emitLine(
             `        future_state = atomic_load_explicit(&sm->${futureFieldName}->state, memory_order_acquire);`
           );
-          emitter.emitLine(`        if (future_state == -1) {`);
           emitter.emitLine(
-            `          // Completed synchronously — yield for fairness so join can interleave`
+            `        if (future_state == -1 || future_state == -3) {`
+          );
+          emitter.emitLine(
+            `          // Completed or aborted synchronously — yield for fairness`
           );
           emitter.emitLine(
             `          yo_async_spawn_task((void (*)(void*))${resumeFunctionName}, (void*)sm);`
