@@ -98,21 +98,22 @@ export function getFutureFieldNameByVariableId(
  * and should not be "cold-started".
  *
  * Detection: IO futures (from Impl(Concrete(yo_io_future_t), Future(i32)))
- * have their resolvedConcreteType set to a SomeType (the Concrete type).
- * State machine futures have resolvedConcreteType set to a StructType.
+ * have their resolvedConcreteType set to an extern SomeType (the Concrete type).
+ * State machine futures may also have resolvedConcreteType as a SomeType, but
+ * it won't be extern.
  */
 function isIoFutureType(type: Type | undefined): boolean {
   if (!type || !isSomeType(type)) return false;
-  // Check if the concrete type resolution came from a Concrete(...) trait,
-  // specifically resolving to yo_io_future_t (the C struct for IO operations).
-  // State machine futures also resolve to SomeType but with name "Impl",
-  // so we need to check that the resolved name indicates a concrete C type.
-  if (type.resolvedConcreteType && isSomeType(type.resolvedConcreteType)) {
-    // "Impl" is the generic state machine implementation type — NOT an IO future.
-    // IO futures resolve to specific C struct types like "yo_io_future_t".
-    if (type.resolvedConcreteType.name !== "Impl") {
-      return true;
-    }
+  // Check if the concrete type resolution came from a Concrete(...) trait
+  // pointing to an extern C type like yo_io_future_t. State machine futures
+  // also have resolvedConcreteType set (from return-type resolution), but
+  // their resolved type is never an extern type.
+  if (
+    type.resolvedConcreteType &&
+    isSomeType(type.resolvedConcreteType) &&
+    type.resolvedConcreteType.isExtern
+  ) {
+    return true;
   }
   // Also check requiredTraits directly (in case resolution hasn't stripped them)
   return type.requiredTraits.some((t) => isConcreteTraitType(t.traitType));
