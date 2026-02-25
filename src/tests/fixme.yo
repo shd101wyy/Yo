@@ -1,16 +1,169 @@
-open import "std/libc/stdio";
-file :: import "std/io/file";
-{ AT_FDCWD, O_RDONLY } :: import "std/io/constants";
+open import "std/string";
+open import "std/fmt";
+{ yield } :: import "std/async";
 
-main :: (fn(using(io : IO)) -> unit)({
+// ============================================================================
+// Multi-effect Future type tests
+// ============================================================================
+
+// ---------------------------------------------------------------------------
+// 1. Future(T) — no effects (backward compat)
+// ---------------------------------------------------------------------------
+test "Future no effects backward compat", using(io : IO), {
   task := io.async((using(...(io : IO)))=> {
-    result := io.await(file.openat(AT_FDCWD, *(u8)("tests/fixtures/test_file.txt"), O_RDONLY, i32(0)));
-    printf("result = %d\n", result);
-    assert(result >= i32(0), "openat should succeed");
-    cr := io.await(file.close(result));
-    assert(cr == i32(0), "close should succeed");
+    io.await(yield());
+    i32(42)
   });
-  io.await(task);
-});
+  result := io.await(task);
+  assert(result == i32(42), "Future(i32) should work without effects");
+};
 
-export main;
+// ---------------------------------------------------------------------------
+// 2. Future(T, ...(E)) — single row spread (backward compat)
+// ---------------------------------------------------------------------------
+test "Future with single effect row spread", using(io : IO), {
+  Raise :: (fn(forall(T : Type), msg : String) -> T);
+
+  might_fail :: (fn(using(raise : Raise)) -> i32)(
+    raise(`oops`)
+  );
+
+  // Effect-polymorphic run: forwards whatever effects f needs
+  run :: (fn(forall(T : Type, ...(E)),
+      f : (fn(using(...(E))) -> T),
+      using(...(E))) -> T)(f());
+
+  task := io.async((using(...(io : IO)))=> {
+    (given(raise) : Raise) = ((msg) -> {
+      return i32(99);
+    });
+    result := run(might_fail);
+    io.await(yield());
+    result
+  });
+  result := io.await(task);
+  assert(result == i32(99), "Future with effect row spread should work");
+};
+
+// ---------------------------------------------------------------------------
+// 3. Single individual effect — Raise used directly in async
+// ---------------------------------------------------------------------------
+test "Future with single individual effect", using(io : IO), {
+  Raise :: (fn(forall(T : Type), msg : String) -> T);
+
+  might_fail :: (fn(using(raise : Raise)) -> i32)(
+    raise(`single-effect`)
+  );
+
+  task := io.async((using(...(io : IO)))=> {
+    (given(raise) : Raise) = ((msg) -> {
+      println(msg);
+      return i32(77);
+    });
+    result := might_fail();
+    io.await(yield());
+    result
+  });
+  result := io.await(task);
+  assert(result == i32(77), "Future with single individual effect should work");
+};
+
+// ---------------------------------------------------------------------------
+// 4. Multiple individual effects: Raise and Log
+// ---------------------------------------------------------------------------
+test "Future with multiple individual effects", using(io : IO), {
+  Raise :: (fn(forall(T : Type), msg : String) -> T);
+  Log :: (fn(msg : String) -> unit);
+
+  might_fail_and_log :: (fn(using(raise : Raise, log : Log)) -> i32)({
+    log(`about to raise`);
+    raise(`multi-effect`)
+  });
+
+  task := io.async((using(...(io : IO)))=> {
+    (given(raise) : Raise) = ((msg) -> {
+      println(msg);
+      return i32(55);
+    });
+    (given(log) : Log) = ((msg) -> {
+      println(msg);
+    });
+    result := might_fail_and_log();
+    io.await(yield());
+    result
+  });
+  result := io.await(task);
+  assert(result == i32(55), "Future with multiple individual effects should work");
+};
+
+// ---------------------------------------------------------------------------
+// 5. Multiple effect row spreads: ...(E1), ...(E2)
+// ---------------------------------------------------------------------------
+test "Future with multiple effect row spreads", using(io : IO), {
+  Raise :: (fn(forall(T : Type), msg : String) -> T);
+  Log :: (fn(msg : String) -> unit);
+
+  might_fail :: (fn(using(raise : Raise)) -> i32)(
+    raise(`oops`)
+  );
+
+  might_log :: (fn(using(log : Log)) -> unit)(
+    log(`logged something`)
+  );
+
+  run_both :: (fn(
+      forall(T1 : Type, T2 : Type, ...(E1), ...(E2)),
+      f1 : (fn(using(...(E1))) -> T1),
+      f2 : (fn(using(...(E2))) -> T2),
+      using(...(E1), ...(E2))
+    ) -> T1)
+  {
+    f2();
+    f1()
+  };
+
+  task := io.async((using(...(io : IO)))=> {
+    (given(raise) : Raise) = ((msg) -> {
+      println(msg);
+      return i32(42);
+    });
+    (given(log) : Log) = ((msg) -> {
+      println(msg);
+    });
+    result := run_both(might_fail, might_log);
+    io.await(yield());
+    result
+  });
+  result := io.await(task);
+  assert(result == i32(42), "Future with multiple effect row spreads should work");
+};
+
+// ---------------------------------------------------------------------------
+// 6. Mixed: individual effect + spread: using(my_raise : Raise, ...(E))
+// ---------------------------------------------------------------------------
+test "Future with mixed individual effect and spread", using(io : IO), {
+  Raise :: (fn(forall(T : Type), msg : String) -> T);
+
+  task := io.async((using(...(io : IO)))=> {
+    (given(raise) : Raise) = ((msg) -> {
+      println(msg);
+      return i32(33);
+    });
+
+    // Function that uses Raise (via my_raise) and also forwards any additional effects
+    might_fail_and_forward :: (fn(
+        forall(...(E)),
+        using(my_raise : Raise, ...(E))
+      ) -> i32)
+    (
+      my_raise(`mixed-effect`)
+    );
+
+    // Call with no additional effects — E is empty
+    result := might_fail_and_forward();
+    io.await(yield());
+    result
+  });
+  result := io.await(task);
+  assert(result == i32(33), "Future with mixed individual effect and spread should work");
+};

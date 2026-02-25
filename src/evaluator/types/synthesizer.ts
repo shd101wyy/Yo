@@ -105,7 +105,15 @@ function occursCheck(
   }
 
   if (isFutureTraitType(type)) {
-    return occursCheck(someTypeId, type.isFuture.outputType, visited);
+    if (occursCheck(someTypeId, type.isFuture.outputType, visited)) {
+      return true;
+    }
+    for (const effect of type.isFuture.effects) {
+      if (occursCheck(someTypeId, effect.type, visited)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   if (isFnTraitType(type)) {
@@ -323,6 +331,13 @@ export function synthesizeTypes(
             );
             expected.env = expectedEnv;
             given.env = givenEnv;
+            synthesizeFutureEffects(
+              expectedTrait.isFuture.effects,
+              matchingGiven.traitType.isFuture.effects,
+              expected,
+              given,
+              checkedTypePairs
+            );
           }
         }
       }
@@ -402,6 +417,13 @@ export function synthesizeTypes(
             );
             expected.env = expectedEnv;
             given.env = givenEnv;
+            synthesizeFutureEffects(
+              traitType.isFuture.effects,
+              given.type.isFuture.effects,
+              expected,
+              given,
+              checkedTypePairs
+            );
           }
         }
       }
@@ -787,6 +809,13 @@ export function synthesizeTypes(
     );
     expected.env = expectedEnv;
     given.env = givenEnv;
+    synthesizeFutureEffects(
+      expected.type.isFuture.effects,
+      given.type.isFuture.effects,
+      expected,
+      given,
+      checkedTypePairs
+    );
   } else if (isFnTraitType(expected.type) && isFnTraitType(given.type)) {
     // Synthesize FnTraitType types - match the function types (isFn)
     const expectedFnModule = expected.type;
@@ -965,4 +994,93 @@ Given: "${typeToString(given.type)}"`
     }
   }
   return { expectedEnv: expected.env, givenEnv: given.env };
+}
+
+/**
+ * Synthesize effects between two FutureTraitTypes.
+ * Uses the same algorithm as implicit parameter synthesis:
+ * - Non-spread effects match by position
+ * - Spread markers collect remaining concrete effects and bind the row variable
+ */
+function synthesizeFutureEffects(
+  expectedEffects: FunctionImplicitParameter[],
+  givenEffects: FunctionImplicitParameter[],
+  expected: { env: Environment },
+  given: { env: Environment },
+  checkedTypePairs: { expected: Type; given: Type }[]
+): void {
+  if (expectedEffects.length === 0 && givenEffects.length === 0) {
+    return;
+  }
+
+  // Filter out spread markers from given — concrete effects only
+  const givenConcrete = givenEffects.filter(
+    (p) => !p.isEffectRowSpread
+  ) as FunctionImplicitParameter[];
+
+  let givenIdx = 0;
+  for (let i = 0; i < expectedEffects.length; i++) {
+    const expectedEffect = expectedEffects[i]!;
+    if (expectedEffect.isEffectRowSpread) {
+      if (isEffectsRowType(expectedEffect.type)) {
+        // Spread already bound to a concrete EffectsRowType — consume remaining
+        givenIdx = givenConcrete.length;
+      } else {
+        // Named spread ...(E): collect remaining given effects and bind E
+        const remaining = givenConcrete.slice(
+          givenIdx
+        ) as FunctionImplicitParameter[];
+        givenIdx = givenConcrete.length;
+
+        if (
+          isSomeType(expectedEffect.type) &&
+          expectedEffect.type.isEffectsRow
+        ) {
+          const effectsRow = createEffectsRowType(remaining);
+          const typeValue = createTypeValue(effectsRow);
+
+          // Bind E in expected.env
+          const existingVars = getVariablesFromEnv(
+            expected.env,
+            expectedEffect.type.name
+          );
+          const variable = existingVars[existingVars.length - 1];
+          if (!variable) {
+            const { env: nextEnv } = addVariableToEnv({
+              env: expected.env,
+              variable: {
+                name: expectedEffect.type.name,
+                value: [typeValue],
+                type: typeValue.type,
+                isCompileTimeOnly: true,
+                token: PlaceholderToken,
+                initializedAtToken: PlaceholderToken,
+                consumedAtToken: undefined,
+                isOwningTheRcValue: false,
+              },
+            });
+            expected.env = nextEnv;
+          } else {
+            expected.env = updateExistingVariable(expected.env, variable, {
+              ...variable,
+              value: [typeValue],
+            });
+          }
+        }
+      }
+    } else {
+      // Concrete expected effect — synthesize against corresponding given effect
+      const givenEffect = givenConcrete[givenIdx];
+      if (givenEffect) {
+        const { expectedEnv, givenEnv } = synthesizeTypes(
+          { type: expectedEffect.type, env: expected.env },
+          { type: givenEffect.type, env: given.env },
+          checkedTypePairs
+        );
+        expected.env = expectedEnv;
+        given.env = givenEnv;
+        givenIdx++;
+      }
+    }
+  }
 }

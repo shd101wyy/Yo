@@ -480,22 +480,37 @@ export function areTypesCompatible(
         ) {
           return false;
         }
-        // Compare effects rows if both present
-        // If one has effects and the other doesn't, they're still compatible
+        // Compare effects if both have any
+        // If one side has effects and the other doesn't, they're still compatible
         // (backwards compatibility with Future(T) without effects)
-        if (
-          expected.type.isFuture.effectsRow &&
-          given.type.isFuture.effectsRow
-        ) {
-          if (
-            !areTypesCompatible(
-              { type: expected.type.isFuture.effectsRow, env: expected.env },
-              { type: given.type.isFuture.effectsRow, env: given.env },
-              requireExactMatch,
-              visitedPairs
-            )
-          ) {
+        const expectedEffects = expected.type.isFuture.effects;
+        const givenEffects = given.type.isFuture.effects;
+        if (expectedEffects.length > 0 && givenEffects.length > 0) {
+          // Filter out spread markers and compare concrete effects
+          const expectedConcrete = expectedEffects.filter(
+            (e) => !e.isEffectRowSpread
+          );
+          const givenConcrete = givenEffects.filter(
+            (e) => !e.isEffectRowSpread
+          );
+
+          if (expectedConcrete.length !== givenConcrete.length) {
             return false;
+          }
+          for (let i = 0; i < expectedConcrete.length; i++) {
+            if (
+              !areTypesCompatible(
+                {
+                  type: expectedConcrete[i]!.type,
+                  env: expected.env,
+                },
+                { type: givenConcrete[i]!.type, env: given.env },
+                requireExactMatch,
+                visitedPairs
+              )
+            ) {
+              return false;
+            }
           }
         }
         // FutureTraitType matched structurally

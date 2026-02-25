@@ -5,15 +5,18 @@ import {
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
+  type Expr,
   type FnCallExpr,
 } from "../../expr";
 import {
   createEffectsRowSomeType,
   createTraitType,
+  getFunctionParameterExprs,
 } from "../../types/creators";
-import type { Type } from "../../types/definitions";
+import type { FunctionImplicitParameter, Type } from "../../types/definitions";
 import {
   isEffectsRowType,
+  isModuleType,
   isSomeType,
   isTypeHierarchyType,
 } from "../../types/guards";
@@ -23,15 +26,19 @@ import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 
 /**
- * Evaluates the `Future(T)` or `Future(T, ...(E))` syntax.
+ * Evaluates the `Future(T, ...)` syntax.
  * Creates a trait type that represents a future trait (similar to Fn trait pattern).
  *
  * Example:
- *   Future(i32)             // future that will yield i32
- *   Future(i32, ...(E))     // future with effect row E that will yield i32
- *   Future(unit)            // future that completes without returning a value
+ *   Future(i32)                          // future that will yield i32
+ *   Future(i32, ...(E))                  // future with effect row E that will yield i32
+ *   Future(i32, Raise)                   // future with individual effect Raise
+ *   Future(i32, Raise, ...(E))           // mixed: individual effect + effect row spread
+ *   Future(i32, ...(E1), ...(E2))        // multiple effect row spreads
+ *   Future(i32, Raise, ...(E1), Log, ...(E2))  // mixed with multiple spreads
+ *   Future(unit)                         // future that completes without returning a value
  *
- * This creates a trait type with `isFuture` set to the output type and optional effects row.
+ * This creates a trait type with `isFuture` set to the output type and an effects array.
  *
  * The Future trait can be used with:
  * - Impl(Future(T)) for static dispatch with futures
@@ -47,10 +54,10 @@ export function evaluateFutureType({
   env: Environment;
   context: EvaluatorContext;
 }): FnCallExpr {
-  if (expr.args.length < 1 || expr.args.length > 2) {
+  if (expr.args.length < 1) {
     throw formatErrorMessage({
       token: expr.token,
-      errorMessage: `Future type constructor expects 1 or 2 arguments, got ${expr.args.length}. Usage: Future(T) or Future(T, ...(E))`,
+      errorMessage: `Future type constructor expects at least 1 argument (output type). Usage: Future(T), Future(T, ...(E)), Future(T, Raise, ...(E))`,
     });
   }
 
@@ -85,97 +92,28 @@ export function evaluateFutureType({
 
   const outputType = evaluatedElementTypeExpr.$.value.value;
 
-  // Handle optional second argument: ...(E) effect row
-  let effectsRow: Type | undefined;
-  if (expr.args.length === 2) {
-    const effectsRowExpr = expr.args[1]!;
-
-    // The second arg should be a spread expression ...(E)
-    if (
-      exprIsFunctionCall(effectsRowExpr) &&
-      exprIsFunctionCallOf(effectsRowExpr, "...") &&
-      effectsRowExpr.args.length === 1 &&
-      exprIsAtom(effectsRowExpr.args[0]!)
-    ) {
-      const rowVarName = effectsRowExpr.args[0]!.token.value;
-
-      // Look up E in the environment
-      const rowVarVariables = getVariablesFromEnv(env, rowVarName);
-      const rowVarVariable = rowVarVariables.at(-1);
-      if (!rowVarVariable) {
-        throw formatErrorMessage({
-          token: effectsRowExpr.token,
-          errorMessage: `Effect row variable "${rowVarName}" not found in scope. Declare it with forall(..., ...(${rowVarName}))`,
-        });
-      }
-
-      // Extract the type for the effect row variable
-      const eValue = rowVarVariable.value?.[0];
-      if (eValue && isTypeValue(eValue)) {
-        // E is a TypeValue wrapping a SomeType (abstract) or EffectsRowType (concrete)
-        effectsRow = eValue.value;
-      } else if (
-        eValue &&
-        isUnknownValue(eValue) &&
-        isEffectsRowType(eValue.type)
-      ) {
-        // E was bound to a concrete EffectsRowType during synthesis
-        effectsRow = eValue.type;
-      } else if (
-        eValue &&
-        isUnknownValue(eValue) &&
-        isSomeType(eValue.type) &&
-        eValue.type.isEffectsRow
-      ) {
-        // E is an UnknownValue with a SomeType that's an effect row
-        effectsRow = eValue.type;
-      } else if (
-        eValue &&
-        isUnknownValue(eValue) &&
-        isTypeHierarchyType(eValue.type)
-      ) {
-        // Re-evaluation context: E is an UnknownValue with Type(1) kind.
-        // Re-create the effect row SomeType for this re-evaluation.
-        effectsRow = createEffectsRowSomeType(rowVarName, env);
-      } else {
-        throw formatErrorMessage({
-          token: effectsRowExpr.token,
-          errorMessage: `Effect row variable "${rowVarName}" has invalid value. Expected a type.`,
-        });
-      }
-    } else {
-      // Try evaluating as a regular expression (could be a concrete EffectsRowType)
-      const evaluatedEffectsRowExpr = evaluateExpression({
-        expr: effectsRowExpr,
-        env,
-        context: { ...context },
-      });
-      if (
-        evaluatedEffectsRowExpr.$ &&
-        isTypeValue(evaluatedEffectsRowExpr.$.value)
-      ) {
-        effectsRow = evaluatedEffectsRowExpr.$.value.value;
-        env = evaluatedEffectsRowExpr.$.env;
-      } else {
-        throw formatErrorMessage({
-          token: effectsRowExpr.token,
-          errorMessage: `Future type constructor expects ...(E) as its second argument, but got:\n${exprToString(
-            effectsRowExpr
-          )}`,
-        });
-      }
-    }
+  // Handle effect arguments (args[1..N])
+  // Each arg can be:
+  //   - ...(E)  — effect row spread (resolved from forall)
+  //   - Raise   — individual effect type
+  const effects: FunctionImplicitParameter[] = [];
+  for (let i = 1; i < expr.args.length; i++) {
+    const effectExpr = expr.args[i]!;
+    const result = resolveEffectArg(effectExpr, env, context);
+    effects.push(result.effect);
+    env = result.env;
   }
 
   // Create the Future trait type (similar to how Fn trait type is created)
   const futureTraitType = createTraitType(env);
 
-  // Set the isFuture field with output type and optional effects row
-  futureTraitType.isFuture = { outputType, effectsRow };
+  // Set the isFuture field with output type and effects array
+  futureTraitType.isFuture = { outputType, effects };
 
   // Use canonical ID format to match createFutureTraitType
-  // Include effects row ID when present for uniqueness
-  const effectsSuffix = effectsRow ? `_${effectsRow.id}` : "";
+  // Include all effect IDs for uniqueness
+  const effectsSuffix =
+    effects.length > 0 ? `_${effects.map((e) => e.type.id).join("_")}` : "";
   futureTraitType.id = `future_trait_${outputType.id}${effectsSuffix}`;
 
   expr.$ = {
@@ -186,4 +124,155 @@ export function evaluateFutureType({
   };
 
   return expr;
+}
+
+/**
+ * Resolve a single effect argument in Future(T, ...).
+ * Handles both `...(E)` spread expressions and individual effect types like `Raise`.
+ */
+function resolveEffectArg(
+  effectExpr: Expr,
+  env: Environment,
+  context: EvaluatorContext
+): { effect: FunctionImplicitParameter; env: Environment } {
+  // Check if this is a spread expression ...(E)
+  if (
+    exprIsFunctionCall(effectExpr) &&
+    exprIsFunctionCallOf(effectExpr, "...") &&
+    effectExpr.args.length === 1 &&
+    exprIsAtom(effectExpr.args[0]!)
+  ) {
+    return resolveEffectRowSpread(effectExpr, env);
+  }
+
+  // Otherwise: evaluate as an individual effect type (e.g. Raise, Log)
+  const evaluatedExpr = evaluateExpression({
+    expr: effectExpr,
+    env,
+    context: { ...context },
+  });
+
+  if (!evaluatedExpr.$ || !isTypeValue(evaluatedExpr.$.value)) {
+    throw formatErrorMessage({
+      token: effectExpr.token,
+      errorMessage: `Future effect argument must be an effect type or ...(E) spread, but got:\n${exprToString(
+        effectExpr
+      )}`,
+    });
+  }
+
+  const effectType = evaluatedExpr.$.value.value;
+  env = evaluatedExpr.$.env;
+
+  // Derive a label from the type
+  const label = getEffectLabel(effectType, effectExpr);
+
+  const effect: FunctionImplicitParameter = {
+    label,
+    type: effectType,
+    isCompileTimeOnly: true as const,
+    isImplicit: true as const,
+    isEffectRowSpread: false,
+    isQuote: false,
+    isOwningTheRcValue: false,
+    exprs: getFunctionParameterExprs({
+      expr: effectExpr,
+      labelExpr: undefined,
+      typeExpr: effectExpr,
+      defaultValueExpr: undefined,
+      assignedValueExpr: undefined,
+    }),
+  };
+
+  return { effect, env };
+}
+
+/**
+ * Resolve an effect row spread `...(E)` from the environment.
+ */
+function resolveEffectRowSpread(
+  effectExpr: FnCallExpr,
+  env: Environment
+): { effect: FunctionImplicitParameter; env: Environment } {
+  const rowVarName = effectExpr.args[0]!.token.value;
+
+  // Look up E in the environment
+  const rowVarVariables = getVariablesFromEnv(env, rowVarName);
+  const rowVarVariable = rowVarVariables.at(-1);
+  if (!rowVarVariable) {
+    throw formatErrorMessage({
+      token: effectExpr.token,
+      errorMessage: `Effect row variable "${rowVarName}" not found in scope. Declare it with forall(..., ...(${rowVarName}))`,
+    });
+  }
+
+  // Extract the type for the effect row variable
+  const eValue = rowVarVariable.value?.[0];
+  let rowType: Type;
+
+  if (eValue && isTypeValue(eValue)) {
+    // E is a TypeValue wrapping a SomeType (abstract) or EffectsRowType (concrete)
+    rowType = eValue.value;
+  } else if (
+    eValue &&
+    isUnknownValue(eValue) &&
+    isEffectsRowType(eValue.type)
+  ) {
+    // E was bound to a concrete EffectsRowType during synthesis
+    rowType = eValue.type;
+  } else if (
+    eValue &&
+    isUnknownValue(eValue) &&
+    isSomeType(eValue.type) &&
+    eValue.type.isEffectsRow
+  ) {
+    // E is an UnknownValue with a SomeType that's an effect row
+    rowType = eValue.type;
+  } else if (
+    eValue &&
+    isUnknownValue(eValue) &&
+    isTypeHierarchyType(eValue.type)
+  ) {
+    // Re-evaluation context: E is an UnknownValue with Type(1) kind.
+    // Re-create the effect row SomeType for this re-evaluation.
+    rowType = createEffectsRowSomeType(rowVarName, env);
+  } else {
+    throw formatErrorMessage({
+      token: effectExpr.token,
+      errorMessage: `Effect row variable "${rowVarName}" has invalid value. Expected a type.`,
+    });
+  }
+
+  const effect: FunctionImplicitParameter = {
+    label: rowVarName,
+    type: rowType,
+    isCompileTimeOnly: true as const,
+    isImplicit: true as const,
+    isEffectRowSpread: true,
+    isQuote: false,
+    isOwningTheRcValue: false,
+    exprs: getFunctionParameterExprs({
+      expr: effectExpr,
+      labelExpr: effectExpr.args[0],
+      typeExpr: effectExpr.args[0]!,
+      defaultValueExpr: undefined,
+      assignedValueExpr: undefined,
+    }),
+  };
+
+  return { effect, env };
+}
+
+/**
+ * Derive a label name for an individual effect type.
+ */
+function getEffectLabel(effectType: Type, effectExpr: Expr): string {
+  if (isModuleType(effectType) && effectType.typeName) {
+    return effectType.typeName;
+  }
+  if (isSomeType(effectType) && effectType.name) {
+    return effectType.name;
+  }
+  // Fallback: use the expression text
+  return exprToString(effectExpr);
 }

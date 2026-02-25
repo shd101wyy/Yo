@@ -984,7 +984,15 @@ function typeToStringInternal(type: Type, visited: Set<string>): string {
 
       // Check if it's a FutureTraitType
       if (isFutureTraitType(traitType)) {
-        return `Future(${typeToString(traitType.isFuture.outputType, visited)})`;
+        const parts = [typeToString(traitType.isFuture.outputType, visited)];
+        for (const effect of traitType.isFuture.effects) {
+          if (effect.isEffectRowSpread) {
+            parts.push(`...(${effect.label})`);
+          } else {
+            parts.push(typeToString(effect.type, visited));
+          }
+        }
+        return `Future(${parts.join(", ")})`;
       }
 
       let traitTypeString: string;

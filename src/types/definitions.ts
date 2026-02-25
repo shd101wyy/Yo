@@ -585,10 +585,15 @@ export interface TraitType extends Type {
   isFn?: { callType: FunctionType };
 
   /**
-   * If this trait represents a Future type, this contains the child type.
-   * Set for traits created via `Future(T)` syntax.
+   * If this trait represents a Future type, this contains the output type and effects.
+   * Set for traits created via `Future(T)`, `Future(T, ...(E))`, or `Future(T, Raise, ...(E))` syntax.
+   *
+   * The `effects` array stores individual effects and effect row spreads, mirroring
+   * how `using(...)` clauses store implicit parameters:
+   * - Individual effect: `{ label: "Raise", type: TraitType, isEffectRowSpread: false }`
+   * - Effect row spread: `{ label: "E", type: SomeType, isEffectRowSpread: true }`
    */
-  isFuture?: { outputType: Type; effectsRow?: Type };
+  isFuture?: { outputType: Type; effects: FunctionImplicitParameter[] };
 
   /**
    * If this trait represents a Concrete type marker, this contains the concrete type.
@@ -625,7 +630,7 @@ export type FnTraitType = TraitType & { isFn: { callType: FunctionType } };
  * - Dyn(Future(i32)) for dynamic dispatch
  */
 export type FutureTraitType = TraitType & {
-  isFuture: { outputType: Type; effectsRow?: Type };
+  isFuture: { outputType: Type; effects: FunctionImplicitParameter[] };
 };
 
 /**
