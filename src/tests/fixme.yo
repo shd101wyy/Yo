@@ -10,7 +10,7 @@ open import "std/fmt";
 // 1. Future(T) — no effects (backward compat)
 // ---------------------------------------------------------------------------
 test "Future no effects backward compat", using(io : IO), {
-  task := io.async((using(...(io : IO)))=> {
+  task := io.async((using(io : IO))=> {
     io.await(yield());
     i32(42)
   });
@@ -33,7 +33,7 @@ test "Future with single effect row spread", using(io : IO), {
       f : (fn(using(...(E))) -> T),
       using(...(E))) -> T)(f());
 
-  task := io.async((using(...(io : IO)))=> {
+  task := io.async((using(io : IO))=> {
     (given(raise) : Raise) = ((msg) -> {
       return i32(99);
     });
@@ -55,7 +55,7 @@ test "Future with single individual effect", using(io : IO), {
     raise(`single-effect`)
   );
 
-  task := io.async((using(...(io : IO)))=> {
+  task := io.async((using(io : IO))=> {
     (given(raise) : Raise) = ((msg) -> {
       println(msg);
       return i32(77);
@@ -80,7 +80,7 @@ test "Future with multiple individual effects", using(io : IO), {
     raise(`multi-effect`)
   });
 
-  task := io.async((using(...(io : IO)))=> {
+  task := io.async((using(io : IO))=> {
     (given(raise) : Raise) = ((msg) -> {
       println(msg);
       return i32(55);
@@ -122,7 +122,7 @@ test "Future with multiple effect row spreads", using(io : IO), {
     f1()
   };
 
-  task := io.async((using(...(io : IO)))=> {
+  task := io.async((using(io : IO))=> {
     (given(raise) : Raise) = ((msg) -> {
       println(msg);
       return i32(42);
@@ -144,7 +144,7 @@ test "Future with multiple effect row spreads", using(io : IO), {
 test "Future with mixed individual effect and spread", using(io : IO), {
   Raise :: (fn(forall(T : Type), msg : String) -> T);
 
-  task := io.async((using(...(io : IO)))=> {
+  task := io.async((using(io : IO))=> {
     (given(raise) : Raise) = ((msg) -> {
       println(msg);
       return i32(33);
@@ -166,4 +166,80 @@ test "Future with mixed individual effect and spread", using(io : IO), {
   });
   result := io.await(task);
   assert(result == i32(33), "Future with mixed individual effect and spread should work");
+};
+
+// ============================================================================
+// Type-level Future tests — Impl(Future(T, ...)) as type aliases
+// ============================================================================
+
+// ---------------------------------------------------------------------------
+// 7. Impl(Future(i32, Raise, Log, IO)) — individual effects at type level
+//    NOTE: effects are order-independent (set-based matching),
+//    so listing (Log, IO, Raise) matches the closure's (IO, Raise, Log)
+// ---------------------------------------------------------------------------
+test "type-level Impl Future with individual effects", using(io : IO), {
+  Raise :: (fn(forall(T : Type), msg : String) -> T);
+  Log :: (fn(msg : String) -> unit);
+
+  // given handlers in caller scope — closure will capture them via using(...)
+  (given(raise) : Raise) = ((msg) -> {
+    return i32(100);
+  });
+  (given(log) : Log) = ((msg) -> {
+    println(msg);
+  });
+
+  // Closure propagates IO, Raise, Log from the caller
+  task := io.async((using(io : IO, raise : Raise, log : Log))=> {
+    log(`type-level test`);
+    io.await(yield());
+    i32(100)
+  });
+  result := io.await(task);
+  assert(result == i32(100), "Impl(Future(i32, Log, IO, Raise)) type alias should work");
+};
+
+// ---------------------------------------------------------------------------
+// 8. Impl(Future(i32, IO, ...(Raise), Log)) — spread of named type
+//    ...(Raise) where Raise is a concrete effect should be equivalent to just Raise
+// ---------------------------------------------------------------------------
+test "type-level Impl Future with spread of named type", using(io : IO), {
+  Raise :: (fn(forall(T : Type), msg : String) -> T);
+  Log :: (fn(msg : String) -> unit);
+
+  (given(raise) : Raise) = ((msg) -> {
+    return i32(200);
+  });
+  (given(log) : Log) = ((msg) -> {
+    println(msg);
+  });
+
+  task := io.async((using(io : IO, raise : Raise, log : Log))=> {
+    io.await(yield());
+    i32(200)
+  });
+  result := io.await(task);
+  assert(result == i32(200), "Impl(Future(i32, IO, ...(Raise), Log)) type alias should work");
+};
+
+// ---------------------------------------------------------------------------
+// 9. Impl(Future(i32, IO, Raise, ...(Log))) — individual then spread
+// ---------------------------------------------------------------------------
+test "type-level Impl Future with individual then spread", using(io : IO), {
+  Raise :: (fn(forall(T : Type), msg : String) -> T);
+  Log :: (fn(msg : String) -> unit);
+
+  (given(raise) : Raise) = ((msg) -> {
+    return i32(300);
+  });
+  (given(log) : Log) = ((msg) -> {
+    println(msg);
+  });
+
+  task := io.async((using(io : IO, raise : Raise, log : Log))=> {
+    io.await(yield());
+    i32(300)
+  });
+  result := io.await(task);
+  assert(result == i32(300), "Impl(Future(i32, IO, Raise, ...(Log))) type alias should work");
 };

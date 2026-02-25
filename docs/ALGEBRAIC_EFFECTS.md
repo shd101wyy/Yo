@@ -278,29 +278,30 @@ arr := Array(i32, 5)(0, 1, 2, 3, 4);
 
 // Style 1: Inline typed declaration — closure declares effect row with types.
 // No call-site using() needed; E is inferred from the closure's declaration.
-traverse(arr, (v, using(...(yield : Yield, log : Log))) => {
+traverse(arr, (v, using(yield : Yield, log : Log)) => {
   log(v);
   result := yield(v);
   assert((result == v), "yield should return the value");
 });
 
-// Style 2: Call-site resolution — E is resolved from using(...(yield, log))
-// at the call site, and the closure renames them with using(...(_yield, _log)).
-traverse(arr, (v, using(...(_yield, _log))) => {
+// Style 2: Call-site resolution — E is resolved from using(yield, log)
+// at the call site, and the closure renames them with using(_yield, _log).
+traverse(arr, (v, using(_yield, _log)) => {
   _log(v);
   result := _yield(v);
   assert((result == v), "yield should return the value");
-}, using(...(yield, log)));
+}, using(yield, log));
 ```
 
-The `...()` grouping is required because a function may have multiple effect row variables (e.g., `...(E1)` and `...(E2)`), and the grouping distinguishes which arguments belong to which row.
+At closure and call-site level, effects are listed directly in `using()` without `...(...)` wrapper. The `...(E)` syntax is only used in function type definitions where `E` is a forall-declared effect row variable.
 
 If both the closure and call site declare effects, the types must match or the compiler reports an error.
 
 Semantics:
 
 - `...(E)` in `forall(...)` declares **E as an effect row variable** — ranging over sets of implicit parameters.
-- `...(E)` in `using(...)` **spreads** the effect row's bound parameters into implicit parameters.
+- `...(E)` in `using(...)` of function type definitions **spreads** the effect row's bound parameters into implicit parameters.
+- At closure/call-site level, effects are listed directly: `using(yield, log)` or `using(yield : Yield, log : Log)`.
 - Type unification: calling `run(might_fail)` where `might_fail : fn(using(raise : Raise)) -> i32` unifies `T = i32`, `E = (raise : Raise)`.
 - Two rows: `...(E1)` and `...(E2)` are inferred independently from their respective function parameters; `using(...(E1), ...(E2))` is their union.
 
@@ -395,7 +396,7 @@ No special language support needed — this falls out of the existing `using`/`g
 - Multiple effect row spreads with resume/abort ✅
 - Closure with `using()` effect — resume and abort ✅
 - Effect row polymorphism with `...(E)` spread in closure callbacks, with parameter renaming ✅
-- Inline typed effect row declaration `using(...(name : Type))` in closures ✅
+- Inline typed effect row declaration `using(name : Type)` in closures ✅
 
 ---
 

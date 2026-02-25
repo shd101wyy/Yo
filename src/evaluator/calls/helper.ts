@@ -1060,7 +1060,7 @@ Got:   ${typeToString(typeValue.type)}`,
   }
 
   // Early effect row resolution: when the function has effect row spread implicit
-  // parameters (e.g., using(...(E))) and the call site provides using(...) args,
+  // parameters (e.g., using(...(E))) and the call site provides using() args,
   // resolve the effect rows BEFORE processing regular arguments. This is necessary
   // because regular parameters (e.g., callback : Impl(Fn(v: i32, using(...(E))) -> unit))
   // may reference the effect row variable E, and evaluateFunctionParameterTypeAgain
@@ -1077,18 +1077,8 @@ Got:   ${typeToString(typeValue.type)}`,
       const nonSpreadCount = nonSpreadParams.length;
 
       // The first nonSpreadCount using args correspond to named implicit params;
-      // remaining args go to the effect row spread(s).
-      const rawSpreadArgs = usingArgsExpr.args.slice(nonSpreadCount);
-
-      // Unwrap ...(name, ...) grouping: using(...(yield, log)) → atoms [yield, log]
-      const spreadArgs: Expr[] = [];
-      for (const rawArg of rawSpreadArgs) {
-        if (exprIsFunctionCall(rawArg) && exprIsFunctionCallOf(rawArg, "...")) {
-          spreadArgs.push(...(rawArg as FnCallExpr).args);
-        } else {
-          spreadArgs.push(rawArg);
-        }
-      }
+      // remaining args fill the effect row spread(s) directly.
+      const spreadArgs = usingArgsExpr.args.slice(nonSpreadCount);
 
       if (spreadArgs.length > 0) {
         // Resolve each spread arg's type from callerEnv via variable lookup

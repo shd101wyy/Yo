@@ -11,11 +11,11 @@ Yo uses **async/await with state machine transformation** via **algebraic effect
 
 // All async code runs on the SAME thread
 main :: (fn(using(io : IO)) -> unit)({
-  task1 := io.async((using(...(io : IO)))=> {
+  task1 := io.async((using(io : IO))=> {
     io.await(yield());
     return i32(1);
   });
-  task2 := io.async((using(...(io : IO)))=> {
+  task2 := io.async((using(io : IO))=> {
     io.await(yield());
     return i32(2);
   });
@@ -37,8 +37,8 @@ export main;
 ```yo
 // Concurrency: Same thread, interleaved execution
 main :: (fn(using(io : IO)) -> unit)({
-  a := io.async((using(...(io : IO)))=> { /* ... */ });
-  b := io.async((using(...(io : IO)))=> { /* ... */ });
+  a := io.async((using(io : IO))=> { /* ... */ });
+  b := io.async((using(io : IO))=> { /* ... */ });
   io.join(a, b);  // Start both, interleave at yield points
   io.await(a);
   io.await(b);
@@ -66,13 +66,13 @@ main :: (fn(using(io : IO)) -> unit)({
   counter := Box(i32)(0);
 
   // Lazy creation — neither task starts yet
-  task1 := io.async((using(...(io : IO)))=> {
+  task1 := io.async((using(io : IO))=> {
     counter.* = (counter.* + 1);   // Runs when started
     io.await(yield());              // Yields to event loop
     counter.* = (counter.* + 1);   // Resumes after other tasks yield
   });
 
-  task2 := io.async((using(...(io : IO)))=> {
+  task2 := io.async((using(io : IO))=> {
     counter.* = (counter.* + 10);
     io.await(yield());
     counter.* = (counter.* + 10);
@@ -128,7 +128,7 @@ Yo's approach: Keep async simple (single-threaded), use `spawn` for parallelism 
 { yield } :: import "std/async";
 
 // Async task creation (lazy — doesn't run until awaited/joined)
-task := io.async((using(...(io : IO)))=> {
+task := io.async((using(io : IO))=> {
   io.await(yield());  // Yield to event loop
   return i32(42);
 });
@@ -152,7 +152,7 @@ Async operations require the `IO` effect, passed via `using(io : IO)`:
 ```yo
 // Main function receives IO effect
 main :: (fn(using(io : IO)) -> unit)({
-  task := io.async((using(...(io : IO)))=> {
+  task := io.async((using(io : IO))=> {
     // Can use io.await, io.async, io.join here
     io.await(yield());
   });
@@ -162,7 +162,7 @@ export main;
 
 // Test blocks also receive IO effect
 test "my test", using(io : IO), {
-  task := io.async((using(...(io : IO)))=> { /* ... */ });
+  task := io.async((using(io : IO))=> { /* ... */ });
   io.await(task);
 };
 ```
@@ -191,9 +191,9 @@ yield()                       // Create a pre-completed Future (yields control t
 // All three tasks run on the SAME thread
 main :: (fn(using(io : IO)) -> unit)({
   // LAZY — tasks are cold, nothing runs yet
-  t1 := io.async((using(...(io : IO)))=> { /* task1 body */ });
-  t2 := io.async((using(...(io : IO)))=> { /* task2 body */ });
-  t3 := io.async((using(...(io : IO)))=> { /* task3 body */ });
+  t1 := io.async((using(io : IO))=> { /* task1 body */ });
+  t2 := io.async((using(io : IO))=> { /* task2 body */ });
+  t3 := io.async((using(io : IO))=> { /* task3 body */ });
 
   // join starts all three, interleaves at yield points:
   // - t1 runs until first yield, suspends
@@ -223,6 +223,95 @@ main :: (fn(using(io : IO)) -> unit)({
 // Dropping/disposing the Future frees the state machine.
 ```
 
+#### Future with Effects
+
+`Future(T)` can carry algebraic effect information. The full syntax is:
+
+```yo
+Future(T)                                  // No effects
+Future(T, ...(E))                          // Effect row spread (E must be forall-declared)
+Future(T, Raise)                           // Single individual effect
+Future(T, Raise, Log)                      // Multiple individual effects
+Future(T, Raise, ...(E))                   // Mixed: individual effects + one row spread
+```
+
+Each argument after the output type `T` is either:
+
+- An **individual effect type** (e.g., `Raise`, `Log`) — evaluated as a type expression
+- An **effect row spread** `...(E)` — where `E` must be a forall-declared effect row variable
+
+**Simplification rules:**
+
+- `...(E)` is ONLY allowed when `E` is a single forall-declared effect row variable
+- For concrete effects, list them directly: `Future(T, Raise, Log)` not `Future(T, ...(Raise, Log))`
+- At most one unsolved spread variable during type unification
+
+**Effect Matching Rules:**
+
+1. **Order-independent (set-based):** Effects are compared as sets, not ordered lists. `Future(i32, Raise, Log)` matches `Future(i32, Log, Raise)`.
+2. **Spread flattening:** `...(E)` where E resolves to `{Raise, Log}` is equivalent to listing `Raise, Log` individually. `Future(i32, ...(E))` matches `Future(i32, Raise, Log)` after flattening.
+3. **Backward compatibility:** `Future(T)` (no effects) is compatible with any `Future(T, ...)` for backward compatibility.
+4. **IO is always present:** Since `io.async` closures always need `IO` for `io.await`/`yield`, the Future type from `io.async` always includes `IO` in its effects.
+
+**Example: Effect propagation through async**
+
+```yo
+{ yield } :: import "std/async";
+Raise :: (fn(forall(T : Type), msg : String) -> T);
+Log :: (fn(msg : String) -> unit);
+
+main :: (fn(using(io : IO)) -> unit)({
+  // Define effect handlers in the caller scope
+  (given(raise) : Raise) = ((msg) -> {
+    return i32(0);
+  });
+  (given(log) : Log) = ((msg) -> {
+    println(msg);
+  });
+
+  // Closure propagates IO, Raise, Log from the caller
+  // Future type becomes Future(i32, IO, Raise, Log)
+  task := io.async((using(io : IO, raise : Raise, log : Log))=> {
+    log(`doing work`);
+    io.await(yield());
+    i32(42)
+  });
+
+  // io.await resolves IO, Raise, Log from the caller's scope
+  result := io.await(task);
+});
+export main;
+```
+
+**Example: Effect-polymorphic async function**
+
+```yo
+Raise :: (fn(forall(T : Type), msg : String) -> T);
+Log :: (fn(msg : String) -> unit);
+
+// Function that combines two effect-polymorphic functions
+run_both :: (fn(
+    forall(T1 : Type, T2 : Type, ...(E1), ...(E2)),
+    f1 : (fn(using(...(E1))) -> T1),
+    f2 : (fn(using(...(E2))) -> T2),
+    using(...(E1), ...(E2))
+  ) -> T1)
+{
+  f2();
+  f1()
+};
+```
+
+The IO module signatures use effect rows to propagate algebraic effects through async boundaries:
+
+```yo
+IO :: module(
+  async : (fn(forall(T : Type, ...(E)), action : Impl(Fn(using(...(E))) -> T)) -> Impl(Future(T, ...(E)))),
+  await : (fn(forall(T : Type, ...(E)), fut : Impl(Future(T, ...(E))), using(...(E))) -> T),
+  join : (fn(...) -> unit)
+);
+```
+
 Why heap allocation?
 
 - A Future can suspend at an `await` and resume later; the state machine must have a stable address after the current C stack frame returns.
@@ -239,7 +328,7 @@ The compiler transforms async functions into state machines at each `await` poin
 **Input Yo code:**
 
 ```yo
-task := io.async((using(...(io : IO)))=> {
+task := io.async((using(io : IO))=> {
   response := io.await(http_get(url));
   data := io.await(response.read());
   return data;
@@ -357,7 +446,7 @@ Futures (async block state machines) are **reference counted** to handle cases w
 
 ```yo
 main :: (fn(using(io : IO)) -> unit)({
-  task := io.async((using(...(io : IO)))=> {
+  task := io.async((using(io : IO))=> {
     /* work */
   });
   // task is cold (refcount=1), hasn't started yet
@@ -475,7 +564,7 @@ State machines are small (~32-500 bytes):
 { yield } :: import "std/async";
 
 // io.async: Create a lazy Future (cold, doesn't start until awaited/joined)
-task := io.async((using(...(io : IO)))=> {
+task := io.async((using(io : IO))=> {
   // body
   return value;
 });
@@ -498,14 +587,14 @@ r2 := io.await(task2);
 main :: (fn(using(io : IO)) -> unit)({
   counter := Box(i32)(0);
 
-  task1 := io.async((using(...(io : IO)))=> {
+  task1 := io.async((using(io : IO))=> {
     counter.* = (counter.* + 1);
     io.await(yield());
     counter.* = (counter.* + 1);
     return counter.*;
   });
 
-  task2 := io.async((using(...(io : IO)))=> {
+  task2 := io.async((using(io : IO))=> {
     counter.* = (counter.* + 10);
     io.await(yield());
     counter.* = (counter.* + 10);
@@ -529,13 +618,13 @@ export main;
 main :: (fn(using(io : IO)) -> unit)({
   counter := Box(i32)(0);
 
-  task1 := io.async((using(...(io : IO)))=> {
+  task1 := io.async((using(io : IO))=> {
     counter.* = (counter.* + 1);
     io.await(yield());
     counter.* = (counter.* + 1);
   });
 
-  task2 := io.async((using(...(io : IO)))=> {
+  task2 := io.async((using(io : IO))=> {
     counter.* = (counter.* + 10);
     io.await(yield());
     counter.* = (counter.* + 10);
@@ -590,7 +679,7 @@ Yo's async/await provides:
 { yield } :: import "std/async";
 
 // Create lazy async task
-task := io.async((using(...(io : IO)))=> {
+task := io.async((using(io : IO))=> {
   io.await(yield());  // Yield to event loop
   return i32(42);
 });

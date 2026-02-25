@@ -16,6 +16,7 @@ import {
   isComptimeListType,
   isComptimeStringType,
   isDynType,
+  isEffectsRowType,
   isEnumType,
   isExprType,
   isFnTraitType,
@@ -73,6 +74,38 @@ function getEffectiveNegativeTraitTypes(
   }
 
   return [...traitMap.values()];
+}
+
+import type { FunctionImplicitParameter } from "./definitions";
+
+/**
+ * Flatten Future effects by resolving spreads into individual effects.
+ * - If a spread's type is EffectsRowType, extract its implicitParameters (recursively)
+ * - If a spread's type is an unresolved SomeType effect row variable, keep as-is
+ * - Individual (non-spread) effects are kept as-is
+ * Note: ...(ConcreteType) is no longer allowed. Use concrete types directly.
+ */
+function flattenFutureEffects(
+  effects: FunctionImplicitParameter[]
+): FunctionImplicitParameter[] {
+  const result: FunctionImplicitParameter[] = [];
+  for (const effect of effects) {
+    if (effect.isEffectRowSpread && isEffectsRowType(effect.type)) {
+      // Spread bound to a concrete EffectsRowType — expand its parameters
+      result.push(...flattenFutureEffects(effect.type.implicitParameters));
+    } else if (
+      effect.isEffectRowSpread &&
+      isSomeType(effect.type) &&
+      effect.type.isEffectsRow
+    ) {
+      // Unresolved effect row variable — keep as-is
+      result.push(effect);
+    } else {
+      // Individual concrete effect
+      result.push(effect);
+    }
+  }
+  return result;
 }
 
 /**
@@ -480,37 +513,37 @@ export function areTypesCompatible(
         ) {
           return false;
         }
-        // Compare effects if both have any
-        // If one side has effects and the other doesn't, they're still compatible
+        // Compare effects: flatten spreads and compare as sets (order-independent)
+        // If one side has no effects, they're still compatible
         // (backwards compatibility with Future(T) without effects)
-        const expectedEffects = expected.type.isFuture.effects;
-        const givenEffects = given.type.isFuture.effects;
-        if (expectedEffects.length > 0 && givenEffects.length > 0) {
-          // Filter out spread markers and compare concrete effects
-          const expectedConcrete = expectedEffects.filter(
-            (e) => !e.isEffectRowSpread
-          );
-          const givenConcrete = givenEffects.filter(
-            (e) => !e.isEffectRowSpread
-          );
-
-          if (expectedConcrete.length !== givenConcrete.length) {
+        const expectedFlat = flattenFutureEffects(
+          expected.type.isFuture.effects
+        );
+        const givenFlat = flattenFutureEffects(given.type.isFuture.effects);
+        if (expectedFlat.length > 0 && givenFlat.length > 0) {
+          if (expectedFlat.length !== givenFlat.length) {
             return false;
           }
-          for (let i = 0; i < expectedConcrete.length; i++) {
-            if (
-              !areTypesCompatible(
-                {
-                  type: expectedConcrete[i]!.type,
-                  env: expected.env,
-                },
-                { type: givenConcrete[i]!.type, env: given.env },
-                requireExactMatch,
-                visitedPairs
-              )
-            ) {
-              return false;
+          // Set-based matching: for each expected effect, find a matching given effect
+          const used = new Set<number>();
+          for (const exp of expectedFlat) {
+            let found = false;
+            for (let j = 0; j < givenFlat.length; j++) {
+              if (used.has(j)) continue;
+              if (
+                areTypesCompatible(
+                  { type: exp.type, env: expected.env },
+                  { type: givenFlat[j]!.type, env: given.env },
+                  requireExactMatch,
+                  visitedPairs
+                )
+              ) {
+                used.add(j);
+                found = true;
+                break;
+              }
             }
+            if (!found) return false;
           }
         }
         // FutureTraitType matched structurally

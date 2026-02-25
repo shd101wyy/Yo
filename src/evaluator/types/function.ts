@@ -1630,6 +1630,17 @@ export function evaluateFunctionParameters({
             }
             continue;
           } else if (eValue && isTypeValue(eValue)) {
+            if (
+              !(
+                (isSomeType(eValue.value) && eValue.value.isEffectsRow) ||
+                isEffectsRowType(eValue.value)
+              )
+            ) {
+              throw formatErrorMessage({
+                token: implicitParamExpr.token,
+                errorMessage: `"...(${rowVarName})" requires "${rowVarName}" to be a forall-declared effect row variable, but it resolves to a concrete type. Use individual effect types directly in using(), e.g. using(name : ${rowVarName}) instead of using(...(${rowVarName}))`,
+              });
+            }
             rowSomeType = eValue.value;
           } else if (
             eValue &&

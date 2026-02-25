@@ -6,7 +6,11 @@ import {
 } from "../../env";
 import { PlaceholderToken } from "../../token";
 import { createEffectsRowType } from "../../types/creators";
-import type { FunctionImplicitParameter, Type } from "../../types/definitions";
+import type {
+  EffectsRowType,
+  FunctionImplicitParameter,
+  Type,
+} from "../../types/definitions";
 import { getValueOfSomeTypeFromEnv } from "../../types/env-lookup";
 import {
   isArrayType,
@@ -883,78 +887,126 @@ export function synthesizeTypes(
     }
 
     // Synthesize implicit parameters, handling effect row spreads.
-    // Named (non-spread) params are matched by position.
-    // Spread markers (..( E) or bare ...) collect the remaining concrete params
-    // from the given function type and bind the effect row SomeType to them.
+    // Uses set-based matching with the "at most one unsolved spread" rule:
+    // 1. Concrete params are matched by type id against given concrete params.
+    // 2. Solved spreads consume their expanded effects from given.
+    // 3. At most one unsolved spread binds to the remaining unmatched given params.
     {
       const expectedImplicit = expectedFunction.implicitParameters;
       const givenImplicit = givenFunction.implicitParameters.filter(
         (p) => !p.isEffectRowSpread
-      );
+      ) as FunctionImplicitParameter[];
 
-      let givenIdx = 0;
-      for (let i = 0; i < expectedImplicit.length; i++) {
-        const expectedParam = expectedImplicit[i]!;
-        if (expectedParam.isEffectRowSpread) {
-          if (isEffectsRowType(expectedParam.type)) {
-            // Spread already bound to a concrete EffectsRowType — accept, consume remaining
-            givenIdx = givenImplicit.length;
-          } else {
-            // Named spread ...(E): collect remaining given params and bind E
-            const remaining = givenImplicit.slice(
-              givenIdx
-            ) as FunctionImplicitParameter[];
-            givenIdx = givenImplicit.length;
+      // Categorize expected implicit params
+      const concreteExpected: FunctionImplicitParameter[] = [];
+      const solvedSpreads: FunctionImplicitParameter[] = [];
+      const unsolvedSpreads: FunctionImplicitParameter[] = [];
 
-            // expectedParam.type is the SomeType for E
-            if (
-              isSomeType(expectedParam.type) &&
-              expectedParam.type.isEffectsRow
-            ) {
-              const effectsRow = createEffectsRowType(remaining);
-              const typeValue = createTypeValue(effectsRow);
-
-              // Bind E in expected.env
-              const existingVars = getVariablesFromEnv(
-                expected.env,
-                expectedParam.type.name
-              );
-              const variable = existingVars[existingVars.length - 1];
-              if (!variable) {
-                const { env: nextEnv } = addVariableToEnv({
-                  env: expected.env,
-                  variable: {
-                    name: expectedParam.type.name,
-                    value: [typeValue],
-                    type: typeValue.type,
-                    isCompileTimeOnly: true,
-                    token: PlaceholderToken,
-                    initializedAtToken: PlaceholderToken,
-                    consumedAtToken: undefined,
-                    isOwningTheRcValue: false,
-                  },
-                });
-                expected.env = nextEnv;
-              } else {
-                expected.env = updateExistingVariable(expected.env, variable, {
-                  ...variable,
-                  value: [typeValue],
-                });
-              }
-            }
+      for (const param of expectedImplicit) {
+        if (param.isEffectRowSpread) {
+          if (isEffectsRowType(param.type)) {
+            solvedSpreads.push(param);
+          } else if (isSomeType(param.type) && param.type.isEffectsRow) {
+            unsolvedSpreads.push(param);
           }
         } else {
-          // Named regular implicit param — synthesize type against corresponding given param
-          const givenParam = givenImplicit[givenIdx];
-          if (givenParam) {
+          concreteExpected.push(param);
+        }
+      }
+
+      if (unsolvedSpreads.length > 1) {
+        throw new Error(
+          `Ambiguous effect row unification: multiple unsolved effect row variables ` +
+            `(${unsolvedSpreads.map((s) => s.label).join(", ")}). ` +
+            `At most one effect row spread can be unsolved during type unification.`
+        );
+      }
+
+      // Track which given params have been matched
+      const matchedGiven = new Set<number>();
+
+      // 1. Match concrete expected params against given (set-based by type id)
+      for (const exp of concreteExpected) {
+        for (let j = 0; j < givenImplicit.length; j++) {
+          if (matchedGiven.has(j)) continue;
+          if (exp.type.id === givenImplicit[j]!.type.id) {
             const { expectedEnv, givenEnv } = synthesizeTypes(
-              { type: expectedParam.type, env: expected.env },
-              { type: givenParam.type, env: given.env },
+              { type: exp.type, env: expected.env },
+              { type: givenImplicit[j]!.type, env: given.env },
               checkedTypePairs
             );
             expected.env = expectedEnv;
             given.env = givenEnv;
-            givenIdx++;
+            matchedGiven.add(j);
+            break;
+          }
+        }
+      }
+
+      // 2. Match solved spreads' expanded effects against given
+      for (const spread of solvedSpreads) {
+        const expandedEffects = (spread.type as EffectsRowType)
+          .implicitParameters;
+        for (const exp of expandedEffects) {
+          for (let j = 0; j < givenImplicit.length; j++) {
+            if (matchedGiven.has(j)) continue;
+            if (exp.type.id === givenImplicit[j]!.type.id) {
+              const { expectedEnv, givenEnv } = synthesizeTypes(
+                { type: exp.type, env: expected.env },
+                { type: givenImplicit[j]!.type, env: given.env },
+                checkedTypePairs
+              );
+              expected.env = expectedEnv;
+              given.env = givenEnv;
+              matchedGiven.add(j);
+              break;
+            }
+          }
+        }
+      }
+
+      // 3. Bind the single unsolved spread to remaining unmatched given params
+      if (unsolvedSpreads.length === 1) {
+        const unsolvedSpread = unsolvedSpreads[0]!;
+        const remaining: FunctionImplicitParameter[] = [];
+        for (let j = 0; j < givenImplicit.length; j++) {
+          if (!matchedGiven.has(j)) {
+            remaining.push(givenImplicit[j]!);
+          }
+        }
+
+        if (
+          isSomeType(unsolvedSpread.type) &&
+          unsolvedSpread.type.isEffectsRow
+        ) {
+          const effectsRow = createEffectsRowType(remaining);
+          const typeValue = createTypeValue(effectsRow);
+
+          const existingVars = getVariablesFromEnv(
+            expected.env,
+            unsolvedSpread.type.name
+          );
+          const variable = existingVars[existingVars.length - 1];
+          if (!variable) {
+            const { env: nextEnv } = addVariableToEnv({
+              env: expected.env,
+              variable: {
+                name: unsolvedSpread.type.name,
+                value: [typeValue],
+                type: typeValue.type,
+                isCompileTimeOnly: true,
+                token: PlaceholderToken,
+                initializedAtToken: PlaceholderToken,
+                consumedAtToken: undefined,
+                isOwningTheRcValue: false,
+              },
+            });
+            expected.env = nextEnv;
+          } else {
+            expected.env = updateExistingVariable(expected.env, variable, {
+              ...variable,
+              value: [typeValue],
+            });
           }
         }
       }
@@ -998,9 +1050,11 @@ Given: "${typeToString(given.type)}"`
 
 /**
  * Synthesize effects between two FutureTraitTypes.
- * Uses the same algorithm as implicit parameter synthesis:
- * - Non-spread effects match by position
- * - Spread markers collect remaining concrete effects and bind the row variable
+ * Uses set-based matching with the "at most one unsolved spread" rule:
+ * 1. Separate expected effects into concrete, solved spreads, unsolved spreads
+ * 2. At most one unsolved spread is allowed (error if multiple)
+ * 3. Match concrete expected and solved spread effects against given (set-based)
+ * 4. Bind the single unsolved spread to the remaining unmatched given effects
  */
 function synthesizeFutureEffects(
   expectedEffects: FunctionImplicitParameter[],
@@ -1013,73 +1067,117 @@ function synthesizeFutureEffects(
     return;
   }
 
-  // Filter out spread markers from given — concrete effects only
+  // Categorize expected effects
+  const concreteExpected: FunctionImplicitParameter[] = [];
+  const solvedSpreads: FunctionImplicitParameter[] = [];
+  const unsolvedSpreads: FunctionImplicitParameter[] = [];
+
+  for (const effect of expectedEffects) {
+    if (effect.isEffectRowSpread) {
+      if (isEffectsRowType(effect.type)) {
+        solvedSpreads.push(effect);
+      } else if (isSomeType(effect.type) && effect.type.isEffectsRow) {
+        unsolvedSpreads.push(effect);
+      }
+    } else {
+      concreteExpected.push(effect);
+    }
+  }
+
+  if (unsolvedSpreads.length > 1) {
+    throw new Error(
+      `Ambiguous effect row unification: multiple unsolved effect row variables ` +
+        `(${unsolvedSpreads.map((s) => s.label).join(", ")}). ` +
+        `At most one effect row spread can be unsolved during type unification.`
+    );
+  }
+
+  // Collect all concrete given effects (spreads in given are not expected)
   const givenConcrete = givenEffects.filter(
     (p) => !p.isEffectRowSpread
   ) as FunctionImplicitParameter[];
 
-  let givenIdx = 0;
-  for (let i = 0; i < expectedEffects.length; i++) {
-    const expectedEffect = expectedEffects[i]!;
-    if (expectedEffect.isEffectRowSpread) {
-      if (isEffectsRowType(expectedEffect.type)) {
-        // Spread already bound to a concrete EffectsRowType — consume remaining
-        givenIdx = givenConcrete.length;
-      } else {
-        // Named spread ...(E): collect remaining given effects and bind E
-        const remaining = givenConcrete.slice(
-          givenIdx
-        ) as FunctionImplicitParameter[];
-        givenIdx = givenConcrete.length;
+  // Track which given effects have been matched
+  const matchedGiven = new Set<number>();
 
-        if (
-          isSomeType(expectedEffect.type) &&
-          expectedEffect.type.isEffectsRow
-        ) {
-          const effectsRow = createEffectsRowType(remaining);
-          const typeValue = createTypeValue(effectsRow);
-
-          // Bind E in expected.env
-          const existingVars = getVariablesFromEnv(
-            expected.env,
-            expectedEffect.type.name
-          );
-          const variable = existingVars[existingVars.length - 1];
-          if (!variable) {
-            const { env: nextEnv } = addVariableToEnv({
-              env: expected.env,
-              variable: {
-                name: expectedEffect.type.name,
-                value: [typeValue],
-                type: typeValue.type,
-                isCompileTimeOnly: true,
-                token: PlaceholderToken,
-                initializedAtToken: PlaceholderToken,
-                consumedAtToken: undefined,
-                isOwningTheRcValue: false,
-              },
-            });
-            expected.env = nextEnv;
-          } else {
-            expected.env = updateExistingVariable(expected.env, variable, {
-              ...variable,
-              value: [typeValue],
-            });
-          }
-        }
-      }
-    } else {
-      // Concrete expected effect — synthesize against corresponding given effect
-      const givenEffect = givenConcrete[givenIdx];
-      if (givenEffect) {
+  // 1. Match concrete expected effects against given (set-based by type id)
+  for (const exp of concreteExpected) {
+    for (let j = 0; j < givenConcrete.length; j++) {
+      if (matchedGiven.has(j)) continue;
+      if (exp.type.id === givenConcrete[j]!.type.id) {
         const { expectedEnv, givenEnv } = synthesizeTypes(
-          { type: expectedEffect.type, env: expected.env },
-          { type: givenEffect.type, env: given.env },
+          { type: exp.type, env: expected.env },
+          { type: givenConcrete[j]!.type, env: given.env },
           checkedTypePairs
         );
         expected.env = expectedEnv;
         given.env = givenEnv;
-        givenIdx++;
+        matchedGiven.add(j);
+        break;
+      }
+    }
+  }
+
+  // 2. Match solved spreads' expanded effects against given
+  for (const spread of solvedSpreads) {
+    const expandedEffects = (spread.type as EffectsRowType).implicitParameters;
+    for (const exp of expandedEffects) {
+      for (let j = 0; j < givenConcrete.length; j++) {
+        if (matchedGiven.has(j)) continue;
+        if (exp.type.id === givenConcrete[j]!.type.id) {
+          const { expectedEnv, givenEnv } = synthesizeTypes(
+            { type: exp.type, env: expected.env },
+            { type: givenConcrete[j]!.type, env: given.env },
+            checkedTypePairs
+          );
+          expected.env = expectedEnv;
+          given.env = givenEnv;
+          matchedGiven.add(j);
+          break;
+        }
+      }
+    }
+  }
+
+  // 3. Bind the single unsolved spread to remaining unmatched given effects
+  if (unsolvedSpreads.length === 1) {
+    const unsolvedSpread = unsolvedSpreads[0]!;
+    const remaining: FunctionImplicitParameter[] = [];
+    for (let j = 0; j < givenConcrete.length; j++) {
+      if (!matchedGiven.has(j)) {
+        remaining.push(givenConcrete[j]!);
+      }
+    }
+
+    if (isSomeType(unsolvedSpread.type) && unsolvedSpread.type.isEffectsRow) {
+      const effectsRow = createEffectsRowType(remaining);
+      const typeValue = createTypeValue(effectsRow);
+
+      const existingVars = getVariablesFromEnv(
+        expected.env,
+        unsolvedSpread.type.name
+      );
+      const variable = existingVars[existingVars.length - 1];
+      if (!variable) {
+        const { env: nextEnv } = addVariableToEnv({
+          env: expected.env,
+          variable: {
+            name: unsolvedSpread.type.name,
+            value: [typeValue],
+            type: typeValue.type,
+            isCompileTimeOnly: true,
+            token: PlaceholderToken,
+            initializedAtToken: PlaceholderToken,
+            consumedAtToken: undefined,
+            isOwningTheRcValue: false,
+          },
+        });
+        expected.env = nextEnv;
+      } else {
+        expected.env = updateExistingVariable(expected.env, variable, {
+          ...variable,
+          value: [typeValue],
+        });
       }
     }
   }

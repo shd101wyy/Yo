@@ -211,8 +211,18 @@ function resolveEffectRowSpread(
   let rowType: Type;
 
   if (eValue && isTypeValue(eValue)) {
-    // E is a TypeValue wrapping a SomeType (abstract) or EffectsRowType (concrete)
-    rowType = eValue.value;
+    // E must be a SomeType (abstract effect row) or EffectsRowType (concrete bound row)
+    if (
+      (isSomeType(eValue.value) && eValue.value.isEffectsRow) ||
+      isEffectsRowType(eValue.value)
+    ) {
+      rowType = eValue.value;
+    } else {
+      throw formatErrorMessage({
+        token: effectExpr.token,
+        errorMessage: `"...(${rowVarName})" requires "${rowVarName}" to be a forall-declared effect row variable, but it resolves to a concrete type. Use individual effect types directly instead of spreading them, e.g. Future(T, ${rowVarName}) instead of Future(T, ...(${rowVarName}))`,
+      });
+    }
   } else if (
     eValue &&
     isUnknownValue(eValue) &&

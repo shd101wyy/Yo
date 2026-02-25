@@ -269,123 +269,67 @@ Got:      "${paramName}"`,
   // When the function type has effect row spreads (e.g., ...(E)), and the user
   // provides using(...) params, we need to expand the effect row by resolving
   // each user-provided param name from the outer (pre-stripped) environment.
+  //
+  // Simplified syntax rules:
+  //   using(name1, name2)           — plain atoms, resolve types from outer env
+  //   using(name : Type, name2)     — typed declarations mixed with atoms
+  //   using(...(E)) in fn types     — effect row spread (forall var only, NOT in closures)
   const hasEffectRowSpread = functionType.implicitParameters.some(
     (p) => p.isEffectRowSpread
   );
 
   let resolvedImplicitParameters: FunctionImplicitParameter[];
-  // Track if the effect row was resolved from an inline ...(name : Type, ...) declaration
   let inlineEffectsRow: EffectsRowType | undefined;
   if (hasEffectRowSpread && usingParamExprs.length > 0) {
     // The function type has an unexpanded effect row spread like ...(E).
-    // Check if the user provided an inline effect row declaration: using(...(yield : Yield, log : Log))
-    // or plain identifiers: using(_yield, _log)
-    const isSingleSpreadWithTypes =
-      usingParamExprs.length === 1 &&
-      exprIsFunctionCall(usingParamExprs[0]!) &&
-      exprIsFunctionCallOf(usingParamExprs[0]!, "...");
-
-    if (isSingleSpreadWithTypes) {
-      // using(...(yield : Yield, log : Log)) — inline with types, OR
-      // using(...(_yield, _log)) — inline with plain atoms
-      const spreadExpr = usingParamExprs[0] as FnCallExpr;
-      resolvedImplicitParameters = [];
-      for (const innerParamExpr of spreadExpr.args) {
+    // Closure provides concrete effects directly: using(io : IO) or using(_yield, _log)
+    resolvedImplicitParameters = [];
+    for (const paramExpr of usingParamExprs) {
+      if (
+        exprIsFunctionCall(paramExpr) &&
+        exprIsFunctionCallOf(paramExpr, ":", 2)
+      ) {
+        // Typed: yield : Yield
+        const nameExpr = paramExpr.args[0]!;
+        const typeExpr = paramExpr.args[1]!;
+        if (!exprIsAtom(nameExpr)) {
+          throw formatErrorMessage({
+            token: nameExpr.token,
+            errorMessage: `Expected identifier for effect name, got ${exprToString(nameExpr)}`,
+          });
+        }
+        const paramName = nameExpr.token.value;
+        const evaluatedTypeExpr = evaluateExpression({
+          expr: cloneExpr(typeExpr),
+          env: outerEnv,
+          context: { ...context, isEvaluatingFunctionType: true },
+        });
         if (
-          exprIsFunctionCall(innerParamExpr) &&
-          exprIsFunctionCallOf(innerParamExpr, ":", 2)
+          !evaluatedTypeExpr.$?.value ||
+          !isTypeValue(evaluatedTypeExpr.$.value)
         ) {
-          // Typed: yield : Yield
-          const nameExpr = innerParamExpr.args[0]!;
-          const typeExpr = innerParamExpr.args[1]!;
-          if (!exprIsAtom(nameExpr)) {
-            throw formatErrorMessage({
-              token: nameExpr.token,
-              errorMessage: `Expected identifier for effect name, got ${exprToString(nameExpr)}`,
-            });
-          }
-          const paramName = nameExpr.token.value;
-          const evaluatedTypeExpr = evaluateExpression({
-            expr: cloneExpr(typeExpr),
-            env: outerEnv,
-            context: { ...context, isEvaluatingFunctionType: true },
-          });
-          if (
-            !evaluatedTypeExpr.$?.value ||
-            !isTypeValue(evaluatedTypeExpr.$.value)
-          ) {
-            throw formatErrorMessage({
-              token: typeExpr.token,
-              errorMessage: `Expected a type for effect parameter "${paramName}", got ${exprToString(typeExpr)}`,
-            });
-          }
-          const paramType = evaluatedTypeExpr.$.value.value;
-          resolvedImplicitParameters.push({
-            label: paramName,
-            type: paramType,
-            isCompileTimeOnly: true,
-            isImplicit: true,
-            isOwningTheRcValue: false,
-            isQuote: false,
-            exprs: {
-              expr: innerParamExpr,
-              labelExpr: nameExpr,
-              typeExpr: typeExpr,
-              defaultValueExpr: undefined,
-            },
-          });
-        } else if (exprIsAtom(innerParamExpr)) {
-          // Plain atom: _yield — resolve type from outer env
-          const paramName = innerParamExpr.token.value;
-          const outerVariables = getVariablesFromEnv(outerEnv, paramName);
-          const outerVar = outerVariables.at(-1);
-          if (!outerVar) {
-            throw formatErrorMessage({
-              token: innerParamExpr.token,
-              errorMessage: `Variable "${paramName}" not found. Cannot infer type for using() parameter.`,
-            });
-          }
-          resolvedImplicitParameters.push({
-            label: paramName,
-            type: outerVar.type,
-            isCompileTimeOnly: true,
-            isImplicit: true,
-            isOwningTheRcValue: false,
-            isQuote: false,
-            exprs: {
-              expr: innerParamExpr,
-              labelExpr: innerParamExpr,
-              typeExpr: innerParamExpr,
-              defaultValueExpr: undefined,
-            },
-          });
-        } else {
           throw formatErrorMessage({
-            token: innerParamExpr.token,
-            errorMessage: `Expected "name : Type" or identifier in using(...), got ${exprToString(innerParamExpr)}`,
+            token: typeExpr.token,
+            errorMessage: `Expected a type for effect parameter "${paramName}", got ${exprToString(typeExpr)}`,
           });
         }
-      }
-      // Create an EffectsRowType and bind it to the E variable(s) in the env
-      // so that the anonymous function's type has E resolved.
-      inlineEffectsRow = createEffectsRowType(resolvedImplicitParameters);
-      for (const implicitParam of functionType.implicitParameters) {
-        if (!implicitParam.isEffectRowSpread) continue;
-        if (isSomeType(implicitParam.type) && implicitParam.type.isEffectsRow) {
-          (implicitParam.type as SomeType).resolvedConcreteType =
-            inlineEffectsRow;
-        }
-      }
-    } else {
-      // Bare identifiers without ...() grouping (legacy): using(_yield, _log)
-      resolvedImplicitParameters = [];
-      for (const paramExpr of usingParamExprs) {
-        if (!exprIsAtom(paramExpr)) {
-          throw formatErrorMessage({
-            token: paramExpr.token,
-            errorMessage: `Expected identifier for using() parameter, got ${exprToString(paramExpr)}`,
-          });
-        }
+        const paramType = evaluatedTypeExpr.$.value.value;
+        resolvedImplicitParameters.push({
+          label: paramName,
+          type: paramType,
+          isCompileTimeOnly: true,
+          isImplicit: true,
+          isOwningTheRcValue: false,
+          isQuote: false,
+          exprs: {
+            expr: paramExpr,
+            labelExpr: nameExpr,
+            typeExpr: typeExpr,
+            defaultValueExpr: undefined,
+          },
+        });
+      } else if (exprIsAtom(paramExpr)) {
+        // Plain atom: _yield — resolve type from outer env
         const paramName = paramExpr.token.value;
         const outerVariables = getVariablesFromEnv(outerEnv, paramName);
         const outerVar = outerVariables.at(-1);
@@ -409,76 +353,86 @@ Got:      "${paramName}"`,
             defaultValueExpr: undefined,
           },
         });
+      } else {
+        throw formatErrorMessage({
+          token: paramExpr.token,
+          errorMessage: `Expected "name : Type" or identifier in using(), got ${exprToString(paramExpr)}`,
+        });
+      }
+    }
+    // Create an EffectsRowType and bind it to the E variable(s) in the env
+    // so that the anonymous function's type has E resolved.
+    inlineEffectsRow = createEffectsRowType(resolvedImplicitParameters);
+    for (const implicitParam of functionType.implicitParameters) {
+      if (!implicitParam.isEffectRowSpread) continue;
+      if (isSomeType(implicitParam.type) && implicitParam.type.isEffectsRow) {
+        (implicitParam.type as SomeType).resolvedConcreteType =
+          inlineEffectsRow;
       }
     }
   } else {
     // No effect row spread, or no user-provided using() params.
     if (usingParamExprs.length > 0) {
-      // Check if the user provided an inline ...(name : Type) declaration when E is already resolved
-      const isSingleSpreadWithTypesElse =
-        usingParamExprs.length === 1 &&
-        exprIsFunctionCall(usingParamExprs[0]!) &&
-        exprIsFunctionCallOf(usingParamExprs[0]!, "...");
-
-      if (isSingleSpreadWithTypesElse) {
-        // Both call site and closure declare effects — verify they match
-        const spreadExpr = usingParamExprs[0] as FnCallExpr;
-        const inlineParams: {
-          name: string;
-          type: Type | undefined;
-          nameExpr: Expr;
-        }[] = [];
-        for (const innerParamExpr of spreadExpr.args) {
-          if (
-            exprIsFunctionCall(innerParamExpr) &&
-            exprIsFunctionCallOf(innerParamExpr, ":", 2)
-          ) {
-            // Typed: yield : Yield
-            const nameExpr = innerParamExpr.args[0]!;
-            const typeExpr = innerParamExpr.args[1]!;
-            if (!exprIsAtom(nameExpr)) {
-              throw formatErrorMessage({
-                token: nameExpr.token,
-                errorMessage: `Expected identifier for effect name, got ${exprToString(nameExpr)}`,
-              });
-            }
-            const evaluatedTypeExpr = evaluateExpression({
-              expr: cloneExpr(typeExpr),
-              env: outerEnv,
-              context: { ...context, isEvaluatingFunctionType: true },
-            });
-            if (
-              !evaluatedTypeExpr.$?.value ||
-              !isTypeValue(evaluatedTypeExpr.$.value)
-            ) {
-              throw formatErrorMessage({
-                token: typeExpr.token,
-                errorMessage: `Expected a type for effect parameter "${nameExpr.token.value}", got ${exprToString(typeExpr)}`,
-              });
-            }
-            inlineParams.push({
-              name: nameExpr.token.value,
-              type: evaluatedTypeExpr.$.value.value,
-              nameExpr,
-            });
-          } else if (exprIsAtom(innerParamExpr)) {
-            // Plain atom: _yield — no explicit type, will just rename
-            inlineParams.push({
-              name: innerParamExpr.token.value,
-              type: undefined,
-              nameExpr: innerParamExpr,
-            });
-          } else {
+      // Closure declares effects with types or renames — verify they match
+      const inlineParams: {
+        name: string;
+        type: Type | undefined;
+        nameExpr: Expr;
+      }[] = [];
+      for (const paramExpr of usingParamExprs) {
+        if (
+          exprIsFunctionCall(paramExpr) &&
+          exprIsFunctionCallOf(paramExpr, ":", 2)
+        ) {
+          // Typed: yield : Yield
+          const nameExpr = paramExpr.args[0]!;
+          const typeExpr = paramExpr.args[1]!;
+          if (!exprIsAtom(nameExpr)) {
             throw formatErrorMessage({
-              token: innerParamExpr.token,
-              errorMessage: `Expected "name : Type" or identifier in using(...), got ${exprToString(innerParamExpr)}`,
+              token: nameExpr.token,
+              errorMessage: `Expected identifier for effect name, got ${exprToString(nameExpr)}`,
             });
           }
+          const evaluatedTypeExpr = evaluateExpression({
+            expr: cloneExpr(typeExpr),
+            env: outerEnv,
+            context: { ...context, isEvaluatingFunctionType: true },
+          });
+          if (
+            !evaluatedTypeExpr.$?.value ||
+            !isTypeValue(evaluatedTypeExpr.$.value)
+          ) {
+            throw formatErrorMessage({
+              token: typeExpr.token,
+              errorMessage: `Expected a type for effect parameter "${nameExpr.token.value}", got ${exprToString(typeExpr)}`,
+            });
+          }
+          inlineParams.push({
+            name: nameExpr.token.value,
+            type: evaluatedTypeExpr.$.value.value,
+            nameExpr,
+          });
+        } else if (exprIsAtom(paramExpr)) {
+          // Plain atom: _yield — no explicit type, will just rename
+          inlineParams.push({
+            name: paramExpr.token.value,
+            type: undefined,
+            nameExpr: paramExpr,
+          });
+        } else {
+          throw formatErrorMessage({
+            token: paramExpr.token,
+            errorMessage: `Expected "name : Type" or identifier in using(), got ${exprToString(paramExpr)}`,
+          });
         }
+      }
+
+      const hasTypedInline = inlineParams.some((p) => p.type !== undefined);
+      if (hasTypedInline) {
         // Compare inline declaration with already-resolved implicit params
         if (inlineParams.length !== functionType.implicitParameters.length) {
           throw formatErrorMessage({
-            token: spreadExpr.token,
+            token: expr.token,
             errorMessage: `Effect row mismatch: closure declares ${inlineParams.length} effects, but call site resolved ${functionType.implicitParameters.length} effects.`,
           });
         }
