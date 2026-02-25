@@ -1,42 +1,16 @@
 open import "std/libc/stdio";
-{ yield } :: import "std/async";
+file :: import "std/io/file";
+{ AT_FDCWD, O_RDONLY } :: import "std/io/constants";
 
 main :: (fn(using(io : IO)) -> unit)({
-  counter := Box(i32)(0);
-
-  task1 := io.async((using(...(io : IO)))=> {
-    assert((counter.* == i32(0)), "counter should be 0 at start of task1");
-    printf("task1: counter = %d\n", counter.*);
-    counter.* = (counter.* + 1);
-    io.await(yield());
-    assert((counter.* == i32(11)), "counter should be 11 after yield in task1");
-    printf("task1: counter = %d\n", counter.*);
-    counter.* = (counter.* + 1);
-    return counter.*;
+  task := io.async((using(...(io : IO)))=> {
+    result := io.await(file.openat(AT_FDCWD, *(u8)("tests/fixtures/test_file.txt"), O_RDONLY, i32(0)));
+    printf("result = %d\n", result);
+    assert(result >= i32(0), "openat should succeed");
+    cr := io.await(file.close(result));
+    assert(cr == i32(0), "close should succeed");
   });
-
-  task2 := io.async((using(...(io : IO)))=> {
-    assert((counter.* == i32(1)), "counter should be 1 at start of task2");
-    printf("task2: counter = %d\n", counter.*);
-    counter.* = (counter.* + 10);
-    io.await(yield());
-    assert((counter.* == i32(12)), "counter should be 12 after yield in task2");
-    printf("task2: counter = %d\n", counter.*);
-    counter.* = (counter.* + 10);
-    return counter.*;
-  });
-
-  // Both tasks are cold (not started).
-  // join starts both and waits for all to complete.
-  io.join(task1, task2);
-
-  // After join, both are complete — io.await just extracts results.
-  result1 := io.await(task1);
-  result2 := io.await(task2);
-
-  // Both tasks incremented counter: +2 from task1, +20 from task2
-  assert((counter.* == i32(22)), "counter should be 22 after join");
-  printf("main: counter = %d\n", counter.*);
+  io.await(task);
 });
 
 export main;

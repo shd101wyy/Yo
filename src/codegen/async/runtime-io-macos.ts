@@ -30,7 +30,7 @@ export function generateAsyncRuntimeIOMacOS(emitter: Emitter): void {
 
 // Global dispatch queue for I/O completions
 static dispatch_queue_t __yo_io_queue = NULL;
-static bool __yo_io_initialized = false;
+// __yo_io_initialized is defined in runtime-core
 static _Atomic size_t __yo_pending_io_count = 0;
 
 // Semaphore for blocking wait

@@ -15,7 +15,7 @@ Both phases build on Yo's existing async/await state machine infrastructure.
 - ✅ **Phase 2 (handlers / return + abort)** — fully implemented and tested.
 - ✅ **Effect polymorphism** — `...(E)` effect row spreads in `forall`/`using` implemented and tested.
 - ✅ **Three-tier function classification** — `isFunctionTypeGeneric`, `isFunctionTypeHardGeneric`, `isFunctionSpecializable` correctly handle all function categories in C codegen.
-- ✅ **32 tests passing** with AddressSanitizer (no memory leaks or use-after-free).
+- ✅ **38 tests passing** with AddressSanitizer (no memory leaks or use-after-free).
 - ⏳ **Remaining:** One-shot runtime enforcement (double-resume check), async/await unification.
 
 ---
@@ -216,7 +216,7 @@ The handler is the boundary. The state machine transformation is scoped to the r
 
 ### 2.4 State Machine Transformation
 
-The effect system reuses Yo's async/await state machine architecture:
+The effect system shares Yo's async/await state machine architecture (shared analysis in `src/codegen/shared/suspension-analysis.ts` and shared codegen in `src/codegen/shared/suspension-codegen.ts`):
 
 1. **Effect site** (calling `raise(...)`) = suspension point (like `await`).
 2. **Handler scope** = event loop (like `async { ... }`).
@@ -376,7 +376,7 @@ No special language support needed — this falls out of the existing `using`/`g
 - Anonymous function `=>` syntax parses `using()` parameters.
 - `using(ModuleType)` auto-destructuring with `isModuleDestructured` flag.
 
-**Step 8: Tests** — `tests/algebraic_effects.test.yo` (32 tests)
+**Step 8: Tests** — `tests/algebraic_effects.test.yo` (38 tests)
 
 - Basic abort and resume via `using` parameter ✅
 - Direct effect abort/resume without intermediate `using` function ✅

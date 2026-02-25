@@ -91,7 +91,7 @@ export function generateAwait(
     emitter.emitLine(
       `${indent}while (atomic_load_explicit(&${syncFutureVar}->state, memory_order_acquire) != -1) {`
     );
-    emitter.emitLine(`${indent}  yo_async_run_ready_tasks();`);
+    emitter.emitLine(`${indent}  yo_async_poll_step();`);
     emitter.emitLine(`${indent}}`);
 
     if (!isResultUnit) {

@@ -19,8 +19,18 @@ import {
   ExprTag,
 } from "../../expr";
 import { exprContainsAwait } from "../../expr-traversal";
-import type { DynType, SomeType, StructType } from "../../types/definitions";
-import { isDynType, isSomeType, isUnitType } from "../../types/guards";
+import type {
+  DynType,
+  SomeType,
+  StructType,
+  Type,
+} from "../../types/definitions";
+import {
+  isConcreteTraitType,
+  isDynType,
+  isSomeType,
+  isUnitType,
+} from "../../types/guards";
 import { typeContainsRcType } from "../../types/utils";
 import { isTempVariableName } from "../../utils";
 import { emitAsyncFutureCompletion } from "../exprs/async-completion";
@@ -79,6 +89,33 @@ export function getFutureFieldNameByVariableId(
       : `var_${capturedVar.id}`;
   }
   return `var_${futureVariableId}`;
+}
+
+/**
+ * Check if a future type is an IO future (yo_io_future_t) rather than a state
+ * machine future (from io.async). IO futures have a Concrete(...) trait and are
+ * already submitted to io_uring at creation — they don't have __yo_resume_fn
+ * and should not be "cold-started".
+ *
+ * Detection: IO futures (from Impl(Concrete(yo_io_future_t), Future(i32)))
+ * have their resolvedConcreteType set to a SomeType (the Concrete type).
+ * State machine futures have resolvedConcreteType set to a StructType.
+ */
+function isIoFutureType(type: Type | undefined): boolean {
+  if (!type || !isSomeType(type)) return false;
+  // Check if the concrete type resolution came from a Concrete(...) trait,
+  // specifically resolving to yo_io_future_t (the C struct for IO operations).
+  // State machine futures also resolve to SomeType but with name "Impl",
+  // so we need to check that the resolved name indicates a concrete C type.
+  if (type.resolvedConcreteType && isSomeType(type.resolvedConcreteType)) {
+    // "Impl" is the generic state machine implementation type — NOT an IO future.
+    // IO futures resolve to specific C struct types like "yo_io_future_t".
+    if (type.resolvedConcreteType.name !== "Impl") {
+      return true;
+    }
+  }
+  // Also check requiredTraits directly (in case resolution hasn't stripped them)
+  return type.requiredTraits.some((t) => isConcreteTraitType(t.traitType));
 }
 
 /**
@@ -1159,6 +1196,9 @@ export function generateAsyncBlockResumeFunction(
             futureVarIds[fi]!,
             analysis
           );
+          const joinFutureIsIo = isIoFutureType(
+            segment.awaitPoint.joinFutureTypes?.[fi]
+          );
           emitter.emitLine(
             `      // Join future ${fi}: sm->${futureFieldName}`
           );
@@ -1198,12 +1238,14 @@ export function generateAsyncBlockResumeFunction(
           emitter.emitLine(
             `          atomic_store_explicit(&sm->${futureFieldName}->continuation_sm, (void*)sm, memory_order_release);`
           );
-          emitter.emitLine(`          if (fs_${fi} == 0) {`);
-          emitter.emitLine(`            // Cold future — start it`);
-          emitter.emitLine(
-            `            sm->${futureFieldName}->__yo_resume_fn((void*)sm->${futureFieldName});`
-          );
-          emitter.emitLine(`          }`);
+          if (!joinFutureIsIo) {
+            emitter.emitLine(`          if (fs_${fi} == 0) {`);
+            emitter.emitLine(`            // Cold future — start it`);
+            emitter.emitLine(
+              `            sm->${futureFieldName}->__yo_resume_fn((void*)sm->${futureFieldName});`
+            );
+            emitter.emitLine(`          }`);
+          }
           emitter.emitLine(`        }`);
           emitter.emitLine(`      }`);
           emitter.emitLine(``);
@@ -1219,6 +1261,14 @@ export function generateAsyncBlockResumeFunction(
           segment.awaitPoint,
           analysis
         );
+
+        // Determine if the future is an IO future (yo_io_future_t) which is
+        // already submitted to io_uring and doesn't have __yo_resume_fn.
+        const awaitExprForTypeCheck = segment.awaitPoint.expr as {
+          args?: Expr[];
+        };
+        const futureExprForTypeCheck = awaitExprForTypeCheck.args?.[0];
+        const isIoFuture = isIoFutureType(futureExprForTypeCheck?.$?.type);
 
         // If this await is inside a cond expression, the future may not be set
         // (the non-await branch was taken). Guard the await logic with a NULL check.
@@ -1263,38 +1313,42 @@ export function generateAsyncBlockResumeFunction(
         emitter.emitLine(`      }`);
         emitter.emitLine(``);
         // Cold future: start it via stored resume function pointer
+        // IO futures (yo_io_future_t) are already submitted to io_uring and don't
+        // have __yo_resume_fn — skip cold-start for them.
         emitter.emitLine(
-          `      // Future not complete — take event loop reference and start if cold`
+          `      // Future not complete — take event loop reference${isIoFuture ? "" : " and start if cold"}`
         );
         emitter.emitLine(
           `      __yo_incr_rc((void*)sm->${futureFieldName});  // event loop reference`
         );
-        emitter.emitLine(
-          `      if (future_state == 0) {  // 0 = cold (not started)`
-        );
-        emitter.emitLine(
-          `        // Cold future — start it via stored resume function pointer`
-        );
-        emitter.emitLine(
-          `        sm->${futureFieldName}->__yo_resume_fn((void*)sm->${futureFieldName});`
-        );
-        emitter.emitLine(``);
-        emitter.emitLine(
-          `        // Re-check: may have completed synchronously`
-        );
-        emitter.emitLine(
-          `        future_state = atomic_load_explicit(&sm->${futureFieldName}->state, memory_order_acquire);`
-        );
-        emitter.emitLine(`        if (future_state == -1) {`);
-        emitter.emitLine(
-          `          // Completed synchronously — yield for fairness so join can interleave`
-        );
-        emitter.emitLine(
-          `          yo_async_spawn_task((void (*)(void*))${resumeFunctionName}, (void*)sm);`
-        );
-        emitter.emitLine(`          return;`);
-        emitter.emitLine(`        }`);
-        emitter.emitLine(`      }`);
+        if (!isIoFuture) {
+          emitter.emitLine(
+            `      if (future_state == 0) {  // 0 = cold (not started)`
+          );
+          emitter.emitLine(
+            `        // Cold future — start it via stored resume function pointer`
+          );
+          emitter.emitLine(
+            `        sm->${futureFieldName}->__yo_resume_fn((void*)sm->${futureFieldName});`
+          );
+          emitter.emitLine(``);
+          emitter.emitLine(
+            `        // Re-check: may have completed synchronously`
+          );
+          emitter.emitLine(
+            `        future_state = atomic_load_explicit(&sm->${futureFieldName}->state, memory_order_acquire);`
+          );
+          emitter.emitLine(`        if (future_state == -1) {`);
+          emitter.emitLine(
+            `          // Completed synchronously — yield for fairness so join can interleave`
+          );
+          emitter.emitLine(
+            `          yo_async_spawn_task((void (*)(void*))${resumeFunctionName}, (void*)sm);`
+          );
+          emitter.emitLine(`          return;`);
+          emitter.emitLine(`        }`);
+          emitter.emitLine(`      }`);
+        }
         emitter.emitLine(``);
         // Register continuation directly on the future (type-specific access)
         emitter.emitLine(

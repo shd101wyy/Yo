@@ -31,7 +31,7 @@ export function generateAsyncRuntimeIOLinux(emitter: Emitter): void {
 #include <errno.h>
 
 static struct io_uring __yo_io_ring;
-static bool __yo_io_initialized = false;
+// __yo_io_initialized is defined in runtime-core
 static size_t __yo_pending_io_count = 0;
 
 // I/O Future types - yo_io_future_t is defined in types/generation.ts

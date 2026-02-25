@@ -54,6 +54,11 @@ static bool yo_async_scheduler_initialized = false;
 // Count of active poll/fs_event watches (used by all platforms)
 static size_t __yo_active_watch_count = 0;
 
+// Whether the I/O subsystem has been initialized (set by __yo_io_init in platform runtimes)
+#if defined(__linux__) || defined(__APPLE__) || defined(_WIN32)
+static bool __yo_io_initialized = false;
+#endif
+
 // Forward declarations for I/O functions (defined later, may be stubs if liburing unavailable)
 #if defined(__linux__) || defined(__APPLE__) || defined(_WIN32)
 static void __yo_io_init(void);
@@ -107,7 +112,6 @@ void yo_async_spawn_task(void (*resume_fn)(void*), void* state_machine) {
 }
 
 // Process all ready tasks in the queue (non-blocking).
-// Used by synchronous io.await to drain the task queue and allow futures to complete.
 void yo_async_run_ready_tasks(void) {
   while (yo_thread_async_queue.head) {
     yo_continuation_t* cont = yo_thread_async_queue.head;
@@ -119,6 +123,22 @@ void yo_async_run_ready_tasks(void) {
     cont->resume_fn(cont->state_machine);
     __yo_free(cont);
   }
+}
+
+// Perform one step of the event loop: drain task queue, then poll/wait for I/O.
+// Used by synchronous io.await/io.join to make progress on both pure-async tasks
+// and I/O operations. Safe to call repeatedly in a busy loop — it only polls I/O
+// if the I/O subsystem has been initialized (i.e., the program uses IO operations).
+void yo_async_poll_step(void) {
+  yo_async_run_ready_tasks();
+#if defined(__linux__) || defined(__APPLE__) || defined(_WIN32)
+  if (__yo_io_initialized) {
+    __yo_io_poll();
+    if (!yo_thread_async_queue.head && __yo_has_pending_io()) {
+      __yo_io_wait();
+    }
+  }
+#endif
 }
 
 // Run event loop until a specific Future completes (for async main)

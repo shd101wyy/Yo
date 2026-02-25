@@ -453,11 +453,12 @@ function generateFuncCall(
       );
       emitter.emitLine(`${indent}}`);
     }
+    // Run the event loop (task queue + I/O polling) until all futures complete.
     const conditions = futureVars.map(
       (v) => `atomic_load_explicit(&${v}->state, memory_order_acquire) != -1`
     );
     emitter.emitLine(`${indent}while (${conditions.join(" || ")}) {`);
-    emitter.emitLine(`${indent}  yo_async_run_ready_tasks();`);
+    emitter.emitLine(`${indent}  yo_async_poll_step();`);
     emitter.emitLine(`${indent}}`);
     return ``;
   }

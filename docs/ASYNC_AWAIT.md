@@ -228,7 +228,7 @@ Why heap allocation?
 - A Future can suspend at an `await` and resume later; the state machine must have a stable address after the current C stack frame returns.
 - The runtime queues continuations as `(resume_fn, state_machine_ptr)`, so the state machine must outlive the scheduling point.
 
-This is an implementation choice, not a semantic requirement; alternate designs exist (see `ASYNC_AWAIT_MIGRATION.md`).
+This is an implementation choice, not a semantic requirement.
 
 ## State Machine Transformation
 
@@ -356,15 +356,21 @@ Futures (async block state machines) are **reference counted** to handle cases w
 **Lifetime Pattern: "Event Loop Holds References"**
 
 ```yo
-main :: (fn() -> unit) {
-  task := async { /* work */ };  // Creates Future with refcount=2
-  // User reference (task) + Running task reference (event loop)
+main :: (fn(using(io : IO)) -> unit)({
+  task := io.async((using(...(io : IO)))=> {
+    /* work */
+  });
+  // task is cold (refcount=1), hasn't started yet
 
-  // task goes out of scope - refcount decrements to 1
-  // Task continues running! Event loop still holds reference
-};
-// After main, __yo_async_wait_all() processes remaining tasks
-// Task completes, decrements refcount to 0, frees memory
+  io.join(task);
+  // join starts task: __yo_incr_rc (refcount=2)
+  // One reference for user code (task), one for running task (event loop)
+  // Task completes, event loop drops reference (refcount=1)
+
+  io.await(task);
+  // Extracts result, task goes out of scope (refcount=0, freed)
+});
+export main;
 ```
 
 **Refcount Lifecycle:**

@@ -8,140 +8,132 @@ dir :: import "std/io/dir";
 temp_io :: import "std/io/temp";
 fallocate_io :: import "std/io/fallocate";
 
-test "fallocate invalid fd returns -EBADF", {
-  async {
-    ret := fallocate_io.fallocate(i32(-1), i32(0), i64(0), i64(4096));
-    assert((ret == i32(-9)), "fallocate on invalid fd should return -EBADF (-9)");
-  };
+test "fallocate invalid fd returns -EBADF", using(io : IO), {
+  ret := fallocate_io.fallocate(i32(-1), i32(0), i64(0), i64(4096));
+  assert((ret == i32(-9)), "fallocate on invalid fd should return -EBADF (-9)");
 };
 
-test "fallocate mode 0 extends file size", {
-  async {
-    tmp := temp_dir();
-    template_str := path_join(tmp, `yo_io_fallocate_extend_XXXXXX`);
-    template_c := template_str.to_cstr();
-    template_path := template_c.ptr().unwrap();
+test "fallocate mode 0 extends file size", using(io : IO), {
+  tmp := temp_dir();
+  template_str := path_join(tmp, `yo_io_fallocate_extend_XXXXXX`);
+  template_c := template_str.to_cstr();
+  template_path := template_c.ptr().unwrap();
 
-    fd := temp_io.mkstemp(template_path);
-    assert((fd >= i32(0)), "mkstemp for fallocate extend test should succeed");
+  fd := temp_io.mkstemp(template_path);
+  assert((fd >= i32(0)), "mkstemp for fallocate extend test should succeed");
 
-    assert((fallocate_io.FALLOC_FL_KEEP_SIZE == i32(0x01)), "FALLOC_FL_KEEP_SIZE constant should be 0x01");
-    assert((fallocate_io.FALLOC_FL_PUNCH_HOLE == i32(0x02)), "FALLOC_FL_PUNCH_HOLE constant should be 0x02");
-    assert((fallocate_io.FALLOC_FL_ZERO_RANGE == i32(0x10)), "FALLOC_FL_ZERO_RANGE constant should be 0x10");
+  assert((fallocate_io.FALLOC_FL_KEEP_SIZE == i32(0x01)), "FALLOC_FL_KEEP_SIZE constant should be 0x01");
+  assert((fallocate_io.FALLOC_FL_PUNCH_HOLE == i32(0x02)), "FALLOC_FL_PUNCH_HOLE constant should be 0x02");
+  assert((fallocate_io.FALLOC_FL_ZERO_RANGE == i32(0x10)), "FALLOC_FL_ZERO_RANGE constant should be 0x10");
 
-    ret := fallocate_io.fallocate(fd, i32(0), i64(0), i64(8192));
-    assert((ret == i32(0)), "fallocate mode 0 should succeed");
+  ret := fallocate_io.fallocate(fd, i32(0), i64(0), i64(8192));
+  assert((ret == i32(0)), "fallocate mode 0 should succeed");
 
-    size_after := file.file_size(fd);
-    assert((size_after >= i64(8192)), "fallocate mode 0 should extend file size to at least 8192 bytes");
+  size_after := file.file_size(fd);
+  assert((size_after >= i64(8192)), "fallocate mode 0 should extend file size to at least 8192 bytes");
 
-    marker := *(u8)("X");
-    wr := await file.write(fd, marker, u32(1), u64(8191));
-    assert((wr == i32(1)), "writing marker at offset 8191 after fallocate should succeed");
+  marker := *(u8)("X");
+  wr := io.await(file.write(fd, marker, u32(1), u64(8191)));
+  assert((wr == i32(1)), "writing marker at offset 8191 after fallocate should succeed");
 
-    close_ret := await file.close(fd);
-    assert((close_ret == i32(0)), "closing temp file after fallocate extend test should succeed");
+  close_ret := io.await(file.close(fd));
+  assert((close_ret == i32(0)), "closing temp file after fallocate extend test should succeed");
 
-    rm := await dir.unlink(AT_FDCWD, template_path, i32(0));
-    assert((rm == i32(0)), "unlinking temp file after fallocate extend test should succeed");
-  };
+  rm := io.await(dir.unlink(AT_FDCWD, template_path, i32(0)));
+  assert((rm == i32(0)), "unlinking temp file after fallocate extend test should succeed");
 };
 
-test "fallocate KEEP_SIZE preserves file size", {
-  async {
-    tmp := temp_dir();
-    template_str := path_join(tmp, `yo_io_fallocate_keepsize_XXXXXX`);
-    template_c := template_str.to_cstr();
-    template_path := template_c.ptr().unwrap();
+test "fallocate KEEP_SIZE preserves file size", using(io : IO), {
+  tmp := temp_dir();
+  template_str := path_join(tmp, `yo_io_fallocate_keepsize_XXXXXX`);
+  template_c := template_str.to_cstr();
+  template_path := template_c.ptr().unwrap();
 
-    fd := temp_io.mkstemp(template_path);
-    assert((fd >= i32(0)), "mkstemp for KEEP_SIZE test should succeed");
+  fd := temp_io.mkstemp(template_path);
+  assert((fd >= i32(0)), "mkstemp for KEEP_SIZE test should succeed");
 
-    seed := *(u8)("ABCD");
-    wr := await file.write(fd, seed, u32(4), u64(0));
-    assert((wr == i32(4)), "writing 4-byte seed for KEEP_SIZE test should succeed");
+  seed := *(u8)("ABCD");
+  wr := io.await(file.write(fd, seed, u32(4), u64(0)));
+  assert((wr == i32(4)), "writing 4-byte seed for KEEP_SIZE test should succeed");
 
-    size_before := file.file_size(fd);
-    assert((size_before == i64(4)), "file size before KEEP_SIZE fallocate should be 4");
+  size_before := file.file_size(fd);
+  assert((size_before == i64(4)), "file size before KEEP_SIZE fallocate should be 4");
 
-    ret := fallocate_io.fallocate(fd, fallocate_io.FALLOC_FL_KEEP_SIZE, i64(0), i64(16384));
-    assert((ret == i32(0)), "fallocate KEEP_SIZE should succeed");
+  ret := fallocate_io.fallocate(fd, fallocate_io.FALLOC_FL_KEEP_SIZE, i64(0), i64(16384));
+  assert((ret == i32(0)), "fallocate KEEP_SIZE should succeed");
 
-    size_after := file.file_size(fd);
-    assert((size_after == i64(4)), "fallocate KEEP_SIZE should not change file size");
+  size_after := file.file_size(fd);
+  assert((size_after == i64(4)), "fallocate KEEP_SIZE should not change file size");
 
-    close_ret := await file.close(fd);
-    assert((close_ret == i32(0)), "closing temp file after KEEP_SIZE test should succeed");
+  close_ret := io.await(file.close(fd));
+  assert((close_ret == i32(0)), "closing temp file after KEEP_SIZE test should succeed");
 
-    rm := await dir.unlink(AT_FDCWD, template_path, i32(0));
-    assert((rm == i32(0)), "unlinking temp file after KEEP_SIZE test should succeed");
-  };
+  rm := io.await(dir.unlink(AT_FDCWD, template_path, i32(0)));
+  assert((rm == i32(0)), "unlinking temp file after KEEP_SIZE test should succeed");
 };
 
-test "fallocate Linux ZERO_RANGE and PUNCH_HOLE", {
-  async {
-    cond(
-      (platform == Platform.Linux) => {
-        tmp := temp_dir();
-        template_str := path_join(tmp, `yo_io_fallocate_linux_flags_XXXXXX`);
-        template_c := template_str.to_cstr();
-        template_path := template_c.ptr().unwrap();
+test "fallocate Linux ZERO_RANGE and PUNCH_HOLE", using(io : IO), {
+  cond(
+    (platform == Platform.Linux) => {
+      tmp := temp_dir();
+      template_str := path_join(tmp, `yo_io_fallocate_linux_flags_XXXXXX`);
+      template_c := template_str.to_cstr();
+      template_path := template_c.ptr().unwrap();
 
-        fd := temp_io.mkstemp(template_path);
-        assert((fd >= i32(0)), "mkstemp for Linux flag test should succeed");
+      fd := temp_io.mkstemp(template_path);
+      assert((fd >= i32(0)), "mkstemp for Linux flag test should succeed");
 
-        trunc := await file.ftruncate(fd, i64(4096));
-        assert((trunc == i32(0)), "ftruncate to 4096 for Linux flag test should succeed");
+      trunc := io.await(file.ftruncate(fd, i64(4096)));
+      assert((trunc == i32(0)), "ftruncate to 4096 for Linux flag test should succeed");
 
-        byte_ff := *(u8)("Z");
-        wr1 := await file.write(fd, byte_ff, u32(1), u64(1024));
-        wr2 := await file.write(fd, byte_ff, u32(1), u64(2048));
-        assert((wr1 == i32(1)), "writing sentinel at offset 1024 should succeed");
-        assert((wr2 == i32(1)), "writing sentinel at offset 2048 should succeed");
+      byte_ff := *(u8)("Z");
+      wr1 := io.await(file.write(fd, byte_ff, u32(1), u64(1024)));
+      wr2 := io.await(file.write(fd, byte_ff, u32(1), u64(2048)));
+      assert((wr1 == i32(1)), "writing sentinel at offset 1024 should succeed");
+      assert((wr2 == i32(1)), "writing sentinel at offset 2048 should succeed");
 
-        zero_ret := fallocate_io.fallocate(fd, fallocate_io.FALLOC_FL_ZERO_RANGE, i64(1024), i64(1024));
-        cond(
-          (zero_ret == i32(0)) => {
-            byte_uninit := MaybeUninit(Array(u8, usize(1))).new();
-            byte_buf := *(u8)(byte_uninit.as_ptr());
-            rd := await file.read(fd, byte_buf, u32(1), u64(1024));
-            assert((rd == i32(1)), "reading byte from ZERO_RANGE segment should succeed");
-            assert((byte_buf.* == u8(0)), "ZERO_RANGE should zero data at the start of the range");
-          },
-          true => {
-            supported_err := ((zero_ret == i32(-95)) || ((zero_ret == i32(-22)) || (zero_ret == i32(-38))));
-            assert(supported_err, "ZERO_RANGE failure should be one of -EOPNOTSUPP/-EINVAL/-ENOSYS");
-          }
-        );
+      zero_ret := fallocate_io.fallocate(fd, fallocate_io.FALLOC_FL_ZERO_RANGE, i64(1024), i64(1024));
+      cond(
+        (zero_ret == i32(0)) => {
+          byte_uninit := MaybeUninit(Array(u8, usize(1))).new();
+          byte_buf := *(u8)(byte_uninit.as_ptr());
+          rd := io.await(file.read(fd, byte_buf, u32(1), u64(1024)));
+          assert((rd == i32(1)), "reading byte from ZERO_RANGE segment should succeed");
+          assert((byte_buf.* == u8(0)), "ZERO_RANGE should zero data at the start of the range");
+        },
+        true => {
+          supported_err := ((zero_ret == i32(-95)) || ((zero_ret == i32(-22)) || (zero_ret == i32(-38))));
+          assert(supported_err, "ZERO_RANGE failure should be one of -EOPNOTSUPP/-EINVAL/-ENOSYS");
+        }
+      );
 
-        punch_mode := (fallocate_io.FALLOC_FL_KEEP_SIZE | fallocate_io.FALLOC_FL_PUNCH_HOLE);
-        punch_ret := fallocate_io.fallocate(fd, punch_mode, i64(2048), i64(1024));
-        cond(
-          (punch_ret == i32(0)) => {
-            byte_uninit2 := MaybeUninit(Array(u8, usize(1))).new();
-            byte_buf2 := *(u8)(byte_uninit2.as_ptr());
-            rd2 := await file.read(fd, byte_buf2, u32(1), u64(2048));
-            assert((rd2 == i32(1)), "reading byte from PUNCH_HOLE segment should succeed");
-            assert((byte_buf2.* == u8(0)), "PUNCH_HOLE should read as zero from punched range");
+      punch_mode := (fallocate_io.FALLOC_FL_KEEP_SIZE | fallocate_io.FALLOC_FL_PUNCH_HOLE);
+      punch_ret := fallocate_io.fallocate(fd, punch_mode, i64(2048), i64(1024));
+      cond(
+        (punch_ret == i32(0)) => {
+          byte_uninit2 := MaybeUninit(Array(u8, usize(1))).new();
+          byte_buf2 := *(u8)(byte_uninit2.as_ptr());
+          rd2 := io.await(file.read(fd, byte_buf2, u32(1), u64(2048)));
+          assert((rd2 == i32(1)), "reading byte from PUNCH_HOLE segment should succeed");
+          assert((byte_buf2.* == u8(0)), "PUNCH_HOLE should read as zero from punched range");
 
-            size_after := file.file_size(fd);
-            assert((size_after == i64(4096)), "PUNCH_HOLE with KEEP_SIZE should preserve file size");
-          },
-          true => {
-            supported_err2 := ((punch_ret == i32(-95)) || ((punch_ret == i32(-22)) || (punch_ret == i32(-38))));
-            assert(supported_err2, "PUNCH_HOLE failure should be one of -EOPNOTSUPP/-EINVAL/-ENOSYS");
-          }
-        );
+          size_after := file.file_size(fd);
+          assert((size_after == i64(4096)), "PUNCH_HOLE with KEEP_SIZE should preserve file size");
+        },
+        true => {
+          supported_err2 := ((punch_ret == i32(-95)) || ((punch_ret == i32(-22)) || (punch_ret == i32(-38))));
+          assert(supported_err2, "PUNCH_HOLE failure should be one of -EOPNOTSUPP/-EINVAL/-ENOSYS");
+        }
+      );
 
-        close_ret := await file.close(fd);
-        assert((close_ret == i32(0)), "closing temp file after Linux flag test should succeed");
+      close_ret := io.await(file.close(fd));
+      assert((close_ret == i32(0)), "closing temp file after Linux flag test should succeed");
 
-        rm := await dir.unlink(AT_FDCWD, template_path, i32(0));
-        assert((rm == i32(0)), "unlinking temp file after Linux flag test should succeed");
-      },
-      true => {
-        printf("  skipping Linux-specific fallocate flag test on non-Linux\n");
-      }
-    );
-  };
+      rm := io.await(dir.unlink(AT_FDCWD, template_path, i32(0)));
+      assert((rm == i32(0)), "unlinking temp file after Linux flag test should succeed");
+    },
+    true => {
+      printf("  skipping Linux-specific fallocate flag test on non-Linux\n");
+    }
+  );
 };

@@ -346,13 +346,20 @@ export function checkIfFunctionParameterMatchesArgument({
     }
     // This is normal function call parameter
     else {
+      // For io.await, evaluate the argument WITHOUT expectedType so the argument
+      // retains its natural type (e.g., IOFuture = Impl(Concrete(...), Future(i32))).
+      // This prevents the expected SomeType from coercing the arg type, which would
+      // make synthesis unable to resolve forall type parameter T from Future(T).
+      const expectedType =
+        functionType.ioBuiltin === "io_await"
+          ? undefined
+          : { type: parameterType, env: calleeEnv };
       evaluatedArgExpr = evaluateExpression({
         expr: argExpr,
         env: callerEnv,
         context: {
           ...context,
-          // isEvaluatingExprAsType: false,
-          expectedType: { type: parameterType, env: calleeEnv },
+          expectedType,
         },
       });
 

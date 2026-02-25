@@ -290,32 +290,40 @@ export function synthesizeTypes(
     ) {
       const expectedTraits = expected.type.requiredTraits;
       const givenTraits = given.type.requiredTraits;
-      for (
-        let i = 0;
-        i < Math.min(expectedTraits.length, givenTraits.length);
-        i++
-      ) {
+      // Match traits by kind rather than by position, so that
+      // Impl(Future(T)) can match against Impl(Concrete(...), Future(i32))
+      // even when the Future trait is at a different index.
+      for (let i = 0; i < expectedTraits.length; i++) {
         const expectedTrait = expectedTraits[i]!.traitType;
-        const givenTrait = givenTraits[i]!.traitType;
-        if (isFnTraitType(expectedTrait) && isFnTraitType(givenTrait)) {
-          const { expectedEnv, givenEnv } = synthesizeTypes(
-            { type: expectedTrait.isFn.callType, env: expected.env },
-            { type: givenTrait.isFn.callType, env: given.env },
-            checkedTypePairs
+        if (isFnTraitType(expectedTrait)) {
+          const matchingGiven = givenTraits.find((gt) =>
+            isFnTraitType(gt.traitType)
           );
-          expected.env = expectedEnv;
-          given.env = givenEnv;
-        } else if (
-          isFutureTraitType(expectedTrait) &&
-          isFutureTraitType(givenTrait)
-        ) {
-          const { expectedEnv, givenEnv } = synthesizeTypes(
-            { type: expectedTrait.isFuture.outputType, env: expected.env },
-            { type: givenTrait.isFuture.outputType, env: given.env },
-            checkedTypePairs
+          if (matchingGiven && isFnTraitType(matchingGiven.traitType)) {
+            const { expectedEnv, givenEnv } = synthesizeTypes(
+              { type: expectedTrait.isFn.callType, env: expected.env },
+              { type: matchingGiven.traitType.isFn.callType, env: given.env },
+              checkedTypePairs
+            );
+            expected.env = expectedEnv;
+            given.env = givenEnv;
+          }
+        } else if (isFutureTraitType(expectedTrait)) {
+          const matchingGiven = givenTraits.find((gt) =>
+            isFutureTraitType(gt.traitType)
           );
-          expected.env = expectedEnv;
-          given.env = givenEnv;
+          if (matchingGiven && isFutureTraitType(matchingGiven.traitType)) {
+            const { expectedEnv, givenEnv } = synthesizeTypes(
+              { type: expectedTrait.isFuture.outputType, env: expected.env },
+              {
+                type: matchingGiven.traitType.isFuture.outputType,
+                env: given.env,
+              },
+              checkedTypePairs
+            );
+            expected.env = expectedEnv;
+            given.env = givenEnv;
+          }
         }
       }
     }
