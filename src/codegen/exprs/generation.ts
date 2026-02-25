@@ -146,7 +146,7 @@ function generateAbort(
   // local variables actually live.
 
   // In async state machine context, abort must properly mark the Future as
-  // ABORTED (-3) and notify any waiting continuation, instead of just returning
+  // ABORTED (-2) and notify any waiting continuation, instead of just returning
   // from the resume function (which would leave the Future stuck in an
   // intermediate state forever).
   if (functionContext.inAsyncStateMachine) {
@@ -499,7 +499,7 @@ function generateFuncCall(
       emitter.emitLine(`${indent}}`);
     }
     // Run the event loop (task queue + I/O polling) until all futures complete or are aborted.
-    // State -1 = completed, -3 = aborted; both are terminal states.
+    // State -1 = completed, -2 = aborted; both are terminal states.
     emitter.emitLine(`${indent}while (1) {`);
     emitter.emitLine(`${indent}  int __all_done = 1;`);
     for (const varName of futureVars) {
@@ -508,7 +508,7 @@ function generateFuncCall(
         `${indent}    int __s = atomic_load_explicit(&${varName}->state, memory_order_acquire);`
       );
       emitter.emitLine(
-        `${indent}    if (__s != -1 && __s != -3) __all_done = 0;`
+        `${indent}    if (__s != -1 && __s != -2) __all_done = 0;`
       );
       emitter.emitLine(`${indent}  }`);
     }
@@ -518,7 +518,7 @@ function generateFuncCall(
     // Check if any Future was aborted
     for (const varName of futureVars) {
       emitter.emitLine(
-        `${indent}if (atomic_load_explicit(&${varName}->state, memory_order_acquire) == -3) {`
+        `${indent}if (atomic_load_explicit(&${varName}->state, memory_order_acquire) == -2) {`
       );
       emitter.emitLine(
         `${indent}  fprintf(stderr, "panic: attempted to join an aborted Future\\n");`

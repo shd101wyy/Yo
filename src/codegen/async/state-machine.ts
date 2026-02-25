@@ -250,7 +250,7 @@ export function generateAsyncBlockResumeFunction(
       if (!prevAwait.isJoinPoint) {
         emitter.emitLine(`      // Check if the awaited Future was aborted`);
         emitter.emitLine(
-          `      if (atomic_load_explicit(&sm->${prevFutureFieldName}->state, memory_order_acquire) == -3) {`
+          `      if (atomic_load_explicit(&sm->${prevFutureFieldName}->state, memory_order_acquire) == -2) {`
         );
         emitter.emitLine(
           `        fprintf(stderr, "panic: attempted to await an aborted Future\\n");`
@@ -1220,7 +1220,7 @@ export function generateAsyncBlockResumeFunction(
           emitter.emitLine(
             `        int fs_${fi} = atomic_load_explicit(&sm->${futureFieldName}->state, memory_order_acquire);`
           );
-          emitter.emitLine(`        if (fs_${fi} == -1 || fs_${fi} == -3) {`);
+          emitter.emitLine(`        if (fs_${fi} == -1 || fs_${fi} == -2) {`);
           emitter.emitLine(
             `          // Already complete or aborted — decrement counter directly`
           );
@@ -1314,7 +1314,7 @@ export function generateAsyncBlockResumeFunction(
           `      int future_state = atomic_load_explicit(&sm->${futureFieldName}->state, memory_order_acquire);`
         );
         emitter.emitLine(
-          `      if (future_state == -1 || future_state == -3) {  // -1 = completed, -3 = aborted`
+          `      if (future_state == -1 || future_state == -2) {  // -1 = completed, -2 = aborted`
         );
         emitter.emitLine(
           `        // Already complete or aborted — yield once for fairness`
@@ -1355,7 +1355,7 @@ export function generateAsyncBlockResumeFunction(
             `        future_state = atomic_load_explicit(&sm->${futureFieldName}->state, memory_order_acquire);`
           );
           emitter.emitLine(
-            `        if (future_state == -1 || future_state == -3) {`
+            `        if (future_state == -1 || future_state == -2) {`
           );
           emitter.emitLine(
             `          // Completed or aborted synchronously — yield for fairness`

@@ -80,9 +80,9 @@ export function emitAsyncFutureCompletion(opts: AsyncCompletionOptions): void {
 }
 
 /**
- * Emits the C code to mark an async Future state machine as ABORTED (-3):
+ * Emits the C code to mark an async Future state machine as ABORTED (-2):
  * 1. Optionally store the result value (for proper RC cleanup in dispose)
- * 2. Set state to ABORTED (-3) with release semantics
+ * 2. Set state to ABORTED (-2) with release semantics
  * 3. Check for and spawn any waiting continuation (so awaiter can detect abort)
  * 4. Release the "running task" reference (decr rc)
  * 5. Return from the resume function
@@ -103,7 +103,7 @@ export function emitAsyncFutureAbortion(opts: AsyncCompletionOptions): void {
     );
   }
   emitter.emitLine(
-    `${indent}atomic_store_explicit(&sm->state, -3, memory_order_release);  // -3 = aborted`
+    `${indent}atomic_store_explicit(&sm->state, -2, memory_order_release);  // -2 = aborted`
   );
 
   emitter.emitLine(``);

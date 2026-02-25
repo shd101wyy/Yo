@@ -327,7 +327,7 @@ function emitAsyncBlockStructDefinition(
   );
 
   emitter.emitDeclarationLine(
-    `  _Atomic int state;  // Current state (0 = initial, ${analysis.awaitPoints.length + 1} = done, -1 = completed)`
+    `  _Atomic int state;  // Current state (0 = cold, 1..N = intermediate, -1 = completed, -2 = aborted)`
   );
 
   // Always include a result field to keep continuation_fn/continuation_sm at consistent offsets
@@ -1224,7 +1224,7 @@ export function generateIoAsyncSyncCall(
     emitter.emitDeclarationLine(
       `  if (atomic_load_explicit(&sm->state, memory_order_acquire) == -1) {`
     );
-    emitter.emitDeclarationLine(`    ${resultDropFn}(&sm->result);`);
+    emitter.emitDeclarationLine(`    ${resultDropFn}(sm->result);`);
     emitter.emitDeclarationLine(`  }`);
   }
   emitter.emitDeclarationLine(`}`);

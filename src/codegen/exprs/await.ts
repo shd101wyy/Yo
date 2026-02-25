@@ -5,12 +5,14 @@ import {
 } from "../../evaluator/trait-checking";
 import type { FnCallExpr } from "../../expr";
 import { isSomeType, isUnitType } from "../../types/guards";
+import { typeContainsRcType } from "../../types/utils";
 import type { FunctionGenerationContext } from "../functions/context";
 import {
   getTypeString,
   getVariableTypeString,
   type CodeGenContext,
 } from "../utils";
+import { getDupFunctionForType } from "./drop-dup";
 import { generateExpr } from "./expr";
 
 /**
@@ -93,14 +95,14 @@ export function generateAwait(
       `${indent}  int __await_state = atomic_load_explicit(&${syncFutureVar}->state, memory_order_acquire);`
     );
     emitter.emitLine(
-      `${indent}  while (__await_state != -1 && __await_state != -3) {`
+      `${indent}  while (__await_state != -1 && __await_state != -2) {`
     );
     emitter.emitLine(`${indent}    yo_async_poll_step();`);
     emitter.emitLine(
       `${indent}    __await_state = atomic_load_explicit(&${syncFutureVar}->state, memory_order_acquire);`
     );
     emitter.emitLine(`${indent}  }`);
-    emitter.emitLine(`${indent}  if (__await_state == -3) {`);
+    emitter.emitLine(`${indent}  if (__await_state == -2) {`);
     emitter.emitLine(
       `${indent}    fprintf(stderr, "panic: attempted to await an aborted Future\\n");`
     );
@@ -111,18 +113,21 @@ export function generateAwait(
     if (!isResultUnit) {
       const resultVar = expr.$?.variableName || `__sync_await_result`;
       const varDecl = getVariableTypeString(resultType, resultVar, context);
-      emitter.emitLine(`${indent}${varDecl} = ${syncFutureVar}->result;`);
-      // Mark as consumed so dispose won't drop the result when the future
-      // variable's scope-exit drop frees the state machine.
-      emitter.emitLine(
-        `${indent}atomic_store_explicit(&${syncFutureVar}->state, -2, memory_order_release);`
-      );
+      // Dup the result for RC types so the Future retains its copy for future awaits
+      if (typeContainsRcType(resultType)) {
+        const dupFn = getDupFunctionForType(resultType, context);
+        if (dupFn) {
+          emitter.emitLine(
+            `${indent}${varDecl} = ${dupFn}(${syncFutureVar}->result);`
+          );
+        } else {
+          emitter.emitLine(`${indent}${varDecl} = ${syncFutureVar}->result;`);
+        }
+      } else {
+        emitter.emitLine(`${indent}${varDecl} = ${syncFutureVar}->result;`);
+      }
       return resultVar;
     } else {
-      // Mark as consumed; scope-exit drop handles SM cleanup.
-      emitter.emitLine(
-        `${indent}atomic_store_explicit(&${syncFutureVar}->state, -2, memory_order_release);`
-      );
       return ``;
     }
   }

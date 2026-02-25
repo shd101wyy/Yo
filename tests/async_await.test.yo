@@ -1855,3 +1855,29 @@ test "Test type-level Impl Future with individual then spread", using(io : IO), 
   result := io.await(task);
   assert(result == i32(300), "Impl(Future(i32, IO, Raise, ...(Log))) type alias should work");
 };
+
+// ---------------------------------------------------------------------------
+// 68. Await a Future multiple times — should return the same result
+// ---------------------------------------------------------------------------
+test "Test await future multiple times returns same result", using(io : IO), {
+  {
+    task := io.async(() => {
+      return 42;
+    });
+    result1 := io.await(task);
+    result2 := io.await(task);
+    result3 := io.await(task);
+    assert((result1 == 42), "first await should return 42");
+    assert((result2 == 42), "second await should return 42");
+    assert((result3 == 42), "third await should return 42");
+  };
+  {
+    task := io.async(() => {
+      return Box(i32)(12);
+    });
+    result1 := io.await(task);
+    result2 := io.await(task);
+    assert(result1.* == i32(12), "first await should return Box(i32) with value 12");
+    assert(result1.* == result2.*, "multiple awaits should return the same Box(i32) value");
+  };
+};

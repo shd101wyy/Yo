@@ -184,6 +184,8 @@ yield()                       // Create a pre-completed Future (yields control t
 4. After `io.join` completes, all futures are done — `io.await` on them just extracts results
 5. All async code runs on the **same thread** — no thread spawning
 6. `yield()` suspends the current task and yields to other ready tasks in the event loop
+7. `io.await(future)` can be called **multiple times** on the same Future — each call returns the same result
+8. Awaiting a Future that was **aborted** by an algebraic effect handler causes a **panic**
 
 ### Execution Model
 
@@ -216,7 +218,7 @@ main :: (fn(using(io : IO)) -> unit)({
 ```yo
 // `io.async(fn)` returns `Impl(Future(T))` — a pointer to a heap-allocated state machine.
 // The state machine stores:
-//   - state: int (0 = cold, 1..N = intermediate, -1 = completed)
+//   - state: int (0 = cold, 1..N = intermediate, -1 = completed, -2 = aborted)
 //   - continuation_fn / continuation_sm (who to resume on completion)
 //   - result: T (when completed; omitted for unit)
 //   - captured vars + locals that cross await
@@ -318,6 +320,55 @@ Why heap allocation?
 - The runtime queues continuations as `(resume_fn, state_machine_ptr)`, so the state machine must outlive the scheduling point.
 
 This is an implementation choice, not a semantic requirement.
+
+### Multi-Await
+
+A Future can be awaited **multiple times**. Each `io.await` call on the same Future returns the same result:
+
+```yo
+main :: (fn(using(io : IO)) -> unit) {
+  task := io.async(() => {
+    return 42;
+  });
+  result1 := io.await(task);
+  result2 := io.await(task);
+  result3 := io.await(task);
+  assert((result1 == 42), "first await returns 42");
+  assert((result2 == 42), "second await returns 42");
+  assert((result3 == 42), "third await returns 42");
+};
+export main;
+```
+
+The Future retains its result after completion. For reference-counted result types, each `io.await` call dups the result so the caller gets its own reference. The Future's dispose function drops the original when the state machine is freed.
+
+### Aborted Futures
+
+When an algebraic effect handler calls `abort` inside an async task, the Future is marked as **aborted** (internal state = -2). The task's continuation is discarded and no result is stored.
+
+Attempting to `io.await` or `io.join` on an aborted Future causes a **panic**:
+
+```yo
+main :: (fn(using(io : IO)) -> unit) {
+  Raise :: (fn(forall(T : Type), msg : String) -> T);
+  task := io.async((using(io : IO))=> {
+    (given(raise) : Raise) = ((msg) -> { abort (); });
+    raise(`something went wrong`);
+    42
+  });
+  result := io.await(task);  // panic: attempted to await an aborted Future
+};
+export main;
+```
+
+**Future State Machine States:**
+
+| State | Meaning                                               |
+| ----- | ----------------------------------------------------- |
+| 0     | Cold — not started yet                                |
+| 1..N  | Intermediate — suspended at an await/yield point      |
+| -1    | Completed — result is available                       |
+| -2    | Aborted — an effect handler called `abort`, no result |
 
 ## State Machine Transformation
 

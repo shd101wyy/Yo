@@ -143,7 +143,7 @@ void yo_async_poll_step(void) {
 
 // Run event loop until a specific Future completes (for async main)
 // The Future must have an '_Atomic int state' field at offset 0
-// State -1 means completed, -3 means aborted
+// State -1 means completed, -2 means aborted
 void __yo_async_run_until_complete(void* future_ptr) {
   if (!yo_async_scheduler_initialized) {
     __yo_async_scheduler_init();
@@ -162,7 +162,7 @@ void __yo_async_run_until_complete(void* future_ptr) {
   
   // Run the event loop until the future completes or is aborted
   int __future_state = atomic_load(&future->state);
-  while (__future_state != -1 && __future_state != -3) {
+  while (__future_state != -1 && __future_state != -2) {
     // 1. Process ready tasks (up to 100 per iteration)
     int tasks_run = 0;
     while (tasks_run < 100) {
@@ -207,7 +207,7 @@ void __yo_async_run_until_complete(void* future_ptr) {
       if (!__yo_has_pending_io()) {
         // No tasks, no I/O - future must be waiting on something else or complete
         ASYNC_DEBUG("[ASYNC] No tasks or I/O, future state=%d\\n", __future_state);
-        if (__future_state != -1 && __future_state != -3) {
+        if (__future_state != -1 && __future_state != -2) {
           // Future not complete but nothing to do - this shouldn't happen
           ASYNC_DEBUG("[ASYNC] WARNING: No tasks/IO but future not complete\\n");
           break;
@@ -227,7 +227,7 @@ void __yo_async_run_until_complete(void* future_ptr) {
   
   ASYNC_DEBUG("[ASYNC] Event loop finished, future state=%d\\n", atomic_load(&future->state));
   
-  if (atomic_load(&future->state) == -3) {
+  if (atomic_load(&future->state) == -2) {
     fprintf(stderr, "panic: async main Future was aborted by an effect handler\\n");
     abort();
   }
