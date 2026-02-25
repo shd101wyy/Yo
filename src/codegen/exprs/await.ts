@@ -43,7 +43,10 @@ export function generateAwait(
   // The result is extracted at the start of the next state
   // If this await expression is assigned to a variable, that variable's name is in expr.$.variableName
   const functionContext = context as FunctionGenerationContext;
-  if (functionContext.inStateMachine) {
+  if (
+    functionContext.inAsyncStateMachine ||
+    functionContext.inEffectStateMachine
+  ) {
     // Return empty string - the actual await logic is handled by state machine generator
     // The result will be available in the target variable in the next state
     return ``;

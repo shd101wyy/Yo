@@ -103,7 +103,9 @@ export function generateAssignment(
     // Skip temp variable declaration in state machines if lhsCode already accesses sm->var_xxx
     const functionContext = context as FunctionGenerationContext;
     const skipTempVar =
-      functionContext.inStateMachine && lhsCode.startsWith("sm->");
+      (functionContext.inAsyncStateMachine ||
+        functionContext.inEffectStateMachine) &&
+      lhsCode.startsWith("sm->");
 
     if (skipTempVar) {
       skippedTempVar = true;

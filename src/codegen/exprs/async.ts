@@ -170,7 +170,8 @@ export function generateAsyncBlock(
     const functionContext = context as FunctionGenerationContext;
     const inSpecialContext =
       functionContext.currentClosureCaptures !== undefined ||
-      functionContext.inStateMachine !== undefined;
+      functionContext.inAsyncStateMachine !== undefined ||
+      functionContext.inEffectStateMachine !== undefined;
 
     let usedDeferredDups = false;
     const captureFields = captureType.fields

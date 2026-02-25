@@ -150,18 +150,18 @@ export function generateAsyncBlockResumeFunction(
   const childType = futureModuleType.isFuture.outputType;
   const isUnitResult = isUnitType(childType);
 
-  // Clear condBranchInfo and whileLoopInfo for this async block to prevent
+  // Clear asyncCondBranchInfo and asyncWhileLoopInfo for this async block to prevent
   // data from other async blocks (or outer scopes) from leaking in.
   // Each async block should only see its own branch/loop information.
-  context.condBranchInfo = new Map();
-  context.whileLoopInfo = new Map();
+  context.asyncCondBranchInfo = new Map();
+  context.asyncWhileLoopInfo = new Map();
 
   // Initialize the while loop index counter for allocating unique indices
   // to outer while loops in nested while-with-await scenarios.
   // Indices 0..awaitPoints.length-1 are reserved for innermost while loops
   // (matching their await point indices). Outer while loops get indices starting
   // from awaitPoints.length.
-  context.nextWhileLoopIndex = analysis.awaitPoints.length;
+  context.asyncNextWhileLoopIndex = analysis.awaitPoints.length;
 
   // Split the body into state segments
   const segments = splitIntoStateSegments(bodyExpr, analysis.awaitPoints);
@@ -283,7 +283,7 @@ export function generateAsyncBlockResumeFunction(
       // If so, we need to execute the remaining code from the chosen branch
       const functionContext = context as FunctionGenerationContext;
       if (prevAwait) {
-        const condBranchData = functionContext.condBranchInfo?.get(
+        const condBranchData = functionContext.asyncCondBranchInfo?.get(
           prevAwait.index
         );
         if (condBranchData && condBranchData.branches.some((b) => b.hasAwait)) {
@@ -311,7 +311,8 @@ export function generateAsyncBlockResumeFunction(
               // If there are remaining expressions, generate them
               if (branch.remainingExprs && branch.remainingExprs.length > 0) {
                 // Set up state machine context for code generation
-                const previousInStateMachineForBranch = context.inStateMachine;
+                const previousInStateMachineForBranch =
+                  context.inAsyncStateMachine;
                 const previousStateMachineVariablesForBranch =
                   context.stateMachineVariables;
                 const previousVariableIdRemappingForBranch =
@@ -319,7 +320,7 @@ export function generateAsyncBlockResumeFunction(
                 const previousPendingDeferredDropsForBranch =
                   context.pendingDeferredDrops;
 
-                context.inStateMachine = { futureType };
+                context.inAsyncStateMachine = { futureType };
                 context.variableIdRemapping = analysis.variableIdRemapping;
                 // Set pending deferred drops so early returns in cond branches
                 // can drop async block local variables
@@ -413,11 +414,11 @@ export function generateAsyncBlockResumeFunction(
                 if (foundAdditionalAwait && segment.awaitPoint) {
                   // Store continuation info for the next state
                   const nextIndex = segment.awaitPoint.index;
-                  if (!functionContext.condBranchInfo) {
-                    functionContext.condBranchInfo = new Map();
+                  if (!functionContext.asyncCondBranchInfo) {
+                    functionContext.asyncCondBranchInfo = new Map();
                   }
                   const existing =
-                    functionContext.condBranchInfo.get(nextIndex);
+                    functionContext.asyncCondBranchInfo.get(nextIndex);
                   if (existing) {
                     // Entry already exists (from a nested cond's generateCondWithAwait).
                     // Chain the outer cond's remaining code as a separate layer.
@@ -459,7 +460,10 @@ export function generateAsyncBlockResumeFunction(
                       ],
                       condBranchFieldIndex: condBranchFieldIndex,
                     };
-                    functionContext.condBranchInfo.set(nextIndex, newEntry);
+                    functionContext.asyncCondBranchInfo.set(
+                      nextIndex,
+                      newEntry
+                    );
                   }
                 } else {
                   // No more awaits - generate deferred drop expressions
@@ -481,7 +485,7 @@ export function generateAsyncBlockResumeFunction(
                 }
 
                 // Restore context
-                context.inStateMachine = previousInStateMachineForBranch;
+                context.inAsyncStateMachine = previousInStateMachineForBranch;
                 context.stateMachineVariables =
                   previousStateMachineVariablesForBranch;
                 context.variableIdRemapping =
@@ -508,7 +512,7 @@ export function generateAsyncBlockResumeFunction(
                 ) {
                   // Set up state machine context for code generation
                   const previousInStateMachineForChained =
-                    context.inStateMachine;
+                    context.inAsyncStateMachine;
                   const previousStateMachineVariablesForChained =
                     context.stateMachineVariables;
                   const previousVariableIdRemappingForChained =
@@ -516,7 +520,7 @@ export function generateAsyncBlockResumeFunction(
                   const previousPendingDeferredDropsForChained =
                     context.pendingDeferredDrops;
 
-                  context.inStateMachine = { futureType };
+                  context.inAsyncStateMachine = { futureType };
                   context.variableIdRemapping = analysis.variableIdRemapping;
                   context.pendingDeferredDrops = [
                     ...(bodyExpr.$?.deferredDropExpressions ?? []),
@@ -581,11 +585,11 @@ export function generateAsyncBlockResumeFunction(
 
                   if (foundAdditionalAwaitChained && segment.awaitPoint) {
                     const nextIndex = segment.awaitPoint.index;
-                    if (!functionContext.condBranchInfo) {
-                      functionContext.condBranchInfo = new Map();
+                    if (!functionContext.asyncCondBranchInfo) {
+                      functionContext.asyncCondBranchInfo = new Map();
                     }
                     const existingChained =
-                      functionContext.condBranchInfo.get(nextIndex);
+                      functionContext.asyncCondBranchInfo.get(nextIndex);
                     if (existingChained) {
                       if (!existingChained.chainedBranches) {
                         existingChained.chainedBranches = [];
@@ -608,7 +612,7 @@ export function generateAsyncBlockResumeFunction(
                         condBranchFieldIndex: chainedLayer.condBranchFieldIndex,
                       });
                     } else {
-                      functionContext.condBranchInfo.set(nextIndex, {
+                      functionContext.asyncCondBranchInfo.set(nextIndex, {
                         branches: [
                           {
                             index: chainedBranch.index,
@@ -641,7 +645,8 @@ export function generateAsyncBlockResumeFunction(
                     }
                   }
 
-                  context.inStateMachine = previousInStateMachineForChained;
+                  context.inAsyncStateMachine =
+                    previousInStateMachineForChained;
                   context.stateMachineVariables =
                     previousStateMachineVariablesForChained;
                   context.variableIdRemapping =
@@ -677,7 +682,7 @@ export function generateAsyncBlockResumeFunction(
 
         // Check if this await was part of a while loop
         // If so, we need to execute remaining body expressions, then re-evaluate the loop condition
-        const whileLoopData = functionContext.whileLoopInfo?.get(
+        const whileLoopData = functionContext.asyncWhileLoopInfo?.get(
           prevAwait.index
         );
         if (whileLoopData) {
@@ -694,7 +699,7 @@ export function generateAsyncBlockResumeFunction(
             whileLoopData.bodyExprsAfterAwait.length > 0
           ) {
             // Set up state machine context for code generation
-            const previousInStateMachineForLoop = context.inStateMachine;
+            const previousInStateMachineForLoop = context.inAsyncStateMachine;
             const previousStateMachineVariablesForLoop =
               context.stateMachineVariables;
             const previousVariableIdRemappingForLoop =
@@ -702,7 +707,7 @@ export function generateAsyncBlockResumeFunction(
             const previousPendingDeferredDropsForLoop =
               context.pendingDeferredDrops;
 
-            context.inStateMachine = { futureType };
+            context.inAsyncStateMachine = { futureType };
             context.variableIdRemapping = analysis.variableIdRemapping;
             context.pendingDeferredDrops = [
               ...(whileLoopData.bodyExpr.$?.deferredDropExpressions ?? []),
@@ -762,7 +767,7 @@ export function generateAsyncBlockResumeFunction(
             context.smWhileBreakInfo = previousSmWhileBreakInfo;
             context.smWhileContinueInfo = previousSmWhileContinueInfo;
             context.smWhileBodyDrops = previousSmWhileBodyDrops;
-            context.inStateMachine = previousInStateMachineForLoop;
+            context.inAsyncStateMachine = previousInStateMachineForLoop;
             context.stateMachineVariables =
               previousStateMachineVariablesForLoop;
             context.variableIdRemapping = previousVariableIdRemappingForLoop;
@@ -778,10 +783,10 @@ export function generateAsyncBlockResumeFunction(
             const whileBodyDrops =
               whileLoopData.bodyExpr.$?.deferredDropExpressions ?? [];
             if (whileBodyDrops.length > 0) {
-              const prevInSM = context.inStateMachine;
+              const prevInSM = context.inAsyncStateMachine;
               const prevSMVars = context.stateMachineVariables;
               const prevVarRemap = context.variableIdRemapping;
-              context.inStateMachine = { futureType };
+              context.inAsyncStateMachine = { futureType };
               context.variableIdRemapping = analysis.variableIdRemapping;
 
               const dropCombinedVars = new Map<string, CapturedVariable>();
@@ -808,7 +813,7 @@ export function generateAsyncBlockResumeFunction(
                 }
               }
 
-              context.inStateMachine = prevInSM;
+              context.inAsyncStateMachine = prevInSM;
               context.stateMachineVariables = prevSMVars;
               context.variableIdRemapping = prevVarRemap;
             }
@@ -820,13 +825,13 @@ export function generateAsyncBlockResumeFunction(
           );
 
           // Set up state machine context for condition evaluation
-          const previousInStateMachineForCond = context.inStateMachine;
+          const previousInStateMachineForCond = context.inAsyncStateMachine;
           const previousStateMachineVariablesForCond =
             context.stateMachineVariables;
           const previousVariableIdRemappingForCond =
             context.variableIdRemapping;
 
-          context.inStateMachine = { futureType };
+          context.inAsyncStateMachine = { futureType };
           context.variableIdRemapping = analysis.variableIdRemapping;
 
           // Combine outer captured variables and local variables
@@ -855,7 +860,7 @@ export function generateAsyncBlockResumeFunction(
           );
 
           // Restore context
-          context.inStateMachine = previousInStateMachineForCond;
+          context.inAsyncStateMachine = previousInStateMachineForCond;
           context.stateMachineVariables = previousStateMachineVariablesForCond;
           context.variableIdRemapping = previousVariableIdRemappingForCond;
 
@@ -903,12 +908,12 @@ export function generateAsyncBlockResumeFunction(
 
             // Generate the outer while's remaining body expressions
             if (outerWhile.bodyExprsAfterAwait.length > 0) {
-              const prevInSMOuter = context.inStateMachine;
+              const prevInSMOuter = context.inAsyncStateMachine;
               const prevSMVarsOuter = context.stateMachineVariables;
               const prevVarRemapOuter = context.variableIdRemapping;
               const prevPendingDropsOuter = context.pendingDeferredDrops;
 
-              context.inStateMachine = { futureType };
+              context.inAsyncStateMachine = { futureType };
               context.variableIdRemapping = analysis.variableIdRemapping;
               context.pendingDeferredDrops = [
                 ...(outerWhile.bodyExpr.$?.deferredDropExpressions ?? []),
@@ -962,7 +967,7 @@ export function generateAsyncBlockResumeFunction(
               context.smWhileBreakInfo = prevBreakInfoOuter;
               context.smWhileContinueInfo = prevContinueInfoOuter;
               context.smWhileBodyDrops = prevBodyDropsOuter;
-              context.inStateMachine = prevInSMOuter;
+              context.inAsyncStateMachine = prevInSMOuter;
               context.stateMachineVariables = prevSMVarsOuter;
               context.variableIdRemapping = prevVarRemapOuter;
               context.pendingDeferredDrops = prevPendingDropsOuter;
@@ -976,10 +981,10 @@ export function generateAsyncBlockResumeFunction(
               const outerDrops =
                 outerWhile.bodyExpr.$?.deferredDropExpressions ?? [];
               if (outerDrops.length > 0) {
-                const prevInSM2 = context.inStateMachine;
+                const prevInSM2 = context.inAsyncStateMachine;
                 const prevSMVars2 = context.stateMachineVariables;
                 const prevVarRemap2 = context.variableIdRemapping;
-                context.inStateMachine = { futureType };
+                context.inAsyncStateMachine = { futureType };
                 context.variableIdRemapping = analysis.variableIdRemapping;
 
                 const dropVars2 = new Map<string, CapturedVariable>();
@@ -1006,7 +1011,7 @@ export function generateAsyncBlockResumeFunction(
                   }
                 }
 
-                context.inStateMachine = prevInSM2;
+                context.inAsyncStateMachine = prevInSM2;
                 context.stateMachineVariables = prevSMVars2;
                 context.variableIdRemapping = prevVarRemap2;
               }
@@ -1014,10 +1019,10 @@ export function generateAsyncBlockResumeFunction(
 
             // Re-evaluate outer while condition
             {
-              const prevInSM3 = context.inStateMachine;
+              const prevInSM3 = context.inAsyncStateMachine;
               const prevSMVars3 = context.stateMachineVariables;
               const prevVarRemap3 = context.variableIdRemapping;
-              context.inStateMachine = { futureType };
+              context.inAsyncStateMachine = { futureType };
               context.variableIdRemapping = analysis.variableIdRemapping;
 
               const condVars3 = new Map<string, CapturedVariable>();
@@ -1043,7 +1048,7 @@ export function generateAsyncBlockResumeFunction(
                 context
               );
 
-              context.inStateMachine = prevInSM3;
+              context.inAsyncStateMachine = prevInSM3;
               context.stateMachineVariables = prevSMVars3;
               context.variableIdRemapping = prevVarRemap3;
 
@@ -1068,11 +1073,11 @@ export function generateAsyncBlockResumeFunction(
     }
 
     // Set up state machine context
-    const previousInStateMachine = context.inStateMachine;
+    const previousInStateMachine = context.inAsyncStateMachine;
     const previousStateMachineVariables = context.stateMachineVariables;
     const previousVariableIdRemapping = context.variableIdRemapping;
 
-    context.inStateMachine = { futureType };
+    context.inAsyncStateMachine = { futureType };
     context.variableIdRemapping = analysis.variableIdRemapping;
     // Combine outer captured variables and local variables into stateMachineVariables
     // This allows generateAtom to find all variables that should be accessed via sm->
@@ -1125,7 +1130,7 @@ export function generateAsyncBlockResumeFunction(
 
     if (segment.awaitPoint) {
       // Restore previous context before await logic
-      context.inStateMachine = previousInStateMachine;
+      context.inAsyncStateMachine = previousInStateMachine;
       context.stateMachineVariables = previousStateMachineVariables;
       context.variableIdRemapping = previousVariableIdRemapping;
 
@@ -1354,12 +1359,12 @@ export function generateAsyncBlockResumeFunction(
       }
 
       // Restore previous context after final state
-      context.inStateMachine = previousInStateMachine;
+      context.inAsyncStateMachine = previousInStateMachine;
       context.stateMachineVariables = previousStateMachineVariables;
       context.variableIdRemapping = previousVariableIdRemapping;
     } else {
       // Restore previous context for non-await, non-final segments
-      context.inStateMachine = previousInStateMachine;
+      context.inAsyncStateMachine = previousInStateMachine;
       context.stateMachineVariables = previousStateMachineVariables;
       context.variableIdRemapping = previousVariableIdRemapping;
     }

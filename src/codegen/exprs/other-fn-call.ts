@@ -84,7 +84,10 @@ function storeTempVarToStateMachineIfNeeded(
 ): void {
   const functionContext = context as FunctionGenerationContext;
   if (
-    !functionContext.inStateMachine ||
+    !(
+      functionContext.inAsyncStateMachine ||
+      functionContext.inEffectStateMachine
+    ) ||
     !functionContext.stateMachineVariables
   ) {
     return;
@@ -201,7 +204,9 @@ export function generateOtherFunctionCall(
 
           // Check if this variable is captured by a state machine
           const isStateMachineCapturedVariable =
-            functionContext.inStateMachine && argCode.startsWith("sm->");
+            (functionContext.inAsyncStateMachine ||
+              functionContext.inEffectStateMachine) &&
+            argCode.startsWith("sm->");
 
           // Track whether we emitted a temp variable declaration
           let emittedTempVarDeclaration = false;
@@ -742,7 +747,9 @@ export function generateOtherFunctionCall(
 
             // Check if this variable is captured by a state machine
             const isStateMachineCapturedVariable =
-              functionContext.inStateMachine && argCode.startsWith("sm->");
+              (functionContext.inAsyncStateMachine ||
+                functionContext.inEffectStateMachine) &&
+              argCode.startsWith("sm->");
 
             if (
               argCode &&
@@ -805,7 +812,9 @@ export function generateOtherFunctionCall(
                 arg.$.env
               );
               const isStateMachineCapturedVariable =
-                functionContext.inStateMachine && argVarName.startsWith("sm->");
+                (functionContext.inAsyncStateMachine ||
+                  functionContext.inEffectStateMachine) &&
+                argVarName.startsWith("sm->");
 
               // Handle deferred dup expressions for closure call arguments
               let finalArgVarName = argVarName;
@@ -1356,7 +1365,8 @@ export function generateOtherFunctionCall(
                       );
 
                     const isStateMachineCapturedVariable =
-                      functionContext.inStateMachine &&
+                      (functionContext.inAsyncStateMachine ||
+                        functionContext.inEffectStateMachine) &&
                       argCode.startsWith("sm->");
 
                     let isComptimeOnlyArg = false;

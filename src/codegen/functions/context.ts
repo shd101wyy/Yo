@@ -35,9 +35,8 @@ export interface FunctionGenerationContext extends CodeGenContext {
   currentClosureCaptureFrameLevel?: number; // Frame level of the captured variables
   currentClosureType?: FunctionType; // Current closure type being generated
   currentClosureCaptureTypeCName?: string; // C name of the capture struct type (e.g. "yo_struct_abc123_capture")
-  // State machine context (when generating code inside async state machine)
-  // FIXME: OUTDATED, it used to be { futureType: FutureType }
-  inStateMachine?: { futureType: SomeType | DynType }; // Set when generating code inside a state machine, contains the Future type being generated
+  // Async state machine context (set when generating code inside an async state machine)
+  inAsyncStateMachine?: { futureType: SomeType | DynType };
   stateMachineVariables?: Map<string, CapturedVariable>; // Variables captured in state machine (id -> variable)
   // Effect state machine context (when generating code inside an effectful function's state machine)
   inEffectStateMachine?: EffectStateMachineInfo; // Set when generating code inside an effect state machine
@@ -85,7 +84,7 @@ export interface FunctionGenerationContext extends CodeGenContext {
     analysis: AwaitAnalysisResult;
   }>;
   // Branch tracking for cond expressions with await
-  condBranchInfo?: Map<
+  asyncCondBranchInfo?: Map<
     number,
     {
       branches: Array<{
@@ -113,7 +112,7 @@ export interface FunctionGenerationContext extends CodeGenContext {
     }
   >;
   // Loop tracking for while loops with await
-  whileLoopInfo?: Map<
+  asyncWhileLoopInfo?: Map<
     number,
     {
       conditionExpr: Expr; // The loop condition expression
@@ -129,7 +128,7 @@ export interface FunctionGenerationContext extends CodeGenContext {
   >;
   // Counter for allocating unique while loop indices for nested while-with-await.
   // Starts at awaitPoints.length so outer while indices don't collide with await point indices.
-  nextWhileLoopIndex?: number;
+  asyncNextWhileLoopIndex?: number;
   // Variables that are locally shadowed (e.g., in match destructuring patterns)
   // When a variable name is in this set, use the local C variable instead of sm->var_...
   localShadowedVariables?: Set<string>;

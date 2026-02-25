@@ -37,12 +37,7 @@ import {
   type FnCallExpr,
 } from "../../expr";
 import type { FunctionValue } from "../../function-value";
-import type {
-  DynType,
-  FunctionType,
-  SomeType,
-  Type,
-} from "../../types/definitions";
+import type { FunctionType, SomeType, Type } from "../../types/definitions";
 import { isSomeType, isStructType, isUnitType } from "../../types/guards";
 import { typeContainsRcType } from "../../types/utils";
 import { isTempVariableName } from "../../utils";
@@ -386,7 +381,6 @@ export function generateEffectResumeFunction(
   const { structName, resumeFunctionName, analysis } = info;
 
   const previousInEffectStateMachine = context.inEffectStateMachine;
-  const previousInStateMachine = context.inStateMachine;
   const previousStateMachineVariables = context.stateMachineVariables;
   const previousVariableIdRemapping = context.variableIdRemapping;
 
@@ -425,9 +419,6 @@ export function generateEffectResumeFunction(
   }
 
   context.inEffectStateMachine = info;
-  context.inStateMachine = {
-    futureType: info.functionType.return.type as unknown as SomeType | DynType,
-  };
   context.stateMachineVariables = variableMap;
   context.variableIdRemapping = analysis.variableIdRemapping;
 
@@ -755,7 +746,6 @@ export function generateEffectResumeFunction(
   emitter.emitLine(``);
 
   context.inEffectStateMachine = previousInEffectStateMachine;
-  context.inStateMachine = previousInStateMachine;
   context.stateMachineVariables = previousStateMachineVariables;
   context.variableIdRemapping = previousVariableIdRemapping;
   context.currentClosureCaptures = previousClosureCaptures;

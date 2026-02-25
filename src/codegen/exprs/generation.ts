@@ -418,7 +418,10 @@ function generateFuncCall(
   if (isIoJoinCall(expr)) {
     // In state machine context, join is handled by the state machine generator
     const functionContext = context as FunctionGenerationContext;
-    if (functionContext.inStateMachine) {
+    if (
+      functionContext.inAsyncStateMachine ||
+      functionContext.inEffectStateMachine
+    ) {
       return ``;
     }
     // Outside async context — synchronous join via busy-poll

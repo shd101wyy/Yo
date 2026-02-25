@@ -567,10 +567,10 @@ function generateCondWithAwait(
       }
     }
 
-    if (!context.condBranchInfo) {
-      context.condBranchInfo = new Map();
+    if (!context.asyncCondBranchInfo) {
+      context.asyncCondBranchInfo = new Map();
     }
-    context.condBranchInfo.set(awaitPoint.index, {
+    context.asyncCondBranchInfo.set(awaitPoint.index, {
       branches: branchesWithAwait,
       targetVariableId,
       targetAssignmentCode,
@@ -730,10 +730,10 @@ function generateCondWithAwait(
   }
 
   // Store branch information in context for resume state generation
-  if (!context.condBranchInfo) {
-    context.condBranchInfo = new Map();
+  if (!context.asyncCondBranchInfo) {
+    context.asyncCondBranchInfo = new Map();
   }
-  context.condBranchInfo.set(awaitPoint.index, {
+  context.asyncCondBranchInfo.set(awaitPoint.index, {
     branches: branchesWithAwait,
     targetVariableId,
     targetAssignmentCode,
@@ -940,11 +940,11 @@ function generateMatchWithAwait(
           if (remainingExprs.length > 0) {
             // Store in context for state machine generation
             const functionContext = context as FunctionGenerationContext;
-            if (!functionContext.condBranchInfo) {
-              functionContext.condBranchInfo = new Map();
+            if (!functionContext.asyncCondBranchInfo) {
+              functionContext.asyncCondBranchInfo = new Map();
             }
 
-            const branchData = functionContext.condBranchInfo.get(
+            const branchData = functionContext.asyncCondBranchInfo.get(
               awaitPoint.index
             ) || {
               branches: [],
@@ -958,7 +958,10 @@ function generateMatchWithAwait(
               deferredDropExpressions: caseBody.$?.deferredDropExpressions,
             });
 
-            functionContext.condBranchInfo.set(awaitPoint.index, branchData);
+            functionContext.asyncCondBranchInfo.set(
+              awaitPoint.index,
+              branchData
+            );
           }
         } else {
           // No await in pointer case - generate normally
@@ -1008,11 +1011,11 @@ function generateMatchWithAwait(
 
           if (remainingExprs.length > 0) {
             const functionContext = context as FunctionGenerationContext;
-            if (!functionContext.condBranchInfo) {
-              functionContext.condBranchInfo = new Map();
+            if (!functionContext.asyncCondBranchInfo) {
+              functionContext.asyncCondBranchInfo = new Map();
             }
 
-            const branchData = functionContext.condBranchInfo.get(
+            const branchData = functionContext.asyncCondBranchInfo.get(
               awaitPoint.index
             ) || {
               branches: [],
@@ -1026,7 +1029,10 @@ function generateMatchWithAwait(
               deferredDropExpressions: caseBody.$?.deferredDropExpressions,
             });
 
-            functionContext.condBranchInfo.set(awaitPoint.index, branchData);
+            functionContext.asyncCondBranchInfo.set(
+              awaitPoint.index,
+              branchData
+            );
           }
         } else {
           // No await in null case - generate normally
@@ -1177,11 +1183,11 @@ function generateMatchWithAwait(
 
         if (remainingExprs.length > 0) {
           const functionContext = context as FunctionGenerationContext;
-          if (!functionContext.condBranchInfo) {
-            functionContext.condBranchInfo = new Map();
+          if (!functionContext.asyncCondBranchInfo) {
+            functionContext.asyncCondBranchInfo = new Map();
           }
 
-          const branchData = functionContext.condBranchInfo.get(
+          const branchData = functionContext.asyncCondBranchInfo.get(
             awaitPoint.index
           ) || {
             branches: [],
@@ -1195,7 +1201,7 @@ function generateMatchWithAwait(
             deferredDropExpressions: caseBody.$?.deferredDropExpressions,
           });
 
-          functionContext.condBranchInfo.set(awaitPoint.index, branchData);
+          functionContext.asyncCondBranchInfo.set(awaitPoint.index, branchData);
         }
       } else {
         // No await - generate normally
@@ -1367,10 +1373,10 @@ function generatePrimitiveMatchWithAwait(
   emitter.emitLine(`${indent}}`);
 
   // Store branch information in context for resume state generation
-  if (!context.condBranchInfo) {
-    context.condBranchInfo = new Map();
+  if (!context.asyncCondBranchInfo) {
+    context.asyncCondBranchInfo = new Map();
   }
-  context.condBranchInfo.set(awaitPoint.index, {
+  context.asyncCondBranchInfo.set(awaitPoint.index, {
     branches: branchesWithAwait,
     targetVariableId,
     targetAssignmentCode,
@@ -1538,8 +1544,8 @@ function generateWhileWithAwait(
   let whileLoopIndex: number;
   if (hasNestedWhileWithAwait) {
     // Allocate a fresh while loop index for this outer while
-    whileLoopIndex = context.nextWhileLoopIndex ?? awaitPoint.index + 1;
-    context.nextWhileLoopIndex = whileLoopIndex + 1;
+    whileLoopIndex = context.asyncNextWhileLoopIndex ?? awaitPoint.index + 1;
+    context.asyncNextWhileLoopIndex = whileLoopIndex + 1;
   } else {
     // Innermost while uses the await point index
     whileLoopIndex = awaitPoint.index;
@@ -1573,15 +1579,15 @@ function generateWhileWithAwait(
   emitter.emitLine(`${indent}while_loop_${whileLoopIndex}_end:`);
 
   // Store loop information in context for resume state generation
-  if (!context.whileLoopInfo) {
-    context.whileLoopInfo = new Map();
+  if (!context.asyncWhileLoopInfo) {
+    context.asyncWhileLoopInfo = new Map();
   }
 
   if (hasNestedWhileWithAwait) {
     // This is an outer while. The inner while has already stored its info
     // at awaitPoint.index via the recursive generateWhileWithAwait call.
     // Attach outer while info to the inner while's entry for the resume state.
-    const innerWhileInfo = context.whileLoopInfo.get(awaitPoint.index);
+    const innerWhileInfo = context.asyncWhileLoopInfo.get(awaitPoint.index);
     if (innerWhileInfo) {
       innerWhileInfo.outerWhileLoop = {
         whileLoopIndex,
@@ -1592,7 +1598,7 @@ function generateWhileWithAwait(
     }
   } else {
     // Innermost while - store directly
-    context.whileLoopInfo.set(awaitPoint.index, {
+    context.asyncWhileLoopInfo.set(awaitPoint.index, {
       conditionExpr,
       bodyExpr,
       bodyExprsAfterAwait,
@@ -1730,7 +1736,7 @@ function generateWhileBodyWithAwait(
   ) {
     // Cond expression with await in one of its branches
     generateCondWithAwait(awaitExpr, awaitPoint, indent, context, undefined);
-    // The cond branch remainingExprs are already stored in context.condBranchInfo
+    // The cond branch remainingExprs are already stored in context.asyncCondBranchInfo
     // Don't collect anything here - they'll be handled in the resume state
     return remainingExprs;
   } else if (
@@ -1739,7 +1745,7 @@ function generateWhileBodyWithAwait(
   ) {
     // Match expression with await in one of its branches
     generateMatchWithAwait(awaitExpr, awaitPoint, indent, context);
-    // The match branch remainingExprs are already stored in context.condBranchInfo
+    // The match branch remainingExprs are already stored in context.asyncCondBranchInfo
     // Don't collect anything here - they'll be handled in the resume state
     return remainingExprs;
   }

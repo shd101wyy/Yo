@@ -134,9 +134,9 @@ export function generateAtom(
   }
 
   if (expr.token.value === "return") {
-    if (functionContext.inStateMachine) {
+    if (functionContext.inAsyncStateMachine) {
       const emitter = context.emitter;
-      const futureType = functionContext.inStateMachine.futureType;
+      const futureType = functionContext.inAsyncStateMachine.futureType;
       const futureModuleType = extractFutureTraitFromType(futureType)!;
       const childType = futureModuleType.isFuture.outputType;
       const isUnitResult = isUnitType(childType);
@@ -193,7 +193,11 @@ export function generateAtom(
   // Type assertion to access function-specific context
 
   // Check if we're in a state machine and this is a captured variable
-  if (functionContext.inStateMachine && functionContext.stateMachineVariables) {
+  if (
+    (functionContext.inAsyncStateMachine ||
+      functionContext.inEffectStateMachine) &&
+    functionContext.stateMachineVariables
+  ) {
     const varName = expr.token.value;
 
     // Check if this variable is locally shadowed (e.g., in match destructuring)

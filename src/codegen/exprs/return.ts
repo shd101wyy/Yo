@@ -327,7 +327,11 @@ export function generateReturn(
     let argCode: string;
     let needsTempVarDeclaration = false;
 
-    if (functionContext.inStateMachine && arg.$?.variableName) {
+    if (
+      (functionContext.inAsyncStateMachine ||
+        functionContext.inEffectStateMachine) &&
+      arg.$?.variableName
+    ) {
       // In async context: generate raw value code by temporarily clearing variableName
       const savedVariableName = arg.$.variableName;
       arg.$.variableName = undefined;
@@ -411,7 +415,10 @@ export function generateReturn(
     }
 
     // Check if we're in a state machine - if so, complete the SM instead of returning
-    if (functionContext.inStateMachine) {
+    if (
+      functionContext.inAsyncStateMachine ||
+      functionContext.inEffectStateMachine
+    ) {
       if (functionContext.inEffectStateMachine) {
         // Effect state machine return - set result and mark completed
         generatePendingDeferredDrops(indent, functionContext, expr, true);
@@ -426,7 +433,7 @@ export function generateReturn(
       }
 
       // Async state machine return - complete the Future and clean up
-      const futureType = functionContext.inStateMachine.futureType;
+      const futureType = functionContext.inAsyncStateMachine!.futureType;
       const futureModuleType = extractFutureTraitFromType(futureType)!;
       const childType = futureModuleType.isFuture.outputType;
       const isUnitResult = isUnitType(childType);
@@ -474,7 +481,10 @@ export function generateReturn(
     }
 
     // Check if we're in a state machine - if so, complete the SM instead of returning
-    if (functionContext.inStateMachine) {
+    if (
+      functionContext.inAsyncStateMachine ||
+      functionContext.inEffectStateMachine
+    ) {
       if (functionContext.inEffectStateMachine) {
         // Effect state machine unit return - mark completed
         generatePendingDeferredDrops(indent, functionContext, expr, true);
@@ -482,7 +492,7 @@ export function generateReturn(
         return `return`;
       }
 
-      const futureType = functionContext.inStateMachine.futureType;
+      const futureType = functionContext.inAsyncStateMachine!.futureType;
       const futureModuleType = extractFutureTraitFromType(futureType)!;
       const childType = futureModuleType.isFuture.outputType;
       const isUnitResult = isUnitType(childType);
