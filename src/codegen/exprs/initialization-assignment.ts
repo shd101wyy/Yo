@@ -2,7 +2,6 @@ import { getVariablesFromEnv } from "../../env";
 import { isIoAsyncCall } from "../../evaluator/async/await-analysis";
 import { typeImplementsFn } from "../../evaluator/trait-checking";
 import {
-  BuiltinFunctions,
   BuiltinKeywords,
   exprIsAtom,
   exprIsFunctionCall,
@@ -275,10 +274,7 @@ export function generateInitializationAssignment(
 
       // Async blocks handle their own deferred dup expressions internally
       // (as part of capture struct construction in generateAsyncBlock)
-      const rhsIsAsyncBlock =
-        exprIsFunctionCall(rhs) &&
-        (exprIsFunctionCallOf(rhs, BuiltinFunctions.async) ||
-          isIoAsyncCall(rhs));
+      const rhsIsAsyncBlock = exprIsFunctionCall(rhs) && isIoAsyncCall(rhs);
 
       // If RHS has a temp variable name (e.g., for Rc values), we need to:
       // 1. First generate the RHS expression and assign it to the temp variable

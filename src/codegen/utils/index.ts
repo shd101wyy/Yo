@@ -1,5 +1,6 @@
 import { Emitter } from "../../emitter";
 import { type Environment, getVariablesFromEnv } from "../../env";
+import { isIoAsyncCall } from "../../evaluator/async/await-analysis";
 import {
   extractFutureTraitFromType,
   typeImplementsFn,
@@ -954,7 +955,7 @@ export function findReturnedAsyncBlock(
   if (!expr) return undefined;
 
   // If this is an async block itself, return it
-  if (exprIsFunctionCallOf(expr, BuiltinFunctions.async)) {
+  if (isIoAsyncCall(expr)) {
     return expr;
   }
 

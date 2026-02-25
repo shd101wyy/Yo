@@ -11,7 +11,6 @@
 
 import { type Environment, getVariablesFromEnv } from "../../env";
 import {
-  BuiltinFunctions,
   BuiltinKeywords,
   type Expr,
   exprIsFunctionCallOf,
@@ -25,6 +24,7 @@ import {
   isSomeType,
 } from "../../types/guards";
 import { isTypeValue } from "../../value";
+import { isIoAsyncCall } from "../async/await-analysis";
 import { extractFnTraitFromType } from "../trait-checking";
 
 export type {
@@ -446,7 +446,7 @@ function walkExprForEffects(
       }
 
       // Skip async block bodies (they have their own analysis)
-      if (exprIsFunctionCallOf(expr, BuiltinFunctions.async)) {
+      if (isIoAsyncCall(expr)) {
         if (expr.$?.deferredDupExpressions) {
           for (const dupExpr of expr.$.deferredDupExpressions) {
             walkExprForEffects(

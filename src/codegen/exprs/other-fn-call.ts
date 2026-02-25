@@ -1,11 +1,11 @@
 import { getVariablesFromEnv } from "../../env";
+import { isIoAsyncCall } from "../../evaluator/async/await-analysis";
 import {
   extractFnTraitFromType,
   typeImplementsFn,
   typeImplementsFuture,
 } from "../../evaluator/trait-checking";
 import {
-  BuiltinFunctions,
   exprIsAtom,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
@@ -584,7 +584,7 @@ export function generateOtherFunctionCall(
                   const beginArgs = (funcBody as FnCallExpr).args;
                   if (beginArgs.length > 0) {
                     const lastArg = beginArgs[beginArgs.length - 1]!;
-                    if (exprIsFunctionCallOf(lastArg, BuiltinFunctions.async)) {
+                    if (isIoAsyncCall(lastArg)) {
                       funcBody = lastArg;
                     }
                   }
@@ -592,7 +592,7 @@ export function generateOtherFunctionCall(
 
                 if (
                   funcBody &&
-                  exprIsFunctionCallOf(funcBody, BuiltinFunctions.async) &&
+                  isIoAsyncCall(funcBody) &&
                   funcBody.$?.asyncStateMachineStructName
                 ) {
                   // Use the async block's registered struct name directly

@@ -142,9 +142,7 @@ function searchRecursively(
   // with the state machine) AND the scope-exit drop (to release the outer scope's
   // reference after io.await frees the SM). The optimization would incorrectly
   // cancel both, causing a memory leak.
-  const isAsyncBlockCapture =
-    exprIsFunctionCall(expr) &&
-    (exprIsFunctionCallOf(expr, BuiltinFunctions.async) || isIoAsyncCall(expr));
+  const isAsyncBlockCapture = exprIsFunctionCall(expr) && isIoAsyncCall(expr);
 
   if (isAsyncBlockCapture) {
     // Don't recurse into async block captures at all.

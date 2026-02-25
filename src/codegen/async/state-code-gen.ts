@@ -8,11 +8,11 @@
 import { getVariablesFromEnv } from "../../env";
 import type { AwaitPoint } from "../../evaluator/async/await-analysis";
 import {
+  isIoAsyncCall,
   isIoAwaitCall,
   isIoJoinCall,
 } from "../../evaluator/async/await-analysis";
 import {
-  BuiltinFunctions,
   BuiltinKeywords,
   ExprTag,
   exprIsAtom,
@@ -178,7 +178,7 @@ export function containsAwaitExpr(expr: Expr, awaitExpr: Expr): boolean {
   switch (expr.tag) {
     case ExprTag.FnCall:
       // Do NOT recurse into nested async blocks - their awaits belong to the inner async
-      if (exprIsFunctionCallOf(expr, BuiltinFunctions.async)) {
+      if (isIoAsyncCall(expr)) {
         return false;
       }
       if (containsAwaitExpr(expr.func, awaitExpr)) {
@@ -274,19 +274,13 @@ export function generateAwaitExpression(
   const emitter = context.emitter;
 
   // Join expressions are handled directly by state-machine.ts codegen
-  if (
-    expr.tag === ExprTag.FnCall &&
-    (exprIsFunctionCallOf(expr, BuiltinFunctions.join) || isIoJoinCall(expr))
-  ) {
+  if (expr.tag === ExprTag.FnCall && isIoJoinCall(expr)) {
     return;
   }
 
-  // Check if this is a standalone await expression: await(futureExpr) or io.await(futureExpr)
-  if (
-    expr.tag === ExprTag.FnCall &&
-    (exprIsFunctionCallOf(expr, BuiltinFunctions.await) || isIoAwaitCall(expr))
-  ) {
-    // This is a standalone await: await(futureExpr)
+  // Check if this is a standalone await expression: io.await(futureExpr)
+  if (expr.tag === ExprTag.FnCall && isIoAwaitCall(expr)) {
+    // This is a standalone await: io.await(futureExpr)
     const futureExpr = expr.args[0];
 
     if (!futureExpr) {
@@ -326,11 +320,7 @@ export function generateAwaitExpression(
     }
 
     // Check if the value is an await expression
-    if (
-      valueExpr.tag === ExprTag.FnCall &&
-      (exprIsFunctionCallOf(valueExpr, BuiltinFunctions.await) ||
-        isIoAwaitCall(valueExpr))
-    ) {
+    if (valueExpr.tag === ExprTag.FnCall && isIoAwaitCall(valueExpr)) {
       // This is: varName := await(futureExpr)
       const futureExpr = valueExpr.args[0];
 
@@ -857,10 +847,7 @@ function generateCondWithAwait(
 function branchHasAwait(expr: Expr): boolean {
   if (
     expr.tag === ExprTag.FnCall &&
-    (exprIsFunctionCallOf(expr, BuiltinFunctions.await) ||
-      exprIsFunctionCallOf(expr, BuiltinFunctions.join) ||
-      isIoAwaitCall(expr) ||
-      isIoJoinCall(expr))
+    (isIoAwaitCall(expr) || isIoJoinCall(expr))
   ) {
     return true;
   }
@@ -1541,8 +1528,7 @@ function generateCondBranchWithAwait(
         if (
           valueExpr &&
           valueExpr.tag === ExprTag.FnCall &&
-          (exprIsFunctionCallOf(valueExpr, BuiltinFunctions.await) ||
-            isIoAwaitCall(valueExpr))
+          isIoAwaitCall(valueExpr)
         ) {
           const futureExpr = valueExpr.args[0];
           if (futureExpr) {
@@ -1556,11 +1542,7 @@ function generateCondBranchWithAwait(
             );
           }
         }
-      } else if (
-        expr.tag === ExprTag.FnCall &&
-        (exprIsFunctionCallOf(expr, BuiltinFunctions.await) ||
-          isIoAwaitCall(expr))
-      ) {
+      } else if (expr.tag === ExprTag.FnCall && isIoAwaitCall(expr)) {
         // Standalone await
         const futureExpr = expr.args[0];
         if (futureExpr) {
@@ -1818,8 +1800,7 @@ function generateWhileBodyWithAwait(
     if (
       valueExpr &&
       valueExpr.tag === ExprTag.FnCall &&
-      (exprIsFunctionCallOf(valueExpr, BuiltinFunctions.await) ||
-        isIoAwaitCall(valueExpr))
+      isIoAwaitCall(valueExpr)
     ) {
       const futureExpr = valueExpr.args[0];
       if (futureExpr) {
@@ -1832,11 +1813,7 @@ function generateWhileBodyWithAwait(
         );
       }
     }
-  } else if (
-    awaitExpr.tag === ExprTag.FnCall &&
-    (exprIsFunctionCallOf(awaitExpr, BuiltinFunctions.await) ||
-      isIoAwaitCall(awaitExpr))
-  ) {
+  } else if (awaitExpr.tag === ExprTag.FnCall && isIoAwaitCall(awaitExpr)) {
     // Standalone await
     const futureExpr = awaitExpr.args[0];
     if (futureExpr) {

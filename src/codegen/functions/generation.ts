@@ -1,4 +1,5 @@
 import { type Environment } from "../../env";
+import { isIoAsyncCall } from "../../evaluator/async/await-analysis";
 import { analyzeEffectCallPoints } from "../../evaluator/effects/effect-analysis";
 import type { EffectAnalysisResult } from "../../evaluator/effects/effect-analysis-types";
 import { typeImplementsFuture } from "../../evaluator/trait-checking";
@@ -863,10 +864,7 @@ export function generateFunctionBody(
       if (isAsyncFunction && lastExpr) {
         // Check if the last expression is an async block
         // If it is, we should return it directly without wrapping
-        const isAsyncBlock = exprIsFunctionCallOf(
-          lastExpr,
-          BuiltinFunctions.async
-        );
+        const isAsyncBlock = isIoAsyncCall(lastExpr);
 
         // Check if the last expression already returns a Future type
         // If so, return it directly without wrapping (e.g., from Option.unwrap())

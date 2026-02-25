@@ -7,7 +7,6 @@
 
 import { getVariablesFromEnv } from "../../env";
 import {
-  BuiltinFunctions,
   BuiltinKeywords,
   type Expr,
   exprIsFunctionCallOf,
@@ -493,7 +492,7 @@ function walkExprForAwaits(
       // A nested async block (e.g., `task := async { await(Async.yield()); ... }`) has its OWN
       // await analysis. Walking into its body would incorrectly attribute the inner async's
       // await points to the outer async, causing state machine segment misalignment.
-      if (exprIsFunctionCallOf(expr, BuiltinFunctions.async)) {
+      if (isIoAsyncCall(expr)) {
         // For nested async blocks, only walk deferred dup/drop expressions
         // (which reference outer-scope variables for the capture struct),
         // but skip the body argument (args[0]).
@@ -570,23 +569,18 @@ function walkExprForAwaits(
 
 /**
  * Checks if an expression is an await function call.
- * Matches both `await(future)` builtin and `io.await(future)` module field call.
+ * Matches `io.await(future)` module field call.
  */
 function isAwaitCall(expr: Expr): boolean {
-  if (exprIsFunctionCallOf(expr, BuiltinFunctions.await)) {
-    return true;
-  }
   return isIoAwaitCall(expr);
 }
 
 /**
  * Checks if an expression is a join function call.
- * Matches both `join(future1, future2, ...)` builtin and `io.join(...)` module field call.
+ * Matches `io.join(...)` module field call.
  */
 function isJoinCall(expr: Expr): boolean {
-  return (
-    exprIsFunctionCallOf(expr, BuiltinFunctions.join) || isIoJoinCall(expr)
-  );
+  return isIoJoinCall(expr);
 }
 
 /**

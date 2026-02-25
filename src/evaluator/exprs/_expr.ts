@@ -15,7 +15,6 @@ import { TokenType } from "../../token";
 import { evaluateAlignOf } from "../builtins/alignof";
 import { evaluateAndOr } from "../builtins/and-or";
 import { evaluateYoArrayFill } from "../builtins/array-fns";
-import { evaluateAsync } from "../builtins/async-fns";
 import { evaluateComptimeAssert } from "../builtins/comptime-assert";
 import { evaluateYoComptimeBooleanFunctions } from "../builtins/comptime-bool-fns";
 import { evaluateComptimeExpectError } from "../builtins/comptime-expect-error";
@@ -42,7 +41,6 @@ import {
   evaluateYoExprIsFnCall,
   evaluateYoExprToString,
 } from "../builtins/expr-fns";
-import { evaluateAwait, evaluateJoin } from "../builtins/future-fns";
 import { evaluateYoGcCollect } from "../builtins/gc";
 import { evaluateGensym } from "../builtins/gensym";
 import { evaluateImplConstraint } from "../builtins/impl-constraint";
@@ -381,15 +379,6 @@ ${exprToString(expr)}`,
     } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.the)) {
       // the
       return evaluateThe({ expr, env, context: { ...context } });
-    } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.async)) {
-      // async
-      return evaluateAsync({ expr, env, context: { ...context } });
-    } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.await)) {
-      // await
-      return evaluateAwait({ expr, env, context: { ...context } });
-    } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.join)) {
-      // join
-      return evaluateJoin({ expr, env, context: { ...context } });
     } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.import)) {
       // import
       return evaluateImport({

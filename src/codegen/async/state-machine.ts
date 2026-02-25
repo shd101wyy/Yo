@@ -13,7 +13,6 @@ import { isIoAwaitCall } from "../../evaluator/async/await-analysis";
 import { extractFutureTraitFromType } from "../../evaluator/trait-checking";
 import {
   type Expr,
-  BuiltinFunctions,
   BuiltinKeywords,
   exprIsAtomOf,
   exprIsFunctionCallOf,
@@ -1394,8 +1393,7 @@ function generateRemainingExprFuture(
     if (
       valueExpr &&
       valueExpr.tag === ExprTag.FnCall &&
-      (exprIsFunctionCallOf(valueExpr, BuiltinFunctions.await) ||
-        isIoAwaitCall(valueExpr))
+      isIoAwaitCall(valueExpr)
     ) {
       const futureExpr = valueExpr.args[0];
       if (futureExpr) {
@@ -1409,11 +1407,8 @@ function generateRemainingExprFuture(
     return;
   }
 
-  // Handle: await(futureExpr)
-  if (
-    expr.tag === ExprTag.FnCall &&
-    (exprIsFunctionCallOf(expr, BuiltinFunctions.await) || isIoAwaitCall(expr))
-  ) {
+  // Handle: io.await(futureExpr)
+  if (expr.tag === ExprTag.FnCall && isIoAwaitCall(expr)) {
     const futureExpr = expr.args[0];
     if (futureExpr) {
       const futureCode = generateExpr(futureExpr, indent, context);

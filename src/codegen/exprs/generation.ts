@@ -395,11 +395,6 @@ function generateFuncCall(
     return generateOpOr(expr, indent, context);
   }
 
-  // async - async block that creates a Future
-  if (exprIsFunctionCallOf(expr, BuiltinFunctions.async)) {
-    return generateAsyncBlock(expr, indent, context);
-  }
-
   // io.async(closure) - with await points: generates a state machine (same as async block)
   // io.async(closure) - without await points: creates a sync Future by calling closure immediately
   if (isIoAsyncCall(expr)) {
@@ -414,18 +409,13 @@ function generateFuncCall(
     return generateDynCall(expr, indent, context);
   }
 
-  // await - extract value from Future
-  if (exprIsFunctionCallOf(expr, BuiltinFunctions.await)) {
-    return generateAwait(expr, indent, context);
-  }
-
   // io.await(future) - extract value from Future (via IO module)
   if (isIoAwaitCall(expr)) {
     return generateAwait(expr, indent, context);
   }
 
-  // join / io.join - wait for multiple futures concurrently
-  if (exprIsFunctionCallOf(expr, BuiltinFunctions.join) || isIoJoinCall(expr)) {
+  // io.join - wait for multiple futures concurrently
+  if (isIoJoinCall(expr)) {
     // In state machine context, join is handled by the state machine generator
     const functionContext = context as FunctionGenerationContext;
     if (functionContext.inStateMachine) {

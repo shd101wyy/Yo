@@ -1034,7 +1034,7 @@ function preRegisterAsyncBlocksInExpr(
     const funcCallExpr = expr as FnCallExpr;
 
     // Check if this is an async block
-    if (exprIsFunctionCallOf(expr, BuiltinFunctions.async)) {
+    if (isIoAsyncCall(expr)) {
       // Found an async block - extract info and pre-register type
       const futureType = expr.$?.type;
       if (futureType && typeImplementsFuture(futureType)) {
