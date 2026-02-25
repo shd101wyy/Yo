@@ -1646,20 +1646,18 @@ function generateWhileBodyWithAwait(
   // Pre-await body expressions are generated in state 0 where we use labels
   // (not a real C while loop). Configure break/continue handling explicitly.
   // Use the current while loop's index for labels.
-  const previousAsyncWhileBreakInfo = context.asyncWhileBreakInfo;
-  const previousAsyncWhileContinueInfo = context.asyncWhileContinueInfo;
-  const previousAsyncWhileBodyDrops = context.asyncWhileBodyDrops;
-  context.asyncWhileBreakInfo = {
+  const previousSmWhileBreakInfo = context.smWhileBreakInfo;
+  const previousSmWhileContinueInfo = context.smWhileContinueInfo;
+  const previousSmWhileBodyDrops = context.smWhileBodyDrops;
+  context.smWhileBreakInfo = {
     label: `while_loop_${whileLoopIndex}_end`,
-    index: whileLoopIndex,
+    activeIndex: whileLoopIndex,
   };
-  context.asyncWhileContinueInfo = {
+  context.smWhileContinueInfo = {
     label: `while_loop_${whileLoopIndex}_start`,
     emitDropsBeforeGoto: true,
   };
-  context.asyncWhileBodyDrops = [
-    ...(bodyExpr.$?.deferredDropExpressions ?? []),
-  ];
+  context.smWhileBodyDrops = [...(bodyExpr.$?.deferredDropExpressions ?? [])];
 
   // Generate expressions before the await
   for (let i = 0; i < awaitFoundIndex; i++) {
@@ -1670,10 +1668,10 @@ function generateWhileBodyWithAwait(
     }
   }
 
-  // Restore async while control-flow context before generating await handling.
-  context.asyncWhileBreakInfo = previousAsyncWhileBreakInfo;
-  context.asyncWhileContinueInfo = previousAsyncWhileContinueInfo;
-  context.asyncWhileBodyDrops = previousAsyncWhileBodyDrops;
+  // Restore while control-flow context before generating await handling.
+  context.smWhileBreakInfo = previousSmWhileBreakInfo;
+  context.smWhileContinueInfo = previousSmWhileContinueInfo;
+  context.smWhileBodyDrops = previousSmWhileBodyDrops;
 
   // Generate code to store the Future at the await point
   const awaitExpr = bodyExprs[awaitFoundIndex]!;

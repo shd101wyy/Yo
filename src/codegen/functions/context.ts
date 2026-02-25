@@ -133,15 +133,18 @@ export interface FunctionGenerationContext extends CodeGenContext {
   // Variables that are locally shadowed (e.g., in match destructuring patterns)
   // When a variable name is in this set, use the local C variable instead of sm->var_...
   localShadowedVariables?: Set<string>;
-  // When generating async while loop resume body, this holds the label and index
-  // needed for break to correctly exit the state machine's switch and jump to after-loop code
-  asyncWhileBreakInfo?: { label: string; index: number };
-  // When generating async while loop resume body, this holds the label
-  // needed for continue to skip remaining body and jump to condition re-evaluation
-  asyncWhileContinueInfo?: { label: string; emitDropsBeforeGoto?: boolean };
+  // When generating while loop body inside a state machine (async or effect),
+  // these hold the labels/info needed for break/continue to correctly exit via goto
+  // (plain "break"/"continue" don't work inside a switch or goto-based loop).
+  smWhileBreakInfo?: { label: string; activeIndex?: number };
+  smWhileContinueInfo?: {
+    label: string;
+    emitDropsBeforeGoto?: boolean;
+    stepExpr?: Expr;
+  };
   // Deferred drops for the while loop body's local variables.
-  // These must be emitted before break/continue/normal-exit in async while loop resume code.
-  asyncWhileBodyDrops?: Expr[];
+  // These must be emitted before break/continue/normal-exit in state machine while loop code.
+  smWhileBodyDrops?: Expr[];
   // Drop code strings for effect handler parameters (e.g., msg: String from ctl yield_value).
   // These are emitted before abort returns to prevent leaking handler params.
   effectHandlerParamDrops?: string[];
@@ -159,15 +162,6 @@ export interface FunctionGenerationContext extends CodeGenContext {
     remainingExprs: Expr[];
     bodyDropExprs: Expr[];
   };
-  // When inside an effect SM while loop, break must goto the done label
-  effectWhileBreakInfo?: { doneLabel: string };
-  // When inside an effect SM while loop, continue must goto the loop label with step
-  effectWhileContinueInfo?: {
-    label: string;
-    stepExpr: Expr | undefined;
-  };
-  // Deferred drops for the effect while loop body's local variables.
-  effectWhileBodyDrops?: Expr[];
   // Baseline count of pendingDeferredDrops when entering the current loop body.
   // Used to determine which drops belong to the loop body scope and must be
   // emitted before break/continue (which would otherwise skip end-of-body drops).

@@ -729,18 +729,17 @@ export function generateAsyncBlockResumeFunction(
 
             // Set up break/continue handling: in the state machine switch, plain "break"
             // and "continue" don't work as expected. We need goto instead.
-            const previousAsyncWhileBreakInfo = context.asyncWhileBreakInfo;
-            const previousAsyncWhileContinueInfo =
-              context.asyncWhileContinueInfo;
-            const previousAsyncWhileBodyDrops = context.asyncWhileBodyDrops;
-            context.asyncWhileBreakInfo = {
+            const previousSmWhileBreakInfo = context.smWhileBreakInfo;
+            const previousSmWhileContinueInfo = context.smWhileContinueInfo;
+            const previousSmWhileBodyDrops = context.smWhileBodyDrops;
+            context.smWhileBreakInfo = {
               label: `after_while_loop_${prevAwait.index}`,
-              index: prevAwait.index,
+              activeIndex: prevAwait.index,
             };
-            context.asyncWhileContinueInfo = {
+            context.smWhileContinueInfo = {
               label: `while_loop_${prevAwait.index}_continue`,
             };
-            context.asyncWhileBodyDrops = [
+            context.smWhileBodyDrops = [
               ...(whileLoopData.bodyExpr.$?.deferredDropExpressions ?? []),
             ];
 
@@ -760,9 +759,9 @@ export function generateAsyncBlockResumeFunction(
             }
 
             // Restore context
-            context.asyncWhileBreakInfo = previousAsyncWhileBreakInfo;
-            context.asyncWhileContinueInfo = previousAsyncWhileContinueInfo;
-            context.asyncWhileBodyDrops = previousAsyncWhileBodyDrops;
+            context.smWhileBreakInfo = previousSmWhileBreakInfo;
+            context.smWhileContinueInfo = previousSmWhileContinueInfo;
+            context.smWhileBodyDrops = previousSmWhileBodyDrops;
             context.inStateMachine = previousInStateMachineForLoop;
             context.stateMachineVariables =
               previousStateMachineVariablesForLoop;
@@ -933,17 +932,17 @@ export function generateAsyncBlockResumeFunction(
               }
               context.stateMachineVariables = outerCombinedVars;
 
-              const prevBreakInfoOuter = context.asyncWhileBreakInfo;
-              const prevContinueInfoOuter = context.asyncWhileContinueInfo;
-              const prevBodyDropsOuter = context.asyncWhileBodyDrops;
-              context.asyncWhileBreakInfo = {
+              const prevBreakInfoOuter = context.smWhileBreakInfo;
+              const prevContinueInfoOuter = context.smWhileContinueInfo;
+              const prevBodyDropsOuter = context.smWhileBodyDrops;
+              context.smWhileBreakInfo = {
                 label: `after_while_loop_${outerIndex}`,
-                index: outerIndex,
+                activeIndex: outerIndex,
               };
-              context.asyncWhileContinueInfo = {
+              context.smWhileContinueInfo = {
                 label: `while_loop_${outerIndex}_continue`,
               };
-              context.asyncWhileBodyDrops = [
+              context.smWhileBodyDrops = [
                 ...(outerWhile.bodyExpr.$?.deferredDropExpressions ?? []),
               ];
 
@@ -960,9 +959,9 @@ export function generateAsyncBlockResumeFunction(
                 }
               }
 
-              context.asyncWhileBreakInfo = prevBreakInfoOuter;
-              context.asyncWhileContinueInfo = prevContinueInfoOuter;
-              context.asyncWhileBodyDrops = prevBodyDropsOuter;
+              context.smWhileBreakInfo = prevBreakInfoOuter;
+              context.smWhileContinueInfo = prevContinueInfoOuter;
+              context.smWhileBodyDrops = prevBodyDropsOuter;
               context.inStateMachine = prevInSMOuter;
               context.stateMachineVariables = prevSMVarsOuter;
               context.variableIdRemapping = prevVarRemapOuter;

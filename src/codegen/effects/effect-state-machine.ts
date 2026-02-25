@@ -1110,12 +1110,16 @@ function generateEffectWhileRemainingExprs(
   const emitter = context.emitter;
 
   if (remainingExprs.length > 0) {
-    const prevBreak = context.effectWhileBreakInfo;
-    const prevContinue = context.effectWhileContinueInfo;
-    const prevBodyDrops = context.effectWhileBodyDrops;
-    context.effectWhileBreakInfo = { doneLabel };
-    context.effectWhileContinueInfo = { label: loopLabel, stepExpr };
-    context.effectWhileBodyDrops = [...bodyDropExprs];
+    const prevBreak = context.smWhileBreakInfo;
+    const prevContinue = context.smWhileContinueInfo;
+    const prevBodyDrops = context.smWhileBodyDrops;
+    context.smWhileBreakInfo = { label: doneLabel };
+    context.smWhileContinueInfo = {
+      label: loopLabel,
+      stepExpr,
+      emitDropsBeforeGoto: true,
+    };
+    context.smWhileBodyDrops = [...bodyDropExprs];
 
     for (const expr of remainingExprs) {
       const code = generateExpr(expr, indent, context);
@@ -1124,9 +1128,9 @@ function generateEffectWhileRemainingExprs(
       }
     }
 
-    context.effectWhileBreakInfo = prevBreak;
-    context.effectWhileContinueInfo = prevContinue;
-    context.effectWhileBodyDrops = prevBodyDrops;
+    context.smWhileBreakInfo = prevBreak;
+    context.smWhileContinueInfo = prevContinue;
+    context.smWhileBodyDrops = prevBodyDrops;
   }
 
   // Normal loop continuation: emit step + goto
@@ -1206,12 +1210,16 @@ function generateWhileWithEffectCall(
   const bodyDropExprs = bodyExpr.$?.deferredDropExpressions ?? [];
 
   // Generate pre-effect expressions with break/continue context
-  const prevBreak = context.effectWhileBreakInfo;
-  const prevContinue = context.effectWhileContinueInfo;
-  const prevBodyDrops = context.effectWhileBodyDrops;
-  context.effectWhileBreakInfo = { doneLabel };
-  context.effectWhileContinueInfo = { label: loopLabel, stepExpr };
-  context.effectWhileBodyDrops = [...bodyDropExprs];
+  const prevBreak = context.smWhileBreakInfo;
+  const prevContinue = context.smWhileContinueInfo;
+  const prevBodyDrops = context.smWhileBodyDrops;
+  context.smWhileBreakInfo = { label: doneLabel };
+  context.smWhileContinueInfo = {
+    label: loopLabel,
+    stepExpr,
+    emitDropsBeforeGoto: true,
+  };
+  context.smWhileBodyDrops = [...bodyDropExprs];
 
   for (let i = 0; i < effectFoundIndex; i++) {
     const expr = bodyExprs[i]!;
@@ -1221,9 +1229,9 @@ function generateWhileWithEffectCall(
     }
   }
 
-  context.effectWhileBreakInfo = prevBreak;
-  context.effectWhileContinueInfo = prevContinue;
-  context.effectWhileBodyDrops = prevBodyDrops;
+  context.smWhileBreakInfo = prevBreak;
+  context.smWhileContinueInfo = prevContinue;
+  context.smWhileBodyDrops = prevBodyDrops;
 
   // Set up while loop continuation context so that generateTransitiveEffectYield
   // (or generateEffectYield) emits step + goto instead of completed=1.

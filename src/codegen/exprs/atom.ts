@@ -65,18 +65,16 @@ export function generateAtom(
       return "continue";
     }
 
-    // In async while loop resume body, continue must jump to the condition
-    // re-evaluation label (plain "continue" doesn't work inside a switch)
-    // Drops are emitted at the continue label site, not here, to avoid double-drop
-    // when normal fall-through also reaches the same label.
-    if (functionContext.asyncWhileContinueInfo) {
-      if (functionContext.asyncWhileContinueInfo.emitDropsBeforeGoto) {
+    // In state machine while loop body, continue must jump to the loop label via goto
+    // (plain "continue" doesn't work inside a switch or goto-based loop)
+    if (functionContext.smWhileContinueInfo) {
+      if (functionContext.smWhileContinueInfo.emitDropsBeforeGoto) {
         if (
-          functionContext.asyncWhileBodyDrops &&
-          functionContext.asyncWhileBodyDrops.length > 0
+          functionContext.smWhileBodyDrops &&
+          functionContext.smWhileBodyDrops.length > 0
         ) {
           const emitter = context.emitter;
-          for (const dropExpr of functionContext.asyncWhileBodyDrops) {
+          for (const dropExpr of functionContext.smWhileBodyDrops) {
             const dropCode = generateExpr(dropExpr, indent, context);
             if (dropCode && dropCode.includes("sm->")) {
               emitter.emitLine(`${indent}${dropCode};`);
@@ -84,26 +82,10 @@ export function generateAtom(
           }
         }
       }
-      return `goto ${functionContext.asyncWhileContinueInfo.label}`;
-    }
-
-    // In effect SM while loop body, continue must emit body drops + step + goto loop label
-    if (functionContext.effectWhileContinueInfo) {
-      const emitter = context.emitter;
-      if (
-        functionContext.effectWhileBodyDrops &&
-        functionContext.effectWhileBodyDrops.length > 0
-      ) {
-        for (const dropExpr of functionContext.effectWhileBodyDrops) {
-          const dropCode = generateExpr(dropExpr, indent, context);
-          if (dropCode && dropCode.includes("sm->")) {
-            emitter.emitLine(`${indent}${dropCode};`);
-          }
-        }
-      }
-      if (functionContext.effectWhileContinueInfo.stepExpr) {
+      if (functionContext.smWhileContinueInfo.stepExpr) {
+        const emitter = context.emitter;
         const stepCode = generateExpr(
-          functionContext.effectWhileContinueInfo.stepExpr,
+          functionContext.smWhileContinueInfo.stepExpr,
           indent,
           context
         );
@@ -111,7 +93,7 @@ export function generateAtom(
           emitter.emitLine(`${indent}${stepCode};`);
         }
       }
-      return `goto ${functionContext.effectWhileContinueInfo.label}`;
+      return `goto ${functionContext.smWhileContinueInfo.label}`;
     }
     return "continue";
   }
@@ -127,41 +109,26 @@ export function generateAtom(
       return "break";
     }
 
-    // When generating async while loop resume body, break must exit the C switch
-    // and jump to the after-loop label (plain "break" only exits the switch, not the loop)
-    if (functionContext.asyncWhileBreakInfo) {
-      const { label, index } = functionContext.asyncWhileBreakInfo;
-      // Drop while loop body locals before breaking out of loop
+    // In state machine while loop body, break must emit body drops + goto the after-loop label
+    // (plain "break" only exits a C switch, not the state machine's goto-based loop)
+    if (functionContext.smWhileBreakInfo) {
+      const { label, activeIndex } = functionContext.smWhileBreakInfo;
       if (
-        functionContext.asyncWhileBodyDrops &&
-        functionContext.asyncWhileBodyDrops.length > 0
+        functionContext.smWhileBodyDrops &&
+        functionContext.smWhileBodyDrops.length > 0
       ) {
         const emitter = context.emitter;
-        for (const dropExpr of functionContext.asyncWhileBodyDrops) {
+        for (const dropExpr of functionContext.smWhileBodyDrops) {
           const dropCode = generateExpr(dropExpr, indent, context);
           if (dropCode && dropCode.includes("sm->")) {
             emitter.emitLine(`${indent}${dropCode};`);
           }
         }
       }
-      return `{ sm->while_loop_${index}_active = false; goto ${label}; }`;
-    }
-
-    // In effect SM while loop body, break must emit body drops + goto done label
-    if (functionContext.effectWhileBreakInfo) {
-      const emitter = context.emitter;
-      if (
-        functionContext.effectWhileBodyDrops &&
-        functionContext.effectWhileBodyDrops.length > 0
-      ) {
-        for (const dropExpr of functionContext.effectWhileBodyDrops) {
-          const dropCode = generateExpr(dropExpr, indent, context);
-          if (dropCode && dropCode.includes("sm->")) {
-            emitter.emitLine(`${indent}${dropCode};`);
-          }
-        }
+      if (activeIndex !== undefined) {
+        return `{ sm->while_loop_${activeIndex}_active = false; goto ${label}; }`;
       }
-      return `goto ${functionContext.effectWhileBreakInfo.doneLabel}`;
+      return `goto ${label}`;
     }
     return "break";
   }
