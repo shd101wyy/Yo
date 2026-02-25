@@ -1849,12 +1849,84 @@ test "Test type-level Impl Future with individual then spread", using(io : IO), 
   });
 
   task := io.async((using(io : IO, raise : Raise, log : Log))=> {
+    log(`testing individual then spread`);
     io.await(yield());
     i32(300)
   });
   result := io.await(task);
   assert(result == i32(300), "Impl(Future(i32, IO, Raise, ...(Log))) type alias should work");
 };
+
+// ---------------------------------------------------------------------------
+// 67b. Explicit Impl(Future(i32, IO, Raise, Log)) type annotation on task
+// ---------------------------------------------------------------------------
+test "Test explicit Future type annotation on task", using(io : IO), {
+  Raise :: (fn(forall(T : Type), msg : String) -> T);
+  Log :: (fn(msg : String) -> unit);
+
+  (given(raise) : Raise) = ((msg) -> {
+    return i32(400);
+  });
+  (given(log) : Log) = ((msg) -> {
+    println(msg);
+  });
+
+  (task : Impl(Future(i32, IO, Raise, Log))) = io.async((using(io : IO, raise : Raise, log : Log))=> {
+    log(`testing explicit type annotation`);
+    io.await(yield());
+    i32(400)
+  });
+  result := io.await(task);
+  assert(result == i32(400), "Explicit Impl(Future(i32, IO, Raise, Log)) type annotation should work");
+};
+
+// ---------------------------------------------------------------------------
+// 67c. Explicit Impl(Future(i32, IO, Log, Raise)) — effects in different
+//      order than closure's using(io : IO, raise : Raise, log : Log)
+// ---------------------------------------------------------------------------
+test "Test explicit Future type annotation with reordered effects", using(io : IO), {
+  Raise :: (fn(forall(T : Type), msg : String) -> T);
+  Log :: (fn(msg : String) -> unit);
+
+  (given(raise) : Raise) = ((msg) -> {
+    return i32(500);
+  });
+  (given(log) : Log) = ((msg) -> {
+    println(msg);
+  });
+
+  (task : Impl(Future(i32, IO, Log, Raise))) = io.async((using(io : IO, raise : Raise, log : Log))=> {
+    log(`testing reordered effects in type annotation`);
+    io.await(yield());
+    i32(500)
+  });
+  result := io.await(task);
+  assert(result == i32(500), "Explicit Impl(Future(i32, IO, Log, Raise)) with reordered effects should work");
+};
+
+// ---------------------------------------------------------------------------
+// 67d. Explicit Impl(Future(i32, IO, Log, Raise)) — without specifically naming using variables (using(_io, _raise, _log))
+// ---------------------------------------------------------------------------
+test "Test explicit Future type annotation with closure value without specifically naming using variable types", using(io : IO), {
+  Raise :: (fn(forall(T : Type), msg : String) -> T);
+  Log :: (fn(msg : String) -> unit);
+
+  (given(raise) : Raise) = ((msg) -> {
+    return i32(500);
+  });
+  (given(log) : Log) = ((msg) -> {
+    println(msg);
+  });
+
+  (task : Impl(Future(i32, IO, Log, Raise))) = io.async((using(_io, _log, _raise))=> {
+    _log(`testing reordered effects in type annotation with unnamed using variables`);
+    _io.await(yield());
+    i32(500)
+  });
+  result := io.await(task);
+  assert(result == i32(500), "Explicit Impl(Future(i32, IO, Log, Raise)) with reordered effects should work");
+};
+
 
 // ---------------------------------------------------------------------------
 // 68. Await a Future multiple times — should return the same result

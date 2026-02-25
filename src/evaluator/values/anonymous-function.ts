@@ -2,6 +2,7 @@ import {
   addVariableToEnv,
   type Environment,
   getVariablesFromEnv,
+  getVariablesFromEnvByFilter,
   keepTopLevelFrameAndComptimeVariablesFromEnv,
   popEnvFrame,
   pushEnvFrame,
@@ -436,35 +437,59 @@ Got:      "${paramName}"`,
             errorMessage: `Effect row mismatch: closure declares ${inlineParams.length} effects, but call site resolved ${functionType.implicitParameters.length} effects.`,
           });
         }
+        // Match inline params to resolved params by type compatibility,
+        // not by position. This allows the closure to declare effects
+        // in a different order than the Future type annotation.
+        const used = new Set<number>();
+        const reorderedResolved: FunctionImplicitParameter[] = [];
         for (let j = 0; j < inlineParams.length; j++) {
           const inlineParam = inlineParams[j]!;
-          const resolvedParam = functionType.implicitParameters[j]!;
-          // Only check type compatibility if the closure explicitly declared a type
-          if (
-            inlineParam.type &&
-            !areTypesCompatible(
-              { type: inlineParam.type, env: outerEnv },
-              { type: resolvedParam.type, env: outerEnv }
-            )
-          ) {
+          if (!inlineParam.type) {
+            // No explicit type — match by position as fallback
+            reorderedResolved.push({
+              ...functionType.implicitParameters[j]!,
+              label: inlineParam.name,
+              exprs: {
+                ...functionType.implicitParameters[j]!.exprs,
+                expr: inlineParam.nameExpr,
+                labelExpr: inlineParam.nameExpr,
+              },
+            });
+            used.add(j);
+            continue;
+          }
+          let matched = false;
+          for (let k = 0; k < functionType.implicitParameters.length; k++) {
+            if (used.has(k)) continue;
+            const resolvedParam = functionType.implicitParameters[k]!;
+            if (
+              areTypesCompatible(
+                { type: inlineParam.type, env: outerEnv },
+                { type: resolvedParam.type, env: outerEnv }
+              )
+            ) {
+              reorderedResolved.push({
+                ...resolvedParam,
+                label: inlineParam.name,
+                exprs: {
+                  ...resolvedParam.exprs,
+                  expr: inlineParam.nameExpr,
+                  labelExpr: inlineParam.nameExpr,
+                },
+              });
+              used.add(k);
+              matched = true;
+              break;
+            }
+          }
+          if (!matched) {
             throw formatErrorMessage({
               token: inlineParam.nameExpr.token,
-              errorMessage: `Effect row type mismatch for "${inlineParam.name}": closure declares ${typeToString(inlineParam.type)}, but call site resolved ${typeToString(resolvedParam.type)}.`,
+              errorMessage: `Effect row type mismatch for "${inlineParam.name}": closure declares ${typeToString(inlineParam.type)}, but no matching resolved effect found.`,
             });
           }
         }
-        // Types match — use the already-resolved params but with closure's labels and exprs
-        resolvedImplicitParameters = functionType.implicitParameters.map(
-          (param, j) => ({
-            ...param,
-            label: inlineParams[j]!.name,
-            exprs: {
-              ...param.exprs,
-              expr: inlineParams[j]!.nameExpr,
-              labelExpr: inlineParams[j]!.nameExpr,
-            },
-          })
-        );
+        resolvedImplicitParameters = reorderedResolved;
         // Mark as inline for the newFunctionType builder
         inlineEffectsRow = createEffectsRowType(resolvedImplicitParameters);
       } else {
@@ -521,6 +546,26 @@ Got:      "${paramName}"`,
             resolvedHandlerValue = hv;
             break;
           }
+        }
+      }
+      // Fallback: search by type compatibility among given (implicit) variables.
+      // This handles the case where the effect label from the Future type annotation
+      // (e.g., "Log") doesn't match the given handler name (e.g., "log").
+      if (!resolvedHandlerValue) {
+        const givenByType = getVariablesFromEnvByFilter(
+          outerEnv,
+          (v) =>
+            v.isImplicit === true &&
+            v.isCompileTimeOnly === true &&
+            isFunctionValue(v.value?.[0]) &&
+            areTypesCompatible(
+              { type: expectedParam.type, env: outerEnv },
+              { type: v.type, env: outerEnv }
+            )
+        );
+        const byTypeVar = givenByType.at(-1);
+        if (byTypeVar?.value?.[0] && isFunctionValue(byTypeVar.value[0])) {
+          resolvedHandlerValue = byTypeVar.value[0];
         }
       }
     }

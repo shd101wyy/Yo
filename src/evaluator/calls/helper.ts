@@ -1533,20 +1533,12 @@ Got:   ${typeToString(typeValue.type)}`,
 
         // For each concrete param, resolve from callerEnv (same as named implicit params)
         for (const concreteParam of concreteParams) {
-          const {
-            parameterType: resolvedConcreteType,
-            calleeEnv: nextCalleeEnv__,
-          } = evaluateFunctionParameterTypeAgain({
-            parameter: concreteParam,
-            calleeEnv,
-            definitionSiteEnclosingFunctionType,
-            context: {
-              ...context,
-              isEvaluatingFunctionType: true,
-            },
-            functionType,
-          });
-          calleeEnv = nextCalleeEnv__;
+          // Use the already-resolved type from the concrete param directly.
+          // These params come from an EffectsRowType whose types were already
+          // resolved during Future type evaluation. Re-evaluating the typeExpr
+          // AST in calleeEnv would fail because identifiers like IO/Raise/Log
+          // only exist in the caller's scope, not in the callee's scope.
+          const resolvedConcreteType = concreteParam.type;
 
           // Search for matching given variable in callerEnv
           const givenVariables = getVariablesFromEnvByFilter(
