@@ -4,19 +4,12 @@
  * Analyzes function bodies to identify ctl effect call points and local variables
  * that need to be captured in state machine structs.
  *
- * This is analogous to await-analysis.ts but for algebraic effects (ctl/resume).
- * When a function body calls a ctl operation (e.g., raise(msg)), the function
- * needs to be transformed into a state machine that can suspend at those points.
+ * This is a thin wrapper around the shared suspension-point analysis,
+ * providing the effect-specific suspension point detection (ctl calls, transitive calls).
  */
 
 import { type Environment, getVariablesFromEnv } from "../../env";
-import {
-  BuiltinKeywords,
-  type Expr,
-  exprIsFunctionCallOf,
-  ExprTag,
-} from "../../expr";
-import { TokenType } from "../../token";
+import { type Expr, exprIsFunctionCallOf, ExprTag } from "../../expr";
 import { getValueOfSomeTypeFromEnv } from "../../types/env-lookup";
 import {
   isEffectsRowType,
@@ -26,6 +19,11 @@ import {
 import { isTypeValue } from "../../value";
 import { isIoAsyncCall } from "../async/await-analysis";
 import { extractFnTraitFromType } from "../trait-checking";
+import {
+  analyzeSuspensionPoints,
+  extractTargetVariableId,
+  type SuspensionPointDetector,
+} from "../shared/suspension-analysis";
 
 export type {
   EffectAnalysisResult,
@@ -63,285 +61,12 @@ export function analyzeEffectCallPoints(
   includeTransitiveCalls: boolean = false,
   effectFieldPath?: string[]
 ): EffectAnalysisResult {
-  const effectCallPoints: EffectCallPoint[] = [];
-  const capturedVariables = new Map<string, EffectCapturedVariable>();
-  const nameFrameToOriginalId = new Map<string, string>();
-  const variableIdRemapping = new Map<string, string>();
-
-  walkExprForEffects(
-    body,
-    effectCallPoints,
-    capturedVariables,
-    nameFrameToOriginalId,
-    variableIdRemapping,
-    effectParameterName,
-    effectParameterType,
-    includeTransitiveCalls,
-    effectFieldPath
-  );
-
-  if (body.$?.deferredDropExpressions) {
-    for (const dropExpr of body.$.deferredDropExpressions) {
-      walkExprForEffects(
-        dropExpr,
-        effectCallPoints,
-        capturedVariables,
-        nameFrameToOriginalId,
-        variableIdRemapping,
-        effectParameterName,
-        effectParameterType,
-        includeTransitiveCalls,
-        effectFieldPath
-      );
-    }
-  }
-
-  if (effectCallPoints.length === 0) {
-    capturedVariables.clear();
-  }
-
-  return {
-    effectCallPoints,
-    capturedVariables: Array.from(capturedVariables.values()),
-    hasEffects: effectCallPoints.length > 0,
-    variableIdRemapping,
-    effectParameterName,
-    effectParameterType,
-    effectFieldPath,
-  };
-}
-
-/**
- * Recursively walks an expression tree to find ctl effect call points.
- */
-function walkExprForEffects(
-  expr: Expr,
-  effectCallPoints: EffectCallPoint[],
-  capturedVariables: Map<string, EffectCapturedVariable>,
-  nameFrameToOriginalId: Map<string, string>,
-  variableIdRemapping: Map<string, string>,
-  effectParameterName: string,
-  effectParameterType: Type,
-  includeTransitiveCalls: boolean,
-  effectFieldPath: string[] | undefined,
-  parentExpr?: Expr
-): void {
-  switch (expr.tag) {
-    case ExprTag.Atom:
-      if (expr.$ && expr.token.type === TokenType.Identifier) {
-        const varName = expr.token.value;
-        const varType = expr.$.type;
-        const variables = getVariablesFromEnv(expr.$.env, varName);
-        if (variables.length > 0) {
-          const variable = variables[variables.length - 1]!;
-          if (
-            variable &&
-            !capturedVariables.has(variable.id) &&
-            !variable.isCompileTimeOnly
-          ) {
-            const nameFrameKey = `${variable.name}:${variable.frameLevel}`;
-            const existingOriginalId = nameFrameToOriginalId.get(nameFrameKey);
-
-            if (existingOriginalId && existingOriginalId !== variable.id) {
-              variableIdRemapping.set(variable.id, existingOriginalId);
-            } else if (variable.isOwningTheSameRcValueAs) {
-              const ownerVar = variable.isOwningTheSameRcValueAs;
-              if (!capturedVariables.has(ownerVar.id)) {
-                const ownerCaptured: EffectCapturedVariable = {
-                  id: ownerVar.id,
-                  name: ownerVar.name,
-                  type: ownerVar.type,
-                  isOwningTheSameRcValueAs: undefined,
-                };
-                capturedVariables.set(ownerVar.id, ownerCaptured);
-                const ownerNameFrameKey = `${ownerVar.name}:${ownerVar.frameLevel}`;
-                if (!nameFrameToOriginalId.has(ownerNameFrameKey)) {
-                  nameFrameToOriginalId.set(ownerNameFrameKey, ownerVar.id);
-                }
-              }
-            } else {
-              capturedVariables.set(variable.id, {
-                id: variable.id,
-                name: varName,
-                type: varType,
-                isOwningTheSameRcValueAs: undefined,
-              });
-              if (!nameFrameToOriginalId.has(nameFrameKey)) {
-                nameFrameToOriginalId.set(nameFrameKey, variable.id);
-              }
-            }
-          }
-        }
-      }
-      break;
-
-    case ExprTag.FnCall: {
-      // Check if this is a while loop
-      if (exprIsFunctionCallOf(expr, BuiltinKeywords.while)) {
-        const initialCount = effectCallPoints.length;
-        walkExprForEffects(
-          expr.func,
-          effectCallPoints,
-          capturedVariables,
-          nameFrameToOriginalId,
-          variableIdRemapping,
-          effectParameterName,
-          effectParameterType,
-          includeTransitiveCalls,
-          effectFieldPath,
-          expr
-        );
-        for (const arg of expr.args) {
-          walkExprForEffects(
-            arg,
-            effectCallPoints,
-            capturedVariables,
-            nameFrameToOriginalId,
-            variableIdRemapping,
-            effectParameterName,
-            effectParameterType,
-            includeTransitiveCalls,
-            effectFieldPath,
-            expr
-          );
-        }
-        const newCount = effectCallPoints.length;
-        if (newCount > initialCount) {
-          for (let i = initialCount; i < newCount; i++) {
-            effectCallPoints[i]!.isInsideWhile = true;
-            effectCallPoints[i]!.whileNestingDepth =
-              (effectCallPoints[i]!.whileNestingDepth ?? 0) + 1;
-            if (!effectCallPoints[i]!.enclosingWhileExpr) {
-              effectCallPoints[i]!.enclosingWhileExpr = expr;
-            }
-          }
-        }
-        break;
-      }
-
-      // Check if this is a cond expression
-      if (exprIsFunctionCallOf(expr, BuiltinKeywords.cond)) {
-        const initialCount = effectCallPoints.length;
-        walkExprForEffects(
-          expr.func,
-          effectCallPoints,
-          capturedVariables,
-          nameFrameToOriginalId,
-          variableIdRemapping,
-          effectParameterName,
-          effectParameterType,
-          includeTransitiveCalls,
-          effectFieldPath,
-          expr
-        );
-        const perBranchEffects: EffectCallPoint[][] = [];
-        for (const arg of expr.args) {
-          const branchStart = effectCallPoints.length;
-          walkExprForEffects(
-            arg,
-            effectCallPoints,
-            capturedVariables,
-            nameFrameToOriginalId,
-            variableIdRemapping,
-            effectParameterName,
-            effectParameterType,
-            includeTransitiveCalls,
-            effectFieldPath,
-            expr
-          );
-          perBranchEffects.push(effectCallPoints.slice(branchStart));
-        }
-        const maxDepth = Math.max(...perBranchEffects.map((b) => b.length), 0);
-        if (maxDepth > 0) {
-          effectCallPoints.splice(initialCount);
-          const firstIndex = initialCount;
-          for (let pos = 0; pos < maxDepth; pos++) {
-            let representative: EffectCallPoint | undefined;
-            for (const branchList of perBranchEffects) {
-              if (pos < branchList.length) {
-                representative = branchList[pos];
-                break;
-              }
-            }
-            if (representative) {
-              representative.index = effectCallPoints.length;
-              representative.isInsideCond = true;
-              if (pos === 0) {
-                representative.needsOwnCondBranchField = true;
-              }
-              if (pos > 0) {
-                representative.condBranchSourceIndex = firstIndex;
-              }
-              effectCallPoints.push(representative);
-            }
-          }
-        }
-        break;
-      }
-
-      // Check if this is a match expression
-      if (exprIsFunctionCallOf(expr, BuiltinKeywords.match)) {
-        const initialCount = effectCallPoints.length;
-        walkExprForEffects(
-          expr.func,
-          effectCallPoints,
-          capturedVariables,
-          nameFrameToOriginalId,
-          variableIdRemapping,
-          effectParameterName,
-          effectParameterType,
-          includeTransitiveCalls,
-          effectFieldPath,
-          expr
-        );
-        const perBranchEffects: EffectCallPoint[][] = [];
-        for (const arg of expr.args) {
-          const branchStart = effectCallPoints.length;
-          walkExprForEffects(
-            arg,
-            effectCallPoints,
-            capturedVariables,
-            nameFrameToOriginalId,
-            variableIdRemapping,
-            effectParameterName,
-            effectParameterType,
-            includeTransitiveCalls,
-            effectFieldPath,
-            expr
-          );
-          perBranchEffects.push(effectCallPoints.slice(branchStart));
-        }
-        const maxDepth = Math.max(...perBranchEffects.map((b) => b.length), 0);
-        if (maxDepth > 0) {
-          effectCallPoints.splice(initialCount);
-          const firstIndex = initialCount;
-          for (let pos = 0; pos < maxDepth; pos++) {
-            let representative: EffectCallPoint | undefined;
-            for (const branchList of perBranchEffects) {
-              if (pos < branchList.length) {
-                representative = branchList[pos];
-                break;
-              }
-            }
-            if (representative) {
-              representative.index = effectCallPoints.length;
-              representative.isInsideCond = true;
-              if (pos === 0) {
-                representative.needsOwnCondBranchField = true;
-              }
-              if (pos > 0) {
-                representative.condBranchSourceIndex = firstIndex;
-              }
-              effectCallPoints.push(representative);
-            }
-          }
-        }
-        break;
-      }
+  const detector: SuspensionPointDetector<EffectCallPoint> = {
+    detect(expr, parentExpr, points) {
+      if (expr.tag !== ExprTag.FnCall) return;
 
       // Check if this is a ctl effect call (call to the effect parameter)
       if (isEffectCall(expr, effectParameterName, effectFieldPath)) {
-        // Collect all runtime argument types from the ctl call
         const operationArgTypes: Type[] = [];
         for (const arg of expr.args) {
           if (arg.$?.type) {
@@ -351,29 +76,10 @@ function walkExprForEffects(
         const operationResultType = expr.$?.type;
 
         if (operationArgTypes.length > 0 && operationResultType) {
-          let targetVariableId: string | undefined;
-          if (
-            parentExpr &&
-            parentExpr.tag === ExprTag.FnCall &&
-            exprIsFunctionCallOf(parentExpr, ":=")
-          ) {
-            const varExpr = parentExpr.args[0];
-            if (
-              varExpr &&
-              varExpr.tag === ExprTag.Atom &&
-              varExpr.token.type === TokenType.Identifier &&
-              varExpr.$
-            ) {
-              const varName = varExpr.token.value;
-              const variables = getVariablesFromEnv(varExpr.$.env, varName);
-              if (variables.length > 0) {
-                targetVariableId = variables[variables.length - 1]!.id;
-              }
-            }
-          }
+          const targetVariableId = extractTargetVariableId(parentExpr);
 
-          effectCallPoints.push({
-            index: effectCallPoints.length,
+          points.push({
+            index: points.length,
             expr,
             operationArgTypes,
             operationResultType,
@@ -383,10 +89,7 @@ function walkExprForEffects(
       }
 
       // Check if this is a transitive effect call — a call to a function
-      // that itself has a matching `using` ctl parameter. The outer function
-      // must become a state machine that re-yields when the inner SM yields.
-      // This is only needed for effect-polymorphic functions (using ...(E) spread),
-      // not for functions that directly declare their ctl parameters.
+      // that itself has a matching `using` ctl parameter.
       if (
         includeTransitiveCalls &&
         !isEffectCall(expr, effectParameterName, effectFieldPath)
@@ -396,44 +99,19 @@ function walkExprForEffects(
           effectParameterName
         );
         if (transitiveResult) {
-          // Get yield types from the ctl type's runtime parameters
           const ctlType = effectParameterType as FunctionType;
           const operationArgTypes: Type[] = ctlType.parameters
             .filter((p) => !p.isCompileTimeOnly)
             .map((p) => p.type);
-          // For closure transitive calls (Impl(Fn(...))), use the ctl type's
-          // return type as the resume type, since the closure's return type
-          // may differ from the effect's resume type.
-          // For regular transitive calls, the function's return type matches
-          // the effect's resume type by construction.
           const operationResultType = transitiveResult.viaClosure
             ? ctlType.return.type
             : expr.$?.type;
 
           if (operationArgTypes.length > 0 && operationResultType) {
-            let targetVariableId: string | undefined;
-            if (
-              parentExpr &&
-              parentExpr.tag === ExprTag.FnCall &&
-              exprIsFunctionCallOf(parentExpr, ":=")
-            ) {
-              const varExpr = parentExpr.args[0];
-              if (
-                varExpr &&
-                varExpr.tag === ExprTag.Atom &&
-                varExpr.token.type === TokenType.Identifier &&
-                varExpr.$
-              ) {
-                const varName = varExpr.token.value;
-                const variables = getVariablesFromEnv(varExpr.$.env, varName);
-                if (variables.length > 0) {
-                  targetVariableId = variables[variables.length - 1]!.id;
-                }
-              }
-            }
+            const targetVariableId = extractTargetVariableId(parentExpr);
 
-            effectCallPoints.push({
-              index: effectCallPoints.length,
+            points.push({
+              index: points.length,
               expr,
               operationArgTypes,
               operationResultType,
@@ -444,77 +122,36 @@ function walkExprForEffects(
           }
         }
       }
+    },
 
-      // Skip async block bodies (they have their own analysis)
-      if (isIoAsyncCall(expr)) {
-        if (expr.$?.deferredDupExpressions) {
-          for (const dupExpr of expr.$.deferredDupExpressions) {
-            walkExprForEffects(
-              dupExpr,
-              effectCallPoints,
-              capturedVariables,
-              nameFrameToOriginalId,
-              variableIdRemapping,
-              effectParameterName,
-              effectParameterType,
-              includeTransitiveCalls,
-              effectFieldPath,
-              expr
-            );
-          }
-        }
-        break;
-      }
+    shouldSkipBody(expr) {
+      return isIoAsyncCall(expr);
+    },
+  };
 
-      // Recurse into function and arguments
-      walkExprForEffects(
-        expr.func,
-        effectCallPoints,
-        capturedVariables,
-        nameFrameToOriginalId,
-        variableIdRemapping,
-        effectParameterName,
-        effectParameterType,
-        includeTransitiveCalls,
-        effectFieldPath,
-        expr
-      );
-      for (const arg of expr.args) {
-        walkExprForEffects(
-          arg,
-          effectCallPoints,
-          capturedVariables,
-          nameFrameToOriginalId,
-          variableIdRemapping,
-          effectParameterName,
-          effectParameterType,
-          includeTransitiveCalls,
-          effectFieldPath,
-          expr
-        );
-      }
+  const result = analyzeSuspensionPoints(body, detector);
 
-      // Walk deferred drop expressions
-      if (expr.$?.deferredDropExpressions) {
-        for (const dropExpr of expr.$.deferredDropExpressions) {
-          walkExprForEffects(
-            dropExpr,
-            effectCallPoints,
-            capturedVariables,
-            nameFrameToOriginalId,
-            variableIdRemapping,
-            effectParameterName,
-            effectParameterType,
-            includeTransitiveCalls,
-            effectFieldPath,
-            expr
-          );
-        }
-      }
-      break;
-    }
-  }
+  // Map shared captured variables to EffectCapturedVariable
+  const capturedVariables: EffectCapturedVariable[] =
+    result.capturedVariables.map((v) => ({
+      id: v.id,
+      name: v.name,
+      type: v.type,
+      isOwningTheSameRcValueAs: undefined,
+    }));
+
+  return {
+    effectCallPoints: result.suspensionPoints,
+    capturedVariables,
+    hasEffects: result.hasSuspensions,
+    variableIdRemapping: result.variableIdRemapping,
+    effectParameterName,
+    effectParameterType,
+    effectFieldPath,
+  };
 }
+
+// --- Effect-specific detection helpers ---
 
 /**
  * Checks if an expression is a call to the effect parameter.
