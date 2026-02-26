@@ -74,6 +74,13 @@ export interface Type {
    * Used for orphan rule checks to ensure coherence.
    */
   definedInModulePath?: string;
+
+  /**
+   * Marks this type as an IO module builtin function.
+   * Set on IO module field types so that io.async and io.await
+   * can be detected even when aliased (e.g., `my_async :: io.async`).
+   */
+  ioBuiltin?: "io_async" | "io_await" | "io_join";
 }
 
 /*
@@ -357,13 +364,7 @@ export interface FunctionParameter {
    * bound to the effect row variable.
    */
   isEffectRowSpread?: boolean;
-  /**
-   * Whether this implicit parameter was created from auto-destructuring a module type.
-   * e.g., `using(Raise)` where `Raise :: module(raise : ctl(...))` creates an implicit
-   * parameter with type Raise and isModuleDestructured: true. The module's fields
-   * (e.g., raise) are destructured into the function body env as direct variables.
-   */
-  isModuleDestructured?: boolean;
+
   /**
    * The expression information of the parameter.
    */
@@ -378,6 +379,7 @@ export interface FunctionParameter {
 
 export type FunctionForallParameter = FunctionParameter & {
   isCompileTimeOnly: true;
+  isImplicit: false;
 };
 
 export type FunctionImplicitParameter = FunctionParameter & {
@@ -584,10 +586,15 @@ export interface TraitType extends Type {
   isFn?: { callType: FunctionType };
 
   /**
-   * If this trait represents a Future type, this contains the child type.
-   * Set for traits created via `Future(T)` syntax.
+   * If this trait represents a Future type, this contains the output type and effects.
+   * Set for traits created via `Future(T)`, `Future(T, ...(E))`, or `Future(T, Raise, ...(E))` syntax.
+   *
+   * The `effects` array stores individual effects and effect row spreads, mirroring
+   * how `using(...)` clauses store implicit parameters:
+   * - Individual effect: `{ label: "Raise", type: TraitType, isEffectRowSpread: false }`
+   * - Effect row spread: `{ label: "E", type: SomeType, isEffectRowSpread: true }`
    */
-  isFuture?: { outputType: Type };
+  isFuture?: { outputType: Type; effects: FunctionImplicitParameter[] };
 
   /**
    * If this trait represents a Concrete type marker, this contains the concrete type.
@@ -623,7 +630,9 @@ export type FnTraitType = TraitType & { isFn: { callType: FunctionType } };
  * - Impl(Future(i32)) for static dispatch with futures
  * - Dyn(Future(i32)) for dynamic dispatch
  */
-export type FutureTraitType = TraitType & { isFuture: { outputType: Type } };
+export type FutureTraitType = TraitType & {
+  isFuture: { outputType: Type; effects: FunctionImplicitParameter[] };
+};
 
 /**
  * ConcreteModuleType is a marker module that specifies the concrete type for Impl.

@@ -217,6 +217,20 @@ export interface EvaluatorContext {
    * trigger full CTFE execution.
    */
   isInFunctionCallCheckingPhase?: boolean;
+
+  /**
+   * Whether we are evaluating the closure argument of an io.async call.
+   * When true, the closure body should be evaluated as an async block
+   * (kind: "async-block") so that `await` expressions are allowed inside.
+   */
+  isInsideIoAsyncCall?: boolean;
+
+  /**
+   * Whether we are currently evaluating the RHS of a `given(...)` assignment.
+   * When true, `abort` is allowed inside handler functions.
+   * `abort` is only valid inside given handler definitions.
+   */
+  isInsideGivenHandler?: boolean;
 }
 
 /**

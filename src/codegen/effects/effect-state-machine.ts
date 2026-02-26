@@ -37,13 +37,8 @@ import {
   type FnCallExpr,
 } from "../../expr";
 import type { FunctionValue } from "../../function-value";
-import type {
-  DynType,
-  FunctionType,
-  SomeType,
-  Type,
-} from "../../types/definitions";
-import { isStructType, isUnitType } from "../../types/guards";
+import type { FunctionType, SomeType, Type } from "../../types/definitions";
+import { isSomeType, isStructType, isUnitType } from "../../types/guards";
 import { typeContainsRcType } from "../../types/utils";
 import { isTempVariableName } from "../../utils";
 import { isFunctionValue } from "../../value";
@@ -54,6 +49,10 @@ import {
 } from "../exprs/drop-dup";
 import { generateExpr } from "../exprs/expr";
 import type { FunctionGenerationContext } from "../functions/context";
+import {
+  containsSuspensionExpr,
+  splitBodyAtSuspensionPoints,
+} from "../shared/suspension-codegen";
 import { getTypeString, sanitizeForCIdentifier } from "../utils/index";
 
 function isMultiEffect(info: EffectStateMachineInfo): boolean {
@@ -66,7 +65,7 @@ function isMultiEffect(info: EffectStateMachineInfo): boolean {
  * so we must NOT emit an implicit resume after them.
  * Does not recurse into nested anonymous function bodies (->).
  */
-function handlerBodyContainsExplicitReturn(expr: Expr): boolean {
+export function handlerBodyContainsExplicitReturn(expr: Expr): boolean {
   if (exprIsFunctionCallOf(expr, BuiltinKeywords.return)) {
     return true;
   }
@@ -193,12 +192,15 @@ export function generateEffectStateMachineStruct(
   if (info.isClosure) {
     emitter.emitDeclarationLine(`  void* closure_context;`);
   }
+  // Build a set of parameter names to avoid duplicate fields
+  const paramNames = new Set<string>();
   for (const param of functionType.parameters) {
     if (param.isCompileTimeOnly || param.isImplicit) continue;
     const paramTypeCName = getTypeString(param.type, context);
     emitter.emitDeclarationLine(
       `  ${paramTypeCName} ${sanitizeForCIdentifier(param.label)};`
     );
+    paramNames.add(param.label);
   }
 
   // Generate fields for captured local variables (exclude closure captures)
@@ -247,17 +249,61 @@ function getInnerSmInfo(
 ): EffectStateMachineInfo | undefined {
   const callExpr = callPoint.expr as FnCallExpr;
   const funcValue = callExpr.func.$?.value;
-  if (!funcValue || !isFunctionValue(funcValue)) return undefined;
-  // funcValue is narrowed to FunctionValue here
-  const funcId = funcValue.funcId;
-  const funcEntry = context.functions[funcId];
-  if (!funcEntry) return undefined;
-  return funcEntry.effectStateMachineInfo as EffectStateMachineInfo | undefined;
+
+  // Regular function lookup
+  if (funcValue && isFunctionValue(funcValue)) {
+    const funcId = funcValue.funcId;
+    const funcEntry = context.functions[funcId];
+    if (!funcEntry) return undefined;
+    return funcEntry.effectStateMachineInfo as
+      | EffectStateMachineInfo
+      | undefined;
+  }
+
+  // Closure lookup via implClosureCallMap
+  if (callPoint.isTransitiveClosureCall) {
+    const funcType = callExpr.func.$?.type;
+    if (funcType && isSomeType(funcType)) {
+      const someType = funcType as SomeType;
+      const concreteTypeId = someType.resolvedConcreteType?.id;
+      if (concreteTypeId) {
+        // First try implClosureCallMap (populated during function body codegen)
+        const mapped = context.implClosureCallMap.get(concreteTypeId);
+        if (mapped) {
+          const closureFuncEntry = Object.values(context.functions).find(
+            (f) => f.cName === mapped.functionCName
+          );
+          if (closureFuncEntry?.effectStateMachineInfo) {
+            return closureFuncEntry.effectStateMachineInfo as EffectStateMachineInfo;
+          }
+        }
+
+        // Fallback: search all closure functions by capture type ID.
+        // This is needed during struct generation (preRegisterEffectfulFunctions)
+        // when implClosureCallMap hasn't been populated yet.
+        for (const funcId in context.functions) {
+          const entry = context.functions[funcId]!;
+          if (
+            entry.value.type.isClosure &&
+            entry.value.closureInfo?.captureType?.id === concreteTypeId &&
+            entry.effectStateMachineInfo
+          ) {
+            return entry.effectStateMachineInfo as EffectStateMachineInfo;
+          }
+        }
+      }
+    }
+  }
+
+  return undefined;
 }
 
 /**
  * Build a CapturedVariable map compatible with what atom.ts expects
  * for stateMachineVariables, from the effect analysis captured variables.
+ * Variables that correspond to function parameters get kind:"param" so atom.ts
+ * accesses them as sm->paramLabel (matching the SM struct's parameter fields)
+ * instead of sm->var_{id} (which would be a non-existent or zero-initialized field).
  */
 function buildStateMachineVariableMap(
   analysis: EffectAnalysisResult
@@ -296,76 +342,30 @@ interface EffectStateSegment {
 
 /**
  * Split the function body at effect call points into state segments.
+ *
+ * Thin wrapper around the shared `splitBodyAtSuspensionPoints`, mapping
+ * the generic `suspensionPoint` field to the effect-specific `effectCallPoint`.
  */
 function splitBodyAtEffectCallPoints(
   body: Expr,
   effectCallPoints: EffectCallPoint[]
 ): EffectStateSegment[] {
-  const segments: EffectStateSegment[] = [];
+  const shared = splitBodyAtSuspensionPoints(body, effectCallPoints);
 
-  if (body.tag !== ExprTag.FnCall || !exprIsFunctionCallOf(body, "begin")) {
-    if (effectCallPoints.length === 0) {
-      return [{ stateNumber: 0, expressions: [body], effectCallPoint: null }];
-    }
-    return [
-      {
-        stateNumber: 0,
-        expressions: [body],
-        effectCallPoint: effectCallPoints[0] ?? null,
-      },
-    ];
-  }
-
-  const expressions = body.args;
-  const segmentExpressions: Expr[][] = [];
-  let currentSegment: Expr[] = [];
-
-  for (const expr of expressions) {
-    const effectIndex = findEffectCallInExpr(expr, effectCallPoints);
-    if (effectIndex !== -1) {
-      currentSegment.push(expr);
-      segmentExpressions.push(currentSegment);
-      currentSegment = [];
-    } else {
-      currentSegment.push(expr);
-    }
-  }
-
-  if (currentSegment.length > 0) {
-    segmentExpressions.push(currentSegment);
-  }
-
-  for (let i = 0; i < segmentExpressions.length; i++) {
-    const exprs = segmentExpressions[i]!;
-    const effectCallPoint =
-      i < effectCallPoints.length ? effectCallPoints[i]! : null;
-    segments.push({ stateNumber: i, expressions: exprs, effectCallPoint });
-  }
-
-  return segments;
+  return shared.map((seg) => ({
+    stateNumber: seg.stateNumber,
+    expressions: seg.expressions,
+    effectCallPoint: seg.suspensionPoint,
+  }));
 }
 
-function findEffectCallInExpr(
-  expr: Expr,
-  effectCallPoints: EffectCallPoint[]
-): number {
-  for (let i = 0; i < effectCallPoints.length; i++) {
-    if (containsEffectCallExpr(expr, effectCallPoints[i]!.expr as Expr)) {
-      return i;
-    }
-  }
-  return -1;
-}
-
+/**
+ * Checks if an expression tree contains a specific effect call expression.
+ *
+ * Thin wrapper around the shared `containsSuspensionExpr`.
+ */
 function containsEffectCallExpr(expr: Expr, effectExpr: Expr): boolean {
-  if (expr === effectExpr) return true;
-  if (expr.tag === ExprTag.FnCall) {
-    if (containsEffectCallExpr(expr.func, effectExpr)) return true;
-    for (const arg of expr.args) {
-      if (containsEffectCallExpr(arg, effectExpr)) return true;
-    }
-  }
-  return false;
+  return containsSuspensionExpr(expr, effectExpr);
 }
 
 /**
@@ -381,7 +381,6 @@ export function generateEffectResumeFunction(
   const { structName, resumeFunctionName, analysis } = info;
 
   const previousInEffectStateMachine = context.inEffectStateMachine;
-  const previousInStateMachine = context.inStateMachine;
   const previousStateMachineVariables = context.stateMachineVariables;
   const previousVariableIdRemapping = context.variableIdRemapping;
 
@@ -420,9 +419,6 @@ export function generateEffectResumeFunction(
   }
 
   context.inEffectStateMachine = info;
-  context.inStateMachine = {
-    futureType: info.functionType.return.type as unknown as SomeType | DynType,
-  };
   context.stateMachineVariables = variableMap;
   context.variableIdRemapping = analysis.variableIdRemapping;
 
@@ -521,6 +517,48 @@ export function generateEffectResumeFunction(
           emitter.emitLine(`      sm->${fieldName} = sm->${prevResumeField};`);
         }
       }
+
+      // If the previous effect was inside a while loop, emit remaining
+      // body expressions (with break/continue context) then step + goto
+      // back to while_loop_{index} in case 0 (which has the full while body
+      // including the inner SM init + call) instead of falling through to
+      // the segment's remaining expressions.
+      if (prevEffect.isInsideWhile && prevEffect.enclosingWhileExpr) {
+        const whileExpr = prevEffect.enclosingWhileExpr as Expr;
+        const whileArgs = (whileExpr as FnCallExpr).args;
+        let whileStep: Expr | undefined;
+        let whileBody: Expr;
+        if (whileArgs.length === 3) {
+          whileStep = whileArgs[1]!;
+          whileBody = whileArgs[2]!;
+        } else {
+          whileBody = whileArgs[1]!;
+        }
+
+        // Original loop label in case 0 (goto across cases works in C)
+        const originalLoopLabel = `while_loop_${prevEffect.index}`;
+        // Unique done label for break in this case block
+        const doneLabel = `while_done_${prevEffect.index}_s${segment.stateNumber}`;
+
+        const { remainingExprs, bodyDropExprs } =
+          extractWhileBodyRemainingExprs(whileBody, prevEffect);
+
+        generateEffectWhileRemainingExprs(
+          remainingExprs,
+          bodyDropExprs,
+          originalLoopLabel,
+          whileStep,
+          doneLabel,
+          "      ",
+          context
+        );
+
+        emitter.emitLine(`      ${doneLabel}:;`);
+        emitter.emitLine(`      sm->completed = 1;`);
+        emitter.emitLine(`      return;`);
+        emitter.emitLine(`    }`);
+        continue;
+      }
     }
 
     for (let i = 0; i < segment.expressions.length; i++) {
@@ -577,9 +615,6 @@ export function generateEffectResumeFunction(
   }
 
   // Generate resume continuation states for effect call points that yield.
-  // When an effect call yields (e.g., raise(msg) inside a cond), it sets
-  // sm->state = nextState and returns. We need a case for that nextState
-  // to handle the resume and complete the SM.
   const maxSegmentState =
     segments.length > 0 ? segments[segments.length - 1]!.stateNumber : -1;
   for (const effectCallPoint of analysis.effectCallPoints) {
@@ -661,8 +696,47 @@ export function generateEffectResumeFunction(
         }
       }
 
-      emitter.emitLine(`      sm->completed = 1;`);
-      emitter.emitLine(`      return;`);
+      // If the effect call is inside a while loop, emit remaining body
+      // expressions with break/continue context, then step + goto
+      // back to while_loop_{index} in case 0 (which has the full while body
+      // including the inner SM init + call) instead of completing the SM.
+      if (effectCallPoint.isInsideWhile && effectCallPoint.enclosingWhileExpr) {
+        const whileExpr = effectCallPoint.enclosingWhileExpr as Expr;
+        const whileArgs = (whileExpr as FnCallExpr).args;
+        let whileStep: Expr | undefined;
+        let whileBody: Expr;
+        if (whileArgs.length === 3) {
+          whileStep = whileArgs[1]!;
+          whileBody = whileArgs[2]!;
+        } else {
+          whileBody = whileArgs[1]!;
+        }
+
+        // Original loop label in case 0 (goto across cases works in C)
+        const originalLoopLabel = `while_loop_${effectCallPoint.index}`;
+        // Unique done label for break in this case block
+        const doneLabel = `while_done_${effectCallPoint.index}_r${resumeState}`;
+
+        const { remainingExprs, bodyDropExprs } =
+          extractWhileBodyRemainingExprs(whileBody, effectCallPoint);
+
+        generateEffectWhileRemainingExprs(
+          remainingExprs,
+          bodyDropExprs,
+          originalLoopLabel,
+          whileStep,
+          doneLabel,
+          "      ",
+          context
+        );
+
+        emitter.emitLine(`      ${doneLabel}:;`);
+        emitter.emitLine(`      sm->completed = 1;`);
+        emitter.emitLine(`      return;`);
+      } else {
+        emitter.emitLine(`      sm->completed = 1;`);
+        emitter.emitLine(`      return;`);
+      }
       emitter.emitLine(`    }`);
     }
   }
@@ -672,7 +746,6 @@ export function generateEffectResumeFunction(
   emitter.emitLine(``);
 
   context.inEffectStateMachine = previousInEffectStateMachine;
-  context.inStateMachine = previousInStateMachine;
   context.stateMachineVariables = previousStateMachineVariables;
   context.variableIdRemapping = previousVariableIdRemapping;
   context.currentClosureCaptures = previousClosureCaptures;
@@ -780,6 +853,18 @@ function generateExprWithEffectCall(
     return;
   }
 
+  if (exprIsFunctionCallOf(expr, BuiltinKeywords.while)) {
+    generateWhileWithEffectCall(
+      expr,
+      effectCallPoint,
+      stateNumber,
+      indent,
+      context,
+      info
+    );
+    return;
+  }
+
   if (expr.tag === ExprTag.FnCall) {
     if (containsEffectCallExpr(expr.func, effectExpr)) {
       generateExprWithEffectCall(
@@ -870,6 +955,18 @@ function generateTransitiveEffectYield(
     `${indent}${innerSmField} = (${innerSmInfo.structName}){0};`
   );
 
+  // For closure transitive calls, set the closure context pointer
+  if (innerSmInfo.isClosure && effectCallPoint.isTransitiveClosureCall) {
+    const closureCode = generateExpr(
+      (effectExpr as FnCallExpr).func,
+      indent,
+      context
+    );
+    emitter.emitLine(
+      `${indent}${innerSmField}.closure_context = &(${closureCode});`
+    );
+  }
+
   // Set inner SM's runtime parameters from the call expression's arguments
   const innerFuncType = innerSmInfo.functionType;
   const innerRuntimeParams = innerFuncType.parameters.filter(
@@ -921,9 +1018,236 @@ function generateTransitiveEffectYield(
       emitter.emitLine(`${indent}sm->${fieldName} = ${innerSmField}.result;`);
     }
     emitter.emitLine(`${indent}sm->result = ${innerSmField}.result;`);
+  } else if (effectCallPoint.targetVariableId && !innerReturnIsVoid) {
+    const fieldName = sanitizeForCIdentifier(
+      `var_${effectCallPoint.targetVariableId}`
+    );
+    emitter.emitLine(`${indent}sm->${fieldName} = ${innerSmField}.result;`);
   }
-  emitter.emitLine(`${indent}sm->completed = 1;`);
-  emitter.emitLine(`${indent}return;`);
+
+  // If inside a while loop, emit remaining body expressions + step + goto
+  const whileLoop = context.effectWhileLoopContinuation;
+  if (whileLoop) {
+    generateEffectWhileRemainingExprs(
+      whileLoop.remainingExprs,
+      whileLoop.bodyDropExprs,
+      whileLoop.label,
+      whileLoop.stepExpr,
+      whileLoop.whileDoneLabel,
+      indent,
+      context
+    );
+    // Emit the done label for break to target
+    emitter.emitLine(`${indent}${whileLoop.whileDoneLabel}:;`);
+    emitter.emitLine(`${indent}sm->completed = 1;`);
+    emitter.emitLine(`${indent}return;`);
+  } else {
+    emitter.emitLine(`${indent}sm->completed = 1;`);
+    emitter.emitLine(`${indent}return;`);
+  }
+}
+
+/**
+ * Extract remaining expressions from a while body begin block after the effect call.
+ */
+function extractWhileBodyRemainingExprs(
+  whileBody: Expr,
+  effectCallPoint: EffectCallPoint
+): { remainingExprs: Expr[]; bodyDropExprs: Expr[] } {
+  const effectExpr = effectCallPoint.expr as Expr;
+  const bodyDropExprs = whileBody.$?.deferredDropExpressions ?? [];
+
+  let bodyExprs: Expr[];
+  if (
+    whileBody.tag === ExprTag.FnCall &&
+    exprIsFunctionCallOf(whileBody, "begin")
+  ) {
+    bodyExprs = whileBody.args;
+  } else {
+    bodyExprs = [whileBody];
+  }
+
+  const remainingExprs: Expr[] = [];
+  let effectFoundIndex = -1;
+  for (let i = 0; i < bodyExprs.length; i++) {
+    if (containsEffectCallExpr(bodyExprs[i]!, effectExpr)) {
+      effectFoundIndex = i;
+      break;
+    }
+  }
+  if (effectFoundIndex !== -1) {
+    for (let i = effectFoundIndex + 1; i < bodyExprs.length; i++) {
+      remainingExprs.push(bodyExprs[i]!);
+    }
+  }
+  return { remainingExprs, bodyDropExprs };
+}
+
+/**
+ * Generate remaining while body expressions after an effect call completes,
+ * with break/continue context set so atom.ts generates correct gotos.
+ * After remaining expressions, emit step + goto to loop back.
+ */
+function generateEffectWhileRemainingExprs(
+  remainingExprs: Expr[],
+  bodyDropExprs: Expr[],
+  loopLabel: string,
+  stepExpr: Expr | undefined,
+  doneLabel: string,
+  indent: string,
+  context: FunctionGenerationContext
+): void {
+  const emitter = context.emitter;
+
+  if (remainingExprs.length > 0) {
+    const prevBreak = context.smWhileBreakInfo;
+    const prevContinue = context.smWhileContinueInfo;
+    const prevBodyDrops = context.smWhileBodyDrops;
+    context.smWhileBreakInfo = { label: doneLabel };
+    context.smWhileContinueInfo = {
+      label: loopLabel,
+      stepExpr,
+      emitDropsBeforeGoto: true,
+    };
+    context.smWhileBodyDrops = [...bodyDropExprs];
+
+    for (const expr of remainingExprs) {
+      const code = generateExpr(expr, indent, context);
+      if (code && expr.$ && !isTempVariableName(expr.$.env.modulePath, code)) {
+        emitter.emitLine(`${indent}${code};`);
+      }
+    }
+
+    context.smWhileBreakInfo = prevBreak;
+    context.smWhileContinueInfo = prevContinue;
+    context.smWhileBodyDrops = prevBodyDrops;
+  }
+
+  // Normal loop continuation: emit step + goto
+  if (stepExpr) {
+    const stepCode = generateExpr(stepExpr, indent, context);
+    if (stepCode) {
+      emitter.emitLine(`${indent}${stepCode};`);
+    }
+  }
+  emitter.emitLine(`${indent}goto ${loopLabel};`);
+}
+
+function generateWhileWithEffectCall(
+  whileExpr: Expr,
+  effectCallPoint: EffectCallPoint,
+  stateNumber: number,
+  indent: string,
+  context: FunctionGenerationContext,
+  info: EffectStateMachineInfo
+): void {
+  const emitter = context.emitter;
+  const whileArgs = (whileExpr as FnCallExpr).args;
+
+  const conditionExpr = whileArgs[0]!;
+  let stepExpr: Expr | undefined;
+  let bodyExpr: Expr;
+
+  if (whileArgs.length === 3) {
+    stepExpr = whileArgs[1]!;
+    bodyExpr = whileArgs[2]!;
+  } else {
+    bodyExpr = whileArgs[1]!;
+  }
+
+  const loopLabel = `while_loop_${effectCallPoint.index}`;
+  const doneLabel = `while_done_${effectCallPoint.index}`;
+
+  // Emit while loop label
+  emitter.emitLine(`${indent}${loopLabel}:;`);
+
+  // Emit condition check
+  const condCode = generateExpr(conditionExpr, indent, context);
+  emitter.emitLine(`${indent}if (!(${condCode})) {`);
+  emitter.emitLine(`${indent}  sm->completed = 1;`);
+  emitter.emitLine(`${indent}  return;`);
+  emitter.emitLine(`${indent}}`);
+
+  // Split the while body begin block to find expressions before/after the effect call.
+  // This lets us generate pre-effect expressions now and store post-effect ones
+  // for the resume path (where break/continue need special goto handling).
+  let bodyExprs: Expr[];
+  if (
+    bodyExpr.tag === ExprTag.FnCall &&
+    exprIsFunctionCallOf(bodyExpr, "begin")
+  ) {
+    bodyExprs = bodyExpr.args;
+  } else {
+    bodyExprs = [bodyExpr];
+  }
+
+  const effectExpr = effectCallPoint.expr as Expr;
+  let effectFoundIndex = -1;
+  for (let i = 0; i < bodyExprs.length; i++) {
+    if (containsEffectCallExpr(bodyExprs[i]!, effectExpr)) {
+      effectFoundIndex = i;
+      break;
+    }
+  }
+
+  const remainingExprs: Expr[] = [];
+  if (effectFoundIndex !== -1) {
+    for (let i = effectFoundIndex + 1; i < bodyExprs.length; i++) {
+      remainingExprs.push(bodyExprs[i]!);
+    }
+  }
+
+  const bodyDropExprs = bodyExpr.$?.deferredDropExpressions ?? [];
+
+  // Generate pre-effect expressions with break/continue context
+  const prevBreak = context.smWhileBreakInfo;
+  const prevContinue = context.smWhileContinueInfo;
+  const prevBodyDrops = context.smWhileBodyDrops;
+  context.smWhileBreakInfo = { label: doneLabel };
+  context.smWhileContinueInfo = {
+    label: loopLabel,
+    stepExpr,
+    emitDropsBeforeGoto: true,
+  };
+  context.smWhileBodyDrops = [...bodyDropExprs];
+
+  for (let i = 0; i < effectFoundIndex; i++) {
+    const expr = bodyExprs[i]!;
+    const code = generateExpr(expr, indent, context);
+    if (code && expr.$ && !isTempVariableName(expr.$.env.modulePath, code)) {
+      emitter.emitLine(`${indent}${code};`);
+    }
+  }
+
+  context.smWhileBreakInfo = prevBreak;
+  context.smWhileContinueInfo = prevContinue;
+  context.smWhileBodyDrops = prevBodyDrops;
+
+  // Set up while loop continuation context so that generateTransitiveEffectYield
+  // (or generateEffectYield) emits step + goto instead of completed=1.
+  const prevWhileLoop = context.effectWhileLoopContinuation;
+  context.effectWhileLoopContinuation = {
+    label: loopLabel,
+    stepExpr,
+    whileDoneLabel: doneLabel,
+    remainingExprs,
+    bodyDropExprs,
+  };
+
+  // Generate the expression containing the effect call
+  if (effectFoundIndex !== -1) {
+    generateExprWithEffectCall(
+      bodyExprs[effectFoundIndex]!,
+      effectCallPoint,
+      stateNumber,
+      indent,
+      context,
+      info
+    );
+  }
+
+  // Restore context
+  context.effectWhileLoopContinuation = prevWhileLoop;
 }
 
 function generateCondWithEffectCall(
@@ -1004,20 +1328,13 @@ function generateMatchWithEffectCall(
 /**
  * Generate call-site code for calling an effectful function.
  *
- * For resume case (one-shot):
+ * Uses a while loop to handle multiple yields:
  *   SM sm = {0}; sm.params = args;
  *   resumeFn(&sm);
- *   if (!sm.completed) {
+ *   while (!sm.completed) {
  *     // bind yield_value, then execute handler body
- *     // handler body contains resume(value) which drives SM to completion
- *   }
- *   result = sm.result;
- *
- * For discontinue case (no resume):
- *   SM sm = {0}; sm.params = args;
- *   resumeFn(&sm);
- *   if (!sm.completed) {
- *     // bind yield_value, return handler body result (early return from caller)
+ *     // resume: handler sets resume_value and calls resumeFn again
+ *     // abort: handler returns from enclosing function
  *   }
  *   result = sm.result;
  */
@@ -1078,7 +1395,7 @@ export function generateEffectCallSite(
     }
   }
 
-  emitter.emitLine(`${indent}if (!${smVar}.completed) {`);
+  emitter.emitLine(`${indent}while (!${smVar}.completed) {`);
   generateHandlerBodyInline(
     handlerBody,
     handlerType,
@@ -1097,8 +1414,9 @@ export function generateEffectCallSite(
     emitter.emitLine(
       `${indent}${resultTypeCName} ${tempVar} = ${smVar}.result;`
     );
+    return tempVar;
   }
-  return tempVar ?? "";
+  return "";
 }
 
 /**
@@ -1199,8 +1517,9 @@ export function generateMultiEffectCallSite(
     emitter.emitLine(
       `${indent}${resultTypeCName} ${tempVar} = ${smVar}.result;`
     );
+    return tempVar;
   }
-  return tempVar ?? "";
+  return "";
 }
 
 /**

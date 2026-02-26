@@ -5,28 +5,26 @@ open import "std/string";
 statfs :: import "std/io/statfs";
 { temp_dir } :: import "./helper";
 
-test "statfs returns block statistics", {
-  async {
-    dir_str := temp_dir();
-    dir_c := dir_str.to_cstr();
-    dir_path := dir_c.ptr().unwrap();
+test "statfs returns block statistics", using(io : IO), {
+  dir_str := temp_dir();
+  dir_c := dir_str.to_cstr();
+  dir_path := dir_c.ptr().unwrap();
 
-    buf_size := statfs.statfs_buf_size();
-    buf := *(u8)(malloc(buf_size).unwrap());
+  buf_size := statfs.statfs_buf_size();
+  buf := *(u8)(malloc(buf_size).unwrap());
 
-    ret := statfs.statfs(dir_path, buf);
-    assert(ret == i32(0));
+  ret := statfs.statfs(dir_path, buf);
+  assert(ret == i32(0));
 
-    bsize := statfs.statfs_bsize(buf);
-    blocks := statfs.statfs_blocks(buf);
-    bfree := statfs.statfs_bfree(buf);
-    bavail := statfs.statfs_bavail(buf);
+  bsize := statfs.statfs_bsize(buf);
+  blocks := statfs.statfs_blocks(buf);
+  bfree := statfs.statfs_bfree(buf);
+  bavail := statfs.statfs_bavail(buf);
 
-    assert(bsize > u64(0));
-    assert(blocks > u64(0));
-    assert(bfree <= blocks);
-    assert(bavail <= blocks);
+  assert(bsize > u64(0));
+  assert(blocks > u64(0));
+  assert(bfree <= blocks);
+  assert(bavail <= blocks);
 
-    free(.Some(*(void)(buf)));
-  };
+  free(.Some(*(void)(buf)));
 };

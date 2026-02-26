@@ -16,6 +16,7 @@ import {
   isComptimeListType,
   isComptimeStringType,
   isDynType,
+  isEffectsRowType,
   isEnumType,
   isExprType,
   isFnTraitType,
@@ -73,6 +74,38 @@ function getEffectiveNegativeTraitTypes(
   }
 
   return [...traitMap.values()];
+}
+
+import type { FunctionImplicitParameter } from "./definitions";
+
+/**
+ * Flatten Future effects by resolving spreads into individual effects.
+ * - If a spread's type is EffectsRowType, extract its implicitParameters (recursively)
+ * - If a spread's type is an unresolved SomeType effect row variable, keep as-is
+ * - Individual (non-spread) effects are kept as-is
+ * Note: ...(ConcreteType) is no longer allowed. Use concrete types directly.
+ */
+function flattenFutureEffects(
+  effects: FunctionImplicitParameter[]
+): FunctionImplicitParameter[] {
+  const result: FunctionImplicitParameter[] = [];
+  for (const effect of effects) {
+    if (effect.isEffectRowSpread && isEffectsRowType(effect.type)) {
+      // Spread bound to a concrete EffectsRowType — expand its parameters
+      result.push(...flattenFutureEffects(effect.type.implicitParameters));
+    } else if (
+      effect.isEffectRowSpread &&
+      isSomeType(effect.type) &&
+      effect.type.isEffectsRow
+    ) {
+      // Unresolved effect row variable — keep as-is
+      result.push(effect);
+    } else {
+      // Individual concrete effect
+      result.push(effect);
+    }
+  }
+  return result;
 }
 
 /**
@@ -461,7 +494,7 @@ export function areTypesCompatible(
         return true;
       }
 
-      // Special case: FutureTraitType uses structural comparison (output type)
+      // Special case: FutureTraitType uses structural comparison (output type + effects row)
       if (isFutureTraitType(expected.type)) {
         if (!isFutureTraitType(given.type)) {
           return false; // Expected is Future but given is not
@@ -479,6 +512,39 @@ export function areTypesCompatible(
           )
         ) {
           return false;
+        }
+        // Compare effects: flatten spreads and compare as sets (order-independent)
+        // If one side has no effects, they're still compatible
+        // (backwards compatibility with Future(T) without effects)
+        const expectedFlat = flattenFutureEffects(
+          expected.type.isFuture.effects
+        );
+        const givenFlat = flattenFutureEffects(given.type.isFuture.effects);
+        if (expectedFlat.length > 0 && givenFlat.length > 0) {
+          if (expectedFlat.length !== givenFlat.length) {
+            return false;
+          }
+          // Set-based matching: for each expected effect, find a matching given effect
+          const used = new Set<number>();
+          for (const exp of expectedFlat) {
+            let found = false;
+            for (let j = 0; j < givenFlat.length; j++) {
+              if (used.has(j)) continue;
+              if (
+                areTypesCompatible(
+                  { type: exp.type, env: expected.env },
+                  { type: givenFlat[j]!.type, env: given.env },
+                  requireExactMatch,
+                  visitedPairs
+                )
+              ) {
+                used.add(j);
+                found = true;
+                break;
+              }
+            }
+            if (!found) return false;
+          }
         }
         // FutureTraitType matched structurally
         return true;
@@ -528,15 +594,6 @@ export function areTypesCompatible(
 
   // *
   if (isPtrType(expected.type) && isPtrType(given.type)) {
-    // NOTE: This causes some problem with type synthesize.
-    //       So let's be specific here.
-    // if (isVoidType(expected.type.type)) {
-    //   return true; // *(void) is compatible with any pointer type
-    // }
-
-    // Pointers are INVARIANT in their child type.
-    // *(comptime_int) is NOT compatible with *(i32), even though comptime_int is compatible with i32.
-    // This is a strict design choice to prevent pointer type coercion issues.
     return areTypesCompatible(
       { type: expected.type.childType, env: expected.env },
       { type: given.type.childType, env: given.env },
@@ -743,11 +800,34 @@ export function areTypesCompatible(
       return true;
     } else {
       // Given is a concrete type, expected is SomeType (e.g., Impl(Trait))
+
+      // If the SomeType already has a resolvedConcreteType, compare against that
+      if (expected.type.resolvedConcreteType) {
+        return areTypesCompatible(
+          { type: expected.type.resolvedConcreteType, env: expected.env },
+          given,
+          requireExactMatch,
+          visitedPairs
+        );
+      }
+
       // Check if given implements all required modules of expected
       const requiredTraitTypes = getEffectiveRequiredTraitTypes(
         expected.env,
         expected.type
       );
+
+      // Unconstrained SomeType (bare forall type parameter like T : Type with no
+      // required traits and no where-clause constraints) is compatible with any
+      // concrete type. This is the semantics of a universal type parameter.
+      // However, for exact matching (cache comparisons), an unconstrained SomeType
+      // should NOT match a concrete type — they are different types.
+      if (requiredTraitTypes.length === 0) {
+        if (requireExactMatch) {
+          return false;
+        }
+        return true;
+      }
       if (requiredTraitTypes.length > 0) {
         // Check that given implements all required modules
         for (const requiredTrait of requiredTraitTypes) {

@@ -1,3 +1,8 @@
+import {
+  isIoAsyncCall,
+  isIoAwaitCall,
+  isIoJoinCall,
+} from "../../evaluator/async/await-analysis";
 import { typeImplementsFuture } from "../../evaluator/trait-checking";
 import {
   BuiltinFunctions,
@@ -18,13 +23,19 @@ import {
   isUnknownValue,
   type Value,
 } from "../../value";
+import { isIoFutureType } from "../async/state-machine";
 import { BuiltinYoInlineFunctions } from "../constants";
 import type { FunctionGenerationContext } from "../functions/context";
-import { type CodeGenContext, getVariableNameForCodegen } from "../utils";
+import {
+  type CodeGenContext,
+  getTypeString,
+  getVariableNameForCodegen,
+} from "../utils";
 import { generateOpAnd, generateOpOr } from "./and-or";
 import { generateAnonymousArray, generateYoArrayFill } from "./array-fns";
 import { generateAssignment } from "./assignment";
-import { generateAsyncBlock } from "./async";
+import { generateAsyncBlock, generateIoAsyncSyncCall } from "./async";
+import { emitAsyncFutureAbortion } from "./async-completion";
 import { generateAtom } from "./atom";
 import { generateAwait } from "./await";
 import { generateBegin } from "./begin";
@@ -134,6 +145,50 @@ function generateAbort(
   // Use skipEnvCheck=true because the abort expression's environment is from
   // the handler's scope, not the enclosing function's scope where the
   // local variables actually live.
+
+  // In async state machine context, abort must properly mark the Future as
+  // ABORTED (-2) and notify any waiting continuation, instead of just returning
+  // from the resume function (which would leave the Future stuck in an
+  // intermediate state forever).
+  if (functionContext.inAsyncStateMachine) {
+    const emitter = functionContext.emitter;
+
+    // Compute the abort value for side effects, but don't store it as the
+    // Future's result — the abort value's type matches the enclosing fn's
+    // return type, which may differ from the Future's result type.
+    if (arg) {
+      const argCode = generateExpr(arg, indent, context);
+      // If the computed value is non-trivial, emit it as a statement for side effects
+      if (argCode && argCode !== "(void)0") {
+        emitter.emitLine(`${indent}(void)${argCode};`);
+      }
+    }
+
+    // Emit handler param drops
+    if (functionContext.effectHandlerParamDrops) {
+      for (const dropCode of functionContext.effectHandlerParamDrops) {
+        emitter.emitLine(`${indent}${dropCode};`);
+      }
+    }
+
+    // Drop pending local variables from enclosing scopes
+    generatePendingDeferredDrops(
+      indent,
+      functionContext,
+      expr,
+      false,
+      false,
+      true
+    );
+
+    emitAsyncFutureAbortion({
+      emitter,
+      indent,
+      debugLabel: functionContext.currentFunctionName,
+    });
+    return ``;
+  }
+
   if (!arg) {
     // Emit handler param drops before returning
     if (functionContext.effectHandlerParamDrops) {
@@ -386,9 +441,13 @@ function generateFuncCall(
     return generateOpOr(expr, indent, context);
   }
 
-  // async - async block that creates a Future
-  if (exprIsFunctionCallOf(expr, BuiltinFunctions.async)) {
-    return generateAsyncBlock(expr, indent, context);
+  // io.async(closure) - with await points: generates a state machine (same as async block)
+  // io.async(closure) - without await points: creates a sync Future by calling closure immediately
+  if (isIoAsyncCall(expr)) {
+    if (expr.$?.awaitAnalysis) {
+      return generateAsyncBlock(expr, indent, context);
+    }
+    return generateIoAsyncSyncCall(expr, indent, context);
   }
 
   // dyn() - dynamic dispatch constructor
@@ -396,9 +455,80 @@ function generateFuncCall(
     return generateDynCall(expr, indent, context);
   }
 
-  // await - extract value from Future
-  if (exprIsFunctionCallOf(expr, BuiltinFunctions.await)) {
+  // io.await(future) - extract value from Future (via IO module)
+  if (isIoAwaitCall(expr)) {
     return generateAwait(expr, indent, context);
+  }
+
+  // io.join - wait for multiple futures concurrently
+  if (isIoJoinCall(expr)) {
+    // In state machine context, join is handled by the state machine generator
+    const functionContext = context as FunctionGenerationContext;
+    if (
+      functionContext.inAsyncStateMachine ||
+      functionContext.inEffectStateMachine
+    ) {
+      return ``;
+    }
+    // Outside async context — synchronous join via busy-poll
+    const emitter = functionContext.emitter;
+    emitter.emitLine(
+      `${indent}// Synchronous join — start all cold futures, busy-poll until all complete`
+    );
+    const futureVars: string[] = [];
+    for (let i = 0; i < expr.args.length; i++) {
+      const argExpr = expr.args[i]!;
+      const futureCode = generateExpr(argExpr, indent, context);
+      const futureType = argExpr.$?.type;
+      const futureTypeName = futureType
+        ? getTypeString(futureType, context)
+        : "void*";
+      const varName = `__sync_join_${i}`;
+      emitter.emitLine(
+        `${indent}${futureTypeName} ${varName} = ${futureCode};`
+      );
+      futureVars.push(varName);
+    }
+    for (let i = 0; i < futureVars.length; i++) {
+      const varName = futureVars[i]!;
+      const argExpr = expr.args[i]!;
+      const isIoFuture = isIoFutureType(argExpr.$?.type);
+      if (!isIoFuture) {
+        emitter.emitLine(
+          `${indent}if (${varName}->state == 0 && ${varName}->__yo_resume_fn) {`
+        );
+        emitter.emitLine(`${indent}  __yo_incr_rc((void*)${varName});`);
+        emitter.emitLine(
+          `${indent}  ${varName}->__yo_resume_fn((void*)${varName});`
+        );
+        emitter.emitLine(`${indent}}`);
+      }
+    }
+    // Run the event loop (task queue + I/O polling) until all futures complete or are aborted.
+    // State -1 = completed, -2 = aborted; both are terminal states.
+    emitter.emitLine(`${indent}while (1) {`);
+    emitter.emitLine(`${indent}  int __all_done = 1;`);
+    for (const varName of futureVars) {
+      emitter.emitLine(`${indent}  {`);
+      emitter.emitLine(`${indent}    int __s = ${varName}->state;`);
+      emitter.emitLine(
+        `${indent}    if (__s != -1 && __s != -2) __all_done = 0;`
+      );
+      emitter.emitLine(`${indent}  }`);
+    }
+    emitter.emitLine(`${indent}  if (__all_done) break;`);
+    emitter.emitLine(`${indent}  yo_async_poll_step();`);
+    emitter.emitLine(`${indent}}`);
+    // Check if any Future was aborted
+    for (const varName of futureVars) {
+      emitter.emitLine(`${indent}if (${varName}->state == -2) {`);
+      emitter.emitLine(
+        `${indent}  fprintf(stderr, "panic: attempted to join an aborted Future\\n");`
+      );
+      emitter.emitLine(`${indent}  abort();`);
+      emitter.emitLine(`${indent}}`);
+    }
+    return ``;
   }
 
   // return

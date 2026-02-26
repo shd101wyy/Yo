@@ -3,7 +3,9 @@ import {
   type Environment,
   getReceiverMethodsByNameFromEnv,
   getTypeTraitMethodsByNameFromEnv,
+  getVariablesFromEnv,
   popEnvFrame,
+  updateExistingVariable,
 } from "../../env";
 import { formatErrorMessage, formatErrorMessages, YoError } from "../../error";
 import {
@@ -62,12 +64,12 @@ import {
   type Value,
   valueToString,
 } from "../../value";
+
 import {
   type EvaluatorContext,
   type FunctionCallResult,
   type FunctionToCall,
   getArrayCallResult,
-  getFunctionCallResult,
   getModuleTypeCallResult,
   getTraitTypeCallResult,
   getTypeCallResult,
@@ -90,6 +92,7 @@ import {
 } from "./numeric-type";
 import { tryToConvertToPointerType } from "./pointer-type";
 import { tryToImplementTraitWithArgumentsByTraitType } from "./trait-type";
+import { evaluateJoin } from "../builtins/future-fns";
 import { tryToCallTypeWithArguments } from "./type";
 
 /**
@@ -1287,17 +1290,6 @@ ${isTypeValue(value) ? typeToString(value.value) : typeToString(functionToCall.t
     ) {
       const error = functionsToCall[0]!.result.error;
       if (error instanceof YoError) {
-        // console.log("Error type:", error?.constructor?.name);
-        // console.log(
-        //   "Error message:",
-        //   error instanceof Error ? error.message : String(error)
-        // );
-        // console.log(
-        //   "Error stack:",
-        //   error instanceof Error
-        //     ? error.stack?.split("\n").slice(0, 10).join("\n")
-        //     : "no stack"
-        // );
         // console.trace(exprToString(expr));
         throw formatErrorMessages(
           [
@@ -1486,6 +1478,15 @@ ${functionsWithMatchingTypes.map((matchedFunction) => `${typeToString(matchedFun
   if (isFunctionType(functionToCall.type)) {
     const functionType = functionToCall.type;
 
+    // Intercept io.join(...) calls and redirect to evaluateJoin,
+    // which handles argument evaluation, Future type checking, and
+    // await analysis marking. This must happen before
+    // tryToCallFunctionWithArguments since join has a variadic type
+    // that doesn't carry per-parameter type information.
+    if (functionType.ioBuiltin === "io_join") {
+      return evaluateJoin({ expr, env, context });
+    }
+
     {
       // It's
       // - Function returns runtime value
@@ -1593,6 +1594,76 @@ ${functionsWithMatchingTypes.map((matchedFunction) => `${typeToString(matchedFun
         variableName: previousVariableName,
       };
 
+      // For io.async calls, propagate awaitAnalysis and captureType from the closure
+      // argument to the call expression. This enables codegen to generate a state machine
+      // instead of a sync future when the closure contains await points.
+      if (functionType.ioBuiltin === "io_async" && runtimeArgExprsInOrder[0]) {
+        const closureArg = runtimeArgExprsInOrder[0];
+        const closureFnValue = closureArg.$?.closureFunctionValue as
+          | FunctionValue
+          | undefined;
+        if (closureFnValue?.body?.$?.awaitAnalysis) {
+          expr.$.awaitAnalysis = closureFnValue.body.$.awaitAnalysis;
+          expr.$.captureType = closureArg.$?.captureType;
+          expr.$.deferredDupExpressions = closureArg.$?.deferredDupExpressions;
+          // Clear from closure to prevent the dup/drop optimizer from collecting
+          // these dups twice (once on io.async, once on the closure argument).
+          if (closureArg.$?.deferredDupExpressions) {
+            closureArg.$.deferredDupExpressions = undefined;
+          }
+
+          // Mark closure-captured variables as "outer" in the await analysis.
+          // These variables live in the __capture struct, not as local SM fields.
+          const closureCaptureType = closureArg.$?.captureType;
+          if (closureCaptureType && expr.$.awaitAnalysis) {
+            const captureFieldNames = new Set(
+              closureCaptureType.fields.map((f: { label: string }) => f.label)
+            );
+            expr.$.awaitAnalysis = {
+              ...expr.$.awaitAnalysis,
+              capturedVariables: expr.$.awaitAnalysis.capturedVariables.map(
+                (v) =>
+                  captureFieldNames.has(v.name)
+                    ? { ...v, kind: "outer" as const }
+                    : v
+              ),
+            };
+          }
+
+          // Mark the closure so codegen skips generating its C function
+          // (the body is handled by the state machine's resume function)
+          closureFnValue.isIoAsyncStateMachineClosure = true;
+        } else {
+          // Sync path (no await points in the closure body).
+          // The closure's capture struct is stack-allocated (Impl closure),
+          // so captures are just borrowed pointers — no RC dups needed.
+          // Clear deferredDupExpressions to prevent closures.ts from
+          // generating unnecessary dups that would leak (no matching Drop
+          // on stack-allocated capture structs).
+          if (closureArg.$?.deferredDupExpressions) {
+            closureArg.$.deferredDupExpressions = undefined;
+          }
+        }
+
+        // Mark the closure's temp variable as consumed so it won't get a
+        // deferred drop in the parent scope — the capture struct is either
+        // owned by the state machine (async path) or stack-allocated (sync path).
+        // In either case, the evaluator's temp variable name doesn't correspond
+        // to a declared C variable, so a scope-exit drop would reference an
+        // undeclared identifier.
+        const closureVarName = closureArg.$?.variableName;
+        if (closureVarName && expr.$.env) {
+          const vars = getVariablesFromEnv(expr.$.env, closureVarName);
+          const closureVar = vars[vars.length - 1];
+          if (closureVar) {
+            expr.$.env = updateExistingVariable(expr.$.env, closureVar, {
+              ...closureVar,
+              consumedAtToken: expr.token,
+            });
+          }
+        }
+      }
+
       // Set temp variable which holds the result of the function call
       attachTempVariableToExpr(expr, true);
 
@@ -1621,6 +1692,13 @@ ${functionsWithMatchingTypes.map((matchedFunction) => `${typeToString(matchedFun
   ) {
     // Handle calling a SomeType or DynType that implements Fn (e.g., Impl(Fn(...) -> ...) or Dyn(Fn(...) -> ...))
     const fnModuleType = extractFnTraitFromType(functionToCall.type)!;
+
+    // Re-call tryToCallFunctionWithArguments with the ORIGINAL args (not clones).
+    // The checking phase used cloned args (which get $ annotations but are discarded),
+    // so the original arg expressions still lack $ annotations.
+    // This real call evaluates the original args in-place, setting their $ fields,
+    // which is necessary for codegen (e.g., effect state machine generation needs
+    // annotated sub-expressions like arr(i) in callback(arr(i))).
     const {
       returnType,
       returnValue,
@@ -1629,7 +1707,16 @@ ${functionsWithMatchingTypes.map((matchedFunction) => `${typeToString(matchedFun
       specializedFunctionValue,
       runtimeArgExprsInOrder,
       deferredDropExpressions,
-    } = getFunctionCallResult(functionToCall);
+    } = tryToCallFunctionWithArguments({
+      functionValue: extractFunctionValue(functionToCall.value),
+      functionType: fnModuleType.isFn.callType,
+      expr: expr,
+      functionCalleeExpr: func,
+      argExprs: functionToCall.args ?? args,
+      callerEnv: env,
+      context,
+      isMethodCall: Boolean(methodExpr),
+    });
 
     env = popEnvFrame(callerEnv);
 

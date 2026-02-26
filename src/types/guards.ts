@@ -1,4 +1,5 @@
 import { typeImplementsFuture } from "../evaluator/trait-checking";
+import { FunctionValue } from "../function-value";
 import type {
   ArrayType,
   ComptimeListType,
@@ -391,33 +392,34 @@ export function isCCompatibleType(type?: Type): boolean {
 }
 
 /**
- * Checks if a function is specializable (generic) based on its type.
- * A function is specializable if it has:
+ * Pure type-level check: does this function type have unresolved generic
+ * parameters that require specialization?
+ *
+ * This includes:
  * - Compile-time only parameters
- * - Type parameters
- * - Compile-time only implicit parameters
- * - Parameters with SomeType (Impl(...)) that need monomorphization
- * And its return type is not compile-time only.
+ * - Forall type parameters
+ * - Any implicit parameters (all implicit params are compile-time)
+ * - SomeType parameters needing monomorphization
+ *
+ * Use this for:
+ * - Checking if a specialized type still has unresolved params
+ * - Validating that runtime vars can't have generic function types (binding.ts)
+ * - Evaluator deciding whether to specialize at call sites (helper.ts)
  */
-export function isFunctionSpecializable(functionType: FunctionType): boolean {
+export function isFunctionTypeGeneric(functionType: FunctionType): boolean {
   if (!functionType) {
     return false;
   }
 
-  // If the return type is compile-time only, this function is not specializable
-  // for runtime code generation
   if (functionType.return?.isCompileTimeOnly) {
     return false;
   }
 
-  // Check if this function has compile-time parameters and needs specialization
   const hasCompileTimeParams =
     functionType.parameters.some((p) => p.isCompileTimeOnly) ||
     functionType.forallParameters.length > 0 ||
     functionType.implicitParameters.length > 0;
 
-  // Check if this function has SomeType parameters (like Impl(Fn(...)))
-  // that need monomorphization for different concrete types
   const hasSomeTypeParams = functionType.parameters.some(
     (p) =>
       !p.isCompileTimeOnly &&
@@ -426,6 +428,66 @@ export function isFunctionSpecializable(functionType: FunctionType): boolean {
   );
 
   return hasCompileTimeParams || hasSomeTypeParams;
+}
+
+/**
+ * Check if a function type has "hard" generic parameters that make the
+ * unspecialized form invalid for C codegen. This means comptime params,
+ * forall params, or SomeType params — but NOT implicit-params-only.
+ *
+ * Functions that are generic ONLY because of implicit parameters can still
+ * be generated as regular C functions because implicit params are resolved
+ * at compile time and don't appear in the C function signature.
+ */
+export function isFunctionTypeHardGeneric(functionType: FunctionType): boolean {
+  if (!functionType) {
+    return false;
+  }
+
+  if (functionType.return?.isCompileTimeOnly) {
+    return false;
+  }
+
+  const hasCompileTimeParams =
+    functionType.parameters.some((p) => p.isCompileTimeOnly) ||
+    functionType.forallParameters.length > 0;
+
+  const hasSomeTypeParams = functionType.parameters.some(
+    (p) =>
+      !p.isCompileTimeOnly &&
+      isSomeType(p.type) &&
+      !typeImplementsFuture(p.type)
+  );
+
+  return hasCompileTimeParams || hasSomeTypeParams;
+}
+
+/**
+ * Value-level check: does this function need per-call-site specialization
+ * for C codegen?
+ *
+ * A function is specializable when:
+ * 1. Its type is generic (has compile-time params, forall params, implicit params,
+ *    or SomeType params) — checked by isFunctionTypeGeneric
+ * 2. The evaluator actually created specialized versions for it
+ *    — checked by specializedFunctionCaches
+ *
+ * This correctly handles:
+ * - using(io : IO): generic type but no caches (IO resolved at compile time) → false
+ * - using(raise : Raise): generic type + evaluator created caches → true
+ * - using(raise_mod : RaiseMod): generic type + evaluator created caches → true
+ * - forall(T): generic type + evaluator created caches → true
+ */
+export function isFunctionSpecializable(functionValue: FunctionValue): boolean {
+  const functionType = functionValue.type;
+  if (!functionType) {
+    return false;
+  }
+
+  return (
+    isFunctionTypeGeneric(functionType) &&
+    (functionValue.specializedFunctionCaches?.length ?? 0) > 0
+  );
 }
 
 /**

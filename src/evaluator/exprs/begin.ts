@@ -31,9 +31,11 @@ import { areTypesCompatible } from "../../types/compatibility";
 import { isObjectType, isSomeType } from "../../types/guards";
 import { typeContainsRcType, typeToString } from "../../types/utils";
 import { VUnit } from "../../unit-value";
+import { isIoAsyncCall } from "../async/await-analysis";
 import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
 import { synthesizeTypes } from "../types/synthesizer";
+import { throwExprIsImplicitVariableError } from "../utils";
 
 /**
  * For debugging the dup/drop optimization.
@@ -136,6 +138,23 @@ function searchRecursively(
   varsWithPartialBranchDups: Set<string>
 ): void {
   // Check the captured dup expressions first
+  // BUT skip async block captures — they need BOTH the dup (to share RC ownership
+  // with the state machine) AND the scope-exit drop (to release the outer scope's
+  // reference after io.await frees the SM). The optimization would incorrectly
+  // cancel both, causing a memory leak.
+  const isAsyncBlockCapture = exprIsFunctionCall(expr) && isIoAsyncCall(expr);
+
+  if (isAsyncBlockCapture) {
+    // Don't recurse into async block captures at all.
+    // For the state machine path: dups are propagated to the io.async expression
+    //   and handled by the codegen. The closure's dups are already cleared.
+    // For the sync path: the closure's capture struct is stack-allocated, so
+    //   captures are borrowed — no dups are needed. Recursing would let the
+    //   optimizer find closure-level dups and cancel them along with the
+    //   captured variable's scope-exit drop, causing leaks.
+    return;
+  }
+
   if (expr.$?.deferredDupExpressions) {
     for (const dupExpr of expr.$.deferredDupExpressions) {
       searchRecursively(dupExpr, dupCalls, varsWithPartialBranchDups);
@@ -969,6 +988,19 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
   // Simplified ownership model for begin blocks:
   // Call dup when returning a value from an outer scope.
   // This ensures clean ownership semantics.
+
+  // Disallow returning implicit variables from begin blocks
+  if (returnExpr) {
+    const returnValueExprForCheck =
+      exprIsFunctionCall(returnExpr) &&
+      exprIsFunctionCallOf(returnExpr, BuiltinKeywords.return, 1)
+        ? returnExpr.args[0]!
+        : returnExpr;
+    throwExprIsImplicitVariableError(returnValueExprForCheck);
+  } else {
+    throwExprIsImplicitVariableError(lastExpr);
+  }
+
   let returnVariable: Variable | undefined = undefined;
   let returnValueExpr: Expr | undefined = lastExpr;
   if (

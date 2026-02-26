@@ -9,18 +9,28 @@ import type {
   AwaitPoint,
   CapturedVariable,
 } from "../../evaluator/async/await-analysis";
+import { isIoAwaitCall } from "../../evaluator/async/await-analysis";
 import { extractFutureTraitFromType } from "../../evaluator/trait-checking";
 import {
   type Expr,
-  BuiltinFunctions,
   BuiltinKeywords,
   exprIsAtomOf,
   exprIsFunctionCallOf,
   ExprTag,
 } from "../../expr";
 import { exprContainsAwait } from "../../expr-traversal";
-import type { DynType, SomeType, StructType } from "../../types/definitions";
-import { isDynType, isSomeType, isUnitType } from "../../types/guards";
+import type {
+  DynType,
+  SomeType,
+  StructType,
+  Type,
+} from "../../types/definitions";
+import {
+  isConcreteTraitType,
+  isDynType,
+  isSomeType,
+  isUnitType,
+} from "../../types/guards";
 import { typeContainsRcType } from "../../types/utils";
 import { isTempVariableName } from "../../utils";
 import { emitAsyncFutureCompletion } from "../exprs/async-completion";
@@ -60,6 +70,53 @@ export function getFutureFieldName(
   // Fallback: If we can't find the variable (e.g., it's a pattern-bound variable from match),
   // use a dedicated await_future_{index} field
   return `await_future_${awaitPoint.index}`;
+}
+
+/**
+ * Gets the state machine field name for a future variable by its ID.
+ * Used by join codegen to reference each future being joined.
+ */
+export function getFutureFieldNameByVariableId(
+  futureVariableId: string,
+  analysis: AwaitAnalysisResult
+): string {
+  const capturedVar = analysis.capturedVariables.find(
+    (v) => v.id === futureVariableId
+  );
+  if (capturedVar) {
+    return capturedVar.kind === "outer"
+      ? capturedVar.name
+      : `var_${capturedVar.id}`;
+  }
+  return `var_${futureVariableId}`;
+}
+
+/**
+ * Check if a future type is an IO future (yo_io_future_t) rather than a state
+ * machine future (from io.async). IO futures have a Concrete(...) trait and are
+ * already submitted to io_uring at creation — they don't have __yo_resume_fn
+ * and should not be "cold-started".
+ *
+ * Detection: IO futures (from Impl(Concrete(yo_io_future_t), Future(i32)))
+ * have their resolvedConcreteType set to an extern SomeType (the Concrete type).
+ * State machine futures may also have resolvedConcreteType as a SomeType, but
+ * it won't be extern.
+ */
+export function isIoFutureType(type: Type | undefined): boolean {
+  if (!type || !isSomeType(type)) return false;
+  // Check if the concrete type resolution came from a Concrete(...) trait
+  // pointing to an extern C type like yo_io_future_t. State machine futures
+  // also have resolvedConcreteType set (from return-type resolution), but
+  // their resolved type is never an extern type.
+  if (
+    type.resolvedConcreteType &&
+    isSomeType(type.resolvedConcreteType) &&
+    type.resolvedConcreteType.isExtern
+  ) {
+    return true;
+  }
+  // Also check requiredTraits directly (in case resolution hasn't stripped them)
+  return type.requiredTraits.some((t) => isConcreteTraitType(t.traitType));
 }
 
 /**
@@ -131,18 +188,18 @@ export function generateAsyncBlockResumeFunction(
   const childType = futureModuleType.isFuture.outputType;
   const isUnitResult = isUnitType(childType);
 
-  // Clear condBranchInfo and whileLoopInfo for this async block to prevent
+  // Clear asyncCondBranchInfo and asyncWhileLoopInfo for this async block to prevent
   // data from other async blocks (or outer scopes) from leaking in.
   // Each async block should only see its own branch/loop information.
-  context.condBranchInfo = new Map();
-  context.whileLoopInfo = new Map();
+  context.asyncCondBranchInfo = new Map();
+  context.asyncWhileLoopInfo = new Map();
 
   // Initialize the while loop index counter for allocating unique indices
   // to outer while loops in nested while-with-await scenarios.
   // Indices 0..awaitPoints.length-1 are reserved for innermost while loops
   // (matching their await point indices). Outer while loops get indices starting
   // from awaitPoints.length.
-  context.nextWhileLoopIndex = analysis.awaitPoints.length;
+  context.asyncNextWhileLoopIndex = analysis.awaitPoints.length;
 
   // Split the body into state segments
   const segments = splitIntoStateSegments(bodyExpr, analysis.awaitPoints);
@@ -182,17 +239,36 @@ export function generateAsyncBlockResumeFunction(
         emitter.emitLine(`      if (sm->${prevFutureFieldName} != NULL) {`);
       }
 
-      if (prevAwait && !isUnitType(prevAwait.resultType)) {
+      // When the output type is an unresolved SomeType (e.g., forall(T) from
+      // io.await evaluated with io=UnknownValue), treat it as unit.
+      const isPrevAwaitResultUnit =
+        isUnitType(prevAwait.resultType) ||
+        (isSomeType(prevAwait.resultType) &&
+          !(prevAwait.resultType as SomeType).resolvedConcreteType);
+
+      // Always check if the awaited Future was aborted by an effect handler
+      if (!prevAwait.isJoinPoint) {
+        emitter.emitLine(`      // Check if the awaited Future was aborted`);
+        emitter.emitLine(
+          `      if (sm->${prevFutureFieldName}->state == -2) {`
+        );
+        emitter.emitLine(
+          `        fprintf(stderr, "panic: attempted to await an aborted Future\\n");`
+        );
+        emitter.emitLine(`        abort();`);
+        emitter.emitLine(`      }`);
+      }
+
+      if (prevAwait && !isPrevAwaitResultUnit) {
         emitter.emitLine(
           `      // Extract result from await ${stateNumber - 1}`
         );
         emitter.emitLine(
-          `      int state_before_read = atomic_load_explicit(&sm->${prevFutureFieldName}->state, memory_order_acquire);`
+          `      int state_before_read = sm->${prevFutureFieldName}->state;`
         );
         emitter.emitLine(
           `      ASYNC_DEBUG("${asyncBlockId}: Reading result from await ${stateNumber - 1}, state=%d\\n", state_before_read);`
         );
-
         // If the result contains Rc-managed data, we need to dup it before copying
         // because the Future's dispose function will drop it, and we need our own reference
         if (typeContainsRcType(prevAwait.resultType)) {
@@ -236,7 +312,8 @@ export function generateAsyncBlockResumeFunction(
       // If the awaited Future was a temporary stored in await_future_X, drop it now.
       // (Captured Future variables may outlive the await and are handled by normal drops.)
       // Since Futures are ref-counted, we use __yo_decr_rc instead of direct dispose.
-      if (!prevAwait.futureVariableId) {
+      // Skip for join points — join futures are always captured variables.
+      if (!prevAwait.futureVariableId && !prevAwait.isJoinPoint) {
         const awaitExpr = prevAwait.expr as Expr;
         if (awaitExpr.tag === ExprTag.FnCall) {
           const futureArg = awaitExpr.args[0];
@@ -257,7 +334,7 @@ export function generateAsyncBlockResumeFunction(
       // If so, we need to execute the remaining code from the chosen branch
       const functionContext = context as FunctionGenerationContext;
       if (prevAwait) {
-        const condBranchData = functionContext.condBranchInfo?.get(
+        const condBranchData = functionContext.asyncCondBranchInfo?.get(
           prevAwait.index
         );
         if (condBranchData && condBranchData.branches.some((b) => b.hasAwait)) {
@@ -285,7 +362,8 @@ export function generateAsyncBlockResumeFunction(
               // If there are remaining expressions, generate them
               if (branch.remainingExprs && branch.remainingExprs.length > 0) {
                 // Set up state machine context for code generation
-                const previousInStateMachineForBranch = context.inStateMachine;
+                const previousInStateMachineForBranch =
+                  context.inAsyncStateMachine;
                 const previousStateMachineVariablesForBranch =
                   context.stateMachineVariables;
                 const previousVariableIdRemappingForBranch =
@@ -293,7 +371,7 @@ export function generateAsyncBlockResumeFunction(
                 const previousPendingDeferredDropsForBranch =
                   context.pendingDeferredDrops;
 
-                context.inStateMachine = { futureType };
+                context.inAsyncStateMachine = { futureType };
                 context.variableIdRemapping = analysis.variableIdRemapping;
                 // Set pending deferred drops so early returns in cond branches
                 // can drop async block local variables
@@ -387,11 +465,11 @@ export function generateAsyncBlockResumeFunction(
                 if (foundAdditionalAwait && segment.awaitPoint) {
                   // Store continuation info for the next state
                   const nextIndex = segment.awaitPoint.index;
-                  if (!functionContext.condBranchInfo) {
-                    functionContext.condBranchInfo = new Map();
+                  if (!functionContext.asyncCondBranchInfo) {
+                    functionContext.asyncCondBranchInfo = new Map();
                   }
                   const existing =
-                    functionContext.condBranchInfo.get(nextIndex);
+                    functionContext.asyncCondBranchInfo.get(nextIndex);
                   if (existing) {
                     // Entry already exists (from a nested cond's generateCondWithAwait).
                     // Chain the outer cond's remaining code as a separate layer.
@@ -433,7 +511,10 @@ export function generateAsyncBlockResumeFunction(
                       ],
                       condBranchFieldIndex: condBranchFieldIndex,
                     };
-                    functionContext.condBranchInfo.set(nextIndex, newEntry);
+                    functionContext.asyncCondBranchInfo.set(
+                      nextIndex,
+                      newEntry
+                    );
                   }
                 } else {
                   // No more awaits - generate deferred drop expressions
@@ -455,7 +536,7 @@ export function generateAsyncBlockResumeFunction(
                 }
 
                 // Restore context
-                context.inStateMachine = previousInStateMachineForBranch;
+                context.inAsyncStateMachine = previousInStateMachineForBranch;
                 context.stateMachineVariables =
                   previousStateMachineVariablesForBranch;
                 context.variableIdRemapping =
@@ -482,7 +563,7 @@ export function generateAsyncBlockResumeFunction(
                 ) {
                   // Set up state machine context for code generation
                   const previousInStateMachineForChained =
-                    context.inStateMachine;
+                    context.inAsyncStateMachine;
                   const previousStateMachineVariablesForChained =
                     context.stateMachineVariables;
                   const previousVariableIdRemappingForChained =
@@ -490,7 +571,7 @@ export function generateAsyncBlockResumeFunction(
                   const previousPendingDeferredDropsForChained =
                     context.pendingDeferredDrops;
 
-                  context.inStateMachine = { futureType };
+                  context.inAsyncStateMachine = { futureType };
                   context.variableIdRemapping = analysis.variableIdRemapping;
                   context.pendingDeferredDrops = [
                     ...(bodyExpr.$?.deferredDropExpressions ?? []),
@@ -555,11 +636,11 @@ export function generateAsyncBlockResumeFunction(
 
                   if (foundAdditionalAwaitChained && segment.awaitPoint) {
                     const nextIndex = segment.awaitPoint.index;
-                    if (!functionContext.condBranchInfo) {
-                      functionContext.condBranchInfo = new Map();
+                    if (!functionContext.asyncCondBranchInfo) {
+                      functionContext.asyncCondBranchInfo = new Map();
                     }
                     const existingChained =
-                      functionContext.condBranchInfo.get(nextIndex);
+                      functionContext.asyncCondBranchInfo.get(nextIndex);
                     if (existingChained) {
                       if (!existingChained.chainedBranches) {
                         existingChained.chainedBranches = [];
@@ -582,7 +663,7 @@ export function generateAsyncBlockResumeFunction(
                         condBranchFieldIndex: chainedLayer.condBranchFieldIndex,
                       });
                     } else {
-                      functionContext.condBranchInfo.set(nextIndex, {
+                      functionContext.asyncCondBranchInfo.set(nextIndex, {
                         branches: [
                           {
                             index: chainedBranch.index,
@@ -615,7 +696,8 @@ export function generateAsyncBlockResumeFunction(
                     }
                   }
 
-                  context.inStateMachine = previousInStateMachineForChained;
+                  context.inAsyncStateMachine =
+                    previousInStateMachineForChained;
                   context.stateMachineVariables =
                     previousStateMachineVariablesForChained;
                   context.variableIdRemapping =
@@ -651,7 +733,7 @@ export function generateAsyncBlockResumeFunction(
 
         // Check if this await was part of a while loop
         // If so, we need to execute remaining body expressions, then re-evaluate the loop condition
-        const whileLoopData = functionContext.whileLoopInfo?.get(
+        const whileLoopData = functionContext.asyncWhileLoopInfo?.get(
           prevAwait.index
         );
         if (whileLoopData) {
@@ -668,7 +750,7 @@ export function generateAsyncBlockResumeFunction(
             whileLoopData.bodyExprsAfterAwait.length > 0
           ) {
             // Set up state machine context for code generation
-            const previousInStateMachineForLoop = context.inStateMachine;
+            const previousInStateMachineForLoop = context.inAsyncStateMachine;
             const previousStateMachineVariablesForLoop =
               context.stateMachineVariables;
             const previousVariableIdRemappingForLoop =
@@ -676,7 +758,7 @@ export function generateAsyncBlockResumeFunction(
             const previousPendingDeferredDropsForLoop =
               context.pendingDeferredDrops;
 
-            context.inStateMachine = { futureType };
+            context.inAsyncStateMachine = { futureType };
             context.variableIdRemapping = analysis.variableIdRemapping;
             context.pendingDeferredDrops = [
               ...(whileLoopData.bodyExpr.$?.deferredDropExpressions ?? []),
@@ -703,18 +785,17 @@ export function generateAsyncBlockResumeFunction(
 
             // Set up break/continue handling: in the state machine switch, plain "break"
             // and "continue" don't work as expected. We need goto instead.
-            const previousAsyncWhileBreakInfo = context.asyncWhileBreakInfo;
-            const previousAsyncWhileContinueInfo =
-              context.asyncWhileContinueInfo;
-            const previousAsyncWhileBodyDrops = context.asyncWhileBodyDrops;
-            context.asyncWhileBreakInfo = {
+            const previousSmWhileBreakInfo = context.smWhileBreakInfo;
+            const previousSmWhileContinueInfo = context.smWhileContinueInfo;
+            const previousSmWhileBodyDrops = context.smWhileBodyDrops;
+            context.smWhileBreakInfo = {
               label: `after_while_loop_${prevAwait.index}`,
-              index: prevAwait.index,
+              activeIndex: prevAwait.index,
             };
-            context.asyncWhileContinueInfo = {
+            context.smWhileContinueInfo = {
               label: `while_loop_${prevAwait.index}_continue`,
             };
-            context.asyncWhileBodyDrops = [
+            context.smWhileBodyDrops = [
               ...(whileLoopData.bodyExpr.$?.deferredDropExpressions ?? []),
             ];
 
@@ -734,10 +815,10 @@ export function generateAsyncBlockResumeFunction(
             }
 
             // Restore context
-            context.asyncWhileBreakInfo = previousAsyncWhileBreakInfo;
-            context.asyncWhileContinueInfo = previousAsyncWhileContinueInfo;
-            context.asyncWhileBodyDrops = previousAsyncWhileBodyDrops;
-            context.inStateMachine = previousInStateMachineForLoop;
+            context.smWhileBreakInfo = previousSmWhileBreakInfo;
+            context.smWhileContinueInfo = previousSmWhileContinueInfo;
+            context.smWhileBodyDrops = previousSmWhileBodyDrops;
+            context.inAsyncStateMachine = previousInStateMachineForLoop;
             context.stateMachineVariables =
               previousStateMachineVariablesForLoop;
             context.variableIdRemapping = previousVariableIdRemappingForLoop;
@@ -753,10 +834,10 @@ export function generateAsyncBlockResumeFunction(
             const whileBodyDrops =
               whileLoopData.bodyExpr.$?.deferredDropExpressions ?? [];
             if (whileBodyDrops.length > 0) {
-              const prevInSM = context.inStateMachine;
+              const prevInSM = context.inAsyncStateMachine;
               const prevSMVars = context.stateMachineVariables;
               const prevVarRemap = context.variableIdRemapping;
-              context.inStateMachine = { futureType };
+              context.inAsyncStateMachine = { futureType };
               context.variableIdRemapping = analysis.variableIdRemapping;
 
               const dropCombinedVars = new Map<string, CapturedVariable>();
@@ -783,7 +864,7 @@ export function generateAsyncBlockResumeFunction(
                 }
               }
 
-              context.inStateMachine = prevInSM;
+              context.inAsyncStateMachine = prevInSM;
               context.stateMachineVariables = prevSMVars;
               context.variableIdRemapping = prevVarRemap;
             }
@@ -795,13 +876,13 @@ export function generateAsyncBlockResumeFunction(
           );
 
           // Set up state machine context for condition evaluation
-          const previousInStateMachineForCond = context.inStateMachine;
+          const previousInStateMachineForCond = context.inAsyncStateMachine;
           const previousStateMachineVariablesForCond =
             context.stateMachineVariables;
           const previousVariableIdRemappingForCond =
             context.variableIdRemapping;
 
-          context.inStateMachine = { futureType };
+          context.inAsyncStateMachine = { futureType };
           context.variableIdRemapping = analysis.variableIdRemapping;
 
           // Combine outer captured variables and local variables
@@ -830,7 +911,7 @@ export function generateAsyncBlockResumeFunction(
           );
 
           // Restore context
-          context.inStateMachine = previousInStateMachineForCond;
+          context.inAsyncStateMachine = previousInStateMachineForCond;
           context.stateMachineVariables = previousStateMachineVariablesForCond;
           context.variableIdRemapping = previousVariableIdRemappingForCond;
 
@@ -878,12 +959,12 @@ export function generateAsyncBlockResumeFunction(
 
             // Generate the outer while's remaining body expressions
             if (outerWhile.bodyExprsAfterAwait.length > 0) {
-              const prevInSMOuter = context.inStateMachine;
+              const prevInSMOuter = context.inAsyncStateMachine;
               const prevSMVarsOuter = context.stateMachineVariables;
               const prevVarRemapOuter = context.variableIdRemapping;
               const prevPendingDropsOuter = context.pendingDeferredDrops;
 
-              context.inStateMachine = { futureType };
+              context.inAsyncStateMachine = { futureType };
               context.variableIdRemapping = analysis.variableIdRemapping;
               context.pendingDeferredDrops = [
                 ...(outerWhile.bodyExpr.$?.deferredDropExpressions ?? []),
@@ -907,17 +988,17 @@ export function generateAsyncBlockResumeFunction(
               }
               context.stateMachineVariables = outerCombinedVars;
 
-              const prevBreakInfoOuter = context.asyncWhileBreakInfo;
-              const prevContinueInfoOuter = context.asyncWhileContinueInfo;
-              const prevBodyDropsOuter = context.asyncWhileBodyDrops;
-              context.asyncWhileBreakInfo = {
+              const prevBreakInfoOuter = context.smWhileBreakInfo;
+              const prevContinueInfoOuter = context.smWhileContinueInfo;
+              const prevBodyDropsOuter = context.smWhileBodyDrops;
+              context.smWhileBreakInfo = {
                 label: `after_while_loop_${outerIndex}`,
-                index: outerIndex,
+                activeIndex: outerIndex,
               };
-              context.asyncWhileContinueInfo = {
+              context.smWhileContinueInfo = {
                 label: `while_loop_${outerIndex}_continue`,
               };
-              context.asyncWhileBodyDrops = [
+              context.smWhileBodyDrops = [
                 ...(outerWhile.bodyExpr.$?.deferredDropExpressions ?? []),
               ];
 
@@ -934,10 +1015,10 @@ export function generateAsyncBlockResumeFunction(
                 }
               }
 
-              context.asyncWhileBreakInfo = prevBreakInfoOuter;
-              context.asyncWhileContinueInfo = prevContinueInfoOuter;
-              context.asyncWhileBodyDrops = prevBodyDropsOuter;
-              context.inStateMachine = prevInSMOuter;
+              context.smWhileBreakInfo = prevBreakInfoOuter;
+              context.smWhileContinueInfo = prevContinueInfoOuter;
+              context.smWhileBodyDrops = prevBodyDropsOuter;
+              context.inAsyncStateMachine = prevInSMOuter;
               context.stateMachineVariables = prevSMVarsOuter;
               context.variableIdRemapping = prevVarRemapOuter;
               context.pendingDeferredDrops = prevPendingDropsOuter;
@@ -951,10 +1032,10 @@ export function generateAsyncBlockResumeFunction(
               const outerDrops =
                 outerWhile.bodyExpr.$?.deferredDropExpressions ?? [];
               if (outerDrops.length > 0) {
-                const prevInSM2 = context.inStateMachine;
+                const prevInSM2 = context.inAsyncStateMachine;
                 const prevSMVars2 = context.stateMachineVariables;
                 const prevVarRemap2 = context.variableIdRemapping;
-                context.inStateMachine = { futureType };
+                context.inAsyncStateMachine = { futureType };
                 context.variableIdRemapping = analysis.variableIdRemapping;
 
                 const dropVars2 = new Map<string, CapturedVariable>();
@@ -981,7 +1062,7 @@ export function generateAsyncBlockResumeFunction(
                   }
                 }
 
-                context.inStateMachine = prevInSM2;
+                context.inAsyncStateMachine = prevInSM2;
                 context.stateMachineVariables = prevSMVars2;
                 context.variableIdRemapping = prevVarRemap2;
               }
@@ -989,10 +1070,10 @@ export function generateAsyncBlockResumeFunction(
 
             // Re-evaluate outer while condition
             {
-              const prevInSM3 = context.inStateMachine;
+              const prevInSM3 = context.inAsyncStateMachine;
               const prevSMVars3 = context.stateMachineVariables;
               const prevVarRemap3 = context.variableIdRemapping;
-              context.inStateMachine = { futureType };
+              context.inAsyncStateMachine = { futureType };
               context.variableIdRemapping = analysis.variableIdRemapping;
 
               const condVars3 = new Map<string, CapturedVariable>();
@@ -1018,7 +1099,7 @@ export function generateAsyncBlockResumeFunction(
                 context
               );
 
-              context.inStateMachine = prevInSM3;
+              context.inAsyncStateMachine = prevInSM3;
               context.stateMachineVariables = prevSMVars3;
               context.variableIdRemapping = prevVarRemap3;
 
@@ -1043,11 +1124,11 @@ export function generateAsyncBlockResumeFunction(
     }
 
     // Set up state machine context
-    const previousInStateMachine = context.inStateMachine;
+    const previousInStateMachine = context.inAsyncStateMachine;
     const previousStateMachineVariables = context.stateMachineVariables;
     const previousVariableIdRemapping = context.variableIdRemapping;
 
-    context.inStateMachine = { futureType };
+    context.inAsyncStateMachine = { futureType };
     context.variableIdRemapping = analysis.variableIdRemapping;
     // Combine outer captured variables and local variables into stateMachineVariables
     // This allows generateAtom to find all variables that should be accessed via sm->
@@ -1100,85 +1181,236 @@ export function generateAsyncBlockResumeFunction(
 
     if (segment.awaitPoint) {
       // Restore previous context before await logic
-      context.inStateMachine = previousInStateMachine;
+      context.inAsyncStateMachine = previousInStateMachine;
       context.stateMachineVariables = previousStateMachineVariables;
       context.variableIdRemapping = previousVariableIdRemapping;
 
-      // This segment ends with an await - generate the await logic
+      // This segment ends with an await or join - generate the suspension logic
       const nextState = stateNumber + 1;
-      const futureFieldName = getFutureFieldName(segment.awaitPoint, analysis);
 
-      // If this await is inside a cond expression, the future may not be set
-      // (the non-await branch was taken). Guard the await logic with a NULL check.
-      const isInsideCond = segment.awaitPoint?.isInsideCond;
-      if (isInsideCond) {
-        emitter.emitLine(
-          `      // Only await if the cond branch with await was taken`
-        );
-        emitter.emitLine(`      if (sm->${futureFieldName} != NULL) {`);
-      }
+      if (segment.awaitPoint.isJoinPoint) {
+        // === JOIN POINT: wait for multiple futures concurrently ===
+        const joinIndex = segment.awaitPoint.index;
+        const futureVarIds = segment.awaitPoint.joinFutureVariableIds!;
+        const futureCount = segment.awaitPoint.joinFutureCount!;
+        const notifyFnName = `${asyncBlockId}_join_${joinIndex}_notify`;
 
-      // If this await is inside a while loop, wrap the await logic in a check for loop active flag
-      const isInsideWhile = segment.awaitPoint?.isInsideWhile;
-      if (isInsideWhile) {
-        const whileLoopIndex = segment.awaitPoint.index;
         emitter.emitLine(
-          `      // Only await if while loop is still active (not broken)`
+          `      // Join point ${joinIndex} — wait for ${futureCount} futures`
         );
+        emitter.emitLine(`      sm->state = ${nextState};`);
         emitter.emitLine(
-          `      if (sm->while_loop_${whileLoopIndex}_active) {`
+          `      sm->join_pending_${joinIndex} = ${futureCount};`
         );
-      }
+        emitter.emitLine(``);
 
-      emitter.emitLine(`      // Transition to next state after await`);
-      emitter.emitLine(`      sm->state = ${nextState};`);
-      emitter.emitLine(``);
-      emitter.emitLine(`      // Check if future is ready`);
-      emitter.emitLine(
-        `      int future_state = atomic_load_explicit(&sm->${futureFieldName}->state, memory_order_acquire);`
-      );
-      emitter.emitLine(`      if (future_state == -1) {  // -1 = completed`);
-      emitter.emitLine(
-        `        // Yield once even when ready (microtask semantics), then resume in next tick`
-      );
-      emitter.emitLine(
-        `        yo_async_spawn_task((void (*)(void*))${resumeFunctionName}, (void*)sm);`
-      );
-      emitter.emitLine(`        return;`);
-      emitter.emitLine(`      } else {`);
-      // Register continuation directly on the future (type-specific access)
-      emitter.emitLine(
-        `        // Register continuation to be called when future completes`
-      );
-      emitter.emitLine(
-        `        atomic_store_explicit(&sm->${futureFieldName}->continuation_fn, (void (*)(void*))${resumeFunctionName}, memory_order_release);`
-      );
-      emitter.emitLine(
-        `        atomic_store_explicit(&sm->${futureFieldName}->continuation_sm, (void*)sm, memory_order_release);`
-      );
-      emitter.emitLine(`        return;`);
-      emitter.emitLine(`      }`);
+        // For each future being joined, generate start/register logic
+        for (let fi = 0; fi < futureVarIds.length; fi++) {
+          const futureFieldName = getFutureFieldNameByVariableId(
+            futureVarIds[fi]!,
+            analysis
+          );
+          const joinFutureIsIo = isIoFutureType(
+            segment.awaitPoint.joinFutureTypes?.[fi]
+          );
+          emitter.emitLine(
+            `      // Join future ${fi}: sm->${futureFieldName}`
+          );
+          emitter.emitLine(`      {`);
+          emitter.emitLine(
+            `        int fs_${fi} = sm->${futureFieldName}->state;`
+          );
+          emitter.emitLine(`        if (fs_${fi} == -1 || fs_${fi} == -2) {`);
+          emitter.emitLine(
+            `          // Already complete or aborted — decrement counter directly`
+          );
+          emitter.emitLine(
+            `          int prev_${fi} = sm->join_pending_${joinIndex}--;`
+          );
+          emitter.emitLine(`          if (prev_${fi} == 1) {`);
+          emitter.emitLine(
+            `            // All futures done (all were pre-completed/aborted) — resume immediately`
+          );
+          emitter.emitLine(`            goto state_${nextState};`);
+          emitter.emitLine(`          }`);
+          emitter.emitLine(`        } else {`);
+          emitter.emitLine(
+            `          // Not complete — take event loop refs and start/register`
+          );
+          emitter.emitLine(
+            `          __yo_incr_rc((void*)sm);  // event loop ref for notify`
+          );
+          emitter.emitLine(
+            `          __yo_incr_rc((void*)sm->${futureFieldName});  // event loop ref for future`
+          );
+          emitter.emitLine(
+            `          // Set notify function as continuation BEFORE starting`
+          );
+          emitter.emitLine(
+            `          sm->${futureFieldName}->continuation_fn = (void (*)(void*))${notifyFnName};`
+          );
+          emitter.emitLine(
+            `          sm->${futureFieldName}->continuation_sm = (void*)sm;`
+          );
+          if (!joinFutureIsIo) {
+            emitter.emitLine(`          if (fs_${fi} == 0) {`);
+            emitter.emitLine(`            // Cold future — start it`);
+            emitter.emitLine(
+              `            sm->${futureFieldName}->__yo_resume_fn((void*)sm->${futureFieldName});`
+            );
+            emitter.emitLine(`          }`);
+          }
+          emitter.emitLine(`        }`);
+          emitter.emitLine(`      }`);
+          emitter.emitLine(``);
+        }
 
-      if (isInsideWhile) {
-        const whileLoopIndex = segment.awaitPoint.index;
-        // Add else branch to jump to code after while loop when broken
-        emitter.emitLine(`      } else {`);
         emitter.emitLine(
-          `        // While loop was broken, jump to code after loop`
+          `      // All futures started/registered — suspend, notify will resume us`
         );
-        emitter.emitLine(`        goto after_while_loop_${whileLoopIndex};`);
+        emitter.emitLine(`      return;`);
+      } else {
+        // === SINGLE AWAIT POINT ===
+        const futureFieldName = getFutureFieldName(
+          segment.awaitPoint,
+          analysis
+        );
+
+        // Determine if the future is an IO future (yo_io_future_t) which is
+        // already submitted to io_uring and doesn't have __yo_resume_fn.
+        const awaitExprForTypeCheck = segment.awaitPoint.expr as {
+          args?: Expr[];
+        };
+        const futureExprForTypeCheck = awaitExprForTypeCheck.args?.[0];
+        const isIoFuture = isIoFutureType(futureExprForTypeCheck?.$?.type);
+
+        // If this await is inside a cond expression, the future may not be set
+        // (the non-await branch was taken). Guard the await logic with a NULL check.
+        const isInsideCond = segment.awaitPoint?.isInsideCond;
+        if (isInsideCond) {
+          emitter.emitLine(
+            `      // Only await if the cond branch with await was taken`
+          );
+          emitter.emitLine(`      if (sm->${futureFieldName} != NULL) {`);
+        }
+
+        // If this await is inside a while loop, wrap the await logic in a check for loop active flag
+        const isInsideWhile = segment.awaitPoint?.isInsideWhile;
+        if (isInsideWhile) {
+          const whileLoopIndex = segment.awaitPoint.index;
+          emitter.emitLine(
+            `      // Only await if while loop is still active (not broken)`
+          );
+          emitter.emitLine(
+            `      if (sm->while_loop_${whileLoopIndex}_active) {`
+          );
+        }
+
+        emitter.emitLine(`      // Transition to next state after await`);
+        emitter.emitLine(`      sm->state = ${nextState};`);
+        emitter.emitLine(``);
+        emitter.emitLine(`      // Check if future is ready`);
+        emitter.emitLine(
+          `      int future_state = sm->${futureFieldName}->state;`
+        );
+        emitter.emitLine(
+          `      if (future_state == -1 || future_state == -2) {  // -1 = completed, -2 = aborted`
+        );
+        emitter.emitLine(
+          `        // Already complete or aborted — yield once for fairness`
+        );
+        emitter.emitLine(
+          `        // Yield once to event loop for fairness (microtask yield)`
+        );
+        emitter.emitLine(
+          `        yo_async_spawn_task((void (*)(void*))${resumeFunctionName}, (void*)sm);`
+        );
+        emitter.emitLine(`        return;`);
         emitter.emitLine(`      }`);
-      }
-
-      if (isInsideCond) {
-        emitter.emitLine(`      } else {`);
+        emitter.emitLine(``);
+        // Cold future: start it via stored resume function pointer
+        // IO futures (yo_io_future_t) are already submitted to io_uring and don't
+        // have __yo_resume_fn — skip cold-start for them.
+        if (!isIoFuture) {
+          // SM futures need an extra ref because the SM future's own completion
+          // code calls __yo_decr_rc on itself. IO futures don't — their completion
+          // handler (__yo_io_process_cqe) doesn't decrement, so the single RC=1
+          // from allocation is sufficient.
+          emitter.emitLine(
+            `      // Future not complete — take event loop reference and start if cold`
+          );
+          emitter.emitLine(
+            `      __yo_incr_rc((void*)sm->${futureFieldName});  // event loop reference`
+          );
+        } else {
+          emitter.emitLine(
+            `      // IO future: no extra ref needed (completion handler does not decr_rc)`
+          );
+        }
+        if (!isIoFuture) {
+          emitter.emitLine(
+            `      if (future_state == 0) {  // 0 = cold (not started)`
+          );
+          emitter.emitLine(
+            `        // Cold future — start it via stored resume function pointer`
+          );
+          emitter.emitLine(
+            `        sm->${futureFieldName}->__yo_resume_fn((void*)sm->${futureFieldName});`
+          );
+          emitter.emitLine(``);
+          emitter.emitLine(
+            `        // Re-check: may have completed synchronously`
+          );
+          emitter.emitLine(
+            `        future_state = sm->${futureFieldName}->state;`
+          );
+          emitter.emitLine(
+            `        if (future_state == -1 || future_state == -2) {`
+          );
+          emitter.emitLine(
+            `          // Completed or aborted synchronously — yield for fairness`
+          );
+          emitter.emitLine(
+            `          yo_async_spawn_task((void (*)(void*))${resumeFunctionName}, (void*)sm);`
+          );
+          emitter.emitLine(`          return;`);
+          emitter.emitLine(`        }`);
+          emitter.emitLine(`      }`);
+        }
+        emitter.emitLine(``);
+        // Register continuation directly on the future (type-specific access)
         emitter.emitLine(
-          `        // Non-await cond branch was taken, skip directly to next state`
+          `      // Still pending — register continuation and suspend`
         );
-        emitter.emitLine(`        sm->state = ${nextState};`);
-        emitter.emitLine(`        goto state_${nextState};`);
-        emitter.emitLine(`      }`);
-      }
+        emitter.emitLine(
+          `      sm->${futureFieldName}->continuation_fn = (void (*)(void*))${resumeFunctionName};`
+        );
+        emitter.emitLine(
+          `      sm->${futureFieldName}->continuation_sm = (void*)sm;`
+        );
+        emitter.emitLine(`      return;`);
+
+        if (isInsideWhile) {
+          const whileLoopIndex = segment.awaitPoint.index;
+          // Add else branch to jump to code after while loop when broken
+          emitter.emitLine(`      } else {`);
+          emitter.emitLine(
+            `        // While loop was broken, jump to code after loop`
+          );
+          emitter.emitLine(`        goto after_while_loop_${whileLoopIndex};`);
+          emitter.emitLine(`      }`);
+        }
+
+        if (isInsideCond) {
+          emitter.emitLine(`      } else {`);
+          emitter.emitLine(
+            `        // Non-await cond branch was taken, skip directly to next state`
+          );
+          emitter.emitLine(`        sm->state = ${nextState};`);
+          emitter.emitLine(`        goto state_${nextState};`);
+          emitter.emitLine(`      }`);
+        }
+      } // end of else (single await) branch
     } else if (isLastSegment) {
       // Last segment - complete the Future
       const hasReturnStatement = segment.expressions.some((expr: Expr) =>
@@ -1209,12 +1441,12 @@ export function generateAsyncBlockResumeFunction(
       }
 
       // Restore previous context after final state
-      context.inStateMachine = previousInStateMachine;
+      context.inAsyncStateMachine = previousInStateMachine;
       context.stateMachineVariables = previousStateMachineVariables;
       context.variableIdRemapping = previousVariableIdRemapping;
     } else {
       // Restore previous context for non-await, non-final segments
-      context.inStateMachine = previousInStateMachine;
+      context.inAsyncStateMachine = previousInStateMachine;
       context.stateMachineVariables = previousStateMachineVariables;
       context.variableIdRemapping = previousVariableIdRemapping;
     }
@@ -1247,7 +1479,7 @@ function generateRemainingExprFuture(
     if (
       valueExpr &&
       valueExpr.tag === ExprTag.FnCall &&
-      exprIsFunctionCallOf(valueExpr, BuiltinFunctions.await)
+      isIoAwaitCall(valueExpr)
     ) {
       const futureExpr = valueExpr.args[0];
       if (futureExpr) {
@@ -1261,11 +1493,8 @@ function generateRemainingExprFuture(
     return;
   }
 
-  // Handle: await(futureExpr)
-  if (
-    expr.tag === ExprTag.FnCall &&
-    exprIsFunctionCallOf(expr, BuiltinFunctions.await)
-  ) {
+  // Handle: io.await(futureExpr)
+  if (expr.tag === ExprTag.FnCall && isIoAwaitCall(expr)) {
     const futureExpr = expr.args[0];
     if (futureExpr) {
       const futureCode = generateExpr(futureExpr, indent, context);

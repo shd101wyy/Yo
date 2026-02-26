@@ -6,7 +6,11 @@ import {
 } from "../../env";
 import { PlaceholderToken } from "../../token";
 import { createEffectsRowType } from "../../types/creators";
-import type { FunctionImplicitParameter, Type } from "../../types/definitions";
+import type {
+  EffectsRowType,
+  FunctionImplicitParameter,
+  Type,
+} from "../../types/definitions";
 import { getValueOfSomeTypeFromEnv } from "../../types/env-lookup";
 import {
   isArrayType,
@@ -105,7 +109,15 @@ function occursCheck(
   }
 
   if (isFutureTraitType(type)) {
-    return occursCheck(someTypeId, type.isFuture.outputType, visited);
+    if (occursCheck(someTypeId, type.isFuture.outputType, visited)) {
+      return true;
+    }
+    for (const effect of type.isFuture.effects) {
+      if (occursCheck(someTypeId, effect.type, visited)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   if (isFnTraitType(type)) {
@@ -277,9 +289,68 @@ export function synthesizeTypes(
         }
       }
     }
+
+    // After unifying the two SomeTypes, recursively synthesize their required trait
+    // type parameters. For example, when expected=Impl(Future(T)) and given=Impl(Future(i32)),
+    // we need to match Future(T) with Future(i32) to resolve T = i32.
+    // Only do this when the two SomeTypes are from DIFFERENT declarations (different IDs).
+    // When they are the same object (e.g., closure takes on expected type), recursion is unnecessary.
+    if (
+      expected.type.id !== given.type.id &&
+      expected.type.requiredTraits &&
+      given.type.requiredTraits
+    ) {
+      const expectedTraits = expected.type.requiredTraits;
+      const givenTraits = given.type.requiredTraits;
+      // Match traits by kind rather than by position, so that
+      // Impl(Future(T)) can match against Impl(Concrete(...), Future(i32))
+      // even when the Future trait is at a different index.
+      for (let i = 0; i < expectedTraits.length; i++) {
+        const expectedTrait = expectedTraits[i]!.traitType;
+        if (isFnTraitType(expectedTrait)) {
+          const matchingGiven = givenTraits.find((gt) =>
+            isFnTraitType(gt.traitType)
+          );
+          if (matchingGiven && isFnTraitType(matchingGiven.traitType)) {
+            const { expectedEnv, givenEnv } = synthesizeTypes(
+              { type: expectedTrait.isFn.callType, env: expected.env },
+              { type: matchingGiven.traitType.isFn.callType, env: given.env },
+              checkedTypePairs
+            );
+            expected.env = expectedEnv;
+            given.env = givenEnv;
+          }
+        } else if (isFutureTraitType(expectedTrait)) {
+          const matchingGiven = givenTraits.find((gt) =>
+            isFutureTraitType(gt.traitType)
+          );
+          if (matchingGiven && isFutureTraitType(matchingGiven.traitType)) {
+            const { expectedEnv, givenEnv } = synthesizeTypes(
+              { type: expectedTrait.isFuture.outputType, env: expected.env },
+              {
+                type: matchingGiven.traitType.isFuture.outputType,
+                env: given.env,
+              },
+              checkedTypePairs
+            );
+            expected.env = expectedEnv;
+            given.env = givenEnv;
+            synthesizeFutureEffects(
+              expectedTrait.isFuture.effects,
+              matchingGiven.traitType.isFuture.effects,
+              expected,
+              given,
+              checkedTypePairs
+            );
+          }
+        }
+      }
+    }
   } else if (isSomeType(expected.type)) {
     // Check if the env has
+
     const type = getValueOfSomeTypeFromEnv(expected.env, expected.type);
+
     if (
       isSomeType(type) &&
       (type.id === expected.type.id ||
@@ -322,6 +393,43 @@ export function synthesizeTypes(
           ...variable,
           value: [value],
         });
+      }
+
+      // After binding the SomeType, recursively synthesize required trait type parameters.
+      // For Impl(Fn(using(...(E)) -> T)) matched with fn() -> i32,
+      // this resolves T = i32 and E = empty by matching the Fn trait's call type
+      // with the given function type.
+      if (expected.type.requiredTraits) {
+        for (const { traitType } of expected.type.requiredTraits) {
+          if (isFnTraitType(traitType) && isFunctionType(given.type)) {
+            const fnCallType = traitType.isFn.callType;
+            const { expectedEnv, givenEnv } = synthesizeTypes(
+              { type: fnCallType, env: expected.env },
+              { type: given.type, env: given.env },
+              checkedTypePairs
+            );
+            expected.env = expectedEnv;
+            given.env = givenEnv;
+          } else if (
+            isFutureTraitType(traitType) &&
+            isFutureTraitType(given.type)
+          ) {
+            const { expectedEnv, givenEnv } = synthesizeTypes(
+              { type: traitType.isFuture.outputType, env: expected.env },
+              { type: given.type.isFuture.outputType, env: given.env },
+              checkedTypePairs
+            );
+            expected.env = expectedEnv;
+            given.env = givenEnv;
+            synthesizeFutureEffects(
+              traitType.isFuture.effects,
+              given.type.isFuture.effects,
+              expected,
+              given,
+              checkedTypePairs
+            );
+          }
+        }
       }
     } else if (!isSomeType(type)) {
       const { expectedEnv, givenEnv } = synthesizeTypes(
@@ -705,6 +813,13 @@ export function synthesizeTypes(
     );
     expected.env = expectedEnv;
     given.env = givenEnv;
+    synthesizeFutureEffects(
+      expected.type.isFuture.effects,
+      given.type.isFuture.effects,
+      expected,
+      given,
+      checkedTypePairs
+    );
   } else if (isFnTraitType(expected.type) && isFnTraitType(given.type)) {
     // Synthesize FnTraitType types - match the function types (isFn)
     const expectedFnModule = expected.type;
@@ -772,78 +887,126 @@ export function synthesizeTypes(
     }
 
     // Synthesize implicit parameters, handling effect row spreads.
-    // Named (non-spread) params are matched by position.
-    // Spread markers (..( E) or bare ...) collect the remaining concrete params
-    // from the given function type and bind the effect row SomeType to them.
+    // Uses set-based matching with the "at most one unsolved spread" rule:
+    // 1. Concrete params are matched by type id against given concrete params.
+    // 2. Solved spreads consume their expanded effects from given.
+    // 3. At most one unsolved spread binds to the remaining unmatched given params.
     {
       const expectedImplicit = expectedFunction.implicitParameters;
       const givenImplicit = givenFunction.implicitParameters.filter(
         (p) => !p.isEffectRowSpread
-      );
+      ) as FunctionImplicitParameter[];
 
-      let givenIdx = 0;
-      for (let i = 0; i < expectedImplicit.length; i++) {
-        const expectedParam = expectedImplicit[i]!;
-        if (expectedParam.isEffectRowSpread) {
-          if (isEffectsRowType(expectedParam.type)) {
-            // Spread already bound to a concrete EffectsRowType — accept, consume remaining
-            givenIdx = givenImplicit.length;
-          } else {
-            // Named spread ...(E): collect remaining given params and bind E
-            const remaining = givenImplicit.slice(
-              givenIdx
-            ) as FunctionImplicitParameter[];
-            givenIdx = givenImplicit.length;
+      // Categorize expected implicit params
+      const concreteExpected: FunctionImplicitParameter[] = [];
+      const solvedSpreads: FunctionImplicitParameter[] = [];
+      const unsolvedSpreads: FunctionImplicitParameter[] = [];
 
-            // expectedParam.type is the SomeType for E
-            if (
-              isSomeType(expectedParam.type) &&
-              expectedParam.type.isEffectsRow
-            ) {
-              const effectsRow = createEffectsRowType(remaining);
-              const typeValue = createTypeValue(effectsRow);
-
-              // Bind E in expected.env
-              const existingVars = getVariablesFromEnv(
-                expected.env,
-                expectedParam.type.name
-              );
-              const variable = existingVars[existingVars.length - 1];
-              if (!variable) {
-                const { env: nextEnv } = addVariableToEnv({
-                  env: expected.env,
-                  variable: {
-                    name: expectedParam.type.name,
-                    value: [typeValue],
-                    type: typeValue.type,
-                    isCompileTimeOnly: true,
-                    token: PlaceholderToken,
-                    initializedAtToken: PlaceholderToken,
-                    consumedAtToken: undefined,
-                    isOwningTheRcValue: false,
-                  },
-                });
-                expected.env = nextEnv;
-              } else {
-                expected.env = updateExistingVariable(expected.env, variable, {
-                  ...variable,
-                  value: [typeValue],
-                });
-              }
-            }
+      for (const param of expectedImplicit) {
+        if (param.isEffectRowSpread) {
+          if (isEffectsRowType(param.type)) {
+            solvedSpreads.push(param);
+          } else if (isSomeType(param.type) && param.type.isEffectsRow) {
+            unsolvedSpreads.push(param);
           }
         } else {
-          // Named regular implicit param — synthesize type against corresponding given param
-          const givenParam = givenImplicit[givenIdx];
-          if (givenParam) {
+          concreteExpected.push(param);
+        }
+      }
+
+      if (unsolvedSpreads.length > 1) {
+        throw new Error(
+          `Ambiguous effect row unification: multiple unsolved effect row variables ` +
+            `(${unsolvedSpreads.map((s) => s.label).join(", ")}). ` +
+            `At most one effect row spread can be unsolved during type unification.`
+        );
+      }
+
+      // Track which given params have been matched
+      const matchedGiven = new Set<number>();
+
+      // 1. Match concrete expected params against given (set-based by type id)
+      for (const exp of concreteExpected) {
+        for (let j = 0; j < givenImplicit.length; j++) {
+          if (matchedGiven.has(j)) continue;
+          if (exp.type.id === givenImplicit[j]!.type.id) {
             const { expectedEnv, givenEnv } = synthesizeTypes(
-              { type: expectedParam.type, env: expected.env },
-              { type: givenParam.type, env: given.env },
+              { type: exp.type, env: expected.env },
+              { type: givenImplicit[j]!.type, env: given.env },
               checkedTypePairs
             );
             expected.env = expectedEnv;
             given.env = givenEnv;
-            givenIdx++;
+            matchedGiven.add(j);
+            break;
+          }
+        }
+      }
+
+      // 2. Match solved spreads' expanded effects against given
+      for (const spread of solvedSpreads) {
+        const expandedEffects = (spread.type as EffectsRowType)
+          .implicitParameters;
+        for (const exp of expandedEffects) {
+          for (let j = 0; j < givenImplicit.length; j++) {
+            if (matchedGiven.has(j)) continue;
+            if (exp.type.id === givenImplicit[j]!.type.id) {
+              const { expectedEnv, givenEnv } = synthesizeTypes(
+                { type: exp.type, env: expected.env },
+                { type: givenImplicit[j]!.type, env: given.env },
+                checkedTypePairs
+              );
+              expected.env = expectedEnv;
+              given.env = givenEnv;
+              matchedGiven.add(j);
+              break;
+            }
+          }
+        }
+      }
+
+      // 3. Bind the single unsolved spread to remaining unmatched given params
+      if (unsolvedSpreads.length === 1) {
+        const unsolvedSpread = unsolvedSpreads[0]!;
+        const remaining: FunctionImplicitParameter[] = [];
+        for (let j = 0; j < givenImplicit.length; j++) {
+          if (!matchedGiven.has(j)) {
+            remaining.push(givenImplicit[j]!);
+          }
+        }
+
+        if (
+          isSomeType(unsolvedSpread.type) &&
+          unsolvedSpread.type.isEffectsRow
+        ) {
+          const effectsRow = createEffectsRowType(remaining);
+          const typeValue = createTypeValue(effectsRow);
+
+          const existingVars = getVariablesFromEnv(
+            expected.env,
+            unsolvedSpread.type.name
+          );
+          const variable = existingVars[existingVars.length - 1];
+          if (!variable) {
+            const { env: nextEnv } = addVariableToEnv({
+              env: expected.env,
+              variable: {
+                name: unsolvedSpread.type.name,
+                value: [typeValue],
+                type: typeValue.type,
+                isCompileTimeOnly: true,
+                token: PlaceholderToken,
+                initializedAtToken: PlaceholderToken,
+                consumedAtToken: undefined,
+                isOwningTheRcValue: false,
+              },
+            });
+            expected.env = nextEnv;
+          } else {
+            expected.env = updateExistingVariable(expected.env, variable, {
+              ...variable,
+              value: [typeValue],
+            });
           }
         }
       }
@@ -883,4 +1046,139 @@ Given: "${typeToString(given.type)}"`
     }
   }
   return { expectedEnv: expected.env, givenEnv: given.env };
+}
+
+/**
+ * Synthesize effects between two FutureTraitTypes.
+ * Uses set-based matching with the "at most one unsolved spread" rule:
+ * 1. Separate expected effects into concrete, solved spreads, unsolved spreads
+ * 2. At most one unsolved spread is allowed (error if multiple)
+ * 3. Match concrete expected and solved spread effects against given (set-based)
+ * 4. Bind the single unsolved spread to the remaining unmatched given effects
+ */
+function synthesizeFutureEffects(
+  expectedEffects: FunctionImplicitParameter[],
+  givenEffects: FunctionImplicitParameter[],
+  expected: { env: Environment },
+  given: { env: Environment },
+  checkedTypePairs: { expected: Type; given: Type }[]
+): void {
+  if (expectedEffects.length === 0 && givenEffects.length === 0) {
+    return;
+  }
+
+  // Categorize expected effects
+  const concreteExpected: FunctionImplicitParameter[] = [];
+  const solvedSpreads: FunctionImplicitParameter[] = [];
+  const unsolvedSpreads: FunctionImplicitParameter[] = [];
+
+  for (const effect of expectedEffects) {
+    if (effect.isEffectRowSpread) {
+      if (isEffectsRowType(effect.type)) {
+        solvedSpreads.push(effect);
+      } else if (isSomeType(effect.type) && effect.type.isEffectsRow) {
+        unsolvedSpreads.push(effect);
+      }
+    } else {
+      concreteExpected.push(effect);
+    }
+  }
+
+  if (unsolvedSpreads.length > 1) {
+    throw new Error(
+      `Ambiguous effect row unification: multiple unsolved effect row variables ` +
+        `(${unsolvedSpreads.map((s) => s.label).join(", ")}). ` +
+        `At most one effect row spread can be unsolved during type unification.`
+    );
+  }
+
+  // Collect all concrete given effects (spreads in given are not expected)
+  const givenConcrete = givenEffects.filter(
+    (p) => !p.isEffectRowSpread
+  ) as FunctionImplicitParameter[];
+
+  // Track which given effects have been matched
+  const matchedGiven = new Set<number>();
+
+  // 1. Match concrete expected effects against given (set-based by type id)
+  for (const exp of concreteExpected) {
+    for (let j = 0; j < givenConcrete.length; j++) {
+      if (matchedGiven.has(j)) continue;
+      if (exp.type.id === givenConcrete[j]!.type.id) {
+        const { expectedEnv, givenEnv } = synthesizeTypes(
+          { type: exp.type, env: expected.env },
+          { type: givenConcrete[j]!.type, env: given.env },
+          checkedTypePairs
+        );
+        expected.env = expectedEnv;
+        given.env = givenEnv;
+        matchedGiven.add(j);
+        break;
+      }
+    }
+  }
+
+  // 2. Match solved spreads' expanded effects against given
+  for (const spread of solvedSpreads) {
+    const expandedEffects = (spread.type as EffectsRowType).implicitParameters;
+    for (const exp of expandedEffects) {
+      for (let j = 0; j < givenConcrete.length; j++) {
+        if (matchedGiven.has(j)) continue;
+        if (exp.type.id === givenConcrete[j]!.type.id) {
+          const { expectedEnv, givenEnv } = synthesizeTypes(
+            { type: exp.type, env: expected.env },
+            { type: givenConcrete[j]!.type, env: given.env },
+            checkedTypePairs
+          );
+          expected.env = expectedEnv;
+          given.env = givenEnv;
+          matchedGiven.add(j);
+          break;
+        }
+      }
+    }
+  }
+
+  // 3. Bind the single unsolved spread to remaining unmatched given effects
+  if (unsolvedSpreads.length === 1) {
+    const unsolvedSpread = unsolvedSpreads[0]!;
+    const remaining: FunctionImplicitParameter[] = [];
+    for (let j = 0; j < givenConcrete.length; j++) {
+      if (!matchedGiven.has(j)) {
+        remaining.push(givenConcrete[j]!);
+      }
+    }
+
+    if (isSomeType(unsolvedSpread.type) && unsolvedSpread.type.isEffectsRow) {
+      const effectsRow = createEffectsRowType(remaining);
+      const typeValue = createTypeValue(effectsRow);
+
+      const existingVars = getVariablesFromEnv(
+        expected.env,
+        unsolvedSpread.type.name
+      );
+      const variable = existingVars[existingVars.length - 1];
+      if (!variable) {
+        const { env: nextEnv } = addVariableToEnv({
+          env: expected.env,
+          variable: {
+            name: unsolvedSpread.type.name,
+            value: [typeValue],
+            type: typeValue.type,
+            isCompileTimeOnly: true,
+            token: PlaceholderToken,
+            initializedAtToken: PlaceholderToken,
+            consumedAtToken: undefined,
+            isOwningTheRcValue: false,
+          },
+        });
+        expected.env = nextEnv;
+      } else {
+        expected.env = updateExistingVariable(expected.env, variable, {
+          ...variable,
+          value: [typeValue],
+        });
+      }
+    }
+  }
 }

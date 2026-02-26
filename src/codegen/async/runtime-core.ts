@@ -16,11 +16,16 @@ export function generateAsyncRuntimeCore(emitter: Emitter): void {
 // All async tasks run on the SAME thread - no parallelism, just interleaving.
 // Uses non-atomic reference counting (everything is thread-local).
 //
-// LIFETIME MODEL: Event loop holds references to running tasks
-// - When a task is spawned/queued, the event loop increments its refcount
-// - When a task completes, the event loop decrements its refcount
-// - Tasks stay alive as long as they're running, even if user code drops them
-// - Standard RC drop semantics: freed when refcount hits 0
+// LAZY EXECUTION MODEL:
+// - async { ... } blocks are LAZY: the constructor returns a cold (unstarted)
+//   future with refcount = 1 (only user ref). No execution happens at creation.
+// - In sync context (not inside a state machine), the call site eagerly starts
+//   the future after construction (equivalent to Rust's tokio::spawn).
+// - In async context, futures stay cold until explicitly await-ed or join-ed.
+// - await starts the cold future (via __yo_resume_fn), takes an event loop
+//   reference, and suspends the caller until the future completes.
+// - Completion decrements the event loop reference; user drop decrements the user ref.
+// - State machine is freed when refcount hits 0.
 
 // Continuation - represents a suspended async task waiting to be resumed
 typedef struct yo_continuation_t {
@@ -48,6 +53,11 @@ static bool yo_async_scheduler_initialized = false;
 
 // Count of active poll/fs_event watches (used by all platforms)
 static size_t __yo_active_watch_count = 0;
+
+// Whether the I/O subsystem has been initialized (set by __yo_io_init in platform runtimes)
+#if defined(__linux__) || defined(__APPLE__) || defined(_WIN32)
+static bool __yo_io_initialized = false;
+#endif
 
 // Forward declarations for I/O functions (defined later, may be stubs if liburing unavailable)
 #if defined(__linux__) || defined(__APPLE__) || defined(_WIN32)
@@ -91,19 +101,49 @@ static void yo_async_enqueue_continuation(void (*resume_fn)(void*), void* state_
 }
 
 // Spawn an async task by enqueueing it to the current thread's event loop
-// This is for EAGER execution - task starts running immediately until first await
 // NOTE: This does NOT increment refcount. The task lifetime is managed by:
-// - Constructor: starts with refcount = 2 (user ref + running task ref)
-// - Completion: decrements refcount (releases running task ref)
+// - Constructor: starts with refcount = 1 (user ref)
+// - Await/join: increments refcount (event loop ref) before starting cold future
+// - Completion: decrements refcount (releases event loop ref)
 // - User drop: decrements refcount (releases user ref)
 void yo_async_spawn_task(void (*resume_fn)(void*), void* state_machine) {
   ASYNC_DEBUG("[ASYNC] Spawning task: resume_fn=%p, sm=%p\\n", (void*)resume_fn, state_machine);
   yo_async_enqueue_continuation(resume_fn, state_machine);
 }
 
+// Process all ready tasks in the queue (non-blocking).
+void yo_async_run_ready_tasks(void) {
+  while (yo_thread_async_queue.head) {
+    yo_continuation_t* cont = yo_thread_async_queue.head;
+    yo_thread_async_queue.head = cont->next;
+    if (!yo_thread_async_queue.head) {
+      yo_thread_async_queue.tail = NULL;
+    }
+    yo_thread_async_queue.count--;
+    cont->resume_fn(cont->state_machine);
+    __yo_free(cont);
+  }
+}
+
+// Perform one step of the event loop: drain task queue, then poll/wait for I/O.
+// Used by synchronous io.await/io.join to make progress on both pure-async tasks
+// and I/O operations. Safe to call repeatedly in a busy loop — it only polls I/O
+// if the I/O subsystem has been initialized (i.e., the program uses IO operations).
+void yo_async_poll_step(void) {
+  yo_async_run_ready_tasks();
+#if defined(__linux__) || defined(__APPLE__) || defined(_WIN32)
+  if (__yo_io_initialized) {
+    __yo_io_poll();
+    if (!yo_thread_async_queue.head && __yo_has_pending_io()) {
+      __yo_io_wait();
+    }
+  }
+#endif
+}
+
 // Run event loop until a specific Future completes (for async main)
-// The Future must have an '_Atomic int state' field at offset 0
-// State -1 means completed
+// The Future must have an 'int state' field at offset 0
+// State -1 means completed, -2 means aborted
 void __yo_async_run_until_complete(void* future_ptr) {
   if (!yo_async_scheduler_initialized) {
     __yo_async_scheduler_init();
@@ -116,12 +156,13 @@ void __yo_async_run_until_complete(void* future_ptr) {
   ASYNC_DEBUG("[ASYNC] Starting event loop for future=%p\\n", future_ptr);
   
   // future_ptr points to a heap-backed Future/state-machine struct.
-  // It must have _Atomic int state at offset 0.
-  typedef struct { _Atomic int state; } generic_future_t;
+  // It must have int state at offset 0.
+  typedef struct { int state; } generic_future_t;
   generic_future_t* future = (generic_future_t*)future_ptr;
   
-  // Run the event loop until the future completes
-  while (atomic_load(&future->state) != -1) {
+  // Run the event loop until the future completes or is aborted
+  int __future_state = future->state;
+  while (__future_state != -1 && __future_state != -2) {
     // 1. Process ready tasks (up to 100 per iteration)
     int tasks_run = 0;
     while (tasks_run < 100) {
@@ -154,18 +195,19 @@ void __yo_async_run_until_complete(void* future_ptr) {
     if (!yo_thread_async_queue.head && __yo_has_pending_io()) {
       ASYNC_DEBUG("[ASYNC] No ready tasks, waiting for I/O...\\n");
       __yo_io_wait();
+      __future_state = future->state;
       continue;
     }
 #endif
     
+    __future_state = future->state;
     // 4. If no tasks and no I/O, check if future is complete
     if (!yo_thread_async_queue.head) {
 #if defined(__linux__) || defined(__APPLE__) || defined(_WIN32)
       if (!__yo_has_pending_io()) {
         // No tasks, no I/O - future must be waiting on something else or complete
-        ASYNC_DEBUG("[ASYNC] No tasks or I/O, future state=%d\\n",
-                    atomic_load(&future->state));
-        if (atomic_load(&future->state) != -1) {
+        ASYNC_DEBUG("[ASYNC] No tasks or I/O, future state=%d\\n", __future_state);
+        if (__future_state != -1 && __future_state != -2) {
           // Future not complete but nothing to do - this shouldn't happen
           ASYNC_DEBUG("[ASYNC] WARNING: No tasks/IO but future not complete\\n");
           break;
@@ -173,8 +215,7 @@ void __yo_async_run_until_complete(void* future_ptr) {
       }
 #else
       // No async I/O support on this platform
-      ASYNC_DEBUG("[ASYNC] WARNING: Queue empty but future not complete (state=%d)\\n",
-                  atomic_load(&future->state));
+      ASYNC_DEBUG("[ASYNC] WARNING: Queue empty but future not complete (state=%d)\\n", __future_state);
       break;
 #endif
     }
@@ -184,7 +225,12 @@ void __yo_async_run_until_complete(void* future_ptr) {
   __yo_io_cleanup();
 #endif
   
-  ASYNC_DEBUG("[ASYNC] Event loop finished, future completed (state=%d)\\n", atomic_load(&future->state));
+  ASYNC_DEBUG("[ASYNC] Event loop finished, future state=%d\\n", future->state);
+  
+  if (future->state == -2) {
+    fprintf(stderr, "panic: async main Future was aborted by an effect handler\\n");
+    abort();
+  }
 }
 
 // Wait for all async tasks to complete (drains the queue)
@@ -308,18 +354,18 @@ void __yo_thread_yield(void) {
 // This allows the current async task to suspend and give other tasks a chance to run
 // Usage: await Concurrency.yield();
 typedef struct __yo_yield_future_t {
-  _Atomic int state;                            // Future state (0 = running, -1 = completed)
-  _Atomic(void (*)(void*)) continuation_fn;     // Continuation (if awaited)
-  _Atomic(void*) continuation_sm;               // Continuation state machine
+  int state;                                    // Future state (0 = running, -1 = completed)
+  void (*continuation_fn)(void*);               // Continuation (if awaited)
+  void* continuation_sm;                        // Continuation state machine
 } __yo_yield_future_t;
 
 __yo_yield_future_t __yo_async_yield(void) {
   __yo_yield_future_t future;
   // Initialize as completed (state = -1) so await will not actually suspend
   // The suspension happens because await checks the queue and processes other tasks
-  atomic_init(&future.state, -1);
-  atomic_init(&future.continuation_fn, NULL);
-  atomic_init(&future.continuation_sm, NULL);
+  future.state = -1;
+  future.continuation_fn = NULL;
+  future.continuation_sm = NULL;
   return future;
 }
 `);

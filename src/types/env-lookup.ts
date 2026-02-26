@@ -110,6 +110,37 @@ export function getValueOfSomeTypeFromEnv(
     // This happens when we have shadowed variables with the same name but different SomeTypes.
     // In this case, we need to find the variable that was specifically bound to this SomeType.
     if (isSomeType(someTypeValue.value)) {
+      // If the found SomeType has the same name but a different ID, this is a name collision
+      // (e.g., parameter's Impl(Fn(...)) vs return type's Impl(Future(T)) both named "Impl").
+      // Don't follow the chain — treat it like finding a concrete type and verify ownership.
+      if (
+        someTypeValue.value.name === someType.name &&
+        someTypeValue.value.id !== someType.id
+      ) {
+        // Check if our SomeType was actually defined (self-bound) in the env.
+        // If not, it's a freshly-created SomeType that shouldn't be resolved.
+        let thisSomeTypeWasBound = false;
+        for (let i = env.frames.length - 1; i >= 0; i--) {
+          const frame = env.frames[i];
+          if (!frame) continue;
+          for (const variable of frame.variables) {
+            if (variable.name === someType.name && variable.value) {
+              const val = variable.value[0];
+              if (val?.tag === ValueTag.Type) {
+                const typeVal = val as TypeValue;
+                if (typeVal.value === someType) {
+                  thisSomeTypeWasBound = true;
+                  break;
+                }
+              }
+            }
+          }
+          if (thisSomeTypeWasBound) break;
+        }
+        if (!thisSomeTypeWasBound) {
+          return someType;
+        }
+      }
       // The variable is bound to another SomeType - follow the chain
       someType = someTypeValue.value;
     } else {

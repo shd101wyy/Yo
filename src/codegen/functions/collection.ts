@@ -15,6 +15,7 @@ import {
   isDynType,
   isFunctionSpecializable,
   isFunctionType,
+  isFunctionTypeGeneric,
   isObjectType,
   isSomeType,
   isStructType,
@@ -146,6 +147,16 @@ export function findFunctionCallsInExpr(
     return;
   }
 
+  // Skip comptime_expect_error blocks - they are no-ops in C codegen.
+  // Functions only called inside comptime_expect_error may have unresolved
+  // implicit parameters and should not be collected for code generation.
+  if (
+    exprIsFunctionCall(expr) &&
+    exprIsFunctionCallOf(expr, BuiltinFunctions.comptime_expect_error)
+  ) {
+    return;
+  }
+
   // If this is a macro expansion, recursively collect from the expanded expression
   if (expr.$ && expr.$.macroExpansion) {
     findFunctionCallsInExpr(expr.$.macroExpansion, context);
@@ -249,10 +260,9 @@ export function findFunctionCallsInExpr(
         // Note: typeContainsSomeType is too broad - it would skip functions with Impl(Module)
         // return types even though they don't need specialization.
         if (
-          isFunctionSpecializable(functionValue.type) &&
+          isFunctionSpecializable(functionValue) &&
           !functionValue.specializedType
         ) {
-          // This is a generic function that hasn't been specialized - skip it
           return;
         }
 
@@ -260,7 +270,7 @@ export function findFunctionCallsInExpr(
         // This can happen when type substitution is incomplete
         if (
           functionValue.specializedType &&
-          isFunctionSpecializable(functionValue.specializedType)
+          isFunctionTypeGeneric(functionValue.specializedType)
         ) {
           return;
         }
@@ -344,7 +354,7 @@ export function findFunctionCallsInExpr(
     if (isFunctionValue(functionValue)) {
       // Skip collecting generic functions that haven't been specialized
       if (
-        isFunctionSpecializable(functionValue.type) &&
+        isFunctionSpecializable(functionValue) &&
         !functionValue.specializedFunctionCaches
       ) {
         return;

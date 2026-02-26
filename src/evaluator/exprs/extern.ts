@@ -110,6 +110,15 @@ export function evaluateExtern({
         ...field.type,
         isExtern: language,
         externName: field.label,
+        ...(field.label === "__yo_io_async"
+          ? { ioBuiltin: "io_async" as const }
+          : {}),
+        ...(field.label === "__yo_io_await"
+          ? { ioBuiltin: "io_await" as const }
+          : {}),
+        ...(field.label === "__yo_io_join"
+          ? { ioBuiltin: "io_join" as const }
+          : {}),
       };
     } else {
       field.type = { ...field.type, isExtern: language };

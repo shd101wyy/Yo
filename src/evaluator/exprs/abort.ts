@@ -26,6 +26,13 @@ export function evaluateAbort({
     });
   }
 
+  if (!context.isInsideGivenHandler) {
+    throw formatErrorMessage({
+      token: expr.func.token,
+      errorMessage: `\`abort\` can only be used inside a \`given\` handler definition.`,
+    });
+  }
+
   // Evaluate the argument (the value to return from the enclosing function)
   const arg = expr.args[0];
   if (!arg) {

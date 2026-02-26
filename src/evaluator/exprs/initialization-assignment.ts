@@ -6,9 +6,9 @@ import {
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
-  type FnCallExpr,
   requireExprNotConsumed,
   setExprAsNeedsToCallDup,
+  type FnCallExpr,
 } from "../../expr";
 import { areTypesCompatible } from "../../types/compatibility";
 import type { SomeType } from "../../types/definitions";
@@ -31,7 +31,11 @@ import {
 } from "../../value";
 import type { EvaluatorContext } from "../context";
 import { synthesizeExprAndType } from "../types/expr-synthesizer";
-import { findRcValueOwnerRelationship, isValidVariableName } from "../utils";
+import {
+  findRcValueOwnerRelationship,
+  isValidVariableName,
+  throwExprIsImplicitVariableError,
+} from "../utils";
 import { cloneValue } from "../values/clone-value";
 import { throwRhsContainsControlFlowExpressionError } from "./assignment";
 import { evaluateDestructuringAssignment } from "./destructuring-assignment";
@@ -119,6 +123,7 @@ export function evaluateInitializationAssignment({
     context: {
       ...context,
       expectedType: undefined,
+      isInsideGivenHandler: isImplicit ? true : context.isInsideGivenHandler,
     },
   });
 
@@ -135,6 +140,9 @@ export function evaluateInitializationAssignment({
     // Check if the RHS is a cond expression to provide a more specific error message
     throwRhsContainsControlFlowExpressionError(rhs, rhs.$.controlFlow);
   }
+
+  // Disallow using implicit variables (or property access of them) as the RHS
+  throwExprIsImplicitVariableError(rhs);
 
   if (exprIsAtom(actualLhs)) {
     // Check if the RHS variable has been consumed (moved)
@@ -376,7 +384,7 @@ ${exprToString(rhs)}`,
         // Only set shared ownership for Copy types (shared references)
         // If RHS was moved, LHS becomes the primary owner
         isOwningTheSameRcValueAs,
-        isReassignable: true, // This is not a function parameter
+        isReassignable: !isImplicit,
         isImplicit,
       },
     });

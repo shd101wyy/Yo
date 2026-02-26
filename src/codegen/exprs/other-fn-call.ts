@@ -1,11 +1,11 @@
 import { getVariablesFromEnv } from "../../env";
+import { isIoAsyncCall } from "../../evaluator/async/await-analysis";
 import {
   extractFnTraitFromType,
   typeImplementsFn,
   typeImplementsFuture,
 } from "../../evaluator/trait-checking";
 import {
-  BuiltinFunctions,
   exprIsAtom,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
@@ -41,6 +41,7 @@ import { BuiltinYoInlineFunctions } from "../constants";
 import {
   generateEffectCallSite,
   generateMultiEffectCallSite,
+  handlerBodyContainsExplicitReturn,
   type EffectCallSiteHandler,
   type EffectStateMachineInfo,
 } from "../effects/effect-state-machine";
@@ -83,7 +84,10 @@ function storeTempVarToStateMachineIfNeeded(
 ): void {
   const functionContext = context as FunctionGenerationContext;
   if (
-    !functionContext.inStateMachine ||
+    !(
+      functionContext.inAsyncStateMachine ||
+      functionContext.inEffectStateMachine
+    ) ||
     !functionContext.stateMachineVariables
   ) {
     return;
@@ -200,7 +204,9 @@ export function generateOtherFunctionCall(
 
           // Check if this variable is captured by a state machine
           const isStateMachineCapturedVariable =
-            functionContext.inStateMachine && argCode.startsWith("sm->");
+            (functionContext.inAsyncStateMachine ||
+              functionContext.inEffectStateMachine) &&
+            argCode.startsWith("sm->");
 
           // Track whether we emitted a temp variable declaration
           let emittedTempVarDeclaration = false;
@@ -487,7 +493,10 @@ export function generateOtherFunctionCall(
                 if (hv && isFunctionValue(hv)) {
                   const hType = hv.specializedType ?? hv.type;
                   const hBody = hv.body;
-                  const hHasResume = hBody ? !hv.isControlFunction : false;
+                  const hHasResume = hBody
+                    ? !hv.isControlFunction ||
+                      handlerBodyContainsExplicitReturn(hBody)
+                    : false;
                   handlers.push({
                     handlerBody: hBody!,
                     handlerType: hType,
@@ -520,7 +529,8 @@ export function generateOtherFunctionCall(
                 handlerValue.specializedType ?? handlerValue.type;
               const handlerBody = handlerValue.body;
               const handlerHasResume = handlerBody
-                ? !handlerValue.isControlFunction
+                ? !handlerValue.isControlFunction ||
+                  handlerBodyContainsExplicitReturn(handlerBody)
                 : false;
 
               const tempVar = expr.$?.variableName;
@@ -579,7 +589,7 @@ export function generateOtherFunctionCall(
                   const beginArgs = (funcBody as FnCallExpr).args;
                   if (beginArgs.length > 0) {
                     const lastArg = beginArgs[beginArgs.length - 1]!;
-                    if (exprIsFunctionCallOf(lastArg, BuiltinFunctions.async)) {
+                    if (isIoAsyncCall(lastArg)) {
                       funcBody = lastArg;
                     }
                   }
@@ -587,7 +597,7 @@ export function generateOtherFunctionCall(
 
                 if (
                   funcBody &&
-                  exprIsFunctionCallOf(funcBody, BuiltinFunctions.async) &&
+                  isIoAsyncCall(funcBody) &&
                   funcBody.$?.asyncStateMachineStructName
                 ) {
                   // Use the async block's registered struct name directly
@@ -737,7 +747,9 @@ export function generateOtherFunctionCall(
 
             // Check if this variable is captured by a state machine
             const isStateMachineCapturedVariable =
-              functionContext.inStateMachine && argCode.startsWith("sm->");
+              (functionContext.inAsyncStateMachine ||
+                functionContext.inEffectStateMachine) &&
+              argCode.startsWith("sm->");
 
             if (
               argCode &&
@@ -800,7 +812,9 @@ export function generateOtherFunctionCall(
                 arg.$.env
               );
               const isStateMachineCapturedVariable =
-                functionContext.inStateMachine && argVarName.startsWith("sm->");
+                (functionContext.inAsyncStateMachine ||
+                  functionContext.inEffectStateMachine) &&
+                argVarName.startsWith("sm->");
 
               // Handle deferred dup expressions for closure call arguments
               let finalArgVarName = argVarName;
@@ -873,7 +887,10 @@ export function generateOtherFunctionCall(
                     (handlerVal as FunctionValue).specializedType ??
                     (handlerVal as FunctionValue).type;
                   const handlerHasResume = (handlerVal as FunctionValue).body
-                    ? !(handlerVal as FunctionValue).isControlFunction
+                    ? !(handlerVal as FunctionValue).isControlFunction ||
+                      handlerBodyContainsExplicitReturn(
+                        (handlerVal as FunctionValue).body!
+                      )
                     : false;
                   const tempVar = expr.$?.variableName;
                   const closureContextCode = `&(${closureCode})`;
@@ -1348,7 +1365,8 @@ export function generateOtherFunctionCall(
                       );
 
                     const isStateMachineCapturedVariable =
-                      functionContext.inStateMachine &&
+                      (functionContext.inAsyncStateMachine ||
+                        functionContext.inEffectStateMachine) &&
                       argCode.startsWith("sm->");
 
                     let isComptimeOnlyArg = false;
@@ -1597,7 +1615,8 @@ function generateDirectCtlCall(
   );
 
   const handlerHasResume = functionValue.body
-    ? !functionValue.isControlFunction
+    ? !functionValue.isControlFunction ||
+      handlerBodyContainsExplicitReturn(functionValue.body!)
     : false;
 
   // For the resume case, declare the result variable BEFORE the inner block so that

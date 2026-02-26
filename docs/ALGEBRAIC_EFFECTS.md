@@ -9,12 +9,13 @@ This plan describes how to add **algebraic effects** to the Yo language in two p
 
 Both phases build on Yo's existing async/await state machine infrastructure.
 
-## Current Status (2026-02-21)
+## Current Status (2026-02-23)
 
 - ✅ **Phase 1 (using/given)** — fully implemented and tested.
 - ✅ **Phase 2 (handlers / return + abort)** — fully implemented and tested.
 - ✅ **Effect polymorphism** — `...(E)` effect row spreads in `forall`/`using` implemented and tested.
-- ✅ **29 tests passing** with AddressSanitizer (no memory leaks or use-after-free).
+- ✅ **Three-tier function classification** — `isFunctionTypeGeneric`, `isFunctionTypeHardGeneric`, `isFunctionSpecializable` correctly handle all function categories in C codegen.
+- ✅ **38 tests passing** with AddressSanitizer (no memory leaks or use-after-free).
 - ⏳ **Remaining:** One-shot runtime enforcement (double-resume check), async/await unification.
 
 ---
@@ -105,10 +106,20 @@ result3 := add_numbers(7, 8, using(undefined));
 - Resolves missing contextual args from `given` variables by type compatibility.
 - Fixed `forall + using` bug by re-evaluating implicit parameter types in current callee env.
 
-**Step 5: Codegen and specialization** — `src/codegen/exprs/initialization-assignment.ts`, `src/types/guards.ts`, `src/evaluator/context.ts`, `src/types/utils.ts`
+**Step 5: Codegen and specialization** — `src/codegen/exprs/initialization-assignment.ts`, `src/types/guards.ts`, `src/evaluator/context.ts`, `src/types/utils.ts`, `src/codegen/functions/declarations.ts`, `src/codegen/functions/generation.ts`, `src/codegen/functions/collection.ts`
 
 - `given(...)` assignments skipped in runtime codegen (compile-time only).
 - Implicit args included in specialization signature/cache inputs.
+- Three-tier function classification in C codegen (`src/types/guards.ts`):
+  - **`isFunctionTypeGeneric(FunctionType)`** — pure type-level check; returns true if the function has any unresolved generic parameters (comptime, forall, implicit, or SomeType params). Used by the evaluator at call sites to decide whether to specialize.
+  - **`isFunctionTypeHardGeneric(FunctionType)`** — type-level; returns true only for comptime/forall/SomeType params — NOT for implicit-params-only. Functions that are generic only because of implicit params can still be generated as plain C functions because implicit params are resolved at compile time and don't appear in the C signature.
+  - **`isFunctionSpecializable(FunctionValue)`** — value-level; `isFunctionTypeGeneric(type) && specializedFunctionCaches.length > 0`. True only when the evaluator actually created per-call-site specialized copies.
+- This resolves three categories of functions in codegen:
+  1. **Hard-generic** (comptime/forall/SomeType params): unspecialized C form is invalid — always skipped from regular generation; only specialized copies are emitted.
+  2. **Implicit-only with evaluator caches** (e.g., `using(raise : Raise)` where the handler is specialized): skip the original, emit only the specialized copies.
+  3. **Implicit-only without caches** (e.g., `yield` with auto-added IO param, or resolved-at-compile-time `using(io)`): implicit params don't appear in C signature — generate as a normal C function.
+- Regular C generation skip condition: `isFunctionTypeHardGeneric(type) || specializedFunctionCaches.length > 0`.
+- Specialized generation skip condition: `!specializedType || !isFunctionTypeGeneric(type)`.
 
 **Step 6: Tests** — `tests/fn.test.yo`
 
@@ -169,6 +180,7 @@ raise_resume :: (fn() -> i64) {
   - **fn-typed handler** (with resume): `(given(raise) : Raise) = (fn(...) -> T)({ return(value); });`
 - Continuations are **one-shot** — `return` can be called at most once (syntactically enforced as last expression; runtime double-resume check is planned but not yet implemented).
 - Effect operations compose with `using` — the effect is an implicit parameter resolved via `given`.
+- **Abort in async context**: When `abort` is called inside an `io.async` task, the Future is marked as **aborted** (state = -2). Attempting to `io.await` or `io.join` on an aborted Future causes a **panic** at runtime. See [ASYNC_AWAIT.md](./ASYNC_AWAIT.md#aborted-futures) for details.
 
 ### 2.3 Effect Coloring / Propagation
 
@@ -205,7 +217,7 @@ The handler is the boundary. The state machine transformation is scoped to the r
 
 ### 2.4 State Machine Transformation
 
-The effect system reuses Yo's async/await state machine architecture:
+The effect system shares Yo's async/await state machine architecture (shared analysis in `src/codegen/shared/suspension-analysis.ts` and shared codegen in `src/codegen/shared/suspension-codegen.ts`):
 
 1. **Effect site** (calling `raise(...)`) = suspension point (like `await`).
 2. **Handler scope** = event loop (like `async { ... }`).
@@ -240,10 +252,57 @@ some_func :: (fn(forall(T : Type, U : Type, ...(E1), ...(E2)),
     using(...(E1), ...(E2))) -> List(U));
 ```
 
+**Effect row spread with closures** — The `...(E)` spread also works with closures (`Impl(Fn(...))`) and supports two styles for declaring the closure's effects:
+
+```yo
+Yield :: (fn(v : i32) -> i32);
+Log :: (fn(v : i32) -> unit);
+
+// traverse is polymorphic over ANY set of effects E that the callback needs
+traverse :: (fn(
+  forall(S : usize, ...(E)),
+  arr : Array(i32, S),
+  callback : (Impl(Fn(v : i32, using(...(E))) -> unit)),
+  using(...(E))
+  ) -> unit) {
+    i := usize(0);
+    while i < S, i = (i + 1), {
+      callback(arr(i));
+    };
+  };
+
+// Set up handlers
+(given(yield) : Yield) = (v) -> { return v; };
+(given(log)   : Log)   = (v) -> { println(v); };
+
+arr := Array(i32, 5)(0, 1, 2, 3, 4);
+
+// Style 1: Inline typed declaration — closure declares effect row with types.
+// No call-site using() needed; E is inferred from the closure's declaration.
+traverse(arr, (v, using(yield : Yield, log : Log)) => {
+  log(v);
+  result := yield(v);
+  assert((result == v), "yield should return the value");
+});
+
+// Style 2: Call-site resolution — E is resolved from using(yield, log)
+// at the call site, and the closure renames them with using(_yield, _log).
+traverse(arr, (v, using(_yield, _log)) => {
+  _log(v);
+  result := _yield(v);
+  assert((result == v), "yield should return the value");
+}, using(yield, log));
+```
+
+At closure and call-site level, effects are listed directly in `using()` without `...(...)` wrapper. The `...(E)` syntax is only used in function type definitions where `E` is a forall-declared effect row variable.
+
+If both the closure and call site declare effects, the types must match or the compiler reports an error.
+
 Semantics:
 
 - `...(E)` in `forall(...)` declares **E as an effect row variable** — ranging over sets of implicit parameters.
-- `...(E)` in `using(...)` **spreads** the effect row's bound parameters into implicit parameters.
+- `...(E)` in `using(...)` of function type definitions **spreads** the effect row's bound parameters into implicit parameters.
+- At closure/call-site level, effects are listed directly: `using(yield, log)` or `using(yield : Yield, log : Log)`.
 - Type unification: calling `run(might_fail)` where `might_fail : fn(using(raise : Raise)) -> i32` unifies `T = i32`, `E = (raise : Raise)`.
 - Two rows: `...(E1)` and `...(E2)` are inferred independently from their respective function parameters; `using(...(E1), ...(E2))` is their union.
 
@@ -319,7 +378,7 @@ No special language support needed — this falls out of the existing `using`/`g
 - Anonymous function `=>` syntax parses `using()` parameters.
 - `using(ModuleType)` auto-destructuring with `isModuleDestructured` flag.
 
-**Step 8: Tests** — `tests/algebraic_effects.test.yo` (29 tests)
+**Step 8: Tests** — `tests/algebraic_effects.test.yo` (38 tests)
 
 - Basic abort and resume via `using` parameter ✅
 - Direct effect abort/resume without intermediate `using` function ✅
@@ -337,6 +396,8 @@ No special language support needed — this falls out of the existing `using`/`g
 - Module destructured `using(ModuleType)` with abort/resume ✅
 - Multiple effect row spreads with resume/abort ✅
 - Closure with `using()` effect — resume and abort ✅
+- Effect row polymorphism with `...(E)` spread in closure callbacks, with parameter renaming ✅
+- Inline typed effect row declaration `using(name : Type)` in closures ✅
 
 ---
 

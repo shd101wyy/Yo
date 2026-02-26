@@ -1,3 +1,4 @@
+import { isIoAsyncCall } from "../../evaluator/async/await-analysis";
 import type { AwaitAnalysisResult } from "../../evaluator/async/await-analysis-types";
 import {
   extractFutureTraitFromType,
@@ -19,7 +20,7 @@ import type {
   StructType,
   Type,
 } from "../../types/definitions";
-import { isUnitType } from "../../types/guards";
+import { isSomeType, isUnitType } from "../../types/guards";
 import { typeContainsRcType, typeToString } from "../../types/utils";
 import { isFunctionValue } from "../../value";
 import {
@@ -42,7 +43,18 @@ export function generateAsyncBlock(
   indent: string,
   context: FunctionGenerationContext
 ): string {
-  const bodyExpr = expr.args[0];
+  // For io.async(closure) calls, extract the body from the closure's function value.
+  // For regular async { body } blocks, the body is expr.args[0].
+  let bodyExpr: Expr | undefined;
+  if (isIoAsyncCall(expr)) {
+    const closureArg = expr.$?.runtimeArgExprsInOrder?.[0];
+    const closureFnValue = closureArg?.$?.closureFunctionValue;
+    if (closureFnValue && isFunctionValue(closureFnValue)) {
+      bodyExpr = closureFnValue.body;
+    }
+  } else {
+    bodyExpr = expr.args[0];
+  }
   if (!bodyExpr) {
     return `/* Error: async requires exactly 1 argument */`;
   }
@@ -158,8 +170,10 @@ export function generateAsyncBlock(
     const functionContext = context as FunctionGenerationContext;
     const inSpecialContext =
       functionContext.currentClosureCaptures !== undefined ||
-      functionContext.inStateMachine !== undefined;
+      functionContext.inAsyncStateMachine !== undefined ||
+      functionContext.inEffectStateMachine !== undefined;
 
+    let usedDeferredDups = false;
     const captureFields = captureType.fields
       .map((elem) => {
         // Find the dup expression for this variable by checking the variable name
@@ -201,6 +215,7 @@ export function generateAsyncBlock(
         }
 
         if (dupExpr) {
+          usedDeferredDups = true;
           // Generate the dup expression
           // If the dup expression has a temp variable, we need to generate it outside the struct literal
           if (dupExpr.$?.variableName) {
@@ -226,15 +241,14 @@ export function generateAsyncBlock(
 
     let captureStructLiteral = `(${captureStructName}){${captureFields}}`;
 
-    // When in a special context (state machine/closure), deferredDupExpressions are skipped
-    // because they reference variables by original names that don't exist in the special context.
-    // But we still need to dup RC fields in the capture struct to maintain proper ref counts.
-    // Use the capture struct type's dup function to dup all RC fields at once.
-    if (
-      inSpecialContext &&
-      expr.$?.deferredDupExpressions &&
-      expr.$.deferredDupExpressions.length > 0
-    ) {
+    // Dup the capture struct to ensure proper RC for all captured variables.
+    // This is needed when:
+    // 1. In a special context (SM/closure): deferredDupExpressions are skipped
+    //    because they reference variables by original names that don't exist.
+    // 2. Not in a special context but no deferred dups were used: the async block
+    //    is created in a regular function body where deferred dups may not exist.
+    // In both cases, use the capture struct type's dup function.
+    if (!usedDeferredDups) {
       const dupFnName = getDupFunctionForType(captureType, context);
       if (dupFnName) {
         captureStructLiteral = `${dupFnName}(${captureStructLiteral})`;
@@ -254,6 +268,7 @@ export function generateAsyncBlock(
       context.emitter.emitLine(
         `${indent}${varTypeAndName} = ${constructorCall};`
       );
+      // Lazy execution: future stays cold until await/join starts it.
       return resultVar;
     } else {
       return constructorCall;
@@ -272,6 +287,7 @@ export function generateAsyncBlock(
       context.emitter.emitLine(
         `${indent}${varTypeAndName} = ${constructorCall};`
       );
+      // Lazy execution: future stays cold until await/join starts it.
       return resultVar;
     } else {
       return constructorCall;
@@ -311,7 +327,7 @@ function emitAsyncBlockStructDefinition(
   );
 
   emitter.emitDeclarationLine(
-    `  _Atomic int state;  // Current state (0 = initial, ${analysis.awaitPoints.length + 1} = done, -1 = completed)`
+    `  int state;  // Current state (0 = cold, 1..N = intermediate, -1 = completed, -2 = aborted)`
   );
 
   // Always include a result field to keep continuation_fn/continuation_sm at consistent offsets
@@ -328,10 +344,16 @@ function emitAsyncBlockStructDefinition(
 
   // Continuation tracking fields for await chaining
   emitter.emitDeclarationLine(
-    `  _Atomic(void (*)(void*)) continuation_fn;  // Resume function of awaiting task`
+    `  void (*continuation_fn)(void*);  // Resume function of awaiting task`
   );
   emitter.emitDeclarationLine(
-    `  _Atomic(void*) continuation_sm;  // State machine of awaiting task`
+    `  void* continuation_sm;  // State machine of awaiting task`
+  );
+  emitter.emitDeclarationLine(``);
+
+  // Resume function pointer for lazy start at await
+  emitter.emitDeclarationLine(
+    `  void (*__yo_resume_fn)(void*);  // Resume function pointer (for lazy start at await/join)`
   );
   emitter.emitDeclarationLine(``);
 
@@ -348,10 +370,13 @@ function emitAsyncBlockStructDefinition(
     emitter.emitDeclarationLine(``);
   }
 
-  // Local variables
-  if (analysis.capturedVariables.length > 0) {
+  // Local variables (exclude "outer" variables which are in the __capture struct)
+  const localVariables = analysis.capturedVariables.filter(
+    (v) => v.kind !== "outer"
+  );
+  if (localVariables.length > 0) {
     emitter.emitDeclarationLine(`  // Local variables`);
-    for (const variable of analysis.capturedVariables) {
+    for (const variable of localVariables) {
       const varTypeCName = getTypeString(variable.type, context);
       const fieldName = getStateMachineFieldName(variable.id, "local");
       emitter.emitDeclarationLine(
@@ -365,7 +390,14 @@ function emitAsyncBlockStructDefinition(
   if (analysis.awaitPoints.length > 0) {
     emitter.emitDeclarationLine(`  // Await result temporaries`);
     for (const awaitPoint of analysis.awaitPoints) {
-      if (!isUnitType(awaitPoint.resultType)) {
+      // When the output type is an unresolved SomeType (e.g., forall(T) from
+      // io.await evaluated with io=UnknownValue), treat it as unit since the
+      // generic type parameter couldn't be resolved to a concrete type.
+      const isEffectivelyUnit =
+        isUnitType(awaitPoint.resultType) ||
+        (isSomeType(awaitPoint.resultType) &&
+          !awaitPoint.resultType.resolvedConcreteType);
+      if (!isEffectivelyUnit) {
         // Determine the correct type for await_result_X:
         // For extern futures (e.g., io_uring), use the Future's result type directly
         // For async block futures, use awaitPoint.resultType (which matches the block's result)
@@ -393,7 +425,7 @@ function emitAsyncBlockStructDefinition(
   // await_future_X fields (used when awaiting an expression that isn't a captured Future variable)
   if (analysis.awaitPoints.length > 0) {
     const awaitPointsNeedingFutureStorage = analysis.awaitPoints.filter(
-      (ap) => ap.futureVariableId === undefined
+      (ap) => ap.futureVariableId === undefined && !ap.isJoinPoint
     );
     if (awaitPointsNeedingFutureStorage.length > 0) {
       emitter.emitDeclarationLine(`  // Future references for awaits`);
@@ -456,6 +488,18 @@ function emitAsyncBlockStructDefinition(
         );
         nextExtraWhileIndex++;
       }
+    }
+    emitter.emitDeclarationLine(``);
+  }
+
+  // join_pending_N fields (atomic counter for join points)
+  const joinPoints = analysis.awaitPoints.filter((ap) => ap.isJoinPoint);
+  if (joinPoints.length > 0) {
+    emitter.emitDeclarationLine(`  // Join pending counters`);
+    for (const jp of joinPoints) {
+      emitter.emitDeclarationLine(
+        `  int join_pending_${jp.index};  // Pending count for join ${jp.index}`
+      );
     }
     emitter.emitDeclarationLine(``);
   }
@@ -672,9 +716,7 @@ function generateAsyncBlockStateDisposeFunction(
     emitter.emitLine(
       `  // Drop result field if it was set (state == -1 means completed)`
     );
-    emitter.emitLine(
-      `  int final_state = atomic_load_explicit(&sm->state, memory_order_acquire);`
-    );
+    emitter.emitLine(`  int final_state = sm->state;`);
     emitter.emitLine(`  if (final_state == -1) {`);
     emitter.emitLine(`    ASYNC_DEBUG("  Dropping result field\\n");`);
 
@@ -711,12 +753,12 @@ function generateAsyncBlockStateDisposeFunction(
 /**
  * Generate the constructor function for an async block.
  * The constructor allocates the state machine and Future, initializes captured variables,
- * and starts eager execution.
+ * and returns a cold (unstarted) future.
  *
- * LIFETIME MODEL:
+ * LIFETIME MODEL (lazy execution):
  * - State machine starts with refcount = 1 (owned by caller)
- * - Event loop increments refcount when task is queued
- * - Event loop decrements refcount when task completes
+ * - await/join increments refcount when starting the task (event loop reference)
+ * - Completion decrements refcount (releases event loop reference)
  * - User code decrements refcount when dropping the Future
  * - State machine is freed when refcount hits 0
  */
@@ -781,9 +823,9 @@ function generateAsyncBlockConstructor(
   );
   emitter.emitLine(``);
 
-  emitter.emitLine(`  atomic_init(&sm->state, 0);`);
-  emitter.emitLine(`  atomic_init(&sm->continuation_fn, NULL);`);
-  emitter.emitLine(`  atomic_init(&sm->continuation_sm, NULL);`);
+  emitter.emitLine(`  sm->state = 0;`);
+  emitter.emitLine(`  sm->continuation_fn = NULL;`);
+  emitter.emitLine(`  sm->continuation_sm = NULL;`);
   emitter.emitLine(``);
 
   // Initialize capture struct
@@ -805,22 +847,10 @@ function generateAsyncBlockConstructor(
   }
   emitter.emitLine(``);
 
-  // Eager execution: start running the async block immediately
-  // Execute until the first await point or completion
+  // Store resume function pointer for lazy start at await/join
   emitter.emitLine(
-    `  // Eager execution: start running immediately (C#/C++ style)`
+    `  sm->__yo_resume_fn = (void(*)(void*))${resumeFunctionName};`
   );
-  emitter.emitLine(
-    `  // Before running, increment refcount for the "running task" reference`
-  );
-  emitter.emitLine(
-    `  // This ensures the task stays alive until completion, even if user drops early`
-  );
-  emitter.emitLine(`  __yo_incr_rc((void*)sm);  // refcount: 1 -> 2`);
-  emitter.emitLine(
-    `  GC_DEBUG("AsyncBlock ${structName}: Eager increment ptr=%p RC=2\\n", (void*)sm);`
-  );
-  emitter.emitLine(`  ${resumeFunctionName}(sm);`);
   emitter.emitLine(``);
 
   emitter.emitLine(`  return sm;`);
@@ -886,6 +916,37 @@ export function generateDeferredAsyncBlocks(
     );
 
     emitter.emitLine(``);
+
+    // Generate join notify functions for each join point
+    if (analysis.awaitPoints.some((ap) => ap.isJoinPoint)) {
+      for (const awaitPoint of analysis.awaitPoints) {
+        if (!awaitPoint.isJoinPoint) continue;
+        const joinIndex = awaitPoint.index;
+        const notifyFnName = `${asyncBlockId}_join_${joinIndex}_notify`;
+
+        emitter.emitLine(
+          `// Notify function for join point ${joinIndex} in ${asyncBlockId}`
+        );
+        emitter.emitLine(`static void ${notifyFnName}(void* sm_ptr) {`);
+        emitter.emitLine(`  ${structName}* sm = (${structName}*)sm_ptr;`);
+        emitter.emitLine(`  int prev = sm->join_pending_${joinIndex}--;`);
+        emitter.emitLine(
+          `  ASYNC_DEBUG("${asyncBlockId}_join_${joinIndex}_notify: pending=%d\\n", prev - 1);`
+        );
+        emitter.emitLine(`  if (prev == 1) {`);
+        emitter.emitLine(`    // All futures complete — resume the caller`);
+        emitter.emitLine(
+          `    yo_async_spawn_task((void (*)(void*))${resumeFunctionName}, (void*)sm);`
+        );
+        emitter.emitLine(`  }`);
+        emitter.emitLine(
+          `  // Release the event loop reference taken per-future at join time`
+        );
+        emitter.emitLine(`  __yo_decr_rc((void*)sm);`);
+        emitter.emitLine(`}`);
+        emitter.emitLine(``);
+      }
+    }
 
     // Generate resume function implementation
     generateAsyncBlockResumeFunction(
@@ -970,7 +1031,7 @@ function preRegisterAsyncBlocksInExpr(
     const funcCallExpr = expr as FnCallExpr;
 
     // Check if this is an async block
-    if (exprIsFunctionCallOf(expr, BuiltinFunctions.async)) {
+    if (isIoAsyncCall(expr)) {
       // Found an async block - extract info and pre-register type
       const futureType = expr.$?.type;
       if (futureType && typeImplementsFuture(futureType)) {
@@ -1006,9 +1067,184 @@ function preRegisterAsyncBlocksInExpr(
       }
     }
 
+    // Check if this is an io.async(closure) call
+    if (isIoAsyncCall(expr)) {
+      const futureType = expr.$?.type;
+      if (futureType && typeImplementsFuture(futureType)) {
+        const futureModuleType = extractFutureTraitFromType(futureType);
+        if (futureModuleType) {
+          const asyncBlockId =
+            expr.$?.variableName || `io_async_block_${Date.now()}`;
+          // Use _state_t for async closures (with await points), _sync_fut_t for sync
+          const hasAwaitAnalysis = !!expr.$?.awaitAnalysis;
+          const structName = hasAwaitAnalysis
+            ? `${asyncBlockId}_state_t`
+            : `${asyncBlockId}_sync_fut_t`;
+
+          if (expr.$) {
+            expr.$.asyncStateMachineStructName = structName;
+          }
+
+          context.types[futureType.id] = {
+            type: futureType,
+            cName: structName,
+          };
+
+          context.emitter.emitDeclarationLine(
+            `typedef struct ${structName}_struct ${structName}; // Forward declaration for io.async ${hasAwaitAnalysis ? "state machine" : "sync future"}`
+          );
+        }
+      }
+    }
+
     // Recursively search in arguments
     for (const arg of funcCallExpr.args) {
       preRegisterAsyncBlocksInExpr(arg, context);
     }
   }
+}
+
+/**
+ * Generate C code for io.async(closure) as a lazy synchronous future.
+ * The closure is NOT called at io.async time. Instead, the closure function
+ * pointer and capture data are stored in the future struct. When io.await
+ * detects state==0 and a resume function, it calls the resume function which
+ * executes the closure and completes the future.
+ */
+export function generateIoAsyncSyncCall(
+  expr: FnCallExpr,
+  indent: string,
+  context: FunctionGenerationContext
+): string {
+  const futureType = expr.$?.type;
+  if (!futureType || !typeImplementsFuture(futureType)) {
+    return `/* Error: io.async must return a Future type */`;
+  }
+
+  const futureModuleType = extractFutureTraitFromType(futureType);
+  if (!futureModuleType) {
+    return `/* Error: Could not extract Future module type */`;
+  }
+
+  const resultType = futureModuleType.isFuture.outputType;
+  const resultTypeCName = getTypeString(resultType, context);
+  const structName = expr.$?.asyncStateMachineStructName;
+  if (!structName) {
+    return `/* Error: Missing sync future struct name */`;
+  }
+
+  const disposeFunctionName = `${structName}_dispose`;
+  const resumeFunctionName = `${structName}_resume`;
+  const emitter = context.emitter;
+
+  // Get the closure argument expression
+  const closureArgExpr = expr.$?.runtimeArgExprsInOrder?.[0];
+  if (!closureArgExpr?.$) {
+    return `/* Error: Missing closure argument for io.async */`;
+  }
+
+  // Generate the closure argument value — this also registers the closure
+  // function in implClosureCallMap and emits capture struct declarations.
+  const closureCode = generateExpr(closureArgExpr, indent, context);
+
+  // Look up the closure function name from implClosureCallMap
+  const closureValueType = closureArgExpr.$.type;
+  let closureFunctionCName: string | undefined;
+  let captureCName: string | undefined;
+
+  if (isSomeType(closureValueType) && closureValueType.resolvedConcreteType) {
+    const concreteType = closureValueType.resolvedConcreteType;
+    const mapped = context.implClosureCallMap.get(concreteType.id);
+    if (mapped) {
+      closureFunctionCName = mapped.functionCName;
+    }
+    // Get the C name for the capture/context type
+    const captureTypeEntry = context.types[concreteType.id];
+    if (captureTypeEntry) {
+      captureCName = captureTypeEntry.cName;
+    }
+  }
+
+  if (!closureFunctionCName || !captureCName) {
+    return `/* Error: no closure function or capture type for io.async sync path */`;
+  }
+
+  // Emit struct definition — includes an embedded __capture field so the
+  // capture data lives as long as the future (heap-allocated).
+  emitter.emitDeclarationLine(`struct ${structName}_struct {`);
+  emitter.emitDeclarationLine(`  yo_ref_header_t header;`);
+  emitter.emitDeclarationLine(`  int state;`);
+  if (isUnitType(resultType)) {
+    emitter.emitDeclarationLine(`  uint8_t result;`);
+  } else {
+    emitter.emitDeclarationLine(`  ${resultTypeCName} result;`);
+  }
+  emitter.emitDeclarationLine(`  void (*continuation_fn)(void*);`);
+  emitter.emitDeclarationLine(`  void* continuation_sm;`);
+  emitter.emitDeclarationLine(`  void (*__yo_resume_fn)(void*);`);
+  emitter.emitDeclarationLine(`  ${captureCName} __capture;`);
+  emitter.emitDeclarationLine(`};`);
+  emitter.emitDeclarationLine(``);
+
+  // Emit resume function — calls the closure with the embedded capture data
+  emitter.emitDeclarationLine(`void ${resumeFunctionName}(void* ptr) {`);
+  emitter.emitDeclarationLine(`  ${structName}* sm = (${structName}*)ptr;`);
+  if (!isUnitType(resultType)) {
+    emitter.emitDeclarationLine(
+      `  sm->result = ${closureFunctionCName}(&sm->__capture);`
+    );
+  } else {
+    emitter.emitDeclarationLine(`  ${closureFunctionCName}(&sm->__capture);`);
+  }
+  emitter.emitDeclarationLine(`  sm->state = -1;`);
+  emitter.emitDeclarationLine(
+    `  void (*continuation)(void*) = sm->continuation_fn;`
+  );
+  emitter.emitDeclarationLine(`  if (continuation) {`);
+  emitter.emitDeclarationLine(`    void* cont_sm = sm->continuation_sm;`);
+  emitter.emitDeclarationLine(`    continuation(cont_sm);`);
+  emitter.emitDeclarationLine(`  }`);
+  emitter.emitDeclarationLine(`  __yo_decr_rc(ptr);`);
+  emitter.emitDeclarationLine(`}`);
+  emitter.emitDeclarationLine(``);
+
+  // Emit dispose function
+  const resultDropFn = getDropFunctionForType(resultType, context);
+  emitter.emitDeclarationLine(`void ${disposeFunctionName}(void* ptr) {`);
+  if (resultDropFn) {
+    emitter.emitDeclarationLine(`  ${structName}* sm = (${structName}*)ptr;`);
+    emitter.emitDeclarationLine(`  if (sm->state == -1) {`);
+    emitter.emitDeclarationLine(`    ${resultDropFn}(sm->result);`);
+    emitter.emitDeclarationLine(`  }`);
+  }
+  emitter.emitDeclarationLine(`}`);
+  emitter.emitDeclarationLine(``);
+
+  // Generate the sync future allocation and initialization (body code)
+  const resultVar = expr.$?.variableName || `__io_async_result`;
+  const varTypeAndName = getVariableTypeString(futureType, resultVar, context);
+  emitter.emitLine(
+    `${indent}${varTypeAndName} = (${structName}*)__yo_malloc(sizeof(${structName}));`
+  );
+  emitter.emitLine(`${indent}memset(${resultVar}, 0, sizeof(${structName}));`);
+  emitter.emitLine(`${indent}${resultVar}->header.ref_count = 1;`);
+  emitter.emitLine(`${indent}${resultVar}->header.gc_flags = 0;`);
+  emitter.emitLine(`${indent}${resultVar}->header.gc_mark = YO_GC_UNMARKED;`);
+  emitter.emitLine(`${indent}${resultVar}->header.gc_next = NULL;`);
+  emitter.emitLine(`${indent}${resultVar}->header.gc_prev = NULL;`);
+  emitter.emitLine(
+    `${indent}${resultVar}->header.dispose_fn = (void(*)(void*))${disposeFunctionName};`
+  );
+  emitter.emitLine(`${indent}${resultVar}->header.traverse_fn = NULL;`);
+  // Copy capture data from stack-allocated struct into the heap-allocated future
+  emitter.emitLine(`${indent}${resultVar}->__capture = ${closureCode};`);
+  // State 0 = not started (lazy), resume function will execute the closure
+  emitter.emitLine(`${indent}${resultVar}->state = 0;`);
+  emitter.emitLine(
+    `${indent}${resultVar}->__yo_resume_fn = ${resumeFunctionName};`
+  );
+  emitter.emitLine(`${indent}${resultVar}->continuation_fn = NULL;`);
+  emitter.emitLine(`${indent}${resultVar}->continuation_sm = NULL;`);
+
+  return resultVar;
 }

@@ -1,50 +1,44 @@
-open import "std/libc/stdio";
 open import "std/string";
-open import "std/fmt";
-file :: import "std/io/file";
-{ platform, Platform } :: import "std/process";
+{ yield } :: import "std/async";
+{ printf } :: import "std/libc/stdio";
+{ sleep } :: import "std/io/timer";
 
-main :: (fn() -> unit) {
-  async {
-    cond(
-      (platform == Platform.Linux) => {
-        fd := i32(1);
+main :: (fn(using(io : IO)) -> unit) {
+  // =========================================================================
+  // Test: async timer operations
+  // =========================================================================
 
-        trunc := await file.ftruncate(fd, i64(4096));
-        printf("trunc = %d\n", trunc);
+  value := Box(i32)(0);
+  task1 := io.async((using(io : IO))=> {
+    assert(value.* == 0); // 0
+    value.* = (value.* + 1); // 1
 
-        wr1 := await file.write(fd, *(u8)("Z"), u32(1), u64(1024));
-        printf("wr1 = %d\n", wr1);
+    printf("Timer test: sleeping 50ms...\n");
+    result := io.await(sleep(u64(50)));
+    printf("Timer test: woke up with result=%d\n", result);
+    assert(result > i32(0));
+    assert(value.* == 3); // yield() resumed block2 first, which set it to 3
+    value.* = (value.* + 1); // 4
 
-        zero_ret := i32(0);
-        cond(
-          (zero_ret == i32(0)) => {
-            rd := await file.read(fd, *(u8)("Z"), u32(1), u64(1024));
-            printf("rd = %d\n", rd);
-          },
-          true => {
-            printf("zero_ret failed\n");
-          }
-        );
+    printf("Timer test: sleeping 3000ms...\n");
+    result2 := io.await(sleep(u64(3000)));
+    printf("Timer test: woke up with result=%d\n", result2);
+    assert(result2 > i32(0));
+    assert(value.* == 4); // 4
 
-        punch_ret := i32(0);
-        cond(
-          (punch_ret == i32(0)) => {
-            rd2 := await file.read(fd, *(u8)("Z"), u32(1), u64(2048));
-            printf("rd2 = %d\n", rd2);
-          },
-          true => {
-            printf("punch_ret failed\n");
-          }
-        );
+    printf("All async timer tests passed!\n");
+  });
 
-        close_ret := await file.close(fd);
-        printf("close_ret = %d\n", close_ret);
-      },
-      true => {
-        printf("skipping\n");
-      }
-    );
-  };
+  task2 := io.async((using(io : IO))=> {
+    assert(value.* == 1); // 1
+    value.* = (value.* + 1); // 2
+
+    io.await(yield());
+    assert(value.* == 2); // yield() resumes before sleep(50ms), nobody changed it
+    value.* = (value.* + 1); // 3
+  });
+  io.join(task1, task2);
+  io.await(task1);
+  io.await(task2);
 };
 export main;

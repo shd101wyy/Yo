@@ -31,11 +31,11 @@ import {
   getFunctionParameterExprs,
 } from "../../types/creators";
 import type {
+  EffectsRowType,
   FunctionForallParameter,
   FunctionImplicitParameter,
   FunctionParameter,
   FunctionType,
-  ModuleType,
   SomeType,
   Type,
 } from "../../types/definitions";
@@ -46,7 +46,6 @@ import {
   isExprType,
   isFnTraitType,
   isFunctionType,
-  isModuleType,
   isSomeType,
   isTraitType,
 } from "../../types/guards";
@@ -467,7 +466,7 @@ ${typeToString(parameterType)}`,
     if (
       !isCompileTimeOnly &&
       isFunctionType(parameterType) &&
-      // NOTE: Don't use isFunctionSpecializable here. It's too broad.
+      // NOTE: Don't use isFunctionTypeGeneric/isFunctionSpecializable here. Too broad.
       (parameterType.forallParameters.length > 0 ||
         parameterType.parameters.some((p) => p.isCompileTimeOnly))
     ) {
@@ -1616,9 +1615,32 @@ export function evaluateFunctionParameters({
           // Determine the SomeType for E.
           // During initial evaluation, E's value is a TypeValue wrapping the SomeType.
           // During re-evaluation at call sites (CTFE), E's value may be an UnknownValue.
+          // If E is already bound to a concrete EffectsRowType, expand it into
+          // concrete implicit parameters instead of creating another spread marker.
           let rowSomeType: Type;
           const eValue = rowVarVariable.value?.[0];
-          if (eValue && isTypeValue(eValue)) {
+          if (eValue && isTypeValue(eValue) && isEffectsRowType(eValue.value)) {
+            // E is bound to a concrete EffectsRowType — expand into concrete params
+            const effectsRow = eValue.value as EffectsRowType;
+            for (const concreteParam of effectsRow.implicitParameters) {
+              implicitParameters.push({
+                ...concreteParam,
+                isEffectRowSpread: false,
+              });
+            }
+            continue;
+          } else if (eValue && isTypeValue(eValue)) {
+            if (
+              !(
+                (isSomeType(eValue.value) && eValue.value.isEffectsRow) ||
+                isEffectsRowType(eValue.value)
+              )
+            ) {
+              throw formatErrorMessage({
+                token: implicitParamExpr.token,
+                errorMessage: `"...(${rowVarName})" requires "${rowVarName}" to be a forall-declared effect row variable, but it resolves to a concrete type. Use individual effect types directly in using(), e.g. using(name : ${rowVarName}) instead of using(...(${rowVarName}))`,
+              });
+            }
             rowSomeType = eValue.value;
           } else if (
             eValue &&
@@ -1626,7 +1648,15 @@ export function evaluateFunctionParameters({
             isEffectsRowType(eValue.type)
           ) {
             // E was bound to a concrete EffectsRowType during synthesis
-            rowSomeType = eValue.type;
+            // Expand into concrete implicit parameters
+            const effectsRow = eValue.type as EffectsRowType;
+            for (const concreteParam of effectsRow.implicitParameters) {
+              implicitParameters.push({
+                ...concreteParam,
+                isEffectRowSpread: false,
+              });
+            }
+            continue;
           } else if (eValue && isUnknownValue(eValue)) {
             // Re-evaluation context: E is an UnknownValue with Type(1) kind.
             // Re-create the effect row SomeType for this re-evaluation.
@@ -1658,9 +1688,8 @@ export function evaluateFunctionParameters({
           continue;
         }
 
-        // Check for module type destructuring: using(ModuleType)
-        // When a bare module type is passed without a label (no "name : Type" syntax),
-        // auto-destructure the module fields into the function body env.
+        // Bare types without labels are not allowed.
+        // e.g., using(Raise) must be using(raise : Raise)
         const hasExplicitLabel =
           exprIsFunctionCall(implicitParamExpr) &&
           (exprIsFunctionCallOf(implicitParamExpr, ":") ||
@@ -1669,111 +1698,10 @@ export function evaluateFunctionParameters({
             exprIsFunctionCallOf(implicitParamExpr, ":="));
 
         if (!hasExplicitLabel) {
-          const evaluated = evaluateExpression({
-            expr: implicitParamExpr,
-            env,
-            context: { ...context },
+          throw formatErrorMessage({
+            token: implicitParamExpr.token,
+            errorMessage: `Implicit parameter requires a label. Use "using(name : Type)" instead of "using(Type)".`,
           });
-          if (
-            evaluated.$ &&
-            isTypeValue(evaluated.$.value) &&
-            isModuleType(evaluated.$.value.value)
-          ) {
-            const moduleType = evaluated.$.value.value as ModuleType;
-            env = evaluated.$.env;
-
-            // Check for duplicate field names against all param kinds and previously destructured fields
-            for (const field of moduleType.fields) {
-              const dupForall = forallParameters.find(
-                (p) => p.label === field.label
-              );
-              if (dupForall) {
-                throw formatErrorMessage({
-                  token: implicitParamExpr.token,
-                  errorMessage: `Destructured field "${field.label}" from module type ${typeToString(moduleType)} conflicts with forall parameter`,
-                });
-              }
-              const dupImplicit = implicitParameters.find(
-                (p) => p.label === field.label
-              );
-              if (dupImplicit) {
-                throw formatErrorMessage({
-                  token: implicitParamExpr.token,
-                  errorMessage: `Destructured field "${field.label}" from module type ${typeToString(moduleType)} conflicts with another implicit parameter`,
-                });
-              }
-            }
-
-            // Create the implicit parameter with module type and empty label
-            const autoLabel = "";
-            const implicitParameter: FunctionImplicitParameter = {
-              label: autoLabel,
-              type: moduleType,
-              isCompileTimeOnly: true as const,
-              isImplicit: true as const,
-              isModuleDestructured: true,
-              isQuote: false,
-              isOwningTheRcValue: false,
-              exprs: getFunctionParameterExprs({
-                expr: implicitParamExpr,
-                labelExpr: undefined,
-                typeExpr: implicitParamExpr,
-                defaultValueExpr: undefined,
-                assignedValueExpr: undefined,
-              }),
-            };
-            implicitParameters.push(implicitParameter);
-
-            // Add the auto-generated module variable to env
-            const moduleValue = createUnknownValue(moduleType, {
-              variableName: autoLabel,
-              env,
-              context,
-            });
-            const { env: envWithModule } = addVariableToEnv({
-              env,
-              variable: {
-                name: autoLabel,
-                type: moduleType,
-                isCompileTimeOnly: true,
-                isImplicit: true,
-                value: [moduleValue],
-                token: implicitParamExpr.token,
-                initializedAtToken: implicitParamExpr.token,
-                consumedAtToken: undefined,
-                isOwningTheRcValue: false,
-              },
-              allowVariableShadowing: true,
-            });
-            env = envWithModule;
-
-            // Destructure module fields into the env as direct variables
-            for (const field of moduleType.fields) {
-              const fieldValue = createUnknownValue(field.type, {
-                variableName: field.label,
-                env,
-                context,
-              });
-              const { env: envWithField } = addVariableToEnv({
-                env,
-                variable: {
-                  name: field.label,
-                  type: field.type,
-                  isCompileTimeOnly: true,
-                  isImplicit: true,
-                  value: [fieldValue],
-                  token: implicitParamExpr.token,
-                  initializedAtToken: implicitParamExpr.token,
-                  consumedAtToken: undefined,
-                  isOwningTheRcValue: false,
-                },
-                allowVariableShadowing: true,
-              });
-              env = envWithField;
-            }
-
-            continue;
-          }
         }
 
         const { parameter, env: nextEnv } = evaluateFunctionParameter({
@@ -2706,6 +2634,7 @@ export function evaluateFunctionReturnTypeAgain({
   functionCalleeExpr?: Expr;
 }): { returnType: Type; calleeEnv: Environment } {
   const functionReturn = functionType.return;
+
   const evaluatedFunctionReturnExpr = evaluateExpression({
     expr: cloneExpr(functionReturn.typeExpr),
     env: calleeEnv,

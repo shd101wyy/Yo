@@ -266,7 +266,11 @@ export function generateMatchExpression(
 
       // Add destructured variable to localShadowedVariables so it uses the local C var
       const functionContext = context as FunctionGenerationContext;
-      if (destructuredVarName && functionContext.inStateMachine) {
+      if (
+        destructuredVarName &&
+        (functionContext.inAsyncStateMachine ||
+          functionContext.inEffectStateMachine)
+      ) {
         if (!functionContext.localShadowedVariables) {
           functionContext.localShadowedVariables = new Set();
         }
@@ -495,7 +499,8 @@ export function generateMatchExpression(
                       const functionContext =
                         context as FunctionGenerationContext;
                       if (
-                        functionContext?.inStateMachine &&
+                        (functionContext?.inAsyncStateMachine ||
+                          functionContext?.inEffectStateMachine) &&
                         functionContext.stateMachineVariables
                       ) {
                         let varId: string | undefined;
@@ -568,7 +573,8 @@ export function generateMatchExpression(
                     const functionContext =
                       context as FunctionGenerationContext;
                     if (
-                      functionContext?.inStateMachine &&
+                      (functionContext?.inAsyncStateMachine ||
+                        functionContext?.inEffectStateMachine) &&
                       functionContext.stateMachineVariables
                     ) {
                       // Find the variable ID by searching through state machine variables
@@ -715,7 +721,8 @@ export function generateMatchExpression(
                       const functionContext =
                         context as FunctionGenerationContext;
                       if (
-                        functionContext?.inStateMachine &&
+                        (functionContext?.inAsyncStateMachine ||
+                          functionContext?.inEffectStateMachine) &&
                         functionContext.stateMachineVariables
                       ) {
                         let varId: string | undefined;
@@ -791,7 +798,8 @@ export function generateMatchExpression(
                     const functionContext =
                       context as FunctionGenerationContext;
                     if (
-                      functionContext?.inStateMachine &&
+                      (functionContext?.inAsyncStateMachine ||
+                        functionContext?.inEffectStateMachine) &&
                       functionContext.stateMachineVariables
                     ) {
                       let varId: string | undefined;

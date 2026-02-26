@@ -31,7 +31,7 @@ export function generateAsyncRuntimeIOLinux(emitter: Emitter): void {
 #include <errno.h>
 
 static struct io_uring __yo_io_ring;
-static bool __yo_io_initialized = false;
+// __yo_io_initialized is defined in runtime-core
 static size_t __yo_pending_io_count = 0;
 
 // I/O Future types - yo_io_future_t is defined in types/generation.ts
@@ -81,11 +81,11 @@ static void __yo_io_process_cqe(struct io_uring_cqe* cqe) {
               future->result, __yo_pending_io_count);
   
   // Mark as completed (state -1 = done)
-  atomic_store_explicit(&future->state, -1, memory_order_release);
+  future->state = -1;
   
   // Wake continuation if registered
-  void (*cont_fn)(void*) = atomic_load_explicit(&future->continuation_fn, memory_order_acquire);
-  void* cont_sm = atomic_load_explicit(&future->continuation_sm, memory_order_acquire);
+  void (*cont_fn)(void*) = future->continuation_fn;
+  void* cont_sm = future->continuation_sm;
   
   ASYNC_DEBUG("[IO] Continuation check: cont_fn=%p, cont_sm=%p\\n", (void*)cont_fn, cont_sm);
   
@@ -150,17 +150,17 @@ static yo_io_future_t* __yo_async_read_start(int32_t fd, void* buffer, uint32_t 
   future->header.ref_count = 1;
   
   // Initialize future state
-  atomic_init(&future->state, 0);  // 0 = pending
+  future->state = 0;  // 0 = pending
   future->result = 0;
-  atomic_init(&future->continuation_fn, NULL);
-  atomic_init(&future->continuation_sm, NULL);
+  future->continuation_fn = NULL;
+  future->continuation_sm = NULL;
   
   // Submit to io_uring
   struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
   if (!sqe) {
     // Queue full
     future->result = -EAGAIN;
-    atomic_store(&future->state, -1);  // Mark as completed
+    future->state = -1;  // Mark as completed
     ASYNC_DEBUG("[IO] WARNING: io_uring SQ full, returning EAGAIN\\n");
     return future;
   }
@@ -189,17 +189,17 @@ static yo_io_future_t* __yo_async_write_start(int32_t fd, const void* buffer, ui
   future->header.ref_count = 1;
   
   // Initialize future state
-  atomic_init(&future->state, 0);  // 0 = pending
+  future->state = 0;  // 0 = pending
   future->result = 0;
-  atomic_init(&future->continuation_fn, NULL);
-  atomic_init(&future->continuation_sm, NULL);
+  future->continuation_fn = NULL;
+  future->continuation_sm = NULL;
   
   // Submit to io_uring
   struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
   if (!sqe) {
     // Queue full
     future->result = -EAGAIN;
-    atomic_store(&future->state, -1);  // Mark as completed
+    future->state = -1;  // Mark as completed
     ASYNC_DEBUG("[IO] WARNING: io_uring SQ full, returning EAGAIN\\n");
     return future;
   }
@@ -224,15 +224,15 @@ static yo_io_future_t* __yo_async_openat_start(int32_t dirfd, const char* path, 
   memset(future, 0, sizeof(yo_io_future_t));
   
   future->header.ref_count = 1;
-  atomic_init(&future->state, 0);
+  future->state = 0;
   future->result = 0;
-  atomic_init(&future->continuation_fn, NULL);
-  atomic_init(&future->continuation_sm, NULL);
+  future->continuation_fn = NULL;
+  future->continuation_sm = NULL;
   
   struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
   if (!sqe) {
     future->result = -EAGAIN;
-    atomic_store(&future->state, -1);
+    future->state = -1;
     return future;
   }
   
@@ -255,15 +255,15 @@ static yo_io_future_t* __yo_async_close_start(int32_t fd) {
   memset(future, 0, sizeof(yo_io_future_t));
   
   future->header.ref_count = 1;
-  atomic_init(&future->state, 0);
+  future->state = 0;
   future->result = 0;
-  atomic_init(&future->continuation_fn, NULL);
-  atomic_init(&future->continuation_sm, NULL);
+  future->continuation_fn = NULL;
+  future->continuation_sm = NULL;
   
   struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
   if (!sqe) {
     future->result = -EAGAIN;
-    atomic_store(&future->state, -1);
+    future->state = -1;
     return future;
   }
   
@@ -286,15 +286,15 @@ static yo_io_future_t* __yo_async_statx_start(int32_t dirfd, const char* path, i
   memset(future, 0, sizeof(yo_io_future_t));
   
   future->header.ref_count = 1;
-  atomic_init(&future->state, 0);
+  future->state = 0;
   future->result = 0;
-  atomic_init(&future->continuation_fn, NULL);
-  atomic_init(&future->continuation_sm, NULL);
+  future->continuation_fn = NULL;
+  future->continuation_sm = NULL;
   
   struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
   if (!sqe) {
     future->result = -EAGAIN;
-    atomic_store(&future->state, -1);
+    future->state = -1;
     return future;
   }
   
@@ -317,15 +317,15 @@ static yo_io_future_t* __yo_async_mkdirat_start(int32_t dirfd, const char* path,
   memset(future, 0, sizeof(yo_io_future_t));
   
   future->header.ref_count = 1;
-  atomic_init(&future->state, 0);
+  future->state = 0;
   future->result = 0;
-  atomic_init(&future->continuation_fn, NULL);
-  atomic_init(&future->continuation_sm, NULL);
+  future->continuation_fn = NULL;
+  future->continuation_sm = NULL;
   
   struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
   if (!sqe) {
     future->result = -EAGAIN;
-    atomic_store(&future->state, -1);
+    future->state = -1;
     return future;
   }
   
@@ -348,15 +348,15 @@ static yo_io_future_t* __yo_async_unlinkat_start(int32_t dirfd, const char* path
   memset(future, 0, sizeof(yo_io_future_t));
   
   future->header.ref_count = 1;
-  atomic_init(&future->state, 0);
+  future->state = 0;
   future->result = 0;
-  atomic_init(&future->continuation_fn, NULL);
-  atomic_init(&future->continuation_sm, NULL);
+  future->continuation_fn = NULL;
+  future->continuation_sm = NULL;
   
   struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
   if (!sqe) {
     future->result = -EAGAIN;
-    atomic_store(&future->state, -1);
+    future->state = -1;
     return future;
   }
   
@@ -379,15 +379,15 @@ static yo_io_future_t* __yo_async_renameat_start(int32_t olddirfd, const char* o
   memset(future, 0, sizeof(yo_io_future_t));
   
   future->header.ref_count = 1;
-  atomic_init(&future->state, 0);
+  future->state = 0;
   future->result = 0;
-  atomic_init(&future->continuation_fn, NULL);
-  atomic_init(&future->continuation_sm, NULL);
+  future->continuation_fn = NULL;
+  future->continuation_sm = NULL;
   
   struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
   if (!sqe) {
     future->result = -EAGAIN;
-    atomic_store(&future->state, -1);
+    future->state = -1;
     return future;
   }
   
@@ -410,15 +410,15 @@ static yo_io_future_t* __yo_async_symlinkat_start(const char* target, int32_t ne
   memset(future, 0, sizeof(yo_io_future_t));
   
   future->header.ref_count = 1;
-  atomic_init(&future->state, 0);
+  future->state = 0;
   future->result = 0;
-  atomic_init(&future->continuation_fn, NULL);
-  atomic_init(&future->continuation_sm, NULL);
+  future->continuation_fn = NULL;
+  future->continuation_sm = NULL;
   
   struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
   if (!sqe) {
     future->result = -EAGAIN;
-    atomic_store(&future->state, -1);
+    future->state = -1;
     return future;
   }
   
@@ -441,15 +441,15 @@ static yo_io_future_t* __yo_async_linkat_start(int32_t olddirfd, const char* old
   memset(future, 0, sizeof(yo_io_future_t));
   
   future->header.ref_count = 1;
-  atomic_init(&future->state, 0);
+  future->state = 0;
   future->result = 0;
-  atomic_init(&future->continuation_fn, NULL);
-  atomic_init(&future->continuation_sm, NULL);
+  future->continuation_fn = NULL;
+  future->continuation_sm = NULL;
   
   struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
   if (!sqe) {
     future->result = -EAGAIN;
-    atomic_store(&future->state, -1);
+    future->state = -1;
     return future;
   }
   
@@ -472,15 +472,15 @@ static yo_io_future_t* __yo_async_fsync_start(int32_t fd) {
   memset(future, 0, sizeof(yo_io_future_t));
   
   future->header.ref_count = 1;
-  atomic_init(&future->state, 0);
+  future->state = 0;
   future->result = 0;
-  atomic_init(&future->continuation_fn, NULL);
-  atomic_init(&future->continuation_sm, NULL);
+  future->continuation_fn = NULL;
+  future->continuation_sm = NULL;
   
   struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
   if (!sqe) {
     future->result = -EAGAIN;
-    atomic_store(&future->state, -1);
+    future->state = -1;
     return future;
   }
   
@@ -502,15 +502,15 @@ static yo_io_future_t* __yo_async_fdatasync_start(int32_t fd) {
   memset(future, 0, sizeof(yo_io_future_t));
   
   future->header.ref_count = 1;
-  atomic_init(&future->state, 0);
+  future->state = 0;
   future->result = 0;
-  atomic_init(&future->continuation_fn, NULL);
-  atomic_init(&future->continuation_sm, NULL);
+  future->continuation_fn = NULL;
+  future->continuation_sm = NULL;
   
   struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
   if (!sqe) {
     future->result = -EAGAIN;
-    atomic_store(&future->state, -1);
+    future->state = -1;
     return future;
   }
   
@@ -532,16 +532,16 @@ static yo_io_future_t* __yo_async_ftruncate_start(int32_t fd, int64_t length) {
   memset(future, 0, sizeof(yo_io_future_t));
   
   future->header.ref_count = 1;
-  atomic_init(&future->state, 0);
+  future->state = 0;
   future->result = 0;
-  atomic_init(&future->continuation_fn, NULL);
-  atomic_init(&future->continuation_sm, NULL);
+  future->continuation_fn = NULL;
+  future->continuation_sm = NULL;
 
 #if defined(IORING_OP_FTRUNCATE)
   struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
   if (!sqe) {
     future->result = -EAGAIN;
-    atomic_store(&future->state, -1);
+    future->state = -1;
     return future;
   }
 
@@ -555,7 +555,7 @@ static yo_io_future_t* __yo_async_ftruncate_start(int32_t fd, int64_t length) {
 #else
   int result = ftruncate(fd, (off_t)length);
   future->result = (result < 0) ? -errno : 0;
-  atomic_store(&future->state, -1);
+  future->state = -1;
 
   ASYNC_DEBUG("[IO] Completed ftruncate synchronously (liburing fallback): fd=%d length=%lld result=%d\\n",
               fd, (long long)length, future->result);
@@ -768,14 +768,14 @@ static yo_io_future_t* __yo_async_socket_start(int32_t domain, int32_t type, int
   memset(future, 0, sizeof(yo_io_future_t));
   
   future->header.ref_count = 1;
-  atomic_init(&future->state, 0);
+  future->state = 0;
   future->result = 0;
-  atomic_init(&future->continuation_fn, NULL);
-  atomic_init(&future->continuation_sm, NULL);
+  future->continuation_fn = NULL;
+  future->continuation_sm = NULL;
   
   int result = socket(domain, type, protocol);
   future->result = (result < 0) ? -errno : result;
-  atomic_init(&future->state, -1);
+  future->state = -1;
   
   ASYNC_DEBUG("[IO] socket completed: domain=%d type=%d protocol=%d result=%d\\n",
               domain, type, protocol, future->result);
@@ -791,14 +791,14 @@ static yo_io_future_t* __yo_async_bind_start(int32_t sockfd, const void* addr, u
   memset(future, 0, sizeof(yo_io_future_t));
   
   future->header.ref_count = 1;
-  atomic_init(&future->state, 0);
+  future->state = 0;
   future->result = 0;
-  atomic_init(&future->continuation_fn, NULL);
-  atomic_init(&future->continuation_sm, NULL);
+  future->continuation_fn = NULL;
+  future->continuation_sm = NULL;
   
   int result = bind(sockfd, (const struct sockaddr*)addr, (socklen_t)addrlen);
   future->result = (result < 0) ? -errno : 0;
-  atomic_init(&future->state, -1);
+  future->state = -1;
   
   ASYNC_DEBUG("[IO] bind completed: sockfd=%d result=%d\\n", sockfd, future->result);
   
@@ -813,14 +813,14 @@ static yo_io_future_t* __yo_async_listen_start(int32_t sockfd, int32_t backlog) 
   memset(future, 0, sizeof(yo_io_future_t));
   
   future->header.ref_count = 1;
-  atomic_init(&future->state, 0);
+  future->state = 0;
   future->result = 0;
-  atomic_init(&future->continuation_fn, NULL);
-  atomic_init(&future->continuation_sm, NULL);
+  future->continuation_fn = NULL;
+  future->continuation_sm = NULL;
   
   int result = listen(sockfd, backlog);
   future->result = (result < 0) ? -errno : 0;
-  atomic_init(&future->state, -1);
+  future->state = -1;
   
   ASYNC_DEBUG("[IO] listen completed: sockfd=%d backlog=%d result=%d\\n", sockfd, backlog, future->result);
   
@@ -835,15 +835,15 @@ static yo_io_future_t* __yo_async_accept_start(int32_t sockfd, void* addr, uint3
   memset(future, 0, sizeof(yo_io_future_t));
   
   future->header.ref_count = 1;
-  atomic_init(&future->state, 0);
+  future->state = 0;
   future->result = 0;
-  atomic_init(&future->continuation_fn, NULL);
-  atomic_init(&future->continuation_sm, NULL);
+  future->continuation_fn = NULL;
+  future->continuation_sm = NULL;
   
   struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
   if (!sqe) {
     future->result = -EAGAIN;
-    atomic_store(&future->state, -1);
+    future->state = -1;
     return future;
   }
   
@@ -865,15 +865,15 @@ static yo_io_future_t* __yo_async_connect_start(int32_t sockfd, const void* addr
   memset(future, 0, sizeof(yo_io_future_t));
   
   future->header.ref_count = 1;
-  atomic_init(&future->state, 0);
+  future->state = 0;
   future->result = 0;
-  atomic_init(&future->continuation_fn, NULL);
-  atomic_init(&future->continuation_sm, NULL);
+  future->continuation_fn = NULL;
+  future->continuation_sm = NULL;
   
   struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
   if (!sqe) {
     future->result = -EAGAIN;
-    atomic_store(&future->state, -1);
+    future->state = -1;
     return future;
   }
   
@@ -895,15 +895,15 @@ static yo_io_future_t* __yo_async_send_start(int32_t sockfd, const void* buf, si
   memset(future, 0, sizeof(yo_io_future_t));
   
   future->header.ref_count = 1;
-  atomic_init(&future->state, 0);
+  future->state = 0;
   future->result = 0;
-  atomic_init(&future->continuation_fn, NULL);
-  atomic_init(&future->continuation_sm, NULL);
+  future->continuation_fn = NULL;
+  future->continuation_sm = NULL;
   
   struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
   if (!sqe) {
     future->result = -EAGAIN;
-    atomic_store(&future->state, -1);
+    future->state = -1;
     return future;
   }
   
@@ -925,15 +925,15 @@ static yo_io_future_t* __yo_async_recv_start(int32_t sockfd, void* buf, size_t l
   memset(future, 0, sizeof(yo_io_future_t));
   
   future->header.ref_count = 1;
-  atomic_init(&future->state, 0);
+  future->state = 0;
   future->result = 0;
-  atomic_init(&future->continuation_fn, NULL);
-  atomic_init(&future->continuation_sm, NULL);
+  future->continuation_fn = NULL;
+  future->continuation_sm = NULL;
   
   struct io_uring_sqe* sqe = io_uring_get_sqe(&__yo_io_ring);
   if (!sqe) {
     future->result = -EAGAIN;
-    atomic_store(&future->state, -1);
+    future->state = -1;
     return future;
   }
   
@@ -956,15 +956,15 @@ static yo_io_future_t* __yo_async_sendto_start(int32_t sockfd, const void* buf, 
   memset(future, 0, sizeof(yo_io_future_t));
   
   future->header.ref_count = 1;
-  atomic_init(&future->state, 0);
+  future->state = 0;
   future->result = 0;
-  atomic_init(&future->continuation_fn, NULL);
-  atomic_init(&future->continuation_sm, NULL);
+  future->continuation_fn = NULL;
+  future->continuation_sm = NULL;
   
   // io_uring doesn't have direct sendto, use synchronous
   ssize_t result = sendto(sockfd, buf, len, flags, (const struct sockaddr*)dest_addr, (socklen_t)addrlen);
   future->result = (result < 0) ? -errno : (int32_t)result;
-  atomic_init(&future->state, -1);
+  future->state = -1;
   
   ASYNC_DEBUG("[IO] sendto completed: sockfd=%d len=%zu result=%d\\n", sockfd, len, future->result);
   
@@ -980,15 +980,15 @@ static yo_io_future_t* __yo_async_recvfrom_start(int32_t sockfd, void* buf, size
   memset(future, 0, sizeof(yo_io_future_t));
   
   future->header.ref_count = 1;
-  atomic_init(&future->state, 0);
+  future->state = 0;
   future->result = 0;
-  atomic_init(&future->continuation_fn, NULL);
-  atomic_init(&future->continuation_sm, NULL);
+  future->continuation_fn = NULL;
+  future->continuation_sm = NULL;
   
   // io_uring doesn't have direct recvfrom, use synchronous
   ssize_t result = recvfrom(sockfd, buf, len, flags, (struct sockaddr*)src_addr, (socklen_t*)addrlen);
   future->result = (result < 0) ? -errno : (int32_t)result;
-  atomic_init(&future->state, -1);
+  future->state = -1;
   
   ASYNC_DEBUG("[IO] recvfrom completed: sockfd=%d len=%zu result=%d\\n", sockfd, len, future->result);
   
@@ -1003,14 +1003,14 @@ static yo_io_future_t* __yo_async_shutdown_start(int32_t sockfd, int32_t how) {
   memset(future, 0, sizeof(yo_io_future_t));
   
   future->header.ref_count = 1;
-  atomic_init(&future->state, 0);
+  future->state = 0;
   future->result = 0;
-  atomic_init(&future->continuation_fn, NULL);
-  atomic_init(&future->continuation_sm, NULL);
+  future->continuation_fn = NULL;
+  future->continuation_sm = NULL;
   
   int result = shutdown(sockfd, how);
   future->result = (result < 0) ? -errno : 0;
-  atomic_init(&future->state, -1);
+  future->state = -1;
   
   ASYNC_DEBUG("[IO] shutdown completed: sockfd=%d how=%d result=%d\\n", sockfd, how, future->result);
   
@@ -1026,14 +1026,14 @@ static yo_io_future_t* __yo_async_setsockopt_start(int32_t sockfd, int32_t level
   memset(future, 0, sizeof(yo_io_future_t));
   
   future->header.ref_count = 1;
-  atomic_init(&future->state, 0);
+  future->state = 0;
   future->result = 0;
-  atomic_init(&future->continuation_fn, NULL);
-  atomic_init(&future->continuation_sm, NULL);
+  future->continuation_fn = NULL;
+  future->continuation_sm = NULL;
   
   int result = setsockopt(sockfd, level, optname, optval, (socklen_t)optlen);
   future->result = (result < 0) ? -errno : 0;
-  atomic_init(&future->state, -1);
+  future->state = -1;
   
   ASYNC_DEBUG("[IO] setsockopt completed: sockfd=%d level=%d optname=%d result=%d\\n",
               sockfd, level, optname, future->result);
@@ -1050,14 +1050,14 @@ static yo_io_future_t* __yo_async_getsockopt_start(int32_t sockfd, int32_t level
   memset(future, 0, sizeof(yo_io_future_t));
   
   future->header.ref_count = 1;
-  atomic_init(&future->state, 0);
+  future->state = 0;
   future->result = 0;
-  atomic_init(&future->continuation_fn, NULL);
-  atomic_init(&future->continuation_sm, NULL);
+  future->continuation_fn = NULL;
+  future->continuation_sm = NULL;
   
   int result = getsockopt(sockfd, level, optname, optval, (socklen_t*)optlen);
   future->result = (result < 0) ? -errno : 0;
-  atomic_init(&future->state, -1);
+  future->state = -1;
   
   ASYNC_DEBUG("[IO] getsockopt completed: sockfd=%d level=%d optname=%d result=%d\\n",
               sockfd, level, optname, future->result);

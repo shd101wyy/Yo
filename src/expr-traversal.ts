@@ -8,7 +8,6 @@
 
 import { typeImplementsFn } from "./evaluator/trait-checking";
 import {
-  BuiltinFunctions,
   BuiltinKeywords,
   type Expr,
   exprIsAtom,
@@ -154,7 +153,13 @@ export function evaluatedBodyContainsAbort(expr: Expr): boolean {
  */
 export function exprContainsAwait(expr: Expr): boolean {
   if (exprIsFunctionCall(expr)) {
-    if (exprIsFunctionCallOf(expr, BuiltinFunctions.await)) {
+    // Detect io.await(future) calls via the ioBuiltin marker
+    if (expr.func.$?.type?.ioBuiltin === "io_await") {
+      return true;
+    }
+
+    // Detect io.join calls via the ioBuiltin marker
+    if (expr.func.$?.type?.ioBuiltin === "io_join") {
       return true;
     }
 
@@ -171,7 +176,8 @@ export function exprContainsAwait(expr: Expr): boolean {
     }
 
     if (
-      exprIsFunctionCallOf(expr, BuiltinFunctions.async) ||
+      // Skip io.async(closure) calls — they create new async scopes
+      expr.func.$?.type?.ioBuiltin === "io_async" ||
       isFunctionBoundaryArrow(expr) ||
       (isTypeValue(expr.func.$?.value) &&
         isFunctionType(expr.func.$.value.value))

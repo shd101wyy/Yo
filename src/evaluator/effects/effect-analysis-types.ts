@@ -2,28 +2,22 @@
  * effect-analysis-types.ts
  *
  * Type definitions for algebraic effect analysis.
- * Similar to await-analysis-types.ts but for ctl effect call points.
+ * EffectCallPoint extends the shared SuspensionPoint base with effect-specific fields.
  *
  * This file should NOT import from expr.ts or other files that import from here.
  */
 
 import type { Type } from "../../types/definitions";
+import type {
+  SuspensionCapturedVariable,
+  SuspensionPoint,
+} from "../shared/suspension-analysis-types";
 
 /**
  * Information about a single ctl effect call point found in an effectful function.
- * Analogous to AwaitPoint for async/await.
+ * Extends SuspensionPoint with effect-specific fields (operationArgTypes, transitive info, etc.).
  */
-export interface EffectCallPoint {
-  /**
-   * The index of this effect call point (0-based)
-   */
-  index: number;
-
-  /**
-   * The ctl call expression itself (typed as unknown to avoid circular import)
-   */
-  expr: unknown;
-
+export interface EffectCallPoint extends SuspensionPoint {
   /**
    * The types of the arguments passed to the ctl operation (e.g., [String, String] for raise(msg, msg2))
    */
@@ -36,44 +30,19 @@ export interface EffectCallPoint {
   operationResultType: Type;
 
   /**
-   * The variable that should receive the resumed value (if any)
-   * This is the variable ID from the captured variables.
-   */
-  targetVariableId?: string;
-
-  /**
-   * Whether this effect call is inside a cond expression
-   */
-  isInsideCond?: boolean;
-
-  /**
-   * Whether this effect call is inside a while loop
-   */
-  isInsideWhile?: boolean;
-
-  /**
-   * The number of nested while loops this effect call is inside.
-   */
-  whileNestingDepth?: number;
-
-  /**
-   * For sequential effect calls within the same cond/match branch,
-   * this references the index of the first effect call point in that cond/match.
-   */
-  condBranchSourceIndex?: number;
-
-  /**
-   * Whether this effect call point needs its own cond_branch_X field
-   * in the state machine struct.
-   */
-  needsOwnCondBranchField?: boolean;
-
-  /**
    * Whether this is a transitive effect call — a call to a function that
    * itself has a matching `using` ctl parameter, rather than a direct call
    * to the ctl operation. The outer SM must re-yield when the inner SM yields.
    */
   isTransitiveEffectCall?: boolean;
+
+  /**
+   * Whether this transitive call is to a closure (Impl(Fn(...))) rather than
+   * a regular function. Closure calls need special handling in the SM generation:
+   * - closure_context must be set on the inner SM
+   * - The inner SM info is looked up via implClosureCallMap
+   */
+  isTransitiveClosureCall?: boolean;
 
   /**
    * For multi-effect functions, identifies which effect this call point belongs to.
@@ -90,10 +59,7 @@ export interface EffectCallPoint {
  * variables from an outer scope — function parameters are stored as separate fields in
  * the state machine struct.
  */
-export interface EffectCapturedVariable {
-  id: string;
-  name: string;
-  type: Type;
+export interface EffectCapturedVariable extends SuspensionCapturedVariable {
   isOwningTheSameRcValueAs: EffectCapturedVariable | undefined;
 }
 

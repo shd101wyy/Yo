@@ -219,13 +219,13 @@ struct yo_thread_gc_state {
 // All concrete Future types share this same layout for common fields
 typedef struct {
   yo_ref_header_t header;
-  _Atomic(yo_future_state_t) state;
+  yo_future_state_t state;
   void* state_machine;
   void (*state_machine_dispose_fn)(void*);
   void (*resume_fn)(void*);
-  _Atomic(void*) continuation_fn;
-  _Atomic(void*) continuation_sm;
-  _Atomic(bool) detached;
+  void* continuation_fn;
+  void* continuation_sm;
+  bool detached;
   // Note: concrete Future types may have additional fields (e.g., result) after this
 } yo_future_generic_t;
 

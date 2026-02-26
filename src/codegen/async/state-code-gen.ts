@@ -8,7 +8,11 @@
 import { getVariablesFromEnv } from "../../env";
 import type { AwaitPoint } from "../../evaluator/async/await-analysis";
 import {
-  BuiltinFunctions,
+  isIoAsyncCall,
+  isIoAwaitCall,
+  isIoJoinCall,
+} from "../../evaluator/async/await-analysis";
+import {
   BuiltinKeywords,
   ExprTag,
   exprIsAtom,
@@ -26,6 +30,10 @@ import { isBooleanValue } from "../../value";
 import { generateComptimeValue } from "../exprs/comptime-value";
 import { generateExpr } from "../exprs/expr";
 import type { FunctionGenerationContext } from "../functions/context";
+import {
+  containsSuspensionExpr,
+  splitBodyAtSuspensionPoints,
+} from "../shared/suspension-codegen";
 import {
   canOptimizeAsNullablePointer,
   getTypeString,
@@ -55,140 +63,35 @@ export interface StateSegment {
 /**
  * Splits a function body into segments at await points.
  * Each segment contains the expressions to execute before reaching the next await.
+ *
+ * Thin wrapper around the shared `splitBodyAtSuspensionPoints`, mapping
+ * the generic `suspensionPoint` field to the async-specific `awaitPoint`.
  */
 export function splitIntoStateSegments(
   body: Expr,
   awaitPoints: AwaitPoint[]
 ): StateSegment[] {
-  const segments: StateSegment[] = [];
+  const shared = splitBodyAtSuspensionPoints(body, awaitPoints, {
+    shouldSkipBody: isIoAsyncCall,
+    handleReturnStatements: true,
+    handleSequentialSuspensions: true,
+  });
 
-  // For now, we'll implement a simple version that handles the common case:
-  // A begin block with sequential expressions containing await calls
-
-  if (body.tag !== ExprTag.FnCall || !exprIsFunctionCallOf(body, "begin")) {
-    // Not a begin block - check if we need to transform it
-    if (awaitPoints.length === 0) {
-      // No awaits - single segment
-      return [
-        {
-          stateNumber: 0,
-          expressions: [body],
-          awaitPoint: null,
-        },
-      ];
-    }
-
-    // Body is a single expression with await(s) - treat as single segment
-    // The await handling will be done in generateAwaitExpression
-    return [
-      {
-        stateNumber: 0,
-        expressions: [body],
-        awaitPoint: awaitPoints[0] ?? null,
-      },
-    ];
-  }
-
-  // Begin block - split at await points and return statements
-  const expressions = body.args;
-  const segmentExpressions: Expr[][] = [];
-  let currentSegment: Expr[] = [];
-
-  for (const expr of expressions) {
-    // Check if this expression contains an await
-    const awaitIndex = findAwaitInExpr(expr, awaitPoints);
-
-    // Check if this expression is a return statement
-    // `return` can be either a bare atom (no return value) or a function call `return(value)`
-    const isReturn =
-      exprIsAtomOf(expr, "return") || exprIsFunctionCallOf(expr, "return");
-
-    if (awaitIndex !== -1) {
-      // This expression contains an await - end this segment
-      currentSegment.push(expr);
-      segmentExpressions.push(currentSegment);
-      currentSegment = [];
-      // Check for additional await points inside this expression
-      // (e.g., sequential awaits in the same cond/match branch)
-      for (let extra = awaitIndex + 1; extra < awaitPoints.length; extra++) {
-        if (containsAwaitExpr(expr, awaitPoints[extra]!.expr as Expr)) {
-          segmentExpressions.push([]);
-        } else {
-          break;
-        }
-      }
-    } else if (isReturn) {
-      // This is a return statement - end this segment after including the return
-      currentSegment.push(expr);
-      segmentExpressions.push(currentSegment);
-      currentSegment = [];
-      // Don't process any more expressions after a return
-      break;
-    } else {
-      // No await or return in this expression
-      currentSegment.push(expr);
-    }
-  }
-
-  // Add final segment if there are remaining expressions
-  if (currentSegment.length > 0) {
-    segmentExpressions.push(currentSegment);
-  }
-
-  // Create state segments
-  for (let i = 0; i < segmentExpressions.length; i++) {
-    const exprs = segmentExpressions[i]!;
-    const awaitPoint = i < awaitPoints.length ? awaitPoints[i]! : null;
-
-    segments.push({
-      stateNumber: i,
-      expressions: exprs,
-      awaitPoint,
-    });
-  }
-
-  return segments;
+  return shared.map((seg) => ({
+    stateNumber: seg.stateNumber,
+    expressions: seg.expressions,
+    awaitPoint: seg.suspensionPoint,
+  }));
 }
 
 /**
- * Finds the index of an await point that matches an expression.
- * Returns -1 if no await is found in the expression.
- */
-function findAwaitInExpr(expr: Expr, awaitPoints: AwaitPoint[]): number {
-  for (let i = 0; i < awaitPoints.length; i++) {
-    if (containsAwaitExpr(expr, awaitPoints[i]!.expr as Expr)) {
-      return i;
-    }
-  }
-  return -1;
-}
-
-/**
- * Checks if an expression contains a specific await expression.
+ * Checks if an expression tree contains a specific await expression.
+ * Skips nested async blocks (their awaits belong to the inner state machine).
+ *
+ * Thin wrapper around the shared `containsSuspensionExpr`.
  */
 export function containsAwaitExpr(expr: Expr, awaitExpr: Expr): boolean {
-  if (expr === awaitExpr) {
-    return true;
-  }
-
-  switch (expr.tag) {
-    case ExprTag.FnCall:
-      // Do NOT recurse into nested async blocks - their awaits belong to the inner async
-      if (exprIsFunctionCallOf(expr, BuiltinFunctions.async)) {
-        return false;
-      }
-      if (containsAwaitExpr(expr.func, awaitExpr)) {
-        return true;
-      }
-      for (const arg of expr.args) {
-        if (containsAwaitExpr(arg, awaitExpr)) {
-          return true;
-        }
-      }
-      break;
-  }
-
-  return false;
+  return containsSuspensionExpr(expr, awaitExpr, isIoAsyncCall);
 }
 
 /**
@@ -269,12 +172,14 @@ export function generateAwaitExpression(
 ): void {
   const emitter = context.emitter;
 
-  // Check if this is a standalone await expression: await(futureExpr)
-  if (
-    expr.tag === ExprTag.FnCall &&
-    exprIsFunctionCallOf(expr, BuiltinFunctions.await)
-  ) {
-    // This is a standalone await: await(futureExpr)
+  // Join expressions are handled directly by state-machine.ts codegen
+  if (expr.tag === ExprTag.FnCall && isIoJoinCall(expr)) {
+    return;
+  }
+
+  // Check if this is a standalone await expression: io.await(futureExpr)
+  if (expr.tag === ExprTag.FnCall && isIoAwaitCall(expr)) {
+    // This is a standalone await: io.await(futureExpr)
     const futureExpr = expr.args[0];
 
     if (!futureExpr) {
@@ -314,10 +219,7 @@ export function generateAwaitExpression(
     }
 
     // Check if the value is an await expression
-    if (
-      valueExpr.tag === ExprTag.FnCall &&
-      exprIsFunctionCallOf(valueExpr, BuiltinFunctions.await)
-    ) {
+    if (valueExpr.tag === ExprTag.FnCall && isIoAwaitCall(valueExpr)) {
       // This is: varName := await(futureExpr)
       const futureExpr = valueExpr.args[0];
 
@@ -665,10 +567,10 @@ function generateCondWithAwait(
       }
     }
 
-    if (!context.condBranchInfo) {
-      context.condBranchInfo = new Map();
+    if (!context.asyncCondBranchInfo) {
+      context.asyncCondBranchInfo = new Map();
     }
-    context.condBranchInfo.set(awaitPoint.index, {
+    context.asyncCondBranchInfo.set(awaitPoint.index, {
       branches: branchesWithAwait,
       targetVariableId,
       targetAssignmentCode,
@@ -828,10 +730,10 @@ function generateCondWithAwait(
   }
 
   // Store branch information in context for resume state generation
-  if (!context.condBranchInfo) {
-    context.condBranchInfo = new Map();
+  if (!context.asyncCondBranchInfo) {
+    context.asyncCondBranchInfo = new Map();
   }
-  context.condBranchInfo.set(awaitPoint.index, {
+  context.asyncCondBranchInfo.set(awaitPoint.index, {
     branches: branchesWithAwait,
     targetVariableId,
     targetAssignmentCode,
@@ -844,7 +746,7 @@ function generateCondWithAwait(
 function branchHasAwait(expr: Expr): boolean {
   if (
     expr.tag === ExprTag.FnCall &&
-    exprIsFunctionCallOf(expr, BuiltinFunctions.await)
+    (isIoAwaitCall(expr) || isIoJoinCall(expr))
   ) {
     return true;
   }
@@ -1038,11 +940,11 @@ function generateMatchWithAwait(
           if (remainingExprs.length > 0) {
             // Store in context for state machine generation
             const functionContext = context as FunctionGenerationContext;
-            if (!functionContext.condBranchInfo) {
-              functionContext.condBranchInfo = new Map();
+            if (!functionContext.asyncCondBranchInfo) {
+              functionContext.asyncCondBranchInfo = new Map();
             }
 
-            const branchData = functionContext.condBranchInfo.get(
+            const branchData = functionContext.asyncCondBranchInfo.get(
               awaitPoint.index
             ) || {
               branches: [],
@@ -1056,7 +958,10 @@ function generateMatchWithAwait(
               deferredDropExpressions: caseBody.$?.deferredDropExpressions,
             });
 
-            functionContext.condBranchInfo.set(awaitPoint.index, branchData);
+            functionContext.asyncCondBranchInfo.set(
+              awaitPoint.index,
+              branchData
+            );
           }
         } else {
           // No await in pointer case - generate normally
@@ -1106,11 +1011,11 @@ function generateMatchWithAwait(
 
           if (remainingExprs.length > 0) {
             const functionContext = context as FunctionGenerationContext;
-            if (!functionContext.condBranchInfo) {
-              functionContext.condBranchInfo = new Map();
+            if (!functionContext.asyncCondBranchInfo) {
+              functionContext.asyncCondBranchInfo = new Map();
             }
 
-            const branchData = functionContext.condBranchInfo.get(
+            const branchData = functionContext.asyncCondBranchInfo.get(
               awaitPoint.index
             ) || {
               branches: [],
@@ -1124,7 +1029,10 @@ function generateMatchWithAwait(
               deferredDropExpressions: caseBody.$?.deferredDropExpressions,
             });
 
-            functionContext.condBranchInfo.set(awaitPoint.index, branchData);
+            functionContext.asyncCondBranchInfo.set(
+              awaitPoint.index,
+              branchData
+            );
           }
         } else {
           // No await in null case - generate normally
@@ -1275,11 +1183,11 @@ function generateMatchWithAwait(
 
         if (remainingExprs.length > 0) {
           const functionContext = context as FunctionGenerationContext;
-          if (!functionContext.condBranchInfo) {
-            functionContext.condBranchInfo = new Map();
+          if (!functionContext.asyncCondBranchInfo) {
+            functionContext.asyncCondBranchInfo = new Map();
           }
 
-          const branchData = functionContext.condBranchInfo.get(
+          const branchData = functionContext.asyncCondBranchInfo.get(
             awaitPoint.index
           ) || {
             branches: [],
@@ -1293,7 +1201,7 @@ function generateMatchWithAwait(
             deferredDropExpressions: caseBody.$?.deferredDropExpressions,
           });
 
-          functionContext.condBranchInfo.set(awaitPoint.index, branchData);
+          functionContext.asyncCondBranchInfo.set(awaitPoint.index, branchData);
         }
       } else {
         // No await - generate normally
@@ -1465,10 +1373,10 @@ function generatePrimitiveMatchWithAwait(
   emitter.emitLine(`${indent}}`);
 
   // Store branch information in context for resume state generation
-  if (!context.condBranchInfo) {
-    context.condBranchInfo = new Map();
+  if (!context.asyncCondBranchInfo) {
+    context.asyncCondBranchInfo = new Map();
   }
-  context.condBranchInfo.set(awaitPoint.index, {
+  context.asyncCondBranchInfo.set(awaitPoint.index, {
     branches: branchesWithAwait,
     targetVariableId,
     targetAssignmentCode,
@@ -1525,7 +1433,7 @@ function generateCondBranchWithAwait(
         if (
           valueExpr &&
           valueExpr.tag === ExprTag.FnCall &&
-          exprIsFunctionCallOf(valueExpr, BuiltinFunctions.await)
+          isIoAwaitCall(valueExpr)
         ) {
           const futureExpr = valueExpr.args[0];
           if (futureExpr) {
@@ -1539,10 +1447,7 @@ function generateCondBranchWithAwait(
             );
           }
         }
-      } else if (
-        expr.tag === ExprTag.FnCall &&
-        exprIsFunctionCallOf(expr, BuiltinFunctions.await)
-      ) {
+      } else if (expr.tag === ExprTag.FnCall && isIoAwaitCall(expr)) {
         // Standalone await
         const futureExpr = expr.args[0];
         if (futureExpr) {
@@ -1639,8 +1544,8 @@ function generateWhileWithAwait(
   let whileLoopIndex: number;
   if (hasNestedWhileWithAwait) {
     // Allocate a fresh while loop index for this outer while
-    whileLoopIndex = context.nextWhileLoopIndex ?? awaitPoint.index + 1;
-    context.nextWhileLoopIndex = whileLoopIndex + 1;
+    whileLoopIndex = context.asyncNextWhileLoopIndex ?? awaitPoint.index + 1;
+    context.asyncNextWhileLoopIndex = whileLoopIndex + 1;
   } else {
     // Innermost while uses the await point index
     whileLoopIndex = awaitPoint.index;
@@ -1674,15 +1579,15 @@ function generateWhileWithAwait(
   emitter.emitLine(`${indent}while_loop_${whileLoopIndex}_end:`);
 
   // Store loop information in context for resume state generation
-  if (!context.whileLoopInfo) {
-    context.whileLoopInfo = new Map();
+  if (!context.asyncWhileLoopInfo) {
+    context.asyncWhileLoopInfo = new Map();
   }
 
   if (hasNestedWhileWithAwait) {
     // This is an outer while. The inner while has already stored its info
     // at awaitPoint.index via the recursive generateWhileWithAwait call.
     // Attach outer while info to the inner while's entry for the resume state.
-    const innerWhileInfo = context.whileLoopInfo.get(awaitPoint.index);
+    const innerWhileInfo = context.asyncWhileLoopInfo.get(awaitPoint.index);
     if (innerWhileInfo) {
       innerWhileInfo.outerWhileLoop = {
         whileLoopIndex,
@@ -1693,7 +1598,7 @@ function generateWhileWithAwait(
     }
   } else {
     // Innermost while - store directly
-    context.whileLoopInfo.set(awaitPoint.index, {
+    context.asyncWhileLoopInfo.set(awaitPoint.index, {
       conditionExpr,
       bodyExpr,
       bodyExprsAfterAwait,
@@ -1747,20 +1652,18 @@ function generateWhileBodyWithAwait(
   // Pre-await body expressions are generated in state 0 where we use labels
   // (not a real C while loop). Configure break/continue handling explicitly.
   // Use the current while loop's index for labels.
-  const previousAsyncWhileBreakInfo = context.asyncWhileBreakInfo;
-  const previousAsyncWhileContinueInfo = context.asyncWhileContinueInfo;
-  const previousAsyncWhileBodyDrops = context.asyncWhileBodyDrops;
-  context.asyncWhileBreakInfo = {
+  const previousSmWhileBreakInfo = context.smWhileBreakInfo;
+  const previousSmWhileContinueInfo = context.smWhileContinueInfo;
+  const previousSmWhileBodyDrops = context.smWhileBodyDrops;
+  context.smWhileBreakInfo = {
     label: `while_loop_${whileLoopIndex}_end`,
-    index: whileLoopIndex,
+    activeIndex: whileLoopIndex,
   };
-  context.asyncWhileContinueInfo = {
+  context.smWhileContinueInfo = {
     label: `while_loop_${whileLoopIndex}_start`,
     emitDropsBeforeGoto: true,
   };
-  context.asyncWhileBodyDrops = [
-    ...(bodyExpr.$?.deferredDropExpressions ?? []),
-  ];
+  context.smWhileBodyDrops = [...(bodyExpr.$?.deferredDropExpressions ?? [])];
 
   // Generate expressions before the await
   for (let i = 0; i < awaitFoundIndex; i++) {
@@ -1771,10 +1674,10 @@ function generateWhileBodyWithAwait(
     }
   }
 
-  // Restore async while control-flow context before generating await handling.
-  context.asyncWhileBreakInfo = previousAsyncWhileBreakInfo;
-  context.asyncWhileContinueInfo = previousAsyncWhileContinueInfo;
-  context.asyncWhileBodyDrops = previousAsyncWhileBodyDrops;
+  // Restore while control-flow context before generating await handling.
+  context.smWhileBreakInfo = previousSmWhileBreakInfo;
+  context.smWhileContinueInfo = previousSmWhileContinueInfo;
+  context.smWhileBodyDrops = previousSmWhileBodyDrops;
 
   // Generate code to store the Future at the await point
   const awaitExpr = bodyExprs[awaitFoundIndex]!;
@@ -1800,7 +1703,7 @@ function generateWhileBodyWithAwait(
     if (
       valueExpr &&
       valueExpr.tag === ExprTag.FnCall &&
-      exprIsFunctionCallOf(valueExpr, BuiltinFunctions.await)
+      isIoAwaitCall(valueExpr)
     ) {
       const futureExpr = valueExpr.args[0];
       if (futureExpr) {
@@ -1813,10 +1716,7 @@ function generateWhileBodyWithAwait(
         );
       }
     }
-  } else if (
-    awaitExpr.tag === ExprTag.FnCall &&
-    exprIsFunctionCallOf(awaitExpr, BuiltinFunctions.await)
-  ) {
+  } else if (awaitExpr.tag === ExprTag.FnCall && isIoAwaitCall(awaitExpr)) {
     // Standalone await
     const futureExpr = awaitExpr.args[0];
     if (futureExpr) {
@@ -1836,7 +1736,7 @@ function generateWhileBodyWithAwait(
   ) {
     // Cond expression with await in one of its branches
     generateCondWithAwait(awaitExpr, awaitPoint, indent, context, undefined);
-    // The cond branch remainingExprs are already stored in context.condBranchInfo
+    // The cond branch remainingExprs are already stored in context.asyncCondBranchInfo
     // Don't collect anything here - they'll be handled in the resume state
     return remainingExprs;
   } else if (
@@ -1845,7 +1745,7 @@ function generateWhileBodyWithAwait(
   ) {
     // Match expression with await in one of its branches
     generateMatchWithAwait(awaitExpr, awaitPoint, indent, context);
-    // The match branch remainingExprs are already stored in context.condBranchInfo
+    // The match branch remainingExprs are already stored in context.asyncCondBranchInfo
     // Don't collect anything here - they'll be handled in the resume state
     return remainingExprs;
   }

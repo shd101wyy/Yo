@@ -639,9 +639,6 @@ export const BuiltinFunctions = {
   do: ["do"],
   rc: "rc", // Get the reference count of a Rc type
 
-  // Async/await functions
-  async: ["async"],
-  await: ["await"],
   __yo_thread_set_maximum_threads: ["__yo_thread_set_maximum_threads"],
 
   // Pointer related functions

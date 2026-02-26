@@ -632,14 +632,14 @@ test "Test nested module-based effect with resume", {
   assert((result2 == 5), "nested module effect with resume: should be 5");
 };
 
-test "Test module destructured using(ModuleType) with abort", {
+test "Test module labeled using(name : ModuleType) with abort", {
   Raise :: module(
     raise : (fn(forall(T : Type), msg : String) -> T)
   );
 
-  safe_divide :: (fn(x : i32, y : i32, using(Raise)) -> i32)(
+  safe_divide :: (fn(x : i32, y : i32, using(raise_mod : Raise)) -> i32)(
     cond(
-      (y == 0) => raise(`div-by-zero`),
+      (y == 0) => raise_mod.raise(`div-by-zero`),
       true => (x / y)
     )
   );
@@ -656,14 +656,14 @@ test "Test module destructured using(ModuleType) with abort", {
   assert(false, "Should not reach here after abort");
 };
 
-test "Test module destructured using(ModuleType) with resume", {
+test "Test module labeled using(name : ModuleType) with resume", {
   Raise :: module(
     raise : (fn(forall(T : Type), msg : String) -> T)
   );
 
-  safe_divide :: (fn(x : i32, y : i32, using(Raise)) -> i32)(
+  safe_divide :: (fn(x : i32, y : i32, using(raise_mod : Raise)) -> i32)(
     cond(
-      (y == 0) => raise(`div-by-zero`),
+      (y == 0) => raise_mod.raise(`div-by-zero`),
       true => (x / y)
     )
   );
@@ -677,9 +677,9 @@ test "Test module destructured using(ModuleType) with resume", {
   );
 
   result := safe_divide(10, 0);
-  assert((result == 0), "module destructured with resume: should be 0");
+  assert((result == 0), "module labeled with resume: should be 0");
   result2 := safe_divide(10, 2);
-  assert((result2 == 5), "module destructured with resume: should be 5");
+  assert((result2 == 5), "module labeled with resume: should be 5");
 };
 
 test "Test multiple effect row spreads with resume", {
@@ -807,4 +807,293 @@ test "Test closure with using() effect - abort", {
 
   val := run_test();
   assert((val == 99), "closure+effect abort: expected abort value 99");
+};
+
+test "Effect row polymorphism with ...(E) spread", {
+  Yield :: (fn(v : i32) -> i32);
+  Log :: (fn(v : i32) -> unit);
+
+  traverse :: (fn(
+    forall(S : usize, ...(E)),
+    arr : Array(i32, S),
+    callback : (Impl(Fn(v : i32, using(...(E))) -> unit)),
+    using(...(E))
+    ) -> unit) {
+      i := usize(0);
+      while i < S, i = (i + 1), {
+        callback(arr(i));
+      };
+    };
+
+  (given(yield) : Yield) =
+    (v) -> {
+      return v;
+    };
+
+  (given(log) : Log) =
+    (v) -> {
+      println(v);
+    };
+
+  sum := Box(i32)(0);
+  arr := Array(i32, 5)(0, 1, 2, 3, 4);
+  traverse(arr, (v, using(_yield, _log)) => {
+    _log(v);
+    result := _yield(v);
+    assert((result == v), "effect row: yield should return the value");
+    sum.* = (sum.* + result);
+  }, using(yield, log));
+  assert((sum.* == 10), "effect row: sum should be 10");
+};
+
+test "Effect row inline typed declaration using(name : Type)", {
+  Yield :: (fn(v : i32) -> i32);
+  Log :: (fn(v : i32) -> unit);
+
+  traverse :: (fn(
+    forall(S : usize, ...(E)),
+    arr : Array(i32, S),
+    callback : (Impl(Fn(v : i32, using(...(E))) -> unit)),
+    using(...(E))
+    ) -> unit) {
+      i := usize(0);
+      while i < S, i = (i + 1), {
+        callback(arr(i));
+      };
+    };
+
+  (given(yield) : Yield) =
+    (v) -> {
+      return v;
+    };
+
+  (given(log) : Log) =
+    (v) -> {
+      println(v);
+    };
+
+  sum := Box(i32)(0);
+  arr := Array(i32, 5)(0, 1, 2, 3, 4);
+
+  // Closure declares effect row inline with types — no call-site using() needed
+  traverse(arr, (v, using(yield : Yield, log : Log)) => {
+    log(v);
+    result := yield(v);
+    assert((result == v), "inline typed: yield should return the value");
+    sum.* = (sum.* + result);
+  });
+  assert((sum.* == 10), "inline typed: sum should be 10");
+};
+
+test "Mixed abort and return in effect handler", {
+  Yield :: (fn(v : i32) -> i32);
+  Log :: (fn(v : i32) -> unit);
+
+  traverse :: (fn(
+    forall(S : usize, ...(E)),
+    arr : Array(i32, S),
+    callback : (Impl(Fn(v : i32, using(...(E))) -> unit)),
+    using(...(E))
+    ) -> unit) {
+      i := usize(0);
+      while i < S, i = (i + 1), {
+        callback(arr(i));
+      };
+    };
+
+  (given(yield) : Yield) =
+    (v) -> (
+      cond(
+        (v > 2) => {
+          abort ();
+        },
+        true => {
+          return v;
+        }
+      )
+    );
+
+  (given(log) : Log) =
+    (v) -> {
+      println(v);
+    };
+
+  sum := Box(i32)(0);
+  arr := Array(i32, 5)(0, 1, 2, 3, 4);
+
+  traverse(arr, (v, using(yield : Yield, log : Log)) => {
+    log(v);
+    result := yield(v);
+    assert((result == v), "mixed handler: yield should return the value");
+    sum.* = (sum.* + result);
+  });
+
+  assert(false, "This line should not be reached due to abort in yield");
+};
+
+test "Transitive SM while loop with break", {
+  Yield :: (fn(v : i32) -> i32);
+
+  // A transitive effectful function — its forall(...(E)) means it always gets an SM.
+  // The while loop + break is inside the SM-generated function itself.
+  count_until :: (fn(
+    forall(...(E)),
+    limit : i32,
+    using(...(E))
+  ) -> i32) {
+    counter := Box(i32)(0);
+    sum := Box(i32)(0);
+    while runtime(true), {
+      result := yield(counter.*);
+      sum.* = (sum.* + result);
+      counter.* = (counter.* + 1);
+      cond(
+        (counter.* >= limit) => { break; },
+        true => ()
+      );
+    };
+    return sum.*;
+  };
+
+  (given(yield) : Yield) =
+    (v) -> {
+      return (v * i32(2));
+    };
+
+  result := count_until(i32(4));
+  // yield(0)*2=0, yield(1)*2=2, yield(2)*2=4, yield(3)*2=6 => sum = 12
+  assert((result == i32(12)), "transitive break: sum should be 0+2+4+6 = 12");
+};
+
+test "Transitive SM while loop with continue", {
+  Yield :: (fn(v : i32) -> i32);
+
+  // Skip odd results, accumulate even results, stop at counter == 8.
+  sum_even :: (fn(
+    forall(...(E)),
+    using(...(E))
+  ) -> i32) {
+    counter := Box(i32)(0);
+    sum := Box(i32)(0);
+    while runtime(counter.* < i32(8)), {
+      result := yield(counter.*);
+      counter.* = (counter.* + 1);
+      cond(
+        ((result % i32(2)) != i32(0)) => { continue; },
+        true => ()
+      );
+      sum.* = (sum.* + result);
+    };
+    return sum.*;
+  };
+
+  (given(yield) : Yield) =
+    (v) -> {
+      return v;
+    };
+
+  result := sum_even();
+  // yield(0)=0, yield(1)=1(skip), yield(2)=2, yield(3)=3(skip),
+  // yield(4)=4, yield(5)=5(skip), yield(6)=6, yield(7)=7(skip) => 0+2+4+6 = 12
+  assert((result == i32(12)), "transitive continue: sum of even should be 12");
+};
+
+test "Transitive SM while loop with mixed continue and break", {
+  Yield :: (fn(v : i32) -> i32);
+
+  // continue on counter <= 2, break on counter >= 5, accumulate the rest
+  mixed_loop :: (fn(
+    forall(...(E)),
+    using(...(E))
+  ) -> i32) {
+    counter := Box(i32)(0);
+    sum := Box(i32)(0);
+    while runtime(true), {
+      counter.* = (counter.* + 1);
+      yield(counter.*);
+
+      cond(
+        (counter.* <= i32(2)) => { continue; },
+        true => ()
+      );
+
+      cond(
+        (counter.* >= i32(5)) => { break; },
+        true => ()
+      );
+
+      sum.* = (sum.* + counter.*);
+    };
+    return sum.*;
+  };
+
+  (given(yield) : Yield) =
+    (v) -> {
+      return v;
+    };
+
+  result := mixed_loop();
+  // counter 1: continue, 2: continue, 3: sum+=3, 4: sum+=4, 5: break
+  assert((result == i32(7)), "transitive mixed: sum should be 3+4 = 7");
+};
+
+test "Transitive SM while loop with step expr and continue", {
+  Yield :: (fn(v : i32) -> i32);
+
+  sum_with_step :: (fn(
+    forall(...(E)),
+    using(...(E))
+  ) -> i32) {
+    i := Box(i32)(0);
+    sum := Box(i32)(0);
+    while runtime(i.* < i32(6)), i.* = (i.* + 1), {
+      result := yield(i.*);
+      cond(
+        ((result % i32(2)) != i32(0)) => { continue; },
+        true => ()
+      );
+      sum.* = (sum.* + result);
+    };
+    return sum.*;
+  };
+
+  (given(yield) : Yield) =
+    (v) -> {
+      return v;
+    };
+
+  result := sum_with_step();
+  // yield(0)=0, yield(1)=1(skip), yield(2)=2, yield(3)=3(skip), yield(4)=4, yield(5)=5(skip) => 0+2+4 = 6
+  assert((result == i32(6)), "transitive step+continue: sum of even should be 6");
+};
+
+test "Transitive SM while loop with early return", {
+  Yield :: (fn(v : i32) -> i32);
+
+  find_first :: (fn(
+    forall(...(E)),
+    threshold : i32,
+    using(...(E))
+  ) -> i32) {
+    i := Box(i32)(0);
+    while runtime(i.* < i32(10)), i.* = (i.* + 1), {
+      result := yield(i.*);
+      cond(
+        (result >= threshold) => {
+          return result;
+        },
+        true => ()
+      );
+    };
+    return i32(-1);
+  };
+
+  (given(yield) : Yield) =
+    (v) -> {
+      return (v * i32(3));
+    };
+
+  result := find_first(i32(12));
+  // yield(0)=0, yield(1)=3, yield(2)=6, yield(3)=9, yield(4)=12 >= 12 => return 12
+  assert((result == i32(12)), "transitive early return: should find 12");
 };

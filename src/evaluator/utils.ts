@@ -1,4 +1,5 @@
 import { type Environment, getVariablesFromEnv, type Variable } from "../env";
+import { formatErrorMessage } from "../error";
 import { type Expr, exprIsAtom } from "../expr";
 import { TokenType } from "../token";
 
@@ -47,4 +48,35 @@ export function findRcValueOwnerRelationship(
     return candidate;
   }
   return undefined;
+}
+
+export function throwExprIsImplicitVariableError(rhs: Expr) {
+  // Disallow using implicit variables (or property access of them) as the RHS
+  // of a non-given assignment. Implicit variables must be passed via using() parameters,
+  // not captured through regular assignments.
+  const env = rhs.$?.env;
+  if (!env) {
+    return;
+  }
+  let variableName: string | undefined = undefined;
+  if (rhs.$?.pathCollection) {
+    for (const path of rhs.$.pathCollection) {
+      if (path.length > 0 && typeof path[0] === "string") {
+        variableName = path[0];
+      }
+    }
+  } else if (exprIsAtom(rhs)) {
+    variableName = rhs.token.value;
+  }
+
+  if (variableName) {
+    const rootVars = getVariablesFromEnv(env, variableName);
+    const rootVar = rootVars[rootVars.length - 1];
+    if (rootVar?.isImplicit) {
+      throw formatErrorMessage({
+        token: rhs.token,
+        errorMessage: `Cannot use implicit variable "${rootVar.name}" in assignment. Implicit variables must be passed via using() parameters.`,
+      });
+    }
+  }
 }

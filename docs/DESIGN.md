@@ -88,6 +88,7 @@ Our goal is to be a practical language that is easy to use and easy to learn.
   - [Impl vs Dyn](#impl-vs-dyn)
 - [Error handling](#error-handling)
   - [Error Propagation with match](#error-propagation-with-match)
+- [Algebraic Effects and Handlers](#algebraic-effects-and-handlers)
 - [Closure](#closure-1)
 - [Async/Await](#asyncawait)
 - [Parallelism](#parallelism)
@@ -685,7 +686,7 @@ impl(Point,
   })
 );
 
-mut(p) := Point(3, 4);
+p := Point(3, 4);
 p.set_x(10);  // Automatically converts to &(p).set_x(10)
 ```
 
@@ -2010,7 +2011,47 @@ compute :: (fn(x: i32, y: i32) -> Result(i32, DivisionError)) {
 }
 ```
 
-**Note**: Yo does not use algebraic effects for error handling. The language uses explicit Result types and pattern matching.
+**Note**: Yo uses explicit Result types and pattern matching for error handling, not algebraic effects. However, algebraic effects can be used for other control flow patterns (see below).
+
+## Algebraic Effects and Handlers
+
+Yo supports **algebraic effects** — a mechanism for implicit parameter passing and delimited continuations. Effects are built on two features:
+
+1. **Implicit Parameters (`using` / `given`)**: Functions can declare implicit parameters with `using(name : Type)`. At call sites, the compiler resolves them automatically from `given` bindings in scope.
+2. **Effect Handlers (`return` / `abort`)**: When an effect handler uses `return(value)`, it resumes the captured continuation. When it uses `abort expr`, it discards the continuation and returns from the enclosing function.
+
+```yo
+// Define an effect type
+Raise :: (fn(forall(T : Type), msg : String) -> T);
+
+// Use the effect via implicit parameter
+safe_divide :: (fn(x : i32, y : i32, using(raise : Raise)) -> i32)(
+  cond(
+    (y == 0) => raise(`division by zero`),
+    true => (x / y)
+  )
+);
+
+// Handle with resume (return) — continues after the effect site
+handler_resume :: (fn() -> i32) {
+  (given(raise) : Raise) = (fn(forall(T : Type), msg : String) -> T)({
+    return i32(0);  // resume with 0
+  });
+  safe_divide(10, 0)  // returns 0
+};
+
+// Handle with abort — discards continuation, returns from enclosing function
+handler_abort :: (fn() -> i32) {
+  (given(raise) : Raise) = ((msg) -> {
+    abort i32(-1);  // discard continuation, return -1
+  });
+  safe_divide(10, 0)  // never reached; handler_abort returns -1
+};
+```
+
+Effects compose with async/await: effect handlers inside `io.async` tasks work correctly. If `abort` is called inside an async task, the Future is marked as aborted and awaiting it causes a panic.
+
+See [ALGEBRAIC_EFFECTS.md](./ALGEBRAIC_EFFECTS.md) for comprehensive documentation.
 
 ## Closure
 
@@ -2018,7 +2059,34 @@ Please check [closure.test.yo](../tests/closure.test.yo) for closure examples an
 
 ## Async/Await
 
-Yo uses **async/await with state machine transformation** for efficient concurrent programming. This is a stackless coroutine model similar to Rust, JavaScript, C#, and Python.
+Yo uses **async/await with state machine transformation** for efficient **single-threaded concurrency**. Async tasks are **lazy** — they don't start until explicitly awaited or joined.
+
+```yo
+{ yield } :: import "std/async";
+
+main :: (fn(using(io : IO)) -> unit)({
+  task1 := io.async((using(io : IO))=> {
+    io.await(yield());
+    return i32(1);
+  });
+  task2 := io.async((using(io : IO))=> {
+    io.await(yield());
+    return i32(2);
+  });
+  io.join(task1, task2);  // start both, interleave at yield points
+  r1 := io.await(task1);  // extract result (already complete)
+  r2 := io.await(task2);
+});
+export main;
+```
+
+Key properties:
+
+- `io.async(fn)` creates a **cold Future** — the body does NOT execute until awaited or joined
+- `io.await(future)` starts a cold future and runs it to completion; can be called **multiple times** on the same Future
+- `io.join(f1, f2, ...)` starts all futures concurrently, interleaving at yield/await suspension points
+- All async code runs on the **same thread** (no thread spawning, no data races)
+- Awaiting a Future that was aborted by an effect handler causes a **panic**
 
 See [ASYNC_AWAIT.md](./ASYNC_AWAIT.md) for comprehensive documentation.
 
@@ -2545,10 +2613,10 @@ Please check [IN_DESIGN.md](./IN_DESIGN.md) for features that are still in desig
 - [What Color is Your Function](https://journal.stuffwithstuff.com/2015/02/01/what-color-is-your-function/)
 - [Implementing Algebraic Effects in C "Monads for Free in C"](https://www.microsoft.com/en-us/research/wp-content/uploads/2017/06/algeff-in-c-tr.pdf)
 - [Efficient Compilation of Algebraic Effect Handlers - Ningning Xie](https://www.youtube.com/watch?v=tWLPrPfb4_U&ab_channel=ETHWSCR)
-- [Generalized Evidence Pasing for Effect Handlers](https://www.microsoft.com/en-us/research/uploads/prod/2021/03/multip-tr-v4.pdf)
+- [Generalized Evidence Passing for Effect Handlers](https://www.microsoft.com/en-us/research/uploads/prod/2021/03/multip-tr-v4.pdf)
 - [Structured Asynchrony with Algebraic Effects](https://www.microsoft.com/en-us/research/wp-content/uploads/2017/05/asynceffects-msr-tr-2017-21.pdf)
 - [Effects as Capabilities: Effect Handlers and Lightweight Effect Polymorphism](https://dl.acm.org/doi/pdf/10.1145/3428194)
-- [A Typed Continuatino-Passing Translatino for Lexical Effect Handlers](https://se.cs.uni-tuebingen.de/publications/schuster22typed.pdf)
+- [A Typed Continuation-Passing Translation for Lexical Effect Handlers](https://se.cs.uni-tuebingen.de/publications/schuster22typed.pdf)
 - [Zero-cost Effect Handlers](https://se.cs.uni-tuebingen.de/publications/schuster19zero.pdf)
 - [Why Rust Closures are (Somewhat) Hard](https://stevedonovan.github.io/rustifications/2018/08/18/rust-closures-are-hard.html)
 - [Inside Rust's Async Transformation](https://blag.nemo157.com/2018/12/09/inside-rusts-async-transform.html)

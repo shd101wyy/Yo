@@ -1,4 +1,5 @@
 import { type Environment } from "../../env";
+import { isIoAsyncCall } from "../../evaluator/async/await-analysis";
 import { analyzeEffectCallPoints } from "../../evaluator/effects/effect-analysis";
 import type { EffectAnalysisResult } from "../../evaluator/effects/effect-analysis-types";
 import { typeImplementsFuture } from "../../evaluator/trait-checking";
@@ -22,8 +23,9 @@ import type {
 import { getTraitTypeFromEnv } from "../../types/env-lookup";
 import {
   isEnumType,
-  isFunctionSpecializable,
   isFunctionType,
+  isFunctionTypeGeneric,
+  isFunctionTypeHardGeneric,
   isSomeType,
   isStructType,
   isUnitType,
@@ -201,17 +203,39 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
   for (const funcId in context.functions) {
     const { value, cName } = context.functions[funcId]!;
 
+    // Never skip __yo_user_main - it's the entry point and its implicit
+    // IO parameter is resolved at compile time
+    const isUserMain = cName === "__yo_user_main";
+
+    const hasUnresolvedFunctionImplicitParams =
+      !isUserMain &&
+      !value.type.isClosure &&
+      !value.specializedType &&
+      (value.specializedFunctionCaches?.length ?? 0) === 0 &&
+      [
+        ...value.type.implicitParameters,
+        ...value.type.parameters.filter((p) => p.isImplicit),
+      ].some((param) => isFunctionType(param.type));
+
+    if (hasUnresolvedFunctionImplicitParams) {
+      continue;
+    }
+
     // If the function is generic or has been specialized, we will handle it later
     // EXCEPTION: Specialized functions from impl methods (not generic at function level)
     // should be generated here, not in generateSpecializedFunctions
     const isSpecializedImplMethod =
-      value.specializedType && !isFunctionSpecializable(value.type);
+      value.specializedType && !isFunctionTypeGeneric(value.type);
 
     if (
-      (isFunctionSpecializable(value.type) && !value.type.isClosure) ||
-      (value.specializedType && !isSpecializedImplMethod) ||
-      isComptimeFunction(value) ||
-      isFunctionValueWithOnlyBuiltinYoInlineFunctionCall(value)
+      !isUserMain &&
+      ((isFunctionTypeHardGeneric(value.type) && !value.type.isClosure) ||
+        (value.specializedFunctionCaches?.length > 0 &&
+          !value.type.isClosure) ||
+        (value.specializedType && !isSpecializedImplMethod) ||
+        isComptimeFunction(value) ||
+        isFunctionValueWithOnlyBuiltinYoInlineFunctionCall(value) ||
+        value.isIoAsyncStateMachineClosure)
     ) {
       continue;
     }
@@ -382,7 +406,7 @@ export function preRegisterEffectfulFunctions(
 
     // Skip if the specialized type still has unresolved type parameters
     if (functionValue.specializedType) {
-      if (isFunctionSpecializable(functionValue.specializedType)) {
+      if (isFunctionTypeGeneric(functionValue.specializedType)) {
         continue;
       }
       const hasGenericParams = functionValue.specializedType.parameters.some(
@@ -430,18 +454,10 @@ export function preRegisterEffectfulFunctions(
       context
     );
   }
-  // Then register transitive-call functions
-  for (const func of transitiveFunctions) {
-    registerEffectfulFunction(
-      func.functionValue,
-      func.cFunctionName,
-      func.functionType,
-      func.effectAnalysis,
-      context
-    );
-  }
 
-  // Third pass: handle closure body functions that have ctl handler calls.
+  // Second pass: handle closure body functions that have ctl handler calls.
+  // These must be registered BEFORE transitive-call functions because
+  // transitive functions reference closure SM structs as inner SM fields.
   // The evaluator doesn't run effect analysis for closures (functionValue is
   // undefined for closure calls in tryToCallFunctionWithArguments), so we
   // perform the analysis here in the codegen phase.
@@ -471,15 +487,21 @@ export function preRegisterEffectfulFunctions(
 
       // Find the handler value from the first ctl call expression in the body
       const firstCallPoint = effectAnalysis.effectCallPoints[0];
+      let handlerIsControlFunction = false;
       if (firstCallPoint) {
         const callExpr = firstCallPoint.expr as FnCallExpr;
         if (callExpr && "func" in callExpr) {
           const handlerValue = callExpr.func.$?.value;
           if (handlerValue && isFunctionValue(handlerValue)) {
             effectAnalysis.handlerValue = handlerValue;
+            handlerIsControlFunction = !!handlerValue.isControlFunction;
           }
         }
       }
+
+      // Only register as effectful if the handler uses abort (is a control function).
+      // Regular function calls via using() don't need state machine transformation.
+      if (!handlerIsControlFunction) continue;
 
       functionValue.body.$.effectAnalysis = effectAnalysis;
 
@@ -502,6 +524,18 @@ export function preRegisterEffectfulFunctions(
       );
       break;
     }
+  }
+
+  // Third: register transitive-call functions (they reference inner SM structs
+  // from direct-call or closure functions, which are now all registered)
+  for (const func of transitiveFunctions) {
+    registerEffectfulFunction(
+      func.functionValue,
+      func.cFunctionName,
+      func.functionType,
+      func.effectAnalysis,
+      context
+    );
   }
 }
 
@@ -844,10 +878,7 @@ export function generateFunctionBody(
       if (isAsyncFunction && lastExpr) {
         // Check if the last expression is an async block
         // If it is, we should return it directly without wrapping
-        const isAsyncBlock = exprIsFunctionCallOf(
-          lastExpr,
-          BuiltinFunctions.async
-        );
+        const isAsyncBlock = isIoAsyncCall(lastExpr);
 
         // Check if the last expression already returns a Future type
         // If so, return it directly without wrapping (e.g., from Option.unwrap())
@@ -1046,13 +1077,13 @@ export function generateSpecializedFunctions(context: CodeGenContext): void {
     // Skip if not a generic function
     if (
       !functionValue.specializedType ||
-      !isFunctionSpecializable(functionValue.type)
+      !isFunctionTypeGeneric(functionValue.type)
     ) {
       continue;
     }
 
     // Skip if the specialized type still has unresolved type parameters
-    if (isFunctionSpecializable(functionValue.specializedType)) {
+    if (isFunctionTypeGeneric(functionValue.specializedType)) {
       continue;
     }
 

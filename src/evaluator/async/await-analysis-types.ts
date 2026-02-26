@@ -3,24 +3,21 @@
  *
  * Type definitions for await analysis, separated to avoid circular dependencies.
  * This file should NOT import from expr.ts or other files that import from here.
+ *
+ * AwaitPoint extends the shared SuspensionPoint base with async-specific fields.
  */
 
 import type { Type } from "../../types/definitions";
+import type {
+  SuspensionCapturedVariable,
+  SuspensionPoint,
+} from "../shared/suspension-analysis-types";
 
 /**
  * Information about a single await expression found in an async function.
+ * Extends SuspensionPoint with async-specific fields (futureType, join info, etc.).
  */
-export interface AwaitPoint {
-  /**
-   * The index of this await point (0-based)
-   */
-  index: number;
-
-  /**
-   * The await expression itself (typed as unknown to avoid circular import with expr.ts)
-   */
-  expr: unknown;
-
+export interface AwaitPoint extends SuspensionPoint {
   /**
    * The type of the value being awaited (the T in Future(T))
    */
@@ -33,70 +30,41 @@ export interface AwaitPoint {
   futureType?: Type;
 
   /**
-   * The variable that should receive the await result (if any)
-   * This is the variable ID from the captured variables
-   */
-  targetVariableId?: string;
-
-  /**
    * The variable ID of the Future being awaited
    * This is used to reference the captured Future variable instead of creating a separate await_future_X field
    */
   futureVariableId?: string;
 
   /**
-   * Whether this await is inside a cond expression
-   * If true, the state machine needs a cond_branch_X field to track which branch was taken
+   * Whether this is a join point (join(...) call) rather than a single await.
+   * Join points wait for multiple futures concurrently using an atomic counter.
    */
-  isInsideCond?: boolean;
+  isJoinPoint?: boolean;
 
   /**
-   * Whether this await is inside a while loop
-   * If true, the state machine needs a while_loop_X_active field to track loop state
+   * For join points: the variable IDs of all futures being joined.
+   * Used to reference the captured future variables in the state machine struct.
    */
-  isInsideWhile?: boolean;
+  joinFutureVariableIds?: string[];
 
   /**
-   * The number of nested while loops this await is inside.
-   * For example, if the await is inside two nested while loops, this is 2.
-   * Used to allocate the correct number of while_loop_N_active fields in the state machine struct.
+   * For join points: the number of futures being joined.
+   * Used to initialize the atomic pending counter.
    */
-  whileNestingDepth?: number;
+  joinFutureCount?: number;
 
   /**
-   * For sequential await points within the same cond/match branch,
-   * this references the index of the first await point in that cond/match.
-   * Used to share the same cond_branch_X field in the state machine struct.
+   * For join points: the types of each future being joined.
+   * Used for generating correct C type casts in the join codegen.
    */
-  condBranchSourceIndex?: number;
-
-  /**
-   * Whether this await point needs its own cond_branch_X field in the state machine struct.
-   * This is true for the primary (position 0) await point of each cond/match expression.
-   * Even if the outer cond sets condBranchSourceIndex, a nested cond still needs its own field.
-   */
-  needsOwnCondBranchField?: boolean;
+  joinFutureTypes?: Type[];
 }
 
 /**
  * Information about a local variable that needs to persist across await points.
+ * Extends SuspensionCapturedVariable with a `kind` discriminator.
  */
-export interface CapturedVariable {
-  /**
-   * The unique ID of the variable
-   */
-  id: string;
-
-  /**
-   * The name of the variable
-   */
-  name: string;
-
-  /**
-   * The type of the variable
-   */
-  type: Type;
-
+export interface CapturedVariable extends SuspensionCapturedVariable {
   /**
    * The kind of variable being captured
    * - "local": A variable defined in the async function body (uses var_{id} field naming)

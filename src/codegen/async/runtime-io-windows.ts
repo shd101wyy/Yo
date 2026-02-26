@@ -124,7 +124,7 @@ typedef struct __yo_sockaddr_un {
 #define PROCESS_QUERY_LIMITED_INFORMATION 0x1000
 #endif
 
-static bool __yo_io_initialized = false;
+// __yo_io_initialized is defined in runtime-core
 static _Atomic size_t __yo_pending_io_count = 0;
 static HANDLE __yo_io_iocp = NULL;
 static CRITICAL_SECTION __yo_dir_state_mutex;
