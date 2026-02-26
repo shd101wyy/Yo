@@ -209,6 +209,7 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
 
     const hasUnresolvedFunctionImplicitParams =
       !isUserMain &&
+      !value.type.isClosure &&
       !value.specializedType &&
       (value.specializedFunctionCaches?.length ?? 0) === 0 &&
       [

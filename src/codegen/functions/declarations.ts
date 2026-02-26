@@ -84,6 +84,7 @@ export function generateFunctionDeclarations(
 
     const hasUnresolvedFunctionImplicitParams =
       !isUserMain &&
+      !value.type.isClosure &&
       !value.specializedType &&
       (value.specializedFunctionCaches?.length ?? 0) === 0 &&
       [
