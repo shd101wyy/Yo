@@ -154,31 +154,6 @@ export unsafe;
 // };
 // export c_macro;
 
-/// === Modules ===
-IO :: module(
-  async : (fn(forall(T : Type, ...(E)), action : Impl(Fn(using(...(E))) -> T)) -> Impl(Future(T, ...(E)))),
-  await : (fn(forall(T : Type, ...(E)), fut : Impl(Future(T, ...(E))), using(...(E))) -> T),
-  join : (fn(...) -> unit)
-);
-export IO;
-
-extern "Yo",
-  __yo_io_async : (fn(forall(T : Type, ...(E)), action : Impl(Fn(using(...(E))) -> T)) -> Impl(Future(T, ...(E)))),
-  __yo_io_await : (fn(forall(T : Type, ...(E)), fut : Impl(Future(T, ...(E))), using(...(E))) -> T),
-  __yo_io_join : (fn(...) -> unit)
-;
-
-// It's intended not to use `given` here.
-// For `main` function with `using(io : IO)`, the compiler will automatically inject the `__yo_builtin_io` in the caller side, which allows the user to use `async` and `await` in `main` without manually passing `__yo_builtin_io`.
-// So it won't automatically inject to other functions.
-__yo_builtin_io :: IO(
-  async : __yo_io_async,
-  await : __yo_io_await,
-  join : __yo_io_join
-);
-export __yo_builtin_io;
-
-
 /// === Traits ===
 Send :: trait(
   id := "Send"
@@ -3670,3 +3645,45 @@ for :: (fn(
     });
 };
 export for;
+
+/// === Modules ===
+FutureState :: enum(
+  Pending = 0,
+  Running = 1,
+  Completed = -(1),
+  Aborted = -(2)
+);
+impl(FutureState, Acyclic());
+impl(FutureState, Runtime());
+impl(FutureState, Send());
+impl(FutureState, Eq(FutureState)(
+  (==) : ((lhs, rhs) -> __yo_op_eq(lhs, rhs)),
+  (!=) : ((lhs, rhs) -> __yo_op_neq(lhs, rhs))
+));
+export FutureState;
+
+IO :: module(
+  async : (fn(forall(T : Type, ...(E)), action : Impl(Fn(using(...(E))) -> T)) -> Impl(Future(T, ...(E)))),
+  await : (fn(forall(T : Type, ...(E)), fut : Impl(Future(T, ...(E))), using(...(E))) -> T),
+  state : (fn(forall(T : Type, ...(E)), fut : Impl(Future(T, ...(E)))) -> FutureState),
+  join : (fn(...) -> unit)
+);
+export IO;
+
+extern "Yo",
+  __yo_io_async : (fn(forall(T : Type, ...(E)), action : Impl(Fn(using(...(E))) -> T)) -> Impl(Future(T, ...(E)))),
+  __yo_io_await : (fn(forall(T : Type, ...(E)), fut : Impl(Future(T, ...(E))), using(...(E))) -> T),
+  __yo_io_state : (fn(forall(T : Type, ...(E)), fut : Impl(Future(T, ...(E)))) -> FutureState),
+  __yo_io_join : (fn(...) -> unit)
+;
+
+// It's intended not to use `given` here.
+// For `main` function with `using(io : IO)`, the compiler will automatically inject the `__yo_builtin_io` in the caller side, which allows the user to use `async` and `await` in `main` without manually passing `__yo_builtin_io`.
+// So it won't automatically inject to other functions.
+__yo_builtin_io :: IO(
+  async : __yo_io_async,
+  await : __yo_io_await,
+  state : __yo_io_state,
+  join : __yo_io_join
+);
+export __yo_builtin_io;

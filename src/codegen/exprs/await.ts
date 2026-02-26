@@ -135,3 +135,47 @@ export function generateAwait(
   // Outside async context - this is an error
   return `// Error: await should only be used inside async blocks`;
 }
+
+/**
+ * io.state - read the state of a Future without awaiting it.
+ * Returns a FutureState enum value (Pending=0, Running=1, Completed=-1, Aborted=-2).
+ *
+ * The raw state machine field can be 0 (cold/pending), 1..N (running/intermediate),
+ * -1 (completed), or -2 (aborted). Any positive value maps to Running (1).
+ */
+export function generateState(
+  expr: FnCallExpr,
+  indent: string,
+  context: CodeGenContext
+): string {
+  const futureArg = expr.args[0];
+  if (!futureArg) {
+    return `// Error: io.state requires exactly 1 argument`;
+  }
+
+  const futureType = futureArg.$?.type;
+  if (!futureType || !typeImplementsFuture(futureType)) {
+    return `// Error: io.state argument must be a Future type`;
+  }
+
+  const functionContext = context as FunctionGenerationContext;
+  const emitter = functionContext.emitter;
+  const futureCode = generateExpr(futureArg, indent, context);
+
+  // Map raw state machine state to FutureState enum values:
+  //   0       → Pending (0)
+  //   1..N    → Running (1)
+  //  -1       → Completed (-1)
+  //  -2       → Aborted (-2)
+  const rawVar = expr.$?.variableName
+    ? `__raw_state_${expr.$.variableName}`
+    : `__raw_state`;
+  const resultVar = expr.$?.variableName || `__io_state_result`;
+
+  emitter.emitLine(`${indent}int ${rawVar} = ${futureCode}->state;`);
+  emitter.emitLine(
+    `${indent}int32_t ${resultVar} = (${rawVar} > 0) ? 1 : ${rawVar};`
+  );
+
+  return resultVar;
+}

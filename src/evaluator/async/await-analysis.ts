@@ -15,14 +15,14 @@ import { createUnitType } from "../../types/creators";
 import type { Type } from "../../types/definitions";
 
 import {
-  extractFutureTraitFromType,
-  typeImplementsFuture,
-} from "../trait-checking";
-import {
   analyzeSuspensionPoints,
   extractTargetVariableId,
   type SuspensionPointDetector,
 } from "../shared/suspension-analysis";
+import {
+  extractFutureTraitFromType,
+  typeImplementsFuture,
+} from "../trait-checking";
 
 // Re-export types from the types file
 export type {
@@ -202,6 +202,15 @@ export function isIoAsyncCall(expr: Expr): boolean {
 export function isIoAwaitCall(expr: Expr): boolean {
   if (expr.tag !== ExprTag.FnCall) return false;
   return expr.func.$?.type?.ioBuiltin === "io_await";
+}
+
+/**
+ * Checks if an expression is an io.state(future) call.
+ * Uses the ioBuiltin marker on the callee's type.
+ */
+export function isIoStateCall(expr: Expr): boolean {
+  if (expr.tag !== ExprTag.FnCall) return false;
+  return expr.func.$?.type?.ioBuiltin === "io_state";
 }
 
 /**

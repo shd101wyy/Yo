@@ -1,44 +1,66 @@
 open import "std/string";
 { yield } :: import "std/async";
 { printf } :: import "std/libc/stdio";
-{ sleep } :: import "std/io/timer";
 
 main :: (fn(using(io : IO)) -> unit) {
   // =========================================================================
-  // Test: async timer operations
+  // Test: io.state — query the state of a Future
   // =========================================================================
 
-  value := Box(i32)(0);
-  task1 := io.async((using(io : IO))=> {
-    assert(value.* == 0); // 0
-    value.* = (value.* + 1); // 1
-
-    printf("Timer test: sleeping 50ms...\n");
-    result := io.await(sleep(u64(50)));
-    printf("Timer test: woke up with result=%d\n", result);
-    assert(result > i32(0));
-    assert(value.* == 3); // yield() resumed block2 first, which set it to 3
-    value.* = (value.* + 1); // 4
-
-    printf("Timer test: sleeping 3000ms...\n");
-    result2 := io.await(sleep(u64(3000)));
-    printf("Timer test: woke up with result=%d\n", result2);
-    assert(result2 > i32(0));
-    assert(value.* == 4); // 4
-
-    printf("All async timer tests passed!\n");
-  });
-
-  task2 := io.async((using(io : IO))=> {
-    assert(value.* == 1); // 1
-    value.* = (value.* + 1); // 2
-
+  // 1. Pending state: a cold (not yet started) Future should be Pending
+  task := io.async((using(io : IO))=> {
     io.await(yield());
-    assert(value.* == 2); // yield() resumes before sleep(50ms), nobody changed it
-    value.* = (value.* + 1); // 3
+    return i32(42);
   });
-  io.join(task1, task2);
-  io.await(task1);
+  s1 := io.state(task);
+  printf("Cold future state: %d (expected 0=Pending)\n", s1);
+  assert((s1 == FutureState.Pending), "cold future should be Pending");
+
+  // 2. Completed state: after awaiting, the Future should be Completed
+  result := io.await(task);
+  assert((result == i32(42)), "task should return 42");
+  s2 := io.state(task);
+  printf("Completed future state: %d (expected -1=Completed)\n", s2);
+  assert((s2 == FutureState.Completed), "awaited future should be Completed");
+
+  // 3. Running state: observable between join start and completion
+  //    Use a sync future (no await points) that completes immediately — 
+  //    it goes through Running momentarily, but after join it's Completed.
+  //    For a true Running observation, we check state after join starts
+  //    a task that yields.
+  counter := Box(i32)(0);
+  yielding_task := io.async((using(io : IO))=> {
+    counter.* = (counter.* + 1);
+    io.await(yield());
+    counter.* = (counter.* + 1);
+  });
+  instant_task := io.async((using(io : IO))=> {
+    // When this runs, yielding_task has yielded (is Running)
+    // We can observe counter was set to 1 which proves yielding_task started
+    assert((counter.* == i32(1)), "yield_task should have started and set counter to 1");
+  });
+  io.join(yielding_task, instant_task);
+  io.await(yielding_task);
+  io.await(instant_task);
+  s3 := io.state(yielding_task);
+  printf("After join future state: %d (expected -1=Completed)\n", s3);
+  assert((s3 == FutureState.Completed), "joined future should be Completed");
+  assert((counter.* == i32(2)), "counter should be 2 after yielding_task completes");
+
+  // 4. Multiple io.state calls on same future return consistent results
+  task2 := io.async(() => {
+    return i32(99);
+  });
+  s4a := io.state(task2);
+  s4b := io.state(task2);
+  assert((s4a == s4b), "multiple state calls should return same result");
+  assert((s4a == FutureState.Pending), "cold future should be Pending");
   io.await(task2);
+  s4c := io.state(task2);
+  s4d := io.state(task2);
+  assert((s4c == s4d), "multiple state calls after completion should match");
+  assert((s4c == FutureState.Completed), "completed future should be Completed");
+
+  printf("All io.state tests passed!\n");
 };
 export main;

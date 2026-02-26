@@ -172,6 +172,7 @@ test "my test", using(io : IO), {
 ```yo
 io.async(fn)                  // Create a cold Future (lazy, doesn't start)
 io.await(future)              // Start if cold, wait for completion, return result
+io.state(future)              // Query the current state of a Future (returns FutureState)
 io.join(f1, f2, ...)          // Start all cold futures, interleave at yield points
 yield()                       // Create a pre-completed Future (yields control to event loop)
 ```
@@ -180,12 +181,13 @@ yield()                       // Create a pre-completed Future (yields control t
 
 1. `io.async(fn)` creates a **lazy** Future — the function body does NOT execute until awaited or joined
 2. `io.await(future)` starts a cold future and runs it sequentially to completion
-3. `io.join(f1, f2, ...)` starts all futures concurrently, interleaving execution at `yield()` / `io.await()` suspension points
-4. After `io.join` completes, all futures are done — `io.await` on them just extracts results
-5. All async code runs on the **same thread** — no thread spawning
-6. `yield()` suspends the current task and yields to other ready tasks in the event loop
-7. `io.await(future)` can be called **multiple times** on the same Future — each call returns the same result
-8. Awaiting a Future that was **aborted** by an algebraic effect handler causes a **panic**
+3. `io.state(future)` returns the current `FutureState` without blocking or starting the Future
+4. `io.join(f1, f2, ...)` starts all futures concurrently, interleaving execution at `yield()` / `io.await()` suspension points
+5. After `io.join` completes, all futures are done — `io.await` on them just extracts results
+6. All async code runs on the **same thread** — no thread spawning
+7. `yield()` suspends the current task and yields to other ready tasks in the event loop
+8. `io.await(future)` can be called **multiple times** on the same Future — each call returns the same result
+9. Awaiting a Future that was **aborted** by an algebraic effect handler causes a **panic**
 
 ### Execution Model
 
@@ -310,6 +312,7 @@ The IO module signatures use effect rows to propagate algebraic effects through 
 IO :: module(
   async : (fn(forall(T : Type, ...(E)), action : Impl(Fn(using(...(E))) -> T)) -> Impl(Future(T, ...(E)))),
   await : (fn(forall(T : Type, ...(E)), fut : Impl(Future(T, ...(E))), using(...(E))) -> T),
+  state : (fn(forall(T : Type, ...(E)), fut : Impl(Future(T, ...(E)))) -> FutureState),
   join : (fn(...) -> unit)
 );
 ```
@@ -363,12 +366,50 @@ export main;
 
 **Future State Machine States:**
 
-| State | Meaning                                               |
-| ----- | ----------------------------------------------------- |
-| 0     | Cold — not started yet                                |
-| 1..N  | Intermediate — suspended at an await/yield point      |
-| -1    | Completed — result is available                       |
-| -2    | Aborted — an effect handler called `abort`, no result |
+| State | Meaning                                               | `FutureState` enum      |
+| ----- | ----------------------------------------------------- | ----------------------- |
+| 0     | Cold — not started yet                                | `FutureState.Pending`   |
+| 1..N  | Intermediate — suspended at an await/yield point      | `FutureState.Running`   |
+| -1    | Completed — result is available                       | `FutureState.Completed` |
+| -2    | Aborted — an effect handler called `abort`, no result | `FutureState.Aborted`   |
+
+### Querying Future State
+
+`io.state(future)` returns the current `FutureState` without blocking or starting the Future. This is useful for polling or diagnostics:
+
+```yo
+FutureState :: enum(
+  Pending = 0,     // Cold — not started yet
+  Running = 1,     // In progress — suspended at an await/yield point
+  Completed = -(1), // Completed — result is available
+  Aborted = -(2)   // Aborted — an effect handler called abort
+);
+```
+
+```yo
+main :: (fn(using(io : IO)) -> unit) {
+  task := io.async((using(io : IO))=> {
+    io.await(yield());
+    return i32(42);
+  });
+
+  // Before starting: Pending
+  assert((io.state(task) == FutureState.Pending), "cold future is Pending");
+
+  io.await(task);
+
+  // After completion: Completed
+  assert((io.state(task) == FutureState.Completed), "done future is Completed");
+};
+export main;
+```
+
+**Key points:**
+
+- `io.state` is a **non-blocking**, **synchronous** read of the Future's internal state field
+- Raw state machine values 1..N (intermediate suspend states) are all mapped to `FutureState.Running`
+- `io.state` does **not** start a cold Future — it only observes
+- Multiple `io.state` calls on the same Future are consistent
 
 ## State Machine Transformation
 

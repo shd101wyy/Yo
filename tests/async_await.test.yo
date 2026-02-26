@@ -1953,3 +1953,76 @@ test "Test await future multiple times returns same result", using(io : IO), {
     assert(result1.* == result2.*, "multiple awaits should return the same Box(i32) value");
   };
 };
+
+// ---------------------------------------------------------------------------
+// 69. io.state — query a Future's state without awaiting
+// ---------------------------------------------------------------------------
+test "Test io.state pending", using(io : IO), {
+  // A cold (not yet started) Future should be Pending
+  task := io.async((using(io : IO))=> {
+    io.await(yield());
+    return i32(42);
+  });
+  s := io.state(task);
+  assert((s == FutureState.Pending), "cold future should be Pending");
+  io.await(task);
+};
+
+test "Test io.state completed", using(io : IO), {
+  // After awaiting, the Future should be Completed
+  task := io.async((using(io : IO))=> {
+    return i32(42);
+  });
+  io.await(task);
+  s := io.state(task);
+  assert((s == FutureState.Completed), "awaited future should be Completed");
+};
+
+test "Test io.state completed after yield", using(io : IO), {
+  // A task with yield points should be Completed after await
+  task := io.async((using(io : IO))=> {
+    io.await(yield());
+    io.await(yield());
+    return i32(7);
+  });
+  io.await(task);
+  s := io.state(task);
+  assert((s == FutureState.Completed), "future with yields should be Completed after await");
+};
+
+test "Test io.state completed after join", using(io : IO), {
+  // After join + await, both tasks should be Completed
+  counter := Box(i32)(0);
+  task_a := io.async((using(io : IO))=> {
+    counter.* = (counter.* + 1);
+    io.await(yield());
+    counter.* = (counter.* + 1);
+  });
+  task_b := io.async((using(io : IO))=> {
+    assert((counter.* == i32(1)), "task_a should have started and set counter");
+  });
+  io.join(task_a, task_b);
+  io.await(task_a);
+  io.await(task_b);
+  sa := io.state(task_a);
+  sb := io.state(task_b);
+  assert((sa == FutureState.Completed), "joined task_a should be Completed");
+  assert((sb == FutureState.Completed), "joined task_b should be Completed");
+  assert((counter.* == i32(2)), "counter should be 2 after both tasks complete");
+};
+
+test "Test io.state consistency", using(io : IO), {
+  // Multiple io.state calls on the same future return consistent results
+  task := io.async(() => {
+    return i32(99);
+  });
+  s1 := io.state(task);
+  s2 := io.state(task);
+  assert((s1 == s2), "multiple state calls should return same result");
+  assert((s1 == FutureState.Pending), "cold future should be Pending");
+  io.await(task);
+  s3 := io.state(task);
+  s4 := io.state(task);
+  assert((s3 == s4), "multiple state calls after completion should match");
+  assert((s3 == FutureState.Completed), "completed future should be Completed");
+};

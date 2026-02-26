@@ -116,6 +116,9 @@ export function evaluateExtern({
         ...(field.label === "__yo_io_await"
           ? { ioBuiltin: "io_await" as const }
           : {}),
+        ...(field.label === "__yo_io_state"
+          ? { ioBuiltin: "io_state" as const }
+          : {}),
         ...(field.label === "__yo_io_join"
           ? { ioBuiltin: "io_join" as const }
           : {}),

@@ -351,7 +351,8 @@ export function checkIfFunctionParameterMatchesArgument({
       // This prevents the expected SomeType from coercing the arg type, which would
       // make synthesis unable to resolve forall type parameter T from Future(T).
       const expectedType =
-        functionType.ioBuiltin === "io_await"
+        functionType.ioBuiltin === "io_await" ||
+        functionType.ioBuiltin === "io_state"
           ? undefined
           : { type: parameterType, env: calleeEnv };
       evaluatedArgExpr = evaluateExpression({

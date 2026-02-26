@@ -2,6 +2,7 @@ import {
   isIoAsyncCall,
   isIoAwaitCall,
   isIoJoinCall,
+  isIoStateCall,
 } from "../../evaluator/async/await-analysis";
 import { typeImplementsFuture } from "../../evaluator/trait-checking";
 import {
@@ -37,7 +38,7 @@ import { generateAssignment } from "./assignment";
 import { generateAsyncBlock, generateIoAsyncSyncCall } from "./async";
 import { emitAsyncFutureAbortion } from "./async-completion";
 import { generateAtom } from "./atom";
-import { generateAwait } from "./await";
+import { generateAwait, generateState } from "./await";
 import { generateBegin } from "./begin";
 import { generateBinding } from "./binding";
 import { generateClosureConstruction, isClosureConstruction } from "./closures";
@@ -458,6 +459,11 @@ function generateFuncCall(
   // io.await(future) - extract value from Future (via IO module)
   if (isIoAwaitCall(expr)) {
     return generateAwait(expr, indent, context);
+  }
+
+  // io.state(future) - read the state of a Future without awaiting it
+  if (isIoStateCall(expr)) {
+    return generateState(expr, indent, context);
   }
 
   // io.join - wait for multiple futures concurrently
