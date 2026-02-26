@@ -893,9 +893,18 @@ export function synthesizeTypes(
     // 3. At most one unsolved spread binds to the remaining unmatched given params.
     {
       const expectedImplicit = expectedFunction.implicitParameters;
-      const givenImplicit = givenFunction.implicitParameters.filter(
-        (p) => !p.isEffectRowSpread
-      ) as FunctionImplicitParameter[];
+      // Expand given implicit params: concrete params pass through directly,
+      // resolved spreads expand into their concrete implicit parameters.
+      const givenImplicit: FunctionImplicitParameter[] = [];
+      for (const p of givenFunction.implicitParameters) {
+        if (!p.isEffectRowSpread) {
+          givenImplicit.push(p);
+        } else if (isEffectsRowType(p.type)) {
+          // Resolved spread — expand into concrete params
+          givenImplicit.push(...(p.type as EffectsRowType).implicitParameters);
+        }
+        // Unresolved SomeType spreads on given side are skipped
+      }
 
       // Categorize expected implicit params
       const concreteExpected: FunctionImplicitParameter[] = [];
@@ -1092,10 +1101,20 @@ function synthesizeFutureEffects(
     );
   }
 
-  // Collect all concrete given effects (spreads in given are not expected)
-  const givenConcrete = givenEffects.filter(
-    (p) => !p.isEffectRowSpread
-  ) as FunctionImplicitParameter[];
+  // Collect all concrete given effects, expanding resolved spreads.
+  // Given effects may include ...(E) spreads that have been resolved to
+  // EffectsRowType — these need to be expanded into concrete effects
+  // for proper matching against expected effects.
+  const givenConcrete: FunctionImplicitParameter[] = [];
+  for (const p of givenEffects) {
+    if (!p.isEffectRowSpread) {
+      givenConcrete.push(p);
+    } else if (isEffectsRowType(p.type)) {
+      // Resolved spread — expand into concrete effects
+      givenConcrete.push(...(p.type as EffectsRowType).implicitParameters);
+    }
+    // Unresolved SomeType spreads on given side are skipped
+  }
 
   // Track which given effects have been matched
   const matchedGiven = new Set<number>();

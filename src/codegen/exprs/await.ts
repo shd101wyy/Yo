@@ -4,7 +4,7 @@ import {
   typeImplementsFuture,
 } from "../../evaluator/trait-checking";
 import type { FnCallExpr } from "../../expr";
-import { isFunctionType, isSomeType, isUnitType } from "../../types/guards";
+import { isSomeType, isUnitType } from "../../types/guards";
 import { typeContainsRcType } from "../../types/utils";
 import { isIoFutureType } from "../async/state-machine";
 import type { FunctionGenerationContext } from "../functions/context";
@@ -103,67 +103,34 @@ export function generateAwait(
     emitter.emitLine(`${indent}    __await_state = ${syncFutureVar}->state;`);
     emitter.emitLine(`${indent}  }`);
     emitter.emitLine(`${indent}  if (__await_state == -2) {`);
-    // Check if the Future type includes algebraic effect types (e.g., Future(i32, IO, Raise)).
-    // Effectful futures may be intentionally aborted by a ctl handler (e.g., raise + abort),
-    // so we should not panic — just skip result extraction.
-    // Non-effectful futures being aborted is still a bug, so we panic for those.
-    // Note: ALL futures have IO as an effect, so we check for function-type effects
-    // (algebraic effects like Raise) specifically, not just any effect.
-    const futureModuleForCheck = extractFutureTraitFromType(futureType);
-    const hasAlgebraicEffects =
-      futureModuleForCheck?.isFuture.effects?.some(
-        (e) => isFunctionType(e.type) || e.isEffectRowSpread
-      ) ?? false;
-    if (!hasAlgebraicEffects) {
-      emitter.emitLine(
-        `${indent}    fprintf(stderr, "panic: attempted to await an aborted Future\\n");`
-      );
-      emitter.emitLine(`${indent}    abort();`);
-    }
+    // An aborted future means an effect handler called abort() during execution.
+    // Always panic — if the caller intended to handle effects, they should have
+    // provided handlers via using() which would catch the abort before it completes.
+    // Re-awaiting an already-aborted future is always an error.
+    emitter.emitLine(
+      `${indent}    fprintf(stderr, "panic: attempted to await an aborted Future\\n");`
+    );
+    emitter.emitLine(`${indent}    abort();`);
     emitter.emitLine(`${indent}  }`);
     emitter.emitLine(`${indent}}`);
 
     if (!isResultUnit) {
       const resultVar = expr.$?.variableName || `__sync_await_result`;
-      const resultTypeStr = getTypeString(resultType, context);
       const varDecl = getVariableTypeString(resultType, resultVar, context);
-      if (hasAlgebraicEffects) {
-        // For effectful futures, declare variable first, then conditionally assign
-        emitter.emitLine(`${indent}${varDecl};`);
-        emitter.emitLine(`${indent}if (${syncFutureVar}->state == -1) {`);
-        if (typeContainsRcType(resultType)) {
-          const dupFn = getDupFunctionForType(resultType, context);
-          if (dupFn) {
-            emitter.emitLine(
-              `${indent}  ${resultVar} = ${dupFn}(${syncFutureVar}->result);`
-            );
-          } else {
-            emitter.emitLine(
-              `${indent}  ${resultVar} = ${syncFutureVar}->result;`
-            );
-          }
-        } else {
+      // At this point state is guaranteed to be -1 (completed) since we
+      // panicked above on -2 (aborted). Dup for RC types so the Future
+      // retains its copy for future awaits.
+      if (typeContainsRcType(resultType)) {
+        const dupFn = getDupFunctionForType(resultType, context);
+        if (dupFn) {
           emitter.emitLine(
-            `${indent}  ${resultVar} = ${syncFutureVar}->result;`
+            `${indent}${varDecl} = ${dupFn}(${syncFutureVar}->result);`
           );
-        }
-        emitter.emitLine(`${indent}} else {`);
-        emitter.emitLine(`${indent}  ${resultVar} = (${resultTypeStr}){0};`);
-        emitter.emitLine(`${indent}}`);
-      } else {
-        // Dup the result for RC types so the Future retains its copy for future awaits
-        if (typeContainsRcType(resultType)) {
-          const dupFn = getDupFunctionForType(resultType, context);
-          if (dupFn) {
-            emitter.emitLine(
-              `${indent}${varDecl} = ${dupFn}(${syncFutureVar}->result);`
-            );
-          } else {
-            emitter.emitLine(`${indent}${varDecl} = ${syncFutureVar}->result;`);
-          }
         } else {
           emitter.emitLine(`${indent}${varDecl} = ${syncFutureVar}->result;`);
         }
+      } else {
+        emitter.emitLine(`${indent}${varDecl} = ${syncFutureVar}->result;`);
       }
       return resultVar;
     } else {

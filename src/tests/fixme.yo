@@ -24,5 +24,14 @@ main :: (fn(using(io : IO)) -> unit) {
   st := io.state(task);
   printf("Future state after starting task: %d\n", st);
   assert(st == FutureState.Aborted);
+
+  (given(raise) : Raise) =
+    (msg) -> {
+      println(msg);
+      abort ();
+    };
+
+  result := io.await(task); // FIXME: Should cause runtime panic on aborted task, but currently does not
+  printf("Result of awaiting aborted task: %d\n", result);
 };
 export main;
