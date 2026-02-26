@@ -16,7 +16,7 @@ test_abort :: (fn(task : Impl(Future(i32, IO, Raise)), using(io : IO)) -> unit) 
 
 main :: (fn(using(io : IO)) -> unit) {
   // I expect 'task' to have type Impl(Future(i32, IO, Raise))
-  task := io.async((using(io : IO, raise : Raise)) => {
+  task := io.async((using(raise : Raise, io : IO)) => {
     raise(`This task should be aborted, not awaited!`);
     return i32(12);
   });
@@ -30,8 +30,7 @@ main :: (fn(using(io : IO)) -> unit) {
       println(msg);
       abort ();
     };
-
-  result := io.await(task); // FIXME: Should cause runtime panic on aborted task, but currently does not
-  printf("Result of awaiting aborted task: %d\n", result);
+  io.await(task);
+  printf("This line should never be reached! As io.wait(task) should cause runtime panic\n");
 };
 export main;

@@ -4,7 +4,7 @@ import {
   typeImplementsFuture,
 } from "../../evaluator/trait-checking";
 import type { FnCallExpr } from "../../expr";
-import { isSomeType, isUnitType } from "../../types/guards";
+import { isFunctionType, isSomeType, isUnitType } from "../../types/guards";
 import { typeContainsRcType } from "../../types/utils";
 import { isIoFutureType } from "../async/state-machine";
 import type { FunctionGenerationContext } from "../functions/context";
@@ -80,11 +80,16 @@ export function generateAwait(
     emitter.emitLine(
       `${indent}${futureTypeName} ${syncFutureVar} = ${futureCode};`
     );
+    // Save state before cold-start to distinguish "already aborted" from
+    // "aborted during this await by an effect handler"
+    emitter.emitLine(
+      `${indent}int __pre_await_state = ${syncFutureVar}->state;`
+    );
     // Only cold-start state machine futures; IO futures are already submitted to io_uring
     const isIoFuture = isIoFutureType(futureArg.$?.type);
     if (!isIoFuture) {
       emitter.emitLine(
-        `${indent}if (${syncFutureVar}->state == 0 && ${syncFutureVar}->__yo_resume_fn) {`
+        `${indent}if (__pre_await_state == 0 && ${syncFutureVar}->__yo_resume_fn) {`
       );
       emitter.emitLine(
         `${indent}  __yo_incr_rc((void*)${syncFutureVar});  // event loop reference`
@@ -103,34 +108,78 @@ export function generateAwait(
     emitter.emitLine(`${indent}    __await_state = ${syncFutureVar}->state;`);
     emitter.emitLine(`${indent}  }`);
     emitter.emitLine(`${indent}  if (__await_state == -2) {`);
-    // An aborted future means an effect handler called abort() during execution.
-    // Always panic — if the caller intended to handle effects, they should have
-    // provided handlers via using() which would catch the abort before it completes.
-    // Re-awaiting an already-aborted future is always an error.
-    emitter.emitLine(
-      `${indent}    fprintf(stderr, "panic: attempted to await an aborted Future\\n");`
-    );
-    emitter.emitLine(`${indent}    abort();`);
+    // Check if the Future type includes algebraic effect types (e.g., Future(i32, IO, Raise)).
+    // Effectful futures may be intentionally aborted by a ctl handler (e.g., raise + abort)
+    // during the CURRENT await — don't panic for that case.
+    // But if the future was ALREADY aborted before we started awaiting (re-await),
+    // always panic regardless of algebraic effects.
+    // Non-effectful futures being aborted is always unexpected, so panic for those too.
+    const futureModuleForCheck = extractFutureTraitFromType(futureType);
+    const hasAlgebraicEffects =
+      futureModuleForCheck?.isFuture.effects?.some(
+        (e) => isFunctionType(e.type) || e.isEffectRowSpread
+      ) ?? false;
+    if (hasAlgebraicEffects) {
+      // Only panic if the future was already aborted before this await
+      emitter.emitLine(`${indent}    if (__pre_await_state == -2) {`);
+      emitter.emitLine(
+        `${indent}      fprintf(stderr, "panic: attempted to await an aborted Future\\n");`
+      );
+      emitter.emitLine(`${indent}      abort();`);
+      emitter.emitLine(`${indent}    }`);
+    } else {
+      // Non-effectful: any abort is unexpected
+      emitter.emitLine(
+        `${indent}    fprintf(stderr, "panic: attempted to await an aborted Future\\n");`
+      );
+      emitter.emitLine(`${indent}    abort();`);
+    }
     emitter.emitLine(`${indent}  }`);
     emitter.emitLine(`${indent}}`);
 
     if (!isResultUnit) {
       const resultVar = expr.$?.variableName || `__sync_await_result`;
+      const resultTypeStr = getTypeString(resultType, context);
       const varDecl = getVariableTypeString(resultType, resultVar, context);
-      // At this point state is guaranteed to be -1 (completed) since we
-      // panicked above on -2 (aborted). Dup for RC types so the Future
-      // retains its copy for future awaits.
-      if (typeContainsRcType(resultType)) {
-        const dupFn = getDupFunctionForType(resultType, context);
-        if (dupFn) {
+      if (hasAlgebraicEffects) {
+        // For effectful futures, the state may be -2 (aborted by handler during this await).
+        // Declare variable first, then conditionally assign result or zero-init.
+        emitter.emitLine(`${indent}${varDecl};`);
+        emitter.emitLine(`${indent}if (${syncFutureVar}->state == -1) {`);
+        if (typeContainsRcType(resultType)) {
+          const dupFn = getDupFunctionForType(resultType, context);
+          if (dupFn) {
+            emitter.emitLine(
+              `${indent}  ${resultVar} = ${dupFn}(${syncFutureVar}->result);`
+            );
+          } else {
+            emitter.emitLine(
+              `${indent}  ${resultVar} = ${syncFutureVar}->result;`
+            );
+          }
+        } else {
           emitter.emitLine(
-            `${indent}${varDecl} = ${dupFn}(${syncFutureVar}->result);`
+            `${indent}  ${resultVar} = ${syncFutureVar}->result;`
           );
+        }
+        emitter.emitLine(`${indent}} else {`);
+        emitter.emitLine(`${indent}  ${resultVar} = (${resultTypeStr}){0};`);
+        emitter.emitLine(`${indent}}`);
+      } else {
+        // Non-effectful: state is guaranteed to be -1 (completed) since we
+        // panicked above on -2 (aborted). Dup for RC types.
+        if (typeContainsRcType(resultType)) {
+          const dupFn = getDupFunctionForType(resultType, context);
+          if (dupFn) {
+            emitter.emitLine(
+              `${indent}${varDecl} = ${dupFn}(${syncFutureVar}->result);`
+            );
+          } else {
+            emitter.emitLine(`${indent}${varDecl} = ${syncFutureVar}->result;`);
+          }
         } else {
           emitter.emitLine(`${indent}${varDecl} = ${syncFutureVar}->result;`);
         }
-      } else {
-        emitter.emitLine(`${indent}${varDecl} = ${syncFutureVar}->result;`);
       }
       return resultVar;
     } else {
