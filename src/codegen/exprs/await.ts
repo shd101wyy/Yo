@@ -84,7 +84,7 @@ export function generateAwait(
     const isIoFuture = isIoFutureType(futureArg.$?.type);
     if (!isIoFuture) {
       emitter.emitLine(
-        `${indent}if (atomic_load_explicit(&${syncFutureVar}->state, memory_order_acquire) == 0 && ${syncFutureVar}->__yo_resume_fn) {`
+        `${indent}if (${syncFutureVar}->state == 0 && ${syncFutureVar}->__yo_resume_fn) {`
       );
       emitter.emitLine(
         `${indent}  __yo_incr_rc((void*)${syncFutureVar});  // event loop reference`
@@ -95,16 +95,12 @@ export function generateAwait(
       emitter.emitLine(`${indent}}`);
     }
     emitter.emitLine(`${indent}{`);
-    emitter.emitLine(
-      `${indent}  int __await_state = atomic_load_explicit(&${syncFutureVar}->state, memory_order_acquire);`
-    );
+    emitter.emitLine(`${indent}  int __await_state = ${syncFutureVar}->state;`);
     emitter.emitLine(
       `${indent}  while (__await_state != -1 && __await_state != -2) {`
     );
     emitter.emitLine(`${indent}    yo_async_poll_step();`);
-    emitter.emitLine(
-      `${indent}    __await_state = atomic_load_explicit(&${syncFutureVar}->state, memory_order_acquire);`
-    );
+    emitter.emitLine(`${indent}    __await_state = ${syncFutureVar}->state;`);
     emitter.emitLine(`${indent}  }`);
     emitter.emitLine(`${indent}  if (__await_state == -2) {`);
     emitter.emitLine(

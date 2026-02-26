@@ -327,7 +327,7 @@ function emitAsyncBlockStructDefinition(
   );
 
   emitter.emitDeclarationLine(
-    `  _Atomic int state;  // Current state (0 = cold, 1..N = intermediate, -1 = completed, -2 = aborted)`
+    `  int state;  // Current state (0 = cold, 1..N = intermediate, -1 = completed, -2 = aborted)`
   );
 
   // Always include a result field to keep continuation_fn/continuation_sm at consistent offsets
@@ -344,10 +344,10 @@ function emitAsyncBlockStructDefinition(
 
   // Continuation tracking fields for await chaining
   emitter.emitDeclarationLine(
-    `  _Atomic(void (*)(void*)) continuation_fn;  // Resume function of awaiting task`
+    `  void (*continuation_fn)(void*);  // Resume function of awaiting task`
   );
   emitter.emitDeclarationLine(
-    `  _Atomic(void*) continuation_sm;  // State machine of awaiting task`
+    `  void* continuation_sm;  // State machine of awaiting task`
   );
   emitter.emitDeclarationLine(``);
 
@@ -498,7 +498,7 @@ function emitAsyncBlockStructDefinition(
     emitter.emitDeclarationLine(`  // Join pending counters`);
     for (const jp of joinPoints) {
       emitter.emitDeclarationLine(
-        `  _Atomic int join_pending_${jp.index};  // Pending count for join ${jp.index}`
+        `  int join_pending_${jp.index};  // Pending count for join ${jp.index}`
       );
     }
     emitter.emitDeclarationLine(``);
@@ -716,9 +716,7 @@ function generateAsyncBlockStateDisposeFunction(
     emitter.emitLine(
       `  // Drop result field if it was set (state == -1 means completed)`
     );
-    emitter.emitLine(
-      `  int final_state = atomic_load_explicit(&sm->state, memory_order_acquire);`
-    );
+    emitter.emitLine(`  int final_state = sm->state;`);
     emitter.emitLine(`  if (final_state == -1) {`);
     emitter.emitLine(`    ASYNC_DEBUG("  Dropping result field\\n");`);
 
@@ -825,9 +823,9 @@ function generateAsyncBlockConstructor(
   );
   emitter.emitLine(``);
 
-  emitter.emitLine(`  atomic_init(&sm->state, 0);`);
-  emitter.emitLine(`  atomic_init(&sm->continuation_fn, NULL);`);
-  emitter.emitLine(`  atomic_init(&sm->continuation_sm, NULL);`);
+  emitter.emitLine(`  sm->state = 0;`);
+  emitter.emitLine(`  sm->continuation_fn = NULL;`);
+  emitter.emitLine(`  sm->continuation_sm = NULL;`);
   emitter.emitLine(``);
 
   // Initialize capture struct
@@ -931,9 +929,7 @@ export function generateDeferredAsyncBlocks(
         );
         emitter.emitLine(`static void ${notifyFnName}(void* sm_ptr) {`);
         emitter.emitLine(`  ${structName}* sm = (${structName}*)sm_ptr;`);
-        emitter.emitLine(
-          `  int prev = atomic_fetch_sub_explicit(&sm->join_pending_${joinIndex}, 1, memory_order_acq_rel);`
-        );
+        emitter.emitLine(`  int prev = sm->join_pending_${joinIndex}--;`);
         emitter.emitLine(
           `  ASYNC_DEBUG("${asyncBlockId}_join_${joinIndex}_notify: pending=%d\\n", prev - 1);`
         );
@@ -1177,14 +1173,14 @@ export function generateIoAsyncSyncCall(
   // capture data lives as long as the future (heap-allocated).
   emitter.emitDeclarationLine(`struct ${structName}_struct {`);
   emitter.emitDeclarationLine(`  yo_ref_header_t header;`);
-  emitter.emitDeclarationLine(`  _Atomic int state;`);
+  emitter.emitDeclarationLine(`  int state;`);
   if (isUnitType(resultType)) {
     emitter.emitDeclarationLine(`  uint8_t result;`);
   } else {
     emitter.emitDeclarationLine(`  ${resultTypeCName} result;`);
   }
-  emitter.emitDeclarationLine(`  _Atomic(void (*)(void*)) continuation_fn;`);
-  emitter.emitDeclarationLine(`  _Atomic(void*) continuation_sm;`);
+  emitter.emitDeclarationLine(`  void (*continuation_fn)(void*);`);
+  emitter.emitDeclarationLine(`  void* continuation_sm;`);
   emitter.emitDeclarationLine(`  void (*__yo_resume_fn)(void*);`);
   emitter.emitDeclarationLine(`  ${captureCName} __capture;`);
   emitter.emitDeclarationLine(`};`);
@@ -1200,16 +1196,12 @@ export function generateIoAsyncSyncCall(
   } else {
     emitter.emitDeclarationLine(`  ${closureFunctionCName}(&sm->__capture);`);
   }
+  emitter.emitDeclarationLine(`  sm->state = -1;`);
   emitter.emitDeclarationLine(
-    `  atomic_store_explicit(&sm->state, -1, memory_order_release);`
-  );
-  emitter.emitDeclarationLine(
-    `  void (*continuation)(void*) = atomic_load_explicit(&sm->continuation_fn, memory_order_acquire);`
+    `  void (*continuation)(void*) = sm->continuation_fn;`
   );
   emitter.emitDeclarationLine(`  if (continuation) {`);
-  emitter.emitDeclarationLine(
-    `    void* cont_sm = atomic_load_explicit(&sm->continuation_sm, memory_order_acquire);`
-  );
+  emitter.emitDeclarationLine(`    void* cont_sm = sm->continuation_sm;`);
   emitter.emitDeclarationLine(`    continuation(cont_sm);`);
   emitter.emitDeclarationLine(`  }`);
   emitter.emitDeclarationLine(`  __yo_decr_rc(ptr);`);
@@ -1221,9 +1213,7 @@ export function generateIoAsyncSyncCall(
   emitter.emitDeclarationLine(`void ${disposeFunctionName}(void* ptr) {`);
   if (resultDropFn) {
     emitter.emitDeclarationLine(`  ${structName}* sm = (${structName}*)ptr;`);
-    emitter.emitDeclarationLine(
-      `  if (atomic_load_explicit(&sm->state, memory_order_acquire) == -1) {`
-    );
+    emitter.emitDeclarationLine(`  if (sm->state == -1) {`);
     emitter.emitDeclarationLine(`    ${resultDropFn}(sm->result);`);
     emitter.emitDeclarationLine(`  }`);
   }
@@ -1249,18 +1239,12 @@ export function generateIoAsyncSyncCall(
   // Copy capture data from stack-allocated struct into the heap-allocated future
   emitter.emitLine(`${indent}${resultVar}->__capture = ${closureCode};`);
   // State 0 = not started (lazy), resume function will execute the closure
-  emitter.emitLine(
-    `${indent}atomic_store_explicit(&${resultVar}->state, 0, memory_order_release);`
-  );
+  emitter.emitLine(`${indent}${resultVar}->state = 0;`);
   emitter.emitLine(
     `${indent}${resultVar}->__yo_resume_fn = ${resumeFunctionName};`
   );
-  emitter.emitLine(
-    `${indent}atomic_store_explicit(&${resultVar}->continuation_fn, NULL, memory_order_relaxed);`
-  );
-  emitter.emitLine(
-    `${indent}atomic_store_explicit(&${resultVar}->continuation_sm, NULL, memory_order_relaxed);`
-  );
+  emitter.emitLine(`${indent}${resultVar}->continuation_fn = NULL;`);
+  emitter.emitLine(`${indent}${resultVar}->continuation_sm = NULL;`);
 
   return resultVar;
 }

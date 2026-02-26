@@ -495,7 +495,7 @@ function generateFuncCall(
       const isIoFuture = isIoFutureType(argExpr.$?.type);
       if (!isIoFuture) {
         emitter.emitLine(
-          `${indent}if (atomic_load_explicit(&${varName}->state, memory_order_acquire) == 0 && ${varName}->__yo_resume_fn) {`
+          `${indent}if (${varName}->state == 0 && ${varName}->__yo_resume_fn) {`
         );
         emitter.emitLine(`${indent}  __yo_incr_rc((void*)${varName});`);
         emitter.emitLine(
@@ -510,9 +510,7 @@ function generateFuncCall(
     emitter.emitLine(`${indent}  int __all_done = 1;`);
     for (const varName of futureVars) {
       emitter.emitLine(`${indent}  {`);
-      emitter.emitLine(
-        `${indent}    int __s = atomic_load_explicit(&${varName}->state, memory_order_acquire);`
-      );
+      emitter.emitLine(`${indent}    int __s = ${varName}->state;`);
       emitter.emitLine(
         `${indent}    if (__s != -1 && __s != -2) __all_done = 0;`
       );
@@ -523,9 +521,7 @@ function generateFuncCall(
     emitter.emitLine(`${indent}}`);
     // Check if any Future was aborted
     for (const varName of futureVars) {
-      emitter.emitLine(
-        `${indent}if (atomic_load_explicit(&${varName}->state, memory_order_acquire) == -2) {`
-      );
+      emitter.emitLine(`${indent}if (${varName}->state == -2) {`);
       emitter.emitLine(
         `${indent}  fprintf(stderr, "panic: attempted to join an aborted Future\\n");`
       );

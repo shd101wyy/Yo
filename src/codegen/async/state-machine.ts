@@ -250,7 +250,7 @@ export function generateAsyncBlockResumeFunction(
       if (!prevAwait.isJoinPoint) {
         emitter.emitLine(`      // Check if the awaited Future was aborted`);
         emitter.emitLine(
-          `      if (atomic_load_explicit(&sm->${prevFutureFieldName}->state, memory_order_acquire) == -2) {`
+          `      if (sm->${prevFutureFieldName}->state == -2) {`
         );
         emitter.emitLine(
           `        fprintf(stderr, "panic: attempted to await an aborted Future\\n");`
@@ -264,7 +264,7 @@ export function generateAsyncBlockResumeFunction(
           `      // Extract result from await ${stateNumber - 1}`
         );
         emitter.emitLine(
-          `      int state_before_read = atomic_load_explicit(&sm->${prevFutureFieldName}->state, memory_order_acquire);`
+          `      int state_before_read = sm->${prevFutureFieldName}->state;`
         );
         emitter.emitLine(
           `      ASYNC_DEBUG("${asyncBlockId}: Reading result from await ${stateNumber - 1}, state=%d\\n", state_before_read);`
@@ -1200,7 +1200,7 @@ export function generateAsyncBlockResumeFunction(
         );
         emitter.emitLine(`      sm->state = ${nextState};`);
         emitter.emitLine(
-          `      atomic_store_explicit(&sm->join_pending_${joinIndex}, ${futureCount}, memory_order_release);`
+          `      sm->join_pending_${joinIndex} = ${futureCount};`
         );
         emitter.emitLine(``);
 
@@ -1218,14 +1218,14 @@ export function generateAsyncBlockResumeFunction(
           );
           emitter.emitLine(`      {`);
           emitter.emitLine(
-            `        int fs_${fi} = atomic_load_explicit(&sm->${futureFieldName}->state, memory_order_acquire);`
+            `        int fs_${fi} = sm->${futureFieldName}->state;`
           );
           emitter.emitLine(`        if (fs_${fi} == -1 || fs_${fi} == -2) {`);
           emitter.emitLine(
             `          // Already complete or aborted — decrement counter directly`
           );
           emitter.emitLine(
-            `          int prev_${fi} = atomic_fetch_sub_explicit(&sm->join_pending_${joinIndex}, 1, memory_order_acq_rel);`
+            `          int prev_${fi} = sm->join_pending_${joinIndex}--;`
           );
           emitter.emitLine(`          if (prev_${fi} == 1) {`);
           emitter.emitLine(
@@ -1247,10 +1247,10 @@ export function generateAsyncBlockResumeFunction(
             `          // Set notify function as continuation BEFORE starting`
           );
           emitter.emitLine(
-            `          atomic_store_explicit(&sm->${futureFieldName}->continuation_fn, (void (*)(void*))${notifyFnName}, memory_order_release);`
+            `          sm->${futureFieldName}->continuation_fn = (void (*)(void*))${notifyFnName};`
           );
           emitter.emitLine(
-            `          atomic_store_explicit(&sm->${futureFieldName}->continuation_sm, (void*)sm, memory_order_release);`
+            `          sm->${futureFieldName}->continuation_sm = (void*)sm;`
           );
           if (!joinFutureIsIo) {
             emitter.emitLine(`          if (fs_${fi} == 0) {`);
@@ -1311,7 +1311,7 @@ export function generateAsyncBlockResumeFunction(
         emitter.emitLine(``);
         emitter.emitLine(`      // Check if future is ready`);
         emitter.emitLine(
-          `      int future_state = atomic_load_explicit(&sm->${futureFieldName}->state, memory_order_acquire);`
+          `      int future_state = sm->${futureFieldName}->state;`
         );
         emitter.emitLine(
           `      if (future_state == -1 || future_state == -2) {  // -1 = completed, -2 = aborted`
@@ -1352,7 +1352,7 @@ export function generateAsyncBlockResumeFunction(
             `        // Re-check: may have completed synchronously`
           );
           emitter.emitLine(
-            `        future_state = atomic_load_explicit(&sm->${futureFieldName}->state, memory_order_acquire);`
+            `        future_state = sm->${futureFieldName}->state;`
           );
           emitter.emitLine(
             `        if (future_state == -1 || future_state == -2) {`
@@ -1373,10 +1373,10 @@ export function generateAsyncBlockResumeFunction(
           `      // Still pending — register continuation and suspend`
         );
         emitter.emitLine(
-          `      atomic_store_explicit(&sm->${futureFieldName}->continuation_fn, (void (*)(void*))${resumeFunctionName}, memory_order_release);`
+          `      sm->${futureFieldName}->continuation_fn = (void (*)(void*))${resumeFunctionName};`
         );
         emitter.emitLine(
-          `      atomic_store_explicit(&sm->${futureFieldName}->continuation_sm, (void*)sm, memory_order_release);`
+          `      sm->${futureFieldName}->continuation_sm = (void*)sm;`
         );
         emitter.emitLine(`      return;`);
 

@@ -531,7 +531,7 @@ The state machine struct includes a `yo_ref_header_t` as its first field:
 ```c
 struct async_block_state_t {
   yo_ref_header_t header;  // Must be first for __yo_decr_rc to work
-  _Atomic int state;
+  int state;
   // ... other fields ...
 };
 ```

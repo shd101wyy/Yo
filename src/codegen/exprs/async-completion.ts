@@ -42,17 +42,13 @@ export function emitAsyncFutureCompletion(opts: AsyncCompletionOptions): void {
       `${indent}ASYNC_DEBUG("${debugLabel}: Setting state to COMPLETED\\n");`
     );
   }
-  emitter.emitLine(
-    `${indent}atomic_store_explicit(&sm->state, -1, memory_order_release);  // -1 = completed`
-  );
+  emitter.emitLine(`${indent}sm->state = -1;  // -1 = completed`);
 
   emitter.emitLine(``);
   emitter.emitLine(
-    `${indent}void (*continuation_fn)(void*) = (void (*)(void*))atomic_load_explicit(&sm->continuation_fn, memory_order_acquire);`
+    `${indent}void (*continuation_fn)(void*) = (void (*)(void*))sm->continuation_fn;`
   );
-  emitter.emitLine(
-    `${indent}void* continuation_sm = atomic_load_explicit(&sm->continuation_sm, memory_order_acquire);`
-  );
+  emitter.emitLine(`${indent}void* continuation_sm = sm->continuation_sm;`);
   emitter.emitLine(``);
   emitter.emitLine(`${indent}if (continuation_fn != NULL) {`);
   if (debugLabel) {
@@ -61,12 +57,8 @@ export function emitAsyncFutureCompletion(opts: AsyncCompletionOptions): void {
     );
   }
   emitter.emitLine(``);
-  emitter.emitLine(
-    `${indent}  atomic_store_explicit(&sm->continuation_fn, NULL, memory_order_relaxed);`
-  );
-  emitter.emitLine(
-    `${indent}  atomic_store_explicit(&sm->continuation_sm, NULL, memory_order_relaxed);`
-  );
+  emitter.emitLine(`${indent}  sm->continuation_fn = NULL;`);
+  emitter.emitLine(`${indent}  sm->continuation_sm = NULL;`);
   emitter.emitLine(``);
   emitter.emitLine(
     `${indent}  yo_async_spawn_task(continuation_fn, continuation_sm);`
@@ -102,17 +94,13 @@ export function emitAsyncFutureAbortion(opts: AsyncCompletionOptions): void {
       `${indent}ASYNC_DEBUG("${debugLabel}: Setting state to ABORTED (effect handler abort)\\n");`
     );
   }
-  emitter.emitLine(
-    `${indent}atomic_store_explicit(&sm->state, -2, memory_order_release);  // -2 = aborted`
-  );
+  emitter.emitLine(`${indent}sm->state = -2;  // -2 = aborted`);
 
   emitter.emitLine(``);
   emitter.emitLine(
-    `${indent}void (*continuation_fn)(void*) = (void (*)(void*))atomic_load_explicit(&sm->continuation_fn, memory_order_acquire);`
+    `${indent}void (*continuation_fn)(void*) = (void (*)(void*))sm->continuation_fn;`
   );
-  emitter.emitLine(
-    `${indent}void* continuation_sm = atomic_load_explicit(&sm->continuation_sm, memory_order_acquire);`
-  );
+  emitter.emitLine(`${indent}void* continuation_sm = sm->continuation_sm;`);
   emitter.emitLine(``);
   emitter.emitLine(`${indent}if (continuation_fn != NULL) {`);
   if (debugLabel) {
@@ -121,12 +109,8 @@ export function emitAsyncFutureAbortion(opts: AsyncCompletionOptions): void {
     );
   }
   emitter.emitLine(``);
-  emitter.emitLine(
-    `${indent}  atomic_store_explicit(&sm->continuation_fn, NULL, memory_order_relaxed);`
-  );
-  emitter.emitLine(
-    `${indent}  atomic_store_explicit(&sm->continuation_sm, NULL, memory_order_relaxed);`
-  );
+  emitter.emitLine(`${indent}  sm->continuation_fn = NULL;`);
+  emitter.emitLine(`${indent}  sm->continuation_sm = NULL;`);
   emitter.emitLine(``);
   emitter.emitLine(
     `${indent}  yo_async_spawn_task(continuation_fn, continuation_sm);`

@@ -142,7 +142,7 @@ void yo_async_poll_step(void) {
 }
 
 // Run event loop until a specific Future completes (for async main)
-// The Future must have an '_Atomic int state' field at offset 0
+// The Future must have an 'int state' field at offset 0
 // State -1 means completed, -2 means aborted
 void __yo_async_run_until_complete(void* future_ptr) {
   if (!yo_async_scheduler_initialized) {
@@ -156,12 +156,12 @@ void __yo_async_run_until_complete(void* future_ptr) {
   ASYNC_DEBUG("[ASYNC] Starting event loop for future=%p\\n", future_ptr);
   
   // future_ptr points to a heap-backed Future/state-machine struct.
-  // It must have _Atomic int state at offset 0.
-  typedef struct { _Atomic int state; } generic_future_t;
+  // It must have int state at offset 0.
+  typedef struct { int state; } generic_future_t;
   generic_future_t* future = (generic_future_t*)future_ptr;
   
   // Run the event loop until the future completes or is aborted
-  int __future_state = atomic_load(&future->state);
+  int __future_state = future->state;
   while (__future_state != -1 && __future_state != -2) {
     // 1. Process ready tasks (up to 100 per iteration)
     int tasks_run = 0;
@@ -195,12 +195,12 @@ void __yo_async_run_until_complete(void* future_ptr) {
     if (!yo_thread_async_queue.head && __yo_has_pending_io()) {
       ASYNC_DEBUG("[ASYNC] No ready tasks, waiting for I/O...\\n");
       __yo_io_wait();
-      __future_state = atomic_load(&future->state);
+      __future_state = future->state;
       continue;
     }
 #endif
     
-    __future_state = atomic_load(&future->state);
+    __future_state = future->state;
     // 4. If no tasks and no I/O, check if future is complete
     if (!yo_thread_async_queue.head) {
 #if defined(__linux__) || defined(__APPLE__) || defined(_WIN32)
@@ -225,9 +225,9 @@ void __yo_async_run_until_complete(void* future_ptr) {
   __yo_io_cleanup();
 #endif
   
-  ASYNC_DEBUG("[ASYNC] Event loop finished, future state=%d\\n", atomic_load(&future->state));
+  ASYNC_DEBUG("[ASYNC] Event loop finished, future state=%d\\n", future->state);
   
-  if (atomic_load(&future->state) == -2) {
+  if (future->state == -2) {
     fprintf(stderr, "panic: async main Future was aborted by an effect handler\\n");
     abort();
   }
@@ -354,18 +354,18 @@ void __yo_thread_yield(void) {
 // This allows the current async task to suspend and give other tasks a chance to run
 // Usage: await Concurrency.yield();
 typedef struct __yo_yield_future_t {
-  _Atomic int state;                            // Future state (0 = running, -1 = completed)
-  _Atomic(void (*)(void*)) continuation_fn;     // Continuation (if awaited)
-  _Atomic(void*) continuation_sm;               // Continuation state machine
+  int state;                                    // Future state (0 = running, -1 = completed)
+  void (*continuation_fn)(void*);               // Continuation (if awaited)
+  void* continuation_sm;                        // Continuation state machine
 } __yo_yield_future_t;
 
 __yo_yield_future_t __yo_async_yield(void) {
   __yo_yield_future_t future;
   // Initialize as completed (state = -1) so await will not actually suspend
   // The suspension happens because await checks the queue and processes other tasks
-  atomic_init(&future.state, -1);
-  atomic_init(&future.continuation_fn, NULL);
-  atomic_init(&future.continuation_sm, NULL);
+  future.state = -1;
+  future.continuation_fn = NULL;
+  future.continuation_sm = NULL;
   return future;
 }
 `);
