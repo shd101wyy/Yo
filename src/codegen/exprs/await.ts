@@ -6,6 +6,7 @@ import {
 import type { FnCallExpr } from "../../expr";
 import { isSomeType, isUnitType } from "../../types/guards";
 import { typeContainsRcType } from "../../types/utils";
+import { isIoFutureType } from "../async/state-machine";
 import type { FunctionGenerationContext } from "../functions/context";
 import {
   getTypeString,
@@ -79,17 +80,20 @@ export function generateAwait(
     emitter.emitLine(
       `${indent}${futureTypeName} ${syncFutureVar} = ${futureCode};`
     );
-    // Start cold future if needed (lazy execution: state==0 means not started)
-    emitter.emitLine(
-      `${indent}if (atomic_load_explicit(&${syncFutureVar}->state, memory_order_acquire) == 0 && ${syncFutureVar}->__yo_resume_fn) {`
-    );
-    emitter.emitLine(
-      `${indent}  __yo_incr_rc((void*)${syncFutureVar});  // event loop reference`
-    );
-    emitter.emitLine(
-      `${indent}  ${syncFutureVar}->__yo_resume_fn((void*)${syncFutureVar});`
-    );
-    emitter.emitLine(`${indent}}`);
+    // Only cold-start state machine futures; IO futures are already submitted to io_uring
+    const isIoFuture = isIoFutureType(futureArg.$?.type);
+    if (!isIoFuture) {
+      emitter.emitLine(
+        `${indent}if (atomic_load_explicit(&${syncFutureVar}->state, memory_order_acquire) == 0 && ${syncFutureVar}->__yo_resume_fn) {`
+      );
+      emitter.emitLine(
+        `${indent}  __yo_incr_rc((void*)${syncFutureVar});  // event loop reference`
+      );
+      emitter.emitLine(
+        `${indent}  ${syncFutureVar}->__yo_resume_fn((void*)${syncFutureVar});`
+      );
+      emitter.emitLine(`${indent}}`);
+    }
     emitter.emitLine(`${indent}{`);
     emitter.emitLine(
       `${indent}  int __await_state = atomic_load_explicit(&${syncFutureVar}->state, memory_order_acquire);`

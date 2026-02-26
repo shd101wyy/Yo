@@ -1,27 +1,58 @@
-open import "std/libc/stdio";
 open import "std/string";
-open import "std/fmt";
+{ temp_dir, path_join } :: import "../../tests/io/helper";
+file :: import "std/io/file";
+dir :: import "std/io/dir";
+{ AT_FDCWD } :: import "std/io/constants";
+temp_io :: import "std/io/temp";
+mmap_io :: import "std/io/mmap";
+advise_io :: import "std/io/advise";
 { yield } :: import "std/async";
+{ printf } :: import "std/libc/stdio";
 
 main :: (fn(using(io : IO)) -> unit) {
-  // Simple async without extra effects
   {
-    task := io.async((using(io : IO))=> {
-      io.await(yield());
-      i32(300)
-    });
-    result := io.await(task);
-    assert(result == i32(300), "simple async should work");
-  };
+    tmp := temp_dir();
+    template_str := path_join(tmp, `yo_io_advise_fadvise_XXXXXX`);
+    template_c := template_str.to_cstr();
+    template_path := template_c.ptr().unwrap();
 
-  // No matching given should error
+    fd := temp_io.mkstemp(template_path);
+    assert((fd >= i32(0)), "mkstemp for fadvise test should return a valid fd");
+
+    trunc := io.await(file.ftruncate(fd, i64(4096)));
+    assert((trunc == i32(0)), "ftruncate for fadvise test should succeed");
+
+    ret := advise_io.fadvise(fd, i64(0), i64(4096), advise_io.POSIX_FADV_SEQUENTIAL);
+    assert((ret == i32(0)), "fadvise should return success");
+
+    close_ret := io.await(file.close(fd));
+    assert((close_ret == i32(0)), "closing fadvise test file should succeed");
+
+    rm := io.await(dir.unlink(AT_FDCWD, template_path, i32(0)));
+    assert((rm == i32(0)), "unlinking fadvise test file should succeed");
+  };
+  
   {
-    apply :: (fn(
-      x : i32,
-      using(op : (fn(a : i32) -> bool))
-    ) -> bool)(
-      op(x)
-    );
+    b := Box(i32)(0);
+
+    task := io.async((using(io : IO))=> {
+      printf("Task started %d\n", b.*);
+
+      c := Box(i32)(10);
+
+      b.* = (b.* + 1);
+      io.await(yield());
+
+      printf("Task completed %d\n", b.*);
+      assert(c.* == 10, "captured Box should still be 10");
+    });
+
+    // With lazy execution, task hasn't started yet
+    printf("Running main... %d\n", b.*);
+    assert(b.* == 0, "b should be 0 before await (lazy)");
+
+    io.await(task);
+    assert(b.* == 1, "b should be 1 after task completes");
   };
 };
 export main;

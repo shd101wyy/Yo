@@ -23,6 +23,7 @@ import {
   isUnknownValue,
   type Value,
 } from "../../value";
+import { isIoFutureType } from "../async/state-machine";
 import { BuiltinYoInlineFunctions } from "../constants";
 import type { FunctionGenerationContext } from "../functions/context";
 import {
@@ -488,15 +489,20 @@ function generateFuncCall(
       );
       futureVars.push(varName);
     }
-    for (const varName of futureVars) {
-      emitter.emitLine(
-        `${indent}if (atomic_load_explicit(&${varName}->state, memory_order_acquire) == 0 && ${varName}->__yo_resume_fn) {`
-      );
-      emitter.emitLine(`${indent}  __yo_incr_rc((void*)${varName});`);
-      emitter.emitLine(
-        `${indent}  ${varName}->__yo_resume_fn((void*)${varName});`
-      );
-      emitter.emitLine(`${indent}}`);
+    for (let i = 0; i < futureVars.length; i++) {
+      const varName = futureVars[i]!;
+      const argExpr = expr.args[i]!;
+      const isIoFuture = isIoFutureType(argExpr.$?.type);
+      if (!isIoFuture) {
+        emitter.emitLine(
+          `${indent}if (atomic_load_explicit(&${varName}->state, memory_order_acquire) == 0 && ${varName}->__yo_resume_fn) {`
+        );
+        emitter.emitLine(`${indent}  __yo_incr_rc((void*)${varName});`);
+        emitter.emitLine(
+          `${indent}  ${varName}->__yo_resume_fn((void*)${varName});`
+        );
+        emitter.emitLine(`${indent}}`);
+      }
     }
     // Run the event loop (task queue + I/O polling) until all futures complete or are aborted.
     // State -1 = completed, -2 = aborted; both are terminal states.

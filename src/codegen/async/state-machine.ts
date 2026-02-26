@@ -102,7 +102,7 @@ export function getFutureFieldNameByVariableId(
  * State machine futures may also have resolvedConcreteType as a SomeType, but
  * it won't be extern.
  */
-function isIoFutureType(type: Type | undefined): boolean {
+export function isIoFutureType(type: Type | undefined): boolean {
   if (!type || !isSomeType(type)) return false;
   // Check if the concrete type resolution came from a Concrete(...) trait
   // pointing to an extern C type like yo_io_future_t. State machine futures
