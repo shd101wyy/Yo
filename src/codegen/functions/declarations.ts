@@ -184,18 +184,18 @@ export function generateFunctionPrototype(
       // Handle non-function parameters
       let paramTypeStr: string;
       if (isSomeType(param.type) && typeImplementsFuture(param.type)) {
-        // For Future types, we must have a resolved concrete type (the state machine)
-        if (!param.type.resolvedConcreteType) {
-          throw new Error(
-            `Impl(Future) parameter '${param.label}' has no resolvedConcreteType. ` +
-              `Function: ${cFunctionName}. ` +
-              `SomeType ID: ${param.type.id}. ` +
-              `This indicates the function wasn't properly specialized - generic Impl(Future) functions should not reach codegen.`
-          );
+        // For Future types, use the resolved concrete type (state machine) if available,
+        // otherwise fall back to getTypeString which has multiple lookup paths
+        // (SomeType ID → registered async struct, resolvedConcreteType, etc.)
+        if (param.type.resolvedConcreteType) {
+          // Use the concrete state machine pointer type
+          paramTypeStr =
+            getTypeString(param.type.resolvedConcreteType, context) + "*";
+        } else {
+          // The SomeType ID may be registered by preRegisterAsyncTypes
+          // (e.g., when the parameter type comes from an io.async call at the call site)
+          paramTypeStr = getTypeString(param.type, context);
         }
-        // Use the concrete state machine pointer type
-        paramTypeStr =
-          getTypeString(param.type.resolvedConcreteType, context) + "*";
       } else {
         paramTypeStr = getTypeString(param.type, context);
       }

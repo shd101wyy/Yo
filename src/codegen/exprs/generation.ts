@@ -17,13 +17,7 @@ import {
   type FnCallExpr,
 } from "../../expr";
 import { isSomeType, isUnitType } from "../../types/guards";
-import { typeToString } from "../../types/utils";
-import {
-  isFunctionValue,
-  isTypeValue,
-  isUnknownValue,
-  type Value,
-} from "../../value";
+import { isFunctionValue, isUnknownValue, type Value } from "../../value";
 import { isIoFutureType } from "../async/state-machine";
 import { BuiltinYoInlineFunctions } from "../constants";
 import type { FunctionGenerationContext } from "../functions/context";
@@ -715,17 +709,7 @@ function generateFuncCall(
   }
 
   if (exprIsFunctionCall(expr)) {
-    const fnCallExpr = expr as FnCallExpr;
-    const funcType = fnCallExpr.func.$?.type;
-    const funcValue = fnCallExpr.func.$?.value;
-    throw new Error(
-      `Unhandled function call: ${exprToString(expr)}\n` +
-        `  expr.$.value: ${expr.$?.value}, isUnknown: ${expr.$?.value !== undefined ? isUnknownValue(expr.$!.value!) : "N/A"}\n` +
-        `  expr.$.type: ${expr.$?.type ? typeToString(expr.$.type) : "undefined"}\n` +
-        `  func.$.type: ${funcType ? typeToString(funcType) : "undefined"}\n` +
-        `  func.$.value type: ${typeof funcValue}, isFV: ${funcValue ? isFunctionValue(funcValue) : "N/A"}, isTV: ${funcValue ? isTypeValue(funcValue) : "N/A"}\n` +
-        `  func.$.value: ${funcValue}`
-    );
+    throw new Error(`Unhandled function call: ${exprToString(expr)}`);
   }
 
   return `// Failed to transpile ${exprToString(expr)}`;

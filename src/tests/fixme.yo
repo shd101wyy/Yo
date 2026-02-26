@@ -1,66 +1,28 @@
 open import "std/string";
+open import "std/fmt";
 { yield } :: import "std/async";
 { printf } :: import "std/libc/stdio";
 
+Raise :: (fn(forall(T : Type), msg : String) -> T);
+
+test_abort :: (fn(task : Impl(Future(i32, IO, Raise)), using(io : IO)) -> unit) {
+  (given(raise) : Raise) =
+    (msg) -> {
+      println(msg);
+      abort ();
+    };
+  io.await(task, using(io, raise));
+};
+
 main :: (fn(using(io : IO)) -> unit) {
-  // =========================================================================
-  // Test: io.state — query the state of a Future
-  // =========================================================================
-
-  // 1. Pending state: a cold (not yet started) Future should be Pending
-  task := io.async((using(io : IO))=> {
-    io.await(yield());
-    return i32(42);
+  // I expect 'task' to have type Impl(Future(i32, IO, Raise))
+  task := io.async((using(io : IO, raise : Raise)) => {
+    raise(`This task should be aborted, not awaited!`);
+    return i32(12);
   });
-  s1 := io.state(task);
-  printf("Cold future state: %d (expected 0=Pending)\n", s1);
-  assert((s1 == FutureState.Pending), "cold future should be Pending");
-
-  // 2. Completed state: after awaiting, the Future should be Completed
-  result := io.await(task);
-  assert((result == i32(42)), "task should return 42");
-  s2 := io.state(task);
-  printf("Completed future state: %d (expected -1=Completed)\n", s2);
-  assert((s2 == FutureState.Completed), "awaited future should be Completed");
-
-  // 3. Running state: observable between join start and completion
-  //    Use a sync future (no await points) that completes immediately — 
-  //    it goes through Running momentarily, but after join it's Completed.
-  //    For a true Running observation, we check state after join starts
-  //    a task that yields.
-  counter := Box(i32)(0);
-  yielding_task := io.async((using(io : IO))=> {
-    counter.* = (counter.* + 1);
-    io.await(yield());
-    counter.* = (counter.* + 1);
-  });
-  instant_task := io.async((using(io : IO))=> {
-    // When this runs, yielding_task has yielded (is Running)
-    // We can observe counter was set to 1 which proves yielding_task started
-    assert((counter.* == i32(1)), "yield_task should have started and set counter to 1");
-  });
-  io.join(yielding_task, instant_task);
-  io.await(yielding_task);
-  io.await(instant_task);
-  s3 := io.state(yielding_task);
-  printf("After join future state: %d (expected -1=Completed)\n", s3);
-  assert((s3 == FutureState.Completed), "joined future should be Completed");
-  assert((counter.* == i32(2)), "counter should be 2 after yielding_task completes");
-
-  // 4. Multiple io.state calls on same future return consistent results
-  task2 := io.async(() => {
-    return i32(99);
-  });
-  s4a := io.state(task2);
-  s4b := io.state(task2);
-  assert((s4a == s4b), "multiple state calls should return same result");
-  assert((s4a == FutureState.Pending), "cold future should be Pending");
-  io.await(task2);
-  s4c := io.state(task2);
-  s4d := io.state(task2);
-  assert((s4c == s4d), "multiple state calls after completion should match");
-  assert((s4c == FutureState.Completed), "completed future should be Completed");
-
-  printf("All io.state tests passed!\n");
+  test_abort(task);
+  st := io.state(task);
+  printf("Future state after starting task: %d\n", st);
+  assert(st == FutureState.Aborted);
 };
 export main;

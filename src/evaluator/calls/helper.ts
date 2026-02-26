@@ -39,6 +39,7 @@ import { generateExprFromCode } from "../../parser";
 import { PlaceholderToken } from "../../token";
 import { areTypesCompatible } from "../../types/compatibility";
 import {
+  createEffectsRowSomeType,
   createEffectsRowType,
   createExprType,
   createFunctionType,
@@ -816,19 +817,34 @@ Got:   ${regularArgsToCheck.length} arguments`,
     //       It will cause the variable shadowing problem.
     if (forallParameter.exprs.labelExpr && forallParameter.label) {
       // console.log("(12) addVariableToEnv");
+
+      // Detect effect row forall parameters (e.g., ...(E) in forall(T : Type, ...(E))).
+      // These have TypeHierarchy level 1 and their expr is a ...(name) call.
+      // For these, create an effects row SomeType instead of an UnknownValue,
+      // so that synthesis can resolve the effect row from closure implicit parameters.
+      const isEffectsRowForall =
+        isTypeHierarchyType(forallParameter.type) &&
+        forallParameter.type.level === 1 &&
+        exprIsFunctionCall(forallParameter.exprs.expr) &&
+        exprIsFunctionCallOf(forallParameter.exprs.expr, "...", 1);
+
+      const initialValue = isEffectsRowForall
+        ? createTypeValue(
+            createEffectsRowSomeType(forallParameter.label, calleeEnv)
+          )
+        : createUnknownValue(forallParameter.type, {
+            variableName: forallParameter.label,
+            env: calleeEnv,
+            context,
+          });
+
       const { env: nextEnv, variable } = addVariableToEnv({
         env: calleeEnv,
         variable: {
           name: forallParameter.label,
           type: forallParameter.type,
           isCompileTimeOnly: true,
-          value: [
-            createUnknownValue(forallParameter.type, {
-              variableName: forallParameter.label,
-              env: calleeEnv,
-              context,
-            }),
-          ],
+          value: [initialValue],
           token: forallParameter.exprs.labelExpr.token,
           initializedAtToken: forallParameter.exprs.labelExpr.token, // Set as initialized
           consumedAtToken: undefined,
@@ -1934,6 +1950,27 @@ Please use explicit using() to disambiguate.`,
   // with cloned expressions to see if parameters match. This avoids polluting
   // the specialization cache with intermediate capture structs.
   // See docs/SPECIALIZATION_CACHE_PITFALL.md for details.
+
+  // Check if implicit args contain UnknownValue
+  const hasUnknownImplicitArgs = argValues_.implicitArgs?.some((arg) =>
+    isUnknownValue(arg.value)
+  );
+  // Allow specialization when the only unknown implicit args are module types (like IO)
+  // AND the call has runtime parameters with SomeType (e.g., Impl(Future(...)))
+  // that need concrete type resolution from the call site.
+  // This avoids unnecessary re-evaluation for functions where specialization
+  // wouldn't produce a different result (just different SomeType IDs).
+  const hasOnlyModuleTypeUnknowns =
+    hasUnknownImplicitArgs &&
+    !argValues_.implicitArgs?.some(
+      (arg) => isUnknownValue(arg.value) && !isModuleType(arg.parameterType)
+    );
+  const hasRuntimeSomeTypeParams = argValues_.args.some(
+    (arg) => arg.argType && isSomeType(arg.argType)
+  );
+  const shouldAllowModuleUnknowns =
+    hasOnlyModuleTypeUnknowns && hasRuntimeSomeTypeParams;
+
   if (
     !skipSpecialization &&
     functionValue &&
@@ -1944,7 +1981,9 @@ Please use explicit using() to disambiguate.`,
     // Skip specialization when implicit args contain UnknownValue (e.g., at function
     // definition time when the handler hasn't been concretely provided yet).
     // This prevents creating broken specializations that reference unresolved functions.
-    !argValues_.implicitArgs?.some((arg) => isUnknownValue(arg.value))
+    // Exception: allow when only module-type implicit args (like IO) are unknown AND
+    // the call has SomeType runtime parameters that benefit from specialization.
+    (!hasUnknownImplicitArgs || shouldAllowModuleUnknowns)
   ) {
     specializedFunctionValue = createSpecializedFunctionInline({
       originalFunction: functionValue,
