@@ -1,0 +1,74 @@
+// std/math/functions.yo - Math utility functions
+//
+// Higher-level math utilities complementing std/libc/math.
+//
+// Example:
+//   { min, max, clamp, PI } :: import "std/math/functions";
+
+// ============================================================================
+// Constants
+// ============================================================================
+
+PI  :: f64(3.14159265358979323846);
+E   :: f64(2.71828182845904523536);
+TAU :: f64(6.28318530717958647692);
+
+export PI, E, TAU;
+
+// ============================================================================
+// Generic min / max / clamp
+// ============================================================================
+
+// Return the smaller of two values.
+min :: (fn(forall(T : Type), a: T, b: T, where(T <: Ord(T))) -> T)(
+  cond((a <= b) => a, true => b)
+);
+
+// Return the larger of two values.
+max :: (fn(forall(T : Type), a: T, b: T, where(T <: Ord(T))) -> T)(
+  cond((a >= b) => a, true => b)
+);
+
+// Clamp `x` to the closed range [lo, hi].
+clamp :: (fn(forall(T : Type), x: T, lo: T, hi: T, where(T <: Ord(T))) -> T)(
+  cond((x < lo) => lo, (x > hi) => hi, true => x)
+);
+
+export min, max, clamp;
+
+// ============================================================================
+// Float utilities
+// ============================================================================
+
+// Linear interpolation: a + t*(b-a)
+lerp :: (fn(a: f64, b: f64, t: f64) -> f64)(
+  (a + (t * (b - a)))
+);
+
+// Map `value` from range [in_min, in_max] to [out_min, out_max].
+map_range :: (fn(value: f64, in_min: f64, in_max: f64, out_min: f64, out_max: f64) -> f64)(
+  (out_min + ((value - in_min) / (in_max - in_min)) * (out_max - out_min))
+);
+
+export lerp, map_range;
+
+// ============================================================================
+// Float classification
+// ============================================================================
+
+// True if x is NaN (by IEEE 754 definition: NaN != NaN).
+is_nan :: (fn(x: f64) -> bool)(
+  (x != x)
+);
+
+// True if x is +Inf or -Inf.
+is_inf :: (fn(x: f64) -> bool)(
+  ((x == (f64(1.0) / f64(0.0))) || (x == (f64(-1.0) / f64(0.0))))
+);
+
+// True if x is a finite number (not NaN and not Inf).
+is_finite :: (fn(x: f64) -> bool)(
+  ((!is_nan(x)) && (!is_inf(x)))
+);
+
+export is_nan, is_inf, is_finite;

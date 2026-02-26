@@ -1,0 +1,243 @@
+// std/fmt/writer.yo - String Writer
+//
+// A composable, chainable string builder backed by ArrayList(u8).
+// Useful for constructing formatted strings without intermediate allocations.
+//
+// Example:
+//   { Writer, Alignment } :: import "std/fmt/writer";
+//
+//   w := Writer.new()
+//     .write_str("hello ")
+//     .write_str("world")
+//     .write_byte(u8(33));
+//   s := w.to_string();  // "hello world!"
+
+{ String } :: import "../string";
+{ ArrayList } :: import "../collections/array_list";
+{ rune } :: import "../string/rune";
+{ snprintf } :: import "../libc/stdio";
+
+Alignment :: enum(.Left, .Right, .Center);
+export Alignment;
+
+// ============================================================================
+// Writer - chainable string builder
+// ============================================================================
+
+Writer :: object(
+  buf : ArrayList(u8)
+);
+
+impl(Writer,
+  // Create a new empty Writer.
+  new : (fn() -> Self)(
+    Self(buf: ArrayList(u8).new())
+  ),
+
+  // Create a Writer pre-allocated with the given byte capacity.
+  with_capacity : (fn(cap: usize) -> Self)(
+    Self(buf: ArrayList(u8).with_capacity(cap))
+  ),
+
+  // Append a str literal (byte slice) to the Writer.
+  write_str : (fn(self: Self, s: str) -> Self)({
+    i := usize(0);
+    while (i < s.len()),
+          (i = (i + usize(1))),
+    {
+      self.buf.push(s.bytes(i));
+    };
+    self
+  }),
+
+  // Append a String (owned UTF-8) to the Writer.
+  write_string : (fn(self: Self, s: String) -> Self)({
+    bytes := s.as_bytes();
+    i := usize(0);
+    while (i < bytes.len()),
+          (i = (i + usize(1))),
+    {
+      self.buf.push(bytes.get(i).unwrap());
+    };
+    self
+  }),
+
+  // Append a single byte to the Writer.
+  write_byte : (fn(self: Self, b: u8) -> Self)({
+    self.buf.push(b);
+    self
+  }),
+
+  // Append an ArrayList(u8) of bytes to the Writer.
+  write_bytes : (fn(self: Self, data: ArrayList(u8)) -> Self)({
+    i := usize(0);
+    while (i < data.len()),
+          (i = (i + usize(1))),
+    {
+      self.buf.push(data.get(i).unwrap());
+    };
+    self
+  }),
+
+  // Append a Unicode code point encoded as UTF-8.
+  write_rune : (fn(self: Self, r: rune) -> Self)({
+    v := u32(r);
+    cond(
+      (v < u32(0x80)) => {
+        self.buf.push(u8(v));
+      },
+      (v < u32(0x800)) => {
+        self.buf.push(u8((u32(0xC0) | (v >> u32(6)))));
+        self.buf.push(u8((u32(0x80) | (v & u32(0x3F)))));
+      },
+      (v < u32(0x10000)) => {
+        self.buf.push(u8((u32(0xE0) | (v >> u32(12)))));
+        self.buf.push(u8((u32(0x80) | ((v >> u32(6)) & u32(0x3F)))));
+        self.buf.push(u8((u32(0x80) | (v & u32(0x3F)))));
+      },
+      true => {
+        self.buf.push(u8((u32(0xF0) | (v >> u32(18)))));
+        self.buf.push(u8((u32(0x80) | ((v >> u32(12)) & u32(0x3F)))));
+        self.buf.push(u8((u32(0x80) | ((v >> u32(6)) & u32(0x3F)))));
+        self.buf.push(u8((u32(0x80) | (v & u32(0x3F)))));
+      }
+    );
+    self
+  }),
+
+  // Append a signed 64-bit integer in decimal.
+  write_i64 : (fn(self: Self, n: i64) -> Self)({
+    buf := Array(u8, usize(24)).fill(u8(0));
+    buf_ptr := &(buf(usize(0)));
+    snprintf(*(char)(buf_ptr), usize(24), "%lld", n);
+    s := String.from_cstr(buf_ptr).unwrap();
+    self.write_string(s)
+  }),
+
+  // Append an unsigned 64-bit integer in decimal.
+  write_u64 : (fn(self: Self, n: u64) -> Self)({
+    buf := Array(u8, usize(24)).fill(u8(0));
+    buf_ptr := &(buf(usize(0)));
+    snprintf(*(char)(buf_ptr), usize(24), "%llu", n);
+    s := String.from_cstr(buf_ptr).unwrap();
+    self.write_string(s)
+  }),
+
+  // Append a 64-bit float with the given number of decimal places.
+  write_f64 : (fn(self: Self, n: f64, precision: i32) -> Self)({
+    buf := Array(u8, usize(64)).fill(u8(0));
+    buf_ptr := &(buf(usize(0)));
+    snprintf(*(char)(buf_ptr), usize(64), "%.*f", precision, n);
+    s := String.from_cstr(buf_ptr).unwrap();
+    self.write_string(s)
+  }),
+
+  // Append a bool as "true" or "false".
+  write_bool : (fn(self: Self, b: bool) -> Self)(
+    cond(
+      b => self.write_str("true"),
+      true => self.write_str("false")
+    )
+  ),
+
+  // Append an unsigned 64-bit integer in lowercase hexadecimal.
+  write_hex : (fn(self: Self, n: u64) -> Self)({
+    buf := Array(u8, usize(20)).fill(u8(0));
+    buf_ptr := &(buf(usize(0)));
+    snprintf(*(char)(buf_ptr), usize(20), "%llx", n);
+    s := String.from_cstr(buf_ptr).unwrap();
+    self.write_string(s)
+  }),
+
+  // Append an unsigned 64-bit integer in octal.
+  write_octal : (fn(self: Self, n: u64) -> Self)({
+    buf := Array(u8, usize(24)).fill(u8(0));
+    buf_ptr := &(buf(usize(0)));
+    snprintf(*(char)(buf_ptr), usize(24), "%llo", n);
+    s := String.from_cstr(buf_ptr).unwrap();
+    self.write_string(s)
+  }),
+
+  // Append an unsigned 64-bit integer in binary (no stdlib support — manual).
+  write_binary : (fn(self: Self, n: u64) -> Self)({
+    cond(
+      (n == u64(0)) => {
+        self.buf.push(u8(48)); // '0'
+      },
+      true => {
+        // Collect bits into a temporary ArrayList in reverse order
+        bits := ArrayList(u8).new();
+        v := n;
+        while (v > u64(0)),
+              (v = (v >> u64(1))),
+        {
+          bit := u8(((v & u64(1)) + u64(0)));
+          bits.push((bit + u8(48))); // '0' or '1'
+        };
+        // Push in reverse order (most significant first)
+        i := bits.len();
+        while (i > usize(0)),
+              (i = (i - usize(1))),
+        {
+          self.buf.push(bits.get((i - usize(1))).unwrap());
+        };
+      }
+    );
+    self
+  }),
+
+  // Append a str padded to width using the given pad rune and alignment.
+  write_padded : (fn(self: Self, s: str, width: usize, pad: rune, align: Alignment) -> Self)({
+    len := s.len();
+    cond(
+      (len >= width) => {
+        self.write_str(s)
+      },
+      true => {
+        padding := (width - len);
+        match(align,
+          .Left => {
+            self.write_str(s);
+            i := usize(0);
+            while (i < padding), (i = (i + usize(1))), {
+              self.write_rune(pad);
+            };
+          },
+          .Right => {
+            i := usize(0);
+            while (i < padding), (i = (i + usize(1))), {
+              self.write_rune(pad);
+            };
+            self.write_str(s);
+          },
+          .Center => {
+            left_pad := (padding / usize(2));
+            right_pad := (padding - left_pad);
+            i := usize(0);
+            while (i < left_pad), (i = (i + usize(1))), {
+              self.write_rune(pad);
+            };
+            self.write_str(s);
+            j := usize(0);
+            while (j < right_pad), (j = (j + usize(1))), {
+              self.write_rune(pad);
+            };
+          }
+        );
+        self
+      }
+    )
+  }),
+
+  // Consume the Writer and return an owned String.
+  to_string : (fn(self: Self) -> String)(
+    String.from_bytes(self.buf)
+  ),
+
+  // Return the current byte length of the buffer.
+  len : (fn(self: Self) -> usize)(
+    self.buf.len()
+  )
+);
+
+export Writer;
