@@ -1331,12 +1331,22 @@ export function generateAsyncBlockResumeFunction(
         // Cold future: start it via stored resume function pointer
         // IO futures (yo_io_future_t) are already submitted to io_uring and don't
         // have __yo_resume_fn — skip cold-start for them.
-        emitter.emitLine(
-          `      // Future not complete — take event loop reference${isIoFuture ? "" : " and start if cold"}`
-        );
-        emitter.emitLine(
-          `      __yo_incr_rc((void*)sm->${futureFieldName});  // event loop reference`
-        );
+        if (!isIoFuture) {
+          // SM futures need an extra ref because the SM future's own completion
+          // code calls __yo_decr_rc on itself. IO futures don't — their completion
+          // handler (__yo_io_process_cqe) doesn't decrement, so the single RC=1
+          // from allocation is sufficient.
+          emitter.emitLine(
+            `      // Future not complete — take event loop reference and start if cold`
+          );
+          emitter.emitLine(
+            `      __yo_incr_rc((void*)sm->${futureFieldName});  // event loop reference`
+          );
+        } else {
+          emitter.emitLine(
+            `      // IO future: no extra ref needed (completion handler does not decr_rc)`
+          );
+        }
         if (!isIoFuture) {
           emitter.emitLine(
             `      if (future_state == 0) {  // 0 = cold (not started)`

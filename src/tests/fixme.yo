@@ -1,58 +1,44 @@
 open import "std/string";
-{ temp_dir, path_join } :: import "../../tests/io/helper";
-file :: import "std/io/file";
-dir :: import "std/io/dir";
-{ AT_FDCWD } :: import "std/io/constants";
-temp_io :: import "std/io/temp";
-mmap_io :: import "std/io/mmap";
-advise_io :: import "std/io/advise";
 { yield } :: import "std/async";
 { printf } :: import "std/libc/stdio";
+{ sleep } :: import "std/io/timer";
 
 main :: (fn(using(io : IO)) -> unit) {
-  {
-    tmp := temp_dir();
-    template_str := path_join(tmp, `yo_io_advise_fadvise_XXXXXX`);
-    template_c := template_str.to_cstr();
-    template_path := template_c.ptr().unwrap();
+  // =========================================================================
+  // Test: async timer operations
+  // =========================================================================
 
-    fd := temp_io.mkstemp(template_path);
-    assert((fd >= i32(0)), "mkstemp for fadvise test should return a valid fd");
+  value := Box(i32)(0);
+  task1 := io.async((using(io : IO))=> {
+    assert(value.* == 0); // 0
+    value.* = (value.* + 1); // 1
 
-    trunc := io.await(file.ftruncate(fd, i64(4096)));
-    assert((trunc == i32(0)), "ftruncate for fadvise test should succeed");
+    printf("Timer test: sleeping 50ms...\n");
+    result := io.await(sleep(u64(50)));
+    printf("Timer test: woke up with result=%d\n", result);
+    assert(result > i32(0));
+    assert(value.* == 3); // yield() resumed block2 first, which set it to 3
+    value.* = (value.* + 1); // 4
 
-    ret := advise_io.fadvise(fd, i64(0), i64(4096), advise_io.POSIX_FADV_SEQUENTIAL);
-    assert((ret == i32(0)), "fadvise should return success");
+    printf("Timer test: sleeping 3000ms...\n");
+    result2 := io.await(sleep(u64(3000)));
+    printf("Timer test: woke up with result=%d\n", result2);
+    assert(result2 > i32(0));
+    assert(value.* == 4); // 4
 
-    close_ret := io.await(file.close(fd));
-    assert((close_ret == i32(0)), "closing fadvise test file should succeed");
+    printf("All async timer tests passed!\n");
+  });
 
-    rm := io.await(dir.unlink(AT_FDCWD, template_path, i32(0)));
-    assert((rm == i32(0)), "unlinking fadvise test file should succeed");
-  };
-  
-  {
-    b := Box(i32)(0);
+  task2 := io.async((using(io : IO))=> {
+    assert(value.* == 1); // 1
+    value.* = (value.* + 1); // 2
 
-    task := io.async((using(io : IO))=> {
-      printf("Task started %d\n", b.*);
-
-      c := Box(i32)(10);
-
-      b.* = (b.* + 1);
-      io.await(yield());
-
-      printf("Task completed %d\n", b.*);
-      assert(c.* == 10, "captured Box should still be 10");
-    });
-
-    // With lazy execution, task hasn't started yet
-    printf("Running main... %d\n", b.*);
-    assert(b.* == 0, "b should be 0 before await (lazy)");
-
-    io.await(task);
-    assert(b.* == 1, "b should be 1 after task completes");
-  };
+    io.await(yield());
+    assert(value.* == 2); // yield() resumes before sleep(50ms), nobody changed it
+    value.* = (value.* + 1); // 3
+  });
+  io.join(task1, task2);
+  io.await(task1);
+  io.await(task2);
 };
 export main;
