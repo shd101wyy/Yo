@@ -1,0 +1,118 @@
+// std/fs/walker.yo - Recursive directory traversal
+//
+// Recursively walks a directory tree and collects WalkEntry values.
+//
+// Example:
+//   { walk } :: import "std/fs/walker";
+//
+//   entries := walk(String.from("/usr/local")).unwrap();
+
+open import "../string";
+{ ArrayList } :: import "../collections/array_list";
+{ IOError } :: import "../io/errors";
+{ Exception } :: import "../error/exception";
+{ DirEntry, FileType, read_dir } :: import "./dir";
+
+// ============================================================================
+// WalkEntry
+// ============================================================================
+
+WalkEntry :: struct(
+  path      : String,
+  name      : String,
+  depth     : u32,
+  file_type : FileType
+);
+
+export WalkEntry;
+
+// ============================================================================
+// WalkOptions
+// ============================================================================
+
+WalkOptions :: struct(
+  max_depth       : ?u32,
+  follow_symlinks : bool,
+  include_dirs    : bool
+);
+
+export WalkOptions;
+
+// Default options: unlimited depth, don't follow symlinks, include directories.
+_default_options :: (fn() -> WalkOptions)(
+  WalkOptions(
+    max_depth:       .None,
+    follow_symlinks: false,
+    include_dirs:    true
+  )
+);
+
+// Internal recursive helper
+_walk_recursive :: (fn(
+  path    : String,
+  depth   : u32,
+  options : WalkOptions,
+  out     : ArrayList(WalkEntry),
+  using(io : IO, exception : Exception(IOError))
+) -> Impl(Future(unit)))({
+  // Check max_depth
+  cond(
+    match(options.max_depth,
+      .Some(max) => (depth > max),
+      .None => false
+    ) => { return (); },
+    true => ()
+  );
+
+  entries := io.await(read_dir(path));
+  i := usize(0);
+  while (i < entries.len()), (i = (i + usize(1))), {
+    entry := entries.get(i).unwrap();
+    include := match(entry.file_type,
+      .Directory => options.include_dirs,
+      .Symlink   => options.follow_symlinks,
+      _          => true
+    );
+    cond(
+      include => {
+        out.push(WalkEntry(
+          path:      entry.path,
+          name:      entry.name,
+          depth:     depth,
+          file_type: entry.file_type
+        ));
+      },
+      true => ()
+    );
+    // Recurse into directories
+    cond(
+      match(entry.file_type,
+        .Directory => true,
+        .Symlink   => options.follow_symlinks,
+        _          => false
+      ) => {
+        io.await(_walk_recursive(entry.path, (depth + u32(1)), options, out));
+      },
+      true => ()
+    );
+  };
+  ()
+});
+
+// ============================================================================
+// Public API
+// ============================================================================
+
+// Walk a directory tree with default options.
+walk :: (fn(root: String, using(io : IO, exception : Exception(IOError))) -> Impl(Future(ArrayList(WalkEntry))))({
+  walk_with(root, _default_options())
+});
+
+// Walk a directory tree with custom options.
+walk_with :: (fn(root: String, options: WalkOptions, using(io : IO, exception : Exception(IOError))) -> Impl(Future(ArrayList(WalkEntry))))({
+  out := ArrayList(WalkEntry).new();
+  io.await(_walk_recursive(root, u32(0), options, out));
+  out
+});
+
+export walk, walk_with;

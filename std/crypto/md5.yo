@@ -1,0 +1,176 @@
+// std/crypto/md5.yo - MD5 hash function
+//
+// Pure-Yo implementation of MD5 (RFC 1321).
+// MD5 is considered cryptographically broken — use SHA-256 for security.
+//
+// Example:
+//   { md5_hex } :: import "std/crypto/md5";
+//
+//   digest := md5_hex(data);  // "5d41402abc4b2a76b9719d911017c592"
+
+{ ArrayList } :: import "../collections/array_list";
+{ hex_encode } :: import "../encoding/hex";
+open import "../string";
+
+// ============================================================================
+// MD5 implementation
+// ============================================================================
+
+_T :: Array(u32, usize(64))(
+  u32(0xd76aa478), u32(0xe8c7b756), u32(0x242070db), u32(0xc1bdceee),
+  u32(0xf57c0faf), u32(0x4787c62a), u32(0xa8304613), u32(0xfd469501),
+  u32(0x698098d8), u32(0x8b44f7af), u32(0xffff5bb1), u32(0x895cd7be),
+  u32(0x6b901122), u32(0xfd987193), u32(0xa679438e), u32(0x49b40821),
+  u32(0xf61e2562), u32(0xc040b340), u32(0x265e5a51), u32(0xe9b6c7aa),
+  u32(0xd62f105d), u32(0x02441453), u32(0xd8a1e681), u32(0xe7d3fbc8),
+  u32(0x21e1cde6), u32(0xc33707d6), u32(0xf4d50d87), u32(0x455a14ed),
+  u32(0xa9e3e905), u32(0xfcefa3f8), u32(0x676f02d9), u32(0x8d2a4c8a),
+  u32(0xfffa3942), u32(0x8771f681), u32(0x6d9d6122), u32(0xfde5380c),
+  u32(0xa4beea44), u32(0x4bdecfa9), u32(0xf6bb4b60), u32(0xbebfbc70),
+  u32(0x289b7ec6), u32(0xeaa127fa), u32(0xd4ef3085), u32(0x04881d05),
+  u32(0xd9d4d039), u32(0xe6db99e5), u32(0x1fa27cf8), u32(0xc4ac5665),
+  u32(0xf4292244), u32(0x432aff97), u32(0xab9423a7), u32(0xfc93a039),
+  u32(0x655b59c3), u32(0x8f0ccc92), u32(0xffeff47d), u32(0x85845dd1),
+  u32(0x6fa87e4f), u32(0xfe2ce6e0), u32(0xa3014314), u32(0x4e0811a1),
+  u32(0xf7537e82), u32(0xbd3af235), u32(0x2ad7d2bb), u32(0xeb86d391)
+);
+
+_S :: Array(u32, usize(64))(
+  u32(7), u32(12), u32(17), u32(22), u32(7), u32(12), u32(17), u32(22),
+  u32(7), u32(12), u32(17), u32(22), u32(7), u32(12), u32(17), u32(22),
+  u32(5),  u32(9), u32(14), u32(20), u32(5),  u32(9), u32(14), u32(20),
+  u32(5),  u32(9), u32(14), u32(20), u32(5),  u32(9), u32(14), u32(20),
+  u32(4), u32(11), u32(16), u32(23), u32(4), u32(11), u32(16), u32(23),
+  u32(4), u32(11), u32(16), u32(23), u32(4), u32(11), u32(16), u32(23),
+  u32(6), u32(10), u32(15), u32(21), u32(6), u32(10), u32(15), u32(21),
+  u32(6), u32(10), u32(15), u32(21), u32(6), u32(10), u32(15), u32(21)
+);
+
+_rotl32 :: (fn(x: u32, n: u32) -> u32)(
+  ((x << n) | (x >> (u32(32) - n)))
+);
+
+_le32 :: (fn(p: *(u8)) -> u32)(
+  (u32(p.*) | (u32((p &+ usize(1)).*) << u32(8)) |
+  (u32((p &+ usize(2)).*) << u32(16)) | (u32((p &+ usize(3)).*) << u32(24)))
+);
+
+_md5_block :: (fn(block: *(u8), h: *(u32)) -> unit)({
+  a := (h &+ usize(0)).*;
+  b := (h &+ usize(1)).*;
+  c := (h &+ usize(2)).*;
+  d := (h &+ usize(3)).*;
+  i := usize(0);
+  while (i < usize(64)), (i = (i + usize(1))), {
+    fv := u32(0);
+    g  := usize(0);
+    cond(
+      (i < usize(16)) => {
+        fv = ((b & c) | ((~b) & d));
+        g  = i;
+      },
+      (i < usize(32)) => {
+        fv = ((d & b) | ((~d) & c));
+        g  = (((i * usize(5)) + usize(1)) % usize(16));
+      },
+      (i < usize(48)) => {
+        fv = (b ^ c ^ d);
+        g  = (((i * usize(3)) + usize(5)) % usize(16));
+      },
+      true => {
+        fv = (c ^ (b | (~d)));
+        g  = ((i * usize(7)) % usize(16));
+      }
+    );
+    fv = (((fv + a) + _T(i)) + _le32((block &+ (g * usize(4)))));
+    a  = d;
+    d  = c;
+    c  = b;
+    b  = (b + _rotl32(fv, _S(i)));
+  };
+  (h &+ usize(0)).* = ((h &+ usize(0)).* + a);
+  (h &+ usize(1)).* = ((h &+ usize(1)).* + b);
+  (h &+ usize(2)).* = ((h &+ usize(2)).* + c);
+  (h &+ usize(3)).* = ((h &+ usize(3)).* + d);
+});
+
+// Compute an MD5 digest over `data`.
+md5 :: (fn(data: ArrayList(u8)) -> Array(u8, usize(16)))({
+  h := Array(u32, usize(4))(
+    u32(0x67452301), u32(0xefcdab89), u32(0x98badcfe), u32(0x10325476)
+  );
+  h_ptr := &(h(usize(0)));
+  n     := data.len();
+  // Process full blocks
+  i := usize(0);
+  while ((i + usize(64)) <= n), (i = (i + usize(64))), {
+    chunk_ptr := *(u8)(data.ptr().unwrap()) &+ i;
+    _md5_block(chunk_ptr, h_ptr);
+  };
+  // Final block(s) with padding
+  pad_buf := Array(u8, usize(128)).fill(u8(0));
+  pad_ptr := &(pad_buf(usize(0)));
+  rem := (n - i);
+  j := usize(0);
+  while (j < rem), (j = (j + usize(1))), {
+    (pad_ptr &+ j).* = data.get((i + j)).unwrap();
+  };
+  (pad_ptr &+ rem).* = u8(0x80);
+  cond(
+    (rem < usize(56)) => {
+      // Length fits in this block
+      bit_len := u64((n * usize(8)));
+      (pad_ptr &+ usize(56)).* = u8(bit_len);
+      (pad_ptr &+ usize(57)).* = u8((bit_len >> u64(8)));
+      (pad_ptr &+ usize(58)).* = u8((bit_len >> u64(16)));
+      (pad_ptr &+ usize(59)).* = u8((bit_len >> u64(24)));
+      (pad_ptr &+ usize(60)).* = u8((bit_len >> u64(32)));
+      (pad_ptr &+ usize(61)).* = u8((bit_len >> u64(40)));
+      (pad_ptr &+ usize(62)).* = u8((bit_len >> u64(48)));
+      (pad_ptr &+ usize(63)).* = u8((bit_len >> u64(56)));
+      _md5_block(pad_ptr, h_ptr);
+    },
+    true => {
+      // Length goes in second block
+      _md5_block(pad_ptr, h_ptr);
+      pad2 := Array(u8, usize(64)).fill(u8(0));
+      pad2_ptr := &(pad2(usize(0)));
+      bit_len := u64((n * usize(8)));
+      (pad2_ptr &+ usize(56)).* = u8(bit_len);
+      (pad2_ptr &+ usize(57)).* = u8((bit_len >> u64(8)));
+      (pad2_ptr &+ usize(58)).* = u8((bit_len >> u64(16)));
+      (pad2_ptr &+ usize(59)).* = u8((bit_len >> u64(24)));
+      (pad2_ptr &+ usize(60)).* = u8((bit_len >> u64(32)));
+      (pad2_ptr &+ usize(61)).* = u8((bit_len >> u64(40)));
+      (pad2_ptr &+ usize(62)).* = u8((bit_len >> u64(48)));
+      (pad2_ptr &+ usize(63)).* = u8((bit_len >> u64(56)));
+      _md5_block(pad2_ptr, h_ptr);
+    }
+  );
+  // Output little-endian digest
+  digest := Array(u8, usize(16)).fill(u8(0));
+  k := usize(0);
+  while (k < usize(4)), (k = (k + usize(1))), {
+    w := h(k);
+    digest((k * usize(4)))                 = u8(w);
+    digest(((k * usize(4)) + usize(1)))    = u8((w >> u32(8)));
+    digest(((k * usize(4)) + usize(2)))    = u8((w >> u32(16)));
+    digest(((k * usize(4)) + usize(3)))    = u8((w >> u32(24)));
+  };
+  digest
+});
+
+export md5;
+
+// Return the 32-character lowercase hex MD5 digest.
+md5_hex :: (fn(data: ArrayList(u8)) -> String)({
+  digest := md5(data);
+  bytes  := ArrayList(u8).with_capacity(usize(16));
+  i := usize(0);
+  while (i < usize(16)), (i = (i + usize(1))), {
+    bytes.push(digest(i));
+  };
+  hex_encode(bytes)
+});
+
+export md5_hex;

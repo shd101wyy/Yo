@@ -1,0 +1,159 @@
+// std/fs/metadata.yo - File metadata
+//
+// Wraps the Statx buffer from std/io/statx and exposes typed accessors.
+// Also exposes Permissions for mode-bit queries.
+//
+// Example:
+//   { metadata, Metadata } :: import "std/fs/metadata";
+//
+//   meta := metadata(String.from("/etc/hosts"));
+//   assert(meta.is_file());
+//   println(meta.size());
+
+open import "../string";
+{ ArrayList } :: import "../collections/array_list";
+{ GlobalAllocator } :: import "../allocator";
+{ malloc, free } :: GlobalAllocator;
+{
+  AT_FDCWD, AT_SYMLINK_NOFOLLOW,
+  STATX_BASIC_STATS,
+  S_IWUSR
+} :: import "../io/constants";
+{ statx } :: import "../io/file";
+{ IOError } :: import "../io/errors";
+{
+  __yo_statx_mode, __yo_statx_size,
+  __yo_statx_mtime_sec, __yo_statx_atime_sec, __yo_statx_ctime_sec
+} :: import "../io/externs";
+
+{ Exception } :: import "../error/exception";
+
+// Size of a statx buffer.
+_STATX_BUF_SIZE :: usize(256);
+
+// ============================================================================
+// Permissions
+// ============================================================================
+
+Permissions :: struct(mode: u32);
+
+impl(Permissions,
+  // True if the file is read-only (owner write bit clear).
+  readonly : (fn(self: *(Self)) -> bool)(
+    ((self.mode & u32(S_IWUSR)) == u32(0))
+  )
+);
+
+export Permissions;
+
+// ============================================================================
+// Metadata
+// ============================================================================
+
+Metadata :: struct(
+  _buf : ArrayList(u8)
+);
+
+impl(Metadata,
+  // File size in bytes.
+  size : (fn(self: *(Self)) -> i64)({
+    buf_ptr := self._buf.ptr().unwrap();
+    __yo_statx_size(*(u8)(buf_ptr))
+  }),
+
+  // Raw mode bits.
+  mode : (fn(self: *(Self)) -> u32)({
+    buf_ptr := self._buf.ptr().unwrap();
+    __yo_statx_mode(*(u8)(buf_ptr))
+  }),
+
+  // True if this is a regular file.
+  is_file : (fn(self: *(Self)) -> bool)({
+    buf_ptr := self._buf.ptr().unwrap();
+    m := __yo_statx_mode(*(u8)(buf_ptr));
+    ((m & u32(0xF000)) == u32(0x8000)) // S_IFREG
+  }),
+
+  // True if this is a directory.
+  is_dir : (fn(self: *(Self)) -> bool)({
+    buf_ptr := self._buf.ptr().unwrap();
+    m := __yo_statx_mode(*(u8)(buf_ptr));
+    ((m & u32(0xF000)) == u32(0x4000)) // S_IFDIR
+  }),
+
+  // True if this is a symbolic link.
+  is_symlink : (fn(self: *(Self)) -> bool)({
+    buf_ptr := self._buf.ptr().unwrap();
+    m := __yo_statx_mode(*(u8)(buf_ptr));
+    ((m & u32(0xF000)) == u32(0xA000)) // S_IFLNK
+  }),
+
+  // Last modification time (seconds since Unix epoch).
+  modified_time : (fn(self: *(Self)) -> i64)({
+    buf_ptr := self._buf.ptr().unwrap();
+    __yo_statx_mtime_sec(*(u8)(buf_ptr))
+  }),
+
+  // Last access time (seconds since Unix epoch).
+  accessed_time : (fn(self: *(Self)) -> i64)({
+    buf_ptr := self._buf.ptr().unwrap();
+    __yo_statx_atime_sec(*(u8)(buf_ptr))
+  }),
+
+  // Creation/status-change time (seconds since Unix epoch).
+  created_time : (fn(self: *(Self)) -> i64)({
+    buf_ptr := self._buf.ptr().unwrap();
+    __yo_statx_ctime_sec(*(u8)(buf_ptr))
+  }),
+
+  // File permissions extracted from mode bits.
+  permissions : (fn(self: *(Self)) -> Permissions)({
+    buf_ptr := self._buf.ptr().unwrap();
+    m := __yo_statx_mode(*(u8)(buf_ptr));
+    Permissions(mode: m)
+  })
+);
+
+export Metadata;
+
+// ============================================================================
+// Convenience functions
+// ============================================================================
+
+// Fetch metadata for a path (follows symlinks).
+metadata :: (fn(path: String, using(io : IO, exception : Exception(IOError))) -> Impl(Future(Metadata)))({
+  buf := ArrayList(u8).with_capacity(_STATX_BUF_SIZE);
+  buf.set_len(_STATX_BUF_SIZE);
+  buf_ptr   := *(u8)(buf.ptr().unwrap());
+  path_cstr := path.to_cstr();
+  path_ptr  := *(u8)(path_cstr.ptr().unwrap());
+  result    := io.await(statx(
+    AT_FDCWD, path_ptr,
+    i32(0), u32(STATX_BASIC_STATS),
+    buf_ptr
+  ));
+  cond(
+    (result < i32(0)) => exception.throw(IOError.from_errno((i32(0) - result))),
+    true => Metadata(_buf: buf)
+  )
+});
+
+// Fetch metadata for a path (does NOT follow symlinks).
+symlink_metadata :: (fn(path: String, using(io : IO, exception : Exception(IOError))) -> Impl(Future(Metadata)))({
+  buf := ArrayList(u8).with_capacity(_STATX_BUF_SIZE);
+  buf.set_len(_STATX_BUF_SIZE);
+  buf_ptr   := *(u8)(buf.ptr().unwrap());
+  path_cstr := path.to_cstr();
+  path_ptr  := *(u8)(path_cstr.ptr().unwrap());
+  result    := io.await(statx(
+    AT_FDCWD, path_ptr,
+    AT_SYMLINK_NOFOLLOW, u32(STATX_BASIC_STATS),
+    buf_ptr
+  ));
+  cond(
+    (result < i32(0)) => exception.throw(IOError.from_errno((i32(0) - result))),
+    true => Metadata(_buf: buf)
+  )
+});
+
+export metadata, symlink_metadata;

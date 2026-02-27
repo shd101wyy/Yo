@@ -1,0 +1,41 @@
+// std/error/exception.yo - Exception algebraic effect
+//
+// Exception is a parametric module-based algebraic effect for typed error
+// propagation. Functions that may throw declare a `using(exception : Exception(E))`
+// implicit parameter. Calling `exception.throw(err)` aborts the current
+// continuation — the error propagates to whoever installed the exception handler.
+//
+// API:
+//
+//   Exception :: (fn(comptime(ErrorType) : Type) -> comptime(Type))(
+//     module(
+//       throw : (fn(forall(ResumeType : Type), error : ErrorType) -> ResumeType)
+//     )
+//   );
+//
+// Example (function that may throw):
+//   { Exception } :: import "std/error/exception";
+//
+//   safe_div :: (fn(x: i32, y: i32, using(exception : Exception(String))) -> i32)(
+//     cond(
+//       (y == i32(0)) => exception.throw(String.from("division by zero")),
+//       true => (x / y)
+//     )
+//   );
+//
+// Example (handling the exception):
+//   result := {
+//     (given(exception) : Exception(String)) = (fn(forall(R : Type), err : String) -> R)({
+//       println(err);
+//       abort i32(-1);
+//     });
+//     safe_div(i32(10), i32(0))
+//   };
+
+Exception :: (fn(comptime(ErrorType) : Type) -> comptime(Type))(
+  module(
+    throw : (fn(forall(ResumeType : Type), error : ErrorType) -> ResumeType)
+  )
+);
+
+export Exception;

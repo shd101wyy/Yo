@@ -1,0 +1,154 @@
+// std/encoding/base64.yo - Base64 encoding/decoding
+//
+// Standard (RFC 4648) and URL-safe base64 variants.
+//
+// Example:
+//   { base64_encode, base64_decode } :: import "std/encoding/base64";
+//
+//   s := base64_encode(data);
+//   b := base64_decode(s.to_str()).unwrap();
+
+open import "../string";
+{ ArrayList } :: import "../collections/array_list";
+{ EncodingError } :: import "./hex";
+
+// ============================================================================
+// Standard alphabet
+// ============================================================================
+
+_STD_ALPHA :: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+_URL_ALPHA :: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+_PAD :: u8(61); // '='
+
+// ============================================================================
+// Encoding
+// ============================================================================
+
+_encode_with :: (fn(data: ArrayList(u8), alpha: str, pad: bool) -> String)({
+  n   := data.len();
+  out := ArrayList(u8).with_capacity((((n + usize(2)) / usize(3)) * usize(4)));
+  i   := usize(0);
+  while (i < n), (i = (i + usize(3))), {
+    b0 := data.get(i).unwrap();
+    b1 := cond((i + usize(1)) < n => data.get((i + usize(1))).unwrap(), true => u8(0));
+    b2 := cond((i + usize(2)) < n => data.get((i + usize(2))).unwrap(), true => u8(0));
+
+    out.push(alpha.bytes(usize((b0 >> u8(2)))));
+    out.push(alpha.bytes(usize(((b0 & u8(3)) << u8(4)) | (b1 >> u8(4)))));
+    cond(
+      ((i + usize(1)) < n) => {
+        out.push(alpha.bytes(usize(((b1 & u8(15)) << u8(2)) | (b2 >> u8(6)))));
+      },
+      pad => {
+        out.push(_PAD);
+      },
+      true => ()
+    );
+    cond(
+      ((i + usize(2)) < n) => {
+        out.push(alpha.bytes(usize((b2 & u8(63)))));
+      },
+      pad => {
+        out.push(_PAD);
+      },
+      true => ()
+    );
+  };
+  String.from_bytes(out)
+});
+
+// Encode bytes as standard base64.
+base64_encode :: (fn(data: ArrayList(u8)) -> String)(
+  _encode_with(data, _STD_ALPHA, true)
+);
+
+// Encode bytes as URL-safe base64 (no padding).
+base64_encode_url :: (fn(data: ArrayList(u8)) -> String)(
+  _encode_with(data, _URL_ALPHA, false)
+);
+
+export base64_encode, base64_encode_url;
+
+// ============================================================================
+// Decoding
+// ============================================================================
+
+_decode_char :: (fn(c: u8, alpha: str) -> Result(u8, EncodingError))({
+  i := usize(0);
+  while (i < usize(64)), (i = (i + usize(1))), {
+    cond(
+      (alpha.bytes(i) == c) => { return .Ok(u8(i)); },
+      true => ()
+    );
+  };
+  .Err(.InvalidChar(c))
+});
+
+_decode_with :: (fn(s: str, alpha: str) -> Result(ArrayList(u8), EncodingError))({
+  // Strip trailing padding
+  len := s.len();
+  while ((len > usize(0)) && (s.bytes((len - usize(1))) == _PAD)), (len = (len - usize(1))), {};
+  out := ArrayList(u8).with_capacity(((len * usize(3)) / usize(4)));
+  i   := usize(0);
+  while (i < len), (i = (i + usize(4))), {
+    c0_r := _decode_char(s.bytes(i), alpha);
+    c1_r := cond(
+      ((i + usize(1)) < len) => _decode_char(s.bytes((i + usize(1))), alpha),
+      true => .Ok(u8(0))
+    );
+    c2_r := cond(
+      ((i + usize(2)) < len) => _decode_char(s.bytes((i + usize(2))), alpha),
+      true => .Ok(u8(0))
+    );
+    c3_r := cond(
+      ((i + usize(3)) < len) => _decode_char(s.bytes((i + usize(3))), alpha),
+      true => .Ok(u8(0))
+    );
+    match(c0_r,
+      .Err(e) => { return .Err(e); },
+      .Ok(c0) => {
+        match(c1_r,
+          .Err(e) => { return .Err(e); },
+          .Ok(c1) => {
+            out.push(((c0 << u8(2)) | (c1 >> u8(4))));
+            cond(
+              ((i + usize(2)) < len) => {
+                match(c2_r,
+                  .Err(e) => { return .Err(e); },
+                  .Ok(c2) => {
+                    out.push((((c1 & u8(15)) << u8(4)) | (c2 >> u8(2))));
+                    cond(
+                      ((i + usize(3)) < len) => {
+                        match(c3_r,
+                          .Err(e) => { return .Err(e); },
+                          .Ok(c3) => {
+                            out.push((((c2 & u8(3)) << u8(6)) | c3));
+                          }
+                        );
+                      },
+                      true => ()
+                    );
+                  }
+                );
+              },
+              true => ()
+            );
+          }
+        );
+      }
+    );
+  };
+  .Ok(out)
+});
+
+// Decode standard base64.
+base64_decode :: (fn(s: str) -> Result(ArrayList(u8), EncodingError))(
+  _decode_with(s, _STD_ALPHA)
+);
+
+// Decode URL-safe base64.
+base64_decode_url :: (fn(s: str) -> Result(ArrayList(u8), EncodingError))(
+  _decode_with(s, _URL_ALPHA)
+);
+
+export base64_decode, base64_decode_url;

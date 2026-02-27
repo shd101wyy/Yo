@@ -1,0 +1,145 @@
+// std/collections/deque.yo - Double-ended queue (ring buffer)
+//
+// A Deque supports O(1) push/pop at both ends using a circular buffer.
+//
+// Example:
+//   { Deque } :: import "std/collections/deque";
+//
+//   d := Deque(i32).new();
+//   d.push_back(1);
+//   d.push_front(0);
+//   x := d.pop_front().unwrap();  // 0
+
+{ GlobalAllocator, AllocError } :: import "../allocator";
+{ malloc, realloc, free } :: GlobalAllocator;
+
+// ============================================================================
+// Deque
+// ============================================================================
+
+Deque :: (fn(comptime(T) : Type) -> comptime(Type))(
+  object(
+    _buf      : ?*(T),
+    _head     : usize,
+    _tail     : usize,
+    _len      : usize,
+    _capacity : usize
+  )
+);
+
+impl(forall(T : Type), Deque(T),
+  // Create an empty Deque.
+  new : (fn() -> Self)(
+    Self(_buf: .None, _head: usize(0), _tail: usize(0), _len: usize(0), _capacity: usize(0))
+  ),
+
+  // Number of elements currently stored.
+  len : (fn(self: Self) -> usize)(
+    self._len
+  ),
+
+  // True if the deque contains no elements.
+  is_empty : (fn(self: Self) -> bool)(
+    (self._len == usize(0))
+  ),
+
+  // Ensure at least `min_cap` slots are available.
+  _grow : (fn(self: Self, min_cap: usize) -> unit)({
+    new_cap := cond(
+      (self._capacity == usize(0)) => usize(8),
+      true => (self._capacity * usize(2))
+    );
+    while (new_cap < min_cap), (new_cap = (new_cap * usize(2))), {};
+    size := (new_cap * __yo_sizeof(T));
+    new_buf := *(T)(malloc(size).unwrap());
+    // Linearise existing elements into the new buffer
+    i := usize(0);
+    while (i < self._len), (i = (i + usize(1))), {
+      idx := ((self._head + i) % self._capacity);
+      (new_buf &+ i).* = match(self._buf,
+        .Some(p) => (p &+ idx).*,
+        .None    => panic("deque internal error")
+      );
+    };
+    match(self._buf,
+      .Some(p) => free(.Some(*(void)(p))),
+      .None    => ()
+    );
+    self._buf      = .Some(new_buf);
+    self._head     = usize(0);
+    self._tail     = self._len;
+    self._capacity = new_cap;
+  }),
+
+  // Push an element to the back.
+  push_back : (fn(self: Self, val: T) -> unit)({
+    cond(
+      (self._len == self._capacity) => self._grow((self._len + usize(1))),
+      true => ()
+    );
+    buf := self._buf.unwrap();
+    (buf &+ self._tail).* = val;
+    self._tail = ((self._tail + usize(1)) % self._capacity);
+    self._len  = (self._len + usize(1));
+  }),
+
+  // Push an element to the front.
+  push_front : (fn(self: Self, val: T) -> unit)({
+    cond(
+      (self._len == self._capacity) => self._grow((self._len + usize(1))),
+      true => ()
+    );
+    self._head = cond(
+      (self._head == usize(0)) => (self._capacity - usize(1)),
+      true => (self._head - usize(1))
+    );
+    buf := self._buf.unwrap();
+    (buf &+ self._head).* = val;
+    self._len = (self._len + usize(1));
+  }),
+
+  // Remove and return the front element.
+  pop_front : (fn(self: Self) -> ?T)(
+    cond(
+      (self._len == usize(0)) => .None,
+      true => {
+        buf := self._buf.unwrap();
+        val := (buf &+ self._head).*;
+        self._head = ((self._head + usize(1)) % self._capacity);
+        self._len  = (self._len - usize(1));
+        .Some(val)
+      }
+    )
+  ),
+
+  // Remove and return the back element.
+  pop_back : (fn(self: Self) -> ?T)(
+    cond(
+      (self._len == usize(0)) => .None,
+      true => {
+        self._tail = cond(
+          (self._tail == usize(0)) => (self._capacity - usize(1)),
+          true => (self._tail - usize(1))
+        );
+        buf := self._buf.unwrap();
+        val := (buf &+ self._tail).*;
+        self._len = (self._len - usize(1));
+        .Some(val)
+      }
+    )
+  ),
+
+  // Get an element by logical index (0 = front).
+  get : (fn(self: Self, index: usize) -> ?T)(
+    cond(
+      (index >= self._len) => .None,
+      true => {
+        buf := self._buf.unwrap();
+        idx := ((self._head + index) % self._capacity);
+        .Some((buf &+ idx).*)
+      }
+    )
+  )
+);
+
+export Deque;

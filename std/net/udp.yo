@@ -1,0 +1,152 @@
+// std/net/udp.yo - High-level UDP socket
+//
+// Provides UdpSocket built on std/io/udp.
+//
+// Example:
+//   { UdpSocket } :: import "std/net/udp";
+//   { IpAddr, SocketAddr } :: import "std/net/addr";
+//
+//   sock := UdpSocket.bind(SocketAddr.new(IpAddr.any_v4(), u16(9000))).unwrap();
+
+{ ArrayList } :: import "../collections/array_list";
+{ GlobalAllocator } :: import "../allocator";
+{ malloc, free } :: GlobalAllocator;
+{ IOError } :: import "../io/errors";
+{
+  AF_INET, AF_INET6,
+  SOL_SOCKET, SO_BROADCAST,
+  sockaddr_in_size, sockaddr_in6_size
+} :: import "../io/socket";
+{
+  socket : udp_socket, bind, sendto, recvfrom, connect, send, recv, close,
+  setsockopt_int
+} :: import "../io/udp";
+{
+  make_sockaddr_in, make_sockaddr_in6, free_sockaddr,
+  SockAddr
+} :: import "../io/tcp";
+{ IOFuture } :: import "../io/future";
+{ IpAddr, SocketAddr } :: import "./addr";
+{ NetError } :: import "./errors";
+{ Exception } :: import "../error/exception";
+{ snprintf } :: import "../libc/stdio";
+
+// ============================================================================
+// Internal helpers
+// ============================================================================
+
+_sa_to_buf :: (fn(addr: SocketAddr) -> SockAddr)({
+  match(addr.ip,
+    .V4(a, b, c, d) => {
+      ip_buf := Array(u8, usize(20)).fill(u8(0));
+      ip_ptr := &(ip_buf(usize(0)));
+      snprintf(*(char)(ip_ptr), usize(20), "%u.%u.%u.%u",
+        i32(a), i32(b), i32(c), i32(d));
+      make_sockaddr_in(ip_ptr, addr.port)
+    },
+    .V6(segs) => {
+      ip_buf := Array(u8, usize(40)).fill(u8(0));
+      ip_ptr := &(ip_buf(usize(0)));
+      snprintf(*(char)(ip_ptr), usize(40),
+        "%x:%x:%x:%x:%x:%x:%x:%x",
+        i32(segs(usize(0))), i32(segs(usize(1))),
+        i32(segs(usize(2))), i32(segs(usize(3))),
+        i32(segs(usize(4))), i32(segs(usize(5))),
+        i32(segs(usize(6))), i32(segs(usize(7))));
+      make_sockaddr_in6(ip_ptr, addr.port)
+    }
+  )
+});
+
+_to_net_throw :: (fn(r: i32, using(exception : Exception(NetError))) -> i32)(
+  cond(
+    (r < i32(0)) => exception.throw(NetError.from_io(IOError.from_errno((i32(0) - r)))),
+    true => r
+  )
+);
+
+// ============================================================================
+// UdpSocket
+// ============================================================================
+
+UdpSocket :: object(
+  fd         : i32,
+  local_addr : SocketAddr
+);
+
+impl(UdpSocket,
+  // Bind a UDP socket to the given address.
+  bind : (fn(addr: SocketAddr, using(io : IO, exception : Exception(NetError))) -> Impl(Future(Self)))({
+    domain := match(addr.ip,
+      .V4(_, _, _, _) => AF_INET,
+      .V6(_)          => AF_INET6
+    );
+    fd := _to_net_throw(io.await(udp_socket(domain, i32(0))));
+    sa := _sa_to_buf(addr);
+    _to_net_throw(io.await(bind(fd, sa.buf, sa.len)));
+    free_sockaddr(sa);
+    UdpSocket(fd: fd, local_addr: addr)
+  }),
+
+  // Send a datagram to the given address.
+  send_to : (fn(self: Self, data: ArrayList(u8), addr: SocketAddr, using(io : IO, exception : Exception(NetError))) -> Impl(Future(i32)))({
+    sa := _sa_to_buf(addr);
+    data_ptr := *(u8)(data.ptr().unwrap());
+    r  := io.await(sendto(self.fd, data_ptr, data.len(), i32(0), sa.buf, sa.len));
+    free_sockaddr(sa);
+    _to_net_throw(r)
+  }),
+
+  // Receive a datagram. Returns (bytes_received, sender_address).
+  recv_from : (fn(self: Self, buf: *(u8), size: usize, using(io : IO, exception : Exception(NetError))) -> Impl(Future(struct(len: i32, addr: SocketAddr))))({
+    sa_size := usize(sockaddr_in_size());
+    sa_buf  := ArrayList(u8).with_capacity(sa_size);
+    sa_buf.set_len(sa_size);
+    sa_ptr := *(u8)(sa_buf.ptr().unwrap());
+    sa_len := u32(sa_size);
+    n := _to_net_throw(io.await(recvfrom(self.fd, buf, size, i32(0), sa_ptr, &sa_len)));
+    struct(
+      len:  n,
+      addr: self.local_addr  // Simplified: return local addr as placeholder
+    )
+  }),
+
+  // "Connect" the socket to a default destination.
+  connect : (fn(self: Self, addr: SocketAddr, using(io : IO, exception : Exception(NetError))) -> Impl(Future(unit)))({
+    sa := _sa_to_buf(addr);
+    _to_net_throw(io.await(connect(self.fd, sa.buf, sa.len)));
+    free_sockaddr(sa);
+    ()
+  }),
+
+  // Send a datagram to the connected address.
+  send : (fn(self: Self, data: ArrayList(u8), using(io : IO, exception : Exception(NetError))) -> Impl(Future(i32)))({
+    data_ptr := *(u8)(data.ptr().unwrap());
+    _to_net_throw(io.await(send(self.fd, data_ptr, data.len(), i32(0))))
+  }),
+
+  // Receive a datagram from the connected address.
+  recv : (fn(self: Self, buf: *(u8), size: usize, using(io : IO, exception : Exception(NetError))) -> Impl(Future(i32)))({
+    _to_net_throw(io.await(recv(self.fd, buf, size, i32(0))))
+  }),
+
+  // Close the socket.
+  close : (fn(self: Self, using(io : IO, exception : Exception(NetError))) -> Impl(Future(unit)))({
+    _to_net_throw(io.await(close(self.fd)));
+    ()
+  }),
+
+  // Enable or disable SO_BROADCAST.
+  set_broadcast : (fn(self: Self, enabled: bool, using(io : IO, exception : Exception(NetError))) -> Impl(Future(unit)))({
+    val := cond(enabled => i32(1), true => i32(0));
+    setsockopt_int(self.fd, SOL_SOCKET, SO_BROADCAST, val);
+    ()
+  }),
+
+  // Return the local address.
+  local_addr : (fn(self: Self) -> SocketAddr)(
+    self.local_addr
+  )
+);
+
+export UdpSocket;

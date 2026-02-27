@@ -1,0 +1,210 @@
+// std/net/addr.yo - IP and socket address types
+//
+// Provides IpAddr and SocketAddr value types for use in networking APIs.
+//
+// Example:
+//   { IpAddr, SocketAddr } :: import "std/net/addr";
+//
+//   addr := SocketAddr.new(IpAddr.loopback_v4(), u16(8080));
+
+open import "../string";
+{ ToString } :: import "../fmt";
+{ snprintf } :: import "../libc/stdio";
+{ NetError } :: import "./errors";
+
+// ============================================================================
+// IpAddr
+// ============================================================================
+
+IpAddr :: enum(
+  V4(a: u8, b: u8, c: u8, d: u8),
+  V6(segments: Array(u16, usize(8)))
+);
+
+impl(IpAddr,
+  // IPv4 loopback: 127.0.0.1
+  loopback_v4 : (fn() -> Self)(
+    .V4(a: u8(127), b: u8(0), c: u8(0), d: u8(1))
+  ),
+
+  // IPv4 any address: 0.0.0.0
+  any_v4 : (fn() -> Self)(
+    .V4(a: u8(0), b: u8(0), c: u8(0), d: u8(0))
+  ),
+
+  // IPv6 loopback: ::1
+  loopback_v6 : (fn() -> Self)(
+    .V6(segments: Array(u16, usize(8))(
+      u16(0), u16(0), u16(0), u16(0),
+      u16(0), u16(0), u16(0), u16(1)
+    ))
+  ),
+
+  // Parse a dotted-decimal IPv4 string (e.g. "192.168.1.1").
+  // Returns .Err on malformed input.
+  parse : (fn(s: str) -> Result(Self, NetError))({
+    // Simple dotted-quad parser
+    a := i32(0);
+    b := i32(0);
+    c := i32(0);
+    d := i32(0);
+    n := i32(0);
+    cur := i32(0);
+    ok := true;
+    i := usize(0);
+    while (i <= s.len()), (i = (i + usize(1))), {
+      ch := cond(
+        (i < s.len()) => i32(s.bytes(i)),
+        true => i32(46) // sentinel '.'
+      );
+      cond(
+        ((ch >= i32(48)) && (ch <= i32(57))) => {
+          cur = ((cur * i32(10)) + (ch - i32(48)));
+        },
+        (ch == i32(46)) => {
+          cond(
+            ((cur < i32(0)) || (cur > i32(255)) || (n >= i32(3))) => {
+              ok = false;
+            },
+            true => {
+              cond(
+                (n == i32(0)) => { a = cur; },
+                (n == i32(1)) => { b = cur; },
+                (n == i32(2)) => { c = cur; },
+                true => ()
+              );
+              n = (n + i32(1));
+              cur = i32(0);
+            }
+          );
+        },
+        true => { ok = false; }
+      );
+    };
+    // Last octet
+    cond(
+      ((cur < i32(0)) || (cur > i32(255))) => { ok = false; },
+      true => { d = cur; }
+    );
+    cond(
+      (ok && (n == i32(3))) => .Ok(.V4(a: u8(a), b: u8(b), c: u8(c), d: u8(d))),
+      true => .Err(.Other(String.from("invalid IP address")))
+    )
+  }),
+
+  // True if this is a loopback address.
+  is_loopback : (fn(self: *(Self)) -> bool)(
+    match(self.*,
+      .V4(a, _, _, _) => (a == u8(127)),
+      .V6(segs) => (
+        (segs(usize(0)) == u16(0)) &&
+        (segs(usize(1)) == u16(0)) &&
+        (segs(usize(2)) == u16(0)) &&
+        (segs(usize(3)) == u16(0)) &&
+        (segs(usize(4)) == u16(0)) &&
+        (segs(usize(5)) == u16(0)) &&
+        (segs(usize(6)) == u16(0)) &&
+        (segs(usize(7)) == u16(1))
+      )
+    )
+  ),
+
+  // True if this is a multicast address (224.0.0.0/4 for IPv4).
+  is_multicast : (fn(self: *(Self)) -> bool)(
+    match(self.*,
+      .V4(a, _, _, _) => ((a & u8(0xF0)) == u8(0xE0)),
+      .V6(segs) => ((segs(usize(0)) & u16(0xFF00)) == u16(0xFF00))
+    )
+  ),
+
+  // Format as a dotted-decimal / colon-hex string.
+  to_string : (fn(self: *(Self)) -> String)(
+    match(self.*,
+      .V4(a, b, c, d) => {
+        buf := Array(u8, usize(20)).fill(u8(0));
+        buf_ptr := &(buf(usize(0)));
+        snprintf(*(char)(buf_ptr), usize(20), "%u.%u.%u.%u",
+          i32(a), i32(b), i32(c), i32(d));
+        String.from_cstr(buf_ptr).unwrap()
+      },
+      .V6(segs) => {
+        buf := Array(u8, usize(40)).fill(u8(0));
+        buf_ptr := &(buf(usize(0)));
+        snprintf(*(char)(buf_ptr), usize(40),
+          "%x:%x:%x:%x:%x:%x:%x:%x",
+          i32(segs(usize(0))), i32(segs(usize(1))),
+          i32(segs(usize(2))), i32(segs(usize(3))),
+          i32(segs(usize(4))), i32(segs(usize(5))),
+          i32(segs(usize(6))), i32(segs(usize(7))));
+        String.from_cstr(buf_ptr).unwrap()
+      }
+    )
+  )
+);
+
+impl(IpAddr, ToString(
+  to_string : (fn(self: *(Self)) -> String)(
+    self.to_string()
+  )
+));
+
+export IpAddr;
+
+// ============================================================================
+// SocketAddr
+// ============================================================================
+
+SocketAddr :: struct(
+  ip   : IpAddr,
+  port : u16
+);
+
+impl(SocketAddr,
+  // Construct from an IpAddr and port.
+  new : (fn(ip: IpAddr, port: u16) -> Self)(
+    Self(ip: ip, port: port)
+  ),
+
+  // Parse "host:port" notation (IPv4 only for now).
+  parse : (fn(s: str) -> Result(Self, NetError))({
+    // Find last ':'
+    colon_pos := usize(0);
+    found := false;
+    i := usize(0);
+    while (i < s.len()), (i = (i + usize(1))), {
+      cond(
+        (s.bytes(i) == u8(58)) => { // ':'
+          colon_pos = i;
+          found = true;
+        },
+        true => ()
+      );
+    };
+    cond(
+      (!found) => .Err(.Other(String.from("missing port in address"))),
+      true => {
+        // TODO: proper substr when String/str gets a slice API
+        // For now: rely on caller providing simple forms
+        .Err(.Other(String.from("parse not fully implemented")))
+      }
+    )
+  }),
+
+  // Format as "ip:port".
+  to_string : (fn(self: *(Self)) -> String)({
+    ip_s := self.ip.to_string();
+    buf  := Array(u8, usize(8)).fill(u8(0));
+    buf_ptr := &(buf(usize(0)));
+    snprintf(*(char)(buf_ptr), usize(8), "%u", i32(self.port));
+    port_s := String.from_cstr(buf_ptr).unwrap();
+    ip_s.concat(String.from(":")).concat(port_s)
+  })
+);
+
+impl(SocketAddr, ToString(
+  to_string : (fn(self: *(Self)) -> String)(
+    self.to_string()
+  )
+));
+
+export SocketAddr;

@@ -1,0 +1,106 @@
+// std/net/dns.yo - High-level DNS resolution
+//
+// Wraps std/io/dns to provide typed IpAddr lookups.
+//
+// Example:
+//   { lookup_host } :: import "std/net/dns";
+//
+//   addrs := lookup_host(String.from("example.com")).unwrap();
+
+{ ArrayList } :: import "../collections/array_list";
+{ GlobalAllocator } :: import "../allocator";
+{ malloc, free } :: GlobalAllocator;
+{ IOError } :: import "../io/errors";
+{
+  getaddrinfo, freeaddrinfo,
+  alloc_result, get_result, free_result,
+  addrinfo_family, addrinfo_addr, addrinfo_next
+} :: import "../io/dns";
+{
+  AF_INET, AF_INET6
+} :: import "../io/socket";
+{ IpAddr, SocketAddr } :: import "./addr";
+{ NetError } :: import "./errors";
+{ Exception } :: import "../error/exception";
+open import "../string";
+
+// ============================================================================
+// DNS lookup functions
+// ============================================================================
+
+// Resolve a hostname to a list of IpAddr values.
+lookup_host :: (fn(host: String, using(io : IO, exception : Exception(NetError))) -> Impl(Future(ArrayList(IpAddr))))({
+  host_cstr  := host.to_cstr();
+  host_ptr   := host_cstr.ptr().unwrap();
+  result_ptr := alloc_result();
+
+  ret := io.await(getaddrinfo(host_ptr, .None, .None, result_ptr));
+  cond(
+    (ret != i32(0)) => {
+      free_result(result_ptr);
+      exception.throw(.DNSFailed(String.from("DNS lookup failed")));
+    },
+    true => ()
+  );
+
+  addrs := ArrayList(IpAddr).new();
+  cur   := get_result(result_ptr);
+
+  while runtime(true), () => {
+    match(cur,
+      .None => break,
+      .Some(ai) => {
+        family := addrinfo_family(ai);
+        sa     := addrinfo_addr(ai);
+        cond(
+          (family == AF_INET) => {
+            // Extract 4 octets from in_addr (bytes 4-7 of sockaddr_in)
+            addr_ptr := (sa &+ usize(4));
+            a := (addr_ptr &+ usize(0)).*;
+            b := (addr_ptr &+ usize(1)).*;
+            c := (addr_ptr &+ usize(2)).*;
+            d := (addr_ptr &+ usize(3)).*;
+            addrs.push(.V4(a: a, b: b, c: c, d: d));
+          },
+          (family == AF_INET6) => {
+            // Extract 16 bytes → 8 u16 segments from in6_addr (bytes 8-23 of sockaddr_in6)
+            addr_ptr := (sa &+ usize(8));
+            segs := Array(u16, usize(8))(
+              u16(0), u16(0), u16(0), u16(0),
+              u16(0), u16(0), u16(0), u16(0)
+            );
+            i := usize(0);
+            while (i < usize(8)), (i = (i + usize(1))), {
+              hi := u16((addr_ptr &+ (i * usize(2))).*);
+              lo := u16((addr_ptr &+ ((i * usize(2)) + usize(1))).*);
+              segs(i) = ((hi << u16(8)) | lo);
+            };
+            addrs.push(.V6(segments: segs));
+          },
+          true => ()
+        );
+        cur = addrinfo_next(ai);
+      }
+    );
+  };
+
+  match(get_result(result_ptr),
+    .Some(ai) => freeaddrinfo(ai),
+    .None => ()
+  );
+  free_result(result_ptr);
+  addrs
+});
+
+// Resolve a hostname and port to a list of SocketAddr values.
+resolve :: (fn(host: String, port: u16, using(io : IO, exception : Exception(NetError))) -> Impl(Future(ArrayList(SocketAddr))))({
+  ips := io.await(lookup_host(host));
+  out := ArrayList(SocketAddr).new();
+  i := usize(0);
+  while (i < ips.len()), (i = (i + usize(1))), {
+    out.push(SocketAddr.new(ips.get(i).unwrap(), port));
+  };
+  out
+});
+
+export lookup_host, resolve;

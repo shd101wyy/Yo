@@ -4,45 +4,90 @@
 
 With the low-level `std/io` async I/O foundation complete (37 modules covering file, socket, process, mmap, signals, TTY, DNS, etc.), this plan covers building the **high-level standard library** that makes Yo battery-included. These modules sit on top of `std/io` and provide ergonomic, type-safe APIs for common programming tasks.
 
+## Algebraic Effects and IO
+
+All async I/O in Yo is expressed via two **algebraic effects**:
+
+1. **`IO`** — for async I/O suspension/resumption via `io.await(...)`.
+2. **`Exception(E)`** — for typed error propagation via `exception.throw(...)`.
+
+Async functions that perform I/O take `using(io : IO, exception : Exception(E))` implicit parameters. They return `Impl(Future(T))` — the `Impl(Future(...))` wrapper makes the async nature explicit at the type level. Callers use `io.await(fn(...))` to drive execution and get back `T` directly (no `Result` wrapping needed — errors propagate via the `Exception` effect).
+
+```yo
+// Async + Exception style (current):
+File.create :: (fn(path: String, using(io : IO, exception : Exception(IOError))) -> Impl(Future(File))) ...;
+
+// Sync functions that cannot fail return T directly:
+File.position :: (fn(self: Self) -> i64) ...;
+
+// Sync functions that can fail still return Result:
+File.seek :: (fn(self: Self, offset: i64, whence: i32) -> Result(i64, IOError)) ...;
+
+// Old style (replaced — kept here for reference only):
+// File.read :: (fn(self: Self, buf: *(u8), size: usize, using(io : IO)) -> Result(i32, IOError)) ...;
+// File.create :: (fn(path: str, using(io : IO)) -> Impl(Future(Result(File, IOError)))) ...;
+```
+
+The `Exception` effect is defined in `std/error/exception.yo`:
+
+```yo
+Exception :: (fn(comptime(ErrorType) : Type) -> comptime(Type))(
+  module(
+    throw : (fn(forall(ResumeType : Type), error : ErrorType) -> ResumeType)
+  )
+);
+```
+
+Byte buffers use `ArrayList(u8)` (not `Slice(u8)`).
+
 ## Current Standard Library Status
 
 ### What's Done
 
-| Module             | File(s)              | Status      | Notes                                                                 |
-| ------------------ | -------------------- | ----------- | --------------------------------------------------------------------- |
-| **Prelude**        | `std/prelude.yo`     | ✅ Complete | Core types, traits, operators, Box, Option, Result, Array, Slice      |
-| **String**         | `std/string/`        | ✅ Complete | Immutable UTF-8 `String`, `rune` (Unicode code point)                 |
-| **Collections**    | `std/collections/`   | ✅ Complete | `ArrayList`, `HashMap`, `HashSet`, `LinkedList`                       |
-| **Path**           | `std/path.yo`        | ✅ Complete | Cross-platform path manipulation (join, parent, extension, normalize) |
-| **Process**        | `std/process.yo`     | ✅ Complete | Platform/arch detection, args, env, cwd, chdir, exit                  |
-| **Allocator**      | `std/allocator.yo`   | ✅ Complete | `GlobalAllocator` (mimalloc/libc), `CustomAllocator` trait            |
-| **Format**         | `std/fmt/`           | ✅ Complete | `ToString` trait + impls for all primitive types                      |
-| **Hash**           | `std/alg/hash.yo`    | ✅ Complete | FNV-1a hash function                                                  |
-| **Sync**           | `std/sync.yo`        | ✅ Complete | `Mutex`, `Cond` (stack + GC-managed variants)                         |
-| **Thread**         | `std/thread.yo`      | ✅ Complete | `Thread` (spawn/join), hardware thread count                          |
-| **Worker**         | `std/worker.yo`      | ✅ Complete | Thread pool with round-robin task distribution                        |
-| **GC**             | `std/gc.yo`          | ✅ Complete | `collect`, `tracked_count`                                            |
-| **Async**          | `std/async.yo`       | ✅ Minimal  | Only `yield`; async/await is built into the language                  |
-| **Time**           | `std/time.yo`        | 🔸 Minimal  | Only `sleep`; no Duration, Instant, DateTime                          |
-| **Error**          | `std/error.yo`       | ❌ Empty    | No error types defined                                                |
-| **IO (low-level)** | `std/io/` (37 files) | ✅ Complete | Full async I/O: file, socket, process, mmap, DNS, signals, TTY, etc.  |
-| **Libc bindings**  | `std/libc/`          | ✅ Complete | stdio, stdlib, string, math, errno, signal, etc.                      |
+| Module             | File(s)              | Status      | Notes                                                                                 |
+| ------------------ | -------------------- | ----------- | ------------------------------------------------------------------------------------- |
+| **Prelude**        | `std/prelude.yo`     | ✅ Complete | Core types, traits, operators, Box, Option, Result, Array, Slice; IO algebraic effect |
+| **String**         | `std/string/`        | ✅ Complete | Immutable UTF-8 `String`, `rune` (Unicode code point)                                 |
+| **Collections**    | `std/collections/`   | ✅ Complete | `ArrayList`, `HashMap`, `HashSet`, `LinkedList`, `Deque`, `BTreeMap`, `PriorityQueue` |
+| **Path**           | `std/path.yo`        | ✅ Complete | Cross-platform path manipulation (join, parent, extension, normalize)                 |
+| **Process**        | `std/process.yo`     | ✅ Complete | Platform/arch detection, args, env, cwd, chdir, exit                                  |
+| **Allocator**      | `std/allocator.yo`   | ✅ Complete | `GlobalAllocator` (mimalloc/libc), `CustomAllocator` trait                            |
+| **Format**         | `std/fmt/`           | ✅ Complete | `ToString` trait, `Writer`, `Display`; `println`/`print`/`eprintln`                   |
+| **Hash**           | `std/alg/hash.yo`    | ✅ Complete | FNV-1a hash function                                                                  |
+| **Sync**           | `std/sync.yo`        | ✅ Complete | `Mutex`, `Cond` (stack + GC-managed variants)                                         |
+| **Thread**         | `std/thread.yo`      | ✅ Complete | `Thread` (spawn/join), hardware thread count                                          |
+| **Worker**         | `std/worker.yo`      | ✅ Complete | Thread pool with round-robin task distribution                                        |
+| **GC**             | `std/gc.yo`          | ✅ Complete | `collect`, `tracked_count`                                                            |
+| **Async**          | `std/async.yo`       | ✅ Minimal  | Only `yield`; async/await uses IO algebraic effect                                    |
+| **Time**           | `std/time.yo`        | 🔸 Minimal  | Only `sleep`; see `std/time/` for Duration, Instant, DateTime                         |
+| **Time (rich)**    | `std/time/`          | ✅ Complete | `Duration`, `Instant` (monotonic), `DateTime` (wall clock)                            |
+| **Error**          | `std/error/`         | ✅ Complete | `Error` trait + `Exception(E)` algebraic effect for typed error propagation           |
+| **IO (low-level)** | `std/io/` (37 files) | ✅ Complete | Full async I/O: file, socket, process, mmap, DNS, signals, TTY, etc.                  |
+| **Libc bindings**  | `std/libc/`          | ✅ Complete | stdio, stdlib, string, math, errno, signal, etc.                                      |
+| **FS**             | `std/fs/`            | ✅ Complete | `File`, `Metadata`, `TempDir`, `TempFile`, directory walker                           |
+| **Net**            | `std/net/`           | ✅ Complete | `TcpStream`, `TcpListener`, `UdpSocket`, `IpAddr`, DNS lookup                         |
+| **OS**             | `std/os/`            | ✅ Complete | Signal handling, environment directory utilities                                      |
+| **Encoding**       | `std/encoding/`      | ✅ Complete | Base64, hex, JSON, UTF-16                                                             |
+| **Crypto**         | `std/crypto/`        | ✅ Complete | SHA-256, MD5, secure random, UUID v4                                                  |
+| **Math**           | `std/math/`          | ✅ Complete | Generic min/max/clamp, lerp, PRNG (xoshiro256\*\*)                                    |
+| **Log**            | `std/log/`           | ✅ Complete | Structured logger with level filtering and output routing                             |
+| **Testing**        | `std/testing/`       | ✅ Complete | Rich assertion helpers, micro-benchmarking                                            |
 
 ### What's Missing
 
-The major gaps for a "battery-included" standard library:
+The major gaps for a "battery-included" standard library — all now implemented:
 
-1. **`std/fs`** — High-level filesystem API (buffered reader/writer, file objects, directory walker)
-2. **`std/net`** — High-level networking (TCP/UDP client/server objects, HTTP basics)
-3. **`std/os`** — OS-level utilities (environment, signals, users/groups)
-4. **`std/time`** — Rich time library (Duration, Instant, DateTime, formatting)
-5. **`std/fmt`** — String formatting/interpolation engine
-6. **`std/encoding`** — Base64, hex, JSON, UTF-16
-7. **`std/crypto`** — Hashing (SHA-256, MD5), random number generation
-8. **`std/math`** — Math functions beyond libc (BigInt, complex numbers)
-9. **`std/testing`** — Test utilities (assertions, mocking, benchmarks)
-10. **`std/log`** — Structured logging
-11. **`std/regex`** — Regular expressions
+1. **`std/fs`** ✅ — High-level filesystem API (buffered reader/writer, file objects, directory walker)
+2. **`std/net`** ✅ — High-level networking (TCP/UDP client/server objects, DNS lookup)
+3. **`std/os`** ✅ — OS-level utilities (environment directory utilities, typed signal handling)
+4. **`std/time`** ✅ — Rich time library (Duration, Instant, DateTime, formatting)
+5. **`std/fmt`** ✅ — String formatting (Writer, Display trait, println/print/eprintln)
+6. **`std/encoding`** ✅ — Base64, hex, JSON, UTF-16
+7. **`std/crypto`** ✅ — Hashing (SHA-256, MD5), secure random, UUID v4
+8. **`std/math`** ✅ — Generic min/max/clamp, lerp, PRNG (xoshiro256\*\*)
+9. **`std/testing`** ✅ — Test utilities (rich assertions, micro-benchmarks)
+10. **`std/log`** ✅ — Structured logging with level filtering
+11. **`std/regex`** — Regular expressions (still missing)
 
 ---
 
@@ -66,39 +111,39 @@ File :: object(
   _is_closed : bool
 );
 
-// Static constructors
-File.open :: (fn(path: str, flags: i32, mode: i32) -> Impl(Future(Result(File, IOError)))) ...;
-File.create :: (fn(path: str) -> Impl(Future(Result(File, IOError)))) ...;
-File.open_read :: (fn(path: str) -> Impl(Future(Result(File, IOError)))) ...;
-File.open_append :: (fn(path: str) -> Impl(Future(Result(File, IOError)))) ...;
+// Static constructors — IO + Exception effects
+File.open :: (fn(path: String, flags: i32, mode: i32, using(io : IO, exception : Exception(IOError))) -> Impl(Future(File))) ...;
+File.create :: (fn(path: String, using(io : IO, exception : Exception(IOError))) -> Impl(Future(File))) ...;
+File.open_read :: (fn(path: String, using(io : IO, exception : Exception(IOError))) -> Impl(Future(File))) ...;
+File.open_append :: (fn(path: String, using(io : IO, exception : Exception(IOError))) -> Impl(Future(File))) ...;
 
-// Instance methods
-File.read :: (fn(self: Self, buf: Slice(u8)) -> Impl(Future(Result(i32, IOError)))) ...;
-File.write :: (fn(self: Self, data: str) -> Impl(Future(Result(i32, IOError)))) ...;
-File.write_bytes :: (fn(self: Self, data: Slice(u8)) -> Impl(Future(Result(i32, IOError)))) ...;
-File.read_all :: (fn(self: Self) -> Impl(Future(Result(ArrayList(u8), IOError)))) ...;
-File.read_to_string :: (fn(self: Self) -> Impl(Future(Result(String, IOError)))) ...;
-File.flush :: (fn(self: Self) -> Impl(Future(Result(unit, IOError)))) ...;
-File.seek :: (fn(self: Self, offset: i64, whence: i32) -> Impl(Future(Result(i64, IOError)))) ...;
+// Instance methods — IO + Exception effects
+File.read :: (fn(self: Self, buf: *(u8), size: usize, using(io : IO, exception : Exception(IOError))) -> Impl(Future(i32))) ...;
+File.write :: (fn(self: Self, data: String, using(io : IO, exception : Exception(IOError))) -> Impl(Future(i32))) ...;
+File.write_bytes :: (fn(self: Self, data: ArrayList(u8), using(io : IO, exception : Exception(IOError))) -> Impl(Future(i32))) ...;
+File.read_all :: (fn(self: Self, using(io : IO, exception : Exception(IOError))) -> Impl(Future(ArrayList(u8)))) ...;
+File.read_to_string :: (fn(self: Self, using(io : IO, exception : Exception(IOError))) -> Impl(Future(String))) ...;
+File.flush :: (fn(self: Self, using(io : IO, exception : Exception(IOError))) -> Impl(Future(unit))) ...;
+File.seek :: (fn(self: Self, offset: i64, whence: i32) -> Result(i64, IOError)) ...;   // sync, still uses Result
 File.position :: (fn(self: Self) -> i64) ...;
-File.size :: (fn(self: Self) -> Impl(Future(Result(i64, IOError)))) ...;
-File.close :: (fn(self: Self) -> Impl(Future(Result(unit, IOError)))) ...;
-File.metadata :: (fn(self: Self) -> Impl(Future(Result(Metadata, IOError)))) ...;
+File.size :: (fn(self: Self, using(io : IO, exception : Exception(IOError))) -> Impl(Future(i64))) ...;
+File.close :: (fn(self: Self, using(io : IO, exception : Exception(IOError))) -> Impl(Future(unit))) ...;
+File.metadata :: (fn(self: Self, using(io : IO, exception : Exception(IOError))) -> Impl(Future(Metadata))) ...;
 
 // Convenience functions (no File object needed)
-read_file :: (fn(path: str) -> Impl(Future(Result(ArrayList(u8), IOError)))) ...;
-read_to_string :: (fn(path: str) -> Impl(Future(Result(String, IOError)))) ...;
-write_file :: (fn(path: str, data: str) -> Impl(Future(Result(unit, IOError)))) ...;
-write_bytes :: (fn(path: str, data: Slice(u8)) -> Impl(Future(Result(unit, IOError)))) ...;
-append_file :: (fn(path: str, data: str) -> Impl(Future(Result(unit, IOError)))) ...;
-exists :: (fn(path: str) -> bool) ...;
+read_file :: (fn(path: String, using(io : IO, exception : Exception(IOError))) -> Impl(Future(ArrayList(u8)))) ...;
+read_to_string :: (fn(path: String, using(io : IO, exception : Exception(IOError))) -> Impl(Future(String))) ...;
+write_file :: (fn(path: String, data: String, using(io : IO, exception : Exception(IOError))) -> Impl(Future(unit))) ...;
+write_bytes :: (fn(path: String, data: ArrayList(u8), using(io : IO, exception : Exception(IOError))) -> Impl(Future(unit))) ...;
+append_file :: (fn(path: String, data: String, using(io : IO, exception : Exception(IOError))) -> Impl(Future(unit))) ...;
+exists :: (fn(path: String, using(io : IO, exception : Exception(IOError))) -> Impl(Future(bool))) ...;
 ```
 
 ### 1.2 `std/fs/metadata.yo` — File Metadata
 
 ```yo
 Metadata :: struct(
-  _buf : Array(u8, STATX_BUF_SIZE)
+  _buf : ArrayList(u8)
 );
 
 Metadata.size :: (fn(self: *(Self)) -> i64) ...;
@@ -116,25 +161,22 @@ Permissions.readonly :: (fn(self: *(Self)) -> bool) ...;
 Permissions.set_readonly :: (fn(self: *(Self), readonly: bool) -> unit) ...;
 
 // Convenience
-metadata :: (fn(path: str) -> Impl(Future(Result(Metadata, IOError)))) ...;
-symlink_metadata :: (fn(path: str) -> Impl(Future(Result(Metadata, IOError)))) ...;
+metadata :: (fn(path: String, using(io : IO, exception : Exception(IOError))) -> Impl(Future(Metadata))) ...;
+symlink_metadata :: (fn(path: String, using(io : IO, exception : Exception(IOError))) -> Impl(Future(Metadata))) ...;
 ```
 
 ### 1.3 `std/fs/dir.yo` — Directory Operations
 
 ```yo
 // High-level directory operations
-create_dir :: (fn(path: str) -> Impl(Future(Result(unit, IOError)))) ...;
-create_dir_all :: (fn(path: str) -> Impl(Future(Result(unit, IOError)))) ...;
-remove_dir :: (fn(path: str) -> Impl(Future(Result(unit, IOError)))) ...;
-remove_dir_all :: (fn(path: str) -> Impl(Future(Result(unit, IOError)))) ...;
-remove_file :: (fn(path: str) -> Impl(Future(Result(unit, IOError)))) ...;
-rename :: (fn(from: str, to: str) -> Impl(Future(Result(unit, IOError)))) ...;
-copy :: (fn(from: str, to: str) -> Impl(Future(Result(unit, IOError)))) ...;
-hard_link :: (fn(src: str, dst: str) -> Impl(Future(Result(unit, IOError)))) ...;
-symlink :: (fn(src: str, dst: str) -> Impl(Future(Result(unit, IOError)))) ...;
-read_link :: (fn(path: str) -> Impl(Future(Result(String, IOError)))) ...;
-canonicalize :: (fn(path: str) -> Impl(Future(Result(String, IOError)))) ...;
+create_dir :: (fn(path: String, using(io : IO, exception : Exception(IOError))) -> Impl(Future(unit))) ...;
+create_dir_all :: (fn(path: String, using(io : IO, exception : Exception(IOError))) -> Impl(Future(unit))) ...;
+remove_dir :: (fn(path: String, using(io : IO, exception : Exception(IOError))) -> Impl(Future(unit))) ...;
+remove_dir_all :: (fn(path: String, using(io : IO, exception : Exception(IOError))) -> Impl(Future(unit))) ...;
+remove_file :: (fn(path: String, using(io : IO, exception : Exception(IOError))) -> Impl(Future(unit))) ...;
+rename :: (fn(from: String, to: String, using(io : IO, exception : Exception(IOError))) -> Impl(Future(unit))) ...;
+hard_link :: (fn(src: String, dst: String, using(io : IO, exception : Exception(IOError))) -> Impl(Future(unit))) ...;
+symlink :: (fn(src: String, dst: String, using(io : IO, exception : Exception(IOError))) -> Impl(Future(unit))) ...;
 
 // Directory listing
 DirEntry :: struct(
@@ -144,14 +186,9 @@ DirEntry :: struct(
   ino : u64
 );
 
-FileType :: enum(
-  .File,
-  .Directory,
-  .Symlink,
-  .Other
-);
+FileType :: enum(File, Directory, Symlink, Other);   // note: no leading dots in enum declaration
 
-read_dir :: (fn(path: str) -> Impl(Future(Result(ArrayList(DirEntry), IOError)))) ...;
+read_dir :: (fn(path: String, using(io : IO, exception : Exception(IOError))) -> Impl(Future(ArrayList(DirEntry)))) ...;
 ```
 
 ### 1.4 `std/fs/walker.yo` — Recursive Directory Traversal
@@ -170,27 +207,30 @@ WalkOptions :: struct(
   include_dirs : bool
 );
 
-walk :: (fn(root: str) -> Impl(Future(Result(ArrayList(WalkEntry), IOError)))) ...;
-walk_with :: (fn(root: str, options: WalkOptions) -> Impl(Future(Result(ArrayList(WalkEntry), IOError)))) ...;
+walk :: (fn(root: String, using(io : IO, exception : Exception(IOError))) -> Impl(Future(ArrayList(WalkEntry)))) ...;
+walk_with :: (fn(root: String, options: WalkOptions, using(io : IO, exception : Exception(IOError))) -> Impl(Future(ArrayList(WalkEntry)))) ...;
 ```
 
 ### 1.5 `std/fs/temp.yo` — Temporary Files and Directories
 
 ```yo
 TempDir :: object(
-  path : String,
-  _deleted : bool
+  _path : String,
+  _removed : bool
 );
-TempDir.new :: (fn() -> Impl(Future(Result(TempDir, IOError)))) ...;
-TempDir.new_in :: (fn(parent: str) -> Impl(Future(Result(TempDir, IOError)))) ...;
-TempDir.path :: (fn(self: Self) -> str) ...;
+TempDir.new :: (fn(using(io : IO, exception : Exception(IOError))) -> Impl(Future(TempDir))) ...;
+TempDir.new_in :: (fn(parent: String, using(io : IO, exception : Exception(IOError))) -> Impl(Future(TempDir))) ...;
+TempDir.path :: (fn(self: Self) -> String) ...;
+TempDir.remove :: (fn(self: Self, using(io : IO, exception : Exception(IOError))) -> Impl(Future(unit))) ...;
 
 TempFile :: object(
   file : File,
-  path : String
+  _path : String
 );
-TempFile.new :: (fn() -> Impl(Future(Result(TempFile, IOError)))) ...;
-TempFile.new_in :: (fn(parent: str) -> Impl(Future(Result(TempFile, IOError)))) ...;
+TempFile.new :: (fn(using(io : IO, exception : Exception(IOError))) -> Impl(Future(TempFile))) ...;
+TempFile.new_in :: (fn(parent: String, using(io : IO, exception : Exception(IOError))) -> Impl(Future(TempFile))) ...;
+TempFile.path :: (fn(self: Self) -> String) ...;
+TempFile.remove :: (fn(self: Self, using(io : IO, exception : Exception(IOError))) -> Impl(Future(unit))) ...;
 ```
 
 **Tests**: File read/write round-trip, buffered I/O, read_to_string, metadata queries, create_dir_all, remove_dir_all, directory walk, temp file/dir auto-cleanup.
@@ -235,10 +275,10 @@ TcpListener :: object(
   fd : i32,
   local_addr : SocketAddr
 );
-TcpListener.bind :: (fn(addr: SocketAddr) -> Impl(Future(Result(TcpListener, NetError)))) ...;
-TcpListener.accept :: (fn(self: Self) -> Impl(Future(Result(TcpStream, NetError)))) ...;
+TcpListener.bind :: (fn(addr: SocketAddr, using(io : IO, exception : Exception(NetError))) -> Impl(Future(TcpListener))) ...;
+TcpListener.accept :: (fn(self: Self, using(io : IO, exception : Exception(NetError))) -> Impl(Future(TcpStream))) ...;
 TcpListener.local_addr :: (fn(self: Self) -> SocketAddr) ...;
-TcpListener.close :: (fn(self: Self) -> Impl(Future(Result(unit, NetError)))) ...;
+TcpListener.close :: (fn(self: Self, using(io : IO, exception : Exception(NetError))) -> Impl(Future(unit))) ...;
 
 TcpStream :: object(
   fd : i32,
@@ -247,18 +287,18 @@ TcpStream :: object(
   _read_buf : ArrayList(u8),
   _write_buf : ArrayList(u8)
 );
-TcpStream.connect :: (fn(addr: SocketAddr) -> Impl(Future(Result(TcpStream, NetError)))) ...;
-TcpStream.read :: (fn(self: Self, buf: Slice(u8)) -> Impl(Future(Result(i32, NetError)))) ...;
-TcpStream.write :: (fn(self: Self, data: str) -> Impl(Future(Result(i32, NetError)))) ...;
-TcpStream.write_bytes :: (fn(self: Self, data: Slice(u8)) -> Impl(Future(Result(i32, NetError)))) ...;
-TcpStream.flush :: (fn(self: Self) -> Impl(Future(Result(unit, NetError)))) ...;
-TcpStream.read_all :: (fn(self: Self) -> Impl(Future(Result(ArrayList(u8), NetError)))) ...;
-TcpStream.shutdown :: (fn(self: Self) -> Impl(Future(Result(unit, NetError)))) ...;
-TcpStream.close :: (fn(self: Self) -> Impl(Future(Result(unit, NetError)))) ...;
+TcpStream.connect :: (fn(addr: SocketAddr, using(io : IO, exception : Exception(NetError))) -> Impl(Future(TcpStream))) ...;
+TcpStream.read :: (fn(self: Self, buf: *(u8), size: usize, using(io : IO, exception : Exception(NetError))) -> Impl(Future(i32))) ...;
+TcpStream.write :: (fn(self: Self, data: String, using(io : IO, exception : Exception(NetError))) -> Impl(Future(i32))) ...;
+TcpStream.write_bytes :: (fn(self: Self, data: ArrayList(u8), using(io : IO, exception : Exception(NetError))) -> Impl(Future(i32))) ...;
+TcpStream.flush :: (fn(self: Self, using(io : IO, exception : Exception(NetError))) -> Impl(Future(unit))) ...;
+TcpStream.read_all :: (fn(self: Self, using(io : IO, exception : Exception(NetError))) -> Impl(Future(ArrayList(u8)))) ...;
+TcpStream.shutdown :: (fn(self: Self, using(io : IO, exception : Exception(NetError))) -> Impl(Future(unit))) ...;
+TcpStream.close :: (fn(self: Self, using(io : IO, exception : Exception(NetError))) -> Impl(Future(unit))) ...;
 TcpStream.local_addr :: (fn(self: Self) -> SocketAddr) ...;
 TcpStream.peer_addr :: (fn(self: Self) -> SocketAddr) ...;
-TcpStream.set_nodelay :: (fn(self: Self, nodelay: bool) -> Impl(Future(Result(unit, NetError)))) ...;
-TcpStream.set_keepalive :: (fn(self: Self, enabled: bool) -> Impl(Future(Result(unit, NetError)))) ...;
+TcpStream.set_nodelay :: (fn(self: Self, nodelay: bool, using(io : IO, exception : Exception(NetError))) -> Impl(Future(unit))) ...;
+TcpStream.set_keepalive :: (fn(self: Self, enabled: bool, using(io : IO, exception : Exception(NetError))) -> Impl(Future(unit))) ...;
 ```
 
 ### 2.3 `std/net/udp.yo` — UDP Socket
@@ -268,22 +308,21 @@ UdpSocket :: object(
   fd : i32,
   local_addr : SocketAddr
 );
-UdpSocket.bind :: (fn(addr: SocketAddr) -> Impl(Future(Result(UdpSocket, NetError)))) ...;
-UdpSocket.send_to :: (fn(self: Self, data: Slice(u8), addr: SocketAddr) -> Impl(Future(Result(i32, NetError)))) ...;
-UdpSocket.recv_from :: (fn(self: Self, buf: Slice(u8)) -> Impl(Future(Result(struct(len: i32, addr: SocketAddr), NetError)))) ...;
-UdpSocket.connect :: (fn(self: Self, addr: SocketAddr) -> Impl(Future(Result(unit, NetError)))) ...;
-UdpSocket.send :: (fn(self: Self, data: Slice(u8)) -> Impl(Future(Result(i32, NetError)))) ...;
-UdpSocket.recv :: (fn(self: Self, buf: Slice(u8)) -> Impl(Future(Result(i32, NetError)))) ...;
-UdpSocket.close :: (fn(self: Self) -> Impl(Future(Result(unit, NetError)))) ...;
-UdpSocket.set_broadcast :: (fn(self: Self, enabled: bool) -> Impl(Future(Result(unit, NetError)))) ...;
+UdpSocket.bind :: (fn(addr: SocketAddr, using(io : IO, exception : Exception(NetError))) -> Impl(Future(UdpSocket))) ...;
+UdpSocket.send_to :: (fn(self: Self, data: ArrayList(u8), addr: SocketAddr, using(io : IO, exception : Exception(NetError))) -> Impl(Future(i32))) ...;
+UdpSocket.recv_from :: (fn(self: Self, buf: *(u8), size: usize, using(io : IO, exception : Exception(NetError))) -> Impl(Future(struct(len: i32, addr: SocketAddr)))) ...;
+UdpSocket.connect :: (fn(self: Self, addr: SocketAddr, using(io : IO, exception : Exception(NetError))) -> Impl(Future(unit))) ...;
+UdpSocket.send :: (fn(self: Self, data: ArrayList(u8), using(io : IO, exception : Exception(NetError))) -> Impl(Future(i32))) ...;
+UdpSocket.recv :: (fn(self: Self, buf: *(u8), size: usize, using(io : IO, exception : Exception(NetError))) -> Impl(Future(i32))) ...;
+UdpSocket.close :: (fn(self: Self, using(io : IO, exception : Exception(NetError))) -> Impl(Future(unit))) ...;
+UdpSocket.set_broadcast :: (fn(self: Self, enabled: bool, using(io : IO, exception : Exception(NetError))) -> Impl(Future(unit))) ...;
 ```
 
 ### 2.4 `std/net/dns.yo` — DNS Resolution
 
 ```yo
-lookup_host :: (fn(host: str) -> Impl(Future(Result(ArrayList(IpAddr), NetError)))) ...;
-lookup_addr :: (fn(addr: IpAddr) -> Impl(Future(Result(String, NetError)))) ...;
-resolve :: (fn(host: str, port: u16) -> Impl(Future(Result(ArrayList(SocketAddr), NetError)))) ...;
+lookup_host :: (fn(host: String, using(io : IO, exception : Exception(NetError))) -> Impl(Future(ArrayList(IpAddr)))) ...;
+resolve :: (fn(host: String, port: u16, using(io : IO, exception : Exception(NetError))) -> Impl(Future(ArrayList(SocketAddr)))) ...;
 ```
 
 ### 2.5 `std/net/errors.yo` — Network Errors
@@ -397,7 +436,7 @@ Writer.with_capacity :: (fn(cap: usize) -> Writer) ...;
 Writer.write_str :: (fn(self: Self, s: str) -> Self) ...;
 Writer.write_string :: (fn(self: Self, s: String) -> Self) ...;
 Writer.write_byte :: (fn(self: Self, b: u8) -> Self) ...;
-Writer.write_bytes :: (fn(self: Self, data: Slice(u8)) -> Self) ...;
+Writer.write_bytes :: (fn(self: Self, data: ArrayList(u8)) -> Self) ...;
 Writer.write_rune :: (fn(self: Self, r: rune) -> Self) ...;
 Writer.write_i64 :: (fn(self: Self, n: i64) -> Self) ...;
 Writer.write_u64 :: (fn(self: Self, n: u64) -> Self) ...;
@@ -411,7 +450,7 @@ Writer.to_string :: (fn(self: Self) -> String) ...;
 Writer.to_str :: (fn(self: Self) -> str) ...;
 Writer.len :: (fn(self: Self) -> usize) ...;
 
-Alignment :: enum(.Left, .Right, .Center);
+Alignment :: enum(Left, Right, Center);
 ```
 
 ### 4.2 `std/fmt/display.yo` — Display Trait
@@ -439,16 +478,16 @@ Default implementations for all primitive types, String, rune, bool. Collections
 ### 5.1 `std/encoding/base64.yo` — Base64
 
 ```yo
-base64_encode :: (fn(data: Slice(u8)) -> String) ...;
+base64_encode :: (fn(data: ArrayList(u8)) -> String) ...;
 base64_decode :: (fn(s: str) -> Result(ArrayList(u8), EncodingError)) ...;
-base64_encode_url :: (fn(data: Slice(u8)) -> String) ...;
+base64_encode_url :: (fn(data: ArrayList(u8)) -> String) ...;
 base64_decode_url :: (fn(s: str) -> Result(ArrayList(u8), EncodingError)) ...;
 ```
 
 ### 5.2 `std/encoding/hex.yo` — Hexadecimal
 
 ```yo
-hex_encode :: (fn(data: Slice(u8)) -> String) ...;
+hex_encode :: (fn(data: ArrayList(u8)) -> String) ...;
 hex_decode :: (fn(s: str) -> Result(ArrayList(u8), EncodingError)) ...;
 ```
 
@@ -481,7 +520,7 @@ JsonValue.as_object :: (fn(self: Self) -> ?HashMap(String, JsonValue)) ...;
 
 ```yo
 utf8_to_utf16 :: (fn(s: str) -> ArrayList(u16)) ...;
-utf16_to_utf8 :: (fn(data: Slice(u16)) -> Result(String, EncodingError)) ...;
+utf16_to_utf8 :: (fn(data: ArrayList(u16)) -> Result(String, EncodingError)) ...;
 ```
 
 **Tests**: Base64 encode/decode round-trip, hex encode/decode, JSON parse/stringify, UTF-16 conversion including surrogate pairs.
@@ -499,24 +538,24 @@ utf16_to_utf8 :: (fn(data: Slice(u16)) -> Result(String, EncodingError)) ...;
 ```yo
 Sha256 :: object(state: ...);
 Sha256.new :: (fn() -> Sha256) ...;
-Sha256.update :: (fn(self: Self, data: Slice(u8)) -> Self) ...;
+Sha256.update :: (fn(self: Self, data: ArrayList(u8)) -> Self) ...;
 Sha256.finish :: (fn(self: Self) -> Array(u8, usize(32))) ...;
 
-sha256 :: (fn(data: Slice(u8)) -> Array(u8, usize(32))) ...;
-sha256_hex :: (fn(data: Slice(u8)) -> String) ...;
+sha256 :: (fn(data: ArrayList(u8)) -> Array(u8, usize(32))) ...;
+sha256_hex :: (fn(data: ArrayList(u8)) -> String) ...;
 ```
 
 ### 6.2 `std/crypto/md5.yo` — MD5
 
 ```yo
-md5 :: (fn(data: Slice(u8)) -> Array(u8, usize(16))) ...;
-md5_hex :: (fn(data: Slice(u8)) -> String) ...;
+md5 :: (fn(data: ArrayList(u8)) -> Array(u8, usize(16))) ...;
+md5_hex :: (fn(data: ArrayList(u8)) -> String) ...;
 ```
 
 ### 6.3 `std/crypto/random.yo` — Secure Random
 
 ```yo
-random_bytes :: (fn(buf: Slice(u8)) -> Result(unit, CryptoError)) ...;
+random_bytes :: (fn(buf: *(u8), size: usize) -> Result(unit, CryptoError)) ...;
 random_u32 :: (fn() -> u32) ...;
 random_u64 :: (fn() -> u64) ...;
 random_f64 :: (fn() -> f64) ...;
@@ -549,9 +588,6 @@ map_range :: (fn(value: f64, in_min: f64, in_max: f64, out_min: f64, out_max: f6
 PI :: f64(3.14159265358979323846);
 E :: f64(2.71828182845904523536);
 TAU :: f64(6.28318530717958647692);
-INF :: f64(...);
-NEG_INF :: f64(...);
-NAN :: f64(...);
 
 is_nan :: (fn(x: f64) -> bool) ...;
 is_inf :: (fn(x: f64) -> bool) ...;
@@ -612,7 +648,7 @@ panic :: (fn(msg: str) -> !) ...;
 ### 9.1 `std/log/log.yo` — Logging API
 
 ```yo
-Level :: enum(.Trace, .Debug, .Info, .Warn, .Error);
+Level :: enum(Trace, Debug, Info, Warn, Error);
 
 Logger :: object(
   level : Level,
@@ -690,7 +726,7 @@ BenchResult :: struct(
 ```yo
 Deque :: (fn(comptime(T) : Type) -> comptime(Type))
   object(
-    _buf : *(T),
+    _buf : ?(*(T)),
     _head : usize,
     _tail : usize,
     _capacity : usize
@@ -841,17 +877,19 @@ Phase 12 (std/os)          ← LOW — OS utilities
 
 1. **Build on `std/io`, don't duplicate**: High-level modules call into `std/io/*` for all system operations. No direct C externs in high-level modules.
 
-2. **Return `Result`, not raw `i32`**: High-level APIs use `Result(T, Error)` for all fallible operations. For I/O-bound APIs, the function return should be `Impl(Future(Result(T, Error)))`; pure CPU/in-memory helpers (parsers, formatters, getters) can return direct values. The `std/io` errno-based pattern stays in `std/io`.
+2. **Return `Result`, not raw `i32`**: High-level APIs use `Result(T, Error)` for all fallible operations. For I/O-bound APIs, take `using(io : IO)` and call `io.await(...)` internally to perform async I/O; the return type is plain `Result(T, Error)`. The `std/io` errno-based pattern stays in `std/io`.
 
 3. **Use `str` and `String`, not `*(u8)`**: High-level APIs accept `str` (for literal/borrowed strings) and `String` (for owned strings). Path conversion to `*(u8)` via `.to_cstr()` is done internally.
 
 4. **Objects with `Dispose`**: Resources (File, TcpStream, TempDir) are `object` types implementing `Dispose` for automatic cleanup through reference counting.
 
-5. **Async-first for I/O**: File and network operations use `async`/`await` by default. Sync wrappers can be added later if needed.
+5. **Async-first for I/O via Algebraic Effects**: File and network operations use `using(io : IO)` and `io.await(...)`. Callers must have an IO effect in scope (e.g., via `test ... using(io : IO), { ... }` or `main :: (fn(using(io : IO)) -> unit)(...)`).
 
 6. **Cross-platform by default**: All APIs must work on Linux, macOS, and Windows. Platform-specific behavior is documented but never exposed in the type signatures.
 
 7. **No barrel re-exports**: Import specific modules directly: `{ File } :: import "std/fs/file"`, `{ TcpStream } :: import "std/net/tcp"`.
+
+8. **`ArrayList(u8)` for byte buffers**: Prefer `ArrayList(u8)` over `Slice(u8)` for owned byte data. Use `*(u8)` with an explicit size for raw buffer parameters.
 
 ## Notes
 
@@ -864,3 +902,5 @@ Phase 12 (std/os)          ← LOW — OS utilities
 - **Cryptographic disclaimer**: `std/crypto` provides common hash functions, NOT a full cryptographic library. For production security needs (TLS, encryption), users should FFI to OpenSSL/libsodium.
 
 - **PRNG vs CSPRNG**: `std/math/random` provides a fast PRNG (xoshiro256\*\*) for games/simulations. `std/crypto/random` provides cryptographically secure random using OS entropy. The two should never be confused.
+
+- **IO effect propagation**: Any function that calls an async I/O operation must either handle the `IO` effect (by providing `given(io)`) or propagate it via `using(io : IO)` in its own signature. The `main` function automatically receives IO from the runtime.
