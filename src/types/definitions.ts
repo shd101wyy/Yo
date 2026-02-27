@@ -308,6 +308,11 @@ export interface TypeField {
   assignedValue?: Value;
 
   exprs: FieldExprs;
+
+  // True for capture struct fields that hold effect handler function pointers.
+  // These fields are zero-initialized at io.async time and populated at
+  // io.spawn/io.await time with the concrete handler from using(...).
+  isEffectParam?: boolean;
 }
 
 export interface TupleType extends Type {

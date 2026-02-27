@@ -134,6 +134,7 @@ export function createCaptureTypeAndValue({
           type: captureInfo.type,
           isCompileTimeOnly: false, // Captured variables are runtime values
           assignedValue: undefined,
+          isEffectParam: captureInfo.isEffectParam || undefined,
           exprs: {
             expr: {
               tag: ExprTag.Atom,

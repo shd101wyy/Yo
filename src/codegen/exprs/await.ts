@@ -3,8 +3,19 @@ import {
   extractFutureTraitFromType,
   typeImplementsFuture,
 } from "../../evaluator/trait-checking";
-import type { FnCallExpr } from "../../expr";
-import { isFunctionType, isSomeType, isUnitType } from "../../types/guards";
+import {
+  BuiltinKeywords,
+  exprIsFunctionCall,
+  exprIsFunctionCallOf,
+  type FnCallExpr,
+} from "../../expr";
+import type { FunctionImplicitParameter } from "../../types/definitions";
+import {
+  isEffectsRowType,
+  isFunctionType,
+  isSomeType,
+  isUnitType,
+} from "../../types/guards";
 import { typeContainsRcType } from "../../types/utils";
 import { isIoFutureType } from "../async/state-machine";
 import type { FunctionGenerationContext } from "../functions/context";
@@ -94,6 +105,8 @@ export function generateAwait(
       emitter.emitLine(
         `${indent}if (${preAwaitStateVar} == 0 && ${syncFutureVar}->__yo_resume_fn) {`
       );
+      // Inject effect handler values into capture struct before cold-starting
+      emitEffectInjectionForAwait(expr, syncFutureVar, indent, context);
       emitter.emitLine(
         `${indent}  __yo_incr_rc((void*)${syncFutureVar});  // event loop reference`
       );
@@ -236,4 +249,71 @@ export function generateState(
   );
 
   return resultVar;
+}
+
+/**
+ * Expand effect row spreads into individual implicit parameters.
+ */
+function expandFutureEffects(
+  effects: FunctionImplicitParameter[]
+): FunctionImplicitParameter[] {
+  const result: FunctionImplicitParameter[] = [];
+  for (const effect of effects) {
+    if (effect.isEffectRowSpread) {
+      let effectsRow = effect.type;
+      if (isSomeType(effectsRow) && effectsRow.resolvedConcreteType) {
+        effectsRow = effectsRow.resolvedConcreteType;
+      }
+      if (isEffectsRowType(effectsRow)) {
+        result.push(...effectsRow.implicitParameters);
+      }
+    } else {
+      result.push(effect);
+    }
+  }
+  return result;
+}
+
+/**
+ * Generate effect injection code for io.await call sites.
+ */
+function emitEffectInjectionForAwait(
+  expr: FnCallExpr,
+  futureVar: string,
+  indent: string,
+  context: CodeGenContext
+): void {
+  const futureArg = expr.args[0];
+  if (!futureArg?.$?.type) return;
+
+  const usingExpr = expr.args.find(
+    (arg): arg is FnCallExpr =>
+      exprIsFunctionCall(arg) &&
+      exprIsFunctionCallOf(arg, BuiltinKeywords.using)
+  );
+  if (!usingExpr) return;
+
+  const futureTraitType = extractFutureTraitFromType(futureArg.$.type);
+  if (!futureTraitType?.isFuture.effects?.length) return;
+
+  const expandedEffects = expandFutureEffects(futureTraitType.isFuture.effects);
+  const usingArgs = usingExpr.args;
+  const functionContext = context as FunctionGenerationContext;
+  const emitter = functionContext.emitter;
+
+  for (let i = 0; i < expandedEffects.length && i < usingArgs.length; i++) {
+    const effect = expandedEffects[i]!;
+    const usingArg = usingArgs[i]!;
+
+    if (!isFunctionType(effect.type)) continue;
+    // Skip generic function effects (forall) — they are compile-time only
+    // and don't have a void* field in the capture struct
+    if (effect.type.forallParameters.length > 0) continue;
+
+    const handlerCode = generateExpr(usingArg, indent, context);
+    const fieldName = effect.label;
+    emitter.emitLine(
+      `${indent}  ${futureVar}->__capture.${fieldName} = (void*)${handlerCode};`
+    );
+  }
 }

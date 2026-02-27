@@ -181,6 +181,12 @@ export function generateAsyncBlock(
     let usedDeferredDups = false;
     const captureFields = captureType.fields
       .map((elem) => {
+        // Effect param fields are zero-initialized at io.async time.
+        // They will be populated at io.spawn/io.await time.
+        if (elem.isEffectParam) {
+          return `.${elem.label} = NULL`;
+        }
+
         // Find the dup expression for this variable by checking the variable name
         // deferredDupExpressions only contains dup expressions for Rc types,
         // so we need to match by variable name, not by index

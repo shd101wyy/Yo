@@ -4,7 +4,10 @@ import {
   isIoSpawnCall,
   isIoStateCall,
 } from "../../evaluator/async/await-analysis";
-import { typeImplementsFuture } from "../../evaluator/trait-checking";
+import {
+  extractFutureTraitFromType,
+  typeImplementsFuture,
+} from "../../evaluator/trait-checking";
 import {
   BuiltinFunctions,
   BuiltinKeywords,
@@ -16,7 +19,13 @@ import {
   exprToString,
   type FnCallExpr,
 } from "../../expr";
-import { isSomeType, isUnitType } from "../../types/guards";
+import type { FunctionImplicitParameter } from "../../types/definitions";
+import {
+  isEffectsRowType,
+  isFunctionType,
+  isSomeType,
+  isUnitType,
+} from "../../types/guards";
 import { isFunctionValue, isUnknownValue, type Value } from "../../value";
 import { isIoFutureType } from "../async/state-machine";
 import { BuiltinYoInlineFunctions } from "../constants";
@@ -81,6 +90,88 @@ import { generatePendingDeferredDrops, generateReturn } from "./return";
 import { generateSizeOf } from "./sizeof";
 import { generateAnonymousTuple } from "./tuple-fn";
 import { generateWhileLoop } from "./while";
+
+/**
+ * Expand effect row spreads from a FutureTraitType's effects into individual
+ * implicit parameters. Each expanded parameter has a `label` matching the
+ * capture struct field name and a `type` for checking if it's function-typed.
+ */
+function expandFutureEffects(
+  effects: FunctionImplicitParameter[]
+): FunctionImplicitParameter[] {
+  const result: FunctionImplicitParameter[] = [];
+  for (const effect of effects) {
+    if (effect.isEffectRowSpread) {
+      // Expand the spread: the type is either an EffectsRowType directly,
+      // or a SomeType with resolvedConcreteType pointing to an EffectsRowType.
+      let effectsRow = effect.type;
+      if (isSomeType(effectsRow) && effectsRow.resolvedConcreteType) {
+        effectsRow = effectsRow.resolvedConcreteType;
+      }
+      if (isEffectsRowType(effectsRow)) {
+        result.push(...effectsRow.implicitParameters);
+      }
+    } else {
+      result.push(effect);
+    }
+  }
+  return result;
+}
+
+/**
+ * Generate effect injection code for io.spawn/io.await call sites.
+ * Injects function-typed effect handler values from using(...) args
+ * into the future's capture struct fields before cold-starting.
+ * Only injects when state == 0 (set-once semantics).
+ */
+function emitEffectInjection(
+  expr: FnCallExpr,
+  futureVar: string,
+  indent: string,
+  context: CodeGenContext
+): void {
+  const futureArg = expr.args[0];
+  if (!futureArg?.$?.type) return;
+
+  // Find the using(...) expression in the call arguments
+  const usingExpr = expr.args.find(
+    (arg): arg is FnCallExpr =>
+      exprIsFunctionCall(arg) &&
+      exprIsFunctionCallOf(arg, BuiltinKeywords.using)
+  );
+  if (!usingExpr) return;
+
+  // Extract the FutureTraitType to get effect labels
+  const futureTraitType = extractFutureTraitFromType(futureArg.$.type);
+  if (!futureTraitType?.isFuture.effects?.length) return;
+
+  // Expand effect row spreads into individual effect parameters
+  const expandedEffects = expandFutureEffects(futureTraitType.isFuture.effects);
+
+  // Match using args to expanded effects positionally.
+  // Only inject function-typed effects (IO module is compile-time only).
+  const usingArgs = usingExpr.args;
+  const functionContext = context as FunctionGenerationContext;
+  const emitter = functionContext.emitter;
+
+  for (let i = 0; i < expandedEffects.length && i < usingArgs.length; i++) {
+    const effect = expandedEffects[i]!;
+    const usingArg = usingArgs[i]!;
+
+    // Only inject function-typed effects (not IO module, etc.)
+    if (!isFunctionType(effect.type)) continue;
+    // Skip generic function effects (forall) — they are compile-time only
+    if (effect.type.forallParameters.length > 0) continue;
+
+    // Generate the C code for the using arg (function name)
+    const handlerCode = generateExpr(usingArg, indent, context);
+    const fieldName = effect.label;
+
+    emitter.emitLine(
+      `${indent}  ${futureVar}->__capture.${fieldName} = (void*)${handlerCode};`
+    );
+  }
+}
 
 /**
  * Generate C code for `abort(value)` — ctl handler discontinue.
@@ -494,6 +585,8 @@ function generateFuncCall(
       emitter.emitLine(
         `${indent}  if (__spawn_state == 0 && ${spawnVar}->__yo_resume_fn) {`
       );
+      // Inject effect handler values into capture struct before cold-starting
+      emitEffectInjection(expr, spawnVar, `${indent}  `, context);
       emitter.emitLine(`${indent}    __yo_incr_rc((void*)${spawnVar});`);
       emitter.emitLine(
         `${indent}    ${spawnVar}->__yo_resume_fn((void*)${spawnVar});`

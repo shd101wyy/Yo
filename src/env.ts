@@ -186,6 +186,13 @@ export interface Variable {
    * for implicit parameter resolution (`using` parameters in function calls).
    */
   isImplicit?: boolean;
+
+  /**
+   * Whether this variable is an effect parameter in an io.async closure.
+   * Effect params are captured as runtime fields in the closure's capture struct
+   * and injected at io.spawn/io.await time via using(...).
+   */
+  isEffectParam?: boolean;
 }
 
 export type WhereClauseConstraints = {

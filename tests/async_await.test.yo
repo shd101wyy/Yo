@@ -2055,3 +2055,71 @@ test "Test abort in async closure", using(io : IO), {
     assert(st == FutureState.Aborted);
   };
 };
+
+// ============================================================================
+// Effect Injection Tests — verify effect handlers are injected at runtime
+// via io.spawn/io.await into the future's capture struct.
+// ============================================================================
+
+// ---------------------------------------------------------------------------
+// Effect injection via io.await (sync future, no await inside closure)
+// ---------------------------------------------------------------------------
+test "Test effect injection via io.await on sync future", using(io : IO), {
+  Log :: (fn(msg : String) -> unit);
+
+  task := io.async((using(io : IO, log : Log))=> {
+    log(`effect injected`);
+  });
+
+  (given(log1) : Log) =
+    (msg) -> {
+      printf("Log1: %s\n", msg);
+    };
+  io.await(task, using(io, log1));
+  printf("effect injection via await OK\n");
+};
+
+// ---------------------------------------------------------------------------
+// Effect injection via io.spawn, then io.await (set-once semantics)
+// The first spawn sets the effect handlers; the later await is ignored.
+// ---------------------------------------------------------------------------
+test "Test effect injection set-once via io.spawn then io.await", using(io : IO), {
+  Log :: (fn(msg : String) -> unit);
+
+  task := io.async((using(io : IO, log : Log))=> {
+    log(`spawn first`);
+  });
+
+  (given(log1) : Log) =
+    (msg) -> {
+      printf("SpawnLog: %s\n", msg);
+    };
+  (given(log2) : Log) =
+    (msg) -> {
+      assert(false, "log2 should not be called (set-once semantics)");
+    };
+
+  io.spawn(task, using(io, log1));
+  io.await(task, using(io, log2));
+  printf("set-once via spawn OK\n");
+};
+
+// ---------------------------------------------------------------------------
+// Effect injection via io.await on async future (SM path, with await inside)
+// ---------------------------------------------------------------------------
+test "Test effect injection via io.await on SM future", using(io : IO), {
+  Log :: (fn(msg : String) -> unit);
+
+  task := io.async((using(io : IO, log : Log))=> {
+    log(`before yield`);
+    io.await(yield());
+    log(`after yield`);
+  });
+
+  (given(log1) : Log) =
+    (msg) -> {
+      printf("SMLog: %s\n", msg);
+    };
+  io.await(task, using(io, log1));
+  printf("effect injection SM path OK\n");
+};

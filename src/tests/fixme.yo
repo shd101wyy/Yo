@@ -2,39 +2,39 @@ open import "std/string";
 open import "std/fmt";
 { yield } :: import "std/async";
 
+Log :: (fn(msg : String) -> unit);
+
 main :: (fn(using(io : IO)) -> unit) {
   counter := Box(i32)(0);
 
-  task1 := io.async((using(io : IO))=> {
-    assert((counter.* == i32(0)), "counter should be 0 at start of task1");
-    counter.* = (counter.* + 1);
-    io.await(yield());
-    assert((counter.* == i32(11)), "counter should be 11 after yield in task1");
-    counter.* = (counter.* + 1);
-    return counter.*;
-  });
+  {
+    task := io.async((using(io : IO, log : Log))=> {
+      log(`Task started`);
+    });
 
-  task2 := io.async((using(io : IO))=> {
-    assert((counter.* == i32(1)), "counter should be 1 at start of task2");
-    counter.* = (counter.* + 10);
-    io.await(yield());
-    assert((counter.* == i32(12)), "counter should be 12 after yield in task2");
-    counter.* = (counter.* + 10);
-    return counter.*;
-  });
+    (given(log1) : Log) =
+      (msg) -> {
+        println(`Log1: ${msg}`);
+      };
+    io.await(task, using(io, log1));
+  };
 
-  // Both tasks are cold (not started).
-  // Start both task1 and task2, but not await them yet.
-  io.spawn(task1); // implicitly pass `io` from the context
-  io.spawn(task2, using(io)); // explicitly pass `io`
+  {
+    task := io.async((using(io : IO, log : Log))=> {
+      log(`Task started`);
+    });
 
-  // io.await just waits for complete and then extracts results.
-  result1 := io.await(task1);
-  result2 := io.await(task2);
-
-  io.spawn(task1);
-
-  // Both tasks incremented counter: +2 from task1, +20 from task2
-  assert((counter.* == i32(22)), "counter should be 22 after join");
+    (given(log1) : Log) =
+      (msg) -> {
+        println(`Log1: ${msg}`);
+      };
+    (given(log2) : Log) =
+      (msg) -> {
+        assert(false, "Shouldn't pick here");
+      };
+    
+    io.spawn(task, using(io, log1));
+    io.await(task, using(io, log2)); // Will still pick log1 because it's specialized first.
+  };
 };
 export main;

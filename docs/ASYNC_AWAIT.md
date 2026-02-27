@@ -763,6 +763,85 @@ export main;
 
 For parallelism, use `Task.spawn` (see `PARALLELISM.md`).
 
+## Effect Injection (Runtime Effect Binding)
+
+When an async closure declares effect parameters via `using(...)`, the handlers
+may not be known at `io.async` creation time. Yo supports **runtime effect
+injection**: the caller supplies concrete handlers at `io.spawn` or `io.await`
+time, and they are bound into the future's capture struct.
+
+### When Is Runtime Injection Used?
+
+An effect parameter becomes a runtime `void*` field in the capture struct when
+**all** of the following are true:
+
+1. The parameter is **function-typed** (not a module like `IO`)
+2. The function type has **no `forall` parameters** (generic effects like
+   `fn(forall(T : Type), ...) -> T` are resolved at compile time instead)
+3. The handler is **not already resolved** at `io.async` creation time (no
+   `given(...)` binding in the outer scope)
+
+If the handler IS available at creation time (via a `given` binding), it is
+resolved at compile time and the parameter remains compile-time only.
+
+### Set-Once Semantics
+
+Effect injection follows **set-once** semantics. The first `io.spawn` or
+`io.await` call that transitions a future from pending (state 0) to running
+binds the effect handlers. Subsequent calls to `io.spawn`/`io.await` with
+different `using(...)` arguments have no effect — the original handlers are
+retained.
+
+```yo
+Log :: (fn(msg : String) -> unit);
+
+task := io.async((using(io : IO, log : Log))=> {
+  log(`hello`);
+});
+
+(given(log1) : Log) = (msg) -> { println(`Log1: ${msg}`); };
+(given(log2) : Log) = (msg) -> { println(`Log2: ${msg}`); };
+
+// First spawn binds log1 as the handler
+io.spawn(task, using(io, log1));
+
+// Second await's log2 is ignored — log1 is already bound
+io.await(task, using(io, log2));
+// Output: "Log1: hello"
+```
+
+### How It Works (Implementation)
+
+1. **Evaluator**: Function-typed `using` parameters that are unresolved at
+   `io.async` time are added to the closure's `capturedVariablesWithValues`
+   with `isEffectParam: true` and `value: undefined`.
+
+2. **Capture struct**: Effect param fields are typed as `void*` in C and
+   NULL-initialized when the future is created.
+
+3. **Injection at spawn/await**: When `io.spawn(task, using(...))` or
+   `io.await(task, using(...))` is called and the future is still cold
+   (state == 0), the codegen emits assignments like:
+
+   ```c
+   future->__capture.log = (void*)fn_handler;
+   ```
+
+4. **Calling through void\***: Inside the async closure body, calls to effect
+   parameters go through a function pointer cast:
+   ```c
+   ((return_type (*)(param_types...))sm->__capture.log)(args);
+   ```
+
+### Compile-Time vs Runtime Effects
+
+| Condition                               | Resolution        | C representation      |
+| --------------------------------------- | ----------------- | --------------------- |
+| `given(handler)` in scope at `io.async` | Compile-time      | Direct function call  |
+| Generic effect (`forall(T)`)            | Compile-time      | Direct function call  |
+| Non-module (`IO`) type                  | Compile-time      | No runtime field      |
+| Non-generic, unresolved handler         | Runtime injection | `void*` capture field |
+
 ## Summary
 
 Yo's async/await provides:

@@ -137,6 +137,7 @@ export type FunctionValue = {
 export interface FunctionCapturedVariableInfo extends CapturedVariableInfo {
   value: Value | undefined; // The actual captured value
   type: Type; // The type of the captured value
+  isEffectParam?: boolean; // True for effect handler params from using(...)
 }
 
 /**
@@ -154,4 +155,11 @@ export interface ClosureInfo {
    * The capture struct type that holds captured variables
    */
   captureType: Type | undefined; // StructType | undefined
+
+  /**
+   * Effect param names in the capture struct (from using(...) params).
+   * These fields are zero-initialized at io.async time and injected
+   * at io.spawn/io.await time with concrete handler values.
+   */
+  effectParamNames?: string[];
 }

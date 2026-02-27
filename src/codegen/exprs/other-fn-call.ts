@@ -652,10 +652,20 @@ export function generateOtherFunctionCall(
           return `${cFuncName}(${argsList})`;
         } else {
           // Function parameter call (e.g., callback(x))
+          // When calling through a void* (e.g., a captured function-typed variable),
+          // we need to cast it to the proper function pointer type.
           const funcCode = generateExpr(expr.func, indent, context);
+          const returnTypeStr = getTypeString(
+            functionType.return.type,
+            context
+          );
+          const paramTypeStrs = functionType.parameters
+            .filter((p) => !p.isCompileTimeOnly)
+            .map((p) => getTypeString(p.type, context));
+          const fnPtrCast = `((${returnTypeStr} (*)(${paramTypeStrs.join(", ")}))${funcCode})`;
           if (isUnitType(functionType.return.type)) {
             // If the function returns unit, just call it without assignment
-            context.emitter.emitLine(`${indent}${funcCode}(${argsList});`);
+            context.emitter.emitLine(`${indent}${fnPtrCast}(${argsList});`);
 
             // Handle deferred drop expressions if they exist
             if (expr.$?.deferredDropExpressions) {
@@ -679,7 +689,7 @@ export function generateOtherFunctionCall(
                   : (exprType ?? returnType); // Otherwise use expr type or fallback to return type
 
               context.emitter.emitLine(
-                `${indent}${getTypeString(typeToUse, context)} ${tempVar} = ${funcCode}(${argsList});`
+                `${indent}${getTypeString(typeToUse, context)} ${tempVar} = ${fnPtrCast}(${argsList});`
               );
               storeTempVarToStateMachineIfNeeded(tempVar, indent, context);
 

@@ -12,15 +12,18 @@ import type {
 import { isIoAwaitCall } from "../../evaluator/async/await-analysis";
 import { extractFutureTraitFromType } from "../../evaluator/trait-checking";
 import {
-  type Expr,
   BuiltinKeywords,
   exprIsAtomOf,
+  exprIsFunctionCall,
   exprIsFunctionCallOf,
   ExprTag,
+  type Expr,
+  type FnCallExpr,
 } from "../../expr";
 import { exprContainsAwait } from "../../expr-traversal";
 import type {
   DynType,
+  FunctionImplicitParameter,
   SomeType,
   StructType,
   Type,
@@ -28,6 +31,8 @@ import type {
 import {
   isConcreteTraitType,
   isDynType,
+  isEffectsRowType,
+  isFunctionType,
   isSomeType,
   isUnitType,
 } from "../../types/guards";
@@ -1246,6 +1251,13 @@ export function generateAsyncBlockResumeFunction(
           emitter.emitLine(
             `      if (future_state == 0) {  // 0 = cold (not started)`
           );
+          // Inject effect handler values into capture struct before cold-starting
+          emitEffectInjectionForSM(
+            segment.awaitPoint.expr as FnCallExpr,
+            `sm->${futureFieldName}`,
+            "        ",
+            context
+          );
           emitter.emitLine(
             `        // Cold future — start it via stored resume function pointer`
           );
@@ -1465,4 +1477,69 @@ function exprContainsReturn(expr: Expr): boolean {
     }
   }
   return false;
+}
+
+/**
+ * Expand effect row spreads into individual implicit parameters.
+ */
+function expandFutureEffects(
+  effects: FunctionImplicitParameter[]
+): FunctionImplicitParameter[] {
+  const result: FunctionImplicitParameter[] = [];
+  for (const effect of effects) {
+    if (effect.isEffectRowSpread) {
+      let effectsRow = effect.type;
+      if (isSomeType(effectsRow) && effectsRow.resolvedConcreteType) {
+        effectsRow = effectsRow.resolvedConcreteType;
+      }
+      if (isEffectsRowType(effectsRow)) {
+        result.push(...effectsRow.implicitParameters);
+      }
+    } else {
+      result.push(effect);
+    }
+  }
+  return result;
+}
+
+/**
+ * Generate effect injection code for io.await inside state machines.
+ */
+function emitEffectInjectionForSM(
+  awaitExpr: FnCallExpr,
+  futureAccess: string,
+  indent: string,
+  context: FunctionGenerationContext
+): void {
+  const futureArg = awaitExpr.args?.[0];
+  if (!futureArg?.$?.type) return;
+
+  const usingExpr = awaitExpr.args?.find(
+    (arg): arg is FnCallExpr =>
+      exprIsFunctionCall(arg) &&
+      exprIsFunctionCallOf(arg, BuiltinKeywords.using)
+  );
+  if (!usingExpr) return;
+
+  const futureTraitType = extractFutureTraitFromType(futureArg.$.type);
+  if (!futureTraitType?.isFuture.effects?.length) return;
+
+  const expandedEffects = expandFutureEffects(futureTraitType.isFuture.effects);
+  const usingArgs = usingExpr.args;
+  const emitter = context.emitter;
+
+  for (let i = 0; i < expandedEffects.length && i < usingArgs.length; i++) {
+    const effect = expandedEffects[i]!;
+    const usingArg = usingArgs[i]!;
+
+    if (!isFunctionType(effect.type)) continue;
+    // Skip generic function effects (forall) — they are compile-time only
+    if (effect.type.forallParameters.length > 0) continue;
+
+    const handlerCode = generateExpr(usingArg, indent, context);
+    const fieldName = effect.label;
+    emitter.emitLine(
+      `${indent}${futureAccess}->__capture.${fieldName} = (void*)${handlerCode};`
+    );
+  }
 }

@@ -115,6 +115,12 @@ function allocateClosureCapture(
 
   // Generate captured variable values
   const captureArgs = captureType.fields.map((field) => {
+    // Effect param fields are zero-initialized at closure construction time.
+    // They will be populated at io.spawn/io.await time.
+    if (field.isEffectParam) {
+      return `NULL`;
+    }
+
     let dupExpr: Expr | undefined;
 
     const fieldExpr = field.exprs.expr;

@@ -1117,6 +1117,15 @@ Got:   ${typeToString(typeValue.type)}`,
               errorMessage: `Variable "${argName}" not found for using() argument in effect row spread.`,
             });
           }
+          // Annotate the using arg expression so codegen can resolve it to
+          // the correct C function name (e.g., for effect injection).
+          spreadArgExpr.$ = {
+            env: callerEnv,
+            type: outerVar.type,
+            value: outerVar.value?.[0],
+            variableName: argName,
+            pathCollection: [],
+          };
           concreteImplicitParams.push({
             label: argName,
             type: outerVar.type,
