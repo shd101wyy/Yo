@@ -50,7 +50,7 @@ export interface FunctionGenerationContext extends CodeGenContext {
   // Used when generating handler body inline — resume calls are intercepted
   // and generate SM copy + resume code instead of normal function calls.
   // For direct ctl calls (no SM), the entry carries { directReturnVar } instead.
-  // For resume handlers, directExitLabel is also set so nested abort handlers
+  // For resume handlers, directExitLabel is also set so nested escape handlers
   // can jump to the end of the enclosing handler's block.
   continuationVariables?: Map<
     string,
@@ -145,10 +145,10 @@ export interface FunctionGenerationContext extends CodeGenContext {
   // These must be emitted before break/continue/normal-exit in state machine while loop code.
   smWhileBodyDrops?: Expr[];
   // Drop code strings for effect handler parameters (e.g., msg: String from ctl yield_value).
-  // These are emitted before abort returns to prevent leaking handler params.
+  // These are emitted before escape returns to prevent leaking handler params.
   effectHandlerParamDrops?: string[];
   // C variable names of SM arguments whose ownership was transferred to the SM (no dup).
-  // For abort handlers, the handler params alias these variables, so handler param drops
+  // For escape handlers, the handler params alias these variables, so handler param drops
   // already free them. Pending deferred drops must skip these to avoid double-free.
   effectSmConsumedArgCNames?: Set<string>;
   // When generating an effect call inside a while loop's body,

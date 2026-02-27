@@ -1174,7 +1174,7 @@ export function generateIoAsyncSyncCall(
   if (closureEffectSmInfo) {
     // Emit resume function that drives the closure's effect SM.
     // When the SM yields (closure called a ctl handler like raise), the future
-    // is marked as aborted (state = -2) since ctl handlers with abort semantics
+    // is marked as aborted (state = -2) since ctl handlers with escape semantics
     // discontinue the closure — it never completes normally.
     emitter.emitDeclarationLine(`void ${resumeFunctionName}(void* ptr) {`);
     emitter.emitDeclarationLine(`  ${structName}* sm = (${structName}*)ptr;`);
@@ -1218,7 +1218,7 @@ export function generateIoAsyncSyncCall(
       }
       break; // Only handle first call point's yield values for now
     }
-    // Mark the future as aborted (ctl handler uses abort/discontinue)
+    // Mark the future as escaped (ctl handler uses escape/discontinue)
     emitter.emitDeclarationLine(`    sm->state = -2;`);
     emitter.emitDeclarationLine(
       `    void (*continuation)(void*) = sm->continuation_fn;`

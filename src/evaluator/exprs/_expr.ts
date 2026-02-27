@@ -114,7 +114,7 @@ import { evaluateModuleValue } from "../values/impl";
 import { evaluateIntegerLiteral } from "../values/integer";
 import { evaluateStringLiteral } from "../values/string";
 import { evaluateTupleValue } from "../values/tuple";
-import { evaluateAbort } from "./abort";
+import { evaluateEscape } from "./escape";
 import { evaluateAssignment } from "./assignment";
 import { evaluateBeginExpression } from "./begin";
 import { evaluateBinding } from "./binding";
@@ -521,9 +521,9 @@ ${exprToString(expr)}`,
     ) {
       // && ||
       return evaluateAndOr({ expr, env, context: { ...context } });
-    } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.abort)) {
-      // abort
-      return evaluateAbort({
+    } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.escape)) {
+      // escape
+      return evaluateEscape({
         expr,
         env,
         context: { ...context },

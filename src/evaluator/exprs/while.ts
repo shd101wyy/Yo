@@ -109,9 +109,9 @@ export function evaluateWhile({
       // Handle different control flow types
       if (
         evaluatedBodyExpr.$.controlFlow === "return" ||
-        evaluatedBodyExpr.$.controlFlow === "abort"
+        evaluatedBodyExpr.$.controlFlow === "escape"
       ) {
-        // Guaranteed that we meet "return" or "abort"
+        // Guaranteed that we meet "return" or "escape"
         // If the body has a return value, we should return it
         if (isBooleanValue(conditionValue) && conditionValue.value === true) {
           expr.$ = {

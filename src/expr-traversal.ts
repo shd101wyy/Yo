@@ -21,7 +21,7 @@ import { isTypeValue } from "./value";
 /**
  * Returns true if this expression is a `->` or `=>` that defines a new function boundary
  * (anonymous function, closure, or function type) that should NOT be recursed into
- * during abort/await traversal.
+ * during escape/await traversal.
  *
  * IMPORTANT: This function should NOT be called on `=>` that are direct children
  * of `cond(...)` or `match(...)` — those are branch arrows, not function boundaries.
@@ -90,20 +90,20 @@ function traverseCondMatchBranches(
 
 /**
  * Traverse an EVALUATED function body expression tree to check if it contains
- * an `abort` keyword usage. This skips into nested scopes that would create
+ * an `escape` keyword usage. This skips into nested scopes that would create
  * a new function boundary:
  * - `->` anonymous function value
  * - `=>` anonymous closure value (but NOT cond/match branch arrows)
  * - `fn(...) -> T` function type definitions
  * - `(fn(...) -> T)({body})` function type call to create function value
  */
-export function evaluatedBodyContainsAbort(expr: Expr): boolean {
+export function evaluatedBodyContainsEscape(expr: Expr): boolean {
   if (exprIsAtom(expr)) {
-    return exprIsAtomOf(expr, BuiltinKeywords.abort);
+    return exprIsAtomOf(expr, BuiltinKeywords.escape);
   }
   if (exprIsFunctionCall(expr)) {
     if (expr.$?.macroExpansion) {
-      return evaluatedBodyContainsAbort(expr.$.macroExpansion);
+      return evaluatedBodyContainsEscape(expr.$.macroExpansion);
     }
 
     // Handle cond/match explicitly — recurse into branches without treating => as function boundary
@@ -111,7 +111,7 @@ export function evaluatedBodyContainsAbort(expr: Expr): boolean {
       exprIsFunctionCallOf(expr, BuiltinKeywords.cond) ||
       exprIsFunctionCallOf(expr, BuiltinKeywords.match)
     ) {
-      return traverseCondMatchBranches(expr, evaluatedBodyContainsAbort);
+      return traverseCondMatchBranches(expr, evaluatedBodyContainsEscape);
     }
 
     if (isFunctionBoundaryArrow(expr)) {
@@ -134,11 +134,11 @@ export function evaluatedBodyContainsAbort(expr: Expr): boolean {
       return false;
     }
 
-    if (evaluatedBodyContainsAbort(expr.func)) {
+    if (evaluatedBodyContainsEscape(expr.func)) {
       return true;
     }
     for (const arg of expr.args) {
-      if (evaluatedBodyContainsAbort(arg)) {
+      if (evaluatedBodyContainsEscape(arg)) {
         return true;
       }
     }

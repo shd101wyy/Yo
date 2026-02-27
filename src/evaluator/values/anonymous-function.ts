@@ -20,7 +20,7 @@ import {
   exprToString,
   type FnCallExpr,
 } from "../../expr";
-import { evaluatedBodyContainsAbort } from "../../expr-traversal";
+import { evaluatedBodyContainsEscape } from "../../expr-traversal";
 import type {
   FunctionCapturedVariableInfo,
   FunctionValue,
@@ -880,10 +880,10 @@ Got:      "${paramName}"`,
   // Get captured variables from the evaluation context
   const capturedVariables = evaluationContext.capturedVariables;
 
-  // If the body uses `abort`, mark this function value as isControlFunction.
+  // If the body uses `escape`, mark this function value as isControlFunction.
   // This propagates to effect analysis and codegen so they know to generate
   // state machines for functions that call this handler through `using`.
-  if (evaluatedBodyContainsAbort(evaluatedBody)) {
+  if (evaluatedBodyContainsEscape(evaluatedBody)) {
     functionValue.isControlFunction = true;
   }
 
@@ -902,7 +902,7 @@ Got:      "${paramName}"`,
   }
 
   // Check if the return type is compatible
-  // Skip when body uses abort because the abort returns
+  // Skip when body uses escape because the escape returns
   // from the enclosing function, not this function. The body's type is the abort value
   // type, which may not match the handler function's declared return type.
   const evaluatedBodyReturnType = evaluatedBody.$?.type;

@@ -147,8 +147,8 @@ export function generatePendingDeferredDrops(
     // UNLESS skipAlreadyDroppedCheck is true (used for direct ctl returns where the goto
     // skips the scope-exit drops that would normally run after the expression).
     //
-    // When skipEnvCheck is true (e.g., for abort inside inlined handler bodies),
-    // we skip the environment check entirely because the abort expression's env
+    // When skipEnvCheck is true (e.g., for escape inside inlined handler bodies),
+    // we skip the environment check entirely because the escape expression's env
     // is from the handler's scope, not the enclosing function's scope.
     const alreadyDroppedVars = new Set<string>();
     if (!skipAlreadyDroppedCheck && expr.$?.deferredDropExpressions) {
@@ -160,7 +160,7 @@ export function generatePendingDeferredDrops(
       }
     }
 
-    // SM-consumed arg C names: for abort handlers, some pending drop targets
+    // SM-consumed arg C names: for escape handlers, some pending drop targets
     // have their ownership transferred to the SM. The handler param drops already
     // free them, so we must skip them here to avoid double-free.
     const consumedArgCNames = context.effectSmConsumedArgCNames;

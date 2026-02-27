@@ -30,7 +30,7 @@ import {
   setExprAsConsumed,
   setExprAsNeedsToCallDup,
 } from "../../expr";
-import { evaluatedBodyContainsAbort } from "../../expr-traversal";
+import { evaluatedBodyContainsEscape } from "../../expr-traversal";
 import type {
   FunctionValue,
   SpecializedFunctionCache,
@@ -2319,7 +2319,7 @@ function createSpecializedFunctionInline({
 
   // Evaluate the function body in the specialized environment
   // For effect handlers, propagate the enclosing function return type from
-  // so `abort` can type-check during re-evaluation.
+  // so `escape` can type-check during re-evaluation.
   const specializedEnclosingReturnType = context.enclosingFunctionReturnType;
 
   // Detect whether any implicit args are control function handlers.
@@ -2366,10 +2366,10 @@ function createSpecializedFunctionInline({
     });
   }
 
-  // If the specialized body uses `abort`, mark the function type as isControlFunction.
+  // If the specialized body uses `escape`, mark the function type as isControlFunction.
   // This handles deferred handler bodies that couldn't be detected at definition time.
   // Run effect analysis on the specialized body if it has implicit parameters
-  // whose resolved handlers use abort (isControlFunction).
+  // whose resolved handlers use escape (isControlFunction).
   // This detects effect call points (e.g., raise(msg)) and prepares for state machine generation.
   // Also handles effect row spread parameters (using(...(E))) by extracting the individual
   // effect parameters from the bound EffectsRowType.
@@ -2386,7 +2386,7 @@ function createSpecializedFunctionInline({
   for (let i = 0; i < functionType.implicitParameters.length; i++) {
     const implicitParam = functionType.implicitParameters[i]!;
     if (isFunctionType(implicitParam.type)) {
-      // Check if the resolved handler uses abort (has isControlFunction set)
+      // Check if the resolved handler uses escape (has isControlFunction set)
       const handlerArg = argValues.implicitArgs?.[argOffset];
       const handlerValue =
         handlerArg && isFunctionValue(handlerArg.value)
@@ -2450,7 +2450,7 @@ function createSpecializedFunctionInline({
       }
     } else if (isModuleType(implicitParam.type)) {
       // Module-based effects: recursively find effect fields in possibly nested modules.
-      // Check the handler VALUE's isControlFunction flag (set when a handler body uses abort).
+      // Check the handler VALUE's isControlFunction flag (set when a handler body uses escape).
       const ctlFields: Array<{ path: string[]; type: FunctionType }> = [];
       const handlerArg = argValues.implicitArgs?.[argOffset];
       const findCtlFieldsInModule = (
@@ -2629,12 +2629,12 @@ function createSpecializedFunctionInline({
           }
 
           const handlerFnType = handlerFn.specializedType ?? handlerFn.type;
-          // For abort type-checking, the enclosing return type should be the
+          // For escape type-checking, the enclosing return type should be the
           // handler's definition-site enclosing function's return type, NOT the
           // call-site function's return type. E.g., handler defined in main (-> unit)
-          // but inlined at compute (-> i32): abort () should match main's unit.
+          // but inlined at compute (-> i32): escape () should match main's unit.
           // When definitionSiteEnclosingFunctionType is undefined (e.g., handler
-          // defined in a test block), default to unit — abort exits the top-level scope.
+          // defined in a test block), default to unit — escape exits the top-level scope.
           const enclosingReturnType =
             handlerFn.definitionSiteEnclosingFunctionType?.return.type ??
             createUnitType();
@@ -2903,7 +2903,7 @@ function createSpecializedFunctionInline({
     // Detect isControlFunction from the specialized body
     isControlFunction:
       originalFunction.isControlFunction ||
-      evaluatedBodyContainsAbort(specializedBody),
+      evaluatedBodyContainsEscape(specializedBody),
     // Use a signature-based ID for the specialized function
     funcId: `${originalFunction.funcId}_${compileTimeSignature}`,
     funcName: `${originalFunction.funcName}_${compileTimeSignature}`,
@@ -2937,7 +2937,7 @@ function createSpecializedFunctionInline({
  * We need to evaluate it here with the concrete types from the call context.
  *
  * The forall type parameter T is resolved from the enclosing function's return type
- * (since `abort val` exits the enclosing function with a value of type T).
+ * (since `escape val` exits the enclosing function with a value of type T).
  */
 function evaluateCtlFunctionBodyInline({
   originalFunction,
@@ -2955,14 +2955,14 @@ function evaluateCtlFunctionBodyInline({
 
   // Determine the concrete type for the forall parameter T.
   // For `return` handlers, T is the return type of the ctl operation at the call site.
-  // For `abort` handlers, T can be anything (continuation is discarded), but we
+  // For `escape` handlers, T can be anything (continuation is discarded), but we
   // use the call-site type for consistent forall binding.
   const concreteTypeForForall =
     context.isEvaluatingFunctionBodyOrAsyncBlock?.kind === "function-body"
       ? context.isEvaluatingFunctionBodyOrAsyncBlock.type.return.type
       : functionType.return.type;
 
-  // For abort type-checking, the enclosing return type should be from the handler's
+  // For escape type-checking, the enclosing return type should be from the handler's
   // definition-site enclosing function (e.g., main -> unit), not the call-site.
   // When definitionSiteEnclosingFunctionType is undefined (e.g., handler defined
   // in a test block), default to unit.
@@ -3055,7 +3055,7 @@ function evaluateCtlFunctionBodyInline({
     body: evaluatedBody,
     isControlFunction:
       originalFunction.isControlFunction ||
-      evaluatedBodyContainsAbort(evaluatedBody),
+      evaluatedBodyContainsEscape(evaluatedBody),
     funcId: `${originalFunction.funcId}_ctl_${ctlSignature}`,
     funcName: `${originalFunction.funcName ?? originalFunction.funcId}_ctl_${ctlSignature}`,
     calledComptimeFunctionCaches: [],

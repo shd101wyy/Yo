@@ -107,7 +107,7 @@ export type FunctionValue = {
   specializedFunctionCaches: SpecializedFunctionCache[];
 
   /**
-   * Whether this function's body uses `abort` to return from the enclosing function.
+   * Whether this function's body uses `escape` to return from the enclosing function.
    * Set after evaluating the function body. Used by effect analysis and codegen
    * to determine which functions are effect handlers that need state machine generation.
    */

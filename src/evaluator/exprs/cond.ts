@@ -392,8 +392,8 @@ export function evaluateCond({
     let finalControlFlow: ControlFlowKind | undefined = undefined;
     if (controlFlows.every((cf) => cf === "return")) {
       finalControlFlow = "return";
-    } else if (controlFlows.every((cf) => cf === "abort")) {
-      finalControlFlow = "abort";
+    } else if (controlFlows.every((cf) => cf === "escape")) {
+      finalControlFlow = "escape";
     } else if (controlFlows.every((cf) => cf === "break")) {
       finalControlFlow = "break";
     } else if (controlFlows.every((cf) => cf === "continue")) {
@@ -406,12 +406,12 @@ export function evaluateCond({
           finalControlFlow = "break"; // At least one case breaks the loop
         } else if (controlFlows.find((cf) => cf === "return")) {
           finalControlFlow = "return"; // At least one case returns from function
-        } else if (controlFlows.find((cf) => cf === "abort")) {
-          finalControlFlow = "abort"; // At least one case aborts (ctl handler discontinue)
+        } else if (controlFlows.find((cf) => cf === "escape")) {
+          finalControlFlow = "escape"; // At least one case aborts (ctl handler discontinue)
         }
       } else {
-        if (controlFlows.find((cf) => cf === "abort")) {
-          finalControlFlow = "abort"; // At least one case aborts
+        if (controlFlows.find((cf) => cf === "escape")) {
+          finalControlFlow = "escape"; // At least one case aborts
         } else {
           finalControlFlow = undefined; // Mixed control flows
         }
@@ -438,7 +438,7 @@ export function evaluateCond({
           (body) =>
             body.$ &&
             body.$.controlFlow !== "return" &&
-            body.$.controlFlow !== "abort"
+            body.$.controlFlow !== "escape"
         )
       );
 
@@ -510,21 +510,21 @@ export function evaluateCond({
           pathCollection: [],
           controlFlow: "return",
         };
-      } else if (finalControlFlow === "abort") {
+      } else if (finalControlFlow === "escape") {
         // All cases are aborting (returning from enclosing function)
         if (!context.enclosingFunctionReturnType) {
           throw formatErrorMessage({
             token: expr.token,
-            errorMessage: `All cases in cond use "abort", but not inside a function with an enclosing function.`,
+            errorMessage: `All cases in cond use "escape", but not inside a function with an enclosing function.`,
           });
         }
-        const abortType = context.enclosingFunctionReturnType;
+        const escapeType = context.enclosingFunctionReturnType;
         expr.$ = {
           env,
-          type: abortType,
+          type: escapeType,
           value: undefined,
           pathCollection: [],
-          controlFlow: "abort",
+          controlFlow: "escape",
         };
       } else if (finalControlFlow === "break") {
         // All cases break from loop

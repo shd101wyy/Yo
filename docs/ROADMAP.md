@@ -55,9 +55,9 @@ It is just a list of things that need to be done.
 - [ ] ~~`Promise` and `await` stackless coroutine.~~
 - [ ] Algebraic effect.
   1. [ ] `resume`.
-  2. [ ] `abort`.
+  2. [ ] `escape`.
   3. [ ] Dependency injection.
-  4. [ ] `abortdefer`.
+  4. [ ] `escapedefer`.
 - [ ] Package manager.
 - [ ] Standard Library.
 

@@ -27,7 +27,7 @@ syn match yoNumber /\v\<\d+(\.\d+)?([eE][+-]?\d+)?\>/
 syn match yoOperator /[-=+*\/<>@$~&%|!?^.:#∀]\+/
 
 " Keywords
-syn keyword yoKeyword let var while for select forall mut const in out inout ref break continue pass return resume pure recur use borrow comptime runt resume shift reset abort panic assert test thread_local
+syn keyword yoKeyword let var while for select forall mut const in out inout ref break continue pass return escape pure recur use borrow comptime runt resume shift reset panic assert test thread_local
 syn keyword yoKeyword open import export from as extern module trait c_include using exists where
 syn keyword yoKeyword type fn macro enum struct newtype union object actor impl dyn box chan static
 syn keyword yoKeyword if cond then else switch case default match try with
@@ -42,7 +42,7 @@ syn keyword yoPermission read write own move copy control
 syn keyword yoSelf self this
 
 " Flow control and clauses
-syn keyword yoDefer defer abortdefer
+syn keyword yoDefer defer escapedefer
 
 " Special identifier (underscore)
 syn keyword yoSpecial _

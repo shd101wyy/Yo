@@ -311,7 +311,7 @@ export function findFunctionCallsInExpr(
           // 3. The actual ARC operations are done via __yo_sometype_drop/__yo_sometype_dup builtins
           //
           // However, user-defined functions with using(io : IO) may also have SomeType(Future)
-          // parameters (e.g., test_abort(task : Impl(Future(...)))) and should NOT be skipped.
+          // parameters (e.g., test_escape(task : Impl(Future(...)))) and should NOT be skipped.
           if (!isGenericOnlyDueToImplicitParams) {
             const paramTypes = functionValue.type.parameters.map((p) => p.type);
             const hasSomeTypeWithoutResolved = paramTypes.some(

@@ -505,7 +505,7 @@ export function preRegisterEffectfulFunctions(
       }
 
       // If we couldn't determine from the handler value, check if the implicit param type
-      // has forall return type (polymorphic return T → always a ctl/abort handler pattern).
+      // has forall return type (polymorphic return T → always a ctl/escape handler pattern).
       // This handles closures where the handler is provided externally via using()
       // and the concrete handler value isn't available at the closure's definition time.
       if (!handlerIsControlFunction) {
@@ -519,7 +519,7 @@ export function preRegisterEffectfulFunctions(
         }
       }
 
-      // Only register as effectful if the handler uses abort (is a control function).
+      // Only register as effectful if the handler uses escape (is a control function).
       // Regular function calls via using() don't need state machine transformation.
       if (!handlerIsControlFunction) continue;
 

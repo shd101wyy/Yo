@@ -5,14 +5,14 @@
 This plan describes how to add **algebraic effects** to the Yo language in two phases:
 
 1. **Phase 1: Implicit Parameters** — `using` and `given` keywords for contextual parameter passing
-2. **Phase 2: Effect Handlers** — effectful operations with `resume` and `abort` (one-shot delimited continuations)
+2. **Phase 2: Effect Handlers** — effectful operations with `resume` and `escape` (one-shot delimited continuations)
 
 Both phases build on Yo's existing async/await state machine infrastructure.
 
 ## Current Status (2026-02-23)
 
 - ✅ **Phase 1 (using/given)** — fully implemented and tested.
-- ✅ **Phase 2 (handlers / return + abort)** — fully implemented and tested.
+- ✅ **Phase 2 (handlers / return + escape)** — fully implemented and tested.
 - ✅ **Effect polymorphism** — `...(E)` effect row spreads in `forall`/`using` implemented and tested.
 - ✅ **Three-tier function classification** — `isFunctionTypeGeneric`, `isFunctionTypeHardGeneric`, `isFunctionSpecializable` correctly handle all function categories in C codegen.
 - ✅ **38 tests passing** with AddressSanitizer (no memory leaks or use-after-free).
@@ -22,15 +22,15 @@ Both phases build on Yo's existing async/await state machine infrastructure.
 
 ## Design Decisions (Resolved)
 
-| Question                          | Decision                          | Rationale                                                                                 |
-| --------------------------------- | --------------------------------- | ----------------------------------------------------------------------------------------- |
-| `given` vs. auto-resolve from env | **Use `given`**                   | Explicit marking avoids ambiguity, better error messages, follows Scala 3 precedent       |
-| State machine for effects?        | **Yes**                           | Same architecture as async/await — effect invocation = suspension point                   |
-| Transform callers too?            | **Yes**                           | All functions in the "effect scope" (between handler and effect site) must be transformed |
-| One-shot vs. multi-shot           | **One-shot**                      | Fits RC model, simpler implementation, covers 99% of use cases, `resume` is linear        |
-| `resume` dispatch                 | **Impl (static)**                 | Handler is lexically scoped, compiler knows types, zero overhead                          |
-| `return` semantics                | **One-shot (enforced by syntax)** | `return` and `abort` are keywords that must be the last expression — can only appear once |
-| `ctl` keyword                     | **Removed**                       | Effect handler status inferred from `abort` usage; no separate keyword needed             |
+| Question                          | Decision                          | Rationale                                                                                  |
+| --------------------------------- | --------------------------------- | ------------------------------------------------------------------------------------------ |
+| `given` vs. auto-resolve from env | **Use `given`**                   | Explicit marking avoids ambiguity, better error messages, follows Scala 3 precedent        |
+| State machine for effects?        | **Yes**                           | Same architecture as async/await — effect invocation = suspension point                    |
+| Transform callers too?            | **Yes**                           | All functions in the "effect scope" (between handler and effect site) must be transformed  |
+| One-shot vs. multi-shot           | **One-shot**                      | Fits RC model, simpler implementation, covers 99% of use cases, `resume` is linear         |
+| `resume` dispatch                 | **Impl (static)**                 | Handler is lexically scoped, compiler knows types, zero overhead                           |
+| `return` semantics                | **One-shot (enforced by syntax)** | `return` and `escape` are keywords that must be the last expression — can only appear once |
+| `ctl` keyword                     | **Removed**                       | Effect handler status inferred from `escape` usage; no separate keyword needed             |
 
 ---
 
@@ -127,13 +127,13 @@ result3 := add_numbers(7, 8, using(undefined));
 
 ---
 
-## Phase 2: Effect Handlers (`return` + `abort`)
+## Phase 2: Effect Handlers (`return` + `escape`)
 
 ### 2.1 Syntax
 
 ```yo
 // Define an effect operation (multi-parameter supported)
-// Effect handlers are regular `fn` functions whose body uses `abort` or `return`
+// Effect handlers are regular `fn` functions whose body uses `escape` or `return`
 Raise :: (fn(forall(T : Type), msg : String, msg2 : String) -> T);
 
 // Use an effect in a function (effect becomes an implicit parameter)
@@ -144,12 +144,12 @@ safe_divide :: (fn(x : i32, y : i32, using(raise : Raise)) -> i32)(
   )
 );
 
-// Handle the effect — without resume (discarding continuation via `abort`)
+// Handle the effect — without resume (discarding continuation via `escape`)
 raise_const :: (fn() -> i64) {
   (given(raise) : Raise) = ((msg, msg2) -> {
     println(msg);
     println(msg2);
-    abort i64(42); // abort returns from enclosing function with this value
+    escape i64(42); // escape returns from enclosing function with this value
   });
   (i64(8) + i64(safe_divide(1, 0))) + i64(10)
 };
@@ -169,18 +169,18 @@ raise_resume :: (fn() -> i64) {
 
 ### 2.2 Semantics
 
-- An effect operation type is a regular `fn` type whose handler body uses `abort` or `return` to control the continuation (the compiler detects this automatically).
+- An effect operation type is a regular `fn` type whose handler body uses `escape` or `return` to control the continuation (the compiler detects this automatically).
 - When an effect operation is invoked, execution is **suspended** at that point. A continuation (the rest of the computation up to the handler) is captured as a stack-allocated state machine.
 - The handler body receives the effect's arguments (e.g., `msg`, `msg2`).
 - Inside the handler body:
   - **`return(value)`** — resumes the captured continuation with `value` as the result of the effect call.
-  - **`abort expr`** — discards the continuation entirely and returns `expr` from the enclosing function that installed the handler.
+  - **`escape expr`** — discards the continuation entirely and returns `expr` from the enclosing function that installed the handler.
 - Two handler forms:
-  - **Anonymous function handler** (no-resume): `(given(raise) : Raise) = ((msg, msg2) -> { abort expr; });`
+  - **Anonymous function handler** (no-resume): `(given(raise) : Raise) = ((msg, msg2) -> { escape expr; });`
   - **fn-typed handler** (with resume): `(given(raise) : Raise) = (fn(...) -> T)({ return(value); });`
 - Continuations are **one-shot** — `return` can be called at most once (syntactically enforced as last expression; runtime double-resume check is planned but not yet implemented).
 - Effect operations compose with `using` — the effect is an implicit parameter resolved via `given`.
-- **Abort in async context**: When `abort` is called inside an `io.async` task, the Future is marked as **aborted** (state = -2). Attempting to `io.await` or `io.spawn` on an aborted Future causes a **panic** at runtime. See [ASYNC_AWAIT.md](./ASYNC_AWAIT.md#aborted-futures) for details.
+- **Escape in async context**: When `escape` is called inside an `io.async` task, the Future is marked as **aborted** (state = -2). Attempting to `io.await` or `io.spawn` on an aborted Future causes a **panic** at runtime. See [ASYNC_AWAIT.md](./ASYNC_AWAIT.md#aborted-futures) for details.
 
 ### 2.3 Effect Coloring / Propagation
 
@@ -205,13 +205,13 @@ wrapper :: (fn(x : i32, y : i32, using(raise : Raise)) -> i32)(
 );
 ```
 
-The `using` parameter with a function type whose handler uses `abort` is the **sole marker** for whether a function may suspend due to an effect:
+The `using` parameter with a function type whose handler uses `escape` is the **sole marker** for whether a function may suspend due to an effect:
 
-| Signature                                           | Role                                  | Needs state machine?          | Callers need transformation?            |
-| --------------------------------------------------- | ------------------------------------- | ----------------------------- | --------------------------------------- |
-| `fn(..., using(raise : Raise)) -> T`                | **Propagates** the effect             | Yes (within a handler scope)  | Only if they also propagate via `using` |
-| `fn() -> T` (handles effect internally via `given`) | **Handles** the effect                | Internally yes, externally no | **No** — callers see a plain function   |
-| `fn(using(f : (fn() -> i32))) -> T`                 | Implicit param (plain `fn`, no abort) | No                            | No                                      |
+| Signature                                           | Role                                   | Needs state machine?          | Callers need transformation?            |
+| --------------------------------------------------- | -------------------------------------- | ----------------------------- | --------------------------------------- |
+| `fn(..., using(raise : Raise)) -> T`                | **Propagates** the effect              | Yes (within a handler scope)  | Only if they also propagate via `using` |
+| `fn() -> T` (handles effect internally via `given`) | **Handles** the effect                 | Internally yes, externally no | **No** — callers see a plain function   |
+| `fn(using(f : (fn() -> i32))) -> T`                 | Implicit param (plain `fn`, no escape) | No                            | No                                      |
 
 The handler is the boundary. The state machine transformation is scoped to the region **between** the `given` handler site and the `ctl` invocation site.
 
@@ -221,7 +221,7 @@ The effect system shares Yo's async/await state machine architecture (shared ana
 
 1. **Effect site** (calling `raise(...)`) = suspension point (like `await`).
 2. **Handler scope** = event loop (like `async { ... }`).
-3. **`return(value)`** = continuation resume. **`abort expr`** = continuation discard.
+3. **`return(value)`** = continuation resume. **`escape expr`** = continuation discard.
 
 Every function in the call chain between the handler and the effect site becomes a state machine:
 
@@ -336,7 +336,7 @@ No special language support needed — this falls out of the existing `using`/`g
 
 **Step 1: Effect type** — `src/lexer.ts`, `src/parser.ts`, evaluator
 
-- Effect operation types are regular `fn` types. The compiler infers `isControlFunction` when the function body uses `abort` (checked after body evaluation).
+- Effect operation types are regular `fn` types. The compiler infers `isControlFunction` when the function body uses `escape` (checked after body evaluation).
 - No separate `ctl` keyword — effect handler status is a property of the function value, not its type declaration.
 
 **Step 2: Effect analysis pass** — `src/evaluator/effects/effect-analysis.ts`
@@ -353,9 +353,9 @@ No special language support needed — this falls out of the existing `using`/`g
 
 **Step 4: Handler codegen** — `src/codegen/exprs/generation.ts`, `src/codegen/exprs/other-fn-call.ts`
 
-- Abort handlers: `abort expr` generates pending deferred drops + return from enclosing function.
+- Escape handlers: `escape expr` generates pending deferred drops + return from enclosing function.
 - Resume handlers: `return(value)` resumes continuation via SM resume function.
-- Direct effect call in handler scope (no intermediate `using` function) — both abort and resume paths.
+- Direct effect call in handler scope (no intermediate `using` function) — both escape and resume paths.
 - `handlerBodyContainsExplicitReturn()` guard prevents implicit resume for handlers with explicit `return(value)`.
 
 **Step 5: RC correctness**
@@ -380,22 +380,22 @@ No special language support needed — this falls out of the existing `using`/`g
 
 **Step 8: Tests** — `tests/algebraic_effects.test.yo` (38 tests)
 
-- Basic abort and resume via `using` parameter ✅
-- Direct effect abort/resume without intermediate `using` function ✅
-- Nested effect abort/resume inside resume handler ✅
+- Basic escape and resume via `using` parameter ✅
+- Direct effect escape/resume without intermediate `using` function ✅
+- Nested effect escape/resume inside resume handler ✅
 - While loop with effect resume (basic, break, continue, mixed continue-then-break) ✅
 - Break from cond after effect resume ✅
 - Break drops local allocations after effect resume ✅
 - Early return inside loop after effect resume ✅
 - Two different effect types in same scope (Log + Raise) ✅
 - Single-level and two-level effect propagation via `using` ✅
-- Given variable shadowing (resume and abort variants) ✅
-- Effect polymorphism with `using` spread (resume and abort) ✅
-- Module-based effect with abort/resume ✅
-- Nested module-based effect with abort/resume ✅
-- Module destructured `using(ModuleType)` with abort/resume ✅
-- Multiple effect row spreads with resume/abort ✅
-- Closure with `using()` effect — resume and abort ✅
+- Given variable shadowing (resume and escape variants) ✅
+- Effect polymorphism with `using` spread (resume and escape) ✅
+- Module-based effect with escape/resume ✅
+- Nested module-based effect with escape/resume ✅
+- Module destructured `using(ModuleType)` with escape/resume ✅
+- Multiple effect row spreads with resume/escape ✅
+- Closure with `using()` effect — resume and escape ✅
 - Effect row polymorphism with `...(E)` spread in closure callbacks, with parameter renaming ✅
 - Inline typed effect row declaration `using(name : Type)` in closures ✅
 
@@ -417,7 +417,7 @@ This would eliminate the separate async/await state machine infrastructure and a
 
 ### 3.2 One-Shot Runtime Enforcement
 
-Currently one-shot is enforced syntactically (`return` and `abort` must be the last expression). A runtime check for double-resume (calling `return` twice on the same continuation) is planned but not yet implemented.
+Currently one-shot is enforced syntactically (`return` and `escape` must be the last expression). A runtime check for double-resume (calling `return` twice on the same continuation) is planned but not yet implemented.
 
 ### 3.3 Optimization: Static Effect Resolution
 
@@ -431,14 +431,14 @@ When the handler and effect site are in the same compilation unit, the compiler 
 
 ## Relationship to Existing Async/Await
 
-| Aspect           | Async/Await                   | Algebraic Effects                        |
-| ---------------- | ----------------------------- | ---------------------------------------- |
-| Suspension point | `await expr`                  | `effect_op(args)`                        |
-| Who resumes      | Event loop (IO completion)    | Handler (calling `return`)               |
-| State machine    | Per async function            | Per effectful function chain             |
-| Continuation     | Implicit (event loop manages) | Explicit (`return` / `abort` in handler) |
-| Thread model     | Single-threaded event loop    | Synchronous (same thread)                |
-| Use cases        | IO concurrency                | Control flow abstraction                 |
+| Aspect           | Async/Await                   | Algebraic Effects                         |
+| ---------------- | ----------------------------- | ----------------------------------------- |
+| Suspension point | `await expr`                  | `effect_op(args)`                         |
+| Who resumes      | Event loop (IO completion)    | Handler (calling `return`)                |
+| State machine    | Per async function            | Per effectful function chain              |
+| Continuation     | Implicit (event loop manages) | Explicit (`return` / `escape` in handler) |
+| Thread model     | Single-threaded event loop    | Synchronous (same thread)                 |
+| Use cases        | IO concurrency                | Control flow abstraction                  |
 
 For now, async/await and effects coexist independently, sharing similar state machine infrastructure patterns. See Phase 3.1 for planned unification.
 
@@ -459,10 +459,10 @@ For now, async/await and effects coexist independently, sharing similar state ma
 ## Success Criteria
 
 1. ✅ `using` + `given` works for plain function types (Phase 1).
-2. ✅ Effects with no-resume handlers work (exception-like usage via `abort`).
+2. ✅ Effects with no-resume handlers work (exception-like usage via `escape`).
 3. ✅ Effects with resume handlers work (continuation-like usage via `return`).
 4. ✅ No memory leaks detected by AddressSanitizer in all effect scenarios.
 5. ✅ Nested effects, effect propagation, and effect polymorphism work correctly.
-6. ✅ One-shot enforcement: `return` and `abort` are keywords, syntactically enforced as last expression.
-7. ✅ Closures with `using()` effect parameters work (both resume and abort).
+6. ✅ One-shot enforcement: `return` and `escape` are keywords, syntactically enforced as last expression.
+7. ✅ Closures with `using()` effect parameters work (both resume and escape).
 8. Performance: no overhead for functions that don't use effects.

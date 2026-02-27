@@ -357,7 +357,7 @@ The Future retains its result after completion. For reference-counted result typ
 
 ### Aborted Futures
 
-When an algebraic effect handler calls `abort` inside an async task, the Future is marked as **aborted** (internal state = -2). The task's continuation is discarded and no result is stored.
+When an algebraic effect handler calls `escape` inside an async task, the Future is marked as **aborted** (internal state = -2). The task's continuation is discarded and no result is stored.
 
 Attempting to `io.await` or `io.spawn` on an aborted Future causes a **panic**:
 
@@ -365,7 +365,7 @@ Attempting to `io.await` or `io.spawn` on an aborted Future causes a **panic**:
 main :: (fn(using(io : IO)) -> unit) {
   Raise :: (fn(forall(T : Type), msg : String) -> T);
   task := io.async((using(io : IO))=> {
-    (given(raise) : Raise) = ((msg) -> { abort (); });
+    (given(raise) : Raise) = ((msg) -> { escape (); });
     raise(`something went wrong`);
     42
   });
@@ -376,12 +376,12 @@ export main;
 
 **Future State Machine States:**
 
-| State | Meaning                                               | `FutureState` enum      |
-| ----- | ----------------------------------------------------- | ----------------------- |
-| 0     | Cold — not started yet                                | `FutureState.Pending`   |
-| 1..N  | Intermediate — suspended at an await/yield point      | `FutureState.Running`   |
-| -1    | Completed — result is available                       | `FutureState.Completed` |
-| -2    | Aborted — an effect handler called `abort`, no result | `FutureState.Aborted`   |
+| State | Meaning                                                | `FutureState` enum      |
+| ----- | ------------------------------------------------------ | ----------------------- |
+| 0     | Cold — not started yet                                 | `FutureState.Pending`   |
+| 1..N  | Intermediate — suspended at an await/yield point       | `FutureState.Running`   |
+| -1    | Completed — result is available                        | `FutureState.Completed` |
+| -2    | Aborted — an effect handler called `escape`, no result | `FutureState.Aborted`   |
 
 ### Querying Future State
 
@@ -392,7 +392,7 @@ FutureState :: enum(
   Pending = 0,     // Cold — not started yet
   Running = 1,     // In progress — suspended at an await/yield point
   Completed = -(1), // Completed — result is available
-  Aborted = -(2)   // Aborted — an effect handler called abort
+  Aborted = -(2)   // Aborted — an effect handler called escape
 );
 ```
 

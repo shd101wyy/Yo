@@ -2031,15 +2031,15 @@ test "Test io.state consistency", using(io : IO), {
   assert((s3 == FutureState.Completed), "completed future should be Completed");
 };
 
-test "Test abort in async closure", using(io : IO), {
+test "Test escape in async closure", using(io : IO), {
   Raise :: (fn(forall(T : Type), msg : String) -> T);
 
   {
-    test_abort :: (fn(task : Impl(Future(i32, IO, Raise)), using(io : IO)) -> unit) {
+    test_escape :: (fn(task : Impl(Future(i32, IO, Raise)), using(io : IO)) -> unit) {
       (given(raise) : Raise) =
         (msg) -> {
           println(msg);
-          abort ();
+          escape ();
         };
       io.await(task, using(io, raise));
     };
@@ -2049,7 +2049,7 @@ test "Test abort in async closure", using(io : IO), {
       raise(`This task should be aborted, not awaited!`);
       return i32(12);
     });
-    test_abort(task);
+    test_escape(task);
     st := io.state(task);
     printf("Future state after starting task: %d\n", st);
     assert(st == FutureState.Aborted);

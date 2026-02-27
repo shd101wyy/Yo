@@ -7,7 +7,7 @@ import { typeToString } from "../../types/utils";
 import type { EvaluatorContext } from "../context";
 import { _evaluateExpression } from "./_expr";
 
-export function evaluateAbort({
+export function evaluateEscape({
   expr,
   env,
   context,
@@ -16,20 +16,20 @@ export function evaluateAbort({
   env: Environment;
   context: EvaluatorContext;
 }): Expr {
-  // abort(value) — returns from the enclosing function with the given value.
+  // escape(value) — returns from the enclosing function with the given value.
   // Only valid inside a function that has an enclosing function available.
   const enclosingReturnType = context.enclosingFunctionReturnType;
   if (!enclosingReturnType) {
     throw formatErrorMessage({
       token: expr.func.token,
-      errorMessage: `\`abort\` can only be used inside a function that has an enclosing function.`,
+      errorMessage: `\`escape\` can only be used inside a function that has an enclosing function.`,
     });
   }
 
   if (!context.isInsideGivenHandler) {
     throw formatErrorMessage({
       token: expr.func.token,
-      errorMessage: `\`abort\` can only be used inside a \`given\` handler definition.`,
+      errorMessage: `\`escape\` can only be used inside a \`given\` handler definition.`,
     });
   }
 
@@ -38,7 +38,7 @@ export function evaluateAbort({
   if (!arg) {
     throw formatErrorMessage({
       token: expr.func.token,
-      errorMessage: `\`abort\` requires exactly one argument.`,
+      errorMessage: `\`escape\` requires exactly one argument.`,
     });
   }
 
@@ -56,7 +56,7 @@ export function evaluateAbort({
   if (!evaluatedArg.$) {
     throw formatErrorMessage({
       token: arg.token,
-      errorMessage: `Failed to evaluate the argument of \`abort\`.`,
+      errorMessage: `Failed to evaluate the argument of \`escape\`.`,
     });
   }
 
@@ -72,15 +72,15 @@ export function evaluateAbort({
   ) {
     throw formatErrorMessage({
       token: arg.token,
-      errorMessage: `Incompatible type for \`abort\` argument:
+      errorMessage: `Incompatible type for \`escape\` argument:
 - Expected (enclosing function return type): ${typeToString(enclosingReturnType)}
 - Got: ${typeToString(evaluatedArg.$.type)}`,
     });
   }
 
-  // abort(value) is control flow — it doesn't produce a value.
+  // escape(value) is control flow — it doesn't produce a value.
   // Its type is the enclosing function's return type, and it's marked as
-  // controlFlow: "abort" so that the begin block and codegen know how to handle it.
+  // controlFlow: "escape" so that the begin block and codegen know how to handle it.
   expr.args[0] = evaluatedArg;
   expr.$ = {
     ...expr.$,
@@ -88,7 +88,7 @@ export function evaluateAbort({
     type: evaluatedArg.$.type,
     value: undefined,
     pathCollection: [],
-    controlFlow: "abort",
+    controlFlow: "escape",
   };
   return expr;
 }

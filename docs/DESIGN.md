@@ -2018,7 +2018,7 @@ compute :: (fn(x: i32, y: i32) -> Result(i32, DivisionError)) {
 Yo supports **algebraic effects** — a mechanism for implicit parameter passing and delimited continuations. Effects are built on two features:
 
 1. **Implicit Parameters (`using` / `given`)**: Functions can declare implicit parameters with `using(name : Type)`. At call sites, the compiler resolves them automatically from `given` bindings in scope.
-2. **Effect Handlers (`return` / `abort`)**: When an effect handler uses `return(value)`, it resumes the captured continuation. When it uses `abort expr`, it discards the continuation and returns from the enclosing function.
+2. **Effect Handlers (`return` / `escape`)**: When an effect handler uses `return(value)`, it resumes the captured continuation. When it uses `escape expr`, it discards the continuation and returns from the enclosing function.
 
 ```yo
 // Define an effect type
@@ -2040,16 +2040,16 @@ handler_resume :: (fn() -> i32) {
   safe_divide(10, 0)  // returns 0
 };
 
-// Handle with abort — discards continuation, returns from enclosing function
-handler_abort :: (fn() -> i32) {
+// Handle with escape — discards continuation, returns from enclosing function
+handler_escape :: (fn() -> i32) {
   (given(raise) : Raise) = ((msg) -> {
-    abort i32(-1);  // discard continuation, return -1
+    escape i32(-1);  // discard continuation, return -1
   });
-  safe_divide(10, 0)  // never reached; handler_abort returns -1
+  safe_divide(10, 0)  // never reached; handler_escape returns -1
 };
 ```
 
-Effects compose with async/await: effect handlers inside `io.async` tasks work correctly. If `abort` is called inside an async task, the Future is marked as aborted and awaiting it causes a panic.
+Effects compose with async/await: effect handlers inside `io.async` tasks work correctly. If `escape` is called inside an async task, the Future is marked as escaped and awaiting it causes a panic.
 
 See [ALGEBRAIC_EFFECTS.md](./ALGEBRAIC_EFFECTS.md) for comprehensive documentation.
 
@@ -2087,7 +2087,7 @@ Key properties:
 - `io.await(future)` starts a cold future and runs it to completion; can be called **multiple times** on the same Future
 - `io.spawn(future)` starts a cold future without waiting for it to complete
 - All async code runs on the **same thread** (no thread spawning, no data races)
-- Awaiting or spawning a Future that was aborted by an effect handler causes a **panic**
+- Awaiting or spawning a Future that was escaped by an effect handler causes a **panic**
 
 See [ASYNC_AWAIT.md](./ASYNC_AWAIT.md) for comprehensive documentation.
 

@@ -104,9 +104,9 @@ export interface RuntimeDestructuring {
 
 /**
  * 'return' is used for both normal function return and ctl handler resume.
- * 'abort' is used for ctl handler discontinue (early return from enclosing function).
+ * 'escape' is used for ctl handler discontinue (early return from enclosing function).
  */
-export type ControlFlowKind = "return" | "break" | "continue" | "abort";
+export type ControlFlowKind = "return" | "break" | "continue" | "escape";
 
 export interface EvaluatedExprData {
   /**
@@ -545,7 +545,7 @@ export const BuiltinKeywords = {
   recur: ["recur"],
   fn: ["fn"],
   unsafe_fn: ["unsafe_fn"], // The function that skips the prohibitVoidType check
-  abort: ["abort"],
+  escape: ["escape"],
   extern: ["extern"],
   cond: ["cond"],
   type: ["type"],

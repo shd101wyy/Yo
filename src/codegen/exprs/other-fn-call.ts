@@ -1604,7 +1604,7 @@ export function generateOtherFunctionCall(
  * intermediate function with `using(ctl)` that would create a state machine).
  *
  * The ctl function IS the handler. We bind call arguments to handler parameters
- * as local C variables and generate the body inline. `abort(val)` inside the
+ * as local C variables and generate the body inline. `escape(val)` inside the
  * body becomes `return val;` which exits the enclosing C function (the handler
  * scope). `return(val)` inside the body treats `val` as the result of the call.
  */
@@ -1668,7 +1668,7 @@ function generateDirectCtlCall(
     // execution continues past the call site. The CALLER is responsible for
     // dropping the args at end of its own scope — don't drop them here.
     //
-    // Also create an exit label so nested abort handlers can `goto` here
+    // Also create an exit label so nested escape handlers can `goto` here
     // instead of using `return` (which would exit the C function entirely).
     const exitLabel = `__ctl_direct_exit_${callSiteId}`;
 
@@ -1700,9 +1700,9 @@ function generateDirectCtlCall(
     emitter.emitLine(`${indent}${exitLabel}:;`);
     return isUnitReturn ? "" : tmpResultVar;
   } else {
-    // Abort case: `abort(value)` in the body generates `return value;` in C,
+    // Escape case: `escape(value)` in the body generates `return value;` in C,
     // exiting the enclosing C function. Use effectHandlerParamDrops so that
-    // param cleanup runs before the abort return.
+    // param cleanup runs before the escape return.
     const prevHandlerDrops = context.effectHandlerParamDrops;
     context.effectHandlerParamDrops = paramDropCodes;
 

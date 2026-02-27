@@ -231,7 +231,7 @@ io.await(task, using(io, log1));
 - Effect injection via `io.spawn(task, using(...))` then `io.await(task)`
 - Set-once semantics: spawn with effects, then await with different effects — first effects win
 - Multiple effects: `using(io, log, raise)`
-- Effect with abort (already tested)
+- Effect with escape (already tested)
 
 #### 4.3 Update `ASYNC_AWAIT.md`
 

@@ -39,7 +39,7 @@ import { generateOpAnd, generateOpOr } from "./and-or";
 import { generateAnonymousArray, generateYoArrayFill } from "./array-fns";
 import { generateAssignment } from "./assignment";
 import { generateAsyncBlock, generateIoAsyncSyncCall } from "./async";
-import { emitAsyncFutureAbortion } from "./async-completion";
+import { emitAsyncFutureEscape } from "./async-completion";
 import { generateAtom } from "./atom";
 import { generateAwait, generateState } from "./await";
 import { generateBegin } from "./begin";
@@ -174,13 +174,13 @@ function emitEffectInjection(
 }
 
 /**
- * Generate C code for `abort(value)` — ctl handler discontinue.
+ * Generate C code for `escape(value)` — ctl handler discontinue.
  *
- * Inside a ctl handler body, `abort(value)` discards the continuation
+ * Inside a ctl handler body, `escape(value)` discards the continuation
  * and returns from the enclosing function with the given value.
  * In C codegen, this translates to dropping handler params then `return <value>;`.
  */
-function generateAbort(
+function generateEscape(
   expr: FnCallExpr,
   indent: string,
   context: CodeGenContext
@@ -188,15 +188,15 @@ function generateAbort(
   const functionContext = context as FunctionGenerationContext;
   const arg = expr.args[0];
 
-  // Check if we're inside a resume handler's body (nested abort).
-  // If so, the abort should set the outer handler's result variable and
+  // Check if we're inside a resume handler's body (nested escape).
+  // If so, the escape should set the outer handler's result variable and
   // goto its exit label instead of doing a C `return`.
   const resumeInfo = functionContext.continuationVariables?.get("resume");
   const hasDirectExit =
     resumeInfo && "directReturnVar" in resumeInfo && resumeInfo.directExitLabel;
 
   if (hasDirectExit) {
-    // Nested abort: assign to outer handler's result var and goto exit label
+    // Nested escape: assign to outer handler's result var and goto exit label
     if (arg) {
       const argCode = generateExpr(arg, indent, context);
       // Emit handler param drops before the goto
@@ -225,22 +225,22 @@ function generateAbort(
     return "";
   }
 
-  // Normal abort: emit a C `return` from the enclosing function.
+  // Normal escape: emit a C `return` from the enclosing function.
   // Must drop local variables from enclosing scopes (pendingDeferredDrops)
   // before returning, to avoid memory leaks.
-  // Use skipEnvCheck=true because the abort expression's environment is from
+  // Use skipEnvCheck=true because the escape expression's environment is from
   // the handler's scope, not the enclosing function's scope where the
   // local variables actually live.
 
-  // In async state machine context, abort must properly mark the Future as
+  // In async state machine context, escape must properly mark the Future as
   // ABORTED (-2) and notify any waiting continuation, instead of just returning
   // from the resume function (which would leave the Future stuck in an
   // intermediate state forever).
   if (functionContext.inAsyncStateMachine) {
     const emitter = functionContext.emitter;
 
-    // Compute the abort value for side effects, but don't store it as the
-    // Future's result — the abort value's type matches the enclosing fn's
+    // Compute the escape value for side effects, but don't store it as the
+    // Future's result — the escape value's type matches the enclosing fn's
     // return type, which may differ from the Future's result type.
     if (arg) {
       const argCode = generateExpr(arg, indent, context);
@@ -267,7 +267,7 @@ function generateAbort(
       true
     );
 
-    emitAsyncFutureAbortion({
+    emitAsyncFutureEscape({
       emitter,
       indent,
       debugLabel: functionContext.currentFunctionName,
@@ -498,7 +498,7 @@ function generateFuncCall(
     return generateRcCall(expr, indent, context);
   }
 
-  // panic - print error message and abort execution
+  // panic - print error message and call abort() [C stdlib]
   if (exprIsFunctionCallOf(expr, BuiltinFunctions.panic)) {
     return generatePanic(expr, indent, context);
   }
@@ -602,9 +602,9 @@ function generateFuncCall(
     return generateReturn(expr, indent, context);
   }
 
-  // abort(value) — ctl handler discontinue keyword
-  if (exprIsFunctionCallOf(expr, BuiltinKeywords.abort)) {
-    return generateAbort(expr, indent, context);
+  // escape(value) — ctl handler discontinue keyword
+  if (exprIsFunctionCallOf(expr, BuiltinKeywords.escape)) {
+    return generateEscape(expr, indent, context);
   }
 
   // __yo_array_fill builtin (handled similarly to Array.fill)
@@ -633,7 +633,7 @@ function generateFuncCall(
     return generateAssignment(expr, indent, context);
   }
   // already computed and it's not unit value
-  // Skip this optimization if controlFlow is set (e.g., abort/return) because
+  // Skip this optimization if controlFlow is set (e.g., escape/return) because
   // we need to generate the actual control flow code, not just the value.
   else if (
     expr.$?.value &&
