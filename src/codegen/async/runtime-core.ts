@@ -103,7 +103,7 @@ static void yo_async_enqueue_continuation(void (*resume_fn)(void*), void* state_
 // Spawn an async task by enqueueing it to the current thread's event loop
 // NOTE: This does NOT increment refcount. The task lifetime is managed by:
 // - Constructor: starts with refcount = 1 (user ref)
-// - Await/join: increments refcount (event loop ref) before starting cold future
+// - Await/spawn: increments refcount (event loop ref) before starting cold future
 // - Completion: decrements refcount (releases event loop ref)
 // - User drop: decrements refcount (releases user ref)
 void yo_async_spawn_task(void (*resume_fn)(void*), void* state_machine) {
@@ -126,7 +126,7 @@ void yo_async_run_ready_tasks(void) {
 }
 
 // Perform one step of the event loop: drain task queue, then poll/wait for I/O.
-// Used by synchronous io.await/io.join to make progress on both pure-async tasks
+// Used by synchronous io.await to make progress on both pure-async tasks
 // and I/O operations. Safe to call repeatedly in a busy loop — it only polls I/O
 // if the I/O subsystem has been initialized (i.e., the program uses IO operations).
 void yo_async_poll_step(void) {

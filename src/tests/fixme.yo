@@ -1,44 +1,40 @@
 open import "std/string";
+open import "std/fmt";
 { yield } :: import "std/async";
-{ printf } :: import "std/libc/stdio";
-{ sleep } :: import "std/io/timer";
+
+Log :: (fn(msg : String) -> unit);
 
 main :: (fn(using(io : IO)) -> unit) {
-  // =========================================================================
-  // Test: async timer operations
-  // =========================================================================
+  counter := Box(i32)(0);
 
-  value := Box(i32)(0);
-  task1 := io.async((using(io : IO))=> {
-    assert(value.* == 0); // 0
-    value.* = (value.* + 1); // 1
+  {
+    task := io.async((using(io : IO, log : Log))=> {
+      log(`Task started`);
+    });
 
-    printf("Timer test: sleeping 50ms...\n");
-    result := io.await(sleep(u64(50)));
-    printf("Timer test: woke up with result=%d\n", result);
-    assert(result > i32(0));
-    assert(value.* == 3); // yield() resumed block2 first, which set it to 3
-    value.* = (value.* + 1); // 4
+    (given(log1) : Log) =
+      (msg) -> {
+        println(`Log1: ${msg}`);
+      };
+    io.await(task, using(io, log1));
+  };
 
-    printf("Timer test: sleeping 3000ms...\n");
-    result2 := io.await(sleep(u64(3000)));
-    printf("Timer test: woke up with result=%d\n", result2);
-    assert(result2 > i32(0));
-    assert(value.* == 4); // 4
+  {
+    task := io.async((using(io : IO, log : Log))=> {
+      log(`Task started`);
+    });
 
-    printf("All async timer tests passed!\n");
-  });
-
-  task2 := io.async((using(io : IO))=> {
-    assert(value.* == 1); // 1
-    value.* = (value.* + 1); // 2
-
-    io.await(yield());
-    assert(value.* == 2); // yield() resumes before sleep(50ms), nobody changed it
-    value.* = (value.* + 1); // 3
-  });
-  io.join(task1, task2);
-  io.await(task1);
-  io.await(task2);
+    (given(log1) : Log) =
+      (msg) -> {
+        println(`Log1: ${msg}`);
+      };
+    (given(log2) : Log) =
+      (msg) -> {
+        assert(false, "Shouldn't pick here");
+      };
+    
+    io.spawn(task, using(io, log1));
+    io.await(task, using(io, log2)); // Will still pick log1 because it's specialized first.
+  };
 };
 export main;

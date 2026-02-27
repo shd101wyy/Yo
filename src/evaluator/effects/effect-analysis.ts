@@ -46,7 +46,7 @@ import type {
  * Analyzes a function body to find all effect call points.
  *
  * An effect call point is a call to a variable whose handler function value
- * has isControlFunction: true (set when the handler body uses `abort`).
+ * has isControlFunction: true (set when the handler body uses `escape`).
  * These are analogous to await points in async functions.
  *
  * @param body The function body expression

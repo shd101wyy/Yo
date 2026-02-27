@@ -27,10 +27,15 @@ import {
   generateAsyncBlockResumeFunction,
   getStateMachineFieldName,
 } from "../async/state-machine";
+import type { EffectStateMachineInfo } from "../effects/effect-state-machine";
 import type { FunctionGenerationContext } from "../functions/context";
 import { getTypeString, getVariableTypeString } from "../utils";
 import { generateAtom } from "./atom";
-import { getDropFunctionForType, getDupFunctionForType } from "./drop-dup";
+import {
+  generateDropCodeForValue,
+  getDropFunctionForType,
+  getDupFunctionForType,
+} from "./drop-dup";
 import { generateExpr } from "./expr";
 
 /**
@@ -176,6 +181,12 @@ export function generateAsyncBlock(
     let usedDeferredDups = false;
     const captureFields = captureType.fields
       .map((elem) => {
+        // Effect param fields are zero-initialized at io.async time.
+        // They will be populated at io.spawn/io.await time.
+        if (elem.isEffectParam) {
+          return `.${elem.label} = NULL`;
+        }
+
         // Find the dup expression for this variable by checking the variable name
         // deferredDupExpressions only contains dup expressions for Rc types,
         // so we need to match by variable name, not by index
@@ -268,7 +279,7 @@ export function generateAsyncBlock(
       context.emitter.emitLine(
         `${indent}${varTypeAndName} = ${constructorCall};`
       );
-      // Lazy execution: future stays cold until await/join starts it.
+      // Lazy execution: future stays cold until await/spawn starts it.
       return resultVar;
     } else {
       return constructorCall;
@@ -287,7 +298,7 @@ export function generateAsyncBlock(
       context.emitter.emitLine(
         `${indent}${varTypeAndName} = ${constructorCall};`
       );
-      // Lazy execution: future stays cold until await/join starts it.
+      // Lazy execution: future stays cold until await/spawn starts it.
       return resultVar;
     } else {
       return constructorCall;
@@ -353,7 +364,7 @@ function emitAsyncBlockStructDefinition(
 
   // Resume function pointer for lazy start at await
   emitter.emitDeclarationLine(
-    `  void (*__yo_resume_fn)(void*);  // Resume function pointer (for lazy start at await/join)`
+    `  void (*__yo_resume_fn)(void*);  // Resume function pointer (for lazy start at await/spawn)`
   );
   emitter.emitDeclarationLine(``);
 
@@ -425,7 +436,7 @@ function emitAsyncBlockStructDefinition(
   // await_future_X fields (used when awaiting an expression that isn't a captured Future variable)
   if (analysis.awaitPoints.length > 0) {
     const awaitPointsNeedingFutureStorage = analysis.awaitPoints.filter(
-      (ap) => ap.futureVariableId === undefined && !ap.isJoinPoint
+      (ap) => ap.futureVariableId === undefined
     );
     if (awaitPointsNeedingFutureStorage.length > 0) {
       emitter.emitDeclarationLine(`  // Future references for awaits`);
@@ -488,18 +499,6 @@ function emitAsyncBlockStructDefinition(
         );
         nextExtraWhileIndex++;
       }
-    }
-    emitter.emitDeclarationLine(``);
-  }
-
-  // join_pending_N fields (atomic counter for join points)
-  const joinPoints = analysis.awaitPoints.filter((ap) => ap.isJoinPoint);
-  if (joinPoints.length > 0) {
-    emitter.emitDeclarationLine(`  // Join pending counters`);
-    for (const jp of joinPoints) {
-      emitter.emitDeclarationLine(
-        `  int join_pending_${jp.index};  // Pending count for join ${jp.index}`
-      );
     }
     emitter.emitDeclarationLine(``);
   }
@@ -757,7 +756,7 @@ function generateAsyncBlockStateDisposeFunction(
  *
  * LIFETIME MODEL (lazy execution):
  * - State machine starts with refcount = 1 (owned by caller)
- * - await/join increments refcount when starting the task (event loop reference)
+ * - await/spawn increments refcount when starting the task (event loop reference)
  * - Completion decrements refcount (releases event loop reference)
  * - User code decrements refcount when dropping the Future
  * - State machine is freed when refcount hits 0
@@ -847,7 +846,7 @@ function generateAsyncBlockConstructor(
   }
   emitter.emitLine(``);
 
-  // Store resume function pointer for lazy start at await/join
+  // Store resume function pointer for lazy start at await/spawn
   emitter.emitLine(
     `  sm->__yo_resume_fn = (void(*)(void*))${resumeFunctionName};`
   );
@@ -916,37 +915,6 @@ export function generateDeferredAsyncBlocks(
     );
 
     emitter.emitLine(``);
-
-    // Generate join notify functions for each join point
-    if (analysis.awaitPoints.some((ap) => ap.isJoinPoint)) {
-      for (const awaitPoint of analysis.awaitPoints) {
-        if (!awaitPoint.isJoinPoint) continue;
-        const joinIndex = awaitPoint.index;
-        const notifyFnName = `${asyncBlockId}_join_${joinIndex}_notify`;
-
-        emitter.emitLine(
-          `// Notify function for join point ${joinIndex} in ${asyncBlockId}`
-        );
-        emitter.emitLine(`static void ${notifyFnName}(void* sm_ptr) {`);
-        emitter.emitLine(`  ${structName}* sm = (${structName}*)sm_ptr;`);
-        emitter.emitLine(`  int prev = sm->join_pending_${joinIndex}--;`);
-        emitter.emitLine(
-          `  ASYNC_DEBUG("${asyncBlockId}_join_${joinIndex}_notify: pending=%d\\n", prev - 1);`
-        );
-        emitter.emitLine(`  if (prev == 1) {`);
-        emitter.emitLine(`    // All futures complete — resume the caller`);
-        emitter.emitLine(
-          `    yo_async_spawn_task((void (*)(void*))${resumeFunctionName}, (void*)sm);`
-        );
-        emitter.emitLine(`  }`);
-        emitter.emitLine(
-          `  // Release the event loop reference taken per-future at join time`
-        );
-        emitter.emitLine(`  __yo_decr_rc((void*)sm);`);
-        emitter.emitLine(`}`);
-        emitter.emitLine(``);
-      }
-    }
 
     // Generate resume function implementation
     generateAsyncBlockResumeFunction(
@@ -1169,6 +1137,17 @@ export function generateIoAsyncSyncCall(
     return `/* Error: no closure function or capture type for io.async sync path */`;
   }
 
+  // Check if the closure has an effect state machine (e.g., closure calls a ctl handler like raise)
+  let closureEffectSmInfo: EffectStateMachineInfo | undefined;
+  for (const funcId in context.functions) {
+    const entry = context.functions[funcId]!;
+    if (entry.cName === closureFunctionCName && entry.effectStateMachineInfo) {
+      closureEffectSmInfo =
+        entry.effectStateMachineInfo as EffectStateMachineInfo;
+      break;
+    }
+  }
+
   // Emit struct definition — includes an embedded __capture field so the
   // capture data lives as long as the future (heap-allocated).
   emitter.emitDeclarationLine(`struct ${structName}_struct {`);
@@ -1183,29 +1162,96 @@ export function generateIoAsyncSyncCall(
   emitter.emitDeclarationLine(`  void* continuation_sm;`);
   emitter.emitDeclarationLine(`  void (*__yo_resume_fn)(void*);`);
   emitter.emitDeclarationLine(`  ${captureCName} __capture;`);
+  if (closureEffectSmInfo) {
+    // Embed the closure's effect state machine in the future struct
+    emitter.emitDeclarationLine(
+      `  ${closureEffectSmInfo.structName} __effect_sm;`
+    );
+  }
   emitter.emitDeclarationLine(`};`);
   emitter.emitDeclarationLine(``);
 
-  // Emit resume function — calls the closure with the embedded capture data
-  emitter.emitDeclarationLine(`void ${resumeFunctionName}(void* ptr) {`);
-  emitter.emitDeclarationLine(`  ${structName}* sm = (${structName}*)ptr;`);
-  if (!isUnitType(resultType)) {
+  if (closureEffectSmInfo) {
+    // Emit resume function that drives the closure's effect SM.
+    // When the SM yields (closure called a ctl handler like raise), the future
+    // is marked as aborted (state = -2) since ctl handlers with escape semantics
+    // discontinue the closure — it never completes normally.
+    emitter.emitDeclarationLine(`void ${resumeFunctionName}(void* ptr) {`);
+    emitter.emitDeclarationLine(`  ${structName}* sm = (${structName}*)ptr;`);
     emitter.emitDeclarationLine(
-      `  sm->result = ${closureFunctionCName}(&sm->__capture);`
+      `  sm->__effect_sm.closure_context = &sm->__capture;`
     );
+    emitter.emitDeclarationLine(
+      `  ${closureEffectSmInfo.resumeFunctionName}(&sm->__effect_sm);`
+    );
+    emitter.emitDeclarationLine(`  if (sm->__effect_sm.completed) {`);
+    // Normal completion
+    if (!isUnitType(resultType)) {
+      emitter.emitDeclarationLine(`    sm->result = sm->__effect_sm.result;`);
+    }
+    emitter.emitDeclarationLine(`    sm->state = -1;`);
+    emitter.emitDeclarationLine(
+      `    void (*continuation)(void*) = sm->continuation_fn;`
+    );
+    emitter.emitDeclarationLine(`    if (continuation) {`);
+    emitter.emitDeclarationLine(`      void* cont_sm = sm->continuation_sm;`);
+    emitter.emitDeclarationLine(`      continuation(cont_sm);`);
+    emitter.emitDeclarationLine(`    }`);
+    emitter.emitDeclarationLine(`    __yo_decr_rc(ptr);`);
+    emitter.emitDeclarationLine(`  } else {`);
+    // SM yielded — ctl handler was called (e.g., raise(msg))
+    // Drop the yielded values to prevent leaks
+    const analysis = closureEffectSmInfo.analysis;
+    for (const cp of analysis.effectCallPoints) {
+      for (let i = 0; i < cp.operationArgTypes.length; i++) {
+        const argType = cp.operationArgTypes[i]!;
+        if (typeContainsRcType(argType)) {
+          const dropCode = generateDropCodeForValue(
+            `sm->__effect_sm.yield_${i}`,
+            argType,
+            context
+          );
+          if (dropCode) {
+            emitter.emitDeclarationLine(`    ${dropCode};`);
+          }
+        }
+      }
+      break; // Only handle first call point's yield values for now
+    }
+    // Mark the future as escaped (ctl handler uses escape/discontinue)
+    emitter.emitDeclarationLine(`    sm->state = -2;`);
+    emitter.emitDeclarationLine(
+      `    void (*continuation)(void*) = sm->continuation_fn;`
+    );
+    emitter.emitDeclarationLine(`    if (continuation) {`);
+    emitter.emitDeclarationLine(`      void* cont_sm = sm->continuation_sm;`);
+    emitter.emitDeclarationLine(`      continuation(cont_sm);`);
+    emitter.emitDeclarationLine(`    }`);
+    emitter.emitDeclarationLine(`    __yo_decr_rc(ptr);`);
+    emitter.emitDeclarationLine(`  }`);
+    emitter.emitDeclarationLine(`}`);
   } else {
-    emitter.emitDeclarationLine(`  ${closureFunctionCName}(&sm->__capture);`);
+    // Emit resume function — calls the closure with the embedded capture data
+    emitter.emitDeclarationLine(`void ${resumeFunctionName}(void* ptr) {`);
+    emitter.emitDeclarationLine(`  ${structName}* sm = (${structName}*)ptr;`);
+    if (!isUnitType(resultType)) {
+      emitter.emitDeclarationLine(
+        `  sm->result = ${closureFunctionCName}(&sm->__capture);`
+      );
+    } else {
+      emitter.emitDeclarationLine(`  ${closureFunctionCName}(&sm->__capture);`);
+    }
+    emitter.emitDeclarationLine(`  sm->state = -1;`);
+    emitter.emitDeclarationLine(
+      `  void (*continuation)(void*) = sm->continuation_fn;`
+    );
+    emitter.emitDeclarationLine(`  if (continuation) {`);
+    emitter.emitDeclarationLine(`    void* cont_sm = sm->continuation_sm;`);
+    emitter.emitDeclarationLine(`    continuation(cont_sm);`);
+    emitter.emitDeclarationLine(`  }`);
+    emitter.emitDeclarationLine(`  __yo_decr_rc(ptr);`);
+    emitter.emitDeclarationLine(`}`);
   }
-  emitter.emitDeclarationLine(`  sm->state = -1;`);
-  emitter.emitDeclarationLine(
-    `  void (*continuation)(void*) = sm->continuation_fn;`
-  );
-  emitter.emitDeclarationLine(`  if (continuation) {`);
-  emitter.emitDeclarationLine(`    void* cont_sm = sm->continuation_sm;`);
-  emitter.emitDeclarationLine(`    continuation(cont_sm);`);
-  emitter.emitDeclarationLine(`  }`);
-  emitter.emitDeclarationLine(`  __yo_decr_rc(ptr);`);
-  emitter.emitDeclarationLine(`}`);
   emitter.emitDeclarationLine(``);
 
   // Emit dispose function

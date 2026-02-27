@@ -402,7 +402,7 @@ test "Test nested cond with await", using(io : IO), {
 };
 
 // ---------------------------------------------------------------------------
-// 16. Lazy sequential async tasks – verify no interleaving without join
+// 16. Lazy sequential async tasks – verify no interleaving without spawn
 //     With lazy execution, await task1 fully completes before task2 starts.
 // ---------------------------------------------------------------------------
 test "Test lazy sequential async tasks", using(io : IO), {
@@ -1489,12 +1489,12 @@ test "Test match with await on primitive integer default branch", using(io : IO)
 };
 
 // ---------------------------------------------------------------------------
-// 55. Basic join — two cold futures started concurrently
-//     io.join(task1, task2) starts both, interleaves at yield points.
-//     After join, individual io.await extracts results immediately.
+// 55. Basic spawn — two cold futures started concurrently
+//     io.spawn starts each future without waiting.
+//     io.await extracts results after spawn.
 //     Verifies interleaving order: task1 state0 → task2 state0 → task1 state1 → task2 state1
 // ---------------------------------------------------------------------------
-test "Test basic join of two futures", using(io : IO), {
+test "Test basic spawn of two futures", using(io : IO), {
   counter := Box(i32)(0);
 
   task1 := io.async((using(io : IO))=> {
@@ -1516,22 +1516,23 @@ test "Test basic join of two futures", using(io : IO), {
   });
 
   // Both tasks are cold (not started).
-  // join starts both and waits for all to complete.
-  io.join(task1, task2);
+  // spawn starts both without waiting for completion.
+  io.spawn(task1);
+  io.spawn(task2);
 
-  // After join, both are complete — io.await just extracts results.
+  // After spawn, both are running — io.await waits and extracts results.
   result1 := io.await(task1);
   result2 := io.await(task2);
 
   // Both tasks incremented counter: +2 from task1, +20 from task2
-  assert((counter.* == i32(22)), "counter should be 22 after join");
+  assert((counter.* == i32(22)), "counter should be 22 after spawn");
 };
 
 // ---------------------------------------------------------------------------
-// 56. Join single future — edge case
-//     io.join(task) with one argument should work like starting + waiting.
+// 56. Spawn single future — edge case
+//     io.spawn(task) starts the future, io.await waits for it.
 // ---------------------------------------------------------------------------
-test "Test join single future", using(io : IO), {
+test "Test spawn single future", using(io : IO), {
   counter := Box(i32)(0);
 
   task := io.async((using(io : IO))=> {
@@ -1541,19 +1542,19 @@ test "Test join single future", using(io : IO), {
     return counter.*;
   });
 
-  io.join(task);
+  io.spawn(task);
 
   result := io.await(task);
-  assert((counter.* == i32(50)), "counter should be 50 after single join");
+  assert((counter.* == i32(50)), "counter should be 50 after single spawn");
   assert((result == i32(50)), "result should be 50");
 };
 
 // ---------------------------------------------------------------------------
-// 57. Join with futures that have multiple awaits inside
-//     Each future yields multiple times; join interleaves at each yield.
+// 57. Spawn with futures that have multiple awaits inside
+//     Each future yields multiple times; spawn starts both.
 //     Verifies round-robin interleaving across all yield points.
 // ---------------------------------------------------------------------------
-test "Test join with multi-yield futures", using(io : IO), {
+test "Test spawn with multi-yield futures", using(io : IO), {
   counter := Box(i32)(0);
 
   task1 := io.async((using(io : IO))=> {
@@ -1586,19 +1587,20 @@ test "Test join with multi-yield futures", using(io : IO), {
     return counter.*;
   });
 
-  io.join(task1, task2);
+  io.spawn(task1);
+  io.spawn(task2);
 
   result1 := io.await(task1);
   result2 := io.await(task2);
 
   // task1 adds 3, task2 adds 30; total = 33
-  assert((counter.* == i32(33)), "counter should be 33 after join of multi-yield futures");
+  assert((counter.* == i32(33)), "counter should be 33 after spawn of multi-yield futures");
 };
 
 // ---------------------------------------------------------------------------
-// 58. Join then code after — verify execution continues after join
+// 58. Spawn then code after — verify execution continues after spawn + await
 // ---------------------------------------------------------------------------
-test "Test code after join", using(io : IO), {
+test "Test code after spawn", using(io : IO), {
   flag := Box(bool)(false);
 
   task := io.async((using(io : IO))=> {
@@ -1606,12 +1608,13 @@ test "Test code after join", using(io : IO), {
     flag.* = true;
   });
 
-  io.join(task);
+  io.spawn(task);
+  io.await(task);
 
-  // After join, flag should be set
-  assert(flag.*, "flag should be true after join");
+  // After spawn + await, flag should be set
+  assert(flag.*, "flag should be true after spawn + await");
 
-  // Code after join should execute normally
+  // Code after should execute normally
   task2 := io.async((using(io : IO))=> {
     io.await(yield());
   });
@@ -1952,4 +1955,171 @@ test "Test await future multiple times returns same result", using(io : IO), {
     assert(result1.* == i32(12), "first await should return Box(i32) with value 12");
     assert(result1.* == result2.*, "multiple awaits should return the same Box(i32) value");
   };
+};
+
+// ---------------------------------------------------------------------------
+// 69. io.state — query a Future's state without awaiting
+// ---------------------------------------------------------------------------
+test "Test io.state pending", using(io : IO), {
+  // A cold (not yet started) Future should be Pending
+  task := io.async((using(io : IO))=> {
+    io.await(yield());
+    return i32(42);
+  });
+  s := io.state(task);
+  assert((s == FutureState.Pending), "cold future should be Pending");
+  io.await(task);
+};
+
+test "Test io.state completed", using(io : IO), {
+  // After awaiting, the Future should be Completed
+  task := io.async((using(io : IO))=> {
+    return i32(42);
+  });
+  io.await(task);
+  s := io.state(task);
+  assert((s == FutureState.Completed), "awaited future should be Completed");
+};
+
+test "Test io.state completed after yield", using(io : IO), {
+  // A task with yield points should be Completed after await
+  task := io.async((using(io : IO))=> {
+    io.await(yield());
+    io.await(yield());
+    return i32(7);
+  });
+  io.await(task);
+  s := io.state(task);
+  assert((s == FutureState.Completed), "future with yields should be Completed after await");
+};
+
+test "Test io.state completed after spawn", using(io : IO), {
+  // After spawn + await, both tasks should be Completed
+  counter := Box(i32)(0);
+  task_a := io.async((using(io : IO))=> {
+    counter.* = (counter.* + 1);
+    io.await(yield());
+    counter.* = (counter.* + 1);
+  });
+  task_b := io.async((using(io : IO))=> {
+    assert((counter.* == i32(1)), "task_a should have started and set counter");
+  });
+  io.spawn(task_a);
+  io.spawn(task_b);
+  io.await(task_a);
+  io.await(task_b);
+  sa := io.state(task_a);
+  sb := io.state(task_b);
+  assert((sa == FutureState.Completed), "spawned task_a should be Completed");
+  assert((sb == FutureState.Completed), "spawned task_b should be Completed");
+  assert((counter.* == i32(2)), "counter should be 2 after both tasks complete");
+};
+
+test "Test io.state consistency", using(io : IO), {
+  // Multiple io.state calls on the same future return consistent results
+  task := io.async(() => {
+    return i32(99);
+  });
+  s1 := io.state(task);
+  s2 := io.state(task);
+  assert((s1 == s2), "multiple state calls should return same result");
+  assert((s1 == FutureState.Pending), "cold future should be Pending");
+  io.await(task);
+  s3 := io.state(task);
+  s4 := io.state(task);
+  assert((s3 == s4), "multiple state calls after completion should match");
+  assert((s3 == FutureState.Completed), "completed future should be Completed");
+};
+
+test "Test escape in async closure", using(io : IO), {
+  Raise :: (fn(forall(T : Type), msg : String) -> T);
+
+  {
+    test_escape :: (fn(task : Impl(Future(i32, IO, Raise)), using(io : IO)) -> unit) {
+      (given(raise) : Raise) =
+        (msg) -> {
+          println(msg);
+          escape ();
+        };
+      io.await(task, using(io, raise));
+    };
+
+    // I expect 'task' to have type Impl(Future(i32, IO, Raise))
+    task := io.async((using(io : IO, raise : Raise)) => {
+      raise(`This task should be aborted, not awaited!`);
+      return i32(12);
+    });
+    test_escape(task);
+    st := io.state(task);
+    printf("Future state after starting task: %d\n", st);
+    assert(st == FutureState.Aborted);
+  };
+};
+
+// ============================================================================
+// Effect Injection Tests — verify effect handlers are injected at runtime
+// via io.spawn/io.await into the future's capture struct.
+// ============================================================================
+
+// ---------------------------------------------------------------------------
+// Effect injection via io.await (sync future, no await inside closure)
+// ---------------------------------------------------------------------------
+test "Test effect injection via io.await on sync future", using(io : IO), {
+  Log :: (fn(msg : String) -> unit);
+
+  task := io.async((using(io : IO, log : Log))=> {
+    log(`effect injected`);
+  });
+
+  (given(log1) : Log) =
+    (msg) -> {
+      printf("Log1: %s\n", msg);
+    };
+  io.await(task, using(io, log1));
+  printf("effect injection via await OK\n");
+};
+
+// ---------------------------------------------------------------------------
+// Effect injection via io.spawn, then io.await (set-once semantics)
+// The first spawn sets the effect handlers; the later await is ignored.
+// ---------------------------------------------------------------------------
+test "Test effect injection set-once via io.spawn then io.await", using(io : IO), {
+  Log :: (fn(msg : String) -> unit);
+
+  task := io.async((using(io : IO, log : Log))=> {
+    log(`spawn first`);
+  });
+
+  (given(log1) : Log) =
+    (msg) -> {
+      printf("SpawnLog: %s\n", msg);
+    };
+  (given(log2) : Log) =
+    (msg) -> {
+      assert(false, "log2 should not be called (set-once semantics)");
+    };
+
+  io.spawn(task, using(io, log1));
+  io.await(task, using(io, log2));
+  printf("set-once via spawn OK\n");
+};
+
+// ---------------------------------------------------------------------------
+// Effect injection via io.await on async future (SM path, with await inside)
+// ---------------------------------------------------------------------------
+test "Test effect injection via io.await on SM future", using(io : IO), {
+  Log :: (fn(msg : String) -> unit);
+
+  task := io.async((using(io : IO, log : Log))=> {
+    log(`before yield`);
+    io.await(yield());
+    log(`after yield`);
+  });
+
+  (given(log1) : Log) =
+    (msg) -> {
+      printf("SMLog: %s\n", msg);
+    };
+  io.await(task, using(io, log1));
+  printf("effect injection SM path OK\n");
 };

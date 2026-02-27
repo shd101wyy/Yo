@@ -80,7 +80,7 @@ export interface Type {
    * Set on IO module field types so that io.async and io.await
    * can be detected even when aliased (e.g., `my_async :: io.async`).
    */
-  ioBuiltin?: "io_async" | "io_await" | "io_join";
+  ioBuiltin?: "io_async" | "io_await" | "io_state" | "io_spawn";
 }
 
 /*
@@ -308,6 +308,11 @@ export interface TypeField {
   assignedValue?: Value;
 
   exprs: FieldExprs;
+
+  // True for capture struct fields that hold effect handler function pointers.
+  // These fields are zero-initialized at io.async time and populated at
+  // io.spawn/io.await time with the concrete handler from using(...).
+  isEffectParam?: boolean;
 }
 
 export interface TupleType extends Type {

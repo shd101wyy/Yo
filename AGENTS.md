@@ -4,7 +4,97 @@ mode: agent
 
 You are a programming language and compiler expert.
 
-Other instructions are located in `.github`. Always follow the instructions.
+Detailed instructions for specific areas are in `.github/instructions/`. Always read and follow the relevant file before working in that area.
+
+| Area                             | Instruction file                                 |
+| -------------------------------- | ------------------------------------------------ |
+| C code generation                | `.github/instructions/c-codegen.instructions.md` |
+| Debugging evaluator / C output   | `.github/instructions/debugging.instructions.md` |
+| Running / writing tests          | `.github/instructions/testing.instructions.md`   |
+| Yo language design & std library | `.github/instructions/yo-design.instructions.md` |
+| Yo syntax rules                  | `.github/instructions/yo-syntax.instructions.md` |
+
+---
+
+## Architecture
+
+The Yo compiler is a TypeScript program that compiles Yo source code to C11 via several pipeline stages:
+
+```
+Yo source → Lexer → Parser → AST (expr.ts)
+                                  ↓
+                             Evaluator   ← compile-time evaluation, type checking, CTFE
+                                  ↓
+                             Codegen     ← emits C11 code
+                                  ↓
+                          C compiler (clang/gcc/zig)
+```
+
+### Key directories
+
+| Path                     | Role                                                                  |
+| ------------------------ | --------------------------------------------------------------------- |
+| `src/lexer.ts`           | Tokenizes Yo source into tokens                                       |
+| `src/parser.ts`          | Parses tokens → AST                                                   |
+| `src/expr.ts`            | Core AST node types (`Expr`, `ControlFlowKind`, `BuiltinKeywords`, …) |
+| `src/evaluator/`         | Compile-time evaluator — type checking, CTFE, trait resolution        |
+| `src/evaluator/exprs/`   | Per-node evaluation logic (`begin.ts`, `cond.ts`, `escape.ts`, …)     |
+| `src/evaluator/calls/`   | Function call specialization and dispatch                             |
+| `src/evaluator/effects/` | Algebraic effects analysis                                            |
+| `src/codegen/`           | C11 code generation                                                   |
+| `src/codegen/exprs/`     | Per-node C emitter (`generation.ts`, `return.ts`, `async.ts`, …)      |
+| `src/codegen/effects/`   | Effect state machine C emitter                                        |
+| `src/codegen/functions/` | Function-level C emitters                                             |
+| `src/types/`             | Type value definitions and compatibility helpers                      |
+| `src/yo-cli.ts`          | CLI entry point for `yo` / `yo-cli`                                   |
+| `std/`                   | Yo standard library (`.yo` source)                                    |
+| `tests/`                 | Integration test files (`*.test.yo`)                                  |
+
+### Algebraic effects model
+
+- `return expr` inside an effect handler **resumes** the continuation.
+- `escape expr` inside an effect handler **discards** the continuation and exits the enclosing `fn`.
+- When an async task is escaped, the Future enters `FutureState.Aborted` (state = -2).
+- C's `abort()` (process termination on panic) is a **different thing** — never confuse the two.
+
+---
+
+## Build & Test Commands
+
+```bash
+# Build (always run before yo-cli)
+bun run build
+
+# Evaluator tests (TypeScript)
+bun test src/tests/fixme.test.ts --timeout 10000
+
+# C codegen tests — specific file
+./yo-cli test ./tests/algebraic_effects.test.yo --bail -v
+
+# C codegen tests — specific test by name
+./yo-cli test ./tests/algebraic_effects.test.yo --test-name-pattern "Test escape"
+
+# All integration tests (slow — only when asked)
+./yo-cli test
+
+# Emit C only (inspect generated code)
+./yo-cli compile src/tests/fixme.yo --emit-c --skip-c-compiler --release
+
+# Full compile + run
+./yo-cli compile src/tests/fixme.yo --release -o a.out && ./a.out
+
+# Compile with AddressSanitizer
+./yo-cli compile src/tests/fixme.yo --release --sanitize address --allocator libc -o test && ./test
+```
+
+Always save verbose output to a file to avoid terminal truncation:
+
+```bash
+./yo-cli test file.yo --bail -v &> output.txt
+./yo-cli compile src/tests/fixme.yo --release &> compile_output.txt
+```
+
+---
 
 ## Universal Workflow Rules
 
@@ -21,3 +111,14 @@ Other instructions are located in `.github`. Always follow the instructions.
 - If you haven't modified the code, don't ask to run commands repeatedly.
 - Ignore `DESIGN.md` and other markdown files in `outdated/` — they are out of date.
 - No need to read `fixme.test.ts`.
+
+---
+
+## Common Pitfalls
+
+- **`expr.$.value == undefined`** means the value is a runtime value (not `UnknownValue`). `UnknownValue` means the type is known but the value itself is not.
+- **`./yo-cli compile` cannot be used on `*.test.yo` files.** Extract the failing test case into a standalone `.yo` file with a `main` function and `export main;`.
+- **`index.ts` barrel files cause circular imports.** Never create them in `src/`.
+- **Algebraic effect `escape` vs C `abort()`**: They are completely different. The Yo keyword `escape` discards a continuation; C's `abort()` terminates the process.
+- **VS Code extension errors for `.yo` files** are often stale — the extension may not reflect the latest evaluator. Rebuild with `cd vscode-extension && bun package` if needed.
+- **`outdated/` markdown files are stale.** Do not use them for design decisions.

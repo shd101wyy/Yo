@@ -7,7 +7,7 @@ import {
 } from "../../env";
 import { formatErrorMessage } from "../../error";
 import { cloneExpr, type Expr, type FnCallExpr } from "../../expr";
-import { evaluatedBodyContainsAbort } from "../../expr-traversal";
+import { evaluatedBodyContainsEscape } from "../../expr-traversal";
 import type { FunctionValue } from "../../function-value";
 import { PlaceholderToken } from "../../token";
 import { areTypesCompatible } from "../../types/compatibility";
@@ -328,13 +328,13 @@ export function tryToImplementFunctionByFunctionType({
   // Check if the function body type matches the function return type
   const functionBodyReturnType = evaluatedFunctionBody.$?.type;
 
-  // If the body uses `abort`, mark this function value as isControlFunction.
-  if (evaluatedBodyContainsAbort(evaluatedFunctionBody)) {
+  // If the body uses `escape`, mark this function value as isControlFunction.
+  if (evaluatedBodyContainsEscape(evaluatedFunctionBody)) {
     functionValue.isControlFunction = true;
   }
 
   // Regular function: body type must match return type exactly
-  // Skip when body uses abort because the abort returns
+  // Skip when body uses escape because the escape returns
   // from the enclosing function, not this function.
   if (
     !functionValue.isControlFunction &&

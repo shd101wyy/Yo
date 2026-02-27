@@ -5,24 +5,22 @@
  * that need to be captured in state machine structs.
  *
  * This is a thin wrapper around the shared suspension-point analysis,
- * providing the async-specific suspension point detection (io.await/io.join).
+ * providing the async-specific suspension point detection (io.await/io.spawn).
  */
 
 import { getVariablesFromEnv } from "../../env";
 import { type Expr, ExprTag } from "../../expr";
 import { TokenType } from "../../token";
-import { createUnitType } from "../../types/creators";
-import type { Type } from "../../types/definitions";
 
-import {
-  extractFutureTraitFromType,
-  typeImplementsFuture,
-} from "../trait-checking";
 import {
   analyzeSuspensionPoints,
   extractTargetVariableId,
   type SuspensionPointDetector,
 } from "../shared/suspension-analysis";
+import {
+  extractFutureTraitFromType,
+  typeImplementsFuture,
+} from "../trait-checking";
 
 // Re-export types from the types file
 export type {
@@ -93,69 +91,6 @@ export function analyzeAwaitPoints(body: Expr): AwaitAnalysisResult {
           });
         }
       }
-
-      // Check if this is a join call
-      if (isIoJoinCall(expr)) {
-        const joinFutureVariableIds: string[] = [];
-        const joinFutureTypes: Type[] = [];
-        let allArgsAreFutures = true;
-
-        for (const arg of expr.args) {
-          const argFutureType = arg.$?.type;
-          if (!argFutureType || !typeImplementsFuture(argFutureType)) {
-            allArgsAreFutures = false;
-            break;
-          }
-
-          const futureModuleType = extractFutureTraitFromType(argFutureType);
-          if (!futureModuleType) {
-            allArgsAreFutures = false;
-            break;
-          }
-
-          joinFutureTypes.push(argFutureType);
-
-          let futureVariableId: string | undefined;
-          if (
-            arg.tag === ExprTag.Atom &&
-            arg.token.type === TokenType.Identifier &&
-            arg.$
-          ) {
-            const futureVarName = arg.token.value;
-            const futureVariables = getVariablesFromEnv(
-              arg.$.env,
-              futureVarName
-            );
-            if (futureVariables.length > 0) {
-              const futureVar = futureVariables[futureVariables.length - 1]!;
-              if (futureVar.isOwningTheSameRcValueAs) {
-                futureVariableId = futureVar.isOwningTheSameRcValueAs.id;
-              } else {
-                futureVariableId = futureVar.id;
-              }
-            }
-          }
-
-          if (futureVariableId) {
-            joinFutureVariableIds.push(futureVariableId);
-          } else {
-            allArgsAreFutures = false;
-            break;
-          }
-        }
-
-        if (allArgsAreFutures && joinFutureVariableIds.length > 0) {
-          points.push({
-            index: points.length,
-            expr,
-            resultType: createUnitType(),
-            isJoinPoint: true,
-            joinFutureVariableIds,
-            joinFutureCount: expr.args.length,
-            joinFutureTypes,
-          });
-        }
-      }
     },
 
     shouldSkipBody(expr) {
@@ -205,12 +140,21 @@ export function isIoAwaitCall(expr: Expr): boolean {
 }
 
 /**
- * Checks if an expression is an io.join(...) call.
+ * Checks if an expression is an io.state(future) call.
  * Uses the ioBuiltin marker on the callee's type.
  */
-export function isIoJoinCall(expr: Expr): boolean {
+export function isIoStateCall(expr: Expr): boolean {
   if (expr.tag !== ExprTag.FnCall) return false;
-  return expr.func.$?.type?.ioBuiltin === "io_join";
+  return expr.func.$?.type?.ioBuiltin === "io_state";
+}
+
+/**
+ * Checks if an expression is an io.spawn(future) call.
+ * Uses the ioBuiltin marker on the callee's type.
+ */
+export function isIoSpawnCall(expr: Expr): boolean {
+  if (expr.tag !== ExprTag.FnCall) return false;
+  return expr.func.$?.type?.ioBuiltin === "io_spawn";
 }
 
 // --- Local variable collection (used by async codegen, not part of suspension analysis) ---

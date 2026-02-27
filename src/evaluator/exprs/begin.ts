@@ -763,10 +763,10 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
       lastExpr = exprToEvaluate;
       break;
     }
-    // Check if it's the "abort" keyword (ctl handler discontinue)
+    // Check if it's the "escape" keyword (ctl handler discontinue)
     else if (
       exprIsFunctionCall(exprToEvaluate) &&
-      exprIsFunctionCallOf(exprToEvaluate, BuiltinKeywords.abort)
+      exprIsFunctionCallOf(exprToEvaluate, BuiltinKeywords.escape)
     ) {
       if (
         i !== beginExpressions.length - 1 &&
@@ -777,24 +777,24 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
       ) {
         throw formatErrorMessage({
           token: exprToEvaluate.token,
-          errorMessage: `The "abort" keyword can only be used as the last expression.`,
+          errorMessage: `The "escape" keyword can only be used as the last expression.`,
         });
       }
 
       if (!context.enclosingFunctionReturnType) {
         throw formatErrorMessage({
           token: exprToEvaluate.token,
-          errorMessage: `The "abort" keyword can only be used inside a function that has an enclosing function.`,
+          errorMessage: `The "escape" keyword can only be used inside a function that has an enclosing function.`,
         });
       }
 
       returnExpr = exprToEvaluate;
 
-      expectExprToBeFunctionCallOf(exprToEvaluate, BuiltinKeywords.abort, 1);
-      const abortArg = exprToEvaluate.args[0]!;
+      expectExprToBeFunctionCallOf(exprToEvaluate, BuiltinKeywords.escape, 1);
+      const escapeArg = exprToEvaluate.args[0]!;
 
-      const evaluatedAbortArgExpr = evaluateExpression({
-        expr: abortArg,
+      const evaluatedEscapeArgExpr = evaluateExpression({
+        expr: escapeArg,
         env,
         context: {
           ...context,
@@ -804,18 +804,18 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
           },
         },
       });
-      if (!evaluatedAbortArgExpr.$) {
+      if (!evaluatedEscapeArgExpr.$) {
         throw formatErrorMessage({
-          token: abortArg.token,
-          errorMessage: `Abort expression is not evaluated correctly:\n${exprToString(abortArg)}`,
+          token: escapeArg.token,
+          errorMessage: `Escape expression is not evaluated correctly:\n${exprToString(escapeArg)}`,
         });
       }
 
-      exprToEvaluate.args[0] = evaluatedAbortArgExpr;
+      exprToEvaluate.args[0] = evaluatedEscapeArgExpr;
 
       // Type-check against enclosingFunctionReturnType.
       // Skip when it is a SomeType (e.g., forall T hasn't resolved yet) —
-      // the abort value's type will determine the actual return type.
+      // the escape value's type will determine the actual return type.
       if (
         !isSomeType(context.enclosingFunctionReturnType) &&
         !areTypesCompatible(
@@ -823,27 +823,27 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
             type: context.enclosingFunctionReturnType,
             env,
           },
-          { type: evaluatedAbortArgExpr.$.type, env }
+          { type: evaluatedEscapeArgExpr.$.type, env }
         )
       ) {
         throw formatErrorMessage({
-          token: abortArg.token,
-          errorMessage: `Incompatible type for \`abort\` argument:
+          token: escapeArg.token,
+          errorMessage: `Incompatible type for \`escape\` argument:
 - Expected (enclosing function return type): ${typeToString(context.enclosingFunctionReturnType)}
-- Got: ${typeToString(evaluatedAbortArgExpr.$.type)}`,
+- Got: ${typeToString(evaluatedEscapeArgExpr.$.type)}`,
         });
       }
 
-      attachTempVariableToExpr(evaluatedAbortArgExpr, true);
-      env = evaluatedAbortArgExpr.$.env;
+      attachTempVariableToExpr(evaluatedEscapeArgExpr, true);
+      env = evaluatedEscapeArgExpr.$.env;
 
       exprToEvaluate.$ = {
         env,
-        type: evaluatedAbortArgExpr.$.type,
-        value: evaluatedAbortArgExpr.$.value,
-        pathCollection: evaluatedAbortArgExpr.$.pathCollection,
-        variableName: evaluatedAbortArgExpr.$.variableName,
-        controlFlow: "abort",
+        type: evaluatedEscapeArgExpr.$.type,
+        value: evaluatedEscapeArgExpr.$.value,
+        pathCollection: evaluatedEscapeArgExpr.$.pathCollection,
+        variableName: evaluatedEscapeArgExpr.$.variableName,
+        controlFlow: "escape",
       };
       lastExpr = exprToEvaluate;
       break;

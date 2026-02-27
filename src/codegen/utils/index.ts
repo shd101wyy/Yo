@@ -617,7 +617,11 @@ export function getTypeString(
         throw new Error(
           `Impl(Future) type has no registered concrete type. ` +
             `SomeType ID: ${someType.id}, FutureModule: ${futureModule?.id ?? "none"}. ` +
-            `Ensure async blocks are properly analyzed and their state machine types are registered.`
+            `Ensure async blocks are properly analyzed and their state machine types are registered.\n` +
+            `resolvedConcreteType: ${someType.resolvedConcreteType?.id ?? "none"}\n` +
+            `registered type IDs: ${Object.keys(context.types)
+              .filter((k) => k.startsWith("sometype"))
+              .join(", ")}`
         );
       }
 

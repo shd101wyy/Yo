@@ -16,6 +16,7 @@ import {
   isFunctionSpecializable,
   isFunctionType,
   isFunctionTypeGeneric,
+  isFunctionTypeHardGeneric,
   isObjectType,
   isSomeType,
   isStructType,
@@ -282,29 +283,46 @@ export function findFunctionCallsInExpr(
         } else {
           // Skip collecting functions whose body contains UnknownValue
           // This means the function wasn't fully evaluated (e.g., nested function in an unspecialized generic)
+          let isGenericOnlyDueToImplicitParams = false;
           if (exprContainsUnknownValue(functionValue.body)) {
-            return;
+            // However, functions that are only "generic" due to implicit parameters
+            // (e.g., using(io : IO)) may have UnknownValue in their body for the
+            // implicit parameter references (like `io` or `io.await`). These functions
+            // are still valid for codegen because:
+            // 1. IO builtin calls (io.await, io.async, io.state) are handled specially by codegen
+            // 2. The implicit parameters are compile-time-only and don't appear in C signatures
+            // 3. The function body is otherwise fully evaluated
+            isGenericOnlyDueToImplicitParams =
+              !isFunctionTypeHardGeneric(functionValue.type) &&
+              functionValue.type.implicitParameters.length > 0;
+            if (!isGenericOnlyDueToImplicitParams) {
+              return;
+            }
           }
 
-          // DEBUG: Check if this is a SomeType ARC function without resolvedConcreteType
-          const paramTypes = functionValue.type.parameters.map((p) => p.type);
-          const hasSomeTypeWithoutResolved = paramTypes.some(
-            (t) =>
-              isSomeType(t) &&
-              typeImplementsFuture(t) &&
-              !t.resolvedConcreteType
-          );
-          if (hasSomeTypeWithoutResolved) {
-            // Skip collecting SomeType's ARC functions (___drop, ___dup) that have generic
-            // Impl(Future) parameters without resolvedConcreteType. These are just wrapper
-            // functions that call builtins like __yo_sometype_drop. The codegen will handle
-            // dispatching to the concrete type's functions directly.
-            //
-            // These functions shouldn't be codegen'd because:
-            // 1. Their 'self' parameter type (SomeType) doesn't have a C representation
-            // 2. The codegen for ___drop already handles SomeType by dispatching to concrete type
-            // 3. The actual ARC operations are done via __yo_sometype_drop/__yo_sometype_dup builtins
-            return;
+          // Skip collecting SomeType's ARC functions (___drop, ___dup) that have generic
+          // Impl(Future) parameters without resolvedConcreteType. These are just wrapper
+          // functions that call builtins like __yo_sometype_drop. The codegen will handle
+          // dispatching to the concrete type's functions directly.
+          //
+          // These functions shouldn't be codegen'd because:
+          // 1. Their 'self' parameter type (SomeType) doesn't have a C representation
+          // 2. The codegen for ___drop already handles SomeType by dispatching to concrete type
+          // 3. The actual ARC operations are done via __yo_sometype_drop/__yo_sometype_dup builtins
+          //
+          // However, user-defined functions with using(io : IO) may also have SomeType(Future)
+          // parameters (e.g., test_escape(task : Impl(Future(...)))) and should NOT be skipped.
+          if (!isGenericOnlyDueToImplicitParams) {
+            const paramTypes = functionValue.type.parameters.map((p) => p.type);
+            const hasSomeTypeWithoutResolved = paramTypes.some(
+              (t) =>
+                isSomeType(t) &&
+                typeImplementsFuture(t) &&
+                !t.resolvedConcreteType
+            );
+            if (hasSomeTypeWithoutResolved) {
+              return;
+            }
           }
 
           // Collect the function if it's not already collected

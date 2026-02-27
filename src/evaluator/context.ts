@@ -150,15 +150,15 @@ export interface EvaluatorContext {
 
   /**
    * The return type of the enclosing (parent) function.
-   * This is set when evaluating a nested function body, enabling `abort expr`
-   * to return from the enclosing function. `abort` is valid in any function
-   * that has an enclosing function - the abort value's type must match this type.
+   * This is set when evaluating a nested function body, enabling `escape expr`
+   * to return from the enclosing function. `escape` is valid in any function
+   * that has an enclosing function - the escape value's type must match this type.
    */
   enclosingFunctionReturnType?: Type;
 
   /**
    * Whether the enclosing function being specialized has implicit params
-   * bound to control function handlers (handlers whose body uses `abort`).
+   * bound to control function handlers (handlers whose body uses `escape`).
    * Set during specialization when handler values with isControlFunction are detected.
    */
   hasControlFunctionImplicitParams?: boolean;
@@ -227,8 +227,8 @@ export interface EvaluatorContext {
 
   /**
    * Whether we are currently evaluating the RHS of a `given(...)` assignment.
-   * When true, `abort` is allowed inside handler functions.
-   * `abort` is only valid inside given handler definitions.
+   * When true, `escape` is allowed inside handler functions.
+   * `escape` is only valid inside given handler definitions.
    */
   isInsideGivenHandler?: boolean;
 }

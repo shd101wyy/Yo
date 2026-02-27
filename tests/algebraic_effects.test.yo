@@ -1,7 +1,7 @@
 open import "std/string"; // Let's use `String` instead of `str`
 open import "std/fmt";
 
-test "Test fn abort and return via using parameter", {
+test "Test fn escape and return via using parameter", {
   Raise :: (fn(forall(T : Type), msg : String, msg2 : String) -> T);
 
   // Use an effect in a function (effect becomes an implicit parameter)
@@ -17,8 +17,8 @@ test "Test fn abort and return via using parameter", {
     (given(raise) : Raise) = ((msg, msg2) -> {// values/anonymous-function.ts
       println(msg);
       println(msg2);
-      abort i64(42); // abort type should match the outer function return type, which is i64 in this case
-                    // `abort` is only allowed in `fn` function value.  
+      escape i64(42); // escape type should match the outer function return type, which is i64 in this case
+                    // `escape` is only allowed in `fn` function value.  
     });
     (i64(8) + i64(safe_divide(1, 0))) + i64(10)
   };
@@ -60,7 +60,7 @@ test "Test fn resume called directly without intermediate using function", {
   };
   run_test();
 };
-test "Test fn abort called directly without intermediate using function", {
+test "Test fn escape called directly without intermediate using function", {
   Raise :: (fn(forall(T : Type), msg : String, msg2 : String) -> T);
 
   // The fn function is called directly in the handler scope — no intermediate
@@ -70,18 +70,18 @@ test "Test fn abort called directly without intermediate using function", {
     (given(raise) : Raise) = ((msg, msg2) -> {
       println(msg);
       println(msg2);
-      abort ();
+      escape ();
     });
     raise(`direct-call`, `No using parameter needed`);
     assert(false, "This line should not be reached");
   };
   run_test();
 };
-test "Test nested fn abort inside resume handler", {
+test "Test nested fn escape inside resume handler", {
   Raise :: (fn(forall(T : Type), msg : String, msg2 : String) -> T);
 
   // raise2 is defined inside raise's handler body. raise2 aborts with i32(18),
-  // which becomes the result of the outer raise call (since abort exits the
+  // which becomes the result of the outer raise call (since escape exits the
   // nearest enclosing fn handler, which is raise's handler).
   run_test :: (fn() -> unit) {
     (given(raise) : Raise) = ((msg, msg2) -> {
@@ -90,14 +90,14 @@ test "Test nested fn abort inside resume handler", {
       (given(raise2) : Raise) = ((m1, m2) -> {
         println(m1);
         println(m2);
-        abort i32(18);
+        escape i32(18);
       });
       raise2(`inner msg1`, `inner msg2`);
       assert(false, "This should not be reached if raise2 aborts");
       return i32(16);
     });
     result := raise(`outer msg1`, `outer msg2`);
-    assert(result == 18, "result should be 18 from raise2's abort");
+    assert(result == 18, "result should be 18 from raise2s escape");
   };
   run_test();
 };
@@ -395,7 +395,7 @@ test "Test two-level effect propagation via using parameter", {
   assert((result == i32(10)), "two-level propagation: 0 + 10 = 10");
 };
 
-test "Test two-level effect propagation via using parameter with abort", {
+test "Test two-level effect propagation via using parameter with escape", {
   Raise :: (fn(forall(T : Type), msg : String) -> T);
 
   safe_divide :: (fn(x : i32, y : i32, using(raise : Raise)) -> i32)(
@@ -411,10 +411,10 @@ test "Test two-level effect propagation via using parameter with abort", {
 
   (given(raise) : Raise) = ((msg) -> {
     println(msg);
-    abort ();
+    escape ();
   });
   result := compute(50, 0);
-  assert(false, "Expected to abort");
+  assert(false, "Expected to escape");
 };
 
 test "Test given variable shadowing (inner scope shadows outer)", {
@@ -446,7 +446,7 @@ test "Test given variable shadowing (inner scope shadows outer)", {
   assert((result3 == i32(0)), "outer handler should still work after inner scope");
 };
 
-test "Test given variable shadowing (inner scope shadows outer) with abort", {
+test "Test given variable shadowing (inner scope shadows outer) with escape", {
   Raise :: (fn(forall(T : Type), msg : String) -> T);
 
   // Function that USES the effect (propagates via using parameter)
@@ -468,7 +468,7 @@ test "Test given variable shadowing (inner scope shadows outer) with abort", {
     // Define a new `raise` that overrides the outer one, simulating multi-level propagation
     (given(raise2) : Raise) = ((msg) -> {
       println(msg);
-      abort ();
+      escape ();
     });
 
     result := safe_divide(10, 0);
@@ -499,7 +499,7 @@ test "Test effect polymorphism with using spread", {
   assert(result == i32(42), "effect polymorphism: should be 42");
 };
 
-test "Test effect polymorphism with using spread and abort", {
+test "Test effect polymorphism with using spread and escape", {
   Raise :: (fn(forall(T : Type), msg : String) -> T);
 
   might_fail :: (fn(using(raise : Raise)) -> i32)(
@@ -513,14 +513,14 @@ test "Test effect polymorphism with using spread and abort", {
 
   (given(raise) : Raise) = ((msg) -> {
     println(msg);
-    abort ();
+    escape ();
   });
 
   result := run(might_fail);
   assert(false, "This line should not be reached since might_fail raises an error");
 };
 
-test "Test module-based effect with abort", {
+test "Test module-based effect with escape", {
   Raise :: module(
     raise : (fn(forall(T : Type), msg : String) -> T)
   );
@@ -536,12 +536,12 @@ test "Test module-based effect with abort", {
     raise :
       (msg) -> {
         println(msg);
-        abort ();
+        escape ();
       }
   );
 
   result := safe_divide(10, 0);
-  assert(false, "Should not reach here after abort");
+  assert(false, "Should not reach here after escape");
 };
 
 test "Test module-based effect with resume", {
@@ -570,7 +570,7 @@ test "Test module-based effect with resume", {
   assert((result2 == 5), "module-based effect with resume: should be 5");
 };
 
-test "Test nested module-based effect with abort", {
+test "Test nested module-based effect with escape", {
   Errors :: module(
     raise : (fn(forall(T : Type), msg : String) -> T)
   );
@@ -591,13 +591,13 @@ test "Test nested module-based effect with abort", {
       raise :
         (msg) -> {
           println(msg);
-          abort ();
+          escape ();
         }
     )
   );
 
   result := safe_divide(10, 0);
-  assert(false, "Should not reach here after abort");
+  assert(false, "Should not reach here after escape");
 };
 
 test "Test nested module-based effect with resume", {
@@ -632,7 +632,7 @@ test "Test nested module-based effect with resume", {
   assert((result2 == 5), "nested module effect with resume: should be 5");
 };
 
-test "Test module labeled using(name : ModuleType) with abort", {
+test "Test module labeled using(name : ModuleType) with escape", {
   Raise :: module(
     raise : (fn(forall(T : Type), msg : String) -> T)
   );
@@ -648,12 +648,12 @@ test "Test module labeled using(name : ModuleType) with abort", {
     raise :
       (msg) -> {
         println(msg);
-        abort ();
+        escape ();
       }
   );
 
   result := safe_divide(10, 0);
-  assert(false, "Should not reach here after abort");
+  assert(false, "Should not reach here after escape");
 };
 
 test "Test module labeled using(name : ModuleType) with resume", {
@@ -719,7 +719,7 @@ test "Test multiple effect row spreads with resume", {
   assert((result == i32(42)), "multiple spreads resume: should be 42");
 };
 
-test "Test multiple effect row spreads with abort", {
+test "Test multiple effect row spreads with escape", {
   Raise :: (fn(forall(T : Type), msg : String) -> T);
   Log :: (fn(msg : String) -> unit);
 
@@ -744,7 +744,7 @@ test "Test multiple effect row spreads with abort", {
 
   (given(raise) : Raise) = ((msg) -> {
     println(msg);
-    abort ();
+    escape ();
   });
 
   (given(log) : Log) = ((msg) -> {
@@ -753,7 +753,7 @@ test "Test multiple effect row spreads with abort", {
   });
 
   run_both(might_fail, might_log);
-  assert(false, "multiple spreads abort: should not reach here");
+  assert(false, "multiple spreads escape: should not reach here");
 };
 
 test "Test closure with using() effect - resume", {
@@ -782,7 +782,7 @@ test "Test closure with using() effect - resume", {
   assert((x.* == 3), "closure+effect resume: expected x to be 3");
 };
 
-test "Test closure with using() effect - abort", {
+test "Test closure with using() effect - escape", {
   Log :: (fn(msg : String) -> unit);
 
   run_test :: (fn() -> i32) {
@@ -790,7 +790,7 @@ test "Test closure with using() effect - abort", {
 
     (given(log) : Log) = ((msg) -> {
       println(msg);
-      abort i32(99);
+      escape i32(99);
     });
 
     (closure : Impl(Fn(v : i32, msg : String, using(log : Log)) -> i32)) =
@@ -801,12 +801,12 @@ test "Test closure with using() effect - abort", {
       };
 
     result := closure(1, `hello`);
-    assert(false, "closure+effect abort: should not reach here");
+    assert(false, "closure+effect escape: should not reach here");
     return result;
   };
 
   val := run_test();
-  assert((val == 99), "closure+effect abort: expected abort value 99");
+  assert((val == 99), "closure+effect escape: expected escape value 99");
 };
 
 test "Effect row polymorphism with ...(E) spread", {
@@ -885,7 +885,7 @@ test "Effect row inline typed declaration using(name : Type)", {
   assert((sum.* == 10), "inline typed: sum should be 10");
 };
 
-test "Mixed abort and return in effect handler", {
+test "Mixed escape and return in effect handler", {
   Yield :: (fn(v : i32) -> i32);
   Log :: (fn(v : i32) -> unit);
 
@@ -905,7 +905,7 @@ test "Mixed abort and return in effect handler", {
     (v) -> (
       cond(
         (v > 2) => {
-          abort ();
+          escape ();
         },
         true => {
           return v;
@@ -928,7 +928,7 @@ test "Mixed abort and return in effect handler", {
     sum.* = (sum.* + result);
   });
 
-  assert(false, "This line should not be reached due to abort in yield");
+  assert(false, "This line should not be reached due to escape in yield");
 };
 
 test "Transitive SM while loop with break", {

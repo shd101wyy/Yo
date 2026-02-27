@@ -4,7 +4,7 @@
 
 Yo uses **async/await with state machine transformation** via **algebraic effects** for efficient **single-threaded concurrency**. This is a stackless coroutine model similar to JavaScript's event loop - all async code runs on the **same thread** as the caller.
 
-**Key Insight**: `io.async`/`io.await` provides **concurrency** (interleaved execution), not **parallelism** (simultaneous execution). For parallelism, see `PARALLELISM.md` which describes the `spawn` API for isolated multi-threaded execution.
+**Key Insight**: `io.async`/`io.await` provides **concurrency** (interleaved execution), not **parallelism** (simultaneous execution). For parallelism, see `PARALLELISM.md` which describes the `Task.spawn` API for isolated multi-threaded execution.
 
 ```yo
 { yield } :: import "std/async";
@@ -19,8 +19,10 @@ main :: (fn(using(io : IO)) -> unit)({
     io.await(yield());
     return i32(2);
   });
-  // join starts both, interleaves at yield points, waits for all
-  io.join(task1, task2);
+  // spawn starts both without waiting
+  io.spawn(task1);
+  io.spawn(task2);
+  // await waits and extracts results
   result1 := io.await(task1);
   result2 := io.await(task2);
 });
@@ -32,14 +34,15 @@ export main;
 | Concept         | Mechanism             | Description                                |
 | --------------- | --------------------- | ------------------------------------------ |
 | **Concurrency** | `io.async`/`io.await` | Multiple tasks interleaved on ONE thread   |
-| **Parallelism** | `spawn`               | Multiple tasks running on SEPARATE threads |
+| **Parallelism** | `Task.spawn`          | Multiple tasks running on SEPARATE threads |
 
 ```yo
 // Concurrency: Same thread, interleaved execution
 main :: (fn(using(io : IO)) -> unit)({
   a := io.async((using(io : IO))=> { /* ... */ });
   b := io.async((using(io : IO))=> { /* ... */ });
-  io.join(a, b);  // Start both, interleave at yield points
+  io.spawn(a);  // Start a without waiting
+  io.spawn(b);  // Start b without waiting
   io.await(a);
   io.await(b);
 });
@@ -53,11 +56,11 @@ task := Task(i32, bool).spawn((parent) -> {
 
 ## Execution Model: Lazy Start via Algebraic Effects
 
-Yo's async uses **algebraic effects** with the `IO` effect type. Async tasks are **lazy** — they don't start until explicitly awaited or joined:
+Yo's async uses **algebraic effects** with the `IO` effect type. Async tasks are **lazy** — they don't start until explicitly awaited or spawned:
 
 - `io.async(fn)` creates a **cold Future** — the function body is NOT executed yet
 - `io.await(task)` starts a cold task and runs it to completion (sequential)
-- `io.join(task1, task2, ...)` starts all cold tasks **concurrently**, interleaving them at `yield()` points
+- `io.spawn(task)` starts a cold task **without waiting** for it to complete
 
 ```yo
 { yield } :: import "std/async";
@@ -81,12 +84,17 @@ main :: (fn(using(io : IO)) -> unit)({
   // counter is still 0 here — tasks haven't started
   assert((counter.* == i32(0)), "tasks are lazy");
 
-  // join starts both and interleaves at yield points:
+  // spawn starts both without waiting:
   // 1. task1 runs: counter=0→1, yields
   // 2. task2 runs: counter=1→11, yields
+  io.spawn(task1);
+  io.spawn(task2);
+
+  // await waits for completion and extracts results:
   // 3. task1 resumes: counter=11→12
   // 4. task2 resumes: counter=12→22
-  io.join(task1, task2);
+  io.await(task1);
+  io.await(task2);
 
   assert((counter.* == i32(22)), "both tasks interleaved and completed");
 });
@@ -96,7 +104,7 @@ export main;
 **Key Difference from Eager Models (old Yo, C#, C++):**
 
 - Eager: `let f = async_fn()` runs immediately until first `await`
-- Lazy (current): `task := io.async(fn)` does nothing until `io.await(task)` or `io.join(task)`
+- Lazy (current): `task := io.async(fn)` does nothing until `io.await(task)` or `io.spawn(task)`
 
 ## Motivation
 
@@ -120,14 +128,14 @@ Multi-threaded async (like Rust's tokio) adds complexity:
 - Need cross-thread synchronization
 - Work-stealing adds overhead
 
-Yo's approach: Keep async simple (single-threaded), use `spawn` for parallelism (isolated threads).
+Yo's approach: Keep async simple (single-threaded), use `Task.spawn` for parallelism (isolated threads).
 
 ## Language Syntax
 
 ```yo
 { yield } :: import "std/async";
 
-// Async task creation (lazy — doesn't run until awaited/joined)
+// Async task creation (lazy — doesn't run until awaited/spawned)
 task := io.async((using(io : IO))=> {
   io.await(yield());  // Yield to event loop
   return i32(42);
@@ -136,10 +144,12 @@ task := io.async((using(io : IO))=> {
 // Sequential await: starts the task, runs to completion
 result := io.await(task);
 
-// Concurrent join: starts multiple tasks, interleaves at yield points
-io.join(task1, task2, task3);
+// Concurrent: spawn starts tasks without waiting
+io.spawn(task1);
+io.spawn(task2);
+io.spawn(task3);
 
-// After join, tasks are complete — await just extracts results
+// Then await extracts results
 r1 := io.await(task1);
 r2 := io.await(task2);
 r3 := io.await(task3);
@@ -153,7 +163,7 @@ Async operations require the `IO` effect, passed via `using(io : IO)`:
 // Main function receives IO effect
 main :: (fn(using(io : IO)) -> unit)({
   task := io.async((using(io : IO))=> {
-    // Can use io.await, io.async, io.join here
+    // Can use io.await, io.async, io.spawn here
     io.await(yield());
   });
   io.await(task);
@@ -172,20 +182,22 @@ test "my test", using(io : IO), {
 ```yo
 io.async(fn)                  // Create a cold Future (lazy, doesn't start)
 io.await(future)              // Start if cold, wait for completion, return result
-io.join(f1, f2, ...)          // Start all cold futures, interleave at yield points
+io.state(future)              // Query the current state of a Future (returns FutureState)
+io.spawn(future)              // Start a cold Future without waiting for it
 yield()                       // Create a pre-completed Future (yields control to event loop)
 ```
 
 **Important Rules**:
 
-1. `io.async(fn)` creates a **lazy** Future — the function body does NOT execute until awaited or joined
+1. `io.async(fn)` creates a **lazy** Future — the function body does NOT execute until awaited or spawned
 2. `io.await(future)` starts a cold future and runs it sequentially to completion
-3. `io.join(f1, f2, ...)` starts all futures concurrently, interleaving execution at `yield()` / `io.await()` suspension points
-4. After `io.join` completes, all futures are done — `io.await` on them just extracts results
-5. All async code runs on the **same thread** — no thread spawning
-6. `yield()` suspends the current task and yields to other ready tasks in the event loop
-7. `io.await(future)` can be called **multiple times** on the same Future — each call returns the same result
-8. Awaiting a Future that was **aborted** by an algebraic effect handler causes a **panic**
+3. `io.state(future)` returns the current `FutureState` without blocking or starting the Future
+4. `io.spawn(future)` starts a cold future without waiting — the future runs concurrently when the event loop gives it time
+5. Spawning an already **aborted** Future causes a **panic**
+6. All async code runs on the **same thread** — no thread spawning
+7. `yield()` suspends the current task and yields to other ready tasks in the event loop
+8. `io.await(future)` can be called **multiple times** on the same Future — each call returns the same result
+9. Awaiting a Future that was **aborted** by an algebraic effect handler causes a **panic**
 
 ### Execution Model
 
@@ -197,16 +209,16 @@ main :: (fn(using(io : IO)) -> unit)({
   t2 := io.async((using(io : IO))=> { /* task2 body */ });
   t3 := io.async((using(io : IO))=> { /* task3 body */ });
 
-  // join starts all three, interleaves at yield points:
+  // spawn starts each task without waiting:
   // - t1 runs until first yield, suspends
   // - t2 runs until first yield, suspends
   // - t3 runs until first yield, suspends
-  // - t1 resumes, runs until next yield or completion
-  // - t2 resumes, ...
-  // - etc.
-  io.join(t1, t2, t3);
+  io.spawn(t1);
+  io.spawn(t2);
+  io.spawn(t3);
 
-  // All complete — extract results
+  // await waits for completion and extracts results:
+  // - event loop resumes t1, t2, t3 in round-robin
   r1 := io.await(t1);
   r2 := io.await(t2);
   r3 := io.await(t3);
@@ -310,7 +322,8 @@ The IO module signatures use effect rows to propagate algebraic effects through 
 IO :: module(
   async : (fn(forall(T : Type, ...(E)), action : Impl(Fn(using(...(E))) -> T)) -> Impl(Future(T, ...(E)))),
   await : (fn(forall(T : Type, ...(E)), fut : Impl(Future(T, ...(E))), using(...(E))) -> T),
-  join : (fn(...) -> unit)
+  state : (fn(forall(T : Type, ...(E)), fut : Impl(Future(T, ...(E)))) -> FutureState),
+  spawn : (fn(forall(T : Type, ...(E)), fut : Impl(Future(T, ...(E))), using(...(E))) -> unit)
 );
 ```
 
@@ -344,15 +357,15 @@ The Future retains its result after completion. For reference-counted result typ
 
 ### Aborted Futures
 
-When an algebraic effect handler calls `abort` inside an async task, the Future is marked as **aborted** (internal state = -2). The task's continuation is discarded and no result is stored.
+When an algebraic effect handler calls `escape` inside an async task, the Future is marked as **aborted** (internal state = -2). The task's continuation is discarded and no result is stored.
 
-Attempting to `io.await` or `io.join` on an aborted Future causes a **panic**:
+Attempting to `io.await` or `io.spawn` on an aborted Future causes a **panic**:
 
 ```yo
 main :: (fn(using(io : IO)) -> unit) {
   Raise :: (fn(forall(T : Type), msg : String) -> T);
   task := io.async((using(io : IO))=> {
-    (given(raise) : Raise) = ((msg) -> { abort (); });
+    (given(raise) : Raise) = ((msg) -> { escape (); });
     raise(`something went wrong`);
     42
   });
@@ -363,12 +376,50 @@ export main;
 
 **Future State Machine States:**
 
-| State | Meaning                                               |
-| ----- | ----------------------------------------------------- |
-| 0     | Cold — not started yet                                |
-| 1..N  | Intermediate — suspended at an await/yield point      |
-| -1    | Completed — result is available                       |
-| -2    | Aborted — an effect handler called `abort`, no result |
+| State | Meaning                                                | `FutureState` enum      |
+| ----- | ------------------------------------------------------ | ----------------------- |
+| 0     | Cold — not started yet                                 | `FutureState.Pending`   |
+| 1..N  | Intermediate — suspended at an await/yield point       | `FutureState.Running`   |
+| -1    | Completed — result is available                        | `FutureState.Completed` |
+| -2    | Aborted — an effect handler called `escape`, no result | `FutureState.Aborted`   |
+
+### Querying Future State
+
+`io.state(future)` returns the current `FutureState` without blocking or starting the Future. This is useful for polling or diagnostics:
+
+```yo
+FutureState :: enum(
+  Pending = 0,     // Cold — not started yet
+  Running = 1,     // In progress — suspended at an await/yield point
+  Completed = -(1), // Completed — result is available
+  Aborted = -(2)   // Aborted — an effect handler called escape
+);
+```
+
+```yo
+main :: (fn(using(io : IO)) -> unit) {
+  task := io.async((using(io : IO))=> {
+    io.await(yield());
+    return i32(42);
+  });
+
+  // Before starting: Pending
+  assert((io.state(task) == FutureState.Pending), "cold future is Pending");
+
+  io.await(task);
+
+  // After completion: Completed
+  assert((io.state(task) == FutureState.Completed), "done future is Completed");
+};
+export main;
+```
+
+**Key points:**
+
+- `io.state` is a **non-blocking**, **synchronous** read of the Future's internal state field
+- Raw state machine values 1..N (intermediate suspend states) are all mapped to `FutureState.Running`
+- `io.state` does **not** start a cold Future — it only observes
+- Multiple `io.state` calls on the same Future are consistent
 
 ## State Machine Transformation
 
@@ -404,7 +455,7 @@ task := io.async((using(io : IO))=> {
 
 3. **Resume Function (Lazy Start)**:
    - State 0 (cold): Future is created but NOT started
-   - When `io.await` or `io.join` triggers the first resume:
+   - When `io.await` or `io.spawn` triggers the first resume:
      - State 0: Call http_get, check if ready
      - State 1: Extract response result, call read, check if ready
      - State 2: Extract data result, return Ready(data)
@@ -502,13 +553,14 @@ main :: (fn(using(io : IO)) -> unit)({
   });
   // task is cold (refcount=1), hasn't started yet
 
-  io.join(task);
-  // join starts task: __yo_incr_rc (refcount=2)
+  io.spawn(task);
+  // spawn starts task: __yo_incr_rc (refcount=2)
   // One reference for user code (task), one for running task (event loop)
-  // Task completes, event loop drops reference (refcount=1)
 
   io.await(task);
-  // Extracts result, task goes out of scope (refcount=0, freed)
+  // Waits for completion, extracts result
+  // Task completes, event loop drops reference (refcount=1)
+  // task goes out of scope (refcount=0, freed)
 });
 export main;
 ```
@@ -516,7 +568,7 @@ export main;
 **Refcount Lifecycle:**
 
 1. **Creation**: `io.async(fn)` allocates state machine, `refcount = 1`
-2. **Start (via await/join)**: `__yo_incr_rc()` before starting (refcount = 2)
+2. **Start (via await/spawn)**: `__yo_incr_rc()` before starting (refcount = 2)
    - One reference for user code (the `task` variable)
    - One reference for the running task (held by event loop)
 3. **User Drop**: When `task` goes out of scope, `__yo_decr_rc()` (refcount = 1)
@@ -557,7 +609,7 @@ future->header.ref_count = 1;
 future->state = 0;  // Cold — not started
 // Initialize state machine fields...
 
-// 2. Start (lazy) — triggered by io.await or io.join
+// 2. Start (lazy) — triggered by io.await or io.spawn
 __yo_incr_rc(future);  // refcount = 2
 future->__yo_resume_fn(future);  // Runs until first yield/await
 // Task suspends at yield, gets queued in event loop
@@ -614,7 +666,7 @@ State machines are small (~32-500 bytes):
 ```yo
 { yield } :: import "std/async";
 
-// io.async: Create a lazy Future (cold, doesn't start until awaited/joined)
+// io.async: Create a lazy Future (cold, doesn't start until awaited/spawned)
 task := io.async((using(io : IO))=> {
   // body
   return value;
@@ -623,14 +675,15 @@ task := io.async((using(io : IO))=> {
 // io.await: Start if cold, wait for completion, return result
 result := io.await(task);
 
-// io.join: Start all cold futures concurrently, interleave at yield points
-io.join(task1, task2);
-// After join, both tasks are complete
-r1 := io.await(task1);  // Just extracts result (already complete)
+// io.spawn: Start a cold Future without waiting
+io.spawn(task1);
+io.spawn(task2);
+// After spawn, tasks are running — await waits and extracts results
+r1 := io.await(task1);
 r2 := io.await(task2);
 ```
 
-### Example: Concurrent Tasks with Join
+### Example: Concurrent Tasks with Spawn
 
 ```yo
 { yield } :: import "std/async";
@@ -653,15 +706,16 @@ main :: (fn(using(io : IO)) -> unit)({
   });
 
   // Tasks are cold — counter is still 0
-  io.join(task1, task2);
-  // Both complete via interleaved execution: counter = 22
+  io.spawn(task1);
+  io.spawn(task2);
+  // Both run via interleaved execution: counter = 22
   result1 := io.await(task1);
   result2 := io.await(task2);
 });
 export main;
 ```
 
-### Example: Sequential Await (No Join)
+### Example: Sequential Await (No Spawn)
 
 ```yo
 { yield } :: import "std/async";
@@ -681,7 +735,7 @@ main :: (fn(using(io : IO)) -> unit)({
     counter.* = (counter.* + 10);
   });
 
-  // Without join: tasks run sequentially
+  // Without spawn: tasks run sequentially
   io.await(task1);  // task1 runs fully to completion
   io.await(task2);  // then task2 runs fully to completion
   // counter = 22 either way, but no interleaving
@@ -707,15 +761,94 @@ export main;
 - ✅ No atomic RC overhead
 - ✅ Familiar to web developers
 
-For parallelism, use `spawn` (see `PARALLELISM.md`).
+For parallelism, use `Task.spawn` (see `PARALLELISM.md`).
+
+## Effect Injection (Runtime Effect Binding)
+
+When an async closure declares effect parameters via `using(...)`, the handlers
+may not be known at `io.async` creation time. Yo supports **runtime effect
+injection**: the caller supplies concrete handlers at `io.spawn` or `io.await`
+time, and they are bound into the future's capture struct.
+
+### When Is Runtime Injection Used?
+
+An effect parameter becomes a runtime `void*` field in the capture struct when
+**all** of the following are true:
+
+1. The parameter is **function-typed** (not a module like `IO`)
+2. The function type has **no `forall` parameters** (generic effects like
+   `fn(forall(T : Type), ...) -> T` are resolved at compile time instead)
+3. The handler is **not already resolved** at `io.async` creation time (no
+   `given(...)` binding in the outer scope)
+
+If the handler IS available at creation time (via a `given` binding), it is
+resolved at compile time and the parameter remains compile-time only.
+
+### Set-Once Semantics
+
+Effect injection follows **set-once** semantics. The first `io.spawn` or
+`io.await` call that transitions a future from pending (state 0) to running
+binds the effect handlers. Subsequent calls to `io.spawn`/`io.await` with
+different `using(...)` arguments have no effect — the original handlers are
+retained.
+
+```yo
+Log :: (fn(msg : String) -> unit);
+
+task := io.async((using(io : IO, log : Log))=> {
+  log(`hello`);
+});
+
+(given(log1) : Log) = (msg) -> { println(`Log1: ${msg}`); };
+(given(log2) : Log) = (msg) -> { println(`Log2: ${msg}`); };
+
+// First spawn binds log1 as the handler
+io.spawn(task, using(io, log1));
+
+// Second await's log2 is ignored — log1 is already bound
+io.await(task, using(io, log2));
+// Output: "Log1: hello"
+```
+
+### How It Works (Implementation)
+
+1. **Evaluator**: Function-typed `using` parameters that are unresolved at
+   `io.async` time are added to the closure's `capturedVariablesWithValues`
+   with `isEffectParam: true` and `value: undefined`.
+
+2. **Capture struct**: Effect param fields are typed as `void*` in C and
+   NULL-initialized when the future is created.
+
+3. **Injection at spawn/await**: When `io.spawn(task, using(...))` or
+   `io.await(task, using(...))` is called and the future is still cold
+   (state == 0), the codegen emits assignments like:
+
+   ```c
+   future->__capture.log = (void*)fn_handler;
+   ```
+
+4. **Calling through void\***: Inside the async closure body, calls to effect
+   parameters go through a function pointer cast:
+   ```c
+   ((return_type (*)(param_types...))sm->__capture.log)(args);
+   ```
+
+### Compile-Time vs Runtime Effects
+
+| Condition                               | Resolution        | C representation      |
+| --------------------------------------- | ----------------- | --------------------- |
+| `given(handler)` in scope at `io.async` | Compile-time      | Direct function call  |
+| Generic effect (`forall(T)`)            | Compile-time      | Direct function call  |
+| Non-module (`IO`) type                  | Compile-time      | No runtime field      |
+| Non-generic, unresolved handler         | Runtime injection | `void*` capture field |
 
 ## Summary
 
 Yo's async/await provides:
 
-1. **Lazy execution** — `io.async(fn)` creates cold Futures that don't start until `io.await` or `io.join`
+1. **Lazy execution** — `io.async(fn)` creates cold Futures that don't start until `io.await` or `io.spawn`
 2. **Single-threaded concurrency** — all async runs on one thread
-3. **Concurrent join** — `io.join(f1, f2, ...)` interleaves tasks at yield points
+3. **Concurrent spawn** — `io.spawn(f)` starts a cold Future without waiting
 4. **No thread safety concerns** — no data races possible
 5. **Algebraic effects** — IO capabilities explicit via `using(io : IO)`
 6. **State machine transformation** — zero-cost abstraction
@@ -738,8 +871,9 @@ task := io.async((using(io : IO))=> {
 // Sequential: start and run to completion
 result := io.await(task);
 
-// Concurrent: interleave multiple tasks at yield points
-io.join(task1, task2);
+// Concurrent: start tasks without waiting, then await
+io.spawn(task1);
+io.spawn(task2);
 r1 := io.await(task1);
 r2 := io.await(task2);
 ```
@@ -748,7 +882,7 @@ r2 := io.await(task2);
 
 1. **Lazy execution** — `io.async(fn)` creates cold Futures
 2. **`io.await(task)`** — starts cold task, runs sequentially to completion
-3. **`io.join(f1, f2)`** — starts all, interleaves at yield points, waits for all
+3. **`io.spawn(task)`** — starts cold task without waiting
 4. **Single-threaded** — all async code runs on the calling thread
 5. **`yield()` yields** — suspends task, gives control to other ready tasks
 6. **State machines** — compiler transforms each `io.await` into state transition
@@ -759,11 +893,11 @@ r2 := io.await(task2);
 
 ### When to Use What
 
-| Use Case                       | Mechanism                    |
-| ------------------------------ | ---------------------------- |
-| IO-bound concurrent tasks      | `io.async`/`io.await`        |
-| Running multiple tasks at once | `io.join`                    |
-| CPU-bound parallel computation | `spawn` (see PARALLELISM.md) |
-| Background processing          | `spawn` (see PARALLELISM.md) |
-| Waiting for multiple IOs       | `io.join` + `io.await`       |
-| Utilizing multiple CPU cores   | `spawn` (see PARALLELISM.md) |
+| Use Case                       | Mechanism                         |
+| ------------------------------ | --------------------------------- |
+| IO-bound concurrent tasks      | `io.async`/`io.await`             |
+| Running multiple tasks at once | `io.spawn` + `io.await`           |
+| CPU-bound parallel computation | `Task.spawn` (see PARALLELISM.md) |
+| Background processing          | `Task.spawn` (see PARALLELISM.md) |
+| Waiting for multiple IOs       | `io.spawn` + `io.await`           |
+| Utilizing multiple CPU cores   | `Task.spawn` (see PARALLELISM.md) |

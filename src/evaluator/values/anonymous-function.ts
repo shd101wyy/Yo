@@ -20,12 +20,12 @@ import {
   exprToString,
   type FnCallExpr,
 } from "../../expr";
-import { evaluatedBodyContainsAbort } from "../../expr-traversal";
+import { evaluatedBodyContainsEscape } from "../../expr-traversal";
 import type {
   FunctionCapturedVariableInfo,
   FunctionValue,
 } from "../../function-value";
-import { PlaceholderToken } from "../../token";
+import { PlaceholderToken, type Token } from "../../token";
 import { areTypesCompatible } from "../../types/compatibility";
 import { createEffectsRowType, createFnTraitType } from "../../types/creators";
 import type {
@@ -507,6 +507,14 @@ Got:      "${paramName}"`,
     }
   }
 
+  // Track effect params for io.async closures — these will be added to the
+  // capture struct so they can be injected at io.spawn/io.await time.
+  const effectParamEntries: Array<{
+    name: string;
+    type: Type;
+    token: Token;
+  }> = [];
+
   for (let i = 0; i < resolvedImplicitParameters.length; i++) {
     const expectedParam = resolvedImplicitParameters[i]!;
     // For inline ...(name : Type) declarations, get the individual param expr from
@@ -578,21 +586,41 @@ Got:      "${paramName}"`,
           context,
         });
 
-    // Add implicit parameter to environment as compile-time variable.
-    // Allow variable shadowing so that using(log) in a closure can shadow
-    // a given(log) binding from the outer scope.
+    // Add implicit parameter to environment.
+    // For io.async closures, function-typed effect params are runtime values
+    // so they get captured in the closure's capture struct and can be injected
+    // at io.spawn/io.await time. Non-function-typed params (e.g., IO module)
+    // remain compile-time only.
+    // However, if the handler is already resolved from the outer scope (via
+    // given bindings), it's compile-time known and doesn't need runtime injection.
+    // Also, generic function types (with forall parameters) can't be stored as
+    // void* since they need per-call-site specialization — keep them compile-time.
+    const isEffectParamInAsyncClosure =
+      context.isInsideIoAsyncCall &&
+      isCreatingClosure &&
+      isFunctionType(expectedParam.type) &&
+      expectedParam.type.forallParameters.length === 0 &&
+      !resolvedHandlerValue;
+    if (isEffectParamInAsyncClosure) {
+      effectParamEntries.push({
+        name: paramName,
+        type: expectedParam.type,
+        token: paramExpr?.token ?? PlaceholderToken,
+      });
+    }
     const { env: nextEnv } = addVariableToEnv({
       env,
       variable: {
         name: paramName,
         type: expectedParam.type,
-        isCompileTimeOnly: true,
+        isCompileTimeOnly: !isEffectParamInAsyncClosure,
         isImplicit: true,
-        value: [paramValue],
+        value: isEffectParamInAsyncClosure ? undefined : [paramValue],
         token: paramExpr?.token ?? PlaceholderToken,
         initializedAtToken: paramExpr?.token ?? PlaceholderToken,
         consumedAtToken: undefined,
         isOwningTheRcValue: false,
+        isEffectParam: isEffectParamInAsyncClosure || undefined,
       },
       allowVariableShadowing: true,
     });
@@ -602,7 +630,7 @@ Got:      "${paramName}"`,
       paramExpr.$ = {
         env: env,
         type: expectedParam.type,
-        value: paramValue,
+        value: isEffectParamInAsyncClosure ? undefined : paramValue,
         pathCollection: [],
       };
     }
@@ -852,10 +880,10 @@ Got:      "${paramName}"`,
   // Get captured variables from the evaluation context
   const capturedVariables = evaluationContext.capturedVariables;
 
-  // If the body uses `abort`, mark this function value as isControlFunction.
+  // If the body uses `escape`, mark this function value as isControlFunction.
   // This propagates to effect analysis and codegen so they know to generate
   // state machines for functions that call this handler through `using`.
-  if (evaluatedBodyContainsAbort(evaluatedBody)) {
+  if (evaluatedBodyContainsEscape(evaluatedBody)) {
     functionValue.isControlFunction = true;
   }
 
@@ -874,7 +902,7 @@ Got:      "${paramName}"`,
   }
 
   // Check if the return type is compatible
-  // Skip when body uses abort because the abort returns
+  // Skip when body uses escape because the escape returns
   // from the enclosing function, not this function. The body's type is the abort value
   // type, which may not match the handler function's declared return type.
   const evaluatedBodyReturnType = evaluatedBody.$?.type;
@@ -938,6 +966,26 @@ Got:      "${paramName}"`,
     });
   }
 
+  // For io.async closures, add effect params (function-typed using params) to the
+  // capture struct so they can be injected at io.spawn/io.await time.
+  // These are NOT captured through the normal tracking mechanism (they're function
+  // parameters, not outer-scope variables), so we manually add them here.
+  if (isClosureFunction && effectParamEntries.length > 0) {
+    if (!capturedVariablesWithValues) {
+      capturedVariablesWithValues = new Map();
+    }
+    for (const entry of effectParamEntries) {
+      capturedVariablesWithValues.set(entry.name, {
+        frameLevel: 0,
+        usageType: "read",
+        token: entry.token,
+        value: undefined, // Runtime value — injected at spawn/await time
+        type: entry.type,
+        isEffectParam: true,
+      });
+    }
+  }
+
   // Set the type and value of the expression
   let finalType: Type;
   let finalValue: Value | undefined;
@@ -994,6 +1042,10 @@ Got:      "${paramName}"`,
     functionValue.closureInfo = {
       closureType: closureType,
       captureType: captureType,
+      effectParamNames:
+        effectParamEntries.length > 0
+          ? effectParamEntries.map((e) => e.name)
+          : undefined,
     };
 
     // IMPORTANT: Mutate the wrapper SomeType in-place so downstream generic specialization

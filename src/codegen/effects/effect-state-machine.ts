@@ -1334,7 +1334,7 @@ function generateMatchWithEffectCall(
  *   while (!sm.completed) {
  *     // bind yield_value, then execute handler body
  *     // resume: handler sets resume_value and calls resumeFn again
- *     // abort: handler returns from enclosing function
+ *     // escape: handler returns from enclosing function
  *   }
  *   result = sm.result;
  */
@@ -1378,7 +1378,7 @@ export function generateEffectCallSite(
 
   emitter.emitLine(`${indent}${resumeFunctionName}(&${smVar});`);
 
-  // For abort handlers, track which arg C names are RC-type SM arguments.
+  // For escape handlers, track which arg C names are RC-type SM arguments.
   // Their ownership is transferred to the SM (no dup), so the handler param drops
   // already free them. Pending deferred drops must skip these to avoid double-free.
   const prevConsumedArgs = context.effectSmConsumedArgCNames;
@@ -1473,10 +1473,10 @@ export function generateMultiEffectCallSite(
 
   emitter.emitLine(`${indent}${resumeFunctionName}(&${smVar});`);
 
-  // For abort handlers in multi-effect, track consumed RC arg C names.
-  const hasAnyAbortHandler = handlers.some((h) => !h.hasResume);
+  // For escape handlers in multi-effect, track consumed RC arg C names.
+  const hasAnyEscapeHandler = handlers.some((h) => !h.hasResume);
   const prevConsumedArgs = context.effectSmConsumedArgCNames;
-  if (hasAnyAbortHandler) {
+  if (hasAnyEscapeHandler) {
     const consumedArgs = new Set<string>();
     for (let i = 0; i < runtimeParams.length && i < argCodes.length; i++) {
       const param = runtimeParams[i]!;
@@ -1565,7 +1565,7 @@ function generateYieldFieldDrops(
  *   return(value) resumes the continuation by setting sm.resume_value and calling resumeFn.
  *   After resumeFn returns, sm.completed should be true and sm.result has the continuation's result.
  *
- * For discontinue (handler uses `abort(value)`):
+ * For discontinue (handler uses `escape(value)`):
  *   The handler body returns a value that becomes the enclosing function's return value.
  *   We emit: return <handler_body_result>;
  */
@@ -1585,7 +1585,7 @@ function generateHandlerBodyInline(
   // For multi-effect, use sm.yield_{effectIndex}_{i} fields.
   // For RESUME handlers: DUP RC values so the handler has its own reference.
   //   The SM retains its reference and will drop it when completed.
-  // For ABORT handlers: NO DUP — handler "steals" the SM's reference.
+  // For ESCAPE handlers: NO DUP — handler "steals" the SM's reference.
   //   The SM is abandoned (never resumes/completes), so no double-free.
   const runtimeParams = handlerType.parameters.filter(
     (p) => !p.isCompileTimeOnly
@@ -1683,9 +1683,9 @@ function generateHandlerBodyInline(
     context.effectHandlerParamDrops = prevHandlerDrops;
     context.continuationVariables = prevContinuationVars;
   } else {
-    // Discontinue (abort): handler body contains abort(value) which generates
+    // Discontinue (escape): handler body contains escape(value) which generates
     // `return <value>;` to return from the enclosing function.
-    // Set up handler param drops so generateAbort can emit them before returning.
+    // Set up handler param drops so generateEscape can emit them before returning.
     const prevHandlerDrops = context.effectHandlerParamDrops;
     context.effectHandlerParamDrops = paramDropCodes;
 

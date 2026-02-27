@@ -269,8 +269,9 @@ export function typeContainsSomeType(
         typeContainsSomeType(field.type, checkedTypes)
       );
     case TypeTag.Struct:
-      return (type as StructType).fields.some((field) =>
-        typeContainsSomeType(field.type, checkedTypes)
+      return (type as StructType).fields.some(
+        (field) =>
+          !field.isEffectParam && typeContainsSomeType(field.type, checkedTypes)
       );
     case TypeTag.Enum:
       return (type as EnumType).variants.some((variant) =>

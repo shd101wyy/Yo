@@ -74,15 +74,15 @@ export function emitAsyncFutureCompletion(opts: AsyncCompletionOptions): void {
 /**
  * Emits the C code to mark an async Future state machine as ABORTED (-2):
  * 1. Optionally store the result value (for proper RC cleanup in dispose)
- * 2. Set state to ABORTED (-2) with release semantics
- * 3. Check for and spawn any waiting continuation (so awaiter can detect abort)
+ * 2. Set state to ESCAPED (-2) with release semantics
+ * 3. Check for and spawn any waiting continuation (so awaiter can detect escape)
  * 4. Release the "running task" reference (decr rc)
  * 5. Return from the resume function
  *
- * This is called when `abort` is used inside an async state machine's effect handler.
+ * This is called when `escape` is used inside an async state machine's effect handler.
  * Any task that `io.await`s this Future will panic.
  */
-export function emitAsyncFutureAbortion(opts: AsyncCompletionOptions): void {
+export function emitAsyncFutureEscape(opts: AsyncCompletionOptions): void {
   const { emitter, indent, resultCode, debugLabel } = opts;
 
   if (resultCode !== undefined) {
@@ -91,10 +91,10 @@ export function emitAsyncFutureAbortion(opts: AsyncCompletionOptions): void {
 
   if (debugLabel) {
     emitter.emitLine(
-      `${indent}ASYNC_DEBUG("${debugLabel}: Setting state to ABORTED (effect handler abort)\\n");`
+      `${indent}ASYNC_DEBUG("${debugLabel}: Setting state to ESCAPED (effect handler escape)\\n");`
     );
   }
-  emitter.emitLine(`${indent}sm->state = -2;  // -2 = aborted`);
+  emitter.emitLine(`${indent}sm->state = -2;  // -2 = escaped`);
 
   emitter.emitLine(``);
   emitter.emitLine(
@@ -105,7 +105,7 @@ export function emitAsyncFutureAbortion(opts: AsyncCompletionOptions): void {
   emitter.emitLine(`${indent}if (continuation_fn != NULL) {`);
   if (debugLabel) {
     emitter.emitLine(
-      `${indent}  ASYNC_DEBUG("${debugLabel}: Spawning continuation for aborted future: resume_fn=%p, sm=%p\\n", (void*)continuation_fn, continuation_sm);`
+      `${indent}  ASYNC_DEBUG("${debugLabel}: Spawning continuation for escaped future: resume_fn=%p, sm=%p\\n", (void*)continuation_fn, continuation_sm);`
     );
   }
   emitter.emitLine(``);

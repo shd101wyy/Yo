@@ -485,7 +485,12 @@ export function preRegisterEffectfulFunctions(
 
       if (!effectAnalysis.hasEffects) continue;
 
-      // Find the handler value from the first ctl call expression in the body
+      // Find the handler value from the first ctl call expression in the body.
+      // For closures where the handler is passed via using() from outside (e.g., io.async
+      // closures with raise : Raise), the handler value on the call expression may be
+      // UnknownValue at the closure's definition time. In that case, we can still detect
+      // that the handler is a ctl handler by checking if the implicit parameter type
+      // is a function type that returns a forall type (polymorphic return = ctl handler pattern).
       const firstCallPoint = effectAnalysis.effectCallPoints[0];
       let handlerIsControlFunction = false;
       if (firstCallPoint) {
@@ -499,7 +504,22 @@ export function preRegisterEffectfulFunctions(
         }
       }
 
-      // Only register as effectful if the handler uses abort (is a control function).
+      // If we couldn't determine from the handler value, check if the implicit param type
+      // has forall return type (polymorphic return T → always a ctl/escape handler pattern).
+      // This handles closures where the handler is provided externally via using()
+      // and the concrete handler value isn't available at the closure's definition time.
+      if (!handlerIsControlFunction) {
+        const paramFnType = implicitParam.type as FunctionType;
+        if (
+          paramFnType.forallParameters &&
+          paramFnType.forallParameters.length > 0
+        ) {
+          // Has forall(T) return → polymorphic return type = ctl handler
+          handlerIsControlFunction = true;
+        }
+      }
+
+      // Only register as effectful if the handler uses escape (is a control function).
       // Regular function calls via using() don't need state machine transformation.
       if (!handlerIsControlFunction) continue;
 

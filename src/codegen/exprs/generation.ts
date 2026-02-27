@@ -1,9 +1,13 @@
 import {
   isIoAsyncCall,
   isIoAwaitCall,
-  isIoJoinCall,
+  isIoSpawnCall,
+  isIoStateCall,
 } from "../../evaluator/async/await-analysis";
-import { typeImplementsFuture } from "../../evaluator/trait-checking";
+import {
+  extractFutureTraitFromType,
+  typeImplementsFuture,
+} from "../../evaluator/trait-checking";
 import {
   BuiltinFunctions,
   BuiltinKeywords,
@@ -15,14 +19,14 @@ import {
   exprToString,
   type FnCallExpr,
 } from "../../expr";
-import { isSomeType, isUnitType } from "../../types/guards";
-import { typeToString } from "../../types/utils";
+import type { FunctionImplicitParameter } from "../../types/definitions";
 import {
-  isFunctionValue,
-  isTypeValue,
-  isUnknownValue,
-  type Value,
-} from "../../value";
+  isEffectsRowType,
+  isFunctionType,
+  isSomeType,
+  isUnitType,
+} from "../../types/guards";
+import { isFunctionValue, isUnknownValue, type Value } from "../../value";
 import { isIoFutureType } from "../async/state-machine";
 import { BuiltinYoInlineFunctions } from "../constants";
 import type { FunctionGenerationContext } from "../functions/context";
@@ -35,9 +39,9 @@ import { generateOpAnd, generateOpOr } from "./and-or";
 import { generateAnonymousArray, generateYoArrayFill } from "./array-fns";
 import { generateAssignment } from "./assignment";
 import { generateAsyncBlock, generateIoAsyncSyncCall } from "./async";
-import { emitAsyncFutureAbortion } from "./async-completion";
+import { emitAsyncFutureEscape } from "./async-completion";
 import { generateAtom } from "./atom";
-import { generateAwait } from "./await";
+import { generateAwait, generateState } from "./await";
 import { generateBegin } from "./begin";
 import { generateBinding } from "./binding";
 import { generateClosureConstruction, isClosureConstruction } from "./closures";
@@ -88,13 +92,95 @@ import { generateAnonymousTuple } from "./tuple-fn";
 import { generateWhileLoop } from "./while";
 
 /**
- * Generate C code for `abort(value)` — ctl handler discontinue.
+ * Expand effect row spreads from a FutureTraitType's effects into individual
+ * implicit parameters. Each expanded parameter has a `label` matching the
+ * capture struct field name and a `type` for checking if it's function-typed.
+ */
+function expandFutureEffects(
+  effects: FunctionImplicitParameter[]
+): FunctionImplicitParameter[] {
+  const result: FunctionImplicitParameter[] = [];
+  for (const effect of effects) {
+    if (effect.isEffectRowSpread) {
+      // Expand the spread: the type is either an EffectsRowType directly,
+      // or a SomeType with resolvedConcreteType pointing to an EffectsRowType.
+      let effectsRow = effect.type;
+      if (isSomeType(effectsRow) && effectsRow.resolvedConcreteType) {
+        effectsRow = effectsRow.resolvedConcreteType;
+      }
+      if (isEffectsRowType(effectsRow)) {
+        result.push(...effectsRow.implicitParameters);
+      }
+    } else {
+      result.push(effect);
+    }
+  }
+  return result;
+}
+
+/**
+ * Generate effect injection code for io.spawn/io.await call sites.
+ * Injects function-typed effect handler values from using(...) args
+ * into the future's capture struct fields before cold-starting.
+ * Only injects when state == 0 (set-once semantics).
+ */
+function emitEffectInjection(
+  expr: FnCallExpr,
+  futureVar: string,
+  indent: string,
+  context: CodeGenContext
+): void {
+  const futureArg = expr.args[0];
+  if (!futureArg?.$?.type) return;
+
+  // Find the using(...) expression in the call arguments
+  const usingExpr = expr.args.find(
+    (arg): arg is FnCallExpr =>
+      exprIsFunctionCall(arg) &&
+      exprIsFunctionCallOf(arg, BuiltinKeywords.using)
+  );
+  if (!usingExpr) return;
+
+  // Extract the FutureTraitType to get effect labels
+  const futureTraitType = extractFutureTraitFromType(futureArg.$.type);
+  if (!futureTraitType?.isFuture.effects?.length) return;
+
+  // Expand effect row spreads into individual effect parameters
+  const expandedEffects = expandFutureEffects(futureTraitType.isFuture.effects);
+
+  // Match using args to expanded effects positionally.
+  // Only inject function-typed effects (IO module is compile-time only).
+  const usingArgs = usingExpr.args;
+  const functionContext = context as FunctionGenerationContext;
+  const emitter = functionContext.emitter;
+
+  for (let i = 0; i < expandedEffects.length && i < usingArgs.length; i++) {
+    const effect = expandedEffects[i]!;
+    const usingArg = usingArgs[i]!;
+
+    // Only inject function-typed effects (not IO module, etc.)
+    if (!isFunctionType(effect.type)) continue;
+    // Skip generic function effects (forall) — they are compile-time only
+    if (effect.type.forallParameters.length > 0) continue;
+
+    // Generate the C code for the using arg (function name)
+    const handlerCode = generateExpr(usingArg, indent, context);
+    const fieldName = effect.label;
+
+    emitter.emitLine(
+      `${indent}  ${futureVar}->__capture.${fieldName} = (void*)${handlerCode};`
+    );
+  }
+}
+
+/**
+ * Generate C code for `escape(value)` — ctl handler discontinue.
  *
- * Inside a ctl handler body, `abort(value)` discards the continuation
+ * Inside a ctl handler body, `escape(value)` discards the continuation
  * and returns from the enclosing function with the given value.
  * In C codegen, this translates to dropping handler params then `return <value>;`.
  */
-function generateAbort(
+function generateEscape(
   expr: FnCallExpr,
   indent: string,
   context: CodeGenContext
@@ -102,15 +188,15 @@ function generateAbort(
   const functionContext = context as FunctionGenerationContext;
   const arg = expr.args[0];
 
-  // Check if we're inside a resume handler's body (nested abort).
-  // If so, the abort should set the outer handler's result variable and
+  // Check if we're inside a resume handler's body (nested escape).
+  // If so, the escape should set the outer handler's result variable and
   // goto its exit label instead of doing a C `return`.
   const resumeInfo = functionContext.continuationVariables?.get("resume");
   const hasDirectExit =
     resumeInfo && "directReturnVar" in resumeInfo && resumeInfo.directExitLabel;
 
   if (hasDirectExit) {
-    // Nested abort: assign to outer handler's result var and goto exit label
+    // Nested escape: assign to outer handler's result var and goto exit label
     if (arg) {
       const argCode = generateExpr(arg, indent, context);
       // Emit handler param drops before the goto
@@ -139,22 +225,22 @@ function generateAbort(
     return "";
   }
 
-  // Normal abort: emit a C `return` from the enclosing function.
+  // Normal escape: emit a C `return` from the enclosing function.
   // Must drop local variables from enclosing scopes (pendingDeferredDrops)
   // before returning, to avoid memory leaks.
-  // Use skipEnvCheck=true because the abort expression's environment is from
+  // Use skipEnvCheck=true because the escape expression's environment is from
   // the handler's scope, not the enclosing function's scope where the
   // local variables actually live.
 
-  // In async state machine context, abort must properly mark the Future as
+  // In async state machine context, escape must properly mark the Future as
   // ABORTED (-2) and notify any waiting continuation, instead of just returning
   // from the resume function (which would leave the Future stuck in an
   // intermediate state forever).
   if (functionContext.inAsyncStateMachine) {
     const emitter = functionContext.emitter;
 
-    // Compute the abort value for side effects, but don't store it as the
-    // Future's result — the abort value's type matches the enclosing fn's
+    // Compute the escape value for side effects, but don't store it as the
+    // Future's result — the escape value's type matches the enclosing fn's
     // return type, which may differ from the Future's result type.
     if (arg) {
       const argCode = generateExpr(arg, indent, context);
@@ -181,7 +267,7 @@ function generateAbort(
       true
     );
 
-    emitAsyncFutureAbortion({
+    emitAsyncFutureEscape({
       emitter,
       indent,
       debugLabel: functionContext.currentFunctionName,
@@ -412,7 +498,7 @@ function generateFuncCall(
     return generateRcCall(expr, indent, context);
   }
 
-  // panic - print error message and abort execution
+  // panic - print error message and call abort() [C stdlib]
   if (exprIsFunctionCallOf(expr, BuiltinFunctions.panic)) {
     return generatePanic(expr, indent, context);
   }
@@ -460,74 +546,54 @@ function generateFuncCall(
     return generateAwait(expr, indent, context);
   }
 
-  // io.join - wait for multiple futures concurrently
-  if (isIoJoinCall(expr)) {
-    // In state machine context, join is handled by the state machine generator
+  // io.state(future) - read the state of a Future without awaiting it
+  if (isIoStateCall(expr)) {
+    return generateState(expr, indent, context);
+  }
+
+  // io.spawn(future) - start a cold Future without waiting for it
+  if (isIoSpawnCall(expr)) {
+    const futureArg = expr.args[0];
+    if (!futureArg) {
+      return `// Error: spawn requires a Future argument`;
+    }
     const functionContext = context as FunctionGenerationContext;
-    if (
-      functionContext.inAsyncStateMachine ||
-      functionContext.inEffectStateMachine
-    ) {
-      return ``;
-    }
-    // Outside async context — synchronous join via busy-poll
     const emitter = functionContext.emitter;
+    const futureCode = generateExpr(futureArg, indent, context);
+    const futureType = futureArg.$?.type;
+    const futureTypeName = futureType
+      ? getTypeString(futureType, context)
+      : "void*";
+    const spawnVar = `__spawn_future`;
     emitter.emitLine(
-      `${indent}// Synchronous join — start all cold futures, busy-poll until all complete`
+      `${indent}// io.spawn — start cold Future without waiting`
     );
-    const futureVars: string[] = [];
-    for (let i = 0; i < expr.args.length; i++) {
-      const argExpr = expr.args[i]!;
-      const futureCode = generateExpr(argExpr, indent, context);
-      const futureType = argExpr.$?.type;
-      const futureTypeName = futureType
-        ? getTypeString(futureType, context)
-        : "void*";
-      const varName = `__sync_join_${i}`;
+    emitter.emitLine(`${indent}{`);
+    emitter.emitLine(
+      `${indent}  ${futureTypeName} ${spawnVar} = ${futureCode};`
+    );
+    emitter.emitLine(`${indent}  int __spawn_state = ${spawnVar}->state;`);
+    // Panic if already aborted
+    emitter.emitLine(`${indent}  if (__spawn_state == -2) {`);
+    emitter.emitLine(
+      `${indent}    fprintf(stderr, "panic: attempted to spawn an aborted Future\\n");`
+    );
+    emitter.emitLine(`${indent}    abort();`);
+    emitter.emitLine(`${indent}  }`);
+    const isIoFuture = isIoFutureType(futureArg.$?.type);
+    if (!isIoFuture) {
       emitter.emitLine(
-        `${indent}${futureTypeName} ${varName} = ${futureCode};`
+        `${indent}  if (__spawn_state == 0 && ${spawnVar}->__yo_resume_fn) {`
       );
-      futureVars.push(varName);
-    }
-    for (let i = 0; i < futureVars.length; i++) {
-      const varName = futureVars[i]!;
-      const argExpr = expr.args[i]!;
-      const isIoFuture = isIoFutureType(argExpr.$?.type);
-      if (!isIoFuture) {
-        emitter.emitLine(
-          `${indent}if (${varName}->state == 0 && ${varName}->__yo_resume_fn) {`
-        );
-        emitter.emitLine(`${indent}  __yo_incr_rc((void*)${varName});`);
-        emitter.emitLine(
-          `${indent}  ${varName}->__yo_resume_fn((void*)${varName});`
-        );
-        emitter.emitLine(`${indent}}`);
-      }
-    }
-    // Run the event loop (task queue + I/O polling) until all futures complete or are aborted.
-    // State -1 = completed, -2 = aborted; both are terminal states.
-    emitter.emitLine(`${indent}while (1) {`);
-    emitter.emitLine(`${indent}  int __all_done = 1;`);
-    for (const varName of futureVars) {
-      emitter.emitLine(`${indent}  {`);
-      emitter.emitLine(`${indent}    int __s = ${varName}->state;`);
+      // Inject effect handler values into capture struct before cold-starting
+      emitEffectInjection(expr, spawnVar, `${indent}  `, context);
+      emitter.emitLine(`${indent}    __yo_incr_rc((void*)${spawnVar});`);
       emitter.emitLine(
-        `${indent}    if (__s != -1 && __s != -2) __all_done = 0;`
+        `${indent}    ${spawnVar}->__yo_resume_fn((void*)${spawnVar});`
       );
       emitter.emitLine(`${indent}  }`);
     }
-    emitter.emitLine(`${indent}  if (__all_done) break;`);
-    emitter.emitLine(`${indent}  yo_async_poll_step();`);
     emitter.emitLine(`${indent}}`);
-    // Check if any Future was aborted
-    for (const varName of futureVars) {
-      emitter.emitLine(`${indent}if (${varName}->state == -2) {`);
-      emitter.emitLine(
-        `${indent}  fprintf(stderr, "panic: attempted to join an aborted Future\\n");`
-      );
-      emitter.emitLine(`${indent}  abort();`);
-      emitter.emitLine(`${indent}}`);
-    }
     return ``;
   }
 
@@ -536,9 +602,9 @@ function generateFuncCall(
     return generateReturn(expr, indent, context);
   }
 
-  // abort(value) — ctl handler discontinue keyword
-  if (exprIsFunctionCallOf(expr, BuiltinKeywords.abort)) {
-    return generateAbort(expr, indent, context);
+  // escape(value) — ctl handler discontinue keyword
+  if (exprIsFunctionCallOf(expr, BuiltinKeywords.escape)) {
+    return generateEscape(expr, indent, context);
   }
 
   // __yo_array_fill builtin (handled similarly to Array.fill)
@@ -567,7 +633,7 @@ function generateFuncCall(
     return generateAssignment(expr, indent, context);
   }
   // already computed and it's not unit value
-  // Skip this optimization if controlFlow is set (e.g., abort/return) because
+  // Skip this optimization if controlFlow is set (e.g., escape/return) because
   // we need to generate the actual control flow code, not just the value.
   else if (
     expr.$?.value &&
@@ -709,17 +775,7 @@ function generateFuncCall(
   }
 
   if (exprIsFunctionCall(expr)) {
-    const fnCallExpr = expr as FnCallExpr;
-    const funcType = fnCallExpr.func.$?.type;
-    const funcValue = fnCallExpr.func.$?.value;
-    throw new Error(
-      `Unhandled function call: ${exprToString(expr)}\n` +
-        `  expr.$.value: ${expr.$?.value}, isUnknown: ${expr.$?.value !== undefined ? isUnknownValue(expr.$!.value!) : "N/A"}\n` +
-        `  expr.$.type: ${expr.$?.type ? typeToString(expr.$.type) : "undefined"}\n` +
-        `  func.$.type: ${funcType ? typeToString(funcType) : "undefined"}\n` +
-        `  func.$.value type: ${typeof funcValue}, isFV: ${funcValue ? isFunctionValue(funcValue) : "N/A"}, isTV: ${funcValue ? isTypeValue(funcValue) : "N/A"}\n` +
-        `  func.$.value: ${funcValue}`
-    );
+    throw new Error(`Unhandled function call: ${exprToString(expr)}`);
   }
 
   return `// Failed to transpile ${exprToString(expr)}`;
