@@ -252,7 +252,7 @@ function walkExpr<P extends SuspensionPoint>(
         break;
       }
 
-      // Detect system-specific suspension points (await, join, ctl calls, etc.)
+      // Detect system-specific suspension points (await, ctl calls, etc.)
       detector.detect(expr, parentExpr, points);
 
       // Check if body should be skipped (e.g., nested async blocks)

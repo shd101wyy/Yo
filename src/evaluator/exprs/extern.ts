@@ -119,8 +119,8 @@ export function evaluateExtern({
         ...(field.label === "__yo_io_state"
           ? { ioBuiltin: "io_state" as const }
           : {}),
-        ...(field.label === "__yo_io_join"
-          ? { ioBuiltin: "io_join" as const }
+        ...(field.label === "__yo_io_spawn"
+          ? { ioBuiltin: "io_spawn" as const }
           : {}),
       };
     } else {

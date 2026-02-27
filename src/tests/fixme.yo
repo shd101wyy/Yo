@@ -1,36 +1,40 @@
 open import "std/string";
 open import "std/fmt";
 { yield } :: import "std/async";
-{ printf } :: import "std/libc/stdio";
-
-Raise :: (fn(forall(T : Type), msg : String) -> T);
-
-test_abort :: (fn(task : Impl(Future(i32, IO, Raise)), using(io : IO)) -> unit) {
-  (given(raise) : Raise) =
-    (msg) -> {
-      println(msg);
-      abort ();
-    };
-  io.await(task, using(io, raise));
-};
 
 main :: (fn(using(io : IO)) -> unit) {
-  // I expect 'task' to have type Impl(Future(i32, IO, Raise))
-  task := io.async((using(raise : Raise, io : IO)) => {
-    raise(`This task should be aborted, not awaited!`);
-    return i32(12);
-  });
-  test_abort(task);
-  st := io.state(task);
-  printf("Future state after starting task: %d\n", st);
-  assert(st == FutureState.Aborted);
+  counter := Box(i32)(0);
 
-  (given(raise) : Raise) =
-    (msg) -> {
-      println(msg);
-      abort ();
-    };
-  io.await(task);
-  printf("This line should never be reached! As io.wait(task) should cause runtime panic\n");
+  task1 := io.async((using(io : IO))=> {
+    assert((counter.* == i32(0)), "counter should be 0 at start of task1");
+    counter.* = (counter.* + 1);
+    io.await(yield());
+    assert((counter.* == i32(11)), "counter should be 11 after yield in task1");
+    counter.* = (counter.* + 1);
+    return counter.*;
+  });
+
+  task2 := io.async((using(io : IO))=> {
+    assert((counter.* == i32(1)), "counter should be 1 at start of task2");
+    counter.* = (counter.* + 10);
+    io.await(yield());
+    assert((counter.* == i32(12)), "counter should be 12 after yield in task2");
+    counter.* = (counter.* + 10);
+    return counter.*;
+  });
+
+  // Both tasks are cold (not started).
+  // Start both task1 and task2, but not await them yet.
+  io.spawn(task1); // implicitly pass `io` from the context
+  io.spawn(task2, using(io)); // explicitly pass `io`
+
+  // io.await just waits for complete and then extracts results.
+  result1 := io.await(task1);
+  result2 := io.await(task2);
+
+  io.spawn(task1);
+
+  // Both tasks incremented counter: +2 from task1, +20 from task2
+  assert((counter.* == i32(22)), "counter should be 22 after join");
 };
 export main;

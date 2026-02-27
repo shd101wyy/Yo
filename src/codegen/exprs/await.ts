@@ -73,6 +73,9 @@ export function generateAwait(
     const syncFutureVar = expr.$?.variableName
       ? `__sync_future_${expr.$.variableName}`
       : `__sync_future`;
+    const preAwaitStateVar = expr.$?.variableName
+      ? `__pre_await_state_${expr.$.variableName}`
+      : `__pre_await_state`;
 
     emitter.emitLine(
       `${indent}// Synchronous await (io.await outside state machine)`
@@ -83,13 +86,13 @@ export function generateAwait(
     // Save state before cold-start to distinguish "already aborted" from
     // "aborted during this await by an effect handler"
     emitter.emitLine(
-      `${indent}int __pre_await_state = ${syncFutureVar}->state;`
+      `${indent}int ${preAwaitStateVar} = ${syncFutureVar}->state;`
     );
     // Only cold-start state machine futures; IO futures are already submitted to io_uring
     const isIoFuture = isIoFutureType(futureArg.$?.type);
     if (!isIoFuture) {
       emitter.emitLine(
-        `${indent}if (__pre_await_state == 0 && ${syncFutureVar}->__yo_resume_fn) {`
+        `${indent}if (${preAwaitStateVar} == 0 && ${syncFutureVar}->__yo_resume_fn) {`
       );
       emitter.emitLine(
         `${indent}  __yo_incr_rc((void*)${syncFutureVar});  // event loop reference`
@@ -121,7 +124,7 @@ export function generateAwait(
       ) ?? false;
     if (hasAlgebraicEffects) {
       // Only panic if the future was already aborted before this await
-      emitter.emitLine(`${indent}    if (__pre_await_state == -2) {`);
+      emitter.emitLine(`${indent}    if (${preAwaitStateVar} == -2) {`);
       emitter.emitLine(
         `${indent}      fprintf(stderr, "panic: attempted to await an aborted Future\\n");`
       );

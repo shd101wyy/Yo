@@ -73,25 +73,6 @@ export function getFutureFieldName(
 }
 
 /**
- * Gets the state machine field name for a future variable by its ID.
- * Used by join codegen to reference each future being joined.
- */
-export function getFutureFieldNameByVariableId(
-  futureVariableId: string,
-  analysis: AwaitAnalysisResult
-): string {
-  const capturedVar = analysis.capturedVariables.find(
-    (v) => v.id === futureVariableId
-  );
-  if (capturedVar) {
-    return capturedVar.kind === "outer"
-      ? capturedVar.name
-      : `var_${capturedVar.id}`;
-  }
-  return `var_${futureVariableId}`;
-}
-
-/**
  * Check if a future type is an IO future (yo_io_future_t) rather than a state
  * machine future (from io.async). IO futures have a Concrete(...) trait and are
  * already submitted to io_uring at creation — they don't have __yo_resume_fn
@@ -247,17 +228,13 @@ export function generateAsyncBlockResumeFunction(
           !(prevAwait.resultType as SomeType).resolvedConcreteType);
 
       // Always check if the awaited Future was aborted by an effect handler
-      if (!prevAwait.isJoinPoint) {
-        emitter.emitLine(`      // Check if the awaited Future was aborted`);
-        emitter.emitLine(
-          `      if (sm->${prevFutureFieldName}->state == -2) {`
-        );
-        emitter.emitLine(
-          `        fprintf(stderr, "panic: attempted to await an aborted Future\\n");`
-        );
-        emitter.emitLine(`        abort();`);
-        emitter.emitLine(`      }`);
-      }
+      emitter.emitLine(`      // Check if the awaited Future was aborted`);
+      emitter.emitLine(`      if (sm->${prevFutureFieldName}->state == -2) {`);
+      emitter.emitLine(
+        `        fprintf(stderr, "panic: attempted to await an aborted Future\\n");`
+      );
+      emitter.emitLine(`        abort();`);
+      emitter.emitLine(`      }`);
 
       if (prevAwait && !isPrevAwaitResultUnit) {
         emitter.emitLine(
@@ -312,8 +289,7 @@ export function generateAsyncBlockResumeFunction(
       // If the awaited Future was a temporary stored in await_future_X, drop it now.
       // (Captured Future variables may outlive the await and are handled by normal drops.)
       // Since Futures are ref-counted, we use __yo_decr_rc instead of direct dispose.
-      // Skip for join points — join futures are always captured variables.
-      if (!prevAwait.futureVariableId && !prevAwait.isJoinPoint) {
+      if (!prevAwait.futureVariableId) {
         const awaitExpr = prevAwait.expr as Expr;
         if (awaitExpr.tag === ExprTag.FnCall) {
           const futureArg = awaitExpr.args[0];
@@ -1185,91 +1161,10 @@ export function generateAsyncBlockResumeFunction(
       context.stateMachineVariables = previousStateMachineVariables;
       context.variableIdRemapping = previousVariableIdRemapping;
 
-      // This segment ends with an await or join - generate the suspension logic
+      // This segment ends with an await - generate the suspension logic
       const nextState = stateNumber + 1;
 
-      if (segment.awaitPoint.isJoinPoint) {
-        // === JOIN POINT: wait for multiple futures concurrently ===
-        const joinIndex = segment.awaitPoint.index;
-        const futureVarIds = segment.awaitPoint.joinFutureVariableIds!;
-        const futureCount = segment.awaitPoint.joinFutureCount!;
-        const notifyFnName = `${asyncBlockId}_join_${joinIndex}_notify`;
-
-        emitter.emitLine(
-          `      // Join point ${joinIndex} — wait for ${futureCount} futures`
-        );
-        emitter.emitLine(`      sm->state = ${nextState};`);
-        emitter.emitLine(
-          `      sm->join_pending_${joinIndex} = ${futureCount};`
-        );
-        emitter.emitLine(``);
-
-        // For each future being joined, generate start/register logic
-        for (let fi = 0; fi < futureVarIds.length; fi++) {
-          const futureFieldName = getFutureFieldNameByVariableId(
-            futureVarIds[fi]!,
-            analysis
-          );
-          const joinFutureIsIo = isIoFutureType(
-            segment.awaitPoint.joinFutureTypes?.[fi]
-          );
-          emitter.emitLine(
-            `      // Join future ${fi}: sm->${futureFieldName}`
-          );
-          emitter.emitLine(`      {`);
-          emitter.emitLine(
-            `        int fs_${fi} = sm->${futureFieldName}->state;`
-          );
-          emitter.emitLine(`        if (fs_${fi} == -1 || fs_${fi} == -2) {`);
-          emitter.emitLine(
-            `          // Already complete or aborted — decrement counter directly`
-          );
-          emitter.emitLine(
-            `          int prev_${fi} = sm->join_pending_${joinIndex}--;`
-          );
-          emitter.emitLine(`          if (prev_${fi} == 1) {`);
-          emitter.emitLine(
-            `            // All futures done (all were pre-completed/aborted) — resume immediately`
-          );
-          emitter.emitLine(`            goto state_${nextState};`);
-          emitter.emitLine(`          }`);
-          emitter.emitLine(`        } else {`);
-          emitter.emitLine(
-            `          // Not complete — take event loop refs and start/register`
-          );
-          emitter.emitLine(
-            `          __yo_incr_rc((void*)sm);  // event loop ref for notify`
-          );
-          emitter.emitLine(
-            `          __yo_incr_rc((void*)sm->${futureFieldName});  // event loop ref for future`
-          );
-          emitter.emitLine(
-            `          // Set notify function as continuation BEFORE starting`
-          );
-          emitter.emitLine(
-            `          sm->${futureFieldName}->continuation_fn = (void (*)(void*))${notifyFnName};`
-          );
-          emitter.emitLine(
-            `          sm->${futureFieldName}->continuation_sm = (void*)sm;`
-          );
-          if (!joinFutureIsIo) {
-            emitter.emitLine(`          if (fs_${fi} == 0) {`);
-            emitter.emitLine(`            // Cold future — start it`);
-            emitter.emitLine(
-              `            sm->${futureFieldName}->__yo_resume_fn((void*)sm->${futureFieldName});`
-            );
-            emitter.emitLine(`          }`);
-          }
-          emitter.emitLine(`        }`);
-          emitter.emitLine(`      }`);
-          emitter.emitLine(``);
-        }
-
-        emitter.emitLine(
-          `      // All futures started/registered — suspend, notify will resume us`
-        );
-        emitter.emitLine(`      return;`);
-      } else {
+      {
         // === SINGLE AWAIT POINT ===
         const futureFieldName = getFutureFieldName(
           segment.awaitPoint,
@@ -1410,7 +1305,7 @@ export function generateAsyncBlockResumeFunction(
           emitter.emitLine(`        goto state_${nextState};`);
           emitter.emitLine(`      }`);
         }
-      } // end of else (single await) branch
+      } // end of single await block
     } else if (isLastSegment) {
       // Last segment - complete the Future
       const hasReturnStatement = segment.expressions.some((expr: Expr) =>

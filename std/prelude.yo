@@ -3666,7 +3666,7 @@ IO :: module(
   async : (fn(forall(T : Type, ...(E)), action : Impl(Fn(using(...(E))) -> T)) -> Impl(Future(T, ...(E)))),
   await : (fn(forall(T : Type, ...(E)), fut : Impl(Future(T, ...(E))), using(...(E))) -> T),
   state : (fn(forall(T : Type, ...(E)), fut : Impl(Future(T, ...(E)))) -> FutureState),
-  join : (fn(...) -> unit)
+  spawn : (fn(forall(T : Type, ...(E)), fut : Impl(Future(T, ...(E))), using(...(E))) -> unit)
 );
 export IO;
 
@@ -3674,7 +3674,7 @@ extern "Yo",
   __yo_io_async : (fn(forall(T : Type, ...(E)), action : Impl(Fn(using(...(E))) -> T)) -> Impl(Future(T, ...(E)))),
   __yo_io_await : (fn(forall(T : Type, ...(E)), fut : Impl(Future(T, ...(E))), using(...(E))) -> T),
   __yo_io_state : (fn(forall(T : Type, ...(E)), fut : Impl(Future(T, ...(E)))) -> FutureState),
-  __yo_io_join : (fn(...) -> unit)
+  __yo_io_spawn : (fn(forall(T : Type, ...(E)), fut : Impl(Future(T, ...(E))), using(...(E))) -> unit)
 ;
 
 // It's intended not to use `given` here.
@@ -3684,6 +3684,6 @@ __yo_builtin_io :: IO(
   async : __yo_io_async,
   await : __yo_io_await,
   state : __yo_io_state,
-  join : __yo_io_join
+  spawn : __yo_io_spawn
 );
 export __yo_builtin_io;

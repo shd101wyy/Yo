@@ -2073,8 +2073,9 @@ main :: (fn(using(io : IO)) -> unit)({
     io.await(yield());
     return i32(2);
   });
-  io.join(task1, task2);  // start both, interleave at yield points
-  r1 := io.await(task1);  // extract result (already complete)
+  io.spawn(task1);  // start task1 without waiting
+  io.spawn(task2);  // start task2 without waiting
+  r1 := io.await(task1);  // wait and extract result
   r2 := io.await(task2);
 });
 export main;
@@ -2082,11 +2083,11 @@ export main;
 
 Key properties:
 
-- `io.async(fn)` creates a **cold Future** — the body does NOT execute until awaited or joined
+- `io.async(fn)` creates a **cold Future** — the body does NOT execute until awaited or spawned
 - `io.await(future)` starts a cold future and runs it to completion; can be called **multiple times** on the same Future
-- `io.join(f1, f2, ...)` starts all futures concurrently, interleaving at yield/await suspension points
+- `io.spawn(future)` starts a cold future without waiting for it to complete
 - All async code runs on the **same thread** (no thread spawning, no data races)
-- Awaiting a Future that was aborted by an effect handler causes a **panic**
+- Awaiting or spawning a Future that was aborted by an effect handler causes a **panic**
 
 See [ASYNC_AWAIT.md](./ASYNC_AWAIT.md) for comprehensive documentation.
 

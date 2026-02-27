@@ -343,7 +343,7 @@ Given type: ${typeToString(defaultValueType)}`,
   // for nominal types like Option(T) to get correct funcIds
   if (isForEvaluatingModuleType && isFunctionType(fieldType)) {
     // Note: variadic function parameters are allowed in module fields for
-    // builtin-intercepted functions like io.join. The type specialization
+    // builtin-intercepted functions. The type specialization
     // constraint doesn't apply because these calls are intercepted before
     // reaching the normal function call path.
     for (const param of fieldType.forallParameters) {

@@ -1,7 +1,7 @@
 import {
   isIoAsyncCall,
   isIoAwaitCall,
-  isIoJoinCall,
+  isIoSpawnCall,
   isIoStateCall,
 } from "../../evaluator/async/await-analysis";
 import { typeImplementsFuture } from "../../evaluator/trait-checking";
@@ -460,74 +460,47 @@ function generateFuncCall(
     return generateState(expr, indent, context);
   }
 
-  // io.join - wait for multiple futures concurrently
-  if (isIoJoinCall(expr)) {
-    // In state machine context, join is handled by the state machine generator
+  // io.spawn(future) - start a cold Future without waiting for it
+  if (isIoSpawnCall(expr)) {
+    const futureArg = expr.args[0];
+    if (!futureArg) {
+      return `// Error: spawn requires a Future argument`;
+    }
     const functionContext = context as FunctionGenerationContext;
-    if (
-      functionContext.inAsyncStateMachine ||
-      functionContext.inEffectStateMachine
-    ) {
-      return ``;
-    }
-    // Outside async context — synchronous join via busy-poll
     const emitter = functionContext.emitter;
+    const futureCode = generateExpr(futureArg, indent, context);
+    const futureType = futureArg.$?.type;
+    const futureTypeName = futureType
+      ? getTypeString(futureType, context)
+      : "void*";
+    const spawnVar = `__spawn_future`;
     emitter.emitLine(
-      `${indent}// Synchronous join — start all cold futures, busy-poll until all complete`
+      `${indent}// io.spawn — start cold Future without waiting`
     );
-    const futureVars: string[] = [];
-    for (let i = 0; i < expr.args.length; i++) {
-      const argExpr = expr.args[i]!;
-      const futureCode = generateExpr(argExpr, indent, context);
-      const futureType = argExpr.$?.type;
-      const futureTypeName = futureType
-        ? getTypeString(futureType, context)
-        : "void*";
-      const varName = `__sync_join_${i}`;
+    emitter.emitLine(`${indent}{`);
+    emitter.emitLine(
+      `${indent}  ${futureTypeName} ${spawnVar} = ${futureCode};`
+    );
+    emitter.emitLine(`${indent}  int __spawn_state = ${spawnVar}->state;`);
+    // Panic if already aborted
+    emitter.emitLine(`${indent}  if (__spawn_state == -2) {`);
+    emitter.emitLine(
+      `${indent}    fprintf(stderr, "panic: attempted to spawn an aborted Future\\n");`
+    );
+    emitter.emitLine(`${indent}    abort();`);
+    emitter.emitLine(`${indent}  }`);
+    const isIoFuture = isIoFutureType(futureArg.$?.type);
+    if (!isIoFuture) {
       emitter.emitLine(
-        `${indent}${futureTypeName} ${varName} = ${futureCode};`
+        `${indent}  if (__spawn_state == 0 && ${spawnVar}->__yo_resume_fn) {`
       );
-      futureVars.push(varName);
-    }
-    for (let i = 0; i < futureVars.length; i++) {
-      const varName = futureVars[i]!;
-      const argExpr = expr.args[i]!;
-      const isIoFuture = isIoFutureType(argExpr.$?.type);
-      if (!isIoFuture) {
-        emitter.emitLine(
-          `${indent}if (${varName}->state == 0 && ${varName}->__yo_resume_fn) {`
-        );
-        emitter.emitLine(`${indent}  __yo_incr_rc((void*)${varName});`);
-        emitter.emitLine(
-          `${indent}  ${varName}->__yo_resume_fn((void*)${varName});`
-        );
-        emitter.emitLine(`${indent}}`);
-      }
-    }
-    // Run the event loop (task queue + I/O polling) until all futures complete or are aborted.
-    // State -1 = completed, -2 = aborted; both are terminal states.
-    emitter.emitLine(`${indent}while (1) {`);
-    emitter.emitLine(`${indent}  int __all_done = 1;`);
-    for (const varName of futureVars) {
-      emitter.emitLine(`${indent}  {`);
-      emitter.emitLine(`${indent}    int __s = ${varName}->state;`);
+      emitter.emitLine(`${indent}    __yo_incr_rc((void*)${spawnVar});`);
       emitter.emitLine(
-        `${indent}    if (__s != -1 && __s != -2) __all_done = 0;`
+        `${indent}    ${spawnVar}->__yo_resume_fn((void*)${spawnVar});`
       );
       emitter.emitLine(`${indent}  }`);
     }
-    emitter.emitLine(`${indent}  if (__all_done) break;`);
-    emitter.emitLine(`${indent}  yo_async_poll_step();`);
     emitter.emitLine(`${indent}}`);
-    // Check if any Future was aborted
-    for (const varName of futureVars) {
-      emitter.emitLine(`${indent}if (${varName}->state == -2) {`);
-      emitter.emitLine(
-        `${indent}  fprintf(stderr, "panic: attempted to join an aborted Future\\n");`
-      );
-      emitter.emitLine(`${indent}  abort();`);
-      emitter.emitLine(`${indent}}`);
-    }
     return ``;
   }
 

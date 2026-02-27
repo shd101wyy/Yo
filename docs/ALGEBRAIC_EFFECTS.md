@@ -180,7 +180,7 @@ raise_resume :: (fn() -> i64) {
   - **fn-typed handler** (with resume): `(given(raise) : Raise) = (fn(...) -> T)({ return(value); });`
 - Continuations are **one-shot** — `return` can be called at most once (syntactically enforced as last expression; runtime double-resume check is planned but not yet implemented).
 - Effect operations compose with `using` — the effect is an implicit parameter resolved via `given`.
-- **Abort in async context**: When `abort` is called inside an `io.async` task, the Future is marked as **aborted** (state = -2). Attempting to `io.await` or `io.join` on an aborted Future causes a **panic** at runtime. See [ASYNC_AWAIT.md](./ASYNC_AWAIT.md#aborted-futures) for details.
+- **Abort in async context**: When `abort` is called inside an `io.async` task, the Future is marked as **aborted** (state = -2). Attempting to `io.await` or `io.spawn` on an aborted Future causes a **panic** at runtime. See [ASYNC_AWAIT.md](./ASYNC_AWAIT.md#aborted-futures) for details.
 
 ### 2.3 Effect Coloring / Propagation
 

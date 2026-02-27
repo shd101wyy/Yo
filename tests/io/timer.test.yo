@@ -36,7 +36,8 @@ test "Test IO timer", using(io : IO), {
     assert(value.* == 2); // yield() resumes before sleep(50ms), nobody changed it
     value.* = (value.* + 1); // 3
   });
-  io.join(task1, task2);
+  io.spawn(task1);
+  io.spawn(task2);
   io.await(task1);
   io.await(task2);
 };

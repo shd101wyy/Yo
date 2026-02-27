@@ -10,7 +10,6 @@ import type { AwaitPoint } from "../../evaluator/async/await-analysis";
 import {
   isIoAsyncCall,
   isIoAwaitCall,
-  isIoJoinCall,
 } from "../../evaluator/async/await-analysis";
 import {
   BuiltinKeywords,
@@ -171,11 +170,6 @@ export function generateAwaitExpression(
   context: FunctionGenerationContext
 ): void {
   const emitter = context.emitter;
-
-  // Join expressions are handled directly by state-machine.ts codegen
-  if (expr.tag === ExprTag.FnCall && isIoJoinCall(expr)) {
-    return;
-  }
 
   // Check if this is a standalone await expression: io.await(futureExpr)
   if (expr.tag === ExprTag.FnCall && isIoAwaitCall(expr)) {
@@ -744,10 +738,7 @@ function generateCondWithAwait(
  * Checks if a branch value contains any await expression
  */
 function branchHasAwait(expr: Expr): boolean {
-  if (
-    expr.tag === ExprTag.FnCall &&
-    (isIoAwaitCall(expr) || isIoJoinCall(expr))
-  ) {
+  if (expr.tag === ExprTag.FnCall && isIoAwaitCall(expr)) {
     return true;
   }
 

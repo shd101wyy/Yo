@@ -15,7 +15,7 @@ import type {
 
 /**
  * Information about a single await expression found in an async function.
- * Extends SuspensionPoint with async-specific fields (futureType, join info, etc.).
+ * Extends SuspensionPoint with async-specific fields (futureType, etc.).
  */
 export interface AwaitPoint extends SuspensionPoint {
   /**
@@ -34,30 +34,6 @@ export interface AwaitPoint extends SuspensionPoint {
    * This is used to reference the captured Future variable instead of creating a separate await_future_X field
    */
   futureVariableId?: string;
-
-  /**
-   * Whether this is a join point (join(...) call) rather than a single await.
-   * Join points wait for multiple futures concurrently using an atomic counter.
-   */
-  isJoinPoint?: boolean;
-
-  /**
-   * For join points: the variable IDs of all futures being joined.
-   * Used to reference the captured future variables in the state machine struct.
-   */
-  joinFutureVariableIds?: string[];
-
-  /**
-   * For join points: the number of futures being joined.
-   * Used to initialize the atomic pending counter.
-   */
-  joinFutureCount?: number;
-
-  /**
-   * For join points: the types of each future being joined.
-   * Used for generating correct C type casts in the join codegen.
-   */
-  joinFutureTypes?: Type[];
 }
 
 /**

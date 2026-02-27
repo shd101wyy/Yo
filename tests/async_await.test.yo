@@ -402,7 +402,7 @@ test "Test nested cond with await", using(io : IO), {
 };
 
 // ---------------------------------------------------------------------------
-// 16. Lazy sequential async tasks – verify no interleaving without join
+// 16. Lazy sequential async tasks – verify no interleaving without spawn
 //     With lazy execution, await task1 fully completes before task2 starts.
 // ---------------------------------------------------------------------------
 test "Test lazy sequential async tasks", using(io : IO), {
@@ -1489,12 +1489,12 @@ test "Test match with await on primitive integer default branch", using(io : IO)
 };
 
 // ---------------------------------------------------------------------------
-// 55. Basic join — two cold futures started concurrently
-//     io.join(task1, task2) starts both, interleaves at yield points.
-//     After join, individual io.await extracts results immediately.
+// 55. Basic spawn — two cold futures started concurrently
+//     io.spawn starts each future without waiting.
+//     io.await extracts results after spawn.
 //     Verifies interleaving order: task1 state0 → task2 state0 → task1 state1 → task2 state1
 // ---------------------------------------------------------------------------
-test "Test basic join of two futures", using(io : IO), {
+test "Test basic spawn of two futures", using(io : IO), {
   counter := Box(i32)(0);
 
   task1 := io.async((using(io : IO))=> {
@@ -1516,22 +1516,23 @@ test "Test basic join of two futures", using(io : IO), {
   });
 
   // Both tasks are cold (not started).
-  // join starts both and waits for all to complete.
-  io.join(task1, task2);
+  // spawn starts both without waiting for completion.
+  io.spawn(task1);
+  io.spawn(task2);
 
-  // After join, both are complete — io.await just extracts results.
+  // After spawn, both are running — io.await waits and extracts results.
   result1 := io.await(task1);
   result2 := io.await(task2);
 
   // Both tasks incremented counter: +2 from task1, +20 from task2
-  assert((counter.* == i32(22)), "counter should be 22 after join");
+  assert((counter.* == i32(22)), "counter should be 22 after spawn");
 };
 
 // ---------------------------------------------------------------------------
-// 56. Join single future — edge case
-//     io.join(task) with one argument should work like starting + waiting.
+// 56. Spawn single future — edge case
+//     io.spawn(task) starts the future, io.await waits for it.
 // ---------------------------------------------------------------------------
-test "Test join single future", using(io : IO), {
+test "Test spawn single future", using(io : IO), {
   counter := Box(i32)(0);
 
   task := io.async((using(io : IO))=> {
@@ -1541,19 +1542,19 @@ test "Test join single future", using(io : IO), {
     return counter.*;
   });
 
-  io.join(task);
+  io.spawn(task);
 
   result := io.await(task);
-  assert((counter.* == i32(50)), "counter should be 50 after single join");
+  assert((counter.* == i32(50)), "counter should be 50 after single spawn");
   assert((result == i32(50)), "result should be 50");
 };
 
 // ---------------------------------------------------------------------------
-// 57. Join with futures that have multiple awaits inside
-//     Each future yields multiple times; join interleaves at each yield.
+// 57. Spawn with futures that have multiple awaits inside
+//     Each future yields multiple times; spawn starts both.
 //     Verifies round-robin interleaving across all yield points.
 // ---------------------------------------------------------------------------
-test "Test join with multi-yield futures", using(io : IO), {
+test "Test spawn with multi-yield futures", using(io : IO), {
   counter := Box(i32)(0);
 
   task1 := io.async((using(io : IO))=> {
@@ -1586,19 +1587,20 @@ test "Test join with multi-yield futures", using(io : IO), {
     return counter.*;
   });
 
-  io.join(task1, task2);
+  io.spawn(task1);
+  io.spawn(task2);
 
   result1 := io.await(task1);
   result2 := io.await(task2);
 
   // task1 adds 3, task2 adds 30; total = 33
-  assert((counter.* == i32(33)), "counter should be 33 after join of multi-yield futures");
+  assert((counter.* == i32(33)), "counter should be 33 after spawn of multi-yield futures");
 };
 
 // ---------------------------------------------------------------------------
-// 58. Join then code after — verify execution continues after join
+// 58. Spawn then code after — verify execution continues after spawn + await
 // ---------------------------------------------------------------------------
-test "Test code after join", using(io : IO), {
+test "Test code after spawn", using(io : IO), {
   flag := Box(bool)(false);
 
   task := io.async((using(io : IO))=> {
@@ -1606,12 +1608,13 @@ test "Test code after join", using(io : IO), {
     flag.* = true;
   });
 
-  io.join(task);
+  io.spawn(task);
+  io.await(task);
 
-  // After join, flag should be set
-  assert(flag.*, "flag should be true after join");
+  // After spawn + await, flag should be set
+  assert(flag.*, "flag should be true after spawn + await");
 
-  // Code after join should execute normally
+  // Code after should execute normally
   task2 := io.async((using(io : IO))=> {
     io.await(yield());
   });
@@ -1990,8 +1993,8 @@ test "Test io.state completed after yield", using(io : IO), {
   assert((s == FutureState.Completed), "future with yields should be Completed after await");
 };
 
-test "Test io.state completed after join", using(io : IO), {
-  // After join + await, both tasks should be Completed
+test "Test io.state completed after spawn", using(io : IO), {
+  // After spawn + await, both tasks should be Completed
   counter := Box(i32)(0);
   task_a := io.async((using(io : IO))=> {
     counter.* = (counter.* + 1);
@@ -2001,13 +2004,14 @@ test "Test io.state completed after join", using(io : IO), {
   task_b := io.async((using(io : IO))=> {
     assert((counter.* == i32(1)), "task_a should have started and set counter");
   });
-  io.join(task_a, task_b);
+  io.spawn(task_a);
+  io.spawn(task_b);
   io.await(task_a);
   io.await(task_b);
   sa := io.state(task_a);
   sb := io.state(task_b);
-  assert((sa == FutureState.Completed), "joined task_a should be Completed");
-  assert((sb == FutureState.Completed), "joined task_b should be Completed");
+  assert((sa == FutureState.Completed), "spawned task_a should be Completed");
+  assert((sb == FutureState.Completed), "spawned task_b should be Completed");
   assert((counter.* == i32(2)), "counter should be 2 after both tasks complete");
 };
 
