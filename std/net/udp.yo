@@ -28,6 +28,7 @@
 { IOFuture } :: import "../io/future";
 { IpAddr, SocketAddr } :: import "./addr";
 { NetError } :: import "./errors";
+{ Exception } :: import "../error/exception";
 { snprintf } :: import "../libc/stdio";
 
 // ============================================================================
@@ -57,10 +58,10 @@ _sa_to_buf :: (fn(addr: SocketAddr) -> SockAddr)({
   )
 });
 
-_to_net :: (fn(r: i32) -> Result(i32, NetError))(
+_to_net_throw :: (fn(r: i32, using(exception : Exception(NetError))) -> i32)(
   cond(
-    (r < i32(0)) => .Err(NetError.from_io(IOError.from_errno((i32(0) - r)))),
-    true => .Ok(r)
+    (r < i32(0)) => exception.throw(NetError.from_io(IOError.from_errno((i32(0) - r)))),
+    true => r
   )
 );
 
@@ -75,90 +76,71 @@ UdpSocket :: object(
 
 impl(UdpSocket,
   // Bind a UDP socket to the given address.
-  bind : (fn(addr: SocketAddr, using(io : IO)) -> Result(Self, NetError))({
+  bind : (fn(addr: SocketAddr, using(io : IO, exception : Exception(NetError))) -> Impl(Future(Self)))({
     domain := match(addr.ip,
       .V4(_, _, _, _) => AF_INET,
       .V6(_)          => AF_INET6
     );
-    fd_r := io.await(udp_socket(domain, i32(0)));
-    match(_to_net(fd_r),
-      .Err(e) => .Err(e),
-      .Ok(fd) => {
-        sa := _sa_to_buf(addr);
-        r  := io.await(bind(fd, sa.buf, sa.len));
-        free_sockaddr(sa);
-        match(_to_net(r),
-          .Err(e) => .Err(e),
-          .Ok(_)  => .Ok(UdpSocket(fd: fd, local_addr: addr))
-        )
-      }
-    )
+    fd := _to_net_throw(io.await(udp_socket(domain, i32(0))));
+    sa := _sa_to_buf(addr);
+    _to_net_throw(io.await(bind(fd, sa.buf, sa.len)));
+    free_sockaddr(sa);
+    UdpSocket(fd: fd, local_addr: addr)
   }),
 
   // Send a datagram to the given address.
-  send_to : (fn(self: Self, data: ArrayList(u8), addr: SocketAddr, using(io : IO)) -> Result(i32, NetError))({
+  send_to : (fn(self: Self, data: ArrayList(u8), addr: SocketAddr, using(io : IO, exception : Exception(NetError))) -> Impl(Future(i32)))({
     sa := _sa_to_buf(addr);
     data_ptr := *(u8)(data.ptr().unwrap());
     r  := io.await(sendto(self.fd, data_ptr, data.len(), i32(0), sa.buf, sa.len));
     free_sockaddr(sa);
-    _to_net(r)
+    _to_net_throw(r)
   }),
 
   // Receive a datagram. Returns (bytes_received, sender_address).
-  recv_from : (fn(self: Self, buf: *(u8), size: usize, using(io : IO)) -> Result(struct(len: i32, addr: SocketAddr), NetError))({
+  recv_from : (fn(self: Self, buf: *(u8), size: usize, using(io : IO, exception : Exception(NetError))) -> Impl(Future(struct(len: i32, addr: SocketAddr))))({
     sa_size := usize(sockaddr_in_size());
     sa_buf  := ArrayList(u8).with_capacity(sa_size);
     sa_buf.set_len(sa_size);
     sa_ptr := *(u8)(sa_buf.ptr().unwrap());
     sa_len := u32(sa_size);
-    r := io.await(recvfrom(self.fd, buf, size, i32(0), sa_ptr, &sa_len));
-    match(_to_net(r),
-      .Err(e) => .Err(e),
-      .Ok(n)  => .Ok(struct(
-        len:  n,
-        addr: self.local_addr  // Simplified: return local addr as placeholder
-      ))
+    n := _to_net_throw(io.await(recvfrom(self.fd, buf, size, i32(0), sa_ptr, &sa_len)));
+    struct(
+      len:  n,
+      addr: self.local_addr  // Simplified: return local addr as placeholder
     )
   }),
 
   // "Connect" the socket to a default destination.
-  connect : (fn(self: Self, addr: SocketAddr, using(io : IO)) -> Result(unit, NetError))({
+  connect : (fn(self: Self, addr: SocketAddr, using(io : IO, exception : Exception(NetError))) -> Impl(Future(unit)))({
     sa := _sa_to_buf(addr);
-    r  := io.await(connect(self.fd, sa.buf, sa.len));
+    _to_net_throw(io.await(connect(self.fd, sa.buf, sa.len)));
     free_sockaddr(sa);
-    match(_to_net(r),
-      .Err(e) => .Err(e),
-      .Ok(_)  => .Ok(())
-    )
+    ()
   }),
 
   // Send a datagram to the connected address.
-  send : (fn(self: Self, data: ArrayList(u8), using(io : IO)) -> Result(i32, NetError))({
+  send : (fn(self: Self, data: ArrayList(u8), using(io : IO, exception : Exception(NetError))) -> Impl(Future(i32)))({
     data_ptr := *(u8)(data.ptr().unwrap());
-    r := io.await(send(self.fd, data_ptr, data.len(), i32(0)));
-    _to_net(r)
+    _to_net_throw(io.await(send(self.fd, data_ptr, data.len(), i32(0))))
   }),
 
   // Receive a datagram from the connected address.
-  recv : (fn(self: Self, buf: *(u8), size: usize, using(io : IO)) -> Result(i32, NetError))({
-    r := io.await(recv(self.fd, buf, size, i32(0)));
-    _to_net(r)
+  recv : (fn(self: Self, buf: *(u8), size: usize, using(io : IO, exception : Exception(NetError))) -> Impl(Future(i32)))({
+    _to_net_throw(io.await(recv(self.fd, buf, size, i32(0))))
   }),
 
   // Close the socket.
-  close : (fn(self: Self, using(io : IO)) -> Result(unit, NetError))({
-    r := io.await(close(self.fd));
-    match(_to_net(r),
-      .Err(e) => .Err(e),
-      .Ok(_)  => .Ok(())
-    )
+  close : (fn(self: Self, using(io : IO, exception : Exception(NetError))) -> Impl(Future(unit)))({
+    _to_net_throw(io.await(close(self.fd)));
+    ()
   }),
 
   // Enable or disable SO_BROADCAST.
-  set_broadcast : (fn(self: Self, enabled: bool, using(io : IO)) -> Result(unit, NetError))({
+  set_broadcast : (fn(self: Self, enabled: bool, using(io : IO, exception : Exception(NetError))) -> Impl(Future(unit)))({
     val := cond(enabled => i32(1), true => i32(0));
     setsockopt_int(self.fd, SOL_SOCKET, SO_BROADCAST, val);
-    .Ok(())
+    ()
   }),
 
   // Return the local address.

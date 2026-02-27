@@ -21,6 +21,7 @@
 } :: import "../io/socket";
 { IpAddr, SocketAddr } :: import "./addr";
 { NetError } :: import "./errors";
+{ Exception } :: import "../error/exception";
 open import "../string";
 
 // ============================================================================
@@ -28,7 +29,7 @@ open import "../string";
 // ============================================================================
 
 // Resolve a hostname to a list of IpAddr values.
-lookup_host :: (fn(host: String, using(io : IO)) -> Result(ArrayList(IpAddr), NetError))({
+lookup_host :: (fn(host: String, using(io : IO, exception : Exception(NetError))) -> Impl(Future(ArrayList(IpAddr))))({
   host_cstr  := host.to_cstr();
   host_ptr   := host_cstr.ptr().unwrap();
   result_ptr := alloc_result();
@@ -37,7 +38,7 @@ lookup_host :: (fn(host: String, using(io : IO)) -> Result(ArrayList(IpAddr), Ne
   cond(
     (ret != i32(0)) => {
       free_result(result_ptr);
-      return .Err(.DNSFailed(String.from("DNS lookup failed")));
+      exception.throw(.DNSFailed(String.from("DNS lookup failed")));
     },
     true => ()
   );
@@ -88,23 +89,18 @@ lookup_host :: (fn(host: String, using(io : IO)) -> Result(ArrayList(IpAddr), Ne
     .None => ()
   );
   free_result(result_ptr);
-  .Ok(addrs)
+  addrs
 });
 
 // Resolve a hostname and port to a list of SocketAddr values.
-resolve :: (fn(host: String, port: u16, using(io : IO)) -> Result(ArrayList(SocketAddr), NetError))({
-  r := lookup_host(host);
-  match(r,
-    .Err(e) => .Err(e),
-    .Ok(ips) => {
-      out := ArrayList(SocketAddr).new();
-      i := usize(0);
-      while (i < ips.len()), (i = (i + usize(1))), {
-        out.push(SocketAddr.new(ips.get(i).unwrap(), port));
-      };
-      .Ok(out)
-    }
-  )
+resolve :: (fn(host: String, port: u16, using(io : IO, exception : Exception(NetError))) -> Impl(Future(ArrayList(SocketAddr))))({
+  ips := io.await(lookup_host(host));
+  out := ArrayList(SocketAddr).new();
+  i := usize(0);
+  while (i < ips.len()), (i = (i + usize(1))), {
+    out.push(SocketAddr.new(ips.get(i).unwrap(), port));
+  };
+  out
 });
 
 export lookup_host, resolve;

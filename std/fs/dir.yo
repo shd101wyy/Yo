@@ -16,6 +16,7 @@ open import "../string";
 { GlobalAllocator } :: import "../allocator";
 { malloc, free } :: GlobalAllocator;
 { IOError } :: import "../io/errors";
+{ Exception } :: import "../error/exception";
 {
   AT_FDCWD, AT_REMOVEDIR,
   O_RDONLY, O_DIRECTORY
@@ -35,10 +36,10 @@ open import "../string";
 // ============================================================================
 
 FileType :: enum(
-  .File,
-  .Directory,
-  .Symlink,
-  .Other
+  File,
+  Directory,
+  Symlink,
+  Other
 );
 
 export FileType;
@@ -75,18 +76,18 @@ export DirEntry;
 // ============================================================================
 
 // Create a single directory.
-create_dir :: (fn(path: String, using(io : IO)) -> Result(unit, IOError))({
+create_dir :: (fn(path: String, using(io : IO, exception : Exception(IOError))) -> Impl(Future(unit)))({
   path_cstr := path.to_cstr();
   path_ptr  := *(u8)(path_cstr.ptr().unwrap());
   result    := io.await(mkdir(AT_FDCWD, path_ptr, i32(0o755)));
   cond(
-    (result < i32(0)) => .Err(IOError.from_errno((i32(0) - result))),
-    true => .Ok(())
+    (result < i32(0)) => exception.throw(IOError.from_errno((i32(0) - result))),
+    true => ()
   )
 });
 
 // Create a directory and all missing ancestors.
-create_dir_all :: (fn(path: String, using(io : IO)) -> Result(unit, IOError))({
+create_dir_all :: (fn(path: String, using(io : IO, exception : Exception(IOError))) -> Impl(Future(unit)))({
   segments := path.split(String.from("/"));
   accumulated := String.new();
   cond(
@@ -129,110 +130,97 @@ create_dir_all :: (fn(path: String, using(io : IO)) -> Result(unit, IOError))({
         r := io.await(mkdir(AT_FDCWD, seg_ptr, i32(0o755)));
         cond(
           ((r < i32(0)) && (r != (i32(0) - i32(17)))) => { // EEXIST = 17
-            return .Err(IOError.from_errno((i32(0) - r)));
+            exception.throw(IOError.from_errno((i32(0) - r)));
           },
           true => ()
         );
       }
     );
   };
-  .Ok(())
+  ()
 });
 
 // Remove an empty directory.
-remove_dir :: (fn(path: String, using(io : IO)) -> Result(unit, IOError))({
+remove_dir :: (fn(path: String, using(io : IO, exception : Exception(IOError))) -> Impl(Future(unit)))({
   path_cstr := path.to_cstr();
   path_ptr  := *(u8)(path_cstr.ptr().unwrap());
   result    := io.await(unlink(AT_FDCWD, path_ptr, AT_REMOVEDIR));
   cond(
-    (result < i32(0)) => .Err(IOError.from_errno((i32(0) - result))),
-    true => .Ok(())
+    (result < i32(0)) => exception.throw(IOError.from_errno((i32(0) - result))),
+    true => ()
   )
 });
 
 // Remove a directory and all its contents recursively.
-remove_dir_all :: (fn(path: String, using(io : IO)) -> Result(unit, IOError))({
-  entries_result := read_dir(path);
-  match(entries_result,
-    .Err(e) => .Err(e),
-    .Ok(entries) => {
-      i := usize(0);
-      while (i < entries.len()), (i = (i + usize(1))), {
-        entry := entries.get(i).unwrap();
-        match(entry.file_type,
-          .Directory => {
-            r := remove_dir_all(entry.path);
-            match(r,
-              .Err(e) => { return .Err(e); },
-              .Ok(_)  => ()
-            );
-          },
-          _ => {
-            r := remove_file(entry.path);
-            match(r,
-              .Err(e) => { return .Err(e); },
-              .Ok(_)  => ()
-            );
-          }
-        );
-      };
-      remove_dir(path)
-    }
-  )
+remove_dir_all :: (fn(path: String, using(io : IO, exception : Exception(IOError))) -> Impl(Future(unit)))({
+  entries := io.await(read_dir(path));
+  i := usize(0);
+  while (i < entries.len()), (i = (i + usize(1))), {
+    entry := entries.get(i).unwrap();
+    match(entry.file_type,
+      .Directory => {
+        io.await(remove_dir_all(entry.path));
+      },
+      _ => {
+        io.await(remove_file(entry.path));
+      }
+    );
+  };
+  io.await(remove_dir(path))
 });
 
 // Remove a file.
-remove_file :: (fn(path: String, using(io : IO)) -> Result(unit, IOError))({
+remove_file :: (fn(path: String, using(io : IO, exception : Exception(IOError))) -> Impl(Future(unit)))({
   path_cstr := path.to_cstr();
   path_ptr  := *(u8)(path_cstr.ptr().unwrap());
   result    := io.await(unlink(AT_FDCWD, path_ptr, i32(0)));
   cond(
-    (result < i32(0)) => .Err(IOError.from_errno((i32(0) - result))),
-    true => .Ok(())
+    (result < i32(0)) => exception.throw(IOError.from_errno((i32(0) - result))),
+    true => ()
   )
 });
 
 // Rename / move a file or directory.
-rename :: (fn(from: String, to: String, using(io : IO)) -> Result(unit, IOError))({
+rename :: (fn(from: String, to: String, using(io : IO, exception : Exception(IOError))) -> Impl(Future(unit)))({
   from_cstr := from.to_cstr();
   from_ptr  := *(u8)(from_cstr.ptr().unwrap());
   to_cstr   := to.to_cstr();
   to_ptr    := *(u8)(to_cstr.ptr().unwrap());
   result    := io.await(io_rename(AT_FDCWD, from_ptr, AT_FDCWD, to_ptr));
   cond(
-    (result < i32(0)) => .Err(IOError.from_errno((i32(0) - result))),
-    true => .Ok(())
+    (result < i32(0)) => exception.throw(IOError.from_errno((i32(0) - result))),
+    true => ()
   )
 });
 
 // Create a symbolic link at `dst` pointing to `src`.
-symlink :: (fn(src: String, dst: String, using(io : IO)) -> Result(unit, IOError))({
+symlink :: (fn(src: String, dst: String, using(io : IO, exception : Exception(IOError))) -> Impl(Future(unit)))({
   src_cstr := src.to_cstr();
   src_ptr  := *(u8)(src_cstr.ptr().unwrap());
   dst_cstr := dst.to_cstr();
   dst_ptr  := *(u8)(dst_cstr.ptr().unwrap());
   result   := io.await(io_symlink(src_ptr, AT_FDCWD, dst_ptr));
   cond(
-    (result < i32(0)) => .Err(IOError.from_errno((i32(0) - result))),
-    true => .Ok(())
+    (result < i32(0)) => exception.throw(IOError.from_errno((i32(0) - result))),
+    true => ()
   )
 });
 
 // Create a hard link from `src` to `dst`.
-hard_link :: (fn(src: String, dst: String, using(io : IO)) -> Result(unit, IOError))({
+hard_link :: (fn(src: String, dst: String, using(io : IO, exception : Exception(IOError))) -> Impl(Future(unit)))({
   src_cstr := src.to_cstr();
   src_ptr  := *(u8)(src_cstr.ptr().unwrap());
   dst_cstr := dst.to_cstr();
   dst_ptr  := *(u8)(dst_cstr.ptr().unwrap());
   result   := io.await(link(AT_FDCWD, src_ptr, AT_FDCWD, dst_ptr, i32(0)));
   cond(
-    (result < i32(0)) => .Err(IOError.from_errno((i32(0) - result))),
-    true => .Ok(())
+    (result < i32(0)) => exception.throw(IOError.from_errno((i32(0) - result))),
+    true => ()
   )
 });
 
 // Read directory entries. Returns all entries as an ArrayList(DirEntry).
-read_dir :: (fn(path: String, using(io : IO)) -> Result(ArrayList(DirEntry), IOError))({
+read_dir :: (fn(path: String, using(io : IO, exception : Exception(IOError))) -> Impl(Future(ArrayList(DirEntry))))({
   path_cstr := path.to_cstr();
   path_ptr  := *(u8)(path_cstr.ptr().unwrap());
 
@@ -240,7 +228,7 @@ read_dir :: (fn(path: String, using(io : IO)) -> Result(ArrayList(DirEntry), IOE
   fd_result := io.await(openat(AT_FDCWD, path_ptr, (O_RDONLY | O_DIRECTORY), i32(0)));
   cond(
     (fd_result < i32(0)) => {
-      return .Err(IOError.from_errno((i32(0) - fd_result)));
+      exception.throw(IOError.from_errno((i32(0) - fd_result)));
     },
     true => ()
   );
@@ -258,7 +246,7 @@ read_dir :: (fn(path: String, using(io : IO)) -> Result(ArrayList(DirEntry), IOE
     cond(
       (n < i32(0)) => {
         io.await(close(dir_fd));
-        return .Err(IOError.from_errno((i32(0) - n)));
+        exception.throw(IOError.from_errno((i32(0) - n)));
       },
       (n == i32(0)) => break,
       true => {
@@ -294,7 +282,7 @@ read_dir :: (fn(path: String, using(io : IO)) -> Result(ArrayList(DirEntry), IOE
   };
 
   io.await(close(dir_fd));
-  .Ok(entries)
+  entries
 });
 
 export

@@ -1,7 +1,11 @@
 // std/fs/file.yo - High-level File object
 //
-// Wraps a file descriptor and provides buffered async read/write operations.
+// Wraps a file descriptor and provides async read/write operations.
 // Builds on std/io/file (low-level) and std/io/seek for position control.
+//
+// All async methods return Impl(Future(T)) and accept
+// `using(io : IO, exception : Exception(IOError))`.  Errors are raised via
+// `exception.throw(...)` — no Result wrapping at the call site.
 //
 // Paths accept String. Use String.from_cstr / String.from for conversion.
 //
@@ -9,7 +13,8 @@
 //   { File, read_to_string } :: import "std/fs/file";
 //
 //   main :: (fn(using(io : IO)) -> unit)({
-//     content := read_to_string(String.from("/etc/hostname")).unwrap();
+//     given(exception) := Exception(IOError).new_abort();
+//     content := io.await(read_to_string(String.from("/etc/hostname")));
 //     println(content);
 //   });
 //   export main;
@@ -19,6 +24,7 @@ open import "../string";
 { GlobalAllocator } :: import "../allocator";
 { malloc, free } :: GlobalAllocator;
 { IOError } :: import "../io/errors";
+{ Exception } :: import "../error/exception";
 {
   AT_FDCWD,
   O_RDONLY, O_WRONLY, O_RDWR, O_CREAT, O_TRUNC, O_APPEND
@@ -51,63 +57,63 @@ File :: object(
 
 impl(File,
   // Low-level open with explicit flags and mode.
-  open : (fn(path: String, flags: i32, mode: i32, using(io : IO)) -> Result(Self, IOError))({
+  open : (fn(path: String, flags: i32, mode: i32, using(io : IO, exception : Exception(IOError))) -> Impl(Future(Self)))({
     path_cstr := path.to_cstr();
     path_ptr  := *(u8)(path_cstr.ptr().unwrap());
     result    := io.await(openat(AT_FDCWD, path_ptr, flags, mode));
     cond(
-      (result < i32(0)) => .Err(IOError.from_errno((i32(0) - result))),
-      true => .Ok(Self(
+      (result < i32(0)) => exception.throw(IOError.from_errno((i32(0) - result))),
+      true => Self(
         fd:         result,
         path:       path,
         _read_buf:  ArrayList(u8).new(),
         _write_buf: ArrayList(u8).new(),
         _position:  i64(0),
         _is_closed: false
-      ))
+      )
     )
   }),
 
   // Open an existing file for reading.
-  open_read : (fn(path: String, using(io : IO)) -> Result(Self, IOError))(
-    Self.open(path, O_RDONLY, i32(0))
+  open_read : (fn(path: String, using(io : IO, exception : Exception(IOError))) -> Impl(Future(Self)))(
+    io.await(Self.open(path, O_RDONLY, i32(0)))
   ),
 
   // Create or truncate a file for writing.
-  create : (fn(path: String, using(io : IO)) -> Result(Self, IOError))(
-    Self.open(path, (O_WRONLY | (O_CREAT | O_TRUNC)), i32(0o644))
+  create : (fn(path: String, using(io : IO, exception : Exception(IOError))) -> Impl(Future(Self)))(
+    io.await(Self.open(path, (O_WRONLY | (O_CREAT | O_TRUNC)), i32(0o644)))
   ),
 
   // Open or create a file and seek to the end for appending.
-  open_append : (fn(path: String, using(io : IO)) -> Result(Self, IOError))(
-    Self.open(path, (O_WRONLY | (O_CREAT | O_APPEND)), i32(0o644))
+  open_append : (fn(path: String, using(io : IO, exception : Exception(IOError))) -> Impl(Future(Self)))(
+    io.await(Self.open(path, (O_WRONLY | (O_CREAT | O_APPEND)), i32(0o644)))
   ),
 
-  // Read up to `size` bytes into `buf`. Returns bytes read or an error.
-  read : (fn(self: Self, buf: *(u8), size: usize, using(io : IO)) -> Result(i32, IOError))({
+  // Read up to `size` bytes into `buf`. Returns bytes read.
+  read : (fn(self: Self, buf: *(u8), size: usize, using(io : IO, exception : Exception(IOError))) -> Impl(Future(i32)))({
     result := io.await(read(self.fd, buf, u32(size), u64(self._position)));
     cond(
-      (result < i32(0)) => .Err(IOError.from_errno((i32(0) - result))),
+      (result < i32(0)) => exception.throw(IOError.from_errno((i32(0) - result))),
       true => {
         self._position = (self._position + i64(result));
-        .Ok(result)
+        result
       }
     )
   }),
 
-  // Write a String to the file. Returns bytes written or an error.
-  write : (fn(self: Self, data: String, using(io : IO)) -> Result(i32, IOError))({
+  // Write a String to the file. Returns bytes written.
+  write : (fn(self: Self, data: String, using(io : IO, exception : Exception(IOError))) -> Impl(Future(i32)))({
     bytes := data.as_bytes();
     cond(
-      (bytes.len() == usize(0)) => .Ok(i32(0)),
+      (bytes.len() == usize(0)) => i32(0),
       true => {
         data_ptr := *(u8)(bytes.ptr().unwrap());
         result   := io.await(write(self.fd, data_ptr, u32(bytes.len()), u64(self._position)));
         cond(
-          (result < i32(0)) => .Err(IOError.from_errno((i32(0) - result))),
+          (result < i32(0)) => exception.throw(IOError.from_errno((i32(0) - result))),
           true => {
             self._position = (self._position + i64(result));
-            .Ok(result)
+            result
           }
         )
       }
@@ -115,17 +121,17 @@ impl(File,
   }),
 
   // Write raw bytes (ArrayList(u8)) to the file.
-  write_bytes : (fn(self: Self, data: ArrayList(u8), using(io : IO)) -> Result(i32, IOError))({
+  write_bytes : (fn(self: Self, data: ArrayList(u8), using(io : IO, exception : Exception(IOError))) -> Impl(Future(i32)))({
     cond(
-      (data.len() == usize(0)) => .Ok(i32(0)),
+      (data.len() == usize(0)) => i32(0),
       true => {
         data_ptr := *(u8)(data.ptr().unwrap());
         result   := io.await(write(self.fd, data_ptr, u32(data.len()), u64(self._position)));
         cond(
-          (result < i32(0)) => .Err(IOError.from_errno((i32(0) - result))),
+          (result < i32(0)) => exception.throw(IOError.from_errno((i32(0) - result))),
           true => {
             self._position = (self._position + i64(result));
-            .Ok(result)
+            result
           }
         )
       }
@@ -133,7 +139,7 @@ impl(File,
   }),
 
   // Read the entire file content into an ArrayList(u8).
-  read_all : (fn(self: Self, using(io : IO)) -> Result(ArrayList(u8), IOError))({
+  read_all : (fn(self: Self, using(io : IO, exception : Exception(IOError))) -> Impl(Future(ArrayList(u8))))({
     buf   := ArrayList(u8).with_capacity(_BUF_SIZE);
     chunk := ArrayList(u8).with_capacity(_BUF_SIZE);
     chunk.set_len(_BUF_SIZE);
@@ -143,7 +149,7 @@ impl(File,
       n := io.await(read(self.fd, chunk_ptr, u32(_BUF_SIZE), u64(self._position)));
       cond(
         (n < i32(0)) => {
-          return .Err(IOError.from_errno((i32(0) - n)));
+          exception.throw(IOError.from_errno((i32(0) - n)));
         },
         (n == i32(0)) => break,
         true => {
@@ -155,21 +161,18 @@ impl(File,
         }
       );
     };
-    .Ok(buf)
+    buf
   }),
 
   // Read the entire file content as a UTF-8 String.
-  read_to_string : (fn(self: Self, using(io : IO)) -> Result(String, IOError))({
-    bytes := self.read_all();
-    match(bytes,
-      .Err(e) => .Err(e),
-      .Ok(b)  => .Ok(String.from_bytes(b))
-    )
+  read_to_string : (fn(self: Self, using(io : IO, exception : Exception(IOError))) -> Impl(Future(String)))({
+    bytes := io.await(self.read_all());
+    String.from_bytes(bytes)
   }),
 
   // Flush the write buffer (no-op; writes are direct).
-  flush : (fn(self: Self, using(io : IO)) -> Result(unit, IOError))(
-    .Ok(())
+  flush : (fn(self: Self, using(io : IO, exception : Exception(IOError))) -> Impl(Future(unit)))(
+    ()
   ),
 
   // Seek to an offset. Returns the new absolute position.
@@ -190,7 +193,7 @@ impl(File,
   ),
 
   // Query the file size via statx.
-  size : (fn(self: Self, using(io : IO)) -> Result(i64, IOError))({
+  size : (fn(self: Self, using(io : IO, exception : Exception(IOError))) -> Impl(Future(i64)))({
     path_cstr := self.path.to_cstr();
     path_ptr  := *(u8)(path_cstr.ptr().unwrap());
     stat_buf  := ArrayList(u8).with_capacity(usize(256));
@@ -198,26 +201,26 @@ impl(File,
     stat_ptr  := *(u8)(stat_buf.ptr().unwrap());
     result    := io.await(statx(AT_FDCWD, path_ptr, i32(0), u32(STATX_BASIC_STATS), stat_ptr));
     cond(
-      (result < i32(0)) => .Err(IOError.from_errno((i32(0) - result))),
-      true => .Ok(__yo_statx_size(stat_ptr))
+      (result < i32(0)) => exception.throw(IOError.from_errno((i32(0) - result))),
+      true => __yo_statx_size(stat_ptr)
     )
   }),
 
   // Fetch file metadata.
-  metadata : (fn(self: Self, using(io : IO)) -> Result(Metadata, IOError))(
-    metadata(self.path)
+  metadata : (fn(self: Self, using(io : IO, exception : Exception(IOError))) -> Impl(Future(Metadata)))(
+    io.await(metadata(self.path))
   ),
 
   // Close the file descriptor.
-  close : (fn(self: Self, using(io : IO)) -> Result(unit, IOError))({
+  close : (fn(self: Self, using(io : IO, exception : Exception(IOError))) -> Impl(Future(unit)))({
     cond(
-      self._is_closed => .Ok(()),
+      self._is_closed => (),
       true => {
         result := io.await(close(self.fd));
         self._is_closed = true;
         cond(
-          (result < i32(0)) => .Err(IOError.from_errno((i32(0) - result))),
-          true => .Ok(())
+          (result < i32(0)) => exception.throw(IOError.from_errno((i32(0) - result))),
+          true => ()
         )
       }
     )
@@ -231,81 +234,44 @@ export File;
 // ============================================================================
 
 // Read an entire file into an ArrayList(u8).
-read_file :: (fn(path: String, using(io : IO)) -> Result(ArrayList(u8), IOError))({
-  f := File.open_read(path);
-  match(f,
-    .Err(e) => .Err(e),
-    .Ok(file) => {
-      result := file.read_all();
-      file.close();
-      result
-    }
-  )
+read_file :: (fn(path: String, using(io : IO, exception : Exception(IOError))) -> Impl(Future(ArrayList(u8))))({
+  file   := io.await(File.open_read(path));
+  result := io.await(file.read_all());
+  io.await(file.close());
+  result
 });
 
 // Read an entire file as a UTF-8 String.
-read_to_string :: (fn(path: String, using(io : IO)) -> Result(String, IOError))({
-  f := File.open_read(path);
-  match(f,
-    .Err(e) => .Err(e),
-    .Ok(file) => {
-      result := file.read_to_string();
-      file.close();
-      result
-    }
-  )
+read_to_string :: (fn(path: String, using(io : IO, exception : Exception(IOError))) -> Impl(Future(String)))({
+  file   := io.await(File.open_read(path));
+  result := io.await(file.read_to_string());
+  io.await(file.close());
+  result
 });
 
 // Write a String to a file, creating or truncating it.
-write_file :: (fn(path: String, data: String, using(io : IO)) -> Result(unit, IOError))({
-  f := File.create(path);
-  match(f,
-    .Err(e) => .Err(e),
-    .Ok(file) => {
-      result := file.write(data);
-      file.close();
-      match(result,
-        .Err(e) => .Err(e),
-        .Ok(_)  => .Ok(())
-      )
-    }
-  )
+write_file :: (fn(path: String, data: String, using(io : IO, exception : Exception(IOError))) -> Impl(Future(unit)))({
+  file := io.await(File.create(path));
+  io.await(file.write(data));
+  io.await(file.close())
 });
 
 // Write raw bytes to a file, creating or truncating it.
-write_bytes :: (fn(path: String, data: ArrayList(u8), using(io : IO)) -> Result(unit, IOError))({
-  f := File.create(path);
-  match(f,
-    .Err(e) => .Err(e),
-    .Ok(file) => {
-      result := file.write_bytes(data);
-      file.close();
-      match(result,
-        .Err(e) => .Err(e),
-        .Ok(_)  => .Ok(())
-      )
-    }
-  )
+write_bytes :: (fn(path: String, data: ArrayList(u8), using(io : IO, exception : Exception(IOError))) -> Impl(Future(unit)))({
+  file := io.await(File.create(path));
+  io.await(file.write_bytes(data));
+  io.await(file.close())
 });
 
 // Append a String to a file (creates it if it does not exist).
-append_file :: (fn(path: String, data: String, using(io : IO)) -> Result(unit, IOError))({
-  f := File.open_append(path);
-  match(f,
-    .Err(e) => .Err(e),
-    .Ok(file) => {
-      result := file.write(data);
-      file.close();
-      match(result,
-        .Err(e) => .Err(e),
-        .Ok(_)  => .Ok(())
-      )
-    }
-  )
+append_file :: (fn(path: String, data: String, using(io : IO, exception : Exception(IOError))) -> Impl(Future(unit)))({
+  file := io.await(File.open_append(path));
+  io.await(file.write(data));
+  io.await(file.close())
 });
 
 // Return true if a path exists (follows symlinks).
-exists :: (fn(path: String, using(io : IO)) -> bool)({
+exists :: (fn(path: String, using(io : IO, exception : Exception(IOError))) -> Impl(Future(bool)))({
   path_cstr := path.to_cstr();
   path_ptr  := *(u8)(path_cstr.ptr().unwrap());
   buf       := ArrayList(u8).with_capacity(usize(256));

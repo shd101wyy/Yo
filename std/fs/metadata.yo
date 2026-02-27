@@ -26,6 +26,8 @@ open import "../string";
   __yo_statx_mtime_sec, __yo_statx_atime_sec, __yo_statx_ctime_sec
 } :: import "../io/externs";
 
+{ Exception } :: import "../error/exception";
+
 // Size of a statx buffer.
 _STATX_BUF_SIZE :: usize(256);
 
@@ -119,7 +121,7 @@ export Metadata;
 // ============================================================================
 
 // Fetch metadata for a path (follows symlinks).
-metadata :: (fn(path: String, using(io : IO)) -> Result(Metadata, IOError))({
+metadata :: (fn(path: String, using(io : IO, exception : Exception(IOError))) -> Impl(Future(Metadata)))({
   buf := ArrayList(u8).with_capacity(_STATX_BUF_SIZE);
   buf.set_len(_STATX_BUF_SIZE);
   buf_ptr   := *(u8)(buf.ptr().unwrap());
@@ -131,13 +133,13 @@ metadata :: (fn(path: String, using(io : IO)) -> Result(Metadata, IOError))({
     buf_ptr
   ));
   cond(
-    (result < i32(0)) => .Err(IOError.from_errno((i32(0) - result))),
-    true => .Ok(Metadata(_buf: buf))
+    (result < i32(0)) => exception.throw(IOError.from_errno((i32(0) - result))),
+    true => Metadata(_buf: buf)
   )
 });
 
 // Fetch metadata for a path (does NOT follow symlinks).
-symlink_metadata :: (fn(path: String, using(io : IO)) -> Result(Metadata, IOError))({
+symlink_metadata :: (fn(path: String, using(io : IO, exception : Exception(IOError))) -> Impl(Future(Metadata)))({
   buf := ArrayList(u8).with_capacity(_STATX_BUF_SIZE);
   buf.set_len(_STATX_BUF_SIZE);
   buf_ptr   := *(u8)(buf.ptr().unwrap());
@@ -149,8 +151,8 @@ symlink_metadata :: (fn(path: String, using(io : IO)) -> Result(Metadata, IOErro
     buf_ptr
   ));
   cond(
-    (result < i32(0)) => .Err(IOError.from_errno((i32(0) - result))),
-    true => .Ok(Metadata(_buf: buf))
+    (result < i32(0)) => exception.throw(IOError.from_errno((i32(0) - result))),
+    true => Metadata(_buf: buf)
   )
 });
 
