@@ -19,6 +19,11 @@ open import "../string";
 // IpAddr
 // ============================================================================
 
+// ASCII constants for parsing
+_ASCII_DOT  :: u8(46);  // '.'
+_ASCII_ZERO :: u8(48);  // '0'
+_ASCII_NINE :: u8(57);  // '9'
+
 IpAddr :: enum(
   V4(a: u8, b: u8, c: u8, d: u8),
   V6(segments: Array(u16, usize(8)))
@@ -36,7 +41,7 @@ impl(IpAddr,
     while runtime((i < bytes.len())), {
       ch := bytes.get(i).unwrap();
       cond(
-        (ch == u8(46)) => {
+        (ch == _ASCII_DOT) => {
           // '.' separator
           cond(
             (part_idx >= usize(3)) => {
@@ -54,9 +59,9 @@ impl(IpAddr,
           part_idx = (part_idx + usize(1));
           val = u32(0);
         },
-        ((ch >= u8(48)) && (ch <= u8(57))) => {
+        ((ch >= _ASCII_ZERO) && (ch <= _ASCII_NINE)) => {
           // digit
-          val = ((val * u32(10)) + u32((ch - u8(48))));
+          val = ((val * u32(10)) + u32((ch - _ASCII_ZERO)));
         },
         true => {
           return .Err(.Other(String.from("invalid character in IPv4 address")));

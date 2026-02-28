@@ -55,7 +55,8 @@ _make_sockaddr :: (fn(addr: SocketAddr) -> IO_tcp.SockAddr)(
 
 UdpSocket :: object(
   _fd         : i32,
-  _local_addr : SocketAddr
+  _local_addr : SocketAddr,
+  _is_closed  : bool
 );
 
 impl(UdpSocket,
@@ -83,7 +84,7 @@ impl(UdpSocket,
         },
         true => ()
       );
-      return .Ok(UdpSocket(_fd: fd, _local_addr: addr));
+      return .Ok(UdpSocket(_fd: fd, _local_addr: addr, _is_closed: false));
     });
     return task;
   }),
@@ -126,10 +127,16 @@ impl(UdpSocket,
   close : (fn(self: Self, using(io : IO)) -> Impl(Future(Result(unit, NetError))))({
     fd := self._fd;
     task := io.async((using(io : IO)) => {
-      result := io.await(IO_udp.close(fd));
       cond(
-        (result < i32(0)) => .Err(NetError.from_result(result).unwrap_err()),
-        true => .Ok(())
+        self._is_closed => .Ok(()),
+        true => {
+          result := io.await(IO_udp.close(fd));
+          self._is_closed = true;
+          cond(
+            (result < i32(0)) => .Err(NetError.from_result(result).unwrap_err()),
+            true => .Ok(())
+          )
+        }
       )
     });
     return task;
@@ -163,8 +170,14 @@ impl(UdpSocket,
 
 impl(UdpSocket, Dispose(
   dispose : (fn(self: Self) -> unit)({
-    { close_sync } :: import "../io/file";
-    close_sync(self._fd);
+    cond(
+      (!(self._is_closed)) => {
+        { close_sync } :: import "../io/file";
+        close_sync(self._fd);
+        self._is_closed = true;
+      },
+      true => ()
+    );
   })
 ));
 
