@@ -377,6 +377,23 @@ test "Test anonymous struct with type method", {
 
 test "Test generic functions", {
   {
+    identity :: (fn(forall(T : Type), value : T) -> T) {
+      return value;
+    };
+
+    comptime_expect_error(
+      (fn(forall(T : Type), value : T) -> T) {
+        return i32(0);
+      }
+    );
+
+    comptime_expect_error(
+      (fn(forall(T : Type), value : T) -> Tuple(T)) {
+        return (i32(0),);
+      }
+    );
+  };
+  {
     id :: (fn(comptime(T): Type, val: T) -> T)
       val
     ;

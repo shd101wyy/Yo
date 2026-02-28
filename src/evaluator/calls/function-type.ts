@@ -15,7 +15,11 @@ import { areTypesCompatible } from "../../types/compatibility";
 import { createUnitType } from "../../types/creators";
 import type { FunctionType, Type } from "../../types/definitions";
 import { isFunctionType, isSomeType } from "../../types/guards";
-import { typeContainsSomeType, typeToString } from "../../types/utils";
+import {
+  getAllSomeTypes,
+  typeContainsSomeType,
+  typeToString,
+} from "../../types/utils";
 import { randomId } from "../../utils";
 import { createUnknownValue } from "../../value";
 import { ValueTag } from "../../value-tag";
@@ -274,8 +278,79 @@ export function tryToImplementFunctionByFunctionType({
   let evaluationContext: EvaluatorContext;
 
   if (shouldDeferBodyEvaluation) {
-    // Don't evaluate the body for generic functions
-    // Just attach the environment for later use when called
+    // Don't evaluate the body for generic functions at definition time.
+    // The body will be evaluated when the function is specialized with concrete types.
+    // However, we still try to evaluate a clone of the body to catch type errors
+    // (e.g., returning a concrete type when the declared return type is generic).
+    let trialBodyReturnType: Type | undefined;
+    try {
+      const clonedBody = cloneExpr(functionBodyExpr);
+      const trialCtx = createFunctionBodyEvaluationContext(
+        { ...context, capturedVariables: undefined },
+        newFunctionType,
+        { ...functionValue },
+        env
+      );
+      const trialBody = evaluateBeginExpression({
+        expr: clonedBody,
+        env,
+        context: trialCtx.evaluationContext,
+        variablesToAdd: [],
+        isEvaluatingFunctionBodyBeginBlock: true,
+      });
+      trialBodyReturnType = trialBody.$?.type;
+    } catch {
+      // Body evaluation failed due to abstract/unknown types — silently continue.
+      // The body will be properly evaluated at specialization time.
+    }
+
+    // If trial evaluation succeeded, check return type compatibility.
+    // Use requireExactMatch so that a concrete type (e.g., i32) does NOT match
+    // an unconstrained SomeType (e.g., forall T), catching cases where the body
+    // returns a specific type but the function declares a generic return type.
+    //
+    // Only check when a SomeType from the return type also appears in parameter
+    // types. Effect handlers (e.g., Raise :: fn(forall(T), msg: String) -> T)
+    // use T only in the return type — T is determined by the call site context,
+    // so returning a concrete type is valid for resuming continuations.
+    let returnSomeTypeUsedInParams = false;
+    if (
+      trialBodyReturnType &&
+      typeContainsSomeType(newFunctionType.return.type)
+    ) {
+      const returnSomeTypes = getAllSomeTypes(newFunctionType.return.type);
+      const paramSomeTypeIds = new Set<string>();
+      for (const param of newFunctionType.parameters) {
+        for (const st of getAllSomeTypes(param.type)) {
+          paramSomeTypeIds.add(st.id);
+        }
+      }
+      for (const rst of returnSomeTypes) {
+        if (paramSomeTypeIds.has(rst.id)) {
+          returnSomeTypeUsedInParams = true;
+          break;
+        }
+      }
+    }
+    if (
+      trialBodyReturnType &&
+      !functionValue.isControlFunction &&
+      returnSomeTypeUsedInParams &&
+      !areTypesCompatible(
+        { type: newFunctionType.return.type, env },
+        { type: trialBodyReturnType, env },
+        true // requireExactMatch
+      )
+    ) {
+      throw formatErrorMessage({
+        token: newFunctionType.return.typeExpr.token,
+        errorMessage: `Incompatible function return type for:
+- Expected: ${typeToString(newFunctionType.return.type)}
+- Given  : ${typeToString(trialBodyReturnType)}`,
+      });
+    }
+
+    // Attach the environment for later use when called
     functionBodyExpr.$ = {
       env,
       type: functionType.return.type,
