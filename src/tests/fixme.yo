@@ -1,40 +1,19 @@
-open import "std/string";
-open import "std/fmt";
-{ yield } :: import "std/async";
+fn1 :: (fn(forall(T : Type), value : T) -> T);
+fn2 :: (fn(forall(T : Type), value : T) -> T);
+fn3 :: (fn(forall(T : Type), value : T) -> Tuple(T));
 
-Log :: (fn(msg : String) -> unit);
+(comptime(identity1) : fn1) = (value -> {
+  return value;
+});
 
-main :: (fn(using(io : IO)) -> unit) {
-  counter := Box(i32)(0);
+comptime_expect_error(
+  (comptime(identity2) : fn2) = (value -> {
+    return i32(0);
+  })
+);
 
-  {
-    task := io.async((using(io : IO, log : Log))=> {
-      log(`Task started`);
-    });
-
-    (given(log1) : Log) =
-      (msg) -> {
-        println(`Log1: ${msg}`);
-      };
-    io.await(task, using(io, log1));
-  };
-
-  {
-    task := io.async((using(io : IO, log : Log))=> {
-      log(`Task started`);
-    });
-
-    (given(log1) : Log) =
-      (msg) -> {
-        println(`Log1: ${msg}`);
-      };
-    (given(log2) : Log) =
-      (msg) -> {
-        assert(false, "Shouldn't pick here");
-      };
-    
-    io.spawn(task, using(io, log1));
-    io.await(task, using(io, log2)); // Will still pick log1 because it's specialized first.
-  };
-};
-export main;
+comptime_expect_error(
+  (comptime(identity3) : fn3) = (value -> {
+    return (i32(0),);
+  })
+);

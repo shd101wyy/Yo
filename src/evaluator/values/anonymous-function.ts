@@ -57,7 +57,10 @@ import {
 } from "../../value";
 import { ValueTag } from "../../value-tag";
 import { analyzeAwaitPoints } from "../async/await-analysis";
-import { createFunctionBodyEvaluationContext } from "../calls/function-type";
+import {
+  checkDeferredGenericReturnType,
+  createFunctionBodyEvaluationContext,
+} from "../calls/function-type";
 import { type EvaluatorContext } from "../context";
 import { analyzeCtfeCapability } from "../ctfe/ctfe-analysis";
 import { evaluateBeginExpression } from "../exprs/begin";
@@ -811,8 +814,17 @@ Got:      "${paramName}"`,
   let evaluatedBody: Expr;
 
   if (shouldDeferBodyEvaluation) {
-    // Don't evaluate the body for generic functions
-    // Just attach the environment for later use when called
+    // Don't evaluate the body for generic functions.
+    // Trial-evaluate to catch return type mismatches (e.g., returning i32 for generic T).
+    checkDeferredGenericReturnType({
+      functionBodyExpr,
+      functionType,
+      functionValue,
+      env,
+      context,
+    });
+
+    // Attach the environment for later use when called
     functionBodyExpr.$ = {
       env,
       type: functionType.return.type,

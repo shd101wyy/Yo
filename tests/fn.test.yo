@@ -394,6 +394,29 @@ test "Test generic functions", {
     );
   };
   {
+    fn1 :: (fn(forall(T : Type), value : T) -> T);
+    fn2 :: (fn(forall(T : Type), value : T) -> T);
+    fn3 :: (fn(forall(T : Type), value : T) -> Tuple(T));
+
+    (comptime(identity1) : fn1) = (value -> {
+      return value;
+    });
+
+    comptime_expect_error(
+      (comptime(identity2) : fn2) = (value -> {
+        return i32(0);
+      })
+    );
+
+    comptime_expect_error(
+      (comptime(identity3) : fn3) = (value -> {
+        return (i32(0),);
+      })
+    );
+  };
+
+
+  {
     id :: (fn(comptime(T): Type, val: T) -> T)
       val
     ;

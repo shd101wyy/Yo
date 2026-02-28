@@ -37,6 +37,101 @@ import {
 } from "../utils/closure";
 
 /**
+ * Check if a generic (deferred) function body returns a concrete type that is
+ * incompatible with the declared generic return type.
+ *
+ * For example, `fn(forall(T), value: T) -> T { return i32(0); }` should error
+ * because the body returns i32 but the declared return type is the generic T.
+ *
+ * We trial-evaluate a clone of the body. If evaluation fails (e.g. because the
+ * body uses operations on abstract types), we silently skip the check — the body
+ * will be properly validated at specialization time.
+ *
+ * The check only fires when a SomeType from the return type also appears in
+ * parameter types. Effect handlers (e.g., Raise :: fn(forall(T), msg: String) -> T)
+ * use T only in the return type — T is determined by the call-site context, so
+ * returning a concrete type is valid for resuming continuations.
+ */
+export function checkDeferredGenericReturnType({
+  functionBodyExpr,
+  functionType,
+  functionValue,
+  env,
+  context,
+}: {
+  functionBodyExpr: Expr;
+  functionType: FunctionType;
+  functionValue: FunctionValue;
+  env: Environment;
+  context: EvaluatorContext;
+}): void {
+  if (!typeContainsSomeType(functionType.return.type)) {
+    return;
+  }
+
+  // Collect SomeType ids from return type and parameter types.
+  const returnSomeTypes = getAllSomeTypes(functionType.return.type);
+  const paramSomeTypeIds = new Set<string>();
+  for (const param of functionType.parameters) {
+    for (const st of getAllSomeTypes(param.type)) {
+      paramSomeTypeIds.add(st.id);
+    }
+  }
+
+  // Only check when a return SomeType also appears in parameters.
+  let returnSomeTypeUsedInParams = false;
+  for (const rst of returnSomeTypes) {
+    if (paramSomeTypeIds.has(rst.id)) {
+      returnSomeTypeUsedInParams = true;
+      break;
+    }
+  }
+  if (!returnSomeTypeUsedInParams) {
+    return;
+  }
+
+  // Trial-evaluate a clone of the body to discover its return type.
+  let trialBodyReturnType: Type | undefined;
+  try {
+    const clonedBody = cloneExpr(functionBodyExpr);
+    const trialCtx = createFunctionBodyEvaluationContext(
+      { ...context, capturedVariables: undefined },
+      functionType,
+      { ...functionValue },
+      env
+    );
+    const trialBody = evaluateBeginExpression({
+      expr: clonedBody,
+      env,
+      context: trialCtx.evaluationContext,
+      variablesToAdd: [],
+      isEvaluatingFunctionBodyBeginBlock: true,
+    });
+    trialBodyReturnType = trialBody.$?.type;
+  } catch {
+    // Body evaluation failed due to abstract/unknown types — skip.
+    return;
+  }
+
+  if (
+    trialBodyReturnType &&
+    !functionValue.isControlFunction &&
+    !areTypesCompatible(
+      { type: functionType.return.type, env },
+      { type: trialBodyReturnType, env },
+      true // requireExactMatch: concrete types must not match unconstrained SomeType
+    )
+  ) {
+    throw formatErrorMessage({
+      token: functionType.return.typeExpr.token,
+      errorMessage: `Incompatible function return type for:
+- Expected: ${typeToString(functionType.return.type)}
+- Given  : ${typeToString(trialBodyReturnType)}`,
+    });
+  }
+}
+
+/**
  * Creates a fresh evaluation context for function body evaluation
  */
 export function createFunctionBodyEvaluationContext(
@@ -280,75 +375,14 @@ export function tryToImplementFunctionByFunctionType({
   if (shouldDeferBodyEvaluation) {
     // Don't evaluate the body for generic functions at definition time.
     // The body will be evaluated when the function is specialized with concrete types.
-    // However, we still try to evaluate a clone of the body to catch type errors
-    // (e.g., returning a concrete type when the declared return type is generic).
-    let trialBodyReturnType: Type | undefined;
-    try {
-      const clonedBody = cloneExpr(functionBodyExpr);
-      const trialCtx = createFunctionBodyEvaluationContext(
-        { ...context, capturedVariables: undefined },
-        newFunctionType,
-        { ...functionValue },
-        env
-      );
-      const trialBody = evaluateBeginExpression({
-        expr: clonedBody,
-        env,
-        context: trialCtx.evaluationContext,
-        variablesToAdd: [],
-        isEvaluatingFunctionBodyBeginBlock: true,
-      });
-      trialBodyReturnType = trialBody.$?.type;
-    } catch {
-      // Body evaluation failed due to abstract/unknown types — silently continue.
-      // The body will be properly evaluated at specialization time.
-    }
-
-    // If trial evaluation succeeded, check return type compatibility.
-    // Use requireExactMatch so that a concrete type (e.g., i32) does NOT match
-    // an unconstrained SomeType (e.g., forall T), catching cases where the body
-    // returns a specific type but the function declares a generic return type.
-    //
-    // Only check when a SomeType from the return type also appears in parameter
-    // types. Effect handlers (e.g., Raise :: fn(forall(T), msg: String) -> T)
-    // use T only in the return type — T is determined by the call site context,
-    // so returning a concrete type is valid for resuming continuations.
-    let returnSomeTypeUsedInParams = false;
-    if (
-      trialBodyReturnType &&
-      typeContainsSomeType(newFunctionType.return.type)
-    ) {
-      const returnSomeTypes = getAllSomeTypes(newFunctionType.return.type);
-      const paramSomeTypeIds = new Set<string>();
-      for (const param of newFunctionType.parameters) {
-        for (const st of getAllSomeTypes(param.type)) {
-          paramSomeTypeIds.add(st.id);
-        }
-      }
-      for (const rst of returnSomeTypes) {
-        if (paramSomeTypeIds.has(rst.id)) {
-          returnSomeTypeUsedInParams = true;
-          break;
-        }
-      }
-    }
-    if (
-      trialBodyReturnType &&
-      !functionValue.isControlFunction &&
-      returnSomeTypeUsedInParams &&
-      !areTypesCompatible(
-        { type: newFunctionType.return.type, env },
-        { type: trialBodyReturnType, env },
-        true // requireExactMatch
-      )
-    ) {
-      throw formatErrorMessage({
-        token: newFunctionType.return.typeExpr.token,
-        errorMessage: `Incompatible function return type for:
-- Expected: ${typeToString(newFunctionType.return.type)}
-- Given  : ${typeToString(trialBodyReturnType)}`,
-      });
-    }
+    // However, we still trial-evaluate to catch return type mismatches.
+    checkDeferredGenericReturnType({
+      functionBodyExpr,
+      functionType: newFunctionType,
+      functionValue,
+      env,
+      context,
+    });
 
     // Attach the environment for later use when called
     functionBodyExpr.$ = {
