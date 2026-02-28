@@ -1,6 +1,8 @@
 open import "std/string";
 open import "std/fmt";
 
+// Tests the pattern from fixme.yo: module-based effect with forall(ResumeType),
+// handler uses escape inside a while loop to abort traversal.
 MyException :: (fn(comptime(ErrorType) : Type) -> comptime(Module))(
   module(
     throw : (fn(forall(ResumeType : Type), error : ErrorType, resume_value : ResumeType) -> ResumeType)
@@ -9,7 +11,7 @@ MyException :: (fn(comptime(ErrorType) : Type) -> comptime(Module))(
 
 safe_divide :: (fn(x : i32, y : i32, using(exn : MyException(i32))) -> i32)(
   cond(
-    (y == 0) => exn.throw(x, 666),
+    (y == 0) => exn.throw(x, i32(666)),
     true => (x / y)
   )
 );
@@ -17,20 +19,14 @@ safe_divide :: (fn(x : i32, y : i32, using(exn : MyException(i32))) -> i32)(
 traverse :: (fn(
   forall(S : usize, ...(E)),
   arr : Array(i32, S),
-  using(...(E))
+  using(exn : MyException(i32), ...(E))
   ) -> unit) {
     i := usize(0);
     while i < S, i = (i + 1), {
-      println(safe_divide(42, arr(i)));
-
-      cond(
-        (arr(i) == 0) => {
-          assert(false, "Shouldn't reach here");
-        },
-        true => ()
-      );
+      safe_divide(i32(42), arr(i));
     };
   };
+
 
 main :: (fn() -> unit) {
   arr := Array(i32, 4)(1, 2, 0, 3);
@@ -39,7 +35,8 @@ main :: (fn() -> unit) {
       escape ();
     })
   );
-
   traverse(arr, using(exn));
+  assert(false, "Should not reach here after escape");
 };
+
 export main;

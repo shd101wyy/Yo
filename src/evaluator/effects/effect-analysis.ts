@@ -14,16 +14,17 @@ import { getValueOfSomeTypeFromEnv } from "../../types/env-lookup";
 import {
   isEffectsRowType,
   isFunctionType,
+  isModuleType,
   isSomeType,
 } from "../../types/guards";
 import { isTypeValue } from "../../value";
 import { isIoAsyncCall } from "../async/await-analysis";
-import { extractFnTraitFromType } from "../trait-checking";
 import {
   analyzeSuspensionPoints,
   extractTargetVariableId,
   type SuspensionPointDetector,
 } from "../shared/suspension-analysis";
+import { extractFnTraitFromType } from "../trait-checking";
 
 export type {
   EffectAnalysisResult,
@@ -237,7 +238,7 @@ function isTransitiveEffectCall(
     for (const implicitParam of funcType.implicitParameters) {
       if (
         implicitParam.label === effectParameterName &&
-        isFunctionType(implicitParam.type)
+        (isFunctionType(implicitParam.type) || isModuleType(implicitParam.type))
       ) {
         return { matched: true, viaClosure: false };
       }
@@ -265,7 +266,8 @@ function isTransitiveEffectCall(
       for (const implicitParam of callType.implicitParameters) {
         if (
           implicitParam.label === effectParameterName &&
-          isFunctionType(implicitParam.type)
+          (isFunctionType(implicitParam.type) ||
+            isModuleType(implicitParam.type))
         ) {
           return { matched: true, viaClosure: true };
         }
@@ -326,7 +328,7 @@ function hasEffectInSpread(
     for (const innerParam of effectsRowType.implicitParameters) {
       if (
         innerParam.label === effectParameterName &&
-        isFunctionType(innerParam.type)
+        (isFunctionType(innerParam.type) || isModuleType(innerParam.type))
       ) {
         return true;
       }

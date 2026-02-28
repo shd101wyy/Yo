@@ -74,7 +74,7 @@ bun test src/tests/fixme.test.ts --timeout 10000
 # C codegen tests — specific test by name
 ./yo-cli test ./tests/algebraic_effects.test.yo --test-name-pattern "Test escape"
 
-# All integration tests — NEVER run this. Always run targeted test files instead.
+# All integration tests — NEVER run this. It takes over an hour. Always run targeted test files instead.
 # ./yo-cli test
 
 # Emit C only (inspect generated code)
@@ -108,6 +108,8 @@ Always save verbose output to a file to avoid terminal truncation:
 - When asked to refactor, refactor everything. Don't miss any lines. Don't put placeholders or TODOs.
 - Never skip bugs discovered during implementation.
 - After fixing a bug, verify uncommitted changes for leftover or unused code.
+- Always review all uncommitted changes (`git diff`) before considering work done. Check for leftover debug code, unused imports, and consistency across all modified files.
+- Never run the full test suite (`./yo-cli test` with no file argument) — it takes over an hour. Always run targeted test files instead.
 - If you haven't modified the code, don't ask to run commands repeatedly.
 - Ignore `DESIGN.md` and other markdown files in `outdated/` — they are out of date.
 - No need to read `fixme.test.ts`.

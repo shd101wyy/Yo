@@ -188,6 +188,14 @@ export interface Variable {
   isImplicit?: boolean;
 
   /**
+   * Whether this variable was injected into the environment from an effect row
+   * spread (e.g., `using(...(E))`) expansion. Such variables should NOT be used
+   * to satisfy concrete, named implicit parameter requirements — the function
+   * must explicitly declare the effect in its `using` clause.
+   */
+  isFromEffectSpread?: boolean;
+
+  /**
    * Whether this variable is an effect parameter in an io.async closure.
    * Effect params are captured as runtime fields in the closure's capture struct
    * and injected at io.spawn/io.await time via using(...).

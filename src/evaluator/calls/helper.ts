@@ -1490,12 +1490,23 @@ Got:   ${typeToString(typeValue.type)}`,
             (v) =>
               v.isImplicit === true &&
               v.isCompileTimeOnly === true &&
-              isFunctionType(v.type)
+              (isFunctionType(v.type) || isModuleType(v.type))
           );
-          if (givenEffectVars.length > 0) {
+          // Filter out given variables that already match a concrete (non-spread)
+          // implicit parameter in the function type. These are handled by their
+          // own iteration of the implicit param loop, not the spread.
+          const concreteImplicitNames = new Set(
+            functionType.implicitParameters
+              .filter((p) => !p.isEffectRowSpread)
+              .map((p) => p.label)
+          );
+          const spreadGivenVars = givenEffectVars.filter(
+            (v) => !concreteImplicitNames.has(v.name)
+          );
+          if (spreadGivenVars.length > 0) {
             // Directly add the given handler values as implicit args and create
             // an EffectsRowType so downstream code can resolve E.
-            for (const gv of givenEffectVars) {
+            for (const gv of spreadGivenVars) {
               const givenValue = gv.value?.[0];
               if (givenValue) {
                 implicitArgValues.push({
@@ -1510,6 +1521,7 @@ Got:   ${typeToString(typeValue.type)}`,
                     type: gv.type,
                     isCompileTimeOnly: true,
                     isImplicit: true,
+                    isFromEffectSpread: true,
                     value: [givenValue],
                     token: PlaceholderToken,
                     initializedAtToken: PlaceholderToken,
@@ -1523,7 +1535,7 @@ Got:   ${typeToString(typeValue.type)}`,
             }
             // Build and bind EffectsRowType so createSpecializedFunctionInline can find E
             const effectsRowForBinding = createEffectsRowType(
-              givenEffectVars.map((v) => ({
+              spreadGivenVars.map((v) => ({
                 label: v.name,
                 type: v.type,
                 isCompileTimeOnly: true as const,
@@ -1615,6 +1627,7 @@ Please ensure a given variable of matching type is in scope.`,
                 type: resolvedConcreteType,
                 isCompileTimeOnly: true,
                 isImplicit: true,
+                isFromEffectSpread: true,
                 value: [givenValue],
                 token: PlaceholderToken,
                 initializedAtToken: PlaceholderToken,
@@ -1638,6 +1651,7 @@ Please ensure a given variable of matching type is in scope.`,
                 type: resolvedConcreteType,
                 isCompileTimeOnly: true,
                 isImplicit: true,
+                isFromEffectSpread: true,
                 value: [givenValue],
                 token: PlaceholderToken,
                 initializedAtToken: PlaceholderToken,
@@ -1724,24 +1738,42 @@ Got:      ${typeToString(argType)}`,
           });
 
           // Add implicit arg to calleeEnv (mark as isImplicit so it can be
-          // found by nested using() parameter resolution)
-          const { env: nextEnv } = addVariableToEnv({
-            env: calleeEnv,
-            variable: {
-              name: implicitParam.label,
+          // found by nested using() parameter resolution).
+          // The variable may already exist from the function type's env
+          // (added during function type construction). In that case, update
+          // the existing variable instead of adding a new one.
+          const existingImplicitVars = getVariablesFromEnv(
+            calleeEnv,
+            implicitParam.label
+          );
+          if (existingImplicitVars.length > 0) {
+            const existingVar =
+              existingImplicitVars[existingImplicitVars.length - 1]!;
+            calleeEnv = updateExistingVariable(calleeEnv, existingVar, {
+              ...existingVar,
               type: resolvedImplicitType,
-              isCompileTimeOnly: true,
               isImplicit: true,
               value: [argValue],
-              token: implicitParam.exprs.labelExpr?.token ?? PlaceholderToken,
-              initializedAtToken:
-                implicitParam.exprs.labelExpr?.token ?? PlaceholderToken,
-              consumedAtToken: undefined,
-              isOwningTheRcValue: false,
-            },
-            allowVariableShadowing: true,
-          });
-          calleeEnv = nextEnv;
+            });
+          } else {
+            const { env: nextEnv } = addVariableToEnv({
+              env: calleeEnv,
+              variable: {
+                name: implicitParam.label,
+                type: resolvedImplicitType,
+                isCompileTimeOnly: true,
+                isImplicit: true,
+                value: [argValue],
+                token: implicitParam.exprs.labelExpr?.token ?? PlaceholderToken,
+                initializedAtToken:
+                  implicitParam.exprs.labelExpr?.token ?? PlaceholderToken,
+                consumedAtToken: undefined,
+                isOwningTheRcValue: false,
+              },
+              allowVariableShadowing: true,
+            });
+            calleeEnv = nextEnv;
+          }
           resolved = true;
         }
       }
@@ -1768,6 +1800,39 @@ Please declare a given variable with a compatible type, e.g.:
 Or pass it explicitly:
   ${functionValue?.funcName ?? "func"}(..., using(<value>))`,
           });
+        }
+
+        // Check if the matched given variable came from an effect row spread
+        // expansion. If so, the function must explicitly declare the effect
+        // in its using clause — effects from ...(E) don't implicitly satisfy
+        // concrete using() requirements.
+        // EXCEPTION: Allow when calling through a function parameter (e.g., f()
+        // where f : (fn(using(...(E))) -> T)), because the type system already
+        // guarantees effect forwarding through the spread parameter.
+        const matchedGivenVar = givenVariables[givenVariables.length - 1]!;
+        if (matchedGivenVar.isFromEffectSpread) {
+          // Check if the callee is a parameter of the enclosing function.
+          // Function parameters forward effects through the type system,
+          // so spread-injected effects should be available for them.
+          const isCallingFunctionParameter = (() => {
+            if (!functionCalleeExpr || !exprIsAtom(functionCalleeExpr))
+              return false;
+            const calleeName = functionCalleeExpr.token.value;
+            const enclosingFn = context.isEvaluatingFunctionBodyOrAsyncBlock;
+            if (!enclosingFn || enclosingFn.kind !== "function-body")
+              return false;
+            const enclosingType = enclosingFn.type;
+            return enclosingType.parameters.some((p) => p.label === calleeName);
+          })();
+          if (!isCallingFunctionParameter) {
+            throw formatErrorMessage({
+              token:
+                functionCalleeExpr?.token ?? expr?.token ?? PlaceholderToken,
+              errorMessage: `Effect "${implicitParam.label}" of type ${typeToString(resolvedImplicitType)} is available through an effect row spread but not explicitly declared in the function's using clause.
+Add it explicitly:
+  using(${implicitParam.label} : ${typeToString(resolvedImplicitType)}, ...(E))`,
+            });
+          }
         }
 
         // When multiple given variables match, prefer the one from the innermost
@@ -2266,7 +2331,9 @@ function createSpecializedFunctionInline({
     for (const variable of frame.variables) {
       if (!variable.isCompileTimeOnly) continue;
       const existing = getVariablesFromEnv(specializedEnv, variable.name);
-      if (existing.length > 0) continue;
+      if (existing.length > 0) {
+        continue;
+      }
       const { env: nextEnv } = addVariableToEnv({
         env: specializedEnv,
         variable: { ...variable },
@@ -2442,6 +2509,60 @@ function createSpecializedFunctionInline({
                 fromSpread: true,
               });
             }
+          } else if (isModuleType(innerParam.type)) {
+            // Module-based effects inside an effect row spread:
+            // recursively find ctl function fields in the module.
+            const innerHandlerArg = argValues.implicitArgs?.[argOffset + k];
+            const innerModuleVal =
+              innerHandlerArg && isModuleValue(innerHandlerArg.value)
+                ? innerHandlerArg.value
+                : undefined;
+            const ctlFields: Array<{
+              path: string[];
+              type: FunctionType;
+            }> = [];
+            const findCtlFieldsInModuleSpread = (
+              moduleType: ModuleType,
+              pathSoFar: string[],
+              moduleVal?: ModuleValue
+            ) => {
+              for (let fi = 0; fi < moduleType.fields.length; fi++) {
+                const field = moduleType.fields[fi]!;
+                if (isFunctionType(field.type)) {
+                  const fieldVal = moduleVal?.fields[fi];
+                  if (
+                    fieldVal &&
+                    isFunctionValue(fieldVal) &&
+                    fieldVal.isControlFunction
+                  ) {
+                    // Use the handler's specializedType if available.
+                    const _resolvedType = (fieldVal.specializedType ??
+                      field.type) as FunctionType;
+                    ctlFields.push({
+                      path: [...pathSoFar, field.label],
+                      type: _resolvedType,
+                    });
+                  }
+                } else if (isModuleType(field.type)) {
+                  const innerMV = moduleVal?.fields[fi];
+                  findCtlFieldsInModuleSpread(
+                    field.type,
+                    [...pathSoFar, field.label],
+                    innerMV && isModuleValue(innerMV) ? innerMV : undefined
+                  );
+                }
+              }
+            };
+            findCtlFieldsInModuleSpread(innerParam.type, [], innerModuleVal);
+            for (const ctlField of ctlFields) {
+              effectCtlParams.push({
+                handlerArgIndex: argOffset + k,
+                label: innerParam.label,
+                type: ctlField.type,
+                fromSpread: true,
+                effectFieldPath: ctlField.path,
+              });
+            }
           }
         }
         argOffset += resolvedType.implicitParameters.length;
@@ -2467,9 +2588,13 @@ function createSpecializedFunctionInline({
               isFunctionValue(fieldVal) &&
               fieldVal.isControlFunction
             ) {
+              // Use the handler's specializedType if available; it has forall
+              // type parameters resolved to concrete types (e.g., ResumeType → i32).
+              const resolvedType = (fieldVal.specializedType ??
+                field.type) as FunctionType;
               ctlFields.push({
                 path: [...pathSoFar, field.label],
-                type: field.type as FunctionType,
+                type: resolvedType,
               });
             }
           } else if (isModuleType(field.type)) {
@@ -2698,6 +2823,27 @@ function createSpecializedFunctionInline({
               specializedType: specializedHandlerType,
             };
             effectAnalysis.handlerValue = reEvaluatedHandler;
+            // Update the effectParameterType to use the specialized handler type.
+            // This ensures the outer/transitive SM struct uses concrete types
+            // (e.g., int32_t) instead of unresolved forall SomeType (void*).
+            effectAnalysis.effectParameterType = specializedHandlerType;
+
+            // Also update operationArgTypes on transitive call points.
+            // These were derived from the unresolved ctlType.parameters which
+            // contain SomeType entries (e.g., ResumeType). Resolve them using
+            // the forallTypeMap so the SM struct fields get concrete C types.
+            for (const callPoint of effectAnalysis.effectCallPoints) {
+              if (callPoint.isTransitiveEffectCall) {
+                callPoint.operationArgTypes = callPoint.operationArgTypes.map(
+                  (t) => {
+                    if (isSomeType(t)) {
+                      return forallTypeMap.get(t.name) ?? t;
+                    }
+                    return t;
+                  }
+                );
+              }
+            }
           } catch (e) {
             const bodyIsStillUnevaluated =
               exprIsFunctionCall(handlerFn.body) &&
