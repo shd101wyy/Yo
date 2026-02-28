@@ -5,8 +5,8 @@
 // Example:
 //   { metadata } :: import "std/fs/metadata";
 //
-//   task := io.async((using(io : IO)) => {
-//     m := io.await(metadata("/tmp/test.txt"));
+//   main :: (fn(using(io : IO)) -> unit)({
+//     m := io.await(metadata(`/tmp/test.txt`));
 //     match(m,
 //       .Ok(meta) => {
 //         printf("size: %lld\n", meta.size());
@@ -125,8 +125,9 @@ extern "Yo",
 // Internal helper to stat a path
 // ============================================================================
 
-_stat_path :: (fn(path: str, flags: i32, using(io : IO)) -> Impl(Future(Result(Metadata, IOError))))({
-  cstr := path.to_cstr();
+_stat_path :: (fn(path: String, flags: i32, using(io : IO)) -> Impl(Future(Result(Metadata, IOError))))({
+  cstr_bytes := path.to_cstr();
+  cstr := cstr_bytes.ptr().unwrap();
   buf_size := __yo_statx_buf_size();
   buf := *(u8)(malloc(buf_size).unwrap());
   task := io.async((using(io : IO)) => {
@@ -146,12 +147,12 @@ _stat_path :: (fn(path: str, flags: i32, using(io : IO)) -> Impl(Future(Result(M
 });
 
 // Get metadata for a path (follows symlinks).
-metadata :: (fn(path: str, using(io : IO)) -> Impl(Future(Result(Metadata, IOError))))(
+metadata :: (fn(path: String, using(io : IO)) -> Impl(Future(Result(Metadata, IOError))))(
   _stat_path(path, AT_STATX_SYNC_AS_STAT, using(io))
 );
 
 // Get metadata for a path (does NOT follow symlinks).
-symlink_metadata :: (fn(path: str, using(io : IO)) -> Impl(Future(Result(Metadata, IOError))))(
+symlink_metadata :: (fn(path: String, using(io : IO)) -> Impl(Future(Result(Metadata, IOError))))(
   _stat_path(path, (AT_SYMLINK_NOFOLLOW | AT_STATX_SYNC_AS_STAT), using(io))
 );
 

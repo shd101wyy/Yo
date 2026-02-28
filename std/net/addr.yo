@@ -25,16 +25,16 @@ IpAddr :: enum(
 );
 
 impl(IpAddr,
-  // Parse an IPv4 address from a string like "127.0.0.1".
+  // Parse an IPv4 address from a String like "127.0.0.1".
   // Only supports IPv4 dotted-decimal notation.
-  parse_v4 : (fn(s: str) -> Result(IpAddr, NetError))({
+  parse_v4 : (fn(s: String) -> Result(IpAddr, NetError))({
     bytes := s.as_bytes();
     parts := Array(u8, usize(4)).fill(u8(0));
     part_idx := usize(0);
     val := u32(0);
     i := usize(0);
-    while (i < bytes.len()), (i = (i + usize(1))), {
-      ch := bytes.get(i);
+    while runtime((i < bytes.len())), {
+      ch := bytes.get(i).unwrap();
       cond(
         (ch == u8(46)) => {
           // '.' separator
@@ -62,6 +62,7 @@ impl(IpAddr,
           return .Err(.Other(String.from("invalid character in IPv4 address")));
         }
       );
+      i = (i + usize(1));
     };
     cond(
       (part_idx != usize(3)) => {
@@ -104,11 +105,12 @@ impl(IpAddr,
         // ::1
         all_zero := true;
         i := usize(0);
-        while (i < usize(7)), (i = (i + usize(1))), {
+        while runtime((i < usize(7))), {
           cond(
             (segs(i) != u16(0)) => { all_zero = false; },
             true => ()
           );
+          i = (i + usize(1));
         };
         (all_zero && (segs(usize(7)) == u16(1)))
       }
@@ -137,18 +139,19 @@ impl(IpAddr, ToString(
     return match(self.*,
       .V4(a, b, c, d) => {
         buf := Array(u8, usize(16)).fill(u8(0));
-        len := snprintf(&(buf(usize(0))), usize(16), "%d.%d.%d.%d", i32(a), i32(b), i32(c), i32(d));
+        snprintf(&(buf(usize(0))), usize(16), "%d.%d.%d.%d", i32(a), i32(b), i32(c), i32(d));
         String.from_cstr(&(buf(usize(0)))).unwrap()
       },
       .V6(segs) => {
         w := Writer.new();
         i := usize(0);
-        while (i < usize(8)), (i = (i + usize(1))), {
+        while runtime((i < usize(8))), {
           cond(
             (i > usize(0)) => { w.write_str(":"); },
             true => ()
           );
           w.write_hex(u64(segs(i)));
+          i = (i + usize(1));
         };
         w.to_string()
       }
@@ -188,7 +191,7 @@ impl(SocketAddr, ToString(
   to_string : (self -> {
     ip_str := self.ip.to_string();
     buf := Array(u8, usize(8)).fill(u8(0));
-    len := snprintf(&(buf(usize(0))), usize(8), "%d", i32(self.port));
+    snprintf(&(buf(usize(0))), usize(8), "%d", i32(self.port));
     port_str := String.from_cstr(&(buf(usize(0)))).unwrap();
     return match(self.ip,
       .V4(_, _, _, _) => `${ip_str}:${port_str}`,

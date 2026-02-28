@@ -6,7 +6,7 @@
 //   { walk, WalkEntry } :: import "std/fs/walker";
 //
 //   main :: (fn(using(io : IO)) -> unit)({
-//     entries := io.await(walk("/tmp"));
+//     entries := io.await(walk(`/tmp`));
 //     match(entries,
 //       .Ok(list) => {
 //         i := usize(0);
@@ -24,7 +24,6 @@
 open import "../string";
 { IOError } :: import "../io/errors";
 { read_dir, DirEntry, FileType } :: import "./dir";
-{ path_join } :: import "../path";
 
 // ============================================================================
 // WalkEntry
@@ -62,21 +61,32 @@ impl(WalkOptions,
 export WalkOptions;
 
 // ============================================================================
+// Internal path join helper
+// ============================================================================
+
+_join_path :: (fn(base: String, name: String) -> String)(
+  cond(
+    base.ends_with(String.from("/")) => `${base}${name}`,
+    true => `${base}/${name}`
+  )
+);
+
+// ============================================================================
 // Walk functions
 // ============================================================================
 
 // Walk a directory tree with default options.
-walk :: (fn(root: str, using(io : IO)) -> Impl(Future(Result(ArrayList(WalkEntry), IOError))))(
+walk :: (fn(root: String, using(io : IO)) -> Impl(Future(Result(ArrayList(WalkEntry), IOError))))(
   walk_with(root, WalkOptions.defaults(), using(io))
 );
 
 // Walk a directory tree with custom options.
-walk_with :: (fn(root: str, options: WalkOptions, using(io : IO)) -> Impl(Future(Result(ArrayList(WalkEntry), IOError))))({
+walk_with :: (fn(root: String, options: WalkOptions, using(io : IO)) -> Impl(Future(Result(ArrayList(WalkEntry), IOError))))({
   task := io.async((using(io : IO)) => {
     results := ArrayList(WalkEntry).new();
     // Stack of (path, depth) pairs to process
     stack := ArrayList(struct(path: String, depth: u32)).new();
-    stack.push({ path: String.from_str(root), depth: u32(0) });
+    stack.push({ path: root, depth: u32(0) });
 
     while runtime(((stack.len()) > usize(0))), {
       item := stack.pop().unwrap();
@@ -91,13 +101,13 @@ walk_with :: (fn(root: str, options: WalkOptions, using(io : IO)) -> Impl(Future
 
       cond(
         should_continue => {
-          dir_result := io.await(read_dir(cur_path.to_str(), using(io)));
+          dir_result := io.await(read_dir(cur_path, using(io)));
           match(dir_result,
             .Ok(entries) => {
               i := usize(0);
               while runtime((i < entries.len())), {
                 entry := entries.get(i).unwrap();
-                entry_path := path_join(cur_path.to_str(), entry.name.to_str());
+                entry_path := _join_path(cur_path, entry.name);
                 match(entry.file_type,
                   .Directory => {
                     cond(

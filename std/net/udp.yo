@@ -94,8 +94,7 @@ impl(UdpSocket,
     fd := self._fd;
     task := io.async((using(io : IO)) => {
       saddr := _make_sockaddr(addr);
-      ptr := data.as_ptr().unwrap();
-      result := io.await(IO_udp.sendto(fd, ptr, data.len(), i32(0), saddr.buf, saddr.len));
+      result := io.await(IO_udp.sendto(fd, data.ptr().unwrap(), data.len(), i32(0), saddr.buf, saddr.len));
       IO_tcp.free_sockaddr(saddr);
       NetError.from_result(result)
     });
@@ -117,8 +116,7 @@ impl(UdpSocket,
   send : (fn(self: Self, data: ArrayList(u8), using(io : IO)) -> Impl(Future(Result(i32, NetError))))({
     fd := self._fd;
     task := io.async((using(io : IO)) => {
-      ptr := data.as_ptr().unwrap();
-      result := io.await(IO_udp.send(fd, ptr, data.len(), i32(0)));
+      result := io.await(IO_udp.send(fd, data.ptr().unwrap(), data.len(), i32(0)));
       NetError.from_result(result)
     });
     return task;

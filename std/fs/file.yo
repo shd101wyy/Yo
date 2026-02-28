@@ -7,10 +7,10 @@
 //
 //   main :: (fn(using(io : IO)) -> unit)({
 //     // Write a file
-//     io.await(write_file("test.txt", "hello world"));
+//     io.await(write_file(`test.txt`, `hello world`));
 //
 //     // Read it back
-//     content := io.await(read_to_string("test.txt"));
+//     content := io.await(read_to_string(`test.txt`));
 //     match(content,
 //       .Ok(s) => println(s),
 //       .Err(e) => println(e.to_string())
@@ -43,15 +43,16 @@ File :: object(
 
 impl(File,
   // Open a file with the given flags and mode.
-  open : (fn(path: str, flags: i32, mode: u32, using(io : IO)) -> Impl(Future(Result(File, IOError))))({
-    cstr := path.to_cstr();
+  open : (fn(path: String, flags: i32, mode: u32, using(io : IO)) -> Impl(Future(Result(File, IOError))))({
+    cstr_bytes := path.to_cstr();
+    cstr := cstr_bytes.ptr().unwrap();
     task := io.async((using(io : IO)) => {
       result := io.await(IO_file.openat(AT_FDCWD, cstr, flags, i32(mode)));
       cond(
         (result < i32(0)) => .Err(IOError.from_errno((i32(0) - result))),
         true => .Ok(File(
           _fd: result,
-          _path: String.from_str(path),
+          _path: path,
           _is_closed: false
         ))
       )
@@ -60,17 +61,17 @@ impl(File,
   }),
 
   // Create a new file (or truncate if exists) for writing.
-  create : (fn(path: str, using(io : IO)) -> Impl(Future(Result(File, IOError))))(
+  create : (fn(path: String, using(io : IO)) -> Impl(Future(Result(File, IOError))))(
     File.open(path, (O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC), DEFAULT_FILE_MODE, using(io))
   ),
 
   // Open an existing file for reading.
-  open_read : (fn(path: str, using(io : IO)) -> Impl(Future(Result(File, IOError))))(
+  open_read : (fn(path: String, using(io : IO)) -> Impl(Future(Result(File, IOError))))(
     File.open(path, (O_RDONLY | O_CLOEXEC), u32(0), using(io))
   ),
 
   // Open a file for appending (creates if not exists).
-  open_append : (fn(path: str, using(io : IO)) -> Impl(Future(Result(File, IOError))))(
+  open_append : (fn(path: String, using(io : IO)) -> Impl(Future(Result(File, IOError))))(
     File.open(path, (O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC), DEFAULT_FILE_MODE, using(io))
   ),
 
@@ -85,12 +86,13 @@ impl(File,
     return task;
   }),
 
-  // Write a string to the file.
+  // Write a String to the file.
   // Returns number of bytes written.
-  write : (fn(self: Self, data: str, using(io : IO)) -> Impl(Future(Result(i32, IOError))))({
+  write : (fn(self: Self, data: String, using(io : IO)) -> Impl(Future(Result(i32, IOError))))({
     fd := self._fd;
+    data_bytes := data.as_bytes();
     task := io.async((using(io : IO)) => {
-      result := io.await(IO_file.write(fd, data.ptr(), u32(data.len()), u64(0)));
+      result := io.await(IO_file.write(fd, data_bytes.ptr().unwrap(), u32(data_bytes.len()), u64(0)));
       IOError.from_result(result)
     });
     return task;
@@ -101,8 +103,7 @@ impl(File,
   write_bytes : (fn(self: Self, data: ArrayList(u8), using(io : IO)) -> Impl(Future(Result(i32, IOError))))({
     fd := self._fd;
     task := io.async((using(io : IO)) => {
-      ptr := data.as_ptr().unwrap();
-      result := io.await(IO_file.write(fd, ptr, u32(data.len()), u64(0)));
+      result := io.await(IO_file.write(fd, data.ptr().unwrap(), u32(data.len()), u64(0)));
       IOError.from_result(result)
     });
     return task;
@@ -143,7 +144,6 @@ impl(File,
 
   // Read the entire file into a String.
   read_to_string : (fn(self: Self, using(io : IO)) -> Impl(Future(Result(String, IOError))))({
-    fd := self._fd;
     task := io.async((using(io : IO)) => {
       bytes_result := io.await(self.read_all(using(io)));
       match(bytes_result,
@@ -218,7 +218,7 @@ impl(File,
 
   // Get file metadata.
   metadata : (fn(self: Self, using(io : IO)) -> Impl(Future(Result(Metadata, IOError))))(
-    _metadata(self._path.to_str(), using(io))
+    _metadata(self._path, using(io))
   )
 );
 
@@ -241,7 +241,7 @@ export File, Metadata;
 // ============================================================================
 
 // Read an entire file into a String.
-read_to_string :: (fn(path: str, using(io : IO)) -> Impl(Future(Result(String, IOError))))({
+read_to_string :: (fn(path: String, using(io : IO)) -> Impl(Future(Result(String, IOError))))({
   task := io.async((using(io : IO)) => {
     file_result := io.await(File.open_read(path, using(io)));
     match(file_result,
@@ -257,7 +257,7 @@ read_to_string :: (fn(path: str, using(io : IO)) -> Impl(Future(Result(String, I
 });
 
 // Read an entire file into bytes.
-read_file :: (fn(path: str, using(io : IO)) -> Impl(Future(Result(ArrayList(u8), IOError))))({
+read_file :: (fn(path: String, using(io : IO)) -> Impl(Future(Result(ArrayList(u8), IOError))))({
   task := io.async((using(io : IO)) => {
     file_result := io.await(File.open_read(path, using(io)));
     match(file_result,
@@ -272,8 +272,8 @@ read_file :: (fn(path: str, using(io : IO)) -> Impl(Future(Result(ArrayList(u8),
   return task;
 });
 
-// Write a string to a file (creates or truncates).
-write_file :: (fn(path: str, data: str, using(io : IO)) -> Impl(Future(Result(unit, IOError))))({
+// Write a String to a file (creates or truncates).
+write_file :: (fn(path: String, data: String, using(io : IO)) -> Impl(Future(Result(unit, IOError))))({
   task := io.async((using(io : IO)) => {
     file_result := io.await(File.create(path, using(io)));
     match(file_result,
@@ -291,8 +291,8 @@ write_file :: (fn(path: str, data: str, using(io : IO)) -> Impl(Future(Result(un
   return task;
 });
 
-// Append a string to a file (creates if not exists).
-append_file :: (fn(path: str, data: str, using(io : IO)) -> Impl(Future(Result(unit, IOError))))({
+// Append a String to a file (creates if not exists).
+append_file :: (fn(path: String, data: String, using(io : IO)) -> Impl(Future(Result(unit, IOError))))({
   task := io.async((using(io : IO)) => {
     file_result := io.await(File.open_append(path, using(io)));
     match(file_result,
@@ -311,7 +311,7 @@ append_file :: (fn(path: str, data: str, using(io : IO)) -> Impl(Future(Result(u
 });
 
 // Check if a path exists.
-exists :: (fn(path: str, using(io : IO)) -> Impl(Future(Result(bool, IOError))))({
+exists :: (fn(path: String, using(io : IO)) -> Impl(Future(Result(bool, IOError))))({
   task := io.async((using(io : IO)) => {
     meta_result := io.await(_metadata(path, using(io)));
     match(meta_result,

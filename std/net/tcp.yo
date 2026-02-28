@@ -225,12 +225,13 @@ impl(TcpStream,
     return task;
   }),
 
-  // Write a string to the stream.
+  // Write a String to the stream.
   // Returns the number of bytes written.
-  write : (fn(self: Self, data: str, using(io : IO)) -> Impl(Future(Result(i32, NetError))))({
+  write : (fn(self: Self, data: String, using(io : IO)) -> Impl(Future(Result(i32, NetError))))({
     fd := self._fd;
+    data_bytes := data.as_bytes();
     task := io.async((using(io : IO)) => {
-      result := io.await(IO_tcp.send(fd, data.ptr(), data.len(), i32(0)));
+      result := io.await(IO_tcp.send(fd, data_bytes.ptr().unwrap(), data_bytes.len(), i32(0)));
       NetError.from_result(result)
     });
     return task;
@@ -241,8 +242,7 @@ impl(TcpStream,
   write_bytes : (fn(self: Self, data: ArrayList(u8), using(io : IO)) -> Impl(Future(Result(i32, NetError))))({
     fd := self._fd;
     task := io.async((using(io : IO)) => {
-      ptr := data.as_ptr().unwrap();
-      result := io.await(IO_tcp.send(fd, ptr, data.len(), i32(0)));
+      result := io.await(IO_tcp.send(fd, data.ptr().unwrap(), data.len(), i32(0)));
       NetError.from_result(result)
     });
     return task;
