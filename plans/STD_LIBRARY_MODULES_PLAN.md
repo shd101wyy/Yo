@@ -230,8 +230,8 @@ TempFile.remove :: (fn(self: Self, using(io : IO)) -> Impl(Future(Result(unit, I
 
 ```yo
 IpAddr :: enum(
-  .V4(a: u8, b: u8, c: u8, d: u8),
-  .V6(segments: Array(u16, usize(8)))
+  V4(a: u8, b: u8, c: u8, d: u8),
+  V6(segments: Array(u16, usize(8)))
 );
 
 SocketAddr :: struct(
@@ -312,17 +312,17 @@ resolve :: (fn(host: String, port: u16, using(io : IO)) -> Impl(Future(Result(Ar
 
 ```yo
 NetError :: enum(
-  .ConnectionRefused,
-  .ConnectionReset,
-  .ConnectionAborted,
-  .AddrInUse,
-  .AddrNotAvailable,
-  .TimedOut,
-  .HostUnreachable,
-  .NetworkUnreachable,
-  .DNSFailed(msg: String),
-  .IO(err: IOError),
-  .Other(msg: String)
+  ConnectionRefused,
+  ConnectionReset,
+  ConnectionAborted,
+  AddrInUse,
+  AddrNotAvailable,
+  TimedOut,
+  HostUnreachable,
+  NetworkUnreachable,
+  DNSFailed(msg: String),
+  IO(err: IOError),
+  Other(msg: String)
 );
 ```
 
@@ -478,12 +478,12 @@ hex_decode :: (fn(s: str) -> Result(ArrayList(u8), EncodingError)) ...;
 
 ```yo
 JsonValue :: enum(
-  .Null,
-  .Bool(value: bool),
-  .Number(value: f64),
-  .Str(value: String),
-  .Array(items: ArrayList(JsonValue)),
-  .Object(fields: HashMap(String, JsonValue))
+  Null,
+  Bool(value: bool),
+  Number(value: f64),
+  Str(value: String),
+  Array(items: ArrayList(JsonValue)),
+  Object(fields: HashMap(String, JsonValue))
 );
 
 json_parse :: (fn(s: str) -> Result(JsonValue, JsonError)) ...;
@@ -639,9 +639,9 @@ Logger :: object(
 );
 
 LogOutput :: enum(
-  .Stderr,
-  .Stdout,
-  .File(path: String)
+  Stderr,
+  Stdout,
+  File(path: String)
 );
 
 log :: (fn(level: Level, msg: str) -> unit) ...;
@@ -767,14 +767,14 @@ PriorityQueue.len :: ...;
 
 ```yo
 Signal :: enum(
-  .Interrupt,
-  .Terminate,
-  .Hangup,
-  .User1,
-  .User2,
-  .Pipe,
-  .Alarm,
-  .Child
+  Interrupt,
+  Terminate,
+  Hangup,
+  User1,
+  User2,
+  Pipe,
+  Alarm,
+  Child
 );
 
 on_signal :: (fn(sig: Signal, handler: Fn(() -> unit)) -> Result(unit, IOError)) ...;
