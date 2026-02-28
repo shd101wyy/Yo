@@ -24,6 +24,9 @@ BTreeEntry :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
 
 export BTreeEntry;
 
+// Internal result from binary search.
+_FindResult :: struct(idx: usize, found: bool);
+
 // ============================================================================
 // BTreeMap
 // ============================================================================
@@ -52,19 +55,19 @@ impl(forall(K : Type, V : Type), BTreeMap(K, V),
 
   // Binary search: returns the index of the entry with key `k`,
   // or the insertion point if not found.
-  _find : (fn(self: Self, k: K, where(K <: Ord(K))) -> struct(idx: usize, found: bool))({
+  _find : (fn(self: Self, k: K, where(K <: Ord(K))) -> _FindResult)({
     lo := usize(0);
     hi := self._entries.len();
-    while (lo < hi), () => {
+    while (lo < hi), {
       mid := (lo + ((hi - lo) / usize(2)));
       entry_key := self._entries.get(mid).unwrap().key;
       cond(
         (entry_key < k) => { lo = (mid + usize(1)); },
         (entry_key > k) => { hi = mid; },
-        true => { return struct(idx: mid, found: true); }
+        true => { return _FindResult(mid, true); }
       );
     };
-    struct(idx: lo, found: false)
+    _FindResult(lo, false)
   }),
 
   // Retrieve the value associated with key `k`.
@@ -126,16 +129,9 @@ impl(forall(K : Type, V : Type), BTreeMap(K, V),
       (self._entries.len() == usize(0)) => .None,
       true => .Some(self._entries.get((self._entries.len() - usize(1))).unwrap())
     )
-  ),
+  )
 
-  // Iterate over all entries in sorted key order.
-  for_each : (fn(self: Self, f: Impl(Fn(key : K, value : V) -> unit)) -> unit)({
-    i := usize(0);
-    while (i < self._entries.len()), (i = (i + usize(1))), {
-      entry := self._entries.get(i).unwrap();
-      f(entry.key, entry.value);
-    };
-  })
+  // TODO: Add iteration via Iterator trait once supported.
 );
 
 export BTreeMap;
