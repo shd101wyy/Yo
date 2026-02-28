@@ -115,7 +115,7 @@ export function checkDeferredGenericReturnType({
 
   if (
     trialBodyReturnType &&
-    !functionValue.isControlFunction &&
+    // !functionValue.isControlFunction &&
     !areTypesCompatible(
       { type: functionType.return.type, env },
       { type: trialBodyReturnType, env },
