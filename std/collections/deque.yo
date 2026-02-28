@@ -49,17 +49,15 @@ impl(forall(T : Type), Deque(T),
       (self._capacity == usize(0)) => usize(8),
       true => (self._capacity * usize(2))
     );
-    while (new_cap < min_cap), (new_cap = (new_cap * usize(2))), {};
-    size := (new_cap * __yo_sizeof(T));
+    while (new_cap < min_cap), (new_cap = (new_cap * usize(2))), ();
+    size := (new_cap * sizeof(T));
     new_buf := *(T)(malloc(size).unwrap());
     // Linearise existing elements into the new buffer
     i := usize(0);
     while (i < self._len), (i = (i + usize(1))), {
       idx := ((self._head + i) % self._capacity);
-      (new_buf &+ i).* = match(self._buf,
-        .Some(p) => (p &+ idx).*,
-        .None    => panic("deque internal error")
-      );
+      buf := self._buf.unwrap();
+      (new_buf &+ i).* = (buf &+ idx).*;
     };
     match(self._buf,
       .Some(p) => free(.Some(*(void)(p))),
@@ -141,5 +139,27 @@ impl(forall(T : Type), Deque(T),
     )
   )
 );
+
+impl(forall(T : Type), Deque(T), Dispose(
+  dispose : (fn(self: Self) -> unit)({
+    match(self._buf,
+      .Some(p) => {
+        cond(
+          Type.contains_rc_type(T) => {
+            i := usize(0);
+            while (i < self._len), (i = (i + usize(1))), {
+              idx := ((self._head + i) % self._capacity);
+              unsafe.drop((p &+ idx).*);
+            };
+          },
+          true => ()
+        );
+        free(.Some(*(void)(p)));
+        self._buf = .None;
+      },
+      .None => ()
+    );
+  })
+));
 
 export Deque;
