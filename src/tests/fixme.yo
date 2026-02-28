@@ -35,17 +35,9 @@ traverse :: (fn(
 main :: (fn() -> unit) {
   arr := Array(i32, 4)(1, 2, 0, 3);
   given(exn) := MyException(i32)(
-    throw : ((val, resume_val) -> cond(
-      (val < 10) => {
-        // return true; // This shouldn't work.
-        // return resume_val; // This should work.
-        ();
-        resume_val
-      },
-      true => {
-        escape ();
-      }
-  ))
+    throw : ((val, resume_val) -> {
+      escape ();
+    })
   );
 
   traverse(arr, using(exn));

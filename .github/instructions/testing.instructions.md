@@ -29,3 +29,9 @@ description: "Use when running tests, setting up test files, or debugging test f
 
 - Do not create new `.yo`, `.js`, or `.ts` files unless told to do so.
 - You can comment out existing code in `src/tests/fixme.yo` and create new test code there.
+
+## Linting and formatting
+
+- Lint: `bun run lint`
+- Format check: `bun run format`
+- Fix lint/format issues before committing.

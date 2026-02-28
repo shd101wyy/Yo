@@ -2658,9 +2658,44 @@ function createSpecializedFunctionInline({
               context: handlerContext,
             });
 
+            // Specialize handler parameter types with concrete forall bindings.
+            // The handler's parameters may have SomeType types corresponding to
+            // forall type parameters (e.g., ResumeType). Resolve them using the
+            // concrete types from the forallTypeMap.
+            const specializedParams: FunctionParameter[] =
+              handlerFnType.parameters.map((param) => {
+                if (param.isCompileTimeOnly) return param;
+                if (isSomeType(param.type)) {
+                  const concreteType = forallTypeMap.get(param.type.name);
+                  if (concreteType) {
+                    return { ...param, type: concreteType };
+                  }
+                }
+                return param;
+              });
+
+            // Resolve return type if it's a forall SomeType
+            let handlerReturnType = handlerFnType.return.type;
+            if (isSomeType(handlerReturnType)) {
+              const concreteType = forallTypeMap.get(handlerReturnType.name);
+              if (concreteType) {
+                handlerReturnType = concreteType;
+              }
+            }
+
+            const specializedHandlerType: FunctionType = {
+              ...handlerFnType,
+              parameters: specializedParams,
+              return: {
+                ...handlerFnType.return,
+                type: handlerReturnType,
+              },
+            };
+
             const reEvaluatedHandler: FunctionValue = {
               ...handlerFn,
               body: evaluatedBody,
+              specializedType: specializedHandlerType,
             };
             effectAnalysis.handlerValue = reEvaluatedHandler;
           } catch (e) {
