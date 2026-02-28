@@ -176,9 +176,13 @@ export interface EvaluatedExprData {
   /**
    * Whether this expression is:
    * 1. "return" from a function.
+   *     It means containing "return", and might also contain "escape". So
+   *   - "return"
+   *   - "return" + "escape"
    * 2. "break" from a loop.
    * 3. "continue" from a loop.
-   * 4. normal expression.
+   * 4. "escape" from a ctl handler (early return from enclosing function). It means contains **only** "escape".
+   * 5. normal expression.
    */
   controlFlow?: ControlFlowKind;
 
@@ -1594,12 +1598,54 @@ export function mergeAndCheckEnvs(
         i !== maxFrameLevel &&
         frameVariables.length !== caseEnvFrameVariables.length
       ) {
-        throw formatErrorMessages([
-          {
-            token: bodies[j]!.token,
-            errorMessage: `Frame level ${i} has different number of values for different cases.`,
-          },
-        ]);
+        // When a case body has more variables than the base env, the extra
+        // variables may be temp variables that leaked to a shared begin-block
+        // frame during condition or branch-body evaluation (e.g., when there is
+        // no begin-block frame between the current function scope and a parent
+        // begin-block frame). Adopt them into the base env so the merge can
+        // proceed normally.
+        if (caseEnvFrameVariables.length > frameVariables.length) {
+          const extraVars = [...caseEnvFrameVariables].slice(
+            frameVariables.length
+          );
+          const allExtraAreTemps = extraVars.every((v) =>
+            isTempVariableName(env.modulePath, v.name)
+          );
+          if (allExtraAreTemps) {
+            for (const extraVar of extraVars) {
+              frameVariables.push(extraVar);
+              matrix[0]!.push({
+                consumedAtToken: undefined,
+                initializedAtToken: extraVar.initializedAtToken,
+                type: extraVar.type,
+                isOwningTheRcValue: extraVar.isOwningTheRcValue ?? false,
+              });
+            }
+            // Update the env frame with the adopted temp variables
+            const newFrame = {
+              ...frame,
+              variables: [...frameVariables],
+            };
+            env = {
+              ...env,
+              frames: env.frames.map((f, idx) => (idx === i ? newFrame : f)),
+            };
+          } else {
+            throw formatErrorMessages([
+              {
+                token: bodies[j]!.token,
+                errorMessage: `Frame level ${i} has different number of values for different cases.`,
+              },
+            ]);
+          }
+        } else {
+          throw formatErrorMessages([
+            {
+              token: bodies[j]!.token,
+              errorMessage: `Frame level ${i} has different number of values for different cases.`,
+            },
+          ]);
+        }
       }
 
       // Check if the variable names are the same
