@@ -410,8 +410,12 @@ export function evaluateCond({
           finalControlFlow = "escape"; // At least one case aborts (ctl handler discontinue)
         }
       } else {
-        if (controlFlows.find((cf) => cf === "escape")) {
-          finalControlFlow = "escape"; // At least one case aborts
+        // return takes priority over escape: escape discards the continuation
+        // but return branches still produce a concrete type that must be checked.
+        if (controlFlows.find((cf) => cf === "return")) {
+          finalControlFlow = "return";
+        } else if (controlFlows.find((cf) => cf === "escape")) {
+          finalControlFlow = "escape";
         } else {
           finalControlFlow = undefined; // Mixed control flows
         }
@@ -479,8 +483,13 @@ export function evaluateCond({
           });
         }
 
+        // Use the actual return value type from return bodies when available.
+        // This ensures the cond's type reflects the concrete type being returned,
+        // which is important for detecting generic return type mismatches.
         let returnType: Type | undefined;
-        if (
+        if (returnBodies.length > 0 && returnBodies[0]!.$) {
+          returnType = returnBodies[0]!.$.type;
+        } else if (
           context.isEvaluatingFunctionBodyOrAsyncBlock.kind === "function-body"
         ) {
           returnType =

@@ -2,7 +2,7 @@ open import "std/string"; // Let's use `String` instead of `str`
 open import "std/fmt";
 
 test "Test fn escape and return via using parameter", {
-  Raise :: (fn(forall(T : Type), msg : String, msg2 : String) -> T);
+  Raise :: (fn(msg : String, msg2 : String) -> i32);
 
   // Use an effect in a function (effect becomes an implicit parameter)
   safe_divide :: (fn(x : i32, y : i32, using(raise : Raise)) -> i32)(
@@ -26,7 +26,7 @@ test "Test fn escape and return via using parameter", {
 
   // Handle the effect — with resume (invoking continuation)
   raise_resume :: (fn() -> i64) {
-    (given(raise) : Raise) = (fn(forall(T : Type), msg : String, msg2 : String) -> T)({ // calls/function-type.ts
+    (given(raise) : Raise) = (fn(msg : String, msg2 : String) -> i32)({ // calls/function-type.ts
       println(msg);
       println(msg2);
       return i32(42);
@@ -43,7 +43,7 @@ test "Test fn escape and return via using parameter", {
 };
 
 test "Test fn resume called directly without intermediate using function", {
-  Raise :: (fn(forall(T : Type), msg : String, msg2 : String) -> T);
+  Raise :: (fn(msg : String, msg2 : String) -> i32);
 
   // The fn function is called directly. The handler uses `return(value)` to
   // resume the continuation — execution continues after the raise(...) call
@@ -61,7 +61,7 @@ test "Test fn resume called directly without intermediate using function", {
   run_test();
 };
 test "Test fn escape called directly without intermediate using function", {
-  Raise :: (fn(forall(T : Type), msg : String, msg2 : String) -> T);
+  Raise :: (fn(msg : String, msg2 : String) -> i32);
 
   // The fn function is called directly in the handler scope — no intermediate
   // function with `using(raise : Raise)`. The handler runs, prints the messages,
@@ -78,7 +78,7 @@ test "Test fn escape called directly without intermediate using function", {
   run_test();
 };
 test "Test nested fn escape inside resume handler", {
-  Raise :: (fn(forall(T : Type), msg : String, msg2 : String) -> T);
+  Raise :: (fn(msg : String, msg2 : String) -> i32);
 
   // raise2 is defined inside raise's handler body. raise2 aborts with i32(18),
   // which becomes the result of the outer raise call (since escape exits the
@@ -102,7 +102,8 @@ test "Test nested fn escape inside resume handler", {
   run_test();
 };
 test "Test nested fn resume inside resume handler", {
-  Raise :: (fn(forall(T : Type), msg : String, msg2 : String) -> T);
+  Raise :: (fn(msg : String, msg2 : String) -> i32);
+  RaiseF32 :: (fn(msg : String, msg2 : String) -> f32);
 
   // raise2 is defined inside raise's handler body. raise2 resumes with f32(3.14),
   // then raise resumes with i32(16). Both handlers use return (resume) so
@@ -111,7 +112,7 @@ test "Test nested fn resume inside resume handler", {
     (given(raise) : Raise) = ((msg, msg2) -> {
       println(msg);
       println(msg2);
-      (given(raise2) : Raise) = ((m1, m2) -> {
+      (given(raise2) : RaiseF32) = ((m1, m2) -> {
         println(m1);
         println(m2);
         return f32(3.14);
@@ -126,7 +127,7 @@ test "Test nested fn resume inside resume handler", {
   run_test();
 };
 test "Test while loop calling fn with resume", {
-  Raise :: (fn(forall(T : Type), msg : String, msg2 : String) -> T);
+  Raise :: (fn(msg : String, msg2 : String) -> i32);
 
   // Analogous to async_await test #13: While loop with await inside.
   // Each iteration calls the fn handler which resumes with i32(10).
@@ -150,7 +151,7 @@ test "Test while loop calling fn with resume", {
   run_test();
 };
 test "Test while loop with break after fn resume", {
-  Raise :: (fn(forall(T : Type), msg : String, msg2 : String) -> T);
+  Raise :: (fn(msg : String, msg2 : String) -> i32);
 
   // Analogous to async_await test #14: While loop with break after await.
   // The handler resumes, then break is used after the fn call.
@@ -175,7 +176,7 @@ test "Test while loop with break after fn resume", {
   run_test();
 };
 test "Test while loop with continue after fn resume", {
-  Raise :: (fn(forall(T : Type), msg : String, msg2 : String) -> T);
+  Raise :: (fn(msg : String, msg2 : String) -> i32);
 
   // Analogous to async_await test #24: Continue in async while loop.
   // Loop calls fn with resume, then continues (skips sum) on odd iterations.
@@ -204,7 +205,7 @@ test "Test while loop with continue after fn resume", {
   run_test();
 };
 test "Test break from cond after fn resume", {
-  Raise :: (fn(forall(T : Type), msg : String, msg2 : String) -> T);
+  Raise :: (fn(msg : String, msg2 : String) -> i32);
 
   // Analogous to async_await test #25: Break from cond in async while loop.
   // while(true), call fn, increment counter, break from cond when counter >= 5.
@@ -233,7 +234,7 @@ test "Test break from cond after fn resume", {
   run_test();
 };
 test "Test break drops local allocations after fn resume", {
-  Raise :: (fn(forall(T : Type), msg : String, msg2 : String) -> T);
+  Raise :: (fn(msg : String, msg2 : String) -> i32);
 
   // Analogous to async_await test #27: Break drops local allocations.
   // Allocate a Box each iteration; break at iteration 3.
@@ -260,7 +261,7 @@ test "Test break drops local allocations after fn resume", {
   run_test();
 };
 test "Test mixed continue then break after fn resume", {
-  Raise :: (fn(forall(T : Type), msg : String, msg2 : String) -> T);
+  Raise :: (fn(msg : String, msg2 : String) -> i32);
 
   // Analogous to async_await test #32: Mixed continue then break.
   // 1,2 continue; 3,4 accumulate; 5 breaks. sum = 3+4 = 7.
@@ -295,7 +296,7 @@ test "Test mixed continue then break after fn resume", {
   run_test();
 };
 test "Test early return inside loop after fn resume", {
-  Raise :: (fn(forall(T : Type), msg : String, msg2 : String) -> T);
+  Raise :: (fn(msg : String, msg2 : String) -> i32);
 
   // Analogous to async_await test #37: Early return inside loop after continue.
   // Continue on even numbers; early-return at first odd >= 5.
@@ -331,7 +332,7 @@ test "Test early return inside loop after fn resume", {
 };
 
 test "Test two different fn types in same scope (Log + Raise)", {
-  Raise :: (fn(forall(T : Type), msg : String) -> T);
+  Raise :: (fn(msg : String) -> i32);
   Log :: (fn(msg : String, counter : Box(i32)) -> unit);
 
   log_count := box(i32(0));
@@ -356,7 +357,7 @@ test "Test two different fn types in same scope (Log + Raise)", {
 };
 
 test "Test single-level effect propagation via using parameter", {
-  Raise :: (fn(forall(T : Type), msg : String) -> T);
+  Raise :: (fn(msg : String) -> i32);
 
   safe_divide :: (fn(x : i32, y : i32, using(raise : Raise)) -> i32)(
     cond(
@@ -374,7 +375,7 @@ test "Test single-level effect propagation via using parameter", {
 };
 
 test "Test two-level effect propagation via using parameter", {
-  Raise :: (fn(forall(T : Type), msg : String) -> T);
+  Raise :: (fn(msg : String) -> i32);
 
   safe_divide :: (fn(x : i32, y : i32, using(raise : Raise)) -> i32)(
     cond(
@@ -396,7 +397,7 @@ test "Test two-level effect propagation via using parameter", {
 };
 
 test "Test two-level effect propagation via using parameter with escape", {
-  Raise :: (fn(forall(T : Type), msg : String) -> T);
+  Raise :: (fn(msg : String) -> i32);
 
   safe_divide :: (fn(x : i32, y : i32, using(raise : Raise)) -> i32)(
     cond(
@@ -418,7 +419,7 @@ test "Test two-level effect propagation via using parameter with escape", {
 };
 
 test "Test given variable shadowing (inner scope shadows outer)", {
-  Raise :: (fn(forall(T : Type), msg : String) -> T);
+  Raise :: (fn(msg : String) -> i32);
 
   safe_divide :: (fn(x : i32, y : i32, using(raise : Raise)) -> i32)(
     cond(
@@ -447,7 +448,7 @@ test "Test given variable shadowing (inner scope shadows outer)", {
 };
 
 test "Test given variable shadowing (inner scope shadows outer) with escape", {
-  Raise :: (fn(forall(T : Type), msg : String) -> T);
+  Raise :: (fn(msg : String) -> i32);
 
   // Function that USES the effect (propagates via using parameter)
   safe_divide :: (fn(x : i32, y : i32, using(raise : Raise)) -> i32)(
@@ -479,7 +480,7 @@ test "Test given variable shadowing (inner scope shadows outer) with escape", {
 };
 
 test "Test effect polymorphism with using spread", {
-  Raise :: (fn(forall(T : Type), msg : String) -> T);
+  Raise :: (fn(msg : String) -> i32);
 
   might_fail :: (fn(using(raise : Raise)) -> i32)(
     raise(`oops`)
@@ -500,7 +501,7 @@ test "Test effect polymorphism with using spread", {
 };
 
 test "Test effect polymorphism with using spread and escape", {
-  Raise :: (fn(forall(T : Type), msg : String) -> T);
+  Raise :: (fn(msg : String) -> i32);
 
   might_fail :: (fn(using(raise : Raise)) -> i32)(
     raise(`oops`)
@@ -522,7 +523,7 @@ test "Test effect polymorphism with using spread and escape", {
 
 test "Test module-based effect with escape", {
   Raise :: module(
-    raise : (fn(forall(T : Type), msg : String) -> T)
+    raise : (fn(msg : String) -> i32)
   );
 
   safe_divide :: (fn(x : i32, y : i32, using(raise_mod : Raise)) -> i32)(
@@ -546,7 +547,7 @@ test "Test module-based effect with escape", {
 
 test "Test module-based effect with resume", {
   Raise :: module(
-    raise : (fn(forall(T : Type), msg : String) -> T)
+    raise : (fn(msg : String) -> i32)
   );
 
   safe_divide :: (fn(x : i32, y : i32, using(raise_mod : Raise)) -> i32)(
@@ -572,7 +573,7 @@ test "Test module-based effect with resume", {
 
 test "Test nested module-based effect with escape", {
   Errors :: module(
-    raise : (fn(forall(T : Type), msg : String) -> T)
+    raise : (fn(msg : String) -> i32)
   );
 
   Effects :: module(
@@ -602,7 +603,7 @@ test "Test nested module-based effect with escape", {
 
 test "Test nested module-based effect with resume", {
   Errors :: module(
-    raise : (fn(forall(T : Type), msg : String) -> T)
+    raise : (fn(msg : String) -> i32)
   );
 
   Effects :: module(
@@ -634,7 +635,7 @@ test "Test nested module-based effect with resume", {
 
 test "Test module labeled using(name : ModuleType) with escape", {
   Raise :: module(
-    raise : (fn(forall(T : Type), msg : String) -> T)
+    raise : (fn(msg : String) -> i32)
   );
 
   safe_divide :: (fn(x : i32, y : i32, using(raise_mod : Raise)) -> i32)(
@@ -658,7 +659,7 @@ test "Test module labeled using(name : ModuleType) with escape", {
 
 test "Test module labeled using(name : ModuleType) with resume", {
   Raise :: module(
-    raise : (fn(forall(T : Type), msg : String) -> T)
+    raise : (fn(msg : String) -> i32)
   );
 
   safe_divide :: (fn(x : i32, y : i32, using(raise_mod : Raise)) -> i32)(
@@ -683,7 +684,7 @@ test "Test module labeled using(name : ModuleType) with resume", {
 };
 
 test "Test multiple effect row spreads with resume", {
-  Raise :: (fn(forall(T : Type), msg : String) -> T);
+  Raise :: (fn(msg : String) -> i32);
   Log :: (fn(msg : String) -> unit);
 
   might_fail :: (fn(using(raise : Raise)) -> i32)(
@@ -720,7 +721,7 @@ test "Test multiple effect row spreads with resume", {
 };
 
 test "Test multiple effect row spreads with escape", {
-  Raise :: (fn(forall(T : Type), msg : String) -> T);
+  Raise :: (fn(msg : String) -> i32);
   Log :: (fn(msg : String) -> unit);
 
   might_fail :: (fn(using(raise : Raise)) -> i32)(

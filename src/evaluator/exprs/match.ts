@@ -992,8 +992,13 @@ Supported patterns:
         });
       }
 
+      // Use the actual return value type from return bodies when available.
+      // This ensures the match's type reflects the concrete type being returned,
+      // which is important for detecting generic return type mismatches.
       let returnType: Type | undefined;
-      if (
+      if (returnBodies.length > 0 && returnBodies[0]!.$) {
+        returnType = returnBodies[0]!.$.type;
+      } else if (
         context.isEvaluatingFunctionBodyOrAsyncBlock.kind === "function-body"
       ) {
         returnType =
@@ -1554,7 +1559,11 @@ Hint: Use "::" to define compile-time constants, e.g., "myConst :: 42"`,
         finalControlFlow = "escape";
       }
     } else {
-      if (controlFlows.find((cf) => cf === "escape")) {
+      // return takes priority over escape: escape discards the continuation
+      // but return branches still produce a concrete type that must be checked.
+      if (controlFlows.find((cf) => cf === "return")) {
+        finalControlFlow = "return";
+      } else if (controlFlows.find((cf) => cf === "escape")) {
         finalControlFlow = "escape";
       } else {
         finalControlFlow = undefined;
@@ -1629,8 +1638,11 @@ Hint: Use "::" to define compile-time constants, e.g., "myConst :: 42"`,
         });
       }
 
+      // Use the actual return value type from return bodies when available.
       let returnType: Type | undefined;
-      if (
+      if (returnBodies.length > 0 && returnBodies[0]!.$) {
+        returnType = returnBodies[0]!.$.type;
+      } else if (
         context.isEvaluatingFunctionBodyOrAsyncBlock.kind === "function-body"
       ) {
         returnType =

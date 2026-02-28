@@ -74,8 +74,8 @@ bun test src/tests/fixme.test.ts --timeout 10000
 # C codegen tests — specific test by name
 ./yo-cli test ./tests/algebraic_effects.test.yo --test-name-pattern "Test escape"
 
-# All integration tests (slow — only when asked)
-./yo-cli test
+# All integration tests — NEVER run this. Always run targeted test files instead.
+# ./yo-cli test
 
 # Emit C only (inspect generated code)
 ./yo-cli compile src/tests/fixme.yo --emit-c --skip-c-compiler --release

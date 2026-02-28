@@ -1,19 +1,53 @@
-fn1 :: (fn(forall(T : Type), value : T) -> T);
-fn2 :: (fn(forall(T : Type), value : T) -> T);
-fn3 :: (fn(forall(T : Type), value : T) -> Tuple(T));
+open import "std/string";
+open import "std/fmt";
 
-(comptime(identity1) : fn1) = (value -> {
-  return value;
-});
-
-comptime_expect_error(
-  (comptime(identity2) : fn2) = (value -> {
-    return i32(0);
-  })
+MyException :: (fn(comptime(ErrorType) : Type) -> comptime(Module))(
+  module(
+    throw : (fn(forall(ResumeType : Type), error : ErrorType, resume_value : ResumeType) -> ResumeType)
+  )
 );
 
-comptime_expect_error(
-  (comptime(identity3) : fn3) = (value -> {
-    return (i32(0),);
-  })
+safe_divide :: (fn(x : i32, y : i32, using(exn : MyException(i32))) -> i32)(
+  cond(
+    (y == 0) => exn.throw(x, 666),
+    true => (x / y)
+  )
 );
+
+traverse :: (fn(
+  forall(S : usize, ...(E)),
+  arr : Array(i32, S),
+  using(...(E))
+  ) -> unit) {
+    i := usize(0);
+    while i < S, i = (i + 1), {
+      println(safe_divide(42, arr(i)));
+
+      cond(
+        (arr(i) == 0) => {
+          assert(false, "Shouldn't reach here");
+        },
+        true => ()
+      );
+    };
+  };
+
+main :: (fn() -> unit) {
+  arr := Array(i32, 4)(1, 2, 0, 3);
+  given(exn) := MyException(i32)(
+    throw : ((val, resume_val) -> cond(
+      (val < 10) => {
+        // return true;
+        // return resume_val; // This should work.
+        ();
+        true
+      },
+      true => {
+        escape ();
+      }
+  ))
+  );
+
+  traverse(arr, using(exn));
+};
+export main;

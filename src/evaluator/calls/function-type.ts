@@ -11,15 +11,10 @@ import { evaluatedBodyContainsEscape } from "../../expr-traversal";
 import type { FunctionValue } from "../../function-value";
 import { PlaceholderToken } from "../../token";
 import { areTypesCompatible } from "../../types/compatibility";
-
 import { createUnitType } from "../../types/creators";
 import type { FunctionType, Type } from "../../types/definitions";
 import { isFunctionType, isSomeType } from "../../types/guards";
-import {
-  getAllSomeTypes,
-  typeContainsSomeType,
-  typeToString,
-} from "../../types/utils";
+import { typeContainsSomeType, typeToString } from "../../types/utils";
 import { randomId } from "../../utils";
 import { createUnknownValue } from "../../value";
 import { ValueTag } from "../../value-tag";
@@ -69,27 +64,6 @@ export function checkDeferredGenericReturnType({
     return;
   }
 
-  // Collect SomeType ids from return type and parameter types.
-  const returnSomeTypes = getAllSomeTypes(functionType.return.type);
-  const paramSomeTypeIds = new Set<string>();
-  for (const param of functionType.parameters) {
-    for (const st of getAllSomeTypes(param.type)) {
-      paramSomeTypeIds.add(st.id);
-    }
-  }
-
-  // Only check when a return SomeType also appears in parameters.
-  let returnSomeTypeUsedInParams = false;
-  for (const rst of returnSomeTypes) {
-    if (paramSomeTypeIds.has(rst.id)) {
-      returnSomeTypeUsedInParams = true;
-      break;
-    }
-  }
-  if (!returnSomeTypeUsedInParams) {
-    return;
-  }
-
   // Trial-evaluate a clone of the body to discover its return type.
   let trialBodyReturnType: Type | undefined;
   try {
@@ -108,6 +82,13 @@ export function checkDeferredGenericReturnType({
       isEvaluatingFunctionBodyBeginBlock: true,
     });
     trialBodyReturnType = trialBody.$?.type;
+    // If the body's control flow is purely escape (no return), it's a control
+    // function that discards the continuation. Skip the return type check.
+    // When mixed (return + escape), cond/match set controlFlow="return" with
+    // the actual return body type, so we still check correctly.
+    if (trialBody.$?.controlFlow === "escape") {
+      return;
+    }
   } catch {
     // Body evaluation failed due to abstract/unknown types — skip.
     return;
@@ -115,7 +96,6 @@ export function checkDeferredGenericReturnType({
 
   if (
     trialBodyReturnType &&
-    // !functionValue.isControlFunction &&
     !areTypesCompatible(
       { type: functionType.return.type, env },
       { type: trialBodyReturnType, env },
