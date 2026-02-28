@@ -1,0 +1,167 @@
+// std/fs/temp.yo - Temporary files and directories
+//
+// Provides RAII-managed temporary files and directories that
+// can be cleaned up automatically via Dispose.
+//
+// Example:
+//   { TempDir } :: import "std/fs/temp";
+//
+//   main :: (fn(using(io : IO)) -> unit)({
+//     td := io.await(TempDir.new());
+//     match(td,
+//       .Ok(dir) => {
+//         println(dir.path());
+//         io.await(dir.remove());
+//       },
+//       .Err(e) => println(e.to_string())
+//     );
+//   });
+
+{ GlobalAllocator } :: import "../allocator";
+{ malloc, free } :: GlobalAllocator;
+open import "../string";
+open import "../fmt";
+{ IOError } :: import "../io/errors";
+{ File } :: import "./file";
+{ remove_dir : _remove_dir, remove_file : _remove_file } :: import "./dir";
+IO_temp :: import "../io/temp";
+IO_file :: import "../io/file";
+{ AT_FDCWD, O_RDWR, O_CLOEXEC } :: import "../io/constants";
+{ memcpy } :: import "../libc/string";
+
+// ============================================================================
+// TempDir
+// ============================================================================
+
+TempDir :: object(
+  _path    : String,
+  _removed : bool
+);
+
+impl(TempDir,
+  // Create a temporary directory in /tmp.
+  new : (fn(using(io : IO)) -> Impl(Future(Result(TempDir, IOError))))(
+    TempDir.new_in("/tmp", using(io))
+  ),
+
+  // Create a temporary directory in the given parent directory.
+  new_in : (fn(parent: str, using(io : IO)) -> Impl(Future(Result(TempDir, IOError))))({
+    task := io.async((using(io : IO)) => {
+      // Build template: parent/yo_tmp_XXXXXX
+      template_str := `${String.from_str(parent)}/yo_tmp_XXXXXX`;
+      // Allocate a mutable C string for mkdtemp
+      template_bytes := template_str.as_bytes();
+      buf_len := (template_bytes.len() + usize(1));
+      buf := *(u8)(malloc(buf_len).unwrap());
+      memcpy(*(void)(buf), *(void)(template_bytes.ptr()), template_bytes.len());
+      (buf &+ template_bytes.len()).* = u8(0);
+      result := IO_temp.mkdtemp(buf);
+      cond(
+        (result < i32(0)) => {
+          free(.Some(*(void)(buf)));
+          .Err(IOError.from_errno((i32(0) - result)))
+        },
+        true => {
+          path := String.from_cstr(buf).unwrap();
+          free(.Some(*(void)(buf)));
+          .Ok(TempDir(_path: path, _removed: false))
+        }
+      )
+    });
+    return task;
+  }),
+
+  // Get the path of the temporary directory.
+  path : (fn(self: Self) -> String)(
+    self._path
+  ),
+
+  // Remove the temporary directory.
+  remove : (fn(self: Self, using(io : IO)) -> Impl(Future(Result(unit, IOError))))({
+    task := io.async((using(io : IO)) => {
+      cond(
+        self._removed => .Ok(()),
+        true => {
+          result := io.await(_remove_dir(self._path.to_str(), using(io)));
+          self._removed = true;
+          return result;
+        }
+      )
+    });
+    return task;
+  })
+);
+
+export TempDir;
+
+// ============================================================================
+// TempFile
+// ============================================================================
+
+TempFile :: object(
+  _file : File,
+  _path : String,
+  _removed : bool
+);
+
+impl(TempFile,
+  // Create a temporary file in /tmp.
+  new : (fn(using(io : IO)) -> Impl(Future(Result(TempFile, IOError))))(
+    TempFile.new_in("/tmp", using(io))
+  ),
+
+  // Create a temporary file in the given parent directory.
+  new_in : (fn(parent: str, using(io : IO)) -> Impl(Future(Result(TempFile, IOError))))({
+    task := io.async((using(io : IO)) => {
+      // Build template: parent/yo_tmp_XXXXXX
+      template_str := `${String.from_str(parent)}/yo_tmp_XXXXXX`;
+      template_bytes := template_str.as_bytes();
+      buf_len := (template_bytes.len() + usize(1));
+      buf := *(u8)(malloc(buf_len).unwrap());
+      memcpy(*(void)(buf), *(void)(template_bytes.ptr()), template_bytes.len());
+      (buf &+ template_bytes.len()).* = u8(0);
+      fd := IO_temp.mkstemp(buf);
+      cond(
+        (fd < i32(0)) => {
+          free(.Some(*(void)(buf)));
+          .Err(IOError.from_errno((i32(0) - fd)))
+        },
+        true => {
+          path := String.from_cstr(buf).unwrap();
+          free(.Some(*(void)(buf)));
+          file := File(_fd: fd, _path: path, _is_closed: false);
+          .Ok(TempFile(_file: file, _path: path, _removed: false))
+        }
+      )
+    });
+    return task;
+  }),
+
+  // Get the underlying File object.
+  file : (fn(self: Self) -> File)(
+    self._file
+  ),
+
+  // Get the path of the temporary file.
+  path : (fn(self: Self) -> String)(
+    self._path
+  ),
+
+  // Remove the temporary file.
+  remove : (fn(self: Self, using(io : IO)) -> Impl(Future(Result(unit, IOError))))({
+    task := io.async((using(io : IO)) => {
+      cond(
+        self._removed => .Ok(()),
+        true => {
+          io.await(self._file.close(using(io)));
+          result := io.await(_remove_file(self._path.to_str(), using(io)));
+          self._removed = true;
+          return result;
+        }
+      )
+    });
+    return task;
+  })
+);
+
+export TempFile;

@@ -1,0 +1,200 @@
+// std/net/addr.yo - Network address types
+//
+// High-level IP address and socket address types.
+//
+// Example:
+//   { IpAddr, SocketAddr } :: import "std/net/addr";
+//
+//   addr := SocketAddr.new(IpAddr.loopback_v4(), u16(8080));
+
+open import "../string";
+{ ToString } :: import "../fmt";
+{ Writer } :: import "../fmt/writer";
+{ NetError } :: import "./errors";
+{ snprintf } :: import "../libc/stdio";
+{ GlobalAllocator } :: import "../allocator";
+{ malloc, free } :: GlobalAllocator;
+
+// ============================================================================
+// IpAddr
+// ============================================================================
+
+IpAddr :: enum(
+  V4(a: u8, b: u8, c: u8, d: u8),
+  V6(segments: Array(u16, usize(8)))
+);
+
+impl(IpAddr,
+  // Parse an IPv4 address from a string like "127.0.0.1".
+  // Only supports IPv4 dotted-decimal notation.
+  parse_v4 : (fn(s: str) -> Result(IpAddr, NetError))({
+    bytes := s.as_bytes();
+    parts := Array(u8, usize(4)).fill(u8(0));
+    part_idx := usize(0);
+    val := u32(0);
+    i := usize(0);
+    while (i < bytes.len()), (i = (i + usize(1))), {
+      ch := bytes.get(i);
+      cond(
+        (ch == u8(46)) => {
+          // '.' separator
+          cond(
+            (part_idx >= usize(3)) => {
+              return .Err(.Other(String.from("invalid IPv4 address")));
+            },
+            true => ()
+          );
+          cond(
+            (val > u32(255)) => {
+              return .Err(.Other(String.from("IPv4 octet out of range")));
+            },
+            true => ()
+          );
+          parts(part_idx) = u8(val);
+          part_idx = (part_idx + usize(1));
+          val = u32(0);
+        },
+        ((ch >= u8(48)) && (ch <= u8(57))) => {
+          // digit
+          val = ((val * u32(10)) + u32((ch - u8(48))));
+        },
+        true => {
+          return .Err(.Other(String.from("invalid character in IPv4 address")));
+        }
+      );
+    };
+    cond(
+      (part_idx != usize(3)) => {
+        return .Err(.Other(String.from("invalid IPv4 address")));
+      },
+      true => ()
+    );
+    cond(
+      (val > u32(255)) => {
+        return .Err(.Other(String.from("IPv4 octet out of range")));
+      },
+      true => ()
+    );
+    parts(usize(3)) = u8(val);
+    return .Ok(.V4(parts(usize(0)), parts(usize(1)), parts(usize(2)), parts(usize(3))));
+  }),
+
+  // IPv4 loopback address (127.0.0.1).
+  loopback_v4 : (fn() -> IpAddr)(
+    .V4(u8(127), u8(0), u8(0), u8(1))
+  ),
+
+  // IPv6 loopback address (::1).
+  loopback_v6 : (fn() -> IpAddr)({
+    segs := Array(u16, usize(8)).fill(u16(0));
+    segs(usize(7)) = u16(1);
+    .V6(segs)
+  }),
+
+  // IPv4 any address (0.0.0.0).
+  any_v4 : (fn() -> IpAddr)(
+    .V4(u8(0), u8(0), u8(0), u8(0))
+  ),
+
+  // Check if this is a loopback address.
+  is_loopback : (fn(self: *(Self)) -> bool)(
+    match(self.*,
+      .V4(a, _, _, _) => (a == u8(127)),
+      .V6(segs) => {
+        // ::1
+        all_zero := true;
+        i := usize(0);
+        while (i < usize(7)), (i = (i + usize(1))), {
+          cond(
+            (segs(i) != u16(0)) => { all_zero = false; },
+            true => ()
+          );
+        };
+        (all_zero && (segs(usize(7)) == u16(1)))
+      }
+    )
+  ),
+
+  // Check if this is an IPv4 address.
+  is_v4 : (fn(self: *(Self)) -> bool)(
+    match(self.*,
+      .V4(_, _, _, _) => true,
+      .V6(_) => false
+    )
+  ),
+
+  // Check if this is an IPv6 address.
+  is_v6 : (fn(self: *(Self)) -> bool)(
+    match(self.*,
+      .V4(_, _, _, _) => false,
+      .V6(_) => true
+    )
+  )
+);
+
+impl(IpAddr, ToString(
+  to_string : (self -> {
+    return match(self.*,
+      .V4(a, b, c, d) => {
+        buf := Array(u8, usize(16)).fill(u8(0));
+        len := snprintf(&(buf(usize(0))), usize(16), "%d.%d.%d.%d", i32(a), i32(b), i32(c), i32(d));
+        String.from_cstr(&(buf(usize(0)))).unwrap()
+      },
+      .V6(segs) => {
+        w := Writer.new();
+        i := usize(0);
+        while (i < usize(8)), (i = (i + usize(1))), {
+          cond(
+            (i > usize(0)) => { w.write_str(":"); },
+            true => ()
+          );
+          w.write_hex(u64(segs(i)));
+        };
+        w.to_string()
+      }
+    );
+  })
+));
+
+export IpAddr;
+
+// ============================================================================
+// SocketAddr
+// ============================================================================
+
+SocketAddr :: struct(
+  ip   : IpAddr,
+  port : u16
+);
+
+impl(SocketAddr,
+  // Create a new socket address.
+  new : (fn(ip: IpAddr, port: u16) -> Self)(
+    Self(ip: ip, port: port)
+  ),
+
+  // Create a socket address for IPv4 loopback with given port.
+  loopback : (fn(port: u16) -> Self)(
+    Self(ip: IpAddr.loopback_v4(), port: port)
+  ),
+
+  // Create a socket address for any IPv4 address with given port.
+  any : (fn(port: u16) -> Self)(
+    Self(ip: IpAddr.any_v4(), port: port)
+  )
+);
+
+impl(SocketAddr, ToString(
+  to_string : (self -> {
+    ip_str := self.ip.to_string();
+    buf := Array(u8, usize(8)).fill(u8(0));
+    len := snprintf(&(buf(usize(0))), usize(8), "%d", i32(self.port));
+    port_str := String.from_cstr(&(buf(usize(0)))).unwrap();
+    return match(self.ip,
+      .V4(_, _, _, _) => `${ip_str}:${port_str}`,
+      .V6(_) => `[${ip_str}]:${port_str}`
+    );
+  })
+));
+
+export SocketAddr;
