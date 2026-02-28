@@ -3,14 +3,17 @@ import { formatErrorMessage } from "../../error";
 import {
   attachTempVariableToExpr,
   BuiltinKeywords,
-  type ControlFlowKind,
+  type ControlFlowFlags,
   type Expr,
   exprIsAtom,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
   type FnCallExpr,
+  hasAnyControlFlow,
+  hasControlFlow,
   mergeAndCheckEnvs,
+  mergeControlFlows,
 } from "../../expr";
 import { areTypesCompatible } from "../../types/compatibility";
 import { createBooleanType } from "../../types/creators";
@@ -211,14 +214,14 @@ export function evaluateCond({
       variablesToAdd: [],
     });
 
-    if (evaluatedCaseBodyExpr.$?.controlFlow) {
+    if (hasAnyControlFlow(evaluatedCaseBodyExpr.$?.controlFlow)) {
       // No need to evaluate further if a return was encountered
       expr.$ = {
-        env: evaluatedCaseBodyExpr.$.env,
-        type: context.expectedType?.type ?? evaluatedCaseBodyExpr.$.type,
-        value: evaluatedCaseBodyExpr.$.value,
-        pathCollection: evaluatedCaseBodyExpr.$.pathCollection,
-        controlFlow: evaluatedCaseBodyExpr.$.controlFlow,
+        env: evaluatedCaseBodyExpr.$!.env,
+        type: context.expectedType?.type ?? evaluatedCaseBodyExpr.$!.type,
+        value: evaluatedCaseBodyExpr.$!.value,
+        pathCollection: evaluatedCaseBodyExpr.$!.pathCollection,
+        controlFlow: evaluatedCaseBodyExpr.$!.controlFlow,
       };
       return expr;
     } else {
@@ -268,7 +271,7 @@ export function evaluateCond({
     }
   } else {
     let hasCaseThatDoesntHaveControlFlowSet = false;
-    const controlFlows: ControlFlowKind[] = []; // Track control flows from all cases
+    const controlFlows: ControlFlowFlags[] = []; // Track control flows from all cases
     const returnBodies: Expr[] = []; // Track bodies with return control flow for validation
 
     // No compile-time true condition found, evaluate all bodies except compile-time false ones
@@ -298,10 +301,10 @@ export function evaluateCond({
         variablesToAdd: [],
       });
 
-      if (evaluatedCaseBodyExpr.$?.controlFlow) {
-        controlFlows.push(evaluatedCaseBodyExpr.$.controlFlow);
+      if (hasAnyControlFlow(evaluatedCaseBodyExpr.$?.controlFlow)) {
+        controlFlows.push(evaluatedCaseBodyExpr.$!.controlFlow!);
         // Collect bodies with return control flow for validation
-        if (evaluatedCaseBodyExpr.$.controlFlow === "return") {
+        if (hasControlFlow(evaluatedCaseBodyExpr.$!.controlFlow, "return")) {
           returnBodies.push(evaluatedCaseBodyExpr);
         }
         continue; // No need to evaluate further if a control flow was encountered
@@ -334,7 +337,7 @@ export function evaluateCond({
           });
         }
       }
-      if (!evaluatedCaseBodyExpr.$.controlFlow) {
+      if (!hasAnyControlFlow(evaluatedCaseBodyExpr.$.controlFlow)) {
         // skip continue/break/return cases
 
         if (!valueType) {
@@ -388,43 +391,13 @@ export function evaluateCond({
       }
     }
 
-    // Check the control flows, if they are mixed, we say there is no control flow
-    let finalControlFlow: ControlFlowKind | undefined = undefined;
-    if (controlFlows.every((cf) => cf === "return")) {
-      finalControlFlow = "return";
-    } else if (controlFlows.every((cf) => cf === "escape")) {
-      finalControlFlow = "escape";
-    } else if (controlFlows.every((cf) => cf === "break")) {
-      finalControlFlow = "break";
-    } else if (controlFlows.every((cf) => cf === "continue")) {
-      finalControlFlow = "continue";
-    } else {
-      if (context.isEvaluatingLoopBody) {
-        if (controlFlows.find((cf) => cf === "continue")) {
-          finalControlFlow = "continue"; // At least one case continues the loop
-        } else if (controlFlows.find((cf) => cf === "break")) {
-          finalControlFlow = "break"; // At least one case breaks the loop
-        } else if (controlFlows.find((cf) => cf === "return")) {
-          finalControlFlow = "return"; // At least one case returns from function
-        } else if (controlFlows.find((cf) => cf === "escape")) {
-          finalControlFlow = "escape"; // At least one case aborts (ctl handler discontinue)
-        }
-      } else {
-        // return takes priority over escape: escape discards the continuation
-        // but return branches still produce a concrete type that must be checked.
-        if (controlFlows.find((cf) => cf === "return")) {
-          finalControlFlow = "return";
-        } else if (controlFlows.find((cf) => cf === "escape")) {
-          finalControlFlow = "escape";
-        } else {
-          finalControlFlow = undefined; // Mixed control flows
-        }
-      }
-    }
+    // Merge all control flow flags from branches
+    const finalControlFlow: ControlFlowFlags | undefined =
+      controlFlows.length > 0 ? mergeControlFlows(controlFlows) : undefined;
 
     if (
       hasCaseThatDoesntHaveControlFlowSet || // some case has no control flow
-      !finalControlFlow // mixed control flows
+      !hasAnyControlFlow(finalControlFlow) // no control flows at all
     ) {
       if (hasCaseThatDoesntHaveControlFlowSet && !valueType) {
         throw formatErrorMessage({
@@ -441,8 +414,8 @@ export function evaluateCond({
         bodies.filter(
           (body) =>
             body.$ &&
-            body.$.controlFlow !== "return" &&
-            body.$.controlFlow !== "escape"
+            !hasControlFlow(body.$.controlFlow, "return") &&
+            !hasControlFlow(body.$.controlFlow, "escape")
         )
       );
 
@@ -474,8 +447,8 @@ export function evaluateCond({
         });
       }
 
-      if (finalControlFlow === "return") {
-        // All cases are returning from function
+      if (hasControlFlow(finalControlFlow, "return")) {
+        // At least some cases are returning from function
         if (!context.isEvaluatingFunctionBodyOrAsyncBlock) {
           throw formatErrorMessage({
             token: expr.token,
@@ -517,10 +490,10 @@ export function evaluateCond({
               ? createUnknownValue(returnType, { env, context })
               : undefined,
           pathCollection: [],
-          controlFlow: "return",
+          controlFlow: finalControlFlow,
         };
-      } else if (finalControlFlow === "escape") {
-        // All cases are aborting (returning from enclosing function)
+      } else if (hasControlFlow(finalControlFlow, "escape")) {
+        // All cases are escaping (returning from enclosing function)
         if (!context.enclosingFunctionReturnType) {
           throw formatErrorMessage({
             token: expr.token,
@@ -533,9 +506,9 @@ export function evaluateCond({
           type: escapeType,
           value: undefined,
           pathCollection: [],
-          controlFlow: "escape",
+          controlFlow: finalControlFlow,
         };
-      } else if (finalControlFlow === "break") {
+      } else if (hasControlFlow(finalControlFlow, "break")) {
         // All cases break from loop
         if (!context.isEvaluatingLoopBody) {
           throw formatErrorMessage({
@@ -548,9 +521,9 @@ export function evaluateCond({
           type: VUnit.type,
           value: VUnit,
           pathCollection: [],
-          controlFlow: "break",
+          controlFlow: finalControlFlow,
         };
-      } else if (finalControlFlow === "continue") {
+      } else if (hasControlFlow(finalControlFlow, "continue")) {
         // All cases continue loop
         if (!context.isEvaluatingLoopBody) {
           throw formatErrorMessage({
@@ -563,7 +536,7 @@ export function evaluateCond({
           type: VUnit.type,
           value: VUnit,
           pathCollection: [],
-          controlFlow: "continue",
+          controlFlow: finalControlFlow,
         };
       } else {
         // This should never reach

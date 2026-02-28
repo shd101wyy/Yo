@@ -6,7 +6,12 @@ import {
   pushEnvFrame,
 } from "../../env";
 import { formatErrorMessage } from "../../error";
-import { cloneExpr, type Expr, type FnCallExpr } from "../../expr";
+import {
+  cloneExpr,
+  type Expr,
+  type FnCallExpr,
+  hasControlFlow,
+} from "../../expr";
 import { evaluatedBodyContainsEscape } from "../../expr-traversal";
 import type { FunctionValue } from "../../function-value";
 import { PlaceholderToken } from "../../token";
@@ -84,9 +89,12 @@ export function checkDeferredGenericReturnType({
     trialBodyReturnType = trialBody.$?.type;
     // If the body's control flow is purely escape (no return), it's a control
     // function that discards the continuation. Skip the return type check.
-    // When mixed (return + escape), cond/match set controlFlow="return" with
-    // the actual return body type, so we still check correctly.
-    if (trialBody.$?.controlFlow === "escape") {
+    // When mixed (return + escape), cond/match set both flags,
+    // so we still check correctly when return is also set.
+    if (
+      hasControlFlow(trialBody.$?.controlFlow, "escape") &&
+      !hasControlFlow(trialBody.$?.controlFlow, "return")
+    ) {
       return;
     }
   } catch {

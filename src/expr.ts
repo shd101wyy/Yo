@@ -106,7 +106,60 @@ export interface RuntimeDestructuring {
  * 'return' is used for both normal function return and ctl handler resume.
  * 'escape' is used for ctl handler discontinue (early return from enclosing function).
  */
-export type ControlFlowKind = "return" | "break" | "continue" | "escape";
+export type ControlFlowFlags = {
+  return?: boolean;
+  escape?: boolean;
+  break?: boolean;
+  continue?: boolean;
+};
+
+/** Create a ControlFlowFlags with a single flag set */
+export function controlFlowOf(
+  kind: "return" | "escape" | "break" | "continue"
+): ControlFlowFlags {
+  return { [kind]: true };
+}
+
+/** Check if controlFlow has a specific flag */
+export function hasControlFlow(
+  cf: ControlFlowFlags | undefined,
+  kind: "return" | "escape" | "break" | "continue"
+): boolean {
+  return cf?.[kind] === true;
+}
+
+/** Check if controlFlow has any flag set */
+export function hasAnyControlFlow(cf: ControlFlowFlags | undefined): boolean {
+  return (
+    cf !== undefined &&
+    (cf.return === true ||
+      cf.escape === true ||
+      cf.break === true ||
+      cf.continue === true)
+  );
+}
+
+/** Merge multiple ControlFlowFlags into one (union of all flags) */
+export function mergeControlFlows(flows: ControlFlowFlags[]): ControlFlowFlags {
+  const result: ControlFlowFlags = {};
+  for (const cf of flows) {
+    if (cf.return) result.return = true;
+    if (cf.escape) result.escape = true;
+    if (cf.break) result.break = true;
+    if (cf.continue) result.continue = true;
+  }
+  return result;
+}
+
+/** Convert ControlFlowFlags to a display string for error messages */
+export function controlFlowToString(cf: ControlFlowFlags): string {
+  const parts: string[] = [];
+  if (cf.return) parts.push("return");
+  if (cf.escape) parts.push("escape");
+  if (cf.break) parts.push("break");
+  if (cf.continue) parts.push("continue");
+  return parts.join("+");
+}
 
 export interface EvaluatedExprData {
   /**
@@ -174,17 +227,11 @@ export interface EvaluatedExprData {
   runtimeDestructurings?: RuntimeDestructuring[];
 
   /**
-   * Whether this expression is:
-   * 1. "return" from a function.
-   *     It means containing "return", and might also contain "escape". So
-   *   - "return"
-   *   - "return" + "escape"
-   * 2. "break" from a loop.
-   * 3. "continue" from a loop.
-   * 4. "escape" from a ctl handler (early return from enclosing function). It means contains **only** "escape".
-   * 5. normal expression.
+   * Whether this expression carries control flow.
+   * Multiple flags can be true simultaneously (e.g., a cond where some branches
+   * return and others escape).
    */
-  controlFlow?: ControlFlowKind;
+  controlFlow?: ControlFlowFlags;
 
   /**
    * For dyn() function calls, this contains the trait values that provide

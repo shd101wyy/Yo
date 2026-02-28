@@ -6,6 +6,7 @@ import {
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
+  hasAnyControlFlow,
   requireExprNotConsumed,
   setExprAsNeedsToCallDup,
   type FnCallExpr,
@@ -136,9 +137,9 @@ export function evaluateInitializationAssignment({
     prohibitVoidType(rhs.$.type, rhs.token);
   }
 
-  if (rhs.$?.controlFlow) {
+  if (hasAnyControlFlow(rhs.$?.controlFlow)) {
     // Check if the RHS is a cond expression to provide a more specific error message
-    throwRhsContainsControlFlowExpressionError(rhs, rhs.$.controlFlow);
+    throwRhsContainsControlFlowExpressionError(rhs, rhs.$!.controlFlow!);
   }
 
   // Disallow using implicit variables (or property access of them) as the RHS

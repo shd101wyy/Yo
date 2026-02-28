@@ -1,6 +1,12 @@
 import type { Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
-import { type Expr, exprToString, type FnCallExpr } from "../../expr";
+import {
+  type Expr,
+  exprToString,
+  type FnCallExpr,
+  hasAnyControlFlow,
+  hasControlFlow,
+} from "../../expr";
 import { isBooleanType, isUnitType } from "../../types/guards";
 import { typeToString } from "../../types/utils";
 import { VUnit } from "../../unit-value";
@@ -105,21 +111,27 @@ export function evaluateWhile({
 
     // Check if it has control flow (return, break, continue)
     // NOTE: In reality, we might not even enter the while loop body.
-    if (evaluatedBodyExpr.$.controlFlow) {
+    if (hasAnyControlFlow(evaluatedBodyExpr.$.controlFlow)) {
       // Handle different control flow types
       if (
-        evaluatedBodyExpr.$.controlFlow === "return" ||
-        evaluatedBodyExpr.$.controlFlow === "escape"
+        hasControlFlow(evaluatedBodyExpr.$.controlFlow, "return") ||
+        hasControlFlow(evaluatedBodyExpr.$.controlFlow, "escape")
       ) {
         // Guaranteed that we meet "return" or "escape"
         // If the body has a return value, we should return it
         if (isBooleanValue(conditionValue) && conditionValue.value === true) {
+          // Only propagate return/escape out of while — clear break/continue
+          const propagated: { return?: boolean; escape?: boolean } = {};
+          if (hasControlFlow(evaluatedBodyExpr.$.controlFlow, "return"))
+            propagated.return = true;
+          if (hasControlFlow(evaluatedBodyExpr.$.controlFlow, "escape"))
+            propagated.escape = true;
           expr.$ = {
             env: evaluatedBodyExpr.$.env,
             pathCollection: evaluatedBodyExpr.$.pathCollection,
             type: evaluatedBodyExpr.$.type,
             value: evaluatedBodyExpr.$.value,
-            controlFlow: evaluatedBodyExpr.$.controlFlow,
+            controlFlow: propagated,
           };
         } else {
           // We might not even enter the while loop body
@@ -130,7 +142,7 @@ export function evaluateWhile({
             value: isCompileTime ? VUnit : undefined, // Only set value for compile-time
           };
         }
-      } else if (evaluatedBodyExpr.$.controlFlow === "break") {
+      } else if (hasControlFlow(evaluatedBodyExpr.$.controlFlow, "break")) {
         // Break exits the loop, return unit
         expr.$ = {
           env: evaluatedBodyExpr.$.env,
@@ -138,7 +150,7 @@ export function evaluateWhile({
           type: VUnit.type,
           value: isCompileTime ? VUnit : undefined, // Only set value for compile-time
         };
-      } else if (evaluatedBodyExpr.$.controlFlow === "continue") {
+      } else if (hasControlFlow(evaluatedBodyExpr.$.controlFlow, "continue")) {
         // Continue goes to next iteration
         // Execute step expression if provided before continuing
         let updatedEnv = evaluatedBodyExpr.$.env;
