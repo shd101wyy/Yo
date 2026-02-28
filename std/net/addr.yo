@@ -98,8 +98,8 @@ impl(IpAddr,
   ),
 
   // Check if this is a loopback address.
-  is_loopback : (fn(self: *(Self)) -> bool)(
-    match(self.*,
+  is_loopback : (fn(self: Self) -> bool)(
+    match(self,
       .V4(a, _, _, _) => (a == u8(127)),
       .V6(segs) => {
         // ::1
@@ -118,16 +118,16 @@ impl(IpAddr,
   ),
 
   // Check if this is an IPv4 address.
-  is_v4 : (fn(self: *(Self)) -> bool)(
-    match(self.*,
+  is_v4 : (fn(self: Self) -> bool)(
+    match(self,
       .V4(_, _, _, _) => true,
       .V6(_) => false
     )
   ),
 
   // Check if this is an IPv6 address.
-  is_v6 : (fn(self: *(Self)) -> bool)(
-    match(self.*,
+  is_v6 : (fn(self: Self) -> bool)(
+    match(self,
       .V4(_, _, _, _) => false,
       .V6(_) => true
     )

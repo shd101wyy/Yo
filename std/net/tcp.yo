@@ -79,9 +79,11 @@ impl(TcpListener,
         true => ()
       );
       // Set SO_REUSEADDR
-      saddr := _make_sockaddr(addr);
-      io.await(IO_tcp.setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, saddr.buf, u32(4)));
+      reuse_val := i32(1);
+      reuse_ptr := &reuse_val;
+      io.await(IO_tcp.setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, *(u8)(reuse_ptr), u32(4)));
       // Bind
+      saddr := _make_sockaddr(addr);
       bind_result := io.await(IO_tcp.bind(fd, saddr.buf, saddr.len));
       IO_tcp.free_sockaddr(saddr);
       cond(
