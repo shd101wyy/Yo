@@ -175,7 +175,7 @@ export function generateOpOr(
     const argCode = generateExpr(runtimeArgs[i]!, currentIndent, context);
     if (i < runtimeArgs.length - 1) {
       // Not the last arg — wrap remaining in an if(!)
-      context.emitter.emitLine(`${currentIndent}if (!(${argCode}))) {`);
+      context.emitter.emitLine(`${currentIndent}if (!(${argCode})) {`);
       currentIndent += "  ";
     } else {
       // Last arg — assign to result variable
