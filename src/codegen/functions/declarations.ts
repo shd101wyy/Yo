@@ -82,8 +82,27 @@ export function generateFunctionDeclarations(
 
     const isUserMain = cName === "__yo_user_main";
 
+    // Check if this function's body has effect analysis (it uses algebraic effects).
+    // If so, its function-typed implicit parameters are effect handlers that are resolved
+    // by the effect system at the call site — they are NOT truly unresolved.
+    const bodyEffectAnalysis = value.body?.$?.effectAnalysis;
+    const isEffectfulFunction =
+      bodyEffectAnalysis && bodyEffectAnalysis.hasEffects;
+
+    // Skip the original (unspecialized) function when it has specialization caches.
+    // The specialized versions handle codegen. The original body was evaluated
+    // generically and sub-expressions may lack type annotations.
+    if (
+      !isUserMain &&
+      !value.type.isClosure &&
+      value.specializedFunctionCaches?.length > 0
+    ) {
+      continue;
+    }
+
     const hasUnresolvedFunctionImplicitParams =
       !isUserMain &&
+      !isEffectfulFunction &&
       !value.type.isClosure &&
       !value.specializedType &&
       (value.specializedFunctionCaches?.length ?? 0) === 0 &&
@@ -98,6 +117,7 @@ export function generateFunctionDeclarations(
 
     if (
       !isUserMain &&
+      !isEffectfulFunction &&
       ((isFunctionTypeHardGeneric(value.type) && !value.type.isClosure) ||
         (value.specializedFunctionCaches?.length > 0 &&
           !value.type.isClosure) ||
@@ -113,8 +133,9 @@ export function generateFunctionDeclarations(
     // Use specializedType if available, otherwise use type
     const functionType = value.specializedType ?? value.type;
     const hasGenericParams =
-      functionType.parameters.some((p) => typeContainsSomeType(p.type)) ||
-      functionType.forallParameters.length > 0;
+      !isEffectfulFunction &&
+      (functionType.parameters.some((p) => typeContainsSomeType(p.type)) ||
+        functionType.forallParameters.length > 0);
     const hasGenericReturnType = typeContainsSomeType(functionType.return.type);
 
     // Allow functions returning plain Impl(Module) existential types (SomeType at top level)

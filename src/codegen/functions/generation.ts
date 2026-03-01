@@ -208,8 +208,30 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
     // IO parameter is resolved at compile time
     const isUserMain = cName === "__yo_user_main";
 
+    // Check if this function's body has effect analysis (it uses algebraic effects).
+    // If so, its function-typed implicit parameters are effect handlers that are resolved
+    // by the effect system at the call site — they are NOT truly unresolved.
+    const bodyEffectAnalysis = value.body?.$?.effectAnalysis;
+    const isEffectfulFunction =
+      bodyEffectAnalysis && bodyEffectAnalysis.hasEffects;
+
+    // Skip the original (unspecialized) function when it has specialization caches.
+    // The specialized versions are separate entries in context.functions and will
+    // be generated instead. The original's body was evaluated generically and
+    // sub-expressions may lack type annotations, making codegen impossible.
+    // This applies even when the function was marked effectful — the effectful
+    // generation needs properly annotated sub-expressions too.
+    if (
+      !isUserMain &&
+      !value.type.isClosure &&
+      value.specializedFunctionCaches?.length > 0
+    ) {
+      continue;
+    }
+
     const hasUnresolvedFunctionImplicitParams =
       !isUserMain &&
+      !isEffectfulFunction &&
       !value.type.isClosure &&
       !value.specializedType &&
       (value.specializedFunctionCaches?.length ?? 0) === 0 &&
@@ -230,6 +252,7 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
 
     if (
       !isUserMain &&
+      !isEffectfulFunction &&
       ((isFunctionTypeHardGeneric(value.type) && !value.type.isClosure) ||
         (value.specializedFunctionCaches?.length > 0 &&
           !value.type.isClosure) ||
@@ -246,8 +269,9 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
     // Use specializedType if available, otherwise use type
     const functionType = value.specializedType ?? value.type;
     const hasGenericParams =
-      functionType.parameters.some((p) => typeContainsSomeType(p.type)) ||
-      functionType.forallParameters.length > 0;
+      !isEffectfulFunction &&
+      (functionType.parameters.some((p) => typeContainsSomeType(p.type)) ||
+        functionType.forallParameters.length > 0);
     const hasGenericReturnType = typeContainsSomeType(functionType.return.type);
 
     // Allow functions returning plain Impl(Module) existential types (SomeType at top level)
@@ -456,19 +480,29 @@ export function preRegisterEffectfulFunctions(
     );
   }
 
-  // Second pass: handle closure body functions that have ctl handler calls.
-  // These must be registered BEFORE transitive-call functions because
-  // transitive functions reference closure SM structs as inner SM fields.
-  // The evaluator doesn't run effect analysis for closures (functionValue is
-  // undefined for closure calls in tryToCallFunctionWithArguments), so we
-  // perform the analysis here in the codegen phase.
+  // Second pass: handle functions that have ctl handler calls via implicit parameters
+  // but haven't had effect analysis performed yet.
+  // This includes:
+  // - Closures: the evaluator doesn't run effect analysis for closures because
+  //   functionValue is undefined for closure calls in tryToCallFunctionWithArguments.
+  // - Non-closure functions with spread effect forall parameters (forall(...(E))):
+  //   these are generic over their effects, so the evaluator defers effect analysis.
+  // We perform the analysis here in the codegen phase.
   for (const funcId in context.functions) {
     const { value: functionValue, cName: cFunctionName } =
       context.functions[funcId]!;
 
-    if (!functionValue.type.isClosure) continue;
     if (!functionValue.body?.$) continue;
     if (functionValue.body.$.effectAnalysis?.hasEffects) continue;
+
+    // Skip the original function when it has specialization caches.
+    // The specialized versions are separate entries that will be processed instead.
+    if (
+      !functionValue.type.isClosure &&
+      functionValue.specializedFunctionCaches?.length > 0
+    ) {
+      continue;
+    }
 
     const functionType = functionValue.type;
     const implicitParams = functionType.implicitParameters;
@@ -522,7 +556,12 @@ export function preRegisterEffectfulFunctions(
 
       // Only register as effectful if the handler uses escape (is a control function).
       // Regular function calls via using() don't need state machine transformation.
-      if (!handlerIsControlFunction) continue;
+      //
+      // For non-closure functions (e.g., functions with forall(...(E)) spread effects),
+      // the handler value is not available at the definition site — the handler is
+      // provided at the call site via `given`. In this case, we must treat the function
+      // as effectful since it was declared with effect parameters.
+      if (!handlerIsControlFunction && functionValue.type.isClosure) continue;
 
       functionValue.body.$.effectAnalysis = effectAnalysis;
 

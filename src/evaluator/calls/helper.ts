@@ -2129,6 +2129,38 @@ Please use explicit using() to disambiguate.`,
   const shouldAllowModuleUnknowns =
     hasOnlyModuleTypeUnknowns && hasRuntimeSomeTypeParams;
 
+  // Allow specialization when the only Unknown implicit args come from
+  // effect row spread parameters (e.g., ...(E)). The function body may not
+  // reference those spread-forwarded effects at all (only the explicitly declared
+  // ones like my_raise), so the body can still be properly re-evaluated.
+  const hasOnlySpreadUnknowns = (() => {
+    if (!hasUnknownImplicitArgs) return false;
+    const hasSpreadParam = functionType.implicitParameters.some(
+      (p) => p.isEffectRowSpread
+    );
+    if (!hasSpreadParam) return false;
+    // Count how many args come from non-spread implicit params.
+    // Non-spread params each produce exactly 1 arg. Spread params expand
+    // into the remaining args.
+    let nonSpreadArgCount = 0;
+    for (const param of functionType.implicitParameters) {
+      if (!param.isEffectRowSpread) {
+        nonSpreadArgCount++;
+      }
+    }
+    // Check that all non-spread implicit args (the first nonSpreadArgCount args)
+    // are known. Only spread-derived args (the rest) can be Unknown.
+    // This assumes non-spread params come before spread params in arg order,
+    // which matches the implicit parameter resolution order.
+    const implicitArgs = argValues_.implicitArgs ?? [];
+    for (let i = 0; i < nonSpreadArgCount && i < implicitArgs.length; i++) {
+      if (isUnknownValue(implicitArgs[i]!.value)) {
+        return false; // A non-spread arg is unknown → don't allow
+      }
+    }
+    return true;
+  })();
+
   if (
     !skipSpecialization &&
     functionValue &&
@@ -2139,9 +2171,13 @@ Please use explicit using() to disambiguate.`,
     // Skip specialization when implicit args contain UnknownValue (e.g., at function
     // definition time when the handler hasn't been concretely provided yet).
     // This prevents creating broken specializations that reference unresolved functions.
-    // Exception: allow when only module-type implicit args (like IO) are unknown AND
+    // Exception 1: allow when only module-type implicit args (like IO) are unknown AND
     // the call has SomeType runtime parameters that benefit from specialization.
-    (!hasUnknownImplicitArgs || shouldAllowModuleUnknowns)
+    // Exception 2: allow when the only Unknown args come from effect row spread
+    // parameters — those are forwarded effects that the body may not reference.
+    (!hasUnknownImplicitArgs ||
+      shouldAllowModuleUnknowns ||
+      hasOnlySpreadUnknowns)
   ) {
     specializedFunctionValue = createSpecializedFunctionInline({
       originalFunction: functionValue,
