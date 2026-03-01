@@ -1,42 +1,11 @@
-open import "std/string";
-open import "std/fmt";
-
-// Tests the pattern from fixme.yo: module-based effect with forall(ResumeType),
-// handler uses escape inside a while loop to abort traversal.
-MyException :: (fn(comptime(ErrorType) : Type) -> comptime(Module))(
-  module(
-    throw : (fn(forall(ResumeType : Type), error : ErrorType, resume_value : ResumeType) -> ResumeType)
-  )
-);
-
-safe_divide :: (fn(x : i32, y : i32, using(exn : MyException(i32))) -> i32)(
-  cond(
-    (y == 0) => exn.throw(x, i32(666)),
-    true => (x / y)
-  )
-);
-
-traverse :: (fn(
-  forall(S : usize, ...(E)),
-  arr : Array(i32, S),
-  using(exn : MyException(i32), ...(E))
-  ) -> unit) {
-    i := usize(0);
-    while i < S, i = (i + 1), {
-      safe_divide(i32(42), arr(i));
-    };
-  };
-
+open import "std/collections/priority_queue";
 
 main :: (fn() -> unit) {
-  arr := Array(i32, 4)(1, 2, 0, 3);
-  given(exn) := MyException(i32)(
-    throw : ((val, resume_val) -> {
-      escape ();
-    })
-  );
-  traverse(arr, using(exn));
-  assert(false, "Should not reach here after escape");
-};
+  pq := PriorityQueue(i32).new();
+  pq.push(i32(99));
 
+  v := pq.pop();
+  assert(v.unwrap() == i32(99), "should return 99");
+  assert(pq.is_empty(), "should be empty");
+};
 export main;

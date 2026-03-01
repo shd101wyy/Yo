@@ -41,7 +41,7 @@ impl(forall(T : Type), PriorityQueue(T),
   ),
 
   // Inspect the smallest element without removing it.
-  peek : (fn(self: Self) -> ?T)(
+  peek : (fn(self: Self) -> Option(T))(
     cond(
       (self._data.len() == usize(0)) => .None,
       true => self._data.get(usize(0))
@@ -53,7 +53,7 @@ impl(forall(T : Type), PriorityQueue(T),
     self._data.push(val);
     // Sift up
     i := (self._data.len() - usize(1));
-    while (i > usize(0)), () => {
+    while (i > usize(0)), {
       parent := ((i - usize(1)) / usize(2));
       child_val  := self._data.get(i).unwrap();
       parent_val := self._data.get(parent).unwrap();
@@ -63,13 +63,15 @@ impl(forall(T : Type), PriorityQueue(T),
           self._data.set(parent, child_val);
           i = parent;
         },
-        true => break
+        true => {
+          break;
+        }
       );
     };
   }),
 
   // Remove and return the smallest element.
-  pop : (fn(self: Self, where(T <: Ord(T))) -> ?T)({
+  pop : (fn(self: Self, where(T <: Ord(T))) -> Option(T))({
     n := self._data.len();
     cond(
       (n == usize(0)) => .None,
@@ -80,7 +82,7 @@ impl(forall(T : Type), PriorityQueue(T),
         self._data.pop();
         // Sift down
         i := usize(0);
-        while runtime(true), () => {
+        while runtime(true), {
           left  := ((i * usize(2)) + usize(1));
           right := ((i * usize(2)) + usize(2));
           smallest := i;
@@ -98,7 +100,9 @@ impl(forall(T : Type), PriorityQueue(T),
             true => ()
           );
           cond(
-            (smallest == i) => break,
+            (smallest == i) => {
+              break;
+            },
             true => {
               a := self._data.get(i).unwrap();
               b := self._data.get(smallest).unwrap();
