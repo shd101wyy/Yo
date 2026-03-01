@@ -618,6 +618,65 @@ export function extractFunctionValue(
   return undefined;
 }
 
+function isDebugFlagEnabled(name: string): boolean {
+  const value = process.env[name];
+  return value === "1" || value?.toLowerCase() === "true";
+}
+
+const isCallProfilerEnabled =
+  isDebugFlagEnabled("YO_DEBUG_CALL") ||
+  isDebugFlagEnabled("YO_DEBUG_CALL_PROFILE") ||
+  isDebugFlagEnabled("YO_DEBUG_EVAL") ||
+  isDebugFlagEnabled("YO_DEBUG_EVAL_PROFILE");
+
+type CallProfilerGlobalState = {
+  __yoCallProfilerState?: {
+    tryCallCount: number;
+    specializeCount: number;
+    cacheHitCount: number;
+    cacheMissCount: number;
+    specializeNames: Map<string, number>;
+    tryCallNames: Map<string, number>;
+  };
+};
+
+const _g: typeof globalThis & CallProfilerGlobalState = globalThis;
+const _callProfilerState =
+  _g.__yoCallProfilerState ??
+  (_g.__yoCallProfilerState = {
+    tryCallCount: 0,
+    specializeCount: 0,
+    cacheHitCount: 0,
+    cacheMissCount: 0,
+    specializeNames: new Map<string, number>(),
+    tryCallNames: new Map<string, number>(),
+  });
+export function _printCallProfile() {
+  if (!isCallProfilerEnabled) {
+    return;
+  }
+  console.log(
+    `[CALL PROFILE] tryToCallFunctionWithArguments: ${_callProfilerState.tryCallCount} calls`
+  );
+  console.log(
+    `[CALL PROFILE] createSpecializedFunctionInline: ${_callProfilerState.specializeCount} calls (cache hit: ${_callProfilerState.cacheHitCount}, miss: ${_callProfilerState.cacheMissCount})`
+  );
+  const sorted = [..._callProfilerState.tryCallNames.entries()].sort(
+    (a: [string, number], b: [string, number]) => b[1] - a[1]
+  );
+  console.log(`[CALL PROFILE] Top tryToCall functions:`);
+  for (const [name, count] of sorted.slice(0, 30)) {
+    console.log(`  ${name}: ${count}`);
+  }
+  const sortedSpec = [..._callProfilerState.specializeNames.entries()].sort(
+    (a: [string, number], b: [string, number]) => b[1] - a[1]
+  );
+  console.log(`[CALL PROFILE] Top specialized functions:`);
+  for (const [name, count] of sortedSpec.slice(0, 20)) {
+    console.log(`  ${name}: ${count}`);
+  }
+}
+
 /**
  * NOTE: This function will push new frame to the function env,
  * but will not pop frame.
@@ -657,6 +716,30 @@ export function tryToCallFunctionWithArguments({
    */
   skipCtfeExecution?: boolean;
 }): FunctionCallResult {
+  if (isCallProfilerEnabled) {
+    _callProfilerState.tryCallCount++;
+    let _tcName = "(unknown)";
+    if (
+      functionValue &&
+      "funcName" in functionValue &&
+      functionValue.funcName
+    ) {
+      _tcName = functionValue.funcName;
+    } else if (functionValue && "funcId" in functionValue) {
+      _tcName = String(functionValue.funcId);
+    } else if (functionCalleeExpr) {
+      _tcName = exprToString(functionCalleeExpr).slice(0, 60);
+    }
+    _callProfilerState.tryCallNames.set(
+      _tcName,
+      (_callProfilerState.tryCallNames.get(_tcName) ?? 0) + 1
+    );
+    if (_callProfilerState.tryCallCount <= 5) {
+      console.log(
+        `[DEBUG tryCall] #${_callProfilerState.tryCallCount}: name=${_tcName}, hasFuncValue=${!!functionValue}, hasFuncCalleeExpr=${!!functionCalleeExpr}`
+      );
+    }
+  }
   if (functionValue) {
     // Use the specializedType if available (e.g., from generic impls)
     // Only fall back to functionValue.type if specializedType exists
@@ -2215,6 +2298,14 @@ function createSpecializedFunctionInline({
   callerEnv: Environment;
   context: EvaluatorContext;
 }): FunctionValue {
+  if (isCallProfilerEnabled) {
+    _callProfilerState.specializeCount++;
+    const funcName = originalFunction.funcName ?? originalFunction.funcId;
+    _callProfilerState.specializeNames.set(
+      funcName,
+      (_callProfilerState.specializeNames.get(funcName) ?? 0) + 1
+    );
+  }
   const functionType = originalFunction.type;
 
   // Extract compile-time argument values for caching
@@ -2316,7 +2407,13 @@ function createSpecializedFunctionInline({
   );
 
   if (existingCache) {
+    if (isCallProfilerEnabled) {
+      _callProfilerState.cacheHitCount++;
+    }
     return existingCache.specializedFunction;
+  }
+  if (isCallProfilerEnabled) {
+    _callProfilerState.cacheMissCount++;
   }
 
   // Create specialized environment with compile-time arguments bound

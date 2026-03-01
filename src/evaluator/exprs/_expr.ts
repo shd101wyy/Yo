@@ -114,12 +114,12 @@ import { evaluateModuleValue } from "../values/impl";
 import { evaluateIntegerLiteral } from "../values/integer";
 import { evaluateStringLiteral } from "../values/string";
 import { evaluateTupleValue } from "../values/tuple";
-import { evaluateEscape } from "./escape";
 import { evaluateAssignment } from "./assignment";
 import { evaluateBeginExpression } from "./begin";
 import { evaluateBinding } from "./binding";
 import { evaluateCInclude } from "./c-include";
 import { evaluateCond } from "./cond";
+import { evaluateEscape } from "./escape";
 import { evaluateExtern } from "./extern";
 import { evaluateIdentifierAndOperator } from "./identifer-and-operator";
 import { evaluateImport } from "./import";
@@ -134,6 +134,45 @@ import { evaluateTest } from "./test";
 import { evaluateTypeOf } from "./typeof";
 import { evaluateWhile } from "./while";
 
+function isDebugFlagEnabled(name: string): boolean {
+  const value = process.env[name];
+  return value === "1" || value?.toLowerCase() === "true";
+}
+
+const isEvalProfilerEnabled =
+  isDebugFlagEnabled("YO_DEBUG_EVAL") ||
+  isDebugFlagEnabled("YO_DEBUG_EVAL_PROFILE");
+
+type EvalProfilerGlobalState = {
+  __yoEvalProfilerState?: {
+    evalCount: number;
+    evalStart: number;
+  };
+};
+
+const _ge: typeof globalThis & EvalProfilerGlobalState = globalThis;
+const _evalProfilerState =
+  _ge.__yoEvalProfilerState ??
+  (_ge.__yoEvalProfilerState = { evalCount: 0, evalStart: 0 });
+export function _resetEvalProfiler() {
+  if (!isEvalProfilerEnabled) {
+    return;
+  }
+  _evalProfilerState.evalCount = 0;
+  _evalProfilerState.evalStart = Date.now();
+}
+export function _printEvalProfile() {
+  if (!isEvalProfilerEnabled) {
+    return;
+  }
+  if (!_evalProfilerState.evalStart) {
+    _evalProfilerState.evalStart = Date.now();
+  }
+  console.log(
+    `[EVAL PROFILE] ${_evalProfilerState.evalCount} evaluateExpression calls in ${Date.now() - _evalProfilerState.evalStart}ms`
+  );
+}
+
 export function _evaluateExpression({
   expr,
   env,
@@ -143,6 +182,17 @@ export function _evaluateExpression({
   env: Environment;
   context: EvaluatorContext;
 }): Expr {
+  if (isEvalProfilerEnabled) {
+    if (!_evalProfilerState.evalStart) {
+      _evalProfilerState.evalStart = Date.now();
+    }
+    _evalProfilerState.evalCount++;
+    if (_evalProfilerState.evalCount % 100000 === 0) {
+      console.log(
+        `[EVAL] ${_evalProfilerState.evalCount} calls, ${Date.now() - _evalProfilerState.evalStart}ms elapsed`
+      );
+    }
+  }
   if (exprIsAtom(expr)) {
     switch (expr.token.type) {
       case TokenType.Identifier:
