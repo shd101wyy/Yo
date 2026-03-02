@@ -8,13 +8,15 @@ import { formatErrorMessage, formatErrorMessages } from "../../error";
 import {
   attachTempVariableToExpr,
   BuiltinKeywords,
-  type ControlFlowKind,
+  type ControlFlowFlags,
+  controlFlowToString,
   type Expr,
   exprIsAtom,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
   exprToString,
   type FnCallExpr,
+  hasAnyControlFlow,
   requireExprNotConsumed,
   setExprAsNeedsToCallDup,
 } from "../../expr";
@@ -74,24 +76,25 @@ import { evaluateIdentifierAndOperator } from "./identifer-and-operator";
 
 export function throwRhsContainsControlFlowExpressionError(
   rhs: Expr,
-  controlFlow: ControlFlowKind
+  controlFlow: ControlFlowFlags
 ) {
-  let errorMessage = `Right-hand side contains "${controlFlow}" from function.`;
+  const controlFlowStr = controlFlowToString(controlFlow);
+  let errorMessage = `Right-hand side contains "${controlFlowStr}" from function.`;
   if (
     exprIsFunctionCall(rhs) &&
     exprIsFunctionCallOf(rhs, BuiltinKeywords.cond)
   ) {
-    errorMessage = `Cannot assign "cond" expression to variable when all cases contain "${controlFlow}" statements. Consider using the "cond" result directly without assignment, or ensure at least one case doesn't return.`;
+    errorMessage = `Cannot assign "cond" expression to variable when all cases contain "${controlFlowStr}" statements. Consider using the "cond" result directly without assignment, or ensure at least one case doesn't return.`;
   } else if (
     exprIsFunctionCall(rhs) &&
     exprIsFunctionCallOf(rhs, BuiltinKeywords.match)
   ) {
-    errorMessage = `Cannot assign "match" expression to variable when all cases contain "${controlFlow}" statements. Consider using the "match" result directly without assignment, or ensure at least one case doesn't return.`;
+    errorMessage = `Cannot assign "match" expression to variable when all cases contain "${controlFlowStr}" statements. Consider using the "match" result directly without assignment, or ensure at least one case doesn't return.`;
   } else if (
     exprIsFunctionCall(rhs) &&
     exprIsFunctionCallOf(rhs, BuiltinKeywords.begin)
   ) {
-    errorMessage = `Cannot assign "begin" expression to variable when it contains "${controlFlow}" statement.`;
+    errorMessage = `Cannot assign "begin" expression to variable when it contains "${controlFlowStr}" statement.`;
   }
 
   throw formatErrorMessage({
@@ -249,8 +252,8 @@ You can mutate fields (e.g., ${variableName}.field = value) but cannot reassign 
     setExprAsNeedsToCallDup(rhs, context);
     env = rhs.$.env;
 
-    if (rhs.$?.controlFlow) {
-      throwRhsContainsControlFlowExpressionError(rhs, rhs.$.controlFlow);
+    if (hasAnyControlFlow(rhs.$?.controlFlow)) {
+      throwRhsContainsControlFlowExpressionError(rhs, rhs.$.controlFlow!);
     }
 
     let rhsType = rhs.$?.type;

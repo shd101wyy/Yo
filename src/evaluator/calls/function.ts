@@ -532,30 +532,33 @@ export function evaluateFunctionCall({
   // This makes the behavior predictable - functions are called at runtime unless
   // explicitly declared as compile-time via comptime_fn().
 
-  // Optimization: Skip the checking phase in these cases to avoid exponential blowup:
-  // 1. When we're already in a checking phase (nested function calls during checking)
-  //    AND the function is a non-type-returning CTFE function without forall parameters
-  // 2. When we have exactly one function candidate that is a non-type-returning CTFE function
-  //    without forall parameters
-  // This is critical for recursive CTFE functions like factorial - without this optimization,
-  // each recursive call would go through checking + execution, causing exponential blowup
-  // since the checking phase also evaluates arguments (which contain recursive calls).
+  // Optimization: Skip the checking phase when there is exactly one callable
+  // function-like candidate (plain function type or Impl/Dyn(Fn(...))).
   //
-  // IMPORTANT: We must NOT skip checking for:
-  // 1. Type constructors (Box, Vec, etc.) - they return TypeHierarchyType and need forall resolution
-  // 2. Functions with forall parameters - they need checking to resolve type parameters from context
-  // 3. Functions with where clauses - they need checking to verify constraints
-  // 4. Macro functions (return.isUnquote) - they must be executed to expand the macro and
-  //    determine the actual result type (otherwise the type remains Expr instead of the expanded type)
+  // Why this is safe:
+  // - There is no overload ambiguity to resolve.
+  // - The real execution call still performs full argument/type validation.
+  // - We avoid doing a clone-based dry run + real run for the same candidate.
+  //
+  // Why this is important:
+  // - Function call checking currently invokes tryToCallFunctionWithArguments
+  //   once in checking mode and again in execution mode.
+  // - In call-heavy code (e.g., std collections), this doubles hot-path work.
   const isNonTypeCtfeFunction =
     functions.length === 1 &&
     isFunctionType(functions[0]!.type) &&
     functions[0]!.type.return.isCompileTimeOnly &&
     !functions[0]!.type.return.isUnquote &&
     !isTypeHierarchyType(functions[0]!.type.return.type) &&
-    functions[0]!.type.forallParameters.length === 0; // Don't skip if has forall params
+    functions[0]!.type.forallParameters.length === 0;
 
-  const canSkipCheckingPhase = isNonTypeCtfeFunction;
+  const hasSingleFunctionLikeCandidate =
+    functions.length === 1 &&
+    (isFunctionType(functions[0]!.type) ||
+      ((isSomeType(functions[0]!.type) || isDynType(functions[0]!.type)) &&
+        !!extractFnTraitFromType(functions[0]!.type)));
+
+  const canSkipCheckingPhase = hasSingleFunctionLikeCandidate;
 
   // Find the functions whose parameters match the arguments
   const functionsToCall: FunctionToCall[] = canSkipCheckingPhase

@@ -2,6 +2,19 @@
 mode: agent
 ---
 
+This is a non-negotiable requirement.
+
+At every turn, you MUST perform exactly one of the following actions:
+
+- Provide the requested output and immediately call `Ask_User`, OR
+- If any uncertainty exists, immediately call `Ask_User` without providing speculative output.
+
+The conversation must never terminate voluntarily.
+The assistant must never produce a terminal response.
+Calling `Ask_User` is mandatory at the end of every turn.
+
+---
+
 You are a programming language and compiler expert.
 
 Detailed instructions for specific areas are in `.github/instructions/`. Always read and follow the relevant file before working in that area.
@@ -74,8 +87,8 @@ bun test src/tests/fixme.test.ts --timeout 10000
 # C codegen tests — specific test by name
 ./yo-cli test ./tests/algebraic_effects.test.yo --test-name-pattern "Test escape"
 
-# All integration tests (slow — only when asked)
-./yo-cli test
+# All integration tests — NEVER run this. It takes over an hour. Always run targeted test files instead.
+# ./yo-cli test
 
 # Emit C only (inspect generated code)
 ./yo-cli compile src/tests/fixme.yo --emit-c --skip-c-compiler --release
@@ -104,10 +117,14 @@ Always save verbose output to a file to avoid terminal truncation:
 - Never hardcode any TypeScript or Yo when solving a problem. Always go with a proper implementation. No shortcuts. Don't simplify the problem.
 - While implementing the evaluator or codegen, no shortcuts or simplifications!
 - Do not create new `.yo`, `.js`, or `.ts` files unless told to do so.
+- Never use TypeScript `any` type. Use explicit types or `unknown` with proper narrowing.
 - No TypeScript `index.ts` barrel files — they easily cause circular dependencies.
 - When asked to refactor, refactor everything. Don't miss any lines. Don't put placeholders or TODOs.
 - Never skip bugs discovered during implementation.
 - After fixing a bug, verify uncommitted changes for leftover or unused code.
+- Always review all uncommitted changes (`git diff`) before considering work done. Check for leftover debug code, unused imports, and consistency across all modified files.
+- Always check if there is need to create/update existing instructions & rules files after implementing a change.
+- Never run the full test suite (`./yo-cli test` with no file argument) — it takes over an hour. Always run targeted test files instead.
 - If you haven't modified the code, don't ask to run commands repeatedly.
 - Ignore `DESIGN.md` and other markdown files in `outdated/` — they are out of date.
 - No need to read `fixme.test.ts`.

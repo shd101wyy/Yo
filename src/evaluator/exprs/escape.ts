@@ -1,6 +1,6 @@
 import { type Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
-import { type Expr, type FnCallExpr } from "../../expr";
+import { controlFlowOf, type Expr, type FnCallExpr } from "../../expr";
 import { areTypesCompatible } from "../../types/compatibility";
 import { isSomeType } from "../../types/guards";
 import { typeToString } from "../../types/utils";
@@ -88,7 +88,7 @@ export function evaluateEscape({
     type: evaluatedArg.$.type,
     value: undefined,
     pathCollection: [],
-    controlFlow: "escape",
+    controlFlow: controlFlowOf("escape"),
   };
   return expr;
 }

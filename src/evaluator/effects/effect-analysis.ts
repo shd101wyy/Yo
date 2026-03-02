@@ -14,16 +14,17 @@ import { getValueOfSomeTypeFromEnv } from "../../types/env-lookup";
 import {
   isEffectsRowType,
   isFunctionType,
+  isModuleType,
   isSomeType,
 } from "../../types/guards";
 import { isTypeValue } from "../../value";
 import { isIoAsyncCall } from "../async/await-analysis";
-import { extractFnTraitFromType } from "../trait-checking";
 import {
   analyzeSuspensionPoints,
   extractTargetVariableId,
   type SuspensionPointDetector,
 } from "../shared/suspension-analysis";
+import { extractFnTraitFromType } from "../trait-checking";
 
 export type {
   EffectAnalysisResult,
@@ -61,19 +62,48 @@ export function analyzeEffectCallPoints(
   includeTransitiveCalls: boolean = false,
   effectFieldPath?: string[]
 ): EffectAnalysisResult {
+  // Check if the effect parameter type is a function type so we can use it
+  // as a fallback for type info when sub-expressions lack evaluation data
+  // (e.g., bodies of functions with forall(...(E)) spread effect parameters).
+  const effectParamFnType = isFunctionType(effectParameterType)
+    ? effectParameterType
+    : undefined;
+
   const detector: SuspensionPointDetector<EffectCallPoint> = {
     detect(expr, parentExpr, points) {
       if (expr.tag !== ExprTag.FnCall) return;
 
+      const isMatch = isEffectCall(
+        expr,
+        effectParameterName,
+        effectFieldPath,
+        /* allowMissingType */ true
+      );
+
       // Check if this is a ctl effect call (call to the effect parameter)
-      if (isEffectCall(expr, effectParameterName, effectFieldPath)) {
+      // Use allowMissingType=true so that calls in generic bodies (where
+      // sub-expression type info may be missing) are still detected.
+      if (isMatch) {
         const operationArgTypes: Type[] = [];
         for (const arg of expr.args) {
           if (arg.$?.type) {
             operationArgTypes.push(arg.$.type);
           }
         }
-        const operationResultType = expr.$?.type;
+
+        // Fall back to the effect parameter function type for argument types
+        // when the expression sub-nodes lack type info (generic body context).
+        if (operationArgTypes.length === 0 && effectParamFnType) {
+          for (const param of effectParamFnType.parameters) {
+            if (!param.isCompileTimeOnly) {
+              operationArgTypes.push(param.type);
+            }
+          }
+        }
+
+        // Fall back to the effect parameter return type for the result type
+        const operationResultType =
+          expr.$?.type ?? effectParamFnType?.return.type;
 
         if (operationArgTypes.length > 0 && operationResultType) {
           const targetVariableId = extractTargetVariableId(parentExpr);
@@ -159,11 +189,16 @@ export function analyzeEffectCallPoints(
  * 1. Direct calls like `raise(msg)` where `raise` is the effect parameter name.
  * 2. Module member calls like `raise_mod.raise(msg)` or nested like
  *    `mod.errors.raise(msg)` where the effectFieldPath traces the field access chain.
+ *
+ * When allowMissingType is true, the type check on func.$?.type is relaxed.
+ * This is needed for functions with forall(...(E)) spread effect parameters
+ * whose body sub-expressions may not have type info set during generic evaluation.
  */
 function isEffectCall(
   expr: Expr,
   effectParameterName: string,
-  effectFieldPath?: string[]
+  effectFieldPath?: string[],
+  allowMissingType: boolean = false
 ): boolean {
   if (expr.tag !== ExprTag.FnCall) return false;
 
@@ -175,7 +210,11 @@ function isEffectCall(
     if (func.token.value !== effectParameterName) return false;
 
     const funcType = func.$?.type;
-    if (!funcType || !isFunctionType(funcType)) return false;
+    if (!allowMissingType && (!funcType || !isFunctionType(funcType)))
+      return false;
+    // When allowMissingType is true, we accept the match if the name matches
+    // even without type info (the caller already knows this is a function type)
+    if (allowMissingType && funcType && !isFunctionType(funcType)) return false;
 
     return true;
   }
@@ -206,7 +245,9 @@ function isEffectCall(
 
   // Verify the resolved type of the outermost "." expression is a function
   const funcType = func.$?.type;
-  if (!funcType || !isFunctionType(funcType)) return false;
+  if (!allowMissingType && (!funcType || !isFunctionType(funcType)))
+    return false;
+  if (allowMissingType && funcType && !isFunctionType(funcType)) return false;
 
   return true;
 }
@@ -237,7 +278,7 @@ function isTransitiveEffectCall(
     for (const implicitParam of funcType.implicitParameters) {
       if (
         implicitParam.label === effectParameterName &&
-        isFunctionType(implicitParam.type)
+        (isFunctionType(implicitParam.type) || isModuleType(implicitParam.type))
       ) {
         return { matched: true, viaClosure: false };
       }
@@ -265,7 +306,8 @@ function isTransitiveEffectCall(
       for (const implicitParam of callType.implicitParameters) {
         if (
           implicitParam.label === effectParameterName &&
-          isFunctionType(implicitParam.type)
+          (isFunctionType(implicitParam.type) ||
+            isModuleType(implicitParam.type))
         ) {
           return { matched: true, viaClosure: true };
         }
@@ -326,7 +368,7 @@ function hasEffectInSpread(
     for (const innerParam of effectsRowType.implicitParameters) {
       if (
         innerParam.label === effectParameterName &&
-        isFunctionType(innerParam.type)
+        (isFunctionType(innerParam.type) || isModuleType(innerParam.type))
       ) {
         return true;
       }

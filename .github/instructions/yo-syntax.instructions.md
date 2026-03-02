@@ -87,6 +87,18 @@ Always use parentheses to group operations: `((a + b) * c)` not `a + b * c`
 
 Example: `((value <= 0x10FFFF) && ((value < 0xD800) || (value > 0xDFFF)))`
 
+## Unary operators need parentheses around their operand
+
+Unary operators like `!` greedily consume everything that follows, including comma-separated arguments. Always wrap the operand in parentheses.
+
+```yo
+// WRONG — `!` captures `d.is_empty(), "msg"` as one expression:
+assert(!d.is_empty(), "should not be empty");
+
+// CORRECT — parentheses limit the operand:
+assert(!(d.is_empty()), "should not be empty");
+```
+
 ## Other syntax notes
 
 - `unit` is a type not value, `()` is the unit value.

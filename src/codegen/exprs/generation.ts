@@ -18,6 +18,7 @@ import {
   ExprTag,
   exprToString,
   type FnCallExpr,
+  hasAnyControlFlow,
 } from "../../expr";
 import type { FunctionImplicitParameter } from "../../types/definitions";
 import {
@@ -639,7 +640,7 @@ function generateFuncCall(
     expr.$?.value &&
     !isUnknownValue(expr.$?.value) &&
     !isUnitType(expr.$.type) &&
-    !expr.$?.controlFlow
+    !hasAnyControlFlow(expr.$?.controlFlow)
   ) {
     const value: Value = expr.$.value;
     return generateComptimeValue(value, context, expr);

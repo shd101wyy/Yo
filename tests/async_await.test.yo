@@ -1642,7 +1642,7 @@ test "Test Future no effects backward compat", using(io : IO), {
 // 60. Future(T, ...(E)) — single row spread (backward compat)
 // ---------------------------------------------------------------------------
 test "Test Future with single effect row spread", using(io : IO), {
-  Raise :: (fn(forall(T : Type), msg : String) -> T);
+  Raise :: (fn(msg : String) -> i32);
 
   might_fail :: (fn(using(raise : Raise)) -> i32)(
     raise(`oops`)
@@ -1668,7 +1668,7 @@ test "Test Future with single effect row spread", using(io : IO), {
 // 61. Single individual effect — Raise used directly in async
 // ---------------------------------------------------------------------------
 test "Test Future with single individual effect", using(io : IO), {
-  Raise :: (fn(forall(T : Type), msg : String) -> T);
+  Raise :: (fn(msg : String) -> i32);
 
   might_fail :: (fn(using(raise : Raise)) -> i32)(
     raise(`single-effect`)
@@ -1691,7 +1691,7 @@ test "Test Future with single individual effect", using(io : IO), {
 // 62. Multiple individual effects: Raise and Log
 // ---------------------------------------------------------------------------
 test "Test Future with multiple individual effects", using(io : IO), {
-  Raise :: (fn(forall(T : Type), msg : String) -> T);
+  Raise :: (fn(msg : String) -> i32);
   Log :: (fn(msg : String) -> unit);
 
   might_fail_and_log :: (fn(using(raise : Raise, log : Log)) -> i32)({
@@ -1719,7 +1719,7 @@ test "Test Future with multiple individual effects", using(io : IO), {
 // 63. Multiple effect row spreads: ...(E1), ...(E2)
 // ---------------------------------------------------------------------------
 test "Test Future with multiple effect row spreads", using(io : IO), {
-  Raise :: (fn(forall(T : Type), msg : String) -> T);
+  Raise :: (fn(msg : String) -> i32);
   Log :: (fn(msg : String) -> unit);
 
   might_fail :: (fn(using(raise : Raise)) -> i32)(
@@ -1761,7 +1761,7 @@ test "Test Future with multiple effect row spreads", using(io : IO), {
 // 64. Mixed: individual effect + spread: using(my_raise : Raise, ...(E))
 // ---------------------------------------------------------------------------
 test "Test Future with mixed individual effect and spread", using(io : IO), {
-  Raise :: (fn(forall(T : Type), msg : String) -> T);
+  Raise :: (fn(msg : String) -> i32);
 
   task := io.async((using(io : IO))=> {
     (given(raise) : Raise) = ((msg) -> {
@@ -1795,7 +1795,7 @@ test "Test Future with mixed individual effect and spread", using(io : IO), {
 //     Effects listed in different order than the closure's (IO, Raise, Log)
 // ---------------------------------------------------------------------------
 test "Test type-level Impl Future with individual effects", using(io : IO), {
-  Raise :: (fn(forall(T : Type), msg : String) -> T);
+  Raise :: (fn(msg : String) -> i32);
   Log :: (fn(msg : String) -> unit);
 
   (given(raise) : Raise) = ((msg) -> {
@@ -1819,7 +1819,7 @@ test "Test type-level Impl Future with individual effects", using(io : IO), {
 //     ...(Raise) where Raise is a concrete effect is equivalent to just Raise
 // ---------------------------------------------------------------------------
 test "Test type-level Impl Future with spread of named type", using(io : IO), {
-  Raise :: (fn(forall(T : Type), msg : String) -> T);
+  Raise :: (fn(msg : String) -> i32);
   Log :: (fn(msg : String) -> unit);
 
   (given(raise) : Raise) = ((msg) -> {
@@ -1841,7 +1841,7 @@ test "Test type-level Impl Future with spread of named type", using(io : IO), {
 // 67. Impl(Future(i32, IO, Raise, ...(Log))) — individual then spread
 // ---------------------------------------------------------------------------
 test "Test type-level Impl Future with individual then spread", using(io : IO), {
-  Raise :: (fn(forall(T : Type), msg : String) -> T);
+  Raise :: (fn(msg : String) -> i32);
   Log :: (fn(msg : String) -> unit);
 
   (given(raise) : Raise) = ((msg) -> {
@@ -1864,7 +1864,7 @@ test "Test type-level Impl Future with individual then spread", using(io : IO), 
 // 67b. Explicit Impl(Future(i32, IO, Raise, Log)) type annotation on task
 // ---------------------------------------------------------------------------
 test "Test explicit Future type annotation on task", using(io : IO), {
-  Raise :: (fn(forall(T : Type), msg : String) -> T);
+  Raise :: (fn(msg : String) -> i32);
   Log :: (fn(msg : String) -> unit);
 
   (given(raise) : Raise) = ((msg) -> {
@@ -1888,7 +1888,7 @@ test "Test explicit Future type annotation on task", using(io : IO), {
 //      order than closure's using(io : IO, raise : Raise, log : Log)
 // ---------------------------------------------------------------------------
 test "Test explicit Future type annotation with reordered effects", using(io : IO), {
-  Raise :: (fn(forall(T : Type), msg : String) -> T);
+  Raise :: (fn(msg : String) -> i32);
   Log :: (fn(msg : String) -> unit);
 
   (given(raise) : Raise) = ((msg) -> {
@@ -1911,7 +1911,7 @@ test "Test explicit Future type annotation with reordered effects", using(io : I
 // 67d. Explicit Impl(Future(i32, IO, Log, Raise)) — without specifically naming using variables (using(_io, _raise, _log))
 // ---------------------------------------------------------------------------
 test "Test explicit Future type annotation with closure value without specifically naming using variable types", using(io : IO), {
-  Raise :: (fn(forall(T : Type), msg : String) -> T);
+  Raise :: (fn(msg : String) -> i32);
   Log :: (fn(msg : String) -> unit);
 
   (given(raise) : Raise) = ((msg) -> {
@@ -2032,6 +2032,8 @@ test "Test io.state consistency", using(io : IO), {
 };
 
 test "Test escape in async closure", using(io : IO), {
+  // NOTE: Using forall(T) here due to a C codegen bug where concrete effect
+  // types in async closures produce "No C function name found" errors.
   Raise :: (fn(forall(T : Type), msg : String) -> T);
 
   {

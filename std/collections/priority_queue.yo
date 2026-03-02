@@ -1,0 +1,121 @@
+// std/collections/priority_queue.yo - Binary min-heap (priority queue)
+//
+// PriorityQueue keeps elements in ascending order (smallest first).
+// Use a negated key to get a max-heap.
+//
+// Example:
+//   { PriorityQueue } :: import "std/collections/priority_queue";
+//
+//   pq := PriorityQueue(i32).new();
+//   pq.push(5);
+//   pq.push(1);
+//   pq.push(3);
+//   x := pq.pop().unwrap();  // 1
+
+{ ArrayList } :: import "./array_list";
+
+// ============================================================================
+// PriorityQueue — min-heap backed by ArrayList
+// ============================================================================
+
+PriorityQueue :: (fn(comptime(T) : Type) -> comptime(Type))(
+  object(
+    _data : ArrayList(T)
+  )
+);
+
+impl(forall(T : Type), PriorityQueue(T),
+  // Create an empty priority queue.
+  new : (fn() -> Self)(
+    Self(_data: ArrayList(T).new())
+  ),
+
+  // Number of elements.
+  len : (fn(self: Self) -> usize)(
+    self._data.len()
+  ),
+
+  // True if empty.
+  is_empty : (fn(self: Self) -> bool)(
+    (self._data.len() == usize(0))
+  ),
+
+  // Inspect the smallest element without removing it.
+  peek : (fn(self: Self) -> Option(T))(
+    cond(
+      (self._data.len() == usize(0)) => .None,
+      true => self._data.get(usize(0))
+    )
+  ),
+
+  // Insert a new element.
+  push : (fn(self: Self, val: T, where(T <: Ord(T))) -> unit)({
+    self._data.push(val);
+    // Sift up
+    i := (self._data.len() - usize(1));
+    while (i > usize(0)), {
+      parent := ((i - usize(1)) / usize(2));
+      child_val  := self._data.get(i).unwrap();
+      parent_val := self._data.get(parent).unwrap();
+      cond(
+        (child_val < parent_val) => {
+          self._data.set(i, parent_val);
+          self._data.set(parent, child_val);
+          i = parent;
+        },
+        true => {
+          break;
+        }
+      );
+    };
+  }),
+
+  // Remove and return the smallest element.
+  pop : (fn(self: Self, where(T <: Ord(T))) -> Option(T))({
+    n := self._data.len();
+    cond(
+      (n == usize(0)) => .None,
+      true => {
+        top  := self._data.get(usize(0)).unwrap();
+        last := self._data.get((n - usize(1))).unwrap();
+        self._data.set(usize(0), last);
+        self._data.pop();
+        // Sift down
+        i := usize(0);
+        while runtime(true), {
+          left  := ((i * usize(2)) + usize(1));
+          right := ((i * usize(2)) + usize(2));
+          smallest := i;
+          new_n := self._data.len();
+          cond(
+            ((left < new_n) && (self._data.get(left).unwrap() < self._data.get(smallest).unwrap())) => {
+              smallest = left;
+            },
+            true => ()
+          );
+          cond(
+            ((right < new_n) && (self._data.get(right).unwrap() < self._data.get(smallest).unwrap())) => {
+              smallest = right;
+            },
+            true => ()
+          );
+          cond(
+            (smallest == i) => {
+              break;
+            },
+            true => {
+              a := self._data.get(i).unwrap();
+              b := self._data.get(smallest).unwrap();
+              self._data.set(i, b);
+              self._data.set(smallest, a);
+              i = smallest;
+            }
+          );
+        };
+        .Some(top)
+      }
+    )
+  })
+);
+
+export PriorityQueue;

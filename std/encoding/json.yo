@@ -1,0 +1,551 @@
+// std/encoding/json.yo - JSON parsing and serialisation
+//
+// Provides a dynamically-typed JSON value tree.
+//
+// Example:
+//   { json_parse, json_stringify, JsonValue } :: import "std/encoding/json";
+//
+//   v := json_parse(`{"x": 1}`).unwrap();
+//   println(json_stringify(v));
+
+open import "../string";
+{ ArrayList } :: import "../collections/array_list";
+{ snprintf } :: import "../libc/stdio";
+
+// ============================================================================
+// JsonError
+// ============================================================================
+
+JsonError :: enum(
+  .UnexpectedChar(ch: u8, pos: usize),
+  .UnexpectedEnd,
+  .InvalidNumber,
+  .InvalidEscape,
+  .InvalidUnicode,
+  .Other(msg: String)
+);
+
+export JsonError;
+
+// ============================================================================
+// JsonKV - key/value pair for Object
+// ============================================================================
+
+JsonKV :: struct(
+  key   : String,
+  value : JsonValue
+);
+
+// ============================================================================
+// JsonValue
+// ============================================================================
+
+JsonValue :: enum(
+  .Null,
+  .Bool(value: bool),
+  .Number(value: f64),
+  .Str(value: String),
+  .Array(items: ArrayList(JsonValue)),
+  .Object(fields: ArrayList(JsonKV))
+);
+
+impl(JsonValue,
+  // Get a field from an Object value. Returns .None if not an Object or key missing.
+  get : (fn(self: Self, key: String) -> ?JsonValue)(
+    match(self,
+      .Object(fields) => {
+        i := usize(0);
+        while (i < fields.len()), (i = (i + usize(1))), {
+          kv := fields.get(i).unwrap();
+          cond(
+            (kv.key == key) => { return .Some(kv.value); },
+            true => ()
+          );
+        };
+        .None
+      },
+      _ => .None
+    )
+  ),
+
+  // Get an element from an Array value by index.
+  at : (fn(self: Self, index: usize) -> ?JsonValue)(
+    match(self,
+      .Array(items) => items.get(index),
+      _ => .None
+    )
+  ),
+
+  // Extract a bool.
+  as_bool : (fn(self: Self) -> ?bool)(
+    match(self,
+      .Bool(b) => .Some(b),
+      _ => .None
+    )
+  ),
+
+  // Extract a number.
+  as_number : (fn(self: Self) -> ?f64)(
+    match(self,
+      .Number(n) => .Some(n),
+      _ => .None
+    )
+  ),
+
+  // Extract a string.
+  as_string : (fn(self: Self) -> ?String)(
+    match(self,
+      .Str(s) => .Some(s),
+      _ => .None
+    )
+  ),
+
+  // Extract an array.
+  as_array : (fn(self: Self) -> ?ArrayList(JsonValue))(
+    match(self,
+      .Array(items) => .Some(items),
+      _ => .None
+    )
+  ),
+
+  // Extract an object as ArrayList(JsonKV).
+  as_object : (fn(self: Self) -> ?ArrayList(JsonKV))(
+    match(self,
+      .Object(fields) => .Some(fields),
+      _ => .None
+    )
+  )
+);
+
+export JsonValue, JsonKV;
+
+// ============================================================================
+// Parser state
+// ============================================================================
+
+_Parser :: object(
+  src : str,
+  pos : usize
+);
+
+impl(_Parser,
+  new : (fn(src: str) -> Self)(
+    Self(src: src, pos: usize(0))
+  ),
+
+  peek : (fn(self: Self) -> ?u8)(
+    cond(
+      (self.pos < self.src.len()) => .Some(self.src.bytes(self.pos)),
+      true => .None
+    )
+  ),
+
+  advance : (fn(self: Self) -> unit)(
+    self.pos = (self.pos + usize(1))
+  ),
+
+  skip_ws : (fn(self: Self) -> unit)({
+    while runtime(true), () => {
+      match(self.peek(),
+        .None => break,
+        .Some(c) => {
+          cond(
+            ((c == u8(32)) || (c == u8(9)) || (c == u8(10)) || (c == u8(13))) => {
+              self.advance();
+            },
+            true => break
+          );
+        }
+      );
+    };
+  }),
+
+  expect : (fn(self: Self, ch: u8) -> Result(unit, JsonError))({
+    self.skip_ws();
+    match(self.peek(),
+      .None => .Err(.UnexpectedEnd),
+      .Some(c) => {
+        cond(
+          (c == ch) => {
+            self.advance();
+            .Ok(())
+          },
+          true => .Err(.UnexpectedChar(c, self.pos))
+        )
+      }
+    )
+  }),
+
+  parse_string : (fn(self: Self) -> Result(String, JsonError))({
+    self.advance(); // skip opening '"'
+    bytes := ArrayList(u8).new();
+    while runtime(true), () => {
+      match(self.peek(),
+        .None => { return .Err(.UnexpectedEnd); },
+        .Some(c) => {
+          cond(
+            (c == u8(34)) => { // '"'
+              self.advance();
+              break;
+            },
+            (c == u8(92)) => { // '\'
+              self.advance();
+              match(self.peek(),
+                .None => { return .Err(.UnexpectedEnd); },
+                .Some(e) => {
+                  self.advance();
+                  cond(
+                    (e == u8(110)) => bytes.push(u8(10)),  // \n
+                    (e == u8(116)) => bytes.push(u8(9)),   // \t
+                    (e == u8(114)) => bytes.push(u8(13)),  // \r
+                    (e == u8(34))  => bytes.push(u8(34)),  // \"
+                    (e == u8(92))  => bytes.push(u8(92)),  // \\
+                    (e == u8(47))  => bytes.push(u8(47)),  // \/
+                    (e == u8(98))  => bytes.push(u8(8)),   // \b
+                    (e == u8(102)) => bytes.push(u8(12)),  // \f
+                    true           => { return .Err(.InvalidEscape); }
+                  );
+                }
+              );
+            },
+            true => {
+              bytes.push(c);
+              self.advance();
+            }
+          );
+        }
+      );
+    };
+    .Ok(String.from_bytes(bytes))
+  }),
+
+  parse_number : (fn(self: Self) -> Result(f64, JsonError))({
+    start := self.pos;
+    match(self.peek(),
+      .Some(c) => {
+        cond(
+          (c == u8(45)) => self.advance(), // '-'
+          true => ()
+        );
+      },
+      .None => ()
+    );
+    while runtime(true), () => {
+      match(self.peek(),
+        .Some(c) => {
+          cond(
+            ((c >= u8(48)) && (c <= u8(57))) => self.advance(),
+            true => break
+          );
+        },
+        .None => break
+      );
+    };
+    match(self.peek(),
+      .Some(c) => {
+        cond(
+          (c == u8(46)) => { // '.'
+            self.advance();
+            while runtime(true), () => {
+              match(self.peek(),
+                .Some(d) => {
+                  cond(
+                    ((d >= u8(48)) && (d <= u8(57))) => self.advance(),
+                    true => break
+                  );
+                },
+                .None => break
+              );
+            };
+          },
+          true => ()
+        );
+      },
+      .None => ()
+    );
+    match(self.peek(),
+      .Some(c) => {
+        cond(
+          ((c == u8(101)) || (c == u8(69))) => { // 'e' or 'E'
+            self.advance();
+            match(self.peek(),
+              .Some(s) => {
+                cond(
+                  ((s == u8(43)) || (s == u8(45))) => self.advance(),
+                  true => ()
+                );
+              },
+              .None => ()
+            );
+            while runtime(true), () => {
+              match(self.peek(),
+                .Some(d) => {
+                  cond(
+                    ((d >= u8(48)) && (d <= u8(57))) => self.advance(),
+                    true => break
+                  );
+                },
+                .None => break
+              );
+            };
+          },
+          true => ()
+        );
+      },
+      .None => ()
+    );
+    num_len := (self.pos - start);
+    num_buf := ArrayList(u8).with_capacity((num_len + usize(1)));
+    j := usize(0);
+    while (j < num_len), (j = (j + usize(1))), {
+      num_buf.push(self.src.bytes((start + j)));
+    };
+    num_buf.push(u8(0));
+    num_ptr := *(char)(num_buf.ptr().unwrap());
+    { atof } :: import "../libc/stdlib";
+    val := atof(num_ptr);
+    .Ok(val)
+  }),
+
+  parse_value : (fn(self: Self) -> Result(JsonValue, JsonError))({
+    self.skip_ws();
+    match(self.peek(),
+      .None => .Err(.UnexpectedEnd),
+      .Some(c) => {
+        cond(
+          (c == u8(34)) => { // '"'
+            match(self.parse_string(),
+              .Err(e) => .Err(e),
+              .Ok(s)  => .Ok(.Str(s))
+            )
+          },
+          (c == u8(123)) => { // '{'
+            self.parse_object()
+          },
+          (c == u8(91)) => { // '['
+            self.parse_array()
+          },
+          (c == u8(116)) => { // 't' (true)
+            self.advance(); self.advance(); self.advance(); self.advance();
+            .Ok(.Bool(true))
+          },
+          (c == u8(102)) => { // 'f' (false)
+            self.advance(); self.advance(); self.advance();
+            self.advance(); self.advance();
+            .Ok(.Bool(false))
+          },
+          (c == u8(110)) => { // 'n' (null)
+            self.advance(); self.advance(); self.advance(); self.advance();
+            .Ok(.Null)
+          },
+          true => {
+            match(self.parse_number(),
+              .Err(e) => .Err(e),
+              .Ok(n)  => .Ok(.Number(n))
+            )
+          }
+        )
+      }
+    )
+  }),
+
+  parse_array : (fn(self: Self) -> Result(JsonValue, JsonError))({
+    self.advance(); // skip '['
+    items := ArrayList(JsonValue).new();
+    self.skip_ws();
+    match(self.peek(),
+      .Some(c) => {
+        cond(
+          (c == u8(93)) => { // ']'
+            self.advance();
+            return .Ok(.Array(items));
+          },
+          true => ()
+        );
+      },
+      .None => ()
+    );
+    while runtime(true), () => {
+      match(self.parse_value(),
+        .Err(e) => { return .Err(e); },
+        .Ok(v)  => { items.push(v); }
+      );
+      self.skip_ws();
+      match(self.peek(),
+        .Some(c) => {
+          cond(
+            (c == u8(44)) => { self.advance(); }, // ','
+            (c == u8(93)) => { self.advance(); break; }, // ']'
+            true => { return .Err(.UnexpectedChar(c, self.pos)); }
+          );
+        },
+        .None => { return .Err(.UnexpectedEnd); }
+      );
+    };
+    .Ok(.Array(items))
+  }),
+
+  parse_object : (fn(self: Self) -> Result(JsonValue, JsonError))({
+    self.advance(); // skip '{'
+    fields := ArrayList(JsonKV).new();
+    self.skip_ws();
+    match(self.peek(),
+      .Some(c) => {
+        cond(
+          (c == u8(125)) => { // '}'
+            self.advance();
+            return .Ok(.Object(fields));
+          },
+          true => ()
+        );
+      },
+      .None => ()
+    );
+    while runtime(true), () => {
+      self.skip_ws();
+      match(self.peek(),
+        .None => { return .Err(.UnexpectedEnd); },
+        .Some(c) => {
+          cond(
+            (c != u8(34)) => { return .Err(.UnexpectedChar(c, self.pos)); },
+            true => ()
+          );
+        }
+      );
+      key_r := self.parse_string();
+      match(key_r,
+        .Err(e) => { return .Err(e); },
+        .Ok(key) => {
+          self.skip_ws();
+          match(self.expect(u8(58)), // ':'
+            .Err(e) => { return .Err(e); },
+            .Ok(_)  => ()
+          );
+          match(self.parse_value(),
+            .Err(e) => { return .Err(e); },
+            .Ok(val) => {
+              fields.push(JsonKV(key: key, value: val));
+            }
+          );
+        }
+      );
+      self.skip_ws();
+      match(self.peek(),
+        .Some(c) => {
+          cond(
+            (c == u8(44)) => { self.advance(); }, // ','
+            (c == u8(125)) => { self.advance(); break; }, // '}'
+            true => { return .Err(.UnexpectedChar(c, self.pos)); }
+          );
+        },
+        .None => { return .Err(.UnexpectedEnd); }
+      );
+    };
+    .Ok(.Object(fields))
+  })
+);
+
+// ============================================================================
+// Public API
+// ============================================================================
+
+json_parse :: (fn(s: str) -> Result(JsonValue, JsonError))({
+  p := _Parser.new(s);
+  p.parse_value()
+});
+
+export json_parse;
+
+// ============================================================================
+// Serialisation
+// ============================================================================
+
+_write_str_escaped :: (fn(s: String, out: ArrayList(u8)) -> unit)({
+  out.push(u8(34)); // '"'
+  bytes := s.as_bytes();
+  i := usize(0);
+  while (i < bytes.len()), (i = (i + usize(1))), {
+    b := bytes.get(i).unwrap();
+    cond(
+      (b == u8(34)) => { out.push(u8(92)); out.push(u8(34)); },
+      (b == u8(92)) => { out.push(u8(92)); out.push(u8(92)); },
+      (b == u8(10)) => { out.push(u8(92)); out.push(u8(110)); },
+      (b == u8(9))  => { out.push(u8(92)); out.push(u8(116)); },
+      (b == u8(13)) => { out.push(u8(92)); out.push(u8(114)); },
+      true           => out.push(b)
+    );
+  };
+  out.push(u8(34)); // '"'
+});
+
+_stringify_into :: (fn(value: JsonValue, out: ArrayList(u8)) -> unit)({
+  match(value,
+    .Null => {
+      out.push(u8(110)); out.push(u8(117)); out.push(u8(108)); out.push(u8(108));
+    },
+    .Bool(b) => {
+      cond(
+        b => {
+          out.push(u8(116)); out.push(u8(114)); out.push(u8(117)); out.push(u8(101));
+        },
+        true => {
+          out.push(u8(102)); out.push(u8(97)); out.push(u8(108)); out.push(u8(115)); out.push(u8(101));
+        }
+      );
+    },
+    .Number(n) => {
+      buf := Array(u8, usize(32)).fill(u8(0));
+      buf_ptr := &(buf(usize(0)));
+      snprintf(*(char)(buf_ptr), usize(32), "%g", n);
+      s2 := String.from_cstr(buf_ptr).unwrap();
+      bytes := s2.as_bytes();
+      i := usize(0);
+      while (i < bytes.len()), (i = (i + usize(1))), {
+        out.push(bytes.get(i).unwrap());
+      };
+    },
+    .Str(s) => {
+      _write_str_escaped(s, out);
+    },
+    .Array(items) => {
+      out.push(u8(91)); // '['
+      i := usize(0);
+      while (i < items.len()), (i = (i + usize(1))), {
+        cond(
+          (i > usize(0)) => out.push(u8(44)), // ','
+          true => ()
+        );
+        _stringify_into(items.get(i).unwrap(), out);
+      };
+      out.push(u8(93)); // ']'
+    },
+    .Object(fields) => {
+      out.push(u8(123)); // '{'
+      i := usize(0);
+      while (i < fields.len()), (i = (i + usize(1))), {
+        cond(
+          (i > usize(0)) => out.push(u8(44)), // ','
+          true => ()
+        );
+        kv := fields.get(i).unwrap();
+        _write_str_escaped(kv.key, out);
+        out.push(u8(58)); // ':'
+        _stringify_into(kv.value, out);
+      };
+      out.push(u8(125)); // '}'
+    }
+  );
+});
+
+json_stringify :: (fn(value: JsonValue) -> String)({
+  out := ArrayList(u8).new();
+  _stringify_into(value, out);
+  String.from_bytes(out)
+});
+
+// Serialise with pretty-printing (delegates to compact for now).
+json_stringify_pretty :: (fn(value: JsonValue, _indent: usize) -> String)(
+  json_stringify(value)
+);
+
+export json_stringify, json_stringify_pretty;

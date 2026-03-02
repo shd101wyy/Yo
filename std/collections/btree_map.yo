@@ -1,0 +1,137 @@
+// std/collections/btree_map.yo - Sorted map backed by a sorted ArrayList
+//
+// BTreeMap maintains entries sorted by key, enabling ordered iteration and
+// O(log n) lookups via binary search. Insert is O(n) (shift-based).
+//
+// Example:
+//   { BTreeMap } :: import "std/collections/btree_map";
+//
+//   m := BTreeMap(String, i32).new();
+//   m.set(String.from("b"), 2);
+//   m.set(String.from("a"), 1);
+//   // Iteration order: a, b
+
+{ ArrayList } :: import "./array_list";
+open import "../string";
+
+// ============================================================================
+// BTreeEntry - key/value pair
+// ============================================================================
+
+BTreeEntry :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
+  struct(key: K, value: V)
+);
+
+export BTreeEntry;
+
+// Internal result from binary search.
+_FindResult :: struct(idx: usize, found: bool);
+
+// ============================================================================
+// BTreeMap
+// ============================================================================
+
+BTreeMap :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
+  object(
+    _entries : ArrayList(BTreeEntry(K, V))
+  )
+);
+
+impl(forall(K : Type, V : Type), BTreeMap(K, V),
+  // Create an empty map.
+  new : (fn() -> Self)(
+    Self(_entries: ArrayList(BTreeEntry(K, V)).new())
+  ),
+
+  // Number of entries.
+  len : (fn(self: Self) -> usize)(
+    self._entries.len()
+  ),
+
+  // True if empty.
+  is_empty : (fn(self: Self) -> bool)(
+    (self._entries.len() == usize(0))
+  ),
+
+  // Binary search: returns the index of the entry with key `k`,
+  // or the insertion point if not found.
+  _find : (fn(self: Self, k: K, where(K <: Ord(K))) -> _FindResult)({
+    lo := usize(0);
+    hi := self._entries.len();
+    while (lo < hi), {
+      mid := (lo + ((hi - lo) / usize(2)));
+      entry_key := self._entries.get(mid).unwrap().key;
+      cond(
+        (entry_key < k) => { lo = (mid + usize(1)); },
+        (entry_key > k) => { hi = mid; },
+        true => { return _FindResult(mid, true); }
+      );
+    };
+    _FindResult(lo, false)
+  }),
+
+  // Retrieve the value associated with key `k`.
+  get : (fn(self: Self, k: K, where(K <: Ord(K))) -> ?V)({
+    r := self._find(k);
+    cond(
+      r.found => .Some(self._entries.get(r.idx).unwrap().value),
+      true => .None
+    )
+  }),
+
+  // Insert or update the value for key `k`.
+  // For new keys: append at end then shift-left to correct sorted position.
+  set : (fn(self: Self, k: K, v: V, where(K <: Ord(K))) -> unit)({
+    r := self._find(k);
+    cond(
+      r.found => {
+        entry := self._entries.get(r.idx).unwrap();
+        self._entries.set(r.idx, BTreeEntry(K, V)(key: entry.key, value: v));
+      },
+      true => {
+        // Append new entry then bubble left to sorted position
+        self._entries.push(BTreeEntry(K, V)(key: k, value: v));
+        pos := (self._entries.len() - usize(1));
+        while (pos > r.idx), (pos = (pos - usize(1))), {
+          curr := self._entries.get(pos).unwrap();
+          prev := self._entries.get((pos - usize(1))).unwrap();
+          self._entries.set(pos, prev);
+          self._entries.set((pos - usize(1)), curr);
+        };
+      }
+    );
+  }),
+
+  // Remove the entry with key `k`. Returns the old value, or .None.
+  remove : (fn(self: Self, k: K, where(K <: Ord(K))) -> ?V)({
+    r := self._find(k);
+    cond(
+      r.found => {
+        v := self._entries.get(r.idx).unwrap().value;
+        self._entries.remove(r.idx);
+        .Some(v)
+      },
+      true => .None
+    )
+  }),
+
+  // Return the entry with the smallest key, or .None.
+  min : (fn(self: Self) -> ?BTreeEntry(K, V))(
+    cond(
+      (self._entries.len() == usize(0)) => .None,
+      true => .Some(self._entries.get(usize(0)).unwrap())
+    )
+  ),
+
+  // Return the entry with the largest key, or .None.
+  max : (fn(self: Self) -> ?BTreeEntry(K, V))(
+    cond(
+      (self._entries.len() == usize(0)) => .None,
+      true => .Some(self._entries.get((self._entries.len() - usize(1))).unwrap())
+    )
+  )
+
+  // TODO: Add iteration via Iterator trait once supported.
+);
+
+export BTreeMap;

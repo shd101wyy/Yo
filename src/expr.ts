@@ -106,7 +106,60 @@ export interface RuntimeDestructuring {
  * 'return' is used for both normal function return and ctl handler resume.
  * 'escape' is used for ctl handler discontinue (early return from enclosing function).
  */
-export type ControlFlowKind = "return" | "break" | "continue" | "escape";
+export type ControlFlowFlags = {
+  return?: boolean;
+  escape?: boolean;
+  break?: boolean;
+  continue?: boolean;
+};
+
+/** Create a ControlFlowFlags with a single flag set */
+export function controlFlowOf(
+  kind: "return" | "escape" | "break" | "continue"
+): ControlFlowFlags {
+  return { [kind]: true };
+}
+
+/** Check if controlFlow has a specific flag */
+export function hasControlFlow(
+  cf: ControlFlowFlags | undefined,
+  kind: "return" | "escape" | "break" | "continue"
+): boolean {
+  return cf?.[kind] === true;
+}
+
+/** Check if controlFlow has any flag set */
+export function hasAnyControlFlow(cf: ControlFlowFlags | undefined): boolean {
+  return (
+    cf !== undefined &&
+    (cf.return === true ||
+      cf.escape === true ||
+      cf.break === true ||
+      cf.continue === true)
+  );
+}
+
+/** Merge multiple ControlFlowFlags into one (union of all flags) */
+export function mergeControlFlows(flows: ControlFlowFlags[]): ControlFlowFlags {
+  const result: ControlFlowFlags = {};
+  for (const cf of flows) {
+    if (cf.return) result.return = true;
+    if (cf.escape) result.escape = true;
+    if (cf.break) result.break = true;
+    if (cf.continue) result.continue = true;
+  }
+  return result;
+}
+
+/** Convert ControlFlowFlags to a display string for error messages */
+export function controlFlowToString(cf: ControlFlowFlags): string {
+  const parts: string[] = [];
+  if (cf.return) parts.push("return");
+  if (cf.escape) parts.push("escape");
+  if (cf.break) parts.push("break");
+  if (cf.continue) parts.push("continue");
+  return parts.join("+");
+}
 
 export interface EvaluatedExprData {
   /**
@@ -174,13 +227,11 @@ export interface EvaluatedExprData {
   runtimeDestructurings?: RuntimeDestructuring[];
 
   /**
-   * Whether this expression is:
-   * 1. "return" from a function.
-   * 2. "break" from a loop.
-   * 3. "continue" from a loop.
-   * 4. normal expression.
+   * Whether this expression carries control flow.
+   * Multiple flags can be true simultaneously (e.g., a cond where some branches
+   * return and others escape).
    */
-  controlFlow?: ControlFlowKind;
+  controlFlow?: ControlFlowFlags;
 
   /**
    * For dyn() function calls, this contains the trait values that provide
@@ -1594,12 +1645,54 @@ export function mergeAndCheckEnvs(
         i !== maxFrameLevel &&
         frameVariables.length !== caseEnvFrameVariables.length
       ) {
-        throw formatErrorMessages([
-          {
-            token: bodies[j]!.token,
-            errorMessage: `Frame level ${i} has different number of values for different cases.`,
-          },
-        ]);
+        // When a case body has more variables than the base env, the extra
+        // variables may be temp variables that leaked to a shared begin-block
+        // frame during condition or branch-body evaluation (e.g., when there is
+        // no begin-block frame between the current function scope and a parent
+        // begin-block frame). Adopt them into the base env so the merge can
+        // proceed normally.
+        if (caseEnvFrameVariables.length > frameVariables.length) {
+          const extraVars = [...caseEnvFrameVariables].slice(
+            frameVariables.length
+          );
+          const allExtraAreTemps = extraVars.every((v) =>
+            isTempVariableName(env.modulePath, v.name)
+          );
+          if (allExtraAreTemps) {
+            for (const extraVar of extraVars) {
+              frameVariables.push(extraVar);
+              matrix[0]!.push({
+                consumedAtToken: undefined,
+                initializedAtToken: extraVar.initializedAtToken,
+                type: extraVar.type,
+                isOwningTheRcValue: extraVar.isOwningTheRcValue ?? false,
+              });
+            }
+            // Update the env frame with the adopted temp variables
+            const newFrame = {
+              ...frame,
+              variables: [...frameVariables],
+            };
+            env = {
+              ...env,
+              frames: env.frames.map((f, idx) => (idx === i ? newFrame : f)),
+            };
+          } else {
+            throw formatErrorMessages([
+              {
+                token: bodies[j]!.token,
+                errorMessage: `Frame level ${i} has different number of values for different cases.`,
+              },
+            ]);
+          }
+        } else {
+          throw formatErrorMessages([
+            {
+              token: bodies[j]!.token,
+              errorMessage: `Frame level ${i} has different number of values for different cases.`,
+            },
+          ]);
+        }
       }
 
       // Check if the variable names are the same

@@ -1,4 +1,8 @@
-import { exprIsFunctionCall, type FnCallExpr } from "../../expr";
+import {
+  exprIsFunctionCall,
+  type FnCallExpr,
+  hasAnyControlFlow,
+} from "../../expr";
 import { isUnitType } from "../../types/guards";
 import { isTempVariableName } from "../../utils";
 import { type FunctionGenerationContext } from "../functions/context";
@@ -24,7 +28,7 @@ export function generateBegin(
 
   if (tempVariableName && valueType) {
     // Expression form: begin block that returns a value
-    if (!isUnitType(valueType) && !expr.$?.controlFlow) {
+    if (!isUnitType(valueType) && !hasAnyControlFlow(expr.$?.controlFlow)) {
       context.emitter.emitLine(
         `${indent}${getTypeString(valueType, context)} ${tempVariableName};`
       );
@@ -46,7 +50,8 @@ export function generateBegin(
     // Generate and emit code for each arg IMMEDIATELY to preserve order
     // This is important because generateExpr may have side effects that emit code
     const argsCode: string[] = [];
-    const isReturningValue = !isUnitType(valueType) && !expr.$?.controlFlow;
+    const isReturningValue =
+      !isUnitType(valueType) && !hasAnyControlFlow(expr.$?.controlFlow);
 
     for (let idx = 0; idx < expr.args.length; idx++) {
       const arg = expr.args[idx]!;
@@ -126,7 +131,9 @@ export function generateBegin(
     // Restore previous pending deferred drops
     functionContext.pendingDeferredDrops = previousPendingDeferredDrops;
 
-    return isUnitType(valueType) || expr.$?.controlFlow ? "" : tempVariableName;
+    return isUnitType(valueType) || hasAnyControlFlow(expr.$?.controlFlow)
+      ? ""
+      : tempVariableName;
   } else {
     // Statement form: begin block without returning a value
     context.emitter.emitLine(`${indent}{ // begin block`);

@@ -13,7 +13,7 @@ description: "Use when running tests, setting up test files, or debugging test f
 ## C codegen tests
 
 - Run specific test: `./yo-cli test ./tests/XXX.test.yo` (add `-v` for verbose)
-- Run all tests: `./yo-cli test` (takes a long time — avoid unless asked)
+- **Never run the full test suite** (`./yo-cli test` without a file). Always run targeted test files instead.
 - `--bail` or `-b` — stop after first failure
 - `-v` or `--verbose` — show detailed errors
 - `--test-name-pattern "Test XXX"` — run specific test by name
@@ -29,3 +29,9 @@ description: "Use when running tests, setting up test files, or debugging test f
 
 - Do not create new `.yo`, `.js`, or `.ts` files unless told to do so.
 - You can comment out existing code in `src/tests/fixme.yo` and create new test code there.
+
+## Linting and formatting
+
+- Lint: `bun run lint`
+- Format check: `bun run format`
+- Fix lint/format issues before committing.

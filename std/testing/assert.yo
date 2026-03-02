@@ -1,0 +1,173 @@
+// std/testing/assert.yo - Rich test assertions
+//
+// Provides typed assertion helpers that print a diff-friendly failure message.
+//
+// Example:
+//   { assert_eq, assert_approx } :: import "std/testing/assert";
+//
+//   assert_eq(result, expected, "values should match");
+//   assert_approx(3.14159, PI, 0.00001, "PI check");
+
+open import "../string";
+{ ToString } :: import "../fmt";
+
+// ============================================================================
+// Assertions
+// ============================================================================
+
+// Assert two values are equal.
+assert_eq :: (fn(forall(T : Type), actual: T, expected: T, msg: str, where(T <: Eq(T), T <: ToString)) -> unit)({
+  cond(
+    (actual != expected) => {
+      a_s := actual.to_string();
+      e_s := expected.to_string();
+      panic(`assert_eq failed: ${msg} — actual=${a_s} expected=${e_s}`);
+    },
+    true => ()
+  );
+});
+
+// Assert two values are not equal.
+assert_ne :: (fn(forall(T : Type), actual: T, expected: T, msg: str, where(T <: Eq(T), T <: ToString)) -> unit)({
+  cond(
+    (actual == expected) => {
+      a_s := actual.to_string();
+      panic(`assert_ne failed: ${msg} — both equal to ${a_s}`);
+    },
+    true => ()
+  );
+});
+
+// Assert actual > expected.
+assert_gt :: (fn(forall(T : Type), actual: T, expected: T, msg: str, where(T <: Ord(T), T <: ToString)) -> unit)({
+  cond(
+    (actual <= expected) => {
+      a_s := actual.to_string();
+      e_s := expected.to_string();
+      panic(`assert_gt failed: ${msg} — actual=${a_s} expected=${e_s}`);
+    },
+    true => ()
+  );
+});
+
+// Assert actual < expected.
+assert_lt :: (fn(forall(T : Type), actual: T, expected: T, msg: str, where(T <: Ord(T), T <: ToString)) -> unit)({
+  cond(
+    (actual >= expected) => {
+      a_s := actual.to_string();
+      e_s := expected.to_string();
+      panic(`assert_lt failed: ${msg} — actual=${a_s} expected=${e_s}`);
+    },
+    true => ()
+  );
+});
+
+// Assert actual >= expected.
+assert_ge :: (fn(forall(T : Type), actual: T, expected: T, msg: str, where(T <: Ord(T), T <: ToString)) -> unit)({
+  cond(
+    (actual < expected) => {
+      a_s := actual.to_string();
+      e_s := expected.to_string();
+      panic(`assert_ge failed: ${msg} — actual=${a_s} expected=${e_s}`);
+    },
+    true => ()
+  );
+});
+
+// Assert actual <= expected.
+assert_le :: (fn(forall(T : Type), actual: T, expected: T, msg: str, where(T <: Ord(T), T <: ToString)) -> unit)({
+  cond(
+    (actual > expected) => {
+      a_s := actual.to_string();
+      e_s := expected.to_string();
+      panic(`assert_le failed: ${msg} — actual=${a_s} expected=${e_s}`);
+    },
+    true => ()
+  );
+});
+
+// Assert that `haystack` contains `needle`.
+assert_contains :: (fn(haystack: str, needle: str, msg: str) -> unit)({
+  found := false;
+  cond(
+    (needle.len() == usize(0)) => { found = true; },
+    (haystack.len() < needle.len()) => (),
+    true => {
+      limit := ((haystack.len() - needle.len()) + usize(1));
+      i := usize(0);
+      while (i < limit), (i = (i + usize(1))), {
+        match_ok := true;
+        j := usize(0);
+        while (j < needle.len()), (j = (j + usize(1))), {
+          cond(
+            (haystack.bytes((i + j)) != needle.bytes(j)) => {
+              match_ok = false;
+              break;
+            },
+            true => ()
+          );
+        };
+        cond(
+          match_ok => {
+            found = true;
+            break;
+          },
+          true => ()
+        );
+      };
+    }
+  );
+  cond(
+    (!found) => {
+      panic(`assert_contains failed: ${msg}`);
+    },
+    true => ()
+  );
+});
+
+// Assert that `s` starts with `prefix`.
+assert_starts_with :: (fn(s: str, prefix: str, msg: str) -> unit)({
+  ok := cond(
+    (s.len() < prefix.len()) => false,
+    true => {
+      result := true;
+      i := usize(0);
+      while (i < prefix.len()), (i = (i + usize(1))), {
+        cond(
+          (s.bytes(i) != prefix.bytes(i)) => {
+            result = false;
+            break;
+          },
+          true => ()
+        );
+      };
+      result
+    }
+  );
+  cond(
+    (!ok) => {
+      panic(`assert_starts_with failed: ${msg}`);
+    },
+    true => ()
+  );
+});
+
+// Assert that two f64 values are within `epsilon` of each other.
+assert_approx :: (fn(actual: f64, expected: f64, epsilon: f64, msg: str) -> unit)({
+  diff := cond(
+    (actual >= expected) => (actual - expected),
+    true => (expected - actual)
+  );
+  cond(
+    (diff > epsilon) => {
+      panic(`assert_approx failed: ${msg}`);
+    },
+    true => ()
+  );
+});
+
+export
+  assert_eq, assert_ne,
+  assert_gt, assert_lt, assert_ge, assert_le,
+  assert_contains, assert_starts_with,
+  assert_approx;

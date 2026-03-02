@@ -1,0 +1,206 @@
+// std/time/datetime.yo - Wall-clock date/time
+//
+// DateTime represents a calendar date and time of day.
+// All values are in UTC unless utc_offset_secs is non-zero.
+//
+// Example:
+//   { DateTime } :: import "std/time/datetime";
+//
+//   now := DateTime.now_utc();
+//   println(now.to_string());   // "2026-02-26T17:41:24Z"
+
+{ String } :: import "../string";
+{ ToString } :: import "../fmt";
+{ CLOCK_REALTIME, clock_gettime } :: import "../io/clock";
+{ snprintf } :: import "../libc/stdio";
+
+// ============================================================================
+// DateTime
+// ============================================================================
+
+DateTime :: struct(
+  year            : i32,
+  month           : u8,
+  day             : u8,
+  hour            : u8,
+  minute          : u8,
+  second          : u8,
+  nanosecond      : u32,
+  utc_offset_secs : i32
+);
+
+// Days per month lookup (non-leap year)
+_DAYS_IN_MONTH :: Array(u8, usize(12))(
+  u8(31), u8(28), u8(31), u8(30), u8(31), u8(30),
+  u8(31), u8(31), u8(30), u8(31), u8(30), u8(31)
+);
+
+_is_leap_year :: (fn(y: i32) -> bool)(
+  (((y % i32(4)) == i32(0)) && (((y % i32(100)) != i32(0)) || ((y % i32(400)) == i32(0))))
+);
+
+// Convert a Unix timestamp (seconds since 1970-01-01 UTC) into date/time fields.
+_from_unix_secs :: (fn(secs: i64, nanos: i64) -> DateTime)({
+  // Adjust epoch: number of days since Unix epoch
+  days := (secs / i64(86400));
+  rem  := (secs % i64(86400));
+
+  // Normalise negative remainders
+  (rem_adj, days_adj) := cond(
+    (rem < i64(0)) => struct(rem_v: (rem + i64(86400)), days_v: (days - i64(1))),
+    true => struct(rem_v: rem, days_v: days)
+  );
+
+  hour   := u8((rem_adj / i64(3600)));
+  min_r  := (rem_adj % i64(3600));
+  minute := u8((min_r / i64(60)));
+  second := u8((min_r % i64(60)));
+
+  // Gregorian calendar computation starting from 1970-01-01
+  // Using the algorithm from days since epoch → year/month/day
+  z := (days_adj + i64(719468));
+  era := cond(
+    (z >= i64(0)) => (z / i64(146097)),
+    true => (((z - i64(146096)) / i64(146097)))
+  );
+  doe  := (z - (era * i64(146097)));
+  yoe  := (((doe - (doe / i64(1460))) + (doe / i64(36524))) - (doe / i64(146096)));
+  yoe  := (yoe / i64(365));
+  y    := (yoe + (era * i64(400)));
+  doy  := (doe - (((i64(365) * yoe) + (yoe / i64(4))) - (yoe / i64(100))));
+  mp   := (((i64(5) * doy) + i64(2)) / i64(153));
+  d    := (doy - (((i64(153) * mp) + i64(2)) / i64(5)));
+  m    := cond(
+    (mp < i64(10)) => (mp + i64(3)),
+    true => (mp - i64(9))
+  );
+  y2   := cond(
+    (m <= i64(2)) => (y + i64(1)),
+    true => y
+  );
+
+  DateTime(
+    year:            i32(y2),
+    month:           u8(m),
+    day:             u8((d + i64(1))),
+    hour:            hour,
+    minute:          minute,
+    second:          second,
+    nanosecond:      u32(nanos),
+    utc_offset_secs: i32(0)
+  )
+});
+
+impl(DateTime,
+  // Current UTC date/time.
+  now_utc : (fn() -> Self)({
+    sec  := i64(0);
+    nsec := i64(0);
+    clock_gettime(CLOCK_REALTIME, &sec, &nsec);
+    _from_unix_secs(sec, nsec)
+  }),
+
+  // Current local date/time (UTC offset not resolved; same as now_utc for now).
+  now : (fn() -> Self)(
+    DateTime.now_utc()
+  ),
+
+  // Construct from a Unix timestamp.
+  from_unix : (fn(secs: i64, nanos: i64) -> Self)(
+    _from_unix_secs(secs, nanos)
+  ),
+
+  // Convert back to a Unix timestamp (seconds since epoch).
+  to_unix : (fn(self: *(Self)) -> i64)({
+    // Compute days since epoch using the inverse Gregorian algorithm
+    y := i64(self.year);
+    m := i64(self.month);
+    d := i64(self.day);
+    y2 := cond(
+      (m <= i64(2)) => (y - i64(1)),
+      true => y
+    );
+    era := cond(
+      (y2 >= i64(0)) => (y2 / i64(400)),
+      true => (((y2 - i64(399)) / i64(400)))
+    );
+    yoe := (y2 - (era * i64(400)));
+    mp  := cond(
+      (m > i64(2)) => (m - i64(3)),
+      true => (m + i64(9))
+    );
+    doy := ((((i64(153) * mp) + i64(2)) / i64(5)) + (d - i64(1)));
+    doe := ((((yoe * i64(365)) + (yoe / i64(4))) - (yoe / i64(100))) + doy);
+    days := ((era * i64(146097)) + doe - i64(719468));
+    time_secs := ((i64(self.hour) * i64(3600)) + (i64(self.minute) * i64(60)) + i64(self.second));
+    ((days * i64(86400)) + time_secs)
+  }),
+
+  // True if this year is a leap year.
+  is_leap_year : (fn(self: *(Self)) -> bool)(
+    _is_leap_year(self.year)
+  ),
+
+  // Day of week: 0 = Monday, 6 = Sunday (ISO 8601).
+  day_of_week : (fn(self: *(Self)) -> u8)({
+    // Tomohiko Sakamoto's algorithm
+    t := Array(i32, usize(12))(
+      i32(0), i32(3), i32(2), i32(5), i32(0), i32(3),
+      i32(5), i32(1), i32(4), i32(6), i32(2), i32(4)
+    );
+    y := cond(
+      (i32(self.month) < i32(3)) => (self.year - i32(1)),
+      true => self.year
+    );
+    dow := ((y + (y / i32(4)) - (y / i32(100)) + (y / i32(400)) + t(usize((i32(self.month) - i32(1)))) + i32(self.day)) % i32(7));
+    // Convert: 0=Sun → remap to 0=Mon
+    u8(cond(
+      (dow == i32(0)) => i32(6),
+      true => (dow - i32(1))
+    ))
+  }),
+
+  // Day of year (1-based).
+  day_of_year : (fn(self: *(Self)) -> u16)({
+    m := i32(self.month);
+    d := i32(self.day);
+    // Sum days in preceding months
+    days := d;
+    i := i32(1);
+    while (i < m), (i = (i + i32(1))), {
+      idx := usize((i - i32(1)));
+      days = (days + i32(_DAYS_IN_MONTH(idx)));
+      // Add leap day after Feb in a leap year
+      cond(
+        ((i == i32(2)) && _is_leap_year(self.year)) => {
+          days = (days + i32(1));
+        },
+        true => ()
+      );
+    };
+    u16(days)
+  }),
+
+  // Format as ISO 8601 UTC string: "YYYY-MM-DDTHH:MM:SSZ"
+  to_string : (fn(self: *(Self)) -> String)({
+    buf := Array(u8, usize(32)).fill(u8(0));
+    buf_ptr := &(buf(usize(0)));
+    snprintf(*(char)(buf_ptr), usize(32), "%04d-%02u-%02uT%02u:%02u:%02uZ",
+      self.year, self.month, self.day,
+      self.hour, self.minute, self.second);
+    String.from_cstr(buf_ptr).unwrap()
+  }),
+
+  // Alias to to_string.
+  format : (fn(self: *(Self), _fmt: str) -> String)(
+    self.to_string()
+  )
+);
+
+impl(DateTime, ToString(
+  to_string : (fn(self: *(Self)) -> String)(
+    self.to_string()
+  )
+));
+
+export DateTime;

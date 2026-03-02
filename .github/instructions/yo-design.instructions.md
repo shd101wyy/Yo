@@ -46,6 +46,7 @@ box :: (fn(forall(V : Type), value : V) -> Box(V))
 
 - `SomeType` automatically implements the `Runtime` trait by default.
 - Never write functions to resolve `SomeType` — struct/enum/union are nominal types, replacing SomeType causes problems.
+- **Never substitute SomeType within another Type.** Because many types like struct/enum/union etc in Yo are nominal type, simple substitution can break type identity. The correct approach is to re-evaluate the type expression in an environment where the type parameter is bound to the concrete type.
 
 ## Platform-specific code
 
@@ -62,3 +63,11 @@ Current goal: make Yo work on Linux, macOS, and Windows.
 ## Breaking changes are acceptable
 
 Yo is a new, evolving language. Don't worry about breaking changes when making design decisions.
+
+## Algebraic effects
+
+- Effects are matched by **type**, not by name. A `given(raise) : Raise` handler matches any `using(my_raise : Raise)` parameter regardless of the variable name — the match is on the `Raise` type.
+- `return expr` inside an effect handler **resumes** the continuation.
+- `escape expr` inside an effect handler **discards** the continuation and exits the enclosing `fn`.
+- Effect row variables (`forall(...(E))` with `using(...(E))`) allow functions to be polymorphic over their effects — they forward whatever effects the caller provides.
+- The codegen generates effect functions as state machines, similar to async/await.

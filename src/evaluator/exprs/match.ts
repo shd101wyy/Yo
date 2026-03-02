@@ -8,7 +8,7 @@ import { formatErrorMessage } from "../../error";
 import {
   attachTempVariableToExpr,
   BuiltinKeywords,
-  type ControlFlowKind,
+  type ControlFlowFlags,
   type Expr,
   exprIsAtom,
   exprIsAtomOf,
@@ -16,7 +16,10 @@ import {
   exprIsFunctionCallOf,
   exprToString,
   type FnCallExpr,
+  hasAnyControlFlow,
+  hasControlFlow,
   mergeAndCheckEnvs,
+  mergeControlFlows,
 } from "../../expr";
 import { areTypesCompatible } from "../../types/compatibility";
 import { createPtrType } from "../../types/creators";
@@ -222,7 +225,7 @@ export function evaluateMatch({
   const checkedVariantNames: Set<string> = new Set();
   let hasCaseThatDoesntHaveControlFlowSet = false;
   let usedWildcardPattern = false;
-  const controlFlows: string[] = []; // Track control flows from all cases
+  const controlFlows: ControlFlowFlags[] = []; // Track control flows from all cases
   const returnBodies: Expr[] = []; // Track bodies with return control flow for validation
 
   for (let i = 0; i < patterns.length; i++) {
@@ -393,10 +396,10 @@ export function evaluateMatch({
       }
 
       // Check if the the evaluatedBody has "return"/"escape"/"break"/"continue" expression
-      if (evaluatedBody.$.controlFlow) {
-        controlFlows.push(evaluatedBody.$.controlFlow);
+      if (hasAnyControlFlow(evaluatedBody.$.controlFlow)) {
+        controlFlows.push(evaluatedBody.$.controlFlow!);
         // Collect bodies with return control flow for validation
-        if (evaluatedBody.$.controlFlow === "return") {
+        if (hasControlFlow(evaluatedBody.$.controlFlow, "return")) {
           returnBodies.push(evaluatedBody);
         }
         // Check if we have a scrutinee value
@@ -448,7 +451,7 @@ export function evaluateMatch({
       }
 
       // Set or verify the result type consistency
-      if (!evaluatedBody.$.controlFlow) {
+      if (!hasAnyControlFlow(evaluatedBody.$.controlFlow)) {
         // skip continue/break/return cases
 
         if (!resultType) {
@@ -777,10 +780,10 @@ export function evaluateMatch({
       }
 
       // Handle control flow
-      if (evaluatedBody.$.controlFlow) {
-        controlFlows.push(evaluatedBody.$.controlFlow);
+      if (hasAnyControlFlow(evaluatedBody.$.controlFlow)) {
+        controlFlows.push(evaluatedBody.$.controlFlow!);
         // Collect bodies with return control flow for validation
-        if (evaluatedBody.$.controlFlow === "return") {
+        if (hasControlFlow(evaluatedBody.$.controlFlow, "return")) {
           returnBodies.push(evaluatedBody);
         }
         if (
@@ -813,7 +816,7 @@ export function evaluateMatch({
       bodies.push(evaluatedBody);
 
       // Set or verify the result type consistency
-      if (!evaluatedBody.$.controlFlow) {
+      if (!hasAnyControlFlow(evaluatedBody.$.controlFlow)) {
         // skip continue/break/return cases
 
         if (!resultType) {
@@ -865,39 +868,13 @@ Supported patterns:
     }
   }
 
-  // Check the control flows, if they are mixed, we say there is no control flow
-  let finalControlFlow: ControlFlowKind | undefined = undefined;
-  if (controlFlows.every((cf) => cf === "return")) {
-    finalControlFlow = "return";
-  } else if (controlFlows.every((cf) => cf === "escape")) {
-    finalControlFlow = "escape";
-  } else if (controlFlows.every((cf) => cf === "break")) {
-    finalControlFlow = "break";
-  } else if (controlFlows.every((cf) => cf === "continue")) {
-    finalControlFlow = "continue";
-  } else {
-    if (context.isEvaluatingLoopBody) {
-      if (controlFlows.find((cf) => cf === "continue")) {
-        finalControlFlow = "continue"; // At least one case continues the loop
-      } else if (controlFlows.find((cf) => cf === "break")) {
-        finalControlFlow = "break"; // At least one case breaks the loop
-      } else if (controlFlows.find((cf) => cf === "return")) {
-        finalControlFlow = "return"; // At least one case returns from function
-      } else if (controlFlows.find((cf) => cf === "escape")) {
-        finalControlFlow = "escape"; // At least one case aborts (ctl handler discontinue)
-      }
-    } else {
-      if (controlFlows.find((cf) => cf === "escape")) {
-        finalControlFlow = "escape"; // At least one case aborts
-      } else {
-        finalControlFlow = undefined; // Mixed control flows
-      }
-    }
-  }
+  // Merge all control flow flags from branches
+  const finalControlFlow: ControlFlowFlags | undefined =
+    controlFlows.length > 0 ? mergeControlFlows(controlFlows) : undefined;
 
   if (
     hasCaseThatDoesntHaveControlFlowSet || // some case has no control flow
-    !finalControlFlow // mixed control flows
+    !hasAnyControlFlow(finalControlFlow) // no control flows at all
   ) {
     if (hasCaseThatDoesntHaveControlFlowSet && !resultType) {
       throw formatErrorMessage({
@@ -930,8 +907,8 @@ Supported patterns:
     const nonReturnBodies = bodies.filter(
       (body) =>
         body.$ &&
-        body.$.controlFlow !== "return" &&
-        body.$.controlFlow !== "escape"
+        !hasControlFlow(body.$.controlFlow, "return") &&
+        !hasControlFlow(body.$.controlFlow, "escape")
     );
 
     // For compile-time known enum value, find the matched body's value
@@ -983,8 +960,8 @@ Supported patterns:
       });
     }
 
-    if (finalControlFlow === "return") {
-      // All cases are returning from function
+    if (hasControlFlow(finalControlFlow, "return")) {
+      // At least some cases are returning from function
       if (!context.isEvaluatingFunctionBodyOrAsyncBlock) {
         throw formatErrorMessage({
           token: expr.token,
@@ -992,8 +969,13 @@ Supported patterns:
         });
       }
 
+      // Use the actual return value type from return bodies when available.
+      // This ensures the match's type reflects the concrete type being returned,
+      // which is important for detecting generic return type mismatches.
       let returnType: Type | undefined;
-      if (
+      if (returnBodies.length > 0 && returnBodies[0]!.$) {
+        returnType = returnBodies[0]!.$.type;
+      } else if (
         context.isEvaluatingFunctionBodyOrAsyncBlock.kind === "function-body"
       ) {
         returnType =
@@ -1021,10 +1003,10 @@ Supported patterns:
             ? createUnknownValue(returnType, { env, context })
             : undefined,
         pathCollection: [],
-        controlFlow: "return",
+        controlFlow: finalControlFlow,
       };
-    } else if (finalControlFlow === "escape") {
-      // All cases are aborting (returning from enclosing function)
+    } else if (hasControlFlow(finalControlFlow, "escape")) {
+      // All cases are escaping (returning from enclosing function)
       if (!context.enclosingFunctionReturnType) {
         throw formatErrorMessage({
           token: expr.token,
@@ -1037,9 +1019,9 @@ Supported patterns:
         type: escapeType,
         value: undefined,
         pathCollection: [],
-        controlFlow: "escape",
+        controlFlow: finalControlFlow,
       };
-    } else if (finalControlFlow === "break") {
+    } else if (hasControlFlow(finalControlFlow, "break")) {
       // All cases break from loop
       if (!context.isEvaluatingLoopBody) {
         throw formatErrorMessage({
@@ -1052,9 +1034,9 @@ Supported patterns:
         type: VUnit.type,
         value: VUnit,
         pathCollection: [],
-        controlFlow: "break",
+        controlFlow: finalControlFlow,
       };
-    } else if (finalControlFlow === "continue") {
+    } else if (hasControlFlow(finalControlFlow, "continue")) {
       // All cases continue loop
       if (!context.isEvaluatingLoopBody) {
         throw formatErrorMessage({
@@ -1067,7 +1049,7 @@ Supported patterns:
         type: VUnit.type,
         value: VUnit,
         pathCollection: [],
-        controlFlow: "continue",
+        controlFlow: finalControlFlow,
       };
     } else {
       // This should never reach
@@ -1108,7 +1090,7 @@ function evaluatePrimitiveMatch({
   const checkedLiteralValues: Set<string> = new Set();
   let hasCaseThatDoesntHaveControlFlowSet = false;
   let usedWildcardPattern = false;
-  const controlFlows: string[] = [];
+  const controlFlows: ControlFlowFlags[] = [];
   const returnBodies: Expr[] = [];
 
   for (let i = 0; i < patterns.length; i++) {
@@ -1202,9 +1184,9 @@ function evaluatePrimitiveMatch({
       }
 
       // Handle control flow
-      if (evaluatedBody.$.controlFlow) {
-        controlFlows.push(evaluatedBody.$.controlFlow);
-        if (evaluatedBody.$.controlFlow === "return") {
+      if (hasAnyControlFlow(evaluatedBody.$.controlFlow)) {
+        controlFlows.push(evaluatedBody.$.controlFlow!);
+        if (hasControlFlow(evaluatedBody.$.controlFlow, "return")) {
           returnBodies.push(evaluatedBody);
         }
         if (scrutineeValue !== undefined && !isUnknownValue(scrutineeValue)) {
@@ -1238,8 +1220,8 @@ function evaluatePrimitiveMatch({
             bodies.filter(
               (body) =>
                 body.$ &&
-                body.$.controlFlow !== "return" &&
-                body.$.controlFlow !== "escape"
+                !hasControlFlow(body.$.controlFlow, "return") &&
+                !hasControlFlow(body.$.controlFlow, "escape")
             )
           );
 
@@ -1259,7 +1241,7 @@ function evaluatePrimitiveMatch({
       bodies.push(evaluatedBody);
 
       // Type consistency check
-      if (!evaluatedBody.$.controlFlow) {
+      if (!hasAnyControlFlow(evaluatedBody.$.controlFlow)) {
         if (!resultType) {
           resultType = { type: evaluatedBody.$.type, env: caseEnv };
         } else if (
@@ -1422,9 +1404,9 @@ Hint: Use "::" to define compile-time constants, e.g., "myConst :: 42"`,
     }
 
     // Handle control flow
-    if (evaluatedBody.$.controlFlow) {
-      controlFlows.push(evaluatedBody.$.controlFlow);
-      if (evaluatedBody.$.controlFlow === "return") {
+    if (hasAnyControlFlow(evaluatedBody.$.controlFlow)) {
+      controlFlows.push(evaluatedBody.$.controlFlow!);
+      if (hasControlFlow(evaluatedBody.$.controlFlow, "return")) {
         returnBodies.push(evaluatedBody);
       }
       if (scrutineeValue !== undefined && matchesAtCompileTime) {
@@ -1471,7 +1453,7 @@ Hint: Use "::" to define compile-time constants, e.g., "myConst :: 42"`,
     bodies.push(evaluatedBody);
 
     // Type consistency check
-    if (!evaluatedBody.$.controlFlow) {
+    if (!hasAnyControlFlow(evaluatedBody.$.controlFlow)) {
       if (!resultType) {
         resultType = { type: evaluatedBody.$.type, env: caseEnv };
       } else if (
@@ -1532,37 +1514,14 @@ Hint: Use "::" to define compile-time constants, e.g., "myConst :: 42"`,
     }
   }
 
-  // Check the control flows
-  let finalControlFlow: ControlFlowKind | undefined = undefined;
-  if (controlFlows.every((cf) => cf === "return")) {
-    finalControlFlow = "return";
-  } else if (controlFlows.every((cf) => cf === "escape")) {
-    finalControlFlow = "escape";
-  } else if (controlFlows.every((cf) => cf === "break")) {
-    finalControlFlow = "break";
-  } else if (controlFlows.every((cf) => cf === "continue")) {
-    finalControlFlow = "continue";
-  } else {
-    if (context.isEvaluatingLoopBody) {
-      if (controlFlows.find((cf) => cf === "continue")) {
-        finalControlFlow = "continue";
-      } else if (controlFlows.find((cf) => cf === "break")) {
-        finalControlFlow = "break";
-      } else if (controlFlows.find((cf) => cf === "return")) {
-        finalControlFlow = "return";
-      } else if (controlFlows.find((cf) => cf === "escape")) {
-        finalControlFlow = "escape";
-      }
-    } else {
-      if (controlFlows.find((cf) => cf === "escape")) {
-        finalControlFlow = "escape";
-      } else {
-        finalControlFlow = undefined;
-      }
-    }
-  }
+  // Merge all control flow flags from branches
+  const finalControlFlow: ControlFlowFlags | undefined =
+    controlFlows.length > 0 ? mergeControlFlows(controlFlows) : undefined;
 
-  if (hasCaseThatDoesntHaveControlFlowSet || !finalControlFlow) {
+  if (
+    hasCaseThatDoesntHaveControlFlowSet ||
+    !hasAnyControlFlow(finalControlFlow)
+  ) {
     if (hasCaseThatDoesntHaveControlFlowSet && !resultType) {
       throw formatErrorMessage({
         token: expr.token,
@@ -1579,8 +1538,8 @@ Hint: Use "::" to define compile-time constants, e.g., "myConst :: 42"`,
     const nonReturnBodies = bodies.filter(
       (body) =>
         body.$ &&
-        body.$.controlFlow !== "return" &&
-        body.$.controlFlow !== "escape"
+        !hasControlFlow(body.$.controlFlow, "return") &&
+        !hasControlFlow(body.$.controlFlow, "escape")
     );
     if (
       scrutineeValue !== undefined &&
@@ -1621,7 +1580,7 @@ Hint: Use "::" to define compile-time constants, e.g., "myConst :: 42"`,
       });
     }
 
-    if (finalControlFlow === "return") {
+    if (hasControlFlow(finalControlFlow, "return")) {
       if (!context.isEvaluatingFunctionBodyOrAsyncBlock) {
         throw formatErrorMessage({
           token: expr.token,
@@ -1629,8 +1588,11 @@ Hint: Use "::" to define compile-time constants, e.g., "myConst :: 42"`,
         });
       }
 
+      // Use the actual return value type from return bodies when available.
       let returnType: Type | undefined;
-      if (
+      if (returnBodies.length > 0 && returnBodies[0]!.$) {
+        returnType = returnBodies[0]!.$.type;
+      } else if (
         context.isEvaluatingFunctionBodyOrAsyncBlock.kind === "function-body"
       ) {
         returnType =
@@ -1658,10 +1620,10 @@ Hint: Use "::" to define compile-time constants, e.g., "myConst :: 42"`,
             ? createUnknownValue(returnType, { env, context })
             : undefined,
         pathCollection: [],
-        controlFlow: "return",
+        controlFlow: finalControlFlow,
         isPrimitiveMatch: true,
       };
-    } else if (finalControlFlow === "escape") {
+    } else if (hasControlFlow(finalControlFlow, "escape")) {
       if (!context.enclosingFunctionReturnType) {
         throw formatErrorMessage({
           token: expr.token,
@@ -1674,10 +1636,10 @@ Hint: Use "::" to define compile-time constants, e.g., "myConst :: 42"`,
         type: escapeType,
         value: undefined,
         pathCollection: [],
-        controlFlow: "escape",
+        controlFlow: finalControlFlow,
         isPrimitiveMatch: true,
       };
-    } else if (finalControlFlow === "break") {
+    } else if (hasControlFlow(finalControlFlow, "break")) {
       if (!context.isEvaluatingLoopBody) {
         throw formatErrorMessage({
           token: expr.token,
@@ -1689,10 +1651,10 @@ Hint: Use "::" to define compile-time constants, e.g., "myConst :: 42"`,
         type: VUnit.type,
         value: VUnit,
         pathCollection: [],
-        controlFlow: "break",
+        controlFlow: finalControlFlow,
         isPrimitiveMatch: true,
       };
-    } else if (finalControlFlow === "continue") {
+    } else if (hasControlFlow(finalControlFlow, "continue")) {
       if (!context.isEvaluatingLoopBody) {
         throw formatErrorMessage({
           token: expr.token,
@@ -1704,7 +1666,7 @@ Hint: Use "::" to define compile-time constants, e.g., "myConst :: 42"`,
         type: VUnit.type,
         value: VUnit,
         pathCollection: [],
-        controlFlow: "continue",
+        controlFlow: finalControlFlow,
         isPrimitiveMatch: true,
       };
     }

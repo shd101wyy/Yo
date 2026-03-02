@@ -6,12 +6,16 @@ import {
   pushEnvFrame,
 } from "../../env";
 import { formatErrorMessage } from "../../error";
-import { cloneExpr, type Expr, type FnCallExpr } from "../../expr";
+import {
+  cloneExpr,
+  type Expr,
+  type FnCallExpr,
+  hasControlFlow,
+} from "../../expr";
 import { evaluatedBodyContainsEscape } from "../../expr-traversal";
 import type { FunctionValue } from "../../function-value";
 import { PlaceholderToken } from "../../token";
 import { areTypesCompatible } from "../../types/compatibility";
-
 import { createUnitType } from "../../types/creators";
 import type { FunctionType, Type } from "../../types/definitions";
 import { isFunctionType, isSomeType } from "../../types/guards";
@@ -31,6 +35,89 @@ import {
   buildPathCollectionFromCapturedVariables,
   consumeCapturedVariables,
 } from "../utils/closure";
+
+/**
+ * Check if a generic (deferred) function body returns a concrete type that is
+ * incompatible with the declared generic return type.
+ *
+ * For example, `fn(forall(T), value: T) -> T { return i32(0); }` should error
+ * because the body returns i32 but the declared return type is the generic T.
+ *
+ * We trial-evaluate a clone of the body. If evaluation fails (e.g. because the
+ * body uses operations on abstract types), we silently skip the check — the body
+ * will be properly validated at specialization time.
+ *
+ * The check only fires when a SomeType from the return type also appears in
+ * parameter types. Effect handlers (e.g., Raise :: fn(forall(T), msg: String) -> T)
+ * use T only in the return type — T is determined by the call-site context, so
+ * returning a concrete type is valid for resuming continuations.
+ */
+export function checkDeferredGenericReturnType({
+  functionBodyExpr,
+  functionType,
+  functionValue,
+  env,
+  context,
+}: {
+  functionBodyExpr: Expr;
+  functionType: FunctionType;
+  functionValue: FunctionValue;
+  env: Environment;
+  context: EvaluatorContext;
+}): void {
+  if (!typeContainsSomeType(functionType.return.type)) {
+    return;
+  }
+
+  // Trial-evaluate a clone of the body to discover its return type.
+  let trialBodyReturnType: Type | undefined;
+  try {
+    const clonedBody = cloneExpr(functionBodyExpr);
+    const trialCtx = createFunctionBodyEvaluationContext(
+      { ...context, capturedVariables: undefined },
+      functionType,
+      { ...functionValue },
+      env
+    );
+    const trialBody = evaluateBeginExpression({
+      expr: clonedBody,
+      env,
+      context: trialCtx.evaluationContext,
+      variablesToAdd: [],
+      isEvaluatingFunctionBodyBeginBlock: true,
+    });
+    trialBodyReturnType = trialBody.$?.type;
+    // If the body's control flow is purely escape (no return), it's a control
+    // function that discards the continuation. Skip the return type check.
+    // When mixed (return + escape), cond/match set both flags,
+    // so we still check correctly when return is also set.
+    if (
+      hasControlFlow(trialBody.$?.controlFlow, "escape") &&
+      !hasControlFlow(trialBody.$?.controlFlow, "return")
+    ) {
+      return;
+    }
+  } catch {
+    // Body evaluation failed due to abstract/unknown types — skip.
+    return;
+  }
+
+  if (
+    trialBodyReturnType &&
+    !areTypesCompatible(
+      { type: functionType.return.type, env },
+      { type: trialBodyReturnType, env },
+      true // requireExactMatch: concrete types must not match unconstrained SomeType
+    )
+  ) {
+    throw formatErrorMessage({
+      token: functionType.return.typeExpr.token,
+      errorMessage: `Incompatible function return type for:
+- Expected: ${typeToString(functionType.return.type)}
+- Given  : ${typeToString(trialBodyReturnType)}`,
+    });
+  }
+}
 
 /**
  * Creates a fresh evaluation context for function body evaluation
@@ -274,8 +361,18 @@ export function tryToImplementFunctionByFunctionType({
   let evaluationContext: EvaluatorContext;
 
   if (shouldDeferBodyEvaluation) {
-    // Don't evaluate the body for generic functions
-    // Just attach the environment for later use when called
+    // Don't evaluate the body for generic functions at definition time.
+    // The body will be evaluated when the function is specialized with concrete types.
+    // However, we still trial-evaluate to catch return type mismatches.
+    checkDeferredGenericReturnType({
+      functionBodyExpr,
+      functionType: newFunctionType,
+      functionValue,
+      env,
+      context,
+    });
+
+    // Attach the environment for later use when called
     functionBodyExpr.$ = {
       env,
       type: functionType.return.type,

@@ -618,6 +618,65 @@ export function extractFunctionValue(
   return undefined;
 }
 
+function isDebugFlagEnabled(name: string): boolean {
+  const value = process.env[name];
+  return value === "1" || value?.toLowerCase() === "true";
+}
+
+const isCallProfilerEnabled =
+  isDebugFlagEnabled("YO_DEBUG_CALL") ||
+  isDebugFlagEnabled("YO_DEBUG_CALL_PROFILE") ||
+  isDebugFlagEnabled("YO_DEBUG_EVAL") ||
+  isDebugFlagEnabled("YO_DEBUG_EVAL_PROFILE");
+
+type CallProfilerGlobalState = {
+  __yoCallProfilerState?: {
+    tryCallCount: number;
+    specializeCount: number;
+    cacheHitCount: number;
+    cacheMissCount: number;
+    specializeNames: Map<string, number>;
+    tryCallNames: Map<string, number>;
+  };
+};
+
+const _g: typeof globalThis & CallProfilerGlobalState = globalThis;
+const _callProfilerState =
+  _g.__yoCallProfilerState ??
+  (_g.__yoCallProfilerState = {
+    tryCallCount: 0,
+    specializeCount: 0,
+    cacheHitCount: 0,
+    cacheMissCount: 0,
+    specializeNames: new Map<string, number>(),
+    tryCallNames: new Map<string, number>(),
+  });
+export function _printCallProfile() {
+  if (!isCallProfilerEnabled) {
+    return;
+  }
+  console.log(
+    `[CALL PROFILE] tryToCallFunctionWithArguments: ${_callProfilerState.tryCallCount} calls`
+  );
+  console.log(
+    `[CALL PROFILE] createSpecializedFunctionInline: ${_callProfilerState.specializeCount} calls (cache hit: ${_callProfilerState.cacheHitCount}, miss: ${_callProfilerState.cacheMissCount})`
+  );
+  const sorted = [..._callProfilerState.tryCallNames.entries()].sort(
+    (a: [string, number], b: [string, number]) => b[1] - a[1]
+  );
+  console.log(`[CALL PROFILE] Top tryToCall functions:`);
+  for (const [name, count] of sorted.slice(0, 30)) {
+    console.log(`  ${name}: ${count}`);
+  }
+  const sortedSpec = [..._callProfilerState.specializeNames.entries()].sort(
+    (a: [string, number], b: [string, number]) => b[1] - a[1]
+  );
+  console.log(`[CALL PROFILE] Top specialized functions:`);
+  for (const [name, count] of sortedSpec.slice(0, 20)) {
+    console.log(`  ${name}: ${count}`);
+  }
+}
+
 /**
  * NOTE: This function will push new frame to the function env,
  * but will not pop frame.
@@ -657,6 +716,30 @@ export function tryToCallFunctionWithArguments({
    */
   skipCtfeExecution?: boolean;
 }): FunctionCallResult {
+  if (isCallProfilerEnabled) {
+    _callProfilerState.tryCallCount++;
+    let _tcName = "(unknown)";
+    if (
+      functionValue &&
+      "funcName" in functionValue &&
+      functionValue.funcName
+    ) {
+      _tcName = functionValue.funcName;
+    } else if (functionValue && "funcId" in functionValue) {
+      _tcName = String(functionValue.funcId);
+    } else if (functionCalleeExpr) {
+      _tcName = exprToString(functionCalleeExpr).slice(0, 60);
+    }
+    _callProfilerState.tryCallNames.set(
+      _tcName,
+      (_callProfilerState.tryCallNames.get(_tcName) ?? 0) + 1
+    );
+    if (_callProfilerState.tryCallCount <= 5) {
+      console.log(
+        `[DEBUG tryCall] #${_callProfilerState.tryCallCount}: name=${_tcName}, hasFuncValue=${!!functionValue}, hasFuncCalleeExpr=${!!functionCalleeExpr}`
+      );
+    }
+  }
   if (functionValue) {
     // Use the specializedType if available (e.g., from generic impls)
     // Only fall back to functionValue.type if specializedType exists
@@ -1490,12 +1573,23 @@ Got:   ${typeToString(typeValue.type)}`,
             (v) =>
               v.isImplicit === true &&
               v.isCompileTimeOnly === true &&
-              isFunctionType(v.type)
+              (isFunctionType(v.type) || isModuleType(v.type))
           );
-          if (givenEffectVars.length > 0) {
+          // Filter out given variables that already match a concrete (non-spread)
+          // implicit parameter in the function type. These are handled by their
+          // own iteration of the implicit param loop, not the spread.
+          const concreteImplicitNames = new Set(
+            functionType.implicitParameters
+              .filter((p) => !p.isEffectRowSpread)
+              .map((p) => p.label)
+          );
+          const spreadGivenVars = givenEffectVars.filter(
+            (v) => !concreteImplicitNames.has(v.name)
+          );
+          if (spreadGivenVars.length > 0) {
             // Directly add the given handler values as implicit args and create
             // an EffectsRowType so downstream code can resolve E.
-            for (const gv of givenEffectVars) {
+            for (const gv of spreadGivenVars) {
               const givenValue = gv.value?.[0];
               if (givenValue) {
                 implicitArgValues.push({
@@ -1510,6 +1604,7 @@ Got:   ${typeToString(typeValue.type)}`,
                     type: gv.type,
                     isCompileTimeOnly: true,
                     isImplicit: true,
+                    isFromEffectSpread: true,
                     value: [givenValue],
                     token: PlaceholderToken,
                     initializedAtToken: PlaceholderToken,
@@ -1523,7 +1618,7 @@ Got:   ${typeToString(typeValue.type)}`,
             }
             // Build and bind EffectsRowType so createSpecializedFunctionInline can find E
             const effectsRowForBinding = createEffectsRowType(
-              givenEffectVars.map((v) => ({
+              spreadGivenVars.map((v) => ({
                 label: v.name,
                 type: v.type,
                 isCompileTimeOnly: true as const,
@@ -1615,6 +1710,7 @@ Please ensure a given variable of matching type is in scope.`,
                 type: resolvedConcreteType,
                 isCompileTimeOnly: true,
                 isImplicit: true,
+                isFromEffectSpread: true,
                 value: [givenValue],
                 token: PlaceholderToken,
                 initializedAtToken: PlaceholderToken,
@@ -1638,6 +1734,7 @@ Please ensure a given variable of matching type is in scope.`,
                 type: resolvedConcreteType,
                 isCompileTimeOnly: true,
                 isImplicit: true,
+                isFromEffectSpread: true,
                 value: [givenValue],
                 token: PlaceholderToken,
                 initializedAtToken: PlaceholderToken,
@@ -1724,24 +1821,42 @@ Got:      ${typeToString(argType)}`,
           });
 
           // Add implicit arg to calleeEnv (mark as isImplicit so it can be
-          // found by nested using() parameter resolution)
-          const { env: nextEnv } = addVariableToEnv({
-            env: calleeEnv,
-            variable: {
-              name: implicitParam.label,
+          // found by nested using() parameter resolution).
+          // The variable may already exist from the function type's env
+          // (added during function type construction). In that case, update
+          // the existing variable instead of adding a new one.
+          const existingImplicitVars = getVariablesFromEnv(
+            calleeEnv,
+            implicitParam.label
+          );
+          if (existingImplicitVars.length > 0) {
+            const existingVar =
+              existingImplicitVars[existingImplicitVars.length - 1]!;
+            calleeEnv = updateExistingVariable(calleeEnv, existingVar, {
+              ...existingVar,
               type: resolvedImplicitType,
-              isCompileTimeOnly: true,
               isImplicit: true,
               value: [argValue],
-              token: implicitParam.exprs.labelExpr?.token ?? PlaceholderToken,
-              initializedAtToken:
-                implicitParam.exprs.labelExpr?.token ?? PlaceholderToken,
-              consumedAtToken: undefined,
-              isOwningTheRcValue: false,
-            },
-            allowVariableShadowing: true,
-          });
-          calleeEnv = nextEnv;
+            });
+          } else {
+            const { env: nextEnv } = addVariableToEnv({
+              env: calleeEnv,
+              variable: {
+                name: implicitParam.label,
+                type: resolvedImplicitType,
+                isCompileTimeOnly: true,
+                isImplicit: true,
+                value: [argValue],
+                token: implicitParam.exprs.labelExpr?.token ?? PlaceholderToken,
+                initializedAtToken:
+                  implicitParam.exprs.labelExpr?.token ?? PlaceholderToken,
+                consumedAtToken: undefined,
+                isOwningTheRcValue: false,
+              },
+              allowVariableShadowing: true,
+            });
+            calleeEnv = nextEnv;
+          }
           resolved = true;
         }
       }
@@ -1768,6 +1883,39 @@ Please declare a given variable with a compatible type, e.g.:
 Or pass it explicitly:
   ${functionValue?.funcName ?? "func"}(..., using(<value>))`,
           });
+        }
+
+        // Check if the matched given variable came from an effect row spread
+        // expansion. If so, the function must explicitly declare the effect
+        // in its using clause — effects from ...(E) don't implicitly satisfy
+        // concrete using() requirements.
+        // EXCEPTION: Allow when calling through a function parameter (e.g., f()
+        // where f : (fn(using(...(E))) -> T)), because the type system already
+        // guarantees effect forwarding through the spread parameter.
+        const matchedGivenVar = givenVariables[givenVariables.length - 1]!;
+        if (matchedGivenVar.isFromEffectSpread) {
+          // Check if the callee is a parameter of the enclosing function.
+          // Function parameters forward effects through the type system,
+          // so spread-injected effects should be available for them.
+          const isCallingFunctionParameter = (() => {
+            if (!functionCalleeExpr || !exprIsAtom(functionCalleeExpr))
+              return false;
+            const calleeName = functionCalleeExpr.token.value;
+            const enclosingFn = context.isEvaluatingFunctionBodyOrAsyncBlock;
+            if (!enclosingFn || enclosingFn.kind !== "function-body")
+              return false;
+            const enclosingType = enclosingFn.type;
+            return enclosingType.parameters.some((p) => p.label === calleeName);
+          })();
+          if (!isCallingFunctionParameter) {
+            throw formatErrorMessage({
+              token:
+                functionCalleeExpr?.token ?? expr?.token ?? PlaceholderToken,
+              errorMessage: `Effect "${implicitParam.label}" of type ${typeToString(resolvedImplicitType)} is available through an effect row spread but not explicitly declared in the function's using clause.
+Add it explicitly:
+  using(${implicitParam.label} : ${typeToString(resolvedImplicitType)}, ...(E))`,
+            });
+          }
         }
 
         // When multiple given variables match, prefer the one from the innermost
@@ -1981,6 +2129,38 @@ Please use explicit using() to disambiguate.`,
   const shouldAllowModuleUnknowns =
     hasOnlyModuleTypeUnknowns && hasRuntimeSomeTypeParams;
 
+  // Allow specialization when the only Unknown implicit args come from
+  // effect row spread parameters (e.g., ...(E)). The function body may not
+  // reference those spread-forwarded effects at all (only the explicitly declared
+  // ones like my_raise), so the body can still be properly re-evaluated.
+  const hasOnlySpreadUnknowns = (() => {
+    if (!hasUnknownImplicitArgs) return false;
+    const hasSpreadParam = functionType.implicitParameters.some(
+      (p) => p.isEffectRowSpread
+    );
+    if (!hasSpreadParam) return false;
+    // Count how many args come from non-spread implicit params.
+    // Non-spread params each produce exactly 1 arg. Spread params expand
+    // into the remaining args.
+    let nonSpreadArgCount = 0;
+    for (const param of functionType.implicitParameters) {
+      if (!param.isEffectRowSpread) {
+        nonSpreadArgCount++;
+      }
+    }
+    // Check that all non-spread implicit args (the first nonSpreadArgCount args)
+    // are known. Only spread-derived args (the rest) can be Unknown.
+    // This assumes non-spread params come before spread params in arg order,
+    // which matches the implicit parameter resolution order.
+    const implicitArgs = argValues_.implicitArgs ?? [];
+    for (let i = 0; i < nonSpreadArgCount && i < implicitArgs.length; i++) {
+      if (isUnknownValue(implicitArgs[i]!.value)) {
+        return false; // A non-spread arg is unknown → don't allow
+      }
+    }
+    return true;
+  })();
+
   if (
     !skipSpecialization &&
     functionValue &&
@@ -1991,9 +2171,13 @@ Please use explicit using() to disambiguate.`,
     // Skip specialization when implicit args contain UnknownValue (e.g., at function
     // definition time when the handler hasn't been concretely provided yet).
     // This prevents creating broken specializations that reference unresolved functions.
-    // Exception: allow when only module-type implicit args (like IO) are unknown AND
+    // Exception 1: allow when only module-type implicit args (like IO) are unknown AND
     // the call has SomeType runtime parameters that benefit from specialization.
-    (!hasUnknownImplicitArgs || shouldAllowModuleUnknowns)
+    // Exception 2: allow when the only Unknown args come from effect row spread
+    // parameters — those are forwarded effects that the body may not reference.
+    (!hasUnknownImplicitArgs ||
+      shouldAllowModuleUnknowns ||
+      hasOnlySpreadUnknowns)
   ) {
     specializedFunctionValue = createSpecializedFunctionInline({
       originalFunction: functionValue,
@@ -2150,6 +2334,14 @@ function createSpecializedFunctionInline({
   callerEnv: Environment;
   context: EvaluatorContext;
 }): FunctionValue {
+  if (isCallProfilerEnabled) {
+    _callProfilerState.specializeCount++;
+    const funcName = originalFunction.funcName ?? originalFunction.funcId;
+    _callProfilerState.specializeNames.set(
+      funcName,
+      (_callProfilerState.specializeNames.get(funcName) ?? 0) + 1
+    );
+  }
   const functionType = originalFunction.type;
 
   // Extract compile-time argument values for caching
@@ -2251,7 +2443,13 @@ function createSpecializedFunctionInline({
   );
 
   if (existingCache) {
+    if (isCallProfilerEnabled) {
+      _callProfilerState.cacheHitCount++;
+    }
     return existingCache.specializedFunction;
+  }
+  if (isCallProfilerEnabled) {
+    _callProfilerState.cacheMissCount++;
   }
 
   // Create specialized environment with compile-time arguments bound
@@ -2266,7 +2464,9 @@ function createSpecializedFunctionInline({
     for (const variable of frame.variables) {
       if (!variable.isCompileTimeOnly) continue;
       const existing = getVariablesFromEnv(specializedEnv, variable.name);
-      if (existing.length > 0) continue;
+      if (existing.length > 0) {
+        continue;
+      }
       const { env: nextEnv } = addVariableToEnv({
         env: specializedEnv,
         variable: { ...variable },
@@ -2442,6 +2642,60 @@ function createSpecializedFunctionInline({
                 fromSpread: true,
               });
             }
+          } else if (isModuleType(innerParam.type)) {
+            // Module-based effects inside an effect row spread:
+            // recursively find ctl function fields in the module.
+            const innerHandlerArg = argValues.implicitArgs?.[argOffset + k];
+            const innerModuleVal =
+              innerHandlerArg && isModuleValue(innerHandlerArg.value)
+                ? innerHandlerArg.value
+                : undefined;
+            const ctlFields: Array<{
+              path: string[];
+              type: FunctionType;
+            }> = [];
+            const findCtlFieldsInModuleSpread = (
+              moduleType: ModuleType,
+              pathSoFar: string[],
+              moduleVal?: ModuleValue
+            ) => {
+              for (let fi = 0; fi < moduleType.fields.length; fi++) {
+                const field = moduleType.fields[fi]!;
+                if (isFunctionType(field.type)) {
+                  const fieldVal = moduleVal?.fields[fi];
+                  if (
+                    fieldVal &&
+                    isFunctionValue(fieldVal) &&
+                    fieldVal.isControlFunction
+                  ) {
+                    // Use the handler's specializedType if available.
+                    const _resolvedType = (fieldVal.specializedType ??
+                      field.type) as FunctionType;
+                    ctlFields.push({
+                      path: [...pathSoFar, field.label],
+                      type: _resolvedType,
+                    });
+                  }
+                } else if (isModuleType(field.type)) {
+                  const innerMV = moduleVal?.fields[fi];
+                  findCtlFieldsInModuleSpread(
+                    field.type,
+                    [...pathSoFar, field.label],
+                    innerMV && isModuleValue(innerMV) ? innerMV : undefined
+                  );
+                }
+              }
+            };
+            findCtlFieldsInModuleSpread(innerParam.type, [], innerModuleVal);
+            for (const ctlField of ctlFields) {
+              effectCtlParams.push({
+                handlerArgIndex: argOffset + k,
+                label: innerParam.label,
+                type: ctlField.type,
+                fromSpread: true,
+                effectFieldPath: ctlField.path,
+              });
+            }
           }
         }
         argOffset += resolvedType.implicitParameters.length;
@@ -2467,9 +2721,13 @@ function createSpecializedFunctionInline({
               isFunctionValue(fieldVal) &&
               fieldVal.isControlFunction
             ) {
+              // Use the handler's specializedType if available; it has forall
+              // type parameters resolved to concrete types (e.g., ResumeType → i32).
+              const resolvedType = (fieldVal.specializedType ??
+                field.type) as FunctionType;
               ctlFields.push({
                 path: [...pathSoFar, field.label],
-                type: field.type as FunctionType,
+                type: resolvedType,
               });
             }
           } else if (isModuleType(field.type)) {
@@ -2658,11 +2916,67 @@ function createSpecializedFunctionInline({
               context: handlerContext,
             });
 
+            // Specialize handler parameter types with concrete forall bindings.
+            // The handler's parameters may have SomeType types corresponding to
+            // forall type parameters (e.g., ResumeType). Resolve them using the
+            // concrete types from the forallTypeMap.
+            const specializedParams: FunctionParameter[] =
+              handlerFnType.parameters.map((param) => {
+                if (param.isCompileTimeOnly) return param;
+                if (isSomeType(param.type)) {
+                  const concreteType = forallTypeMap.get(param.type.name);
+                  if (concreteType) {
+                    return { ...param, type: concreteType };
+                  }
+                }
+                return param;
+              });
+
+            // Resolve return type if it's a forall SomeType
+            let handlerReturnType = handlerFnType.return.type;
+            if (isSomeType(handlerReturnType)) {
+              const concreteType = forallTypeMap.get(handlerReturnType.name);
+              if (concreteType) {
+                handlerReturnType = concreteType;
+              }
+            }
+
+            const specializedHandlerType: FunctionType = {
+              ...handlerFnType,
+              parameters: specializedParams,
+              return: {
+                ...handlerFnType.return,
+                type: handlerReturnType,
+              },
+            };
+
             const reEvaluatedHandler: FunctionValue = {
               ...handlerFn,
               body: evaluatedBody,
+              specializedType: specializedHandlerType,
             };
             effectAnalysis.handlerValue = reEvaluatedHandler;
+            // Update the effectParameterType to use the specialized handler type.
+            // This ensures the outer/transitive SM struct uses concrete types
+            // (e.g., int32_t) instead of unresolved forall SomeType (void*).
+            effectAnalysis.effectParameterType = specializedHandlerType;
+
+            // Also update operationArgTypes on transitive call points.
+            // These were derived from the unresolved ctlType.parameters which
+            // contain SomeType entries (e.g., ResumeType). Resolve them using
+            // the forallTypeMap so the SM struct fields get concrete C types.
+            for (const callPoint of effectAnalysis.effectCallPoints) {
+              if (callPoint.isTransitiveEffectCall) {
+                callPoint.operationArgTypes = callPoint.operationArgTypes.map(
+                  (t) => {
+                    if (isSomeType(t)) {
+                      return forallTypeMap.get(t.name) ?? t;
+                    }
+                    return t;
+                  }
+                );
+              }
+            }
           } catch (e) {
             const bodyIsStillUnevaluated =
               exprIsFunctionCall(handlerFn.body) &&

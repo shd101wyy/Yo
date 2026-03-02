@@ -1,0 +1,94 @@
+// std/os/signal.yo - High-level signal handling
+//
+// Wraps std/io/signal with typed Signal enum values.
+//
+// Example:
+//   { on_signal, Signal } :: import "std/os/signal";
+//
+//   on_signal(.Interrupt, () => { println("Caught SIGINT"); });
+
+{ IOError } :: import "../io/errors";
+{
+  on_signal : _on_signal, off_signal : _off_signal
+} :: import "../io/signal";
+{ platform, Platform } :: import "../process";
+
+// ============================================================================
+// Signal enum
+// ============================================================================
+
+Signal :: enum(
+  Interrupt,   // SIGINT  (Ctrl-C)
+  Terminate,   // SIGTERM
+  Hangup,      // SIGHUP
+  User1,       // SIGUSR1
+  User2,       // SIGUSR2
+  Pipe,        // SIGPIPE
+  Alarm,       // SIGALRM
+  Child        // SIGCHLD
+);
+
+export Signal;
+
+_signal_num :: (fn(sig: Signal) -> i32)(
+  match(sig,
+    .Interrupt => cond(
+      (platform == Platform.Darwin) => i32(2),
+      true => i32(2)
+    ),
+    .Terminate => cond(
+      (platform == Platform.Darwin) => i32(15),
+      true => i32(15)
+    ),
+    .Hangup => cond(
+      (platform == Platform.Darwin) => i32(1),
+      true => i32(1)
+    ),
+    .User1 => cond(
+      (platform == Platform.Darwin) => i32(30),
+      true => i32(10)
+    ),
+    .User2 => cond(
+      (platform == Platform.Darwin) => i32(31),
+      true => i32(12)
+    ),
+    .Pipe => cond(
+      (platform == Platform.Darwin) => i32(13),
+      true => i32(13)
+    ),
+    .Alarm => cond(
+      (platform == Platform.Darwin) => i32(14),
+      true => i32(14)
+    ),
+    .Child => cond(
+      (platform == Platform.Darwin) => i32(20),
+      true => i32(17)
+    )
+  )
+);
+
+// ============================================================================
+// on_signal / off_signal
+// ============================================================================
+
+// Register a handler for the given signal.
+on_signal :: (fn(sig: Signal, handler: Impl(Fn() -> unit)) -> Result(unit, IOError))({
+  num := _signal_num(sig);
+  r   := _on_signal(num, (data) => { handler(); });
+  cond(
+    (r < i32(0)) => .Err(IOError.from_errno((i32(0) - r))),
+    true => .Ok(())
+  )
+});
+
+// Remove the handler for the given signal.
+off_signal :: (fn(sig: Signal) -> Result(unit, IOError))({
+  num := _signal_num(sig);
+  r   := _off_signal(num);
+  cond(
+    (r < i32(0)) => .Err(IOError.from_errno((i32(0) - r))),
+    true => .Ok(())
+  )
+});
+
+export on_signal, off_signal;

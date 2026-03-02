@@ -1646,10 +1646,23 @@ function generateHandlerBodyInline(
     const prevHandlerDrops = context.effectHandlerParamDrops;
     context.effectHandlerParamDrops = paramDropCodes;
 
+    // Shadow handler parameter names so that atoms in the handler body resolve
+    // to the local C variables (created above) instead of the outer SM's captured
+    // variables with the same name. Without this, the fallback name-based lookup
+    // in atom.ts would match the outer SM field.
+    const prevLocalShadowed = context.localShadowedVariables;
+    const handlerParamNames = new Set(prevLocalShadowed);
+    for (const p of runtimeParams) {
+      handlerParamNames.add(sanitizeForCIdentifier(p.label));
+    }
+    context.localShadowedVariables = handlerParamNames;
+
     const bodyCode = generateExpr(handlerBody, indent, context);
     if (bodyCode) {
       emitter.emitLine(`${indent}${bodyCode};`);
     }
+
+    context.localShadowedVariables = prevLocalShadowed;
 
     // Implicit resume: only needed when the handler body has NO explicit return(value).
     // Handlers with explicit return(value) resume the SM within generateReturnAsResume.
@@ -1689,11 +1702,20 @@ function generateHandlerBodyInline(
     const prevHandlerDrops = context.effectHandlerParamDrops;
     context.effectHandlerParamDrops = paramDropCodes;
 
+    // Shadow handler parameter names (same as resume path above)
+    const prevLocalShadowed = context.localShadowedVariables;
+    const handlerParamNames = new Set(prevLocalShadowed);
+    for (const p of runtimeParams) {
+      handlerParamNames.add(sanitizeForCIdentifier(p.label));
+    }
+    context.localShadowedVariables = handlerParamNames;
+
     const bodyCode = generateExpr(handlerBody, indent, context);
     if (bodyCode) {
       emitter.emitLine(`${indent}${bodyCode};`);
     }
 
+    context.localShadowedVariables = prevLocalShadowed;
     context.effectHandlerParamDrops = prevHandlerDrops;
   }
 }

@@ -14,6 +14,7 @@ import {
   BuiltinFunctions,
   BuiltinKeywords,
   cloneExpr,
+  controlFlowOf,
   expectExprToBeFunctionCallOf,
   type Expr,
   exprIsAtom,
@@ -23,6 +24,8 @@ import {
   ExprTag,
   exprToString,
   type FnCallExpr,
+  hasAnyControlFlow,
+  hasControlFlow,
   replaceFuncCallExprWithFuncCallExpr,
   setExprAsNeedsToCallDup,
 } from "../../expr";
@@ -207,7 +210,7 @@ function searchRecursively(
 
   // Helper function to check if a branch has a control flow statement (return, break, continue)
   function branchHasControlFlow(branchBody: Expr): boolean {
-    if (branchBody.$?.controlFlow) {
+    if (hasAnyControlFlow(branchBody.$?.controlFlow)) {
       return true;
     }
     // Check if it's a begin block that ends with control flow
@@ -216,7 +219,7 @@ function searchRecursively(
       exprIsFunctionCallOf(branchBody, BuiltinKeywords.begin)
     ) {
       const lastArg = branchBody.args[branchBody.args.length - 1];
-      if (lastArg?.$?.controlFlow) {
+      if (hasAnyControlFlow(lastArg?.$?.controlFlow)) {
         return true;
       }
       // Also check if the last expression is a return statement
@@ -582,7 +585,7 @@ export function evaluateBeginExpression({
           type: VUnit.type,
           value: VUnit,
           pathCollection: [],
-          controlFlow: "return",
+          controlFlow: controlFlowOf("return"),
         };
         lastExpr = exprToEvaluate;
         break;
@@ -677,7 +680,7 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
           value: evaluatedReturnArgExpr.$.value,
           pathCollection: evaluatedReturnArgExpr.$.pathCollection,
           variableName: evaluatedReturnArgExpr.$.variableName,
-          controlFlow: "return",
+          controlFlow: controlFlowOf("return"),
         };
         lastExpr = exprToEvaluate;
         break;
@@ -718,7 +721,7 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
         type: VUnit.type,
         value: VUnit,
         pathCollection: [],
-        controlFlow: "break",
+        controlFlow: controlFlowOf("break"),
       };
       lastExpr = exprToEvaluate;
       break;
@@ -758,7 +761,7 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
         type: VUnit.type,
         value: VUnit,
         pathCollection: [],
-        controlFlow: "continue",
+        controlFlow: controlFlowOf("continue"),
       };
       lastExpr = exprToEvaluate;
       break;
@@ -843,7 +846,7 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
         value: evaluatedEscapeArgExpr.$.value,
         pathCollection: evaluatedEscapeArgExpr.$.pathCollection,
         variableName: evaluatedEscapeArgExpr.$.variableName,
-        controlFlow: "escape",
+        controlFlow: controlFlowOf("escape"),
       };
       lastExpr = exprToEvaluate;
       break;
@@ -863,7 +866,7 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
         env = evaluatedExpr.$?.env;
       }
 
-      if (evaluatedExpr.$?.controlFlow) {
+      if (hasAnyControlFlow(evaluatedExpr.$?.controlFlow)) {
         lastExpr = evaluatedExpr;
         break;
       }
@@ -879,7 +882,7 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
   const returnType = lastExpr.$.type;
 
   // Check if return type is compatible
-  if (lastExpr.$.controlFlow === "return") {
+  if (hasControlFlow(lastExpr.$.controlFlow, "return")) {
     if (
       context.isEvaluatingFunctionBodyOrAsyncBlock?.kind === "function-body"
     ) {

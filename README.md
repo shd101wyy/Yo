@@ -176,6 +176,10 @@ $ ./yo-cli compile src/tests/examples/fixme.yo
 - Vim / Neovim: a minimal syntax file and a usage README are available in `vscode-extension/syntaxes/`.
   See [vscode-extension/syntaxes/README.md](./vscode-extension/syntaxes/README.md) for installation steps, `ftdetect` examples and `home-manager` snippets.
 
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=shd101wyy/Yo&type=date&legend=top-left)](https://www.star-history.com/#shd101wyy/Yo&type=date&legend=top-left)
+
 ## License
 
 [UIUC/NCSA Open Source License](./LICENSE.md)
