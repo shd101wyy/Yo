@@ -557,11 +557,21 @@ export function preRegisterEffectfulFunctions(
       // Only register as effectful if the handler uses escape (is a control function).
       // Regular function calls via using() don't need state machine transformation.
       //
-      // For non-closure functions (e.g., functions with forall(...(E)) spread effects),
+      // For non-closure functions with effect row spread parameters (forall(...(E))),
       // the handler value is not available at the definition site — the handler is
       // provided at the call site via `given`. In this case, we must treat the function
       // as effectful since it was declared with effect parameters.
-      if (!handlerIsControlFunction && functionValue.type.isClosure) continue;
+      // However, non-closure functions WITHOUT spread effect params (e.g., regular
+      // forall(T) + using(op : fn_type)) are just using implicit parameter resolution,
+      // not algebraic effects — they should NOT be treated as effectful.
+      const hasEffectRowSpread = implicitParams.some(
+        (p) => p.isEffectRowSpread
+      );
+      if (
+        !handlerIsControlFunction &&
+        (functionValue.type.isClosure || !hasEffectRowSpread)
+      )
+        continue;
 
       functionValue.body.$.effectAnalysis = effectAnalysis;
 
