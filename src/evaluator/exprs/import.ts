@@ -105,24 +105,30 @@ ${modulePathToImport}`,
     );
   const extname = path.extname(moduleAbsolutePath);
   if (!extname) {
-    // If no extension, assume it's a .yo file
-    // If no such file exists, then assume it's a directory with index.yo and check again
-    moduleAbsolutePath = moduleAbsolutePath + ".yo";
-    // Check if the .yo file exists
-    if (!existsSync(moduleAbsolutePath.replace(/^file:\/\//, ""))) {
-      // Try index.yo in the directory
-      const indexYoPath = path.join(
-        moduleAbsolutePath.replace(/^file:\/\//, "").replace(/\.yo$/, ""),
-        "index.yo"
-      );
-      if (existsSync(indexYoPath)) {
-        moduleAbsolutePath = "file://" + indexYoPath;
-      } else {
-        throw formatErrorMessage({
-          token: moduleArg.token,
-          errorMessage: `Module not found: tried "${moduleAbsolutePath}" and "${indexYoPath}"`,
-        });
-      }
+    // If no extension, try both <path>.yo and <path>/index.yo
+    const yoFilePath = moduleAbsolutePath.replace(/^file:\/\//, "") + ".yo";
+    const indexYoPath = path.join(
+      moduleAbsolutePath.replace(/^file:\/\//, ""),
+      "index.yo"
+    );
+    const yoFileExists = existsSync(yoFilePath);
+    const indexYoExists = existsSync(indexYoPath);
+
+    if (yoFileExists && indexYoExists) {
+      // Ambiguous: both <path>.yo and <path>/index.yo exist
+      throw formatErrorMessage({
+        token: moduleArg.token,
+        errorMessage: `Ambiguous import "${modulePathToImport}": both "${modulePathToImport}.yo" and "${modulePathToImport}/index.yo" exist. Use an explicit path to resolve the ambiguity.`,
+      });
+    } else if (yoFileExists) {
+      moduleAbsolutePath = "file://" + yoFilePath;
+    } else if (indexYoExists) {
+      moduleAbsolutePath = "file://" + indexYoPath;
+    } else {
+      throw formatErrorMessage({
+        token: moduleArg.token,
+        errorMessage: `Module not found: tried "${"file://" + yoFilePath}" and "${indexYoPath}"`,
+      });
     }
   }
   // NOTE: Let's not check this, because the file might be "module.test",
