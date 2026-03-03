@@ -1,0 +1,88 @@
+// std/sync/rwlock.yo - Reader-Writer Lock
+//
+// Allows multiple concurrent readers or one exclusive writer.
+// Uses Mutex + Cond internally.
+//
+// Example:
+//   { RwLock } :: import "std/sync/rwlock";
+//
+//   lock := RwLock.new();
+//   // Multiple readers can hold the lock simultaneously
+//   lock.read_lock();
+//   // ... read shared data ...
+//   lock.read_unlock();
+//
+//   // Only one writer at a time, blocks all readers
+//   lock.write_lock();
+//   // ... write shared data ...
+//   lock.write_unlock();
+
+{ Mutex, Cond } :: import "../sync";
+
+// ============================================================================
+// RwLock
+// ============================================================================
+
+RwLock :: object(
+  _readers  : i32,
+  _writer   : bool,
+  _mutex    : Mutex,
+  _read_cv  : Cond,
+  _write_cv : Cond
+);
+
+impl(RwLock,
+  // Create a new reader-writer lock.
+  new : (fn() -> Self)(
+    Self(
+      _readers: i32(0),
+      _writer: false,
+      _mutex: Mutex.new(),
+      _read_cv: Cond.new(),
+      _write_cv: Cond.new()
+    )
+  ),
+
+  // Acquire a read lock. Blocks if a writer holds the lock.
+  // Multiple readers can hold the lock simultaneously.
+  read_lock : (fn(self: Self) -> unit)({
+    self._mutex.lock();
+    while runtime(self._writer), {
+      self._read_cv.wait(self._mutex);
+    };
+    self._readers = (self._readers + i32(1));
+    self._mutex.unlock();
+  }),
+
+  // Release a read lock.
+  read_unlock : (fn(self: Self) -> unit)({
+    self._mutex.lock();
+    self._readers = (self._readers - i32(1));
+    cond(
+      (self._readers == i32(0)) => self._write_cv.signal(),
+      true => ()
+    );
+    self._mutex.unlock();
+  }),
+
+  // Acquire a write lock. Blocks until all readers and writers release.
+  write_lock : (fn(self: Self) -> unit)({
+    self._mutex.lock();
+    while runtime((self._writer || (self._readers > i32(0)))), {
+      self._write_cv.wait(self._mutex);
+    };
+    self._writer = true;
+    self._mutex.unlock();
+  }),
+
+  // Release a write lock.
+  write_unlock : (fn(self: Self) -> unit)({
+    self._mutex.lock();
+    self._writer = false;
+    self._read_cv.broadcast();
+    self._write_cv.signal();
+    self._mutex.unlock();
+  })
+);
+
+export RwLock;

@@ -1,0 +1,69 @@
+// std/sync/once.yo - One-time initialization
+//
+// Execute a function exactly once, thread-safely.
+//
+// Example:
+//   { Once } :: import "std/sync/once";
+//
+//   init := Once.new();
+//   // Only the first call executes the function
+//   init.call(() => {
+//     println("initialized!");
+//   });
+//   init.call(() => {
+//     println("this will NOT run");
+//   });
+
+{ Mutex } :: import "../sync";
+
+// ============================================================================
+// Once
+// ============================================================================
+
+Once :: object(
+  _done  : bool,
+  _mutex : Mutex
+);
+
+impl(Once,
+  // Create a new Once.
+  new : (fn() -> Self)(
+    Self(
+      _done: false,
+      _mutex: Mutex.new()
+    )
+  ),
+
+  // Execute the function exactly once.
+  // Subsequent calls are no-ops.
+  // Note: The fast-path read of _done is not strictly atomic, but since _done
+  // is only ever set from false to true and the double-check inside the lock
+  // prevents the function from running twice, this is safe in practice.
+  call : (fn(self: Self, f: Fn(() -> unit)) -> unit)({
+    // Fast path: already done
+    cond(
+      self._done => (),
+      true => {
+        self._mutex.lock();
+        // Double-check after acquiring lock
+        cond(
+          self._done => {
+            self._mutex.unlock();
+          },
+          true => {
+            f();
+            self._done = true;
+            self._mutex.unlock();
+          }
+        );
+      }
+    );
+  }),
+
+  // Check if the function has been called.
+  is_done : (fn(self: Self) -> bool)(
+    self._done
+  )
+);
+
+export Once;
