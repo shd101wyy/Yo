@@ -27,38 +27,38 @@ Byte buffers use `ArrayList(u8)` (not `Slice(u8)`).
 
 ### What's Done
 
-| Module             | File(s)                 | Status      | Notes                                                                                 |
-| ------------------ | ----------------------- | ----------- | ------------------------------------------------------------------------------------- |
-| **Prelude**        | `std/prelude.yo`        | ✅ Complete | Core types, traits, operators, Box, Option, Result, Array, Slice; IO algebraic effect |
-| **String**         | `std/string/`           | ✅ Complete | Immutable UTF-8 `String`, `rune` (Unicode code point)                                 |
-| **Collections**    | `std/collections/`      | ✅ Complete | `ArrayList`, `HashMap`, `HashSet`, `LinkedList`, `Deque`, `BTreeMap`, `PriorityQueue` |
-| **Path**           | `std/path.yo`           | ✅ Complete | Cross-platform path manipulation (join, parent, extension, normalize)                 |
-| **Process**        | `std/process.yo`        | ✅ Complete | Platform/arch detection, args, env, cwd, chdir, exit                                  |
-| **Allocator**      | `std/allocator.yo`      | ✅ Complete | `GlobalAllocator` (mimalloc/libc), `CustomAllocator` trait                            |
-| **Format**         | `std/fmt/`              | ✅ Complete | `ToString` trait, `Writer`, `Display`; `println`/`print`/`eprintln`                   |
-| **Hash**           | `std/alg/hash.yo`       | ✅ Complete | FNV-1a hash function                                                                  |
-| **Sync**           | `std/sync.yo`           | ✅ Complete | `Mutex`, `Cond` (stack + GC-managed variants)                                         |
-| **Sync Channel**   | `std/sync/channel.yo`   | ✅ Complete | Bounded MPMC `Channel` for cross-thread/worker communication                          |
-| **Sync RwLock**    | `std/sync/rwlock.yo`    | ✅ Complete | `RwLock` — multiple-reader / single-writer lock                                       |
-| **Sync WaitGroup** | `std/sync/waitgroup.yo` | ✅ Complete | `WaitGroup` — wait for a group of tasks to complete                                   |
-| **Sync Once**      | `std/sync/once.yo`      | ✅ Complete | `Once` — one-time thread-safe initialization                                          |
-| **Thread**         | `std/thread.yo`         | ✅ Complete | `Thread` (spawn/join), hardware thread count                                          |
-| **Worker**         | `std/worker.yo`         | ✅ Complete | Thread pool with round-robin task distribution                                        |
-| **GC**             | `std/gc.yo`             | ✅ Complete | `collect`, `tracked_count`                                                            |
-| **Async**          | `std/async.yo`          | ✅ Minimal  | Only `yield`; async/await uses IO algebraic effect                                    |
-| **Time**           | `std/time.yo`           | 🔸 Minimal  | Only `sleep`; see `std/time/` for Duration, Instant, DateTime                         |
-| **Time (rich)**    | `std/time/`             | ✅ Complete | `Duration`, `Instant` (monotonic), `DateTime` (wall clock)                            |
-| **Error**          | `std/error/`            | ✅ Complete | `Error` trait for typed error propagation                                             |
-| **IO (low-level)** | `std/io/` (37 files)    | ✅ Complete | Full async I/O: file, socket, process, mmap, DNS, signals, TTY, etc.                  |
-| **Libc bindings**  | `std/libc/`             | ✅ Complete | stdio, stdlib, string, math, errno, signal, etc.                                      |
-| **FS**             | `std/fs/`               | ✅ Complete | `File`, `Metadata`, `TempDir`, `TempFile`, directory walker                           |
-| **Net**            | `std/net/`              | ✅ Complete | `TcpStream`, `TcpListener`, `UdpSocket`, `IpAddr`, DNS lookup                         |
-| **OS**             | `std/os/`               | ✅ Complete | Signal handling, environment directory utilities                                      |
-| **Encoding**       | `std/encoding/`         | ✅ Complete | Base64, hex, JSON, UTF-16                                                             |
-| **Crypto**         | `std/crypto/`           | ✅ Complete | SHA-256, MD5, secure random, UUID v4                                                  |
-| **Math**           | `std/math/`             | ✅ Complete | Generic min/max/clamp, lerp, PRNG (xoshiro256\*\*)                                    |
-| **Log**            | `std/log/`              | ✅ Complete | Structured logger with level filtering and output routing                             |
-| **Testing**        | `std/testing/`          | ✅ Complete | Rich assertion helpers, micro-benchmarking                                            |
+| Module             | File(s)                                 | Status      | Notes                                                                                 |
+| ------------------ | --------------------------------------- | ----------- | ------------------------------------------------------------------------------------- |
+| **Prelude**        | `std/prelude.yo`                        | ✅ Complete | Core types, traits, operators, Box, Option, Result, Array, Slice; IO algebraic effect |
+| **String**         | `std/string/`                           | ✅ Complete | Immutable UTF-8 `String`, `rune` (Unicode code point)                                 |
+| **Collections**    | `std/collections/`                      | ✅ Complete | `ArrayList`, `HashMap`, `HashSet`, `LinkedList`, `Deque`, `BTreeMap`, `PriorityQueue` |
+| **Path**           | `std/path.yo`                           | ✅ Complete | Cross-platform path manipulation (join, parent, extension, normalize)                 |
+| **Process**        | `std/process.yo`                        | ✅ Complete | Platform/arch detection, args, env, cwd, chdir, exit                                  |
+| **Allocator**      | `std/allocator.yo`                      | ✅ Complete | `GlobalAllocator` (mimalloc/libc), `CustomAllocator` trait                            |
+| **Format**         | `std/fmt/`                              | ✅ Complete | `ToString` trait, `Writer`, `Display`; `println`/`print`/`eprintln`                   |
+| **Hash**           | `std/alg/hash.yo`                       | ✅ Complete | FNV-1a hash function                                                                  |
+| **Sync**           | `std/sync/mutex.yo`, `std/sync/cond.yo` | ✅ Complete | `Mutex`, `Cond` (stack + GC-managed variants)                                         |
+| **Sync Channel**   | `std/sync/channel.yo`                   | ✅ Complete | Bounded MPMC `Channel` for cross-thread/worker communication                          |
+| **Sync RwLock**    | `std/sync/rwlock.yo`                    | ✅ Complete | `RwLock` — multiple-reader / single-writer lock                                       |
+| **Sync WaitGroup** | `std/sync/waitgroup.yo`                 | ✅ Complete | `WaitGroup` — wait for a group of tasks to complete                                   |
+| **Sync Once**      | `std/sync/once.yo`                      | ✅ Complete | `Once` — one-time thread-safe initialization                                          |
+| **Thread**         | `std/thread.yo`                         | ✅ Complete | `Thread` (spawn/join), hardware thread count                                          |
+| **Worker**         | `std/worker.yo`                         | ✅ Complete | Thread pool with round-robin task distribution                                        |
+| **GC**             | `std/gc.yo`                             | ✅ Complete | `collect`, `tracked_count`                                                            |
+| **Async**          | `std/async.yo`                          | ✅ Minimal  | Only `yield`; async/await uses IO algebraic effect                                    |
+| **Time**           | `std/time.yo`                           | 🔸 Minimal  | Only `sleep`; see `std/time/` for Duration, Instant, DateTime                         |
+| **Time (rich)**    | `std/time/`                             | ✅ Complete | `Duration`, `Instant` (monotonic), `DateTime` (wall clock)                            |
+| **Error**          | `std/error/`                            | ✅ Complete | `Error` trait for typed error propagation                                             |
+| **IO (low-level)** | `std/io/` (37 files)                    | ✅ Complete | Full async I/O: file, socket, process, mmap, DNS, signals, TTY, etc.                  |
+| **Libc bindings**  | `std/libc/`                             | ✅ Complete | stdio, stdlib, string, math, errno, signal, etc.                                      |
+| **FS**             | `std/fs/`                               | ✅ Complete | `File`, `Metadata`, `TempDir`, `TempFile`, directory walker                           |
+| **Net**            | `std/net/`                              | ✅ Complete | `TcpStream`, `TcpListener`, `UdpSocket`, `IpAddr`, DNS lookup                         |
+| **OS**             | `std/os/`                               | ✅ Complete | Signal handling, environment directory utilities                                      |
+| **Encoding**       | `std/encoding/`                         | ✅ Complete | Base64, hex, JSON, UTF-16                                                             |
+| **Crypto**         | `std/crypto/`                           | ✅ Complete | SHA-256, MD5, secure random, UUID v4                                                  |
+| **Math**           | `std/math/`                             | ✅ Complete | Generic min/max/clamp, lerp, PRNG (xoshiro256\*\*)                                    |
+| **Log**            | `std/log/`                              | ✅ Complete | Structured logger with level filtering and output routing                             |
+| **Testing**        | `std/testing/`                          | ✅ Complete | Rich assertion helpers, micro-benchmarking                                            |
 
 ### What's Missing
 
