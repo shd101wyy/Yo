@@ -1700,6 +1700,15 @@ export function mergeAndCheckEnvs(
         const frameVariable = frameVariables[k]!;
         const caseEnvFrameValue = caseEnvFrameVariables[k]!;
         if (frameVariable.name !== caseEnvFrameValue.name) {
+          // Allow mismatched names when both are temp variables at the same position.
+          // Different branches may allocate temps with different counter suffixes
+          // (e.g., _temp_24758 vs _temp_24759) but they represent the same slot.
+          if (
+            isTempVariableName(env.modulePath, frameVariable.name) &&
+            isTempVariableName(env.modulePath, caseEnvFrameValue.name)
+          ) {
+            continue;
+          }
           throw formatErrorMessages([
             {
               token: bodies[j]!.token,

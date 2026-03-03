@@ -110,7 +110,7 @@ test "exists returns true for existing file", using(io : IO), {
       printf("  exists = %d\n", cond(e => i32(1), true => i32(0)));
       assert(e, "file should exist");
     },
-    .Err(e) => assert(false, "exists failed")
+    .Err(err) => assert(false, "exists failed")
   );
 
   io.await(fs_dir.remove_file(fpath, using(io)));
@@ -124,7 +124,7 @@ test "exists returns false for nonexistent file", using(io : IO), {
       printf("  exists = %d\n", cond(e => i32(1), true => i32(0)));
       assert((!(e)), "file should not exist");
     },
-    .Err(e) => assert(false, "exists returned error")
+    .Err(err) => assert(false, "exists returned error")
   );
 };
 

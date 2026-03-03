@@ -9,25 +9,18 @@ fs_dir :: import "std/fs/dir";
 
 main :: (fn(using(io : IO)) -> unit)({
   tmp := temp_dir();
-  fpath_s := path_join(tmp, `yo_fs_file_str_test.txt`);
-  fpath_cstr := fpath_s.to_cstr();
-  fpath_c := fpath_cstr.ptr().unwrap();
+  fpath := Path.new(path_join(tmp, `yo_fs_file_exists.txt`));
 
-  w := io.await(fs_file.write_file_cstr(fpath_c, "str path test", using(io)));
-  match(w,
-    .Ok(_) => { printf("  write ok\n"); },
-    .Err(e) => { assert(false, "write_file_str failed"); }
-  );
+  io.await(fs_file.write_file(fpath, "exists", using(io)));
 
-  r := io.await(fs_file.read_to_string_cstr(fpath_c, using(io)));
+  r := io.await(fs_file.exists(fpath, using(io)));
   match(r,
-    .Ok(s) => {
-      printf("  read: %s\n", s.to_cstr().ptr().unwrap());
-      assert((s == `str path test`), "content mismatch");
+    .Ok(e) => {
+      printf("  exists = %d\n", cond(e => i32(1), true => i32(0)));
     },
-    .Err(e) => { assert(false, "read_to_string_str failed"); }
+    .Err(err) => assert(false, "exists failed")
   );
 
-  io.await(fs_dir.remove_file(Path.new(fpath_s), using(io)));
+  io.await(fs_dir.remove_file(fpath, using(io)));
 });
 export main;
