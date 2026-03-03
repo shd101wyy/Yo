@@ -35,6 +35,22 @@ print_bool :: (fn(value: bool) -> i32)(
     true => i32(0)
   )
 );
+
+// WRONG - lambda body wraps single expression in {...}, creating a struct:
+io.async((using(io : IO)) => {
+  cond(
+    done => .Ok(()),
+    true => .Err(e)
+  )
+})
+
+// CORRECT - lambda body is just the expression, no {...}:
+io.async((using(io : IO)) =>
+  cond(
+    done => .Ok(()),
+    true => .Err(e)
+  )
+)
 ```
 
 ## Always write `cond(...)` and `match(...)` with parentheses
