@@ -416,11 +416,10 @@ export function evaluateYoComptimeNumericFunctions({
       if (isNumberValue(arg.$.value) || isComptimeIntValue(arg.$.value)) {
         const num = extractNumericValue(arg.$.value);
         if (num !== null) {
-          if (typeof num === "bigint") {
-            value = createComptimeIntValue(~num);
-          } else {
-            value = createComptimeIntValue(BigInt(~Math.floor(num)));
-          }
+          const bigNum =
+            typeof num === "bigint" ? num : BigInt(Math.floor(num));
+          const result = createNumericValue(~bigNum, numericType, env, context);
+          value = result ?? createUnknownValue(numericType, { env, context });
         } else {
           value = createUnknownValue(numericType, { env, context });
         }
@@ -738,21 +737,21 @@ export function evaluateYoComptimeNumericFunctions({
       const lhsNumber = extractNumericValue(lhsValue);
       const rhsNumber = extractNumericValue(rhsValue);
       if (lhsNumber !== null && rhsNumber !== null) {
-        if (typeof lhsNumber === "bigint" || typeof rhsNumber === "bigint") {
-          const bigA =
-            typeof lhsNumber === "bigint"
-              ? lhsNumber
-              : BigInt(Math.floor(lhsNumber));
-          const bigB =
-            typeof rhsNumber === "bigint"
-              ? rhsNumber
-              : BigInt(Math.floor(rhsNumber));
-          value = createComptimeIntValue(bigA & bigB);
-        } else {
-          value = createComptimeIntValue(
-            BigInt(Math.floor(lhsNumber) & Math.floor(rhsNumber))
-          );
-        }
+        const bigA =
+          typeof lhsNumber === "bigint"
+            ? lhsNumber
+            : BigInt(Math.floor(lhsNumber));
+        const bigB =
+          typeof rhsNumber === "bigint"
+            ? rhsNumber
+            : BigInt(Math.floor(rhsNumber));
+        const result = createNumericValue(
+          bigA & bigB,
+          numericType,
+          env,
+          context
+        );
+        value = result ?? createUnknownValue(numericType, { env, context });
       } else {
         value = createUnknownValue(numericType, { env, context });
       }
@@ -763,21 +762,21 @@ export function evaluateYoComptimeNumericFunctions({
       const lhsNumber = extractNumericValue(lhsValue);
       const rhsNumber = extractNumericValue(rhsValue);
       if (lhsNumber !== null && rhsNumber !== null) {
-        if (typeof lhsNumber === "bigint" || typeof rhsNumber === "bigint") {
-          const bigA =
-            typeof lhsNumber === "bigint"
-              ? lhsNumber
-              : BigInt(Math.floor(lhsNumber));
-          const bigB =
-            typeof rhsNumber === "bigint"
-              ? rhsNumber
-              : BigInt(Math.floor(rhsNumber));
-          value = createComptimeIntValue(bigA | bigB);
-        } else {
-          value = createComptimeIntValue(
-            BigInt(Math.floor(lhsNumber) | Math.floor(rhsNumber))
-          );
-        }
+        const bigA =
+          typeof lhsNumber === "bigint"
+            ? lhsNumber
+            : BigInt(Math.floor(lhsNumber));
+        const bigB =
+          typeof rhsNumber === "bigint"
+            ? rhsNumber
+            : BigInt(Math.floor(rhsNumber));
+        const result = createNumericValue(
+          bigA | bigB,
+          numericType,
+          env,
+          context
+        );
+        value = result ?? createUnknownValue(numericType, { env, context });
       } else {
         value = createUnknownValue(numericType, { env, context });
       }
@@ -788,21 +787,21 @@ export function evaluateYoComptimeNumericFunctions({
       const lhsNumber = extractNumericValue(lhsValue);
       const rhsNumber = extractNumericValue(rhsValue);
       if (lhsNumber !== null && rhsNumber !== null) {
-        if (typeof lhsNumber === "bigint" || typeof rhsNumber === "bigint") {
-          const bigA =
-            typeof lhsNumber === "bigint"
-              ? lhsNumber
-              : BigInt(Math.floor(lhsNumber));
-          const bigB =
-            typeof rhsNumber === "bigint"
-              ? rhsNumber
-              : BigInt(Math.floor(rhsNumber));
-          value = createComptimeIntValue(bigA ^ bigB);
-        } else {
-          value = createComptimeIntValue(
-            BigInt(Math.floor(lhsNumber) ^ Math.floor(rhsNumber))
-          );
-        }
+        const bigA =
+          typeof lhsNumber === "bigint"
+            ? lhsNumber
+            : BigInt(Math.floor(lhsNumber));
+        const bigB =
+          typeof rhsNumber === "bigint"
+            ? rhsNumber
+            : BigInt(Math.floor(rhsNumber));
+        const result = createNumericValue(
+          bigA ^ bigB,
+          numericType,
+          env,
+          context
+        );
+        value = result ?? createUnknownValue(numericType, { env, context });
       } else {
         value = createUnknownValue(numericType, { env, context });
       }
@@ -821,7 +820,13 @@ export function evaluateYoComptimeNumericFunctions({
           typeof rhsNumber === "bigint"
             ? Number(rhsNumber)
             : Math.floor(rhsNumber);
-        value = createComptimeIntValue(bigA << BigInt(shiftAmount));
+        const result = createNumericValue(
+          bigA << BigInt(shiftAmount),
+          numericType,
+          env,
+          context
+        );
+        value = result ?? createUnknownValue(numericType, { env, context });
       } else {
         value = createUnknownValue(numericType, { env, context });
       }
@@ -840,7 +845,13 @@ export function evaluateYoComptimeNumericFunctions({
           typeof rhsNumber === "bigint"
             ? Number(rhsNumber)
             : Math.floor(rhsNumber);
-        value = createComptimeIntValue(bigA >> BigInt(shiftAmount));
+        const result = createNumericValue(
+          bigA >> BigInt(shiftAmount),
+          numericType,
+          env,
+          context
+        );
+        value = result ?? createUnknownValue(numericType, { env, context });
       } else {
         value = createUnknownValue(numericType, { env, context });
       }
