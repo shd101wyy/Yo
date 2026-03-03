@@ -126,42 +126,43 @@ extern "Yo",
 // Internal helper to stat a path
 // ============================================================================
 
-_stat_path :: (fn(path: Path, flags: i32, using(io : IO)) -> Impl(Future(Result(Metadata, IOError))))({
+_stat_path :: (fn(path: Path, flags: i32, using(io : IO)) -> Impl(Future(Result(Metadata, IOError), IO)))({
   cstr_bytes := path.to_string().to_cstr();
   cstr := cstr_bytes.ptr().unwrap();
   buf_size := __yo_statx_buf_size();
   buf := *(u8)(malloc(buf_size).unwrap());
-  task := io.async((using(io : IO)) => {
+  io.async((using(io)) => {
     result := io.await(IO_file.statx(AT_FDCWD, cstr, flags, STATX_BASIC_STATS, buf));
     cond(
       (result < i32(0)) => {
         free(.Some(*(void)(buf)));
-        return .Err(IOError.from_errno((i32(0) - result)));
+        ret : Result(Metadata, IOError) = .Err(IOError.from_errno((i32(0) - result)));
+        return ret;
       },
       true => {
         sx := Statx(_buf_ptr: buf, _buf_size: buf_size);
-        return .Ok(Metadata(_statx: sx, _buf_ptr: buf));
+        ret : Result(Metadata, IOError) = .Ok(Metadata(_statx: sx, _buf_ptr: buf));
+        return ret;
       }
     )
-  });
-  return task;
+  })
 });
 
 // Get metadata for a path (follows symlinks).
-metadata :: (fn(path: Path, using(io : IO)) -> Impl(Future(Result(Metadata, IOError))))
+metadata :: (fn(path: Path, using(io : IO)) -> Impl(Future(Result(Metadata, IOError), IO)))
   _stat_path(path, AT_STATX_SYNC_AS_STAT, using(io))
 ;
 
-metadata_str :: (fn(path: str, using(io : IO)) -> Impl(Future(Result(Metadata, IOError))))
+metadata_str :: (fn(path: str, using(io : IO)) -> Impl(Future(Result(Metadata, IOError), IO)))
   metadata(Path.new(String.from(path)), using(io))
 ;
 
 // Get metadata for a path (does NOT follow symlinks).
-symlink_metadata :: (fn(path: Path, using(io : IO)) -> Impl(Future(Result(Metadata, IOError))))
+symlink_metadata :: (fn(path: Path, using(io : IO)) -> Impl(Future(Result(Metadata, IOError), IO)))
   _stat_path(path, (AT_SYMLINK_NOFOLLOW | AT_STATX_SYNC_AS_STAT), using(io))
 ;
 
-symlink_metadata_str :: (fn(path: str, using(io : IO)) -> Impl(Future(Result(Metadata, IOError))))
+symlink_metadata_str :: (fn(path: str, using(io : IO)) -> Impl(Future(Result(Metadata, IOError), IO)))
   symlink_metadata(Path.new(String.from(path)), using(io))
 ;
 

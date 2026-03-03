@@ -24,7 +24,9 @@
 open import "../string";
 { Path } :: import "../path";
 { IOError } :: import "../io/errors";
-{ read_dir, DirEntry, FileType } :: import "./dir";
+{ FileType } :: import "./dir";
+{ DirEntry } :: import "./dir";
+_dir :: import "./dir";
 
 // ============================================================================
 // WalkEntry
@@ -44,7 +46,7 @@ export WalkEntry;
 // ============================================================================
 
 WalkOptions :: struct(
-  max_depth     : ?u32,
+  max_depth     : ?(u32),
   follow_symlinks : bool,
   include_dirs  : bool
 );
@@ -76,19 +78,10 @@ _join_path :: (fn(base: String, name: String) -> String)(
 // Walk functions
 // ============================================================================
 
-// Walk a directory tree with default options.
-walk :: (fn(root: Path, using(io : IO)) -> Impl(Future(Result(ArrayList(WalkEntry), IOError))))
-  walk_with(root, WalkOptions.defaults(), using(io))
-;
-
-walk_str :: (fn(root: str, using(io : IO)) -> Impl(Future(Result(ArrayList(WalkEntry), IOError))))
-  walk(Path.new(String.from(root)), using(io))
-;
-
 // Walk a directory tree with custom options.
-walk_with :: (fn(root: Path, options: WalkOptions, using(io : IO)) -> Impl(Future(Result(ArrayList(WalkEntry), IOError))))({
+walk_with :: (fn(root: Path, options: WalkOptions, using(io : IO)) -> Impl(Future(Result(ArrayList(WalkEntry), IOError), IO)))({
   root_s := root.to_string();
-  task := io.async((using(io : IO)) => {
+  io.async((using(io : IO)) => {
     results := ArrayList(WalkEntry).new();
     // Stack of (path, depth) pairs to process
     stack := ArrayList(struct(path: String, depth: u32)).new();
@@ -107,7 +100,7 @@ walk_with :: (fn(root: Path, options: WalkOptions, using(io : IO)) -> Impl(Futur
 
       cond(
         should_continue => {
-          dir_result := io.await(read_dir(Path.new(cur_path), using(io)));
+          dir_result := io.await(_dir.read_dir(Path.new(cur_path), using(io)));
           match(dir_result,
             .Ok(entries) => {
               i := usize(0);
@@ -143,7 +136,8 @@ walk_with :: (fn(root: Path, options: WalkOptions, using(io : IO)) -> Impl(Futur
               };
             },
             .Err(e) => {
-              return .Err(e);
+              ret : Result(ArrayList(WalkEntry), IOError) = .Err(e);
+              return ret;
             }
           );
         },
@@ -151,13 +145,22 @@ walk_with :: (fn(root: Path, options: WalkOptions, using(io : IO)) -> Impl(Futur
       );
     };
 
-    return .Ok(results);
-  });
-  return task;
+    ret : Result(ArrayList(WalkEntry), IOError) = .Ok(results);
+    return ret;
+  })
 });
 
-walk_with_str :: (fn(root: str, options: WalkOptions, using(io : IO)) -> Impl(Future(Result(ArrayList(WalkEntry), IOError))))(
+walk_with_str :: (fn(root: str, options: WalkOptions, using(io : IO)) -> Impl(Future(Result(ArrayList(WalkEntry), IOError), IO)))(
   walk_with(Path.new(String.from(root)), options, using(io))
 );
+
+// Walk a directory tree with default options.
+walk :: (fn(root: Path, using(io : IO)) -> Impl(Future(Result(ArrayList(WalkEntry), IOError), IO)))
+  walk_with(root, WalkOptions.defaults(), using(io))
+;
+
+walk_str :: (fn(root: str, using(io : IO)) -> Impl(Future(Result(ArrayList(WalkEntry), IOError), IO)))
+  walk(Path.new(String.from(root)), using(io))
+;
 
 export walk, walk_str, walk_with, walk_with_str;
