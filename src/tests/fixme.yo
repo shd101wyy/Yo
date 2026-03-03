@@ -3,25 +3,29 @@ open import "std/string";
 { Path } :: import "std/path";
 { IOError } :: import "std/io/errors";
 fs_file :: import "std/fs/file";
-{ File, OpenMode, FilePermission } :: import "std/fs/file";
 { temp_dir, path_join } :: import "../../tests/helper";
 fs_dir :: import "std/fs/dir";
+fs_walker :: import "std/fs/walker";
+{ WalkEntry, WalkOptions } :: import "std/fs/walker";
+{ FileType } :: import "std/fs/dir";
 
 main :: (fn(using(io : IO)) -> unit)({
   tmp := temp_dir();
-  fpath := Path.new(path_join(tmp, `yo_fs_file_exists.txt`));
+  root := path_join(tmp, `yo_fs_walk_fixme`);
 
-  io.await(fs_file.write_file(fpath, "exists", using(io)));
+  io.await(fs_dir.create_dir(Path.new(root), using(io)));
+  io.await(fs_file.write_file(Path.new(path_join(root, `a.txt`)), "a", using(io)));
 
-  r := io.await(fs_file.exists(fpath, using(io)));
+  r := io.await(fs_walker.walk(Path.new(root), using(io)));
   match(r,
-    .Ok(e) => {
-      printf("  exists = %d\n", cond(e => i32(1), true => i32(0)));
-      assert(e, "file should exist");
+    .Ok(entries) => {
+      printf("  entries count = %lld\n", i64(entries.len()));
     },
-    .Err(e) => assert(false, "exists failed")
+    .Err(e) => assert(false, "walk failed")
   );
 
-  io.await(fs_dir.remove_file(fpath, using(io)));
+  // Cleanup
+  io.await(fs_dir.remove_file(Path.new(path_join(root, `a.txt`)), using(io)));
+  io.await(fs_dir.remove_dir(Path.new(root), using(io)));
 });
 export main;
