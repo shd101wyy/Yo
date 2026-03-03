@@ -17,7 +17,7 @@ test "write_file and read_to_string round-trip", using(io : IO), {
 
   w := io.await(fs_file.write_file(fpath, "hello world", using(io)));
   match(w,
-    .Ok(_) => printf("  write ok\n"),
+    .Ok(_) => { printf("  write ok\n"); },
     .Err(e) => { printf("  write err\n"); assert(false, "write_file failed"); }
   );
 
@@ -40,13 +40,13 @@ test "write_file_str and read_to_string_str", using(io : IO), {
   fpath_cstr := fpath_s.to_cstr();
   fpath_c := fpath_cstr.ptr().unwrap();
 
-  w := io.await(fs_file.write_file_str(fpath_c, "str path test", using(io)));
+  w := io.await(fs_file.write_file_cstr(fpath_c, "str path test", using(io)));
   match(w,
-    .Ok(_) => printf("  write ok\n"),
-    .Err(e) => assert(false, "write_file_str failed")
+    .Ok(_) => { printf("  write ok\n"); },
+    .Err(e) => { assert(false, "write_file_str failed"); }
   );
 
-  r := io.await(fs_file.read_to_string_str(fpath_c, using(io)));
+  r := io.await(fs_file.read_to_string_cstr(fpath_c, using(io)));
   match(r,
     .Ok(s) => {
       printf("  read: %s\n", s.to_cstr().ptr().unwrap());
@@ -107,7 +107,7 @@ test "exists returns true for existing file", using(io : IO), {
   r := io.await(fs_file.exists(fpath, using(io)));
   match(r,
     .Ok(e) => {
-      printf("  exists = %d\n", i32(e));
+      printf("  exists = %d\n", cond(e => i32(1), true => i32(0)));
       assert(e, "file should exist");
     },
     .Err(e) => assert(false, "exists failed")
@@ -121,7 +121,7 @@ test "exists returns false for nonexistent file", using(io : IO), {
   r := io.await(fs_file.exists(fpath, using(io)));
   match(r,
     .Ok(e) => {
-      printf("  exists = %d\n", i32(e));
+      printf("  exists = %d\n", cond(e => i32(1), true => i32(0)));
       assert((!(e)), "file should not exist");
     },
     .Err(e) => assert(false, "exists returned error")
@@ -142,8 +142,8 @@ test "File.open write and read_to_string", using(io : IO), {
     .Ok(f) => {
       wr := io.await(f.write(`file object test`, using(io)));
       match(wr,
-        .Ok(n) => printf("  wrote %d bytes\n", n),
-        .Err(e) => assert(false, "File.write failed")
+        .Ok(n) => { printf("  wrote %d bytes\n", n); },
+        .Err(e) => { assert(false, "File.write failed"); }
       );
       io.await(f.close(using(io)));
     },
@@ -175,7 +175,7 @@ test "File.open nonexistent returns error", using(io : IO), {
   fr := io.await(File.open(fpath, .Read, using(io)));
   match(fr,
     .Ok(f) => assert(false, "should not open nonexistent file"),
-    .Err(e) => printf("  got error as expected\n")
+    .Err(e) => { printf("  got error as expected\n"); }
   );
 };
 
@@ -234,7 +234,7 @@ test "OpenMode.CreateNew fails if file exists", using(io : IO), {
       io.await(f.close(using(io)));
       assert(false, "CreateNew should fail on existing file");
     },
-    .Err(e) => printf("  CreateNew correctly failed\n")
+    .Err(e) => { printf("  CreateNew correctly failed\n"); }
   );
 
   io.await(fs_dir.remove_file(fpath, using(io)));
@@ -267,7 +267,7 @@ test "File.open_str convenience", using(io : IO), {
 
   io.await(fs_file.write_file(fpath, "open_str test", using(io)));
 
-  fr := io.await(File.open_str(fpath_c, .Read, using(io)));
+  fr := io.await(File.open_cstr(fpath_c, .Read, using(io)));
   match(fr,
     .Ok(f) => {
       content := io.await(f.read_to_string(using(io)));

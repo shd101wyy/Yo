@@ -20,8 +20,8 @@ test "create_dir and remove_dir", using(io : IO), {
 
   r := io.await(fs_dir.create_dir(dpath, using(io)));
   match(r,
-    .Ok(_) => printf("  create_dir ok\n"),
-    .Err(e) => assert(false, "create_dir failed")
+    .Ok(_) => { printf("  create_dir ok\n"); },
+    .Err(e) => { assert(false, "create_dir failed"); }
   );
 
   // Verify it exists
@@ -34,8 +34,8 @@ test "create_dir and remove_dir", using(io : IO), {
   // Remove
   rm := io.await(fs_dir.remove_dir(dpath, using(io)));
   match(rm,
-    .Ok(_) => printf("  remove_dir ok\n"),
-    .Err(e) => assert(false, "remove_dir failed")
+    .Ok(_) => { printf("  remove_dir ok\n"); },
+    .Err(e) => { assert(false, "remove_dir failed"); }
   );
 };
 
@@ -49,8 +49,8 @@ test "create_dir_str", using(io : IO), {
 
   r := io.await(fs_dir.create_dir_str(dpath_c, using(io)));
   match(r,
-    .Ok(_) => printf("  create_dir_str ok\n"),
-    .Err(e) => assert(false, "create_dir_str failed")
+    .Ok(_) => { printf("  create_dir_str ok\n"); },
+    .Err(e) => { assert(false, "create_dir_str failed"); }
   );
 
   io.await(fs_dir.remove_dir(Path.new(dpath_s), using(io)));
@@ -66,8 +66,8 @@ test "create_dir on existing returns error", using(io : IO), {
   // Second create should fail
   r := io.await(fs_dir.create_dir(dpath, using(io)));
   match(r,
-    .Ok(_) => assert(false, "create_dir on existing should fail"),
-    .Err(e) => printf("  got expected error\n")
+    .Ok(_) => { assert(false, "create_dir on existing should fail"); },
+    .Err(e) => { printf("  got expected error\n"); }
   );
 
   io.await(fs_dir.remove_dir(dpath, using(io)));
@@ -83,8 +83,8 @@ test "create_dir_all creates nested directories", using(io : IO), {
 
   r := io.await(fs_dir.create_dir_all(nested, using(io)));
   match(r,
-    .Ok(_) => printf("  create_dir_all ok\n"),
-    .Err(e) => assert(false, "create_dir_all failed")
+    .Ok(_) => { printf("  create_dir_all ok\n"); },
+    .Err(e) => { assert(false, "create_dir_all failed"); }
   );
 
   // Verify exists
@@ -110,8 +110,8 @@ test "create_dir_all on existing directory succeeds", using(io : IO), {
   // Calling again should not error
   r := io.await(fs_dir.create_dir_all(dpath, using(io)));
   match(r,
-    .Ok(_) => printf("  create_dir_all on existing ok\n"),
-    .Err(e) => assert(false, "create_dir_all on existing should succeed")
+    .Ok(_) => { printf("  create_dir_all on existing ok\n"); },
+    .Err(e) => { assert(false, "create_dir_all on existing should succeed"); }
   );
 
   io.await(fs_dir.remove_dir(dpath, using(io)));
@@ -129,8 +129,8 @@ test "remove_file removes a file", using(io : IO), {
 
   r := io.await(fs_dir.remove_file(fpath, using(io)));
   match(r,
-    .Ok(_) => printf("  remove_file ok\n"),
-    .Err(e) => assert(false, "remove_file failed")
+    .Ok(_) => { printf("  remove_file ok\n"); },
+    .Err(e) => { assert(false, "remove_file failed"); }
   );
 
   // Verify gone
@@ -145,8 +145,8 @@ test "remove_file nonexistent returns error", using(io : IO), {
   fpath := Path.new(`/nonexistent/yo_fs_rm_nope.txt`);
   r := io.await(fs_dir.remove_file(fpath, using(io)));
   match(r,
-    .Ok(_) => assert(false, "remove nonexistent should fail"),
-    .Err(e) => printf("  got expected error\n")
+    .Ok(_) => { assert(false, "remove nonexistent should fail"); },
+    .Err(e) => { printf("  got expected error\n"); }
   );
 };
 
@@ -164,8 +164,8 @@ test "rename moves a file", using(io : IO), {
 
   r := io.await(fs_dir.rename(old_path, new_path, using(io)));
   match(r,
-    .Ok(_) => printf("  rename ok\n"),
-    .Err(e) => assert(false, "rename failed")
+    .Ok(_) => { printf("  rename ok\n"); },
+    .Err(e) => { assert(false, "rename failed"); }
   );
 
   // Old should not exist
@@ -199,8 +199,8 @@ test "hard_link creates a link", using(io : IO), {
 
   r := io.await(fs_dir.hard_link(src, dst, using(io)));
   match(r,
-    .Ok(_) => printf("  hard_link ok\n"),
-    .Err(e) => assert(false, "hard_link failed")
+    .Ok(_) => { printf("  hard_link ok\n"); },
+    .Err(e) => { assert(false, "hard_link failed"); }
   );
 
   // Read via link
@@ -229,8 +229,8 @@ test "symlink creates a symbolic link", using(io : IO), {
 
   r := io.await(fs_dir.symlink(src, lnk, using(io)));
   match(r,
-    .Ok(_) => printf("  symlink ok\n"),
-    .Err(e) => assert(false, "symlink failed")
+    .Ok(_) => { printf("  symlink ok\n"); },
+    .Err(e) => { assert(false, "symlink failed"); }
   );
 
   // Read via symlink
@@ -310,7 +310,7 @@ test "read_dir on nonexistent returns error", using(io : IO), {
   dpath := Path.new(`/nonexistent/yo_fs_read_dir_nope`);
   r := io.await(fs_dir.read_dir(dpath, using(io)));
   match(r,
-    .Ok(_) => assert(false, "read_dir nonexistent should fail"),
-    .Err(e) => printf("  got expected error\n")
+    .Ok(_) => { assert(false, "read_dir nonexistent should fail"); },
+    .Err(e) => { printf("  got expected error\n"); }
   );
 };

@@ -56,17 +56,17 @@ export DirEntry;
 // ============================================================================
 
 // Create a directory at the given path.
-create_dir :: (fn(path: Path, using(io : IO)) -> Impl(Future(Result(unit, IOError), IO)))({
-  cstr_bytes := path.to_string().to_cstr();
-  cstr := cstr_bytes.ptr().unwrap();
+create_dir :: (fn(path: Path, using(io : IO)) -> Impl(Future(Result(unit, IOError), IO)))(
   io.async((using(io : IO)) => {
+    cstr_bytes := path.to_string().to_cstr();
+    cstr := cstr_bytes.ptr().unwrap();
     result := io.await(IO_dir.mkdir(AT_FDCWD, cstr, i32(DEFAULT_DIR_MODE)));
     cond(
       (result < i32(0)) => .Err(IOError.from_errno((i32(0) - result))),
       true => .Ok(())
     )
   })
-});
+);
 
 // Create a directory (str version).
 create_dir_str :: (fn(path: str, using(io : IO)) -> Impl(Future(Result(unit, IOError), IO)))(
@@ -75,11 +75,11 @@ create_dir_str :: (fn(path: str, using(io : IO)) -> Impl(Future(Result(unit, IOE
 
 // Create a directory and all parent directories.
 // Does not error if the directory already exists.
-create_dir_all :: (fn(path: Path, using(io : IO)) -> Impl(Future(Result(unit, IOError), IO)))({
-  path_s := path.to_string();
-  cstr_bytes := path_s.to_cstr();
-  cstr := cstr_bytes.ptr().unwrap();
+create_dir_all :: (fn(path: Path, using(io : IO)) -> Impl(Future(Result(unit, IOError), IO)))(
   io.async((using(io : IO)) => {
+    path_s := path.to_string();
+    cstr_bytes := path_s.to_cstr();
+    cstr := cstr_bytes.ptr().unwrap();
     // Try creating the directory directly first
     result := io.await(IO_dir.mkdir(AT_FDCWD, cstr, i32(DEFAULT_DIR_MODE)));
     cond(
@@ -133,7 +133,7 @@ create_dir_all :: (fn(path: Path, using(io : IO)) -> Impl(Future(Result(unit, IO
       }
     )
   })
-});
+);
 
 // Create a directory and all parents (str version).
 create_dir_all_str :: (fn(path: str, using(io : IO)) -> Impl(Future(Result(unit, IOError), IO)))(
@@ -141,91 +141,91 @@ create_dir_all_str :: (fn(path: str, using(io : IO)) -> Impl(Future(Result(unit,
 );
 
 // Remove an empty directory.
-remove_dir :: (fn(path: Path, using(io : IO)) -> Impl(Future(Result(unit, IOError), IO)))({
-  cstr_bytes := path.to_string().to_cstr();
-  cstr := cstr_bytes.ptr().unwrap();
+remove_dir :: (fn(path: Path, using(io : IO)) -> Impl(Future(Result(unit, IOError), IO)))(
   io.async((using(io : IO)) => {
+    cstr_bytes := path.to_string().to_cstr();
+    cstr := cstr_bytes.ptr().unwrap();
     result := io.await(IO_dir.unlink(AT_FDCWD, cstr, AT_REMOVEDIR));
     cond(
       (result < i32(0)) => .Err(IOError.from_errno((i32(0) - result))),
       true => .Ok(())
     )
   })
-});
+);
 
 remove_dir_str :: (fn(path: str, using(io : IO)) -> Impl(Future(Result(unit, IOError), IO)))(
   remove_dir(Path.new(String.from(path)), using(io))
 );
 
 // Remove a file.
-remove_file :: (fn(path: Path, using(io : IO)) -> Impl(Future(Result(unit, IOError), IO)))({
-  cstr_bytes := path.to_string().to_cstr();
-  cstr := cstr_bytes.ptr().unwrap();
+remove_file :: (fn(path: Path, using(io : IO)) -> Impl(Future(Result(unit, IOError), IO)))(
   io.async((using(io : IO)) => {
+    cstr_bytes := path.to_string().to_cstr();
+    cstr := cstr_bytes.ptr().unwrap();
     result := io.await(IO_dir.unlink(AT_FDCWD, cstr, i32(0)));
     cond(
       (result < i32(0)) => .Err(IOError.from_errno((i32(0) - result))),
       true => .Ok(())
     )
   })
-});
+);
 
 remove_file_str :: (fn(path: str, using(io : IO)) -> Impl(Future(Result(unit, IOError), IO)))
   remove_file(Path.new(String.from(path)), using(io))
 ;
 
 // Rename/move a file or directory.
-rename :: (fn(from: Path, to: Path, using(io : IO)) -> Impl(Future(Result(unit, IOError), IO)))({
-  from_cstr_bytes := from.to_string().to_cstr();
-  from_cstr := from_cstr_bytes.ptr().unwrap();
-  to_cstr_bytes := to.to_string().to_cstr();
-  to_cstr := to_cstr_bytes.ptr().unwrap();
+rename :: (fn(from: Path, to: Path, using(io : IO)) -> Impl(Future(Result(unit, IOError), IO)))(
   io.async((using(io : IO)) => {
+    from_cstr_bytes := from.to_string().to_cstr();
+    from_cstr := from_cstr_bytes.ptr().unwrap();
+    to_cstr_bytes := to.to_string().to_cstr();
+    to_cstr := to_cstr_bytes.ptr().unwrap();
     result := io.await(IO_dir.rename(AT_FDCWD, from_cstr, AT_FDCWD, to_cstr));
     cond(
       (result < i32(0)) => .Err(IOError.from_errno((i32(0) - result))),
       true => .Ok(())
     )
   })
-});
+);
 
 rename_str :: (fn(from: str, to: str, using(io : IO)) -> Impl(Future(Result(unit, IOError), IO)))
   rename(Path.new(String.from(from)), Path.new(String.from(to)), using(io))
 ;
 
 // Create a hard link from src to dst.
-hard_link :: (fn(src: Path, dst: Path, using(io : IO)) -> Impl(Future(Result(unit, IOError), IO)))({
-  src_cstr_bytes := src.to_string().to_cstr();
-  src_cstr := src_cstr_bytes.ptr().unwrap();
-  dst_cstr_bytes := dst.to_string().to_cstr();
-  dst_cstr := dst_cstr_bytes.ptr().unwrap();
+hard_link :: (fn(src: Path, dst: Path, using(io : IO)) -> Impl(Future(Result(unit, IOError), IO)))(
   io.async((using(io : IO)) => {
+    src_cstr_bytes := src.to_string().to_cstr();
+    src_cstr := src_cstr_bytes.ptr().unwrap();
+    dst_cstr_bytes := dst.to_string().to_cstr();
+    dst_cstr := dst_cstr_bytes.ptr().unwrap();
     result := io.await(IO_dir.link(AT_FDCWD, src_cstr, AT_FDCWD, dst_cstr, i32(0)));
     cond(
       (result < i32(0)) => .Err(IOError.from_errno((i32(0) - result))),
       true => .Ok(())
     )
   })
-});
+);
 
 hard_link_str :: (fn(src: str, dst: str, using(io : IO)) -> Impl(Future(Result(unit, IOError), IO)))
   hard_link(Path.new(String.from(src)), Path.new(String.from(dst)), using(io))
 ;
 
 // Create a symbolic link at dst pointing to src.
-symlink :: (fn(src: Path, dst: Path, using(io : IO)) -> Impl(Future(Result(unit, IOError), IO)))({
-  src_cstr_bytes := src.to_string().to_cstr();
-  src_cstr := src_cstr_bytes.ptr().unwrap();
-  dst_cstr_bytes := dst.to_string().to_cstr();
-  dst_cstr := dst_cstr_bytes.ptr().unwrap();
+symlink :: (fn(src: Path, dst: Path, using(io : IO)) -> Impl(Future(Result(unit, IOError), IO)))(
   io.async((using(io : IO)) => {
+    src_cstr_bytes := src.to_string().to_cstr();
+    src_cstr := src_cstr_bytes.ptr().unwrap();
+    dst_cstr_bytes := dst.to_string().to_cstr();
+    dst_cstr := dst_cstr_bytes.ptr().unwrap();
     result := io.await(IO_dir.symlink(src_cstr, AT_FDCWD, dst_cstr));
     cond(
       (result < i32(0)) => .Err(IOError.from_errno((i32(0) - result))),
       true => .Ok(())
     )
   })
-});
+);
 
 symlink_str :: (fn(src: str, dst: str, using(io : IO)) -> Impl(Future(Result(unit, IOError), IO)))
   symlink(Path.new(String.from(src)), Path.new(String.from(dst)), using(io))
@@ -236,10 +236,10 @@ symlink_str :: (fn(src: str, dst: str, using(io : IO)) -> Impl(Future(Result(uni
 // ============================================================================
 
 // Read directory entries from a path.
-read_dir :: (fn(path: Path, using(io : IO)) -> Impl(Future(Result(ArrayList(DirEntry), IOError), IO)))({
-  cstr_bytes := path.to_string().to_cstr();
-  cstr := cstr_bytes.ptr().unwrap();
+read_dir :: (fn(path: Path, using(io : IO)) -> Impl(Future(Result(ArrayList(DirEntry), IOError), IO)))(
   io.async((using(io : IO)) => {
+    cstr_bytes := path.to_string().to_cstr();
+    cstr := cstr_bytes.ptr().unwrap();
     // Open the directory
     fd_result := io.await(IO_file.openat(AT_FDCWD, cstr, (O_RDONLY | O_DIRECTORY), i32(0)));
     cond(
@@ -295,7 +295,7 @@ read_dir :: (fn(path: Path, using(io : IO)) -> Impl(Future(Result(ArrayList(DirE
       }
     )
   })
-});
+);
 
 read_dir_str :: (fn(path: str, using(io : IO)) -> Impl(Future(Result(ArrayList(DirEntry), IOError), IO)))
   read_dir(Path.new(String.from(path)), using(io))

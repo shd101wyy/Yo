@@ -1,5 +1,32 @@
-fs_metadata :: open import "std/fs/metadata.yo";
-fs_file :: open import "std/fs/file.yo";
-fs_dir :: open import "std/fs/dir.yo";
-fs_walker :: open import "std/fs/walker.yo";
-fs_temp :: open import "std/fs/temp.yo";
+open import "std/libc/stdio";
+open import "std/string";
+{ Path } :: import "std/path";
+{ IOError } :: import "std/io/errors";
+fs_file :: import "std/fs/file";
+{ File, OpenMode, FilePermission } :: import "std/fs/file";
+{ temp_dir, path_join } :: import "../../tests/helper";
+fs_dir :: import "std/fs/dir";
+
+main :: (fn(using(io : IO)) -> unit)({
+  tmp := temp_dir();
+  fpath := Path.new(path_join(tmp, `yo_fs_file_write_read.txt`));
+  w := io.await(fs_file.write_file(fpath, "hello world", using(io)));
+  match(w,
+    .Ok(_) => { printf("  write ok\n"); },
+    .Err(e) => { printf("  write err\n"); assert(false, "write_file failed"); }
+  );
+  printf("  write done\n");
+
+  printf("  calling read_to_string...\n");
+  r := io.await(fs_file.read_to_string(fpath, using(io)));
+  printf("  read_to_string returned\n");
+  match(r,
+    .Ok(s) => {
+      printf("  read: %s\n", s.to_cstr().ptr().unwrap());
+    },
+    .Err(e) => { printf("  read err\n"); }
+  );
+
+  printf("  all done\n");
+});
+export main;

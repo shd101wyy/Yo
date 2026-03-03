@@ -76,11 +76,28 @@ export function splitIntoStateSegments(
     handleSequentialSuspensions: true,
   });
 
-  return shared.map((seg) => ({
+  const segments = shared.map((seg) => ({
     stateNumber: seg.stateNumber,
     expressions: seg.expressions,
     awaitPoint: seg.suspensionPoint,
   }));
+
+  // When the last segment has an awaitPoint (e.g., the body is a single cond
+  // with an await in one branch), we need an additional completion segment.
+  // Without it, the state machine has no state to transition to after the await
+  // completes or when the non-await cond branch is taken.
+  if (
+    segments.length > 0 &&
+    segments[segments.length - 1]!.awaitPoint !== null
+  ) {
+    segments.push({
+      stateNumber: segments.length,
+      expressions: [],
+      awaitPoint: null,
+    });
+  }
+
+  return segments;
 }
 
 /**
@@ -574,6 +591,8 @@ function generateCondWithAwait(
 
   // Generate if-else chain
   let hasEmittedBranch = false;
+  let elseBlockDepth = 0;
+  let currentIndent = indent;
   for (let i = 0; i < args.length; i++) {
     const pairExpr = args[i]!;
 
@@ -582,7 +601,7 @@ function generateCondWithAwait(
       pairExpr.tag !== ExprTag.FnCall ||
       !exprIsFunctionCallOf(pairExpr, "=>")
     ) {
-      emitter.emitLine(`${indent}// Error: Expected => pair in cond`);
+      emitter.emitLine(`${currentIndent}// Error: Expected => pair in cond`);
       continue;
     }
 
@@ -590,7 +609,7 @@ function generateCondWithAwait(
     const value = pairExpr.args[1];
 
     if (!condition || !value) {
-      emitter.emitLine(`${indent}// Error: Invalid pair in cond`);
+      emitter.emitLine(`${currentIndent}// Error: Invalid pair in cond`);
       continue;
     }
 
@@ -602,21 +621,29 @@ function generateCondWithAwait(
       continue;
     }
 
+    // For subsequent branches, wrap in else { ... } to prevent condition
+    // pre-computation (begin blocks) from breaking the if-else chain.
+    if (hasEmittedBranch) {
+      emitter.emitLine(`${currentIndent}else {`);
+      elseBlockDepth++;
+      currentIndent += "  ";
+    }
+
     const condCode =
       i === args.length - 1 &&
       condition.tag === ExprTag.Atom &&
       condition.token?.value === "true"
         ? null // Last condition is 'true' - no need to check
-        : generateExpr(condition, indent, context);
+        : generateExpr(condition, currentIndent, context);
 
     if (condCode) {
-      emitter.emitLine(
-        `${indent}${!hasEmittedBranch ? "if" : "else if"} (${condCode}) {`
-      );
+      emitter.emitLine(`${currentIndent}if (${condCode}) {`);
     } else {
-      emitter.emitLine(`${indent}${!hasEmittedBranch ? "{" : "else {"}`);
+      emitter.emitLine(`${currentIndent}{`);
     }
     hasEmittedBranch = true;
+
+    const valueIndent = `${currentIndent}  `;
 
     // Check if this branch contains an await
     const branchContainsAwait = branchHasAwait(value);
@@ -624,13 +651,13 @@ function generateCondWithAwait(
     if (branchContainsAwait) {
       // Store which branch was taken
       emitter.emitLine(
-        `${indent}  sm->cond_branch_${awaitPoint.index} = ${i};`
+        `${valueIndent}sm->cond_branch_${awaitPoint.index} = ${i};`
       );
       // This branch contains an await - generate code to spawn and store Future
       const remainingExprs = generateCondBranchWithAwait(
         value,
         awaitPoint,
-        `${indent}  `,
+        valueIndent,
         context
       );
       // Store branch info with remaining expressions and deferred drops from the branch's begin block
@@ -652,15 +679,15 @@ function generateCondWithAwait(
         const beginArgs = value.args;
         for (let j = 0; j < beginArgs.length; j++) {
           const arg = beginArgs[j]!;
-          const argCode = generateExpr(arg, `${indent}  `, context);
+          const argCode = generateExpr(arg, valueIndent, context);
           // Check if this is a break statement in an async while loop
           if (argCode === "break" && awaitPoint.isInsideWhile) {
             // In async while loops, break needs to set the active flag and jump to end
             emitter.emitLine(
-              `${indent}  sm->while_loop_${awaitPoint.index}_active = false;`
+              `${valueIndent}sm->while_loop_${awaitPoint.index}_active = false;`
             );
             emitter.emitLine(
-              `${indent}  goto while_loop_${awaitPoint.index}_end;`
+              `${valueIndent}goto while_loop_${awaitPoint.index}_end;`
             );
           } else {
             // Emit control flow statements always
@@ -673,7 +700,7 @@ function generateCondWithAwait(
               (isControlFlow ||
                 (arg.$ && !isTempVariableName(arg.$.env.modulePath, argCode)))
             ) {
-              emitter.emitLine(`${indent}  ${argCode};`);
+              emitter.emitLine(`${valueIndent}${argCode};`);
             }
           }
         }
@@ -681,23 +708,23 @@ function generateCondWithAwait(
         // Generate deferred drop expressions for the begin block
         if (value.$?.deferredDropExpressions) {
           for (const dropExpr of value.$.deferredDropExpressions) {
-            const dropCode = generateExpr(dropExpr, `${indent}  `, context);
+            const dropCode = generateExpr(dropExpr, valueIndent, context);
             if (dropCode) {
-              emitter.emitLine(`${indent}  ${dropCode};`);
+              emitter.emitLine(`${valueIndent}${dropCode};`);
             }
           }
         }
       } else {
         // Not a begin block - generate normal code
-        const code = generateExpr(value, `${indent}  `, context);
+        const code = generateExpr(value, valueIndent, context);
         // Check if this is a break statement in an async while loop
         if (code === "break" && awaitPoint.isInsideWhile) {
           // In async while loops, break needs to set the active flag and jump to end
           emitter.emitLine(
-            `${indent}  sm->while_loop_${awaitPoint.index}_active = false;`
+            `${valueIndent}sm->while_loop_${awaitPoint.index}_active = false;`
           );
           emitter.emitLine(
-            `${indent}  goto while_loop_${awaitPoint.index}_end;`
+            `${valueIndent}goto while_loop_${awaitPoint.index}_end;`
           );
         } else {
           // Emit control flow statements (break, continue, return) always
@@ -708,7 +735,7 @@ function generateCondWithAwait(
             (isControlFlow ||
               (value.$ && !isTempVariableName(value.$.env.modulePath, code)))
           ) {
-            emitter.emitLine(`${indent}  ${code};`);
+            emitter.emitLine(`${valueIndent}${code};`);
           }
         }
       }
@@ -720,7 +747,13 @@ function generateCondWithAwait(
       });
     }
 
-    emitter.emitLine(`${indent}}`);
+    emitter.emitLine(`${currentIndent}}`);
+  }
+
+  // Close all else blocks
+  for (let d = 0; d < elseBlockDepth; d++) {
+    currentIndent = currentIndent.slice(0, -2);
+    emitter.emitLine(`${currentIndent}}`);
   }
 
   // Store branch information in context for resume state generation

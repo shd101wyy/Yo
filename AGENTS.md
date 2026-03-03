@@ -111,7 +111,6 @@ Always save verbose output to a file to avoid terminal truncation:
 - After fixing a bug, verify uncommitted changes for leftover or unused code.
 - Always review all uncommitted changes (`git diff`) before considering work done. Check for leftover debug code, unused imports, and consistency across all modified files.
 - Always check if there is need to create/update existing instructions & rules files after implementing a change.
-- Always output git commit message following the Conventional Commits format for the change after implementation, even if the user doesn't ask for it.
 - Never run the full test suite (`./yo-cli test` with no file argument) — it takes over an hour. Always run targeted test files instead.
 - If you haven't modified the code, don't ask to run commands repeatedly.
 - Ignore `DESIGN.md` and other markdown files in `outdated/` — they are out of date.

@@ -126,12 +126,12 @@ extern "Yo",
 // Internal helper to stat a path
 // ============================================================================
 
-_stat_path :: (fn(path: Path, flags: i32, using(io : IO)) -> Impl(Future(Result(Metadata, IOError), IO)))({
-  cstr_bytes := path.to_string().to_cstr();
-  cstr := cstr_bytes.ptr().unwrap();
-  buf_size := __yo_statx_buf_size();
-  buf := *(u8)(malloc(buf_size).unwrap());
+_stat_path :: (fn(path: Path, flags: i32, using(io : IO)) -> Impl(Future(Result(Metadata, IOError), IO)))(
   io.async((using(io)) => {
+    cstr_bytes := path.to_string().to_cstr();
+    cstr := cstr_bytes.ptr().unwrap();
+    buf_size := __yo_statx_buf_size();
+    buf := *(u8)(malloc(buf_size).unwrap());
     result := io.await(IO_file.statx(AT_FDCWD, cstr, flags, STATX_BASIC_STATS, buf));
     cond(
       (result < i32(0)) => {
@@ -146,7 +146,7 @@ _stat_path :: (fn(path: Path, flags: i32, using(io : IO)) -> Impl(Future(Result(
       }
     )
   })
-});
+);
 
 // Get metadata for a path (follows symlinks).
 metadata :: (fn(path: Path, using(io : IO)) -> Impl(Future(Result(Metadata, IOError), IO)))

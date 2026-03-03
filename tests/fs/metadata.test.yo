@@ -106,8 +106,8 @@ test "metadata nonexistent returns error", using(io : IO), {
   fpath := Path.new(`/nonexistent/yo_fs_meta_nope.txt`);
   r := io.await(fs_metadata.metadata(fpath, using(io)));
   match(r,
-    .Ok(_) => assert(false, "metadata on nonexistent should fail"),
-    .Err(e) => printf("  got expected error\n")
+    .Ok(_) => { assert(false, "metadata on nonexistent should fail"); },
+    .Err(e) => { printf("  got expected error\n"); }
   );
 };
 

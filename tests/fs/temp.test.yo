@@ -30,8 +30,8 @@ test "TempDir.new creates a directory", using(io : IO), {
       // Remove
       rm := io.await(td.remove(using(io)));
       match(rm,
-        .Ok(_) => printf("  removed ok\n"),
-        .Err(e) => assert(false, "TempDir.remove failed")
+        .Ok(_) => { printf("  removed ok\n"); },
+        .Err(e) => { assert(false, "TempDir.remove failed"); }
       );
 
       // Verify removed
@@ -73,8 +73,8 @@ test "TempDir.remove is idempotent", using(io : IO), {
       // Second remove should succeed (no-op)
       rm2 := io.await(td.remove(using(io)));
       match(rm2,
-        .Ok(_) => printf("  second remove ok\n"),
-        .Err(e) => assert(false, "second remove should succeed")
+        .Ok(_) => { printf("  second remove ok\n"); },
+        .Err(e) => { assert(false, "second remove should succeed"); }
       );
     },
     .Err(e) => assert(false, "TempDir.new failed")
@@ -103,8 +103,8 @@ test "TempFile.new creates a file", using(io : IO), {
       // Remove
       rm := io.await(tf.remove(using(io)));
       match(rm,
-        .Ok(_) => printf("  removed ok\n"),
-        .Err(e) => assert(false, "TempFile.remove failed")
+        .Ok(_) => { printf("  removed ok\n"); },
+        .Err(e) => { assert(false, "TempFile.remove failed"); }
       );
 
       // Verify removed
@@ -146,8 +146,8 @@ test "TempFile.file returns usable File", using(io : IO), {
       // Write to the file
       wr := io.await(f.write(`temp file content`, using(io)));
       match(wr,
-        .Ok(n) => printf("  wrote %d bytes\n", n),
-        .Err(e) => assert(false, "write to temp file failed")
+        .Ok(n) => { printf("  wrote %d bytes\n", n); },
+        .Err(e) => { assert(false, "write to temp file failed"); }
       );
 
       // Read it back using the path
@@ -175,8 +175,8 @@ test "TempFile.remove is idempotent", using(io : IO), {
       // Second remove should succeed (no-op)
       rm2 := io.await(tf.remove(using(io)));
       match(rm2,
-        .Ok(_) => printf("  second remove ok\n"),
-        .Err(e) => assert(false, "second remove should succeed")
+        .Ok(_) => { printf("  second remove ok\n"); },
+        .Err(e) => { assert(false, "second remove should succeed"); }
       );
     },
     .Err(e) => assert(false, "TempFile.new failed")

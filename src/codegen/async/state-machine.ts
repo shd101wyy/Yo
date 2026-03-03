@@ -1194,9 +1194,16 @@ export function generateAsyncBlockResumeFunction(
           emitter.emitLine(`      if (sm->${futureFieldName} != NULL) {`);
         }
 
-        // If this await is inside a while loop, wrap the await logic in a check for loop active flag
+        // If this await is inside a while loop, wrap the await logic in a check for loop active flag.
+        // Only do this for the direct while-loop-await (the one that generated while_loop_N_start),
+        // not for nested awaits inside cond branches within the while loop.
         const isInsideWhile = segment.awaitPoint?.isInsideWhile;
-        if (isInsideWhile) {
+        const whileLoopInfoForAwait = isInsideWhile
+          ? (context as FunctionGenerationContext).asyncWhileLoopInfo?.get(
+              segment.awaitPoint.index
+            )
+          : undefined;
+        if (isInsideWhile && whileLoopInfoForAwait) {
           const whileLoopIndex = segment.awaitPoint.index;
           emitter.emitLine(
             `      // Only await if while loop is still active (not broken)`
@@ -1297,7 +1304,7 @@ export function generateAsyncBlockResumeFunction(
         );
         emitter.emitLine(`      return;`);
 
-        if (isInsideWhile) {
+        if (isInsideWhile && whileLoopInfoForAwait) {
           const whileLoopIndex = segment.awaitPoint.index;
           // Add else branch to jump to code after while loop when broken
           emitter.emitLine(`      } else {`);

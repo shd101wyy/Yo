@@ -50,15 +50,15 @@ File :: object(
 impl(File,
   // Open a file with OpenMode and custom permissions.
   open_with : (fn(path: Path, mode: OpenMode, perm: FilePermission, using(io : IO)) -> Impl(Future(Result(File, IOError), IO)))({
-    path_str := path.to_string();
-    cstr_bytes := path_str.to_cstr();
-    cstr := cstr_bytes.ptr().unwrap();
     flags := _open_mode_to_flags(mode);
     file_mode := cond(
       _open_mode_needs_perm(mode) => i32(perm.mode),
       true => i32(0)
     );
     io.async((using(io : IO)) => {
+      path_str := path.to_string();
+      cstr_bytes := path_str.to_cstr();
+      cstr := cstr_bytes.ptr().unwrap();
       result := io.await(IO_file.openat(AT_FDCWD, cstr, flags, file_mode));
       cond(
         (result < i32(0)) => .Err(IOError.from_errno((i32(0) - result))),
@@ -110,8 +110,8 @@ impl(File,
   // Returns number of bytes written.
   write : (fn(self: Self, data: String, using(io : IO)) -> Impl(Future(Result(i32, IOError), IO)))({
     fd := self._fd;
-    data_bytes := data.as_bytes();
     io.async((using(io : IO)) => {
+      data_bytes := data.as_bytes();
       result := io.await(IO_file.write(fd, data_bytes.ptr().unwrap(), u32(data_bytes.len()), u64(0)));
       IOError.from_result(result)
     })
@@ -134,20 +134,20 @@ impl(File,
       buf_size := usize(4096);
       buf := *(u8)(malloc(buf_size).unwrap());
       result := ArrayList(u8).new();
+      offset := u64(0);
+      (read_err : Option(IOError)) = .None;
       while runtime(true), {
-        n := io.await(IO_file.read(fd, buf, u32(buf_size), u64(0)));
+        n := io.await(IO_file.read(fd, buf, u32(buf_size), offset));
         cond(
           (n < i32(0)) => {
-            free(.Some(*(void)(buf)));
-            (ret : Result(ArrayList(u8), IOError)) = .Err(IOError.from_errno((i32(0) - n)));
-            return ret;
+            read_err = .Some(IOError.from_errno((i32(0) - n)));
+            break;
           },
           (n == i32(0)) => {
-            free(.Some(*(void)(buf)));
-            (ret : Result(ArrayList(u8), IOError)) = .Ok(result);
-            return ret;
+            break;
           },
           true => {
+            offset = (offset + u64(n));
             i := usize(0);
             while runtime((i < usize(n))), {
               result.push((buf &+ i).*);
@@ -157,8 +157,10 @@ impl(File,
         );
       };
       free(.Some(*(void)(buf)));
-      (ret : Result(ArrayList(u8), IOError)) = .Ok(result);
-      return ret;
+      match(read_err,
+        .Some(e) => .Err(e),
+        .None => .Ok(result)
+      )
     })
   }),
 
