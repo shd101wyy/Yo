@@ -1164,6 +1164,10 @@ test "Test comptime i32", {
     xor_result :: (x ^ y);
     comptime_assert(xor_result == i32(0x0FF0));
 
+    // bit_not
+    not_result :: ~(x);
+    comptime_assert(not_result == i32(-256)); // ~0xFF = -256 in two's complement i32
+
     // shl
     shl_result :: (i32(1) << i32(10));
     comptime_assert(shl_result == i32(1024));
@@ -2242,6 +2246,10 @@ test "Test comptime u32", {
     // bit_xor
     xor_result :: (x ^ y);
     comptime_assert(xor_result == u32(0xF0F0));
+
+    // bit_not
+    not_result :: ~(x);
+    comptime_assert(not_result == u32(0xFFFF00FF));
 
     // shl
     shl_result :: (u32(1) << u32(8));
@@ -3854,8 +3862,8 @@ test "Test comptime bitwise type preservation", {
     result := (x & xor_mask);
     assert((result == u32(0xF0F0F0F0)), "u32 AND with comptime XOR mask");
 
-    inv_mask :: (u32(0xFF) ^ u32(0xFFFFFFFF));
-    result2 := (x & inv_mask);
-    assert((result2 == u32(0xFFFFFF00)), "u32 AND with comptime XOR-inverted mask");
+    not_mask :: ~(u32(0xFF));
+    result2 := (x & not_mask);
+    assert((result2 == u32(0xFFFFFF00)), "u32 AND with comptime NOT mask");
   };
 };

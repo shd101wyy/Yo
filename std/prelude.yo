@@ -428,6 +428,29 @@ export ComptimeBitXor;
 (not) :: (!);
 export not, (!);
 
+(~) :: impl {
+  (bit_not) :: (fn(forall(_Self : Type),
+            self : _Self,
+            where(_Self <: BitNot(_Self))
+          ) -> _Self)
+    self.(~)()
+  ;
+
+  (comptime_bit_not) :: (fn(forall(_Self : Type),
+          comptime(self) : _Self,
+          where(_Self <: (Comptime, ComptimeBitNot(_Self)))
+        ) -> comptime(_Self))
+    self.(~)()
+  ;
+
+  Call :: (bit_not, comptime_bit_not);
+
+  export
+    Call
+  ;
+};
+export (~);
+
 (-) :: impl {
   (neg) :: (fn(forall(_Self : Type),
             self : _Self,
