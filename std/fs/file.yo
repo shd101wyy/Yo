@@ -139,12 +139,12 @@ impl(File,
         cond(
           (n < i32(0)) => {
             free(.Some(*(void)(buf)));
-            ret : Result(ArrayList(u8), IOError) = .Err(IOError.from_errno((i32(0) - n)));
+            (ret : Result(ArrayList(u8), IOError)) = .Err(IOError.from_errno((i32(0) - n)));
             return ret;
           },
           (n == i32(0)) => {
             free(.Some(*(void)(buf)));
-            ret : Result(ArrayList(u8), IOError) = .Ok(result);
+            (ret : Result(ArrayList(u8), IOError)) = .Ok(result);
             return ret;
           },
           true => {
@@ -157,13 +157,13 @@ impl(File,
         );
       };
       free(.Some(*(void)(buf)));
-      ret : Result(ArrayList(u8), IOError) = .Ok(result);
+      (ret : Result(ArrayList(u8), IOError)) = .Ok(result);
       return ret;
     })
   }),
 
   // Read the entire file into a String.
-  read_to_string : (fn(self: Self, using(io : IO)) -> Impl(Future(Result(String, IOError), IO)))({
+  read_to_string : (fn(self: Self, using(io : IO)) -> Impl(Future(Result(String, IOError), IO)))(
     io.async((using(io : IO)) => {
       bytes_result := io.await(self.read_all(using(io)));
       match(bytes_result,
@@ -171,7 +171,7 @@ impl(File,
         .Err(e) => .Err(e)
       )
     })
-  }),
+  ),
 
   // Sync file data to disk.
   flush : (fn(self: Self, using(io : IO)) -> Impl(Future(Result(unit, IOError), IO)))({
@@ -208,7 +208,7 @@ impl(File,
   // Close the file.
   close : (fn(self: Self, using(io : IO)) -> Impl(Future(Result(unit, IOError), IO)))({
     fd := self._fd;
-    io.async((using(io : IO)) => {
+    io.async((using(io : IO)) =>
       cond(
         self._is_closed => .Ok(()),
         true => {
@@ -220,7 +220,7 @@ impl(File,
           )
         }
       )
-    })
+    )
   }),
 
   // Get the file descriptor.
@@ -235,7 +235,7 @@ impl(File,
 
   // Get file metadata.
   metadata : (fn(self: Self, using(io : IO)) -> Impl(Future(Result(Metadata, IOError), IO)))(
-    _metadata_mod.metadata(self._path.to_string(), using(io))
+    _metadata_mod.metadata(self._path, using(io))
   )
 );
 
@@ -251,14 +251,14 @@ impl(File, Dispose(
   })
 ));
 
-export File, Metadata, OpenMode, FilePermission;
+export File, OpenMode, FilePermission;
 
 // ============================================================================
 // Convenience functions
 // ============================================================================
 
 // Read an entire file into a String (Path version).
-read_to_string :: (fn(path: Path, using(io : IO)) -> Impl(Future(Result(String, IOError), IO)))({
+read_to_string :: (fn(path: Path, using(io : IO)) -> Impl(Future(Result(String, IOError), IO)))(
   io.async((using(io : IO)) => {
     file_result := io.await(File.open(path, .Read, using(io)));
     match(file_result,
@@ -270,7 +270,7 @@ read_to_string :: (fn(path: Path, using(io : IO)) -> Impl(Future(Result(String, 
       .Err(e) => .Err(e)
     )
   })
-});
+);
 
 // Read an entire file into a String (str version).
 read_to_string_str :: (fn(path: str, using(io : IO)) -> Impl(Future(Result(String, IOError), IO)))(
@@ -283,7 +283,7 @@ read_to_string_cstr :: (fn(path: *(u8), using(io : IO)) -> Impl(Future(Result(St
 );
 
 // Read an entire file into bytes (Path version).
-read_file :: (fn(path: Path, using(io : IO)) -> Impl(Future(Result(ArrayList(u8), IOError), IO)))({
+read_file :: (fn(path: Path, using(io : IO)) -> Impl(Future(Result(ArrayList(u8), IOError), IO)))(
   io.async((using(io : IO)) => {
     file_result := io.await(File.open(path, .Read, using(io)));
     match(file_result,
@@ -295,7 +295,7 @@ read_file :: (fn(path: Path, using(io : IO)) -> Impl(Future(Result(ArrayList(u8)
       .Err(e) => .Err(e)
     )
   })
-});
+);
 
 // Read an entire file into bytes (str version).
 read_file_str :: (fn(path: str, using(io : IO)) -> Impl(Future(Result(ArrayList(u8), IOError), IO)))(
@@ -308,7 +308,7 @@ read_file_cstr :: (fn(path: *(u8), using(io : IO)) -> Impl(Future(Result(ArrayLi
 );
 
 // Write a str to a file (creates or truncates) (Path version).
-write_file :: (fn(path: Path, data: str, using(io : IO)) -> Impl(Future(Result(unit, IOError), IO)))({
+write_file :: (fn(path: Path, data: str, using(io : IO)) -> Impl(Future(Result(unit, IOError), IO)))(
   io.async((using(io : IO)) => {
     file_result := io.await(File.open(path, .Write, using(io)));
     match(file_result,
@@ -323,7 +323,7 @@ write_file :: (fn(path: Path, data: str, using(io : IO)) -> Impl(Future(Result(u
       .Err(e) => .Err(e)
     )
   })
-});
+);
 
 // Write a str to a file (creates or truncates) (str path version).
 write_file_str :: (fn(path: str, data: str, using(io : IO)) -> Impl(Future(Result(unit, IOError), IO)))(
@@ -336,7 +336,7 @@ write_file_cstr :: (fn(path: *(u8), data: str, using(io : IO)) -> Impl(Future(Re
 );
 
 // Write bytes to a file (creates or truncates) (Path version).
-write_bytes :: (fn(path: Path, data: ArrayList(u8), using(io : IO)) -> Impl(Future(Result(unit, IOError), IO)))({
+write_bytes :: (fn(path: Path, data: ArrayList(u8), using(io : IO)) -> Impl(Future(Result(unit, IOError), IO)))(
   io.async((using(io : IO)) => {
     file_result := io.await(File.open(path, .Write, using(io)));
     match(file_result,
@@ -351,10 +351,10 @@ write_bytes :: (fn(path: Path, data: ArrayList(u8), using(io : IO)) -> Impl(Futu
       .Err(e) => .Err(e)
     )
   })
-});
+);
 
 // Append a str to a file (creates if not exists) (Path version).
-append_file :: (fn(path: Path, data: str, using(io : IO)) -> Impl(Future(Result(unit, IOError), IO)))({
+append_file :: (fn(path: Path, data: str, using(io : IO)) -> Impl(Future(Result(unit, IOError), IO)))(
   io.async((using(io : IO)) => {
     file_result := io.await(File.open(path, .Append, using(io)));
     match(file_result,
@@ -369,7 +369,7 @@ append_file :: (fn(path: Path, data: str, using(io : IO)) -> Impl(Future(Result(
       .Err(e) => .Err(e)
     )
   })
-});
+);
 
 // Append a str to a file (str path version).
 append_file_str :: (fn(path: str, data: str, using(io : IO)) -> Impl(Future(Result(unit, IOError), IO)))(
@@ -377,7 +377,7 @@ append_file_str :: (fn(path: str, data: str, using(io : IO)) -> Impl(Future(Resu
 );
 
 // Check if a path exists (Path version).
-exists :: (fn(path: Path, using(io : IO)) -> Impl(Future(Result(bool, IOError), IO)))({
+exists :: (fn(path: Path, using(io : IO)) -> Impl(Future(Result(bool, IOError), IO)))(
   io.async((using(io : IO)) => {
     meta_result := io.await(_metadata_mod.metadata(path, using(io)));
     match(meta_result,
@@ -388,7 +388,7 @@ exists :: (fn(path: Path, using(io : IO)) -> Impl(Future(Result(bool, IOError), 
       )
     )
   })
-});
+);
 
 // Check if a path exists (str version).
 exists_str :: (fn(path: str, using(io : IO)) -> Impl(Future(Result(bool, IOError), IO)))(

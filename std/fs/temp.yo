@@ -40,7 +40,7 @@ TempDir :: object(
 
 impl(TempDir,
   // Create a temporary directory in the given parent directory.
-  new_in : (fn(parent: Path, using(io : IO)) -> Impl(Future(Result(TempDir, IOError), IO)))({
+  new_in : (fn(parent: Path, using(io : IO)) -> Impl(Future(Result(TempDir, IOError), IO)))(
     io.async((using(io : IO)) => {
       // Build template: parent/yo_tmp_XXXXXX
       parent_s := parent.to_string();
@@ -66,7 +66,7 @@ impl(TempDir,
         }
       )
     })
-  }),
+  ),
 
   // Create a temporary directory in /tmp.
   new : (fn(using(io : IO)) -> Impl(Future(Result(TempDir, IOError), IO)))(
@@ -80,17 +80,17 @@ impl(TempDir,
 
   // Remove the temporary directory.
   remove : (fn(self: Self, using(io : IO)) -> Impl(Future(Result(unit, IOError), IO)))({
-    path := self._path;
-    io.async((using(io : IO)) => {
+    self_path := self._path;
+    io.async((using(io : IO)) => 
       cond(
         self._removed => .Ok(()),
         true => {
-          result := io.await(_dir_mod.remove_dir(path, using(io)));
+          result := io.await(_dir_mod.remove_dir(self_path, using(io)));
           self._removed = true;
           return result;
         }
       )
-    })
+    )
   })
 );
 
@@ -107,13 +107,8 @@ TempFile :: object(
 );
 
 impl(TempFile,
-  // Create a temporary file in /tmp.
-  new : (fn(using(io : IO)) -> Impl(Future(Result(TempFile, IOError), IO)))(
-    TempFile.new_in(Path.new(String.from("/tmp")), using(io))
-  ),
-
   // Create a temporary file in the given parent directory.
-  new_in : (fn(parent: Path, using(io : IO)) -> Impl(Future(Result(TempFile, IOError), IO)))({
+  new_in : (fn(parent: Path, using(io : IO)) -> Impl(Future(Result(TempFile, IOError), IO)))(
     io.async((using(io : IO)) => {
       // Build template: parent/yo_tmp_XXXXXX
       parent_s := parent.to_string();
@@ -140,7 +135,12 @@ impl(TempFile,
         }
       )
     })
-  }),
+  ),
+
+  // Create a temporary file in /tmp.
+  new : (fn(using(io : IO)) -> Impl(Future(Result(TempFile, IOError), IO)))(
+    TempFile.new_in(Path.new(String.from("/tmp")), using(io))
+  ),
 
   // Get the underlying File object.
   file : (fn(self: Self) -> _file_mod.File)(
@@ -154,19 +154,19 @@ impl(TempFile,
 
   // Remove the temporary file.
   remove : (fn(self: Self, using(io : IO)) -> Impl(Future(Result(unit, IOError), IO)))({
-    file := self._file;
-    path := self._path;
-    io.async((using(io : IO)) => {
+    self_file := self._file;
+    self_path := self._path;
+    io.async((using(io : IO)) =>
       cond(
         self._removed => .Ok(()),
         true => {
-          io.await(file.close(using(io)));
-          result := io.await(_dir_mod.remove_file(path, using(io)));
+          io.await(self_file.close(using(io)));
+          result := io.await(_dir_mod.remove_file(self_path, using(io)));
           self._removed = true;
           return result;
         }
       )
-    })
+    )
   })
 );
 

@@ -136,12 +136,12 @@ _stat_path :: (fn(path: Path, flags: i32, using(io : IO)) -> Impl(Future(Result(
     cond(
       (result < i32(0)) => {
         free(.Some(*(void)(buf)));
-        ret : Result(Metadata, IOError) = .Err(IOError.from_errno((i32(0) - result)));
+        (ret : Result(Metadata, IOError)) = .Err(IOError.from_errno((i32(0) - result)));
         return ret;
       },
       true => {
         sx := Statx(_buf_ptr: buf, _buf_size: buf_size);
-        ret : Result(Metadata, IOError) = .Ok(Metadata(_statx: sx, _buf_ptr: buf));
+        (ret : Result(Metadata, IOError)) = .Ok(Metadata(_statx: sx, _buf_ptr: buf));
         return ret;
       }
     )

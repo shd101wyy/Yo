@@ -105,7 +105,7 @@ create_dir_all :: (fn(path: Path, using(io : IO)) -> Impl(Future(Result(unit, IO
                   // Ignore EEXIST errors
                   cond(
                     ((r < i32(0)) && ((i32(0) - r) != i32(17))) => {
-                      ret : Result(unit, IOError) = .Err(IOError.from_errno((i32(0) - r)));
+                      (ret : Result(unit, IOError)) = .Err(IOError.from_errno((i32(0) - r)));
                       return ret;
                     },
                     true => ()
@@ -255,7 +255,7 @@ read_dir :: (fn(path: Path, using(io : IO)) -> Impl(Future(Result(ArrayList(DirE
             (n < i32(0)) => {
               free(.Some(*(void)(buf)));
               io.await(IO_file.close(fd));
-              ret : Result(ArrayList(DirEntry), IOError) = .Err(IOError.from_errno((i32(0) - n)));
+              (ret : Result(ArrayList(DirEntry), IOError)) = .Err(IOError.from_errno((i32(0) - n)));
               return ret;
             },
             (n == i32(0)) => { break; },
@@ -290,7 +290,7 @@ read_dir :: (fn(path: Path, using(io : IO)) -> Impl(Future(Result(ArrayList(DirE
         };
         free(.Some(*(void)(buf)));
         io.await(IO_file.close(fd));
-        ret : Result(ArrayList(DirEntry), IOError) = .Ok(entries);
+        (ret : Result(ArrayList(DirEntry), IOError)) = .Ok(entries);
         return ret;
       }
     )
