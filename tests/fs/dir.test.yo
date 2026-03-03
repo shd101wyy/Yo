@@ -41,19 +41,17 @@ test "create_dir and remove_dir", using(io : IO), {
 
 test "create_dir_str", using(io : IO), {
   tmp := temp_dir();
-  dpath_s := path_join(tmp, `yo_fs_dir_str`);
-  dpath_cstr := dpath_s.to_cstr();
-  dpath_c := dpath_cstr.ptr().unwrap();
+  dpath := Path.new(path_join(tmp, `yo_fs_dir_str`));
 
-  io.await(fs_dir.remove_dir_str(dpath_c, using(io)));
+  io.await(fs_dir.remove_dir(dpath, using(io)));
 
-  r := io.await(fs_dir.create_dir_str(dpath_c, using(io)));
+  r := io.await(fs_dir.create_dir(dpath, using(io)));
   match(r,
     .Ok(_) => { printf("  create_dir_str ok\n"); },
     .Err(e) => { assert(false, "create_dir_str failed"); }
   );
 
-  io.await(fs_dir.remove_dir(Path.new(dpath_s), using(io)));
+  io.await(fs_dir.remove_dir(dpath, using(io)));
 };
 
 test "create_dir on existing returns error", using(io : IO), {

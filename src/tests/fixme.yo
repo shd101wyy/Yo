@@ -17,8 +17,9 @@ main :: (fn(using(io : IO)) -> unit)({
   match(r,
     .Ok(e) => {
       printf("  exists = %d\n", cond(e => i32(1), true => i32(0)));
+      assert(e, "file should exist");
     },
-    .Err(err) => assert(false, "exists failed")
+    .Err(e) => assert(false, "exists failed")
   );
 
   io.await(fs_dir.remove_file(fpath, using(io)));

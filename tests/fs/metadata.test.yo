@@ -45,7 +45,7 @@ test "metadata returns file info", using(io : IO), {
       printf("  modified_time = %lld\n", m.modified_time());
       assert((m.modified_time() > i64(0)), "mtime should be positive");
     },
-    .Err(err) => assert(false, "metadata failed")
+    .Err(e) => assert(false, "metadata failed")
   );
 
   io.await(fs_dir.remove_file(fpath, using(io)));
@@ -70,7 +70,7 @@ test "metadata on directory", using(io : IO), {
       assert(is_dir, "should be a dir");
       assert((!(m.is_file())), "should not be a file");
     },
-    .Err(err) => assert(false, "metadata on dir failed")
+    .Err(e) => assert(false, "metadata on dir failed")
   );
 
   io.await(fs_dir.remove_dir(dpath, using(io)));
@@ -93,7 +93,7 @@ test "metadata_str works with str path", using(io : IO), {
       assert((m.size() == i64(8)), "size should be 8");
       assert(m.is_file(), "should be file");
     },
-    .Err(err) => assert(false, "metadata_str failed")
+    .Err(e) => assert(false, "metadata_str failed")
   );
 
   io.await(fs_dir.remove_file(fpath, using(io)));
@@ -108,7 +108,7 @@ test "metadata nonexistent returns error", using(io : IO), {
   r := io.await(fs_metadata.metadata(fpath, using(io)));
   match(r,
     .Ok(_) => { assert(false, "metadata on nonexistent should fail"); },
-    .Err(err) => { printf("  got expected error\n"); }
+    .Err(e) => { printf("  got expected error\n"); }
   );
 };
 
@@ -135,7 +135,7 @@ test "symlink_metadata on symlink reports symlink", using(io : IO), {
       assert(is_file, "metadata should follow symlink to file");
       assert((!(m.is_symlink())), "metadata should not report symlink");
     },
-    .Err(err) => assert(false, "metadata on symlink target failed")
+    .Err(e) => assert(false, "metadata on symlink target failed")
   );
 
   // symlink_metadata should report symlink
@@ -146,7 +146,7 @@ test "symlink_metadata on symlink reports symlink", using(io : IO), {
       printf("  symlink_metadata is_symlink = %d\n", cond(is_sym => i32(1), true => i32(0)));
       assert(is_sym, "symlink_metadata should report symlink");
     },
-    .Err(err) => assert(false, "symlink_metadata failed")
+    .Err(e) => assert(false, "symlink_metadata failed")
   );
 
   io.await(fs_dir.remove_file(lnk, using(io)));
@@ -174,11 +174,11 @@ test "File.metadata returns correct info", using(io : IO), {
           assert((m.size() == i64(9)), "size should be 9");
           assert(m.is_file(), "should be file");
         },
-        .Err(err) => assert(false, "File.metadata failed")
+        .Err(e) => assert(false, "File.metadata failed")
       );
       io.await(f.close(using(io)));
     },
-    .Err(err) => assert(false, "File.open failed")
+    .Err(e) => assert(false, "File.open failed")
   );
 
   io.await(fs_dir.remove_file(fpath, using(io)));
