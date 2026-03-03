@@ -1,0 +1,208 @@
+open import "std/libc/stdio";
+open import "std/string";
+{ Path } :: import "std/path";
+{ IOError } :: import "std/io/errors";
+fs_walker :: import "std/fs/walker";
+{ WalkEntry, WalkOptions } :: import "std/fs/walker";
+{ FileType } :: import "std/fs/dir";
+fs_dir :: import "std/fs/dir";
+fs_file :: import "std/fs/file";
+{ temp_dir, path_join } :: import "./helper";
+
+// ============================================================================
+// Helper to set up a test directory tree
+// ============================================================================
+
+// Creates:
+//   root/
+//     a.txt
+//     b.txt
+//     sub/
+//       c.txt
+//       deep/
+//         d.txt
+_setup_walk_tree :: (fn(root: String, using(io : IO)) -> unit)({
+  io.await(fs_dir.create_dir_all(Path.new(root), using(io)));
+
+  sub := path_join(root, `sub`);
+  io.await(fs_dir.create_dir_all(Path.new(sub), using(io)));
+
+  deep := path_join(sub, `deep`);
+  io.await(fs_dir.create_dir_all(Path.new(deep), using(io)));
+
+  io.await(fs_file.write_file(Path.new(path_join(root, `a.txt`)), "a", using(io)));
+  io.await(fs_file.write_file(Path.new(path_join(root, `b.txt`)), "b", using(io)));
+  io.await(fs_file.write_file(Path.new(path_join(sub, `c.txt`)), "c", using(io)));
+  io.await(fs_file.write_file(Path.new(path_join(deep, `d.txt`)), "d", using(io)));
+});
+
+_cleanup_walk_tree :: (fn(root: String, using(io : IO)) -> unit)({
+  sub := path_join(root, `sub`);
+  deep := path_join(sub, `deep`);
+
+  io.await(fs_dir.remove_file(Path.new(path_join(deep, `d.txt`)), using(io)));
+  io.await(fs_dir.remove_dir(Path.new(deep), using(io)));
+  io.await(fs_dir.remove_file(Path.new(path_join(sub, `c.txt`)), using(io)));
+  io.await(fs_dir.remove_dir(Path.new(sub), using(io)));
+  io.await(fs_dir.remove_file(Path.new(path_join(root, `b.txt`)), using(io)));
+  io.await(fs_dir.remove_file(Path.new(path_join(root, `a.txt`)), using(io)));
+  io.await(fs_dir.remove_dir(Path.new(root), using(io)));
+});
+
+// ============================================================================
+// walk with default options
+// ============================================================================
+
+test "walk lists all entries recursively", using(io : IO), {
+  tmp := temp_dir();
+  root := path_join(tmp, `yo_fs_walk_default`);
+
+  _setup_walk_tree(root, using(io));
+
+  r := io.await(fs_walker.walk(Path.new(root), using(io)));
+  match(r,
+    .Ok(entries) => {
+      printf("  entries count = %lld\n", i64(entries.len()));
+
+      // Should have: sub, deep (dirs) + a.txt, b.txt, c.txt, d.txt (files) = 6
+      // Default include_dirs = true
+      i := usize(0);
+      while runtime((i < entries.len())), {
+        e := entries.get(i).unwrap();
+        printf("  [%d] %s\n", i32(e.depth), e.name.to_cstr().ptr().unwrap());
+        i = (i + usize(1));
+      };
+
+      assert((entries.len() == usize(6)), "expected 6 entries (2 dirs + 4 files)");
+    },
+    .Err(e) => assert(false, "walk failed")
+  );
+
+  _cleanup_walk_tree(root, using(io));
+};
+
+// ============================================================================
+// walk_with max_depth
+// ============================================================================
+
+test "walk_with max_depth limits traversal", using(io : IO), {
+  tmp := temp_dir();
+  root := path_join(tmp, `yo_fs_walk_depth`);
+
+  _setup_walk_tree(root, using(io));
+
+  opts := WalkOptions(
+    max_depth: .Some(u32(0)),
+    follow_symlinks: false,
+    include_dirs: true
+  );
+
+  r := io.await(fs_walker.walk_with(Path.new(root), opts, using(io)));
+  match(r,
+    .Ok(entries) => {
+      printf("  entries at depth 0 = %lld\n", i64(entries.len()));
+
+      // At depth 0: a.txt, b.txt, sub (dir) = 3
+      i := usize(0);
+      while runtime((i < entries.len())), {
+        e := entries.get(i).unwrap();
+        printf("  [%d] %s\n", i32(e.depth), e.name.to_cstr().ptr().unwrap());
+        i = (i + usize(1));
+      };
+
+      assert((entries.len() == usize(3)), "expected 3 entries at depth 0");
+    },
+    .Err(e) => assert(false, "walk_with failed")
+  );
+
+  _cleanup_walk_tree(root, using(io));
+};
+
+// ============================================================================
+// walk_with include_dirs = false
+// ============================================================================
+
+test "walk_with include_dirs false excludes directories", using(io : IO), {
+  tmp := temp_dir();
+  root := path_join(tmp, `yo_fs_walk_nodirs`);
+
+  _setup_walk_tree(root, using(io));
+
+  opts := WalkOptions(
+    max_depth: .None,
+    follow_symlinks: false,
+    include_dirs: false
+  );
+
+  r := io.await(fs_walker.walk_with(Path.new(root), opts, using(io)));
+  match(r,
+    .Ok(entries) => {
+      printf("  file-only entries = %lld\n", i64(entries.len()));
+
+      // Only files: a.txt, b.txt, c.txt, d.txt = 4
+      i := usize(0);
+      while runtime((i < entries.len())), {
+        e := entries.get(i).unwrap();
+        printf("  %s\n", e.name.to_cstr().ptr().unwrap());
+        is_file := match(e.file_type, .File => true, _ => false);
+        assert(is_file, "should only have files");
+        i = (i + usize(1));
+      };
+
+      assert((entries.len() == usize(4)), "expected 4 files");
+    },
+    .Err(e) => assert(false, "walk_with failed")
+  );
+
+  _cleanup_walk_tree(root, using(io));
+};
+
+// ============================================================================
+// WalkOptions.defaults
+// ============================================================================
+
+test "WalkOptions.defaults has expected values", {
+  opts := WalkOptions.defaults();
+  assert((!(opts.follow_symlinks)), "follow_symlinks should be false");
+  assert(opts.include_dirs, "include_dirs should be true");
+  max_is_none := match(opts.max_depth, .None => true, _ => false);
+  assert(max_is_none, "max_depth should be None");
+};
+
+// ============================================================================
+// walk on nonexistent
+// ============================================================================
+
+test "walk nonexistent returns error", using(io : IO), {
+  r := io.await(fs_walker.walk(Path.new(`/nonexistent/yo_fs_walk_nope`), using(io)));
+  match(r,
+    .Ok(_) => assert(false, "walk on nonexistent should fail"),
+    .Err(e) => printf("  got expected error\n")
+  );
+};
+
+// ============================================================================
+// walk_str
+// ============================================================================
+
+test "walk_str works with str path", using(io : IO), {
+  tmp := temp_dir();
+  root := path_join(tmp, `yo_fs_walk_str`);
+  root_cstr := root.to_cstr();
+  root_c := root_cstr.ptr().unwrap();
+
+  io.await(fs_dir.create_dir_all(Path.new(root), using(io)));
+  io.await(fs_file.write_file(Path.new(path_join(root, `x.txt`)), "x", using(io)));
+
+  r := io.await(fs_walker.walk_str(root_c, using(io)));
+  match(r,
+    .Ok(entries) => {
+      printf("  walk_str entries = %lld\n", i64(entries.len()));
+      assert((entries.len() == usize(1)), "expected 1 entry");
+    },
+    .Err(e) => assert(false, "walk_str failed")
+  );
+
+  io.await(fs_dir.remove_file(Path.new(path_join(root, `x.txt`)), using(io)));
+  io.await(fs_dir.remove_dir(Path.new(root), using(io)));
+};

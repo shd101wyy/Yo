@@ -39,11 +39,6 @@ TempDir :: object(
 );
 
 impl(TempDir,
-  // Create a temporary directory in /tmp.
-  new : (fn(using(io : IO)) -> Impl(Future(Result(TempDir, IOError), IO)))(
-    TempDir.new_in(Path.new(String.from("/tmp")), using(io))
-  ,
-
   // Create a temporary directory in the given parent directory.
   new_in : (fn(parent: Path, using(io : IO)) -> Impl(Future(Result(TempDir, IOError), IO)))({
     io.async((using(io : IO)) => {
@@ -60,23 +55,28 @@ impl(TempDir,
       cond(
         (result < i32(0)) => {
           free(.Some(*(void)(buf)));
-          ret : Result(TempDir, IOError) = .Err(IOError.from_errno((i32(0) - result)));
+          (ret : Result(TempDir, IOError)) = .Err(IOError.from_errno((i32(0) - result)));
           return ret;
         },
         true => {
           path_str := String.from_cstr(buf).unwrap();
           free(.Some(*(void)(buf)));
-          ret : Result(TempDir, IOError) = .Ok(TempDir(_path: Path.new(path_str), _removed: false));
+          (ret : Result(TempDir, IOError)) = .Ok(TempDir(_path: Path.new(path_str), _removed: false));
           return ret;
         }
       )
     })
   }),
 
+  // Create a temporary directory in /tmp.
+  new : (fn(using(io : IO)) -> Impl(Future(Result(TempDir, IOError), IO)))(
+    TempDir.new_in(Path.new(String.from("/tmp")), using(io))
+  ),
+
   // Get the path of the temporary directory.
-  path : (fn(self: Self) -> Path)
+  path : (fn(self: Self) -> Path)(
     self._path
-  ,
+  ),
 
   // Remove the temporary directory.
   remove : (fn(self: Self, using(io : IO)) -> Impl(Future(Result(unit, IOError), IO)))({
@@ -110,7 +110,7 @@ impl(TempFile,
   // Create a temporary file in /tmp.
   new : (fn(using(io : IO)) -> Impl(Future(Result(TempFile, IOError), IO)))(
     TempFile.new_in(Path.new(String.from("/tmp")), using(io))
-  ,
+  ),
 
   // Create a temporary file in the given parent directory.
   new_in : (fn(parent: Path, using(io : IO)) -> Impl(Future(Result(TempFile, IOError), IO)))({
@@ -127,7 +127,7 @@ impl(TempFile,
       cond(
         (fd < i32(0)) => {
           free(.Some(*(void)(buf)));
-          ret : Result(TempFile, IOError) = .Err(IOError.from_errno((i32(0) - fd)));
+          (ret : Result(TempFile, IOError)) = .Err(IOError.from_errno((i32(0) - fd)));
           return ret;
         },
         true => {
@@ -135,7 +135,7 @@ impl(TempFile,
           free(.Some(*(void)(buf)));
           path := Path.new(path_str);
           file := _file_mod.File(_fd: fd, _path: path, _is_closed: false);
-          ret : Result(TempFile, IOError) = .Ok(TempFile(_file: file, _path: path, _removed: false));
+          (ret : Result(TempFile, IOError)) = .Ok(TempFile(_file: file, _path: path, _removed: false));
           return ret;
         }
       )
@@ -148,9 +148,9 @@ impl(TempFile,
   ),
 
   // Get the path of the temporary file.
-  path : (fn(self: Self) -> Path)
+  path : (fn(self: Self) -> Path)(
     self._path
-  ,
+  ),
 
   // Remove the temporary file.
   remove : (fn(self: Self, using(io : IO)) -> Impl(Future(Result(unit, IOError), IO)))({
