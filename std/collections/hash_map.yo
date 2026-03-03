@@ -266,7 +266,7 @@ impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash)), HashMap(K, V),
   /**
     * Check if HashMap needs resizing based on load factor
     */
-  _needs_resize : ((fn(self: Self) -> bool)
+  _needs_resize : (fn(self: Self) -> bool)(
     {
       threshold := ((self.capacity * MAX_LOAD_FACTOR_NUMERATOR) / MAX_LOAD_FACTOR_DENOMINATOR);
       (self.size >= threshold)
@@ -356,7 +356,7 @@ impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash)), HashMap(K, V),
     * Insert or update a key-value pair
     * Returns Ok(Some(old_value)) if key existed, Ok(None) if new key
     */
-  set : ((fn(self: Self, key: K, value: V) -> Result(Option(V), HashMapError))
+  set : (fn(self: Self, key: K, value: V) -> Result(Option(V), HashMapError))(
     {
       hash := key.hash();
       bucket_opt := Self._find_bucket(self, key, hash);
@@ -409,7 +409,7 @@ impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash)), HashMap(K, V),
     * Get a value by key
     * Returns Some(value) if found, None otherwise
     */
-  get : ((fn(self: Self, key: K) -> Option(V))
+  get : (fn(self: Self, key: K) -> Option(V))(
     {
       hash := key.hash();
       bucket_opt := Self._find_bucket(self, key, hash);
@@ -427,7 +427,7 @@ impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash)), HashMap(K, V),
   /**
     * Check if a key exists in the map
     */
-  has : ((fn(self: Self, key: K) -> bool)
+  has : (fn(self: Self, key: K) -> bool)(
     {
       hash := key.hash();
       bucket_opt := Self._find_bucket(self, key, hash);
@@ -442,7 +442,7 @@ impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash)), HashMap(K, V),
     * Remove a key-value pair by key
     * Returns Some(value) if the key was found and removed, None otherwise
     */
-  remove : ((fn(self: Self, key: K) -> Option(V))
+  remove : (fn(self: Self, key: K) -> Option(V))(
     {
       hash := key.hash();
       bucket_opt := Self._find_bucket(self, key, hash);
@@ -474,14 +474,14 @@ impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash)), HashMap(K, V),
   /**
     * Get the number of key-value pairs in the map
     */
-  len : ((fn(self: Self) -> usize)
+  len : (fn(self: Self) -> usize)(
     self.size
   ),
 
   /**
     * Check if the map is empty
     */
-  is_empty : ((fn(self: Self) -> bool)
+  is_empty : (fn(self: Self) -> bool)(
     (self.size == usize(0))
   ),
 
@@ -489,7 +489,7 @@ impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash)), HashMap(K, V),
     * Clear all key-value pairs
     * Resets all control bytes to EMPTY
     */
-  clear : ((fn(self: Self) -> unit)
+  clear : (fn(self: Self) -> unit)(
     {
       // Drop all occupied buckets before clearing
       cond(
