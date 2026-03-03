@@ -9,24 +9,25 @@ fs_dir :: import "std/fs/dir";
 
 main :: (fn(using(io : IO)) -> unit)({
   tmp := temp_dir();
-  fpath := Path.new(path_join(tmp, `yo_fs_file_write_read.txt`));
-  w := io.await(fs_file.write_file(fpath, "hello world", using(io)));
+  fpath_s := path_join(tmp, `yo_fs_file_str_test.txt`);
+  fpath_cstr := fpath_s.to_cstr();
+  fpath_c := fpath_cstr.ptr().unwrap();
+
+  w := io.await(fs_file.write_file_cstr(fpath_c, "str path test", using(io)));
   match(w,
     .Ok(_) => { printf("  write ok\n"); },
-    .Err(e) => { printf("  write err\n"); assert(false, "write_file failed"); }
+    .Err(e) => { assert(false, "write_file_str failed"); }
   );
-  printf("  write done\n");
 
-  printf("  calling read_to_string...\n");
-  r := io.await(fs_file.read_to_string(fpath, using(io)));
-  printf("  read_to_string returned\n");
+  r := io.await(fs_file.read_to_string_cstr(fpath_c, using(io)));
   match(r,
     .Ok(s) => {
       printf("  read: %s\n", s.to_cstr().ptr().unwrap());
+      assert((s == `str path test`), "content mismatch");
     },
-    .Err(e) => { printf("  read err\n"); }
+    .Err(e) => { assert(false, "read_to_string_str failed"); }
   );
 
-  printf("  all done\n");
+  io.await(fs_dir.remove_file(Path.new(fpath_s), using(io)));
 });
 export main;
