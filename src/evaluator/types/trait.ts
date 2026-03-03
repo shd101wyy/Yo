@@ -807,7 +807,7 @@ To avoid circular dependency issues, please explicitly provide the value for thi
     if (!unassignedSomeType) {
       unassignedSomeType = createSomeType(
         fieldType,
-        label ?? `$associated_type_${randomId(env.modulePath)}`,
+        label ?? `__associated_type_${randomId(env.modulePath)}`,
         { env, context }
       );
     }
@@ -815,7 +815,7 @@ To avoid circular dependency issues, please explicitly provide the value for thi
 
   return {
     field: {
-      label: label ?? `$field_${randomId(env.modulePath)}`,
+      label: label ?? `__field_${randomId(env.modulePath)}`,
       type: fieldType,
       exprs: {
         expr,
