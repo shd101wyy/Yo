@@ -3,18 +3,21 @@
 // Wraps a file descriptor with typed async I/O operations.
 //
 // Example:
-//   { File, read_to_string, write_file } :: import "std/fs/file";
+//   { File, read_to_string, write_file, OpenMode } :: import "std/fs/file";
 //
 //   main :: (fn(using(io : IO)) -> unit)({
 //     // Write a file
-//     io.await(write_file(`test.txt`, `hello world`));
+//     io.await(write_file(Path.new(`test.txt`), `hello world`));
 //
 //     // Read it back
-//     content := io.await(read_to_string(`test.txt`));
+//     content := io.await(read_to_string(Path.new(`test.txt`)));
 //     match(content,
 //       .Ok(s) => println(s),
 //       .Err(e) => println(e.to_string())
 //     );
+//
+//     // Open with OpenMode
+//     f := io.await(File.open(Path.new(`test.txt`), .Read));
 //   });
 
 { GlobalAllocator } :: import "../allocator";
@@ -22,8 +25,10 @@
 { ArrayList } :: import "../collections/array_list";
 open import "../string";
 open import "../fmt";
+{ Path } :: import "../path";
 { IOError } :: import "../io/errors";
 { Metadata, metadata : _metadata } :: import "./metadata";
+{ OpenMode, FilePermission, _open_mode_to_flags, _open_mode_needs_perm } :: import "./types";
 IO_file :: import "../io/file";
 IO_seek :: import "../io/seek";
 {
@@ -37,17 +42,38 @@ IO_seek :: import "../io/seek";
 
 File :: object(
   _fd       : i32,
-  _path     : String,
+  _path     : Path,
   _is_closed : bool
 );
 
 impl(File,
-  // Open a file with the given flags and mode.
-  open : (fn(path: String, flags: i32, mode: u32, using(io : IO)) -> Impl(Future(Result(File, IOError))))({
-    cstr_bytes := path.to_cstr();
+  // Open a file with OpenMode and default permissions.
+  open : (fn(path: Path, mode: OpenMode, using(io : IO)) -> Impl(Future(Result(File, IOError))))(
+    File.open_with(path, mode, FilePermission.default(), using(io))
+  ),
+
+  // Open a file from a str path with OpenMode and default permissions.
+  open_str : (fn(path: str, mode: OpenMode, using(io : IO)) -> Impl(Future(Result(File, IOError))))(
+    File.open(Path.new(String.from(path)), mode, using(io))
+  ),
+
+  // Open a file from a C string path with OpenMode and default permissions.
+  open_cstr : (fn(path: *(u8), mode: OpenMode, using(io : IO)) -> Impl(Future(Result(File, IOError))))(
+    File.open(Path.from_cstr(path), mode, using(io))
+  ),
+
+  // Open a file with OpenMode and custom permissions.
+  open_with : (fn(path: Path, mode: OpenMode, perm: FilePermission, using(io : IO)) -> Impl(Future(Result(File, IOError))))({
+    path_str := path.to_string();
+    cstr_bytes := path_str.to_cstr();
     cstr := cstr_bytes.ptr().unwrap();
+    flags := _open_mode_to_flags(mode);
+    file_mode := cond(
+      _open_mode_needs_perm(mode) => i32(perm.mode),
+      true => i32(0)
+    );
     task := io.async((using(io : IO)) => {
-      result := io.await(IO_file.openat(AT_FDCWD, cstr, flags, i32(mode)));
+      result := io.await(IO_file.openat(AT_FDCWD, cstr, flags, file_mode));
       cond(
         (result < i32(0)) => .Err(IOError.from_errno((i32(0) - result))),
         true => .Ok(File(
@@ -60,19 +86,14 @@ impl(File,
     return task;
   }),
 
-  // Create a new file (or truncate if exists) for writing.
-  create : (fn(path: String, using(io : IO)) -> Impl(Future(Result(File, IOError))))(
-    File.open(path, (O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC), DEFAULT_FILE_MODE, using(io))
+  // Open a file from a str path with OpenMode and custom permissions.
+  open_with_str : (fn(path: str, mode: OpenMode, perm: FilePermission, using(io : IO)) -> Impl(Future(Result(File, IOError))))(
+    File.open_with(Path.new(String.from(path)), mode, perm, using(io))
   ),
 
-  // Open an existing file for reading.
-  open_read : (fn(path: String, using(io : IO)) -> Impl(Future(Result(File, IOError))))(
-    File.open(path, (O_RDONLY | O_CLOEXEC), u32(0), using(io))
-  ),
-
-  // Open a file for appending (creates if not exists).
-  open_append : (fn(path: String, using(io : IO)) -> Impl(Future(Result(File, IOError))))(
-    File.open(path, (O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC), DEFAULT_FILE_MODE, using(io))
+  // Open a file from a C string path with OpenMode and custom permissions.
+  open_with_cstr : (fn(path: *(u8), mode: OpenMode, perm: FilePermission, using(io : IO)) -> Impl(Future(Result(File, IOError))))(
+    File.open_with(Path.from_cstr(path), mode, perm, using(io))
   ),
 
   // Read up to `size` bytes into buffer.
@@ -212,13 +233,13 @@ impl(File,
   ),
 
   // Get the file path.
-  path : (fn(self: Self) -> String)(
+  path : (fn(self: Self) -> Path)(
     self._path
   ),
 
   // Get file metadata.
   metadata : (fn(self: Self, using(io : IO)) -> Impl(Future(Result(Metadata, IOError))))(
-    _metadata(self._path, using(io))
+    _metadata(self._path.to_string(), using(io))
   )
 );
 
@@ -234,16 +255,16 @@ impl(File, Dispose(
   })
 ));
 
-export File, Metadata;
+export File, Metadata, OpenMode, FilePermission;
 
 // ============================================================================
 // Convenience functions
 // ============================================================================
 
-// Read an entire file into a String.
-read_to_string :: (fn(path: String, using(io : IO)) -> Impl(Future(Result(String, IOError))))({
+// Read an entire file into a String (Path version).
+read_to_string :: (fn(path: Path, using(io : IO)) -> Impl(Future(Result(String, IOError))))({
   task := io.async((using(io : IO)) => {
-    file_result := io.await(File.open_read(path, using(io)));
+    file_result := io.await(File.open(path, .Read, using(io)));
     match(file_result,
       .Ok(file) => {
         content := io.await(file.read_to_string(using(io)));
@@ -256,10 +277,20 @@ read_to_string :: (fn(path: String, using(io : IO)) -> Impl(Future(Result(String
   return task;
 });
 
-// Read an entire file into bytes.
-read_file :: (fn(path: String, using(io : IO)) -> Impl(Future(Result(ArrayList(u8), IOError))))({
+// Read an entire file into a String (str version).
+read_to_string_str :: (fn(path: str, using(io : IO)) -> Impl(Future(Result(String, IOError))))(
+  read_to_string(Path.new(String.from(path)), using(io))
+);
+
+// Read an entire file into a String (C string version).
+read_to_string_cstr :: (fn(path: *(u8), using(io : IO)) -> Impl(Future(Result(String, IOError))))(
+  read_to_string(Path.from_cstr(path), using(io))
+);
+
+// Read an entire file into bytes (Path version).
+read_file :: (fn(path: Path, using(io : IO)) -> Impl(Future(Result(ArrayList(u8), IOError))))({
   task := io.async((using(io : IO)) => {
-    file_result := io.await(File.open_read(path, using(io)));
+    file_result := io.await(File.open(path, .Read, using(io)));
     match(file_result,
       .Ok(file) => {
         content := io.await(file.read_all(using(io)));
@@ -272,13 +303,23 @@ read_file :: (fn(path: String, using(io : IO)) -> Impl(Future(Result(ArrayList(u
   return task;
 });
 
-// Write a String to a file (creates or truncates).
-write_file :: (fn(path: String, data: String, using(io : IO)) -> Impl(Future(Result(unit, IOError))))({
+// Read an entire file into bytes (str version).
+read_file_str :: (fn(path: str, using(io : IO)) -> Impl(Future(Result(ArrayList(u8), IOError))))(
+  read_file(Path.new(String.from(path)), using(io))
+);
+
+// Read an entire file into bytes (C string version).
+read_file_cstr :: (fn(path: *(u8), using(io : IO)) -> Impl(Future(Result(ArrayList(u8), IOError))))(
+  read_file(Path.from_cstr(path), using(io))
+);
+
+// Write a str to a file (creates or truncates) (Path version).
+write_file :: (fn(path: Path, data: str, using(io : IO)) -> Impl(Future(Result(unit, IOError))))({
   task := io.async((using(io : IO)) => {
-    file_result := io.await(File.create(path, using(io)));
+    file_result := io.await(File.open(path, .Write, using(io)));
     match(file_result,
       .Ok(file) => {
-        write_result := io.await(file.write(data, using(io)));
+        write_result := io.await(file.write(String.from(data), using(io)));
         io.await(file.close(using(io)));
         match(write_result,
           .Ok(_) => .Ok(()),
@@ -291,13 +332,23 @@ write_file :: (fn(path: String, data: String, using(io : IO)) -> Impl(Future(Res
   return task;
 });
 
-// Append a String to a file (creates if not exists).
-append_file :: (fn(path: String, data: String, using(io : IO)) -> Impl(Future(Result(unit, IOError))))({
+// Write a str to a file (creates or truncates) (str path version).
+write_file_str :: (fn(path: str, data: str, using(io : IO)) -> Impl(Future(Result(unit, IOError))))(
+  write_file(Path.new(String.from(path)), data, using(io))
+);
+
+// Write a str to a file (creates or truncates) (C string path version).
+write_file_cstr :: (fn(path: *(u8), data: str, using(io : IO)) -> Impl(Future(Result(unit, IOError))))(
+  write_file(Path.from_cstr(path), data, using(io))
+);
+
+// Write bytes to a file (creates or truncates) (Path version).
+write_bytes :: (fn(path: Path, data: ArrayList(u8), using(io : IO)) -> Impl(Future(Result(unit, IOError))))({
   task := io.async((using(io : IO)) => {
-    file_result := io.await(File.open_append(path, using(io)));
+    file_result := io.await(File.open(path, .Write, using(io)));
     match(file_result,
       .Ok(file) => {
-        write_result := io.await(file.write(data, using(io)));
+        write_result := io.await(file.write_bytes(data, using(io)));
         io.await(file.close(using(io)));
         match(write_result,
           .Ok(_) => .Ok(()),
@@ -310,8 +361,32 @@ append_file :: (fn(path: String, data: String, using(io : IO)) -> Impl(Future(Re
   return task;
 });
 
-// Check if a path exists.
-exists :: (fn(path: String, using(io : IO)) -> Impl(Future(Result(bool, IOError))))({
+// Append a str to a file (creates if not exists) (Path version).
+append_file :: (fn(path: Path, data: str, using(io : IO)) -> Impl(Future(Result(unit, IOError))))({
+  task := io.async((using(io : IO)) => {
+    file_result := io.await(File.open(path, .Append, using(io)));
+    match(file_result,
+      .Ok(file) => {
+        write_result := io.await(file.write(String.from(data), using(io)));
+        io.await(file.close(using(io)));
+        match(write_result,
+          .Ok(_) => .Ok(()),
+          .Err(e) => .Err(e)
+        )
+      },
+      .Err(e) => .Err(e)
+    )
+  });
+  return task;
+});
+
+// Append a str to a file (str path version).
+append_file_str :: (fn(path: str, data: str, using(io : IO)) -> Impl(Future(Result(unit, IOError))))(
+  append_file(Path.new(String.from(path)), data, using(io))
+);
+
+// Check if a path exists (Path version).
+exists :: (fn(path: Path, using(io : IO)) -> Impl(Future(Result(bool, IOError))))({
   task := io.async((using(io : IO)) => {
     meta_result := io.await(_metadata(path, using(io)));
     match(meta_result,
@@ -325,4 +400,21 @@ exists :: (fn(path: String, using(io : IO)) -> Impl(Future(Result(bool, IOError)
   return task;
 });
 
-export read_to_string, read_file, write_file, append_file, exists;
+// Check if a path exists (str version).
+exists_str :: (fn(path: str, using(io : IO)) -> Impl(Future(Result(bool, IOError))))(
+  exists(Path.new(String.from(path)), using(io))
+);
+
+// Check if a path exists (C string version).
+exists_cstr :: (fn(path: *(u8), using(io : IO)) -> Impl(Future(Result(bool, IOError))))(
+  exists(Path.from_cstr(path), using(io))
+);
+
+export
+  read_to_string, read_to_string_str, read_to_string_cstr,
+  read_file, read_file_str, read_file_cstr,
+  write_file, write_file_str, write_file_cstr,
+  write_bytes,
+  append_file, append_file_str,
+  exists, exists_str, exists_cstr
+;

@@ -12,7 +12,7 @@ Async functions that perform I/O take `using(io : IO)` as an implicit parameter.
 
 ```yo
 // Async + Result style:
-File.create :: (fn(path: String, using(io : IO)) -> Impl(Future(Result(File, IOError)))) ...;
+File.open :: (fn(path: Path, mode: OpenMode, using(io : IO)) -> Impl(Future(Result(File, IOError)))) ...;
 
 // Sync functions that cannot fail return T directly:
 File.position :: (fn(self: Self) -> i64) ...;
@@ -96,24 +96,45 @@ The major gaps for a "battery-included" standard library — all now implemented
 A high-level `File` object wrapping a file descriptor with buffered I/O.
 
 ```yo
+// Open mode — determines how the file is opened
+OpenMode :: enum(
+  Read,        // O_RDONLY — read existing file
+  Write,       // O_WRONLY | O_CREAT | O_TRUNC — create/overwrite
+  Append,      // O_WRONLY | O_CREAT | O_APPEND — append to file
+  ReadWrite,   // O_RDWR — read and write existing file
+  CreateNew    // O_WRONLY | O_CREAT | O_EXCL — create new, fail if exists
+);
+
+// File permissions (Unix mode bits)
+FilePermission :: newtype(mode : u32);
+FilePermission.default :: (fn() -> FilePermission) ...;       // 0o644 (rw-r--r--)
+FilePermission.executable :: (fn() -> FilePermission) ...;    // 0o755 (rwxr-xr-x)
+FilePermission.readonly :: (fn() -> FilePermission) ...;      // 0o444 (r--r--r--)
+FilePermission.private :: (fn() -> FilePermission) ...;       // 0o600 (rw-------)
+
 File :: object(
   fd : i32,
-  path : String,
+  path : Path,
   _read_buf : ArrayList(u8),
   _write_buf : ArrayList(u8),
   _position : i64,
   _is_closed : bool
 );
 
-// Static constructors
-File.open :: (fn(path: String, flags: i32, mode: i32, using(io : IO)) -> Impl(Future(Result(File, IOError)))) ...;
-File.create :: (fn(path: String, using(io : IO)) -> Impl(Future(Result(File, IOError)))) ...;
-File.open_read :: (fn(path: String, using(io : IO)) -> Impl(Future(Result(File, IOError)))) ...;
-File.open_append :: (fn(path: String, using(io : IO)) -> Impl(Future(Result(File, IOError)))) ...;
+// Static constructors — default takes Path, _str takes str, _cstr takes *(u8)
+// File.open uses FilePermission.default() when creating files
+File.open :: (fn(path: Path, mode: OpenMode, using(io : IO)) -> Impl(Future(Result(File, IOError)))) ...;
+File.open_str :: (fn(path: str, mode: OpenMode, using(io : IO)) -> Impl(Future(Result(File, IOError)))) ...;
+File.open_cstr :: (fn(path: *(u8), mode: OpenMode, using(io : IO)) -> Impl(Future(Result(File, IOError)))) ...;
+// File.open_with allows specifying custom file permissions
+File.open_with :: (fn(path: Path, mode: OpenMode, perm: FilePermission, using(io : IO)) -> Impl(Future(Result(File, IOError)))) ...;
+File.open_with_str :: (fn(path: str, mode: OpenMode, perm: FilePermission, using(io : IO)) -> Impl(Future(Result(File, IOError)))) ...;
+File.open_with_cstr :: (fn(path: *(u8), mode: OpenMode, perm: FilePermission, using(io : IO)) -> Impl(Future(Result(File, IOError)))) ...;
 
 // Instance methods
 File.read :: (fn(self: Self, buf: *(u8), size: usize, using(io : IO)) -> Impl(Future(Result(i32, IOError)))) ...;
-File.write :: (fn(self: Self, data: String, using(io : IO)) -> Impl(Future(Result(i32, IOError)))) ...;
+File.write :: (fn(self: Self, data: str, using(io : IO)) -> Impl(Future(Result(i32, IOError)))) ...;
+File.write_string :: (fn(self: Self, data: String, using(io : IO)) -> Impl(Future(Result(i32, IOError)))) ...;
 File.write_bytes :: (fn(self: Self, data: ArrayList(u8), using(io : IO)) -> Impl(Future(Result(i32, IOError)))) ...;
 File.read_all :: (fn(self: Self, using(io : IO)) -> Impl(Future(Result(ArrayList(u8), IOError)))) ...;
 File.read_to_string :: (fn(self: Self, using(io : IO)) -> Impl(Future(Result(String, IOError)))) ...;
@@ -125,12 +146,21 @@ File.close :: (fn(self: Self, using(io : IO)) -> Impl(Future(Result(unit, IOErro
 File.metadata :: (fn(self: Self, using(io : IO)) -> Impl(Future(Result(Metadata, IOError)))) ...;
 
 // Convenience functions (no File object needed)
-read_file :: (fn(path: String, using(io : IO)) -> Impl(Future(Result(ArrayList(u8), IOError)))) ...;
-read_to_string :: (fn(path: String, using(io : IO)) -> Impl(Future(Result(String, IOError)))) ...;
-write_file :: (fn(path: String, data: String, using(io : IO)) -> Impl(Future(Result(unit, IOError)))) ...;
-write_bytes :: (fn(path: String, data: ArrayList(u8), using(io : IO)) -> Impl(Future(Result(unit, IOError)))) ...;
-append_file :: (fn(path: String, data: String, using(io : IO)) -> Impl(Future(Result(unit, IOError)))) ...;
-exists :: (fn(path: String, using(io : IO)) -> Impl(Future(Result(bool, IOError)))) ...;
+// Default takes Path; _str takes str; _cstr takes *(u8)
+read_file :: (fn(path: Path, using(io : IO)) -> Impl(Future(Result(ArrayList(u8), IOError)))) ...;
+read_file_str :: (fn(path: str, using(io : IO)) -> Impl(Future(Result(ArrayList(u8), IOError)))) ...;
+read_file_cstr :: (fn(path: *(u8), using(io : IO)) -> Impl(Future(Result(ArrayList(u8), IOError)))) ...;
+read_to_string :: (fn(path: Path, using(io : IO)) -> Impl(Future(Result(String, IOError)))) ...;
+read_to_string_str :: (fn(path: str, using(io : IO)) -> Impl(Future(Result(String, IOError)))) ...;
+read_to_string_cstr :: (fn(path: *(u8), using(io : IO)) -> Impl(Future(Result(String, IOError)))) ...;
+write_file :: (fn(path: Path, data: str, using(io : IO)) -> Impl(Future(Result(unit, IOError)))) ...;
+write_file_str :: (fn(path: str, data: str, using(io : IO)) -> Impl(Future(Result(unit, IOError)))) ...;
+write_file_cstr :: (fn(path: *(u8), data: str, using(io : IO)) -> Impl(Future(Result(unit, IOError)))) ...;
+write_bytes :: (fn(path: Path, data: ArrayList(u8), using(io : IO)) -> Impl(Future(Result(unit, IOError)))) ...;
+append_file :: (fn(path: Path, data: str, using(io : IO)) -> Impl(Future(Result(unit, IOError)))) ...;
+exists :: (fn(path: Path, using(io : IO)) -> Impl(Future(Result(bool, IOError)))) ...;
+exists_str :: (fn(path: str, using(io : IO)) -> Impl(Future(Result(bool, IOError)))) ...;
+exists_cstr :: (fn(path: *(u8), using(io : IO)) -> Impl(Future(Result(bool, IOError)))) ...;
 ```
 
 ### 1.2 `std/fs/metadata.yo` — File Metadata
@@ -154,42 +184,49 @@ Permissions :: struct(mode: u32);
 Permissions.readonly :: (fn(self: *(Self)) -> bool) ...;
 Permissions.set_readonly :: (fn(self: *(Self), readonly: bool) -> unit) ...;
 
-// Convenience
-metadata :: (fn(path: String, using(io : IO)) -> Impl(Future(Result(Metadata, IOError)))) ...;
-symlink_metadata :: (fn(path: String, using(io : IO)) -> Impl(Future(Result(Metadata, IOError)))) ...;
+// Convenience — default takes Path; _str takes str; _cstr takes *(u8)
+metadata :: (fn(path: Path, using(io : IO)) -> Impl(Future(Result(Metadata, IOError)))) ...;
+metadata_str :: (fn(path: str, using(io : IO)) -> Impl(Future(Result(Metadata, IOError)))) ...;
+metadata_cstr :: (fn(path: *(u8), using(io : IO)) -> Impl(Future(Result(Metadata, IOError)))) ...;
+symlink_metadata :: (fn(path: Path, using(io : IO)) -> Impl(Future(Result(Metadata, IOError)))) ...;
+symlink_metadata_str :: (fn(path: str, using(io : IO)) -> Impl(Future(Result(Metadata, IOError)))) ...;
+symlink_metadata_cstr :: (fn(path: *(u8), using(io : IO)) -> Impl(Future(Result(Metadata, IOError)))) ...;
 ```
 
 ### 1.3 `std/fs/dir.yo` — Directory Operations
 
 ```yo
-// High-level directory operations
-create_dir :: (fn(path: String, using(io : IO)) -> Impl(Future(Result(unit, IOError)))) ...;
-create_dir_all :: (fn(path: String, using(io : IO)) -> Impl(Future(Result(unit, IOError)))) ...;
-remove_dir :: (fn(path: String, using(io : IO)) -> Impl(Future(Result(unit, IOError)))) ...;
-remove_dir_all :: (fn(path: String, using(io : IO)) -> Impl(Future(Result(unit, IOError)))) ...;
-remove_file :: (fn(path: String, using(io : IO)) -> Impl(Future(Result(unit, IOError)))) ...;
-rename :: (fn(from: String, to: String, using(io : IO)) -> Impl(Future(Result(unit, IOError)))) ...;
-hard_link :: (fn(src: String, dst: String, using(io : IO)) -> Impl(Future(Result(unit, IOError)))) ...;
-symlink :: (fn(src: String, dst: String, using(io : IO)) -> Impl(Future(Result(unit, IOError)))) ...;
+// High-level directory operations — default takes Path; _str/_cstr variants available
+create_dir :: (fn(path: Path, using(io : IO)) -> Impl(Future(Result(unit, IOError)))) ...;
+create_dir_str :: (fn(path: str, using(io : IO)) -> Impl(Future(Result(unit, IOError)))) ...;
+create_dir_all :: (fn(path: Path, using(io : IO)) -> Impl(Future(Result(unit, IOError)))) ...;
+create_dir_all_str :: (fn(path: str, using(io : IO)) -> Impl(Future(Result(unit, IOError)))) ...;
+remove_dir :: (fn(path: Path, using(io : IO)) -> Impl(Future(Result(unit, IOError)))) ...;
+remove_dir_all :: (fn(path: Path, using(io : IO)) -> Impl(Future(Result(unit, IOError)))) ...;
+remove_file :: (fn(path: Path, using(io : IO)) -> Impl(Future(Result(unit, IOError)))) ...;
+rename :: (fn(from: Path, to: Path, using(io : IO)) -> Impl(Future(Result(unit, IOError)))) ...;
+hard_link :: (fn(src: Path, dst: Path, using(io : IO)) -> Impl(Future(Result(unit, IOError)))) ...;
+symlink :: (fn(src: Path, dst: Path, using(io : IO)) -> Impl(Future(Result(unit, IOError)))) ...;
 
 // Directory listing
 DirEntry :: struct(
   name : String,
-  path : String,
+  path : Path,
   file_type : FileType,
   ino : u64
 );
 
 FileType :: enum(File, Directory, Symlink, Other);   // note: no leading dots in enum declaration
 
-read_dir :: (fn(path: String, using(io : IO)) -> Impl(Future(Result(ArrayList(DirEntry), IOError)))) ...;
+read_dir :: (fn(path: Path, using(io : IO)) -> Impl(Future(Result(ArrayList(DirEntry), IOError)))) ...;
+read_dir_str :: (fn(path: str, using(io : IO)) -> Impl(Future(Result(ArrayList(DirEntry), IOError)))) ...;
 ```
 
 ### 1.4 `std/fs/walker.yo` — Recursive Directory Traversal
 
 ```yo
 WalkEntry :: struct(
-  path : String,
+  path : Path,
   name : String,
   depth : u32,
   file_type : FileType
@@ -201,29 +238,31 @@ WalkOptions :: struct(
   include_dirs : bool
 );
 
-walk :: (fn(root: String, using(io : IO)) -> Impl(Future(Result(ArrayList(WalkEntry), IOError)))) ...;
-walk_with :: (fn(root: String, options: WalkOptions, using(io : IO)) -> Impl(Future(Result(ArrayList(WalkEntry), IOError)))) ...;
+walk :: (fn(root: Path, using(io : IO)) -> Impl(Future(Result(ArrayList(WalkEntry), IOError)))) ...;
+walk_str :: (fn(root: str, using(io : IO)) -> Impl(Future(Result(ArrayList(WalkEntry), IOError)))) ...;
+walk_with :: (fn(root: Path, options: WalkOptions, using(io : IO)) -> Impl(Future(Result(ArrayList(WalkEntry), IOError)))) ...;
+walk_with_str :: (fn(root: str, options: WalkOptions, using(io : IO)) -> Impl(Future(Result(ArrayList(WalkEntry), IOError)))) ...;
 ```
 
 ### 1.5 `std/fs/temp.yo` — Temporary Files and Directories
 
 ```yo
 TempDir :: object(
-  _path : String,
+  _path : Path,
   _removed : bool
 );
 TempDir.new :: (fn(using(io : IO)) -> Impl(Future(Result(TempDir, IOError)))) ...;
-TempDir.new_in :: (fn(parent: String, using(io : IO)) -> Impl(Future(Result(TempDir, IOError)))) ...;
-TempDir.path :: (fn(self: Self) -> String) ...;
+TempDir.new_in :: (fn(parent: Path, using(io : IO)) -> Impl(Future(Result(TempDir, IOError)))) ...;
+TempDir.path :: (fn(self: Self) -> Path) ...;
 TempDir.remove :: (fn(self: Self, using(io : IO)) -> Impl(Future(Result(unit, IOError)))) ...;
 
 TempFile :: object(
   file : File,
-  _path : String
+  _path : Path
 );
 TempFile.new :: (fn(using(io : IO)) -> Impl(Future(Result(TempFile, IOError)))) ...;
-TempFile.new_in :: (fn(parent: String, using(io : IO)) -> Impl(Future(Result(TempFile, IOError)))) ...;
-TempFile.path :: (fn(self: Self) -> String) ...;
+TempFile.new_in :: (fn(parent: Path, using(io : IO)) -> Impl(Future(Result(TempFile, IOError)))) ...;
+TempFile.path :: (fn(self: Self) -> Path) ...;
 TempFile.remove :: (fn(self: Self, using(io : IO)) -> Impl(Future(Result(unit, IOError)))) ...;
 ```
 
@@ -1031,7 +1070,7 @@ BufWriter.flush :: (fn(self: Self, using(io : IO)) -> Impl(Future(Result(unit, I
 
 2. **Return `Result`, not raw `i32`**: High-level APIs use `Result(T, Error)` for all fallible operations. Async fallible I/O operations return `Impl(Future(Result(T, Error)))`. Callers use `io.await(fn(...))` to get back a `Result` and then pattern-match or propagate using the `?` operator. The `std/io` errno-based pattern stays in `std/io`.
 
-3. **Use `str` and `String`, not `*(u8)`**: High-level APIs accept `str` (for literal/borrowed strings) and `String` (for owned strings). Path conversion to `*(u8)` via `.to_cstr()` is done internally.
+3. **Use `Path` for filesystem paths**: High-level APIs that accept filesystem paths use `Path` as the default parameter type. Variants with `_str` and `_cstr` suffixes accept `str` and `*(u8)` respectively. Internally, `Path` is converted to `*(u8)` via `.to_string().to_cstr()` for the `std/io` layer.
 
 4. **Objects with `Dispose`**: Resources (File, TcpStream, TempDir) are `object` types implementing `Dispose` for automatic cleanup through reference counting.
 
@@ -1045,7 +1084,7 @@ BufWriter.flush :: (fn(self: Self, using(io : IO)) -> Impl(Future(Result(unit, I
 
 ## Notes
 
-- **`str` vs `String` for paths**: `std/fs` functions accept `str` (byte slice) for paths since most paths come from string literals or template strings. Internally, `str.to_cstr()` converts to a null-terminated `*(u8)` for the `std/io` layer. Users working with dynamic paths can use `String.to_str()` to get a `str`.
+- **`Path` for filesystem paths**: `std/fs` functions use `Path` (from `std/path`) as the default path parameter type. `Path` provides cross-platform normalization, joining, and component extraction. For convenience, `_str` suffixed variants accept `str` directly (e.g., `read_file_str("data.txt", ...)`) and `_cstr` variants accept `*(u8)`. Internally, paths are converted to `*(u8)` via `path.to_string().to_cstr()` for the `std/io` layer.
 
 - **Buffered I/O strategy**: `File` objects use internal `ArrayList(u8)` buffers (default 8KB). Reads fill the buffer in one syscall; subsequent reads drain from buffer. Writes accumulate in buffer until `flush()` or buffer full. This amortizes syscall overhead for small reads/writes.
 

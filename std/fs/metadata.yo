@@ -19,6 +19,7 @@
 { GlobalAllocator } :: import "../allocator";
 { malloc, free } :: GlobalAllocator;
 open import "../string";
+{ Path } :: import "../path";
 { IOError } :: import "../io/errors";
 { Statx } :: import "../io/statx";
 IO_file :: import "../io/file";
@@ -81,7 +82,7 @@ impl(Metadata,
   // True if the file is read-only (no write permission for anyone).
   is_readonly : (fn(self: Self) -> bool)({
     m := self._statx.mode();
-    ((m & (S_IWUSR | S_IWGRP | S_IWOTH)) == u32(0))
+    ((m & ((S_IWUSR | S_IWGRP) | S_IWOTH)) == u32(0))
   }),
 
   // Owner user ID.
@@ -125,8 +126,8 @@ extern "Yo",
 // Internal helper to stat a path
 // ============================================================================
 
-_stat_path :: (fn(path: String, flags: i32, using(io : IO)) -> Impl(Future(Result(Metadata, IOError))))({
-  cstr_bytes := path.to_cstr();
+_stat_path :: (fn(path: Path, flags: i32, using(io : IO)) -> Impl(Future(Result(Metadata, IOError))))({
+  cstr_bytes := path.to_string().to_cstr();
   cstr := cstr_bytes.ptr().unwrap();
   buf_size := __yo_statx_buf_size();
   buf := *(u8)(malloc(buf_size).unwrap());
@@ -147,13 +148,21 @@ _stat_path :: (fn(path: String, flags: i32, using(io : IO)) -> Impl(Future(Resul
 });
 
 // Get metadata for a path (follows symlinks).
-metadata :: (fn(path: String, using(io : IO)) -> Impl(Future(Result(Metadata, IOError))))(
+metadata :: (fn(path: Path, using(io : IO)) -> Impl(Future(Result(Metadata, IOError))))
   _stat_path(path, AT_STATX_SYNC_AS_STAT, using(io))
-);
+;
+
+metadata_str :: (fn(path: str, using(io : IO)) -> Impl(Future(Result(Metadata, IOError))))
+  metadata(Path.new(String.from(path)), using(io))
+;
 
 // Get metadata for a path (does NOT follow symlinks).
-symlink_metadata :: (fn(path: String, using(io : IO)) -> Impl(Future(Result(Metadata, IOError))))(
+symlink_metadata :: (fn(path: Path, using(io : IO)) -> Impl(Future(Result(Metadata, IOError))))
   _stat_path(path, (AT_SYMLINK_NOFOLLOW | AT_STATX_SYNC_AS_STAT), using(io))
-);
+;
 
-export metadata, symlink_metadata;
+symlink_metadata_str :: (fn(path: str, using(io : IO)) -> Impl(Future(Result(Metadata, IOError))))
+  symlink_metadata(Path.new(String.from(path)), using(io))
+;
+
+export metadata, metadata_str, symlink_metadata, symlink_metadata_str;

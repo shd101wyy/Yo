@@ -9,6 +9,7 @@ description: "Use when making design decisions about the Yo language, writing st
 - Lowercase for value types (non-reference-counted): `rune`, `i32`, `u32`, `bool`
 - Use `struct(...)` for value types
 - Use `object(...)` for reference-counted types
+- Use `newtype(...)` instead of `struct(...)` when the type has only a single field (e.g., `FilePermission :: newtype(mode : u32)`)
 
 ## Unicode: `rune` not `Char`
 

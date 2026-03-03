@@ -1,0 +1,78 @@
+// std/fs/types.yo - File system types
+//
+// OpenMode and FilePermission for typed file operations.
+
+{
+  O_RDONLY, O_WRONLY, O_RDWR, O_CREAT, O_TRUNC, O_APPEND,
+  O_EXCL, O_CLOEXEC, DEFAULT_FILE_MODE
+} :: import "../io/constants";
+
+// ============================================================================
+// OpenMode — determines how a file is opened
+// ============================================================================
+
+OpenMode :: enum(
+  Read,       // O_RDONLY — read existing file
+  Write,      // O_WRONLY | O_CREAT | O_TRUNC — create/overwrite
+  Append,     // O_WRONLY | O_CREAT | O_APPEND — append to file
+  ReadWrite,  // O_RDWR — read and write existing file
+  CreateNew   // O_WRONLY | O_CREAT | O_EXCL — create new, fail if exists
+);
+
+// Convert OpenMode to POSIX open flags.
+_open_mode_to_flags :: (fn(mode: OpenMode) -> i32)(
+  match(mode,
+    .Read      => (O_RDONLY | O_CLOEXEC),
+    .Write     => (((O_WRONLY | O_CREAT) | O_TRUNC) | O_CLOEXEC),
+    .Append    => (((O_WRONLY | O_CREAT) | O_APPEND) | O_CLOEXEC),
+    .ReadWrite => (O_RDWR | O_CLOEXEC),
+    .CreateNew => (((O_WRONLY | O_CREAT) | O_EXCL) | O_CLOEXEC)
+  )
+);
+
+// Returns the POSIX mode for an OpenMode.
+// Read/ReadWrite don't create files, so mode is 0.
+// Write/Append/CreateNew create files, so use the given permission.
+_open_mode_needs_perm :: (fn(mode: OpenMode) -> bool)(
+  match(mode,
+    .Read      => false,
+    .Write     => true,
+    .Append    => true,
+    .ReadWrite => false,
+    .CreateNew => true
+  )
+);
+
+export OpenMode, _open_mode_to_flags, _open_mode_needs_perm;
+
+// ============================================================================
+// FilePermission — POSIX file permission bits
+// ============================================================================
+
+FilePermission :: newtype(
+  mode : u32
+);
+
+impl(FilePermission,
+  // Default file permissions: rw-r--r-- (0o644)
+  default : (fn() -> Self)
+    Self(mode: u32(0o644))
+  ,
+
+  // Executable permissions: rwxr-xr-x (0o755)
+  executable : (fn() -> Self)
+    Self(mode: u32(0o755))
+  ,
+
+  // Read-only permissions: r--r--r-- (0o444)
+  readonly : (fn() -> Self)
+    Self(mode: u32(0o444))
+  ,
+
+  // Private permissions: rw------- (0o600)
+  private : (fn() -> Self)
+    Self(mode: u32(0o600))
+  
+);
+
+export FilePermission;
