@@ -372,8 +372,18 @@ export function generateAsyncBlockResumeFunction(
                 context.inAsyncStateMachine = { futureType };
                 context.variableIdRemapping = analysis.variableIdRemapping;
                 // Set pending deferred drops so early returns in cond branches
-                // can drop async block local variables
+                // can drop async block local variables.
+                // Use allScopeDropExpressions (includes consumed variables) so that
+                // variables consumed on the normal path but live at early return points
+                // are properly dropped. The consumedAtToken filter in
+                // generatePendingDeferredDrops prevents double-free on normal exit.
+                // Also include while loop body drops and cond branch drops when applicable.
+                const whileLoopDataForDrops =
+                  functionContext.asyncWhileLoopInfo?.get(prevAwait.index);
                 context.pendingDeferredDrops = [
+                  ...(branch.deferredDropExpressions ?? []),
+                  ...(whileLoopDataForDrops?.bodyExpr.$
+                    ?.deferredDropExpressions ?? []),
                   ...(bodyExpr.$?.deferredDropExpressions ?? []),
                 ];
                 // Combine outer captured variables and local variables
@@ -575,7 +585,12 @@ export function generateAsyncBlockResumeFunction(
 
                   context.inAsyncStateMachine = { futureType };
                   context.variableIdRemapping = analysis.variableIdRemapping;
+                  const whileLoopDataForChainedDrops =
+                    functionContext.asyncWhileLoopInfo?.get(prevAwait.index);
                   context.pendingDeferredDrops = [
+                    ...(chainedBranch.deferredDropExpressions ?? []),
+                    ...(whileLoopDataForChainedDrops?.bodyExpr.$
+                      ?.deferredDropExpressions ?? []),
                     ...(bodyExpr.$?.deferredDropExpressions ?? []),
                   ];
                   const combinedVariablesChained = new Map<
