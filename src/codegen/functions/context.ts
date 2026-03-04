@@ -141,6 +141,10 @@ export interface FunctionGenerationContext extends CodeGenContext {
   // Counter for allocating unique while loop indices for nested while-with-await.
   // Starts at awaitPoints.length so outer while indices don't collide with await point indices.
   asyncNextWhileLoopIndex?: number;
+  // When set, non-await cond branches whose condExpr === this expression should
+  // emit async Future completion (store result, drop locals, return). This
+  // indicates the cond IS the async block body's implicit return value.
+  asyncBodyReturnExpr?: Expr;
   // Variables that are locally shadowed (e.g., in match destructuring patterns)
   // When a variable name is in this set, use the local C variable instead of sm->var_...
   localShadowedVariables?: Set<string>;

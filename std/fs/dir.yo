@@ -83,18 +83,12 @@ create_dir_all :: (fn(path: Path, using(io : IO)) -> Impl(Future(Result(unit, IO
     // Try creating the directory directly first
     result := io.await(IO_dir.mkdir(AT_FDCWD, cstr, i32(DEFAULT_DIR_MODE)));
     cond(
-      (result >= i32(0)) => {
-        (ret : Result(unit, IOError)) = .Ok(());
-        return ret;
-      },
+      (result >= i32(0)) => .Ok(()),
       true => {
         errno := (i32(0) - result);
         cond(
           // Already exists is OK
-          (errno == i32(17)) => {
-            (ret : Result(unit, IOError)) = .Ok(());
-            return ret;
-          },
+          (errno == i32(17)) => .Ok(()),
           // ENOENT - try to create parents
           (errno == i32(2)) => {
             // Walk the path and create each component
@@ -134,10 +128,7 @@ create_dir_all :: (fn(path: Path, using(io : IO)) -> Impl(Future(Result(unit, IO
               }
             )
           },
-          true => {
-            (ret : Result(unit, IOError)) = .Err(IOError.from_errno(errno));
-            return ret;
-          }
+          true => .Err(IOError.from_errno(errno))
         )
       }
     )
@@ -252,10 +243,7 @@ read_dir :: (fn(path: Path, using(io : IO)) -> Impl(Future(Result(ArrayList(DirE
     // Open the directory
     fd_result := io.await(IO_file.openat(AT_FDCWD, cstr, (O_RDONLY | O_DIRECTORY), i32(0)));
     cond(
-      (fd_result < i32(0)) => {
-        (ret : Result(ArrayList(DirEntry), IOError)) = .Err(IOError.from_errno((i32(0) - fd_result)));
-        return ret;
-      },
+      (fd_result < i32(0)) => .Err(IOError.from_errno((i32(0) - fd_result))),
       true => {
         fd := fd_result;
         entries := ArrayList(DirEntry).new();

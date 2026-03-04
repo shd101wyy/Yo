@@ -71,8 +71,15 @@ Bugs discovered while making the `tests/fs/` test suite work. Items marked ✅ a
 - **Affects**: `create_dir_all on existing directory succeeds`, `read_dir on nonexistent returns error` in `dir.test.yo`
 - **Symptom**: SEGV in `__yo_incr_rc`/`__yo_decr_rc` at null pointer — accessing zero-initialized `sm->result` with tag=OK pointing to NULL
 - **Root cause**: When a `cond` expression in an async function has one branch with awaits and one without, the non-await branch's value was computed as a local variable but never stored in `sm->result`. The state machine jumped to the next state via `goto`, leaving `sm->result` zero-initialized. On dup, this read `.Ok.value = NULL` and crashed.
-- **Fix**: Changed `std/fs/dir.yo` to use explicit `return ret;` in non-await cond branches of `read_dir` (error path) and `create_dir_all` (success/EEXIST/generic-error paths). Explicit returns are properly handled by the async codegen's return.ts which sets `sm->result` and completes the Future.
-- **Note**: The underlying codegen limitation (implicit cond value not captured in async state machines) still exists. Should be addressed in `src/codegen/async/state-code-gen.ts` — `generateCondWithAwait` needs to complete the Future for non-await branches when the cond is the async function body's implicit return.
+- **Fix**: Proper codegen-level fix in the async state machine code generator:
+  - `src/codegen/async/state-machine.ts`: Detects when the segment's last expression IS the async body's implicit return value and sets `context.asyncBodyReturnExpr` on the generation context
+  - `src/codegen/async/state-code-gen.ts`:
+    - `generateCondWithAwait`: Non-await branches check `shouldEmitAsyncCompletion` — when the cond IS the body's implicit return, the non-await branch generates: value → `sm->result = value` → drop pending deferred drops → `emitAsyncFutureCompletion` → `return;`
+    - `generateCondBranchWithAwait`: Propagates `asyncBodyReturnExpr` to nested conds/matches that are the last expression in the branch (transitive tail position)
+    - Added `exprContainsReturnStatement` helper to avoid double-completion when a branch already has explicit `return`
+  - `src/codegen/functions/context.ts`: Added `asyncBodyReturnExpr?: Expr` field
+  - `std/fs/dir.yo`: Reverted all explicit `return ret;` workarounds — non-await branches now use natural implicit return values (`.Ok(())`, `.Err(...)`)
+- **Note**: The `canOptimizeToDirect` path in `generateCondWithAwait` and match-with-await branches have the same theoretical gap but are not triggered by current std library code. Can be addressed separately.
 
 ### 8. `i32(bool)` type conversion not supported
 

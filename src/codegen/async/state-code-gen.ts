@@ -23,9 +23,10 @@ import {
 import { exprContainsAwait } from "../../expr-traversal";
 import { TokenType } from "../../token";
 import type { EnumType } from "../../types/definitions";
-import { isEnumType } from "../../types/guards";
+import { isEnumType, isUnitType } from "../../types/guards";
 import { isTempVariableName } from "../../utils";
 import { isBooleanValue } from "../../value";
+import { emitAsyncFutureCompletion } from "../exprs/async-completion";
 import { generateComptimeValue } from "../exprs/comptime-value";
 import { generateExpr } from "../exprs/expr";
 import type { FunctionGenerationContext } from "../functions/context";
@@ -734,18 +735,142 @@ function generateCondWithAwait(
       }
     } else {
       // This branch doesn't contain await - just generate normal code
-      // Handle begin blocks specially to avoid unnecessary block wrappers
-      if (
-        exprIsFunctionCall(value) &&
-        exprIsFunctionCallOf(value, BuiltinKeywords.begin)
-      ) {
-        // For begin blocks, generate statements inline
-        const beginArgs = value.args;
-        for (let j = 0; j < beginArgs.length; j++) {
-          const arg = beginArgs[j]!;
-          const argCode = generateExpr(arg, valueIndent, context);
+
+      // Check if this non-await branch should complete the async function.
+      // This is the case when:
+      // 1. The cond IS the async body's implicit return value
+      // 2. No target variable (the value is the function's result, not assigned)
+      // 3. The branch doesn't already contain an explicit return
+      const shouldEmitAsyncCompletion =
+        !targetVariableId &&
+        !targetAssignmentCode &&
+        context.asyncBodyReturnExpr !== undefined &&
+        condExpr === context.asyncBodyReturnExpr &&
+        context.inAsyncStateMachine &&
+        !exprContainsReturnStatement(value);
+
+      if (shouldEmitAsyncCompletion) {
+        // Non-await branch that IS the async function's implicit return value.
+        // Generate the value, store in sm->result, drop locals, complete Future.
+        const isUnit = isUnitType(value.$?.type);
+
+        if (
+          exprIsFunctionCall(value) &&
+          exprIsFunctionCallOf(value, BuiltinKeywords.begin)
+        ) {
+          // Begin block: generate all statements, last one is the result value
+          const beginArgs = value.args;
+          for (let j = 0; j < beginArgs.length - 1; j++) {
+            const arg = beginArgs[j]!;
+            const argCode = generateExpr(arg, valueIndent, context);
+            if (
+              argCode &&
+              arg.$ &&
+              !isTempVariableName(arg.$.env.modulePath, argCode)
+            ) {
+              emitter.emitLine(`${valueIndent}${argCode};`);
+            }
+          }
+          // Last expression is the result value
+          const lastArg = beginArgs[beginArgs.length - 1];
+          if (lastArg && !isUnit) {
+            const lastCode = generateExpr(lastArg, valueIndent, context);
+            if (lastCode) {
+              emitter.emitLine(`${valueIndent}sm->result = ${lastCode};`);
+            }
+          }
+          // Deferred drops for the begin block
+          if (value.$?.deferredDropExpressions) {
+            for (const dropExpr of value.$.deferredDropExpressions) {
+              const dropCode = generateExpr(dropExpr, valueIndent, context);
+              if (dropCode) {
+                emitter.emitLine(`${valueIndent}${dropCode};`);
+              }
+            }
+          }
+        } else {
+          // Non-begin: the expression directly IS the result value
+          if (!isUnit) {
+            const code = generateExpr(value, valueIndent, context);
+            if (code) {
+              emitter.emitLine(`${valueIndent}sm->result = ${code};`);
+            }
+          }
+        }
+
+        // Drop pending deferred drops (body-level local variables)
+        emitter.emitLine(
+          `${valueIndent}// Drop local variables before early completion`
+        );
+        const functionContext = context as FunctionGenerationContext;
+        if (functionContext.pendingDeferredDrops) {
+          for (const dropExpr of functionContext.pendingDeferredDrops) {
+            const dropCode = generateExpr(dropExpr, valueIndent, context);
+            if (dropCode && dropCode.includes("sm->")) {
+              emitter.emitLine(`${valueIndent}${dropCode};`);
+            }
+          }
+        }
+
+        // Complete the Future
+        emitAsyncFutureCompletion({
+          emitter,
+          indent: valueIndent,
+          resultCode: undefined, // Already stored above
+          debugLabel: context.currentFunctionName,
+        });
+        emitter.emitLine(`${valueIndent}return;`);
+      } else {
+        // Normal non-await branch: generate code inline (original logic)
+        // Handle begin blocks specially to avoid unnecessary block wrappers
+        if (
+          exprIsFunctionCall(value) &&
+          exprIsFunctionCallOf(value, BuiltinKeywords.begin)
+        ) {
+          // For begin blocks, generate statements inline
+          const beginArgs = value.args;
+          for (let j = 0; j < beginArgs.length; j++) {
+            const arg = beginArgs[j]!;
+            const argCode = generateExpr(arg, valueIndent, context);
+            // Check if this is a break statement in an async while loop
+            if (argCode === "break" && awaitPoint.isInsideWhile) {
+              // In async while loops, break needs to set the active flag and jump to end
+              emitter.emitLine(
+                `${valueIndent}sm->while_loop_${awaitPoint.index}_active = false;`
+              );
+              emitter.emitLine(
+                `${valueIndent}goto while_loop_${awaitPoint.index}_end;`
+              );
+            } else {
+              // Emit control flow statements always
+              const isControlFlow =
+                argCode === "break" ||
+                argCode === "continue" ||
+                argCode?.includes("return");
+              if (
+                argCode &&
+                (isControlFlow ||
+                  (arg.$ && !isTempVariableName(arg.$.env.modulePath, argCode)))
+              ) {
+                emitter.emitLine(`${valueIndent}${argCode};`);
+              }
+            }
+          }
+
+          // Generate deferred drop expressions for the begin block
+          if (value.$?.deferredDropExpressions) {
+            for (const dropExpr of value.$.deferredDropExpressions) {
+              const dropCode = generateExpr(dropExpr, valueIndent, context);
+              if (dropCode) {
+                emitter.emitLine(`${valueIndent}${dropCode};`);
+              }
+            }
+          }
+        } else {
+          // Not a begin block - generate normal code
+          const code = generateExpr(value, valueIndent, context);
           // Check if this is a break statement in an async while loop
-          if (argCode === "break" && awaitPoint.isInsideWhile) {
+          if (code === "break" && awaitPoint.isInsideWhile) {
             // In async while loops, break needs to set the active flag and jump to end
             emitter.emitLine(
               `${valueIndent}sm->while_loop_${awaitPoint.index}_active = false;`
@@ -754,52 +879,18 @@ function generateCondWithAwait(
               `${valueIndent}goto while_loop_${awaitPoint.index}_end;`
             );
           } else {
-            // Emit control flow statements always
+            // Emit control flow statements (break, continue, return) always
             const isControlFlow =
-              argCode === "break" ||
-              argCode === "continue" ||
-              argCode?.includes("return");
+              code === "break" ||
+              code === "continue" ||
+              code?.includes("return");
             if (
-              argCode &&
+              code &&
               (isControlFlow ||
-                (arg.$ && !isTempVariableName(arg.$.env.modulePath, argCode)))
+                (value.$ && !isTempVariableName(value.$.env.modulePath, code)))
             ) {
-              emitter.emitLine(`${valueIndent}${argCode};`);
+              emitter.emitLine(`${valueIndent}${code};`);
             }
-          }
-        }
-
-        // Generate deferred drop expressions for the begin block
-        if (value.$?.deferredDropExpressions) {
-          for (const dropExpr of value.$.deferredDropExpressions) {
-            const dropCode = generateExpr(dropExpr, valueIndent, context);
-            if (dropCode) {
-              emitter.emitLine(`${valueIndent}${dropCode};`);
-            }
-          }
-        }
-      } else {
-        // Not a begin block - generate normal code
-        const code = generateExpr(value, valueIndent, context);
-        // Check if this is a break statement in an async while loop
-        if (code === "break" && awaitPoint.isInsideWhile) {
-          // In async while loops, break needs to set the active flag and jump to end
-          emitter.emitLine(
-            `${valueIndent}sm->while_loop_${awaitPoint.index}_active = false;`
-          );
-          emitter.emitLine(
-            `${valueIndent}goto while_loop_${awaitPoint.index}_end;`
-          );
-        } else {
-          // Emit control flow statements (break, continue, return) always
-          const isControlFlow =
-            code === "break" || code === "continue" || code?.includes("return");
-          if (
-            code &&
-            (isControlFlow ||
-              (value.$ && !isTempVariableName(value.$.env.modulePath, code)))
-          ) {
-            emitter.emitLine(`${valueIndent}${code};`);
           }
         }
       }
@@ -857,6 +948,28 @@ function branchHasAwait(expr: Expr): boolean {
     }
   }
 
+  return false;
+}
+
+/**
+ * Checks if an expression contains a return statement.
+ * Used to avoid double-completion when a non-await cond branch already has
+ * an explicit return that handles async Future completion.
+ */
+function exprContainsReturnStatement(expr: Expr): boolean {
+  if (exprIsAtomOf(expr, "return")) {
+    return true;
+  }
+  if (exprIsFunctionCallOf(expr, "return")) {
+    return true;
+  }
+  if (expr.tag === ExprTag.FnCall) {
+    for (const arg of expr.args) {
+      if (exprContainsReturnStatement(arg)) {
+        return true;
+      }
+    }
+  }
   return false;
 }
 
@@ -1570,13 +1683,29 @@ function generateCondBranchWithAwait(
         exprIsFunctionCallOf(expr, BuiltinKeywords.cond)
       ) {
         // Nested cond expression with await in one of its branches
+        // If this cond is the last expression in the branch and we're in
+        // async tail position, propagate the flag so the nested cond's
+        // non-await branches also emit Future completion code.
+        const isLastExprInBranch = expr === expressions[expressions.length - 1];
+        const previousAsyncBodyReturnExpr = context.asyncBodyReturnExpr;
+        if (isLastExprInBranch && context.asyncBodyReturnExpr !== undefined) {
+          context.asyncBodyReturnExpr = expr;
+        }
         generateCondWithAwait(expr, awaitPoint, indent, context);
+        context.asyncBodyReturnExpr = previousAsyncBodyReturnExpr;
       } else if (
         expr.tag === ExprTag.FnCall &&
         exprIsFunctionCallOf(expr, BuiltinKeywords.match)
       ) {
         // Match expression with await in one of its branches
+        // Propagate async tail position to nested match (same logic as cond above)
+        const isLastExprInBranch = expr === expressions[expressions.length - 1];
+        const previousAsyncBodyReturnExpr = context.asyncBodyReturnExpr;
+        if (isLastExprInBranch && context.asyncBodyReturnExpr !== undefined) {
+          context.asyncBodyReturnExpr = expr;
+        }
         generateMatchWithAwait(expr, awaitPoint, indent, context);
+        context.asyncBodyReturnExpr = previousAsyncBodyReturnExpr;
       } else if (
         expr.tag === ExprTag.FnCall &&
         exprIsFunctionCallOf(expr, BuiltinKeywords.while)

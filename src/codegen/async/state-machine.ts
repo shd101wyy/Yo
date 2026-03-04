@@ -190,6 +190,16 @@ export function generateAsyncBlockResumeFunction(
   // Split the body into state segments
   const segments = splitIntoStateSegments(bodyExpr, analysis.awaitPoints);
 
+  // Determine the body's last expression for async implicit return detection.
+  // When a cond-with-await IS the body's last expression, non-await branches
+  // should complete the Future immediately (they won't reach later segments).
+  const bodyExprs =
+    bodyExpr.tag === ExprTag.FnCall && exprIsFunctionCallOf(bodyExpr, "begin")
+      ? bodyExpr.args
+      : [bodyExpr];
+  const bodyLastExpr =
+    bodyExprs.length > 0 ? bodyExprs[bodyExprs.length - 1] : undefined;
+
   emitter.emitLine(`// Resume function for async block ${asyncBlockId}`);
   emitter.emitLine(`void ${resumeFunctionName}(${structName}* sm) {`);
   emitter.emitLine(
@@ -1325,12 +1335,36 @@ export function generateAsyncBlockResumeFunction(
     // For the last segment, we need to capture the final expression's value
     const isLastSegmentWithResult =
       isLastSegment && !isUnitResult && segment.expressions.length > 0;
+
+    // When a segment's last expression IS the body's implicit return AND it's
+    // a cond/match with await, set asyncBodyReturnExpr so that non-await
+    // branches can emit Future completion code directly.
+    const segmentLastExpr =
+      segment.expressions.length > 0
+        ? segment.expressions[segment.expressions.length - 1]
+        : undefined;
+    const previousAsyncBodyReturnExpr = context.asyncBodyReturnExpr;
+    if (
+      !isUnitResult &&
+      segmentLastExpr &&
+      bodyLastExpr &&
+      segmentLastExpr === bodyLastExpr &&
+      segment.awaitPoint
+    ) {
+      context.asyncBodyReturnExpr = segmentLastExpr;
+    } else {
+      context.asyncBodyReturnExpr = undefined;
+    }
+
     generateStateSegmentCode(
       segment,
       "      ",
       context,
       isLastSegmentWithResult
     );
+
+    // Restore
+    context.asyncBodyReturnExpr = previousAsyncBodyReturnExpr;
 
     // Restore pending deferred drops
     context.pendingDeferredDrops = previousPendingDeferredDrops;
