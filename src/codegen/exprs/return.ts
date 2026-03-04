@@ -12,7 +12,6 @@ import {
   type FnCallExpr,
 } from "../../expr";
 import { isUnitType } from "../../types/guards";
-import { typeContainsRcType } from "../../types/utils";
 import type { FunctionGenerationContext } from "../functions/context";
 import {
   type CodeGenContext,
@@ -26,7 +25,6 @@ import { generateAtom } from "./atom";
 import {
   generateDeferredDropExpressions,
   generateDeferredDupExpressions,
-  generateDropCodeForValue,
 } from "./drop-dup";
 import { generateExpr } from "./expr";
 
@@ -174,12 +172,7 @@ export function generatePendingDeferredDrops(
             if (!varName) return false;
             if (alreadyDroppedVars.has(varName)) return false;
             const variables = getVariablesFromEnv(expr.$!.env, varName);
-            // Only drop if there's a live (non-consumed) variable with this name.
-            // Variables consumed before the return point (e.g., moved into a return value
-            // on the normal path) must not be dropped — ownership was already transferred.
-            // This filter is critical when pendingDeferredDrops uses allScopeDropExpressions
-            // which includes drops for consumed variables.
-            return variables.some((v) => !v.consumedAtToken);
+            return variables.length > 0;
           })
         : context.pendingDeferredDrops.filter((dropExpr) => {
             const varName = getDeferredDropTargetAtomName(dropExpr);
@@ -259,83 +252,6 @@ function generateReturnAsResume(
   emitter.emitLine(`${indent}${smInfo.resumeFunctionName}(&${smVar});`);
 
   return "";
-}
-
-/**
- * In async state machines, some local variables may not be covered by pendingDeferredDrops
- * or the return expression's own deferredDropExpressions. This happens when a variable is
- * consumed on the normal path (e.g., moved into a return value) but is still live at an
- * early return point in a different branch. The body-level deferredDropExpressions exclude
- * consumed variables, so early returns in other branches miss these drops.
- *
- * This function scans stateMachineVariables for RC-typed local variables that are live
- * (non-consumed) in the return expression's environment but not covered by any existing
- * drop list, and generates drop code for them.
- */
-function generateUncoveredSmVariableDrops(
-  indent: string,
-  context: FunctionGenerationContext,
-  expr: Expr,
-  returnArgExpr: Expr | undefined
-): void {
-  if (!context.stateMachineVariables || !expr.$?.env) return;
-
-  // Build set of variable names already being dropped
-  const alreadyDropped = new Set<string>();
-
-  if (expr.$.deferredDropExpressions) {
-    for (const dropExpr of expr.$.deferredDropExpressions) {
-      const name = getDeferredDropTargetAtomName(dropExpr);
-      if (name) alreadyDropped.add(name);
-    }
-  }
-
-  if (context.pendingDeferredDrops) {
-    for (const dropExpr of context.pendingDeferredDrops) {
-      const name = getDeferredDropTargetAtomName(dropExpr);
-      if (name) alreadyDropped.add(name);
-    }
-  }
-
-  // Exclude the return argument variable — its value is being transferred to sm->result,
-  // so dropping its SM field would create a use-after-free for the copied value.
-  if (returnArgExpr && exprIsAtom(returnArgExpr)) {
-    alreadyDropped.add(returnArgExpr.token.value);
-  }
-
-  // Scan SM variables for uncovered RC-typed local variables
-  let emittedHeader = false;
-  for (const [, capturedVar] of context.stateMachineVariables) {
-    if (capturedVar.kind === "outer") continue;
-    if (capturedVar.isOwningTheSameRcValueAs) continue;
-    if (!typeContainsRcType(capturedVar.type)) continue;
-    if (alreadyDropped.has(capturedVar.name)) continue;
-
-    // Check if this specific variable (by ID) exists and is NOT consumed in the return's env.
-    // Matching by ID is critical: different branches can declare same-named variables
-    // with different IDs, and only the one visible at this return point should be considered.
-    const variables = getVariablesFromEnv(expr.$.env, capturedVar.name);
-    if (variables.length === 0) continue;
-    const matchingVar = variables.find((v) => v.id === capturedVar.id);
-    if (!matchingVar || matchingVar.consumedAtToken) continue;
-
-    if (!emittedHeader) {
-      context.emitter.emitLine(
-        `${indent}// Drop state machine variables not covered by deferred drops`
-      );
-      emittedHeader = true;
-    }
-
-    const fieldName = `sm->var_${capturedVar.id}`;
-    const dropCode = generateDropCodeForValue(
-      fieldName,
-      capturedVar.type,
-      context
-    );
-    if (dropCode) {
-      context.emitter.emitLine(`${indent}${dropCode};`);
-    }
-  }
 }
 
 /**
@@ -523,7 +439,6 @@ export function generateReturn(
       const isUnitResult = isUnitType(childType);
 
       generatePendingDeferredDrops(indent, functionContext, expr, true);
-      generateUncoveredSmVariableDrops(indent, functionContext, expr, arg);
 
       context.emitter.emitLine(
         `${indent}// Final state - complete the result Future`
@@ -583,12 +498,6 @@ export function generateReturn(
       const isUnitResult = isUnitType(childType);
 
       generatePendingDeferredDrops(indent, functionContext, expr, true);
-      generateUncoveredSmVariableDrops(
-        indent,
-        functionContext,
-        expr,
-        undefined
-      );
 
       context.emitter.emitLine(
         `${indent}// Final state - complete the result Future (early unit return)`
