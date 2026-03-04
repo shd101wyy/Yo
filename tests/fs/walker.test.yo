@@ -182,25 +182,25 @@ test "walk nonexistent returns error", using(io : IO), {
 };
 
 // ============================================================================
-// walk_str
+// walk_cstr
 // ============================================================================
 
-test "walk_str works with str path", using(io : IO), {
+test "walk_cstr works with C string path", using(io : IO), {
   tmp := temp_dir();
-  root := path_join(tmp, `yo_fs_walk_str`);
+  root := path_join(tmp, `yo_fs_walk_cstr`);
   root_cstr := root.to_cstr();
   root_c := root_cstr.ptr().unwrap();
 
   io.await(fs_dir.create_dir_all(Path.new(root), using(io)));
   io.await(fs_file.write_file(Path.new(path_join(root, `x.txt`)), "x", using(io)));
 
-  r := io.await(fs_walker.walk_str(root_c, using(io)));
+  r := io.await(fs_walker.walk_cstr(root_c, using(io)));
   match(r,
     .Ok(entries) => {
-      printf("  walk_str entries = %lld\n", i64(entries.len()));
+      printf("  walk_cstr entries = %lld\n", i64(entries.len()));
       assert((entries.len() == usize(1)), "expected 1 entry");
     },
-    .Err(e) => assert(false, "walk_str failed")
+    .Err(e) => assert(false, "walk_cstr failed")
   );
 
   io.await(fs_dir.remove_file(Path.new(path_join(root, `x.txt`)), using(io)));

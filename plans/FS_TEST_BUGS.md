@@ -55,16 +55,17 @@ Bugs discovered while making the `tests/fs/` test suite work. Items marked ✅ a
     - Handle `condBranchFieldIndex === -1` in standard switch generation — emit code without switch/case wrapping
   - `src/codegen/functions/context.ts`: Added `skipCondBranchCheck` flag to `condBranchPostWhileExprs` type
 
-### ~~6. Heap-use-after-free in read_dir / walker / temp (dup/drop)~~ — PARTIALLY FIXED
+### ~~6. Heap-use-after-free in read_dir / walker / temp (dup/drop)~~ — FIXED
 
-- **Affects**: ~~`read_dir` in `dir.test.yo`~~, all `walk` tests in `walker.test.yo` (5 tests), 5 tests in `temp.test.yo` (TempDir/TempFile)
-- **Symptom**: ASan reports heap-use-after-free — accessing memory after it's been freed
-- **Root cause**: Short-circuit `||` and `&&` expressions in loops generated if-chains for side-effectful args but left all temp drops at the enclosing begin block unconditionally. On loop iterations where the short-circuit was taken, drops ran on uninitialized/stale memory.
-- **Fix** (commit `8dd2c190`): Added `emitDropsForConditionalBranch` in `and-or.ts` — drops for conditionally-created temps are now emitted inside the if-blocks, and marked in `shortCircuitHandledDropVarNames` so `begin.ts` skips them. Changes:
-  - `src/codegen/exprs/and-or.ts` — `collectCreatedVarNamesFromExpr`, `emitDropsForConditionalBranch`
-  - `src/codegen/exprs/begin.ts` — skip drops in `shortCircuitHandledDropVarNames` set
-  - `src/codegen/functions/context.ts` — added `shortCircuitHandledDropVarNames` field
-- **Status**: `read_dir lists directory entries` now passes with ASan clean. Walker/temp tests may still have separate issues — to be confirmed.
+- **Affects**: `read_dir` in `dir.test.yo`, all `walk` tests in `walker.test.yo`, temp tests
+- **Symptom**: ASan reports heap-use-after-free and memory leaks — on error return paths, RC-typed local variables (e.g., `results` in `walk_with`, `entries` in `read_dir`) were not dropped
+- **Root cause** (two parts):
+  1. **Short-circuit drops** (commit `8dd2c190`): Short-circuit `||` and `&&` expressions in loops generated if-chains for side-effectful args but left all temp drops at the enclosing begin block unconditionally. On loop iterations where the short-circuit was taken, drops ran on uninitialized/stale memory.
+  2. **Dup-drop optimization over-cancelling**: The evaluator's dup-drop optimizer cancelled both the dup and the scope-exit drop for variables moved into the return value (e.g., `.Ok(results)`). On the normal path this is correct (ownership transfers), but on early return paths (error branches), the dup never executes so the variable is still live — the cancelled drop leaves it leaked.
+- **Fix**:
+  - Part 1 (commit `8dd2c190`): Added `emitDropsForConditionalBranch` in `and-or.ts` — drops for conditionally-created temps are now emitted inside the if-blocks
+  - Part 2: Added `hasReturnBeforeDup` check to the dup-drop optimization in `src/evaluator/exprs/begin.ts`. When an early return exists in a begin-block child that comes BEFORE the child containing the dup, the optimization is skipped — the dup and scope-exit drop are preserved. Also added `exprTreeContainsReturn` helper in `src/expr-traversal.ts` following the same boundary rules as `evaluatedBodyContainsEscape`.
+  - Scoping fix in `src/codegen/async/state-machine.ts`: `pendingDeferredDrops` now includes `branch.deferredDropExpressions` and while-loop body scope drops
 
 ### ~~7. SEGV in async cond implicit return (non-await branch value not stored)~~ — FIXED
 
@@ -81,13 +82,6 @@ Bugs discovered while making the `tests/fs/` test suite work. Items marked ✅ a
   - `std/fs/dir.yo`: Reverted all explicit `return ret;` workarounds — non-await branches now use natural implicit return values (`.Ok(())`, `.Err(...)`)
 - **Note**: All non-await branch paths are now covered: `canOptimizeToDirect`, if-else chain, match-with-await (pointer/null/enum), and primitive match. Helper functions `shouldEmitAsyncBranchCompletion` and `emitNonAwaitBranchAsyncCompletion` ensure consistent behavior across all code paths.
 
-### 8. `i32(bool)` type conversion not supported
-
-- **Affects**: Test convenience — had to use `cond(val => i32(1), true => i32(0))` instead of `i32(val)`
-- **Symptom**: Cannot convert bool to i32 directly
-- **Root cause**: No implicit or explicit bool→i32 conversion implemented
-- **Severity**: Low — workaround exists (`cond`)
-
 ---
 
 ## Test Suite Status
@@ -97,11 +91,6 @@ Bugs discovered while making the `tests/fs/` test suite work. Items marked ✅ a
 | file.test.yo     | 13      | 13     | —             |
 | metadata.test.yo | 6       | 6      | —             |
 | dir.test.yo      | 12      | 12     | —             |
-| temp.test.yo     | 2       | 7      | TBD           |
-| walker.test.yo   | 1       | 6      | TBD           |
-| **Total**        | **34**  | **44** |               |
-
-## Suggested Fix Order
-
-1. **#8 — i32(bool)** (quality of life)
-2. **Walker/temp TBD bugs** (check walker and temp tests for remaining issues)
+| temp.test.yo     | 7       | 7      | -             |
+| walker.test.yo   | 6       | 6      | —             |
+| **Total**        | **44**  | **44** |               |

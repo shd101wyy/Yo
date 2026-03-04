@@ -239,9 +239,9 @@ WalkOptions :: struct(
 );
 
 walk :: (fn(root: Path, using(io : IO)) -> Impl(Future(Result(ArrayList(WalkEntry), IOError)))) ...;
-walk_str :: (fn(root: str, using(io : IO)) -> Impl(Future(Result(ArrayList(WalkEntry), IOError)))) ...;
+walk_cstr :: (fn(root: *(u8), using(io : IO)) -> Impl(Future(Result(ArrayList(WalkEntry), IOError)))) ...;
 walk_with :: (fn(root: Path, options: WalkOptions, using(io : IO)) -> Impl(Future(Result(ArrayList(WalkEntry), IOError)))) ...;
-walk_with_str :: (fn(root: str, options: WalkOptions, using(io : IO)) -> Impl(Future(Result(ArrayList(WalkEntry), IOError)))) ...;
+walk_with_cstr :: (fn(root: *(u8), options: WalkOptions, using(io : IO)) -> Impl(Future(Result(ArrayList(WalkEntry), IOError)))) ...;
 ```
 
 ### 1.5 `std/fs/temp.yo` — Temporary Files and Directories

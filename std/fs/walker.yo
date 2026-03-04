@@ -150,8 +150,8 @@ walk_with :: (fn(root: Path, options: WalkOptions, using(io : IO)) -> Impl(Futur
   })
 });
 
-walk_with_str :: (fn(root: str, options: WalkOptions, using(io : IO)) -> Impl(Future(Result(ArrayList(WalkEntry), IOError), IO)))(
-  walk_with(Path.new(String.from(root)), options, using(io))
+walk_with_cstr :: (fn(root: *(u8), options: WalkOptions, using(io : IO)) -> Impl(Future(Result(ArrayList(WalkEntry), IOError), IO)))(
+  walk_with(Path.from_cstr(root), options, using(io))
 );
 
 // Walk a directory tree with default options.
@@ -159,8 +159,8 @@ walk :: (fn(root: Path, using(io : IO)) -> Impl(Future(Result(ArrayList(WalkEntr
   walk_with(root, WalkOptions.defaults(), using(io))
 ;
 
-walk_str :: (fn(root: str, using(io : IO)) -> Impl(Future(Result(ArrayList(WalkEntry), IOError), IO)))
-  walk(Path.new(String.from(root)), using(io))
+walk_cstr :: (fn(root: *(u8), using(io : IO)) -> Impl(Future(Result(ArrayList(WalkEntry), IOError), IO)))
+  walk(Path.from_cstr(root), using(io))
 ;
 
-export walk, walk_str, walk_with, walk_with_str;
+export walk, walk_cstr, walk_with, walk_with_cstr;
