@@ -372,8 +372,14 @@ export function generateAsyncBlockResumeFunction(
                 context.inAsyncStateMachine = { futureType };
                 context.variableIdRemapping = analysis.variableIdRemapping;
                 // Set pending deferred drops so early returns in cond branches
-                // can drop async block local variables
+                // can drop async block local variables.
+                // Also include while loop body drops and cond branch drops when applicable.
+                const whileLoopDataForDrops =
+                  functionContext.asyncWhileLoopInfo?.get(prevAwait.index);
                 context.pendingDeferredDrops = [
+                  ...(branch.deferredDropExpressions ?? []),
+                  ...(whileLoopDataForDrops?.bodyExpr.$
+                    ?.deferredDropExpressions ?? []),
                   ...(bodyExpr.$?.deferredDropExpressions ?? []),
                 ];
                 // Combine outer captured variables and local variables
@@ -575,7 +581,12 @@ export function generateAsyncBlockResumeFunction(
 
                   context.inAsyncStateMachine = { futureType };
                   context.variableIdRemapping = analysis.variableIdRemapping;
+                  const whileLoopDataForChainedDrops =
+                    functionContext.asyncWhileLoopInfo?.get(prevAwait.index);
                   context.pendingDeferredDrops = [
+                    ...(chainedBranch.deferredDropExpressions ?? []),
+                    ...(whileLoopDataForChainedDrops?.bodyExpr.$
+                      ?.deferredDropExpressions ?? []),
                     ...(bodyExpr.$?.deferredDropExpressions ?? []),
                   ];
                   const combinedVariablesChained = new Map<

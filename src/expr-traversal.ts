@@ -147,6 +147,67 @@ export function evaluatedBodyContainsEscape(expr: Expr): boolean {
 }
 
 /**
+ * Traverse an EVALUATED expression tree to check if it contains a `return`
+ * or `escape` keyword. Follows the same boundary rules as
+ * `evaluatedBodyContainsEscape`: skips function/closure boundaries but
+ * recurses into cond/match branch arms.
+ */
+export function exprTreeContainsReturn(expr: Expr): boolean {
+  if (exprIsAtom(expr)) {
+    return (
+      exprIsAtomOf(expr, BuiltinKeywords.return) ||
+      exprIsAtomOf(expr, BuiltinKeywords.escape)
+    );
+  }
+  if (exprIsFunctionCall(expr)) {
+    if (exprIsFunctionCallOf(expr, BuiltinKeywords.return)) return true;
+    if (exprIsFunctionCallOf(expr, BuiltinKeywords.escape)) return true;
+
+    if (expr.$?.macroExpansion) {
+      return exprTreeContainsReturn(expr.$.macroExpansion);
+    }
+
+    // Handle cond/match explicitly — recurse into branches without treating => as function boundary
+    if (
+      exprIsFunctionCallOf(expr, BuiltinKeywords.cond) ||
+      exprIsFunctionCallOf(expr, BuiltinKeywords.match)
+    ) {
+      return traverseCondMatchBranches(expr, exprTreeContainsReturn);
+    }
+
+    if (isFunctionBoundaryArrow(expr)) {
+      return false;
+    }
+    if (
+      exprIsFunctionCall(expr.func) &&
+      expr.func.$?.value !== undefined &&
+      isTypeValue(expr.func.$.value) &&
+      isFunctionType(expr.func.$.value.value)
+    ) {
+      return false;
+    }
+    if (
+      exprIsFunctionCall(expr.func) &&
+      expr.func.$?.value !== undefined &&
+      isTypeValue(expr.func.$.value) &&
+      typeImplementsFn(expr.func.$.value.value)
+    ) {
+      return false;
+    }
+
+    if (exprTreeContainsReturn(expr.func)) {
+      return true;
+    }
+    for (const arg of expr.args) {
+      if (exprTreeContainsReturn(arg)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+/**
  * Checks if an expression contains any await expression.
  * Skips function boundaries (closures, async blocks) that create new scopes.
  * Does NOT skip cond/match branch arrows, as those are not function boundaries.

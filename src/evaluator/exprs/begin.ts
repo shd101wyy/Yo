@@ -29,6 +29,7 @@ import {
   replaceFuncCallExprWithFuncCallExpr,
   setExprAsNeedsToCallDup,
 } from "../../expr";
+import { exprTreeContainsReturn } from "../../expr-traversal";
 import { generateExprFromCode } from "../../parser";
 import { areTypesCompatible } from "../../types/compatibility";
 import { isObjectType, isSomeType } from "../../types/guards";
@@ -1066,10 +1067,23 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
     const dupCallsByBaseVariable = new Map<string, FnCallExpr[]>();
     // Track variables that have dups in some but not all branches - these should NOT be optimized
     const allVarsWithPartialBranchDups = new Set<string>();
+    // Track which begin-block child index each dup expression belongs to
+    const dupToChildIndex = new Map<FnCallExpr, number>();
+    // Find the earliest child that contains a return expression.
+    // If a variable's dup is in a later child, the early return path
+    // won't execute the dup, so the scope-exit drop must be preserved.
+    let earliestChildWithReturn = -1;
 
     // Scan through all expressions in the begin block to collect dup calls
     if (exprIsFunctionCall(expr)) {
-      for (const arg of expr.args) {
+      for (let childIdx = 0; childIdx < expr.args.length; childIdx++) {
+        const arg = expr.args[childIdx]!;
+
+        // Check if this child contains a return (or escape) expression
+        if (earliestChildWithReturn < 0 && exprTreeContainsReturn(arg)) {
+          earliestChildWithReturn = childIdx;
+        }
+
         const dupCallsResult = collectDupCallsConservatively(arg);
         for (const [variableId, dupCallExprs] of dupCallsResult.dupCalls) {
           if (!dupCallsByBaseVariable.has(variableId)) {
@@ -1080,6 +1094,7 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
             // Avoid adding the same dup expression twice (can happen when same function body is reused)
             if (!existingDups.includes(dupExpr)) {
               existingDups.push(dupExpr);
+              dupToChildIndex.set(dupExpr, childIdx);
             }
           }
         }
@@ -1121,11 +1136,31 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
       // would leave the early return without proper cleanup.
       const hasPartialBranchDups = allVarsWithPartialBranchDups.has(baseId);
 
+      // Check if a main-path dup is in a child that comes AFTER a child with an
+      // early return. If so, the early return path never executes the dup, meaning
+      // the variable's value is NOT transferred — it's still live and needs the
+      // scope-exit drop. Don't cancel the dup+drop pair in this case.
+      let hasReturnBeforeDup = false;
+      if (earliestChildWithReturn >= 0 && dupCalls && dupCalls.length > 0) {
+        for (const dupCallExpr of dupCalls) {
+          const marker = dupCallExpr as FnCallExpr & {
+            __isEarlyReturnDup?: boolean;
+          };
+          if (marker.__isEarlyReturnDup) continue;
+          const childIdx = dupToChildIndex.get(dupCallExpr);
+          if (childIdx !== undefined && childIdx > earliestChildWithReturn) {
+            hasReturnBeforeDup = true;
+            break;
+          }
+        }
+      }
+
       if (
         dupCalls &&
         dupCalls.length > 0 &&
         !isValueTypeWithRCFields &&
-        !hasPartialBranchDups
+        !hasPartialBranchDups &&
+        !hasReturnBeforeDup
       ) {
         // Count how many runtime dups we have.
         // Branch groups (marked with __branchGroup) count as 1 runtime dup.

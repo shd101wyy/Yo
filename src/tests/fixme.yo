@@ -44,6 +44,23 @@ main :: (fn(using(io : IO)) -> unit)({
     .Ok(_) => { assert(false, "walk on nonexistent should fail"); },
     .Err(e) => { printf("  got expected error\n"); }
   );
+
+  // Test read_dir on an existing directory (success path)
+  root := path_join(temp_dir(), `yo_fixme_readdir`);
+  io.await(fs_dir.create_dir_all(Path.new(root), using(io)));
+  io.await(fs_file.write_file(Path.new(path_join(root, `test.txt`)), "hello", using(io)));
+
+  dir_result := io.await(fs_dir.read_dir(Path.new(root), using(io)));
+  match(dir_result,
+    .Ok(entries) => {
+      printf("  read_dir got %zu entries\n", entries.len());
+    },
+    .Err(e) => { assert(false, "read_dir should succeed"); }
+  );
+
+  io.await(fs_dir.remove_file(Path.new(path_join(root, `test.txt`)), using(io)));
+  io.await(fs_dir.remove_dir(Path.new(root), using(io)));
+
   printf("  done\n");
 });
 export main;
