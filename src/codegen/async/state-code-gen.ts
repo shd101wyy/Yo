@@ -537,6 +537,16 @@ function generateCondWithAwait(
         }
       } else {
         if (
+          shouldEmitAsyncBranchCompletion(
+            condExpr,
+            value,
+            context,
+            targetVariableId,
+            targetAssignmentCode
+          )
+        ) {
+          emitNonAwaitBranchAsyncCompletion(value, indent, context);
+        } else if (
           exprIsFunctionCall(value) &&
           exprIsFunctionCallOf(value, BuiltinKeywords.begin)
         ) {
@@ -736,90 +746,16 @@ function generateCondWithAwait(
     } else {
       // This branch doesn't contain await - just generate normal code
 
-      // Check if this non-await branch should complete the async function.
-      // This is the case when:
-      // 1. The cond IS the async body's implicit return value
-      // 2. No target variable (the value is the function's result, not assigned)
-      // 3. The branch doesn't already contain an explicit return
-      const shouldEmitAsyncCompletion =
-        !targetVariableId &&
-        !targetAssignmentCode &&
-        context.asyncBodyReturnExpr !== undefined &&
-        condExpr === context.asyncBodyReturnExpr &&
-        context.inAsyncStateMachine &&
-        !exprContainsReturnStatement(value);
-
-      if (shouldEmitAsyncCompletion) {
-        // Non-await branch that IS the async function's implicit return value.
-        // Generate the value, store in sm->result, drop locals, complete Future.
-        const isUnit = isUnitType(value.$?.type);
-
-        if (
-          exprIsFunctionCall(value) &&
-          exprIsFunctionCallOf(value, BuiltinKeywords.begin)
-        ) {
-          // Begin block: generate all statements, last one is the result value
-          const beginArgs = value.args;
-          for (let j = 0; j < beginArgs.length - 1; j++) {
-            const arg = beginArgs[j]!;
-            const argCode = generateExpr(arg, valueIndent, context);
-            if (
-              argCode &&
-              arg.$ &&
-              !isTempVariableName(arg.$.env.modulePath, argCode)
-            ) {
-              emitter.emitLine(`${valueIndent}${argCode};`);
-            }
-          }
-          // Last expression is the result value
-          const lastArg = beginArgs[beginArgs.length - 1];
-          if (lastArg && !isUnit) {
-            const lastCode = generateExpr(lastArg, valueIndent, context);
-            if (lastCode) {
-              emitter.emitLine(`${valueIndent}sm->result = ${lastCode};`);
-            }
-          }
-          // Deferred drops for the begin block
-          if (value.$?.deferredDropExpressions) {
-            for (const dropExpr of value.$.deferredDropExpressions) {
-              const dropCode = generateExpr(dropExpr, valueIndent, context);
-              if (dropCode) {
-                emitter.emitLine(`${valueIndent}${dropCode};`);
-              }
-            }
-          }
-        } else {
-          // Non-begin: the expression directly IS the result value
-          if (!isUnit) {
-            const code = generateExpr(value, valueIndent, context);
-            if (code) {
-              emitter.emitLine(`${valueIndent}sm->result = ${code};`);
-            }
-          }
-        }
-
-        // Drop pending deferred drops (body-level local variables)
-        emitter.emitLine(
-          `${valueIndent}// Drop local variables before early completion`
-        );
-        const functionContext = context as FunctionGenerationContext;
-        if (functionContext.pendingDeferredDrops) {
-          for (const dropExpr of functionContext.pendingDeferredDrops) {
-            const dropCode = generateExpr(dropExpr, valueIndent, context);
-            if (dropCode && dropCode.includes("sm->")) {
-              emitter.emitLine(`${valueIndent}${dropCode};`);
-            }
-          }
-        }
-
-        // Complete the Future
-        emitAsyncFutureCompletion({
-          emitter,
-          indent: valueIndent,
-          resultCode: undefined, // Already stored above
-          debugLabel: context.currentFunctionName,
-        });
-        emitter.emitLine(`${valueIndent}return;`);
+      if (
+        shouldEmitAsyncBranchCompletion(
+          condExpr,
+          value,
+          context,
+          targetVariableId,
+          targetAssignmentCode
+        )
+      ) {
+        emitNonAwaitBranchAsyncCompletion(value, valueIndent, context);
       } else {
         // Normal non-await branch: generate code inline (original logic)
         // Handle begin blocks specially to avoid unnecessary block wrappers
@@ -930,6 +866,106 @@ function generateCondWithAwait(
       targetAssignmentCode,
     });
   }
+}
+
+/**
+ * Checks if a non-await cond/match branch should complete the async Future directly.
+ * Returns true when the enclosing cond/match IS the async body's implicit return value,
+ * there's no target variable, and the branch doesn't already have an explicit return.
+ */
+function shouldEmitAsyncBranchCompletion(
+  condOrMatchExpr: Expr,
+  branchValue: Expr,
+  context: FunctionGenerationContext,
+  targetVariableId?: string,
+  targetAssignmentCode?: string
+): boolean {
+  return (
+    !targetVariableId &&
+    !targetAssignmentCode &&
+    context.asyncBodyReturnExpr !== undefined &&
+    condOrMatchExpr === context.asyncBodyReturnExpr &&
+    !!context.inAsyncStateMachine &&
+    !exprContainsReturnStatement(branchValue)
+  );
+}
+
+/**
+ * Emits async Future completion for a non-await cond/match branch that IS the
+ * async function body's implicit return value. Generates:
+ *   value computation → sm->result = value → drop locals → complete Future → return
+ */
+function emitNonAwaitBranchAsyncCompletion(
+  value: Expr,
+  indent: string,
+  context: FunctionGenerationContext
+): void {
+  const emitter = context.emitter;
+  const isUnit = isUnitType(value.$?.type);
+
+  if (
+    exprIsFunctionCall(value) &&
+    exprIsFunctionCallOf(value, BuiltinKeywords.begin)
+  ) {
+    // Begin block: generate all statements, last one is the result value
+    const beginArgs = value.args;
+    for (let j = 0; j < beginArgs.length - 1; j++) {
+      const arg = beginArgs[j]!;
+      const argCode = generateExpr(arg, indent, context);
+      if (
+        argCode &&
+        arg.$ &&
+        !isTempVariableName(arg.$.env.modulePath, argCode)
+      ) {
+        emitter.emitLine(`${indent}${argCode};`);
+      }
+    }
+    // Last expression is the result value
+    const lastArg = beginArgs[beginArgs.length - 1];
+    if (lastArg && !isUnit) {
+      const lastCode = generateExpr(lastArg, indent, context);
+      if (lastCode) {
+        emitter.emitLine(`${indent}sm->result = ${lastCode};`);
+      }
+    }
+    // Deferred drops for the begin block
+    if (value.$?.deferredDropExpressions) {
+      for (const dropExpr of value.$.deferredDropExpressions) {
+        const dropCode = generateExpr(dropExpr, indent, context);
+        if (dropCode) {
+          emitter.emitLine(`${indent}${dropCode};`);
+        }
+      }
+    }
+  } else {
+    // Non-begin: the expression directly IS the result value
+    if (!isUnit) {
+      const code = generateExpr(value, indent, context);
+      if (code) {
+        emitter.emitLine(`${indent}sm->result = ${code};`);
+      }
+    }
+  }
+
+  // Drop pending deferred drops (body-level local variables)
+  emitter.emitLine(`${indent}// Drop local variables before early completion`);
+  if (context.pendingDeferredDrops) {
+    for (const dropExpr of context.pendingDeferredDrops) {
+      const dropCode = generateExpr(dropExpr, indent, context);
+      if (dropCode && dropCode.includes("sm->")) {
+        emitter.emitLine(`${indent}${dropCode};`);
+      }
+    }
+  }
+
+  // Complete the Future
+  emitAsyncFutureCompletion({
+    emitter,
+    indent,
+    resultCode: undefined, // Already stored above
+    debugLabel: context.currentFunctionName,
+  });
+  emitter.emitLine(`${indent}return;`);
 }
 
 /**
@@ -1176,23 +1212,39 @@ function generateMatchWithAwait(
           }
         } else {
           // No await in pointer case - generate normally
-          const code = generateExpr(caseBody, indent + "  ", context);
-          if (targetVariableId) {
-            // Assign the branch result to the target variable
-            const fieldName = sanitizeForCIdentifier(`var_${targetVariableId}`);
-            if (code) {
-              emitter.emitLine(`${indent}  sm->${fieldName} = ${code};`);
-            }
-          } else if (targetAssignmentCode) {
-            if (code) {
-              emitter.emitLine(`${indent}  ${targetAssignmentCode} = ${code};`);
-            }
-          } else if (
-            code &&
-            caseBody.$ &&
-            !isTempVariableName(caseBody.$.env.modulePath, code)
+          if (
+            shouldEmitAsyncBranchCompletion(
+              matchExpr,
+              caseBody,
+              context,
+              targetVariableId,
+              targetAssignmentCode
+            )
           ) {
-            emitter.emitLine(`${indent}  ${code};`);
+            emitNonAwaitBranchAsyncCompletion(caseBody, indent + "  ", context);
+          } else {
+            const code = generateExpr(caseBody, indent + "  ", context);
+            if (targetVariableId) {
+              // Assign the branch result to the target variable
+              const fieldName = sanitizeForCIdentifier(
+                `var_${targetVariableId}`
+              );
+              if (code) {
+                emitter.emitLine(`${indent}  sm->${fieldName} = ${code};`);
+              }
+            } else if (targetAssignmentCode) {
+              if (code) {
+                emitter.emitLine(
+                  `${indent}  ${targetAssignmentCode} = ${code};`
+                );
+              }
+            } else if (
+              code &&
+              caseBody.$ &&
+              !isTempVariableName(caseBody.$.env.modulePath, code)
+            ) {
+              emitter.emitLine(`${indent}  ${code};`);
+            }
           }
         }
       }
@@ -1247,23 +1299,39 @@ function generateMatchWithAwait(
           }
         } else {
           // No await in null case - generate normally
-          const code = generateExpr(caseBody, indent + "  ", context);
-          if (targetVariableId) {
-            // Assign the branch result to the target variable
-            const fieldName = sanitizeForCIdentifier(`var_${targetVariableId}`);
-            if (code) {
-              emitter.emitLine(`${indent}  sm->${fieldName} = ${code};`);
-            }
-          } else if (targetAssignmentCode) {
-            if (code) {
-              emitter.emitLine(`${indent}  ${targetAssignmentCode} = ${code};`);
-            }
-          } else if (
-            code &&
-            caseBody.$ &&
-            !isTempVariableName(caseBody.$.env.modulePath, code)
+          if (
+            shouldEmitAsyncBranchCompletion(
+              matchExpr,
+              caseBody,
+              context,
+              targetVariableId,
+              targetAssignmentCode
+            )
           ) {
-            emitter.emitLine(`${indent}  ${code};`);
+            emitNonAwaitBranchAsyncCompletion(caseBody, indent + "  ", context);
+          } else {
+            const code = generateExpr(caseBody, indent + "  ", context);
+            if (targetVariableId) {
+              // Assign the branch result to the target variable
+              const fieldName = sanitizeForCIdentifier(
+                `var_${targetVariableId}`
+              );
+              if (code) {
+                emitter.emitLine(`${indent}  sm->${fieldName} = ${code};`);
+              }
+            } else if (targetAssignmentCode) {
+              if (code) {
+                emitter.emitLine(
+                  `${indent}  ${targetAssignmentCode} = ${code};`
+                );
+              }
+            } else if (
+              code &&
+              caseBody.$ &&
+              !isTempVariableName(caseBody.$.env.modulePath, code)
+            ) {
+              emitter.emitLine(`${indent}  ${code};`);
+            }
           }
         }
       }
@@ -1416,23 +1484,37 @@ function generateMatchWithAwait(
         }
       } else {
         // No await - generate normally
-        const code = generateExpr(caseBody, indent + "    ", context);
-        if (targetVariableId) {
-          // Assign the branch result to the target variable
-          const fieldName = sanitizeForCIdentifier(`var_${targetVariableId}`);
-          if (code) {
-            emitter.emitLine(`${indent}    sm->${fieldName} = ${code};`);
-          }
-        } else if (targetAssignmentCode) {
-          if (code) {
-            emitter.emitLine(`${indent}    ${targetAssignmentCode} = ${code};`);
-          }
-        } else if (
-          code &&
-          caseBody.$ &&
-          !isTempVariableName(caseBody.$.env.modulePath, code)
+        if (
+          shouldEmitAsyncBranchCompletion(
+            matchExpr,
+            caseBody,
+            context,
+            targetVariableId,
+            targetAssignmentCode
+          )
         ) {
-          emitter.emitLine(`${indent}    ${code};`);
+          emitNonAwaitBranchAsyncCompletion(caseBody, indent + "    ", context);
+        } else {
+          const code = generateExpr(caseBody, indent + "    ", context);
+          if (targetVariableId) {
+            // Assign the branch result to the target variable
+            const fieldName = sanitizeForCIdentifier(`var_${targetVariableId}`);
+            if (code) {
+              emitter.emitLine(`${indent}    sm->${fieldName} = ${code};`);
+            }
+          } else if (targetAssignmentCode) {
+            if (code) {
+              emitter.emitLine(
+                `${indent}    ${targetAssignmentCode} = ${code};`
+              );
+            }
+          } else if (
+            code &&
+            caseBody.$ &&
+            !isTempVariableName(caseBody.$.env.modulePath, code)
+          ) {
+            emitter.emitLine(`${indent}    ${code};`);
+          }
         }
       }
 
@@ -1554,22 +1636,34 @@ function generatePrimitiveMatchWithAwait(
         deferredDropExpressions: caseBody.$?.deferredDropExpressions,
       });
     } else {
-      const code = generateExpr(caseBody, indent + "    ", context);
-      if (targetVariableId) {
-        const fieldName = sanitizeForCIdentifier(`var_${targetVariableId}`);
-        if (code) {
-          emitter.emitLine(`${indent}    sm->${fieldName} = ${code};`);
-        }
-      } else if (targetAssignmentCode) {
-        if (code) {
-          emitter.emitLine(`${indent}    ${targetAssignmentCode} = ${code};`);
-        }
-      } else if (
-        code &&
-        caseBody.$ &&
-        !isTempVariableName(caseBody.$.env.modulePath, code)
+      if (
+        shouldEmitAsyncBranchCompletion(
+          matchExpr,
+          caseBody,
+          context,
+          targetVariableId,
+          targetAssignmentCode
+        )
       ) {
-        emitter.emitLine(`${indent}    ${code};`);
+        emitNonAwaitBranchAsyncCompletion(caseBody, indent + "    ", context);
+      } else {
+        const code = generateExpr(caseBody, indent + "    ", context);
+        if (targetVariableId) {
+          const fieldName = sanitizeForCIdentifier(`var_${targetVariableId}`);
+          if (code) {
+            emitter.emitLine(`${indent}    sm->${fieldName} = ${code};`);
+          }
+        } else if (targetAssignmentCode) {
+          if (code) {
+            emitter.emitLine(`${indent}    ${targetAssignmentCode} = ${code};`);
+          }
+        } else if (
+          code &&
+          caseBody.$ &&
+          !isTempVariableName(caseBody.$.env.modulePath, code)
+        ) {
+          emitter.emitLine(`${indent}    ${code};`);
+        }
       }
       branchesWithAwait.push({
         index: i,

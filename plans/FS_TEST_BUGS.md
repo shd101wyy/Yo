@@ -79,7 +79,7 @@ Bugs discovered while making the `tests/fs/` test suite work. Items marked ✅ a
     - Added `exprContainsReturnStatement` helper to avoid double-completion when a branch already has explicit `return`
   - `src/codegen/functions/context.ts`: Added `asyncBodyReturnExpr?: Expr` field
   - `std/fs/dir.yo`: Reverted all explicit `return ret;` workarounds — non-await branches now use natural implicit return values (`.Ok(())`, `.Err(...)`)
-- **Note**: The `canOptimizeToDirect` path in `generateCondWithAwait` and match-with-await branches have the same theoretical gap but are not triggered by current std library code. Can be addressed separately.
+- **Note**: All non-await branch paths are now covered: `canOptimizeToDirect`, if-else chain, match-with-await (pointer/null/enum), and primitive match. Helper functions `shouldEmitAsyncBranchCompletion` and `emitNonAwaitBranchAsyncCompletion` ensure consistent behavior across all code paths.
 
 ### 8. `i32(bool)` type conversion not supported
 
