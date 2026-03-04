@@ -2,41 +2,48 @@ open import "std/libc/stdio";
 open import "std/string";
 { Path } :: import "std/path";
 { IOError } :: import "std/io/errors";
+fs_walker :: import "std/fs/walker";
+{ WalkEntry, WalkOptions } :: import "std/fs/walker";
+{ FileType } :: import "std/fs/dir";
 fs_dir :: import "std/fs/dir";
 fs_file :: import "std/fs/file";
 { temp_dir, path_join } :: import "../../tests/helper";
 
+_setup_walk_tree :: (fn(root: String, using(io : IO)) -> unit)({
+  io.await(fs_dir.create_dir_all(Path.new(root), using(io)));
+
+  sub := path_join(root, `sub`);
+  io.await(fs_dir.create_dir_all(Path.new(sub), using(io)));
+
+  deep := path_join(sub, `deep`);
+  io.await(fs_dir.create_dir_all(Path.new(deep), using(io)));
+
+  io.await(fs_file.write_file(Path.new(path_join(root, `a.txt`)), "a", using(io)));
+  io.await(fs_file.write_file(Path.new(path_join(root, `b.txt`)), "b", using(io)));
+  io.await(fs_file.write_file(Path.new(path_join(sub, `c.txt`)), "c", using(io)));
+  io.await(fs_file.write_file(Path.new(path_join(deep, `d.txt`)), "d", using(io)));
+});
+
+_cleanup_walk_tree :: (fn(root: String, using(io : IO)) -> unit)({
+  sub := path_join(root, `sub`);
+  deep := path_join(sub, `deep`);
+
+  io.await(fs_dir.remove_file(Path.new(path_join(deep, `d.txt`)), using(io)));
+  io.await(fs_dir.remove_dir(Path.new(deep), using(io)));
+  io.await(fs_dir.remove_file(Path.new(path_join(sub, `c.txt`)), using(io)));
+  io.await(fs_dir.remove_dir(Path.new(sub), using(io)));
+  io.await(fs_dir.remove_file(Path.new(path_join(root, `b.txt`)), using(io)));
+  io.await(fs_dir.remove_file(Path.new(path_join(root, `a.txt`)), using(io)));
+  io.await(fs_dir.remove_dir(Path.new(root), using(io)));
+});
+
 main :: (fn(using(io : IO)) -> unit)({
-  tmp := temp_dir();
-  nested := Path.new(path_join(path_join(path_join(tmp, `yo_fs_dir_all`), `sub1`), `sub2`));
-
-  printf("  creating: %s\n", nested.to_string().to_cstr().ptr().unwrap());
-
-  r := io.await(fs_dir.create_dir_all(nested, using(io)));
+  // Test walk on nonexistent path to trigger error path
+  r := io.await(fs_walker.walk(Path.new(`/nonexistent/yo_fs_walk_nope`), using(io)));
   match(r,
-    .Ok(_) => { printf("  create_dir_all ok\n"); },
-    .Err(e) => {
-      printf("  create_dir_all FAILED\n");
-      assert(false, "create_dir_all failed");
-    }
+    .Ok(_) => { assert(false, "walk on nonexistent should fail"); },
+    .Err(e) => { printf("  got expected error\n"); }
   );
-
-  printf("  checking exists...\n");
-
-  // Verify exists
-  ex := io.await(fs_file.exists(nested, using(io)));
-  match(ex,
-    .Ok(e) => {
-      printf("  exists = %d\n", cond(e => i32(1), true => i32(0)));
-    },
-    .Err(e) => {
-      printf("  exists check failed with error\n");
-    }
-  );
-
-  // Cleanup nested dirs
-  io.await(fs_dir.remove_dir(nested, using(io)));
-  io.await(fs_dir.remove_dir(Path.new(path_join(path_join(tmp, `yo_fs_dir_all`), `sub1`)), using(io)));
-  io.await(fs_dir.remove_dir(Path.new(path_join(tmp, `yo_fs_dir_all`)), using(io)));
+  printf("  done\n");
 });
 export main;

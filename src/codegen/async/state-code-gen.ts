@@ -1342,6 +1342,7 @@ function generateMatchWithAwait(
     // Regular enum with switch/case
     emitter.emitLine(`${indent}switch (${matchedValueCode}.tag) {`);
 
+    let hasWildcardDefault = false;
     for (let i = 0; i < cases.length; i++) {
       const caseExpr = cases[i]!;
       if (
@@ -1354,33 +1355,43 @@ function generateMatchWithAwait(
       const pattern = caseExpr.args[0]!;
       const caseBody = caseExpr.args[1]!;
 
+      // Check for wildcard pattern "_" — generate default case
+      const isWildcard = exprIsAtom(pattern) && pattern.token.value === "_";
+
       // Extract variant name from pattern
       let variantName: string | undefined;
-      if (
-        exprIsFunctionCall(pattern) &&
-        exprIsFunctionCallOf(pattern, ".", 1)
-      ) {
-        // Simple pattern like .Some
-        variantName = pattern.args[0]!.token.value;
-      } else if (exprIsFunctionCall(pattern)) {
-        // Destructuring pattern like .Some(x)
-        const patternFunc = pattern.func;
+      if (!isWildcard) {
         if (
-          patternFunc &&
-          exprIsFunctionCall(patternFunc) &&
-          exprIsFunctionCallOf(patternFunc, ".", 1)
+          exprIsFunctionCall(pattern) &&
+          exprIsFunctionCallOf(pattern, ".", 1)
         ) {
-          variantName = patternFunc.args[0]!.token.value;
+          // Simple pattern like .Some
+          variantName = pattern.args[0]!.token.value;
+        } else if (exprIsFunctionCall(pattern)) {
+          // Destructuring pattern like .Some(x)
+          const patternFunc = pattern.func;
+          if (
+            patternFunc &&
+            exprIsFunctionCall(patternFunc) &&
+            exprIsFunctionCallOf(patternFunc, ".", 1)
+          ) {
+            variantName = patternFunc.args[0]!.token.value;
+          }
         }
       }
 
-      if (!variantName) {
+      if (!isWildcard && !variantName) {
         emitter.emitLine(`${indent}  // Error: Could not extract variant name`);
         continue;
       }
 
-      const variantTag = `${enumCName.toUpperCase()}_${variantName.toUpperCase()}`;
-      emitter.emitLine(`${indent}  case ${variantTag}: {`);
+      if (isWildcard) {
+        hasWildcardDefault = true;
+        emitter.emitLine(`${indent}  default: {`);
+      } else {
+        const variantTag = `${enumCName.toUpperCase()}_${variantName!.toUpperCase()}`;
+        emitter.emitLine(`${indent}  case ${variantTag}: {`);
+      }
       emitter.emitLine(
         `${indent}    sm->cond_branch_${awaitPoint.index} = ${i};`
       );
@@ -1522,7 +1533,9 @@ function generateMatchWithAwait(
       emitter.emitLine(`${indent}  }`);
     }
 
-    emitter.emitLine(`${indent}  default: break;`);
+    if (!hasWildcardDefault) {
+      emitter.emitLine(`${indent}  default: break;`);
+    }
     emitter.emitLine(`${indent}}`);
   }
 }

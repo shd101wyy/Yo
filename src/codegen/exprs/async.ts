@@ -1255,13 +1255,30 @@ export function generateIoAsyncSyncCall(
   emitter.emitDeclarationLine(``);
 
   // Emit dispose function
+  const captureType = closureArgExpr.$.captureType;
+  const captureDropFn =
+    captureType && typeContainsRcType(captureType)
+      ? getDropFunctionForType(captureType, context)
+      : undefined;
+  const captureDupFn =
+    captureType && typeContainsRcType(captureType)
+      ? getDupFunctionForType(captureType, context)
+      : undefined;
   const resultDropFn = getDropFunctionForType(resultType, context);
   emitter.emitDeclarationLine(`void ${disposeFunctionName}(void* ptr) {`);
-  if (resultDropFn) {
+  if (captureDropFn || resultDropFn) {
     emitter.emitDeclarationLine(`  ${structName}* sm = (${structName}*)ptr;`);
-    emitter.emitDeclarationLine(`  if (sm->state == -1) {`);
-    emitter.emitDeclarationLine(`    ${resultDropFn}(sm->result);`);
-    emitter.emitDeclarationLine(`  }`);
+    if (captureDropFn) {
+      emitter.emitDeclarationLine(
+        `  // Drop captured variables (future owns its references)`
+      );
+      emitter.emitDeclarationLine(`  ${captureDropFn}(sm->__capture);`);
+    }
+    if (resultDropFn) {
+      emitter.emitDeclarationLine(`  if (sm->state == -1) {`);
+      emitter.emitDeclarationLine(`    ${resultDropFn}(sm->result);`);
+      emitter.emitDeclarationLine(`  }`);
+    }
   }
   emitter.emitDeclarationLine(`}`);
   emitter.emitDeclarationLine(``);
@@ -1284,6 +1301,14 @@ export function generateIoAsyncSyncCall(
   emitter.emitLine(`${indent}${resultVar}->header.traverse_fn = NULL;`);
   // Copy capture data from stack-allocated struct into the heap-allocated future
   emitter.emitLine(`${indent}${resultVar}->__capture = ${closureCode};`);
+  // Dup captured variables so the future owns its own references.
+  // The caller may drop the original captured variables after this function returns
+  // but before the future's resume function runs.
+  if (captureDupFn) {
+    emitter.emitLine(
+      `${indent}${resultVar}->__capture = ${captureDupFn}(${resultVar}->__capture);`
+    );
+  }
   // State 0 = not started (lazy), resume function will execute the closure
   emitter.emitLine(`${indent}${resultVar}->state = 0;`);
   emitter.emitLine(
