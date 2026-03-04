@@ -926,6 +926,157 @@ export function generateAsyncBlockResumeFunction(
           // Add label for code after while loop (for break to jump to)
           emitter.emitLine(`      after_while_loop_${prevAwait.index}:`);
 
+          // Emit post-while-loop expressions from enclosing cond branch.
+          // These were deferred from the "remaining code from chosen cond branch"
+          // handler because they must only execute once (after the while loop
+          // exits), not on every state machine resume.
+          if (whileLoopData.condBranchPostWhileExprs) {
+            const postWhileData = whileLoopData.condBranchPostWhileExprs;
+            const pwCondField = postWhileData.condBranchFieldIndex;
+            const pwBranchIdx = postWhileData.branchIndex;
+            emitter.emitLine(
+              `      // Execute post-while-loop code from cond branch`
+            );
+            emitter.emitLine(
+              `      if (sm->cond_branch_${pwCondField} == ${pwBranchIdx}) {`
+            );
+
+            // Set up state machine context for code generation
+            const prevInSMPW = context.inAsyncStateMachine;
+            const prevSMVarsPW = context.stateMachineVariables;
+            const prevVarRemapPW = context.variableIdRemapping;
+            const prevPendingDropsPW = context.pendingDeferredDrops;
+
+            context.inAsyncStateMachine = { futureType };
+            context.variableIdRemapping = analysis.variableIdRemapping;
+            context.pendingDeferredDrops = [
+              ...(bodyExpr.$?.deferredDropExpressions ?? []),
+            ];
+
+            const combinedVarsPW = new Map<string, CapturedVariable>();
+            for (const v of analysis.capturedVariables) {
+              combinedVarsPW.set(v.id, v);
+            }
+            if (captureType) {
+              for (const field of captureType.fields) {
+                combinedVarsPW.set(field.label, {
+                  id: field.label,
+                  name: field.label,
+                  type: field.type,
+                  kind: "outer",
+                  isOwningTheSameRcValueAs: undefined,
+                });
+              }
+            }
+            context.stateMachineVariables = combinedVarsPW;
+
+            const hasNextAwait = segment.awaitPoint != null;
+            let foundPostWhileAwait = false;
+            const additionalRemainingExprs: Expr[] = [];
+
+            for (let pwIdx = 0; pwIdx < postWhileData.exprs.length; pwIdx++) {
+              const expr = postWhileData.exprs[pwIdx]!;
+
+              if (foundPostWhileAwait) {
+                additionalRemainingExprs.push(expr);
+                continue;
+              }
+
+              if (hasNextAwait && exprContainsAwait(expr)) {
+                foundPostWhileAwait = true;
+                generateRemainingExprFuture(
+                  expr,
+                  segment.awaitPoint!,
+                  analysis,
+                  "        ",
+                  context
+                );
+                continue;
+              }
+
+              // Normal expression
+              const code = generateExpr(expr, "        ", context);
+              if (
+                !code ||
+                !expr.$ ||
+                isTempVariableName(expr.$.env.modulePath, code)
+              ) {
+                // Skip
+              } else {
+                emitter.emitLine(`        ${code};`);
+              }
+            }
+
+            // Chain remaining expressions after the await to the next state
+            if (foundPostWhileAwait && segment.awaitPoint) {
+              const nextIndex = segment.awaitPoint.index;
+              if (!functionContext.asyncCondBranchInfo) {
+                functionContext.asyncCondBranchInfo = new Map();
+              }
+              const existing =
+                functionContext.asyncCondBranchInfo.get(nextIndex);
+              if (existing) {
+                // Entry already exists — chain as additional layer
+                if (!existing.chainedBranches) {
+                  existing.chainedBranches = [];
+                }
+                existing.chainedBranches.push({
+                  branches: [
+                    {
+                      index: postWhileData.branchIndex,
+                      value: postWhileData.exprs[0]!,
+                      hasAwait:
+                        additionalRemainingExprs.length > 0 ||
+                        additionalRemainingExprs.some((e) =>
+                          exprContainsAwait(e)
+                        ),
+                      remainingExprs: additionalRemainingExprs,
+                      deferredDropExpressions:
+                        postWhileData.deferredDropExpressions,
+                    },
+                  ],
+                  condBranchFieldIndex: postWhileData.condBranchFieldIndex,
+                });
+              } else {
+                functionContext.asyncCondBranchInfo.set(nextIndex, {
+                  branches: [
+                    {
+                      index: postWhileData.branchIndex,
+                      value: postWhileData.exprs[0]!,
+                      hasAwait:
+                        additionalRemainingExprs.length > 0 ||
+                        additionalRemainingExprs.some((e) =>
+                          exprContainsAwait(e)
+                        ),
+                      remainingExprs: additionalRemainingExprs,
+                      deferredDropExpressions:
+                        postWhileData.deferredDropExpressions,
+                    },
+                  ],
+                  condBranchFieldIndex: postWhileData.condBranchFieldIndex,
+                });
+              }
+            }
+
+            // If no additional await, generate deferred drops
+            if (!foundPostWhileAwait && postWhileData.deferredDropExpressions) {
+              for (const dropExpr of postWhileData.deferredDropExpressions) {
+                const dropCode = generateExpr(dropExpr, "        ", context);
+                if (dropCode && dropCode.includes("sm->")) {
+                  emitter.emitLine(`        ${dropCode};`);
+                }
+              }
+            }
+
+            emitter.emitLine(`      }`);
+
+            // Restore context
+            context.inAsyncStateMachine = prevInSMPW;
+            context.stateMachineVariables = prevSMVarsPW;
+            context.variableIdRemapping = prevVarRemapPW;
+            context.pendingDeferredDrops = prevPendingDropsPW;
+          }
+
           // Handle outer while loop continuation (for nested while-with-await)
           if (whileLoopData.outerWhileLoop) {
             const outerWhile = whileLoopData.outerWhileLoop;

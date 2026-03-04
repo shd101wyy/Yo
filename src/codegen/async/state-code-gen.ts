@@ -502,13 +502,31 @@ function generateCondWithAwait(
           indent,
           context
         );
-        branchesWithAwait.push({
-          index: firstNonFalseBranchIndex,
-          value,
-          hasAwait: true,
-          remainingExprs,
-          deferredDropExpressions: value.$?.deferredDropExpressions,
-        });
+        // Check if the await was inside a while loop
+        const whileInfo = context.asyncWhileLoopInfo?.get(awaitPoint.index);
+        if (whileInfo && remainingExprs.length > 0) {
+          whileInfo.condBranchPostWhileExprs = {
+            branchIndex: firstNonFalseBranchIndex,
+            condBranchFieldIndex: awaitPoint.index,
+            exprs: remainingExprs,
+            deferredDropExpressions: value.$?.deferredDropExpressions,
+          };
+          branchesWithAwait.push({
+            index: firstNonFalseBranchIndex,
+            value,
+            hasAwait: true,
+            remainingExprs: [],
+            deferredDropExpressions: value.$?.deferredDropExpressions,
+          });
+        } else {
+          branchesWithAwait.push({
+            index: firstNonFalseBranchIndex,
+            value,
+            hasAwait: true,
+            remainingExprs,
+            deferredDropExpressions: value.$?.deferredDropExpressions,
+          });
+        }
       } else {
         if (
           exprIsFunctionCall(value) &&
@@ -660,14 +678,34 @@ function generateCondWithAwait(
         valueIndent,
         context
       );
-      // Store branch info with remaining expressions and deferred drops from the branch's begin block
-      branchesWithAwait.push({
-        index: i,
-        value,
-        hasAwait: true,
-        remainingExprs,
-        deferredDropExpressions: value.$?.deferredDropExpressions,
-      });
+      // Check if the await was inside a while loop in this branch.
+      // If so, post-while-loop expressions should only run after the loop exits,
+      // not on every resume from the in-loop await.
+      const whileInfo = context.asyncWhileLoopInfo?.get(awaitPoint.index);
+      if (whileInfo && remainingExprs.length > 0) {
+        whileInfo.condBranchPostWhileExprs = {
+          branchIndex: i,
+          condBranchFieldIndex: awaitPoint.index,
+          exprs: remainingExprs,
+          deferredDropExpressions: value.$?.deferredDropExpressions,
+        };
+        branchesWithAwait.push({
+          index: i,
+          value,
+          hasAwait: true,
+          remainingExprs: [], // Post-while-loop exprs are in while loop info
+          deferredDropExpressions: value.$?.deferredDropExpressions,
+        });
+      } else {
+        // Store branch info with remaining expressions and deferred drops from the branch's begin block
+        branchesWithAwait.push({
+          index: i,
+          value,
+          hasAwait: true,
+          remainingExprs,
+          deferredDropExpressions: value.$?.deferredDropExpressions,
+        });
+      }
     } else {
       // This branch doesn't contain await - just generate normal code
       // Handle begin blocks specially to avoid unnecessary block wrappers

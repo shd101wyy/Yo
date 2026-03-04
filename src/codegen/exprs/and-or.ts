@@ -1,6 +1,7 @@
-import type { Expr, FnCallExpr } from "../../expr";
+import { exprIsFunctionCall, type Expr, type FnCallExpr } from "../../expr";
 import { isBooleanValue } from "../../value";
-import type { CodeGenContext } from "../utils";
+import type { FunctionGenerationContext } from "../functions/context";
+import { getDeferredDropTargetAtomName, type CodeGenContext } from "../utils";
 import { generateExpr } from "./expr";
 
 let _shortCircuitCounter = 0;
@@ -22,6 +23,66 @@ function exprMayHaveSideEffects(expr: Expr): boolean {
   }
   // Runtime values without variableName are typically simple variable references
   return false;
+}
+
+/**
+ * Recursively collect all variableNames that are CREATED by an expression tree
+ * (new temp values from function call results). Atoms are skipped because they
+ * merely reference existing variables, not newly created ones.
+ *
+ * Used to find temp variable names created by sub-expressions of a
+ * short-circuit argument, so their drops can be emitted conditionally.
+ */
+function collectCreatedVarNamesFromExpr(expr: Expr, result: Set<string>): void {
+  if (exprIsFunctionCall(expr)) {
+    // Only collect variableNames from function calls — these are newly created temps
+    if (expr.$?.variableName) {
+      result.add(expr.$.variableName);
+    }
+    for (const arg of expr.args) {
+      collectCreatedVarNamesFromExpr(arg, result);
+    }
+    if (expr.func) {
+      collectCreatedVarNamesFromExpr(expr.func, result);
+    }
+  }
+  // Do NOT collect from atoms — they reference existing variables, not new temps
+}
+
+/**
+ * For a set of variable names defined inside a conditional branch of a
+ * short-circuit expression, find matching drop expressions from the enclosing
+ * scope's pending deferred drops and emit them. Then mark the variable names
+ * so the enclosing begin block skips those drops.
+ *
+ * This prevents use-after-free when a short-circuit expression runs in a loop:
+ * without this, drops for conditionally-created temps are emitted unconditionally
+ * at the end of the begin block. On subsequent loop iterations where the short-circuit
+ * IS taken, the drop would access a stale value from the previous iteration.
+ */
+function emitDropsForConditionalBranch(
+  varNames: Set<string>,
+  indent: string,
+  context: CodeGenContext
+): void {
+  const functionContext = context as FunctionGenerationContext;
+  const pendingDrops = functionContext.pendingDeferredDrops;
+  if (!pendingDrops || varNames.size === 0) return;
+
+  if (!functionContext.shortCircuitHandledDropVarNames) {
+    functionContext.shortCircuitHandledDropVarNames = new Set<string>();
+  }
+
+  for (const dropExpr of pendingDrops) {
+    const targetVarName = getDeferredDropTargetAtomName(dropExpr);
+    if (targetVarName && varNames.has(targetVarName)) {
+      const dropCode = generateExpr(dropExpr, indent, context);
+      if (dropCode) {
+        context.emitter.emitLine(`${indent}${dropCode};`);
+      }
+      functionContext.shortCircuitHandledDropVarNames.add(targetVarName);
+    }
+  }
 }
 
 /**
@@ -99,8 +160,14 @@ export function generateOpAnd(
       context.emitter.emitLine(`${currentIndent}${scVar} = ${argCode};`);
     }
   }
-  // Close all the if blocks
-  for (let i = 0; i < depth; i++) {
+  // Close all the if blocks, emitting drops for each conditional branch's temps
+  for (let i = depth - 1; i >= 0; i--) {
+    // Collect variable names from this conditional arg's expression tree
+    const conditionalArg = runtimeArgs[i + 1]!;
+    const varNames = new Set<string>();
+    collectCreatedVarNamesFromExpr(conditionalArg, varNames);
+    // Emit drops for temps created in this conditional branch
+    emitDropsForConditionalBranch(varNames, currentIndent, context);
     currentIndent = currentIndent.slice(2);
     context.emitter.emitLine(`${currentIndent}}`);
   }
@@ -182,8 +249,14 @@ export function generateOpOr(
       context.emitter.emitLine(`${currentIndent}${scVar} = ${argCode};`);
     }
   }
-  // Close all the if blocks
-  for (let i = 0; i < depth; i++) {
+  // Close all the if blocks, emitting drops for each conditional branch's temps
+  for (let i = depth - 1; i >= 0; i--) {
+    // Collect variable names from this conditional arg's expression tree
+    const conditionalArg = runtimeArgs[i + 1]!;
+    const varNames = new Set<string>();
+    collectCreatedVarNamesFromExpr(conditionalArg, varNames);
+    // Emit drops for temps created in this conditional branch
+    emitDropsForConditionalBranch(varNames, currentIndent, context);
     currentIndent = currentIndent.slice(2);
     context.emitter.emitLine(`${currentIndent}}`);
   }

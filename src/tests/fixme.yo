@@ -5,27 +5,27 @@ open import "std/string";
 fs_file :: import "std/fs/file";
 { temp_dir, path_join } :: import "../../tests/helper";
 fs_dir :: import "std/fs/dir";
-fs_walker :: import "std/fs/walker";
-{ WalkEntry, WalkOptions } :: import "std/fs/walker";
-{ FileType } :: import "std/fs/dir";
+{ DirEntry } :: import "std/fs/dir";
 
 main :: (fn(using(io : IO)) -> unit)({
   tmp := temp_dir();
-  root := path_join(tmp, `yo_fs_walk_fixme`);
+  root := path_join(tmp, `yo_fs_readdir_fixme`);
 
   io.await(fs_dir.create_dir(Path.new(root), using(io)));
   io.await(fs_file.write_file(Path.new(path_join(root, `a.txt`)), "a", using(io)));
+  io.await(fs_file.write_file(Path.new(path_join(root, `b.txt`)), "b", using(io)));
 
-  r := io.await(fs_walker.walk(Path.new(root), using(io)));
+  r := io.await(fs_dir.read_dir(Path.new(root), using(io)));
   match(r,
     .Ok(entries) => {
       printf("  entries count = %lld\n", i64(entries.len()));
     },
-    .Err(e) => assert(false, "walk failed")
+    .Err(e) => assert(false, "read_dir failed")
   );
 
   // Cleanup
   io.await(fs_dir.remove_file(Path.new(path_join(root, `a.txt`)), using(io)));
+  io.await(fs_dir.remove_file(Path.new(path_join(root, `b.txt`)), using(io)));
   io.await(fs_dir.remove_dir(Path.new(root), using(io)));
 });
 export main;

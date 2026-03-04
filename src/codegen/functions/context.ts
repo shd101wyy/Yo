@@ -118,6 +118,14 @@ export interface FunctionGenerationContext extends CodeGenContext {
       conditionExpr: Expr; // The loop condition expression
       bodyExpr: Expr; // The loop body expression
       bodyExprsAfterAwait?: Expr[]; // Expressions after the await in the loop body
+      // Expressions from an enclosing cond branch that come after this while loop.
+      // These should only be executed after the while loop exits, not on every resume.
+      condBranchPostWhileExprs?: {
+        branchIndex: number;
+        condBranchFieldIndex: number;
+        exprs: Expr[];
+        deferredDropExpressions?: Expr[];
+      };
       outerWhileLoop?: {
         whileLoopIndex: number;
         conditionExpr: Expr;
@@ -144,6 +152,10 @@ export interface FunctionGenerationContext extends CodeGenContext {
   // Deferred drops for the while loop body's local variables.
   // These must be emitted before break/continue/normal-exit in state machine while loop code.
   smWhileBodyDrops?: Expr[];
+  // Variable names whose drops were already emitted inside short-circuit conditional branches.
+  // Used to prevent the enclosing begin block from double-emitting drops for variables
+  // that are only conditionally created inside || or && if-chains.
+  shortCircuitHandledDropVarNames?: Set<string>;
   // Drop code strings for effect handler parameters (e.g., msg: String from ctl yield_value).
   // These are emitted before escape returns to prevent leaking handler params.
   effectHandlerParamDrops?: string[];
