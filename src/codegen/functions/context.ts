@@ -125,6 +125,10 @@ export interface FunctionGenerationContext extends CodeGenContext {
         condBranchFieldIndex: number;
         exprs: Expr[];
         deferredDropExpressions?: Expr[];
+        // When true, skip the sm->cond_branch_N guard check. This is needed when
+        // nested conds share the same cond_branch_N field — the innermost cond's
+        // write overwrites the outer cond's value, making the guard always fail.
+        skipCondBranchCheck?: boolean;
       };
       outerWhileLoop?: {
         whileLoopIndex: number;

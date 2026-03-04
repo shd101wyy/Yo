@@ -322,12 +322,17 @@ export function generateAsyncBlockResumeFunction(
           // Use condBranchFieldIndex if set (for continuation states), otherwise use prevAwait.index
           const condBranchFieldIndex =
             condBranchData.condBranchFieldIndex ?? prevAwait.index;
+          // condBranchFieldIndex === -1 means "unconditional" — nested cond
+          // conflict where sm->cond_branch_N was overwritten by an inner cond.
+          const skipCondBranchSwitch = condBranchFieldIndex === -1;
           emitter.emitLine(
             `      // Execute remaining code from chosen cond branch`
           );
-          emitter.emitLine(
-            `      switch (sm->cond_branch_${condBranchFieldIndex}) {`
-          );
+          if (!skipCondBranchSwitch) {
+            emitter.emitLine(
+              `      switch (sm->cond_branch_${condBranchFieldIndex}) {`
+            );
+          }
 
           // Check if the current segment has an additional cond await point
           const hasAdditionalCondAwait =
@@ -335,7 +340,9 @@ export function generateAsyncBlockResumeFunction(
 
           for (const branch of condBranchData.branches) {
             if (branch.hasAwait) {
-              emitter.emitLine(`        case ${branch.index}: {`);
+              if (!skipCondBranchSwitch) {
+                emitter.emitLine(`        case ${branch.index}: {`);
+              }
               emitter.emitLine(
                 `          ASYNC_DEBUG("${asyncBlockId}: Executing remaining code from branch ${branch.index}\\n");`
               );
@@ -526,12 +533,16 @@ export function generateAsyncBlockResumeFunction(
                   previousPendingDeferredDropsForBranch;
               }
 
-              emitter.emitLine(`          break;`);
-              emitter.emitLine(`        }`);
+              if (!skipCondBranchSwitch) {
+                emitter.emitLine(`          break;`);
+                emitter.emitLine(`        }`);
+              }
             }
           }
 
-          emitter.emitLine(`      }`);
+          if (!skipCondBranchSwitch) {
+            emitter.emitLine(`      }`);
+          }
 
           // Process chained branches (outer cond's remaining code after nested cond's switch)
           if (condBranchData.chainedBranches) {
@@ -934,12 +945,22 @@ export function generateAsyncBlockResumeFunction(
             const postWhileData = whileLoopData.condBranchPostWhileExprs;
             const pwCondField = postWhileData.condBranchFieldIndex;
             const pwBranchIdx = postWhileData.branchIndex;
-            emitter.emitLine(
-              `      // Execute post-while-loop code from cond branch`
-            );
-            emitter.emitLine(
-              `      if (sm->cond_branch_${pwCondField} == ${pwBranchIdx}) {`
-            );
+            if (postWhileData.skipCondBranchCheck) {
+              // Nested cond conflict: sm->cond_branch_N was overwritten by an
+              // inner cond, so the guard check would always fail. Skip it —
+              // after_while_loop_N is only reachable from the correct branch.
+              emitter.emitLine(
+                `      // Execute post-while-loop code from cond branch (unconditional)`
+              );
+              emitter.emitLine(`      {`);
+            } else {
+              emitter.emitLine(
+                `      // Execute post-while-loop code from cond branch`
+              );
+              emitter.emitLine(
+                `      if (sm->cond_branch_${pwCondField} == ${pwBranchIdx}) {`
+              );
+            }
 
             // Set up state machine context for code generation
             const prevInSMPW = context.inAsyncStateMachine;
@@ -1013,6 +1034,11 @@ export function generateAsyncBlockResumeFunction(
               if (!functionContext.asyncCondBranchInfo) {
                 functionContext.asyncCondBranchInfo = new Map();
               }
+              // When skipCondBranchCheck is set, use -1 as condBranchFieldIndex
+              // to signal the next state to execute unconditionally.
+              const chainedCondField = postWhileData.skipCondBranchCheck
+                ? -1
+                : postWhileData.condBranchFieldIndex;
               const existing =
                 functionContext.asyncCondBranchInfo.get(nextIndex);
               if (existing) {
@@ -1035,7 +1061,7 @@ export function generateAsyncBlockResumeFunction(
                         postWhileData.deferredDropExpressions,
                     },
                   ],
-                  condBranchFieldIndex: postWhileData.condBranchFieldIndex,
+                  condBranchFieldIndex: chainedCondField,
                 });
               } else {
                 functionContext.asyncCondBranchInfo.set(nextIndex, {
@@ -1053,7 +1079,7 @@ export function generateAsyncBlockResumeFunction(
                         postWhileData.deferredDropExpressions,
                     },
                   ],
-                  condBranchFieldIndex: postWhileData.condBranchFieldIndex,
+                  condBranchFieldIndex: chainedCondField,
                 });
               }
             }

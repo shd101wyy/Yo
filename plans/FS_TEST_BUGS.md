@@ -36,21 +36,45 @@ Bugs discovered while making the `tests/fs/` test suite work. Items marked ✅ a
 
 ## Open Bugs
 
-### 5. Async await in while loop hangs (`create_dir_all`)
+### ~~5. Async await in while loop hangs (`create_dir_all`)~~ — FIXED
 
 - **Affects**: `create_dir_all` test in `dir.test.yo` (1 test)
 - **Symptom**: `create_dir_all` hangs when creating nested directories (e.g., `a/b/c`)
-- **Root cause**: Likely an issue with async await inside a while loop — the state machine may not advance correctly or the loop condition doesn't terminate
-- **Severity**: Medium — blocks 1 test, may affect other async-while patterns
+- **Root cause**: Multiple interrelated bugs in async state machine code generation for `cond` expressions nested inside `while` loops:
+  1. **Missing while loop remaining body expressions** — `generateWhileBodyWithAwait` returned empty `remainingExprs` when the await-containing expression was a `cond` or `match`, missing expressions like loop counter increments (`i = (i + 1)`)
+  2. **Nested cond `asyncCondBranchInfo` overwrite** — When multiple nested `cond` expressions share the same `awaitPoint.index`, the outer conds' `asyncCondBranchInfo.set()` call overwrites the inner cond's entry. The inner cond has actual remaining code (error check, deferred drops), which is lost.
+  3. **`cond_branch_N` field conflict** — All nested conds write to the same `sm->cond_branch_N` field. The innermost cond's value overwrites the outer cond's value, making post-while-loop code guards (`if (sm->cond_branch_N == branchIdx)`) and downstream state switch guards always fail.
+- **Fix**:
+  - `src/codegen/async/state-code-gen.ts`:
+    - Collect remaining body expressions after `generateCondWithAwait`/`generateMatchWithAwait` in `generateWhileBodyWithAwait`
+    - Don't overwrite `asyncCondBranchInfo` when an inner cond already stored an entry with non-empty `remainingExprs`
+    - Detect nested cond conflict and set `skipCondBranchCheck: true` on `condBranchPostWhileExprs`
+  - `src/codegen/async/state-machine.ts`:
+    - Skip `if (sm->cond_branch_N == branchIdx)` guard for post-while code when `skipCondBranchCheck` is set
+    - Propagate `condBranchFieldIndex: -1` (sentinel for "unconditional") to chained branch entries
+    - Handle `condBranchFieldIndex === -1` in standard switch generation — emit code without switch/case wrapping
+  - `src/codegen/functions/context.ts`: Added `skipCondBranchCheck` flag to `condBranchPostWhileExprs` type
 
-### 6. Heap-use-after-free in read_dir / walker / temp (dup/drop)
+### ~~6. Heap-use-after-free in read_dir / walker / temp (dup/drop)~~ — PARTIALLY FIXED
 
-- **Affects**: `read_dir` in `dir.test.yo` (2 tests), all `walk` tests in `walker.test.yo` (5 tests), 5 tests in `temp.test.yo` (TempDir/TempFile)
+- **Affects**: ~~`read_dir` in `dir.test.yo`~~, all `walk` tests in `walker.test.yo` (5 tests), 5 tests in `temp.test.yo` (TempDir/TempFile)
 - **Symptom**: ASan reports heap-use-after-free — accessing memory after it's been freed
-- **Root cause**: Likely incorrect dup/drop generation for complex types containing `String` fields. The `from_cstr` function in `read_dir` accesses freed memory. Similar issues in TempDir/TempFile.
-- **Severity**: High — blocks 12 tests across 3 test files
+- **Root cause**: Short-circuit `||` and `&&` expressions in loops generated if-chains for side-effectful args but left all temp drops at the enclosing begin block unconditionally. On loop iterations where the short-circuit was taken, drops ran on uninitialized/stale memory.
+- **Fix** (commit `8dd2c190`): Added `emitDropsForConditionalBranch` in `and-or.ts` — drops for conditionally-created temps are now emitted inside the if-blocks, and marked in `shortCircuitHandledDropVarNames` so `begin.ts` skips them. Changes:
+  - `src/codegen/exprs/and-or.ts` — `collectCreatedVarNamesFromExpr`, `emitDropsForConditionalBranch`
+  - `src/codegen/exprs/begin.ts` — skip drops in `shortCircuitHandledDropVarNames` set
+  - `src/codegen/functions/context.ts` — added `shortCircuitHandledDropVarNames` field
+- **Status**: `read_dir lists directory entries` now passes with ASan clean. Walker/temp tests may still have separate issues — to be confirmed.
 
-### 7. `i32(bool)` type conversion not supported
+### ~~7. SEGV in async cond implicit return (non-await branch value not stored)~~ — FIXED
+
+- **Affects**: `create_dir_all on existing directory succeeds`, `read_dir on nonexistent returns error` in `dir.test.yo`
+- **Symptom**: SEGV in `__yo_incr_rc`/`__yo_decr_rc` at null pointer — accessing zero-initialized `sm->result` with tag=OK pointing to NULL
+- **Root cause**: When a `cond` expression in an async function has one branch with awaits and one without, the non-await branch's value was computed as a local variable but never stored in `sm->result`. The state machine jumped to the next state via `goto`, leaving `sm->result` zero-initialized. On dup, this read `.Ok.value = NULL` and crashed.
+- **Fix**: Changed `std/fs/dir.yo` to use explicit `return ret;` in non-await cond branches of `read_dir` (error path) and `create_dir_all` (success/EEXIST/generic-error paths). Explicit returns are properly handled by the async codegen's return.ts which sets `sm->result` and completes the Future.
+- **Note**: The underlying codegen limitation (implicit cond value not captured in async state machines) still exists. Should be addressed in `src/codegen/async/state-code-gen.ts` — `generateCondWithAwait` needs to complete the Future for non-await branches when the cond is the async function body's implicit return.
+
+### 8. `i32(bool)` type conversion not supported
 
 - **Affects**: Test convenience — had to use `cond(val => i32(1), true => i32(0))` instead of `i32(val)`
 - **Symptom**: Cannot convert bool to i32 directly
@@ -65,13 +89,12 @@ Bugs discovered while making the `tests/fs/` test suite work. Items marked ✅ a
 | ---------------- | ------- | ------ | ------------- |
 | file.test.yo     | 13      | 13     | —             |
 | metadata.test.yo | 6       | 6      | —             |
-| dir.test.yo      | 9       | 12     | #5, #6        |
-| temp.test.yo     | 2       | 7      | #6            |
-| walker.test.yo   | 1       | 6      | #6            |
-| **Total**        | **31**  | **44** |               |
+| dir.test.yo      | 12      | 12     | —             |
+| temp.test.yo     | 2       | 7      | TBD           |
+| walker.test.yo   | 1       | 6      | TBD           |
+| **Total**        | **34**  | **44** |               |
 
 ## Suggested Fix Order
 
-1. **#6 — Heap-use-after-free** (unblocks up to 12 tests across dir, walker, temp)
-2. **#5 — Async while loop** (unblocks 1 test)
-3. **#7 — i32(bool)** (quality of life)
+1. **#8 — i32(bool)** (quality of life)
+2. **Walker/temp TBD bugs** (check walker and temp tests for remaining issues)

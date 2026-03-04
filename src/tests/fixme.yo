@@ -2,30 +2,41 @@ open import "std/libc/stdio";
 open import "std/string";
 { Path } :: import "std/path";
 { IOError } :: import "std/io/errors";
+fs_dir :: import "std/fs/dir";
 fs_file :: import "std/fs/file";
 { temp_dir, path_join } :: import "../../tests/helper";
-fs_dir :: import "std/fs/dir";
-{ DirEntry } :: import "std/fs/dir";
 
 main :: (fn(using(io : IO)) -> unit)({
   tmp := temp_dir();
-  root := path_join(tmp, `yo_fs_readdir_fixme`);
+  nested := Path.new(path_join(path_join(path_join(tmp, `yo_fs_dir_all`), `sub1`), `sub2`));
 
-  io.await(fs_dir.create_dir(Path.new(root), using(io)));
-  io.await(fs_file.write_file(Path.new(path_join(root, `a.txt`)), "a", using(io)));
-  io.await(fs_file.write_file(Path.new(path_join(root, `b.txt`)), "b", using(io)));
+  printf("  creating: %s\n", nested.to_string().to_cstr().ptr().unwrap());
 
-  r := io.await(fs_dir.read_dir(Path.new(root), using(io)));
+  r := io.await(fs_dir.create_dir_all(nested, using(io)));
   match(r,
-    .Ok(entries) => {
-      printf("  entries count = %lld\n", i64(entries.len()));
-    },
-    .Err(e) => assert(false, "read_dir failed")
+    .Ok(_) => { printf("  create_dir_all ok\n"); },
+    .Err(e) => {
+      printf("  create_dir_all FAILED\n");
+      assert(false, "create_dir_all failed");
+    }
   );
 
-  // Cleanup
-  io.await(fs_dir.remove_file(Path.new(path_join(root, `a.txt`)), using(io)));
-  io.await(fs_dir.remove_file(Path.new(path_join(root, `b.txt`)), using(io)));
-  io.await(fs_dir.remove_dir(Path.new(root), using(io)));
+  printf("  checking exists...\n");
+
+  // Verify exists
+  ex := io.await(fs_file.exists(nested, using(io)));
+  match(ex,
+    .Ok(e) => {
+      printf("  exists = %d\n", cond(e => i32(1), true => i32(0)));
+    },
+    .Err(e) => {
+      printf("  exists check failed with error\n");
+    }
+  );
+
+  // Cleanup nested dirs
+  io.await(fs_dir.remove_dir(nested, using(io)));
+  io.await(fs_dir.remove_dir(Path.new(path_join(path_join(tmp, `yo_fs_dir_all`), `sub1`)), using(io)));
+  io.await(fs_dir.remove_dir(Path.new(path_join(tmp, `yo_fs_dir_all`)), using(io)));
 });
 export main;

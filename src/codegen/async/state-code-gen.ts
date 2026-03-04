@@ -505,11 +505,18 @@ function generateCondWithAwait(
         // Check if the await was inside a while loop
         const whileInfo = context.asyncWhileLoopInfo?.get(awaitPoint.index);
         if (whileInfo && remainingExprs.length > 0) {
+          const innerEntry = context.asyncCondBranchInfo?.get(awaitPoint.index);
+          const hasNestedCondConflict =
+            innerEntry?.branches.some(
+              (b) =>
+                b.hasAwait && b.remainingExprs && b.remainingExprs.length > 0
+            ) ?? false;
           whileInfo.condBranchPostWhileExprs = {
             branchIndex: firstNonFalseBranchIndex,
             condBranchFieldIndex: awaitPoint.index,
             exprs: remainingExprs,
             deferredDropExpressions: value.$?.deferredDropExpressions,
+            skipCondBranchCheck: hasNestedCondConflict,
           };
           branchesWithAwait.push({
             index: firstNonFalseBranchIndex,
@@ -599,11 +606,21 @@ function generateCondWithAwait(
     if (!context.asyncCondBranchInfo) {
       context.asyncCondBranchInfo = new Map();
     }
-    context.asyncCondBranchInfo.set(awaitPoint.index, {
-      branches: branchesWithAwait,
-      targetVariableId,
-      targetAssignmentCode,
-    });
+    // Don't overwrite if a nested cond already stored branch info with actual
+    // remaining code. The inner cond's entry is the one that matters for the
+    // resume state's switch — it's closest to the actual await point.
+    const existingInner = context.asyncCondBranchInfo.get(awaitPoint.index);
+    const innerHasRemainingCode =
+      existingInner?.branches.some(
+        (b) => b.hasAwait && b.remainingExprs && b.remainingExprs.length > 0
+      ) ?? false;
+    if (!innerHasRemainingCode) {
+      context.asyncCondBranchInfo.set(awaitPoint.index, {
+        branches: branchesWithAwait,
+        targetVariableId,
+        targetAssignmentCode,
+      });
+    }
     return;
   }
 
@@ -683,11 +700,20 @@ function generateCondWithAwait(
       // not on every resume from the in-loop await.
       const whileInfo = context.asyncWhileLoopInfo?.get(awaitPoint.index);
       if (whileInfo && remainingExprs.length > 0) {
+        // Check if a nested cond already stored branch info at the same key.
+        // If so, the nested cond's cond_branch_N writes will overwrite this
+        // cond's writes, making the sm->cond_branch_N guard unreliable.
+        const innerEntry = context.asyncCondBranchInfo?.get(awaitPoint.index);
+        const hasNestedCondConflict =
+          innerEntry?.branches.some(
+            (b) => b.hasAwait && b.remainingExprs && b.remainingExprs.length > 0
+          ) ?? false;
         whileInfo.condBranchPostWhileExprs = {
           branchIndex: i,
           condBranchFieldIndex: awaitPoint.index,
           exprs: remainingExprs,
           deferredDropExpressions: value.$?.deferredDropExpressions,
+          skipCondBranchCheck: hasNestedCondConflict,
         };
         branchesWithAwait.push({
           index: i,
@@ -798,11 +824,21 @@ function generateCondWithAwait(
   if (!context.asyncCondBranchInfo) {
     context.asyncCondBranchInfo = new Map();
   }
-  context.asyncCondBranchInfo.set(awaitPoint.index, {
-    branches: branchesWithAwait,
-    targetVariableId,
-    targetAssignmentCode,
-  });
+  // Don't overwrite if a nested cond already stored branch info with actual
+  // remaining code. The inner cond's entry is the one that matters for the
+  // resume state's switch — it's closest to the actual await point.
+  const existingInnerEntry = context.asyncCondBranchInfo.get(awaitPoint.index);
+  const innerEntryHasRemainingCode =
+    existingInnerEntry?.branches.some(
+      (b) => b.hasAwait && b.remainingExprs && b.remainingExprs.length > 0
+    ) ?? false;
+  if (!innerEntryHasRemainingCode) {
+    context.asyncCondBranchInfo.set(awaitPoint.index, {
+      branches: branchesWithAwait,
+      targetVariableId,
+      targetAssignmentCode,
+    });
+  }
 }
 
 /**
@@ -1799,7 +1835,11 @@ function generateWhileBodyWithAwait(
     // Cond expression with await in one of its branches
     generateCondWithAwait(awaitExpr, awaitPoint, indent, context, undefined);
     // The cond branch remainingExprs are already stored in context.asyncCondBranchInfo
-    // Don't collect anything here - they'll be handled in the resume state
+    // but we still need to collect expressions AFTER the cond in the while loop body
+    // (e.g., loop counter increments like `i = (i + usize(1))`)
+    for (let i = awaitFoundIndex + 1; i < bodyExprs.length; i++) {
+      remainingExprs.push(bodyExprs[i]!);
+    }
     return remainingExprs;
   } else if (
     exprIsFunctionCall(awaitExpr) &&
@@ -1808,7 +1848,10 @@ function generateWhileBodyWithAwait(
     // Match expression with await in one of its branches
     generateMatchWithAwait(awaitExpr, awaitPoint, indent, context);
     // The match branch remainingExprs are already stored in context.asyncCondBranchInfo
-    // Don't collect anything here - they'll be handled in the resume state
+    // but we still need to collect expressions AFTER the match in the while loop body
+    for (let i = awaitFoundIndex + 1; i < bodyExprs.length; i++) {
+      remainingExprs.push(bodyExprs[i]!);
+    }
     return remainingExprs;
   }
 
