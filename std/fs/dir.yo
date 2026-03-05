@@ -95,6 +95,22 @@ create_dir_all :: (fn(path: Path, using(io : IO)) -> Impl(Future(Result(unit, IO
             // Walk the path and create each component
             bytes := path_s.as_bytes();
             i := usize(1);
+            // On Windows, skip past drive letter root (e.g., "C:\")
+            // to avoid trying to mkdir "C:" which fails with EACCES
+            cond(
+              (platform == Platform.Win32) => {
+                cond(
+                  (bytes.len() >= usize(3)) => {
+                    first := bytes.get(usize(0)).unwrap();
+                    second := bytes.get(usize(1)).unwrap();
+                    is_drive_root := ((((first >= u8(65)) && (first <= u8(90))) || ((first >= u8(97)) && (first <= u8(122)))) && (second == u8(58)));
+                    cond(is_drive_root => { i = usize(3); }, true => ());
+                  },
+                  true => ()
+                );
+              },
+              true => ()
+            );
             while runtime((i < bytes.len())), {
               b := bytes.get(i).unwrap();
               cond(
