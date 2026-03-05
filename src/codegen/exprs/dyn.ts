@@ -1,8 +1,14 @@
 import { extractFnTraitFromType } from "../../evaluator/trait-checking";
-import type { FnCallExpr } from "../../expr";
+import { type FnCallExpr, exprIsFunctionCall } from "../../expr";
 import type { Type } from "../../types/definitions";
 import { isBoxedType, isDynType, isObjectType } from "../../types/guards";
-import { type CodeGenContext, getVariableTypeString } from "../utils";
+import { type FunctionGenerationContext } from "../functions/context";
+import {
+  type CodeGenContext,
+  getVariableNameForCodegen,
+  getVariableTypeString,
+} from "../utils";
+import { generateDeferredDupExpressions } from "./drop-dup";
 import { generateExpr } from "./expr";
 
 /**
@@ -94,6 +100,26 @@ export function generateDynCall(
     );
     context.emitter.emitLine(`${indent}${varTypeAndName} = ${valueCode};`);
     valueCode = valueExpr.$.variableName;
+  }
+
+  // Emit deferred dup expressions for the inner value (e.g., dyn(dog) must dup dog
+  // so both the Dyn wrapper's drop and the scope-exit drop can each decrement RC).
+  if (
+    valueExpr.$?.deferredDupExpressions &&
+    valueExpr.$.deferredDupExpressions.length > 0
+  ) {
+    generateDeferredDupExpressions(
+      valueExpr,
+      indent,
+      context as FunctionGenerationContext
+    );
+    const dupExpr = valueExpr.$.deferredDupExpressions[0]!;
+    if (exprIsFunctionCall(dupExpr) && dupExpr.$?.variableName) {
+      valueCode = getVariableNameForCodegen(
+        dupExpr.$.variableName,
+        dupExpr.$.env
+      );
+    }
   }
 
   const tempVarName = expr.$?.variableName;

@@ -1,66 +1,39 @@
 open import "std/libc/stdio";
-open import "std/string";
-{ Path } :: import "std/path";
-{ IOError } :: import "std/io/errors";
-fs_walker :: import "std/fs/walker";
-{ WalkEntry, WalkOptions } :: import "std/fs/walker";
-{ FileType } :: import "std/fs/dir";
-fs_dir :: import "std/fs/dir";
-fs_file :: import "std/fs/file";
-{ temp_dir, path_join } :: import "../../tests/helper";
 
-_setup_walk_tree :: (fn(root: String, using(io : IO)) -> unit)({
-  io.await(fs_dir.create_dir_all(Path.new(root), using(io)));
-
-  sub := path_join(root, `sub`);
-  io.await(fs_dir.create_dir_all(Path.new(sub), using(io)));
-
-  deep := path_join(sub, `deep`);
-  io.await(fs_dir.create_dir_all(Path.new(deep), using(io)));
-
-  io.await(fs_file.write_file(Path.new(path_join(root, `a.txt`)), "a", using(io)));
-  io.await(fs_file.write_file(Path.new(path_join(root, `b.txt`)), "b", using(io)));
-  io.await(fs_file.write_file(Path.new(path_join(sub, `c.txt`)), "c", using(io)));
-  io.await(fs_file.write_file(Path.new(path_join(deep, `d.txt`)), "d", using(io)));
-});
-
-_cleanup_walk_tree :: (fn(root: String, using(io : IO)) -> unit)({
-  sub := path_join(root, `sub`);
-  deep := path_join(sub, `deep`);
-
-  io.await(fs_dir.remove_file(Path.new(path_join(deep, `d.txt`)), using(io)));
-  io.await(fs_dir.remove_dir(Path.new(deep), using(io)));
-  io.await(fs_dir.remove_file(Path.new(path_join(sub, `c.txt`)), using(io)));
-  io.await(fs_dir.remove_dir(Path.new(sub), using(io)));
-  io.await(fs_dir.remove_file(Path.new(path_join(root, `b.txt`)), using(io)));
-  io.await(fs_dir.remove_file(Path.new(path_join(root, `a.txt`)), using(io)));
-  io.await(fs_dir.remove_dir(Path.new(root), using(io)));
-});
-
-main :: (fn(using(io : IO)) -> unit)({
-  // Test walk on nonexistent path to trigger error path
-  r := io.await(fs_walker.walk(Path.new(`/nonexistent/yo_fs_walk_nope`), using(io)));
-  match(r,
-    .Ok(_) => { assert(false, "walk on nonexistent should fail"); },
-    .Err(e) => { printf("  got expected error\n"); }
+main :: (fn() -> unit) {
+  Speak :: trait(
+    speak : (fn(self : Self) -> i32)
   );
 
-  // Test read_dir on an existing directory (success path)
-  root := path_join(temp_dir(), `yo_fixme_readdir`);
-  io.await(fs_dir.create_dir_all(Path.new(root), using(io)));
-  io.await(fs_file.write_file(Path.new(path_join(root, `test.txt`)), "hello", using(io)));
-
-  dir_result := io.await(fs_dir.read_dir(Path.new(root), using(io)));
-  match(dir_result,
-    .Ok(entries) => {
-      printf("  read_dir got %zu entries\n", entries.len());
-    },
-    .Err(e) => { assert(false, "read_dir should succeed"); }
+  Run :: trait(
+    run : (fn(self : Self) -> i32)
   );
 
-  io.await(fs_dir.remove_file(Path.new(path_join(root, `test.txt`)), using(io)));
-  io.await(fs_dir.remove_dir(Path.new(root), using(io)));
+  // Dog :: struct(); // This should give error working with `dyn`.
+  Dog :: object();
 
-  printf("  done\n");
-});
+  DogSpeak :: impl(Dog, Speak
+    speak : ((self : Self) -> {
+      printf("Woof!\n");
+      return 1;
+    })
+  );
+
+  DogRun :: impl(Dog, Run
+    run : ((self : Self) -> {
+      printf("The dog is running!\n");
+      return 2;
+    })
+  );
+
+  act :: (fn(s : Dyn(Speak, Run)) -> i32)
+    s.speak() + s.run()
+  ;
+
+  dog := Dog();
+  result := act(dyn(dog));
+  assert(result == 3, "Expected result to be 3");
+  assert(dog.speak() == 1, "Expected dog.speak() to return 1");
+};
 export main;
+
