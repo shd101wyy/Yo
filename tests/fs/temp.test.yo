@@ -55,8 +55,8 @@ test "TempDir.new_in creates in specified parent", using(io : IO), {
       p := td.path().to_string();
       printf("  temp dir path = %s\n", p.to_cstr().ptr().unwrap());
 
-      // Path should start with parent
-      assert(p.starts_with(tmp), "path should start with parent");
+      // Path should start with parent (use Path.starts_with for cross-platform segment comparison)
+      assert(td.path().starts_with(parent), "path should start with parent");
 
       io.await(td.remove(using(io)));
     },
@@ -128,8 +128,8 @@ test "TempFile.new_in creates in specified parent", using(io : IO), {
       p := tf.path().to_string();
       printf("  temp file path = %s\n", p.to_cstr().ptr().unwrap());
 
-      // Path should start with parent
-      assert(p.starts_with(tmp), "path should start with parent");
+      // Path should start with parent (use Path.starts_with for cross-platform segment comparison)
+      assert(tf.path().starts_with(parent), "path should start with parent");
 
       io.await(tf.remove(using(io)));
     },
