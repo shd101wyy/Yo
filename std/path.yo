@@ -593,7 +593,10 @@ impl(Path,
 impl(Path, ToString(
   to_string : (self -> {
     segments := self._segments;
-    sep := String.from("/");
+    sep := cond(
+      (PATH_SEPARATOR == u8(92)) => String.from("\\"),
+      true => String.from("/")
+    );
     result := String.new();
     
     // Check if first segment is a Windows drive letter (e.g., "C:")

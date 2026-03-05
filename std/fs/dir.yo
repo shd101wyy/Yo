@@ -20,6 +20,7 @@ open import "../string";
 { IOError } :: import "../io/errors";
 IO_dir :: import "../io/dir";
 IO_file :: import "../io/file";
+{ platform, Platform } :: import "../process";
 {
   AT_FDCWD, AT_REMOVEDIR, O_RDONLY, O_DIRECTORY,
   DEFAULT_DIR_MODE,
@@ -95,8 +96,9 @@ create_dir_all :: (fn(path: Path, using(io : IO)) -> Impl(Future(Result(unit, IO
             bytes := path_s.as_bytes();
             i := usize(1);
             while runtime((i < bytes.len())), {
+              b := bytes.get(i).unwrap();
               cond(
-                (bytes.get(i).unwrap() == u8(47)) => {
+                ((b == u8(47)) || (b == u8(92))) => {
                   // '/' found - try to create this prefix
                   prefix := path_s.substring(usize(0), i);
                   prefix_cstr_bytes := prefix.to_cstr();

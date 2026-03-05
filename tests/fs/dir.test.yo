@@ -228,7 +228,17 @@ test "symlink creates a symbolic link", using(io : IO), {
   r := io.await(fs_dir.symlink(src, lnk, using(io)));
   match(r,
     .Ok(_) => { printf("  symlink ok\n"); },
-    .Err(e) => { assert(false, "symlink failed"); }
+    .Err(e) => {
+      // On Windows without Developer Mode, symlinks require admin privileges
+      match(e,
+        .PermissionDenied => {
+          printf("  SKIP: symlinks require admin or Developer Mode on Windows\n");
+          io.await(fs_dir.remove_file(src, using(io)));
+          return;
+        },
+        _ => { assert(false, "symlink failed"); }
+      );
+    }
   );
 
   // Read via symlink

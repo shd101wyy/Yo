@@ -124,7 +124,21 @@ test "symlink_metadata on symlink reports symlink", using(io : IO), {
   io.await(fs_dir.remove_file(lnk, using(io)));
   io.await(fs_dir.remove_file(src, using(io)));
   io.await(fs_file.write_file(src, "symlink meta test", using(io)));
-  io.await(fs_dir.symlink(src, lnk, using(io)));
+  sym_result := io.await(fs_dir.symlink(src, lnk, using(io)));
+  match(sym_result,
+    .Ok(_) => (),
+    .Err(e) => {
+      // On Windows without Developer Mode, symlinks require admin privileges
+      match(e,
+        .PermissionDenied => {
+          printf("  SKIP: symlinks require admin or Developer Mode on Windows\n");
+          io.await(fs_dir.remove_file(src, using(io)));
+          return;
+        },
+        _ => { assert(false, "symlink creation failed"); }
+      );
+    }
+  );
 
   // Regular metadata follows the symlink — should report file
   r1 := io.await(fs_metadata.metadata(lnk, using(io)));
