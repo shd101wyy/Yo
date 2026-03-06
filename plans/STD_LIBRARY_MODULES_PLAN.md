@@ -12,7 +12,7 @@ Async functions that perform I/O take `using(io : IO)` as an implicit parameter.
 
 ```yo
 // Async + Result style:
-File.create :: (fn(path: String, using(io : IO)) -> Impl(Future(Result(File, IOError)))) ...;
+File.open :: (fn(path: Path, mode: OpenMode, using(io : IO)) -> Impl(Future(Result(File, IOError)))) ...;
 
 // Sync functions that cannot fail return T directly:
 File.position :: (fn(self: Self) -> i64) ...;
@@ -27,34 +27,38 @@ Byte buffers use `ArrayList(u8)` (not `Slice(u8)`).
 
 ### What's Done
 
-| Module             | File(s)              | Status      | Notes                                                                                 |
-| ------------------ | -------------------- | ----------- | ------------------------------------------------------------------------------------- |
-| **Prelude**        | `std/prelude.yo`     | ✅ Complete | Core types, traits, operators, Box, Option, Result, Array, Slice; IO algebraic effect |
-| **String**         | `std/string/`        | ✅ Complete | Immutable UTF-8 `String`, `rune` (Unicode code point)                                 |
-| **Collections**    | `std/collections/`   | ✅ Complete | `ArrayList`, `HashMap`, `HashSet`, `LinkedList`, `Deque`, `BTreeMap`, `PriorityQueue` |
-| **Path**           | `std/path.yo`        | ✅ Complete | Cross-platform path manipulation (join, parent, extension, normalize)                 |
-| **Process**        | `std/process.yo`     | ✅ Complete | Platform/arch detection, args, env, cwd, chdir, exit                                  |
-| **Allocator**      | `std/allocator.yo`   | ✅ Complete | `GlobalAllocator` (mimalloc/libc), `CustomAllocator` trait                            |
-| **Format**         | `std/fmt/`           | ✅ Complete | `ToString` trait, `Writer`, `Display`; `println`/`print`/`eprintln`                   |
-| **Hash**           | `std/alg/hash.yo`    | ✅ Complete | FNV-1a hash function                                                                  |
-| **Sync**           | `std/sync.yo`        | ✅ Complete | `Mutex`, `Cond` (stack + GC-managed variants)                                         |
-| **Thread**         | `std/thread.yo`      | ✅ Complete | `Thread` (spawn/join), hardware thread count                                          |
-| **Worker**         | `std/worker.yo`      | ✅ Complete | Thread pool with round-robin task distribution                                        |
-| **GC**             | `std/gc.yo`          | ✅ Complete | `collect`, `tracked_count`                                                            |
-| **Async**          | `std/async.yo`       | ✅ Minimal  | Only `yield`; async/await uses IO algebraic effect                                    |
-| **Time**           | `std/time.yo`        | 🔸 Minimal  | Only `sleep`; see `std/time/` for Duration, Instant, DateTime                         |
-| **Time (rich)**    | `std/time/`          | ✅ Complete | `Duration`, `Instant` (monotonic), `DateTime` (wall clock)                            |
-| **Error**          | `std/error/`         | ✅ Complete | `Error` trait for typed error propagation                                             |
-| **IO (low-level)** | `std/io/` (37 files) | ✅ Complete | Full async I/O: file, socket, process, mmap, DNS, signals, TTY, etc.                  |
-| **Libc bindings**  | `std/libc/`          | ✅ Complete | stdio, stdlib, string, math, errno, signal, etc.                                      |
-| **FS**             | `std/fs/`            | ✅ Complete | `File`, `Metadata`, `TempDir`, `TempFile`, directory walker                           |
-| **Net**            | `std/net/`           | ✅ Complete | `TcpStream`, `TcpListener`, `UdpSocket`, `IpAddr`, DNS lookup                         |
-| **OS**             | `std/os/`            | ✅ Complete | Signal handling, environment directory utilities                                      |
-| **Encoding**       | `std/encoding/`      | ✅ Complete | Base64, hex, JSON, UTF-16                                                             |
-| **Crypto**         | `std/crypto/`        | ✅ Complete | SHA-256, MD5, secure random, UUID v4                                                  |
-| **Math**           | `std/math/`          | ✅ Complete | Generic min/max/clamp, lerp, PRNG (xoshiro256\*\*)                                    |
-| **Log**            | `std/log/`           | ✅ Complete | Structured logger with level filtering and output routing                             |
-| **Testing**        | `std/testing/`       | ✅ Complete | Rich assertion helpers, micro-benchmarking                                            |
+| Module             | File(s)                                 | Status      | Notes                                                                                 |
+| ------------------ | --------------------------------------- | ----------- | ------------------------------------------------------------------------------------- |
+| **Prelude**        | `std/prelude.yo`                        | ✅ Complete | Core types, traits, operators, Box, Option, Result, Array, Slice; IO algebraic effect |
+| **String**         | `std/string/`                           | ✅ Complete | Immutable UTF-8 `String`, `rune` (Unicode code point)                                 |
+| **Collections**    | `std/collections/`                      | ✅ Complete | `ArrayList`, `HashMap`, `HashSet`, `LinkedList`, `Deque`, `BTreeMap`, `PriorityQueue` |
+| **Path**           | `std/path.yo`                           | ✅ Complete | Cross-platform path manipulation (join, parent, extension, normalize)                 |
+| **Process**        | `std/process.yo`                        | ✅ Complete | Platform/arch detection, args, env, cwd, chdir, exit                                  |
+| **Allocator**      | `std/allocator.yo`                      | ✅ Complete | `GlobalAllocator` (mimalloc/libc), `CustomAllocator` trait                            |
+| **Format**         | `std/fmt/`                              | ✅ Complete | `ToString` trait, `Writer`, `Display`; `println`/`print`/`eprintln`                   |
+| **Hash**           | `std/alg/hash.yo`                       | ✅ Complete | FNV-1a hash function                                                                  |
+| **Sync**           | `std/sync/mutex.yo`, `std/sync/cond.yo` | ✅ Complete | `Mutex`, `Cond` (stack + GC-managed variants)                                         |
+| **Sync Channel**   | `std/sync/channel.yo`                   | ✅ Complete | Bounded MPMC `Channel` for cross-thread/worker communication                          |
+| **Sync RwLock**    | `std/sync/rwlock.yo`                    | ✅ Complete | `RwLock` — multiple-reader / single-writer lock                                       |
+| **Sync WaitGroup** | `std/sync/waitgroup.yo`                 | ✅ Complete | `WaitGroup` — wait for a group of tasks to complete                                   |
+| **Sync Once**      | `std/sync/once.yo`                      | ✅ Complete | `Once` — one-time thread-safe initialization                                          |
+| **Thread**         | `std/thread.yo`                         | ✅ Complete | `Thread` (spawn/join), hardware thread count                                          |
+| **Worker**         | `std/worker.yo`                         | ✅ Complete | Thread pool with round-robin task distribution                                        |
+| **GC**             | `std/gc.yo`                             | ✅ Complete | `collect`, `tracked_count`                                                            |
+| **Async**          | `std/async.yo`                          | ✅ Minimal  | Only `yield`; async/await uses IO algebraic effect                                    |
+| **Time**           | `std/time.yo`                           | 🔸 Minimal  | Only `sleep`; see `std/time/` for Duration, Instant, DateTime                         |
+| **Time (rich)**    | `std/time/`                             | ✅ Complete | `Duration`, `Instant` (monotonic), `DateTime` (wall clock)                            |
+| **Error**          | `std/error/`                            | ✅ Complete | `Error` trait for typed error propagation                                             |
+| **IO (low-level)** | `std/io/` (37 files)                    | ✅ Complete | Full async I/O: file, socket, process, mmap, DNS, signals, TTY, etc.                  |
+| **Libc bindings**  | `std/libc/`                             | ✅ Complete | stdio, stdlib, string, math, errno, signal, etc.                                      |
+| **FS**             | `std/fs/`                               | ✅ Complete | `File`, `Metadata`, `TempDir`, `TempFile`, directory walker                           |
+| **Net**            | `std/net/`                              | ✅ Complete | `TcpStream`, `TcpListener`, `UdpSocket`, `IpAddr`, DNS lookup                         |
+| **OS**             | `std/os/`                               | ✅ Complete | Signal handling, environment directory utilities                                      |
+| **Encoding**       | `std/encoding/`                         | ✅ Complete | Base64, hex, JSON, UTF-16                                                             |
+| **Crypto**         | `std/crypto/`                           | ✅ Complete | SHA-256, MD5, secure random, UUID v4                                                  |
+| **Math**           | `std/math/`                             | ✅ Complete | Generic min/max/clamp, lerp, PRNG (xoshiro256\*\*)                                    |
+| **Log**            | `std/log/`                              | ✅ Complete | Structured logger with level filtering and output routing                             |
+| **Testing**        | `std/testing/`                          | ✅ Complete | Rich assertion helpers, micro-benchmarking                                            |
 
 ### What's Missing
 
@@ -71,6 +75,13 @@ The major gaps for a "battery-included" standard library — all now implemented
 9. **`std/testing`** ✅ — Test utilities (rich assertions, micro-benchmarks)
 10. **`std/log`** ✅ — Structured logging with level filtering
 11. **`std/regex`** — Regular expressions (still missing)
+12. **`std/sync/channel`** ✅ — Bounded MPMC channel for cross-thread/worker communication
+13. **`std/sync/rwlock`** ✅ — Reader-writer lock
+14. **`std/sync/waitgroup`** ✅ — WaitGroup for task coordination
+15. **`std/sync/once`** ✅ — One-time initialization
+16. **`std/iter`** — Iterator protocol (planned)
+17. **`std/url`** — URL parsing (planned)
+18. **`std/io/bufio`** — Buffered I/O reader/writer (planned)
 
 ---
 
@@ -85,24 +96,45 @@ The major gaps for a "battery-included" standard library — all now implemented
 A high-level `File` object wrapping a file descriptor with buffered I/O.
 
 ```yo
+// Open mode — determines how the file is opened
+OpenMode :: enum(
+  Read,        // O_RDONLY — read existing file
+  Write,       // O_WRONLY | O_CREAT | O_TRUNC — create/overwrite
+  Append,      // O_WRONLY | O_CREAT | O_APPEND — append to file
+  ReadWrite,   // O_RDWR — read and write existing file
+  CreateNew    // O_WRONLY | O_CREAT | O_EXCL — create new, fail if exists
+);
+
+// File permissions (Unix mode bits)
+FilePermission :: newtype(mode : u32);
+FilePermission.default :: (fn() -> FilePermission) ...;       // 0o644 (rw-r--r--)
+FilePermission.executable :: (fn() -> FilePermission) ...;    // 0o755 (rwxr-xr-x)
+FilePermission.readonly :: (fn() -> FilePermission) ...;      // 0o444 (r--r--r--)
+FilePermission.private :: (fn() -> FilePermission) ...;       // 0o600 (rw-------)
+
 File :: object(
   fd : i32,
-  path : String,
+  path : Path,
   _read_buf : ArrayList(u8),
   _write_buf : ArrayList(u8),
   _position : i64,
   _is_closed : bool
 );
 
-// Static constructors
-File.open :: (fn(path: String, flags: i32, mode: i32, using(io : IO)) -> Impl(Future(Result(File, IOError)))) ...;
-File.create :: (fn(path: String, using(io : IO)) -> Impl(Future(Result(File, IOError)))) ...;
-File.open_read :: (fn(path: String, using(io : IO)) -> Impl(Future(Result(File, IOError)))) ...;
-File.open_append :: (fn(path: String, using(io : IO)) -> Impl(Future(Result(File, IOError)))) ...;
+// Static constructors — default takes Path, _str takes str, _cstr takes *(u8)
+// File.open uses FilePermission.default() when creating files
+File.open :: (fn(path: Path, mode: OpenMode, using(io : IO)) -> Impl(Future(Result(File, IOError)))) ...;
+File.open_str :: (fn(path: str, mode: OpenMode, using(io : IO)) -> Impl(Future(Result(File, IOError)))) ...;
+File.open_cstr :: (fn(path: *(u8), mode: OpenMode, using(io : IO)) -> Impl(Future(Result(File, IOError)))) ...;
+// File.open_with allows specifying custom file permissions
+File.open_with :: (fn(path: Path, mode: OpenMode, perm: FilePermission, using(io : IO)) -> Impl(Future(Result(File, IOError)))) ...;
+File.open_with_str :: (fn(path: str, mode: OpenMode, perm: FilePermission, using(io : IO)) -> Impl(Future(Result(File, IOError)))) ...;
+File.open_with_cstr :: (fn(path: *(u8), mode: OpenMode, perm: FilePermission, using(io : IO)) -> Impl(Future(Result(File, IOError)))) ...;
 
 // Instance methods
 File.read :: (fn(self: Self, buf: *(u8), size: usize, using(io : IO)) -> Impl(Future(Result(i32, IOError)))) ...;
-File.write :: (fn(self: Self, data: String, using(io : IO)) -> Impl(Future(Result(i32, IOError)))) ...;
+File.write :: (fn(self: Self, data: str, using(io : IO)) -> Impl(Future(Result(i32, IOError)))) ...;
+File.write_string :: (fn(self: Self, data: String, using(io : IO)) -> Impl(Future(Result(i32, IOError)))) ...;
 File.write_bytes :: (fn(self: Self, data: ArrayList(u8), using(io : IO)) -> Impl(Future(Result(i32, IOError)))) ...;
 File.read_all :: (fn(self: Self, using(io : IO)) -> Impl(Future(Result(ArrayList(u8), IOError)))) ...;
 File.read_to_string :: (fn(self: Self, using(io : IO)) -> Impl(Future(Result(String, IOError)))) ...;
@@ -114,12 +146,21 @@ File.close :: (fn(self: Self, using(io : IO)) -> Impl(Future(Result(unit, IOErro
 File.metadata :: (fn(self: Self, using(io : IO)) -> Impl(Future(Result(Metadata, IOError)))) ...;
 
 // Convenience functions (no File object needed)
-read_file :: (fn(path: String, using(io : IO)) -> Impl(Future(Result(ArrayList(u8), IOError)))) ...;
-read_to_string :: (fn(path: String, using(io : IO)) -> Impl(Future(Result(String, IOError)))) ...;
-write_file :: (fn(path: String, data: String, using(io : IO)) -> Impl(Future(Result(unit, IOError)))) ...;
-write_bytes :: (fn(path: String, data: ArrayList(u8), using(io : IO)) -> Impl(Future(Result(unit, IOError)))) ...;
-append_file :: (fn(path: String, data: String, using(io : IO)) -> Impl(Future(Result(unit, IOError)))) ...;
-exists :: (fn(path: String, using(io : IO)) -> Impl(Future(Result(bool, IOError)))) ...;
+// Default takes Path; _str takes str; _cstr takes *(u8)
+read_file :: (fn(path: Path, using(io : IO)) -> Impl(Future(Result(ArrayList(u8), IOError)))) ...;
+read_file_str :: (fn(path: str, using(io : IO)) -> Impl(Future(Result(ArrayList(u8), IOError)))) ...;
+read_file_cstr :: (fn(path: *(u8), using(io : IO)) -> Impl(Future(Result(ArrayList(u8), IOError)))) ...;
+read_to_string :: (fn(path: Path, using(io : IO)) -> Impl(Future(Result(String, IOError)))) ...;
+read_to_string_str :: (fn(path: str, using(io : IO)) -> Impl(Future(Result(String, IOError)))) ...;
+read_to_string_cstr :: (fn(path: *(u8), using(io : IO)) -> Impl(Future(Result(String, IOError)))) ...;
+write_file :: (fn(path: Path, data: str, using(io : IO)) -> Impl(Future(Result(unit, IOError)))) ...;
+write_file_str :: (fn(path: str, data: str, using(io : IO)) -> Impl(Future(Result(unit, IOError)))) ...;
+write_file_cstr :: (fn(path: *(u8), data: str, using(io : IO)) -> Impl(Future(Result(unit, IOError)))) ...;
+write_bytes :: (fn(path: Path, data: ArrayList(u8), using(io : IO)) -> Impl(Future(Result(unit, IOError)))) ...;
+append_file :: (fn(path: Path, data: str, using(io : IO)) -> Impl(Future(Result(unit, IOError)))) ...;
+exists :: (fn(path: Path, using(io : IO)) -> Impl(Future(Result(bool, IOError)))) ...;
+exists_str :: (fn(path: str, using(io : IO)) -> Impl(Future(Result(bool, IOError)))) ...;
+exists_cstr :: (fn(path: *(u8), using(io : IO)) -> Impl(Future(Result(bool, IOError)))) ...;
 ```
 
 ### 1.2 `std/fs/metadata.yo` — File Metadata
@@ -143,42 +184,49 @@ Permissions :: struct(mode: u32);
 Permissions.readonly :: (fn(self: *(Self)) -> bool) ...;
 Permissions.set_readonly :: (fn(self: *(Self), readonly: bool) -> unit) ...;
 
-// Convenience
-metadata :: (fn(path: String, using(io : IO)) -> Impl(Future(Result(Metadata, IOError)))) ...;
-symlink_metadata :: (fn(path: String, using(io : IO)) -> Impl(Future(Result(Metadata, IOError)))) ...;
+// Convenience — default takes Path; _str takes str; _cstr takes *(u8)
+metadata :: (fn(path: Path, using(io : IO)) -> Impl(Future(Result(Metadata, IOError)))) ...;
+metadata_str :: (fn(path: str, using(io : IO)) -> Impl(Future(Result(Metadata, IOError)))) ...;
+metadata_cstr :: (fn(path: *(u8), using(io : IO)) -> Impl(Future(Result(Metadata, IOError)))) ...;
+symlink_metadata :: (fn(path: Path, using(io : IO)) -> Impl(Future(Result(Metadata, IOError)))) ...;
+symlink_metadata_str :: (fn(path: str, using(io : IO)) -> Impl(Future(Result(Metadata, IOError)))) ...;
+symlink_metadata_cstr :: (fn(path: *(u8), using(io : IO)) -> Impl(Future(Result(Metadata, IOError)))) ...;
 ```
 
 ### 1.3 `std/fs/dir.yo` — Directory Operations
 
 ```yo
-// High-level directory operations
-create_dir :: (fn(path: String, using(io : IO)) -> Impl(Future(Result(unit, IOError)))) ...;
-create_dir_all :: (fn(path: String, using(io : IO)) -> Impl(Future(Result(unit, IOError)))) ...;
-remove_dir :: (fn(path: String, using(io : IO)) -> Impl(Future(Result(unit, IOError)))) ...;
-remove_dir_all :: (fn(path: String, using(io : IO)) -> Impl(Future(Result(unit, IOError)))) ...;
-remove_file :: (fn(path: String, using(io : IO)) -> Impl(Future(Result(unit, IOError)))) ...;
-rename :: (fn(from: String, to: String, using(io : IO)) -> Impl(Future(Result(unit, IOError)))) ...;
-hard_link :: (fn(src: String, dst: String, using(io : IO)) -> Impl(Future(Result(unit, IOError)))) ...;
-symlink :: (fn(src: String, dst: String, using(io : IO)) -> Impl(Future(Result(unit, IOError)))) ...;
+// High-level directory operations — default takes Path; _str/_cstr variants available
+create_dir :: (fn(path: Path, using(io : IO)) -> Impl(Future(Result(unit, IOError)))) ...;
+create_dir_str :: (fn(path: str, using(io : IO)) -> Impl(Future(Result(unit, IOError)))) ...;
+create_dir_all :: (fn(path: Path, using(io : IO)) -> Impl(Future(Result(unit, IOError)))) ...;
+create_dir_all_str :: (fn(path: str, using(io : IO)) -> Impl(Future(Result(unit, IOError)))) ...;
+remove_dir :: (fn(path: Path, using(io : IO)) -> Impl(Future(Result(unit, IOError)))) ...;
+remove_dir_all :: (fn(path: Path, using(io : IO)) -> Impl(Future(Result(unit, IOError)))) ...;
+remove_file :: (fn(path: Path, using(io : IO)) -> Impl(Future(Result(unit, IOError)))) ...;
+rename :: (fn(from: Path, to: Path, using(io : IO)) -> Impl(Future(Result(unit, IOError)))) ...;
+hard_link :: (fn(src: Path, dst: Path, using(io : IO)) -> Impl(Future(Result(unit, IOError)))) ...;
+symlink :: (fn(src: Path, dst: Path, using(io : IO)) -> Impl(Future(Result(unit, IOError)))) ...;
 
 // Directory listing
 DirEntry :: struct(
   name : String,
-  path : String,
+  path : Path,
   file_type : FileType,
   ino : u64
 );
 
 FileType :: enum(File, Directory, Symlink, Other);   // note: no leading dots in enum declaration
 
-read_dir :: (fn(path: String, using(io : IO)) -> Impl(Future(Result(ArrayList(DirEntry), IOError)))) ...;
+read_dir :: (fn(path: Path, using(io : IO)) -> Impl(Future(Result(ArrayList(DirEntry), IOError)))) ...;
+read_dir_str :: (fn(path: str, using(io : IO)) -> Impl(Future(Result(ArrayList(DirEntry), IOError)))) ...;
 ```
 
 ### 1.4 `std/fs/walker.yo` — Recursive Directory Traversal
 
 ```yo
 WalkEntry :: struct(
-  path : String,
+  path : Path,
   name : String,
   depth : u32,
   file_type : FileType
@@ -190,29 +238,31 @@ WalkOptions :: struct(
   include_dirs : bool
 );
 
-walk :: (fn(root: String, using(io : IO)) -> Impl(Future(Result(ArrayList(WalkEntry), IOError)))) ...;
-walk_with :: (fn(root: String, options: WalkOptions, using(io : IO)) -> Impl(Future(Result(ArrayList(WalkEntry), IOError)))) ...;
+walk :: (fn(root: Path, using(io : IO)) -> Impl(Future(Result(ArrayList(WalkEntry), IOError)))) ...;
+walk_cstr :: (fn(root: *(u8), using(io : IO)) -> Impl(Future(Result(ArrayList(WalkEntry), IOError)))) ...;
+walk_with :: (fn(root: Path, options: WalkOptions, using(io : IO)) -> Impl(Future(Result(ArrayList(WalkEntry), IOError)))) ...;
+walk_with_cstr :: (fn(root: *(u8), options: WalkOptions, using(io : IO)) -> Impl(Future(Result(ArrayList(WalkEntry), IOError)))) ...;
 ```
 
 ### 1.5 `std/fs/temp.yo` — Temporary Files and Directories
 
 ```yo
 TempDir :: object(
-  _path : String,
+  _path : Path,
   _removed : bool
 );
 TempDir.new :: (fn(using(io : IO)) -> Impl(Future(Result(TempDir, IOError)))) ...;
-TempDir.new_in :: (fn(parent: String, using(io : IO)) -> Impl(Future(Result(TempDir, IOError)))) ...;
-TempDir.path :: (fn(self: Self) -> String) ...;
+TempDir.new_in :: (fn(parent: Path, using(io : IO)) -> Impl(Future(Result(TempDir, IOError)))) ...;
+TempDir.path :: (fn(self: Self) -> Path) ...;
 TempDir.remove :: (fn(self: Self, using(io : IO)) -> Impl(Future(Result(unit, IOError)))) ...;
 
 TempFile :: object(
   file : File,
-  _path : String
+  _path : Path
 );
 TempFile.new :: (fn(using(io : IO)) -> Impl(Future(Result(TempFile, IOError)))) ...;
-TempFile.new_in :: (fn(parent: String, using(io : IO)) -> Impl(Future(Result(TempFile, IOError)))) ...;
-TempFile.path :: (fn(self: Self) -> String) ...;
+TempFile.new_in :: (fn(parent: Path, using(io : IO)) -> Impl(Future(Result(TempFile, IOError)))) ...;
+TempFile.path :: (fn(self: Self) -> Path) ...;
 TempFile.remove :: (fn(self: Self, using(io : IO)) -> Impl(Future(Result(unit, IOError)))) ...;
 ```
 
@@ -837,22 +887,180 @@ Phase 12 (std/os)          ← LOW — OS utilities
   └── Depends on: std/io/signal, std/io/sysinfo, std/string
 ```
 
+## Phase 13: Channel (`std/sync/channel`) — Priority: Critical
+
+**Goal**: Provide a bounded multi-producer, multi-consumer channel for sending values between threads and workers. This is the most important missing concurrency primitive.
+
+**Depends on**: `std/sync` (Mutex, Cond), `std/collections/deque`
+
+### Design Decision: Sync (blocking) vs Async
+
+The Channel uses **blocking** `send`/`recv` via condition variables rather than async/await (`using(io : IO)`). Rationale:
+
+1. **Works everywhere**: Channels are used with both `Thread` and `Worker`. Neither requires an IO effect context, so a sync Channel is more universally applicable.
+2. **Simpler mental model**: `send()` blocks when the buffer is full; `recv()` blocks when the buffer is empty. No need to manage IO effects or futures for basic message passing.
+3. **Channel is a synchronization primitive, not I/O**: Like Mutex and Cond, Channel belongs in `std/sync`, not `std/io`.
+4. **Async wrapping is easy**: If async semantics are needed, users can wrap `recv()` in `io.async(...)`:
+   ```yo
+   // Async recv — non-blocking in IO context
+   async_recv := io.async((using(io : IO)) => {
+     return ch.recv();
+   });
+   ```
+5. **Precedent**: Go channels are synchronous. Rust's `std::sync::mpsc` is synchronous. Async channels (like Tokio's) are a separate abstraction.
+
+### 13.1 `std/sync/channel.yo` — Bounded MPMC Channel
+
+```yo
+Channel :: (fn(comptime(T) : Type) -> comptime(Type))
+  object(
+    _buf      : Deque(T),
+    _capacity : usize,
+    _mutex    : Mutex,
+    _not_empty : Cond,
+    _not_full  : Cond,
+    _closed   : bool
+  )
+;
+
+Channel.new :: (fn(capacity: usize) -> Channel(T)) ...;
+Channel.send :: (fn(self: Self, value: T) -> Result(unit, unit)) ...;
+Channel.recv :: (fn(self: Self) -> ?T) ...;
+Channel.try_send :: (fn(self: Self, value: T) -> Result(unit, unit)) ...;
+Channel.try_recv :: (fn(self: Self) -> ?T) ...;
+Channel.close :: (fn(self: Self) -> unit) ...;
+Channel.is_closed :: (fn(self: Self) -> bool) ...;
+Channel.len :: (fn(self: Self) -> usize) ...;
+Channel.is_empty :: (fn(self: Self) -> bool) ...;
+```
+
+**Tests**: Single-producer/single-consumer, multi-producer, bounded back-pressure, close semantics, try_send/try_recv non-blocking behavior.
+
+---
+
+## Phase 14: Additional Suggested Modules — Priority: Various
+
+### 14.1 `std/sync/rwlock.yo` — Reader-Writer Lock (Priority: Medium)
+
+A lock that allows multiple concurrent readers or one exclusive writer.
+
+```yo
+RwLock :: object(
+  _readers : i32,
+  _writer  : bool,
+  _mutex   : Mutex,
+  _read_cv : Cond,
+  _write_cv : Cond
+);
+
+RwLock.new :: (fn() -> RwLock) ...;
+RwLock.read_lock :: (fn(self: Self) -> unit) ...;
+RwLock.read_unlock :: (fn(self: Self) -> unit) ...;
+RwLock.write_lock :: (fn(self: Self) -> unit) ...;
+RwLock.write_unlock :: (fn(self: Self) -> unit) ...;
+```
+
+### 14.2 `std/sync/waitgroup.yo` — WaitGroup (Priority: Medium)
+
+Wait for a group of tasks to complete. Similar to Go's `sync.WaitGroup`.
+
+```yo
+WaitGroup :: object(
+  _count : i32,
+  _mutex : Mutex,
+  _cv    : Cond
+);
+
+WaitGroup.new :: (fn() -> WaitGroup) ...;
+WaitGroup.add :: (fn(self: Self, delta: i32) -> unit) ...;
+WaitGroup.done :: (fn(self: Self) -> unit) ...;
+WaitGroup.wait :: (fn(self: Self) -> unit) ...;
+```
+
+### 14.3 `std/sync/once.yo` — One-Time Initialization (Priority: Low)
+
+Execute a function exactly once, thread-safely.
+
+```yo
+Once :: object(
+  _done  : bool,
+  _mutex : Mutex
+);
+
+Once.new :: (fn() -> Once) ...;
+Once.call :: (fn(self: Self, f: Fn(() -> unit)) -> unit) ...;
+```
+
+### 14.4 `std/iter/` — Iterator Protocol (Priority: Medium, Future)
+
+A standard iterator trait for lazy sequences. Would enable idiomatic iteration over collections, ranges, and generators.
+
+```yo
+Iterator :: (fn(comptime(T) : Type) -> comptime(Type))
+  trait(
+    next :: (fn(self: *(T)) -> ?T)
+  )
+;
+
+Range :: struct(start: i64, end: i64, step: i64);
+```
+
+### 14.5 `std/url/` — URL Parsing (Priority: Low, Future)
+
+Parse and manipulate URLs.
+
+```yo
+Url :: object(
+  scheme : String,
+  host   : String,
+  port   : ?u16,
+  path   : String,
+  query  : ?String,
+  fragment : ?String
+);
+
+Url.parse :: (fn(s: str) -> Result(Url, UrlError)) ...;
+Url.to_string :: (fn(self: Self) -> String) ...;
+```
+
+### 14.6 `std/io/bufio/` — Buffered I/O (Priority: Medium, Future)
+
+Buffered reader/writer wrappers for any file descriptor.
+
+```yo
+BufReader :: object(fd: i32, buf: ArrayList(u8), pos: usize);
+BufWriter :: object(fd: i32, buf: ArrayList(u8));
+
+BufReader.read_line :: (fn(self: Self, using(io : IO)) -> Impl(Future(Result(?String, IOError)))) ...;
+BufWriter.flush :: (fn(self: Self, using(io : IO)) -> Impl(Future(Result(unit, IOError)))) ...;
+```
+
+---
+
 ## Recommended Implementation Order
 
-| Order | Phase    | Module                                             | Priority | Est. Effort |
-| ----- | -------- | -------------------------------------------------- | -------- | ----------- |
-| 1     | Phase 8  | `std/error` — Error trait                          | High     | Small       |
-| 2     | Phase 4  | `std/fmt` — Writer + Display                       | High     | Medium      |
-| 3     | Phase 3  | `std/time` — Duration, Instant, DateTime           | High     | Medium      |
-| 4     | Phase 1  | `std/fs` — File, Metadata, Dir, Walker             | Critical | Large       |
-| 5     | Phase 2  | `std/net` — TcpListener, TcpStream, UdpSocket      | Critical | Large       |
-| 6     | Phase 7  | `std/math` — Functions, PRNG                       | Medium   | Small       |
-| 7     | Phase 5  | `std/encoding` — Base64, Hex, JSON                 | Medium   | Medium      |
-| 8     | Phase 6  | `std/crypto` — SHA-256, MD5, Random                | Medium   | Medium      |
-| 9     | Phase 10 | `std/testing` — Assertions, Bench                  | Low      | Small       |
-| 10    | Phase 9  | `std/log` — Structured logging                     | Low      | Small       |
-| 11    | Phase 11 | `std/collections` — Deque, BTreeMap, PriorityQueue | Low      | Medium      |
-| 12    | Phase 12 | `std/os` — Signals, Env dirs                       | Low      | Small       |
+| Order | Phase    | Module                                             | Priority | Est. Effort | Status     |
+| ----- | -------- | -------------------------------------------------- | -------- | ----------- | ---------- |
+| 1     | Phase 8  | `std/error` — Error trait                          | High     | Small       | ✅ Done    |
+| 2     | Phase 4  | `std/fmt` — Writer + Display                       | High     | Medium      | ✅ Done    |
+| 3     | Phase 3  | `std/time` — Duration, Instant, DateTime           | High     | Medium      | ✅ Done    |
+| 4     | Phase 1  | `std/fs` — File, Metadata, Dir, Walker, Temp       | Critical | Large       | ✅ Done    |
+| 5     | Phase 2  | `std/net` — TcpListener, TcpStream, UdpSocket, DNS | Critical | Large       | ✅ Done    |
+| 6     | Phase 7  | `std/math` — Functions, PRNG                       | Medium   | Small       | ✅ Done    |
+| 7     | Phase 5  | `std/encoding` — Base64, Hex, JSON, UTF-16         | Medium   | Medium      | ✅ Done    |
+| 8     | Phase 6  | `std/crypto` — SHA-256, MD5, Random                | Medium   | Medium      | ✅ Done    |
+| 9     | Phase 10 | `std/testing` — Assertions, Bench                  | Low      | Small       | ✅ Done    |
+| 10    | Phase 9  | `std/log` — Structured logging                     | Low      | Small       | ✅ Done    |
+| 11    | Phase 11 | `std/collections` — Deque, BTreeMap, PriorityQueue | Low      | Medium      | ✅ Done    |
+| 12    | Phase 12 | `std/os` — Signals, Env dirs                       | Low      | Small       | ✅ Done    |
+| 13    | Phase 13 | `std/sync/channel` — Bounded MPMC Channel          | Critical | Small       | ✅ Done    |
+| 14    | Phase 14 | `std/sync/rwlock` — Reader-Writer Lock             | Medium   | Small       | ✅ Done    |
+| 15    | Phase 14 | `std/sync/waitgroup` — WaitGroup                   | Medium   | Small       | ✅ Done    |
+| 16    | Phase 14 | `std/sync/once` — One-Time Init                    | Low      | Small       | ✅ Done    |
+| —     | Phase 14 | `std/iter/` — Iterator protocol                    | Medium   | Medium      | 📋 Planned |
+| —     | Phase 14 | `std/url/` — URL parsing                           | Low      | Small       | 📋 Planned |
+| —     | Phase 14 | `std/io/bufio/` — Buffered I/O                     | Medium   | Medium      | 📋 Planned |
+| —     | —        | `std/regex` — Regular expressions                  | Medium   | Large       | 📋 Planned |
 
 **Rationale**: Error trait and fmt/Writer come first because they're dependencies of almost everything else. Time comes before fs/net because Duration/Instant are useful for timeouts and logging. fs and net are the largest, most impactful modules. Math/encoding/crypto are independent utilities. Testing, logging, and advanced collections are low priority since the existing tools work.
 
@@ -862,7 +1070,7 @@ Phase 12 (std/os)          ← LOW — OS utilities
 
 2. **Return `Result`, not raw `i32`**: High-level APIs use `Result(T, Error)` for all fallible operations. Async fallible I/O operations return `Impl(Future(Result(T, Error)))`. Callers use `io.await(fn(...))` to get back a `Result` and then pattern-match or propagate using the `?` operator. The `std/io` errno-based pattern stays in `std/io`.
 
-3. **Use `str` and `String`, not `*(u8)`**: High-level APIs accept `str` (for literal/borrowed strings) and `String` (for owned strings). Path conversion to `*(u8)` via `.to_cstr()` is done internally.
+3. **Use `Path` for filesystem paths**: High-level APIs that accept filesystem paths use `Path` as the default parameter type. Variants with `_str` and `_cstr` suffixes accept `str` and `*(u8)` respectively. Internally, `Path` is converted to `*(u8)` via `.to_string().to_cstr()` for the `std/io` layer.
 
 4. **Objects with `Dispose`**: Resources (File, TcpStream, TempDir) are `object` types implementing `Dispose` for automatic cleanup through reference counting.
 
@@ -876,7 +1084,7 @@ Phase 12 (std/os)          ← LOW — OS utilities
 
 ## Notes
 
-- **`str` vs `String` for paths**: `std/fs` functions accept `str` (byte slice) for paths since most paths come from string literals or template strings. Internally, `str.to_cstr()` converts to a null-terminated `*(u8)` for the `std/io` layer. Users working with dynamic paths can use `String.to_str()` to get a `str`.
+- **`Path` for filesystem paths**: `std/fs` functions use `Path` (from `std/path`) as the default path parameter type. `Path` provides cross-platform normalization, joining, and component extraction. For convenience, `_str` suffixed variants accept `str` directly (e.g., `read_file_str("data.txt", ...)`) and `_cstr` variants accept `*(u8)`. Internally, paths are converted to `*(u8)` via `path.to_string().to_cstr()` for the `std/io` layer.
 
 - **Buffered I/O strategy**: `File` objects use internal `ArrayList(u8)` buffers (default 8KB). Reads fill the buffer in one syscall; subsequent reads drain from buffer. Writes accumulate in buffer until `flush()` or buffer full. This amortizes syscall overhead for small reads/writes.
 

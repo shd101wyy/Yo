@@ -9,6 +9,7 @@ description: "Use when making design decisions about the Yo language, writing st
 - Lowercase for value types (non-reference-counted): `rune`, `i32`, `u32`, `bool`
 - Use `struct(...)` for value types
 - Use `object(...)` for reference-counted types
+- Use `newtype(...)` instead of `struct(...)` when the type has only a single field (e.g., `FilePermission :: newtype(mode : u32)`)
 
 ## Unicode: `rune` not `Char`
 
@@ -71,3 +72,26 @@ Yo is a new, evolving language. Don't worry about breaking changes when making d
 - `escape expr` inside an effect handler **discards** the continuation and exits the enclosing `fn`.
 - Effect row variables (`forall(...(E))` with `using(...(E))`) allow functions to be polymorphic over their effects — they forward whatever effects the caller provides.
 - The codegen generates effect functions as state machines, similar to async/await.
+
+## Future return types with effects
+
+- `Future` takes the result type as the first argument and effect types as rest arguments: `Future(ResultType, Effect1, Effect2, ...)`
+- When a function uses `using(io : IO)`, its return type must include `IO` in the `Future`: `Impl(Future(Result(T, E), IO))` — NOT `Impl(Future(Result(T, E)))`
+- Return `io.async(...)` directly as the last expression — do NOT assign to an intermediate variable:
+
+```yo
+// WRONG — intermediate variable prevents enum variant type inference:
+my_fn :: (fn(using(io : IO)) -> Impl(Future(Result(i32, IOError), IO)))({
+  task := io.async((using(io)) => {
+    .Ok(i32(42))
+  });
+  return task;
+});
+
+// CORRECT — return io.async directly:
+my_fn :: (fn(using(io : IO)) -> Impl(Future(Result(i32, IOError), IO)))(
+  io.async((using(io)) => {
+    .Ok(i32(42))
+  })
+);
+```

@@ -25,6 +25,7 @@ import {
   isCCompatibleType,
   isFloatType,
   isIntegerType,
+  isSignedIntegerType,
 } from "../../types/guards";
 import { TypeTag } from "../../types/tags";
 import {
@@ -174,6 +175,29 @@ function checkOverflow(
         `  Result ${value} exceeds ${type.tag} range [${bounds.min}, ${bounds.max}]`,
       kind: "overflow",
     });
+  }
+}
+
+// Helper function to get bit width for a numeric type (returns null for comptime_int/comptime_float)
+function getBitWidthForType(type: Type): number | null {
+  switch (type.tag) {
+    case TypeTag.U8:
+    case TypeTag.I8:
+      return 8;
+    case TypeTag.U16:
+    case TypeTag.I16:
+      return 16;
+    case TypeTag.U32:
+    case TypeTag.I32:
+      return 32;
+    case TypeTag.U64:
+    case TypeTag.I64:
+      return 64;
+    case TypeTag.Usize:
+    case TypeTag.Isize:
+      return 64; // Assume 64-bit platform
+    default:
+      return null;
   }
 }
 
@@ -416,11 +440,35 @@ export function evaluateYoComptimeNumericFunctions({
       if (isNumberValue(arg.$.value) || isComptimeIntValue(arg.$.value)) {
         const num = extractNumericValue(arg.$.value);
         if (num !== null) {
-          if (typeof num === "bigint") {
-            value = createComptimeIntValue(~num);
+          const bigNum =
+            typeof num === "bigint" ? num : BigInt(Math.floor(num));
+          // Use XOR with type mask instead of JS ~ to handle unsigned types correctly.
+          // JS BigInt ~ always produces -(n+1) which is negative, but for unsigned types
+          // like u32 we need the result as a positive value within the type's range.
+          const bitWidth = getBitWidthForType(numericType);
+          let notResult: bigint;
+          if (bitWidth !== null) {
+            const mask = (1n << BigInt(bitWidth)) - 1n;
+            notResult = bigNum ^ mask;
+            // For signed types, convert to signed representation:
+            // if result >= 2^(bitWidth-1), subtract 2^bitWidth
+            if (isSignedIntegerType(numericType)) {
+              const signBit = 1n << BigInt(bitWidth - 1);
+              if (notResult >= signBit) {
+                notResult = notResult - (1n << BigInt(bitWidth));
+              }
+            }
           } else {
-            value = createComptimeIntValue(BigInt(~Math.floor(num)));
+            // For comptime_int (arbitrary precision), use JS ~
+            notResult = ~bigNum;
           }
+          const result = createNumericValue(
+            notResult,
+            numericType,
+            env,
+            context
+          );
+          value = result ?? createUnknownValue(numericType, { env, context });
         } else {
           value = createUnknownValue(numericType, { env, context });
         }
@@ -738,21 +786,21 @@ export function evaluateYoComptimeNumericFunctions({
       const lhsNumber = extractNumericValue(lhsValue);
       const rhsNumber = extractNumericValue(rhsValue);
       if (lhsNumber !== null && rhsNumber !== null) {
-        if (typeof lhsNumber === "bigint" || typeof rhsNumber === "bigint") {
-          const bigA =
-            typeof lhsNumber === "bigint"
-              ? lhsNumber
-              : BigInt(Math.floor(lhsNumber));
-          const bigB =
-            typeof rhsNumber === "bigint"
-              ? rhsNumber
-              : BigInt(Math.floor(rhsNumber));
-          value = createComptimeIntValue(bigA & bigB);
-        } else {
-          value = createComptimeIntValue(
-            BigInt(Math.floor(lhsNumber) & Math.floor(rhsNumber))
-          );
-        }
+        const bigA =
+          typeof lhsNumber === "bigint"
+            ? lhsNumber
+            : BigInt(Math.floor(lhsNumber));
+        const bigB =
+          typeof rhsNumber === "bigint"
+            ? rhsNumber
+            : BigInt(Math.floor(rhsNumber));
+        const result = createNumericValue(
+          bigA & bigB,
+          numericType,
+          env,
+          context
+        );
+        value = result ?? createUnknownValue(numericType, { env, context });
       } else {
         value = createUnknownValue(numericType, { env, context });
       }
@@ -763,21 +811,21 @@ export function evaluateYoComptimeNumericFunctions({
       const lhsNumber = extractNumericValue(lhsValue);
       const rhsNumber = extractNumericValue(rhsValue);
       if (lhsNumber !== null && rhsNumber !== null) {
-        if (typeof lhsNumber === "bigint" || typeof rhsNumber === "bigint") {
-          const bigA =
-            typeof lhsNumber === "bigint"
-              ? lhsNumber
-              : BigInt(Math.floor(lhsNumber));
-          const bigB =
-            typeof rhsNumber === "bigint"
-              ? rhsNumber
-              : BigInt(Math.floor(rhsNumber));
-          value = createComptimeIntValue(bigA | bigB);
-        } else {
-          value = createComptimeIntValue(
-            BigInt(Math.floor(lhsNumber) | Math.floor(rhsNumber))
-          );
-        }
+        const bigA =
+          typeof lhsNumber === "bigint"
+            ? lhsNumber
+            : BigInt(Math.floor(lhsNumber));
+        const bigB =
+          typeof rhsNumber === "bigint"
+            ? rhsNumber
+            : BigInt(Math.floor(rhsNumber));
+        const result = createNumericValue(
+          bigA | bigB,
+          numericType,
+          env,
+          context
+        );
+        value = result ?? createUnknownValue(numericType, { env, context });
       } else {
         value = createUnknownValue(numericType, { env, context });
       }
@@ -788,21 +836,21 @@ export function evaluateYoComptimeNumericFunctions({
       const lhsNumber = extractNumericValue(lhsValue);
       const rhsNumber = extractNumericValue(rhsValue);
       if (lhsNumber !== null && rhsNumber !== null) {
-        if (typeof lhsNumber === "bigint" || typeof rhsNumber === "bigint") {
-          const bigA =
-            typeof lhsNumber === "bigint"
-              ? lhsNumber
-              : BigInt(Math.floor(lhsNumber));
-          const bigB =
-            typeof rhsNumber === "bigint"
-              ? rhsNumber
-              : BigInt(Math.floor(rhsNumber));
-          value = createComptimeIntValue(bigA ^ bigB);
-        } else {
-          value = createComptimeIntValue(
-            BigInt(Math.floor(lhsNumber) ^ Math.floor(rhsNumber))
-          );
-        }
+        const bigA =
+          typeof lhsNumber === "bigint"
+            ? lhsNumber
+            : BigInt(Math.floor(lhsNumber));
+        const bigB =
+          typeof rhsNumber === "bigint"
+            ? rhsNumber
+            : BigInt(Math.floor(rhsNumber));
+        const result = createNumericValue(
+          bigA ^ bigB,
+          numericType,
+          env,
+          context
+        );
+        value = result ?? createUnknownValue(numericType, { env, context });
       } else {
         value = createUnknownValue(numericType, { env, context });
       }
@@ -821,7 +869,13 @@ export function evaluateYoComptimeNumericFunctions({
           typeof rhsNumber === "bigint"
             ? Number(rhsNumber)
             : Math.floor(rhsNumber);
-        value = createComptimeIntValue(bigA << BigInt(shiftAmount));
+        const result = createNumericValue(
+          bigA << BigInt(shiftAmount),
+          numericType,
+          env,
+          context
+        );
+        value = result ?? createUnknownValue(numericType, { env, context });
       } else {
         value = createUnknownValue(numericType, { env, context });
       }
@@ -840,7 +894,13 @@ export function evaluateYoComptimeNumericFunctions({
           typeof rhsNumber === "bigint"
             ? Number(rhsNumber)
             : Math.floor(rhsNumber);
-        value = createComptimeIntValue(bigA >> BigInt(shiftAmount));
+        const result = createNumericValue(
+          bigA >> BigInt(shiftAmount),
+          numericType,
+          env,
+          context
+        );
+        value = result ?? createUnknownValue(numericType, { env, context });
       } else {
         value = createUnknownValue(numericType, { env, context });
       }

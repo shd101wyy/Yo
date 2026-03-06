@@ -611,8 +611,18 @@ export function generateOtherFunctionCall(
                   }
                   context.tempVarAsyncStructNames.set(tempVar, asyncStructName);
                 } else {
-                  // Fallback to getTypeString on return type
-                  cTypeString = getTypeString(returnType, context);
+                  // Fallback: function delegates to another Future-returning function
+                  // (e.g., File.open calls File.open_with). Use exprType if it has
+                  // resolvedConcreteType, otherwise fall back to returnType.
+                  if (
+                    exprType &&
+                    isSomeType(exprType) &&
+                    exprType.resolvedConcreteType
+                  ) {
+                    cTypeString = getTypeString(exprType, context);
+                  } else {
+                    cTypeString = getTypeString(returnType, context);
+                  }
                 }
               } else {
                 // cTypeString = getTypeString(exprType ?? returnType, context);

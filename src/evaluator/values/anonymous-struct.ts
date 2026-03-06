@@ -173,7 +173,7 @@ export function evaluateAnonymousStructValue({
           assignedValueExpr: valueExpr,
         },
         type,
-        label: label ?? `$field_${randomId(env.modulePath)}`,
+        label: label ?? `__field_${randomId(env.modulePath)}`,
       };
       fields.push(field);
       runtimeArgExprsInOrder.push(evaluatedArg);

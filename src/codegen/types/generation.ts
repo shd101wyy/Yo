@@ -505,6 +505,22 @@ typedef struct yo_io_future_t {
                 dependencies.get(typeId)!.add(depTypeId);
               }
             }
+            // Value structs (non-object, non-newtype) used by value need to be defined first
+            else if (
+              isStructType(field.type) &&
+              !field.type.isReferenceSemantics &&
+              !field.type.isNewtype
+            ) {
+              const depCName = getTypeString(field.type, context);
+              const depTypeId = cNameToTypeId.get(depCName);
+              if (
+                depTypeId &&
+                depTypeId !== typeId &&
+                typeIdToData.has(depTypeId)
+              ) {
+                dependencies.get(typeId)!.add(depTypeId);
+              }
+            }
             // Note: Structs by pointer (object types) don't create dependencies
             // because they use forward declarations
           }

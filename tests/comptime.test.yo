@@ -1146,6 +1146,40 @@ test "Test comptime i32", {
     comptime_assert(max_str == "2147483647");
     comptime_assert(min_str == "-2147483648");
   };
+
+  // Bitwise operations
+  {
+    x :: i32(0x00FF);
+    y :: i32(0x0F0F);
+
+    // bit_and
+    and_result :: (x & y);
+    comptime_assert(and_result == i32(0x000F));
+
+    // bit_or
+    or_result :: (x | y);
+    comptime_assert(or_result == i32(0x0FFF));
+
+    // bit_xor
+    xor_result :: (x ^ y);
+    comptime_assert(xor_result == i32(0x0FF0));
+
+    // bit_not
+    not_result :: ~(x);
+    comptime_assert(not_result == i32(-256)); // ~0xFF = -256 in two's complement i32
+
+    // shl
+    shl_result :: (i32(1) << i32(10));
+    comptime_assert(shl_result == i32(1024));
+
+    // shr (arithmetic shift for signed)
+    shr_result :: (i32(1024) >> i32(3));
+    comptime_assert(shr_result == i32(128));
+
+    // Chained bitwise
+    chained_or :: ((i32(0x01) | i32(0x10)) | i32(0x100));
+    comptime_assert(chained_or == i32(0x111));
+  };
 };
 
 test "Test comptime i64", {
@@ -2194,6 +2228,57 @@ test "Test comptime u32", {
     comptime_assert(zero_str == "0");
     comptime_assert(max_str == "4294967295");
     comptime_assert(large_str == "123456789");
+  };
+
+  // Bitwise operations
+  {
+    x :: u32(0xFF00);
+    y :: u32(0x0FF0);
+
+    // bit_and
+    and_result :: (x & y);
+    comptime_assert(and_result == u32(0x0F00));
+
+    // bit_or
+    or_result :: (x | y);
+    comptime_assert(or_result == u32(0xFFF0));
+
+    // bit_xor
+    xor_result :: (x ^ y);
+    comptime_assert(xor_result == u32(0xF0F0));
+
+    // bit_not
+    not_result :: ~(x);
+    comptime_assert(not_result == u32(0xFFFF00FF));
+
+    // shl
+    shl_result :: (u32(1) << u32(8));
+    comptime_assert(shl_result == u32(256));
+
+    // shr
+    shr_result :: (u32(256) >> u32(4));
+    comptime_assert(shr_result == u32(16));
+
+    // Chained bitwise (left-to-right nesting)
+    chained_or :: ((u32(0x0001) | u32(0x0010)) | u32(0x0100));
+    comptime_assert(chained_or == u32(0x0111));
+
+    chained_and :: ((u32(0xFFFF) & u32(0x0FF0)) & u32(0x00F0));
+    comptime_assert(chained_and == u32(0x00F0));
+
+    // Mask and test pattern (the original bug scenario)
+    S_IWUSR :: u32(0o0200);
+    S_IWGRP :: u32(0o0020);
+    mask :: (S_IWUSR | S_IWGRP);
+    comptime_assert(mask == u32(0o0220));
+
+    // Verify the result type is u32, not i32
+    // This was the original bug: comptime bitwise on u32 produced ComptimeInt -> i32
+    zero_masked :: (u32(0) & mask);
+    comptime_assert(zero_masked == u32(0));
+
+    full_masked :: (u32(0o0220) & mask);
+    comptime_assert(full_masked == u32(0o0220));
   };
 };
 
@@ -3691,4 +3776,94 @@ test "Test comptime Slice value", {
   comptime_assert(arr(1) == i32(10));
   comptime_assert(arr(2) == i32(20));
   comptime_assert(arr(3) == i32(30));
+};
+
+// Test: Comptime bitwise results preserve typed integer type when used at runtime
+// This tests the fix for a bug where comptime bitwise operations (bit_or, bit_and, etc.)
+// on typed integers (u32, i32, etc.) produced ComptimeInt values instead of preserving
+// the operand type. When mixed with runtime values, ComptimeInt was converted to i32,
+// causing type mismatches with u32.
+test "Test comptime bitwise type preservation", {
+  // u32 bitwise results used in runtime context
+  {
+    S_IWUSR :: u32(0o0200);
+    S_IWGRP :: u32(0o0020);
+    S_IWOTH :: u32(0o0002);
+
+    // Comptime OR of two u32 constants
+    write_mask :: (S_IWUSR | S_IWGRP);
+
+    // Use comptime bitwise result with runtime u32 value
+    m := u32(0o0644);
+    result := (m & write_mask);
+    assert((result == u32(0o0200)), "u32 AND with comptime OR mask");
+
+    // Three-way OR (nested left-to-right)
+    full_write_mask :: ((S_IWUSR | S_IWGRP) | S_IWOTH);
+    result2 := (m & full_write_mask);
+    assert((result2 == u32(0o0200)), "u32 AND with three-way comptime OR mask");
+
+    // Comparison of runtime value with comptime bitwise result
+    is_zero := ((m & write_mask) == u32(0));
+    assert(!(is_zero), "masked value should not be zero");
+  };
+
+  // i32 bitwise results used in runtime context
+  {
+    FLAG_A :: i32(0x01);
+    FLAG_B :: i32(0x02);
+    FLAG_C :: i32(0x04);
+
+    combined :: (FLAG_A | FLAG_B);
+    flags := i32(0x03);
+    masked := (flags & combined);
+    assert((masked == i32(0x03)), "i32 AND with comptime OR mask");
+
+    all_flags :: ((FLAG_A | FLAG_B) | FLAG_C);
+    has_c := ((flags & FLAG_C) != i32(0));
+    assert(!(has_c), "flag C should not be set");
+  };
+
+  // u8 bitwise results used in runtime context
+  {
+    BIT0 :: u8(0x01);
+    BIT1 :: u8(0x02);
+    BIT7 :: u8(0x80);
+
+    low_bits :: (BIT0 | BIT1);
+    val := u8(0x03);
+    result := (val & low_bits);
+    assert((result == u8(0x03)), "u8 AND with comptime OR mask");
+
+    high_low :: (BIT0 | BIT7);
+    result2 := (val & high_low);
+    assert((result2 == u8(0x01)), "u8 AND with non-adjacent comptime OR mask");
+  };
+
+  // Comptime shift results used in runtime context
+  {
+    shift_val :: (u32(1) << u32(8));
+    x := u32(0x1FF);
+    result := (x & shift_val);
+    assert((result == u32(256)), "u32 AND with comptime shift result");
+
+    shift_right :: (u32(0xFF00) >> u32(4));
+    result2 := (x & shift_right);
+    assert((result2 == u32(0x1F0)), "u32 AND with comptime right-shift result");
+  };
+
+  // Comptime XOR and NOT results used in runtime context
+  {
+    a_val :: u32(0xFF00FF00);
+    b_val :: u32(0x0FF00FF0);
+
+    xor_mask :: (a_val ^ b_val);
+    x := u32(0xFFFFFFFF);
+    result := (x & xor_mask);
+    assert((result == u32(0xF0F0F0F0)), "u32 AND with comptime XOR mask");
+
+    not_mask :: ~(u32(0xFF));
+    result2 := (x & not_mask);
+    assert((result2 == u32(0xFFFFFF00)), "u32 AND with comptime NOT mask");
+  };
 };

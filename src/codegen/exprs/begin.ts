@@ -8,6 +8,7 @@ import { isTempVariableName } from "../../utils";
 import { type FunctionGenerationContext } from "../functions/context";
 import {
   type CodeGenContext,
+  getDeferredDropTargetAtomName,
   getTypeString,
   getVariableNameForCodegen,
 } from "../utils";
@@ -119,6 +120,19 @@ export function generateBegin(
     // Generate deferred drop expressions before closing the block
     if (expr.$?.deferredDropExpressions) {
       for (const dropExpr of expr.$.deferredDropExpressions) {
+        // Skip drops already emitted inside short-circuit conditional branches
+        if (functionContext.shortCircuitHandledDropVarNames) {
+          const targetVarName = getDeferredDropTargetAtomName(dropExpr);
+          if (
+            targetVarName &&
+            functionContext.shortCircuitHandledDropVarNames.has(targetVarName)
+          ) {
+            functionContext.shortCircuitHandledDropVarNames.delete(
+              targetVarName
+            );
+            continue;
+          }
+        }
         const dropCode = generateExpr(dropExpr, indent + "  ", context);
         if (dropCode) {
           context.emitter.emitLine(`${indent}  ${dropCode};`);
@@ -159,6 +173,19 @@ export function generateBegin(
     // Generate deferred drop expressions before closing the block
     if (expr.$?.deferredDropExpressions) {
       for (const dropExpr of expr.$.deferredDropExpressions) {
+        // Skip drops already emitted inside short-circuit conditional branches
+        if (functionContext.shortCircuitHandledDropVarNames) {
+          const targetVarName = getDeferredDropTargetAtomName(dropExpr);
+          if (
+            targetVarName &&
+            functionContext.shortCircuitHandledDropVarNames.has(targetVarName)
+          ) {
+            functionContext.shortCircuitHandledDropVarNames.delete(
+              targetVarName
+            );
+            continue;
+          }
+        }
         const dropCode = generateExpr(dropExpr, indent + "  ", context);
         if (dropCode) {
           context.emitter.emitLine(`${indent}  ${dropCode};`);

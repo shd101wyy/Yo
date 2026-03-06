@@ -1,0 +1,79 @@
+// std/sync/waitgroup.yo - WaitGroup
+//
+// Wait for a group of tasks to complete. Similar to Go's sync.WaitGroup.
+//
+// Example:
+//   { WaitGroup } :: import "std/sync/waitgroup";
+//   { Thread } :: import "std/thread";
+//
+//   wg := WaitGroup.new();
+//   wg.add(i32(3));
+//   i := i32(0);
+//   while runtime((i < i32(3))), {
+//     t := Thread.spawn(() => {
+//       // ... do work ...
+//       wg.done();
+//     });
+//     i = (i + i32(1));
+//   };
+//   wg.wait();  // blocks until all 3 tasks call done()
+
+{ Mutex } :: import "./mutex";
+{ Cond } :: import "./cond";
+
+// ============================================================================
+// WaitGroup
+// ============================================================================
+
+WaitGroup :: object(
+  _count : i32,
+  _mutex : Mutex,
+  _cv    : Cond
+);
+
+impl(WaitGroup,
+  // Create a new WaitGroup with count 0.
+  new : (fn() -> Self)(
+    Self(
+      _count: i32(0),
+      _mutex: Mutex.new(),
+      _cv: Cond.new()
+    )
+  ),
+
+  // Add delta to the counter (can be negative).
+  // If the counter becomes zero, all waiters are woken.
+  add : (fn(self: Self, delta: i32) -> unit)({
+    self._mutex.lock();
+    self._count = (self._count + delta);
+    cond(
+      (self._count <= i32(0)) => {
+        self._count = i32(0);
+        self._cv.broadcast();
+      },
+      true => ()
+    );
+    self._mutex.unlock();
+  }),
+
+  // Decrement the counter by one (equivalent to add(-1)).
+  done : (fn(self: Self) -> unit)(
+    self.add(i32(-(1)))
+  ),
+
+  // Block until the counter reaches zero.
+  wait : (fn(self: Self) -> unit)({
+    self._mutex.lock();
+    while runtime((self._count > i32(0))), {
+      self._cv.wait(self._mutex);
+    };
+    self._mutex.unlock();
+  }),
+
+  // Get the current count (for debugging).
+  count : (fn(self: Self) -> i32)(
+    self._count
+  )
+);
+
+export WaitGroup;

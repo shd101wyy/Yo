@@ -219,7 +219,7 @@ impl(forall(T : Type), ArrayList(T),
     * Shrink the capacity to match the current length
     * This reduces memory usage but may cause reallocation on next push
     */
-  shrink_to_fit : ((fn(self: Self) -> Result(unit, ArrayListError))
+  shrink_to_fit : (fn(self: Self) -> Result(unit, ArrayListError))(
     // If length equals capacity or both are zero, nothing to do
     cond(
       ((self._length == self._capacity) || (self._capacity == usize(0))) => .Ok(()),
@@ -259,7 +259,7 @@ impl(forall(T : Type), ArrayList(T),
     )
   ),
 
-  _free_elements : ((fn(self : Self) -> unit)
+  _free_elements : (fn(self : Self) -> unit)(
     cond(
       Type.contains_rc_type(T) => {
         i := usize(0);

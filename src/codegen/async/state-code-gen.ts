@@ -23,9 +23,10 @@ import {
 import { exprContainsAwait } from "../../expr-traversal";
 import { TokenType } from "../../token";
 import type { EnumType } from "../../types/definitions";
-import { isEnumType } from "../../types/guards";
+import { isEnumType, isUnitType } from "../../types/guards";
 import { isTempVariableName } from "../../utils";
 import { isBooleanValue } from "../../value";
+import { emitAsyncFutureCompletion } from "../exprs/async-completion";
 import { generateComptimeValue } from "../exprs/comptime-value";
 import { generateExpr } from "../exprs/expr";
 import type { FunctionGenerationContext } from "../functions/context";
@@ -76,11 +77,28 @@ export function splitIntoStateSegments(
     handleSequentialSuspensions: true,
   });
 
-  return shared.map((seg) => ({
+  const segments = shared.map((seg) => ({
     stateNumber: seg.stateNumber,
     expressions: seg.expressions,
     awaitPoint: seg.suspensionPoint,
   }));
+
+  // When the last segment has an awaitPoint (e.g., the body is a single cond
+  // with an await in one branch), we need an additional completion segment.
+  // Without it, the state machine has no state to transition to after the await
+  // completes or when the non-await cond branch is taken.
+  if (
+    segments.length > 0 &&
+    segments[segments.length - 1]!.awaitPoint !== null
+  ) {
+    segments.push({
+      stateNumber: segments.length,
+      expressions: [],
+      awaitPoint: null,
+    });
+  }
+
+  return segments;
 }
 
 /**
@@ -485,15 +503,50 @@ function generateCondWithAwait(
           indent,
           context
         );
-        branchesWithAwait.push({
-          index: firstNonFalseBranchIndex,
-          value,
-          hasAwait: true,
-          remainingExprs,
-          deferredDropExpressions: value.$?.deferredDropExpressions,
-        });
+        // Check if the await was inside a while loop
+        const whileInfo = context.asyncWhileLoopInfo?.get(awaitPoint.index);
+        if (whileInfo && remainingExprs.length > 0) {
+          const innerEntry = context.asyncCondBranchInfo?.get(awaitPoint.index);
+          const hasNestedCondConflict =
+            innerEntry?.branches.some(
+              (b) =>
+                b.hasAwait && b.remainingExprs && b.remainingExprs.length > 0
+            ) ?? false;
+          whileInfo.condBranchPostWhileExprs = {
+            branchIndex: firstNonFalseBranchIndex,
+            condBranchFieldIndex: awaitPoint.index,
+            exprs: remainingExprs,
+            deferredDropExpressions: value.$?.deferredDropExpressions,
+            skipCondBranchCheck: hasNestedCondConflict,
+          };
+          branchesWithAwait.push({
+            index: firstNonFalseBranchIndex,
+            value,
+            hasAwait: true,
+            remainingExprs: [],
+            deferredDropExpressions: value.$?.deferredDropExpressions,
+          });
+        } else {
+          branchesWithAwait.push({
+            index: firstNonFalseBranchIndex,
+            value,
+            hasAwait: true,
+            remainingExprs,
+            deferredDropExpressions: value.$?.deferredDropExpressions,
+          });
+        }
       } else {
         if (
+          shouldEmitAsyncBranchCompletion(
+            condExpr,
+            value,
+            context,
+            targetVariableId,
+            targetAssignmentCode
+          )
+        ) {
+          emitNonAwaitBranchAsyncCompletion(value, indent, context);
+        } else if (
           exprIsFunctionCall(value) &&
           exprIsFunctionCallOf(value, BuiltinKeywords.begin)
         ) {
@@ -564,16 +617,28 @@ function generateCondWithAwait(
     if (!context.asyncCondBranchInfo) {
       context.asyncCondBranchInfo = new Map();
     }
-    context.asyncCondBranchInfo.set(awaitPoint.index, {
-      branches: branchesWithAwait,
-      targetVariableId,
-      targetAssignmentCode,
-    });
+    // Don't overwrite if a nested cond already stored branch info with actual
+    // remaining code. The inner cond's entry is the one that matters for the
+    // resume state's switch — it's closest to the actual await point.
+    const existingInner = context.asyncCondBranchInfo.get(awaitPoint.index);
+    const innerHasRemainingCode =
+      existingInner?.branches.some(
+        (b) => b.hasAwait && b.remainingExprs && b.remainingExprs.length > 0
+      ) ?? false;
+    if (!innerHasRemainingCode) {
+      context.asyncCondBranchInfo.set(awaitPoint.index, {
+        branches: branchesWithAwait,
+        targetVariableId,
+        targetAssignmentCode,
+      });
+    }
     return;
   }
 
   // Generate if-else chain
   let hasEmittedBranch = false;
+  let elseBlockDepth = 0;
+  let currentIndent = indent;
   for (let i = 0; i < args.length; i++) {
     const pairExpr = args[i]!;
 
@@ -582,7 +647,7 @@ function generateCondWithAwait(
       pairExpr.tag !== ExprTag.FnCall ||
       !exprIsFunctionCallOf(pairExpr, "=>")
     ) {
-      emitter.emitLine(`${indent}// Error: Expected => pair in cond`);
+      emitter.emitLine(`${currentIndent}// Error: Expected => pair in cond`);
       continue;
     }
 
@@ -590,7 +655,7 @@ function generateCondWithAwait(
     const value = pairExpr.args[1];
 
     if (!condition || !value) {
-      emitter.emitLine(`${indent}// Error: Invalid pair in cond`);
+      emitter.emitLine(`${currentIndent}// Error: Invalid pair in cond`);
       continue;
     }
 
@@ -602,21 +667,29 @@ function generateCondWithAwait(
       continue;
     }
 
+    // For subsequent branches, wrap in else { ... } to prevent condition
+    // pre-computation (begin blocks) from breaking the if-else chain.
+    if (hasEmittedBranch) {
+      emitter.emitLine(`${currentIndent}else {`);
+      elseBlockDepth++;
+      currentIndent += "  ";
+    }
+
     const condCode =
       i === args.length - 1 &&
       condition.tag === ExprTag.Atom &&
       condition.token?.value === "true"
         ? null // Last condition is 'true' - no need to check
-        : generateExpr(condition, indent, context);
+        : generateExpr(condition, currentIndent, context);
 
     if (condCode) {
-      emitter.emitLine(
-        `${indent}${!hasEmittedBranch ? "if" : "else if"} (${condCode}) {`
-      );
+      emitter.emitLine(`${currentIndent}if (${condCode}) {`);
     } else {
-      emitter.emitLine(`${indent}${!hasEmittedBranch ? "{" : "else {"}`);
+      emitter.emitLine(`${currentIndent}{`);
     }
     hasEmittedBranch = true;
+
+    const valueIndent = `${currentIndent}  `;
 
     // Check if this branch contains an await
     const branchContainsAwait = branchHasAwait(value);
@@ -624,91 +697,136 @@ function generateCondWithAwait(
     if (branchContainsAwait) {
       // Store which branch was taken
       emitter.emitLine(
-        `${indent}  sm->cond_branch_${awaitPoint.index} = ${i};`
+        `${valueIndent}sm->cond_branch_${awaitPoint.index} = ${i};`
       );
       // This branch contains an await - generate code to spawn and store Future
       const remainingExprs = generateCondBranchWithAwait(
         value,
         awaitPoint,
-        `${indent}  `,
+        valueIndent,
         context
       );
-      // Store branch info with remaining expressions and deferred drops from the branch's begin block
-      branchesWithAwait.push({
-        index: i,
-        value,
-        hasAwait: true,
-        remainingExprs,
-        deferredDropExpressions: value.$?.deferredDropExpressions,
-      });
+      // Check if the await was inside a while loop in this branch.
+      // If so, post-while-loop expressions should only run after the loop exits,
+      // not on every resume from the in-loop await.
+      const whileInfo = context.asyncWhileLoopInfo?.get(awaitPoint.index);
+      if (whileInfo && remainingExprs.length > 0) {
+        // Check if a nested cond already stored branch info at the same key.
+        // If so, the nested cond's cond_branch_N writes will overwrite this
+        // cond's writes, making the sm->cond_branch_N guard unreliable.
+        const innerEntry = context.asyncCondBranchInfo?.get(awaitPoint.index);
+        const hasNestedCondConflict =
+          innerEntry?.branches.some(
+            (b) => b.hasAwait && b.remainingExprs && b.remainingExprs.length > 0
+          ) ?? false;
+        whileInfo.condBranchPostWhileExprs = {
+          branchIndex: i,
+          condBranchFieldIndex: awaitPoint.index,
+          exprs: remainingExprs,
+          deferredDropExpressions: value.$?.deferredDropExpressions,
+          skipCondBranchCheck: hasNestedCondConflict,
+        };
+        branchesWithAwait.push({
+          index: i,
+          value,
+          hasAwait: true,
+          remainingExprs: [], // Post-while-loop exprs are in while loop info
+          deferredDropExpressions: value.$?.deferredDropExpressions,
+        });
+      } else {
+        // Store branch info with remaining expressions and deferred drops from the branch's begin block
+        branchesWithAwait.push({
+          index: i,
+          value,
+          hasAwait: true,
+          remainingExprs,
+          deferredDropExpressions: value.$?.deferredDropExpressions,
+        });
+      }
     } else {
       // This branch doesn't contain await - just generate normal code
-      // Handle begin blocks specially to avoid unnecessary block wrappers
+
       if (
-        exprIsFunctionCall(value) &&
-        exprIsFunctionCallOf(value, BuiltinKeywords.begin)
+        shouldEmitAsyncBranchCompletion(
+          condExpr,
+          value,
+          context,
+          targetVariableId,
+          targetAssignmentCode
+        )
       ) {
-        // For begin blocks, generate statements inline
-        const beginArgs = value.args;
-        for (let j = 0; j < beginArgs.length; j++) {
-          const arg = beginArgs[j]!;
-          const argCode = generateExpr(arg, `${indent}  `, context);
+        emitNonAwaitBranchAsyncCompletion(value, valueIndent, context);
+      } else {
+        // Normal non-await branch: generate code inline (original logic)
+        // Handle begin blocks specially to avoid unnecessary block wrappers
+        if (
+          exprIsFunctionCall(value) &&
+          exprIsFunctionCallOf(value, BuiltinKeywords.begin)
+        ) {
+          // For begin blocks, generate statements inline
+          const beginArgs = value.args;
+          for (let j = 0; j < beginArgs.length; j++) {
+            const arg = beginArgs[j]!;
+            const argCode = generateExpr(arg, valueIndent, context);
+            // Check if this is a break statement in an async while loop
+            if (argCode === "break" && awaitPoint.isInsideWhile) {
+              // In async while loops, break needs to set the active flag and jump to end
+              emitter.emitLine(
+                `${valueIndent}sm->while_loop_${awaitPoint.index}_active = false;`
+              );
+              emitter.emitLine(
+                `${valueIndent}goto while_loop_${awaitPoint.index}_end;`
+              );
+            } else {
+              // Emit control flow statements always
+              const isControlFlow =
+                argCode === "break" ||
+                argCode === "continue" ||
+                argCode?.includes("return");
+              if (
+                argCode &&
+                (isControlFlow ||
+                  (arg.$ && !isTempVariableName(arg.$.env.modulePath, argCode)))
+              ) {
+                emitter.emitLine(`${valueIndent}${argCode};`);
+              }
+            }
+          }
+
+          // Generate deferred drop expressions for the begin block
+          if (value.$?.deferredDropExpressions) {
+            for (const dropExpr of value.$.deferredDropExpressions) {
+              const dropCode = generateExpr(dropExpr, valueIndent, context);
+              if (dropCode) {
+                emitter.emitLine(`${valueIndent}${dropCode};`);
+              }
+            }
+          }
+        } else {
+          // Not a begin block - generate normal code
+          const code = generateExpr(value, valueIndent, context);
           // Check if this is a break statement in an async while loop
-          if (argCode === "break" && awaitPoint.isInsideWhile) {
+          if (code === "break" && awaitPoint.isInsideWhile) {
             // In async while loops, break needs to set the active flag and jump to end
             emitter.emitLine(
-              `${indent}  sm->while_loop_${awaitPoint.index}_active = false;`
+              `${valueIndent}sm->while_loop_${awaitPoint.index}_active = false;`
             );
             emitter.emitLine(
-              `${indent}  goto while_loop_${awaitPoint.index}_end;`
+              `${valueIndent}goto while_loop_${awaitPoint.index}_end;`
             );
           } else {
-            // Emit control flow statements always
+            // Emit control flow statements (break, continue, return) always
             const isControlFlow =
-              argCode === "break" ||
-              argCode === "continue" ||
-              argCode?.includes("return");
+              code === "break" ||
+              code === "continue" ||
+              code?.includes("return");
             if (
-              argCode &&
+              code &&
               (isControlFlow ||
-                (arg.$ && !isTempVariableName(arg.$.env.modulePath, argCode)))
+                (value.$ && !isTempVariableName(value.$.env.modulePath, code)))
             ) {
-              emitter.emitLine(`${indent}  ${argCode};`);
+              emitter.emitLine(`${valueIndent}${code};`);
             }
-          }
-        }
-
-        // Generate deferred drop expressions for the begin block
-        if (value.$?.deferredDropExpressions) {
-          for (const dropExpr of value.$.deferredDropExpressions) {
-            const dropCode = generateExpr(dropExpr, `${indent}  `, context);
-            if (dropCode) {
-              emitter.emitLine(`${indent}  ${dropCode};`);
-            }
-          }
-        }
-      } else {
-        // Not a begin block - generate normal code
-        const code = generateExpr(value, `${indent}  `, context);
-        // Check if this is a break statement in an async while loop
-        if (code === "break" && awaitPoint.isInsideWhile) {
-          // In async while loops, break needs to set the active flag and jump to end
-          emitter.emitLine(
-            `${indent}  sm->while_loop_${awaitPoint.index}_active = false;`
-          );
-          emitter.emitLine(
-            `${indent}  goto while_loop_${awaitPoint.index}_end;`
-          );
-        } else {
-          // Emit control flow statements (break, continue, return) always
-          const isControlFlow =
-            code === "break" || code === "continue" || code?.includes("return");
-          if (
-            code &&
-            (isControlFlow ||
-              (value.$ && !isTempVariableName(value.$.env.modulePath, code)))
-          ) {
-            emitter.emitLine(`${indent}  ${code};`);
           }
         }
       }
@@ -720,18 +838,134 @@ function generateCondWithAwait(
       });
     }
 
-    emitter.emitLine(`${indent}}`);
+    emitter.emitLine(`${currentIndent}}`);
+  }
+
+  // Close all else blocks
+  for (let d = 0; d < elseBlockDepth; d++) {
+    currentIndent = currentIndent.slice(0, -2);
+    emitter.emitLine(`${currentIndent}}`);
   }
 
   // Store branch information in context for resume state generation
   if (!context.asyncCondBranchInfo) {
     context.asyncCondBranchInfo = new Map();
   }
-  context.asyncCondBranchInfo.set(awaitPoint.index, {
-    branches: branchesWithAwait,
-    targetVariableId,
-    targetAssignmentCode,
+  // Don't overwrite if a nested cond already stored branch info with actual
+  // remaining code. The inner cond's entry is the one that matters for the
+  // resume state's switch — it's closest to the actual await point.
+  const existingInnerEntry = context.asyncCondBranchInfo.get(awaitPoint.index);
+  const innerEntryHasRemainingCode =
+    existingInnerEntry?.branches.some(
+      (b) => b.hasAwait && b.remainingExprs && b.remainingExprs.length > 0
+    ) ?? false;
+  if (!innerEntryHasRemainingCode) {
+    context.asyncCondBranchInfo.set(awaitPoint.index, {
+      branches: branchesWithAwait,
+      targetVariableId,
+      targetAssignmentCode,
+    });
+  }
+}
+
+/**
+ * Checks if a non-await cond/match branch should complete the async Future directly.
+ * Returns true when the enclosing cond/match IS the async body's implicit return value,
+ * there's no target variable, and the branch doesn't already have an explicit return.
+ */
+function shouldEmitAsyncBranchCompletion(
+  condOrMatchExpr: Expr,
+  branchValue: Expr,
+  context: FunctionGenerationContext,
+  targetVariableId?: string,
+  targetAssignmentCode?: string
+): boolean {
+  return (
+    !targetVariableId &&
+    !targetAssignmentCode &&
+    context.asyncBodyReturnExpr !== undefined &&
+    condOrMatchExpr === context.asyncBodyReturnExpr &&
+    !!context.inAsyncStateMachine &&
+    !exprContainsReturnStatement(branchValue)
+  );
+}
+
+/**
+ * Emits async Future completion for a non-await cond/match branch that IS the
+ * async function body's implicit return value. Generates:
+ *   value computation → sm->result = value → drop locals → complete Future → return
+ */
+function emitNonAwaitBranchAsyncCompletion(
+  value: Expr,
+  indent: string,
+  context: FunctionGenerationContext
+): void {
+  const emitter = context.emitter;
+  const isUnit = isUnitType(value.$?.type);
+
+  if (
+    exprIsFunctionCall(value) &&
+    exprIsFunctionCallOf(value, BuiltinKeywords.begin)
+  ) {
+    // Begin block: generate all statements, last one is the result value
+    const beginArgs = value.args;
+    for (let j = 0; j < beginArgs.length - 1; j++) {
+      const arg = beginArgs[j]!;
+      const argCode = generateExpr(arg, indent, context);
+      if (
+        argCode &&
+        arg.$ &&
+        !isTempVariableName(arg.$.env.modulePath, argCode)
+      ) {
+        emitter.emitLine(`${indent}${argCode};`);
+      }
+    }
+    // Last expression is the result value
+    const lastArg = beginArgs[beginArgs.length - 1];
+    if (lastArg && !isUnit) {
+      const lastCode = generateExpr(lastArg, indent, context);
+      if (lastCode) {
+        emitter.emitLine(`${indent}sm->result = ${lastCode};`);
+      }
+    }
+    // Deferred drops for the begin block
+    if (value.$?.deferredDropExpressions) {
+      for (const dropExpr of value.$.deferredDropExpressions) {
+        const dropCode = generateExpr(dropExpr, indent, context);
+        if (dropCode) {
+          emitter.emitLine(`${indent}${dropCode};`);
+        }
+      }
+    }
+  } else {
+    // Non-begin: the expression directly IS the result value
+    if (!isUnit) {
+      const code = generateExpr(value, indent, context);
+      if (code) {
+        emitter.emitLine(`${indent}sm->result = ${code};`);
+      }
+    }
+  }
+
+  // Drop pending deferred drops (body-level local variables)
+  emitter.emitLine(`${indent}// Drop local variables before early completion`);
+  if (context.pendingDeferredDrops) {
+    for (const dropExpr of context.pendingDeferredDrops) {
+      const dropCode = generateExpr(dropExpr, indent, context);
+      if (dropCode && dropCode.includes("sm->")) {
+        emitter.emitLine(`${indent}${dropCode};`);
+      }
+    }
+  }
+
+  // Complete the Future
+  emitAsyncFutureCompletion({
+    emitter,
+    indent,
+    resultCode: undefined, // Already stored above
+    debugLabel: context.currentFunctionName,
   });
+  emitter.emitLine(`${indent}return;`);
 }
 
 /**
@@ -750,6 +984,28 @@ function branchHasAwait(expr: Expr): boolean {
     }
   }
 
+  return false;
+}
+
+/**
+ * Checks if an expression contains a return statement.
+ * Used to avoid double-completion when a non-await cond branch already has
+ * an explicit return that handles async Future completion.
+ */
+function exprContainsReturnStatement(expr: Expr): boolean {
+  if (exprIsAtomOf(expr, "return")) {
+    return true;
+  }
+  if (exprIsFunctionCallOf(expr, "return")) {
+    return true;
+  }
+  if (expr.tag === ExprTag.FnCall) {
+    for (const arg of expr.args) {
+      if (exprContainsReturnStatement(arg)) {
+        return true;
+      }
+    }
+  }
   return false;
 }
 
@@ -956,23 +1212,39 @@ function generateMatchWithAwait(
           }
         } else {
           // No await in pointer case - generate normally
-          const code = generateExpr(caseBody, indent + "  ", context);
-          if (targetVariableId) {
-            // Assign the branch result to the target variable
-            const fieldName = sanitizeForCIdentifier(`var_${targetVariableId}`);
-            if (code) {
-              emitter.emitLine(`${indent}  sm->${fieldName} = ${code};`);
-            }
-          } else if (targetAssignmentCode) {
-            if (code) {
-              emitter.emitLine(`${indent}  ${targetAssignmentCode} = ${code};`);
-            }
-          } else if (
-            code &&
-            caseBody.$ &&
-            !isTempVariableName(caseBody.$.env.modulePath, code)
+          if (
+            shouldEmitAsyncBranchCompletion(
+              matchExpr,
+              caseBody,
+              context,
+              targetVariableId,
+              targetAssignmentCode
+            )
           ) {
-            emitter.emitLine(`${indent}  ${code};`);
+            emitNonAwaitBranchAsyncCompletion(caseBody, indent + "  ", context);
+          } else {
+            const code = generateExpr(caseBody, indent + "  ", context);
+            if (targetVariableId) {
+              // Assign the branch result to the target variable
+              const fieldName = sanitizeForCIdentifier(
+                `var_${targetVariableId}`
+              );
+              if (code) {
+                emitter.emitLine(`${indent}  sm->${fieldName} = ${code};`);
+              }
+            } else if (targetAssignmentCode) {
+              if (code) {
+                emitter.emitLine(
+                  `${indent}  ${targetAssignmentCode} = ${code};`
+                );
+              }
+            } else if (
+              code &&
+              caseBody.$ &&
+              !isTempVariableName(caseBody.$.env.modulePath, code)
+            ) {
+              emitter.emitLine(`${indent}  ${code};`);
+            }
           }
         }
       }
@@ -1027,23 +1299,39 @@ function generateMatchWithAwait(
           }
         } else {
           // No await in null case - generate normally
-          const code = generateExpr(caseBody, indent + "  ", context);
-          if (targetVariableId) {
-            // Assign the branch result to the target variable
-            const fieldName = sanitizeForCIdentifier(`var_${targetVariableId}`);
-            if (code) {
-              emitter.emitLine(`${indent}  sm->${fieldName} = ${code};`);
-            }
-          } else if (targetAssignmentCode) {
-            if (code) {
-              emitter.emitLine(`${indent}  ${targetAssignmentCode} = ${code};`);
-            }
-          } else if (
-            code &&
-            caseBody.$ &&
-            !isTempVariableName(caseBody.$.env.modulePath, code)
+          if (
+            shouldEmitAsyncBranchCompletion(
+              matchExpr,
+              caseBody,
+              context,
+              targetVariableId,
+              targetAssignmentCode
+            )
           ) {
-            emitter.emitLine(`${indent}  ${code};`);
+            emitNonAwaitBranchAsyncCompletion(caseBody, indent + "  ", context);
+          } else {
+            const code = generateExpr(caseBody, indent + "  ", context);
+            if (targetVariableId) {
+              // Assign the branch result to the target variable
+              const fieldName = sanitizeForCIdentifier(
+                `var_${targetVariableId}`
+              );
+              if (code) {
+                emitter.emitLine(`${indent}  sm->${fieldName} = ${code};`);
+              }
+            } else if (targetAssignmentCode) {
+              if (code) {
+                emitter.emitLine(
+                  `${indent}  ${targetAssignmentCode} = ${code};`
+                );
+              }
+            } else if (
+              code &&
+              caseBody.$ &&
+              !isTempVariableName(caseBody.$.env.modulePath, code)
+            ) {
+              emitter.emitLine(`${indent}  ${code};`);
+            }
           }
         }
       }
@@ -1054,6 +1342,7 @@ function generateMatchWithAwait(
     // Regular enum with switch/case
     emitter.emitLine(`${indent}switch (${matchedValueCode}.tag) {`);
 
+    let hasWildcardDefault = false;
     for (let i = 0; i < cases.length; i++) {
       const caseExpr = cases[i]!;
       if (
@@ -1066,33 +1355,43 @@ function generateMatchWithAwait(
       const pattern = caseExpr.args[0]!;
       const caseBody = caseExpr.args[1]!;
 
+      // Check for wildcard pattern "_" — generate default case
+      const isWildcard = exprIsAtom(pattern) && pattern.token.value === "_";
+
       // Extract variant name from pattern
       let variantName: string | undefined;
-      if (
-        exprIsFunctionCall(pattern) &&
-        exprIsFunctionCallOf(pattern, ".", 1)
-      ) {
-        // Simple pattern like .Some
-        variantName = pattern.args[0]!.token.value;
-      } else if (exprIsFunctionCall(pattern)) {
-        // Destructuring pattern like .Some(x)
-        const patternFunc = pattern.func;
+      if (!isWildcard) {
         if (
-          patternFunc &&
-          exprIsFunctionCall(patternFunc) &&
-          exprIsFunctionCallOf(patternFunc, ".", 1)
+          exprIsFunctionCall(pattern) &&
+          exprIsFunctionCallOf(pattern, ".", 1)
         ) {
-          variantName = patternFunc.args[0]!.token.value;
+          // Simple pattern like .Some
+          variantName = pattern.args[0]!.token.value;
+        } else if (exprIsFunctionCall(pattern)) {
+          // Destructuring pattern like .Some(x)
+          const patternFunc = pattern.func;
+          if (
+            patternFunc &&
+            exprIsFunctionCall(patternFunc) &&
+            exprIsFunctionCallOf(patternFunc, ".", 1)
+          ) {
+            variantName = patternFunc.args[0]!.token.value;
+          }
         }
       }
 
-      if (!variantName) {
+      if (!isWildcard && !variantName) {
         emitter.emitLine(`${indent}  // Error: Could not extract variant name`);
         continue;
       }
 
-      const variantTag = `${enumCName.toUpperCase()}_${variantName.toUpperCase()}`;
-      emitter.emitLine(`${indent}  case ${variantTag}: {`);
+      if (isWildcard) {
+        hasWildcardDefault = true;
+        emitter.emitLine(`${indent}  default: {`);
+      } else {
+        const variantTag = `${enumCName.toUpperCase()}_${variantName!.toUpperCase()}`;
+        emitter.emitLine(`${indent}  case ${variantTag}: {`);
+      }
       emitter.emitLine(
         `${indent}    sm->cond_branch_${awaitPoint.index} = ${i};`
       );
@@ -1196,23 +1495,37 @@ function generateMatchWithAwait(
         }
       } else {
         // No await - generate normally
-        const code = generateExpr(caseBody, indent + "    ", context);
-        if (targetVariableId) {
-          // Assign the branch result to the target variable
-          const fieldName = sanitizeForCIdentifier(`var_${targetVariableId}`);
-          if (code) {
-            emitter.emitLine(`${indent}    sm->${fieldName} = ${code};`);
-          }
-        } else if (targetAssignmentCode) {
-          if (code) {
-            emitter.emitLine(`${indent}    ${targetAssignmentCode} = ${code};`);
-          }
-        } else if (
-          code &&
-          caseBody.$ &&
-          !isTempVariableName(caseBody.$.env.modulePath, code)
+        if (
+          shouldEmitAsyncBranchCompletion(
+            matchExpr,
+            caseBody,
+            context,
+            targetVariableId,
+            targetAssignmentCode
+          )
         ) {
-          emitter.emitLine(`${indent}    ${code};`);
+          emitNonAwaitBranchAsyncCompletion(caseBody, indent + "    ", context);
+        } else {
+          const code = generateExpr(caseBody, indent + "    ", context);
+          if (targetVariableId) {
+            // Assign the branch result to the target variable
+            const fieldName = sanitizeForCIdentifier(`var_${targetVariableId}`);
+            if (code) {
+              emitter.emitLine(`${indent}    sm->${fieldName} = ${code};`);
+            }
+          } else if (targetAssignmentCode) {
+            if (code) {
+              emitter.emitLine(
+                `${indent}    ${targetAssignmentCode} = ${code};`
+              );
+            }
+          } else if (
+            code &&
+            caseBody.$ &&
+            !isTempVariableName(caseBody.$.env.modulePath, code)
+          ) {
+            emitter.emitLine(`${indent}    ${code};`);
+          }
         }
       }
 
@@ -1220,7 +1533,9 @@ function generateMatchWithAwait(
       emitter.emitLine(`${indent}  }`);
     }
 
-    emitter.emitLine(`${indent}  default: break;`);
+    if (!hasWildcardDefault) {
+      emitter.emitLine(`${indent}  default: break;`);
+    }
     emitter.emitLine(`${indent}}`);
   }
 }
@@ -1334,22 +1649,34 @@ function generatePrimitiveMatchWithAwait(
         deferredDropExpressions: caseBody.$?.deferredDropExpressions,
       });
     } else {
-      const code = generateExpr(caseBody, indent + "    ", context);
-      if (targetVariableId) {
-        const fieldName = sanitizeForCIdentifier(`var_${targetVariableId}`);
-        if (code) {
-          emitter.emitLine(`${indent}    sm->${fieldName} = ${code};`);
-        }
-      } else if (targetAssignmentCode) {
-        if (code) {
-          emitter.emitLine(`${indent}    ${targetAssignmentCode} = ${code};`);
-        }
-      } else if (
-        code &&
-        caseBody.$ &&
-        !isTempVariableName(caseBody.$.env.modulePath, code)
+      if (
+        shouldEmitAsyncBranchCompletion(
+          matchExpr,
+          caseBody,
+          context,
+          targetVariableId,
+          targetAssignmentCode
+        )
       ) {
-        emitter.emitLine(`${indent}    ${code};`);
+        emitNonAwaitBranchAsyncCompletion(caseBody, indent + "    ", context);
+      } else {
+        const code = generateExpr(caseBody, indent + "    ", context);
+        if (targetVariableId) {
+          const fieldName = sanitizeForCIdentifier(`var_${targetVariableId}`);
+          if (code) {
+            emitter.emitLine(`${indent}    sm->${fieldName} = ${code};`);
+          }
+        } else if (targetAssignmentCode) {
+          if (code) {
+            emitter.emitLine(`${indent}    ${targetAssignmentCode} = ${code};`);
+          }
+        } else if (
+          code &&
+          caseBody.$ &&
+          !isTempVariableName(caseBody.$.env.modulePath, code)
+        ) {
+          emitter.emitLine(`${indent}    ${code};`);
+        }
       }
       branchesWithAwait.push({
         index: i,
@@ -1463,13 +1790,29 @@ function generateCondBranchWithAwait(
         exprIsFunctionCallOf(expr, BuiltinKeywords.cond)
       ) {
         // Nested cond expression with await in one of its branches
+        // If this cond is the last expression in the branch and we're in
+        // async tail position, propagate the flag so the nested cond's
+        // non-await branches also emit Future completion code.
+        const isLastExprInBranch = expr === expressions[expressions.length - 1];
+        const previousAsyncBodyReturnExpr = context.asyncBodyReturnExpr;
+        if (isLastExprInBranch && context.asyncBodyReturnExpr !== undefined) {
+          context.asyncBodyReturnExpr = expr;
+        }
         generateCondWithAwait(expr, awaitPoint, indent, context);
+        context.asyncBodyReturnExpr = previousAsyncBodyReturnExpr;
       } else if (
         expr.tag === ExprTag.FnCall &&
         exprIsFunctionCallOf(expr, BuiltinKeywords.match)
       ) {
         // Match expression with await in one of its branches
+        // Propagate async tail position to nested match (same logic as cond above)
+        const isLastExprInBranch = expr === expressions[expressions.length - 1];
+        const previousAsyncBodyReturnExpr = context.asyncBodyReturnExpr;
+        if (isLastExprInBranch && context.asyncBodyReturnExpr !== undefined) {
+          context.asyncBodyReturnExpr = expr;
+        }
         generateMatchWithAwait(expr, awaitPoint, indent, context);
+        context.asyncBodyReturnExpr = previousAsyncBodyReturnExpr;
       } else if (
         expr.tag === ExprTag.FnCall &&
         exprIsFunctionCallOf(expr, BuiltinKeywords.while)
@@ -1728,7 +2071,11 @@ function generateWhileBodyWithAwait(
     // Cond expression with await in one of its branches
     generateCondWithAwait(awaitExpr, awaitPoint, indent, context, undefined);
     // The cond branch remainingExprs are already stored in context.asyncCondBranchInfo
-    // Don't collect anything here - they'll be handled in the resume state
+    // but we still need to collect expressions AFTER the cond in the while loop body
+    // (e.g., loop counter increments like `i = (i + usize(1))`)
+    for (let i = awaitFoundIndex + 1; i < bodyExprs.length; i++) {
+      remainingExprs.push(bodyExprs[i]!);
+    }
     return remainingExprs;
   } else if (
     exprIsFunctionCall(awaitExpr) &&
@@ -1737,7 +2084,10 @@ function generateWhileBodyWithAwait(
     // Match expression with await in one of its branches
     generateMatchWithAwait(awaitExpr, awaitPoint, indent, context);
     // The match branch remainingExprs are already stored in context.asyncCondBranchInfo
-    // Don't collect anything here - they'll be handled in the resume state
+    // but we still need to collect expressions AFTER the match in the while loop body
+    for (let i = awaitFoundIndex + 1; i < bodyExprs.length; i++) {
+      remainingExprs.push(bodyExprs[i]!);
+    }
     return remainingExprs;
   }
 

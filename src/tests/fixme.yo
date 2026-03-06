@@ -1,166 +1,39 @@
-main :: (fn(using(io : IO)) -> unit) {
-  // Basic implicit parameter resolution
-  {
-    add_numbers :: (fn(
-      x : i32,
-      y : i32,
-      using(add_fn : (fn(a : i32, b : i32) -> i32))
-    ) -> i32)(
-      add_fn(x, y)
-    );
+open import "std/libc/stdio";
 
-    given(my_add) := (fn(a : i32, b : i32) -> i32)(a + b);
+main :: (fn() -> unit) {
+  Speak :: trait(
+    speak : (fn(self : Self) -> i32)
+  );
 
-    // Implicit resolution: finds my_add via given lookup
-    result := add_numbers(3, 4);
-    assert(result == 7, "implicit resolution failed");
-  };
+  Run :: trait(
+    run : (fn(self : Self) -> i32)
+  );
 
-  // Explicit using(...) at call site
-  {
-    add_numbers :: (fn(
-      x : i32,
-      y : i32,
-      using(add_fn : (fn(a : i32, b : i32) -> i32))
-    ) -> i32)(
-      add_fn(x, y)
-    );
+  // Dog :: struct(); // This should give error working with `dyn`.
+  Dog :: object();
 
-    my_adder :: (fn(a : i32, b : i32) -> i32)(a + b);
+  DogSpeak :: impl(Dog, Speak
+    speak : ((self : Self) -> {
+      printf("Woof!\n");
+      return 1;
+    })
+  );
 
-    // Explicit using: passes value directly
-    result := add_numbers(5, 6, using(my_adder));
-    assert(result == 11, "explicit using failed");
-  };
+  DogRun :: impl(Dog, Run
+    run : ((self : Self) -> {
+      printf("The dog is running!\n");
+      return 2;
+    })
+  );
 
-  // using(undefined) skips explicit and falls back to given lookup
-  {
-    add_numbers :: (fn(
-      x : i32,
-      y : i32,
-      using(add_fn : (fn(a : i32, b : i32) -> i32))
-    ) -> i32)(
-      add_fn(x, y)
-    );
+  act :: (fn(s : Dyn(Speak, Run)) -> i32)
+    s.speak() + s.run()
+  ;
 
-    given(my_add) := (fn(a : i32, b : i32) -> i32)(a + b);
-
-    result := add_numbers(7, 8, using(undefined));
-    assert(result == 15, "using(undefined) should fall back to given lookup");
-  };
-
-  // given with : binding
-  {
-    apply :: (fn(
-      x : i32,
-      using(transform : (fn(v : i32) -> i32))
-    ) -> i32)(
-      transform(x)
-    );
-
-    (given(my_transform) : (fn(v : i32) -> i32)) =
-      (v) -> (v * 3)
-    ;
-
-    result := apply(10);
-    assert(result == 30, "given with : binding failed");
-  };
-
-  // Multiple implicit parameters with distinct types
-  {
-    compute :: (fn(
-      x : i32,
-      using(add_fn : (fn(a : i32, b : i32) -> i32),
-            to_bool : (fn(a : i32) -> bool))
-    ) -> bool)(
-      to_bool(add_fn(x, 1))
-    );
-
-    given(my_add) := (fn(a : i32, b : i32) -> i32)(a + b);
-    given(my_is_positive) := (fn(a : i32) -> bool)(a > 0);
-
-    result := compute(5);
-    assert(result == true, "multiple implicit params failed");
-  };
-
-  // Explicit using with multiple implicit params
-  {
-    compute :: (fn(
-      x : i32,
-      using(add_fn : (fn(a : i32, b : i32) -> i32),
-            negate : (fn(a : i32) -> i32))
-    ) -> i32)(
-      negate(add_fn(x, 10))
-    );
-
-    my_add :: (fn(a : i32, b : i32) -> i32)(a + b);
-    my_neg :: (fn(a : i32) -> i32)(i32(0) - a);
-
-    result := compute(5, using(my_add, my_neg));
-    assert(result == (i32(0) - 15), "explicit using with multiple params failed");
-  };
-
-  // using(undefined) for partial skip with multiple implicit params
-  {
-    compute :: (fn(
-      x : i32,
-      using(add_fn : (fn(a : i32, b : i32) -> i32),
-            scale : (fn(a : i32) -> i32))
-    ) -> i32)(
-      scale(add_fn(x, 1))
-    );
-
-    given(my_add) := (fn(a : i32, b : i32) -> i32)(a + b);
-    my_double :: (fn(a : i32) -> i32)(a * 2);
-
-    // First implicit param skipped (uses given lookup), second explicit
-    result := compute(4, using(undefined, my_double));
-    assert(result == 10, "partial using(undefined) failed");
-  };
-
-  // Ambiguous implicit should error
-  {
-    apply :: (fn(
-      x : i32,
-      using(op : (fn(a : i32) -> i32))
-    ) -> i32)(
-      op(x)
-    );
-
-    given(double_it) := (fn(a : i32) -> i32)(a * 2);
-    given(triple_it) := (fn(a : i32) -> i32)(a * 3);
-
-    comptime_expect_error(apply(5)); // Ambiguous: two given variables with same type
-  };
-
-  // No matching given should error
-  {
-    apply :: (fn(
-      x : i32,
-      using(op : (fn(a : i32) -> bool))
-    ) -> bool)(
-      op(x)
-    );
-
-    given(my_add) := (fn(a : i32, b : i32) -> i32)(a + b);
-
-    comptime_expect_error(apply(5)); // No given with type (fn(i32) -> bool)
-  };
-
-  // Implicit with generic function (forall + using)
-  {
-    apply :: (fn(
-      forall(T : Type),
-      x : T,
-      using(op : (fn(a : T) -> T))
-    ) -> T)(
-      op(x)
-    );
-
-    given(inc) := (fn(a : i32) -> i32)(a + 1);
-    result := apply(41);
-    assert(result == 42, "forall + using failed");
-  };
+  dog := Dog();
+  result := act(dyn(dog));
+  assert(result == 3, "Expected result to be 3");
+  assert(dog.speak() == 1, "Expected dog.speak() to return 1");
 };
-
 export main;
+

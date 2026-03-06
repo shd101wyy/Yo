@@ -35,6 +35,22 @@ print_bool :: (fn(value: bool) -> i32)(
     true => i32(0)
   )
 );
+
+// WRONG - lambda body wraps single expression in {...}, creating a struct:
+io.async((using(io : IO)) => {
+  cond(
+    done => .Ok(()),
+    true => .Err(e)
+  )
+})
+
+// CORRECT - lambda body is just the expression, no {...}:
+io.async((using(io : IO)) =>
+  cond(
+    done => .Ok(()),
+    true => .Err(e)
+  )
+)
 ```
 
 ## Always write `cond(...)` and `match(...)` with parentheses
@@ -84,6 +100,18 @@ Always add `()` after function name to prevent this.
 ## No operator precedence
 
 Always use parentheses to group operations: `((a + b) * c)` not `a + b * c`
+
+Every binary operation must be explicitly parenthesized. When chaining the same operator 3+ times, nest parentheses left-to-right:
+
+```yo
+// WRONG — 3+ operands without nesting:
+(A | B | C)
+(A | B | C | D)
+
+// CORRECT — nest left-to-right:
+((A | B) | C)
+(((A | B) | C) | D)
+```
 
 Example: `((value <= 0x10FFFF) && ((value < 0xD800) || (value > 0xDFFF)))`
 

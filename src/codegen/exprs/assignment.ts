@@ -285,14 +285,6 @@ export function generateAssignment(
 
       let cTypeString: string;
       if (rhsIsTempVar && shouldUseFutureType) {
-        // RHS is a temp variable that was already declared with the correct Future type
-        // Use 'auto' or just don't specify the type - let C infer it from the RHS
-        // Actually, C doesn't have type inference, so we need to use the RHS's type
-        // But we don't know the RHS's C type here. The best we can do is use the temp variable's
-        // type by looking at the generated code. But that's not possible.
-        // So instead, just don't emit the initialization - emit an alias assignment.
-        // NO WAIT - we can't do that because this IS the initialization.
-        // The only solution is to get the correct type from the function's async block.
         if (rhsAsyncStructName) {
           cTypeString = `${rhsAsyncStructName}*`;
         } else {
@@ -308,8 +300,15 @@ export function generateAssignment(
         );
       }
 
+      // In state machines, sm->var_xxx members are already declared in the struct,
+      // so skip the type prefix even for initialization assignments
+      const isSmVar =
+        (functionContext.inAsyncStateMachine ||
+          functionContext.inEffectStateMachine) &&
+        lhsCode.startsWith("sm->");
+
       context.emitter.emitLine(
-        `${indent}${isInitialization ? cTypeString + " " : ""}${lhsCode} = ${finalRhsCode};`
+        `${indent}${isInitialization && !isSmVar ? cTypeString + " " : ""}${lhsCode} = ${finalRhsCode};`
       );
     }
   }

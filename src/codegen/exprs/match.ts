@@ -359,6 +359,26 @@ export function generateMatchExpression(
         if (
           caseValue &&
           caseBody &&
+          exprIsAtom(caseValue) &&
+          caseValue.token.value === "_"
+        ) {
+          // Wildcard pattern "_" — generate default case
+          context.emitter.emitLine(`${indent}default: {`);
+
+          const bodyCode = generateCaseBody(caseBody, indent + "  ", context);
+          if (!isUnit && tempVariableName && bodyCode) {
+            context.emitter.emitLine(
+              `${indent}  ${tempVariableName} = ${bodyCode};`
+            );
+          } else if (bodyCode) {
+            context.emitter.emitLine(`${indent}  ${bodyCode};`);
+          }
+
+          context.emitter.emitLine(`${indent}  break;`);
+          context.emitter.emitLine(`${indent}}`);
+        } else if (
+          caseValue &&
+          caseBody &&
           exprIsFunctionCall(caseValue) &&
           exprIsFunctionCallOf(caseValue, ".", 1)
         ) {
@@ -370,7 +390,7 @@ export function generateMatchExpression(
           );
 
           // Generate the case label
-          context.emitter.emitLine(`${indent}case ${variantTag}:`);
+          context.emitter.emitLine(`${indent}case ${variantTag}: {`);
 
           // Generate the body of the case
           const bodyCode = generateCaseBody(caseBody, indent + "  ", context);
@@ -385,6 +405,7 @@ export function generateMatchExpression(
           // Always emit break to exit the switch case
           // (nested break to exit loop is handled by generateAtom with insideMatch flag)
           context.emitter.emitLine(`${indent}  break;`);
+          context.emitter.emitLine(`${indent}}`); // close case block scope
         }
       }
     }
@@ -415,7 +436,28 @@ export function generateMatchExpression(
       const caseValue = caseExpr.args[0];
       let caseBody = caseExpr.args[1];
 
+      // Check for wildcard pattern "_" — generate default case
       if (
+        caseValue &&
+        caseBody &&
+        exprIsAtom(caseValue) &&
+        caseValue.token.value === "_"
+      ) {
+        context.emitter.emitLine(`${indent}default: {`);
+
+        // Generate the body of the case
+        const bodyCode = generateCaseBody(caseBody, indent + "  ", context);
+        if (!isUnit && tempVariableName && bodyCode) {
+          context.emitter.emitLine(
+            `${indent}  ${tempVariableName} = ${bodyCode};`
+          );
+        } else if (bodyCode) {
+          context.emitter.emitLine(`${indent}  ${bodyCode};`);
+        }
+
+        context.emitter.emitLine(`${indent}  break;`);
+        context.emitter.emitLine(`${indent}}`);
+      } else if (
         caseValue &&
         caseBody &&
         // caseValue now has to be a variant:
@@ -428,7 +470,7 @@ export function generateMatchExpression(
         const variantTag = getEnumVariantCName(enumType, variantName, context);
 
         // Generate the case label
-        context.emitter.emitLine(`${indent}case ${variantTag}:`);
+        context.emitter.emitLine(`${indent}case ${variantTag}: {`);
 
         // Handle destructuring patterns like .Point(point) => { ... }
         if (caseValue.args.length > 1) {
@@ -638,6 +680,7 @@ export function generateMatchExpression(
         // Always emit break to exit the switch case
         // (nested break to exit loop is handled by generateAtom with insideMatch flag)
         context.emitter.emitLine(`${indent}  break;`);
+        context.emitter.emitLine(`${indent}}`); // close case block scope
       }
       // Handle destructuring patterns like .Point(point) => { ... }
       else if (
@@ -655,7 +698,7 @@ export function generateMatchExpression(
         const destructuringParams = caseValue.args;
 
         // Generate the case label
-        context.emitter.emitLine(`${indent}case ${variantTag}:`);
+        context.emitter.emitLine(`${indent}case ${variantTag}: {`);
 
         // Generate local variable declarations for destructured fields
         const variant = enumType.variants.find((v) => v.name === variantName);
@@ -859,6 +902,7 @@ export function generateMatchExpression(
         // Always emit break to exit the switch case
         // (nested break to exit loop is handled by generateAtom with insideMatch flag)
         context.emitter.emitLine(`${indent}  break;`);
+        context.emitter.emitLine(`${indent}}`); // close case block scope
       }
     }
   }
@@ -946,7 +990,7 @@ function generatePrimitiveMatchExpression(
       // Check for wildcard pattern "_"
       if (exprIsAtom(caseValue) && caseValue.token.value === "_") {
         // Generate default case
-        context.emitter.emitLine(`${indent}default:`);
+        context.emitter.emitLine(`${indent}default: {`);
 
         // Generate the body of the case
         const bodyCode = generateCaseBody(caseBody, indent + "  ", context);
@@ -959,6 +1003,7 @@ function generatePrimitiveMatchExpression(
         }
 
         context.emitter.emitLine(`${indent}  break;`);
+        context.emitter.emitLine(`${indent}}`); // close case block scope
         continue;
       }
 
@@ -988,6 +1033,9 @@ function generatePrimitiveMatchExpression(
         }
       }
 
+      // Open block scope for the case body
+      context.emitter.emitLine(`${indent}{`);
+
       // Generate the body of the case (only once for all the case labels)
       const bodyCode = generateCaseBody(caseBody, indent + "  ", context);
       if (!isUnit && tempVariableName && bodyCode) {
@@ -999,6 +1047,7 @@ function generatePrimitiveMatchExpression(
       }
 
       context.emitter.emitLine(`${indent}  break;`);
+      context.emitter.emitLine(`${indent}}`); // close case block scope
     }
   }
 

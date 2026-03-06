@@ -248,6 +248,16 @@ export function generateFunctionDeclaration(
     const asyncBlock = findReturnedAsyncBlock(functionBody);
     if (asyncBlock?.$?.asyncStateMachineStructName) {
       overrideReturnType = `${asyncBlock.$.asyncStateMachineStructName}*`;
+    } else if (
+      functionBody.$?.type &&
+      isSomeType(functionBody.$.type) &&
+      typeImplementsFuture(functionBody.$.type)
+    ) {
+      // Function delegates to another function returning Impl(Future(T))
+      // (e.g., File.open calls File.open_with which contains the io.async block).
+      // The body's type SomeType may have resolvedConcreteType pointing to the
+      // async block's SomeType, which is registered in context.types.
+      overrideReturnType = getTypeString(functionBody.$.type, context);
     }
   }
 

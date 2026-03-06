@@ -1,0 +1,34 @@
+// std/error.yo - Error trait
+//
+// Provides a standard Error trait for typed error propagation.
+// All error types in the standard library should implement this trait.
+//
+// Example:
+//   { Error } :: import "std/error";
+//
+//   MyError :: enum(
+//     NotFound(path: String),
+//     PermissionDenied
+//   );
+//   impl(MyError, Error(
+//     message : (self -> {
+//       return match(self,
+//         .NotFound(path) => `file not found: ${path}`,
+//         .PermissionDenied => String.from("permission denied")
+//       );
+//     })
+//   ));
+
+open import "./string";
+
+// ============================================================================
+// Error trait
+// ============================================================================
+
+Error :: (fn(comptime(T) : Type) -> comptime(Type))
+  trait(
+    message :: (fn(self: *(T)) -> String)
+  )
+;
+
+export Error;

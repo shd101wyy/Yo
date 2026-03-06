@@ -190,6 +190,16 @@ export function generateAsyncBlockResumeFunction(
   // Split the body into state segments
   const segments = splitIntoStateSegments(bodyExpr, analysis.awaitPoints);
 
+  // Determine the body's last expression for async implicit return detection.
+  // When a cond-with-await IS the body's last expression, non-await branches
+  // should complete the Future immediately (they won't reach later segments).
+  const bodyExprs =
+    bodyExpr.tag === ExprTag.FnCall && exprIsFunctionCallOf(bodyExpr, "begin")
+      ? bodyExpr.args
+      : [bodyExpr];
+  const bodyLastExpr =
+    bodyExprs.length > 0 ? bodyExprs[bodyExprs.length - 1] : undefined;
+
   emitter.emitLine(`// Resume function for async block ${asyncBlockId}`);
   emitter.emitLine(`void ${resumeFunctionName}(${structName}* sm) {`);
   emitter.emitLine(
@@ -322,12 +332,17 @@ export function generateAsyncBlockResumeFunction(
           // Use condBranchFieldIndex if set (for continuation states), otherwise use prevAwait.index
           const condBranchFieldIndex =
             condBranchData.condBranchFieldIndex ?? prevAwait.index;
+          // condBranchFieldIndex === -1 means "unconditional" — nested cond
+          // conflict where sm->cond_branch_N was overwritten by an inner cond.
+          const skipCondBranchSwitch = condBranchFieldIndex === -1;
           emitter.emitLine(
             `      // Execute remaining code from chosen cond branch`
           );
-          emitter.emitLine(
-            `      switch (sm->cond_branch_${condBranchFieldIndex}) {`
-          );
+          if (!skipCondBranchSwitch) {
+            emitter.emitLine(
+              `      switch (sm->cond_branch_${condBranchFieldIndex}) {`
+            );
+          }
 
           // Check if the current segment has an additional cond await point
           const hasAdditionalCondAwait =
@@ -335,7 +350,9 @@ export function generateAsyncBlockResumeFunction(
 
           for (const branch of condBranchData.branches) {
             if (branch.hasAwait) {
-              emitter.emitLine(`        case ${branch.index}: {`);
+              if (!skipCondBranchSwitch) {
+                emitter.emitLine(`        case ${branch.index}: {`);
+              }
               emitter.emitLine(
                 `          ASYNC_DEBUG("${asyncBlockId}: Executing remaining code from branch ${branch.index}\\n");`
               );
@@ -355,8 +372,14 @@ export function generateAsyncBlockResumeFunction(
                 context.inAsyncStateMachine = { futureType };
                 context.variableIdRemapping = analysis.variableIdRemapping;
                 // Set pending deferred drops so early returns in cond branches
-                // can drop async block local variables
+                // can drop async block local variables.
+                // Also include while loop body drops and cond branch drops when applicable.
+                const whileLoopDataForDrops =
+                  functionContext.asyncWhileLoopInfo?.get(prevAwait.index);
                 context.pendingDeferredDrops = [
+                  ...(branch.deferredDropExpressions ?? []),
+                  ...(whileLoopDataForDrops?.bodyExpr.$
+                    ?.deferredDropExpressions ?? []),
                   ...(bodyExpr.$?.deferredDropExpressions ?? []),
                 ];
                 // Combine outer captured variables and local variables
@@ -526,12 +549,16 @@ export function generateAsyncBlockResumeFunction(
                   previousPendingDeferredDropsForBranch;
               }
 
-              emitter.emitLine(`          break;`);
-              emitter.emitLine(`        }`);
+              if (!skipCondBranchSwitch) {
+                emitter.emitLine(`          break;`);
+                emitter.emitLine(`        }`);
+              }
             }
           }
 
-          emitter.emitLine(`      }`);
+          if (!skipCondBranchSwitch) {
+            emitter.emitLine(`      }`);
+          }
 
           // Process chained branches (outer cond's remaining code after nested cond's switch)
           if (condBranchData.chainedBranches) {
@@ -554,7 +581,12 @@ export function generateAsyncBlockResumeFunction(
 
                   context.inAsyncStateMachine = { futureType };
                   context.variableIdRemapping = analysis.variableIdRemapping;
+                  const whileLoopDataForChainedDrops =
+                    functionContext.asyncWhileLoopInfo?.get(prevAwait.index);
                   context.pendingDeferredDrops = [
+                    ...(chainedBranch.deferredDropExpressions ?? []),
+                    ...(whileLoopDataForChainedDrops?.bodyExpr.$
+                      ?.deferredDropExpressions ?? []),
                     ...(bodyExpr.$?.deferredDropExpressions ?? []),
                   ];
                   const combinedVariablesChained = new Map<
@@ -926,6 +958,172 @@ export function generateAsyncBlockResumeFunction(
           // Add label for code after while loop (for break to jump to)
           emitter.emitLine(`      after_while_loop_${prevAwait.index}:`);
 
+          // Emit post-while-loop expressions from enclosing cond branch.
+          // These were deferred from the "remaining code from chosen cond branch"
+          // handler because they must only execute once (after the while loop
+          // exits), not on every state machine resume.
+          if (whileLoopData.condBranchPostWhileExprs) {
+            const postWhileData = whileLoopData.condBranchPostWhileExprs;
+            const pwCondField = postWhileData.condBranchFieldIndex;
+            const pwBranchIdx = postWhileData.branchIndex;
+            if (postWhileData.skipCondBranchCheck) {
+              // Nested cond conflict: sm->cond_branch_N was overwritten by an
+              // inner cond, so the guard check would always fail. Skip it —
+              // after_while_loop_N is only reachable from the correct branch.
+              emitter.emitLine(
+                `      // Execute post-while-loop code from cond branch (unconditional)`
+              );
+              emitter.emitLine(`      {`);
+            } else {
+              emitter.emitLine(
+                `      // Execute post-while-loop code from cond branch`
+              );
+              emitter.emitLine(
+                `      if (sm->cond_branch_${pwCondField} == ${pwBranchIdx}) {`
+              );
+            }
+
+            // Set up state machine context for code generation
+            const prevInSMPW = context.inAsyncStateMachine;
+            const prevSMVarsPW = context.stateMachineVariables;
+            const prevVarRemapPW = context.variableIdRemapping;
+            const prevPendingDropsPW = context.pendingDeferredDrops;
+
+            context.inAsyncStateMachine = { futureType };
+            context.variableIdRemapping = analysis.variableIdRemapping;
+            context.pendingDeferredDrops = [
+              ...(bodyExpr.$?.deferredDropExpressions ?? []),
+            ];
+
+            const combinedVarsPW = new Map<string, CapturedVariable>();
+            for (const v of analysis.capturedVariables) {
+              combinedVarsPW.set(v.id, v);
+            }
+            if (captureType) {
+              for (const field of captureType.fields) {
+                combinedVarsPW.set(field.label, {
+                  id: field.label,
+                  name: field.label,
+                  type: field.type,
+                  kind: "outer",
+                  isOwningTheSameRcValueAs: undefined,
+                });
+              }
+            }
+            context.stateMachineVariables = combinedVarsPW;
+
+            const hasNextAwait = segment.awaitPoint != null;
+            let foundPostWhileAwait = false;
+            const additionalRemainingExprs: Expr[] = [];
+
+            for (let pwIdx = 0; pwIdx < postWhileData.exprs.length; pwIdx++) {
+              const expr = postWhileData.exprs[pwIdx]!;
+
+              if (foundPostWhileAwait) {
+                additionalRemainingExprs.push(expr);
+                continue;
+              }
+
+              if (hasNextAwait && exprContainsAwait(expr)) {
+                foundPostWhileAwait = true;
+                generateRemainingExprFuture(
+                  expr,
+                  segment.awaitPoint!,
+                  analysis,
+                  "        ",
+                  context
+                );
+                continue;
+              }
+
+              // Normal expression
+              const code = generateExpr(expr, "        ", context);
+              if (
+                !code ||
+                !expr.$ ||
+                isTempVariableName(expr.$.env.modulePath, code)
+              ) {
+                // Skip
+              } else {
+                emitter.emitLine(`        ${code};`);
+              }
+            }
+
+            // Chain remaining expressions after the await to the next state
+            if (foundPostWhileAwait && segment.awaitPoint) {
+              const nextIndex = segment.awaitPoint.index;
+              if (!functionContext.asyncCondBranchInfo) {
+                functionContext.asyncCondBranchInfo = new Map();
+              }
+              // When skipCondBranchCheck is set, use -1 as condBranchFieldIndex
+              // to signal the next state to execute unconditionally.
+              const chainedCondField = postWhileData.skipCondBranchCheck
+                ? -1
+                : postWhileData.condBranchFieldIndex;
+              const existing =
+                functionContext.asyncCondBranchInfo.get(nextIndex);
+              if (existing) {
+                // Entry already exists — chain as additional layer
+                if (!existing.chainedBranches) {
+                  existing.chainedBranches = [];
+                }
+                existing.chainedBranches.push({
+                  branches: [
+                    {
+                      index: postWhileData.branchIndex,
+                      value: postWhileData.exprs[0]!,
+                      hasAwait:
+                        additionalRemainingExprs.length > 0 ||
+                        additionalRemainingExprs.some((e) =>
+                          exprContainsAwait(e)
+                        ),
+                      remainingExprs: additionalRemainingExprs,
+                      deferredDropExpressions:
+                        postWhileData.deferredDropExpressions,
+                    },
+                  ],
+                  condBranchFieldIndex: chainedCondField,
+                });
+              } else {
+                functionContext.asyncCondBranchInfo.set(nextIndex, {
+                  branches: [
+                    {
+                      index: postWhileData.branchIndex,
+                      value: postWhileData.exprs[0]!,
+                      hasAwait:
+                        additionalRemainingExprs.length > 0 ||
+                        additionalRemainingExprs.some((e) =>
+                          exprContainsAwait(e)
+                        ),
+                      remainingExprs: additionalRemainingExprs,
+                      deferredDropExpressions:
+                        postWhileData.deferredDropExpressions,
+                    },
+                  ],
+                  condBranchFieldIndex: chainedCondField,
+                });
+              }
+            }
+
+            // If no additional await, generate deferred drops
+            if (!foundPostWhileAwait && postWhileData.deferredDropExpressions) {
+              for (const dropExpr of postWhileData.deferredDropExpressions) {
+                const dropCode = generateExpr(dropExpr, "        ", context);
+                if (dropCode && dropCode.includes("sm->")) {
+                  emitter.emitLine(`        ${dropCode};`);
+                }
+              }
+            }
+
+            emitter.emitLine(`      }`);
+
+            // Restore context
+            context.inAsyncStateMachine = prevInSMPW;
+            context.stateMachineVariables = prevSMVarsPW;
+            context.variableIdRemapping = prevVarRemapPW;
+            context.pendingDeferredDrops = prevPendingDropsPW;
+          }
+
           // Handle outer while loop continuation (for nested while-with-await)
           if (whileLoopData.outerWhileLoop) {
             const outerWhile = whileLoopData.outerWhileLoop;
@@ -1148,12 +1346,36 @@ export function generateAsyncBlockResumeFunction(
     // For the last segment, we need to capture the final expression's value
     const isLastSegmentWithResult =
       isLastSegment && !isUnitResult && segment.expressions.length > 0;
+
+    // When a segment's last expression IS the body's implicit return AND it's
+    // a cond/match with await, set asyncBodyReturnExpr so that non-await
+    // branches can emit Future completion code directly.
+    const segmentLastExpr =
+      segment.expressions.length > 0
+        ? segment.expressions[segment.expressions.length - 1]
+        : undefined;
+    const previousAsyncBodyReturnExpr = context.asyncBodyReturnExpr;
+    if (
+      !isUnitResult &&
+      segmentLastExpr &&
+      bodyLastExpr &&
+      segmentLastExpr === bodyLastExpr &&
+      segment.awaitPoint
+    ) {
+      context.asyncBodyReturnExpr = segmentLastExpr;
+    } else {
+      context.asyncBodyReturnExpr = undefined;
+    }
+
     generateStateSegmentCode(
       segment,
       "      ",
       context,
       isLastSegmentWithResult
     );
+
+    // Restore
+    context.asyncBodyReturnExpr = previousAsyncBodyReturnExpr;
 
     // Restore pending deferred drops
     context.pendingDeferredDrops = previousPendingDeferredDrops;
@@ -1194,9 +1416,16 @@ export function generateAsyncBlockResumeFunction(
           emitter.emitLine(`      if (sm->${futureFieldName} != NULL) {`);
         }
 
-        // If this await is inside a while loop, wrap the await logic in a check for loop active flag
+        // If this await is inside a while loop, wrap the await logic in a check for loop active flag.
+        // Only do this for the direct while-loop-await (the one that generated while_loop_N_start),
+        // not for nested awaits inside cond branches within the while loop.
         const isInsideWhile = segment.awaitPoint?.isInsideWhile;
-        if (isInsideWhile) {
+        const whileLoopInfoForAwait = isInsideWhile
+          ? (context as FunctionGenerationContext).asyncWhileLoopInfo?.get(
+              segment.awaitPoint.index
+            )
+          : undefined;
+        if (isInsideWhile && whileLoopInfoForAwait) {
           const whileLoopIndex = segment.awaitPoint.index;
           emitter.emitLine(
             `      // Only await if while loop is still active (not broken)`
@@ -1297,7 +1526,7 @@ export function generateAsyncBlockResumeFunction(
         );
         emitter.emitLine(`      return;`);
 
-        if (isInsideWhile) {
+        if (isInsideWhile && whileLoopInfoForAwait) {
           const whileLoopIndex = segment.awaitPoint.index;
           // Add else branch to jump to code after while loop when broken
           emitter.emitLine(`      } else {`);

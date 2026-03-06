@@ -1,0 +1,412 @@
+// std/fs/file.yo - High-level file object
+//
+// Wraps a file descriptor with typed async I/O operations.
+//
+// Example:
+//   { File, read_to_string, write_file, OpenMode } :: import "std/fs/file";
+//
+//   main :: (fn(using(io : IO)) -> unit)({
+//     // Write a file
+//     io.await(write_file(Path.new(`test.txt`), `hello world`));
+//
+//     // Read it back
+//     content := io.await(read_to_string(Path.new(`test.txt`)));
+//     match(content,
+//       .Ok(s) => println(s),
+//       .Err(e) => println(e.to_string())
+//     );
+//
+//     // Open with OpenMode
+//     f := io.await(File.open(Path.new(`test.txt`), .Read));
+//   });
+
+{ GlobalAllocator } :: import "../allocator";
+{ malloc, free } :: GlobalAllocator;
+{ ArrayList } :: import "../collections/array_list";
+open import "../string";
+open import "../fmt";
+{ Path } :: import "../path";
+{ IOError } :: import "../io/errors";
+{ Metadata } :: import "./metadata";
+_metadata_mod :: import "./metadata";
+{ OpenMode, FilePermission, _open_mode_to_flags, _open_mode_needs_perm } :: import "./types";
+IO_file :: import "../io/file";
+IO_seek :: import "../io/seek";
+{
+  AT_FDCWD, O_RDONLY, O_WRONLY, O_RDWR, O_CREAT, O_TRUNC, O_APPEND,
+  O_CLOEXEC, DEFAULT_FILE_MODE
+} :: import "../io/constants";
+
+// ============================================================================
+// File
+// ============================================================================
+
+File :: object(
+  _fd       : i32,
+  _path     : Path,
+  _is_closed : bool
+);
+
+impl(File,
+  // Open a file with OpenMode and custom permissions.
+  open_with : (fn(path: Path, mode: OpenMode, perm: FilePermission, using(io : IO)) -> Impl(Future(Result(File, IOError), IO)))({
+    flags := _open_mode_to_flags(mode);
+    file_mode := cond(
+      _open_mode_needs_perm(mode) => i32(perm.mode),
+      true => i32(0)
+    );
+    io.async((using(io : IO)) => {
+      path_str := path.to_string();
+      cstr_bytes := path_str.to_cstr();
+      cstr := cstr_bytes.ptr().unwrap();
+      result := io.await(IO_file.openat(AT_FDCWD, cstr, flags, file_mode));
+      cond(
+        (result < i32(0)) => .Err(IOError.from_errno((i32(0) - result))),
+        true => .Ok(File(
+          _fd: result,
+          _path: path,
+          _is_closed: false
+        ))
+      )
+    })
+  }),
+
+  // Open a file from a str path with OpenMode and custom permissions.
+  open_with_str : (fn(path: str, mode: OpenMode, perm: FilePermission, using(io : IO)) -> Impl(Future(Result(File, IOError), IO)))(
+    File.open_with(Path.new(String.from(path)), mode, perm, using(io))
+  ),
+
+  // Open a file from a C string path with OpenMode and custom permissions.
+  open_with_cstr : (fn(path: *(u8), mode: OpenMode, perm: FilePermission, using(io : IO)) -> Impl(Future(Result(File, IOError), IO)))(
+    File.open_with(Path.from_cstr(path), mode, perm, using(io))
+  ),
+
+  // Open a file with OpenMode and default permissions.
+  open : (fn(path: Path, mode: OpenMode, using(io : IO)) -> Impl(Future(Result(File, IOError), IO)))(
+    File.open_with(path, mode, FilePermission.default(), using(io))
+  ),
+
+  // Open a file from a str path with OpenMode and default permissions.
+  open_str : (fn(path: str, mode: OpenMode, using(io : IO)) -> Impl(Future(Result(File, IOError), IO)))(
+    File.open(Path.new(String.from(path)), mode, using(io))
+  ),
+
+  // Open a file from a C string path with OpenMode and default permissions.
+  open_cstr : (fn(path: *(u8), mode: OpenMode, using(io : IO)) -> Impl(Future(Result(File, IOError), IO)))(
+    File.open(Path.from_cstr(path), mode, using(io))
+  ),
+
+  // Read up to `size` bytes into buffer.
+  // Returns number of bytes read.
+  read : (fn(self: Self, buf: *(u8), size: u32, using(io : IO)) -> Impl(Future(Result(i32, IOError), IO)))({
+    fd := self._fd;
+    io.async((using(io : IO)) => {
+      result := io.await(IO_file.read(fd, buf, size, u64(0)));
+      IOError.from_result(result)
+    })
+  }),
+
+  // Write a String to the file.
+  // Returns number of bytes written.
+  write : (fn(self: Self, data: String, using(io : IO)) -> Impl(Future(Result(i32, IOError), IO)))({
+    fd := self._fd;
+    io.async((using(io : IO)) => {
+      data_bytes := data.as_bytes();
+      result := io.await(IO_file.write(fd, data_bytes.ptr().unwrap(), u32(data_bytes.len()), u64(0)));
+      IOError.from_result(result)
+    })
+  }),
+
+  // Write bytes from an ArrayList to the file.
+  // Returns number of bytes written.
+  write_bytes : (fn(self: Self, data: ArrayList(u8), using(io : IO)) -> Impl(Future(Result(i32, IOError), IO)))({
+    fd := self._fd;
+    io.async((using(io : IO)) => {
+      result := io.await(IO_file.write(fd, data.ptr().unwrap(), u32(data.len()), u64(0)));
+      IOError.from_result(result)
+    })
+  }),
+
+  // Read the entire file into a byte list.
+  read_all : (fn(self: Self, using(io : IO)) -> Impl(Future(Result(ArrayList(u8), IOError), IO)))({
+    fd := self._fd;
+    io.async((using(io : IO)) => {
+      buf_size := usize(4096);
+      buf := *(u8)(malloc(buf_size).unwrap());
+      result := ArrayList(u8).new();
+      offset := u64(0);
+      (read_err : Option(IOError)) = .None;
+      while runtime(true), {
+        n := io.await(IO_file.read(fd, buf, u32(buf_size), offset));
+        cond(
+          (n < i32(0)) => {
+            read_err = .Some(IOError.from_errno((i32(0) - n)));
+            break;
+          },
+          (n == i32(0)) => {
+            break;
+          },
+          true => {
+            offset = (offset + u64(n));
+            i := usize(0);
+            while runtime((i < usize(n))), {
+              result.push((buf &+ i).*);
+              i = (i + usize(1));
+            };
+          }
+        );
+      };
+      free(.Some(*(void)(buf)));
+      match(read_err,
+        .Some(e) => .Err(e),
+        .None => .Ok(result)
+      )
+    })
+  }),
+
+  // Read the entire file into a String.
+  read_to_string : (fn(self: Self, using(io : IO)) -> Impl(Future(Result(String, IOError), IO)))(
+    io.async((using(io : IO)) => {
+      bytes_result := io.await(self.read_all(using(io)));
+      match(bytes_result,
+        .Ok(bytes) => .Ok(String.from_bytes(bytes)),
+        .Err(e) => .Err(e)
+      )
+    })
+  ),
+
+  // Sync file data to disk.
+  flush : (fn(self: Self, using(io : IO)) -> Impl(Future(Result(unit, IOError), IO)))({
+    fd := self._fd;
+    io.async((using(io : IO)) => {
+      result := io.await(IO_file.fsync(fd));
+      cond(
+        (result < i32(0)) => .Err(IOError.from_errno((i32(0) - result))),
+        true => .Ok(())
+      )
+    })
+  }),
+
+  // Seek to a position. Returns the new absolute position.
+  // whence: SEEK_SET(0), SEEK_CUR(1), SEEK_END(2)
+  seek : (fn(self: Self, offset: i64, whence: i32) -> Result(i64, IOError))({
+    result := IO_seek.lseek(self._fd, offset, whence);
+    cond(
+      (result < i64(0)) => .Err(IOError.from_errno(i32((i64(0) - result)))),
+      true => .Ok(result)
+    )
+  }),
+
+  // Get the current file position.
+  position : (fn(self: Self) -> i64)(
+    IO_seek.lseek(self._fd, i64(0), IO_seek.SEEK_CUR)
+  ),
+
+  // Get the file size.
+  size : (fn(self: Self) -> i64)(
+    IO_file.file_size(self._fd)
+  ),
+
+  // Close the file.
+  close : (fn(self: Self, using(io : IO)) -> Impl(Future(Result(unit, IOError), IO)))({
+    fd := self._fd;
+    io.async((using(io : IO)) =>
+      cond(
+        self._is_closed => .Ok(()),
+        true => {
+          result := io.await(IO_file.close(fd));
+          self._is_closed = true;
+          cond(
+            (result < i32(0)) => .Err(IOError.from_errno((i32(0) - result))),
+            true => .Ok(())
+          )
+        }
+      )
+    )
+  }),
+
+  // Get the file descriptor.
+  fd : (fn(self: Self) -> i32)(
+    self._fd
+  ),
+
+  // Get the file path.
+  path : (fn(self: Self) -> Path)(
+    self._path
+  ),
+
+  // Get file metadata.
+  metadata : (fn(self: Self, using(io : IO)) -> Impl(Future(Result(Metadata, IOError), IO)))(
+    _metadata_mod.metadata(self._path, using(io))
+  )
+);
+
+impl(File, Dispose(
+  dispose : (fn(self: Self) -> unit)({
+    cond(
+      (!(self._is_closed)) => {
+        IO_file.close_sync(self._fd);
+        self._is_closed = true;
+      },
+      true => ()
+    );
+  })
+));
+
+export File, OpenMode, FilePermission;
+
+// ============================================================================
+// Convenience functions
+// ============================================================================
+
+// Read an entire file into a String (Path version).
+read_to_string :: (fn(path: Path, using(io : IO)) -> Impl(Future(Result(String, IOError), IO)))(
+  io.async((using(io : IO)) => {
+    file_result := io.await(File.open(path, .Read, using(io)));
+    match(file_result,
+      .Ok(file) => {
+        content := io.await(file.read_to_string(using(io)));
+        io.await(file.close(using(io)));
+        return content;
+      },
+      .Err(e) => .Err(e)
+    )
+  })
+);
+
+// Read an entire file into a String (str version).
+read_to_string_str :: (fn(path: str, using(io : IO)) -> Impl(Future(Result(String, IOError), IO)))(
+  read_to_string(Path.new(String.from(path)), using(io))
+);
+
+// Read an entire file into a String (C string version).
+read_to_string_cstr :: (fn(path: *(u8), using(io : IO)) -> Impl(Future(Result(String, IOError), IO)))(
+  read_to_string(Path.from_cstr(path), using(io))
+);
+
+// Read an entire file into bytes (Path version).
+read_file :: (fn(path: Path, using(io : IO)) -> Impl(Future(Result(ArrayList(u8), IOError), IO)))(
+  io.async((using(io : IO)) => {
+    file_result := io.await(File.open(path, .Read, using(io)));
+    match(file_result,
+      .Ok(file) => {
+        content := io.await(file.read_all(using(io)));
+        io.await(file.close(using(io)));
+        return content;
+      },
+      .Err(e) => .Err(e)
+    )
+  })
+);
+
+// Read an entire file into bytes (str version).
+read_file_str :: (fn(path: str, using(io : IO)) -> Impl(Future(Result(ArrayList(u8), IOError), IO)))(
+  read_file(Path.new(String.from(path)), using(io))
+);
+
+// Read an entire file into bytes (C string version).
+read_file_cstr :: (fn(path: *(u8), using(io : IO)) -> Impl(Future(Result(ArrayList(u8), IOError), IO)))(
+  read_file(Path.from_cstr(path), using(io))
+);
+
+// Write a str to a file (creates or truncates) (Path version).
+write_file :: (fn(path: Path, data: str, using(io : IO)) -> Impl(Future(Result(unit, IOError), IO)))(
+  io.async((using(io : IO)) => {
+    file_result := io.await(File.open(path, .Write, using(io)));
+    match(file_result,
+      .Ok(file) => {
+        write_result := io.await(file.write(String.from(data), using(io)));
+        io.await(file.close(using(io)));
+        match(write_result,
+          .Ok(_) => .Ok(()),
+          .Err(e) => .Err(e)
+        )
+      },
+      .Err(e) => .Err(e)
+    )
+  })
+);
+
+// Write a str to a file (creates or truncates) (str path version).
+write_file_str :: (fn(path: str, data: str, using(io : IO)) -> Impl(Future(Result(unit, IOError), IO)))(
+  write_file(Path.new(String.from(path)), data, using(io))
+);
+
+// Write a str to a file (creates or truncates) (C string path version).
+write_file_cstr :: (fn(path: *(u8), data: str, using(io : IO)) -> Impl(Future(Result(unit, IOError), IO)))(
+  write_file(Path.from_cstr(path), data, using(io))
+);
+
+// Write bytes to a file (creates or truncates) (Path version).
+write_bytes :: (fn(path: Path, data: ArrayList(u8), using(io : IO)) -> Impl(Future(Result(unit, IOError), IO)))(
+  io.async((using(io : IO)) => {
+    file_result := io.await(File.open(path, .Write, using(io)));
+    match(file_result,
+      .Ok(file) => {
+        write_result := io.await(file.write_bytes(data, using(io)));
+        io.await(file.close(using(io)));
+        match(write_result,
+          .Ok(_) => .Ok(()),
+          .Err(e) => .Err(e)
+        )
+      },
+      .Err(e) => .Err(e)
+    )
+  })
+);
+
+// Append a str to a file (creates if not exists) (Path version).
+append_file :: (fn(path: Path, data: str, using(io : IO)) -> Impl(Future(Result(unit, IOError), IO)))(
+  io.async((using(io : IO)) => {
+    file_result := io.await(File.open(path, .Append, using(io)));
+    match(file_result,
+      .Ok(file) => {
+        write_result := io.await(file.write(String.from(data), using(io)));
+        io.await(file.close(using(io)));
+        match(write_result,
+          .Ok(_) => .Ok(()),
+          .Err(e) => .Err(e)
+        )
+      },
+      .Err(e) => .Err(e)
+    )
+  })
+);
+
+// Append a str to a file (str path version).
+append_file_str :: (fn(path: str, data: str, using(io : IO)) -> Impl(Future(Result(unit, IOError), IO)))(
+  append_file(Path.new(String.from(path)), data, using(io))
+);
+
+// Check if a path exists (Path version).
+exists :: (fn(path: Path, using(io : IO)) -> Impl(Future(Result(bool, IOError), IO)))(
+  io.async((using(io : IO)) => {
+    meta_result := io.await(_metadata_mod.metadata(path, using(io)));
+    match(meta_result,
+      .Ok(_) => .Ok(true),
+      .Err(e) => match(e,
+        .NotFound => .Ok(false),
+        _ => .Err(e)
+      )
+    )
+  })
+);
+
+// Check if a path exists (str version).
+exists_str :: (fn(path: str, using(io : IO)) -> Impl(Future(Result(bool, IOError), IO)))(
+  exists(Path.new(String.from(path)), using(io))
+);
+
+// Check if a path exists (C string version).
+exists_cstr :: (fn(path: *(u8), using(io : IO)) -> Impl(Future(Result(bool, IOError), IO)))(
+  exists(Path.from_cstr(path), using(io))
+);
+
+export
+  read_to_string, read_to_string_str, read_to_string_cstr,
+  read_file, read_file_str, read_file_cstr,
+  write_file, write_file_str, write_file_cstr,
+  write_bytes,
+  append_file, append_file_str,
+  exists, exists_str, exists_cstr
+;

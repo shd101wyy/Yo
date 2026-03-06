@@ -1,0 +1,327 @@
+// std/fs/dir.yo - High-level directory operations
+//
+// Wraps low-level std/io/dir with typed APIs using Result and IOError.
+//
+// Example:
+//   { create_dir, remove_dir, read_dir } :: import "std/fs/dir";
+//   { Path } :: import "std/path";
+//
+//   main :: (fn(using(io : IO)) -> unit)({
+//     io.await(create_dir(Path.new(`/tmp/yo_test`)));
+//     entries := io.await(read_dir(Path.new(`/tmp/yo_test`)));
+//     io.await(remove_dir(Path.new(`/tmp/yo_test`)));
+//   });
+
+{ GlobalAllocator } :: import "../allocator";
+{ malloc, free } :: GlobalAllocator;
+{ ArrayList } :: import "../collections/array_list";
+open import "../string";
+{ Path } :: import "../path";
+{ IOError } :: import "../io/errors";
+IO_dir :: import "../io/dir";
+IO_file :: import "../io/file";
+{ platform, Platform } :: import "../process";
+{
+  AT_FDCWD, AT_REMOVEDIR, O_RDONLY, O_DIRECTORY,
+  DEFAULT_DIR_MODE,
+  DT_REG, DT_DIR, DT_LNK
+} :: import "../io/constants";
+
+// ============================================================================
+// FileType enum
+// ============================================================================
+
+FileType :: enum(
+  File,
+  Directory,
+  Symlink,
+  Other
+);
+
+export FileType;
+
+// ============================================================================
+// DirEntry
+// ============================================================================
+
+DirEntry :: struct(
+  name      : String,
+  file_type : FileType,
+  ino       : u64
+);
+
+export DirEntry;
+
+// ============================================================================
+// Directory operations
+// ============================================================================
+
+// Create a directory at the given path.
+create_dir :: (fn(path: Path, using(io : IO)) -> Impl(Future(Result(unit, IOError), IO)))(
+  io.async((using(io : IO)) => {
+    cstr_bytes := path.to_string().to_cstr();
+    cstr := cstr_bytes.ptr().unwrap();
+    result := io.await(IO_dir.mkdir(AT_FDCWD, cstr, i32(DEFAULT_DIR_MODE)));
+    cond(
+      (result < i32(0)) => .Err(IOError.from_errno((i32(0) - result))),
+      true => .Ok(())
+    )
+  })
+);
+
+// Create a directory (str version).
+create_dir_str :: (fn(path: str, using(io : IO)) -> Impl(Future(Result(unit, IOError), IO)))(
+  create_dir(Path.new(String.from(path)), using(io))
+);
+
+// Create a directory and all parent directories.
+// Does not error if the directory already exists.
+create_dir_all :: (fn(path: Path, using(io : IO)) -> Impl(Future(Result(unit, IOError), IO)))(
+  io.async((using(io : IO)) => {
+    path_s := path.to_string();
+    cstr_bytes := path_s.to_cstr();
+    cstr := cstr_bytes.ptr().unwrap();
+    // Try creating the directory directly first
+    result := io.await(IO_dir.mkdir(AT_FDCWD, cstr, i32(DEFAULT_DIR_MODE)));
+    cond(
+      (result >= i32(0)) => .Ok(()),
+      true => {
+        errno := (i32(0) - result);
+        cond(
+          // Already exists is OK
+          (errno == i32(17)) => .Ok(()),
+          // ENOENT - try to create parents
+          (errno == i32(2)) => {
+            // Walk the path and create each component
+            bytes := path_s.as_bytes();
+            i := usize(1);
+            // On Windows, skip past drive letter root (e.g., "C:\")
+            // to avoid trying to mkdir "C:" which fails with EACCES
+            cond(
+              (platform == Platform.Win32) => {
+                cond(
+                  (bytes.len() >= usize(3)) => {
+                    first := bytes.get(usize(0)).unwrap();
+                    second := bytes.get(usize(1)).unwrap();
+                    is_drive_root := ((((first >= u8(65)) && (first <= u8(90))) || ((first >= u8(97)) && (first <= u8(122)))) && (second == u8(58)));
+                    cond(is_drive_root => { i = usize(3); }, true => ());
+                  },
+                  true => ()
+                );
+              },
+              true => ()
+            );
+            while runtime((i < bytes.len())), {
+              b := bytes.get(i).unwrap();
+              cond(
+                ((b == u8(47)) || (b == u8(92))) => {
+                  // '/' found - try to create this prefix
+                  prefix := path_s.substring(usize(0), i);
+                  prefix_cstr_bytes := prefix.to_cstr();
+                  prefix_cstr := prefix_cstr_bytes.ptr().unwrap();
+                  r := io.await(IO_dir.mkdir(AT_FDCWD, prefix_cstr, i32(DEFAULT_DIR_MODE)));
+                  // Ignore EEXIST errors
+                  cond(
+                    ((r < i32(0)) && ((i32(0) - r) != i32(17))) => {
+                      (ret : Result(unit, IOError)) = .Err(IOError.from_errno((i32(0) - r)));
+                      return ret;
+                    },
+                    true => ()
+                  );
+                },
+                true => ()
+              );
+              i = (i + usize(1));
+            };
+            // Create the final directory
+            final_result := io.await(IO_dir.mkdir(AT_FDCWD, cstr, i32(DEFAULT_DIR_MODE)));
+            cond(
+              (final_result >= i32(0)) => .Ok(()),
+              true => {
+                final_errno := (i32(0) - final_result);
+                cond(
+                  (final_errno == i32(17)) => .Ok(()),
+                  true => .Err(IOError.from_errno(final_errno))
+                )
+              }
+            )
+          },
+          true => .Err(IOError.from_errno(errno))
+        )
+      }
+    )
+  })
+);
+
+// Create a directory and all parents (str version).
+create_dir_all_str :: (fn(path: str, using(io : IO)) -> Impl(Future(Result(unit, IOError), IO)))(
+  create_dir_all(Path.new(String.from(path)), using(io))
+);
+
+// Remove an empty directory.
+remove_dir :: (fn(path: Path, using(io : IO)) -> Impl(Future(Result(unit, IOError), IO)))(
+  io.async((using(io : IO)) => {
+    cstr_bytes := path.to_string().to_cstr();
+    cstr := cstr_bytes.ptr().unwrap();
+    result := io.await(IO_dir.unlink(AT_FDCWD, cstr, AT_REMOVEDIR));
+    cond(
+      (result < i32(0)) => .Err(IOError.from_errno((i32(0) - result))),
+      true => .Ok(())
+    )
+  })
+);
+
+remove_dir_str :: (fn(path: str, using(io : IO)) -> Impl(Future(Result(unit, IOError), IO)))(
+  remove_dir(Path.new(String.from(path)), using(io))
+);
+
+// Remove a file.
+remove_file :: (fn(path: Path, using(io : IO)) -> Impl(Future(Result(unit, IOError), IO)))(
+  io.async((using(io : IO)) => {
+    cstr_bytes := path.to_string().to_cstr();
+    cstr := cstr_bytes.ptr().unwrap();
+    result := io.await(IO_dir.unlink(AT_FDCWD, cstr, i32(0)));
+    cond(
+      (result < i32(0)) => .Err(IOError.from_errno((i32(0) - result))),
+      true => .Ok(())
+    )
+  })
+);
+
+remove_file_str :: (fn(path: str, using(io : IO)) -> Impl(Future(Result(unit, IOError), IO)))
+  remove_file(Path.new(String.from(path)), using(io))
+;
+
+// Rename/move a file or directory.
+rename :: (fn(from: Path, to: Path, using(io : IO)) -> Impl(Future(Result(unit, IOError), IO)))(
+  io.async((using(io : IO)) => {
+    from_cstr_bytes := from.to_string().to_cstr();
+    from_cstr := from_cstr_bytes.ptr().unwrap();
+    to_cstr_bytes := to.to_string().to_cstr();
+    to_cstr := to_cstr_bytes.ptr().unwrap();
+    result := io.await(IO_dir.rename(AT_FDCWD, from_cstr, AT_FDCWD, to_cstr));
+    cond(
+      (result < i32(0)) => .Err(IOError.from_errno((i32(0) - result))),
+      true => .Ok(())
+    )
+  })
+);
+
+rename_str :: (fn(from: str, to: str, using(io : IO)) -> Impl(Future(Result(unit, IOError), IO)))
+  rename(Path.new(String.from(from)), Path.new(String.from(to)), using(io))
+;
+
+// Create a hard link from src to dst.
+hard_link :: (fn(src: Path, dst: Path, using(io : IO)) -> Impl(Future(Result(unit, IOError), IO)))(
+  io.async((using(io : IO)) => {
+    src_cstr_bytes := src.to_string().to_cstr();
+    src_cstr := src_cstr_bytes.ptr().unwrap();
+    dst_cstr_bytes := dst.to_string().to_cstr();
+    dst_cstr := dst_cstr_bytes.ptr().unwrap();
+    result := io.await(IO_dir.link(AT_FDCWD, src_cstr, AT_FDCWD, dst_cstr, i32(0)));
+    cond(
+      (result < i32(0)) => .Err(IOError.from_errno((i32(0) - result))),
+      true => .Ok(())
+    )
+  })
+);
+
+hard_link_str :: (fn(src: str, dst: str, using(io : IO)) -> Impl(Future(Result(unit, IOError), IO)))
+  hard_link(Path.new(String.from(src)), Path.new(String.from(dst)), using(io))
+;
+
+// Create a symbolic link at dst pointing to src.
+symlink :: (fn(src: Path, dst: Path, using(io : IO)) -> Impl(Future(Result(unit, IOError), IO)))(
+  io.async((using(io : IO)) => {
+    src_cstr_bytes := src.to_string().to_cstr();
+    src_cstr := src_cstr_bytes.ptr().unwrap();
+    dst_cstr_bytes := dst.to_string().to_cstr();
+    dst_cstr := dst_cstr_bytes.ptr().unwrap();
+    result := io.await(IO_dir.symlink(src_cstr, AT_FDCWD, dst_cstr));
+    cond(
+      (result < i32(0)) => .Err(IOError.from_errno((i32(0) - result))),
+      true => .Ok(())
+    )
+  })
+);
+
+symlink_str :: (fn(src: str, dst: str, using(io : IO)) -> Impl(Future(Result(unit, IOError), IO)))
+  symlink(Path.new(String.from(src)), Path.new(String.from(dst)), using(io))
+;
+
+// ============================================================================
+// Directory listing
+// ============================================================================
+
+// Read directory entries from a path.
+read_dir :: (fn(path: Path, using(io : IO)) -> Impl(Future(Result(ArrayList(DirEntry), IOError), IO)))(
+  io.async((using(io : IO)) => {
+    cstr_bytes := path.to_string().to_cstr();
+    cstr := cstr_bytes.ptr().unwrap();
+    // Open the directory
+    fd_result := io.await(IO_file.openat(AT_FDCWD, cstr, (O_RDONLY | O_DIRECTORY), i32(0)));
+    cond(
+      (fd_result < i32(0)) => .Err(IOError.from_errno((i32(0) - fd_result))),
+      true => {
+        fd := fd_result;
+        entries := ArrayList(DirEntry).new();
+        buf_size := u32(4096);
+        buf := *(u8)(malloc(usize(buf_size)).unwrap());
+        while runtime(true), {
+          n := io.await(IO_dir.getdents(fd, buf, buf_size));
+          cond(
+            (n < i32(0)) => {
+              free(.Some(*(void)(buf)));
+              io.await(IO_file.close(fd));
+              (ret : Result(ArrayList(DirEntry), IOError)) = .Err(IOError.from_errno((i32(0) - n)));
+              return ret;
+            },
+            (n == i32(0)) => { break; },
+            true => {
+              offset := usize(0);
+              while runtime((offset < usize(n))), {
+                entry_ptr := (buf &+ offset);
+                name_ptr := IO_dir.dirent_name(entry_ptr);
+                name := String.from_cstr(name_ptr).unwrap();
+                // Skip "." and ".."
+                cond(
+                  ((name == String.from(".")) || (name == String.from(".."))) => (),
+                  true => {
+                    dt := IO_dir.dirent_type(entry_ptr);
+                    ft := cond(
+                      (dt == DT_REG) => FileType.File,
+                      (dt == DT_DIR) => FileType.Directory,
+                      (dt == DT_LNK) => FileType.Symlink,
+                      true => FileType.Other
+                    );
+                    entries.push(DirEntry(
+                      name: name,
+                      file_type: ft,
+                      ino: IO_dir.dirent_ino(entry_ptr)
+                    ));
+                  }
+                );
+                offset = (offset + usize(IO_dir.dirent_reclen(entry_ptr)));
+              };
+            }
+          );
+        };
+        free(.Some(*(void)(buf)));
+        io.await(IO_file.close(fd));
+        (ret : Result(ArrayList(DirEntry), IOError)) = .Ok(entries);
+        return ret;
+      }
+    )
+  })
+);
+
+read_dir_str :: (fn(path: str, using(io : IO)) -> Impl(Future(Result(ArrayList(DirEntry), IOError), IO)))
+  read_dir(Path.new(String.from(path)), using(io))
+;
+
+export
+  create_dir, create_dir_str, create_dir_all, create_dir_all_str,
+  remove_dir, remove_dir_str, remove_file, remove_file_str,
+  rename, rename_str, hard_link, hard_link_str, symlink, symlink_str,
+  read_dir, read_dir_str
+;

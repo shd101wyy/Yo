@@ -59,6 +59,9 @@ export function generateAsyncRuntimeIOWindows(emitter: Emitter): void {
 #define DT_SOCK 12
 #endif
 
+#ifndef O_CLOEXEC
+#define O_CLOEXEC 0
+#endif
 #ifndef O_DIRECTORY
 #define O_DIRECTORY 0x200000
 #endif
@@ -485,6 +488,37 @@ static int __yo_io_wait(void) {
 // File Operations (Windows)
 // ============================================================================
 
+// Track append-mode file descriptors (O_APPEND on Windows overlapped I/O
+// doesn't work automatically — we must use _write which respects the CRT flag)
+#define __YO_WIN_APPEND_FD_MAX 256
+static int __yo_win_append_fds[__YO_WIN_APPEND_FD_MAX];
+static int __yo_win_append_fd_count = 0;
+
+static void __yo_win_fd_mark_append(int fd) {
+  if (__yo_win_append_fd_count < __YO_WIN_APPEND_FD_MAX) {
+    __yo_win_append_fds[__yo_win_append_fd_count++] = fd;
+  }
+}
+
+static bool __yo_win_fd_is_append(int fd) {
+  for (int i = 0; i < __yo_win_append_fd_count; i++) {
+    if (__yo_win_append_fds[i] == fd) return true;
+  }
+  return false;
+}
+
+static void __yo_win_fd_unmark_append(int fd) {
+  for (int i = 0; i < __yo_win_append_fd_count; i++) {
+    if (__yo_win_append_fds[i] == fd) {
+      __yo_win_append_fds[i] = __yo_win_append_fds[--__yo_win_append_fd_count];
+      return;
+    }
+  }
+}
+
+// Forward declaration for dir state cleanup (defined later, used in close)
+static void __yo_win_cleanup_dir_state(int32_t fd);
+
 static yo_win_overlapped_t* __yo_win_alloc_overlapped(yo_io_future_t* future, HANDLE handle, uint64_t offset) {
   yo_win_overlapped_t* ov = (yo_win_overlapped_t*)__yo_malloc(sizeof(yo_win_overlapped_t));
   if (!ov) return NULL;
@@ -612,6 +646,15 @@ static yo_io_future_t* __yo_async_write_start(int32_t fd, const void* buffer, ui
     return future;
   }
 
+  // Check if file was opened with O_APPEND — overlapped I/O doesn't auto-append
+  if (__yo_win_fd_is_append(fd)) {
+    // Get file size and write at end
+    LARGE_INTEGER fsize;
+    if (GetFileSizeEx(handle, &fsize)) {
+      offset = (uint64_t)fsize.QuadPart;
+    }
+  }
+
   __yo_win_associate_handle(handle);
 
   yo_win_overlapped_t* ov = __yo_win_alloc_overlapped(future, handle, offset);
@@ -708,6 +751,10 @@ static yo_io_future_t* __yo_async_openat_start(int32_t dirfd, const char* path, 
     return future;
   }
 
+  if (flags & O_APPEND) {
+    __yo_win_fd_mark_append(fd);
+  }
+
   (void)mode;
   future->result = fd;
   atomic_init(&future->state, -1);
@@ -716,6 +763,9 @@ static yo_io_future_t* __yo_async_openat_start(int32_t dirfd, const char* path, 
 
 static yo_io_future_t* __yo_async_close_start(int32_t fd) {
   __yo_io_init();
+
+  __yo_win_fd_unmark_append(fd);
+  __yo_win_cleanup_dir_state(fd);
 
   yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
   memset(future, 0, sizeof(yo_io_future_t));
@@ -747,6 +797,7 @@ typedef struct {
   uint32_t ctime_nsec;
   int64_t btime_sec;
   uint32_t btime_nsec;
+  uint64_t file_index;
 } yo_win_stat_t;
 
 static void __yo_win_filetime_to_timespec(FILETIME ft, int64_t* sec, uint32_t* nsec) {
@@ -772,10 +823,20 @@ static yo_io_future_t* __yo_async_statx_start(int32_t dirfd, const char* path, i
       atomic_init(&future->state, -1);
       return future;
     }
-    (void)flags;
     (void)mask;
     yo_win_stat_t* ws = (yo_win_stat_t*)statxbuf;
     memset(ws, 0, sizeof(yo_win_stat_t));
+
+    // Check if we should not follow symlinks
+    bool nofollow = (flags & AT_SYMLINK_NOFOLLOW) != 0;
+    bool is_symlink = false;
+
+    // Check for reparse point (symlink) before stat
+    DWORD attrs = GetFileAttributesW(wpath);
+    if (attrs != INVALID_FILE_ATTRIBUTES && (attrs & FILE_ATTRIBUTE_REPARSE_POINT)) {
+      is_symlink = true;
+    }
+
     result = _wstat64(wpath, &ws->stat);
     if (result == 0) {
       WIN32_FILE_ATTRIBUTE_DATA fad;
@@ -785,6 +846,23 @@ static yo_io_future_t* __yo_async_statx_start(int32_t dirfd, const char* path, i
         __yo_win_filetime_to_timespec(fad.ftLastWriteTime, &sec, &ws->mtime_nsec);
         __yo_win_filetime_to_timespec(fad.ftCreationTime, &ws->btime_sec, &ws->btime_nsec);
         ws->ctime_nsec = ws->mtime_nsec;
+      }
+      // If nofollow and it's a symlink, set mode to S_IFLNK
+      if (nofollow && is_symlink) {
+        ws->stat.st_mode = (ws->stat.st_mode & ~0170000) | 0120000; // S_IFLNK
+      }
+      // Get NTFS file index as inode equivalent
+      DWORD share = FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE;
+      DWORD f = FILE_FLAG_BACKUP_SEMANTICS; // needed to open directories
+      if (nofollow) f |= FILE_FLAG_OPEN_REPARSE_POINT;
+      HANDLE fh = CreateFileW(wpath, 0, share, NULL, OPEN_EXISTING, f, NULL);
+      if (fh != INVALID_HANDLE_VALUE) {
+        BY_HANDLE_FILE_INFORMATION info;
+        if (GetFileInformationByHandle(fh, &info)) {
+          ws->file_index = ((uint64_t)info.nFileIndexHigh << 32) | info.nFileIndexLow;
+          ws->stat.st_nlink = (short)info.nNumberOfLinks;
+        }
+        CloseHandle(fh);
       }
     }
     __yo_free(wpath);
@@ -1617,6 +1695,28 @@ static yo_win_dir_state_t* __yo_win_get_dir_state(int32_t fd) {
   return node;
 }
 
+static void __yo_win_cleanup_dir_state(int32_t fd) {
+  EnterCriticalSection(&__yo_dir_state_mutex);
+  yo_win_dir_state_t** pp = &__yo_dir_state_head;
+  while (*pp) {
+    if ((*pp)->fd == fd) {
+      yo_win_dir_state_t* node = *pp;
+      *pp = node->next;
+      if (node->find_handle != INVALID_HANDLE_VALUE) {
+        FindClose(node->find_handle);
+      }
+      if (node->pattern) {
+        __yo_free(node->pattern);
+      }
+      __yo_free(node);
+      LeaveCriticalSection(&__yo_dir_state_mutex);
+      return;
+    }
+    pp = &((*pp)->next);
+  }
+  LeaveCriticalSection(&__yo_dir_state_mutex);
+}
+
 static size_t __yo_win_dirent_write(char* buf, size_t buf_size, const char* name, uint8_t dtype) {
   size_t name_len = strlen(name);
   size_t base = offsetof(yo_win_dirent_t, d_name);
@@ -2383,7 +2483,7 @@ static uint32_t __yo_statx_gid(void* statxbuf) {
 }
 
 static uint64_t __yo_statx_ino(void* statxbuf) {
-  return (uint64_t)((yo_win_stat_t*)statxbuf)->stat.st_ino;
+  return ((yo_win_stat_t*)statxbuf)->file_index;
 }
 
 static uint64_t __yo_statx_dev_major(void* statxbuf) {

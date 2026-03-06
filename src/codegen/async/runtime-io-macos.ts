@@ -303,6 +303,21 @@ static yo_io_future_t* __yo_async_write_start(int32_t fd, const void* buffer, ui
   atomic_init(&future->continuation_fn, NULL);
   atomic_init(&future->continuation_sm, NULL);
   
+  // For O_APPEND fds, dispatch_io with DISPATCH_IO_RANDOM uses pwrite() which
+  // ignores O_APPEND. Fall back to synchronous write() which respects it.
+  int fl = fcntl(fd, F_GETFL);
+  if (fl != -1 && (fl & O_APPEND)) {
+    ssize_t written = write(fd, buffer, size);
+    if (written < 0) {
+      future->result = -errno;
+    } else {
+      future->result = (int32_t)written;
+    }
+    atomic_init(&future->state, -1);
+    ASYNC_DEBUG("[IO] Synchronous append write: fd=%d result=%d\\n", fd, future->result);
+    return future;
+  }
+  
   atomic_fetch_add(&__yo_pending_io_count, 1);
   
   dispatch_fd_t dispatch_fd = (dispatch_fd_t)dup(fd);
@@ -437,7 +452,7 @@ static yo_io_future_t* __yo_async_statx_start(int32_t dirfd, const char* path, i
   // On macOS, we use fstatat instead of statx
   // The statxbuf is actually a struct stat on macOS
   int at_flags = 0;
-  if (flags & 0x100) {  // AT_SYMLINK_NOFOLLOW
+  if (flags & AT_SYMLINK_NOFOLLOW) {
     at_flags |= AT_SYMLINK_NOFOLLOW;
   }
   
@@ -875,7 +890,7 @@ static int32_t __yo_sync_fchown(int32_t fd, uint32_t uid, uint32_t gid) {
 static int32_t __yo_sync_fchownat(int32_t dirfd, const char* path, uint32_t uid, uint32_t gid, int32_t flags) {
   int result;
   if (dirfd == -100) {
-    if (flags & 0x100) {
+    if (flags & AT_SYMLINK_NOFOLLOW) {
       result = lchown(path, (uid_t)uid, (gid_t)gid);
     } else {
       result = chown(path, (uid_t)uid, (gid_t)gid);

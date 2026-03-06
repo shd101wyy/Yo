@@ -746,6 +746,16 @@ export function generateFunction(
     const asyncBlock = findReturnedAsyncBlock(functionValue.body);
     if (asyncBlock?.$?.asyncStateMachineStructName) {
       overrideReturnType = `${asyncBlock.$.asyncStateMachineStructName}*`;
+    } else if (
+      functionValue.body.$?.type &&
+      isSomeType(functionValue.body.$.type) &&
+      typeImplementsFuture(functionValue.body.$.type)
+    ) {
+      // Function delegates to another function returning Impl(Future(T))
+      // (e.g., File.open calls File.open_with which contains the io.async block).
+      // The body's type SomeType may have resolvedConcreteType pointing to the
+      // async block's SomeType, which is registered in context.types.
+      overrideReturnType = getTypeString(functionValue.body.$.type, context);
     }
   }
 
@@ -963,7 +973,26 @@ export function generateFunctionBody(
           // Note: deferred dup expressions for async blocks are handled internally by generateAsyncBlock
           // so we don't need to generate them here
 
-          emitter.emitLine(`${indent}return ${resultCode};`);
+          // Generate deferred drop expressions for temporaries created in this function body
+          // (e.g., Path.from_cstr creates a Path temp that needs dropping after the async call)
+          if (
+            expr.$?.deferredDropExpressions &&
+            expr.$.deferredDropExpressions.length > 0 &&
+            lastExprType
+          ) {
+            // Save the result to a temp variable, emit drops, then return
+            // Use lastExprType (the concrete type) instead of functionType.return.type
+            // (which may be Impl(Future) and not directly resolvable to a C type)
+            const returnType = getTypeString(lastExprType, context);
+            const tempVarName = `_yo_async_return_${Math.random().toString(36).substr(2, 9)}`;
+            emitter.emitLine(
+              `${indent}${returnType} ${tempVarName} = ${resultCode};`
+            );
+            generateDeferredDropExpressions(expr, indent, context);
+            emitter.emitLine(`${indent}return ${tempVarName};`);
+          } else {
+            emitter.emitLine(`${indent}return ${resultCode};`);
+          }
           return; // Exit early - we've handled the return
         } else {
           // FIXME: OUTDATED

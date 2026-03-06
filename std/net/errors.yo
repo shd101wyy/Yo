@@ -1,0 +1,74 @@
+// std/net/errors.yo - Network error type
+//
+// Higher-level network error that wraps IOError with network-specific variants.
+//
+// Example:
+//   { NetError } :: import "std/net/errors";
+
+open import "../string";
+{ IOError } :: import "../io/errors";
+{ ToString } :: import "../fmt";
+
+// ============================================================================
+// NetError
+// ============================================================================
+
+NetError :: enum(
+  ConnectionRefused,
+  ConnectionReset,
+  ConnectionAborted,
+  AddrInUse,
+  AddrNotAvailable,
+  TimedOut,
+  HostUnreachable,
+  NetworkUnreachable,
+  DNSFailed(msg: String),
+  IO(err: IOError),
+  Other(msg: String)
+);
+
+impl(NetError,
+  // Convert an IOError to a NetError.
+  from_io : (fn(err: IOError) -> Self)(
+    match(err,
+      .ConnectionRefused => .ConnectionRefused,
+      .ConnectionReset   => .ConnectionReset,
+      .ConnectionAborted => .ConnectionAborted,
+      .AddressInUse      => .AddrInUse,
+      .AddressNotAvailable => .AddrNotAvailable,
+      .TimedOut          => .TimedOut,
+      .HostUnreachable   => .HostUnreachable,
+      .NetworkUnreachable => .NetworkUnreachable,
+      _                  => .IO(err)
+    )
+  ),
+
+  // Convert a raw result (positive = ok, negative = -errno) to Result.
+  from_result : (fn(result: i32) -> Result(i32, Self))(
+    cond(
+      (result >= i32(0)) => .Ok(result),
+      true => .Err(Self.from_io(IOError.from_errno((i32(0) - result))))
+    )
+  )
+);
+
+impl(NetError, ToString(
+  to_string : (self -> {
+    s := match(self,
+      .ConnectionRefused => String.from("connection refused"),
+      .ConnectionReset => String.from("connection reset by peer"),
+      .ConnectionAborted => String.from("connection aborted"),
+      .AddrInUse => String.from("address already in use"),
+      .AddrNotAvailable => String.from("address not available"),
+      .TimedOut => String.from("operation timed out"),
+      .HostUnreachable => String.from("host unreachable"),
+      .NetworkUnreachable => String.from("network unreachable"),
+      .DNSFailed(msg) => `DNS lookup failed: ${msg}`,
+      .IO(err) => err.to_string(),
+      .Other(msg) => msg
+    );
+    return s;
+  })
+));
+
+export NetError;

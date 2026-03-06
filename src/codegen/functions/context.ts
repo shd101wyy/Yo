@@ -118,6 +118,18 @@ export interface FunctionGenerationContext extends CodeGenContext {
       conditionExpr: Expr; // The loop condition expression
       bodyExpr: Expr; // The loop body expression
       bodyExprsAfterAwait?: Expr[]; // Expressions after the await in the loop body
+      // Expressions from an enclosing cond branch that come after this while loop.
+      // These should only be executed after the while loop exits, not on every resume.
+      condBranchPostWhileExprs?: {
+        branchIndex: number;
+        condBranchFieldIndex: number;
+        exprs: Expr[];
+        deferredDropExpressions?: Expr[];
+        // When true, skip the sm->cond_branch_N guard check. This is needed when
+        // nested conds share the same cond_branch_N field — the innermost cond's
+        // write overwrites the outer cond's value, making the guard always fail.
+        skipCondBranchCheck?: boolean;
+      };
       outerWhileLoop?: {
         whileLoopIndex: number;
         conditionExpr: Expr;
@@ -129,6 +141,10 @@ export interface FunctionGenerationContext extends CodeGenContext {
   // Counter for allocating unique while loop indices for nested while-with-await.
   // Starts at awaitPoints.length so outer while indices don't collide with await point indices.
   asyncNextWhileLoopIndex?: number;
+  // When set, non-await cond branches whose condExpr === this expression should
+  // emit async Future completion (store result, drop locals, return). This
+  // indicates the cond IS the async block body's implicit return value.
+  asyncBodyReturnExpr?: Expr;
   // Variables that are locally shadowed (e.g., in match destructuring patterns)
   // When a variable name is in this set, use the local C variable instead of sm->var_...
   localShadowedVariables?: Set<string>;
@@ -144,6 +160,10 @@ export interface FunctionGenerationContext extends CodeGenContext {
   // Deferred drops for the while loop body's local variables.
   // These must be emitted before break/continue/normal-exit in state machine while loop code.
   smWhileBodyDrops?: Expr[];
+  // Variable names whose drops were already emitted inside short-circuit conditional branches.
+  // Used to prevent the enclosing begin block from double-emitting drops for variables
+  // that are only conditionally created inside || or && if-chains.
+  shortCircuitHandledDropVarNames?: Set<string>;
   // Drop code strings for effect handler parameters (e.g., msg: String from ctl yield_value).
   // These are emitted before escape returns to prevent leaking handler params.
   effectHandlerParamDrops?: string[];

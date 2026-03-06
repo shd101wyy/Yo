@@ -95,6 +95,11 @@ export default class Evaluator {
       this.program = this.parser.getProgram();
       this.tokens = this.parser.getTokens();
 
+      // If partial modules are not allowed, throw immediately on parse errors
+      if (!this.allowPartialModule && this.parser.getParserError()) {
+        throw this.parser.getParserError()!;
+      }
+
       // Evaluate the program
       this.evaluateProgram(stdPath, loadModule);
     } catch (error) {
