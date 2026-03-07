@@ -1,0 +1,174 @@
+open import "std/libc/stdio";
+{ GlobalAllocator } :: import "std/allocator";
+{ malloc, free } :: GlobalAllocator;
+{ ArrayList } :: import "std/collections/array_list";
+open import "std/string";
+open import "std/fmt";
+{ UdpSocket } :: import "std/net/udp";
+{ SocketAddr, IpAddr } :: import "std/net/addr";
+{ NetError } :: import "std/net/errors";
+IO_tcp :: import "std/io/tcp";
+
+// ============================================================================
+// UdpSocket tests
+// ============================================================================
+
+test "UdpSocket bind and close", using(io : IO), {
+  addr := SocketAddr.loopback(u16(0));
+  r := io.await(UdpSocket.bind(addr, using(io)));
+  match(r,
+    .Ok(sock) => {
+      printf("  socket fd = %d\n", sock.fd());
+      assert((sock.fd() >= i32(0)), "fd should be valid");
+
+      cr := io.await(sock.close(using(io)));
+      match(cr,
+        .Ok(_) => { printf("  close ok\n"); },
+        .Err(e) => assert(false, "close should succeed")
+      );
+    },
+    .Err(e) => {
+      printf("  bind err = %s\n", e.to_string().to_cstr().ptr().unwrap());
+      assert(false, "bind should succeed");
+    }
+  );
+};
+
+test "UdpSocket local_addr", using(io : IO), {
+  addr := SocketAddr.loopback(u16(0));
+  r := io.await(UdpSocket.bind(addr, using(io)));
+  match(r,
+    .Ok(sock) => {
+      la := sock.local_addr();
+      printf("  local_addr = %s\n", la.to_string().to_cstr().ptr().unwrap());
+      assert(la.ip.is_loopback(), "should be loopback");
+      io.await(sock.close(using(io)));
+    },
+    .Err(e) => assert(false, "bind should succeed")
+  );
+};
+
+test "UdpSocket send_to and recv", using(io : IO), {
+  // Create server socket
+  server_addr := SocketAddr.loopback(u16(19910));
+  sr := io.await(UdpSocket.bind(server_addr, using(io)));
+  match(sr,
+    .Ok(server) => {
+      // Create client socket
+      client_addr := SocketAddr.loopback(u16(19911));
+      ccr := io.await(UdpSocket.bind(client_addr, using(io)));
+      match(ccr,
+        .Ok(client) => {
+          // Client sends to server
+          data := ArrayList(u8).new();
+          data.push(u8(72));   // H
+          data.push(u8(101));  // e
+          data.push(u8(108));  // l
+          data.push(u8(108));  // l
+          data.push(u8(111));  // o
+          wr := io.await(client.send_to(data, server_addr, using(io)));
+          match(wr,
+            .Ok(n) => {
+              printf("  sent = %d\n", n);
+              assert((n == i32(5)), "should send 5 bytes");
+            },
+            .Err(e) => assert(false, "send_to should succeed")
+          );
+
+          // Server receives
+          recv_buf := *(u8)(malloc(usize(256)).unwrap());
+          rr := io.await(server.recv(recv_buf, usize(256), using(io)));
+          match(rr,
+            .Ok(n) => {
+              printf("  received = %d\n", n);
+              assert((n == i32(5)), "should receive 5 bytes");
+              assert(((recv_buf &+ usize(0)).* == u8(72)), "H");
+              assert(((recv_buf &+ usize(1)).* == u8(101)), "e");
+              assert(((recv_buf &+ usize(2)).* == u8(108)), "l");
+              assert(((recv_buf &+ usize(3)).* == u8(108)), "l");
+              assert(((recv_buf &+ usize(4)).* == u8(111)), "o");
+            },
+            .Err(e) => assert(false, "recv should succeed")
+          );
+          free(.Some(*(void)(recv_buf)));
+
+          io.await(client.close(using(io)));
+          io.await(server.close(using(io)));
+        },
+        .Err(e) => assert(false, "client bind should succeed")
+      );
+    },
+    .Err(e) => assert(false, "server bind should succeed")
+  );
+};
+
+test "UdpSocket recv_from gets source address", using(io : IO), {
+  server_addr := SocketAddr.loopback(u16(19912));
+  sr := io.await(UdpSocket.bind(server_addr, using(io)));
+  match(sr,
+    .Ok(server) => {
+      client_addr := SocketAddr.loopback(u16(19913));
+      ccr := io.await(UdpSocket.bind(client_addr, using(io)));
+      match(ccr,
+        .Ok(client) => {
+          // Client sends
+          data := ArrayList(u8).new();
+          data.push(u8(65));  // A
+          data.push(u8(66));  // B
+          io.await(client.send_to(data, server_addr, using(io)));
+
+          // Server receives with source address
+          recv_buf := *(u8)(malloc(usize(256)).unwrap());
+          src_addr_buf := *(u8)(malloc(usize(128)).unwrap());
+          src_addr_len := *(u32)(malloc(usize(4)).unwrap());
+          src_addr_len.* = u32(128);
+
+          rr := io.await(server.recv_from(recv_buf, usize(256), src_addr_buf, src_addr_len, using(io)));
+          match(rr,
+            .Ok(n) => {
+              printf("  received = %d\n", n);
+              assert((n == i32(2)), "should receive 2 bytes");
+              assert(((recv_buf &+ usize(0)).* == u8(65)), "A");
+              assert(((recv_buf &+ usize(1)).* == u8(66)), "B");
+
+              // Verify source address family
+              src_family := IO_tcp.get_family(src_addr_buf);
+              printf("  src family = %u\n", src_family);
+
+              // Verify source port
+              src_port := IO_tcp.get_port_in(src_addr_buf);
+              printf("  src port = %u\n", src_port);
+              assert((src_port == u16(19913)), "src port should be 19913");
+            },
+            .Err(e) => assert(false, "recv_from should succeed")
+          );
+
+          free(.Some(*(void)(recv_buf)));
+          free(.Some(*(void)(src_addr_buf)));
+          free(.Some(*(void)(src_addr_len)));
+
+          io.await(client.close(using(io)));
+          io.await(server.close(using(io)));
+        },
+        .Err(e) => assert(false, "client bind should succeed")
+      );
+    },
+    .Err(e) => assert(false, "server bind should succeed")
+  );
+};
+
+test "UdpSocket set_broadcast", using(io : IO), {
+  addr := SocketAddr.loopback(u16(0));
+  r := io.await(UdpSocket.bind(addr, using(io)));
+  match(r,
+    .Ok(sock) => {
+      br := io.await(sock.set_broadcast(true, using(io)));
+      match(br,
+        .Ok(_) => { printf("  broadcast ok\n"); },
+        .Err(e) => assert(false, "set_broadcast should succeed")
+      );
+      io.await(sock.close(using(io)));
+    },
+    .Err(e) => assert(false, "bind should succeed")
+  );
+};

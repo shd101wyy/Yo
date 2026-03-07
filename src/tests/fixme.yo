@@ -1,39 +1,12 @@
-open import "std/libc/stdio";
+// Minimal reproduction: method calling another method returning Self in cond branch
+
+{ Writer, Alignment } :: import "std/fmt/writer";
+{ rune } :: import "std/string/rune";
 
 main :: (fn() -> unit) {
-  Speak :: trait(
-    speak : (fn(self : Self) -> i32)
-  );
-
-  Run :: trait(
-    run : (fn(self : Self) -> i32)
-  );
-
-  // Dog :: struct(); // This should give error working with `dyn`.
-  Dog :: object();
-
-  DogSpeak :: impl(Dog, Speak
-    speak : ((self : Self) -> {
-      printf("Woof!\n");
-      return 1;
-    })
-  );
-
-  DogRun :: impl(Dog, Run
-    run : ((self : Self) -> {
-      printf("The dog is running!\n");
-      return 2;
-    })
-  );
-
-  act :: (fn(s : Dyn(Speak, Run)) -> i32)
-    s.speak() + s.run()
-  ;
-
-  dog := Dog();
-  result := act(dyn(dog));
-  assert(result == 3, "Expected result to be 3");
-  assert(dog.speak() == 1, "Expected dog.speak() to return 1");
+  w := Writer.new();
+  w2 := w.write_padded("hi", usize(10), rune(u32(' ')), Alignment.Left);
+  ()
 };
 export main;
 

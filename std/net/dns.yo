@@ -35,16 +35,17 @@ IO_dns :: import "../io/dns";
 // ============================================================================
 
 // Resolve a hostname to a list of IP addresses.
-lookup_host :: (fn(host: String, using(io : IO)) -> Impl(Future(Result(ArrayList(IpAddr), NetError))))({
-  host_cstr_bytes := host.to_cstr();
-  host_cstr := host_cstr_bytes.ptr().unwrap();
-  task := io.async((using(io : IO)) => {
+lookup_host :: (fn(host: String, using(io : IO)) -> Impl(Future(Result(ArrayList(IpAddr), NetError), IO)))(
+  io.async((using(io : IO)) => {
+    host_cstr_bytes := host.to_cstr();
+    host_cstr := host_cstr_bytes.ptr().unwrap();
     result_ptr := IO_dns.alloc_result();
     ret := io.await(IO_dns.getaddrinfo(host_cstr, .None, .None, result_ptr));
     cond(
       (ret != i32(0)) => {
         IO_dns.free_result(result_ptr);
-        return .Err(.DNSFailed(host));
+        (err_ret : Result(ArrayList(IpAddr), NetError)) = .Err(.DNSFailed(host));
+        return err_ret;
       },
       true => ()
     );
@@ -78,16 +79,16 @@ lookup_host :: (fn(host: String, using(io : IO)) -> Impl(Future(Result(ArrayList
       .None => ()
     );
     IO_dns.free_result(result_ptr);
-    return .Ok(addrs);
-  });
-  return task;
-});
+    (ok_ret : Result(ArrayList(IpAddr), NetError)) = .Ok(addrs);
+    return ok_ret;
+  })
+);
 
 // Resolve a hostname and port to a list of socket addresses.
-resolve :: (fn(host: String, port: u16, using(io : IO)) -> Impl(Future(Result(ArrayList(SocketAddr), NetError))))({
-  task := io.async((using(io : IO)) => {
+resolve :: (fn(host: String, port: u16, using(io : IO)) -> Impl(Future(Result(ArrayList(SocketAddr), NetError), IO)))(
+  io.async((using(io : IO)) => {
     addrs_result := io.await(lookup_host(host, using(io)));
-    match(addrs_result,
+    (ret : Result(ArrayList(SocketAddr), NetError)) = match(addrs_result,
       .Ok(addrs) => {
         result := ArrayList(SocketAddr).new();
         i := usize(0);
@@ -96,12 +97,12 @@ resolve :: (fn(host: String, port: u16, using(io : IO)) -> Impl(Future(Result(Ar
           result.push(SocketAddr.new(ip, port));
           i = (i + usize(1));
         };
-        return .Ok(result);
+        .Ok(result)
       },
       .Err(e) => .Err(e)
-    )
-  });
-  return task;
-});
+    );
+    return ret;
+  })
+);
 
 export lookup_host, resolve;

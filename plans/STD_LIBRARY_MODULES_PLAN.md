@@ -270,95 +270,13 @@ TempFile.remove :: (fn(self: Self, using(io : IO)) -> Impl(Future(Result(unit, I
 
 ---
 
-## Phase 2: High-Level Networking (`std/net`) — Priority: Critical
+## Phase 2: High-Level Networking (`std/net`) — Priority: Critical — ✅ Done
 
 **Goal**: Provide ergonomic async TCP/UDP client and server types. This is the second most important module for building real applications.
 
-**Depends on**: `std/io/tcp`, `std/io/udp`, `std/io/unix`, `std/io/dns`, `std/io/sockinfo`, `std/io/socketpair`, `std/string`
+**Depends on**: `std/io/tcp`, `std/io/udp`, `std/io/dns`, `std/io/socket`, `std/string`
 
-### 2.1 `std/net/addr.yo` — Network Addresses
-
-```yo
-IpAddr :: enum(
-  V4(a: u8, b: u8, c: u8, d: u8),
-  V6(segments: Array(u16, usize(8)))
-);
-
-SocketAddr :: struct(
-  ip : IpAddr,
-  port : u16
-);
-
-IpAddr.parse :: (fn(s: str) -> Result(IpAddr, NetError)) ...;
-IpAddr.loopback_v4 :: (fn() -> IpAddr) ...;
-IpAddr.loopback_v6 :: (fn() -> IpAddr) ...;
-IpAddr.any_v4 :: (fn() -> IpAddr) ...;
-IpAddr.is_loopback :: (fn(self: *(Self)) -> bool) ...;
-IpAddr.is_multicast :: (fn(self: *(Self)) -> bool) ...;
-IpAddr.to_string :: (fn(self: *(Self)) -> String) ...;
-
-SocketAddr.new :: (fn(ip: IpAddr, port: u16) -> SocketAddr) ...;
-SocketAddr.parse :: (fn(s: str) -> Result(SocketAddr, NetError)) ...;
-```
-
-### 2.2 `std/net/tcp.yo` — TCP Client and Server
-
-```yo
-TcpListener :: object(
-  fd : i32,
-  local_addr : SocketAddr
-);
-TcpListener.bind :: (fn(addr: SocketAddr, using(io : IO)) -> Impl(Future(Result(TcpListener, NetError)))) ...;
-TcpListener.accept :: (fn(self: Self, using(io : IO)) -> Impl(Future(Result(TcpStream, NetError)))) ...;
-TcpListener.local_addr :: (fn(self: Self) -> SocketAddr) ...;
-TcpListener.close :: (fn(self: Self, using(io : IO)) -> Impl(Future(Result(unit, NetError)))) ...;
-
-TcpStream :: object(
-  fd : i32,
-  local_addr : SocketAddr,
-  peer_addr : SocketAddr,
-  _read_buf : ArrayList(u8),
-  _write_buf : ArrayList(u8)
-);
-TcpStream.connect :: (fn(addr: SocketAddr, using(io : IO)) -> Impl(Future(Result(TcpStream, NetError)))) ...;
-TcpStream.read :: (fn(self: Self, buf: *(u8), size: usize, using(io : IO)) -> Impl(Future(Result(i32, NetError)))) ...;
-TcpStream.write :: (fn(self: Self, data: String, using(io : IO)) -> Impl(Future(Result(i32, NetError)))) ...;
-TcpStream.write_bytes :: (fn(self: Self, data: ArrayList(u8), using(io : IO)) -> Impl(Future(Result(i32, NetError)))) ...;
-TcpStream.flush :: (fn(self: Self, using(io : IO)) -> Impl(Future(Result(unit, NetError)))) ...;
-TcpStream.read_all :: (fn(self: Self, using(io : IO)) -> Impl(Future(Result(ArrayList(u8), NetError)))) ...;
-TcpStream.shutdown :: (fn(self: Self, using(io : IO)) -> Impl(Future(Result(unit, NetError)))) ...;
-TcpStream.close :: (fn(self: Self, using(io : IO)) -> Impl(Future(Result(unit, NetError)))) ...;
-TcpStream.local_addr :: (fn(self: Self) -> SocketAddr) ...;
-TcpStream.peer_addr :: (fn(self: Self) -> SocketAddr) ...;
-TcpStream.set_nodelay :: (fn(self: Self, nodelay: bool, using(io : IO)) -> Impl(Future(Result(unit, NetError)))) ...;
-TcpStream.set_keepalive :: (fn(self: Self, enabled: bool, using(io : IO)) -> Impl(Future(Result(unit, NetError)))) ...;
-```
-
-### 2.3 `std/net/udp.yo` — UDP Socket
-
-```yo
-UdpSocket :: object(
-  fd : i32,
-  local_addr : SocketAddr
-);
-UdpSocket.bind :: (fn(addr: SocketAddr, using(io : IO)) -> Impl(Future(Result(UdpSocket, NetError)))) ...;
-UdpSocket.send_to :: (fn(self: Self, data: ArrayList(u8), addr: SocketAddr, using(io : IO)) -> Impl(Future(Result(i32, NetError)))) ...;
-UdpSocket.recv_from :: (fn(self: Self, buf: *(u8), size: usize, using(io : IO)) -> Impl(Future(Result(struct(len: i32, addr: SocketAddr), NetError)))) ...;
-UdpSocket.connect :: (fn(self: Self, addr: SocketAddr, using(io : IO)) -> Impl(Future(Result(unit, NetError)))) ...;
-UdpSocket.send :: (fn(self: Self, data: ArrayList(u8), using(io : IO)) -> Impl(Future(Result(i32, NetError)))) ...;
-UdpSocket.recv :: (fn(self: Self, buf: *(u8), size: usize, using(io : IO)) -> Impl(Future(Result(i32, NetError)))) ...;
-UdpSocket.close :: (fn(self: Self, using(io : IO)) -> Impl(Future(Result(unit, NetError)))) ...;
-UdpSocket.set_broadcast :: (fn(self: Self, enabled: bool, using(io : IO)) -> Impl(Future(Result(unit, NetError)))) ...;
-```
-
-### 2.4 `std/net/dns.yo` — DNS Resolution
-
-```yo
-lookup_host :: (fn(host: String, using(io : IO)) -> Impl(Future(Result(ArrayList(IpAddr), NetError)))) ...;
-resolve :: (fn(host: String, port: u16, using(io : IO)) -> Impl(Future(Result(ArrayList(SocketAddr), NetError)))) ...;
-```
-
-### 2.5 `std/net/errors.yo` — Network Errors
+### 2.1 `std/net/errors.yo` — Network Errors
 
 ```yo
 NetError :: enum(
@@ -374,9 +292,113 @@ NetError :: enum(
   IO(err: IOError),
   Other(msg: String)
 );
+
+// Helpers
+NetError.from_io :: (fn(err: IOError) -> Self) ...;        // Maps IOError variants to NetError
+NetError.from_result :: (fn(result: i32) -> Result(i32, Self)) ...;  // Converts raw result codes
+```
+
+### 2.2 `std/net/addr.yo` — Network Addresses
+
+```yo
+IpAddr :: enum(
+  V4(a: u8, b: u8, c: u8, d: u8),
+  V6(segments: Array(u16, usize(8)))
+);
+
+IpAddr.parse_v4 :: (fn(s: String) -> Result(IpAddr, NetError)) ...;
+IpAddr.loopback_v4 :: (fn() -> IpAddr) ...;
+IpAddr.loopback_v6 :: (fn() -> IpAddr) ...;
+IpAddr.any_v4 :: (fn() -> IpAddr) ...;
+IpAddr.is_loopback :: (fn(self: Self) -> bool) ...;
+IpAddr.is_v4 :: (fn(self: Self) -> bool) ...;
+IpAddr.is_v6 :: (fn(self: Self) -> bool) ...;
+// Implements ToString
+
+SocketAddr :: struct(
+  ip   : IpAddr,
+  port : u16
+);
+
+SocketAddr.new :: (fn(ip: IpAddr, port: u16) -> Self) ...;
+SocketAddr.loopback :: (fn(port: u16) -> Self) ...;
+SocketAddr.any :: (fn(port: u16) -> Self) ...;
+// Implements ToString
+```
+
+### 2.3 `std/net/tcp.yo` — TCP Client and Server
+
+```yo
+TcpListener :: object(
+  _fd         : i32,
+  _local_addr : SocketAddr
+);
+
+TcpListener.bind :: (fn(addr: SocketAddr, using(io : IO)) -> Impl(Future(Result(TcpListener, NetError), IO))) ...;
+TcpListener.accept :: (fn(self: Self, using(io : IO)) -> Impl(Future(Result(TcpStream, NetError), IO))) ...;
+TcpListener.local_addr :: (fn(self: Self) -> SocketAddr) ...;
+TcpListener.close :: (fn(self: Self, using(io : IO)) -> Impl(Future(Result(unit, NetError), IO))) ...;
+TcpListener.fd :: (fn(self: Self) -> i32) ...;
+// Implements Dispose
+
+TcpStream :: object(
+  _fd        : i32,
+  _peer_addr : SocketAddr,
+  _is_closed : bool
+);
+
+TcpStream.connect :: (fn(addr: SocketAddr, using(io : IO)) -> Impl(Future(Result(TcpStream, NetError), IO))) ...;
+TcpStream.read :: (fn(self: Self, buf: *(u8), size: usize, using(io : IO)) -> Impl(Future(Result(i32, NetError), IO))) ...;
+TcpStream.write_str :: (fn(self: Self, data: str, using(io : IO)) -> Impl(Future(Result(i32, NetError), IO))) ...;
+TcpStream.write :: (fn(self: Self, data: String, using(io : IO)) -> Impl(Future(Result(i32, NetError), IO))) ...;
+TcpStream.write_bytes :: (fn(self: Self, data: ArrayList(u8), using(io : IO)) -> Impl(Future(Result(i32, NetError), IO))) ...;
+TcpStream.read_all :: (fn(self: Self, using(io : IO)) -> Impl(Future(Result(ArrayList(u8), NetError), IO))) ...;
+TcpStream.shutdown :: (fn(self: Self, how: i32, using(io : IO)) -> Impl(Future(Result(unit, NetError), IO))) ...;
+TcpStream.close :: (fn(self: Self, using(io : IO)) -> Impl(Future(Result(unit, NetError), IO))) ...;
+TcpStream.peer_addr :: (fn(self: Self) -> SocketAddr) ...;
+TcpStream.fd :: (fn(self: Self) -> i32) ...;
+TcpStream.set_nodelay :: (fn(self: Self, nodelay: bool, using(io : IO)) -> Impl(Future(Result(unit, NetError), IO))) ...;
+TcpStream.set_keepalive :: (fn(self: Self, enabled: bool, using(io : IO)) -> Impl(Future(Result(unit, NetError), IO))) ...;
+// Implements Dispose
+```
+
+### 2.4 `std/net/udp.yo` — UDP Socket
+
+```yo
+UdpSocket :: object(
+  _fd         : i32,
+  _local_addr : SocketAddr,
+  _is_closed  : bool
+);
+
+UdpSocket.bind :: (fn(addr: SocketAddr, using(io : IO)) -> Impl(Future(Result(UdpSocket, NetError), IO))) ...;
+UdpSocket.send_to :: (fn(self: Self, data: ArrayList(u8), addr: SocketAddr, using(io : IO)) -> Impl(Future(Result(i32, NetError), IO))) ...;
+UdpSocket.recv :: (fn(self: Self, buf: *(u8), size: usize, using(io : IO)) -> Impl(Future(Result(i32, NetError), IO))) ...;
+UdpSocket.recv_from :: (fn(self: Self, buf: *(u8), size: usize, src_addr: *(u8), src_addr_len: *(u32), using(io : IO)) -> Impl(Future(Result(i32, NetError), IO))) ...;
+UdpSocket.send :: (fn(self: Self, data: ArrayList(u8), using(io : IO)) -> Impl(Future(Result(i32, NetError), IO))) ...;
+UdpSocket.close :: (fn(self: Self, using(io : IO)) -> Impl(Future(Result(unit, NetError), IO))) ...;
+UdpSocket.set_broadcast :: (fn(self: Self, enabled: bool, using(io : IO)) -> Impl(Future(Result(unit, NetError), IO))) ...;
+UdpSocket.local_addr :: (fn(self: Self) -> SocketAddr) ...;
+UdpSocket.fd :: (fn(self: Self) -> i32) ...;
+// Implements Dispose
+```
+
+### 2.5 `std/net/dns.yo` — DNS Resolution
+
+```yo
+lookup_host :: (fn(host: String, using(io : IO)) -> Impl(Future(Result(ArrayList(IpAddr), NetError), IO))) ...;
+resolve :: (fn(host: String, port: u16, using(io : IO)) -> Impl(Future(Result(ArrayList(SocketAddr), NetError), IO))) ...;
 ```
 
 **Tests**: TCP echo server/client with typed API, UDP datagram exchange, DNS lookup, address parsing/formatting, connection error handling.
+
+**Test files** (all passing):
+
+- `tests/net/addr.test.yo` — 13 tests (IpAddr parsing, loopback, SocketAddr, ToString)
+- `tests/net/errors.test.yo` — 9 tests (NetError variants, from_io, from_result, ToString)
+- `tests/net/tcp.test.yo` — 10 tests (bind/close, local_addr, connect/accept, write_str/read echo, write String, write_bytes, set_nodelay/set_keepalive, shutdown, peer_addr, read_all)
+- `tests/net/udp.test.yo` — 5 tests (bind/close, local_addr, send_to/recv, recv_from, set_broadcast)
+- `tests/net/dns.test.yo` — 3 tests (lookup_host localhost, invalid host, resolve)
 
 ---
 
