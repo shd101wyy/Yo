@@ -12,7 +12,10 @@ import {
 import { areTypesCompatible } from "../../types/compatibility";
 import { createSliceType, createUsizeType } from "../../types/creators";
 import type { ArrayType, SliceType } from "../../types/definitions";
-import { typeToString } from "../../types/utils";
+import {
+  convertComptimeTypeToRuntimeType,
+  typeToString,
+} from "../../types/utils";
 import {
   type ArrayValue,
   createSliceValue,
@@ -306,10 +309,15 @@ export function tryToCallArrayWithArguments({
     // Handle compile-time slice indexing
     if (sliceValue) {
       if (!evaluatedArgExpr.$.value) {
-        throw formatErrorMessage({
-          token: argExpr.token,
-          errorMessage: `Expected compile-time known value for slice index, got runtime value.`,
-        });
+        // Runtime index into compile-time slice: convert to runtime access
+        return {
+          value: undefined,
+          type: convertComptimeTypeToRuntimeType({
+            type: returnType,
+            env: callerEnv,
+          }),
+          callerEnv,
+        };
       } else if (isNumberValue(evaluatedArgExpr.$.value)) {
         const indexValue = evaluatedArgExpr.$.value.value;
         const relativeIndex =
@@ -352,10 +360,15 @@ export function tryToCallArrayWithArguments({
     // Handle compile-time array indexing
     if (arrayValue) {
       if (!evaluatedArgExpr.$.value) {
-        throw formatErrorMessage({
-          token: argExpr.token,
-          errorMessage: `Expected compile-time known value for array index, got runtime value.`,
-        });
+        // Runtime index into compile-time array: convert to runtime access
+        return {
+          value: undefined,
+          type: convertComptimeTypeToRuntimeType({
+            type: returnType,
+            env: callerEnv,
+          }),
+          callerEnv,
+        };
       } else if (isNumberValue(evaluatedArgExpr.$.value)) {
         const indexValue = evaluatedArgExpr.$.value.value;
         const index =

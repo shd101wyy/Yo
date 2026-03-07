@@ -47,7 +47,7 @@ Byte buffers use `ArrayList(u8)` (not `Slice(u8)`).
 | **GC**             | `std/gc.yo`                             | ✅ Complete | `collect`, `tracked_count`                                                            |
 | **Async**          | `std/async.yo`                          | ✅ Minimal  | Only `yield`; async/await uses IO algebraic effect                                    |
 | **Time**           | `std/time.yo`                           | 🔸 Minimal  | Only `sleep`; see `std/time/` for Duration, Instant, DateTime                         |
-| **Time (rich)**    | `std/time/`                             | ✅ Complete | `Duration`, `Instant` (monotonic), `DateTime` (wall clock)                            |
+| **Time (rich)**    | `std/time/`                             | ✅ Complete | `Duration`, `Instant` (monotonic), `DateTime` (wall clock) — 25 tests all passing     |
 | **Error**          | `std/error/`                            | ✅ Complete | `Error` trait for typed error propagation                                             |
 | **IO (low-level)** | `std/io/` (37 files)                    | ✅ Complete | Full async I/O: file, socket, process, mmap, DNS, signals, TTY, etc.                  |
 | **Libc bindings**  | `std/libc/`                             | ✅ Complete | stdio, stdlib, string, math, errno, signal, etc.                                      |
@@ -470,6 +470,12 @@ DateTime.day_of_year :: (fn(self: *(Self)) -> u16) ...;
 ```
 
 **Tests**: Duration arithmetic, Instant elapsed measurement, DateTime formatting, Unix timestamp round-trip, leap year detection.
+
+**Test files** (all passing):
+
+- `tests/time/duration.test.yo` — 12 tests (from_secs/millis/micros/nanos, zero, add, add with nanos overflow, sub normal, sub saturates to zero, as_secs_f64, is_zero, to_string)
+- `tests/time/instant.test.yo` — 4 tests (now returns non-zero, elapsed non-negative, duration_since two instants, duration_since earlier returns zero)
+- `tests/time/datetime.test.yo` — 9 tests (now_utc valid date, from_unix epoch, from_unix known date, to_unix round-trip, to_unix epoch round-trip, is_leap_year, day_of_week, day_of_year, to_string ISO 8601)
 
 ---
 
