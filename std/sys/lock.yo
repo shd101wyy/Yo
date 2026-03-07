@@ -1,0 +1,26 @@
+// std/sys/lock.yo - Advisory file locking
+//
+// Synchronous wrapper for POSIX flock().
+// Returns 0 on success, -errno on failure.
+//
+// Operations can be OR'd with LOCK_NB for non-blocking.
+// LOCK_NB returns -EWOULDBLOCK (-11) if the lock cannot be acquired immediately.
+
+{ __yo_sync_flock } :: import "./externs.yo";
+
+// Lock operation constants
+LOCK_SH :: i32(1);  // Shared (read) lock
+LOCK_EX :: i32(2);  // Exclusive (write) lock
+LOCK_NB :: i32(4);  // Non-blocking (OR with LOCK_SH or LOCK_EX)
+LOCK_UN :: i32(8);  // Unlock
+
+// Acquire or release an advisory lock on a file descriptor.
+// Returns 0 on success, -errno on failure.
+flock :: (fn(fd: i32, operation: i32) -> i32)(
+  __yo_sync_flock(fd, operation)
+);
+
+export
+  flock,
+  LOCK_SH, LOCK_EX, LOCK_NB, LOCK_UN
+;

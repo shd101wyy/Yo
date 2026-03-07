@@ -1,6 +1,6 @@
 // std/net/udp.yo - High-level UDP socket
 //
-// Wraps std/io/udp with typed UdpSocket object.
+// Wraps std/sys/udp with typed UdpSocket object.
 //
 // Example:
 //   { UdpSocket } :: import "std/net/udp";
@@ -23,14 +23,14 @@
 open import "../string";
 open import "../fmt";
 { NetError } :: import "./errors";
-{ IOError } :: import "../io/errors";
+{ IOError } :: import "../sys/errors";
 { IpAddr, SocketAddr } :: import "./addr";
-IO_udp :: import "../io/udp";
-IO_tcp :: import "../io/tcp";
+IO_udp :: import "../sys/udp";
+IO_tcp :: import "../sys/tcp";
 {
   AF_INET, AF_INET6, SOCK_DGRAM,
   SOL_SOCKET, SO_BROADCAST
-} :: import "../io/socket";
+} :: import "../sys/socket";
 { snprintf } :: import "../libc/stdio";
 
 // ============================================================================
@@ -181,7 +181,7 @@ impl(UdpSocket, Dispose(
   dispose : (fn(self: Self) -> unit)({
     cond(
       (!(self._is_closed)) => {
-        { close_sync } :: import "../io/file";
+        { close_sync } :: import "../sys/file";
         close_sync(self._fd);
         self._is_closed = true;
       },

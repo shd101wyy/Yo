@@ -1,6 +1,6 @@
 // std/net/tcp.yo - High-level TCP types
 //
-// Wraps std/io/tcp with typed TcpListener and TcpStream objects.
+// Wraps std/sys/tcp with typed TcpListener and TcpStream objects.
 //
 // Example:
 //   { TcpListener, TcpStream } :: import "std/net/tcp";
@@ -24,14 +24,14 @@
 open import "../string";
 open import "../fmt";
 { NetError } :: import "./errors";
-{ IOError } :: import "../io/errors";
+{ IOError } :: import "../sys/errors";
 { IpAddr, SocketAddr } :: import "./addr";
-IO_tcp :: import "../io/tcp";
+IO_tcp :: import "../sys/tcp";
 {
   AF_INET, AF_INET6, SOCK_STREAM,
   SOL_SOCKET, SO_REUSEADDR,
   IPPROTO_TCP, TCP_NODELAY, SO_KEEPALIVE
-} :: import "../io/socket";
+} :: import "../sys/socket";
 
 // ============================================================================
 // Internal helpers
@@ -179,7 +179,7 @@ impl(TcpListener,
 
 impl(TcpListener, Dispose(
   dispose : (fn(self: Self) -> unit)({
-    { close_sync } :: import "../io/file";
+    { close_sync } :: import "../sys/file";
     close_sync(self._fd);
   })
 ));
@@ -382,7 +382,7 @@ impl(TcpStream, Dispose(
   dispose : (fn(self: Self) -> unit)({
     cond(
       (!(self._is_closed)) => {
-        { close_sync } :: import "../io/file";
+        { close_sync } :: import "../sys/file";
         close_sync(self._fd);
         self._is_closed = true;
       },

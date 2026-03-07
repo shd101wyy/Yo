@@ -1,0 +1,95 @@
+// std/sys/statx.yo - Statx file status type
+//
+// Object wrapper around the C statx buffer, providing
+// accessor methods for file metadata.
+
+{
+  S_IFMT, S_IFREG, S_IFDIR, S_IFLNK
+} :: import "./constants.yo";
+
+{
+  __yo_statx_mode, __yo_statx_size, __yo_statx_uid, __yo_statx_gid,
+  __yo_statx_ino, __yo_statx_nlink,
+  __yo_statx_mtime_sec, __yo_statx_mtime_nsec,
+  __yo_statx_atime_sec, __yo_statx_atime_nsec,
+  __yo_statx_ctime_sec, __yo_statx_ctime_nsec
+} :: import "./externs.yo";
+
+// ============================================================================
+// Statx - File status from async stat operations
+// ============================================================================
+
+Statx :: struct(
+  _buf_ptr: *(u8),
+  _buf_size: usize
+);
+
+impl(Statx,
+  is_file : (fn(self: Self) -> bool)({
+    mode := __yo_statx_mode(self._buf_ptr);
+    file_type := (mode & S_IFMT);
+    return (file_type == S_IFREG);
+  }),
+
+  is_directory : (fn(self: Self) -> bool)({
+    mode := __yo_statx_mode(self._buf_ptr);
+    file_type := (mode & S_IFMT);
+    return (file_type == S_IFDIR);
+  }),
+
+  is_symlink : (fn(self: Self) -> bool)({
+    mode := __yo_statx_mode(self._buf_ptr);
+    file_type := (mode & S_IFMT);
+    return (file_type == S_IFLNK);
+  }),
+
+  size : (fn(self: Self) -> i64)(
+    __yo_statx_size(self._buf_ptr)
+  ),
+
+  mode : (fn(self: Self) -> u32)(
+    __yo_statx_mode(self._buf_ptr)
+  ),
+
+  uid : (fn(self: Self) -> u32)(
+    __yo_statx_uid(self._buf_ptr)
+  ),
+
+  gid : (fn(self: Self) -> u32)(
+    __yo_statx_gid(self._buf_ptr)
+  ),
+
+  ino : (fn(self: Self) -> u64)(
+    __yo_statx_ino(self._buf_ptr)
+  ),
+
+  nlink : (fn(self: Self) -> u64)(
+    __yo_statx_nlink(self._buf_ptr)
+  ),
+
+  mtime_sec : (fn(self: Self) -> i64)(
+    __yo_statx_mtime_sec(self._buf_ptr)
+  ),
+
+  mtime_nsec : (fn(self: Self) -> u32)(
+    __yo_statx_mtime_nsec(self._buf_ptr)
+  ),
+
+  atime_sec : (fn(self: Self) -> i64)(
+    __yo_statx_atime_sec(self._buf_ptr)
+  ),
+
+  atime_nsec : (fn(self: Self) -> u32)(
+    __yo_statx_atime_nsec(self._buf_ptr)
+  ),
+
+  ctime_sec : (fn(self: Self) -> i64)(
+    __yo_statx_ctime_sec(self._buf_ptr)
+  ),
+
+  ctime_nsec : (fn(self: Self) -> u32)(
+    __yo_statx_ctime_nsec(self._buf_ptr)
+  )
+);
+
+export Statx;

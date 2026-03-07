@@ -1,0 +1,233 @@
+open import "std/string";
+{ temp_dir, path_join } :: import "../helper";
+file :: import "std/sys/file";
+dir :: import "std/sys/dir";
+{ AT_FDCWD } :: import "std/sys/constants";
+temp_io :: import "std/sys/temp";
+mmap_io :: import "std/sys/mmap";
+
+test "mmap invalid fd returns encoded error", using(io : IO), {
+  mapped := mmap_io.mmap(
+    .None,
+    usize(4096),
+    mmap_io.PROT_READ,
+    mmap_io.MAP_SHARED,
+    i32(-1),
+    i64(0)
+  );
+
+  assert(mmap_io.is_error(mapped), "mmap with invalid fd should return encoded error pointer");
+  err := mmap_io.error_code(mapped);
+  assert((err == i32(9)), "mmap invalid fd should map to errno 9 (EBADF)");
+};
+
+test "mmap anonymous region supports read write protect and unmap", using(io : IO), {
+  mapped := mmap_io.mmap(
+    .None,
+    usize(4096),
+    (mmap_io.PROT_READ | mmap_io.PROT_WRITE),
+    (mmap_io.MAP_PRIVATE | mmap_io.MAP_ANONYMOUS),
+    i32(-1),
+    i64(0)
+  );
+
+  assert((!mmap_io.is_error(mapped)), "anonymous mmap should succeed");
+  ptr := mapped.unwrap();
+
+  (ptr &+ usize(0)).* = u8(65);
+  (ptr &+ usize(1)).* = u8(66);
+  (ptr &+ usize(2)).* = u8(67);
+
+  assert(((ptr &+ usize(0)).* == u8(65)), "anonymous mmap byte 0 should be 65");
+  assert(((ptr &+ usize(1)).* == u8(66)), "anonymous mmap byte 1 should be 66");
+  assert(((ptr &+ usize(2)).* == u8(67)), "anonymous mmap byte 2 should be 67");
+
+  prot_ret := mmap_io.mprotect(ptr, usize(4096), mmap_io.PROT_READ);
+  assert((prot_ret == i32(0)), "mprotect(PROT_READ) should succeed");
+
+  unmap_ret := mmap_io.munmap(ptr, usize(4096));
+  assert((unmap_ret == i32(0)), "munmap for anonymous region should succeed");
+};
+
+test "mmap shared file region and msync persists writes", using(io : IO), {
+  tmp := temp_dir();
+  template_str := path_join(tmp, `yo_io_mmap_XXXXXX`);
+  template_c := template_str.to_cstr();
+  template_path := template_c.ptr().unwrap();
+
+  fd := temp_io.mkstemp(template_path);
+  assert((fd >= i32(0)), "mkstemp should return a valid fd");
+
+  trunc := io.await(file.ftruncate(fd, i64(4096)));
+  assert((trunc == i32(0)), "ftruncate to 4096 should succeed");
+
+  mapped := mmap_io.mmap(
+    .None,
+    usize(4096),
+    (mmap_io.PROT_READ | mmap_io.PROT_WRITE),
+    mmap_io.MAP_SHARED,
+    fd,
+    i64(0)
+  );
+
+  assert((!mmap_io.is_error(mapped)), "file-backed shared mmap should succeed");
+  ptr := mapped.unwrap();
+
+  (ptr &+ usize(0)).* = u8(90);
+  (ptr &+ usize(1)).* = u8(89);
+
+  sync_ret := mmap_io.msync(ptr, usize(4096), mmap_io.MS_SYNC);
+  assert((sync_ret == i32(0)), "msync(MS_SYNC) should succeed");
+
+  unmap_ret := mmap_io.munmap(ptr, usize(4096));
+  assert((unmap_ret == i32(0)), "munmap for file-backed mapping should succeed");
+
+  read_buf_uninit := MaybeUninit(Array(u8, usize(2))).new();
+  read_buf := *(u8)(read_buf_uninit.as_ptr());
+  rd := io.await(file.read(fd, read_buf, u32(2), u64(0)));
+  assert((rd == i32(2)), "reading first 2 bytes after msync should return 2");
+  assert(((read_buf &+ usize(0)).* == u8(90)), "persisted byte 0 should be 90");
+  assert(((read_buf &+ usize(1)).* == u8(89)), "persisted byte 1 should be 89");
+
+  close_ret := io.await(file.close(fd));
+  assert((close_ret == i32(0)), "closing temporary mmap file should succeed");
+
+  rm := io.await(dir.unlink(AT_FDCWD, template_path, i32(0)));
+  assert((rm == i32(0)), "unlinking temporary mmap file should succeed");
+};
+
+test "PROT_NONE mapping denies access and mprotect restores it", using(io : IO), {
+  mapped := mmap_io.mmap(
+    .None,
+    usize(4096),
+    mmap_io.PROT_NONE,
+    (mmap_io.MAP_PRIVATE | mmap_io.MAP_ANONYMOUS),
+    i32(-1),
+    i64(0)
+  );
+
+  assert((!mmap_io.is_error(mapped)), "PROT_NONE anonymous mmap should succeed");
+  ptr := mapped.unwrap();
+
+  prot_ret := mmap_io.mprotect(ptr, usize(4096), (mmap_io.PROT_READ | mmap_io.PROT_WRITE));
+  assert((prot_ret == i32(0)), "mprotect from PROT_NONE to PROT_READ|PROT_WRITE should succeed");
+
+  (ptr &+ usize(0)).* = u8(42);
+  assert(((ptr &+ usize(0)).* == u8(42)), "write after mprotect should succeed");
+
+  unmap_ret := mmap_io.munmap(ptr, usize(4096));
+  assert((unmap_ret == i32(0)), "munmap after PROT_NONE test should succeed");
+};
+
+test "error_code on valid pointer returns 0", using(io : IO), {
+  mapped := mmap_io.mmap(
+    .None,
+    usize(4096),
+    (mmap_io.PROT_READ | mmap_io.PROT_WRITE),
+    (mmap_io.MAP_PRIVATE | mmap_io.MAP_ANONYMOUS),
+    i32(-1),
+    i64(0)
+  );
+
+  assert((!mmap_io.is_error(mapped)), "anonymous mmap for error_code test should succeed");
+  err := mmap_io.error_code(mapped);
+  assert((err == i32(0)), "error_code on a valid mmap pointer should return 0");
+
+  unmap_ret := mmap_io.munmap(mapped.unwrap(), usize(4096));
+  assert((unmap_ret == i32(0)), "munmap in error_code test should succeed");
+};
+
+test "msync with MS_ASYNC on file-backed mapping succeeds", using(io : IO), {
+  tmp := temp_dir();
+  template_str := path_join(tmp, `yo_io_mmap_async_XXXXXX`);
+  template_c := template_str.to_cstr();
+  template_path := template_c.ptr().unwrap();
+
+  fd := temp_io.mkstemp(template_path);
+  assert((fd >= i32(0)), "mkstemp for MS_ASYNC test should return a valid fd");
+
+  trunc := io.await(file.ftruncate(fd, i64(4096)));
+  assert((trunc == i32(0)), "ftruncate for MS_ASYNC test should succeed");
+
+  mapped := mmap_io.mmap(
+    .None,
+    usize(4096),
+    (mmap_io.PROT_READ | mmap_io.PROT_WRITE),
+    mmap_io.MAP_SHARED,
+    fd,
+    i64(0)
+  );
+
+  assert((!mmap_io.is_error(mapped)), "mmap for MS_ASYNC test should succeed");
+  ptr := mapped.unwrap();
+
+  (ptr &+ usize(0)).* = u8(77);
+
+  async_ret := mmap_io.msync(ptr, usize(4096), mmap_io.MS_ASYNC);
+  assert((async_ret == i32(0)), "msync(MS_ASYNC) should succeed");
+
+  unmap_ret := mmap_io.munmap(ptr, usize(4096));
+  assert((unmap_ret == i32(0)), "munmap in MS_ASYNC test should succeed");
+
+  close_ret := io.await(file.close(fd));
+  assert((close_ret == i32(0)), "closing file in MS_ASYNC test should succeed");
+
+  rm := io.await(dir.unlink(AT_FDCWD, template_path, i32(0)));
+  assert((rm == i32(0)), "unlinking file in MS_ASYNC test should succeed");
+};
+
+test "msync with MS_INVALIDATE on shared mapping succeeds", using(io : IO), {
+  tmp := temp_dir();
+  template_str := path_join(tmp, `yo_io_mmap_inval_XXXXXX`);
+  template_c := template_str.to_cstr();
+  template_path := template_c.ptr().unwrap();
+
+  fd := temp_io.mkstemp(template_path);
+  assert((fd >= i32(0)), "mkstemp for MS_INVALIDATE test should return a valid fd");
+
+  trunc := io.await(file.ftruncate(fd, i64(4096)));
+  assert((trunc == i32(0)), "ftruncate for MS_INVALIDATE test should succeed");
+
+  mapped := mmap_io.mmap(
+    .None,
+    usize(4096),
+    (mmap_io.PROT_READ | mmap_io.PROT_WRITE),
+    mmap_io.MAP_SHARED,
+    fd,
+    i64(0)
+  );
+
+  assert((!mmap_io.is_error(mapped)), "mmap for MS_INVALIDATE test should succeed");
+  ptr := mapped.unwrap();
+
+  (ptr &+ usize(0)).* = u8(88);
+
+  inval_ret := mmap_io.msync(ptr, usize(4096), (mmap_io.MS_SYNC | mmap_io.MS_INVALIDATE));
+  assert((inval_ret == i32(0)), "msync(MS_SYNC|MS_INVALIDATE) should succeed");
+
+  assert(((ptr &+ usize(0)).* == u8(88)), "data should persist after MS_INVALIDATE");
+
+  unmap_ret := mmap_io.munmap(ptr, usize(4096));
+  assert((unmap_ret == i32(0)), "munmap in MS_INVALIDATE test should succeed");
+
+  close_ret := io.await(file.close(fd));
+  assert((close_ret == i32(0)), "closing file in MS_INVALIDATE test should succeed");
+
+  rm := io.await(dir.unlink(AT_FDCWD, template_path, i32(0)));
+  assert((rm == i32(0)), "unlinking file in MS_INVALIDATE test should succeed");
+};
+
+test "mmap with zero length returns error", using(io : IO), {
+  mapped := mmap_io.mmap(
+    .None,
+    usize(0),
+    mmap_io.PROT_READ,
+    (mmap_io.MAP_PRIVATE | mmap_io.MAP_ANONYMOUS),
+    i32(-1),
+    i64(0)
+  );
+
+  assert(mmap_io.is_error(mapped), "mmap with zero length should return an error");
+  err := mmap_io.error_code(mapped);
+  assert((err == i32(22)), "mmap with zero length should map to errno 22 (EINVAL)");
+};

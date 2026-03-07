@@ -1,0 +1,56 @@
+open import "std/libc/stdio";
+open import "std/string";
+open import "std/collections/array_list";
+
+umask_io :: import "std/sys/umask";
+file :: import "std/sys/file";
+dir :: import "std/sys/dir";
+{ Statx } :: import "std/sys/statx";
+{ temp_dir, path_join } :: import "../helper";
+{ AT_FDCWD, O_WRONLY, O_CREAT, O_TRUNC, STATX_BASIC_STATS } :: import "std/sys/constants";
+{ platform, Platform } :: import "std/process";
+
+make_test_file :: (fn(name: String) -> ArrayList(u8)) {
+  tmp := temp_dir();
+  p := path_join(tmp, name);
+  p.to_cstr()
+};
+
+test "umask affects file creation mode and can be restored", using(io : IO), {
+  path_cstr := make_test_file(`yo_umask_test.txt`);
+  test_path := path_cstr.ptr().unwrap();
+
+  old_mask := umask_io.umask(i32(0));
+  set_prev := umask_io.umask(i32(0o022));
+
+  open_flags := ((O_WRONLY | O_CREAT) | O_TRUNC);
+  fd := io.await(file.openat(AT_FDCWD, test_path, open_flags, i32(0o666)));
+  close_result := io.await(file.close(fd));
+
+  statx_uninit := MaybeUninit(Array(u8, usize(256))).new();
+  stat_buf := *(u8)(statx_uninit.as_ptr());
+  sr := io.await(file.statx(AT_FDCWD, test_path, i32(0), STATX_BASIC_STATS, stat_buf));
+
+  st := Statx(stat_buf, usize(256));
+  mode_bits := (st.mode() & u32(0o777));
+
+  restore_prev := umask_io.umask(old_mask);
+
+  assert(old_mask >= i32(0), "initial umask call should return previous mask");
+  assert(set_prev == i32(0), "setting umask to 022 after clearing should return 0");
+  assert(fd >= i32(0), "openat should create file successfully");
+  assert(close_result == i32(0), "close should succeed");
+  assert(sr == i32(0), "statx should succeed on created file");
+  cond(
+    (platform == Platform.Win32) =>
+      assert(mode_bits == u32(0o666), "Windows reports 0666 for read-write files (no group/other distinction)"),
+    true =>
+      assert(mode_bits == u32(0o644), "created file mode should reflect umask 022 (0666 -> 0644)")
+  );
+  assert(restore_prev == i32(0o022), "restoring old umask should return current mask 022");
+
+  cleanup := io.await(dir.unlink(AT_FDCWD, test_path, i32(0)));
+  assert((cleanup == i32(0)), "cleanup unlink should succeed");
+
+  printf("  umask behavior validated\n");
+};

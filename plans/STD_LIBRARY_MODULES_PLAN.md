@@ -2,7 +2,7 @@
 
 ## Overview
 
-With the low-level `std/io` async I/O foundation complete (37 modules covering file, socket, process, mmap, signals, TTY, DNS, etc.), this plan covers building the **high-level standard library** that makes Yo battery-included. These modules sit on top of `std/io` and provide ergonomic, type-safe APIs for common programming tasks.
+With the low-level `std/sys` async I/O foundation complete (37 modules covering file, socket, process, mmap, signals, TTY, DNS, etc.), this plan covers building the **high-level standard library** that makes Yo battery-included. These modules sit on top of `std/sys` and provide ergonomic, type-safe APIs for common programming tasks.
 
 ## Algebraic Effects and IO
 
@@ -27,38 +27,38 @@ Byte buffers use `ArrayList(u8)` (not `Slice(u8)`).
 
 ### What's Done
 
-| Module             | File(s)                                 | Status      | Notes                                                                                 |
-| ------------------ | --------------------------------------- | ----------- | ------------------------------------------------------------------------------------- |
-| **Prelude**        | `std/prelude.yo`                        | ✅ Complete | Core types, traits, operators, Box, Option, Result, Array, Slice; IO algebraic effect |
-| **String**         | `std/string/`                           | ✅ Complete | Immutable UTF-8 `String`, `rune` (Unicode code point)                                 |
-| **Collections**    | `std/collections/`                      | ✅ Complete | `ArrayList`, `HashMap`, `HashSet`, `LinkedList`, `Deque`, `BTreeMap`, `PriorityQueue` |
-| **Path**           | `std/path.yo`                           | ✅ Complete | Cross-platform path manipulation (join, parent, extension, normalize)                 |
-| **Process**        | `std/process.yo`                        | ✅ Complete | Platform/arch detection, args, env, cwd, chdir, exit                                  |
-| **Allocator**      | `std/allocator.yo`                      | ✅ Complete | `GlobalAllocator` (mimalloc/libc), `CustomAllocator` trait                            |
-| **Format**         | `std/fmt/`                              | ✅ Complete | `ToString` trait, `Writer`, `Display`; `println`/`print`/`eprintln`                   |
-| **Hash**           | `std/alg/hash.yo`                       | ✅ Complete | FNV-1a hash function                                                                  |
-| **Sync**           | `std/sync/mutex.yo`, `std/sync/cond.yo` | ✅ Complete | `Mutex`, `Cond` (stack + GC-managed variants)                                         |
-| **Sync Channel**   | `std/sync/channel.yo`                   | ✅ Complete | Bounded MPMC `Channel` for cross-thread/worker communication                          |
-| **Sync RwLock**    | `std/sync/rwlock.yo`                    | ✅ Complete | `RwLock` — multiple-reader / single-writer lock                                       |
-| **Sync WaitGroup** | `std/sync/waitgroup.yo`                 | ✅ Complete | `WaitGroup` — wait for a group of tasks to complete                                   |
-| **Sync Once**      | `std/sync/once.yo`                      | ✅ Complete | `Once` — one-time thread-safe initialization                                          |
-| **Thread**         | `std/thread.yo`                         | ✅ Complete | `Thread` (spawn/join), hardware thread count                                          |
-| **Worker**         | `std/worker.yo`                         | ✅ Complete | Thread pool with round-robin task distribution                                        |
-| **GC**             | `std/gc.yo`                             | ✅ Complete | `collect`, `tracked_count`                                                            |
-| **Async**          | `std/async.yo`                          | ✅ Minimal  | Only `yield`; async/await uses IO algebraic effect                                    |
-| **Time**           | `std/time.yo`                           | 🔸 Minimal  | Only `sleep`; see `std/time/` for Duration, Instant, DateTime                         |
-| **Time (rich)**    | `std/time/`                             | ✅ Complete | `Duration`, `Instant` (monotonic), `DateTime` (wall clock) — 25 tests all passing     |
-| **Error**          | `std/error/`                            | ✅ Complete | `Error` trait for typed error propagation                                             |
-| **IO (low-level)** | `std/io/` (37 files)                    | ✅ Complete | Full async I/O: file, socket, process, mmap, DNS, signals, TTY, etc.                  |
-| **Libc bindings**  | `std/libc/`                             | ✅ Complete | stdio, stdlib, string, math, errno, signal, etc.                                      |
-| **FS**             | `std/fs/`                               | ✅ Complete | `File`, `Metadata`, `TempDir`, `TempFile`, directory walker                           |
-| **Net**            | `std/net/`                              | ✅ Complete | `TcpStream`, `TcpListener`, `UdpSocket`, `IpAddr`, DNS lookup                         |
-| **OS**             | `std/os/`                               | ✅ Complete | Signal handling, environment directory utilities                                      |
-| **Encoding**       | `std/encoding/`                         | ✅ Complete | Base64, hex, JSON, UTF-16                                                             |
-| **Crypto**         | `std/crypto/`                           | ✅ Complete | SHA-256, MD5, secure random, UUID v4                                                  |
-| **Math**           | `std/math/`                             | ✅ Complete | Generic min/max/clamp, lerp, PRNG (xoshiro256\*\*)                                    |
-| **Log**            | `std/log/`                              | ✅ Complete | Structured logger with level filtering and output routing                             |
-| **Testing**        | `std/testing/`                          | ✅ Complete | Rich assertion helpers, micro-benchmarking                                            |
+| Module              | File(s)                                 | Status      | Notes                                                                                 |
+| ------------------- | --------------------------------------- | ----------- | ------------------------------------------------------------------------------------- |
+| **Prelude**         | `std/prelude.yo`                        | ✅ Complete | Core types, traits, operators, Box, Option, Result, Array, Slice; IO algebraic effect |
+| **String**          | `std/string/`                           | ✅ Complete | Immutable UTF-8 `String`, `rune` (Unicode code point)                                 |
+| **Collections**     | `std/collections/`                      | ✅ Complete | `ArrayList`, `HashMap`, `HashSet`, `LinkedList`, `Deque`, `BTreeMap`, `PriorityQueue` |
+| **Path**            | `std/path.yo`                           | ✅ Complete | Cross-platform path manipulation (join, parent, extension, normalize)                 |
+| **Process**         | `std/process.yo`                        | ✅ Complete | Platform/arch detection, args, env, cwd, chdir, exit                                  |
+| **Allocator**       | `std/allocator.yo`                      | ✅ Complete | `GlobalAllocator` (mimalloc/libc), `CustomAllocator` trait                            |
+| **Format**          | `std/fmt/`                              | ✅ Complete | `ToString` trait, `Writer`, `Display`; `println`/`print`/`eprintln`                   |
+| **Hash**            | `std/alg/hash.yo`                       | ✅ Complete | FNV-1a hash function                                                                  |
+| **Sync**            | `std/sync/mutex.yo`, `std/sync/cond.yo` | ✅ Complete | `Mutex`, `Cond` (stack + GC-managed variants)                                         |
+| **Sync Channel**    | `std/sync/channel.yo`                   | ✅ Complete | Bounded MPMC `Channel` for cross-thread/worker communication                          |
+| **Sync RwLock**     | `std/sync/rwlock.yo`                    | ✅ Complete | `RwLock` — multiple-reader / single-writer lock                                       |
+| **Sync WaitGroup**  | `std/sync/waitgroup.yo`                 | ✅ Complete | `WaitGroup` — wait for a group of tasks to complete                                   |
+| **Sync Once**       | `std/sync/once.yo`                      | ✅ Complete | `Once` — one-time thread-safe initialization                                          |
+| **Thread**          | `std/thread.yo`                         | ✅ Complete | `Thread` (spawn/join), hardware thread count                                          |
+| **Worker**          | `std/worker.yo`                         | ✅ Complete | Thread pool with round-robin task distribution                                        |
+| **GC**              | `std/gc.yo`                             | ✅ Complete | `collect`, `tracked_count`                                                            |
+| **Async**           | `std/async.yo`                          | ✅ Minimal  | Only `yield`; async/await uses IO algebraic effect                                    |
+| **Time**            | `std/time.yo`                           | 🔸 Minimal  | Only `sleep`; see `std/time/` for Duration, Instant, DateTime                         |
+| **Time (rich)**     | `std/time/`                             | ✅ Complete | `Duration`, `Instant` (monotonic), `DateTime` (wall clock) — 25 tests all passing     |
+| **Error**           | `std/error/`                            | ✅ Complete | `Error` trait for typed error propagation                                             |
+| **Sys (low-level)** | `std/sys/` (37 files)                   | ✅ Complete | Full async I/O: file, socket, process, mmap, DNS, signals, TTY, etc.                  |
+| **Libc bindings**   | `std/libc/`                             | ✅ Complete | stdio, stdlib, string, math, errno, signal, etc.                                      |
+| **FS**              | `std/fs/`                               | ✅ Complete | `File`, `Metadata`, `TempDir`, `TempFile`, directory walker                           |
+| **Net**             | `std/net/`                              | ✅ Complete | `TcpStream`, `TcpListener`, `UdpSocket`, `IpAddr`, DNS lookup                         |
+| **OS**              | `std/os/`                               | ✅ Complete | Signal handling, environment directory utilities                                      |
+| **Encoding**        | `std/encoding/`                         | ✅ Complete | Base64, hex, JSON, UTF-16                                                             |
+| **Crypto**          | `std/crypto/`                           | ✅ Complete | SHA-256, MD5, secure random, UUID v4                                                  |
+| **Math**            | `std/math/`                             | ✅ Complete | Generic min/max/clamp, lerp, PRNG (xoshiro256\*\*)                                    |
+| **Log**             | `std/log/`                              | ✅ Complete | Structured logger with level filtering and output routing                             |
+| **Testing**         | `std/testing/`                          | ✅ Complete | Rich assertion helpers, micro-benchmarking                                            |
 
 ### What's Missing
 
@@ -81,7 +81,7 @@ The major gaps for a "battery-included" standard library — all now implemented
 15. **`std/sync/once`** ✅ — One-time initialization
 16. **`std/iter`** — Iterator protocol (planned)
 17. **`std/url`** — URL parsing (planned)
-18. **`std/io/bufio`** — Buffered I/O reader/writer (planned)
+18. **`std/sys/bufio`** — Buffered I/O reader/writer (planned)
 
 ---
 
@@ -89,7 +89,7 @@ The major gaps for a "battery-included" standard library — all now implemented
 
 **Goal**: Provide ergonomic async file I/O with buffered readers/writers, file objects, and directory traversal. This is the most important module — every non-trivial program needs file I/O.
 
-**Depends on**: `std/io/file`, `std/io/dir`, `std/io/seek`, `std/io/path`, `std/io/statx`, `std/io/perm`, `std/io/temp`, `std/path`, `std/string`
+**Depends on**: `std/sys/file`, `std/sys/dir`, `std/sys/seek`, `std/sys/path`, `std/sys/statx`, `std/sys/perm`, `std/sys/temp`, `std/path`, `std/string`
 
 ### 1.1 `std/fs/file.yo` — File Object
 
@@ -274,7 +274,7 @@ TempFile.remove :: (fn(self: Self, using(io : IO)) -> Impl(Future(Result(unit, I
 
 **Goal**: Provide ergonomic async TCP/UDP client and server types. This is the second most important module for building real applications.
 
-**Depends on**: `std/io/tcp`, `std/io/udp`, `std/io/dns`, `std/io/socket`, `std/string`
+**Depends on**: `std/sys/tcp`, `std/sys/udp`, `std/sys/dns`, `std/sys/socket`, `std/string`
 
 ### 2.1 `std/net/errors.yo` — Network Errors
 
@@ -406,7 +406,7 @@ resolve :: (fn(host: String, port: u16, using(io : IO)) -> Impl(Future(Result(Ar
 
 **Goal**: Rich time support with Duration, Instant (monotonic), and DateTime (wall clock). Essential for benchmarking, logging, timeouts, and scheduling.
 
-**Depends on**: `std/io/clock`, `std/io/timer`, `std/string`, `std/fmt`
+**Depends on**: `std/sys/clock`, `std/sys/timer`, `std/string`, `std/fmt`
 
 ### 3.1 `std/time/duration.yo` — Time Duration
 
@@ -704,7 +704,7 @@ panic :: (fn(msg: str) -> !) ...;
 
 **Goal**: Structured logging with levels, filtering, and pluggable outputs.
 
-**Depends on**: `std/time`, `std/fmt`, `std/string`, `std/io/file`
+**Depends on**: `std/time`, `std/fmt`, `std/string`, `std/sys/file`
 
 ### 9.1 `std/log/log.yo` — Logging API
 
@@ -837,9 +837,9 @@ PriorityQueue.len :: ...;
 
 ## Phase 12: OS Utilities (`std/os`) — Priority: Low
 
-**Goal**: OS-level utilities that don't fit in `std/io` or `std/process`.
+**Goal**: OS-level utilities that don't fit in `std/sys` or `std/process`.
 
-**Depends on**: `std/io/signal`, `std/io/sysinfo`, `std/string`
+**Depends on**: `std/sys/signal`, `std/sys/sysinfo`, `std/string`
 
 ### 12.1 `std/os/signal.yo` — High-Level Signal Handling
 
@@ -877,15 +877,15 @@ exe_path :: (fn() -> Result(String, IOError)) ...;
 
 ```
 Phase 1  (std/fs)          ← CRITICAL — every program needs file I/O
-  └── Depends on: std/io/file, std/io/dir, std/io/seek, std/io/statx, std/io/perm
-                  std/io/temp, std/path, std/string, std/collections
+  └── Depends on: std/sys/file, std/sys/dir, std/sys/seek, std/sys/statx, std/sys/perm
+                  std/sys/temp, std/path, std/string, std/collections
 
 Phase 2  (std/net)         ← CRITICAL — needed for any networked application
-  └── Depends on: std/io/tcp, std/io/udp, std/io/unix, std/io/dns
-                  std/io/sockinfo, std/string, std/collections
+  └── Depends on: std/sys/tcp, std/sys/udp, std/sys/unix, std/sys/dns
+                  std/sys/sockinfo, std/string, std/collections
 
 Phase 3  (std/time)        ← HIGH — needed for benchmarks, logging, scheduling
-  └── Depends on: std/io/clock, std/io/timer
+  └── Depends on: std/sys/clock, std/sys/timer
 
 Phase 4  (std/fmt)         ← HIGH — needed for Display, logging, debugging
   └── Depends on: std/string, std/fmt/to_string
@@ -912,7 +912,7 @@ Phase 11 (std/collections) ← LOW — additional data structures
   └── Depends on: std/allocator
 
 Phase 12 (std/os)          ← LOW — OS utilities
-  └── Depends on: std/io/signal, std/io/sysinfo, std/string
+  └── Depends on: std/sys/signal, std/sys/sysinfo, std/string
 ```
 
 ## Phase 13: Channel (`std/sync/channel`) — Priority: Critical
@@ -927,7 +927,7 @@ The Channel uses **blocking** `send`/`recv` via condition variables rather than 
 
 1. **Works everywhere**: Channels are used with both `Thread` and `Worker`. Neither requires an IO effect context, so a sync Channel is more universally applicable.
 2. **Simpler mental model**: `send()` blocks when the buffer is full; `recv()` blocks when the buffer is empty. No need to manage IO effects or futures for basic message passing.
-3. **Channel is a synchronization primitive, not I/O**: Like Mutex and Cond, Channel belongs in `std/sync`, not `std/io`.
+3. **Channel is a synchronization primitive, not I/O**: Like Mutex and Cond, Channel belongs in `std/sync`, not `std/sys`.
 4. **Async wrapping is easy**: If async semantics are needed, users can wrap `recv()` in `io.async(...)`:
    ```yo
    // Async recv — non-blocking in IO context
@@ -1051,7 +1051,7 @@ Url.parse :: (fn(s: str) -> Result(Url, UrlError)) ...;
 Url.to_string :: (fn(self: Self) -> String) ...;
 ```
 
-### 14.6 `std/io/bufio/` — Buffered I/O (Priority: Medium, Future)
+### 14.6 `std/sys/bufio/` — Buffered I/O (Priority: Medium, Future)
 
 Buffered reader/writer wrappers for any file descriptor.
 
@@ -1087,18 +1087,18 @@ BufWriter.flush :: (fn(self: Self, using(io : IO)) -> Impl(Future(Result(unit, I
 | 16    | Phase 14 | `std/sync/once` — One-Time Init                    | Low      | Small       | ✅ Done    |
 | —     | Phase 14 | `std/iter/` — Iterator protocol                    | Medium   | Medium      | 📋 Planned |
 | —     | Phase 14 | `std/url/` — URL parsing                           | Low      | Small       | 📋 Planned |
-| —     | Phase 14 | `std/io/bufio/` — Buffered I/O                     | Medium   | Medium      | 📋 Planned |
+| —     | Phase 14 | `std/sys/bufio/` — Buffered I/O                    | Medium   | Medium      | 📋 Planned |
 | —     | —        | `std/regex` — Regular expressions                  | Medium   | Large       | 📋 Planned |
 
 **Rationale**: Error trait and fmt/Writer come first because they're dependencies of almost everything else. Time comes before fs/net because Duration/Instant are useful for timeouts and logging. fs and net are the largest, most impactful modules. Math/encoding/crypto are independent utilities. Testing, logging, and advanced collections are low priority since the existing tools work.
 
 ## Design Principles
 
-1. **Build on `std/io`, don't duplicate**: High-level modules call into `std/io/*` for all system operations. No direct C externs in high-level modules.
+1. **Build on `std/sys`, don't duplicate**: High-level modules call into `std/sys/*` for all system operations. No direct C externs in high-level modules.
 
-2. **Return `Result`, not raw `i32`**: High-level APIs use `Result(T, Error)` for all fallible operations. Async fallible I/O operations return `Impl(Future(Result(T, Error)))`. Callers use `io.await(fn(...))` to get back a `Result` and then pattern-match or propagate using the `?` operator. The `std/io` errno-based pattern stays in `std/io`.
+2. **Return `Result`, not raw `i32`**: High-level APIs use `Result(T, Error)` for all fallible operations. Async fallible I/O operations return `Impl(Future(Result(T, Error)))`. Callers use `io.await(fn(...))` to get back a `Result` and then pattern-match or propagate using the `?` operator. The `std/sys` errno-based pattern stays in `std/sys`.
 
-3. **Use `Path` for filesystem paths**: High-level APIs that accept filesystem paths use `Path` as the default parameter type. Variants with `_str` and `_cstr` suffixes accept `str` and `*(u8)` respectively. Internally, `Path` is converted to `*(u8)` via `.to_string().to_cstr()` for the `std/io` layer.
+3. **Use `Path` for filesystem paths**: High-level APIs that accept filesystem paths use `Path` as the default parameter type. Variants with `_str` and `_cstr` suffixes accept `str` and `*(u8)` respectively. Internally, `Path` is converted to `*(u8)` via `.to_string().to_cstr()` for the `std/sys` layer.
 
 4. **Objects with `Dispose`**: Resources (File, TcpStream, TempDir) are `object` types implementing `Dispose` for automatic cleanup through reference counting.
 
@@ -1112,7 +1112,7 @@ BufWriter.flush :: (fn(self: Self, using(io : IO)) -> Impl(Future(Result(unit, I
 
 ## Notes
 
-- **`Path` for filesystem paths**: `std/fs` functions use `Path` (from `std/path`) as the default path parameter type. `Path` provides cross-platform normalization, joining, and component extraction. For convenience, `_str` suffixed variants accept `str` directly (e.g., `read_file_str("data.txt", ...)`) and `_cstr` variants accept `*(u8)`. Internally, paths are converted to `*(u8)` via `path.to_string().to_cstr()` for the `std/io` layer.
+- **`Path` for filesystem paths**: `std/fs` functions use `Path` (from `std/path`) as the default path parameter type. `Path` provides cross-platform normalization, joining, and component extraction. For convenience, `_str` suffixed variants accept `str` directly (e.g., `read_file_str("data.txt", ...)`) and `_cstr` variants accept `*(u8)`. Internally, paths are converted to `*(u8)` via `path.to_string().to_cstr()` for the `std/sys` layer.
 
 - **Buffered I/O strategy**: `File` objects use internal `ArrayList(u8)` buffers (default 8KB). Reads fill the buffer in one syscall; subsequent reads drain from buffer. Writes accumulate in buffer until `flush()` or buffer full. This amortizes syscall overhead for small reads/writes.
 
