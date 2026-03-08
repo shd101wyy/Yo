@@ -1,12 +1,34 @@
 open import "std/libc/stdio";
 open import "std/string";
-{ Url, UrlError } :: import "std/url/url";
+
+MyUrl :: object(
+  _scheme : String,
+  _host   : Option(String),
+  _port   : Option(u16)
+);
+
+impl(MyUrl,
+  origin : (fn(self: Self) -> String)(
+    match(self._host,
+      .None => self._scheme,
+      .Some(h) =>
+        match(self._port,
+          .None => `${self._scheme}://${h}`,
+          .Some(p) => `${self._scheme}://${h}:${p}`
+        )
+    )
+  )
+);
 
 main :: (fn() -> unit) {
-  result := Url.parse("http://example.com");
-  assert(result.is_ok(), "should parse successfully");
-  url := result.unwrap();
-  assert((url.scheme() == String.from("http")), "scheme should be http");
+  url := MyUrl(
+    _scheme: `http`,
+    _host: .Some(`example.com`),
+    _port: .Some(u16(8080))
+  );
+  result := url.origin();
+  printf("origin: %s\n", result.as_str());
+  assert((result == `http://example.com:8080`), "origin should match");
   printf("Done\n");
 };
 

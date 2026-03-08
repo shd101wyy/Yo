@@ -473,17 +473,16 @@ impl(Url,
   ),
 
   // Returns scheme + "://" + host_port (the origin)
-  origin : (fn(self: Self) -> String)({
-    s := self._scheme;
+  origin : (fn(self: Self) -> String)(
     match(self._host,
-      .None => s,
+      .None => self._scheme,
       .Some(h) =>
         match(self._port,
-          .None => `${s}://${h}`,
-          .Some(p) => `${s}://${h}:${p}`
+          .None => `${self._scheme}://${h}`,
+          .Some(p) => `${self._scheme}://${h}:${p}`
         )
     )
-  })
+  )
 );
 
 // Reconstruct the URL as a String

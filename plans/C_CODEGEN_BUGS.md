@@ -6,7 +6,7 @@ Known C codegen bugs discovered during std library development. These need prope
 
 ## Bug 1: `self._field` not captured in match arms
 
-**Status**: Open
+**Status**: Fixed
 **Discovered in**: `std/url/url.yo` — `origin` and `host_port` methods
 
 **Description**: When `self._field` is used inside a `match` arm, the generated C code does not properly capture the field access. The resulting C code references a stale or incorrect variable, causing compilation errors or wrong behavior.

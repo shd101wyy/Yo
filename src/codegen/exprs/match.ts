@@ -77,6 +77,30 @@ function generateCaseBody(
         finalExpr.$?.deferredDupExpressions &&
         finalExpr.$.deferredDupExpressions.length > 0
       ) {
+        // First generate the expression that produces the value to be duped.
+        // This is needed because the dup references a temp variable from the
+        // expression (e.g., self._scheme produces temp_N = self->_scheme, and
+        // the dup is temp_N+1 = dup(temp_N)). Without this, temp_N is never
+        // declared. Mirrors the handling in begin.ts.
+        if (finalExpr.$?.variableName) {
+          const savedVariableName = finalExpr.$.variableName;
+          finalExpr.$.variableName = undefined;
+          const rawExprCode = generateExpr(finalExpr, indent, context);
+          finalExpr.$.variableName = savedVariableName;
+
+          const exprType = getTypeString(finalExpr.$.type!, context);
+          const exprTempVar = getVariableNameForCodegen(
+            savedVariableName,
+            finalExpr.$.env
+          );
+
+          if (exprTempVar !== rawExprCode) {
+            context.emitter.emitLine(
+              `${indent}${exprType} ${exprTempVar} = ${rawExprCode};`
+            );
+          }
+        }
+
         generateDeferredDupExpressions(
           finalExpr,
           indent,
