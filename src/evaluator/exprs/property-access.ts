@@ -12,6 +12,7 @@ import { areTypesCompatible } from "../../types/compatibility";
 import type { EnumType, ModuleField, TypeField } from "../../types/definitions";
 import { getValueOfSomeTypeFromEnv } from "../../types/env-lookup";
 import {
+  isArcType,
   isEnumType,
   isFunctionType,
   isModuleType,
@@ -254,6 +255,31 @@ export function evaluatePropertyAccess({
       // the ownership analysis in begin.ts will correctly identify it as borrowed
       // and insert a ___dup call. Without this, returning `self.*` from a function
       // would cause use-after-free bugs.
+      attachTempVariableToExpr(expr, false);
+
+      return expr;
+    }
+
+    // Arc dereference: arc.(*) returns borrowed reference to inner value
+    if (isArcType(objectExpr.$?.type)) {
+      const arcType = objectExpr.$.type;
+      let baseType = arcType.childType;
+
+      if (isSomeType(baseType)) {
+        baseType = getValueOfSomeTypeFromEnv(env, baseType);
+      }
+
+      expr.$ = {
+        env,
+        type: baseType,
+        value: undefined,
+        originType: arcType,
+        isAccessingProperty: true,
+        pathCollection: [],
+      };
+      propertyExpr.$ = expr.$;
+
+      // Borrowed — the inner value's lifetime is managed by Arc
       attachTempVariableToExpr(expr, false);
 
       return expr;

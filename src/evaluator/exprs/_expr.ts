@@ -51,6 +51,7 @@ import { evaluateAddressCall } from "../builtins/ptr-fns";
 import { evaluateQuote } from "../builtins/quote";
 import { evaluateRc } from "../builtins/rc";
 import {
+  evaluateYoArcDispose,
   evaluateYoDecrRc,
   evaluateYoDecrRcAtomic,
   evaluateYoDropArrayElement,
@@ -82,6 +83,7 @@ import {
   evaluateYoVarIsOwningTheRcValue,
   evaluateYoVarPrintInfo,
 } from "../builtins/var-fns";
+import { evaluateArcTypeCall } from "../calls/arc";
 import { evaluateFunctionCall } from "../calls/function";
 import { evaluateIsoTypeCall } from "../calls/iso";
 import { evaluateRawPointerCall } from "../calls/pointer";
@@ -454,6 +456,13 @@ ${exprToString(expr)}`,
         env,
         context: { ...context },
       });
+    } else if (exprIsFunctionCallOf(expr, BuiltinKeywords.Arc, 1)) {
+      // Arc atomically reference counted type
+      return evaluateArcTypeCall({
+        expr,
+        env,
+        context: { ...context },
+      });
     } else if (
       exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_address_of, 1)
     ) {
@@ -613,6 +622,9 @@ ${exprToString(expr)}`,
     } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_iso_dispose)) {
       // __yo_iso_dispose (dispose inner value of Iso if not extracted)
       return evaluateYoIsoDispose({ expr, env, context: { ...context } });
+    } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_arc_dispose)) {
+      // __yo_arc_dispose (dispose inner value of Arc)
+      return evaluateYoArcDispose({ expr, env, context: { ...context } });
     } else if (
       exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_drop_array_element)
     ) {

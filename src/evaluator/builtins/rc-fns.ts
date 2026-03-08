@@ -631,6 +631,50 @@ export function evaluateYoIsoDispose({
 }
 
 /**
+ * Evaluates __yo_arc_dispose builtin function.
+ * Disposes the inner value of an Arc when ref count reaches 0.
+ * Just evaluates the argument and returns unit - the actual disposal happens at runtime.
+ */
+export function evaluateYoArcDispose({
+  expr,
+  env,
+  context,
+}: {
+  expr: FnCallExpr;
+  env: Environment;
+  context: EvaluatorContext;
+}): Expr {
+  expectExprToBeFunctionCallOf(expr, [BuiltinFunctions.__yo_arc_dispose[0]!]);
+
+  const argExpr = expr.args[0]!;
+  const evaluatedArgExpr = evaluateExpression({
+    expr: argExpr,
+    env,
+    context: {
+      ...context,
+    },
+  });
+
+  if (!evaluatedArgExpr.$) {
+    throw formatErrorMessage({
+      token: argExpr.token,
+      errorMessage: `Failed to evaluate the argument expression for "${BuiltinFunctions.__yo_arc_dispose[0]!}":\n${exprToString(
+        argExpr
+      )}`,
+    });
+  }
+  env = evaluatedArgExpr.$.env;
+
+  expr.$ = {
+    env,
+    type: VUnit.type,
+    value: VUnit,
+    pathCollection: [],
+  };
+  return expr;
+}
+
+/**
  * Evaluates __yo_drop_array_element builtin function.
  * Drops an array element at a specific index without creating a borrowed reference.
  * This is used internally when dropping arrays with GC-type elements.

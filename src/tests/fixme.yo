@@ -1,49 +1,11 @@
-// Test str Eq trait
+// Test Arc with struct type
 { printf } :: import "std/libc/stdio";
 
+Point :: struct(x : i32, y : i32);
+
 main :: (fn() -> unit) {
-  a := "hello";
-  b := "hello";
-  c := "world";
-  d := "hell";
-
-  // str == str
-  cond(
-    (a == b) => printf("a == b: true\n"),
-    true => printf("a == b: false\n")
-  );
-  cond(
-    (a == c) => printf("a == c: true\n"),
-    true => printf("a == c: false\n")
-  );
-  cond(
-    (a != c) => printf("a != c: true\n"),
-    true => printf("a != c: false\n")
-  );
-  // Different length
-  cond(
-    (a == d) => printf("a == d: true\n"),
-    true => printf("a == d: false\n")
-  );
-
-  // str Ord
-  cond(
-    ("abc" < "abd") => printf("abc < abd: true\n"),
-    true => printf("abc < abd: false\n")
-  );
-  cond(
-    ("abc" < "abc") => printf("abc < abc: true\n"),
-    true => printf("abc < abc: false\n")
-  );
-  cond(
-    ("abc" < "abcd") => printf("abc < abcd: true\n"),
-    true => printf("abc < abcd: false\n")
-  );
-  cond(
-    ("abd" > "abc") => printf("abd > abc: true\n"),
-    true => printf("abd > abc: false\n")
-  );
-
-  ()
+  p := arc(Point(i32(3), i32(4)));
+  printf("x: %d, y: %d\n", p.(*).x, p.(*).y);
 };
+
 export main;

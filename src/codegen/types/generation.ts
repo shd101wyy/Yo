@@ -288,6 +288,9 @@ typedef struct yo_io_future_t {
   // Generate Iso types
   generateIsoTypeDeclarations(context);
 
+  // Generate Arc forward declarations (pointer typedefs only)
+  generateArcTypeForwardDeclarations(context);
+
   // Generate types in dependency order
   // Complex dependency rules:
   // 1. Enums used by-value in structs must be defined before those structs
@@ -669,6 +672,9 @@ typedef struct yo_io_future_t {
     // }
     // Note: isEnumType and isStructType are handled in the passes above
   }
+
+  // Generate Arc struct definitions (after all value types are defined)
+  generateArcTypeDefinitions(context);
 }
 
 /**
@@ -880,6 +886,136 @@ ${optionTypeCName} __yo_iso_extract_${isoTypeName}(${isoTypeName} iso) {
       // Mark extract as generated
       isoInfo.extractGenerated = true;
     }
+  }
+}
+
+/**
+ * Generate Arc type declarations — struct, constructor, dispose functions.
+ * Arc is like Iso but without the `extracted` flag — it provides shared ownership.
+ */
+/**
+ * Phase 1: Emit forward declarations for Arc types.
+ * Only emits opaque pointer typedefs and function declarations.
+ * Must be called early so other types can reference Arc_* names.
+ */
+export function generateArcTypeForwardDeclarations(
+  context: CodeGenContext
+): void {
+  const emitter = context.emitter;
+  if (!context.arcTypes) return;
+
+  for (const [arcTypeName, arcInfo] of context.arcTypes) {
+    if (arcInfo.structGenerated) continue;
+
+    // Forward-declare the struct and pointer typedef
+    emitter.emitDeclarationLine(
+      `typedef struct ${arcTypeName}_struct ${arcTypeName}_struct;`
+    );
+    emitter.emitDeclarationLine(
+      `typedef ${arcTypeName}_struct* ${arcTypeName};`
+    );
+    emitter.emitDeclarationLine("");
+  }
+}
+
+/**
+ * Phase 2: Emit full Arc struct definitions, constructors, and dispose functions.
+ * Must be called AFTER regular struct/enum definitions so inner value types are complete.
+ */
+export function generateArcTypeDefinitions(context: CodeGenContext): void {
+  const emitter = context.emitter;
+  if (!context.arcTypes) return;
+
+  // Generate Arc struct definitions (now that inner types are complete)
+  for (const [arcTypeName, arcInfo] of context.arcTypes) {
+    const { childTypeCName } = arcInfo;
+    if (arcInfo.structGenerated) continue;
+
+    emitter.emitDeclarationLine(
+      `struct ${arcTypeName}_struct { // Arc wrapper`
+    );
+    emitter.emitDeclarationLine(
+      `  yo_ref_header_t header; // Atomic RC header`
+    );
+    emitter.emitDeclarationLine(`  ${childTypeCName} value; // Inner value`);
+    emitter.emitDeclarationLine(`};`);
+    emitter.emitDeclarationLine("");
+
+    emitter.emitDeclarationLine(
+      `${arcTypeName} __yo_create_arc_${arcTypeName}(${childTypeCName} value);`
+    );
+    emitter.emitDeclarationLine("");
+
+    arcInfo.structGenerated = true;
+  }
+
+  // Generate dispose function declarations
+  for (const [arcTypeName, arcInfo] of context.arcTypes) {
+    if (!arcInfo.structGenerated) continue;
+
+    emitter.emitDeclarationLine(
+      `void __yo_arc_dispose_${arcTypeName}(${arcTypeName} arc);`
+    );
+    emitter.emitDeclarationLine(
+      `static void __yo_dispose_arc_${arcTypeName}(void* ptr);`
+    );
+  }
+
+  // Generate constructor implementations
+  for (const [arcTypeName, arcInfo] of context.arcTypes) {
+    const { childTypeCName, createGenerated } = arcInfo;
+    if (createGenerated) continue;
+
+    emitter.emitLine(`
+${arcTypeName} __yo_create_arc_${arcTypeName}(${childTypeCName} value) {
+  ${arcTypeName} arc = (${arcTypeName})__yo_malloc(sizeof(${arcTypeName}_struct));
+  arc->header.ref_count = 1;
+  arc->header.gc_mark = YO_GC_UNMARKED;
+  arc->header.gc_flags = 0;
+  arc->header.dispose_fn = __yo_dispose_arc_${arcTypeName};
+  arc->value = value;
+  return arc;
+}`);
+
+    arcInfo.createGenerated = true;
+  }
+
+  // Generate dispose implementations
+  for (const [arcTypeName, arcInfo] of context.arcTypes) {
+    const { arcType, createGenerated, disposeGenerated } = arcInfo;
+    if (!createGenerated || !arcType || disposeGenerated) continue;
+
+    const childType = arcType.childType;
+    let dropInnerCode: string;
+
+    const dropFn = childType.trait?.fields.find(
+      (f) => f.label === BuiltinFunctions.___drop[0]
+    );
+
+    if (dropFn?.assignedValue && context.functions) {
+      const funcId = (dropFn.assignedValue as { funcId: string }).funcId;
+      const funcEntry = context.functions[funcId];
+      if (funcEntry?.cName) {
+        dropInnerCode = `${funcEntry.cName}(arc->value);`;
+      } else {
+        dropInnerCode = `__yo_decr_rc((void*)arc->value);`;
+      }
+    } else {
+      // No drop function means the inner type is not RC — nothing to drop
+      dropInnerCode = `// inner type is not RC, nothing to drop`;
+    }
+
+    emitter.emitLine(`
+void __yo_arc_dispose_${arcTypeName}(${arcTypeName} arc) {
+  ${dropInnerCode}
+}`);
+
+    emitter.emitLine(`
+static void __yo_dispose_arc_${arcTypeName}(void* ptr) {
+  __yo_arc_dispose_${arcTypeName}((${arcTypeName})ptr);
+}`);
+
+    arcInfo.disposeGenerated = true;
   }
 }
 
