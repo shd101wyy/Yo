@@ -1,34 +1,63 @@
 open import "std/libc/stdio";
 open import "std/string";
+{ yield } :: import "std/async";
 
-MyUrl :: object(
-  _scheme : String,
-  _host   : Option(String),
-  _port   : Option(u16)
-);
+main :: (fn(using(io : IO)) -> unit) {
+  // Test 1: SSA rename across cond boundary (x should be 20 after cond)
+  flag := Box(bool)(true);
+  result := Box(i32)(0);
 
-impl(MyUrl,
-  origin : (fn(self: Self) -> String)(
-    match(self._host,
-      .None => self._scheme,
-      .Some(h) =>
-        match(self._port,
-          .None => `${self._scheme}://${h}`,
-          .Some(p) => `${self._scheme}://${h}:${p}`
-        )
-    )
-  )
-);
+  task1 := io.async((using(io : IO))=> {
+    x := i32(10);
+    cond(
+      flag.* => {
+        io.await(yield());
+        x = i32(20);
+      },
+      true => ()
+    );
+    result.* = x;
+    assert((result.* == i32(20)), "code after cond should see updated x");
+  });
 
-main :: (fn() -> unit) {
-  url := MyUrl(
-    _scheme: `http`,
-    _host: .Some(`example.com`),
-    _port: .Some(u16(8080))
-  );
-  result := url.origin();
-  printf("origin: %s\n", result.as_str());
-  assert((result == `http://example.com:8080`), "origin should match");
+  io.await(task1);
+  assert((result.* == i32(20)), "SSA rename test passed");
+  printf("Test 1 passed: SSA rename\n");
+
+  // Test 2: Independent variables with same name in sequential conds
+  result2 := Box(i32)(0);
+  val := Box(i32)(0);
+  task2 := io.async((using(io : IO))=> {
+    total := i32(0);
+
+    // First cond with n
+    cond(
+      true => {
+        io.await(yield());
+        n := val.*;
+        total = (total + n);
+      },
+      true => ()
+    );
+
+    // Second cond with n (independent variable)
+    cond(
+      true => {
+        io.await(yield());
+        n := val.*;
+        total = (total + n);
+      },
+      true => ()
+    );
+
+    result2.* = total;
+  });
+
+  val.* = i32(10);
+  io.await(task2);
+  assert((result2.* == i32(20)), "independent variables should both be captured");
+  printf("Test 2 passed: independent vars\n");
+
   printf("Done\n");
 };
 

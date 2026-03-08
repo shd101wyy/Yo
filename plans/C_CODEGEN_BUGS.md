@@ -44,7 +44,7 @@ origin : (fn(self: Self) -> String)({
 
 ## Bug 2: `io.await` inside `cond` branches breaks async state machine
 
-**Status**: Open
+**Status**: Fixed
 **Discovered in**: `std/sys/bufio/bufio.yo` — `BufReader.read` method
 
 **Description**: When `io.await(...)` calls are placed inside separate `cond` (if/else) branches within an `io.async` closure, the async state machine C codegen fails. Variables declared inside those branches don't get added to the async state struct, causing C compilation errors like:
@@ -70,8 +70,10 @@ io.async((using(io)) => {
 })
 ```
 
-**Root cause**: The async state machine generator scans the closure body to collect all variables that need to persist across `io.await` suspension points. When an `io.await` call is inside a `cond` branch, the variable declarations in that branch are not discovered during the scan, so they're missing from the generated C state struct.
+**Root cause**: The `nameFrameToOriginalId` map in `suspension-analysis.ts` uses `name:frameLevel` as a key. When two independent variables with the same name exist in different sequential `cond` expressions at the same frame level, the second variable is incorrectly remapped to the first via `variableIdRemapping` instead of being added as its own entry in `capturedVariables`. This causes the second variable's state struct field to be missing in the generated C code.
 
-**Where to fix**: `src/codegen/effects/` or `src/codegen/exprs/async.ts` — the state machine variable collection pass needs to traverse into `cond`/`match` branches to find all `io.await` calls and their surrounding variable declarations.
+**Fix**: Save and restore `nameFrameToOriginalId` in `handleBranchingExpr()` so that variables declared inside cond/match branches don't leak into subsequent cond/match expressions. This preserves correct SSA rename behavior (same variable reassigned across scope boundaries shares one field) while preventing independent variables in sibling scopes from being conflated.
+
+**Where fixed**: `src/evaluator/shared/suspension-analysis.ts` — `handleBranchingExpr()` function
 
 ---
