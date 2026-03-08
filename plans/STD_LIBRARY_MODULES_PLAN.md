@@ -38,7 +38,7 @@ Byte buffers use `ArrayList(u8)` (not `Slice(u8)`).
 | **Format**          | `std/fmt/`                              | ✅ Complete | `ToString` trait, `Writer`, `Display`; `println`/`print`/`eprintln`                   |
 | **Hash**            | `std/alg/hash.yo`                       | ✅ Complete | FNV-1a hash function                                                                  |
 | **Sync**            | `std/sync/mutex.yo`, `std/sync/cond.yo` | ✅ Complete | `Mutex`, `Cond` (stack + GC-managed variants)                                         |
-| **Sync Channel**    | `std/sync/channel.yo`                   | ✅ Complete | Bounded MPMC `Channel` for cross-thread/worker communication                          |
+| **Sync Channel**    | `std/sync/channel.yo`                   | ✅ Complete | Bounded MPMC `Channel` for cross-thread/worker communication — 23 tests passing       |
 | **Sync RwLock**     | `std/sync/rwlock.yo`                    | ✅ Complete | `RwLock` — multiple-reader / single-writer lock                                       |
 | **Sync WaitGroup**  | `std/sync/waitgroup.yo`                 | ✅ Complete | `WaitGroup` — wait for a group of tasks to complete                                   |
 | **Sync Once**       | `std/sync/once.yo`                      | ✅ Complete | `Once` — one-time thread-safe initialization                                          |
@@ -739,11 +739,13 @@ Phase 12 (std/os)          ← LOW — OS utilities
   └── Depends on: std/sys/signal, std/sys/sysinfo, std/string
 ```
 
-## Phase 13: Channel (`std/sync/channel`) — Priority: Critical
+## Phase 13: Channel (`std/sync/channel`) — ✅ Done
 
 **Goal**: Provide a bounded multi-producer, multi-consumer channel for sending values between threads and workers. This is the most important missing concurrency primitive.
 
 **Depends on**: `std/sync` (Mutex, Cond), `std/collections/deque`
+
+**Tests**: 23 tests passing — `tests/sync/channel.test.yo`
 
 ### Design Decision: Sync (blocking) vs Async
 
@@ -786,7 +788,17 @@ Channel.len :: (fn(self: Self) -> usize) ...;
 Channel.is_empty :: (fn(self: Self) -> bool) ...;
 ```
 
-**Tests**: Single-producer/single-consumer, multi-producer, bounded back-pressure, close semantics, try_send/try_recv non-blocking behavior.
+**Test coverage** (23 tests):
+
+- Basic: new, send/recv, FIFO order, capacity fill (4 tests)
+- Non-blocking: try_send success/fail, try_recv success/empty (4 tests)
+- Close: close flag, send-after-close, try_send-after-close, drain-after-close, try_recv-after-close (5 tests)
+- Thread: single producer/consumer, many values from thread, consumer blocks, close wakes consumer (4 tests)
+- Worker: send from worker, multiple values from worker (2 tests)
+- Back-pressure: bounded capacity blocks producer (1 test)
+- Edge cases: capacity-1 rendezvous, bool type, usize type (3 tests)
+
+**Known limitation**: Capturing the same `object` (Rc-managed) in multiple closures within the same scope causes a codegen double-free bug. Tests avoid this by using a single closure per channel reference.
 
 ---
 
