@@ -91,3 +91,40 @@ test "Test Arc scope cleanup", {
   };
   assert(true);
 };
+
+// --- Arc + Thread tests ---
+
+{ Thread } :: import "std/thread";
+
+test "Test Arc shared across thread", {
+  shared := arc(i32(42));
+  t := Thread.spawn(() => {
+    assert(shared.(*) == 42);
+  });
+  t.join();
+  assert(shared.(*) == 42);
+};
+
+test "Test Arc of object shared across thread", {
+  Counter :: object(count : i32);
+
+  shared := arc(Counter(i32(99)));
+  t := Thread.spawn(() => {
+    assert(shared.(*).count == 99);
+  });
+  t.join();
+  assert(shared.(*).count == 99);
+};
+
+test "Test Arc shared across multiple threads", {
+  shared := arc(i32(7));
+  t1 := Thread.spawn(() => {
+    assert(shared.(*) == 7);
+  });
+  t2 := Thread.spawn(() => {
+    assert(shared.(*) == 7);
+  });
+  t1.join();
+  t2.join();
+  assert(shared.(*) == 7);
+};

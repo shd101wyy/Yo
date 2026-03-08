@@ -936,14 +936,26 @@ export function getVariableNameForCodegen(
 export function getDeferredDupTargetAtomName(
   dupExpr: Expr
 ): string | undefined {
-  if (!exprIsFunctionCall(dupExpr) || dupExpr.args.length < 1) {
-    return;
+  // Form 1: ___dup(varName) — pre-evaluation form
+  if (exprIsFunctionCall(dupExpr) && dupExpr.args.length >= 1) {
+    const firstArg = dupExpr.args[0];
+    if (firstArg && exprIsAtom(firstArg)) {
+      return firstArg.token.value;
+    }
   }
-  const firstArg = dupExpr.args[0];
-  if (!firstArg || !exprIsAtom(firstArg)) {
-    return;
+  // Form 2: (varName.___dup)() — post-evaluation method-style form
+  if (
+    exprIsFunctionCall(dupExpr) &&
+    dupExpr.args.length === 0 &&
+    exprIsFunctionCall(dupExpr.func) &&
+    exprIsFunctionCallOf(dupExpr.func, ".", 2) &&
+    exprIsAtom(dupExpr.func.args[0]!) &&
+    exprIsAtom(dupExpr.func.args[1]!) &&
+    dupExpr.func.args[1]!.token.value === BuiltinFunctions.___dup[0]
+  ) {
+    return dupExpr.func.args[0]!.token.value;
   }
-  return firstArg.token.value;
+  return undefined;
 }
 
 /**

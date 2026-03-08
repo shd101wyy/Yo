@@ -2099,6 +2099,32 @@ Please check [PARALLELISM.md](./PARALLELISM.md) for details on parallel programm
 
 Please check [ISOLATED.md](./ISOLATED.md) for details on isolated types in Yo.
 
+## Arc Types
+
+`Arc(T)` provides **shared ownership** with atomic reference counting. Unlike `Iso(T)` which enforces unique ownership, multiple `Arc(T)` values can reference the same data. Arc is `Send`-safe, making it the primary mechanism for sharing data across threads.
+
+```yo
+// Create with the arc() helper
+shared := arc(i32(42));
+
+// Dereference with .(*)  (borrowed, read-only)
+val := shared.(*);          // val == 42
+
+// Copying increments refcount
+copy := shared;             // refcount: 1 → 2
+
+// Cross-thread sharing
+{ Thread } :: import "std/thread";
+ch := arc(Channel(i32).new(usize(10)));
+t := Thread.spawn(() => {
+  ch.(*).send(i32(42));
+});
+result := ch.(*).recv().unwrap();
+t.join();
+```
+
+See [ARC.md](./ARC.md) for full details.
+
 ## IO Module
 
 Please check [STD_IO_MODULE.md](./STD_IO_MODULE.md) for details on asynchronous IO in Yo.

@@ -1,11 +1,25 @@
-// Test Arc with struct type
+// Test Arc(Channel) + Worker
 { printf } :: import "std/libc/stdio";
-
-Point :: struct(x : i32, y : i32);
+{ Channel } :: import "std/sync/channel";
+{ WaitGroup } :: import "std/sync/waitgroup";
+Worker :: import "std/worker";
 
 main :: (fn() -> unit) {
-  p := arc(Point(i32(3), i32(4)));
-  printf("x: %d, y: %d\n", p.(*).x, p.(*).y);
+  ch := arc(Channel(i32).new(usize(10)));
+  wg := arc(WaitGroup.new());
+  Worker.set_num_threads(2);
+
+  wg.(*).add(i32(1));
+  Worker.spawn(() => {
+    ch.(*).send(i32(42));
+    wg.(*).done();
+  });
+
+  wg.(*).wait();
+  val := ch.(*).recv();
+  assert(val.is_some(), "should receive value from worker");
+  assert((val.unwrap() == i32(42)), "value should be 42");
+  printf("Done\n");
 };
 
 export main;
