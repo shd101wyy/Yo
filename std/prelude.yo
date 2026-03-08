@@ -3440,6 +3440,13 @@ impl(forall(OkType : Type, ErrorType : Type), Result(OkType, ErrorType),
     )
   ),
 
+  unwrap_err : (fn(self : Self) -> ErrorType)(
+    match(self,
+      .Err(error) => error,
+      .Ok(_) => panic("Called unwrap_err on an Ok value")
+    )
+  ),
+
   is_ok : (fn(self : Self) -> bool)(
     match(self,
       .Ok(_) => true,

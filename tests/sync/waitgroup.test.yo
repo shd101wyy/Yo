@@ -1,0 +1,93 @@
+open import "std/libc/stdio";
+{ WaitGroup } :: import "std/sync/waitgroup";
+
+// ============================================================================
+// Basic operations
+// ============================================================================
+
+test "WaitGroup new creates zero count", {
+  wg := WaitGroup.new();
+  assert((wg.count() == i32(0)), "new WaitGroup should have count 0");
+};
+
+test "WaitGroup add increments count", {
+  wg := WaitGroup.new();
+  wg.add(i32(1));
+  assert((wg.count() == i32(1)), "count should be 1 after add(1)");
+  wg.add(i32(2));
+  assert((wg.count() == i32(3)), "count should be 3 after add(2)");
+};
+
+test "WaitGroup done decrements count", {
+  wg := WaitGroup.new();
+  wg.add(i32(3));
+  wg.done();
+  assert((wg.count() == i32(2)), "count should be 2 after one done");
+  wg.done();
+  assert((wg.count() == i32(1)), "count should be 1 after two dones");
+  wg.done();
+  assert((wg.count() == i32(0)), "count should be 0 after three dones");
+};
+
+test "WaitGroup wait returns immediately when count is zero", {
+  wg := WaitGroup.new();
+  // Should not block
+  wg.wait();
+};
+
+test "WaitGroup add then done then wait", {
+  wg := WaitGroup.new();
+  wg.add(i32(1));
+  wg.done();
+  // Count is now 0, wait should return immediately
+  wg.wait();
+  assert((wg.count() == i32(0)), "count should be 0 after done");
+};
+
+test "WaitGroup multiple add and done cycles", {
+  wg := WaitGroup.new();
+  // First cycle
+  wg.add(i32(2));
+  wg.done();
+  wg.done();
+  wg.wait();
+  assert((wg.count() == i32(0)), "count should be 0 after first cycle");
+
+  // Second cycle - can reuse
+  wg.add(i32(3));
+  assert((wg.count() == i32(3)), "count should be 3 after second add");
+  wg.done();
+  wg.done();
+  wg.done();
+  wg.wait();
+  assert((wg.count() == i32(0)), "count should be 0 after second cycle");
+};
+
+test "WaitGroup add negative clamps to zero", {
+  wg := WaitGroup.new();
+  wg.add(i32(5));
+  // Adding a large negative should clamp count to 0
+  wg.add(i32(-(10)));
+  assert((wg.count() == i32(0)), "count should clamp to 0 when going negative");
+};
+
+test "WaitGroup done past zero clamps to zero", {
+  wg := WaitGroup.new();
+  wg.add(i32(1));
+  wg.done();
+  wg.done();  // Extra done - should not go negative
+  assert((wg.count() == i32(0)), "count should stay at 0 after extra done");
+};
+
+test "WaitGroup count reflects current state", {
+  wg := WaitGroup.new();
+  assert((wg.count() == i32(0)), "initial count should be 0");
+  wg.add(i32(10));
+  assert((wg.count() == i32(10)), "count should be 10");
+  i := i32(0);
+  while runtime((i < i32(10))), {
+    wg.done();
+    i = (i + i32(1));
+  };
+  assert((wg.count() == i32(0)), "count should be 0 after 10 dones");
+};

@@ -1,24 +1,12 @@
-// Test Arc(Channel) + Worker
-{ printf } :: import "std/libc/stdio";
-{ Channel } :: import "std/sync/channel";
-{ WaitGroup } :: import "std/sync/waitgroup";
-Worker :: import "std/worker";
+open import "std/libc/stdio";
+open import "std/string";
+{ Url, UrlError } :: import "std/url/url";
 
 main :: (fn() -> unit) {
-  ch := arc(Channel(i32).new(usize(10)));
-  wg := arc(WaitGroup.new());
-  Worker.set_num_threads(2);
-
-  wg.(*).add(i32(1));
-  Worker.spawn(() => {
-    ch.(*).send(i32(42));
-    wg.(*).done();
-  });
-
-  wg.(*).wait();
-  val := ch.(*).recv();
-  assert(val.is_some(), "should receive value from worker");
-  assert((val.unwrap() == i32(42)), "value should be 42");
+  result := Url.parse("http://example.com");
+  assert(result.is_ok(), "should parse successfully");
+  url := result.unwrap();
+  assert((url.scheme() == String.from("http")), "scheme should be http");
   printf("Done\n");
 };
 

@@ -1,0 +1,86 @@
+open import "std/libc/stdio";
+{ Once } :: import "std/sync/once";
+{ ArrayList } :: import "std/collections/array_list";
+
+// ============================================================================
+// Basic operations
+// ============================================================================
+
+test "Once new is not done", {
+  o := Once.new();
+  assert((!(o.is_done())), "new Once should not be done");
+};
+
+test "Once call executes function", {
+  o := Once.new();
+  log := ArrayList(i32).new();
+  o.call(() => {
+    log.push(i32(1));
+  });
+  assert((log.len() == usize(1)), "function should have been called");
+  assert(o.is_done(), "Once should be done after call");
+};
+
+test "Once call executes only once", {
+  o := Once.new();
+  log := ArrayList(i32).new();
+  o.call(() => {
+    log.push(i32(1));
+  });
+  o.call(() => {
+    log.push(i32(2));
+  });
+  o.call(() => {
+    log.push(i32(3));
+  });
+  assert((log.len() == usize(1)), "function should have been called exactly once");
+};
+
+test "Once is_done after call", {
+  o := Once.new();
+  assert((!(o.is_done())), "should not be done before call");
+  o.call(() => ());
+  assert(o.is_done(), "should be done after call");
+};
+
+test "Once second call is no-op even with different function", {
+  o := Once.new();
+  log := ArrayList(i32).new();
+  o.call(() => {
+    log.push(i32(42));
+  });
+  o.call(() => {
+    log.push(i32(99));
+  });
+  assert((log.len() == usize(1)), "only first function should have run");
+  v := log.get(usize(0)).unwrap();
+  assert((v == i32(42)), "value should be 42 from first call");
+};
+
+test "Once many calls still executes once", {
+  o := Once.new();
+  log := ArrayList(i32).new();
+  i := i32(0);
+  while runtime((i < i32(100))), {
+    o.call(() => {
+      log.push(i32(1));
+    });
+    i = (i + i32(1));
+  };
+  assert((log.len() == usize(1)), "function should have been called exactly once out of 100 attempts");
+  assert(o.is_done(), "should be done");
+};
+
+test "Once call with side effects", {
+  o := Once.new();
+  values := ArrayList(i32).new();
+  o.call(() => {
+    values.push(i32(42));
+  });
+  o.call(() => {
+    values.push(i32(99));
+  });
+  assert((values.len() == usize(1)), "should have exactly one value");
+  v := values.get(usize(0)).unwrap();
+  assert((v == i32(42)), "value should be 42 from first call");
+};
