@@ -158,6 +158,17 @@ impl(String,
   // }),
 
   /**
+   * Get a str view into the string's UTF-8 bytes
+   * Returns a fat pointer (pointer + length) without copying
+   */
+  as_str : (fn(self: Self) -> str)(
+    match(self._bytes._ptr,
+      .Some(p) => str.from_raw_parts(p, self._bytes._length),
+      .None => str.from_raw_parts(*(u8)(""), usize(0))
+    )
+  ),
+
+  /**
    * Decode a UTF-8 encoded rune starting at the given byte index
    * Internal helper method
    */

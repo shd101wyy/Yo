@@ -176,6 +176,14 @@ usleep((${args[0]!}) * 1000)
   else if (BuiltinFunctions.__yo_slice_len.includes(functionName)) {
     return `(${args[0]!}.length)`;
   }
+  // __yo_slice_new - create a slice fat pointer from a pointer and length
+  else if (
+    BuiltinFunctions.__yo_slice_new.includes(functionName) &&
+    expr.$?.type
+  ) {
+    const sliceCType = getTypeString(expr.$.type, context);
+    return `(${sliceCType}){ .data = ${args[0]!}, .length = ${args[1]!} }`;
+  }
   // __yo_maybe_uninit_new - declare uninitialized storage (no runtime args, return type is Self)
   else if (
     BuiltinFunctions.__yo_maybe_uninit_new.includes(functionName) &&

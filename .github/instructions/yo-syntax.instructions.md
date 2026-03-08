@@ -133,3 +133,44 @@ assert(!(d.is_empty()), "should not be empty");
 - There is no `loop` function. Use `while runtime(true), body` for runtime, or `while true, body` for comptime.
 - When calling `assert`, always add 2nd argument: `assert(condition, "error message");`
 - Pointer arithmetic uses `&+`, `&-`, `&<`, `&>`, `&<=`, `&>=` operators with `&` prefix.
+
+## `return` is greedy — it consumes everything after it
+
+`return` consumes past commas inside match/cond branches, just like unary operators. Use begin blocks `{ return expr; }` to limit scope:
+
+```yo
+// WRONG — return consumes past the comma into the .None branch:
+match(opt,
+  .Some(p) => return str.from_raw_parts(p, len),
+  .None => return ""
+)
+
+// CORRECT — begin blocks limit the return:
+match(opt,
+  .Some(p) => {
+    return str.from_raw_parts(p, len);
+  },
+  .None => {
+    return str.from_raw_parts(*(u8)(""), usize(0));
+  }
+)
+```
+
+Better yet, if the entire function body is just a match/cond expression, use the expression form (no body block) to avoid needing `return` at all:
+
+```yo
+// BEST — expression form, no return needed:
+as_str : (fn(self: Self) -> str)(
+  match(self._bytes._ptr,
+    .Some(p) => str.from_raw_parts(p, self._bytes._length),
+    .None => str.from_raw_parts(*(u8)(""), usize(0))
+  )
+)
+```
+
+## String literal types
+
+- Double-quoted strings `"hello"` return `str` type (a newtype over `Slice(u8)`) at runtime, but `comptime_string` at compile time.
+- `comptime_string` does NOT automatically convert to `str` in return statements. Use `str.from_raw_parts(*(u8)("..."), usize(N))` if you need a runtime `str`.
+- `*(u8)("literal")` works — casting `comptime_string` to pointer is valid.
+- Only pointer-to-pointer and `comptime_string`-to-pointer casts are allowed. Integer-to-pointer casts like `*(void)(usize(0))` are NOT supported.
