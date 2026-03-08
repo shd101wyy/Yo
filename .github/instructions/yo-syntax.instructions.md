@@ -134,18 +134,29 @@ assert(!(d.is_empty()), "should not be empty");
 - When calling `assert`, always add 2nd argument: `assert(condition, "error message");`
 - Pointer arithmetic uses `&+`, `&-`, `&<`, `&>`, `&<=`, `&>=` operators with `&` prefix.
 
-## `return` is greedy — it consumes everything after it
+## Function call syntax — no space before `(`
 
-`return` consumes past commas inside match/cond branches, just like unary operators. Use begin blocks `{ return expr; }` to limit scope:
+In Yo, function calls are parsed differently depending on spacing:
+
+- `func(a, b)` — normal call with two arguments
+- `func (a, b)` — **space before `(`** makes `(a, b)` a tuple, so this is `func((a, b))` — one argument!
+- `func a, b, c` — no parentheses: parsed as `func(a, b, c)` — three arguments
+- `func a, b; c` — semicolon terminates argument list: `func(a, b); c`
+
+Always use `func(a, b)` with no space. Never `func (a, b)`.
+
+## `return` without parentheses consumes all following comma-separated arguments
+
+`return` without parentheses follows the same rule as any other call: `return expr1, expr2` is parsed as `return(expr1, expr2)`. Inside match/cond branches, commas separate branches, so:
 
 ```yo
-// WRONG — return consumes past the comma into the .None branch:
+// WRONG — parsed as return(str.from_raw_parts(p, len), .None => return("")):
 match(opt,
   .Some(p) => return str.from_raw_parts(p, len),
   .None => return ""
 )
 
-// CORRECT — begin blocks limit the return:
+// CORRECT — begin blocks terminate the argument list at the semicolon:
 match(opt,
   .Some(p) => {
     return str.from_raw_parts(p, len);
