@@ -10,7 +10,8 @@ import { generateExprFromCode } from "../../parser";
 import type { Token } from "../../token";
 import { areTypesCompatible } from "../../types/compatibility";
 import { createStructType } from "../../types/creators";
-import type { StructType, TypeField } from "../../types/definitions";
+import type { SomeType, StructType, TypeField } from "../../types/definitions";
+import { isFnTraitType } from "../../types/guards";
 import { typeContainsRcType, typeToString } from "../../types/utils";
 import {
   createStructValue,
@@ -20,6 +21,7 @@ import {
 } from "../../value";
 import type { CapturedVariableInfo, EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
+import { typeImplementsTrait } from "../trait-checking";
 import { autoDeriveTraitsAndAddRcFunctionsForStructType } from "../types/utils";
 
 /**
@@ -91,6 +93,61 @@ export function buildPathCollectionFromCapturedVariables(
   }
 
   return pathCollection;
+}
+
+/**
+ * Validate that a closure's capture struct implements all required non-Fn traits
+ * from the wrapper type (e.g., Send from Impl(Fn() -> unit, Send)).
+ *
+ * Throws a compile error if the capture struct doesn't implement a required trait,
+ * identifying which captured variable(s) violate the requirement.
+ */
+export function validateCaptureTraitRequirements({
+  wrapperType,
+  captureType,
+  env,
+  errorToken,
+}: {
+  wrapperType: SomeType;
+  captureType: StructType;
+  env: Environment;
+  errorToken: Token;
+}): void {
+  for (const { traitType } of wrapperType.requiredTraits) {
+    if (isFnTraitType(traitType)) {
+      continue;
+    }
+
+    if (
+      !typeImplementsTrait({
+        targetType: captureType,
+        traitType,
+        env,
+      })
+    ) {
+      const violatingFields = captureType.fields.filter(
+        (field) =>
+          !typeImplementsTrait({
+            targetType: field.type,
+            traitType,
+            env,
+          })
+      );
+
+      const traitName = typeToString(traitType);
+      const details = violatingFields
+        .map(
+          (field) =>
+            `\`${field.label}\` has type \`${typeToString(field.type)}\` which does not implement \`${traitName}\``
+        )
+        .join("\n  ");
+
+      throw formatErrorMessage({
+        token: errorToken,
+        errorMessage: `Closure does not implement \`${traitName}\` because captured variable ${details}`,
+      });
+    }
+  }
 }
 
 /**

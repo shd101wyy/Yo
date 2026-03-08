@@ -27,37 +27,37 @@ Byte buffers use `ArrayList(u8)` (not `Slice(u8)`).
 
 ### What's Done
 
-| Module              | File(s)                                 | Status      | Notes                                                                                 |
-| ------------------- | --------------------------------------- | ----------- | ------------------------------------------------------------------------------------- |
-| **Prelude**         | `std/prelude.yo`                        | ✅ Complete | Core types, traits, operators, Box, Option, Result, Array, Slice; IO algebraic effect |
-| **String**          | `std/string/`                           | ✅ Complete | Immutable UTF-8 `String`, `rune` (Unicode code point)                                 |
-| **Collections**     | `std/collections/`                      | ✅ Complete | `ArrayList`, `HashMap`, `HashSet`, `LinkedList`, `Deque`, `BTreeMap`, `PriorityQueue` |
-| **Path**            | `std/path.yo`                           | ✅ Complete | Cross-platform path manipulation (join, parent, extension, normalize)                 |
-| **Process**         | `std/process.yo`                        | ✅ Complete | Platform/arch detection, args, env, cwd, chdir, exit                                  |
-| **Allocator**       | `std/allocator.yo`                      | ✅ Complete | `GlobalAllocator` (mimalloc/libc), `CustomAllocator` trait                            |
-| **Format**          | `std/fmt/`                              | ✅ Complete | `ToString` trait, `Writer`, `Display`; `println`/`print`/`eprintln`                   |
-| **Hash**            | `std/alg/hash.yo`                       | ✅ Complete | FNV-1a hash function                                                                  |
-| **Sync**            | `std/sync/mutex.yo`, `std/sync/cond.yo` | ✅ Complete | `Mutex`, `Cond` (stack + GC-managed variants)                                         |
-| **Sync Channel**    | `std/sync/channel.yo`                   | ✅ Complete | Bounded MPMC `Channel` for cross-thread/worker communication — 23 tests passing       |
-| **Sync RwLock**     | `std/sync/rwlock.yo`                    | ✅ Complete | `RwLock` — multiple-reader / single-writer lock                                       |
-| **Sync WaitGroup**  | `std/sync/waitgroup.yo`                 | ✅ Complete | `WaitGroup` — wait for a group of tasks to complete                                   |
-| **Sync Once**       | `std/sync/once.yo`                      | ✅ Complete | `Once` — one-time thread-safe initialization                                          |
-| **Thread**          | `std/thread.yo`                         | ✅ Complete | `Thread` (spawn/join), hardware thread count                                          |
-| **Worker**          | `std/worker.yo`                         | ✅ Complete | Thread pool with round-robin task distribution                                        |
-| **GC**              | `std/gc.yo`                             | ✅ Complete | `collect`, `tracked_count`                                                            |
-| **Async**           | `std/async.yo`                          | ✅ Minimal  | Only `yield`; async/await uses IO algebraic effect                                    |
-| **Time**            | `std/time.yo`                           | 🔸 Minimal  | Only `sleep`; see `std/time/` for Duration, Instant, DateTime                         |
-| **Time (rich)**     | `std/time/`                             | ✅ Complete | `Duration`, `Instant` (monotonic), `DateTime` (wall clock) — 25 tests all passing     |
-| **Sys (low-level)** | `std/sys/` (37 files)                   | ✅ Complete | Full async I/O: file, socket, process, mmap, DNS, signals, TTY, etc.                  |
-| **Libc bindings**   | `std/libc/`                             | ✅ Complete | stdio, stdlib, string, math, errno, signal, etc.                                      |
-| **FS**              | `std/fs/`                               | ✅ Complete | `File`, `Metadata`, `TempDir`, `TempFile`, directory walker                           |
-| **Net**             | `std/net/`                              | ✅ Complete | `TcpStream`, `TcpListener`, `UdpSocket`, `IpAddr`, DNS lookup                         |
-| **OS**              | `std/os/`                               | ✅ Complete | Signal handling, environment directory utilities — 10 tests passing                   |
-| **Encoding**        | `std/encoding/`                         | ✅ Complete | Base64, hex, JSON, UTF-16 — 71 tests passing                                          |
-| **Crypto**          | `std/crypto/`                           | ✅ Complete | SHA-256, MD5, secure random, UUID v4                                                  |
-| **Math**            | `std/math/`                             | ✅ Complete | Generic min/max/clamp, lerp, PRNG (xoshiro256\*\*)                                    |
-| **Log**             | `std/log/`                              | ✅ Complete | Structured logger with level filtering and output routing                             |
-| **Testing**         | `std/testing/`                          | ✅ Complete | Rich assertion helpers, micro-benchmarking                                            |
+| Module              | File(s)                                 | Status      | Notes                                                                                                              |
+| ------------------- | --------------------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------ |
+| **Prelude**         | `std/prelude.yo`                        | ✅ Complete | Core types, traits, operators, Box, Option, Result, Array, Slice; IO algebraic effect                              |
+| **String**          | `std/string/`                           | ✅ Complete | Immutable UTF-8 `String`, `rune` (Unicode code point)                                                              |
+| **Collections**     | `std/collections/`                      | ✅ Complete | `ArrayList`, `HashMap`, `HashSet`, `LinkedList`, `Deque`, `BTreeMap`, `PriorityQueue`                              |
+| **Path**            | `std/path.yo`                           | ✅ Complete | Cross-platform path manipulation (join, parent, extension, normalize)                                              |
+| **Process**         | `std/process.yo`                        | ✅ Complete | Platform/arch detection, args, env, cwd, chdir, exit                                                               |
+| **Allocator**       | `std/allocator.yo`                      | ✅ Complete | `GlobalAllocator` (mimalloc/libc), `CustomAllocator` trait                                                         |
+| **Format**          | `std/fmt/`                              | ✅ Complete | `ToString` trait, `Writer`, `Display`; `println`/`print`/`eprintln`                                                |
+| **Hash**            | `std/alg/hash.yo`                       | ✅ Complete | FNV-1a hash function                                                                                               |
+| **Sync**            | `std/sync/mutex.yo`, `std/sync/cond.yo` | ✅ Complete | `Mutex`, `Cond` (stack + GC-managed variants)                                                                      |
+| **Sync Channel**    | `std/sync/channel.yo`                   | ✅ Complete | Bounded MPMC `Channel` — 15 single-threaded tests passing (cross-thread tests removed pending `Send`/`Iso` design) |
+| **Sync RwLock**     | `std/sync/rwlock.yo`                    | ✅ Complete | `RwLock` — multiple-reader / single-writer lock                                                                    |
+| **Sync WaitGroup**  | `std/sync/waitgroup.yo`                 | ✅ Complete | `WaitGroup` — wait for a group of tasks to complete                                                                |
+| **Sync Once**       | `std/sync/once.yo`                      | ✅ Complete | `Once` — one-time thread-safe initialization                                                                       |
+| **Thread**          | `std/thread.yo`                         | ✅ Complete | `Thread` (spawn/join), hardware thread count                                                                       |
+| **Worker**          | `std/worker.yo`                         | ✅ Complete | Thread pool with round-robin task distribution                                                                     |
+| **GC**              | `std/gc.yo`                             | ✅ Complete | `collect`, `tracked_count`                                                                                         |
+| **Async**           | `std/async.yo`                          | ✅ Minimal  | Only `yield`; async/await uses IO algebraic effect                                                                 |
+| **Time**            | `std/time.yo`                           | 🔸 Minimal  | Only `sleep`; see `std/time/` for Duration, Instant, DateTime                                                      |
+| **Time (rich)**     | `std/time/`                             | ✅ Complete | `Duration`, `Instant` (monotonic), `DateTime` (wall clock) — 25 tests all passing                                  |
+| **Sys (low-level)** | `std/sys/` (37 files)                   | ✅ Complete | Full async I/O: file, socket, process, mmap, DNS, signals, TTY, etc.                                               |
+| **Libc bindings**   | `std/libc/`                             | ✅ Complete | stdio, stdlib, string, math, errno, signal, etc.                                                                   |
+| **FS**              | `std/fs/`                               | ✅ Complete | `File`, `Metadata`, `TempDir`, `TempFile`, directory walker                                                        |
+| **Net**             | `std/net/`                              | ✅ Complete | `TcpStream`, `TcpListener`, `UdpSocket`, `IpAddr`, DNS lookup                                                      |
+| **OS**              | `std/os/`                               | ✅ Complete | Signal handling, environment directory utilities — 10 tests passing                                                |
+| **Encoding**        | `std/encoding/`                         | ✅ Complete | Base64, hex, JSON, UTF-16 — 71 tests passing                                                                       |
+| **Crypto**          | `std/crypto/`                           | ✅ Complete | SHA-256, MD5, secure random, UUID v4                                                                               |
+| **Math**            | `std/math/`                             | ✅ Complete | Generic min/max/clamp, lerp, PRNG (xoshiro256\*\*)                                                                 |
+| **Log**             | `std/log/`                              | ✅ Complete | Structured logger with level filtering and output routing                                                          |
+| **Testing**         | `std/testing/`                          | ✅ Complete | Rich assertion helpers, micro-benchmarking                                                                         |
 
 ### What's Remaining
 
@@ -745,7 +745,9 @@ Phase 12 (std/os)          ← LOW — OS utilities
 
 **Depends on**: `std/sync` (Mutex, Cond), `std/collections/deque`
 
-**Tests**: 23 tests passing — `tests/sync/channel.test.yo`
+**Tests**: 15 tests passing — `tests/sync/channel.test.yo`
+
+**Note**: Thread/Worker integration tests were removed after fixing `Send` trait enforcement. `Channel(T)` is an `object` type (non-atomic RC) which does not implement `Send`, so it cannot be captured in thread closures. Cross-thread channel tests require either `Iso(Channel(T))` wrapping or making Channel use atomic RC. See `plans/MULTI_CLOSURE_RC_BUG.md` for details.
 
 ### Design Decision: Sync (blocking) vs Async
 
@@ -788,15 +790,19 @@ Channel.len :: (fn(self: Self) -> usize) ...;
 Channel.is_empty :: (fn(self: Self) -> bool) ...;
 ```
 
-**Test coverage** (23 tests):
+**Test coverage** (15 tests):
 
 - Basic: new, send/recv, FIFO order, capacity fill (4 tests)
 - Non-blocking: try_send success/fail, try_recv success/empty (4 tests)
 - Close: close flag, send-after-close, try_send-after-close, drain-after-close, try_recv-after-close (5 tests)
-- Thread: single producer/consumer, many values from thread, consumer blocks, close wakes consumer (4 tests)
-- Worker: send from worker, multiple values from worker (2 tests)
-- Back-pressure: bounded capacity blocks producer (1 test)
-- Edge cases: capacity-1 rendezvous, bool type, usize type (3 tests)
+- Edge cases: bool type, usize type (2 tests)
+
+**Removed tests** (8 tests — require `Send`/`Iso` design for cross-thread sharing):
+
+- Thread: single producer/consumer, many values, consumer blocks, close wakes consumer
+- Worker: send from worker, multiple values
+- Back-pressure: bounded capacity blocks producer
+- Edge cases: capacity-1 rendezvous
 
 **Known limitation**: Capturing the same `object` (Rc-managed) in multiple closures within the same scope causes a codegen double-free bug. Tests avoid this by using a single closure per channel reference.
 

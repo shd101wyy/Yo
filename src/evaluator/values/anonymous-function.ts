@@ -72,6 +72,7 @@ import {
   createCaptureTypeAndValue,
   enrichCapturedVariables,
   generateCapturedVariableDupExpressions,
+  validateCaptureTraitRequirements,
 } from "../utils/closure";
 
 export function evaluateAnonymousFunctionImplementation({
@@ -1059,6 +1060,16 @@ Got:      "${paramName}"`,
           ? effectParamEntries.map((e) => e.name)
           : undefined,
     };
+
+    // Validate that the capture struct implements all required non-Fn traits (e.g., Send)
+    if (isSomeType(wrapperType) && captureType) {
+      validateCaptureTraitRequirements({
+        wrapperType,
+        captureType,
+        env,
+        errorToken: expr.token,
+      });
+    }
 
     // IMPORTANT: Mutate the wrapper SomeType in-place so downstream generic specialization
     // (e.g. `box`) can observe the concrete capture struct and codegen can use it.
