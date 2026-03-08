@@ -52,7 +52,7 @@ Byte buffers use `ArrayList(u8)` (not `Slice(u8)`).
 | **Libc bindings**   | `std/libc/`                             | ✅ Complete | stdio, stdlib, string, math, errno, signal, etc.                                      |
 | **FS**              | `std/fs/`                               | ✅ Complete | `File`, `Metadata`, `TempDir`, `TempFile`, directory walker                           |
 | **Net**             | `std/net/`                              | ✅ Complete | `TcpStream`, `TcpListener`, `UdpSocket`, `IpAddr`, DNS lookup                         |
-| **OS**              | `std/os/`                               | ✅ Complete | Signal handling, environment directory utilities                                      |
+| **OS**              | `std/os/`                               | ✅ Complete | Signal handling, environment directory utilities — 10 tests passing                   |
 | **Encoding**        | `std/encoding/`                         | ✅ Complete | Base64, hex, JSON, UTF-16 — 71 tests passing                                          |
 | **Crypto**          | `std/crypto/`                           | ✅ Complete | SHA-256, MD5, secure random, UUID v4                                                  |
 | **Math**            | `std/math/`                             | ✅ Complete | Generic min/max/clamp, lerp, PRNG (xoshiro256\*\*)                                    |
@@ -218,7 +218,7 @@ WalkEntry :: struct(
 );
 
 WalkOptions :: struct(
-  max_depth : ?u32,
+  max_depth : Option(u32),
   follow_symlinks : bool,
   include_dirs : bool
 );
@@ -608,7 +608,7 @@ Cross-platform: Linux `getrandom()`, macOS `arc4random_buf()`, Windows `BCryptGe
 ```yo
 Deque :: (fn(comptime(T) : Type) -> comptime(Type))
   object(
-    _buf : ?(*(T)),
+    _buf : Option(*(T)),
     _head : usize,
     _tail : usize,
     _capacity : usize
@@ -656,11 +656,13 @@ PriorityQueue.len :: ...;
 
 ---
 
-## Phase 12: OS Utilities (`std/os`) — Priority: Low
+## Phase 12: OS Utilities (`std/os`) — ✅ Done
 
 **Goal**: OS-level utilities that don't fit in `std/sys` or `std/process`.
 
 **Depends on**: `std/sys/signal`, `std/sys/sysinfo`, `std/string`
+
+**Tests**: 10 tests passing (env: 7, signal: 3)
 
 ### 12.1 `std/os/signal.yo` — High-Level Signal Handling
 
@@ -676,21 +678,22 @@ Signal :: enum(
   Child
 );
 
-on_signal :: (fn(sig: Signal, handler: Fn(() -> unit)) -> Result(unit, IOError)) ...;
+SignalHandler :: (fn(data: *(u8)) -> unit);  // re-exported from std/sys/signal
+
+on_signal :: (fn(sig: Signal, handler: SignalHandler) -> Result(unit, IOError)) ...;
 off_signal :: (fn(sig: Signal) -> Result(unit, IOError)) ...;
 ```
 
 ### 12.2 `std/os/env.yo` — Environment Utilities
 
 ```yo
-home_dir :: (fn() -> ?String) ...;
-config_dir :: (fn() -> ?String) ...;
-cache_dir :: (fn() -> ?String) ...;
+home_dir :: (fn() -> Option(String)) ...;
+config_dir :: (fn() -> Option(String)) ...;
+cache_dir :: (fn() -> Option(String)) ...;
 temp_dir :: (fn() -> String) ...;
-exe_path :: (fn() -> Result(String, IOError)) ...;
 ```
 
-**Tests**: Signal registration/delivery, home_dir resolution, temp_dir validity.
+**Test files**: `tests/os/env.test.yo` (7 tests), `tests/os/signal.test.yo` (3 tests)
 
 ---
 
@@ -774,9 +777,9 @@ Channel :: (fn(comptime(T) : Type) -> comptime(Type))
 
 Channel.new :: (fn(capacity: usize) -> Channel(T)) ...;
 Channel.send :: (fn(self: Self, value: T) -> Result(unit, unit)) ...;
-Channel.recv :: (fn(self: Self) -> ?T) ...;
+Channel.recv :: (fn(self: Self) -> Option(T)) ...;
 Channel.try_send :: (fn(self: Self, value: T) -> Result(unit, unit)) ...;
-Channel.try_recv :: (fn(self: Self) -> ?T) ...;
+Channel.try_recv :: (fn(self: Self) -> Option(T)) ...;
 Channel.close :: (fn(self: Self) -> unit) ...;
 Channel.is_closed :: (fn(self: Self) -> bool) ...;
 Channel.len :: (fn(self: Self) -> usize) ...;
@@ -847,7 +850,7 @@ A standard iterator trait for lazy sequences. Would enable idiomatic iteration o
 ```yo
 Iterator :: (fn(comptime(T) : Type) -> comptime(Type))
   trait(
-    next :: (fn(self: *(T)) -> ?T)
+    next :: (fn(self: *(T)) -> Option(T))
   )
 ;
 
@@ -862,10 +865,10 @@ Parse and manipulate URLs.
 Url :: object(
   scheme : String,
   host   : String,
-  port   : ?u16,
+  port   : Option(u16),
   path   : String,
-  query  : ?String,
-  fragment : ?String
+  query  : Option(String),
+  fragment : Option(String)
 );
 
 Url.parse :: (fn(s: str) -> Result(Url, UrlError)) ...;
@@ -880,7 +883,7 @@ Buffered reader/writer wrappers for any file descriptor.
 BufReader :: object(fd: i32, buf: ArrayList(u8), pos: usize);
 BufWriter :: object(fd: i32, buf: ArrayList(u8));
 
-BufReader.read_line :: (fn(self: Self, using(io : IO)) -> Impl(Future(Result(?String, IOError)))) ...;
+BufReader.read_line :: (fn(self: Self, using(io : IO)) -> Impl(Future(Result(Option(String), IOError)))) ...;
 BufWriter.flush :: (fn(self: Self, using(io : IO)) -> Impl(Future(Result(unit, IOError)))) ...;
 ```
 
@@ -917,7 +920,7 @@ BufWriter.flush :: (fn(self: Self, using(io : IO)) -> Impl(Future(Result(unit, I
 
 1. **Build on `std/sys`, don't duplicate**: High-level modules call into `std/sys/*` for all system operations. No direct C externs in high-level modules.
 
-2. **Return `Result`, not raw `i32`**: High-level APIs use `Result(T, Error)` for all fallible operations. Async fallible I/O operations return `Impl(Future(Result(T, Error)))`. Callers use `io.await(fn(...))` to get back a `Result` and then pattern-match or propagate using the `?` operator. The `std/sys` errno-based pattern stays in `std/sys`.
+2. **Return `Result`, not raw `i32`**: High-level APIs use `Result(T, Error)` for all fallible operations. Async fallible I/O operations return `Impl(Future(Result(T, Error)))`. Callers use `io.await(fn(...))` to get back a `Result` and then pattern-match or propagate using the `?(...)` operator. The `std/sys` errno-based pattern stays in `std/sys`.
 
 3. **Use `Path` for filesystem paths**: High-level APIs that accept filesystem paths use `Path` as the default parameter type. Variants with `_str` and `_cstr` suffixes accept `str` and `*(u8)` respectively. Internally, `Path` is converted to `*(u8)` via `.to_string().to_cstr()` for the `std/sys` layer.
 

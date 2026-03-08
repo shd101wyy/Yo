@@ -3,13 +3,14 @@
 // Wraps std/sys/signal with typed Signal enum values.
 //
 // Example:
-//   { on_signal, Signal } :: import "std/os/signal";
+//   { on_signal, off_signal, Signal, SignalHandler } :: import "std/os/signal";
 //
-//   on_signal(.Interrupt, () => { println("Caught SIGINT"); });
+//   handler :: (fn(data: *(u8)) -> unit)({ println("Caught SIGINT"); });
+//   on_signal(.Interrupt, handler);
 
 { IOError } :: import "../sys/errors";
 {
-  on_signal : _on_signal, off_signal : _off_signal
+  on_signal : _on_signal, off_signal : _off_signal, SignalHandler
 } :: import "../sys/signal";
 { platform, Platform } :: import "../process";
 
@@ -72,9 +73,9 @@ _signal_num :: (fn(sig: Signal) -> i32)(
 // ============================================================================
 
 // Register a handler for the given signal.
-on_signal :: (fn(sig: Signal, handler: Impl(Fn() -> unit)) -> Result(unit, IOError))({
+on_signal :: (fn(sig: Signal, handler: SignalHandler) -> Result(unit, IOError))({
   num := _signal_num(sig);
-  r   := _on_signal(num, (data) => { handler(); });
+  r   := _on_signal(num, handler);
   cond(
     (r < i32(0)) => .Err(IOError.from_errno((i32(0) - r))),
     true => .Ok(())
@@ -91,4 +92,4 @@ off_signal :: (fn(sig: Signal) -> Result(unit, IOError))({
   )
 });
 
-export on_signal, off_signal;
+export SignalHandler, on_signal, off_signal;
