@@ -1,6 +1,10 @@
 open import "std/libc/stdio";
 { Once } :: import "std/sync/once";
 { ArrayList } :: import "std/collections/array_list";
+{ Thread } :: import "std/thread";
+{ Time } :: import "std/time";
+{ WaitGroup } :: import "std/sync/waitgroup";
+Worker :: import "std/worker";
 
 // ============================================================================
 // Basic operations
@@ -83,4 +87,138 @@ test "Once call with side effects", {
   assert((values.len() == usize(1)), "should have exactly one value");
   v := values.get(usize(0)).unwrap();
   assert((v == i32(42)), "value should be 42 from first call");
+};
+
+// ============================================================================
+// Thread integration (using Arc for cross-thread sharing)
+// ============================================================================
+
+test "Once call from multiple threads executes only once", {
+  o := arc(Once.new());
+  counter := arc(box(i32(0)));
+
+  t1 := Thread.spawn(() => {
+    o.(*).call(() => {
+      counter.(*).(*) = (counter.(*).(*) + i32(1));
+    });
+  });
+  t2 := Thread.spawn(() => {
+    o.(*).call(() => {
+      counter.(*).(*) = (counter.(*).(*) + i32(1));
+    });
+  });
+  t3 := Thread.spawn(() => {
+    o.(*).call(() => {
+      counter.(*).(*) = (counter.(*).(*) + i32(1));
+    });
+  });
+
+  // Main thread also tries
+  o.(*).call(() => {
+    counter.(*).(*) = (counter.(*).(*) + i32(1));
+  });
+
+  t1.join();
+  t2.join();
+  t3.join();
+
+  assert((counter.(*).(*) == i32(1)), "function should have executed exactly once");
+  assert(o.(*).is_done(), "should be done");
+};
+
+test "Once is_done visible across threads after call", {
+  o := arc(Once.new());
+  counter := arc(box(i32(0)));
+
+  // Main thread calls first
+  o.(*).call(() => {
+    counter.(*).(*) = (counter.(*).(*) + i32(1));
+  });
+
+  t := Thread.spawn(() => {
+    assert(o.(*).is_done(), "should see done from other thread");
+    // Second call should be no-op
+    o.(*).call(() => {
+      counter.(*).(*) = (counter.(*).(*) + i32(1));
+    });
+  });
+
+  t.join();
+  assert((counter.(*).(*) == i32(1)), "function should have executed only once");
+};
+
+test "Once multiple threads race to call", {
+  o := arc(Once.new());
+  counter := arc(box(i32(0)));
+
+  // All threads start at the same time (no sleep)
+  t1 := Thread.spawn(() => {
+    o.(*).call(() => {
+      counter.(*).(*) = (counter.(*).(*) + i32(1));
+    });
+  });
+  t2 := Thread.spawn(() => {
+    o.(*).call(() => {
+      counter.(*).(*) = (counter.(*).(*) + i32(1));
+    });
+  });
+  t3 := Thread.spawn(() => {
+    o.(*).call(() => {
+      counter.(*).(*) = (counter.(*).(*) + i32(1));
+    });
+  });
+  t4 := Thread.spawn(() => {
+    o.(*).call(() => {
+      counter.(*).(*) = (counter.(*).(*) + i32(1));
+    });
+  });
+  t5 := Thread.spawn(() => {
+    o.(*).call(() => {
+      counter.(*).(*) = (counter.(*).(*) + i32(1));
+    });
+  });
+
+  t1.join();
+  t2.join();
+  t3.join();
+  t4.join();
+  t5.join();
+
+  assert((counter.(*).(*) == i32(1)), "should have executed exactly once despite 5 threads racing");
+  assert(o.(*).is_done(), "should be done");
+};
+
+// ============================================================================
+// Worker integration (using Arc for cross-thread sharing)
+// ============================================================================
+
+test "Once with Workers executes only once", {
+  o := arc(Once.new());
+  counter := arc(box(i32(0)));
+  wg := arc(WaitGroup.new());
+  Worker.set_num_threads(2);
+
+  wg.(*).add(i32(3));
+  Worker.spawn(() => {
+    o.(*).call(() => {
+      counter.(*).(*) = (counter.(*).(*) + i32(1));
+    });
+    wg.(*).done();
+  });
+  Worker.spawn(() => {
+    o.(*).call(() => {
+      counter.(*).(*) = (counter.(*).(*) + i32(1));
+    });
+    wg.(*).done();
+  });
+  Worker.spawn(() => {
+    o.(*).call(() => {
+      counter.(*).(*) = (counter.(*).(*) + i32(1));
+    });
+    wg.(*).done();
+  });
+
+  wg.(*).wait();
+  assert((counter.(*).(*) == i32(1)), "function should have executed only once across workers");
+  assert(o.(*).is_done(), "should be done");
 };

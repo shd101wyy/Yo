@@ -185,3 +185,4 @@ as_str : (fn(self: Self) -> str)(
 - `comptime_string` does NOT automatically convert to `str` in return statements. Use `str.from_raw_parts(*(u8)("..."), usize(N))` if you need a runtime `str`.
 - `*(u8)("literal")` works — casting `comptime_string` to pointer is valid.
 - Only pointer-to-pointer and `comptime_string`-to-pointer casts are allowed. Integer-to-pointer casts like `*(void)(usize(0))` are NOT supported.
+- **Template strings for constant `String` values**: Use `` `hello` `` instead of `String.from("hello")`. Template strings without interpolation produce the same `String` result in fewer characters.
