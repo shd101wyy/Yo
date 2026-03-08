@@ -54,7 +54,7 @@ Byte buffers use `ArrayList(u8)` (not `Slice(u8)`).
 | **Net**             | `std/net/`                              | ✅ Complete | `TcpStream`, `TcpListener`, `UdpSocket`, `IpAddr`, DNS lookup                                                      |
 | **OS**              | `std/os/`                               | ✅ Complete | Signal handling, environment directory utilities — 10 tests passing                                                |
 | **Encoding**        | `std/encoding/`                         | ✅ Complete | Base64, hex, JSON, UTF-16 — 71 tests passing                                                                       |
-| **Crypto**          | `std/crypto/`                           | ✅ Complete | SHA-256, MD5, secure random, UUID v4                                                                               |
+| **Crypto**          | `std/crypto/`                           | ✅ Complete | SHA-256, MD5, secure random, UUID v4 — 33 tests passing                                                            |
 | **Math**            | `std/math/`                             | ✅ Complete | Generic min/max/clamp, lerp, PRNG (xoshiro256\*\*)                                                                 |
 | **Log**             | `std/log/`                              | ✅ Complete | Structured logger with level filtering and output routing                                                          |
 | **Testing**         | `std/testing/`                          | ✅ Complete | Rich assertion helpers, micro-benchmarking                                                                         |
@@ -531,11 +531,13 @@ utf16_to_utf8 :: (fn(data: ArrayList(u16)) -> Result(String, EncodingError)) ...
 
 ---
 
-## Phase 6: Cryptographic Hashing & Random (`std/crypto`) — Priority: Medium
+## Phase 6: Cryptographic Hashing & Random (`std/crypto`) — ✅ Done
 
 **Goal**: Common hash functions and cryptographically secure random number generation. Essential for security, checksums, and unique ID generation.
 
 **Depends on**: `std/string`, `std/collections/array_list`
+
+**Status**: All modules implemented and tested (33 tests total).
 
 ### 6.1 `std/crypto/sha256.yo` — SHA-256
 
@@ -569,7 +571,11 @@ uuid_v4 :: (fn() -> String) ...;
 
 Cross-platform: Linux `getrandom()`, macOS `arc4random_buf()`, Windows `BCryptGenRandom()`.
 
-**Tests**: Hash known test vectors, random distribution basic sanity, UUID format validation.
+**Test files** (all passing):
+
+- `tests/crypto/sha256.test.yo` — 12 tests (known vectors: empty, abc, hello world, The quick brown fox; raw digest; streaming: chunked, byte-by-byte, empty update; edge cases: 55/56/64/90+ bytes)
+- `tests/crypto/md5.test.yo` — 11 tests (RFC 1321 vectors: empty, a, abc, message digest, alphabet, alphanumeric, numeric sequence; raw digest; edge cases: 55/56/64 bytes)
+- `tests/crypto/random.test.yo` — 10 tests (random_bytes fill + differ, random_u32, random_u64, random_f64 range, random_range bounds + single + zero span, uuid_v4 format + uniqueness)
 
 ---
 

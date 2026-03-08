@@ -47,6 +47,11 @@ export const BuiltinYoInlineFunctions = [
   // Type casting
   ...BuiltinFunctions.__yo_as, // __yo_as (generic primitive type cast)
 
+  // Crypto random
+  ...BuiltinFunctions.__yo_getrandom,
+  ...BuiltinFunctions.__yo_arc4random_buf,
+  ...BuiltinFunctions.__yo_bcrypt_gen_random,
+
   // MaybeUninit
   ...BuiltinFunctions.__yo_maybe_uninit_new,
   ...BuiltinFunctions.__yo_maybe_uninit_as_ptr,

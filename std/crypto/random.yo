@@ -93,12 +93,12 @@ random_f64 :: (fn() -> f64)(
 
 // Return a random integer in the half-open range [min, max).
 random_range :: (fn(min: i64, max: i64) -> i64)({
-  span := i64((max - min));
+  span := (max - min);
   cond(
     (span <= i64(0)) => min,
     true => {
-      r := i64(random_u64());
-      (min + (r % span))
+      r := random_u64();
+      (min + i64((r % u64(span))))
     }
   )
 });

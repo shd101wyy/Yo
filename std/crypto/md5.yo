@@ -51,8 +51,8 @@ _rotl32 :: (fn(x: u32, n: u32) -> u32)(
 );
 
 _le32 :: (fn(p: *(u8)) -> u32)(
-  (u32(p.*) | (u32((p &+ usize(1)).*) << u32(8)) |
-  (u32((p &+ usize(2)).*) << u32(16)) | (u32((p &+ usize(3)).*) << u32(24)))
+  ((u32(p.*) | (u32((p &+ usize(1)).*) << u32(8))) |
+  ((u32((p &+ usize(2)).*) << u32(16)) | (u32((p &+ usize(3)).*) << u32(24))))
 );
 
 _md5_block :: (fn(block: *(u8), h: *(u32)) -> unit)({
@@ -74,7 +74,7 @@ _md5_block :: (fn(block: *(u8), h: *(u32)) -> unit)({
         g  = (((i * usize(5)) + usize(1)) % usize(16));
       },
       (i < usize(48)) => {
-        fv = (b ^ c ^ d);
+        fv = ((b ^ c) ^ d);
         g  = (((i * usize(3)) + usize(5)) % usize(16));
       },
       true => {
@@ -104,7 +104,7 @@ md5 :: (fn(data: ArrayList(u8)) -> Array(u8, usize(16)))({
   // Process full blocks
   i := usize(0);
   while ((i + usize(64)) <= n), (i = (i + usize(64))), {
-    chunk_ptr := *(u8)(data.ptr().unwrap()) &+ i;
+    chunk_ptr := (*(u8)(data.ptr().unwrap()) &+ i);
     _md5_block(chunk_ptr, h_ptr);
   };
   // Final block(s) with padding

@@ -1144,6 +1144,11 @@ export const BuiltinFunctions = {
   __yo_return_self: ["__yo_return_self"],
   __yo_ms_sleep: ["__yo_ms_sleep"],
 
+  // Crypto random
+  __yo_getrandom: ["__yo_getrandom"],
+  __yo_arc4random_buf: ["__yo_arc4random_buf"],
+  __yo_bcrypt_gen_random: ["__yo_bcrypt_gen_random"],
+
   // MaybeUninit
   __yo_maybe_uninit_new: ["__yo_maybe_uninit_new"],
   __yo_maybe_uninit_as_ptr: ["__yo_maybe_uninit_as_ptr"],

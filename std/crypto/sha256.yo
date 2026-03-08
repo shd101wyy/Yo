@@ -39,7 +39,7 @@ _rotr32 :: (fn(x: u32, n: u32) -> u32)(
 );
 
 _ch  :: (fn(e: u32, f: u32, g: u32) -> u32)( ((e & f) ^ ((~e) & g)) );
-_maj :: (fn(a: u32, b: u32, c: u32) -> u32)( ((a & b) ^ (a & c) ^ (b & c)) );
+_maj :: (fn(a: u32, b: u32, c: u32) -> u32)( (((a & b) ^ (a & c)) ^ (b & c)) );
 _ep0 :: (fn(a: u32) -> u32)( ((_rotr32(a, u32(2)) ^ _rotr32(a, u32(13))) ^ _rotr32(a, u32(22))) );
 _ep1 :: (fn(e: u32) -> u32)( ((_rotr32(e, u32(6)) ^ _rotr32(e, u32(11))) ^ _rotr32(e, u32(25))) );
 _sg0 :: (fn(x: u32) -> u32)( ((_rotr32(x, u32(7)) ^ _rotr32(x, u32(18))) ^ (x >> u32(3))) );
@@ -53,15 +53,16 @@ _sha256_block :: (fn(block: *(u8), h: *(u32)) -> unit)({
   while (i < usize(16)), (i = (i + usize(1))), {
     off := (i * usize(4));
     w(i) = (
-      ((u32((block &+ off).*) << u32(24)) |
-       (u32((block &+ (off + usize(1))).*) << u32(16)) |
-       (u32((block &+ (off + usize(2))).*) << u32(8)) |
-        u32((block &+ (off + usize(3))).*)
-      )
+      (((u32((block &+ off).*) << u32(24)) |
+       (u32((block &+ (off + usize(1))).*) << u32(16))) |
+       ((u32((block &+ (off + usize(2))).*) << u32(8)) |
+        u32((block &+ (off + usize(3))).*)))
     );
   };
   while (i < usize(64)), (i = (i + usize(1))), {
-    w(i) = ((((_sg1(w((i - usize(2)))) + w((i - usize(7)))) + _sg0(w((i - usize(15))))) + w((i - usize(16))));
+    s1 := _sg1(w((i - usize(2))));
+    s0 := _sg0(w((i - usize(15))));
+    w(i) = (((s1 + w((i - usize(7)))) + s0) + w((i - usize(16))));
   };
   // Compression
   a := (h &+ usize(0)).*;

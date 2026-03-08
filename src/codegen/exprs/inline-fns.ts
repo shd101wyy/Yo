@@ -184,6 +184,18 @@ usleep((${args[0]!}) * 1000)
     const sliceCType = getTypeString(expr.$.type, context);
     return `(${sliceCType}){ .data = ${args[0]!}, .length = ${args[1]!} }`;
   }
+  // __yo_getrandom - Linux getrandom() syscall wrapper
+  else if (BuiltinFunctions.__yo_getrandom.includes(functionName)) {
+    return `getrandom(${args[0]!}, ${args[1]!}, ${args[2]!})`;
+  }
+  // __yo_arc4random_buf - macOS arc4random_buf() wrapper
+  else if (BuiltinFunctions.__yo_arc4random_buf.includes(functionName)) {
+    return `(arc4random_buf(${args[0]!}, ${args[1]!}), (void)0)`;
+  }
+  // __yo_bcrypt_gen_random - Windows BCryptGenRandom() wrapper
+  else if (BuiltinFunctions.__yo_bcrypt_gen_random.includes(functionName)) {
+    return `(int32_t)BCryptGenRandom(NULL, ${args[0]!}, ${args[1]!}, BCRYPT_USE_SYSTEM_PREFERRED_RNG)`;
+  }
   // __yo_maybe_uninit_new - declare uninitialized storage (no runtime args, return type is Self)
   else if (
     BuiltinFunctions.__yo_maybe_uninit_new.includes(functionName) &&

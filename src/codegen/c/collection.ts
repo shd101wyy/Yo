@@ -53,6 +53,7 @@ export function emitCIncludes(context: CodeGenContext): void {
   context.emitter.emitHeaderLine(`#else`);
   context.emitter.emitHeaderLine(`  #include <unistd.h>`);
   context.emitter.emitHeaderLine(`  #include <sys/stat.h>`);
+  context.emitter.emitHeaderLine(`  #include <sys/random.h>`);
   context.emitter.emitHeaderLine(`#endif`);
 
   // Add allocator compatibility layer based on the allocator option
