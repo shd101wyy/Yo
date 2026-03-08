@@ -3210,6 +3210,58 @@ impl(str,
     __yo_slice_len(self.bytes)
   )
 );
+
+impl(str, Eq(str)(
+  (==) : (fn(lhs: Self, rhs: Self) -> bool)({
+    lhs_len := lhs.len();
+    cond(
+      (lhs_len != rhs.len()) => {
+        return false;
+      },
+      true => ()
+    );
+    i := usize(0);
+    while (i < lhs_len), (i = (i + usize(1))), {
+      cond(
+        (lhs.bytes(i) != rhs.bytes(i)) => {
+          return false;
+        },
+        true => ()
+      );
+    };
+    true
+  }),
+  (!=) : (fn(lhs: Self, rhs: Self) -> bool)({
+    return !(Self.(==)(lhs, rhs));
+  })
+));
+
+impl(str, Ord(str)(
+  (<) : (fn(lhs: Self, rhs: Self) -> bool)({
+    lhs_len := lhs.len();
+    rhs_len := rhs.len();
+    min_len := cond((lhs_len < rhs_len) => lhs_len, true => rhs_len);
+    i := usize(0);
+    while (i < min_len), (i = (i + usize(1))), {
+      cond(
+        (lhs.bytes(i) < rhs.bytes(i)) => { return true; },
+        (lhs.bytes(i) > rhs.bytes(i)) => { return false; },
+        true => ()
+      );
+    };
+    (lhs_len < rhs_len)
+  }),
+  (<=) : (fn(lhs: Self, rhs: Self) -> bool)({
+    return !(rhs < lhs);
+  }),
+  (>) : (fn(lhs: Self, rhs: Self) -> bool)({
+    return (rhs < lhs);
+  }),
+  (>=) : (fn(lhs: Self, rhs: Self) -> bool)({
+    return !(lhs < rhs);
+  })
+));
+
 export str;
 
 

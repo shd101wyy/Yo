@@ -1046,6 +1046,7 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
   // Get variables that need drop calls using the helper function
   // When evaluating function body begin block, also check the parameters frame (previous frame)
   let variablesNeedingDrop = getVariablesNeedingDrop(env);
+
   const variablesActuallyNeedingDrop: Variable[] = [];
 
   if (OPTIMIZE_DUP_AND_DROP_PAIRS) {

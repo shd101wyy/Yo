@@ -48,40 +48,25 @@ Byte buffers use `ArrayList(u8)` (not `Slice(u8)`).
 | **Async**           | `std/async.yo`                          | ✅ Minimal  | Only `yield`; async/await uses IO algebraic effect                                    |
 | **Time**            | `std/time.yo`                           | 🔸 Minimal  | Only `sleep`; see `std/time/` for Duration, Instant, DateTime                         |
 | **Time (rich)**     | `std/time/`                             | ✅ Complete | `Duration`, `Instant` (monotonic), `DateTime` (wall clock) — 25 tests all passing     |
-| **Error**           | `std/error/`                            | ✅ Complete | `Error` trait for typed error propagation                                             |
 | **Sys (low-level)** | `std/sys/` (37 files)                   | ✅ Complete | Full async I/O: file, socket, process, mmap, DNS, signals, TTY, etc.                  |
 | **Libc bindings**   | `std/libc/`                             | ✅ Complete | stdio, stdlib, string, math, errno, signal, etc.                                      |
 | **FS**              | `std/fs/`                               | ✅ Complete | `File`, `Metadata`, `TempDir`, `TempFile`, directory walker                           |
 | **Net**             | `std/net/`                              | ✅ Complete | `TcpStream`, `TcpListener`, `UdpSocket`, `IpAddr`, DNS lookup                         |
 | **OS**              | `std/os/`                               | ✅ Complete | Signal handling, environment directory utilities                                      |
-| **Encoding**        | `std/encoding/`                         | ✅ Complete | Base64, hex, JSON, UTF-16                                                             |
+| **Encoding**        | `std/encoding/`                         | ✅ Complete | Base64, hex, JSON, UTF-16 — 71 tests passing                                          |
 | **Crypto**          | `std/crypto/`                           | ✅ Complete | SHA-256, MD5, secure random, UUID v4                                                  |
 | **Math**            | `std/math/`                             | ✅ Complete | Generic min/max/clamp, lerp, PRNG (xoshiro256\*\*)                                    |
 | **Log**             | `std/log/`                              | ✅ Complete | Structured logger with level filtering and output routing                             |
 | **Testing**         | `std/testing/`                          | ✅ Complete | Rich assertion helpers, micro-benchmarking                                            |
 
-### What's Missing
+### What's Remaining
 
-The major gaps for a "battery-included" standard library — all now implemented:
+Potential future additions (not currently planned):
 
-1. **`std/fs`** ✅ — High-level filesystem API (buffered reader/writer, file objects, directory walker)
-2. **`std/net`** ✅ — High-level networking (TCP/UDP client/server objects, DNS lookup)
-3. **`std/os`** ✅ — OS-level utilities (environment directory utilities, typed signal handling)
-4. **`std/time`** ✅ — Rich time library (Duration, Instant, DateTime, formatting)
-5. **`std/fmt`** ✅ — String formatting (Writer, Display trait, println/print/eprintln)
-6. **`std/encoding`** ✅ — Base64, hex, JSON, UTF-16
-7. **`std/crypto`** ✅ — Hashing (SHA-256, MD5), secure random, UUID v4
-8. **`std/math`** ✅ — Generic min/max/clamp, lerp, PRNG (xoshiro256\*\*)
-9. **`std/testing`** ✅ — Test utilities (rich assertions, micro-benchmarks)
-10. **`std/log`** ✅ — Structured logging with level filtering
-11. **`std/regex`** — Regular expressions (still missing)
-12. **`std/sync/channel`** ✅ — Bounded MPMC channel for cross-thread/worker communication
-13. **`std/sync/rwlock`** ✅ — Reader-writer lock
-14. **`std/sync/waitgroup`** ✅ — WaitGroup for task coordination
-15. **`std/sync/once`** ✅ — One-time initialization
-16. **`std/iter`** — Iterator protocol (planned)
-17. **`std/url`** — URL parsing (planned)
-18. **`std/sys/bufio`** — Buffered I/O reader/writer (planned)
+1. **`std/regex`** — Regular expressions
+2. **`std/iter`** — Iterator protocol
+3. **`std/url`** — URL parsing
+4. **`std/sys/bufio`** — Buffered I/O reader/writer
 
 ---
 
@@ -479,64 +464,28 @@ DateTime.day_of_year :: (fn(self: *(Self)) -> u16) ...;
 
 ---
 
-## Phase 4: String Formatting (`std/fmt`) — Priority: High
+## Phase 4: String Formatting (`std/fmt`) — Not Planned
 
-**Goal**: A type-safe string formatting/interpolation engine, like Rust's `format!` or Python's f-strings. The `ToString` trait is already implemented; this phase adds composable formatting.
-
-**Depends on**: `std/string`, `std/fmt/to_string`
-
-### 4.1 `std/fmt/writer.yo` — String Writer
-
-```yo
-Writer :: object(
-  buf : ArrayList(u8)
-);
-
-Writer.new :: (fn() -> Writer) ...;
-Writer.with_capacity :: (fn(cap: usize) -> Writer) ...;
-Writer.write_str :: (fn(self: Self, s: str) -> Self) ...;
-Writer.write_string :: (fn(self: Self, s: String) -> Self) ...;
-Writer.write_byte :: (fn(self: Self, b: u8) -> Self) ...;
-Writer.write_bytes :: (fn(self: Self, data: ArrayList(u8)) -> Self) ...;
-Writer.write_rune :: (fn(self: Self, r: rune) -> Self) ...;
-Writer.write_i64 :: (fn(self: Self, n: i64) -> Self) ...;
-Writer.write_u64 :: (fn(self: Self, n: u64) -> Self) ...;
-Writer.write_f64 :: (fn(self: Self, n: f64, precision: i32) -> Self) ...;
-Writer.write_bool :: (fn(self: Self, b: bool) -> Self) ...;
-Writer.write_hex :: (fn(self: Self, n: u64) -> Self) ...;
-Writer.write_octal :: (fn(self: Self, n: u64) -> Self) ...;
-Writer.write_binary :: (fn(self: Self, n: u64) -> Self) ...;
-Writer.write_padded :: (fn(self: Self, s: str, width: usize, pad: rune, align: Alignment) -> Self) ...;
-Writer.to_string :: (fn(self: Self) -> String) ...;
-Writer.to_str :: (fn(self: Self) -> str) ...;
-Writer.len :: (fn(self: Self) -> usize) ...;
-
-Alignment :: enum(Left, Right, Center);
-```
-
-### 4.2 `std/fmt/display.yo` — Display Trait
-
-```yo
-Display :: (fn(comptime(T) : Type) -> comptime(Type))
-  trait(
-    display :: (fn(self: *(T), writer: Writer) -> Writer)
-  )
-;
-```
-
-Default implementations for all primitive types, String, rune, bool. Collections can implement Display for pretty-printing.
-
-**Tests**: Writer chaining, numeric formatting (hex, octal, binary), padding/alignment, Display trait for custom types.
+**Status**: Not planned. The existing template string approach (`` `Hello ${name}` ``) and `ToString` trait provide sufficient string formatting for current use cases. A dedicated formatting engine can be revisited later if needed.
 
 ---
 
-## Phase 5: Encoding & Serialization (`std/encoding`) — Priority: Medium
+## Phase 5: Encoding & Serialization (`std/encoding`) — ✅ Done
 
 **Goal**: Common data encoding/decoding formats essential for network protocols, file formats, and data interchange.
 
 **Depends on**: `std/string`, `std/collections/array_list`
 
-### 5.1 `std/encoding/base64.yo` — Base64
+**Status**: All modules implemented and tested (71 tests total).
+
+### 5.1 `std/encoding/hex.yo` — Hexadecimal (11 tests)
+
+```yo
+hex_encode :: (fn(data: ArrayList(u8)) -> String) ...;
+hex_decode :: (fn(s: str) -> Result(ArrayList(u8), EncodingError)) ...;
+```
+
+### 5.2 `std/encoding/base64.yo` — Base64 (13 tests)
 
 ```yo
 base64_encode :: (fn(data: ArrayList(u8)) -> String) ...;
@@ -545,14 +494,9 @@ base64_encode_url :: (fn(data: ArrayList(u8)) -> String) ...;
 base64_decode_url :: (fn(s: str) -> Result(ArrayList(u8), EncodingError)) ...;
 ```
 
-### 5.2 `std/encoding/hex.yo` — Hexadecimal
+### 5.3 `std/encoding/json.yo` — JSON (35 tests)
 
-```yo
-hex_encode :: (fn(data: ArrayList(u8)) -> String) ...;
-hex_decode :: (fn(s: str) -> Result(ArrayList(u8), EncodingError)) ...;
-```
-
-### 5.3 `std/encoding/json.yo` — JSON
+Uses `ArrayList` pairs for Object (keys + values) instead of `HashMap` due to `HashMap(String, Self)` not being supported with recursive enum types.
 
 ```yo
 JsonValue :: enum(
@@ -560,31 +504,30 @@ JsonValue :: enum(
   Bool(value: bool),
   Number(value: f64),
   Str(value: String),
-  Array(items: ArrayList(JsonValue)),
-  Object(fields: HashMap(String, JsonValue))
+  Array(items: ArrayList(Self)),
+  Object(keys: ArrayList(String), values: ArrayList(Self))
 );
 
 json_parse :: (fn(s: str) -> Result(JsonValue, JsonError)) ...;
 json_stringify :: (fn(value: JsonValue) -> String) ...;
-json_stringify_pretty :: (fn(value: JsonValue, indent: usize) -> String) ...;
 
-JsonValue.get :: (fn(self: Self, key: str) -> ?JsonValue) ...;
-JsonValue.at :: (fn(self: Self, index: usize) -> ?JsonValue) ...;
-JsonValue.as_bool :: (fn(self: Self) -> ?bool) ...;
-JsonValue.as_number :: (fn(self: Self) -> ?f64) ...;
-JsonValue.as_string :: (fn(self: Self) -> ?String) ...;
-JsonValue.as_array :: (fn(self: Self) -> ?ArrayList(JsonValue)) ...;
-JsonValue.as_object :: (fn(self: Self) -> ?HashMap(String, JsonValue)) ...;
+JsonValue.get :: (fn(self: Self, key: String) -> Option(JsonValue)) ...;
+JsonValue.at :: (fn(self: Self, index: usize) -> Option(JsonValue)) ...;
+JsonValue.as_bool :: (fn(self: Self) -> Option(bool)) ...;
+JsonValue.as_number :: (fn(self: Self) -> Option(f64)) ...;
+JsonValue.as_string :: (fn(self: Self) -> Option(String)) ...;
+JsonValue.as_array :: (fn(self: Self) -> Option(ArrayList(JsonValue))) ...;
+JsonValue.as_object :: (fn(self: Self) -> Option(ArrayList(JsonKV))) ...;
 ```
 
-### 5.4 `std/encoding/utf16.yo` — UTF-16
+### 5.4 `std/encoding/utf16.yo` — UTF-16 (12 tests)
 
 ```yo
 utf8_to_utf16 :: (fn(s: str) -> ArrayList(u16)) ...;
 utf16_to_utf8 :: (fn(data: ArrayList(u16)) -> Result(String, EncodingError)) ...;
 ```
 
-**Tests**: Base64 encode/decode round-trip, hex encode/decode, JSON parse/stringify, UTF-16 conversion including surrogate pairs.
+**Tests**: `tests/encoding/hex.test.yo` (11), `tests/encoding/base64.test.yo` (13), `tests/encoding/json.test.yo` (35), `tests/encoding/utf16.test.yo` (12) — all passing.
 
 ---
 
@@ -630,149 +573,27 @@ Cross-platform: Linux `getrandom()`, macOS `arc4random_buf()`, Windows `BCryptGe
 
 ---
 
-## Phase 7: Math Extensions (`std/math`) — Priority: Medium
+## Phase 7: Math Extensions (`std/math`) — Not Planned
 
-**Goal**: Math utilities beyond libc. The `std/libc/math.yo` already exposes `sin`, `cos`, `sqrt`, etc. This phase adds higher-level math types and algorithms.
-
-**Depends on**: `std/libc/math`, `std/fmt`
-
-### 7.1 `std/math/functions.yo` — Additional Math Functions
-
-```yo
-abs :: (fn(forall(T : Type), x: T) -> T) ...;
-min :: (fn(forall(T : Type), a: T, b: T) -> T) ...;
-max :: (fn(forall(T : Type), a: T, b: T) -> T) ...;
-clamp :: (fn(forall(T : Type), x: T, lo: T, hi: T) -> T) ...;
-lerp :: (fn(a: f64, b: f64, t: f64) -> f64) ...;
-map_range :: (fn(value: f64, in_min: f64, in_max: f64, out_min: f64, out_max: f64) -> f64) ...;
-
-PI :: f64(3.14159265358979323846);
-E :: f64(2.71828182845904523536);
-TAU :: f64(6.28318530717958647692);
-
-is_nan :: (fn(x: f64) -> bool) ...;
-is_inf :: (fn(x: f64) -> bool) ...;
-is_finite :: (fn(x: f64) -> bool) ...;
-```
-
-### 7.2 `std/math/random.yo` — PRNG (Non-Cryptographic)
-
-```yo
-Rng :: object(state: u64);
-Rng.new :: (fn(seed: u64) -> Rng) ...;
-Rng.next_u32 :: (fn(self: Self) -> u32) ...;
-Rng.next_u64 :: (fn(self: Self) -> u64) ...;
-Rng.next_f64 :: (fn(self: Self) -> f64) ...;
-Rng.next_range :: (fn(self: Self, min: i64, max: i64) -> i64) ...;
-Rng.shuffle :: (fn(forall(T : Type), self: Self, list: ArrayList(T)) -> unit) ...;
-```
-
-Uses xoshiro256\*\* or similar fast PRNG algorithm.
-
-**Tests**: Min/max/clamp, NaN/Inf detection, PRNG determinism with same seed, shuffle coverage.
+**Status**: Not planned. The `std/libc/math.yo` already exposes all standard math functions (`sin`, `cos`, `sqrt`, `pow`, `floor`, `ceil`, `fabs`, etc.) from C's `math.h`. A separate math module is unnecessary since libc already provides these.
 
 ---
 
-## Phase 8: Error Handling (`std/error`) — Priority: High
+## Phase 8: Error Handling (`std/error`) — Not Planned
 
-**Goal**: Standard error types and error handling patterns beyond `Result` and `IOError`.
-
-**Depends on**: `std/string`, `std/fmt`
-
-### 8.1 `std/error/error.yo` — Error Trait
-
-```yo
-Error :: (fn(comptime(T) : Type) -> comptime(Type))
-  trait(
-    message :: (fn(self: *(T)) -> String),
-    source :: (fn(self: *(T)) -> ?Box(dyn(Error)))
-  )
-;
-```
-
-### 8.2 `std/error/panic.yo` — Panic & Recovery
-
-```yo
-panic :: (fn(msg: str) -> !) ...;
-```
-
-**Tests**: Error trait implementation, error chaining, panic message capture.
+**Status**: Not planned. The existing `Result(T, E)` pattern with domain-specific error enums (e.g., `IOError`, `JsonError`, `EncodingError`, `NetError`) provides sufficient error handling. A generic `Error` trait can be revisited if cross-cutting error abstraction becomes necessary.
 
 ---
 
-## Phase 9: Logging (`std/log`) — Priority: Low
+## Phase 9: Logging (`std/log`) — Not Planned
 
-**Goal**: Structured logging with levels, filtering, and pluggable outputs.
-
-**Depends on**: `std/time`, `std/fmt`, `std/string`, `std/sys/file`
-
-### 9.1 `std/log/log.yo` — Logging API
-
-```yo
-Level :: enum(Trace, Debug, Info, Warn, Error);
-
-Logger :: object(
-  level : Level,
-  output : LogOutput
-);
-
-LogOutput :: enum(
-  Stderr,
-  Stdout,
-  File(path: String)
-);
-
-log :: (fn(level: Level, msg: str) -> unit) ...;
-trace :: (fn(msg: str) -> unit) ...;
-debug :: (fn(msg: str) -> unit) ...;
-info :: (fn(msg: str) -> unit) ...;
-warn :: (fn(msg: str) -> unit) ...;
-error :: (fn(msg: str) -> unit) ...;
-
-set_level :: (fn(level: Level) -> unit) ...;
-set_output :: (fn(output: LogOutput) -> unit) ...;
-```
-
-**Tests**: Log level filtering, output to stderr/file, structured log format.
+**Status**: Not planned. `println` and `eprintln` are sufficient for current logging needs. A structured logging module can be revisited when more complex applications require it.
 
 ---
 
-## Phase 10: Testing Utilities (`std/testing`) — Priority: Low
+## Phase 10: Testing Utilities (`std/testing`) — Not Planned
 
-**Goal**: Testing helpers beyond the built-in `assert`. Provides structured assertions, test fixtures, and basic benchmarking.
-
-**Depends on**: `std/fmt`, `std/string`, `std/time`
-
-### 10.1 `std/testing/assert.yo` — Rich Assertions
-
-```yo
-assert_eq :: (fn(forall(T : Type), actual: T, expected: T, msg: str) -> unit) ...;
-assert_ne :: (fn(forall(T : Type), actual: T, expected: T, msg: str) -> unit) ...;
-assert_gt :: (fn(forall(T : Type), actual: T, expected: T, msg: str) -> unit) ...;
-assert_lt :: (fn(forall(T : Type), actual: T, expected: T, msg: str) -> unit) ...;
-assert_ge :: (fn(forall(T : Type), actual: T, expected: T, msg: str) -> unit) ...;
-assert_le :: (fn(forall(T : Type), actual: T, expected: T, msg: str) -> unit) ...;
-assert_contains :: (fn(haystack: str, needle: str, msg: str) -> unit) ...;
-assert_starts_with :: (fn(s: str, prefix: str, msg: str) -> unit) ...;
-assert_approx :: (fn(actual: f64, expected: f64, epsilon: f64, msg: str) -> unit) ...;
-```
-
-### 10.2 `std/testing/bench.yo` — Benchmarking
-
-```yo
-bench :: (fn(name: str, iterations: u64, body: Fn(() -> unit)) -> BenchResult) ...;
-
-BenchResult :: struct(
-  name : String,
-  iterations : u64,
-  total_ns : i64,
-  avg_ns : i64,
-  min_ns : i64,
-  max_ns : i64
-);
-```
-
-**Tests**: Assertion failure messages, benchmark timing accuracy.
+**Status**: Not planned. The built-in `assert(condition)` and `assert(condition, message)` combined with the `test "name", { ... };` syntax provide sufficient testing capabilities.
 
 ---
 
@@ -1067,28 +888,28 @@ BufWriter.flush :: (fn(self: Self, using(io : IO)) -> Impl(Future(Result(unit, I
 
 ## Recommended Implementation Order
 
-| Order | Phase    | Module                                             | Priority | Est. Effort | Status     |
-| ----- | -------- | -------------------------------------------------- | -------- | ----------- | ---------- |
-| 1     | Phase 8  | `std/error` — Error trait                          | High     | Small       | ✅ Done    |
-| 2     | Phase 4  | `std/fmt` — Writer + Display                       | High     | Medium      | ✅ Done    |
-| 3     | Phase 3  | `std/time` — Duration, Instant, DateTime           | High     | Medium      | ✅ Done    |
-| 4     | Phase 1  | `std/fs` — File, Metadata, Dir, Walker, Temp       | Critical | Large       | ✅ Done    |
-| 5     | Phase 2  | `std/net` — TcpListener, TcpStream, UdpSocket, DNS | Critical | Large       | ✅ Done    |
-| 6     | Phase 7  | `std/math` — Functions, PRNG                       | Medium   | Small       | ✅ Done    |
-| 7     | Phase 5  | `std/encoding` — Base64, Hex, JSON, UTF-16         | Medium   | Medium      | ✅ Done    |
-| 8     | Phase 6  | `std/crypto` — SHA-256, MD5, Random                | Medium   | Medium      | ✅ Done    |
-| 9     | Phase 10 | `std/testing` — Assertions, Bench                  | Low      | Small       | ✅ Done    |
-| 10    | Phase 9  | `std/log` — Structured logging                     | Low      | Small       | ✅ Done    |
-| 11    | Phase 11 | `std/collections` — Deque, BTreeMap, PriorityQueue | Low      | Medium      | ✅ Done    |
-| 12    | Phase 12 | `std/os` — Signals, Env dirs                       | Low      | Small       | ✅ Done    |
-| 13    | Phase 13 | `std/sync/channel` — Bounded MPMC Channel          | Critical | Small       | ✅ Done    |
-| 14    | Phase 14 | `std/sync/rwlock` — Reader-Writer Lock             | Medium   | Small       | ✅ Done    |
-| 15    | Phase 14 | `std/sync/waitgroup` — WaitGroup                   | Medium   | Small       | ✅ Done    |
-| 16    | Phase 14 | `std/sync/once` — One-Time Init                    | Low      | Small       | ✅ Done    |
-| —     | Phase 14 | `std/iter/` — Iterator protocol                    | Medium   | Medium      | 📋 Planned |
-| —     | Phase 14 | `std/url/` — URL parsing                           | Low      | Small       | 📋 Planned |
-| —     | Phase 14 | `std/sys/bufio/` — Buffered I/O                    | Medium   | Medium      | 📋 Planned |
-| —     | —        | `std/regex` — Regular expressions                  | Medium   | Large       | 📋 Planned |
+| Order | Phase    | Module                                             | Priority | Est. Effort | Status         |
+| ----- | -------- | -------------------------------------------------- | -------- | ----------- | -------------- |
+| 1     | Phase 8  | `std/error` — Error trait                          | —        | —           | ⏸ Not Planned |
+| 2     | Phase 4  | `std/fmt` — Writer + Display                       | —        | —           | ⏸ Not Planned |
+| 3     | Phase 3  | `std/time` — Duration, Instant, DateTime           | High     | Medium      | ✅ Done        |
+| 4     | Phase 1  | `std/fs` — File, Metadata, Dir, Walker, Temp       | Critical | Large       | ✅ Done        |
+| 5     | Phase 2  | `std/net` — TcpListener, TcpStream, UdpSocket, DNS | Critical | Large       | ✅ Done        |
+| 6     | Phase 7  | `std/math` — Functions, PRNG                       | —        | —           | ⏸ Not Planned |
+| 7     | Phase 5  | `std/encoding` — Base64, Hex, JSON, UTF-16         | Medium   | Medium      | ✅ Done        |
+| 8     | Phase 6  | `std/crypto` — SHA-256, MD5, Random                | Medium   | Medium      | ✅ Done        |
+| 9     | Phase 10 | `std/testing` — Assertions, Bench                  | —        | —           | ⏸ Not Planned |
+| 10    | Phase 9  | `std/log` — Structured logging                     | —        | —           | ⏸ Not Planned |
+| 11    | Phase 11 | `std/collections` — Deque, BTreeMap, PriorityQueue | Low      | Medium      | ✅ Done        |
+| 12    | Phase 12 | `std/os` — Signals, Env dirs                       | Low      | Small       | ✅ Done        |
+| 13    | Phase 13 | `std/sync/channel` — Bounded MPMC Channel          | Critical | Small       | ✅ Done        |
+| 14    | Phase 14 | `std/sync/rwlock` — Reader-Writer Lock             | Medium   | Small       | ✅ Done        |
+| 15    | Phase 14 | `std/sync/waitgroup` — WaitGroup                   | Medium   | Small       | ✅ Done        |
+| 16    | Phase 14 | `std/sync/once` — One-Time Init                    | Low      | Small       | ✅ Done        |
+| —     | Phase 14 | `std/iter/` — Iterator protocol                    | Medium   | Medium      | 📋 Planned     |
+| —     | Phase 14 | `std/url/` — URL parsing                           | Low      | Small       | 📋 Planned     |
+| —     | Phase 14 | `std/sys/bufio/` — Buffered I/O                    | Medium   | Medium      | 📋 Planned     |
+| —     | —        | `std/regex` — Regular expressions                  | Medium   | Large       | 📋 Planned     |
 
 **Rationale**: Error trait and fmt/Writer come first because they're dependencies of almost everything else. Time comes before fs/net because Duration/Instant are useful for timeouts and logging. fs and net are the largest, most impactful modules. Math/encoding/crypto are independent utilities. Testing, logging, and advanced collections are low priority since the existing tools work.
 

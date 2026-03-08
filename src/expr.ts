@@ -2199,8 +2199,33 @@ export function setExprAsNeedsToCallDup(
     return;
   }
 
-  if (expr.$.value || !expr.$.variableName) {
-    return; // DO NOT call dup on expression that evaluates to compile-time known value or doesn't have temp variable name, like __yo_rc_own.
+  if (!expr.$.variableName) {
+    return; // No temp variable name — nothing to consume.
+  }
+
+  // If the expression has a compile-time known value, we normally skip dup/consumption.
+  // However, if the expression has an owning RC temp variable, we must still consume it
+  // to prevent the evaluator from generating a bogus drop for a variable that won't be
+  // declared in the C output (compile-time values are inlined).
+  if (expr.$.value) {
+    const variableName = expr.$.variableName;
+    if (
+      variableName &&
+      isTempVariableName(expr.$.env.modulePath, variableName) &&
+      typeContainsRcType(expr.$.type)
+    ) {
+      const variables = getVariablesFromEnv(expr.$.env, variableName);
+      if (variables.length > 0) {
+        const variable = variables[variables.length - 1]!;
+        if (variable.isOwningTheRcValue && !variable.consumedAtToken) {
+          expr.$.env = updateExistingVariable(expr.$.env, variable, {
+            ...variable,
+            consumedAtToken: expr.token,
+          });
+        }
+      }
+    }
+    return;
   }
 
   const variableName = expr.$.variableName;

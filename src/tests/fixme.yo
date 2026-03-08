@@ -1,12 +1,49 @@
-// Minimal reproduction: method calling another method returning Self in cond branch
-
-{ Writer, Alignment } :: import "std/fmt/writer";
-{ rune } :: import "std/string/rune";
+// Test str Eq trait
+{ printf } :: import "std/libc/stdio";
 
 main :: (fn() -> unit) {
-  w := Writer.new();
-  w2 := w.write_padded("hi", usize(10), rune(u32(' ')), Alignment.Left);
+  a := "hello";
+  b := "hello";
+  c := "world";
+  d := "hell";
+
+  // str == str
+  cond(
+    (a == b) => printf("a == b: true\n"),
+    true => printf("a == b: false\n")
+  );
+  cond(
+    (a == c) => printf("a == c: true\n"),
+    true => printf("a == c: false\n")
+  );
+  cond(
+    (a != c) => printf("a != c: true\n"),
+    true => printf("a != c: false\n")
+  );
+  // Different length
+  cond(
+    (a == d) => printf("a == d: true\n"),
+    true => printf("a == d: false\n")
+  );
+
+  // str Ord
+  cond(
+    ("abc" < "abd") => printf("abc < abd: true\n"),
+    true => printf("abc < abd: false\n")
+  );
+  cond(
+    ("abc" < "abc") => printf("abc < abc: true\n"),
+    true => printf("abc < abc: false\n")
+  );
+  cond(
+    ("abc" < "abcd") => printf("abc < abcd: true\n"),
+    true => printf("abc < abcd: false\n")
+  );
+  cond(
+    ("abd" > "abc") => printf("abd > abc: true\n"),
+    true => printf("abd > abc: false\n")
+  );
+
   ()
 };
 export main;
-

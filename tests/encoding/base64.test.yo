@@ -1,0 +1,122 @@
+open import "std/string";
+{ base64_encode, base64_decode, base64_encode_url, base64_decode_url } :: import "std/encoding/base64";
+{ ArrayList } :: import "std/collections/array_list";
+
+// ===== Encoding Tests =====
+
+test "base64_encode empty input", {
+  data := ArrayList(u8).new();
+  result := base64_encode(data);
+  assert((result.as_str() == ""), "empty input should produce empty string");
+};
+
+test "base64_encode Hello", {
+  data := ArrayList(u8).new();
+  data.push(u8(72)); data.push(u8(101)); data.push(u8(108));
+  data.push(u8(108)); data.push(u8(111));
+  result := base64_encode(data);
+  assert((result.as_str() == "SGVsbG8="), "Hello should encode to SGVsbG8=");
+};
+
+test "base64_encode single byte", {
+  data := ArrayList(u8).new();
+  data.push(u8(65));
+  result := base64_encode(data);
+  assert((result.as_str() == "QQ=="), "A should encode to QQ==");
+};
+
+test "base64_encode two bytes", {
+  data := ArrayList(u8).new();
+  data.push(u8(65)); data.push(u8(66));
+  result := base64_encode(data);
+  assert((result.as_str() == "QUI="), "AB should encode to QUI=");
+};
+
+test "base64_encode three bytes no padding", {
+  data := ArrayList(u8).new();
+  data.push(u8(65)); data.push(u8(66)); data.push(u8(67));
+  result := base64_encode(data);
+  assert((result.as_str() == "QUJD"), "ABC should encode to QUJD with no padding");
+};
+
+test "base64_encode Man", {
+  // "Man" -> "TWFu"
+  data := ArrayList(u8).new();
+  data.push(u8(77)); data.push(u8(97)); data.push(u8(110));
+  result := base64_encode(data);
+  assert((result.as_str() == "TWFu"), "Man should encode to TWFu");
+};
+
+// ===== URL-safe Encoding =====
+
+test "base64_encode_url no padding", {
+  data := ArrayList(u8).new();
+  data.push(u8(65));
+  result := base64_encode_url(data);
+  // URL-safe should not have padding
+  assert((result.as_str() == "QQ"), "URL-safe single byte should not have padding");
+};
+
+// ===== Decoding Tests =====
+
+test "base64_decode empty string", {
+  result := base64_decode("");
+  assert((result.is_ok()), "empty string should decode ok");
+  assert((result.unwrap().len() == usize(0)), "empty string should decode to 0 bytes");
+};
+
+test "base64_decode Hello", {
+  result := base64_decode("SGVsbG8=");
+  assert((result.is_ok()), "valid base64 should decode ok");
+  bytes := result.unwrap();
+  assert((bytes.len() == usize(5)), "SGVsbG8= should decode to 5 bytes");
+  assert((bytes.get(usize(0)).unwrap() == u8(72)), "byte 0 = H");
+  assert((bytes.get(usize(1)).unwrap() == u8(101)), "byte 1 = e");
+  assert((bytes.get(usize(2)).unwrap() == u8(108)), "byte 2 = l");
+  assert((bytes.get(usize(3)).unwrap() == u8(108)), "byte 3 = l");
+  assert((bytes.get(usize(4)).unwrap() == u8(111)), "byte 4 = o");
+};
+
+test "base64_decode no padding", {
+  result := base64_decode("TWFu");
+  assert((result.is_ok()), "no padding should decode ok");
+  bytes := result.unwrap();
+  assert((bytes.len() == usize(3)), "TWFu should decode to 3 bytes");
+  assert((bytes.get(usize(0)).unwrap() == u8(77)), "byte 0 = M");
+  assert((bytes.get(usize(1)).unwrap() == u8(97)), "byte 1 = a");
+  assert((bytes.get(usize(2)).unwrap() == u8(110)), "byte 2 = n");
+};
+
+test "base64_decode invalid character error", {
+  result := base64_decode("!!!!");
+  assert((result.is_err()), "invalid chars should error");
+};
+
+// ===== Roundtrip Tests =====
+
+test "base64 roundtrip", {
+  data := ArrayList(u8).new();
+  i := u8(0);
+  while (i < u8(255)), (i = (i + u8(1))), {
+    data.push(i);
+  };
+  data.push(u8(255));
+  encoded := base64_encode(data);
+  decoded := base64_decode(encoded.as_str()).unwrap();
+  assert((decoded.len() == usize(256)), "roundtrip should preserve length");
+  j := usize(0);
+  while (j < usize(256)), (j = (j + usize(1))), {
+    assert((decoded.get(j).unwrap() == u8(j)), "roundtrip byte mismatch");
+  };
+};
+
+test "base64 url roundtrip", {
+  data := ArrayList(u8).new();
+  data.push(u8(0xFB)); data.push(u8(0xFF)); data.push(u8(0xFE));
+  encoded := base64_encode_url(data);
+  decoded := base64_decode_url(encoded.as_str()).unwrap();
+  assert((decoded.len() == usize(3)), "url roundtrip should preserve length");
+  assert((decoded.get(usize(0)).unwrap() == u8(0xFB)), "url roundtrip byte 0");
+  assert((decoded.get(usize(1)).unwrap() == u8(0xFF)), "url roundtrip byte 1");
+  assert((decoded.get(usize(2)).unwrap() == u8(0xFE)), "url roundtrip byte 2");
+};

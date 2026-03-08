@@ -19,7 +19,7 @@ open import "../string";
 utf8_to_utf16 :: (fn(s: str) -> ArrayList(u16))({
   out := ArrayList(u16).new();
   i   := usize(0);
-  while (i < s.len()), () => {
+  while (i < s.len()), {
     b0 := u32(s.bytes(i));
     cond(
       (b0 < u32(0x80)) => {
@@ -66,7 +66,7 @@ export utf8_to_utf16;
 utf16_to_utf8 :: (fn(data: ArrayList(u16)) -> Result(String, EncodingError))({
   out := ArrayList(u8).new();
   i   := usize(0);
-  while (i < data.len()), () => {
+  while (i < data.len()), {
     w := u32(data.get(i).unwrap());
     cond(
       // Surrogate pair: high surrogate 0xD800-0xDBFF
