@@ -94,3 +94,26 @@ This only affects **async** code (state machine codegen). Non-async `break` in `
 **Where fixed**: `src/codegen/exprs/atom.ts` — break handling when `smWhileBreakInfo` is set
 
 ---
+
+## Bug 4: `break`/`continue` inside `match` arm in async `while` loop generates invalid C
+
+**Status**: Fixed
+**Discovered in**: Testing `break`/`continue` in tagged union `match` inside `io.async` `while` loop
+
+**Description**: When `break` or `continue` is used as a match arm body inside a tagged union (e.g., `Option`) `match` expression within an async `while` loop, the generated C code assigns a `goto` statement to a temp variable:
+
+```c
+// BROKEN — invalid C:
+_temp_17353 = goto after_while_loop_0;   // break
+_temp_17420 = goto while_loop_0_continue; // continue
+```
+
+This only affects **tagged union match** (which uses `switch` on `.tag` with temp variable assignment). Simple enum match and `cond` expressions correctly detect control flow via `startsWith("goto")` checks.
+
+**Root cause**: In `src/codegen/exprs/match.ts`, 9 sites where `bodyCode` is assigned to `tempVariableName` did not check for control flow statements (`goto`, `break`, `continue`, `return`). When `break`/`continue` in an async while loop generates a `goto label` string (after Bug 3 fix), the match codegen blindly assigns it to the temp variable instead of emitting it as a standalone statement.
+
+**Fix**: Added `isControlFlowCode()` helper function that checks for `goto`, `break`, `continue`, and `return` patterns. Updated all 9 sites (7 tagged union match + 2 nullable pointer match) to skip temp variable assignment when the body code is a control flow statement, emitting it directly instead.
+
+**Where fixed**: `src/codegen/exprs/match.ts` — all `bodyCode`-to-`tempVariableName` assignment sites
+
+---
