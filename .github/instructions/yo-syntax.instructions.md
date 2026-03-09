@@ -179,6 +179,28 @@ as_str : (fn(self: Self) -> str)(
 )
 ```
 
+## Nested destructuring patterns are NOT supported
+
+Yo does not support nested pattern matching like `.Ok(.Some(value))`. Use multi-level matching instead:
+
+```yo
+// WRONG — nested destructuring:
+match(result,
+  .Ok(.Some(s)) => printf("got: %s\n", s),
+  .Ok(.None) => printf("none\n"),
+  .Err(e) => printf("error\n")
+)
+
+// CORRECT — two-level matching:
+match(result,
+  .Ok(inner) => match(inner,
+    .Some(s) => printf("got: %s\n", s),
+    .None => printf("none\n")
+  ),
+  .Err(e) => printf("error\n")
+)
+```
+
 ## String literal types
 
 - Double-quoted strings `"hello"` return `str` type (a newtype over `Slice(u8)`) at runtime, but `comptime_string` at compile time.

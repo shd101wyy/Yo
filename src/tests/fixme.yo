@@ -1,64 +1,11 @@
 open import "std/libc/stdio";
 open import "std/string";
-{ yield } :: import "std/async";
+{ Path } :: import "std/path";
 
-main :: (fn(using(io : IO)) -> unit) {
-  // Test 1: SSA rename across cond boundary (x should be 20 after cond)
-  flag := Box(bool)(true);
-  result := Box(i32)(0);
-
-  task1 := io.async((using(io : IO))=> {
-    x := i32(10);
-    cond(
-      flag.* => {
-        io.await(yield());
-        x = i32(20);
-      },
-      true => ()
-    );
-    result.* = x;
-    assert((result.* == i32(20)), "code after cond should see updated x");
-  });
-
-  io.await(task1);
-  assert((result.* == i32(20)), "SSA rename test passed");
-  printf("Test 1 passed: SSA rename\n");
-
-  // Test 2: Independent variables with same name in sequential conds
-  result2 := Box(i32)(0);
-  val := Box(i32)(0);
-  task2 := io.async((using(io : IO))=> {
-    total := i32(0);
-
-    // First cond with n
-    cond(
-      true => {
-        io.await(yield());
-        n := val.*;
-        total = (total + n);
-      },
-      true => ()
-    );
-
-    // Second cond with n (independent variable)
-    cond(
-      true => {
-        io.await(yield());
-        n := val.*;
-        total = (total + n);
-      },
-      true => ()
-    );
-
-    result2.* = total;
-  });
-
-  val.* = i32(10);
-  io.await(task2);
-  assert((result2.* == i32(20)), "independent variables should both be captured");
-  printf("Test 2 passed: independent vars\n");
-
-  printf("Done\n");
+main :: (fn() -> unit) {
+  p := Path.new(`/usr/local/bin`);
+  name := p.to_string();
+  printf("path: %s\n", name.to_cstr().ptr().unwrap());
 };
 
 export main;

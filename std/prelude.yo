@@ -120,10 +120,8 @@ export assert;
 
 // unsafe module
 unsafe :: impl {
-  drop :: (fn(forall(T : Type), own(value) : T) -> unit) {
-    ___drop(value);
-    ()
-  };
+  drop :: (fn(quote(value) : Expr) -> unquote(Expr))
+    quote(___drop(unquote(value)));
   export drop;
 };
 export unsafe;
