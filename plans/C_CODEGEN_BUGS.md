@@ -77,3 +77,20 @@ io.async((using(io)) => {
 **Where fixed**: `src/evaluator/shared/suspension-analysis.ts` — `handleBranchingExpr()` function
 
 ---
+
+## Bug 3: `break` inside `cond` arm in async `while` loop is silently ignored
+
+**Status**: Fixed
+**Discovered in**: `std/fs/file.yo` — `File.read_all`, `std/sys/bufio/buf_reader.yo` — `BufReader.read_all`
+
+**Description**: When `break` is used inside a `cond` arm within a `while runtime(true)` loop inside an `io.async` closure, the `break` is silently ignored. The loop continues infinitely instead of terminating.
+
+This only affects **async** code (state machine codegen). Non-async `break` in `cond` (e.g., in `std/string/string.yo`) works correctly.
+
+**Root cause**: In `src/codegen/exprs/atom.ts`, when `smWhileBreakInfo` is set (indicating we're inside an async while loop's state machine), the `break` atom was returning a compound string like `"{ sm->while_loop_0_active = false; goto after_while_loop_0; }"`. However, `src/codegen/exprs/cond.ts` detects control flow via checks like `valueCode === "break"` and `valueCode.startsWith("goto")` — neither matches the compound `{ ... }` format. Since the cond's result type is `unit`, the code was silently dropped.
+
+**Fix**: Changed `atom.ts` to emit `sm->while_loop_X_active = false;` as a side effect via the emitter, and return a simple `goto label` string. This allows `cond.ts`'s `valueCode.startsWith("goto")` check to properly detect and emit the break-as-goto.
+
+**Where fixed**: `src/codegen/exprs/atom.ts` — break handling when `smWhileBreakInfo` is set
+
+---

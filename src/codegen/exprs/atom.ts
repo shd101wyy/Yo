@@ -126,7 +126,14 @@ export function generateAtom(
         }
       }
       if (activeIndex !== undefined) {
-        return `{ sm->while_loop_${activeIndex}_active = false; goto ${label}; }`;
+        // Emit the active flag reset as a side effect, then return a simple goto.
+        // This ensures cond.ts and other callers that check for control flow via
+        // startsWith("goto") can properly detect and emit this break.
+        const emitter = context.emitter;
+        emitter.emitLine(
+          `${indent}sm->while_loop_${activeIndex}_active = false;`
+        );
+        return `goto ${label}`;
       }
       return `goto ${label}`;
     }

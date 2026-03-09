@@ -112,8 +112,13 @@ impl(File,
     fd := self._fd;
     io.async((using(io : IO)) => {
       data_bytes := data.as_bytes();
-      result := io.await(IO_file.write(fd, data_bytes.ptr().unwrap(), u32(data_bytes.len()), u64(0)));
-      IOError.from_result(result)
+      cond(
+        (data_bytes.len() == usize(0)) => .Ok(i32(0)),
+        true => {
+          result := io.await(IO_file.write(fd, data_bytes.ptr().unwrap(), u32(data_bytes.len()), u64(0)));
+          IOError.from_result(result)
+        }
+      )
     })
   }),
 
@@ -121,10 +126,15 @@ impl(File,
   // Returns number of bytes written.
   write_bytes : (fn(self: Self, data: ArrayList(u8), using(io : IO)) -> Impl(Future(Result(i32, IOError), IO)))({
     fd := self._fd;
-    io.async((using(io : IO)) => {
-      result := io.await(IO_file.write(fd, data.ptr().unwrap(), u32(data.len()), u64(0)));
-      IOError.from_result(result)
-    })
+    io.async((using(io : IO)) =>
+      cond(
+        (data.len() == usize(0)) => .Ok(i32(0)),
+        true => {
+          result := io.await(IO_file.write(fd, data.ptr().unwrap(), u32(data.len()), u64(0)));
+          IOError.from_result(result)
+        }
+      )
+    )
   }),
 
   // Read the entire file into a byte list.
@@ -143,9 +153,7 @@ impl(File,
             read_err = .Some(IOError.from_errno((i32(0) - n)));
             break;
           },
-          (n == i32(0)) => {
-            break;
-          },
+          (n == i32(0)) => break,
           true => {
             offset = (offset + u64(n));
             i := usize(0);
