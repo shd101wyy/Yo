@@ -1,4 +1,5 @@
 open import "std/collections/deque";
+open import "std/string";
 
 // ===== Construction Tests =====
 
@@ -271,4 +272,134 @@ test "Deque can be reused after draining", {
   d.push_back(i32(99));
   assert(d.len() == usize(1), "len should be 1 after reuse");
   assert(d.get(usize(0)).unwrap() == i32(99), "element should be 99");
+};
+
+// ===== String (RC heap type) Tests =====
+// These tests verify proper memory management with reference-counted types.
+
+test "Deque of String - push_back and disposal", {
+  d := Deque(String).new();
+  d.push_back(String.from("hello"));
+  d.push_back(String.from("world"));
+  d.push_back(String.from("foo"));
+  assert(d.len() == usize(3));
+  // When d goes out of scope, all 3 Strings must be properly dropped
+};
+
+test "Deque of String - push_front and disposal", {
+  d := Deque(String).new();
+  d.push_front(String.from("c"));
+  d.push_front(String.from("b"));
+  d.push_front(String.from("a"));
+  assert(d.len() == usize(3));
+  assert((d.get(usize(0)).unwrap() == String.from("a")));
+  assert((d.get(usize(1)).unwrap() == String.from("b")));
+  assert((d.get(usize(2)).unwrap() == String.from("c")));
+};
+
+test "Deque of String - pop_front returns and drops correctly", {
+  d := Deque(String).new();
+  d.push_back(String.from("first"));
+  d.push_back(String.from("second"));
+  d.push_back(String.from("third"));
+
+  v1 := d.pop_front();
+  assert((v1.unwrap() == String.from("first")));
+
+  v2 := d.pop_front();
+  assert((v2.unwrap() == String.from("second")));
+
+  v3 := d.pop_front();
+  assert((v3.unwrap() == String.from("third")));
+
+  v4 := d.pop_front();
+  assert(v4.is_none());
+};
+
+test "Deque of String - pop_back returns and drops correctly", {
+  d := Deque(String).new();
+  d.push_back(String.from("alpha"));
+  d.push_back(String.from("beta"));
+  d.push_back(String.from("gamma"));
+
+  v1 := d.pop_back();
+  assert((v1.unwrap() == String.from("gamma")));
+
+  v2 := d.pop_back();
+  assert((v2.unwrap() == String.from("beta")));
+
+  v3 := d.pop_back();
+  assert((v3.unwrap() == String.from("alpha")));
+};
+
+test "Deque of String - pop then disposal drops remaining", {
+  d := Deque(String).new();
+  d.push_back(String.from("stay1"));
+  d.push_back(String.from("stay2"));
+  d.push_back(String.from("go"));
+
+  d.pop_back();
+  assert(d.len() == usize(2));
+  // "stay1" and "stay2" must be cleaned up when d is disposed
+};
+
+test "Deque of String - mixed push and pop", {
+  d := Deque(String).new();
+  d.push_back(String.from("b"));
+  d.push_front(String.from("a"));
+  d.push_back(String.from("c"));
+
+  assert((d.get(usize(0)).unwrap() == String.from("a")));
+  assert((d.get(usize(1)).unwrap() == String.from("b")));
+  assert((d.get(usize(2)).unwrap() == String.from("c")));
+
+  d.pop_front();
+  d.pop_back();
+  assert(d.len() == usize(1));
+  assert((d.get(usize(0)).unwrap() == String.from("b")));
+};
+
+test "Deque of String - growth with wrap-around", {
+  d := Deque(String).new();
+  // Push initial elements
+  i := 0;
+  while(i < 8, i = (i + 1), {
+    d.push_back(String.from("item"));
+  });
+  // Pop from front to advance head
+  j := 0;
+  while(j < 4, j = (j + 1), {
+    d.pop_front();
+  });
+  // Push more to trigger wrap-around
+  k := 0;
+  while(k < 6, k = (k + 1), {
+    d.push_back(String.from("new"));
+  });
+  assert(d.len() == usize(10));
+};
+
+test "Deque of String - FIFO queue pattern", {
+  d := Deque(String).new();
+  d.push_back(String.from("msg1"));
+  d.push_back(String.from("msg2"));
+  d.push_back(String.from("msg3"));
+
+  assert((d.pop_front().unwrap() == String.from("msg1")));
+  assert((d.pop_front().unwrap() == String.from("msg2")));
+  assert((d.pop_front().unwrap() == String.from("msg3")));
+  assert(d.pop_front().is_none());
+};
+
+test "Deque of String - reuse after drain", {
+  d := Deque(String).new();
+  d.push_back(String.from("old1"));
+  d.push_back(String.from("old2"));
+  d.pop_front();
+  d.pop_front();
+  assert(d.is_empty());
+
+  d.push_back(String.from("reused"));
+  assert(d.len() == usize(1));
+  assert((d.get(usize(0)).unwrap() == String.from("reused")));
 };
