@@ -401,8 +401,10 @@ function runSingleTest(
     if (isWindows) {
       if (isMSVC) {
         compileArgs.splice(-1, 0, "ws2_32.lib");
+        compileArgs.splice(-1, 0, "bcrypt.lib");
       } else {
         compileArgs.splice(-2, 0, "-lws2_32");
+        compileArgs.splice(-2, 0, "-lbcrypt");
       }
     }
 
