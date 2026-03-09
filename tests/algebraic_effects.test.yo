@@ -1302,3 +1302,122 @@ test "Module effect with forall handler — early return after resume in while l
   // counter: 0→-3→0, 1→-2→0, 2→-1→0, 3→0, 4→1>0 → return 1
   assert((result == i32(1)), "early return after module resume: should find 1");
 };
+
+// ---------------------------------------------------------------------------
+// Break in tagged union (Option) match arm after fn resume
+// Analogous to async_await test: break in Option match in async while loop.
+// Tests that goto-based break in match bodyCode is emitted directly.
+// ---------------------------------------------------------------------------
+test "Test break in Option match arm after fn resume", {
+  GetValue :: (fn() -> i32);
+
+  run_test :: (fn() -> unit) {
+    counter := Box(i32)(0);
+    sum := Box(i32)(0);
+
+    (given(get_value) : GetValue) = (() -> {
+      return i32(1);
+    });
+
+    while runtime(true), {
+      get_value();
+      counter.* = (counter.* + 1);
+
+      opt := cond(
+        (counter.* > i32(5)) => Option(i32).None,
+        true => Option(i32).Some(counter.*)
+      );
+
+      val := match(opt,
+        .Some(v) => v,
+        .None => break
+      );
+      sum.* = (sum.* + val);
+    };
+
+    assert(counter.* == i32(6), "counter should be 6 when None triggers break");
+    assert(sum.* == i32(15), "sum should be 1+2+3+4+5 = 15");
+  };
+  run_test();
+};
+
+// ---------------------------------------------------------------------------
+// Continue in tagged union (Option) match arm after fn resume
+// Analogous to async_await test: continue in Option match in async while loop.
+// ---------------------------------------------------------------------------
+test "Test continue in Option match arm after fn resume", {
+  GetValue :: (fn() -> i32);
+
+  run_test :: (fn() -> unit) {
+    counter := Box(i32)(0);
+    sum := Box(i32)(0);
+
+    (given(get_value) : GetValue) = (() -> {
+      return i32(1);
+    });
+
+    while runtime(counter.* < i32(6)), {
+      get_value();
+      counter.* = (counter.* + 1);
+
+      // Skip even numbers via Option match
+      opt := cond(
+        ((counter.* % i32(2)) == i32(0)) => Option(i32).None,
+        true => Option(i32).Some(counter.*)
+      );
+
+      val := match(opt,
+        .Some(v) => v,
+        .None => continue
+      );
+      sum.* = (sum.* + val);
+    };
+
+    assert(counter.* == i32(6), "counter should reach 6");
+    assert(sum.* == i32(9), "sum should be 1+3+5 = 9 (even numbers skipped)");
+  };
+  run_test();
+};
+
+// ---------------------------------------------------------------------------
+// Mixed break and continue in tagged union (Option) match arms after fn resume
+// Analogous to async_await test: mixed break and continue in Option match.
+// ---------------------------------------------------------------------------
+test "Test mixed break and continue in Option match after fn resume", {
+  GetValue :: (fn() -> i32);
+
+  run_test :: (fn() -> unit) {
+    counter := Box(i32)(0);
+    sum := Box(i32)(0);
+
+    (given(get_value) : GetValue) = (() -> {
+      return i32(1);
+    });
+
+    while runtime(true), {
+      get_value();
+      counter.* = (counter.* + 1);
+
+      // None means break, Some(0) means continue, Some(v) means accumulate
+      opt := cond(
+        (counter.* > i32(7)) => Option(i32).None,
+        ((counter.* % i32(3)) == i32(0)) => Option(i32).Some(i32(0)),
+        true => Option(i32).Some(counter.*)
+      );
+
+      val := match(opt,
+        .Some(v) => cond((v == i32(0)) => continue, true => v),
+        .None => break
+      );
+      sum.* = (sum.* + val);
+    };
+
+    assert(counter.* == i32(8), "counter should be 8 when None triggers break");
+    // Iterations: 1→Some(1)→sum, 2→Some(2)→sum, 3→Some(0)→continue,
+    // 4→Some(4)→sum, 5→Some(5)→sum, 6→Some(0)→continue,
+    // 7→Some(7)→sum, 8→None→break
+    // sum = 1+2+4+5+7 = 19
+    assert(sum.* == i32(19), "sum should be 1+2+4+5+7 = 19");
+  };
+  run_test();
+};
