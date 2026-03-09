@@ -69,7 +69,8 @@ TcpStream :: object(
 
 TcpListener :: object(
   _fd         : i32,
-  _local_addr : SocketAddr
+  _local_addr : SocketAddr,
+  _is_closed  : bool
 );
 
 impl(TcpListener,
@@ -115,7 +116,7 @@ impl(TcpListener,
         },
         true => ()
       );
-      (ret : Result(TcpListener, NetError)) = .Ok(TcpListener(_fd: fd, _local_addr: addr));
+      (ret : Result(TcpListener, NetError)) = .Ok(TcpListener(_fd: fd, _local_addr: addr, _is_closed: false));
       return ret;
     })
   ),
@@ -162,10 +163,16 @@ impl(TcpListener,
   close : (fn(self: Self, using(io : IO)) -> Impl(Future(Result(unit, NetError), IO)))({
     fd := self._fd;
     io.async((using(io : IO)) => {
-      result := io.await(IO_tcp.close(fd));
       (ret : Result(unit, NetError)) = cond(
-        (result < i32(0)) => .Err(NetError.from_io(IOError.from_errno((i32(0) - result)))),
-        true => .Ok(())
+        self._is_closed => .Ok(()),
+        true => {
+          result := io.await(IO_tcp.close(fd));
+          self._is_closed = true;
+          cond(
+            (result < i32(0)) => .Err(NetError.from_io(IOError.from_errno((i32(0) - result)))),
+            true => .Ok(())
+          )
+        }
       );
       ret
     })
@@ -179,8 +186,14 @@ impl(TcpListener,
 
 impl(TcpListener, Dispose(
   dispose : (fn(self: Self) -> unit)({
-    { close_sync } :: import "../sys/file";
-    close_sync(self._fd);
+    cond(
+      (!(self._is_closed)) => {
+        { close_sync } :: import "../sys/file";
+        close_sync(self._fd);
+        self._is_closed = true;
+      },
+      true => ()
+    );
   })
 ));
 
