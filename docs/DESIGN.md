@@ -21,6 +21,12 @@ Our goal is to be a practical language that is easy to use and easy to learn.
 - [Types](#types)
   - [Type](#type)
     - [Primitive Types](#primitive-types)
+    - [Compile-time known types:](#compile-time-known-types)
+    - [C compatible types:](#c-compatible-types)
+    - [Type universes:](#type-universes)
+    - [Composite types:](#composite-types)
+    - [Pointer types:](#pointer-types)
+    - [Static/Dynamic dispatch types:](#staticdynamic-dispatch-types)
     - [Value Types vs Object Types](#value-types-vs-object-types)
   - [Variable Declaration](#variable-declaration)
     - [No variable shadowing](#no-variable-shadowing)
@@ -93,7 +99,7 @@ Our goal is to be a practical language that is easy to use and easy to learn.
 - [Async/Await](#asyncawait)
 - [Parallelism](#parallelism)
 - [Isolated Types](#isolated-types)
-- [Async IO](#async-io)
+- [Arc Types](#arc-types)
 - [Module importing and exporting](#module-importing-and-exporting)
   - [Anonymous module](#anonymous-module)
 - [Dynamic Dispatch](#dynamic-dispatch)
@@ -403,8 +409,7 @@ p2 := p1;  // p2 is a copy of p1
 
 // Object type - heap-allocated, reference-counted
 String :: object(
-  _bytes : ArrayList(u8),
-  // methods...
+  _bytes : ArrayList(u8)
 );
 s1 := String.from("Hello");
 s2 := s1;  // s2 and s1 point to the same object (reference counted)
@@ -1250,7 +1255,7 @@ impl(rune,
 **Memory layout:**
 
 ```rust
-UserId :: newtype(value : i32, /* methods... */);
+UserId :: newtype(value : i32);
 // sizeof(UserId) == sizeof(i32)
 // In C: just an i32, no struct wrapper at runtime
 ```
@@ -1646,6 +1651,8 @@ assert(list.is_empty(), "List should be empty");
 
 Yo supports closures (anonymous functions that capture their environment). Closures are automatically reference-counted and can capture variables from their surrounding scope.
 
+Please check [closure.test.yo](../tests/closure.test.yo) for closure examples and usage.
+
 ### Basic Closure Syntax
 
 There are two ways to create closures:
@@ -1744,10 +1751,7 @@ Closures work seamlessly with object types:
 
 ```rust
 MyBox :: object(
-  (*) : i32,
-  dispose :: ((fn(self : Self) -> unit) {
-    printf("Disposing: %d\n", self.*);
-  })
+  (*) : i32
 );
 
 make_incrementer :: (fn(start : MyBox) -> Impl(Fn() -> i32)) {
@@ -2020,7 +2024,7 @@ Yo supports **algebraic effects** — a mechanism for implicit parameter passing
 1. **Implicit Parameters (`using` / `given`)**: Functions can declare implicit parameters with `using(name : Type)`. At call sites, the compiler resolves them automatically from `given` bindings in scope.
 2. **Effect Handlers (`return` / `escape`)**: When an effect handler uses `return(value)`, it resumes the captured continuation. When it uses `escape expr`, it discards the continuation and returns from the enclosing function.
 
-```yo
+```rust
 // Define an effect type
 Raise :: (fn(forall(T : Type), msg : String) -> T);
 
@@ -2053,15 +2057,11 @@ Effects compose with async/await: effect handlers inside `io.async` tasks work c
 
 See [ALGEBRAIC_EFFECTS.md](./ALGEBRAIC_EFFECTS.md) for comprehensive documentation.
 
-## Closure
-
-Please check [closure.test.yo](../tests/closure.test.yo) for closure examples and usage.
-
 ## Async/Await
 
 Yo uses **async/await with state machine transformation** for efficient **single-threaded concurrency**. Async tasks are **lazy** — they don't start until explicitly awaited or joined.
 
-```yo
+```rust
 { yield } :: import "std/async";
 
 main :: (fn(using(io : IO)) -> unit)({
@@ -2103,7 +2103,7 @@ Please check [ISOLATED.md](./ISOLATED.md) for details on isolated types in Yo.
 
 `Arc(T)` provides **shared ownership** with atomic reference counting. Unlike `Iso(T)` which enforces unique ownership, multiple `Arc(T)` values can reference the same data. Arc is `Send`-safe, making it the primary mechanism for sharing data across threads.
 
-```yo
+```rust
 // Create with the arc() helper
 shared := arc(i32(42));
 
@@ -2124,10 +2124,6 @@ t.join();
 ```
 
 See [ARC.md](./ARC.md) for full details.
-
-## IO Module
-
-Please check [STD_IO_MODULE.md](./STD_IO_MODULE.md) for details on asynchronous IO in Yo.
 
 ## Module importing and exporting
 
@@ -2256,6 +2252,10 @@ test "Test description", {
   x := 1 + 1;
   assert(x == 2);
 };
+
+test "With effects", using(io : IO), {
+  io.await(sleep(u64(1000)));
+};
 ```
 
 ### Running Tests
@@ -2377,11 +2377,13 @@ Test cleanup and disposal:
 
 ```rust
 MyBox :: object(
-  (*) : i32,
-  dispose :: ((fn(self : Self) -> unit) {
+  (*) : i32
+);
+impl(MyBox, Dispose(
+  dispose : (self -> {
     printf("Disposing MyBox with value: %d\n", self.*);
   })
-);
+));
 
 test "Object disposal", {
   // Box is automatically disposed at end of scope

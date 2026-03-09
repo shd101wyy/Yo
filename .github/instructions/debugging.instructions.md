@@ -30,7 +30,8 @@ Key facts:
 - Compile-time RC ownership: `COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md`
 - Async/await concurrency: `ASYNC_AWAIT.md`
 - Parallelism: `PARALLELISM.md`
-- Async IO module: `STD_IO_MODULE.md`
+- Low-level sys module: `STD_SYS_MODULE.md`
+- Algebraic Effects: `ALGEBRAIC_EFFECTS.md`
 - Thread-local cycle collector: `CYCLE_COLLECTION.md`
 
 ## VS Code extension

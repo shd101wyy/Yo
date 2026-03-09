@@ -64,9 +64,6 @@ Byte buffers use `ArrayList(u8)` (not `Slice(u8)`).
 Potential future additions (not currently planned):
 
 1. **`std/regex`** — Regular expressions
-2. **`std/iter`** — Iterator protocol
-3. **`std/url`** — URL parsing
-4. **`std/sys/bufio`** — Buffered I/O reader/writer
 
 ---
 
@@ -867,21 +864,7 @@ Once.new :: (fn() -> Once) ...;
 Once.call :: (fn(self: Self, f: Fn(() -> unit)) -> unit) ...;
 ```
 
-### 14.4 `std/iter/` — Iterator Protocol (Priority: Medium, Future)
-
-A standard iterator trait for lazy sequences. Would enable idiomatic iteration over collections, ranges, and generators.
-
-```yo
-Iterator :: (fn(comptime(T) : Type) -> comptime(Type))
-  trait(
-    next :: (fn(self: *(T)) -> Option(T))
-  )
-;
-
-Range :: struct(start: i64, end: i64, step: i64);
-```
-
-### 14.5 `std/url/` — URL Parsing (Priority: Low, Future)
+### 14.4 `std/url/` — URL Parsing (Priority: Low, Future)
 
 Parse and manipulate URLs.
 
@@ -899,7 +882,7 @@ Url.parse :: (fn(s: str) -> Result(Url, UrlError)) ...;
 Url.to_string :: (fn(self: Self) -> String) ...;
 ```
 
-### 14.6 `std/sys/bufio/` — Buffered I/O (Priority: Medium, Future)
+### 14.5 `std/sys/bufio/` — Buffered I/O (Priority: Medium, Future)
 
 Buffered reader/writer wrappers for any file descriptor.
 
@@ -933,9 +916,8 @@ BufWriter.flush :: (fn(self: Self, using(io : IO)) -> Impl(Future(Result(unit, I
 | 14    | Phase 14 | `std/sync/rwlock` — Reader-Writer Lock             | Medium   | Small       | ✅ Done        |
 | 15    | Phase 14 | `std/sync/waitgroup` — WaitGroup                   | Medium   | Small       | ✅ Done        |
 | 16    | Phase 14 | `std/sync/once` — One-Time Init                    | Low      | Small       | ✅ Done        |
-| —     | Phase 14 | `std/iter/` — Iterator protocol                    | Medium   | Medium      | 📋 Planned     |
-| —     | Phase 14 | `std/url/` — URL parsing                           | Low      | Small       | 📋 Planned     |
-| —     | Phase 14 | `std/sys/bufio/` — Buffered I/O                    | Medium   | Medium      | 📋 Planned     |
+| —     | Phase 14 | `std/url/` — URL parsing                           | Low      | Small       | ✅ Done        |
+| —     | Phase 14 | `std/sys/bufio/` — Buffered I/O                    | Medium   | Medium      | ✅ Done        |
 | —     | —        | `std/regex` — Regular expressions                  | Medium   | Large       | 📋 Planned     |
 
 **Rationale**: Error trait and fmt/Writer come first because they're dependencies of almost everything else. Time comes before fs/net because Duration/Instant are useful for timeouts and logging. fs and net are the largest, most impactful modules. Math/encoding/crypto are independent utilities. Testing, logging, and advanced collections are low priority since the existing tools work.
