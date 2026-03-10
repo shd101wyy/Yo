@@ -548,7 +548,7 @@ One test file per collection at `tests/collections/<name>.test.yo` (append to ex
 | 5    | `std/collections/hash_map.yo`       | `HashMapIter`, `HashMapIterPtr`, `into_iter`, `iter`, `keys`, `values` + tests   | ✅ Done |
 | 6    | `std/collections/btree_map.yo`      | `BTreeMapIter`, `BTreeMapIterPtr`, `into_iter`, `iter`, `keys`, `values` + tests | ✅ Done |
 | 7    | `std/collections/priority_queue.yo` | `PriorityQueueIter`, `PriorityQueueIterPtr`, `into_iter`, `iter` + tests         | ✅ Done |
-| 8    | `std/string/string.yo`              | `StringChars`, `StringBytes`, `chars`, `bytes_iter`, `into_iter` + tests         | ✅ Done |
+| 8    | `std/string/string.yo`              | `StringChars`, `StringBytes`, `chars`, `bytes`, `into_iter` + tests              | ✅ Done |
 | 9    | `std/prelude.yo`                    | Array(T, N) and Slice(T) iterators                                               | ✅ Done |
 | 10   | `std/prelude.yo`                    | Iterator adapter methods (map, filter, fold, etc.)                               | Future  |
 

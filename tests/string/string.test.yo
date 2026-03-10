@@ -2345,21 +2345,21 @@ test "String chars - mixed ASCII and UTF-8", {
 
 // --- bytes_iter() tests ---
 
-test "String bytes_iter - empty string yields nothing", {
+test "String bytes - empty string yields nothing", {
   s := String.new();
   count := usize(0);
-  for s.bytes_iter(), (b) => {
+  for s.bytes(), (b) => {
     consume(b);
     count = (count + usize(1));
   };
   assert((count == usize(0)), "empty string should yield no bytes");
 };
 
-test "String bytes_iter - ASCII string yields raw bytes", {
+test "String bytes - ASCII string yields raw bytes", {
   s := `ABC`;
   count := usize(0);
   bytes := ArrayList(u8).new();
-  for s.bytes_iter(), (b) => {
+  for s.bytes(), (b) => {
     bytes.push(b);
     count = (count + usize(1));
   };
@@ -2369,12 +2369,12 @@ test "String bytes_iter - ASCII string yields raw bytes", {
   assert((bytes.get(usize(2)).unwrap() == u8(67)), "third byte should be 'C'");
 };
 
-test "String bytes_iter - UTF-8 string yields all bytes", {
+test "String bytes - UTF-8 string yields all bytes", {
   // "你" is 3 bytes in UTF-8: 0xE4, 0xBD, 0xA0
   s := `你`;
   count := usize(0);
   bytes := ArrayList(u8).new();
-  for s.bytes_iter(), (b) => {
+  for s.bytes(), (b) => {
     bytes.push(b);
     count = (count + usize(1));
   };
