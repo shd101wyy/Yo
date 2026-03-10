@@ -240,6 +240,36 @@ function applySingleTraitConstraintForTrait({
     }
   }
 
+  // Also persist the constraint directly on the SomeType's requiredTraits/negativeTraits.
+  // This is needed because the env frame is popped after trait evaluation,
+  // but the constraint must be accessible when checking impl where clauses.
+  if (!resolved.isSelf) {
+    const currentFrameLevel = env.frames.length - 1;
+    if (isNegated) {
+      if (
+        !resolved.someType.negativeTraits.some(
+          (t) => t.traitType.id === constraintTraitType.id
+        )
+      ) {
+        resolved.someType.negativeTraits.push({
+          traitType: constraintTraitType,
+          frameLevel: currentFrameLevel,
+        });
+      }
+    } else {
+      if (
+        !resolved.someType.requiredTraits.some(
+          (t) => t.traitType.id === constraintTraitType.id
+        )
+      ) {
+        resolved.someType.requiredTraits.push({
+          traitType: constraintTraitType,
+          frameLevel: currentFrameLevel,
+        });
+      }
+    }
+  }
+
   env = addWhereClauseConstraintToEnv({
     env,
     someType: resolved.someType,
@@ -290,6 +320,16 @@ function parseTraitWhereClauseConstraints({
         selfType,
       });
     } catch {
+      if (collectPendingTraits) {
+        // LHS may reference an associated type not yet defined.
+        // Collect as pending and retry after all fields are processed.
+        pendingTraits.push({
+          lhsExpr,
+          traitExpr: rhsExpr,
+          originalConstraintExpr: constraintExpr,
+        });
+        continue;
+      }
       throw formatErrorMessage({
         token: lhsExpr.token,
         errorMessage: `Expected type for left-hand side of where clause constraint.`,

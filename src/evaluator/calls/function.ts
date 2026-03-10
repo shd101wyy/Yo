@@ -93,7 +93,10 @@ import {
   tryToConvertToNumericType,
 } from "./numeric-type";
 import { tryToConvertToPointerType } from "./pointer-type";
-import { tryToImplementTraitWithArgumentsByTraitType } from "./trait-type";
+import {
+  tryToImplementTraitWithArgumentsByTraitType,
+  tryToSpecializeTraitType,
+} from "./trait-type";
 import { tryToCallTypeWithArguments } from "./type";
 
 /**
@@ -841,6 +844,41 @@ export function evaluateFunctionCall({
           // trait value
           else if (isTypeValue(value) && isTraitType(value.value)) {
             const traitType = value.value;
+
+            // Check if this is a trait specialization (`:=` arguments)
+            // e.g., Iterator(Item := i32) — used in where clauses
+            const hasSpecializationArgs = argsToUse.some(
+              (arg) =>
+                exprIsFunctionCall(arg) && exprIsFunctionCallOf(arg, ":=", 2)
+            );
+
+            if (hasSpecializationArgs) {
+              try {
+                const result = tryToSpecializeTraitType({
+                  traitExpr: func,
+                  traitType: traitType,
+                  argExprs: argsToUse,
+                  callerEnv: env,
+                  context: { ...context },
+                });
+                return {
+                  ...functionToCall,
+                  result: {
+                    kind: "trait-specialization",
+                    result,
+                  },
+                };
+              } catch (error) {
+                return {
+                  ...functionToCall,
+                  result: {
+                    kind: "error",
+                    error: error as Error | YoError,
+                  },
+                };
+              }
+            }
+
             try {
               const result = tryToImplementTraitWithArgumentsByTraitType({
                 traitExpr: func,
@@ -1979,11 +2017,34 @@ ${functionsWithMatchingTypes.map((matchedFunction) => `${typeToString(matchedFun
       };
       return expr;
     }
-    // trait value
+    // trait value or trait specialization
     else if (
       isTypeValue(functionToCallValue) &&
       isTraitType(functionToCallValue.value)
     ) {
+      // Handle trait specialization: Iterator(Item := i32) → TypeValue
+      if (functionToCall.result.kind === "trait-specialization") {
+        const result = functionToCall.result.result;
+        env = result.callerEnv;
+        const typeValue = createTypeValue(result.specializedTraitType);
+
+        expr.$ = {
+          env,
+          type: typeValue.type,
+          value: typeValue,
+          pathCollection: [],
+        };
+
+        func.$ = {
+          env,
+          type: functionToCallValue.type,
+          value: functionToCallValue,
+          pathCollection: [],
+        };
+        return expr;
+      }
+
+      // Handle trait value creation: Iterator(Item : i32, next : body) → TraitValue
       const { traitValue, callerEnv } = getTraitTypeCallResult(functionToCall);
       env = callerEnv;
 

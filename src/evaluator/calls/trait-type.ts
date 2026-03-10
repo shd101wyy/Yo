@@ -10,8 +10,12 @@ import {
 } from "../../expr";
 import { areTypesCompatible } from "../../types/compatibility";
 import type { FunctionType, TraitType, Type } from "../../types/definitions";
-import { isFunctionType } from "../../types/guards";
-import { typeToString } from "../../types/utils";
+import {
+  isFunctionType,
+  isSomeType,
+  isTypeHierarchyType,
+} from "../../types/guards";
+import { typeContainsSomeType, typeToString } from "../../types/utils";
 import {
   createTraitValue,
   isFunctionValue,
@@ -19,8 +23,104 @@ import {
   type Value,
   valueToString,
 } from "../../value";
-import type { EvaluatorContext, TraitTypeCallResult } from "../context";
+import type {
+  EvaluatorContext,
+  TraitSpecializationResult,
+  TraitTypeCallResult,
+} from "../context";
 import { evaluateExpression } from "../exprs/expr";
+import { typeImplementsTrait } from "../trait-checking";
+
+/**
+ * Specialize a trait type by binding associated types via `:=` arguments.
+ * e.g., `Iterator(Item := i32)` creates a specialized TraitType with
+ * the constraint that Item must be i32.
+ *
+ * This is used in where clauses: `where(X <: Iterator(Item := Self.Item))`
+ */
+export function tryToSpecializeTraitType({
+  traitType,
+  argExprs,
+  callerEnv,
+  context,
+}: {
+  traitExpr: Expr;
+  traitType: TraitType;
+  argExprs: Expr[];
+  callerEnv: Environment;
+  context: EvaluatorContext;
+}): TraitSpecializationResult {
+  const associatedTypeConstraints: { label: string; constraintType: Type }[] =
+    [];
+
+  for (const arg of argExprs) {
+    if (!exprIsFunctionCall(arg) || !exprIsFunctionCallOf(arg, ":=", 2)) {
+      throw formatErrorMessage({
+        token: arg.token,
+        errorMessage: `Expected ":=" for trait specialization (binding associated types), got:\n${exprToString(arg)}`,
+      });
+    }
+
+    const labelExpr = arg.args[0]!;
+    const valueExpr = arg.args[1]!;
+
+    if (!exprIsAtom(labelExpr)) {
+      throw formatErrorMessage({
+        token: labelExpr.token,
+        errorMessage: `Expected identifier for associated type label, got:\n${exprToString(labelExpr)}`,
+      });
+    }
+    const label = labelExpr.token.value;
+
+    // Check that the label exists in the trait
+    const field = traitType.fields.find((f) => f.label === label);
+    if (!field) {
+      throw formatErrorMessage({
+        token: labelExpr.token,
+        errorMessage: `Field "${label}" not found in trait "${traitType.typeName ?? "unknown"}".`,
+      });
+    }
+
+    // Check that it's an associated type field (has unassignedSomeType or is Type-typed)
+    if (!field.unassignedSomeType && !isTypeHierarchyType(field.type)) {
+      throw formatErrorMessage({
+        token: labelExpr.token,
+        errorMessage: `Field "${label}" is not an associated type. Only associated type fields can be constrained with ":=".`,
+      });
+    }
+
+    // Evaluate the constraint type expression
+    const evaluated = evaluateExpression({
+      expr: valueExpr,
+      env: callerEnv,
+      context: { ...context },
+    });
+
+    if (!evaluated.$ || !isTypeValue(evaluated.$.value)) {
+      throw formatErrorMessage({
+        token: valueExpr.token,
+        errorMessage: `Expected type for associated type constraint "${label}", got:\n${exprToString(valueExpr)}`,
+      });
+    }
+    callerEnv = evaluated.$.env;
+
+    associatedTypeConstraints.push({
+      label,
+      constraintType: evaluated.$.value.value,
+    });
+  }
+
+  // Create a specialized TraitType — same identity, with constraints added
+  const specializedTraitType: TraitType = {
+    ...traitType,
+    associatedTypeConstraints,
+  };
+
+  return {
+    specializedTraitType,
+    callerEnv,
+  };
+}
 
 export function tryToImplementTraitWithArgumentsByTraitType({
   traitExpr,
@@ -306,6 +406,68 @@ Got:   ${typeToString(argType)}`,
   // Restore the receiverTypeOriginalTrait
   if (receiverType && receiverTypeOriginalTrait) {
     receiverType.trait = receiverTypeOriginalTrait;
+  }
+
+  // Check where clause constraints on associated type fields.
+  // Each unassignedSomeType may have requiredTraits from where clauses
+  // (e.g., where(Self.IntoIterType <: Iter(Item := Self.Item)))
+  // that need to be verified now that all fields have concrete values.
+  for (let i = 0; i < traitType.fields.length; i++) {
+    const field = traitType.fields[i]!;
+    if (!field.unassignedSomeType) continue;
+
+    const someType = field.unassignedSomeType;
+    const boundValue = fields[i];
+    if (!boundValue || !isTypeValue(boundValue)) continue;
+
+    const concreteType = boundValue.value;
+
+    // Skip where clause checking for generic impls where the bound type
+    // still contains unresolved SomeTypes — constraints will be checked
+    // when the generic impl is instantiated with concrete types
+    if (typeContainsSomeType(concreteType)) continue;
+
+    for (const { traitType: requiredTrait } of someType.requiredTraits) {
+      // Resolve SomeTypes in associatedTypeConstraints to their concrete bound values
+      let resolvedRequiredTrait = requiredTrait;
+      if (requiredTrait.associatedTypeConstraints) {
+        const resolvedConstraints = requiredTrait.associatedTypeConstraints.map(
+          (c) => {
+            let resolvedType = c.constraintType;
+            if (isSomeType(resolvedType)) {
+              for (let j = 0; j < traitType.fields.length; j++) {
+                const otherField = traitType.fields[j]!;
+                if (otherField.unassignedSomeType === resolvedType) {
+                  const otherBoundValue = fields[j];
+                  if (otherBoundValue && isTypeValue(otherBoundValue)) {
+                    resolvedType = otherBoundValue.value;
+                  }
+                  break;
+                }
+              }
+            }
+            return { ...c, constraintType: resolvedType };
+          }
+        );
+        resolvedRequiredTrait = {
+          ...requiredTrait,
+          associatedTypeConstraints: resolvedConstraints,
+        };
+      }
+
+      const result = typeImplementsTrait({
+        targetType: concreteType,
+        traitType: resolvedRequiredTrait,
+        env: callerEnv,
+      });
+
+      if (!result) {
+        throw formatErrorMessage({
+          token: traitExpr.token,
+          errorMessage: `Where clause constraint not satisfied: ${typeToString(concreteType)} does not implement ${resolvedRequiredTrait.typeName ?? "trait"}(${resolvedRequiredTrait.associatedTypeConstraints?.map((c) => `${c.label} := ${typeToString(c.constraintType)}`).join(", ") ?? ""}).\nField "${field.label}" must satisfy the trait's where clause.`,
+        });
+      }
+    }
   }
 
   // Create the trait value
