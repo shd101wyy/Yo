@@ -3630,6 +3630,73 @@ IntoIterator :: (fn(
 };
 export IntoIterator;
 
+/// === Array Iterator ===
+/**
+ * Pointer iterator for Array(T, N) - yields *(T) pointers to each element
+ * Used by Array.iter()
+ */
+ArrayIterPtr :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(
+    _ptr   : *(T),
+    _index : usize,
+    _len   : usize
+  )
+);
+
+impl(forall(T : Type), ArrayIterPtr(T), Iterator(*(T))(
+  next : (fn(self : *(Self)) -> Option(*(T)))(
+    cond(
+      (self._index >= self._len) => .None,
+      true => {
+        element_ptr := (self._ptr &+ self._index);
+        self._index = (self._index + usize(1));
+        .Some(element_ptr)
+      }
+    )
+  )
+));
+
+impl(forall(T : Type, N : usize), Array(T, N),
+  iter : (fn(self : *(Self)) -> ArrayIterPtr(T))(
+    ArrayIterPtr(T)(_ptr: &((self.*)(usize(0))), _index: usize(0), _len: N)
+  )
+);
+
+export ArrayIterPtr;
+
+/// === Slice Iterator ===
+/**
+ * Pointer iterator for Slice(T) - yields *(T) pointers to each element
+ * Used by Slice.iter()
+ */
+SliceIterPtr :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(
+    _slice : Slice(T),
+    _index : usize
+  )
+);
+
+impl(forall(T : Type), SliceIterPtr(T), Iterator(*(T))(
+  next : (fn(self : *(Self)) -> Option(*(T)))(
+    cond(
+      (self._index >= self._slice.len()) => .None,
+      true => {
+        ptr := &((self._slice)(self._index));
+        self._index = (self._index + usize(1));
+        .Some(ptr)
+      }
+    )
+  )
+));
+
+impl(forall(T : Type), Slice(T),
+  iter : (fn(self : *(Self)) -> SliceIterPtr(T))(
+    SliceIterPtr(T)(_slice: self.*, _index: usize(0))
+  )
+);
+
+export SliceIterPtr;
+
 // === Conversion ===
 TryFrom :: (fn(comptime(From) : Type) -> comptime(Trait))(
   trait(

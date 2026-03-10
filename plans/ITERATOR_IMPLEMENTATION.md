@@ -547,9 +547,9 @@ One test file per collection at `tests/collections/<name>.test.yo` (append to ex
 | 4    | `std/collections/hash_set.yo`       | `HashSetIter`, `HashSetIterPtr`, `into_iter`, `iter` + tests                     | ✅ Done |
 | 5    | `std/collections/hash_map.yo`       | `HashMapIter`, `HashMapIterPtr`, `into_iter`, `iter`, `keys`, `values` + tests   | ✅ Done |
 | 6    | `std/collections/btree_map.yo`      | `BTreeMapIter`, `BTreeMapIterPtr`, `into_iter`, `iter`, `keys`, `values` + tests | ✅ Done |
-| 7    | `std/collections/priority_queue.yo` | `PriorityQueueIter`, `PriorityQueueIterPtr`, `into_iter`, `iter` + tests         | Medium  |
-| 8    | `std/string/string.yo`              | `StringChars`, `StringBytes`, `chars`, `bytes`, `into_iter` + tests              | Medium  |
-| 9    | `std/prelude.yo`                    | Array(T, N) and Slice(T) iterators                                               | Future  |
+| 7    | `std/collections/priority_queue.yo` | `PriorityQueueIter`, `PriorityQueueIterPtr`, `into_iter`, `iter` + tests         | ✅ Done |
+| 8    | `std/string/string.yo`              | `StringChars`, `StringBytes`, `chars`, `bytes_iter`, `into_iter` + tests         | ✅ Done |
+| 9    | `std/prelude.yo`                    | Array(T, N) and Slice(T) iterators                                               | ✅ Done |
 | 10   | `std/prelude.yo`                    | Iterator adapter methods (map, filter, fold, etc.)                               | Future  |
 
 **Strategy:** Start with ArrayList — it's the simplest and most commonly used. Validate that the `Iterator`/`IntoIterator` trait implementations and `for` macro work end-to-end. Then apply the same pattern to other collections.

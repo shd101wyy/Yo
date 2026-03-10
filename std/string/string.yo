@@ -1356,7 +1356,92 @@ impl(String, Eq(String)(
   })
 ));
 
+// === Iterator support ===
+
+/**
+ * Rune iterator for String - yields decoded Unicode runes
+ * Used by chars() and into_iter()
+ */
+StringChars :: struct(
+  _string     : String,
+  _byte_index : usize
+);
+
+impl(StringChars, Iterator(rune)(
+  next : (fn(self : *(Self)) -> Option(rune))(
+    cond(
+      (self._byte_index >= self._string._bytes.len()) => .None,
+      true => {
+        first_byte_opt := self._string._bytes.get(self._byte_index);
+        match(first_byte_opt,
+          .Some(first_byte) => {
+            // Determine byte length of this UTF-8 character
+            (byte_len : usize) = cond(
+              (first_byte < u8(0x80)) => usize(1),
+              ((first_byte >= u8(0xC0)) && (first_byte < u8(0xE0))) => usize(2),
+              ((first_byte >= u8(0xE0)) && (first_byte < u8(0xF0))) => usize(3),
+              ((first_byte >= u8(0xF0)) && (first_byte < u8(0xF8))) => usize(4),
+              true => usize(1)
+            );
+            r := self._string._decode_rune_at(self._byte_index);
+            self._byte_index = (self._byte_index + byte_len);
+            r
+          },
+          .None => .None
+        )
+      }
+    )
+  )
+));
+
+/**
+ * Byte iterator for String - yields raw UTF-8 bytes
+ * Used by bytes()
+ */
+StringBytes :: struct(
+  _string : String,
+  _index  : usize
+);
+
+impl(StringBytes, Iterator(u8)(
+  next : (fn(self : *(Self)) -> Option(u8))(
+    cond(
+      (self._index >= self._string._bytes.len()) => .None,
+      true => {
+        byte_opt := self._string._bytes.get(self._index);
+        self._index = (self._index + usize(1));
+        byte_opt
+      }
+    )
+  )
+));
+
+impl(String,
+  /**
+   * Returns a rune iterator over the string's Unicode characters
+   */
+  chars : (fn(self : Self) -> StringChars)(
+    StringChars(_string: self, _byte_index: usize(0))
+  ),
+
+  /**
+   * Returns a byte iterator over the string's raw UTF-8 bytes
+   */
+  bytes_iter : (fn(self : Self) -> StringBytes)(
+    StringBytes(_string: self, _index: usize(0))
+  ),
+
+  /**
+   * Consume the string and return a rune iterator (default iteration)
+   */
+  into_iter : (fn(self : Self) -> StringChars)(
+    StringChars(_string: self, _byte_index: usize(0))
+  )
+);
+
 export
   String,
-  StringError
+  StringError,
+  StringChars,
+  StringBytes
 ;
