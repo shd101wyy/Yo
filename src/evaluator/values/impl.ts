@@ -983,6 +983,123 @@ export function findMethodsFromGenericImpls({
 }
 
 /**
+ * Find an associated type from generic impls for a concrete type.
+ * This handles cases like `Self.Item` where `Self` is a type with a generic impl
+ * of `Iterator(T)` — the `Item` associated type needs to be resolved through
+ * the generic impl's trait type arguments.
+ */
+export function findAssociatedTypeFromGenericImpls({
+  concreteType,
+  propertyName,
+  env,
+}: {
+  concreteType: Type;
+  propertyName: string;
+  env: Environment;
+}): { type: Type; value: Value } | undefined {
+  if (isSomeType(concreteType)) {
+    const resolvedType = getValueOfSomeTypeFromEnv(env, concreteType);
+    if (!isSomeType(resolvedType)) {
+      concreteType = resolvedType;
+    }
+  }
+
+  for (const [_traitKey, impls] of genericImplRegistry.entries()) {
+    for (const impl of impls) {
+      const match = tryMatchGenericImpl({ concreteType, impl, env });
+      if (!match.matched) continue;
+
+      const traitType = impl.traitType;
+
+      // Look for a non-function field with the given name
+      const fieldIndex = traitType.fields.findIndex(
+        (f) => f.label === propertyName && !isFunctionType(f.type)
+      );
+      if (fieldIndex < 0) continue;
+
+      // Re-evaluate trait type args to get concrete associated types
+      // This is necessary because the associated type value may contain SomeTypes
+      // (e.g., *(T) in Iterator(*(T))) that need to be resolved with concrete substitutions
+      if (
+        impl.traitTypeArgExprs &&
+        impl.traitFunctionParamNames &&
+        impl.traitTypeArgExprs.length === impl.traitFunctionParamNames.length
+      ) {
+        const baseEnv = impl.definitionEnv;
+        let specializedEnv = pushEnvFrame(baseEnv);
+
+        for (const [paramName, paramType] of match.substitutions) {
+          const { env: nextEnv } = addVariableToEnv({
+            env: specializedEnv,
+            variable: {
+              name: paramName,
+              type: createType0(),
+              isCompileTimeOnly: true,
+              value: [createTypeValue(paramType)],
+              token: PlaceholderToken,
+              initializedAtToken: PlaceholderToken,
+              consumedAtToken: undefined,
+              isOwningTheRcValue: false,
+            },
+          });
+          specializedEnv = nextEnv;
+        }
+
+        for (let i = 0; i < impl.traitTypeArgExprs.length; i++) {
+          const argExpr = impl.traitTypeArgExprs[i]!;
+          const paramName = impl.traitFunctionParamNames[i]!;
+
+          if (paramName === propertyName) {
+            try {
+              const exprClone = cloneExpr(argExpr);
+              const evaluated = evaluateExpression({
+                expr: exprClone,
+                env: specializedEnv,
+                context: {
+                  stdPath: "",
+                  isEvaluatingGenericImplSpecialization: true,
+                } as EvaluatorContext,
+              });
+              if (evaluated.$ && isTypeValue(evaluated.$.value)) {
+                return {
+                  type: evaluated.$.value.type,
+                  value: evaluated.$.value,
+                };
+              }
+            } catch {
+              // If re-evaluation fails, continue to the next impl
+            }
+          }
+        }
+      }
+
+      // Fallback for non-parameterized traits: use the field value directly
+      const field = traitType.fields[fieldIndex]!;
+      const fieldValue =
+        impl.traitValue.fields[fieldIndex] ?? field.assignedValue;
+      if (!fieldValue || !isTypeValue(fieldValue)) continue;
+
+      if (!isSomeType(fieldValue.value)) {
+        return { type: fieldValue.type, value: fieldValue };
+      }
+
+      // The value is a SomeType — resolve through match substitutions
+      for (const param of impl.forallParameters) {
+        if (param.kind === "type" && param.someType === fieldValue.value) {
+          const concreteResolvedType = match.substitutions.get(param.name);
+          if (concreteResolvedType) {
+            const resolvedTypeValue = createTypeValue(concreteResolvedType);
+            return { type: resolvedTypeValue.type, value: resolvedTypeValue };
+          }
+        }
+      }
+    }
+  }
+
+  return undefined;
+}
+
+/**
  * Find a method from a generic impl for a specific trait type and concrete receiver type.
  * This is used when accessing methods on a `<:` expression like `(Box(i32) <: Isolation).can_isolate`.
  * Returns the specialized method type and value if found.

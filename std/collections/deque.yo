@@ -179,4 +179,77 @@ impl(forall(T : Type), Deque(T), Dispose(
   })
 ));
 
-export Deque;
+/**
+ * Value iterator for Deque - yields elements by value (T)
+ * Traverses the circular buffer in logical order.
+ */
+DequeIter :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(
+    _deque     : Deque(T),
+    _pos       : usize,
+    _remaining : usize
+  )
+);
+
+impl(forall(T : Type), DequeIter(T), Iterator(T)(
+  next : (fn(self : *(Self)) -> Option(T))(
+    cond(
+      (self._remaining == usize(0)) => .None,
+      true => {
+        idx := ((self._deque._head + self._pos) % self._deque._capacity);
+        buf := self._deque._buf.unwrap();
+        value := (buf &+ idx).*;
+        self._pos = (self._pos + usize(1));
+        self._remaining = (self._remaining - usize(1));
+        .Some(value)
+      }
+    )
+  )
+));
+
+impl(forall(T : Type), Deque(T),
+  into_iter : (fn(self : Self) -> DequeIter(T))(
+    DequeIter(T)(_deque: self, _pos: usize(0), _remaining: self._len)
+  )
+);
+
+/**
+ * Pointer iterator for Deque - yields pointers to elements (*(T))
+ * Yields pointers into the circular buffer. Pointers are valid as long as
+ * the deque is not modified during iteration.
+ */
+DequeIterPtr :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(
+    _deque     : Deque(T),
+    _pos       : usize,
+    _remaining : usize
+  )
+);
+
+impl(forall(T : Type), DequeIterPtr(T), Iterator(*(T))(
+  next : (fn(self : *(Self)) -> Option(*(T)))(
+    cond(
+      (self._remaining == usize(0)) => .None,
+      true => {
+        idx := ((self._deque._head + self._pos) % self._deque._capacity);
+        buf := self._deque._buf.unwrap();
+        element_ptr := (buf &+ idx);
+        self._pos = (self._pos + usize(1));
+        self._remaining = (self._remaining - usize(1));
+        .Some(element_ptr)
+      }
+    )
+  )
+));
+
+impl(forall(T : Type), Deque(T),
+  iter : (fn(self : *(Self)) -> DequeIterPtr(T))(
+    DequeIterPtr(T)(_deque: self.*, _pos: usize(0), _remaining: self.*._len)
+  )
+);
+
+export
+  Deque,
+  DequeIter,
+  DequeIterPtr
+;

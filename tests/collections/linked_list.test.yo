@@ -765,3 +765,79 @@ test "LinkedList alternating push and pop", {
   assert(list.len() == usize(1));
   assert(list.front().unwrap() == i32(3));
 };
+
+// ---- Iterator Tests ----
+
+test "LinkedList into_iter - empty list", {
+  list := LinkedList(i32).new();
+  count := i32(0);
+  for list.into_iter(), (x) => {
+    count = (count + i32(1));
+  };
+  assert(count == i32(0));
+};
+
+test "LinkedList into_iter - single element", {
+  list := LinkedList(i32).new();
+  list.push_back(i32(42));
+  result := i32(0);
+  for list.into_iter(), (x) => {
+    result = x;
+  };
+  assert(result == i32(42));
+};
+
+test "LinkedList into_iter - multiple elements in order", {
+  list := LinkedList(i32).new();
+  list.push_back(i32(10));
+  list.push_back(i32(20));
+  list.push_back(i32(30));
+
+  sum := i32(0);
+  count := i32(0);
+  prev := i32(0);
+  for list.into_iter(), (x) => {
+    sum = (sum + x);
+    count = (count + i32(1));
+    assert(x > prev);
+    prev = x;
+  };
+  assert(sum == i32(60));
+  assert(count == i32(3));
+};
+
+test "LinkedList iter - empty list", {
+  list := LinkedList(i32).new();
+  count := i32(0);
+  for list.iter(), (ptr) => {
+    count = (count + i32(1));
+  };
+  assert(count == i32(0));
+};
+
+test "LinkedList iter - yields pointers to elements", {
+  list := LinkedList(i32).new();
+  list.push_back(i32(10));
+  list.push_back(i32(20));
+
+  sum := i32(0);
+  for list.iter(), (ptr) => {
+    sum = (sum + ptr.*);
+  };
+  assert(sum == i32(30));
+};
+
+test "LinkedList iter - mutate through pointer", {
+  list := LinkedList(i32).new();
+  list.push_back(i32(1));
+  list.push_back(i32(2));
+  list.push_back(i32(3));
+
+  for list.iter(), (ptr) => {
+    ptr.* = (ptr.* * i32(10));
+  };
+
+  assert(list.get(usize(0)).unwrap() == i32(10));
+  assert(list.get(usize(1)).unwrap() == i32(20));
+  assert(list.get(usize(2)).unwrap() == i32(30));
+};

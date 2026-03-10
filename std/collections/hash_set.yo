@@ -781,7 +781,89 @@ impl(forall(T : Type), where(T <: (Eq(T), Hash)), HashSet(T), Dispose(
   )
 ));
 
+/**
+ * Value iterator for HashSet - yields elements by value (T)
+ * Scans ctrl bytes to find occupied slots.
+ */
+HashSetIter :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(
+    _set   : HashSet(T),
+    _index : usize
+  )
+);
+
+impl(forall(T : Type), where(T <: (Eq(T), Hash)), HashSetIter(T), Iterator(T)(
+  next : (fn(self : *(Self)) -> Option(T))(
+    cond(
+      (self._set.capacity == usize(0)) => .None,
+      true => {
+        ctrl_ptr := self._set.ctrl.unwrap();
+        data_ptr := self._set.data.unwrap();
+        result := Option(T).None;
+        while ((self._index < self._set.capacity) && result.is_none()), (self._index = (self._index + usize(1))), {
+          ctrl_byte := (ctrl_ptr &+ self._index).*;
+          cond(
+            ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
+              result = .Some((data_ptr &+ self._index).*);
+            },
+            true => ()
+          );
+        };
+        result
+      }
+    )
+  )
+));
+
+impl(forall(T : Type), where(T <: (Eq(T), Hash)), HashSet(T),
+  into_iter : (fn(self : Self) -> HashSetIter(T))(
+    HashSetIter(T)(_set: self, _index: usize(0))
+  )
+);
+
+/**
+ * Pointer iterator for HashSet - yields pointers to elements (*(T))
+ * Pointers are valid as long as the set is not modified during iteration.
+ */
+HashSetIterPtr :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(
+    _set   : HashSet(T),
+    _index : usize
+  )
+);
+
+impl(forall(T : Type), where(T <: (Eq(T), Hash)), HashSetIterPtr(T), Iterator(*(T))(
+  next : (fn(self : *(Self)) -> Option(*(T)))(
+    cond(
+      (self._set.capacity == usize(0)) => .None,
+      true => {
+        ctrl_ptr := self._set.ctrl.unwrap();
+        data_ptr := self._set.data.unwrap();
+        result := Option(*(T)).None;
+        while ((self._index < self._set.capacity) && result.is_none()), (self._index = (self._index + usize(1))), {
+          ctrl_byte := (ctrl_ptr &+ self._index).*;
+          cond(
+            ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
+              result = .Some((data_ptr &+ self._index));
+            },
+            true => ()
+          );
+        };
+        result
+      }
+    )
+  )
+));
+
+impl(forall(T : Type), where(T <: (Eq(T), Hash)), HashSet(T),
+  iter : (fn(self : *(Self)) -> HashSetIterPtr(T))(
+    HashSetIterPtr(T)(_set: self.*, _index: usize(0))
+  )
+);
+
 export
   HashSet,
-  HashSetError
+  HashSetError,
+  HashSetIter,
+  HashSetIterPtr
 ;

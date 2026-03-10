@@ -565,8 +565,140 @@ impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash)), HashMap(K, V),
     })
   ));
 
+/**
+ * Value iterator for HashMap - yields Bucket(K, V) by value
+ * Scans ctrl bytes to find occupied slots.
+ */
+HashMapIter :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
+  struct(
+    _map   : HashMap(K, V),
+    _index : usize
+  )
+);
+
+impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash)), HashMapIter(K, V), Iterator(Bucket(K, V))(
+  next : (fn(self : *(Self)) -> Option(Bucket(K, V)))(
+    cond(
+      (self._map.capacity == usize(0)) => .None,
+      true => {
+        ctrl_ptr := self._map.ctrl.unwrap();
+        data_ptr := self._map.data.unwrap();
+        result := Option(Bucket(K, V)).None;
+        while ((self._index < self._map.capacity) && result.is_none()), (self._index = (self._index + usize(1))), {
+          ctrl_byte := (ctrl_ptr &+ self._index).*;
+          cond(
+            ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
+              result = .Some((data_ptr &+ self._index).*);
+            },
+            true => ()
+          );
+        };
+        result
+      }
+    )
+  )
+));
+
+impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash)), HashMap(K, V),
+  into_iter : (fn(self : Self) -> HashMapIter(K, V))(
+    HashMapIter(K, V)(_map: self, _index: usize(0))
+  )
+);
+
+/**
+ * Pointer iterator for HashMap - yields pointers to Bucket(K, V)
+ * Pointers are valid as long as the map is not modified during iteration.
+ */
+HashMapIterPtr :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
+  struct(
+    _map   : HashMap(K, V),
+    _index : usize
+  )
+);
+
+impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash)), HashMapIterPtr(K, V), Iterator(*(Bucket(K, V)))(
+  next : (fn(self : *(Self)) -> Option(*(Bucket(K, V))))(
+    cond(
+      (self._map.capacity == usize(0)) => .None,
+      true => {
+        ctrl_ptr := self._map.ctrl.unwrap();
+        data_ptr := self._map.data.unwrap();
+        result := Option(*(Bucket(K, V))).None;
+        while ((self._index < self._map.capacity) && result.is_none()), (self._index = (self._index + usize(1))), {
+          ctrl_byte := (ctrl_ptr &+ self._index).*;
+          cond(
+            ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
+              result = .Some((data_ptr &+ self._index));
+            },
+            true => ()
+          );
+        };
+        result
+      }
+    )
+  )
+));
+
+impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash)), HashMap(K, V),
+  iter : (fn(self : *(Self)) -> HashMapIterPtr(K, V))(
+    HashMapIterPtr(K, V)(_map: self.*, _index: usize(0))
+  )
+);
+
+/**
+ * Keys iterator - wraps HashMapIter and yields only the keys
+ */
+HashMapKeys :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
+  struct(
+    _inner : HashMapIter(K, V)
+  )
+);
+
+impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash)), HashMapKeys(K, V), Iterator(K)(
+  next : (fn(self : *(Self)) -> Option(K))(
+    match(self._inner.next(),
+      .None => .None,
+      .Some(bucket) => .Some(bucket.key)
+    )
+  )
+));
+
+impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash)), HashMap(K, V),
+  keys : (fn(self : Self) -> HashMapKeys(K, V))(
+    HashMapKeys(K, V)(_inner: HashMapIter(K, V)(_map: self, _index: usize(0)))
+  )
+);
+
+/**
+ * Values iterator - wraps HashMapIter and yields only the values
+ */
+HashMapValues :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
+  struct(
+    _inner : HashMapIter(K, V)
+  )
+);
+
+impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash)), HashMapValues(K, V), Iterator(V)(
+  next : (fn(self : *(Self)) -> Option(V))(
+    match(self._inner.next(),
+      .None => .None,
+      .Some(bucket) => .Some(bucket.value)
+    )
+  )
+));
+
+impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash)), HashMap(K, V),
+  values : (fn(self : Self) -> HashMapValues(K, V))(
+    HashMapValues(K, V)(_inner: HashMapIter(K, V)(_map: self, _index: usize(0)))
+  )
+);
+
 export
   HashMap,
   HashMapError,
-  Bucket
+  Bucket,
+  HashMapIter,
+  HashMapIterPtr,
+  HashMapKeys,
+  HashMapValues
 ;

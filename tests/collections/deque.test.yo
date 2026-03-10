@@ -403,3 +403,98 @@ test "Deque of String - reuse after drain", {
   assert(d.len() == usize(1));
   assert((d.get(usize(0)).unwrap() == String.from("reused")));
 };
+
+// ---- Iterator Tests ----
+
+test "Deque into_iter - empty deque", {
+  d := Deque(i32).new();
+  count := i32(0);
+  for d.into_iter(), (x) => {
+    count = (count + i32(1));
+  };
+  assert(count == i32(0));
+};
+
+test "Deque into_iter - single element", {
+  d := Deque(i32).new();
+  d.push_back(i32(42));
+  result := i32(0);
+  for d.into_iter(), (x) => {
+    result = x;
+  };
+  assert(result == i32(42));
+};
+
+test "Deque into_iter - multiple elements in order", {
+  d := Deque(i32).new();
+  d.push_back(i32(10));
+  d.push_back(i32(20));
+  d.push_back(i32(30));
+
+  sum := i32(0);
+  count := i32(0);
+  prev := i32(0);
+  for d.into_iter(), (x) => {
+    sum = (sum + x);
+    count = (count + i32(1));
+    assert(x > prev);
+    prev = x;
+  };
+  assert(sum == i32(60));
+  assert(count == i32(3));
+};
+
+test "Deque into_iter - wrapping circular buffer", {
+  d := Deque(i32).new();
+  // Push and pop to advance head, creating wrap-around
+  d.push_back(i32(99));
+  d.push_back(i32(99));
+  d.pop_front();
+  d.pop_front();
+  // Now head is advanced; push elements that wrap around buffer
+  d.push_back(i32(1));
+  d.push_back(i32(2));
+  d.push_back(i32(3));
+
+  sum := i32(0);
+  for d.into_iter(), (x) => {
+    sum = (sum + x);
+  };
+  assert(sum == i32(6));
+};
+
+test "Deque iter - empty deque", {
+  d := Deque(i32).new();
+  count := i32(0);
+  for d.iter(), (ptr) => {
+    count = (count + i32(1));
+  };
+  assert(count == i32(0));
+};
+
+test "Deque iter - yields pointers to elements", {
+  d := Deque(i32).new();
+  d.push_back(i32(10));
+  d.push_back(i32(20));
+
+  sum := i32(0);
+  for d.iter(), (ptr) => {
+    sum = (sum + ptr.*);
+  };
+  assert(sum == i32(30));
+};
+
+test "Deque iter - mutate through pointer", {
+  d := Deque(i32).new();
+  d.push_back(i32(1));
+  d.push_back(i32(2));
+  d.push_back(i32(3));
+
+  for d.iter(), (ptr) => {
+    ptr.* = (ptr.* * i32(10));
+  };
+
+  assert(d.get(usize(0)).unwrap() == i32(10));
+  assert(d.get(usize(1)).unwrap() == i32(20));
+  assert(d.get(usize(2)).unwrap() == i32(30));
+};

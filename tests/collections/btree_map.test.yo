@@ -206,3 +206,84 @@ test "BTreeMap ordering after mixed inserts and removes", {
   assert(m.min().unwrap().key == i32(1), "min should be 1");
   assert(m.max().unwrap().key == i32(9), "max should be 9");
 };
+
+// ---- Iterator Tests ----
+
+test "BTreeMap into_iter - empty map", {
+  m := BTreeMap(i32, i32).new();
+  count := i32(0);
+  for m.into_iter(), (entry) => {
+    count = (count + i32(1));
+  };
+  assert(count == i32(0));
+};
+
+test "BTreeMap into_iter - sorted order", {
+  m := BTreeMap(i32, i32).new();
+  m.set(i32(3), i32(30));
+  m.set(i32(1), i32(10));
+  m.set(i32(2), i32(20));
+
+  prev_key := i32(0);
+  count := i32(0);
+  for m.into_iter(), (entry) => {
+    assert(entry.key > prev_key);
+    prev_key = entry.key;
+    count = (count + i32(1));
+  };
+  assert(count == i32(3));
+};
+
+test "BTreeMap iter - yields pointers to entries", {
+  m := BTreeMap(i32, i32).new();
+  m.set(i32(1), i32(10));
+  m.set(i32(2), i32(20));
+
+  val_sum := i32(0);
+  for m.iter(), (ptr) => {
+    val_sum = (val_sum + ptr.*.value);
+  };
+  assert(val_sum == i32(30));
+};
+
+test "BTreeMap iter - mutate values through pointer", {
+  m := BTreeMap(i32, i32).new();
+  m.set(i32(1), i32(10));
+  m.set(i32(2), i32(20));
+
+  for m.iter(), (ptr) => {
+    ptr.*.value = (ptr.*.value * i32(10));
+  };
+
+  assert(m.get(i32(1)).unwrap() == i32(100));
+  assert(m.get(i32(2)).unwrap() == i32(200));
+};
+
+test "BTreeMap keys - yields keys in sorted order", {
+  m := BTreeMap(i32, i32).new();
+  m.set(i32(3), i32(30));
+  m.set(i32(1), i32(10));
+  m.set(i32(2), i32(20));
+
+  prev := i32(0);
+  count := i32(0);
+  for m.keys(), (k) => {
+    assert(k > prev);
+    prev = k;
+    count = (count + i32(1));
+  };
+  assert(count == i32(3));
+};
+
+test "BTreeMap values - yields values in sorted key order", {
+  m := BTreeMap(i32, i32).new();
+  m.set(i32(3), i32(30));
+  m.set(i32(1), i32(10));
+  m.set(i32(2), i32(20));
+
+  val_sum := i32(0);
+  for m.values(), (v) => {
+    val_sum = (val_sum + v);
+  };
+  assert(val_sum == i32(60));
+};
