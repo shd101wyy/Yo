@@ -92,6 +92,7 @@ export interface TestResult {
   passed: boolean;
   errorMessage?: string;
   duration: number;
+  profileInfo?: string;
 }
 
 export interface TestRunSummary {
@@ -518,11 +519,11 @@ function runSingleTest(
     const passed = runResult.status === 0 && !hasMemoryLeak;
     const runEnd = Date.now();
 
+    let profileInfo: string | undefined;
     if (profile) {
       const heapMB = process.memoryUsage().heapUsed / 1024 / 1024;
-      console.log(
-        `    ${colors.dim}yo=${yoCompileEnd - yoCompileStart}ms cc=${cCompileEnd - cCompileStart}ms run=${runEnd - runStart}ms heap=${heapMB.toFixed(0)}MB${colors.reset}`
-      );
+      profileInfo = `yo=${yoCompileEnd - yoCompileStart}ms cc=${cCompileEnd - cCompileStart}ms run=${runEnd - runStart}ms heap=${heapMB.toFixed(0)}MB`;
+      console.log(`    ${colors.dim}${profileInfo}${colors.reset}`);
     }
 
     cleanup();
@@ -547,6 +548,7 @@ function runSingleTest(
       passed,
       errorMessage,
       duration: Date.now() - startTime,
+      profileInfo,
     };
   } catch (error) {
     cleanup();
@@ -780,7 +782,13 @@ async function runTestsInIsolatedProcesses({
             console.log(
               `  ${colors.red}✗${colors.reset} ${testResult.testName} ${colors.dim}(${testResult.duration}ms)${colors.reset}`
             );
-
+          }
+          if (testResult.profileInfo && profile) {
+            console.log(
+              `    ${colors.dim}${testResult.profileInfo}${colors.reset}`
+            );
+          }
+          if (!testResult.passed) {
             if (testResult.errorMessage && verbose) {
               const indentedError = testResult.errorMessage
                 .split("\n")
