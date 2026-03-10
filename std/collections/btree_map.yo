@@ -142,7 +142,8 @@ BTreeMapIter :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
   )
 );
 
-impl(forall(K : Type, V : Type), BTreeMapIter(K, V), Iterator(BTreeEntry(K, V))(
+impl(forall(K : Type, V : Type), BTreeMapIter(K, V), Iterator(
+  Item : BTreeEntry(K, V),
   next : (fn(self : *(Self)) -> Option(BTreeEntry(K, V)))(
     cond(
       (self._index >= self._entries.len()) => .None,
@@ -171,7 +172,8 @@ BTreeMapIterPtr :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type)
   )
 );
 
-impl(forall(K : Type, V : Type), BTreeMapIterPtr(K, V), Iterator(*(BTreeEntry(K, V)))(
+impl(forall(K : Type, V : Type), BTreeMapIterPtr(K, V), Iterator(
+  Item : *(BTreeEntry(K, V)),
   next : (fn(self : *(Self)) -> Option(*(BTreeEntry(K, V))))(
     cond(
       (self._index >= self._entries.len()) => .None,
@@ -203,7 +205,8 @@ BTreeMapKeys :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
   )
 );
 
-impl(forall(K : Type, V : Type), BTreeMapKeys(K, V), Iterator(K)(
+impl(forall(K : Type, V : Type), BTreeMapKeys(K, V), Iterator(
+  Item : K,
   next : (fn(self : *(Self)) -> Option(K))(
     match(self._inner.next(),
       .None => .None,
@@ -227,7 +230,8 @@ BTreeMapValues :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))
   )
 );
 
-impl(forall(K : Type, V : Type), BTreeMapValues(K, V), Iterator(V)(
+impl(forall(K : Type, V : Type), BTreeMapValues(K, V), Iterator(
+  Item : V,
   next : (fn(self : *(Self)) -> Option(V))(
     match(self._inner.next(),
       .None => .None,

@@ -448,7 +448,8 @@ LinkedListIter :: (fn(comptime(T) : Type) -> comptime(Type))(
   )
 );
 
-impl(forall(T : Type), LinkedListIter(T), Iterator(T)(
+impl(forall(T : Type), LinkedListIter(T), Iterator(
+  Item : T,
   next : (fn(self : *(Self)) -> Option(T))(
     match(self._current,
       .None => .None,
@@ -477,7 +478,8 @@ LinkedListIterPtr :: (fn(comptime(T) : Type) -> comptime(Type))(
   )
 );
 
-impl(forall(T : Type), LinkedListIterPtr(T), Iterator(*(T))(
+impl(forall(T : Type), LinkedListIterPtr(T), Iterator(
+  Item : *(T),
   next : (fn(self : *(Self)) -> Option(*(T)))(
     match(self._current,
       .None => .None,

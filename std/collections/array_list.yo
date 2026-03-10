@@ -454,7 +454,8 @@ ArrayListIter :: (fn(comptime(T) : Type) -> comptime(Type))(
   )
 );
 
-impl(forall(T : Type), ArrayListIter(T), Iterator(T)(
+impl(forall(T : Type), ArrayListIter(T), Iterator(
+  Item : T,
   next : (fn(self : *(Self)) -> Option(T))(
     cond(
       (self._index >= self._list._length) => .None,
@@ -484,7 +485,8 @@ ArrayListIterPtr :: (fn(comptime(T) : Type) -> comptime(Type))(
   )
 );
 
-impl(forall(T : Type), ArrayListIterPtr(T), Iterator(*(T))(
+impl(forall(T : Type), ArrayListIterPtr(T), Iterator(
+  Item : *(T),
   next : (fn(self : *(Self)) -> Option(*(T)))(
     cond(
       (self._index >= self._list._length) => .None,

@@ -3607,27 +3607,21 @@ export
 
 // === Traits again ===
 /// === Iterator ===
-Iterator :: (fn(comptime(Item) : Type) -> comptime(Trait)) {
-  return trait(
-    Item := Item,
-    next :
-      fn(self : *(Self)) -> Option(Self.Item)
-  );
-};
+Iterator :: trait(
+  Item : Type,
+  next :
+    fn(self : *(Self)) -> Option(Self.Item)
+);
 export Iterator;
 
 /// === IntoIterator ===
-IntoIterator :: (fn(
-  comptime(Item) : Type,
-  comptime(IntoIter) : Type,
-  where(IntoIter <: Iterator(Item))) -> comptime(Trait)) {
-  return trait(
-    Item := Item,
-    IntoIter := IntoIter,
-    into_iter : 
-      fn(self : Self) -> Self.IntoIter
-  );
-};
+IntoIterator :: trait(
+  Item : Type,
+  IntoIter : Type,
+  into_iter :
+    fn(self : Self) -> Self.IntoIter,
+  where(Self.IntoIter <: Iterator(Item := Self.Item))
+);
 export IntoIterator;
 
 /// === Array Iterator ===
@@ -3643,7 +3637,8 @@ ArrayIterPtr :: (fn(comptime(T) : Type) -> comptime(Type))(
   )
 );
 
-impl(forall(T : Type), ArrayIterPtr(T), Iterator(*(T))(
+impl(forall(T : Type), ArrayIterPtr(T), Iterator(
+  Item : *(T),
   next : (fn(self : *(Self)) -> Option(*(T)))(
     cond(
       (self._index >= self._len) => .None,
@@ -3676,7 +3671,8 @@ SliceIterPtr :: (fn(comptime(T) : Type) -> comptime(Type))(
   )
 );
 
-impl(forall(T : Type), SliceIterPtr(T), Iterator(*(T))(
+impl(forall(T : Type), SliceIterPtr(T), Iterator(
+  Item : *(T),
   next : (fn(self : *(Self)) -> Option(*(T)))(
     cond(
       (self._index >= self._slice.len()) => .None,

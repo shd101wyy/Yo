@@ -191,7 +191,8 @@ DequeIter :: (fn(comptime(T) : Type) -> comptime(Type))(
   )
 );
 
-impl(forall(T : Type), DequeIter(T), Iterator(T)(
+impl(forall(T : Type), DequeIter(T), Iterator(
+  Item : T,
   next : (fn(self : *(Self)) -> Option(T))(
     cond(
       (self._remaining == usize(0)) => .None,
@@ -226,7 +227,8 @@ DequeIterPtr :: (fn(comptime(T) : Type) -> comptime(Type))(
   )
 );
 
-impl(forall(T : Type), DequeIterPtr(T), Iterator(*(T))(
+impl(forall(T : Type), DequeIterPtr(T), Iterator(
+  Item : *(T),
   next : (fn(self : *(Self)) -> Option(*(T)))(
     cond(
       (self._remaining == usize(0)) => .None,

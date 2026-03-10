@@ -576,7 +576,8 @@ HashMapIter :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
   )
 );
 
-impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash)), HashMapIter(K, V), Iterator(Bucket(K, V))(
+impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash)), HashMapIter(K, V), Iterator(
+  Item : Bucket(K, V),
   next : (fn(self : *(Self)) -> Option(Bucket(K, V)))(
     cond(
       (self._map.capacity == usize(0)) => .None,
@@ -616,7 +617,8 @@ HashMapIterPtr :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))
   )
 );
 
-impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash)), HashMapIterPtr(K, V), Iterator(*(Bucket(K, V)))(
+impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash)), HashMapIterPtr(K, V), Iterator(
+  Item : *(Bucket(K, V)),
   next : (fn(self : *(Self)) -> Option(*(Bucket(K, V))))(
     cond(
       (self._map.capacity == usize(0)) => .None,
@@ -654,7 +656,8 @@ HashMapKeys :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
   )
 );
 
-impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash)), HashMapKeys(K, V), Iterator(K)(
+impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash)), HashMapKeys(K, V), Iterator(
+  Item : K,
   next : (fn(self : *(Self)) -> Option(K))(
     match(self._inner.next(),
       .None => .None,
@@ -678,7 +681,8 @@ HashMapValues :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
   )
 );
 
-impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash)), HashMapValues(K, V), Iterator(V)(
+impl(forall(K : Type, V : Type), where(K <: (Eq(K), Hash)), HashMapValues(K, V), Iterator(
+  Item : V,
   next : (fn(self : *(Self)) -> Option(V))(
     match(self._inner.next(),
       .None => .None,

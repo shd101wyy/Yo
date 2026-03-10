@@ -792,7 +792,8 @@ HashSetIter :: (fn(comptime(T) : Type) -> comptime(Type))(
   )
 );
 
-impl(forall(T : Type), where(T <: (Eq(T), Hash)), HashSetIter(T), Iterator(T)(
+impl(forall(T : Type), where(T <: (Eq(T), Hash)), HashSetIter(T), Iterator(
+  Item : T,
   next : (fn(self : *(Self)) -> Option(T))(
     cond(
       (self._set.capacity == usize(0)) => .None,
@@ -832,7 +833,8 @@ HashSetIterPtr :: (fn(comptime(T) : Type) -> comptime(Type))(
   )
 );
 
-impl(forall(T : Type), where(T <: (Eq(T), Hash)), HashSetIterPtr(T), Iterator(*(T))(
+impl(forall(T : Type), where(T <: (Eq(T), Hash)), HashSetIterPtr(T), Iterator(
+  Item : *(T),
   next : (fn(self : *(Self)) -> Option(*(T)))(
     cond(
       (self._set.capacity == usize(0)) => .None,

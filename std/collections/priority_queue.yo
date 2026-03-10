@@ -129,7 +129,8 @@ PriorityQueueIter :: (fn(comptime(T) : Type) -> comptime(Type))(
   )
 );
 
-impl(forall(T : Type), PriorityQueueIter(T), Iterator(T)(
+impl(forall(T : Type), PriorityQueueIter(T), Iterator(
+  Item : T,
   next : (fn(self : *(Self)) -> Option(T))(
     cond(
       (self._index >= self._data.len()) => .None,
@@ -158,7 +159,8 @@ PriorityQueueIterPtr :: (fn(comptime(T) : Type) -> comptime(Type))(
   )
 );
 
-impl(forall(T : Type), PriorityQueueIterPtr(T), Iterator(*(T))(
+impl(forall(T : Type), PriorityQueueIterPtr(T), Iterator(
+  Item : *(T),
   next : (fn(self : *(Self)) -> Option(*(T)))(
     cond(
       (self._index >= self._data.len()) => .None,
