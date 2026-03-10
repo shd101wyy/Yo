@@ -1291,4 +1291,5 @@ export function clearAllCachedTypes(): void {
   // CRITICAL: Clear these caches to prevent memory leaks
   ptrCache.clear();
   isoCache.clear();
+  arcCache.clear();
 }

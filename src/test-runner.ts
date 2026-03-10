@@ -46,6 +46,18 @@ const TEST_SUMMARY_MARKER = "__YO_TEST_SUMMARY__";
 function tryForceGC(): void {
   if (typeof global.gc === "function") {
     global.gc();
+  } else if (
+    typeof globalThis !== "undefined" &&
+    typeof (globalThis as Record<string, unknown>).Bun === "object"
+  ) {
+    // Bun runtime: use Bun.gc(true) for synchronous full GC
+    const bunObj = (globalThis as Record<string, unknown>).Bun as Record<
+      string,
+      unknown
+    >;
+    if (typeof bunObj.gc === "function") {
+      (bunObj.gc as (sync: boolean) => void)(true);
+    }
   }
 }
 
@@ -55,6 +67,18 @@ export interface TestDeclaration {
   usingExpr?: Expr;
   filePath: string;
   lineNumber: number;
+}
+
+/**
+ * Pre-stringified test data. Converts AST to source strings eagerly
+ * so the heavy AST/environment object graph can be released before
+ * the test compilation loop starts.
+ */
+interface StringifiedTestData {
+  name: string;
+  bodyString: string;
+  usingString: string;
+  filePath: string;
 }
 
 export interface ExtractTestsResult {
@@ -236,37 +260,22 @@ export function extractTests(filePath: string): ExtractTestsResult {
 /**
  * Generate a standalone Yo program for a single test
  *
- * Strategy: Use the non-test expressions from the AST and convert them
- * back to source using exprToString. This avoids type collection from
- * other tests since we don't include test blocks at all.
+ * Strategy: Use pre-stringified source code from the original AST.
+ * The AST is converted to strings eagerly so the heavy object graph
+ * can be released before the test compilation loop.
  */
 function generateTestProgram(
-  test: TestDeclaration,
-  nonTestExprs: Expr[]
+  test: StringifiedTestData,
+  nonTestContent: string
 ): string {
-  // Convert non-test expressions back to source code
-  const nonTestContent = nonTestExprs
-    .map((expr) => exprToString(expr.$?.originalExpr ?? expr))
-    .join(";\n");
-
-  // The test body is a begin block, so we wrap it in a main function
-  const testBodyString = exprToString(
-    test.bodyExpr.$?.originalExpr ?? test.bodyExpr
-  );
-
-  // If the test has a using clause, include it in the main function signature
-  // e.g., main :: (fn(using(io : IO)) -> unit) { testBody };
-  const usingClauseString = test.usingExpr
-    ? exprToString(test.usingExpr.$?.originalExpr ?? test.usingExpr)
-    : "";
-  const mainParams = usingClauseString ? `${usingClauseString}` : "";
+  const mainParams = test.usingString;
 
   // Build the program from non-test expressions plus the main function
   return `${nonTestContent};
 
 // Auto-generated main function for test: ${test.name}
 main :: (fn(${mainParams}) -> unit) {
-  ${testBodyString};
+  ${test.bodyString};
 };
 
 export main;
@@ -277,10 +286,11 @@ export main;
  * Compile and run a single test
  */
 function runSingleTest(
-  test: TestDeclaration,
-  nonTestExprs: Expr[],
+  test: StringifiedTestData,
+  nonTestContent: string,
   cCompiler: string,
-  keepGeneratedFiles?: boolean
+  keepGeneratedFiles?: boolean,
+  profile?: boolean
 ): TestResult {
   const startTime = Date.now();
   const sanitizedName = test.name.replace(/[^a-zA-Z0-9_]/g, "_");
@@ -332,10 +342,11 @@ function runSingleTest(
     clearAllModuleCounters();
 
     // Generate test program
-    const testProgram = generateTestProgram(test, nonTestExprs);
+    const testProgram = generateTestProgram(test, nonTestContent);
     fs.writeFileSync(testFilePath, testProgram);
 
     // Compile the test using ModuleManager with libc allocator (faster compilation)
+    const yoCompileStart = Date.now();
     moduleManager = new ModuleManager();
 
     try {
@@ -358,6 +369,7 @@ function runSingleTest(
         duration: Date.now() - startTime,
       };
     }
+    const yoCompileEnd = Date.now();
 
     // Get the generated C code
     const generatedCode = moduleManager.getGeneratedCode();
@@ -413,10 +425,12 @@ function runSingleTest(
       compileArgs.splice(-2, 0, "-luring");
     }
 
+    const cCompileStart = Date.now();
     const compileResult = spawnSync(cCompiler, compileArgs, {
       stdio: "pipe",
       encoding: "utf-8",
     });
+    const cCompileEnd = Date.now();
 
     if (compileResult.status !== 0) {
       cleanup();
@@ -457,6 +471,7 @@ function runSingleTest(
       detectLeaks: true,
     });
 
+    const runStart = Date.now();
     let runResult = spawnSync(testOutputPath, [], {
       stdio: "pipe",
       encoding: "utf-8",
@@ -501,6 +516,14 @@ function runSingleTest(
         combinedOutput.includes("Indirect leak"));
 
     const passed = runResult.status === 0 && !hasMemoryLeak;
+    const runEnd = Date.now();
+
+    if (profile) {
+      const heapMB = process.memoryUsage().heapUsed / 1024 / 1024;
+      console.log(
+        `    ${colors.dim}yo=${yoCompileEnd - yoCompileStart}ms cc=${cCompileEnd - cCompileStart}ms run=${runEnd - runStart}ms heap=${heapMB.toFixed(0)}MB${colors.reset}`
+      );
+    }
 
     cleanup();
 
@@ -538,11 +561,11 @@ function runSingleTest(
 }
 
 /**
- * Information about a test to run (including pre-extracted content)
+ * Information about a test to run (pre-stringified source code)
  */
 interface TestToRun {
-  test: TestDeclaration;
-  nonTestExprs: Expr[];
+  test: StringifiedTestData;
+  nonTestContent: string;
 }
 
 interface IsolatedFileRunResult {
@@ -591,6 +614,7 @@ async function runSingleFileInIsolatedProcess({
   bail,
   testNamePattern,
   keepGeneratedFiles,
+  profile,
 }: {
   filePath: string;
   cCompiler: string;
@@ -598,6 +622,7 @@ async function runSingleFileInIsolatedProcess({
   bail?: boolean;
   testNamePattern?: string;
   keepGeneratedFiles?: boolean;
+  profile?: boolean;
 }): Promise<IsolatedFileRunResult> {
   return await new Promise((resolve) => {
     const bunExecutable = process.env.BUN || "bun";
@@ -625,6 +650,9 @@ async function runSingleFileInIsolatedProcess({
     }
     if (keepGeneratedFiles) {
       args.push("--keep-generated-files");
+    }
+    if (profile) {
+      args.push("--profile");
     }
 
     const child = spawn(bunExecutable, args, {
@@ -680,6 +708,7 @@ async function runTestsInIsolatedProcesses({
   bail,
   testNamePattern,
   keepGeneratedFiles,
+  profile,
   startTime,
 }: {
   testFiles: string[];
@@ -689,6 +718,7 @@ async function runTestsInIsolatedProcesses({
   bail?: boolean;
   testNamePattern?: string;
   keepGeneratedFiles?: boolean;
+  profile?: boolean;
   startTime: number;
 }): Promise<TestRunSummary> {
   const allResults: TestResult[] = [];
@@ -711,6 +741,7 @@ async function runTestsInIsolatedProcesses({
         bail,
         testNamePattern,
         keepGeneratedFiles,
+        profile,
       });
 
       const relativePath = path.relative(process.cwd(), filePath);
@@ -818,6 +849,7 @@ async function runTestsSequentially(
     verbose?: boolean;
     bail?: boolean;
     keepGeneratedFiles?: boolean;
+    profile?: boolean;
   }
 ): Promise<{
   results: TestResult[];
@@ -830,14 +862,15 @@ async function runTestsSequentially(
   let failedTests = 0;
   let bailed = false;
 
-  for (const { test, nonTestExprs } of testsToRun) {
+  for (const { test, nonTestContent } of testsToRun) {
     if (bailed) break;
 
     const result = runSingleTest(
       test,
-      nonTestExprs,
+      nonTestContent,
       cCompiler,
-      options.keepGeneratedFiles
+      options.keepGeneratedFiles,
+      options.profile
     );
     results.push(result);
 
@@ -866,6 +899,11 @@ async function runTestsSequentially(
         bailed = true;
       }
     }
+
+    // Force GC between tests to prevent heap accumulation.
+    // Each test compilation creates millions of objects; without GC
+    // the heap can grow to several GB causing extreme GC pressure.
+    tryForceGC();
   }
 
   return { results, passedTests, failedTests, bailed };
@@ -883,6 +921,7 @@ export async function runTests(
     testNamePattern?: string;
     parallel?: number;
     keepGeneratedFiles?: boolean;
+    profile?: boolean;
   } = {}
 ): Promise<TestRunSummary> {
   const startTime = Date.now();
@@ -940,6 +979,7 @@ export async function runTests(
       bail: options.bail,
       testNamePattern: options.testNamePattern,
       keepGeneratedFiles: options.keepGeneratedFiles,
+      profile: options.profile,
       startTime,
     });
   }
@@ -994,15 +1034,38 @@ export async function runTests(
       continue;
     }
 
-    const testsToRun = tests.map((test) => ({
-      test,
-      nonTestExprs,
+    // Pre-stringify AST to source code strings. This allows the heavy
+    // AST/environment object graph from extractTests to be GC'd before
+    // the test compilation loop starts (each test creates its own large
+    // object graph during compilation).
+    const nonTestContent = nonTestExprs
+      .map((expr) => exprToString(expr.$?.originalExpr ?? expr))
+      .join(";\n");
+
+    const testsToRun: TestToRun[] = tests.map((test) => ({
+      test: {
+        name: test.name,
+        bodyString: exprToString(
+          test.bodyExpr.$?.originalExpr ?? test.bodyExpr
+        ),
+        usingString: test.usingExpr
+          ? exprToString(test.usingExpr.$?.originalExpr ?? test.usingExpr)
+          : "",
+        filePath: test.filePath,
+      },
+      nonTestContent,
     }));
+
+    // Release AST references so GC can collect the evaluation state
+    tests = [];
+    nonTestExprs = [];
+    tryForceGC();
 
     const result = await runTestsSequentially(testsToRun, cCompiler, {
       verbose: options.verbose,
       bail: options.bail,
       keepGeneratedFiles: options.keepGeneratedFiles,
+      profile: options.profile,
     });
 
     allResults.push(...result.results);

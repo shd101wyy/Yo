@@ -285,6 +285,12 @@ yo --version                     Show version number
             "Internal: print machine-readable summary line for isolated parallel test execution",
           type: "boolean",
           default: false,
+        })
+        .option("profile", {
+          describe:
+            "Print per-test timing breakdown (Yo compile, C compile, run) and heap usage",
+          type: "boolean",
+          default: false,
         });
     },
     async (argv) => {
@@ -321,6 +327,7 @@ yo --version                     Show version number
         testNamePattern: argv.testNamePattern as string | undefined,
         parallel,
         keepGeneratedFiles: argv.keepGeneratedFiles as boolean,
+        profile: argv.profile as boolean,
       });
 
       if (argv.jsonSummary as boolean) {
