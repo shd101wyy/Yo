@@ -878,11 +878,12 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
         // := and = expressions always have $.value = VUnit (compile-time),
         // but they produce runtime side effects when their RHS is a runtime
         // expression. Check the RHS arg for runtime values.
+        // TODO: For cond, if cond is runtime, then we consider it hasRuntimeEffects. Same for match/while.
         else if (
-          exprIsFunctionCall(evaluatedExpr) &&
-          (exprIsFunctionCallOf(evaluatedExpr, ":=") ||
-            exprIsFunctionCallOf(evaluatedExpr, "=")) &&
-          evaluatedExpr.args[1]?.$?.value === undefined
+          (exprIsFunctionCall(evaluatedExpr) &&
+            exprIsFunctionCallOf(evaluatedExpr, ":=")) ||
+          (exprIsFunctionCallOf(evaluatedExpr, "=") &&
+            !evaluatedExpr.$.isCompileTimeOnlyAssignment)
         ) {
           hasRuntimeSideEffects = true;
         }

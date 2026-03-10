@@ -612,6 +612,7 @@ Consider using Dyn(...) for dynamic dispatch if you need to reassign to differen
         value: VUnit,
         type: VUnit.type,
         pathCollection: [],
+        isCompileTimeOnlyAssignment: variable.isCompileTimeOnly,
       };
     } else {
       expr.$ = {
@@ -620,6 +621,7 @@ Consider using Dyn(...) for dynamic dispatch if you need to reassign to differen
         value: variable.value?.[0],
         type: variable.type,
         pathCollection: [],
+        isCompileTimeOnlyAssignment: variable.isCompileTimeOnly,
       };
 
       // This temp variable is used to hold the old value of lhs
