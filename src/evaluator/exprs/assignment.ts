@@ -934,6 +934,17 @@ Consider using Dyn(...) for dynamic dispatch if you need to reassign to differen
       isCompileTimeOnlyAssignment = true;
     }
 
+    // Fallback: if both LHS and RHS have compile-time values but the specific
+    // handlers above didn't fire (e.g. comptime pointer deref with UnknownValue
+    // params during function body analysis), mark as compile-time-only.
+    if (
+      !isCompileTimeOnlyAssignment &&
+      evaluatedLhs.$?.value !== undefined &&
+      rhs.$?.value !== undefined
+    ) {
+      isCompileTimeOnlyAssignment = true;
+    }
+
     // Attach the updated env to expr
     expr.$ = {
       // NOTE: This should return the original value of lhs
