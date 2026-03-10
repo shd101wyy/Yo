@@ -8,7 +8,7 @@ Currently, traits with associated types in Yo use a **function wrapper** pattern
 Iterator :: (fn(comptime(Item) : Type) -> comptime(Trait)) {
   return trait(
     Item := Item,
-    next : fn(self : *(Self)) -> Option(Self.Item)
+    next : (fn(self : *(Self)) -> Option(Self.Item))
   );
 };
 ```
@@ -35,13 +35,13 @@ This plan redesigns Yo's traits to follow the Rust model.
 ```yo
 Iterator :: trait(
   Item : Type,
-  next : fn(self : *(Self)) -> Option(Self.Item)
+  next : (fn(self : *(Self)) -> Option(Self.Item))
 );
 ```
 
 - `Iterator` is a TraitType directly, not a function.
 - `Item : Type` declares an unassigned associated type (already supported by `evaluateTraitType` — produces an `unassignedSomeType` field).
-- `next : fn(...)` declares a method (unchanged).
+- `next : (fn(...))` declares a method (unchanged).
 
 ### impl — providing associated types
 
@@ -71,7 +71,7 @@ Use `:=` to constrain associated types in where clauses and trait specialization
 IntoIterator :: trait(
   Item : Type,
   IntoIter : Type,
-  into_iter : fn(self : Self) -> Self.IntoIter,
+  into_iter : (fn(self : Self) -> Self.IntoIter),
   where(Self.IntoIter <: Iterator(Item := Self.Item))
 );
 ```
@@ -95,7 +95,7 @@ The `evaluateTraitType` function in `src/evaluator/types/trait.ts` already handl
 
 1. `Item : Type` → creates field with `unassignedSomeType` placeholder
 2. Binds the SomeType in the scoped env so `Self.Item` resolves within the trait body
-3. `next : fn(self : *(Self)) -> Option(Self.Item)` → function type with SomeType for Item
+3. `next : (fn(self : *(Self)) -> Option(Self.Item))` → function type with SomeType for Item
 
 When `Iterator :: trait(...)`, `Iterator` is a TypeValue containing a TraitType (not a function).
 
@@ -179,7 +179,7 @@ The specialized TraitType has the same `functionValue` (undefined) and same `typ
 // Define trait directly (no function wrapper)
 Iter :: trait(
   Item : Type,
-  next : fn(self : *(Self)) -> Option(Self.Item)
+  next : (fn(self : *(Self)) -> Option(Self.Item))
 );
 
 // Simple concrete case
@@ -264,7 +264,7 @@ impl(forall(T : Type), MyIter(T), Iter(
 IntoIter :: trait(
   Item : Type,
   IntoIterType : Type,
-  into_iter : fn(self : Self) -> Self.IntoIterType,
+  into_iter : (fn(self : Self) -> Self.IntoIterType),
   where(Self.IntoIterType <: Iter(Item := Self.Item))
 );
 
@@ -287,28 +287,25 @@ impl(forall(T : Type), Wrapper(T), IntoIter(
 ));
 ```
 
-### Phase 4: Migrate prelude.yo and std library
+### Phase 4: Migrate prelude.yo and std library ✅ Done
 
-1. Replace `Iterator` function with direct trait in `std/prelude.yo`
-2. Replace `IntoIterator` function with direct trait
-3. Update all `impl(..., Iterator(T)(...))` to `impl(..., Iterator(Item : T, ...))`
-4. Update all collection iterator impls in `std/collections/`
-5. Update string iterator impls
-6. Run all tests
+Migrated all Iterator and IntoIterator definitions + impls from the function-wrapper pattern to direct trait syntax.
 
-**Collections to update**:
+**Changes made**:
 
-- `std/collections/array_list.yo`
-- `std/collections/linked_list.yo`
-- `std/collections/deque.yo`
-- `std/collections/hash_map.yo`
-- `std/collections/hash_set.yo`
-- `std/collections/btree_map.yo`
-- `std/collections/priority_queue.yo`
-- `std/string/string.yo`
-- `std/prelude.yo` (ArrayIterPtr, SliceIterPtr)
+1. **`std/prelude.yo`**: Replaced `Iterator` and `IntoIterator` function wrappers with direct trait definitions. Updated `ArrayIterPtr` and `SliceIterPtr` impls.
+2. **`std/collections/array_list.yo`**: Updated `ArrayListIter` and `ArrayListIterPtr` impls.
+3. **`std/collections/linked_list.yo`**: Updated `LinkedListIter` and `LinkedListIterPtr` impls.
+4. **`std/collections/deque.yo`**: Updated `DequeIter` and `DequeIterPtr` impls.
+5. **`std/collections/hash_map.yo`**: Updated `HashMapIter`, `HashMapIterPtr`, `HashMapKeys`, `HashMapValues` impls.
+6. **`std/collections/hash_set.yo`**: Updated `HashSetIter` and `HashSetIterPtr` impls.
+7. **`std/collections/btree_map.yo`**: Updated `BTreeMapIter`, `BTreeMapIterPtr`, `BTreeMapKeys`, `BTreeMapValues` impls.
+8. **`std/collections/priority_queue.yo`**: Updated `PriorityQueueIter` and `PriorityQueueIterPtr` impls.
+9. **`std/string/string.yo`**: Updated `StringChars` (rune) and `StringBytes` (u8) impls.
 
-Also update other traits using the function pattern (TryFrom, TryInto, etc.) if applicable.
+**Pattern**: `Iterator(T)(next : ...)` → `Iterator(Item : T, next : ...)`
+
+**Not migrated**: Other function-wrapper traits (Add, Sub, Eq, Ord, TryFrom, TryInto, etc.) — see Open Questions.
 
 ---
 
@@ -357,4 +354,4 @@ Also update other traits using the function pattern (TryFrom, TryInto, etc.) if 
 | 1     | Direct trait types                          | ✅ Done — verified in fixme.yo |
 | 2     | `:=` trait specialization for where clauses | ✅ Done                        |
 | 3     | IntoIterator + where clause enforcement     | ✅ Done — tested in fixme.yo   |
-| 4     | Migrate prelude.yo and std library          | Not started                    |
+| 4     | Migrate prelude.yo and std library          | ✅ Done                        |

@@ -61,6 +61,7 @@ Our goal is to be a practical language that is easy to use and easy to learn.
   - [if/else](#ifelse)
   - [cond](#cond)
   - [while](#while)
+  - [Iterator and for loop](#iterator-and-for-loop)
 - [Algebraic Data Types (ADT)](#algebraic-data-types-adt)
 - [C struct](#c-struct)
 - [Newtype](#newtype)
@@ -95,7 +96,6 @@ Our goal is to be a practical language that is easy to use and easy to learn.
 - [Error handling](#error-handling)
   - [Error Propagation with match](#error-propagation-with-match)
 - [Algebraic Effects and Handlers](#algebraic-effects-and-handlers)
-- [Closure](#closure-1)
 - [Async/Await](#asyncawait)
 - [Parallelism](#parallelism)
 - [Isolated Types](#isolated-types)
@@ -1130,6 +1130,103 @@ factorial2 :: (fn(n: i32) -> i32) {
     result = (result * i);
   });
   result
+};
+```
+
+### Iterator and for loop
+
+The `Iterator` trait defines a sequence of values. It has an associated type `Item` and a `next` method that returns `Option(Self.Item)`:
+
+```rust
+Iterator :: trait(
+  Item : Type,
+  next : (fn(self : *(Self)) -> Option(Self.Item))
+);
+```
+
+To implement `Iterator` for a type, provide the `Item` type and a `next` function:
+
+```rust
+Counter :: struct(_current : i32, _max : i32);
+
+impl(Counter, Iterator(
+  Item : i32,
+  next : (self -> cond(
+    (self._current >= self._max) => .None,
+    true => {
+      val := self._current;
+      self._current = (self._current + i32(1));
+      .Some(val)
+    }
+  ))
+));
+```
+
+The `IntoIterator` trait converts a collection into an iterator. It has a `where` clause that constrains the `IntoIter` associated type to implement `Iterator` with the matching `Item` type:
+
+```rust
+IntoIterator :: trait(
+  Item : Type,
+  IntoIter : Type,
+  into_iter : (fn(self : Self) -> Self.IntoIter),
+  where(Self.IntoIter <: Iterator(Item := Self.Item))
+);
+```
+
+The `for` macro provides syntactic sugar for iterating. It calls `.next()` in a loop and pattern-matches on `Option`:
+
+```rust
+// for loop syntax
+for iter_expr, (variable) => {
+  // body
+};
+```
+
+Each collection provides two iteration modes:
+
+| Method        | Yields | Semantics                                           |
+| ------------- | ------ | --------------------------------------------------- |
+| `iter()`      | `*(T)` | Borrows the collection via pointer; yields pointers |
+| `into_iter()` | `T`    | Takes ownership of the RC handle; yields values     |
+
+```rust
+list := ArrayList(i32).new();
+list.push(i32(10));
+list.push(i32(20));
+
+// iter() — yields pointers to elements
+for list.iter(), (ptr) => {
+  println(ptr.*);
+};
+
+// into_iter() — yields values (takes ownership of the RC handle)
+for list.into_iter(), (value) => {
+  println(value);
+};
+
+// Arrays use iter() — yields pointers to elements
+arr := Array(i32, 3)(1, 2, 3);
+for arr.iter(), (ptr) => {
+  println(ptr.*);
+};
+
+// Strings use chars() and bytes()
+s := String.from("Hello");
+for s.chars(), (ch) => {
+  println(ch);
+};
+```
+
+The `for` macro expands to:
+
+```rust
+iter := iter_expr;
+while runtime(true), {
+  temp := &(iter).next();
+  match(temp,
+    .Some(variable) => body,
+    .None => { break; }
+  )
 };
 ```
 

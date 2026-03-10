@@ -96,3 +96,36 @@ my_fn :: (fn(using(io : IO)) -> Impl(Future(Result(i32, IOError), IO)))(
   })
 );
 ```
+
+## Traits with associated types
+
+Traits use direct `trait(...)` syntax with associated types as labeled `Type` fields:
+
+```yo
+// Trait definition — Item is an associated type
+Iterator :: trait(
+  Item : Type,
+  next : (fn(self : *(Self)) -> Option(Self.Item))
+);
+
+// impl — provide concrete values for all fields
+impl(Counter, Iterator(
+  Item : i32,
+  next : (fn(self : *(Self)) -> Option(Self.Item))(cond(
+    (self._current >= self._max) => .None,
+    true => { val := self._current; self._current = (self._current + i32(1)); .Some(val) }
+  ))
+));
+
+// Where clause — use `:=` to constrain associated types (not `:`)
+IntoIterator :: trait(
+  Item : Type,
+  IntoIter : Type,
+  into_iter : (fn(self : Self) -> Self.IntoIter),
+  where(Self.IntoIter <: Iterator(Item := Self.Item))
+);
+```
+
+- **`:` in impl** creates a TraitValue (provides all fields).
+- **`:=` in where clause** creates a specialized TraitType (constrains associated types only).
+- Always wrap `fn` types in parentheses inside trait field definitions: `next : (fn(...) -> T)`, not `next : fn(...) -> T`.

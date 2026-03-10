@@ -113,6 +113,20 @@ Every binary operation must be explicitly parenthesized. When chaining the same 
 (((A | B) | C) | D)
 ```
 
+This also applies to `fn` type annotations on the same line — always wrap in parentheses to avoid ambiguity with `->`:
+
+```yo
+// WRONG — bare fn type on same line as `:`:
+next : fn(self : *(Self)) -> Option(Self.Item)
+
+// CORRECT — parenthesized fn type:
+next : (fn(self : *(Self)) -> Option(Self.Item))
+
+// ALSO CORRECT — newline after `:` triggers right associativity:
+next :
+  fn(self : *(Self)) -> Option(Self.Item)
+```
+
 Example: `((value <= 0x10FFFF) && ((value < 0xD800) || (value > 0xDFFF)))`
 
 ## Unary operators need parentheses around their operand
