@@ -8,7 +8,7 @@ This document outlines the plan to implement Node.js-like APIs in Yo, making it 
 
 | Trait                            | Location         | Status      | Notes                        |
 | -------------------------------- | ---------------- | ----------- | ---------------------------- |
-| `std/io/file.yo`                 | File I/O         | ✅ Basic    | Async read/write, open/close |
+| `std/sys/file.yo`                | File I/O         | ✅ Basic    | Async read/write, open/close |
 | `std/collections/array_list.yo`  | Dynamic arrays   | ✅ Complete | Similar to `Buffer`          |
 | `std/collections/hash_map.yo`    | Hash maps        | ✅ Complete |                              |
 | `std/collections/hash_set.yo`    | Hash sets        | ✅ Complete |                              |
@@ -977,7 +977,7 @@ std/
 
 ---
 
-## Improvements to Existing `std/io/file.yo`
+## Improvements to Existing `std/sys/file.yo`
 
 1. **Add `seek` operation** for random access within files
 2. **Add file locking** (`flock`) for concurrent access control

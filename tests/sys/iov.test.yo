@@ -1,0 +1,116 @@
+open import "std/libc/stdio";
+open import "std/string";
+{ GlobalAllocator } :: import "std/allocator";
+{ malloc, free } :: GlobalAllocator;
+
+{ AT_FDCWD, O_RDWR, O_CREAT, O_TRUNC } :: import "std/sys/constants";
+file :: import "std/sys/file";
+dir :: import "std/sys/dir";
+pipe_io :: import "std/sys/pipe";
+seek_io :: import "std/sys/seek";
+iov_io :: import "std/sys/iov";
+helper :: import "../helper";
+
+test "iov writev and readv on pipe", using(io : IO), {
+  pipefd_uninit := MaybeUninit(Array(i32, usize(2))).new();
+  pipefd := *(i32)(pipefd_uninit.as_ptr());
+
+  pr := pipe_io.pipe(pipefd);
+  assert((pr == i32(0)), "pipe creation should succeed");
+
+  read_fd := (pipefd &+ usize(0)).*;
+  write_fd := (pipefd &+ usize(1)).*;
+
+  iov_bytes := (iov_io.iovec_size() * usize(2));
+
+  write_iov := *(u8)(malloc(iov_bytes).unwrap());
+  part1 := *(u8)("Hello ");
+  part2 := *(u8)("Yo");
+  iov_io.iovec_set(write_iov, usize(0), part1, usize(6));
+  iov_io.iovec_set(write_iov, usize(1), part2, usize(2));
+
+  wr := iov_io.writev(write_fd, write_iov, i32(2));
+  assert((wr == i32(8)), "writev should write 8 bytes to the pipe");
+
+  recv_a := *(u8)(malloc(usize(4)).unwrap());
+  recv_b := *(u8)(malloc(usize(4)).unwrap());
+  read_iov := *(u8)(malloc(iov_bytes).unwrap());
+  iov_io.iovec_set(read_iov, usize(0), recv_a, usize(4));
+  iov_io.iovec_set(read_iov, usize(1), recv_b, usize(4));
+
+  rd := iov_io.readv(read_fd, read_iov, i32(2));
+  assert((rd == i32(8)), "readv should read 8 bytes from the pipe");
+
+  assert(((recv_a &+ usize(0)).* == u8(72)), "byte 0 should be 'H'");
+  assert(((recv_a &+ usize(3)).* == u8(108)), "byte 3 should be 'l'");
+  assert(((recv_b &+ usize(0)).* == u8(111)), "byte 4 should be 'o'");
+  assert(((recv_b &+ usize(1)).* == u8(32)), "byte 5 should be ' '");
+  assert(((recv_b &+ usize(2)).* == u8(89)), "byte 6 should be 'Y'");
+  assert(((recv_b &+ usize(3)).* == u8(111)), "byte 7 should be 'o'");
+
+  c1 := io.await(file.close(read_fd));
+  c2 := io.await(file.close(write_fd));
+  assert((c1 == i32(0)), "closing read end should succeed");
+  assert((c2 == i32(0)), "closing write end should succeed");
+
+  free(.Some(*(void)(write_iov)));
+  free(.Some(*(void)(read_iov)));
+  free(.Some(*(void)(recv_a)));
+  free(.Some(*(void)(recv_b)));
+};
+
+test "iov pwritev and preadv on regular file", using(io : IO), {
+  tmp := helper.temp_dir();
+  path_str := helper.path_join(tmp, `yo_iov_regular_test.txt`);
+  path_c := path_str.to_cstr();
+  path := path_c.ptr().unwrap();
+
+  flags := ((O_RDWR | O_CREAT) | O_TRUNC);
+  fd := io.await(file.openat(AT_FDCWD, path, flags, i32(0o644)));
+  assert(fd >= i32(0), "openat should create a regular file for iov test");
+
+  iov_bytes := (iov_io.iovec_size() * usize(2));
+
+  write_iov := *(u8)(malloc(iov_bytes).unwrap());
+  part1 := *(u8)("hello ");
+  part2 := *(u8)("world");
+  iov_io.iovec_set(write_iov, usize(0), part1, usize(6));
+  iov_io.iovec_set(write_iov, usize(1), part2, usize(5));
+
+  wr := iov_io.pwritev(fd, write_iov, i32(2), i64(0));
+  assert(wr == i32(11), "pwritev should write 11 bytes at offset 0");
+
+  pos_after_pwrite := seek_io.lseek(fd, i64(0), seek_io.SEEK_CUR);
+  assert(pos_after_pwrite == i64(0), "pwritev should not change current file offset");
+
+  recv_a := *(u8)(malloc(usize(2)).unwrap());
+  recv_b := *(u8)(malloc(usize(3)).unwrap());
+  read_iov := *(u8)(malloc(iov_bytes).unwrap());
+  iov_io.iovec_set(read_iov, usize(0), recv_a, usize(2));
+  iov_io.iovec_set(read_iov, usize(1), recv_b, usize(3));
+
+  rd := iov_io.preadv(fd, read_iov, i32(2), i64(6));
+  assert(rd == i32(5), "preadv should read 5 bytes from offset 6");
+
+  pos_after_pread := seek_io.lseek(fd, i64(0), seek_io.SEEK_CUR);
+  assert((pos_after_pread == i64(0)), "preadv should not change current file offset");
+
+  assert((recv_a &+ usize(0)).* == u8(119), "first preadv byte should be 'w'");
+  assert((recv_a &+ usize(1)).* == u8(111), "second preadv byte should be 'o'");
+  assert((recv_b &+ usize(0)).* == u8(114), "third preadv byte should be 'r'");
+  assert((recv_b &+ usize(1)).* == u8(108), "fourth preadv byte should be 'l'");
+  assert((recv_b &+ usize(2)).* == u8(100), "fifth preadv byte should be 'd'");
+
+  close_ret := io.await(file.close(fd));
+  assert((close_ret == i32(0)), "closing regular file should succeed");
+
+  rm := io.await(dir.unlink(AT_FDCWD, path, i32(0)));
+  assert((rm == i32(0)), "unlinking iov test file should succeed");
+
+  free(.Some(*(void)(write_iov)));
+  free(.Some(*(void)(read_iov)));
+  free(.Some(*(void)(recv_a)));
+  free(.Some(*(void)(recv_b)));
+
+  printf("  iov readv/writev/preadv/pwritev behavior validated\n");
+};

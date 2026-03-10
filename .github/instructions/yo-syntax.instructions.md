@@ -133,3 +133,78 @@ assert(!(d.is_empty()), "should not be empty");
 - There is no `loop` function. Use `while runtime(true), body` for runtime, or `while true, body` for comptime.
 - When calling `assert`, always add 2nd argument: `assert(condition, "error message");`
 - Pointer arithmetic uses `&+`, `&-`, `&<`, `&>`, `&<=`, `&>=` operators with `&` prefix.
+
+## Function call syntax — no space before `(`
+
+In Yo, function calls are parsed differently depending on spacing:
+
+- `func(a, b)` — normal call with two arguments
+- `func (a, b)` — **space before `(`** makes `(a, b)` a tuple, so this is `func((a, b))` — one argument!
+- `func a, b, c` — no parentheses: parsed as `func(a, b, c)` — three arguments
+- `func a, b; c` — semicolon terminates argument list: `func(a, b); c`
+
+Always use `func(a, b)` with no space. Never `func (a, b)`.
+
+## `return` without parentheses consumes all following comma-separated arguments
+
+`return` without parentheses follows the same rule as any other call: `return expr1, expr2` is parsed as `return(expr1, expr2)`. Inside match/cond branches, commas separate branches, so:
+
+```yo
+// WRONG — parsed as return(str.from_raw_parts(p, len), .None => return("")):
+match(opt,
+  .Some(p) => return str.from_raw_parts(p, len),
+  .None => return ""
+)
+
+// CORRECT — begin blocks terminate the argument list at the semicolon:
+match(opt,
+  .Some(p) => {
+    return str.from_raw_parts(p, len);
+  },
+  .None => {
+    return str.from_raw_parts(*(u8)(""), usize(0));
+  }
+)
+```
+
+Better yet, if the entire function body is just a match/cond expression, use the expression form (no body block) to avoid needing `return` at all:
+
+```yo
+// BEST — expression form, no return needed:
+as_str : (fn(self: Self) -> str)(
+  match(self._bytes._ptr,
+    .Some(p) => str.from_raw_parts(p, self._bytes._length),
+    .None => str.from_raw_parts(*(u8)(""), usize(0))
+  )
+)
+```
+
+## Nested destructuring patterns are NOT supported
+
+Yo does not support nested pattern matching like `.Ok(.Some(value))`. Use multi-level matching instead:
+
+```yo
+// WRONG — nested destructuring:
+match(result,
+  .Ok(.Some(s)) => printf("got: %s\n", s),
+  .Ok(.None) => printf("none\n"),
+  .Err(e) => printf("error\n")
+)
+
+// CORRECT — two-level matching:
+match(result,
+  .Ok(inner) => match(inner,
+    .Some(s) => printf("got: %s\n", s),
+    .None => printf("none\n")
+  ),
+  .Err(e) => printf("error\n")
+)
+```
+
+## String literal types
+
+- Double-quoted strings `"hello"` return `str` type (a newtype over `Slice(u8)`) at runtime, but `comptime_string` at compile time.
+- `comptime_string` does NOT automatically convert to `str` in return statements. Use `str.from_raw_parts(*(u8)("..."), usize(N))` if you need a runtime `str`.
+- `*(u8)("literal")` works — casting `comptime_string` to pointer is valid.
+- Only pointer-to-pointer and `comptime_string`-to-pointer casts are allowed. Integer-to-pointer casts like `*(void)(usize(0))` are NOT supported.
+- **Template strings for constant `String` values**: Use `` `hello` `` instead of `String.from("hello")`. Template strings without interpolation produce the same `String` result in fewer characters.

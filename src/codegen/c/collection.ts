@@ -48,11 +48,14 @@ export function emitCIncludes(context: CodeGenContext): void {
 
   // Platform-specific includes for file operations
   context.emitter.emitHeaderLine(`#ifdef _WIN32`);
+  context.emitter.emitHeaderLine(`  #include <windows.h>`);
+  context.emitter.emitHeaderLine(`  #include <bcrypt.h>`);
   context.emitter.emitHeaderLine(`  #include <io.h>`);
   context.emitter.emitHeaderLine(`  #include <sys/stat.h>`);
   context.emitter.emitHeaderLine(`#else`);
   context.emitter.emitHeaderLine(`  #include <unistd.h>`);
   context.emitter.emitHeaderLine(`  #include <sys/stat.h>`);
+  context.emitter.emitHeaderLine(`  #include <sys/random.h>`);
   context.emitter.emitHeaderLine(`#endif`);
 
   // Add allocator compatibility layer based on the allocator option

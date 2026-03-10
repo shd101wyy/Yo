@@ -1,0 +1,196 @@
+open import "std/libc/stdio";
+{ GlobalAllocator } :: import "std/allocator";
+{ malloc, free } :: GlobalAllocator;
+open import "std/string";
+{ platform, Platform, env } :: import "std/process";
+udp :: import "std/sys/udp";
+tcp :: import "std/sys/tcp";
+{
+  AF_INET, SOCK_DGRAM,
+  SOL_SOCKET, SO_REUSEADDR
+} :: import "std/sys/socket";
+
+test "UDP socket creation and close", using(io : IO), {
+  sockfd := io.await(udp.socket(AF_INET, i32(0)));
+  printf("  socket fd = %d\n", sockfd);
+  assert(sockfd >= i32(0));
+
+  close_result := io.await(udp.close(sockfd));
+  printf("  close = %d\n", close_result);
+  assert(close_result == i32(0));
+};
+
+test "UDP socket bind to loopback", using(io : IO), {
+  sockfd := io.await(udp.socket(AF_INET, i32(0)));
+  assert(sockfd >= i32(0));
+
+  addr := tcp.make_sockaddr_in_loopback(u16(19880));
+  bind_result := io.await(udp.bind(sockfd, addr.buf, addr.len));
+  printf("  bind = %d\n", bind_result);
+  assert(bind_result == i32(0));
+
+  io.await(udp.close(sockfd));
+  tcp.free_sockaddr(addr);
+};
+
+test "UDP setsockopt SO_REUSEADDR", using(io : IO), {
+  sockfd := io.await(udp.socket(AF_INET, i32(0)));
+  assert(sockfd >= i32(0));
+
+  optval := *(u8)(malloc(usize(4)).unwrap());
+  (optval &+ usize(0)).* = u8(1);
+  (optval &+ usize(1)).* = u8(0);
+  (optval &+ usize(2)).* = u8(0);
+  (optval &+ usize(3)).* = u8(0);
+  sso := io.await(udp.setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, optval, u32(4)));
+  printf("  setsockopt = %d\n", sso);
+  assert(sso == i32(0));
+  free(.Some(*(void)(optval)));
+
+  io.await(udp.close(sockfd));
+};
+
+test "UDP sendto and recvfrom", using(io : IO), {
+  // Create server socket
+  server_fd := io.await(udp.socket(AF_INET, i32(0)));
+  assert(server_fd >= i32(0));
+  server_addr := tcp.make_sockaddr_in_loopback(u16(19881));
+  bind_result := io.await(udp.bind(server_fd, server_addr.buf, server_addr.len));
+  assert(bind_result == i32(0));
+
+  // Create client socket and bind
+  client_fd := io.await(udp.socket(AF_INET, i32(0)));
+  assert(client_fd >= i32(0));
+  client_addr := tcp.make_sockaddr_in_loopback(u16(19882));
+  bind2 := io.await(udp.bind(client_fd, client_addr.buf, client_addr.len));
+  assert(bind2 == i32(0));
+
+  // Client sends to server
+  dest_addr := tcp.make_sockaddr_in_loopback(u16(19881));
+  msg := *(u8)("Hello UDP!");
+  sent := io.await(udp.sendto(client_fd, msg, usize(10), i32(0), dest_addr.buf, dest_addr.len));
+  printf("  sent = %d\n", sent);
+  assert(sent == i32(10));
+  tcp.free_sockaddr(dest_addr);
+
+  // Server receives
+  recv_buf := *(u8)(malloc(usize(256)).unwrap());
+  src_addr_buf := *(u8)(malloc(usize(128)).unwrap());
+  src_addr_len := *(u32)(malloc(usize(4)).unwrap());
+  src_addr_len.* = u32(128);
+
+  received := io.await(udp.recvfrom(server_fd, recv_buf, usize(256), i32(0), src_addr_buf, src_addr_len));
+  printf("  received = %d\n", received);
+  assert(received == i32(10));
+
+  // Verify "Hello UDP!" bytes
+  assert((recv_buf &+ usize(0)).* == u8(72));
+  assert((recv_buf &+ usize(1)).* == u8(101));
+  assert((recv_buf &+ usize(2)).* == u8(108));
+  assert((recv_buf &+ usize(3)).* == u8(108));
+  assert((recv_buf &+ usize(4)).* == u8(111));
+  assert((recv_buf &+ usize(5)).* == u8(32));
+  assert((recv_buf &+ usize(6)).* == u8(85));
+  assert((recv_buf &+ usize(7)).* == u8(68));
+  assert((recv_buf &+ usize(8)).* == u8(80));
+  assert((recv_buf &+ usize(9)).* == u8(33));
+
+  // Verify source address is AF_INET
+  src_family := tcp.get_family(src_addr_buf);
+  printf("  src family = %u\n", src_family);
+  assert(src_family == u16(AF_INET));
+
+  free(.Some(*(void)(recv_buf)));
+  free(.Some(*(void)(src_addr_buf)));
+  free(.Some(*(void)(src_addr_len)));
+
+  // Cleanup
+  io.await(udp.close(client_fd));
+  io.await(udp.close(server_fd));
+  tcp.free_sockaddr(server_addr);
+  tcp.free_sockaddr(client_addr);
+};
+
+test "UDP bidirectional ping-pong", using(io : IO), {
+  // Create and bind server
+  server_fd := io.await(udp.socket(AF_INET, i32(0)));
+  assert(server_fd >= i32(0));
+  server_addr := tcp.make_sockaddr_in_loopback(u16(19883));
+  s_bind := io.await(udp.bind(server_fd, server_addr.buf, server_addr.len));
+  assert(s_bind == i32(0));
+
+  // Create and bind client
+  client_fd := io.await(udp.socket(AF_INET, i32(0)));
+  assert(client_fd >= i32(0));
+  client_addr := tcp.make_sockaddr_in_loopback(u16(19884));
+  c_bind := io.await(udp.bind(client_fd, client_addr.buf, client_addr.len));
+  assert(c_bind == i32(0));
+
+  // Client sends "Ping" to server
+  dest := tcp.make_sockaddr_in_loopback(u16(19883));
+  msg_ping := *(u8)("Ping");
+  sent := io.await(udp.sendto(client_fd, msg_ping, usize(4), i32(0), dest.buf, dest.len));
+  printf("  client sent = %d\n", sent);
+  assert(sent == i32(4));
+  tcp.free_sockaddr(dest);
+
+  // Server receives
+  recv_buf := *(u8)(malloc(usize(256)).unwrap());
+  from_buf := *(u8)(malloc(usize(128)).unwrap());
+  from_len := *(u32)(malloc(usize(4)).unwrap());
+  from_len.* = u32(128);
+  received := io.await(udp.recvfrom(server_fd, recv_buf, usize(256), i32(0), from_buf, from_len));
+  printf("  server received = %d\n", received);
+  assert(received == i32(4));
+  assert((recv_buf &+ usize(0)).* == u8(80));
+  assert((recv_buf &+ usize(1)).* == u8(105));
+  assert((recv_buf &+ usize(2)).* == u8(110));
+  assert((recv_buf &+ usize(3)).* == u8(103));
+
+  // Server sends "Pong" back using the sender address
+  msg_pong := *(u8)("Pong");
+  sent2 := io.await(udp.sendto(server_fd, msg_pong, usize(4), i32(0), from_buf, from_len.*));
+  printf("  server sent = %d\n", sent2);
+  assert(sent2 == i32(4));
+
+  free(.Some(*(void)(recv_buf)));
+  free(.Some(*(void)(from_buf)));
+  free(.Some(*(void)(from_len)));
+
+  // Client receives reply
+  recv_buf2 := *(u8)(malloc(usize(256)).unwrap());
+  from_buf2 := *(u8)(malloc(usize(128)).unwrap());
+  from_len2 := *(u32)(malloc(usize(4)).unwrap());
+  from_len2.* = u32(128);
+  received2 := io.await(udp.recvfrom(client_fd, recv_buf2, usize(256), i32(0), from_buf2, from_len2));
+  printf("  client received = %d\n", received2);
+  assert(received2 == i32(4));
+  assert((recv_buf2 &+ usize(0)).* == u8(80));
+  assert((recv_buf2 &+ usize(1)).* == u8(111));
+  assert((recv_buf2 &+ usize(2)).* == u8(110));
+  assert((recv_buf2 &+ usize(3)).* == u8(103));
+
+  free(.Some(*(void)(recv_buf2)));
+  free(.Some(*(void)(from_buf2)));
+  free(.Some(*(void)(from_len2)));
+
+  // Cleanup
+  io.await(udp.close(client_fd));
+  io.await(udp.close(server_fd));
+  tcp.free_sockaddr(server_addr);
+  tcp.free_sockaddr(client_addr);
+};
+
+test "UDP sockaddr helpers from tcp module", using(io : IO), {
+  // Test that tcp.make_sockaddr_in works for UDP too
+  addr := tcp.make_sockaddr_in_loopback(u16(12345));
+  family := tcp.get_family(addr.buf);
+  printf("  family = %u\n", family);
+  assert(family == u16(AF_INET));
+
+  port := tcp.get_port_in(addr.buf);
+  printf("  port = %u\n", port);
+  assert(port == u16(12345));
+
+  tcp.free_sockaddr(addr);
+};

@@ -1,0 +1,53 @@
+{ on_signal, off_signal, Signal, SignalHandler } :: import "std/os/signal";
+{ platform, Platform } :: import "std/process";
+open import "std/libc/stdio";
+
+_noop_handler :: (fn(data: *(u8)) -> unit)({ (); });
+
+// ===== Signal Registration =====
+
+test "on_signal registers handler successfully", {
+  cond(
+    (platform == Platform.Win32) => (),
+    true => {
+      result := on_signal(.User1, _noop_handler);
+      assert(result.is_ok(), "on_signal should succeed");
+
+      // Clean up
+      off_signal(.User1);
+    }
+  );
+};
+
+test "on_signal replaces previous handler", {
+  cond(
+    (platform == Platform.Win32) => (),
+    true => {
+      _other_handler :: (fn(data: *(u8)) -> unit)({ (); });
+
+      // Register first handler
+      r1 := on_signal(.User2, _noop_handler);
+      assert(r1.is_ok(), "first on_signal should succeed");
+
+      // Replace with second handler
+      r2 := on_signal(.User2, _other_handler);
+      assert(r2.is_ok(), "second on_signal should succeed");
+
+      // Clean up
+      off_signal(.User2);
+    }
+  );
+};
+
+test "off_signal removes handler", {
+  cond(
+    (platform == Platform.Win32) => (),
+    true => {
+      result := on_signal(.Alarm, _noop_handler);
+      assert(result.is_ok(), "on_signal should succeed");
+
+      off_result := off_signal(.Alarm);
+      assert(off_result.is_ok(), "off_signal should succeed");
+    }
+  );
+};

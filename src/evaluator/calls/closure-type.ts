@@ -26,6 +26,7 @@ import {
   createCaptureTypeAndValue,
   enrichCapturedVariables,
   generateCapturedVariableDupExpressions,
+  validateCaptureTraitRequirements,
 } from "../utils/closure";
 import { createFunctionBodyEvaluationContext } from "./function-type";
 
@@ -188,6 +189,16 @@ export function tryToImplementClosureByFnModuleType({
     closureType: fnModuleType,
     captureType: inferredCaptureType,
   };
+
+  // Validate that the capture struct implements all required non-Fn traits (e.g., Send)
+  if (isSomeType(wrapperType) && inferredCaptureType) {
+    validateCaptureTraitRequirements({
+      wrapperType,
+      captureType: inferredCaptureType,
+      env: finalCallerEnv,
+      errorToken: expr.token,
+    });
+  }
 
   // Determine the final type based on the wrapper type (SomeType or DynType)
   let finalType: Type;

@@ -442,6 +442,15 @@ export interface FunctionToCall {
         result: FnCallExpr;
       }
     | {
+        /**
+         * This is the result from calling:
+         *
+         *   evaluateArcValueCall
+         */
+        kind: "arc-value";
+        result: FnCallExpr;
+      }
+    | {
         kind: "error";
         error: Error | YoError;
       };

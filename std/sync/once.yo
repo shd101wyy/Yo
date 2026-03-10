@@ -39,7 +39,7 @@ impl(Once,
   // Note: The fast-path read of _done is not strictly atomic, but since _done
   // is only ever set from false to true and the double-check inside the lock
   // prevents the function from running twice, this is safe in practice.
-  call : (fn(self: Self, f: Fn(() -> unit)) -> unit)({
+  call : (fn(self: Self, f: Impl(Fn() -> unit)) -> unit)({
     // Fast path: already done
     cond(
       self._done => (),

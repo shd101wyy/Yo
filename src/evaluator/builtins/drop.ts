@@ -266,6 +266,28 @@ export function evaluateDrop({
       };
       return expr;
     } else {
+      // If the argument is a borrowed value (not owning the RC),
+      // keep ___drop(expr) as-is and let the codegen handle it directly.
+      // Converting to a method call (value.___drop()) would trigger an
+      // auto-dup on the borrowed receiver, making the drop a no-op
+      // (dup + drop cancel out). This is critical for unsafe.drop(ptr.*)
+      // to actually drop the value at the pointer location.
+      const argVarName = evaluatedArgExpr.$?.variableName;
+      if (argVarName) {
+        const argVars = getVariablesFromEnv(env, argVarName);
+        const argVar = argVars.length ? argVars[argVars.length - 1] : undefined;
+        if (argVar && !argVar.isOwningTheRcValue) {
+          env = setExprAsConsumed(evaluatedArgExpr, env, true);
+          expr.$ = {
+            env,
+            type: VUnit.type,
+            value: undefined,
+            pathCollection: [],
+          };
+          return expr;
+        }
+      }
+
       // Handle struct types and other types with ___drop methods
       const dropMethodCallExpr = generateExprFromCode(
         `(${exprToString(evaluatedArgExpr)}).___drop()`

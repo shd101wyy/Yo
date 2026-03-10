@@ -1,0 +1,120 @@
+open import "std/string";
+{ random_bytes, random_u32, random_u64, random_f64, random_range, CryptoError } :: import "std/crypto/random";
+{ uuid_v4 } :: import "std/crypto/random";
+{ ArrayList } :: import "std/collections/array_list";
+
+// ===== random_bytes tests =====
+
+test "random_bytes fills buffer", {
+  buf := Array(u8, usize(32)).fill(u8(0));
+  buf_ptr := &(buf(usize(0)));
+  result := random_bytes(buf_ptr, usize(32));
+  assert((result.is_ok()), "random_bytes should succeed");
+  // Check that at least some bytes are non-zero (extremely unlikely all 32 are zero)
+  has_nonzero := false;
+  i := usize(0);
+  while (i < usize(32)), (i = (i + usize(1))), {
+    cond(
+      (buf(i) != u8(0)) => {
+        has_nonzero = true;
+      },
+      true => ()
+    );
+  };
+  assert(has_nonzero, "random bytes should not be all zeros");
+};
+
+test "random_bytes different each call", {
+  buf1 := Array(u8, usize(16)).fill(u8(0));
+  buf2 := Array(u8, usize(16)).fill(u8(0));
+  random_bytes(&(buf1(usize(0))), usize(16));
+  random_bytes(&(buf2(usize(0))), usize(16));
+  // Compare the two buffers — should differ (extremely unlikely to be equal)
+  differ := false;
+  i := usize(0);
+  while (i < usize(16)), (i = (i + usize(1))), {
+    cond(
+      (buf1(i) != buf2(i)) => {
+        differ = true;
+      },
+      true => ()
+    );
+  };
+  assert(differ, "two random_bytes calls should produce different output");
+};
+
+// ===== random_u32 tests =====
+
+test "random_u32 returns a value", {
+  a := random_u32();
+  b := random_u32();
+  // Two consecutive random_u32 calls should differ (extremely unlikely to be equal)
+  assert((a != b), "two random_u32 calls should differ");
+};
+
+// ===== random_u64 tests =====
+
+test "random_u64 returns a value", {
+  a := random_u64();
+  b := random_u64();
+  assert((a != b), "two random_u64 calls should differ");
+};
+
+// ===== random_f64 tests =====
+
+test "random_f64 in range 0 to 1", {
+  // Sample several values and check range
+  i := usize(0);
+  while (i < usize(100)), (i = (i + usize(1))), {
+    v := random_f64();
+    assert((v >= f64(0.0)), "random_f64 should be >= 0");
+    assert((v <= f64(1.0)), "random_f64 should be <= 1");
+  };
+};
+
+// ===== random_range tests =====
+
+test "random_range within bounds", {
+  i := usize(0);
+  while (i < usize(100)), (i = (i + usize(1))), {
+    v := random_range(i64(10), i64(20));
+    assert((v >= i64(10)), "random_range should be >= min");
+    assert((v < i64(20)), "random_range should be < max");
+  };
+};
+
+test "random_range single value", {
+  v := random_range(i64(42), i64(43));
+  assert((v == i64(42)), "range of 1 should always return min");
+};
+
+test "random_range zero span returns min", {
+  v := random_range(i64(7), i64(7));
+  assert((v == i64(7)), "zero span should return min");
+};
+
+// ===== uuid_v4 tests =====
+
+test "uuid_v4 format", {
+  id := uuid_v4();
+  bytes := id.as_bytes();
+  // UUID v4 format: xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx (36 chars)
+  assert((bytes.len() == usize(36)), "UUID should be 36 characters");
+  // Check dashes at positions 8, 13, 18, 23
+  assert((bytes.get(usize(8)).unwrap() == u8(45)), "position 8 should be dash");
+  assert((bytes.get(usize(13)).unwrap() == u8(45)), "position 13 should be dash");
+  assert((bytes.get(usize(18)).unwrap() == u8(45)), "position 18 should be dash");
+  assert((bytes.get(usize(23)).unwrap() == u8(45)), "position 23 should be dash");
+  // Check version nibble: position 14 should be '4'
+  assert((bytes.get(usize(14)).unwrap() == u8(52)), "version nibble should be '4'");
+  // Check variant nibble: position 19 should be '8', '9', 'a', or 'b'
+  variant := bytes.get(usize(19)).unwrap();
+  valid_variant := (((variant == u8(56)) || (variant == u8(57))) || ((variant == u8(97)) || (variant == u8(98))));
+  assert(valid_variant, "variant nibble should be 8, 9, a, or b");
+};
+
+test "uuid_v4 uniqueness", {
+  id1 := uuid_v4();
+  id2 := uuid_v4();
+  assert((id1.as_str() != id2.as_str()), "two UUIDs should be unique");
+};

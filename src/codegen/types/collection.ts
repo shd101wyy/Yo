@@ -11,6 +11,7 @@ import {
   ExprTag,
 } from "../../expr";
 import type {
+  ArcType,
   ArrayType,
   DynType,
   FunctionType,
@@ -19,6 +20,7 @@ import type {
   Type,
 } from "../../types/definitions";
 import {
+  isArcType,
   isArrayType,
   isDynType,
   isEnumType,
@@ -342,7 +344,8 @@ export function collectType(type: Type, context: CodeGenContext): void {
     isModuleType(type) ||
     isTraitType(type) ||
     isSliceType(type) ||
-    isIsoType(type)
+    isIsoType(type) ||
+    isArcType(type)
   ) {
     // Use the struct's id to generate a mangled C type name
     const cTypeName =
@@ -409,6 +412,13 @@ export function collectType(type: Type, context: CodeGenContext): void {
       // Register the Iso type in context.isoTypes by calling getTypeString
       // This ensures Iso type declarations are generated before function declarations
       getTypeString(isoType, context);
+    }
+
+    // For Arc types, collect the child type and register the Arc type
+    if (isArcType(type)) {
+      const arcType = type as ArcType;
+      collectType(arcType.childType, context);
+      getTypeString(arcType, context);
     }
 
     // For future types, collect the field type

@@ -17,18 +17,31 @@ open import "../string";
 // ============================================================================
 
 JsonError :: enum(
-  .UnexpectedChar(ch: u8, pos: usize),
-  .UnexpectedEnd,
-  .InvalidNumber,
-  .InvalidEscape,
-  .InvalidUnicode,
-  .Other(msg: String)
+  UnexpectedChar(ch: u8, pos: usize),
+  UnexpectedEnd,
+  InvalidNumber,
+  InvalidEscape,
+  InvalidUnicode,
+  Other(msg: String)
 );
 
 export JsonError;
 
 // ============================================================================
-// JsonKV - key/value pair for Object
+// JsonValue
+// ============================================================================
+
+JsonValue :: enum(
+  Null,
+  Bool(value: bool),
+  Number(value: f64),
+  Str(value: String),
+  Array(items: ArrayList(Self)),
+  Object(keys: ArrayList(String), values: ArrayList(Self))
+);
+
+// ============================================================================
+// JsonKV - key/value pair convenience struct for Object
 // ============================================================================
 
 JsonKV :: struct(
@@ -36,29 +49,17 @@ JsonKV :: struct(
   value : JsonValue
 );
 
-// ============================================================================
-// JsonValue
-// ============================================================================
-
-JsonValue :: enum(
-  .Null,
-  .Bool(value: bool),
-  .Number(value: f64),
-  .Str(value: String),
-  .Array(items: ArrayList(JsonValue)),
-  .Object(fields: ArrayList(JsonKV))
-);
-
 impl(JsonValue,
   // Get a field from an Object value. Returns .None if not an Object or key missing.
-  get : (fn(self: Self, key: String) -> ?JsonValue)(
+  get : (fn(self: Self, key: String) -> Option(JsonValue))(
     match(self,
-      .Object(fields) => {
+      .Object(keys, values) => {
         i := usize(0);
-        while (i < fields.len()), (i = (i + usize(1))), {
-          kv := fields.get(i).unwrap();
+        while (i < keys.len()), (i = (i + usize(1))), {
           cond(
-            (kv.key == key) => { return .Some(kv.value); },
+            (keys.get(i).unwrap() == key) => {
+              return .Some(values.get(i).unwrap());
+            },
             true => ()
           );
         };
@@ -69,7 +70,7 @@ impl(JsonValue,
   ),
 
   // Get an element from an Array value by index.
-  at : (fn(self: Self, index: usize) -> ?JsonValue)(
+  at : (fn(self: Self, index: usize) -> Option(JsonValue))(
     match(self,
       .Array(items) => items.get(index),
       _ => .None
@@ -77,7 +78,7 @@ impl(JsonValue,
   ),
 
   // Extract a bool.
-  as_bool : (fn(self: Self) -> ?bool)(
+  as_bool : (fn(self: Self) -> Option(bool))(
     match(self,
       .Bool(b) => .Some(b),
       _ => .None
@@ -85,7 +86,7 @@ impl(JsonValue,
   ),
 
   // Extract a number.
-  as_number : (fn(self: Self) -> ?f64)(
+  as_number : (fn(self: Self) -> Option(f64))(
     match(self,
       .Number(n) => .Some(n),
       _ => .None
@@ -93,7 +94,7 @@ impl(JsonValue,
   ),
 
   // Extract a string.
-  as_string : (fn(self: Self) -> ?String)(
+  as_string : (fn(self: Self) -> Option(String))(
     match(self,
       .Str(s) => .Some(s),
       _ => .None
@@ -101,17 +102,24 @@ impl(JsonValue,
   ),
 
   // Extract an array.
-  as_array : (fn(self: Self) -> ?ArrayList(JsonValue))(
+  as_array : (fn(self: Self) -> Option(ArrayList(JsonValue)))(
     match(self,
       .Array(items) => .Some(items),
       _ => .None
     )
   ),
 
-  // Extract an object as ArrayList(JsonKV).
-  as_object : (fn(self: Self) -> ?ArrayList(JsonKV))(
+  // Extract object entries as ArrayList(JsonKV).
+  as_object : (fn(self: Self) -> Option(ArrayList(JsonKV)))(
     match(self,
-      .Object(fields) => .Some(fields),
+      .Object(keys, values) => {
+        result := ArrayList(JsonKV).new();
+        i := usize(0);
+        while (i < keys.len()), (i = (i + usize(1))), {
+          result.push(JsonKV(key: keys.get(i).unwrap(), value: values.get(i).unwrap()));
+        };
+        .Some(result)
+      },
       _ => .None
     )
   )
@@ -133,24 +141,24 @@ impl(_Parser,
     Self(src: src, pos: usize(0))
   ),
 
-  peek : (fn(self: Self) -> ?u8)(
+  peek : (fn(self: Self) -> Option(u8))(
     cond(
       (self.pos < self.src.len()) => .Some(self.src.bytes(self.pos)),
       true => .None
     )
   ),
 
-  advance : (fn(self: Self) -> unit)(
-    self.pos = (self.pos + usize(1))
-  ),
+  advance : (fn(self: Self) -> unit)({
+    self.pos = (self.pos + usize(1));
+  }),
 
   skip_ws : (fn(self: Self) -> unit)({
-    while runtime(true), () => {
+    while runtime(true), {
       match(self.peek(),
         .None => break,
         .Some(c) => {
           cond(
-            ((c == u8(32)) || (c == u8(9)) || (c == u8(10)) || (c == u8(13))) => {
+            ((((c == u8(32)) || (c == u8(9))) || (c == u8(10))) || (c == u8(13))) => {
               self.advance();
             },
             true => break
@@ -164,7 +172,7 @@ impl(_Parser,
     self.skip_ws();
     match(self.peek(),
       .None => .Err(.UnexpectedEnd),
-      .Some(c) => {
+      .Some(c) =>
         cond(
           (c == ch) => {
             self.advance();
@@ -172,14 +180,13 @@ impl(_Parser,
           },
           true => .Err(.UnexpectedChar(c, self.pos))
         )
-      }
     )
   }),
 
   parse_string : (fn(self: Self) -> Result(String, JsonError))({
     self.advance(); // skip opening '"'
     bytes := ArrayList(u8).new();
-    while runtime(true), () => {
+    while runtime(true), {
       match(self.peek(),
         .None => { return .Err(.UnexpectedEnd); },
         .Some(c) => {
@@ -230,7 +237,7 @@ impl(_Parser,
       },
       .None => ()
     );
-    while runtime(true), () => {
+    while runtime(true), {
       match(self.peek(),
         .Some(c) => {
           cond(
@@ -246,7 +253,7 @@ impl(_Parser,
         cond(
           (c == u8(46)) => { // '.'
             self.advance();
-            while runtime(true), () => {
+            while runtime(true), {
               match(self.peek(),
                 .Some(d) => {
                   cond(
@@ -277,7 +284,7 @@ impl(_Parser,
               },
               .None => ()
             );
-            while runtime(true), () => {
+            while runtime(true), {
               match(self.peek(),
                 .Some(d) => {
                   cond(
@@ -305,145 +312,138 @@ impl(_Parser,
     { atof } :: import "../libc/stdlib";
     val := atof(num_ptr);
     .Ok(val)
-  }),
-
-  parse_value : (fn(self: Self) -> Result(JsonValue, JsonError))({
-    self.skip_ws();
-    match(self.peek(),
-      .None => .Err(.UnexpectedEnd),
-      .Some(c) => {
-        cond(
-          (c == u8(34)) => { // '"'
-            match(self.parse_string(),
-              .Err(e) => .Err(e),
-              .Ok(s)  => .Ok(.Str(s))
-            )
-          },
-          (c == u8(123)) => { // '{'
-            self.parse_object()
-          },
-          (c == u8(91)) => { // '['
-            self.parse_array()
-          },
-          (c == u8(116)) => { // 't' (true)
-            self.advance(); self.advance(); self.advance(); self.advance();
-            .Ok(.Bool(true))
-          },
-          (c == u8(102)) => { // 'f' (false)
-            self.advance(); self.advance(); self.advance();
-            self.advance(); self.advance();
-            .Ok(.Bool(false))
-          },
-          (c == u8(110)) => { // 'n' (null)
-            self.advance(); self.advance(); self.advance(); self.advance();
-            .Ok(.Null)
-          },
-          true => {
-            match(self.parse_number(),
-              .Err(e) => .Err(e),
-              .Ok(n)  => .Ok(.Number(n))
-            )
-          }
-        )
-      }
-    )
-  }),
-
-  parse_array : (fn(self: Self) -> Result(JsonValue, JsonError))({
-    self.advance(); // skip '['
-    items := ArrayList(JsonValue).new();
-    self.skip_ws();
-    match(self.peek(),
-      .Some(c) => {
-        cond(
-          (c == u8(93)) => { // ']'
-            self.advance();
-            return .Ok(.Array(items));
-          },
-          true => ()
-        );
-      },
-      .None => ()
-    );
-    while runtime(true), () => {
-      match(self.parse_value(),
-        .Err(e) => { return .Err(e); },
-        .Ok(v)  => { items.push(v); }
-      );
-      self.skip_ws();
-      match(self.peek(),
-        .Some(c) => {
-          cond(
-            (c == u8(44)) => { self.advance(); }, // ','
-            (c == u8(93)) => { self.advance(); break; }, // ']'
-            true => { return .Err(.UnexpectedChar(c, self.pos)); }
-          );
-        },
-        .None => { return .Err(.UnexpectedEnd); }
-      );
-    };
-    .Ok(.Array(items))
-  }),
-
-  parse_object : (fn(self: Self) -> Result(JsonValue, JsonError))({
-    self.advance(); // skip '{'
-    fields := ArrayList(JsonKV).new();
-    self.skip_ws();
-    match(self.peek(),
-      .Some(c) => {
-        cond(
-          (c == u8(125)) => { // '}'
-            self.advance();
-            return .Ok(.Object(fields));
-          },
-          true => ()
-        );
-      },
-      .None => ()
-    );
-    while runtime(true), () => {
-      self.skip_ws();
-      match(self.peek(),
-        .None => { return .Err(.UnexpectedEnd); },
-        .Some(c) => {
-          cond(
-            (c != u8(34)) => { return .Err(.UnexpectedChar(c, self.pos)); },
-            true => ()
-          );
-        }
-      );
-      key_r := self.parse_string();
-      match(key_r,
-        .Err(e) => { return .Err(e); },
-        .Ok(key) => {
-          self.skip_ws();
-          match(self.expect(u8(58)), // ':'
-            .Err(e) => { return .Err(e); },
-            .Ok(_)  => ()
-          );
-          match(self.parse_value(),
-            .Err(e) => { return .Err(e); },
-            .Ok(val) => {
-              fields.push(JsonKV(key: key, value: val));
-            }
-          );
-        }
-      );
-      self.skip_ws();
-      match(self.peek(),
-        .Some(c) => {
-          cond(
-            (c == u8(44)) => { self.advance(); }, // ','
-            (c == u8(125)) => { self.advance(); break; }, // '}'
-            true => { return .Err(.UnexpectedChar(c, self.pos)); }
-          );
-        },
-        .None => { return .Err(.UnexpectedEnd); }
-      );
-    };
-    .Ok(.Object(fields))
   })
 );
+
+// ============================================================================
+// Recursive value parser (standalone for self-recursion support)
+// ============================================================================
+
+// Tiny helpers to avoid begin blocks in cond branches (works around codegen temp var issue)
+_parse_true_lit :: (fn(p: _Parser) -> Result(JsonValue, JsonError))({
+  p.advance(); p.advance(); p.advance(); p.advance();
+  .Ok(.Bool(true))
+});
+_parse_false_lit :: (fn(p: _Parser) -> Result(JsonValue, JsonError))({
+  p.advance(); p.advance(); p.advance(); p.advance(); p.advance();
+  .Ok(.Bool(false))
+});
+_parse_null_lit :: (fn(p: _Parser) -> Result(JsonValue, JsonError))({
+  p.advance(); p.advance(); p.advance(); p.advance();
+  .Ok(.Null)
+});
+
+_parse_value :: (fn(p: _Parser) -> Result(JsonValue, JsonError))({
+  p.skip_ws();
+  match(p.peek(),
+    .None => .Err(.UnexpectedEnd),
+    .Some(c) =>
+      cond(
+        (c == u8(34)) =>
+          match(p.parse_string(), .Err(e) => .Err(e), .Ok(s) => .Ok(.Str(s))),
+        (c == u8(123)) => {  // '{' — parse object
+          p.advance();
+          keys := ArrayList(String).new();
+          vals := ArrayList(JsonValue).new();
+          p.skip_ws();
+          match(p.peek(),
+            .Some(c2) => {
+              cond(
+                (c2 == u8(125)) => {
+                  p.advance();
+                  return .Ok(.Object(keys, vals));
+                },
+                true => ()
+              );
+            },
+            .None => ()
+          );
+          while runtime(true), {
+            p.skip_ws();
+            match(p.peek(),
+              .None => { return .Err(.UnexpectedEnd); },
+              .Some(c2) => {
+                cond(
+                  (c2 != u8(34)) => { return .Err(.UnexpectedChar(c2, p.pos)); },
+                  true => ()
+                );
+              }
+            );
+            key_r := p.parse_string();
+            match(key_r,
+              .Err(e) => { return .Err(e); },
+              .Ok(key) => {
+                p.skip_ws();
+                match(p.expect(u8(58)),
+                  .Err(e) => { return .Err(e); },
+                  .Ok(_)  => ()
+                );
+                match(recur(p),
+                  .Err(e) => { return .Err(e); },
+                  .Ok(val) => {
+                    keys.push(key);
+                    vals.push(val);
+                  }
+                );
+              }
+            );
+            p.skip_ws();
+            match(p.peek(),
+              .Some(c2) => {
+                cond(
+                  (c2 == u8(44)) => { p.advance(); },
+                  (c2 == u8(125)) => { p.advance(); break; },
+                  true => { return .Err(.UnexpectedChar(c2, p.pos)); }
+                );
+              },
+              .None => { return .Err(.UnexpectedEnd); }
+            );
+          };
+          .Ok(.Object(keys, vals))
+        },
+        (c == u8(91)) => {  // '[' — parse array
+          p.advance();
+          items := ArrayList(JsonValue).new();
+          p.skip_ws();
+          match(p.peek(),
+            .Some(c2) => {
+              cond(
+                (c2 == u8(93)) => {
+                  p.advance();
+                  return .Ok(.Array(items));
+                },
+                true => ()
+              );
+            },
+            .None => ()
+          );
+          while runtime(true), {
+            match(recur(p),
+              .Err(e) => { return .Err(e); },
+              .Ok(v)  => { items.push(v); }
+            );
+            p.skip_ws();
+            match(p.peek(),
+              .Some(c2) => {
+                cond(
+                  (c2 == u8(44)) => { p.advance(); },
+                  (c2 == u8(93)) => { p.advance(); break; },
+                  true => { return .Err(.UnexpectedChar(c2, p.pos)); }
+                );
+              },
+              .None => { return .Err(.UnexpectedEnd); }
+            );
+          };
+          .Ok(.Array(items))
+        },
+        (c == u8(116)) => _parse_true_lit(p),
+        (c == u8(102)) => _parse_false_lit(p),
+        (c == u8(110)) => _parse_null_lit(p),
+        true =>
+          match(p.parse_number(), .Err(e) => .Err(e), .Ok(n) => .Ok(.Number(n)))
+      )
+  )
+});
 
 // ============================================================================
 // Public API
@@ -451,7 +451,7 @@ impl(_Parser,
 
 json_parse :: (fn(s: str) -> Result(JsonValue, JsonError))({
   p := _Parser.new(s);
-  p.parse_value()
+  _parse_value(p)
 });
 
 export json_parse;
@@ -472,7 +472,7 @@ _write_str_escaped :: (fn(s: String, out: ArrayList(u8)) -> unit)({
       (b == u8(10)) => { out.push(u8(92)); out.push(u8(110)); },
       (b == u8(9))  => { out.push(u8(92)); out.push(u8(116)); },
       (b == u8(13)) => { out.push(u8(92)); out.push(u8(114)); },
-      true           => out.push(b)
+      true           => { out.push(b); }
     );
   };
   out.push(u8(34)); // '"'
@@ -512,25 +512,24 @@ _stringify_into :: (fn(value: JsonValue, out: ArrayList(u8)) -> unit)({
       i := usize(0);
       while (i < items.len()), (i = (i + usize(1))), {
         cond(
-          (i > usize(0)) => out.push(u8(44)), // ','
+          (i > usize(0)) => { out.push(u8(44)); },
           true => ()
         );
-        _stringify_into(items.get(i).unwrap(), out);
+        recur(items.get(i).unwrap(), out);
       };
       out.push(u8(93)); // ']'
     },
-    .Object(fields) => {
+    .Object(keys, values) => {
       out.push(u8(123)); // '{'
       i := usize(0);
-      while (i < fields.len()), (i = (i + usize(1))), {
+      while (i < keys.len()), (i = (i + usize(1))), {
         cond(
-          (i > usize(0)) => out.push(u8(44)), // ','
+          (i > usize(0)) => { out.push(u8(44)); },
           true => ()
         );
-        kv := fields.get(i).unwrap();
-        _write_str_escaped(kv.key, out);
+        _write_str_escaped(keys.get(i).unwrap(), out);
         out.push(u8(58)); // ':'
-        _stringify_into(kv.value, out);
+        recur(values.get(i).unwrap(), out);
       };
       out.push(u8(125)); // '}'
     }

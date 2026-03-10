@@ -405,9 +405,11 @@ ${exprToString(rhs)}`,
       value: VUnit,
       type: VUnit.type,
       pathCollection: [],
+      isCompileTimeOnlyAssignment: effectiveIsCompileTimeOnly,
     };
     return expr;
   } else {
+    const effectiveIsCompileTimeOnly = isImplicit || isCompileTimeOnly;
     const { env: nextEnv, runtimeDestructurings } =
       evaluateDestructuringAssignment({
         lhs: actualLhs,
@@ -424,6 +426,7 @@ ${exprToString(rhs)}`,
       type: VUnit.type,
       pathCollection: [],
       runtimeDestructurings,
+      isCompileTimeOnlyAssignment: effectiveIsCompileTimeOnly,
     };
     return expr;
   }

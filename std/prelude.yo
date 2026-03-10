@@ -94,6 +94,8 @@ extern "Yo",
   // slice related
   __yo_slice_len :
     fn(forall(T: Type), slice: Slice(T)) -> usize,
+  __yo_slice_new :
+    fn(forall(T: Type), ptr: *(T), length: usize) -> Slice(T),
 
   // C macro related
   __yo_c_macro_defined : (fn(comptime(name) : comptime_string) -> comptime(bool)),
@@ -118,10 +120,8 @@ export assert;
 
 // unsafe module
 unsafe :: impl {
-  drop :: (fn(forall(T : Type), own(value) : T) -> unit) {
-    ___drop(value);
-    ()
-  };
+  drop :: (fn(quote(value) : Expr) -> unquote(Expr))
+    quote(___drop(unquote(value)));
   export drop;
 };
 export unsafe;
@@ -3188,6 +3188,9 @@ impl(forall(T : Type), Slice(T), Acyclic());
 impl(forall(T : Type), where(T <: Comptime), Slice(T), Comptime());
 impl(forall(T : Type), where(T <: Runtime), Slice(T), Runtime());
 impl(forall(T : Type), Slice(T),
+  from_raw_parts : (fn(ptr : *(T), length : usize) -> Self)(
+    __yo_slice_new(ptr, length)
+  ),
   len : (fn(self : Self) -> usize)(
     __yo_slice_len(self)
   )
@@ -3198,10 +3201,65 @@ str :: newtype(
   bytes : Slice(u8)
 );
 impl(str,
+  from_raw_parts : (fn(ptr : *(u8), length : usize) -> Self)(
+    Self(bytes: __yo_slice_new(ptr, length))
+  ),
   len : (fn(self : Self) -> usize)(
     __yo_slice_len(self.bytes)
   )
 );
+
+impl(str, Eq(str)(
+  (==) : (fn(lhs: Self, rhs: Self) -> bool)({
+    lhs_len := lhs.len();
+    cond(
+      (lhs_len != rhs.len()) => {
+        return false;
+      },
+      true => ()
+    );
+    i := usize(0);
+    while (i < lhs_len), (i = (i + usize(1))), {
+      cond(
+        (lhs.bytes(i) != rhs.bytes(i)) => {
+          return false;
+        },
+        true => ()
+      );
+    };
+    true
+  }),
+  (!=) : (fn(lhs: Self, rhs: Self) -> bool)({
+    return !(Self.(==)(lhs, rhs));
+  })
+));
+
+impl(str, Ord(str)(
+  (<) : (fn(lhs: Self, rhs: Self) -> bool)({
+    lhs_len := lhs.len();
+    rhs_len := rhs.len();
+    min_len := cond((lhs_len < rhs_len) => lhs_len, true => rhs_len);
+    i := usize(0);
+    while (i < min_len), (i = (i + usize(1))), {
+      cond(
+        (lhs.bytes(i) < rhs.bytes(i)) => { return true; },
+        (lhs.bytes(i) > rhs.bytes(i)) => { return false; },
+        true => ()
+      );
+    };
+    (lhs_len < rhs_len)
+  }),
+  (<=) : (fn(lhs: Self, rhs: Self) -> bool)({
+    return !(rhs < lhs);
+  }),
+  (>) : (fn(lhs: Self, rhs: Self) -> bool)({
+    return (rhs < lhs);
+  }),
+  (>=) : (fn(lhs: Self, rhs: Self) -> bool)({
+    return !(lhs < rhs);
+  })
+));
+
 export str;
 
 
@@ -3380,6 +3438,13 @@ impl(forall(OkType : Type, ErrorType : Type), Result(OkType, ErrorType),
     )
   ),
 
+  unwrap_err : (fn(self : Self) -> ErrorType)(
+    match(self,
+      .Err(error) => error,
+      .Ok(_) => panic("Called unwrap_err on an Ok value")
+    )
+  ),
+
   is_ok : (fn(self : Self) -> bool)(
     match(self,
       .Ok(_) => true,
@@ -3486,6 +3551,14 @@ impl(forall(T : Type), Iso(T),
   };
 });
 export (^);
+
+/// === Arc ===
+arc :: (fn(forall(T : Type), own(value) : T) -> Arc(T))
+  Arc(T)(value)
+;
+impl(forall(T : Type), Arc(T), Send());
+
+export arc;
 
 /// === MaybeUninit ===
 extern "Yo",

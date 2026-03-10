@@ -11,7 +11,7 @@
 
 { String } :: import "../string";
 { ToString } :: import "../fmt";
-{ CLOCK_REALTIME, clock_gettime } :: import "../io/clock";
+{ CLOCK_REALTIME, clock_gettime } :: import "../sys/clock";
 { snprintf } :: import "../libc/stdio";
 
 // ============================================================================
@@ -46,9 +46,13 @@ _from_unix_secs :: (fn(secs: i64, nanos: i64) -> DateTime)({
   rem  := (secs % i64(86400));
 
   // Normalise negative remainders
-  (rem_adj, days_adj) := cond(
-    (rem < i64(0)) => struct(rem_v: (rem + i64(86400)), days_v: (days - i64(1))),
-    true => struct(rem_v: rem, days_v: days)
+  rem_adj := cond(
+    (rem < i64(0)) => (rem + i64(86400)),
+    true => rem
+  );
+  days_adj := cond(
+    (rem < i64(0)) => (days - i64(1)),
+    true => days
   );
 
   hour   := u8((rem_adj / i64(3600)));
@@ -65,7 +69,7 @@ _from_unix_secs :: (fn(secs: i64, nanos: i64) -> DateTime)({
   );
   doe  := (z - (era * i64(146097)));
   yoe  := (((doe - (doe / i64(1460))) + (doe / i64(36524))) - (doe / i64(146096)));
-  yoe  := (yoe / i64(365));
+  yoe  = (yoe / i64(365));
   y    := (yoe + (era * i64(400)));
   doy  := (doe - (((i64(365) * yoe) + (yoe / i64(4))) - (yoe / i64(100))));
   mp   := (((i64(5) * doy) + i64(2)) / i64(153));
@@ -96,7 +100,7 @@ impl(DateTime,
   now_utc : (fn() -> Self)({
     sec  := i64(0);
     nsec := i64(0);
-    clock_gettime(CLOCK_REALTIME, &sec, &nsec);
+    clock_gettime(CLOCK_REALTIME, (&sec), (&nsec));
     _from_unix_secs(sec, nsec)
   }),
 
@@ -131,8 +135,8 @@ impl(DateTime,
     );
     doy := ((((i64(153) * mp) + i64(2)) / i64(5)) + (d - i64(1)));
     doe := ((((yoe * i64(365)) + (yoe / i64(4))) - (yoe / i64(100))) + doy);
-    days := ((era * i64(146097)) + doe - i64(719468));
-    time_secs := ((i64(self.hour) * i64(3600)) + (i64(self.minute) * i64(60)) + i64(self.second));
+    days := (((era * i64(146097)) + doe) - i64(719468));
+    time_secs := (((i64(self.hour) * i64(3600)) + (i64(self.minute) * i64(60))) + i64(self.second));
     ((days * i64(86400)) + time_secs)
   }),
 
@@ -152,7 +156,8 @@ impl(DateTime,
       (i32(self.month) < i32(3)) => (self.year - i32(1)),
       true => self.year
     );
-    dow := ((y + (y / i32(4)) - (y / i32(100)) + (y / i32(400)) + t(usize((i32(self.month) - i32(1)))) + i32(self.day)) % i32(7));
+    sum := (((((y + (y / i32(4))) - (y / i32(100))) + (y / i32(400))) + t(usize((i32(self.month) - i32(1))))) + i32(self.day));
+    dow := (sum % i32(7));
     // Convert: 0=Sun → remap to 0=Mon
     u8(cond(
       (dow == i32(0)) => i32(6),
@@ -179,9 +184,10 @@ impl(DateTime,
       );
     };
     u16(days)
-  }),
+  })
+);
 
-  // Format as ISO 8601 UTC string: "YYYY-MM-DDTHH:MM:SSZ"
+impl(DateTime, ToString(
   to_string : (fn(self: *(Self)) -> String)({
     buf := Array(u8, usize(32)).fill(u8(0));
     buf_ptr := &(buf(usize(0)));
@@ -189,18 +195,7 @@ impl(DateTime,
       self.year, self.month, self.day,
       self.hour, self.minute, self.second);
     String.from_cstr(buf_ptr).unwrap()
-  }),
-
-  // Alias to to_string.
-  format : (fn(self: *(Self), _fmt: str) -> String)(
-    self.to_string()
-  )
-);
-
-impl(DateTime, ToString(
-  to_string : (fn(self: *(Self)) -> String)(
-    self.to_string()
-  )
+  })
 ));
 
 export DateTime;

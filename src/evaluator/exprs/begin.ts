@@ -538,6 +538,7 @@ export function evaluateBeginExpression({
 
   let lastExpr = beginExpressions[beginExpressions.length - 1]!;
   let returnExpr: Expr | undefined = undefined;
+  let hasRuntimeSideEffects = false;
 
   // Evaluate expressions
   for (let i = 0; i < beginExpressions.length; i++) {
@@ -867,6 +868,27 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
         env = evaluatedExpr.$?.env;
       }
 
+      // Track if any non-last expression is a runtime expression.
+      // If so, the begin block has runtime side effects and should not
+      // be folded to a compile-time value.
+      if (i < beginExpressions.length - 1 && !hasRuntimeSideEffects) {
+        if (evaluatedExpr.$?.value === undefined) {
+          hasRuntimeSideEffects = true;
+        }
+        // := and = expressions always have $.value = VUnit (compile-time),
+        // but they produce runtime side effects when their RHS is a runtime
+        // expression. Check isCompileTimeOnlyAssignment which is set by the
+        // assignment evaluator when the operation is provably compile-time.
+        else if (
+          exprIsFunctionCall(evaluatedExpr) &&
+          (exprIsFunctionCallOf(evaluatedExpr, "=") ||
+            exprIsFunctionCallOf(evaluatedExpr, ":=")) &&
+          !evaluatedExpr.$.isCompileTimeOnlyAssignment
+        ) {
+          hasRuntimeSideEffects = true;
+        }
+      }
+
       if (hasAnyControlFlow(evaluatedExpr.$?.controlFlow)) {
         lastExpr = evaluatedExpr;
         break;
@@ -1046,6 +1068,7 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
   // Get variables that need drop calls using the helper function
   // When evaluating function body begin block, also check the parameters frame (previous frame)
   let variablesNeedingDrop = getVariablesNeedingDrop(env);
+
   const variablesActuallyNeedingDrop: Variable[] = [];
 
   if (OPTIMIZE_DUP_AND_DROP_PAIRS) {
@@ -1278,7 +1301,9 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
   expr.$ = {
     env,
     type: lastExpr.$.type,
-    value: lastExpr.$.value,
+    // If any non-last expression is a runtime expression, the begin block
+    // has runtime side effects and must not be folded to a compile-time value.
+    value: hasRuntimeSideEffects ? undefined : lastExpr.$.value,
     pathCollection: [],
     controlFlow: lastExpr.$.controlFlow,
     deferredDropExpressions,

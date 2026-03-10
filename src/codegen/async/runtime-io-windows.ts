@@ -2417,7 +2417,14 @@ static int32_t __yo_file_open(const char* path, int32_t flags, int32_t mode) {
 }
 
 static void __yo_file_close(int32_t fd) {
-  _close(fd);
+  SOCKET s = (SOCKET)(uintptr_t)(uint32_t)fd;
+  int cs = closesocket(s);
+  if (cs != 0) {
+    DWORD wsa_err = WSAGetLastError();
+    if (wsa_err == WSAENOTSOCK) {
+      _close(fd);
+    }
+  }
 }
 
 static int64_t __yo_file_size(int32_t fd) {

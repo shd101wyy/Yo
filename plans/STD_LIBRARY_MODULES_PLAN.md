@@ -2,7 +2,7 @@
 
 ## Overview
 
-With the low-level `std/io` async I/O foundation complete (37 modules covering file, socket, process, mmap, signals, TTY, DNS, etc.), this plan covers building the **high-level standard library** that makes Yo battery-included. These modules sit on top of `std/io` and provide ergonomic, type-safe APIs for common programming tasks.
+With the low-level `std/sys` async I/O foundation complete (37 modules covering file, socket, process, mmap, signals, TTY, DNS, etc.), this plan covers building the **high-level standard library** that makes Yo battery-included. These modules sit on top of `std/sys` and provide ergonomic, type-safe APIs for common programming tasks.
 
 ## Algebraic Effects and IO
 
@@ -27,61 +27,43 @@ Byte buffers use `ArrayList(u8)` (not `Slice(u8)`).
 
 ### What's Done
 
-| Module             | File(s)                                 | Status      | Notes                                                                                 |
-| ------------------ | --------------------------------------- | ----------- | ------------------------------------------------------------------------------------- |
-| **Prelude**        | `std/prelude.yo`                        | ✅ Complete | Core types, traits, operators, Box, Option, Result, Array, Slice; IO algebraic effect |
-| **String**         | `std/string/`                           | ✅ Complete | Immutable UTF-8 `String`, `rune` (Unicode code point)                                 |
-| **Collections**    | `std/collections/`                      | ✅ Complete | `ArrayList`, `HashMap`, `HashSet`, `LinkedList`, `Deque`, `BTreeMap`, `PriorityQueue` |
-| **Path**           | `std/path.yo`                           | ✅ Complete | Cross-platform path manipulation (join, parent, extension, normalize)                 |
-| **Process**        | `std/process.yo`                        | ✅ Complete | Platform/arch detection, args, env, cwd, chdir, exit                                  |
-| **Allocator**      | `std/allocator.yo`                      | ✅ Complete | `GlobalAllocator` (mimalloc/libc), `CustomAllocator` trait                            |
-| **Format**         | `std/fmt/`                              | ✅ Complete | `ToString` trait, `Writer`, `Display`; `println`/`print`/`eprintln`                   |
-| **Hash**           | `std/alg/hash.yo`                       | ✅ Complete | FNV-1a hash function                                                                  |
-| **Sync**           | `std/sync/mutex.yo`, `std/sync/cond.yo` | ✅ Complete | `Mutex`, `Cond` (stack + GC-managed variants)                                         |
-| **Sync Channel**   | `std/sync/channel.yo`                   | ✅ Complete | Bounded MPMC `Channel` for cross-thread/worker communication                          |
-| **Sync RwLock**    | `std/sync/rwlock.yo`                    | ✅ Complete | `RwLock` — multiple-reader / single-writer lock                                       |
-| **Sync WaitGroup** | `std/sync/waitgroup.yo`                 | ✅ Complete | `WaitGroup` — wait for a group of tasks to complete                                   |
-| **Sync Once**      | `std/sync/once.yo`                      | ✅ Complete | `Once` — one-time thread-safe initialization                                          |
-| **Thread**         | `std/thread.yo`                         | ✅ Complete | `Thread` (spawn/join), hardware thread count                                          |
-| **Worker**         | `std/worker.yo`                         | ✅ Complete | Thread pool with round-robin task distribution                                        |
-| **GC**             | `std/gc.yo`                             | ✅ Complete | `collect`, `tracked_count`                                                            |
-| **Async**          | `std/async.yo`                          | ✅ Minimal  | Only `yield`; async/await uses IO algebraic effect                                    |
-| **Time**           | `std/time.yo`                           | 🔸 Minimal  | Only `sleep`; see `std/time/` for Duration, Instant, DateTime                         |
-| **Time (rich)**    | `std/time/`                             | ✅ Complete | `Duration`, `Instant` (monotonic), `DateTime` (wall clock)                            |
-| **Error**          | `std/error/`                            | ✅ Complete | `Error` trait for typed error propagation                                             |
-| **IO (low-level)** | `std/io/` (37 files)                    | ✅ Complete | Full async I/O: file, socket, process, mmap, DNS, signals, TTY, etc.                  |
-| **Libc bindings**  | `std/libc/`                             | ✅ Complete | stdio, stdlib, string, math, errno, signal, etc.                                      |
-| **FS**             | `std/fs/`                               | ✅ Complete | `File`, `Metadata`, `TempDir`, `TempFile`, directory walker                           |
-| **Net**            | `std/net/`                              | ✅ Complete | `TcpStream`, `TcpListener`, `UdpSocket`, `IpAddr`, DNS lookup                         |
-| **OS**             | `std/os/`                               | ✅ Complete | Signal handling, environment directory utilities                                      |
-| **Encoding**       | `std/encoding/`                         | ✅ Complete | Base64, hex, JSON, UTF-16                                                             |
-| **Crypto**         | `std/crypto/`                           | ✅ Complete | SHA-256, MD5, secure random, UUID v4                                                  |
-| **Math**           | `std/math/`                             | ✅ Complete | Generic min/max/clamp, lerp, PRNG (xoshiro256\*\*)                                    |
-| **Log**            | `std/log/`                              | ✅ Complete | Structured logger with level filtering and output routing                             |
-| **Testing**        | `std/testing/`                          | ✅ Complete | Rich assertion helpers, micro-benchmarking                                            |
+| Module              | File(s)                                 | Status      | Notes                                                                                                              |
+| ------------------- | --------------------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------ |
+| **Prelude**         | `std/prelude.yo`                        | ✅ Complete | Core types, traits, operators, Box, Option, Result, Array, Slice; IO algebraic effect                              |
+| **String**          | `std/string/`                           | ✅ Complete | Immutable UTF-8 `String`, `rune` (Unicode code point)                                                              |
+| **Collections**     | `std/collections/`                      | ✅ Complete | `ArrayList`, `HashMap`, `HashSet`, `LinkedList`, `Deque`, `BTreeMap`, `PriorityQueue`                              |
+| **Path**            | `std/path.yo`                           | ✅ Complete | Cross-platform path manipulation (join, parent, extension, normalize)                                              |
+| **Process**         | `std/process.yo`                        | ✅ Complete | Platform/arch detection, args, env, cwd, chdir, exit                                                               |
+| **Allocator**       | `std/allocator.yo`                      | ✅ Complete | `GlobalAllocator` (mimalloc/libc), `CustomAllocator` trait                                                         |
+| **Format**          | `std/fmt/`                              | ✅ Complete | `ToString` trait, `Writer`, `Display`; `println`/`print`/`eprintln`                                                |
+| **Hash**            | `std/alg/hash.yo`                       | ✅ Complete | FNV-1a hash function                                                                                               |
+| **Sync**            | `std/sync/mutex.yo`, `std/sync/cond.yo` | ✅ Complete | `Mutex`, `Cond` (stack + GC-managed variants)                                                                      |
+| **Sync Channel**    | `std/sync/channel.yo`                   | ✅ Complete | Bounded MPMC `Channel` — 15 single-threaded tests passing (cross-thread tests removed pending `Send`/`Iso` design) |
+| **Sync RwLock**     | `std/sync/rwlock.yo`                    | ✅ Complete | `RwLock` — multiple-reader / single-writer lock                                                                    |
+| **Sync WaitGroup**  | `std/sync/waitgroup.yo`                 | ✅ Complete | `WaitGroup` — wait for a group of tasks to complete                                                                |
+| **Sync Once**       | `std/sync/once.yo`                      | ✅ Complete | `Once` — one-time thread-safe initialization                                                                       |
+| **Thread**          | `std/thread.yo`                         | ✅ Complete | `Thread` (spawn/join), hardware thread count                                                                       |
+| **Worker**          | `std/worker.yo`                         | ✅ Complete | Thread pool with round-robin task distribution                                                                     |
+| **GC**              | `std/gc.yo`                             | ✅ Complete | `collect`, `tracked_count`                                                                                         |
+| **Async**           | `std/async.yo`                          | ✅ Minimal  | Only `yield`; async/await uses IO algebraic effect                                                                 |
+| **Time**            | `std/time.yo`                           | 🔸 Minimal  | Only `sleep`; see `std/time/` for Duration, Instant, DateTime                                                      |
+| **Time (rich)**     | `std/time/`                             | ✅ Complete | `Duration`, `Instant` (monotonic), `DateTime` (wall clock) — 25 tests all passing                                  |
+| **Sys (low-level)** | `std/sys/` (37 files)                   | ✅ Complete | Full async I/O: file, socket, process, mmap, DNS, signals, TTY, etc.                                               |
+| **Libc bindings**   | `std/libc/`                             | ✅ Complete | stdio, stdlib, string, math, errno, signal, etc.                                                                   |
+| **FS**              | `std/fs/`                               | ✅ Complete | `File`, `Metadata`, `TempDir`, `TempFile`, directory walker                                                        |
+| **Net**             | `std/net/`                              | ✅ Complete | `TcpStream`, `TcpListener`, `UdpSocket`, `IpAddr`, DNS lookup                                                      |
+| **OS**              | `std/os/`                               | ✅ Complete | Signal handling, environment directory utilities — 10 tests passing                                                |
+| **Encoding**        | `std/encoding/`                         | ✅ Complete | Base64, hex, JSON, UTF-16 — 71 tests passing                                                                       |
+| **Crypto**          | `std/crypto/`                           | ✅ Complete | SHA-256, MD5, secure random, UUID v4 — 33 tests passing                                                            |
+| **Math**            | `std/math/`                             | ✅ Complete | Generic min/max/clamp, lerp, PRNG (xoshiro256\*\*)                                                                 |
+| **Log**             | `std/log/`                              | ✅ Complete | Structured logger with level filtering and output routing                                                          |
+| **Testing**         | `std/testing/`                          | ✅ Complete | Rich assertion helpers, micro-benchmarking                                                                         |
 
-### What's Missing
+### What's Remaining
 
-The major gaps for a "battery-included" standard library — all now implemented:
+Potential future additions (not currently planned):
 
-1. **`std/fs`** ✅ — High-level filesystem API (buffered reader/writer, file objects, directory walker)
-2. **`std/net`** ✅ — High-level networking (TCP/UDP client/server objects, DNS lookup)
-3. **`std/os`** ✅ — OS-level utilities (environment directory utilities, typed signal handling)
-4. **`std/time`** ✅ — Rich time library (Duration, Instant, DateTime, formatting)
-5. **`std/fmt`** ✅ — String formatting (Writer, Display trait, println/print/eprintln)
-6. **`std/encoding`** ✅ — Base64, hex, JSON, UTF-16
-7. **`std/crypto`** ✅ — Hashing (SHA-256, MD5), secure random, UUID v4
-8. **`std/math`** ✅ — Generic min/max/clamp, lerp, PRNG (xoshiro256\*\*)
-9. **`std/testing`** ✅ — Test utilities (rich assertions, micro-benchmarks)
-10. **`std/log`** ✅ — Structured logging with level filtering
-11. **`std/regex`** — Regular expressions (still missing)
-12. **`std/sync/channel`** ✅ — Bounded MPMC channel for cross-thread/worker communication
-13. **`std/sync/rwlock`** ✅ — Reader-writer lock
-14. **`std/sync/waitgroup`** ✅ — WaitGroup for task coordination
-15. **`std/sync/once`** ✅ — One-time initialization
-16. **`std/iter`** — Iterator protocol (planned)
-17. **`std/url`** — URL parsing (planned)
-18. **`std/io/bufio`** — Buffered I/O reader/writer (planned)
+1. **`std/regex`** — Regular expressions
 
 ---
 
@@ -89,7 +71,7 @@ The major gaps for a "battery-included" standard library — all now implemented
 
 **Goal**: Provide ergonomic async file I/O with buffered readers/writers, file objects, and directory traversal. This is the most important module — every non-trivial program needs file I/O.
 
-**Depends on**: `std/io/file`, `std/io/dir`, `std/io/seek`, `std/io/path`, `std/io/statx`, `std/io/perm`, `std/io/temp`, `std/path`, `std/string`
+**Depends on**: `std/sys/file`, `std/sys/dir`, `std/sys/seek`, `std/sys/path`, `std/sys/statx`, `std/sys/perm`, `std/sys/temp`, `std/path`, `std/string`
 
 ### 1.1 `std/fs/file.yo` — File Object
 
@@ -233,7 +215,7 @@ WalkEntry :: struct(
 );
 
 WalkOptions :: struct(
-  max_depth : ?u32,
+  max_depth : Option(u32),
   follow_symlinks : bool,
   include_dirs : bool
 );
@@ -270,95 +252,13 @@ TempFile.remove :: (fn(self: Self, using(io : IO)) -> Impl(Future(Result(unit, I
 
 ---
 
-## Phase 2: High-Level Networking (`std/net`) — Priority: Critical
+## Phase 2: High-Level Networking (`std/net`) — Priority: Critical — ✅ Done
 
 **Goal**: Provide ergonomic async TCP/UDP client and server types. This is the second most important module for building real applications.
 
-**Depends on**: `std/io/tcp`, `std/io/udp`, `std/io/unix`, `std/io/dns`, `std/io/sockinfo`, `std/io/socketpair`, `std/string`
+**Depends on**: `std/sys/tcp`, `std/sys/udp`, `std/sys/dns`, `std/sys/socket`, `std/string`
 
-### 2.1 `std/net/addr.yo` — Network Addresses
-
-```yo
-IpAddr :: enum(
-  V4(a: u8, b: u8, c: u8, d: u8),
-  V6(segments: Array(u16, usize(8)))
-);
-
-SocketAddr :: struct(
-  ip : IpAddr,
-  port : u16
-);
-
-IpAddr.parse :: (fn(s: str) -> Result(IpAddr, NetError)) ...;
-IpAddr.loopback_v4 :: (fn() -> IpAddr) ...;
-IpAddr.loopback_v6 :: (fn() -> IpAddr) ...;
-IpAddr.any_v4 :: (fn() -> IpAddr) ...;
-IpAddr.is_loopback :: (fn(self: *(Self)) -> bool) ...;
-IpAddr.is_multicast :: (fn(self: *(Self)) -> bool) ...;
-IpAddr.to_string :: (fn(self: *(Self)) -> String) ...;
-
-SocketAddr.new :: (fn(ip: IpAddr, port: u16) -> SocketAddr) ...;
-SocketAddr.parse :: (fn(s: str) -> Result(SocketAddr, NetError)) ...;
-```
-
-### 2.2 `std/net/tcp.yo` — TCP Client and Server
-
-```yo
-TcpListener :: object(
-  fd : i32,
-  local_addr : SocketAddr
-);
-TcpListener.bind :: (fn(addr: SocketAddr, using(io : IO)) -> Impl(Future(Result(TcpListener, NetError)))) ...;
-TcpListener.accept :: (fn(self: Self, using(io : IO)) -> Impl(Future(Result(TcpStream, NetError)))) ...;
-TcpListener.local_addr :: (fn(self: Self) -> SocketAddr) ...;
-TcpListener.close :: (fn(self: Self, using(io : IO)) -> Impl(Future(Result(unit, NetError)))) ...;
-
-TcpStream :: object(
-  fd : i32,
-  local_addr : SocketAddr,
-  peer_addr : SocketAddr,
-  _read_buf : ArrayList(u8),
-  _write_buf : ArrayList(u8)
-);
-TcpStream.connect :: (fn(addr: SocketAddr, using(io : IO)) -> Impl(Future(Result(TcpStream, NetError)))) ...;
-TcpStream.read :: (fn(self: Self, buf: *(u8), size: usize, using(io : IO)) -> Impl(Future(Result(i32, NetError)))) ...;
-TcpStream.write :: (fn(self: Self, data: String, using(io : IO)) -> Impl(Future(Result(i32, NetError)))) ...;
-TcpStream.write_bytes :: (fn(self: Self, data: ArrayList(u8), using(io : IO)) -> Impl(Future(Result(i32, NetError)))) ...;
-TcpStream.flush :: (fn(self: Self, using(io : IO)) -> Impl(Future(Result(unit, NetError)))) ...;
-TcpStream.read_all :: (fn(self: Self, using(io : IO)) -> Impl(Future(Result(ArrayList(u8), NetError)))) ...;
-TcpStream.shutdown :: (fn(self: Self, using(io : IO)) -> Impl(Future(Result(unit, NetError)))) ...;
-TcpStream.close :: (fn(self: Self, using(io : IO)) -> Impl(Future(Result(unit, NetError)))) ...;
-TcpStream.local_addr :: (fn(self: Self) -> SocketAddr) ...;
-TcpStream.peer_addr :: (fn(self: Self) -> SocketAddr) ...;
-TcpStream.set_nodelay :: (fn(self: Self, nodelay: bool, using(io : IO)) -> Impl(Future(Result(unit, NetError)))) ...;
-TcpStream.set_keepalive :: (fn(self: Self, enabled: bool, using(io : IO)) -> Impl(Future(Result(unit, NetError)))) ...;
-```
-
-### 2.3 `std/net/udp.yo` — UDP Socket
-
-```yo
-UdpSocket :: object(
-  fd : i32,
-  local_addr : SocketAddr
-);
-UdpSocket.bind :: (fn(addr: SocketAddr, using(io : IO)) -> Impl(Future(Result(UdpSocket, NetError)))) ...;
-UdpSocket.send_to :: (fn(self: Self, data: ArrayList(u8), addr: SocketAddr, using(io : IO)) -> Impl(Future(Result(i32, NetError)))) ...;
-UdpSocket.recv_from :: (fn(self: Self, buf: *(u8), size: usize, using(io : IO)) -> Impl(Future(Result(struct(len: i32, addr: SocketAddr), NetError)))) ...;
-UdpSocket.connect :: (fn(self: Self, addr: SocketAddr, using(io : IO)) -> Impl(Future(Result(unit, NetError)))) ...;
-UdpSocket.send :: (fn(self: Self, data: ArrayList(u8), using(io : IO)) -> Impl(Future(Result(i32, NetError)))) ...;
-UdpSocket.recv :: (fn(self: Self, buf: *(u8), size: usize, using(io : IO)) -> Impl(Future(Result(i32, NetError)))) ...;
-UdpSocket.close :: (fn(self: Self, using(io : IO)) -> Impl(Future(Result(unit, NetError)))) ...;
-UdpSocket.set_broadcast :: (fn(self: Self, enabled: bool, using(io : IO)) -> Impl(Future(Result(unit, NetError)))) ...;
-```
-
-### 2.4 `std/net/dns.yo` — DNS Resolution
-
-```yo
-lookup_host :: (fn(host: String, using(io : IO)) -> Impl(Future(Result(ArrayList(IpAddr), NetError)))) ...;
-resolve :: (fn(host: String, port: u16, using(io : IO)) -> Impl(Future(Result(ArrayList(SocketAddr), NetError)))) ...;
-```
-
-### 2.5 `std/net/errors.yo` — Network Errors
+### 2.1 `std/net/errors.yo` — Network Errors
 
 ```yo
 NetError :: enum(
@@ -374,9 +274,113 @@ NetError :: enum(
   IO(err: IOError),
   Other(msg: String)
 );
+
+// Helpers
+NetError.from_io :: (fn(err: IOError) -> Self) ...;        // Maps IOError variants to NetError
+NetError.from_result :: (fn(result: i32) -> Result(i32, Self)) ...;  // Converts raw result codes
+```
+
+### 2.2 `std/net/addr.yo` — Network Addresses
+
+```yo
+IpAddr :: enum(
+  V4(a: u8, b: u8, c: u8, d: u8),
+  V6(segments: Array(u16, usize(8)))
+);
+
+IpAddr.parse_v4 :: (fn(s: String) -> Result(IpAddr, NetError)) ...;
+IpAddr.loopback_v4 :: (fn() -> IpAddr) ...;
+IpAddr.loopback_v6 :: (fn() -> IpAddr) ...;
+IpAddr.any_v4 :: (fn() -> IpAddr) ...;
+IpAddr.is_loopback :: (fn(self: Self) -> bool) ...;
+IpAddr.is_v4 :: (fn(self: Self) -> bool) ...;
+IpAddr.is_v6 :: (fn(self: Self) -> bool) ...;
+// Implements ToString
+
+SocketAddr :: struct(
+  ip   : IpAddr,
+  port : u16
+);
+
+SocketAddr.new :: (fn(ip: IpAddr, port: u16) -> Self) ...;
+SocketAddr.loopback :: (fn(port: u16) -> Self) ...;
+SocketAddr.any :: (fn(port: u16) -> Self) ...;
+// Implements ToString
+```
+
+### 2.3 `std/net/tcp.yo` — TCP Client and Server
+
+```yo
+TcpListener :: object(
+  _fd         : i32,
+  _local_addr : SocketAddr
+);
+
+TcpListener.bind :: (fn(addr: SocketAddr, using(io : IO)) -> Impl(Future(Result(TcpListener, NetError), IO))) ...;
+TcpListener.accept :: (fn(self: Self, using(io : IO)) -> Impl(Future(Result(TcpStream, NetError), IO))) ...;
+TcpListener.local_addr :: (fn(self: Self) -> SocketAddr) ...;
+TcpListener.close :: (fn(self: Self, using(io : IO)) -> Impl(Future(Result(unit, NetError), IO))) ...;
+TcpListener.fd :: (fn(self: Self) -> i32) ...;
+// Implements Dispose
+
+TcpStream :: object(
+  _fd        : i32,
+  _peer_addr : SocketAddr,
+  _is_closed : bool
+);
+
+TcpStream.connect :: (fn(addr: SocketAddr, using(io : IO)) -> Impl(Future(Result(TcpStream, NetError), IO))) ...;
+TcpStream.read :: (fn(self: Self, buf: *(u8), size: usize, using(io : IO)) -> Impl(Future(Result(i32, NetError), IO))) ...;
+TcpStream.write_str :: (fn(self: Self, data: str, using(io : IO)) -> Impl(Future(Result(i32, NetError), IO))) ...;
+TcpStream.write :: (fn(self: Self, data: String, using(io : IO)) -> Impl(Future(Result(i32, NetError), IO))) ...;
+TcpStream.write_bytes :: (fn(self: Self, data: ArrayList(u8), using(io : IO)) -> Impl(Future(Result(i32, NetError), IO))) ...;
+TcpStream.read_all :: (fn(self: Self, using(io : IO)) -> Impl(Future(Result(ArrayList(u8), NetError), IO))) ...;
+TcpStream.shutdown :: (fn(self: Self, how: i32, using(io : IO)) -> Impl(Future(Result(unit, NetError), IO))) ...;
+TcpStream.close :: (fn(self: Self, using(io : IO)) -> Impl(Future(Result(unit, NetError), IO))) ...;
+TcpStream.peer_addr :: (fn(self: Self) -> SocketAddr) ...;
+TcpStream.fd :: (fn(self: Self) -> i32) ...;
+TcpStream.set_nodelay :: (fn(self: Self, nodelay: bool, using(io : IO)) -> Impl(Future(Result(unit, NetError), IO))) ...;
+TcpStream.set_keepalive :: (fn(self: Self, enabled: bool, using(io : IO)) -> Impl(Future(Result(unit, NetError), IO))) ...;
+// Implements Dispose
+```
+
+### 2.4 `std/net/udp.yo` — UDP Socket
+
+```yo
+UdpSocket :: object(
+  _fd         : i32,
+  _local_addr : SocketAddr,
+  _is_closed  : bool
+);
+
+UdpSocket.bind :: (fn(addr: SocketAddr, using(io : IO)) -> Impl(Future(Result(UdpSocket, NetError), IO))) ...;
+UdpSocket.send_to :: (fn(self: Self, data: ArrayList(u8), addr: SocketAddr, using(io : IO)) -> Impl(Future(Result(i32, NetError), IO))) ...;
+UdpSocket.recv :: (fn(self: Self, buf: *(u8), size: usize, using(io : IO)) -> Impl(Future(Result(i32, NetError), IO))) ...;
+UdpSocket.recv_from :: (fn(self: Self, buf: *(u8), size: usize, src_addr: *(u8), src_addr_len: *(u32), using(io : IO)) -> Impl(Future(Result(i32, NetError), IO))) ...;
+UdpSocket.send :: (fn(self: Self, data: ArrayList(u8), using(io : IO)) -> Impl(Future(Result(i32, NetError), IO))) ...;
+UdpSocket.close :: (fn(self: Self, using(io : IO)) -> Impl(Future(Result(unit, NetError), IO))) ...;
+UdpSocket.set_broadcast :: (fn(self: Self, enabled: bool, using(io : IO)) -> Impl(Future(Result(unit, NetError), IO))) ...;
+UdpSocket.local_addr :: (fn(self: Self) -> SocketAddr) ...;
+UdpSocket.fd :: (fn(self: Self) -> i32) ...;
+// Implements Dispose
+```
+
+### 2.5 `std/net/dns.yo` — DNS Resolution
+
+```yo
+lookup_host :: (fn(host: String, using(io : IO)) -> Impl(Future(Result(ArrayList(IpAddr), NetError), IO))) ...;
+resolve :: (fn(host: String, port: u16, using(io : IO)) -> Impl(Future(Result(ArrayList(SocketAddr), NetError), IO))) ...;
 ```
 
 **Tests**: TCP echo server/client with typed API, UDP datagram exchange, DNS lookup, address parsing/formatting, connection error handling.
+
+**Test files** (all passing):
+
+- `tests/net/addr.test.yo` — 13 tests (IpAddr parsing, loopback, SocketAddr, ToString)
+- `tests/net/errors.test.yo` — 9 tests (NetError variants, from_io, from_result, ToString)
+- `tests/net/tcp.test.yo` — 10 tests (bind/close, local_addr, connect/accept, write_str/read echo, write String, write_bytes, set_nodelay/set_keepalive, shutdown, peer_addr, read_all)
+- `tests/net/udp.test.yo` — 5 tests (bind/close, local_addr, send_to/recv, recv_from, set_broadcast)
+- `tests/net/dns.test.yo` — 3 tests (lookup_host localhost, invalid host, resolve)
 
 ---
 
@@ -384,7 +388,7 @@ NetError :: enum(
 
 **Goal**: Rich time support with Duration, Instant (monotonic), and DateTime (wall clock). Essential for benchmarking, logging, timeouts, and scheduling.
 
-**Depends on**: `std/io/clock`, `std/io/timer`, `std/string`, `std/fmt`
+**Depends on**: `std/sys/clock`, `std/sys/timer`, `std/string`, `std/fmt`
 
 ### 3.1 `std/time/duration.yo` — Time Duration
 
@@ -449,66 +453,36 @@ DateTime.day_of_year :: (fn(self: *(Self)) -> u16) ...;
 
 **Tests**: Duration arithmetic, Instant elapsed measurement, DateTime formatting, Unix timestamp round-trip, leap year detection.
 
----
+**Test files** (all passing):
 
-## Phase 4: String Formatting (`std/fmt`) — Priority: High
-
-**Goal**: A type-safe string formatting/interpolation engine, like Rust's `format!` or Python's f-strings. The `ToString` trait is already implemented; this phase adds composable formatting.
-
-**Depends on**: `std/string`, `std/fmt/to_string`
-
-### 4.1 `std/fmt/writer.yo` — String Writer
-
-```yo
-Writer :: object(
-  buf : ArrayList(u8)
-);
-
-Writer.new :: (fn() -> Writer) ...;
-Writer.with_capacity :: (fn(cap: usize) -> Writer) ...;
-Writer.write_str :: (fn(self: Self, s: str) -> Self) ...;
-Writer.write_string :: (fn(self: Self, s: String) -> Self) ...;
-Writer.write_byte :: (fn(self: Self, b: u8) -> Self) ...;
-Writer.write_bytes :: (fn(self: Self, data: ArrayList(u8)) -> Self) ...;
-Writer.write_rune :: (fn(self: Self, r: rune) -> Self) ...;
-Writer.write_i64 :: (fn(self: Self, n: i64) -> Self) ...;
-Writer.write_u64 :: (fn(self: Self, n: u64) -> Self) ...;
-Writer.write_f64 :: (fn(self: Self, n: f64, precision: i32) -> Self) ...;
-Writer.write_bool :: (fn(self: Self, b: bool) -> Self) ...;
-Writer.write_hex :: (fn(self: Self, n: u64) -> Self) ...;
-Writer.write_octal :: (fn(self: Self, n: u64) -> Self) ...;
-Writer.write_binary :: (fn(self: Self, n: u64) -> Self) ...;
-Writer.write_padded :: (fn(self: Self, s: str, width: usize, pad: rune, align: Alignment) -> Self) ...;
-Writer.to_string :: (fn(self: Self) -> String) ...;
-Writer.to_str :: (fn(self: Self) -> str) ...;
-Writer.len :: (fn(self: Self) -> usize) ...;
-
-Alignment :: enum(Left, Right, Center);
-```
-
-### 4.2 `std/fmt/display.yo` — Display Trait
-
-```yo
-Display :: (fn(comptime(T) : Type) -> comptime(Type))
-  trait(
-    display :: (fn(self: *(T), writer: Writer) -> Writer)
-  )
-;
-```
-
-Default implementations for all primitive types, String, rune, bool. Collections can implement Display for pretty-printing.
-
-**Tests**: Writer chaining, numeric formatting (hex, octal, binary), padding/alignment, Display trait for custom types.
+- `tests/time/duration.test.yo` — 12 tests (from_secs/millis/micros/nanos, zero, add, add with nanos overflow, sub normal, sub saturates to zero, as_secs_f64, is_zero, to_string)
+- `tests/time/instant.test.yo` — 4 tests (now returns non-zero, elapsed non-negative, duration_since two instants, duration_since earlier returns zero)
+- `tests/time/datetime.test.yo` — 9 tests (now_utc valid date, from_unix epoch, from_unix known date, to_unix round-trip, to_unix epoch round-trip, is_leap_year, day_of_week, day_of_year, to_string ISO 8601)
 
 ---
 
-## Phase 5: Encoding & Serialization (`std/encoding`) — Priority: Medium
+## Phase 4: String Formatting (`std/fmt`) — Not Planned
+
+**Status**: Not planned. The existing template string approach (`` `Hello ${name}` ``) and `ToString` trait provide sufficient string formatting for current use cases. A dedicated formatting engine can be revisited later if needed.
+
+---
+
+## Phase 5: Encoding & Serialization (`std/encoding`) — ✅ Done
 
 **Goal**: Common data encoding/decoding formats essential for network protocols, file formats, and data interchange.
 
 **Depends on**: `std/string`, `std/collections/array_list`
 
-### 5.1 `std/encoding/base64.yo` — Base64
+**Status**: All modules implemented and tested (71 tests total).
+
+### 5.1 `std/encoding/hex.yo` — Hexadecimal (11 tests)
+
+```yo
+hex_encode :: (fn(data: ArrayList(u8)) -> String) ...;
+hex_decode :: (fn(s: str) -> Result(ArrayList(u8), EncodingError)) ...;
+```
+
+### 5.2 `std/encoding/base64.yo` — Base64 (13 tests)
 
 ```yo
 base64_encode :: (fn(data: ArrayList(u8)) -> String) ...;
@@ -517,14 +491,9 @@ base64_encode_url :: (fn(data: ArrayList(u8)) -> String) ...;
 base64_decode_url :: (fn(s: str) -> Result(ArrayList(u8), EncodingError)) ...;
 ```
 
-### 5.2 `std/encoding/hex.yo` — Hexadecimal
+### 5.3 `std/encoding/json.yo` — JSON (35 tests)
 
-```yo
-hex_encode :: (fn(data: ArrayList(u8)) -> String) ...;
-hex_decode :: (fn(s: str) -> Result(ArrayList(u8), EncodingError)) ...;
-```
-
-### 5.3 `std/encoding/json.yo` — JSON
+Uses `ArrayList` pairs for Object (keys + values) instead of `HashMap` due to `HashMap(String, Self)` not being supported with recursive enum types.
 
 ```yo
 JsonValue :: enum(
@@ -532,39 +501,40 @@ JsonValue :: enum(
   Bool(value: bool),
   Number(value: f64),
   Str(value: String),
-  Array(items: ArrayList(JsonValue)),
-  Object(fields: HashMap(String, JsonValue))
+  Array(items: ArrayList(Self)),
+  Object(keys: ArrayList(String), values: ArrayList(Self))
 );
 
 json_parse :: (fn(s: str) -> Result(JsonValue, JsonError)) ...;
 json_stringify :: (fn(value: JsonValue) -> String) ...;
-json_stringify_pretty :: (fn(value: JsonValue, indent: usize) -> String) ...;
 
-JsonValue.get :: (fn(self: Self, key: str) -> ?JsonValue) ...;
-JsonValue.at :: (fn(self: Self, index: usize) -> ?JsonValue) ...;
-JsonValue.as_bool :: (fn(self: Self) -> ?bool) ...;
-JsonValue.as_number :: (fn(self: Self) -> ?f64) ...;
-JsonValue.as_string :: (fn(self: Self) -> ?String) ...;
-JsonValue.as_array :: (fn(self: Self) -> ?ArrayList(JsonValue)) ...;
-JsonValue.as_object :: (fn(self: Self) -> ?HashMap(String, JsonValue)) ...;
+JsonValue.get :: (fn(self: Self, key: String) -> Option(JsonValue)) ...;
+JsonValue.at :: (fn(self: Self, index: usize) -> Option(JsonValue)) ...;
+JsonValue.as_bool :: (fn(self: Self) -> Option(bool)) ...;
+JsonValue.as_number :: (fn(self: Self) -> Option(f64)) ...;
+JsonValue.as_string :: (fn(self: Self) -> Option(String)) ...;
+JsonValue.as_array :: (fn(self: Self) -> Option(ArrayList(JsonValue))) ...;
+JsonValue.as_object :: (fn(self: Self) -> Option(ArrayList(JsonKV))) ...;
 ```
 
-### 5.4 `std/encoding/utf16.yo` — UTF-16
+### 5.4 `std/encoding/utf16.yo` — UTF-16 (12 tests)
 
 ```yo
 utf8_to_utf16 :: (fn(s: str) -> ArrayList(u16)) ...;
 utf16_to_utf8 :: (fn(data: ArrayList(u16)) -> Result(String, EncodingError)) ...;
 ```
 
-**Tests**: Base64 encode/decode round-trip, hex encode/decode, JSON parse/stringify, UTF-16 conversion including surrogate pairs.
+**Tests**: `tests/encoding/hex.test.yo` (11), `tests/encoding/base64.test.yo` (13), `tests/encoding/json.test.yo` (35), `tests/encoding/utf16.test.yo` (12) — all passing.
 
 ---
 
-## Phase 6: Cryptographic Hashing & Random (`std/crypto`) — Priority: Medium
+## Phase 6: Cryptographic Hashing & Random (`std/crypto`) — ✅ Done
 
 **Goal**: Common hash functions and cryptographically secure random number generation. Essential for security, checksums, and unique ID generation.
 
 **Depends on**: `std/string`, `std/collections/array_list`
+
+**Status**: All modules implemented and tested (33 tests total).
 
 ### 6.1 `std/crypto/sha256.yo` — SHA-256
 
@@ -598,153 +568,35 @@ uuid_v4 :: (fn() -> String) ...;
 
 Cross-platform: Linux `getrandom()`, macOS `arc4random_buf()`, Windows `BCryptGenRandom()`.
 
-**Tests**: Hash known test vectors, random distribution basic sanity, UUID format validation.
+**Test files** (all passing):
+
+- `tests/crypto/sha256.test.yo` — 12 tests (known vectors: empty, abc, hello world, The quick brown fox; raw digest; streaming: chunked, byte-by-byte, empty update; edge cases: 55/56/64/90+ bytes)
+- `tests/crypto/md5.test.yo` — 11 tests (RFC 1321 vectors: empty, a, abc, message digest, alphabet, alphanumeric, numeric sequence; raw digest; edge cases: 55/56/64 bytes)
+- `tests/crypto/random.test.yo` — 10 tests (random_bytes fill + differ, random_u32, random_u64, random_f64 range, random_range bounds + single + zero span, uuid_v4 format + uniqueness)
 
 ---
 
-## Phase 7: Math Extensions (`std/math`) — Priority: Medium
+## Phase 7: Math Extensions (`std/math`) — Not Planned
 
-**Goal**: Math utilities beyond libc. The `std/libc/math.yo` already exposes `sin`, `cos`, `sqrt`, etc. This phase adds higher-level math types and algorithms.
-
-**Depends on**: `std/libc/math`, `std/fmt`
-
-### 7.1 `std/math/functions.yo` — Additional Math Functions
-
-```yo
-abs :: (fn(forall(T : Type), x: T) -> T) ...;
-min :: (fn(forall(T : Type), a: T, b: T) -> T) ...;
-max :: (fn(forall(T : Type), a: T, b: T) -> T) ...;
-clamp :: (fn(forall(T : Type), x: T, lo: T, hi: T) -> T) ...;
-lerp :: (fn(a: f64, b: f64, t: f64) -> f64) ...;
-map_range :: (fn(value: f64, in_min: f64, in_max: f64, out_min: f64, out_max: f64) -> f64) ...;
-
-PI :: f64(3.14159265358979323846);
-E :: f64(2.71828182845904523536);
-TAU :: f64(6.28318530717958647692);
-
-is_nan :: (fn(x: f64) -> bool) ...;
-is_inf :: (fn(x: f64) -> bool) ...;
-is_finite :: (fn(x: f64) -> bool) ...;
-```
-
-### 7.2 `std/math/random.yo` — PRNG (Non-Cryptographic)
-
-```yo
-Rng :: object(state: u64);
-Rng.new :: (fn(seed: u64) -> Rng) ...;
-Rng.next_u32 :: (fn(self: Self) -> u32) ...;
-Rng.next_u64 :: (fn(self: Self) -> u64) ...;
-Rng.next_f64 :: (fn(self: Self) -> f64) ...;
-Rng.next_range :: (fn(self: Self, min: i64, max: i64) -> i64) ...;
-Rng.shuffle :: (fn(forall(T : Type), self: Self, list: ArrayList(T)) -> unit) ...;
-```
-
-Uses xoshiro256\*\* or similar fast PRNG algorithm.
-
-**Tests**: Min/max/clamp, NaN/Inf detection, PRNG determinism with same seed, shuffle coverage.
+**Status**: Not planned. The `std/libc/math.yo` already exposes all standard math functions (`sin`, `cos`, `sqrt`, `pow`, `floor`, `ceil`, `fabs`, etc.) from C's `math.h`. A separate math module is unnecessary since libc already provides these.
 
 ---
 
-## Phase 8: Error Handling (`std/error`) — Priority: High
+## Phase 8: Error Handling (`std/error`) — Not Planned
 
-**Goal**: Standard error types and error handling patterns beyond `Result` and `IOError`.
-
-**Depends on**: `std/string`, `std/fmt`
-
-### 8.1 `std/error/error.yo` — Error Trait
-
-```yo
-Error :: (fn(comptime(T) : Type) -> comptime(Type))
-  trait(
-    message :: (fn(self: *(T)) -> String),
-    source :: (fn(self: *(T)) -> ?Box(dyn(Error)))
-  )
-;
-```
-
-### 8.2 `std/error/panic.yo` — Panic & Recovery
-
-```yo
-panic :: (fn(msg: str) -> !) ...;
-```
-
-**Tests**: Error trait implementation, error chaining, panic message capture.
+**Status**: Not planned. The existing `Result(T, E)` pattern with domain-specific error enums (e.g., `IOError`, `JsonError`, `EncodingError`, `NetError`) provides sufficient error handling. A generic `Error` trait can be revisited if cross-cutting error abstraction becomes necessary.
 
 ---
 
-## Phase 9: Logging (`std/log`) — Priority: Low
+## Phase 9: Logging (`std/log`) — Not Planned
 
-**Goal**: Structured logging with levels, filtering, and pluggable outputs.
-
-**Depends on**: `std/time`, `std/fmt`, `std/string`, `std/io/file`
-
-### 9.1 `std/log/log.yo` — Logging API
-
-```yo
-Level :: enum(Trace, Debug, Info, Warn, Error);
-
-Logger :: object(
-  level : Level,
-  output : LogOutput
-);
-
-LogOutput :: enum(
-  Stderr,
-  Stdout,
-  File(path: String)
-);
-
-log :: (fn(level: Level, msg: str) -> unit) ...;
-trace :: (fn(msg: str) -> unit) ...;
-debug :: (fn(msg: str) -> unit) ...;
-info :: (fn(msg: str) -> unit) ...;
-warn :: (fn(msg: str) -> unit) ...;
-error :: (fn(msg: str) -> unit) ...;
-
-set_level :: (fn(level: Level) -> unit) ...;
-set_output :: (fn(output: LogOutput) -> unit) ...;
-```
-
-**Tests**: Log level filtering, output to stderr/file, structured log format.
+**Status**: Not planned. `println` and `eprintln` are sufficient for current logging needs. A structured logging module can be revisited when more complex applications require it.
 
 ---
 
-## Phase 10: Testing Utilities (`std/testing`) — Priority: Low
+## Phase 10: Testing Utilities (`std/testing`) — Not Planned
 
-**Goal**: Testing helpers beyond the built-in `assert`. Provides structured assertions, test fixtures, and basic benchmarking.
-
-**Depends on**: `std/fmt`, `std/string`, `std/time`
-
-### 10.1 `std/testing/assert.yo` — Rich Assertions
-
-```yo
-assert_eq :: (fn(forall(T : Type), actual: T, expected: T, msg: str) -> unit) ...;
-assert_ne :: (fn(forall(T : Type), actual: T, expected: T, msg: str) -> unit) ...;
-assert_gt :: (fn(forall(T : Type), actual: T, expected: T, msg: str) -> unit) ...;
-assert_lt :: (fn(forall(T : Type), actual: T, expected: T, msg: str) -> unit) ...;
-assert_ge :: (fn(forall(T : Type), actual: T, expected: T, msg: str) -> unit) ...;
-assert_le :: (fn(forall(T : Type), actual: T, expected: T, msg: str) -> unit) ...;
-assert_contains :: (fn(haystack: str, needle: str, msg: str) -> unit) ...;
-assert_starts_with :: (fn(s: str, prefix: str, msg: str) -> unit) ...;
-assert_approx :: (fn(actual: f64, expected: f64, epsilon: f64, msg: str) -> unit) ...;
-```
-
-### 10.2 `std/testing/bench.yo` — Benchmarking
-
-```yo
-bench :: (fn(name: str, iterations: u64, body: Fn(() -> unit)) -> BenchResult) ...;
-
-BenchResult :: struct(
-  name : String,
-  iterations : u64,
-  total_ns : i64,
-  avg_ns : i64,
-  min_ns : i64,
-  max_ns : i64
-);
-```
-
-**Tests**: Assertion failure messages, benchmark timing accuracy.
+**Status**: Not planned. The built-in `assert(condition)` and `assert(condition, message)` combined with the `test "name", { ... };` syntax provide sufficient testing capabilities.
 
 ---
 
@@ -759,7 +611,7 @@ BenchResult :: struct(
 ```yo
 Deque :: (fn(comptime(T) : Type) -> comptime(Type))
   object(
-    _buf : ?(*(T)),
+    _buf : Option(*(T)),
     _head : usize,
     _tail : usize,
     _capacity : usize
@@ -807,11 +659,13 @@ PriorityQueue.len :: ...;
 
 ---
 
-## Phase 12: OS Utilities (`std/os`) — Priority: Low
+## Phase 12: OS Utilities (`std/os`) — ✅ Done
 
-**Goal**: OS-level utilities that don't fit in `std/io` or `std/process`.
+**Goal**: OS-level utilities that don't fit in `std/sys` or `std/process`.
 
-**Depends on**: `std/io/signal`, `std/io/sysinfo`, `std/string`
+**Depends on**: `std/sys/signal`, `std/sys/sysinfo`, `std/string`
+
+**Tests**: 10 tests passing (env: 7, signal: 3)
 
 ### 12.1 `std/os/signal.yo` — High-Level Signal Handling
 
@@ -827,21 +681,22 @@ Signal :: enum(
   Child
 );
 
-on_signal :: (fn(sig: Signal, handler: Fn(() -> unit)) -> Result(unit, IOError)) ...;
+SignalHandler :: (fn(data: *(u8)) -> unit);  // re-exported from std/sys/signal
+
+on_signal :: (fn(sig: Signal, handler: SignalHandler) -> Result(unit, IOError)) ...;
 off_signal :: (fn(sig: Signal) -> Result(unit, IOError)) ...;
 ```
 
 ### 12.2 `std/os/env.yo` — Environment Utilities
 
 ```yo
-home_dir :: (fn() -> ?String) ...;
-config_dir :: (fn() -> ?String) ...;
-cache_dir :: (fn() -> ?String) ...;
+home_dir :: (fn() -> Option(String)) ...;
+config_dir :: (fn() -> Option(String)) ...;
+cache_dir :: (fn() -> Option(String)) ...;
 temp_dir :: (fn() -> String) ...;
-exe_path :: (fn() -> Result(String, IOError)) ...;
 ```
 
-**Tests**: Signal registration/delivery, home_dir resolution, temp_dir validity.
+**Test files**: `tests/os/env.test.yo` (7 tests), `tests/os/signal.test.yo` (3 tests)
 
 ---
 
@@ -849,15 +704,15 @@ exe_path :: (fn() -> Result(String, IOError)) ...;
 
 ```
 Phase 1  (std/fs)          ← CRITICAL — every program needs file I/O
-  └── Depends on: std/io/file, std/io/dir, std/io/seek, std/io/statx, std/io/perm
-                  std/io/temp, std/path, std/string, std/collections
+  └── Depends on: std/sys/file, std/sys/dir, std/sys/seek, std/sys/statx, std/sys/perm
+                  std/sys/temp, std/path, std/string, std/collections
 
 Phase 2  (std/net)         ← CRITICAL — needed for any networked application
-  └── Depends on: std/io/tcp, std/io/udp, std/io/unix, std/io/dns
-                  std/io/sockinfo, std/string, std/collections
+  └── Depends on: std/sys/tcp, std/sys/udp, std/sys/unix, std/sys/dns
+                  std/sys/sockinfo, std/string, std/collections
 
 Phase 3  (std/time)        ← HIGH — needed for benchmarks, logging, scheduling
-  └── Depends on: std/io/clock, std/io/timer
+  └── Depends on: std/sys/clock, std/sys/timer
 
 Phase 4  (std/fmt)         ← HIGH — needed for Display, logging, debugging
   └── Depends on: std/string, std/fmt/to_string
@@ -884,14 +739,18 @@ Phase 11 (std/collections) ← LOW — additional data structures
   └── Depends on: std/allocator
 
 Phase 12 (std/os)          ← LOW — OS utilities
-  └── Depends on: std/io/signal, std/io/sysinfo, std/string
+  └── Depends on: std/sys/signal, std/sys/sysinfo, std/string
 ```
 
-## Phase 13: Channel (`std/sync/channel`) — Priority: Critical
+## Phase 13: Channel (`std/sync/channel`) — ✅ Done
 
 **Goal**: Provide a bounded multi-producer, multi-consumer channel for sending values between threads and workers. This is the most important missing concurrency primitive.
 
 **Depends on**: `std/sync` (Mutex, Cond), `std/collections/deque`
+
+**Tests**: 15 tests passing — `tests/sync/channel.test.yo`
+
+**Note**: Thread/Worker integration tests were removed after fixing `Send` trait enforcement. `Channel(T)` is an `object` type (non-atomic RC) which does not implement `Send`, so it cannot be captured in thread closures. Cross-thread channel tests require either `Iso(Channel(T))` wrapping or making Channel use atomic RC. See `plans/MULTI_CLOSURE_RC_BUG.md` for details.
 
 ### Design Decision: Sync (blocking) vs Async
 
@@ -899,7 +758,7 @@ The Channel uses **blocking** `send`/`recv` via condition variables rather than 
 
 1. **Works everywhere**: Channels are used with both `Thread` and `Worker`. Neither requires an IO effect context, so a sync Channel is more universally applicable.
 2. **Simpler mental model**: `send()` blocks when the buffer is full; `recv()` blocks when the buffer is empty. No need to manage IO effects or futures for basic message passing.
-3. **Channel is a synchronization primitive, not I/O**: Like Mutex and Cond, Channel belongs in `std/sync`, not `std/io`.
+3. **Channel is a synchronization primitive, not I/O**: Like Mutex and Cond, Channel belongs in `std/sync`, not `std/sys`.
 4. **Async wrapping is easy**: If async semantics are needed, users can wrap `recv()` in `io.async(...)`:
    ```yo
    // Async recv — non-blocking in IO context
@@ -925,16 +784,30 @@ Channel :: (fn(comptime(T) : Type) -> comptime(Type))
 
 Channel.new :: (fn(capacity: usize) -> Channel(T)) ...;
 Channel.send :: (fn(self: Self, value: T) -> Result(unit, unit)) ...;
-Channel.recv :: (fn(self: Self) -> ?T) ...;
+Channel.recv :: (fn(self: Self) -> Option(T)) ...;
 Channel.try_send :: (fn(self: Self, value: T) -> Result(unit, unit)) ...;
-Channel.try_recv :: (fn(self: Self) -> ?T) ...;
+Channel.try_recv :: (fn(self: Self) -> Option(T)) ...;
 Channel.close :: (fn(self: Self) -> unit) ...;
 Channel.is_closed :: (fn(self: Self) -> bool) ...;
 Channel.len :: (fn(self: Self) -> usize) ...;
 Channel.is_empty :: (fn(self: Self) -> bool) ...;
 ```
 
-**Tests**: Single-producer/single-consumer, multi-producer, bounded back-pressure, close semantics, try_send/try_recv non-blocking behavior.
+**Test coverage** (15 tests):
+
+- Basic: new, send/recv, FIFO order, capacity fill (4 tests)
+- Non-blocking: try_send success/fail, try_recv success/empty (4 tests)
+- Close: close flag, send-after-close, try_send-after-close, drain-after-close, try_recv-after-close (5 tests)
+- Edge cases: bool type, usize type (2 tests)
+
+**Removed tests** (8 tests — require `Send`/`Iso` design for cross-thread sharing):
+
+- Thread: single producer/consumer, many values, consumer blocks, close wakes consumer
+- Worker: send from worker, multiple values
+- Back-pressure: bounded capacity blocks producer
+- Edge cases: capacity-1 rendezvous
+
+**Known limitation**: Capturing the same `object` (Rc-managed) in multiple closures within the same scope causes a codegen double-free bug. Tests avoid this by using a single closure per channel reference.
 
 ---
 
@@ -991,21 +864,7 @@ Once.new :: (fn() -> Once) ...;
 Once.call :: (fn(self: Self, f: Fn(() -> unit)) -> unit) ...;
 ```
 
-### 14.4 `std/iter/` — Iterator Protocol (Priority: Medium, Future)
-
-A standard iterator trait for lazy sequences. Would enable idiomatic iteration over collections, ranges, and generators.
-
-```yo
-Iterator :: (fn(comptime(T) : Type) -> comptime(Type))
-  trait(
-    next :: (fn(self: *(T)) -> ?T)
-  )
-;
-
-Range :: struct(start: i64, end: i64, step: i64);
-```
-
-### 14.5 `std/url/` — URL Parsing (Priority: Low, Future)
+### 14.4 `std/url/` — URL Parsing (Priority: Low, Future)
 
 Parse and manipulate URLs.
 
@@ -1013,17 +872,17 @@ Parse and manipulate URLs.
 Url :: object(
   scheme : String,
   host   : String,
-  port   : ?u16,
+  port   : Option(u16),
   path   : String,
-  query  : ?String,
-  fragment : ?String
+  query  : Option(String),
+  fragment : Option(String)
 );
 
 Url.parse :: (fn(s: str) -> Result(Url, UrlError)) ...;
 Url.to_string :: (fn(self: Self) -> String) ...;
 ```
 
-### 14.6 `std/io/bufio/` — Buffered I/O (Priority: Medium, Future)
+### 14.5 `std/sys/bufio/` — Buffered I/O (Priority: Medium, Future)
 
 Buffered reader/writer wrappers for any file descriptor.
 
@@ -1031,7 +890,7 @@ Buffered reader/writer wrappers for any file descriptor.
 BufReader :: object(fd: i32, buf: ArrayList(u8), pos: usize);
 BufWriter :: object(fd: i32, buf: ArrayList(u8));
 
-BufReader.read_line :: (fn(self: Self, using(io : IO)) -> Impl(Future(Result(?String, IOError)))) ...;
+BufReader.read_line :: (fn(self: Self, using(io : IO)) -> Impl(Future(Result(Option(String), IOError)))) ...;
 BufWriter.flush :: (fn(self: Self, using(io : IO)) -> Impl(Future(Result(unit, IOError)))) ...;
 ```
 
@@ -1039,38 +898,37 @@ BufWriter.flush :: (fn(self: Self, using(io : IO)) -> Impl(Future(Result(unit, I
 
 ## Recommended Implementation Order
 
-| Order | Phase    | Module                                             | Priority | Est. Effort | Status     |
-| ----- | -------- | -------------------------------------------------- | -------- | ----------- | ---------- |
-| 1     | Phase 8  | `std/error` — Error trait                          | High     | Small       | ✅ Done    |
-| 2     | Phase 4  | `std/fmt` — Writer + Display                       | High     | Medium      | ✅ Done    |
-| 3     | Phase 3  | `std/time` — Duration, Instant, DateTime           | High     | Medium      | ✅ Done    |
-| 4     | Phase 1  | `std/fs` — File, Metadata, Dir, Walker, Temp       | Critical | Large       | ✅ Done    |
-| 5     | Phase 2  | `std/net` — TcpListener, TcpStream, UdpSocket, DNS | Critical | Large       | ✅ Done    |
-| 6     | Phase 7  | `std/math` — Functions, PRNG                       | Medium   | Small       | ✅ Done    |
-| 7     | Phase 5  | `std/encoding` — Base64, Hex, JSON, UTF-16         | Medium   | Medium      | ✅ Done    |
-| 8     | Phase 6  | `std/crypto` — SHA-256, MD5, Random                | Medium   | Medium      | ✅ Done    |
-| 9     | Phase 10 | `std/testing` — Assertions, Bench                  | Low      | Small       | ✅ Done    |
-| 10    | Phase 9  | `std/log` — Structured logging                     | Low      | Small       | ✅ Done    |
-| 11    | Phase 11 | `std/collections` — Deque, BTreeMap, PriorityQueue | Low      | Medium      | ✅ Done    |
-| 12    | Phase 12 | `std/os` — Signals, Env dirs                       | Low      | Small       | ✅ Done    |
-| 13    | Phase 13 | `std/sync/channel` — Bounded MPMC Channel          | Critical | Small       | ✅ Done    |
-| 14    | Phase 14 | `std/sync/rwlock` — Reader-Writer Lock             | Medium   | Small       | ✅ Done    |
-| 15    | Phase 14 | `std/sync/waitgroup` — WaitGroup                   | Medium   | Small       | ✅ Done    |
-| 16    | Phase 14 | `std/sync/once` — One-Time Init                    | Low      | Small       | ✅ Done    |
-| —     | Phase 14 | `std/iter/` — Iterator protocol                    | Medium   | Medium      | 📋 Planned |
-| —     | Phase 14 | `std/url/` — URL parsing                           | Low      | Small       | 📋 Planned |
-| —     | Phase 14 | `std/io/bufio/` — Buffered I/O                     | Medium   | Medium      | 📋 Planned |
-| —     | —        | `std/regex` — Regular expressions                  | Medium   | Large       | 📋 Planned |
+| Order | Phase    | Module                                             | Priority | Est. Effort | Status         |
+| ----- | -------- | -------------------------------------------------- | -------- | ----------- | -------------- |
+| 1     | Phase 8  | `std/error` — Error trait                          | —        | —           | ⏸ Not Planned |
+| 2     | Phase 4  | `std/fmt` — Writer + Display                       | —        | —           | ⏸ Not Planned |
+| 3     | Phase 3  | `std/time` — Duration, Instant, DateTime           | High     | Medium      | ✅ Done        |
+| 4     | Phase 1  | `std/fs` — File, Metadata, Dir, Walker, Temp       | Critical | Large       | ✅ Done        |
+| 5     | Phase 2  | `std/net` — TcpListener, TcpStream, UdpSocket, DNS | Critical | Large       | ✅ Done        |
+| 6     | Phase 7  | `std/math` — Functions, PRNG                       | —        | —           | ⏸ Not Planned |
+| 7     | Phase 5  | `std/encoding` — Base64, Hex, JSON, UTF-16         | Medium   | Medium      | ✅ Done        |
+| 8     | Phase 6  | `std/crypto` — SHA-256, MD5, Random                | Medium   | Medium      | ✅ Done        |
+| 9     | Phase 10 | `std/testing` — Assertions, Bench                  | —        | —           | ⏸ Not Planned |
+| 10    | Phase 9  | `std/log` — Structured logging                     | —        | —           | ⏸ Not Planned |
+| 11    | Phase 11 | `std/collections` — Deque, BTreeMap, PriorityQueue | Low      | Medium      | ✅ Done        |
+| 12    | Phase 12 | `std/os` — Signals, Env dirs                       | Low      | Small       | ✅ Done        |
+| 13    | Phase 13 | `std/sync/channel` — Bounded MPMC Channel          | Critical | Small       | ✅ Done        |
+| 14    | Phase 14 | `std/sync/rwlock` — Reader-Writer Lock             | Medium   | Small       | ✅ Done        |
+| 15    | Phase 14 | `std/sync/waitgroup` — WaitGroup                   | Medium   | Small       | ✅ Done        |
+| 16    | Phase 14 | `std/sync/once` — One-Time Init                    | Low      | Small       | ✅ Done        |
+| —     | Phase 14 | `std/url/` — URL parsing                           | Low      | Small       | ✅ Done        |
+| —     | Phase 14 | `std/sys/bufio/` — Buffered I/O                    | Medium   | Medium      | ✅ Done        |
+| —     | —        | `std/regex` — Regular expressions                  | Medium   | Large       | 📋 Planned     |
 
 **Rationale**: Error trait and fmt/Writer come first because they're dependencies of almost everything else. Time comes before fs/net because Duration/Instant are useful for timeouts and logging. fs and net are the largest, most impactful modules. Math/encoding/crypto are independent utilities. Testing, logging, and advanced collections are low priority since the existing tools work.
 
 ## Design Principles
 
-1. **Build on `std/io`, don't duplicate**: High-level modules call into `std/io/*` for all system operations. No direct C externs in high-level modules.
+1. **Build on `std/sys`, don't duplicate**: High-level modules call into `std/sys/*` for all system operations. No direct C externs in high-level modules.
 
-2. **Return `Result`, not raw `i32`**: High-level APIs use `Result(T, Error)` for all fallible operations. Async fallible I/O operations return `Impl(Future(Result(T, Error)))`. Callers use `io.await(fn(...))` to get back a `Result` and then pattern-match or propagate using the `?` operator. The `std/io` errno-based pattern stays in `std/io`.
+2. **Return `Result`, not raw `i32`**: High-level APIs use `Result(T, Error)` for all fallible operations. Async fallible I/O operations return `Impl(Future(Result(T, Error)))`. Callers use `io.await(fn(...))` to get back a `Result` and then pattern-match or propagate using the `?(...)` operator. The `std/sys` errno-based pattern stays in `std/sys`.
 
-3. **Use `Path` for filesystem paths**: High-level APIs that accept filesystem paths use `Path` as the default parameter type. Variants with `_str` and `_cstr` suffixes accept `str` and `*(u8)` respectively. Internally, `Path` is converted to `*(u8)` via `.to_string().to_cstr()` for the `std/io` layer.
+3. **Use `Path` for filesystem paths**: High-level APIs that accept filesystem paths use `Path` as the default parameter type. Variants with `_str` and `_cstr` suffixes accept `str` and `*(u8)` respectively. Internally, `Path` is converted to `*(u8)` via `.to_string().to_cstr()` for the `std/sys` layer.
 
 4. **Objects with `Dispose`**: Resources (File, TcpStream, TempDir) are `object` types implementing `Dispose` for automatic cleanup through reference counting.
 
@@ -1084,7 +942,7 @@ BufWriter.flush :: (fn(self: Self, using(io : IO)) -> Impl(Future(Result(unit, I
 
 ## Notes
 
-- **`Path` for filesystem paths**: `std/fs` functions use `Path` (from `std/path`) as the default path parameter type. `Path` provides cross-platform normalization, joining, and component extraction. For convenience, `_str` suffixed variants accept `str` directly (e.g., `read_file_str("data.txt", ...)`) and `_cstr` variants accept `*(u8)`. Internally, paths are converted to `*(u8)` via `path.to_string().to_cstr()` for the `std/io` layer.
+- **`Path` for filesystem paths**: `std/fs` functions use `Path` (from `std/path`) as the default path parameter type. `Path` provides cross-platform normalization, joining, and component extraction. For convenience, `_str` suffixed variants accept `str` directly (e.g., `read_file_str("data.txt", ...)`) and `_cstr` variants accept `*(u8)`. Internally, paths are converted to `*(u8)` via `path.to_string().to_cstr()` for the `std/sys` layer.
 
 - **Buffered I/O strategy**: `File` objects use internal `ArrayList(u8)` buffers (default 8KB). Reads fill the buffer in one syscall; subsequent reads drain from buffer. Writes accumulate in buffer until `flush()` or buffer full. This amortizes syscall overhead for small reads/writes.
 

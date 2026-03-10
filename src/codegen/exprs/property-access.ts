@@ -1,6 +1,7 @@
 import { BuiltinFunctions, exprIsAtom, type FnCallExpr } from "../../expr";
 import type { TraitType, Type } from "../../types/definitions";
 import {
+  isArcType,
   isDynType,
   isEnumType,
   isModuleType,
@@ -178,6 +179,10 @@ export function generateFieldAccess(
         const tagName = getEnumVariantCName(enumType, variant.name, context);
         return `(${cName}){ .tag = ${tagName}, .data = {  } }`;
       }
+    }
+    // Arc dereference: arc.(*) returns inner value
+    else if (isArcType(objectType) && fieldName === "*") {
+      return `${objectCode}->value`;
     }
     // Check if the object is pointer or reference
     else if (isPtrType(objectType)) {

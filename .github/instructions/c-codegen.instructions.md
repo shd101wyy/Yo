@@ -47,6 +47,5 @@ For understanding the compile-time RC ownership model, read `COMPILE_TIME_RC_WIT
 
 ## Algebraic effects codegen
 
-- Effects are matched by **type**, not by name. The codegen must not assume that the effect parameter name in a function matches the handler variable name at the call site.
 - Functions with `forall(...(E))` spread effect parameters have generic bodies where sub-expression type info may be missing. Effect analysis for these functions is performed during the codegen phase (in `preRegisterEffectfulFunctions`), not during evaluation.
 - Effectful functions (those that call effect handlers) are compiled as state machines, similar to async functions.

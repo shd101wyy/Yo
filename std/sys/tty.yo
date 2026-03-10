@@ -1,0 +1,62 @@
+// std/sys/tty.yo - TTY operations
+
+{ __yo_tty_init, __yo_tty_set_mode, __yo_tty_reset_mode, __yo_tty_get_winsize, __yo_isatty } :: import "./externs.yo";
+{ TTY_MODE_NORMAL, TTY_MODE_RAW, TTY_MODE_IO } :: import "./events.yo";
+
+WinSize :: struct(
+  width : i32,
+  height : i32
+);
+
+// Initialize TTY for a fd.
+// Returns 0 on success, -errno on failure.
+tty_init :: (fn(fd: i32) -> i32)(
+  __yo_tty_init(fd)
+);
+
+// Set TTY mode (normal, raw, IO).
+// Returns 0 on success, -errno on failure.
+tty_set_mode :: (fn(fd: i32, mode: i32) -> i32)(
+  __yo_tty_set_mode(fd, mode)
+);
+
+// Reset TTY to original mode.
+// Returns 0 on success, -errno on failure.
+tty_reset :: (fn() -> i32)(
+  __yo_tty_reset_mode()
+);
+
+// Get terminal window size.
+// Returns width and height (0,0 on error).
+tty_winsize :: (fn(fd: i32) -> WinSize)({
+  buf_uninit := MaybeUninit(Array(i32, usize(2))).new();
+  buf := *(i32)(buf_uninit.as_ptr());
+  res := __yo_tty_get_winsize(fd, (buf &+ usize(0)), (buf &+ usize(1)));
+  width := cond(
+    (res == i32(0)) => (buf &+ usize(0)).*,
+    true => i32(0)
+  );
+  height := cond(
+    (res == i32(0)) => (buf &+ usize(1)).*,
+    true => i32(0)
+  );
+  WinSize(width, height)
+});
+
+// Check if fd is a TTY.
+isatty :: (fn(fd: i32) -> bool)({
+  res := __yo_isatty(fd);
+  (res > i32(0))
+});
+
+export
+  WinSize,
+  tty_init,
+  tty_set_mode,
+  tty_reset,
+  tty_winsize,
+  isatty,
+  TTY_MODE_NORMAL,
+  TTY_MODE_RAW,
+  TTY_MODE_IO
+;

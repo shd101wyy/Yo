@@ -16,6 +16,7 @@ import {
 } from "../../expr";
 import type { FunctionValue, FuncValueId } from "../../function-value";
 import type {
+  ArcType,
   ArrayType,
   DynType,
   EnumType,
@@ -91,6 +92,21 @@ export interface CodeGenContext {
       structGenerated?: boolean;
       createGenerated?: boolean;
       extractGenerated?: boolean;
+      disposeGenerated?: boolean;
+    }
+  >;
+
+  /**
+   * Arc struct types that need to be generated
+   * Maps Arc type C name to info about the child type
+   */
+  arcTypes?: Map<
+    string,
+    {
+      childTypeCName: string;
+      arcType: ArcType;
+      structGenerated?: boolean;
+      createGenerated?: boolean;
       disposeGenerated?: boolean;
     }
   >;
@@ -726,6 +742,25 @@ export function getTypeString(
       // Iso types are reference-counted pointers
       return isoTypeName;
     }
+
+    // Arc type (atomic reference-counted shared value)
+    case TypeTag.Arc: {
+      const arcType = type as ArcType;
+      const childType = arcType.childType;
+      const childTypeCName = getTypeString(childType, context);
+
+      const cleanChildTypeName = childTypeCName.replace(/\*/g, "").trim();
+      const arcTypeName = `Arc_${sanitizeForCIdentifier(cleanChildTypeName)}`;
+
+      if (!context.arcTypes) {
+        context.arcTypes = new Map();
+      }
+      if (!context.arcTypes.has(arcTypeName)) {
+        context.arcTypes.set(arcTypeName, { childTypeCName, arcType });
+      }
+
+      return arcTypeName;
+    }
   }
 
   return `// Unknown type: ${typeToString(type)}`; // fallback
@@ -901,14 +936,26 @@ export function getVariableNameForCodegen(
 export function getDeferredDupTargetAtomName(
   dupExpr: Expr
 ): string | undefined {
-  if (!exprIsFunctionCall(dupExpr) || dupExpr.args.length < 1) {
-    return;
+  // Form 1: ___dup(varName) — pre-evaluation form
+  if (exprIsFunctionCall(dupExpr) && dupExpr.args.length >= 1) {
+    const firstArg = dupExpr.args[0];
+    if (firstArg && exprIsAtom(firstArg)) {
+      return firstArg.token.value;
+    }
   }
-  const firstArg = dupExpr.args[0];
-  if (!firstArg || !exprIsAtom(firstArg)) {
-    return;
+  // Form 2: (varName.___dup)() — post-evaluation method-style form
+  if (
+    exprIsFunctionCall(dupExpr) &&
+    dupExpr.args.length === 0 &&
+    exprIsFunctionCall(dupExpr.func) &&
+    exprIsFunctionCallOf(dupExpr.func, ".", 2) &&
+    exprIsAtom(dupExpr.func.args[0]!) &&
+    exprIsAtom(dupExpr.func.args[1]!) &&
+    dupExpr.func.args[1]!.token.value === BuiltinFunctions.___dup[0]
+  ) {
+    return dupExpr.func.args[0]!.token.value;
   }
-  return firstArg.token.value;
+  return undefined;
 }
 
 /**

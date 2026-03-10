@@ -342,6 +342,12 @@ function handleBranchingExpr<P extends SuspensionPoint>(
     expr
   );
 
+  // Save nameFrameToOriginalId before processing branches so that variables
+  // declared inside one branch don't leak into subsequent cond/match expressions.
+  // Without this, two independent variables with the same name:frameLevel in
+  // sequential cond branches would be incorrectly remapped to share one field.
+  const savedNameFrameToOriginalId = new Map(nameFrameToOriginalId);
+
   // Walk each branch separately to track per-branch suspension points
   const perBranchPoints: P[][] = [];
   for (const arg of expr.args) {
@@ -356,6 +362,12 @@ function handleBranchingExpr<P extends SuspensionPoint>(
       expr
     );
     perBranchPoints.push(points.slice(branchStart));
+  }
+
+  // Restore nameFrameToOriginalId — branch-local declarations must not persist
+  nameFrameToOriginalId.clear();
+  for (const [k, v] of savedNameFrameToOriginalId) {
+    nameFrameToOriginalId.set(k, v);
   }
 
   const maxDepth = Math.max(...perBranchPoints.map((b) => b.length), 0);

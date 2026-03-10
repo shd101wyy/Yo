@@ -274,6 +274,9 @@ export class CodeGenerator {
         if (process.platform === "win32" && !libraries.includes("ws2_32")) {
           libraries.push("ws2_32");
         }
+        if (process.platform === "win32" && !libraries.includes("bcrypt")) {
+          libraries.push("bcrypt");
+        }
         libraries.forEach((library) => {
           if (isMSVC) {
             // MSVC uses library.lib format

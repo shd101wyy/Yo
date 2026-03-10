@@ -1,0 +1,533 @@
+// std/url/url.yo - URL parsing and formatting
+//
+// Parse, manipulate, and format URLs per RFC 3986 (simplified).
+//
+// Example:
+//   { Url, UrlError } :: import "std/url/url";
+//
+//   url := Url.parse("https://example.com:8080/path?q=1#frag").unwrap();
+//   assert(url.scheme() == `https`);
+//   assert(url.host() == .Some(`example.com`));
+//   assert(url.port() == .Some(u16(8080)));
+//   assert(url.path() == `/path`));
+//   assert(url.query() == .Some(`q=1`));
+//   assert(url.fragment() == .Some(`frag`));
+//   println(url.to_string());  // "https://example.com:8080/path?q=1#frag"
+
+open import "../string";
+{ ArrayList } :: import "../collections/array_list";
+{ ToString } :: import "../fmt";
+
+// ============================================================================
+// UrlError
+// ============================================================================
+
+UrlError :: enum(
+  EmptyInput,
+  MissingScheme,
+  InvalidPort,
+  InvalidCharacter(pos: usize),
+  Other(msg: String)
+);
+
+impl(UrlError, ToString(
+  to_string : (self ->
+    match(self,
+      .EmptyInput => `URL error: empty input`,
+      .MissingScheme => `URL error: missing scheme`,
+      .InvalidPort => `URL error: invalid port`,
+      .InvalidCharacter(pos) => `URL error: invalid character at position ${pos}`,
+      .Other(msg) => `URL error: ${msg}`
+    )
+  )
+));
+
+// ============================================================================
+// Url
+// ============================================================================
+
+// ASCII constants for URL parsing
+_COLON     :: u8(58);   // ':'
+_SLASH     :: u8(47);   // '/'
+_QUESTION  :: u8(63);   // '?'
+_HASH      :: u8(35);   // '#'
+_AT        :: u8(64);   // '@'
+_LBRACKET  :: u8(91);   // '['
+_RBRACKET  :: u8(93);   // ']'
+_ZERO      :: u8(48);   // '0'
+_NINE      :: u8(57);   // '9'
+_LOWER_A   :: u8(97);   // 'a'
+_LOWER_Z   :: u8(122);  // 'z'
+_UPPER_A   :: u8(65);   // 'A'
+_UPPER_Z   :: u8(90);   // 'Z'
+_PLUS      :: u8(43);   // '+'
+_MINUS     :: u8(45);   // '-'
+_DOT       :: u8(46);   // '.'
+
+// ============================================================================
+// Helper: parse port number from bytes
+// ============================================================================
+
+_parse_port :: (fn(s: str, start: usize, end: usize) -> Result(u16, UrlError))({
+  cond(
+    (start >= end) => {
+      return .Err(.InvalidPort);
+    },
+    true => ()
+  );
+  val := u32(0);
+  i := start;
+  while runtime((i < end)), {
+    ch := s.bytes(i);
+    cond(
+      ((ch >= _ZERO) && (ch <= _NINE)) => {
+        val = ((val * u32(10)) + u32((ch - _ZERO)));
+        cond(
+          (val > u32(65535)) => {
+            return .Err(.InvalidPort);
+          },
+          true => ()
+        );
+      },
+      true => {
+        return .Err(.InvalidPort);
+      }
+    );
+    i = (i + usize(1));
+  };
+  .Ok(u16(val))
+});
+
+Url :: object(
+  _scheme   : String,
+  _host     : Option(String),
+  _port     : Option(u16),
+  _path     : String,
+  _query    : Option(String),
+  _fragment : Option(String),
+  _userinfo : Option(String)
+);
+
+impl(Url,
+  // Parse a URL string.
+  // Supports: scheme://[userinfo@]host[:port]/path[?query][#fragment]
+  // Also supports scheme:path (opaque URIs like mailto:user@example.com)
+  parse : (fn(s: str) -> Result(Url, UrlError))({
+    cond(
+      (s.len() == usize(0)) => {
+        return .Err(.EmptyInput);
+      },
+      true => ()
+    );
+
+    pos := usize(0);
+    src_len := s.len();
+
+    // --- Parse scheme ---
+    // scheme = ALPHA *( ALPHA / DIGIT / "+" / "-" / "." )
+    scheme_end := usize(0);
+    cond(
+      (src_len == usize(0)) => {
+        return .Err(.MissingScheme);
+      },
+      true => ()
+    );
+
+    // First char must be a letter
+    first := s.bytes(usize(0));
+    cond(
+      ((((first >= _LOWER_A) && (first <= _LOWER_Z)) || ((first >= _UPPER_A) && (first <= _UPPER_Z)))) => (),
+      true => {
+        return .Err(.MissingScheme);
+      }
+    );
+
+    i := usize(1);
+    found_colon := false;
+    while runtime((i < src_len)), {
+      ch := s.bytes(i);
+      cond(
+        (ch == _COLON) => {
+          scheme_end = i;
+          found_colon = true;
+          break;
+        },
+        (((((first >= _LOWER_A) && (first <= _LOWER_Z)) || ((first >= _UPPER_A) && (first <= _UPPER_Z))) || (((ch >= _LOWER_A) && (ch <= _LOWER_Z)) || ((ch >= _UPPER_A) && (ch <= _UPPER_Z)))) || ((((ch >= _ZERO) && (ch <= _NINE)) || (ch == _PLUS)) || ((ch == _MINUS) || (ch == _DOT)))) => (),
+        true => {
+          return .Err(.MissingScheme);
+        }
+      );
+      i = (i + usize(1));
+    };
+    cond(
+      (!(found_colon)) => {
+        return .Err(.MissingScheme);
+      },
+      true => ()
+    );
+
+    scheme_bytes := ArrayList(u8).new();
+    j := usize(0);
+    while runtime((j < scheme_end)), {
+      b := s.bytes(j);
+      // Normalize to lowercase
+      cond(
+        ((b >= _UPPER_A) && (b <= _UPPER_Z)) => scheme_bytes.push((b + u8(32))),
+        true => scheme_bytes.push(b)
+      );
+      j = (j + usize(1));
+    };
+    scheme := String.from_bytes(scheme_bytes);
+    pos = (scheme_end + usize(1));  // skip ':'
+
+    // --- Check for authority (// prefix) ---
+    has_authority := false;
+    cond(
+      (((pos + usize(1)) < src_len) && ((s.bytes(pos) == _SLASH) && (s.bytes((pos + usize(1))) == _SLASH))) => {
+        has_authority = true;
+        pos = (pos + usize(2));  // skip '//'
+      },
+      true => ()
+    );
+
+    (host : Option(String)) = .None;
+    (port : Option(u16)) = .None;
+    (userinfo : Option(String)) = .None;
+    path_str := String.new();
+
+    cond(
+      has_authority => {
+        // --- Parse authority: [userinfo@]host[:port] ---
+        // Find the end of authority (next '/', '?', '#', or end)
+        auth_start := pos;
+        auth_end := src_len;
+        k := pos;
+        while runtime((k < src_len)), {
+          ch := s.bytes(k);
+          cond(
+            (((ch == _SLASH) || (ch == _QUESTION)) || (ch == _HASH)) => {
+              auth_end = k;
+              break;
+            },
+            true => ()
+          );
+          k = (k + usize(1));
+        };
+
+        // Check for userinfo (look for '@')
+        host_start := auth_start;
+        m := auth_start;
+        while runtime((m < auth_end)), {
+          cond(
+            (s.bytes(m) == _AT) => {
+              // Everything before '@' is userinfo
+              ui_bytes := ArrayList(u8).new();
+              n := auth_start;
+              while runtime((n < m)), {
+                ui_bytes.push(s.bytes(n));
+                n = (n + usize(1));
+              };
+              userinfo = .Some(String.from_bytes(ui_bytes));
+              host_start = (m + usize(1));
+              break;
+            },
+            true => ()
+          );
+          m = (m + usize(1));
+        };
+
+        // Parse host[:port]
+        // Check for IPv6 literal [...]
+        cond(
+          ((host_start < auth_end) && (s.bytes(host_start) == _LBRACKET)) => {
+            // IPv6: find closing ']'
+            bracket_end := (host_start + usize(1));
+            while runtime(((bracket_end < auth_end) && (s.bytes(bracket_end) != _RBRACKET))), {
+              bracket_end = (bracket_end + usize(1));
+            };
+
+            host_bytes := ArrayList(u8).new();
+            hh := host_start;
+            while runtime((hh <= bracket_end)), {
+              cond(
+                (hh < auth_end) => { host_bytes.push(s.bytes(hh)); },
+                true => ()
+              );
+              hh = (hh + usize(1));
+            };
+            host = .Some(String.from_bytes(host_bytes));
+
+            // Check for port after ']:'
+            after_bracket := (bracket_end + usize(1));
+            cond(
+              ((after_bracket < auth_end) && (s.bytes(after_bracket) == _COLON)) => {
+                port_result := _parse_port(s, (after_bracket + usize(1)), auth_end);
+                cond(
+                  port_result.is_err() => {
+                    return .Err(.InvalidPort);
+                  },
+                  true => {
+                    port = .Some(port_result.unwrap());
+                  }
+                );
+              },
+              true => ()
+            );
+          },
+          true => {
+            // Regular host — find ':' for port
+            (colon_pos : Option(usize)) = .None;
+            cp := host_start;
+            while runtime((cp < auth_end)), {
+              cond(
+                (s.bytes(cp) == _COLON) => {
+                  colon_pos = .Some(cp);
+                  break;
+                },
+                true => ()
+              );
+              cp = (cp + usize(1));
+            };
+
+            match(colon_pos,
+              .Some(cp_val) => {
+                // host is before colon, port is after
+                host_b := ArrayList(u8).new();
+                hh2 := host_start;
+                while runtime((hh2 < cp_val)), {
+                  host_b.push(s.bytes(hh2));
+                  hh2 = (hh2 + usize(1));
+                };
+                host = .Some(String.from_bytes(host_b));
+
+                port_result := _parse_port(s, (cp_val + usize(1)), auth_end);
+                cond(
+                  port_result.is_err() => {
+                    return .Err(.InvalidPort);
+                  },
+                  true => {
+                    port = .Some(port_result.unwrap());
+                  }
+                );
+              },
+              .None => {
+                // No port, entire range is host
+                host_b := ArrayList(u8).new();
+                hh3 := host_start;
+                while runtime((hh3 < auth_end)), {
+                  host_b.push(s.bytes(hh3));
+                  hh3 = (hh3 + usize(1));
+                };
+                h := String.from_bytes(host_b);
+                cond(
+                  (!(h.is_empty())) => {
+                    host = .Some(h);
+                  },
+                  true => ()
+                );
+              }
+            );
+          }
+        );
+
+        pos = auth_end;
+      },
+      true => ()
+    );
+
+    // --- Parse path ---
+    path_start := pos;
+    path_end := src_len;
+    pp := pos;
+    while runtime((pp < src_len)), {
+      ch := s.bytes(pp);
+      cond(
+        ((ch == _QUESTION) || (ch == _HASH)) => {
+          path_end = pp;
+          break;
+        },
+        true => ()
+      );
+      pp = (pp + usize(1));
+    };
+
+    cond(
+      (path_start < path_end) => {
+        path_bytes := ArrayList(u8).new();
+        pb := path_start;
+        while runtime((pb < path_end)), {
+          path_bytes.push(s.bytes(pb));
+          pb = (pb + usize(1));
+        };
+        path_str = String.from_bytes(path_bytes);
+      },
+      true => ()
+    );
+    pos = path_end;
+
+    // --- Parse query ---
+    (query : Option(String)) = .None;
+    cond(
+      ((pos < src_len) && (s.bytes(pos) == _QUESTION)) => {
+        pos = (pos + usize(1));  // skip '?'
+        q_start := pos;
+        q_end := src_len;
+        qq := pos;
+        while runtime((qq < src_len)), {
+          cond(
+            (s.bytes(qq) == _HASH) => {
+              q_end = qq;
+              break;
+            },
+            true => ()
+          );
+          qq = (qq + usize(1));
+        };
+        q_bytes := ArrayList(u8).new();
+        qb := q_start;
+        while runtime((qb < q_end)), {
+          q_bytes.push(s.bytes(qb));
+          qb = (qb + usize(1));
+        };
+        query = .Some(String.from_bytes(q_bytes));
+        pos = q_end;
+      },
+      true => ()
+    );
+
+    // --- Parse fragment ---
+    (fragment : Option(String)) = .None;
+    cond(
+      ((pos < src_len) && (s.bytes(pos) == _HASH)) => {
+        pos = (pos + usize(1));  // skip '#'
+        f_bytes := ArrayList(u8).new();
+        fb := pos;
+        while runtime((fb < src_len)), {
+          f_bytes.push(s.bytes(fb));
+          fb = (fb + usize(1));
+        };
+        fragment = .Some(String.from_bytes(f_bytes));
+      },
+      true => ()
+    );
+
+    // Ensure authority-based URLs have a path starting with "/" or empty
+    cond(
+      (has_authority && ((!(path_str.is_empty())) && (path_str.as_bytes().get(usize(0)).unwrap() != _SLASH))) => {
+        return .Err(.Other(`authority path must start with '/'`));
+      },
+      true => ()
+    );
+
+    .Ok(Self(
+      _scheme: scheme,
+      _host: host,
+      _port: port,
+      _path: path_str,
+      _query: query,
+      _fragment: fragment,
+      _userinfo: userinfo
+    ))
+  }),
+
+  // --- Accessors ---
+
+  scheme : (fn(self: Self) -> String)(
+    self._scheme
+  ),
+
+  host : (fn(self: Self) -> Option(String))(
+    self._host
+  ),
+
+  port : (fn(self: Self) -> Option(u16))(
+    self._port
+  ),
+
+  path : (fn(self: Self) -> String)(
+    self._path
+  ),
+
+  query : (fn(self: Self) -> Option(String))(
+    self._query
+  ),
+
+  fragment : (fn(self: Self) -> Option(String))(
+    self._fragment
+  ),
+
+  userinfo : (fn(self: Self) -> Option(String))(
+    self._userinfo
+  ),
+
+  // Returns the host:port as a String, or just host if no port
+  host_port : (fn(self: Self) -> Option(String))(
+    match(self._host,
+      .None => .None,
+      .Some(h) =>
+        match(self._port,
+          .None => .Some(h),
+          .Some(p) => .Some(`${h}:${p}`)
+        )
+    )
+  ),
+
+  // Returns scheme + "://" + host_port (the origin)
+  origin : (fn(self: Self) -> String)(
+    match(self._host,
+      .None => self._scheme,
+      .Some(h) =>
+        match(self._port,
+          .None => `${self._scheme}://${h}`,
+          .Some(p) => `${self._scheme}://${h}:${p}`
+        )
+    )
+  )
+);
+
+// Reconstruct the URL as a String
+impl(Url, ToString(
+  to_string : (self -> {
+    result := `${self._scheme}:`;
+
+    match(self._host,
+      .Some(h) => {
+        result = result.concat(`//`);
+        match(self._userinfo,
+          .Some(ui) => {
+            result = result.concat(ui).concat(`@`);
+          },
+          .None => ()
+        );
+        result = result.concat(h);
+        match(self._port,
+          .Some(p) => {
+            result = result.concat(`:${p}`);
+          },
+          .None => ()
+        );
+      },
+      .None => ()
+    );
+
+    result = result.concat(self._path);
+
+    match(self._query,
+      .Some(q) => {
+        result = result.concat(`?`).concat(q);
+      },
+      .None => ()
+    );
+
+    match(self._fragment,
+      .Some(f) => {
+        result = result.concat(`#`).concat(f);
+      },
+      .None => ()
+    );
+
+    result
+  })
+));
+
+export Url, UrlError;

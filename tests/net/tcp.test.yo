@@ -1,0 +1,379 @@
+open import "std/libc/stdio";
+{ GlobalAllocator } :: import "std/allocator";
+{ malloc, free } :: GlobalAllocator;
+{ ArrayList } :: import "std/collections/array_list";
+open import "std/string";
+open import "std/fmt";
+{ TcpListener, TcpStream } :: import "std/net/tcp";
+{ SocketAddr, IpAddr } :: import "std/net/addr";
+{ NetError } :: import "std/net/errors";
+{ SHUT_RDWR } :: import "std/sys/socket";
+
+// ============================================================================
+// TcpListener tests
+// ============================================================================
+
+test "TcpListener bind and close", using(io : IO), {
+  addr := SocketAddr.loopback(u16(0));
+  r := io.await(TcpListener.bind(addr, using(io)));
+  match(r,
+    .Ok(listener) => {
+      printf("  listener fd = %d\n", listener.fd());
+      assert((listener.fd() >= i32(0)), "fd should be valid");
+
+      cr := io.await(listener.close(using(io)));
+      match(cr,
+        .Ok(_) => { printf("  close ok\n"); },
+        .Err(e) => assert(false, "close should succeed")
+      );
+    },
+    .Err(e) => {
+      printf("  bind err = %s\n", e.to_string().to_cstr().ptr().unwrap());
+      assert(false, "bind should succeed");
+    }
+  );
+};
+
+test "TcpListener local_addr returns bound address", using(io : IO), {
+  addr := SocketAddr.loopback(u16(0));
+  r := io.await(TcpListener.bind(addr, using(io)));
+  match(r,
+    .Ok(listener) => {
+      la := listener.local_addr();
+      printf("  local_addr = %s\n", la.to_string().to_cstr().ptr().unwrap());
+      assert(la.ip.is_loopback(), "should be loopback");
+      io.await(listener.close(using(io)));
+    },
+    .Err(e) => assert(false, "bind should succeed")
+  );
+};
+
+// ============================================================================
+// TcpStream tests
+// ============================================================================
+
+test "TCP connect to listener and accept", using(io : IO), {
+  // Bind listener to a known port
+  addr := SocketAddr.loopback(u16(19900));
+  lr := io.await(TcpListener.bind(addr, using(io)));
+  match(lr,
+    .Ok(listener) => {
+      printf("  listener fd = %d\n", listener.fd());
+
+      // Connect client
+      cr := io.await(TcpStream.connect(addr, using(io)));
+      match(cr,
+        .Ok(client) => {
+          printf("  client fd = %d\n", client.fd());
+
+          // Accept connection
+          ar := io.await(listener.accept(using(io)));
+          match(ar,
+            .Ok(server_stream) => {
+              printf("  accepted fd = %d\n", server_stream.fd());
+              assert((server_stream.fd() >= i32(0)), "accepted fd should be valid");
+
+              io.await(server_stream.close(using(io)));
+              io.await(client.close(using(io)));
+            },
+            .Err(e) => assert(false, "accept should succeed")
+          );
+        },
+        .Err(e) => assert(false, "connect should succeed")
+      );
+
+      io.await(listener.close(using(io)));
+    },
+    .Err(e) => assert(false, "bind should succeed")
+  );
+};
+
+test "TCP echo with write_str and read", using(io : IO), {
+  addr := SocketAddr.loopback(u16(19901));
+  lr := io.await(TcpListener.bind(addr, using(io)));
+  match(lr,
+    .Ok(listener) => {
+      // Client connects
+      cr := io.await(TcpStream.connect(addr, using(io)));
+      match(cr,
+        .Ok(client) => {
+          // Accept
+          ar := io.await(listener.accept(using(io)));
+          match(ar,
+            .Ok(server_stream) => {
+              // Client sends
+              wr := io.await(client.write_str("Hello Net!", using(io)));
+              match(wr,
+                .Ok(n) => {
+                  printf("  sent = %d\n", n);
+                  assert((n == i32(10)), "should send 10 bytes");
+                },
+                .Err(e) => assert(false, "write should succeed")
+              );
+
+              // Server reads
+              recv_buf := *(u8)(malloc(usize(256)).unwrap());
+              rr := io.await(server_stream.read(recv_buf, usize(256), using(io)));
+              match(rr,
+                .Ok(n) => {
+                  printf("  received = %d\n", n);
+                  assert((n == i32(10)), "should receive 10 bytes");
+                  // Verify "Hello Net!" = H(72) e(101) l(108) l(108) o(111)
+                  assert(((recv_buf &+ usize(0)).* == u8(72)), "H");
+                  assert(((recv_buf &+ usize(1)).* == u8(101)), "e");
+                  assert(((recv_buf &+ usize(2)).* == u8(108)), "l");
+                  assert(((recv_buf &+ usize(3)).* == u8(108)), "l");
+                  assert(((recv_buf &+ usize(4)).* == u8(111)), "o");
+                },
+                .Err(e) => assert(false, "read should succeed")
+              );
+              free(.Some(*(void)(recv_buf)));
+
+              io.await(server_stream.close(using(io)));
+              io.await(client.close(using(io)));
+            },
+            .Err(e) => assert(false, "accept should succeed")
+          );
+        },
+        .Err(e) => assert(false, "connect should succeed")
+      );
+      io.await(listener.close(using(io)));
+    },
+    .Err(e) => assert(false, "bind should succeed")
+  );
+};
+
+test "TCP echo with write String", using(io : IO), {
+  addr := SocketAddr.loopback(u16(19902));
+  lr := io.await(TcpListener.bind(addr, using(io)));
+  match(lr,
+    .Ok(listener) => {
+      cr := io.await(TcpStream.connect(addr, using(io)));
+      match(cr,
+        .Ok(client) => {
+          ar := io.await(listener.accept(using(io)));
+          match(ar,
+            .Ok(server_stream) => {
+              // Write using String
+              msg := `Hello String!`;
+              wr := io.await(client.write(msg, using(io)));
+              match(wr,
+                .Ok(n) => {
+                  printf("  sent = %d\n", n);
+                  assert((n == i32(13)), "should send 13 bytes");
+                },
+                .Err(e) => assert(false, "write should succeed")
+              );
+
+              // Server reads
+              recv_buf := *(u8)(malloc(usize(256)).unwrap());
+              rr := io.await(server_stream.read(recv_buf, usize(256), using(io)));
+              match(rr,
+                .Ok(n) => {
+                  printf("  received = %d\n", n);
+                  assert((n == i32(13)), "should receive 13 bytes");
+                },
+                .Err(e) => assert(false, "read should succeed")
+              );
+              free(.Some(*(void)(recv_buf)));
+
+              io.await(server_stream.close(using(io)));
+              io.await(client.close(using(io)));
+            },
+            .Err(e) => assert(false, "accept should succeed")
+          );
+        },
+        .Err(e) => assert(false, "connect should succeed")
+      );
+      io.await(listener.close(using(io)));
+    },
+    .Err(e) => assert(false, "bind should succeed")
+  );
+};
+
+test "TCP write_bytes", using(io : IO), {
+  addr := SocketAddr.loopback(u16(19903));
+  lr := io.await(TcpListener.bind(addr, using(io)));
+  match(lr,
+    .Ok(listener) => {
+      cr := io.await(TcpStream.connect(addr, using(io)));
+      match(cr,
+        .Ok(client) => {
+          ar := io.await(listener.accept(using(io)));
+          match(ar,
+            .Ok(server_stream) => {
+              // Write bytes
+              data := ArrayList(u8).new();
+              data.push(u8(1));
+              data.push(u8(2));
+              data.push(u8(3));
+              data.push(u8(4));
+              wr := io.await(client.write_bytes(data, using(io)));
+              match(wr,
+                .Ok(n) => {
+                  printf("  sent = %d\n", n);
+                  assert((n == i32(4)), "should send 4 bytes");
+                },
+                .Err(e) => assert(false, "write_bytes should succeed")
+              );
+
+              // Server reads
+              recv_buf := *(u8)(malloc(usize(256)).unwrap());
+              rr := io.await(server_stream.read(recv_buf, usize(256), using(io)));
+              match(rr,
+                .Ok(n) => {
+                  printf("  received = %d\n", n);
+                  assert((n == i32(4)), "should receive 4 bytes");
+                  assert(((recv_buf &+ usize(0)).* == u8(1)), "byte 0");
+                  assert(((recv_buf &+ usize(1)).* == u8(2)), "byte 1");
+                  assert(((recv_buf &+ usize(2)).* == u8(3)), "byte 2");
+                  assert(((recv_buf &+ usize(3)).* == u8(4)), "byte 3");
+                },
+                .Err(e) => assert(false, "read should succeed")
+              );
+              free(.Some(*(void)(recv_buf)));
+
+              io.await(server_stream.close(using(io)));
+              io.await(client.close(using(io)));
+            },
+            .Err(e) => assert(false, "accept should succeed")
+          );
+        },
+        .Err(e) => assert(false, "connect should succeed")
+      );
+      io.await(listener.close(using(io)));
+    },
+    .Err(e) => assert(false, "bind should succeed")
+  );
+};
+
+test "TCP set_nodelay and set_keepalive", using(io : IO), {
+  addr := SocketAddr.loopback(u16(19904));
+  lr := io.await(TcpListener.bind(addr, using(io)));
+  match(lr,
+    .Ok(listener) => {
+      cr := io.await(TcpStream.connect(addr, using(io)));
+      match(cr,
+        .Ok(client) => {
+          // Set nodelay
+          nr := io.await(client.set_nodelay(true, using(io)));
+          match(nr,
+            .Ok(_) => { printf("  nodelay ok\n"); },
+            .Err(e) => assert(false, "set_nodelay should succeed")
+          );
+
+          // Set keepalive
+          kr := io.await(client.set_keepalive(true, using(io)));
+          match(kr,
+            .Ok(_) => { printf("  keepalive ok\n"); },
+            .Err(e) => assert(false, "set_keepalive should succeed")
+          );
+
+          io.await(client.close(using(io)));
+        },
+        .Err(e) => assert(false, "connect should succeed")
+      );
+      io.await(listener.close(using(io)));
+    },
+    .Err(e) => assert(false, "bind should succeed")
+  );
+};
+
+test "TCP shutdown", using(io : IO), {
+  addr := SocketAddr.loopback(u16(19905));
+  lr := io.await(TcpListener.bind(addr, using(io)));
+  match(lr,
+    .Ok(listener) => {
+      cr := io.await(TcpStream.connect(addr, using(io)));
+      match(cr,
+        .Ok(client) => {
+          ar := io.await(listener.accept(using(io)));
+          match(ar,
+            .Ok(server_stream) => {
+              // Shutdown client write side
+              sr := io.await(client.shutdown(SHUT_RDWR, using(io)));
+              match(sr,
+                .Ok(_) => { printf("  shutdown ok\n"); },
+                .Err(e) => assert(false, "shutdown should succeed")
+              );
+
+              io.await(server_stream.close(using(io)));
+              io.await(client.close(using(io)));
+            },
+            .Err(e) => assert(false, "accept should succeed")
+          );
+        },
+        .Err(e) => assert(false, "connect should succeed")
+      );
+      io.await(listener.close(using(io)));
+    },
+    .Err(e) => assert(false, "bind should succeed")
+  );
+};
+
+test "TCP peer_addr returns remote address", using(io : IO), {
+  addr := SocketAddr.loopback(u16(19906));
+  lr := io.await(TcpListener.bind(addr, using(io)));
+  match(lr,
+    .Ok(listener) => {
+      cr := io.await(TcpStream.connect(addr, using(io)));
+      match(cr,
+        .Ok(client) => {
+          pa := client.peer_addr();
+          printf("  peer_addr = %s\n", pa.to_string().to_cstr().ptr().unwrap());
+          assert(pa.ip.is_loopback(), "peer should be loopback");
+          assert((pa.port == u16(19906)), "peer port should be 19906");
+
+          io.await(client.close(using(io)));
+        },
+        .Err(e) => assert(false, "connect should succeed")
+      );
+      io.await(listener.close(using(io)));
+    },
+    .Err(e) => assert(false, "bind should succeed")
+  );
+};
+
+test "TCP read_all gets all data", using(io : IO), {
+  addr := SocketAddr.loopback(u16(19907));
+  lr := io.await(TcpListener.bind(addr, using(io)));
+  match(lr,
+    .Ok(listener) => {
+      cr := io.await(TcpStream.connect(addr, using(io)));
+      match(cr,
+        .Ok(client) => {
+          ar := io.await(listener.accept(using(io)));
+          match(ar,
+            .Ok(server_stream) => {
+              // Client sends data then closes
+              io.await(client.write_str("ABCDE", using(io)));
+              io.await(client.shutdown(i32(1), using(io)));
+
+              // Server reads all
+              rr := io.await(server_stream.read_all(using(io)));
+              match(rr,
+                .Ok(data) => {
+                  printf("  read_all len = %lld\n", i64(data.len()));
+                  assert((data.len() == usize(5)), "should be 5 bytes");
+                  assert((data.get(usize(0)).unwrap() == u8(65)), "A");
+                  assert((data.get(usize(1)).unwrap() == u8(66)), "B");
+                  assert((data.get(usize(2)).unwrap() == u8(67)), "C");
+                  assert((data.get(usize(3)).unwrap() == u8(68)), "D");
+                  assert((data.get(usize(4)).unwrap() == u8(69)), "E");
+                },
+                .Err(e) => assert(false, "read_all should succeed")
+              );
+
+              io.await(server_stream.close(using(io)));
+              io.await(client.close(using(io)));
+            },
+            .Err(e) => assert(false, "accept should succeed")
+          );
+        },
+        .Err(e) => assert(false, "connect should succeed")
+      );
+      io.await(listener.close(using(io)));
+    },
+    .Err(e) => assert(false, "bind should succeed")
+  );
+};

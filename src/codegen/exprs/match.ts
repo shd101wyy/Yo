@@ -34,6 +34,20 @@ import {
 import { generateExpr } from "./expr";
 
 /**
+ * Check if a generated code string represents control flow (goto, break, continue, return)
+ * that should NOT be assigned to a temp variable.
+ */
+function isControlFlowCode(code: string): boolean {
+  return (
+    code === "" ||
+    code === "break" ||
+    code === "continue" ||
+    code.startsWith("goto") ||
+    code.includes("return")
+  );
+}
+
+/**
  * Generate case body for match/cond expressions, handling begin blocks specially
  * Returns the body code string for assignment to temp variable
  */
@@ -77,6 +91,30 @@ function generateCaseBody(
         finalExpr.$?.deferredDupExpressions &&
         finalExpr.$.deferredDupExpressions.length > 0
       ) {
+        // First generate the expression that produces the value to be duped.
+        // This is needed because the dup references a temp variable from the
+        // expression (e.g., self._scheme produces temp_N = self->_scheme, and
+        // the dup is temp_N+1 = dup(temp_N)). Without this, temp_N is never
+        // declared. Mirrors the handling in begin.ts.
+        if (finalExpr.$?.variableName) {
+          const savedVariableName = finalExpr.$.variableName;
+          finalExpr.$.variableName = undefined;
+          const rawExprCode = generateExpr(finalExpr, indent, context);
+          finalExpr.$.variableName = savedVariableName;
+
+          const exprType = getTypeString(finalExpr.$.type!, context);
+          const exprTempVar = getVariableNameForCodegen(
+            savedVariableName,
+            finalExpr.$.env
+          );
+
+          if (exprTempVar !== rawExprCode) {
+            context.emitter.emitLine(
+              `${indent}${exprType} ${exprTempVar} = ${rawExprCode};`
+            );
+          }
+        }
+
         generateDeferredDupExpressions(
           finalExpr,
           indent,
@@ -288,12 +326,8 @@ export function generateMatchExpression(
         functionContext.localShadowedVariables.delete(destructuredVarName);
       }
 
-      // Check if body has control flow (return, break, continue) - don't assign temp in that case
-      const hasControlFlow =
-        bodyCode === "" ||
-        bodyCode === "break" ||
-        bodyCode === "continue" ||
-        bodyCode.includes("return");
+      // Check if body has control flow (goto, return, break, continue) - don't assign temp in that case
+      const hasControlFlow = isControlFlowCode(bodyCode);
       if (!isUnit && tempVariableName && !hasControlFlow) {
         // For nullable pointer match, the body returns the actual value
         // If bodyCode is empty or just returns the matched value itself, use the matched value
@@ -314,12 +348,8 @@ export function generateMatchExpression(
         indent + "  ",
         context
       );
-      // Check if body has control flow (return, break, continue) - don't assign temp in that case
-      const hasControlFlow =
-        bodyCode === "" ||
-        bodyCode === "break" ||
-        bodyCode === "continue" ||
-        bodyCode.includes("return");
+      // Check if body has control flow (goto, return, break, continue) - don't assign temp in that case
+      const hasControlFlow = isControlFlowCode(bodyCode);
       if (!isUnit && tempVariableName && !hasControlFlow) {
         context.emitter.emitLine(
           `${indent}  ${tempVariableName} = ${bodyCode};`
@@ -366,7 +396,12 @@ export function generateMatchExpression(
           context.emitter.emitLine(`${indent}default: {`);
 
           const bodyCode = generateCaseBody(caseBody, indent + "  ", context);
-          if (!isUnit && tempVariableName && bodyCode) {
+          if (
+            !isUnit &&
+            tempVariableName &&
+            bodyCode &&
+            !isControlFlowCode(bodyCode)
+          ) {
             context.emitter.emitLine(
               `${indent}  ${tempVariableName} = ${bodyCode};`
             );
@@ -394,7 +429,12 @@ export function generateMatchExpression(
 
           // Generate the body of the case
           const bodyCode = generateCaseBody(caseBody, indent + "  ", context);
-          if (!isUnit && tempVariableName && bodyCode) {
+          if (
+            !isUnit &&
+            tempVariableName &&
+            bodyCode &&
+            !isControlFlowCode(bodyCode)
+          ) {
             context.emitter.emitLine(
               `${indent}  ${tempVariableName} = ${bodyCode};`
             );
@@ -447,7 +487,12 @@ export function generateMatchExpression(
 
         // Generate the body of the case
         const bodyCode = generateCaseBody(caseBody, indent + "  ", context);
-        if (!isUnit && tempVariableName && bodyCode) {
+        if (
+          !isUnit &&
+          tempVariableName &&
+          bodyCode &&
+          !isControlFlowCode(bodyCode)
+        ) {
           context.emitter.emitLine(
             `${indent}  ${tempVariableName} = ${bodyCode};`
           );
@@ -669,7 +714,12 @@ export function generateMatchExpression(
 
         // Generate the body of the case
         const bodyCode = generateCaseBody(caseBody, indent + "  ", context);
-        if (!isUnit && tempVariableName && bodyCode) {
+        if (
+          !isUnit &&
+          tempVariableName &&
+          bodyCode &&
+          !isControlFlowCode(bodyCode)
+        ) {
           context.emitter.emitLine(
             `${indent}  ${tempVariableName} = ${bodyCode};`
           );
@@ -891,7 +941,12 @@ export function generateMatchExpression(
 
         // Generate the body of the case
         const bodyCode = generateCaseBody(caseBody, indent + "  ", context);
-        if (!isUnit && tempVariableName && bodyCode) {
+        if (
+          !isUnit &&
+          tempVariableName &&
+          bodyCode &&
+          !isControlFlowCode(bodyCode)
+        ) {
           context.emitter.emitLine(
             `${indent}  ${tempVariableName} = ${bodyCode};`
           );
@@ -994,7 +1049,12 @@ function generatePrimitiveMatchExpression(
 
         // Generate the body of the case
         const bodyCode = generateCaseBody(caseBody, indent + "  ", context);
-        if (!isUnit && tempVariableName && bodyCode) {
+        if (
+          !isUnit &&
+          tempVariableName &&
+          bodyCode &&
+          !isControlFlowCode(bodyCode)
+        ) {
           context.emitter.emitLine(
             `${indent}  ${tempVariableName} = ${bodyCode};`
           );
@@ -1038,7 +1098,12 @@ function generatePrimitiveMatchExpression(
 
       // Generate the body of the case (only once for all the case labels)
       const bodyCode = generateCaseBody(caseBody, indent + "  ", context);
-      if (!isUnit && tempVariableName && bodyCode) {
+      if (
+        !isUnit &&
+        tempVariableName &&
+        bodyCode &&
+        !isControlFlowCode(bodyCode)
+      ) {
         context.emitter.emitLine(
           `${indent}  ${tempVariableName} = ${bodyCode};`
         );

@@ -22,6 +22,7 @@ description: "Use when making design decisions about the Yo language, writing st
 - Double quote string returns `str` type (contains `[u8]` byte slice)
 - Template string returns `String` type (utf-8 encoded `object` type)
 - `str` is a builtin type — don't use it as a variable or type name.
+- **Use template strings for constant `String` values**: Instead of `String.from("hello")`, write `` `hello` ``. Template strings without interpolation produce the same result but are more concise. This applies anywhere a `String` value is needed — return values, comparisons, arguments, etc.
 
 ## Box and box
 

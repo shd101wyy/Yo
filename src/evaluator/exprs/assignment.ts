@@ -612,6 +612,7 @@ Consider using Dyn(...) for dynamic dispatch if you need to reassign to differen
         value: VUnit,
         type: VUnit.type,
         pathCollection: [],
+        isCompileTimeOnlyAssignment: variable.isCompileTimeOnly,
       };
     } else {
       expr.$ = {
@@ -620,6 +621,7 @@ Consider using Dyn(...) for dynamic dispatch if you need to reassign to differen
         value: variable.value?.[0],
         type: variable.type,
         pathCollection: [],
+        isCompileTimeOnlyAssignment: variable.isCompileTimeOnly,
       };
 
       // This temp variable is used to hold the old value of lhs
@@ -929,6 +931,17 @@ Consider using Dyn(...) for dynamic dispatch if you need to reassign to differen
       // Update the element in the source array directly
       arrayElementRef.arrayValue.elements[arrayElementRef.index] = rhs.$.value;
       // Both LHS (array element) and RHS are compile-time known
+      isCompileTimeOnlyAssignment = true;
+    }
+
+    // Fallback: if both LHS and RHS have compile-time values but the specific
+    // handlers above didn't fire (e.g. comptime pointer deref with UnknownValue
+    // params during function body analysis), mark as compile-time-only.
+    if (
+      !isCompileTimeOnlyAssignment &&
+      evaluatedLhs.$?.value !== undefined &&
+      rhs.$?.value !== undefined
+    ) {
       isCompileTimeOnlyAssignment = true;
     }
 

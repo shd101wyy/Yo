@@ -57,8 +57,21 @@ impl(forall(T : Type), Deque(T),
     while (i < self._len), (i = (i + usize(1))), {
       idx := ((self._head + i) % self._capacity);
       buf := self._buf.unwrap();
-      (new_buf &+ i).* = (buf &+ idx).*;
+      consume((new_buf &+ i).* = (buf &+ idx).*);
     };
+    // Drop old elements for RC types before freeing old buffer
+    // (the copy above duped each element, so old slots still hold references)
+    cond(
+      Type.contains_rc_type(T) => {
+        j := usize(0);
+        while (j < self._len), (j = (j + usize(1))), {
+          old_idx := ((self._head + j) % self._capacity);
+          old_buf := self._buf.unwrap();
+          unsafe.drop((old_buf &+ old_idx).*);
+        };
+      },
+      true => ()
+    );
     match(self._buf,
       .Some(p) => free(.Some(*(void)(p))),
       .None    => ()
@@ -76,7 +89,7 @@ impl(forall(T : Type), Deque(T),
       true => ()
     );
     buf := self._buf.unwrap();
-    (buf &+ self._tail).* = val;
+    consume((buf &+ self._tail).* = val);
     self._tail = ((self._tail + usize(1)) % self._capacity);
     self._len  = (self._len + usize(1));
   }),
@@ -92,7 +105,7 @@ impl(forall(T : Type), Deque(T),
       true => (self._head - usize(1))
     );
     buf := self._buf.unwrap();
-    (buf &+ self._head).* = val;
+    consume((buf &+ self._head).* = val);
     self._len = (self._len + usize(1));
   }),
 
@@ -102,7 +115,9 @@ impl(forall(T : Type), Deque(T),
       (self._len == usize(0)) => .None,
       true => {
         buf := self._buf.unwrap();
-        val := (buf &+ self._head).*;
+        element_ptr := (buf &+ self._head);
+        val := element_ptr.*;
+        unsafe.drop(element_ptr.*);
         self._head = ((self._head + usize(1)) % self._capacity);
         self._len  = (self._len - usize(1));
         .Some(val)
@@ -120,7 +135,9 @@ impl(forall(T : Type), Deque(T),
           true => (self._tail - usize(1))
         );
         buf := self._buf.unwrap();
-        val := (buf &+ self._tail).*;
+        element_ptr := (buf &+ self._tail);
+        val := element_ptr.*;
+        unsafe.drop(element_ptr.*);
         self._len = (self._len - usize(1));
         .Some(val)
       }

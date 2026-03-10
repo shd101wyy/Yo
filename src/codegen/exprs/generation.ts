@@ -37,6 +37,11 @@ import {
   getVariableNameForCodegen,
 } from "../utils";
 import { generateOpAnd, generateOpOr } from "./and-or";
+import {
+  generateArcTypeCall,
+  generateYoArcDispose,
+  isArcTypeCall,
+} from "./arc";
 import { generateAnonymousArray, generateYoArrayFill } from "./array-fns";
 import { generateAssignment } from "./assignment";
 import { generateAsyncBlock, generateIoAsyncSyncCall } from "./async";
@@ -472,11 +477,21 @@ function generateFuncCall(
     return generateYoIsoDispose(expr, indent, context);
   }
 
+  // __yo_arc_dispose - dispose inner value of Arc when refcount hits 0
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_arc_dispose)) {
+    return generateYoArcDispose(expr, indent, context);
+  }
+
   // Iso(T)(value) - Iso value constructor
   // Check if this is a call to an Iso type constructor (not just any expression returning Iso type)
   // The function being called must be a TypeValue containing an IsoType
   if (isIsoTypeCall(expr)) {
     return generateIsoTypeCall(expr, indent, context);
+  }
+
+  // Arc(T)(value) - Arc value constructor
+  if (isArcTypeCall(expr)) {
+    return generateArcTypeCall(expr, indent, context);
   }
 
   // __yo_sometype_drop - dispatch to resolvedConcreteType's ___drop if available

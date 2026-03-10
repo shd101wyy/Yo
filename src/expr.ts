@@ -649,6 +649,7 @@ export const BuiltinKeywords = {
 
   Ptr: ["*"],
   Iso: ["Iso"],
+  Arc: ["Arc"],
 
   Tuple: ["Tuple"],
   Array: ["Array"],
@@ -709,6 +710,7 @@ export const BuiltinFunctions = {
 
   // Slice related functions
   __yo_slice_len: ["__yo_slice_len"],
+  __yo_slice_new: ["__yo_slice_new"],
 
   // Type casting for primitives and pointers (generic form)
   __yo_as: ["__yo_as"], // expr related functions
@@ -1114,6 +1116,7 @@ export const BuiltinFunctions = {
   __yo_rc_own: ["__yo_rc_own"], // return the value itself, but set isOwningTheRcValue to be true. This is useful for implementing ___dup function.
   __yo_iso_extract: ["__yo_iso_extract"], // extract inner value from Iso(T), returns Option(T)
   __yo_iso_dispose: ["__yo_iso_dispose"], // dispose inner value of Iso if not extracted
+  __yo_arc_dispose: ["__yo_arc_dispose"], // dispose inner value of Arc when refcount hits 0
 
   // Garbage collection for cycle detection
   __yo_gc_collect: ["__yo_gc_collect"], // manually trigger garbage collection
@@ -1140,6 +1143,11 @@ export const BuiltinFunctions = {
   __yo_noop: ["__yo_noop"],
   __yo_return_self: ["__yo_return_self"],
   __yo_ms_sleep: ["__yo_ms_sleep"],
+
+  // Crypto random
+  __yo_getrandom: ["__yo_getrandom"],
+  __yo_arc4random_buf: ["__yo_arc4random_buf"],
+  __yo_bcrypt_gen_random: ["__yo_bcrypt_gen_random"],
 
   // MaybeUninit
   __yo_maybe_uninit_new: ["__yo_maybe_uninit_new"],
@@ -2198,8 +2206,33 @@ export function setExprAsNeedsToCallDup(
     return;
   }
 
-  if (expr.$.value || !expr.$.variableName) {
-    return; // DO NOT call dup on expression that evaluates to compile-time known value or doesn't have temp variable name, like __yo_rc_own.
+  if (!expr.$.variableName) {
+    return; // No temp variable name — nothing to consume.
+  }
+
+  // If the expression has a compile-time known value, we normally skip dup/consumption.
+  // However, if the expression has an owning RC temp variable, we must still consume it
+  // to prevent the evaluator from generating a bogus drop for a variable that won't be
+  // declared in the C output (compile-time values are inlined).
+  if (expr.$.value) {
+    const variableName = expr.$.variableName;
+    if (
+      variableName &&
+      isTempVariableName(expr.$.env.modulePath, variableName) &&
+      typeContainsRcType(expr.$.type)
+    ) {
+      const variables = getVariablesFromEnv(expr.$.env, variableName);
+      if (variables.length > 0) {
+        const variable = variables[variables.length - 1]!;
+        if (variable.isOwningTheRcValue && !variable.consumedAtToken) {
+          expr.$.env = updateExistingVariable(expr.$.env, variable, {
+            ...variable,
+            consumedAtToken: expr.token,
+          });
+        }
+      }
+    }
+    return;
   }
 
   const variableName = expr.$.variableName;

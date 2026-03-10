@@ -27,6 +27,7 @@ import { areTypesCompatible } from "../../types/compatibility";
 import { createExprType } from "../../types/creators";
 import type { FunctionType, SomeType, Type } from "../../types/definitions";
 import {
+  isArcType,
   isArrayType,
   isComptimeFloatType,
   isComptimeIntType,
@@ -78,6 +79,7 @@ import { evaluateExpression } from "../exprs/expr";
 import { extractFnTraitFromType } from "../trait-checking";
 import { evaluateFunctionReturnTypeAgain } from "../types/function";
 import { evaluateAnonymousStructValue } from "../values/anonymous-struct";
+import { evaluateArcValueCall } from "./arc";
 import { tryToCallArrayWithArguments } from "./array";
 import { tryToImplementArrayByArrayType } from "./array-type";
 import { tryToImplementClosureByFnModuleType } from "./closure-type";
@@ -1227,6 +1229,45 @@ ${isTypeValue(value) ? typeToString(value.value) : typeToString(functionToCall.t
                 },
               };
             }
+          }
+          // Arc value constructor: Arc(T)(value)
+          else if (isTypeValue(value) && isArcType(value.value)) {
+            const arcType = value.value;
+            if (argsToUse.length !== 1) {
+              return {
+                ...functionToCall,
+                result: {
+                  kind: "error",
+                  error: formatErrorMessage({
+                    token: func.token,
+                    errorMessage: `Arc value constructor expects exactly 1 argument, got ${argsToUse.length}`,
+                  }),
+                },
+              };
+            }
+            try {
+              const result = evaluateArcValueCall({
+                expr,
+                env,
+                context: { ...context },
+                arcType,
+              });
+              return {
+                ...functionToCall,
+                result: {
+                  kind: "arc-value",
+                  result,
+                },
+              };
+            } catch (error) {
+              return {
+                ...functionToCall,
+                result: {
+                  kind: "error",
+                  error: error as Error | YoError,
+                },
+              };
+            }
           } else {
             return {
               ...functionToCall,
@@ -2064,6 +2105,14 @@ ${functionsWithMatchingTypes.map((matchedFunction) => `${typeToString(matchedFun
       isIsoType(functionToCallValue.value)
     ) {
       // This should already be evaluated by evaluateIsoValueCall
+      return expr;
+    }
+    // Arc value constructor: Arc(T)(value)
+    else if (
+      isTypeValue(functionToCallValue) &&
+      isArcType(functionToCallValue.value)
+    ) {
+      // This should already be evaluated by evaluateArcValueCall
       return expr;
     }
     // array & slice

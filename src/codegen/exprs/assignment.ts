@@ -100,18 +100,39 @@ export function generateAssignment(
   if (expr.$?.variableName) {
     const tempVarName = expr.$.variableName;
 
-    // Skip temp variable declaration in state machines if lhsCode already accesses sm->var_xxx
+    // In state machines, temp variables live in the state struct as sm->var_{id} fields.
+    // When the LHS is a state machine field (sm->), we cannot declare a local temp var.
+    // Instead, we save the old value directly into the state struct field.
     const functionContext = context as FunctionGenerationContext;
-    const skipTempVar =
+    const inStateMachine =
       (functionContext.inAsyncStateMachine ||
         functionContext.inEffectStateMachine) &&
       lhsCode.startsWith("sm->");
 
-    if (skipTempVar) {
-      skippedTempVar = true;
-    }
-
-    if (!skipTempVar) {
+    if (inStateMachine) {
+      // Look up the temp var in the state machine variables map to get its field name
+      let capturedVar = functionContext.stateMachineVariables?.get(tempVarName);
+      if (!capturedVar && functionContext.stateMachineVariables) {
+        for (const [, cv] of functionContext.stateMachineVariables) {
+          if (cv.name === tempVarName) {
+            capturedVar = cv;
+            break;
+          }
+        }
+      }
+      if (capturedVar && capturedVar.kind !== "outer") {
+        // Save old value to state machine field before reassignment
+        const smFieldName = `var_${capturedVar.id}`;
+        if (!isUnitType(lhs.$.type)) {
+          context.emitter.emitLine(
+            `${indent}sm->${smFieldName} = ${lhsCode}; // Save old value for deferred drop`
+          );
+        }
+      } else {
+        // No matching field found — skip (should not happen in practice)
+        skippedTempVar = true;
+      }
+    } else {
       const tempVarNameAndType = getVariableTypeString(
         lhs.$.type,
         tempVarName,

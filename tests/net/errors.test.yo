@@ -1,0 +1,90 @@
+open import "std/libc/stdio";
+open import "std/string";
+open import "std/fmt";
+{ NetError } :: import "std/net/errors";
+{ IOError } :: import "std/sys/errors";
+
+// ============================================================================
+// NetError tests
+// ============================================================================
+
+test "NetError.from_io maps ConnectionRefused", {
+  io_err := IOError.ConnectionRefused;
+  net_err := NetError.from_io(io_err);
+  s := net_err.to_string();
+  printf("  err = %s\n", s.to_cstr().ptr().unwrap());
+  assert((s == `connection refused`), "should be connection refused");
+};
+
+test "NetError.from_io maps ConnectionReset", {
+  io_err := IOError.ConnectionReset;
+  net_err := NetError.from_io(io_err);
+  s := net_err.to_string();
+  printf("  err = %s\n", s.to_cstr().ptr().unwrap());
+  assert((s == `connection reset by peer`), "should be connection reset");
+};
+
+test "NetError.from_io maps TimedOut", {
+  io_err := IOError.TimedOut;
+  net_err := NetError.from_io(io_err);
+  s := net_err.to_string();
+  printf("  err = %s\n", s.to_cstr().ptr().unwrap());
+  assert((s == `operation timed out`), "should be timed out");
+};
+
+test "NetError.from_io wraps unknown error in IO variant", {
+  io_err := IOError.WouldBlock;
+  net_err := NetError.from_io(io_err);
+  s := net_err.to_string();
+  printf("  err = %s\n", s.to_cstr().ptr().unwrap());
+  // WouldBlock maps to IO(WouldBlock), which prints the IOError's to_string
+};
+
+test "NetError.from_result positive value returns Ok", {
+  r := NetError.from_result(i32(42));
+  match(r,
+    .Ok(n) => {
+      printf("  ok = %d\n", n);
+      assert((n == i32(42)), "should be 42");
+    },
+    .Err(_) => assert(false, "should be Ok")
+  );
+};
+
+test "NetError.from_result zero returns Ok", {
+  r := NetError.from_result(i32(0));
+  match(r,
+    .Ok(n) => {
+      printf("  ok = %d\n", n);
+      assert((n == i32(0)), "should be 0");
+    },
+    .Err(_) => assert(false, "should be Ok")
+  );
+};
+
+test "NetError.from_result negative value returns Err", {
+  // -111 is ECONNREFUSED on Linux
+  r := NetError.from_result(i32(-111));
+  match(r,
+    .Ok(_) => assert(false, "should be Err"),
+    .Err(e) => {
+      s := e.to_string();
+      printf("  err = %s\n", s.to_cstr().ptr().unwrap());
+    }
+  );
+};
+
+test "NetError DNSFailed to_string", {
+  err := NetError.DNSFailed(`example.com`);
+  s := err.to_string();
+  printf("  err = %s\n", s.to_cstr().ptr().unwrap());
+  assert(s.includes(`DNS lookup failed`), "should contain DNS lookup failed");
+  assert(s.includes(`example.com`), "should contain hostname");
+};
+
+test "NetError Other to_string", {
+  err := NetError.Other(`custom error message`);
+  s := err.to_string();
+  printf("  err = %s\n", s.to_cstr().ptr().unwrap());
+  assert((s == `custom error message`), "should match");
+};
