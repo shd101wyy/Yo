@@ -31,7 +31,7 @@ syn keyword yoKeyword let var while for select forall mut const in out inout ref
 syn keyword yoKeyword open import export from as extern module trait c_include using exists where
 syn keyword yoKeyword type fn macro enum struct newtype union object actor impl dyn box chan static
 syn keyword yoKeyword if cond then else switch case default match try with
-syn keyword yoKeyword sizeof alignof typeof gensym consume take drop clone dup quote unquote unquote_splicing comptime_expect_error comptime_assert array tuple comptime_list begin and or not the macro_expand runtime
+syn keyword yoKeyword sizeof alignof typeof gensym consume take drop clone dup quote unquote unquote_splicing comptime_expect_error comptime_assert downcast array tuple comptime_list begin and or not the macro_expand runtime
 syn keyword yoKeyword async await spawn infix infixl infixr
 
 " Type declarations and kinds  
