@@ -12,7 +12,7 @@ Yo uses a simplified ownership model with clear rules:
 
 Both `:=` (initialization) and `=` (reassignment) make the LHS **own** the value:
 
-```yo
+```rust
 x := Point(3, 4);   // temp_var owns Point(3, 4), RC = 1
                     // ___dup(temp_var), x owns, RC = 2
 y := x;             // ___dup(x), y owns, RC = 3
@@ -26,7 +26,7 @@ z = y;              // ___dup(y), ___drop(old z), z owns, RC = 4
 
 Function parameters **borrow** by default (no reference count change). The absence of `own()` explicitly means the parameter borrows:
 
-```yo
+```rust
 fn print_point(p : Point) -> unit {
   printf("(%d, %d)", p.x, p.y);  // Just reading, no RC overhead
 }
@@ -54,7 +54,7 @@ match(result,
 
 You can mutate **through** a parameter (modify fields), but cannot **reassign** the parameter itself:
 
-```yo
+```rust
 fn move_point(p : Point, dx : i32, dy : i32) -> unit {
   p.x = (p.x + dx);  // ✅ OK: Mutating field through parameter
   p.y = (p.y + dy);  // ✅ OK: Mutating field through parameter
@@ -105,7 +105,7 @@ fn call_consume_but_keep_using(p : Box(i32)) -> unit { // p borrows by default
 
 Each heap allocated ARC value starts with a single owner. Its reference counter starts at 1.
 
-```yo
+```rust
 Point :: object(x : i32, y : i32);
 
 Point(3, 4); // temp_var owns the Point(3, 4), RC = 1
@@ -115,7 +115,7 @@ Point(3, 4); // temp_var owns the Point(3, 4), RC = 1
 
 Using `:=` for initialization calls `___dup` to create a new owner:
 
-```yo
+```rust
 p1 := Point(3, 4); // temp_var owns Point(3, 4), RC = 1
                    // ___dup(temp_var)
                    // p1 now owns the value, RC = 2
@@ -123,7 +123,7 @@ p1 := Point(3, 4); // temp_var owns Point(3, 4), RC = 1
 
 When an owned variable goes out of scope, we automatically call `___drop` on it:
 
-```yo
+```rust
 p1 := Point(3, 4); // temp_var owns Point(3, 4), RC = 1
                    // ___dup(temp_var), p1 owns, RC = 2
 
@@ -136,7 +136,7 @@ ___drop(temp_var); // RC = 0, memory freed
 
 Function parameters do not increment the reference count:
 
-```yo
+```rust
 fn use_point(p : Point) -> unit {
   printf("(%d, %d)", p.x, p.y);  // p borrows, no RC change
 }
@@ -151,7 +151,7 @@ use_point(point);      // No ___dup, p borrows point
 
 **Critical Issue**: Naive borrowing without lifetime analysis leads to use-after-free bugs!
 
-```yo
+```rust
 x := box(12);      // temp_var_x owns box(12), RC = 1
                    // ___dup(temp_var_x), x owns, RC = 2
 {
@@ -171,7 +171,7 @@ printf("%d\n", x.*); // BUG: x would point to freed memory!
 
 With our model (assignments always own):
 
-```yo
+```rust
 x := box(12);      // ___dup, x owns, RC = 2
 {
   y := box(13);    // ___dup, y owns, RC = 2
@@ -198,7 +198,7 @@ Yo prioritizes **safety and simplicity** with a path to optimization:
 
 **Example - simple and safe:**
 
-```yo
+```rust
 x := box(12);
 {
   y := box(13);
@@ -221,7 +221,7 @@ printf("%d\n", x.*); // Always works: x owns a valid reference
 
 **Always call `___dup` on the RHS when assigning ARC values:**
 
-```yo
+```rust
 p1 := Point(3, 4); // ___dup(temp_var), p1 owns
 p2 := Point(5, 6); // ___dup(temp_var2), p2 owns
 
@@ -236,7 +236,7 @@ ___drop(temp_var);
 
 **Field/index assignment also calls `___dup`:**
 
-```yo
+```rust
 data.point = p1;   // ___dup(p1), storing into data structure
 arr(0) = p1;       // ___dup(p1), storing into array
 ```
@@ -245,7 +245,7 @@ arr(0) = p1;       // ___dup(p1), storing into array
 
 **Always call `___dup` when passing to struct/enum/array constructors:**
 
-```yo
+```rust
 p1 := Point(3, 4);           // p1 owns
 data := Data(p1);            // ___dup(p1), data owns a copy
 arr := [p1,];                 // ___dup(p1), array owns a copy
@@ -256,7 +256,7 @@ result := Result(Point).Ok(p1); // ___dup(p1), enum owns a copy
 
 **Call `___dup` when returning a borrowed parameter:**
 
-```yo
+```rust
 fn identity(p : Point) -> Point {  // p borrows (parameter)
   return p;  // ___dup(p), return value owns a copy
 }
@@ -274,7 +274,7 @@ fn create() -> Point {
 
 **Begin blocks:**
 
-```yo
+```rust
 x := box(1);
 y := {
   ();
@@ -285,7 +285,7 @@ y := {
 
 **Match expressions:**
 
-```yo
+```rust
 optional := Option(Box(i32)).Some(box(42)); // optional owns
 x := match(optional,
   .Some(value) => // `value` here is borrowed, not owned
@@ -326,7 +326,7 @@ fn call_consume(p : Box(i32)) -> unit {
 
 **No `___dup` when passing to borrowed parameters (parameters without `own()`):**
 
-```yo
+```rust
 fn print_point(p : Point) -> unit {  // p borrows (no own keyword)
   printf("(%d, %d)", p.x, p.y);
 }
@@ -337,7 +337,7 @@ print_point(point);    // No ___dup! p borrows point
 
 **Destructuring in match expressions also borrows:**
 
-```yo
+```rust
 match(optional,
   .Some(value) => {
     // `value` borrows from optional, no ___dup
@@ -399,7 +399,7 @@ The straightforward "always own" model is now fully implemented:
 
 **Example:**
 
-```yo
+```rust
 fn process(p : Point) -> unit {
   p.x = 10;        // ✅ OK: Mutate field (if Point is mutable)
   p = Point(0, 0); // ❌ ERROR: Cannot reassign parameter
@@ -428,7 +428,7 @@ We've implemented a **same-value ownership tracking** optimization that eliminat
 
 When a variable is assigned from another variable, we track the ownership relationship:
 
-```yo
+```rust
 x := Point(3, 4);   // x owns Point(3, 4)
 y := x;             // y owns Point(3, 4), y.isOwningTheSameRcValueAs = x
 
@@ -454,7 +454,7 @@ y := x;             // y owns Point(3, 4), y.isOwningTheSameRcValueAs = x
 
 **Example with reassignment in branches:**
 
-```yo
+```rust
 x := MyBox(42);
 cond(
   some_cond() => { x = MyBox(100); },  // Creates temp for old value
@@ -481,7 +481,7 @@ cond(
 
 The optimization correctly handles branches with early returns (return, break, continue):
 
-```yo
+```rust
 segments := ArrayList(Box(i32)).new();
 cond(
   (condition) => {
@@ -511,7 +511,7 @@ This means:
 
 The optimization must respect C's value type semantics. When assigning value types in C (structs, unions, arrays), the assignment performs a **shallow copy (memcpy)**:
 
-```yo
+```rust
 // Value type (struct) with RC field:
 x := { box(42) };   // temp owns struct, x.isOwningTheSameRcValueAs = temp
 y := x;             // y.isOwningTheSameRcValueAs = x

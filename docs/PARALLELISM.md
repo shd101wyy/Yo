@@ -32,7 +32,7 @@ See `ASYNC_AWAIT.md` for single-threaded concurrency.
 
 ### API
 
-```yo
+```rust
 Thread :: struct(
   handle : __yo_thread_t,
 
@@ -50,7 +50,7 @@ Thread :: struct(
 
 ### Usage
 
-```yo
+```rust
 // Spawn a dedicated thread
 thread := Thread.spawn(() => {
   printf("Hello from thread %zu\n", Thread.get_id());
@@ -74,7 +74,7 @@ thread.join();
 
 ### API
 
-```yo
+```rust
 Worker :: impl {
   // Spawn a task on the thread pool
   // Returns immediately, task runs in background
@@ -92,7 +92,7 @@ Worker :: impl {
 
 ### Usage
 
-```yo
+```rust
 // Spawn many tasks on thread pool
 for i in range(0, 100), {
   Worker.spawn(() => {
@@ -134,7 +134,7 @@ for i in range(0, 100), {
 
 Channels will be implemented separately to enable communication between threads/workers.
 
-```yo
+```rust
 // Future API (not yet implemented)
 Channel :: (fn(comptime(T) : Type) -> comptime(Type)) {
   object(
@@ -167,7 +167,7 @@ Only types that implement `Send` can cross thread boundaries:
 - **Sendable**: primitives (`i32`, `bool`, etc.), value structs composed of Send fields
 - **Not Sendable**: `object(...)`, `Dyn`, closures capturing non-Send values
 
-```yo
+```rust
 // ✅ Sendable
 Point :: struct(x: i32, y: i32);
 Thread.spawn(() => {
@@ -219,7 +219,7 @@ This means:
 
 ### Quick Reference
 
-```yo
+```rust
 // Dedicated thread
 thread := Thread.spawn(() => { /* work */ });
 thread.join();

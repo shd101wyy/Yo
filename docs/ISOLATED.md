@@ -64,7 +64,7 @@ In the future, we will support the `derive` keyword to automatically generate `I
    - If `T` contains nested objects, they must also be uniquely owned
    - Checked via `v.can_isolate()` method (see Isolation trait below)
 
-```yo
+```rust
 // ❌ Rejected: x has alias y
 x := box(1);
 y := x;                    // y.isOwningTheSameRcValueAs = x
@@ -82,7 +82,7 @@ iso2 := iso;               // Atomic dup - safe!
 
 The `__yo_iso_extract` builtin extracts the inner value from an `Iso(T)`, returning `Option(T)`.
 
-```yo
+```rust
 iso := Iso(Box(i32))(box(42));
 val_opt := __yo_iso_extract(iso);    // val_opt : Option(Box(i32))
 
@@ -114,7 +114,7 @@ For convenience, use the `^` macro to isolate values with automatic type inferen
 
 ### Basic Usage
 
-```yo
+```rust
 x := Data(12);
 iso_opt := ^(x);  // Returns Option(Iso(Data))
 
@@ -184,7 +184,7 @@ Option_T __yo_iso_extract_T(Iso_T* iso) {
 
 ## Example: Thread-Safe Usage
 
-```yo
+```rust
 // Create isolated string
 s := String("Hello");
 iso := Iso(String)(s);    // s has no aliases, OK
@@ -214,7 +214,7 @@ match(msg2_opt,
 
 ## Example: Invalid Isolation
 
-```yo
+```rust
 // ❌ Cannot isolate: has alias
 x := box(42);
 y := x;                    // y.isOwningTheSameRcValueAs = x
