@@ -3,6 +3,8 @@ import {
   isBoxedType,
   isDynType,
   isEnumType,
+  isNewtypeType,
+  isObjectType,
   isSomeType,
 } from "../../types/guards";
 import { isTypeValue } from "../../value";
@@ -105,9 +107,30 @@ export function generateDowncast(
   }
 
   if (wasBoxed) {
-    // For boxed types: extract the value from the box and dup the value (not the box).
-    // The value inside the box is what we're returning, so its RC needs incrementing.
-    castExpr = `((${targetTypeCName})__yo_incr_rc((void*)((${boxTypeCName}*)${dynCode}.data)->${boxFieldName}))`;
+    // For boxed types: extract the value from the box.
+    // If the inner value is reference-counted (object type or newtype wrapping
+    // an object), we must dup it. Otherwise (simple enums, value structs) just
+    // copy the value.
+    //
+    // Newtypes are typedef'd to their underlying type in C, so a newtype
+    // wrapping an object (e.g., String = newtype(ArrayList(u8))) IS a pointer
+    // and needs __yo_incr_rc even though isReferenceSemantics is false on the
+    // newtype itself.
+    let needsRcDup = isObjectType(targetType);
+    if (!needsRcDup) {
+      // Recursively unwrap newtypes to check if the underlying type is an object
+      let unwrapped = targetType;
+      while (isNewtypeType(unwrapped) && unwrapped.fields.length === 1) {
+        unwrapped = unwrapped.fields[0]!.type;
+      }
+      needsRcDup = isObjectType(unwrapped);
+    }
+
+    if (needsRcDup) {
+      castExpr = `((${targetTypeCName})__yo_incr_rc((void*)((${boxTypeCName}*)${dynCode}.data)->${boxFieldName}))`;
+    } else {
+      castExpr = `((${targetTypeCName})((${boxTypeCName}*)${dynCode}.data)->${boxFieldName})`;
+    }
   } else {
     castExpr = `((${targetTypeCName})__yo_incr_rc((void*)${dynCode}.data))`;
   }
