@@ -61,7 +61,6 @@ import { generateExpr } from "./expr";
 import { generateYoGcCollect } from "./gc";
 import { generateInitializationAssignment } from "./initialization-assignment";
 import { generateYoInlineFunctionCall } from "./inline-fns";
-import { generateIs } from "./is";
 import {
   generateIsoTypeCall,
   generateYoIsoDispose,
@@ -709,10 +708,6 @@ function generateFuncCall(
   // typeid
   else if (exprIsFunctionCallOf(expr, BuiltinFunctions.typeid, 1)) {
     return generateTypeId(expr, indent, context);
-  }
-  // is
-  else if (exprIsFunctionCallOf(expr, BuiltinFunctions.is, 2)) {
-    return generateIs(expr, indent, context);
   }
   // downcast
   else if (exprIsFunctionCallOf(expr, BuiltinFunctions.downcast, 2)) {

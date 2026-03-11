@@ -72,20 +72,19 @@ Using address-of-static guarantees uniqueness without a global counter, works ac
 
 ### 3. Vtable `__yo_type_id` (Compiler-internal)
 
-Every `Dyn` vtable auto-includes a `__yo_type_id` field (`uintptr_t`). This is always present regardless of which traits the Dyn includes. The cost is one extra pointer-sized value per vtable (negligible), enabling universal `is`/`downcast` support on all Dyn values.
+Every `Dyn` vtable auto-includes a `__yo_type_id` field (`uintptr_t`). This is always present regardless of which traits the Dyn includes. The cost is one extra pointer-sized value per vtable (negligible), enabling universal `downcast` support on all Dyn values.
 
-The compiler automatically populates `__yo_type_id` with `(uintptr_t)&yo_typeid_<concreteType>` for every concrete type used with `dyn()`. No user-facing `TypeId` trait is needed — runtime type identity is handled entirely by the compiler through the `is()` and `downcast()` builtins.
+The compiler automatically populates `__yo_type_id` with `(uintptr_t)&yo_typeid_<concreteType>` for every concrete type used with `dyn()`. No user-facing `TypeId` trait is needed — runtime type identity is handled entirely by the compiler through the `downcast()` builtin.
 
 ---
 
-### 4. `is` and `downcast` — Builtin Functions ✅
+### 4. `downcast` — Builtin Function ✅
 
-Both `is` and `downcast` are **builtin functions** (like `typeid`, `sizeof`). They take the Dyn value as the first argument and the target type as the second.
+`downcast` is a **builtin function** (like `typeid`, `sizeof`). It takes a Dyn value as the first argument and the target type as the second.
 
-**Signatures**:
+**Signature**:
 
 ```yo
-is(dyn_value, T)       // → bool: dyn_value.vtable->__yo_type_id == typeid(T)
 downcast(dyn_value, T) // → Option(T)
 ```
 
@@ -94,30 +93,27 @@ downcast(dyn_value, T) // → Option(T)
 ```yo
 (animal : Animal) = dyn(Cat(`kitty`));
 
-// Type check
-if is(animal, Cat), {
-  printf("it's a cat!\n");
-};
-
-// Safe downcast
+// Safe downcast with type check
 match(downcast(animal, Cat),
   .Some(cat) => printf("Cat: %s\n", cat.name.as_str()),
   .None => printf("not a Cat\n")
 );
+
+// Type check only (no separate is() needed)
+if downcast(animal, Cat).is_some(), {
+  printf("it's a cat!\n");
+};
 ```
 
-**Why builtin functions instead of methods**: `is` and `downcast` take compile-time type parameters (`comptime(T) : Type`), which cannot be dispatched through a vtable at runtime. Making them regular trait methods would require special compiler magic to handle the comptime parameter. As builtin functions, they're simple, universal, and avoid naming conflicts with user-defined trait methods.
+**Why a builtin function instead of a method**: `downcast` takes a compile-time type parameter (`comptime(T) : Type`), which cannot be dispatched through a vtable at runtime. As a builtin function, it's simple, universal, and avoids naming conflicts with user-defined trait methods.
 
-**`typeid` remains compile-time only**: `typeid(T)` only accepts compile-time Type values. It does NOT accept Dyn values at runtime — use `is()` for runtime type checks instead. This keeps `typeid` simple and avoids C codegen issues with operator evaluation on Dyn values.
+**`typeid` remains compile-time only**: `typeid(T)` only accepts compile-time Type values. It does NOT accept Dyn values at runtime.
 
 **`downcast` return type**: `downcast(dyn_value, T)` always returns `Option(T)`. Since `Dyn` only wraps object types (reference-counted), `T` is always a reference type. The result is an owned RC reference with incremented refcount, safe to use independently of the Dyn value's lifetime.
 
 **C codegen**:
 
 ```c
-// is(animal, Cat)  =>
-(animal.vtable->__yo_type_id == (uintptr_t)&yo_typeid_Cat)
-
 // downcast(animal, Cat)  =>
 (animal.vtable->__yo_type_id == (uintptr_t)&yo_typeid_Cat)
   ? (Option_Cat){ .tag = 1, .Some = __yo_incr_rc((Cat*)animal.data) }
@@ -126,13 +122,13 @@ match(downcast(animal, Cat),
 
 **RC safety for `downcast`**: The downcast result holds a reference to the same object as the Dyn value. The codegen emits `__yo_incr_rc` on the cast pointer so the Option result owns its own reference. The evaluator uses `attachTempVariableToExpr(expr, true)` for automatic drop tracking.
 
-**Implementation**: `is` in `src/evaluator/builtins/is.ts` + `src/codegen/exprs/is.ts`. `downcast` in `src/evaluator/builtins/downcast.ts` + `src/codegen/exprs/downcast.ts`. Both wired into `_expr.ts` and `generation.ts` dispatchers.
+**Implementation**: `downcast` in `src/evaluator/builtins/downcast.ts` + `src/codegen/exprs/downcast.ts`. Wired into `_expr.ts` and `generation.ts` dispatchers.
 
 ---
 
 ### 5. ~~`dyn_cast`~~ — Removed
 
-`dyn_cast` has been removed. `downcast()` and `is()` cover all use cases. Dyn only wraps object types, so there's no need for an unsafe unchecked cast.
+`dyn_cast` has been removed. `downcast()` covers all use cases. Dyn only wraps object types, so there's no need for an unsafe unchecked cast.
 
 ---
 
@@ -211,21 +207,20 @@ handle_error :: (fn(err : AnyError) -> unit)({
 
 ### Phase 4: ~~`dyn_cast` Builtin~~ — Removed
 
-`dyn_cast` has been removed. `downcast()` and `is()` cover all use cases.
+`dyn_cast` has been removed. `downcast()` covers all use cases.
 
-### Phase 5: `is` and `downcast` Builtin Functions ✅
+### Phase 5: `downcast` Builtin Function ✅
 
-1. Add `is` to `BuiltinFunctions` — evaluator returns `bool`, codegen emits vtable typeid comparison ✅
-2. Add `downcast` to `BuiltinFunctions` — evaluator returns `Option(T)`, codegen emits tagged union ✅
-3. Argument order: `is(dyn_value, T)`, `downcast(dyn_value, T)` — subject first, type second ✅
-4. These are standalone builtins, not methods — no trait injection or method resolution changes ✅
-5. `typeid` remains compile-time only (accepts Type values, not Dyn values) ✅
-6. RC safety: downcast uses `__yo_incr_rc` + `attachTempVariableToExpr` for correct refcounting ✅
+1. Add `downcast` to `BuiltinFunctions` — evaluator returns `Option(T)`, codegen emits tagged union ✅
+2. Argument order: `downcast(dyn_value, T)` — subject first, type second ✅
+3. Standalone builtin, not a method — no trait injection or method resolution changes ✅
+4. `typeid` remains compile-time only (accepts Type values, not Dyn values) ✅
+5. RC safety: downcast uses `__yo_incr_rc` + `attachTempVariableToExpr` for correct refcounting ✅
 
 ### Phase 6: Update `Error` Trait
 
 1. Update `std/error.yo` to use `SelfTrait` in `source` return type ✅ (already done)
-2. Remove TODO comments for `is`/`downcast_ref` — now handled as builtin functions
+2. Remove TODO comments for `downcast` — now handled as builtin function
 3. Implement `Error` for common types (String, etc.)
 4. Add tests
 
@@ -243,8 +238,8 @@ handle_error :: (fn(err : AnyError) -> unit)({
 
 5. ~~**`dyn_cast` return type**~~: `dyn_cast` has been removed. `downcast(dyn_value, T)` always returns `Option(T)`.
 
-6. **`is`/`downcast` as methods vs builtins**: Considered three approaches: (a) builtin functions `dyn_is`/`dyn_downcast`, (b) built-in methods on Dyn types, (c) blanket `impl(forall(Trait), Dyn(Trait), ...)`. **Decision**: Option (a) — builtin functions `is(dyn_value, T)` and `downcast(dyn_value, T)`. Simplest approach; avoids trait injection, method resolution changes, and naming conflicts with user-defined trait methods. Argument order is subject-first (`is(animal, Cat)`) for natural reading. ✅
+6. **`downcast` as method vs builtin**: Considered three approaches: (a) builtin function, (b) built-in method on Dyn types, (c) blanket `impl(forall(Trait), Dyn(Trait), ...)`. **Decision**: Option (a) — builtin function `downcast(dyn_value, T)`. Simplest approach; avoids trait injection, method resolution changes, and naming conflicts with user-defined trait methods. ✅
 
-7. **`typeid` scope**: `typeid(T)` is compile-time only — accepts Type values, not Dyn values. Use `is()` for runtime type checks on Dyn values. ✅
+7. **`typeid` scope**: `typeid(T)` is compile-time only — accepts Type values, not Dyn values. ✅
 
-8. **`TypeId` trait**: No user-facing `TypeId` trait is needed. The compiler automatically populates `__yo_type_id` in every Dyn vtable. `is()` and `downcast()` builtins handle all runtime type checking. ✅
+8. **`TypeId` trait**: No user-facing `TypeId` trait is needed. The compiler automatically populates `__yo_type_id` in every Dyn vtable. `downcast()` builtin handles all runtime type checking. ✅

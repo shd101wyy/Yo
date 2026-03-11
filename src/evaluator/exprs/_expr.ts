@@ -45,7 +45,6 @@ import {
 import { evaluateYoGcCollect } from "../builtins/gc";
 import { evaluateGensym } from "../builtins/gensym";
 import { evaluateImplConstraint } from "../builtins/impl-constraint";
-import { evaluateIs } from "../builtins/is";
 import { evaluateMacroExpand } from "../builtins/macro-expand";
 import { evaluatePanic } from "../builtins/panic";
 import { evaluateYoProcessFunctions } from "../builtins/process";
@@ -428,9 +427,6 @@ ${exprToString(expr)}`,
     } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.typeid)) {
       // typeid
       return evaluateTypeId({ expr, env, context: { ...context } });
-    } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.is)) {
-      // is
-      return evaluateIs({ expr, env, context: { ...context } });
     } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.downcast)) {
       // downcast
       return evaluateDowncast({ expr, env, context: { ...context } });
