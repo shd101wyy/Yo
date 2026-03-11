@@ -3,30 +3,31 @@ open import "std/libc/stdio";
 open import "std/string";
 open import "std/fmt";
 
-Speak :: trait(
-  speak : (fn(self: *(Self)) -> String),
-  where(Self <: ToString)
+TypeId :: trait(
+  (type_id : (fn(self: *(Self)) -> usize)) ?= ((self) -> typeid(Self))
 );
 
 Cat :: object(name : String);
 impl(Cat, ToString(to_string : ((self) -> self.*.name)));
-impl(Cat, Speak(speak : ((self) -> `meow`)));
+impl(Cat, TypeId());
 
 Dog :: object(name : String);
 impl(Dog, ToString(to_string : ((self) -> self.*.name)));
-impl(Dog, Speak(speak : ((self) -> `woof`)));
+impl(Dog, TypeId());
 
 main :: (fn() -> unit) {
-  printf("=== Dyn TypeId test ===\n");
+  printf("=== TypeId trait test ===\n");
 
-  cat_id := typeid(Cat);
-  dog_id := typeid(Dog);
-  cat_id2 := typeid(Cat);
+  cat := Cat(`kitty`);
+  dog := Dog(`buddy`);
+
+  cat_id := cat.type_id();
+  dog_id := dog.type_id();
 
   printf("cat typeid: %zu\n", cat_id);
   printf("dog typeid: %zu\n", dog_id);
-  printf("cat typeid again: %zu\n", cat_id2);
-  printf("cat == cat: %d\n", cat_id == cat_id2);
+  printf("cat == cat: %d\n", cat_id == typeid(Cat));
+  printf("dog == dog: %d\n", dog_id == typeid(Dog));
   printf("cat == dog: %d\n", cat_id == dog_id);
 
   printf("done\n");

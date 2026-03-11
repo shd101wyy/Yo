@@ -381,12 +381,83 @@ Got:   ${typeToString(argType)}`,
     }
 
     if (!foundArgExpr) {
+      const typeExpr = traitField.exprs.typeExpr;
+      const defaultValueExpr = traitField.exprs.defaultValueExpr;
       const defaultValue = traitField.defaultValue;
       const assignedValue = traitField.assignedValue;
 
-      // Re-evaluate default value in the current context if it exists
+      // Re-evaluate default value expression in the current context with concrete Self.
+      // This is needed so that defaults referencing Self (e.g., typeid(Self)) get the
+      // concrete type. If re-evaluation fails (e.g., the default references Self methods
+      // not yet available during impl), fall back to the pre-evaluated defaultValue.
       let resolvedValue: Value | undefined = assignedValue;
-      if (!assignedValue && defaultValue) {
+      if (!assignedValue && defaultValueExpr) {
+        try {
+          // First, evaluate the type expression to get the concrete field type
+          // with Self resolved. This mirrors the foundArgExpr=true path which
+          // evaluates typeExpr before the argument expression.
+          let traitFieldType: Type | undefined;
+          if (typeExpr) {
+            const evaluatedTypeExpr = evaluateExpression({
+              expr: cloneExpr(typeExpr),
+              env: pushEnvFrame(
+                traitType.env,
+                callerEnv.frames[callerEnv.frames.length - 1]
+              ),
+              context: {
+                ...context,
+                expectedType: undefined,
+                ReceiverType: undefined,
+                SelfType: selfType,
+                SelfTraitType: traitType,
+              },
+            });
+            const typeValue = evaluatedTypeExpr.$?.value;
+            if (isTypeValue(typeValue)) {
+              traitFieldType = typeValue.value;
+            }
+          }
+
+          const evaluatedDefault = evaluateExpression({
+            expr: cloneExpr(defaultValueExpr),
+            env: pushEnvFrame(
+              traitType.env,
+              callerEnv.frames[callerEnv.frames.length - 1]
+            ),
+            context: {
+              ...context,
+              expectedType: traitFieldType
+                ? { type: traitFieldType, env: callerEnv }
+                : undefined,
+              ReceiverType: undefined,
+              SelfType: selfType,
+              SelfTraitType: traitType,
+            },
+          });
+          resolvedValue = evaluatedDefault.$?.value;
+
+          // If the resolved value is a function, add trait field label to funcId
+          // and specialize its type, matching the behavior when args are provided
+          if (resolvedValue && isFunctionValue(resolvedValue)) {
+            resolvedValue.funcId += `_${traitField.label}`;
+            if (
+              !resolvedValue.specializedType &&
+              traitFieldType &&
+              isFunctionType(traitFieldType)
+            ) {
+              resolvedValue.specializedType = {
+                ...traitFieldType,
+                parameters: resolvedValue.type.parameters,
+                parametersFrame: resolvedValue.type.parametersFrame,
+              } as FunctionType;
+            }
+          }
+        } catch {
+          // Re-evaluation failed — fall back to pre-evaluated default value
+          resolvedValue = defaultValue;
+        }
+      }
+      if (!resolvedValue && defaultValue) {
         resolvedValue = defaultValue;
       }
 
