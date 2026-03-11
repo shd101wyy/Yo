@@ -630,6 +630,10 @@ typedef struct yo_io_future_t {
     }
   }
 
+  // Generate Dyn type forward declarations before struct/enum types
+  // since enums (e.g., Option(Dyn(Error))) may contain Dyn types by value
+  generateDynForwardDeclarations(context);
+
   // Generate types in sorted order
   for (const { type, cName, kind } of sortedTypes) {
     if (kind === "struct" && isStructType(type)) {
@@ -1316,7 +1320,11 @@ export function generateEnumDeclaration(
 }
 
 // Re-export dyn functions from dyn.ts
-export { generateDynBoxTypes, generateDynDeclaration } from "./dyn";
+export {
+  generateDynBoxTypes,
+  generateDynDeclaration,
+  generateDynForwardDeclarations,
+} from "./dyn";
 
 // Import for internal use
-import { generateDynDeclaration } from "./dyn";
+import { generateDynDeclaration, generateDynForwardDeclarations } from "./dyn";

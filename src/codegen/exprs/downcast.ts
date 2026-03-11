@@ -1,5 +1,10 @@
 import type { FnCallExpr } from "../../expr";
-import { isDynType, isEnumType } from "../../types/guards";
+import {
+  isBoxedType,
+  isDynType,
+  isEnumType,
+  isSomeType,
+} from "../../types/guards";
 import { isTypeValue } from "../../value";
 import type { CodeGenContext } from "../utils";
 import {
@@ -70,7 +75,42 @@ export function generateDowncast(
   // The evaluator uses attachTempVariableToExpr(expr, true) so the RC
   // system handles drop automatically. We still need to dup (incr refcount)
   // here because the Dyn also holds a reference to the same object.
-  const castExpr = `((${targetTypeCName})__yo_incr_rc((void*)${dynCode}.data))`;
+  //
+  // For auto-boxed value types (e.g., String via Box(String)), dyn.data points
+  // to the Box struct, not the value directly. We need to extract the value
+  // from the box before returning it.
+  let castExpr: string;
+
+  // Find if this concrete type was boxed by looking through dynImpls
+  let wasBoxed = false;
+  let boxTypeCName = "";
+  let boxFieldName = "";
+  for (const [, impl] of context.dynImpls) {
+    if (impl.dynType.id !== dynType.id) continue;
+    const resolvedConcreteType =
+      isSomeType(impl.concreteType) && impl.concreteType.resolvedConcreteType
+        ? impl.concreteType.resolvedConcreteType
+        : impl.concreteType;
+    if (
+      resolvedConcreteType.id === targetType.id &&
+      isBoxedType(impl.dataType)
+    ) {
+      wasBoxed = true;
+      boxTypeCName =
+        context.types[impl.dataType.id]?.cName ||
+        `unknown_box_${impl.dataType.id}`;
+      boxFieldName = sanitizeForCIdentifier(impl.dataType.fields[0]!.label);
+      break;
+    }
+  }
+
+  if (wasBoxed) {
+    // For boxed types: extract the value from the box and dup the value (not the box).
+    // The value inside the box is what we're returning, so its RC needs incrementing.
+    castExpr = `((${targetTypeCName})__yo_incr_rc((void*)((${boxTypeCName}*)${dynCode}.data)->${boxFieldName}))`;
+  } else {
+    castExpr = `((${targetTypeCName})__yo_incr_rc((void*)${dynCode}.data))`;
+  }
 
   // Get the result Option type from the evaluated expression
   const optionType = expr.$?.type;

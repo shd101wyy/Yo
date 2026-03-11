@@ -1,40 +1,19 @@
-// === Dyn downcast test ===
-open import "std/libc/stdio";
 open import "std/string";
 open import "std/fmt";
-
-Cat :: object(name : String);
-impl(Cat, ToString(to_string : ((self) -> self.*.name)));
-
-Dog :: object(name : String);
-impl(Dog, ToString(to_string : ((self) -> self.*.name)));
-
-Animal :: Dyn(ToString);
+open import "std/error";
 
 main :: (fn() -> unit) {
-  (animal : Animal) = dyn(Cat(`whiskers`));
+  (err : AnyError) = dyn(`default source`);
 
-  // === downcast() builtin test ===
-  maybe_cat := downcast(animal, Cat);
-  match(maybe_cat,
-    .Some(c) => {
-      printf("downcast to Cat: %s\n", c.name.as_str());
-    },
-    .None => {
-      printf("not a Cat\n");
-    }
+  match(err.source(),
+    .Some(s) => assert(false, "Expected None source"),
+    .None => assert(true)
   );
 
-  maybe_dog := downcast(animal, Dog);
-  match(maybe_dog,
-    .Some(d) => {
-      printf("downcast to Dog: %s\n", d.name.as_str());
-    },
-    .None => {
-      printf("not a Dog\n");
-    }
+  // Test downcast
+  match(downcast(err, String),
+    .Some(s) => assert(s == `default source`, "Expected error message to match"),
+    .None => assert(false, "Expected Some(String), got None")
   );
-
-  printf("done\n");
 };
 export main;

@@ -1,6 +1,6 @@
 import { BuiltinFunctions } from "../../expr";
 import type { DynType, FunctionType } from "../../types/definitions";
-import { isFnTraitType, isFunctionType } from "../../types/guards";
+import { isFnTraitType, isFunctionType, isSomeType } from "../../types/guards";
 import { typeToString } from "../../types/utils";
 import {
   type CodeGenContext,
@@ -9,7 +9,49 @@ import {
 } from "../utils";
 
 /**
- * Generate a dynamic dispatch declaration
+ * Generate forward declarations for Dyn structs.
+ * This must be emitted BEFORE enum/struct declarations since enums (e.g., Option)
+ * may contain Dyn types by value. The vtable is forward-declared as an incomplete
+ * struct so the Dyn struct can use a pointer to it.
+ */
+export function generateDynForwardDeclarations(context: CodeGenContext): void {
+  const emitter = context.emitter;
+  let hasAny = false;
+
+  for (const typeId in context.types) {
+    const { type, cName } = context.types[typeId]!;
+    if (!("requiredTraits" in type && "negativeTraits" in type)) {
+      continue; // Not a DynType
+    }
+
+    if (!hasAny) {
+      emitter.emitDeclarationLine("");
+      emitter.emitDeclarationLine("// === Dyn Type Forward Declarations ===");
+      hasAny = true;
+    }
+
+    const vtableName = `${cName}_vtable`;
+    // Forward-declare the vtable struct tag so vtable pointer is valid
+    emitter.emitDeclarationLine(
+      `typedef struct ${vtableName}_s ${vtableName};`
+    );
+    // Define the Dyn fat pointer struct
+    emitter.emitDeclarationLine(
+      `typedef struct { // ${(type as DynType).typeName || "Dyn"} : ${typeToString(type)} (value type - fat pointer)`
+    );
+    emitter.emitDeclarationLine(
+      `  void* data; // Pointer to boxed data (with yo_ref_header_t)`
+    );
+    emitter.emitDeclarationLine(
+      `  const ${vtableName}* vtable; // Pointer to static vtable (no allocation needed)`
+    );
+    emitter.emitDeclarationLine(`} ${cName};`);
+    emitter.emitDeclarationLine("");
+  }
+}
+
+/**
+ * Generate a dynamic dispatch declaration (vtable only — Dyn struct is forward-declared)
  */
 export function generateDynDeclaration(
   dynType: DynType,
@@ -23,7 +65,7 @@ export function generateDynDeclaration(
   const vtableName = `${cName}_vtable`;
 
   emitter.emitDeclarationLine(
-    `typedef struct { // Vtable for ${typeToString(dynType)}`
+    `typedef struct ${vtableName}_s { // Vtable for ${typeToString(dynType)}`
   );
 
   // TypeId field — always present in every Dyn vtable for runtime type identity
@@ -134,22 +176,6 @@ export function generateDynDeclaration(
 
   emitter.emitDeclarationLine(`} ${vtableName};`);
   emitter.emitDeclarationLine("");
-
-  // Generate the dynamic dispatch object structure
-  // Dyn is a value type (fat pointer) - just data pointer + vtable pointer
-  // The data pointer points to a boxed value that has yo_ref_header_t
-  // The vtable pointer points to a static vtable instance (one per impl)
-  emitter.emitDeclarationLine(
-    `typedef struct { // ${dynType.typeName || "Dyn"} : ${typeToString(dynType)} (value type - fat pointer)`
-  );
-  emitter.emitDeclarationLine(
-    `  void* data; // Pointer to boxed data (with yo_ref_header_t)`
-  );
-  emitter.emitDeclarationLine(
-    `  const ${vtableName}* vtable; // Pointer to static vtable (no allocation needed)`
-  );
-  emitter.emitDeclarationLine(`} ${cName};`);
-  emitter.emitDeclarationLine("");
 }
 
 /**
@@ -174,9 +200,13 @@ export function generateDynBoxTypes(context: CodeGenContext): void {
   const generatedBoxTypes = new Set<string>();
 
   for (const [, impl] of context.dynImpls) {
+    const resolvedConcreteType =
+      isSomeType(impl.concreteType) && impl.concreteType.resolvedConcreteType
+        ? impl.concreteType.resolvedConcreteType
+        : impl.concreteType;
     const concreteTypeCName =
-      context.types[impl.concreteType.id]?.cName ||
-      `unknown_${impl.concreteType.id}`;
+      context.types[resolvedConcreteType.id]?.cName ||
+      `unknown_${resolvedConcreteType.id}`;
     const boxTypeName = `yo_dyn_box_${concreteTypeCName}`;
 
     // Skip if already generated (multiple dyn() calls with same type)
@@ -185,7 +215,7 @@ export function generateDynBoxTypes(context: CodeGenContext): void {
     }
     generatedBoxTypes.add(boxTypeName);
 
-    const valueTypeStr = getTypeString(impl.concreteType, context);
+    const valueTypeStr = getTypeString(resolvedConcreteType, context);
 
     // Generate box struct
     emitter.emitDeclarationLine(`typedef struct {`);

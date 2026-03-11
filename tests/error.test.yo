@@ -1,0 +1,31 @@
+open import "std/string";
+open import "std/fmt";
+open import "std/error";
+
+test "Test String as Error via AnyError", {
+  (err : AnyError) = dyn(`something went wrong`);
+
+  // Downcast back to String and check the message
+  match(downcast(err, String),
+    .Some(s) => assert(s == `something went wrong`, "Expected error message to match"),
+    .None => assert(false, "Expected Some(String), got None")
+  );
+};
+
+test "Test downcast AnyError back to String", {
+  (err : AnyError) = dyn(`file not found`);
+
+  match(downcast(err, String),
+    .Some(s) => assert(s == `file not found`, "Expected 'file not found'"),
+    .None => assert(false, "Expected Some(String), got None")
+  );
+};
+
+test "Test Error source returns None by default", {
+  (err : AnyError) = dyn(`default source`);
+
+  match(err.source(),
+    .Some(s) => assert(false, "Expected None source"),
+    .None => assert(true)
+  );
+};
