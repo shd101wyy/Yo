@@ -5,17 +5,17 @@ import { getTypeString, sanitizeForCIdentifier } from "../utils";
 
 /**
  * Generate code for `typeid(T)`.
+ *
  * Each unique type gets a `static const char yo_typeid_XXX = 0;` declaration.
  * The expression evaluates to `(uintptr_t)&yo_typeid_XXX`.
  */
 export function generateTypeId(
   expr: FnCallExpr,
-  _indent: string,
+  indent: string,
   context: CodeGenContext
 ): string {
   const arg = expr.args[0]!;
 
-  // The evaluator ensures this is a TypeValue
   const typeValue = arg.$?.value;
   if (!typeValue || !isTypeValue(typeValue)) {
     throw new Error("typeid codegen: expected TypeValue argument");
@@ -23,7 +23,9 @@ export function generateTypeId(
 
   const type = typeValue.value;
   const typeId = type.id;
-  const typeCName = getTypeString(type, context);
+  // Use raw cName (without * for reference types) to match vtable typeid naming
+  const typeCName =
+    context.types[typeId]?.cName || getTypeString(type, context);
   const staticVarName = `yo_typeid_${sanitizeForCIdentifier(typeCName)}`;
 
   // Register the static declaration if not already registered

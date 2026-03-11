@@ -408,13 +408,20 @@ export function generateDynVtables(context: FunctionGenerationContext): void {
   emitter.emitDeclarationLine("");
 
   const generatedTypeIds = new Set<string>();
+  if (!context.typeIdStatics) {
+    context.typeIdStatics = new Map();
+  }
   for (const [, impl] of context.dynImpls) {
     const concreteTypeCName =
       context.types[impl.concreteType.id]?.cName ||
       `unknown_${impl.concreteType.id}`;
     const typeIdName = `yo_typeid_${concreteTypeCName}`;
-    if (!generatedTypeIds.has(typeIdName)) {
+    if (
+      !generatedTypeIds.has(typeIdName) &&
+      !context.typeIdStatics.has(impl.concreteType.id)
+    ) {
       generatedTypeIds.add(typeIdName);
+      context.typeIdStatics.set(impl.concreteType.id, typeIdName);
       emitter.emitDeclarationLine(
         `static const char ${typeIdName} = 0; // TypeId for ${concreteTypeCName}`
       );

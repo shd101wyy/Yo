@@ -54,12 +54,14 @@ import { generateClosureConstruction, isClosureConstruction } from "./closures";
 import { generateComptimeValue } from "./comptime-value";
 import { generateCondExpression } from "./cond";
 import { generateConsume } from "./consume";
+import { generateDowncast } from "./downcast";
 import { generateDeferredDupExpressions } from "./drop-dup";
 import { generateDynCall } from "./dyn";
 import { generateExpr } from "./expr";
 import { generateYoGcCollect } from "./gc";
 import { generateInitializationAssignment } from "./initialization-assignment";
 import { generateYoInlineFunctionCall } from "./inline-fns";
+import { generateIs } from "./is";
 import {
   generateIsoTypeCall,
   generateYoIsoDispose,
@@ -94,8 +96,8 @@ import {
 import { generateRecur } from "./recur";
 import { generatePendingDeferredDrops, generateReturn } from "./return";
 import { generateSizeOf } from "./sizeof";
-import { generateTypeId } from "./typeid";
 import { generateAnonymousTuple } from "./tuple-fn";
+import { generateTypeId } from "./typeid";
 import { generateWhileLoop } from "./while";
 
 /**
@@ -707,6 +709,14 @@ function generateFuncCall(
   // typeid
   else if (exprIsFunctionCallOf(expr, BuiltinFunctions.typeid, 1)) {
     return generateTypeId(expr, indent, context);
+  }
+  // is
+  else if (exprIsFunctionCallOf(expr, BuiltinFunctions.is, 2)) {
+    return generateIs(expr, indent, context);
+  }
+  // downcast
+  else if (exprIsFunctionCallOf(expr, BuiltinFunctions.downcast, 2)) {
+    return generateDowncast(expr, indent, context);
   }
   // Builtin Yo inline functions
   else if (exprIsFunctionCallOf(expr, BuiltinYoInlineFunctions)) {

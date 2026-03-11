@@ -13,7 +13,6 @@ import {
 } from "../../expr";
 import { TokenType } from "../../token";
 import { evaluateAlignOf } from "../builtins/alignof";
-import { evaluateTypeId } from "../builtins/typeid";
 import { evaluateAndOr } from "../builtins/and-or";
 import { evaluateYoArrayFill } from "../builtins/array-fns";
 import { evaluateComptimeAssert } from "../builtins/comptime-assert";
@@ -32,6 +31,7 @@ import { evaluateYoComptimeNumericFunctions } from "../builtins/comptime-numeric
 import { evaluateComptimePrint } from "../builtins/comptime-print";
 import { evaluateYoComptimeStringFunctions } from "../builtins/comptime-string-fns";
 import { evaluateConsume } from "../builtins/consume";
+import { evaluateDowncast } from "../builtins/downcast";
 import { evaluateDrop } from "../builtins/drop";
 import { evaluateDup } from "../builtins/dup";
 import {
@@ -45,6 +45,7 @@ import {
 import { evaluateYoGcCollect } from "../builtins/gc";
 import { evaluateGensym } from "../builtins/gensym";
 import { evaluateImplConstraint } from "../builtins/impl-constraint";
+import { evaluateIs } from "../builtins/is";
 import { evaluateMacroExpand } from "../builtins/macro-expand";
 import { evaluatePanic } from "../builtins/panic";
 import { evaluateYoProcessFunctions } from "../builtins/process";
@@ -78,6 +79,7 @@ import {
   evaluateYoTypeImpls,
   evaluateYoTypeToString,
 } from "../builtins/type-fns";
+import { evaluateTypeId } from "../builtins/typeid";
 import { evaluateVaStart } from "../builtins/va-start";
 import {
   evaluateYoVarHasOtherAliases,
@@ -426,6 +428,12 @@ ${exprToString(expr)}`,
     } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.typeid)) {
       // typeid
       return evaluateTypeId({ expr, env, context: { ...context } });
+    } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.is)) {
+      // is
+      return evaluateIs({ expr, env, context: { ...context } });
+    } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.downcast)) {
+      // downcast
+      return evaluateDowncast({ expr, env, context: { ...context } });
     } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.rc)) {
       // rc
       return evaluateRc({ expr, env, context: { ...context } });

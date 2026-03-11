@@ -6,6 +6,7 @@ import {
   type FnCallExpr,
 } from "../../expr";
 import { createUsizeType } from "../../types/creators";
+import { typeToString } from "../../types/utils";
 import {
   createUnknownValue,
   isTypeValue,
@@ -42,15 +43,17 @@ export function evaluateTypeId({
   }
   env = evaluatedExpr.$.env;
 
-  // typeid expects a type argument
+  // typeid only accepts compile-time Type values
   if (!evaluatedExpr.$.value || !isTypeValue(evaluatedExpr.$.value)) {
     throw formatErrorMessage({
       token: typeExpr.token,
-      errorMessage: `typeid expects a type argument.`,
+      errorMessage: `typeid expects a type argument, got ${
+        evaluatedExpr.$.type ? typeToString(evaluatedExpr.$.type) : "unknown"
+      }. Use is() or downcast() for runtime type checks on Dyn values.`,
     });
   }
 
-  // The result is a runtime usize value (address of a static)
+  // The result is a runtime usize value
   const typeSizeValue = createUnknownValue(createUsizeType(), {
     env,
     context,

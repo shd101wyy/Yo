@@ -1,34 +1,44 @@
-// === Dyn TypeId test ===
+// === Dyn is/downcast test ===
 open import "std/libc/stdio";
 open import "std/string";
 open import "std/fmt";
 
-TypeId :: trait(
-  (type_id : (fn(self: *(Self)) -> usize)) ?= ((self) -> typeid(Self))
-);
-
 Cat :: object(name : String);
 impl(Cat, ToString(to_string : ((self) -> self.*.name)));
-impl(Cat, TypeId());
 
 Dog :: object(name : String);
 impl(Dog, ToString(to_string : ((self) -> self.*.name)));
-impl(Dog, TypeId());
+
+Animal :: Dyn(ToString);
 
 main :: (fn() -> unit) {
-  printf("=== TypeId trait test ===\n");
+  (animal : Animal) = dyn(Cat(`whiskers`));
 
-  cat := Cat(`kitty`);
-  dog := Dog(`buddy`);
+  // === is() builtin test ===
+  printf("typeid(typeof(animal)): %d\n", typeid(typeof(animal)));
+  printf("is(animal, Cat): %d\n", is(animal, Cat));
+  printf("is(animal, Dog): %d\n", is(animal, Dog));
 
-  cat_id := cat.type_id();
-  dog_id := dog.type_id();
+  // === downcast() builtin test ===
+  maybe_cat := downcast(animal, Cat);
+  match(maybe_cat,
+    .Some(c) => {
+      printf("downcast to Cat: %s\n", c.name.as_str());
+    },
+    .None => {
+      printf("not a Cat\n");
+    }
+  );
 
-  printf("cat typeid: %zu\n", cat_id);
-  printf("dog typeid: %zu\n", dog_id);
-  printf("cat == cat: %d\n", cat_id == typeid(Cat));
-  printf("dog == dog: %d\n", dog_id == typeid(Dog));
-  printf("cat == dog: %d\n", cat_id == dog_id);
+  maybe_dog := downcast(animal, Dog);
+  match(maybe_dog,
+    .Some(d) => {
+      printf("downcast to Dog: %s\n", d.name.as_str());
+    },
+    .None => {
+      printf("not a Dog\n");
+    }
+  );
 
   printf("done\n");
 };
