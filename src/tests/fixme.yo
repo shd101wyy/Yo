@@ -3,17 +3,44 @@ open import "std/fmt";
 open import "std/error";
 
 main :: (fn() -> unit) {
-  (err : AnyError) = dyn(`default source`);
+  MathError :: enum(
+    DivisionByZero,
+    NegativeSqrt
+  );
+  impl(MathError, ToString(
+    to_string : ((self) -> match(self,
+      .DivisionByZero => `Division by zero`,
+      .NegativeSqrt => `Square root of a negative number`
+    ))
+  ));
+  impl(MathError, Error());
 
-  match(err.source(),
-    .Some(s) => assert(false, "Expected None source"),
-    .None => assert(true)
+  safe_divide :: (fn(x: i32, y: i32, using(exn : Exception)) -> i32)(
+    cond(
+      (y == i32(0)) => exn.throw(dyn MathError.DivisionByZero),
+      true => (x / y)
+    )
   );
 
-  // Test downcast
-  match(downcast(err, String),
-    .Some(s) => assert(s == `default source`, "Expected error message to match"),
-    .None => assert(false, "Expected Some(String), got None")
+  given(exn) := Exception(
+    throw : ((err) -> {
+      println(`Error: ${err}`);
+      match(downcast(err, MathError), 
+        .Some(math_err) =>
+          match(math_err,
+            .DivisionByZero => assert(true, "Caught expected DivisionByZero error"),
+            _ => assert(false, "Expected error to be DivisionByZero")
+          ),
+        .None => assert(false, "Expected error to be a MathError")
+      );
+      escape ();
+    })
   );
+
+  result := safe_divide(6, 3);
+  assert(result == 2, "Expected 6 divided by 3 to equal 2");
+
+  safe_divide(10, 0, using(exn));
+  assert(false, "Expected division by zero to throw an exception"); // Shouldn't enter this line
 };
 export main;

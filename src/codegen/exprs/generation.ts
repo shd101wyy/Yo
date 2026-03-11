@@ -271,7 +271,7 @@ function generateEscape(
       functionContext,
       expr,
       false,
-      false,
+      true,
       true
     );
 
@@ -295,7 +295,7 @@ function generateEscape(
       functionContext,
       expr,
       false,
-      false,
+      true,
       true
     );
     return `return`;
@@ -312,7 +312,7 @@ function generateEscape(
     functionContext,
     expr,
     false,
-    false,
+    true,
     true
   );
   return `return ${argCode}`;
