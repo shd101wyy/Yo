@@ -2,7 +2,9 @@
 
 ## Overview
 
-Implement Rust-style iterator support for all Yo standard library collections. The `Iterator` and `IntoIterator` traits and the `for` macro are already defined in `prelude.yo` but have zero implementations. This plan adds iterator support across the entire `std/` library.
+Implement Rust-style iterator support for all Yo standard library collections. The `Iterator` and `IntoIterator` traits and the `for` macro are defined in `prelude.yo`. This plan adds iterator support across the entire `std/` library.
+
+> **Note:** The `Iterator` and `IntoIterator` traits now use direct trait types with associated types (see [Associated Types plan](ASSOCIATED_TYPES.md)). The syntax has been updated from the original function-wrapper pattern (`Iterator(T)(next : ...)`) to direct trait fields (`Iterator(Item : T, next : ...)`).
 
 ## Design Decisions
 
@@ -21,31 +23,27 @@ Two iteration modes for each collection:
 
 ### Existing Infrastructure (prelude.yo)
 
-**Iterator trait** (lines 3609–3617):
+**Iterator trait** — direct trait with associated type `Item`:
 
 ```yo
-Iterator :: (fn(comptime(Item) : Type) -> comptime(Trait)) {
-  return trait(
-    Item := Item,
-    next : fn(self : *(Self)) -> Option(Self.Item)
-  );
-};
+Iterator :: trait(
+  Item : Type,
+  next : (fn(self : *(Self)) -> Option(Self.Item))
+);
 ```
 
-**IntoIterator trait** (lines 3619–3631):
+**IntoIterator trait** — with `where` clause constraining the iterator's `Item` type:
 
 ```yo
-IntoIterator :: (fn(
-  comptime(Item) : Type,
-  comptime(IntoIter) : Type,
-  where(IntoIter <: Iterator(Item))) -> comptime(Trait)) {
-  return trait(
-    Item := Item,
-    IntoIter := IntoIter,
-    into_iter : fn(self : Self) -> Self.IntoIter
-  );
-};
+IntoIterator :: trait(
+  Item : Type,
+  IntoIter : Type,
+  into_iter : (fn(self : Self) -> Self.IntoIter),
+  where(Self.IntoIter <: Iterator(Item := Self.Item))
+);
 ```
+
+> **History:** These traits were originally defined as function wrappers (`fn(...) -> Trait`). They were migrated to direct trait types with associated types as part of the [Associated Types redesign](ASSOCIATED_TYPES.md).
 
 **`for` macro** (lines 3685–3743):
 
@@ -60,13 +58,13 @@ for iter_expr, (variable) => { body };
 
 Each collection defines:
 
-1. **Value iterator struct** — implements `Iterator(T)`, used by `into_iter()`
-2. **Pointer iterator struct** — implements `Iterator(*(T))`, used by `iter()`
+1. **Value iterator struct** — implements `Iterator(Item : T, ...)`, used by `into_iter()`
+2. **Pointer iterator struct** — implements `Iterator(Item : *(T), ...)`, used by `iter()`
 
 Both are `struct` (value types), not `object`. Iterators are lightweight, stack-allocated, and mutated via pointer by the `for` macro.
 
 ```yo
-// Pattern for each collection:
+// Pattern for each collection (VERIFIED WORKING SYNTAX):
 CollectionIter :: (fn(comptime(T) : Type) -> comptime(Type))
   struct(
     _source : Collection(T),   // RC handle keeps collection alive
@@ -74,17 +72,25 @@ CollectionIter :: (fn(comptime(T) : Type) -> comptime(Type))
   )
 ;
 
-impl(forall(T : Type), CollectionIter(T), Iterator(T)(
-  next : (fn(self : *(Self)) -> Option(T))({
-    // yield next element by value, advance state
-  })
+impl(forall(T : Type), CollectionIter(T), Iterator(
+  Item : T,
+  // IMPORTANT: Use expression form (cond(...)), NOT block form ({...})
+  next : (fn(self : *(Self)) -> Option(Self.Item))(cond(
+    self.*._index < self.*._source.length(), {
+      val := self.*._source.get(self.*._index);
+      self.*._index = self.*._index + usize(1);
+      return Option(T).Some(val);
+    },
+    true, Option(T).None
+  ))
 ));
 
-impl(forall(T : Type), Collection(T), IntoIterator(T, CollectionIter(T))(
+// into_iter as PLAIN METHOD (not IntoIterator trait — see Lessons Learned)
+impl(forall(T : Type), Collection(T),
   into_iter : (fn(self : Self) -> CollectionIter(T))(
-    CollectionIter(T)(self, usize(0))
+    CollectionIter(T)(_source: self, _index: usize(0))
   )
-));
+);
 ```
 
 For the pointer variant:
@@ -97,18 +103,67 @@ CollectionIterPtr :: (fn(comptime(T) : Type) -> comptime(Type))
   )
 ;
 
-impl(forall(T : Type), CollectionIterPtr(T), Iterator(*(T))(
-  next : (fn(self : *(Self)) -> Option(*(T)))({
-    // yield pointer to next element, advance state
-  })
+impl(forall(T : Type), CollectionIterPtr(T), Iterator(
+  Item : *(T),
+  next : (fn(self : *(Self)) -> Option(Self.Item))(cond(
+    self.*._index < self.*._source.length(), {
+      ptr := self.*._source._ptr &+ self.*._index;
+      self.*._index = self.*._index + usize(1);
+      return Option(*(T)).Some(ptr);
+    },
+    true, Option(*(T)).None
+  ))
 ));
 
 impl(forall(T : Type), Collection(T),
   iter : (fn(self : *(Self)) -> CollectionIterPtr(T))(
-    CollectionIterPtr(T)(self.*, usize(0))
+    CollectionIterPtr(T)(_source: self.*, _index: usize(0))
   )
 );
 ```
+
+---
+
+## Lessons Learned (from ArrayList implementation)
+
+### 1. Trait impl function bodies must use expression form
+
+Trait impl function bodies using block form `({...})` cause "Enum variant not selected" errors. Use expression form `(cond(...))` instead — the cond branches can still contain `{...}` begin blocks.
+
+```yo
+// ❌ WRONG — causes evaluator error
+next : (fn(self : *(Self)) -> Option(T))({
+  // body
+})
+
+// ✅ CORRECT
+next : (fn(self : *(Self)) -> Option(T))(cond(
+  condition, { ... },
+  true, fallback_value
+))
+```
+
+### 2. IntoIterator trait was unusable for generic impls (now resolved)
+
+`Self.IntoIter` in the IntoIterator trait could not be resolved for `impl(forall(T), ...)` due to the same evaluator limitation that affected `Self.Item`. This was addressed by the [Associated Types redesign](ASSOCIATED_TYPES.md), which added proper associated type support via `extractTraitTypeArgsFromImplExpr` for direct trait types.
+
+**Current status:** The IntoIterator trait now works correctly with associated types and where clause enforcement. However, the existing `into_iter` implementations remain as plain methods (not IntoIterator trait impls) since they were written before the fix and work correctly as-is. The `for` macro doesn't require IntoIterator — it just calls `.next()` on whatever is returned by the expression.
+
+### 3. Named field constructors required for structs
+
+Struct constructors use named fields: `Type(_field: value)` not positional `Type(value1, value2)`.
+
+### 4. Evaluator fix was needed for Self.Item resolution
+
+Added `findAssociatedTypeFromGenericImpls` in `src/evaluator/values/impl.ts` (called from `src/evaluator/exprs/property-access.ts`) to resolve associated types like `Self.Item` from generic impl declarations.
+
+### 5. `iter()` auto-referencing works
+
+`list.iter()` works even when `iter` takes `self: *(Self)` — Yo auto-references the receiver. No need for `(&list).iter()`.
+
+### 6. Iterator types should be exported
+
+Iterator struct types are exported alongside the collection type, allowing users to name them if needed.
 
 ### Safety Note
 
@@ -140,10 +195,10 @@ ArrayListIterPtr :: (fn(comptime(T) : Type) -> comptime(Type))
 
 **Implementations:**
 
-- `impl(forall(T), ArrayListIter(T), Iterator(T))` — `next` returns `_list.get(_index)`, increments `_index`
-- `impl(forall(T), ArrayListIterPtr(T), Iterator(*(T)))` — `next` returns pointer to element at `_index` in backing buffer (`_list._ptr.? &+ _index`)
-- `impl(forall(T), ArrayList(T), IntoIterator(T, ArrayListIter(T)))` — `into_iter` creates `ArrayListIter(T)(self, usize(0))`
-- `impl(forall(T), ArrayList(T), iter)` — `iter` takes `*(Self)`, returns `ArrayListIterPtr(T)(self.*, usize(0))`
+- `impl(forall(T), ArrayListIter(T), Iterator(Item : T, ...))` — `next` returns `_list.get(_index)`, increments `_index`
+- `impl(forall(T), ArrayListIterPtr(T), Iterator(Item : *(T), ...))` — `next` returns pointer to element at `_index` in backing buffer (`_list._ptr &+ _index`)
+- `impl(forall(T), ArrayList(T), into_iter)` — plain method (not IntoIterator trait), creates `ArrayListIter(T)(_list: self, _index: usize(0))`
+- `impl(forall(T), ArrayList(T), iter)` — `iter` takes `*(Self)`, returns `ArrayListIterPtr(T)(_list: self.*, _index: usize(0))`
 
 ---
 
@@ -167,10 +222,10 @@ LinkedListIterPtr :: (fn(comptime(T) : Type) -> comptime(Type))
 
 **Implementations:**
 
-- `impl(forall(T), LinkedListIter(T), Iterator(T))` — `next` pattern-matches `_current`: `.Some(node)` yields `node.value`, advances to `node.next`; `.None` returns `.None`
-- `impl(forall(T), LinkedListIterPtr(T), Iterator(*(T)))` — `next` yields `&(node.value)` (pointer to the node's value field)
-- `impl(forall(T), LinkedList(T), IntoIterator(T, LinkedListIter(T)))` — creates iter from `self.head`
-- `impl(forall(T), LinkedList(T), iter)` — same but takes `*(Self)`
+- `impl(forall(T), LinkedListIter(T), Iterator(Item : T, ...))` — `next` pattern-matches `_current`: `.Some(node)` yields `node.value`, advances to `node.next`; `.None` returns `.None`
+- `impl(forall(T), LinkedListIterPtr(T), Iterator(Item : *(T), ...))` — `next` yields `&(node.value)` (pointer to the node's value field)
+- `impl(forall(T), LinkedList(T), into_iter)` — plain method, creates iter from `self.head`
+- `impl(forall(T), LinkedList(T), iter)` — takes `*(Self)`, creates iter from `self.*.head`
 
 ---
 
@@ -229,9 +284,9 @@ HashMapIterPtr :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))
 
 **Implementations:**
 
-- `impl(forall(K, V), where(K <: (Eq(K), Hash)), HashMapIter(K, V), Iterator(Bucket(K, V)))` — `next` scans `ctrl` array from `_index` for occupied slots (ctrl byte with high bit clear = occupied), yields `_map._data_ptr() &+ i`, increments `_index`
-- Pointer variant: `Iterator(*(Bucket(K, V)))` — yields pointer to bucket
-- `IntoIterator(Bucket(K, V), HashMapIter(K, V))` on `HashMap(K, V)`
+- `impl(forall(K, V), where(K <: (Eq(K), Hash)), HashMapIter(K, V), Iterator(Item : Bucket(K, V), ...))` — `next` scans `ctrl` array from `_index` for occupied slots (ctrl byte with high bit clear = occupied), yields `_map._data_ptr() &+ i`, increments `_index`
+- Pointer variant: `Iterator(Item : *(Bucket(K, V)), ...)` — yields pointer to bucket
+- `into_iter` plain method on `HashMap(K, V)`
 - `iter` method on `HashMap(K, V)`
 
 **Additional iterators:**
@@ -275,9 +330,9 @@ HashSetIterPtr :: (fn(comptime(T) : Type) -> comptime(Type))
 
 **Implementations:**
 
-- `impl(forall(T), where(T <: (Eq(T), Hash)), HashSetIter(T), Iterator(T))` — scans ctrl array for occupied slots, yields element values
-- Pointer variant: `Iterator(*(T))` — yields pointer to element
-- `IntoIterator(T, HashSetIter(T))` on `HashSet(T)`
+- `impl(forall(T), where(T <: (Eq(T), Hash)), HashSetIter(T), Iterator(Item : T, ...))` — scans ctrl array for occupied slots, yields element values
+- Pointer variant: `Iterator(Item : *(T), ...)` — yields pointer to element
+- `into_iter` plain method on `HashSet(T)`
 - `iter` method
 
 ---
@@ -308,9 +363,9 @@ BTreeMapIterPtr :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type)
 
 **Implementations:**
 
-- `impl(forall(K, V), BTreeMapIter(K, V), Iterator(BTreeEntry(K, V)))` — iterates over `_entries` by index
-- Pointer variant: `Iterator(*(BTreeEntry(K, V)))`
-- `IntoIterator(BTreeEntry(K, V), BTreeMapIter(K, V))` on `BTreeMap(K, V)`
+- `impl(forall(K, V), BTreeMapIter(K, V), Iterator(Item : BTreeEntry(K, V), ...))` — iterates over `_entries` by index
+- Pointer variant: `Iterator(Item : *(BTreeEntry(K, V)), ...)`
+- `into_iter` plain method on `BTreeMap(K, V)`
 - `iter` method
 
 **Additional:** `keys()` → `K`, `values()` → `V`
@@ -342,7 +397,7 @@ PriorityQueueIterPtr :: (fn(comptime(T) : Type) -> comptime(Type))
 **Implementations:**
 
 - Iterates over `_data` ArrayList (heap array) by index
-- `IntoIterator(T, PriorityQueueIter(T))` on `PriorityQueue(T)`
+- `into_iter` plain method on `PriorityQueue(T)`
 - `iter` method
 
 ---
@@ -372,7 +427,7 @@ StringBytes :: struct(
 - `chars()` → `StringChars` — implements `Iterator(rune)`, decodes UTF-8 runes sequentially
 - `bytes()` → `StringBytes` — implements `Iterator(u8)`, yields raw bytes
 
-**IntoIterator:** `impl(String, IntoIterator(rune, StringChars))` — default iteration yields runes (like Rust's `String::chars()`)
+**IntoIterator:** `into_iter` plain method on String — yields runes (like Rust's `String::chars()`)
 
 **No pointer variant** — runes are decoded values, not stored contiguously in memory as `rune` values.
 
@@ -484,18 +539,18 @@ One test file per collection at `tests/collections/<name>.test.yo` (append to ex
 
 ## Implementation Order
 
-| Step | File(s)                             | What                                                                             | Priority       |
-| ---- | ----------------------------------- | -------------------------------------------------------------------------------- | -------------- |
-| 1    | `std/collections/array_list.yo`     | `ArrayListIter`, `ArrayListIterPtr`, `into_iter`, `iter` + tests                 | **Start here** |
-| 2    | `std/collections/linked_list.yo`    | `LinkedListIter`, `LinkedListIterPtr`, `into_iter`, `iter` + tests               | High           |
-| 3    | `std/collections/deque.yo`          | `DequeIter`, `DequeIterPtr`, `into_iter`, `iter` + tests                         | High           |
-| 4    | `std/collections/hash_set.yo`       | `HashSetIter`, `HashSetIterPtr`, `into_iter`, `iter` + tests                     | High           |
-| 5    | `std/collections/hash_map.yo`       | `HashMapIter`, `HashMapIterPtr`, `into_iter`, `iter`, `keys`, `values` + tests   | High           |
-| 6    | `std/collections/btree_map.yo`      | `BTreeMapIter`, `BTreeMapIterPtr`, `into_iter`, `iter`, `keys`, `values` + tests | Medium         |
-| 7    | `std/collections/priority_queue.yo` | `PriorityQueueIter`, `PriorityQueueIterPtr`, `into_iter`, `iter` + tests         | Medium         |
-| 8    | `std/string/string.yo`              | `StringChars`, `StringBytes`, `chars`, `bytes`, `into_iter` + tests              | Medium         |
-| 9    | `std/prelude.yo`                    | Array(T, N) and Slice(T) iterators                                               | Future         |
-| 10   | `std/prelude.yo`                    | Iterator adapter methods (map, filter, fold, etc.)                               | Future         |
+| Step | File(s)                             | What                                                                             | Status  |
+| ---- | ----------------------------------- | -------------------------------------------------------------------------------- | ------- |
+| 1    | `std/collections/array_list.yo`     | `ArrayListIter`, `ArrayListIterPtr`, `into_iter`, `iter` + tests                 | ✅ Done |
+| 2    | `std/collections/linked_list.yo`    | `LinkedListIter`, `LinkedListIterPtr`, `into_iter`, `iter` + tests               | ✅ Done |
+| 3    | `std/collections/deque.yo`          | `DequeIter`, `DequeIterPtr`, `into_iter`, `iter` + tests                         | ✅ Done |
+| 4    | `std/collections/hash_set.yo`       | `HashSetIter`, `HashSetIterPtr`, `into_iter`, `iter` + tests                     | ✅ Done |
+| 5    | `std/collections/hash_map.yo`       | `HashMapIter`, `HashMapIterPtr`, `into_iter`, `iter`, `keys`, `values` + tests   | ✅ Done |
+| 6    | `std/collections/btree_map.yo`      | `BTreeMapIter`, `BTreeMapIterPtr`, `into_iter`, `iter`, `keys`, `values` + tests | ✅ Done |
+| 7    | `std/collections/priority_queue.yo` | `PriorityQueueIter`, `PriorityQueueIterPtr`, `into_iter`, `iter` + tests         | ✅ Done |
+| 8    | `std/string/string.yo`              | `StringChars`, `StringBytes`, `chars`, `bytes`, `into_iter` + tests              | ✅ Done |
+| 9    | `std/prelude.yo`                    | Array(T, N) and Slice(T) iterators                                               | ✅ Done |
+| 10   | `std/prelude.yo`                    | Iterator adapter methods (map, filter, fold, etc.)                               | Future  |
 
 **Strategy:** Start with ArrayList — it's the simplest and most commonly used. Validate that the `Iterator`/`IntoIterator` trait implementations and `for` macro work end-to-end. Then apply the same pattern to other collections.
 
@@ -504,7 +559,7 @@ One test file per collection at `tests/collections/<name>.test.yo` (append to ex
 ## Open Questions
 
 1. **HashMap/HashSet ctrl byte semantics** — Need to verify which ctrl byte values indicate occupied vs empty/deleted slots during implementation.
-2. **Struct constructor syntax** — Verify exact syntax for constructing iterator structs: `ArrayListIter(T)(self, usize(0))` vs named fields.
-3. **`iter()` auto-referencing** — When calling `list.iter()` where `iter` takes `self: *(Self)`, does Yo auto-reference the receiver? Or must users write `(&list).iter()`?
-4. **Export strategy** — Should iterator types be exported from collection modules, or are they implementation details?
+2. ~~**Struct constructor syntax**~~ — **RESOLVED:** Named fields required: `ArrayListIter(T)(_list: self, _index: usize(0))`.
+3. ~~**`iter()` auto-referencing**~~ — **RESOLVED:** Yo auto-references the receiver. `list.iter()` works even when `iter` takes `self: *(Self)`.
+4. ~~**Export strategy**~~ — **RESOLVED:** Iterator types are exported alongside the collection type.
 5. **PriorityQueue sorted iteration** — Consider adding `into_sorted_iter()` that pops elements in priority order (destructive but sorted). Deferred.

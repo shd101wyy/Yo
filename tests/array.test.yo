@@ -199,3 +199,76 @@ test "Test array slice", {
   assert(slice_of_slice(1) == 20);
   assert(slice_of_slice.len() == 2);
 };
+
+// ===== Array Iterator Tests =====
+
+test "Array iter - empty array yields nothing", {
+  arr := Array(i32, 0)();
+  count := usize(0);
+  for (&arr).iter(), (ptr) => {
+    consume(ptr);
+    count = (count + usize(1));
+  };
+  assert((count == usize(0)), "empty array should yield no elements");
+};
+
+test "Array iter - yields pointers to elements", {
+  arr := [i32(10), i32(20), i32(30)];
+  sum := i32(0);
+  count := usize(0);
+  for (&arr).iter(), (ptr) => {
+    sum = (sum + ptr.*);
+    count = (count + usize(1));
+  };
+  assert((count == usize(3)), "should yield 3 elements");
+  assert((sum == i32(60)), "sum should be correct");
+};
+
+test "Array iter - mutate through pointer", {
+  arr := [i32(1), i32(2), i32(3)];
+  for (&arr).iter(), (ptr) => {
+    ptr.* = (ptr.* * i32(10));
+  };
+  assert((arr(0) == i32(10)), "first element should be 10");
+  assert((arr(1) == i32(20)), "second element should be 20");
+  assert((arr(2) == i32(30)), "third element should be 30");
+};
+
+// ===== Slice Iterator Tests =====
+
+test "Slice iter - yields pointers to elements", {
+  arr := [i32(100), i32(200), i32(300)];
+  slice := arr(:);
+  sum := i32(0);
+  count := usize(0);
+  for (&slice).iter(), (ptr) => {
+    sum = (sum + ptr.*);
+    count = (count + usize(1));
+  };
+  assert((count == usize(3)), "should yield 3 elements");
+  assert((sum == i32(600)), "sum should be correct");
+};
+
+test "Slice iter - mutate through pointer", {
+  arr := [i32(1), i32(2), i32(3)];
+  slice := arr(:);
+  for (&slice).iter(), (ptr) => {
+    ptr.* = (ptr.* + i32(5));
+  };
+  assert((arr(0) == i32(6)), "first element should be 6");
+  assert((arr(1) == i32(7)), "second element should be 7");
+  assert((arr(2) == i32(8)), "third element should be 8");
+};
+
+test "Slice iter - partial slice", {
+  arr := [i32(10), i32(20), i32(30), i32(40)];
+  slice := arr(1:3);
+  sum := i32(0);
+  count := usize(0);
+  for (&slice).iter(), (ptr) => {
+    sum = (sum + ptr.*);
+    count = (count + usize(1));
+  };
+  assert((count == usize(2)), "should yield 2 elements");
+  assert((sum == i32(50)), "sum of middle elements should be 50");
+};

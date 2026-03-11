@@ -708,3 +708,61 @@ test "HashSet with Box elements - adding many duplicates", {
   assert(set.has(Box(i32)(42)));
   // 49 duplicate Box elements should be properly dropped
 };
+
+// ---- Iterator Tests ----
+
+test "HashSet into_iter - empty set", {
+  set := HashSet(i32).new();
+  count := i32(0);
+  for set.into_iter(), (x) => {
+    count = (count + i32(1));
+  };
+  assert(count == i32(0));
+};
+
+test "HashSet into_iter - single element", {
+  set := HashSet(i32).new();
+  set.add(i32(42));
+  result := i32(0);
+  for set.into_iter(), (x) => {
+    result = x;
+  };
+  assert(result == i32(42));
+};
+
+test "HashSet into_iter - multiple elements all visited", {
+  set := HashSet(i32).new();
+  set.add(i32(10));
+  set.add(i32(20));
+  set.add(i32(30));
+
+  sum := i32(0);
+  count := i32(0);
+  for set.into_iter(), (x) => {
+    sum = (sum + x);
+    count = (count + i32(1));
+  };
+  assert(sum == i32(60));
+  assert(count == i32(3));
+};
+
+test "HashSet iter - empty set", {
+  set := HashSet(i32).new();
+  count := i32(0);
+  for set.iter(), (ptr) => {
+    count = (count + i32(1));
+  };
+  assert(count == i32(0));
+};
+
+test "HashSet iter - yields pointers to elements", {
+  set := HashSet(i32).new();
+  set.add(i32(10));
+  set.add(i32(20));
+
+  sum := i32(0);
+  for set.iter(), (ptr) => {
+    sum = (sum + ptr.*);
+  };
+  assert(sum == i32(30));
+};

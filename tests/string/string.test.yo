@@ -2277,3 +2277,138 @@ test "String ends_with end_position single character", {
   assert(s.ends_with(String.from("b"), usize(2)));
   assert(s.ends_with(String.from("c"), usize(3)));
 };
+
+// ===== Iterator Tests =====
+
+// --- chars() tests ---
+
+test "String chars - empty string yields nothing", {
+  s := String.new();
+  count := usize(0);
+  for s.chars(), (ch) => {
+    consume(ch);
+    count = (count + usize(1));
+  };
+  assert((count == usize(0)), "empty string should yield no runes");
+};
+
+test "String chars - ASCII string yields correct runes", {
+  s := `ABC`;
+  count := usize(0);
+  sum := u32(0);
+  for s.chars(), (ch) => {
+    sum = (sum + ch.to_u32());
+    count = (count + usize(1));
+  };
+  assert((count == usize(3)), "should yield 3 runes");
+  // A=65, B=66, C=67 => 198
+  assert((sum == u32(198)), "sum of codepoints should be correct");
+};
+
+test "String chars - multi-byte UTF-8 yields correct runes", {
+  // "你好" - two 3-byte CJK characters
+  s := `你好`;
+  count := usize(0);
+  runes := ArrayList(u32).new();
+  for s.chars(), (ch) => {
+    runes.push(ch.to_u32());
+    count = (count + usize(1));
+  };
+  assert((count == usize(2)), "should yield 2 runes");
+  assert((runes.get(usize(0)).unwrap() == u32(0x4F60)), "first rune should be 你");
+  assert((runes.get(usize(1)).unwrap() == u32(0x597D)), "second rune should be 好");
+};
+
+test "String chars - 4-byte emoji characters", {
+  // "😀😎" - two 4-byte emoji
+  s := `😀😎`;
+  count := usize(0);
+  runes := ArrayList(u32).new();
+  for s.chars(), (ch) => {
+    runes.push(ch.to_u32());
+    count = (count + usize(1));
+  };
+  assert((count == usize(2)), "should yield 2 runes");
+  assert((runes.get(usize(0)).unwrap() == u32(0x1F600)), "first rune should be 😀");
+  assert((runes.get(usize(1)).unwrap() == u32(0x1F60E)), "second rune should be 😎");
+};
+
+test "String chars - mixed ASCII and UTF-8", {
+  s := `Hi世界`;
+  count := usize(0);
+  for s.chars(), (ch) => {
+    consume(ch);
+    count = (count + usize(1));
+  };
+  assert((count == usize(4)), "should yield 4 runes");
+};
+
+// --- bytes_iter() tests ---
+
+test "String bytes - empty string yields nothing", {
+  s := String.new();
+  count := usize(0);
+  for s.bytes(), (b) => {
+    consume(b);
+    count = (count + usize(1));
+  };
+  assert((count == usize(0)), "empty string should yield no bytes");
+};
+
+test "String bytes - ASCII string yields raw bytes", {
+  s := `ABC`;
+  count := usize(0);
+  bytes := ArrayList(u8).new();
+  for s.bytes(), (b) => {
+    bytes.push(b);
+    count = (count + usize(1));
+  };
+  assert((count == usize(3)), "should yield 3 bytes");
+  assert((bytes.get(usize(0)).unwrap() == u8(65)), "first byte should be 'A'");
+  assert((bytes.get(usize(1)).unwrap() == u8(66)), "second byte should be 'B'");
+  assert((bytes.get(usize(2)).unwrap() == u8(67)), "third byte should be 'C'");
+};
+
+test "String bytes - UTF-8 string yields all bytes", {
+  // "你" is 3 bytes in UTF-8: 0xE4, 0xBD, 0xA0
+  s := `你`;
+  count := usize(0);
+  bytes := ArrayList(u8).new();
+  for s.bytes(), (b) => {
+    bytes.push(b);
+    count = (count + usize(1));
+  };
+  assert((count == usize(3)), "should yield 3 bytes for 你");
+  assert((bytes.get(usize(0)).unwrap() == u8(0xE4)), "first byte");
+  assert((bytes.get(usize(1)).unwrap() == u8(0xBD)), "second byte");
+  assert((bytes.get(usize(2)).unwrap() == u8(0xA0)), "third byte");
+};
+
+// --- into_iter() tests ---
+
+test "String into_iter - yields runes like chars", {
+  s := `Hello`;
+  count := usize(0);
+  first := u32(0);
+  for s.into_iter(), (ch) => {
+    cond(
+      (count == usize(0)) => {
+        first = ch.to_u32();
+      },
+      true => ()
+    );
+    count = (count + usize(1));
+  };
+  assert((count == usize(5)), "should yield 5 runes");
+  assert((first == u32(72)), "first rune should be 'H'");
+};
+
+test "String into_iter - empty string", {
+  s := String.new();
+  count := usize(0);
+  for s.into_iter(), (ch) => {
+    consume(ch);
+    count = (count + usize(1));
+  };
+  assert((count == usize(0)), "empty string should yield no runes");
+};

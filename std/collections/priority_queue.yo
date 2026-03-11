@@ -118,4 +118,73 @@ impl(forall(T : Type), PriorityQueue(T),
   })
 );
 
-export PriorityQueue;
+/**
+ * Value iterator for PriorityQueue - yields elements in heap (arbitrary) order
+ * Note: This iterates in internal storage order, NOT sorted order.
+ */
+PriorityQueueIter :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(
+    _data  : ArrayList(T),
+    _index : usize
+  )
+);
+
+impl(forall(T : Type), PriorityQueueIter(T), Iterator(
+  Item : T,
+  next : (fn(self : *(Self)) -> Option(T))(
+    cond(
+      (self._index >= self._data.len()) => .None,
+      true => {
+        value := self._data.get(self._index).unwrap();
+        self._index = (self._index + usize(1));
+        .Some(value)
+      }
+    )
+  )
+));
+
+impl(forall(T : Type), PriorityQueue(T),
+  into_iter : (fn(self : Self) -> PriorityQueueIter(T))(
+    PriorityQueueIter(T)(_data: self._data, _index: usize(0))
+  )
+);
+
+/**
+ * Pointer iterator for PriorityQueue - yields pointers to elements in heap order
+ */
+PriorityQueueIterPtr :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(
+    _data  : ArrayList(T),
+    _index : usize
+  )
+);
+
+impl(forall(T : Type), PriorityQueueIterPtr(T), Iterator(
+  Item : *(T),
+  next : (fn(self : *(Self)) -> Option(*(T)))(
+    cond(
+      (self._index >= self._data.len()) => .None,
+      true =>
+        match(self._data._ptr,
+          .Some(ptr) => {
+            element_ptr := (ptr &+ self._index);
+            self._index = (self._index + usize(1));
+            .Some(element_ptr)
+          },
+          .None => .None
+        )
+    )
+  )
+));
+
+impl(forall(T : Type), PriorityQueue(T),
+  iter : (fn(self : *(Self)) -> PriorityQueueIterPtr(T))(
+    PriorityQueueIterPtr(T)(_data: self.*._data, _index: usize(0))
+  )
+);
+
+export
+  PriorityQueue,
+  PriorityQueueIter,
+  PriorityQueueIterPtr
+;

@@ -549,3 +549,97 @@ test "HashMap with Box keys only", {
   assert(map.len() == usize(1));
   // Box key should be dropped
 };
+
+// ---- Iterator Tests ----
+
+test "HashMap into_iter - empty map", {
+  map := HashMap(i32, i32).new();
+  count := i32(0);
+  for map.into_iter(), (bucket) => {
+    count = (count + i32(1));
+  };
+  assert(count == i32(0));
+};
+
+test "HashMap into_iter - single entry", {
+  map := HashMap(i32, i32).new();
+  map.set(i32(1), i32(100));
+  result_key := i32(0);
+  result_val := i32(0);
+  for map.into_iter(), (bucket) => {
+    result_key = bucket.key;
+    result_val = bucket.value;
+  };
+  assert(result_key == i32(1));
+  assert(result_val == i32(100));
+};
+
+test "HashMap into_iter - multiple entries all visited", {
+  map := HashMap(i32, i32).new();
+  map.set(i32(1), i32(10));
+  map.set(i32(2), i32(20));
+  map.set(i32(3), i32(30));
+
+  key_sum := i32(0);
+  val_sum := i32(0);
+  count := i32(0);
+  for map.into_iter(), (bucket) => {
+    key_sum = (key_sum + bucket.key);
+    val_sum = (val_sum + bucket.value);
+    count = (count + i32(1));
+  };
+  assert(key_sum == i32(6));
+  assert(val_sum == i32(60));
+  assert(count == i32(3));
+};
+
+test "HashMap iter - yields pointers to buckets", {
+  map := HashMap(i32, i32).new();
+  map.set(i32(1), i32(10));
+  map.set(i32(2), i32(20));
+
+  val_sum := i32(0);
+  for map.iter(), (ptr) => {
+    val_sum = (val_sum + ptr.*.value);
+  };
+  assert(val_sum == i32(30));
+};
+
+test "HashMap iter - mutate values through pointer", {
+  map := HashMap(i32, i32).new();
+  map.set(i32(1), i32(10));
+  map.set(i32(2), i32(20));
+
+  for map.iter(), (ptr) => {
+    ptr.*.value = (ptr.*.value * i32(10));
+  };
+
+  assert(map.get(i32(1)).unwrap() == i32(100));
+  assert(map.get(i32(2)).unwrap() == i32(200));
+};
+
+test "HashMap keys - yields all keys", {
+  map := HashMap(i32, i32).new();
+  map.set(i32(1), i32(10));
+  map.set(i32(2), i32(20));
+  map.set(i32(3), i32(30));
+
+  key_sum := i32(0);
+  for map.keys(), (k) => {
+    key_sum = (key_sum + k);
+  };
+  assert(key_sum == i32(6));
+};
+
+test "HashMap values - yields all values", {
+  map := HashMap(i32, i32).new();
+  map.set(i32(1), i32(10));
+  map.set(i32(2), i32(20));
+  map.set(i32(3), i32(30));
+
+  val_sum := i32(0);
+  for map.values(), (v) => {
+    val_sum = (val_sum + v);
+  };
+  assert(val_sum == i32(60));
+};

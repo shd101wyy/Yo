@@ -229,3 +229,59 @@ test "PriorityQueue.peek reflects new minimum after pop", {
   pq.pop();
   assert(pq.peek().unwrap() == i32(15), "min should be 15 after removing 10");
 };
+
+// ---- Iterator Tests ----
+
+test "PriorityQueue into_iter - empty queue", {
+  pq := PriorityQueue(i32).new();
+  count := i32(0);
+  for pq.into_iter(), (x) => {
+    count = (count + i32(1));
+  };
+  assert(count == i32(0));
+};
+
+test "PriorityQueue into_iter - visits all elements", {
+  pq := PriorityQueue(i32).new();
+  pq.push(i32(30));
+  pq.push(i32(10));
+  pq.push(i32(20));
+
+  sum := i32(0);
+  count := i32(0);
+  for pq.into_iter(), (x) => {
+    sum = (sum + x);
+    count = (count + i32(1));
+  };
+  assert(sum == i32(60));
+  assert(count == i32(3));
+};
+
+test "PriorityQueue iter - yields pointers", {
+  pq := PriorityQueue(i32).new();
+  pq.push(i32(10));
+  pq.push(i32(20));
+
+  sum := i32(0);
+  for pq.iter(), (ptr) => {
+    sum = (sum + ptr.*);
+  };
+  assert(sum == i32(30));
+};
+
+test "PriorityQueue iter - mutate through pointer", {
+  pq := PriorityQueue(i32).new();
+  pq.push(i32(5));
+  pq.push(i32(10));
+
+  for pq.iter(), (ptr) => {
+    ptr.* = (ptr.* * i32(100));
+  };
+
+  // Elements are multiplied but in heap order
+  sum := i32(0);
+  for pq.into_iter(), (x) => {
+    sum = (sum + x);
+  };
+  assert(sum == i32(1500));
+};

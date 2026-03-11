@@ -240,25 +240,61 @@ function extractTraitTypeArgsFromImplExpr({
     return {};
   }
 
-  // traitExpr is like Add(i32)(...) - the func is Add(i32)
+  // For function-based traits: traitExpr is like Add(i32)(...) - the func is Add(i32)
   const traitTypeCallExpr = traitExpr.func;
-  if (!exprIsFunctionCall(traitTypeCallExpr)) {
-    return {};
+  if (exprIsFunctionCall(traitTypeCallExpr)) {
+    const traitTypeArgExprs = traitTypeCallExpr.args.map((arg) =>
+      cloneExpr(arg)
+    );
+
+    let traitFunctionParamNames: string[] | undefined;
+    if (
+      traitType.functionValue &&
+      isFunctionType(traitType.functionValue.type)
+    ) {
+      const funcType = traitType.functionValue.type;
+      if (funcType.parameters.length > 0) {
+        traitFunctionParamNames = funcType.parameters.map((p) => p.label);
+      } else if (funcType.forallParameters.length > 0) {
+        traitFunctionParamNames = funcType.forallParameters.map((p) => p.label);
+      }
+    }
+
+    return { traitTypeArgExprs, traitFunctionParamNames };
   }
 
-  const traitTypeArgExprs = traitTypeCallExpr.args.map((arg) => cloneExpr(arg));
+  // For direct trait types: traitExpr is like Iter(Item: T, IntoIterType: MyIter(T), next: ...)
+  // Extract labeled arguments for non-function fields (associated types)
+  if (!traitType.functionValue) {
+    const argExprs: Expr[] = [];
+    const paramNames: string[] = [];
 
-  let traitFunctionParamNames: string[] | undefined;
-  if (traitType.functionValue && isFunctionType(traitType.functionValue.type)) {
-    const funcType = traitType.functionValue.type;
-    if (funcType.parameters.length > 0) {
-      traitFunctionParamNames = funcType.parameters.map((p) => p.label);
-    } else if (funcType.forallParameters.length > 0) {
-      traitFunctionParamNames = funcType.forallParameters.map((p) => p.label);
+    for (const arg of traitExpr.args) {
+      if (exprIsFunctionCall(arg) && exprIsFunctionCallOf(arg, ":", 2)) {
+        const labelExpr = arg.args[0]!;
+        const valueExpr = arg.args[1]!;
+
+        if (exprIsAtom(labelExpr)) {
+          const label = labelExpr.token.value;
+          // Only include non-function fields (associated types)
+          const field = traitType.fields.find((f) => f.label === label);
+          if (field && !isFunctionType(field.type)) {
+            argExprs.push(cloneExpr(valueExpr));
+            paramNames.push(label);
+          }
+        }
+      }
+    }
+
+    if (argExprs.length > 0) {
+      return {
+        traitTypeArgExprs: argExprs,
+        traitFunctionParamNames: paramNames,
+      };
     }
   }
 
-  return { traitTypeArgExprs, traitFunctionParamNames };
+  return {};
 }
 
 function evaluateImplFieldList({
@@ -980,6 +1016,129 @@ export function findMethodsFromGenericImpls({
   }
 
   return methods;
+}
+
+/**
+ * Find an associated type from generic impls for a concrete type.
+ * This handles cases like `Self.Item` where `Self` is a type with a generic impl
+ * of `Iterator(T)` — the `Item` associated type needs to be resolved through
+ * the generic impl's trait type arguments.
+ */
+export function findAssociatedTypeFromGenericImpls({
+  concreteType,
+  propertyName,
+  env,
+}: {
+  concreteType: Type;
+  propertyName: string;
+  env: Environment;
+}): { type: Type; value: Value } | undefined {
+  if (isSomeType(concreteType)) {
+    const resolvedType = getValueOfSomeTypeFromEnv(env, concreteType);
+    if (!isSomeType(resolvedType)) {
+      concreteType = resolvedType;
+    }
+  }
+
+  for (const [_traitKey, impls] of genericImplRegistry.entries()) {
+    for (const impl of impls) {
+      let match;
+      try {
+        match = tryMatchGenericImpl({ concreteType, impl, env });
+      } catch (e) {
+        continue; // Skip impls that fail to match (e.g., due to re-evaluation context issues)
+      }
+      if (!match.matched) {
+        continue;
+      }
+      const traitType = impl.traitType;
+
+      // Look for a non-function field with the given name
+      const fieldIndex = traitType.fields.findIndex(
+        (f) => f.label === propertyName && !isFunctionType(f.type)
+      );
+      if (fieldIndex < 0) continue;
+
+      // Re-evaluate trait type args to get concrete associated types
+      // This is necessary because the associated type value may contain SomeTypes
+      // (e.g., *(T) in Iterator(*(T))) that need to be resolved with concrete substitutions
+      if (
+        impl.traitTypeArgExprs &&
+        impl.traitFunctionParamNames &&
+        impl.traitTypeArgExprs.length === impl.traitFunctionParamNames.length
+      ) {
+        const baseEnv = impl.definitionEnv;
+        let specializedEnv = pushEnvFrame(baseEnv);
+
+        for (const [paramName, paramType] of match.substitutions) {
+          const { env: nextEnv } = addVariableToEnv({
+            env: specializedEnv,
+            variable: {
+              name: paramName,
+              type: createType0(),
+              isCompileTimeOnly: true,
+              value: [createTypeValue(paramType)],
+              token: PlaceholderToken,
+              initializedAtToken: PlaceholderToken,
+              consumedAtToken: undefined,
+              isOwningTheRcValue: false,
+            },
+          });
+          specializedEnv = nextEnv;
+        }
+
+        for (let i = 0; i < impl.traitTypeArgExprs.length; i++) {
+          const argExpr = impl.traitTypeArgExprs[i]!;
+          const paramName = impl.traitFunctionParamNames[i]!;
+
+          if (paramName === propertyName) {
+            try {
+              const exprClone = cloneExpr(argExpr);
+              const evaluated = evaluateExpression({
+                expr: exprClone,
+                env: specializedEnv,
+                context: {
+                  stdPath: "",
+                  isEvaluatingGenericImplSpecialization: true,
+                } as EvaluatorContext,
+              });
+              if (evaluated.$ && isTypeValue(evaluated.$.value)) {
+                return {
+                  type: evaluated.$.value.type,
+                  value: evaluated.$.value,
+                };
+              }
+            } catch {
+              // If re-evaluation fails, continue to the next impl
+            }
+          }
+        }
+      }
+
+      // Fallback for non-parameterized traits: use the field value directly
+      const field = traitType.fields[fieldIndex]!;
+      const fieldValue =
+        impl.traitValue.fields[fieldIndex] ?? field.assignedValue;
+      if (!fieldValue || !isTypeValue(fieldValue)) continue;
+
+      if (!isSomeType(fieldValue.value)) {
+        return { type: fieldValue.type, value: fieldValue };
+      }
+
+      // The value is a SomeType — resolve through match substitutions
+      for (const param of impl.forallParameters) {
+        if (param.kind === "type" && param.someType === fieldValue.value) {
+          const concreteResolvedType = match.substitutions.get(param.name);
+          if (concreteResolvedType) {
+            const resolvedTypeValue = createTypeValue(concreteResolvedType);
+            return { type: resolvedTypeValue.type, value: resolvedTypeValue };
+          }
+        }
+      }
+    }
+  }
+
+  return undefined;
 }
 
 /**

@@ -614,6 +614,13 @@ export interface TraitType extends Type {
    * Inherited from Type.definedInModulePath.
    */
   definedInModulePath?: string;
+
+  /**
+   * For specialized traits, constraints on associated types.
+   * Created when calling a trait type with `:=` arguments, e.g., `Iterator(Item := i32)`.
+   * Used in where clauses to constrain associated types.
+   */
+  associatedTypeConstraints?: { label: string; constraintType: Type }[];
 }
 
 /**

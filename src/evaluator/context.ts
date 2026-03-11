@@ -3,7 +3,7 @@ import { YoError } from "../error";
 import type { Expr, FnCallExpr, PathCollection } from "../expr";
 import type { FunctionValue } from "../function-value";
 import type { Token } from "../token";
-import type { FunctionType, Type } from "../types/definitions";
+import type { FunctionType, TraitType, Type } from "../types/definitions";
 import type { ArrayValue, ModuleValue, TraitValue, Value } from "../value";
 
 export interface FunctionEvaluationContext {
@@ -284,6 +284,11 @@ export interface TraitTypeCallResult {
   callerEnv: Environment;
 }
 
+export interface TraitSpecializationResult {
+  specializedTraitType: TraitType;
+  callerEnv: Environment;
+}
+
 export interface ArrayCallResult {
   /**
    * The value by index from the array value.
@@ -404,6 +409,14 @@ export interface FunctionToCall {
          */
         kind: "trait-type";
         result: TraitTypeCallResult;
+      }
+    | {
+        /**
+         * This is the result from specializing a trait type with `:=` arguments.
+         * e.g., Iterator(Item := i32) produces a specialized TraitType.
+         */
+        kind: "trait-specialization";
+        result: TraitSpecializationResult;
       }
     | {
         /**

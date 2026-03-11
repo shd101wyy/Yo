@@ -35,9 +35,12 @@ import {
 } from "../types/guards";
 import { TypeTag } from "../types/tags";
 import { typeContainsSomeType, typeToString } from "../types/utils";
-import { isTraitValue, type TraitValue } from "../value";
+import { isTraitValue, isTypeValue, type TraitValue } from "../value";
 import type { EvaluatorContext } from "./context";
-import { findMatchingGenericImpl } from "./values/impl";
+import {
+  findAssociatedTypeFromGenericImpls,
+  findMatchingGenericImpl,
+} from "./values/impl";
 
 /**
  * Recursion guard to prevent infinite loops when checking trait implementations.
@@ -187,6 +190,89 @@ function typeImplementsRuntimeBuiltin(
 }
 
 /**
+ * Check if a concrete type satisfies associated type constraints on a specialized trait.
+ * e.g., for Iterator(Item := i32), verify that targetType's Iterator.Item resolves to i32.
+ * Returns true if there are no constraints, or all constraints are satisfied.
+ */
+function checkAssociatedTypeConstraints(
+  targetType: Type,
+  traitType: TraitType,
+  env: Environment
+): boolean {
+  if (
+    !traitType.associatedTypeConstraints ||
+    traitType.associatedTypeConstraints.length === 0
+  ) {
+    return true;
+  }
+
+  for (const constraint of traitType.associatedTypeConstraints) {
+    // Try to resolve the associated type from the target type
+    let resolvedType: Type | undefined;
+
+    // 1. Check direct trait fields on targetType
+    if (targetType.trait) {
+      for (const field of targetType.trait.fields) {
+        // Direct associated type field (e.g., from anonymous trait flattening)
+        if (
+          field.label === constraint.label &&
+          field.assignedValue &&
+          isTypeValue(field.assignedValue)
+        ) {
+          resolvedType = field.assignedValue.value;
+          break;
+        }
+        // Look inside TraitValues whose trait matches the constraint's trait
+        if (field.assignedValue && isTraitValue(field.assignedValue)) {
+          const traitValue = field.assignedValue as TraitValue;
+          if (traitValue.type.id === traitType.id) {
+            for (let i = 0; i < traitValue.type.fields.length; i++) {
+              const traitField = traitValue.type.fields[i]!;
+              if (traitField.label === constraint.label) {
+                const fieldValue = traitValue.fields[i];
+                if (fieldValue && isTypeValue(fieldValue)) {
+                  resolvedType = fieldValue.value;
+                }
+                break;
+              }
+            }
+          }
+          if (resolvedType) break;
+        }
+      }
+    }
+
+    // 2. Check generic impls
+    if (!resolvedType) {
+      const result = findAssociatedTypeFromGenericImpls({
+        concreteType: targetType,
+        propertyName: constraint.label,
+        env,
+      });
+      if (result && isTypeValue(result.value)) {
+        resolvedType = result.value.value;
+      }
+    }
+
+    if (!resolvedType) {
+      return false;
+    }
+
+    // Check if the resolved type matches the constraint
+    if (
+      !areTypesCompatible(
+        { type: constraint.constraintType, env },
+        { type: resolvedType, env }
+      )
+    ) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+/**
  * Check if a type implements a specific trait.
  * This is the core implementation that handles both direct trait fields
  * and generic impls.
@@ -237,7 +323,10 @@ export function typeImplementsTrait({
           { type: fieldTraitType, env }
         )
       ) {
-        return true;
+        // Also check associated type constraints if any
+        if (checkAssociatedTypeConstraints(targetType, traitType, env)) {
+          return true;
+        }
       }
     }
   }
@@ -325,7 +414,11 @@ export function typeImplementsTrait({
       traitType,
       env,
     });
-    return result !== undefined;
+    if (result === undefined) {
+      return false;
+    }
+    // Also check associated type constraints if any
+    return checkAssociatedTypeConstraints(targetType, traitType, env);
   } finally {
     traitCheckRecursionGuard.delete(guardKey);
   }

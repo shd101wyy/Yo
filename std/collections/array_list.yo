@@ -441,7 +441,77 @@ impl(forall(T : Type), ArrayList(T), Dispose(
   })
 ));
 
+// === Iterator support ===
+
+/**
+ * Value iterator for ArrayList - yields elements by value (T)
+ * Used by into_iter() / IntoIterator trait
+ */
+ArrayListIter :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(
+    _list  : ArrayList(T),
+    _index : usize
+  )
+);
+
+impl(forall(T : Type), ArrayListIter(T), Iterator(
+  Item : T,
+  next : (fn(self : *(Self)) -> Option(T))(
+    cond(
+      (self._index >= self._list._length) => .None,
+      true => {
+        value := self._list.get(self._index);
+        self._index = (self._index + usize(1));
+        value
+      }
+    )
+  )
+));
+
+impl(forall(T : Type), ArrayList(T),
+  into_iter : (fn(self : Self) -> ArrayListIter(T))(
+    ArrayListIter(T)(_list: self, _index: usize(0))
+  )
+);
+
+/**
+ * Pointer iterator for ArrayList - yields pointers to elements (*(T))
+ * Used by iter() method
+ */
+ArrayListIterPtr :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(
+    _list  : ArrayList(T),
+    _index : usize
+  )
+);
+
+impl(forall(T : Type), ArrayListIterPtr(T), Iterator(
+  Item : *(T),
+  next : (fn(self : *(Self)) -> Option(*(T)))(
+    cond(
+      (self._index >= self._list._length) => .None,
+      true =>
+        match(self._list._ptr,
+          .Some(ptr) => {
+            element_ptr := (ptr &+ self._index);
+            self._index = (self._index + usize(1));
+            .Some(element_ptr)
+          },
+          .None => .None
+        )
+    )
+  )
+));
+
+impl(forall(T : Type), ArrayList(T),
+  iter : (fn(self : *(Self)) -> ArrayListIterPtr(T))(
+    ArrayListIterPtr(T)(_list: self.*, _index: usize(0))
+  )
+);
+
 export
   ArrayList,
-  ArrayListError
+  ArrayListError,
+  ArrayListIter,
+  ArrayListIterPtr
 ;

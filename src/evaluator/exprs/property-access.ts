@@ -43,6 +43,7 @@ import {
 import type { EvaluatorContext } from "../context";
 import { isValidVariableName } from "../utils";
 import {
+  findAssociatedTypeFromGenericImpls,
   findMethodFromGenericImplForTrait,
   findMethodsFromGenericImpls,
 } from "../values/impl";
@@ -497,6 +498,24 @@ export function evaluatePropertyAccess({
             env,
             type: method.type,
             value: method.value,
+            pathCollection: [],
+            isAccessingProperty: true,
+          };
+          propertyExpr.$ = expr.$;
+          return expr;
+        }
+
+        // Check for associated types from generic impls (e.g., Self.Item from Iterator(T))
+        const associatedType = findAssociatedTypeFromGenericImpls({
+          concreteType: typeValue.value,
+          propertyName,
+          env,
+        });
+        if (associatedType) {
+          expr.$ = {
+            env,
+            type: associatedType.type,
+            value: associatedType.value,
             pathCollection: [],
             isAccessingProperty: true,
           };

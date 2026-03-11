@@ -438,8 +438,68 @@ impl(forall(T : Type), LinkedList(T), Dispose(
   )
 ));
 
+/**
+ * Value iterator for LinkedList - yields elements by value (T)
+ * Traverses the linked list following node.next pointers.
+ */
+LinkedListIter :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(
+    _current : Option(Node(T))
+  )
+);
+
+impl(forall(T : Type), LinkedListIter(T), Iterator(
+  Item : T,
+  next : (fn(self : *(Self)) -> Option(T))(
+    match(self._current,
+      .None => .None,
+      .Some(node) => {
+        self._current = node.next;
+        .Some(node.value)
+      }
+    )
+  )
+));
+
+impl(forall(T : Type), LinkedList(T),
+  into_iter : (fn(self : Self) -> LinkedListIter(T))(
+    LinkedListIter(T)(_current: self.head)
+  )
+);
+
+/**
+ * Pointer iterator for LinkedList - yields pointers to elements (*(T))
+ * Yields &(node.value) for each node. Pointers are valid as long as
+ * the list is not modified during iteration.
+ */
+LinkedListIterPtr :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(
+    _current : Option(Node(T))
+  )
+);
+
+impl(forall(T : Type), LinkedListIterPtr(T), Iterator(
+  Item : *(T),
+  next : (fn(self : *(Self)) -> Option(*(T)))(
+    match(self._current,
+      .None => .None,
+      .Some(node) => {
+        self._current = node.next;
+        .Some(&(node.value))
+      }
+    )
+  )
+));
+
+impl(forall(T : Type), LinkedList(T),
+  iter : (fn(self : *(Self)) -> LinkedListIterPtr(T))(
+    LinkedListIterPtr(T)(_current: self.*.head)
+  )
+);
 
 export
   LinkedList,
-  LinkedListError
+  LinkedListError,
+  LinkedListIter,
+  LinkedListIterPtr
 ;
