@@ -85,6 +85,25 @@ export function evaluateDynType({
     }
   }
 
+  // Expand selfConstraints (supertraits) from all required traits
+  // e.g., if Error has where(Self <: ToString), then Dyn(Error) should include ToString
+  {
+    const expanded = new Set<string>(traitTypes.map((t) => t.id));
+    const queue = [...traitTypes];
+    while (queue.length > 0) {
+      const current = queue.pop()!;
+      if (current.selfConstraints) {
+        for (const constraint of current.selfConstraints) {
+          if (!expanded.has(constraint.id)) {
+            expanded.add(constraint.id);
+            traitTypes.push(constraint);
+            queue.push(constraint);
+          }
+        }
+      }
+    }
+  }
+
   // Prevent having the same function names in different traitTypes
   for (let i = 0; i < traitTypes.length; i++) {
     const traitTypeA = traitTypes[i]!;

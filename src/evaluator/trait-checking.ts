@@ -331,6 +331,30 @@ export function typeImplementsTrait({
     }
   }
 
+  // Check required traits and their selfConstraints for DynType
+  // If Dyn(TraitA) and TraitA has where(Self <: TraitB), then Dyn(TraitA) implements TraitB
+  if (isDynType(targetType)) {
+    for (const { traitType: requiredTrait } of targetType.requiredTraits) {
+      if (requiredTrait.id === traitType.id) {
+        return true;
+      }
+      // Check selfConstraints (supertraits) of required traits
+      if (requiredTrait.selfConstraints) {
+        for (const constraint of requiredTrait.selfConstraints) {
+          if (constraint.id === traitType.id) {
+            return true;
+          }
+        }
+      }
+    }
+    // Check negative traits
+    for (const { traitType: negativeTrait } of targetType.negativeTraits) {
+      if (negativeTrait.id === traitType.id) {
+        return false;
+      }
+    }
+  }
+
   // Check where clause constraints for SomeType
   // Constraints are stored in the current env frames (not on SomeType)
   if (isSomeType(targetType)) {
