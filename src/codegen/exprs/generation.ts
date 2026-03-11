@@ -94,6 +94,7 @@ import {
 import { generateRecur } from "./recur";
 import { generatePendingDeferredDrops, generateReturn } from "./return";
 import { generateSizeOf } from "./sizeof";
+import { generateTypeId } from "./typeid";
 import { generateAnonymousTuple } from "./tuple-fn";
 import { generateWhileLoop } from "./while";
 
@@ -702,6 +703,10 @@ function generateFuncCall(
   // sizeof
   else if (exprIsFunctionCallOf(expr, BuiltinFunctions.sizeof, 1)) {
     return generateSizeOf(expr, indent, context);
+  }
+  // typeid
+  else if (exprIsFunctionCallOf(expr, BuiltinFunctions.typeid, 1)) {
+    return generateTypeId(expr, indent, context);
   }
   // Builtin Yo inline functions
   else if (exprIsFunctionCallOf(expr, BuiltinYoInlineFunctions)) {

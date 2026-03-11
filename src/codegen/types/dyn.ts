@@ -26,6 +26,11 @@ export function generateDynDeclaration(
     `typedef struct { // Vtable for ${typeToString(dynType)}`
   );
 
+  // TypeId field — always present in every Dyn vtable for runtime type identity
+  emitter.emitDeclarationLine(
+    `  uintptr_t __yo_type_id; // Runtime type identity (address of unique static per concrete type)`
+  );
+
   // Generate function pointers in the correct order: base module methods first, then user module methods
   const processedMethods = new Set<string>();
 

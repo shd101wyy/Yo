@@ -129,6 +129,18 @@ next :
 
 Example: `((value <= 0x10FFFF) && ((value < 0xD800) || (value > 0xDFFF)))`
 
+```
+// WRONG — ambiguous parsing without parentheses:
+err1 : AnyErr = dyn(ErrA(`error A`));
+
+// WRONG — parsed as `err1 : (AnyErr = dyn(...))`:
+err1 :
+  AnyErr = dyn(ErrA(`error A`));
+
+// CORRECT — parentheses around the declaration:
+(err1 : AnyErr) = dyn(ErrA(`error A`));
+```
+
 ## Unary operators need parentheses around their operand
 
 Unary operators like `!` greedily consume everything that follows, including comma-separated arguments. Always wrap the operand in parentheses.

@@ -252,6 +252,7 @@ ${valueToString(traitField.assignedValue)}`,
               expectedType: undefined,
               ReceiverType: undefined,
               SelfType: selfType, // Use working trait with progressively bound values
+              SelfTraitType: traitType, // Allow SelfTrait to resolve to the trait being implemented
             },
           });
           const evaluatedTraitMemberTypeValue = evaluatedTraitMember.$?.value;
@@ -274,6 +275,7 @@ ${valueToString(traitField.assignedValue)}`,
               expectedType: undefined,
               ReceiverType: undefined,
               SelfType: selfType, // Use working trait with progressively bound values
+              SelfTraitType: traitType, // Allow SelfTrait to resolve to the trait being implemented
             },
           });
           const value = evaluatedValueExpr.$?.value;

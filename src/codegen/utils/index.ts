@@ -239,6 +239,12 @@ export interface CodeGenContext {
    * This is needed because break inside a switch breaks the switch, not an outer loop
    */
   insideMatch?: boolean;
+
+  /**
+   * Track typeid static declarations that need to be generated.
+   * Maps type ID string to the C variable name for the static.
+   */
+  typeIdStatics?: Map<string, string>;
 }
 
 /**

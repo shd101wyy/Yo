@@ -2,33 +2,42 @@
 //
 // Provides a standard Error trait for typed error propagation.
 // All error types in the standard library should implement this trait.
-//
-// Example:
-//   { Error } :: import "std/error";
-//
-//   MyError :: enum(
-//     NotFound(path: String),
-//     PermissionDenied
-//   );
-//   impl(MyError, Error(
-//     message : (self -> {
-//       return match(self,
-//         .NotFound(path) => `file not found: ${path}`,
-//         .PermissionDenied => String.from("permission denied")
-//       );
-//     })
-//   ));
-
 open import "./string";
+open import "./fmt";
 
 // ============================================================================
 // Error trait
 // ============================================================================
 
-Error :: (fn(comptime(T) : Type) -> comptime(Type))
-  trait(
-    message :: (fn(self: *(T)) -> String)
-  )
-;
+Error :: trait(
+  (source : (fn(self: *(Self)) -> Option(Dyn(SelfTrait)))) ?= ((self) -> .None),
 
+  where(Self <: ToString)
+);
 export Error;
+
+// TODO: Support
+// - is : (fn(self : *(Self), comptime(T) : Type) -> bool) - check if error is of a certain type
+// - downcast_ref : (fn(self : *(Self), comptime(T) : Type) -> Option(*(T))) - attempt to downcast error to a specific type, returning Some(*(T)) if successful and None if not
+
+// TODO: impl Error for necessary types, e.g. String
+// impl(String, Error(...));
+
+AnyError :: Dyn(Error);
+export AnyError;
+
+/// === Exception ===
+// This is a non-resumable exception handling.  
+// 
+// Example (function that may throw):
+//
+//   safe_div :: (fn(x: i32, y: i32, using(exn : Exception)) -> i32)(
+//     cond(
+//       (y == i32(0)) => exn.throw(dyn `division by zero`)),
+//       true => (x / y)
+//     )
+//   );
+Exception :: module(
+  throw : (fn(forall(ResumeType : Type), error : AnyError) -> ResumeType)
+);
+export Exception;

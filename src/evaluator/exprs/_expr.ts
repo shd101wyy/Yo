@@ -13,6 +13,7 @@ import {
 } from "../../expr";
 import { TokenType } from "../../token";
 import { evaluateAlignOf } from "../builtins/alignof";
+import { evaluateTypeId } from "../builtins/typeid";
 import { evaluateAndOr } from "../builtins/and-or";
 import { evaluateYoArrayFill } from "../builtins/array-fns";
 import { evaluateComptimeAssert } from "../builtins/comptime-assert";
@@ -422,6 +423,9 @@ ${exprToString(expr)}`,
     } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.alignof)) {
       // alignof
       return evaluateAlignOf({ expr, env, context: { ...context } });
+    } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.typeid)) {
+      // typeid
+      return evaluateTypeId({ expr, env, context: { ...context } });
     } else if (exprIsFunctionCallOf(expr, BuiltinFunctions.rc)) {
       // rc
       return evaluateRc({ expr, env, context: { ...context } });

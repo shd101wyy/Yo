@@ -684,6 +684,7 @@ export const BuiltinFunctions = {
   typeof: ["typeof"],
   sizeof: ["sizeof"],
   alignof: ["alignof"],
+  typeid: ["typeid"],
   consume: ["consume"],
   macro_expand: ["macro_expand"],
   as: ["as"],

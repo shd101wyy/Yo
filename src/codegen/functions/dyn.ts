@@ -398,6 +398,29 @@ export function generateDynVtables(context: FunctionGenerationContext): void {
     return;
   }
 
+  // Generate unique type-id statics per concrete type
+  // Each concrete type gets a unique static variable whose address serves as the TypeId
+  emitter.emitDeclarationLine("");
+  emitter.emitDeclarationLine("// === Dyn TypeId Statics ===");
+  emitter.emitDeclarationLine(
+    "// Unique static per concrete type — address is the runtime TypeId"
+  );
+  emitter.emitDeclarationLine("");
+
+  const generatedTypeIds = new Set<string>();
+  for (const [, impl] of context.dynImpls) {
+    const concreteTypeCName =
+      context.types[impl.concreteType.id]?.cName ||
+      `unknown_${impl.concreteType.id}`;
+    const typeIdName = `yo_typeid_${concreteTypeCName}`;
+    if (!generatedTypeIds.has(typeIdName)) {
+      generatedTypeIds.add(typeIdName);
+      emitter.emitDeclarationLine(
+        `static const char ${typeIdName} = 0; // TypeId for ${concreteTypeCName}`
+      );
+    }
+  }
+
   emitter.emitDeclarationLine("");
   emitter.emitDeclarationLine("// === Dyn Static Vtables ===");
   emitter.emitDeclarationLine("// Static vtables for dynamic dispatch");
@@ -411,6 +434,7 @@ export function generateDynVtables(context: FunctionGenerationContext): void {
       `unknown_${impl.concreteType.id}`;
     const vtableName = `yo_vtable_${implKey}`;
     const vtableTypeName = `${dynTypeCName}_vtable`;
+    const typeIdName = `yo_typeid_${concreteTypeCName}`;
 
     emitter.emitDeclarationLine(
       `// Vtable for impl(${concreteTypeCName}, ${impl.dynType.requiredTraits.map(({ traitType }) => traitType.typeName || "?").join(" + ")})`
@@ -418,6 +442,9 @@ export function generateDynVtables(context: FunctionGenerationContext): void {
     emitter.emitDeclarationLine(
       `static const ${vtableTypeName} ${vtableName} = {`
     );
+
+    // TypeId — always first field
+    emitter.emitDeclarationLine(`  .__yo_type_id = (uintptr_t)&${typeIdName},`);
 
     const processedMethods = new Set<string>();
     const reservedDynMethodLabels = new Set<string>([

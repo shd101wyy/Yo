@@ -451,6 +451,20 @@ export function evaluateIdentifierAndOperator({
     };
     return expr;
   }
+  // SelfTrait - refers to the trait type currently being defined
+  // Only available inside trait(...) definitions
+  else if (identifier === "SelfTrait" && context.SelfTraitType) {
+    const typeValue = createTypeValue(context.SelfTraitType);
+
+    expr.$ = {
+      env,
+      type: typeValue.type,
+      value: typeValue,
+
+      pathCollection: [],
+    };
+    return expr;
+  }
   // variable
   else {
     const variables = getVariablesFromEnv(env, identifier);

@@ -3847,19 +3847,3 @@ __yo_builtin_io :: IO(
   spawn : __yo_io_spawn
 );
 export __yo_builtin_io;
-
-/// === Exception ===
-// Example (function that may throw):
-//
-//   safe_div :: (fn(x: i32, y: i32, using(exception : Exception(String))) -> i32)(
-//     cond(
-//       (y == i32(0)) => exception.throw(`division by zero`)),
-//       true => (x / y)
-//     )
-//   );
-Exception :: (fn(comptime(ErrorType) : Type) -> comptime(Module))(
-  module(
-    throw : (fn(forall(ResumeType : Type), error : ErrorType) -> ResumeType)
-  )
-);
-export Exception;

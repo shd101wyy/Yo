@@ -364,7 +364,7 @@ function parseTraitWhereClauseConstraints({
         evaluatedRhs = evaluateExpression({
           expr: unwrappedTraitExpr,
           env,
-          context: { ...context, SelfType: selfType },
+          context: { ...context, SelfType: selfType, SelfTraitType: traitType },
         });
       } catch (error) {
         if (collectPendingTraits) {
@@ -936,11 +936,12 @@ export function evaluateTraitType({
   // Pre-parse where-clause constraints (if any) so Self constraints are available
   // when evaluating trait fields.
   let pendingConstraints: PendingTraitConstraint[] = [];
+  const traitContext = { ...context, SelfTraitType: traitType };
   if (whereClauseExprs && whereClauseExprs.length > 0) {
     const prepResult = parseTraitWhereClauseConstraints({
       constraintExprs: whereClauseExprs,
       env,
-      context,
+      context: traitContext,
       selfType,
       traitType,
       collectPendingTraits: true,
@@ -973,8 +974,9 @@ export function evaluateTraitType({
         env,
         traitFieldIndex: i,
         context: {
-          ...context,
-          SelfType: selfType, // Self refers to the trait itself
+          ...traitContext,
+          SelfType: selfType, // Self refers to the implementing type
+          SelfTraitType: traitType, // SelfTrait refers to the trait being defined
         },
         isForEvaluatingTraitType: true,
       });
@@ -1040,7 +1042,7 @@ export function evaluateTraitType({
         traitExpr: pending.traitExpr,
         originalConstraintExpr: pending.originalConstraintExpr,
         env,
-        context,
+        context: traitContext,
         selfType,
         traitType,
       });
@@ -1056,7 +1058,7 @@ export function evaluateTraitType({
       parseTraitWhereClauseConstraints({
         constraintExprs: [failedConstraint.originalConstraintExpr],
         env,
-        context,
+        context: traitContext,
         selfType,
         traitType,
         collectPendingTraits: false,
