@@ -52,9 +52,16 @@ For understanding the compile-time RC ownership model, read `COMPILE_TIME_RC_WIT
 
 ## Module effect escape detection
 
-Module effect members (e.g., `Exception.throw`) are passed as function pointers via the SM's `__capture` struct. Because the `functionValue` at the call site is `UnknownValue` (the handler is only known at runtime), the codegen cannot statically detect whether the handler calls `escape()`.
+### Sync vs async behavior
 
-A thread-local flag `__yo_effect_escaped` is used for runtime detection:
+In the **sync** case (no `io.async`/`io.await`), module effect members are treated identically to function-based effects: the handler body is **inlined** at the call site via a yield/while-loop pattern — no function pointers needed. The SM yields, the caller's while-loop contains the inlined handler body, and `escape` simply returns from the enclosing function.
+
+In the **async** case (`io.async`/`io.await`), module effect members must be stored as **function pointers** in the SM's `__capture` struct. This is because `using(...)` values are injected at `io.await` time and stored in captures; they can only be set once (if `io.await` is called again with different `using(...)`, the first ones are kept). Since the async SM runs on the event loop (not at the handler's call site), the handler cannot be inlined — it must be called through a function pointer.
+
+### Thread-local escape flag (async only)
+
+Because the handler is called via function pointer in the async SM, the codegen cannot statically detect whether the handler calls `escape()`. A thread-local flag `__yo_effect_escaped` is used for runtime detection:
+
 1. Before calling a module effect member via function pointer, the flag is reset to 0.
 2. If the handler calls `escape()`, the flag is set to 1 (in `generateEscape`, gated by `isModuleEffectMemberFunction`).
 3. After the call returns, the caller checks the flag. If set, it drops any RC-typed arguments, aborts the SM (state = -2), spawns the continuation, and returns.

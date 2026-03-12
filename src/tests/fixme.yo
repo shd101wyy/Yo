@@ -6,9 +6,7 @@ open import "std/libc/stdio";
 IO_file :: import "std/sys/file";
 { AT_FDCWD, O_RDONLY } :: import "std/sys/constants";
 
-// Minimal repro: io.async with Exception effect
-// Exception is carried in the Future type, injected at io.await time
-
+// Async module-based effect (Exception) — the real use case
 my_open :: (fn(path: *(u8), using(io : IO)) -> Impl(Future(i32, IO, Exception)))(
   io.async((using(io, exn)) => {
     result := io.await(IO_file.openat(AT_FDCWD, path, O_RDONLY, i32(0)));
@@ -25,7 +23,6 @@ main :: (fn(using(io : IO)) -> unit)({
     escape ();
   }));
   fd := io.await(my_open(*(u8)("/tmp/yo_fixme_test.txt")), using(io, exn));
-  // fd := io.await(my_open(*(u8)("/tmp/yo_fixme_test.txt")));
   printf("fd = %d\n", fd);
 });
 export main;
