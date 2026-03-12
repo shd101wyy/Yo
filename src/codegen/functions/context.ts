@@ -40,6 +40,8 @@ export interface FunctionGenerationContext extends CodeGenContext {
   stateMachineVariables?: Map<string, CapturedVariable>; // Variables captured in state machine (id -> variable)
   // Effect state machine context (when generating code inside an effectful function's state machine)
   inEffectStateMachine?: EffectStateMachineInfo; // Set when generating code inside an effect state machine
+  // Set when generating code for a module effect member function (e.g., Exception.throw handler)
+  isModuleEffectMemberFunction?: boolean;
   // Deferred effectful function generation - effectful functions are generated after regular functions
   deferredEffectfulFunctions?: Array<{
     functionValue: FunctionValue;

@@ -6,24 +6,26 @@
 //   { walk, WalkEntry } :: import "std/fs/walker";
 //
 //   main :: (fn(using(io : IO)) -> unit)({
+//     given(exn) : Exception = {
+//       throw : (fn(forall(T : Type), error: AnyError) -> T)(
+//         { println(error.to_string()); exit(i32(1)); }
+//       )
+//     };
+//
 //     entries := io.await(walk(`/tmp`));
-//     match(entries,
-//       .Ok(list) => {
-//         i := usize(0);
-//         while runtime((i < list.len())), {
-//           e := list.get(i).unwrap();
-//           println(e.path);
-//           i = (i + usize(1));
-//         };
-//       },
-//       .Err(e) => println(e.to_string())
-//     );
+//     i := usize(0);
+//     while runtime((i < entries.len())), {
+//       e := entries.get(i).unwrap();
+//       println(e.path);
+//       i = (i + usize(1));
+//     };
 //   });
 
 { ArrayList } :: import "../collections/array_list";
 open import "../string";
 { Path } :: import "../path";
 { IOError } :: import "../sys/errors";
+{ Error, AnyError, Exception } :: import "../error";
 { FileType } :: import "./dir";
 { DirEntry } :: import "./dir";
 _dir :: import "./dir";
@@ -79,9 +81,9 @@ _join_path :: (fn(base: String, name: String) -> String)(
 // ============================================================================
 
 // Walk a directory tree with custom options.
-walk_with :: (fn(root: Path, options: WalkOptions, using(io : IO)) -> Impl(Future(Result(ArrayList(WalkEntry), IOError), IO)))({
+walk_with :: (fn(root: Path, options: WalkOptions, using(io : IO, exn : Exception)) -> Impl(Future(ArrayList(WalkEntry), IO, Exception)))({
   root_s := root.to_string();
-  io.async((using(io : IO)) => {
+  io.async((using(io, exn)) => {
     results := ArrayList(WalkEntry).new();
     // Stack of (path, depth) pairs to process
     stack := ArrayList(struct(path: String, depth: u32)).new();
@@ -100,67 +102,58 @@ walk_with :: (fn(root: Path, options: WalkOptions, using(io : IO)) -> Impl(Futur
 
       cond(
         should_continue => {
-          dir_result := io.await(_dir.read_dir(Path.new(cur_path), using(io)));
-          match(dir_result,
-            .Ok(entries) => {
-              i := usize(0);
-              while runtime((i < entries.len())), {
-                entry := entries.get(i).unwrap();
-                entry_path := _join_path(cur_path, entry.name);
-                match(entry.file_type,
-                  .Directory => {
-                    cond(
-                      options.include_dirs => {
-                        results.push(WalkEntry(
-                          path: Path.new(entry_path),
-                          name: entry.name,
-                          depth: cur_depth,
-                          file_type: .Directory
-                        ));
-                      },
-                      true => ()
-                    );
-                    // Push subdirectory for processing
-                    stack.push({ path: entry_path, depth: (cur_depth + u32(1)) });
-                  },
-                  _ => {
+          entries := io.await(_dir.read_dir(Path.new(cur_path), using(io, exn)));
+          i := usize(0);
+          while runtime((i < entries.len())), {
+            entry := entries.get(i).unwrap();
+            entry_path := _join_path(cur_path, entry.name);
+            match(entry.file_type,
+              .Directory => {
+                cond(
+                  options.include_dirs => {
                     results.push(WalkEntry(
                       path: Path.new(entry_path),
                       name: entry.name,
                       depth: cur_depth,
-                      file_type: entry.file_type
+                      file_type: .Directory
                     ));
-                  }
+                  },
+                  true => ()
                 );
-                i = (i + usize(1));
-              };
-            },
-            .Err(e) => {
-              (ret : Result(ArrayList(WalkEntry), IOError)) = .Err(e);
-              return ret;
-            }
-          );
+                // Push subdirectory for processing
+                stack.push({ path: entry_path, depth: (cur_depth + u32(1)) });
+              },
+              _ => {
+                results.push(WalkEntry(
+                  path: Path.new(entry_path),
+                  name: entry.name,
+                  depth: cur_depth,
+                  file_type: entry.file_type
+                ));
+              }
+            );
+            i = (i + usize(1));
+          };
         },
         true => ()
       );
     };
 
-    (ret : Result(ArrayList(WalkEntry), IOError)) = .Ok(results);
-    return ret;
+    results
   })
 });
 
-walk_with_cstr :: (fn(root: *(u8), options: WalkOptions, using(io : IO)) -> Impl(Future(Result(ArrayList(WalkEntry), IOError), IO)))(
-  walk_with(Path.from_cstr(root), options, using(io))
+walk_with_cstr :: (fn(root: *(u8), options: WalkOptions, using(io : IO, exn : Exception)) -> Impl(Future(ArrayList(WalkEntry), IO, Exception)))(
+  walk_with(Path.from_cstr(root), options, using(io, exn))
 );
 
 // Walk a directory tree with default options.
-walk :: (fn(root: Path, using(io : IO)) -> Impl(Future(Result(ArrayList(WalkEntry), IOError), IO)))
-  walk_with(root, WalkOptions.defaults(), using(io))
+walk :: (fn(root: Path, using(io : IO, exn : Exception)) -> Impl(Future(ArrayList(WalkEntry), IO, Exception)))
+  walk_with(root, WalkOptions.defaults(), using(io, exn))
 ;
 
-walk_cstr :: (fn(root: *(u8), using(io : IO)) -> Impl(Future(Result(ArrayList(WalkEntry), IOError), IO)))
-  walk(Path.from_cstr(root), using(io))
+walk_cstr :: (fn(root: *(u8), using(io : IO, exn : Exception)) -> Impl(Future(ArrayList(WalkEntry), IO, Exception)))
+  walk(Path.from_cstr(root), using(io, exn))
 ;
 
 export walk, walk_cstr, walk_with, walk_with_cstr;

@@ -24,6 +24,7 @@ import {
 } from "../../types/guards";
 import {
   isFunctionValue,
+  isModuleValue,
   isTypeValue,
   isUnknownValue,
   type ModuleValue,
@@ -140,6 +141,26 @@ export function findFunctionCallsInExpr(
   expr: Expr,
   context: CodeGenContext
 ): void {
+  // Collect function values inside ModuleValues that are bound to variables
+  // used as effect handlers (e.g., given(exn) := Exception(throw : handler)).
+  // These functions live inside compile-time module values and are NOT represented
+  // as function call expressions in the AST, so the normal traversal misses them.
+  if (expr.$?.value && isModuleValue(expr.$.value)) {
+    const mv = expr.$.value;
+    for (let i = 0; i < mv.fields.length; i++) {
+      const fieldValue = mv.fields[i];
+      if (fieldValue && isFunctionValue(fieldValue)) {
+        if (!context.functions[fieldValue.funcId]) {
+          fieldValue.isModuleEffectMember = true;
+          context.functions[fieldValue.funcId] = {
+            value: fieldValue,
+            cName: sanitizeForCIdentifier(fieldValue.funcId),
+          };
+          findFunctionCallsInExpr(fieldValue.body, context);
+        }
+      }
+    }
+  }
   // Skip test blocks - they should not generate code
   if (
     exprIsFunctionCall(expr) &&

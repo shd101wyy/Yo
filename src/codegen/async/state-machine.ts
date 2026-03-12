@@ -33,11 +33,13 @@ import {
   isDynType,
   isEffectsRowType,
   isFunctionType,
+  isModuleType,
   isSomeType,
   isUnitType,
 } from "../../types/guards";
 import { typeContainsRcType } from "../../types/utils";
 import { isTempVariableName } from "../../utils";
+import { isFunctionValue, isModuleValue } from "../../value";
 import { emitAsyncFutureCompletion } from "../exprs/async-completion";
 import { getDupFunctionForType } from "../exprs/drop-dup";
 import { generateExpr } from "../exprs/expr";
@@ -1761,14 +1763,56 @@ function emitEffectInjectionForSM(
     const effect = expandedEffects[i]!;
     const usingArg = usingArgs[i]!;
 
-    if (!isFunctionType(effect.type)) continue;
-    // Skip generic function effects (forall) — they are compile-time only
-    if (effect.type.forallParameters.length > 0) continue;
+    if (isFunctionType(effect.type)) {
+      // Skip generic function effects (forall) — they are compile-time only
+      if (effect.type.forallParameters.length > 0) continue;
 
-    const handlerCode = generateExpr(usingArg, indent, context);
-    const fieldName = effect.label;
-    emitter.emitLine(
-      `${indent}${futureAccess}->__capture.${fieldName} = (void*)${handlerCode};`
-    );
+      const handlerCode = generateExpr(usingArg, indent, context);
+      const fieldName = effect.label;
+      emitter.emitLine(
+        `${indent}${futureAccess}->__capture.${fieldName} = (void*)${handlerCode};`
+      );
+    } else if (isModuleType(effect.type)) {
+      // Module-typed effect (e.g., Exception). Inject each function member individually.
+      const moduleType = effect.type;
+      for (const field of moduleType.fields) {
+        if (!isFunctionType(field.type)) continue;
+        let memberCode: string | undefined;
+
+        // Inside SM: member is captured in state machine variables
+        if (context.stateMachineVariables) {
+          for (const [, capturedVar] of context.stateMachineVariables) {
+            if (
+              capturedVar.name === field.label &&
+              capturedVar.kind === "outer"
+            ) {
+              memberCode = `sm->__capture.${field.label}`;
+              break;
+            }
+          }
+        }
+
+        // Outside SM: resolve from using arg's module value
+        if (!memberCode) {
+          const usingArgValue = usingArg.$?.value;
+          if (usingArgValue && isModuleValue(usingArgValue)) {
+            const fieldIndex = moduleType.fields.indexOf(field);
+            const memberValue = usingArgValue.fields[fieldIndex];
+            if (memberValue && isFunctionValue(memberValue)) {
+              const funcEntry = context.functions[memberValue.funcId];
+              if (funcEntry) {
+                memberCode = funcEntry.cName;
+              }
+            }
+          }
+        }
+
+        if (memberCode) {
+          emitter.emitLine(
+            `${indent}${futureAccess}->__capture.${field.label} = (void*)${memberCode};`
+          );
+        }
+      }
+    }
   }
 }

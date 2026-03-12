@@ -49,3 +49,14 @@ For understanding the compile-time RC ownership model, read `COMPILE_TIME_RC_WIT
 
 - Functions with `forall(...(E))` spread effect parameters have generic bodies where sub-expression type info may be missing. Effect analysis for these functions is performed during the codegen phase (in `preRegisterEffectfulFunctions`), not during evaluation.
 - Effectful functions (those that call effect handlers) are compiled as state machines, similar to async functions.
+
+## Module effect escape detection
+
+Module effect members (e.g., `Exception.throw`) are passed as function pointers via the SM's `__capture` struct. Because the `functionValue` at the call site is `UnknownValue` (the handler is only known at runtime), the codegen cannot statically detect whether the handler calls `escape()`.
+
+A thread-local flag `__yo_effect_escaped` is used for runtime detection:
+1. Before calling a module effect member via function pointer, the flag is reset to 0.
+2. If the handler calls `escape()`, the flag is set to 1 (in `generateEscape`, gated by `isModuleEffectMemberFunction`).
+3. After the call returns, the caller checks the flag. If set, it drops any RC-typed arguments, aborts the SM (state = -2), spawns the continuation, and returns.
+
+Key files: `context.ts` (`isModuleEffectMemberFunction`), `generation.ts` (preamble + context flag), `exprs/generation.ts` (flag set in `generateEscape`), `other-fn-call.ts` (flag check + abort at call site).

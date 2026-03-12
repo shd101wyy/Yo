@@ -2,6 +2,7 @@ open import "std/libc/stdio";
 open import "std/string";
 { Path } :: import "std/path";
 { IOError } :: import "std/sys/errors";
+{ Error, AnyError, Exception } :: import "std/error";
 fs_file :: import "std/fs/file";
 { File, OpenMode, FilePermission } :: import "std/fs/file";
 { temp_dir, path_join } :: import "../helper";
@@ -11,277 +12,255 @@ fs_dir :: import "std/fs/dir";
 // Convenience function tests
 // ============================================================================
 
-test "write_file and read_to_string round-trip", using(io : IO), {
+test "write_file and read_string round-trip", using(io : IO), {
+  given(exn) := Exception(throw : ((err) -> {
+    println(`  unexpected error: ${err}`);
+    assert(false, "unexpected exception");
+    escape ();
+  }));
+
   tmp := temp_dir();
   fpath := Path.new(path_join(tmp, `yo_fs_file_write_read.txt`));
 
-  w := io.await(fs_file.write_file(fpath, "hello world", using(io)));
-  match(w,
-    .Ok(_) => { printf("  write ok\n"); },
-    .Err(e) => { printf("  write err\n"); assert(false, "write_file failed"); }
-  );
+  io.await(fs_file.write_file(fpath, "hello world", using(io, exn)));
+  printf("  write ok\n");
 
-  r := io.await(fs_file.read_to_string(fpath, using(io)));
-  match(r,
-    .Ok(s) => {
-      printf("  read: %s\n", s.to_cstr().ptr().unwrap());
-      assert((s == `hello world`), "content mismatch");
-    },
-    .Err(e) => { printf("  read err\n"); assert(false, "read_to_string failed"); }
-  );
+  s := io.await(fs_file.read_string(fpath, using(io, exn)));
+  printf("  read: %s\n", s.to_cstr().ptr().unwrap());
+  assert((s == `hello world`), "content mismatch");
 
   // Cleanup
-  io.await(fs_dir.remove_file(fpath, using(io)));
+  io.await(fs_dir.remove_file(fpath, using(io, exn)));
 };
 
-test "write_file_str and read_to_string_str", using(io : IO), {
+test "write_file_cstr and read_string_cstr", using(io : IO), {
+  given(exn) := Exception(throw : ((err) -> {
+    assert(false, "unexpected exception");
+    escape ();
+  }));
+
   tmp := temp_dir();
   fpath_s := path_join(tmp, `yo_fs_file_str_test.txt`);
   fpath_cstr := fpath_s.to_cstr();
   fpath_c := fpath_cstr.ptr().unwrap();
 
-  w := io.await(fs_file.write_file_cstr(fpath_c, "str path test", using(io)));
-  match(w,
-    .Ok(_) => { printf("  write ok\n"); },
-    .Err(e) => { assert(false, "write_file_str failed"); }
-  );
+  io.await(fs_file.write_file_cstr(fpath_c, "str path test", using(io, exn)));
+  printf("  write ok\n");
 
-  r := io.await(fs_file.read_to_string_cstr(fpath_c, using(io)));
-  match(r,
-    .Ok(s) => {
-      printf("  read: %s\n", s.to_cstr().ptr().unwrap());
-      assert((s == `str path test`), "content mismatch");
-    },
-    .Err(e) => assert(false, "read_to_string_str failed")
-  );
+  s := io.await(fs_file.read_string_cstr(fpath_c, using(io, exn)));
+  printf("  read: %s\n", s.to_cstr().ptr().unwrap());
+  assert((s == `str path test`), "content mismatch");
 
-  io.await(fs_dir.remove_file(Path.new(fpath_s), using(io)));
+  io.await(fs_dir.remove_file(Path.new(fpath_s), using(io, exn)));
 };
 
 test "read_file returns bytes", using(io : IO), {
+  given(exn) := Exception(throw : ((err) -> {
+    assert(false, "unexpected exception");
+    escape ();
+  }));
+
   tmp := temp_dir();
   fpath := Path.new(path_join(tmp, `yo_fs_file_read_bytes.txt`));
 
-  io.await(fs_file.write_file(fpath, "ABC", using(io)));
+  io.await(fs_file.write_file(fpath, "ABC", using(io, exn)));
 
-  r := io.await(fs_file.read_file(fpath, using(io)));
-  match(r,
-    .Ok(bytes) => {
-      printf("  bytes len = %lld\n", i64(bytes.len()));
-      assert((bytes.len() == usize(3)), "expected 3 bytes");
-      assert((bytes.get(usize(0)).unwrap() == u8(65)), "A=65");
-      assert((bytes.get(usize(1)).unwrap() == u8(66)), "B=66");
-      assert((bytes.get(usize(2)).unwrap() == u8(67)), "C=67");
-    },
-    .Err(e) => assert(false, "read_file failed")
-  );
+  bytes := io.await(fs_file.read_file(fpath, using(io, exn)));
+  printf("  bytes len = %lld\n", i64(bytes.len()));
+  assert((bytes.len() == usize(3)), "expected 3 bytes");
+  assert((bytes.get(usize(0)).unwrap() == u8(65)), "A=65");
+  assert((bytes.get(usize(1)).unwrap() == u8(66)), "B=66");
+  assert((bytes.get(usize(2)).unwrap() == u8(67)), "C=67");
 
-  io.await(fs_dir.remove_file(fpath, using(io)));
+  io.await(fs_dir.remove_file(fpath, using(io, exn)));
 };
 
 test "append_file appends to existing content", using(io : IO), {
+  given(exn) := Exception(throw : ((err) -> {
+    assert(false, "unexpected exception");
+    escape ();
+  }));
+
   tmp := temp_dir();
   fpath := Path.new(path_join(tmp, `yo_fs_file_append.txt`));
 
-  io.await(fs_file.write_file(fpath, "first", using(io)));
-  io.await(fs_file.append_file(fpath, " second", using(io)));
+  io.await(fs_file.write_file(fpath, "first", using(io, exn)));
+  io.await(fs_file.append_file(fpath, " second", using(io, exn)));
 
-  r := io.await(fs_file.read_to_string(fpath, using(io)));
-  match(r,
-    .Ok(s) => {
-      printf("  read: %s\n", s.to_cstr().ptr().unwrap());
-      assert((s == `first second`), "append content mismatch");
-    },
-    .Err(e) => assert(false, "read after append failed")
-  );
+  s := io.await(fs_file.read_string(fpath, using(io, exn)));
+  printf("  read: %s\n", s.to_cstr().ptr().unwrap());
+  assert((s == `first second`), "append content mismatch");
 
-  io.await(fs_dir.remove_file(fpath, using(io)));
+  io.await(fs_dir.remove_file(fpath, using(io, exn)));
 };
 
 test "exists returns true for existing file", using(io : IO), {
+  given(exn) := Exception(throw : ((err) -> {
+    assert(false, "unexpected exception");
+    escape ();
+  }));
+
   tmp := temp_dir();
   fpath := Path.new(path_join(tmp, `yo_fs_file_exists.txt`));
 
-  io.await(fs_file.write_file(fpath, "exists", using(io)));
+  io.await(fs_file.write_file(fpath, "exists", using(io, exn)));
 
-  r := io.await(fs_file.exists(fpath, using(io)));
-  match(r,
-    .Ok(e) => {
-      printf("  exists = %d\n", cond(e => i32(1), true => i32(0)));
-      assert(e, "file should exist");
-    },
-    .Err(e) => assert(false, "exists failed")
-  );
+  e := io.await(fs_file.exists(fpath, using(io)));
+  printf("  exists = %d\n", cond(e => i32(1), true => i32(0)));
+  assert(e, "file should exist");
 
-  io.await(fs_dir.remove_file(fpath, using(io)));
+  io.await(fs_dir.remove_file(fpath, using(io, exn)));
 };
 
 test "exists returns false for nonexistent file", using(io : IO), {
   fpath := Path.new(`/nonexistent/path/yo_fs_no_such_file.txt`);
-  r := io.await(fs_file.exists(fpath, using(io)));
-  match(r,
-    .Ok(e) => {
-      printf("  exists = %d\n", cond(e => i32(1), true => i32(0)));
-      assert((!(e)), "file should not exist");
-    },
-    .Err(e) => assert(false, "exists returned error")
-  );
+  e := io.await(fs_file.exists(fpath, using(io)));
+  printf("  exists = %d\n", cond(e => i32(1), true => i32(0)));
+  assert((!(e)), "file should not exist");
 };
 
 // ============================================================================
 // File object tests
 // ============================================================================
 
-test "File.open write and read_to_string", using(io : IO), {
+test "File.open write and read_string", using(io : IO), {
+  given(exn) := Exception(throw : ((err) -> {
+    println(`  unexpected error: ${err}`);
+    assert(false, "unexpected exception");
+    escape ();
+  }));
+
   tmp := temp_dir();
   fpath := Path.new(path_join(tmp, `yo_fs_file_obj_rw.txt`));
 
   // Open for writing
-  fw := io.await(File.open(fpath, .Write, using(io)));
-  match(fw,
-    .Ok(f) => {
-      wr := io.await(f.write(`file object test`, using(io)));
-      match(wr,
-        .Ok(n) => { printf("  wrote %d bytes\n", n); },
-        .Err(e) => { assert(false, "File.write failed"); }
-      );
-      io.await(f.close(using(io)));
-    },
-    .Err(e) => assert(false, "File.open for write failed")
-  );
+  f := io.await(File.open(fpath, .Write, using(io, exn)));
+  n := io.await(f.write(`file object test`, using(io, exn)));
+  printf("  wrote %d bytes\n", n);
+  io.await(f.close(using(io, exn)));
 
   // Open for reading
-  fr := io.await(File.open(fpath, .Read, using(io)));
-  match(fr,
-    .Ok(f) => {
-      content := io.await(f.read_to_string(using(io)));
-      match(content,
-        .Ok(s) => {
-          printf("  read: %s\n", s.to_cstr().ptr().unwrap());
-          assert((s == `file object test`), "File read content mismatch");
-        },
-        .Err(e) => assert(false, "File.read_to_string failed")
-      );
-      io.await(f.close(using(io)));
-    },
-    .Err(e) => assert(false, "File.open for read failed")
-  );
+  f2 := io.await(File.open(fpath, .Read, using(io, exn)));
+  s := io.await(f2.read_string(using(io, exn)));
+  printf("  read: %s\n", s.to_cstr().ptr().unwrap());
+  assert((s == `file object test`), "File read content mismatch");
+  io.await(f2.close(using(io, exn)));
 
-  io.await(fs_dir.remove_file(fpath, using(io)));
+  io.await(fs_dir.remove_file(fpath, using(io, exn)));
 };
 
 test "File.open nonexistent returns error", using(io : IO), {
   fpath := Path.new(`/nonexistent/path/yo_fs_no_such.txt`);
-  fr := io.await(File.open(fpath, .Read, using(io)));
-  match(fr,
-    .Ok(f) => assert(false, "should not open nonexistent file"),
-    .Err(e) => { printf("  got error as expected\n"); }
-  );
+
+  given(exn) := Exception(throw : ((err) -> {
+    printf("  got error as expected\n");
+    escape ();
+  }));
+
+  io.await(File.open(fpath, .Read, using(io, exn)));
+  assert(false, "should not open nonexistent file");
 };
 
 test "File.size returns correct size", using(io : IO), {
+  given(exn) := Exception(throw : ((err) -> {
+    assert(false, "unexpected exception");
+    escape ();
+  }));
+
   tmp := temp_dir();
   fpath := Path.new(path_join(tmp, `yo_fs_file_size.txt`));
 
-  io.await(fs_file.write_file(fpath, "twelve chars", using(io)));
+  io.await(fs_file.write_file(fpath, "twelve chars", using(io, exn)));
 
-  fr := io.await(File.open(fpath, .Read, using(io)));
-  match(fr,
-    .Ok(f) => {
-      sz := f.size();
-      printf("  size = %lld\n", sz);
-      assert((sz == i64(12)), "size should be 12");
-      io.await(f.close(using(io)));
-    },
-    .Err(e) => assert(false, "File.open failed")
-  );
+  f := io.await(File.open(fpath, .Read, using(io, exn)));
+  sz := f.size();
+  printf("  size = %lld\n", sz);
+  assert((sz == i64(12)), "size should be 12");
+  io.await(f.close(using(io, exn)));
 
-  io.await(fs_dir.remove_file(fpath, using(io)));
+  io.await(fs_dir.remove_file(fpath, using(io, exn)));
 };
 
 test "File.path returns correct path", using(io : IO), {
+  given(exn) := Exception(throw : ((err) -> {
+    assert(false, "unexpected exception");
+    escape ();
+  }));
+
   tmp := temp_dir();
   fpath := Path.new(path_join(tmp, `yo_fs_file_path.txt`));
 
-  io.await(fs_file.write_file(fpath, "x", using(io)));
+  io.await(fs_file.write_file(fpath, "x", using(io, exn)));
 
-  fr := io.await(File.open(fpath, .Read, using(io)));
-  match(fr,
-    .Ok(f) => {
-      p := f.path().to_string();
-      expected := fpath.to_string();
-      printf("  path = %s\n", p.to_cstr().ptr().unwrap());
-      assert((p == expected), "path mismatch");
-      io.await(f.close(using(io)));
-    },
-    .Err(e) => assert(false, "File.open failed")
-  );
+  f := io.await(File.open(fpath, .Read, using(io, exn)));
+  p := f.path().to_string();
+  expected := fpath.to_string();
+  printf("  path = %s\n", p.to_cstr().ptr().unwrap());
+  assert((p == expected), "path mismatch");
+  io.await(f.close(using(io, exn)));
 
-  io.await(fs_dir.remove_file(fpath, using(io)));
+  io.await(fs_dir.remove_file(fpath, using(io, exn)));
 };
 
 test "OpenMode.CreateNew fails if file exists", using(io : IO), {
   tmp := temp_dir();
   fpath := Path.new(path_join(tmp, `yo_fs_file_create_new.txt`));
 
-  // Create file first
-  io.await(fs_file.write_file(fpath, "first", using(io)));
+  // Create file first (with success handler)
+  given(setup_exn) := Exception(throw : ((err) -> {
+    assert(false, "unexpected exception during setup");
+    escape ();
+  }));
+  io.await(fs_file.write_file(fpath, "first", using(io, setup_exn)));
 
-  // Try CreateNew on existing file
-  fr := io.await(File.open(fpath, .CreateNew, using(io)));
-  match(fr,
-    .Ok(f) => {
-      io.await(f.close(using(io)));
-      assert(false, "CreateNew should fail on existing file");
-    },
-    .Err(e) => { printf("  CreateNew correctly failed\n"); }
-  );
-
-  io.await(fs_dir.remove_file(fpath, using(io)));
+  // Try CreateNew on existing file - should fail
+  given(exn) := Exception(throw : ((err) -> {
+    printf("  CreateNew correctly failed\n");
+    escape ();
+  }));
+  io.await(File.open(fpath, .CreateNew, using(io, exn)));
+  assert(false, "CreateNew should fail on existing file");
 };
 
 test "OpenMode.CreateNew succeeds on new file", using(io : IO), {
+  given(exn) := Exception(throw : ((err) -> {
+    assert(false, "unexpected exception");
+    escape ();
+  }));
+
   tmp := temp_dir();
   fpath := Path.new(path_join(tmp, `yo_fs_file_create_new2.txt`));
 
   // Ensure doesn't exist
-  io.await(fs_dir.remove_file(fpath, using(io)));
+  cond(io.await(fs_file.exists(fpath, using(io))) => {
+    io.await(fs_dir.remove_file(fpath, using(io, exn)));
+  }, true => ());
 
-  fr := io.await(File.open(fpath, .CreateNew, using(io)));
-  match(fr,
-    .Ok(f) => {
-      printf("  CreateNew succeeded\n");
-      io.await(f.close(using(io)));
-    },
-    .Err(e) => assert(false, "CreateNew should succeed on new file")
-  );
+  f := io.await(File.open(fpath, .CreateNew, using(io, exn)));
+  printf("  CreateNew succeeded\n");
+  io.await(f.close(using(io, exn)));
 
-  io.await(fs_dir.remove_file(fpath, using(io)));
+  io.await(fs_dir.remove_file(fpath, using(io, exn)));
 };
 
-test "File.open_str convenience", using(io : IO), {
+test "File.open_cstr convenience", using(io : IO), {
+  given(exn) := Exception(throw : ((err) -> {
+    assert(false, "unexpected exception");
+    escape ();
+  }));
+
   tmp := temp_dir();
   fpath := Path.new(path_join(tmp, `yo_fs_file_open_str.txt`));
   fpath_cstr := fpath.to_string().to_cstr();
   fpath_c := fpath_cstr.ptr().unwrap();
 
-  io.await(fs_file.write_file(fpath, "open_str test", using(io)));
+  io.await(fs_file.write_file(fpath, "open_str test", using(io, exn)));
 
-  fr := io.await(File.open_cstr(fpath_c, .Read, using(io)));
-  match(fr,
-    .Ok(f) => {
-      content := io.await(f.read_to_string(using(io)));
-      match(content,
-        .Ok(s) => {
-          printf("  read: %s\n", s.to_cstr().ptr().unwrap());
-          assert((s == `open_str test`), "open_str content mismatch");
-        },
-        .Err(e) => assert(false, "read_to_string failed")
-      );
-      io.await(f.close(using(io)));
-    },
-    .Err(e) => assert(false, "File.open_str failed")
-  );
+  f := io.await(File.open_cstr(fpath_c, .Read, using(io, exn)));
+  s := io.await(f.read_string(using(io, exn)));
+  printf("  read: %s\n", s.to_cstr().ptr().unwrap());
+  assert((s == `open_str test`), "open_str content mismatch");
+  io.await(f.close(using(io, exn)));
 
-  io.await(fs_dir.remove_file(fpath, using(io)));
+  io.await(fs_dir.remove_file(fpath, using(io, exn)));
 };

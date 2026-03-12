@@ -24,10 +24,16 @@ import type { FunctionImplicitParameter } from "../../types/definitions";
 import {
   isEffectsRowType,
   isFunctionType,
+  isModuleType,
   isSomeType,
   isUnitType,
 } from "../../types/guards";
-import { isFunctionValue, isUnknownValue, type Value } from "../../value";
+import {
+  isFunctionValue,
+  isModuleValue,
+  isUnknownValue,
+  type Value,
+} from "../../value";
 import { isIoFutureType } from "../async/state-machine";
 import { BuiltinYoInlineFunctions } from "../constants";
 import type { FunctionGenerationContext } from "../functions/context";
@@ -166,18 +172,59 @@ function emitEffectInjection(
     const effect = expandedEffects[i]!;
     const usingArg = usingArgs[i]!;
 
-    // Only inject function-typed effects (not IO module, etc.)
-    if (!isFunctionType(effect.type)) continue;
-    // Skip generic function effects (forall) — they are compile-time only
-    if (effect.type.forallParameters.length > 0) continue;
+    if (isFunctionType(effect.type)) {
+      // Skip generic function effects (forall) — they are compile-time only
+      if (effect.type.forallParameters.length > 0) continue;
 
-    // Generate the C code for the using arg (function name)
-    const handlerCode = generateExpr(usingArg, indent, context);
-    const fieldName = effect.label;
+      // Generate the C code for the using arg (function name)
+      const handlerCode = generateExpr(usingArg, indent, context);
+      const fieldName = effect.label;
 
-    emitter.emitLine(
-      `${indent}  ${futureVar}->__capture.${fieldName} = (void*)${handlerCode};`
-    );
+      emitter.emitLine(
+        `${indent}  ${futureVar}->__capture.${fieldName} = (void*)${handlerCode};`
+      );
+    } else if (isModuleType(effect.type)) {
+      // Module-typed effect (e.g., Exception). Inject each function member individually.
+      const moduleType = effect.type;
+      for (const field of moduleType.fields) {
+        if (!isFunctionType(field.type)) continue;
+        let memberCode: string | undefined;
+
+        // Inside SM: member is captured in state machine variables
+        if (functionContext.stateMachineVariables) {
+          for (const [, capturedVar] of functionContext.stateMachineVariables) {
+            if (
+              capturedVar.name === field.label &&
+              capturedVar.kind === "outer"
+            ) {
+              memberCode = `sm->__capture.${field.label}`;
+              break;
+            }
+          }
+        }
+
+        // Outside SM: resolve from using arg's module value
+        if (!memberCode) {
+          const usingArgValue = usingArg.$?.value;
+          if (usingArgValue && isModuleValue(usingArgValue)) {
+            const fieldIndex = moduleType.fields.indexOf(field);
+            const memberValue = usingArgValue.fields[fieldIndex];
+            if (memberValue && isFunctionValue(memberValue)) {
+              const funcEntry = context.functions[memberValue.funcId];
+              if (funcEntry) {
+                memberCode = funcEntry.cName;
+              }
+            }
+          }
+        }
+
+        if (memberCode) {
+          emitter.emitLine(
+            `${indent}  ${futureVar}->__capture.${field.label} = (void*)${memberCode};`
+          );
+        }
+      }
+    }
   }
 }
 
@@ -283,6 +330,12 @@ function generateEscape(
     return ``;
   }
 
+  // Module effect member function (e.g., Exception.throw handler):
+  // Set thread-local flag so the calling SM knows this handler escaped.
+  if (functionContext.isModuleEffectMemberFunction) {
+    functionContext.emitter.emitLine(`${indent}__yo_effect_escaped = 1;`);
+  }
+
   if (!arg) {
     // Emit handler param drops before returning
     if (functionContext.effectHandlerParamDrops) {
@@ -298,6 +351,20 @@ function generateEscape(
       true,
       true
     );
+    // For module effect members with non-void return type, return a dummy value
+    // (the caller checks __yo_effect_escaped and ignores the return value)
+    if (
+      functionContext.isModuleEffectMemberFunction &&
+      functionContext.currentFunctionType
+    ) {
+      const returnType = functionContext.currentFunctionType.return.type;
+      if (!isUnitType(returnType)) {
+        const returnTypeStr = getTypeString(returnType, context);
+        if (returnTypeStr !== "void") {
+          return `return (${returnTypeStr}){0}`;
+        }
+      }
+    }
     return `return`;
   }
   const argCode = generateExpr(arg, indent, context);
@@ -315,6 +382,21 @@ function generateEscape(
     true,
     true
   );
+  // For module effect members with non-void return type and empty/unit arg,
+  // return a dummy value (the caller checks __yo_effect_escaped and ignores it)
+  if (
+    !argCode &&
+    functionContext.isModuleEffectMemberFunction &&
+    functionContext.currentFunctionType
+  ) {
+    const returnType = functionContext.currentFunctionType.return.type;
+    if (!isUnitType(returnType)) {
+      const returnTypeStr = getTypeString(returnType, context);
+      if (returnTypeStr !== "void") {
+        return `return (${returnTypeStr}){0}`;
+      }
+    }
+  }
   return `return ${argCode}`;
 }
 

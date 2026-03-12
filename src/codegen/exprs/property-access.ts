@@ -18,6 +18,7 @@ import {
   isTypeValue,
   isUnknownValue,
 } from "../../value";
+import type { FunctionGenerationContext } from "../functions/context";
 import {
   canOptimizeAsNullablePointer,
   type CodeGenContext,
@@ -119,6 +120,26 @@ export function generateFieldAccess(
               fieldValue.variableName,
               expr.$?.env
             );
+          }
+          // Check if this module member is captured in an async state machine
+          // (e.g., Exception.throw captured as an effect param)
+          const functionContext = context as FunctionGenerationContext;
+          if (
+            (functionContext.inAsyncStateMachine ||
+              functionContext.inEffectStateMachine) &&
+            functionContext.stateMachineVariables
+          ) {
+            for (const [
+              ,
+              capturedVar,
+            ] of functionContext.stateMachineVariables) {
+              if (
+                capturedVar.name === fieldName &&
+                capturedVar.kind === "outer"
+              ) {
+                return `sm->__capture.${fieldName}`;
+              }
+            }
           }
         } else if (!isModuleValue(fieldValue)) {
           return generateComptimeValue(fieldValue, context, expr);

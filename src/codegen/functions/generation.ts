@@ -254,6 +254,7 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
     if (
       !isUserMain &&
       !isEffectfulFunction &&
+      !value.isModuleEffectMember &&
       ((isFunctionTypeHardGeneric(value.type) && !value.type.isClosure) ||
         (value.specializedFunctionCaches?.length > 0 &&
           !value.type.isClosure) ||
@@ -271,6 +272,7 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
     const functionType = value.specializedType ?? value.type;
     const hasGenericParams =
       !isEffectfulFunction &&
+      !value.isModuleEffectMember &&
       (functionType.parameters.some((p) => typeContainsSomeType(p.type)) ||
         functionType.forallParameters.length > 0);
     const hasGenericReturnType = typeContainsSomeType(functionType.return.type);
@@ -281,7 +283,10 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
       isSomeType(functionType.return.type) &&
       functionType.return.type.requiredTraits.length > 0;
 
-    if (hasGenericParams || (hasGenericReturnType && !returnsPlainImpl)) {
+    if (
+      hasGenericParams ||
+      (hasGenericReturnType && !returnsPlainImpl && !value.isModuleEffectMember)
+    ) {
       continue;
     }
 
@@ -820,6 +825,14 @@ export function generateFunction(
   context.currentFunctionName = functionName;
   (context as FunctionGenerationContext).currentFunctionType = functionType;
 
+  // Track if this is a module effect member function (for escape detection)
+  const previousIsModuleEffectMemberFunction = (
+    context as FunctionGenerationContext
+  ).isModuleEffectMemberFunction;
+  if (functionValue.isModuleEffectMember) {
+    (context as FunctionGenerationContext).isModuleEffectMemberFunction = true;
+  }
+
   // Set closure capture context if this is a closure function
   const previousClosureCaptures = context.currentClosureCaptures;
   const previousClosureCaptureFrameLevel =
@@ -895,6 +908,8 @@ export function generateFunction(
   context.currentFunctionName = previousFunctionName;
   (context as FunctionGenerationContext).currentFunctionType =
     previousFunctionType;
+  (context as FunctionGenerationContext).isModuleEffectMemberFunction =
+    previousIsModuleEffectMemberFunction;
   context.currentClosureCaptures = previousClosureCaptures;
   context.currentClosureCaptureFrameLevel = previousClosureCaptureFrameLevel;
   (context as FunctionGenerationContext).currentClosureType =
@@ -1290,6 +1305,7 @@ void __yo_decr_rc_atomic(void* ptr) {
   // Per-thread GC tracking state (simplified - no stop-the-world coordination needed for thread-local)
   emitter.emitLine(`// Per-thread GC tracking state for cycle collection
 static _Thread_local yo_thread_gc_state_t* yo_current_thread_gc = NULL;  // Current thread's GC state
+static _Thread_local int __yo_effect_escaped = 0;  // Thread-local flag for module effect escape detection
 static yo_thread_gc_state_t* yo_all_thread_gcs = NULL;  // Global list of all thread GC states (for cleanup)
 #if defined(_WIN32)
 static YO_THREAD_SYNC_TYPE yo_thread_list_mutex;

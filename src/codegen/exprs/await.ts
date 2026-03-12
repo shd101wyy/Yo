@@ -13,10 +13,12 @@ import type { FunctionImplicitParameter } from "../../types/definitions";
 import {
   isEffectsRowType,
   isFunctionType,
+  isModuleType,
   isSomeType,
   isUnitType,
 } from "../../types/guards";
 import { typeContainsRcType } from "../../types/utils";
+import { isFunctionValue, isModuleValue } from "../../value";
 import { isIoFutureType } from "../async/state-machine";
 import type { FunctionGenerationContext } from "../functions/context";
 import {
@@ -124,8 +126,9 @@ export function generateAwait(
     emitter.emitLine(`${indent}    __await_state = ${syncFutureVar}->state;`);
     emitter.emitLine(`${indent}  }`);
     emitter.emitLine(`${indent}  if (__await_state == -2) {`);
-    // Check if the Future type includes algebraic effect types (e.g., Future(i32, IO, Raise)).
-    // Effectful futures may be intentionally aborted by a ctl handler (e.g., raise + abort)
+    // Check if the Future type includes algebraic effect types (e.g., Future(i32, IO, Raise))
+    // or module effect types (e.g., Future(i32, IO, Exception)).
+    // Effectful futures may be intentionally aborted by a ctl/escape handler
     // during the CURRENT await — don't panic for that case.
     // But if the future was ALREADY aborted before we started awaiting (re-await),
     // always panic regardless of algebraic effects.
@@ -133,7 +136,8 @@ export function generateAwait(
     const futureModuleForCheck = extractFutureTraitFromType(futureType);
     const hasAlgebraicEffects =
       futureModuleForCheck?.isFuture.effects?.some(
-        (e) => isFunctionType(e.type) || e.isEffectRowSpread
+        (e) =>
+          isFunctionType(e.type) || isModuleType(e.type) || e.isEffectRowSpread
       ) ?? false;
     if (hasAlgebraicEffects) {
       // Only panic if the future was already aborted before this await
@@ -143,6 +147,10 @@ export function generateAwait(
       );
       emitter.emitLine(`${indent}      abort();`);
       emitter.emitLine(`${indent}    }`);
+      // Aborted during this await by effect handler (e.g., Exception.throw escape).
+      // Clean up and return from enclosing function.
+      emitter.emitLine(`${indent}    __yo_decr_rc((void*)${syncFutureVar});`);
+      emitter.emitLine(`${indent}    return;`);
     } else {
       // Non-effectful: any abort is unexpected
       emitter.emitLine(
@@ -305,15 +313,57 @@ function emitEffectInjectionForAwait(
     const effect = expandedEffects[i]!;
     const usingArg = usingArgs[i]!;
 
-    if (!isFunctionType(effect.type)) continue;
-    // Skip generic function effects (forall) — they are compile-time only
-    // and don't have a void* field in the capture struct
-    if (effect.type.forallParameters.length > 0) continue;
+    if (isFunctionType(effect.type)) {
+      // Skip generic function effects (forall) — they are compile-time only
+      // and don't have a void* field in the capture struct
+      if (effect.type.forallParameters.length > 0) continue;
 
-    const handlerCode = generateExpr(usingArg, indent, context);
-    const fieldName = effect.label;
-    emitter.emitLine(
-      `${indent}  ${futureVar}->__capture.${fieldName} = (void*)${handlerCode};`
-    );
+      const handlerCode = generateExpr(usingArg, indent, context);
+      const fieldName = effect.label;
+      emitter.emitLine(
+        `${indent}  ${futureVar}->__capture.${fieldName} = (void*)${handlerCode};`
+      );
+    } else if (isModuleType(effect.type)) {
+      // Module-typed effect (e.g., Exception). Inject each function member individually.
+      const moduleType = effect.type;
+      for (const field of moduleType.fields) {
+        if (!isFunctionType(field.type)) continue;
+        let memberCode: string | undefined;
+
+        // Inside SM: member is captured in state machine variables
+        if (functionContext.stateMachineVariables) {
+          for (const [, capturedVar] of functionContext.stateMachineVariables) {
+            if (
+              capturedVar.name === field.label &&
+              capturedVar.kind === "outer"
+            ) {
+              memberCode = `sm->__capture.${field.label}`;
+              break;
+            }
+          }
+        }
+
+        // Outside SM: resolve from using arg's module value
+        if (!memberCode) {
+          const usingArgValue = usingArg.$?.value;
+          if (usingArgValue && isModuleValue(usingArgValue)) {
+            const fieldIndex = moduleType.fields.indexOf(field);
+            const memberValue = usingArgValue.fields[fieldIndex];
+            if (memberValue && isFunctionValue(memberValue)) {
+              const funcEntry = context.functions[memberValue.funcId];
+              if (funcEntry) {
+                memberCode = funcEntry.cName;
+              }
+            }
+          }
+        }
+
+        if (memberCode) {
+          emitter.emitLine(
+            `${indent}  ${futureVar}->__capture.${field.label} = (void*)${memberCode};`
+          );
+        }
+      }
+    }
   }
 }

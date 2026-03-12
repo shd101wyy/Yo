@@ -118,6 +118,7 @@ export function generateFunctionDeclarations(
     if (
       !isUserMain &&
       !isEffectfulFunction &&
+      !value.isModuleEffectMember &&
       ((isFunctionTypeHardGeneric(value.type) && !value.type.isClosure) ||
         (value.specializedFunctionCaches?.length > 0 &&
           !value.type.isClosure) ||
@@ -134,6 +135,7 @@ export function generateFunctionDeclarations(
     const functionType = value.specializedType ?? value.type;
     const hasGenericParams =
       !isEffectfulFunction &&
+      !value.isModuleEffectMember &&
       (functionType.parameters.some((p) => typeContainsSomeType(p.type)) ||
         functionType.forallParameters.length > 0);
     const hasGenericReturnType = typeContainsSomeType(functionType.return.type);
@@ -144,7 +146,10 @@ export function generateFunctionDeclarations(
       isSomeType(functionType.return.type) &&
       functionType.return.type.requiredTraits.length > 0;
 
-    if (hasGenericParams || (hasGenericReturnType && !returnsPlainImpl)) {
+    if (
+      hasGenericParams ||
+      (hasGenericReturnType && !returnsPlainImpl && !value.isModuleEffectMember)
+    ) {
       continue;
     }
 
@@ -153,7 +158,9 @@ export function generateFunctionDeclarations(
       cName,
       false,
       context,
-      value.body
+      // Don't pass body for module effect members — their body type is unit (from escape())
+      // but the function signature's return type (from forall specialization) is correct
+      value.isModuleEffectMember ? undefined : value.body
     );
   }
 

@@ -7,14 +7,15 @@
 //   { TempDir } :: import "std/fs/temp";
 //
 //   main :: (fn(using(io : IO)) -> unit)({
-//     td := io.await(TempDir.new());
-//     match(td,
-//       .Ok(dir) => {
-//         println(dir.path());
-//         io.await(dir.remove());
-//       },
-//       .Err(e) => println(e.to_string())
-//     );
+//     given(exn) : Exception = {
+//       throw : (fn(forall(T : Type), error: AnyError) -> T)(
+//         { println(error.to_string()); exit(i32(1)); }
+//       )
+//     };
+//
+//     dir := io.await(TempDir.new());
+//     println(dir.path());
+//     io.await(dir.remove());
 //   });
 
 { GlobalAllocator } :: import "../allocator";
@@ -23,6 +24,7 @@ open import "../string";
 open import "../fmt";
 { Path } :: import "../path";
 { IOError } :: import "../sys/errors";
+{ Error, AnyError, Exception } :: import "../error";
 _file_mod :: import "./file";
 _dir_mod :: import "./dir";
 IO_temp :: import "../sys/temp";
@@ -61,8 +63,8 @@ TempDir :: object(
 
 impl(TempDir,
   // Create a temporary directory in the given parent directory.
-  new_in : (fn(parent: Path, using(io : IO)) -> Impl(Future(Result(TempDir, IOError), IO)))(
-    io.async((using(io : IO)) => {
+  new_in : (fn(parent: Path, using(io : IO, exn : Exception)) -> Impl(Future(TempDir, IO, Exception)))(
+    io.async((using(io, exn)) => {
       // Build template: parent/yo_tmp_XXXXXX
       template_path := parent.join(Path.new(`yo_tmp_XXXXXX`));
       template_str := template_path.to_string();
@@ -76,22 +78,19 @@ impl(TempDir,
       cond(
         (result < i32(0)) => {
           free(.Some(*(void)(buf)));
-          (ret : Result(TempDir, IOError)) = .Err(IOError.from_errno((i32(0) - result)));
-          return ret;
+          exn.throw(dyn IOError.from_errno((i32(0) - result)));
         },
-        true => {
-          path_str := String.from_cstr(buf).unwrap();
-          free(.Some(*(void)(buf)));
-          (ret : Result(TempDir, IOError)) = .Ok(TempDir(_path: Path.new(path_str), _removed: false));
-          return ret;
-        }
-      )
+        true => ()
+      );
+      path_str := String.from_cstr(buf).unwrap();
+      free(.Some(*(void)(buf)));
+      TempDir(_path: Path.new(path_str), _removed: false)
     })
   ),
 
   // Create a temporary directory in the system temp dir.
-  new : (fn(using(io : IO)) -> Impl(Future(Result(TempDir, IOError), IO)))(
-    TempDir.new_in(Path.new(_default_tmp_dir()), using(io))
+  new : (fn(using(io : IO, exn : Exception)) -> Impl(Future(TempDir, IO, Exception)))(
+    TempDir.new_in(Path.new(_default_tmp_dir()), using(io, exn))
   ),
 
   // Get the path of the temporary directory.
@@ -100,15 +99,14 @@ impl(TempDir,
   ),
 
   // Remove the temporary directory.
-  remove : (fn(self: Self, using(io : IO)) -> Impl(Future(Result(unit, IOError), IO)))({
+  remove : (fn(self: Self, using(io : IO, exn : Exception)) -> Impl(Future(unit, IO, Exception)))({
     self_path := self._path;
-    io.async((using(io : IO)) => 
+    io.async((using(io, exn)) => 
       cond(
-        self._removed => .Ok(()),
+        self._removed => (),
         true => {
-          result := io.await(_dir_mod.remove_dir(self_path, using(io)));
+          io.await(_dir_mod.remove_dir(self_path, using(io, exn)));
           self._removed = true;
-          return result;
         }
       )
     )
@@ -129,8 +127,8 @@ TempFile :: object(
 
 impl(TempFile,
   // Create a temporary file in the given parent directory.
-  new_in : (fn(parent: Path, using(io : IO)) -> Impl(Future(Result(TempFile, IOError), IO)))(
-    io.async((using(io : IO)) => {
+  new_in : (fn(parent: Path, using(io : IO, exn : Exception)) -> Impl(Future(TempFile, IO, Exception)))(
+    io.async((using(io, exn)) => {
       // Build template: parent/yo_tmp_XXXXXX
       template_path := parent.join(Path.new(`yo_tmp_XXXXXX`));
       template_str := template_path.to_string();
@@ -143,24 +141,21 @@ impl(TempFile,
       cond(
         (fd < i32(0)) => {
           free(.Some(*(void)(buf)));
-          (ret : Result(TempFile, IOError)) = .Err(IOError.from_errno((i32(0) - fd)));
-          return ret;
+          exn.throw(dyn IOError.from_errno((i32(0) - fd)));
         },
-        true => {
-          path_str := String.from_cstr(buf).unwrap();
-          free(.Some(*(void)(buf)));
-          path := Path.new(path_str);
-          file := _file_mod.File(_fd: fd, _path: path, _is_closed: false);
-          (ret : Result(TempFile, IOError)) = .Ok(TempFile(_file: file, _path: path, _removed: false));
-          return ret;
-        }
-      )
+        true => ()
+      );
+      path_str := String.from_cstr(buf).unwrap();
+      free(.Some(*(void)(buf)));
+      path := Path.new(path_str);
+      file := _file_mod.File(_fd: fd, _path: path, _is_closed: false);
+      TempFile(_file: file, _path: path, _removed: false)
     })
   ),
 
   // Create a temporary file in the system temp dir.
-  new : (fn(using(io : IO)) -> Impl(Future(Result(TempFile, IOError), IO)))(
-    TempFile.new_in(Path.new(_default_tmp_dir()), using(io))
+  new : (fn(using(io : IO, exn : Exception)) -> Impl(Future(TempFile, IO, Exception)))(
+    TempFile.new_in(Path.new(_default_tmp_dir()), using(io, exn))
   ),
 
   // Get the underlying File object.
@@ -174,17 +169,16 @@ impl(TempFile,
   ),
 
   // Remove the temporary file.
-  remove : (fn(self: Self, using(io : IO)) -> Impl(Future(Result(unit, IOError), IO)))({
+  remove : (fn(self: Self, using(io : IO, exn : Exception)) -> Impl(Future(unit, IO, Exception)))({
     self_file := self._file;
     self_path := self._path;
-    io.async((using(io : IO)) =>
+    io.async((using(io, exn)) =>
       cond(
-        self._removed => .Ok(()),
+        self._removed => (),
         true => {
-          io.await(self_file.close(using(io)));
-          result := io.await(_dir_mod.remove_file(self_path, using(io)));
+          io.await(self_file.close(using(io, exn)));
+          io.await(_dir_mod.remove_file(self_path, using(io, exn)));
           self._removed = true;
-          return result;
         }
       )
     )

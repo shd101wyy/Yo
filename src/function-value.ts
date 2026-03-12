@@ -128,6 +128,13 @@ export type FunctionValue = {
   closureInfo?: ClosureInfo;
 
   /**
+   * When true, this function is a member of a module value used as an effect handler.
+   * It may have forall parameters but should still be compiled as a concrete function
+   * since it will be stored as a void* function pointer in effect capture structs.
+   */
+  isModuleEffectMember?: boolean;
+
+  /**
    * When true, this closure's body is handled by an io.async state machine.
    * The codegen should NOT generate a separate C function for this closure.
    */

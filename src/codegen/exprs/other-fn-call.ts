@@ -58,6 +58,7 @@ import {
   sanitizeForCIdentifier,
   type CodeGenContext,
 } from "../utils";
+import { emitAsyncFutureEscape } from "./async-completion";
 import { checkVariableIsClosureCaptured } from "./closures";
 import { generateComptimeValue } from "./comptime-value";
 import {
@@ -320,10 +321,12 @@ export function generateOtherFunctionCall(
 
                 if (dynMethod) {
                   // This is a dyn object's own method, pass the dyn object directly
-                  return sanitizeForCIdentifier(
-                    finalArgVarName,
-                    arg.$.type.isExtern === "c"
-                  );
+                  return isStateMachineCapturedVariable
+                    ? argCode
+                    : sanitizeForCIdentifier(
+                        finalArgVarName,
+                        arg.$.type.isExtern === "c"
+                      );
                 }
               }
             }
@@ -332,9 +335,13 @@ export function generateOtherFunctionCall(
             // Dyn is a value type, but callers may pass a borrow (pointer) depending on the method signature.
             const argType = arg.$?.type;
             if (argType && isPtrType(argType)) {
-              return `${sanitizeForCIdentifier(finalArgVarName, arg.$.type.isExtern === "c")}->data`;
+              return isStateMachineCapturedVariable
+                ? `${argCode}->data`
+                : `${sanitizeForCIdentifier(finalArgVarName, arg.$.type.isExtern === "c")}->data`;
             }
-            return `(${sanitizeForCIdentifier(finalArgVarName, arg.$.type.isExtern === "c")}).data`;
+            return isStateMachineCapturedVariable
+              ? `(${argCode}).data`
+              : `(${sanitizeForCIdentifier(finalArgVarName, arg.$.type.isExtern === "c")}).data`;
           } else {
             // If this is a closure-captured variable, use the generated code (inline access)
             // If this is a state machine variable, use the generated code (sm->var_xxx access)
@@ -665,14 +672,25 @@ export function generateOtherFunctionCall(
           // When calling through a void* (e.g., a captured function-typed variable),
           // we need to cast it to the proper function pointer type.
           const funcCode = generateExpr(expr.func, indent, context);
-          const returnTypeStr = getTypeString(
-            functionType.return.type,
-            context
-          );
+          // Use the call expression's resolved type when available (handles forall monomorphization)
+          const resolvedReturnType = expr.$?.type ?? functionType.return.type;
+          const returnTypeStr = getTypeString(resolvedReturnType, context);
           const paramTypeStrs = functionType.parameters
             .filter((p) => !p.isCompileTimeOnly)
             .map((p) => getTypeString(p.type, context));
           const fnPtrCast = `((${returnTypeStr} (*)(${paramTypeStrs.join(", ")}))${funcCode})`;
+
+          // Detect module effect member calls in async SM context
+          // (e.g., sm->__capture.throw(arg) — handler may escape)
+          const functionContext = context as FunctionGenerationContext;
+          const isModuleEffectCapture =
+            funcCode.includes("__capture.") &&
+            !!functionContext.inAsyncStateMachine;
+
+          if (isModuleEffectCapture) {
+            context.emitter.emitLine(`${indent}__yo_effect_escaped = 0;`);
+          }
+
           if (isUnitType(functionType.return.type)) {
             // If the function returns unit, just call it without assignment
             context.emitter.emitLine(`${indent}${fnPtrCast}(${argsList});`);
@@ -680,6 +698,39 @@ export function generateOtherFunctionCall(
             // Handle deferred drop expressions if they exist
             if (expr.$?.deferredDropExpressions) {
               generateDeferredDropExpressions(expr, indent, context);
+            }
+
+            if (isModuleEffectCapture) {
+              context.emitter.emitLine(`${indent}if (__yo_effect_escaped) {`);
+              // Drop RC-typed arguments that won't be dropped by the escaped handler
+              if (runtimeArgExprs) {
+                for (const arg of runtimeArgExprs) {
+                  if (
+                    arg.$?.variableName &&
+                    arg.$?.type &&
+                    typeContainsRcType(arg.$.type)
+                  ) {
+                    const argVarName = sanitizeForCIdentifier(
+                      arg.$.variableName
+                    );
+                    const dropCode = generateDropCodeForValue(
+                      argVarName,
+                      arg.$.type,
+                      context
+                    );
+                    if (dropCode) {
+                      context.emitter.emitLine(`${indent}  ${dropCode};`);
+                    }
+                  }
+                }
+              }
+              emitAsyncFutureEscape({
+                emitter: context.emitter,
+                indent: indent + "  ",
+                resultCode: undefined,
+                debugLabel: undefined,
+              });
+              context.emitter.emitLine(`${indent}}`);
             }
 
             return ""; // No return value
@@ -706,6 +757,39 @@ export function generateOtherFunctionCall(
               // Handle deferred drop expressions if they exist
               if (expr.$?.deferredDropExpressions) {
                 generateDeferredDropExpressions(expr, indent, context);
+              }
+
+              if (isModuleEffectCapture) {
+                context.emitter.emitLine(`${indent}if (__yo_effect_escaped) {`);
+                // Drop RC-typed arguments that won't be dropped by the escaped handler
+                if (runtimeArgExprs) {
+                  for (const arg of runtimeArgExprs) {
+                    if (
+                      arg.$?.variableName &&
+                      arg.$?.type &&
+                      typeContainsRcType(arg.$.type)
+                    ) {
+                      const argVarName = sanitizeForCIdentifier(
+                        arg.$.variableName
+                      );
+                      const dropCode = generateDropCodeForValue(
+                        argVarName,
+                        arg.$.type,
+                        context
+                      );
+                      if (dropCode) {
+                        context.emitter.emitLine(`${indent}  ${dropCode};`);
+                      }
+                    }
+                  }
+                }
+                emitAsyncFutureEscape({
+                  emitter: context.emitter,
+                  indent: indent + "  ",
+                  resultCode: undefined,
+                  debugLabel: undefined,
+                });
+                context.emitter.emitLine(`${indent}}`);
               }
 
               return tempVar; // Return the temp variable name
