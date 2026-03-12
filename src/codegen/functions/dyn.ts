@@ -71,9 +71,13 @@ export function generateDynBoxFunctions(
   const generatedBoxFunctions = new Set<string>();
 
   for (const [, impl] of context.dynImpls) {
+    const resolvedConcreteType =
+      isSomeType(impl.concreteType) && impl.concreteType.resolvedConcreteType
+        ? impl.concreteType.resolvedConcreteType
+        : impl.concreteType;
     const concreteTypeCName =
-      context.types[impl.concreteType.id]?.cName ||
-      `unknown_${impl.concreteType.id}`;
+      context.types[resolvedConcreteType.id]?.cName ||
+      `unknown_${resolvedConcreteType.id}`;
     const boxTypeName = `yo_dyn_box_${concreteTypeCName}`;
 
     if (generatedBoxFunctions.has(boxTypeName)) {
@@ -81,7 +85,7 @@ export function generateDynBoxFunctions(
     }
     generatedBoxFunctions.add(boxTypeName);
 
-    const valueTypeStr = getTypeString(impl.concreteType, context);
+    const valueTypeStr = getTypeString(resolvedConcreteType, context);
 
     // Generate box constructor
     emitter.emitLine(
@@ -398,6 +402,40 @@ export function generateDynVtables(context: FunctionGenerationContext): void {
     return;
   }
 
+  // Generate unique type-id statics per concrete type
+  // Each concrete type gets a unique static variable whose address serves as the TypeId
+  emitter.emitDeclarationLine("");
+  emitter.emitDeclarationLine("// === Dyn TypeId Statics ===");
+  emitter.emitDeclarationLine(
+    "// Unique static per concrete type — address is the runtime TypeId"
+  );
+  emitter.emitDeclarationLine("");
+
+  const generatedTypeIds = new Set<string>();
+  if (!context.typeIdStatics) {
+    context.typeIdStatics = new Map();
+  }
+  for (const [, impl] of context.dynImpls) {
+    const resolvedConcreteType =
+      isSomeType(impl.concreteType) && impl.concreteType.resolvedConcreteType
+        ? impl.concreteType.resolvedConcreteType
+        : impl.concreteType;
+    const concreteTypeCName =
+      context.types[resolvedConcreteType.id]?.cName ||
+      `unknown_${resolvedConcreteType.id}`;
+    const typeIdName = `yo_typeid_${concreteTypeCName}`;
+    if (
+      !generatedTypeIds.has(typeIdName) &&
+      !context.typeIdStatics.has(resolvedConcreteType.id)
+    ) {
+      generatedTypeIds.add(typeIdName);
+      context.typeIdStatics.set(resolvedConcreteType.id, typeIdName);
+      emitter.emitDeclarationLine(
+        `static const char ${typeIdName} = 0; // TypeId for ${concreteTypeCName}`
+      );
+    }
+  }
+
   emitter.emitDeclarationLine("");
   emitter.emitDeclarationLine("// === Dyn Static Vtables ===");
   emitter.emitDeclarationLine("// Static vtables for dynamic dispatch");
@@ -406,11 +444,16 @@ export function generateDynVtables(context: FunctionGenerationContext): void {
   for (const [implKey, impl] of context.dynImpls) {
     const dynTypeCName =
       context.types[impl.dynType.id]?.cName || `yo_dyn_${impl.dynType.id}`;
+    const resolvedConcreteType2 =
+      isSomeType(impl.concreteType) && impl.concreteType.resolvedConcreteType
+        ? impl.concreteType.resolvedConcreteType
+        : impl.concreteType;
     const concreteTypeCName =
-      context.types[impl.concreteType.id]?.cName ||
-      `unknown_${impl.concreteType.id}`;
+      context.types[resolvedConcreteType2.id]?.cName ||
+      `unknown_${resolvedConcreteType2.id}`;
     const vtableName = `yo_vtable_${implKey}`;
     const vtableTypeName = `${dynTypeCName}_vtable`;
+    const typeIdName = `yo_typeid_${concreteTypeCName}`;
 
     emitter.emitDeclarationLine(
       `// Vtable for impl(${concreteTypeCName}, ${impl.dynType.requiredTraits.map(({ traitType }) => traitType.typeName || "?").join(" + ")})`
@@ -418,6 +461,9 @@ export function generateDynVtables(context: FunctionGenerationContext): void {
     emitter.emitDeclarationLine(
       `static const ${vtableTypeName} ${vtableName} = {`
     );
+
+    // TypeId — always first field
+    emitter.emitDeclarationLine(`  .__yo_type_id = (uintptr_t)&${typeIdName},`);
 
     const processedMethods = new Set<string>();
     const reservedDynMethodLabels = new Set<string>([

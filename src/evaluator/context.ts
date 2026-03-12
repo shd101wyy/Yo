@@ -103,6 +103,13 @@ export interface EvaluatorContext {
   SelfType?: Type;
 
   /**
+   * The trait type currently being defined.
+   * Used inside trait(...) definitions to allow self-referencing via `SelfTrait`.
+   * For example: `source : (fn(self: *(Self)) -> Option(Dyn(SelfTrait)))`
+   */
+  SelfTraitType?: Type;
+
+  /**
    * The receiverType for implementing the module value.
    * Like:
    *

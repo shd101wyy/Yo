@@ -54,6 +54,7 @@ import { generateClosureConstruction, isClosureConstruction } from "./closures";
 import { generateComptimeValue } from "./comptime-value";
 import { generateCondExpression } from "./cond";
 import { generateConsume } from "./consume";
+import { generateDowncast } from "./downcast";
 import { generateDeferredDupExpressions } from "./drop-dup";
 import { generateDynCall } from "./dyn";
 import { generateExpr } from "./expr";
@@ -95,6 +96,7 @@ import { generateRecur } from "./recur";
 import { generatePendingDeferredDrops, generateReturn } from "./return";
 import { generateSizeOf } from "./sizeof";
 import { generateAnonymousTuple } from "./tuple-fn";
+import { generateTypeId } from "./typeid";
 import { generateWhileLoop } from "./while";
 
 /**
@@ -269,7 +271,7 @@ function generateEscape(
       functionContext,
       expr,
       false,
-      false,
+      true,
       true
     );
 
@@ -293,7 +295,7 @@ function generateEscape(
       functionContext,
       expr,
       false,
-      false,
+      true,
       true
     );
     return `return`;
@@ -310,7 +312,7 @@ function generateEscape(
     functionContext,
     expr,
     false,
-    false,
+    true,
     true
   );
   return `return ${argCode}`;
@@ -702,6 +704,14 @@ function generateFuncCall(
   // sizeof
   else if (exprIsFunctionCallOf(expr, BuiltinFunctions.sizeof, 1)) {
     return generateSizeOf(expr, indent, context);
+  }
+  // typeid
+  else if (exprIsFunctionCallOf(expr, BuiltinFunctions.typeid, 1)) {
+    return generateTypeId(expr, indent, context);
+  }
+  // downcast
+  else if (exprIsFunctionCallOf(expr, BuiltinFunctions.downcast, 2)) {
+    return generateDowncast(expr, indent, context);
   }
   // Builtin Yo inline functions
   else if (exprIsFunctionCallOf(expr, BuiltinYoInlineFunctions)) {

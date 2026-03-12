@@ -55,6 +55,7 @@ import { generateParallelismRuntime } from "../parallelism/runtime";
 import { generateIsoTypeDeclarations } from "../types/generation";
 import {
   canOptimizeAsNullablePointer,
+  canOptimizeAsSimpleEnum,
   type CodeGenContext,
   findReturnedAsyncBlock,
   getTypeString,
@@ -1706,6 +1707,8 @@ function generateRefStructTraversalFunctions(
             // This is a nullable pointer optimization - just check if it's non-null
             // No need to visit the pointer itself since it's not a reference-counted object
             // (it's just a raw pointer or primitive value wrapped in Option)
+          } else if (canOptimizeAsSimpleEnum(enumType)) {
+            // Simple enums have no variant data, so no references to traverse
           } else {
             // Generate switch statement to handle enum variants
             emitter.emitLine(`  switch (obj->${fieldName}.tag) {`);

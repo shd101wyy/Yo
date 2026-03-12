@@ -6,7 +6,7 @@ Yo uses **async/await with state machine transformation** via **algebraic effect
 
 **Key Insight**: `io.async`/`io.await` provides **concurrency** (interleaved execution), not **parallelism** (simultaneous execution). For parallelism, see `PARALLELISM.md` which describes the `Task.spawn` API for isolated multi-threaded execution.
 
-```yo
+```rust
 { yield } :: import "std/async";
 
 // All async code runs on the SAME thread
@@ -36,7 +36,7 @@ export main;
 | **Concurrency** | `io.async`/`io.await` | Multiple tasks interleaved on ONE thread   |
 | **Parallelism** | `Task.spawn`          | Multiple tasks running on SEPARATE threads |
 
-```yo
+```rust
 // Concurrency: Same thread, interleaved execution
 main :: (fn(using(io : IO)) -> unit)({
   a := io.async((using(io : IO))=> { /* ... */ });
@@ -62,7 +62,7 @@ Yo's async uses **algebraic effects** with the `IO` effect type. Async tasks are
 - `io.await(task)` starts a cold task and runs it to completion (sequential)
 - `io.spawn(task)` starts a cold task **without waiting** for it to complete
 
-```yo
+```rust
 { yield } :: import "std/async";
 
 main :: (fn(using(io : IO)) -> unit)({
@@ -132,7 +132,7 @@ Yo's approach: Keep async simple (single-threaded), use `Task.spawn` for paralle
 
 ## Language Syntax
 
-```yo
+```rust
 { yield } :: import "std/async";
 
 // Async task creation (lazy — doesn't run until awaited/spawned)
@@ -159,7 +159,7 @@ r3 := io.await(task3);
 
 Async operations require the `IO` effect, passed via `using(io : IO)`:
 
-```yo
+```rust
 // Main function receives IO effect
 main :: (fn(using(io : IO)) -> unit)({
   task := io.async((using(io : IO))=> {
@@ -179,7 +179,7 @@ test "my test", using(io : IO), {
 
 ### API
 
-```yo
+```rust
 io.async(fn)                  // Create a cold Future (lazy, doesn't start)
 io.await(future)              // Start if cold, wait for completion, return result
 io.state(future)              // Query the current state of a Future (returns FutureState)
@@ -201,7 +201,7 @@ yield()                       // Create a pre-completed Future (yields control t
 
 ### Execution Model
 
-```yo
+```rust
 // All three tasks run on the SAME thread
 main :: (fn(using(io : IO)) -> unit)({
   // LAZY — tasks are cold, nothing runs yet
@@ -227,7 +227,7 @@ main :: (fn(using(io : IO)) -> unit)({
 
 ### Future Type
 
-```yo
+```rust
 // `io.async(fn)` returns `Impl(Future(T))` — a pointer to a heap-allocated state machine.
 // The state machine stores:
 //   - state: int (0 = cold, 1..N = intermediate, -1 = completed, -2 = aborted)
@@ -241,7 +241,7 @@ main :: (fn(using(io : IO)) -> unit)({
 
 `Future(T)` can carry algebraic effect information. The full syntax is:
 
-```yo
+```rust
 Future(T)                                  // No effects
 Future(T, ...(E))                          // Effect row spread (E must be forall-declared)
 Future(T, Raise)                           // Single individual effect
@@ -269,7 +269,7 @@ Each argument after the output type `T` is either:
 
 **Example: Effect propagation through async**
 
-```yo
+```rust
 { yield } :: import "std/async";
 Raise :: (fn(forall(T : Type), msg : String) -> T);
 Log :: (fn(msg : String) -> unit);
@@ -299,7 +299,7 @@ export main;
 
 **Example: Effect-polymorphic async function**
 
-```yo
+```rust
 Raise :: (fn(forall(T : Type), msg : String) -> T);
 Log :: (fn(msg : String) -> unit);
 
@@ -318,7 +318,7 @@ run_both :: (fn(
 
 The IO module signatures use effect rows to propagate algebraic effects through async boundaries:
 
-```yo
+```rust
 IO :: module(
   async : (fn(forall(T : Type, ...(E)), action : Impl(Fn(using(...(E))) -> T)) -> Impl(Future(T, ...(E)))),
   await : (fn(forall(T : Type, ...(E)), fut : Impl(Future(T, ...(E))), using(...(E))) -> T),
@@ -338,7 +338,7 @@ This is an implementation choice, not a semantic requirement.
 
 A Future can be awaited **multiple times**. Each `io.await` call on the same Future returns the same result:
 
-```yo
+```rust
 main :: (fn(using(io : IO)) -> unit) {
   task := io.async(() => {
     return 42;
@@ -361,7 +361,7 @@ When an algebraic effect handler calls `escape` inside an async task, the Future
 
 Attempting to `io.await` or `io.spawn` on an aborted Future causes a **panic**:
 
-```yo
+```rust
 main :: (fn(using(io : IO)) -> unit) {
   Raise :: (fn(forall(T : Type), msg : String) -> T);
   task := io.async((using(io : IO))=> {
@@ -387,7 +387,7 @@ export main;
 
 `io.state(future)` returns the current `FutureState` without blocking or starting the Future. This is useful for polling or diagnostics:
 
-```yo
+```rust
 FutureState :: enum(
   Pending = 0,     // Cold — not started yet
   Running = 1,     // In progress — suspended at an await/yield point
@@ -396,7 +396,7 @@ FutureState :: enum(
 );
 ```
 
-```yo
+```rust
 main :: (fn(using(io : IO)) -> unit) {
   task := io.async((using(io : IO))=> {
     io.await(yield());
@@ -429,7 +429,7 @@ The compiler transforms async functions into state machines at each `await` poin
 
 **Input Yo code:**
 
-```yo
+```rust
 task := io.async((using(io : IO))=> {
   response := io.await(http_get(url));
   data := io.await(response.read());
@@ -546,7 +546,7 @@ Futures (async block state machines) are **reference counted** to handle cases w
 
 **Lifetime Pattern: "Event Loop Holds References"**
 
-```yo
+```rust
 main :: (fn(using(io : IO)) -> unit)({
   task := io.async((using(io : IO))=> {
     /* work */
@@ -663,7 +663,7 @@ State machines are small (~32-500 bytes):
 
 ### Core Operations
 
-```yo
+```rust
 { yield } :: import "std/async";
 
 // io.async: Create a lazy Future (cold, doesn't start until awaited/spawned)
@@ -685,7 +685,7 @@ r2 := io.await(task2);
 
 ### Example: Concurrent Tasks with Spawn
 
-```yo
+```rust
 { yield } :: import "std/async";
 
 main :: (fn(using(io : IO)) -> unit)({
@@ -717,7 +717,7 @@ export main;
 
 ### Example: Sequential Await (No Spawn)
 
-```yo
+```rust
 { yield } :: import "std/async";
 
 main :: (fn(using(io : IO)) -> unit)({
@@ -792,7 +792,7 @@ binds the effect handlers. Subsequent calls to `io.spawn`/`io.await` with
 different `using(...)` arguments have no effect — the original handlers are
 retained.
 
-```yo
+```rust
 Log :: (fn(msg : String) -> unit);
 
 task := io.async((using(io : IO, log : Log))=> {
@@ -859,7 +859,7 @@ Yo's async/await provides:
 
 ### Quick Reference
 
-```yo
+```rust
 { yield } :: import "std/async";
 
 // Create lazy async task

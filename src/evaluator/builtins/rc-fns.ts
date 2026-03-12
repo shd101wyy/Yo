@@ -37,7 +37,7 @@ import { evaluateExpression } from "../exprs/expr";
 /**
  * Helper function to construct Option(T) type by calling the compile-time Option function.
  */
-function createOptionType(
+export function createOptionType(
   innerType: Type,
   env: Environment,
   context: EvaluatorContext

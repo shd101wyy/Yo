@@ -11,12 +11,16 @@ Yo aims to be **Simple** and **Fast** (around 0% - 15% slower than C).
 
 ## Features
 
+For the design of the language, please refer to [DESIGN.md](./docs/DESIGN.md).
+
+Below is a non-exhaustive list of features that Yo supports:
+
 - First-class types.
 - Compile-time evaluation.
 - Homoiconicity and metaprogramming (**Yo** syntax is inspired by the **Lisp** S expression).
 - Closure.
-- [Algebraic Effects and Handlers](./docs/ALGEBRAIC_EFFECTS.md) (One-shot delimited continuation, Tail-Resumptive. Implicit parameters via `using`/`given`, effect handlers with `return`/`escape`).
-- [Async/await](./docs/ASYNC_AWAIT.md) (Stackless coroutine & Cooperative multi-tasking. Lazy Futures, multi-await, single-threaded concurrency via state machine transformation).
+- [Algebraic Effects and Handlers](./docs/ALGEBRAIC_EFFECTS.md) (One-shot delimited continuation. Tail-Resumptive. Implicit parameters via `using`/`given`, effect handlers with `return`/`escape`).
+- [Async/await](./docs/ASYNC_AWAIT.md) (Builtin `IO` effect. Stackless coroutine & Cooperative multi-tasking. Lazy Futures, multi-await, single-threaded concurrency via state machine transformation).
 - `object` type with [Non-atomic Reference Counting and Thread-Local Cycle Collection](./docs/CYCLE_COLLECTION.md).
 - [Compile-time Reference Counting with Ownership and Lifetime Analysis](./docs/COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md).
 - Thread-per-core parallelism model (see [PARALLELISM.md](./docs/PARALLELISM.md)).
@@ -24,10 +28,6 @@ Yo aims to be **Simple** and **Fast** (around 0% - 15% slower than C).
 - etc.
 
 <img width="855" height="368" alt="Image" src="https://github.com/user-attachments/assets/04a9050e-598b-4e02-a6c3-44863d47a4ac" />
-
-## Language Design
-
-For the design of the language, please refer to [DESIGN.md](./docs/DESIGN.md).
 
 ## Installation
 

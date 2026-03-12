@@ -85,7 +85,7 @@ std/sys/
 
 **Import pattern**: Use namespace import to avoid naming conflicts, e.g.:
 
-```yo
+```rust
 file   :: import "std/sys/file";
 dir    :: import "std/sys/dir";
 tcp    :: import "std/sys/tcp";

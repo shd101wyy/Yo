@@ -116,3 +116,94 @@ test "Test Dyn with multiple traits", {
   assert(result == 3, "Expected result to be 3");
   assert(dog.speak() == 1, "Expected dog.speak() to return 1");
 };
+
+open import "std/string";
+open import "std/fmt";
+
+test "Test downcast success", {
+  Cat :: object(name : String);
+  impl(Cat, ToString(to_string : ((self) -> self.*.name)));
+
+  Animal :: Dyn(ToString);
+  (animal : Animal) = dyn(Cat(`whiskers`));
+
+  maybe_cat := downcast(animal, Cat);
+  match(maybe_cat,
+    .Some(cat) => {
+      assert(cat.name == `whiskers`, "Expected cat.name to be 'whiskers'");
+    },
+    .None => {
+      assert(false, "Expected Some(Cat), got None");
+    }
+  );
+};
+
+test "Test downcast failure", {
+  Cat :: object(name : String);
+  impl(Cat, ToString(to_string : ((self) -> self.*.name)));
+
+  Dog :: object(name : String);
+  impl(Dog, ToString(to_string : ((self) -> self.*.name)));
+
+  Animal :: Dyn(ToString);
+  (animal : Animal) = dyn(Cat(`whiskers`));
+
+  maybe_dog := downcast(animal, Dog);
+  match(maybe_dog,
+    .Some(d) => {
+      assert(false, "Expected None, got Some(Dog)");
+    },
+    .None => {
+      assert(true);
+    }
+  );
+};
+
+test "Test downcast type check via is_some", {
+  Cat :: object(name : String);
+  impl(Cat, ToString(to_string : ((self) -> self.*.name)));
+
+  Dog :: object(name : String);
+  impl(Dog, ToString(to_string : ((self) -> self.*.name)));
+
+  Animal :: Dyn(ToString);
+  (animal : Animal) = dyn(Cat(`whiskers`));
+
+  assert(downcast(animal, Cat).is_some(), "Expected animal to be a Cat");
+  assert(downcast(animal, Dog).is_none(), "Expected animal to not be a Dog");
+};
+
+test "Test downcast with multiple concrete types", {
+  Cat :: object(name : String);
+  impl(Cat, ToString(to_string : ((self) -> self.*.name)));
+
+  Dog :: object(name : String);
+  impl(Dog, ToString(to_string : ((self) -> self.*.name)));
+
+  Animal :: Dyn(ToString);
+
+  (cat_animal : Animal) = dyn(Cat(`kitty`));
+  (dog_animal : Animal) = dyn(Dog(`buddy`));
+
+  // Downcast cat_animal
+  match(downcast(cat_animal, Cat),
+    .Some(cat) => assert(cat.name == `kitty`, "Expected kitty"),
+    .None => assert(false, "Expected Some(Cat)")
+  );
+
+  match(downcast(cat_animal, Dog),
+    .Some(d) => assert(false, "cat_animal should not be Dog"),
+    .None => assert(true)
+  );
+
+  // Downcast dog_animal
+  match(downcast(dog_animal, Dog),
+    .Some(dog) => assert(dog.name == `buddy`, "Expected buddy"),
+    .None => assert(false, "Expected Some(Dog)")
+  );
+
+  match(downcast(dog_animal, Cat),
+    .Some(c) => assert(false, "dog_animal should not be Cat"),
+    .None => assert(true)
+  );
+};

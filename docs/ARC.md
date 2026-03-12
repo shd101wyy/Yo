@@ -6,7 +6,7 @@ Arc(T) is a compiler built-in type for **shared ownership** with **atomic refere
 
 ### Creating an Arc
 
-```yo
+```rust
 // Using the arc() helper function
 a := arc(i32(42));
 
@@ -18,14 +18,14 @@ a := Arc(i32)(i32(42));
 
 Access the inner value with `.(*)`, which returns a **borrowed** reference:
 
-```yo
+```rust
 a := arc(i32(42));
 val := a.(*);       // val : i32 = 42
 ```
 
 For objects, method delegation works through `.(*)`:
 
-```yo
+```rust
 Counter :: object(count : i32);
 impl(Counter,
   get_count : ((fn(self : Self) -> i32) self.count)
@@ -39,7 +39,7 @@ c.(*).get_count()    // returns 10
 
 Assigning an Arc to another variable increments the reference count:
 
-```yo
+```rust
 a := arc(i32(42));
 b := a;              // refcount: 1 → 2
 c := b;              // refcount: 2 → 3
@@ -51,7 +51,7 @@ assert(a.(*) == b.(*));
 
 Arc implements `Send`, so it can be captured in thread/worker closures:
 
-```yo
+```rust
 { Thread } :: import "std/thread";
 { Channel } :: import "std/sync/channel";
 

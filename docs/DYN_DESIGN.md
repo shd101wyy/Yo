@@ -62,7 +62,7 @@ void* data = point;                // Store Point pointer
 
 **Box Type Definition:**
 
-```yo
+```rust
 Box :: (fn(comptime(V) : Type) -> comptime(Type))
   object(
     (*) : V
@@ -135,7 +135,7 @@ The constraint is **enforced at method call time**, not at trait definition. You
 
 **Examples:**
 
-```yo
+```rust
 // Value types must be boxed
 dyn(box(42));           // OK: box(42) returns Box(i32), which is an object type
 dyn(box(true));         // OK: box(true) returns Box(bool)

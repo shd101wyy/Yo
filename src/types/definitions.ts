@@ -828,6 +828,12 @@ export interface FunctionType extends Type {
   SelfType?: Type;
 
   /**
+   * The trait type that this function was defined in (for SelfTrait resolution).
+   * Set when a function type is created inside a trait(...) definition.
+   */
+  SelfTraitType?: Type;
+
+  /**
    * The trait that contains this function's methods (like ___drop, ___dup for closures).
    */
   trait: TraitType;

@@ -1,7 +1,12 @@
 import { extractFnTraitFromType } from "../../evaluator/trait-checking";
 import { type FnCallExpr, exprIsFunctionCall } from "../../expr";
 import type { Type } from "../../types/definitions";
-import { isBoxedType, isDynType, isObjectType } from "../../types/guards";
+import {
+  isBoxedType,
+  isDynType,
+  isObjectType,
+  isSomeType,
+} from "../../types/guards";
 import { type FunctionGenerationContext } from "../functions/context";
 import {
   type CodeGenContext,
@@ -61,21 +66,27 @@ export function generateDynCall(
     ? valueType.fields[0]!.type
     : valueType;
 
+  // Resolve SomeType to its concrete type for name lookup
+  const resolvedConcreteType =
+    isSomeType(concreteType) && concreteType.resolvedConcreteType
+      ? concreteType.resolvedConcreteType
+      : concreteType;
+
   // Create a unique key for this impl combination
   const dynTypeCName =
     context.types[dynType.id]?.cName || `yo_dyn_${dynType.id}`;
   // For boxed closures, concreteType is often `Impl(Fn(...))` which is a `SomeType`.
   // Prefer the corresponding FnTraitType's C name so generated symbols are stable.
   const concreteTypeCName = (() => {
-    const direct = context.types[concreteType.id]?.cName;
+    const direct = context.types[resolvedConcreteType.id]?.cName;
     if (direct) {
       return direct;
     }
-    const fnModule = extractFnTraitFromType(concreteType);
+    const fnModule = extractFnTraitFromType(resolvedConcreteType);
     const fnModuleCName = fnModule
       ? context.types[fnModule.id]?.cName
       : undefined;
-    return fnModuleCName || `unknown_${concreteType.id}`;
+    return fnModuleCName || `unknown_${resolvedConcreteType.id}`;
   })();
   const implKey = `${concreteTypeCName}_${dynTypeCName}`;
 

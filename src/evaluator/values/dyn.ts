@@ -243,7 +243,8 @@ export function evaluateDynValue({
     });
   }
 
-  let valueType = evaluatedValueExpr.$.type;
+  const originalValueType = evaluatedValueExpr.$.type;
+  let valueType: Type = originalValueType;
   let finalValueExpr: FnCallExpr = evaluatedValueExpr;
 
   // Auto-box non-object types so users don't need to call box() explicitly
@@ -435,47 +436,79 @@ export function evaluateDynValue({
     ) {
       const boxedFieldType = valueType.fields[0]!.type;
       let foundInSomeType = false;
-      // Extract TraitTypes from requiredTraits (handle both SomeType and DynType formats)
-      const someTypeTraitTypes = boxedFieldType.requiredTraits.map(
-        (e) => e.traitType
-      );
-      for (const someTypeModule of someTypeTraitTypes) {
-        if (
-          areTypesCompatible(
-            { type: requiredTraitType, env },
-            { type: someTypeModule, env }
-          )
-        ) {
-          // Create a trait value from the SomeType's required trait
-          const fields: (Value | undefined)[] = [];
-          for (let i = 0; i < requiredTraitType.fields.length; i++) {
-            const field = requiredTraitType.fields[i]!;
-            const someTypeModuleFieldIndex = someTypeModule.fields.findIndex(
-              (e) => e.label === field.label
-            );
-            if (someTypeModuleFieldIndex === -1) {
-              fields.push(undefined);
-            } else {
-              fields.push(
-                someTypeModule.fields[someTypeModuleFieldIndex]!.assignedValue
-              );
+
+      // If we have the original concrete type (before auto-boxing), try to use
+      // its actual trait values first. These have properly specialized defaults
+      // (e.g., source method from Error trait with Self resolved to String).
+      const concreteType =
+        isSomeType(boxedFieldType) && boxedFieldType.resolvedConcreteType
+          ? boxedFieldType.resolvedConcreteType
+          : originalValueType !== valueType
+            ? originalValueType
+            : undefined;
+
+      if (concreteType?.trait) {
+        for (const field of concreteType.trait.fields) {
+          if (field.assignedValue && isTraitValue(field.assignedValue)) {
+            if (
+              areTypesCompatible(
+                { type: requiredTraitType, env },
+                { type: field.assignedValue.type, env }
+              )
+            ) {
+              traitValues.push(field.assignedValue);
+              traitTypes.push(field.assignedValue.type);
+              checkedTraitTypes.add(requiredTraitType);
+              foundInSomeType = true;
+              break;
             }
           }
-          const traitValue = createTraitValue(requiredTraitType, fields);
-
-          traitValues.push(traitValue);
-          traitTypes.push(traitValue.type);
-          checkedTraitTypes.add(requiredTraitType);
-          foundInSomeType = true;
-          break;
         }
       }
+
       if (!foundInSomeType) {
-        throw formatErrorMessage({
-          token: expr.token,
-          errorMessage: `Required trait ${typeToString(requiredTraitType)} not found in SomeType's requiredTraits.`,
-        });
-      }
+        // Extract TraitTypes from requiredTraits (handle both SomeType and DynType formats)
+        const someTypeTraitTypes = boxedFieldType.requiredTraits.map(
+          (e) => e.traitType
+        );
+        for (const someTypeModule of someTypeTraitTypes) {
+          if (
+            areTypesCompatible(
+              { type: requiredTraitType, env },
+              { type: someTypeModule, env }
+            )
+          ) {
+            // Create a trait value from the SomeType's required trait
+            const fields: (Value | undefined)[] = [];
+            for (let i = 0; i < requiredTraitType.fields.length; i++) {
+              const field = requiredTraitType.fields[i]!;
+              const someTypeModuleFieldIndex = someTypeModule.fields.findIndex(
+                (e) => e.label === field.label
+              );
+              if (someTypeModuleFieldIndex === -1) {
+                fields.push(undefined);
+              } else {
+                fields.push(
+                  someTypeModule.fields[someTypeModuleFieldIndex]!.assignedValue
+                );
+              }
+            }
+            const traitValue = createTraitValue(requiredTraitType, fields);
+
+            traitValues.push(traitValue);
+            traitTypes.push(traitValue.type);
+            checkedTraitTypes.add(requiredTraitType);
+            foundInSomeType = true;
+            break;
+          }
+        }
+        if (!foundInSomeType) {
+          throw formatErrorMessage({
+            token: expr.token,
+            errorMessage: `Required trait ${typeToString(requiredTraitType)} not found in SomeType's requiredTraits.`,
+          });
+        }
+      } // end if (!foundInSomeType)
     }
     // Check if it's Boxed T with T.trait
     else {

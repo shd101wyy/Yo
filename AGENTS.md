@@ -115,6 +115,7 @@ Always save verbose output to a file to avoid terminal truncation:
 - If you haven't modified the code, don't ask to run commands repeatedly.
 - Ignore `DESIGN.md` and other markdown files in `outdated/` — they are out of date.
 - No need to read `fixme.test.ts`.
+- `src/tests/fixme.yo` is a scratch file for experimentation. There is no need to restore its contents after modifying it.
 
 ---
 

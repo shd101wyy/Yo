@@ -58,8 +58,8 @@ Our goal is to be a practical language that is easy to use and easy to learn.
   - [Array Length Inference](#array-length-inference)
   - [Array Assignment and Copying](#array-assignment-and-copying)
 - [Control Flow](#control-flow)
-  - [if/else](#ifelse)
   - [cond](#cond)
+  - [if/else](#ifelse)
   - [while](#while)
   - [Iterator and for loop](#iterator-and-for-loop)
 - [Algebraic Data Types (ADT)](#algebraic-data-types-adt)
@@ -72,6 +72,7 @@ Our goal is to be a practical language that is easy to use and easy to learn.
 - [String](#string)
   - [C String literal as u8 slice or C string pointer](#c-string-literal-as-u8-slice-or-c-string-pointer)
   - [String (Immutable String)](#string-immutable-string)
+    - [Template string interpolation with `${}` syntax:](#template-string-interpolation-with--syntax)
 - [Collections](#collections)
   - [ArrayList](#arraylist)
   - [HashMap](#hashmap)
@@ -92,19 +93,22 @@ Our goal is to be a practical language that is easy to use and easy to learn.
   - [Basic Usage](#basic-usage)
   - [Impl as Return Type](#impl-as-return-type)
   - [Impl with Multiple Traits](#impl-with-multiple-traits)
-  - [Impl vs Dyn](#impl-vs-dyn)
-- [Error handling](#error-handling)
-  - [Error Propagation with match](#error-propagation-with-match)
+- [Dynamic Dispatch](#dynamic-dispatch)
+  - [`Dyn` and `dyn`](#dyn-and-dyn)
+  - [Examples](#examples)
+- [Impl vs Dyn](#impl-vs-dyn)
 - [Algebraic Effects and Handlers](#algebraic-effects-and-handlers)
+- [Error Handling](#error-handling)
+  - [Result Type](#result-type)
+  - [Error Trait and AnyError](#error-trait-and-anyerror)
+  - [Exception (Non-Resumable)](#exception-non-resumable)
+  - [ResumableException](#resumableexception)
 - [Async/Await](#asyncawait)
 - [Parallelism](#parallelism)
 - [Isolated Types](#isolated-types)
 - [Arc Types](#arc-types)
 - [Module importing and exporting](#module-importing-and-exporting)
   - [Anonymous module](#anonymous-module)
-- [Dynamic Dispatch](#dynamic-dispatch)
-  - [`Dyn` and `dyn`](#dyn-and-dyn)
-  - [Examples](#examples)
 - [Naming Convention](#naming-convention)
 - [Testing](#testing)
   - [Basic Test Syntax](#basic-test-syntax)
@@ -1056,6 +1060,20 @@ For more array examples, see [array.test.yo](../tests/array.test.yo).
 
 ## Control Flow
 
+### cond
+
+```rust
+use_cond :: (fn(x: i32) -> unit)
+  cond(
+    (x == 1) => println("x is 1"),
+    (x == 2) => println("x is 2"),
+    true => println("x is not 1 or 2")
+  )
+;
+```
+
+> Note: The last condition must be compile-time known value `true` to act as the default case.
+
 ### if/else
 
 `if(condition, then, else)`
@@ -1092,20 +1110,6 @@ main :: (fn() -> unit) {
   if(number < 5, println("condition was true"), println("condition was false"));
 };
 ```
-
-### cond
-
-```rust
-use_cond :: (fn(x: i32) -> unit)
-  cond(
-    (x == 1) => println("x is 1"),
-    (x == 2) => println("x is 2"),
-    true => println("x is not 1 or 2")
-  )
-;
-```
-
-> Note: The last condition must be compile-time known value `true` to act as the default case.
 
 ### while
 
@@ -1423,26 +1427,26 @@ NewsArticle :: struct(
 // Implement the Summary trait for NewsArticle
 impl(NewsArticle, Summary(
   summarize : ((self) ->
-    f(self.headline, ", by ", self.author, " (", self.location, ")")
+    `${self.headline}, by ${self.author} (${self.location})`
   )
 ));
 
 // Implement the Display trait for NewsArticle
 impl(NewsArticle, Display(
   display : ((self) ->
-    f("Headline: ", self.headline, "\n")
+    `Headline: ${self.headline}\n`
   )
 ));
 
 // Pass in function
 notify :: (fn(item: *(NewsArticle)) -> unit) {
-  println("Breaking news! ", item.summarize());
+  println(`Breaking news! ${item.summarize()}`);
 };
 
 // Generic function with trait constraint
 notify2 :: (fn(forall(T : Type), item: *(T), where(T <: Display)) -> unit) {
-  println("Breaking news! ", item.summarize());
-  println("Breaking news! ", item.display());
+  println(`Breaking news! ${item.summarize()}`);
+  println(`Breaking news! ${item.display()}`);
 };
 ```
 
@@ -1491,8 +1495,9 @@ area :: (fn(shape: Shape) -> i32)(
 ### C String literal as u8 slice or C string pointer
 
 ```rust
-s = "Hello"; // s : [u8]; By default, a string literal converts to u8 slice.
+s = "Hello"; // s : str; By default, a string literal converts to "str" slice.
 (s2 : *(u8)) = "Hi"; // You can explicitly declare a C string pointer.
+s3 := *(u8)("Hi"); // Or use pointer cast to get a C string pointer.
 ```
 
 ### String (Immutable String)
@@ -1505,7 +1510,21 @@ s2 := String.from("Hello World!");
 s3 := (s + s2); // Create a new string.
 ```
 
+#### Template string interpolation with `${}` syntax:
+
+The template string works similarly to JavaScript's template literals, allowing you to embed expressions inside a string using `${}` syntax. The value inside `${}` must implement the `ToString` trait to be converted to a `String`.
+
+```rust
+name := "Alice";
+age := 16;
+greeting := `Hello, ${name}!, age: ${age}`;
+// greeting: String
+// value "Hello, Alice!, age: 16"
+```
+
 ## Collections
+
+Please check [std/collections](../std/collections) for the full list of collection types and their APIs.
 
 Yo provides efficient, reference-counted collection types in the standard library.
 
@@ -2037,7 +2056,67 @@ perform :: (fn(
 };
 ```
 
-### Impl vs Dyn
+## Dynamic Dispatch
+
+See [DYN_DESIGN.md](./DYN_DESIGN.md) for comprehensive documentation on dynamic dispatch with `Dyn` and `dyn`.
+
+### `Dyn` and `dyn`
+
+Use `Dyn` to define dynamic dispatch types that can hold any object implementing specified traits. Use the `dyn()` function to create a `Dyn` instance from an object.
+
+`Dyn` types in Yo are reference-counted objects (like closures and regular object types). They enable dynamic dispatch through trait objects.
+
+**Key features:**
+
+- Reference counted automatically
+- No need for `&` operator - they are objects
+- Automatic memory management
+- Support multiple trait bounds
+
+### Examples
+
+```rust
+Speak :: trait(
+  speak: (fn(self : Self) -> i32)
+);
+
+Run :: trait(
+  run: (fn(self : Self) -> i32)
+);
+
+// Must be object type to work with Dyn
+Dog :: object();
+
+DogSpeak :: impl(Dog, Speak(
+  speak: ((self: Self) -> {
+    printf("Woof!\n");
+    return 1;
+  })
+));
+
+DogRun :: impl(Dog, Run(
+  run: ((self: Self) -> {
+    printf("The dog is running!\n");
+    return 2;
+  })
+));
+
+// Dyn type is reference counted - no & needed
+act :: (fn(s: Dyn(Speak, Run)) -> i32)
+  (s.speak() + s.run())
+;
+
+main :: (fn() -> i32) {
+  dog := Dog();
+  // dyn() creates a reference-counted trait object
+  result := act(dyn(dog));
+  return result;
+};
+```
+
+**Note:** `Dyn` types are internally reference-counted objects, providing automatic memory management without manual pointer handling.
+
+## Impl vs Dyn
 
 - **Impl**: Static dispatch, compile-time polymorphism, no runtime overhead
 - **Dyn**: Dynamic dispatch, runtime polymorphism, requires object types
@@ -2056,19 +2135,29 @@ use_dyn :: (fn(value: Dyn(SomeTrait)) -> unit) {
 
 For more examples, see [impl.test.yo](../tests/impl.test.yo).
 
-## Error handling
+## Algebraic Effects and Handlers
 
-Yo uses the `Result` type for error handling, similar to Rust:
+Yo supports **algebraic effects** — a mechanism for implicit parameter passing and delimited continuations. Effects are built on two features:
+
+1. **Implicit Parameters (`using` / `given`)**: Functions can declare implicit parameters with `using(name : Type)`. At call sites, the compiler resolves them automatically from `given` bindings in scope.
+2. **Effect Handlers (`return` / `escape`)**: When an effect handler uses `return(value)`, it resumes the captured continuation. When it uses `escape expr`, it discards the continuation and returns from the enclosing function.
+
+Effects compose with `async`/`await`: effect handlers inside `io.async` tasks work correctly. If `escape` is called inside an async task, the Future is marked as escaped and awaiting it causes a panic.
+
+See [ALGEBRAIC_EFFECTS.md](./ALGEBRAIC_EFFECTS.md) for comprehensive documentation.
+
+## Error Handling
+
+Yo provides two approaches to error handling:
+
+1. **Result ADT** — explicit `Result(T, E)` values with pattern matching
+2. **Exception / ResumableException** — algebraic effects for exception-like control flow
+
+### Result Type
+
+The `Result` type is an algebraic data type for functions that can fail:
 
 ```rust
-// Define Result type (from standard library)
-Result :: (fn(comptime(T): Type, comptime(E): Type) -> comptime(Type))
-  enum(
-    Ok(value : T),
-    Error(error : E)
-  )
-;
-
 // Define an error type
 DivisionError :: enum(
   DivideByZero,
@@ -2076,15 +2165,16 @@ DivisionError :: enum(
 );
 
 // Function that can fail
-safe_div :: (fn(a: i32, b: i32) -> Result(i32, DivisionError))
-  if (b == 0),
-    then: Result(i32, DivisionError).Error(.DivideByZero),
-    else: Result(i32, DivisionError).Ok(a / b)
-;
+safe_div :: (fn(a: i32, b: i32) -> Result(i32, DivisionError))(
+  cond(
+    (b == i32(0)) => .Error(.DivideByZero),
+    true => .Ok((a / b))
+  )
+);
 
-// Pattern matching for error handling
-division_result := safe_div(10, 2);
-match(division_result,
+// Handle errors with pattern matching
+result := safe_div(10, 2);
+match(result,
   .Ok(value) => printf("Result: %d\n", value),
   .Error(error) => match(error,
     .DivideByZero => printf("Error: Cannot divide by zero\n"),
@@ -2093,66 +2183,90 @@ match(division_result,
 );
 ```
 
-### Error Propagation with match
+### Error Trait and AnyError
+
+The standard library defines an `Error` trait and `AnyError` type for dynamic error handling:
 
 ```rust
-compute :: (fn(x: i32, y: i32) -> Result(i32, DivisionError)) {
-  result1 := safe_div(x, 2);
-  result2 := match(result1,
-    .Ok(v1) => {
-      temp := safe_div(v1, y);
-      match(temp,
-        .Ok(v2) => .Ok(v2),
-        .Error(e) => .Error(e)
-      )
-    },
-    .Error(e) => .Error(e)
-  );
-  return result2;
-}
+open import "std/error";
+
+// Error trait requires ToString. Custom error types implement both:
+MathError :: enum(
+  DivisionByZero,
+  NegativeSqrt
+);
+impl(MathError, ToString(
+  to_string : ((self) -> match(self,
+    .DivisionByZero => `Division by zero`,
+    .NegativeSqrt => `Square root of a negative number`
+  ))
+));
+impl(MathError, Error());
+
+// AnyError is Dyn(Error) — any type implementing Error can be wrapped:
+(err : AnyError) = dyn(MathError.DivisionByZero);
+
+// Downcast back to the concrete type:
+match(downcast(err, MathError),
+  .Some(math_err) => printf("Got MathError\n"),
+  .None => printf("Not a MathError\n")
+);
 ```
 
-**Note**: Yo uses explicit Result types and pattern matching for error handling, not algebraic effects. However, algebraic effects can be used for other control flow patterns (see below).
+### Exception (Non-Resumable)
 
-## Algebraic Effects and Handlers
-
-Yo supports **algebraic effects** — a mechanism for implicit parameter passing and delimited continuations. Effects are built on two features:
-
-1. **Implicit Parameters (`using` / `given`)**: Functions can declare implicit parameters with `using(name : Type)`. At call sites, the compiler resolves them automatically from `given` bindings in scope.
-2. **Effect Handlers (`return` / `escape`)**: When an effect handler uses `return(value)`, it resumes the captured continuation. When it uses `escape expr`, it discards the continuation and returns from the enclosing function.
+`Exception` is an algebraic effect for non-resumable exception handling. When the handler calls `escape`, the continuation is discarded and control returns to the enclosing function:
 
 ```rust
-// Define an effect type
-Raise :: (fn(forall(T : Type), msg : String) -> T);
+open import "std/error";
 
-// Use the effect via implicit parameter
-safe_divide :: (fn(x : i32, y : i32, using(raise : Raise)) -> i32)(
+safe_divide :: (fn(x: i32, y: i32, using(exn : Exception)) -> i32)(
   cond(
-    (y == 0) => raise(`division by zero`),
+    (y == i32(0)) => exn.throw(dyn MathError.DivisionByZero),
     true => (x / y)
   )
 );
 
-// Handle with resume (return) — continues after the effect site
-handler_resume :: (fn() -> i32) {
-  (given(raise) : Raise) = (fn(forall(T : Type), msg : String) -> T)({
-    return i32(0);  // resume with 0
-  });
-  safe_divide(10, 0)  // returns 0
-};
+// Install an exception handler with `given`:
+given(exn) := Exception(
+  throw : ((err) -> {
+    println(`Error: ${err}`);  // prints "Error: Division by zero"
+    escape ();  // discard continuation, return from enclosing function
+  })
+);
 
-// Handle with escape — discards continuation, returns from enclosing function
-handler_escape :: (fn() -> i32) {
-  (given(raise) : Raise) = ((msg) -> {
-    escape i32(-1);  // discard continuation, return -1
-  });
-  safe_divide(10, 0)  // never reached; handler_escape returns -1
-};
+result := safe_divide(6, 3);        // result = 2
+safe_divide(10, 0, using(exn));     // triggers handler, escape discards continuation
+// code after escape is never reached
 ```
 
-Effects compose with async/await: effect handlers inside `io.async` tasks work correctly. If `escape` is called inside an async task, the Future is marked as escaped and awaiting it causes a panic.
+### ResumableException
 
-See [ALGEBRAIC_EFFECTS.md](./ALGEBRAIC_EFFECTS.md) for comprehensive documentation.
+`ResumableException(ResumeType)` is an algebraic effect for resumable exception handling. When the handler calls `return`, it resumes the continuation with a recovery value:
+
+```rust
+open import "std/error";
+
+safe_divide :: (fn(x: i32, y: i32, using(exn : ResumableException(i32))) -> i32)(
+  cond(
+    (y == i32(0)) => exn.throw(dyn `division by zero`),
+    true => (x / y)
+  )
+);
+
+// Install a resumable handler:
+given(exn) := ResumableException(i32)(
+  throw : ((err) -> {
+    println(`Error: ${err}`);
+    return 0;  // resume with recovery value 0
+  })
+);
+
+result := safe_divide(6, 3);    // result = 2
+result = safe_divide(10, 0);    // handler resumes with 0, result = 0
+```
+
+For more examples, see [error.test.yo](../tests/error.test.yo).
 
 ## Async/Await
 
@@ -2262,64 +2376,6 @@ my_module :: impl {
   export my_function;
 };
 ```
-
-## Dynamic Dispatch
-
-### `Dyn` and `dyn`
-
-Use `Dyn` to define dynamic dispatch types that can hold any object implementing specified traits. Use the `dyn()` function to create a `Dyn` instance from an object.
-
-`Dyn` types in Yo are reference-counted objects (like closures and regular object types). They enable dynamic dispatch through trait objects.
-
-**Key features:**
-
-- Reference counted automatically
-- No need for `&` operator - they are objects
-- Automatic memory management
-- Support multiple trait bounds
-
-### Examples
-
-```rust
-Speak :: trait(
-  speak: (fn(self : Self) -> i32)
-);
-
-Run :: trait(
-  run: (fn(self : Self) -> i32)
-);
-
-// Must be object type to work with Dyn
-Dog :: object();
-
-DogSpeak :: impl(Dog, Speak(
-  speak: ((self: Self) -> {
-    printf("Woof!\n");
-    return 1;
-  })
-));
-
-DogRun :: impl(Dog, Run(
-  run: ((self: Self) -> {
-    printf("The dog is running!\n");
-    return 2;
-  })
-));
-
-// Dyn type is reference counted - no & needed
-act :: (fn(s: Dyn(Speak, Run)) -> i32)
-  (s.speak() + s.run())
-;
-
-main :: (fn() -> i32) {
-  dog := Dog();
-  // dyn() creates a reference-counted trait object
-  result := act(dyn(dog));
-  return result;
-};
-```
-
-**Note:** `Dyn` types are internally reference-counted objects, providing automatic memory management without manual pointer handling.
 
 ## Naming Convention
 

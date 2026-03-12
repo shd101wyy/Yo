@@ -6,7 +6,7 @@ Yo performs **Compile-Time Function Evaluation** (CTFE) whenever possible to imp
 
 CTFE allows the compiler to execute functions at compile-time when all inputs are known at compile-time. The result is embedded directly into the generated code, eliminating runtime computation.
 
-```yo
+```rust
 // This function can be evaluated at compile-time
 factorial :: (fn(n : i32) -> i32) {
   result := i32(1);
@@ -29,7 +29,7 @@ value :: factorial(10);
 
 Yo automatically analyzes functions to determine if they can be evaluated at compile-time. When a function is called with all compile-time known arguments, Yo attempts to execute it during compilation.
 
-```yo
+```rust
 // No special annotation needed - Yo automatically detects
 // that this can be evaluated at compile-time
 sum_squares :: (fn(n : i32) -> i32) {
@@ -57,7 +57,7 @@ Yo's CTFE supports all control flow constructs:
 - **`cond`** (conditional expressions)
 - **`match`** (pattern matching)
 
-```yo
+```rust
 // Example: Sum only odd numbers using continue
 sum_odd :: (fn(max : i32) -> i32) {
   result := i32(0);
@@ -82,7 +82,7 @@ odd_sum :: sum_odd(10);
 
 Types are values in Yo, enabling powerful compile-time type manipulation:
 
-```yo
+```rust
 // Create a generic container type at compile-time
 Container :: (fn(comptime(T) : Type) -> comptime(Type))
   object(
@@ -99,7 +99,7 @@ StringContainer :: Container(String);
 
 Use `comptime_assert` to verify conditions at compile-time:
 
-```yo
+```rust
 fib :: (fn(n : i32) -> i32) {
   cond(
     (n <= 1) => n,
@@ -117,7 +117,7 @@ comptime_assert(fib(10) == 55);
 
 Use `compt` to require compile-time known parameters:
 
-```yo
+```rust
 // T must be known at compile-time for monomorphization
 Array :: (fn(comptime(T) : Type, comptime(N) : usize) -> comptime(Type))
   struct(
@@ -193,7 +193,7 @@ CTFE cannot be used when:
 
 4. **Trust the Compiler**: Don't over-annotate. Let Yo's automatic CTFE analysis do its job.
 
-```yo
+```rust
 // Good: Clean, simple code that Yo can analyze
 is_prime :: (fn(n : i32) -> bool) {
   cond(

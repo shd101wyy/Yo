@@ -6,7 +6,7 @@ Yo uses **non-atomic reference counting** with **thread-local cycle collection**
 
 Reference counting cannot reclaim cycles:
 
-```yo
+```rust
 // Create a cycle
 node_a := object(value: 1, next: .None);
 node_b := object(value: 2, next: .Some(node_a));
@@ -95,7 +95,7 @@ After creating 400 more objects → GC runs, 300 survive → threshold = max(256
 
 **Explicit collection** can also be triggered via `gc.collect()`:
 
-```yo
+```rust
 import std/gc;
 
 // Force cycle collection
@@ -221,7 +221,7 @@ Yo uses **complete thread isolation** - spawned tasks run on separate threads wi
 3. No need to track which objects can be "stolen" - nothing moves between threads
 4. Only value types can be sent between threads (copied, not shared)
 
-```yo
+```rust
 // Parent thread
 x := 42;
 node := Node(1, .None);  // Cycle-forming type, stays on this thread
@@ -258,7 +258,7 @@ await task.send(x);  // Send COPY of x (value type)
 
 **Common patterns:**
 
-```yo
+```rust
 // ✅ Message passing with value types
 task := Task(Message, Response).spawn((parent) -> async {
   msg := await parent.recv();  // Receives COPY of Message
@@ -352,7 +352,7 @@ Global impact: Zero (other threads continue running)
 
 ## API
 
-```yo
+```rust
 // Runtime cycle collection control
 gc_collect :: (fn() -> unit);  // Trigger immediate collection
 gc_set_threshold :: (fn(threshold: usize) -> unit);  // Set collection frequency
@@ -372,7 +372,7 @@ GCStats :: struct(
 
 Compiler generates tracking code for cycle-forming types:
 
-```yo
+```rust
 // User code
 Node :: object(value: i32, next: Option(Node));
 
