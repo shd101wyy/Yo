@@ -20,9 +20,10 @@ description: "Use when making design decisions about the Yo language, writing st
 ## Strings
 
 - Double quote string returns `str` type (contains `[u8]` byte slice)
-- Template string returns `String` type (utf-8 encoded `object` type)
+- Template string returns `String` type (utf-8 encoded `object` type). Its syntax is the same as JavaScript template strings. The `${...}` interpolation is also supported for types that implement `ToString` trait.  
 - `str` is a builtin type — don't use it as a variable or type name.
 - **Use template strings for constant `String` values**: Instead of `String.from("hello")`, write `` `hello` ``. Template strings without interpolation produce the same result but are more concise. This applies anywhere a `String` value is needed — return values, comparisons, arguments, etc.
+- Use `println` or `print` function from `std/fmt` to print instead of `printf`. You can pass template string or any value whose type implements `ToString` trait to both `println` and `print`.
 
 ## Box and box
 
