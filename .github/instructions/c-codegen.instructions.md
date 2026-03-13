@@ -48,22 +48,48 @@ For understanding the compile-time RC ownership model, read `COMPILE_TIME_RC_WIT
 ## Algebraic effects codegen
 
 - Functions with `forall(...(E))` spread effect parameters have generic bodies where sub-expression type info may be missing. Effect analysis for these functions is performed during the codegen phase (in `preRegisterEffectfulFunctions`), not during evaluation.
-- Effectful functions (those that call effect handlers) are compiled as state machines, similar to async functions.
 
-## Module effect escape detection
+### Evidence passing for effects
 
-### Sync vs async behavior
+**All** effects — both module-type (e.g., `Exception`, `Raise`) and function-type — use **evidence passing**. A module is a compile-time construct (just a named collection of functions); at runtime, only function pointers exist. Therefore there is no distinction between module effects and function effects in codegen — both compile to passing function pointers as explicit C parameters.
 
-In the **sync** case (no `io.async`/`io.await`), module effect members are treated identically to function-based effects: the handler body is **inlined** at the call site via a yield/while-loop pattern — no function pointers needed. The SM yields, the caller's while-loop contains the inlined handler body, and `escape` simply returns from the enclosing function.
+`forall(...)`, `using(...)`, and modules are **compile-time only** constructs — they are erased at runtime. Evidence passing is how their runtime behavior is realized.
 
-In the **async** case (`io.async`/`io.await`), module effect members must be stored as **function pointers** in the SM's `__capture` struct. This is because `using(...)` values are injected at `io.await` time and stored in captures; they can only be set once (if `io.await` is called again with different `using(...)`, the first ones are kept). Since the async SM runs on the event loop (not at the handler's call site), the handler cannot be inlined — it must be called through a function pointer.
+**How it works:**
+- A function with `using(exn : Exception)` gets an extra C parameter: `void (*throw)(AnyError)`
+- A function with `using(raise_mod : Raise)` where `Raise :: module(raise : (fn(msg: String) -> i32))` gets: `int32_t (*raise)(yo_string)`
+- The function body calls the effect operation directly via the function pointer — no SM needed
+- Call sites pass the function pointer from their context:
+  - Sync: the handler function address from `given(exn) := Exception(throw: handler_fn)`
+  - Async SM: `sm->__capture.throw` from the Future's capture struct
+  - Transitive: forwarded from the caller's own evidence parameter
 
-### Thread-local escape flag (async only)
+**Why this is needed:**
+- SM-inlining works for sync-only contexts (handler body is inlined at call site)
+- But inside `io.async` closures, handler values become runtime function pointers in the capture struct
+- A sync effectful function called inside async can't access those captures via the SM mechanism
+- Evidence passing is composable across sync/async boundaries because function pointers are runtime values
 
-Because the handler is called via function pointer in the async SM, the codegen cannot statically detect whether the handler calls `escape()`. A thread-local flag `__yo_effect_escaped` is used for runtime detection:
+See `issues/sync-effect-inlining-inside-async-context.md` for the full design rationale.
+
+**Mixed escape+return handlers:**
+- A handler may `return` in one branch and `escape` in another. Both paths work with evidence passing:
+  - Return path: handler function returns normally; caller uses the resume value
+  - Escape path: handler sets `__yo_effect_escaped = 1` and returns a dummy; caller checks the flag and propagates
+- Non-unit `escape value` is supported — the escape value is stored in a thread-local and retrieved at the handler installation site.
+
+### When SM is still needed
+
+The SM approach is still needed for **multi-yield resumable effects** where the handler body interleaves with the computation (e.g., deep handlers that resume multiple times from different yield points within the same function body). This is rare in practice; most effects are tail-resumptive.
+
+### Thread-local escape flag
+
+Because effect handlers are called via function pointer (evidence passing), the codegen cannot statically detect whether the handler calls `escape()`. A thread-local flag `__yo_effect_escaped` is used for runtime detection:
 
 1. Before calling a module effect member via function pointer, the flag is reset to 0.
 2. If the handler calls `escape()`, the flag is set to 1 (in `generateEscape`, gated by `isModuleEffectMemberFunction`).
-3. After the call returns, the caller checks the flag. If set, it drops any RC-typed arguments, aborts the SM (state = -2), spawns the continuation, and returns.
+3. After the call returns, the caller checks the flag. If set, it drops any RC-typed arguments and propagates the escape:
+   - In async SM: aborts the Future (state = -2), spawns the continuation, returns.
+   - In sync context (evidence passing): drops locals, returns a dummy value. Each caller in the transitive chain checks the flag and propagates.
 
 Key files: `context.ts` (`isModuleEffectMemberFunction`), `generation.ts` (preamble + context flag), `exprs/generation.ts` (flag set in `generateEscape`), `other-fn-call.ts` (flag check + abort at call site).

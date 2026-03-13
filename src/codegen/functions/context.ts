@@ -15,6 +15,7 @@ import type {
 } from "../../types/definitions";
 import type { EffectStateMachineInfo } from "../effects/effect-state-machine";
 import type { CodeGenContext } from "../utils";
+import type { EvidenceParameter } from "./declarations";
 
 export interface FunctionGenerationContext extends CodeGenContext {
   functions: Record<
@@ -42,6 +43,10 @@ export interface FunctionGenerationContext extends CodeGenContext {
   inEffectStateMachine?: EffectStateMachineInfo; // Set when generating code inside an effect state machine
   // Set when generating code for a module effect member function (e.g., Exception.throw handler)
   isModuleEffectMemberFunction?: boolean;
+  // Evidence parameters for the current function — maps "implicitLabel.fieldLabel"
+  // (e.g., "raise_mod.raise") to the C parameter name (e.g., "raise_mod__raise").
+  // Set when generating a function body that uses module-type effects via evidence passing.
+  currentEvidenceParams?: Map<string, EvidenceParameter>;
   // Deferred effectful function generation - effectful functions are generated after regular functions
   deferredEffectfulFunctions?: Array<{
     functionValue: FunctionValue;

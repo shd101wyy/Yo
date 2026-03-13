@@ -135,6 +135,45 @@ export function collectRequiredFunctions(
 }
 
 /**
+ * Recursively collect function values from a module value and its nested modules,
+ * marking them as module effect members so they get compiled as standalone functions.
+ */
+function collectModuleEffectMembers(
+  mv: ModuleValue,
+  context: CodeGenContext
+): void {
+  for (let i = 0; i < mv.fields.length; i++) {
+    const fieldValue = mv.fields[i];
+    if (fieldValue && isFunctionValue(fieldValue)) {
+      // Skip functions with forall parameters — they use void* generics in C
+      // and can't be called through typed fn ptrs. These will be SM-inlined.
+      const fnType = fieldValue.type;
+      const fieldType = mv.type.fields[i]?.type;
+      if (
+        (isFunctionType(fnType) &&
+          fnType.forallParameters &&
+          fnType.forallParameters.length > 0) ||
+        (isFunctionType(fieldType) &&
+          fieldType.forallParameters &&
+          fieldType.forallParameters.length > 0)
+      ) {
+        continue;
+      }
+      if (!context.functions[fieldValue.funcId]) {
+        fieldValue.isModuleEffectMember = true;
+        context.functions[fieldValue.funcId] = {
+          value: fieldValue,
+          cName: sanitizeForCIdentifier(fieldValue.funcId),
+        };
+        findFunctionCallsInExpr(fieldValue.body, context);
+      }
+    } else if (fieldValue && isModuleValue(fieldValue)) {
+      collectModuleEffectMembers(fieldValue, context);
+    }
+  }
+}
+
+/**
  * Find function calls in an expression and collect them
  */
 export function findFunctionCallsInExpr(
@@ -147,19 +186,7 @@ export function findFunctionCallsInExpr(
   // as function call expressions in the AST, so the normal traversal misses them.
   if (expr.$?.value && isModuleValue(expr.$.value)) {
     const mv = expr.$.value;
-    for (let i = 0; i < mv.fields.length; i++) {
-      const fieldValue = mv.fields[i];
-      if (fieldValue && isFunctionValue(fieldValue)) {
-        if (!context.functions[fieldValue.funcId]) {
-          fieldValue.isModuleEffectMember = true;
-          context.functions[fieldValue.funcId] = {
-            value: fieldValue,
-            cName: sanitizeForCIdentifier(fieldValue.funcId),
-          };
-          findFunctionCallsInExpr(fieldValue.body, context);
-        }
-      }
-    }
+    collectModuleEffectMembers(mv, context);
   }
   // Skip test blocks - they should not generate code
   if (

@@ -1,28 +1,27 @@
+open import "std/libc/stdio";
 open import "std/string";
 open import "std/fmt";
-open import "std/error";
-open import "std/libc/stdio";
-{ IOError } :: import "std/sys/errors";
-IO_file :: import "std/sys/file";
-{ AT_FDCWD, O_RDONLY } :: import "std/sys/constants";
 
-// Async module-based effect (Exception) — the real use case
-my_open :: (fn(path: *(u8), using(io : IO)) -> Impl(Future(i32, IO, Exception)))(
-  io.async((using(io, exn)) => {
-    result := io.await(IO_file.openat(AT_FDCWD, path, O_RDONLY, i32(0)));
-    cond(
-      (result < i32(0)) => exn.throw(dyn IOError.from_errno((i32(0) - result))),
-      true => result
-    )
-  })
+MyException :: (fn(comptime(ErrorType) : Type) -> comptime(Module))(
+  module(
+    throw : (fn(forall(ResumeType : Type), error : ErrorType, resume_value : ResumeType) -> ResumeType)
+  )
 );
 
-main :: (fn(using(io : IO)) -> unit)({
-  given(exn) := Exception(throw : ((err) -> {
-    printf("Error: caught exception\n");
-    escape ();
-  }));
-  fd := io.await(my_open(*(u8)("/tmp/yo_fixme_test.txt")), using(io, exn));
-  printf("fd = %d\n", fd);
-});
+safe_divide :: (fn(x : i32, y : i32, using(exn : MyException(i32))) -> i32)(
+  cond(
+    (y == 0) => exn.throw(x, i32(666)),
+    true => (x / y)
+  )
+);
+
+main :: (fn() -> unit) {
+  given(exn) := MyException(i32)(
+    throw : ((val, resume_val) -> {
+      escape ();
+    })
+  );
+  result := safe_divide(10, 0);
+  printf("result = %d\n", result);
+};
 export main;

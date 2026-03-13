@@ -65,7 +65,11 @@ import {
   sanitizeForCIdentifier,
 } from "../utils";
 import type { FunctionGenerationContext } from "./context";
-import { generateFunctionPrototype } from "./declarations";
+import {
+  type EvidenceParameter,
+  generateFunctionPrototype,
+  getEvidenceParameters,
+} from "./declarations";
 
 /**
  * Find the Dispose trait value attached to a type, if any.
@@ -293,9 +297,16 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
     // Check if this is an effectful function (body has effect call points)
     const effectAnalysis = value.body?.$?.effectAnalysis;
     if (effectAnalysis && effectAnalysis.hasEffects) {
-      // Effectful function: generate state machine struct + resume function
-      generateEffectfulFunction(value, cName, context);
-      continue;
+      // Check if this function was registered for SM-inlining (has effectStateMachineInfo).
+      // Module-based effect functions skip SM registration and fall through to
+      // normal function generation with evidence passing (fn ptr params).
+      const funcEntry = context.functions[value.funcId];
+      if (funcEntry?.effectStateMachineInfo) {
+        // SM-inlined effectful function
+        generateEffectfulFunction(value, cName, context);
+        continue;
+      }
+      // Module-based effect: fall through to normal function generation
     }
 
     // Generate the function body
@@ -449,6 +460,26 @@ export function preRegisterEffectfulFunctions(
       if (hasGenericParams || hasGenericReturnType) {
         continue;
       }
+    }
+
+    // Check if ALL effects are module-based (have effectFieldPath).
+    // Module-based effects use evidence passing (fn ptr params) instead of SM-inlining.
+    // But only skip SM registration if evidence passing is actually possible
+    // (i.e., the module has non-forall function fields that can be passed as fn ptrs).
+    const isModuleEffectOnly = effectAnalysis.effectFieldPath
+      ? true
+      : effectAnalysis.effectHandlerInfos
+        ? effectAnalysis.effectHandlerInfos.every((hi) => hi.effectFieldPath)
+        : false;
+
+    if (isModuleEffectOnly) {
+      const evidenceParams = getEvidenceParameters(functionType);
+      if (evidenceParams.length > 0) {
+        // Skip SM registration — this function will use evidence passing
+        continue;
+      }
+      // Evidence params empty (e.g., all module functions have forall params) —
+      // fall through to SM-inlining
     }
 
     const hasTransitiveCalls = effectAnalysis.effectCallPoints.some(
@@ -807,14 +838,25 @@ export function generateFunction(
   */
 
   // Regular function generation (async blocks within the function handle their own state machines)
+  // Pass original type for evidence param extraction (specializedType has empty implicitParameters)
+  const originalType = functionValue.specializedType
+    ? functionValue.type
+    : undefined;
   const functionPrototype = overrideReturnType
     ? generateFunctionPrototype(
         functionType,
         cFunctionName,
         context,
-        overrideReturnType
+        overrideReturnType,
+        originalType
       )
-    : generateFunctionPrototype(functionType, cFunctionName, context);
+    : generateFunctionPrototype(
+        functionType,
+        cFunctionName,
+        context,
+        undefined,
+        originalType
+      );
 
   emitter.emitLine(`${functionPrototype} {`);
 
@@ -831,6 +873,20 @@ export function generateFunction(
   ).isModuleEffectMemberFunction;
   if (functionValue.isModuleEffectMember) {
     (context as FunctionGenerationContext).isModuleEffectMemberFunction = true;
+  }
+
+  // Set up evidence parameters for module-based effect functions.
+  // This maps module field accesses (e.g., raise_mod.raise) to the evidence
+  // fn ptr parameter names so body codegen can resolve them.
+  const previousEvidenceParams = (context as FunctionGenerationContext)
+    .currentEvidenceParams;
+  const evidenceParams = getEvidenceParameters(originalType ?? functionType);
+  if (evidenceParams.length > 0) {
+    const evidenceMap = new Map<string, EvidenceParameter>();
+    for (const ep of evidenceParams) {
+      evidenceMap.set(`${ep.implicitLabel}.${ep.fieldLabel}`, ep);
+    }
+    (context as FunctionGenerationContext).currentEvidenceParams = evidenceMap;
   }
 
   // Set closure capture context if this is a closure function
@@ -910,6 +966,8 @@ export function generateFunction(
     previousFunctionType;
   (context as FunctionGenerationContext).isModuleEffectMemberFunction =
     previousIsModuleEffectMemberFunction;
+  (context as FunctionGenerationContext).currentEvidenceParams =
+    previousEvidenceParams;
   context.currentClosureCaptures = previousClosureCaptures;
   context.currentClosureCaptureFrameLevel = previousClosureCaptureFrameLevel;
   (context as FunctionGenerationContext).currentClosureType =

@@ -429,3 +429,53 @@ See `tests/algebraic_effects.test.yo` (46 tests) for comprehensive examples cove
 | Use cases        | IO concurrency                | Control flow abstraction                  |
 
 Both systems share the same state machine infrastructure (shared analysis in `src/codegen/shared/suspension-analysis.ts` and shared codegen in `src/codegen/shared/suspension-codegen.ts`). See [ASYNC_AWAIT.md](./ASYNC_AWAIT.md) for the async/await documentation.
+
+---
+
+## Evidence Passing for Effects (March 2026)
+
+**All** effects — both module-type and function-type — use **evidence passing**. Effect handler function pointers are passed as explicit C parameters to functions that declare `using(effect : EffectType)`.
+
+### Key principle: modules ≡ collections of functions
+
+A module is a **compile-time** construct — just a named collection of functions. At runtime, only function pointers exist. Therefore there is no fundamental distinction between module effects and function effects:
+
+- `using(raise_mod : Raise)` where `Raise :: module(raise : (fn(msg: String) -> i32))` → passes the `raise` function pointer
+- `using(exn : Exception)` where `Exception :: module(throw : (fn(...) -> ResumeType))` → passes the `throw` function pointer
+
+Compile-time constructs `forall(...)`, `using(...)`, and modules themselves are erased at runtime. Evidence passing is how their runtime behavior is realized.
+
+### How evidence passing works
+
+- A function with `using(exn : Exception)` gets extra C parameters for each function-typed member (e.g., `void (*throw)(AnyError)`).
+- The function body calls these members directly via the function pointer — no SM needed.
+- Call sites pass the function pointer from their context:
+  - **Sync (at `given` site)**: the handler function's C address from `given(exn) := Exception(throw: handler_fn)`
+  - **Async SM**: `sm->__capture.throw` from the Future's capture struct
+  - **Transitive**: forwarded from the caller's own evidence parameter
+- **Resumable handlers** (`return value`): the handler function returns the resume value directly. The caller uses it.
+- **Non-resumable handlers** (`escape value`): the handler sets `__yo_effect_escaped = 1` and returns a dummy value. The caller checks the flag and propagates the escape.
+
+### Mixed escape+return handlers
+
+A handler may `return` in one branch and `escape` in another:
+
+```yo
+given(raise_mod) := Raise(
+  raise : (msg) -> cond(
+    (msg == `recoverable`) => return i32(0),  // resume with 0
+    true => escape i32(-1)                    // escape with -1
+  )
+);
+```
+
+Both paths work correctly with evidence passing:
+
+- **Return path**: the function pointer returns normally; the caller uses the resume value.
+- **Escape path**: the function pointer sets `__yo_effect_escaped = 1` and returns a dummy. The caller checks the flag and propagates.
+
+### Escape value propagation
+
+Escape values (including non-unit values) are propagated via the thread-local `__yo_escape_value` mechanism. When `escape expr` is called inside a handler, the escape value is stored in a thread-local and can be retrieved at the handler installation site (`given`).
+
+See `issues/sync-effect-inlining-inside-async-context.md` for the full design rationale and `.github/instructions/c-codegen.instructions.md` for codegen conventions.
