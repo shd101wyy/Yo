@@ -4,6 +4,8 @@
  * Generates C code for async function state machines.
  */
 
+import { Emitter } from "../../emitter";
+import { getVariablesFromEnvByFilter } from "../../env";
 import type {
   AwaitAnalysisResult,
   AwaitPoint,
@@ -40,7 +42,10 @@ import {
 import { typeContainsRcType } from "../../types/utils";
 import { isTempVariableName } from "../../utils";
 import { isFunctionValue, isModuleValue } from "../../value";
-import { emitAsyncFutureCompletion } from "../exprs/async-completion";
+import {
+  emitAsyncFutureCompletion,
+  emitAsyncFutureEscape,
+} from "../exprs/async-completion";
 import { getDupFunctionForType } from "../exprs/drop-dup";
 import { generateExpr } from "../exprs/expr";
 import type { FunctionGenerationContext } from "../functions/context";
@@ -169,7 +174,7 @@ export function generateAsyncBlockResumeFunction(
   futureType: SomeType | DynType,
   captureType: StructType | undefined,
   context: FunctionGenerationContext
-): void {
+): string[] {
   const emitter = context.emitter;
 
   const futureModuleType = extractFutureTraitFromType(futureType)!;
@@ -210,6 +215,7 @@ export function generateAsyncBlockResumeFunction(
   emitter.emitLine(`  switch (sm->state) {`);
 
   // Generate code for each state segment
+  const localVarDropCodes: string[] = [];
   for (let segmentIndex = 0; segmentIndex < segments.length; segmentIndex++) {
     const segment = segments[segmentIndex];
     if (!segment) continue;
@@ -247,10 +253,17 @@ export function generateAsyncBlockResumeFunction(
       // Always check if the awaited Future was aborted by an effect handler
       emitter.emitLine(`      // Check if the awaited Future was aborted`);
       emitter.emitLine(`      if (sm->${prevFutureFieldName}->state == -2) {`);
+      // Drop the child future reference before propagating escape
       emitter.emitLine(
-        `        fprintf(stderr, "panic: attempted to await an aborted Future\\n");`
+        `        __yo_decr_rc((void*)sm->${prevFutureFieldName});`
       );
-      emitter.emitLine(`        abort();`);
+      emitter.emitLine(`        sm->${prevFutureFieldName} = NULL;`);
+      // Propagate the escape: mark this SM as escaped too
+      emitAsyncFutureEscape({
+        emitter,
+        indent: "        ",
+        debugLabel: asyncBlockId,
+      });
       emitter.emitLine(`      }`);
 
       if (prevAwait && !isPrevAwaitResultUnit) {
@@ -1559,14 +1572,33 @@ export function generateAsyncBlockResumeFunction(
         // Generate deferred drops for the body expression before completing the Future
         // Keep state machine context active for this
         if (bodyExpr.$?.deferredDropExpressions) {
-          emitter.emitLine(`      // Drop local variables before completion`);
+          // Use a temp emitter to capture ALL drop output (some drops emit directly)
+          const tempEmitter = new Emitter();
+          const originalEmitter = context.emitter;
+          context.emitter = tempEmitter;
+
           for (const dropExpr of bodyExpr.$.deferredDropExpressions) {
-            const dropCode = generateExpr(dropExpr, "      ", context);
+            const dropCode = generateExpr(dropExpr, "", context);
             if (dropCode) {
-              emitter.emitLine(`      ${dropCode};`);
+              tempEmitter.emitLine(`${dropCode};`);
             }
           }
-          emitter.emitLine(``);
+
+          context.emitter = originalEmitter;
+
+          // Extract lines from temp emitter and emit to real emitter + collect for dispose
+          const capturedCode = tempEmitter.print().trim();
+          if (capturedCode) {
+            emitter.emitLine(`      // Drop local variables before completion`);
+            for (const line of capturedCode.split("\n")) {
+              const trimmed = line.trim();
+              if (trimmed) {
+                emitter.emitLine(`      ${trimmed}`);
+                localVarDropCodes.push(trimmed);
+              }
+            }
+            emitter.emitLine(``);
+          }
         }
 
         emitter.emitLine(`      // Final state - complete the Future`);
@@ -1595,6 +1627,8 @@ export function generateAsyncBlockResumeFunction(
   emitter.emitLine(`  }`);
   emitter.emitLine(`}`);
   emitter.emitLine(``);
+
+  return localVarDropCodes;
 }
 
 /**
@@ -1745,74 +1779,177 @@ function emitEffectInjectionForSM(
   const futureArg = awaitExpr.args?.[0];
   if (!futureArg?.$?.type) return;
 
+  const futureTraitType = extractFutureTraitFromType(futureArg.$.type);
+  if (!futureTraitType?.isFuture.effects?.length) return;
+
+  const expandedEffects = expandFutureEffects(futureTraitType.isFuture.effects);
+  const emitter = context.emitter;
+
   const usingExpr = awaitExpr.args?.find(
     (arg): arg is FnCallExpr =>
       exprIsFunctionCall(arg) &&
       exprIsFunctionCallOf(arg, BuiltinKeywords.using)
   );
-  if (!usingExpr) return;
 
-  const futureTraitType = extractFutureTraitFromType(futureArg.$.type);
-  if (!futureTraitType?.isFuture.effects?.length) return;
+  if (usingExpr) {
+    // Explicit using() args: match effects to using args positionally
+    const usingArgs = usingExpr.args;
+    for (let i = 0; i < expandedEffects.length && i < usingArgs.length; i++) {
+      const effect = expandedEffects[i]!;
+      const usingArg = usingArgs[i]!;
 
-  const expandedEffects = expandFutureEffects(futureTraitType.isFuture.effects);
-  const usingArgs = usingExpr.args;
-  const emitter = context.emitter;
-
-  for (let i = 0; i < expandedEffects.length && i < usingArgs.length; i++) {
-    const effect = expandedEffects[i]!;
-    const usingArg = usingArgs[i]!;
-
-    if (isFunctionType(effect.type)) {
-      // Skip generic function effects (forall) — they are compile-time only
-      if (effect.type.forallParameters.length > 0) continue;
-
-      const handlerCode = generateExpr(usingArg, indent, context);
-      const fieldName = effect.label;
-      emitter.emitLine(
-        `${indent}${futureAccess}->__capture.${fieldName} = (void*)${handlerCode};`
-      );
-    } else if (isModuleType(effect.type)) {
-      // Module-typed effect (e.g., Exception). Inject each function member individually.
-      const moduleType = effect.type;
-      for (const field of moduleType.fields) {
-        if (!isFunctionType(field.type)) continue;
-        let memberCode: string | undefined;
-
-        // Inside SM: member is captured in state machine variables
-        if (context.stateMachineVariables) {
-          for (const [, capturedVar] of context.stateMachineVariables) {
-            if (
-              capturedVar.name === field.label &&
-              capturedVar.kind === "outer"
-            ) {
-              memberCode = `sm->__capture.${field.label}`;
-              break;
-            }
-          }
+      if (isFunctionType(effect.type)) {
+        if (effect.type.forallParameters.length > 0) continue;
+        const handlerCode = generateExpr(usingArg, indent, context);
+        const fieldName = effect.label;
+        emitter.emitLine(
+          `${indent}${futureAccess}->__capture.${fieldName} = (void*)${handlerCode};`
+        );
+      } else if (isModuleType(effect.type)) {
+        emitModuleEffectInjectionForSM(
+          effect.type,
+          futureAccess,
+          indent,
+          usingArg.$?.value,
+          context,
+          awaitExpr
+        );
+      }
+    }
+  } else {
+    // No explicit using(): resolve effects from scope
+    for (const effect of expandedEffects) {
+      if (isFunctionType(effect.type)) {
+        if (effect.type.forallParameters.length > 0) continue;
+        const handlerCode = resolveEffectFieldFromSMScope(
+          effect.label,
+          context,
+          awaitExpr
+        );
+        if (handlerCode) {
+          emitter.emitLine(
+            `${indent}${futureAccess}->__capture.${effect.label} = (void*)${handlerCode};`
+          );
         }
+      } else if (isModuleType(effect.type)) {
+        emitModuleEffectInjectionForSM(
+          effect.type,
+          futureAccess,
+          indent,
+          undefined,
+          context,
+          awaitExpr
+        );
+      }
+    }
+  }
+}
 
-        // Outside SM: resolve from using arg's module value
-        if (!memberCode) {
-          const usingArgValue = usingArg.$?.value;
-          if (usingArgValue && isModuleValue(usingArgValue)) {
-            const fieldIndex = moduleType.fields.indexOf(field);
-            const memberValue = usingArgValue.fields[fieldIndex];
-            if (memberValue && isFunctionValue(memberValue)) {
-              const funcEntry = context.functions[memberValue.funcId];
-              if (funcEntry) {
-                memberCode = funcEntry.cName;
+function emitModuleEffectInjectionForSM(
+  moduleType: import("../../types/definitions").ModuleType,
+  futureAccess: string,
+  indent: string,
+  usingArgValue: import("../../value").Value | undefined,
+  context: FunctionGenerationContext,
+  expr: FnCallExpr
+): void {
+  const emitter = context.emitter;
+  for (const field of moduleType.fields) {
+    if (!isFunctionType(field.type)) continue;
+    let memberCode: string | undefined;
+
+    // Inside SM: member is captured in state machine variables
+    if (context.stateMachineVariables) {
+      for (const [, capturedVar] of context.stateMachineVariables) {
+        if (capturedVar.name === field.label && capturedVar.kind === "outer") {
+          memberCode = `sm->__capture.${field.label}`;
+          break;
+        }
+      }
+    }
+
+    // Resolve from explicit using arg's module value
+    if (!memberCode && usingArgValue && isModuleValue(usingArgValue)) {
+      const fieldIndex = moduleType.fields.indexOf(field);
+      const memberValue = usingArgValue.fields[fieldIndex];
+      if (memberValue && isFunctionValue(memberValue)) {
+        const funcEntry = context.functions[memberValue.funcId];
+        if (funcEntry) {
+          memberCode = funcEntry.cName;
+        }
+      }
+    }
+
+    // Resolve from caller's evidence params (transitive forwarding)
+    if (!memberCode && context.currentEvidenceParams) {
+      for (const ep of context.currentEvidenceParams.values()) {
+        if (ep.fieldLabel === field.label) {
+          memberCode = ep.cParamName;
+          break;
+        }
+      }
+    }
+
+    // Resolve from given bindings in the call environment
+    if (!memberCode) {
+      const callEnv = expr.$?.env ?? expr.func.$?.env;
+      if (callEnv) {
+        const implicitVars = getVariablesFromEnvByFilter(
+          callEnv,
+          (v) => v.isImplicit === true
+        );
+        // Iterate in reverse to get the innermost (most-recently bound) given binding,
+        // since getVariablesFromEnvByFilter returns outermost-first.
+        for (let i = implicitVars.length - 1; i >= 0; i--) {
+          const v = implicitVars[i]!;
+          const val = v.value?.[v.value.length - 1];
+          if (val && isModuleValue(val)) {
+            const fieldIdx = val.type.fields.findIndex(
+              (f) => f.label === field.label
+            );
+            if (fieldIdx >= 0) {
+              const fieldVal = val.fields[fieldIdx];
+              if (fieldVal && isFunctionValue(fieldVal)) {
+                const cName = context.functions[fieldVal.funcId]?.cName;
+                if (cName) {
+                  memberCode = cName;
+                  break;
+                }
               }
             }
           }
         }
+      }
+    }
 
-        if (memberCode) {
-          emitter.emitLine(
-            `${indent}${futureAccess}->__capture.${field.label} = (void*)${memberCode};`
-          );
-        }
+    if (memberCode) {
+      emitter.emitLine(
+        `${indent}${futureAccess}->__capture.${field.label} = (void*)${memberCode};`
+      );
+    }
+  }
+}
+
+function resolveEffectFieldFromSMScope(
+  fieldLabel: string,
+  context: FunctionGenerationContext,
+  _expr: FnCallExpr
+): string | undefined {
+  // Check caller's evidence params
+  if (context.currentEvidenceParams) {
+    for (const ep of context.currentEvidenceParams.values()) {
+      if (ep.fieldLabel === fieldLabel) {
+        return ep.cParamName;
       }
     }
   }
+  // Check SM capture variables
+  if (context.stateMachineVariables) {
+    for (const [, capturedVar] of context.stateMachineVariables) {
+      if (capturedVar.name === fieldLabel && capturedVar.kind === "outer") {
+        return `sm->__capture.${fieldLabel}`;
+      }
+    }
+  }
+  return undefined;
 }

@@ -234,15 +234,6 @@ function collectEvidenceFromModule(
 ): void {
   for (const field of moduleType.fields) {
     if (isFunctionType(field.type)) {
-      // Skip functions with forall parameters — they use void* generics in C
-      // which can't be called through typed fn ptrs without type casting.
-      // These fall through to SM-inlining which handles them via specialization.
-      if (
-        field.type.forallParameters &&
-        field.type.forallParameters.length > 0
-      ) {
-        continue;
-      }
       const fieldPath = [...pathPrefix, field.label];
       const fieldLabel = fieldPath.join("__");
       result.push({
@@ -362,13 +353,21 @@ export function generateFunctionPrototype(
     originalFunctionType ?? functionType
   );
   for (const ep of evidenceParams) {
-    // Generate the fn ptr parameter: returnType (*name)(paramTypes...)
-    const fnPtrProto = generateFunctionPrototype(
-      ep.fieldFunctionType,
-      "(*)",
-      context
-    ).replace(" (*)(", ` (*${ep.cParamName})(`);
-    paramStrings.push(fnPtrProto);
+    // For forall function types, use void* — the body casts to the right type at each call site.
+    if (
+      ep.fieldFunctionType.forallParameters &&
+      ep.fieldFunctionType.forallParameters.length > 0
+    ) {
+      paramStrings.push(`void* ${ep.cParamName}`);
+    } else {
+      // Generate the fn ptr parameter: returnType (*name)(paramTypes...)
+      const fnPtrProto = generateFunctionPrototype(
+        ep.fieldFunctionType,
+        "(*)",
+        context
+      ).replace(" (*)(", ` (*${ep.cParamName})(`);
+      paramStrings.push(fnPtrProto);
+    }
   }
 
   const params = paramStrings.join(", ");

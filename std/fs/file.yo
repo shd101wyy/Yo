@@ -55,7 +55,7 @@ File :: object(
 
 impl(File,
   // Open a file with OpenMode and custom permissions.
-  open_with : (fn(path: Path, mode: OpenMode, perm: FilePermission, using(io : IO, exn : Exception)) -> Impl(Future(File, IO, Exception)))({
+  open_with : (fn(path: Path, mode: OpenMode, perm: FilePermission, using(io : IO)) -> Impl(Future(File, IO, Exception)))({
     flags := _open_mode_to_flags(mode);
     file_mode := cond(
       _open_mode_needs_perm(mode) => i32(perm.mode),
@@ -76,33 +76,33 @@ impl(File,
   }),
 
   // Open a file from a str path with OpenMode and custom permissions.
-  open_with_str : (fn(path: str, mode: OpenMode, perm: FilePermission, using(io : IO, exn : Exception)) -> Impl(Future(File, IO, Exception)))(
-    File.open_with(Path.new(String.from(path)), mode, perm, using(io, exn))
+  open_with_str : (fn(path: str, mode: OpenMode, perm: FilePermission, using(io : IO)) -> Impl(Future(File, IO, Exception)))(
+    File.open_with(Path.new(String.from(path)), mode, perm)
   ),
 
   // Open a file from a C string path with OpenMode and custom permissions.
-  open_with_cstr : (fn(path: *(u8), mode: OpenMode, perm: FilePermission, using(io : IO, exn : Exception)) -> Impl(Future(File, IO, Exception)))(
-    File.open_with(Path.from_cstr(path), mode, perm, using(io, exn))
+  open_with_cstr : (fn(path: *(u8), mode: OpenMode, perm: FilePermission, using(io : IO)) -> Impl(Future(File, IO, Exception)))(
+    File.open_with(Path.from_cstr(path), mode, perm)
   ),
 
   // Open a file with OpenMode and default permissions.
-  open : (fn(path: Path, mode: OpenMode, using(io : IO, exn : Exception)) -> Impl(Future(File, IO, Exception)))(
-    File.open_with(path, mode, FilePermission.default(), using(io, exn))
+  open : (fn(path: Path, mode: OpenMode, using(io : IO)) -> Impl(Future(File, IO, Exception)))(
+    File.open_with(path, mode, FilePermission.default())
   ),
 
   // Open a file from a str path with OpenMode and default permissions.
-  open_str : (fn(path: str, mode: OpenMode, using(io : IO, exn : Exception)) -> Impl(Future(File, IO, Exception)))(
-    File.open(Path.new(String.from(path)), mode, using(io, exn))
+  open_str : (fn(path: str, mode: OpenMode, using(io : IO)) -> Impl(Future(File, IO, Exception)))(
+    File.open(Path.new(String.from(path)), mode)
   ),
 
   // Open a file from a C string path with OpenMode and default permissions.
-  open_cstr : (fn(path: *(u8), mode: OpenMode, using(io : IO, exn : Exception)) -> Impl(Future(File, IO, Exception)))(
-    File.open(Path.from_cstr(path), mode, using(io, exn))
+  open_cstr : (fn(path: *(u8), mode: OpenMode, using(io : IO)) -> Impl(Future(File, IO, Exception)))(
+    File.open(Path.from_cstr(path), mode)
   ),
 
   // Read up to `size` bytes into buffer.
   // Returns number of bytes read.
-  read : (fn(self: Self, buf: *(u8), size: u32, using(io : IO, exn : Exception)) -> Impl(Future(i32, IO, Exception)))({
+  read : (fn(self: Self, buf: *(u8), size: u32, using(io : IO)) -> Impl(Future(i32, IO, Exception)))({
     fd := self._fd;
     io.async((using(io, exn)) => {
       result := io.await(IO_file.read(fd, buf, size, u64(0)));
@@ -112,7 +112,7 @@ impl(File,
 
   // Write a String to the file.
   // Returns number of bytes written.
-  write : (fn(self: Self, data: String, using(io : IO, exn : Exception)) -> Impl(Future(i32, IO, Exception)))({
+  write : (fn(self: Self, data: String, using(io : IO)) -> Impl(Future(i32, IO, Exception)))({
     fd := self._fd;
     io.async((using(io, exn)) => {
       data_bytes := data.as_bytes();
@@ -128,7 +128,7 @@ impl(File,
 
   // Write bytes from an ArrayList to the file.
   // Returns number of bytes written.
-  write_bytes : (fn(self: Self, data: ArrayList(u8), using(io : IO, exn : Exception)) -> Impl(Future(i32, IO, Exception)))({
+  write_bytes : (fn(self: Self, data: ArrayList(u8), using(io : IO)) -> Impl(Future(i32, IO, Exception)))({
     fd := self._fd;
     io.async((using(io, exn)) =>
       cond(
@@ -142,7 +142,7 @@ impl(File,
   }),
 
   // Read the entire file into a byte list.
-  read_bytes : (fn(self: Self, using(io : IO, exn : Exception)) -> Impl(Future(ArrayList(u8), IO, Exception)))({
+  read_bytes : (fn(self: Self, using(io : IO)) -> Impl(Future(ArrayList(u8), IO, Exception)))({
     fd := self._fd;
     io.async((using(io, exn)) => {
       buf_size := usize(4096);
@@ -173,15 +173,15 @@ impl(File,
   }),
 
   // Read the entire file into a String.
-  read_string : (fn(self: Self, using(io : IO, exn : Exception)) -> Impl(Future(String, IO, Exception)))(
+  read_string : (fn(self: Self, using(io : IO)) -> Impl(Future(String, IO, Exception)))(
     io.async((using(io, exn)) => {
-      bytes := io.await(self.read_bytes(using(io, exn)));
+      bytes := io.await(self.read_bytes());
       String.from_bytes(bytes)
     })
   ),
 
   // Sync file data to disk.
-  flush : (fn(self: Self, using(io : IO, exn : Exception)) -> Impl(Future(unit, IO, Exception)))({
+  flush : (fn(self: Self, using(io : IO)) -> Impl(Future(unit, IO, Exception)))({
     fd := self._fd;
     io.async((using(io, exn)) => {
       result := io.await(IO_file.fsync(fd));
@@ -213,7 +213,7 @@ impl(File,
   ),
 
   // Close the file.
-  close : (fn(self: Self, using(io : IO, exn : Exception)) -> Impl(Future(unit, IO, Exception)))({
+  close : (fn(self: Self, using(io : IO)) -> Impl(Future(unit, IO, Exception)))({
     fd := self._fd;
     io.async((using(io, exn)) =>
       cond(
@@ -241,8 +241,8 @@ impl(File,
   ),
 
   // Get file metadata.
-  metadata : (fn(self: Self, using(io : IO, exn : Exception)) -> Impl(Future(Metadata, IO, Exception)))(
-    _metadata_mod.metadata(self._path, using(io, exn))
+  metadata : (fn(self: Self, using(io : IO)) -> Impl(Future(Metadata, IO, Exception)))(
+    _metadata_mod.metadata(self._path)
   )
 );
 
@@ -265,85 +265,85 @@ export File, OpenMode, FilePermission;
 // ============================================================================
 
 // Read an entire file into a String (Path version).
-read_string :: (fn(path: Path, using(io : IO, exn : Exception)) -> Impl(Future(String, IO, Exception)))(
+read_string :: (fn(path: Path, using(io : IO)) -> Impl(Future(String, IO, Exception)))(
   io.async((using(io, exn)) => {
-    file := io.await(File.open(path, .Read, using(io, exn)));
-    content := io.await(file.read_string(using(io, exn)));
-    io.await(file.close(using(io, exn)));
+    file := io.await(File.open(path, .Read));
+    content := io.await(file.read_string());
+    io.await(file.close());
     return content;
   })
 );
 
 // Read an entire file into a String (str version).
-read_string_str :: (fn(path: str, using(io : IO, exn : Exception)) -> Impl(Future(String, IO, Exception)))(
-  read_string(Path.new(String.from(path)), using(io, exn))
+read_string_str :: (fn(path: str, using(io : IO)) -> Impl(Future(String, IO, Exception)))(
+  read_string(Path.new(String.from(path)))
 );
 
 // Read an entire file into a String (C string version).
-read_string_cstr :: (fn(path: *(u8), using(io : IO, exn : Exception)) -> Impl(Future(String, IO, Exception)))(
-  read_string(Path.from_cstr(path), using(io, exn))
+read_string_cstr :: (fn(path: *(u8), using(io : IO)) -> Impl(Future(String, IO, Exception)))(
+  read_string(Path.from_cstr(path))
 );
 
 // Read an entire file into bytes (Path version).
-read_file :: (fn(path: Path, using(io : IO, exn : Exception)) -> Impl(Future(ArrayList(u8), IO, Exception)))(
+read_file :: (fn(path: Path, using(io : IO)) -> Impl(Future(ArrayList(u8), IO, Exception)))(
   io.async((using(io, exn)) => {
-    file := io.await(File.open(path, .Read, using(io, exn)));
-    content := io.await(file.read_bytes(using(io, exn)));
-    io.await(file.close(using(io, exn)));
+    file := io.await(File.open(path, .Read));
+    content := io.await(file.read_bytes());
+    io.await(file.close());
     return content;
   })
 );
 
 // Read an entire file into bytes (str version).
-read_file_str :: (fn(path: str, using(io : IO, exn : Exception)) -> Impl(Future(ArrayList(u8), IO, Exception)))(
-  read_file(Path.new(String.from(path)), using(io, exn))
+read_file_str :: (fn(path: str, using(io : IO)) -> Impl(Future(ArrayList(u8), IO, Exception)))(
+  read_file(Path.new(String.from(path)))
 );
 
 // Read an entire file into bytes (C string version).
-read_file_cstr :: (fn(path: *(u8), using(io : IO, exn : Exception)) -> Impl(Future(ArrayList(u8), IO, Exception)))(
-  read_file(Path.from_cstr(path), using(io, exn))
+read_file_cstr :: (fn(path: *(u8), using(io : IO)) -> Impl(Future(ArrayList(u8), IO, Exception)))(
+  read_file(Path.from_cstr(path))
 );
 
-// Write a str to a file (creates or truncates) (Path version).
-write_file :: (fn(path: Path, data: str, using(io : IO, exn : Exception)) -> Impl(Future(unit, IO, Exception)))(
+// Write a String to a file (creates or truncates) (Path version).
+write_file :: (fn(path: Path, data: String, using(io : IO)) -> Impl(Future(unit, IO, Exception)))(
   io.async((using(io, exn)) => {
-    file := io.await(File.open(path, .Write, using(io, exn)));
-    io.await(file.write(String.from(data), using(io, exn)));
-    io.await(file.close(using(io, exn)));
+    file := io.await(File.open(path, .Write));
+    io.await(file.write(data));
+    io.await(file.close());
   })
 );
 
 // Write a str to a file (creates or truncates) (str path version).
-write_file_str :: (fn(path: str, data: str, using(io : IO, exn : Exception)) -> Impl(Future(unit, IO, Exception)))(
-  write_file(Path.new(String.from(path)), data, using(io, exn))
+write_file_str :: (fn(path: str, data: str, using(io : IO)) -> Impl(Future(unit, IO, Exception)))(
+  write_file(Path.new(String.from(path)), String.from(data))
 );
 
 // Write a str to a file (creates or truncates) (C string path version).
-write_file_cstr :: (fn(path: *(u8), data: str, using(io : IO, exn : Exception)) -> Impl(Future(unit, IO, Exception)))(
-  write_file(Path.from_cstr(path), data, using(io, exn))
+write_file_cstr :: (fn(path: *(u8), data: str, using(io : IO)) -> Impl(Future(unit, IO, Exception)))(
+  write_file(Path.from_cstr(path), String.from(data))
 );
 
 // Write bytes to a file (creates or truncates) (Path version).
-write_bytes :: (fn(path: Path, data: ArrayList(u8), using(io : IO, exn : Exception)) -> Impl(Future(unit, IO, Exception)))(
+write_bytes :: (fn(path: Path, data: ArrayList(u8), using(io : IO)) -> Impl(Future(unit, IO, Exception)))(
   io.async((using(io, exn)) => {
-    file := io.await(File.open(path, .Write, using(io, exn)));
-    io.await(file.write_bytes(data, using(io, exn)));
-    io.await(file.close(using(io, exn)));
+    file := io.await(File.open(path, .Write));
+    io.await(file.write_bytes(data));
+    io.await(file.close());
   })
 );
 
 // Append a str to a file (creates if not exists) (Path version).
-append_file :: (fn(path: Path, data: str, using(io : IO, exn : Exception)) -> Impl(Future(unit, IO, Exception)))(
+append_file :: (fn(path: Path, data: String, using(io : IO)) -> Impl(Future(unit, IO, Exception)))(
   io.async((using(io, exn)) => {
-    file := io.await(File.open(path, .Append, using(io, exn)));
-    io.await(file.write(String.from(data), using(io, exn)));
-    io.await(file.close(using(io, exn)));
+    file := io.await(File.open(path, .Append));
+    io.await(file.write(data));
+    io.await(file.close());
   })
 );
 
 // Append a str to a file (str path version).
-append_file_str :: (fn(path: str, data: str, using(io : IO, exn : Exception)) -> Impl(Future(unit, IO, Exception)))(
-  append_file(Path.new(String.from(path)), data, using(io, exn))
+append_file_str :: (fn(path: str, data: str, using(io : IO)) -> Impl(Future(unit, IO, Exception)))(
+  append_file(Path.new(String.from(path)), String.from(data))
 );
 
 extern "Yo",

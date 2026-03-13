@@ -81,7 +81,7 @@ _join_path :: (fn(base: String, name: String) -> String)(
 // ============================================================================
 
 // Walk a directory tree with custom options.
-walk_with :: (fn(root: Path, options: WalkOptions, using(io : IO, exn : Exception)) -> Impl(Future(ArrayList(WalkEntry), IO, Exception)))({
+walk_with :: (fn(root: Path, options: WalkOptions, using(io : IO)) -> Impl(Future(ArrayList(WalkEntry), IO, Exception)))({
   root_s := root.to_string();
   io.async((using(io, exn)) => {
     results := ArrayList(WalkEntry).new();
@@ -102,7 +102,7 @@ walk_with :: (fn(root: Path, options: WalkOptions, using(io : IO, exn : Exceptio
 
       cond(
         should_continue => {
-          entries := io.await(_dir.read_dir(Path.new(cur_path), using(io, exn)));
+          entries := io.await(_dir.read_dir(Path.new(cur_path)));
           i := usize(0);
           while runtime((i < entries.len())), {
             entry := entries.get(i).unwrap();
@@ -143,17 +143,17 @@ walk_with :: (fn(root: Path, options: WalkOptions, using(io : IO, exn : Exceptio
   })
 });
 
-walk_with_cstr :: (fn(root: *(u8), options: WalkOptions, using(io : IO, exn : Exception)) -> Impl(Future(ArrayList(WalkEntry), IO, Exception)))(
-  walk_with(Path.from_cstr(root), options, using(io, exn))
+walk_with_cstr :: (fn(root: *(u8), options: WalkOptions, using(io : IO)) -> Impl(Future(ArrayList(WalkEntry), IO, Exception)))(
+  walk_with(Path.from_cstr(root), options)
 );
 
 // Walk a directory tree with default options.
-walk :: (fn(root: Path, using(io : IO, exn : Exception)) -> Impl(Future(ArrayList(WalkEntry), IO, Exception)))
-  walk_with(root, WalkOptions.defaults(), using(io, exn))
+walk :: (fn(root: Path, using(io : IO)) -> Impl(Future(ArrayList(WalkEntry), IO, Exception)))
+  walk_with(root, WalkOptions.defaults())
 ;
 
-walk_cstr :: (fn(root: *(u8), using(io : IO, exn : Exception)) -> Impl(Future(ArrayList(WalkEntry), IO, Exception)))
-  walk(Path.from_cstr(root), using(io, exn))
+walk_cstr :: (fn(root: *(u8), using(io : IO)) -> Impl(Future(ArrayList(WalkEntry), IO, Exception)))
+  walk(Path.from_cstr(root))
 ;
 
 export walk, walk_cstr, walk_with, walk_with_cstr;

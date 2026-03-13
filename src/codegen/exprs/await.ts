@@ -1,3 +1,4 @@
+import { getVariablesFromEnvByFilter } from "../../env";
 import { isIoAwaitCall } from "../../evaluator/async/await-analysis";
 import {
   extractFutureTraitFromType,
@@ -22,12 +23,14 @@ import { isFunctionValue, isModuleValue } from "../../value";
 import { isIoFutureType } from "../async/state-machine";
 import type { FunctionGenerationContext } from "../functions/context";
 import {
+  getDeferredDropTargetAtomName,
   getTypeString,
   getVariableTypeString,
   type CodeGenContext,
 } from "../utils";
 import { getDupFunctionForType } from "./drop-dup";
 import { generateExpr } from "./expr";
+import { generatePendingDeferredDrops } from "./return";
 
 /**
  * await - extract value from Future
@@ -148,8 +151,26 @@ export function generateAwait(
       emitter.emitLine(`${indent}      abort();`);
       emitter.emitLine(`${indent}    }`);
       // Aborted during this await by effect handler (e.g., Exception.throw escape).
-      // Clean up and return from enclosing function.
+      // The event loop reference was already decremented by emitAsyncFutureEscape
+      // inside the SM. Clean up the original future reference and all in-scope
+      // locals before returning to prevent memory leaks.
       emitter.emitLine(`${indent}    __yo_decr_rc((void*)${syncFutureVar});`);
+      // Null out the original future variable to prevent double-free
+      // from pending drops (syncFutureVar aliases futureCode)
+      emitter.emitLine(`${indent}    ${futureCode} = NULL;`);
+      // Drop all in-scope local variables (Path, String, etc.)
+      // Exclude the await result variable — it hasn't been declared yet in C.
+      const savedDrops = functionContext.pendingDeferredDrops;
+      if (savedDrops) {
+        const resultVarToSkip = expr.$?.variableName;
+        functionContext.pendingDeferredDrops = savedDrops.filter((dropExpr) => {
+          const targetVar = getDeferredDropTargetAtomName(dropExpr);
+          return targetVar !== resultVarToSkip;
+        });
+      }
+      generatePendingDeferredDrops(indent + "    ", functionContext, expr);
+      functionContext.pendingDeferredDrops = savedDrops;
+      emitter.emitLine(`${indent}    return;`);
       emitter.emitLine(`${indent}    return;`);
     } else {
       // Non-effectful: any abort is unexpected
@@ -294,76 +315,198 @@ function emitEffectInjectionForAwait(
   const futureArg = expr.args[0];
   if (!futureArg?.$?.type) return;
 
+  const futureTraitType = extractFutureTraitFromType(futureArg.$.type);
+  if (!futureTraitType?.isFuture.effects?.length) return;
+
+  const expandedEffects = expandFutureEffects(futureTraitType.isFuture.effects);
+  const functionContext = context as FunctionGenerationContext;
+  const emitter = functionContext.emitter;
+
   const usingExpr = expr.args.find(
     (arg): arg is FnCallExpr =>
       exprIsFunctionCall(arg) &&
       exprIsFunctionCallOf(arg, BuiltinKeywords.using)
   );
-  if (!usingExpr) return;
 
-  const futureTraitType = extractFutureTraitFromType(futureArg.$.type);
-  if (!futureTraitType?.isFuture.effects?.length) return;
+  if (usingExpr) {
+    // Explicit using() args: match effects to using args positionally
+    const usingArgs = usingExpr.args;
+    for (let i = 0; i < expandedEffects.length && i < usingArgs.length; i++) {
+      const effect = expandedEffects[i]!;
+      const usingArg = usingArgs[i]!;
 
-  const expandedEffects = expandFutureEffects(futureTraitType.isFuture.effects);
-  const usingArgs = usingExpr.args;
-  const functionContext = context as FunctionGenerationContext;
-  const emitter = functionContext.emitter;
-
-  for (let i = 0; i < expandedEffects.length && i < usingArgs.length; i++) {
-    const effect = expandedEffects[i]!;
-    const usingArg = usingArgs[i]!;
-
-    if (isFunctionType(effect.type)) {
-      // Skip generic function effects (forall) — they are compile-time only
-      // and don't have a void* field in the capture struct
-      if (effect.type.forallParameters.length > 0) continue;
-
-      const handlerCode = generateExpr(usingArg, indent, context);
-      const fieldName = effect.label;
-      emitter.emitLine(
-        `${indent}  ${futureVar}->__capture.${fieldName} = (void*)${handlerCode};`
-      );
-    } else if (isModuleType(effect.type)) {
-      // Module-typed effect (e.g., Exception). Inject each function member individually.
-      const moduleType = effect.type;
-      for (const field of moduleType.fields) {
-        if (!isFunctionType(field.type)) continue;
-        let memberCode: string | undefined;
-
-        // Inside SM: member is captured in state machine variables
-        if (functionContext.stateMachineVariables) {
-          for (const [, capturedVar] of functionContext.stateMachineVariables) {
-            if (
-              capturedVar.name === field.label &&
-              capturedVar.kind === "outer"
-            ) {
-              memberCode = `sm->__capture.${field.label}`;
-              break;
-            }
-          }
-        }
-
-        // Outside SM: resolve from using arg's module value
-        if (!memberCode) {
-          const usingArgValue = usingArg.$?.value;
-          if (usingArgValue && isModuleValue(usingArgValue)) {
-            const fieldIndex = moduleType.fields.indexOf(field);
-            const memberValue = usingArgValue.fields[fieldIndex];
-            if (memberValue && isFunctionValue(memberValue)) {
-              const funcEntry = context.functions[memberValue.funcId];
-              if (funcEntry) {
-                memberCode = funcEntry.cName;
-              }
-            }
-          }
-        }
-
-        if (memberCode) {
+      if (isFunctionType(effect.type)) {
+        if (effect.type.forallParameters.length > 0) continue;
+        const handlerCode = generateExpr(usingArg, indent, context);
+        const fieldName = effect.label;
+        emitter.emitLine(
+          `${indent}  ${futureVar}->__capture.${fieldName} = (void*)${handlerCode};`
+        );
+      } else if (isModuleType(effect.type)) {
+        emitModuleEffectInjection(
+          effect.type,
+          futureVar,
+          indent,
+          usingArg.$?.value,
+          functionContext,
+          expr
+        );
+      }
+    }
+  } else {
+    // No explicit using(): resolve effects from scope
+    for (const effect of expandedEffects) {
+      if (isFunctionType(effect.type)) {
+        if (effect.type.forallParameters.length > 0) continue;
+        const handlerCode = resolveEffectFieldFromScope(
+          effect.label,
+          functionContext,
+          expr
+        );
+        if (handlerCode) {
           emitter.emitLine(
-            `${indent}  ${futureVar}->__capture.${field.label} = (void*)${memberCode};`
+            `${indent}  ${futureVar}->__capture.${effect.label} = (void*)${handlerCode};`
           );
+        }
+      } else if (isModuleType(effect.type)) {
+        emitModuleEffectInjection(
+          effect.type,
+          futureVar,
+          indent,
+          undefined,
+          functionContext,
+          expr
+        );
+      }
+    }
+  }
+}
+
+/**
+ * Inject module-type effect fields (e.g., Exception.throw) into a Future's capture struct.
+ * Resolves each function field from: using arg value, caller evidence params, SM captures, or given bindings.
+ */
+function emitModuleEffectInjection(
+  moduleType: import("../../types/definitions").ModuleType,
+  futureVar: string,
+  indent: string,
+  usingArgValue: import("../../value").Value | undefined,
+  functionContext: FunctionGenerationContext,
+  expr: FnCallExpr
+): void {
+  const emitter = functionContext.emitter;
+  for (const field of moduleType.fields) {
+    if (!isFunctionType(field.type)) continue;
+    let memberCode: string | undefined;
+
+    // Inside SM: member is captured in state machine variables
+    if (functionContext.stateMachineVariables) {
+      for (const [, capturedVar] of functionContext.stateMachineVariables) {
+        if (capturedVar.name === field.label && capturedVar.kind === "outer") {
+          memberCode = `sm->__capture.${field.label}`;
+          break;
+        }
+      }
+    }
+
+    // Resolve from explicit using arg's module value
+    if (!memberCode && usingArgValue && isModuleValue(usingArgValue)) {
+      const fieldIndex = moduleType.fields.indexOf(field);
+      const memberValue = usingArgValue.fields[fieldIndex];
+      if (memberValue && isFunctionValue(memberValue)) {
+        const funcEntry = functionContext.functions[memberValue.funcId];
+        if (funcEntry) {
+          memberCode = funcEntry.cName;
+        }
+      }
+    }
+
+    // Resolve from caller's evidence params (transitive forwarding)
+    if (!memberCode && functionContext.currentEvidenceParams) {
+      for (const ep of functionContext.currentEvidenceParams.values()) {
+        if (ep.fieldLabel === field.label) {
+          memberCode = ep.cParamName;
+          break;
+        }
+      }
+    }
+
+    // Resolve from given bindings in the call environment
+    if (!memberCode) {
+      memberCode = resolveModuleFieldFromGivenBindings(
+        field.label,
+        moduleType,
+        functionContext,
+        expr
+      );
+    }
+
+    if (memberCode) {
+      emitter.emitLine(
+        `${indent}  ${futureVar}->__capture.${field.label} = (void*)${memberCode};`
+      );
+    }
+  }
+}
+
+/**
+ * Resolve a module effect field (e.g., "throw" from Exception) from given bindings in the environment.
+ */
+function resolveModuleFieldFromGivenBindings(
+  fieldLabel: string,
+  moduleType: import("../../types/definitions").ModuleType,
+  functionContext: FunctionGenerationContext,
+  expr: FnCallExpr
+): string | undefined {
+  const callEnv = expr.$?.env ?? expr.func.$?.env;
+  if (!callEnv) return undefined;
+
+  const implicitVars = getVariablesFromEnvByFilter(
+    callEnv,
+    (v) => v.isImplicit === true
+  );
+  // Iterate in reverse to get the innermost (most-recently bound) given binding,
+  // since getVariablesFromEnvByFilter returns outermost-first.
+  for (let i = implicitVars.length - 1; i >= 0; i--) {
+    const v = implicitVars[i]!;
+    const val = v.value?.[v.value.length - 1];
+    if (val && isModuleValue(val)) {
+      const fieldIdx = val.type.fields.findIndex((f) => f.label === fieldLabel);
+      if (fieldIdx >= 0) {
+        const fieldVal = val.fields[fieldIdx];
+        if (fieldVal && isFunctionValue(fieldVal)) {
+          const cName = functionContext.functions[fieldVal.funcId]?.cName;
+          if (cName) return cName;
         }
       }
     }
   }
+  return undefined;
+}
+
+/**
+ * Resolve a function-type effect field from scope (evidence params, SM captures).
+ */
+function resolveEffectFieldFromScope(
+  fieldLabel: string,
+  functionContext: FunctionGenerationContext,
+  _expr: FnCallExpr
+): string | undefined {
+  // Check caller's evidence params
+  if (functionContext.currentEvidenceParams) {
+    for (const ep of functionContext.currentEvidenceParams.values()) {
+      if (ep.fieldLabel === fieldLabel) {
+        return ep.cParamName;
+      }
+    }
+  }
+  // Check SM capture variables
+  if (functionContext.stateMachineVariables) {
+    for (const [, capturedVar] of functionContext.stateMachineVariables) {
+      if (capturedVar.name === fieldLabel && capturedVar.kind === "outer") {
+        return `sm->__capture.${fieldLabel}`;
+      }
+    }
+  }
+  return undefined;
 }

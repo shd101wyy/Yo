@@ -23,31 +23,31 @@ fs_file :: import "std/fs/file";
 //       deep/
 //         d.txt
 _setup_walk_tree :: (fn(root: String, using(io : IO, exn : Exception)) -> unit)({
-  io.await(fs_dir.create_dir_all(Path.new(root), using(io, exn)));
+  io.await(fs_dir.create_dir_all(Path.new(root)));
 
   sub := path_join(root, `sub`);
-  io.await(fs_dir.create_dir_all(Path.new(sub), using(io, exn)));
+  io.await(fs_dir.create_dir_all(Path.new(sub)));
 
   deep := path_join(sub, `deep`);
-  io.await(fs_dir.create_dir_all(Path.new(deep), using(io, exn)));
+  io.await(fs_dir.create_dir_all(Path.new(deep)));
 
-  io.await(fs_file.write_file(Path.new(path_join(root, `a.txt`)), "a", using(io, exn)));
-  io.await(fs_file.write_file(Path.new(path_join(root, `b.txt`)), "b", using(io, exn)));
-  io.await(fs_file.write_file(Path.new(path_join(sub, `c.txt`)), "c", using(io, exn)));
-  io.await(fs_file.write_file(Path.new(path_join(deep, `d.txt`)), "d", using(io, exn)));
+  io.await(fs_file.write_file(Path.new(path_join(root, `a.txt`)), String.from("a")));
+  io.await(fs_file.write_file(Path.new(path_join(root, `b.txt`)), String.from("b")));
+  io.await(fs_file.write_file(Path.new(path_join(sub, `c.txt`)), String.from("c")));
+  io.await(fs_file.write_file(Path.new(path_join(deep, `d.txt`)), String.from("d")));
 });
 
 _cleanup_walk_tree :: (fn(root: String, using(io : IO, exn : Exception)) -> unit)({
   sub := path_join(root, `sub`);
   deep := path_join(sub, `deep`);
 
-  io.await(fs_dir.remove_file(Path.new(path_join(deep, `d.txt`)), using(io, exn)));
-  io.await(fs_dir.remove_dir(Path.new(deep), using(io, exn)));
-  io.await(fs_dir.remove_file(Path.new(path_join(sub, `c.txt`)), using(io, exn)));
-  io.await(fs_dir.remove_dir(Path.new(sub), using(io, exn)));
-  io.await(fs_dir.remove_file(Path.new(path_join(root, `b.txt`)), using(io, exn)));
-  io.await(fs_dir.remove_file(Path.new(path_join(root, `a.txt`)), using(io, exn)));
-  io.await(fs_dir.remove_dir(Path.new(root), using(io, exn)));
+  io.await(fs_dir.remove_file(Path.new(path_join(deep, `d.txt`))));
+  io.await(fs_dir.remove_dir(Path.new(deep)));
+  io.await(fs_dir.remove_file(Path.new(path_join(sub, `c.txt`))));
+  io.await(fs_dir.remove_dir(Path.new(sub)));
+  io.await(fs_dir.remove_file(Path.new(path_join(root, `b.txt`))));
+  io.await(fs_dir.remove_file(Path.new(path_join(root, `a.txt`))));
+  io.await(fs_dir.remove_dir(Path.new(root)));
 });
 
 // ============================================================================
@@ -63,9 +63,9 @@ test "walk lists all entries recursively", using(io : IO), {
   tmp := temp_dir();
   root := path_join(tmp, `yo_fs_walk_default`);
 
-  _setup_walk_tree(root, using(io, exn));
+  _setup_walk_tree(root);
 
-  entries := io.await(fs_walker.walk(Path.new(root), using(io, exn)));
+  entries := io.await(fs_walker.walk(Path.new(root)));
 
   printf("  entries count = %lld\n", i64(entries.len()));
 
@@ -80,7 +80,7 @@ test "walk lists all entries recursively", using(io : IO), {
 
   assert((entries.len() == usize(6)), "expected 6 entries (2 dirs + 4 files)");
 
-  _cleanup_walk_tree(root, using(io, exn));
+  _cleanup_walk_tree(root);
 };
 
 // ============================================================================
@@ -96,7 +96,7 @@ test "walk_with max_depth limits traversal", using(io : IO), {
   tmp := temp_dir();
   root := path_join(tmp, `yo_fs_walk_depth`);
 
-  _setup_walk_tree(root, using(io, exn));
+  _setup_walk_tree(root);
 
   opts := WalkOptions(
     max_depth: .Some(u32(0)),
@@ -104,7 +104,7 @@ test "walk_with max_depth limits traversal", using(io : IO), {
     include_dirs: true
   );
 
-  entries := io.await(fs_walker.walk_with(Path.new(root), opts, using(io, exn)));
+  entries := io.await(fs_walker.walk_with(Path.new(root), opts));
 
   printf("  entries at depth 0 = %lld\n", i64(entries.len()));
 
@@ -118,7 +118,7 @@ test "walk_with max_depth limits traversal", using(io : IO), {
 
   assert((entries.len() == usize(3)), "expected 3 entries at depth 0");
 
-  _cleanup_walk_tree(root, using(io, exn));
+  _cleanup_walk_tree(root);
 };
 
 // ============================================================================
@@ -134,7 +134,7 @@ test "walk_with include_dirs false excludes directories", using(io : IO), {
   tmp := temp_dir();
   root := path_join(tmp, `yo_fs_walk_nodirs`);
 
-  _setup_walk_tree(root, using(io, exn));
+  _setup_walk_tree(root);
 
   opts := WalkOptions(
     max_depth: .None,
@@ -142,7 +142,7 @@ test "walk_with include_dirs false excludes directories", using(io : IO), {
     include_dirs: false
   );
 
-  entries := io.await(fs_walker.walk_with(Path.new(root), opts, using(io, exn)));
+  entries := io.await(fs_walker.walk_with(Path.new(root), opts));
 
   printf("  file-only entries = %lld\n", i64(entries.len()));
 
@@ -158,7 +158,7 @@ test "walk_with include_dirs false excludes directories", using(io : IO), {
 
   assert((entries.len() == usize(4)), "expected 4 files");
 
-  _cleanup_walk_tree(root, using(io, exn));
+  _cleanup_walk_tree(root);
 };
 
 // ============================================================================
@@ -182,7 +182,7 @@ test "walk nonexistent returns error", using(io : IO), {
     printf("  got expected error\n");
     escape ();
   }));
-  io.await(fs_walker.walk(Path.new(`/nonexistent/yo_fs_walk_nope`), using(io, exn)));
+  io.await(fs_walker.walk(Path.new(`/nonexistent/yo_fs_walk_nope`)));
   assert(false, "walk on nonexistent should fail");
 };
 
@@ -201,13 +201,13 @@ test "walk_cstr works with C string path", using(io : IO), {
   root_cstr := root.to_cstr();
   root_c := root_cstr.ptr().unwrap();
 
-  io.await(fs_dir.create_dir_all(Path.new(root), using(io, exn)));
-  io.await(fs_file.write_file(Path.new(path_join(root, `x.txt`)), "x", using(io, exn)));
+  io.await(fs_dir.create_dir_all(Path.new(root)));
+  io.await(fs_file.write_file(Path.new(path_join(root, `x.txt`)), String.from("x")));
 
-  entries := io.await(fs_walker.walk_cstr(root_c, using(io, exn)));
+  entries := io.await(fs_walker.walk_cstr(root_c));
   printf("  walk_cstr entries = %lld\n", i64(entries.len()));
   assert((entries.len() == usize(1)), "expected 1 entry");
 
-  io.await(fs_dir.remove_file(Path.new(path_join(root, `x.txt`)), using(io, exn)));
-  io.await(fs_dir.remove_dir(Path.new(root), using(io, exn)));
+  io.await(fs_dir.remove_file(Path.new(path_join(root, `x.txt`))));
+  io.await(fs_dir.remove_dir(Path.new(root)));
 };

@@ -479,3 +479,13 @@ Both paths work correctly with evidence passing:
 Escape values (including non-unit values) are propagated via the thread-local `__yo_escape_value` mechanism. When `escape expr` is called inside a handler, the escape value is stored in a thread-local and can be retrieved at the handler installation site (`given`).
 
 See `issues/sync-effect-inlining-inside-async-context.md` for the full design rationale and `.github/instructions/c-codegen.instructions.md` for codegen conventions.
+
+### Forall evidence specialization
+
+When a module effect operation has `forall` parameters (e.g., `throw : (fn(forall(ResumeType : Type), ...) -> ResumeType)`), the handler function may be **specialized** by the evaluator — producing only type-specific versions (e.g., `throw_i32`) with no unspecialized C function.
+
+Evidence passing handles this transparently:
+
+- **Handler doesn't use the forall type** (e.g., `escape ()`): the unspecialized function is generated and passed directly.
+- **Handler uses the forall type** (e.g., `return resume_val`): the function is specialized. Evidence resolution passes a specialized version cast to `void*` (since the evidence parameter type for forall functions is `void*`).
+- **Transitive forwarding**: the `void*` evidence is forwarded as-is between callers and callees. Each callee resolves the forall call to its own specialized function directly, independent of the evidence value.

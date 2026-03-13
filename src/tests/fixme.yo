@@ -1,6 +1,4 @@
 open import "std/libc/stdio";
-open import "std/string";
-open import "std/fmt";
 
 MyException :: (fn(comptime(ErrorType) : Type) -> comptime(Module))(
   module(
@@ -10,18 +8,37 @@ MyException :: (fn(comptime(ErrorType) : Type) -> comptime(Module))(
 
 safe_divide :: (fn(x : i32, y : i32, using(exn : MyException(i32))) -> i32)(
   cond(
-    (y == 0) => exn.throw(x, i32(666)),
+    (y == 0) => exn.throw(x, i32(0)),
     true => (x / y)
   )
 );
 
-main :: (fn() -> unit) {
+run_test :: (fn() -> unit) {
+  sum := Box(i32)(0);
+  counter := Box(i32)(0);
+
   given(exn) := MyException(i32)(
     throw : ((val, resume_val) -> {
-      escape ();
+      return resume_val;
     })
   );
-  result := safe_divide(10, 0);
-  printf("result = %d\n", result);
+
+  while runtime(counter.* < i32(5)), {
+    divisor := cond(
+      ((counter.* == i32(1)) || (counter.* == i32(3))) => i32(0),
+      true => (counter.* + i32(1))
+    );
+    result := safe_divide(i32(10), divisor);
+    sum.* = (sum.* + result);
+    counter.* = (counter.* + 1);
+  };
+
+  assert((counter.* == i32(5)), "counter should reach 5");
+  assert((sum.* == i32(15)), "sum should be 15");
 };
+
+main :: (fn(using(io : IO)) -> unit)({
+  run_test();
+  printf("PASS\n");
+});
 export main;

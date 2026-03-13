@@ -138,12 +138,35 @@ export function generateDynCall(
     return `/* Error: dyn() expression missing temp variable name */`;
   }
 
+  // In SM context, use the SM field instead of a C local variable.
+  // This ensures escape handlers can correctly access and drop the dyn value.
+  const functionContext = context as FunctionGenerationContext;
+  let smFieldRef: string | undefined;
+  if (
+    functionContext.inAsyncStateMachine &&
+    functionContext.stateMachineVariables
+  ) {
+    for (const [, capturedVar] of functionContext.stateMachineVariables) {
+      if (capturedVar.kind === "local" && capturedVar.id === tempVarName) {
+        smFieldRef = `sm->var_${capturedVar.id}`;
+        break;
+      }
+    }
+  }
+
   // Generate: Dyn value = { .data = valueCode, .vtable = &vtable }
   const vtableName = `yo_vtable_${implKey}`;
-  context.emitter.emitLine(`${indent}${dynTypeCName} ${tempVarName} = {`);
-  context.emitter.emitLine(`${indent}  .data = ${valueCode},`);
-  context.emitter.emitLine(`${indent}  .vtable = &${vtableName}`);
-  context.emitter.emitLine(`${indent}};`);
-
-  return tempVarName;
+  if (smFieldRef) {
+    context.emitter.emitLine(`${indent}${smFieldRef} = (${dynTypeCName}){`);
+    context.emitter.emitLine(`${indent}  .data = ${valueCode},`);
+    context.emitter.emitLine(`${indent}  .vtable = &${vtableName}`);
+    context.emitter.emitLine(`${indent}};`);
+    return smFieldRef;
+  } else {
+    context.emitter.emitLine(`${indent}${dynTypeCName} ${tempVarName} = {`);
+    context.emitter.emitLine(`${indent}  .data = ${valueCode},`);
+    context.emitter.emitLine(`${indent}  .vtable = &${vtableName}`);
+    context.emitter.emitLine(`${indent}};`);
+    return tempVarName;
+  }
 }

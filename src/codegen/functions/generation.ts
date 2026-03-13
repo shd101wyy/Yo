@@ -372,6 +372,11 @@ export function generateMainWrapper(context: FunctionGenerationContext): void {
   }
 
   {
+    // Get evidence parameters for main function (e.g., IO module fields)
+    const evidenceParams = getEvidenceParameters(mainFunctionValue.type);
+    const evidenceArgs = evidenceParams.map(() => "NULL").join(", ");
+    const mainCallArgs = evidenceArgs ? `(${evidenceArgs})` : "()";
+
     // Sync main - call it directly and wait for any async tasks
     emitter.emitLine(`
 // Main wrapper - calls __yo_user_main directly
@@ -385,7 +390,7 @@ int main(int argc, char** argv) {
   __yo_async_scheduler_init();
   
   // Call sync main
-  __yo_user_main();
+  __yo_user_main${mainCallArgs};
   
   // Wait for all async tasks to complete
   // This ensures any async blocks spawned in main finish before exit
@@ -1303,6 +1308,7 @@ function generateAtomicGCRuntimeFunctions(
   // Generate simple non-atomic __yo_decr_rc and __yo_incr_rc functions
   emitter.emitLine(`// Non-atomic reference counting functions (thread-local)
 void __yo_decr_rc(void* ptr) {
+  if (ptr == NULL) return;
   yo_ref_header_t* header = (yo_ref_header_t*)ptr;
   
   // Skip if this object is marked as garbage by the GC.
@@ -1331,6 +1337,7 @@ void __yo_decr_rc(void* ptr) {
 }
 
 void* __yo_incr_rc(void* ptr) {
+  if (ptr == NULL) return NULL;
   yo_ref_header_t* header = (yo_ref_header_t*)ptr;
   header->ref_count++;
   GC_DEBUG("Incr: ptr=%p RC=%zu\\n", ptr, header->ref_count);
@@ -1341,12 +1348,14 @@ void* __yo_incr_rc(void* ptr) {
   emitter.emitLine(`
 // Atomic reference counting functions for Iso types (thread-safe)
 void* __yo_incr_rc_atomic(void* ptr) {
+  if (ptr == NULL) return NULL;
   yo_ref_header_t* header = (yo_ref_header_t*)ptr;
   atomic_fetch_add(((_Atomic size_t*)&header->ref_count), 1);
   return ptr;
 }
 
 void __yo_decr_rc_atomic(void* ptr) {
+  if (ptr == NULL) return;
   yo_ref_header_t* header = (yo_ref_header_t*)ptr;
   size_t old_count = atomic_fetch_sub(((_Atomic size_t*)&header->ref_count), 1);
   

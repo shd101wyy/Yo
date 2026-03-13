@@ -51,7 +51,7 @@ Byte buffers use `ArrayList(u8)` (not `Slice(u8)`).
 | **Time (rich)**     | `std/time/`                             | ✅ Complete  | `Duration`, `Instant` (monotonic), `DateTime` (wall clock) — 25 tests all passing                                  |
 | **Sys (low-level)** | `std/sys/` (37 files)                   | ✅ Complete  | Full async I/O: file, socket, process, mmap, DNS, signals, TTY, etc.                                               |
 | **Libc bindings**   | `std/libc/`                             | ✅ Complete  | stdio, stdlib, string, math, errno, signal, etc.                                                                   |
-| **FS**              | `std/fs/`                               | 🔄 Migrating | `File`, `Metadata`, `TempDir`, `TempFile`, directory walker — migrating from Result to Exception                   |
+| **FS**              | `std/fs/`                               | ✅ Complete  | `File`, `Metadata`, `TempDir`, `TempFile`, directory walker — 44 tests passing with Exception effect               |
 | **Net**             | `std/net/`                              | 🔄 Migrating | `TcpStream`, `TcpListener`, `UdpSocket`, `IpAddr`, DNS lookup — migrating from Result to Exception                 |
 | **OS**              | `std/os/`                               | ✅ Complete  | Signal handling, environment directory utilities — 10 tests passing                                                |
 | **Encoding**        | `std/encoding/`                         | 🔄 Migrating | Base64, hex, JSON, UTF-16 — migrating from Result to Exception                                                     |
@@ -68,9 +68,9 @@ Potential future additions (not currently planned):
 
 ---
 
-## Phase 1: High-Level File System (`std/fs`) — Priority: Critical
+## Phase 1: High-Level File System (`std/fs`) — ✅ Done
 
-**Goal**: Provide ergonomic async file I/O with buffered readers/writers, file objects, and directory traversal. This is the most important module — every non-trivial program needs file I/O.
+**Status**: All 5 modules implemented with Exception effect. 44 tests passing (file: 13, dir: 12, temp: 7, metadata: 6, walker: 6). All tests verified with AddressSanitizer (no leaks, no use-after-free).
 
 **Depends on**: `std/sys/file`, `std/sys/dir`, `std/sys/seek`, `std/sys/path`, `std/sys/statx`, `std/sys/perm`, `std/sys/temp`, `std/path`, `std/string`
 

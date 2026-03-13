@@ -64,7 +64,7 @@ export DirEntry;
 // ============================================================================
 
 // Create a directory at the given path.
-create_dir :: (fn(path: Path, using(io : IO, exn : Exception)) -> Impl(Future(unit, IO, Exception)))(
+create_dir :: (fn(path: Path, using(io : IO)) -> Impl(Future(unit, IO, Exception)))(
   io.async((using(io, exn)) => {
     cstr_bytes := path.to_string().to_cstr();
     cstr := cstr_bytes.ptr().unwrap();
@@ -77,13 +77,13 @@ create_dir :: (fn(path: Path, using(io : IO, exn : Exception)) -> Impl(Future(un
 );
 
 // Create a directory (str version).
-create_dir_str :: (fn(path: str, using(io : IO, exn : Exception)) -> Impl(Future(unit, IO, Exception)))(
-  create_dir(Path.new(String.from(path)), using(io, exn))
+create_dir_str :: (fn(path: str, using(io : IO)) -> Impl(Future(unit, IO, Exception)))(
+  create_dir(Path.new(String.from(path)))
 );
 
 // Create a directory and all parent directories.
 // Does not error if the directory already exists.
-create_dir_all :: (fn(path: Path, using(io : IO, exn : Exception)) -> Impl(Future(unit, IO, Exception)))(
+create_dir_all :: (fn(path: Path, using(io : IO)) -> Impl(Future(unit, IO, Exception)))(
   io.async((using(io, exn)) => {
     path_s := path.to_string();
     cstr_bytes := path_s.to_cstr();
@@ -160,12 +160,12 @@ create_dir_all :: (fn(path: Path, using(io : IO, exn : Exception)) -> Impl(Futur
 );
 
 // Create a directory and all parents (str version).
-create_dir_all_str :: (fn(path: str, using(io : IO, exn : Exception)) -> Impl(Future(unit, IO, Exception)))(
-  create_dir_all(Path.new(String.from(path)), using(io, exn))
+create_dir_all_str :: (fn(path: str, using(io : IO)) -> Impl(Future(unit, IO, Exception)))(
+  create_dir_all(Path.new(String.from(path)))
 );
 
 // Remove an empty directory.
-remove_dir :: (fn(path: Path, using(io : IO, exn : Exception)) -> Impl(Future(unit, IO, Exception)))(
+remove_dir :: (fn(path: Path, using(io : IO)) -> Impl(Future(unit, IO, Exception)))(
   io.async((using(io, exn)) => {
     cstr_bytes := path.to_string().to_cstr();
     cstr := cstr_bytes.ptr().unwrap();
@@ -177,12 +177,12 @@ remove_dir :: (fn(path: Path, using(io : IO, exn : Exception)) -> Impl(Future(un
   })
 );
 
-remove_dir_str :: (fn(path: str, using(io : IO, exn : Exception)) -> Impl(Future(unit, IO, Exception)))(
-  remove_dir(Path.new(String.from(path)), using(io, exn))
+remove_dir_str :: (fn(path: str, using(io : IO)) -> Impl(Future(unit, IO, Exception)))(
+  remove_dir(Path.new(String.from(path)))
 );
 
 // Remove a file.
-remove_file :: (fn(path: Path, using(io : IO, exn : Exception)) -> Impl(Future(unit, IO, Exception)))(
+remove_file :: (fn(path: Path, using(io : IO)) -> Impl(Future(unit, IO, Exception)))(
   io.async((using(io, exn)) => {
     cstr_bytes := path.to_string().to_cstr();
     cstr := cstr_bytes.ptr().unwrap();
@@ -194,12 +194,12 @@ remove_file :: (fn(path: Path, using(io : IO, exn : Exception)) -> Impl(Future(u
   })
 );
 
-remove_file_str :: (fn(path: str, using(io : IO, exn : Exception)) -> Impl(Future(unit, IO, Exception)))
-  remove_file(Path.new(String.from(path)), using(io, exn))
+remove_file_str :: (fn(path: str, using(io : IO)) -> Impl(Future(unit, IO, Exception)))
+  remove_file(Path.new(String.from(path)))
 ;
 
 // Rename/move a file or directory.
-rename :: (fn(from: Path, to: Path, using(io : IO, exn : Exception)) -> Impl(Future(unit, IO, Exception)))(
+rename :: (fn(from: Path, to: Path, using(io : IO)) -> Impl(Future(unit, IO, Exception)))(
   io.async((using(io, exn)) => {
     from_cstr_bytes := from.to_string().to_cstr();
     from_cstr := from_cstr_bytes.ptr().unwrap();
@@ -213,12 +213,12 @@ rename :: (fn(from: Path, to: Path, using(io : IO, exn : Exception)) -> Impl(Fut
   })
 );
 
-rename_str :: (fn(from: str, to: str, using(io : IO, exn : Exception)) -> Impl(Future(unit, IO, Exception)))
-  rename(Path.new(String.from(from)), Path.new(String.from(to)), using(io, exn))
+rename_str :: (fn(from: str, to: str, using(io : IO)) -> Impl(Future(unit, IO, Exception)))
+  rename(Path.new(String.from(from)), Path.new(String.from(to)))
 ;
 
 // Create a hard link from src to dst.
-hard_link :: (fn(src: Path, dst: Path, using(io : IO, exn : Exception)) -> Impl(Future(unit, IO, Exception)))(
+hard_link :: (fn(src: Path, dst: Path, using(io : IO)) -> Impl(Future(unit, IO, Exception)))(
   io.async((using(io, exn)) => {
     src_cstr_bytes := src.to_string().to_cstr();
     src_cstr := src_cstr_bytes.ptr().unwrap();
@@ -232,12 +232,12 @@ hard_link :: (fn(src: Path, dst: Path, using(io : IO, exn : Exception)) -> Impl(
   })
 );
 
-hard_link_str :: (fn(src: str, dst: str, using(io : IO, exn : Exception)) -> Impl(Future(unit, IO, Exception)))
-  hard_link(Path.new(String.from(src)), Path.new(String.from(dst)), using(io, exn))
+hard_link_str :: (fn(src: str, dst: str, using(io : IO)) -> Impl(Future(unit, IO, Exception)))
+  hard_link(Path.new(String.from(src)), Path.new(String.from(dst)))
 ;
 
 // Create a symbolic link at dst pointing to src.
-symlink :: (fn(src: Path, dst: Path, using(io : IO, exn : Exception)) -> Impl(Future(unit, IO, Exception)))(
+symlink :: (fn(src: Path, dst: Path, using(io : IO)) -> Impl(Future(unit, IO, Exception)))(
   io.async((using(io, exn)) => {
     src_cstr_bytes := src.to_string().to_cstr();
     src_cstr := src_cstr_bytes.ptr().unwrap();
@@ -251,8 +251,8 @@ symlink :: (fn(src: Path, dst: Path, using(io : IO, exn : Exception)) -> Impl(Fu
   })
 );
 
-symlink_str :: (fn(src: str, dst: str, using(io : IO, exn : Exception)) -> Impl(Future(unit, IO, Exception)))
-  symlink(Path.new(String.from(src)), Path.new(String.from(dst)), using(io, exn))
+symlink_str :: (fn(src: str, dst: str, using(io : IO)) -> Impl(Future(unit, IO, Exception)))
+  symlink(Path.new(String.from(src)), Path.new(String.from(dst)))
 ;
 
 // ============================================================================
@@ -260,7 +260,7 @@ symlink_str :: (fn(src: str, dst: str, using(io : IO, exn : Exception)) -> Impl(
 // ============================================================================
 
 // Read directory entries from a path.
-read_dir :: (fn(path: Path, using(io : IO, exn : Exception)) -> Impl(Future(ArrayList(DirEntry), IO, Exception)))(
+read_dir :: (fn(path: Path, using(io : IO)) -> Impl(Future(ArrayList(DirEntry), IO, Exception)))(
   io.async((using(io, exn)) => {
     cstr_bytes := path.to_string().to_cstr();
     cstr := cstr_bytes.ptr().unwrap();
@@ -318,8 +318,8 @@ read_dir :: (fn(path: Path, using(io : IO, exn : Exception)) -> Impl(Future(Arra
   })
 );
 
-read_dir_str :: (fn(path: str, using(io : IO, exn : Exception)) -> Impl(Future(ArrayList(DirEntry), IO, Exception)))
-  read_dir(Path.new(String.from(path)), using(io, exn))
+read_dir_str :: (fn(path: str, using(io : IO)) -> Impl(Future(ArrayList(DirEntry), IO, Exception)))
+  read_dir(Path.new(String.from(path)))
 ;
 
 export

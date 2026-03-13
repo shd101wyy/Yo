@@ -145,20 +145,6 @@ function collectModuleEffectMembers(
   for (let i = 0; i < mv.fields.length; i++) {
     const fieldValue = mv.fields[i];
     if (fieldValue && isFunctionValue(fieldValue)) {
-      // Skip functions with forall parameters — they use void* generics in C
-      // and can't be called through typed fn ptrs. These will be SM-inlined.
-      const fnType = fieldValue.type;
-      const fieldType = mv.type.fields[i]?.type;
-      if (
-        (isFunctionType(fnType) &&
-          fnType.forallParameters &&
-          fnType.forallParameters.length > 0) ||
-        (isFunctionType(fieldType) &&
-          fieldType.forallParameters &&
-          fieldType.forallParameters.length > 0)
-      ) {
-        continue;
-      }
       if (!context.functions[fieldValue.funcId]) {
         fieldValue.isModuleEffectMember = true;
         context.functions[fieldValue.funcId] = {

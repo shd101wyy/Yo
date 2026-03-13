@@ -79,6 +79,37 @@ import {
 } from "./parallelism";
 
 /**
+ * Resolves a variable name to its state machine field reference if inside an
+ * async or effect state machine context. Returns `sm->__capture.X` for outer
+ * variables or `sm->var_X` for locals; otherwise returns the name unchanged.
+ */
+function resolveVarNameInContext(
+  varName: string,
+  context: CodeGenContext
+): string {
+  const functionContext = context as FunctionGenerationContext;
+  if (
+    !(
+      functionContext.inAsyncStateMachine ||
+      functionContext.inEffectStateMachine
+    ) ||
+    !functionContext.stateMachineVariables
+  ) {
+    return varName;
+  }
+  for (const [varId, capturedVar] of functionContext.stateMachineVariables) {
+    if (capturedVar.name === varName) {
+      const fieldName =
+        capturedVar.kind === "outer"
+          ? `__capture.${capturedVar.name}`
+          : `var_${varId}`;
+      return `sm->${fieldName}`;
+    }
+  }
+  return varName;
+}
+
+/**
  * In async state machine context, stores a local temp variable to its
  * corresponding sm->var_xxx field. This ensures deferred drops in the final
  * state can access a valid value instead of the zero-initialized struct field.
@@ -146,8 +177,12 @@ export function generateOtherFunctionCall(
     return generateComptimeValue(expr.$.value, context, expr);
   }
 
-  const functionType = expr.func.$?.type;
   const functionValue = expr.func.$?.value;
+  const functionType =
+    expr.func.$?.type ??
+    (isFunctionValue(functionValue)
+      ? (functionValue.specializedType ?? functionValue.type)
+      : undefined);
 
   if (isFunctionType(functionType)) {
     const runtimeArgExprs = expr.$?.runtimeArgExprsInOrder;
@@ -519,17 +554,20 @@ export function generateOtherFunctionCall(
               }
             }
           }
-          const funcCode =
-            matchedEp?.cParamName ?? generateExpr(expr.func, indent, context);
-          return generateEvidenceFnPtrCall(
-            funcCode,
-            functionValueType,
-            args,
-            runtimeArgExprs,
-            expr,
-            indent,
-            functionContext
-          );
+          if (matchedEp) {
+            const funcCode = matchedEp.cParamName;
+            return generateEvidenceFnPtrCall(
+              funcCode,
+              functionValueType,
+              args,
+              runtimeArgExprs,
+              expr,
+              indent,
+              functionContext
+            );
+          }
+          // No matching evidence parameter found — this function is in a module
+          // but is NOT an effect handler member. Fall through to normal call path.
         }
 
         // Direct ctl function call (handler invoked in same scope as given binding).
@@ -780,6 +818,35 @@ export function generateOtherFunctionCall(
           // When calling through a void* (e.g., a captured function-typed variable),
           // we need to cast it to the proper function pointer type.
           const funcCode = generateExpr(expr.func, indent, context);
+
+          // Check if the function value has evidence params (e.g., delegation wrappers
+          // not in context.functions but compiled with evidence parameter prototypes)
+          if (functionValue && isFunctionType(functionValue.type)) {
+            const calleeEvidence = getEvidenceParameters(functionValue.type);
+            if (calleeEvidence.length > 0) {
+              const evidenceArgs = resolveEvidenceArgsForCallSite(
+                calleeEvidence,
+                functionValue as unknown as FunctionValue,
+                expr,
+                context as FunctionGenerationContext
+              );
+              if (evidenceArgs.length > 0) {
+                const fullArgs = argsList
+                  ? `${argsList}, ${evidenceArgs.join(", ")}`
+                  : evidenceArgs.join(", ");
+                return generateEvidenceCallSite(
+                  funcCode,
+                  fullArgs,
+                  functionType,
+                  expr,
+                  runtimeArgExprs,
+                  indent,
+                  context as FunctionGenerationContext
+                );
+              }
+            }
+          }
+
           // Use the call expression's resolved type when available (handles forall monomorphization)
           const resolvedReturnType = expr.$?.type ?? functionType.return.type;
           const returnTypeStr = getTypeString(resolvedReturnType, context);
@@ -799,7 +866,10 @@ export function generateOtherFunctionCall(
             context.emitter.emitLine(`${indent}__yo_effect_escaped = 0;`);
           }
 
-          if (isUnitType(functionType.return.type)) {
+          if (
+            isUnitType(functionType.return.type) ||
+            isUnitType(resolvedReturnType)
+          ) {
             // If the function returns unit, just call it without assignment
             context.emitter.emitLine(`${indent}${fnPtrCast}(${argsList});`);
 
@@ -818,8 +888,9 @@ export function generateOtherFunctionCall(
                     arg.$?.type &&
                     typeContainsRcType(arg.$.type)
                   ) {
-                    const argVarName = sanitizeForCIdentifier(
-                      arg.$.variableName
+                    const argVarName = resolveVarNameInContext(
+                      sanitizeForCIdentifier(arg.$.variableName),
+                      context
                     );
                     const dropCode = generateDropCodeForValue(
                       argVarName,
@@ -828,6 +899,10 @@ export function generateOtherFunctionCall(
                     );
                     if (dropCode) {
                       context.emitter.emitLine(`${indent}  ${dropCode};`);
+                      // Zero SM field to prevent double-drop in dispose
+                      context.emitter.emitLine(
+                        `${indent}  memset(&${argVarName}, 0, sizeof(${argVarName}));`
+                      );
                     }
                   }
                 }
@@ -877,8 +952,9 @@ export function generateOtherFunctionCall(
                       arg.$?.type &&
                       typeContainsRcType(arg.$.type)
                     ) {
-                      const argVarName = sanitizeForCIdentifier(
-                        arg.$.variableName
+                      const argVarName = resolveVarNameInContext(
+                        sanitizeForCIdentifier(arg.$.variableName),
+                        context
                       );
                       const dropCode = generateDropCodeForValue(
                         argVarName,
@@ -887,6 +963,10 @@ export function generateOtherFunctionCall(
                       );
                       if (dropCode) {
                         context.emitter.emitLine(`${indent}  ${dropCode};`);
+                        // Zero SM field to prevent double-drop in dispose
+                        context.emitter.emitLine(
+                          `${indent}  memset(&${argVarName}, 0, sizeof(${argVarName}));`
+                        );
                       }
                     }
                   }
@@ -1974,7 +2054,10 @@ function generateEvidenceFnPtrCall(
           arg.$?.type &&
           typeContainsRcType(arg.$.type)
         ) {
-          const argVarName = sanitizeForCIdentifier(arg.$.variableName);
+          const argVarName = resolveVarNameInContext(
+            sanitizeForCIdentifier(arg.$.variableName),
+            context
+          );
           const dropCode = generateDropCodeForValue(
             argVarName,
             arg.$.type,
@@ -1982,11 +2065,25 @@ function generateEvidenceFnPtrCall(
           );
           if (dropCode) {
             emitter.emitLine(`${indent}  ${dropCode};`);
+            if (context.inAsyncStateMachine) {
+              emitter.emitLine(
+                `${indent}  memset(&${argVarName}, 0, sizeof(${argVarName}));`
+              );
+            }
           }
         }
       }
     }
-    emitter.emitLine(`${indent}  return;`);
+    if (context.inAsyncStateMachine) {
+      emitAsyncFutureEscape({
+        emitter,
+        indent: indent + "  ",
+        resultCode: undefined,
+        debugLabel: undefined,
+      });
+    } else {
+      emitter.emitLine(`${indent}  return;`);
+    }
     emitter.emitLine(`${indent}}`);
     return "";
   } else {
@@ -2012,7 +2109,10 @@ function generateEvidenceFnPtrCall(
             arg.$?.type &&
             typeContainsRcType(arg.$.type)
           ) {
-            const argVarName = sanitizeForCIdentifier(arg.$.variableName);
+            const argVarName = resolveVarNameInContext(
+              sanitizeForCIdentifier(arg.$.variableName),
+              context
+            );
             const dropCode = generateDropCodeForValue(
               argVarName,
               arg.$.type,
@@ -2020,17 +2120,31 @@ function generateEvidenceFnPtrCall(
             );
             if (dropCode) {
               emitter.emitLine(`${indent}  ${dropCode};`);
+              if (context.inAsyncStateMachine) {
+                emitter.emitLine(
+                  `${indent}  memset(&${argVarName}, 0, sizeof(${argVarName}));`
+                );
+              }
             }
           }
         }
       }
-      // Return type for escape propagation must match the CALLER's return type, not the callee's
-      const callerReturnType = context.currentFunctionType?.return.type;
-      if (callerReturnType && !isUnitType(callerReturnType)) {
-        const callerCType = getTypeString(callerReturnType, context);
-        emitter.emitLine(`${indent}  return (${callerCType}){0};`);
+      if (context.inAsyncStateMachine) {
+        emitAsyncFutureEscape({
+          emitter,
+          indent: indent + "  ",
+          resultCode: undefined,
+          debugLabel: undefined,
+        });
       } else {
-        emitter.emitLine(`${indent}  return;`);
+        // Return type for escape propagation must match the CALLER's return type, not the callee's
+        const callerReturnType = context.currentFunctionType?.return.type;
+        if (callerReturnType && !isUnitType(callerReturnType)) {
+          const callerCType = getTypeString(callerReturnType, context);
+          emitter.emitLine(`${indent}  return (${callerCType}){0};`);
+        } else {
+          emitter.emitLine(`${indent}  return;`);
+        }
       }
       emitter.emitLine(`${indent}}`);
       return tempVar;
@@ -2143,14 +2257,42 @@ function resolveEvidenceArgsForCallSite(
             if (fieldIndex >= 0) {
               const fieldValue = currentModule.fields[fieldIndex];
               if (fieldValue && isFunctionValue(fieldValue)) {
-                const cName = context.functions[fieldValue.funcId]?.cName;
-                if (cName) {
-                  result.push(cName);
-                  resolved = true;
+                // For forall functions that were specialized, the unspecialized C function
+                // is not generated — only specialized versions exist. Use one of those
+                // and cast to void* (the evidence param type for forall functions).
+                if (fieldValue.specializedFunctionCaches?.length > 0) {
+                  const specialized =
+                    fieldValue.specializedFunctionCaches[0]!
+                      .specializedFunction;
+                  const specializedCName =
+                    context.functions[specialized.funcId]?.cName;
+                  if (specializedCName) {
+                    result.push(`(void*)${specializedCName}`);
+                    resolved = true;
+                  }
+                }
+                if (!resolved) {
+                  const cName = context.functions[fieldValue.funcId]?.cName;
+                  if (cName) {
+                    result.push(cName);
+                    resolved = true;
+                  }
                 }
               }
             }
           }
+        }
+      }
+    }
+
+    // 4. Inside async SM: resolve from state machine capture struct
+    if (!resolved && context.stateMachineVariables) {
+      const lastLabel = ep.fieldPath[ep.fieldPath.length - 1]!;
+      for (const [, capturedVar] of context.stateMachineVariables) {
+        if (capturedVar.name === lastLabel && capturedVar.kind === "outer") {
+          result.push(`sm->__capture.${lastLabel}`);
+          resolved = true;
+          break;
         }
       }
     }
@@ -2197,7 +2339,10 @@ function generateEvidenceCallSite(
           arg.$?.type &&
           typeContainsRcType(arg.$.type)
         ) {
-          const argVarName = sanitizeForCIdentifier(arg.$.variableName);
+          const argVarName = resolveVarNameInContext(
+            sanitizeForCIdentifier(arg.$.variableName),
+            context
+          );
           const dropCode = generateDropCodeForValue(
             argVarName,
             arg.$.type,
@@ -2205,11 +2350,25 @@ function generateEvidenceCallSite(
           );
           if (dropCode) {
             emitter.emitLine(`${indent}  ${dropCode};`);
+            if (context.inAsyncStateMachine) {
+              emitter.emitLine(
+                `${indent}  memset(&${argVarName}, 0, sizeof(${argVarName}));`
+              );
+            }
           }
         }
       }
     }
-    emitter.emitLine(`${indent}  return;`);
+    if (context.inAsyncStateMachine) {
+      emitAsyncFutureEscape({
+        emitter,
+        indent: indent + "  ",
+        resultCode: undefined,
+        debugLabel: undefined,
+      });
+    } else {
+      emitter.emitLine(`${indent}  return;`);
+    }
     emitter.emitLine(`${indent}}`);
     return "";
   } else {
@@ -2234,7 +2393,10 @@ function generateEvidenceCallSite(
             arg.$?.type &&
             typeContainsRcType(arg.$.type)
           ) {
-            const argVarName = sanitizeForCIdentifier(arg.$.variableName);
+            const argVarName = resolveVarNameInContext(
+              sanitizeForCIdentifier(arg.$.variableName),
+              context
+            );
             const dropCode = generateDropCodeForValue(
               argVarName,
               arg.$.type,
@@ -2242,17 +2404,31 @@ function generateEvidenceCallSite(
             );
             if (dropCode) {
               emitter.emitLine(`${indent}  ${dropCode};`);
+              if (context.inAsyncStateMachine) {
+                emitter.emitLine(
+                  `${indent}  memset(&${argVarName}, 0, sizeof(${argVarName}));`
+                );
+              }
             }
           }
         }
       }
-      // Return type for escape propagation must match the CALLER's return type, not the callee's
-      const callerReturnType = context.currentFunctionType?.return.type;
-      if (callerReturnType && !isUnitType(callerReturnType)) {
-        const callerCType = getTypeString(callerReturnType, context);
-        emitter.emitLine(`${indent}  return (${callerCType}){0};`);
+      if (context.inAsyncStateMachine) {
+        emitAsyncFutureEscape({
+          emitter,
+          indent: indent + "  ",
+          resultCode: undefined,
+          debugLabel: undefined,
+        });
       } else {
-        emitter.emitLine(`${indent}  return;`);
+        // Return type for escape propagation must match the CALLER's return type, not the callee's
+        const callerReturnType = context.currentFunctionType?.return.type;
+        if (callerReturnType && !isUnitType(callerReturnType)) {
+          const callerCType = getTypeString(callerReturnType, context);
+          emitter.emitLine(`${indent}  return (${callerCType}){0};`);
+        } else {
+          emitter.emitLine(`${indent}  return;`);
+        }
       }
       emitter.emitLine(`${indent}}`);
       return tempVar;
