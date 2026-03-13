@@ -423,38 +423,120 @@ See `tests/algebraic_effects.test.yo` (46 tests) for comprehensive examples cove
 | ---------------- | ----------------------------- | ----------------------------------------- |
 | Suspension point | `io.await(expr)`              | `effect_op(args)`                         |
 | Who resumes      | Event loop (IO completion)    | Handler (calling `return`)                |
-| State machine    | Per async function            | Per effectful function chain              |
+| State machine    | Per async function            | Only for SM-inlined effects (see below)   |
 | Continuation     | Implicit (event loop manages) | Explicit (`return` / `escape` in handler) |
 | Thread model     | Single-threaded event loop    | Synchronous (same thread)                 |
-| Use cases        | IO concurrency                | Control flow abstraction                  |
+| Use cases        | IO concurrency                | Control flow abstraction, error handling  |
 
 Both systems share the same state machine infrastructure (shared analysis in `src/codegen/shared/suspension-analysis.ts` and shared codegen in `src/codegen/shared/suspension-codegen.ts`). See [ASYNC_AWAIT.md](./ASYNC_AWAIT.md) for the async/await documentation.
 
 ---
 
-## Evidence Passing for Effects (March 2026)
+## Code Generation: Two Strategies
 
-**All** effects — both module-type and function-type — use **evidence passing**. Effect handler function pointers are passed as explicit C parameters to functions that declare `using(effect : EffectType)`.
+The compiler uses **two distinct strategies** for generating C code for effect handlers. The strategy is chosen per-function based on the effect's type.
+
+### Strategy 1: Evidence Passing (preferred)
+
+**When**: Module-based effects where the module has function-typed fields that can be represented as C function pointer parameters. This covers the common case — e.g., `Exception`, `Raise`, `Log`.
+
+**How**: The effect handler function pointer is passed as an extra C parameter. No state machine is needed. The effectful function calls the handler directly via the fn ptr and checks the `__yo_effect_escaped` flag afterward.
+
+### Strategy 2: SM-Inlining (fallback)
+
+**When**: Evidence passing cannot be used:
+
+- **Bare function-type effects** (e.g., `using(raise : (fn(msg : String) -> i32))` — not wrapped in a module)
+- **Module effects where all functions have `forall` params** (e.g., `throw : (fn(forall(ResumeType : Type), ...) -> ResumeType)` — forall function pointers cannot be typed as C fn ptrs)
+- **Effects inside non-module constructs**
+
+**How**: The effectful function is compiled into a **state machine** struct. Effect invocation becomes a yield point — the SM pauses, yields the effect arguments, and the handler loop at the call site receives them, runs the handler body, and either resumes (setting `resume_value` and calling resume) or escapes.
+
+### Decision flow
+
+```
+Function has using(effect : EffectType)?
+  │
+  ├── EffectType is a module with function fields?
+  │     ├── getEvidenceParameters() returns params? ──→ EVIDENCE PASSING
+  │     │   (module has non-forall function fields)
+  │     │
+  │     └── No evidence params? ──→ SM-INLINING
+  │         (all functions have forall params)
+  │
+  └── EffectType is a bare function type? ──→ SM-INLINING
+```
+
+---
+
+## Evidence Passing (Strategy 1) — Detailed
+
+Evidence passing compiles effect handlers as **ordinary C function pointer parameters**. This eliminates state machines entirely for the effectful function — it becomes a regular C function with extra parameters.
 
 ### Key principle: modules ≡ collections of functions
 
-A module is a **compile-time** construct — just a named collection of functions. At runtime, only function pointers exist. Therefore there is no fundamental distinction between module effects and function effects:
+A module is a **compile-time** construct — just a named collection of functions. At runtime, only function pointers exist:
 
-- `using(raise_mod : Raise)` where `Raise :: module(raise : (fn(msg: String) -> i32))` → passes the `raise` function pointer
-- `using(exn : Exception)` where `Exception :: module(throw : (fn(...) -> ResumeType))` → passes the `throw` function pointer
+- `using(exn : Exception)` where `Exception :: module(throw : fn(...))` → passes the `throw` function pointer
+- `using(raise : Raise)` where `Raise :: module(raise : fn(msg : String) -> i32)` → passes the `raise` function pointer
 
-Compile-time constructs `forall(...)`, `using(...)`, and modules themselves are erased at runtime. Evidence passing is how their runtime behavior is realized.
+### Generated C
 
-### How evidence passing works
+For a function with module effect:
 
-- A function with `using(exn : Exception)` gets extra C parameters for each function-typed member (e.g., `void (*throw)(AnyError)`).
-- The function body calls these members directly via the function pointer — no SM needed.
-- Call sites pass the function pointer from their context:
-  - **Sync (at `given` site)**: the handler function's C address from `given(exn) := Exception(throw: handler_fn)`
-  - **Async SM**: `sm->__capture.throw` from the Future's capture struct
-  - **Transitive**: forwarded from the caller's own evidence parameter
-- **Resumable handlers** (`return value`): the handler function returns the resume value directly. The caller uses it.
-- **Non-resumable handlers** (`escape value`): the handler sets `__yo_effect_escaped = 1` and returns a dummy value. The caller checks the flag and propagates the escape.
+```yo
+safe_divide :: (fn(x : i32, y : i32, using(exn : Exception)) -> i32)(
+  cond(y == 0 => exn.throw(Error.new(`div by zero`)), true => (x / y))
+);
+```
+
+The compiler generates:
+
+```c
+// Evidence parameter: throw fn ptr passed as void* (forall func)
+// or typed fn ptr (non-forall func)
+int32_t safe_divide(int32_t x, int32_t y, void* exn__throw) {
+  if (y == 0) {
+    __yo_effect_escaped = 0;
+    int32_t result = ((int32_t(*)(AnyError*))exn__throw)(error_obj);
+    if (__yo_effect_escaped) {
+      return 0;  // dummy — caller propagates escape
+    }
+    return result;  // handler resumed with this value
+  }
+  return x / y;
+}
+```
+
+### Evidence argument resolution
+
+At each call site, the compiler resolves evidence arguments in this order:
+
+1. **Transitive forwarding** — if the caller has matching evidence params, forward them directly
+2. **From effect analysis** — if the call site has a handler (`given` binding with handler info), use the handler's C function address
+3. **From `given` binding** — look up the module value in the call environment, extract the function field, and use its C name
+4. **From async SM capture** — if inside an async state machine, resolve from `sm->__capture.fieldName`
+
+### Escape handling
+
+When a handler calls `escape`:
+
+1. The handler function sets `__yo_effect_escaped = 1` and returns a dummy value
+2. The caller checks `if (__yo_effect_escaped)` after the fn ptr call
+3. If set: drops RC-typed arguments, then either:
+   - **In sync context**: returns from the enclosing function with a zeroed value
+   - **In async SM context**: sets `sm->state = -2` (aborted), drops SM local variables via `memset`+dispose, spawns continuation if exists, and returns
+
+### Resume handling
+
+When a handler calls `return value`:
+
+1. The handler function returns `value` normally (does NOT set `__yo_effect_escaped`)
+2. The caller receives the return value from the fn ptr call
+3. The `if (__yo_effect_escaped)` check passes (flag is 0)
+4. The caller uses the return value as the result of the effect invocation
+
+This is the simplest path — no state machine, no yield/resume protocol. The handler is just a function call.
 
 ### Mixed escape+return handlers
 
@@ -469,16 +551,10 @@ given(raise_mod) := Raise(
 );
 ```
 
-Both paths work correctly with evidence passing:
+Both paths work correctly:
 
-- **Return path**: the function pointer returns normally; the caller uses the resume value.
-- **Escape path**: the function pointer sets `__yo_effect_escaped = 1` and returns a dummy. The caller checks the flag and propagates.
-
-### Escape value propagation
-
-Escape values (including non-unit values) are propagated via the thread-local `__yo_escape_value` mechanism. When `escape expr` is called inside a handler, the escape value is stored in a thread-local and can be retrieved at the handler installation site (`given`).
-
-See `issues/sync-effect-inlining-inside-async-context.md` for the full design rationale and `.github/instructions/c-codegen.instructions.md` for codegen conventions.
+- **Return path**: the fn ptr returns normally; `__yo_effect_escaped` stays 0; caller uses the resume value
+- **Escape path**: the fn ptr sets `__yo_effect_escaped = 1` and returns dummy; caller checks and propagates
 
 ### Forall evidence specialization
 
@@ -489,3 +565,135 @@ Evidence passing handles this transparently:
 - **Handler doesn't use the forall type** (e.g., `escape ()`): the unspecialized function is generated and passed directly.
 - **Handler uses the forall type** (e.g., `return resume_val`): the function is specialized. Evidence resolution passes a specialized version cast to `void*` (since the evidence parameter type for forall functions is `void*`).
 - **Transitive forwarding**: the `void*` evidence is forwarded as-is between callers and callees. Each callee resolves the forall call to its own specialized function directly, independent of the evidence value.
+
+### Escape value propagation
+
+Escape values (including non-unit values) are propagated via the thread-local `__yo_escape_value` mechanism. When `escape expr` is called inside a handler, the escape value is stored in a thread-local and can be retrieved at the handler installation site (`given`).
+
+---
+
+## SM-Inlining (Strategy 2) — Detailed
+
+SM-inlining is the original effect system. It transforms the effectful function into a **state machine** and inlines the handler at the call site in a driver loop.
+
+### When SM-inlining is used
+
+- Bare function-type effects: `using(raise : (fn(msg : String) -> i32))`
+- Module effects with only forall functions (no evidence params possible)
+- Effects with `...(E)` spread in certain configurations
+
+### State machine struct
+
+```c
+typedef struct safe_divide_sm {
+  int state;                    // current state (-2=aborted, -1=complete, 0..N=running)
+  int completed;                // 1 when function finished
+  int32_t result;               // return value (if non-void)
+
+  // Yielded effect arguments
+  char* yield_0;                // first arg to handler (e.g., error message)
+
+  // Resume value from handler
+  int32_t resume_value;         // value passed back via `return`
+
+  // Function parameters
+  int32_t param_x, param_y;
+
+  // Captured local variables crossing yield points
+  int32_t var_temp;
+
+  // Nested SM for transitive calls
+  inner_sm_struct _inner_sm_0;
+} safe_divide_sm;
+```
+
+### Resume function
+
+The effectful function body is split at yield points into a switch-case state machine:
+
+```c
+void safe_divide_resume(safe_divide_sm* sm) {
+  switch (sm->state) {
+    case 0: {
+      // Run body until effect invocation
+      if (sm->param_y == 0) {
+        sm->yield_0 = "div by zero";  // yield effect arg
+        sm->state = 1;                // next state after resume
+        return;                       // suspend
+      }
+      sm->result = sm->param_x / sm->param_y;
+      sm->completed = 1;
+      return;
+    }
+    case 1: {
+      // Resumed from handler — sm->resume_value has handler's return
+      sm->result = sm->resume_value;
+      sm->completed = 1;
+      return;
+    }
+  }
+}
+```
+
+### Call site with inlined handler
+
+At the call site where the handler is installed:
+
+```c
+// Escape handler (discards continuation)
+{
+  safe_divide_sm sm = {0};
+  sm.param_x = 10; sm.param_y = 0;
+  safe_divide_resume(&sm);
+
+  while (!sm.completed) {
+    // Handler body inlined here:
+    printf("Error: %s\n", sm.yield_0);
+    __yo_effect_escaped = 1;   // escape
+    goto handler_exit;         // exit enclosing function
+  }
+  result = sm.result;
+}
+```
+
+```c
+// Resume handler (continues computation)
+{
+  safe_divide_sm sm = {0};
+  sm.param_x = 10; sm.param_y = 0;
+  safe_divide_resume(&sm);
+
+  while (!sm.completed) {
+    // Handler body inlined here:
+    printf("Recovering from: %s\n", sm.yield_0);
+    sm.resume_value = 42;       // resume with 42
+    safe_divide_resume(&sm);    // drive SM to next state
+  }
+  result = sm.result;           // final result from SM
+}
+```
+
+### Transitive effects
+
+When a function calls another effectful function (transitive propagation), the inner function's SM is nested inside the outer function's SM struct as `_inner_sm_0`, `_inner_sm_1`, etc. The outer SM's resume function drives the inner SM and propagates yields/resumes.
+
+---
+
+## Relationship Between Strategies
+
+The two strategies produce identical observable behavior — the choice is purely an optimization:
+
+| Property                 | Evidence Passing           | SM-Inlining                |
+| ------------------------ | -------------------------- | -------------------------- |
+| State machine generated  | No                         | Yes                        |
+| Handler dispatched via   | Function pointer call      | Inlined at call site       |
+| Resume mechanism         | Direct return value        | `sm.resume_value` + resume |
+| Escape mechanism         | `__yo_effect_escaped` flag | `__yo_effect_escaped` flag |
+| Overhead                 | One indirect call          | SM struct + switch/case    |
+| Supports forall effects  | No (uses `void*` param)    | Yes (type-specific inline) |
+| Supports bare fn effects | No (needs module wrapper)  | Yes                        |
+| Composable/transitive    | Yes (param forwarding)     | Yes (nested SM)            |
+
+The compiler prefers evidence passing when possible because it generates simpler, faster C code with no state machine overhead.
+
+See `issues/sync-effect-inlining-inside-async-context.md` for the full design rationale and `.github/instructions/c-codegen.instructions.md` for codegen conventions.
