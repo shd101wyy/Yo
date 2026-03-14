@@ -73,7 +73,7 @@ Yo is a new, evolving language. Don't worry about breaking changes when making d
 - `return expr` inside an effect handler **resumes** the continuation.
 - `escape expr` inside an effect handler **discards** the continuation and exits the enclosing `fn`.
 - Effect row variables (`forall(...(E))` with `using(...(E))`) allow functions to be polymorphic over their effects — they forward whatever effects the caller provides.
-- The codegen generates effect functions as state machines, similar to async/await.
+- Effect handlers use Evidence Passing (function pointer parameters) for zero-overhead calls.  
 
 ## Future return types with effects
 

@@ -1,7 +1,5 @@
 import { type Environment } from "../../env";
 import { isIoAsyncCall } from "../../evaluator/async/await-analysis";
-import { analyzeEffectCallPoints } from "../../evaluator/effects/effect-analysis";
-import type { EffectAnalysisResult } from "../../evaluator/effects/effect-analysis-types";
 import { typeImplementsFuture } from "../../evaluator/trait-checking";
 import { findMatchingGenericImpl } from "../../evaluator/values/impl";
 import {
@@ -10,7 +8,6 @@ import {
   type Expr,
   exprIsFunctionCall,
   exprIsFunctionCallOf,
-  type FnCallExpr,
   hasAnyControlFlow,
 } from "../../expr";
 import { type FunctionValue } from "../../function-value";
@@ -39,12 +36,6 @@ import {
 import { isTempVariableName } from "../../utils";
 import { isFunctionValue, isTraitValue, type TraitValue } from "../../value";
 import { generateAsyncRuntime } from "../async/runtime";
-import {
-  type EffectStateMachineInfo,
-  generateEffectResumeFunction,
-  generateEffectResumeFunctionDeclaration,
-  generateEffectStateMachineStruct,
-} from "../effects/effect-state-machine";
 import {
   generateDeferredDropExpressions,
   generateDeferredDupExpressions,
@@ -307,35 +298,12 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
     // Check if this is an effectful function (body has effect call points)
     const effectAnalysis = value.body?.$?.effectAnalysis;
     if (effectAnalysis && effectAnalysis.hasEffects) {
-      // Check if this function was registered for SM-inlining (has effectStateMachineInfo).
-      // Module-based effect functions skip SM registration and fall through to
-      // normal function generation with evidence passing (fn ptr params).
-      const funcEntry = context.functions[value.funcId];
-      if (funcEntry?.effectStateMachineInfo) {
-        // SM-inlined effectful function
-        generateEffectfulFunction(value, cName, context);
-        continue;
-      }
-      // Module-based effect: fall through to normal function generation
+      // All effects use evidence passing (fn ptr params).
+      // Fall through to normal function generation.
     }
 
     // Generate the function body
     generateFunction(value, cName, context);
-  }
-
-  // Generate deferred effectful function resume functions
-  if (context.deferredEffectfulFunctions) {
-    for (const deferred of context.deferredEffectfulFunctions) {
-      const { functionValue, info } = deferred;
-      if (functionValue.body) {
-        generateEffectResumeFunction(
-          functionValue.body,
-          info,
-          context,
-          functionValue
-        );
-      }
-    }
   }
 
   // Generate Iso type declarations if any were collected during expression generation
@@ -426,27 +394,8 @@ int main(int argc, char** argv) {
 export function preRegisterEffectfulFunctions(
   context: FunctionGenerationContext
 ): void {
-  // Collect effectful functions into two groups:
-  // 1. Direct: functions that directly call ctl operations
-  // 2. Transitive: functions that call other effectful functions
-  // Direct functions must be registered first so their SM structs are defined
-  // before transitive functions reference them as inner SM fields.
-  const directFunctions: Array<{
-    functionValue: FunctionValue;
-    cFunctionName: string;
-    functionType: FunctionType;
-    effectAnalysis: EffectAnalysisResult;
-  }> = [];
-  const transitiveFunctions: Array<{
-    functionValue: FunctionValue;
-    cFunctionName: string;
-    functionType: FunctionType;
-    effectAnalysis: EffectAnalysisResult;
-  }> = [];
-
   for (const funcId in context.functions) {
-    const { value: functionValue, cName: cFunctionName } =
-      context.functions[funcId]!;
+    const { value: functionValue } = context.functions[funcId]!;
 
     if (isComptimeFunction(functionValue)) {
       continue;
@@ -457,9 +406,6 @@ export function preRegisterEffectfulFunctions(
     if (!effectAnalysis || !effectAnalysis.hasEffects) {
       continue;
     }
-
-    // Determine the function type (use specialized if available)
-    const functionType = functionValue.specializedType ?? functionValue.type;
 
     // Skip if the specialized type still has unresolved type parameters
     if (functionValue.specializedType) {
@@ -511,16 +457,6 @@ export function preRegisterEffectfulFunctions(
       }
     }
 
-    // Check if ALL effects are module-based (have effectFieldPath).
-    // Module-based effects use evidence passing (fn ptr params) instead of SM-inlining.
-    // But only skip SM registration if evidence passing is actually possible
-    // (i.e., the module has non-forall function fields that can be passed as fn ptrs).
-    const isModuleEffectOnly = effectAnalysis.effectFieldPath
-      ? true
-      : effectAnalysis.effectHandlerInfos
-        ? effectAnalysis.effectHandlerInfos.every((hi) => hi.effectFieldPath)
-        : false;
-
     // Use evidence passing when evidence params are available.
     // Functions with evidence params receive their effects as fn ptr parameters.
     // Direct effect calls in the body compile as fn ptr calls through those params,
@@ -531,297 +467,9 @@ export function preRegisterEffectfulFunctions(
       continue;
     }
 
-    if (isModuleEffectOnly && evidenceParams.length === 0) {
-      // Module-based effect but all fields are forall (can't be fn ptrs) —
-      // fall through to SM-inlining
-    }
-
-    const hasTransitiveCalls = effectAnalysis.effectCallPoints.some(
-      (cp) => cp.isTransitiveEffectCall
-    );
-    const hasDirectCalls = effectAnalysis.effectCallPoints.some(
-      (cp) => !cp.isTransitiveEffectCall
-    );
-
-    if (hasDirectCalls || !hasTransitiveCalls) {
-      directFunctions.push({
-        functionValue,
-        cFunctionName,
-        functionType,
-        effectAnalysis,
-      });
-    } else {
-      transitiveFunctions.push({
-        functionValue,
-        cFunctionName,
-        functionType,
-        effectAnalysis,
-      });
-    }
+    // No evidence params — this shouldn't happen for current effect patterns.
+    // All effects (including forall) use evidence passing.
   }
-
-  // Register direct-call functions first (their SM structs must be defined first)
-  for (const func of directFunctions) {
-    registerEffectfulFunction(
-      func.functionValue,
-      func.cFunctionName,
-      func.functionType,
-      func.effectAnalysis,
-      context
-    );
-  }
-
-  // Second pass: handle functions that have ctl handler calls via implicit parameters
-  // but haven't had effect analysis performed yet.
-  // This includes:
-  // - Closures: the evaluator doesn't run effect analysis for closures because
-  //   functionValue is undefined for closure calls in tryToCallFunctionWithArguments.
-  // - Non-closure functions with spread effect forall parameters (forall(...(E))):
-  //   these are generic over their effects, so the evaluator defers effect analysis.
-  // We perform the analysis here in the codegen phase.
-  for (const funcId in context.functions) {
-    const { value: functionValue, cName: cFunctionName } =
-      context.functions[funcId]!;
-
-    if (!functionValue.body?.$) continue;
-    if (functionValue.body.$.effectAnalysis?.hasEffects) continue;
-
-    // Skip the original function when it has specialization caches.
-    // The specialized versions are separate entries that will be processed instead.
-    if (
-      !functionValue.type.isClosure &&
-      functionValue.specializedFunctionCaches?.length > 0
-    ) {
-      continue;
-    }
-
-    const functionType = functionValue.type;
-    const implicitParams = functionType.implicitParameters;
-
-    for (const implicitParam of implicitParams) {
-      if (!isFunctionType(implicitParam.type)) {
-        continue;
-      }
-
-      const effectAnalysis = analyzeEffectCallPoints(
-        functionValue.body,
-        implicitParam.label,
-        implicitParam.type
-      );
-
-      if (!effectAnalysis.hasEffects) continue;
-
-      // Find the handler value from the first ctl call expression in the body.
-      // For closures where the handler is passed via using() from outside (e.g., io.async
-      // closures with raise : Raise), the handler value on the call expression may be
-      // UnknownValue at the closure's definition time. In that case, we can still detect
-      // that the handler is a ctl handler by checking if the implicit parameter type
-      // is a function type that returns a forall type (polymorphic return = ctl handler pattern).
-      const firstCallPoint = effectAnalysis.effectCallPoints[0];
-      let handlerIsControlFunction = false;
-      if (firstCallPoint) {
-        const callExpr = firstCallPoint.expr as FnCallExpr;
-        if (callExpr && "func" in callExpr) {
-          const handlerValue = callExpr.func.$?.value;
-          if (handlerValue && isFunctionValue(handlerValue)) {
-            effectAnalysis.handlerValue = handlerValue;
-            handlerIsControlFunction = !!handlerValue.isControlFunction;
-          }
-        }
-      }
-
-      // If we couldn't determine from the handler value, check if the implicit param type
-      // has forall return type (polymorphic return T → always a ctl/escape handler pattern).
-      // This handles closures where the handler is provided externally via using()
-      // and the concrete handler value isn't available at the closure's definition time.
-      if (!handlerIsControlFunction) {
-        const paramFnType = implicitParam.type as FunctionType;
-        if (
-          paramFnType.forallParameters &&
-          paramFnType.forallParameters.length > 0
-        ) {
-          // Has forall(T) return → polymorphic return type = ctl handler
-          handlerIsControlFunction = true;
-        }
-      }
-
-      // Only register as effectful if the handler uses escape (is a control function).
-      // Regular function calls via using() don't need state machine transformation.
-      //
-      // For non-closure functions with effect row spread parameters (forall(...(E))),
-      // the handler value is not available at the definition site — the handler is
-      // provided at the call site via `given`. In this case, we must treat the function
-      // as effectful since it was declared with effect parameters.
-      // However, non-closure functions WITHOUT spread effect params (e.g., regular
-      // forall(T) + using(op : fn_type)) are just using implicit parameter resolution,
-      // not algebraic effects — they should NOT be treated as effectful.
-      const hasEffectRowSpread = implicitParams.some(
-        (p) => p.isEffectRowSpread
-      );
-      if (
-        !handlerIsControlFunction &&
-        (functionValue.type.isClosure || !hasEffectRowSpread)
-      )
-        continue;
-
-      functionValue.body.$.effectAnalysis = effectAnalysis;
-
-      // Find the capture type C name for the SM
-      let closureCaptureTypeCName: string | undefined;
-      const closureInfo = functionValue.closureInfo;
-      if (closureInfo?.captureType && isStructType(closureInfo.captureType)) {
-        closureCaptureTypeCName =
-          context.types[closureInfo.captureType.id]?.cName;
-      }
-
-      // Check if this closure should use evidence passing instead of SM.
-      // Closures with evidence params (from using(...(E))) receive their effects
-      // as fn ptr parameters and don't need SM transformation.
-      const closureEvidenceParams = getEvidenceParameters(functionType);
-      if (closureEvidenceParams.length > 0) {
-        // Store the effect analysis but skip SM registration
-        break;
-      }
-
-      registerEffectfulFunction(
-        functionValue,
-        cFunctionName,
-        functionType,
-        effectAnalysis,
-        context,
-        true,
-        closureCaptureTypeCName
-      );
-      break;
-    }
-  }
-
-  // Third: register transitive-call functions (they reference inner SM structs
-  // from direct-call or closure functions, which are now all registered)
-  for (const func of transitiveFunctions) {
-    registerEffectfulFunction(
-      func.functionValue,
-      func.cFunctionName,
-      func.functionType,
-      func.effectAnalysis,
-      context
-    );
-  }
-}
-
-/**
- * Register a single effectful function: create SM info, generate struct + forward decl,
- * store info on funcEntry, and defer resume function body generation.
- */
-function registerEffectfulFunction(
-  functionValue: FunctionValue,
-  cFunctionName: string,
-  functionType: FunctionType,
-  effectAnalysis: EffectAnalysisResult,
-  context: FunctionGenerationContext,
-  isClosure: boolean = false,
-  closureCaptureTypeCName?: string
-): void {
-  // Determine types for the state machine
-  const returnTypeCName = isUnitType(functionType.return.type)
-    ? "void"
-    : getTypeString(functionType.return.type, context);
-
-  // The yield types are the argument types of the ctl operation
-  const yieldTypeCNames: string[] =
-    effectAnalysis.effectCallPoints.length > 0
-      ? effectAnalysis.effectCallPoints[0]!.operationArgTypes.map((t) =>
-          getTypeString(t, context)
-        )
-      : [];
-
-  // The resume type is the return type of the ctl operation at call site
-  const resumeTypeCName =
-    effectAnalysis.effectCallPoints.length > 0
-      ? getTypeString(
-          effectAnalysis.effectCallPoints[0]!.operationResultType,
-          context
-        )
-      : "void";
-
-  const structName = `${sanitizeForCIdentifier(cFunctionName)}_sm`;
-  const resumeFunctionName = `${sanitizeForCIdentifier(cFunctionName)}_resume`;
-
-  // Build per-effect type info for multi-effect functions
-  let effectInfos:
-    | import("../effects/effect-state-machine").EffectSmTypeInfo[]
-    | undefined;
-  if (
-    effectAnalysis.effectHandlerInfos &&
-    effectAnalysis.effectHandlerInfos.length > 1
-  ) {
-    effectInfos = effectAnalysis.effectHandlerInfos.map((hi) => ({
-      yieldTypeCNames: hi.operationArgTypes.map((t) =>
-        getTypeString(t, context)
-      ),
-      resumeTypeCName: getTypeString(hi.operationResultType, context),
-    }));
-  }
-
-  // Compute closure-captured variable names for the SM to exclude from struct/varmap
-  let closureCapturedVarNames: Set<string> | undefined;
-  if (isClosure && functionValue.closureInfo?.captureType) {
-    const ct = functionValue.closureInfo.captureType;
-    if (isStructType(ct) && ct.fields.length > 0) {
-      closureCapturedVarNames = new Set(ct.fields.map((f) => f.label));
-    }
-  }
-
-  const info: EffectStateMachineInfo = {
-    structName,
-    resumeFunctionName,
-    analysis: effectAnalysis,
-    functionType,
-    returnTypeCName,
-    yieldTypeCNames,
-    resumeTypeCName,
-    effectInfos,
-    isClosure,
-    closureCaptureTypeCName,
-    closureCapturedVarNames,
-  };
-
-  // Generate the struct definition
-  generateEffectStateMachineStruct(info, context);
-
-  // Generate forward declaration for resume function
-  generateEffectResumeFunctionDeclaration(info, context);
-
-  // Store the info for call-site codegen to use
-  if (!context.deferredEffectfulFunctions) {
-    context.deferredEffectfulFunctions = [];
-  }
-  context.deferredEffectfulFunctions.push({
-    functionValue,
-    cFunctionName,
-    info,
-  });
-
-  // Store the effect SM info on the function entry so call sites can find it
-  const funcEntry = context.functions[functionValue.funcId];
-  if (funcEntry) {
-    funcEntry.effectStateMachineInfo = info;
-  }
-}
-
-/**
- * Generate C code for an effectful function as a state machine.
- * The SM info has already been pre-registered by preRegisterEffectfulFunctions.
- * This function is now a no-op since all work was done during pre-registration.
- */
-function generateEffectfulFunction(
-  _functionValue: FunctionValue,
-  _cFunctionName: string,
-  _context: FunctionGenerationContext
-): void {
-  // All SM struct generation, forward declarations, and funcEntry registration
-  // are handled by preRegisterEffectfulFunctions which runs before any function
-  // body generation. This ensures call sites can find effectStateMachineInfo.
 }
 
 /**
@@ -1379,14 +1027,10 @@ export function generateSpecializedFunctions(context: CodeGenContext): void {
       continue;
     }
 
-    // Check if this is an effectful function (body has effect call points)
+    // If this function is effectful, the main loop already generated it
+    // with evidence passing. Skip to avoid redefinition.
     const effectAnalysis = functionValue.body?.$?.effectAnalysis;
     if (effectAnalysis && effectAnalysis.hasEffects) {
-      generateEffectfulFunction(
-        functionValue,
-        cFunctionName,
-        context as FunctionGenerationContext
-      );
       continue;
     }
 

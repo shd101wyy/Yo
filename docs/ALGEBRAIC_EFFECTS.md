@@ -7,15 +7,15 @@ Yo supports **algebraic effects** — a mechanism for implicit parameter passing
 1. **Implicit Parameters (`using` / `given`)** — contextual parameter passing, resolved at compile time
 2. **Effect Handlers (`return` / `escape`)** — one-shot delimited continuations for control flow effects
 
-The primary code generation strategy is **evidence passing** — effect handler function pointers are passed as extra C parameters, following the approach described in [Generalized Evidence Passing for Effect Handlers (Xie et al., 2021)](https://xnning.github.io/papers/multip.pdf). A state machine fallback exists only for module effects where all functions have `forall` parameters (which cannot be represented as C function pointers).
+The code generation strategy is **evidence passing** — effect handler function pointers are passed as extra C parameters, following the approach described in [Generalized Evidence Passing for Effect Handlers (Xie et al., 2021)](https://xnning.github.io/papers/multip.pdf). All effect types are handled this way, including forall effects (passed as `void*` and cast to typed fn ptr at each call site).
 
 ## Design Principles
 
 | Principle                  | Decision                          | Rationale                                                                           |
 | -------------------------- | --------------------------------- | ----------------------------------------------------------------------------------- |
 | Explicit over implicit     | **Use `given`**                   | Explicit marking avoids ambiguity, better error messages, follows Scala 3 precedent |
-| Evidence passing           | **Preferred**                     | Fn ptr params eliminate SM overhead; Koka-style flag propagation for escape         |
-| SM fallback for forall     | **No (void\* cast)**              | `forall` fn ptrs passed as `void*` and cast to typed fn ptr at each call site       |
+| Evidence passing           | **Always**                        | Fn ptr params eliminate SM overhead; Koka-style flag propagation for escape         |
+| Forall effects             | **void\* cast**                   | `forall` fn ptrs passed as `void*` and cast to typed fn ptr at each call site       |
 | One-shot continuations     | **One-shot**                      | Fits RC model, simpler implementation, covers 99% of use cases, `resume` is linear  |
 | Static dispatch            | **Impl (static)**                 | Handler is lexically scoped, compiler knows types, zero overhead                    |
 | `return`/`escape` keywords | **One-shot (enforced by syntax)** | `return` and `escape` must be the last expression — can only appear once            |
@@ -131,7 +131,7 @@ raise_resume :: (fn() -> i64) {
 ### Semantics
 
 - An effect operation type is a regular `fn` type whose handler body uses `escape` or `return` to control the continuation (the compiler detects this automatically).
-- When an effect operation is invoked, execution is **suspended** at that point. A continuation (the rest of the computation up to the handler) is captured as a stack-allocated state machine.
+- When an effect operation is invoked, the handler function is called directly via a function pointer parameter.
 - The handler body receives the effect's arguments (e.g., `msg`, `msg2`).
 - Inside the handler body:
   - **`return(value)`** — resumes the captured continuation with `value` as the result of the effect call.
@@ -367,7 +367,7 @@ while runtime(true), {
 
 ### Transitive Effect Propagation
 
-When a function is effect-polymorphic via `forall(...(E))` and contains loops with control flow, the state machine transformation applies correctly inside the function body:
+When a function is effect-polymorphic via `forall(...(E))` and contains loops with control flow, evidence passing works correctly inside the function body:
 
 ```rust
 Yield :: (fn(v : i32) -> i32);
@@ -412,54 +412,33 @@ See `tests/algebraic_effects.test.yo` (46 tests) for comprehensive examples cove
 - Multiple effect row spreads with resume/escape
 - Closure with `using()` effect — resume and escape
 - Effect row polymorphism with `...(E)` spread in closure callbacks
-- Transitive state machine functions with break/continue/early return
+- Transitive effect propagation with break/continue/early return
 - Break/continue in tagged union match arms after effect resume
 
 ---
 
 ## Relationship to Async/Await
 
-| Aspect           | Async/Await                   | Algebraic Effects                             |
-| ---------------- | ----------------------------- | --------------------------------------------- |
-| Suspension point | `io.await(expr)`              | `effect_op(args)` (fn ptr call)               |
-| Who resumes      | Event loop (IO completion)    | Handler (calling `return`)                    |
-| Code generation  | State machine (always)        | Evidence passing (preferred) or SM (fallback) |
-| Continuation     | Implicit (event loop manages) | Explicit (`return` / `escape` in handler)     |
-| Thread model     | Single-threaded event loop    | Synchronous (same thread)                     |
-| Use cases        | IO concurrency                | Control flow abstraction, error handling      |
+| Aspect           | Async/Await                   | Algebraic Effects                         |
+| ---------------- | ----------------------------- | ----------------------------------------- |
+| Suspension point | `io.await(expr)`              | `effect_op(args)` (fn ptr call)           |
+| Who resumes      | Event loop (IO completion)    | Handler (calling `return`)                |
+| Code generation  | State machine (always)        | Evidence passing (always)                 |
+| Continuation     | Implicit (event loop manages) | Explicit (`return` / `escape` in handler) |
+| Thread model     | Single-threaded event loop    | Synchronous (same thread)                 |
+| Use cases        | IO concurrency                | Control flow abstraction, error handling  |
 
-The SM-inlining fallback for effects shares the same state machine infrastructure as async/await (shared analysis in `src/codegen/shared/suspension-analysis.ts` and shared codegen in `src/codegen/shared/suspension-codegen.ts`). See [ASYNC_AWAIT.md](./ASYNC_AWAIT.md) for the async/await documentation.
+Async/await uses state machine infrastructure (`src/codegen/shared/suspension-analysis.ts`, `src/codegen/shared/suspension-codegen.ts`). Algebraic effects do NOT use state machines — they use evidence passing exclusively. See [ASYNC_AWAIT.md](./ASYNC_AWAIT.md) for the async/await documentation.
 
 ---
 
-## Code Generation: Two Strategies
+## Code Generation: Evidence Passing
 
-The compiler uses **two strategies** for generating C code for effect handlers. Evidence passing is strongly preferred; SM-inlining is a fallback for a narrow case.
+The compiler generates C code for effect handlers using **evidence passing** — effect handler function pointers are passed as extra C parameters.
 
-### Strategy 1: Evidence Passing (primary — covers most effects)
+**When**: All effect types — module-based effects, bare function-type effects, effect row spreads (`...(E)`), and forall effects (via `void*` parameter casting).
 
-**When**: Module-based effects with function-typed fields, bare function-type effects, and effect row spreads (`...(E)`). This covers the vast majority of effects — e.g., `Exception`, `Raise`, `Log`, bare `fn`-typed effects, and effect-polymorphic functions.
-
-**How**: The effect handler function pointer is passed as an extra C parameter. No state machine is needed. The effectful function calls the handler directly via the fn ptr and checks the `__yo_effect_escaped` flag afterward. Based on [Generalized Evidence Passing for Effect Handlers (Xie et al., 2021)](https://xnning.github.io/papers/multip.pdf).
-
-### Strategy 2: SM-Inlining (fallback — rare)
-
-**When**: Evidence passing cannot be used. Currently, evidence passing covers all effect types including forall effects (via `void*` parameter casting). SM-inlining remains as legacy infrastructure but is no longer required for any standard effect pattern.
-
-**How**: The effectful function is compiled into a **state machine** struct. Effect invocation becomes a yield point — the SM pauses, yields the effect arguments, and the handler loop at the call site receives them, runs the handler body, and either resumes (setting `resume_value` and calling resume) or escapes.
-
-### Decision flow
-
-```
-Function has using(effect : EffectType)?
-  │
-  ├── getEvidenceParameters() returns params? ──→ EVIDENCE PASSING
-  │   (module effects, bare fn types, effect row spreads ...(E),
-  │    and forall effects via void* casting)
-  │
-  └── No evidence params? ──→ SM-INLINING
-      (currently no standard effect pattern triggers this)
-```
+**How**: The effect handler function pointer is passed as an extra C parameter. The effectful function calls the handler directly via the fn ptr and checks the `__yo_effect_escaped` flag afterward. Based on [Generalized Evidence Passing for Effect Handlers (Xie et al., 2021)](https://xnning.github.io/papers/multip.pdf).
 
 ---
 
@@ -600,130 +579,6 @@ int32_t safe_divide(int32_t x, int32_t y, void* throw) {
 Escape values (including non-unit values) are propagated via the thread-local `__yo_escape_value` mechanism. When `escape expr` is called inside a handler, the escape value is stored in a thread-local and can be retrieved at the handler installation site (`given`).
 
 ---
-
-## SM-Inlining (Strategy 2) — Detailed
-
-SM-inlining is the original effect system. It transforms the effectful function into a **state machine** and inlines the handler at the call site in a driver loop.
-
-### When SM-inlining is used
-
-SM-inlining is legacy infrastructure. All standard effect patterns — including forall effects — now use evidence passing via `void*` parameter casting. SM-inlining may still be triggered for edge cases not yet covered by evidence passing, but no known standard pattern requires it.
-
-### State machine struct
-
-```c
-typedef struct safe_divide_sm {
-  int state;                    // current state (-2=aborted, -1=complete, 0..N=running)
-  int completed;                // 1 when function finished
-  int32_t result;               // return value (if non-void)
-
-  // Yielded effect arguments
-  char* yield_0;                // first arg to handler (e.g., error message)
-
-  // Resume value from handler
-  int32_t resume_value;         // value passed back via `return`
-
-  // Function parameters
-  int32_t param_x, param_y;
-
-  // Captured local variables crossing yield points
-  int32_t var_temp;
-
-  // Nested SM for transitive calls
-  inner_sm_struct _inner_sm_0;
-} safe_divide_sm;
-```
-
-### Resume function
-
-The effectful function body is split at yield points into a switch-case state machine:
-
-```c
-void safe_divide_resume(safe_divide_sm* sm) {
-  switch (sm->state) {
-    case 0: {
-      // Run body until effect invocation
-      if (sm->param_y == 0) {
-        sm->yield_0 = "div by zero";  // yield effect arg
-        sm->state = 1;                // next state after resume
-        return;                       // suspend
-      }
-      sm->result = sm->param_x / sm->param_y;
-      sm->completed = 1;
-      return;
-    }
-    case 1: {
-      // Resumed from handler — sm->resume_value has handler's return
-      sm->result = sm->resume_value;
-      sm->completed = 1;
-      return;
-    }
-  }
-}
-```
-
-### Call site with inlined handler
-
-At the call site where the handler is installed:
-
-```c
-// Escape handler (discards continuation)
-{
-  safe_divide_sm sm = {0};
-  sm.param_x = 10; sm.param_y = 0;
-  safe_divide_resume(&sm);
-
-  while (!sm.completed) {
-    // Handler body inlined here:
-    printf("Error: %s\n", sm.yield_0);
-    __yo_effect_escaped = 1;   // escape
-    goto handler_exit;         // exit enclosing function
-  }
-  result = sm.result;
-}
-```
-
-```c
-// Resume handler (continues computation)
-{
-  safe_divide_sm sm = {0};
-  sm.param_x = 10; sm.param_y = 0;
-  safe_divide_resume(&sm);
-
-  while (!sm.completed) {
-    // Handler body inlined here:
-    printf("Recovering from: %s\n", sm.yield_0);
-    sm.resume_value = 42;       // resume with 42
-    safe_divide_resume(&sm);    // drive SM to next state
-  }
-  result = sm.result;           // final result from SM
-}
-```
-
-### Transitive effects
-
-When a function calls another effectful function (transitive propagation), the inner function's SM is nested inside the outer function's SM struct as `_inner_sm_0`, `_inner_sm_1`, etc. The outer SM's resume function drives the inner SM and propagates yields/resumes.
-
----
-
-## Relationship Between Strategies
-
-The two strategies produce identical observable behavior — the choice is purely an optimization:
-
-| Property                 | Evidence Passing           | SM-Inlining                |
-| ------------------------ | -------------------------- | -------------------------- |
-| State machine generated  | No                         | Yes                        |
-| Handler dispatched via   | Function pointer call      | Inlined at call site       |
-| Resume mechanism         | Direct return value        | `sm.resume_value` + resume |
-| Escape mechanism         | `__yo_effect_escaped` flag | `__yo_effect_escaped` flag |
-| Overhead                 | One indirect call          | SM struct + switch/case    |
-| Supports forall effects  | Yes (`void*` param + cast) | Yes (type-specific inline) |
-| Supports bare fn effects | Yes                        | Yes                        |
-| Composable/transitive    | Yes (param forwarding)     | Yes (nested SM)            |
-
-The compiler prefers evidence passing when possible because it generates simpler, faster C code with no state machine overhead.
-
-See `issues/sync-effect-inlining-inside-async-context.md` for the full design rationale and `.github/instructions/c-codegen.instructions.md` for codegen conventions.
 
 ## Reference
 

@@ -5,7 +5,7 @@ description: "Use when working on C code generation, the codegen transpiler, emi
 # C Codegen Conventions
 
 - Stick with **C11 standard**. Do not use GNU extensions — we target multiple C compilers.
-- No `setjmp`/`longjmp` for state machine generation (algebraic effects, async/await).
+- No `setjmp`/`longjmp` for state machine generation (async/await).
 - Do not call `emitter.emitLine` multiple times when you can use `emitter.emitLine(multi-line string)`.
 
 ## Compilation commands

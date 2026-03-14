@@ -200,60 +200,6 @@ export function generatePendingDeferredDrops(
   }
 }
 
-import type { EffectStateMachineInfo } from "../effects/effect-state-machine";
-
-/**
- * Generate C code for `return(value)` inside a ctl handler body.
- * This resumes the continuation by setting the SM's resume_value and calling the resume function.
- */
-function generateReturnAsResume(
-  expr: FnCallExpr,
-  indent: string,
-  context: CodeGenContext,
-  resumeInfo: {
-    smVar: string;
-    smInfo: EffectStateMachineInfo;
-    effectIndex?: number;
-  }
-): string {
-  const { smVar, smInfo, effectIndex } = resumeInfo;
-  const emitter = context.emitter;
-  const functionContext = context as FunctionGenerationContext;
-
-  const arg = expr.args[0];
-  // Determine the resume_value field name based on effect index
-  const resumeField =
-    effectIndex !== undefined &&
-    smInfo.effectInfos &&
-    smInfo.effectInfos.length > 1
-      ? `resume_value_${effectIndex}`
-      : `resume_value`;
-  const resumeTypeCName =
-    effectIndex !== undefined &&
-    smInfo.effectInfos &&
-    smInfo.effectInfos.length > 1
-      ? smInfo.effectInfos[effectIndex]!.resumeTypeCName
-      : smInfo.resumeTypeCName;
-
-  if (arg && resumeTypeCName !== "void") {
-    const argCode = generateExpr(arg, indent, context);
-    emitter.emitLine(`${indent}${smVar}.${resumeField} = ${argCode};`);
-  }
-
-  // Drop handler parameters BEFORE resuming the state machine.
-  // The SM may free yielded data during resume, so params extracted from
-  // yield fields must be dropped first to avoid use-after-free.
-  if (functionContext.effectHandlerParamDrops) {
-    for (const dropCode of functionContext.effectHandlerParamDrops) {
-      emitter.emitLine(`${indent}${dropCode};`);
-    }
-  }
-
-  emitter.emitLine(`${indent}${smInfo.resumeFunctionName}(&${smVar});`);
-
-  return "";
-}
-
 /**
  * Generate a return statement for `return` expressions
  * Function with explicit return:
@@ -307,7 +253,6 @@ export function generateReturn(
         }
         return "";
       }
-      return generateReturnAsResume(expr, indent, context, resumeInfo);
     }
   }
 
@@ -327,11 +272,7 @@ export function generateReturn(
     let argCode: string;
     let needsTempVarDeclaration = false;
 
-    if (
-      (functionContext.inAsyncStateMachine ||
-        functionContext.inEffectStateMachine) &&
-      arg.$?.variableName
-    ) {
+    if (functionContext.inAsyncStateMachine && arg.$?.variableName) {
       // In async context: generate raw value code by temporarily clearing variableName
       const savedVariableName = arg.$.variableName;
       arg.$.variableName = undefined;
@@ -414,24 +355,8 @@ export function generateReturn(
       generateDeferredDropExpressions(expr, indent, context);
     }
 
-    // Check if we're in a state machine - if so, complete the SM instead of returning
-    if (
-      functionContext.inAsyncStateMachine ||
-      functionContext.inEffectStateMachine
-    ) {
-      if (functionContext.inEffectStateMachine) {
-        // Effect state machine return - set result and mark completed
-        generatePendingDeferredDrops(indent, functionContext, expr, true);
-        const returnValue = handledDeferredDup
-          ? argCode
-          : (returnTempVar ?? argCode);
-        if (!isUnitType(expr.$.type)) {
-          context.emitter.emitLine(`${indent}sm->result = ${returnValue};`);
-        }
-        context.emitter.emitLine(`${indent}sm->completed = 1;`);
-        return `return`;
-      }
-
+    // Check if we're in an async state machine - if so, complete the Future instead of returning
+    if (functionContext.inAsyncStateMachine) {
       // Async state machine return - complete the Future and clean up
       const futureType = functionContext.inAsyncStateMachine!.futureType;
       const futureModuleType = extractFutureTraitFromType(futureType)!;
@@ -480,18 +405,8 @@ export function generateReturn(
       generateDeferredDropExpressions(expr, indent, context);
     }
 
-    // Check if we're in a state machine - if so, complete the SM instead of returning
-    if (
-      functionContext.inAsyncStateMachine ||
-      functionContext.inEffectStateMachine
-    ) {
-      if (functionContext.inEffectStateMachine) {
-        // Effect state machine unit return - mark completed
-        generatePendingDeferredDrops(indent, functionContext, expr, true);
-        context.emitter.emitLine(`${indent}sm->completed = 1;`);
-        return `return`;
-      }
-
+    // Check if we're in an async state machine - if so, complete the Future instead of returning
+    if (functionContext.inAsyncStateMachine) {
       const futureType = functionContext.inAsyncStateMachine!.futureType;
       const futureModuleType = extractFutureTraitFromType(futureType)!;
       const childType = futureModuleType.isFuture.outputType;
