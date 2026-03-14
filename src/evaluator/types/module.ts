@@ -606,6 +606,7 @@ export function evaluateModuleType({
         context: {
           ...context,
           SelfType: undefined, // Modules cannot refer to Self while defining fields
+          SelfModuleType: moduleType, // Allow SelfModule for self-referencing
         },
         isForEvaluatingModuleType: true,
       });

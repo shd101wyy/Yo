@@ -2456,6 +2456,7 @@ ${typeToString(returnType)}`,
     parametersFrame: env.frames[env.frames.length - 1]!,
     SelfType: context.SelfType,
     SelfTraitType: context.SelfTraitType,
+    SelfModuleType: context.SelfModuleType,
   });
 
   // Pop the environment frame
@@ -2502,6 +2503,7 @@ export function evaluateFunctionParameterTypeAgain({
         expectedType: undefined,
         SelfType: functionType.SelfType,
         SelfTraitType: functionType.SelfTraitType ?? context.SelfTraitType,
+        SelfModuleType: functionType.SelfModuleType ?? context.SelfModuleType,
 
         isEvaluatingFunctionBodyOrAsyncBlock: recurEnclosingFunctionType
           ? {
@@ -2573,6 +2575,7 @@ export function evaluateFunctionParameterTypeAgain({
         expectedType: undefined,
         SelfType: functionType.SelfType,
         SelfTraitType: functionType.SelfTraitType ?? context.SelfTraitType,
+        SelfModuleType: functionType.SelfModuleType ?? context.SelfModuleType,
       },
     });
     if (!evaluatedDefaultValueExpr.$) {
@@ -2650,6 +2653,7 @@ export function evaluateFunctionReturnTypeAgain({
       ...context,
       SelfType: functionType.SelfType,
       SelfTraitType: functionType.SelfTraitType ?? context.SelfTraitType,
+      SelfModuleType: functionType.SelfModuleType ?? context.SelfModuleType,
     },
   });
 
