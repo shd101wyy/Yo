@@ -152,3 +152,52 @@ Handler functions marked `isModuleEffectMember = true` with SomeType return type
 This consistency prevents type mismatches between forward declarations and definitions. The escape value is communicated through `__yo_effect_escape_value` (thread-local), not through the C return value.
 
 The `overrideReturnTypeStr` field on `FunctionGenerationContext` stores the actual C return type derived from the body, used by `generateEscape` to emit correct dummy return values when the SomeType-based return maps to `void` but the declaration uses a concrete type.
+
+## JoinHandle(T) codegen
+
+`JoinHandle(T)` is a builtin generic type returned by `io.spawn`. Key codegen files: `generation.ts` (spawn), `await.ts` (`generateJoinHandleAwait`).
+
+### io.spawn codegen
+
+`io.spawn(task, using(io, effects...))` generates:
+
+1. Store the future pointer in a local variable
+2. Check abort state (panic if already aborted)
+3. Inject effect handler function pointers into the future's capture struct via `emitEffectInjection`
+4. Cold-start via `__yo_resume_fn` (with incr_rc for execution reference)
+5. Return a `JoinHandle` struct wrapping the future pointer (non-owning, no extra RC)
+
+### emitEffectInjection
+
+`emitEffectInjection` resolves effect handler function pointers and injects them into the spawned future's capture struct. Resolution order for each effect:
+
+**Module effects (e.g., IO):** For each function field in the module:
+1. SM capture variables (`sm->__capture.<field>`)
+2. Module value fields (concrete `ModuleValue` from evaluator)
+3. Caller's evidence params (`currentEvidenceParams` map)
+4. Given bindings in the call environment
+
+**Function effects (e.g., Raise):** Including forall function effects:
+1. Caller's evidence params
+2. SM capture variables
+3. Using arg's function value (from evaluator)
+4. Fallback: `generateExpr(usingArg)`
+
+**Important:** Forall function-type effects (e.g., `Raise :: fn(forall(T), ...) -> T`) are NOT skipped. They are runtime function pointers passed as `void*` in evidence passing.
+
+### JoinHandle.await codegen
+
+`handle.await(using(io))` generates (`generateJoinHandleAwait` in `await.ts`):
+
+1. Extract `void*` future pointer from handle's `__future` field
+2. Cast to inline header struct to read `state` and `result` fields
+3. Poll loop: `while (state != -1 && state != -2) { yo_async_poll_step(); }`
+4. On completion (state == -1): return `Option(T).Some(result)`
+5. On abort (state == -2): clear `__yo_effect_escaped`, return `Option(T).None`
+
+The inline header struct assumes the standard state machine layout:
+```c
+struct { yo_ref_header_t header; int state; T result; void (*continuation_fn)(void*); void* continuation_sm; void (*__yo_resume_fn)(void*); };
+```
+
+For `Option(unit)` return types, the `.Some` variant has no data field — only the tag is set.

@@ -13,6 +13,7 @@ import {
 import type { FunctionImplicitParameter } from "../../types/definitions";
 import {
   isEffectsRowType,
+  isEnumType,
   isFunctionType,
   isModuleType,
   isSomeType,
@@ -24,6 +25,7 @@ import { isIoFutureType } from "../async/state-machine";
 import type { FunctionGenerationContext } from "../functions/context";
 import {
   getDeferredDropTargetAtomName,
+  getEnumVariantCName,
   getTypeString,
   getVariableTypeString,
   type CodeGenContext,
@@ -310,6 +312,142 @@ export function generateState(
   emitter.emitLine(
     `${indent}int32_t ${resultVar} = (${rawVar} > 0) ? 1 : ${rawVar};`
   );
+
+  return resultVar;
+}
+
+/**
+ * JoinHandle.await(using(io)) — await a spawned task, return Option(T).
+ *
+ * The JoinHandle struct wraps a void* pointer to the spawned future's state machine.
+ * All generated futures share a common initial layout:
+ *   yo_ref_header_t header;
+ *   int state;
+ *   ResultType result;
+ *   void (*continuation_fn)(void*);
+ *   void* continuation_sm;
+ *   void (*__yo_resume_fn)(void*);
+ *
+ * We cast the void* to a common header struct for the result type T,
+ * poll until completion or abort, then return Option(T):
+ *   - state == -1 (completed) → .Some(result)
+ *   - state == -2 (aborted)   → .None
+ */
+export function generateJoinHandleAwait(
+  expr: FnCallExpr,
+  indent: string,
+  context: CodeGenContext
+): string {
+  const functionContext = context as FunctionGenerationContext;
+  const emitter = functionContext.emitter;
+
+  // Method call: expr.func is PropertyAccess(handle, "await"), expr.args is [using(io)]
+  // The self (JoinHandle) is in expr.func.args[0]
+  const handleArg = exprIsFunctionCall(expr.func)
+    ? expr.func.args[0]
+    : expr.args[0];
+  if (!handleArg) {
+    return `// Error: JoinHandle.await requires a self argument`;
+  }
+
+  const handleCode = generateExpr(handleArg, indent, context);
+
+  // The return type of this call is Option(T)
+  const optionType = expr.$?.type;
+  if (!optionType || !isEnumType(optionType)) {
+    return `// Error: JoinHandle.await return type must be Option(T)`;
+  }
+
+  const optionTypeName = getTypeString(optionType, context);
+
+  // Extract T from Option(T): the .Some variant's first field type
+  const someVariant = optionType.variants.find((v) => v.name === "Some");
+  const resultType = someVariant?.fields?.[0]?.type;
+  const isResultUnit = !resultType || isUnitType(resultType);
+  const resultTypeName = isResultUnit
+    ? "uint8_t"
+    : resultType
+      ? getTypeString(resultType, context)
+      : "uint8_t";
+
+  // Get enum variant tag names
+  const someTag = getEnumVariantCName(optionType, "Some", context);
+  const noneTag = getEnumVariantCName(optionType, "None", context);
+
+  const uniqueSuffix = expr.$?.variableName || "jh";
+  const futVar = `__jh_future_${uniqueSuffix}`;
+  const headerVar = `__jh_header_${uniqueSuffix}`;
+  const resultVar = expr.$?.variableName || `__jh_result`;
+
+  // Declare a common future header struct for casting
+  // This matches the initial layout of all generated future state machines
+  const headerStructName = `__yo_jh_header_${uniqueSuffix}`;
+
+  emitter.emitLine(
+    `${indent}// JoinHandle.await — poll spawned task, return Option(T)`
+  );
+  // Declare result variable outside the block so it's accessible after
+  const varDecl = getVariableTypeString(optionType, resultVar, context);
+  emitter.emitLine(`${indent}${varDecl};`);
+  emitter.emitLine(`${indent}{`);
+  // Extract the void* future pointer from the JoinHandle struct
+  emitter.emitLine(`${indent}  void* ${futVar} = ${handleCode}.__future;`);
+  // Define inline struct type matching the common future header layout
+  emitter.emitLine(`${indent}  struct ${headerStructName} {`);
+  emitter.emitLine(`${indent}    yo_ref_header_t header;`);
+  emitter.emitLine(`${indent}    int state;`);
+  emitter.emitLine(`${indent}    ${resultTypeName} result;`);
+  emitter.emitLine(`${indent}    void (*continuation_fn)(void*);`);
+  emitter.emitLine(`${indent}    void* continuation_sm;`);
+  emitter.emitLine(`${indent}    void (*__yo_resume_fn)(void*);`);
+  emitter.emitLine(`${indent}  };`);
+  emitter.emitLine(
+    `${indent}  struct ${headerStructName}* ${headerVar} = (struct ${headerStructName}*)${futVar};`
+  );
+
+  // Poll loop: wait until completed (-1) or aborted (-2)
+  emitter.emitLine(`${indent}  int __jh_state = ${headerVar}->state;`);
+  emitter.emitLine(`${indent}  while (__jh_state != -1 && __jh_state != -2) {`);
+  emitter.emitLine(`${indent}    yo_async_poll_step();`);
+  emitter.emitLine(`${indent}    __jh_state = ${headerVar}->state;`);
+  emitter.emitLine(`${indent}  }`);
+
+  // Build the Option(T) result
+  emitter.emitLine(`${indent}  if (__jh_state == -1) {`);
+  // Completed: return .Some(result)
+  if (isResultUnit) {
+    // Option(unit): .Some variant has no data field
+    emitter.emitLine(
+      `${indent}    ${resultVar} = (${optionTypeName}){ .tag = ${someTag} };`
+    );
+  } else {
+    // Dup the result if it contains RC types
+    if (resultType && typeContainsRcType(resultType)) {
+      const dupFn = getDupFunctionForType(resultType, context);
+      if (dupFn) {
+        emitter.emitLine(
+          `${indent}    ${resultVar} = (${optionTypeName}){ .tag = ${someTag}, .data = { .Some = { .value = ${dupFn}(${headerVar}->result) } } };`
+        );
+      } else {
+        emitter.emitLine(
+          `${indent}    ${resultVar} = (${optionTypeName}){ .tag = ${someTag}, .data = { .Some = { .value = ${headerVar}->result } } };`
+        );
+      }
+    } else {
+      emitter.emitLine(
+        `${indent}    ${resultVar} = (${optionTypeName}){ .tag = ${someTag}, .data = { .Some = { .value = ${headerVar}->result } } };`
+      );
+    }
+  }
+  emitter.emitLine(`${indent}  } else {`);
+  // Aborted: return .None — also reset escape flag if set
+  emitter.emitLine(`${indent}    __yo_effect_escaped = 0;`);
+  emitter.emitLine(
+    `${indent}    ${resultVar} = (${optionTypeName}){ .tag = ${noneTag} };`
+  );
+  emitter.emitLine(`${indent}  }`);
+
+  emitter.emitLine(`${indent}}`);
 
   return resultVar;
 }

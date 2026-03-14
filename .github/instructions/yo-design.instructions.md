@@ -98,6 +98,32 @@ my_fn :: (fn(using(io : IO)) -> Impl(Future(Result(i32, IOError), IO)))(
 );
 ```
 
+## JoinHandle(T) — spawned task handle
+
+`JoinHandle(T)` is a builtin generic type returned by `io.spawn`. It wraps a pointer to the spawned future and allows awaiting its result.
+
+### API
+```yo
+handle := io.spawn(task, using(io, raise));  // → JoinHandle(T)
+result := handle.await(using(io));            // → Option(T)
+```
+
+### Semantics
+- `io.spawn(task, using(io, effects...))` cold-starts the future, injects effect handlers, returns a `JoinHandle(T)`.
+- `handle.await(using(io))` polls the spawned future until completion or abort, returns `Option(T)`:
+  - `.Some(result)` — task completed normally
+  - `.None` — task was aborted (effect handler called `escape`)
+- When used as fire-and-forget (`io.spawn(task)` without binding result), the JoinHandle is discarded with no RC overhead.
+- `JoinHandle(T)` is a non-owning view — it does not increment the future's reference count. The original task variable (`task1`, etc.) owns the future.
+
+### Definition (in prelude.yo)
+```yo
+JoinHandle :: (fn(comptime(T) : Type) -> comptime(Type))
+  struct(__future : *(T))
+;
+```
+The `*(T)` field is required so the type parameter `T` appears in the struct fields, enabling the type synthesizer to extract `T` bindings during generic impl matching.
+
 ## Traits with associated types
 
 Traits use direct `trait(...)` syntax with associated types as labeled `Type` fields:

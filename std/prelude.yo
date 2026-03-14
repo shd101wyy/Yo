@@ -3822,11 +3822,23 @@ impl(FutureState, Eq(FutureState)(
 ));
 export FutureState;
 
+// JoinHandle(T) — a handle to a spawned async task.
+// Wraps a raw pointer to the spawned future's state machine.
+// Generic over T, the return type of the spawned task.
+// NOTE: __future uses *(T) (not *(void)) so that the type parameter T is visible
+// in the struct fields for generic impl matching to extract T from JoinHandle(T).
+JoinHandle :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(
+    __future : *(T)
+  )
+);
+export JoinHandle;
+
 IO :: module(
   async : (fn(forall(T : Type, ...(E)), action : Impl(Fn(using(...(E))) -> T)) -> Impl(Future(T, ...(E)))),
   await : (fn(forall(T : Type, ...(E)), fut : Impl(Future(T, ...(E))), using(...(E))) -> T),
   state : (fn(forall(T : Type, ...(E)), fut : Impl(Future(T, ...(E)))) -> FutureState),
-  spawn : (fn(forall(T : Type, ...(E)), fut : Impl(Future(T, ...(E))), using(...(E))) -> unit)
+  spawn : (fn(forall(T : Type, ...(E)), fut : Impl(Future(T, ...(E))), using(...(E))) -> JoinHandle(T))
 );
 export IO;
 
@@ -3834,7 +3846,7 @@ extern "Yo",
   __yo_io_async : (fn(forall(T : Type, ...(E)), action : Impl(Fn(using(...(E))) -> T)) -> Impl(Future(T, ...(E)))),
   __yo_io_await : (fn(forall(T : Type, ...(E)), fut : Impl(Future(T, ...(E))), using(...(E))) -> T),
   __yo_io_state : (fn(forall(T : Type, ...(E)), fut : Impl(Future(T, ...(E)))) -> FutureState),
-  __yo_io_spawn : (fn(forall(T : Type, ...(E)), fut : Impl(Future(T, ...(E))), using(...(E))) -> unit)
+  __yo_io_spawn : (fn(forall(T : Type, ...(E)), fut : Impl(Future(T, ...(E))), using(...(E))) -> JoinHandle(T))
 ;
 
 // It's intended not to use `given` here.
@@ -3847,3 +3859,12 @@ __yo_builtin_io :: IO(
   spawn : __yo_io_spawn
 );
 export __yo_builtin_io;
+
+// JoinHandle methods — defined after IO so using(io : IO) resolves
+extern "Yo",
+  __yo_join_handle_await : (fn(forall(T : Type), self : JoinHandle(T), using(io : IO)) -> Option(T))
+;
+
+impl(forall(T : Type), JoinHandle(T),
+  await : __yo_join_handle_await
+);

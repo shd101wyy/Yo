@@ -355,7 +355,8 @@ export function checkIfFunctionParameterMatchesArgument({
       const expectedType =
         functionType.ioBuiltin === "io_await" ||
         functionType.ioBuiltin === "io_state" ||
-        functionType.ioBuiltin === "io_spawn"
+        functionType.ioBuiltin === "io_spawn" ||
+        functionType.ioBuiltin === "join_handle_await"
           ? undefined
           : { type: parameterType, env: calleeEnv };
       evaluatedArgExpr = evaluateExpression({

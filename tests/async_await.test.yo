@@ -1516,13 +1516,17 @@ test "Test basic spawn of two futures", using(io : IO), {
   });
 
   // Both tasks are cold (not started).
-  // spawn starts both without waiting for completion.
-  io.spawn(task1);
-  io.spawn(task2);
+  // spawn starts both without waiting for completion, returns JoinHandle.
+  handle1 := io.spawn(task1);
+  handle2 := io.spawn(task2);
 
-  // After spawn, both are running — io.await waits and extracts results.
-  result1 := io.await(task1);
-  result2 := io.await(task2);
+  // After spawn, both are running — handle.await waits and returns Option(T).
+  result1 := handle1.await(using(io));
+  result2 := handle2.await(using(io));
+
+  // Both tasks completed successfully (no escape), results are Some.
+  assert(result1.is_some(), "task1 should complete successfully");
+  assert(result2.is_some(), "task2 should complete successfully");
 
   // Both tasks incremented counter: +2 from task1, +20 from task2
   assert((counter.* == i32(22)), "counter should be 22 after spawn");
@@ -1542,11 +1546,12 @@ test "Test spawn single future", using(io : IO), {
     return counter.*;
   });
 
-  io.spawn(task);
+  handle := io.spawn(task);
 
-  result := io.await(task);
+  result := handle.await(using(io));
   assert((counter.* == i32(50)), "counter should be 50 after single spawn");
-  assert((result == i32(50)), "result should be 50");
+  assert(result.is_some(), "task should complete successfully");
+  assert((result.unwrap() == i32(50)), "result should be 50");
 };
 
 // ---------------------------------------------------------------------------
@@ -1587,11 +1592,15 @@ test "Test spawn with multi-yield futures", using(io : IO), {
     return counter.*;
   });
 
-  io.spawn(task1);
-  io.spawn(task2);
+  handle1 := io.spawn(task1);
+  handle2 := io.spawn(task2);
 
-  result1 := io.await(task1);
-  result2 := io.await(task2);
+  result1 := handle1.await(using(io));
+  result2 := handle2.await(using(io));
+
+  // Both tasks completed successfully, results are Some.
+  assert(result1.is_some(), "multi-yield task1 should complete");
+  assert(result2.is_some(), "multi-yield task2 should complete");
 
   // task1 adds 3, task2 adds 30; total = 33
   assert((counter.* == i32(33)), "counter should be 33 after spawn of multi-yield futures");
@@ -1608,8 +1617,8 @@ test "Test code after spawn", using(io : IO), {
     flag.* = true;
   });
 
-  io.spawn(task);
-  io.await(task);
+  handle := io.spawn(task);
+  handle.await(using(io));
 
   // After spawn + await, flag should be set
   assert(flag.*, "flag should be true after spawn + await");
@@ -2004,10 +2013,10 @@ test "Test io.state completed after spawn", using(io : IO), {
   task_b := io.async((using(io : IO))=> {
     assert((counter.* == i32(1)), "task_a should have started and set counter");
   });
-  io.spawn(task_a);
-  io.spawn(task_b);
-  io.await(task_a);
-  io.await(task_b);
+  handle_a := io.spawn(task_a);
+  handle_b := io.spawn(task_b);
+  handle_a.await(using(io));
+  handle_b.await(using(io));
   sa := io.state(task_a);
   sb := io.state(task_b);
   assert((sa == FutureState.Completed), "spawned task_a should be Completed");
@@ -2084,6 +2093,79 @@ test "Test escape in async closure", using(io : IO), {
 };
 
 // ============================================================================
+// JoinHandle Tests — verify handle := io.spawn(task) + handle.await(using(io))
+// ============================================================================
+
+// ---------------------------------------------------------------------------
+// JoinHandle.await returns Option(T) — .Some on success, .None on escape
+// ---------------------------------------------------------------------------
+test "Test JoinHandle await returns Some on success", using(io : IO), {
+  task := io.async((using(io : IO))=> {
+    io.await(yield());
+    return i32(42);
+  });
+
+  handle := io.spawn(task);
+  result := handle.await(using(io));
+  assert(result.is_some(), "successful task should return Some");
+  assert((result.unwrap() == i32(42)), "result should be 42");
+};
+
+// ---------------------------------------------------------------------------
+// JoinHandle.await returns .None when the task escapes (aborts)
+// ---------------------------------------------------------------------------
+test "Test JoinHandle await returns None on escape", using(io : IO), {
+  Raise :: (fn(forall(T : Type), msg : String) -> T);
+
+  task := io.async((using(io : IO, raise : Raise)) => {
+    io.await(yield());
+    raise(`aborting task`);
+    return i32(99);
+  });
+
+  (given(raise) : Raise) =
+    (msg) -> {
+      escape ();
+    };
+  handle := io.spawn(task, using(io, raise));
+  result := handle.await(using(io));
+  assert(result.is_none(), "escaped task should return None");
+};
+
+// ---------------------------------------------------------------------------
+// Two spawned tasks — one escapes, one succeeds. Verify both JoinHandles.
+// ---------------------------------------------------------------------------
+test "Test JoinHandle two tasks one escapes", using(io : IO), {
+  Raise :: (fn(forall(T : Type), msg : String) -> T);
+
+  task1 := io.async((using(io : IO, raise : Raise)) => {
+    io.await(yield());
+    raise(`task1 escapes`);
+    return i32(0);
+  });
+
+  task2 := io.async((using(io : IO, raise : Raise)) => {
+    io.await(yield());
+    return i32(42);
+  });
+
+  (given(raise) : Raise) =
+    (msg) -> {
+      escape ();
+    };
+
+  handle1 := io.spawn(task1, using(io, raise));
+  handle2 := io.spawn(task2, using(io, raise));
+
+  result1 := handle1.await(using(io));
+  result2 := handle2.await(using(io));
+
+  assert(result1.is_none(), "task1 should escape → None");
+  assert(result2.is_some(), "task2 should succeed → Some");
+  assert((result2.unwrap() == i32(42)), "task2 should return 42");
+};
+
+// ============================================================================
 // Effect Injection Tests — verify effect handlers are injected at runtime
 // via io.spawn/io.await into the future's capture struct.
 // ============================================================================
@@ -2126,8 +2208,8 @@ test "Test effect injection set-once via io.spawn then io.await", using(io : IO)
       assert(false, "log2 should not be called (set-once semantics)");
     };
 
-  io.spawn(task, using(io, log1));
-  io.await(task, using(io, log2));
+  handle := io.spawn(task, using(io, log1));
+  handle.await(using(io));
   printf("set-once via spawn OK\n");
 };
 

@@ -3,31 +3,44 @@ open import "std/string";
 open import "std/fmt";
 { yield } :: import "std/async";
 
-main :: (fn(using(io : IO)) -> unit) {
+test_spawn_with_escape :: (fn(using(io : IO)) -> i32) {
   Raise :: (fn(forall(T : Type), msg : String) -> T);
+  
+  value := Box(i32)(0);
+  // task1 : Impl(Future(unit, IO, Raise))
+  task1 := io.async((using(io : IO, raise : Raise)) => {
+    value.* = (value.* + 1);
+    io.await(yield());
+    raise(`Try to escape from task1!`);
+    value.* = (value.* + 1);
+  });
+  // task2 : Impl(Future(i32, IO, Raise))
+  task2 := io.async((using(io : IO, raise : Raise)) => {
+    value.* = (value.* + 1);
+    io.await(yield());
+    value.* = (value.* + 1);
+    return i32(42);
+  });
 
-  {
-    test_escape :: (fn(task : Impl(Future(i32, IO, Raise)), using(io : IO)) -> i32) {
-      (given(raise) : Raise) =
-        (msg) -> {
-          println(msg);
-          escape 666;
-        };
-      result := io.await(task, using(io, raise));
-      assert(false, "expected task to escape already");
-      return result;
+  (given(raise) : Raise) =
+    (msg) -> {
+      println(msg);
+      escape 888;
     };
+  handle1 := io.spawn(task1, using(io, raise));
+  handle2 := io.spawn(task2, using(io, raise));
 
-    // I expect 'task' to have type Impl(Future(i32, IO, Raise))
-    task := io.async((using(io : IO, raise : Raise)) => {
-      raise(`This task should be aborted, not awaited!`);
-      return i32(12);
-    });
-    result := test_escape(task);
-    st := io.state(task);
-    printf("Future state after starting task: %d\n", st);
-    assert(st == FutureState.Aborted, "expected task to be aborted");
-    assert(result == 666, "expected task to escape with 666");
-  };
+  result1 := handle1.await(using(io));
+  result2 := handle2.await(using(io));
+  assert(result1.is_none(), "expected task1 to escape with an error");
+  assert(result2.is_some(), "expected task2 to complete successfully");
+  assert((result2.unwrap() == i32(42)), "expected task2 to return 42");
+  return value.*;
+};
+
+main :: (fn(using(io : IO)) -> unit) {
+  result := test_spawn_with_escape(using(io));
+  println(`Final value: ${result}`);
+  assert((result == i32(3)), "expected final value to be 3");
 };
 export main;

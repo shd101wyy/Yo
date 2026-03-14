@@ -324,7 +324,16 @@ export function areTypesCompatible(
       // We might compare Box(T) and Box(U), where T and U are SomeType.
       (expected.type.id !== given.type.id &&
         !typeContainsSomeType(expected.type) &&
-        !typeContainsSomeType(given.type))
+        !typeContainsSomeType(given.type) &&
+        // If both structs come from the same type constructor (same funcId),
+        // allow structural comparison even without SomeType in fields.
+        // This handles cases like JoinHandle(T) where T is only used
+        // in methods, not in struct fields themselves.
+        !(
+          expected.type.functionValue &&
+          given.type.functionValue &&
+          expected.type.functionValue.funcId === given.type.functionValue.funcId
+        ))
     ) {
       return false;
     }
