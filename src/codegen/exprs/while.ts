@@ -6,7 +6,7 @@ import {
   type FnCallExpr,
 } from "../../expr";
 import type { FunctionGenerationContext } from "../functions/context";
-import type { CodeGenContext } from "../utils";
+import { type CodeGenContext, getDeferredDropTargetAtomName } from "../utils";
 import { generateExpr } from "./expr";
 
 /**
@@ -75,19 +75,48 @@ function generateLoopBody(
   ) {
     // Update pendingDeferredDrops for this begin block
     // IMPORTANT: Concatenate with previous drops so early returns drop ALL enclosing scope vars
+    // BUT: Don't add currentDrops up front — add them incrementally after each statement
+    // so that break/continue only drops variables that have actually been declared.
     const functionContext = context as FunctionGenerationContext;
     const previousPendingDeferredDrops = functionContext.pendingDeferredDrops;
     const currentDrops = bodyExpr.$?.deferredDropExpressions ?? [];
+
+    // Build a map of drop target variable names to their drop expressions
+    const dropsByTargetName = new Map<string, Expr>();
+    for (const dropExpr of currentDrops) {
+      const name = getDeferredDropTargetAtomName(dropExpr);
+      if (name) dropsByTargetName.set(name, dropExpr);
+    }
+
+    // Start with only outer-scope drops; loop body drops are activated incrementally
     functionContext.pendingDeferredDrops = [
-      ...currentDrops,
       ...(previousPendingDeferredDrops ?? []),
     ];
+    const activatedDropNames = new Set<string>();
 
     // Generate each statement in the begin block directly
     for (const arg of bodyExpr.args) {
       const argCode = generateExpr(arg, indent, context);
       if (argCode) {
         context.emitter.emitLine(`${indent}${argCode};`);
+      }
+
+      // After each statement, activate drops for any newly-declared variables
+      // by scanning the statement's result environment for matching drop targets
+      if (arg.$?.env && dropsByTargetName.size > activatedDropNames.size) {
+        for (const frame of arg.$.env.frames) {
+          for (const variable of frame.variables) {
+            if (
+              dropsByTargetName.has(variable.name) &&
+              !activatedDropNames.has(variable.name)
+            ) {
+              activatedDropNames.add(variable.name);
+              functionContext.pendingDeferredDrops.unshift(
+                dropsByTargetName.get(variable.name)!
+              );
+            }
+          }
+        }
       }
     }
 

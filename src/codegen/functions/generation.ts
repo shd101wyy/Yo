@@ -255,6 +255,19 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
     const hasEvidenceParams =
       getEvidenceParameters(functionTypeForCheck).length > 0;
 
+    // Skip hard-generic or comptime-return functions with no specialization.
+    // These exist only as compile-time templates — their unspecialized
+    // bodies reference comptime bindings not available at runtime.
+    // This applies even to module effect members (e.g., allocator functions).
+    if (
+      !isUserMain &&
+      !value.specializedType &&
+      (value.specializedFunctionCaches?.length ?? 0) === 0 &&
+      (isFunctionTypeHardGeneric(value.type) || isComptimeFunction(value))
+    ) {
+      continue;
+    }
+
     if (
       !isUserMain &&
       !isEffectfulFunction &&
