@@ -15,7 +15,6 @@ import {
   isDynType,
   isFunctionSpecializable,
   isFunctionType,
-  isFunctionTypeGeneric,
   isFunctionTypeHardGeneric,
   isObjectType,
   isSomeType,
@@ -305,9 +304,12 @@ export function findFunctionCallsInExpr(
         // This can happen when type substitution is incomplete
         // BUT: still scan the args — they may contain closure constructions or
         // other functions that need to be collected independently.
+        // Use isFunctionTypeHardGeneric: functions generic ONLY due to implicit
+        // params (e.g., using(io : IO)) can still be codegen'd because implicit
+        // params are compile-time-only and don't appear in C signatures.
         if (
           functionValue.specializedType &&
-          isFunctionTypeGeneric(functionValue.specializedType)
+          isFunctionTypeHardGeneric(functionValue.specializedType)
         ) {
           // Still scan args and func to collect closures etc.
           findFunctionCallsInExpr(expr.func, context);
