@@ -7,18 +7,18 @@ Yo supports **algebraic effects** — a mechanism for implicit parameter passing
 1. **Implicit Parameters (`using` / `given`)** — contextual parameter passing, resolved at compile time
 2. **Effect Handlers (`return` / `escape`)** — one-shot delimited continuations for control flow effects
 
-Both features share the async/await state machine infrastructure. Effect invocations are suspension points, and the compiler transforms functions in the effect scope into state machines (the same transformation used for `io.async`/`io.await`).
+The primary code generation strategy is **evidence passing** — effect handler function pointers are passed as extra C parameters, following the approach described in [Generalized Evidence Passing for Effect Handlers (Xie et al., 2021)](https://xnning.github.io/papers/multip.pdf). A state machine fallback exists only for module effects where all functions have `forall` parameters (which cannot be represented as C function pointers).
 
 ## Design Principles
 
-| Principle                  | Decision                          | Rationale                                                                                 |
-| -------------------------- | --------------------------------- | ----------------------------------------------------------------------------------------- |
-| Explicit over implicit     | **Use `given`**                   | Explicit marking avoids ambiguity, better error messages, follows Scala 3 precedent       |
-| State machine for effects  | **Yes**                           | Same architecture as async/await — effect invocation = suspension point                   |
-| Transform callers too      | **Yes**                           | All functions in the "effect scope" (between handler and effect site) must be transformed |
-| One-shot continuations     | **One-shot**                      | Fits RC model, simpler implementation, covers 99% of use cases, `resume` is linear        |
-| Static dispatch            | **Impl (static)**                 | Handler is lexically scoped, compiler knows types, zero overhead                          |
-| `return`/`escape` keywords | **One-shot (enforced by syntax)** | `return` and `escape` must be the last expression — can only appear once                  |
+| Principle                  | Decision                          | Rationale                                                                           |
+| -------------------------- | --------------------------------- | ----------------------------------------------------------------------------------- |
+| Explicit over implicit     | **Use `given`**                   | Explicit marking avoids ambiguity, better error messages, follows Scala 3 precedent |
+| Evidence passing           | **Preferred**                     | Fn ptr params eliminate SM overhead; Koka-style flag propagation for escape         |
+| SM fallback for forall     | **No (void\* cast)**              | `forall` fn ptrs passed as `void*` and cast to typed fn ptr at each call site       |
+| One-shot continuations     | **One-shot**                      | Fits RC model, simpler implementation, covers 99% of use cases, `resume` is linear  |
+| Static dispatch            | **Impl (static)**                 | Handler is lexically scoped, compiler knows types, zero overhead                    |
+| `return`/`escape` keywords | **One-shot (enforced by syntax)** | `return` and `escape` must be the last expression — can only appear once            |
 
 ---
 
@@ -168,32 +168,32 @@ wrapper :: (fn(x : i32, y : i32, using(raise : Raise)) -> i32)(
 
 The `using` parameter with a function type whose handler uses `escape` is the **sole marker** for whether a function may suspend due to an effect:
 
-| Signature                                           | Role                                   | Needs state machine?          | Callers need transformation?            |
-| --------------------------------------------------- | -------------------------------------- | ----------------------------- | --------------------------------------- |
-| `fn(..., using(raise : Raise)) -> T`                | **Propagates** the effect              | Yes (within a handler scope)  | Only if they also propagate via `using` |
-| `fn() -> T` (handles effect internally via `given`) | **Handles** the effect                 | Internally yes, externally no | **No** — callers see a plain function   |
-| `fn(using(f : (fn() -> i32))) -> T`                 | Implicit param (plain `fn`, no escape) | No                            | No                                      |
+| Signature                                           | Role                                   | Code generation strategy         | Callers need transformation?            |
+| --------------------------------------------------- | -------------------------------------- | -------------------------------- | --------------------------------------- |
+| `fn(..., using(raise : Raise)) -> T`                | **Propagates** the effect              | Evidence passing (fn ptr params) | Only if they also propagate via `using` |
+| `fn() -> T` (handles effect internally via `given`) | **Handles** the effect                 | Evidence passing at handler site | **No** — callers see a plain function   |
+| `fn(using(f : (fn() -> i32))) -> T`                 | Implicit param (plain `fn`, no escape) | No — plain parameter             | No                                      |
 
-The handler is the boundary. The state machine transformation is scoped to the region **between** the `given` handler site and the effect invocation site.
+The handler is the boundary. With evidence passing, intermediate functions simply forward the fn ptr params — no state machine transformation needed.
 
-### State Machine Transformation
+### How Evidence Passing Works (Brief)
 
-The effect system shares Yo's async/await state machine architecture (shared analysis in `src/codegen/shared/suspension-analysis.ts` and shared codegen in `src/codegen/shared/suspension-codegen.ts`):
+With evidence passing, effect handler functions are passed as **extra C parameters** (function pointers). No state machine is needed:
 
-1. **Effect site** (calling `raise(...)`) = suspension point (like `await`).
-2. **Handler scope** = event loop (like `async { ... }`).
-3. **`return(value)`** = continuation resume. **`escape expr`** = continuation discard.
+1. **Effect invocation** (calling `raise(...)`) = fn ptr call through the evidence parameter
+2. **`return(value)`** = handler function returns normally; caller uses the value
+3. **`escape expr`** = handler function sets `__yo_effect_escaped = 1`, stores value in thread-local `__yo_effect_escape_value`, returns dummy; caller checks flag and propagates
 
-Every function in the call chain between the handler and the effect site becomes a state machine:
+Intermediate functions in the call chain simply forward the fn ptr parameters:
 
 ```
-handler scope (given(raise) : Raise = ...)
-  +-- fn_a(...)                    <-- state machine
-       +-- fn_b(...)               <-- state machine
-            +-- raise(msg)         <-- suspension point (effect invocation)
+handler scope (given(raise) : Raise = handler_fn)
+  +-- fn_a(..., raise_ptr)         <-- forwards fn ptr to fn_b
+       +-- fn_b(..., raise_ptr)    <-- forwards fn ptr to raise call
+            +-- raise_ptr(msg)     <-- direct fn ptr call
 ```
 
-The state machine struct includes: `state`, `completed`, `result`, `yield_0..N` (effect arguments), function parameters, and captured variables that cross suspension points.
+See [Code Generation: Two Strategies](#code-generation-two-strategies) for the full details.
 
 ### Effect Polymorphism (`...(E)` Row Spreads)
 
@@ -419,36 +419,32 @@ See `tests/algebraic_effects.test.yo` (46 tests) for comprehensive examples cove
 
 ## Relationship to Async/Await
 
-| Aspect           | Async/Await                   | Algebraic Effects                         |
-| ---------------- | ----------------------------- | ----------------------------------------- |
-| Suspension point | `io.await(expr)`              | `effect_op(args)`                         |
-| Who resumes      | Event loop (IO completion)    | Handler (calling `return`)                |
-| State machine    | Per async function            | Only for SM-inlined effects (see below)   |
-| Continuation     | Implicit (event loop manages) | Explicit (`return` / `escape` in handler) |
-| Thread model     | Single-threaded event loop    | Synchronous (same thread)                 |
-| Use cases        | IO concurrency                | Control flow abstraction, error handling  |
+| Aspect           | Async/Await                   | Algebraic Effects                             |
+| ---------------- | ----------------------------- | --------------------------------------------- |
+| Suspension point | `io.await(expr)`              | `effect_op(args)` (fn ptr call)               |
+| Who resumes      | Event loop (IO completion)    | Handler (calling `return`)                    |
+| Code generation  | State machine (always)        | Evidence passing (preferred) or SM (fallback) |
+| Continuation     | Implicit (event loop manages) | Explicit (`return` / `escape` in handler)     |
+| Thread model     | Single-threaded event loop    | Synchronous (same thread)                     |
+| Use cases        | IO concurrency                | Control flow abstraction, error handling      |
 
-Both systems share the same state machine infrastructure (shared analysis in `src/codegen/shared/suspension-analysis.ts` and shared codegen in `src/codegen/shared/suspension-codegen.ts`). See [ASYNC_AWAIT.md](./ASYNC_AWAIT.md) for the async/await documentation.
+The SM-inlining fallback for effects shares the same state machine infrastructure as async/await (shared analysis in `src/codegen/shared/suspension-analysis.ts` and shared codegen in `src/codegen/shared/suspension-codegen.ts`). See [ASYNC_AWAIT.md](./ASYNC_AWAIT.md) for the async/await documentation.
 
 ---
 
 ## Code Generation: Two Strategies
 
-The compiler uses **two distinct strategies** for generating C code for effect handlers. The strategy is chosen per-function based on the effect's type.
+The compiler uses **two strategies** for generating C code for effect handlers. Evidence passing is strongly preferred; SM-inlining is a fallback for a narrow case.
 
-### Strategy 1: Evidence Passing (preferred)
+### Strategy 1: Evidence Passing (primary — covers most effects)
 
-**When**: Module-based effects where the module has function-typed fields that can be represented as C function pointer parameters. This covers the common case — e.g., `Exception`, `Raise`, `Log`.
+**When**: Module-based effects with function-typed fields, bare function-type effects, and effect row spreads (`...(E)`). This covers the vast majority of effects — e.g., `Exception`, `Raise`, `Log`, bare `fn`-typed effects, and effect-polymorphic functions.
 
-**How**: The effect handler function pointer is passed as an extra C parameter. No state machine is needed. The effectful function calls the handler directly via the fn ptr and checks the `__yo_effect_escaped` flag afterward.
+**How**: The effect handler function pointer is passed as an extra C parameter. No state machine is needed. The effectful function calls the handler directly via the fn ptr and checks the `__yo_effect_escaped` flag afterward. Based on [Generalized Evidence Passing for Effect Handlers (Xie et al., 2021)](https://xnning.github.io/papers/multip.pdf).
 
-### Strategy 2: SM-Inlining (fallback)
+### Strategy 2: SM-Inlining (fallback — rare)
 
-**When**: Evidence passing cannot be used:
-
-- **Bare function-type effects** (e.g., `using(raise : (fn(msg : String) -> i32))` — not wrapped in a module)
-- **Module effects where all functions have `forall` params** (e.g., `throw : (fn(forall(ResumeType : Type), ...) -> ResumeType)` — forall function pointers cannot be typed as C fn ptrs)
-- **Effects inside non-module constructs**
+**When**: Evidence passing cannot be used. Currently, evidence passing covers all effect types including forall effects (via `void*` parameter casting). SM-inlining remains as legacy infrastructure but is no longer required for any standard effect pattern.
 
 **How**: The effectful function is compiled into a **state machine** struct. Effect invocation becomes a yield point — the SM pauses, yields the effect arguments, and the handler loop at the call site receives them, runs the handler body, and either resumes (setting `resume_value` and calling resume) or escapes.
 
@@ -457,14 +453,12 @@ The compiler uses **two distinct strategies** for generating C code for effect h
 ```
 Function has using(effect : EffectType)?
   │
-  ├── EffectType is a module with function fields?
-  │     ├── getEvidenceParameters() returns params? ──→ EVIDENCE PASSING
-  │     │   (module has non-forall function fields)
-  │     │
-  │     └── No evidence params? ──→ SM-INLINING
-  │         (all functions have forall params)
+  ├── getEvidenceParameters() returns params? ──→ EVIDENCE PASSING
+  │   (module effects, bare fn types, effect row spreads ...(E),
+  │    and forall effects via void* casting)
   │
-  └── EffectType is a bare function type? ──→ SM-INLINING
+  └── No evidence params? ──→ SM-INLINING
+      (currently no standard effect pattern triggers this)
 ```
 
 ---
@@ -473,12 +467,14 @@ Function has using(effect : EffectType)?
 
 Evidence passing compiles effect handlers as **ordinary C function pointer parameters**. This eliminates state machines entirely for the effectful function — it becomes a regular C function with extra parameters.
 
-### Key principle: modules ≡ collections of functions
+### Key principle: effects ≡ function pointers
 
-A module is a **compile-time** construct — just a named collection of functions. At runtime, only function pointers exist:
+At runtime, all effects reduce to function pointers. Modules are a compile-time grouping — at the C level, each field becomes a separate fn ptr parameter:
 
 - `using(exn : Exception)` where `Exception :: module(throw : fn(...))` → passes the `throw` function pointer
 - `using(raise : Raise)` where `Raise :: module(raise : fn(msg : String) -> i32)` → passes the `raise` function pointer
+- `using(raise : (fn(msg : String) -> i32))` → passes `raise` directly as a fn ptr parameter
+- `using(...(E))` effect row spread → expanded at specialization time into concrete fn ptr parameters
 
 ### Generated C
 
@@ -558,13 +554,46 @@ Both paths work correctly:
 
 ### Forall evidence specialization
 
-When a module effect operation has `forall` parameters (e.g., `throw : (fn(forall(ResumeType : Type), ...) -> ResumeType)`), the handler function may be **specialized** by the evaluator — producing only type-specific versions (e.g., `throw_i32`) with no unspecialized C function.
+When an effect operation has `forall` parameters (e.g., `throw :: (fn(forall(T : Type), msg : str, resume_val : T) -> T)`), C cannot represent the function pointer directly since C has no parametric polymorphism. Evidence passing handles this via **`void*` casting**:
 
-Evidence passing handles this transparently:
+1. **Evidence parameter type**: The evidence parameter for a forall function is `void*` (opaque pointer)
+2. **Handler passed as `void*`**: At the handler installation site, the specialized handler is cast to `void*`: `(void*)handler_specialized_cname`
+3. **Cast at call site**: Each call site casts the `void*` back to the concrete function pointer type needed: `((int32_t(*)(char*, int32_t))evidence_ptr)(msg, resume_val)`
+4. **Specialization**: The evaluator creates specialized handler versions via `evaluateCtlFunctionBodyInline`, which produces both a specialized function body and a `specializedType` with forall parameters substituted
+5. **Collection**: Specialized handler versions (stored in `specializedFunctionCaches`) are collected alongside the original handler in `collection.ts`
 
-- **Handler doesn't use the forall type** (e.g., `escape ()`): the unspecialized function is generated and passed directly.
-- **Handler uses the forall type** (e.g., `return resume_val`): the function is specialized. Evidence resolution passes a specialized version cast to `void*` (since the evidence parameter type for forall functions is `void*`).
-- **Transitive forwarding**: the `void*` evidence is forwarded as-is between callers and callees. Each callee resolves the forall call to its own specialized function directly, independent of the evidence value.
+**Example — forall effect with resume:**
+
+```yo
+Throw :: (fn(forall(T : Type), msg : str, resume_val : T) -> T);
+
+safe_divide :: (fn(x : i32, y : i32, using(throw : Throw)) -> i32)(
+  cond(y == 0 => throw(`div by zero`, 0), true => (x / y))
+);
+```
+
+Generated C:
+
+```c
+// Evidence param is void* (forall fn ptr)
+int32_t safe_divide(int32_t x, int32_t y, void* throw) {
+  if (y == 0) {
+    __yo_effect_escaped = 0;
+    // Cast void* to concrete fn ptr type at call site
+    int32_t result = ((int32_t(*)(yo_string, int32_t))throw)(msg, 0);
+    if (__yo_effect_escaped) return 0;
+    return result;
+  }
+  return x / y;
+}
+```
+
+**Forall-only fallback condition**: When a function has a `specializedType` that strips implicit parameters, the compiler only falls back to the original type's evidence params if they contain forall function types (`ep.fieldFunctionType.forallParameters.length > 0`). Non-forall `using` params (contextual parameters) are resolved at specialization time and don't need evidence passing.
+
+**Additional behaviors:**
+
+- **Handler doesn't use the forall type** (e.g., `escape ()`): the unspecialized function is generated and passed directly
+- **Transitive forwarding**: the `void*` evidence is forwarded as-is between callers and callees
 
 ### Escape value propagation
 
@@ -578,9 +607,7 @@ SM-inlining is the original effect system. It transforms the effectful function 
 
 ### When SM-inlining is used
 
-- Bare function-type effects: `using(raise : (fn(msg : String) -> i32))`
-- Module effects with only forall functions (no evidence params possible)
-- Effects with `...(E)` spread in certain configurations
+SM-inlining is legacy infrastructure. All standard effect patterns — including forall effects — now use evidence passing via `void*` parameter casting. SM-inlining may still be triggered for edge cases not yet covered by evidence passing, but no known standard pattern requires it.
 
 ### State machine struct
 
@@ -690,8 +717,8 @@ The two strategies produce identical observable behavior — the choice is purel
 | Resume mechanism         | Direct return value        | `sm.resume_value` + resume |
 | Escape mechanism         | `__yo_effect_escaped` flag | `__yo_effect_escaped` flag |
 | Overhead                 | One indirect call          | SM struct + switch/case    |
-| Supports forall effects  | No (uses `void*` param)    | Yes (type-specific inline) |
-| Supports bare fn effects | No (needs module wrapper)  | Yes                        |
+| Supports forall effects  | Yes (`void*` param + cast) | Yes (type-specific inline) |
+| Supports bare fn effects | Yes                        | Yes                        |
 | Composable/transitive    | Yes (param forwarding)     | Yes (nested SM)            |
 
 The compiler prefers evidence passing when possible because it generates simpler, faster C code with no state machine overhead.

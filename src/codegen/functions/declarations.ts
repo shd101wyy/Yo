@@ -174,7 +174,21 @@ export function generateFunctionDeclarations(
       context,
       // Don't pass body for module effect members — their body type is unit (from escape())
       // but the function signature's return type (from forall specialization) is correct
-      value.isModuleEffectMember ? undefined : value.body
+      value.isModuleEffectMember ? undefined : value.body,
+      // Pass original type so evidence params are detected when specialization
+      // strips implicit parameters (e.g., for forall effects).
+      // Only do this when specializedType has no evidence but the original does,
+      // AND the original has forall function evidence params (which need void* passing).
+      // Non-forall using params are resolved at specialization time and don't need this.
+      value.specializedType &&
+        getEvidenceParameters(functionType).length === 0 &&
+        getEvidenceParameters(value.type).some(
+          (ep) =>
+            ep.fieldFunctionType.forallParameters &&
+            ep.fieldFunctionType.forallParameters.length > 0
+        )
+        ? value.type
+        : undefined
     );
   }
 
@@ -223,9 +237,8 @@ export function getEvidenceParameters(
         result
       );
     } else if (isFunctionType(implicit.type)) {
-      // Skip forall (generic) function types — can't pass as fn ptr without specialization
-      if (implicit.type.forallParameters.length > 0) continue;
       // Bare function effect — treat as single-field evidence
+      // Forall function types are passed as void* and cast at each call site
       result.push({
         implicitLabel: implicit.label,
         fieldLabel: implicit.label,
@@ -251,8 +264,7 @@ function collectEvidenceFromModule(
 ): void {
   for (const field of moduleType.fields) {
     if (isFunctionType(field.type)) {
-      // Skip forall (generic) function fields — can't pass as fn ptr without specialization
-      if (field.type.forallParameters.length > 0) continue;
+      // Forall function fields are passed as void* and cast at each call site
       const fieldPath = [...pathPrefix, field.label];
       const fieldLabel = fieldPath.join("__");
       result.push({
@@ -625,6 +637,23 @@ export function generateSpecializedFunctionDeclarations(
       specializedFunctionType.return.type
     );
     if (hasGenericParams || hasGenericReturnType) {
+      continue;
+    }
+
+    // Skip if the original function type has evidence parameters — the regular
+    // forward declaration loop already emits a correct declaration with evidence
+    // params included (via originalFunctionType fallback).
+    // Only skip for forall evidence params (which need void* evidence passing).
+    // Non-forall using params that were resolved during specialization should still
+    // have their specialized declarations emitted.
+    const origEvidenceParams = getEvidenceParameters(functionValue.type);
+    if (
+      origEvidenceParams.some(
+        (ep) =>
+          ep.fieldFunctionType.forallParameters &&
+          ep.fieldFunctionType.forallParameters.length > 0
+      )
+    ) {
       continue;
     }
 

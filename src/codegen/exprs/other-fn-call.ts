@@ -48,6 +48,7 @@ import {
 } from "../effects/effect-state-machine";
 import type { FunctionGenerationContext } from "../functions/context";
 import {
+  generateFunctionPrototype,
   getEvidenceParameters,
   type EvidenceParameter,
 } from "../functions/declarations";
@@ -511,7 +512,8 @@ export function generateOtherFunctionCall(
                   runtimeArgExprs,
                   expr,
                   indent,
-                  functionContext
+                  functionContext,
+                  ep
                 );
               }
             }
@@ -606,7 +608,8 @@ export function generateOtherFunctionCall(
               runtimeArgExprs,
               expr,
               indent,
-              functionContext
+              functionContext,
+              matchedEp
             );
           }
           // No matching evidence parameter found — this function is in a module
@@ -720,10 +723,27 @@ export function generateOtherFunctionCall(
           // Evidence passing call site: callee has module-type implicit params
           // that compile to extra C function pointer parameters.
           // Use specializedType (which now includes resolved implicits) if available,
-          // otherwise fall back to original type.
+          // otherwise fall back to original type. If specialized type has no evidence
+          // params (implicits stripped during specialization for forall effects),
+          // fall back to original type only for forall evidence params.
           const evidenceCheckType =
             functionValue.specializedType ?? functionValue.type;
-          const calleeEvidenceParams = getEvidenceParameters(evidenceCheckType);
+          let calleeEvidenceParams = getEvidenceParameters(evidenceCheckType);
+          if (
+            calleeEvidenceParams.length === 0 &&
+            functionValue.specializedType
+          ) {
+            const fallbackParams = getEvidenceParameters(functionValue.type);
+            if (
+              fallbackParams.some(
+                (ep) =>
+                  ep.fieldFunctionType.forallParameters &&
+                  ep.fieldFunctionType.forallParameters.length > 0
+              )
+            ) {
+              calleeEvidenceParams = fallbackParams;
+            }
+          }
           if (calleeEvidenceParams.length > 0) {
             const { args: evidenceArgNames, isHandlerInstallation } =
               resolveEvidenceArgsForCallSite(
@@ -2105,6 +2125,9 @@ function generateDirectCtlCall(
  * Generates:
  *   result = evidence_fn_ptr(args);
  *   if (__yo_effect_escaped) { return dummy; }
+ *
+ * For forall evidence (void* parameter), generates a cast:
+ *   result = ((ReturnType (*)(ParamTypes...))evidence_fn_ptr)(args);
  */
 function generateEvidenceFnPtrCall(
   funcCode: string,
@@ -2113,11 +2136,53 @@ function generateEvidenceFnPtrCall(
   runtimeArgExprs: import("../../expr").Expr[] | undefined,
   expr: FnCallExpr,
   indent: string,
-  context: FunctionGenerationContext
+  context: FunctionGenerationContext,
+  evidenceParam?: EvidenceParameter
 ): string {
   const argsList = args.join(", ");
   const returnType = functionType.return.type;
   const emitter = context.emitter;
+
+  // For forall evidence parameters (passed as void*), cast to the concrete
+  // function pointer type at this call site. The forall type vars (SomeType)
+  // resolve to void* in the function type, so we build the cast from the
+  // concrete argument and return types at this call expression.
+  let callExpr: string;
+  if (
+    evidenceParam?.fieldFunctionType.forallParameters &&
+    evidenceParam.fieldFunctionType.forallParameters.length > 0
+  ) {
+    // Build concrete fn ptr type from the FUNCTION TYPE's parameters, not the
+    // argument expression types. This avoids mismatches like ComptimeString
+    // (uint8_t*) vs str (Slice_uint8_t) when the arg gets coerced.
+    // For SomeType (forall type vars), resolve from the call-site arg types.
+    const concreteRetType = expr.$?.type
+      ? getTypeString(expr.$.type, context)
+      : getTypeString(returnType, context);
+    const concreteParamTypes: string[] = [];
+    const fnParamType = evidenceParam.fieldFunctionType;
+    const runtimeParams = fnParamType.parameters.filter(
+      (p) => !p.isCompileTimeOnly
+    );
+    for (let i = 0; i < runtimeParams.length; i++) {
+      const paramType = runtimeParams[i]!.type;
+      // For SomeType (forall type variable T), use the concrete type from
+      // the call-site argument expression instead.
+      const resolvedType =
+        isSomeType(paramType) && runtimeArgExprs?.[i]?.$?.type
+          ? runtimeArgExprs[i]!.$!.type
+          : paramType;
+      const typeStr = isFunctionType(resolvedType)
+        ? generateFunctionPrototype(resolvedType, "(*)", context)
+        : getTypeString(resolvedType, context);
+      concreteParamTypes.push(typeStr);
+    }
+    const paramList = concreteParamTypes.join(", ");
+    // Cast void* to typed fn ptr: ((ReturnType (*)(ParamTypes...))funcCode)
+    callExpr = `((${concreteRetType} (*)(${paramList}))${funcCode})`;
+  } else {
+    callExpr = funcCode;
+  }
 
   // Collect current function parameter names to skip dropping params on escape.
   // When escape propagates, the CALLER drops its copies via generateEvidenceCallSite.
@@ -2129,7 +2194,7 @@ function generateEvidenceFnPtrCall(
   );
 
   if (isUnitType(returnType)) {
-    emitter.emitLine(`${indent}${funcCode}(${argsList});`);
+    emitter.emitLine(`${indent}${callExpr}(${argsList});`);
 
     // Handle deferred drop expressions
     if (expr.$?.deferredDropExpressions) {
@@ -2193,9 +2258,16 @@ function generateEvidenceFnPtrCall(
   } else {
     const tempVar = expr.$?.variableName;
     if (tempVar) {
-      const cTypeString = getTypeString(returnType, context);
+      // For forall evidence calls, use the concrete return type from the call expression
+      // rather than the generic function type's return type (which may be SomeType/void*).
+      const concreteReturnType =
+        evidenceParam?.fieldFunctionType.forallParameters?.length &&
+        expr.$?.type
+          ? expr.$.type
+          : returnType;
+      const cTypeString = getTypeString(concreteReturnType, context);
       emitter.emitLine(
-        `${indent}${cTypeString} ${tempVar} = ${funcCode}(${argsList});`
+        `${indent}${cTypeString} ${tempVar} = ${callExpr}(${argsList});`
       );
 
       // Handle deferred drop expressions
@@ -2259,7 +2331,7 @@ function generateEvidenceFnPtrCall(
       emitter.emitLine(`${indent}}`);
       return tempVar;
     } else {
-      return `${funcCode}(${argsList})`;
+      return `${callExpr}(${argsList})`;
     }
   }
 }
@@ -2313,6 +2385,19 @@ function resolveEvidenceArgsForCallSite(
           }
           const handlerValue = hi.handlerValue as FunctionValue | undefined;
           if (handlerValue && isFunctionValue(handlerValue)) {
+            // For forall handlers, use the specialized version cast to void*
+            if (handlerValue.specializedFunctionCaches?.length) {
+              const specialized =
+                handlerValue.specializedFunctionCaches[0]!.specializedFunction;
+              const specializedCName =
+                context.functions[specialized.funcId]?.cName;
+              if (specializedCName) {
+                result.push(`(void*)${specializedCName}`);
+                resolved = true;
+                isHandlerInstallation = true;
+                break;
+              }
+            }
             const cName = context.functions[handlerValue.funcId]?.cName;
             if (cName) {
               result.push(cName);
@@ -2336,11 +2421,25 @@ function resolveEvidenceArgsForCallSite(
           | FunctionValue
           | undefined;
         if (handlerValue && isFunctionValue(handlerValue)) {
-          const cName = context.functions[handlerValue.funcId]?.cName;
-          if (cName) {
-            result.push(cName);
-            resolved = true;
-            isHandlerInstallation = true;
+          // For forall handlers, use the specialized version cast to void*
+          if (handlerValue.specializedFunctionCaches?.length) {
+            const specialized =
+              handlerValue.specializedFunctionCaches[0]!.specializedFunction;
+            const specializedCName =
+              context.functions[specialized.funcId]?.cName;
+            if (specializedCName) {
+              result.push(`(void*)${specializedCName}`);
+              resolved = true;
+              isHandlerInstallation = true;
+            }
+          }
+          if (!resolved) {
+            const cName = context.functions[handlerValue.funcId]?.cName;
+            if (cName) {
+              result.push(cName);
+              resolved = true;
+              isHandlerInstallation = true;
+            }
           }
         }
       }
@@ -2424,11 +2523,25 @@ function resolveEvidenceArgsForCallSite(
             }
           }
         } else if (givenValue && isFunctionValue(givenValue)) {
-          // Bare function evidence (non-module) — look up cName directly
-          const cName = context.functions[givenValue.funcId]?.cName;
-          if (cName) {
-            result.push(cName);
-            resolved = true;
+          // Bare function evidence (non-module) — look up cName directly.
+          // For forall handlers, use the specialized version (cast to void*)
+          // since the unspecialized version has void* params that don't match.
+          if (givenValue.specializedFunctionCaches?.length) {
+            const specialized =
+              givenValue.specializedFunctionCaches[0]!.specializedFunction;
+            const specializedCName =
+              context.functions[specialized.funcId]?.cName;
+            if (specializedCName) {
+              result.push(`(void*)${specializedCName}`);
+              resolved = true;
+            }
+          }
+          if (!resolved) {
+            const cName = context.functions[givenValue.funcId]?.cName;
+            if (cName) {
+              result.push(cName);
+              resolved = true;
+            }
           }
         }
         if (resolved) {

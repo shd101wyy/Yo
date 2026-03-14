@@ -2276,19 +2276,16 @@ Please use explicit using() to disambiguate.`,
   // function with `using(ctl)`. The function body was deferred because of forall
   // parameters. We need to evaluate it with concrete types so codegen can inline it.
   //
-  // Only do this when NOT inside a function that receives the ctl handler via
-  // an implicit `using(raise: Raise)` parameter — in that case the call is handled
-  // by the effect state machine (createSpecializedFunctionInline resolves the body).
-  const isInsideFunctionWithCtlImplicitParam =
-    context.hasControlFunctionImplicitParams ?? false;
+  // Previously, this was skipped when inside a function that receives the ctl handler
+  // via an implicit `using(raise: Raise)` parameter. With evidence passing (void* fn ptr),
+  // we always need the specialized body so the escape value is properly typed.
   if (
     !skipSpecialization &&
     functionValue &&
     isFunctionValue(functionValue) &&
     functionValue.isControlFunction &&
     functionType.forallParameters.length > 0 &&
-    !specializedFunctionValue &&
-    !isInsideFunctionWithCtlImplicitParam
+    !specializedFunctionValue
   ) {
     specializedFunctionValue = evaluateCtlFunctionBodyInline({
       originalFunction: functionValue,
@@ -3466,6 +3463,38 @@ function evaluateCtlFunctionBodyInline({
     calledComptimeFunctionCaches: [],
     specializedFunctionCaches: [],
   };
+
+  // Build a specialized type with forall parameters resolved to concrete types.
+  // This ensures the forward declaration uses the correct concrete types.
+  const forallSomeTypes = new Set(
+    functionType.forallParameters.map((fp) => fp.type)
+  );
+  const substituteType = (t: Type): Type => {
+    if (isSomeType(t) && forallSomeTypes.has(t)) {
+      return concreteTypeForForall;
+    }
+    return t;
+  };
+  const specializedType = createFunctionType({
+    forallParameters: [],
+    parameters: functionType.parameters.map((p) => ({
+      ...p,
+      type: substituteType(p.type),
+    })),
+    implicitParameters:
+      functionType.implicitParameters.length > 0
+        ? functionType.implicitParameters
+        : undefined,
+    variadicParameter: undefined,
+    return_: {
+      ...functionType.return,
+      type: substituteType(functionType.return.type),
+    },
+    parametersFrame: specializedEnv.frames[specializedEnv.frames.length - 1]!,
+    env: functionType.env,
+    SelfType: functionType.SelfType,
+  });
+  specializedFunction.specializedType = specializedType;
 
   // Cache to avoid re-evaluating on repeated calls
   originalFunction.specializedFunctionCaches = [

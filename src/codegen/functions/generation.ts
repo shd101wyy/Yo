@@ -492,11 +492,24 @@ export function preRegisterEffectfulFunctions(
 
     // Check if this function has evidence parameters. If so, it will use
     // evidence passing (fn ptr params) instead of SM-inlining.
-    // Use the original type for evidence param detection because specialization
-    // may strip implicit parameters. The original type retains using(...(E)) implicits.
-    const evidenceCheckType =
-      functionValue.specializedType ?? functionValue.type;
-    const evidenceParams = getEvidenceParameters(evidenceCheckType);
+    // Try the specialized type first (has expanded effect row spreads),
+    // then fall back to the original type (retains implicit parameters
+    // that specialization may strip for forall effects only).
+    let evidenceParams = getEvidenceParameters(
+      functionValue.specializedType ?? functionValue.type
+    );
+    if (evidenceParams.length === 0 && functionValue.specializedType) {
+      const fallbackParams = getEvidenceParameters(functionValue.type);
+      if (
+        fallbackParams.some(
+          (ep) =>
+            ep.fieldFunctionType.forallParameters &&
+            ep.fieldFunctionType.forallParameters.length > 0
+        )
+      ) {
+        evidenceParams = fallbackParams;
+      }
+    }
 
     // Check if ALL effects are module-based (have effectFieldPath).
     // Module-based effects use evidence passing (fn ptr params) instead of SM-inlining.
@@ -890,14 +903,38 @@ export function generateFunction(
   // Regular function generation (async blocks within the function handle their own state machines)
   // After specialization, specializedType includes resolved implicit parameters,
   // so we can use functionType directly (which is specializedType ?? type).
+  // Pass the original (pre-specialization) type so evidence params are detected
+  // even when specialization strips implicit parameters.
+  // Pass original type so evidence params are detected when specialization
+  // strips implicit parameters (e.g., for forall effects).
+  // Only do this when specializedType has no evidence but the original does,
+  // AND the original has forall function evidence params (which need void* passing).
+  // Non-forall using params are resolved at specialization time and don't need this.
+  const originalFunctionType =
+    functionValue.specializedType &&
+    getEvidenceParameters(functionType).length === 0 &&
+    getEvidenceParameters(functionValue.type).some(
+      (ep) =>
+        ep.fieldFunctionType.forallParameters &&
+        ep.fieldFunctionType.forallParameters.length > 0
+    )
+      ? functionValue.type
+      : undefined;
   const functionPrototype = overrideReturnType
     ? generateFunctionPrototype(
         functionType,
         cFunctionName,
         context,
-        overrideReturnType
+        overrideReturnType,
+        originalFunctionType
       )
-    : generateFunctionPrototype(functionType, cFunctionName, context);
+    : generateFunctionPrototype(
+        functionType,
+        cFunctionName,
+        context,
+        undefined,
+        originalFunctionType
+      );
 
   emitter.emitLine(`${functionPrototype} {`);
 
@@ -919,9 +956,24 @@ export function generateFunction(
   // Set up evidence parameters for module-based effect functions.
   // This maps module field accesses (e.g., raise_mod.raise) to the evidence
   // fn ptr parameter names so body codegen can resolve them.
+  // Try the specialized type first (has expanded effect row spreads),
+  // then fall back to the original type (retains implicit parameters
+  // that specialization may strip for forall effects).
   const previousEvidenceParams = (context as FunctionGenerationContext)
     .currentEvidenceParams;
-  const evidenceParams = getEvidenceParameters(functionType);
+  let evidenceParams = getEvidenceParameters(functionType);
+  if (evidenceParams.length === 0 && functionValue.specializedType) {
+    const fallbackParams = getEvidenceParameters(functionValue.type);
+    if (
+      fallbackParams.some(
+        (ep) =>
+          ep.fieldFunctionType.forallParameters &&
+          ep.fieldFunctionType.forallParameters.length > 0
+      )
+    ) {
+      evidenceParams = fallbackParams;
+    }
+  }
   if (evidenceParams.length > 0) {
     const evidenceMap = new Map<string, EvidenceParameter>();
     for (const ep of evidenceParams) {

@@ -416,6 +416,20 @@ export function findFunctionCallsInExpr(
           cName: sanitizeForCIdentifier(functionValue.funcId),
         };
       }
+      // Also collect specialized versions of forall ctl handlers
+      if (functionValue.specializedFunctionCaches) {
+        for (const cache of functionValue.specializedFunctionCaches) {
+          const specialized = cache.specializedFunction;
+          if (specialized && !context.functions[specialized.funcId]) {
+            specialized.isModuleEffectMember = true;
+            context.functions[specialized.funcId] = {
+              value: specialized,
+              cName: sanitizeForCIdentifier(specialized.funcId),
+            };
+            findFunctionCallsInExpr(specialized.body, context);
+          }
+        }
+      }
       findFunctionCallsInExpr(functionValue.body, context);
       return;
     }

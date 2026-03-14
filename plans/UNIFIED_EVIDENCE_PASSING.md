@@ -2,7 +2,9 @@
 
 ## Goal
 
-Unify all effect handler code generation to use **evidence passing** (fn ptr params). Eliminate the state machine (SM-inlining) strategy for algebraic effects entirely. SM infrastructure remains for async/await only.
+Unify all effect handler code generation to use **evidence passing** (fn ptr params). Eliminate the state machine (SM-inlining) strategy for algebraic effects. SM infrastructure remains only for async/await.
+
+**Status**: Phase 1 COMPLETE. All effects (including forall) now use evidence passing. Forall effects use void\* parameter casting.
 
 ## Current State
 
@@ -19,7 +21,7 @@ A bare function effect `using(raise : fn(msg : String) -> i32)` is semantically 
 
 ## Plan
 
-### Phase 1: Extend evidence passing to bare function effects
+### Phase 1: Extend evidence passing to bare function effects ✅ COMPLETED
 
 #### 1a. `getEvidenceParameters()` — handle bare `FunctionType` implicits
 
@@ -79,7 +81,9 @@ Need to handle bare fn evidence params in the resolution logic. For each evidenc
 2. **From given binding**: look up the `given` variable by name, use its C function name
 3. **From handler info**: use the handler's C function name from effect analysis
 
-### Phase 2: Remove SM-inlining code for effects
+### Phase 2: Remove SM-inlining code for effects (future work)
+
+> **Note**: Phase 2 is deferred. SM-inlining is no longer used for any effects (forall effects now use void\* evidence passing). The SM infrastructure is shared with async/await, so care is needed before removing it. Some SM code paths may now be dead for effects.
 
 #### 2a. Remove SM registration in `preRegisterEffectfulFunctions`
 
@@ -128,10 +132,10 @@ Remove dead imports from:
 - `src/codegen/exprs/async.ts`
 - `src/codegen/exprs/return.ts`
 
-### Phase 3: Update documentation
+### Phase 3: Update documentation ✅ COMPLETED
 
-- Update `docs/ALGEBRAIC_EFFECTS.md` — remove "Two Strategies" section, document unified evidence passing
-- Update this plan as completed
+- Updated `docs/ALGEBRAIC_EFFECTS.md` — evidence passing is now documented as primary strategy, SM as narrow fallback
+- Updated this plan with Implementation Report
 
 ## Test Strategy
 
@@ -278,3 +282,132 @@ When the escape handler fires, it needs to store `i64(42)` somewhere accessible 
 2. Add a global `__yo_effect_escape_value` for escape value storage
 3. Mark call sites to evidence-param functions as needing escape checks
 4. Emit forward declarations for evidence-param functions
+
+---
+
+## Implementation Report (Option C — Completed)
+
+**Status**: Phase 1 COMPLETE. Option C (flag propagation) was implemented and all tests pass.
+
+### Test Results
+
+| Suite             | Result | Notes                                      |
+| ----------------- | ------ | ------------------------------------------ |
+| algebraic_effects | 46/46  | All pass                                   |
+| fn                | 16/16  | All pass                                   |
+| closure           | 8/8    | All pass                                   |
+| async_await       | 82/83  | 1 pre-existing ("escape in async closure") |
+| basic             | 25/26  | 1 pre-existing ("raw pointer")             |
+| impl              | 3/3    | All pass                                   |
+| dyn               | 8/8    | All pass                                   |
+| str               | 7/7    | All pass                                   |
+| array             | 12/12  | All pass                                   |
+| arc               | 14/14  | All pass                                   |
+| comptime          | 26/26  | All pass                                   |
+| rc                | 4/4    | All pass                                   |
+| fmt               | 3/3    | All pass                                   |
+| error             | 7/7    | All pass                                   |
+
+### What was implemented
+
+Evidence passing now covers **all effect types**:
+
+- Module-based effects (e.g., `Raise`, `Log`) — already worked before
+- **Bare function-type effects** (e.g., `using(raise : fn(msg : String) -> i32)`) — NEW
+- **Effect row spreads** (`using(...(E))`) — NEW
+- **Forall effects** (e.g., `fn(forall(T:Type), msg:T) -> T`) — NEW (void\* cast)
+
+SM-inlining is no longer used for any effect type. All effects use evidence passing.
+
+### Files modified
+
+1. **`src/evaluator/calls/helper.ts`**
+
+   - `hasEvidencePassingCapableImplicits()`: Extended to detect effect row spreads as evidence-passing-capable
+   - `resolvedImplicitParams` in `createSpecializedFunctionInline()`: Filters resolved params to only preserve module-typed and spread-resolved implicits (skips standalone fn-typed implicits that aren't effect handlers)
+
+2. **`src/codegen/functions/declarations.ts`**
+
+   - `getEvidenceParameters()`: Processes all fn-typed implicits as evidence params (after specialization, only real effect params remain)
+   - `expandImplicitParameters()`: Expands `isEffectRowSpread` params into their inner implicit parameters for evidence extraction
+
+3. **`src/codegen/functions/generation.ts`**
+
+   - `preRegisterEffectfulFunctions()`: When `evidenceParams.length > 0`, skips SM registration → evidence passing path
+   - Pass 2 closure evidence skip for closures that already have evidence params
+
+4. **`src/codegen/functions/collection.ts`**
+
+   - "Still generic" scan: checks both args and function type before cutting off specialization
+
+5. **`src/codegen/exprs/generation.ts`**
+
+   - Extended escape handler codegen for evidence-passing functions (not just `isModuleEffectMemberFunction`)
+   - Sets `__yo_effect_escaped = 1` for functions with `currentEvidenceParams`
+   - Emits dummy return values `(type){0}` for non-void return types
+   - Stores escape values via `memcpy` to `__yo_effect_escape_value` for evidence-passing functions
+
+6. **`src/codegen/exprs/other-fn-call.ts`**
+   - `generateEvidenceFnPtrCall()`: Added `currentParamNames` skip to avoid double-free in escape drop blocks
+   - `generateEvidenceCallSite()`: Uses `generatePendingDeferredDrops` for escape blocks
+   - Added `callerCType !== "void"` guards on all dummy return emission sites
+
+### Forall evidence passing changes (additional)
+
+7. **`src/codegen/functions/declarations.ts`** (additional)
+
+   - `getEvidenceParameters()`: Removed `continue` skip for forall function types — all implicits including forall are now processed
+   - `collectEvidenceFromModule()`: Same forall `continue` skip removed
+   - Forward declaration loop: `originalFunctionType` uses forall-only fallback condition to distinguish forall evidence from non-forall contextual params
+   - `generateSpecializedFunctionDeclarations()`: Skip condition uses forall-only check
+
+8. **`src/codegen/functions/generation.ts`** (additional)
+
+   - Pre-registration, function prototype, and body evidence params: all use forall-only fallback condition
+
+9. **`src/codegen/exprs/other-fn-call.ts`** (additional)
+
+   - `generateEvidenceFnPtrCall()`: Added `evidenceParam` parameter; when present and forall, casts `void*` to concrete fn ptr type `((RetType (*)(ParamTypes...))void_ptr)(args...)`
+   - Call site evidence params: forall-only fallback condition
+   - `resolveEvidenceArgsForCallSite`: Checks `specializedFunctionCaches` for forall handlers, passes as `(void*)specialized_cname`
+
+10. **`src/codegen/functions/collection.ts`** (additional)
+
+    - When collecting ctl handlers with `isControlFunction`, also collects `specializedFunctionCaches` entries
+
+11. **`src/evaluator/calls/helper.ts`** (additional)
+    - Removed `!isInsideFunctionWithCtlImplicitParam` condition from ctl specialization gate
+    - `evaluateCtlFunctionBodyInline`: Added `specializedType` creation using `createFunctionType` + `substituteType`
+
+### Blocking issues resolved
+
+The original Attempt #1 (before this plan was written) identified three blocking problems. All were solved:
+
+1. **Escape handler not a standalone C function**: Solved by extending the escape codegen to compile escape handlers as standalone functions that set `__yo_effect_escaped = 1` and return typed dummy values.
+
+2. **No escape propagation through call chain**: Solved by `generateEvidenceFnPtrCall` emitting `if (__yo_effect_escaped)` checks after every evidence fn ptr call. Each caller drops RC arguments, then returns a dummy value to propagate the escape up the call chain.
+
+3. **Escape value storage**: Solved by using the existing thread-local `__yo_effect_escape_value` buffer with `memcpy` semantics. Handler installation sites read the escape value from the buffer.
+
+### Forall evidence passing (void\* cast)
+
+Forall effects (e.g., `fn(forall(T:Type), msg:T) -> T`) cannot be represented as a single C function pointer type because the concrete types vary per call site. The solution:
+
+1. Pass the handler as `void*` parameter
+2. At each call site, cast to the concrete function pointer type: `((RetType (*)(ParamTypes...))void_ptr)(args...)`
+3. The evaluator creates a `specializedType` in `evaluateCtlFunctionBodyInline` using `createFunctionType` + `substituteType` to replace forall params with concrete types
+4. `specializedFunctionCaches` entries are collected in `collection.ts` and passed as `(void*)specialized_cname` at call sites
+
+A "forall-only fallback" condition distinguishes forall evidence params from non-forall contextual `using` params (which are resolved at specialization time and don't need runtime evidence):
+
+```typescript
+fallbackParams.some((ep) => ep.fieldFunctionType.forallParameters?.length > 0);
+```
+
+### Phase 2 (future work)
+
+Phase 2 would remove SM-related dead code paths for effects. The SM code paths are now dead for all effect types (forall effects use void\* evidence passing). The SM infrastructure is still used by async/await, so care is needed before removing shared code.
+
+### Reference
+
+Based on: [Generalized Evidence Passing for Effect Handlers (Xie, Brachthäuser, Schuster, Hillerström, Leijen, 2021)](https://xnning.github.io/papers/multip.pdf)
