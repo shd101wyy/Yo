@@ -303,10 +303,17 @@ export function findFunctionCallsInExpr(
 
         // Also skip if the specialized type still has unresolved type parameters
         // This can happen when type substitution is incomplete
+        // BUT: still scan the args — they may contain closure constructions or
+        // other functions that need to be collected independently.
         if (
           functionValue.specializedType &&
           isFunctionTypeGeneric(functionValue.specializedType)
         ) {
+          // Still scan args and func to collect closures etc.
+          findFunctionCallsInExpr(expr.func, context);
+          for (const arg of expr.args) {
+            findFunctionCallsInExpr(arg, context);
+          }
           return;
         }
 
@@ -397,9 +404,18 @@ export function findFunctionCallsInExpr(
   const functionType = expr.$?.type;
   const functionValue = expr.$?.value;
   if (isFunctionType(functionType)) {
-    // Skip collecting ctl handler functions — they are inlined at their call sites
-    // by generateDirectCtlCall and should not be generated as standalone C functions.
+    // Ctl handler functions (isControlFunction=true) are normally inlined at call
+    // sites by generateDirectCtlCall. However, when used as evidence handlers
+    // (passed as fn ptr evidence args), they must be standalone C functions.
+    // Collect them and mark as effect members so generateEscape sets the escape flag.
     if (isFunctionValue(functionValue) && functionValue.isControlFunction) {
+      functionValue.isModuleEffectMember = true;
+      if (!context.functions[functionValue.funcId]) {
+        context.functions[functionValue.funcId] = {
+          value: functionValue,
+          cName: sanitizeForCIdentifier(functionValue.funcId),
+        };
+      }
       findFunctionCallsInExpr(functionValue.body, context);
       return;
     }

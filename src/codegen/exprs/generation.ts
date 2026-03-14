@@ -332,7 +332,13 @@ function generateEscape(
 
   // Module effect member function (e.g., Exception.throw handler):
   // Set thread-local flag so the calling SM knows this handler escaped.
-  if (functionContext.isModuleEffectMemberFunction) {
+  // Also set for functions with evidence parameters (evidence passing),
+  // so the caller can check the flag and propagate the escape.
+  if (
+    functionContext.isModuleEffectMemberFunction ||
+    (functionContext.currentEvidenceParams &&
+      functionContext.currentEvidenceParams.size > 0)
+  ) {
     functionContext.emitter.emitLine(`${indent}__yo_effect_escaped = 1;`);
   }
 
@@ -351,12 +357,9 @@ function generateEscape(
       true,
       true
     );
-    // For module effect members with non-void return type, return a dummy value
+    // For functions with non-void return type, return a dummy value
     // (the caller checks __yo_effect_escaped and ignores the return value)
-    if (
-      functionContext.isModuleEffectMemberFunction &&
-      functionContext.currentFunctionType
-    ) {
+    if (functionContext.currentFunctionType) {
       const returnType = functionContext.currentFunctionType.return.type;
       if (!isUnitType(returnType)) {
         const returnTypeStr = getTypeString(returnType, context);
@@ -382,13 +385,23 @@ function generateEscape(
     true,
     true
   );
-  // For module effect members with non-void return type and empty/unit arg,
-  // return a dummy value (the caller checks __yo_effect_escaped and ignores it)
+  // For module effect members or evidence-passing functions:
+  // store escape value in thread-local buffer for retrieval at handler
+  // installation site, then return a dummy value.
+  // The escape value type may differ from the handler's C return type.
   if (
-    !argCode &&
-    functionContext.isModuleEffectMemberFunction &&
+    (functionContext.isModuleEffectMemberFunction ||
+      (functionContext.currentEvidenceParams &&
+        functionContext.currentEvidenceParams.size > 0)) &&
     functionContext.currentFunctionType
   ) {
+    const argType = arg.$?.type;
+    if (argType && !isUnitType(argType)) {
+      const argTypeStr = getTypeString(argType, context);
+      functionContext.emitter.emitLine(
+        `${indent}{ ${argTypeStr} _esc_val = ${argCode}; memcpy(__yo_effect_escape_value, &_esc_val, sizeof(${argTypeStr})); }`
+      );
+    }
     const returnType = functionContext.currentFunctionType.return.type;
     if (!isUnitType(returnType)) {
       const returnTypeStr = getTypeString(returnType, context);
@@ -396,6 +409,7 @@ function generateEscape(
         return `return (${returnTypeStr}){0}`;
       }
     }
+    return `return`;
   }
   return `return ${argCode}`;
 }

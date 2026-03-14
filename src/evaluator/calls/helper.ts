@@ -63,6 +63,7 @@ import {
   isExprType,
   isFunctionType,
   isFunctionTypeGeneric,
+  isFunctionTypeHardGeneric,
   isModuleType,
   isSomeType,
   isTypeHierarchyType,
@@ -2161,8 +2162,35 @@ Please use explicit using() to disambiguate.`,
     return true;
   })();
 
+  // Skip specialization for functions that are only generic due to implicit
+  // parameters (e.g., using(raise : Raise)) AND have evidence-passing-capable
+  // implicits (module fields that can be passed as fn ptrs). These use evidence
+  // passing instead of per-call-site specialization. Functions with forall-only
+  // module effects still need specialization (they use SM-inlining).
+  const isGenericOnlyBecauseOfImplicits =
+    isFunctionTypeGeneric(functionType) &&
+    !isFunctionTypeHardGeneric(functionType);
+
+  const hasEvidencePassingCapableImplicits =
+    isGenericOnlyBecauseOfImplicits &&
+    functionType.implicitParameters.some((param) => {
+      if (isModuleType(param.type)) {
+        return (param.type as ModuleType).fields.some(
+          (m) =>
+            isFunctionType(m.type) &&
+            (m.type as FunctionType).forallParameters.length === 0
+        );
+      }
+      // Effect row spreads contain module-based effects that use evidence passing
+      if (param.isEffectRowSpread) {
+        return true;
+      }
+      return false;
+    });
+
   if (
     !skipSpecialization &&
+    !hasEvidencePassingCapableImplicits &&
     functionValue &&
     isFunctionValue(functionValue) && // functionValue might be UnknownValue, so this condition check is necessary
     !functionValue.isControlFunction && // Effect handlers skip normal specialization — handled by effect system
@@ -3190,9 +3218,72 @@ function createSpecializedFunctionInline({
 
   const compileTimeSignature = compileTimeSignatureParts.join("_");
 
+  // Resolve implicit parameters by substituting SomeType forall params
+  // with their concrete types from forall args. This preserves effect
+  // annotations in the specialized type for evidence passing.
+  const resolvedImplicitParams: FunctionImplicitParameter[] = [];
+  for (const implicitParam of functionType.implicitParameters) {
+    if (implicitParam.isEffectRowSpread) {
+      let effectsRow = implicitParam.type;
+      if (isSomeType(effectsRow)) {
+        // Strategy 1: Match SomeType label against forall parameter labels
+        // and get the concrete value from the corresponding forall arg
+        if (argValues.forallArgs) {
+          for (let i = 0; i < functionType.forallParameters.length; i++) {
+            const forallParam = functionType.forallParameters[i]!;
+            if (
+              forallParam.label === effectsRow.name &&
+              i < argValues.forallArgs.length
+            ) {
+              const forallArgValue = argValues.forallArgs[i]!.value;
+              if (
+                isTypeValue(forallArgValue) &&
+                isEffectsRowType(forallArgValue.value)
+              ) {
+                effectsRow = forallArgValue.value;
+              }
+              break;
+            }
+          }
+        }
+        // Strategy 2: Try resolvedConcreteType on the SomeType
+        if (isSomeType(effectsRow) && effectsRow.resolvedConcreteType) {
+          if (isEffectsRowType(effectsRow.resolvedConcreteType)) {
+            effectsRow = effectsRow.resolvedConcreteType;
+          }
+        }
+        // Strategy 3: Look up in the specialization env
+        if (isSomeType(effectsRow)) {
+          const envVars = getVariablesFromEnv(specializedEnv, effectsRow.name);
+          if (envVars.length > 0) {
+            const envVar = envVars[envVars.length - 1]!;
+            const envValue = envVar.value?.[0];
+            if (
+              envValue &&
+              isTypeValue(envValue) &&
+              isEffectsRowType(envValue.value)
+            ) {
+              effectsRow = envValue.value;
+            }
+          }
+        }
+      }
+      if (isEffectsRowType(effectsRow)) {
+        resolvedImplicitParams.push(...effectsRow.implicitParameters);
+      }
+    } else if (isModuleType(implicitParam.type)) {
+      // Preserve module-typed implicits — they become evidence fn ptr params
+      resolvedImplicitParams.push(implicitParam);
+    }
+    // Skip standalone function-typed implicits — they are already resolved
+    // during specialization and don't need evidence passing
+  }
+
   const specializedFunctionType = createFunctionType({
     forallParameters: [],
     parameters: runtimeParameters,
+    implicitParameters:
+      resolvedImplicitParams.length > 0 ? resolvedImplicitParams : undefined,
     variadicParameter: undefined, // QUESTION: Is this right?
     return_: {
       ...functionType.return,

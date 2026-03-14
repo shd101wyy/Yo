@@ -109,9 +109,11 @@ export function generateFunctionDeclarations(
     const hasUnresolvedFunctionImplicitParams =
       !isUserMain &&
       !isEffectfulFunction &&
+      !value.isModuleEffectMember &&
       !value.type.isClosure &&
       !value.specializedType &&
       (value.specializedFunctionCaches?.length ?? 0) === 0 &&
+      getEvidenceParameters(value.specializedType ?? value.type).length === 0 &&
       [
         ...value.type.implicitParameters,
         ...value.type.parameters.filter((p) => p.isImplicit),
@@ -121,9 +123,15 @@ export function generateFunctionDeclarations(
       continue;
     }
 
+    // Check if the function has evidence params (from resolved spread implicits)
+    const functionTypeForCheck = value.specializedType ?? value.type;
+    const hasEvidenceParams =
+      getEvidenceParameters(functionTypeForCheck).length > 0;
+
     if (
       !isUserMain &&
       !isEffectfulFunction &&
+      !hasEvidenceParams &&
       !value.isModuleEffectMember &&
       ((isFunctionTypeHardGeneric(value.type) && !value.type.isClosure) ||
         (value.specializedFunctionCaches?.length > 0 &&
@@ -166,9 +174,7 @@ export function generateFunctionDeclarations(
       context,
       // Don't pass body for module effect members — their body type is unit (from escape())
       // but the function signature's return type (from forall specialization) is correct
-      value.isModuleEffectMember ? undefined : value.body,
-      // Pass original type for evidence param extraction (specializedType has empty implicitParameters)
-      value.specializedType ? value.type : undefined
+      value.isModuleEffectMember ? undefined : value.body
     );
   }
 
@@ -209,14 +215,25 @@ export function getEvidenceParameters(
   );
 
   for (const implicit of allImplicits) {
-    if (!isModuleType(implicit.type)) continue;
-
-    collectEvidenceFromModule(
-      implicit.label,
-      implicit.type as ModuleType,
-      [],
-      result
-    );
+    if (isModuleType(implicit.type)) {
+      collectEvidenceFromModule(
+        implicit.label,
+        implicit.type as ModuleType,
+        [],
+        result
+      );
+    } else if (isFunctionType(implicit.type)) {
+      // Skip forall (generic) function types — can't pass as fn ptr without specialization
+      if (implicit.type.forallParameters.length > 0) continue;
+      // Bare function effect — treat as single-field evidence
+      result.push({
+        implicitLabel: implicit.label,
+        fieldLabel: implicit.label,
+        fieldPath: [implicit.label],
+        fieldFunctionType: implicit.type,
+        cParamName: sanitizeForCIdentifier(implicit.label),
+      });
+    }
   }
   return result;
 }
@@ -234,6 +251,8 @@ function collectEvidenceFromModule(
 ): void {
   for (const field of moduleType.fields) {
     if (isFunctionType(field.type)) {
+      // Skip forall (generic) function fields — can't pass as fn ptr without specialization
+      if (field.type.forallParameters.length > 0) continue;
       const fieldPath = [...pathPrefix, field.label];
       const fieldLabel = fieldPath.join("__");
       result.push({
@@ -254,6 +273,8 @@ function collectEvidenceFromModule(
   }
 }
 
+/**
+ * Generate function prototype
 /**
  * Expand effect row spreads in implicit parameters into individual parameters.
  */
@@ -615,7 +636,7 @@ export function generateSpecializedFunctionDeclarations(
 
     // Emit the function declaration
     context.emitter.emitDeclarationLine(
-      `${generateFunctionPrototype(specializedFunctionType, cFunctionName, context, undefined, functionValue.type)}; // specialized function: ${typeToString(functionValue.type)}`
+      `${generateFunctionPrototype(specializedFunctionType, cFunctionName, context)}; // specialized function: ${typeToString(functionValue.type)}`
     );
   }
 }

@@ -237,9 +237,11 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
     const hasUnresolvedFunctionImplicitParams =
       !isUserMain &&
       !isEffectfulFunction &&
+      !value.isModuleEffectMember &&
       !value.type.isClosure &&
       !value.specializedType &&
       (value.specializedFunctionCaches?.length ?? 0) === 0 &&
+      getEvidenceParameters(value.specializedType ?? value.type).length === 0 &&
       [
         ...value.type.implicitParameters,
         ...value.type.parameters.filter((p) => p.isImplicit),
@@ -255,9 +257,17 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
     const isSpecializedImplMethod =
       value.specializedType && !isFunctionTypeGeneric(value.type);
 
+    // Check if the function has evidence params (from resolved spread implicits)
+    // Functions with evidence params need standalone bodies even if the body
+    // doesn't appear effectful (effects were resolved during specialization)
+    const functionTypeForCheck = value.specializedType ?? value.type;
+    const hasEvidenceParams =
+      getEvidenceParameters(functionTypeForCheck).length > 0;
+
     if (
       !isUserMain &&
       !isEffectfulFunction &&
+      !hasEvidenceParams &&
       !value.isModuleEffectMember &&
       ((isFunctionTypeHardGeneric(value.type) && !value.type.isClosure) ||
         (value.specializedFunctionCaches?.length > 0 &&
@@ -453,7 +463,20 @@ export function preRegisterEffectfulFunctions(
 
     // Skip if the specialized type still has unresolved type parameters
     if (functionValue.specializedType) {
-      if (isFunctionTypeGeneric(functionValue.specializedType)) {
+      // Don't use isFunctionTypeGeneric here — it treats implicitParameters as generic,
+      // but resolved implicit params (from spread evidence) are NOT generic.
+      // Instead, check only for actual generic indicators:
+      const st = functionValue.specializedType;
+      const hasForallOrCompileTime =
+        st.forallParameters.length > 0 ||
+        st.parameters.some((p) => p.isCompileTimeOnly);
+      const hasSomeTypeParams = st.parameters.some(
+        (p) =>
+          !p.isCompileTimeOnly &&
+          isSomeType(p.type) &&
+          !typeImplementsFuture(p.type)
+      );
+      if (hasForallOrCompileTime || hasSomeTypeParams) {
         continue;
       }
       const hasGenericParams = functionValue.specializedType.parameters.some(
@@ -467,6 +490,14 @@ export function preRegisterEffectfulFunctions(
       }
     }
 
+    // Check if this function has evidence parameters. If so, it will use
+    // evidence passing (fn ptr params) instead of SM-inlining.
+    // Use the original type for evidence param detection because specialization
+    // may strip implicit parameters. The original type retains using(...(E)) implicits.
+    const evidenceCheckType =
+      functionValue.specializedType ?? functionValue.type;
+    const evidenceParams = getEvidenceParameters(evidenceCheckType);
+
     // Check if ALL effects are module-based (have effectFieldPath).
     // Module-based effects use evidence passing (fn ptr params) instead of SM-inlining.
     // But only skip SM registration if evidence passing is actually possible
@@ -477,13 +508,18 @@ export function preRegisterEffectfulFunctions(
         ? effectAnalysis.effectHandlerInfos.every((hi) => hi.effectFieldPath)
         : false;
 
-    if (isModuleEffectOnly) {
-      const evidenceParams = getEvidenceParameters(functionType);
-      if (evidenceParams.length > 0) {
-        // Skip SM registration — this function will use evidence passing
-        continue;
-      }
-      // Evidence params empty (e.g., all module functions have forall params) —
+    // Use evidence passing when evidence params are available.
+    // Functions with evidence params receive their effects as fn ptr parameters.
+    // Direct effect calls in the body compile as fn ptr calls through those params,
+    // with escape checking after each call. No SM needed.
+    const canUseEvidence = evidenceParams.length > 0;
+    if (canUseEvidence) {
+      // Skip SM registration — this function will use evidence passing
+      continue;
+    }
+
+    if (isModuleEffectOnly && evidenceParams.length === 0) {
+      // Module-based effect but all fields are forall (can't be fn ptrs) —
       // fall through to SM-inlining
     }
 
@@ -623,6 +659,15 @@ export function preRegisterEffectfulFunctions(
       if (closureInfo?.captureType && isStructType(closureInfo.captureType)) {
         closureCaptureTypeCName =
           context.types[closureInfo.captureType.id]?.cName;
+      }
+
+      // Check if this closure should use evidence passing instead of SM.
+      // Closures with evidence params (from using(...(E))) receive their effects
+      // as fn ptr parameters and don't need SM transformation.
+      const closureEvidenceParams = getEvidenceParameters(functionType);
+      if (closureEvidenceParams.length > 0) {
+        // Store the effect analysis but skip SM registration
+        break;
       }
 
       registerEffectfulFunction(
@@ -843,25 +888,16 @@ export function generateFunction(
   */
 
   // Regular function generation (async blocks within the function handle their own state machines)
-  // Pass original type for evidence param extraction (specializedType has empty implicitParameters)
-  const originalType = functionValue.specializedType
-    ? functionValue.type
-    : undefined;
+  // After specialization, specializedType includes resolved implicit parameters,
+  // so we can use functionType directly (which is specializedType ?? type).
   const functionPrototype = overrideReturnType
     ? generateFunctionPrototype(
         functionType,
         cFunctionName,
         context,
-        overrideReturnType,
-        originalType
+        overrideReturnType
       )
-    : generateFunctionPrototype(
-        functionType,
-        cFunctionName,
-        context,
-        undefined,
-        originalType
-      );
+    : generateFunctionPrototype(functionType, cFunctionName, context);
 
   emitter.emitLine(`${functionPrototype} {`);
 
@@ -885,7 +921,7 @@ export function generateFunction(
   // fn ptr parameter names so body codegen can resolve them.
   const previousEvidenceParams = (context as FunctionGenerationContext)
     .currentEvidenceParams;
-  const evidenceParams = getEvidenceParameters(originalType ?? functionType);
+  const evidenceParams = getEvidenceParameters(functionType);
   if (evidenceParams.length > 0) {
     const evidenceMap = new Map<string, EvidenceParameter>();
     for (const ep of evidenceParams) {
@@ -1263,7 +1299,19 @@ export function generateSpecializedFunctions(context: CodeGenContext): void {
     }
 
     // Skip if the specialized type still has unresolved type parameters
-    if (isFunctionTypeGeneric(functionValue.specializedType)) {
+    // Don't use isFunctionTypeGeneric — it treats implicitParameters as generic,
+    // but resolved implicit params (from spread evidence) are NOT generic.
+    const st = functionValue.specializedType;
+    const hasForallOrCompileTimeSpec =
+      st.forallParameters.length > 0 ||
+      st.parameters.some((p) => p.isCompileTimeOnly);
+    const hasSomeTypeParamsSpec = st.parameters.some(
+      (p) =>
+        !p.isCompileTimeOnly &&
+        isSomeType(p.type) &&
+        !typeImplementsFuture(p.type)
+    );
+    if (hasForallOrCompileTimeSpec || hasSomeTypeParamsSpec) {
       continue;
     }
 
@@ -1287,6 +1335,15 @@ export function generateSpecializedFunctions(context: CodeGenContext): void {
         cFunctionName,
         context as FunctionGenerationContext
       );
+      continue;
+    }
+
+    // If this function has evidence parameters, the main loop already generated
+    // its body with evidence passing (fn ptr params). Skip to avoid redefinition.
+    const evidenceParams = getEvidenceParameters(
+      functionValue.specializedType ?? functionValue.type
+    );
+    if (evidenceParams.length > 0) {
       continue;
     }
 
@@ -1373,6 +1430,7 @@ void __yo_decr_rc_atomic(void* ptr) {
   emitter.emitLine(`// Per-thread GC tracking state for cycle collection
 static _Thread_local yo_thread_gc_state_t* yo_current_thread_gc = NULL;  // Current thread's GC state
 static _Thread_local int __yo_effect_escaped = 0;  // Thread-local flag for module effect escape detection
+static _Thread_local _Alignas(16) char __yo_effect_escape_value[64];  // Thread-local buffer for escape value storage
 static yo_thread_gc_state_t* yo_all_thread_gcs = NULL;  // Global list of all thread GC states (for cleanup)
 #if defined(_WIN32)
 static YO_THREAD_SYNC_TYPE yo_thread_list_mutex;

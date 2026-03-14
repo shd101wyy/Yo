@@ -697,3 +697,8 @@ The two strategies produce identical observable behavior — the choice is purel
 The compiler prefers evidence passing when possible because it generates simpler, faster C code with no state machine overhead.
 
 See `issues/sync-effect-inlining-inside-async-context.md` for the full design rationale and `.github/instructions/c-codegen.instructions.md` for codegen conventions.
+
+## Reference
+
+- [Generalized Evidence Passing for Effect Handlers
+  ](https://xnning.github.io/papers/multip.pdf)

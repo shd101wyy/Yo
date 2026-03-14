@@ -1,6 +1,7 @@
 open import "std/string";
 { hex_encode, hex_decode, EncodingError } :: import "std/encoding/hex";
 { ArrayList } :: import "std/collections/array_list";
+{ Error, AnyError, Exception } :: import "std/error";
 
 // ===== Encoding Tests =====
 
@@ -45,15 +46,20 @@ test "hex_encode sequential bytes", {
 // ===== Decoding Tests =====
 
 test "hex_decode empty string", {
-  result := hex_decode("");
-  assert((result.is_ok()), "empty string should decode ok");
-  assert((result.unwrap().len() == usize(0)), "empty string should decode to 0 bytes");
+  given(exn) := Exception(throw : ((err) -> {
+    assert(false, "unexpected exception");
+    escape ();
+  }));
+  bytes := hex_decode("");
+  assert((bytes.len() == usize(0)), "empty string should decode to 0 bytes");
 };
 
 test "hex_decode valid lowercase", {
-  result := hex_decode("deadbeef");
-  assert((result.is_ok()), "valid hex should decode ok");
-  bytes := result.unwrap();
+  given(exn) := Exception(throw : ((err) -> {
+    assert(false, "unexpected exception");
+    escape ();
+  }));
+  bytes := hex_decode("deadbeef");
   assert((bytes.len() == usize(4)), "deadbeef should decode to 4 bytes");
   assert((bytes.get(usize(0)).unwrap() == u8(0xDE)), "first byte should be 0xDE");
   assert((bytes.get(usize(1)).unwrap() == u8(0xAD)), "second byte should be 0xAD");
@@ -62,33 +68,45 @@ test "hex_decode valid lowercase", {
 };
 
 test "hex_decode valid uppercase", {
-  result := hex_decode("DEADBEEF");
-  assert((result.is_ok()), "valid uppercase hex should decode ok");
-  bytes := result.unwrap();
+  given(exn) := Exception(throw : ((err) -> {
+    assert(false, "unexpected exception");
+    escape ();
+  }));
+  bytes := hex_decode("DEADBEEF");
   assert((bytes.len() == usize(4)), "DEADBEEF should decode to 4 bytes");
   assert((bytes.get(usize(0)).unwrap() == u8(0xDE)), "first byte should be 0xDE");
   assert((bytes.get(usize(3)).unwrap() == u8(0xEF)), "fourth byte should be 0xEF");
 };
 
 test "hex_decode odd length error", {
-  result := hex_decode("abc");
-  assert((result.is_err()), "odd length should error");
+  given(exn) := Exception(throw : ((err) -> {
+    escape ();
+  }));
+  hex_decode("abc");
+  assert(false, "odd length should have thrown");
 };
 
 test "hex_decode invalid character error", {
-  result := hex_decode("xxyz");
-  assert((result.is_err()), "invalid chars should error");
+  given(exn) := Exception(throw : ((err) -> {
+    escape ();
+  }));
+  hex_decode("xxyz");
+  assert(false, "invalid chars should have thrown");
 };
 
 // ===== Roundtrip Tests =====
 
 test "hex roundtrip", {
+  given(exn) := Exception(throw : ((err) -> {
+    assert(false, "unexpected exception");
+    escape ();
+  }));
   data := ArrayList(u8).new();
   data.push(u8(0x48)); data.push(u8(0x65));
   data.push(u8(0x6C)); data.push(u8(0x6C));
   data.push(u8(0x6F));
   encoded := hex_encode(data);
-  decoded := hex_decode(encoded.as_str()).unwrap();
+  decoded := hex_decode(encoded.as_str());
   assert((decoded.len() == usize(5)), "roundtrip should preserve length");
   assert((decoded.get(usize(0)).unwrap() == u8(0x48)), "roundtrip byte 0");
   assert((decoded.get(usize(1)).unwrap() == u8(0x65)), "roundtrip byte 1");
