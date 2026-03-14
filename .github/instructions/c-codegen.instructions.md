@@ -121,3 +121,34 @@ Because effect handlers are called via function pointer (evidence passing), the 
 The `__yo_effect_escaped` and `__yo_effect_escape_value` variables are declared via `emitDeclarationLine` (in the declaration section of the C output) so they are available to sync_fut_t resume functions which are also emitted in the declaration section.
 
 Key files: `context.ts` (`isModuleEffectMemberFunction`), `generation.ts` (declaration + context flag), `exprs/generation.ts` (flag set in `generateEscape`), `other-fn-call.ts` (flag check + abort at call site), `async.ts` (escape check in sync_fut_t resume).
+
+### Function collection for evidence-bearing functions
+
+Functions with evidence parameters (from `using(io: IO)` or algebraic effect bindings) need special handling in `collection.ts`. Three skip conditions must allow these functions through:
+
+1. **`isFunctionTypeHardGeneric` check** — A specialized function may still appear "hard-generic" because the implicit params are compile-time-only. If `getEvidenceParameters(specializedType).length > 0`, the function is valid for codegen — evidence params become C function pointers.
+
+2. **`exprContainsUnknownValue` check** — Functions with implicit params may have `UnknownValue` in their body for compile-time parameter references. Check both original and specialized types: if either has evidence parameters, the function is valid.
+
+3. **SomeType ARC function filter** — `___drop`/`___dup` for SomeType(Future) are skipped because SomeType has no C representation. But user-defined functions (e.g., `test_escape(task: Impl(Future(...)))`) with evidence params should NOT be skipped — their SomeType params are resolved at call sites.
+
+### Await escape value handling: handler installation vs propagation
+
+When an `io.await` detects a Future abort (state == -2), the behavior depends on whether the current function is the **handler installation point** or a **propagation point**:
+
+- **Handler installation** — The function has a `given(raise) := ...` binding that locally installs the effect handler. When escaped, it clears `__yo_effect_escaped = 0`, extracts the escape value from `__yo_effect_escape_value` via `memcpy`, and returns it.
+
+- **Propagation** — The function receives the effect via evidence parameters (`using`). When escaped, it re-sets `__yo_effect_escaped = 1` and returns a dummy value `(ReturnType){0}` so the caller can detect and handle the escape.
+
+The helper `isAwaitEscapeHandlerInstallation()` in `await.ts` determines this by checking if ANY algebraic effect in the Future is NOT in the current function's `currentEvidenceParams`. If an effect's key is missing from evidence params, it must be locally installed via `given`.
+
+### Module effect member return types
+
+Handler functions marked `isModuleEffectMember = true` with SomeType return types (e.g., `Raise :: fn(forall(T), ...) -> T`) use `void` as their C return type consistently in both forward declarations AND definitions:
+
+- **Declaration** (`declarations.ts`): passes `undefined` for body → no body-type override → `getTypeString(SomeType)` → `void`
+- **Definition** (`generation.ts`): skips SomeType body override when `isModuleEffectMember` is true
+
+This consistency prevents type mismatches between forward declarations and definitions. The escape value is communicated through `__yo_effect_escape_value` (thread-local), not through the C return value.
+
+The `overrideReturnTypeStr` field on `FunctionGenerationContext` stores the actual C return type derived from the body, used by `generateEscape` to emit correct dummy return values when the SomeType-based return maps to `void` but the declaration uses a concrete type.

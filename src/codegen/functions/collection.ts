@@ -31,6 +31,7 @@ import {
 } from "../../value";
 import { collectType, collectTypesFromFunctionType } from "../types/collection";
 import { type CodeGenContext, sanitizeForCIdentifier } from "../utils";
+import { getEvidenceParameters } from "./declarations";
 
 /**
  * Check if an expression tree contains any UnknownValue.
@@ -290,9 +291,6 @@ export function findFunctionCallsInExpr(
         }
 
         // Skip collecting functions that are generic and haven't been specialized.
-        // A function is generic if it has forallParameters or compile-time only parameters.
-        // Note: typeContainsSomeType is too broad - it would skip functions with Impl(Module)
-        // return types even though they don't need specialization.
         if (
           isFunctionSpecializable(functionValue) &&
           !functionValue.specializedType
@@ -307,16 +305,25 @@ export function findFunctionCallsInExpr(
         // Use isFunctionTypeHardGeneric: functions generic ONLY due to implicit
         // params (e.g., using(io : IO)) can still be codegen'd because implicit
         // params are compile-time-only and don't appear in C signatures.
+        // EXCEPTION: Functions with evidence parameters (from implicit params that
+        // resolve to module/function effects) are valid for codegen even if
+        // "hard-generic" — the implicit params become C function pointer parameters.
         if (
           functionValue.specializedType &&
           isFunctionTypeHardGeneric(functionValue.specializedType)
         ) {
-          // Still scan args and func to collect closures etc.
-          findFunctionCallsInExpr(expr.func, context);
-          for (const arg of expr.args) {
-            findFunctionCallsInExpr(arg, context);
+          const evidenceParams = getEvidenceParameters(
+            functionValue.specializedType
+          );
+          if (evidenceParams.length === 0) {
+            // Truly hard-generic — skip but still scan args
+            findFunctionCallsInExpr(expr.func, context);
+            for (const arg of expr.args) {
+              findFunctionCallsInExpr(arg, context);
+            }
+            return;
           }
-          return;
+          // Has evidence params — fall through to collect normally
         }
 
         if (context.functions[functionValue.funcId]) {
@@ -325,46 +332,54 @@ export function findFunctionCallsInExpr(
           // NOTE: We shouldn't return here, because it's arguments might be different
         } else {
           // Skip collecting functions whose body contains UnknownValue
-          // This means the function wasn't fully evaluated (e.g., nested function in an unspecialized generic)
           let isGenericOnlyDueToImplicitParams = false;
           if (exprContainsUnknownValue(functionValue.body)) {
-            // However, functions that are only "generic" due to implicit parameters
+            // Functions that are only "generic" due to implicit parameters
             // (e.g., using(io : IO)) may have UnknownValue in their body for the
             // implicit parameter references (like `io` or `io.await`). These functions
             // are still valid for codegen because:
             // 1. IO builtin calls (io.await, io.async, io.state) are handled specially by codegen
             // 2. The implicit parameters are compile-time-only and don't appear in C signatures
             // 3. The function body is otherwise fully evaluated
+            // Check both original and specialized types: the original type may be
+            // "hard-generic" due to implicit params, but having evidence parameters
+            // means those implicits are handled via evidence passing.
+            const checkType =
+              functionValue.specializedType ?? functionValue.type;
             isGenericOnlyDueToImplicitParams =
-              !isFunctionTypeHardGeneric(functionValue.type) &&
-              functionValue.type.implicitParameters.length > 0;
+              checkType.implicitParameters.length > 0 &&
+              (getEvidenceParameters(checkType).length > 0 ||
+                (!isFunctionTypeHardGeneric(functionValue.type) &&
+                  functionValue.type.implicitParameters.length > 0));
             if (!isGenericOnlyDueToImplicitParams) {
               return;
             }
           }
 
-          // Skip collecting SomeType's ARC functions (___drop, ___dup) that have generic
-          // Impl(Future) parameters without resolvedConcreteType. These are just wrapper
-          // functions that call builtins like __yo_sometype_drop. The codegen will handle
-          // dispatching to the concrete type's functions directly.
-          //
-          // These functions shouldn't be codegen'd because:
-          // 1. Their 'self' parameter type (SomeType) doesn't have a C representation
-          // 2. The codegen for ___drop already handles SomeType by dispatching to concrete type
-          // 3. The actual ARC operations are done via __yo_sometype_drop/__yo_sometype_dup builtins
-          //
-          // However, user-defined functions with using(io : IO) may also have SomeType(Future)
-          // parameters (e.g., test_escape(task : Impl(Future(...)))) and should NOT be skipped.
+          // Skip collecting SomeType's ARC functions (___drop, ___dup) that have
+          // generic Impl(Future) parameters without resolvedConcreteType.
+          // Exception: user-defined functions with evidence parameters (e.g.,
+          // test_escape(task: Impl(Future(...)), using(io: IO))) should be
+          // collected — their SomeType params are valid for codegen because the
+          // concrete type is resolved at the call site.
           if (!isGenericOnlyDueToImplicitParams) {
-            const paramTypes = functionValue.type.parameters.map((p) => p.type);
-            const hasSomeTypeWithoutResolved = paramTypes.some(
-              (t) =>
-                isSomeType(t) &&
-                typeImplementsFuture(t) &&
-                !t.resolvedConcreteType
-            );
-            if (hasSomeTypeWithoutResolved) {
-              return;
+            const hasEvidence =
+              getEvidenceParameters(
+                functionValue.specializedType ?? functionValue.type
+              ).length > 0;
+            if (!hasEvidence) {
+              const checkParamTypes = (
+                functionValue.specializedType ?? functionValue.type
+              ).parameters.map((p) => p.type);
+              const hasSomeTypeWithoutResolved = checkParamTypes.some(
+                (t) =>
+                  isSomeType(t) &&
+                  typeImplementsFuture(t) &&
+                  !t.resolvedConcreteType
+              );
+              if (hasSomeTypeWithoutResolved) {
+                return;
+              }
             }
           }
 

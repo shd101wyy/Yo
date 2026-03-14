@@ -178,8 +178,9 @@ export function generateFunctionDeclarations(
       cName,
       false,
       context,
-      // Don't pass body for module effect members — their body type is unit (from escape())
-      // but the function signature's return type (from forall specialization) is correct
+      // Don't pass body for module effect members — their body type (from escape())
+      // may not match the function signature's return type. The signature type
+      // (even if SomeType → void) is used consistently in both declaration and definition.
       value.isModuleEffectMember ? undefined : value.body,
       // Pass original type so evidence params are detected when specialization
       // strips implicit parameters (e.g., for forall effects).

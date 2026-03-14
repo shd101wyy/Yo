@@ -170,8 +170,42 @@ export function generateAwait(
       }
       generatePendingDeferredDrops(indent + "    ", functionContext, expr);
       functionContext.pendingDeferredDrops = savedDrops;
-      emitter.emitLine(`${indent}    return;`);
-      emitter.emitLine(`${indent}    return;`);
+      // Determine if this function is the handler installation point for the
+      // effect that caused the escape. If a `given` handler is locally installed
+      // (not forwarded via evidence params), the function should extract the
+      // escape value and return it. Otherwise, propagate the escape to the caller.
+      const isHandlerInstallation = isAwaitEscapeHandlerInstallation(
+        futureModuleForCheck!,
+        functionContext
+      );
+      const returnType = functionContext.currentFunctionType?.return?.type;
+      if (isHandlerInstallation) {
+        // Handler installation: consume the escape and return the escape value
+        emitter.emitLine(`${indent}    __yo_effect_escaped = 0;`);
+        if (returnType && !isUnitType(returnType)) {
+          const callerCType = getTypeString(returnType, context);
+          if (callerCType !== "void") {
+            emitter.emitLine(`${indent}    ${callerCType} _esc_result;`);
+            emitter.emitLine(
+              `${indent}    memcpy(&_esc_result, __yo_effect_escape_value, sizeof(${callerCType}));`
+            );
+            emitter.emitLine(`${indent}    return _esc_result;`);
+          } else {
+            emitter.emitLine(`${indent}    return;`);
+          }
+        } else {
+          emitter.emitLine(`${indent}    return;`);
+        }
+      } else {
+        // Propagation: re-set the escape flag so the caller can detect it
+        emitter.emitLine(`${indent}    __yo_effect_escaped = 1;`);
+        if (returnType && !isUnitType(returnType)) {
+          const returnTypeStr = getTypeString(returnType, context);
+          emitter.emitLine(`${indent}    return (${returnTypeStr}){0};`);
+        } else {
+          emitter.emitLine(`${indent}    return;`);
+        }
+      }
     } else {
       // Non-effectful: any abort is unexpected
       emitter.emitLine(
@@ -278,6 +312,52 @@ export function generateState(
   );
 
   return resultVar;
+}
+
+/**
+ * Check if the current function is a handler installation point for an
+ * algebraic effect that could cause a Future abort.
+ *
+ * Returns true if ANY algebraic effect in the future is locally installed
+ * (via `given` binding) rather than forwarded from the caller's evidence
+ * parameters. When true, the await escape path should extract the escape
+ * value from __yo_effect_escape_value and return it directly.
+ */
+function isAwaitEscapeHandlerInstallation(
+  futureTraitType: ReturnType<typeof extractFutureTraitFromType> & object,
+  context: FunctionGenerationContext
+): boolean {
+  const effects = futureTraitType.isFuture.effects;
+  if (!effects?.length) return false;
+
+  const expandedEffects = expandFutureEffects(effects);
+  const evidenceParams = context.currentEvidenceParams;
+
+  for (const effect of expandedEffects) {
+    if (isFunctionType(effect.type)) {
+      // Function-type effect (e.g., Raise): key is "label.label"
+      const key = `${effect.label}.${effect.label}`;
+      if (!evidenceParams?.has(key)) {
+        return true; // Not forwarded → locally installed
+      }
+    } else if (isModuleType(effect.type)) {
+      // Module-type effect (e.g., Exception): check if any member is in evidence
+      let isForwarded = false;
+      if (evidenceParams) {
+        for (const [key] of evidenceParams) {
+          if (key.startsWith(`${effect.label}.`)) {
+            isForwarded = true;
+            break;
+          }
+        }
+      }
+      if (!isForwarded) {
+        return true; // Not forwarded → locally installed
+      }
+    }
+  }
+
+  return false; // All algebraic effects are forwarded
 }
 
 /**

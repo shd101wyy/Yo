@@ -362,7 +362,9 @@ function generateEscape(
     if (functionContext.currentFunctionType) {
       const returnType = functionContext.currentFunctionType.return.type;
       if (!isUnitType(returnType)) {
-        const returnTypeStr = getTypeString(returnType, context);
+        const returnTypeStr =
+          functionContext.overrideReturnTypeStr ??
+          getTypeString(returnType, context);
         if (returnTypeStr !== "void") {
           return `return (${returnTypeStr}){0}`;
         }
@@ -404,7 +406,9 @@ function generateEscape(
     }
     const returnType = functionContext.currentFunctionType.return.type;
     if (!isUnitType(returnType)) {
-      const returnTypeStr = getTypeString(returnType, context);
+      const returnTypeStr =
+        functionContext.overrideReturnTypeStr ??
+        getTypeString(returnType, context);
       if (returnTypeStr !== "void") {
         return `return (${returnTypeStr}){0}`;
       }

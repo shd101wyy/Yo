@@ -173,4 +173,8 @@ export interface FunctionGenerationContext extends CodeGenContext {
   // Used to determine which drops belong to the loop body scope and must be
   // emitted before break/continue (which would otherwise skip end-of-body drops).
   loopBodyDropsBaselineCount?: number;
+  // Override C return type string for functions where the declaration uses a
+  // body-derived type (e.g., module effect member handlers with SomeType return).
+  // Used by escape codegen to emit correct dummy return values.
+  overrideReturnTypeStr?: string;
 }

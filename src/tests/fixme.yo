@@ -7,14 +7,15 @@ main :: (fn(using(io : IO)) -> unit) {
   Raise :: (fn(forall(T : Type), msg : String) -> T);
 
   {
-    test_escape :: (fn(task : Impl(Future(i32, IO, Raise)), using(io : IO)) -> unit) {
+    test_escape :: (fn(task : Impl(Future(i32, IO, Raise)), using(io : IO)) -> i32) {
       (given(raise) : Raise) =
         (msg) -> {
           println(msg);
-          escape ();
+          escape 666;
         };
-      io.await(task, using(io, raise));
+      result := io.await(task, using(io, raise));
       assert(false, "expected task to escape already");
+      return result;
     };
 
     // I expect 'task' to have type Impl(Future(i32, IO, Raise))
@@ -22,10 +23,11 @@ main :: (fn(using(io : IO)) -> unit) {
       raise(`This task should be aborted, not awaited!`);
       return i32(12);
     });
-    test_escape(task);
+    result := test_escape(task);
     st := io.state(task);
     printf("Future state after starting task: %d\n", st);
-    assert(st == FutureState.Aborted);
+    assert(st == FutureState.Aborted, "expected task to be aborted");
+    assert(result == 666, "expected task to escape with 666");
   };
 };
 export main;

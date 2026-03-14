@@ -537,7 +537,8 @@ export function generateFunction(
     functionValue.body &&
     isSomeType(functionType.return.type) &&
     !typeImplementsFuture(functionType.return.type) &&
-    !functionValue.specializedType // Don't override for specialized functions
+    !functionValue.specializedType && // Don't override for specialized functions
+    !functionValue.isModuleEffectMember // Module effect handlers use SomeType → void consistently
   ) {
     // The body should have the concrete return type
     if (functionValue.body.$?.type) {
@@ -620,9 +621,15 @@ export function generateFunction(
   const previousIsModuleEffectMemberFunction = (
     context as FunctionGenerationContext
   ).isModuleEffectMemberFunction;
+  const previousOverrideReturnTypeStr = (context as FunctionGenerationContext)
+    .overrideReturnTypeStr;
   if (functionValue.isModuleEffectMember) {
     (context as FunctionGenerationContext).isModuleEffectMemberFunction = true;
   }
+  // Store override return type for escape codegen (when the C return type
+  // differs from the SomeType-based return type in the function signature)
+  (context as FunctionGenerationContext).overrideReturnTypeStr =
+    overrideReturnType;
 
   // Set up evidence parameters for module-based effect functions.
   // This maps module field accesses (e.g., raise_mod.raise) to the evidence
@@ -730,6 +737,8 @@ export function generateFunction(
     previousFunctionType;
   (context as FunctionGenerationContext).isModuleEffectMemberFunction =
     previousIsModuleEffectMemberFunction;
+  (context as FunctionGenerationContext).overrideReturnTypeStr =
+    previousOverrideReturnTypeStr;
   (context as FunctionGenerationContext).currentEvidenceParams =
     previousEvidenceParams;
   context.currentClosureCaptures = previousClosureCaptures;
