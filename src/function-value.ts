@@ -128,9 +128,15 @@ export type FunctionValue = {
   closureInfo?: ClosureInfo;
 
   /**
-   * When true, this function is a member of a module value used as an effect handler.
-   * It may have forall parameters but should still be compiled as a concrete function
-   * since it will be stored as a void* function pointer in effect capture structs.
+   * When true, this function is used as an effect handler and must be compiled
+   * as a concrete C function (even if its type has forall parameters), since it
+   * will be stored as a void* function pointer for evidence passing.
+   *
+   * Set in two places:
+   * - Module effect members: fields of a module value used as an effect handler
+   *   (set in codegen collection via collectModuleEffectMembers)
+   * - Bare function-type effect handlers: function values assigned via `given`
+   *   bindings (set in evaluator initialization-assignment)
    */
   isModuleEffectMember?: boolean;
 

@@ -336,7 +336,6 @@ function emitEffectInjectionForAwait(
       const usingArg = usingArgs[i]!;
 
       if (isFunctionType(effect.type)) {
-        if (effect.type.forallParameters.length > 0) continue;
         const handlerCode = generateExpr(usingArg, indent, context);
         const fieldName = effect.label;
         emitter.emitLine(
@@ -357,7 +356,6 @@ function emitEffectInjectionForAwait(
     // No explicit using(): resolve effects from scope
     for (const effect of expandedEffects) {
       if (isFunctionType(effect.type)) {
-        if (effect.type.forallParameters.length > 0) continue;
         const handlerCode = resolveEffectFieldFromScope(
           effect.label,
           functionContext,

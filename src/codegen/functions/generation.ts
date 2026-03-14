@@ -258,9 +258,12 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
     // Skip hard-generic or comptime-return functions with no specialization.
     // These exist only as compile-time templates — their unspecialized
     // bodies reference comptime bindings not available at runtime.
-    // This applies even to module effect members (e.g., allocator functions).
+    // Exception: effect handler functions (isModuleEffectMember) must be
+    // generated even when hard-generic — their forall params are erased
+    // at runtime and they're stored as void* function pointers.
     if (
       !isUserMain &&
+      !value.isModuleEffectMember &&
       !value.specializedType &&
       (value.specializedFunctionCaches?.length ?? 0) === 0 &&
       (isFunctionTypeHardGeneric(value.type) || isComptimeFunction(value))
@@ -1143,10 +1146,16 @@ void __yo_decr_rc_atomic(void* ptr) {
 }`);
 
   // Per-thread GC tracking state (simplified - no stop-the-world coordination needed for thread-local)
+  // Effect escape flag and value buffer are emitted in declaration section
+  // (via emitDeclarationLine) so they're available to sync_fut_t resume functions.
+  emitter.emitDeclarationLine(
+    `static _Thread_local int __yo_effect_escaped = 0;  // Thread-local flag for module effect escape detection`
+  );
+  emitter.emitDeclarationLine(
+    `static _Thread_local _Alignas(16) char __yo_effect_escape_value[64];  // Thread-local buffer for escape value storage`
+  );
   emitter.emitLine(`// Per-thread GC tracking state for cycle collection
 static _Thread_local yo_thread_gc_state_t* yo_current_thread_gc = NULL;  // Current thread's GC state
-static _Thread_local int __yo_effect_escaped = 0;  // Thread-local flag for module effect escape detection
-static _Thread_local _Alignas(16) char __yo_effect_escape_value[64];  // Thread-local buffer for escape value storage
 static yo_thread_gc_state_t* yo_all_thread_gcs = NULL;  // Global list of all thread GC states (for cleanup)
 #if defined(_WIN32)
 static YO_THREAD_SYNC_TYPE yo_thread_list_mutex;

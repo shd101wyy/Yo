@@ -1270,6 +1270,17 @@ export function generateIoAsyncSyncCall(
       `  ${closureFunctionCName}(&sm->__capture${closureEvidenceArgs});`
     );
   }
+  // If an effect handler called escape(), the closure returned early.
+  // Set state to -2 (aborted) instead of -1 (completed).
+  // Don't decrement refcount here — the await abort path handles the
+  // event loop reference decrement when it sees state == -2.
+  if (closureEvidenceArgs) {
+    emitter.emitDeclarationLine(`  if (__yo_effect_escaped) {`);
+    emitter.emitDeclarationLine(`    __yo_effect_escaped = 0;`);
+    emitter.emitDeclarationLine(`    sm->state = -2;`);
+    emitter.emitDeclarationLine(`    return;`);
+    emitter.emitDeclarationLine(`  }`);
+  }
   emitter.emitDeclarationLine(`  sm->state = -1;`);
   emitter.emitDeclarationLine(
     `  void (*continuation)(void*) = sm->continuation_fn;`

@@ -598,13 +598,12 @@ Got:      "${paramName}"`,
     // remain compile-time only.
     // However, if the handler is already resolved from the outer scope (via
     // given bindings), it's compile-time known and doesn't need runtime injection.
-    // Also, generic function types (with forall parameters) can't be stored as
-    // void* since they need per-call-site specialization — keep them compile-time.
+    // Forall function types (e.g., Raise :: fn(forall(T), msg: String) -> T)
+    // are also captured — they are passed as void* and cast at each call site.
     const isEffectParamInAsyncClosure =
       context.isInsideIoAsyncCall &&
       isCreatingClosure &&
       isFunctionType(expectedParam.type) &&
-      expectedParam.type.forallParameters.length === 0 &&
       !resolvedHandlerValue;
     if (isEffectParamInAsyncClosure) {
       effectParamEntries.push({

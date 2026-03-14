@@ -72,11 +72,36 @@ For understanding the compile-time RC ownership model, read `COMPILE_TIME_RC_WIT
 
 See `issues/sync-effect-inlining-inside-async-context.md` for the full design rationale.
 
+**Forall function-type effects (e.g., `Raise :: fn(forall(T), msg: String) -> T`):**
+- Bare function-type effect handlers from `given` bindings are marked `isModuleEffectMember = true` in the evaluator (`initialization-assignment.ts`). This ensures their C function body is generated despite having forall parameters (the forall types are erased at runtime).
+- The evaluator includes forall function effects in async closure capture structs (`isEffectParamInAsyncClosure` in `anonymous-function.ts`). They are stored as `void*` and cast at each call site.
+- Effect injection at `io.await`/`io.spawn` writes the handler function pointer into the future's capture struct for both module-type and forall function-type effects (`emitEffectInjectionForAwait` in `await.ts`).
+
 **Mixed escape+return handlers:**
 - A handler may `return` in one branch and `escape` in another. Both paths work with evidence passing:
   - Return path: handler function returns normally; caller uses the resume value
   - Escape path: handler sets `__yo_effect_escaped = 1` and returns a dummy; caller checks the flag and propagates
 - Non-unit `escape value` is supported — the escape value is stored in a thread-local and retrieved at the handler installation site.
+
+### Escape detection in sync_fut_t resume functions
+
+When a sync_fut_t (lightweight future without await points) has evidence parameters, its resume function checks `__yo_effect_escaped` after calling the closure:
+
+```c
+void resume(void* ptr) {
+  sync_fut_t* sm = (sync_fut_t*)ptr;
+  sm->result = closure(&sm->__capture, ...evidence_args...);
+  if (__yo_effect_escaped) {
+    __yo_effect_escaped = 0;
+    sm->state = -2;  // Aborted
+    return;           // Don't decr RC — await abort path handles it
+  }
+  sm->state = -1;    // Completed
+  // ... continuation + __yo_decr_rc(ptr)
+}
+```
+
+**Important:** The escape path does NOT call `__yo_decr_rc`. The await abort path (which checks `state == -2`) handles the event loop reference decrement. This prevents double-free when both resume and await try to decrement the same reference.
 
 ### When SM is still needed
 
@@ -86,10 +111,13 @@ The SM approach is still needed for **multi-yield resumable effects** where the 
 
 Because effect handlers are called via function pointer (evidence passing), the codegen cannot statically detect whether the handler calls `escape()`. A thread-local flag `__yo_effect_escaped` is used for runtime detection:
 
-1. Before calling a module effect member via function pointer, the flag is reset to 0.
+1. Before calling an effect handler via function pointer, the flag is reset to 0.
 2. If the handler calls `escape()`, the flag is set to 1 (in `generateEscape`, gated by `isModuleEffectMemberFunction`).
 3. After the call returns, the caller checks the flag. If set, it drops any RC-typed arguments and propagates the escape:
    - In async SM: aborts the Future (state = -2), spawns the continuation, returns.
+   - In sync_fut_t resume: sets state = -2 (aborted), returns without decrementing RC.
    - In sync context (evidence passing): drops locals, returns a dummy value. Each caller in the transitive chain checks the flag and propagates.
 
-Key files: `context.ts` (`isModuleEffectMemberFunction`), `generation.ts` (preamble + context flag), `exprs/generation.ts` (flag set in `generateEscape`), `other-fn-call.ts` (flag check + abort at call site).
+The `__yo_effect_escaped` and `__yo_effect_escape_value` variables are declared via `emitDeclarationLine` (in the declaration section of the C output) so they are available to sync_fut_t resume functions which are also emitted in the declaration section.
+
+Key files: `context.ts` (`isModuleEffectMemberFunction`), `generation.ts` (declaration + context flag), `exprs/generation.ts` (flag set in `generateEscape`), `other-fn-call.ts` (flag check + abort at call site), `async.ts` (escape check in sync_fut_t resume).
