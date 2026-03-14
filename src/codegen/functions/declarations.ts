@@ -128,6 +128,12 @@ export function generateFunctionDeclarations(
     const hasEvidenceParams =
       getEvidenceParameters(functionTypeForCheck).length > 0;
 
+    // IO async state machine closures are generated via the deferred async
+    // block system, not as standalone declarations.
+    if (!isUserMain && value.isIoAsyncStateMachineClosure) {
+      continue;
+    }
+
     if (
       !isUserMain &&
       !isEffectfulFunction &&

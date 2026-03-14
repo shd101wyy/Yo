@@ -268,6 +268,13 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
       continue;
     }
 
+    // IO async state machine closures are always generated via the deferred
+    // async block system, never as standalone functions. Skip unconditionally
+    // to prevent duplicate struct/function definitions.
+    if (!isUserMain && value.isIoAsyncStateMachineClosure) {
+      continue;
+    }
+
     if (
       !isUserMain &&
       !isEffectfulFunction &&
