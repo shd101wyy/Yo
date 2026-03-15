@@ -261,9 +261,15 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
     // Exception: effect handler functions (isModuleEffectMember) must be
     // generated even when hard-generic — their forall params are erased
     // at runtime and they're stored as void* function pointers.
+    // However, module members with comptime parameters MUST still be skipped —
+    // comptime params reference compile-time bindings (sizeof, alignof, etc.)
+    // that don't exist at runtime, unlike forall params which are just erased.
+    const hasComptimeParams = value.type.parameters.some(
+      (p) => p.isCompileTimeOnly
+    );
     if (
       !isUserMain &&
-      !value.isModuleEffectMember &&
+      (!value.isModuleEffectMember || hasComptimeParams) &&
       !value.specializedType &&
       (value.specializedFunctionCaches?.length ?? 0) === 0 &&
       (isFunctionTypeHardGeneric(value.type) || isComptimeFunction(value))
