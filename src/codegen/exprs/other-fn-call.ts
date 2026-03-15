@@ -1926,18 +1926,22 @@ function emitEffectEscapeCheck(
 ): void {
   const emitter = context.emitter;
   emitter.emitLine(`${indent}if (__yo_effect_escaped) {`);
-  // Drop in-scope RC-typed locals before early return to prevent leaks
-  generatePendingDeferredDrops(
-    indent + "  ",
-    context,
-    expr,
-    false,
-    true,
-    false
-  );
-  // Also drop consumed variables (their drops were optimized away because
-  // they'd be consumed by the return value, but escape discards the return)
-  generateConsumedVarDropsForEscape(indent + "  ", context, expr);
+  // In async SMs, local variable cleanup is handled by _state_dispose when
+  // the SM is freed (state == -2). Dropping here would cause double-free.
+  if (!context.inAsyncStateMachine) {
+    // Drop in-scope RC-typed locals before early return to prevent leaks
+    generatePendingDeferredDrops(
+      indent + "  ",
+      context,
+      expr,
+      false,
+      true,
+      false
+    );
+    // Also drop consumed variables (their drops were optimized away because
+    // they'd be consumed by the return value, but escape discards the return)
+    generateConsumedVarDropsForEscape(indent + "  ", context, expr);
+  }
   if (context.inAsyncStateMachine) {
     if (isHandlerInstallation) {
       emitter.emitLine(`${indent}  __yo_effect_escaped = 0;`);
@@ -2057,16 +2061,19 @@ function generateEvidenceFnPtrCall(
 
     // Check escape flag — propagate early return if handler escaped
     emitter.emitLine(`${indent}if (__yo_effect_escaped) {`);
-    // Drop in-scope RC-typed locals before early return to prevent leaks
-    generatePendingDeferredDrops(
-      indent + "  ",
-      context,
-      expr,
-      false,
-      true,
-      false
-    );
-    generateConsumedVarDropsForEscape(indent + "  ", context, expr);
+    // In async SMs, local variable cleanup is handled by _state_dispose
+    if (!context.inAsyncStateMachine) {
+      // Drop in-scope RC-typed locals before early return to prevent leaks
+      generatePendingDeferredDrops(
+        indent + "  ",
+        context,
+        expr,
+        false,
+        true,
+        false
+      );
+      generateConsumedVarDropsForEscape(indent + "  ", context, expr);
+    }
     if (context.inAsyncStateMachine) {
       emitAsyncFutureEscape({
         emitter,
@@ -2113,16 +2120,19 @@ function generateEvidenceFnPtrCall(
 
         // Check escape flag — propagate early return if handler escaped
         emitter.emitLine(`${indent}if (__yo_effect_escaped) {`);
-        // Drop in-scope RC-typed locals before early return to prevent leaks
-        generatePendingDeferredDrops(
-          indent + "  ",
-          context,
-          expr,
-          false,
-          true,
-          false
-        );
-        generateConsumedVarDropsForEscape(indent + "  ", context, expr);
+        // In async SMs, local variable cleanup is handled by _state_dispose
+        if (!context.inAsyncStateMachine) {
+          // Drop in-scope RC-typed locals before early return to prevent leaks
+          generatePendingDeferredDrops(
+            indent + "  ",
+            context,
+            expr,
+            false,
+            true,
+            false
+          );
+          generateConsumedVarDropsForEscape(indent + "  ", context, expr);
+        }
         if (context.inAsyncStateMachine) {
           emitAsyncFutureEscape({
             emitter,
@@ -2158,16 +2168,19 @@ function generateEvidenceFnPtrCall(
 
       // Check escape flag — propagate early return if handler escaped
       emitter.emitLine(`${indent}if (__yo_effect_escaped) {`);
-      // Drop in-scope RC-typed locals before early return to prevent leaks
-      generatePendingDeferredDrops(
-        indent + "  ",
-        context,
-        expr,
-        false,
-        true,
-        false
-      );
-      generateConsumedVarDropsForEscape(indent + "  ", context, expr);
+      // In async SMs, local variable cleanup is handled by _state_dispose
+      if (!context.inAsyncStateMachine) {
+        // Drop in-scope RC-typed locals before early return to prevent leaks
+        generatePendingDeferredDrops(
+          indent + "  ",
+          context,
+          expr,
+          false,
+          true,
+          false
+        );
+        generateConsumedVarDropsForEscape(indent + "  ", context, expr);
+      }
       if (context.inAsyncStateMachine) {
         emitAsyncFutureEscape({
           emitter,
@@ -2458,17 +2471,20 @@ function generateEvidenceCallSite(
     }
 
     emitter.emitLine(`${indent}if (__yo_effect_escaped) {`);
-    // Drop in-scope local variables before escape propagation
-    // (includes RC-typed args and other locals like closure captures)
-    generatePendingDeferredDrops(
-      indent + "  ",
-      context,
-      expr,
-      false,
-      true,
-      false
-    );
-    generateConsumedVarDropsForEscape(indent + "  ", context, expr);
+    // In async SMs, local variable cleanup is handled by _state_dispose
+    if (!context.inAsyncStateMachine) {
+      // Drop in-scope local variables before escape propagation
+      // (includes RC-typed args and other locals like closure captures)
+      generatePendingDeferredDrops(
+        indent + "  ",
+        context,
+        expr,
+        false,
+        true,
+        false
+      );
+      generateConsumedVarDropsForEscape(indent + "  ", context, expr);
+    }
     if (context.inAsyncStateMachine) {
       emitAsyncFutureEscape({
         emitter,
@@ -2521,17 +2537,20 @@ function generateEvidenceCallSite(
       }
 
       emitter.emitLine(`${indent}if (__yo_effect_escaped) {`);
-      // Drop in-scope local variables before escape propagation
-      // (includes RC-typed args and other locals like closure captures)
-      generatePendingDeferredDrops(
-        indent + "  ",
-        context,
-        expr,
-        false,
-        true,
-        false
-      );
-      generateConsumedVarDropsForEscape(indent + "  ", context, expr);
+      // In async SMs, local variable cleanup is handled by _state_dispose
+      if (!context.inAsyncStateMachine) {
+        // Drop in-scope local variables before escape propagation
+        // (includes RC-typed args and other locals like closure captures)
+        generatePendingDeferredDrops(
+          indent + "  ",
+          context,
+          expr,
+          false,
+          true,
+          false
+        );
+        generateConsumedVarDropsForEscape(indent + "  ", context, expr);
+      }
       if (context.inAsyncStateMachine) {
         emitAsyncFutureEscape({
           emitter,
