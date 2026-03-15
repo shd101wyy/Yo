@@ -2284,10 +2284,10 @@ main :: (fn(using(io : IO)) -> unit)({
     io.await(yield());
     return i32(2);
   });
-  io.spawn(task1);  // start task1 without waiting
-  io.spawn(task2);  // start task2 without waiting
-  r1 := io.await(task1);  // wait and extract result
-  r2 := io.await(task2);
+  handle1 := io.spawn(task1);  // start task1, returns JoinHandle(i32)
+  handle2 := io.spawn(task2);  // start task2, returns JoinHandle(i32)
+  r1 := handle1.await(using(io));  // wait → Option(i32)
+  r2 := handle2.await(using(io));
 });
 export main;
 ```
@@ -2296,9 +2296,9 @@ Key properties:
 
 - `io.async(fn)` creates a **cold Future** — the body does NOT execute until awaited or spawned
 - `io.await(future)` starts a cold future and runs it to completion; can be called **multiple times** on the same Future
-- `io.spawn(future)` starts a cold future without waiting for it to complete
+- `io.spawn(future)` starts a cold future without waiting, returns `JoinHandle(T)`
+- `handle.await(using(io))` waits for a spawned task, returns `Option(T)` — `.None` on escape (abort)
 - All async code runs on the **same thread** (no thread spawning, no data races)
-- Awaiting or spawning a Future that was escaped by an effect handler causes a **panic**
 
 See [ASYNC_AWAIT.md](./ASYNC_AWAIT.md) for comprehensive documentation.
 
