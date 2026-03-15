@@ -4,13 +4,17 @@
 //
 // Example:
 //   { json_parse, json_stringify, JsonValue } :: import "std/encoding/json";
+//   { Exception } :: import "std/error";
 //
-//   v := json_parse(`{"x": 1}`).unwrap();
+//   given(exn) := Exception(throw : ((err) -> { escape (); }));
+//   v := json_parse(`{"x": 1}`);
 //   println(json_stringify(v));
 
 open import "../string";
 { ArrayList } :: import "../collections/array_list";
 { snprintf } :: import "../libc/stdio";
+{ Error, AnyError, Exception } :: import "../error";
+{ ToString } :: import "../fmt";
 
 // ============================================================================
 // JsonError
@@ -24,6 +28,21 @@ JsonError :: enum(
   InvalidUnicode,
   Other(msg: String)
 );
+
+impl(JsonError, ToString(
+  to_string : (self ->
+    match(self,
+      .UnexpectedChar(ch, pos) => `unexpected character at position ${pos}`,
+      .UnexpectedEnd => `unexpected end of input`,
+      .InvalidNumber => `invalid number`,
+      .InvalidEscape => `invalid escape sequence`,
+      .InvalidUnicode => `invalid unicode`,
+      .Other(msg) => `JSON error: ${msg}`
+    )
+  )
+));
+
+impl(JsonError, Error());
 
 export JsonError;
 
@@ -449,9 +468,12 @@ _parse_value :: (fn(p: _Parser) -> Result(JsonValue, JsonError))({
 // Public API
 // ============================================================================
 
-json_parse :: (fn(s: str) -> Result(JsonValue, JsonError))({
+json_parse :: (fn(s: str, using(exn : Exception)) -> JsonValue)({
   p := _Parser.new(s);
-  _parse_value(p)
+  match(_parse_value(p),
+    .Ok(v) => v,
+    .Err(e) => exn.throw(dyn e)
+  )
 });
 
 export json_parse;

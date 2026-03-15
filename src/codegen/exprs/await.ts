@@ -1,3 +1,4 @@
+import { getVariablesFromEnvByFilter } from "../../env";
 import { isIoAwaitCall } from "../../evaluator/async/await-analysis";
 import {
   extractFutureTraitFromType,
@@ -12,20 +13,26 @@ import {
 import type { FunctionImplicitParameter } from "../../types/definitions";
 import {
   isEffectsRowType,
+  isEnumType,
   isFunctionType,
+  isModuleType,
   isSomeType,
   isUnitType,
 } from "../../types/guards";
 import { typeContainsRcType } from "../../types/utils";
+import { isFunctionValue, isModuleValue } from "../../value";
 import { isIoFutureType } from "../async/state-machine";
 import type { FunctionGenerationContext } from "../functions/context";
 import {
+  getDeferredDropTargetAtomName,
+  getEnumVariantCName,
   getTypeString,
   getVariableTypeString,
   type CodeGenContext,
 } from "../utils";
 import { getDupFunctionForType } from "./drop-dup";
 import { generateExpr } from "./expr";
+import { generatePendingDeferredDrops } from "./return";
 
 /**
  * await - extract value from Future
@@ -124,8 +131,9 @@ export function generateAwait(
     emitter.emitLine(`${indent}    __await_state = ${syncFutureVar}->state;`);
     emitter.emitLine(`${indent}  }`);
     emitter.emitLine(`${indent}  if (__await_state == -2) {`);
-    // Check if the Future type includes algebraic effect types (e.g., Future(i32, IO, Raise)).
-    // Effectful futures may be intentionally aborted by a ctl handler (e.g., raise + abort)
+    // Check if the Future type includes algebraic effect types (e.g., Future(i32, IO, Raise))
+    // or module effect types (e.g., Future(i32, IO, Exception)).
+    // Effectful futures may be intentionally aborted by a ctl/escape handler
     // during the CURRENT await — don't panic for that case.
     // But if the future was ALREADY aborted before we started awaiting (re-await),
     // always panic regardless of algebraic effects.
@@ -133,7 +141,8 @@ export function generateAwait(
     const futureModuleForCheck = extractFutureTraitFromType(futureType);
     const hasAlgebraicEffects =
       futureModuleForCheck?.isFuture.effects?.some(
-        (e) => isFunctionType(e.type) || e.isEffectRowSpread
+        (e) =>
+          isFunctionType(e.type) || isModuleType(e.type) || e.isEffectRowSpread
       ) ?? false;
     if (hasAlgebraicEffects) {
       // Only panic if the future was already aborted before this await
@@ -143,6 +152,62 @@ export function generateAwait(
       );
       emitter.emitLine(`${indent}      abort();`);
       emitter.emitLine(`${indent}    }`);
+      // Aborted during this await by effect handler (e.g., Exception.throw escape).
+      // The event loop reference was already decremented by emitAsyncFutureEscape
+      // inside the SM. Clean up the original future reference and all in-scope
+      // locals before returning to prevent memory leaks.
+      emitter.emitLine(`${indent}    __yo_decr_rc((void*)${syncFutureVar});`);
+      // Null out the original future variable to prevent double-free
+      // from pending drops (syncFutureVar aliases futureCode)
+      emitter.emitLine(`${indent}    ${futureCode} = NULL;`);
+      // Drop all in-scope local variables (Path, String, etc.)
+      // Exclude the await result variable — it hasn't been declared yet in C.
+      const savedDrops = functionContext.pendingDeferredDrops;
+      if (savedDrops) {
+        const resultVarToSkip = expr.$?.variableName;
+        functionContext.pendingDeferredDrops = savedDrops.filter((dropExpr) => {
+          const targetVar = getDeferredDropTargetAtomName(dropExpr);
+          return targetVar !== resultVarToSkip;
+        });
+      }
+      generatePendingDeferredDrops(indent + "    ", functionContext, expr);
+      functionContext.pendingDeferredDrops = savedDrops;
+      // Determine if this function is the handler installation point for the
+      // effect that caused the escape. If a `given` handler is locally installed
+      // (not forwarded via evidence params), the function should extract the
+      // escape value and return it. Otherwise, propagate the escape to the caller.
+      const isHandlerInstallation = isAwaitEscapeHandlerInstallation(
+        futureModuleForCheck!,
+        functionContext
+      );
+      const returnType = functionContext.currentFunctionType?.return?.type;
+      if (isHandlerInstallation) {
+        // Handler installation: consume the escape and return the escape value
+        emitter.emitLine(`${indent}    __yo_effect_escaped = 0;`);
+        if (returnType && !isUnitType(returnType)) {
+          const callerCType = getTypeString(returnType, context);
+          if (callerCType !== "void") {
+            emitter.emitLine(`${indent}    ${callerCType} _esc_result;`);
+            emitter.emitLine(
+              `${indent}    memcpy(&_esc_result, __yo_effect_escape_value, sizeof(${callerCType}));`
+            );
+            emitter.emitLine(`${indent}    return _esc_result;`);
+          } else {
+            emitter.emitLine(`${indent}    return;`);
+          }
+        } else {
+          emitter.emitLine(`${indent}    return;`);
+        }
+      } else {
+        // Propagation: re-set the escape flag so the caller can detect it
+        emitter.emitLine(`${indent}    __yo_effect_escaped = 1;`);
+        if (returnType && !isUnitType(returnType)) {
+          const returnTypeStr = getTypeString(returnType, context);
+          emitter.emitLine(`${indent}    return (${returnTypeStr}){0};`);
+        } else {
+          emitter.emitLine(`${indent}    return;`);
+        }
+      }
     } else {
       // Non-effectful: any abort is unexpected
       emitter.emitLine(
@@ -252,6 +317,188 @@ export function generateState(
 }
 
 /**
+ * JoinHandle.await(using(io)) — await a spawned task, return Option(T).
+ *
+ * The JoinHandle struct wraps a void* pointer to the spawned future's state machine.
+ * All generated futures share a common initial layout:
+ *   yo_ref_header_t header;
+ *   int state;
+ *   ResultType result;
+ *   void (*continuation_fn)(void*);
+ *   void* continuation_sm;
+ *   void (*__yo_resume_fn)(void*);
+ *
+ * We cast the void* to a common header struct for the result type T,
+ * poll until completion or abort, then return Option(T):
+ *   - state == -1 (completed) → .Some(result)
+ *   - state == -2 (aborted)   → .None
+ */
+export function generateJoinHandleAwait(
+  expr: FnCallExpr,
+  indent: string,
+  context: CodeGenContext
+): string {
+  const functionContext = context as FunctionGenerationContext;
+  const emitter = functionContext.emitter;
+
+  // Method call: expr.func is PropertyAccess(handle, "await"), expr.args is [using(io)]
+  // The self (JoinHandle) is in expr.func.args[0]
+  const handleArg = exprIsFunctionCall(expr.func)
+    ? expr.func.args[0]
+    : expr.args[0];
+  if (!handleArg) {
+    return `// Error: JoinHandle.await requires a self argument`;
+  }
+
+  const handleCode = generateExpr(handleArg, indent, context);
+
+  // The return type of this call is Option(T)
+  const optionType = expr.$?.type;
+  if (!optionType || !isEnumType(optionType)) {
+    return `// Error: JoinHandle.await return type must be Option(T)`;
+  }
+
+  const optionTypeName = getTypeString(optionType, context);
+
+  // Extract T from Option(T): the .Some variant's first field type
+  const someVariant = optionType.variants.find((v) => v.name === "Some");
+  const resultType = someVariant?.fields?.[0]?.type;
+  const isResultUnit = !resultType || isUnitType(resultType);
+  const resultTypeName = isResultUnit
+    ? "uint8_t"
+    : resultType
+      ? getTypeString(resultType, context)
+      : "uint8_t";
+
+  // Get enum variant tag names
+  const someTag = getEnumVariantCName(optionType, "Some", context);
+  const noneTag = getEnumVariantCName(optionType, "None", context);
+
+  const uniqueSuffix = expr.$?.variableName || "jh";
+  const futVar = `__jh_future_${uniqueSuffix}`;
+  const headerVar = `__jh_header_${uniqueSuffix}`;
+  const resultVar = expr.$?.variableName || `__jh_result`;
+
+  // Declare a common future header struct for casting
+  // This matches the initial layout of all generated future state machines
+  const headerStructName = `__yo_jh_header_${uniqueSuffix}`;
+
+  emitter.emitLine(
+    `${indent}// JoinHandle.await — poll spawned task, return Option(T)`
+  );
+  // Declare result variable outside the block so it's accessible after
+  const varDecl = getVariableTypeString(optionType, resultVar, context);
+  emitter.emitLine(`${indent}${varDecl};`);
+  emitter.emitLine(`${indent}{`);
+  // Extract the void* future pointer from the JoinHandle struct
+  emitter.emitLine(`${indent}  void* ${futVar} = ${handleCode}.__future;`);
+  // Define inline struct type matching the common future header layout
+  emitter.emitLine(`${indent}  struct ${headerStructName} {`);
+  emitter.emitLine(`${indent}    yo_ref_header_t header;`);
+  emitter.emitLine(`${indent}    int state;`);
+  emitter.emitLine(`${indent}    ${resultTypeName} result;`);
+  emitter.emitLine(`${indent}    void (*continuation_fn)(void*);`);
+  emitter.emitLine(`${indent}    void* continuation_sm;`);
+  emitter.emitLine(`${indent}    void (*__yo_resume_fn)(void*);`);
+  emitter.emitLine(`${indent}  };`);
+  emitter.emitLine(
+    `${indent}  struct ${headerStructName}* ${headerVar} = (struct ${headerStructName}*)${futVar};`
+  );
+
+  // Poll loop: wait until completed (-1) or aborted (-2)
+  emitter.emitLine(`${indent}  int __jh_state = ${headerVar}->state;`);
+  emitter.emitLine(`${indent}  while (__jh_state != -1 && __jh_state != -2) {`);
+  emitter.emitLine(`${indent}    yo_async_poll_step();`);
+  emitter.emitLine(`${indent}    __jh_state = ${headerVar}->state;`);
+  emitter.emitLine(`${indent}  }`);
+
+  // Build the Option(T) result
+  emitter.emitLine(`${indent}  if (__jh_state == -1) {`);
+  // Completed: return .Some(result)
+  if (isResultUnit) {
+    // Option(unit): .Some variant has no data field
+    emitter.emitLine(
+      `${indent}    ${resultVar} = (${optionTypeName}){ .tag = ${someTag} };`
+    );
+  } else {
+    // Dup the result if it contains RC types
+    if (resultType && typeContainsRcType(resultType)) {
+      const dupFn = getDupFunctionForType(resultType, context);
+      if (dupFn) {
+        emitter.emitLine(
+          `${indent}    ${resultVar} = (${optionTypeName}){ .tag = ${someTag}, .data = { .Some = { .value = ${dupFn}(${headerVar}->result) } } };`
+        );
+      } else {
+        emitter.emitLine(
+          `${indent}    ${resultVar} = (${optionTypeName}){ .tag = ${someTag}, .data = { .Some = { .value = ${headerVar}->result } } };`
+        );
+      }
+    } else {
+      emitter.emitLine(
+        `${indent}    ${resultVar} = (${optionTypeName}){ .tag = ${someTag}, .data = { .Some = { .value = ${headerVar}->result } } };`
+      );
+    }
+  }
+  emitter.emitLine(`${indent}  } else {`);
+  // Aborted: return .None — also reset escape flag if set
+  emitter.emitLine(`${indent}    __yo_effect_escaped = 0;`);
+  emitter.emitLine(
+    `${indent}    ${resultVar} = (${optionTypeName}){ .tag = ${noneTag} };`
+  );
+  emitter.emitLine(`${indent}  }`);
+
+  emitter.emitLine(`${indent}}`);
+
+  return resultVar;
+}
+
+/**
+ * Check if the current function is a handler installation point for an
+ * algebraic effect that could cause a Future abort.
+ *
+ * Returns true if ANY algebraic effect in the future is locally installed
+ * (via `given` binding) rather than forwarded from the caller's evidence
+ * parameters. When true, the await escape path should extract the escape
+ * value from __yo_effect_escape_value and return it directly.
+ */
+function isAwaitEscapeHandlerInstallation(
+  futureTraitType: ReturnType<typeof extractFutureTraitFromType> & object,
+  context: FunctionGenerationContext
+): boolean {
+  const effects = futureTraitType.isFuture.effects;
+  if (!effects?.length) return false;
+
+  const expandedEffects = expandFutureEffects(effects);
+  const evidenceParams = context.currentEvidenceParams;
+
+  for (const effect of expandedEffects) {
+    if (isFunctionType(effect.type)) {
+      // Function-type effect (e.g., Raise): key is "label.label"
+      const key = `${effect.label}.${effect.label}`;
+      if (!evidenceParams?.has(key)) {
+        return true; // Not forwarded → locally installed
+      }
+    } else if (isModuleType(effect.type)) {
+      // Module-type effect (e.g., Exception): check if any member is in evidence
+      let isForwarded = false;
+      if (evidenceParams) {
+        for (const [key] of evidenceParams) {
+          if (key.startsWith(`${effect.label}.`)) {
+            isForwarded = true;
+            break;
+          }
+        }
+      }
+      if (!isForwarded) {
+        return true; // Not forwarded → locally installed
+      }
+    }
+  }
+
+  return false; // All algebraic effects are forwarded
+}
+
+/**
  * Expand effect row spreads into individual implicit parameters.
  */
 function expandFutureEffects(
@@ -286,34 +533,196 @@ function emitEffectInjectionForAwait(
   const futureArg = expr.args[0];
   if (!futureArg?.$?.type) return;
 
+  const futureTraitType = extractFutureTraitFromType(futureArg.$.type);
+  if (!futureTraitType?.isFuture.effects?.length) return;
+
+  const expandedEffects = expandFutureEffects(futureTraitType.isFuture.effects);
+  const functionContext = context as FunctionGenerationContext;
+  const emitter = functionContext.emitter;
+
   const usingExpr = expr.args.find(
     (arg): arg is FnCallExpr =>
       exprIsFunctionCall(arg) &&
       exprIsFunctionCallOf(arg, BuiltinKeywords.using)
   );
-  if (!usingExpr) return;
 
-  const futureTraitType = extractFutureTraitFromType(futureArg.$.type);
-  if (!futureTraitType?.isFuture.effects?.length) return;
+  if (usingExpr) {
+    // Explicit using() args: match effects to using args positionally
+    const usingArgs = usingExpr.args;
+    for (let i = 0; i < expandedEffects.length && i < usingArgs.length; i++) {
+      const effect = expandedEffects[i]!;
+      const usingArg = usingArgs[i]!;
 
-  const expandedEffects = expandFutureEffects(futureTraitType.isFuture.effects);
-  const usingArgs = usingExpr.args;
-  const functionContext = context as FunctionGenerationContext;
-  const emitter = functionContext.emitter;
-
-  for (let i = 0; i < expandedEffects.length && i < usingArgs.length; i++) {
-    const effect = expandedEffects[i]!;
-    const usingArg = usingArgs[i]!;
-
-    if (!isFunctionType(effect.type)) continue;
-    // Skip generic function effects (forall) — they are compile-time only
-    // and don't have a void* field in the capture struct
-    if (effect.type.forallParameters.length > 0) continue;
-
-    const handlerCode = generateExpr(usingArg, indent, context);
-    const fieldName = effect.label;
-    emitter.emitLine(
-      `${indent}  ${futureVar}->__capture.${fieldName} = (void*)${handlerCode};`
-    );
+      if (isFunctionType(effect.type)) {
+        const handlerCode = generateExpr(usingArg, indent, context);
+        const fieldName = effect.label;
+        emitter.emitLine(
+          `${indent}  ${futureVar}->__capture.${fieldName} = (void*)${handlerCode};`
+        );
+      } else if (isModuleType(effect.type)) {
+        emitModuleEffectInjection(
+          effect.type,
+          futureVar,
+          indent,
+          usingArg.$?.value,
+          functionContext,
+          expr
+        );
+      }
+    }
+  } else {
+    // No explicit using(): resolve effects from scope
+    for (const effect of expandedEffects) {
+      if (isFunctionType(effect.type)) {
+        const handlerCode = resolveEffectFieldFromScope(
+          effect.label,
+          functionContext,
+          expr
+        );
+        if (handlerCode) {
+          emitter.emitLine(
+            `${indent}  ${futureVar}->__capture.${effect.label} = (void*)${handlerCode};`
+          );
+        }
+      } else if (isModuleType(effect.type)) {
+        emitModuleEffectInjection(
+          effect.type,
+          futureVar,
+          indent,
+          undefined,
+          functionContext,
+          expr
+        );
+      }
+    }
   }
+}
+
+/**
+ * Inject module-type effect fields (e.g., Exception.throw) into a Future's capture struct.
+ * Resolves each function field from: using arg value, caller evidence params, SM captures, or given bindings.
+ */
+function emitModuleEffectInjection(
+  moduleType: import("../../types/definitions").ModuleType,
+  futureVar: string,
+  indent: string,
+  usingArgValue: import("../../value").Value | undefined,
+  functionContext: FunctionGenerationContext,
+  expr: FnCallExpr
+): void {
+  const emitter = functionContext.emitter;
+  for (const field of moduleType.fields) {
+    if (!isFunctionType(field.type)) continue;
+    let memberCode: string | undefined;
+
+    // Inside SM: member is captured in state machine variables
+    if (functionContext.stateMachineVariables) {
+      for (const [, capturedVar] of functionContext.stateMachineVariables) {
+        if (capturedVar.name === field.label && capturedVar.kind === "outer") {
+          memberCode = `sm->__capture.${field.label}`;
+          break;
+        }
+      }
+    }
+
+    // Resolve from explicit using arg's module value
+    if (!memberCode && usingArgValue && isModuleValue(usingArgValue)) {
+      const fieldIndex = moduleType.fields.indexOf(field);
+      const memberValue = usingArgValue.fields[fieldIndex];
+      if (memberValue && isFunctionValue(memberValue)) {
+        const funcEntry = functionContext.functions[memberValue.funcId];
+        if (funcEntry) {
+          memberCode = funcEntry.cName;
+        }
+      }
+    }
+
+    // Resolve from caller's evidence params (transitive forwarding)
+    if (!memberCode && functionContext.currentEvidenceParams) {
+      for (const ep of functionContext.currentEvidenceParams.values()) {
+        if (ep.fieldLabel === field.label) {
+          memberCode = ep.cParamName;
+          break;
+        }
+      }
+    }
+
+    // Resolve from given bindings in the call environment
+    if (!memberCode) {
+      memberCode = resolveModuleFieldFromGivenBindings(
+        field.label,
+        moduleType,
+        functionContext,
+        expr
+      );
+    }
+
+    if (memberCode) {
+      emitter.emitLine(
+        `${indent}  ${futureVar}->__capture.${field.label} = (void*)${memberCode};`
+      );
+    }
+  }
+}
+
+/**
+ * Resolve a module effect field (e.g., "throw" from Exception) from given bindings in the environment.
+ */
+function resolveModuleFieldFromGivenBindings(
+  fieldLabel: string,
+  moduleType: import("../../types/definitions").ModuleType,
+  functionContext: FunctionGenerationContext,
+  expr: FnCallExpr
+): string | undefined {
+  const callEnv = expr.$?.env ?? expr.func.$?.env;
+  if (!callEnv) return undefined;
+
+  const implicitVars = getVariablesFromEnvByFilter(
+    callEnv,
+    (v) => v.isImplicit === true
+  );
+  // Iterate in reverse to get the innermost (most-recently bound) given binding,
+  // since getVariablesFromEnvByFilter returns outermost-first.
+  for (let i = implicitVars.length - 1; i >= 0; i--) {
+    const v = implicitVars[i]!;
+    const val = v.value?.[v.value.length - 1];
+    if (val && isModuleValue(val)) {
+      const fieldIdx = val.type.fields.findIndex((f) => f.label === fieldLabel);
+      if (fieldIdx >= 0) {
+        const fieldVal = val.fields[fieldIdx];
+        if (fieldVal && isFunctionValue(fieldVal)) {
+          const cName = functionContext.functions[fieldVal.funcId]?.cName;
+          if (cName) return cName;
+        }
+      }
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Resolve a function-type effect field from scope (evidence params, SM captures).
+ */
+function resolveEffectFieldFromScope(
+  fieldLabel: string,
+  functionContext: FunctionGenerationContext,
+  _expr: FnCallExpr
+): string | undefined {
+  // Check caller's evidence params
+  if (functionContext.currentEvidenceParams) {
+    for (const ep of functionContext.currentEvidenceParams.values()) {
+      if (ep.fieldLabel === fieldLabel) {
+        return ep.cParamName;
+      }
+    }
+  }
+  // Check SM capture variables
+  if (functionContext.stateMachineVariables) {
+    for (const [, capturedVar] of functionContext.stateMachineVariables) {
+      if (capturedVar.name === fieldLabel && capturedVar.kind === "outer") {
+        return `sm->__capture.${fieldLabel}`;
+      }
+    }
+  }
+  return undefined;
 }

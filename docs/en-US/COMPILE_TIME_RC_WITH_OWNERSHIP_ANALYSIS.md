@@ -2,7 +2,7 @@
 
 Yo uses non-atomic reference counting for heap-allocated objects, and employs compile-time **ownership analysis** and **lifetime analysis** to eliminate unnecessary reference counting operations.
 
-Non-atomic RC is sound in Yo because GC-managed objects are **thread-local** and cannot be shared across threads unless they are explicitly `Send` (see `docs/PARALLELISM.md`).
+Non-atomic RC is sound in Yo because GC-managed objects are **thread-local** and cannot be shared across threads unless they are explicitly `Send` (see [PARALLELISM.md](./PARALLELISM.md)).
 
 ## Ownership Model
 

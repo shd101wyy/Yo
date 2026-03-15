@@ -72,6 +72,13 @@ function generateCaseBody(
       ...currentDrops,
       ...(previousPendingDeferredDrops ?? []),
     ];
+    const previousConsumedVarDrops = functionContext.consumedVarPendingDrops;
+    const currentConsumedDrops =
+      bodyExpr.$?.consumedVariableDropExpressions ?? [];
+    functionContext.consumedVarPendingDrops = [
+      ...currentConsumedDrops,
+      ...(previousConsumedVarDrops ?? []),
+    ];
 
     // Generate each statement except the last one
     for (let j = 0; j < beginArgs.length - 1; j++) {
@@ -142,6 +149,7 @@ function generateCaseBody(
 
     // Restore previous pending deferred drops
     functionContext.pendingDeferredDrops = previousPendingDeferredDrops;
+    functionContext.consumedVarPendingDrops = previousConsumedVarDrops;
 
     return finalExprCode;
   } else {

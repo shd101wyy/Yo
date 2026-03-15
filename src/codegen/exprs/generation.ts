@@ -3,6 +3,7 @@ import {
   isIoAwaitCall,
   isIoSpawnCall,
   isIoStateCall,
+  isJoinHandleAwaitCall,
 } from "../../evaluator/async/await-analysis";
 import {
   extractFutureTraitFromType,
@@ -20,14 +21,24 @@ import {
   type FnCallExpr,
   hasAnyControlFlow,
 } from "../../expr";
-import type { FunctionImplicitParameter } from "../../types/definitions";
+import type {
+  FunctionImplicitParameter,
+  ModuleType,
+} from "../../types/definitions";
 import {
   isEffectsRowType,
   isFunctionType,
+  isModuleType,
   isSomeType,
   isUnitType,
 } from "../../types/guards";
-import { isFunctionValue, isUnknownValue, type Value } from "../../value";
+import {
+  isFunctionValue,
+  isModuleValue,
+  isUnknownValue,
+  type Value,
+} from "../../value";
+import { getVariablesFromEnvByFilter } from "../../env";
 import { isIoFutureType } from "../async/state-machine";
 import { BuiltinYoInlineFunctions } from "../constants";
 import type { FunctionGenerationContext } from "../functions/context";
@@ -47,7 +58,7 @@ import { generateAssignment } from "./assignment";
 import { generateAsyncBlock, generateIoAsyncSyncCall } from "./async";
 import { emitAsyncFutureEscape } from "./async-completion";
 import { generateAtom } from "./atom";
-import { generateAwait, generateState } from "./await";
+import { generateAwait, generateJoinHandleAwait, generateState } from "./await";
 import { generateBegin } from "./begin";
 import { generateBinding } from "./binding";
 import { generateClosureConstruction, isClosureConstruction } from "./closures";
@@ -93,7 +104,11 @@ import {
   generateYoSomeTypeDup,
 } from "./rc-fns";
 import { generateRecur } from "./recur";
-import { generatePendingDeferredDrops, generateReturn } from "./return";
+import {
+  generatePendingDeferredDrops,
+  generateConsumedVarDropsForEscape,
+  generateReturn,
+} from "./return";
 import { generateSizeOf } from "./sizeof";
 import { generateAnonymousTuple } from "./tuple-fn";
 import { generateTypeId } from "./typeid";
@@ -156,8 +171,6 @@ function emitEffectInjection(
   // Expand effect row spreads into individual effect parameters
   const expandedEffects = expandFutureEffects(futureTraitType.isFuture.effects);
 
-  // Match using args to expanded effects positionally.
-  // Only inject function-typed effects (IO module is compile-time only).
   const usingArgs = usingExpr.args;
   const functionContext = context as FunctionGenerationContext;
   const emitter = functionContext.emitter;
@@ -166,19 +179,149 @@ function emitEffectInjection(
     const effect = expandedEffects[i]!;
     const usingArg = usingArgs[i]!;
 
-    // Only inject function-typed effects (not IO module, etc.)
-    if (!isFunctionType(effect.type)) continue;
-    // Skip generic function effects (forall) — they are compile-time only
-    if (effect.type.forallParameters.length > 0) continue;
+    if (isFunctionType(effect.type)) {
+      // Function-typed effect (e.g., Raise). Resolve the handler from scope.
+      const fieldName = effect.label;
+      let handlerCode: string | undefined;
 
-    // Generate the C code for the using arg (function name)
-    const handlerCode = generateExpr(usingArg, indent, context);
-    const fieldName = effect.label;
+      // Try caller's evidence params first
+      if (functionContext.currentEvidenceParams) {
+        for (const ep of functionContext.currentEvidenceParams.values()) {
+          if (ep.fieldLabel === fieldName) {
+            handlerCode = ep.cParamName;
+            break;
+          }
+        }
+      }
 
-    emitter.emitLine(
-      `${indent}  ${futureVar}->__capture.${fieldName} = (void*)${handlerCode};`
-    );
+      // Try SM capture variables
+      if (!handlerCode && functionContext.stateMachineVariables) {
+        for (const [, capturedVar] of functionContext.stateMachineVariables) {
+          if (capturedVar.name === fieldName && capturedVar.kind === "outer") {
+            handlerCode = `sm->__capture.${fieldName}`;
+            break;
+          }
+        }
+      }
+
+      // Try given bindings (local function definitions)
+      if (!handlerCode) {
+        const usingArgValue = usingArg.$?.value;
+        if (usingArgValue && isFunctionValue(usingArgValue)) {
+          const funcEntry = context.functions[usingArgValue.funcId];
+          if (funcEntry) {
+            handlerCode = funcEntry.cName;
+          }
+        }
+      }
+
+      // Fallback: generate the expression directly
+      if (!handlerCode) {
+        handlerCode = generateExpr(usingArg, indent, context);
+      }
+
+      if (handlerCode) {
+        emitter.emitLine(
+          `${indent}  ${futureVar}->__capture.${fieldName} = (void*)${handlerCode};`
+        );
+      }
+    } else if (isModuleType(effect.type)) {
+      // Module-typed effect (e.g., IO). Inject each function member individually.
+      const moduleType = effect.type;
+      for (const field of moduleType.fields) {
+        if (!isFunctionType(field.type)) continue;
+        let memberCode: string | undefined;
+
+        // Inside SM: member is captured in state machine variables
+        if (functionContext.stateMachineVariables) {
+          for (const [, capturedVar] of functionContext.stateMachineVariables) {
+            if (
+              capturedVar.name === field.label &&
+              capturedVar.kind === "outer"
+            ) {
+              memberCode = `sm->__capture.${field.label}`;
+              break;
+            }
+          }
+        }
+
+        // Resolve from using arg's module value (concrete module)
+        if (!memberCode) {
+          const usingArgValue = usingArg.$?.value;
+          if (usingArgValue && isModuleValue(usingArgValue)) {
+            const fieldIndex = moduleType.fields.indexOf(field);
+            const memberValue = usingArgValue.fields[fieldIndex];
+            if (memberValue && isFunctionValue(memberValue)) {
+              const funcEntry = context.functions[memberValue.funcId];
+              if (funcEntry) {
+                memberCode = funcEntry.cName;
+              }
+            }
+          }
+        }
+
+        // Resolve from caller's evidence params (evidence passing)
+        if (!memberCode && functionContext.currentEvidenceParams) {
+          for (const ep of functionContext.currentEvidenceParams.values()) {
+            if (ep.fieldLabel === field.label) {
+              memberCode = ep.cParamName;
+              break;
+            }
+          }
+        }
+
+        // Resolve from given bindings in the call environment
+        if (!memberCode) {
+          memberCode = resolveModuleFieldFromGivenBindingsForSpawn(
+            field.label,
+            moduleType,
+            functionContext,
+            expr
+          );
+        }
+
+        if (memberCode) {
+          emitter.emitLine(
+            `${indent}  ${futureVar}->__capture.${field.label} = (void*)${memberCode};`
+          );
+        }
+      }
+    }
   }
+}
+
+/**
+ * Resolve a module effect field from given bindings in the call environment.
+ * Mirrors resolveModuleFieldFromGivenBindings in await.ts.
+ */
+function resolveModuleFieldFromGivenBindingsForSpawn(
+  fieldLabel: string,
+  moduleType: ModuleType,
+  functionContext: FunctionGenerationContext,
+  expr: FnCallExpr
+): string | undefined {
+  const callEnv = expr.$?.env ?? expr.func.$?.env;
+  if (!callEnv) return undefined;
+
+  const implicitVars = getVariablesFromEnvByFilter(
+    callEnv,
+    (v) => v.isImplicit === true
+  );
+  for (let i = implicitVars.length - 1; i >= 0; i--) {
+    const v = implicitVars[i]!;
+    const val = v.value?.[v.value.length - 1];
+    if (val && isModuleValue(val)) {
+      const fieldIdx = val.type.fields.findIndex((f) => f.label === fieldLabel);
+      if (fieldIdx >= 0) {
+        const fieldVal = val.fields[fieldIdx];
+        if (fieldVal && isFunctionValue(fieldVal)) {
+          const cName = functionContext.functions[fieldVal.funcId]?.cName;
+          if (cName) return cName;
+        }
+      }
+    }
+  }
+  return undefined;
 }
 
 /**
@@ -274,6 +417,7 @@ function generateEscape(
       true,
       true
     );
+    generateConsumedVarDropsForEscape(indent, functionContext, expr, true);
 
     emitAsyncFutureEscape({
       emitter,
@@ -281,6 +425,18 @@ function generateEscape(
       debugLabel: functionContext.currentFunctionName,
     });
     return ``;
+  }
+
+  // Module effect member function (e.g., Exception.throw handler):
+  // Set thread-local flag so the calling SM knows this handler escaped.
+  // Also set for functions with evidence parameters (evidence passing),
+  // so the caller can check the flag and propagate the escape.
+  if (
+    functionContext.isModuleEffectMemberFunction ||
+    (functionContext.currentEvidenceParams &&
+      functionContext.currentEvidenceParams.size > 0)
+  ) {
+    functionContext.emitter.emitLine(`${indent}__yo_effect_escaped = 1;`);
   }
 
   if (!arg) {
@@ -298,6 +454,20 @@ function generateEscape(
       true,
       true
     );
+    generateConsumedVarDropsForEscape(indent, functionContext, expr, true);
+    // For functions with non-void return type, return a dummy value
+    // (the caller checks __yo_effect_escaped and ignores the return value)
+    if (functionContext.currentFunctionType) {
+      const returnType = functionContext.currentFunctionType.return.type;
+      if (!isUnitType(returnType)) {
+        const returnTypeStr =
+          functionContext.overrideReturnTypeStr ??
+          getTypeString(returnType, context);
+        if (returnTypeStr !== "void") {
+          return `return (${returnTypeStr}){0}`;
+        }
+      }
+    }
     return `return`;
   }
   const argCode = generateExpr(arg, indent, context);
@@ -315,6 +485,35 @@ function generateEscape(
     true,
     true
   );
+  generateConsumedVarDropsForEscape(indent, functionContext, expr, true);
+  // For module effect members or evidence-passing functions:
+  // store escape value in thread-local buffer for retrieval at handler
+  // installation site, then return a dummy value.
+  // The escape value type may differ from the handler's C return type.
+  if (
+    (functionContext.isModuleEffectMemberFunction ||
+      (functionContext.currentEvidenceParams &&
+        functionContext.currentEvidenceParams.size > 0)) &&
+    functionContext.currentFunctionType
+  ) {
+    const argType = arg.$?.type;
+    if (argType && !isUnitType(argType)) {
+      const argTypeStr = getTypeString(argType, context);
+      functionContext.emitter.emitLine(
+        `${indent}{ ${argTypeStr} _esc_val = ${argCode}; memcpy(__yo_effect_escape_value, &_esc_val, sizeof(${argTypeStr})); }`
+      );
+    }
+    const returnType = functionContext.currentFunctionType.return.type;
+    if (!isUnitType(returnType)) {
+      const returnTypeStr =
+        functionContext.overrideReturnTypeStr ??
+        getTypeString(returnType, context);
+      if (returnTypeStr !== "void") {
+        return `return (${returnTypeStr}){0}`;
+      }
+    }
+    return `return`;
+  }
   return `return ${argCode}`;
 }
 
@@ -569,7 +768,7 @@ function generateFuncCall(
     return generateState(expr, indent, context);
   }
 
-  // io.spawn(future) - start a cold Future without waiting for it
+  // io.spawn(future) - start a cold Future and return JoinHandle
   if (isIoSpawnCall(expr)) {
     const futureArg = expr.args[0];
     if (!futureArg) {
@@ -582,37 +781,54 @@ function generateFuncCall(
     const futureTypeName = futureType
       ? getTypeString(futureType, context)
       : "void*";
-    const spawnVar = `__spawn_future`;
+
+    // Get the JoinHandle type from the spawn expression's result type
+    const joinHandleType = expr.$?.type;
+    const joinHandleTypeName = joinHandleType
+      ? getTypeString(joinHandleType, context)
+      : null;
+
+    const spawnVar = expr.$?.variableName
+      ? `__spawn_future_${expr.$.variableName}`
+      : `__spawn_future`;
+    const spawnStateVar = expr.$?.variableName
+      ? `__spawn_state_${expr.$.variableName}`
+      : `__spawn_state`;
     emitter.emitLine(
-      `${indent}// io.spawn — start cold Future without waiting`
+      `${indent}// io.spawn — start cold Future, return JoinHandle`
     );
-    emitter.emitLine(`${indent}{`);
-    emitter.emitLine(
-      `${indent}  ${futureTypeName} ${spawnVar} = ${futureCode};`
-    );
-    emitter.emitLine(`${indent}  int __spawn_state = ${spawnVar}->state;`);
+    emitter.emitLine(`${indent}${futureTypeName} ${spawnVar} = ${futureCode};`);
+    emitter.emitLine(`${indent}int ${spawnStateVar} = ${spawnVar}->state;`);
     // Panic if already aborted
-    emitter.emitLine(`${indent}  if (__spawn_state == -2) {`);
+    emitter.emitLine(`${indent}if (${spawnStateVar} == -2) {`);
     emitter.emitLine(
-      `${indent}    fprintf(stderr, "panic: attempted to spawn an aborted Future\\n");`
+      `${indent}  fprintf(stderr, "panic: attempted to spawn an aborted Future\\n");`
     );
-    emitter.emitLine(`${indent}    abort();`);
-    emitter.emitLine(`${indent}  }`);
+    emitter.emitLine(`${indent}  abort();`);
+    emitter.emitLine(`${indent}}`);
     const isIoFuture = isIoFutureType(futureArg.$?.type);
     if (!isIoFuture) {
       emitter.emitLine(
-        `${indent}  if (__spawn_state == 0 && ${spawnVar}->__yo_resume_fn) {`
+        `${indent}if (${spawnStateVar} == 0 && ${spawnVar}->__yo_resume_fn) {`
       );
       // Inject effect handler values into capture struct before cold-starting
-      emitEffectInjection(expr, spawnVar, `${indent}  `, context);
-      emitter.emitLine(`${indent}    __yo_incr_rc((void*)${spawnVar});`);
+      emitEffectInjection(expr, spawnVar, indent, context);
+      emitter.emitLine(`${indent}  __yo_incr_rc((void*)${spawnVar});`);
       emitter.emitLine(
-        `${indent}    ${spawnVar}->__yo_resume_fn((void*)${spawnVar});`
+        `${indent}  ${spawnVar}->__yo_resume_fn((void*)${spawnVar});`
       );
-      emitter.emitLine(`${indent}  }`);
+      emitter.emitLine(`${indent}}`);
     }
-    emitter.emitLine(`${indent}}`);
-    return ``;
+    // Return a JoinHandle struct wrapping the future pointer (non-owning view)
+    if (joinHandleTypeName) {
+      return `(${joinHandleTypeName}){ .__future = (void*)${spawnVar} }`;
+    }
+    return `(void*)${spawnVar}`;
+  }
+
+  // JoinHandle.await(using(io)) - await spawned task, return Option(T)
+  if (isJoinHandleAwaitCall(expr)) {
+    return generateJoinHandleAwait(expr, indent, context);
   }
 
   // return

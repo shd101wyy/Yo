@@ -221,6 +221,14 @@ export function generateCondExpression(
               ...currentDrops,
               ...(previousPendingDeferredDrops ?? []),
             ];
+            const previousConsumedVarDrops =
+              functionContext.consumedVarPendingDrops;
+            const currentConsumedDrops =
+              value.$?.consumedVariableDropExpressions ?? [];
+            functionContext.consumedVarPendingDrops = [
+              ...currentConsumedDrops,
+              ...(previousConsumedVarDrops ?? []),
+            ];
 
             // Generate each statement except the last one
             for (let j = 0; j < beginArgs.length - 1; j++) {
@@ -280,6 +288,7 @@ export function generateCondExpression(
 
             // Restore previous pendingDeferredDrops
             functionContext.pendingDeferredDrops = previousPendingDeferredDrops;
+            functionContext.consumedVarPendingDrops = previousConsumedVarDrops;
           } else {
             // Generate deferred dup expressions for non-begin value expressions
             if (value.$?.deferredDupExpressions) {

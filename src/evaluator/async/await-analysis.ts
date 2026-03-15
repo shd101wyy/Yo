@@ -157,6 +157,15 @@ export function isIoSpawnCall(expr: Expr): boolean {
   return expr.func.$?.type?.ioBuiltin === "io_spawn";
 }
 
+/**
+ * Checks if an expression is a JoinHandle.await(using(io)) call.
+ * Uses the ioBuiltin marker on the callee's type.
+ */
+export function isJoinHandleAwaitCall(expr: Expr): boolean {
+  if (expr.tag !== ExprTag.FnCall) return false;
+  return expr.func.$?.type?.ioBuiltin === "join_handle_await";
+}
+
 // --- Local variable collection (used by async codegen, not part of suspension analysis) ---
 
 /**

@@ -122,6 +122,9 @@ export function evaluateExtern({
         ...(field.label === "__yo_io_spawn"
           ? { ioBuiltin: "io_spawn" as const }
           : {}),
+        ...(field.label === "__yo_join_handle_await"
+          ? { ioBuiltin: "join_handle_await" as const }
+          : {}),
       };
     } else {
       field.type = { ...field.type, isExtern: language };

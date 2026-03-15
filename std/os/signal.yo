@@ -13,6 +13,7 @@
   on_signal : _on_signal, off_signal : _off_signal, SignalHandler
 } :: import "../sys/signal";
 { platform, Platform } :: import "../process";
+{ Error, AnyError, Exception } :: import "../error";
 
 // ============================================================================
 // Signal enum
@@ -73,23 +74,27 @@ _signal_num :: (fn(sig: Signal) -> i32)(
 // ============================================================================
 
 // Register a handler for the given signal.
-on_signal :: (fn(sig: Signal, handler: SignalHandler) -> Result(unit, IOError))({
+on_signal :: (fn(sig: Signal, handler: SignalHandler, using(exn : Exception)) -> unit)({
   num := _signal_num(sig);
   r   := _on_signal(num, handler);
   cond(
-    (r < i32(0)) => .Err(IOError.from_errno((i32(0) - r))),
-    true => .Ok(())
-  )
+    (r < i32(0)) => {
+      exn.throw(dyn IOError.from_errno((i32(0) - r)));
+    },
+    true => ()
+  );
 });
 
 // Remove the handler for the given signal.
-off_signal :: (fn(sig: Signal) -> Result(unit, IOError))({
+off_signal :: (fn(sig: Signal, using(exn : Exception)) -> unit)({
   num := _signal_num(sig);
   r   := _off_signal(num);
   cond(
-    (r < i32(0)) => .Err(IOError.from_errno((i32(0) - r))),
-    true => .Ok(())
-  )
+    (r < i32(0)) => {
+      exn.throw(dyn IOError.from_errno((i32(0) - r)));
+    },
+    true => ()
+  );
 });
 
 export SignalHandler, on_signal, off_signal;

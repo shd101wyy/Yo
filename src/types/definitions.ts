@@ -80,7 +80,12 @@ export interface Type {
    * Set on IO module field types so that io.async and io.await
    * can be detected even when aliased (e.g., `my_async :: io.async`).
    */
-  ioBuiltin?: "io_async" | "io_await" | "io_state" | "io_spawn";
+  ioBuiltin?:
+    | "io_async"
+    | "io_await"
+    | "io_state"
+    | "io_spawn"
+    | "join_handle_await";
 }
 
 /*
@@ -832,6 +837,12 @@ export interface FunctionType extends Type {
    * Set when a function type is created inside a trait(...) definition.
    */
   SelfTraitType?: Type;
+
+  /**
+   * The module type that this function was defined in (for SelfModule resolution).
+   * Set when a function type is created inside a module(...) definition.
+   */
+  SelfModuleType?: Type;
 
   /**
    * The trait that contains this function's methods (like ___drop, ___dup for closures).

@@ -4,21 +4,21 @@
 
 With the low-level `std/sys` async I/O foundation complete (37 modules covering file, socket, process, mmap, signals, TTY, DNS, etc.), this plan covers building the **high-level standard library** that makes Yo battery-included. These modules sit on top of `std/sys` and provide ergonomic, type-safe APIs for common programming tasks.
 
-## Algebraic Effects and IO
+## Algebraic Effects: IO and Exception
 
-Async I/O in Yo is expressed via the **`IO` algebraic effect** for suspension/resumption via `io.await(...)`. Errors are propagated using the **`Result(T, E)` data type** — the standard approach for fallible operations.
+Async I/O in Yo is expressed via the **`IO` algebraic effect** for suspension/resumption via `io.await(...)`. Errors are propagated using the **`Exception` algebraic effect** — a non-resumable effect that throws `AnyError` values. This replaces the previous `Result(T, E)` approach, leveraging algebraic effects as the primary error handling mechanism.
 
-Async functions that perform I/O take `using(io : IO)` as an implicit parameter. Fallible async operations return `Impl(Future(Result(T, E)))` — the `Impl(Future(...))` wrapper makes the async nature explicit at the type level, and `Result` makes errors explicit. Callers use `io.await(fn(...))` to drive execution and get back `Result(T, E)`.
+Async functions that perform I/O take `using(io : IO)` as an implicit parameter. Fallible async operations include `Exception` in their `Future` return type: `Impl(Future(T, IO, Exception))`. The `Exception` effect is forwarded via the `io.async` closure — the outer function itself only needs `using(io : IO)` in its parameters, not `using(exn : Exception)`. Sync fallible functions take `using(exn : Exception)` directly in their parameter list.
 
 ```yo
-// Async + Result style:
-File.open :: (fn(path: Path, mode: OpenMode, using(io : IO)) -> Impl(Future(Result(File, IOError)))) ...;
+// Async + fallible: only `using(io : IO)` in params, Exception in Future return type
+File.open :: (fn(path: Path, mode: OpenMode, using(io : IO)) -> Impl(Future(File, IO, Exception))) ...;
 
 // Sync functions that cannot fail return T directly:
 File.position :: (fn(self: Self) -> i64) ...;
 
-// Sync functions that can fail return Result:
-File.seek :: (fn(self: Self, offset: i64, whence: i32) -> Result(i64, IOError)) ...;
+// Sync functions that can fail use Exception in params:
+File.seek :: (fn(self: Self, offset: i64, whence: i32, using(exn : Exception)) -> i64) ...;
 ```
 
 Byte buffers use `ArrayList(u8)` (not `Slice(u8)`).
@@ -30,6 +30,7 @@ Byte buffers use `ArrayList(u8)` (not `Slice(u8)`).
 | Module              | File(s)                                 | Status      | Notes                                                                                                              |
 | ------------------- | --------------------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------ |
 | **Prelude**         | `std/prelude.yo`                        | ✅ Complete | Core types, traits, operators, Box, Option, Result, Array, Slice; IO algebraic effect                              |
+| **Error**           | `std/error.yo`                          | ✅ Complete | `Error` trait, `AnyError`, `Exception` / `ResumableException` effects                                              |
 | **String**          | `std/string/`                           | ✅ Complete | Immutable UTF-8 `String`, `rune` (Unicode code point)                                                              |
 | **Collections**     | `std/collections/`                      | ✅ Complete | `ArrayList`, `HashMap`, `HashSet`, `LinkedList`, `Deque`, `BTreeMap`, `PriorityQueue`                              |
 | **Path**            | `std/path.yo`                           | ✅ Complete | Cross-platform path manipulation (join, parent, extension, normalize)                                              |
@@ -50,14 +51,15 @@ Byte buffers use `ArrayList(u8)` (not `Slice(u8)`).
 | **Time (rich)**     | `std/time/`                             | ✅ Complete | `Duration`, `Instant` (monotonic), `DateTime` (wall clock) — 25 tests all passing                                  |
 | **Sys (low-level)** | `std/sys/` (37 files)                   | ✅ Complete | Full async I/O: file, socket, process, mmap, DNS, signals, TTY, etc.                                               |
 | **Libc bindings**   | `std/libc/`                             | ✅ Complete | stdio, stdlib, string, math, errno, signal, etc.                                                                   |
-| **FS**              | `std/fs/`                               | ✅ Complete | `File`, `Metadata`, `TempDir`, `TempFile`, directory walker                                                        |
-| **Net**             | `std/net/`                              | ✅ Complete | `TcpStream`, `TcpListener`, `UdpSocket`, `IpAddr`, DNS lookup                                                      |
-| **OS**              | `std/os/`                               | ✅ Complete | Signal handling, environment directory utilities — 10 tests passing                                                |
-| **Encoding**        | `std/encoding/`                         | ✅ Complete | Base64, hex, JSON, UTF-16 — 71 tests passing                                                                       |
-| **Crypto**          | `std/crypto/`                           | ✅ Complete | SHA-256, MD5, secure random, UUID v4 — 33 tests passing                                                            |
-| **Math**            | `std/math/`                             | ✅ Complete | Generic min/max/clamp, lerp, PRNG (xoshiro256\*\*)                                                                 |
-| **Log**             | `std/log/`                              | ✅ Complete | Structured logger with level filtering and output routing                                                          |
-| **Testing**         | `std/testing/`                          | ✅ Complete | Rich assertion helpers, micro-benchmarking                                                                         |
+| **FS**              | `std/fs/`                               | ✅ Complete | `File`, `Metadata`, `TempDir`, `TempFile`, directory walker — 44 tests passing with Exception effect               |
+| **Net**             | `std/net/`                              | ✅ Complete | `TcpStream`, `TcpListener`, `UdpSocket`, `IpAddr`, DNS lookup — all using Exception effect                         |
+| **OS**              | `std/os/`                               | ✅ Complete | Signal handling, environment directory utilities — all using Exception effect                                      |
+| **Encoding**        | `std/encoding/`                         | ✅ Complete | Base64, hex, JSON, UTF-16 — all using Exception effect                                                             |
+| **Crypto**          | `std/crypto/`                           | ✅ Complete | SHA-256, MD5, secure random, UUID v4 — all using Exception effect                                                  |
+| **URL**             | `std/url/`                              | ✅ Complete | URL parser with Exception effect                                                                                   |
+| **Math**            | `std/math/`                             | Not Planned | Generic min/max/clamp, lerp, PRNG (xoshiro256\*\*)                                                                 |
+| **Log**             | `std/log/`                              | Not Planned | Structured logger with level filtering and output routing                                                          |
+| **Testing**         | `std/testing/`                          | Not Planned | Rich assertion helpers, micro-benchmarking                                                                         |
 
 ### What's Remaining
 
@@ -67,9 +69,36 @@ Potential future additions (not currently planned):
 
 ---
 
-## Phase 1: High-Level File System (`std/fs`) — Priority: Critical
+## API Naming Conventions
 
-**Goal**: Provide ergonomic async file I/O with buffered readers/writers, file objects, and directory traversal. This is the most important module — every non-trivial program needs file I/O.
+Async functions take `using(io : IO)` only — `Exception` appears only in the `Impl(Future(..., Exception))` return type. Sync fallible functions take `using(exn : Exception)` directly.
+
+**Method naming rules:**
+
+- `read(buf, size)` — low-level read into buffer
+- `read_bytes()` — read all content as `ArrayList(u8)`
+- `read_string()` — read all content as `String`
+- `write_string(String)` — write String data
+- `write_str(str)` — write str data
+- `write_bytes(ArrayList(u8))` — write byte data
+- `close()` — close resource
+- `fd()` — get file descriptor
+- Boolean predicates use `is_*` prefix
+
+**Standalone function naming rules:**
+
+- `read_file(Path)` → `ArrayList(u8)` (read file as bytes)
+- `read_string(Path)` → `String` (read file as String)
+- `write_file(Path, String)` → writes String to file
+- `write_bytes(Path, ArrayList(u8))` → writes bytes to file
+- `_str` suffix = path parameter is `str` instead of `Path`
+- `_cstr` suffix = path parameter is `*(u8)` instead of `Path`
+
+---
+
+## Phase 1: High-Level File System (`std/fs`) — ✅ Done
+
+**Status**: All 5 modules implemented with Exception effect. 44 tests passing (file: 13, dir: 12, temp: 7, metadata: 6, walker: 6). All tests verified with AddressSanitizer (no leaks, no use-after-free).
 
 **Depends on**: `std/sys/file`, `std/sys/dir`, `std/sys/seek`, `std/sys/path`, `std/sys/statx`, `std/sys/perm`, `std/sys/temp`, `std/path`, `std/string`
 
@@ -105,44 +134,46 @@ File :: object(
 
 // Static constructors — default takes Path, _str takes str, _cstr takes *(u8)
 // File.open uses FilePermission.default() when creating files
-File.open :: (fn(path: Path, mode: OpenMode, using(io : IO)) -> Impl(Future(Result(File, IOError)))) ...;
-File.open_str :: (fn(path: str, mode: OpenMode, using(io : IO)) -> Impl(Future(Result(File, IOError)))) ...;
-File.open_cstr :: (fn(path: *(u8), mode: OpenMode, using(io : IO)) -> Impl(Future(Result(File, IOError)))) ...;
+// Note: async functions only take `using(io : IO)` — Exception is in the Future return type only
+File.open :: (fn(path: Path, mode: OpenMode, using(io : IO)) -> Impl(Future(File, IO, Exception))) ...;
+File.open_str :: (fn(path: str, mode: OpenMode, using(io : IO)) -> Impl(Future(File, IO, Exception))) ...;
+File.open_cstr :: (fn(path: *(u8), mode: OpenMode, using(io : IO)) -> Impl(Future(File, IO, Exception))) ...;
 // File.open_with allows specifying custom file permissions
-File.open_with :: (fn(path: Path, mode: OpenMode, perm: FilePermission, using(io : IO)) -> Impl(Future(Result(File, IOError)))) ...;
-File.open_with_str :: (fn(path: str, mode: OpenMode, perm: FilePermission, using(io : IO)) -> Impl(Future(Result(File, IOError)))) ...;
-File.open_with_cstr :: (fn(path: *(u8), mode: OpenMode, perm: FilePermission, using(io : IO)) -> Impl(Future(Result(File, IOError)))) ...;
+File.open_with :: (fn(path: Path, mode: OpenMode, perm: FilePermission, using(io : IO)) -> Impl(Future(File, IO, Exception))) ...;
+File.open_with_str :: (fn(path: str, mode: OpenMode, perm: FilePermission, using(io : IO)) -> Impl(Future(File, IO, Exception))) ...;
+File.open_with_cstr :: (fn(path: *(u8), mode: OpenMode, perm: FilePermission, using(io : IO)) -> Impl(Future(File, IO, Exception))) ...;
 
 // Instance methods
-File.read :: (fn(self: Self, buf: *(u8), size: usize, using(io : IO)) -> Impl(Future(Result(i32, IOError)))) ...;
-File.write :: (fn(self: Self, data: str, using(io : IO)) -> Impl(Future(Result(i32, IOError)))) ...;
-File.write_string :: (fn(self: Self, data: String, using(io : IO)) -> Impl(Future(Result(i32, IOError)))) ...;
-File.write_bytes :: (fn(self: Self, data: ArrayList(u8), using(io : IO)) -> Impl(Future(Result(i32, IOError)))) ...;
-File.read_all :: (fn(self: Self, using(io : IO)) -> Impl(Future(Result(ArrayList(u8), IOError)))) ...;
-File.read_to_string :: (fn(self: Self, using(io : IO)) -> Impl(Future(Result(String, IOError)))) ...;
-File.flush :: (fn(self: Self, using(io : IO)) -> Impl(Future(Result(unit, IOError)))) ...;
-File.seek :: (fn(self: Self, offset: i64, whence: i32) -> Result(i64, IOError)) ...;
+File.read :: (fn(self: Self, buf: *(u8), size: u32, using(io : IO)) -> Impl(Future(i32, IO, Exception))) ...;
+File.write_string :: (fn(self: Self, data: String, using(io : IO)) -> Impl(Future(i32, IO, Exception))) ...;
+File.write_bytes :: (fn(self: Self, data: ArrayList(u8), using(io : IO)) -> Impl(Future(i32, IO, Exception))) ...;
+File.read_bytes :: (fn(self: Self, using(io : IO)) -> Impl(Future(ArrayList(u8), IO, Exception))) ...;
+File.read_string :: (fn(self: Self, using(io : IO)) -> Impl(Future(String, IO, Exception))) ...;
+File.flush :: (fn(self: Self, using(io : IO)) -> Impl(Future(unit, IO, Exception))) ...;
+File.seek :: (fn(self: Self, offset: i64, whence: i32, using(exn : Exception)) -> i64) ...;
 File.position :: (fn(self: Self) -> i64) ...;
-File.size :: (fn(self: Self, using(io : IO)) -> Impl(Future(Result(i64, IOError)))) ...;
-File.close :: (fn(self: Self, using(io : IO)) -> Impl(Future(Result(unit, IOError)))) ...;
-File.metadata :: (fn(self: Self, using(io : IO)) -> Impl(Future(Result(Metadata, IOError)))) ...;
+File.size :: (fn(self: Self) -> i64) ...;
+File.close :: (fn(self: Self, using(io : IO)) -> Impl(Future(unit, IO, Exception))) ...;
+File.metadata :: (fn(self: Self, using(io : IO)) -> Impl(Future(Metadata, IO, Exception))) ...;
 
 // Convenience functions (no File object needed)
 // Default takes Path; _str takes str; _cstr takes *(u8)
-read_file :: (fn(path: Path, using(io : IO)) -> Impl(Future(Result(ArrayList(u8), IOError)))) ...;
-read_file_str :: (fn(path: str, using(io : IO)) -> Impl(Future(Result(ArrayList(u8), IOError)))) ...;
-read_file_cstr :: (fn(path: *(u8), using(io : IO)) -> Impl(Future(Result(ArrayList(u8), IOError)))) ...;
-read_to_string :: (fn(path: Path, using(io : IO)) -> Impl(Future(Result(String, IOError)))) ...;
-read_to_string_str :: (fn(path: str, using(io : IO)) -> Impl(Future(Result(String, IOError)))) ...;
-read_to_string_cstr :: (fn(path: *(u8), using(io : IO)) -> Impl(Future(Result(String, IOError)))) ...;
-write_file :: (fn(path: Path, data: str, using(io : IO)) -> Impl(Future(Result(unit, IOError)))) ...;
-write_file_str :: (fn(path: str, data: str, using(io : IO)) -> Impl(Future(Result(unit, IOError)))) ...;
-write_file_cstr :: (fn(path: *(u8), data: str, using(io : IO)) -> Impl(Future(Result(unit, IOError)))) ...;
-write_bytes :: (fn(path: Path, data: ArrayList(u8), using(io : IO)) -> Impl(Future(Result(unit, IOError)))) ...;
-append_file :: (fn(path: Path, data: str, using(io : IO)) -> Impl(Future(Result(unit, IOError)))) ...;
-exists :: (fn(path: Path, using(io : IO)) -> Impl(Future(Result(bool, IOError)))) ...;
-exists_str :: (fn(path: str, using(io : IO)) -> Impl(Future(Result(bool, IOError)))) ...;
-exists_cstr :: (fn(path: *(u8), using(io : IO)) -> Impl(Future(Result(bool, IOError)))) ...;
+// Note: async functions only take `using(io : IO)` — Exception is in the Future return type only
+read_file :: (fn(path: Path, using(io : IO)) -> Impl(Future(ArrayList(u8), IO, Exception))) ...;
+read_file_str :: (fn(path: str, using(io : IO)) -> Impl(Future(ArrayList(u8), IO, Exception))) ...;
+read_file_cstr :: (fn(path: *(u8), using(io : IO)) -> Impl(Future(ArrayList(u8), IO, Exception))) ...;
+read_string :: (fn(path: Path, using(io : IO)) -> Impl(Future(String, IO, Exception))) ...;
+read_string_str :: (fn(path: str, using(io : IO)) -> Impl(Future(String, IO, Exception))) ...;
+read_string_cstr :: (fn(path: *(u8), using(io : IO)) -> Impl(Future(String, IO, Exception))) ...;
+write_file :: (fn(path: Path, data: String, using(io : IO)) -> Impl(Future(unit, IO, Exception))) ...;
+write_file_str :: (fn(path: str, data: str, using(io : IO)) -> Impl(Future(unit, IO, Exception))) ...;
+write_file_cstr :: (fn(path: *(u8), data: str, using(io : IO)) -> Impl(Future(unit, IO, Exception))) ...;
+write_bytes :: (fn(path: Path, data: ArrayList(u8), using(io : IO)) -> Impl(Future(unit, IO, Exception))) ...;
+append_file :: (fn(path: Path, data: String, using(io : IO)) -> Impl(Future(unit, IO, Exception))) ...;
+append_file_str :: (fn(path: str, data: str, using(io : IO)) -> Impl(Future(unit, IO, Exception))) ...;
+exists :: (fn(path: Path, using(io : IO)) -> Impl(Future(bool, IO))) ...;
+exists_str :: (fn(path: str, using(io : IO)) -> Impl(Future(bool, IO))) ...;
+exists_cstr :: (fn(path: *(u8), using(io : IO)) -> Impl(Future(bool, IO))) ...;
 ```
 
 ### 1.2 `std/fs/metadata.yo` — File Metadata
@@ -166,29 +197,31 @@ Permissions :: struct(mode: u32);
 Permissions.readonly :: (fn(self: *(Self)) -> bool) ...;
 Permissions.set_readonly :: (fn(self: *(Self), readonly: bool) -> unit) ...;
 
-// Convenience — default takes Path; _str takes str; _cstr takes *(u8)
-metadata :: (fn(path: Path, using(io : IO)) -> Impl(Future(Result(Metadata, IOError)))) ...;
-metadata_str :: (fn(path: str, using(io : IO)) -> Impl(Future(Result(Metadata, IOError)))) ...;
-metadata_cstr :: (fn(path: *(u8), using(io : IO)) -> Impl(Future(Result(Metadata, IOError)))) ...;
-symlink_metadata :: (fn(path: Path, using(io : IO)) -> Impl(Future(Result(Metadata, IOError)))) ...;
-symlink_metadata_str :: (fn(path: str, using(io : IO)) -> Impl(Future(Result(Metadata, IOError)))) ...;
-symlink_metadata_cstr :: (fn(path: *(u8), using(io : IO)) -> Impl(Future(Result(Metadata, IOError)))) ...;
+// Convenience — default takes Path; _str takes str
+metadata :: (fn(path: Path, using(io : IO)) -> Impl(Future(Metadata, IO, Exception))) ...;
+metadata_str :: (fn(path: str, using(io : IO)) -> Impl(Future(Metadata, IO, Exception))) ...;
+symlink_metadata :: (fn(path: Path, using(io : IO)) -> Impl(Future(Metadata, IO, Exception))) ...;
+symlink_metadata_str :: (fn(path: str, using(io : IO)) -> Impl(Future(Metadata, IO, Exception))) ...;
 ```
 
 ### 1.3 `std/fs/dir.yo` — Directory Operations
 
 ```yo
-// High-level directory operations — default takes Path; _str/_cstr variants available
-create_dir :: (fn(path: Path, using(io : IO)) -> Impl(Future(Result(unit, IOError)))) ...;
-create_dir_str :: (fn(path: str, using(io : IO)) -> Impl(Future(Result(unit, IOError)))) ...;
-create_dir_all :: (fn(path: Path, using(io : IO)) -> Impl(Future(Result(unit, IOError)))) ...;
-create_dir_all_str :: (fn(path: str, using(io : IO)) -> Impl(Future(Result(unit, IOError)))) ...;
-remove_dir :: (fn(path: Path, using(io : IO)) -> Impl(Future(Result(unit, IOError)))) ...;
-remove_dir_all :: (fn(path: Path, using(io : IO)) -> Impl(Future(Result(unit, IOError)))) ...;
-remove_file :: (fn(path: Path, using(io : IO)) -> Impl(Future(Result(unit, IOError)))) ...;
-rename :: (fn(from: Path, to: Path, using(io : IO)) -> Impl(Future(Result(unit, IOError)))) ...;
-hard_link :: (fn(src: Path, dst: Path, using(io : IO)) -> Impl(Future(Result(unit, IOError)))) ...;
-symlink :: (fn(src: Path, dst: Path, using(io : IO)) -> Impl(Future(Result(unit, IOError)))) ...;
+// High-level directory operations — default takes Path; _str variants available
+create_dir :: (fn(path: Path, using(io : IO)) -> Impl(Future(unit, IO, Exception))) ...;
+create_dir_str :: (fn(path: str, using(io : IO)) -> Impl(Future(unit, IO, Exception))) ...;
+create_dir_all :: (fn(path: Path, using(io : IO)) -> Impl(Future(unit, IO, Exception))) ...;
+create_dir_all_str :: (fn(path: str, using(io : IO)) -> Impl(Future(unit, IO, Exception))) ...;
+remove_dir :: (fn(path: Path, using(io : IO)) -> Impl(Future(unit, IO, Exception))) ...;
+remove_dir_str :: (fn(path: str, using(io : IO)) -> Impl(Future(unit, IO, Exception))) ...;
+remove_file :: (fn(path: Path, using(io : IO)) -> Impl(Future(unit, IO, Exception))) ...;
+remove_file_str :: (fn(path: str, using(io : IO)) -> Impl(Future(unit, IO, Exception))) ...;
+rename :: (fn(from: Path, to: Path, using(io : IO)) -> Impl(Future(unit, IO, Exception))) ...;
+rename_str :: (fn(from: str, to: str, using(io : IO)) -> Impl(Future(unit, IO, Exception))) ...;
+hard_link :: (fn(src: Path, dst: Path, using(io : IO)) -> Impl(Future(unit, IO, Exception))) ...;
+hard_link_str :: (fn(src: str, dst: str, using(io : IO)) -> Impl(Future(unit, IO, Exception))) ...;
+symlink :: (fn(src: Path, dst: Path, using(io : IO)) -> Impl(Future(unit, IO, Exception))) ...;
+symlink_str :: (fn(src: str, dst: str, using(io : IO)) -> Impl(Future(unit, IO, Exception))) ...;
 
 // Directory listing
 DirEntry :: struct(
@@ -200,8 +233,8 @@ DirEntry :: struct(
 
 FileType :: enum(File, Directory, Symlink, Other);   // note: no leading dots in enum declaration
 
-read_dir :: (fn(path: Path, using(io : IO)) -> Impl(Future(Result(ArrayList(DirEntry), IOError)))) ...;
-read_dir_str :: (fn(path: str, using(io : IO)) -> Impl(Future(Result(ArrayList(DirEntry), IOError)))) ...;
+read_dir :: (fn(path: Path, using(io : IO)) -> Impl(Future(ArrayList(DirEntry), IO, Exception))) ...;
+read_dir_str :: (fn(path: str, using(io : IO)) -> Impl(Future(ArrayList(DirEntry), IO, Exception))) ...;
 ```
 
 ### 1.4 `std/fs/walker.yo` — Recursive Directory Traversal
@@ -220,10 +253,10 @@ WalkOptions :: struct(
   include_dirs : bool
 );
 
-walk :: (fn(root: Path, using(io : IO)) -> Impl(Future(Result(ArrayList(WalkEntry), IOError)))) ...;
-walk_cstr :: (fn(root: *(u8), using(io : IO)) -> Impl(Future(Result(ArrayList(WalkEntry), IOError)))) ...;
-walk_with :: (fn(root: Path, options: WalkOptions, using(io : IO)) -> Impl(Future(Result(ArrayList(WalkEntry), IOError)))) ...;
-walk_with_cstr :: (fn(root: *(u8), options: WalkOptions, using(io : IO)) -> Impl(Future(Result(ArrayList(WalkEntry), IOError)))) ...;
+walk :: (fn(root: Path, using(io : IO)) -> Impl(Future(ArrayList(WalkEntry), IO, Exception))) ...;
+walk_cstr :: (fn(root: *(u8), using(io : IO)) -> Impl(Future(ArrayList(WalkEntry), IO, Exception))) ...;
+walk_with :: (fn(root: Path, options: WalkOptions, using(io : IO)) -> Impl(Future(ArrayList(WalkEntry), IO, Exception))) ...;
+walk_with_cstr :: (fn(root: *(u8), options: WalkOptions, using(io : IO)) -> Impl(Future(ArrayList(WalkEntry), IO, Exception))) ...;
 ```
 
 ### 1.5 `std/fs/temp.yo` — Temporary Files and Directories
@@ -233,28 +266,30 @@ TempDir :: object(
   _path : Path,
   _removed : bool
 );
-TempDir.new :: (fn(using(io : IO)) -> Impl(Future(Result(TempDir, IOError)))) ...;
-TempDir.new_in :: (fn(parent: Path, using(io : IO)) -> Impl(Future(Result(TempDir, IOError)))) ...;
+TempDir.new :: (fn(using(io : IO)) -> Impl(Future(TempDir, IO, Exception))) ...;
+TempDir.new_in :: (fn(parent: Path, using(io : IO)) -> Impl(Future(TempDir, IO, Exception))) ...;
 TempDir.path :: (fn(self: Self) -> Path) ...;
-TempDir.remove :: (fn(self: Self, using(io : IO)) -> Impl(Future(Result(unit, IOError)))) ...;
+TempDir.remove :: (fn(self: Self, using(io : IO)) -> Impl(Future(unit, IO, Exception))) ...;
 
 TempFile :: object(
   file : File,
   _path : Path
 );
-TempFile.new :: (fn(using(io : IO)) -> Impl(Future(Result(TempFile, IOError)))) ...;
-TempFile.new_in :: (fn(parent: Path, using(io : IO)) -> Impl(Future(Result(TempFile, IOError)))) ...;
+TempFile.new :: (fn(using(io : IO)) -> Impl(Future(TempFile, IO, Exception))) ...;
+TempFile.new_in :: (fn(parent: Path, using(io : IO)) -> Impl(Future(TempFile, IO, Exception))) ...;
 TempFile.path :: (fn(self: Self) -> Path) ...;
-TempFile.remove :: (fn(self: Self, using(io : IO)) -> Impl(Future(Result(unit, IOError)))) ...;
+TempFile.remove :: (fn(self: Self, using(io : IO)) -> Impl(Future(unit, IO, Exception))) ...;
 ```
 
-**Tests**: File read/write round-trip, buffered I/O, read_to_string, metadata queries, create_dir_all, remove_dir_all, directory walk, temp file/dir auto-cleanup.
+**Tests**: File read/write round-trip, buffered I/O, read_string, metadata queries, create_dir_all, remove_dir_all, directory walk, temp file/dir auto-cleanup.
 
 ---
 
 ## Phase 2: High-Level Networking (`std/net`) — Priority: Critical — ✅ Done
 
 **Goal**: Provide ergonomic async TCP/UDP client and server types. This is the second most important module for building real applications.
+
+**Status**: All modules implemented with Exception effect. Tests: errors 9/9, addr 5/6, tcp 10/10, udp 5/5, dns 3/3. Note: addr has 1 known RC leak on error path (escape propagation limitation).
 
 **Depends on**: `std/sys/tcp`, `std/sys/udp`, `std/sys/dns`, `std/sys/socket`, `std/string`
 
@@ -277,7 +312,7 @@ NetError :: enum(
 
 // Helpers
 NetError.from_io :: (fn(err: IOError) -> Self) ...;        // Maps IOError variants to NetError
-NetError.from_result :: (fn(result: i32) -> Result(i32, Self)) ...;  // Converts raw result codes
+NetError.check :: (fn(result: i32, using(exn : Exception)) -> i32) ...;  // Throws on error result codes
 ```
 
 ### 2.2 `std/net/addr.yo` — Network Addresses
@@ -288,7 +323,7 @@ IpAddr :: enum(
   V6(segments: Array(u16, usize(8)))
 );
 
-IpAddr.parse_v4 :: (fn(s: String) -> Result(IpAddr, NetError)) ...;
+IpAddr.parse_v4 :: (fn(s: String, using(exn : Exception)) -> IpAddr) ...;
 IpAddr.loopback_v4 :: (fn() -> IpAddr) ...;
 IpAddr.loopback_v6 :: (fn() -> IpAddr) ...;
 IpAddr.any_v4 :: (fn() -> IpAddr) ...;
@@ -316,10 +351,10 @@ TcpListener :: object(
   _local_addr : SocketAddr
 );
 
-TcpListener.bind :: (fn(addr: SocketAddr, using(io : IO)) -> Impl(Future(Result(TcpListener, NetError), IO))) ...;
-TcpListener.accept :: (fn(self: Self, using(io : IO)) -> Impl(Future(Result(TcpStream, NetError), IO))) ...;
+TcpListener.bind :: (fn(addr: SocketAddr, using(io : IO)) -> Impl(Future(TcpListener, IO, Exception))) ...;
+TcpListener.accept :: (fn(self: Self, using(io : IO)) -> Impl(Future(TcpStream, IO, Exception))) ...;
 TcpListener.local_addr :: (fn(self: Self) -> SocketAddr) ...;
-TcpListener.close :: (fn(self: Self, using(io : IO)) -> Impl(Future(Result(unit, NetError), IO))) ...;
+TcpListener.close :: (fn(self: Self, using(io : IO)) -> Impl(Future(unit, IO, Exception))) ...;
 TcpListener.fd :: (fn(self: Self) -> i32) ...;
 // Implements Dispose
 
@@ -329,18 +364,18 @@ TcpStream :: object(
   _is_closed : bool
 );
 
-TcpStream.connect :: (fn(addr: SocketAddr, using(io : IO)) -> Impl(Future(Result(TcpStream, NetError), IO))) ...;
-TcpStream.read :: (fn(self: Self, buf: *(u8), size: usize, using(io : IO)) -> Impl(Future(Result(i32, NetError), IO))) ...;
-TcpStream.write_str :: (fn(self: Self, data: str, using(io : IO)) -> Impl(Future(Result(i32, NetError), IO))) ...;
-TcpStream.write :: (fn(self: Self, data: String, using(io : IO)) -> Impl(Future(Result(i32, NetError), IO))) ...;
-TcpStream.write_bytes :: (fn(self: Self, data: ArrayList(u8), using(io : IO)) -> Impl(Future(Result(i32, NetError), IO))) ...;
-TcpStream.read_all :: (fn(self: Self, using(io : IO)) -> Impl(Future(Result(ArrayList(u8), NetError), IO))) ...;
-TcpStream.shutdown :: (fn(self: Self, how: i32, using(io : IO)) -> Impl(Future(Result(unit, NetError), IO))) ...;
-TcpStream.close :: (fn(self: Self, using(io : IO)) -> Impl(Future(Result(unit, NetError), IO))) ...;
+TcpStream.connect :: (fn(addr: SocketAddr, using(io : IO)) -> Impl(Future(TcpStream, IO, Exception))) ...;
+TcpStream.read :: (fn(self: Self, buf: *(u8), size: usize, using(io : IO)) -> Impl(Future(i32, IO, Exception))) ...;
+TcpStream.write_str :: (fn(self: Self, data: str, using(io : IO)) -> Impl(Future(i32, IO, Exception))) ...;
+TcpStream.write_string :: (fn(self: Self, data: String, using(io : IO)) -> Impl(Future(i32, IO, Exception))) ...;
+TcpStream.write_bytes :: (fn(self: Self, data: ArrayList(u8), using(io : IO)) -> Impl(Future(i32, IO, Exception))) ...;
+TcpStream.read_bytes :: (fn(self: Self, using(io : IO)) -> Impl(Future(ArrayList(u8), IO, Exception))) ...;
+TcpStream.shutdown :: (fn(self: Self, how: i32, using(io : IO)) -> Impl(Future(unit, IO, Exception))) ...;
+TcpStream.close :: (fn(self: Self, using(io : IO)) -> Impl(Future(unit, IO, Exception))) ...;
 TcpStream.peer_addr :: (fn(self: Self) -> SocketAddr) ...;
 TcpStream.fd :: (fn(self: Self) -> i32) ...;
-TcpStream.set_nodelay :: (fn(self: Self, nodelay: bool, using(io : IO)) -> Impl(Future(Result(unit, NetError), IO))) ...;
-TcpStream.set_keepalive :: (fn(self: Self, enabled: bool, using(io : IO)) -> Impl(Future(Result(unit, NetError), IO))) ...;
+TcpStream.set_nodelay :: (fn(self: Self, nodelay: bool, using(io : IO)) -> Impl(Future(unit, IO, Exception))) ...;
+TcpStream.set_keepalive :: (fn(self: Self, enabled: bool, using(io : IO)) -> Impl(Future(unit, IO, Exception))) ...;
 // Implements Dispose
 ```
 
@@ -353,13 +388,13 @@ UdpSocket :: object(
   _is_closed  : bool
 );
 
-UdpSocket.bind :: (fn(addr: SocketAddr, using(io : IO)) -> Impl(Future(Result(UdpSocket, NetError), IO))) ...;
-UdpSocket.send_to :: (fn(self: Self, data: ArrayList(u8), addr: SocketAddr, using(io : IO)) -> Impl(Future(Result(i32, NetError), IO))) ...;
-UdpSocket.recv :: (fn(self: Self, buf: *(u8), size: usize, using(io : IO)) -> Impl(Future(Result(i32, NetError), IO))) ...;
-UdpSocket.recv_from :: (fn(self: Self, buf: *(u8), size: usize, src_addr: *(u8), src_addr_len: *(u32), using(io : IO)) -> Impl(Future(Result(i32, NetError), IO))) ...;
-UdpSocket.send :: (fn(self: Self, data: ArrayList(u8), using(io : IO)) -> Impl(Future(Result(i32, NetError), IO))) ...;
-UdpSocket.close :: (fn(self: Self, using(io : IO)) -> Impl(Future(Result(unit, NetError), IO))) ...;
-UdpSocket.set_broadcast :: (fn(self: Self, enabled: bool, using(io : IO)) -> Impl(Future(Result(unit, NetError), IO))) ...;
+UdpSocket.bind :: (fn(addr: SocketAddr, using(io : IO)) -> Impl(Future(UdpSocket, IO, Exception))) ...;
+UdpSocket.send_to :: (fn(self: Self, data: ArrayList(u8), addr: SocketAddr, using(io : IO)) -> Impl(Future(i32, IO, Exception))) ...;
+UdpSocket.recv :: (fn(self: Self, buf: *(u8), size: usize, using(io : IO)) -> Impl(Future(i32, IO, Exception))) ...;
+UdpSocket.recv_from :: (fn(self: Self, buf: *(u8), size: usize, src_addr: *(u8), src_addr_len: *(u32), using(io : IO)) -> Impl(Future(i32, IO, Exception))) ...;
+UdpSocket.send :: (fn(self: Self, data: ArrayList(u8), using(io : IO)) -> Impl(Future(i32, IO, Exception))) ...;
+UdpSocket.close :: (fn(self: Self, using(io : IO)) -> Impl(Future(unit, IO, Exception))) ...;
+UdpSocket.set_broadcast :: (fn(self: Self, enabled: bool, using(io : IO)) -> Impl(Future(unit, IO, Exception))) ...;
 UdpSocket.local_addr :: (fn(self: Self) -> SocketAddr) ...;
 UdpSocket.fd :: (fn(self: Self) -> i32) ...;
 // Implements Dispose
@@ -368,16 +403,16 @@ UdpSocket.fd :: (fn(self: Self) -> i32) ...;
 ### 2.5 `std/net/dns.yo` — DNS Resolution
 
 ```yo
-lookup_host :: (fn(host: String, using(io : IO)) -> Impl(Future(Result(ArrayList(IpAddr), NetError), IO))) ...;
-resolve :: (fn(host: String, port: u16, using(io : IO)) -> Impl(Future(Result(ArrayList(SocketAddr), NetError), IO))) ...;
+lookup_host :: (fn(host: String, using(io : IO)) -> Impl(Future(ArrayList(IpAddr), IO, Exception))) ...;
+resolve :: (fn(host: String, port: u16, using(io : IO)) -> Impl(Future(ArrayList(SocketAddr), IO, Exception))) ...;
 ```
 
 **Tests**: TCP echo server/client with typed API, UDP datagram exchange, DNS lookup, address parsing/formatting, connection error handling.
 
 **Test files** (all passing):
 
-- `tests/net/addr.test.yo` — 13 tests (IpAddr parsing, loopback, SocketAddr, ToString)
-- `tests/net/errors.test.yo` — 9 tests (NetError variants, from_io, from_result, ToString)
+- `tests/net/addr.test.yo` — 6 tests (IpAddr parsing, loopback, SocketAddr, ToString; 1 known RC leak on error path)
+- `tests/net/errors.test.yo` — 9 tests (NetError variants, from_io, check, ToString)
 - `tests/net/tcp.test.yo` — 10 tests (bind/close, local_addr, connect/accept, write_str/read echo, write String, write_bytes, set_nodelay/set_keepalive, shutdown, peer_addr, read_all)
 - `tests/net/udp.test.yo` — 5 tests (bind/close, local_addr, send_to/recv, recv_from, set_broadcast)
 - `tests/net/dns.test.yo` — 3 tests (lookup_host localhost, invalid host, resolve)
@@ -479,16 +514,16 @@ DateTime.day_of_year :: (fn(self: *(Self)) -> u16) ...;
 
 ```yo
 hex_encode :: (fn(data: ArrayList(u8)) -> String) ...;
-hex_decode :: (fn(s: str) -> Result(ArrayList(u8), EncodingError)) ...;
+hex_decode :: (fn(s: str, using(exn : Exception)) -> ArrayList(u8)) ...;
 ```
 
 ### 5.2 `std/encoding/base64.yo` — Base64 (13 tests)
 
 ```yo
 base64_encode :: (fn(data: ArrayList(u8)) -> String) ...;
-base64_decode :: (fn(s: str) -> Result(ArrayList(u8), EncodingError)) ...;
+base64_decode :: (fn(s: str, using(exn : Exception)) -> ArrayList(u8)) ...;
 base64_encode_url :: (fn(data: ArrayList(u8)) -> String) ...;
-base64_decode_url :: (fn(s: str) -> Result(ArrayList(u8), EncodingError)) ...;
+base64_decode_url :: (fn(s: str, using(exn : Exception)) -> ArrayList(u8)) ...;
 ```
 
 ### 5.3 `std/encoding/json.yo` — JSON (35 tests)
@@ -505,7 +540,7 @@ JsonValue :: enum(
   Object(keys: ArrayList(String), values: ArrayList(Self))
 );
 
-json_parse :: (fn(s: str) -> Result(JsonValue, JsonError)) ...;
+json_parse :: (fn(s: str, using(exn : Exception)) -> JsonValue) ...;
 json_stringify :: (fn(value: JsonValue) -> String) ...;
 
 JsonValue.get :: (fn(self: Self, key: String) -> Option(JsonValue)) ...;
@@ -521,10 +556,10 @@ JsonValue.as_object :: (fn(self: Self) -> Option(ArrayList(JsonKV))) ...;
 
 ```yo
 utf8_to_utf16 :: (fn(s: str) -> ArrayList(u16)) ...;
-utf16_to_utf8 :: (fn(data: ArrayList(u16)) -> Result(String, EncodingError)) ...;
+utf16_to_utf8 :: (fn(data: ArrayList(u16), using(exn : Exception)) -> String) ...;
 ```
 
-**Tests**: `tests/encoding/hex.test.yo` (11), `tests/encoding/base64.test.yo` (13), `tests/encoding/json.test.yo` (35), `tests/encoding/utf16.test.yo` (12) — all passing.
+**Tests**: `tests/encoding/hex.test.yo` (11), `tests/encoding/base64.test.yo` (13), `tests/encoding/json.test.yo` (35), `tests/encoding/utf16.test.yo` (12) — all passing. Note: error-path tests may show RC leaks due to a known escape propagation limitation.
 
 ---
 
@@ -558,7 +593,7 @@ md5_hex :: (fn(data: ArrayList(u8)) -> String) ...;
 ### 6.3 `std/crypto/random.yo` — Secure Random
 
 ```yo
-random_bytes :: (fn(buf: *(u8), size: usize) -> Result(unit, CryptoError)) ...;
+random_bytes :: (fn(buf: *(u8), size: usize, using(exn : Exception)) -> unit) ...;
 random_u32 :: (fn() -> u32) ...;
 random_u64 :: (fn() -> u64) ...;
 random_f64 :: (fn() -> f64) ...;
@@ -582,9 +617,16 @@ Cross-platform: Linux `getrandom()`, macOS `arc4random_buf()`, Windows `BCryptGe
 
 ---
 
-## Phase 8: Error Handling (`std/error`) — Not Planned
+## Phase 8: Error Handling (`std/error`) — ✅ Done
 
-**Status**: Not planned. The existing `Result(T, E)` pattern with domain-specific error enums (e.g., `IOError`, `JsonError`, `EncodingError`, `NetError`) provides sufficient error handling. A generic `Error` trait can be revisited if cross-cutting error abstraction becomes necessary.
+**Status**: Complete. `std/error.yo` provides:
+
+- `Error` trait — standard interface for typed error propagation (requires `ToString`)
+- `AnyError` (`Dyn(Error)`) — type-erased error value for cross-module error passing
+- `Exception` — non-resumable exception effect; `exn.throw(error)` discards the continuation
+- `ResumableException(ResumeType)` — resumable exception effect (handler can supply a fallback value)
+
+All fallible operations in the standard library use the `Exception` effect instead of `Result(T, E)`. This makes error handling compositional via algebraic effects — callers install `given(exn) : Exception` handlers to catch errors.
 
 ---
 
@@ -683,8 +725,8 @@ Signal :: enum(
 
 SignalHandler :: (fn(data: *(u8)) -> unit);  // re-exported from std/sys/signal
 
-on_signal :: (fn(sig: Signal, handler: SignalHandler) -> Result(unit, IOError)) ...;
-off_signal :: (fn(sig: Signal) -> Result(unit, IOError)) ...;
+on_signal :: (fn(sig: Signal, handler: SignalHandler, using(exn : Exception)) -> unit) ...;
+off_signal :: (fn(sig: Signal, using(exn : Exception)) -> unit) ...;
 ```
 
 ### 12.2 `std/os/env.yo` — Environment Utilities
@@ -878,7 +920,7 @@ Url :: object(
   fragment : Option(String)
 );
 
-Url.parse :: (fn(s: str) -> Result(Url, UrlError)) ...;
+Url.parse :: (fn(s: str, using(exn : Exception)) -> Url) ...;
 Url.to_string :: (fn(self: Self) -> String) ...;
 ```
 

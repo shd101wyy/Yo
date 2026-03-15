@@ -13,8 +13,8 @@ import type {
   Type,
   TypeId,
 } from "../../types/definitions";
-import type { EffectStateMachineInfo } from "../effects/effect-state-machine";
 import type { CodeGenContext } from "../utils";
+import type { EvidenceParameter } from "./declarations";
 
 export interface FunctionGenerationContext extends CodeGenContext {
   functions: Record<
@@ -38,14 +38,13 @@ export interface FunctionGenerationContext extends CodeGenContext {
   // Async state machine context (set when generating code inside an async state machine)
   inAsyncStateMachine?: { futureType: SomeType | DynType };
   stateMachineVariables?: Map<string, CapturedVariable>; // Variables captured in state machine (id -> variable)
-  // Effect state machine context (when generating code inside an effectful function's state machine)
-  inEffectStateMachine?: EffectStateMachineInfo; // Set when generating code inside an effect state machine
-  // Deferred effectful function generation - effectful functions are generated after regular functions
-  deferredEffectfulFunctions?: Array<{
-    functionValue: FunctionValue;
-    cFunctionName: string;
-    info: EffectStateMachineInfo;
-  }>;
+  inEffectStateMachine?: unknown; // Legacy — no longer used (effects use evidence passing)
+  // Set when generating code for a module effect member function (e.g., Exception.throw handler)
+  isModuleEffectMemberFunction?: boolean;
+  // Evidence parameters for the current function — maps "implicitLabel.fieldLabel"
+  // (e.g., "raise_mod.raise") to the C parameter name (e.g., "raise_mod__raise").
+  // Set when generating a function body that uses module-type effects via evidence passing.
+  currentEvidenceParams?: Map<string, EvidenceParameter>;
   // Map from continuation variable names to their state machine info.
   // Used when generating handler body inline — resume calls are intercepted
   // and generate SM copy + resume code instead of normal function calls.
@@ -54,12 +53,11 @@ export interface FunctionGenerationContext extends CodeGenContext {
   // can jump to the end of the enclosing handler's block.
   continuationVariables?: Map<
     string,
-    | { smVar: string; smInfo: EffectStateMachineInfo; effectIndex?: number }
-    | {
-        directReturnVar: string;
-        directExitLabel?: string;
-        isUnitReturn?: boolean;
-      }
+    {
+      directReturnVar: string;
+      directExitLabel?: string;
+      isUnitReturn?: boolean;
+    }
   >;
   // Maps SSA-renamed variable IDs to their original/canonical IDs.
   // Used to resolve all versions of a reassigned variable to the same struct field in loops.
@@ -68,6 +66,10 @@ export interface FunctionGenerationContext extends CodeGenContext {
   // This is used to ensure local variables are dropped when an async function completes
   // from within a nested expression (e.g., a cond branch that returns early)
   pendingDeferredDrops?: Expr[];
+  // Drops for RC-typed variables consumed by return values (ownership transfer).
+  // These are NOT emitted at normal scope exit or return, but ARE emitted when
+  // escape propagates through the function (the return value is discarded).
+  consumedVarPendingDrops?: Expr[];
   // Deferred async block generation - async blocks are generated after all regular functions
   deferredAsyncBlocks?: Array<{
     bodyExpr: Expr;
@@ -171,18 +173,12 @@ export interface FunctionGenerationContext extends CodeGenContext {
   // For escape handlers, the handler params alias these variables, so handler param drops
   // already free them. Pending deferred drops must skip these to avoid double-free.
   effectSmConsumedArgCNames?: Set<string>;
-  // When generating an effect call inside a while loop's body,
-  // this stores the goto label and step expression so that
-  // generateTransitiveEffectYield can emit step + goto instead of completed=1.
-  effectWhileLoopContinuation?: {
-    label: string;
-    stepExpr: Expr | undefined;
-    whileDoneLabel: string;
-    remainingExprs: Expr[];
-    bodyDropExprs: Expr[];
-  };
   // Baseline count of pendingDeferredDrops when entering the current loop body.
   // Used to determine which drops belong to the loop body scope and must be
   // emitted before break/continue (which would otherwise skip end-of-body drops).
   loopBodyDropsBaselineCount?: number;
+  // Override C return type string for functions where the declaration uses a
+  // body-derived type (e.g., module effect member handlers with SomeType return).
+  // Used by escape codegen to emit correct dummy return values.
+  overrideReturnTypeStr?: string;
 }

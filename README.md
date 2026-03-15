@@ -11,7 +11,7 @@ Yo aims to be **Simple** and **Fast** (around 0% - 15% slower than C).
 
 ## Features
 
-For the design of the language, please refer to [DESIGN.md](./docs/DESIGN.md).
+For the design of the language, please refer to [DESIGN.md](./docs/en-US/DESIGN.md).
 
 Below is a non-exhaustive list of features that Yo supports:
 
@@ -19,11 +19,11 @@ Below is a non-exhaustive list of features that Yo supports:
 - Compile-time evaluation.
 - Homoiconicity and metaprogramming (**Yo** syntax is inspired by the **Lisp** S expression).
 - Closure.
-- [Algebraic Effects and Handlers](./docs/ALGEBRAIC_EFFECTS.md) (One-shot delimited continuation. Tail-Resumptive. Implicit parameters via `using`/`given`, effect handlers with `return`/`escape`).
-- [Async/await](./docs/ASYNC_AWAIT.md) (Builtin `IO` effect. Stackless coroutine & Cooperative multi-tasking. Lazy Futures, multi-await, single-threaded concurrency via state machine transformation).
-- `object` type with [Non-atomic Reference Counting and Thread-Local Cycle Collection](./docs/CYCLE_COLLECTION.md).
-- [Compile-time Reference Counting with Ownership and Lifetime Analysis](./docs/COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md).
-- Thread-per-core parallelism model (see [PARALLELISM.md](./docs/PARALLELISM.md)).
+- [Algebraic Effects and Handlers](./docs/en-US/ALGEBRAIC_EFFECTS.md) (One-shot delimited continuation. Tail-Resumptive. Implicit parameters via `using`/`given`, effect handlers with `return`/`escape`, by [Evidence Passing](https://xnning.github.io/papers/multip.pdf)).
+- [Async/await](./docs/en-US/ASYNC_AWAIT.md) (Builtin `IO` effect. Stackless coroutine & Cooperative multi-tasking. Lazy Futures, multi-await, single-threaded concurrency via state machine transformation).
+- `object` type with [Non-atomic Reference Counting and Thread-Local Cycle Collection](./docs/en-US/CYCLE_COLLECTION.md).
+- [Compile-time Reference Counting with Ownership and Lifetime Analysis](./docs/en-US/COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md).
+- Thread-per-core parallelism model (see [PARALLELISM.md](./docs/en-US/PARALLELISM.md)).
 - **C** interop.
 - etc.
 

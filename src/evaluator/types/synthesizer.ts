@@ -527,6 +527,16 @@ export function synthesizeTypes(
       // NOTE: The typeId might not match
       // They might be different structs that both are returned from the same function.
       // We removed the typeName condition since it fails for Data(boolean) vs Data(A1)
+    } else if (
+      // Allow unification if both structs come from the same type constructor (same funcId).
+      // This handles cases where different forall scopes produce different struct instances
+      // but from the same constructor function (e.g., JoinHandle(T) from module definition
+      // vs JoinHandle(T) from extern function definition).
+      expected.type.functionValue &&
+      given.type.functionValue &&
+      expected.type.functionValue.funcId === given.type.functionValue.funcId
+    ) {
+      // Same type constructor by funcId — allow structural unification
     } else {
       throw new Error(
         `Cannot unify incompatible struct types: "${typeToString(expected.type)}" and "${typeToString(given.type)}"`

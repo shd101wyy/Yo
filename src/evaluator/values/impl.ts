@@ -1007,6 +1007,57 @@ export function findMethodsFromGenericImpls({
               type: method.type,
               value: specializedFunctionValue,
             });
+          } else if (
+            !isFunctionValue(originalValue) &&
+            (match.substitutions.size > 0 || match.valueSubstitutions.size > 0)
+          ) {
+            // The value is not a FunctionValue (e.g., UnknownValue for extern functions),
+            // but we have type substitutions. We can't specialize the body, but we should
+            // still specialize the TYPE so that return types like Option(T) become Option(unit).
+            const baseEnv = impl.definitionEnv;
+            let specializedEnv = pushEnvFrame(baseEnv);
+
+            for (const [paramName, paramType] of match.substitutions) {
+              const { env: nextEnv } = addVariableToEnv({
+                env: specializedEnv,
+                variable: {
+                  name: paramName,
+                  type: createType0(),
+                  isCompileTimeOnly: true,
+                  value: [createTypeValue(paramType)],
+                  token: PlaceholderToken,
+                  initializedAtToken: PlaceholderToken,
+                  consumedAtToken: undefined,
+                  isOwningTheRcValue: false,
+                },
+              });
+              specializedEnv = nextEnv;
+            }
+
+            for (const [paramName, paramValue] of match.valueSubstitutions) {
+              const { env: nextEnv } = addVariableToEnv({
+                env: specializedEnv,
+                variable: {
+                  name: paramName,
+                  type: paramValue.type,
+                  isCompileTimeOnly: true,
+                  value: [paramValue],
+                  token: PlaceholderToken,
+                  initializedAtToken: PlaceholderToken,
+                  consumedAtToken: undefined,
+                  isOwningTheRcValue: false,
+                },
+              });
+              specializedEnv = nextEnv;
+            }
+
+            const specializedType = reEvaluateFunctionType({
+              functionType: method.type,
+              specializedEnv,
+              SelfType: match.substitutions.get("Self"),
+            });
+
+            methods.push({ type: specializedType, value: originalValue });
           } else {
             methods.push({ type: method.type, value: originalValue });
           }

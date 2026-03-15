@@ -20,9 +20,10 @@ description: "Use when making design decisions about the Yo language, writing st
 ## Strings
 
 - Double quote string returns `str` type (contains `[u8]` byte slice)
-- Template string returns `String` type (utf-8 encoded `object` type)
+- Template string returns `String` type (utf-8 encoded `object` type). Its syntax is the same as JavaScript template strings. The `${...}` interpolation is also supported for types that implement `ToString` trait.  
 - `str` is a builtin type — don't use it as a variable or type name.
 - **Use template strings for constant `String` values**: Instead of `String.from("hello")`, write `` `hello` ``. Template strings without interpolation produce the same result but are more concise. This applies anywhere a `String` value is needed — return values, comparisons, arguments, etc.
+- Use `println` or `print` function from `std/fmt` to print instead of `printf`. You can pass template string or any value whose type implements `ToString` trait to both `println` and `print`.
 
 ## Box and box
 
@@ -72,7 +73,7 @@ Yo is a new, evolving language. Don't worry about breaking changes when making d
 - `return expr` inside an effect handler **resumes** the continuation.
 - `escape expr` inside an effect handler **discards** the continuation and exits the enclosing `fn`.
 - Effect row variables (`forall(...(E))` with `using(...(E))`) allow functions to be polymorphic over their effects — they forward whatever effects the caller provides.
-- The codegen generates effect functions as state machines, similar to async/await.
+- Effect handlers use Evidence Passing (function pointer parameters) for zero-overhead calls.  
 
 ## Future return types with effects
 
@@ -96,6 +97,32 @@ my_fn :: (fn(using(io : IO)) -> Impl(Future(Result(i32, IOError), IO)))(
   })
 );
 ```
+
+## JoinHandle(T) — spawned task handle
+
+`JoinHandle(T)` is a builtin generic type returned by `io.spawn`. It wraps a pointer to the spawned future and allows awaiting its result.
+
+### API
+```yo
+handle := io.spawn(task, using(io, raise));  // → JoinHandle(T)
+result := handle.await(using(io));            // → Option(T)
+```
+
+### Semantics
+- `io.spawn(task, using(io, effects...))` cold-starts the future, injects effect handlers, returns a `JoinHandle(T)`.
+- `handle.await(using(io))` polls the spawned future until completion or abort, returns `Option(T)`:
+  - `.Some(result)` — task completed normally
+  - `.None` — task was aborted (effect handler called `escape`)
+- When used as fire-and-forget (`io.spawn(task)` without binding result), the JoinHandle is discarded with no RC overhead.
+- `JoinHandle(T)` is a non-owning view — it does not increment the future's reference count. The original task variable (`task1`, etc.) owns the future.
+
+### Definition (in prelude.yo)
+```yo
+JoinHandle :: (fn(comptime(T) : Type) -> comptime(Type))
+  struct(__future : *(T))
+;
+```
+The `*(T)` field is required so the type parameter `T` appears in the struct fields, enabling the type synthesizer to extract `T` bindings during generic impl matching.
 
 ## Traits with associated types
 

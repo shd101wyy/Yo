@@ -455,10 +455,19 @@ export function tryToImplementFunctionByFunctionType({
   // set the resolvedConcreteType for proper codegen
   if (
     isSomeType(newFunctionType.return.type) &&
-    !newFunctionType.return.type.resolvedConcreteType &&
-    !isSomeType(functionBodyReturnType)
+    !newFunctionType.return.type.resolvedConcreteType
   ) {
-    newFunctionType.return.type.resolvedConcreteType = functionBodyReturnType;
+    if (!isSomeType(functionBodyReturnType)) {
+      newFunctionType.return.type.resolvedConcreteType = functionBodyReturnType;
+    } else if (
+      isSomeType(functionBodyReturnType) &&
+      functionBodyReturnType.resolvedConcreteType
+    ) {
+      // Propagate resolvedConcreteType from delegation wrappers
+      // e.g., write_file_cstr delegates to write_file, both return Impl(Future(...))
+      newFunctionType.return.type.resolvedConcreteType =
+        functionBodyReturnType.resolvedConcreteType;
+    }
   }
 
   if (

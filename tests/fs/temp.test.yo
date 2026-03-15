@@ -2,6 +2,7 @@ open import "std/libc/stdio";
 open import "std/string";
 { Path } :: import "std/path";
 { IOError } :: import "std/sys/errors";
+{ Error, AnyError, Exception } :: import "std/error";
 { TempDir, TempFile } :: import "std/fs/temp";
 fs_file :: import "std/fs/file";
 { File } :: import "std/fs/file";
@@ -13,72 +14,62 @@ fs_dir :: import "std/fs/dir";
 // ============================================================================
 
 test "TempDir.new creates a directory", using(io : IO), {
-  r := io.await(TempDir.new(using(io)));
-  match(r,
-    .Ok(td) => {
-      p := td.path().to_string();
-      printf("  temp dir path = %s\n", p.to_cstr().ptr().unwrap());
-      assert((p.len() > usize(0)), "path should not be empty");
+  given(exn) := Exception(throw : ((err) -> {
+    assert(false, "unexpected exception");
+    escape ();
+  }));
 
-      // Verify it exists
-      ex := io.await(fs_file.exists(td.path(), using(io)));
-      match(ex,
-        .Ok(e) => assert(e, "temp dir should exist"),
-        .Err(e) => assert(false, "exists check failed")
-      );
+  td := io.await(TempDir.new());
 
-      // Remove
-      rm := io.await(td.remove(using(io)));
-      match(rm,
-        .Ok(_) => { printf("  removed ok\n"); },
-        .Err(e) => { assert(false, "TempDir.remove failed"); }
-      );
+  p := td.path().to_string();
+  printf("  temp dir path = %s\n", p.to_cstr().ptr().unwrap());
+  assert((p.len() > usize(0)), "path should not be empty");
 
-      // Verify removed
-      ex2 := io.await(fs_file.exists(td.path(), using(io)));
-      match(ex2,
-        .Ok(e) => assert((!(e)), "temp dir should not exist after remove"),
-        .Err(e) => assert(false, "exists check failed")
-      );
-    },
-    .Err(e) => assert(false, "TempDir.new failed")
-  );
+  // Verify it exists
+  e := io.await(fs_file.exists(td.path(), using(io)));
+  assert(e, "temp dir should exist");
+
+  // Remove
+  io.await(td.remove());
+  printf("  removed ok\n");
+
+  // Verify removed
+  e2 := io.await(fs_file.exists(td.path(), using(io)));
+  assert((!(e2)), "temp dir should not exist after remove");
 };
 
 test "TempDir.new_in creates in specified parent", using(io : IO), {
+  given(exn) := Exception(throw : ((err) -> {
+    assert(false, "unexpected exception");
+    escape ();
+  }));
+
   tmp := temp_dir();
   parent := Path.new(tmp);
 
-  r := io.await(TempDir.new_in(parent, using(io)));
-  match(r,
-    .Ok(td) => {
-      p := td.path().to_string();
-      printf("  temp dir path = %s\n", p.to_cstr().ptr().unwrap());
+  td := io.await(TempDir.new_in(parent));
 
-      // Path should start with parent (use Path.starts_with for cross-platform segment comparison)
-      assert(td.path().starts_with(parent), "path should start with parent");
+  p := td.path().to_string();
+  printf("  temp dir path = %s\n", p.to_cstr().ptr().unwrap());
 
-      io.await(td.remove(using(io)));
-    },
-    .Err(e) => assert(false, "TempDir.new_in failed")
-  );
+  // Path should start with parent (use Path.starts_with for cross-platform segment comparison)
+  assert(td.path().starts_with(parent), "path should start with parent");
+
+  io.await(td.remove());
 };
 
 test "TempDir.remove is idempotent", using(io : IO), {
-  r := io.await(TempDir.new(using(io)));
-  match(r,
-    .Ok(td) => {
-      io.await(td.remove(using(io)));
+  given(exn) := Exception(throw : ((err) -> {
+    assert(false, "unexpected exception");
+    escape ();
+  }));
 
-      // Second remove should succeed (no-op)
-      rm2 := io.await(td.remove(using(io)));
-      match(rm2,
-        .Ok(_) => { printf("  second remove ok\n"); },
-        .Err(e) => { assert(false, "second remove should succeed"); }
-      );
-    },
-    .Err(e) => assert(false, "TempDir.new failed")
-  );
+  td := io.await(TempDir.new());
+  io.await(td.remove());
+
+  // Second remove should succeed (no-op)
+  io.await(td.remove());
+  printf("  second remove ok\n");
 };
 
 // ============================================================================
@@ -86,99 +77,81 @@ test "TempDir.remove is idempotent", using(io : IO), {
 // ============================================================================
 
 test "TempFile.new creates a file", using(io : IO), {
-  r := io.await(TempFile.new(using(io)));
-  match(r,
-    .Ok(tf) => {
-      p := tf.path().to_string();
-      printf("  temp file path = %s\n", p.to_cstr().ptr().unwrap());
-      assert((p.len() > usize(0)), "path should not be empty");
+  given(exn) := Exception(throw : ((err) -> {
+    assert(false, "unexpected exception");
+    escape ();
+  }));
 
-      // Verify it exists
-      ex := io.await(fs_file.exists(tf.path(), using(io)));
-      match(ex,
-        .Ok(e) => assert(e, "temp file should exist"),
-        .Err(e) => assert(false, "exists check failed")
-      );
+  tf := io.await(TempFile.new());
 
-      // Remove
-      rm := io.await(tf.remove(using(io)));
-      match(rm,
-        .Ok(_) => { printf("  removed ok\n"); },
-        .Err(e) => { assert(false, "TempFile.remove failed"); }
-      );
+  p := tf.path().to_string();
+  printf("  temp file path = %s\n", p.to_cstr().ptr().unwrap());
+  assert((p.len() > usize(0)), "path should not be empty");
 
-      // Verify removed
-      ex2 := io.await(fs_file.exists(tf.path(), using(io)));
-      match(ex2,
-        .Ok(e) => assert((!(e)), "temp file should not exist after remove"),
-        .Err(e) => assert(false, "exists check failed")
-      );
-    },
-    .Err(e) => assert(false, "TempFile.new failed")
-  );
+  // Verify it exists
+  e := io.await(fs_file.exists(tf.path(), using(io)));
+  assert(e, "temp file should exist");
+
+  // Remove
+  io.await(tf.remove());
+  printf("  removed ok\n");
+
+  // Verify removed
+  e2 := io.await(fs_file.exists(tf.path(), using(io)));
+  assert((!(e2)), "temp file should not exist after remove");
 };
 
 test "TempFile.new_in creates in specified parent", using(io : IO), {
+  given(exn) := Exception(throw : ((err) -> {
+    assert(false, "unexpected exception");
+    escape ();
+  }));
+
   tmp := temp_dir();
   parent := Path.new(tmp);
 
-  r := io.await(TempFile.new_in(parent, using(io)));
-  match(r,
-    .Ok(tf) => {
-      p := tf.path().to_string();
-      printf("  temp file path = %s\n", p.to_cstr().ptr().unwrap());
+  tf := io.await(TempFile.new_in(parent));
 
-      // Path should start with parent (use Path.starts_with for cross-platform segment comparison)
-      assert(tf.path().starts_with(parent), "path should start with parent");
+  p := tf.path().to_string();
+  printf("  temp file path = %s\n", p.to_cstr().ptr().unwrap());
 
-      io.await(tf.remove(using(io)));
-    },
-    .Err(e) => assert(false, "TempFile.new_in failed")
-  );
+  // Path should start with parent (use Path.starts_with for cross-platform segment comparison)
+  assert(tf.path().starts_with(parent), "path should start with parent");
+
+  io.await(tf.remove());
 };
 
 test "TempFile.file returns usable File", using(io : IO), {
-  r := io.await(TempFile.new(using(io)));
-  match(r,
-    .Ok(tf) => {
-      f := tf.file();
+  given(exn) := Exception(throw : ((err) -> {
+    assert(false, "unexpected exception");
+    escape ();
+  }));
 
-      // Write to the file
-      wr := io.await(f.write(`temp file content`, using(io)));
-      match(wr,
-        .Ok(n) => { printf("  wrote %d bytes\n", n); },
-        .Err(e) => { assert(false, "write to temp file failed"); }
-      );
+  tf := io.await(TempFile.new());
+  f := tf.file();
 
-      // Read it back using the path
-      content := io.await(fs_file.read_to_string(tf.path(), using(io)));
-      match(content,
-        .Ok(s) => {
-          printf("  read: %s\n", s.to_cstr().ptr().unwrap());
-          assert((s == `temp file content`), "temp file content mismatch");
-        },
-        .Err(e) => assert(false, "read temp file failed")
-      );
+  // Write to the file
+  n := io.await(f.write_string(`temp file content`));
+  printf("  wrote %d bytes\n", n);
 
-      io.await(tf.remove(using(io)));
-    },
-    .Err(e) => assert(false, "TempFile.new failed")
-  );
+  // Read it back using the path
+  s := io.await(fs_file.read_string(tf.path()));
+  printf("  read: %s\n", s.to_cstr().ptr().unwrap());
+  assert((s == `temp file content`), "temp file content mismatch");
+
+  io.await(tf.remove());
 };
 
 test "TempFile.remove is idempotent", using(io : IO), {
-  r := io.await(TempFile.new(using(io)));
-  match(r,
-    .Ok(tf) => {
-      io.await(tf.remove(using(io)));
+  given(exn) := Exception(throw : ((err) -> {
+    assert(false, "unexpected exception");
+    escape ();
+  }));
 
-      // Second remove should succeed (no-op)
-      rm2 := io.await(tf.remove(using(io)));
-      match(rm2,
-        .Ok(_) => { printf("  second remove ok\n"); },
-        .Err(e) => { assert(false, "second remove should succeed"); }
-      );
-    },
-    .Err(e) => assert(false, "TempFile.new failed")
-  );
+  tf := io.await(TempFile.new());
+  io.await(tf.remove());
+
+  // Second remove should succeed (no-op)
+  io.await(tf.remove());
+  printf("  second remove ok\n");
 };

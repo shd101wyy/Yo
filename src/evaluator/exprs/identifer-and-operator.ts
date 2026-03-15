@@ -465,6 +465,20 @@ export function evaluateIdentifierAndOperator({
     };
     return expr;
   }
+  // SelfModule - refers to the module type currently being defined
+  // Only available inside module(...) definitions
+  else if (identifier === "SelfModule" && context.SelfModuleType) {
+    const typeValue = createTypeValue(context.SelfModuleType);
+
+    expr.$ = {
+      env,
+      type: typeValue.type,
+      value: typeValue,
+
+      pathCollection: [],
+    };
+    return expr;
+  }
   // variable
   else {
     const variables = getVariablesFromEnv(env, identifier);

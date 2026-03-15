@@ -1,4 +1,8 @@
-import { getVariablesFromEnv } from "../../env";
+import {
+  findInnermostFrameWithGivenVariable,
+  getVariablesFromEnv,
+  getVariablesFromEnvByFilter,
+} from "../../env";
 import { isIoAsyncCall } from "../../evaluator/async/await-analysis";
 import {
   extractFnTraitFromType,
@@ -33,19 +37,19 @@ import {
 import { typeContainsRcType } from "../../types/utils";
 import {
   isFunctionValue,
+  isModuleValue,
   isNumberValue,
   isTypeValue,
   isUnknownValue,
 } from "../../value";
 import { BuiltinYoInlineFunctions } from "../constants";
-import {
-  generateEffectCallSite,
-  generateMultiEffectCallSite,
-  handlerBodyContainsExplicitReturn,
-  type EffectCallSiteHandler,
-  type EffectStateMachineInfo,
-} from "../effects/effect-state-machine";
+
 import type { FunctionGenerationContext } from "../functions/context";
+import {
+  generateFunctionPrototype,
+  getEvidenceParameters,
+  type EvidenceParameter,
+} from "../functions/declarations";
 import {
   canOptimizeAsNullablePointer,
   canOptimizeAsSimpleEnum,
@@ -58,6 +62,7 @@ import {
   sanitizeForCIdentifier,
   type CodeGenContext,
 } from "../utils";
+import { emitAsyncFutureEscape } from "./async-completion";
 import { checkVariableIsClosureCaptured } from "./closures";
 import { generateComptimeValue } from "./comptime-value";
 import {
@@ -71,6 +76,41 @@ import {
   generateThreadSpawnCall,
   generateWorkerSpawnCall,
 } from "./parallelism";
+import {
+  generatePendingDeferredDrops,
+  generateConsumedVarDropsForEscape,
+} from "./return";
+
+/**
+ * Resolves a variable name to its state machine field reference if inside an
+ * async or effect state machine context. Returns `sm->__capture.X` for outer
+ * variables or `sm->var_X` for locals; otherwise returns the name unchanged.
+ */
+function resolveVarNameInContext(
+  varName: string,
+  context: CodeGenContext
+): string {
+  const functionContext = context as FunctionGenerationContext;
+  if (
+    !(
+      functionContext.inAsyncStateMachine ||
+      functionContext.inEffectStateMachine
+    ) ||
+    !functionContext.stateMachineVariables
+  ) {
+    return varName;
+  }
+  for (const [varId, capturedVar] of functionContext.stateMachineVariables) {
+    if (capturedVar.name === varName) {
+      const fieldName =
+        capturedVar.kind === "outer"
+          ? `__capture.${capturedVar.name}`
+          : `var_${varId}`;
+      return `sm->${fieldName}`;
+    }
+  }
+  return varName;
+}
 
 /**
  * In async state machine context, stores a local temp variable to its
@@ -140,8 +180,12 @@ export function generateOtherFunctionCall(
     return generateComptimeValue(expr.$.value, context, expr);
   }
 
-  const functionType = expr.func.$?.type;
   const functionValue = expr.func.$?.value;
+  const functionType =
+    expr.func.$?.type ??
+    (isFunctionValue(functionValue)
+      ? (functionValue.specializedType ?? functionValue.type)
+      : undefined);
 
   if (isFunctionType(functionType)) {
     const runtimeArgExprs = expr.$?.runtimeArgExprsInOrder;
@@ -320,10 +364,12 @@ export function generateOtherFunctionCall(
 
                 if (dynMethod) {
                   // This is a dyn object's own method, pass the dyn object directly
-                  return sanitizeForCIdentifier(
-                    finalArgVarName,
-                    arg.$.type.isExtern === "c"
-                  );
+                  return isStateMachineCapturedVariable
+                    ? argCode
+                    : sanitizeForCIdentifier(
+                        finalArgVarName,
+                        arg.$.type.isExtern === "c"
+                      );
                 }
               }
             }
@@ -332,9 +378,13 @@ export function generateOtherFunctionCall(
             // Dyn is a value type, but callers may pass a borrow (pointer) depending on the method signature.
             const argType = arg.$?.type;
             if (argType && isPtrType(argType)) {
-              return `${sanitizeForCIdentifier(finalArgVarName, arg.$.type.isExtern === "c")}->data`;
+              return isStateMachineCapturedVariable
+                ? `${argCode}->data`
+                : `${sanitizeForCIdentifier(finalArgVarName, arg.$.type.isExtern === "c")}->data`;
             }
-            return `(${sanitizeForCIdentifier(finalArgVarName, arg.$.type.isExtern === "c")}).data`;
+            return isStateMachineCapturedVariable
+              ? `(${argCode}).data`
+              : `(${sanitizeForCIdentifier(finalArgVarName, arg.$.type.isExtern === "c")}).data`;
           } else {
             // If this is a closure-captured variable, use the generated code (inline access)
             // If this is a state machine variable, use the generated code (sm->var_xxx access)
@@ -429,6 +479,73 @@ export function generateOtherFunctionCall(
         }
       }
 
+      // Bare fn evidence passing: if we're inside a function with evidence params
+      // and this call targets an atom that matches an evidence parameter name,
+      // call through the evidence fn ptr. This must be checked BEFORE
+      // isFunctionValue because inside the function body, the implicit param's
+      // value is UnknownValue (body evaluated at definition time).
+      {
+        const functionContext = context as FunctionGenerationContext;
+        if (functionContext.currentEvidenceParams?.size) {
+          let atomName = expr.func.token?.value;
+          let dotLeftLabel: string | undefined;
+          // For dot expressions like fx.errors.raise(msg), extract the field name
+          // and the left-side label to verify the call actually targets an evidence module.
+          if (
+            atomName === "." &&
+            exprIsFunctionCall(expr.func) &&
+            exprIsFunctionCallOf(expr.func, ".", 2)
+          ) {
+            const fieldExpr = expr.func.args[1];
+            if (fieldExpr && exprIsAtom(fieldExpr)) {
+              atomName = fieldExpr.token.value;
+            }
+            // Extract the left-side atom name (e.g., "fx" from fx.raise, "process" from process.spawn)
+            const leftExpr = expr.func.args[0];
+            if (leftExpr && exprIsAtom(leftExpr)) {
+              dotLeftLabel = leftExpr.token.value;
+            } else if (
+              leftExpr &&
+              exprIsFunctionCall(leftExpr) &&
+              exprIsFunctionCallOf(leftExpr, ".", 2)
+            ) {
+              // Nested dot: fx.errors.raise → left is fx.errors, extract "fx"
+              const nestedLeft = leftExpr.args[0];
+              if (nestedLeft && exprIsAtom(nestedLeft)) {
+                dotLeftLabel = nestedLeft.token.value;
+              }
+            }
+          }
+          if (atomName && atomName !== ".") {
+            for (const ep of functionContext.currentEvidenceParams.values()) {
+              if (
+                ep.fieldLabel === atomName ||
+                ep.implicitLabel === atomName ||
+                ep.fieldPath[ep.fieldPath.length - 1] === atomName
+              ) {
+                // For dot expressions, verify the left side matches the evidence
+                // parameter's implicit label. This prevents false matches where
+                // a regular module member (e.g., process.spawn) collides with
+                // an effect module member name (e.g., io.spawn).
+                if (dotLeftLabel && dotLeftLabel !== ep.implicitLabel) {
+                  continue;
+                }
+                return generateEvidenceFnPtrCall(
+                  ep.cParamName,
+                  functionType,
+                  args,
+                  runtimeArgExprs,
+                  expr,
+                  indent,
+                  functionContext,
+                  ep
+                );
+              }
+            }
+          }
+        }
+      }
+
       if (isFunctionValue(functionValue)) {
         // Check if it's function vaue whose body only contains Yo operator
         const operatorFunctionName =
@@ -447,107 +564,205 @@ export function generateOtherFunctionCall(
         const functionValueType =
           functionValue.specializedType ?? functionValue.type;
 
-        // Direct ctl function call (handler invoked in same scope as given binding).
-        // In this case the function value itself IS the handler. There is no intermediate
-        // function with `using(raise)`, so no state machine was generated. Instead we
-        // inline the handler body directly at the call site.
-        // NOTE: This check must be BEFORE the cFuncName check because ctl handler functions
-        // may not be collected as standalone functions (they're inlined at call sites).
-        if (functionValue.isControlFunction && functionValue.body) {
-          return generateDirectCtlCall(
-            functionValue,
-            functionValueType,
-            args,
-            indent,
-            context as FunctionGenerationContext
-          );
+        // Evidence passing: if we're inside a function with evidence params and
+        // this call is to a module effect member, call through the evidence fn ptr
+        // instead of inlining the handler body.
+        const functionContext = context as FunctionGenerationContext;
+        if (
+          functionContext.currentEvidenceParams &&
+          functionValue.isModuleEffectMember
+        ) {
+          // Find the matching evidence parameter for this function value by
+          // navigating each evidence param's module field path in the given
+          // binding environment and comparing funcIds.
+          let matchedEp: EvidenceParameter | undefined;
+          const callEnv = expr.func.$?.env ?? expr.$?.env;
+          if (callEnv) {
+            for (const ep of functionContext.currentEvidenceParams.values()) {
+              const givenVars = getVariablesFromEnv(callEnv, ep.implicitLabel);
+              const givenVar = givenVars[givenVars.length - 1];
+              const moduleVal = givenVar?.value?.[0];
+              if (moduleVal && isModuleValue(moduleVal)) {
+                // Navigate fieldPath through potentially nested modules
+                let currentModule = moduleVal;
+                let navigated = true;
+                for (let i = 0; i < ep.fieldPath.length - 1; i++) {
+                  const pathSegment = ep.fieldPath[i]!;
+                  const idx = currentModule.type.fields.findIndex(
+                    (f) => f.label === pathSegment
+                  );
+                  if (
+                    idx >= 0 &&
+                    currentModule.fields[idx] &&
+                    isModuleValue(currentModule.fields[idx])
+                  ) {
+                    currentModule = currentModule.fields[
+                      idx
+                    ] as import("../../value").ModuleValue;
+                  } else {
+                    navigated = false;
+                    break;
+                  }
+                }
+                if (navigated) {
+                  const lastLabel = ep.fieldPath[ep.fieldPath.length - 1]!;
+                  const fieldIdx = currentModule.type.fields.findIndex(
+                    (f) => f.label === lastLabel
+                  );
+                  if (fieldIdx >= 0) {
+                    const fieldVal = currentModule.fields[fieldIdx];
+                    if (
+                      fieldVal &&
+                      isFunctionValue(fieldVal) &&
+                      fieldVal.funcId === functionValue.funcId
+                    ) {
+                      matchedEp = ep;
+                      break;
+                    }
+                  }
+                }
+              }
+            }
+          }
+          if (matchedEp) {
+            const funcCode = matchedEp.cParamName;
+            return generateEvidenceFnPtrCall(
+              funcCode,
+              functionValueType,
+              args,
+              runtimeArgExprs,
+              expr,
+              indent,
+              functionContext,
+              matchedEp
+            );
+          }
+          // No matching evidence parameter found — this function is in a module
+          // but is NOT an effect handler member. Fall through to normal call path.
         }
 
         // Normal function call
         const cFuncName = context.functions[functionValue.funcId]?.cName;
 
         if (cFuncName) {
-          // Check if this is an effectful function call (has effect state machine)
-          const funcEntry = context.functions[functionValue.funcId];
-          const effectSmInfo = funcEntry?.effectStateMachineInfo as
-            | EffectStateMachineInfo
-            | undefined;
-
-          if (effectSmInfo) {
-            // Effectful function call — generate call-site dispatch with handler inlining
-            const effectAnalysis = functionValue.body?.$?.effectAnalysis;
-
-            // Check for multi-effect (multiple effect handler infos)
+          // Evidence passing call site: callee has module-type implicit params
+          // that compile to extra C function pointer parameters.
+          // Use specializedType (which now includes resolved implicits) if available,
+          // otherwise fall back to original type for forall evidence params (void* cast).
+          const evidenceCheckType =
+            functionValue.specializedType ?? functionValue.type;
+          let calleeEvidenceParams = getEvidenceParameters(evidenceCheckType);
+          if (
+            calleeEvidenceParams.length === 0 &&
+            functionValue.specializedType
+          ) {
+            const fallbackParams = getEvidenceParameters(functionValue.type);
             if (
-              effectAnalysis?.effectHandlerInfos &&
-              effectAnalysis.effectHandlerInfos.length > 1
+              fallbackParams.length > 0 &&
+              fallbackParams.some(
+                (p) =>
+                  p.fieldFunctionType.forallParameters &&
+                  p.fieldFunctionType.forallParameters.length > 0
+              )
             ) {
-              const handlers: EffectCallSiteHandler[] = [];
-              for (
-                let eIdx = 0;
-                eIdx < effectAnalysis.effectHandlerInfos.length;
-                eIdx++
-              ) {
-                const hi = effectAnalysis.effectHandlerInfos[eIdx]!;
-                const hv = hi.handlerValue as FunctionValue | undefined;
-                if (hv && isFunctionValue(hv)) {
-                  const hType = hv.specializedType ?? hv.type;
-                  const hBody = hv.body;
-                  const hHasResume = hBody
-                    ? !hv.isControlFunction ||
-                      handlerBodyContainsExplicitReturn(hBody)
-                    : false;
-                  handlers.push({
-                    handlerBody: hBody!,
-                    handlerType: hType,
-                    hasResume: hHasResume,
-                    effectIndex: eIdx,
-                  });
-                }
-              }
-              if (handlers.length > 0) {
-                const tempVar = expr.$?.variableName;
-                return generateMultiEffectCallSite(
-                  effectSmInfo,
-                  args,
-                  functionValueType,
-                  handlers,
-                  tempVar,
-                  indent,
-                  context as FunctionGenerationContext
-                );
-              }
+              calleeEvidenceParams = fallbackParams;
             }
-
-            // Single-effect: use original single-handler call site
-            const handlerValue = effectAnalysis?.handlerValue as
-              | FunctionValue
-              | undefined;
-
-            if (handlerValue && isFunctionValue(handlerValue)) {
-              const handlerType =
-                handlerValue.specializedType ?? handlerValue.type;
-              const handlerBody = handlerValue.body;
-              const handlerHasResume = handlerBody
-                ? !handlerValue.isControlFunction ||
-                  handlerBodyContainsExplicitReturn(handlerBody)
-                : false;
-
-              const tempVar = expr.$?.variableName;
-              const callerReturnType = expr.$?.type;
-
-              return generateEffectCallSite(
-                effectSmInfo,
-                args,
-                functionValueType,
-                handlerBody!,
-                handlerType,
-                handlerHasResume,
-                callerReturnType,
-                tempVar,
-                indent,
+          }
+          if (calleeEvidenceParams.length > 0) {
+            const { args: evidenceArgNames, isHandlerInstallation } =
+              resolveEvidenceArgsForCallSite(
+                calleeEvidenceParams,
+                functionValue,
+                expr,
                 context as FunctionGenerationContext
               );
+            if (evidenceArgNames.length > 0) {
+              const fullArgs = argsList
+                ? `${argsList}, ${evidenceArgNames.join(", ")}`
+                : evidenceArgNames.join(", ");
+              return generateEvidenceCallSite(
+                cFuncName,
+                fullArgs,
+                functionValueType,
+                expr,
+                runtimeArgExprs,
+                indent,
+                context as FunctionGenerationContext,
+                isHandlerInstallation
+              );
+            }
+          }
+
+          // Determine if this call might trigger an effect escape.
+          // Control functions / module effect members set __yo_effect_escaped.
+          // Specialized effectful functions transitively call handlers.
+          // Functions whose body has effects may also trigger escape transitively.
+          const callMayEscape =
+            functionValue.isControlFunction ||
+            functionValue.isModuleEffectMember ||
+            functionValue.body?.$?.effectAnalysis?.hasEffects;
+
+          // For specialized effectful functions, check if this is the handler
+          // installation point (where the escape value should be extracted
+          // rather than just propagated).
+          let callIsHandlerInstallation = false;
+          if (callMayEscape) {
+            if (
+              functionValue.isControlFunction ||
+              functionValue.isModuleEffectMember
+            ) {
+              // Direct call to a control/handler function.
+              // Check if the function was bound via `given` in a begin-block
+              // frame within the current function's scope. This distinguishes
+              // body-level given bindings (handler installation) from function
+              // parameter bindings (using params, which are handler usage).
+              const callEnv = expr.func?.$?.env ?? expr.$?.env;
+              if (callEnv) {
+                const frameIdx = findInnermostFrameWithGivenVariable(
+                  callEnv,
+                  (v) =>
+                    v.isImplicit === true &&
+                    isFunctionValue(v.value?.[0]) &&
+                    v.value![0].funcId === functionValue.funcId
+                );
+                if (
+                  frameIdx >= 0 &&
+                  frameIdx > callEnv.functionDeclarationFrameLevel &&
+                  callEnv.frames[frameIdx]?.isBeginBlockFrame
+                ) {
+                  callIsHandlerInstallation = true;
+                }
+              }
+            } else if (functionValue.specializedType) {
+              // For specialized effectful functions, check if any of the
+              // callee's evidence parameters were provided by a local `given`
+              // binding in a begin-block frame (handler installation) vs
+              // forwarded from the caller's own `using` params (propagation).
+              const origEvidenceParams = getEvidenceParameters(
+                functionValue.type
+              );
+              if (origEvidenceParams.length > 0) {
+                const callEnv = expr.func?.$?.env ?? expr.$?.env;
+                if (callEnv) {
+                  for (const ep of origEvidenceParams) {
+                    const frameIdx = findInnermostFrameWithGivenVariable(
+                      callEnv,
+                      (v) =>
+                        v.isImplicit === true &&
+                        (v.name === ep.implicitLabel ||
+                          v.name === ep.fieldLabel)
+                    );
+                    if (
+                      frameIdx >= 0 &&
+                      frameIdx > callEnv.functionDeclarationFrameLevel &&
+                      callEnv.frames[frameIdx]?.isBeginBlockFrame
+                    ) {
+                      callIsHandlerInstallation = true;
+                      break;
+                    }
+                  }
+                }
+              }
             }
           }
 
@@ -559,6 +774,16 @@ export function generateOtherFunctionCall(
             // Handle deferred drop expressions if they exist
             if (expr.$?.deferredDropExpressions) {
               generateDeferredDropExpressions(expr, indent, context);
+            }
+
+            // Escape check: if callee may set __yo_effect_escaped, propagate
+            if (callMayEscape) {
+              emitEffectEscapeCheck(
+                indent,
+                context as FunctionGenerationContext,
+                callIsHandlerInstallation,
+                expr
+              );
             }
 
             return ""; // No return value
@@ -641,6 +866,16 @@ export function generateOtherFunctionCall(
                 generateDeferredDropExpressions(expr, indent, context);
               }
 
+              // Escape check: if callee may set __yo_effect_escaped, propagate
+              if (callMayEscape) {
+                emitEffectEscapeCheck(
+                  indent,
+                  context as FunctionGenerationContext,
+                  callIsHandlerInstallation,
+                  expr
+                );
+              }
+
               return tempVar; // Return the temp variable name
             } else {
               // Error: regular function call returns non-unit type but no temp variable assigned
@@ -665,21 +900,104 @@ export function generateOtherFunctionCall(
           // When calling through a void* (e.g., a captured function-typed variable),
           // we need to cast it to the proper function pointer type.
           const funcCode = generateExpr(expr.func, indent, context);
-          const returnTypeStr = getTypeString(
-            functionType.return.type,
-            context
-          );
+
+          // Check if the function value has evidence params (e.g., delegation wrappers
+          // not in context.functions but compiled with evidence parameter prototypes)
+          if (functionValue && isFunctionType(functionValue.type)) {
+            const calleeEvidence = getEvidenceParameters(functionValue.type);
+            if (calleeEvidence.length > 0) {
+              const { args: evidenceArgs, isHandlerInstallation } =
+                resolveEvidenceArgsForCallSite(
+                  calleeEvidence,
+                  functionValue as unknown as FunctionValue,
+                  expr,
+                  context as FunctionGenerationContext
+                );
+              if (evidenceArgs.length > 0) {
+                const fullArgs = argsList
+                  ? `${argsList}, ${evidenceArgs.join(", ")}`
+                  : evidenceArgs.join(", ");
+                return generateEvidenceCallSite(
+                  funcCode,
+                  fullArgs,
+                  functionType,
+                  expr,
+                  runtimeArgExprs,
+                  indent,
+                  context as FunctionGenerationContext,
+                  isHandlerInstallation
+                );
+              }
+            }
+          }
+
+          // Use the call expression's resolved type when available (handles forall monomorphization)
+          const resolvedReturnType = expr.$?.type ?? functionType.return.type;
+          const returnTypeStr = getTypeString(resolvedReturnType, context);
           const paramTypeStrs = functionType.parameters
             .filter((p) => !p.isCompileTimeOnly)
             .map((p) => getTypeString(p.type, context));
           const fnPtrCast = `((${returnTypeStr} (*)(${paramTypeStrs.join(", ")}))${funcCode})`;
-          if (isUnitType(functionType.return.type)) {
+
+          // Detect module effect member calls in async SM context
+          // (e.g., sm->__capture.throw(arg) — handler may escape)
+          const functionContext = context as FunctionGenerationContext;
+          const isModuleEffectCapture =
+            funcCode.includes("__capture.") &&
+            !!functionContext.inAsyncStateMachine;
+
+          if (isModuleEffectCapture) {
+            context.emitter.emitLine(`${indent}__yo_effect_escaped = 0;`);
+          }
+
+          if (
+            isUnitType(functionType.return.type) ||
+            isUnitType(resolvedReturnType)
+          ) {
             // If the function returns unit, just call it without assignment
             context.emitter.emitLine(`${indent}${fnPtrCast}(${argsList});`);
 
             // Handle deferred drop expressions if they exist
             if (expr.$?.deferredDropExpressions) {
               generateDeferredDropExpressions(expr, indent, context);
+            }
+
+            if (isModuleEffectCapture) {
+              context.emitter.emitLine(`${indent}if (__yo_effect_escaped) {`);
+              // Drop RC-typed arguments that won't be dropped by the escaped handler
+              if (runtimeArgExprs) {
+                for (const arg of runtimeArgExprs) {
+                  if (
+                    arg.$?.variableName &&
+                    arg.$?.type &&
+                    typeContainsRcType(arg.$.type)
+                  ) {
+                    const argVarName = resolveVarNameInContext(
+                      sanitizeForCIdentifier(arg.$.variableName),
+                      context
+                    );
+                    const dropCode = generateDropCodeForValue(
+                      argVarName,
+                      arg.$.type,
+                      context
+                    );
+                    if (dropCode) {
+                      context.emitter.emitLine(`${indent}  ${dropCode};`);
+                      // Zero SM field to prevent double-drop in dispose
+                      context.emitter.emitLine(
+                        `${indent}  memset(&${argVarName}, 0, sizeof(${argVarName}));`
+                      );
+                    }
+                  }
+                }
+              }
+              emitAsyncFutureEscape({
+                emitter: context.emitter,
+                indent: indent + "  ",
+                resultCode: undefined,
+                debugLabel: undefined,
+              });
+              context.emitter.emitLine(`${indent}}`);
             }
 
             return ""; // No return value
@@ -706,6 +1024,44 @@ export function generateOtherFunctionCall(
               // Handle deferred drop expressions if they exist
               if (expr.$?.deferredDropExpressions) {
                 generateDeferredDropExpressions(expr, indent, context);
+              }
+
+              if (isModuleEffectCapture) {
+                context.emitter.emitLine(`${indent}if (__yo_effect_escaped) {`);
+                // Drop RC-typed arguments that won't be dropped by the escaped handler
+                if (runtimeArgExprs) {
+                  for (const arg of runtimeArgExprs) {
+                    if (
+                      arg.$?.variableName &&
+                      arg.$?.type &&
+                      typeContainsRcType(arg.$.type)
+                    ) {
+                      const argVarName = resolveVarNameInContext(
+                        sanitizeForCIdentifier(arg.$.variableName),
+                        context
+                      );
+                      const dropCode = generateDropCodeForValue(
+                        argVarName,
+                        arg.$.type,
+                        context
+                      );
+                      if (dropCode) {
+                        context.emitter.emitLine(`${indent}  ${dropCode};`);
+                        // Zero SM field to prevent double-drop in dispose
+                        context.emitter.emitLine(
+                          `${indent}  memset(&${argVarName}, 0, sizeof(${argVarName}));`
+                        );
+                      }
+                    }
+                  }
+                }
+                emitAsyncFutureEscape({
+                  emitter: context.emitter,
+                  indent: indent + "  ",
+                  resultCode: undefined,
+                  debugLabel: undefined,
+                });
+                context.emitter.emitLine(`${indent}}`);
               }
 
               return tempVar; // Return the temp variable name
@@ -884,67 +1240,35 @@ export function generateOtherFunctionCall(
             ? context.implClosureCallMap.get(concreteTypeId)
             : undefined;
 
-          // Check if the closure body function has an effect state machine
-          if (mapped) {
-            const closureFuncEntry = Object.values(
-              functionContext.functions
-            ).find((f) => f.cName === mapped.functionCName);
-            const effectSmInfo = closureFuncEntry?.effectStateMachineInfo as
-              | EffectStateMachineInfo
-              | undefined;
-            if (effectSmInfo && closureFuncEntry) {
-              // Find the handler value from the given binding in the enclosing scope.
-              // The effect analysis knows the ctl parameter name (e.g., "log").
-              const analysis = effectSmInfo.analysis;
-              const effectParamName = analysis.effectParameterName;
-              const callEnv = expr.func.$?.env ?? expr.$?.env;
-              if (effectParamName && callEnv) {
-                const givenVars = getVariablesFromEnv(callEnv, effectParamName);
-                const givenVar = givenVars[givenVars.length - 1];
-                const handlerVal = givenVar?.value?.[0];
-                if (handlerVal && isFunctionValue(handlerVal)) {
-                  const handlerType =
-                    (handlerVal as FunctionValue).specializedType ??
-                    (handlerVal as FunctionValue).type;
-                  const handlerHasResume = (handlerVal as FunctionValue).body
-                    ? !(handlerVal as FunctionValue).isControlFunction ||
-                      handlerBodyContainsExplicitReturn(
-                        (handlerVal as FunctionValue).body!
-                      )
-                    : false;
-                  const tempVar = expr.$?.variableName;
-                  const closureContextCode = `&(${closureCode})`;
-                  const result = generateEffectCallSite(
-                    effectSmInfo,
-                    args,
-                    effectSmInfo.functionType,
-                    (handlerVal as FunctionValue).body!,
-                    handlerType,
-                    handlerHasResume,
-                    functionContext.currentFunctionType?.return.type,
-                    tempVar,
-                    indent,
-                    functionContext,
-                    closureContextCode
-                  );
-                  if (expr.$?.deferredDropExpressions) {
-                    generateDeferredDropExpressions(
-                      expr,
-                      indent,
-                      functionContext
-                    );
-                  }
-                  return result;
-                }
-              }
-            }
-          }
-
           if (!mapped) {
             // Fallback to old representation if mapping is missing.
             const allArgs = [`(${closureCode}).data`, ...args];
             closureCall = `(${closureCode}).call(${allArgs.join(", ")})`;
           } else {
+            // Check if the closure function has evidence parameters
+            const closureEvidenceParams = getEvidenceParameters(callSig);
+            if (closureEvidenceParams.length > 0) {
+              const { args: evidenceArgs, isHandlerInstallation } =
+                resolveEvidenceArgsForCallSite(
+                  closureEvidenceParams,
+                  {} as FunctionValue,
+                  expr,
+                  functionContext
+                );
+              if (evidenceArgs.length > 0) {
+                const allArgs = [`&(${closureCode})`, ...args, ...evidenceArgs];
+                return generateEvidenceCallSite(
+                  mapped.functionCName,
+                  allArgs.join(", "),
+                  callSig,
+                  expr,
+                  runtimeArgExprs,
+                  indent,
+                  functionContext,
+                  isHandlerInstallation
+                );
+              }
+            }
             const allArgs = [`&(${closureCode})`, ...args];
             closureCall = `${mapped.functionCName}(${allArgs.join(", ")})`;
           }
@@ -1608,137 +1932,688 @@ export function generateOtherFunctionCall(
     return `${sliceCode}.data[${indexCode}]`; // Access the element at the index in the slice
   }
 }
-/**
- * Generate an inline invocation of a ctl function when it is called directly
- * in the same scope that provides the `given` handler (i.e. there is no
- * intermediate function with `using(ctl)` that would create a state machine).
- *
- * The ctl function IS the handler. We bind call arguments to handler parameters
- * as local C variables and generate the body inline. `escape(val)` inside the
- * body becomes `return val;` which exits the enclosing C function (the handler
- * scope). `return(val)` inside the body treats `val` as the result of the call.
- */
-let directCtlCallSiteCounter = 0;
 
-function generateDirectCtlCall(
-  functionValue: FunctionValue,
-  functionType: FunctionType,
-  argCodes: string[],
+/**
+ * Emit an escape check after calling a function that may set __yo_effect_escaped.
+ * Used in the normal (non-evidence) call path for specialized effectful functions
+ * and direct handler calls.
+ *
+ * At handler installation points (isHandlerInstallation=true): extracts the escape
+ * value from __yo_effect_escape_value and returns it.
+ * At transitive points: returns a dummy value to propagate the escape.
+ */
+function emitEffectEscapeCheck(
   indent: string,
+  context: FunctionGenerationContext,
+  isHandlerInstallation: boolean,
+  expr: FnCallExpr
+): void {
+  const emitter = context.emitter;
+  emitter.emitLine(`${indent}if (__yo_effect_escaped) {`);
+  // In async SMs, local variable cleanup is handled by _state_dispose when
+  // the SM is freed (state == -2). Dropping here would cause double-free.
+  if (!context.inAsyncStateMachine) {
+    // Drop in-scope RC-typed locals before early return to prevent leaks
+    generatePendingDeferredDrops(
+      indent + "  ",
+      context,
+      expr,
+      false,
+      true,
+      false
+    );
+    // Also drop consumed variables (their drops were optimized away because
+    // they'd be consumed by the return value, but escape discards the return)
+    generateConsumedVarDropsForEscape(indent + "  ", context, expr);
+  }
+  if (context.inAsyncStateMachine) {
+    if (isHandlerInstallation) {
+      emitter.emitLine(`${indent}  __yo_effect_escaped = 0;`);
+    }
+    emitAsyncFutureEscape({
+      emitter,
+      indent: indent + "  ",
+      resultCode: undefined,
+      debugLabel: undefined,
+    });
+  } else if (isHandlerInstallation) {
+    emitter.emitLine(`${indent}  __yo_effect_escaped = 0;`);
+    const callerReturnType = context.currentFunctionType?.return.type;
+    if (callerReturnType && !isUnitType(callerReturnType)) {
+      const callerCType = getTypeString(callerReturnType, context);
+      if (callerCType !== "void") {
+        emitter.emitLine(`${indent}  ${callerCType} _esc_result;`);
+        emitter.emitLine(
+          `${indent}  memcpy(&_esc_result, __yo_effect_escape_value, sizeof(${callerCType}));`
+        );
+        emitter.emitLine(`${indent}  return _esc_result;`);
+      } else {
+        emitter.emitLine(`${indent}  return;`);
+      }
+    } else {
+      emitter.emitLine(`${indent}  return;`);
+    }
+  } else {
+    const callerReturnType = context.currentFunctionType?.return.type;
+    if (callerReturnType && !isUnitType(callerReturnType)) {
+      const callerCType = getTypeString(callerReturnType, context);
+      if (callerCType !== "void") {
+        emitter.emitLine(`${indent}  return (${callerCType}){0};`);
+      } else {
+        emitter.emitLine(`${indent}  return;`);
+      }
+    } else {
+      emitter.emitLine(`${indent}  return;`);
+    }
+  }
+  emitter.emitLine(`${indent}}`);
+}
+
+/**
+ * Generate a call through an evidence fn ptr parameter.
+ * Used inside functions with evidence passing when calling module effect members.
+ *
+ * Generates:
+ *   result = evidence_fn_ptr(args);
+ *   if (__yo_effect_escaped) { return dummy; }
+ *
+ * For forall evidence (void* parameter), generates a cast:
+ *   result = ((ReturnType (*)(ParamTypes...))evidence_fn_ptr)(args);
+ */
+function generateEvidenceFnPtrCall(
+  funcCode: string,
+  functionType: FunctionType,
+  args: string[],
+  runtimeArgExprs: import("../../expr").Expr[] | undefined,
+  expr: FnCallExpr,
+  indent: string,
+  context: FunctionGenerationContext,
+  evidenceParam?: EvidenceParameter
+): string {
+  const argsList = args.join(", ");
+  const returnType = functionType.return.type;
+  const emitter = context.emitter;
+
+  // For forall evidence parameters (passed as void*), cast to the concrete
+  // function pointer type at this call site. The forall type vars (SomeType)
+  // resolve to void* in the function type, so we build the cast from the
+  // concrete argument and return types at this call expression.
+  let callExpr: string;
+  if (
+    evidenceParam?.fieldFunctionType.forallParameters &&
+    evidenceParam.fieldFunctionType.forallParameters.length > 0
+  ) {
+    // Build concrete fn ptr type from the FUNCTION TYPE's parameters, not the
+    // argument expression types. This avoids mismatches like ComptimeString
+    // (uint8_t*) vs str (Slice_uint8_t) when the arg gets coerced.
+    // For SomeType (forall type vars), resolve from the call-site arg types.
+    const concreteRetType = expr.$?.type
+      ? getTypeString(expr.$.type, context)
+      : getTypeString(returnType, context);
+    const concreteParamTypes: string[] = [];
+    const fnParamType = evidenceParam.fieldFunctionType;
+    const runtimeParams = fnParamType.parameters.filter(
+      (p) => !p.isCompileTimeOnly
+    );
+    for (let i = 0; i < runtimeParams.length; i++) {
+      const paramType = runtimeParams[i]!.type;
+      // For SomeType (forall type variable T), use the concrete type from
+      // the call-site argument expression instead.
+      const resolvedType =
+        isSomeType(paramType) && runtimeArgExprs?.[i]?.$?.type
+          ? runtimeArgExprs[i]!.$!.type
+          : paramType;
+      const typeStr = isFunctionType(resolvedType)
+        ? generateFunctionPrototype(resolvedType, "(*)", context)
+        : getTypeString(resolvedType, context);
+      concreteParamTypes.push(typeStr);
+    }
+    const paramList = concreteParamTypes.join(", ");
+    // Cast void* to typed fn ptr: ((ReturnType (*)(ParamTypes...))funcCode)
+    callExpr = `((${concreteRetType} (*)(${paramList}))${funcCode})`;
+  } else {
+    callExpr = funcCode;
+  }
+
+  if (isUnitType(returnType)) {
+    emitter.emitLine(`${indent}${callExpr}(${argsList});`);
+
+    // Handle deferred drop expressions
+    if (expr.$?.deferredDropExpressions) {
+      generateDeferredDropExpressions(expr, indent, context);
+    }
+
+    // Check escape flag — propagate early return if handler escaped
+    emitter.emitLine(`${indent}if (__yo_effect_escaped) {`);
+    // In async SMs, local variable cleanup is handled by _state_dispose
+    if (!context.inAsyncStateMachine) {
+      // Drop in-scope RC-typed locals before early return to prevent leaks
+      generatePendingDeferredDrops(
+        indent + "  ",
+        context,
+        expr,
+        false,
+        true,
+        false
+      );
+      generateConsumedVarDropsForEscape(indent + "  ", context, expr);
+    }
+    if (context.inAsyncStateMachine) {
+      emitAsyncFutureEscape({
+        emitter,
+        indent: indent + "  ",
+        resultCode: undefined,
+        debugLabel: undefined,
+      });
+    } else {
+      const callerReturnType = context.currentFunctionType?.return.type;
+      if (callerReturnType && !isUnitType(callerReturnType)) {
+        const callerCType = getTypeString(callerReturnType, context);
+        if (callerCType !== "void") {
+          emitter.emitLine(`${indent}  return (${callerCType}){0};`);
+        } else {
+          emitter.emitLine(`${indent}  return;`);
+        }
+      } else {
+        emitter.emitLine(`${indent}  return;`);
+      }
+    }
+    emitter.emitLine(`${indent}}`);
+    return "";
+  } else {
+    const tempVar = expr.$?.variableName;
+    if (tempVar) {
+      // For forall evidence calls, use the concrete return type from the call expression
+      // rather than the generic function type's return type (which may be SomeType/void*).
+      const concreteReturnType =
+        evidenceParam?.fieldFunctionType.forallParameters?.length &&
+        expr.$?.type
+          ? expr.$.type
+          : returnType;
+      const cTypeString = getTypeString(concreteReturnType, context);
+
+      // When the concrete return type resolves to void (e.g., forall ResumeType resolved
+      // to unit), we must not assign to a temp — treat like the unit case above.
+      if (cTypeString === "void" || isUnitType(concreteReturnType)) {
+        emitter.emitLine(`${indent}${callExpr}(${argsList});`);
+
+        // Handle deferred drop expressions
+        if (expr.$?.deferredDropExpressions) {
+          generateDeferredDropExpressions(expr, indent, context);
+        }
+
+        // Check escape flag — propagate early return if handler escaped
+        emitter.emitLine(`${indent}if (__yo_effect_escaped) {`);
+        // In async SMs, local variable cleanup is handled by _state_dispose
+        if (!context.inAsyncStateMachine) {
+          // Drop in-scope RC-typed locals before early return to prevent leaks
+          generatePendingDeferredDrops(
+            indent + "  ",
+            context,
+            expr,
+            false,
+            true,
+            false
+          );
+          generateConsumedVarDropsForEscape(indent + "  ", context, expr);
+        }
+        if (context.inAsyncStateMachine) {
+          emitAsyncFutureEscape({
+            emitter,
+            indent: indent + "  ",
+            resultCode: undefined,
+            debugLabel: undefined,
+          });
+        } else {
+          const callerReturnType = context.currentFunctionType?.return.type;
+          if (callerReturnType && !isUnitType(callerReturnType)) {
+            const callerCType = getTypeString(callerReturnType, context);
+            if (callerCType !== "void") {
+              emitter.emitLine(`${indent}  return (${callerCType}){0};`);
+            } else {
+              emitter.emitLine(`${indent}  return;`);
+            }
+          } else {
+            emitter.emitLine(`${indent}  return;`);
+          }
+        }
+        emitter.emitLine(`${indent}}`);
+        return "";
+      }
+
+      emitter.emitLine(
+        `${indent}${cTypeString} ${tempVar} = ${callExpr}(${argsList});`
+      );
+
+      // Handle deferred drop expressions
+      if (expr.$?.deferredDropExpressions) {
+        generateDeferredDropExpressions(expr, indent, context);
+      }
+
+      // Check escape flag — propagate early return if handler escaped
+      emitter.emitLine(`${indent}if (__yo_effect_escaped) {`);
+      // In async SMs, local variable cleanup is handled by _state_dispose
+      if (!context.inAsyncStateMachine) {
+        // Drop in-scope RC-typed locals before early return to prevent leaks
+        generatePendingDeferredDrops(
+          indent + "  ",
+          context,
+          expr,
+          false,
+          true,
+          false
+        );
+        generateConsumedVarDropsForEscape(indent + "  ", context, expr);
+      }
+      if (context.inAsyncStateMachine) {
+        emitAsyncFutureEscape({
+          emitter,
+          indent: indent + "  ",
+          resultCode: undefined,
+          debugLabel: undefined,
+        });
+      } else {
+        // Return type for escape propagation must match the CALLER's return type, not the callee's
+        const callerReturnType = context.currentFunctionType?.return.type;
+        if (callerReturnType && !isUnitType(callerReturnType)) {
+          const callerCType = getTypeString(callerReturnType, context);
+          if (callerCType !== "void") {
+            emitter.emitLine(`${indent}  return (${callerCType}){0};`);
+          } else {
+            emitter.emitLine(`${indent}  return;`);
+          }
+        } else {
+          emitter.emitLine(`${indent}  return;`);
+        }
+      }
+      emitter.emitLine(`${indent}}`);
+      return tempVar;
+    } else {
+      return `${callExpr}(${argsList})`;
+    }
+  }
+}
+
+/**
+ * Resolve evidence fn ptr arguments for a call site, using the callee's
+ * evidence parameters (from its function type). This works for both
+ * escape and resume handlers.
+ *
+ * Resolution order for each evidence param:
+ * 1. Transitive: if caller has matching evidence params, forward them
+ * 2. From effectAnalysis: look up handler function values (escape or resume)
+ * 3. From given binding: look up the module value in the call environment
+ */
+function resolveEvidenceArgsForCallSite(
+  calleeEvidenceParams: EvidenceParameter[],
+  functionValue: FunctionValue,
+  expr: FnCallExpr,
   context: FunctionGenerationContext
+): { args: string[]; isHandlerInstallation: boolean } {
+  const result: string[] = [];
+  const effectAnalysis = functionValue.body?.$?.effectAnalysis;
+  let isHandlerInstallation = false;
+
+  for (const ep of calleeEvidenceParams) {
+    const key = `${ep.implicitLabel}.${ep.fieldLabel}`;
+    let resolved = false;
+
+    // 1. Transitive: forward from caller's own evidence params
+    if (context.currentEvidenceParams) {
+      const callerEp = context.currentEvidenceParams.get(key);
+      if (callerEp) {
+        result.push(callerEp.cParamName);
+        resolved = true;
+      }
+    }
+
+    if (resolved) continue;
+
+    // 2. From effectAnalysis handler values
+    if (effectAnalysis) {
+      // Check effectHandlerInfos first (multi-effect or single with handler infos)
+      if (effectAnalysis.effectHandlerInfos) {
+        for (const hi of effectAnalysis.effectHandlerInfos) {
+          // Match handler to specific evidence param by name
+          if (
+            hi.effectParameterName !== ep.fieldLabel &&
+            hi.effectParameterName !== ep.implicitLabel
+          ) {
+            continue;
+          }
+          const handlerValue = hi.handlerValue as FunctionValue | undefined;
+          if (handlerValue && isFunctionValue(handlerValue)) {
+            // For forall handlers, use the specialized version cast to void*
+            if (handlerValue.specializedFunctionCaches?.length) {
+              const specialized =
+                handlerValue.specializedFunctionCaches[0]!.specializedFunction;
+              const specializedCName =
+                context.functions[specialized.funcId]?.cName;
+              if (specializedCName) {
+                result.push(`(void*)${specializedCName}`);
+                resolved = true;
+                isHandlerInstallation = true;
+                break;
+              }
+            }
+            const cName = context.functions[handlerValue.funcId]?.cName;
+            if (cName) {
+              result.push(cName);
+              resolved = true;
+              isHandlerInstallation = true;
+              break;
+            }
+          }
+        }
+      }
+
+      // Fall back to single handler value — only when there's exactly one evidence param.
+      // When there are multiple evidence params, we can't use a single handlerValue
+      // for all params. Fall through to step 3 (given binding lookup) instead.
+      if (
+        !resolved &&
+        effectAnalysis.handlerValue &&
+        calleeEvidenceParams.length === 1
+      ) {
+        const handlerValue = effectAnalysis.handlerValue as
+          | FunctionValue
+          | undefined;
+        if (handlerValue && isFunctionValue(handlerValue)) {
+          // For forall handlers, use the specialized version cast to void*
+          if (handlerValue.specializedFunctionCaches?.length) {
+            const specialized =
+              handlerValue.specializedFunctionCaches[0]!.specializedFunction;
+            const specializedCName =
+              context.functions[specialized.funcId]?.cName;
+            if (specializedCName) {
+              result.push(`(void*)${specializedCName}`);
+              resolved = true;
+              isHandlerInstallation = true;
+            }
+          }
+          if (!resolved) {
+            const cName = context.functions[handlerValue.funcId]?.cName;
+            if (cName) {
+              result.push(cName);
+              resolved = true;
+              isHandlerInstallation = true;
+            }
+          }
+        }
+      }
+    }
+
+    // 3. From given binding in the call environment
+    if (!resolved) {
+      const callEnv = expr.func.$?.env ?? expr.$?.env;
+      if (callEnv) {
+        // Search for given bindings by both label name and type, preferring
+        // whichever resolves in the innermost scope (handles given variable
+        // shadowing where inner scope uses a different name).
+        const labelVars = getVariablesFromEnv(callEnv, ep.implicitLabel);
+        const typeVars = getVariablesFromEnvByFilter(
+          callEnv,
+          (v) =>
+            v.isImplicit === true &&
+            isFunctionType(v.type) &&
+            isFunctionType(ep.fieldFunctionType) &&
+            v.type === ep.fieldFunctionType
+        );
+        // Pick the variable from the innermost scope (last in array)
+        const labelVar = labelVars[labelVars.length - 1];
+        const typeVar = typeVars[typeVars.length - 1];
+        // Prefer typeVar if it exists and is different from labelVar (shadowing)
+        const givenVar =
+          typeVar && typeVar !== labelVar ? typeVar : (labelVar ?? typeVar);
+        const givenValue = givenVar?.value?.[0];
+        if (givenValue && isModuleValue(givenValue)) {
+          // Navigate the field path through potentially nested modules
+          let currentModule = givenValue;
+          let navigated = true;
+          for (let i = 0; i < ep.fieldPath.length - 1; i++) {
+            const pathSegment = ep.fieldPath[i]!;
+            const idx = currentModule.type.fields.findIndex(
+              (f) => f.label === pathSegment
+            );
+            if (
+              idx >= 0 &&
+              currentModule.fields[idx] &&
+              isModuleValue(currentModule.fields[idx])
+            ) {
+              currentModule = currentModule.fields[
+                idx
+              ] as import("../../value").ModuleValue;
+            } else {
+              navigated = false;
+              break;
+            }
+          }
+          if (navigated) {
+            const lastLabel = ep.fieldPath[ep.fieldPath.length - 1]!;
+            const fieldIndex = currentModule.type.fields.findIndex(
+              (f) => f.label === lastLabel
+            );
+            if (fieldIndex >= 0) {
+              const fieldValue = currentModule.fields[fieldIndex];
+              if (fieldValue && isFunctionValue(fieldValue)) {
+                // For forall functions that were specialized, the unspecialized C function
+                // is not generated — only specialized versions exist. Use one of those
+                // and cast to void* (the evidence param type for forall functions).
+                if (fieldValue.specializedFunctionCaches?.length > 0) {
+                  const specialized =
+                    fieldValue.specializedFunctionCaches[0]!
+                      .specializedFunction;
+                  const specializedCName =
+                    context.functions[specialized.funcId]?.cName;
+                  if (specializedCName) {
+                    result.push(`(void*)${specializedCName}`);
+                    resolved = true;
+                  }
+                }
+                if (!resolved) {
+                  const cName = context.functions[fieldValue.funcId]?.cName;
+                  if (cName) {
+                    result.push(cName);
+                    resolved = true;
+                  }
+                }
+              }
+            }
+          }
+        } else if (givenValue && isFunctionValue(givenValue)) {
+          // Bare function evidence (non-module) — look up cName directly.
+          // For forall handlers, use the specialized version (cast to void*)
+          // since the unspecialized version has void* params that don't match.
+          if (givenValue.specializedFunctionCaches?.length) {
+            const specialized =
+              givenValue.specializedFunctionCaches[0]!.specializedFunction;
+            const specializedCName =
+              context.functions[specialized.funcId]?.cName;
+            if (specializedCName) {
+              result.push(`(void*)${specializedCName}`);
+              resolved = true;
+            }
+          }
+          if (!resolved) {
+            const cName = context.functions[givenValue.funcId]?.cName;
+            if (cName) {
+              result.push(cName);
+              resolved = true;
+            }
+          }
+        }
+        if (resolved) {
+          isHandlerInstallation = true;
+        }
+      }
+    }
+
+    // 4. Inside async SM: resolve from state machine capture struct
+    if (!resolved && context.stateMachineVariables) {
+      const lastLabel = ep.fieldPath[ep.fieldPath.length - 1]!;
+      for (const [, capturedVar] of context.stateMachineVariables) {
+        if (capturedVar.name === lastLabel && capturedVar.kind === "outer") {
+          result.push(`sm->__capture.${lastLabel}`);
+          resolved = true;
+          break;
+        }
+      }
+    }
+
+    if (!resolved) {
+      break;
+    }
+  }
+
+  return { args: result, isHandlerInstallation };
+}
+
+/**
+ * Generate an evidence passing call site.
+ * Emits: __yo_effect_escaped = 0; result = callee(args, evidence...); if (__yo_effect_escaped) { return; }
+ */
+function generateEvidenceCallSite(
+  cFuncName: string,
+  fullArgsList: string,
+  functionType: FunctionType,
+  expr: FnCallExpr,
+  runtimeArgExprs: import("../../expr").Expr[] | undefined,
+  indent: string,
+  context: FunctionGenerationContext,
+  isHandlerInstallation: boolean = false
 ): string {
   const emitter = context.emitter;
-  const callSiteId = directCtlCallSiteCounter++;
+  const returnType = functionType.return.type;
 
-  const runtimeParams = functionType.parameters.filter(
-    (p) => !p.isCompileTimeOnly
-  );
+  emitter.emitLine(`${indent}__yo_effect_escaped = 0;`);
 
-  const handlerHasResume = functionValue.body
-    ? !functionValue.isControlFunction ||
-      handlerBodyContainsExplicitReturn(functionValue.body!)
-    : false;
+  if (isUnitType(returnType)) {
+    emitter.emitLine(`${indent}${cFuncName}(${fullArgsList});`);
 
-  // For the resume case, declare the result variable BEFORE the inner block so that
-  // it stays in scope after the block closes and can be used as the call expression.
-  const resultType = handlerHasResume ? functionValue.body!.$?.type : undefined;
-  const isUnitReturn = !resultType || isUnitType(resultType);
-  const tmpResultVar = `__ctl_direct_result_${callSiteId}`;
-  if (handlerHasResume && !isUnitReturn) {
-    const resultTypeCName = getTypeString(resultType!, context);
-    emitter.emitLine(`${indent}${resultTypeCName} ${tmpResultVar};`);
-  }
+    if (expr.$?.deferredDropExpressions) {
+      generateDeferredDropExpressions(expr, indent, context);
+    }
 
-  const innerIndent = `${indent}  `;
-  emitter.emitLine(`${indent}{`);
-
-  const paramDropCodes: string[] = [];
-  for (let i = 0; i < runtimeParams.length && i < argCodes.length; i++) {
-    const param = runtimeParams[i]!;
-    const paramTypeCName = getTypeString(param.type, context);
-    const paramCName = sanitizeForCIdentifier(param.label);
-    emitter.emitLine(
-      `${innerIndent}${paramTypeCName} ${paramCName} = ${argCodes[i]};`
-    );
-    if (typeContainsRcType(param.type)) {
-      const dropCode = generateDropCodeForValue(
-        paramCName,
-        param.type,
-        context
+    emitter.emitLine(`${indent}if (__yo_effect_escaped) {`);
+    // In async SMs, local variable cleanup is handled by _state_dispose
+    if (!context.inAsyncStateMachine) {
+      // Drop in-scope local variables before escape propagation
+      // (includes RC-typed args and other locals like closure captures)
+      generatePendingDeferredDrops(
+        indent + "  ",
+        context,
+        expr,
+        false,
+        true,
+        false
       );
-      if (dropCode) {
-        paramDropCodes.push(dropCode);
+      generateConsumedVarDropsForEscape(indent + "  ", context, expr);
+    }
+    if (context.inAsyncStateMachine) {
+      emitAsyncFutureEscape({
+        emitter,
+        indent: indent + "  ",
+        resultCode: undefined,
+        debugLabel: undefined,
+      });
+    } else {
+      const callerReturnType = context.currentFunctionType?.return.type;
+      if (isHandlerInstallation) {
+        emitter.emitLine(`${indent}  __yo_effect_escaped = 0;`);
+      }
+      if (callerReturnType && !isUnitType(callerReturnType)) {
+        if (isHandlerInstallation) {
+          const callerCType = getTypeString(callerReturnType, context);
+          if (callerCType !== "void") {
+            emitter.emitLine(`${indent}  ${callerCType} _esc_result;`);
+            emitter.emitLine(
+              `${indent}  memcpy(&_esc_result, __yo_effect_escape_value, sizeof(${callerCType}));`
+            );
+            emitter.emitLine(`${indent}  return _esc_result;`);
+          } else {
+            emitter.emitLine(`${indent}  return;`);
+          }
+        } else {
+          const callerCType = getTypeString(callerReturnType, context);
+          if (callerCType !== "void") {
+            emitter.emitLine(`${indent}  return (${callerCType}){0};`);
+          } else {
+            emitter.emitLine(`${indent}  return;`);
+          }
+        }
+      } else {
+        emitter.emitLine(`${indent}  return;`);
       }
     }
-  }
-
-  if (handlerHasResume) {
-    // Resume case: intercept `return(value)` to assign into tmpResultVar.
-    // The params are aliases of the caller's args (borrowed, not moved) because
-    // execution continues past the call site. The CALLER is responsible for
-    // dropping the args at end of its own scope — don't drop them here.
-    //
-    // Also create an exit label so nested escape handlers can `goto` here
-    // instead of using `return` (which would exit the C function entirely).
-    const exitLabel = `__ctl_direct_exit_${callSiteId}`;
-
-    const prevContinuationVars = context.continuationVariables;
-    const continuationVars = new Map(prevContinuationVars);
-    continuationVars.set("resume", {
-      directReturnVar: isUnitReturn ? "" : tmpResultVar,
-      directExitLabel: exitLabel,
-      isUnitReturn,
-    });
-    context.continuationVariables = continuationVars;
-
-    // Save and clear pendingDeferredDrops so that `return()` inside the handler
-    // body only sees drops from the handler's own scopes, not from the caller's
-    // outer scope. The caller's drops should persist after the call site.
-    const savedPendingDrops = context.pendingDeferredDrops;
-    context.pendingDeferredDrops = undefined;
-
-    const bodyCode = generateExpr(functionValue.body!, innerIndent, context);
-    if (bodyCode) {
-      emitter.emitLine(`${innerIndent}${bodyCode};`);
-    }
-    // No paramDropCodes here: params are borrowed from the outer scope.
-
-    context.pendingDeferredDrops = savedPendingDrops;
-    context.continuationVariables = prevContinuationVars;
     emitter.emitLine(`${indent}}`);
-    // Emit the exit label after the block for nested abort goto targets
-    emitter.emitLine(`${indent}${exitLabel}:;`);
-    return isUnitReturn ? "" : tmpResultVar;
+    return "";
   } else {
-    // Escape case: `escape(value)` in the body generates `return value;` in C,
-    // exiting the enclosing C function. Use effectHandlerParamDrops so that
-    // param cleanup runs before the escape return.
-    const prevHandlerDrops = context.effectHandlerParamDrops;
-    context.effectHandlerParamDrops = paramDropCodes;
+    const tempVar = expr.$?.variableName;
+    if (tempVar) {
+      const cTypeString = getTypeString(returnType, context);
+      emitter.emitLine(
+        `${indent}${cTypeString} ${tempVar} = ${cFuncName}(${fullArgsList});`
+      );
+      storeTempVarToStateMachineIfNeeded(tempVar, indent, context);
 
-    // Track RC-type arg C names as consumed — handler param drops already free
-    // these pointers (params are aliases of argCodes, no dup). Pending deferred
-    // drops must skip them to avoid double-free.
-    const prevConsumedArgs = context.effectSmConsumedArgCNames;
-    const consumedArgs = new Set<string>();
-    for (let i = 0; i < runtimeParams.length && i < argCodes.length; i++) {
-      const param = runtimeParams[i]!;
-      if (typeContainsRcType(param.type)) {
-        consumedArgs.add(argCodes[i]!);
+      if (expr.$?.deferredDropExpressions) {
+        generateDeferredDropExpressions(expr, indent, context);
       }
-    }
-    if (consumedArgs.size > 0) {
-      context.effectSmConsumedArgCNames = consumedArgs;
-    }
 
-    const bodyCode = generateExpr(functionValue.body!, innerIndent, context);
-    if (bodyCode) {
-      emitter.emitLine(`${innerIndent}${bodyCode};`);
+      emitter.emitLine(`${indent}if (__yo_effect_escaped) {`);
+      // In async SMs, local variable cleanup is handled by _state_dispose
+      if (!context.inAsyncStateMachine) {
+        // Drop in-scope local variables before escape propagation
+        // (includes RC-typed args and other locals like closure captures)
+        generatePendingDeferredDrops(
+          indent + "  ",
+          context,
+          expr,
+          false,
+          true,
+          false
+        );
+        generateConsumedVarDropsForEscape(indent + "  ", context, expr);
+      }
+      if (context.inAsyncStateMachine) {
+        emitAsyncFutureEscape({
+          emitter,
+          indent: indent + "  ",
+          resultCode: undefined,
+          debugLabel: undefined,
+        });
+      } else {
+        const callerReturnType = context.currentFunctionType?.return.type;
+        if (
+          isHandlerInstallation &&
+          callerReturnType &&
+          !isUnitType(callerReturnType)
+        ) {
+          const callerCType = getTypeString(callerReturnType, context);
+          emitter.emitLine(`${indent}  ${callerCType} _esc_result;`);
+          emitter.emitLine(
+            `${indent}  memcpy(&_esc_result, __yo_effect_escape_value, sizeof(${callerCType}));`
+          );
+          emitter.emitLine(`${indent}  __yo_effect_escaped = 0;`);
+          emitter.emitLine(`${indent}  return _esc_result;`);
+        } else if (callerReturnType && !isUnitType(callerReturnType)) {
+          const callerCType = getTypeString(callerReturnType, context);
+          if (callerCType !== "void") {
+            emitter.emitLine(`${indent}  return (${callerCType}){0};`);
+          } else {
+            emitter.emitLine(`${indent}  return;`);
+          }
+        } else {
+          if (isHandlerInstallation) {
+            emitter.emitLine(`${indent}  __yo_effect_escaped = 0;`);
+          }
+          emitter.emitLine(`${indent}  return;`);
+        }
+      }
+      emitter.emitLine(`${indent}}`);
+      return tempVar;
+    } else {
+      return `${cFuncName}(${fullArgsList})`;
     }
-    context.effectSmConsumedArgCNames = prevConsumedArgs;
-    context.effectHandlerParamDrops = prevHandlerDrops;
   }
-
-  emitter.emitLine(`${indent}}`);
-  return "";
 }

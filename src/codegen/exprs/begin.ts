@@ -47,6 +47,13 @@ export function generateBegin(
       ...currentDrops,
       ...(previousPendingDeferredDrops ?? []),
     ];
+    // Also propagate consumed variable drops into inner scopes for escape handling
+    const previousConsumedVarDrops = functionContext.consumedVarPendingDrops;
+    const currentConsumedDrops = expr.$?.consumedVariableDropExpressions ?? [];
+    functionContext.consumedVarPendingDrops = [
+      ...currentConsumedDrops,
+      ...(previousConsumedVarDrops ?? []),
+    ];
 
     // Generate and emit code for each arg IMMEDIATELY to preserve order
     // This is important because generateExpr may have side effects that emit code
@@ -144,6 +151,7 @@ export function generateBegin(
 
     // Restore previous pending deferred drops
     functionContext.pendingDeferredDrops = previousPendingDeferredDrops;
+    functionContext.consumedVarPendingDrops = previousConsumedVarDrops;
 
     return isUnitType(valueType) || hasAnyControlFlow(expr.$?.controlFlow)
       ? ""
@@ -159,6 +167,12 @@ export function generateBegin(
     functionContext.pendingDeferredDrops = [
       ...currentDrops,
       ...(previousPendingDeferredDrops ?? []),
+    ];
+    const previousConsumedVarDrops2 = functionContext.consumedVarPendingDrops;
+    const currentConsumedDrops2 = expr.$?.consumedVariableDropExpressions ?? [];
+    functionContext.consumedVarPendingDrops = [
+      ...currentConsumedDrops2,
+      ...(previousConsumedVarDrops2 ?? []),
     ];
 
     const argsCode = expr.args.map((arg) =>
@@ -197,6 +211,7 @@ export function generateBegin(
 
     // Restore previous pending deferred drops
     functionContext.pendingDeferredDrops = previousPendingDeferredDrops;
+    functionContext.consumedVarPendingDrops = previousConsumedVarDrops2;
 
     return "";
   }

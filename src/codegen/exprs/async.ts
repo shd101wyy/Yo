@@ -20,22 +20,26 @@ import type {
   StructType,
   Type,
 } from "../../types/definitions";
-import { isSomeType, isUnitType } from "../../types/guards";
+import {
+  isArcType,
+  isDynType,
+  isIsoType,
+  isObjectType,
+  isRcType,
+  isSomeType,
+  isUnitType,
+} from "../../types/guards";
 import { typeContainsRcType, typeToString } from "../../types/utils";
 import { isFunctionValue } from "../../value";
 import {
   generateAsyncBlockResumeFunction,
   getStateMachineFieldName,
 } from "../async/state-machine";
-import type { EffectStateMachineInfo } from "../effects/effect-state-machine";
 import type { FunctionGenerationContext } from "../functions/context";
+import { getEvidenceParameters } from "../functions/declarations";
 import { getTypeString, getVariableTypeString } from "../utils";
 import { generateAtom } from "./atom";
-import {
-  generateDropCodeForValue,
-  getDropFunctionForType,
-  getDupFunctionForType,
-} from "./drop-dup";
+import { getDropFunctionForType, getDupFunctionForType } from "./drop-dup";
 import { generateExpr } from "./expr";
 
 /**
@@ -652,6 +656,7 @@ function generateAsyncBlockStateDisposeFunction(
   resultType: Type,
   captureType: StructType | undefined,
   analysis: AwaitAnalysisResult,
+  localVarDrops: string[],
   context: FunctionGenerationContext
 ): void {
   const emitter = context.emitter;
@@ -734,10 +739,65 @@ function generateAsyncBlockStateDisposeFunction(
 
   emitter.emitLine(``);
 
-  // NOTE: Local variables are ALWAYS handled by deferred drop expressions
-  // that run in the final state before completion. The state machine dispose
-  // function only needs to clean up captured variables and the result field.
-  // Memory is freed by __yo_decr_rc after this function returns.
+  // Drop local variables when escape aborted the SM (state == -2).
+  // In normal completion, local vars are dropped inline in the final state.
+  // On escape, we must drop ALL local variables from the analysis, not just
+  // body-scope ones, because inner-scope locals (e.g. while loop body vars)
+  // are SM fields that may hold allocated values.
+  {
+    const localDropLines: string[] = [];
+    for (const v of analysis.capturedVariables) {
+      if (v.kind !== "local") continue;
+      // Skip variables that are borrowing an RC value from another variable
+      if (v.isOwningTheSameRcValueAs !== undefined) continue;
+
+      const fieldName = getStateMachineFieldName(v.id, "local");
+      const fieldRef = `sm->${fieldName}`;
+
+      if (isDynType(v.type)) {
+        // Dyn type is a value struct with a .data pointer to RC'd object
+        localDropLines.push(
+          `    if ((${fieldRef}).data != NULL) { __yo_decr_rc((void*)(${fieldRef}).data); }`
+        );
+      } else if (isIsoType(v.type) || isArcType(v.type)) {
+        // Atomic RC pointer — needs NULL guard
+        localDropLines.push(
+          `    if (${fieldRef} != NULL) { __yo_decr_rc_atomic((void*)${fieldRef}); }`
+        );
+      } else if (
+        isObjectType(v.type) ||
+        (isSomeType(v.type) && isRcType(v.type))
+      ) {
+        // Heap-allocated RC pointer — needs NULL guard
+        const dropFn = getDropFunctionForType(v.type, context);
+        if (dropFn) {
+          localDropLines.push(
+            `    if (${fieldRef} != NULL) { ${dropFn}(${fieldRef}); }`
+          );
+        } else {
+          localDropLines.push(
+            `    if (${fieldRef} != NULL) { __yo_decr_rc((void*)${fieldRef}); }`
+          );
+        }
+      } else if (typeContainsRcType(v.type)) {
+        // Value type with embedded RC fields — drop function handles cleanup.
+        // Safe on zeroed values since __yo_decr_rc(NULL) is a no-op.
+        const dropFn = getDropFunctionForType(v.type, context);
+        if (dropFn) {
+          localDropLines.push(`    ${dropFn}(${fieldRef});`);
+        }
+      }
+    }
+
+    if (localDropLines.length > 0) {
+      emitter.emitLine(`  // Drop local variables on escape (state == -2)`);
+      emitter.emitLine(`  if (sm->state == -2) {`);
+      for (const line of localDropLines) {
+        emitter.emitLine(line);
+      }
+      emitter.emitLine(`  }`);
+    }
+  }
 
   emitter.emitLine(
     `  // Memory freed by __yo_decr_rc after this function returns`
@@ -903,6 +963,47 @@ export function generateDeferredAsyncBlocks(
       analysis,
     } = asyncBlockInfo;
 
+    // Generate resume function implementation (before dispose, to collect local var drops)
+    // Set SM context so effect injection can resolve captured variables
+    const savedSMVars = context.stateMachineVariables;
+    const savedEvidenceParams = context.currentEvidenceParams;
+    const smVarMap = new Map<
+      string,
+      import("../../evaluator/async/await-analysis-types").CapturedVariable
+    >();
+    for (const v of analysis.capturedVariables) {
+      smVarMap.set(v.id, v);
+    }
+    if (captureType) {
+      for (const field of captureType.fields) {
+        smVarMap.set(field.label, {
+          id: field.label,
+          name: field.label,
+          type: field.type,
+          kind: "outer",
+          isOwningTheSameRcValueAs: undefined,
+        });
+      }
+    }
+    context.stateMachineVariables = smVarMap;
+
+    const localVarDrops = generateAsyncBlockResumeFunction(
+      bodyExpr,
+      asyncBlockId,
+      structName,
+      resumeFunctionName,
+      analysis,
+      futureType,
+      captureType,
+      context
+    );
+
+    // Restore context
+    context.stateMachineVariables = savedSMVars;
+    context.currentEvidenceParams = savedEvidenceParams;
+
+    emitter.emitLine(``);
+
     // Generate state machine dispose function
     generateAsyncBlockStateDisposeFunction(
       asyncBlockId,
@@ -911,20 +1012,7 @@ export function generateDeferredAsyncBlocks(
       resultType,
       captureType,
       analysis,
-      context
-    );
-
-    emitter.emitLine(``);
-
-    // Generate resume function implementation
-    generateAsyncBlockResumeFunction(
-      bodyExpr,
-      asyncBlockId,
-      structName,
-      resumeFunctionName,
-      analysis,
-      futureType,
-      captureType,
+      localVarDrops,
       context
     );
 
@@ -1137,17 +1225,6 @@ export function generateIoAsyncSyncCall(
     return `/* Error: no closure function or capture type for io.async sync path */`;
   }
 
-  // Check if the closure has an effect state machine (e.g., closure calls a ctl handler like raise)
-  let closureEffectSmInfo: EffectStateMachineInfo | undefined;
-  for (const funcId in context.functions) {
-    const entry = context.functions[funcId]!;
-    if (entry.cName === closureFunctionCName && entry.effectStateMachineInfo) {
-      closureEffectSmInfo =
-        entry.effectStateMachineInfo as EffectStateMachineInfo;
-      break;
-    }
-  }
-
   // Emit struct definition — includes an embedded __capture field so the
   // capture data lives as long as the future (heap-allocated).
   emitter.emitDeclarationLine(`struct ${structName}_struct {`);
@@ -1162,96 +1239,58 @@ export function generateIoAsyncSyncCall(
   emitter.emitDeclarationLine(`  void* continuation_sm;`);
   emitter.emitDeclarationLine(`  void (*__yo_resume_fn)(void*);`);
   emitter.emitDeclarationLine(`  ${captureCName} __capture;`);
-  if (closureEffectSmInfo) {
-    // Embed the closure's effect state machine in the future struct
-    emitter.emitDeclarationLine(
-      `  ${closureEffectSmInfo.structName} __effect_sm;`
-    );
-  }
   emitter.emitDeclarationLine(`};`);
   emitter.emitDeclarationLine(``);
 
-  if (closureEffectSmInfo) {
-    // Emit resume function that drives the closure's effect SM.
-    // When the SM yields (closure called a ctl handler like raise), the future
-    // is marked as aborted (state = -2) since ctl handlers with escape semantics
-    // discontinue the closure — it never completes normally.
-    emitter.emitDeclarationLine(`void ${resumeFunctionName}(void* ptr) {`);
-    emitter.emitDeclarationLine(`  ${structName}* sm = (${structName}*)ptr;`);
-    emitter.emitDeclarationLine(
-      `  sm->__effect_sm.closure_context = &sm->__capture;`
-    );
-    emitter.emitDeclarationLine(
-      `  ${closureEffectSmInfo.resumeFunctionName}(&sm->__effect_sm);`
-    );
-    emitter.emitDeclarationLine(`  if (sm->__effect_sm.completed) {`);
-    // Normal completion
-    if (!isUnitType(resultType)) {
-      emitter.emitDeclarationLine(`    sm->result = sm->__effect_sm.result;`);
-    }
-    emitter.emitDeclarationLine(`    sm->state = -1;`);
-    emitter.emitDeclarationLine(
-      `    void (*continuation)(void*) = sm->continuation_fn;`
-    );
-    emitter.emitDeclarationLine(`    if (continuation) {`);
-    emitter.emitDeclarationLine(`      void* cont_sm = sm->continuation_sm;`);
-    emitter.emitDeclarationLine(`      continuation(cont_sm);`);
-    emitter.emitDeclarationLine(`    }`);
-    emitter.emitDeclarationLine(`    __yo_decr_rc(ptr);`);
-    emitter.emitDeclarationLine(`  } else {`);
-    // SM yielded — ctl handler was called (e.g., raise(msg))
-    // Drop the yielded values to prevent leaks
-    const analysis = closureEffectSmInfo.analysis;
-    for (const cp of analysis.effectCallPoints) {
-      for (let i = 0; i < cp.operationArgTypes.length; i++) {
-        const argType = cp.operationArgTypes[i]!;
-        if (typeContainsRcType(argType)) {
-          const dropCode = generateDropCodeForValue(
-            `sm->__effect_sm.yield_${i}`,
-            argType,
-            context
-          );
-          if (dropCode) {
-            emitter.emitDeclarationLine(`    ${dropCode};`);
-          }
-        }
+  // Look up closure function's evidence params to pass from capture struct
+  let closureEvidenceArgs = "";
+  for (const funcId in context.functions) {
+    const entry = context.functions[funcId]!;
+    if (entry.cName === closureFunctionCName) {
+      const evidenceParams = getEvidenceParameters(entry.value.type);
+      if (evidenceParams.length > 0) {
+        closureEvidenceArgs =
+          ", " +
+          evidenceParams
+            .map((ep) => `(void*)sm->__capture.${ep.fieldPath.join(".")}`)
+            .join(", ");
       }
-      break; // Only handle first call point's yield values for now
+      break;
     }
-    // Mark the future as escaped (ctl handler uses escape/discontinue)
-    emitter.emitDeclarationLine(`    sm->state = -2;`);
-    emitter.emitDeclarationLine(
-      `    void (*continuation)(void*) = sm->continuation_fn;`
-    );
-    emitter.emitDeclarationLine(`    if (continuation) {`);
-    emitter.emitDeclarationLine(`      void* cont_sm = sm->continuation_sm;`);
-    emitter.emitDeclarationLine(`      continuation(cont_sm);`);
-    emitter.emitDeclarationLine(`    }`);
-    emitter.emitDeclarationLine(`    __yo_decr_rc(ptr);`);
-    emitter.emitDeclarationLine(`  }`);
-    emitter.emitDeclarationLine(`}`);
-  } else {
-    // Emit resume function — calls the closure with the embedded capture data
-    emitter.emitDeclarationLine(`void ${resumeFunctionName}(void* ptr) {`);
-    emitter.emitDeclarationLine(`  ${structName}* sm = (${structName}*)ptr;`);
-    if (!isUnitType(resultType)) {
-      emitter.emitDeclarationLine(
-        `  sm->result = ${closureFunctionCName}(&sm->__capture);`
-      );
-    } else {
-      emitter.emitDeclarationLine(`  ${closureFunctionCName}(&sm->__capture);`);
-    }
-    emitter.emitDeclarationLine(`  sm->state = -1;`);
-    emitter.emitDeclarationLine(
-      `  void (*continuation)(void*) = sm->continuation_fn;`
-    );
-    emitter.emitDeclarationLine(`  if (continuation) {`);
-    emitter.emitDeclarationLine(`    void* cont_sm = sm->continuation_sm;`);
-    emitter.emitDeclarationLine(`    continuation(cont_sm);`);
-    emitter.emitDeclarationLine(`  }`);
-    emitter.emitDeclarationLine(`  __yo_decr_rc(ptr);`);
-    emitter.emitDeclarationLine(`}`);
   }
+  // Emit resume function — calls the closure with the embedded capture data
+  emitter.emitDeclarationLine(`void ${resumeFunctionName}(void* ptr) {`);
+  emitter.emitDeclarationLine(`  ${structName}* sm = (${structName}*)ptr;`);
+  if (!isUnitType(resultType)) {
+    emitter.emitDeclarationLine(
+      `  sm->result = ${closureFunctionCName}(&sm->__capture${closureEvidenceArgs});`
+    );
+  } else {
+    emitter.emitDeclarationLine(
+      `  ${closureFunctionCName}(&sm->__capture${closureEvidenceArgs});`
+    );
+  }
+  // If an effect handler called escape(), the closure returned early.
+  // Set state to -2 (aborted) instead of -1 (completed).
+  // Don't decrement refcount here — the await abort path handles the
+  // event loop reference decrement when it sees state == -2.
+  if (closureEvidenceArgs) {
+    emitter.emitDeclarationLine(`  if (__yo_effect_escaped) {`);
+    emitter.emitDeclarationLine(`    __yo_effect_escaped = 0;`);
+    emitter.emitDeclarationLine(`    sm->state = -2;`);
+    emitter.emitDeclarationLine(`    return;`);
+    emitter.emitDeclarationLine(`  }`);
+  }
+  emitter.emitDeclarationLine(`  sm->state = -1;`);
+  emitter.emitDeclarationLine(
+    `  void (*continuation)(void*) = sm->continuation_fn;`
+  );
+  emitter.emitDeclarationLine(`  if (continuation) {`);
+  emitter.emitDeclarationLine(`    void* cont_sm = sm->continuation_sm;`);
+  emitter.emitDeclarationLine(`    continuation(cont_sm);`);
+  emitter.emitDeclarationLine(`  }`);
+  emitter.emitDeclarationLine(`  __yo_decr_rc(ptr);`);
+  emitter.emitDeclarationLine(`}`);
   emitter.emitDeclarationLine(``);
 
   // Emit dispose function

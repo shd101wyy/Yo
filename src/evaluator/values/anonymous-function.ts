@@ -33,6 +33,7 @@ import type {
   FnTraitType,
   FunctionImplicitParameter,
   FunctionType,
+  ModuleType,
   SomeType,
   StructType,
   Type,
@@ -597,13 +598,12 @@ Got:      "${paramName}"`,
     // remain compile-time only.
     // However, if the handler is already resolved from the outer scope (via
     // given bindings), it's compile-time known and doesn't need runtime injection.
-    // Also, generic function types (with forall parameters) can't be stored as
-    // void* since they need per-call-site specialization — keep them compile-time.
+    // Forall function types (e.g., Raise :: fn(forall(T), msg: String) -> T)
+    // are also captured — they are passed as void* and cast at each call site.
     const isEffectParamInAsyncClosure =
       context.isInsideIoAsyncCall &&
       isCreatingClosure &&
       isFunctionType(expectedParam.type) &&
-      expectedParam.type.forallParameters.length === 0 &&
       !resolvedHandlerValue;
     if (isEffectParamInAsyncClosure) {
       effectParamEntries.push({
@@ -612,6 +612,29 @@ Got:      "${paramName}"`,
         token: paramExpr?.token ?? PlaceholderToken,
       });
     }
+
+    // Handle module-typed effects (e.g., Exception :: module(throw : fn(...)))
+    // in async closures. Module effects need their function members decomposed
+    // and captured individually for runtime injection at io.spawn/io.await.
+    const isModuleEffectInAsyncClosure =
+      !isEffectParamInAsyncClosure &&
+      context.isInsideIoAsyncCall &&
+      isCreatingClosure &&
+      isModuleType(expectedParam.type) &&
+      !resolvedHandlerValue;
+    if (isModuleEffectInAsyncClosure) {
+      const moduleType = expectedParam.type as ModuleType;
+      for (const field of moduleType.fields) {
+        if (isFunctionType(field.type)) {
+          effectParamEntries.push({
+            name: field.label,
+            type: field.type,
+            token: paramExpr?.token ?? PlaceholderToken,
+          });
+        }
+      }
+    }
+
     const { env: nextEnv } = addVariableToEnv({
       env,
       variable: {
@@ -806,8 +829,13 @@ Got:      "${paramName}"`,
   // If so, we should NOT evaluate the body at definition time because we can't
   // execute code that uses unresolved type variables. The body will be evaluated
   // when the function is specialized with concrete type arguments.
+  //
+  // Only defer when the lambda explicitly declares forall parameters in its source.
+  // When the expected type has forall params but the lambda doesn't declare them
+  // (e.g., a concrete throw handler for Exception module), evaluate the body now —
+  // the forall type polymorphism is handled by void* erasure at runtime.
   const shouldDeferBodyEvaluation =
-    functionType.forallParameters.length > 0 ||
+    forallParamExprs.length > 0 ||
     functionType.parameters.some((param) => typeContainsSomeType(param.type)) ||
     (functionType.SelfType && typeContainsSomeType(functionType.SelfType));
 

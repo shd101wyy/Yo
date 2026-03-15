@@ -18,6 +18,7 @@ import {
   isTypeValue,
   isUnknownValue,
 } from "../../value";
+import type { FunctionGenerationContext } from "../functions/context";
 import {
   canOptimizeAsNullablePointer,
   type CodeGenContext,
@@ -53,6 +54,19 @@ export function generateFieldAccess(
 
   if (exprIsAtom(fieldExpr)) {
     const fieldName = fieldExpr.token.value;
+
+    // Evidence passing: if we're in a function with evidence params,
+    // module field accesses that match evidence params should resolve to
+    // the evidence fn ptr parameter, not the resolved handler function.
+    const functionContext = context as FunctionGenerationContext;
+    if (functionContext.currentEvidenceParams && exprIsAtom(objectExpr)) {
+      const objectLabel = objectExpr.token.value;
+      const key = `${objectLabel}.${fieldName}`;
+      const ep = functionContext.currentEvidenceParams.get(key);
+      if (ep) {
+        return ep.cParamName;
+      }
+    }
 
     // Check if this field access is actually a method access (function from type's trait or nested traits)
     // This includes both direct type methods and methods from nested traits
@@ -119,6 +133,25 @@ export function generateFieldAccess(
               fieldValue.variableName,
               expr.$?.env
             );
+          }
+          // Check if this module member is captured in an async state machine
+          // (e.g., Exception.throw captured as an effect param)
+          if (
+            (functionContext.inAsyncStateMachine ||
+              functionContext.inEffectStateMachine) &&
+            functionContext.stateMachineVariables
+          ) {
+            for (const [
+              ,
+              capturedVar,
+            ] of functionContext.stateMachineVariables) {
+              if (
+                capturedVar.name === fieldName &&
+                capturedVar.kind === "outer"
+              ) {
+                return `sm->__capture.${fieldName}`;
+              }
+            }
           }
         } else if (!isModuleValue(fieldValue)) {
           return generateComptimeValue(fieldValue, context, expr);

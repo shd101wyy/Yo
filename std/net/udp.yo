@@ -1,20 +1,21 @@
 // std/net/udp.yo - High-level UDP socket
 //
 // Wraps std/sys/udp with typed UdpSocket object.
+// Uses the Exception effect for error handling.
 //
 // Example:
 //   { UdpSocket } :: import "std/net/udp";
 //   { SocketAddr, IpAddr } :: import "std/net/addr";
+//   { Exception } :: import "std/error";
 //
 //   main :: (fn(using(io : IO)) -> unit)({
+//     given(exn) := Exception(throw : ((err) -> {
+//       println(err.message());
+//       escape ();
+//     }));
 //     addr := SocketAddr.new(IpAddr.loopback_v4(), u16(9999));
 //     sock := io.await(UdpSocket.bind(addr));
-//     match(sock,
-//       .Ok(s) => {
-//         io.await(s.close());
-//       },
-//       .Err(e) => println(e.to_string())
-//     );
+//     io.await(sock.close());
 //   });
 
 { GlobalAllocator } :: import "../allocator";
@@ -25,6 +26,7 @@ open import "../fmt";
 { NetError } :: import "./errors";
 { IOError } :: import "../sys/errors";
 { IpAddr, SocketAddr } :: import "./addr";
+{ Error, AnyError, Exception } :: import "../error";
 IO_udp :: import "../sys/udp";
 IO_tcp :: import "../sys/tcp";
 {
@@ -49,6 +51,10 @@ _make_sockaddr :: (fn(addr: SocketAddr) -> IO_tcp.SockAddr)(
   )
 );
 
+_throw_net_io :: (fn(errno_val: i32, using(exn : Exception)) -> unit)(
+  exn.throw(dyn NetError.from_io(IOError.from_errno(errno_val)))
+);
+
 // ============================================================================
 // UdpSocket
 // ============================================================================
@@ -61,108 +67,98 @@ UdpSocket :: object(
 
 impl(UdpSocket,
   // Create and bind a UDP socket to the given address.
-  bind : (fn(addr: SocketAddr, using(io : IO)) -> Impl(Future(Result(UdpSocket, NetError), IO)))(
-    io.async((using(io : IO)) => {
+  bind : (fn(addr: SocketAddr, using(io : IO)) -> Impl(Future(UdpSocket, IO, Exception)))(
+    io.async((using(io : IO, exn : Exception)) => {
       domain := cond(
         addr.ip.is_v4() => AF_INET,
         true => AF_INET6
       );
-      fd := io.await(IO_udp.socket(domain, i32(0)));
-      cond(
-        (fd < i32(0)) => {
-          (ret : Result(UdpSocket, NetError)) = .Err(NetError.from_io(IOError.from_errno((i32(0) - fd))));
-          return ret;
-        },
-        true => ()
-      );
+      raw_fd := io.await(IO_udp.socket(domain, i32(0)));
+      fd := NetError.check(raw_fd);
       saddr := _make_sockaddr(addr);
-      bind_result := io.await(IO_udp.bind(fd, saddr.buf, saddr.len));
+      bind_r := io.await(IO_udp.bind(fd, saddr.buf, saddr.len));
       IO_tcp.free_sockaddr(saddr);
       cond(
-        (bind_result < i32(0)) => {
+        (bind_r < i32(0)) => {
           io.await(IO_udp.close(fd));
-          (ret : Result(UdpSocket, NetError)) = .Err(NetError.from_io(IOError.from_errno((i32(0) - bind_result))));
-          return ret;
+          _throw_net_io((i32(0) - bind_r));
         },
         true => ()
       );
-      (ret : Result(UdpSocket, NetError)) = .Ok(UdpSocket(_fd: fd, _local_addr: addr, _is_closed: false));
-      return ret;
+      return UdpSocket(_fd: fd, _local_addr: addr, _is_closed: false);
     })
   ),
 
   // Send a datagram to a specific address.
   // Returns the number of bytes sent.
-  send_to : (fn(self: Self, data: ArrayList(u8), addr: SocketAddr, using(io : IO)) -> Impl(Future(Result(i32, NetError), IO)))({
+  send_to : (fn(self: Self, data: ArrayList(u8), addr: SocketAddr, using(io : IO)) -> Impl(Future(i32, IO, Exception)))({
     fd := self._fd;
-    io.async((using(io : IO)) => {
+    io.async((using(io : IO, exn : Exception)) => {
       saddr := _make_sockaddr(addr);
-      result := io.await(IO_udp.sendto(fd, data.ptr().unwrap(), data.len(), i32(0), saddr.buf, saddr.len));
+      r := io.await(IO_udp.sendto(fd, data.ptr().unwrap(), data.len(), i32(0), saddr.buf, saddr.len));
       IO_tcp.free_sockaddr(saddr);
-      NetError.from_result(result)
+      NetError.check(r)
     })
   }),
 
   // Receive a datagram.
   // Returns the number of bytes received.
-  recv : (fn(self: Self, buf: *(u8), size: usize, using(io : IO)) -> Impl(Future(Result(i32, NetError), IO)))({
+  recv : (fn(self: Self, buf: *(u8), size: usize, using(io : IO)) -> Impl(Future(i32, IO, Exception)))({
     fd := self._fd;
-    io.async((using(io : IO)) => {
-      result := io.await(IO_udp.recv(fd, buf, size, i32(0)));
-      NetError.from_result(result)
+    io.async((using(io : IO, exn : Exception)) => {
+      r := io.await(IO_udp.recv(fd, buf, size, i32(0)));
+      NetError.check(r)
     })
   }),
 
   // Receive a datagram and get the source address.
   // Returns the number of bytes received.
-  recv_from : (fn(self: Self, buf: *(u8), size: usize, src_addr: *(u8), src_addr_len: *(u32), using(io : IO)) -> Impl(Future(Result(i32, NetError), IO)))({
+  recv_from : (fn(self: Self, buf: *(u8), size: usize, src_addr: *(u8), src_addr_len: *(u32), using(io : IO)) -> Impl(Future(i32, IO, Exception)))({
     fd := self._fd;
-    io.async((using(io : IO)) => {
-      result := io.await(IO_udp.recvfrom(fd, buf, size, i32(0), src_addr, src_addr_len));
-      NetError.from_result(result)
+    io.async((using(io : IO, exn : Exception)) => {
+      r := io.await(IO_udp.recvfrom(fd, buf, size, i32(0), src_addr, src_addr_len));
+      NetError.check(r)
     })
   }),
 
   // Send data on a connected socket (after connect()).
-  send : (fn(self: Self, data: ArrayList(u8), using(io : IO)) -> Impl(Future(Result(i32, NetError), IO)))({
+  send : (fn(self: Self, data: ArrayList(u8), using(io : IO)) -> Impl(Future(i32, IO, Exception)))({
     fd := self._fd;
-    io.async((using(io : IO)) => {
-      result := io.await(IO_udp.send(fd, data.ptr().unwrap(), data.len(), i32(0)));
-      NetError.from_result(result)
+    io.async((using(io : IO, exn : Exception)) => {
+      r := io.await(IO_udp.send(fd, data.ptr().unwrap(), data.len(), i32(0)));
+      NetError.check(r)
     })
   }),
 
   // Close the socket.
-  close : (fn(self: Self, using(io : IO)) -> Impl(Future(Result(unit, NetError), IO)))({
+  close : (fn(self: Self, using(io : IO)) -> Impl(Future(unit, IO, Exception)))({
     fd := self._fd;
-    io.async((using(io : IO)) => {
-      (ret : Result(unit, NetError)) = cond(
-        self._is_closed => .Ok(()),
+    io.async((using(io : IO, exn : Exception)) => {
+      cond(
+        self._is_closed => (),
         true => {
-          result := io.await(IO_udp.close(fd));
+          r := io.await(IO_udp.close(fd));
           self._is_closed = true;
           cond(
-            (result < i32(0)) => .Err(NetError.from_io(IOError.from_errno((i32(0) - result)))),
-            true => .Ok(())
-          )
+            (r < i32(0)) => { _throw_net_io((i32(0) - r)); },
+            true => ()
+          );
         }
       );
-      ret
     })
   }),
 
   // Enable/disable SO_BROADCAST.
-  set_broadcast : (fn(self: Self, enabled: bool, using(io : IO)) -> Impl(Future(Result(unit, NetError), IO)))({
+  set_broadcast : (fn(self: Self, enabled: bool, using(io : IO)) -> Impl(Future(unit, IO, Exception)))({
     fd := self._fd;
-    io.async((using(io : IO)) => {
+    io.async((using(io : IO, exn : Exception)) => {
       val := cond(enabled => i32(1), true => i32(0));
       val_ptr := &val;
-      result := io.await(IO_udp.setsockopt(fd, SOL_SOCKET, SO_BROADCAST, *(u8)(val_ptr), u32(4)));
-      (ret : Result(unit, NetError)) = cond(
-        (result < i32(0)) => .Err(NetError.from_io(IOError.from_errno((i32(0) - result)))),
-        true => .Ok(())
+      r := io.await(IO_udp.setsockopt(fd, SOL_SOCKET, SO_BROADCAST, *(u8)(val_ptr), u32(4)));
+      cond(
+        (r < i32(0)) => { _throw_net_io((i32(0) - r)); },
+        true => ()
       );
-      ret
     })
   }),
 

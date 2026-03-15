@@ -1,19 +1,21 @@
 // std/fs/metadata.yo - File metadata
 //
 // Wraps the low-level statx buffer with ergonomic accessors.
+// Uses Exception effect for error handling.
 //
 // Example:
 //   { metadata } :: import "std/fs/metadata";
 //
 //   main :: (fn(using(io : IO)) -> unit)({
-//     m := io.await(metadata(`/tmp/test.txt`));
-//     match(m,
-//       .Ok(meta) => {
-//         printf("size: %lld\n", meta.size());
-//         printf("is file: %d\n", i32(meta.is_file()));
-//       },
-//       .Err(e) => printf("error\n")
-//     );
+//     given(exn) : Exception = {
+//       throw : (fn(forall(T : Type), error: AnyError) -> T)(
+//         { println(error.to_string()); exit(i32(1)); }
+//       )
+//     };
+//
+//     m := io.await(metadata(Path.new(`/tmp/test.txt`)));
+//     printf("size: %lld\n", m.size());
+//     printf("is file: %d\n", i32(m.is_file()));
 //   });
 
 { GlobalAllocator } :: import "../allocator";
@@ -21,6 +23,7 @@
 open import "../string";
 { Path } :: import "../path";
 { IOError } :: import "../sys/errors";
+{ Error, AnyError, Exception } :: import "../error";
 { Statx } :: import "../sys/statx";
 IO_file :: import "../sys/file";
 {
@@ -126,8 +129,8 @@ extern "Yo",
 // Internal helper to stat a path
 // ============================================================================
 
-_stat_path :: (fn(path: Path, flags: i32, using(io : IO)) -> Impl(Future(Result(Metadata, IOError), IO)))(
-  io.async((using(io)) => {
+_stat_path :: (fn(path: Path, flags: i32, using(io : IO)) -> Impl(Future(Metadata, IO, Exception)))(
+  io.async((using(io, exn)) => {
     cstr_bytes := path.to_string().to_cstr();
     cstr := cstr_bytes.ptr().unwrap();
     buf_size := __yo_statx_buf_size();
@@ -136,34 +139,32 @@ _stat_path :: (fn(path: Path, flags: i32, using(io : IO)) -> Impl(Future(Result(
     cond(
       (result < i32(0)) => {
         free(.Some(*(void)(buf)));
-        (ret : Result(Metadata, IOError)) = .Err(IOError.from_errno((i32(0) - result)));
-        return ret;
+        exn.throw(dyn IOError.from_errno((i32(0) - result)))
       },
       true => {
         sx := Statx(_buf_ptr: buf, _buf_size: buf_size);
-        (ret : Result(Metadata, IOError)) = .Ok(Metadata(_statx: sx, _buf_ptr: buf));
-        return ret;
+        Metadata(_statx: sx, _buf_ptr: buf)
       }
     )
   })
 );
 
 // Get metadata for a path (follows symlinks).
-metadata :: (fn(path: Path, using(io : IO)) -> Impl(Future(Result(Metadata, IOError), IO)))
-  _stat_path(path, AT_STATX_SYNC_AS_STAT, using(io))
+metadata :: (fn(path: Path, using(io : IO)) -> Impl(Future(Metadata, IO, Exception)))
+  _stat_path(path, AT_STATX_SYNC_AS_STAT)
 ;
 
-metadata_str :: (fn(path: str, using(io : IO)) -> Impl(Future(Result(Metadata, IOError), IO)))
-  metadata(Path.new(String.from(path)), using(io))
+metadata_str :: (fn(path: str, using(io : IO)) -> Impl(Future(Metadata, IO, Exception)))
+  metadata(Path.new(String.from(path)))
 ;
 
 // Get metadata for a path (does NOT follow symlinks).
-symlink_metadata :: (fn(path: Path, using(io : IO)) -> Impl(Future(Result(Metadata, IOError), IO)))
-  _stat_path(path, (AT_SYMLINK_NOFOLLOW | AT_STATX_SYNC_AS_STAT), using(io))
+symlink_metadata :: (fn(path: Path, using(io : IO)) -> Impl(Future(Metadata, IO, Exception)))
+  _stat_path(path, (AT_SYMLINK_NOFOLLOW | AT_STATX_SYNC_AS_STAT))
 ;
 
-symlink_metadata_str :: (fn(path: str, using(io : IO)) -> Impl(Future(Result(Metadata, IOError), IO)))
-  symlink_metadata(Path.new(String.from(path)), using(io))
+symlink_metadata_str :: (fn(path: str, using(io : IO)) -> Impl(Future(Metadata, IO, Exception)))
+  symlink_metadata(Path.new(String.from(path)))
 ;
 
 export metadata, metadata_str, symlink_metadata, symlink_metadata_str;

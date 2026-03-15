@@ -3,6 +3,7 @@ open import "std/string";
 open import "std/fmt";
 { NetError } :: import "std/net/errors";
 { IOError } :: import "std/sys/errors";
+{ Error, AnyError, Exception } :: import "std/error";
 
 // ============================================================================
 // NetError tests
@@ -37,41 +38,29 @@ test "NetError.from_io wraps unknown error in IO variant", {
   net_err := NetError.from_io(io_err);
   s := net_err.to_string();
   printf("  err = %s\n", s.to_cstr().ptr().unwrap());
-  // WouldBlock maps to IO(WouldBlock), which prints the IOError's to_string
 };
 
-test "NetError.from_result positive value returns Ok", {
-  r := NetError.from_result(i32(42));
-  match(r,
-    .Ok(n) => {
-      printf("  ok = %d\n", n);
-      assert((n == i32(42)), "should be 42");
-    },
-    .Err(_) => assert(false, "should be Ok")
-  );
+test "NetError.check positive value returns value", {
+  given(exn) := Exception(throw : ((err) -> { assert(false, "unexpected exception"); escape (); }));
+  n := NetError.check(i32(42));
+  printf("  ok = %d\n", n);
+  assert((n == i32(42)), "should be 42");
 };
 
-test "NetError.from_result zero returns Ok", {
-  r := NetError.from_result(i32(0));
-  match(r,
-    .Ok(n) => {
-      printf("  ok = %d\n", n);
-      assert((n == i32(0)), "should be 0");
-    },
-    .Err(_) => assert(false, "should be Ok")
-  );
+test "NetError.check zero returns zero", {
+  given(exn) := Exception(throw : ((err) -> { assert(false, "unexpected exception"); escape (); }));
+  n := NetError.check(i32(0));
+  printf("  ok = %d\n", n);
+  assert((n == i32(0)), "should be 0");
 };
 
-test "NetError.from_result negative value returns Err", {
+test "NetError.check negative value throws", {
+  given(exn) := Exception(throw : ((err) -> {
+    escape ();
+  }));
   // -111 is ECONNREFUSED on Linux
-  r := NetError.from_result(i32(-111));
-  match(r,
-    .Ok(_) => assert(false, "should be Err"),
-    .Err(e) => {
-      s := e.to_string();
-      printf("  err = %s\n", s.to_cstr().ptr().unwrap());
-    }
-  );
+  NetError.check(i32(-111));
+  assert(false, "should have thrown");
 };
 
 test "NetError DNSFailed to_string", {

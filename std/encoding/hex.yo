@@ -6,10 +6,12 @@
 //   { hex_encode, hex_decode } :: import "std/encoding/hex";
 //
 //   s := hex_encode(data);         // "deadbeef"
-//   b := hex_decode("deadbeef").unwrap();
+//   b := hex_decode("deadbeef");
 
 open import "../string";
 { ArrayList } :: import "../collections/array_list";
+{ Error, AnyError, Exception } :: import "../error";
+{ ToString } :: import "../fmt";
 
 // ============================================================================
 // Error type
@@ -19,6 +21,17 @@ EncodingError :: enum(
   InvalidChar(ch: u8),
   OddLength
 );
+
+impl(EncodingError, ToString(
+  to_string : (self ->
+    match(self,
+      .InvalidChar(ch) => `encoding error: invalid character ${ch}`,
+      .OddLength => `encoding error: odd length`
+    )
+  )
+));
+
+impl(EncodingError, Error());
 
 export EncodingError;
 
@@ -52,41 +65,31 @@ export hex_encode;
 // Decoding
 // ============================================================================
 
-_hex_nibble :: (fn(c: u8) -> Result(u8, EncodingError))(
+_hex_nibble :: (fn(c: u8, using(exn : Exception)) -> u8)(
   cond(
-    ((c >= u8(48)) && (c <= u8(57)))  => .Ok((c - u8(48))),         // '0'-'9'
-    ((c >= u8(97)) && (c <= u8(102))) => .Ok(((c - u8(97)) + u8(10))), // 'a'-'f'
-    ((c >= u8(65)) && (c <= u8(70)))  => .Ok(((c - u8(65)) + u8(10))), // 'A'-'F'
-    true => .Err(.InvalidChar(c))
+    ((c >= u8(48)) && (c <= u8(57)))  => (c - u8(48)),         // '0'-'9'
+    ((c >= u8(97)) && (c <= u8(102))) => ((c - u8(97)) + u8(10)), // 'a'-'f'
+    ((c >= u8(65)) && (c <= u8(70)))  => ((c - u8(65)) + u8(10)), // 'A'-'F'
+    true => exn.throw(dyn EncodingError.InvalidChar(c))
   )
 );
 
 // Decode a hexadecimal string into bytes.
-hex_decode :: (fn(s: str) -> Result(ArrayList(u8), EncodingError))({
+hex_decode :: (fn(s: str, using(exn : Exception)) -> ArrayList(u8))({
   cond(
     (((s.len() % usize(2)) != usize(0))) => {
-      return .Err(.OddLength);
+      exn.throw(dyn EncodingError.OddLength);
     },
     true => ()
   );
   out := ArrayList(u8).with_capacity((s.len() / usize(2)));
   i   := usize(0);
   while (i < s.len()), (i = (i + usize(2))), {
-    hi_r := _hex_nibble(s.bytes(i));
-    lo_r := _hex_nibble(s.bytes((i + usize(1))));
-    match(hi_r,
-      .Err(e) => { return .Err(e); },
-      .Ok(hi) => {
-        match(lo_r,
-          .Err(e) => { return .Err(e); },
-          .Ok(lo) => {
-            out.push(((hi << u8(4)) | lo));
-          }
-        );
-      }
-    );
+    hi := _hex_nibble(s.bytes(i));
+    lo := _hex_nibble(s.bytes((i + usize(1))));
+    out.push(((hi << u8(4)) | lo));
   };
-  .Ok(out)
+  out
 });
 
 export hex_decode;

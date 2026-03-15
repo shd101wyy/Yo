@@ -4,6 +4,7 @@
 
 { String } :: import "../string";
 { ToString } :: import "../fmt";
+{ Error, Exception } :: import "../error";
 {
   ENOENT, EPERM, EACCES, EEXIST, ENOTDIR, EISDIR, ENOTEMPTY, EPIPE,
   EAGAIN, EWOULDBLOCK, EINVAL, EINTR, EMFILE, ENFILE, EFBIG, ENOSPC,
@@ -107,42 +108,53 @@ impl(IOError,
 impl(IOError, ToString(
   to_string : (self -> {
     s := match(self,
-      .NotFound => String.from_cstr("file or directory not found").unwrap(),
-      .PermissionDenied => String.from_cstr("permission denied").unwrap(),
-      .AlreadyExists => String.from_cstr("file or directory already exists").unwrap(),
-      .NotADirectory => String.from_cstr("not a directory").unwrap(),
-      .IsADirectory => String.from_cstr("is a directory").unwrap(),
-      .DirectoryNotEmpty => String.from_cstr("directory not empty").unwrap(),
-      .BrokenPipe => String.from_cstr("broken pipe").unwrap(),
-      .WouldBlock => String.from_cstr("operation would block").unwrap(),
-      .InvalidInput => String.from_cstr("invalid input").unwrap(),
-      .Interrupted => String.from_cstr("operation interrupted").unwrap(),
-      .TooManyOpenFiles => String.from_cstr("too many open files").unwrap(),
-      .FileTooLarge => String.from_cstr("file too large").unwrap(),
-      .NoSpace => String.from_cstr("no space left on device").unwrap(),
-      .ReadOnlyFilesystem => String.from_cstr("read-only filesystem").unwrap(),
-      .CrossDeviceLink => String.from_cstr("cross-device link").unwrap(),
-      .TooManyLinks => String.from_cstr("too many links").unwrap(),
-      .NameTooLong => String.from_cstr("name too long").unwrap(),
-      .NotSupported => String.from_cstr("operation not supported").unwrap(),
-      .TimedOut => String.from_cstr("operation timed out").unwrap(),
-      .Busy => String.from_cstr("resource busy").unwrap(),
-      .BadFileDescriptor => String.from_cstr("bad file descriptor").unwrap(),
-      .IOError => String.from_cstr("I/O error").unwrap(),
-      .ConnectionRefused => String.from_cstr("connection refused").unwrap(),
-      .ConnectionReset => String.from_cstr("connection reset by peer").unwrap(),
-      .ConnectionAborted => String.from_cstr("connection aborted").unwrap(),
-      .NotConnected => String.from_cstr("socket not connected").unwrap(),
-      .AddressInUse => String.from_cstr("address already in use").unwrap(),
-      .AddressNotAvailable => String.from_cstr("address not available").unwrap(),
-      .NetworkUnreachable => String.from_cstr("network unreachable").unwrap(),
-      .HostUnreachable => String.from_cstr("host unreachable").unwrap(),
-      .NetworkDown => String.from_cstr("network is down").unwrap(),
-      .AlreadyConnected => String.from_cstr("socket already connected").unwrap(),
-      .Other(errno) => String.from_cstr("unknown I/O error").unwrap()
+      .NotFound => String.from("file or directory not found"),
+      .PermissionDenied => String.from("permission denied"),
+      .AlreadyExists => String.from("file or directory already exists"),
+      .NotADirectory => String.from("not a directory"),
+      .IsADirectory => String.from("is a directory"),
+      .DirectoryNotEmpty => String.from("directory not empty"),
+      .BrokenPipe => String.from("broken pipe"),
+      .WouldBlock => String.from("operation would block"),
+      .InvalidInput => String.from("invalid input"),
+      .Interrupted => String.from("operation interrupted"),
+      .TooManyOpenFiles => String.from("too many open files"),
+      .FileTooLarge => String.from("file too large"),
+      .NoSpace => String.from("no space left on device"),
+      .ReadOnlyFilesystem => String.from("read-only filesystem"),
+      .CrossDeviceLink => String.from("cross-device link"),
+      .TooManyLinks => String.from("too many links"),
+      .NameTooLong => String.from("name too long"),
+      .NotSupported => String.from("operation not supported"),
+      .TimedOut => String.from("operation timed out"),
+      .Busy => String.from("resource busy"),
+      .BadFileDescriptor => String.from("bad file descriptor"),
+      .IOError => String.from("I/O error"),
+      .ConnectionRefused => String.from("connection refused"),
+      .ConnectionReset => String.from("connection reset by peer"),
+      .ConnectionAborted => String.from("connection aborted"),
+      .NotConnected => String.from("socket not connected"),
+      .AddressInUse => String.from("address already in use"),
+      .AddressNotAvailable => String.from("address not available"),
+      .NetworkUnreachable => String.from("network unreachable"),
+      .HostUnreachable => String.from("host unreachable"),
+      .NetworkDown => String.from("network is down"),
+      .AlreadyConnected => String.from("socket already connected"),
+      .Other(errno) => String.from("unknown I/O error")
     );
     return s;
   })
 ));
+impl(IOError, Error());
+
+impl(IOError,
+  // Check a raw result code, throwing on error via Exception effect.
+  check : (fn(result: i32, using(exn : Exception)) -> i32)(
+    cond(
+      (result >= i32(0)) => result,
+      true => exn.throw(dyn Self.from_errno(i32(0) - result))
+    )
+  )
+);
 
 export IOError;

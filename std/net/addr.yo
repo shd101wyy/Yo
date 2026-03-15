@@ -14,6 +14,7 @@ open import "../string";
 { snprintf } :: import "../libc/stdio";
 { GlobalAllocator } :: import "../allocator";
 { malloc, free } :: GlobalAllocator;
+{ Error, AnyError, Exception } :: import "../error";
 
 // ============================================================================
 // IpAddr
@@ -32,7 +33,7 @@ IpAddr :: enum(
 impl(IpAddr,
   // Parse an IPv4 address from a String like "127.0.0.1".
   // Only supports IPv4 dotted-decimal notation.
-  parse_v4 : (fn(s: String) -> Result(IpAddr, NetError))({
+  parse_v4 : (fn(s: String, using(exn : Exception)) -> IpAddr)({
     bytes := s.as_bytes();
     parts := Array(u8, usize(4)).fill(u8(0));
     part_idx := usize(0);
@@ -45,13 +46,13 @@ impl(IpAddr,
           // '.' separator
           cond(
             (part_idx >= usize(3)) => {
-              return .Err(.Other(String.from("invalid IPv4 address")));
+              exn.throw(dyn NetError.Other(String.from("invalid IPv4 address")));
             },
             true => ()
           );
           cond(
             (val > u32(255)) => {
-              return .Err(.Other(String.from("IPv4 octet out of range")));
+              exn.throw(dyn NetError.Other(String.from("IPv4 octet out of range")));
             },
             true => ()
           );
@@ -64,25 +65,25 @@ impl(IpAddr,
           val = ((val * u32(10)) + u32((ch - _ASCII_ZERO)));
         },
         true => {
-          return .Err(.Other(String.from("invalid character in IPv4 address")));
+          exn.throw(dyn NetError.Other(String.from("invalid character in IPv4 address")));
         }
       );
       i = (i + usize(1));
     };
     cond(
       (part_idx != usize(3)) => {
-        return .Err(.Other(String.from("invalid IPv4 address")));
+        exn.throw(dyn NetError.Other(String.from("invalid IPv4 address")));
       },
       true => ()
     );
     cond(
       (val > u32(255)) => {
-        return .Err(.Other(String.from("IPv4 octet out of range")));
+        exn.throw(dyn NetError.Other(String.from("IPv4 octet out of range")));
       },
       true => ()
     );
     parts(usize(3)) = u8(val);
-    return .Ok(.V4(parts(usize(0)), parts(usize(1)), parts(usize(2)), parts(usize(3))));
+    .V4(parts(usize(0)), parts(usize(1)), parts(usize(2)), parts(usize(3)))
   }),
 
   // IPv4 loopback address (127.0.0.1).

@@ -27,8 +27,9 @@ description: "Use when running tests, setting up test files, or debugging test f
 
 ## File creation rules
 
-- Do not create new `.yo`, `.js`, or `.ts` files unless told to do so.
+- Do not create new `.js`, or `.ts` files unless told to do so.
 - You can comment out existing code in `src/tests/fixme.yo` and create new test code there.
+- If you want to create new `.yo` files, create them in `./tmp` directory under this workspace, not `/tmp`.
 
 ## Linting and formatting
 

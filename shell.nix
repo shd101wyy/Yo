@@ -11,6 +11,8 @@ mkShell rec {
     # cmake
   ];
   buildInputs = [
+    bash # Hack for running "copilot" CLI in the shell
+         # https://github.com/github/copilot-cli/issues/1428
     bun
     nodejs_24
     # python3

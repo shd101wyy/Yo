@@ -1,11 +1,17 @@
 import { typeImplementsFuture } from "../../evaluator/trait-checking";
 import type { Expr } from "../../expr";
 import type { FuncValueId } from "../../function-value";
-import type { FunctionType } from "../../types/definitions";
+import type {
+  FunctionImplicitParameter,
+  FunctionType,
+  ModuleType,
+} from "../../types/definitions";
 import {
+  isEffectsRowType,
   isFunctionType,
   isFunctionTypeGeneric,
   isFunctionTypeHardGeneric,
+  isModuleType,
   isSomeType,
   isStructType,
 } from "../../types/guards";
@@ -103,9 +109,11 @@ export function generateFunctionDeclarations(
     const hasUnresolvedFunctionImplicitParams =
       !isUserMain &&
       !isEffectfulFunction &&
+      !value.isModuleEffectMember &&
       !value.type.isClosure &&
       !value.specializedType &&
       (value.specializedFunctionCaches?.length ?? 0) === 0 &&
+      getEvidenceParameters(value.specializedType ?? value.type).length === 0 &&
       [
         ...value.type.implicitParameters,
         ...value.type.parameters.filter((p) => p.isImplicit),
@@ -115,9 +123,22 @@ export function generateFunctionDeclarations(
       continue;
     }
 
+    // Check if the function has evidence params (from resolved spread implicits)
+    const functionTypeForCheck = value.specializedType ?? value.type;
+    const hasEvidenceParams =
+      getEvidenceParameters(functionTypeForCheck).length > 0;
+
+    // IO async state machine closures are generated via the deferred async
+    // block system, not as standalone declarations.
+    if (!isUserMain && value.isIoAsyncStateMachineClosure) {
+      continue;
+    }
+
     if (
       !isUserMain &&
       !isEffectfulFunction &&
+      !hasEvidenceParams &&
+      !value.isModuleEffectMember &&
       ((isFunctionTypeHardGeneric(value.type) && !value.type.isClosure) ||
         (value.specializedFunctionCaches?.length > 0 &&
           !value.type.isClosure) ||
@@ -134,6 +155,7 @@ export function generateFunctionDeclarations(
     const functionType = value.specializedType ?? value.type;
     const hasGenericParams =
       !isEffectfulFunction &&
+      !value.isModuleEffectMember &&
       (functionType.parameters.some((p) => typeContainsSomeType(p.type)) ||
         functionType.forallParameters.length > 0);
     const hasGenericReturnType = typeContainsSomeType(functionType.return.type);
@@ -144,7 +166,10 @@ export function generateFunctionDeclarations(
       isSomeType(functionType.return.type) &&
       functionType.return.type.requiredTraits.length > 0;
 
-    if (hasGenericParams || (hasGenericReturnType && !returnsPlainImpl)) {
+    if (
+      hasGenericParams ||
+      (hasGenericReturnType && !returnsPlainImpl && !value.isModuleEffectMember)
+    ) {
       continue;
     }
 
@@ -153,7 +178,24 @@ export function generateFunctionDeclarations(
       cName,
       false,
       context,
-      value.body
+      // Don't pass body for module effect members — their body type (from escape())
+      // may not match the function signature's return type. The signature type
+      // (even if SomeType → void) is used consistently in both declaration and definition.
+      value.isModuleEffectMember ? undefined : value.body,
+      // Pass original type so evidence params are detected when specialization
+      // strips implicit parameters (e.g., for forall effects).
+      // Only do this when specializedType has no evidence but the original does,
+      // AND the original has forall function evidence params (which need void* passing).
+      // Non-forall using params are resolved at specialization time and don't need this.
+      value.specializedType &&
+        getEvidenceParameters(functionType).length === 0 &&
+        getEvidenceParameters(value.type).some(
+          (ep) =>
+            ep.fieldFunctionType.forallParameters &&
+            ep.fieldFunctionType.forallParameters.length > 0
+        )
+        ? value.type
+        : undefined
     );
   }
 
@@ -164,13 +206,126 @@ export function generateFunctionDeclarations(
 }
 
 /**
+ * Evidence parameter — represents a module effect member that becomes
+ * an explicit C function pointer parameter via evidence passing.
+ */
+export interface EvidenceParameter {
+  /** The label of the implicit parameter (e.g., "raise_mod") */
+  implicitLabel: string;
+  /** The field label within the module (e.g., "raise" or "errors__raise" for nested) */
+  fieldLabel: string;
+  /** Path of field labels for navigating nested module values (e.g., ["errors", "raise"]) */
+  fieldPath: string[];
+  /** The function type of the module field */
+  fieldFunctionType: FunctionType;
+  /** The C parameter name: sanitized "{implicitLabel}_{fieldLabel}" (e.g., "raise_mod__raise") */
+  cParamName: string;
+}
+
+/**
+ * Extract evidence parameters from a function type's implicit parameters.
+ * For each implicit param of ModuleType, emits one EvidenceParameter per
+ * function-typed field in the module, recursing into nested modules.
+ */
+export function getEvidenceParameters(
+  functionType: FunctionType
+): EvidenceParameter[] {
+  const result: EvidenceParameter[] = [];
+  const allImplicits = expandImplicitParameters(
+    functionType.implicitParameters
+  );
+
+  for (const implicit of allImplicits) {
+    if (isModuleType(implicit.type)) {
+      collectEvidenceFromModule(
+        implicit.label,
+        implicit.type as ModuleType,
+        [],
+        result
+      );
+    } else if (isFunctionType(implicit.type)) {
+      // Bare function effect — treat as single-field evidence
+      // Forall function types are passed as void* and cast at each call site
+      result.push({
+        implicitLabel: implicit.label,
+        fieldLabel: implicit.label,
+        fieldPath: [implicit.label],
+        fieldFunctionType: implicit.type,
+        cParamName: sanitizeForCIdentifier(implicit.label),
+      });
+    }
+  }
+  return result;
+}
+
+/**
+ * Recursively collect evidence parameters from a module type.
+ * For function-typed fields, creates an EvidenceParameter.
+ * For module-typed fields, recurses into the nested module.
+ */
+function collectEvidenceFromModule(
+  implicitLabel: string,
+  moduleType: ModuleType,
+  pathPrefix: string[],
+  result: EvidenceParameter[]
+): void {
+  for (const field of moduleType.fields) {
+    if (isFunctionType(field.type)) {
+      // Forall function fields are passed as void* and cast at each call site
+      const fieldPath = [...pathPrefix, field.label];
+      const fieldLabel = fieldPath.join("__");
+      result.push({
+        implicitLabel,
+        fieldLabel,
+        fieldPath,
+        fieldFunctionType: field.type,
+        cParamName: sanitizeForCIdentifier(`${implicitLabel}__${fieldLabel}`),
+      });
+    } else if (isModuleType(field.type)) {
+      collectEvidenceFromModule(
+        implicitLabel,
+        field.type as ModuleType,
+        [...pathPrefix, field.label],
+        result
+      );
+    }
+  }
+}
+
+/**
+ * Generate function prototype
+/**
+ * Expand effect row spreads in implicit parameters into individual parameters.
+ */
+function expandImplicitParameters(
+  implicits: FunctionImplicitParameter[]
+): FunctionImplicitParameter[] {
+  const result: FunctionImplicitParameter[] = [];
+  for (const param of implicits) {
+    if (param.isEffectRowSpread) {
+      let effectsRow = param.type;
+      if (isSomeType(effectsRow) && effectsRow.resolvedConcreteType) {
+        effectsRow = effectsRow.resolvedConcreteType;
+      }
+      if (isEffectsRowType(effectsRow)) {
+        result.push(...effectsRow.implicitParameters);
+      }
+    } else {
+      result.push(param);
+    }
+  }
+  return result;
+}
+
+/**
  * Generate function prototype
  */
 export function generateFunctionPrototype(
   functionType: FunctionType,
   cFunctionName: string,
   context: CodeGenContext,
-  overrideReturnType?: string
+  overrideReturnType?: string,
+  originalFunctionType?: FunctionType
 ): string {
   // For non-main functions, generate based on function type
   const returnTypeStr =
@@ -226,6 +381,35 @@ export function generateFunctionPrototype(
   });
 
   paramStrings.push(...regularParamStrings);
+
+  // Add evidence parameters for module-type implicit params (evidence passing).
+  // Each function-typed field of a module-type using() param becomes an extra
+  // C function pointer parameter.
+  //
+  // NOTE: specializedType typically has empty implicitParameters (resolved during
+  // specialization). We use originalFunctionType (the pre-specialization type)
+  // to detect module-type implicit params.
+  const evidenceParams = getEvidenceParameters(
+    originalFunctionType ?? functionType
+  );
+  for (const ep of evidenceParams) {
+    // For forall function types, use void* — the body casts to the right type at each call site.
+    if (
+      ep.fieldFunctionType.forallParameters &&
+      ep.fieldFunctionType.forallParameters.length > 0
+    ) {
+      paramStrings.push(`void* ${ep.cParamName}`);
+    } else {
+      // Generate the fn ptr parameter: returnType (*name)(paramTypes...)
+      const fnPtrProto = generateFunctionPrototype(
+        ep.fieldFunctionType,
+        "(*)",
+        context
+      ).replace(" (*)(", ` (*${ep.cParamName})(`);
+      paramStrings.push(fnPtrProto);
+    }
+  }
+
   const params = paramStrings.join(", ");
   return `${returnTypeStr} ${cFunctionName}(${params})`;
 }
@@ -238,7 +422,8 @@ export function generateFunctionDeclaration(
   cFunctionName: string,
   isExtern: boolean,
   context: CodeGenContext,
-  functionBody?: Expr
+  functionBody?: Expr,
+  originalFunctionType?: FunctionType
 ): void {
   // For functions returning Impl(Future(T)), find the async block that produces the return value
   // and use its state machine struct name as the return type
@@ -298,9 +483,16 @@ export function generateFunctionDeclaration(
         functionType,
         cFunctionName,
         context,
-        overrideReturnType
+        overrideReturnType,
+        originalFunctionType
       )
-    : generateFunctionPrototype(functionType, cFunctionName, context);
+    : generateFunctionPrototype(
+        functionType,
+        cFunctionName,
+        context,
+        undefined,
+        originalFunctionType
+      );
 
   const yoTypeStr = typeToString(functionType);
   context.emitter.emitDeclarationLine(
@@ -452,6 +644,23 @@ export function generateSpecializedFunctionDeclarations(
       specializedFunctionType.return.type
     );
     if (hasGenericParams || hasGenericReturnType) {
+      continue;
+    }
+
+    // Skip if the original function type has evidence parameters — the regular
+    // forward declaration loop already emits a correct declaration with evidence
+    // params included (via originalFunctionType fallback).
+    // Only skip for forall evidence params (which need void* evidence passing).
+    // Non-forall using params that were resolved during specialization should still
+    // have their specialized declarations emitted.
+    const origEvidenceParams = getEvidenceParameters(functionValue.type);
+    if (
+      origEvidenceParams.some(
+        (ep) =>
+          ep.fieldFunctionType.forallParameters &&
+          ep.fieldFunctionType.forallParameters.length > 0
+      )
+    ) {
       continue;
     }
 
