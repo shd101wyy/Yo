@@ -488,7 +488,9 @@ export function generateOtherFunctionCall(
         const functionContext = context as FunctionGenerationContext;
         if (functionContext.currentEvidenceParams?.size) {
           let atomName = expr.func.token?.value;
+          let dotLeftLabel: string | undefined;
           // For dot expressions like fx.errors.raise(msg), extract the field name
+          // and the left-side label to verify the call actually targets an evidence module.
           if (
             atomName === "." &&
             exprIsFunctionCall(expr.func) &&
@@ -498,6 +500,21 @@ export function generateOtherFunctionCall(
             if (fieldExpr && exprIsAtom(fieldExpr)) {
               atomName = fieldExpr.token.value;
             }
+            // Extract the left-side atom name (e.g., "fx" from fx.raise, "process" from process.spawn)
+            const leftExpr = expr.func.args[0];
+            if (leftExpr && exprIsAtom(leftExpr)) {
+              dotLeftLabel = leftExpr.token.value;
+            } else if (
+              leftExpr &&
+              exprIsFunctionCall(leftExpr) &&
+              exprIsFunctionCallOf(leftExpr, ".", 2)
+            ) {
+              // Nested dot: fx.errors.raise → left is fx.errors, extract "fx"
+              const nestedLeft = leftExpr.args[0];
+              if (nestedLeft && exprIsAtom(nestedLeft)) {
+                dotLeftLabel = nestedLeft.token.value;
+              }
+            }
           }
           if (atomName && atomName !== ".") {
             for (const ep of functionContext.currentEvidenceParams.values()) {
@@ -506,6 +523,13 @@ export function generateOtherFunctionCall(
                 ep.implicitLabel === atomName ||
                 ep.fieldPath[ep.fieldPath.length - 1] === atomName
               ) {
+                // For dot expressions, verify the left side matches the evidence
+                // parameter's implicit label. This prevents false matches where
+                // a regular module member (e.g., process.spawn) collides with
+                // an effect module member name (e.g., io.spawn).
+                if (dotLeftLabel && dotLeftLabel !== ep.implicitLabel) {
+                  continue;
+                }
                 return generateEvidenceFnPtrCall(
                   ep.cParamName,
                   functionType,
