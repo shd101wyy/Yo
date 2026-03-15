@@ -69,6 +69,33 @@ Potential future additions (not currently planned):
 
 ---
 
+## API Naming Conventions
+
+Async functions take `using(io : IO)` only — `Exception` appears only in the `Impl(Future(..., Exception))` return type. Sync fallible functions take `using(exn : Exception)` directly.
+
+**Method naming rules:**
+
+- `read(buf, size)` — low-level read into buffer
+- `read_bytes()` — read all content as `ArrayList(u8)`
+- `read_string()` — read all content as `String`
+- `write_string(String)` — write String data
+- `write_str(str)` — write str data
+- `write_bytes(ArrayList(u8))` — write byte data
+- `close()` — close resource
+- `fd()` — get file descriptor
+- Boolean predicates use `is_*` prefix
+
+**Standalone function naming rules:**
+
+- `read_file(Path)` → `ArrayList(u8)` (read file as bytes)
+- `read_string(Path)` → `String` (read file as String)
+- `write_file(Path, String)` → writes String to file
+- `write_bytes(Path, ArrayList(u8))` → writes bytes to file
+- `_str` suffix = path parameter is `str` instead of `Path`
+- `_cstr` suffix = path parameter is `*(u8)` instead of `Path`
+
+---
+
 ## Phase 1: High-Level File System (`std/fs`) — ✅ Done
 
 **Status**: All 5 modules implemented with Exception effect. 44 tests passing (file: 13, dir: 12, temp: 7, metadata: 6, walker: 6). All tests verified with AddressSanitizer (no leaks, no use-after-free).
@@ -118,7 +145,7 @@ File.open_with_cstr :: (fn(path: *(u8), mode: OpenMode, perm: FilePermission, us
 
 // Instance methods
 File.read :: (fn(self: Self, buf: *(u8), size: u32, using(io : IO)) -> Impl(Future(i32, IO, Exception))) ...;
-File.write :: (fn(self: Self, data: String, using(io : IO)) -> Impl(Future(i32, IO, Exception))) ...;
+File.write_string :: (fn(self: Self, data: String, using(io : IO)) -> Impl(Future(i32, IO, Exception))) ...;
 File.write_bytes :: (fn(self: Self, data: ArrayList(u8), using(io : IO)) -> Impl(Future(i32, IO, Exception))) ...;
 File.read_bytes :: (fn(self: Self, using(io : IO)) -> Impl(Future(ArrayList(u8), IO, Exception))) ...;
 File.read_string :: (fn(self: Self, using(io : IO)) -> Impl(Future(String, IO, Exception))) ...;
@@ -340,7 +367,7 @@ TcpStream :: object(
 TcpStream.connect :: (fn(addr: SocketAddr, using(io : IO)) -> Impl(Future(TcpStream, IO, Exception))) ...;
 TcpStream.read :: (fn(self: Self, buf: *(u8), size: usize, using(io : IO)) -> Impl(Future(i32, IO, Exception))) ...;
 TcpStream.write_str :: (fn(self: Self, data: str, using(io : IO)) -> Impl(Future(i32, IO, Exception))) ...;
-TcpStream.write :: (fn(self: Self, data: String, using(io : IO)) -> Impl(Future(i32, IO, Exception))) ...;
+TcpStream.write_string :: (fn(self: Self, data: String, using(io : IO)) -> Impl(Future(i32, IO, Exception))) ...;
 TcpStream.write_bytes :: (fn(self: Self, data: ArrayList(u8), using(io : IO)) -> Impl(Future(i32, IO, Exception))) ...;
 TcpStream.read_bytes :: (fn(self: Self, using(io : IO)) -> Impl(Future(ArrayList(u8), IO, Exception))) ...;
 TcpStream.shutdown :: (fn(self: Self, how: i32, using(io : IO)) -> Impl(Future(unit, IO, Exception))) ...;

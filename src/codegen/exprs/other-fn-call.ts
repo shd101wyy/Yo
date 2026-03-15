@@ -76,7 +76,10 @@ import {
   generateThreadSpawnCall,
   generateWorkerSpawnCall,
 } from "./parallelism";
-import { generatePendingDeferredDrops } from "./return";
+import {
+  generatePendingDeferredDrops,
+  generateConsumedVarDropsForEscape,
+} from "./return";
 
 /**
  * Resolves a variable name to its state machine field reference if inside an
@@ -1932,6 +1935,9 @@ function emitEffectEscapeCheck(
     true,
     false
   );
+  // Also drop consumed variables (their drops were optimized away because
+  // they'd be consumed by the return value, but escape discards the return)
+  generateConsumedVarDropsForEscape(indent + "  ", context, expr);
   if (context.inAsyncStateMachine) {
     if (isHandlerInstallation) {
       emitter.emitLine(`${indent}  __yo_effect_escaped = 0;`);
@@ -2041,15 +2047,6 @@ function generateEvidenceFnPtrCall(
     callExpr = funcCode;
   }
 
-  // Collect current function parameter names to skip dropping params on escape.
-  // When escape propagates, the CALLER drops its copies via generateEvidenceCallSite.
-  // Dropping params HERE too causes double-free (both copies share same RC'd data).
-  const currentParamNames = new Set(
-    (context.currentFunctionType?.parameters ?? [])
-      .filter((p) => !p.isCompileTimeOnly)
-      .map((p) => sanitizeForCIdentifier(p.label))
-  );
-
   if (isUnitType(returnType)) {
     emitter.emitLine(`${indent}${callExpr}(${argsList});`);
 
@@ -2060,36 +2057,16 @@ function generateEvidenceFnPtrCall(
 
     // Check escape flag — propagate early return if handler escaped
     emitter.emitLine(`${indent}if (__yo_effect_escaped) {`);
-    // Drop RC-typed arguments that won't be dropped by the escaped handler
-    if (runtimeArgExprs) {
-      for (const arg of runtimeArgExprs) {
-        if (
-          arg.$?.variableName &&
-          arg.$?.type &&
-          typeContainsRcType(arg.$.type)
-        ) {
-          const argVarName = resolveVarNameInContext(
-            sanitizeForCIdentifier(arg.$.variableName),
-            context
-          );
-          // Skip dropping args that are function parameters — the caller handles those
-          if (currentParamNames.has(argVarName)) continue;
-          const dropCode = generateDropCodeForValue(
-            argVarName,
-            arg.$.type,
-            context
-          );
-          if (dropCode) {
-            emitter.emitLine(`${indent}  ${dropCode};`);
-            if (context.inAsyncStateMachine) {
-              emitter.emitLine(
-                `${indent}  memset(&${argVarName}, 0, sizeof(${argVarName}));`
-              );
-            }
-          }
-        }
-      }
-    }
+    // Drop in-scope RC-typed locals before early return to prevent leaks
+    generatePendingDeferredDrops(
+      indent + "  ",
+      context,
+      expr,
+      false,
+      true,
+      false
+    );
+    generateConsumedVarDropsForEscape(indent + "  ", context, expr);
     if (context.inAsyncStateMachine) {
       emitAsyncFutureEscape({
         emitter,
@@ -2136,36 +2113,16 @@ function generateEvidenceFnPtrCall(
 
         // Check escape flag — propagate early return if handler escaped
         emitter.emitLine(`${indent}if (__yo_effect_escaped) {`);
-        // Drop RC-typed arguments
-        if (runtimeArgExprs) {
-          for (const arg of runtimeArgExprs) {
-            if (
-              arg.$?.variableName &&
-              arg.$?.type &&
-              typeContainsRcType(arg.$.type)
-            ) {
-              const argVarName = resolveVarNameInContext(
-                sanitizeForCIdentifier(arg.$.variableName),
-                context
-              );
-              // Skip dropping args that are function parameters — the caller handles those
-              if (currentParamNames.has(argVarName)) continue;
-              const dropCode = generateDropCodeForValue(
-                argVarName,
-                arg.$.type,
-                context
-              );
-              if (dropCode) {
-                emitter.emitLine(`${indent}  ${dropCode};`);
-                if (context.inAsyncStateMachine) {
-                  emitter.emitLine(
-                    `${indent}  memset(&${argVarName}, 0, sizeof(${argVarName}));`
-                  );
-                }
-              }
-            }
-          }
-        }
+        // Drop in-scope RC-typed locals before early return to prevent leaks
+        generatePendingDeferredDrops(
+          indent + "  ",
+          context,
+          expr,
+          false,
+          true,
+          false
+        );
+        generateConsumedVarDropsForEscape(indent + "  ", context, expr);
         if (context.inAsyncStateMachine) {
           emitAsyncFutureEscape({
             emitter,
@@ -2201,36 +2158,16 @@ function generateEvidenceFnPtrCall(
 
       // Check escape flag — propagate early return if handler escaped
       emitter.emitLine(`${indent}if (__yo_effect_escaped) {`);
-      // Drop RC-typed arguments
-      if (runtimeArgExprs) {
-        for (const arg of runtimeArgExprs) {
-          if (
-            arg.$?.variableName &&
-            arg.$?.type &&
-            typeContainsRcType(arg.$.type)
-          ) {
-            const argVarName = resolveVarNameInContext(
-              sanitizeForCIdentifier(arg.$.variableName),
-              context
-            );
-            // Skip dropping args that are function parameters — the caller handles those
-            if (currentParamNames.has(argVarName)) continue;
-            const dropCode = generateDropCodeForValue(
-              argVarName,
-              arg.$.type,
-              context
-            );
-            if (dropCode) {
-              emitter.emitLine(`${indent}  ${dropCode};`);
-              if (context.inAsyncStateMachine) {
-                emitter.emitLine(
-                  `${indent}  memset(&${argVarName}, 0, sizeof(${argVarName}));`
-                );
-              }
-            }
-          }
-        }
-      }
+      // Drop in-scope RC-typed locals before early return to prevent leaks
+      generatePendingDeferredDrops(
+        indent + "  ",
+        context,
+        expr,
+        false,
+        true,
+        false
+      );
+      generateConsumedVarDropsForEscape(indent + "  ", context, expr);
       if (context.inAsyncStateMachine) {
         emitAsyncFutureEscape({
           emitter,
@@ -2531,6 +2468,7 @@ function generateEvidenceCallSite(
       true,
       false
     );
+    generateConsumedVarDropsForEscape(indent + "  ", context, expr);
     if (context.inAsyncStateMachine) {
       emitAsyncFutureEscape({
         emitter,
@@ -2593,6 +2531,7 @@ function generateEvidenceCallSite(
         true,
         false
       );
+      generateConsumedVarDropsForEscape(indent + "  ", context, expr);
       if (context.inAsyncStateMachine) {
         emitAsyncFutureEscape({
           emitter,

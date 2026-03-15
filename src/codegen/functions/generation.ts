@@ -772,6 +772,11 @@ export function generateFunctionBody(
     // Set pending deferred drops from the function body begin block
     // These need to be generated when early returning from anywhere inside this function
     context.pendingDeferredDrops = [...(expr.$?.deferredDropExpressions ?? [])];
+    // Consumed variable drops: RC variables whose drops were optimized away because
+    // they're consumed by the return value. Needed for escape propagation only.
+    context.consumedVarPendingDrops = [
+      ...(expr.$?.consumedVariableDropExpressions ?? []),
+    ];
 
     // Generate all expressions except the last as statements
     let findReturn = false;

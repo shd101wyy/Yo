@@ -1,16 +1,13 @@
 open import "std/libc/stdio";
-{ TcpListener, TcpStream } :: import "std/net/tcp";
-{ SocketAddr, IpAddr } :: import "std/net/addr";
+{ hex_decode } :: import "std/encoding/hex";
 { Error, AnyError, Exception } :: import "std/error";
 
-main :: (fn(using(io : IO)) -> unit)({
+main :: (fn() -> unit)({
   given(exn) := Exception(throw : ((err) -> {
-    printf("err caught\n");
+    printf("error caught\n");
     escape ();
   }));
-  listener := io.await(TcpListener.bind(SocketAddr.loopback(u16(0))));
-  printf("listener fd = %d\n", listener.fd());
-  io.await(listener.close());
-  printf("closed ok\n");
+  r := hex_decode("ZZ");
+  printf("shouldn't reach here\n");
 });
 export main;

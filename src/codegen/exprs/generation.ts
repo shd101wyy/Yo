@@ -104,7 +104,11 @@ import {
   generateYoSomeTypeDup,
 } from "./rc-fns";
 import { generateRecur } from "./recur";
-import { generatePendingDeferredDrops, generateReturn } from "./return";
+import {
+  generatePendingDeferredDrops,
+  generateConsumedVarDropsForEscape,
+  generateReturn,
+} from "./return";
 import { generateSizeOf } from "./sizeof";
 import { generateAnonymousTuple } from "./tuple-fn";
 import { generateTypeId } from "./typeid";
@@ -413,6 +417,7 @@ function generateEscape(
       true,
       true
     );
+    generateConsumedVarDropsForEscape(indent, functionContext, expr, true);
 
     emitAsyncFutureEscape({
       emitter,
@@ -449,6 +454,7 @@ function generateEscape(
       true,
       true
     );
+    generateConsumedVarDropsForEscape(indent, functionContext, expr, true);
     // For functions with non-void return type, return a dummy value
     // (the caller checks __yo_effect_escaped and ignores the return value)
     if (functionContext.currentFunctionType) {
@@ -479,6 +485,7 @@ function generateEscape(
     true,
     true
   );
+  generateConsumedVarDropsForEscape(indent, functionContext, expr, true);
   // For module effect members or evidence-passing functions:
   // store escape value in thread-local buffer for retrieval at handler
   // installation site, then return a dummy value.

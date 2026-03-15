@@ -201,6 +201,48 @@ export function generatePendingDeferredDrops(
 }
 
 /**
+ * Generate drops for consumed variables on escape propagation paths.
+ * These are RC-typed variables whose drops were optimized away because
+ * they're consumed by the return value. On escape, the return value is
+ * discarded, so these variables must be freed.
+ */
+export function generateConsumedVarDropsForEscape(
+  indent: string,
+  context: FunctionGenerationContext,
+  expr: Expr,
+  skipEnvCheck: boolean = false
+): void {
+  if (
+    !context.consumedVarPendingDrops ||
+    context.consumedVarPendingDrops.length === 0
+  ) {
+    return;
+  }
+
+  const dropsToEmit =
+    expr.$?.env && !skipEnvCheck
+      ? context.consumedVarPendingDrops.filter((dropExpr) => {
+          const varName = getDeferredDropTargetAtomName(dropExpr);
+          if (!varName) return false;
+          const variables = getVariablesFromEnv(expr.$!.env, varName);
+          return variables.length > 0;
+        })
+      : [...context.consumedVarPendingDrops];
+
+  if (dropsToEmit.length > 0) {
+    context.emitter.emitLine(
+      `${indent}// Drop consumed variables (escape propagation)`
+    );
+    for (const dropExpr of dropsToEmit) {
+      const dropCode = generateExpr(dropExpr, indent, context);
+      if (dropCode) {
+        context.emitter.emitLine(`${indent}${dropCode};`);
+      }
+    }
+  }
+}
+
+/**
  * Generate a return statement for `return` expressions
  * Function with explicit return:
  *   bar :: (fn() -> i32) { return(42); }

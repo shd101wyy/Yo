@@ -66,6 +66,10 @@ export interface FunctionGenerationContext extends CodeGenContext {
   // This is used to ensure local variables are dropped when an async function completes
   // from within a nested expression (e.g., a cond branch that returns early)
   pendingDeferredDrops?: Expr[];
+  // Drops for RC-typed variables consumed by return values (ownership transfer).
+  // These are NOT emitted at normal scope exit or return, but ARE emitted when
+  // escape propagates through the function (the return value is discarded).
+  consumedVarPendingDrops?: Expr[];
   // Deferred async block generation - async blocks are generated after all regular functions
   deferredAsyncBlocks?: Array<{
     bodyExpr: Expr;

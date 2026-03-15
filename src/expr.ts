@@ -285,6 +285,14 @@ export interface EvaluatedExprData {
   deferredDropExpressions?: Expr[];
 
   /**
+   * Drop expressions for RC-typed variables that are consumed by the return value
+   * (ownership transfer). These drops are NOT needed at normal scope exit (the
+   * value is moved), but ARE needed when escape propagates through the function
+   * (the return value is discarded, so the variable must be freed).
+   */
+  consumedVariableDropExpressions?: Expr[];
+
+  /**
    * For async expressions, this contains the optional stack size configuration (runtime-known).
    * If undefined, the default stack size (16KB) is used.
    *

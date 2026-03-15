@@ -92,6 +92,14 @@ function generateLoopBody(
     functionContext.pendingDeferredDrops = [
       ...(previousPendingDeferredDrops ?? []),
     ];
+    // Propagate consumed variable drops into loop body for escape handling
+    const previousConsumedVarDrops = functionContext.consumedVarPendingDrops;
+    const currentConsumedDrops =
+      bodyExpr.$?.consumedVariableDropExpressions ?? [];
+    functionContext.consumedVarPendingDrops = [
+      ...currentConsumedDrops,
+      ...(previousConsumedVarDrops ?? []),
+    ];
     const activatedDropNames = new Set<string>();
 
     // Generate each statement in the begin block directly
@@ -132,6 +140,7 @@ function generateLoopBody(
 
     // Restore previous pending deferred drops
     functionContext.pendingDeferredDrops = previousPendingDeferredDrops;
+    functionContext.consumedVarPendingDrops = previousConsumedVarDrops;
   } else {
     // For non-begin expressions, generate normally
     const bodyCode = generateExpr(bodyExpr, indent, context);

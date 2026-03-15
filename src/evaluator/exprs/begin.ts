@@ -1048,12 +1048,25 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
 
   // When returning a variable from the current frame, mark it as consumed (ownership transfer)
   // When returning from an outer frame, call dup (borrowing)
+  let directlyConsumedReturnVar: Variable | undefined = undefined;
   if (
     returnVariable?.isOwningTheRcValue &&
     returnVariable.frameLevel === env.frames.length - 1 &&
     !returnVariable.consumedAtToken
   ) {
     // Variable from current frame - transfer ownership by marking as consumed
+    // Only track for escape drops if the type actually contains RC types and
+    // is not an unresolved SomeType (matching getVariablesNeedingDrop filters).
+    if (
+      typeContainsRcType(returnVariable.type) &&
+      !(
+        isSomeType(returnVariable.type) &&
+        !returnVariable.type.resolvedConcreteType &&
+        returnVariable.type.requiredTraits.length === 0
+      )
+    ) {
+      directlyConsumedReturnVar = returnVariable;
+    }
     env = updateExistingVariable(env, returnVariable, {
       ...returnVariable,
       consumedAtToken: lastExpr.token,
@@ -1262,6 +1275,7 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
 
   // Generate deferred drop expressions instead of inserting them directly
   let deferredDropExpressions: Expr[] | undefined = undefined;
+  let consumedVariableDropExpressions: Expr[] | undefined = undefined;
 
   if (
     (OPTIMIZE_DUP_AND_DROP_PAIRS
@@ -1281,6 +1295,42 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
     });
     deferredDropExpressions = dropResult.deferredDropExpressions;
     env = dropResult.env;
+  }
+
+  // Generate drops for the directly-consumed return variable.
+  // When a variable is directly returned (e.g., `return out`), it's consumed
+  // (ownership transferred to caller) and excluded from variablesNeedingDrop.
+  // On normal return, the caller takes ownership — no drop needed.
+  // On escape propagation, the return value is discarded — the variable leaks
+  // unless we explicitly drop it.
+  //
+  // NOTE: We do NOT include variables consumed by the dup/drop optimization
+  // (e.g., variables captured by closures or moved into struct fields).
+  // Those consumers are themselves dropped via normal deferred drops on escape,
+  // which handles decrementing the refcount. Adding consumed var drops for those
+  // would cause use-after-free (the consumer still holds a reference).
+  if (OPTIMIZE_DUP_AND_DROP_PAIRS && directlyConsumedReturnVar) {
+    // Temporarily unconsume the variable so the evaluator doesn't reject
+    // the drop as "use of moved value".
+    const tempEnv = updateExistingVariable(env, directlyConsumedReturnVar, {
+      ...directlyConsumedReturnVar,
+      consumedAtToken: undefined,
+    });
+    try {
+      const consumedDropResult = generateDeferredDropExpressions({
+        variablesToDrop: [directlyConsumedReturnVar],
+        env: tempEnv,
+        context: {
+          ...context,
+          expectedType: undefined,
+        },
+      });
+      consumedVariableDropExpressions =
+        consumedDropResult.deferredDropExpressions;
+    } catch {
+      // ___drop not resolvable for this type — skip
+    }
+    // Don't use the env from consumed drops — keep the original where it's consumed.
   }
 
   // Attach deferredDropExpressions to returnExpr if exists
@@ -1307,6 +1357,7 @@ Consider using Dyn(...) for dynamic dispatch if different concrete types are nee
     pathCollection: [],
     controlFlow: lastExpr.$.controlFlow,
     deferredDropExpressions,
+    consumedVariableDropExpressions,
     poppedEnvFrame: currentFrame,
   };
 

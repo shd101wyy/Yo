@@ -112,7 +112,7 @@ impl(File,
 
   // Write a String to the file.
   // Returns number of bytes written.
-  write : (fn(self: Self, data: String, using(io : IO)) -> Impl(Future(i32, IO, Exception)))({
+  write_string : (fn(self: Self, data: String, using(io : IO)) -> Impl(Future(i32, IO, Exception)))({
     fd := self._fd;
     io.async((using(io, exn)) => {
       data_bytes := data.as_bytes();
@@ -308,7 +308,7 @@ read_file_cstr :: (fn(path: *(u8), using(io : IO)) -> Impl(Future(ArrayList(u8),
 write_file :: (fn(path: Path, data: String, using(io : IO)) -> Impl(Future(unit, IO, Exception)))(
   io.async((using(io, exn)) => {
     file := io.await(File.open(path, .Write));
-    io.await(file.write(data));
+    io.await(file.write_string(data));
     io.await(file.close());
   })
 );
@@ -336,7 +336,7 @@ write_bytes :: (fn(path: Path, data: ArrayList(u8), using(io : IO)) -> Impl(Futu
 append_file :: (fn(path: Path, data: String, using(io : IO)) -> Impl(Future(unit, IO, Exception)))(
   io.async((using(io, exn)) => {
     file := io.await(File.open(path, .Append));
-    io.await(file.write(data));
+    io.await(file.write_string(data));
     io.await(file.close());
   })
 );
