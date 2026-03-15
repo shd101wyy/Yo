@@ -2123,6 +2123,73 @@ function generateEvidenceFnPtrCall(
           ? expr.$.type
           : returnType;
       const cTypeString = getTypeString(concreteReturnType, context);
+
+      // When the concrete return type resolves to void (e.g., forall ResumeType resolved
+      // to unit), we must not assign to a temp — treat like the unit case above.
+      if (cTypeString === "void" || isUnitType(concreteReturnType)) {
+        emitter.emitLine(`${indent}${callExpr}(${argsList});`);
+
+        // Handle deferred drop expressions
+        if (expr.$?.deferredDropExpressions) {
+          generateDeferredDropExpressions(expr, indent, context);
+        }
+
+        // Check escape flag — propagate early return if handler escaped
+        emitter.emitLine(`${indent}if (__yo_effect_escaped) {`);
+        // Drop RC-typed arguments
+        if (runtimeArgExprs) {
+          for (const arg of runtimeArgExprs) {
+            if (
+              arg.$?.variableName &&
+              arg.$?.type &&
+              typeContainsRcType(arg.$.type)
+            ) {
+              const argVarName = resolveVarNameInContext(
+                sanitizeForCIdentifier(arg.$.variableName),
+                context
+              );
+              // Skip dropping args that are function parameters — the caller handles those
+              if (currentParamNames.has(argVarName)) continue;
+              const dropCode = generateDropCodeForValue(
+                argVarName,
+                arg.$.type,
+                context
+              );
+              if (dropCode) {
+                emitter.emitLine(`${indent}  ${dropCode};`);
+                if (context.inAsyncStateMachine) {
+                  emitter.emitLine(
+                    `${indent}  memset(&${argVarName}, 0, sizeof(${argVarName}));`
+                  );
+                }
+              }
+            }
+          }
+        }
+        if (context.inAsyncStateMachine) {
+          emitAsyncFutureEscape({
+            emitter,
+            indent: indent + "  ",
+            resultCode: undefined,
+            debugLabel: undefined,
+          });
+        } else {
+          const callerReturnType = context.currentFunctionType?.return.type;
+          if (callerReturnType && !isUnitType(callerReturnType)) {
+            const callerCType = getTypeString(callerReturnType, context);
+            if (callerCType !== "void") {
+              emitter.emitLine(`${indent}  return (${callerCType}){0};`);
+            } else {
+              emitter.emitLine(`${indent}  return;`);
+            }
+          } else {
+            emitter.emitLine(`${indent}  return;`);
+          }
+        }
+        emitter.emitLine(`${indent}}`);
+        return "";
+      }
+
       emitter.emitLine(
         `${indent}${cTypeString} ${tempVar} = ${callExpr}(${argsList});`
       );

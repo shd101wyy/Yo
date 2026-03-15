@@ -1,23 +1,24 @@
 // std/net/dns.yo - High-level DNS resolution
 //
 // Wraps std/sys/dns with typed DNS lookup functions.
+// Uses the Exception effect for error handling.
 //
 // Example:
 //   { lookup_host } :: import "std/net/dns";
 //   { IpAddr } :: import "std/net/addr";
+//   { Exception } :: import "std/error";
 //
 //   main :: (fn(using(io : IO)) -> unit)({
+//     given(exn) := Exception(throw : ((err) -> {
+//       println(err.message());
+//       escape ();
+//     }));
 //     addrs := io.await(lookup_host(`localhost`));
-//     match(addrs,
-//       .Ok(list) => {
-//         i := usize(0);
-//         while runtime((i < list.len())), {
-//           println(list.get(i).unwrap().to_string());
-//           i = (i + usize(1));
-//         };
-//       },
-//       .Err(e) => println(e.to_string())
-//     );
+//     i := usize(0);
+//     while runtime((i < addrs.len())), {
+//       println(addrs.get(i).unwrap().to_string());
+//       i = (i + usize(1));
+//     };
 //   });
 
 { GlobalAllocator } :: import "../allocator";
@@ -27,6 +28,7 @@ open import "../string";
 open import "../fmt";
 { NetError } :: import "./errors";
 { IpAddr, SocketAddr } :: import "./addr";
+{ Error, AnyError, Exception } :: import "../error";
 IO_dns :: import "../sys/dns";
 { AF_INET, AF_INET6 } :: import "../sys/socket";
 
@@ -35,8 +37,8 @@ IO_dns :: import "../sys/dns";
 // ============================================================================
 
 // Resolve a hostname to a list of IP addresses.
-lookup_host :: (fn(host: String, using(io : IO)) -> Impl(Future(Result(ArrayList(IpAddr), NetError), IO)))(
-  io.async((using(io : IO)) => {
+lookup_host :: (fn(host: String, using(io : IO)) -> Impl(Future(ArrayList(IpAddr), IO, Exception)))(
+  io.async((using(io : IO, exn : Exception)) => {
     host_cstr_bytes := host.to_cstr();
     host_cstr := host_cstr_bytes.ptr().unwrap();
     result_ptr := IO_dns.alloc_result();
@@ -44,8 +46,7 @@ lookup_host :: (fn(host: String, using(io : IO)) -> Impl(Future(Result(ArrayList
     cond(
       (ret != i32(0)) => {
         IO_dns.free_result(result_ptr);
-        (err_ret : Result(ArrayList(IpAddr), NetError)) = .Err(.DNSFailed(host));
-        return err_ret;
+        exn.throw(dyn NetError.DNSFailed(host));
       },
       true => ()
     );
@@ -79,29 +80,22 @@ lookup_host :: (fn(host: String, using(io : IO)) -> Impl(Future(Result(ArrayList
       .None => ()
     );
     IO_dns.free_result(result_ptr);
-    (ok_ret : Result(ArrayList(IpAddr), NetError)) = .Ok(addrs);
-    return ok_ret;
+    return addrs;
   })
 );
 
 // Resolve a hostname and port to a list of socket addresses.
-resolve :: (fn(host: String, port: u16, using(io : IO)) -> Impl(Future(Result(ArrayList(SocketAddr), NetError), IO)))(
-  io.async((using(io : IO)) => {
-    addrs_result := io.await(lookup_host(host, using(io)));
-    (ret : Result(ArrayList(SocketAddr), NetError)) = match(addrs_result,
-      .Ok(addrs) => {
-        result := ArrayList(SocketAddr).new();
-        i := usize(0);
-        while runtime((i < addrs.len())), {
-          ip := addrs.get(i).unwrap();
-          result.push(SocketAddr.new(ip, port));
-          i = (i + usize(1));
-        };
-        .Ok(result)
-      },
-      .Err(e) => .Err(e)
-    );
-    return ret;
+resolve :: (fn(host: String, port: u16, using(io : IO)) -> Impl(Future(ArrayList(SocketAddr), IO, Exception)))(
+  io.async((using(io : IO, exn : Exception)) => {
+    addrs := io.await(lookup_host(host, using(io)));
+    result := ArrayList(SocketAddr).new();
+    i := usize(0);
+    while runtime((i < addrs.len())), {
+      ip := addrs.get(i).unwrap();
+      result.push(SocketAddr.new(ip, port));
+      i = (i + usize(1));
+    };
+    return result;
   })
 );
 

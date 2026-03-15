@@ -17,6 +17,7 @@
 open import "../string";
 { ArrayList } :: import "../collections/array_list";
 { ToString } :: import "../fmt";
+{ Error, AnyError, Exception } :: import "../error";
 
 // ============================================================================
 // UrlError
@@ -41,6 +42,8 @@ impl(UrlError, ToString(
     )
   )
 ));
+
+impl(UrlError, Error());
 
 // ============================================================================
 // Url
@@ -68,10 +71,10 @@ _DOT       :: u8(46);   // '.'
 // Helper: parse port number from bytes
 // ============================================================================
 
-_parse_port :: (fn(s: str, start: usize, end: usize) -> Result(u16, UrlError))({
+_parse_port :: (fn(s: str, start: usize, end: usize, using(exn : Exception)) -> u16)({
   cond(
     (start >= end) => {
-      return .Err(.InvalidPort);
+      exn.throw(dyn UrlError.InvalidPort);
     },
     true => ()
   );
@@ -84,18 +87,18 @@ _parse_port :: (fn(s: str, start: usize, end: usize) -> Result(u16, UrlError))({
         val = ((val * u32(10)) + u32((ch - _ZERO)));
         cond(
           (val > u32(65535)) => {
-            return .Err(.InvalidPort);
+            exn.throw(dyn UrlError.InvalidPort);
           },
           true => ()
         );
       },
       true => {
-        return .Err(.InvalidPort);
+        exn.throw(dyn UrlError.InvalidPort);
       }
     );
     i = (i + usize(1));
   };
-  .Ok(u16(val))
+  u16(val)
 });
 
 Url :: object(
@@ -112,10 +115,10 @@ impl(Url,
   // Parse a URL string.
   // Supports: scheme://[userinfo@]host[:port]/path[?query][#fragment]
   // Also supports scheme:path (opaque URIs like mailto:user@example.com)
-  parse : (fn(s: str) -> Result(Url, UrlError))({
+  parse : (fn(s: str, using(exn : Exception)) -> Url)({
     cond(
       (s.len() == usize(0)) => {
-        return .Err(.EmptyInput);
+        exn.throw(dyn UrlError.EmptyInput);
       },
       true => ()
     );
@@ -128,7 +131,7 @@ impl(Url,
     scheme_end := usize(0);
     cond(
       (src_len == usize(0)) => {
-        return .Err(.MissingScheme);
+        exn.throw(dyn UrlError.MissingScheme);
       },
       true => ()
     );
@@ -138,7 +141,7 @@ impl(Url,
     cond(
       ((((first >= _LOWER_A) && (first <= _LOWER_Z)) || ((first >= _UPPER_A) && (first <= _UPPER_Z)))) => (),
       true => {
-        return .Err(.MissingScheme);
+        exn.throw(dyn UrlError.MissingScheme);
       }
     );
 
@@ -154,14 +157,14 @@ impl(Url,
         },
         (((((first >= _LOWER_A) && (first <= _LOWER_Z)) || ((first >= _UPPER_A) && (first <= _UPPER_Z))) || (((ch >= _LOWER_A) && (ch <= _LOWER_Z)) || ((ch >= _UPPER_A) && (ch <= _UPPER_Z)))) || ((((ch >= _ZERO) && (ch <= _NINE)) || (ch == _PLUS)) || ((ch == _MINUS) || (ch == _DOT)))) => (),
         true => {
-          return .Err(.MissingScheme);
+          exn.throw(dyn UrlError.MissingScheme);
         }
       );
       i = (i + usize(1));
     };
     cond(
       (!(found_colon)) => {
-        return .Err(.MissingScheme);
+        exn.throw(dyn UrlError.MissingScheme);
       },
       true => ()
     );
@@ -261,15 +264,7 @@ impl(Url,
             after_bracket := (bracket_end + usize(1));
             cond(
               ((after_bracket < auth_end) && (s.bytes(after_bracket) == _COLON)) => {
-                port_result := _parse_port(s, (after_bracket + usize(1)), auth_end);
-                cond(
-                  port_result.is_err() => {
-                    return .Err(.InvalidPort);
-                  },
-                  true => {
-                    port = .Some(port_result.unwrap());
-                  }
-                );
+                port = .Some(_parse_port(s, (after_bracket + usize(1)), auth_end));
               },
               true => ()
             );
@@ -300,15 +295,7 @@ impl(Url,
                 };
                 host = .Some(String.from_bytes(host_b));
 
-                port_result := _parse_port(s, (cp_val + usize(1)), auth_end);
-                cond(
-                  port_result.is_err() => {
-                    return .Err(.InvalidPort);
-                  },
-                  true => {
-                    port = .Some(port_result.unwrap());
-                  }
-                );
+                port = .Some(_parse_port(s, (cp_val + usize(1)), auth_end));
               },
               .None => {
                 // No port, entire range is host
@@ -414,12 +401,12 @@ impl(Url,
     // Ensure authority-based URLs have a path starting with "/" or empty
     cond(
       (has_authority && ((!(path_str.is_empty())) && (path_str.as_bytes().get(usize(0)).unwrap() != _SLASH))) => {
-        return .Err(.Other(`authority path must start with '/'`));
+        exn.throw(dyn UrlError.Other(`authority path must start with '/'`));
       },
       true => ()
     );
 
-    .Ok(Self(
+    Self(
       _scheme: scheme,
       _host: host,
       _port: port,
@@ -427,7 +414,7 @@ impl(Url,
       _query: query,
       _fragment: fragment,
       _userinfo: userinfo
-    ))
+    )
   }),
 
   // --- Accessors ---

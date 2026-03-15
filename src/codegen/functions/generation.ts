@@ -1066,6 +1066,12 @@ export function generateSpecializedFunctions(context: CodeGenContext): void {
       continue;
     }
 
+    // Module effect member functions (e.g., specialized ctl handlers like throw_ctl_unit)
+    // are already generated in generateAllFunctions. Skip to avoid redefinition.
+    if (functionValue.isModuleEffectMember) {
+      continue;
+    }
+
     // If this function has evidence parameters, the main loop already generated
     // its body with evidence passing (fn ptr params). Skip to avoid redefinition.
     const evidenceParams = getEvidenceParameters(

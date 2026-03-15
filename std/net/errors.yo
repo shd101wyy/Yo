@@ -8,6 +8,7 @@
 open import "../string";
 { IOError } :: import "../sys/errors";
 { ToString } :: import "../fmt";
+{ Error, AnyError, Exception } :: import "../error";
 
 // ============================================================================
 // NetError
@@ -41,14 +42,6 @@ impl(NetError,
       .NetworkUnreachable => .NetworkUnreachable,
       _                  => .IO(err)
     )
-  ),
-
-  // Convert a raw result (positive = ok, negative = -errno) to Result.
-  from_result : (fn(result: i32) -> Result(i32, Self))(
-    cond(
-      (result >= i32(0)) => .Ok(result),
-      true => .Err(Self.from_io(IOError.from_errno((i32(0) - result))))
-    )
   )
 );
 
@@ -70,5 +63,17 @@ impl(NetError, ToString(
     return s;
   })
 ));
+
+impl(NetError, Error());
+
+impl(NetError,
+  // Check a raw result (positive = ok, negative = -errno) and throw on error.
+  check : (fn(result: i32, using(exn : Exception)) -> i32)(
+    cond(
+      (result >= i32(0)) => result,
+      true => exn.throw(dyn Self.from_io(IOError.from_errno((i32(0) - result))))
+    )
+  )
+);
 
 export NetError;

@@ -1,5 +1,6 @@
 { on_signal, off_signal, Signal, SignalHandler } :: import "std/os/signal";
 { platform, Platform } :: import "std/process";
+{ Error, AnyError, Exception } :: import "std/error";
 open import "std/libc/stdio";
 
 _noop_handler :: (fn(data: *(u8)) -> unit)({ (); });
@@ -7,11 +8,14 @@ _noop_handler :: (fn(data: *(u8)) -> unit)({ (); });
 // ===== Signal Registration =====
 
 test "on_signal registers handler successfully", {
+  given(exn) := Exception(throw : ((err) -> {
+    assert(false, "unexpected exception");
+    escape ();
+  }));
   cond(
     (platform == Platform.Win32) => (),
     true => {
-      result := on_signal(.User1, _noop_handler);
-      assert(result.is_ok(), "on_signal should succeed");
+      on_signal(.User1, _noop_handler);
 
       // Clean up
       off_signal(.User1);
@@ -20,18 +24,20 @@ test "on_signal registers handler successfully", {
 };
 
 test "on_signal replaces previous handler", {
+  given(exn) := Exception(throw : ((err) -> {
+    assert(false, "unexpected exception");
+    escape ();
+  }));
   cond(
     (platform == Platform.Win32) => (),
     true => {
       _other_handler :: (fn(data: *(u8)) -> unit)({ (); });
 
       // Register first handler
-      r1 := on_signal(.User2, _noop_handler);
-      assert(r1.is_ok(), "first on_signal should succeed");
+      on_signal(.User2, _noop_handler);
 
       // Replace with second handler
-      r2 := on_signal(.User2, _other_handler);
-      assert(r2.is_ok(), "second on_signal should succeed");
+      on_signal(.User2, _other_handler);
 
       // Clean up
       off_signal(.User2);
@@ -40,14 +46,16 @@ test "on_signal replaces previous handler", {
 };
 
 test "off_signal removes handler", {
+  given(exn) := Exception(throw : ((err) -> {
+    assert(false, "unexpected exception");
+    escape ();
+  }));
   cond(
     (platform == Platform.Win32) => (),
     true => {
-      result := on_signal(.Alarm, _noop_handler);
-      assert(result.is_ok(), "on_signal should succeed");
+      on_signal(.Alarm, _noop_handler);
 
-      off_result := off_signal(.Alarm);
-      assert(off_result.is_ok(), "off_signal should succeed");
+      off_signal(.Alarm);
     }
   );
 };

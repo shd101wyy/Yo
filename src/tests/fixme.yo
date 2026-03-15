@@ -1,46 +1,16 @@
 open import "std/libc/stdio";
-open import "std/string";
-open import "std/fmt";
-{ yield } :: import "std/async";
+{ TcpListener, TcpStream } :: import "std/net/tcp";
+{ SocketAddr, IpAddr } :: import "std/net/addr";
+{ Error, AnyError, Exception } :: import "std/error";
 
-test_spawn_with_escape :: (fn(using(io : IO)) -> i32) {
-  Raise :: (fn(forall(T : Type), msg : String) -> T);
-  
-  value := Box(i32)(0);
-  // task1 : Impl(Future(unit, IO, Raise))
-  task1 := io.async((using(io : IO, raise : Raise)) => {
-    value.* = (value.* + 1);
-    io.await(yield());
-    raise(`Try to escape from task1!`);
-    value.* = (value.* + 1);
-  });
-  // task2 : Impl(Future(i32, IO, Raise))
-  task2 := io.async((using(io : IO, raise : Raise)) => {
-    value.* = (value.* + 1);
-    io.await(yield());
-    value.* = (value.* + 1);
-    return i32(42);
-  });
-
-  (given(raise) : Raise) =
-    (msg) -> {
-      println(msg);
-      escape 888;
-    };
-  handle1 := io.spawn(task1, using(io, raise));
-  handle2 := io.spawn(task2, using(io, raise));
-
-  result1 := handle1.await(using(io));
-  result2 := handle2.await(using(io));
-  assert(result1.is_none(), "expected task1 to escape with an error");
-  assert(result2.is_some(), "expected task2 to complete successfully");
-  assert((result2.unwrap() == i32(42)), "expected task2 to return 42");
-  return value.*;
-};
-
-main :: (fn(using(io : IO)) -> unit) {
-  result := test_spawn_with_escape(using(io));
-  println(`Final value: ${result}`);
-  assert((result == i32(3)), "expected final value to be 3");
-};
+main :: (fn(using(io : IO)) -> unit)({
+  given(exn) := Exception(throw : ((err) -> {
+    printf("err caught\n");
+    escape ();
+  }));
+  listener := io.await(TcpListener.bind(SocketAddr.loopback(u16(0))));
+  printf("listener fd = %d\n", listener.fd());
+  io.await(listener.close());
+  printf("closed ok\n");
+});
 export main;
