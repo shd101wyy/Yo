@@ -8,6 +8,7 @@ import {
   exprToString,
   type FnCallExpr,
 } from "../../expr";
+import { resolveDependencyPath } from "../../fetch";
 import { isComptimeStringValue } from "../../value";
 import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
@@ -88,12 +89,43 @@ export function evaluateImport({
   }
 
   if (!modulePathToImport.startsWith(".")) {
-    throw formatErrorMessage({
-      token: moduleArg.token,
-      errorMessage: `Only local relative path is supported for now:
-${exprToString(expr)}
-${modulePathToImport}`,
-    });
+    // Try to resolve as a dependency name (e.g., "json-parser" → .yo-cache/deps/...)
+    const currentFilePath = env.modulePath.replace(/^file:\/\//, "");
+    const projectDir = findProjectRoot(currentFilePath);
+    if (projectDir) {
+      const depPath = resolveDependencyPath(projectDir, modulePathToImport);
+      if (depPath) {
+        // Resolve to the dependency's src/lib.yo or the root
+        let entryPoint = depPath;
+        const libYo = path.join(depPath, "src", "lib.yo");
+        const indexYo = path.join(depPath, "index.yo");
+        const rootYo = depPath + ".yo";
+        if (existsSync(libYo)) {
+          entryPoint = libYo;
+        } else if (existsSync(indexYo)) {
+          entryPoint = indexYo;
+        } else if (existsSync(rootYo)) {
+          entryPoint = rootYo;
+        }
+        // Convert to relative path from current module
+        modulePathToImport = path.relative(
+          path.dirname(currentFilePath),
+          entryPoint
+        );
+        if (!modulePathToImport.startsWith(".")) {
+          modulePathToImport = "./" + modulePathToImport;
+        }
+      }
+    }
+
+    // If still not relative after dependency resolution, it's an unknown module
+    if (!modulePathToImport.startsWith(".")) {
+      throw formatErrorMessage({
+        token: moduleArg.token,
+        errorMessage: `Module "${modulePathToImport}" not found. If this is a dependency, add it to build.yo and run 'yo fetch'.
+${exprToString(expr)}`,
+      });
+    }
   }
 
   // TODO: Support other protocol like https://
@@ -170,4 +202,24 @@ ${
 }`,
     });
   }
+}
+
+/**
+ * Walk up the directory tree to find the project root.
+ * Looks for `yo.lock` or `build.yo` as project root markers.
+ */
+function findProjectRoot(filePath: string): string | undefined {
+  let dir = path.dirname(filePath);
+  const root = path.parse(dir).root;
+
+  while (dir !== root) {
+    if (
+      existsSync(path.join(dir, "yo.lock")) ||
+      existsSync(path.join(dir, "build.yo"))
+    ) {
+      return dir;
+    }
+    dir = path.dirname(dir);
+  }
+  return undefined;
 }
