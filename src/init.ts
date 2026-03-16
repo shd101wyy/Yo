@@ -95,73 +95,36 @@ export function initProject(options: InitOptions): void {
 // ── Template generators ───────────────────────────────────────────────
 
 function generateExeBuildYo(name: string): string {
-  return `{ build } :: import "std/build";
+  return `build :: import "std/build";
 
-project :: build.project(
-  name: "${name}",
-  version: "0.1.0"
-);
+build.project(name: "${name}", version: "0.1.0");
 
-app :: build.executable(
-  name: "${name}",
-  root: "./src/main.yo"
-);
+build.executable(name: "${name}", root: "./src/main.yo");
 
-tests :: build.test(
-  name: "tests",
-  root: "./tests/"
-);
+build.test(name: "tests", root: "./tests/");
 
-run :: build.run(app);
+build.run("${name}");
 
-install :: build.step("install", "Install build artifacts",
-  depends_on: ComptimeList(build.Step)(app)
-);
+build.step("install", "Install build artifacts", "${name}");
 
-run_step :: build.step("run", "Run the application",
-  depends_on: ComptimeList(build.Step)(run)
-);
+build.step("run", "Run the application", "run:${name}");
 
-test_step :: build.step("test", "Run unit tests",
-  depends_on: ComptimeList(build.Step)(tests)
-);
-
-export project;
-export install;
-export run_step;
-export test_step;
+build.step("test", "Run unit tests", "tests");
 `;
 }
 
 function generateLibBuildYo(name: string): string {
-  return `{ build } :: import "std/build";
+  return `build :: import "std/build";
 
-project :: build.project(
-  name: "${name}",
-  version: "0.1.0"
-);
+build.project(name: "${name}", version: "0.1.0");
 
-lib :: build.static_library(
-  name: "${name}",
-  root: "./src/lib.yo"
-);
+build.static_library(name: "${name}", root: "./src/lib.yo");
 
-tests :: build.test(
-  name: "tests",
-  root: "./tests/"
-);
+build.test(name: "tests", root: "./tests/");
 
-install :: build.step("install", "Install build artifacts",
-  depends_on: ComptimeList(build.Step)(lib)
-);
+build.step("install", "Install build artifacts", "${name}");
 
-test_step :: build.step("test", "Run unit tests",
-  depends_on: ComptimeList(build.Step)(tests)
-);
-
-export project;
-export install;
-export test_step;
+build.step("test", "Run unit tests", "tests");
 `;
 }
 

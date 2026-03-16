@@ -1,0 +1,110 @@
+// Build System Module
+//
+// Provides the declarative build API for Yo projects.
+// All functions are compile-time only — they register build artifacts
+// and steps that the build runner uses to orchestrate compilation.
+//
+// Usage in build.yo:
+//   build :: import "std/build";
+//   build.project(name: "my-app", version: "0.1.0");
+//   build.executable(name: "my-app", root: "./src/main.yo");
+
+// ── Optimization levels ──────────────────────────────────────────────
+
+Optimize :: {
+  Debug : "debug",
+  ReleaseSafe : "release-safe",
+  ReleaseFast : "release-fast",
+  ReleaseSmall : "release-small"
+};
+export Optimize;
+
+// ── Memory allocators ────────────────────────────────────────────────
+
+Allocator :: {
+  Mimalloc : "mimalloc",
+  Libc : "libc"
+};
+export Allocator;
+
+// ── Sanitizers ───────────────────────────────────────────────────────
+
+Sanitize :: {
+  None : "none",
+  Address : "address",
+  Leak : "leak"
+};
+export Sanitize;
+
+// ── Target utilities ─────────────────────────────────────────────────
+
+target_host :: __yo_build_target_host();
+export target_host;
+
+// ── Build functions ──────────────────────────────────────────────────
+// All return unit. Artifacts and steps are registered by name in
+// the global BuildRegistry during compile-time evaluation.
+
+// Register project metadata.
+project :: (fn(comptime(name) : comptime_string, comptime(version) : comptime_string) -> unit) {
+  __yo_build_project(name, version);
+};
+export project;
+
+// Register an executable artifact.
+executable :: (fn(
+  comptime(name) : comptime_string,
+  comptime(root) : comptime_string,
+  (comptime(target) : comptime_string) ?= __yo_build_target_host(),
+  (comptime(optimize) : comptime_string) ?= "debug",
+  (comptime(allocator) : comptime_string) ?= "mimalloc",
+  (comptime(sanitize) : comptime_string) ?= "none"
+) -> unit) {
+  __yo_build_executable(name, root, target, optimize, allocator, sanitize);
+};
+export executable;
+
+// Register a static library artifact.
+static_library :: (fn(
+  comptime(name) : comptime_string,
+  comptime(root) : comptime_string,
+  (comptime(target) : comptime_string) ?= __yo_build_target_host(),
+  (comptime(optimize) : comptime_string) ?= "debug"
+) -> unit) {
+  __yo_build_static_library(name, root, target, optimize);
+};
+export static_library;
+
+// Register a test suite.
+test :: (fn(
+  comptime(name) : comptime_string,
+  comptime(root) : comptime_string,
+  (comptime(target) : comptime_string) ?= __yo_build_target_host()
+) -> unit) {
+  __yo_build_test(name, root, target);
+};
+export test;
+
+// Create a run step (compile + execute an artifact by name).
+run :: (fn(comptime(artifact_name) : comptime_string) -> unit) {
+  __yo_build_run(artifact_name);
+};
+export run;
+
+// Register a named build step with dependencies (by name).
+// Dependencies are names of executables, tests, run steps, or other steps.
+step :: (fn(
+  comptime(name) : comptime_string,
+  comptime(description) : comptime_string,
+  (comptime(dep0) : comptime_string) ?= "",
+  (comptime(dep1) : comptime_string) ?= "",
+  (comptime(dep2) : comptime_string) ?= "",
+  (comptime(dep3) : comptime_string) ?= "",
+  (comptime(dep4) : comptime_string) ?= "",
+  (comptime(dep5) : comptime_string) ?= "",
+  (comptime(dep6) : comptime_string) ?= "",
+  (comptime(dep7) : comptime_string) ?= ""
+) -> unit) {
+  __yo_build_step(name, description, dep0, dep1, dep2, dep3, dep4, dep5, dep6, dep7);
+};
+export step;

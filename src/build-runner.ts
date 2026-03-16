@@ -1,20 +1,25 @@
 /**
  * `yo build` — build system runner.
  *
- * Evaluates `build.yo` at compile time to extract project configuration,
- * then orchestrates compilation for each artifact.
- *
- * This is the initial implementation — it reads `build.yo` as a standard
- * Yo module and extracts exported declarations. The full declarative build
- * API (build.project, build.executable, etc.) will be implemented as
- * evaluator builtins in a later phase. For now, `yo build` delegates to
- * `yo compile` using the information it can extract.
+ * Evaluates `build.yo` using the Yo evaluator at compile time.
+ * Build functions (build.project, build.executable, etc.) are backed by
+ * evaluator builtins that register artifacts in a global BuildRegistry.
+ * After evaluation, the build runner reads the registry and orchestrates
+ * compilation for each artifact.
  */
 
 import * as fs from "fs";
 import * as path from "path";
 import { CodeGenerator } from "./codegen";
 import { findAvailableCompiler } from "./compiler-utils";
+import {
+  type BuildArtifact,
+  type BuildRegistry,
+  type BuildTestSuite,
+  clearBuildRegistry,
+  getBuildRegistry,
+} from "./evaluator/builtins/build";
+import { ModuleManager } from "./module-manager";
 
 export interface BuildOptions {
   /** Path to build file (default: ./build.yo) */
@@ -38,18 +43,11 @@ export interface BuildOptions {
 /**
  * Run the build system.
  *
- * Currently this is a simplified implementation that:
- * 1. Verifies build.yo exists
- * 2. Reports available steps if --list-steps
- * 3. For the "run" step, compiles and runs the main source
- * 4. For the "test" step, delegates to the test runner
- *
- * The full implementation will evaluate build.yo at compile time
- * and extract structured build configuration.
+ * 1. Evaluate build.yo using the Yo evaluator (builtins populate BuildRegistry)
+ * 2. Read build config from registry
+ * 3. For each requested step, compile/run/test artifacts
  */
 export async function runBuild(options: BuildOptions): Promise<void> {
-  // Resolve build file relative to the user's original working directory,
-  // since the yo-cli wrapper may cd to the repo root.
   const userCwd = process.env.YO_ORIGINAL_CWD ?? process.cwd();
   const buildFile = path.resolve(userCwd, options.buildFile);
 
@@ -61,17 +59,16 @@ export async function runBuild(options: BuildOptions): Promise<void> {
     process.exit(1);
   }
 
-  // Read build.yo to extract basic configuration
-  const buildContent = fs.readFileSync(buildFile, "utf-8");
-  const config = parseBuildConfig(buildContent);
+  // Evaluate build.yo — builtins populate the global BuildRegistry
+  const registry = evaluateBuildFile(buildFile);
 
   if (options.listSteps) {
-    printSteps(config);
+    printSteps(registry);
     return;
   }
 
   // Determine which steps to run
-  const steps =
+  const requestedSteps =
     options.steps && options.steps.length > 0 ? options.steps : ["install"];
 
   // Find C compiler
@@ -89,14 +86,14 @@ export async function runBuild(options: BuildOptions): Promise<void> {
 
   const projectDir = path.dirname(buildFile);
 
-  for (const stepName of steps) {
+  for (const stepName of requestedSteps) {
     if (options.dryRun) {
       console.log(`[dry-run] Would execute step: ${stepName}`);
       continue;
     }
 
     await executeStep(stepName, {
-      config,
+      registry,
       projectDir,
       cCompiler,
       targetTriple: options.targetTriple,
@@ -105,88 +102,39 @@ export async function runBuild(options: BuildOptions): Promise<void> {
   }
 }
 
-// ── Build configuration extraction ────────────────────────────────────
+// ── Build file evaluation ─────────────────────────────────────────────
 
-interface BuildConfig {
-  projectName: string;
-  version: string;
-  mainRoot?: string;
-  executableName?: string;
-  testRoot?: string;
-  steps: StepInfo[];
+function evaluateBuildFile(buildFile: string): BuildRegistry {
+  // Clear any previous build registry
+  clearBuildRegistry();
+
+  const modulePath = `file://${fs.realpathSync(buildFile)}`;
+
+  try {
+    const moduleManager = new ModuleManager();
+    moduleManager.loadModule(modulePath);
+    // Reset global evaluator state so the compilation step starts clean
+    moduleManager.resetAllState();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`Error evaluating ${buildFile}:\n${message}`);
+    process.exit(1);
+  }
+
+  return getBuildRegistry();
 }
 
-interface StepInfo {
-  name: string;
-  description: string;
-}
+// ── Step listing ──────────────────────────────────────────────────────
 
-/**
- * Parse build.yo to extract basic configuration.
- *
- * This is a lightweight regex-based parser that extracts key values
- * from the build.yo file. The full implementation will use the Yo
- * evaluator to process build.yo at compile time.
- */
-function parseBuildConfig(content: string): BuildConfig {
-  const config: BuildConfig = {
-    projectName: "app",
-    version: "0.1.0",
-    steps: [{ name: "install", description: "Install build artifacts" }],
-  };
-
-  // Extract project name
-  const nameMatch = content.match(/build\.project\(\s*name:\s*"([^"]+)"/);
-  if (nameMatch) {
-    config.projectName = nameMatch[1]!;
+function printSteps(registry: BuildRegistry): void {
+  const steps = registry.steps;
+  if (steps.length === 0) {
+    console.log("No build steps defined.");
+    return;
   }
 
-  // Extract version
-  const versionMatch = content.match(
-    /build\.project\([^)]*version:\s*"([^"]+)"/
-  );
-  if (versionMatch) {
-    config.version = versionMatch[1]!;
-  }
-
-  // Extract executable root
-  const exeRootMatch = content.match(
-    /build\.executable\([^)]*root:\s*"([^"]+)"/
-  );
-  if (exeRootMatch) {
-    config.mainRoot = exeRootMatch[1]!;
-  }
-
-  // Extract executable name
-  const exeNameMatch = content.match(/build\.executable\(\s*name:\s*"([^"]+)"/);
-  if (exeNameMatch) {
-    config.executableName = exeNameMatch[1]!;
-  }
-
-  // Extract test root
-  const testRootMatch = content.match(/build\.test\([^)]*root:\s*"([^"]+)"/);
-  if (testRootMatch) {
-    config.testRoot = testRootMatch[1]!;
-  }
-
-  // Extract steps from build.step() calls
-  const stepRegex = /build\.step\(\s*"([^"]+)"\s*,\s*"([^"]+)"/g;
-  let stepMatch;
-  while ((stepMatch = stepRegex.exec(content)) !== null) {
-    const name = stepMatch[1]!;
-    const description = stepMatch[2]!;
-    // Don't duplicate the install step
-    if (!config.steps.some((s) => s.name === name)) {
-      config.steps.push({ name, description });
-    }
-  }
-
-  return config;
-}
-
-function printSteps(config: BuildConfig): void {
   console.log("Available steps:");
-  for (const step of config.steps) {
+  for (const step of steps) {
     const isDefault = step.name === "install" ? " (default)" : "";
     console.log(`  ${step.name}${isDefault}\t${step.description}`);
   }
@@ -194,148 +142,183 @@ function printSteps(config: BuildConfig): void {
 
 // ── Step execution ────────────────────────────────────────────────────
 
-async function executeStep(
-  stepName: string,
-  ctx: {
-    config: BuildConfig;
-    projectDir: string;
-    cCompiler: string;
-    targetTriple?: string;
-    verbose?: boolean;
-  }
-): Promise<void> {
-  const { config, projectDir, cCompiler } = ctx;
-
-  switch (stepName) {
-    case "install": {
-      if (!config.mainRoot) {
-        console.error(
-          "Error: No executable defined in build.yo. Nothing to install."
-        );
-        process.exit(1);
-      }
-      await compileBuildArtifact(ctx);
-      break;
-    }
-    case "run": {
-      if (!config.mainRoot) {
-        console.error(
-          "Error: No executable defined in build.yo. Nothing to run."
-        );
-        process.exit(1);
-      }
-      await compileBuildArtifact(ctx);
-
-      // Run the compiled executable
-      const outputDir = path.join(projectDir, "yo-out", "bin");
-      const exeName = config.executableName ?? config.projectName;
-      const exePath = path.join(outputDir, exeName);
-
-      if (!fs.existsSync(exePath)) {
-        console.error(`Error: Compiled executable not found at ${exePath}`);
-        process.exit(1);
-      }
-
-      const { spawnSync } = await import("child_process");
-      console.log(`\nRunning ${exePath}...\n`);
-      const result = spawnSync(exePath, [], {
-        stdio: "inherit",
-        cwd: projectDir,
-      });
-      if (result.status !== 0) {
-        process.exit(result.status ?? 1);
-      }
-      break;
-    }
-    case "test": {
-      if (!config.testRoot) {
-        console.error("Error: No test suite defined in build.yo.");
-        process.exit(1);
-      }
-
-      const { findTestFiles, runTests } = await import("./test-runner");
-      const testPath = path.resolve(projectDir, config.testRoot);
-      const testFiles = findTestFiles(testPath);
-
-      if (testFiles.length === 0) {
-        console.log("No test files found.");
-        return;
-      }
-
-      const summary = await runTests(testFiles, {
-        cCompiler,
-        verbose: ctx.verbose ?? false,
-        bail: false,
-        parallel: 1,
-        keepGeneratedFiles: false,
-        profile: false,
-      });
-
-      if (summary.failed > 0) {
-        process.exit(1);
-      }
-      break;
-    }
-    default: {
-      // Check if the step exists in the config
-      const step = config.steps.find((s) => s.name === stepName);
-      if (!step) {
-        console.error(
-          `Error: Unknown step "${stepName}". Use --list-steps to see available steps.`
-        );
-        process.exit(1);
-      }
-      console.log(`Step "${stepName}": ${step.description}`);
-      // For custom steps that aren't run/test/install, we need the full
-      // build.yo evaluator to resolve dependencies. For now, just report.
-      console.log(
-        "Note: Custom step execution requires the full build.yo evaluator (coming soon)."
-      );
-      break;
-    }
-  }
-}
-
-async function compileBuildArtifact(ctx: {
-  config: BuildConfig;
+interface ExecutionContext {
+  registry: BuildRegistry;
   projectDir: string;
   cCompiler: string;
   targetTriple?: string;
   verbose?: boolean;
-}): Promise<void> {
-  const { config, projectDir, cCompiler } = ctx;
-  if (!config.mainRoot) return;
+}
 
-  // Resolve source path relative to project directory
-  const sourcePath = path.resolve(projectDir, config.mainRoot);
+async function executeStep(
+  stepName: string,
+  ctx: ExecutionContext
+): Promise<void> {
+  const { registry } = ctx;
+  const step = registry.findStep(stepName);
+
+  if (!step) {
+    const availableNames = registry.getStepNames();
+    console.error(
+      `Error: Unknown step "${stepName}".` +
+        (availableNames.length > 0
+          ? ` Available steps: ${availableNames.join(", ")}`
+          : " No steps defined in build.yo.")
+    );
+    process.exit(1);
+  }
+
+  // Resolve all dependencies for this step
+  const deps = registry.resolveDependencies(step);
+
+  // Compile all artifacts
+  for (const artifact of deps.artifacts) {
+    await compileArtifact(artifact, ctx);
+  }
+
+  // Run tests
+  for (const testSuite of deps.tests) {
+    await runTestSuite(testSuite, ctx);
+  }
+
+  // Run executables (only when an explicit run step is in deps)
+  for (const runStep of deps.runs) {
+    const artifact = registry.findArtifact(runStep.artifactName);
+    if (artifact) {
+      await runExecutable(artifact, runStep.args, ctx);
+    }
+  }
+}
+
+// ── Artifact compilation ──────────────────────────────────────────────
+
+async function compileArtifact(
+  artifact: BuildArtifact,
+  ctx: ExecutionContext
+): Promise<void> {
+  const { projectDir, cCompiler } = ctx;
+
+  const sourcePath = path.resolve(projectDir, artifact.root);
   if (!fs.existsSync(sourcePath)) {
     console.error(`Error: Source file not found: ${sourcePath}`);
     process.exit(1);
   }
 
-  // Create output directory
-  const outputDir = path.join(projectDir, "yo-out", "bin");
+  // Determine output directory and path
+  const outputSubdir =
+    artifact.kind === "executable" ? "yo-out/bin" : "yo-out/lib";
+  const outputDir = path.join(projectDir, outputSubdir);
   if (!fs.existsSync(outputDir)) {
     fs.mkdirSync(outputDir, { recursive: true });
   }
 
-  const exeName = config.executableName ?? config.projectName;
-  const outputPath = path.join(outputDir, exeName);
+  const outputPath = path.join(outputDir, artifact.name);
 
+  const projectName = ctx.registry.project?.name ?? artifact.name;
+  const version = ctx.registry.project?.version ?? "0.0.0";
   console.log(
-    `Building ${config.projectName} v${config.version} → ${path.relative(projectDir, outputPath)}`
+    `Building ${projectName} v${version} → ${path.relative(projectDir, outputPath)}`
   );
 
-  const absolutePath = `file://` + fs.realpathSync(sourcePath);
+  const absolutePath = `file://${fs.realpathSync(sourcePath)}`;
+
+  // Map build optimize level to compiler options
+  const release =
+    artifact.optimize !== "debug" && artifact.optimize !== "release-safe";
+  const optimize = mapOptimize(artifact.optimize);
 
   const codeGenerator = new CodeGenerator();
   codeGenerator.compileModule(absolutePath, {
     output: outputPath,
     cCompiler,
     target: "c",
-    targetTriple: ctx.targetTriple,
-    extern: [],
-    release: true,
-    allocator: "mimalloc",
+    targetTriple: ctx.targetTriple ?? artifact.target,
+    extern: artifact.cSources,
+    includePaths: artifact.includePaths,
+    libraryPaths: artifact.libraryPaths,
+    libraries: artifact.linkLibraries,
+    defines: artifact.defines,
+    release,
+    optimize,
+    allocator: artifact.allocator as "mimalloc" | "libc",
+    sanitize:
+      artifact.sanitize !== "none"
+        ? (artifact.sanitize as "address" | "leak")
+        : undefined,
+    strip: artifact.strip,
+    static: artifact.staticLink,
   });
+}
+
+function mapOptimize(level: string): "0" | "1" | "2" | "3" | undefined {
+  switch (level) {
+    case "debug":
+      return undefined;
+    case "release-safe":
+      return "2";
+    case "release-fast":
+      return "3";
+    case "release-small":
+      return "2"; // Use -O2 for small builds (codegen handles -Os via release flag)
+    default:
+      return undefined;
+  }
+}
+
+// ── Run executable ────────────────────────────────────────────────────
+
+async function runExecutable(
+  artifact: BuildArtifact,
+  args: string[],
+  ctx: ExecutionContext
+): Promise<void> {
+  const { projectDir } = ctx;
+
+  const outputDir = path.join(projectDir, "yo-out", "bin");
+  const exePath = path.join(outputDir, artifact.name);
+
+  if (!fs.existsSync(exePath)) {
+    console.error(`Error: Compiled executable not found at ${exePath}`);
+    process.exit(1);
+  }
+
+  const { spawnSync } = await import("child_process");
+  const result = spawnSync(exePath, args, {
+    stdio: "inherit",
+    cwd: projectDir,
+  });
+  if (result.status !== 0) {
+    process.exit(result.status ?? 1);
+  }
+}
+
+// ── Test suite execution ──────────────────────────────────────────────
+
+async function runTestSuite(
+  testSuite: BuildTestSuite,
+  ctx: ExecutionContext
+): Promise<void> {
+  const { projectDir, cCompiler } = ctx;
+
+  const { findTestFiles, runTests } = await import("./test-runner");
+  const testPath = path.resolve(projectDir, testSuite.root);
+  const testFiles = findTestFiles(testPath);
+
+  if (testFiles.length === 0) {
+    console.log(`No test files found in ${testSuite.root}`);
+    return;
+  }
+
+  const summary = await runTests(testFiles, {
+    cCompiler,
+    verbose: testSuite.verbose || (ctx.verbose ?? false),
+    bail: testSuite.bail,
+    parallel: testSuite.parallel,
+    keepGeneratedFiles: false,
+    profile: false,
+  });
+
+  if (summary.failed > 0) {
+    process.exit(1);
+  }
 }

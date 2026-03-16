@@ -112,48 +112,29 @@ A builtin `target.host()` returns the host machine's target. This replaces the c
 ### 2.2 Example `build.yo`
 
 ```yo
-{ build } :: import "std/build";
+build :: import "std/build";
 
-project :: build.project(
-  name: "my-app",
-  version: "0.1.0"
-);
+build.project(name: "my-app", version: "0.1.0");
 
-app :: build.executable(
+build.executable(
   name: "my-app",
   root: "./src/main.yo",
-  target: build.target.host(),
-  optimize: .ReleaseFast,
-  allocator: .Mimalloc,
-  sanitize: .None
+  target: build.target_host,
+  optimize: build.Optimize.ReleaseFast,
+  allocator: build.Allocator.Mimalloc,
+  sanitize: build.Sanitize.None
 );
 
-tests :: build.test(
-  name: "tests",
-  root: "./tests/"
-);
+build.test(name: "tests", root: "./tests/");
 
-// Named steps (like Zig's b.step)
-// `yo build run` compiles and runs the app
-run_exe :: build.run(app);
-run :: build.step("run", "Run the application",
-  depends_on: ComptimeList(build.Step)(run_exe)
-);
+// build.run registers a run step for an artifact (by name)
+build.run("my-app");
 
-// `yo build test` runs the test suite
-test_step :: build.step("test", "Run unit tests",
-  depends_on: ComptimeList(build.Step)(tests)
-);
-
-// Default step: `yo build` installs all artifacts
-install :: build.step("install", "Install build artifacts",
-  depends_on: ComptimeList(build.Step)(app)
-);
-
-export project;
-export install;
-export run;
-export test_step;
+// Named steps with dependencies (by name)
+// Dependencies: artifact names, test names, or "run:<artifact>" for run steps
+build.step("install", "Install build artifacts", "my-app");
+build.step("run", "Run the application", "run:my-app");
+build.step("test", "Run unit tests", "tests");
 ```
 
 Usage:
@@ -174,250 +155,138 @@ Available steps:
   test                 Run unit tests
 ```
 
+### 2.2.1 Implementation Details
+
+All build functions are **evaluator builtins** (`src/evaluator/builtins/build.ts`):
+
+- Build functions return `unit` — they register side effects in a global `BuildRegistry`
+- Dependencies are resolved by **name**, not by return value IDs
+- Run steps have synthetic names `"run:<artifact-name>"` for dependency resolution
+- `std/build.yo` wrapper functions use `comptime()` parameter annotations
+- During trial evaluation (function definition type-check), builtins skip registration
+
+The build runner (`src/build-runner.ts`) flow:
+
+1. Clear BuildRegistry → evaluate build.yo via ModuleManager → reset evaluator state
+2. Read registry for steps, artifacts, tests, run steps
+3. Resolve step dependencies by name → compile artifacts → run tests → run executables
+
 ### 2.3 Multi-Target Example
 
 ```yo
-{ build } :: import "std/build";
+build :: import "std/build";
 
-project :: build.project(
-  name: "my-app",
-  version: "0.1.0"
-);
+build.project(name: "my-app", version: "0.1.0");
 
-linux_x64 :: build.executable(
-  name: "my-app",
+build.executable(
+  name: "my-app-linux",
   root: "./src/main.yo",
-  target: build.target.parse("x86_64-linux-gnu"),
-  optimize: .ReleaseFast
+  target: "x86_64-linux-gnu",
+  optimize: build.Optimize.ReleaseFast
 );
 
-macos_arm :: build.executable(
-  name: "my-app",
+build.executable(
+  name: "my-app-macos",
   root: "./src/main.yo",
-  target: build.target.parse("aarch64-macos-none"),
-  optimize: .ReleaseFast
+  target: "aarch64-macos-none",
+  optimize: build.Optimize.ReleaseFast
 );
 
-export project;
-export linux_x64;
-export macos_arm;
+build.step("install", "Install all targets", "my-app-linux", "my-app-macos");
 ```
 
 ### 2.4 Library Example
 
 ```yo
-{ build } :: import "std/build";
+build :: import "std/build";
 
-project :: build.project(
-  name: "my-lib",
-  version: "0.2.0"
-);
+build.project(name: "my-lib", version: "0.2.0");
 
-lib :: build.static_library(
-  name: "mylib",
-  root: "./src/lib.yo",
-  target: build.target.host()
-);
+build.static_library(name: "mylib", root: "./src/lib.yo");
 
-// Link external C library
-app :: build.executable(
-  name: "my-app",
-  root: "./src/main.yo",
-  target: build.target.host(),
-  link_libraries: build.StringList("pthread", "m"),
-  include_paths: build.StringList("./vendor/include"),
-  c_sources: build.StringList("./vendor/src/helper.c"),
-  depends_on: ComptimeList(build.Artifact)(lib)
-);
+build.test(name: "lib-tests", root: "./tests/");
 
-export project;
-export app;
+build.step("install", "Install library", "mylib");
+build.step("test", "Run library tests", "lib-tests");
 ```
 
-### 2.5 `build` Module API
+### 2.5 `build` Module API (`std/build.yo`)
 
-The `build` module (`std/build.yo` or built-in) provides these compile-time functions:
+The build module is imported as a namespace and provides compile-time functions backed by evaluator builtins.
+
+**Constants:**
 
 ```yo
-build :: module(
-
-  // Project metadata
-  project : (fn(
-    comptime(name) : comptime_string,
-    comptime(version) : comptime_string,
-    (comptime(description) : comptime_string) ?= "",
-    (comptime(license) : comptime_string) ?= ""
-  ) -> comptime(Project)),
-
-  // String list alias for convenience
-  StringList :: ComptimeList(comptime_string),
-
-  // Build an executable
-  executable : (fn(
-    comptime(name) : comptime_string,
-    comptime(root) : comptime_string,
-    (comptime(target) : Target) ?= target.host(),
-    (comptime(optimize) : Optimize) ?= .Debug,
-    (comptime(allocator) : Allocator) ?= .Mimalloc,
-    (comptime(sanitize) : Sanitize) ?= .None,
-    (comptime(link_libraries) : StringList) ?= StringList(),
-    (comptime(include_paths) : StringList) ?= StringList(),
-    (comptime(library_paths) : StringList) ?= StringList(),
-    (comptime(c_sources) : StringList) ?= StringList(),
-    (comptime(c_flags) : StringList) ?= StringList(),
-    (comptime(defines) : StringList) ?= StringList(),
-    (comptime(depends_on) : ComptimeList(Artifact)) ?= ComptimeList(Artifact)(),
-    (comptime(strip) : bool) ?= false,
-    (comptime(static_link) : bool) ?= false
-  ) -> comptime(Artifact)),
-
-  // Build a static library
-  static_library : (fn(
-    comptime(name) : comptime_string,
-    comptime(root) : comptime_string,
-    (comptime(target) : Target) ?= target.host(),
-    (comptime(optimize) : Optimize) ?= .Debug
-  ) -> comptime(Artifact)),
-
-  // Define test suite
-  test : (fn(
-    comptime(name) : comptime_string,
-    comptime(root) : comptime_string,
-    (comptime(target) : Target) ?= target.host(),
-    (comptime(parallel) : comptime_int) ?= 0,
-    (comptime(verbose) : bool) ?= false,
-    (comptime(bail) : bool) ?= false
-  ) -> comptime(TestSuite)),
-
-  // Convenience step: compile and run an artifact
-  run : (fn(
-    comptime(artifact) : Artifact,
-    (comptime(args) : StringList) ?= StringList()
-  ) -> comptime(Step)),
-
-  // Custom named step with dependencies
-  step : (fn(
-    comptime(name) : comptime_string,
-    comptime(description) : comptime_string,
-    (comptime(depends_on) : ComptimeList(Step)) ?= ComptimeList(Step)()
-  ) -> comptime(Step)),
-
-  // Target utilities
-  target : module(
-    host : (fn() -> comptime(Target)),
-    parse : (fn(comptime(triple) : comptime_string) -> comptime(Target)),
-    triple : (fn(comptime(t) : Target) -> comptime(comptime_string))
-  ),
-
-  // Enums
-  Optimize :: enum(Debug, ReleaseSafe, ReleaseFast, ReleaseSmall),
-  Allocator :: enum(Mimalloc, Libc),
-  Sanitize :: enum(None, Address, Leak),
-
-  // User-provided build options (like Zig's b.option)
-  // These are configurable from the command line via -D<name>=<value>
-  option_bool : (fn(
-    comptime(name) : comptime_string,
-    comptime(description) : comptime_string,
-    (comptime(default) : bool) ?= false
-  ) -> comptime(bool)),
-
-  option_string : (fn(
-    comptime(name) : comptime_string,
-    comptime(description) : comptime_string,
-    (comptime(default) : comptime_string) ?= ""
-  ) -> comptime(comptime_string)),
-
-  option_enum : (fn(
-    comptime(EnumType) : Type,
-    comptime(name) : comptime_string,
-    comptime(description) : comptime_string,
-    (comptime(default) : EnumType) ?= EnumType.values().car()
-  ) -> comptime(EnumType))
-);
+Optimize :: { Debug, ReleaseSafe, ReleaseFast, ReleaseSmall }
+Allocator :: { Mimalloc, Libc }
+Sanitize :: { None, Address, Leak }
+target_host :: comptime_string  // Host target triple
 ```
 
-### 2.6 User-Provided Build Options
-
-Like Zig's `b.option()`, `build.yo` can declare user-configurable options. These become CLI flags under `yo build -D<name>=<value>` and are auto-documented in `yo build --help`.
-
-**Example: Conditional platform targeting**
+**Functions (all return `unit`):**
 
 ```yo
-{ build } :: import "std/build";
+// Project metadata
+project(name: comptime_string, version: comptime_string)
 
-project :: build.project(
-  name: "my-app",
-  version: "0.1.0"
-);
+// Build an executable
+executable(
+  name: comptime_string,
+  root: comptime_string,
+  target: comptime_string ?= target_host,
+  optimize: comptime_string ?= "debug",
+  allocator: comptime_string ?= "mimalloc",
+  sanitize: comptime_string ?= "none"
+)
 
-// User-provided options — configurable from CLI
-enable_windows :: build.option_bool("windows", "Cross-compile for Windows", false);
-log_level :: build.option_enum(LogLevel, "log-level", "Logging verbosity", .Info);
+// Build a static library
+static_library(
+  name: comptime_string,
+  root: comptime_string,
+  target: comptime_string ?= target_host,
+  optimize: comptime_string ?= "debug"
+)
 
-LogLevel :: enum(Debug, Info, Warn, Error);
+// Define test suite
+test(
+  name: comptime_string,
+  root: comptime_string,
+  target: comptime_string ?= target_host
+)
 
-target :: cond(
-  enable_windows => build.target.parse("x86_64-windows-msvc"),
-  true => build.target.host()
-);
+// Register a run step for an artifact (by name)
+run(artifact_name: comptime_string)
 
-app :: build.executable(
-  name: "my-app",
-  root: "./src/main.yo",
-  target: target,
-  optimize: .ReleaseFast,
-  defines: cond(
-    (log_level == .Debug) => build.StringList("DEBUG=1", "LOG_LEVEL=0"),
-    true => build.StringList()
-  )
-);
-
-export project;
-export app;
+// Named build step with up to 8 dependencies (by name)
+// Dependencies: artifact names, test names, "run:<name>" for run steps
+step(
+  name: comptime_string,
+  description: comptime_string,
+  dep0..dep7: comptime_string ?= ""
+)
 ```
 
-**CLI usage:**
+### 2.6 User-Provided Build Options (Future)
 
-```bash
-# Default options
-yo build
-
-# Override options
-yo build -Dwindows=true -Dlog-level=Debug
-
-# Show available options
-yo build --help
-```
-
-**Auto-generated help output:**
-
-```
-Project-Specific Options:
-  -Dwindows=[bool]           Cross-compile for Windows (default: false)
-  -Dlog-level=[enum]         Logging verbosity (default: Info)
-                               Supported values: Debug, Info, Warn, Error
-```
-
-**How it works internally:**
-
-1. `yo build` first evaluates `build.yo` in a "discovery" pass to find all `build.option_*` calls
-2. Each `option_*` call registers a named option with its type, description, and default
-3. CLI `-D` flags override the defaults before full evaluation
-4. The evaluator substitutes the resolved values during comptime evaluation
-5. Unknown `-D` flags produce an error listing valid options
+Like Zig's `b.option()`, `build.yo` could declare user-configurable options via
+`yo build -D<name>=<value>`. This is not yet implemented.
 
 ### 2.7 Evaluation Model
 
 `build.yo` is evaluated purely at compile time by the existing Yo evaluator:
 
-1. `yo build` invokes the evaluator on `build.yo`
-2. The evaluator processes all declarations and resolves all comptime values
-3. The build runner (TypeScript) extracts the structured `Project`, `Artifact`, and `TestSuite` values
-4. For each `Artifact`, the build runner invokes the normal compilation pipeline with the extracted options
-5. No C code is generated for `build.yo` itself — it's purely a configuration language
+1. `yo build` clears the global `BuildRegistry` singleton
+2. `ModuleManager` loads and evaluates `build.yo` — build functions (builtins) populate the registry
+3. `ModuleManager.resetAllState()` cleans up evaluator globals (prevents stale prelude state)
+4. The build runner reads `BuildRegistry` for project config, artifacts, tests, run steps, named steps
+5. Step dependencies are resolved by name and executed in order
+6. No C code is generated for `build.yo` itself — it's purely a configuration file
 
-This means `build.yo` runs in a restricted comptime-only environment. Only comptime functions and types are available — no runtime I/O, no effects.
+Key implementation details:
+
+- Builtins detect trial evaluation (CTFE check) via `isTrialEvaluation()` and skip registration
+- Args are pre-evaluated in `_expr.ts` dispatch before passing to builtin handlers
+- `target_host` builtin always returns a value (used as default param in function signatures)
 
 ---
 
@@ -524,28 +393,19 @@ my-project/
 **`build.yo`:**
 
 ```yo
-{ build } :: import "std/build";
+build :: import "std/build";
 
-project :: build.project(
-  name: "my-project",
-  version: "0.1.0"
-);
+build.project(name: "my-project", version: "0.1.0");
 
-app :: build.executable(
-  name: "my-project",
-  root: "./src/main.yo",
-  target: build.target.host(),
-  optimize: .Debug
-);
+build.executable(name: "my-project", root: "./src/main.yo");
 
-tests :: build.test(
-  name: "tests",
-  root: "./tests/"
-);
+build.test(name: "tests", root: "./tests/");
 
-export project;
-export app;
-export tests;
+build.run("my-project");
+
+build.step("install", "Build the project", "my-project");
+build.step("run", "Run the application", "run:my-project");
+build.step("test", "Run unit tests", "tests");
 ```
 
 **`src/main.yo`:**
@@ -834,33 +694,35 @@ Existing options (unchanged):
 
 ## 8. Migration Strategy
 
-### Phase 1: Target Infrastructure (Foundation)
+### Phase 1: Target Infrastructure (Foundation) ✅
 
-1. Create `src/target.ts` with `HostInfo`, `TargetInfo`, `detectHost()`, `parseTarget()`, `hostTarget()`
-2. Wire `setTargetPointerSize()` to be called from target info before evaluation
-3. Add `--target` flag to `yo compile`
-4. Update `findAvailableCompiler()` to prefer clang
+1. ✅ Create `src/target.ts` with `HostInfo`, `TargetInfo`, `detectHost()`, `parseTarget()`, `hostTarget()`
+2. ✅ Wire `setTargetPointerSize()` to be called from target info before evaluation
+3. ✅ Add `--target` flag to `yo compile`
+4. ✅ Update `findAvailableCompiler()` to prefer clang
 
-### Phase 2: Host/Target Separation
+### Phase 2: Host/Target Separation ✅
 
-5. Update `__yo_process_platform()` / `__yo_process_arch()` to use target info from evaluator context
-6. Replace all `process.platform` / `process.arch` usages in codegen with target-based checks
-7. Update `std/process.yo` platform/arch enums to use standard naming
-8. Update `std/path.yo` to use new platform names
+5. ✅ Update `__yo_process_platform()` / `__yo_process_arch()` to use target info from evaluator context
+6. ✅ Replace all `process.platform` / `process.arch` usages in codegen with target-based checks
+7. ✅ Update `std/process.yo` platform/arch enums to use standard naming
+8. ✅ Update `std/path.yo` to use new platform names
 
-### Phase 3: Build System Core
+### Phase 3: Build System Core ✅
 
-9. Implement `yo init` command (project scaffolding)
-10. Create `std/build.yo` module (or evaluator builtins for build API)
-11. Implement `yo build` command (build.yo evaluation + orchestration)
-12. Implement build output directory structure (`yo-out/`, `.yo-cache/`)
+9. ✅ Implement `yo init` command (project scaffolding — exe and lib templates)
+10. ✅ Create `std/build.yo` module with evaluator builtins (`src/evaluator/builtins/build.ts`)
+11. ✅ Implement `yo build` command (build.yo evaluation via ModuleManager + BuildRegistry)
+12. ✅ Implement build output directory structure (`yo-out/bin/`, `yo-out/lib/`)
+13. ✅ Step resolution with name-based dependency system
+14. ✅ `yo build`, `yo build run`, `yo build test`, `yo build --list-steps`
 
-### Phase 4: Cross-Compilation
+### Phase 4: Cross-Compilation (Partially Done)
 
-13. Add `--target=<triple>` passthrough to clang in codegen
-14. Add `--sysroot` support
-15. Test cross-compilation: macOS → Linux, Linux → macOS, etc.
-16. Handle platform-specific library linking based on target (not host)
+15. ✅ Add `--target=<triple>` passthrough to clang in codegen
+16. Add `--sysroot` support
+17. Test cross-compilation: macOS → Linux, Linux → macOS, etc.
+18. Handle platform-specific library linking based on target (not host)
 
 ---
 

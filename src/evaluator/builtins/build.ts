@@ -1,0 +1,560 @@
+/**
+ * Build system evaluator builtins.
+ *
+ * These builtins handle compile-time evaluation of build.yo declarations.
+ * Each builtin registers build artifacts/steps in a global BuildRegistry.
+ * All build-declaration builtins return unit — dependencies are resolved
+ * by name, not by ID tokens.
+ *
+ * The build runner evaluates build.yo via ModuleManager, then reads the
+ * registry to orchestrate compilation.
+ */
+
+import type { Environment } from "../../env";
+import { formatErrorMessage } from "../../error";
+import {
+  BuiltinFunctions,
+  exprIsFunctionCallOf,
+  type FnCallExpr,
+} from "../../expr";
+import { hostTarget, parseTarget } from "../../target";
+import { createComptimeStringType, createUnitType } from "../../types/creators";
+import type { Token } from "../../token";
+import {
+  createComptimeStringValue,
+  isComptimeStringValue,
+  isUnknownValue,
+  type Value,
+} from "../../value";
+import { VUnit } from "../../unit-value";
+import type { EvaluatorContext } from "../context";
+
+// ── Build Registry ────────────────────────────────────────────────────
+
+export interface BuildProject {
+  name: string;
+  version: string;
+}
+
+export interface BuildArtifact {
+  kind: "executable" | "static_library";
+  name: string;
+  root: string;
+  target: string;
+  optimize: string;
+  allocator: string;
+  sanitize: string;
+  linkLibraries: string[];
+  includePaths: string[];
+  libraryPaths: string[];
+  cSources: string[];
+  cFlags: string[];
+  defines: string[];
+  strip: boolean;
+  staticLink: boolean;
+}
+
+export interface BuildTestSuite {
+  name: string;
+  root: string;
+  target: string;
+  verbose: boolean;
+  bail: boolean;
+  parallel: number;
+}
+
+export interface BuildRunStep {
+  name: string; // Synthetic name for dependency resolution (e.g., "run:my-app")
+  artifactName: string;
+  args: string[];
+}
+
+export interface BuildStep {
+  name: string;
+  description: string;
+  dependencyNames: string[];
+}
+
+export class BuildRegistry {
+  project: BuildProject | undefined;
+  artifacts: BuildArtifact[] = [];
+  testSuites: BuildTestSuite[] = [];
+  runSteps: BuildRunStep[] = [];
+  steps: BuildStep[] = [];
+
+  registerProject(name: string, version: string): void {
+    this.project = { name, version };
+  }
+
+  registerExecutable(config: Omit<BuildArtifact, "kind">): void {
+    this.artifacts.push({ kind: "executable", ...config });
+  }
+
+  registerStaticLibrary(config: Omit<BuildArtifact, "kind">): void {
+    this.artifacts.push({ kind: "static_library", ...config });
+  }
+
+  registerTest(config: BuildTestSuite): void {
+    this.testSuites.push(config);
+  }
+
+  registerRun(artifactName: string, args: string[]): void {
+    const name = `run:${artifactName}`;
+    this.runSteps.push({ name, artifactName, args });
+  }
+
+  registerStep(
+    name: string,
+    description: string,
+    dependencyNames: string[]
+  ): void {
+    this.steps.push({ name, description, dependencyNames });
+  }
+
+  /** Find an artifact by name */
+  findArtifact(name: string): BuildArtifact | undefined {
+    return this.artifacts.find((a) => a.name === name);
+  }
+
+  /** Find a test suite by name */
+  findTest(name: string): BuildTestSuite | undefined {
+    return this.testSuites.find((t) => t.name === name);
+  }
+
+  /** Find a run step by name (e.g., "run:my-app") */
+  findRunStep(name: string): BuildRunStep | undefined {
+    return this.runSteps.find((r) => r.name === name);
+  }
+
+  /** Find a named step */
+  findStep(name: string): BuildStep | undefined {
+    return this.steps.find((s) => s.name === name);
+  }
+
+  /** Get all step names */
+  getStepNames(): string[] {
+    return this.steps.map((s) => s.name);
+  }
+
+  /**
+   * Resolve a dependency name to its type and entry.
+   * Resolution order: artifact → test → run step (by name, e.g. "run:app") → sub-step.
+   */
+  resolveDependency(
+    name: string
+  ):
+    | { kind: "artifact"; value: BuildArtifact }
+    | { kind: "test"; value: BuildTestSuite }
+    | { kind: "run"; value: BuildRunStep }
+    | { kind: "step"; value: BuildStep }
+    | undefined {
+    const artifact = this.findArtifact(name);
+    if (artifact) return { kind: "artifact", value: artifact };
+
+    const test = this.findTest(name);
+    if (test) return { kind: "test", value: test };
+
+    // Run steps have synthetic names like "run:app-name"
+    const run = this.findRunStep(name);
+    if (run) return { kind: "run", value: run };
+
+    const step = this.findStep(name);
+    if (step) return { kind: "step", value: step };
+
+    return undefined;
+  }
+
+  /** Resolve all dependencies for a step into categorized lists */
+  resolveDependencies(step: BuildStep): {
+    artifacts: BuildArtifact[];
+    tests: BuildTestSuite[];
+    runs: BuildRunStep[];
+  } {
+    const artifacts: BuildArtifact[] = [];
+    const tests: BuildTestSuite[] = [];
+    const runs: BuildRunStep[] = [];
+
+    for (const depName of step.dependencyNames) {
+      const resolved = this.resolveDependency(depName);
+      if (!resolved) continue;
+
+      switch (resolved.kind) {
+        case "artifact":
+          if (!artifacts.some((a) => a.name === resolved.value.name))
+            artifacts.push(resolved.value);
+          break;
+        case "test":
+          if (!tests.some((t) => t.name === resolved.value.name))
+            tests.push(resolved.value);
+          break;
+        case "run":
+          if (!runs.some((r) => r.name === resolved.value.name))
+            runs.push(resolved.value);
+          // Also include the artifact the run depends on
+          {
+            const runArtifact = this.findArtifact(resolved.value.artifactName);
+            if (
+              runArtifact &&
+              !artifacts.some((a) => a.name === runArtifact.name)
+            ) {
+              artifacts.push(runArtifact);
+            }
+          }
+          break;
+        case "step": {
+          const sub = this.resolveDependencies(resolved.value);
+          for (const a of sub.artifacts) {
+            if (!artifacts.some((x) => x.name === a.name)) artifacts.push(a);
+          }
+          for (const t of sub.tests) {
+            if (!tests.some((x) => x.name === t.name)) tests.push(t);
+          }
+          for (const r of sub.runs) {
+            if (!runs.some((x) => x.name === r.name)) runs.push(r);
+          }
+          break;
+        }
+      }
+    }
+
+    return { artifacts, tests, runs };
+  }
+
+  clear(): void {
+    this.project = undefined;
+    this.artifacts = [];
+    this.testSuites = [];
+    this.runSteps = [];
+    this.steps = [];
+  }
+}
+
+// Global singleton — cleared before each build.yo evaluation
+let globalRegistry: BuildRegistry | undefined;
+
+export function getBuildRegistry(): BuildRegistry {
+  if (!globalRegistry) {
+    globalRegistry = new BuildRegistry();
+  }
+  return globalRegistry;
+}
+
+export function clearBuildRegistry(): void {
+  if (globalRegistry) {
+    globalRegistry.clear();
+  }
+  globalRegistry = undefined;
+}
+
+// ── Argument extraction helpers ───────────────────────────────────────
+
+function extractComptimeString(
+  value: Value | undefined,
+  paramName: string,
+  token: Token
+): string {
+  if (!isComptimeStringValue(value)) {
+    throw formatErrorMessage({
+      token,
+      errorMessage: `Build function: expected comptime_string for "${paramName}", got ${value ? "non-string" : "undefined"}`,
+    });
+  }
+  return value.value;
+}
+
+function makeUnitResult(expr: FnCallExpr, env: Environment): FnCallExpr {
+  expr.$ = {
+    env,
+    type: createUnitType(),
+    value: VUnit,
+    pathCollection: [],
+  };
+  return expr;
+}
+
+function makeComptimeStringResult(
+  expr: FnCallExpr,
+  env: Environment,
+  value: string
+): FnCallExpr {
+  expr.$ = {
+    env,
+    type: createComptimeStringType(),
+    value: createComptimeStringValue(value),
+    pathCollection: [],
+  };
+  return expr;
+}
+
+// ── Builtin handlers ──────────────────────────────────────────────────
+
+/**
+ * Check if this is a trial evaluation (function definition body check).
+ * During trial runs, comptime params have UnknownValue.
+ */
+function isTrialEvaluation(expr: FnCallExpr): boolean {
+  for (const arg of expr.args) {
+    if (arg === undefined) continue;
+    const value = arg.$?.value;
+    if (value === undefined || isUnknownValue(value)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+export function evaluateYoBuildFunctions({
+  expr,
+  env,
+}: {
+  expr: FnCallExpr;
+  env: Environment;
+  context: EvaluatorContext;
+}): FnCallExpr {
+  // During trial evaluation (function definition type-check),
+  // just return unit without registering anything.
+  if (isTrialEvaluation(expr)) {
+    // For target_host (no args), always return a value
+    if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_target_host)) {
+      const target = hostTarget();
+      return makeComptimeStringResult(expr, env, target.triple);
+    }
+    return makeUnitResult(expr, env);
+  }
+
+  const registry = getBuildRegistry();
+
+  // __yo_build_project(name, version)
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_project)) {
+    if (expr.args.length !== 2) {
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `__yo_build_project expects 2 arguments (name, version), got ${expr.args.length}`,
+      });
+    }
+    const name = extractComptimeString(
+      expr.args[0]!.$?.value,
+      "name",
+      expr.token
+    );
+    const version = extractComptimeString(
+      expr.args[1]!.$?.value,
+      "version",
+      expr.token
+    );
+    registry.registerProject(name, version);
+    return makeUnitResult(expr, env);
+  }
+
+  // __yo_build_executable(name, root, target, optimize, allocator, sanitize)
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_executable)) {
+    if (expr.args.length < 2) {
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `__yo_build_executable expects at least 2 arguments (name, root), got ${expr.args.length}`,
+      });
+    }
+    const name = extractComptimeString(
+      expr.args[0]!.$?.value,
+      "name",
+      expr.token
+    );
+    const root = extractComptimeString(
+      expr.args[1]!.$?.value,
+      "root",
+      expr.token
+    );
+    const target =
+      expr.args.length > 2
+        ? extractComptimeString(expr.args[2]!.$?.value, "target", expr.token)
+        : hostTarget().triple;
+    const optimize =
+      expr.args.length > 3
+        ? extractComptimeString(expr.args[3]!.$?.value, "optimize", expr.token)
+        : "debug";
+    const allocator =
+      expr.args.length > 4
+        ? extractComptimeString(expr.args[4]!.$?.value, "allocator", expr.token)
+        : "mimalloc";
+    const sanitize =
+      expr.args.length > 5
+        ? extractComptimeString(expr.args[5]!.$?.value, "sanitize", expr.token)
+        : "none";
+
+    registry.registerExecutable({
+      name,
+      root,
+      target,
+      optimize,
+      allocator,
+      sanitize,
+      linkLibraries: [],
+      includePaths: [],
+      libraryPaths: [],
+      cSources: [],
+      cFlags: [],
+      defines: [],
+      strip: false,
+      staticLink: false,
+    });
+    return makeUnitResult(expr, env);
+  }
+
+  // __yo_build_static_library(name, root, target, optimize)
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_static_library)) {
+    if (expr.args.length < 2) {
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `__yo_build_static_library expects at least 2 arguments (name, root), got ${expr.args.length}`,
+      });
+    }
+    const name = extractComptimeString(
+      expr.args[0]!.$?.value,
+      "name",
+      expr.token
+    );
+    const root = extractComptimeString(
+      expr.args[1]!.$?.value,
+      "root",
+      expr.token
+    );
+    const target =
+      expr.args.length > 2
+        ? extractComptimeString(expr.args[2]!.$?.value, "target", expr.token)
+        : hostTarget().triple;
+    const optimize =
+      expr.args.length > 3
+        ? extractComptimeString(expr.args[3]!.$?.value, "optimize", expr.token)
+        : "debug";
+
+    registry.registerStaticLibrary({
+      name,
+      root,
+      target,
+      optimize,
+      allocator: "mimalloc",
+      sanitize: "none",
+      linkLibraries: [],
+      includePaths: [],
+      libraryPaths: [],
+      cSources: [],
+      cFlags: [],
+      defines: [],
+      strip: false,
+      staticLink: false,
+    });
+    return makeUnitResult(expr, env);
+  }
+
+  // __yo_build_test(name, root, target)
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_test)) {
+    if (expr.args.length < 2) {
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `__yo_build_test expects at least 2 arguments (name, root), got ${expr.args.length}`,
+      });
+    }
+    const name = extractComptimeString(
+      expr.args[0]!.$?.value,
+      "name",
+      expr.token
+    );
+    const root = extractComptimeString(
+      expr.args[1]!.$?.value,
+      "root",
+      expr.token
+    );
+    const target =
+      expr.args.length > 2
+        ? extractComptimeString(expr.args[2]!.$?.value, "target", expr.token)
+        : hostTarget().triple;
+
+    registry.registerTest({
+      name,
+      root,
+      target,
+      verbose: false,
+      bail: false,
+      parallel: 1,
+    });
+    return makeUnitResult(expr, env);
+  }
+
+  // __yo_build_run(artifact_name)
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_run)) {
+    if (expr.args.length < 1) {
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `__yo_build_run expects at least 1 argument (artifact_name), got ${expr.args.length}`,
+      });
+    }
+    const artifactName = extractComptimeString(
+      expr.args[0]!.$?.value,
+      "artifact_name",
+      expr.token
+    );
+    registry.registerRun(artifactName, []);
+    return makeUnitResult(expr, env);
+  }
+
+  // __yo_build_step(name, description, dep0, dep1, ...)
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_step)) {
+    if (expr.args.length < 2) {
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `__yo_build_step expects at least 2 arguments (name, description), got ${expr.args.length}`,
+      });
+    }
+    const name = extractComptimeString(
+      expr.args[0]!.$?.value,
+      "name",
+      expr.token
+    );
+    const description = extractComptimeString(
+      expr.args[1]!.$?.value,
+      "description",
+      expr.token
+    );
+    const depNames: string[] = [];
+    for (let i = 2; i < expr.args.length; i++) {
+      const dep = extractComptimeString(
+        expr.args[i]!.$?.value,
+        `dependency[${i - 2}]`,
+        expr.token
+      );
+      if (dep !== "") {
+        depNames.push(dep);
+      }
+    }
+    registry.registerStep(name, description, depNames);
+    return makeUnitResult(expr, env);
+  }
+
+  // __yo_build_target_host() — returns comptime_string (used as a value)
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_target_host)) {
+    const target = hostTarget();
+    return makeComptimeStringResult(expr, env, target.triple);
+  }
+
+  // __yo_build_target_parse(triple) — returns comptime_string (used as a value)
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_target_parse)) {
+    if (expr.args.length !== 1) {
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `__yo_build_target_parse expects 1 argument (triple), got ${expr.args.length}`,
+      });
+    }
+    const triple = extractComptimeString(
+      expr.args[0]!.$?.value,
+      "triple",
+      expr.token
+    );
+    const target = parseTarget(triple);
+    return makeComptimeStringResult(expr, env, target.triple);
+  }
+
+  throw formatErrorMessage({
+    token: expr.token,
+    errorMessage: `Unknown build function: ${expr.func.token.value}`,
+  });
+}
