@@ -85,23 +85,23 @@ Build artifacts use struct types with default field values (like Zig's options p
 
 ### `Executable`
 
-| Field       | Type              | Default       | Description                                 |
-| ----------- | ----------------- | ------------- | ------------------------------------------- |
-| `name`      | `comptime_string` | _(required)_  | Artifact name                               |
-| `root`      | `comptime_string` | _(required)_  | Path to main source file                    |
-| `target`    | `comptime_string` | `target_host` | Target triple (e.g. `"wasm32-wasi"`)        |
-| `optimize`  | `comptime_string` | `"debug"`     | Optimization level                          |
-| `allocator` | `comptime_string` | `"mimalloc"`  | Memory allocator (`"mimalloc"`, `"libc"`)   |
-| `sanitize`  | `comptime_string` | `"none"`      | Sanitizer (`"none"`, `"address"`, `"leak"`) |
+| Field       | Type              | Default              | Description                          |
+| ----------- | ----------------- | -------------------- | ------------------------------------ |
+| `name`      | `comptime_string` | _(required)_         | Artifact name                        |
+| `root`      | `comptime_string` | _(required)_         | Path to main source file             |
+| `target`    | `comptime_string` | `target_host`        | Target triple (e.g. `"wasm32-wasi"`) |
+| `optimize`  | `Optimize`        | `Optimize.Debug`     | Optimization level                   |
+| `allocator` | `Allocator`       | `Allocator.Mimalloc` | Memory allocator                     |
+| `sanitize`  | `Sanitize`        | `Sanitize.None`      | Sanitizer                            |
 
 ### `StaticLibrary`
 
-| Field      | Type              | Default       | Description                 |
-| ---------- | ----------------- | ------------- | --------------------------- |
-| `name`     | `comptime_string` | _(required)_  | Artifact name               |
-| `root`     | `comptime_string` | _(required)_  | Path to library source file |
-| `target`   | `comptime_string` | `target_host` | Target triple               |
-| `optimize` | `comptime_string` | `"debug"`     | Optimization level          |
+| Field      | Type              | Default          | Description                 |
+| ---------- | ----------------- | ---------------- | --------------------------- |
+| `name`     | `comptime_string` | _(required)_     | Artifact name               |
+| `root`     | `comptime_string` | _(required)_     | Path to library source file |
+| `target`   | `comptime_string` | `target_host`    | Target triple               |
+| `optimize` | `Optimize`        | `Optimize.Debug` | Optimization level          |
 
 ### `TestSuite`
 
@@ -113,14 +113,27 @@ Build artifacts use struct types with default field values (like Zig's options p
 
 ### Optimization Levels
 
-| Value             | Compiler Flags | Description                    |
-| ----------------- | -------------- | ------------------------------ |
-| `"debug"`         | `-O0 -g`       | No optimization, debug symbols |
-| `"release-safe"`  | `-O2 -g`       | Optimized with debug symbols   |
-| `"release-fast"`  | `-O3`          | Maximum performance            |
-| `"release-small"` | `-Os`          | Optimize for binary size       |
+| Value                   | Compiler Flags | Description                    |
+| ----------------------- | -------------- | ------------------------------ |
+| `Optimize.Debug`        | `-O0 -g`       | No optimization, debug symbols |
+| `Optimize.ReleaseSafe`  | `-O2 -g`       | Optimized with debug symbols   |
+| `Optimize.ReleaseFast`  | `-O3`          | Maximum performance            |
+| `Optimize.ReleaseSmall` | `-Os`          | Optimize for binary size       |
 
-These are also available as constants: `build.Optimize.Debug`, `.ReleaseSafe`, `.ReleaseFast`, `.ReleaseSmall`.
+### Allocators
+
+| Value                | Description                          |
+| -------------------- | ------------------------------------ |
+| `Allocator.Mimalloc` | High-performance allocator (default) |
+| `Allocator.Libc`     | Standard libc malloc                 |
+
+### Sanitizers
+
+| Value              | Description                              |
+| ------------------ | ---------------------------------------- |
+| `Sanitize.None`    | No sanitizer (default)                   |
+| `Sanitize.Address` | AddressSanitizer for memory errors/leaks |
+| `Sanitize.Leak`    | LeakSanitizer for leak detection only    |
 
 ## Build Steps
 
@@ -161,7 +174,7 @@ build.executable(build.Executable(
   name: "my-app-wasm",
   root: "./src/main.yo",
   target: "wasm32-wasi",
-  optimize: "release-small"
+  optimize: build.Optimize.ReleaseSmall
 ));
 ```
 
@@ -246,7 +259,7 @@ build.project(name: "my-app", version: "1.0.0");
 build.executable(build.Executable(
   name: "my-app",
   root: "./src/main.yo",
-  optimize: "release-fast"
+  optimize: build.Optimize.ReleaseFast
 ));
 
 // WASM build
@@ -254,8 +267,8 @@ build.executable(build.Executable(
   name: "my-app-wasm",
   root: "./src/main.yo",
   target: "wasm32-wasi",
-  optimize: "release-small",
-  allocator: "libc"
+  optimize: build.Optimize.ReleaseSmall,
+  allocator: build.Allocator.Libc
 ));
 
 build.step("install", "Build all targets", "my-app", "my-app-wasm");

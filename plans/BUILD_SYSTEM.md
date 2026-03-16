@@ -122,7 +122,7 @@ build.project(name: "my-app", version: "0.1.0");
 build.executable(build.Executable(
   name: "my-app",
   root: "./src/main.yo",
-  optimize: "release-fast"
+  optimize: build.Optimize.ReleaseFast
 ));
 
 build.static_library(build.StaticLibrary(name: "my-app-lib", root: "./src/lib.yo"));
@@ -186,21 +186,21 @@ build.executable(build.Executable(
   name: "my-app-linux",
   root: "./src/main.yo",
   target: "x86_64-linux-gnu",
-  optimize: "release-fast"
+  optimize: build.Optimize.ReleaseFast
 ));
 
 build.executable(build.Executable(
   name: "my-app-macos",
   root: "./src/main.yo",
   target: "aarch64-macos",
-  optimize: "release-fast"
+  optimize: build.Optimize.ReleaseFast
 ));
 
 build.executable(build.Executable(
   name: "my-app-wasm",
   root: "./src/main.yo",
   target: "wasm32-wasi",
-  optimize: "release-small"
+  optimize: build.Optimize.ReleaseSmall
 ));
 
 build.step("install", "Install all targets", "my-app-linux", "my-app-macos", "my-app-wasm");
@@ -228,9 +228,9 @@ The build module is imported as a namespace and provides compile-time functions 
 **Constants:**
 
 ```yo
-Optimize :: { Debug, ReleaseSafe, ReleaseFast, ReleaseSmall }
-Allocator :: { Mimalloc, Libc }
-Sanitize :: { None, Address, Leak }
+Optimize :: enum(Debug, ReleaseSafe, ReleaseFast, ReleaseSmall)
+Allocator :: enum(Mimalloc, Libc)
+Sanitize :: enum(None, Address, Leak)
 target_host :: comptime_string  // Host target triple
 ```
 
@@ -242,9 +242,9 @@ Executable :: struct(
   name : comptime_string,
   root : comptime_string,
   (target : comptime_string) ?= target_host,
-  (optimize : comptime_string) ?= "debug",
-  (allocator : comptime_string) ?= "mimalloc",
-  (sanitize : comptime_string) ?= "none"
+  (optimize : Optimize) ?= Optimize.Debug,
+  (allocator : Allocator) ?= Allocator.Mimalloc,
+  (sanitize : Sanitize) ?= Sanitize.None
 );
 
 // Static library artifact config
@@ -252,7 +252,7 @@ StaticLibrary :: struct(
   name : comptime_string,
   root : comptime_string,
   (target : comptime_string) ?= target_host,
-  (optimize : comptime_string) ?= "debug"
+  (optimize : Optimize) ?= Optimize.Debug
 );
 
 // Test suite config
