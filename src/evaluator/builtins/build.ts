@@ -379,10 +379,13 @@ export function evaluateYoBuildFunctions({
   // During trial evaluation (function definition type-check),
   // just return unit without registering anything.
   if (isTrialEvaluation(expr)) {
-    // For target_host (no args), always return a value
+    // For functions that return comptime_string, always return a valid string value
     if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_target_host)) {
       const target = hostTarget();
       return makeComptimeStringResult(expr, env, target.triple);
+    }
+    if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_option)) {
+      return makeComptimeStringResult(expr, env, "");
     }
     return makeUnitResult(expr, env);
   }

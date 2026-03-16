@@ -1,4 +1,5 @@
 import * as fs from "fs";
+import * as path from "path";
 import yargs from "yargs";
 import { hideBin } from "yargs/helpers";
 import packageJson from "../package.json";
@@ -6,7 +7,12 @@ import { runBuild } from "./build-runner";
 import { getGlobalCacheDir } from "./cache";
 import { CodeGenerator } from "./codegen";
 import { findAvailableCompiler } from "./compiler-utils";
+import {
+  clearBuildRegistry,
+  getBuildRegistry,
+} from "./evaluator/builtins/build";
 import { initProject } from "./init";
+import { ModuleManager } from "./module-manager";
 import { findTestFiles, runTests } from "./test-runner";
 
 const TEST_SUMMARY_MARKER = "__YO_TEST_SUMMARY__";
@@ -475,7 +481,36 @@ yo --version                     Show version number
           describe: "Verbose build output",
           type: "boolean",
           default: false,
-        });
+        })
+        .parserConfiguration({ "unknown-options-as-args": true });
+
+      // When --help is requested, evaluate build.yo to discover project options
+      if (process.argv.includes("--help") || process.argv.includes("-h")) {
+        try {
+          const userCwd = process.env.YO_ORIGINAL_CWD ?? process.cwd();
+          const buildFile = path.resolve(userCwd, "./build.yo");
+          if (fs.existsSync(buildFile)) {
+            clearBuildRegistry();
+            const modulePath = `file://${fs.realpathSync(buildFile)}`;
+            const moduleManager = new ModuleManager();
+            moduleManager.loadModule(modulePath);
+            moduleManager.resetAllState();
+            const registry = getBuildRegistry();
+            if (registry.declaredOptions.size > 0) {
+              let epilog = "Project-Specific Options:";
+              for (const [name, opt] of registry.declaredOptions) {
+                epilog += `\n  -D${name}\t${opt.description} [default: ${opt.defaultValue}]`;
+              }
+              _yargs.epilog(epilog);
+            }
+          }
+        } catch (e) {
+          // Silently ignore — build.yo may not exist or may have errors
+          if (process.env.YO_DEBUG_HELP) {
+            console.error("Debug: build.yo evaluation failed:", e);
+          }
+        }
+      }
     },
     async (argv) => {
       // Parse -Dname=value flags from process.argv (yargs doesn't handle -D natively)

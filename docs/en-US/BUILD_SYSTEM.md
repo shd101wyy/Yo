@@ -269,6 +269,8 @@ If no `-D` flag is provided, the default value is used. Boolean options without 
 yo build -Dstrip       # same as -Dstrip=true
 ```
 
+Run `yo build --help` to see all available project-specific options alongside standard flags.
+
 ### `BuildOption`
 
 | Field         | Type              | Default      | Description              |
