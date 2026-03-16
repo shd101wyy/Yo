@@ -63,8 +63,16 @@ export async function runBuild(options: BuildOptions): Promise<void> {
     process.exit(1);
   }
 
+  // Parse -D options into a Map
+  const cliOptions = new Map<string, string>();
+  if (options.defines) {
+    for (const [key, value] of Object.entries(options.defines)) {
+      cliOptions.set(key, value);
+    }
+  }
+
   // Evaluate build.yo — builtins populate the global BuildRegistry
-  const registry = evaluateBuildFile(buildFile);
+  const registry = evaluateBuildFile(buildFile, cliOptions);
 
   if (options.listSteps) {
     printSteps(registry);
@@ -135,9 +143,17 @@ export async function runBuild(options: BuildOptions): Promise<void> {
 
 // ── Build file evaluation ─────────────────────────────────────────────
 
-function evaluateBuildFile(buildFile: string): BuildRegistry {
+function evaluateBuildFile(
+  buildFile: string,
+  cliOptions?: Map<string, string>
+): BuildRegistry {
   // Clear any previous build registry
   clearBuildRegistry();
+
+  // Set CLI options before evaluation so build.option() can read them
+  if (cliOptions && cliOptions.size > 0) {
+    getBuildRegistry().setCliOptions(cliOptions);
+  }
 
   const modulePath = `file://${fs.realpathSync(buildFile)}`;
 

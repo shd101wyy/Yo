@@ -101,6 +101,17 @@ Step :: struct(
 );
 export Step;
 
+// ── Build option config types ────────────────────────────────────────
+// Like Zig's b.option(), declare user-configurable options.
+// CLI usage: yo build -Dname=value
+
+BuildOption :: struct(
+  name : comptime_string,
+  description : comptime_string,
+  (default : comptime_string) ?= ""
+);
+export BuildOption;
+
 // ── Dependency config types ──────────────────────────────────────────
 
 GitDependency :: struct(
@@ -211,6 +222,13 @@ link :: (fn(comptime(artifact) : Step, comptime(library) : Step) -> unit) {
 };
 export link;
 
+// Link a system library by name (like Zig's exe.linkSystemLibrary("z")).
+// Adds -l<name> to the linker flags.
+link_system_library :: (fn(comptime(artifact) : Step, comptime(name) : comptime_string) -> unit) {
+  __yo_build_link_system_library(artifact.name, name);
+};
+export link_system_library;
+
 // Register a git-hosted dependency.
 dependency :: (fn(comptime(config) : GitDependency) -> unit) {
   __yo_build_dependency(config.name, config.url, config.ref, config.path);
@@ -222,3 +240,11 @@ system_library :: (fn(comptime(config) : SystemLibrary) -> unit) {
   __yo_build_system_library(config.name, config.pkg_config, config.fallback_include, config.fallback_lib, config.fallback_link);
 };
 export system_library;
+
+// Declare a user-configurable build option.
+// Returns the option value (from CLI -Dname=value, or the default).
+// Usage: strip :: build.option(build.BuildOption(name: "strip", description: "Strip debug symbols", default: "false"));
+option :: (fn(comptime(config) : BuildOption) -> comptime_string) {
+  __yo_build_option(config.name, config.description, config.default)
+};
+export option;

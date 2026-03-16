@@ -34,6 +34,7 @@ Examples:
   $ yo build run                 Build and run the application
   $ yo build test                Run the test suite
   $ yo build --list-steps        Show available build steps
+  $ yo build -Dstrip=true        Pass build option to build.yo
 
 yo init [dir] [options]          Initialize a new Yo project
 Examples:
@@ -477,6 +478,19 @@ yo --version                     Show version number
         });
     },
     async (argv) => {
+      // Parse -Dname=value flags from process.argv (yargs doesn't handle -D natively)
+      const defines: Record<string, string> = {};
+      for (const arg of process.argv) {
+        if (arg.startsWith("-D")) {
+          const rest = arg.slice(2);
+          const eqIdx = rest.indexOf("=");
+          if (eqIdx >= 0) {
+            defines[rest.slice(0, eqIdx)] = rest.slice(eqIdx + 1);
+          } else {
+            defines[rest] = "true";
+          }
+        }
+      }
       await runBuild({
         buildFile: argv.buildFile as string,
         targetTriple: argv.t as string | undefined,
@@ -486,6 +500,7 @@ yo --version                     Show version number
         listSteps: argv.listSteps as boolean,
         steps: argv.steps as string[] | undefined,
         cCompiler: argv.cc as string | undefined,
+        defines: Object.keys(defines).length > 0 ? defines : undefined,
       });
     }
   )

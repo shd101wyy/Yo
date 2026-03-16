@@ -102,6 +102,16 @@ export class BuildRegistry {
   steps: BuildStep[] = [];
   dependencies: BuildGitDependency[] = [];
   systemLibraries: BuildSystemLibrary[] = [];
+  /** User-provided build options from CLI -Dname=value */
+  cliOptions: Map<string, string> = new Map();
+  /** Declared build options (name → { description, default }) */
+  declaredOptions: Map<string, { description: string; defaultValue: string }> =
+    new Map();
+
+  /** Set CLI options parsed from -Dname=value flags */
+  setCliOptions(options: Map<string, string>): void {
+    this.cliOptions = options;
+  }
 
   registerProject(name: string, version: string): void {
     this.project = { name, version };
@@ -572,6 +582,35 @@ export function evaluateYoBuildFunctions({
     return makeUnitResult(expr, env);
   }
 
+  // __yo_build_link_system_library(artifact_name, system_lib_name)
+  if (
+    exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_link_system_library)
+  ) {
+    if (expr.args.length < 2) {
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `__yo_build_link_system_library expects 2 arguments (artifact_name, system_lib_name), got ${expr.args.length}`,
+      });
+    }
+    const artifactName = extractComptimeString(
+      expr.args[0]!.$?.value,
+      "artifact_name",
+      expr.token
+    );
+    const systemLibName = extractComptimeString(
+      expr.args[1]!.$?.value,
+      "system_lib_name",
+      expr.token
+    );
+    const artifact = registry.findArtifact(artifactName);
+    if (artifact) {
+      if (!artifact.linkLibraries.includes(systemLibName)) {
+        artifact.linkLibraries.push(systemLibName);
+      }
+    }
+    return makeUnitResult(expr, env);
+  }
+
   // __yo_build_test(name, root, target)
   if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_test)) {
     if (expr.args.length < 2) {
@@ -801,6 +840,37 @@ export function evaluateYoBuildFunctions({
       fallbackLink,
     });
     return makeUnitResult(expr, env);
+  }
+
+  // __yo_build_option(name, description, default) -> comptime_string
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_option)) {
+    if (expr.args.length < 3) {
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `__yo_build_option expects 3 arguments (name, description, default), got ${expr.args.length}`,
+      });
+    }
+    const name = extractComptimeString(
+      expr.args[0]!.$?.value,
+      "name",
+      expr.token
+    );
+    const description = extractComptimeString(
+      expr.args[1]!.$?.value,
+      "description",
+      expr.token
+    );
+    const defaultValue = extractComptimeString(
+      expr.args[2]!.$?.value,
+      "default",
+      expr.token
+    );
+
+    registry.declaredOptions.set(name, { description, defaultValue });
+
+    // Return CLI override if provided, otherwise the default
+    const value = registry.cliOptions.get(name) ?? defaultValue;
+    return makeComptimeStringResult(expr, env, value);
   }
 
   throw formatErrorMessage({

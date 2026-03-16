@@ -317,10 +317,47 @@ Step :: struct(
 
 Internally, wrapper functions decompose the config struct and pass individual fields to the evaluator builtins (e.g., `__yo_build_executable(config.name, config.root, ...)`). This keeps the builtin implementation simple while providing a clean struct-based API to users.
 
-### 2.6 User-Provided Build Options (Future)
+### 2.6 User-Provided Build Options
 
-Like Zig's `b.option()`, `build.yo` could declare user-configurable options via
-`yo build -D<name>=<value>`. This is not yet implemented.
+Like Zig's `b.option()`, `build.yo` can declare user-configurable options via `yo build -D<name>=<value>`:
+
+```yo
+// In build.yo:
+strip :: build.option(build.BuildOption(
+  name: "strip",
+  description: "Strip debug symbols",
+  default: "false"
+));
+```
+
+The `option()` function returns a `comptime_string` value. At evaluation time, if the CLI provides `-Dstrip=true`, the function returns `"true"`; otherwise it returns the default `"false"`.
+
+**Config type:**
+
+```yo
+BuildOption :: struct(
+  name : comptime_string,
+  description : comptime_string,
+  (default : comptime_string) ?= ""
+);
+```
+
+**CLI usage:**
+
+```bash
+yo build -Dstrip=true -Dopt=release-fast
+yo build -Dstrip          # shorthand for -Dstrip=true
+```
+
+### 2.6.1 System Library Linking
+
+Like Zig's `exe.linkSystemLibrary("z")`, link system libraries by name:
+
+```yo
+exe :: build.executable(build.Executable(name: "my-app", root: "./src/main.yo"));
+build.link_system_library(exe, "z");       // -lz
+build.link_system_library(exe, "pthread"); // -lpthread
+```
 
 ### 2.7 Evaluation Model
 

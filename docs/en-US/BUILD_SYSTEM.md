@@ -223,6 +223,60 @@ build.step("install", "Build all artifacts", ComptimeList(build.Step)(exe, lib))
 
 `build.link()` works with both static and shared libraries. When the dependent artifact is compiled, linked libraries are compiled first and their output is passed to the linker.
 
+### System Libraries
+
+Use `build.link_system_library()` to link system libraries by name (like Zig's `exe.linkSystemLibrary("z")`). This adds `-l<name>` to the linker flags:
+
+```yo
+exe :: build.executable(build.Executable(name: "my-app", root: "./src/main.yo"));
+
+// Link system libraries
+build.link_system_library(exe, "z");      // -lz (zlib)
+build.link_system_library(exe, "pthread"); // -lpthread
+```
+
+## Build Options
+
+Like Zig's `b.option()`, declare user-configurable build options that can be set from the CLI with `-Dname=value`:
+
+```yo
+build :: import "std/build";
+
+// Declare a build option with a default value
+strip :: build.option(build.BuildOption(
+  name: "strip",
+  description: "Strip debug symbols",
+  default: "false"
+));
+
+opt_level :: build.option(build.BuildOption(
+  name: "opt",
+  description: "Optimization level",
+  default: "debug"
+));
+```
+
+CLI usage:
+
+```bash
+yo build -Dstrip=true -Dopt=release-fast
+yo build run -Dstrip=true
+```
+
+If no `-D` flag is provided, the default value is used. Boolean options without `=` default to `"true"`:
+
+```bash
+yo build -Dstrip       # same as -Dstrip=true
+```
+
+### `BuildOption`
+
+| Field         | Type              | Default      | Description              |
+| ------------- | ----------------- | ------------ | ------------------------ |
+| `name`        | `comptime_string` | _(required)_ | Option name              |
+| `description` | `comptime_string` | _(required)_ | Help text                |
+| `default`     | `comptime_string` | `""`         | Default value if not set |
+
 ## Cross-Compilation
 
 Yo supports cross-compilation via target triples. Specify the target in `build.yo` or on the command line:

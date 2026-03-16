@@ -1177,10 +1177,12 @@ export const BuiltinFunctions = {
   __yo_build_run: ["__yo_build_run"],
   __yo_build_step: ["__yo_build_step"],
   __yo_build_link: ["__yo_build_link"],
+  __yo_build_link_system_library: ["__yo_build_link_system_library"],
   __yo_build_target_host: ["__yo_build_target_host"],
   __yo_build_target_parse: ["__yo_build_target_parse"],
   __yo_build_dependency: ["__yo_build_dependency"],
   __yo_build_system_library: ["__yo_build_system_library"],
+  __yo_build_option: ["__yo_build_option"],
 };
 
 export function exprIsInfixOperatorFunctionCall(expr: Expr): boolean {
