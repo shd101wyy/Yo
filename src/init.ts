@@ -97,7 +97,7 @@ export function initProject(options: InitOptions): void {
 function generateBuildYo(name: string): string {
   return `build :: import "std/build";
 
-build.project(name: "${name}", version: "0.1.0");
+build.project(build.Project(name: "${name}"));
 
 exe :: build.executable(build.Executable(name: "${name}", root: "./src/main.yo"));
 

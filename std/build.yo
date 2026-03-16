@@ -6,7 +6,7 @@
 //
 // Usage in build.yo:
 //   build :: import "std/build";
-//   build.project(name: "my-app", version: "0.1.0");
+//   build.project(build.Project(name: "my-app"));
 //   exe :: build.executable(build.Executable(name: "my-app", root: "./src/main.yo"));
 //   build.step("install", "Build all artifacts", ComptimeList(build.Step)(exe));
 
@@ -59,6 +59,12 @@ export target_host;
 // Struct types with defaults, like Zig's options structs.
 // Usage: build.executable(build.Executable(name: "app", root: "./src/main.yo"))
 // Unspecified fields get their default values.
+
+Project :: struct(
+  name : comptime_string,
+  (version : comptime_string) ?= "0.1.0"
+);
+export Project;
 
 Executable :: struct(
   name : comptime_string,
@@ -137,8 +143,8 @@ export SystemLibrary;
 // wired together as dependencies via ComptimeList(Step).
 
 // Register project metadata.
-project :: (fn(comptime(name) : comptime_string, comptime(version) : comptime_string) -> unit) {
-  __yo_build_project(name, version);
+project :: (fn(comptime(config) : Project) -> unit) {
+  __yo_build_project(config.name, config.version);
 };
 export project;
 

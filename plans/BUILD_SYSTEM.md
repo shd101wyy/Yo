@@ -117,7 +117,7 @@ A builtin `target.host()` returns the host machine's target. This replaces the c
 ```yo
 build :: import "std/build";
 
-build.project(name: "my-app", version: "0.1.0");
+build.project(build.Project(name: "my-app"));
 
 exe :: build.executable(build.Executable(
   name: "my-app",
@@ -181,7 +181,7 @@ The build runner (`src/build-runner.ts`) flow:
 ```yo
 build :: import "std/build";
 
-build.project(name: "my-app", version: "0.1.0");
+build.project(build.Project(name: "my-app"));
 
 linux :: build.executable(build.Executable(
   name: "my-app-linux",
@@ -212,7 +212,7 @@ build.step("install", "Install all targets", ComptimeList(build.Step)(linux, mac
 ```yo
 build :: import "std/build";
 
-build.project(name: "my-lib", version: "0.2.0");
+build.project(build.Project(name: "my-lib"));
 
 lib :: build.static_library(build.StaticLibrary(name: "mylib", root: "./src/lib.yo"));
 
@@ -278,7 +278,7 @@ TestSuite :: struct(
 
 ```yo
 // Project metadata (returns unit — the only exception)
-project(name: comptime_string, version: comptime_string)
+project(config: Project)
 
 // Register an executable artifact (accepts Executable config struct)
 executable(config: Executable) -> Step  // kind: StepKind.Executable
@@ -498,7 +498,7 @@ my-project/
 ```yo
 build :: import "std/build";
 
-build.project(name: "my-project", version: "0.1.0");
+build.project(build.Project(name: "my-project"));
 
 exe :: build.executable(build.Executable(name: "my-project", root: "./src/main.yo"));
 

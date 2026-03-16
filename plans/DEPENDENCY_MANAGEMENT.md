@@ -32,7 +32,7 @@ Yo projects currently have no way to depend on external libraries — neither ot
 ```yo
 build :: import "std/build";
 
-build.project(name: "my-app", version: "0.1.0");
+build.project(build.Project(name: "my-app"));
 
 // Declare a git dependency
 build.dependency(build.GitDependency(

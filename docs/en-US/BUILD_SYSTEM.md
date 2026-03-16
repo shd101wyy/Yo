@@ -53,7 +53,7 @@ The build file is a regular Yo source file that imports the `std/build` module. 
 build :: import "std/build";
 
 // Project metadata
-build.project(name: "my-project", version: "0.1.0");
+build.project(build.Project(name: "my-project"));
 
 // Define artifacts — each returns a Step for dependency wiring
 exe :: build.executable(build.Executable(
@@ -202,7 +202,7 @@ Use `build.link()` to link any library to an artifact — works with static, sha
 ```yo
 build :: import "std/build";
 
-build.project("my-app", "0.1.0");
+build.project(build.Project(name: "my-app"));
 
 // Yo libraries
 lib :: build.shared_library(build.SharedLibrary(
@@ -368,7 +368,7 @@ Define multiple artifacts with different targets in a single `build.yo`:
 ```yo
 build :: import "std/build";
 
-build.project(name: "my-app", version: "1.0.0");
+build.project(build.Project(name: "my-app", version: "1.0.0"));
 
 // Native build
 native :: build.executable(build.Executable(
@@ -401,7 +401,7 @@ Declare git-hosted dependencies in `build.yo`:
 ```yo
 build :: import "std/build";
 
-build.project(name: "my-app", version: "1.0.0");
+build.project(build.Project(name: "my-app", version: "1.0.0"));
 
 // Add a git dependency
 build.dependency(build.GitDependency(
