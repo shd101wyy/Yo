@@ -292,11 +292,9 @@ shared_library(config: SharedLibrary) -> Step  // kind: StepKind.SharedLibrary
 // Register a system C library via pkg-config (accepts SystemLibrary config struct)
 system_library(config: SystemLibrary) -> Step  // kind: StepKind.SystemLibrary
 
-// Link a library artifact to an executable (like Zig's exe.linkLibrary(lib))
+// Link any library (static, shared, or system) to an artifact
+// Automatically detects library type from the registry
 link(artifact: Step, library: Step) -> unit
-
-// Link a system library to an artifact (takes Step from system_library())
-link_system_library(artifact: Step, library: Step) -> unit
 
 // Register a test suite (accepts TestSuite config struct)
 test(config: TestSuite) -> Step  // kind: StepKind.TestSuite
@@ -357,7 +355,7 @@ yo build -Dstrip          # shorthand for -Dstrip=true
 
 ### 2.6.1 System Library Linking
 
-Like Zig's `exe.linkSystemLibrary()`, register system libraries via `build.system_library()` and link them to artifacts with `build.link_system_library()`. Both functions return/accept `Step` values for API consistency:
+Register system libraries via `build.system_library()` and link them using the unified `build.link()` function:
 
 ```yo
 // Register system libraries (returns Step)
@@ -368,11 +366,11 @@ openssl :: build.system_library(build.SystemLibrary(
 
 exe :: build.executable(build.Executable(name: "my-app", root: "./src/main.yo"));
 
-// Link using Step values
-build.link_system_library(exe, openssl);
+// Same build.link() for Yo and system libraries
+build.link(exe, openssl);
 ```
 
-System library flags are resolved via `pkg-config` at build time and applied only to artifacts that explicitly link to them.
+`build.link()` automatically detects the library type from the registry: system libraries get `pkg-config` flags, Yo libraries get compiled first and linked.
 
 ### 2.7 Evaluation Model
 

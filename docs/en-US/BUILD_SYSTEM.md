@@ -197,59 +197,41 @@ Available steps:
 
 ## Linking Libraries
 
-Use `build.link()` to link a library artifact to an executable, similar to Zig's `exe.linkLibrary(lib)`. The build system automatically compiles linked libraries before the dependent artifact:
+Use `build.link()` to link any library to an artifact — works with static, shared, and system libraries. Similar to Zig's `exe.linkLibrary(lib)`:
 
 ```yo
 build :: import "std/build";
 
-build.project(name: "my-app", version: "0.1.0");
+build.project("my-app", "0.1.0");
 
-// Define a shared library
+// Yo libraries
 lib :: build.shared_library(build.SharedLibrary(
   name: "mylib",
   root: "./src/lib.yo"
 ));
 
-// Define an executable that links the library
-exe :: build.executable(build.Executable(
-  name: "my-app",
-  root: "./src/main.yo"
-));
-
-// Link the library to the executable
-build.link(exe, lib);
-
-build.step("install", "Build all artifacts", ComptimeList(build.Step)(exe, lib));
-```
-
-`build.link()` works with both static and shared libraries. When the dependent artifact is compiled, linked libraries are compiled first and their output is passed to the linker.
-
-### System Libraries
-
-Use `build.system_library()` to register a system library (discovered via `pkg-config`), then `build.link_system_library()` to link it to an artifact. This is consistent with how `build.link()` works for Yo library artifacts:
-
-```yo
-build :: import "std/build";
-
-// Register system libraries
+// System libraries (via pkg-config)
 openssl :: build.system_library(build.SystemLibrary(
   name: "openssl",
   pkg_config: "openssl"
 ));
 
-zlib :: build.system_library(build.SystemLibrary(
-  name: "zlib",
-  pkg_config: "zlib"
+exe :: build.executable(build.Executable(
+  name: "my-app",
+  root: "./src/main.yo"
 ));
 
-exe :: build.executable(build.Executable(name: "my-app", root: "./src/main.yo"));
+// Single link function for all library types
+build.link(exe, lib);
+build.link(exe, openssl);
 
-// Link system libraries to the executable
-build.link_system_library(exe, openssl);
-build.link_system_library(exe, zlib);
+build.step("install", "Build all artifacts", ComptimeList(build.Step)(exe, lib));
 ```
 
-System library flags (include paths, linker flags) are resolved via `pkg-config` and applied only to the artifacts that explicitly link to them.
+`build.link()` automatically determines the library type:
+
+- **Static/shared libraries** — compiled first, output passed to the linker
+- **System libraries** — resolved via `pkg-config` at build time, flags applied to the artifact
 
 ## Build Options
 

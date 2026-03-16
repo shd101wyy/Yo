@@ -216,19 +216,12 @@ step :: (fn(
 };
 export step;
 
-// Link a library to an executable or another library.
+// Link a library to an artifact. Works with static, shared, and system libraries.
 // Like Zig's exe.linkLibrary(lib).
 link :: (fn(comptime(artifact) : Step, comptime(library) : Step) -> unit) {
   __yo_build_link(artifact.name, library.name);
 };
 export link;
-
-// Link a system library to an artifact. Takes a Step returned by system_library().
-// Like Zig's exe.linkSystemLibrary("z"), but using a Step handle.
-link_system_library :: (fn(comptime(artifact) : Step, comptime(library) : Step) -> unit) {
-  __yo_build_link_system_library(artifact.name, library.name);
-};
-export link_system_library;
 
 // Register a git-hosted dependency.
 dependency :: (fn(comptime(config) : GitDependency) -> unit) {

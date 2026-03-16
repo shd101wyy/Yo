@@ -568,6 +568,7 @@ export function evaluateYoBuildFunctions({
   }
 
   // __yo_build_link(artifact_name, library_name)
+  // Unified link handler: checks if library_name is a Yo artifact or system library
   if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_link)) {
     if (expr.args.length < 2) {
       throw formatErrorMessage({
@@ -585,11 +586,22 @@ export function evaluateYoBuildFunctions({
       "library_name",
       expr.token
     );
-    registry.registerLink(artifactName, libraryName);
+    // Check if it's a system library first, then fall back to artifact link
+    if (registry.findSystemLibrary(libraryName)) {
+      const artifact = registry.findArtifact(artifactName);
+      if (artifact) {
+        if (!artifact.linkedSystemLibraries.includes(libraryName)) {
+          artifact.linkedSystemLibraries.push(libraryName);
+        }
+      }
+    } else {
+      registry.registerLink(artifactName, libraryName);
+    }
     return makeUnitResult(expr, env);
   }
 
   // __yo_build_link_system_library(artifact_name, system_lib_name)
+  // Kept for backward compatibility; build.link() now handles both cases
   if (
     exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_link_system_library)
   ) {
