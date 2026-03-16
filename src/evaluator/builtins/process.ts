@@ -5,6 +5,11 @@ import {
   exprIsFunctionCallOf,
   type FnCallExpr,
 } from "../../expr";
+import {
+  getCurrentTarget,
+  targetArchToYoString,
+  targetOsToYoString,
+} from "../../target";
 import { createComptimeStringType } from "../../types/creators";
 import { createComptimeStringValue } from "../../value";
 import type { EvaluatorContext } from "../context";
@@ -20,7 +25,7 @@ export function evaluateYoProcessFunctions({
   env: Environment;
   context: EvaluatorContext;
 }): FnCallExpr {
-  // __yo_process_platform - returns process.platform
+  // __yo_process_platform - returns the target platform
   if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_process_platform)) {
     if (expr.args.length !== 0) {
       throw formatErrorMessage({
@@ -29,8 +34,8 @@ export function evaluateYoProcessFunctions({
       });
     }
 
-    // In compile-time evaluation, return the actual platform value
-    const platform = process.platform; // 'darwin', 'linux', 'win32', etc.
+    const target = getCurrentTarget();
+    const platform = targetOsToYoString(target.os);
     const value = createComptimeStringValue(platform);
 
     expr.$ = {
@@ -43,7 +48,7 @@ export function evaluateYoProcessFunctions({
     return expr;
   }
 
-  // __yo_process_arch - returns process.arch
+  // __yo_process_arch - returns the target architecture
   if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_process_arch)) {
     if (expr.args.length !== 0) {
       throw formatErrorMessage({
@@ -52,8 +57,8 @@ export function evaluateYoProcessFunctions({
       });
     }
 
-    // In compile-time evaluation, return the actual architecture value
-    const arch = process.arch; // 'x64', 'arm64', 'ia32', etc.
+    const target = getCurrentTarget();
+    const arch = targetArchToYoString(target.arch);
     const value = createComptimeStringValue(arch);
 
     expr.$ = {

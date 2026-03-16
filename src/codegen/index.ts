@@ -7,6 +7,16 @@ import {
   isLiburingAvailable,
 } from "../compiler-utils";
 import { ModuleManager } from "../module-manager";
+import {
+  type TargetInfo,
+  clangTriple,
+  hostTarget,
+  isTargetLinux,
+  isTargetWindows,
+  parseTarget,
+  setCurrentTarget,
+} from "../target";
+import { setTargetPointerSize } from "../types/utils";
 
 export class CodeGenerator {
   private moduleManager: ModuleManager;
@@ -30,6 +40,15 @@ export class CodeGenerator {
        * Target language to compile to
        */
       target: "c";
+      /**
+       * Target triple for cross-compilation (e.g. "x86_64-linux-gnu").
+       * Defaults to host target if not specified.
+       */
+      targetTriple?: string;
+      /**
+       * Sysroot for cross-compilation.
+       */
+      sysroot?: string;
       /**
        * External files to include in the compilation.
        */
@@ -110,6 +129,13 @@ export class CodeGenerator {
       cflags?: string;
     }
   ): void {
+    // Resolve the compilation target
+    const targetInfo: TargetInfo = options.targetTriple
+      ? parseTarget(options.targetTriple)
+      : hostTarget();
+    setCurrentTarget(targetInfo);
+    setTargetPointerSize(targetInfo.pointerSizeBits);
+
     if (!options.skipCodegen) {
       this.moduleManager.compileModule(modulePath, {
         emitC: options.emitC,
@@ -271,10 +297,10 @@ export class CodeGenerator {
 
         // Add libraries from -l option
         const libraries = [...(options.libraries ?? [])];
-        if (process.platform === "win32" && !libraries.includes("ws2_32")) {
+        if (isTargetWindows(targetInfo) && !libraries.includes("ws2_32")) {
           libraries.push("ws2_32");
         }
-        if (process.platform === "win32" && !libraries.includes("bcrypt")) {
+        if (isTargetWindows(targetInfo) && !libraries.includes("bcrypt")) {
           libraries.push("bcrypt");
         }
         libraries.forEach((library) => {
@@ -315,10 +341,10 @@ export class CodeGenerator {
         }
 
         // Add liburing on Linux for async I/O (uses system-installed liburing)
-        if (!isMSVC && isLiburingAvailable()) {
+        if (!isMSVC && isTargetLinux(targetInfo) && isLiburingAvailable()) {
           compileArgs.splice(-2, 0, "-luring");
           console.log("Using system liburing for async I/O");
-        } else if (process.platform === "linux" && !isMSVC) {
+        } else if (isTargetLinux(targetInfo) && !isMSVC) {
           console.warn(
             "⚠️  liburing not found - async I/O will not be available. Run 'npm run postinstall' for installation instructions."
           );
@@ -331,6 +357,17 @@ export class CodeGenerator {
             compileArgs.splice(isMSVC ? -1 : -2, 0, flag);
           });
           console.log(`Custom compiler flags added: ${options.cflags}`);
+        }
+
+        // Cross-compilation: add --target= and --sysroot= for clang/gcc
+        const host = hostTarget();
+        if (!isMSVC && targetInfo.triple !== host.triple) {
+          const triple = clangTriple(targetInfo);
+          compileArgs.splice(isMSVC ? -1 : -2, 0, `--target=${triple}`);
+          console.log(`Cross-compiling for target: ${triple}`);
+          if (options.sysroot) {
+            compileArgs.splice(-2, 0, `--sysroot=${options.sysroot}`);
+          }
         }
 
         console.log(`Compiling with: ${compiler} ${compileArgs.join(" ")}`);
