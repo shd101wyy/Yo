@@ -55,39 +55,26 @@ build :: import "std/build";
 // Project metadata
 build.project(name: "my-project", version: "0.1.0");
 
-// Define an executable artifact
-build.executable(build.Executable(
+// Define artifacts — each returns a Step for dependency wiring
+exe :: build.executable(build.Executable(
   name: "my-project",
   root: "./src/main.yo"
 ));
 
-// Define a static library artifact
-build.static_library(build.StaticLibrary(
+lib :: build.static_library(build.StaticLibrary(
   name: "my-project-lib",
   root: "./src/lib.yo"
 ));
 
-// Define a test suite
-build.test(build.TestSuite(name: "tests", root: "./tests/"));
+tests :: build.test(build.TestSuite(name: "tests", root: "./tests/"));
 
 // Register a run step (compile + execute)
-build.run("my-project");
+run_exe :: build.run("my-project");
 
-// Named steps with dependencies
-build.step(
-  build.Step(name: "install", description: "Build all artifacts"),
-  ComptimeList(comptime_string)("my-project", "my-project-lib")
-);
-
-build.step(
-  build.Step(name: "run", description: "Run the application"),
-  ComptimeList(comptime_string)("run:my-project")
-);
-
-build.step(
-  build.Step(name: "test", description: "Run unit tests"),
-  ComptimeList(comptime_string)("tests")
-);
+// Named steps with Step dependencies
+build.step("install", "Build all artifacts", ComptimeList(build.Step)(exe, lib));
+build.step("run", "Run the application", ComptimeList(build.Step)(run_exe));
+build.step("test", "Run unit tests", ComptimeList(build.Step)(tests));
 ```
 
 ## Config Structs
@@ -148,36 +135,39 @@ Build artifacts use struct types with default field values (like Zig's options p
 
 ## Build Steps
 
-Steps are named targets that define what `yo build <step>` does. Each step has a name, description, and a list of dependencies (referenced by name):
+Steps are named targets that define what `yo build <step>` does. Every build function (`executable`, `static_library`, `test`, `run`) returns a `Step` value. Wire steps together using `ComptimeList(build.Step)`:
 
 ```yo
-// Step struct + ComptimeList for dependencies
-build.step(
-  build.Step(name: "install", description: "Build all artifacts"),
-  ComptimeList(comptime_string)("my-app", "my-lib")
-);
+// Each build function returns a Step
+exe :: build.executable(build.Executable(name: "my-app", root: "./src/main.yo"));
+lib :: build.static_library(build.StaticLibrary(name: "my-lib", root: "./src/lib.yo"));
+tests :: build.test(build.TestSuite(name: "tests", root: "./tests/"));
+run_exe :: build.run("my-app");
 
-// Run steps reference artifacts with "run:<name>"
-build.step(
-  build.Step(name: "run", description: "Run the application"),
-  ComptimeList(comptime_string)("run:my-app")
-);
-
-// Test steps reference test suite names
-build.step(
-  build.Step(name: "test", description: "Run unit tests"),
-  ComptimeList(comptime_string)("tests")
-);
+// Wire steps as dependencies
+build.step("install", "Build all artifacts", ComptimeList(build.Step)(exe, lib));
+build.step("run", "Run the application", ComptimeList(build.Step)(run_exe));
+build.step("test", "Run unit tests", ComptimeList(build.Step)(tests));
 ```
 
 ### `Step`
 
-| Field         | Type              | Description      |
-| ------------- | ----------------- | ---------------- |
-| `name`        | `comptime_string` | Step name        |
-| `description` | `comptime_string` | Step description |
+| Field  | Type              | Description                                                            |
+| ------ | ----------------- | ---------------------------------------------------------------------- |
+| `name` | `comptime_string` | Step name (artifact name, or custom name for `build.step`)             |
+| `kind` | `StepKind`        | Step kind: `Executable`, `StaticLibrary`, `TestSuite`, `Run`, `Custom` |
 
-Dependencies are passed as a `ComptimeList(comptime_string)` — a compile-time list of artifact, test, or run step names.
+### `StepKind`
+
+| Value           | Description                          |
+| --------------- | ------------------------------------ |
+| `Executable`    | Returned by `build.executable()`     |
+| `StaticLibrary` | Returned by `build.static_library()` |
+| `TestSuite`     | Returned by `build.test()`           |
+| `Run`           | Returned by `build.run()`            |
+| `Custom`        | Returned by `build.step()`           |
+
+Dependencies are passed as a `ComptimeList(build.Step)` — a compile-time list of Step values returned by build functions.
 
 List all available steps:
 
@@ -286,14 +276,14 @@ build :: import "std/build";
 build.project(name: "my-app", version: "1.0.0");
 
 // Native build
-build.executable(build.Executable(
+native :: build.executable(build.Executable(
   name: "my-app",
   root: "./src/main.yo",
   optimize: build.Optimize.ReleaseFast
 ));
 
 // WASM build
-build.executable(build.Executable(
+wasm :: build.executable(build.Executable(
   name: "my-app-wasm",
   root: "./src/main.yo",
   target: "wasm32-wasi",
@@ -301,15 +291,10 @@ build.executable(build.Executable(
   allocator: build.Allocator.Libc
 ));
 
-build.step(
-  build.Step(name: "install", description: "Build all targets"),
-  ComptimeList(comptime_string)("my-app", "my-app-wasm")
-);
+run_native :: build.run("my-app");
 
-build.step(
-  build.Step(name: "run", description: "Run native build"),
-  ComptimeList(comptime_string)("run:my-app")
-);
+build.step("install", "Build all targets", ComptimeList(build.Step)(native, wasm));
+build.step("run", "Run native build", ComptimeList(build.Step)(run_native));
 ```
 
 ## Dependencies
@@ -338,12 +323,9 @@ build.dependency(build.GitDependency(
   path: "packages/utils"
 ));
 
-build.executable(build.Executable(name: "my-app", root: "./src/main.yo"));
+exe :: build.executable(build.Executable(name: "my-app", root: "./src/main.yo"));
 
-build.step(
-  build.Step(name: "install", description: "Build all artifacts"),
-  ComptimeList(comptime_string)("my-app")
-);
+build.step("install", "Build all artifacts", ComptimeList(build.Step)(exe));
 ```
 
 Fetch dependencies with:

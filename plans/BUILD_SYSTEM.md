@@ -119,34 +119,25 @@ build :: import "std/build";
 
 build.project(name: "my-app", version: "0.1.0");
 
-build.executable(build.Executable(
+exe :: build.executable(build.Executable(
   name: "my-app",
   root: "./src/main.yo",
   optimize: build.Optimize.ReleaseFast
 ));
 
-build.static_library(build.StaticLibrary(name: "my-app-lib", root: "./src/lib.yo"));
+lib :: build.static_library(build.StaticLibrary(name: "my-app-lib", root: "./src/lib.yo"));
 
-build.test(build.TestSuite(name: "tests", root: "./tests/"));
+tests :: build.test(build.TestSuite(name: "tests", root: "./tests/"));
 
 // build.run registers a run step for an artifact (by name)
-build.run("my-app");
+run_app :: build.run("my-app");
 
 // Named steps with dependencies
-build.step(
-  build.Step(name: "install", description: "Build all artifacts"),
-  ComptimeList(comptime_string)("my-app", "my-app-lib")
-);
+build.step("install", "Build all artifacts", ComptimeList(build.Step)(exe, lib));
 
-build.step(
-  build.Step(name: "run", description: "Run the application"),
-  ComptimeList(comptime_string)("run:my-app")
-);
+build.step("run", "Run the application", ComptimeList(build.Step)(run_app));
 
-build.step(
-  build.Step(name: "test", description: "Run unit tests"),
-  ComptimeList(comptime_string)("tests")
-);
+build.step("test", "Run unit tests", ComptimeList(build.Step)(tests));
 ```
 
 Usage:
@@ -171,9 +162,9 @@ Available steps:
 
 All build functions are **evaluator builtins** (`src/evaluator/builtins/build.ts`):
 
-- Build functions return `unit` — they register side effects in a global `BuildRegistry`
-- Dependencies are resolved by **name**, not by return value IDs
-- Run steps have synthetic names `"run:<artifact-name>"` for dependency resolution
+- Build functions return `Step` — each step has a `name` and `kind` (from `StepKind` enum)
+- Dependencies are resolved by **Step values**, not by string names
+- Run steps have `StepKind.Run` — no synthetic `"run:<artifact-name>"` naming needed
 - `std/build.yo` wrapper functions use `comptime()` parameter annotations
 - Config struct types (`Executable`, `StaticLibrary`, `TestSuite`) use `?=` defaults for optional fields
 - Wrapper functions decompose structs and pass individual fields to builtins
@@ -192,31 +183,28 @@ build :: import "std/build";
 
 build.project(name: "my-app", version: "0.1.0");
 
-build.executable(build.Executable(
+linux :: build.executable(build.Executable(
   name: "my-app-linux",
   root: "./src/main.yo",
   target: "x86_64-linux-gnu",
   optimize: build.Optimize.ReleaseFast
 ));
 
-build.executable(build.Executable(
+macos :: build.executable(build.Executable(
   name: "my-app-macos",
   root: "./src/main.yo",
   target: "aarch64-macos",
   optimize: build.Optimize.ReleaseFast
 ));
 
-build.executable(build.Executable(
+wasm :: build.executable(build.Executable(
   name: "my-app-wasm",
   root: "./src/main.yo",
   target: "wasm32-wasi",
   optimize: build.Optimize.ReleaseSmall
 ));
 
-build.step(
-  build.Step(name: "install", description: "Install all targets"),
-  ComptimeList(comptime_string)("my-app-linux", "my-app-macos", "my-app-wasm")
-);
+build.step("install", "Install all targets", ComptimeList(build.Step)(linux, macos, wasm));
 ```
 
 ### 2.4 Library Example
@@ -226,19 +214,13 @@ build :: import "std/build";
 
 build.project(name: "my-lib", version: "0.2.0");
 
-build.static_library(build.StaticLibrary(name: "mylib", root: "./src/lib.yo"));
+lib :: build.static_library(build.StaticLibrary(name: "mylib", root: "./src/lib.yo"));
 
-build.test(build.TestSuite(name: "lib-tests", root: "./tests/"));
+lib_tests :: build.test(build.TestSuite(name: "lib-tests", root: "./tests/"));
 
-build.step(
-  build.Step(name: "install", description: "Install library"),
-  ComptimeList(comptime_string)("mylib")
-);
+build.step("install", "Install library", ComptimeList(build.Step)(lib));
 
-build.step(
-  build.Step(name: "test", description: "Run library tests"),
-  ComptimeList(comptime_string)("lib-tests")
-);
+build.step("test", "Run library tests", ComptimeList(build.Step)(lib_tests));
 ```
 
 ### 2.5 `build` Module API (`std/build.yo`)
@@ -251,6 +233,7 @@ The build module is imported as a namespace and provides compile-time functions 
 Optimize :: enum(Debug, ReleaseSafe, ReleaseFast, ReleaseSmall)
 Allocator :: enum(Mimalloc, Libc)
 Sanitize :: enum(None, Address, Leak)
+StepKind :: enum(Executable, StaticLibrary, TestSuite, Run, Custom)
 target_host :: comptime_string  // Host target triple
 ```
 
@@ -283,29 +266,30 @@ TestSuite :: struct(
 );
 ```
 
-**Functions (all return `unit`):**
+**Functions (all return `Step`):**
 
 ```yo
-// Project metadata
+// Project metadata (returns unit — the only exception)
 project(name: comptime_string, version: comptime_string)
 
 // Register an executable artifact (accepts Executable config struct)
-executable(config: Executable)
+executable(config: Executable) -> Step  // kind: StepKind.Executable
 
 // Register a static library artifact (accepts StaticLibrary config struct)
-static_library(config: StaticLibrary)
+static_library(config: StaticLibrary) -> Step  // kind: StepKind.StaticLibrary
 
 // Register a test suite (accepts TestSuite config struct)
-test(config: TestSuite)
+test(config: TestSuite) -> Step  // kind: StepKind.TestSuite
 
 // Register a run step for an artifact (by name)
-run(artifact_name: comptime_string)
+run(artifact_name: comptime_string) -> Step  // kind: StepKind.Run
 
-// Named build step with variable-length dependencies
+// Named build step with variable-length dependencies (Step values, not strings)
 step(
-  config: Step,
-  deps: ComptimeList(comptime_string)
-)
+  name: comptime_string,
+  description: comptime_string,
+  deps: ComptimeList(Step)
+) -> Step  // kind: StepKind.Custom
 ```
 
 **Step struct:**
@@ -313,7 +297,7 @@ step(
 ```yo
 Step :: struct(
   name : comptime_string,
-  description : comptime_string
+  kind : StepKind
 );
 ```
 
@@ -332,7 +316,7 @@ Like Zig's `b.option()`, `build.yo` could declare user-configurable options via
 2. `ModuleManager` loads and evaluates `build.yo` — build functions (builtins) populate the registry
 3. `ModuleManager.resetAllState()` cleans up evaluator globals (prevents stale prelude state)
 4. The build runner reads `BuildRegistry` for project config, artifacts, tests, run steps, named steps
-5. Step dependencies are resolved by name and executed in order
+5. Step dependencies are resolved by Step values and executed in order
 6. No C code is generated for `build.yo` itself — it's purely a configuration file
 
 Key implementation details:
@@ -452,28 +436,19 @@ build :: import "std/build";
 
 build.project(name: "my-project", version: "0.1.0");
 
-build.executable(build.Executable(name: "my-project", root: "./src/main.yo"));
+exe :: build.executable(build.Executable(name: "my-project", root: "./src/main.yo"));
 
-build.static_library(build.StaticLibrary(name: "my-project-lib", root: "./src/lib.yo"));
+lib :: build.static_library(build.StaticLibrary(name: "my-project-lib", root: "./src/lib.yo"));
 
-build.test(build.TestSuite(name: "tests", root: "./tests/"));
+tests :: build.test(build.TestSuite(name: "tests", root: "./tests/"));
 
-build.run("my-project");
+run_app :: build.run("my-project");
 
-build.step(
-  build.Step(name: "install", description: "Build all artifacts"),
-  ComptimeList(comptime_string)("my-project", "my-project-lib")
-);
+build.step("install", "Build all artifacts", ComptimeList(build.Step)(exe, lib));
 
-build.step(
-  build.Step(name: "run", description: "Run the application"),
-  ComptimeList(comptime_string)("run:my-project")
-);
+build.step("run", "Run the application", ComptimeList(build.Step)(run_app));
 
-build.step(
-  build.Step(name: "test", description: "Run unit tests"),
-  ComptimeList(comptime_string)("tests")
-);
+build.step("test", "Run unit tests", ComptimeList(build.Step)(tests));
 ```
 
 **`src/main.yo`:**
@@ -788,7 +763,7 @@ Existing options (unchanged):
 10. ✅ Create `std/build.yo` module with evaluator builtins (`src/evaluator/builtins/build.ts`)
 11. ✅ Implement `yo build` command (build.yo evaluation via ModuleManager + BuildRegistry)
 12. ✅ Implement build output directory structure (`yo-out/bin/`, `yo-out/lib/`)
-13. ✅ Step resolution with name-based dependency system
+13. ✅ Step resolution with Step-value-based dependency system
 14. ✅ `yo build`, `yo build run`, `yo build test`, `yo build --list-steps`
 
 ### Phase 4: Cross-Compilation & WASM ✅

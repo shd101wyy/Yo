@@ -4,22 +4,32 @@
 
 ### Problem
 
-The current `step` function accepts up to 8 fixed positional dependency arguments (`dep0`..`dep7`), which is both limiting and inelegant.
+The original `step` function accepted up to 8 fixed positional dependency arguments (`dep0`..`dep7`). This was later changed to `ComptimeList(comptime_string)` for variable-length deps, but dependencies were still string-based — users had to know synthetic names like `"run:my-app"`.
 
-### Solution: Struct-based Step with `ComptimeList`
+### Solution: Unified Step type
 
-Use the existing `ComptimeList(comptime_string)` type for variable-length dependency lists, wrapped in a `Step` struct following our established pattern:
+All build functions (`executable`, `static_library`, `test`, `run`, `step`) now return a `Step` value. Steps are wired together using `ComptimeList(Step)`, making dependencies type-safe and explicit:
 
 ```yo
+StepKind :: enum(Executable, StaticLibrary, TestSuite, Run, Custom);
+
 Step :: struct(
   name : comptime_string,
-  description : comptime_string
+  kind : StepKind
 );
 
+// Build functions return Step (with comptime return type)
+executable :: (fn(comptime(config) : Executable) -> comptime(Step)) { ... };
+static_library :: (fn(comptime(config) : StaticLibrary) -> comptime(Step)) { ... };
+test :: (fn(comptime(config) : TestSuite) -> comptime(Step)) { ... };
+run :: (fn(comptime(artifact_name) : comptime_string) -> comptime(Step)) { ... };
+
+// step() accepts ComptimeList(Step) for dependencies
 step :: (fn(
-  comptime(config) : Step,
-  comptime(deps) : ComptimeList(comptime_string)
-) -> unit) { ... };
+  comptime(name) : comptime_string,
+  comptime(description) : comptime_string,
+  comptime(deps) : ComptimeList(Step)
+) -> comptime(Step)) { ... };
 ```
 
 **Usage:**
@@ -27,33 +37,34 @@ step :: (fn(
 ```yo
 build :: import "std/build";
 
-build.executable(build.Executable(
-  name: "my-app",
-  root: "./src/main.yo"
-));
+exe :: build.executable(build.Executable(name: "my-app", root: "./src/main.yo"));
+run_exe :: build.run("my-app");
+tests :: build.test(build.TestSuite(name: "tests", root: "./tests/"));
 
-// Step with dependencies
-build.step(
-  build.Step(name: "install", description: "Build all targets"),
-  ComptimeList(comptime_string)("my-app")
-);
-
-// Step with no dependencies
-build.step(
-  build.Step(name: "clean", description: "Clean build artifacts"),
-  ComptimeList(comptime_string)()
-);
+build.step("install", "Build all targets", ComptimeList(build.Step)(exe));
+build.step("run", "Run the application", ComptimeList(build.Step)(run_exe));
+build.step("test", "Run unit tests", ComptimeList(build.Step)(tests));
 ```
 
-### Why not `deps` as a struct field?
+### How dependency resolution works
 
-Struct default values with `ComptimeList` would require `(deps : ComptimeList(comptime_string)) ?= ComptimeList(comptime_string)()`, which adds complexity to the default value evaluation path. Keeping `deps` as a separate parameter is simpler and more explicit.
+The `__yo_build_step` builtin reads Step struct values from the ComptimeList:
+
+- Extracts `name` field (comptime_string) and `kind` field (StepKind enum)
+- Maps kind to dependency name: `Run` → `"run:<name>"`, all others → `"<name>"`
+- Registry resolution remains unchanged (artifact → test → run step → sub-step)
+
+### Why Step values instead of strings?
+
+- **Type safety**: Can't accidentally misspell a dependency name
+- **Zig alignment**: Mirrors Zig's pattern where `b.addExecutable()` returns a `*Compile` with a `.step` field
+- **No synthetic names**: Users don't need to know `"run:my-app"` convention — the Step's kind handles it
 
 ### Implementation
 
-1. **`std/build.yo`**: Add `Step` struct, update `step` function signature to take `(config: Step, deps: ComptimeList(comptime_string))`
-2. **`src/evaluator/builtins/build.ts`**: Update `__yo_build_step` handler to extract deps from `ComptimeListValue`
-3. **`src/init.ts`**: Update generated `build.yo` template to use new syntax
+1. **`std/build.yo`**: Added `StepKind` enum, changed `Step` to `(name, kind)`, all build functions return `comptime(Step)`
+2. **`src/evaluator/builtins/build.ts`**: `__yo_build_step` handler extracts `StructValue` elements from `ComptimeListValue`, reads `name` and `kind` fields
+3. **`src/init.ts`**: Generated `build.yo` template uses new syntax with variable bindings
 
 ---
 

@@ -24,6 +24,8 @@ import {
   createComptimeStringValue,
   isComptimeListValue,
   isComptimeStringValue,
+  isEnumValue,
+  isStructValue,
   isUnknownValue,
   type Value,
 } from "../../value";
@@ -536,6 +538,9 @@ export function evaluateYoBuildFunctions({
   }
 
   // __yo_build_step(name, description, deps_list)
+  // deps_list is a ComptimeList(Step) where each element is a Step struct value.
+  // Step struct has fields: [name: comptime_string, kind: StepKind]
+  // StepKind enum variants: Executable, StaticLibrary, TestSuite, Run, Custom
   if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_step)) {
     if (expr.args.length < 3) {
       throw formatErrorMessage({
@@ -558,12 +563,45 @@ export function evaluateYoBuildFunctions({
     if (depsValue && isComptimeListValue(depsValue)) {
       for (let i = 0; i < depsValue.elements.length; i++) {
         const elem = depsValue.elements[i];
-        if (elem && isComptimeStringValue(elem)) {
+        if (elem && isStructValue(elem)) {
+          // Extract 'name' field (index 0) from Step struct
+          const nameFieldIndex = elem.type.fields.findIndex(
+            (f) => f.label === "name"
+          );
+          const kindFieldIndex = elem.type.fields.findIndex(
+            (f) => f.label === "kind"
+          );
+          if (nameFieldIndex < 0) {
+            throw formatErrorMessage({
+              token: expr.token,
+              errorMessage: `Step dependency at index ${i}: missing 'name' field`,
+            });
+          }
+          const stepNameValue = elem.fields[nameFieldIndex];
+          if (!stepNameValue || !isComptimeStringValue(stepNameValue)) {
+            throw formatErrorMessage({
+              token: expr.token,
+              errorMessage: `Step dependency at index ${i}: 'name' field must be a comptime_string`,
+            });
+          }
+          // Check kind to construct correct dependency name
+          let depName = stepNameValue.value;
+          if (kindFieldIndex >= 0) {
+            const kindValue = elem.fields[kindFieldIndex];
+            if (kindValue && isEnumValue(kindValue)) {
+              if (kindValue.variantName === "Run") {
+                depName = `run:${depName}`;
+              }
+            }
+          }
+          depNames.push(depName);
+        } else if (elem && isComptimeStringValue(elem)) {
+          // Backward compatibility: accept comptime_string elements too
           depNames.push(elem.value);
         } else {
           throw formatErrorMessage({
             token: expr.token,
-            errorMessage: `Step dependency at index ${i} must be a comptime_string`,
+            errorMessage: `Step dependency at index ${i} must be a Step struct`,
           });
         }
       }

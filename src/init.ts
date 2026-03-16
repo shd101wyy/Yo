@@ -99,28 +99,19 @@ function generateBuildYo(name: string): string {
 
 build.project(name: "${name}", version: "0.1.0");
 
-build.executable(build.Executable(name: "${name}", root: "./src/main.yo"));
+exe :: build.executable(build.Executable(name: "${name}", root: "./src/main.yo"));
 
-build.static_library(build.StaticLibrary(name: "${name}-lib", root: "./src/lib.yo"));
+lib :: build.static_library(build.StaticLibrary(name: "${name}-lib", root: "./src/lib.yo"));
 
-build.test(build.TestSuite(name: "tests", root: "./tests/"));
+tests :: build.test(build.TestSuite(name: "tests", root: "./tests/"));
 
-build.run("${name}");
+run_exe :: build.run("${name}");
 
-build.step(
-  build.Step(name: "install", description: "Build all artifacts"),
-  ComptimeList(comptime_string)("${name}", "${name}-lib")
-);
+build.step("install", "Build all artifacts", ComptimeList(build.Step)(exe, lib));
 
-build.step(
-  build.Step(name: "run", description: "Run the application"),
-  ComptimeList(comptime_string)("run:${name}")
-);
+build.step("run", "Run the application", ComptimeList(build.Step)(run_exe));
 
-build.step(
-  build.Step(name: "test", description: "Run unit tests"),
-  ComptimeList(comptime_string)("tests")
-);
+build.step("test", "Run unit tests", ComptimeList(build.Step)(tests));
 `;
 }
 

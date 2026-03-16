@@ -7,7 +7,8 @@
 // Usage in build.yo:
 //   build :: import "std/build";
 //   build.project(name: "my-app", version: "0.1.0");
-//   build.executable(build.Executable(name: "my-app", root: "./src/main.yo"));
+//   exe :: build.executable(build.Executable(name: "my-app", root: "./src/main.yo"));
+//   build.step("install", "Build all artifacts", ComptimeList(build.Step)(exe));
 
 // ── Optimization levels ──────────────────────────────────────────────
 
@@ -35,6 +36,17 @@ Sanitize :: enum(
   Leak
 );
 export Sanitize;
+
+// ── Step kinds ───────────────────────────────────────────────────────
+
+StepKind :: enum(
+  Executable,
+  StaticLibrary,
+  TestSuite,
+  Run,
+  Custom
+);
+export StepKind;
 
 // ── Target utilities ─────────────────────────────────────────────────
 
@@ -71,9 +83,12 @@ TestSuite :: struct(
 );
 export TestSuite;
 
+// ── Step type ────────────────────────────────────────────────────────
+// Returned by all build functions. Used to wire dependencies between steps.
+
 Step :: struct(
   name : comptime_string,
-  description : comptime_string
+  kind : StepKind
 );
 export Step;
 
@@ -97,8 +112,8 @@ SystemLibrary :: struct(
 export SystemLibrary;
 
 // ── Build functions ──────────────────────────────────────────────────
-// All return unit. Artifacts and steps are registered by name in
-// the global BuildRegistry during compile-time evaluation.
+// All registration functions return a Step value, allowing steps to be
+// wired together as dependencies via ComptimeList(Step).
 
 // Register project metadata.
 project :: (fn(comptime(name) : comptime_string, comptime(version) : comptime_string) -> unit) {
@@ -106,8 +121,8 @@ project :: (fn(comptime(name) : comptime_string, comptime(version) : comptime_st
 };
 export project;
 
-// Register an executable artifact from a config struct.
-executable :: (fn(comptime(config) : Executable) -> unit) {
+// Register an executable artifact. Returns a Step for dependency wiring.
+executable :: (fn(comptime(config) : Executable) -> comptime(Step)) {
   opt_str :: match(config.optimize,
     .Debug => "debug",
     .ReleaseSafe => "release-safe",
@@ -124,11 +139,12 @@ executable :: (fn(comptime(config) : Executable) -> unit) {
     .Leak => "leak"
   );
   __yo_build_executable(config.name, config.root, config.target, opt_str, alloc_str, san_str);
+  Step(name: config.name, kind: StepKind.Executable)
 };
 export executable;
 
-// Register a static library artifact from a config struct.
-static_library :: (fn(comptime(config) : StaticLibrary) -> unit) {
+// Register a static library artifact. Returns a Step for dependency wiring.
+static_library :: (fn(comptime(config) : StaticLibrary) -> comptime(Step)) {
   opt_str :: match(config.optimize,
     .Debug => "debug",
     .ReleaseSafe => "release-safe",
@@ -136,28 +152,33 @@ static_library :: (fn(comptime(config) : StaticLibrary) -> unit) {
     .ReleaseSmall => "release-small"
   );
   __yo_build_static_library(config.name, config.root, config.target, opt_str);
+  Step(name: config.name, kind: StepKind.StaticLibrary)
 };
 export static_library;
 
-// Register a test suite from a config struct.
-test :: (fn(comptime(config) : TestSuite) -> unit) {
+// Register a test suite. Returns a Step for dependency wiring.
+test :: (fn(comptime(config) : TestSuite) -> comptime(Step)) {
   __yo_build_test(config.name, config.root, config.target);
+  Step(name: config.name, kind: StepKind.TestSuite)
 };
 export test;
 
-// Create a run step (compile + execute an artifact by name).
-run :: (fn(comptime(artifact_name) : comptime_string) -> unit) {
+// Create a run step (compile + execute an artifact by name). Returns a Step.
+run :: (fn(comptime(artifact_name) : comptime_string) -> comptime(Step)) {
   __yo_build_run(artifact_name);
+  Step(name: artifact_name, kind: StepKind.Run)
 };
 export run;
 
-// Register a named build step with dependencies (by name).
-// Dependencies are names of executables, tests, run steps, or other steps.
+// Register a named build step with Step dependencies.
+// Dependencies are Steps returned by executable, test, run, or other step calls.
 step :: (fn(
-  comptime(config) : Step,
-  comptime(deps) : ComptimeList(comptime_string)
-) -> unit) {
-  __yo_build_step(config.name, config.description, deps);
+  comptime(name) : comptime_string,
+  comptime(description) : comptime_string,
+  comptime(deps) : ComptimeList(Step)
+) -> comptime(Step)) {
+  __yo_build_step(name, description, deps);
+  Step(name: name, kind: StepKind.Custom)
 };
 export step;
 
