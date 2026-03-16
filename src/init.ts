@@ -2,7 +2,10 @@
  * `yo init` — project scaffolding.
  *
  * Creates a new Yo project with:
- *   build.yo, src/main.yo (or src/lib.yo), tests/main.test.yo, .gitignore, README.md
+ *   build.yo, src/main.yo, src/lib.yo, tests/main.test.yo, .gitignore, README.md
+ *
+ * All projects get both main.yo and lib.yo — the user chooses what to build
+ * via build.yo steps. No separate --lib flag needed.
  */
 
 import * as fs from "fs";
@@ -13,8 +16,6 @@ export interface InitOptions {
   dir: string;
   /** Project name (default: directory basename) */
   name?: string;
-  /** Create a library project instead of executable */
-  lib?: boolean;
 }
 
 export function initProject(options: InitOptions): void {
@@ -22,7 +23,6 @@ export function initProject(options: InitOptions): void {
   const projectDir = path.resolve(userCwd, options.dir);
   const projectName =
     options.name ?? path.basename(projectDir).replace(/[^a-zA-Z0-9_-]/g, "-");
-  const isLib = options.lib ?? false;
 
   // Create directories
   const dirs = [
@@ -44,17 +44,16 @@ export function initProject(options: InitOptions): void {
   }
 
   // Generate build.yo
-  const buildYo = isLib
-    ? generateLibBuildYo(projectName)
-    : generateExeBuildYo(projectName);
-  fs.writeFileSync(buildYoPath, buildYo);
+  fs.writeFileSync(buildYoPath, generateBuildYo(projectName));
 
-  // Generate source file
-  const srcFile = isLib ? "src/lib.yo" : "src/main.yo";
-  const srcPath = path.join(projectDir, srcFile);
-  if (!fs.existsSync(srcPath)) {
-    const srcContent = isLib ? generateLibSource() : generateMainSource();
-    fs.writeFileSync(srcPath, srcContent);
+  // Generate both source files
+  const mainPath = path.join(projectDir, "src/main.yo");
+  if (!fs.existsSync(mainPath)) {
+    fs.writeFileSync(mainPath, generateMainSource());
+  }
+  const libPath = path.join(projectDir, "src/lib.yo");
+  if (!fs.existsSync(libPath)) {
+    fs.writeFileSync(libPath, generateLibSource());
   }
 
   // Generate test file
@@ -79,7 +78,8 @@ export function initProject(options: InitOptions): void {
   console.log();
   console.log("  Created:");
   console.log(`    build.yo`);
-  console.log(`    ${srcFile}`);
+  console.log(`    src/main.yo`);
+  console.log(`    src/lib.yo`);
   console.log(`    tests/main.test.yo`);
   console.log(`    .gitignore`);
   console.log(`    README.md`);
@@ -94,35 +94,22 @@ export function initProject(options: InitOptions): void {
 
 // ── Template generators ───────────────────────────────────────────────
 
-function generateExeBuildYo(name: string): string {
+function generateBuildYo(name: string): string {
   return `build :: import "std/build";
 
 build.project(name: "${name}", version: "0.1.0");
 
-build.executable(name: "${name}", root: "./src/main.yo");
+build.executable(build.Executable(name: "${name}", root: "./src/main.yo"));
 
-build.test(name: "tests", root: "./tests/");
+build.static_library(build.StaticLibrary(name: "${name}-lib", root: "./src/lib.yo"));
+
+build.test(build.TestSuite(name: "tests", root: "./tests/"));
 
 build.run("${name}");
 
-build.step("install", "Install build artifacts", "${name}");
+build.step("install", "Build all artifacts", "${name}", "${name}-lib");
 
 build.step("run", "Run the application", "run:${name}");
-
-build.step("test", "Run unit tests", "tests");
-`;
-}
-
-function generateLibBuildYo(name: string): string {
-  return `build :: import "std/build";
-
-build.project(name: "${name}", version: "0.1.0");
-
-build.static_library(name: "${name}", root: "./src/lib.yo");
-
-build.test(name: "tests", root: "./tests/");
-
-build.step("install", "Install build artifacts", "${name}");
 
 build.step("test", "Run unit tests", "tests");
 `;

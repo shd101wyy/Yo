@@ -12,6 +12,7 @@ import {
   clangTriple,
   hostTarget,
   isTargetLinux,
+  isTargetWasm,
   isTargetWindows,
   parseTarget,
   setCurrentTarget,
@@ -297,11 +298,16 @@ export class CodeGenerator {
 
         // Add libraries from -l option
         const libraries = [...(options.libraries ?? [])];
-        if (isTargetWindows(targetInfo) && !libraries.includes("ws2_32")) {
-          libraries.push("ws2_32");
-        }
-        if (isTargetWindows(targetInfo) && !libraries.includes("bcrypt")) {
-          libraries.push("bcrypt");
+        const isWasm = isTargetWasm(targetInfo);
+
+        // Platform-specific system libraries (skip for WASM)
+        if (!isWasm) {
+          if (isTargetWindows(targetInfo) && !libraries.includes("ws2_32")) {
+            libraries.push("ws2_32");
+          }
+          if (isTargetWindows(targetInfo) && !libraries.includes("bcrypt")) {
+            libraries.push("bcrypt");
+          }
         }
         libraries.forEach((library) => {
           if (isMSVC) {
@@ -312,8 +318,8 @@ export class CodeGenerator {
           }
         });
 
-        // Add mimalloc if using mimalloc allocator
-        const allocator = options.allocator ?? "mimalloc";
+        // Add mimalloc if using mimalloc allocator (not available for WASM)
+        const allocator = isWasm ? "libc" : (options.allocator ?? "mimalloc");
         if (allocator === "mimalloc") {
           const stdPath = this.moduleManager.stdPath;
           const vendorPath = path.join(path.dirname(stdPath), "vendor");
@@ -340,8 +346,13 @@ export class CodeGenerator {
           console.log("Using libc allocator");
         }
 
-        // Add liburing on Linux for async I/O (uses system-installed liburing)
-        if (!isMSVC && isTargetLinux(targetInfo) && isLiburingAvailable()) {
+        // Add liburing on Linux for async I/O (skip for WASM)
+        if (
+          !isWasm &&
+          !isMSVC &&
+          isTargetLinux(targetInfo) &&
+          isLiburingAvailable()
+        ) {
           compileArgs.splice(-2, 0, "-luring");
           console.log("Using system liburing for async I/O");
         } else if (isTargetLinux(targetInfo) && !isMSVC) {

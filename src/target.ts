@@ -14,11 +14,11 @@ export type Arch = "x86_64" | "aarch64" | "x86" | "arm" | "wasm32";
 
 // ── Supported operating systems ───────────────────────────────────────
 
-export type Os = "linux" | "macos" | "windows" | "freebsd";
+export type Os = "linux" | "macos" | "windows" | "freebsd" | "wasi";
 
 // ── Supported ABIs ────────────────────────────────────────────────────
 
-export type Abi = "gnu" | "musl" | "msvc" | "none";
+export type Abi = "gnu" | "musl" | "msvc" | "none" | "wasm";
 
 // ── Target info ───────────────────────────────────────────────────────
 
@@ -108,6 +108,8 @@ function defaultAbi(os: Os): Abi | undefined {
       return "gnu";
     case "windows":
       return "msvc";
+    case "wasi":
+      return "wasm";
     case "macos":
     case "freebsd":
       return undefined; // clang doesn't need ABI for macOS/FreeBSD
@@ -151,9 +153,15 @@ const VALID_ARCHES = new Set<string>([
   "wasm32",
 ]);
 
-const VALID_OSES = new Set<string>(["linux", "macos", "windows", "freebsd"]);
+const VALID_OSES = new Set<string>([
+  "linux",
+  "macos",
+  "windows",
+  "freebsd",
+  "wasi",
+]);
 
-const VALID_ABIS = new Set<string>(["gnu", "musl", "msvc", "none"]);
+const VALID_ABIS = new Set<string>(["gnu", "musl", "msvc", "none", "wasm"]);
 
 /**
  * Parse a target triple string like "x86_64-linux-gnu" into a TargetInfo.
@@ -239,6 +247,9 @@ export function clangTriple(target: TargetInfo): string {
       return `${arch}-pc-windows-msvc`;
     case "freebsd":
       return `${arch}-unknown-freebsd`;
+    case "wasi":
+      // WASI: wasm32-wasi (LLVM triple)
+      return `${arch}-wasi`;
   }
 }
 
@@ -300,4 +311,8 @@ export function isTargetMacos(target: TargetInfo): boolean {
 
 export function isTargetMSVC(target: TargetInfo): boolean {
   return target.os === "windows" && target.abi === "msvc";
+}
+
+export function isTargetWasm(target: TargetInfo): boolean {
+  return target.arch === "wasm32" || target.os === "wasi";
 }

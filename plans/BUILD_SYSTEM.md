@@ -51,6 +51,7 @@ aarch64-macos-none
 x86_64-windows-msvc
 aarch64-windows-msvc
 x86_64-windows-gnu       (MinGW)
+wasm32-wasi              (WebAssembly)
 ```
 
 ### 1.2 Supported Architectures
@@ -61,7 +62,7 @@ x86_64-windows-gnu       (MinGW)
 | `aarch64` | 64-bit       | Primary tier (Apple Silicon) |
 | `x86`     | 32-bit       | Secondary tier               |
 | `arm`     | 32-bit       | Secondary tier               |
-| `wasm32`  | 32-bit       | Tertiary tier (future)       |
+| `wasm32`  | 32-bit       | Supported (WASM/WASI)        |
 
 ### 1.3 Supported Operating Systems
 
@@ -70,6 +71,7 @@ x86_64-windows-gnu       (MinGW)
 | `linux`   | io_uring               | Primary tier           |
 | `macos`   | Grand Central Dispatch | Primary tier           |
 | `windows` | IOCP                   | Primary tier           |
+| `wasi`    | N/A (no async I/O)     | WASM target            |
 | `freebsd` | kqueue                 | Tertiary tier (future) |
 
 ### 1.4 ABI
@@ -79,6 +81,7 @@ x86_64-windows-gnu       (MinGW)
 | `gnu`  | glibc (Linux default)                  |
 | `musl` | Static linking friendly (Linux)        |
 | `msvc` | Windows MSVC CRT                       |
+| `wasm` | WebAssembly (WASI default)             |
 | `none` | macOS (no ABI suffix needed for clang) |
 
 ### 1.5 Target Type in Yo
@@ -93,8 +96,8 @@ Target :: struct(
 );
 
 Arch :: enum(X86_64, Aarch64, X86, Arm, Wasm32);
-Os :: enum(Linux, Macos, Windows, FreeBSD);
-Abi :: enum(Gnu, Musl, Msvc, None);
+Os :: enum(Linux, Macos, Windows, FreeBSD, Wasi);
+Abi :: enum(Gnu, Musl, Msvc, Wasm, None);
 ```
 
 A builtin `target.host()` returns the host machine's target. This replaces the current `__yo_process_platform()` / `__yo_process_arch()` for build-time detection.
@@ -116,23 +119,22 @@ build :: import "std/build";
 
 build.project(name: "my-app", version: "0.1.0");
 
-build.executable(
+build.executable(build.Executable(
   name: "my-app",
   root: "./src/main.yo",
-  target: build.target_host,
-  optimize: build.Optimize.ReleaseFast,
-  allocator: build.Allocator.Mimalloc,
-  sanitize: build.Sanitize.None
-);
+  optimize: "release-fast"
+));
 
-build.test(name: "tests", root: "./tests/");
+build.static_library(build.StaticLibrary(name: "my-app-lib", root: "./src/lib.yo"));
+
+build.test(build.TestSuite(name: "tests", root: "./tests/"));
 
 // build.run registers a run step for an artifact (by name)
 build.run("my-app");
 
 // Named steps with dependencies (by name)
 // Dependencies: artifact names, test names, or "run:<artifact>" for run steps
-build.step("install", "Install build artifacts", "my-app");
+build.step("install", "Build all artifacts", "my-app", "my-app-lib");
 build.step("run", "Run the application", "run:my-app");
 build.step("test", "Run unit tests", "tests");
 ```
@@ -163,6 +165,8 @@ All build functions are **evaluator builtins** (`src/evaluator/builtins/build.ts
 - Dependencies are resolved by **name**, not by return value IDs
 - Run steps have synthetic names `"run:<artifact-name>"` for dependency resolution
 - `std/build.yo` wrapper functions use `comptime()` parameter annotations
+- Config struct types (`Executable`, `StaticLibrary`, `TestSuite`) use `?=` defaults for optional fields
+- Wrapper functions decompose structs and pass individual fields to builtins
 - During trial evaluation (function definition type-check), builtins skip registration
 
 The build runner (`src/build-runner.ts`) flow:
@@ -178,21 +182,28 @@ build :: import "std/build";
 
 build.project(name: "my-app", version: "0.1.0");
 
-build.executable(
+build.executable(build.Executable(
   name: "my-app-linux",
   root: "./src/main.yo",
   target: "x86_64-linux-gnu",
-  optimize: build.Optimize.ReleaseFast
-);
+  optimize: "release-fast"
+));
 
-build.executable(
+build.executable(build.Executable(
   name: "my-app-macos",
   root: "./src/main.yo",
-  target: "aarch64-macos-none",
-  optimize: build.Optimize.ReleaseFast
-);
+  target: "aarch64-macos",
+  optimize: "release-fast"
+));
 
-build.step("install", "Install all targets", "my-app-linux", "my-app-macos");
+build.executable(build.Executable(
+  name: "my-app-wasm",
+  root: "./src/main.yo",
+  target: "wasm32-wasi",
+  optimize: "release-small"
+));
+
+build.step("install", "Install all targets", "my-app-linux", "my-app-macos", "my-app-wasm");
 ```
 
 ### 2.4 Library Example
@@ -202,9 +213,9 @@ build :: import "std/build";
 
 build.project(name: "my-lib", version: "0.2.0");
 
-build.static_library(name: "mylib", root: "./src/lib.yo");
+build.static_library(build.StaticLibrary(name: "mylib", root: "./src/lib.yo"));
 
-build.test(name: "lib-tests", root: "./tests/");
+build.test(build.TestSuite(name: "lib-tests", root: "./tests/"));
 
 build.step("install", "Install library", "mylib");
 build.step("test", "Run library tests", "lib-tests");
@@ -223,36 +234,49 @@ Sanitize :: { None, Address, Leak }
 target_host :: comptime_string  // Host target triple
 ```
 
+**Config Struct Types (with `?=` defaults):**
+
+```yo
+// Executable artifact config
+Executable :: struct(
+  name : comptime_string,
+  root : comptime_string,
+  (target : comptime_string) ?= target_host,
+  (optimize : comptime_string) ?= "debug",
+  (allocator : comptime_string) ?= "mimalloc",
+  (sanitize : comptime_string) ?= "none"
+);
+
+// Static library artifact config
+StaticLibrary :: struct(
+  name : comptime_string,
+  root : comptime_string,
+  (target : comptime_string) ?= target_host,
+  (optimize : comptime_string) ?= "debug"
+);
+
+// Test suite config
+TestSuite :: struct(
+  name : comptime_string,
+  root : comptime_string,
+  (target : comptime_string) ?= target_host
+);
+```
+
 **Functions (all return `unit`):**
 
 ```yo
 // Project metadata
 project(name: comptime_string, version: comptime_string)
 
-// Build an executable
-executable(
-  name: comptime_string,
-  root: comptime_string,
-  target: comptime_string ?= target_host,
-  optimize: comptime_string ?= "debug",
-  allocator: comptime_string ?= "mimalloc",
-  sanitize: comptime_string ?= "none"
-)
+// Register an executable artifact (accepts Executable config struct)
+executable(config: Executable)
 
-// Build a static library
-static_library(
-  name: comptime_string,
-  root: comptime_string,
-  target: comptime_string ?= target_host,
-  optimize: comptime_string ?= "debug"
-)
+// Register a static library artifact (accepts StaticLibrary config struct)
+static_library(config: StaticLibrary)
 
-// Define test suite
-test(
-  name: comptime_string,
-  root: comptime_string,
-  target: comptime_string ?= target_host
-)
+// Register a test suite (accepts TestSuite config struct)
+test(config: TestSuite)
 
 // Register a run step for an artifact (by name)
 run(artifact_name: comptime_string)
@@ -265,6 +289,8 @@ step(
   dep0..dep7: comptime_string ?= ""
 )
 ```
+
+Internally, wrapper functions decompose the config struct and pass individual fields to the evaluator builtins (e.g., `__yo_build_executable(config.name, config.root, ...)`). This keeps the builtin implementation simple while providing a clean struct-based API to users.
 
 ### 2.6 User-Provided Build Options (Future)
 
@@ -286,7 +312,8 @@ Key implementation details:
 
 - Builtins detect trial evaluation (CTFE check) via `isTrialEvaluation()` and skip registration
 - Args are pre-evaluated in `_expr.ts` dispatch before passing to builtin handlers
-- `target_host` builtin always returns a value (used as default param in function signatures)
+- `target_host` builtin always returns a value (used as default in struct field definitions)
+- Config struct types use `?=` defaults; wrapper functions decompose struct → individual builtin args
 
 ---
 
@@ -304,6 +331,7 @@ Arguments:
 Options:
   --build-file <path>    Path to build file (default: ./build.yo)
   --target <triple>      Override target for all artifacts
+  --cc <compiler>        C compiler to use (clang, gcc, zig, cc, cl)
   --optimize <level>     Override optimization level
   -D<name>=<value>       Set a user-defined build option (from build.yo)
   --verbose, -v          Verbose build output
@@ -372,18 +400,18 @@ Arguments:
 
 Options:
   --name <name>          Project name (default: directory name)
-  --lib                  Create a library project (default: executable)
 ```
 
 ### 4.2 Generated Files
 
-**Executable project (`yo init`):**
+All projects get both `src/main.yo` (executable) and `src/lib.yo` (library). The user chooses what to build via `build.yo` steps.
 
 ```
 my-project/
 ├── build.yo
 ├── src/
-│   └── main.yo
+│   ├── main.yo
+│   └── lib.yo
 ├── tests/
 │   └── main.test.yo
 ├── .gitignore
@@ -397,13 +425,15 @@ build :: import "std/build";
 
 build.project(name: "my-project", version: "0.1.0");
 
-build.executable(name: "my-project", root: "./src/main.yo");
+build.executable(build.Executable(name: "my-project", root: "./src/main.yo"));
 
-build.test(name: "tests", root: "./tests/");
+build.static_library(build.StaticLibrary(name: "my-project-lib", root: "./src/lib.yo"));
+
+build.test(build.TestSuite(name: "tests", root: "./tests/"));
 
 build.run("my-project");
 
-build.step("install", "Build the project", "my-project");
+build.step("install", "Build all artifacts", "my-project", "my-project-lib");
 build.step("run", "Run the application", "run:my-project");
 build.step("test", "Run unit tests", "tests");
 ```
@@ -418,6 +448,15 @@ main :: fn() {
 };
 
 export main;
+```
+
+**`src/lib.yo`:**
+
+```yo
+add :: (fn(a: i32, b: i32) -> i32)(
+  (a + b)
+);
+export add;
 ```
 
 **`tests/main.test.yo`:**
@@ -438,10 +477,6 @@ yo-out/
 *.o
 a.out
 ```
-
-**Library project (`yo init --lib`):**
-
-Same structure but with `src/lib.yo` instead of `src/main.yo`, and a `static_library` artifact in `build.yo`.
 
 ---
 
@@ -473,8 +508,8 @@ interface HostInfo {
 
 interface TargetInfo {
   arch: "x86_64" | "aarch64" | "x86" | "arm" | "wasm32";
-  os: "linux" | "macos" | "windows" | "freebsd";
-  abi: "gnu" | "musl" | "msvc" | "none" | undefined;
+  os: "linux" | "macos" | "windows" | "freebsd" | "wasi";
+  abi: "gnu" | "musl" | "msvc" | "wasm" | "none" | undefined;
   pointerSizeBits: 32 | 64;
   triple: string; // e.g. "x86_64-linux-gnu"
 }
@@ -529,12 +564,13 @@ Arch :: {
   // ...
 };
 
-// Proposed (standard naming)
+// Proposed (standard naming) — ✅ IMPLEMENTED
 Platform :: enum(
   Linux : "linux",
   Macos : "macos",
   Windows : "windows",
-  FreeBSD : "freebsd"
+  FreeBSD : "freebsd",
+  Wasi : "wasi"
 );
 
 Arch :: enum(
@@ -717,28 +753,50 @@ Existing options (unchanged):
 13. ✅ Step resolution with name-based dependency system
 14. ✅ `yo build`, `yo build run`, `yo build test`, `yo build --list-steps`
 
-### Phase 4: Cross-Compilation (Partially Done)
+### Phase 4: Cross-Compilation & WASM ✅
 
 15. ✅ Add `--target=<triple>` passthrough to clang in codegen
-16. Add `--sysroot` support
-17. Test cross-compilation: macOS → Linux, Linux → macOS, etc.
-18. Handle platform-specific library linking based on target (not host)
+16. ✅ WASM/WASI target support (`wasm32-wasi` triple, 32-bit pointer, skip platform libs/mimalloc/liburing)
+17. ✅ `--cc` flag on `yo build` for compiler override (e.g., `yo build --cc zig`)
+18. ✅ Platform-specific library linking based on target (not host)
+19. Add `--sysroot` support (future)
+20. Test cross-compilation: macOS → Linux, Linux → macOS, etc. (future)
+
+### Phase 5: Struct-Based API & Unified Init ✅
+
+21. ✅ Config struct types (`Executable`, `StaticLibrary`, `TestSuite`) with `?=` defaults
+22. ✅ Wrapper functions decompose structs → pass individual fields to builtins
+23. ✅ Unified `yo init` — generates both `src/main.yo` and `src/lib.yo` (no `--lib` flag)
+24. ✅ `std/process.yo` updated with `Wasi` platform
+
+### Phase 6: Dependencies & Ecosystem (Future)
+
+25. Git-hosted dependency support (syntax TBD)
+26. `pkg-config` integration for C library discovery (including Windows support)
+27. Caching / incremental builds
+28. Build self-hosting
 
 ---
 
-## 9. Open Questions
+## 9. Open Questions (Resolved & Remaining)
 
-1. **Should `build.yo` support conditional logic?** For example, platform-specific dependencies. The current design is purely declarative — conditionals would use `cond()` at comptime, which is already supported by the evaluator.
+### Resolved
 
-2. **Package management**: How will dependencies on other Yo packages work? This is deferred but the `build.yo` format should be extensible enough to add `dependencies` later.
+1. **Conditional logic in `build.yo`?** ✅ YES — the evaluator supports `cond()` at comptime, so `build.yo` can use conditional logic for platform-specific configurations.
 
-3. **C library discovery**: Should `build.yo` support `pkg-config` integration for finding system C libraries? This is common in C/C++ build systems.
+2. **Package management / dependencies?** ✅ YES — will support git-hosted dependencies (e.g., GitHub repos). Syntax design TBD.
 
-4. **Zig CC as alternative cross-compiler**: Zig bundles a C compiler with cross-compilation sysroots. Should we support `yo build --cc zig` for easy cross-compilation without installing separate toolchains?
+3. **C library discovery via `pkg-config`?** ✅ YES — will support `pkg-config` integration, including Windows support.
 
-5. **Build.yo for the Yo compiler itself**: Should the Yo standard library and compiler have their own `build.yo`? This is a self-hosting question.
+4. **Zig CC as alternative cross-compiler?** ✅ YES — `yo build --cc zig` is implemented. Zig bundles cross-compilation sysroots.
 
-6. **Multiple artifacts sharing config**: Should there be a way to define shared configuration (e.g., common flags) applied to multiple artifacts?
+### Remaining
+
+5. **Build.yo for the Yo compiler itself**: Should the Yo standard library and compiler have their own `build.yo`? This is a self-hosting question — deferred.
+
+6. **Multiple artifacts sharing config**: Should there be a way to define shared configuration (e.g., common flags) applied to multiple artifacts? Deferred.
+
+7. **Dependency syntax**: How should git dependencies be declared in `build.yo`? Options: `build.dependency(build.GitDep(url: "...", tag: "..."))` or similar. Needs design.
 
 ---
 
@@ -746,21 +804,32 @@ Existing options (unchanged):
 
 ### New Files
 
-| File                  | Purpose                                                                           |
-| --------------------- | --------------------------------------------------------------------------------- |
-| `src/target.ts`       | Target/host detection, triple parsing, pointer size derivation                    |
-| `src/build-runner.ts` | `yo build` orchestration — evaluates build.yo, runs compilation for each artifact |
-| `src/init.ts`         | `yo init` project scaffolding                                                     |
-| `std/build.yo`        | Build system API module (or implemented as evaluator builtins)                    |
+| File                              | Purpose                                                                           |
+| --------------------------------- | --------------------------------------------------------------------------------- |
+| `src/target.ts`                   | Target/host detection, triple parsing, pointer size derivation, WASM support      |
+| `src/build-runner.ts`             | `yo build` orchestration — evaluates build.yo, runs compilation for each artifact |
+| `src/init.ts`                     | `yo init` project scaffolding (unified — generates main.yo and lib.yo)            |
+| `src/evaluator/builtins/build.ts` | BuildRegistry singleton + 8 evaluator builtin handlers                            |
+| `std/build.yo`                    | Build system API with struct config types and wrapper functions                   |
 
 ### Modified Files
 
 | File                                | Changes                                                                     |
 | ----------------------------------- | --------------------------------------------------------------------------- |
-| `src/yo-cli.ts`                     | Add `build` and `init` commands, add `--target` to `compile`                |
+| `src/yo-cli.ts`                     | Add `build` and `init` commands, add `--target`/`--cc` to `compile`/`build` |
 | `src/types/utils.ts`                | Call `setTargetPointerSize()` based on target arch                          |
 | `src/evaluator/builtins/process.ts` | Use target info instead of `process.platform`/`process.arch`                |
-| `src/codegen/index.ts`              | Replace `process.platform` with target checks; add `--target` to clang args |
-| `src/compiler-utils.ts`             | Update `findAvailableCompiler()` to prefer clang; add target-aware helpers  |
-| `std/process.yo`                    | Update Platform/Arch enums to standard naming                               |
+| `src/evaluator/exprs/_expr.ts`      | Build builtin dispatch with arg pre-evaluation                              |
+| `src/codegen/index.ts`              | Target-based checks; WASM guards; `--target` to clang args                  |
+| `src/compiler-utils.ts`             | Update `findAvailableCompiler()` to prefer clang                            |
+| `std/process.yo`                    | Update Platform/Arch enums (standard naming + Wasi)                         |
 | `std/path.yo`                       | Update platform comparison strings                                          |
+
+### WASM-Specific Changes
+
+| File                   | WASM-Related Changes                                               |
+| ---------------------- | ------------------------------------------------------------------ |
+| `src/target.ts`        | `wasi` OS, `wasm` ABI, `wasm32-wasi` clangTriple, `isTargetWasm()` |
+| `src/codegen/index.ts` | Skip ws2_32/bcrypt, force libc allocator, skip liburing for WASM   |
+| `std/process.yo`       | `Platform.Wasi` variant                                            |
+| C runtime (generated)  | Platform guards (`#if defined(__linux__)`, etc.) auto-exclude WASM |

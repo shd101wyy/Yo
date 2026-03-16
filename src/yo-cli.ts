@@ -38,7 +38,6 @@ yo init [dir] [options]          Initialize a new Yo project
 Examples:
   $ yo init                      Initialize in current directory
   $ yo init my-project           Initialize in ./my-project
-  $ yo init --lib                Initialize a library project
 
 yo test [path] [options]         Run tests
 Example:
@@ -388,18 +387,12 @@ yo --version                     Show version number
         .option("name", {
           describe: "Project name (default: directory name)",
           type: "string",
-        })
-        .option("lib", {
-          describe: "Create a library project instead of an executable",
-          type: "boolean",
-          default: false,
         });
     },
     (argv) => {
       initProject({
         dir: argv.dir as string,
         name: argv.name as string | undefined,
-        lib: argv.lib as boolean,
       });
     }
   )
