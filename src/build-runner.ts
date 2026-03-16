@@ -40,6 +40,8 @@ export interface BuildOptions {
   defines?: Record<string, string>;
   /** C compiler to use */
   cCompiler?: string;
+  /** Sysroot directory for cross-compilation */
+  sysroot?: string;
 }
 
 /**
@@ -125,6 +127,7 @@ export async function runBuild(options: BuildOptions): Promise<void> {
       projectDir,
       cCompiler,
       targetTriple: options.targetTriple,
+      sysroot: options.sysroot,
       verbose: options.verbose,
     });
   }
@@ -175,6 +178,7 @@ interface ExecutionContext {
   projectDir: string;
   cCompiler: string;
   targetTriple?: string;
+  sysroot?: string;
   verbose?: boolean;
 }
 
@@ -261,6 +265,7 @@ async function compileArtifact(
     cCompiler,
     target: "c",
     targetTriple: ctx.targetTriple ?? artifact.target,
+    sysroot: ctx.sysroot,
     extern: artifact.cSources,
     includePaths: artifact.includePaths,
     libraryPaths: artifact.libraryPaths,

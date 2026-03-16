@@ -449,6 +449,10 @@ yo --version                     Show version number
             "Target triple for cross-compilation (e.g. x86_64-linux-gnu, aarch64-macos).",
           type: "string",
         })
+        .option("sysroot", {
+          describe: "Sysroot directory for cross-compilation.",
+          type: "string",
+        })
         .option("build-file", {
           describe: "Path to build file",
           type: "string",
@@ -475,6 +479,7 @@ yo --version                     Show version number
       await runBuild({
         buildFile: argv.buildFile as string,
         targetTriple: argv.t as string | undefined,
+        sysroot: argv.sysroot as string | undefined,
         verbose: argv.verbose as boolean,
         dryRun: argv.dryRun as boolean,
         listSteps: argv.listSteps as boolean,
