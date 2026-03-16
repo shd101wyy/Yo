@@ -194,29 +194,27 @@ export main;
 ```bash
 yo --help
 yo --version
-yo init # Create a new project in the current directory
 
-# Compilation
+# Project scaffolding
+yo init                     # Create a new project in the current directory
+yo init my-project          # Create a new project in ./my-project
+yo init my-project --name x # Set project name to "x"
+
+# Build system (see BUILD_SYSTEM.md for details)
+yo build              # Build all artifacts (default "install" step)
+yo build run          # Build and run the executable
+yo build test         # Run tests
+yo build --list-steps # List available build steps
+yo build --cc zig     # Use zig as the C compiler
+yo build --target wasm32-wasi  # Cross-compile for WASM
+
+# Direct compilation (single file, no build.yo needed)
 yo compile hello.yo -o hello
-yo compile hello.yo --c-compiler clang -o hello
-yo compile hello.yo --target wasm -o hello.wasm
-
-# Package management (In Design)
-yo install # Install dependencies defined in `yo.json` and `yo.lock`
-yo install package-name # Install a specific package
-yo install package-name@version # Install a specific version of a package
-yo install --global package-name # Install a package globally
-yo uninstall package-name # Uninstall a package
-
-# package-name could be
-#   github:shd101wyy/some-package@master
-
-# Run scripts (In Design)
-yo run test
-
-# Format code (In Design)
-yo format
+yo compile hello.yo --cc clang -o hello
+yo compile hello.yo --target wasm32-wasi --cc zig -o hello.wasm
 ```
+
+For the full build system documentation, see [BUILD_SYSTEM.md](./BUILD_SYSTEM.md).
 
 ## Syntax
 

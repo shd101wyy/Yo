@@ -1,0 +1,336 @@
+# Yo Dependency Management Design
+
+## Problem Statement
+
+Yo projects currently have no way to depend on external libraries — neither other Yo packages nor system C libraries. Users must manually download sources, set include paths, and configure linker flags. We need:
+
+1. **Git-hosted Yo package dependencies** (like Zig's `build.zig.zon`)
+2. **System C library discovery** via `pkg-config`
+3. **A lock file** for reproducible builds (like `yarn.lock`, `pnpm-lock.yaml`)
+
+## Design Goals
+
+- **Declarative**: Dependencies declared in `build.yo` using the same struct-based API pattern
+- **Content-addressed**: Lock file stores content hashes for integrity (inspired by Zig)
+- **Decentralized**: No central registry — dependencies are URLs (Git repos, tarballs)
+- **Reproducible**: Lock file ensures identical builds across machines
+- **Simple**: Minimal new concepts; leverage existing comptime evaluation
+
+## Non-Goals (for now)
+
+- Central package registry (like crates.io, npm)
+- Version resolution / semver constraints (pin to exact refs)
+- Caching / incremental builds
+- Publishing packages
+
+---
+
+## 1. Git Dependencies
+
+### 1.1 API in `build.yo`
+
+```yo
+build :: import "std/build";
+
+build.project(name: "my-app", version: "0.1.0");
+
+// Declare a git dependency
+build.dependency(build.GitDependency(
+  name: "json-parser",
+  url: "https://github.com/user/json-parser.yo",
+  ref: "v1.0.0"
+));
+
+// Use the dependency as a module path in source code
+// In src/main.yo:
+//   { parse } :: import "json-parser";
+
+build.executable(build.Executable(
+  name: "my-app",
+  root: "./src/main.yo"
+));
+```
+
+### 1.2 Config Struct
+
+```yo
+GitDependency :: struct(
+  name : comptime_string,                          // Import name
+  url : comptime_string,                           // Git repository URL
+  (ref : comptime_string) ?= "HEAD",               // Git ref: tag, branch, or commit SHA
+  (path : comptime_string) ?= ""                   // Subdirectory within the repo (monorepo support)
+);
+export GitDependency;
+```
+
+### 1.3 Resolution Flow
+
+```
+build.yo declares dependency
+        │
+        ▼
+yo build / yo fetch
+        │
+        ├─ 1. Read yo.lock (if exists)
+        │     ├─ Found matching entry → use cached
+        │     └─ Not found → fetch from git
+        │
+        ├─ 2. Git clone/fetch to .yo-cache/deps/<hash>/
+        │     └─ Shallow clone: git clone --depth 1 --branch <ref> <url>
+        │
+        ├─ 3. Compute content hash (SHA-256 of fetched tree)
+        │
+        ├─ 4. Update yo.lock with url, ref, resolved commit, hash
+        │
+        └─ 5. Make package available as import path
+              └─ "json-parser" → .yo-cache/deps/<hash>/<path>/
+```
+
+### 1.4 Import Resolution
+
+When the evaluator encounters `import "json-parser"`, it checks:
+
+1. Is `"json-parser"` a registered dependency name in the BuildRegistry?
+2. If yes, resolve to `.yo-cache/deps/<hash>/<path>/` directory
+3. Look for entry point: `<dep-dir>/src/lib.yo` (default) or as specified in the dependency's own `build.yo`
+
+This extends the existing module resolution in `ModuleManager` without changing how `import` works for relative or `std/` paths.
+
+---
+
+## 2. Lock File (`yo.lock`)
+
+### 2.1 Format
+
+Use a simple, human-readable format (like Zig's hash-based approach, but YAML-like for readability):
+
+```
+# yo.lock — auto-generated, do not edit manually
+# Run `yo fetch` to update
+
+[[dependencies]]
+name = "json-parser"
+url = "https://github.com/user/json-parser.yo"
+ref = "v1.0.0"
+commit = "abc123def456789..."
+hash = "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[[dependencies]]
+name = "http-client"
+url = "https://github.com/user/http-client.yo"
+ref = "main"
+commit = "789abc123def456..."
+hash = "sha256:a1b2c3d4e5f6..."
+```
+
+### 2.2 Lock File Behavior
+
+| Command            | Lock file exists                                      | Lock file missing            |
+| ------------------ | ----------------------------------------------------- | ---------------------------- |
+| `yo build`         | Use locked versions; error if deps missing from cache | Run `yo fetch` automatically |
+| `yo fetch`         | Re-fetch if `build.yo` deps changed; update lock      | Fetch all deps; create lock  |
+| `yo fetch --force` | Re-fetch everything; update lock                      | Fetch all; create lock       |
+
+### 2.3 Cache Directory
+
+```
+.yo-cache/
+└── deps/
+    ├── sha256-e3b0c442.../     ← content-addressed
+    │   ├── src/
+    │   │   └── lib.yo
+    │   └── build.yo
+    └── sha256-a1b2c3d4.../
+        └── ...
+```
+
+The `.yo-cache/` directory is gitignored. The lock file (`yo.lock`) is committed to version control.
+
+---
+
+## 3. `pkg-config` Integration
+
+### 3.1 API in `build.yo`
+
+```yo
+build :: import "std/build";
+
+// Link against a system C library discovered via pkg-config
+build.system_library(build.SystemLibrary(
+  name: "openssl",
+  pkg_config: "openssl"
+));
+
+// Or with manual fallback paths (for systems without pkg-config)
+build.system_library(build.SystemLibrary(
+  name: "zlib",
+  pkg_config: "zlib",
+  fallback_include: "/usr/include",
+  fallback_lib: "/usr/lib"
+));
+
+build.executable(build.Executable(
+  name: "my-app",
+  root: "./src/main.yo",
+  link: "openssl", "zlib"         // Reference by name
+));
+```
+
+### 3.2 Config Struct
+
+```yo
+SystemLibrary :: struct(
+  name : comptime_string,                                // Identifier for referencing
+  pkg_config : comptime_string,                           // pkg-config package name
+  (fallback_include : comptime_string) ?= "",             // Manual include path
+  (fallback_lib : comptime_string) ?= "",                 // Manual library path
+  (fallback_link : comptime_string) ?= ""                 // Manual -l flag
+);
+export SystemLibrary;
+```
+
+### 3.3 Resolution Flow
+
+```
+build.system_library(SystemLibrary(pkg_config: "openssl"))
+        │
+        ▼
+Build runner (at build time, not comptime):
+        │
+        ├─ 1. Run: pkg-config --cflags openssl
+        │     → "-I/usr/include/openssl"
+        │
+        ├─ 2. Run: pkg-config --libs openssl
+        │     → "-L/usr/lib -lssl -lcrypto"
+        │
+        ├─ 3. Parse into includePaths, libraryPaths, linkLibraries
+        │
+        └─ 4. Merge into artifact's compile options
+```
+
+### 3.4 Windows Support
+
+On Windows, `pkg-config` may not be available. Resolution order:
+
+1. Try `pkg-config` (works if installed via MSYS2, vcpkg, etc.)
+2. Try `pkgconf` (alternative implementation)
+3. Fall back to `fallback_*` paths if specified
+4. Error with helpful message if nothing works
+
+---
+
+## 4. `yo fetch` Command
+
+New CLI command to manage dependencies:
+
+```
+yo fetch [options]
+
+Options:
+  --force               Re-fetch all dependencies (ignore cache)
+  --build-file <path>   Path to build file (default: ./build.yo)
+  --verbose, -v         Verbose output
+```
+
+### 4.1 Behavior
+
+1. Evaluate `build.yo` to extract dependency declarations
+2. For each `GitDependency`:
+   - Check `yo.lock` for existing entry
+   - If locked and cached: skip (unless `--force`)
+   - If not cached: clone repo, compute hash, update lock
+3. For each `SystemLibrary`:
+   - Run `pkg-config --exists <name>` to verify availability
+   - Report missing system libraries
+4. Write updated `yo.lock`
+
+---
+
+## 5. Implementation Plan
+
+### Phase 1: Git Dependencies (Core)
+
+1. **`git-dep-types`**: Add `GitDependency` struct to `std/build.yo`, add `__yo_build_dependency` builtin to `src/expr.ts`
+2. **`git-dep-builtin`**: Implement `evaluateYoBuildDependency()` in `src/evaluator/builtins/build.ts` — registers dependency in BuildRegistry
+3. **`lock-file`**: Create `src/lock-file.ts` — parse/write `yo.lock` format
+4. **`fetch-command`**: Implement `yo fetch` in `src/yo-cli.ts` and `src/fetch.ts` — git clone, hash computation, lock file update
+5. **`import-resolution`**: Update `ModuleManager` to resolve dependency names to cached paths
+6. **`build-integration`**: Update `runBuild()` to auto-fetch if deps missing
+
+### Phase 2: pkg-config
+
+7. **`pkg-config-types`**: Add `SystemLibrary` struct to `std/build.yo`, add `__yo_build_system_library` builtin
+8. **`pkg-config-resolve`**: Create `src/pkg-config.ts` — run `pkg-config`, parse output, handle Windows fallback
+9. **`pkg-config-integration`**: Merge discovered flags into artifact compile options in build runner
+
+### Phase 3: Polish
+
+10. **`yo-init-deps`**: Update `yo init` templates with dependency example (commented out)
+11. **`docs`**: Update `docs/en-US/BUILD_SYSTEM.md` and `plans/BUILD_SYSTEM.md`
+12. **`tests`**: Integration tests for dependency fetching
+
+---
+
+## 6. BuildRegistry Extensions
+
+```typescript
+// New types in src/evaluator/builtins/build.ts
+
+export interface BuildGitDependency {
+  name: string; // Import name
+  url: string; // Git URL
+  ref: string; // Git ref (tag, branch, commit)
+  path: string; // Subdirectory within repo
+}
+
+export interface BuildSystemLibrary {
+  name: string; // Identifier
+  pkgConfig: string; // pkg-config package name
+  fallbackInclude: string;
+  fallbackLib: string;
+  fallbackLink: string;
+}
+
+// Add to BuildRegistry class:
+export class BuildRegistry {
+  // ... existing fields ...
+  dependencies: BuildGitDependency[] = [];
+  systemLibraries: BuildSystemLibrary[] = [];
+}
+```
+
+---
+
+## 7. Lock File Parser (`src/lock-file.ts`)
+
+```typescript
+export interface LockEntry {
+  name: string;
+  url: string;
+  ref: string;
+  commit: string;
+  hash: string;
+}
+
+export interface LockFile {
+  entries: LockEntry[];
+}
+
+export function parseLockFile(content: string): LockFile;
+export function writeLockFile(lock: LockFile): string;
+export function lockFilePath(projectDir: string): string;
+```
+
+---
+
+## 8. Open Questions
+
+1. **Transitive dependencies**: If dep A depends on dep B, should Yo resolve B automatically? Zig does this. Start simple: require all deps declared in the root `build.yo`. Add transitive resolution later.
+
+2. **Dependency entry point**: Should each dependency have its own `build.yo`? Or just a conventional `src/lib.yo`? Start with `src/lib.yo` convention, add `build.yo` support later.
+
+3. **Version conflicts**: If two dependencies need different versions of the same package, what happens? For now: error. Zig uses content hashing to allow multiple versions.
+
+4. **Private dependencies**: Should there be a way to use SSH URLs for private repos? Yes — `git+ssh://` URLs should work with the user's SSH agent.
+
+5. **Tarball/URL dependencies**: Besides git, support HTTP tarball URLs? Defer to future — git covers most cases.

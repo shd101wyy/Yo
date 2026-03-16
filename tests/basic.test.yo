@@ -791,6 +791,119 @@ test "Test 'struct'", {
     assert(p5.y == 3);
   };
 
+  // struct default field values — mixed required and optional
+  {
+    Config :: struct(
+      name : i32,
+      (width : i32) ?= 800,
+      (height : i32) ?= 600,
+      (visible : bool) ?= true
+    );
+
+    // all defaults
+    c1 := Config(name: 1);
+    assert(c1.name == 1);
+    assert(c1.width == 800);
+    assert(c1.height == 600);
+    assert(c1.visible == true);
+
+    // override some defaults
+    c2 := Config(name: 2, width: 1024);
+    assert(c2.name == 2);
+    assert(c2.width == 1024);
+    assert(c2.height == 600);
+    assert(c2.visible == true);
+
+    // override all fields
+    c3 := Config(name: 3, width: 1920, height: 1080, visible: false);
+    assert(c3.name == 3);
+    assert(c3.width == 1920);
+    assert(c3.height == 1080);
+    assert(c3.visible == false);
+
+    // override non-adjacent defaults (skip width, set height)
+    c4 := Config(name: 4, height: 480);
+    assert(c4.name == 4);
+    assert(c4.width == 800);
+    assert(c4.height == 480);
+    assert(c4.visible == true);
+
+    // override only last default
+    c5 := Config(name: 5, visible: false);
+    assert(c5.name == 5);
+    assert(c5.width == 800);
+    assert(c5.height == 600);
+    assert(c5.visible == false);
+  };
+
+  // struct default field values — all fields have defaults
+  {
+    Opts :: struct(
+      (a : i32) ?= 10,
+      (b : i32) ?= 20,
+      (c : i32) ?= 30
+    );
+
+    o1 := Opts();
+    assert(o1.a == 10);
+    assert(o1.b == 20);
+    assert(o1.c == 30);
+
+    o2 := Opts(a: 100);
+    assert(o2.a == 100);
+    assert(o2.b == 20);
+    assert(o2.c == 30);
+
+    o3 := Opts(b: 200);
+    assert(o3.a == 10);
+    assert(o3.b == 200);
+    assert(o3.c == 30);
+
+    o4 := Opts(c: 300);
+    assert(o4.a == 10);
+    assert(o4.b == 20);
+    assert(o4.c == 300);
+
+    o5 := Opts(a: 1, c: 3);
+    assert(o5.a == 1);
+    assert(o5.b == 20);
+    assert(o5.c == 3);
+  };
+
+  // struct default field values — expression defaults
+  {
+    Base :: struct((x : i32) ?= (3 + 4));
+    b := Base();
+    assert(b.x == 7);
+
+    b2 := Base(x: 99);
+    assert(b2.x == 99);
+  };
+
+  // struct default field values — positional args fill in order, defaults for rest
+  {
+    Triple :: struct(
+      a : i32,
+      (b : i32) ?= 100,
+      (c : i32) ?= 200
+    );
+
+    t1 := Triple(1);
+    assert(t1.a == 1);
+    assert(t1.b == 100);
+    assert(t1.c == 200);
+
+    t2 := Triple(1, 2);
+    assert(t2.a == 1);
+    assert(t2.b == 2);
+    assert(t2.c == 200);
+
+    t3 := Triple(1, 2, 3);
+    assert(t3.a == 1);
+    assert(t3.b == 2);
+    assert(t3.c == 3);
+  };
+
   // struct in tuple
   {
     { 
