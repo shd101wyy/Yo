@@ -56,6 +56,7 @@ export interface BuildArtifact {
   strip: boolean;
   staticLink: boolean;
   linkedArtifacts: string[]; // Names of Yo library artifacts to link
+  linkedSystemLibraries: string[]; // Names of system libraries to link (via pkg-config)
 }
 
 export interface BuildTestSuite {
@@ -465,6 +466,7 @@ export function evaluateYoBuildFunctions({
       strip: false,
       staticLink: false,
       linkedArtifacts: [],
+      linkedSystemLibraries: [],
     });
     return makeUnitResult(expr, env);
   }
@@ -512,6 +514,7 @@ export function evaluateYoBuildFunctions({
       strip: false,
       staticLink: false,
       linkedArtifacts: [],
+      linkedSystemLibraries: [],
     });
     return makeUnitResult(expr, env);
   }
@@ -559,6 +562,7 @@ export function evaluateYoBuildFunctions({
       strip: false,
       staticLink: false,
       linkedArtifacts: [],
+      linkedSystemLibraries: [],
     });
     return makeUnitResult(expr, env);
   }
@@ -607,8 +611,8 @@ export function evaluateYoBuildFunctions({
     );
     const artifact = registry.findArtifact(artifactName);
     if (artifact) {
-      if (!artifact.linkLibraries.includes(systemLibName)) {
-        artifact.linkLibraries.push(systemLibName);
+      if (!artifact.linkedSystemLibraries.includes(systemLibName)) {
+        artifact.linkedSystemLibraries.push(systemLibName);
       }
     }
     return makeUnitResult(expr, env);

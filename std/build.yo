@@ -43,6 +43,7 @@ StepKind :: enum(
   Executable,
   StaticLibrary,
   SharedLibrary,
+  SystemLibrary,
   TestSuite,
   Run,
   Custom
@@ -222,10 +223,10 @@ link :: (fn(comptime(artifact) : Step, comptime(library) : Step) -> unit) {
 };
 export link;
 
-// Link a system library by name (like Zig's exe.linkSystemLibrary("z")).
-// Adds -l<name> to the linker flags.
-link_system_library :: (fn(comptime(artifact) : Step, comptime(name) : comptime_string) -> unit) {
-  __yo_build_link_system_library(artifact.name, name);
+// Link a system library to an artifact. Takes a Step returned by system_library().
+// Like Zig's exe.linkSystemLibrary("z"), but using a Step handle.
+link_system_library :: (fn(comptime(artifact) : Step, comptime(library) : Step) -> unit) {
+  __yo_build_link_system_library(artifact.name, library.name);
 };
 export link_system_library;
 
@@ -235,9 +236,10 @@ dependency :: (fn(comptime(config) : GitDependency) -> unit) {
 };
 export dependency;
 
-// Register a system C library discovered via pkg-config.
-system_library :: (fn(comptime(config) : SystemLibrary) -> unit) {
+// Register a system C library discovered via pkg-config. Returns a Step for linking.
+system_library :: (fn(comptime(config) : SystemLibrary) -> comptime(Step)) {
   __yo_build_system_library(config.name, config.pkg_config, config.fallback_include, config.fallback_lib, config.fallback_link);
+  Step(name: config.name, kind: StepKind.SystemLibrary)
 };
 export system_library;
 

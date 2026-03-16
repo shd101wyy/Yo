@@ -163,10 +163,10 @@ build.step("test", "Run unit tests", ComptimeList(build.Step)(tests));
 
 ### `Step`
 
-| Field  | Type              | Description                                                                             |
-| ------ | ----------------- | --------------------------------------------------------------------------------------- |
-| `name` | `comptime_string` | Step name (artifact name, or custom name for `build.step`)                              |
-| `kind` | `StepKind`        | Step kind: `Executable`, `StaticLibrary`, `SharedLibrary`, `TestSuite`, `Run`, `Custom` |
+| Field  | Type              | Description                                                                                              |
+| ------ | ----------------- | -------------------------------------------------------------------------------------------------------- |
+| `name` | `comptime_string` | Step name (artifact name, or custom name for `build.step`)                                               |
+| `kind` | `StepKind`        | Step kind: `Executable`, `StaticLibrary`, `SharedLibrary`, `SystemLibrary`, `TestSuite`, `Run`, `Custom` |
 
 ### `StepKind`
 
@@ -175,6 +175,7 @@ build.step("test", "Run unit tests", ComptimeList(build.Step)(tests));
 | `Executable`    | Returned by `build.executable()`     |
 | `StaticLibrary` | Returned by `build.static_library()` |
 | `SharedLibrary` | Returned by `build.shared_library()` |
+| `SystemLibrary` | Returned by `build.system_library()` |
 | `TestSuite`     | Returned by `build.test()`           |
 | `Run`           | Returned by `build.run()`            |
 | `Custom`        | Returned by `build.step()`           |
@@ -225,15 +226,30 @@ build.step("install", "Build all artifacts", ComptimeList(build.Step)(exe, lib))
 
 ### System Libraries
 
-Use `build.link_system_library()` to link system libraries by name (like Zig's `exe.linkSystemLibrary("z")`). This adds `-l<name>` to the linker flags:
+Use `build.system_library()` to register a system library (discovered via `pkg-config`), then `build.link_system_library()` to link it to an artifact. This is consistent with how `build.link()` works for Yo library artifacts:
 
 ```yo
+build :: import "std/build";
+
+// Register system libraries
+openssl :: build.system_library(build.SystemLibrary(
+  name: "openssl",
+  pkg_config: "openssl"
+));
+
+zlib :: build.system_library(build.SystemLibrary(
+  name: "zlib",
+  pkg_config: "zlib"
+));
+
 exe :: build.executable(build.Executable(name: "my-app", root: "./src/main.yo"));
 
-// Link system libraries
-build.link_system_library(exe, "z");      // -lz (zlib)
-build.link_system_library(exe, "pthread"); // -lpthread
+// Link system libraries to the executable
+build.link_system_library(exe, openssl);
+build.link_system_library(exe, zlib);
 ```
+
+System library flags (include paths, linker flags) are resolved via `pkg-config` and applied only to the artifacts that explicitly link to them.
 
 ## Build Options
 

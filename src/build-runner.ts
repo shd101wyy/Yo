@@ -110,13 +110,19 @@ export async function runBuild(options: BuildOptions): Promise<void> {
     }
   }
 
-  // Resolve system libraries via pkg-config and merge into all artifacts
+  // Resolve system libraries per-artifact via pkg-config
+  // Each artifact only gets flags for system libraries explicitly linked to it
   if (registry.systemLibraries.length > 0) {
-    const sysLibFlags = resolveAllSystemLibraries(
-      registry.systemLibraries,
-      options.verbose
-    );
     for (const artifact of registry.artifacts) {
+      if (artifact.linkedSystemLibraries.length === 0) continue;
+      const linkedLibs = registry.systemLibraries.filter((lib) =>
+        artifact.linkedSystemLibraries.includes(lib.name)
+      );
+      if (linkedLibs.length === 0) continue;
+      const sysLibFlags = resolveAllSystemLibraries(
+        linkedLibs,
+        options.verbose
+      );
       artifact.includePaths.push(...sysLibFlags.includePaths);
       artifact.libraryPaths.push(...sysLibFlags.libraryPaths);
       artifact.linkLibraries.push(...sysLibFlags.linkLibraries);

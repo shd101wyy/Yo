@@ -233,7 +233,7 @@ The build module is imported as a namespace and provides compile-time functions 
 Optimize :: enum(Debug, ReleaseSafe, ReleaseFast, ReleaseSmall)
 Allocator :: enum(Mimalloc, Libc)
 Sanitize :: enum(None, Address, Leak)
-StepKind :: enum(Executable, StaticLibrary, SharedLibrary, TestSuite, Run, Custom)
+StepKind :: enum(Executable, StaticLibrary, SharedLibrary, SystemLibrary, TestSuite, Run, Custom)
 target_host :: comptime_string  // Host target triple
 ```
 
@@ -289,8 +289,14 @@ static_library(config: StaticLibrary) -> Step  // kind: StepKind.StaticLibrary
 // Register a shared/dynamic library artifact (accepts SharedLibrary config struct)
 shared_library(config: SharedLibrary) -> Step  // kind: StepKind.SharedLibrary
 
+// Register a system C library via pkg-config (accepts SystemLibrary config struct)
+system_library(config: SystemLibrary) -> Step  // kind: StepKind.SystemLibrary
+
 // Link a library artifact to an executable (like Zig's exe.linkLibrary(lib))
 link(artifact: Step, library: Step) -> unit
+
+// Link a system library to an artifact (takes Step from system_library())
+link_system_library(artifact: Step, library: Step) -> unit
 
 // Register a test suite (accepts TestSuite config struct)
 test(config: TestSuite) -> Step  // kind: StepKind.TestSuite
@@ -351,13 +357,22 @@ yo build -Dstrip          # shorthand for -Dstrip=true
 
 ### 2.6.1 System Library Linking
 
-Like Zig's `exe.linkSystemLibrary("z")`, link system libraries by name:
+Like Zig's `exe.linkSystemLibrary()`, register system libraries via `build.system_library()` and link them to artifacts with `build.link_system_library()`. Both functions return/accept `Step` values for API consistency:
 
 ```yo
+// Register system libraries (returns Step)
+openssl :: build.system_library(build.SystemLibrary(
+  name: "openssl",
+  pkg_config: "openssl"
+));
+
 exe :: build.executable(build.Executable(name: "my-app", root: "./src/main.yo"));
-build.link_system_library(exe, "z");       // -lz
-build.link_system_library(exe, "pthread"); // -lpthread
+
+// Link using Step values
+build.link_system_library(exe, openssl);
 ```
+
+System library flags are resolved via `pkg-config` at build time and applied only to artifacts that explicitly link to them.
 
 ### 2.7 Evaluation Model
 

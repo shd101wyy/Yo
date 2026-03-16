@@ -474,6 +474,7 @@ function makeDefaultArtifactConfig() {
     strip: false,
     staticLink: false,
     linkedArtifacts: [] as string[],
+    linkedSystemLibraries: [] as string[],
   };
 }
 
@@ -532,25 +533,27 @@ describe("BuildRegistry", () => {
     expect(app!.linkedArtifacts).toEqual(["lib"]);
   });
 
-  test("link_system_library adds to linkLibraries", () => {
+  test("link_system_library adds to linkedSystemLibraries", () => {
     const reg = new BuildRegistry();
     reg.registerExecutable({ name: "app", ...makeDefaultArtifactConfig() });
     const artifact = reg.findArtifact("app")!;
-    artifact.linkLibraries.push("z");
-    expect(artifact.linkLibraries).toEqual(["z"]);
+    if (!artifact.linkedSystemLibraries.includes("z")) {
+      artifact.linkedSystemLibraries.push("z");
+    }
+    expect(artifact.linkedSystemLibraries).toEqual(["z"]);
   });
 
   test("link_system_library does not duplicate", () => {
     const reg = new BuildRegistry();
     reg.registerExecutable({ name: "app", ...makeDefaultArtifactConfig() });
     const artifact = reg.findArtifact("app")!;
-    if (!artifact.linkLibraries.includes("z")) {
-      artifact.linkLibraries.push("z");
+    if (!artifact.linkedSystemLibraries.includes("z")) {
+      artifact.linkedSystemLibraries.push("z");
     }
-    if (!artifact.linkLibraries.includes("z")) {
-      artifact.linkLibraries.push("z");
+    if (!artifact.linkedSystemLibraries.includes("z")) {
+      artifact.linkedSystemLibraries.push("z");
     }
-    expect(artifact.linkLibraries).toEqual(["z"]);
+    expect(artifact.linkedSystemLibraries).toEqual(["z"]);
   });
 });
 
