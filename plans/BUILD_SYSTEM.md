@@ -233,7 +233,7 @@ The build module is imported as a namespace and provides compile-time functions 
 Optimize :: enum(Debug, ReleaseSafe, ReleaseFast, ReleaseSmall)
 Allocator :: enum(Mimalloc, Libc)
 Sanitize :: enum(None, Address, Leak)
-StepKind :: enum(Executable, StaticLibrary, TestSuite, Run, Custom)
+StepKind :: enum(Executable, StaticLibrary, SharedLibrary, TestSuite, Run, Custom)
 target_host :: comptime_string  // Host target triple
 ```
 
@@ -252,6 +252,14 @@ Executable :: struct(
 
 // Static library artifact config
 StaticLibrary :: struct(
+  name : comptime_string,
+  root : comptime_string,
+  (target : comptime_string) ?= target_host,
+  (optimize : Optimize) ?= Optimize.Debug
+);
+
+// Shared/dynamic library artifact config
+SharedLibrary :: struct(
   name : comptime_string,
   root : comptime_string,
   (target : comptime_string) ?= target_host,
@@ -277,6 +285,12 @@ executable(config: Executable) -> Step  // kind: StepKind.Executable
 
 // Register a static library artifact (accepts StaticLibrary config struct)
 static_library(config: StaticLibrary) -> Step  // kind: StepKind.StaticLibrary
+
+// Register a shared/dynamic library artifact (accepts SharedLibrary config struct)
+shared_library(config: SharedLibrary) -> Step  // kind: StepKind.SharedLibrary
+
+// Link a library artifact to an executable (like Zig's exe.linkLibrary(lib))
+link(artifact: Step, library: Step) -> unit
 
 // Register a test suite (accepts TestSuite config struct)
 test(config: TestSuite) -> Step  // kind: StepKind.TestSuite

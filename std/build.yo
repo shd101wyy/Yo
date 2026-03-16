@@ -42,6 +42,7 @@ export Sanitize;
 StepKind :: enum(
   Executable,
   StaticLibrary,
+  SharedLibrary,
   TestSuite,
   Run,
   Custom
@@ -75,6 +76,14 @@ StaticLibrary :: struct(
   (optimize : Optimize) ?= Optimize.Debug
 );
 export StaticLibrary;
+
+SharedLibrary :: struct(
+  name : comptime_string,
+  root : comptime_string,
+  (target : comptime_string) ?= __yo_build_target_host(),
+  (optimize : Optimize) ?= Optimize.Debug
+);
+export SharedLibrary;
 
 TestSuite :: struct(
   name : comptime_string,
@@ -156,6 +165,19 @@ static_library :: (fn(comptime(config) : StaticLibrary) -> comptime(Step)) {
 };
 export static_library;
 
+// Register a shared/dynamic library artifact. Returns a Step for dependency wiring.
+shared_library :: (fn(comptime(config) : SharedLibrary) -> comptime(Step)) {
+  opt_str :: match(config.optimize,
+    .Debug => "debug",
+    .ReleaseSafe => "release-safe",
+    .ReleaseFast => "release-fast",
+    .ReleaseSmall => "release-small"
+  );
+  __yo_build_shared_library(config.name, config.root, config.target, opt_str);
+  Step(name: config.name, kind: StepKind.SharedLibrary)
+};
+export shared_library;
+
 // Register a test suite. Returns a Step for dependency wiring.
 test :: (fn(comptime(config) : TestSuite) -> comptime(Step)) {
   __yo_build_test(config.name, config.root, config.target);
@@ -181,6 +203,13 @@ step :: (fn(
   Step(name: name, kind: StepKind.Custom)
 };
 export step;
+
+// Link a library to an executable or another library.
+// Like Zig's exe.linkLibrary(lib).
+link :: (fn(comptime(artifact) : Step, comptime(library) : Step) -> unit) {
+  __yo_build_link(artifact.name, library.name);
+};
+export link;
 
 // Register a git-hosted dependency.
 dependency :: (fn(comptime(config) : GitDependency) -> unit) {

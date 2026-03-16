@@ -101,6 +101,17 @@ Build artifacts use struct types with default field values (like Zig's options p
 | `target`   | `comptime_string` | `target_host`    | Target triple               |
 | `optimize` | `Optimize`        | `Optimize.Debug` | Optimization level          |
 
+### `SharedLibrary`
+
+| Field      | Type              | Default          | Description                 |
+| ---------- | ----------------- | ---------------- | --------------------------- |
+| `name`     | `comptime_string` | _(required)_     | Artifact name               |
+| `root`     | `comptime_string` | _(required)_     | Path to library source file |
+| `target`   | `comptime_string` | `target_host`    | Target triple               |
+| `optimize` | `Optimize`        | `Optimize.Debug` | Optimization level          |
+
+Shared libraries compile with `-shared -fPIC` and produce `.so` (Linux), `.dylib` (macOS), or `.dll` (Windows).
+
 ### `TestSuite`
 
 | Field    | Type              | Default       | Description                    |
@@ -152,10 +163,10 @@ build.step("test", "Run unit tests", ComptimeList(build.Step)(tests));
 
 ### `Step`
 
-| Field  | Type              | Description                                                            |
-| ------ | ----------------- | ---------------------------------------------------------------------- |
-| `name` | `comptime_string` | Step name (artifact name, or custom name for `build.step`)             |
-| `kind` | `StepKind`        | Step kind: `Executable`, `StaticLibrary`, `TestSuite`, `Run`, `Custom` |
+| Field  | Type              | Description                                                                             |
+| ------ | ----------------- | --------------------------------------------------------------------------------------- |
+| `name` | `comptime_string` | Step name (artifact name, or custom name for `build.step`)                              |
+| `kind` | `StepKind`        | Step kind: `Executable`, `StaticLibrary`, `SharedLibrary`, `TestSuite`, `Run`, `Custom` |
 
 ### `StepKind`
 
@@ -163,6 +174,7 @@ build.step("test", "Run unit tests", ComptimeList(build.Step)(tests));
 | --------------- | ------------------------------------ |
 | `Executable`    | Returned by `build.executable()`     |
 | `StaticLibrary` | Returned by `build.static_library()` |
+| `SharedLibrary` | Returned by `build.shared_library()` |
 | `TestSuite`     | Returned by `build.test()`           |
 | `Run`           | Returned by `build.run()`            |
 | `Custom`        | Returned by `build.step()`           |
@@ -181,6 +193,35 @@ Available steps:
   run                  Run the application
   test                 Run unit tests
 ```
+
+## Linking Libraries
+
+Use `build.link()` to link a library artifact to an executable, similar to Zig's `exe.linkLibrary(lib)`. The build system automatically compiles linked libraries before the dependent artifact:
+
+```yo
+build :: import "std/build";
+
+build.project(name: "my-app", version: "0.1.0");
+
+// Define a shared library
+lib :: build.shared_library(build.SharedLibrary(
+  name: "mylib",
+  root: "./src/lib.yo"
+));
+
+// Define an executable that links the library
+exe :: build.executable(build.Executable(
+  name: "my-app",
+  root: "./src/main.yo"
+));
+
+// Link the library to the executable
+build.link(exe, lib);
+
+build.step("install", "Build all artifacts", ComptimeList(build.Step)(exe, lib));
+```
+
+`build.link()` works with both static and shared libraries. When the dependent artifact is compiled, linked libraries are compiled first and their output is passed to the linker.
 
 ## Cross-Compilation
 

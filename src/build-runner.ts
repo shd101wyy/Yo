@@ -224,11 +224,32 @@ async function executeStep(
 
 // ── Artifact compilation ──────────────────────────────────────────────
 
+/** Track which artifacts have been compiled to avoid duplicates */
+const compiledArtifacts = new Set<string>();
+
 async function compileArtifact(
   artifact: BuildArtifact,
   ctx: ExecutionContext
 ): Promise<void> {
-  const { projectDir, cCompiler } = ctx;
+  // Skip if already compiled this session
+  if (compiledArtifacts.has(artifact.name)) return;
+  compiledArtifacts.add(artifact.name);
+
+  const { projectDir, cCompiler, registry } = ctx;
+
+  // Compile linked library artifacts first
+  for (const linkedName of artifact.linkedArtifacts) {
+    const linkedArtifact = registry.findArtifact(linkedName);
+    if (linkedArtifact) {
+      await compileArtifact(linkedArtifact, ctx);
+      // Add the compiled library to link flags
+      const libDir = path.join(projectDir, "yo-out", "lib");
+      if (!artifact.libraryPaths.includes(libDir)) {
+        artifact.libraryPaths.push(libDir);
+      }
+      artifact.linkLibraries.push(linkedName);
+    }
+  }
 
   const sourcePath = path.resolve(projectDir, artifact.root);
   if (!fs.existsSync(sourcePath)) {
@@ -280,6 +301,7 @@ async function compileArtifact(
         : undefined,
     strip: artifact.strip,
     static: artifact.staticLink,
+    shared: artifact.kind === "shared_library",
   });
 }
 

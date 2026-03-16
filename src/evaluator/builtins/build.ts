@@ -40,7 +40,7 @@ export interface BuildProject {
 }
 
 export interface BuildArtifact {
-  kind: "executable" | "static_library";
+  kind: "executable" | "static_library" | "shared_library";
   name: string;
   root: string;
   target: string;
@@ -55,6 +55,7 @@ export interface BuildArtifact {
   defines: string[];
   strip: boolean;
   staticLink: boolean;
+  linkedArtifacts: string[]; // Names of Yo library artifacts to link
 }
 
 export interface BuildTestSuite {
@@ -114,6 +115,10 @@ export class BuildRegistry {
     this.artifacts.push({ kind: "static_library", ...config });
   }
 
+  registerSharedLibrary(config: Omit<BuildArtifact, "kind">): void {
+    this.artifacts.push({ kind: "shared_library", ...config });
+  }
+
   registerTest(config: BuildTestSuite): void {
     this.testSuites.push(config);
   }
@@ -137,6 +142,16 @@ export class BuildRegistry {
 
   registerSystemLibrary(lib: BuildSystemLibrary): void {
     this.systemLibraries.push(lib);
+  }
+
+  /** Register a link relationship: artifact links to a library */
+  registerLink(artifactName: string, libraryName: string): void {
+    const artifact = this.findArtifact(artifactName);
+    if (artifact) {
+      if (!artifact.linkedArtifacts.includes(libraryName)) {
+        artifact.linkedArtifacts.push(libraryName);
+      }
+    }
   }
 
   /** Find an artifact by name */
@@ -436,6 +451,7 @@ export function evaluateYoBuildFunctions({
       defines: [],
       strip: false,
       staticLink: false,
+      linkedArtifacts: [],
     });
     return makeUnitResult(expr, env);
   }
@@ -482,7 +498,77 @@ export function evaluateYoBuildFunctions({
       defines: [],
       strip: false,
       staticLink: false,
+      linkedArtifacts: [],
     });
+    return makeUnitResult(expr, env);
+  }
+
+  // __yo_build_shared_library(name, root, target, optimize)
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_shared_library)) {
+    if (expr.args.length < 2) {
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `__yo_build_shared_library expects at least 2 arguments (name, root), got ${expr.args.length}`,
+      });
+    }
+    const name = extractComptimeString(
+      expr.args[0]!.$?.value,
+      "name",
+      expr.token
+    );
+    const root = extractComptimeString(
+      expr.args[1]!.$?.value,
+      "root",
+      expr.token
+    );
+    const target =
+      expr.args.length > 2
+        ? extractComptimeString(expr.args[2]!.$?.value, "target", expr.token)
+        : hostTarget().triple;
+    const optimize =
+      expr.args.length > 3
+        ? extractComptimeString(expr.args[3]!.$?.value, "optimize", expr.token)
+        : "debug";
+
+    registry.registerSharedLibrary({
+      name,
+      root,
+      target,
+      optimize,
+      allocator: "mimalloc",
+      sanitize: "none",
+      linkLibraries: [],
+      includePaths: [],
+      libraryPaths: [],
+      cSources: [],
+      cFlags: [],
+      defines: [],
+      strip: false,
+      staticLink: false,
+      linkedArtifacts: [],
+    });
+    return makeUnitResult(expr, env);
+  }
+
+  // __yo_build_link(artifact_name, library_name)
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_link)) {
+    if (expr.args.length < 2) {
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `__yo_build_link expects 2 arguments (artifact_name, library_name), got ${expr.args.length}`,
+      });
+    }
+    const artifactName = extractComptimeString(
+      expr.args[0]!.$?.value,
+      "artifact_name",
+      expr.token
+    );
+    const libraryName = extractComptimeString(
+      expr.args[1]!.$?.value,
+      "library_name",
+      expr.token
+    );
+    registry.registerLink(artifactName, libraryName);
     return makeUnitResult(expr, env);
   }
 

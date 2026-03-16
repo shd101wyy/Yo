@@ -984,13 +984,15 @@ ${exprToString(expr)}`,
       exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_project) ||
       exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_executable) ||
       exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_static_library) ||
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_shared_library) ||
       exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_test) ||
       exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_run) ||
       exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_step) ||
       exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_target_host) ||
       exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_target_parse) ||
       exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_dependency) ||
-      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_system_library)
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_system_library) ||
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_link)
     ) {
       // Evaluate args before dispatching — builtins expect resolved values
       for (let i = 0; i < expr.args.length; i++) {

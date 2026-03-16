@@ -125,6 +125,10 @@ export class CodeGenerator {
        */
       static?: boolean;
       /**
+       * Produce a shared library (.so/.dylib/.dll).
+       */
+      shared?: boolean;
+      /**
        * Arbitrary flags to pass directly to the C compiler.
        */
       cflags?: string;
@@ -236,6 +240,17 @@ export class CodeGenerator {
           } else {
             compileArgs.splice(-2, 0, "-static");
             console.log("Static linking enabled");
+          }
+        }
+
+        // Add shared library flags if requested
+        if (options.shared) {
+          if (!isMSVC) {
+            compileArgs.splice(-2, 0, "-shared", "-fPIC");
+            console.log("Shared library mode enabled");
+          } else {
+            compileArgs.splice(-1, 0, "/LD"); // DLL mode for MSVC
+            console.log("Shared library mode enabled (DLL)");
           }
         }
 
