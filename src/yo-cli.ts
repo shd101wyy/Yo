@@ -3,6 +3,7 @@ import yargs from "yargs";
 import { hideBin } from "yargs/helpers";
 import packageJson from "../package.json";
 import { runBuild } from "./build-runner";
+import { getGlobalCacheDir } from "./cache";
 import { CodeGenerator } from "./codegen";
 import { findAvailableCompiler } from "./compiler-utils";
 import { initProject } from "./init";
@@ -403,7 +404,7 @@ yo --version                     Show version number
   )
   .command(
     "fetch",
-    "Fetch git dependencies into .yo-cache",
+    "Fetch git dependencies into global cache",
     (_yargs) => {
       _yargs
         .option("build-file", {
@@ -486,6 +487,31 @@ yo --version                     Show version number
         steps: argv.steps as string[] | undefined,
         cCompiler: argv.cc as string | undefined,
       });
+    }
+  )
+  .command(
+    "cache <action>",
+    "Manage the global dependency cache",
+    (_yargs) => {
+      _yargs.positional("action", {
+        describe: "Cache action",
+        choices: ["path", "clean"],
+        type: "string",
+      });
+    },
+    (argv) => {
+      const action = argv.action as string;
+      if (action === "path") {
+        console.log(getGlobalCacheDir());
+      } else if (action === "clean") {
+        const cacheDir = getGlobalCacheDir();
+        if (fs.existsSync(cacheDir)) {
+          fs.rmSync(cacheDir, { recursive: true, force: true });
+          console.log(`Removed cache directory: ${cacheDir}`);
+        } else {
+          console.log(`Cache directory does not exist: ${cacheDir}`);
+        }
+      }
     }
   )
   .demandCommand(

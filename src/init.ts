@@ -107,11 +107,20 @@ build.test(build.TestSuite(name: "tests", root: "./tests/"));
 
 build.run("${name}");
 
-build.step("install", "Build all artifacts", "${name}", "${name}-lib");
+build.step(
+  build.Step(name: "install", description: "Build all artifacts"),
+  ComptimeList(comptime_string)("${name}", "${name}-lib")
+);
 
-build.step("run", "Run the application", "run:${name}");
+build.step(
+  build.Step(name: "run", description: "Run the application"),
+  ComptimeList(comptime_string)("run:${name}")
+);
 
-build.step("test", "Run unit tests", "tests");
+build.step(
+  build.Step(name: "test", description: "Run unit tests"),
+  ComptimeList(comptime_string)("tests")
+);
 `;
 }
 
@@ -146,7 +155,6 @@ function generateTestFile(): string {
 function generateGitignore(): string {
   return `# Build output
 yo-out/
-.yo-cache/
 
 # Generated files
 *.o

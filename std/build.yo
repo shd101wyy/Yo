@@ -71,6 +71,12 @@ TestSuite :: struct(
 );
 export TestSuite;
 
+Step :: struct(
+  name : comptime_string,
+  description : comptime_string
+);
+export Step;
+
 // ── Dependency config types ──────────────────────────────────────────
 
 GitDependency :: struct(
@@ -148,18 +154,10 @@ export run;
 // Register a named build step with dependencies (by name).
 // Dependencies are names of executables, tests, run steps, or other steps.
 step :: (fn(
-  comptime(name) : comptime_string,
-  comptime(description) : comptime_string,
-  (comptime(dep0) : comptime_string) ?= "",
-  (comptime(dep1) : comptime_string) ?= "",
-  (comptime(dep2) : comptime_string) ?= "",
-  (comptime(dep3) : comptime_string) ?= "",
-  (comptime(dep4) : comptime_string) ?= "",
-  (comptime(dep5) : comptime_string) ?= "",
-  (comptime(dep6) : comptime_string) ?= "",
-  (comptime(dep7) : comptime_string) ?= ""
+  comptime(config) : Step,
+  comptime(deps) : ComptimeList(comptime_string)
 ) -> unit) {
-  __yo_build_step(name, description, dep0, dep1, dep2, dep3, dep4, dep5, dep6, dep7);
+  __yo_build_step(config.name, config.description, deps);
 };
 export step;
 

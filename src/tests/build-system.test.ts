@@ -4,6 +4,9 @@
  * - Target triple parsing and clang triple generation
  */
 
+import { describe, test, expect } from "bun:test";
+import * as os from "os";
+import * as path from "path";
 import {
   parseLockFile,
   writeLockFileContent,
@@ -13,6 +16,7 @@ import {
   type LockEntry,
 } from "../lock-file";
 import { parseTarget, clangTriple, type TargetInfo } from "../target";
+import { getGlobalCacheDir } from "../cache";
 
 // ── Lock file tests ──────────────────────────────────────────────────
 
@@ -397,5 +401,55 @@ describe("Clang triple generation", () => {
       triple: "x86_64-freebsd",
     };
     expect(clangTriple(t)).toBe("x86_64-unknown-freebsd");
+  });
+});
+
+// ── Global cache tests ───────────────────────────────────────────────
+
+describe("Global cache directory", () => {
+  // Save and restore env to avoid interference
+  const savedEnv = { ...process.env };
+
+  test("YO_CACHE_DIR env override", () => {
+    process.env.YO_CACHE_DIR = "/custom/cache";
+    delete process.env.XDG_CACHE_HOME;
+    expect(getGlobalCacheDir()).toBe("/custom/cache");
+    // Restore
+    if (savedEnv.YO_CACHE_DIR) {
+      process.env.YO_CACHE_DIR = savedEnv.YO_CACHE_DIR;
+    } else {
+      delete process.env.YO_CACHE_DIR;
+    }
+  });
+
+  test("XDG_CACHE_HOME fallback", () => {
+    delete process.env.YO_CACHE_DIR;
+    process.env.XDG_CACHE_HOME = "/xdg/cache";
+    expect(getGlobalCacheDir()).toBe("/xdg/cache/yo");
+    // Restore
+    if (savedEnv.XDG_CACHE_HOME) {
+      process.env.XDG_CACHE_HOME = savedEnv.XDG_CACHE_HOME;
+    } else {
+      delete process.env.XDG_CACHE_HOME;
+    }
+    if (savedEnv.YO_CACHE_DIR) {
+      process.env.YO_CACHE_DIR = savedEnv.YO_CACHE_DIR;
+    }
+  });
+
+  test("default falls back to ~/.cache/yo", () => {
+    delete process.env.YO_CACHE_DIR;
+    delete process.env.XDG_CACHE_HOME;
+    // On macOS/Linux, defaults to ~/.cache/yo
+    if (process.platform !== "win32") {
+      expect(getGlobalCacheDir()).toBe(path.join(os.homedir(), ".cache", "yo"));
+    }
+    // Restore
+    if (savedEnv.YO_CACHE_DIR) {
+      process.env.YO_CACHE_DIR = savedEnv.YO_CACHE_DIR;
+    }
+    if (savedEnv.XDG_CACHE_HOME) {
+      process.env.XDG_CACHE_HOME = savedEnv.XDG_CACHE_HOME;
+    }
   });
 });

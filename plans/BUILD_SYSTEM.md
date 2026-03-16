@@ -132,11 +132,21 @@ build.test(build.TestSuite(name: "tests", root: "./tests/"));
 // build.run registers a run step for an artifact (by name)
 build.run("my-app");
 
-// Named steps with dependencies (by name)
-// Dependencies: artifact names, test names, or "run:<artifact>" for run steps
-build.step("install", "Build all artifacts", "my-app", "my-app-lib");
-build.step("run", "Run the application", "run:my-app");
-build.step("test", "Run unit tests", "tests");
+// Named steps with dependencies
+build.step(
+  build.Step(name: "install", description: "Build all artifacts"),
+  ComptimeList(comptime_string)("my-app", "my-app-lib")
+);
+
+build.step(
+  build.Step(name: "run", description: "Run the application"),
+  ComptimeList(comptime_string)("run:my-app")
+);
+
+build.step(
+  build.Step(name: "test", description: "Run unit tests"),
+  ComptimeList(comptime_string)("tests")
+);
 ```
 
 Usage:
@@ -203,7 +213,10 @@ build.executable(build.Executable(
   optimize: build.Optimize.ReleaseSmall
 ));
 
-build.step("install", "Install all targets", "my-app-linux", "my-app-macos", "my-app-wasm");
+build.step(
+  build.Step(name: "install", description: "Install all targets"),
+  ComptimeList(comptime_string)("my-app-linux", "my-app-macos", "my-app-wasm")
+);
 ```
 
 ### 2.4 Library Example
@@ -217,8 +230,15 @@ build.static_library(build.StaticLibrary(name: "mylib", root: "./src/lib.yo"));
 
 build.test(build.TestSuite(name: "lib-tests", root: "./tests/"));
 
-build.step("install", "Install library", "mylib");
-build.step("test", "Run library tests", "lib-tests");
+build.step(
+  build.Step(name: "install", description: "Install library"),
+  ComptimeList(comptime_string)("mylib")
+);
+
+build.step(
+  build.Step(name: "test", description: "Run library tests"),
+  ComptimeList(comptime_string)("lib-tests")
+);
 ```
 
 ### 2.5 `build` Module API (`std/build.yo`)
@@ -281,13 +301,20 @@ test(config: TestSuite)
 // Register a run step for an artifact (by name)
 run(artifact_name: comptime_string)
 
-// Named build step with up to 8 dependencies (by name)
-// Dependencies: artifact names, test names, "run:<name>" for run steps
+// Named build step with variable-length dependencies
 step(
-  name: comptime_string,
-  description: comptime_string,
-  dep0..dep7: comptime_string ?= ""
+  config: Step,
+  deps: ComptimeList(comptime_string)
 )
+```
+
+**Step struct:**
+
+```yo
+Step :: struct(
+  name : comptime_string,
+  description : comptime_string
+);
 ```
 
 Internally, wrapper functions decompose the config struct and pass individual fields to the evaluator builtins (e.g., `__yo_build_executable(config.name, config.root, ...)`). This keeps the builtin implementation simple while providing a clean struct-based API to users.
@@ -433,9 +460,20 @@ build.test(build.TestSuite(name: "tests", root: "./tests/"));
 
 build.run("my-project");
 
-build.step("install", "Build all artifacts", "my-project", "my-project-lib");
-build.step("run", "Run the application", "run:my-project");
-build.step("test", "Run unit tests", "tests");
+build.step(
+  build.Step(name: "install", description: "Build all artifacts"),
+  ComptimeList(comptime_string)("my-project", "my-project-lib")
+);
+
+build.step(
+  build.Step(name: "run", description: "Run the application"),
+  ComptimeList(comptime_string)("run:my-project")
+);
+
+build.step(
+  build.Step(name: "test", description: "Run unit tests"),
+  ComptimeList(comptime_string)("tests")
+);
 ```
 
 **`src/main.yo`:**

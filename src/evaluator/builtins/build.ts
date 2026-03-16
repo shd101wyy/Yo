@@ -22,6 +22,7 @@ import { createComptimeStringType, createUnitType } from "../../types/creators";
 import type { Token } from "../../token";
 import {
   createComptimeStringValue,
+  isComptimeListValue,
   isComptimeStringValue,
   isUnknownValue,
   type Value,
@@ -534,12 +535,12 @@ export function evaluateYoBuildFunctions({
     return makeUnitResult(expr, env);
   }
 
-  // __yo_build_step(name, description, dep0, dep1, ...)
+  // __yo_build_step(name, description, deps_list)
   if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_step)) {
-    if (expr.args.length < 2) {
+    if (expr.args.length < 3) {
       throw formatErrorMessage({
         token: expr.token,
-        errorMessage: `__yo_build_step expects at least 2 arguments (name, description), got ${expr.args.length}`,
+        errorMessage: `__yo_build_step expects 3 arguments (name, description, deps), got ${expr.args.length}`,
       });
     }
     const name = extractComptimeString(
@@ -552,15 +553,19 @@ export function evaluateYoBuildFunctions({
       "description",
       expr.token
     );
+    const depsValue = expr.args[2]!.$?.value;
     const depNames: string[] = [];
-    for (let i = 2; i < expr.args.length; i++) {
-      const dep = extractComptimeString(
-        expr.args[i]!.$?.value,
-        `dependency[${i - 2}]`,
-        expr.token
-      );
-      if (dep !== "") {
-        depNames.push(dep);
+    if (depsValue && isComptimeListValue(depsValue)) {
+      for (let i = 0; i < depsValue.elements.length; i++) {
+        const elem = depsValue.elements[i];
+        if (elem && isComptimeStringValue(elem)) {
+          depNames.push(elem.value);
+        } else {
+          throw formatErrorMessage({
+            token: expr.token,
+            errorMessage: `Step dependency at index ${i} must be a comptime_string`,
+          });
+        }
       }
     }
     registry.registerStep(name, description, depNames);

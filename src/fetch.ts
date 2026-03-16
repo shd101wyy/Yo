@@ -2,7 +2,7 @@
  * Git dependency fetching for the Yo build system.
  *
  * Handles cloning git repos, resolving refs, computing content hashes,
- * and managing the `.yo-cache/deps/` directory.
+ * and managing the global dependency cache (~/.cache/yo/deps/).
  */
 
 import * as fs from "fs";
@@ -18,24 +18,20 @@ import {
   findLockEntry,
   upsertLockEntry,
 } from "./lock-file";
-
-const CACHE_DIR = ".yo-cache";
-const DEPS_DIR = "deps";
+import { ensureGlobalDepsCacheDir, getGlobalDepsCacheDir } from "./cache";
 
 /**
- * Get the cache directory for dependencies.
+ * Get the cache directory for dependencies (global).
  */
-export function getCacheDir(projectDir: string): string {
-  return path.join(projectDir, CACHE_DIR, DEPS_DIR);
+export function getCacheDir(_projectDir?: string): string {
+  return getGlobalDepsCacheDir();
 }
 
 /**
  * Ensure the cache directory structure exists.
  */
-function ensureCacheDir(projectDir: string): string {
-  const cacheDir = getCacheDir(projectDir);
-  fs.mkdirSync(cacheDir, { recursive: true });
-  return cacheDir;
+function ensureCacheDir(): string {
+  return ensureGlobalDepsCacheDir();
 }
 
 /**
@@ -178,7 +174,6 @@ function hashDirectory(
  * Fetch a single dependency: resolve ref, clone, hash, update lock.
  */
 function fetchDependency(
-  projectDir: string,
   cacheDir: string,
   dep: BuildGitDependency,
   lockFile: LockFile,
@@ -243,7 +238,7 @@ export interface FetchResult {
 
 /**
  * Fetch all git dependencies declared in the build registry.
- * Updates `yo.lock` and populates `.yo-cache/deps/`.
+ * Updates `yo.lock` and populates the global cache.
  */
 export function fetchAllDependencies(
   projectDir: string,
@@ -254,22 +249,17 @@ export function fetchAllDependencies(
     return { resolvedPaths: new Map(), lockFile: { dependencies: [] } };
   }
 
-  const cacheDir = ensureCacheDir(projectDir);
+  const cacheDir = ensureCacheDir();
   let lockFile = readLockFile(projectDir);
   const resolvedPaths = new Map<string, string>();
 
   if (verbose) {
     console.log(`Fetching ${dependencies.length} dependency(ies)...`);
+    console.log(`  Cache: ${cacheDir}`);
   }
 
   for (const dep of dependencies) {
-    const result = fetchDependency(
-      projectDir,
-      cacheDir,
-      dep,
-      lockFile,
-      verbose
-    );
+    const result = fetchDependency(cacheDir, dep, lockFile, verbose);
     lockFile = result.lockFile;
     resolvedPaths.set(dep.name, result.depPath);
   }
@@ -294,7 +284,7 @@ export function areDependenciesCached(
   if (dependencies.length === 0) return true;
 
   const lockFile = readLockFile(projectDir);
-  const cacheDir = getCacheDir(projectDir);
+  const cacheDir = getCacheDir();
 
   for (const dep of dependencies) {
     const entry = findLockEntry(lockFile, dep.name);
@@ -323,7 +313,7 @@ export function resolveDependencyPath(
   const entry = findLockEntry(lockFile, depName);
   if (!entry || !entry.commit) return undefined;
 
-  const cacheDir = getCacheDir(projectDir);
+  const cacheDir = getCacheDir();
   const cachedDir = path.join(
     cacheDir,
     `${depName}-${entry.commit.slice(0, 12)}`

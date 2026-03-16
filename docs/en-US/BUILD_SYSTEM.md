@@ -73,10 +73,21 @@ build.test(build.TestSuite(name: "tests", root: "./tests/"));
 // Register a run step (compile + execute)
 build.run("my-project");
 
-// Named steps with dependencies (by name)
-build.step("install", "Build all artifacts", "my-project", "my-project-lib");
-build.step("run", "Run the application", "run:my-project");
-build.step("test", "Run unit tests", "tests");
+// Named steps with dependencies
+build.step(
+  build.Step(name: "install", description: "Build all artifacts"),
+  ComptimeList(comptime_string)("my-project", "my-project-lib")
+);
+
+build.step(
+  build.Step(name: "run", description: "Run the application"),
+  ComptimeList(comptime_string)("run:my-project")
+);
+
+build.step(
+  build.Step(name: "test", description: "Run unit tests"),
+  ComptimeList(comptime_string)("tests")
+);
 ```
 
 ## Config Structs
@@ -137,18 +148,36 @@ Build artifacts use struct types with default field values (like Zig's options p
 
 ## Build Steps
 
-Steps are named targets that define what `yo build <step>` does. Each step depends on one or more artifacts, tests, or run steps (referenced by name):
+Steps are named targets that define what `yo build <step>` does. Each step has a name, description, and a list of dependencies (referenced by name):
 
 ```yo
-// "install" is the default step when running `yo build` with no arguments
-build.step("install", "Build all artifacts", "my-app", "my-lib");
+// Step struct + ComptimeList for dependencies
+build.step(
+  build.Step(name: "install", description: "Build all artifacts"),
+  ComptimeList(comptime_string)("my-app", "my-lib")
+);
 
 // Run steps reference artifacts with "run:<name>"
-build.step("run", "Run the application", "run:my-app");
+build.step(
+  build.Step(name: "run", description: "Run the application"),
+  ComptimeList(comptime_string)("run:my-app")
+);
 
 // Test steps reference test suite names
-build.step("test", "Run unit tests", "tests");
+build.step(
+  build.Step(name: "test", description: "Run unit tests"),
+  ComptimeList(comptime_string)("tests")
+);
 ```
+
+### `Step`
+
+| Field         | Type              | Description      |
+| ------------- | ----------------- | ---------------- |
+| `name`        | `comptime_string` | Step name        |
+| `description` | `comptime_string` | Step description |
+
+Dependencies are passed as a `ComptimeList(comptime_string)` — a compile-time list of artifact, test, or run step names.
 
 List all available steps:
 
@@ -228,6 +257,7 @@ Arguments:
 Options:
   --build-file <path>    Path to build file (default: ./build.yo)
   --target <triple>      Override target for all artifacts
+  --sysroot <path>       Sysroot directory for cross-compilation
   --cc <compiler>        C compiler: clang, gcc, zig, cc, cl
   --verbose, -v          Verbose build output
   --dry-run              Show what would be built
@@ -271,8 +301,15 @@ build.executable(build.Executable(
   allocator: build.Allocator.Libc
 ));
 
-build.step("install", "Build all targets", "my-app", "my-app-wasm");
-build.step("run", "Run native build", "run:my-app");
+build.step(
+  build.Step(name: "install", description: "Build all targets"),
+  ComptimeList(comptime_string)("my-app", "my-app-wasm")
+);
+
+build.step(
+  build.Step(name: "run", description: "Run native build"),
+  ComptimeList(comptime_string)("run:my-app")
+);
 ```
 
 ## Dependencies
@@ -302,7 +339,11 @@ build.dependency(build.GitDependency(
 ));
 
 build.executable(build.Executable(name: "my-app", root: "./src/main.yo"));
-build.step("install", "Build all artifacts", "my-app");
+
+build.step(
+  build.Step(name: "install", description: "Build all artifacts"),
+  ComptimeList(comptime_string)("my-app")
+);
 ```
 
 Fetch dependencies with:
@@ -312,7 +353,26 @@ yo fetch              # Fetch all dependencies from build.yo
 yo fetch --verbose    # Show detailed progress
 ```
 
-Dependencies are cached in `.yo-cache/deps/` and tracked by `yo.lock` (commit this file to version control). `yo build` auto-fetches if dependencies are not yet cached.
+Dependencies are stored in a global cache and tracked by `yo.lock` (commit this file to version control). `yo build` auto-fetches if dependencies are not yet cached.
+
+### Global Cache
+
+Dependencies are cached globally to avoid redundant downloads across projects:
+
+```bash
+# Show cache location
+yo cache path           # e.g., ~/.cache/yo
+
+# Clear cache
+yo cache clean
+```
+
+**Resolution order:**
+
+1. `$YO_CACHE_DIR` (environment variable)
+2. `$XDG_CACHE_HOME/yo` (XDG standard)
+3. `~/.cache/yo` (Linux/macOS default)
+4. `%LOCALAPPDATA%\yo\cache` (Windows default)
 
 ### System Libraries (pkg-config)
 
@@ -339,6 +399,18 @@ Options:
   --build-file <path>    Path to build file (default: ./build.yo)
   --verbose, -v          Verbose output
 ```
+
+## `yo cache` Reference
+
+```
+yo cache <action>
+
+Actions:
+  path                   Print the global cache directory path
+  clean                  Remove all cached dependencies
+```
+
+The cache location can be overridden via the `YO_CACHE_DIR` environment variable.
 
 ## See Also
 
