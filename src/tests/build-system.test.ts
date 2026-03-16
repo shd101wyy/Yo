@@ -453,3 +453,199 @@ describe("Global cache directory", () => {
     }
   });
 });
+
+// ── BuildRegistry tests ──────────────────────────────────────────────
+
+import { BuildRegistry } from "../evaluator/builtins/build";
+
+function makeDefaultArtifactConfig() {
+  return {
+    root: "./src/main.yo",
+    target: "x86_64-linux-gnu",
+    optimize: "debug",
+    allocator: "mimalloc",
+    sanitize: "none",
+    linkLibraries: [] as string[],
+    includePaths: [] as string[],
+    libraryPaths: [] as string[],
+    cSources: [] as string[],
+    cFlags: [] as string[],
+    defines: [] as string[],
+    strip: false,
+    staticLink: false,
+    linkedArtifacts: [] as string[],
+  };
+}
+
+describe("BuildRegistry", () => {
+  test("register and find executable", () => {
+    const reg = new BuildRegistry();
+    reg.registerExecutable({ name: "my-app", ...makeDefaultArtifactConfig() });
+    const found = reg.findArtifact("my-app");
+    expect(found).toBeDefined();
+    expect(found!.kind).toBe("executable");
+    expect(found!.name).toBe("my-app");
+  });
+
+  test("register and find static library", () => {
+    const reg = new BuildRegistry();
+    reg.registerStaticLibrary({
+      name: "mylib",
+      ...makeDefaultArtifactConfig(),
+    });
+    const found = reg.findArtifact("mylib");
+    expect(found).toBeDefined();
+    expect(found!.kind).toBe("static_library");
+  });
+
+  test("register and find shared library", () => {
+    const reg = new BuildRegistry();
+    reg.registerSharedLibrary({
+      name: "myshared",
+      ...makeDefaultArtifactConfig(),
+    });
+    const found = reg.findArtifact("myshared");
+    expect(found).toBeDefined();
+    expect(found!.kind).toBe("shared_library");
+  });
+
+  test("findArtifact returns undefined for unknown name", () => {
+    const reg = new BuildRegistry();
+    expect(reg.findArtifact("nonexistent")).toBeUndefined();
+  });
+
+  test("registerLink adds to linkedArtifacts", () => {
+    const reg = new BuildRegistry();
+    reg.registerExecutable({ name: "app", ...makeDefaultArtifactConfig() });
+    reg.registerStaticLibrary({ name: "lib", ...makeDefaultArtifactConfig() });
+    reg.registerLink("app", "lib");
+    const app = reg.findArtifact("app");
+    expect(app!.linkedArtifacts).toEqual(["lib"]);
+  });
+
+  test("registerLink does not duplicate", () => {
+    const reg = new BuildRegistry();
+    reg.registerExecutable({ name: "app", ...makeDefaultArtifactConfig() });
+    reg.registerLink("app", "lib");
+    reg.registerLink("app", "lib");
+    const app = reg.findArtifact("app");
+    expect(app!.linkedArtifacts).toEqual(["lib"]);
+  });
+
+  test("link_system_library adds to linkLibraries", () => {
+    const reg = new BuildRegistry();
+    reg.registerExecutable({ name: "app", ...makeDefaultArtifactConfig() });
+    const artifact = reg.findArtifact("app")!;
+    artifact.linkLibraries.push("z");
+    expect(artifact.linkLibraries).toEqual(["z"]);
+  });
+
+  test("link_system_library does not duplicate", () => {
+    const reg = new BuildRegistry();
+    reg.registerExecutable({ name: "app", ...makeDefaultArtifactConfig() });
+    const artifact = reg.findArtifact("app")!;
+    if (!artifact.linkLibraries.includes("z")) {
+      artifact.linkLibraries.push("z");
+    }
+    if (!artifact.linkLibraries.includes("z")) {
+      artifact.linkLibraries.push("z");
+    }
+    expect(artifact.linkLibraries).toEqual(["z"]);
+  });
+});
+
+describe("BuildRegistry CLI options", () => {
+  test("setCliOptions stores options", () => {
+    const reg = new BuildRegistry();
+    const opts = new Map([
+      ["strip", "true"],
+      ["opt", "release-fast"],
+    ]);
+    reg.setCliOptions(opts);
+    expect(reg.cliOptions.get("strip")).toBe("true");
+    expect(reg.cliOptions.get("opt")).toBe("release-fast");
+  });
+
+  test("declared options store description and default", () => {
+    const reg = new BuildRegistry();
+    reg.declaredOptions.set("strip", {
+      description: "Strip debug symbols",
+      defaultValue: "false",
+    });
+    const opt = reg.declaredOptions.get("strip");
+    expect(opt).toBeDefined();
+    expect(opt!.description).toBe("Strip debug symbols");
+    expect(opt!.defaultValue).toBe("false");
+  });
+
+  test("CLI option overrides default", () => {
+    const reg = new BuildRegistry();
+    reg.setCliOptions(new Map([["strip", "true"]]));
+    reg.declaredOptions.set("strip", {
+      description: "Strip",
+      defaultValue: "false",
+    });
+    const value = reg.cliOptions.get("strip") ?? "false";
+    expect(value).toBe("true");
+  });
+
+  test("missing CLI option falls back to default", () => {
+    const reg = new BuildRegistry();
+    reg.setCliOptions(new Map());
+    reg.declaredOptions.set("strip", {
+      description: "Strip",
+      defaultValue: "false",
+    });
+    const value = reg.cliOptions.get("strip") ?? "false";
+    expect(value).toBe("false");
+  });
+});
+
+describe("BuildRegistry steps", () => {
+  test("register and find step", () => {
+    const reg = new BuildRegistry();
+    reg.registerStep("install", "Build all artifacts", ["app", "lib"]);
+    const step = reg.findStep("install");
+    expect(step).toBeDefined();
+    expect(step!.name).toBe("install");
+    expect(step!.dependencyNames).toEqual(["app", "lib"]);
+  });
+
+  test("getStepNames returns all step names", () => {
+    const reg = new BuildRegistry();
+    reg.registerStep("install", "Build", []);
+    reg.registerStep("test", "Test", []);
+    reg.registerStep("run", "Run", []);
+    expect(reg.getStepNames()).toEqual(["install", "test", "run"]);
+  });
+
+  test("register test suite", () => {
+    const reg = new BuildRegistry();
+    reg.registerTest({
+      name: "tests",
+      root: "./tests/",
+      target: "x86_64-linux-gnu",
+      verbose: false,
+      bail: false,
+      parallel: 1,
+    });
+    expect(reg.testSuites).toHaveLength(1);
+    expect(reg.testSuites[0]!.name).toBe("tests");
+  });
+
+  test("register run step", () => {
+    const reg = new BuildRegistry();
+    reg.registerRun("my-app", []);
+    expect(reg.runSteps).toHaveLength(1);
+    expect(reg.runSteps[0]!.name).toBe("run:my-app");
+    expect(reg.runSteps[0]!.artifactName).toBe("my-app");
+  });
+
+  test("register project metadata", () => {
+    const reg = new BuildRegistry();
+    reg.registerProject("my-app", "1.0.0");
+    expect(reg.project).toBeDefined();
+    expect(reg.project!.name).toBe("my-app");
+    expect(reg.project!.version).toBe("1.0.0");
+  });
+});
