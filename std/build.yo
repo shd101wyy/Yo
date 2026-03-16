@@ -71,6 +71,25 @@ TestSuite :: struct(
 );
 export TestSuite;
 
+// ── Dependency config types ──────────────────────────────────────────
+
+GitDependency :: struct(
+  name : comptime_string,
+  url : comptime_string,
+  (ref : comptime_string) ?= "HEAD",
+  (path : comptime_string) ?= ""
+);
+export GitDependency;
+
+SystemLibrary :: struct(
+  name : comptime_string,
+  pkg_config : comptime_string,
+  (fallback_include : comptime_string) ?= "",
+  (fallback_lib : comptime_string) ?= "",
+  (fallback_link : comptime_string) ?= ""
+);
+export SystemLibrary;
+
 // ── Build functions ──────────────────────────────────────────────────
 // All return unit. Artifacts and steps are registered by name in
 // the global BuildRegistry during compile-time evaluation.
@@ -122,3 +141,15 @@ step :: (fn(
   __yo_build_step(name, description, dep0, dep1, dep2, dep3, dep4, dep5, dep6, dep7);
 };
 export step;
+
+// Register a git-hosted dependency.
+dependency :: (fn(comptime(config) : GitDependency) -> unit) {
+  __yo_build_dependency(config.name, config.url, config.ref, config.path);
+};
+export dependency;
+
+// Register a system C library discovered via pkg-config.
+system_library :: (fn(comptime(config) : SystemLibrary) -> unit) {
+  __yo_build_system_library(config.name, config.pkg_config, config.fallback_include, config.fallback_lib, config.fallback_link);
+};
+export system_library;

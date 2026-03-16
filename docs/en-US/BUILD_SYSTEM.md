@@ -262,6 +262,71 @@ build.step("install", "Build all targets", "my-app", "my-app-wasm");
 build.step("run", "Run native build", "run:my-app");
 ```
 
+## Dependencies
+
+### Git Dependencies
+
+Declare git-hosted dependencies in `build.yo`:
+
+```yo
+build :: import "std/build";
+
+build.project(name: "my-app", version: "1.0.0");
+
+// Add a git dependency
+build.dependency(build.GitDependency(
+  name: "json-parser",
+  url: "https://github.com/user/json-parser.git",
+  ref: "v1.0.0"
+));
+
+// Dependency from a subdirectory of a repo
+build.dependency(build.GitDependency(
+  name: "utils",
+  url: "https://github.com/user/mono-repo.git",
+  ref: "main",
+  path: "packages/utils"
+));
+
+build.executable(build.Executable(name: "my-app", root: "./src/main.yo"));
+build.step("install", "Build all artifacts", "my-app");
+```
+
+Fetch dependencies with:
+
+```bash
+yo fetch              # Fetch all dependencies from build.yo
+yo fetch --verbose    # Show detailed progress
+```
+
+Dependencies are cached in `.yo-cache/deps/` and tracked by `yo.lock` (commit this file to version control). `yo build` auto-fetches if dependencies are not yet cached.
+
+### System Libraries (pkg-config)
+
+Link against system C libraries discovered via `pkg-config`:
+
+```yo
+build.system_library(build.SystemLibrary(
+  name: "openssl",
+  pkg_config: "openssl",
+  fallback_include: "/usr/include/openssl",
+  fallback_lib: "/usr/lib",
+  fallback_link: "ssl crypto"
+));
+```
+
+When `pkg-config` is available (Linux, macOS), it automatically resolves include paths and link flags. The fallback fields are used when `pkg-config` is not found (common on Windows).
+
+## `yo fetch` Reference
+
+```
+yo fetch [options]
+
+Options:
+  --build-file <path>    Path to build file (default: ./build.yo)
+  --verbose, -v          Verbose output
+```
+
 ## See Also
 
 - [BUILD_SYSTEM.md](../../plans/BUILD_SYSTEM.md) — Full design document with implementation details

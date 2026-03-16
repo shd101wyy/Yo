@@ -19,7 +19,9 @@ import {
   clearBuildRegistry,
   getBuildRegistry,
 } from "./evaluator/builtins/build";
+import { fetchAllDependencies, areDependenciesCached } from "./fetch";
 import { ModuleManager } from "./module-manager";
+import { resolveAllSystemLibraries } from "./pkg-config";
 
 export interface BuildOptions {
   /** Path to build file (default: ./build.yo) */
@@ -85,6 +87,32 @@ export async function runBuild(options: BuildOptions): Promise<void> {
   }
 
   const projectDir = path.dirname(buildFile);
+
+  // Auto-fetch git dependencies if not cached
+  if (registry.dependencies.length > 0) {
+    if (!areDependenciesCached(projectDir, registry.dependencies)) {
+      if (options.verbose) {
+        console.log("Dependencies not cached — fetching...");
+      }
+      fetchAllDependencies(projectDir, registry.dependencies, options.verbose);
+    } else if (options.verbose) {
+      console.log("All dependencies cached.");
+    }
+  }
+
+  // Resolve system libraries via pkg-config and merge into all artifacts
+  if (registry.systemLibraries.length > 0) {
+    const sysLibFlags = resolveAllSystemLibraries(
+      registry.systemLibraries,
+      options.verbose
+    );
+    for (const artifact of registry.artifacts) {
+      artifact.includePaths.push(...sysLibFlags.includePaths);
+      artifact.libraryPaths.push(...sysLibFlags.libraryPaths);
+      artifact.linkLibraries.push(...sysLibFlags.linkLibraries);
+      artifact.cFlags.push(...sysLibFlags.cFlags);
+    }
+  }
 
   for (const stepName of requestedSteps) {
     if (options.dryRun) {

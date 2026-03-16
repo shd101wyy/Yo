@@ -39,6 +39,11 @@ Examples:
   $ yo init                      Initialize in current directory
   $ yo init my-project           Initialize in ./my-project
 
+yo fetch [options]               Fetch git dependencies into .yo-cache
+Examples:
+  $ yo fetch                     Fetch all dependencies from build.yo
+  $ yo fetch --verbose           Show detailed fetch progress
+
 yo test [path] [options]         Run tests
 Example:
   $ yo test                      Run all *.test.yo files in the workspace
@@ -393,6 +398,31 @@ yo --version                     Show version number
       initProject({
         dir: argv.dir as string,
         name: argv.name as string | undefined,
+      });
+    }
+  )
+  .command(
+    "fetch",
+    "Fetch git dependencies into .yo-cache",
+    (_yargs) => {
+      _yargs
+        .option("build-file", {
+          describe: "Path to build file",
+          type: "string",
+          default: "./build.yo",
+        })
+        .option("verbose", {
+          alias: "v",
+          describe: "Verbose output",
+          type: "boolean",
+          default: false,
+        });
+    },
+    async (argv) => {
+      const { runFetch } = await import("./fetch-command");
+      await runFetch({
+        buildFile: argv.buildFile as string,
+        verbose: argv.verbose as boolean,
       });
     }
   )

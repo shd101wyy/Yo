@@ -75,12 +75,29 @@ export interface BuildStep {
   dependencyNames: string[];
 }
 
+export interface BuildGitDependency {
+  name: string;
+  url: string;
+  ref: string;
+  path: string;
+}
+
+export interface BuildSystemLibrary {
+  name: string;
+  pkgConfig: string;
+  fallbackInclude: string;
+  fallbackLib: string;
+  fallbackLink: string;
+}
+
 export class BuildRegistry {
   project: BuildProject | undefined;
   artifacts: BuildArtifact[] = [];
   testSuites: BuildTestSuite[] = [];
   runSteps: BuildRunStep[] = [];
   steps: BuildStep[] = [];
+  dependencies: BuildGitDependency[] = [];
+  systemLibraries: BuildSystemLibrary[] = [];
 
   registerProject(name: string, version: string): void {
     this.project = { name, version };
@@ -111,6 +128,14 @@ export class BuildRegistry {
     this.steps.push({ name, description, dependencyNames });
   }
 
+  registerDependency(dep: BuildGitDependency): void {
+    this.dependencies.push(dep);
+  }
+
+  registerSystemLibrary(lib: BuildSystemLibrary): void {
+    this.systemLibraries.push(lib);
+  }
+
   /** Find an artifact by name */
   findArtifact(name: string): BuildArtifact | undefined {
     return this.artifacts.find((a) => a.name === name);
@@ -129,6 +154,16 @@ export class BuildRegistry {
   /** Find a named step */
   findStep(name: string): BuildStep | undefined {
     return this.steps.find((s) => s.name === name);
+  }
+
+  /** Find a dependency by name */
+  findDependency(name: string): BuildGitDependency | undefined {
+    return this.dependencies.find((d) => d.name === name);
+  }
+
+  /** Find a system library by name */
+  findSystemLibrary(name: string): BuildSystemLibrary | undefined {
+    return this.systemLibraries.find((l) => l.name === name);
   }
 
   /** Get all step names */
@@ -226,6 +261,8 @@ export class BuildRegistry {
     this.testSuites = [];
     this.runSteps = [];
     this.steps = [];
+    this.dependencies = [];
+    this.systemLibraries = [];
   }
 }
 
@@ -551,6 +588,90 @@ export function evaluateYoBuildFunctions({
     );
     const target = parseTarget(triple);
     return makeComptimeStringResult(expr, env, target.triple);
+  }
+
+  // __yo_build_dependency(name, url, ref, path)
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_dependency)) {
+    if (expr.args.length < 2) {
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `__yo_build_dependency expects at least 2 arguments (name, url), got ${expr.args.length}`,
+      });
+    }
+    const name = extractComptimeString(
+      expr.args[0]!.$?.value,
+      "name",
+      expr.token
+    );
+    const url = extractComptimeString(
+      expr.args[1]!.$?.value,
+      "url",
+      expr.token
+    );
+    const ref =
+      expr.args.length > 2
+        ? extractComptimeString(expr.args[2]!.$?.value, "ref", expr.token)
+        : "HEAD";
+    const depPath =
+      expr.args.length > 3
+        ? extractComptimeString(expr.args[3]!.$?.value, "path", expr.token)
+        : "";
+
+    registry.registerDependency({ name, url, ref, path: depPath });
+    return makeUnitResult(expr, env);
+  }
+
+  // __yo_build_system_library(name, pkg_config, fallback_include, fallback_lib, fallback_link)
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_system_library)) {
+    if (expr.args.length < 2) {
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `__yo_build_system_library expects at least 2 arguments (name, pkg_config), got ${expr.args.length}`,
+      });
+    }
+    const name = extractComptimeString(
+      expr.args[0]!.$?.value,
+      "name",
+      expr.token
+    );
+    const pkgConfig = extractComptimeString(
+      expr.args[1]!.$?.value,
+      "pkg_config",
+      expr.token
+    );
+    const fallbackInclude =
+      expr.args.length > 2
+        ? extractComptimeString(
+            expr.args[2]!.$?.value,
+            "fallback_include",
+            expr.token
+          )
+        : "";
+    const fallbackLib =
+      expr.args.length > 3
+        ? extractComptimeString(
+            expr.args[3]!.$?.value,
+            "fallback_lib",
+            expr.token
+          )
+        : "";
+    const fallbackLink =
+      expr.args.length > 4
+        ? extractComptimeString(
+            expr.args[4]!.$?.value,
+            "fallback_link",
+            expr.token
+          )
+        : "";
+
+    registry.registerSystemLibrary({
+      name,
+      pkgConfig,
+      fallbackInclude,
+      fallbackLib,
+      fallbackLink,
+    });
+    return makeUnitResult(expr, env);
   }
 
   throw formatErrorMessage({

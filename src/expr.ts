@@ -1177,6 +1177,8 @@ export const BuiltinFunctions = {
   __yo_build_step: ["__yo_build_step"],
   __yo_build_target_host: ["__yo_build_target_host"],
   __yo_build_target_parse: ["__yo_build_target_parse"],
+  __yo_build_dependency: ["__yo_build_dependency"],
+  __yo_build_system_library: ["__yo_build_system_library"],
 };
 
 export function exprIsInfixOperatorFunctionCall(expr: Expr): boolean {
