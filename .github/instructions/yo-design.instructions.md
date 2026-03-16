@@ -67,6 +67,32 @@ Current goal: make Yo work on Linux, macOS, and Windows.
 
 Yo is a new, evolving language. Don't worry about breaking changes when making design decisions.
 
+## Compile-time only functions must use `comptime` return types
+
+Functions that only execute at compile time (e.g., build system functions, macro-like utilities) must wrap their return type in `comptime(...)`. If the return type is not wrapped in `comptime`, the evaluator treats it as a runtime function.
+
+```yo
+// WRONG — unit return without comptime means runtime:
+project :: (fn(comptime(config) : Project) -> unit) {
+  __yo_build_project(config.name, config.version);
+};
+
+// CORRECT — comptime(unit) signals compile-time only:
+project :: (fn(comptime(config) : Project) -> comptime(unit)) {
+  __yo_build_project(config.name, config.version);
+};
+
+// CORRECT — comptime(Step) for functions returning compile-time values:
+executable :: (fn(comptime(config) : Executable) -> comptime(Step)) {
+  __yo_build_executable(config.name, config.root, ...);
+  Step(name: config.name, kind: StepKind.Executable)
+};
+```
+
+This applies to all parameters and return types in comptime-only APIs:
+- Parameters: `comptime(name) : comptime_string`
+- Return: `-> comptime(Step)`, `-> comptime(unit)`, `-> comptime(str)`
+
 ## Algebraic effects
 
 - Effects are matched by **type**, not by name. A `given(raise) : Raise` handler matches any `using(my_raise : Raise)` parameter regardless of the variable name — the match is on the `Raise` type.

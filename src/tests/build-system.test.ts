@@ -651,4 +651,23 @@ describe("BuildRegistry steps", () => {
     expect(reg.project!.name).toBe("my-app");
     expect(reg.project!.version).toBe("1.0.0");
   });
+
+  test("addStepDependency adds dependency to existing step", () => {
+    const reg = new BuildRegistry();
+    reg.registerStep("install", "Build all");
+    reg.addStepDependency("install", "my-app");
+    reg.addStepDependency("install", "my-lib");
+    const step = reg.findStep("install");
+    expect(step).toBeDefined();
+    expect(step!.dependencyNames).toEqual(["my-app", "my-lib"]);
+  });
+
+  test("addStepDependency does not duplicate", () => {
+    const reg = new BuildRegistry();
+    reg.registerStep("install", "Build all");
+    reg.addStepDependency("install", "my-app");
+    reg.addStepDependency("install", "my-app");
+    const step = reg.findStep("install");
+    expect(step!.dependencyNames).toEqual(["my-app"]);
+  });
 });

@@ -8,7 +8,8 @@
 //   build :: import "std/build";
 //   build.project(build.Project(name: "my-app"));
 //   exe :: build.executable(build.Executable(name: "my-app", root: "./src/main.yo"));
-//   build.step("install", "Build all artifacts", ComptimeList(build.Step)(exe));
+//   install :: build.step("install", "Build all artifacts");
+//   install.depend_on(exe);
 
 // ── Optimization levels ──────────────────────────────────────────────
 
@@ -108,6 +109,18 @@ Step :: struct(
 );
 export Step;
 
+// ── Step methods ─────────────────────────────────────────────────────
+// Methods on Step for Zig-like API: step.depend_on(other), exe.link(lib).
+
+impl(Step,
+  depend_on : (fn(comptime(self) : Self, comptime(dep) : Step) -> comptime(unit))({
+    __yo_build_step_depend_on(self.name, dep.name, dep.kind);
+  }),
+  link : (fn(comptime(self) : Self, comptime(library) : Step) -> comptime(unit))({
+    __yo_build_link(self.name, library.name);
+  })
+);
+
 // ── Build option config types ────────────────────────────────────────
 // Like Zig's b.option(), declare user-configurable options.
 // CLI usage: yo build -Dname=value
@@ -140,10 +153,10 @@ export SystemLibrary;
 
 // ── Build functions ──────────────────────────────────────────────────
 // All registration functions return a Step value, allowing steps to be
-// wired together as dependencies via ComptimeList(Step).
+// wired together as dependencies via step.depend_on(dep).
 
 // Register project metadata.
-project :: (fn(comptime(config) : Project) -> unit) {
+project :: (fn(comptime(config) : Project) -> comptime(unit)) {
   __yo_build_project(config.name, config.version);
 };
 export project;
@@ -210,27 +223,18 @@ run :: (fn(comptime(artifact_name) : comptime_string) -> comptime(Step)) {
 };
 export run;
 
-// Register a named build step with Step dependencies.
-// Dependencies are Steps returned by executable, test, run, or other step calls.
+// Register a named build step. Use step.depend_on(dep) to add dependencies.
 step :: (fn(
   comptime(name) : comptime_string,
-  comptime(description) : comptime_string,
-  comptime(deps) : ComptimeList(Step)
+  comptime(description) : comptime_string
 ) -> comptime(Step)) {
-  __yo_build_step(name, description, deps);
+  __yo_build_step(name, description);
   Step(name: name, kind: StepKind.Custom)
 };
 export step;
 
-// Link a library to an artifact. Works with static, shared, and system libraries.
-// Like Zig's exe.linkLibrary(lib).
-link :: (fn(comptime(artifact) : Step, comptime(library) : Step) -> unit) {
-  __yo_build_link(artifact.name, library.name);
-};
-export link;
-
 // Register a git-hosted dependency.
-dependency :: (fn(comptime(config) : GitDependency) -> unit) {
+dependency :: (fn(comptime(config) : GitDependency) -> comptime(unit)) {
   __yo_build_dependency(config.name, config.url, config.ref, config.path);
 };
 export dependency;

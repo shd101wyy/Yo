@@ -1176,6 +1176,7 @@ export const BuiltinFunctions = {
   __yo_build_test: ["__yo_build_test"],
   __yo_build_run: ["__yo_build_run"],
   __yo_build_step: ["__yo_build_step"],
+  __yo_build_step_depend_on: ["__yo_build_step_depend_on"],
   __yo_build_link: ["__yo_build_link"],
   __yo_build_link_system_library: ["__yo_build_link_system_library"],
   __yo_build_target_host: ["__yo_build_target_host"],

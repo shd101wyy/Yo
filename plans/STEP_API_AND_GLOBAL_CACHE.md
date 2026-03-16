@@ -6,16 +6,25 @@
 
 The original `step` function accepted up to 8 fixed positional dependency arguments (`dep0`..`dep7`). This was later changed to `ComptimeList(comptime_string)` for variable-length deps, but dependencies were still string-based — users had to know synthetic names like `"run:my-app"`.
 
-### Solution: Unified Step type
+### Solution: Unified Step type with methods
 
-All build functions (`executable`, `static_library`, `test`, `run`, `step`) now return a `Step` value. Steps are wired together using `ComptimeList(Step)`, making dependencies type-safe and explicit:
+All build functions (`executable`, `static_library`, `test`, `run`, `step`) return a `Step` value. Steps are wired together using `step.depend_on(dep)` method calls, making dependencies type-safe and explicit:
 
 ```yo
-StepKind :: enum(Executable, StaticLibrary, TestSuite, Run, Custom);
+StepKind :: enum(Executable, StaticLibrary, SharedLibrary, SystemLibrary, TestSuite, Run, Custom);
 
 Step :: struct(
   name : comptime_string,
   kind : StepKind
+);
+
+impl(Step,
+  depend_on : (fn(comptime(self) : Self, comptime(dep) : Step) -> comptime(unit))({
+    __yo_build_step_depend_on(self.name, dep.name, dep.kind);
+  }),
+  link : (fn(comptime(self) : Self, comptime(library) : Step) -> comptime(unit))({
+    __yo_build_link(self.name, library.name);
+  })
 );
 
 // Build functions return Step (with comptime return type)
@@ -24,11 +33,10 @@ static_library :: (fn(comptime(config) : StaticLibrary) -> comptime(Step)) { ...
 test :: (fn(comptime(config) : TestSuite) -> comptime(Step)) { ... };
 run :: (fn(comptime(artifact_name) : comptime_string) -> comptime(Step)) { ... };
 
-// step() accepts ComptimeList(Step) for dependencies
+// step() returns a Step (use step.depend_on() to add dependencies)
 step :: (fn(
   comptime(name) : comptime_string,
-  comptime(description) : comptime_string,
-  comptime(deps) : ComptimeList(Step)
+  comptime(description) : comptime_string
 ) -> comptime(Step)) { ... };
 ```
 
@@ -41,9 +49,14 @@ exe :: build.executable(build.Executable(name: "my-app", root: "./src/main.yo"))
 run_exe :: build.run("my-app");
 tests :: build.test(build.TestSuite(name: "tests", root: "./tests/"));
 
-build.step("install", "Build all targets", ComptimeList(build.Step)(exe));
-build.step("run", "Run the application", ComptimeList(build.Step)(run_exe));
-build.step("test", "Run unit tests", ComptimeList(build.Step)(tests));
+install :: build.step("install", "Build all targets");
+install.depend_on(exe);
+
+run_step :: build.step("run", "Run the application");
+run_step.depend_on(run_exe);
+
+test_step :: build.step("test", "Run unit tests");
+test_step.depend_on(tests);
 ```
 
 ### How dependency resolution works

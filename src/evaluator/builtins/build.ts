@@ -22,10 +22,8 @@ import { createComptimeStringType, createUnitType } from "../../types/creators";
 import type { Token } from "../../token";
 import {
   createComptimeStringValue,
-  isComptimeListValue,
   isComptimeStringValue,
   isEnumValue,
-  isStructValue,
   isUnknownValue,
   type Value,
 } from "../../value";
@@ -142,9 +140,19 @@ export class BuildRegistry {
   registerStep(
     name: string,
     description: string,
-    dependencyNames: string[]
+    dependencyNames: string[] = []
   ): void {
     this.steps.push({ name, description, dependencyNames });
+  }
+
+  /** Add a dependency to an existing step */
+  addStepDependency(stepName: string, depName: string): void {
+    const step = this.findStep(stepName);
+    if (step) {
+      if (!step.dependencyNames.includes(depName)) {
+        step.dependencyNames.push(depName);
+      }
+    }
   }
 
   registerDependency(dep: BuildGitDependency): void {
@@ -681,15 +689,12 @@ export function evaluateYoBuildFunctions({
     return makeUnitResult(expr, env);
   }
 
-  // __yo_build_step(name, description, deps_list)
-  // deps_list is a ComptimeList(Step) where each element is a Step struct value.
-  // Step struct has fields: [name: comptime_string, kind: StepKind]
-  // StepKind enum variants: Executable, StaticLibrary, TestSuite, Run, Custom
+  // __yo_build_step(name, description)
   if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_step)) {
-    if (expr.args.length < 3) {
+    if (expr.args.length < 2) {
       throw formatErrorMessage({
         token: expr.token,
-        errorMessage: `__yo_build_step expects 3 arguments (name, description, deps), got ${expr.args.length}`,
+        errorMessage: `__yo_build_step expects 2 arguments (name, description), got ${expr.args.length}`,
       });
     }
     const name = extractComptimeString(
@@ -702,55 +707,38 @@ export function evaluateYoBuildFunctions({
       "description",
       expr.token
     );
-    const depsValue = expr.args[2]!.$?.value;
-    const depNames: string[] = [];
-    if (depsValue && isComptimeListValue(depsValue)) {
-      for (let i = 0; i < depsValue.elements.length; i++) {
-        const elem = depsValue.elements[i];
-        if (elem && isStructValue(elem)) {
-          // Extract 'name' field (index 0) from Step struct
-          const nameFieldIndex = elem.type.fields.findIndex(
-            (f) => f.label === "name"
-          );
-          const kindFieldIndex = elem.type.fields.findIndex(
-            (f) => f.label === "kind"
-          );
-          if (nameFieldIndex < 0) {
-            throw formatErrorMessage({
-              token: expr.token,
-              errorMessage: `Step dependency at index ${i}: missing 'name' field`,
-            });
-          }
-          const stepNameValue = elem.fields[nameFieldIndex];
-          if (!stepNameValue || !isComptimeStringValue(stepNameValue)) {
-            throw formatErrorMessage({
-              token: expr.token,
-              errorMessage: `Step dependency at index ${i}: 'name' field must be a comptime_string`,
-            });
-          }
-          // Check kind to construct correct dependency name
-          let depName = stepNameValue.value;
-          if (kindFieldIndex >= 0) {
-            const kindValue = elem.fields[kindFieldIndex];
-            if (kindValue && isEnumValue(kindValue)) {
-              if (kindValue.variantName === "Run") {
-                depName = `run:${depName}`;
-              }
-            }
-          }
-          depNames.push(depName);
-        } else if (elem && isComptimeStringValue(elem)) {
-          // Backward compatibility: accept comptime_string elements too
-          depNames.push(elem.value);
-        } else {
-          throw formatErrorMessage({
-            token: expr.token,
-            errorMessage: `Step dependency at index ${i} must be a Step struct`,
-          });
-        }
+    registry.registerStep(name, description);
+    return makeUnitResult(expr, env);
+  }
+
+  // __yo_build_step_depend_on(step_name, dep_name, dep_kind)
+  // Adds a dependency to an existing step.
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_step_depend_on)) {
+    if (expr.args.length < 3) {
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `__yo_build_step_depend_on expects 3 arguments (step_name, dep_name, dep_kind), got ${expr.args.length}`,
+      });
+    }
+    const stepName = extractComptimeString(
+      expr.args[0]!.$?.value,
+      "step_name",
+      expr.token
+    );
+    const depName = extractComptimeString(
+      expr.args[1]!.$?.value,
+      "dep_name",
+      expr.token
+    );
+    // Check kind to construct correct dependency name (Run steps get "run:" prefix)
+    const depKindValue = expr.args[2]!.$?.value;
+    let resolvedDepName = depName;
+    if (depKindValue && isEnumValue(depKindValue)) {
+      if (depKindValue.variantName === "Run") {
+        resolvedDepName = `run:${depName}`;
       }
     }
-    registry.registerStep(name, description, depNames);
+    registry.addStepDependency(stepName, resolvedDepName);
     return makeUnitResult(expr, env);
   }
 

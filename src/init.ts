@@ -107,11 +107,15 @@ tests :: build.test(build.TestSuite(name: "tests", root: "./tests/"));
 
 run_exe :: build.run("${name}");
 
-build.step("install", "Build all artifacts", ComptimeList(build.Step)(exe, lib));
+install :: build.step("install", "Build all artifacts");
+install.depend_on(exe);
+install.depend_on(lib);
 
-build.step("run", "Run the application", ComptimeList(build.Step)(run_exe));
+run_step :: build.step("run", "Run the application");
+run_step.depend_on(run_exe);
 
-build.step("test", "Run unit tests", ComptimeList(build.Step)(tests));
+test_step :: build.step("test", "Run unit tests");
+test_step.depend_on(tests);
 `;
 }
 

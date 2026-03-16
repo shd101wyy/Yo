@@ -133,11 +133,15 @@ tests :: build.test(build.TestSuite(name: "tests", root: "./tests/"));
 run_app :: build.run("my-app");
 
 // Named steps with dependencies
-build.step("install", "Build all artifacts", ComptimeList(build.Step)(exe, lib));
+install :: build.step("install", "Build all artifacts");
+install.depend_on(exe);
+install.depend_on(lib);
 
-build.step("run", "Run the application", ComptimeList(build.Step)(run_app));
+run_step :: build.step("run", "Run the application");
+run_step.depend_on(run_app);
 
-build.step("test", "Run unit tests", ComptimeList(build.Step)(tests));
+test_step :: build.step("test", "Run unit tests");
+test_step.depend_on(tests);
 ```
 
 Usage:
@@ -204,7 +208,10 @@ wasm :: build.executable(build.Executable(
   optimize: build.Optimize.ReleaseSmall
 ));
 
-build.step("install", "Install all targets", ComptimeList(build.Step)(linux, macos, wasm));
+install :: build.step("install", "Install all targets");
+install.depend_on(linux);
+install.depend_on(macos);
+install.depend_on(wasm);
 ```
 
 ### 2.4 Library Example
@@ -218,9 +225,11 @@ lib :: build.static_library(build.StaticLibrary(name: "mylib", root: "./src/lib.
 
 lib_tests :: build.test(build.TestSuite(name: "lib-tests", root: "./tests/"));
 
-build.step("install", "Install library", ComptimeList(build.Step)(lib));
+install :: build.step("install", "Install library");
+install.depend_on(lib);
 
-build.step("test", "Run library tests", ComptimeList(build.Step)(lib_tests));
+test_step :: build.step("test", "Run library tests");
+test_step.depend_on(lib_tests);
 ```
 
 ### 2.5 `build` Module API (`std/build.yo`)
@@ -292,22 +301,18 @@ shared_library(config: SharedLibrary) -> Step  // kind: StepKind.SharedLibrary
 // Register a system C library via pkg-config (accepts SystemLibrary config struct)
 system_library(config: SystemLibrary) -> Step  // kind: StepKind.SystemLibrary
 
-// Link any library (static, shared, or system) to an artifact
-// Automatically detects library type from the registry
-link(artifact: Step, library: Step) -> unit
-
 // Register a test suite (accepts TestSuite config struct)
 test(config: TestSuite) -> Step  // kind: StepKind.TestSuite
 
 // Register a run step for an artifact (by name)
 run(artifact_name: comptime_string) -> Step  // kind: StepKind.Run
 
-// Named build step with variable-length dependencies (Step values, not strings)
-step(
-  name: comptime_string,
-  description: comptime_string,
-  deps: ComptimeList(Step)
-) -> Step  // kind: StepKind.Custom
+// Named build step (use step.depend_on() to add dependencies)
+step(name: comptime_string, description: comptime_string) -> Step  // kind: StepKind.Custom
+
+// Step methods:
+// step.depend_on(other_step) -> unit  — add dependency
+// step.link(library_step)   -> unit  — link library to artifact
 ```
 
 **Step struct:**
@@ -355,7 +360,7 @@ yo build -Dstrip          # shorthand for -Dstrip=true
 
 ### 2.6.1 System Library Linking
 
-Register system libraries via `build.system_library()` and link them using the unified `build.link()` function:
+Register system libraries via `build.system_library()` and link them using the `step.link()` method:
 
 ```yo
 // Register system libraries (returns Step)
@@ -366,11 +371,11 @@ openssl :: build.system_library(build.SystemLibrary(
 
 exe :: build.executable(build.Executable(name: "my-app", root: "./src/main.yo"));
 
-// Same build.link() for Yo and system libraries
-build.link(exe, openssl);
+// Link using Step method
+exe.link(openssl);
 ```
 
-`build.link()` automatically detects the library type from the registry: system libraries get `pkg-config` flags, Yo libraries get compiled first and linked.
+`step.link()` automatically detects the library type from the registry: system libraries get `pkg-config` flags, Yo libraries get compiled first and linked.
 
 ### 2.7 Evaluation Model
 
@@ -508,11 +513,15 @@ tests :: build.test(build.TestSuite(name: "tests", root: "./tests/"));
 
 run_app :: build.run("my-project");
 
-build.step("install", "Build all artifacts", ComptimeList(build.Step)(exe, lib));
+install :: build.step("install", "Build all artifacts");
+install.depend_on(exe);
+install.depend_on(lib);
 
-build.step("run", "Run the application", ComptimeList(build.Step)(run_app));
+run_step :: build.step("run", "Run the application");
+run_step.depend_on(run_app);
 
-build.step("test", "Run unit tests", ComptimeList(build.Step)(tests));
+test_step :: build.step("test", "Run unit tests");
+test_step.depend_on(tests);
 ```
 
 **`src/main.yo`:**

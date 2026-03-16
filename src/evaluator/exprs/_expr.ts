@@ -988,6 +988,7 @@ ${exprToString(expr)}`,
       exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_test) ||
       exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_run) ||
       exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_step) ||
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_step_depend_on) ||
       exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_target_host) ||
       exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_target_parse) ||
       exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_dependency) ||

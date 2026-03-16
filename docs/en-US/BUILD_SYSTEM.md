@@ -71,10 +71,16 @@ tests :: build.test(build.TestSuite(name: "tests", root: "./tests/"));
 // Register a run step (compile + execute)
 run_exe :: build.run("my-project");
 
-// Named steps with Step dependencies
-build.step("install", "Build all artifacts", ComptimeList(build.Step)(exe, lib));
-build.step("run", "Run the application", ComptimeList(build.Step)(run_exe));
-build.step("test", "Run unit tests", ComptimeList(build.Step)(tests));
+// Named steps — use depend_on to wire dependencies
+install :: build.step("install", "Build all artifacts");
+install.depend_on(exe);
+install.depend_on(lib);
+
+run_step :: build.step("run", "Run the application");
+run_step.depend_on(run_exe);
+
+test_step :: build.step("test", "Run unit tests");
+test_step.depend_on(tests);
 ```
 
 ## Config Structs
@@ -146,7 +152,7 @@ Shared libraries compile with `-shared -fPIC` and produce `.so` (Linux), `.dylib
 
 ## Build Steps
 
-Steps are named targets that define what `yo build <step>` does. Every build function (`executable`, `static_library`, `test`, `run`) returns a `Step` value. Wire steps together using `ComptimeList(build.Step)`:
+Steps are named targets that define what `yo build <step>` does. Every build function (`executable`, `static_library`, `test`, `run`) returns a `Step` value. Use `step.depend_on(dep)` to wire dependencies:
 
 ```yo
 // Each build function returns a Step
@@ -155,10 +161,16 @@ lib :: build.static_library(build.StaticLibrary(name: "my-lib", root: "./src/lib
 tests :: build.test(build.TestSuite(name: "tests", root: "./tests/"));
 run_exe :: build.run("my-app");
 
-// Wire steps as dependencies
-build.step("install", "Build all artifacts", ComptimeList(build.Step)(exe, lib));
-build.step("run", "Run the application", ComptimeList(build.Step)(run_exe));
-build.step("test", "Run unit tests", ComptimeList(build.Step)(tests));
+// Create named steps and wire dependencies
+install :: build.step("install", "Build all artifacts");
+install.depend_on(exe);
+install.depend_on(lib);
+
+run_step :: build.step("run", "Run the application");
+run_step.depend_on(run_exe);
+
+test_step :: build.step("test", "Run unit tests");
+test_step.depend_on(tests);
 ```
 
 ### `Step`
@@ -167,6 +179,13 @@ build.step("test", "Run unit tests", ComptimeList(build.Step)(tests));
 | ------ | ----------------- | -------------------------------------------------------------------------------------------------------- |
 | `name` | `comptime_string` | Step name (artifact name, or custom name for `build.step`)                                               |
 | `kind` | `StepKind`        | Step kind: `Executable`, `StaticLibrary`, `SharedLibrary`, `SystemLibrary`, `TestSuite`, `Run`, `Custom` |
+
+### Step Methods
+
+| Method                  | Description                                                   |
+| ----------------------- | ------------------------------------------------------------- |
+| `step.depend_on(other)` | Add a dependency — `other` is built before `step`             |
+| `step.link(library)`    | Link a library to an artifact (static, shared, or system lib) |
 
 ### `StepKind`
 
@@ -179,8 +198,6 @@ build.step("test", "Run unit tests", ComptimeList(build.Step)(tests));
 | `TestSuite`     | Returned by `build.test()`           |
 | `Run`           | Returned by `build.run()`            |
 | `Custom`        | Returned by `build.step()`           |
-
-Dependencies are passed as a `ComptimeList(build.Step)` — a compile-time list of Step values returned by build functions.
 
 List all available steps:
 
@@ -197,7 +214,7 @@ Available steps:
 
 ## Linking Libraries
 
-Use `build.link()` to link any library to an artifact — works with static, shared, and system libraries. Similar to Zig's `exe.linkLibrary(lib)`:
+Use `step.link()` to link any library to an artifact — works with static, shared, and system libraries. Similar to Zig's `exe.linkLibrary(lib)`:
 
 ```yo
 build :: import "std/build";
@@ -221,14 +238,16 @@ exe :: build.executable(build.Executable(
   root: "./src/main.yo"
 ));
 
-// Single link function for all library types
-build.link(exe, lib);
-build.link(exe, openssl);
+// Link libraries using Step method
+exe.link(lib);
+exe.link(openssl);
 
-build.step("install", "Build all artifacts", ComptimeList(build.Step)(exe, lib));
+install :: build.step("install", "Build all artifacts");
+install.depend_on(exe);
+install.depend_on(lib);
 ```
 
-`build.link()` automatically determines the library type:
+`step.link()` automatically determines the library type:
 
 - **Static/shared libraries** — compiled first, output passed to the linker
 - **System libraries** — resolved via `pkg-config` at build time, flags applied to the artifact
@@ -388,8 +407,12 @@ wasm :: build.executable(build.Executable(
 
 run_native :: build.run("my-app");
 
-build.step("install", "Build all targets", ComptimeList(build.Step)(native, wasm));
-build.step("run", "Run native build", ComptimeList(build.Step)(run_native));
+install :: build.step("install", "Build all targets");
+install.depend_on(native);
+install.depend_on(wasm);
+
+run_step :: build.step("run", "Run native build");
+run_step.depend_on(run_native);
 ```
 
 ## Dependencies
@@ -420,7 +443,8 @@ build.dependency(build.GitDependency(
 
 exe :: build.executable(build.Executable(name: "my-app", root: "./src/main.yo"));
 
-build.step("install", "Build all artifacts", ComptimeList(build.Step)(exe));
+install :: build.step("install", "Build all artifacts");
+install.depend_on(exe);
 ```
 
 Fetch dependencies with:
