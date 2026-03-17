@@ -18,6 +18,7 @@ import { findTestFiles, runTests } from "./test-runner";
 const TEST_SUMMARY_MARKER = "__YO_TEST_SUMMARY__";
 
 yargs(hideBin(process.argv))
+  .scriptName("yo")
   .wrap(null)
   .usage(
     `The Yo Programming Language ${packageJson.version}
