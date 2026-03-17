@@ -6,8 +6,8 @@
 //
 // Usage in build.yo:
 //   build :: import "std/build";
-//   build.project(build.Project(name: "my-app"));
-//   exe :: build.executable(build.Executable(name: "my-app", root: "./src/main.yo"));
+//   build.project({ name: "my-app", root: "./src/lib.yo" });
+//   exe :: build.executable({ name: "my-app", root: "./src/main.yo" });
 //   install :: build.step("install", "Build all artifacts");
 //   install.depend_on(exe);
 
@@ -58,7 +58,7 @@ export target_host;
 
 // ── Config struct types ──────────────────────────────────────────────
 // Struct types with defaults, like Zig's options structs.
-// Usage: build.executable(build.Executable(name: "app", root: "./src/main.yo"))
+// Usage: build.executable({ name: "app", root: "./src/main.yo" })
 // Unspecified fields get their default values.
 
 Project :: struct(
@@ -261,7 +261,7 @@ export system_library;
 
 // Declare a user-configurable build option.
 // Returns the option value (from CLI -Dname=value, or the default).
-// Usage: strip :: build.option(build.BuildOption(name: "strip", description: "Strip debug symbols", default: "false"));
+// Usage: strip :: build.option({ name: "strip", description: "Strip debug symbols", default: "false" });
 option :: (fn(comptime(config) : BuildOption) -> comptime(str))(
   __yo_build_option(config.name, config.description, config.default)
 );

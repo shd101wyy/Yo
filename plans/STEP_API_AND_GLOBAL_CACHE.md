@@ -45,9 +45,9 @@ step :: (fn(
 ```yo
 build :: import "std/build";
 
-exe :: build.executable(build.Executable(name: "my-app", root: "./src/main.yo"));
+exe :: build.executable({ name: "my-app", root: "./src/main.yo" });
 run_exe :: build.run("my-app");
-tests :: build.test(build.TestSuite(name: "tests", root: "./tests/"));
+tests :: build.test({ name: "tests", root: "./tests/" });
 
 install :: build.step("install", "Build all targets");
 install.depend_on(exe);

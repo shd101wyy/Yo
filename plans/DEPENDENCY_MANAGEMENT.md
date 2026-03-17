@@ -32,23 +32,23 @@ Yo projects currently have no way to depend on external libraries — neither ot
 ```yo
 build :: import "std/build";
 
-build.project(build.Project(name: "my-app"));
+build.project({ name: "my-app", root: "./src/lib.yo" });
 
 // Declare a git dependency
-build.dependency(build.GitDependency(
+build.dependency({
   name: "json-parser",
   url: "https://github.com/user/json-parser.yo",
   ref: "v1.0.0"
-));
+});
 
 // Use the dependency as a module path in source code
 // In src/main.yo:
 //   { parse } :: import "json-parser";
 
-build.executable(build.Executable(
+build.executable({
   name: "my-app",
   root: "./src/main.yo"
-));
+});
 ```
 
 ### 1.2 Config Struct
@@ -156,24 +156,24 @@ The `.yo-cache/` directory is gitignored. The lock file (`yo.lock`) is committed
 build :: import "std/build";
 
 // Link against a system C library discovered via pkg-config
-build.system_library(build.SystemLibrary(
+build.system_library({
   name: "openssl",
   pkg_config: "openssl"
-));
+});
 
 // Or with manual fallback paths (for systems without pkg-config)
-build.system_library(build.SystemLibrary(
+build.system_library({
   name: "zlib",
   pkg_config: "zlib",
   fallback_include: "/usr/include",
   fallback_lib: "/usr/lib"
-));
+});
 
-build.executable(build.Executable(
+build.executable({
   name: "my-app",
   root: "./src/main.yo",
   link: "openssl", "zlib"         // Reference by name
-));
+});
 ```
 
 ### 3.2 Config Struct
@@ -192,7 +192,7 @@ export SystemLibrary;
 ### 3.3 Resolution Flow
 
 ```
-build.system_library(SystemLibrary(pkg_config: "openssl"))
+build.system_library({ pkg_config: "openssl" })
         │
         ▼
 Build runner (at build time, not comptime):
@@ -332,10 +332,10 @@ Path dependencies allow depending on a local package by filesystem path, without
 ```yo
 build :: import "std/build";
 
-build.path_dependency(build.PathDependency(
+build.path_dependency({
   name: "mylib",
   path: "../mylib"
-));
+});
 ```
 
 ### 8.2 Config Struct

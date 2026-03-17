@@ -53,20 +53,20 @@ The build file is a regular Yo source file that imports the `std/build` module. 
 build :: import "std/build";
 
 // Project metadata
-build.project(build.Project(name: "my-project"));
+build.project({ name: "my-project", root: "./src/lib.yo" });
 
 // Define artifacts — each returns a Step for dependency wiring
-exe :: build.executable(build.Executable(
+exe :: build.executable({
   name: "my-project",
   root: "./src/main.yo"
-));
+});
 
-lib :: build.static_library(build.StaticLibrary(
+lib :: build.static_library({
   name: "my-project-lib",
   root: "./src/lib.yo"
-));
+});
 
-tests :: build.test(build.TestSuite(name: "tests", root: "./tests/"));
+tests :: build.test({ name: "tests", root: "./tests/" });
 
 // Register a run step (compile + execute)
 run_exe :: build.run("my-project");
@@ -164,9 +164,9 @@ Steps are named targets that define what `yo build <step>` does. Every build fun
 
 ```yo
 // Each build function returns a Step
-exe :: build.executable(build.Executable(name: "my-app", root: "./src/main.yo"));
-lib :: build.static_library(build.StaticLibrary(name: "my-lib", root: "./src/lib.yo"));
-tests :: build.test(build.TestSuite(name: "tests", root: "./tests/"));
+exe :: build.executable({ name: "my-app", root: "./src/main.yo" });
+lib :: build.static_library({ name: "my-lib", root: "./src/lib.yo" });
+tests :: build.test({ name: "tests", root: "./tests/" });
 run_exe :: build.run("my-app");
 
 // Create named steps and wire dependencies
@@ -227,24 +227,24 @@ Use `step.link()` to link any library to an artifact — works with static, shar
 ```yo
 build :: import "std/build";
 
-build.project(build.Project(name: "my-app"));
+build.project({ name: "my-app", root: "./src/lib.yo" });
 
 // Yo libraries
-lib :: build.shared_library(build.SharedLibrary(
+lib :: build.shared_library({
   name: "mylib",
   root: "./src/lib.yo"
-));
+});
 
 // System libraries (via pkg-config)
-openssl :: build.system_library(build.SystemLibrary(
+openssl :: build.system_library({
   name: "openssl",
   pkg_config: "openssl"
-));
+});
 
-exe :: build.executable(build.Executable(
+exe :: build.executable({
   name: "my-app",
   root: "./src/main.yo"
-));
+});
 
 // Link libraries using Step method
 exe.link(lib);
@@ -295,17 +295,17 @@ export main;
 ```yo
 build :: import "std/build";
 
-build.project(build.Project(name: "cross-module-demo"));
+build.project({ name: "cross-module-demo", root: "./src/lib.yo" });
 
-lib :: build.static_library(build.StaticLibrary(
+lib :: build.static_library({
   name: "add",
   root: "./add.yo"
-));
+});
 
-exe :: build.executable(build.Executable(
+exe :: build.executable({
   name: "demo",
   root: "./demo.yo"
-));
+});
 
 exe.link(lib);
 
@@ -345,17 +345,17 @@ Like Zig's `b.option()`, declare user-configurable build options that can be set
 build :: import "std/build";
 
 // Declare a build option with a default value
-strip :: build.option(build.BuildOption(
+strip :: build.option({
   name: "strip",
   description: "Strip debug symbols",
   default: "false"
-));
+});
 
-opt_level :: build.option(build.BuildOption(
+opt_level :: build.option({
   name: "opt",
   description: "Optimization level",
   default: "debug"
-));
+});
 ```
 
 CLI usage:
@@ -388,12 +388,12 @@ Yo supports cross-compilation via target triples. Specify the target in `build.y
 ### In `build.yo`
 
 ```yo
-build.executable(build.Executable(
+build.executable({
   name: "my-app-wasm",
   root: "./src/main.yo",
   target: "wasm32-wasi",
   optimize: build.Optimize.ReleaseSmall
-));
+});
 ```
 
 ### On the command line
@@ -472,23 +472,23 @@ Define multiple artifacts with different targets in a single `build.yo`:
 ```yo
 build :: import "std/build";
 
-build.project(build.Project(name: "my-app", version: "1.0.0"));
+build.project({ name: "my-app", version: "1.0.0", root: "./src/lib.yo" });
 
 // Native build
-native :: build.executable(build.Executable(
+native :: build.executable({
   name: "my-app",
   root: "./src/main.yo",
   optimize: build.Optimize.ReleaseFast
-));
+});
 
 // WASM build
-wasm :: build.executable(build.Executable(
+wasm :: build.executable({
   name: "my-app-wasm",
   root: "./src/main.yo",
   target: "wasm32-wasi",
   optimize: build.Optimize.ReleaseSmall,
   allocator: build.Allocator.Libc
-));
+});
 
 run_native :: build.run("my-app");
 
@@ -509,24 +509,24 @@ Declare git-hosted dependencies in `build.yo`:
 ```yo
 build :: import "std/build";
 
-build.project(build.Project(name: "my-app", version: "1.0.0"));
+build.project({ name: "my-app", version: "1.0.0", root: "./src/lib.yo" });
 
 // Add a git dependency
-build.dependency(build.GitDependency(
+build.dependency({
   name: "json-parser",
   url: "https://github.com/user/json-parser.git",
   ref: "v1.0.0"
-));
+});
 
 // Dependency from a subdirectory of a repo
-build.dependency(build.GitDependency(
+build.dependency({
   name: "utils",
   url: "https://github.com/user/mono-repo.git",
   ref: "main",
   path: "packages/utils"
-));
+});
 
-exe :: build.executable(build.Executable(name: "my-app", root: "./src/main.yo"));
+exe :: build.executable({ name: "my-app", root: "./src/main.yo" });
 
 install :: build.step("install", "Build all artifacts");
 install.depend_on(exe);
@@ -548,15 +548,15 @@ Use `path_dependency` to depend on a local package by filesystem path:
 ```yo
 build :: import "std/build";
 
-build.project(build.Project(name: "my-app"));
+build.project({ name: "my-app", root: "./src/lib.yo" });
 
 // Depend on a sibling project
-build.path_dependency(build.PathDependency(
+build.path_dependency({
   name: "mylib",
   path: "../mylib"
-));
+});
 
-exe :: build.executable(build.Executable(name: "my-app", root: "./src/main.yo"));
+exe :: build.executable({ name: "my-app", root: "./src/main.yo" });
 
 install :: build.step("install", "Build all artifacts");
 install.depend_on(exe);
@@ -605,13 +605,13 @@ yo cache clean
 Link against system C libraries discovered via `pkg-config`:
 
 ```yo
-build.system_library(build.SystemLibrary(
+build.system_library({
   name: "openssl",
   pkg_config: "openssl",
   fallback_include: "/usr/include/openssl",
   fallback_lib: "/usr/lib",
   fallback_link: "ssl crypto"
-));
+});
 ```
 
 When `pkg-config` is available (Linux, macOS), it automatically resolves include paths and link flags. The fallback fields are used when `pkg-config` is not found (common on Windows).

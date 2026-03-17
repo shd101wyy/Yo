@@ -117,17 +117,17 @@ A builtin `target.host()` returns the host machine's target. This replaces the c
 ```yo
 build :: import "std/build";
 
-build.project(build.Project(name: "my-app"));
+build.project({ name: "my-app", root: "./src/lib.yo" });
 
-exe :: build.executable(build.Executable(
+exe :: build.executable({
   name: "my-app",
   root: "./src/main.yo",
   optimize: build.Optimize.ReleaseFast
-));
+});
 
-lib :: build.static_library(build.StaticLibrary(name: "my-app-lib", root: "./src/lib.yo"));
+lib :: build.static_library({ name: "my-app-lib", root: "./src/lib.yo" });
 
-tests :: build.test(build.TestSuite(name: "tests", root: "./tests/"));
+tests :: build.test({ name: "tests", root: "./tests/" });
 
 // build.run registers a run step for an artifact (by name)
 run_app :: build.run("my-app");
@@ -185,28 +185,28 @@ The build runner (`src/build-runner.ts`) flow:
 ```yo
 build :: import "std/build";
 
-build.project(build.Project(name: "my-app"));
+build.project({ name: "my-app", root: "./src/lib.yo" });
 
-linux :: build.executable(build.Executable(
+linux :: build.executable({
   name: "my-app-linux",
   root: "./src/main.yo",
   target: "x86_64-linux-gnu",
   optimize: build.Optimize.ReleaseFast
-));
+});
 
-macos :: build.executable(build.Executable(
+macos :: build.executable({
   name: "my-app-macos",
   root: "./src/main.yo",
   target: "aarch64-macos",
   optimize: build.Optimize.ReleaseFast
-));
+});
 
-wasm :: build.executable(build.Executable(
+wasm :: build.executable({
   name: "my-app-wasm",
   root: "./src/main.yo",
   target: "wasm32-wasi",
   optimize: build.Optimize.ReleaseSmall
-));
+});
 
 install :: build.step("install", "Install all targets");
 install.depend_on(linux);
@@ -219,11 +219,11 @@ install.depend_on(wasm);
 ```yo
 build :: import "std/build";
 
-build.project(build.Project(name: "my-lib"));
+build.project({ name: "my-lib", root: "./src/lib.yo" });
 
-lib :: build.static_library(build.StaticLibrary(name: "mylib", root: "./src/lib.yo"));
+lib :: build.static_library({ name: "mylib", root: "./src/lib.yo" });
 
-lib_tests :: build.test(build.TestSuite(name: "lib-tests", root: "./tests/"));
+lib_tests :: build.test({ name: "lib-tests", root: "./tests/" });
 
 install :: build.step("install", "Install library");
 install.depend_on(lib);
@@ -259,10 +259,10 @@ export main;
 
 ```yo
 build :: import "std/build";
-build.project(build.Project(name: "demo"));
+build.project({ name: "demo", root: "./src/lib.yo" });
 
-lib :: build.static_library(build.StaticLibrary(name: "add", root: "./add.yo"));
-exe :: build.executable(build.Executable(name: "demo", root: "./demo.yo"));
+lib :: build.static_library({ name: "add", root: "./add.yo" });
+exe :: build.executable({ name: "demo", root: "./demo.yo" });
 exe.link(lib);
 
 install :: build.step("install", "Build all artifacts");
@@ -377,11 +377,11 @@ Like Zig's `b.option()`, `build.yo` can declare user-configurable options via `y
 
 ```yo
 // In build.yo:
-strip :: build.option(build.BuildOption(
+strip :: build.option({
   name: "strip",
   description: "Strip debug symbols",
   default: "false"
-));
+});
 ```
 
 The `option()` function returns a `comptime_string` value. At evaluation time, if the CLI provides `-Dstrip=true`, the function returns `"true"`; otherwise it returns the default `"false"`.
@@ -409,12 +409,12 @@ Register system libraries via `build.system_library()` and link them using the `
 
 ```yo
 // Register system libraries (returns Step)
-openssl :: build.system_library(build.SystemLibrary(
+openssl :: build.system_library({
   name: "openssl",
   pkg_config: "openssl"
-));
+});
 
-exe :: build.executable(build.Executable(name: "my-app", root: "./src/main.yo"));
+exe :: build.executable({ name: "my-app", root: "./src/main.yo" });
 
 // Link using Step method
 exe.link(openssl);
@@ -548,13 +548,13 @@ my-project/
 ```yo
 build :: import "std/build";
 
-build.project(build.Project(name: "my-project"));
+build.project({ name: "my-project", root: "./src/lib.yo" });
 
-exe :: build.executable(build.Executable(name: "my-project", root: "./src/main.yo"));
+exe :: build.executable({ name: "my-project", root: "./src/main.yo" });
 
-lib :: build.static_library(build.StaticLibrary(name: "my-project-lib", root: "./src/lib.yo"));
+lib :: build.static_library({ name: "my-project-lib", root: "./src/lib.yo" });
 
-tests :: build.test(build.TestSuite(name: "tests", root: "./tests/"));
+tests :: build.test({ name: "tests", root: "./tests/" });
 
 run_app :: build.run("my-project");
 

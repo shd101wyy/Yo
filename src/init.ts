@@ -97,13 +97,13 @@ export function initProject(options: InitOptions): void {
 function generateBuildYo(name: string): string {
   return `build :: import "std/build";
 
-build.project(build.Project(name: "${name}"));
+build.project({ name: "${name}", root: "./src/lib.yo" });
 
-exe :: build.executable(build.Executable(name: "${name}", root: "./src/main.yo"));
+exe :: build.executable({ name: "${name}", root: "./src/main.yo" });
 
-lib :: build.static_library(build.StaticLibrary(name: "${name}-lib", root: "./src/lib.yo"));
+lib :: build.static_library({ name: "${name}-lib", root: "./src/lib.yo" });
 
-tests :: build.test(build.TestSuite(name: "tests", root: "./tests/"));
+tests :: build.test({ name: "tests", root: "./tests/" });
 
 run_exe :: build.run("${name}");
 
