@@ -24,6 +24,7 @@ import {
   getBuildRegistry,
   swapBuildRegistry,
   setRootBuildProjectDir,
+  setDependencyProjectRoot,
 } from "./evaluator/builtins/build";
 import { clearAllGlobalImplState } from "./evaluator/values/impl";
 import {
@@ -757,6 +758,11 @@ async function resolveTransitiveDependencyArtifacts(
       }
       subRegistry = evaluateDependencyBuildFile(subBuildFile);
 
+      // Store the sub-dependency's Project.root for import resolution
+      if (subRegistry.project?.root) {
+        setDependencyProjectRoot(subDepDir, subRegistry.project.root);
+      }
+
       // Recurse further if sub-dep has its own sub-deps
       if (subRegistry.dependencyArtifacts.length > 0) {
         await resolveTransitiveDependencyArtifacts(
@@ -926,6 +932,11 @@ async function resolveDependencyArtifacts(
       }
       // 3. Evaluate the dependency's build.yo in isolation
       depRegistry = evaluateDependencyBuildFile(depBuildFile);
+
+      // Store the dependency's Project.root for import resolution
+      if (depRegistry.project?.root) {
+        setDependencyProjectRoot(depDir, depRegistry.project.root);
+      }
 
       // Recursively resolve sub-dependencies (transitive)
       // If this dep has its own dependencyArtifacts, compile those first

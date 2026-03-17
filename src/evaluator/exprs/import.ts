@@ -12,7 +12,11 @@ import { resolveDependencyPath } from "../../fetch";
 import { isComptimeStringValue } from "../../value";
 import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
-import { getBuildRegistry, getRootBuildProjectDir } from "../builtins/build";
+import {
+  getBuildRegistry,
+  getRootBuildProjectDir,
+  getDependencyProjectRoot,
+} from "../builtins/build";
 
 /**
  *
@@ -121,8 +125,7 @@ export function evaluateImport({
         // Resolve entry point: check Project.root from build.yo, then convention
         const entryPoint = resolveDependencyEntryPoint(
           depRoot,
-          modulePathToImport,
-          registry
+          modulePathToImport
         );
         // Convert to relative path from current module
         modulePathToImport = path.relative(
@@ -245,21 +248,22 @@ function findProjectRoot(filePath: string): string | undefined {
  * Resolve the entry point file for a dependency.
  *
  * Resolution order:
- * 1. If the dependency has a Project.root configured in the build registry, use that
- * 2. Convention: src/lib.yo → index.yo → <name>.yo
+ * 1. If the dependency has a Project.root stored from its build.yo evaluation, use that
+ * 2. Convention: index.yo → <name>.yo
  * 3. Fall back to the dependency root directory itself
  */
-function resolveDependencyEntryPoint(
-  depRoot: string,
-  depName: string,
-  _registry: { project?: { root?: string } }
-): string {
-  // Convention-based entry point resolution
-  const libYo = path.join(depRoot, "src", "lib.yo");
+function resolveDependencyEntryPoint(depRoot: string, depName: string): string {
+  // Check if the dependency's build.yo specified a Project.root
+  const projectRoot = getDependencyProjectRoot(depRoot);
+  if (projectRoot) {
+    const resolved = path.resolve(depRoot, projectRoot);
+    if (existsSync(resolved)) return resolved;
+  }
+
+  // Convention-based fallback (no hardcoded src/lib.yo — that's the default Project.root)
   const indexYo = path.join(depRoot, "index.yo");
   const namedYo = path.join(depRoot, depName + ".yo");
 
-  if (existsSync(libYo)) return libYo;
   if (existsSync(indexYo)) return indexYo;
   if (existsSync(namedYo)) return namedYo;
 

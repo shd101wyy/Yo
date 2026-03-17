@@ -641,7 +641,7 @@ export main;
 
 **Entry point resolution order** for path dependencies:
 
-1. `src/lib.yo` (convention)
+1. `Project.root` field from the dependency's `build.yo` (defaults to `./src/lib.yo`)
 2. `index.yo`
 3. `<name>.yo`
 

@@ -348,12 +348,29 @@ let globalRegistry: BuildRegistry | undefined;
 // can fall back to the root project's yo.lock.
 let rootBuildProjectDir: string | undefined;
 
+// Map from dependency directory → Project.root entry point.
+// Populated by the build runner when evaluating dependency build.yo files.
+// Used by import resolution to respect custom entry points.
+const dependencyProjectRoots = new Map<string, string>();
+
 export function getRootBuildProjectDir(): string | undefined {
   return rootBuildProjectDir;
 }
 
 export function setRootBuildProjectDir(dir: string | undefined): void {
   rootBuildProjectDir = dir;
+}
+
+export function getDependencyProjectRoot(depDir: string): string | undefined {
+  return dependencyProjectRoots.get(depDir);
+}
+
+export function setDependencyProjectRoot(depDir: string, root: string): void {
+  dependencyProjectRoots.set(depDir, root);
+}
+
+export function clearDependencyProjectRoots(): void {
+  dependencyProjectRoots.clear();
 }
 
 export function getBuildRegistry(): BuildRegistry {
