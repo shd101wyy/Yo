@@ -981,3 +981,381 @@ Existing options (unchanged):
 | `src/codegen/index.ts` | Skip ws2_32/bcrypt, force libc allocator, skip liburing for WASM   |
 | `std/process.yo`       | `Platform.Wasi` variant                                            |
 | C runtime (generated)  | Platform guards (`#if defined(__linux__)`, etc.) auto-exclude WASM |
+
+---
+
+## 11. Future Work — Roadmap
+
+This section documents features the build system does not yet support, organized by priority. The current system handles project configuration, multi-artifact compilation, dependencies (git/path/system), DAG-based execution, cross-compilation, and build summary output. The items below represent the next evolution.
+
+---
+
+### 11.1 High Priority
+
+#### 11.1.1 Incremental / Cached Builds
+
+**Problem**: Every `yo build` recompiles from scratch — lexing, parsing, evaluating, C codegen, and clang compilation all repeat even if nothing changed. This becomes a bottleneck as projects grow.
+
+**Design**: Content-addressed artifact caching keyed by a hash of:
+
+- Source file content (SHA256)
+- Compiler flags (target, optimize, allocator, sanitize)
+- Dependency artifact hashes (transitive)
+- Yo compiler version
+
+**Approach**:
+
+1. Before compiling an artifact, compute its cache key from inputs
+2. Check `yo-out/.cache/<hash>/` for a previously compiled `.o` or `.a`
+3. If cache hit, skip compilation and link from cache
+4. If cache miss, compile normally and store result
+5. Source change detection: compare file mtimes or content hashes against a `.yo-build-state` manifest
+
+**Scope**:
+
+- Phase 1: File-level caching (skip clang if `.c` unchanged)
+- Phase 2: Artifact-level caching (skip Yo evaluation if source files unchanged)
+- Phase 3: Cross-session caching (persist across `yo build` invocations)
+
+**Zig reference**: Zig uses a global artifact cache with hash-based invalidation. Artifacts are identified by their full set of inputs.
+
+#### 11.1.2 Parallel Artifact Compilation
+
+**Problem**: Artifacts are compiled sequentially because the evaluator has global state (prelude env, module caches, impl registries). Independent artifacts that don't depend on each other could compile in parallel.
+
+**Design options**:
+
+- **Option A (Worker threads)**: Fork evaluator state into worker threads, each compiling one artifact. Requires making evaluator thread-safe or cloning state.
+- **Option B (Child processes)**: Spawn `yo compile` child processes for each artifact. Simpler isolation but more overhead.
+- **Option C (C-level parallelism only)**: Keep Yo evaluation serial but run multiple `clang` invocations in parallel. Lowest effort, moderate benefit.
+
+**Current constraint**: `clearAllGlobalImplState()` / `clearEnvContainingPrelude()` are called between artifacts because the evaluator is not re-entrant.
+
+**Recommendation**: Start with Option C (parallel clang), then evolve to Option B (child processes) for full parallelism.
+
+#### 11.1.3 Custom Build Steps (Shell Commands)
+
+**Problem**: Build systems often need to run arbitrary commands — code generators (protoc, graphql-codegen), asset processors, script hooks. Currently `build.run()` only runs compiled Yo executables.
+
+**Proposed API**:
+
+```yo
+// Run an arbitrary shell command as a build step
+cmd := build.system_command({
+  name: "generate-proto",
+  program: "protoc",
+  args: ComptimeList("--yo_out=src/gen", "proto/api.proto"),
+  cwd: "."
+});
+
+// Wire it as a dependency
+exe := build.executable({ name: "server", root: "./src/main.yo" });
+exe.depend_on(cmd);
+```
+
+**Implementation**:
+
+- New `StepKind.SystemCommand` variant
+- New `SystemCommand` struct in `std/build.yo`
+- `__yo_build_system_command` builtin handler
+- Build runner executes via `child_process.spawnSync()`
+- Respect DAG ordering — command runs before dependent artifacts
+
+#### 11.1.4 Watch Mode
+
+**Problem**: Developers must manually run `yo build` after every change. A watch mode that auto-rebuilds on file changes improves the development loop.
+
+**Proposed CLI**:
+
+```bash
+yo build --watch              # Rebuild on any source change
+yo build --watch --run        # Rebuild and re-run on change
+```
+
+**Implementation**:
+
+- Use `fs.watch()` (or `chokidar` for reliability) on `src/` directory
+- Debounce file change events (e.g., 200ms)
+- Re-run `runBuild()` on change, leveraging incremental caching
+- Clear screen between rebuilds
+- Show build duration and status
+
+#### 11.1.5 Installation Support
+
+**Problem**: No way to install built artifacts to system directories or a standardized output prefix (like Zig's `zig-out/`).
+
+**Proposed API**:
+
+```yo
+exe := build.executable({ name: "my-app", root: "./src/main.yo" });
+build.install(exe);  // Marks artifact for installation
+
+// yo build --prefix /usr/local   → copies to /usr/local/bin/my-app
+// yo build                       → copies to yo-out/bin/my-app (default)
+```
+
+**Implementation**:
+
+- `build.install(step)` registers artifact for installation
+- Default prefix: `yo-out/` (already works)
+- `--prefix PATH` flag: copies to `<prefix>/bin/` or `<prefix>/lib/`
+- Separate `yo install` command for system-level installation
+
+---
+
+### 11.2 Medium Priority
+
+#### 11.2.1 Feature Flags / Conditional Compilation
+
+**Problem**: Libraries need to expose optional features that consumers can enable/disable. Currently this requires ad-hoc `build.option()` usage with no standard convention.
+
+**Proposed API**:
+
+```yo
+// In library's build.yo:
+build.feature({ name: "tls", description: "Enable TLS support", default: false });
+build.feature({ name: "json", description: "Enable JSON parsing", default: true });
+
+// In consumer's build.yo:
+dep := build.dependency({ name: "http", url: "...", ref: "main" });
+dep.enable_feature("tls");
+dep.disable_feature("json");
+```
+
+**Implementation**: Features compile to `build.option()` values that library code checks via `cond()`.
+
+#### 11.2.2 Build Profiles
+
+**Problem**: Common configurations (dev, test, release) require repeating the same optimize/allocator/sanitize settings across multiple artifacts.
+
+**Proposed API**:
+
+```yo
+// Define a named profile
+Profile :: struct(
+  optimize : Optimize,
+  allocator : Allocator,
+  sanitize : Sanitize
+);
+
+dev :: Profile({ optimize: .Debug, allocator: .Libc, sanitize: .Address });
+release :: Profile({ optimize: .ReleaseFast, allocator: .Mimalloc, sanitize: .None });
+
+// Apply to artifact
+exe := build.executable({ name: "app", root: "./src/main.yo", profile: dev });
+```
+
+Or simpler: `--profile dev` / `--profile release` CLI flag.
+
+#### 11.2.3 Multi-Package Workspaces (Monorepo)
+
+**Problem**: Large projects with multiple packages in one repository need coordinated builds, shared dependencies, and unified versioning.
+
+**Proposed API**:
+
+```yo
+// workspace.yo (root of monorepo)
+build :: import "std/build";
+
+build.workspace({
+  members: ComptimeList(
+    "./packages/core",
+    "./packages/cli",
+    "./packages/server"
+  )
+});
+```
+
+**Semantics**:
+
+- Each member has its own `build.yo`
+- Shared dependencies are deduped across members
+- `yo build` at root builds all members
+- `yo build --package core` builds one member
+- Path dependencies between workspace members are auto-resolved
+
+#### 11.2.4 Code Coverage
+
+**Problem**: No way to measure test code coverage.
+
+**Implementation**:
+
+- Pass `-fprofile-arcs -ftest-coverage` (or `--coverage`) to clang
+- After test execution, run `llvm-cov` or `gcov` to generate coverage reports
+- `yo build test --coverage` CLI flag
+- Output to `yo-out/coverage/`
+
+#### 11.2.5 Test Filtering and Parallelization
+
+**Proposed CLI**:
+
+```bash
+yo build test --filter "http*"     # Run tests matching pattern
+yo build test --jobs 4             # Run 4 test suites in parallel
+yo build test --timeout 30000      # Per-test timeout in ms
+```
+
+#### 11.2.6 Documentation Generation
+
+**Problem**: No standard way to generate API docs from Yo source code.
+
+**Proposed approach**:
+
+- Extract doc comments from `.yo` files (/// or /\*\* \*/ syntax, TBD)
+- Generate HTML/Markdown documentation
+- `yo doc` or `yo build doc` command
+- Output to `yo-out/doc/`
+
+#### 11.2.7 Dependency Vendoring
+
+**Problem**: For reproducible offline builds, dependencies should be checkable into source control.
+
+**Proposed CLI**:
+
+```bash
+yo vendor                         # Copy all deps to ./vendor/
+yo build --vendored               # Build using vendored deps only
+```
+
+#### 11.2.8 Check Mode
+
+**Problem**: Sometimes you want to verify a build without producing artifacts (similar to `tsc --noEmit`).
+
+**Proposed CLI**:
+
+```bash
+yo build --check                  # Type-check and evaluate, skip C codegen + clang
+```
+
+**Implementation**: Run evaluator but skip `CodeGenerator` and clang invocation. Useful for CI and editor integration.
+
+---
+
+### 11.3 Lower Priority
+
+#### 11.3.1 Link-Time Optimization (LTO)
+
+```yo
+exe := build.executable({
+  name: "app",
+  root: "./src/main.yo",
+  lto: true          // Pass -flto to clang
+});
+```
+
+- **Thin LTO**: `-flto=thin` for parallel LTO (faster builds)
+- **Full LTO**: `-flto` for maximum optimization (slower builds)
+
+#### 11.3.2 Benchmarking
+
+```yo
+bench := build.benchmark({
+  name: "perf-tests",
+  root: "./benchmarks/main.yo"
+});
+```
+
+- `yo build bench` command
+- Track results in `yo-out/bench/` for regression detection
+
+#### 11.3.3 Build Graph Export
+
+```bash
+yo build --graph dot > build.dot    # Export as Graphviz
+yo build --graph json > build.json  # Export as JSON
+```
+
+Useful for debugging complex dependency graphs and CI integration.
+
+#### 11.3.4 Remote / Distributed Caching
+
+Share compiled artifact caches across machines:
+
+```bash
+yo build --remote-cache s3://my-bucket/yo-cache
+```
+
+Inspired by Bazel's remote caching. Useful for CI where multiple runners compile the same dependencies.
+
+#### 11.3.5 Hermetic / Reproducible Builds
+
+Guarantee bit-for-bit identical output across machines:
+
+- Pin compiler versions in `build.yo`
+- Normalize file paths in generated C code
+- Deterministic ordering of function emission
+
+#### 11.3.6 Fat / Universal Binaries (macOS)
+
+```bash
+yo build --target universal-macos   # Combines x86_64 + aarch64
+```
+
+Uses `lipo` to merge two single-arch binaries.
+
+#### 11.3.7 Semantic Version Constraints
+
+For dependencies, allow version ranges instead of exact refs:
+
+```yo
+dep := build.dependency({
+  name: "json-parser",
+  url: "https://github.com/user/json-parser.git",
+  version: "^1.2.0"    // Any 1.x.y where x >= 2
+});
+```
+
+Requires a version resolver that maps `^1.2.0` to the best matching git tag.
+
+#### 11.3.8 Build-Only / Dev Dependencies
+
+```yo
+// Only needed during build, not linked into final artifact
+build.dev_dependency({ name: "test-utils", path: "../test-utils" });
+```
+
+#### 11.3.9 Debug Info Levels
+
+```yo
+exe := build.executable({
+  name: "app",
+  root: "./src/main.yo",
+  debug_info: .Full     // .Full | .LineOnly | .None
+});
+```
+
+Maps to clang's `-g`, `-gline-tables-only`, or no debug flag.
+
+#### 11.3.10 RPATH / Runtime Library Paths
+
+For shared library consumers, control where the runtime linker searches:
+
+```yo
+exe := build.executable({
+  name: "app",
+  root: "./src/main.yo",
+  rpath: ComptimeList("$ORIGIN/../lib", "/opt/mylibs")
+});
+```
+
+---
+
+### 11.4 Summary — What We Have vs What's Next
+
+| Category                                         | Status                 | Key Missing Features                         |
+| ------------------------------------------------ | ---------------------- | -------------------------------------------- |
+| **Core build** (project, artifacts, steps)       | ✅ Complete            | —                                            |
+| **Dependencies** (git, path, system, transitive) | ✅ Complete            | Feature flags, semver constraints, vendoring |
+| **Cross-compilation** (target triple, WASM)      | ✅ Complete            | Fat binaries, Android/iOS                    |
+| **DAG execution** (ordering, cycle detection)    | ✅ Complete            | True parallel compilation                    |
+| **Build summary** (timing, MaxRSS, tree)         | ✅ Complete            | Graph export (JSON/DOT)                      |
+| **Build options** (`-D` flags, `--help`)         | ✅ Complete            | Feature flags standard                       |
+| **Caching / Incremental**                        | ❌ Not started         | File-level, artifact-level, remote           |
+| **Custom shell steps**                           | ❌ Not started         | `system_command()`                           |
+| **Watch mode**                                   | ❌ Not started         | `--watch` flag                               |
+| **Installation**                                 | ⚠️ Partial (`yo-out/`) | `--prefix`, `yo install`                     |
+| **Workspaces**                                   | ❌ Not started         | `workspace.yo` monorepo support              |
+| **Testing enhancements**                         | ⚠️ Basic               | Filtering, parallelism, coverage, timeout    |
+| **Documentation**                                | ❌ Not started         | `yo doc` command                             |
+| **Build profiles**                               | ❌ Not started         | Named config presets                         |
+| **LTO**                                          | ❌ Not started         | `-flto` / `-flto=thin`                       |
