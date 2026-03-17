@@ -511,8 +511,8 @@ build :: import "std/build";
 
 build.project({ name: "my-app", version: "1.0.0", root: "./src/lib.yo" });
 
-// Add a git dependency
-build.dependency({
+// Add a git dependency — returns a Dependency handle
+dep :: build.dependency({
   name: "json-parser",
   url: "https://github.com/user/json-parser.git",
   ref: "v1.0.0"
@@ -541,17 +541,65 @@ yo fetch --verbose    # Show detailed progress
 
 Dependencies are stored in a global cache and tracked by `yo.lock` (commit this file to version control). `yo build` auto-fetches if dependencies are not yet cached.
 
+### Linking Dependency Artifacts
+
+If a dependency has its own `build.yo` that defines artifacts (e.g., a static library), you can link them using `dep.artifact()`:
+
+```yo
+build :: import "std/build";
+
+build.project({ name: "demo" });
+
+// Register a dependency (git or path)
+dep :: build.path_dependency({ name: "dep_lib", path: "../dep_lib" });
+
+// Access the "add" static library from dep_lib's build.yo
+add_lib :: dep.artifact("add");
+
+// Link it to our executable
+exe :: build.executable({ name: "demo", root: "./src/main.yo" });
+exe.link(add_lib);
+
+install :: build.step("install", "Build demo");
+install.depend_on(exe);
+```
+
+The dependency's `build.yo` defines the static library:
+
+```yo
+build :: import "std/build";
+build.project({ name: "dep_lib" });
+
+lib :: build.static_library({ name: "add", root: "./src/lib.yo" });
+
+install :: build.step("install", "Build the static library");
+install.depend_on(lib);
+```
+
+When you run `yo build`, the build system:
+
+1. Evaluates the dependency's `build.yo` to discover its artifacts
+2. Compiles the dependency's static library (`libadd.a`)
+3. Links it into the consumer executable
+
+The consumer's source code declares the dependency functions using `extern "Yo"`:
+
+```yo
+extern "Yo",
+  add : (fn(a: i32, b: i32) -> i32);
+```
+
 ### Path Dependencies (Local)
 
-Use `path_dependency` to depend on a local package by filesystem path:
+Use `path_dependency` to depend on a local package by filesystem path. Like `dependency`, it returns a `Dependency` handle:
 
 ```yo
 build :: import "std/build";
 
 build.project({ name: "my-app", root: "./src/lib.yo" });
 
-// Depend on a sibling project
-build.path_dependency({
+// Depend on a sibling project — returns a Dependency handle
+dep :: build.path_dependency({
   name: "mylib",
   path: "../mylib"
 });

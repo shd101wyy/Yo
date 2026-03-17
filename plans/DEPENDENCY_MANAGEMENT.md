@@ -372,14 +372,78 @@ When a dependency has a `build.yo`, its `Project.root` can be used to locate the
 
 ---
 
-## 9. Open Questions
+## 9. Dependency Build Artifacts (Zig-style)
+
+When a dependency has its own `build.yo` that defines artifacts (e.g., a static library), the consumer can access them via the `Dependency` handle returned by `build.dependency()` or `build.path_dependency()`.
+
+### 9.1 API
+
+```yo
+build :: import "std/build";
+
+build.project({ name: "demo" });
+
+// Both dependency() and path_dependency() return a Dependency handle
+dep :: build.path_dependency({ name: "dep_lib", path: "../dep_lib" });
+
+// Access a named artifact from the dependency's build.yo
+add_lib :: dep.artifact("add");  // Returns a Step
+
+// Link it to the consumer's executable
+exe :: build.executable({ name: "demo", root: "./src/main.yo" });
+exe.link(add_lib);
+
+install :: build.step("install", "Build demo");
+install.depend_on(exe);
+```
+
+### 9.2 Dependency Struct
+
+```yo
+Dependency :: struct(
+  name : comptime_string
+);
+
+impl(Dependency,
+  artifact : (fn(comptime(self) : Self, comptime(artifact_name) : comptime_string) -> comptime(Step))({
+    __yo_build_dep_artifact(self.name, artifact_name);
+    Step(name: artifact_name, kind: StepKind.StaticLibrary)
+  })
+);
+```
+
+### 9.3 Build Flow
+
+1. `dep.artifact("add")` registers a `DependencyArtifactRef { dependencyName, artifactName }` in the root registry
+2. During `yo build`, the build runner:
+   a. Groups dependency artifact refs by dependency name
+   b. Finds each dependency's source directory (path dep → local path, git dep → cache)
+   c. Evaluates the dependency's `build.yo` in isolation (global registry swap)
+   d. Finds the requested artifact in the dependency's registry
+   e. Compiles it to `yo-out/deps/<dep_name>/lib/lib<artifact>.a`
+   f. Adds the `.a` file to consumer artifacts that link against it
+3. The consumer uses `extern "Yo"` declarations to call dependency functions
+
+### 9.4 Registry Isolation
+
+The build runner uses `swapBuildRegistry()` to evaluate dependency build.yo files without interfering with the root project's registry:
+
+```
+Root Registry (saved) → Fresh Registry (active) → Evaluate dep build.yo → Capture dep registry → Restore root registry
+```
+
+---
+
+## 10. Open Questions
 
 1. **Transitive dependencies**: If dep A depends on dep B, should Yo resolve B automatically? Zig does this. Start simple: require all deps declared in the root `build.yo`. Add transitive resolution later.
 
 2. **Dependency entry point**: ✅ Resolved — Convention-based: `src/lib.yo` → `index.yo` → `<name>.yo`. `Project.root` field for explicit override.
 
-3. **Version conflicts**: If two dependencies need different versions of the same package, what happens? For now: error. Zig uses content hashing to allow multiple versions.
+3. **Dependency build artifacts**: ✅ Resolved — `dep.artifact("name")` accesses artifacts from the dependency's `build.yo`. Build runner evaluates and compiles them.
 
-4. **Private dependencies**: Should there be a way to use SSH URLs for private repos? Yes — `git+ssh://` URLs should work with the user's SSH agent.
+4. **Version conflicts**: If two dependencies need different versions of the same package, what happens? For now: error. Zig uses content hashing to allow multiple versions.
 
-5. **Tarball/URL dependencies**: Besides git, support HTTP tarball URLs? Defer to future — git covers most cases.
+5. **Private dependencies**: Should there be a way to use SSH URLs for private repos? Yes — `git+ssh://` URLs should work with the user's SSH agent.
+
+6. **Tarball/URL dependencies**: Besides git, support HTTP tarball URLs? Defer to future — git covers most cases.

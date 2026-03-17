@@ -15,13 +15,19 @@ import { findAvailableCompiler } from "./compiler-utils";
 import { clearEnvContainingPrelude } from "./env";
 import {
   type BuildArtifact,
-  type BuildRegistry,
+  BuildRegistry,
   type BuildTestSuite,
+  type DependencyArtifactRef,
   clearBuildRegistry,
   getBuildRegistry,
+  swapBuildRegistry,
 } from "./evaluator/builtins/build";
 import { clearAllGlobalImplState } from "./evaluator/values/impl";
-import { fetchAllDependencies, areDependenciesCached } from "./fetch";
+import {
+  fetchAllDependencies,
+  areDependenciesCached,
+  resolveDependencyPath,
+} from "./fetch";
 import { ModuleManager } from "./module-manager";
 import { clearAllModuleCounters } from "./utils";
 import { clearAllCachedTypes } from "./types/creators";
@@ -132,6 +138,17 @@ export async function runBuild(options: BuildOptions): Promise<void> {
       artifact.linkLibraries.push(...sysLibFlags.linkLibraries);
       artifact.cFlags.push(...sysLibFlags.cFlags);
     }
+  }
+
+  // Resolve dependency artifacts — evaluate dependency build.yo files
+  // and compile their artifacts before the root project
+  if (registry.dependencyArtifacts.length > 0) {
+    await resolveDependencyArtifacts(registry, projectDir, {
+      cCompiler,
+      targetTriple: options.targetTriple,
+      sysroot: options.sysroot,
+      verbose: options.verbose,
+    });
   }
 
   for (const stepName of requestedSteps) {
@@ -334,6 +351,245 @@ async function compileArtifact(
     target: "c",
     targetTriple: ctx.targetTriple ?? artifact.target,
     sysroot: ctx.sysroot,
+    extern: artifact.cSources,
+    includePaths: artifact.includePaths,
+    libraryPaths: artifact.libraryPaths,
+    libraries: artifact.linkLibraries,
+    defines: artifact.defines,
+    release,
+    optimize,
+    allocator: artifact.allocator as "mimalloc" | "libc",
+    sanitize:
+      artifact.sanitize !== "none"
+        ? (artifact.sanitize as "address" | "leak")
+        : undefined,
+    strip: artifact.strip,
+    static: artifact.staticLink,
+    shared: artifact.kind === "shared_library",
+    staticLibrary: artifact.kind === "static_library",
+  });
+}
+
+// ── Dependency artifact resolution ────────────────────────────────────
+
+/**
+ * Resolve and compile dependency artifacts.
+ *
+ * For each DependencyArtifactRef (from dep.artifact("name") calls in build.yo):
+ * 1. Find the dependency's source directory (path dep or git cache)
+ * 2. Evaluate the dependency's build.yo in isolation
+ * 3. Find the requested artifact in the dependency's registry
+ * 4. Compile it (into the root project's yo-out/deps/<dep>/ directory)
+ * 5. Register it in the root registry so the consumer can link it
+ */
+async function resolveDependencyArtifacts(
+  rootRegistry: BuildRegistry,
+  projectDir: string,
+  opts: {
+    cCompiler: string;
+    targetTriple?: string;
+    sysroot?: string;
+    verbose?: boolean;
+  }
+): Promise<void> {
+  // Group refs by dependency name to evaluate each build.yo only once
+  const refsByDep = new Map<string, DependencyArtifactRef[]>();
+  for (const ref of rootRegistry.dependencyArtifacts) {
+    const existing = refsByDep.get(ref.dependencyName);
+    if (existing) {
+      existing.push(ref);
+    } else {
+      refsByDep.set(ref.dependencyName, [ref]);
+    }
+  }
+
+  for (const [depName, refs] of refsByDep) {
+    // 1. Find dependency source directory
+    const depDir = findDependencyDir(rootRegistry, projectDir, depName);
+    if (!depDir) {
+      console.error(
+        `Error: Cannot resolve dependency "${depName}". ` +
+          `Ensure it is declared via build.dependency() or build.path_dependency() and run 'yo fetch' if needed.`
+      );
+      process.exit(1);
+    }
+
+    // 2. Check for build.yo in the dependency
+    const depBuildFile = path.join(depDir, "build.yo");
+    if (!fs.existsSync(depBuildFile)) {
+      console.error(
+        `Error: Dependency "${depName}" has no build.yo at ${depBuildFile}. ` +
+          `Cannot resolve artifact references.`
+      );
+      process.exit(1);
+    }
+
+    if (opts.verbose) {
+      console.log(`Evaluating build.yo for dependency "${depName}"...`);
+    }
+
+    // 3. Evaluate the dependency's build.yo in isolation
+    const depRegistry = evaluateDependencyBuildFile(depBuildFile);
+
+    // 4. For each requested artifact, compile it and register in root
+    for (const ref of refs) {
+      const depArtifact = depRegistry.findArtifact(ref.artifactName);
+      if (!depArtifact) {
+        console.error(
+          `Error: Artifact "${ref.artifactName}" not found in dependency "${depName}". ` +
+            `Available artifacts: ${depRegistry.artifacts.map((a) => a.name).join(", ") || "(none)"}`
+        );
+        process.exit(1);
+      }
+
+      // Adjust the artifact's root to be absolute (relative to dep directory)
+      const adjustedArtifact: BuildArtifact = {
+        ...depArtifact,
+        root: path.resolve(depDir, depArtifact.root),
+      };
+
+      // Output directory: yo-out/deps/<dep_name>/lib/ in the root project
+      const depOutputDir = path.join(
+        projectDir,
+        "yo-out",
+        "deps",
+        depName,
+        "lib"
+      );
+      if (!fs.existsSync(depOutputDir)) {
+        fs.mkdirSync(depOutputDir, { recursive: true });
+      }
+
+      if (opts.verbose) {
+        console.log(
+          `  Compiling dependency artifact: ${depName}/${ref.artifactName} (${adjustedArtifact.kind})`
+        );
+      }
+
+      // 5. Compile the dependency artifact
+      await compileDependencyArtifact(
+        adjustedArtifact,
+        depOutputDir,
+        depDir,
+        opts
+      );
+
+      // 6. Register in root registry so consumer artifacts can link against it
+      // The artifact name stays the same — link resolution will find it
+      if (adjustedArtifact.kind === "static_library") {
+        const libFile = path.join(depOutputDir, `lib${ref.artifactName}.a`);
+        // For any root artifact that links this dependency artifact,
+        // add the .a file as an extern source
+        for (const rootArtifact of rootRegistry.artifacts) {
+          if (rootArtifact.linkedArtifacts.includes(ref.artifactName)) {
+            if (!rootArtifact.cSources.includes(libFile)) {
+              rootArtifact.cSources.push(libFile);
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Find the local directory for a dependency (path dep or git cache).
+ */
+function findDependencyDir(
+  registry: BuildRegistry,
+  projectDir: string,
+  depName: string
+): string | undefined {
+  // Check path dependencies first
+  const pathDep = registry.findPathDependency(depName);
+  if (pathDep) {
+    const resolved = path.resolve(projectDir, pathDep.path);
+    if (fs.existsSync(resolved)) return resolved;
+  }
+
+  // Check git dependencies via yo.lock cache
+  return resolveDependencyPath(projectDir, depName);
+}
+
+/**
+ * Evaluate a dependency's build.yo in isolation.
+ * Swaps the global registry so the dependency's builtins populate a fresh one,
+ * then restores the root registry afterwards.
+ */
+function evaluateDependencyBuildFile(buildFile: string): BuildRegistry {
+  // Swap in a fresh registry for the dependency
+  const rootRegistry = swapBuildRegistry(new BuildRegistry());
+
+  const modulePath = `file://${fs.realpathSync(buildFile)}`;
+
+  try {
+    const moduleManager = new ModuleManager();
+    moduleManager.loadModule(modulePath);
+    moduleManager.resetAllState();
+  } catch (error) {
+    // Restore root registry before exiting
+    swapBuildRegistry(rootRegistry);
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`Error evaluating dependency ${buildFile}:\n${message}`);
+    process.exit(1);
+  }
+
+  // Capture the dependency's populated registry
+  const depRegistry = getBuildRegistry();
+
+  // Restore the root project's registry
+  swapBuildRegistry(rootRegistry);
+
+  return depRegistry;
+}
+
+/**
+ * Compile a dependency artifact (static library, shared library, etc.).
+ */
+async function compileDependencyArtifact(
+  artifact: BuildArtifact,
+  outputDir: string,
+  depDir: string,
+  opts: {
+    cCompiler: string;
+    targetTriple?: string;
+    sysroot?: string;
+    verbose?: boolean;
+  }
+): Promise<void> {
+  const sourcePath = artifact.root; // Already absolute
+  if (!fs.existsSync(sourcePath)) {
+    console.error(`Error: Dependency source file not found: ${sourcePath}`);
+    process.exit(1);
+  }
+
+  const outputName =
+    artifact.kind === "static_library" ? `lib${artifact.name}` : artifact.name;
+  const outputPath = path.join(outputDir, outputName);
+
+  console.log(
+    `Building dependency artifact: ${artifact.name} → ${path.relative(process.cwd(), outputPath)}${artifact.kind === "static_library" ? ".a" : ""}`
+  );
+
+  const absolutePath = `file://${fs.realpathSync(sourcePath)}`;
+
+  // Reset global evaluator state for clean compilation
+  clearAllGlobalImplState();
+  clearEnvContainingPrelude();
+  clearAllModuleCounters();
+  clearAllCachedTypes();
+
+  const release =
+    artifact.optimize !== "debug" && artifact.optimize !== "release-safe";
+  const optimize = mapOptimize(artifact.optimize);
+
+  const codeGenerator = new CodeGenerator();
+  codeGenerator.compileModule(absolutePath, {
+    output: outputPath,
+    cCompiler: opts.cCompiler,
+    target: "c",
+    targetTriple: opts.targetTriple ?? artifact.target,
+    sysroot: opts.sysroot,
     extern: artifact.cSources,
     includePaths: artifact.includePaths,
     libraryPaths: artifact.libraryPaths,

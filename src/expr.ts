@@ -1185,6 +1185,7 @@ export const BuiltinFunctions = {
   __yo_build_path_dependency: ["__yo_build_path_dependency"],
   __yo_build_system_library: ["__yo_build_system_library"],
   __yo_build_option: ["__yo_build_option"],
+  __yo_build_dep_artifact: ["__yo_build_dep_artifact"],
 };
 
 export function exprIsInfixOperatorFunctionCall(expr: Expr): boolean {

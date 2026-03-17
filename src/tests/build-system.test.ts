@@ -456,7 +456,12 @@ describe("Global cache directory", () => {
 
 // ── BuildRegistry tests ──────────────────────────────────────────────
 
-import { BuildRegistry } from "../evaluator/builtins/build";
+import {
+  BuildRegistry,
+  swapBuildRegistry,
+  getBuildRegistry,
+  clearBuildRegistry,
+} from "../evaluator/builtins/build";
 
 function makeDefaultArtifactConfig() {
   return {
@@ -691,5 +696,83 @@ describe("BuildRegistry steps", () => {
     reg.addStepDependency("install", "my-app");
     const step = reg.findStep("install");
     expect(step!.dependencyNames).toEqual(["my-app"]);
+  });
+});
+
+// ── Dependency artifact ref tests ────────────────────────────────────
+
+describe("BuildRegistry dependency artifacts", () => {
+  test("registerDependencyArtifact stores refs", () => {
+    const reg = new BuildRegistry();
+    reg.registerDependencyArtifact({
+      dependencyName: "mylib",
+      artifactName: "add",
+    });
+    expect(reg.dependencyArtifacts).toHaveLength(1);
+    expect(reg.dependencyArtifacts[0]!.dependencyName).toBe("mylib");
+    expect(reg.dependencyArtifacts[0]!.artifactName).toBe("add");
+  });
+
+  test("registerDependencyArtifact deduplicates", () => {
+    const reg = new BuildRegistry();
+    reg.registerDependencyArtifact({
+      dependencyName: "mylib",
+      artifactName: "add",
+    });
+    reg.registerDependencyArtifact({
+      dependencyName: "mylib",
+      artifactName: "add",
+    });
+    expect(reg.dependencyArtifacts).toHaveLength(1);
+  });
+
+  test("registerDependencyArtifact allows different artifacts from same dep", () => {
+    const reg = new BuildRegistry();
+    reg.registerDependencyArtifact({
+      dependencyName: "mylib",
+      artifactName: "add",
+    });
+    reg.registerDependencyArtifact({
+      dependencyName: "mylib",
+      artifactName: "multiply",
+    });
+    expect(reg.dependencyArtifacts).toHaveLength(2);
+  });
+
+  test("clear resets dependency artifacts", () => {
+    const reg = new BuildRegistry();
+    reg.registerDependencyArtifact({
+      dependencyName: "mylib",
+      artifactName: "add",
+    });
+    reg.clear();
+    expect(reg.dependencyArtifacts).toHaveLength(0);
+  });
+});
+
+// ── swapBuildRegistry tests ──────────────────────────────────────────
+
+describe("swapBuildRegistry", () => {
+  test("swaps and returns previous registry", () => {
+    // Start clean
+    clearBuildRegistry();
+    const original = getBuildRegistry();
+    original.registerProject("root", "1.0.0", "./src/lib.yo");
+
+    const fresh = new BuildRegistry();
+    fresh.registerProject("dep", "0.1.0", "./src/lib.yo");
+
+    const prev = swapBuildRegistry(fresh);
+    expect(prev).toBe(original);
+    expect(getBuildRegistry()).toBe(fresh);
+    expect(getBuildRegistry().project?.name).toBe("dep");
+
+    // Restore
+    swapBuildRegistry(prev);
+    expect(getBuildRegistry()).toBe(original);
+    expect(getBuildRegistry().project?.name).toBe("root");
+
+    // Clean up
+    clearBuildRegistry();
   });
 });

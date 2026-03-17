@@ -99,6 +99,11 @@ export interface BuildSystemLibrary {
   fallbackLink: string;
 }
 
+export interface DependencyArtifactRef {
+  dependencyName: string;
+  artifactName: string;
+}
+
 export class BuildRegistry {
   project: BuildProject | undefined;
   artifacts: BuildArtifact[] = [];
@@ -108,6 +113,7 @@ export class BuildRegistry {
   dependencies: BuildGitDependency[] = [];
   pathDependencies: BuildPathDependency[] = [];
   systemLibraries: BuildSystemLibrary[] = [];
+  dependencyArtifacts: DependencyArtifactRef[] = [];
   /** User-provided build options from CLI -Dname=value */
   cliOptions: Map<string, string> = new Map();
   /** Declared build options (name → { description, default }) */
@@ -172,6 +178,19 @@ export class BuildRegistry {
 
   registerSystemLibrary(lib: BuildSystemLibrary): void {
     this.systemLibraries.push(lib);
+  }
+
+  registerDependencyArtifact(ref: DependencyArtifactRef): void {
+    // Avoid duplicates
+    if (
+      !this.dependencyArtifacts.some(
+        (a) =>
+          a.dependencyName === ref.dependencyName &&
+          a.artifactName === ref.artifactName
+      )
+    ) {
+      this.dependencyArtifacts.push(ref);
+    }
   }
 
   /** Register a link relationship: artifact links to a library */
@@ -317,6 +336,7 @@ export class BuildRegistry {
     this.dependencies = [];
     this.pathDependencies = [];
     this.systemLibraries = [];
+    this.dependencyArtifacts = [];
   }
 }
 
@@ -335,6 +355,15 @@ export function clearBuildRegistry(): void {
     globalRegistry.clear();
   }
   globalRegistry = undefined;
+}
+
+/** Swap the global registry and return the previous one. */
+export function swapBuildRegistry(
+  newRegistry: BuildRegistry | undefined
+): BuildRegistry | undefined {
+  const prev = globalRegistry;
+  globalRegistry = newRegistry;
+  return prev;
 }
 
 // ── Argument extraction helpers ───────────────────────────────────────
@@ -921,6 +950,31 @@ export function evaluateYoBuildFunctions({
     // Return CLI override if provided, otherwise the default
     const value = registry.cliOptions.get(name) ?? defaultValue;
     return makeComptimeStringResult(expr, env, value);
+  }
+
+  // __yo_build_dep_artifact(dependency_name, artifact_name)
+  // Registers a reference to an artifact from a dependency's build.yo.
+  // The build runner resolves and compiles it during the build phase.
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_dep_artifact)) {
+    if (expr.args.length < 2) {
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `__yo_build_dep_artifact expects 2 arguments (dependency_name, artifact_name), got ${expr.args.length}`,
+      });
+    }
+    const dependencyName = extractComptimeString(
+      expr.args[0]!.$?.value,
+      "dependency_name",
+      expr.token
+    );
+    const artifactName = extractComptimeString(
+      expr.args[1]!.$?.value,
+      "artifact_name",
+      expr.token
+    );
+
+    registry.registerDependencyArtifact({ dependencyName, artifactName });
+    return makeUnitResult(expr, env);
   }
 
   throw formatErrorMessage({

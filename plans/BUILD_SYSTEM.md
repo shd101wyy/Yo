@@ -915,6 +915,16 @@ Existing options (unchanged):
 32. `Project.root` field for explicit library entry point
 33. Convention-based entry point resolution: `src/lib.yo` → `index.yo` → `<name>.yo`
 
+### Phase 8: Dependency Build Artifacts (Zig-style) ✅
+
+34. `Dependency` struct with `artifact` method in `std/build.yo`
+35. `dependency()` and `path_dependency()` now return `Dependency` (was `unit`)
+36. `__yo_build_dep_artifact` builtin — registers `DependencyArtifactRef` in registry
+37. Build runner: `resolveDependencyArtifacts()` evaluates dependency `build.yo` files
+38. Registry swap via `swapBuildRegistry()` for isolated dependency evaluation
+39. Dependency artifacts compiled to `yo-out/deps/<dep>/lib/`
+40. End-to-end test: path dep with static library → consumer links and calls
+
 ---
 
 ## 9. Open Questions (Resolved & Remaining)
@@ -935,7 +945,7 @@ Existing options (unchanged):
 
 6. **Multiple artifacts sharing config**: Should there be a way to define shared configuration (e.g., common flags) applied to multiple artifacts? Deferred.
 
-7. **Dependency syntax**: How should git dependencies be declared in `build.yo`? Options: `build.dependency(build.GitDep(url: "...", tag: "..."))` or similar. Needs design.
+7. **Dependency syntax**: ✅ Resolved — `build.dependency({ name: "...", url: "...", ref: "..." })` returns a `Dependency` handle. `dep.artifact("name")` accesses artifacts from the dependency's `build.yo`.
 
 ---
 

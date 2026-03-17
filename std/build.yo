@@ -158,6 +158,24 @@ SystemLibrary :: struct(
 );
 export SystemLibrary;
 
+// ── Dependency handle ────────────────────────────────────────────────
+// Returned by build.dependency() and build.path_dependency().
+// Provides access to artifacts defined in the dependency's build.yo.
+
+Dependency :: struct(
+  name : comptime_string
+);
+export Dependency;
+
+impl(Dependency,
+  // Access a named artifact from the dependency's build.yo.
+  // Returns a Step that can be linked to the consumer's artifacts.
+  artifact : (fn(comptime(self) : Self, comptime(artifact_name) : comptime_string) -> comptime(Step))({
+    __yo_build_dep_artifact(self.name, artifact_name);
+    Step(name: artifact_name, kind: StepKind.StaticLibrary)
+  })
+);
+
 // ── Build functions ──────────────────────────────────────────────────
 // All registration functions return a Step value, allowing steps to be
 // wired together as dependencies via step.depend_on(dep).
@@ -240,15 +258,17 @@ step :: (fn(
 };
 export step;
 
-// Register a git-hosted dependency.
-dependency :: (fn(comptime(config) : GitDependency) -> comptime(unit)) {
+// Register a git-hosted dependency. Returns a Dependency handle for accessing artifacts.
+dependency :: (fn(comptime(config) : GitDependency) -> comptime(Dependency)) {
   __yo_build_dependency(config.name, config.url, config.ref, config.path);
+  Dependency(name: config.name)
 };
 export dependency;
 
-// Register a local path dependency.
-path_dependency :: (fn(comptime(config) : PathDependency) -> comptime(unit)) {
+// Register a local path dependency. Returns a Dependency handle for accessing artifacts.
+path_dependency :: (fn(comptime(config) : PathDependency) -> comptime(Dependency)) {
   __yo_build_path_dependency(config.name, config.path);
+  Dependency(name: config.name)
 };
 export path_dependency;
 
