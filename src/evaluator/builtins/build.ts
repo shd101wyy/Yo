@@ -34,7 +34,6 @@ import type { EvaluatorContext } from "../context";
 
 export interface BuildProject {
   name: string;
-  version: string;
   root: string;
 }
 
@@ -125,8 +124,8 @@ export class BuildRegistry {
     this.cliOptions = options;
   }
 
-  registerProject(name: string, version: string, root: string): void {
-    this.project = { name, version, root };
+  registerProject(name: string, root: string): void {
+    this.project = { name, root };
   }
 
   registerExecutable(config: Omit<BuildArtifact, "kind">): void {
@@ -477,12 +476,12 @@ export function evaluateYoBuildFunctions({
 
   const registry = getBuildRegistry();
 
-  // __yo_build_project(name, version, root)
+  // __yo_build_project(name, root)
   if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_project)) {
-    if (expr.args.length < 2) {
+    if (expr.args.length < 1) {
       throw formatErrorMessage({
         token: expr.token,
-        errorMessage: `__yo_build_project expects at least 2 arguments (name, version), got ${expr.args.length}`,
+        errorMessage: `__yo_build_project expects at least 1 argument (name), got ${expr.args.length}`,
       });
     }
     const name = extractComptimeString(
@@ -490,15 +489,10 @@ export function evaluateYoBuildFunctions({
       "name",
       expr.token
     );
-    const version = extractComptimeString(
-      expr.args[1]!.$?.value,
-      "version",
-      expr.token
-    );
-    const root = expr.args[2]
-      ? extractComptimeString(expr.args[2].$?.value, "root", expr.token)
+    const root = expr.args[1]
+      ? extractComptimeString(expr.args[1].$?.value, "root", expr.token)
       : "./src/lib.yo";
-    registry.registerProject(name, version, root);
+    registry.registerProject(name, root);
     return makeUnitResult(expr, env);
   }
 

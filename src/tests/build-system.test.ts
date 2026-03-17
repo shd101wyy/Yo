@@ -674,10 +674,9 @@ describe("BuildRegistry steps", () => {
 
   test("register project metadata", () => {
     const reg = new BuildRegistry();
-    reg.registerProject("my-app", "1.0.0", "./src/lib.yo");
+    reg.registerProject("my-app", "./src/lib.yo");
     expect(reg.project).toBeDefined();
     expect(reg.project!.name).toBe("my-app");
-    expect(reg.project!.version).toBe("1.0.0");
     expect(reg.project!.root).toBe("./src/lib.yo");
   });
 
@@ -759,10 +758,10 @@ describe("swapBuildRegistry", () => {
     // Start clean
     clearBuildRegistry();
     const original = getBuildRegistry();
-    original.registerProject("root", "1.0.0", "./src/lib.yo");
+    original.registerProject("root", "./src/lib.yo");
 
     const fresh = new BuildRegistry();
-    fresh.registerProject("dep", "0.1.0", "./src/lib.yo");
+    fresh.registerProject("dep", "./src/lib.yo");
 
     const prev = swapBuildRegistry(fresh);
     expect(prev).toBe(original);

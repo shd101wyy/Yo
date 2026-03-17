@@ -11,6 +11,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import { createHash } from "crypto";
+import { execSync } from "child_process";
 import { CodeGenerator } from "./codegen";
 import { findAvailableCompiler } from "./compiler-utils";
 import { clearEnvContainingPrelude } from "./env";
@@ -779,9 +780,10 @@ async function compileArtifact(
   const outputPath = path.join(outputDir, outputName);
 
   const projectName = ctx.registry.project?.name ?? artifact.name;
-  const version = ctx.registry.project?.version ?? "0.0.0";
+  const gitVersion = getGitVersion(projectDir);
+  const versionSuffix = gitVersion ? ` ${gitVersion}` : "";
   console.log(
-    `Building ${projectName} v${version} → ${path.relative(projectDir, outputPath)}${artifact.kind === "static_library" ? ".a" : ""}`
+    `Building ${projectName}${versionSuffix} → ${path.relative(projectDir, outputPath)}${artifact.kind === "static_library" ? ".a" : ""}`
   );
 
   const absolutePath = `file://${fs.realpathSync(sourcePath)}`;
@@ -1238,6 +1240,24 @@ async function resolveDependencyArtifacts(
         }
       }
     }
+  }
+}
+
+/**
+ * Get the current git version tag for the project directory.
+ * Returns the tag if HEAD is at a tag (e.g., "v1.0.0"), or
+ * a short describe string (e.g., "v1.0.0-3-gabcdef"), or undefined.
+ */
+function getGitVersion(projectDir: string): string | undefined {
+  try {
+    const result = execSync("git describe --tags --always 2>/dev/null", {
+      cwd: projectDir,
+      encoding: "utf8",
+      timeout: 3000,
+    }).trim();
+    return result || undefined;
+  } catch {
+    return undefined;
   }
 }
 

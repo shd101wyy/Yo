@@ -363,10 +363,11 @@ The `Project` struct has a `root` field that specifies the library entry point:
 ```yo
 Project :: struct(
   name : comptime_string,
-  (version : comptime_string) ?= "0.1.0",
   (root : comptime_string) ?= "./src/lib.yo"
 );
 ```
+
+Versioning is determined by **git tags** (like Go), not a manifest field.
 
 When a dependency has a `build.yo`, its `Project.root` can be used to locate the entry point file.
 

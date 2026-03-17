@@ -89,11 +89,12 @@ Build artifacts use struct types with default field values (like Zig's options p
 
 ### `Project`
 
-| Field     | Type              | Default          | Description                       |
-| --------- | ----------------- | ---------------- | --------------------------------- |
-| `name`    | `comptime_string` | _(required)_     | Project name                      |
-| `version` | `comptime_string` | `"0.1.0"`        | Semantic version                  |
-| `root`    | `comptime_string` | `"./src/lib.yo"` | Library entry point for consumers |
+| Field  | Type              | Default          | Description                       |
+| ------ | ----------------- | ---------------- | --------------------------------- |
+| `name` | `comptime_string` | _(required)_     | Project name                      |
+| `root` | `comptime_string` | `"./src/lib.yo"` | Library entry point for consumers |
+
+Versioning follows Go's approach: versions are determined by **git tags** (e.g., `v1.0.0`) rather than a manifest field. This avoids version mismatch between the declared version and the actual tag.
 
 ### `Executable`
 
@@ -508,7 +509,7 @@ Define multiple artifacts with different targets in a single `build.yo`:
 ```yo
 build :: import "std/build";
 
-build.project({ name: "my-app", version: "1.0.0", root: "./src/lib.yo" });
+build.project({ name: "my-app", root: "./src/lib.yo" });
 
 // Native build
 native :: build.executable({
@@ -545,7 +546,7 @@ Declare git-hosted dependencies in `build.yo`:
 ```yo
 build :: import "std/build";
 
-build.project({ name: "my-app", version: "1.0.0", root: "./src/lib.yo" });
+build.project({ name: "my-app", root: "./src/lib.yo" });
 
 // Add a git dependency — returns a Dependency handle
 dep :: build.dependency({
