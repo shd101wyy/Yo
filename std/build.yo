@@ -63,7 +63,8 @@ export target_host;
 
 Project :: struct(
   name : comptime_string,
-  (version : comptime_string) ?= "0.1.0"
+  (version : comptime_string) ?= "0.1.0",
+  (root : comptime_string) ?= "./src/lib.yo"
 );
 export Project;
 
@@ -142,6 +143,12 @@ GitDependency :: struct(
 );
 export GitDependency;
 
+PathDependency :: struct(
+  name : comptime_string,
+  path : comptime_string
+);
+export PathDependency;
+
 SystemLibrary :: struct(
   name : comptime_string,
   pkg_config : comptime_string,
@@ -157,7 +164,7 @@ export SystemLibrary;
 
 // Register project metadata.
 project :: (fn(comptime(config) : Project) -> comptime(unit)) {
-  __yo_build_project(config.name, config.version);
+  __yo_build_project(config.name, config.version, config.root);
 };
 export project;
 
@@ -238,6 +245,12 @@ dependency :: (fn(comptime(config) : GitDependency) -> comptime(unit)) {
   __yo_build_dependency(config.name, config.url, config.ref, config.path);
 };
 export dependency;
+
+// Register a local path dependency.
+path_dependency :: (fn(comptime(config) : PathDependency) -> comptime(unit)) {
+  __yo_build_path_dependency(config.name, config.path);
+};
+export path_dependency;
 
 // Register a system C library discovered via pkg-config. Returns a Step for linking.
 system_library :: (fn(comptime(config) : SystemLibrary) -> comptime(Step)) {

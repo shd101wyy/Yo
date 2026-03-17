@@ -142,7 +142,7 @@ export add;
 
 function generateTestFile(): string {
   return `test "it works", {
-  assert(((1 + 1) == 2), "math is broken");
+  assert((1 + 1) == 2, "math is broken");
 };
 `;
 }

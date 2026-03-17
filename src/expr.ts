@@ -1182,6 +1182,7 @@ export const BuiltinFunctions = {
   __yo_build_target_host: ["__yo_build_target_host"],
   __yo_build_target_parse: ["__yo_build_target_parse"],
   __yo_build_dependency: ["__yo_build_dependency"],
+  __yo_build_path_dependency: ["__yo_build_path_dependency"],
   __yo_build_system_library: ["__yo_build_system_library"],
   __yo_build_option: ["__yo_build_option"],
 };

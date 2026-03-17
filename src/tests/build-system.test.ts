@@ -555,6 +555,27 @@ describe("BuildRegistry", () => {
     }
     expect(artifact.linkedSystemLibraries).toEqual(["z"]);
   });
+
+  test("register and find path dependency", () => {
+    const reg = new BuildRegistry();
+    reg.registerPathDependency({ name: "mylib", path: "../mylib" });
+    const found = reg.findPathDependency("mylib");
+    expect(found).toBeDefined();
+    expect(found!.name).toBe("mylib");
+    expect(found!.path).toBe("../mylib");
+  });
+
+  test("findPathDependency returns undefined for unknown name", () => {
+    const reg = new BuildRegistry();
+    expect(reg.findPathDependency("nonexistent")).toBeUndefined();
+  });
+
+  test("clear resets path dependencies", () => {
+    const reg = new BuildRegistry();
+    reg.registerPathDependency({ name: "mylib", path: "../mylib" });
+    reg.clear();
+    expect(reg.pathDependencies).toEqual([]);
+  });
 });
 
 describe("BuildRegistry CLI options", () => {
@@ -646,10 +667,11 @@ describe("BuildRegistry steps", () => {
 
   test("register project metadata", () => {
     const reg = new BuildRegistry();
-    reg.registerProject("my-app", "1.0.0");
+    reg.registerProject("my-app", "1.0.0", "./src/lib.yo");
     expect(reg.project).toBeDefined();
     expect(reg.project!.name).toBe("my-app");
     expect(reg.project!.version).toBe("1.0.0");
+    expect(reg.project!.root).toBe("./src/lib.yo");
   });
 
   test("addStepDependency adds dependency to existing step", () => {

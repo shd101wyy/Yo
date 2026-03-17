@@ -902,10 +902,18 @@ Existing options (unchanged):
 
 ### Phase 6: Dependencies & Ecosystem (Future)
 
-25. Git-hosted dependency support (syntax TBD)
-26. `pkg-config` integration for C library discovery (including Windows support)
+25. ~~Git-hosted dependency support~~ ✅ Implemented
+26. ~~`pkg-config` integration for C library discovery~~ ✅ Implemented
 27. Caching / incremental builds
 28. Build self-hosting
+
+### Phase 7: Local Path Dependencies ✅
+
+29. `PathDependency` struct and `build.path_dependency()` function in `std/build.yo`
+30. `__yo_build_path_dependency` builtin handler
+31. Import resolution for path dependencies (resolve by name → local path → entry point)
+32. `Project.root` field for explicit library entry point
+33. Convention-based entry point resolution: `src/lib.yo` → `index.yo` → `<name>.yo`
 
 ---
 

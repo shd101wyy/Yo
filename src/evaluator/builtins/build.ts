@@ -35,6 +35,7 @@ import type { EvaluatorContext } from "../context";
 export interface BuildProject {
   name: string;
   version: string;
+  root: string;
 }
 
 export interface BuildArtifact {
@@ -85,6 +86,11 @@ export interface BuildGitDependency {
   path: string;
 }
 
+export interface BuildPathDependency {
+  name: string;
+  path: string;
+}
+
 export interface BuildSystemLibrary {
   name: string;
   pkgConfig: string;
@@ -100,6 +106,7 @@ export class BuildRegistry {
   runSteps: BuildRunStep[] = [];
   steps: BuildStep[] = [];
   dependencies: BuildGitDependency[] = [];
+  pathDependencies: BuildPathDependency[] = [];
   systemLibraries: BuildSystemLibrary[] = [];
   /** User-provided build options from CLI -Dname=value */
   cliOptions: Map<string, string> = new Map();
@@ -112,8 +119,8 @@ export class BuildRegistry {
     this.cliOptions = options;
   }
 
-  registerProject(name: string, version: string): void {
-    this.project = { name, version };
+  registerProject(name: string, version: string, root: string): void {
+    this.project = { name, version, root };
   }
 
   registerExecutable(config: Omit<BuildArtifact, "kind">): void {
@@ -159,6 +166,10 @@ export class BuildRegistry {
     this.dependencies.push(dep);
   }
 
+  registerPathDependency(dep: BuildPathDependency): void {
+    this.pathDependencies.push(dep);
+  }
+
   registerSystemLibrary(lib: BuildSystemLibrary): void {
     this.systemLibraries.push(lib);
   }
@@ -196,6 +207,11 @@ export class BuildRegistry {
   /** Find a dependency by name */
   findDependency(name: string): BuildGitDependency | undefined {
     return this.dependencies.find((d) => d.name === name);
+  }
+
+  /** Find a path dependency by name */
+  findPathDependency(name: string): BuildPathDependency | undefined {
+    return this.pathDependencies.find((d) => d.name === name);
   }
 
   /** Find a system library by name */
@@ -299,6 +315,7 @@ export class BuildRegistry {
     this.runSteps = [];
     this.steps = [];
     this.dependencies = [];
+    this.pathDependencies = [];
     this.systemLibraries = [];
   }
 }
@@ -401,12 +418,12 @@ export function evaluateYoBuildFunctions({
 
   const registry = getBuildRegistry();
 
-  // __yo_build_project(name, version)
+  // __yo_build_project(name, version, root)
   if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_project)) {
-    if (expr.args.length !== 2) {
+    if (expr.args.length < 2) {
       throw formatErrorMessage({
         token: expr.token,
-        errorMessage: `__yo_build_project expects 2 arguments (name, version), got ${expr.args.length}`,
+        errorMessage: `__yo_build_project expects at least 2 arguments (name, version), got ${expr.args.length}`,
       });
     }
     const name = extractComptimeString(
@@ -419,7 +436,10 @@ export function evaluateYoBuildFunctions({
       "version",
       expr.token
     );
-    registry.registerProject(name, version);
+    const root = expr.args[2]
+      ? extractComptimeString(expr.args[2].$?.value, "root", expr.token)
+      : "./src/lib.yo";
+    registry.registerProject(name, version, root);
     return makeUnitResult(expr, env);
   }
 
@@ -793,6 +813,29 @@ export function evaluateYoBuildFunctions({
         : "";
 
     registry.registerDependency({ name, url, ref, path: depPath });
+    return makeUnitResult(expr, env);
+  }
+
+  // __yo_build_path_dependency(name, path)
+  if (exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_path_dependency)) {
+    if (expr.args.length !== 2) {
+      throw formatErrorMessage({
+        token: expr.token,
+        errorMessage: `__yo_build_path_dependency expects 2 arguments (name, path), got ${expr.args.length}`,
+      });
+    }
+    const name = extractComptimeString(
+      expr.args[0]!.$?.value,
+      "name",
+      expr.token
+    );
+    const depPath = extractComptimeString(
+      expr.args[1]!.$?.value,
+      "path",
+      expr.token
+    );
+
+    registry.registerPathDependency({ name, path: depPath });
     return makeUnitResult(expr, env);
   }
 

@@ -87,6 +87,14 @@ test_step.depend_on(tests);
 
 Build artifacts use struct types with default field values (like Zig's options pattern). Only `name` and `root` are required — everything else has sensible defaults:
 
+### `Project`
+
+| Field     | Type              | Default          | Description                       |
+| --------- | ----------------- | ---------------- | --------------------------------- |
+| `name`    | `comptime_string` | _(required)_     | Project name                      |
+| `version` | `comptime_string` | `"0.1.0"`        | Semantic version                  |
+| `root`    | `comptime_string` | `"./src/lib.yo"` | Library entry point for consumers |
+
 ### `Executable`
 
 | Field       | Type              | Default              | Description                          |
@@ -532,6 +540,46 @@ yo fetch --verbose    # Show detailed progress
 ```
 
 Dependencies are stored in a global cache and tracked by `yo.lock` (commit this file to version control). `yo build` auto-fetches if dependencies are not yet cached.
+
+### Path Dependencies (Local)
+
+Use `path_dependency` to depend on a local package by filesystem path:
+
+```yo
+build :: import "std/build";
+
+build.project(build.Project(name: "my-app"));
+
+// Depend on a sibling project
+build.path_dependency(build.PathDependency(
+  name: "mylib",
+  path: "../mylib"
+));
+
+exe :: build.executable(build.Executable(name: "my-app", root: "./src/main.yo"));
+
+install :: build.step("install", "Build all artifacts");
+install.depend_on(exe);
+```
+
+In your source code, import the dependency by name:
+
+```yo
+mylib :: import "mylib";
+
+main :: (fn() -> unit) {
+  result := mylib.multiply(i32(3), i32(4));
+};
+export main;
+```
+
+**Entry point resolution order** for path dependencies:
+
+1. `src/lib.yo` (convention)
+2. `index.yo`
+3. `<name>.yo`
+
+Path dependencies need no fetching or lock file entries — they are resolved directly from the local filesystem.
 
 ### Global Cache
 

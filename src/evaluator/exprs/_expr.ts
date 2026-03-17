@@ -992,6 +992,7 @@ ${exprToString(expr)}`,
       exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_target_host) ||
       exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_target_parse) ||
       exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_dependency) ||
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_path_dependency) ||
       exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_system_library) ||
       exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_link) ||
       exprIsFunctionCallOf(

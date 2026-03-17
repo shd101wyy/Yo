@@ -323,11 +323,60 @@ export function lockFilePath(projectDir: string): string;
 
 ---
 
-## 8. Open Questions
+## 8. Path Dependencies (Local)
+
+Path dependencies allow depending on a local package by filesystem path, without fetching or locking.
+
+### 8.1 API in `build.yo`
+
+```yo
+build :: import "std/build";
+
+build.path_dependency(build.PathDependency(
+  name: "mylib",
+  path: "../mylib"
+));
+```
+
+### 8.2 Config Struct
+
+```yo
+PathDependency :: struct(
+  name : comptime_string,
+  path : comptime_string
+);
+```
+
+### 8.3 Resolution Flow
+
+1. `build.path_dependency()` registers the dependency in `BuildRegistry.pathDependencies`
+2. When source code uses `import "mylib"`, the import resolver:
+   a. Checks `BuildRegistry.pathDependencies` for a matching name
+   b. Resolves `path` relative to the project directory
+   c. Finds the entry point: `src/lib.yo` → `index.yo` → `<name>.yo`
+3. No fetching, locking, or caching needed — the path is used directly
+
+### 8.4 Project Root Entry Point
+
+The `Project` struct has a `root` field that specifies the library entry point:
+
+```yo
+Project :: struct(
+  name : comptime_string,
+  (version : comptime_string) ?= "0.1.0",
+  (root : comptime_string) ?= "./src/lib.yo"
+);
+```
+
+When a dependency has a `build.yo`, its `Project.root` can be used to locate the entry point file.
+
+---
+
+## 9. Open Questions
 
 1. **Transitive dependencies**: If dep A depends on dep B, should Yo resolve B automatically? Zig does this. Start simple: require all deps declared in the root `build.yo`. Add transitive resolution later.
 
-2. **Dependency entry point**: Should each dependency have its own `build.yo`? Or just a conventional `src/lib.yo`? Start with `src/lib.yo` convention, add `build.yo` support later.
+2. **Dependency entry point**: ✅ Resolved — Convention-based: `src/lib.yo` → `index.yo` → `<name>.yo`. `Project.root` field for explicit override.
 
 3. **Version conflicts**: If two dependencies need different versions of the same package, what happens? For now: error. Zig uses content hashing to allow multiple versions.
 

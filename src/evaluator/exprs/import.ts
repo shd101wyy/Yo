@@ -12,6 +12,7 @@ import { resolveDependencyPath } from "../../fetch";
 import { isComptimeStringValue } from "../../value";
 import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
+import { getBuildRegistry } from "../builtins/build";
 
 /**
  *
@@ -93,20 +94,26 @@ export function evaluateImport({
     const currentFilePath = env.modulePath.replace(/^file:\/\//, "");
     const projectDir = findProjectRoot(currentFilePath);
     if (projectDir) {
-      const depPath = resolveDependencyPath(projectDir, modulePathToImport);
-      if (depPath) {
-        // Resolve to the dependency's src/lib.yo or the root
-        let entryPoint = depPath;
-        const libYo = path.join(depPath, "src", "lib.yo");
-        const indexYo = path.join(depPath, "index.yo");
-        const rootYo = depPath + ".yo";
-        if (existsSync(libYo)) {
-          entryPoint = libYo;
-        } else if (existsSync(indexYo)) {
-          entryPoint = indexYo;
-        } else if (existsSync(rootYo)) {
-          entryPoint = rootYo;
-        }
+      // Check path dependencies first (from build registry)
+      const registry = getBuildRegistry();
+      const pathDep = registry.findPathDependency(modulePathToImport);
+      let depRoot: string | undefined;
+
+      if (pathDep) {
+        // Path dependency: resolve relative to project directory
+        depRoot = path.resolve(projectDir, pathDep.path);
+      } else {
+        // Try git dependency via yo.lock cache
+        depRoot = resolveDependencyPath(projectDir, modulePathToImport);
+      }
+
+      if (depRoot) {
+        // Resolve entry point: check Project.root from build.yo, then convention
+        const entryPoint = resolveDependencyEntryPoint(
+          depRoot,
+          modulePathToImport,
+          registry
+        );
         // Convert to relative path from current module
         modulePathToImport = path.relative(
           path.dirname(currentFilePath),
@@ -222,4 +229,29 @@ function findProjectRoot(filePath: string): string | undefined {
     dir = path.dirname(dir);
   }
   return undefined;
+}
+
+/**
+ * Resolve the entry point file for a dependency.
+ *
+ * Resolution order:
+ * 1. If the dependency has a Project.root configured in the build registry, use that
+ * 2. Convention: src/lib.yo → index.yo → <name>.yo
+ * 3. Fall back to the dependency root directory itself
+ */
+function resolveDependencyEntryPoint(
+  depRoot: string,
+  depName: string,
+  _registry: { project?: { root?: string } }
+): string {
+  // Convention-based entry point resolution
+  const libYo = path.join(depRoot, "src", "lib.yo");
+  const indexYo = path.join(depRoot, "index.yo");
+  const namedYo = path.join(depRoot, depName + ".yo");
+
+  if (existsSync(libYo)) return libYo;
+  if (existsSync(indexYo)) return indexYo;
+  if (existsSync(namedYo)) return namedYo;
+
+  return depRoot;
 }
