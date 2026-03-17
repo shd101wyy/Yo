@@ -17,7 +17,7 @@ test "spawn and waitpid", using(io : IO), {
   argv := *(?*(u8))(argv_uninit.as_ptr());
 
   cond(
-    (platform == Platform.Win32) => {
+    (platform == Platform.Windows) => {
       (argv &+ usize(0)).* = .Some(*(u8)("cmd.exe"));
       (argv &+ usize(1)).* = .Some(*(u8)("/C"));
       (argv &+ usize(2)).* = .Some(*(u8)("echo"));
@@ -32,7 +32,7 @@ test "spawn and waitpid", using(io : IO), {
   );
 
   file_path := cond(
-    (platform == Platform.Win32) => *(u8)("cmd.exe"),
+    (platform == Platform.Windows) => *(u8)("cmd.exe"),
     true => *(u8)("echo")
   );
 
@@ -49,7 +49,7 @@ test "spawn and waitpid", using(io : IO), {
   printf("  read = %d\n", rd);
 
   expected_len := cond(
-    (platform == Platform.Win32) => i32(14),
+    (platform == Platform.Windows) => i32(14),
     true => i32(13)
   );
   assert((rd == expected_len), "read length mismatch");

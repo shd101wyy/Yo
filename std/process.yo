@@ -24,11 +24,7 @@ Platform :: {
   Macos : "macos",
   Windows : "windows",
   FreeBSD : "freebsd",
-  Wasi : "wasi",
-
-  // Legacy aliases (backward compatibility)
-  Darwin : "macos",
-  Win32 : "windows"
+  Wasi : "wasi"
 };
 export Platform;
 
@@ -49,12 +45,7 @@ Arch :: {
   Aarch64 : "aarch64",
   X86 : "x86",
   Arm : "arm",
-  Wasm32 : "wasm32",
-
-  // Legacy aliases (backward compatibility)
-  X64 : "x86_64",
-  Arm64 : "aarch64",
-  Ia32 : "x86"
+  Wasm32 : "wasm32"
 };
 export Arch;
 
@@ -129,7 +120,7 @@ env :: impl {
     value_cstr := value.to_cstr().ptr().unwrap();
     
     result := cond(
-      (platform == Platform.Win32) => {
+      (platform == Platform.Windows) => {
         // Windows: use _putenv_s (doesn't have overwrite parameter)
         { _putenv_s } :: import "./libc/windows";
         
@@ -169,7 +160,7 @@ export env;
  */
 cwd :: (fn() -> Result(Path, String))(
   cond(
-    (platform == Platform.Win32) => {
+    (platform == Platform.Windows) => {
       // Windows implementation using GetCurrentDirectoryW
       { GetCurrentDirectoryW, WideCharToMultiByte, CP_UTF8, WCHAR, DWORD } :: import "./libc/windows";
       
@@ -278,7 +269,7 @@ export cwd;
  */
 chdir :: (fn(path: Path) -> Result(unit, String))(
   cond(
-    (platform == Platform.Win32) => {
+    (platform == Platform.Windows) => {
       // Windows implementation using SetCurrentDirectoryA
       { SetCurrentDirectoryA, BOOL } :: import "./libc/windows";
       

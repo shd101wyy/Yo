@@ -42,7 +42,7 @@ test "umask affects file creation mode and can be restored", using(io : IO), {
   assert(close_result == i32(0), "close should succeed");
   assert(sr == i32(0), "statx should succeed on created file");
   cond(
-    (platform == Platform.Win32) =>
+    (platform == Platform.Windows) =>
       assert(mode_bits == u32(0o666), "Windows reports 0666 for read-write files (no group/other distinction)"),
     true =>
       assert(mode_bits == u32(0o644), "created file mode should reflect umask 022 (0666 -> 0644)")

@@ -41,7 +41,7 @@ test "fcntl setfl toggles O_NONBLOCK on pipe", using(io : IO), {
   printf("  flags_after = %d\n", flags_after);
 
   cond(
-    (platform == Platform.Win32) => {
+    (platform == Platform.Windows) => {
       // Windows uses a different model; setfl is best-effort for non-socket fds.
       assert(((set_nonblock == i32(0)) || (set_nonblock == i32(-38))));
     },
@@ -53,7 +53,7 @@ test "fcntl setfl toggles O_NONBLOCK on pipe", using(io : IO), {
 
   restore := fcntl_io.setfl(read_fd, flags_before);
   cond(
-    (platform == Platform.Win32) => {
+    (platform == Platform.Windows) => {
       assert(((restore == i32(0)) || (restore == i32(-38))));
     },
     true => {
@@ -89,7 +89,7 @@ test "fcntl getfd/setfd toggles FD_CLOEXEC", using(io : IO), {
   assert(fd_flags_after >= i32(0));
 
   cond(
-    (platform == Platform.Win32) => {
+    (platform == Platform.Windows) => {
       assert(true);
     },
     true => {

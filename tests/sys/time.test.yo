@@ -132,10 +132,10 @@ test "utime with nanosecond precision", using(io : IO), {
   assert(sr == i32(0));
   st := Statx(stat_buf, usize(256));
   assert(st.atime_sec() == i64(1700000000));
-  expected_atime_nsec := cond((platform == Platform.Win32) => u32(123456700), true => u32(123456789));
+  expected_atime_nsec := cond((platform == Platform.Windows) => u32(123456700), true => u32(123456789));
   assert(st.atime_nsec() == expected_atime_nsec);
   assert(st.mtime_sec() == i64(1700000001));
-  expected_mtime_nsec := cond((platform == Platform.Win32) => u32(987654300), true => u32(987654321));
+  expected_mtime_nsec := cond((platform == Platform.Windows) => u32(987654300), true => u32(987654321));
   assert(st.mtime_nsec() == expected_mtime_nsec);
 
   cleanup := io.await(dir.unlink(AT_FDCWD, test_path, i32(0)));
