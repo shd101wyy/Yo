@@ -583,9 +583,10 @@ Or install directly from GitHub:
 yo install github.com/user/repo          # Latest semver tag
 yo install github.com/user/repo@v1.0.0   # Pinned version
 yo install user/repo                     # Shorthand for GitHub
+yo install ./path/to/local/dep           # Local path dependency
 ```
 
-`yo install` resolves the latest semver tag from the repository (or falls back to the default branch), appends a `build.dependency(...)` call to `build.yo`, and fetches the dependency into the global cache.
+`yo install` resolves the latest semver tag from the repository (or falls back to the default branch), appends a `build.dependency(...)` call to `build.yo`, and fetches the dependency into the global cache. For local paths (`./`, `../`, or absolute), it appends a `build.path_dependency(...)` call instead — no fetching needed.
 
 Dependencies are stored in a global cache and tracked by `yo.lock` (commit this file to version control). `yo build` auto-fetches if dependencies are not yet cached.
 
@@ -784,15 +785,25 @@ Package specifier formats:
   user/repo                     Shorthand for GitHub
   user/repo@v2.0.0              Shorthand with version pin
   https://example.com/repo.git  Full URL
+  ./path/to/dep                 Local path dependency
+  ../sibling-dep                Local path dependency
 ```
 
 `yo install` performs the following steps:
+
+**For git dependencies:**
 
 1. Parses the package specifier and infers the dependency name from the repo name
 2. Resolves the latest semver tag via `git ls-remote --tags` (or uses the pinned version)
 3. Falls back to the default branch if no semver tags are found
 4. Appends `build.dependency(...)` to `build.yo`
 5. Fetches the dependency and updates `yo.lock`
+
+**For local path dependencies:**
+
+1. Infers the name from the directory basename
+2. Validates that the path exists
+3. Appends `build.path_dependency(...)` to `build.yo`
 
 ## `yo cache` Reference
 

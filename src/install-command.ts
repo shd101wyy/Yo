@@ -28,6 +28,7 @@ export interface InstallOptions {
 }
 
 interface ParsedPackage {
+  kind: "git";
   /** Inferred dependency name (repo name) */
   name: string;
   /** Full git URL */
@@ -36,10 +37,38 @@ interface ParsedPackage {
   pinnedRef: string | undefined;
 }
 
+interface ParsedLocalPackage {
+  kind: "path";
+  /** Inferred dependency name (directory name) */
+  name: string;
+  /** Relative or absolute path */
+  path: string;
+}
+
 /**
- * Parse a package specifier like "github.com/user/repo" or "github.com/user/repo@v1.0.0".
+ * Check if a specifier looks like a local path.
  */
-function parsePackageSpecifier(spec: string): ParsedPackage {
+function isLocalPath(spec: string): boolean {
+  return (
+    spec.startsWith("./") ||
+    spec.startsWith("../") ||
+    spec.startsWith("/") ||
+    spec === "."
+  );
+}
+
+/**
+ * Parse a package specifier like "github.com/user/repo" or "../local-lib".
+ */
+function parsePackageSpecifier(
+  spec: string
+): ParsedPackage | ParsedLocalPackage {
+  // Check if it's a local path
+  if (isLocalPath(spec)) {
+    const name = path.basename(path.resolve(spec));
+    return { kind: "path", name, path: spec };
+  }
+
   // Split off @version if present
   let urlPart = spec;
   let pinnedRef: string | undefined;
@@ -68,7 +97,7 @@ function parsePackageSpecifier(spec: string): ParsedPackage {
     } else {
       throw new Error(
         `Invalid package specifier: "${spec}". ` +
-          `Expected format: github.com/user/repo, user/repo, or https://... URL`
+          `Expected format: github.com/user/repo, user/repo, ./path, or https://... URL`
       );
     }
   }
@@ -77,7 +106,7 @@ function parsePackageSpecifier(spec: string): ParsedPackage {
   const urlPath = url.replace(/\.git$/, "");
   const name = path.basename(urlPath);
 
-  return { name, url, pinnedRef };
+  return { kind: "git", name, url, pinnedRef };
 }
 
 /**
@@ -192,12 +221,16 @@ function resolveDefaultBranch(url: string): string {
  * Check if a dependency already exists in build.yo content.
  */
 function dependencyExistsInBuildFile(content: string, name: string): boolean {
-  // Check for build.dependency({ name: "xxx" or build.dependency({name: "xxx"
-  const pattern = new RegExp(
-    `build\\.dependency\\(\\{[^}]*name:\\s*"${escapeRegex(name)}"`,
+  const escaped = escapeRegex(name);
+  const gitPattern = new RegExp(
+    `build\\.dependency\\(\\{[^}]*name:\\s*"${escaped}"`,
     "s"
   );
-  return pattern.test(content);
+  const pathPattern = new RegExp(
+    `build\\.path_dependency\\(\\{[^}]*name:\\s*"${escaped}"`,
+    "s"
+  );
+  return gitPattern.test(content) || pathPattern.test(content);
 }
 
 function escapeRegex(s: string): string {
@@ -205,27 +238,31 @@ function escapeRegex(s: string): string {
 }
 
 /**
- * Append a build.dependency() call to build.yo.
+ * Append a build.dependency() or build.path_dependency() call to build.yo.
  */
 function appendDependencyToBuildFile(
   buildFilePath: string,
-  name: string,
-  url: string,
-  ref: string
-): void {
+  parsed: ParsedPackage | ParsedLocalPackage,
+  ref?: string
+): boolean {
   let content = fs.readFileSync(buildFilePath, "utf-8");
 
   // Check if already exists
-  if (dependencyExistsInBuildFile(content, name)) {
+  if (dependencyExistsInBuildFile(content, parsed.name)) {
     console.log(
-      `Dependency "${name}" already exists in ${path.basename(buildFilePath)}. ` +
-        `Update the ref manually if needed.`
+      `Dependency "${parsed.name}" already exists in ${path.basename(buildFilePath)}. ` +
+        `Update it manually if needed.`
     );
-    return;
+    return false;
   }
 
   // Build the dependency declaration
-  const depLine = `\n// Added by yo install\nbuild.dependency({ name: "${name}", url: "${url}", ref: "${ref}" });\n`;
+  let depLine: string;
+  if (parsed.kind === "path") {
+    depLine = `\n// Added by yo install\nbuild.path_dependency({ name: "${parsed.name}", path: "${parsed.path}" });\n`;
+  } else {
+    depLine = `\n// Added by yo install\nbuild.dependency({ name: "${parsed.name}", url: "${parsed.url}", ref: "${ref!}" });\n`;
+  }
 
   // Append at end of file
   if (!content.endsWith("\n")) {
@@ -234,9 +271,17 @@ function appendDependencyToBuildFile(
   content += depLine;
 
   fs.writeFileSync(buildFilePath, content, "utf-8");
-  console.log(
-    `Added dependency "${name}" @ ${ref} to ${path.basename(buildFilePath)}`
-  );
+
+  if (parsed.kind === "path") {
+    console.log(
+      `Added path dependency "${parsed.name}" (${parsed.path}) to ${path.basename(buildFilePath)}`
+    );
+  } else {
+    console.log(
+      `Added dependency "${parsed.name}" @ ${ref} to ${path.basename(buildFilePath)}`
+    );
+  }
+  return true;
 }
 
 export async function runInstall(options: InstallOptions): Promise<void> {
@@ -244,6 +289,38 @@ export async function runInstall(options: InstallOptions): Promise<void> {
 
   // 1. Parse the package specifier
   const parsed = parsePackageSpecifier(packageSpec);
+
+  // 2. Locate and validate build.yo
+  const userCwd = process.env.YO_ORIGINAL_CWD ?? process.cwd();
+  const resolvedBuildFile = path.resolve(userCwd, buildFile);
+  if (!fs.existsSync(resolvedBuildFile)) {
+    console.error(`Error: Build file not found: ${resolvedBuildFile}`);
+    console.error("Run 'yo init' to create a project with a build.yo file.");
+    process.exit(1);
+  }
+
+  if (parsed.kind === "path") {
+    // Local path dependency
+    const resolvedPath = path.resolve(userCwd, parsed.path);
+    if (!fs.existsSync(resolvedPath)) {
+      console.error(`Error: Path does not exist: ${resolvedPath}`);
+      process.exit(1);
+    }
+
+    if (verbose) {
+      console.log(`Package: ${parsed.name} (local path)`);
+      console.log(`Path: ${parsed.path}`);
+    }
+
+    console.log(
+      `Installing local dependency "${parsed.name}" from ${parsed.path}...`
+    );
+    appendDependencyToBuildFile(resolvedBuildFile, parsed);
+    console.log("Done.");
+    return;
+  }
+
+  // Git dependency
   if (verbose) {
     console.log(`Package: ${parsed.name}`);
     console.log(`URL: ${parsed.url}`);
@@ -252,7 +329,7 @@ export async function runInstall(options: InstallOptions): Promise<void> {
     }
   }
 
-  // 2. Resolve the ref
+  // 3. Resolve the ref
   let ref: string;
   if (parsed.pinnedRef) {
     ref = parsed.pinnedRef;
@@ -274,17 +351,9 @@ export async function runInstall(options: InstallOptions): Promise<void> {
     console.log(`Installing ${parsed.name} @ ${ref} ...`);
   }
 
-  // 3. Locate and validate build.yo
-  const userCwd = process.env.YO_ORIGINAL_CWD ?? process.cwd();
-  const resolvedBuildFile = path.resolve(userCwd, buildFile);
-  if (!fs.existsSync(resolvedBuildFile)) {
-    console.error(`Error: Build file not found: ${resolvedBuildFile}`);
-    console.error("Run 'yo init' to create a project with a build.yo file.");
-    process.exit(1);
-  }
-
   // 4. Append dependency to build.yo
-  appendDependencyToBuildFile(resolvedBuildFile, parsed.name, parsed.url, ref);
+  const added = appendDependencyToBuildFile(resolvedBuildFile, parsed, ref);
+  if (!added) return;
 
   // 5. Fetch the dependency
   const projectDir = path.dirname(resolvedBuildFile);
