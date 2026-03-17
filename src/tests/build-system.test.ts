@@ -434,7 +434,7 @@ describe("Global cache directory", () => {
   test("XDG_CACHE_HOME fallback", () => {
     delete process.env.YO_CACHE_DIR;
     process.env.XDG_CACHE_HOME = "/xdg/cache";
-    expect(getGlobalCacheDir()).toBe("/xdg/cache/yo");
+    expect(getGlobalCacheDir()).toBe(path.join("/xdg/cache", "yo"));
     // Restore
     if (savedEnv.XDG_CACHE_HOME) {
       process.env.XDG_CACHE_HOME = savedEnv.XDG_CACHE_HOME;
