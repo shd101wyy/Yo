@@ -238,6 +238,24 @@ Available steps:
   test                 Run unit tests
 ```
 
+### Build Summary
+
+Use `--summary` to print a tree of executed steps with timing (like Zig's `--summary all`):
+
+```bash
+yo build --summary
+```
+
+```
+Build Summary: 3/3 steps succeeded
+install success
+├── compile exe my-app Debug native success 1.3s
+│   └── compile lib math Debug native success 295ms
+└── compile lib my-app-lib Debug native success 310ms
+```
+
+Each node shows: step description, success/failure status, and duration. The tree structure reflects the DAG dependency edges.
+
 ## Linking Libraries
 
 Use `step.link()` to link any library to an artifact — works with static, shared, and system libraries. Similar to Zig's `exe.linkLibrary(lib)`:

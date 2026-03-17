@@ -40,6 +40,7 @@ Examples:
   $ yo build run                 Build and run the application
   $ yo build test                Run the test suite
   $ yo build --list-steps        Show available build steps
+  $ yo build --summary           Print build summary tree
   $ yo build -Dstrip=true        Pass build option to build.yo
 
 yo init [dir] [options]          Initialize a new Yo project
@@ -489,6 +490,11 @@ yo --version                     Show version number
           type: "boolean",
           default: false,
         })
+        .option("summary", {
+          describe: "Print build summary tree after completion",
+          type: "boolean",
+          default: false,
+        })
         .parserConfiguration({ "unknown-options-as-args": true });
 
       // When --help is requested, evaluate build.yo to discover project options
@@ -543,6 +549,7 @@ yo --version                     Show version number
         steps: argv.steps as string[] | undefined,
         cCompiler: argv.cc as string | undefined,
         defines: Object.keys(defines).length > 0 ? defines : undefined,
+        summary: argv.summary as boolean,
       });
     }
   )

@@ -56,6 +56,8 @@ export interface BuildOptions {
   cCompiler?: string;
   /** Sysroot directory for cross-compilation */
   sysroot?: string;
+  /** Print build summary tree (like Zig's --summary) */
+  summary?: boolean;
 }
 
 /**
@@ -176,6 +178,7 @@ export async function runBuild(options: BuildOptions): Promise<void> {
       targetTriple: options.targetTriple,
       sysroot: options.sysroot,
       verbose: options.verbose,
+      summary: options.summary,
     });
   }
 }
@@ -235,6 +238,19 @@ interface ExecutionContext {
   targetTriple?: string;
   sysroot?: string;
   verbose?: boolean;
+  summary?: boolean;
+}
+
+/** Result of executing a single build step. */
+interface StepResult {
+  name: string;
+  kind: "artifact" | "test" | "run" | "step";
+  success: boolean;
+  durationMs: number;
+  /** Short description for summary (e.g., "compile lib fizzbuzz Debug native") */
+  description: string;
+  /** Child step results (dependencies that were executed) */
+  children: StepResult[];
 }
 
 // ── DAG-based execution ──────────────────────────────────────────────
@@ -420,19 +436,26 @@ async function executeStep(
   }
 
   // Execute using level-based scheduling
-  await executeDAG(dag, stepName, ctx);
+  const results = await executeDAG(dag, stepName, ctx);
+
+  // Print build summary if requested
+  if (ctx.summary) {
+    printBuildSummary(results, dag, stepName);
+  }
 }
 
 /**
  * Level-based DAG executor (Kahn's algorithm).
  * Runs independent nodes concurrently at each level.
+ * Returns a map of step results for summary output.
  */
 async function executeDAG(
   dag: DAGNode[],
   rootName: string,
   ctx: ExecutionContext
-): Promise<void> {
-  if (dag.length === 0) return;
+): Promise<Map<string, StepResult>> {
+  const results = new Map<string, StepResult>();
+  if (dag.length === 0) return results;
 
   const nodeMap = new Map<string, DAGNode>();
   for (const node of dag) nodeMap.set(node.name, node);
@@ -476,12 +499,18 @@ async function executeDAG(
 
     // Artifact compilations must be serialized (global evaluator state)
     for (const node of artifactNodes) {
-      await executeNode(node, ctx);
+      const result = await executeNode(node, ctx);
+      results.set(node.name, result);
     }
 
     // Tests and run steps can execute concurrently
     if (otherNodes.length > 0) {
-      await Promise.all(otherNodes.map((node) => executeNode(node, ctx)));
+      const nodeResults = await Promise.all(
+        otherNodes.map((node) => executeNode(node, ctx))
+      );
+      for (let i = 0; i < otherNodes.length; i++) {
+        results.set(otherNodes[i]!.name, nodeResults[i]!);
+      }
     }
 
     // Mark completed and update in-degrees
@@ -492,39 +521,172 @@ async function executeDAG(
       }
     }
   }
+
+  return results;
 }
 
 /**
  * Execute a single DAG node based on its kind.
+ * Returns a StepResult with timing and status information.
  */
 async function executeNode(
   node: DAGNode,
   ctx: ExecutionContext
-): Promise<void> {
+): Promise<StepResult> {
   const { registry } = ctx;
+  const startTime = Date.now();
+  let success = true;
+  let description = "";
 
   switch (node.kind) {
     case "artifact": {
       const artifact = registry.findArtifact(node.name);
-      if (artifact) await compileArtifact(artifact, ctx);
+      if (artifact) {
+        const target = artifact.target || "native";
+        const optimize = artifact.optimize || "debug";
+        description = `compile ${artifact.kind === "static_library" ? "lib" : artifact.kind === "shared_library" ? "shared lib" : "exe"} ${artifact.name} ${capitalize(optimize)} ${target}`;
+        try {
+          await compileArtifact(artifact, ctx);
+        } catch {
+          success = false;
+        }
+      }
       break;
     }
     case "test": {
       const testSuite = registry.findTest(node.name);
-      if (testSuite) await runTestSuite(testSuite, ctx);
+      if (testSuite) {
+        description = `test ${testSuite.name}`;
+        try {
+          await runTestSuite(testSuite, ctx);
+        } catch {
+          success = false;
+        }
+      }
       break;
     }
     case "run": {
       const runStep = registry.findRunStep(node.name);
       if (runStep) {
+        description = `run ${runStep.artifactName}`;
         const artifact = registry.findArtifact(runStep.artifactName);
-        if (artifact) await runExecutable(artifact, runStep.args, ctx);
+        if (artifact) {
+          try {
+            await runExecutable(artifact, runStep.args, ctx);
+          } catch {
+            success = false;
+          }
+        }
       }
       break;
     }
     case "step":
-      // Named steps are structural — their work is done by their dependencies
+      description = node.name;
       break;
+  }
+
+  const durationMs = Date.now() - startTime;
+  return {
+    name: node.name,
+    kind: node.kind,
+    success,
+    durationMs,
+    description: description || node.name,
+    children: [],
+  };
+}
+
+function capitalize(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+/**
+ * Format a duration in milliseconds as a human-readable string.
+ */
+function formatDuration(ms: number): string {
+  if (ms < 1000) return `${ms}ms`;
+  const seconds = ms / 1000;
+  if (seconds < 60) return `${seconds.toFixed(1)}s`;
+  const minutes = Math.floor(seconds / 60);
+  const remainingSec = seconds % 60;
+  return `${minutes}m${remainingSec.toFixed(0)}s`;
+}
+
+/**
+ * Print a Zig-style build summary tree.
+ *
+ * Example output:
+ * ```
+ * Build Summary: 3/3 steps succeeded
+ * install success
+ * └── compile exe my-app Debug native success 175ms
+ *     └── compile lib add Debug native success 42ms
+ * ```
+ */
+function printBuildSummary(
+  results: Map<string, StepResult>,
+  dag: DAGNode[],
+  rootName: string
+): void {
+  const totalSteps = results.size;
+  let succeededSteps = 0;
+  for (const result of results.values()) {
+    if (result.success) succeededSteps++;
+  }
+
+  console.log("");
+  console.log(`Build Summary: ${succeededSteps}/${totalSteps} steps succeeded`);
+
+  // Build adjacency list from DAG (parent → children)
+  const nodeMap = new Map<string, DAGNode>();
+  for (const node of dag) nodeMap.set(node.name, node);
+
+  // Print tree recursively from root
+  const rootNode = nodeMap.get(rootName);
+  if (rootNode) {
+    printSummaryNode(rootNode, results, nodeMap, "", "", true);
+  }
+}
+
+function printSummaryNode(
+  node: DAGNode,
+  results: Map<string, StepResult>,
+  nodeMap: Map<string, DAGNode>,
+  linePrefix: string,
+  childrenPrefix: string,
+  isRoot: boolean
+): void {
+  const result = results.get(node.name);
+  const status = result ? (result.success ? "success" : "FAILURE") : "skipped";
+  const duration =
+    result && result.durationMs > 0
+      ? ` ${formatDuration(result.durationMs)}`
+      : "";
+  const description = result?.description ?? node.name;
+
+  if (isRoot) {
+    console.log(`${description} ${status}`);
+  } else {
+    console.log(`${linePrefix}${description} ${status}${duration}`);
+  }
+
+  // Find children (nodes that this node depends on)
+  const children = node.dependsOn
+    .map((dep) => nodeMap.get(dep))
+    .filter((n): n is DAGNode => n !== undefined);
+
+  for (let i = 0; i < children.length; i++) {
+    const isLast = i === children.length - 1;
+    const connector = isLast ? "└── " : "├── ";
+    const nextChildPrefix = isLast ? "    " : "│   ";
+    printSummaryNode(
+      children[i]!,
+      results,
+      nodeMap,
+      childrenPrefix + connector,
+      childrenPrefix + nextChildPrefix,
+      false
+    );
   }
 }
 
