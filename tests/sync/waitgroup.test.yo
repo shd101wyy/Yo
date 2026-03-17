@@ -1,7 +1,7 @@
 open import "std/libc/stdio";
 { WaitGroup } :: import "std/sync/waitgroup";
 { Thread } :: import "std/thread";
-{ Time } :: import "std/time";
+{ sleep } :: import "std/time/sleep";
 Worker :: import "std/worker";
 
 // ============================================================================
@@ -104,15 +104,15 @@ test "WaitGroup threads call done then main waits", {
   wg.(*).add(i32(3));
 
   t1 := Thread.spawn(() => {
-    Time.sleep(usize(10));
+    sleep(usize(10));
     wg.(*).done();
   });
   t2 := Thread.spawn(() => {
-    Time.sleep(usize(20));
+    sleep(usize(20));
     wg.(*).done();
   });
   t3 := Thread.spawn(() => {
-    Time.sleep(usize(30));
+    sleep(usize(30));
     wg.(*).done();
   });
 
@@ -191,15 +191,15 @@ test "WaitGroup with Workers and sleep", {
 
   wg.(*).add(i32(3));
   Worker.spawn(() => {
-    Time.sleep(usize(10));
+    sleep(usize(10));
     wg.(*).done();
   });
   Worker.spawn(() => {
-    Time.sleep(usize(20));
+    sleep(usize(20));
     wg.(*).done();
   });
   Worker.spawn(() => {
-    Time.sleep(usize(30));
+    sleep(usize(30));
     wg.(*).done();
   });
 
