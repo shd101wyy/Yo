@@ -46,7 +46,7 @@ step :: (fn(
 build :: import "std/build";
 
 exe :: build.executable({ name: "my-app", root: "./src/main.yo" });
-run_exe :: build.run("my-app");
+run_exe :: build.run(exe);
 tests :: build.test({ name: "tests", root: "./tests/" });
 
 install :: build.step("install", "Build all targets");

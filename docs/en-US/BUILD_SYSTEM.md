@@ -69,7 +69,7 @@ lib :: build.static_library({
 tests :: build.test({ name: "tests", root: "./tests/" });
 
 // Register a run step (compile + execute)
-run_exe :: build.run("my-project");
+run_exe :: build.run(exe);
 
 // Named steps — use depend_on to wire dependencies
 install :: build.step("install", "Build all artifacts");
@@ -167,7 +167,7 @@ Steps are named targets that define what `yo build <step>` does. Every build fun
 exe :: build.executable({ name: "my-app", root: "./src/main.yo" });
 lib :: build.static_library({ name: "my-lib", root: "./src/lib.yo" });
 tests :: build.test({ name: "tests", root: "./tests/" });
-run_exe :: build.run("my-app");
+run_exe :: build.run(exe);
 
 // Create named steps and wire dependencies
 install :: build.step("install", "Build all artifacts");
@@ -490,7 +490,7 @@ wasm :: build.executable({
   allocator: build.Allocator.Libc
 });
 
-run_native :: build.run("my-app");
+run_native :: build.run(native);
 
 install :: build.step("install", "Build all targets");
 install.depend_on(native);

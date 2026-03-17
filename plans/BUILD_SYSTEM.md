@@ -129,8 +129,8 @@ lib :: build.static_library({ name: "my-app-lib", root: "./src/lib.yo" });
 
 tests :: build.test({ name: "tests", root: "./tests/" });
 
-// build.run registers a run step for an artifact (by name)
-run_app :: build.run("my-app");
+// build.run creates a run step for an artifact step
+run_app :: build.run(exe);
 
 // Named steps with dependencies
 install :: build.step("install", "Build all artifacts");
@@ -556,7 +556,7 @@ lib :: build.static_library({ name: "my-project-lib", root: "./src/lib.yo" });
 
 tests :: build.test({ name: "tests", root: "./tests/" });
 
-run_app :: build.run("my-project");
+run_app :: build.run(exe);
 
 install :: build.step("install", "Build all artifacts");
 install.depend_on(exe);

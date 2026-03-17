@@ -105,7 +105,7 @@ lib :: build.static_library({ name: "${name}-lib", root: "./src/lib.yo" });
 
 tests :: build.test({ name: "tests", root: "./tests/" });
 
-run_exe :: build.run("${name}");
+run_exe :: build.run(exe);
 
 install :: build.step("install", "Build all artifacts");
 install.depend_on(exe);

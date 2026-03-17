@@ -241,10 +241,10 @@ test :: (fn(comptime(config) : TestSuite) -> comptime(Step)) {
 };
 export test;
 
-// Create a run step (compile + execute an artifact by name). Returns a Step.
-run :: (fn(comptime(artifact_name) : comptime_string) -> comptime(Step)) {
-  __yo_build_run(artifact_name);
-  Step(name: artifact_name, kind: StepKind.Run)
+// Create a run step (compile + execute an artifact). Returns a Step.
+run :: (fn(comptime(artifact) : Step) -> comptime(Step)) {
+  __yo_build_run(artifact.name);
+  Step(name: artifact.name, kind: StepKind.Run)
 };
 export run;
 
