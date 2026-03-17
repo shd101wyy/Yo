@@ -52,6 +52,13 @@ yo fetch [options]               Fetch git dependencies into .yo-cache
 Examples:
   $ yo fetch                     Fetch all dependencies from build.yo
   $ yo fetch --verbose           Show detailed fetch progress
+  $ yo fetch --update            Re-resolve refs to latest commits
+
+yo install <package>             Install a dependency from GitHub
+Examples:
+  $ yo install github.com/user/repo          Latest semver tag
+  $ yo install github.com/user/repo@v1.0.0   Pinned version
+  $ yo install user/repo                     Shorthand for GitHub
 
 yo test [path] [options]         Run tests
 Example:
@@ -446,6 +453,39 @@ yo --version                     Show version number
         buildFile: argv.buildFile as string,
         verbose: argv.verbose as boolean,
         update: argv.update as boolean,
+      });
+    }
+  )
+  .command(
+    "install <package>",
+    "Install a dependency from GitHub",
+    (_yargs) => {
+      _yargs
+        .positional("package", {
+          describe:
+            "Package specifier: github.com/user/repo, user/repo, or URL. " +
+            "Append @version to pin (e.g., github.com/user/repo@v1.0.0)",
+          type: "string",
+          demandOption: true,
+        })
+        .option("build-file", {
+          describe: "Path to build file",
+          type: "string",
+          default: "./build.yo",
+        })
+        .option("verbose", {
+          alias: "v",
+          describe: "Verbose output",
+          type: "boolean",
+          default: false,
+        });
+    },
+    async (argv) => {
+      const { runInstall } = await import("./install-command");
+      await runInstall({
+        package: argv.package as string,
+        buildFile: argv.buildFile as string,
+        verbose: argv.verbose as boolean,
       });
     }
   )

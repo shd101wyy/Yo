@@ -577,6 +577,16 @@ yo fetch --verbose    # Show detailed progress
 yo fetch --update     # Re-resolve git refs to latest commits
 ```
 
+Or install directly from GitHub:
+
+```bash
+yo install github.com/user/repo          # Latest semver tag
+yo install github.com/user/repo@v1.0.0   # Pinned version
+yo install user/repo                     # Shorthand for GitHub
+```
+
+`yo install` resolves the latest semver tag from the repository (or falls back to the default branch), appends a `build.dependency(...)` call to `build.yo`, and fetches the dependency into the global cache.
+
 Dependencies are stored in a global cache and tracked by `yo.lock` (commit this file to version control). `yo build` auto-fetches if dependencies are not yet cached.
 
 **Updating dependencies**: When using branch refs like `"main"`, the lock file pins the exact commit SHA at fetch time. Run `yo fetch --update` (or `yo fetch -u`) to re-resolve all refs to their latest commits and update `yo.lock`.
@@ -755,6 +765,34 @@ Options:
 `yo fetch` evaluates `build.yo` to discover dependencies, resolves git refs to exact commit SHAs via `git ls-remote`, clones them to the global cache, and records everything in `yo.lock`.
 
 Without `--update`, cached dependencies (matching commit in `yo.lock`) are skipped. With `--update`, all refs are re-resolved and re-fetched even if already cached — useful for tracking branch HEAD changes.
+
+## `yo install` Reference
+
+```
+yo install <package> [options]
+
+Arguments:
+  package                Package specifier (see formats below)
+
+Options:
+  --build-file <path>    Path to build file (default: ./build.yo)
+  --verbose, -v          Verbose output
+
+Package specifier formats:
+  github.com/user/repo          Latest semver tag from GitHub
+  github.com/user/repo@v1.0.0  Pinned version/tag
+  user/repo                     Shorthand for GitHub
+  user/repo@v2.0.0              Shorthand with version pin
+  https://example.com/repo.git  Full URL
+```
+
+`yo install` performs the following steps:
+
+1. Parses the package specifier and infers the dependency name from the repo name
+2. Resolves the latest semver tag via `git ls-remote --tags` (or uses the pinned version)
+3. Falls back to the default branch if no semver tags are found
+4. Appends `build.dependency(...)` to `build.yo`
+5. Fetches the dependency and updates `yo.lock`
 
 ## `yo cache` Reference
 
