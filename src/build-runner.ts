@@ -16,12 +16,14 @@ import { findAvailableCompiler } from "./compiler-utils";
 import { clearEnvContainingPrelude } from "./env";
 import {
   type BuildArtifact,
+  type BuildGitDependency,
   BuildRegistry,
   type BuildTestSuite,
   type DependencyArtifactRef,
   clearBuildRegistry,
   getBuildRegistry,
   swapBuildRegistry,
+  setRootBuildProjectDir,
 } from "./evaluator/builtins/build";
 import { clearAllGlobalImplState } from "./evaluator/values/impl";
 import {
@@ -109,7 +111,8 @@ export async function runBuild(options: BuildOptions): Promise<void> {
 
   const projectDir = path.dirname(buildFile);
 
-  // Auto-fetch git dependencies if not cached
+  // Set root project dir for transitive import resolution
+  setRootBuildProjectDir(projectDir);
   if (registry.dependencies.length > 0) {
     if (!areDependenciesCached(projectDir, registry.dependencies)) {
       if (options.verbose) {
@@ -119,6 +122,13 @@ export async function runBuild(options: BuildOptions): Promise<void> {
     } else if (options.verbose) {
       console.log("All dependencies cached.");
     }
+
+    // Recursively discover and fetch transitive dependencies
+    fetchTransitiveDependencies(
+      projectDir,
+      registry.dependencies,
+      options.verbose
+    );
   }
 
   // Resolve system libraries per-artifact via pkg-config
@@ -626,10 +636,14 @@ async function compileArtifact(
 
 /**
  * Content-addressed cache for compiled dependency artifacts.
- * Key: `<content_hash>:<artifact_name>`, Value: path to compiled .a file.
+ * Key: `<content_hash>:<artifact_name>`, Value: lib file path + transitive sources.
  * Prevents rebuilding the same dependency artifact multiple times.
  */
-const compiledDepCache = new Map<string, string>();
+interface CachedArtifact {
+  libFile: string;
+  transitiveSources: string[];
+}
+const compiledDepCache = new Map<string, CachedArtifact>();
 
 /**
  * Compute a content-based identity hash for a dependency.
@@ -662,6 +676,187 @@ export function computeDependencyHash(
     .update(`name:${depName}`)
     .digest("hex")
     .slice(0, 12);
+}
+
+/**
+ * Resolve and compile transitive dependency artifacts.
+ *
+ * When a dependency's build.yo references sub-dependencies (via dep.artifact()),
+ * this function resolves those sub-dep artifacts and links them into the
+ * dependency's artifacts before the dependency itself is compiled.
+ *
+ * @param depRegistry - The evaluated registry of the dependency
+ * @param depDir - Absolute path to the dependency's source directory
+ * @param rootProjectDir - Root project directory (for yo-out/ output)
+ * @param opts - Compilation options
+ */
+async function resolveTransitiveDependencyArtifacts(
+  depRegistry: BuildRegistry,
+  depDir: string,
+  rootProjectDir: string,
+  opts: {
+    cCompiler: string;
+    targetTriple?: string;
+    sysroot?: string;
+    verbose?: boolean;
+  }
+): Promise<void> {
+  // Group refs by sub-dependency name
+  const refsByDep = new Map<string, DependencyArtifactRef[]>();
+  for (const ref of depRegistry.dependencyArtifacts) {
+    const existing = refsByDep.get(ref.dependencyName);
+    if (existing) {
+      existing.push(ref);
+    } else {
+      refsByDep.set(ref.dependencyName, [ref]);
+    }
+  }
+
+  for (const [subDepName, refs] of refsByDep) {
+    // Find the sub-dependency's source directory
+    // For path deps: resolve relative to the dependency's directory
+    // For git deps: resolve via root project's yo.lock (transitive deps are there)
+    let subDepDir: string | undefined;
+
+    const pathDep = depRegistry.findPathDependency(subDepName);
+    if (pathDep) {
+      subDepDir = path.resolve(depDir, pathDep.path);
+    } else {
+      // Git dependency: should be in root yo.lock via fetchTransitiveDependencies
+      subDepDir = resolveDependencyPath(rootProjectDir, subDepName);
+    }
+
+    if (!subDepDir) {
+      console.error(
+        `Error: Cannot resolve transitive dependency "${subDepName}" ` +
+          `(required by dependency in ${depDir}). Run 'yo fetch'.`
+      );
+      process.exit(1);
+    }
+
+    const subBuildFile = path.join(subDepDir, "build.yo");
+    if (!fs.existsSync(subBuildFile)) {
+      console.error(
+        `Error: Transitive dependency "${subDepName}" has no build.yo at ${subBuildFile}.`
+      );
+      process.exit(1);
+    }
+
+    // Compute hash for the sub-dependency
+    const subDepHash = computeDependencyHash(depRegistry, subDepName, depDir);
+
+    // Check cache first
+    const allCached = refs.every((ref) =>
+      compiledDepCache.has(`${subDepHash}:${ref.artifactName}`)
+    );
+
+    let subRegistry: BuildRegistry | undefined;
+    if (!allCached) {
+      if (opts.verbose) {
+        console.log(`    Evaluating transitive dep: ${subDepName}/build.yo...`);
+      }
+      subRegistry = evaluateDependencyBuildFile(subBuildFile);
+
+      // Recurse further if sub-dep has its own sub-deps
+      if (subRegistry.dependencyArtifacts.length > 0) {
+        await resolveTransitiveDependencyArtifacts(
+          subRegistry,
+          subDepDir,
+          rootProjectDir,
+          opts
+        );
+      }
+    }
+
+    // Compile each requested artifact from the sub-dependency
+    for (const ref of refs) {
+      const cacheKey = `${subDepHash}:${ref.artifactName}`;
+      const cached = compiledDepCache.get(cacheKey);
+
+      if (cached) {
+        if (opts.verbose) {
+          console.log(
+            `    Reusing cached transitive artifact: ${subDepName}/${ref.artifactName}`
+          );
+        }
+        // Link into parent dep's artifacts (lib file + transitive sources)
+        for (const depArtifact of depRegistry.artifacts) {
+          if (depArtifact.linkedArtifacts.includes(ref.artifactName)) {
+            if (!depArtifact.cSources.includes(cached.libFile)) {
+              depArtifact.cSources.push(cached.libFile);
+            }
+            for (const src of cached.transitiveSources) {
+              if (!depArtifact.cSources.includes(src)) {
+                depArtifact.cSources.push(src);
+              }
+            }
+          }
+        }
+        continue;
+      }
+
+      const subArtifact = subRegistry!.findArtifact(ref.artifactName);
+      if (!subArtifact) {
+        console.error(
+          `Error: Artifact "${ref.artifactName}" not found in transitive dependency "${subDepName}". ` +
+            `Available: ${subRegistry!.artifacts.map((a) => a.name).join(", ") || "(none)"}`
+        );
+        process.exit(1);
+      }
+
+      const adjustedArtifact: BuildArtifact = {
+        ...subArtifact,
+        root: path.resolve(subDepDir, subArtifact.root),
+      };
+
+      // Output to root project's yo-out/deps/<sub_dep>/lib/
+      const subOutputDir = path.join(
+        rootProjectDir,
+        "yo-out",
+        "deps",
+        subDepName,
+        "lib"
+      );
+      if (!fs.existsSync(subOutputDir)) {
+        fs.mkdirSync(subOutputDir, { recursive: true });
+      }
+
+      if (opts.verbose) {
+        console.log(
+          `    Compiling transitive artifact: ${subDepName}/${ref.artifactName}`
+        );
+      }
+
+      await compileDependencyArtifact(
+        adjustedArtifact,
+        subOutputDir,
+        subDepDir,
+        opts
+      );
+
+      if (adjustedArtifact.kind === "static_library") {
+        const libFile = path.join(subOutputDir, `lib${ref.artifactName}.a`);
+        // Collect transitive .a files from the sub-artifact
+        const transitiveSources = adjustedArtifact.cSources.filter((s) =>
+          s.endsWith(".a")
+        );
+        compiledDepCache.set(cacheKey, { libFile, transitiveSources });
+        // Link into parent dep's artifacts that reference this sub-dep artifact
+        for (const depArtifact of depRegistry.artifacts) {
+          if (depArtifact.linkedArtifacts.includes(ref.artifactName)) {
+            if (!depArtifact.cSources.includes(libFile)) {
+              depArtifact.cSources.push(libFile);
+            }
+            for (const src of transitiveSources) {
+              if (!depArtifact.cSources.includes(src)) {
+                depArtifact.cSources.push(src);
+              }
+            }
+          }
+        }
+      }
+    }
+  }
 }
 
 /**
@@ -731,6 +926,20 @@ async function resolveDependencyArtifacts(
       }
       // 3. Evaluate the dependency's build.yo in isolation
       depRegistry = evaluateDependencyBuildFile(depBuildFile);
+
+      // Recursively resolve sub-dependencies (transitive)
+      // If this dep has its own dependencyArtifacts, compile those first
+      if (depRegistry.dependencyArtifacts.length > 0) {
+        if (opts.verbose) {
+          console.log(`  Resolving transitive deps for "${depName}"...`);
+        }
+        await resolveTransitiveDependencyArtifacts(
+          depRegistry,
+          depDir,
+          projectDir,
+          opts
+        );
+      }
     }
 
     // 4. For each requested artifact, compile it (or reuse cached) and register in root
@@ -738,18 +947,23 @@ async function resolveDependencyArtifacts(
       const cacheKey = `${depHash}:${ref.artifactName}`;
 
       // Check content-addressed cache
-      const cachedLibFile = compiledDepCache.get(cacheKey);
-      if (cachedLibFile) {
+      const cached = compiledDepCache.get(cacheKey);
+      if (cached) {
         if (opts.verbose) {
           console.log(
             `  Reusing cached artifact: ${depName}/${ref.artifactName} (${depHash})`
           );
         }
-        // Reuse the cached .a file for all root artifacts that link this
+        // Reuse the cached .a file + transitive sources for all root artifacts
         for (const rootArtifact of rootRegistry.artifacts) {
           if (rootArtifact.linkedArtifacts.includes(ref.artifactName)) {
-            if (!rootArtifact.cSources.includes(cachedLibFile)) {
-              rootArtifact.cSources.push(cachedLibFile);
+            if (!rootArtifact.cSources.includes(cached.libFile)) {
+              rootArtifact.cSources.push(cached.libFile);
+            }
+            for (const src of cached.transitiveSources) {
+              if (!rootArtifact.cSources.includes(src)) {
+                rootArtifact.cSources.push(src);
+              }
             }
           }
         }
@@ -800,14 +1014,23 @@ async function resolveDependencyArtifacts(
       // 6. Register in cache and root registry
       if (adjustedArtifact.kind === "static_library") {
         const libFile = path.join(depOutputDir, `lib${ref.artifactName}.a`);
+        // Collect transitive .a files from the dep artifact's cSources
+        const transitiveSources = adjustedArtifact.cSources.filter((s) =>
+          s.endsWith(".a")
+        );
         // Cache the compiled artifact by content hash
-        compiledDepCache.set(cacheKey, libFile);
+        compiledDepCache.set(cacheKey, { libFile, transitiveSources });
         // For any root artifact that links this dependency artifact,
-        // add the .a file as an extern source
+        // add the .a file + transitive sources as extern sources
         for (const rootArtifact of rootRegistry.artifacts) {
           if (rootArtifact.linkedArtifacts.includes(ref.artifactName)) {
             if (!rootArtifact.cSources.includes(libFile)) {
               rootArtifact.cSources.push(libFile);
+            }
+            for (const src of transitiveSources) {
+              if (!rootArtifact.cSources.includes(src)) {
+                rootArtifact.cSources.push(src);
+              }
             }
           }
         }
@@ -865,6 +1088,78 @@ function evaluateDependencyBuildFile(buildFile: string): BuildRegistry {
   swapBuildRegistry(rootRegistry);
 
   return depRegistry;
+}
+
+/**
+ * Recursively discover and fetch transitive git dependencies.
+ *
+ * After the root dependencies are fetched, this function evaluates each
+ * dependency's build.yo to discover its own git dependencies. Any newly
+ * discovered deps are fetched and added to the root yo.lock, then the
+ * process repeats until no new dependencies are found.
+ *
+ * Uses BFS with a visited set to avoid cycles and redundant evaluation.
+ */
+function fetchTransitiveDependencies(
+  projectDir: string,
+  rootDeps: BuildGitDependency[],
+  verbose: boolean = false
+): void {
+  const visited = new Set<string>();
+  // Mark root deps as visited
+  for (const dep of rootDeps) {
+    visited.add(dep.name);
+  }
+
+  // Queue: deps to check for transitive dependencies
+  const queue: BuildGitDependency[] = [...rootDeps];
+
+  while (queue.length > 0) {
+    const dep = queue.shift()!;
+
+    // Find the cached directory for this dependency
+    const depDir = resolveDependencyPath(projectDir, dep.name);
+    if (!depDir) continue;
+
+    // Check if it has a build.yo
+    const depBuildFile = path.join(depDir, "build.yo");
+    if (!fs.existsSync(depBuildFile)) continue;
+
+    // Evaluate the dependency's build.yo to discover its dependencies
+    let depRegistry: BuildRegistry;
+    try {
+      depRegistry = evaluateDependencyBuildFile(depBuildFile);
+    } catch {
+      // If evaluation fails, skip transitive discovery for this dep
+      if (verbose) {
+        console.log(
+          `  Warning: Could not evaluate ${dep.name}/build.yo for transitive deps`
+        );
+      }
+      continue;
+    }
+
+    // Collect newly-discovered git dependencies
+    const newDeps: BuildGitDependency[] = [];
+    for (const transitiveDep of depRegistry.dependencies) {
+      if (!visited.has(transitiveDep.name)) {
+        visited.add(transitiveDep.name);
+        newDeps.push(transitiveDep);
+      }
+    }
+
+    if (newDeps.length > 0) {
+      if (verbose) {
+        console.log(
+          `  Found ${newDeps.length} transitive dep(s) from ${dep.name}: ${newDeps.map((d) => d.name).join(", ")}`
+        );
+      }
+      // Fetch the transitive deps (updates yo.lock)
+      fetchAllDependencies(projectDir, newDeps, verbose);
+      // Add to queue for further transitive discovery
+      queue.push(...newDeps);
+    }
+  }
 }
 
 /**

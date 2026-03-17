@@ -680,6 +680,29 @@ The dependency identity is hashed (based on resolved path or git URL+ref). Ident
 
 If two dependencies require **different versions** of the same package (different URLs or refs), each version is compiled separately with a unique content hash.
 
+### Transitive Dependencies
+
+Dependencies can have their own dependencies. The build system resolves the full transitive closure automatically:
+
+```
+root project
+├── dep_a (links dep_b)
+│   └── dep_b
+└── (dep_b is fetched and compiled transitively)
+```
+
+**How it works:**
+
+1. **Recursive fetching** — When `yo build` (or `yo fetch`) runs, each dependency's `build.yo` is evaluated to discover its own dependencies. Sub-dependencies are fetched recursively (BFS) and recorded in the root project's `yo.lock`.
+
+2. **Recursive compilation** — Sub-dependencies are compiled before their parents. In the example above, `dep_b`'s static library is compiled first, then `dep_a` links against it.
+
+3. **Link propagation** — When `dep_a` links `dep_b`'s `.a` file, that transitive `.a` file is automatically propagated to the root project's linker command. The root executable ends up linking both `libadd3.a` (from dep_a) and `libadd.a` (from dep_b).
+
+4. **Import resolution** — When `dep_a`'s source code does `import "dep_b"`, the build system falls back to the root project's `yo.lock` to resolve the import path.
+
+No special configuration is needed — transitive dependencies are discovered and linked automatically from the dependency graph.
+
 ### System Libraries (pkg-config)
 
 Link against system C libraries discovered via `pkg-config`:

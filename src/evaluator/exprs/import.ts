@@ -12,7 +12,7 @@ import { resolveDependencyPath } from "../../fetch";
 import { isComptimeStringValue } from "../../value";
 import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
-import { getBuildRegistry } from "../builtins/build";
+import { getBuildRegistry, getRootBuildProjectDir } from "../builtins/build";
 
 /**
  *
@@ -105,6 +105,16 @@ export function evaluateImport({
       } else {
         // Try git dependency via yo.lock cache
         depRoot = resolveDependencyPath(projectDir, modulePathToImport);
+      }
+
+      // Fallback: try the root build project directory for transitive deps
+      // This handles the case where dep A's code imports dep B,
+      // and dep B is in the root project's yo.lock (fetched transitively)
+      if (!depRoot) {
+        const rootDir = getRootBuildProjectDir();
+        if (rootDir && rootDir !== projectDir) {
+          depRoot = resolveDependencyPath(rootDir, modulePathToImport);
+        }
       }
 
       if (depRoot) {

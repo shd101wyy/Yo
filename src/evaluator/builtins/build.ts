@@ -343,6 +343,19 @@ export class BuildRegistry {
 // Global singleton — cleared before each build.yo evaluation
 let globalRegistry: BuildRegistry | undefined;
 
+// Root project directory for transitive import resolution.
+// Set by the build runner so that imports within dependencies
+// can fall back to the root project's yo.lock.
+let rootBuildProjectDir: string | undefined;
+
+export function getRootBuildProjectDir(): string | undefined {
+  return rootBuildProjectDir;
+}
+
+export function setRootBuildProjectDir(dir: string | undefined): void {
+  rootBuildProjectDir = dir;
+}
+
 export function getBuildRegistry(): BuildRegistry {
   if (!globalRegistry) {
     globalRegistry = new BuildRegistry();

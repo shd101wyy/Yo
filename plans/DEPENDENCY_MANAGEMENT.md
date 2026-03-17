@@ -434,9 +434,46 @@ Root Registry (saved) → Fresh Registry (active) → Evaluate dep build.yo → 
 
 ---
 
-## 10. Open Questions
+## 10. Transitive Dependencies
 
-1. **Transitive dependencies**: If dep A depends on dep B, should Yo resolve B automatically? Zig does this. Start simple: require all deps declared in the root `build.yo`. Add transitive resolution later.
+✅ **Resolved** — Transitive dependencies are resolved automatically.
+
+When dep A depends on dep B, the build system resolves B without the root project explicitly declaring it.
+
+### Recursive Fetching
+
+`fetchTransitiveDependencies()` in `build-runner.ts` performs a BFS traversal:
+
+1. For each direct dependency, evaluate its `build.yo` to discover sub-dependencies
+2. Fetch newly-discovered git deps into the root `yo.lock`
+3. Continue until no new deps are found (visited set prevents cycles)
+
+Path dependencies of dependencies are resolved relative to the dependency's directory.
+
+### Recursive Compilation
+
+`resolveTransitiveDependencyArtifacts()` compiles sub-deps before parent deps:
+
+1. Evaluate the sub-dep's `build.yo` in isolation
+2. Compile its artifacts (e.g., static libraries)
+3. Add the `.a` files to the parent dep's `cSources` before compilation
+
+### Transitive Link Propagation
+
+When dep A links dep B's static library, dep B's `.a` file must reach the root linker:
+
+- `compiledDepCache` stores `{ libFile, transitiveSources }` per artifact
+- When the root executable links dep A, both `libadd3.a` (dep A) and `libadd.a` (dep B) are included
+
+### Import Resolution Fallback
+
+When dep A's source does `import "dep_b"`, import resolution falls back to the root project's `yo.lock` via `rootBuildProjectDir` (a global set by `runBuild()`).
+
+---
+
+## 11. Open Questions
+
+1. ~~**Transitive dependencies**~~: ✅ Resolved — see Section 10.
 
 2. **Dependency entry point**: ✅ Resolved — Convention-based: `src/lib.yo` → `index.yo` → `<name>.yo`. `Project.root` field for explicit override.
 

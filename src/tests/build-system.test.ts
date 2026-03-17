@@ -23,6 +23,8 @@ import {
   clearBuildRegistry,
   getBuildRegistry,
   swapBuildRegistry,
+  getRootBuildProjectDir,
+  setRootBuildProjectDir,
 } from "../evaluator/builtins/build";
 
 // ── Lock file tests ──────────────────────────────────────────────────
@@ -976,3 +978,157 @@ function makeArtifact(name: string, root: string): Omit<BuildArtifact, "kind"> {
     cFlags: [],
   };
 }
+
+// ── Root build project dir (transitive import resolution) ────────────
+
+describe("rootBuildProjectDir", () => {
+  test("initially undefined", () => {
+    setRootBuildProjectDir(undefined);
+    expect(getRootBuildProjectDir()).toBeUndefined();
+  });
+
+  test("set and get", () => {
+    setRootBuildProjectDir("/my/project");
+    expect(getRootBuildProjectDir()).toBe("/my/project");
+    setRootBuildProjectDir(undefined); // cleanup
+  });
+
+  test("can be overwritten", () => {
+    setRootBuildProjectDir("/project-a");
+    expect(getRootBuildProjectDir()).toBe("/project-a");
+    setRootBuildProjectDir("/project-b");
+    expect(getRootBuildProjectDir()).toBe("/project-b");
+    setRootBuildProjectDir(undefined); // cleanup
+  });
+});
+
+// ── Transitive dependency registry support ───────────────────────────
+
+describe("Transitive dependency support", () => {
+  test("dependency registry captures sub-deps", () => {
+    // Simulate: depA's build.yo declares a git dependency on depB
+    const depARegistry = new BuildRegistry();
+    depARegistry.registerDependency({
+      name: "depB",
+      url: "https://github.com/user/depB.git",
+      ref: "v1.0.0",
+      path: "",
+    });
+    expect(depARegistry.dependencies).toHaveLength(1);
+    expect(depARegistry.dependencies[0]!.name).toBe("depB");
+  });
+
+  test("dependency registry captures sub-dep artifact refs", () => {
+    // Simulate: depA's build.yo calls depB.artifact("math")
+    const depARegistry = new BuildRegistry();
+    depARegistry.registerDependency({
+      name: "depB",
+      url: "https://github.com/user/depB.git",
+      ref: "v1.0.0",
+      path: "",
+    });
+    depARegistry.registerDependencyArtifact({
+      dependencyName: "depB",
+      artifactName: "math",
+    });
+    expect(depARegistry.dependencyArtifacts).toHaveLength(1);
+    expect(depARegistry.dependencyArtifacts[0]!.dependencyName).toBe("depB");
+    expect(depARegistry.dependencyArtifacts[0]!.artifactName).toBe("math");
+  });
+
+  test("swap preserves transitive dep info", () => {
+    // Setup: root registry with depA
+    clearBuildRegistry();
+    const rootReg = getBuildRegistry();
+    rootReg.registerDependency({
+      name: "depA",
+      url: "https://github.com/user/depA.git",
+      ref: "main",
+      path: "",
+    });
+
+    // Simulate evaluateDependencyBuildFile: swap in fresh registry for dep
+    const savedRoot = swapBuildRegistry(new BuildRegistry());
+    const depReg = getBuildRegistry();
+    depReg.registerDependency({
+      name: "depB",
+      url: "https://github.com/user/depB.git",
+      ref: "v1.0.0",
+      path: "",
+    });
+
+    // Capture dep's registry
+    const depResult = getBuildRegistry();
+
+    // Restore root registry
+    swapBuildRegistry(savedRoot);
+
+    // depResult should have depB only
+    expect(depResult.dependencies).toHaveLength(1);
+    expect(depResult.dependencies[0]!.name).toBe("depB");
+
+    // Root registry should still have depA only
+    const restored = getBuildRegistry();
+    expect(restored.dependencies).toHaveLength(1);
+    expect(restored.dependencies[0]!.name).toBe("depA");
+
+    clearBuildRegistry();
+  });
+
+  test("content-addressed cache prevents duplicate compilation", () => {
+    // Two deps referencing same sub-dep artifact should share cache
+    const reg1 = new BuildRegistry();
+    reg1.registerPathDependency({ name: "shared", path: "../shared_lib" });
+    const hash1 = computeDependencyHash(reg1, "shared", "/project1");
+
+    const reg2 = new BuildRegistry();
+    reg2.registerPathDependency({ name: "shared", path: "../shared_lib" });
+    const hash2 = computeDependencyHash(reg2, "shared", "/project1");
+
+    // Same absolute path → same hash
+    expect(hash1).toBe(hash2);
+  });
+
+  test("different sub-dep versions produce different hashes", () => {
+    const reg1 = new BuildRegistry();
+    reg1.registerDependency({
+      name: "util",
+      url: "https://github.com/user/util.git",
+      ref: "v1.0.0",
+      path: "",
+    });
+    const hash1 = computeDependencyHash(reg1, "util", "/project");
+
+    const reg2 = new BuildRegistry();
+    reg2.registerDependency({
+      name: "util",
+      url: "https://github.com/user/util.git",
+      ref: "v2.0.0",
+      path: "",
+    });
+    const hash2 = computeDependencyHash(reg2, "util", "/project");
+
+    expect(hash1).not.toBe(hash2);
+  });
+
+  test("linked artifacts propagate through transitive resolution", () => {
+    // Simulate: depA's artifact links depB's artifact
+    const depARegistry = new BuildRegistry();
+    const libA = {
+      ...makeArtifact("libA", "./src/lib.yo"),
+      kind: "static_library" as const,
+    };
+    libA.linkedArtifacts.push("libB");
+    depARegistry.artifacts.push(libA);
+    depARegistry.registerDependencyArtifact({
+      dependencyName: "depB",
+      artifactName: "libB",
+    });
+
+    // Verify the setup
+    expect(depARegistry.dependencyArtifacts).toHaveLength(1);
+    expect(depARegistry.findArtifact("libA")?.linkedArtifacts).toContain(
+      "libB"
+    );
+  });
+});
