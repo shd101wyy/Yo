@@ -121,6 +121,29 @@ export function collectRequiredFunctions(
           value,
           cName: "__yo_user_main",
         };
+      } else if (context.isLibrary) {
+        // In library mode, exported functions from the current module use their
+        // plain label name so they can be referenced by extern "Yo" in other modules.
+        // Functions from other modules (e.g., std library trait impls) keep hashed names.
+        const isFromCurrentModule =
+          context.currentModuleId &&
+          value.funcId.startsWith(`fn_${context.currentModuleId}_`);
+        if (isFromCurrentModule) {
+          const plainCName = sanitizeForCIdentifier(label);
+          context.functions[value.funcId] = {
+            value,
+            cName: plainCName,
+          };
+          if (!context.exportedFunctionLabels) {
+            context.exportedFunctionLabels = new Map();
+          }
+          context.exportedFunctionLabels.set(value.funcId, label);
+        } else {
+          context.functions[value.funcId] = {
+            value,
+            cName: sanitizeForCIdentifier(value.funcId),
+          };
+        }
       } else {
         context.functions[value.funcId] = {
           value,
@@ -405,6 +428,25 @@ export function findFunctionCallsInExpr(
           type: functionType,
           cName,
         };
+      } else if (functionType.isExtern === "yo") {
+        // Extern Yo functions — from other Yo modules (static libraries)
+        // Skip internal Yo builtins (__yo_* prefixed) — they are compile-time only
+        const externName = functionType.externName;
+        if (externName && externName.startsWith("__yo_")) {
+          // Internal builtin — skip
+        } else {
+          // Use the externName (set during extern "Yo" evaluation) as the C name,
+          // since the library exports functions with their plain label name
+          const cName = externName
+            ? sanitizeForCIdentifier(externName)
+            : exprIsAtom(expr.func)
+              ? sanitizeForCIdentifier(expr.func.token.value)
+              : sanitizeForCIdentifier(functionType.id);
+          context.externFunctions[functionType.id] = {
+            type: functionType,
+            cName,
+          };
+        }
       }
     }
 

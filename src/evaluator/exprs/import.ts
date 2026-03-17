@@ -8,9 +8,15 @@ import {
   exprToString,
   type FnCallExpr,
 } from "../../expr";
+import { resolveDependencyPath } from "../../fetch";
 import { isComptimeStringValue } from "../../value";
 import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
+import {
+  getBuildRegistry,
+  getRootBuildProjectDir,
+  getDependencyProjectRoot,
+} from "../builtins/build";
 
 /**
  *
@@ -88,12 +94,58 @@ export function evaluateImport({
   }
 
   if (!modulePathToImport.startsWith(".")) {
-    throw formatErrorMessage({
-      token: moduleArg.token,
-      errorMessage: `Only local relative path is supported for now:
-${exprToString(expr)}
-${modulePathToImport}`,
-    });
+    // Try to resolve as a dependency name (e.g., "json-parser" → .yo-cache/deps/...)
+    const currentFilePath = env.modulePath.replace(/^file:\/\//, "");
+    const projectDir = findProjectRoot(currentFilePath);
+    if (projectDir) {
+      // Check path dependencies first (from build registry)
+      const registry = getBuildRegistry();
+      const pathDep = registry.findPathDependency(modulePathToImport);
+      let depRoot: string | undefined;
+
+      if (pathDep) {
+        // Path dependency: resolve relative to project directory
+        depRoot = path.resolve(projectDir, pathDep.path);
+      } else {
+        // Try git dependency via yo.lock cache
+        depRoot = resolveDependencyPath(projectDir, modulePathToImport);
+      }
+
+      // Fallback: try the root build project directory for transitive deps
+      // This handles the case where dep A's code imports dep B,
+      // and dep B is in the root project's yo.lock (fetched transitively)
+      if (!depRoot) {
+        const rootDir = getRootBuildProjectDir();
+        if (rootDir && rootDir !== projectDir) {
+          depRoot = resolveDependencyPath(rootDir, modulePathToImport);
+        }
+      }
+
+      if (depRoot) {
+        // Resolve entry point: check Project.root from build.yo, then convention
+        const entryPoint = resolveDependencyEntryPoint(
+          depRoot,
+          modulePathToImport
+        );
+        // Convert to relative path from current module
+        modulePathToImport = path.relative(
+          path.dirname(currentFilePath),
+          entryPoint
+        );
+        if (!modulePathToImport.startsWith(".")) {
+          modulePathToImport = "./" + modulePathToImport;
+        }
+      }
+    }
+
+    // If still not relative after dependency resolution, it's an unknown module
+    if (!modulePathToImport.startsWith(".")) {
+      throw formatErrorMessage({
+        token: moduleArg.token,
+        errorMessage: `Module "${modulePathToImport}" not found. If this is a dependency, add it to build.yo and run 'yo fetch'.
+${exprToString(expr)}`,
+      });
+    }
   }
 
   // TODO: Support other protocol like https://
@@ -170,4 +222,50 @@ ${
 }`,
     });
   }
+}
+
+/**
+ * Walk up the directory tree to find the project root.
+ * Looks for `yo.lock` or `build.yo` as project root markers.
+ */
+function findProjectRoot(filePath: string): string | undefined {
+  let dir = path.dirname(filePath);
+  const root = path.parse(dir).root;
+
+  while (dir !== root) {
+    if (
+      existsSync(path.join(dir, "yo.lock")) ||
+      existsSync(path.join(dir, "build.yo"))
+    ) {
+      return dir;
+    }
+    dir = path.dirname(dir);
+  }
+  return undefined;
+}
+
+/**
+ * Resolve the entry point file for a dependency.
+ *
+ * Resolution order:
+ * 1. If the dependency has a Project.root stored from its build.yo evaluation, use that
+ * 2. Convention: index.yo → <name>.yo
+ * 3. Fall back to the dependency root directory itself
+ */
+function resolveDependencyEntryPoint(depRoot: string, depName: string): string {
+  // Check if the dependency's build.yo specified a Project.root
+  const projectRoot = getDependencyProjectRoot(depRoot);
+  if (projectRoot) {
+    const resolved = path.resolve(depRoot, projectRoot);
+    if (existsSync(resolved)) return resolved;
+  }
+
+  // Convention-based fallback (no hardcoded src/lib.yo — that's the default Project.root)
+  const indexYo = path.join(depRoot, "index.yo");
+  const namedYo = path.join(depRoot, depName + ".yo");
+
+  if (existsSync(indexYo)) return indexYo;
+  if (existsSync(namedYo)) return namedYo;
+
+  return depRoot;
 }

@@ -344,12 +344,14 @@ export class ModuleManager {
       debugParallelism,
       debugAsyncAwait,
       allocator,
+      isLibrary,
     }: {
       emitC?: boolean;
       debugGc?: boolean;
       debugParallelism?: boolean;
       debugAsyncAwait?: boolean;
       allocator?: "mimalloc" | "libc";
+      isLibrary?: boolean;
     } = {}
   ) {
     // console.log(`= Compiling module ${modulePath}`);
@@ -369,6 +371,7 @@ export class ModuleManager {
       debugParallelism,
       debugAsyncAwait,
       allocator,
+      isLibrary,
     });
     if (emitC) {
       console.log(this.codeGenratorC.print());
@@ -377,5 +380,9 @@ export class ModuleManager {
 
   getGeneratedCode(): string {
     return this.codeGenratorC.print();
+  }
+
+  getExportedFunctionNames(): Set<string> {
+    return this.codeGenratorC.getExportedFunctionNames();
   }
 }

@@ -1,14 +1,24 @@
 import * as fs from "fs";
+import * as path from "path";
 import yargs from "yargs";
 import { hideBin } from "yargs/helpers";
 import packageJson from "../package.json";
+import { runBuild } from "./build-runner";
+import { getGlobalCacheDir } from "./cache";
 import { CodeGenerator } from "./codegen";
 import { findAvailableCompiler } from "./compiler-utils";
+import {
+  clearBuildRegistry,
+  getBuildRegistry,
+} from "./evaluator/builtins/build";
+import { initProject } from "./init";
+import { ModuleManager } from "./module-manager";
 import { findTestFiles, runTests } from "./test-runner";
 
 const TEST_SUMMARY_MARKER = "__YO_TEST_SUMMARY__";
 
 yargs(hideBin(process.argv))
+  .scriptName("yo")
   .wrap(null)
   .usage(
     `The Yo Programming Language ${packageJson.version}
@@ -18,11 +28,38 @@ yo compile <file> [options]      Compile a '.yo' file
 Examples:
   $ yo compile main.yo -o app
   $ yo compile main.yo -cc clang -o app
+  $ yo compile main.yo --target x86_64-linux-gnu -o app
   $ yo compile main.yo -l m -o app
   $ yo compile main.yo -I./include -L./lib -l mylib -o app
   $ yo compile main.yo --release -D NDEBUG -o app
   $ yo compile main.yo -g -o app_debug
   $ yo compile main.yo --release -s --cflags='-march=native' -o app
+
+yo build [steps] [options]       Build project using build.yo
+Examples:
+  $ yo build                     Build all artifacts (default: install step)
+  $ yo build run                 Build and run the application
+  $ yo build test                Run the test suite
+  $ yo build --list-steps        Show available build steps
+  $ yo build --summary           Print build summary tree
+  $ yo build -Dstrip=true        Pass build option to build.yo
+
+yo init [dir] [options]          Initialize a new Yo project
+Examples:
+  $ yo init                      Initialize in current directory
+  $ yo init my-project           Initialize in ./my-project
+
+yo fetch [options]               Fetch git dependencies into .yo-cache
+Examples:
+  $ yo fetch                     Fetch all dependencies from build.yo
+  $ yo fetch --verbose           Show detailed fetch progress
+  $ yo fetch --update            Re-resolve refs to latest commits
+
+yo install <package>             Install a dependency from GitHub
+Examples:
+  $ yo install github.com/user/repo          Latest semver tag
+  $ yo install github.com/user/repo@v1.0.0   Pinned version
+  $ yo install user/repo                     Shorthand for GitHub
 
 yo test [path] [options]         Run tests
 Example:
@@ -34,162 +71,181 @@ yo --help                        Show this help message
 yo --version                     Show version number
 `
   )
-  .option("o", {
-    alias: "output",
-    describe: "Output file",
-    type: "string",
-    demandOption: false,
-    default: "a.out",
-  })
-  .option("cc", {
-    alias: "c-compiler",
-    describe: "C Compiler to use: 'cc', 'gcc', 'clang', 'zig', or 'cl' (MSVC)",
-    type: "string",
-    demandOption: false,
-    choices: ["cc", "gcc", "clang", "zig", "cl"],
-  })
-  .option("t", {
-    alias: "target",
-    describe: "Target language",
-    type: "string",
-    demandOption: false,
-    default: "c",
-  })
-  .option("I", {
-    alias: "include-path",
-    describe:
-      "Add directory to include search path (like gcc -I). Can be specified multiple times.",
-    type: "array",
-    demandOption: false,
-    default: [],
-  })
-  .option("L", {
-    alias: "library-path",
-    describe:
-      "Add directory to library search path (like gcc -L). Can be specified multiple times.",
-    type: "array",
-    demandOption: false,
-    default: [],
-  })
-  .option("l", {
-    alias: "library",
-    describe:
-      "Link against library (like gcc -l). Can be specified multiple times. Example: -l m",
-    type: "array",
-    demandOption: false,
-    default: [],
-  })
-  .option("D", {
-    alias: "define",
-    describe:
-      "Define preprocessor macro (like gcc -D). Can be specified multiple times. Example: -D DEBUG -D VERSION=1",
-    type: "array",
-    demandOption: false,
-    default: [],
-  })
-  .option("emit-c", {
-    describe: "Print C code generated.",
-    type: "boolean",
-    demandOption: false,
-    default: false,
-  })
-  .option("skip-codegen", {
-    describe: "Do not compile the code.",
-    type: "boolean",
-    demandOption: false,
-    default: false,
-  })
-  .option("skip-c-compiler", {
-    describe: "Generate C code but skip running the C compiler.",
-    type: "boolean",
-    demandOption: false,
-    default: false,
-  })
-  .option("debug-gc", {
-    describe: "Enable debug logging for GC and reference counting operations.",
-    type: "boolean",
-    demandOption: false,
-    default: false,
-  })
-  .option("debug-parallelism", {
-    describe: "Enable debug logging for parallel worker thread operations.",
-    type: "boolean",
-    demandOption: false,
-    default: false,
-  })
-  .option("debug-async-await", {
-    describe: "Enable debug logging for async/await state machine operations.",
-    type: "boolean",
-    demandOption: false,
-    default: false,
-  })
-  .option("allocator", {
-    describe: "Memory allocator to use: 'libc' (default) or 'mimalloc'.",
-    type: "string",
-    demandOption: false,
-    default: "libc",
-    choices: ["mimalloc", "libc"],
-  })
-  .option("release", {
-    describe: "Build in release mode with optimizations (-O2, no warnings).",
-    type: "boolean",
-    demandOption: false,
-    default: false,
-  })
-  .option("optimize", {
-    describe: "Set optimization level (0, 1, 2, 3). Overrides --release.",
-    type: "string",
-    demandOption: false,
-    choices: ["0", "1", "2", "3"],
-  })
-  .option("extern", {
-    describe: "External C files to link with. eg: --extern extern1.c extern2.c",
-    type: "array",
-    demandOption: false,
-    default: [],
-  })
-  .option("sanitize", {
-    describe:
-      "Enable AddressSanitizer for memory leak and error detection. Use 'address' for full sanitizer or 'leak' for leak detection only.",
-    type: "string",
-    demandOption: false,
-    choices: ["address", "leak"],
-  })
-  .option("g", {
-    alias: "debug-symbols",
-    describe: "Include debug symbols in the binary (like gcc -g).",
-    type: "boolean",
-    demandOption: false,
-    default: false,
-  })
-  .option("s", {
-    alias: "strip",
-    describe: "Strip symbols from the binary to reduce size (like gcc -s).",
-    type: "boolean",
-    demandOption: false,
-    default: false,
-  })
-  .option("static", {
-    describe: "Produce a statically linked binary.",
-    type: "boolean",
-    demandOption: false,
-    default: false,
-  })
-  .option("cflags", {
-    describe:
-      "Pass arbitrary flags directly to the C compiler. Example: --cflags '-march=native -mtune=native'",
-    type: "string",
-    demandOption: false,
-  })
   .command(
     "compile <file>",
     "Compile a '.yo' file",
     (_yargs) => {
-      _yargs.positional("file", {
-        describe: "File to compile",
-        type: "string",
-        demandOption: true,
-      });
+      _yargs
+        .positional("file", {
+          describe: "File to compile",
+          type: "string",
+          demandOption: true,
+        })
+        .option("o", {
+          alias: "output",
+          describe: "Output file",
+          type: "string",
+          demandOption: false,
+          default: "a.out",
+        })
+        .option("cc", {
+          alias: "c-compiler",
+          describe:
+            "C Compiler to use: 'cc', 'gcc', 'clang', 'zig', or 'cl' (MSVC)",
+          type: "string",
+          demandOption: false,
+          choices: ["cc", "gcc", "clang", "zig", "cl"],
+        })
+        .option("t", {
+          alias: "target",
+          describe:
+            "Target triple for cross-compilation (e.g. x86_64-linux-gnu, aarch64-macos). Defaults to host.",
+          type: "string",
+          demandOption: false,
+        })
+        .option("sysroot", {
+          describe: "Sysroot directory for cross-compilation.",
+          type: "string",
+          demandOption: false,
+        })
+        .option("I", {
+          alias: "include-path",
+          describe:
+            "Add directory to include search path (like gcc -I). Can be specified multiple times.",
+          type: "array",
+          demandOption: false,
+          default: [],
+        })
+        .option("L", {
+          alias: "library-path",
+          describe:
+            "Add directory to library search path (like gcc -L). Can be specified multiple times.",
+          type: "array",
+          demandOption: false,
+          default: [],
+        })
+        .option("l", {
+          alias: "library",
+          describe:
+            "Link against library (like gcc -l). Can be specified multiple times. Example: -l m",
+          type: "array",
+          demandOption: false,
+          default: [],
+        })
+        .option("D", {
+          alias: "define",
+          describe:
+            "Define preprocessor macro (like gcc -D). Can be specified multiple times. Example: -D DEBUG -D VERSION=1",
+          type: "array",
+          demandOption: false,
+          default: [],
+        })
+        .option("emit-c", {
+          describe: "Print C code generated.",
+          type: "boolean",
+          demandOption: false,
+          default: false,
+        })
+        .option("skip-codegen", {
+          describe: "Do not compile the code.",
+          type: "boolean",
+          demandOption: false,
+          default: false,
+        })
+        .option("skip-c-compiler", {
+          describe: "Generate C code but skip running the C compiler.",
+          type: "boolean",
+          demandOption: false,
+          default: false,
+        })
+        .option("debug-gc", {
+          describe:
+            "Enable debug logging for GC and reference counting operations.",
+          type: "boolean",
+          demandOption: false,
+          default: false,
+        })
+        .option("debug-parallelism", {
+          describe:
+            "Enable debug logging for parallel worker thread operations.",
+          type: "boolean",
+          demandOption: false,
+          default: false,
+        })
+        .option("debug-async-await", {
+          describe:
+            "Enable debug logging for async/await state machine operations.",
+          type: "boolean",
+          demandOption: false,
+          default: false,
+        })
+        .option("allocator", {
+          describe: "Memory allocator to use: 'libc' (default) or 'mimalloc'.",
+          type: "string",
+          demandOption: false,
+          default: "libc",
+          choices: ["mimalloc", "libc"],
+        })
+        .option("release", {
+          describe:
+            "Build in release mode with optimizations (-O2, no warnings).",
+          type: "boolean",
+          demandOption: false,
+          default: false,
+        })
+        .option("optimize", {
+          describe: "Set optimization level (0, 1, 2, 3). Overrides --release.",
+          type: "string",
+          demandOption: false,
+          choices: ["0", "1", "2", "3"],
+        })
+        .option("extern", {
+          describe:
+            "External C files to link with. eg: --extern extern1.c extern2.c",
+          type: "array",
+          demandOption: false,
+          default: [],
+        })
+        .option("sanitize", {
+          describe:
+            "Enable AddressSanitizer for memory leak and error detection. Use 'address' for full sanitizer or 'leak' for leak detection only.",
+          type: "string",
+          demandOption: false,
+          choices: ["address", "leak"],
+        })
+        .option("g", {
+          alias: "debug-symbols",
+          describe: "Include debug symbols in the binary (like gcc -g).",
+          type: "boolean",
+          demandOption: false,
+          default: false,
+        })
+        .option("s", {
+          alias: "strip",
+          describe:
+            "Strip symbols from the binary to reduce size (like gcc -s).",
+          type: "boolean",
+          demandOption: false,
+          default: false,
+        })
+        .option("static", {
+          describe: "Produce a statically linked binary.",
+          type: "boolean",
+          demandOption: false,
+          default: false,
+        })
+        .option("static-library", {
+          describe: "Compile as a static library (.a archive).",
+          type: "boolean",
+          demandOption: false,
+          default: false,
+        })
+        .option("cflags", {
+          describe:
+            "Pass arbitrary flags directly to the C compiler. Example: --cflags '-march=native -mtune=native'",
+          type: "string",
+          demandOption: false,
+        });
     },
     (argv) => {
       const file = argv.file as string;
@@ -214,27 +270,30 @@ yo --version                     Show version number
 
       const codeGenerator = new CodeGenerator();
       codeGenerator.compileModule(absolutePath, {
-        output: argv.o,
+        output: argv.o as string,
         cCompiler,
-        target: argv.t as "c",
+        target: "c",
+        targetTriple: argv.t as string | undefined,
+        sysroot: argv.sysroot as string | undefined,
         extern: (argv.extern ?? []) as string[],
         includePaths: (argv.I ?? []) as string[],
         libraryPaths: (argv.L ?? []) as string[],
         libraries: (argv.l ?? []) as string[],
         defines: (argv.D ?? []) as string[],
-        emitC: argv.emitC,
-        skipCodegen: argv.skipCodegen,
-        skipCCompiler: argv.skipCCompiler,
-        debugGc: argv.debugGc,
-        debugParallelism: argv.debugParallelism,
-        debugAsyncAwait: argv.debugAsyncAwait,
-        release: argv.release,
+        emitC: argv.emitC as boolean,
+        skipCodegen: argv.skipCodegen as boolean,
+        skipCCompiler: argv.skipCCompiler as boolean,
+        debugGc: argv.debugGc as boolean,
+        debugParallelism: argv.debugParallelism as boolean,
+        debugAsyncAwait: argv.debugAsyncAwait as boolean,
+        release: argv.release as boolean,
         optimize: argv.optimize as "0" | "1" | "2" | "3" | undefined,
         allocator: argv.allocator as "mimalloc" | "libc",
         sanitize: argv.sanitize as "address" | "leak" | undefined,
         debugSymbols: argv.g as boolean,
         strip: argv.s as boolean,
         static: argv.static as boolean,
+        staticLibrary: argv.staticLibrary as boolean,
         cflags: argv.cflags as string | undefined,
       });
     }
@@ -249,6 +308,13 @@ yo --version                     Show version number
             "Path to test file or directory (default: current directory)",
           type: "string",
           default: ".",
+        })
+        .option("cc", {
+          alias: "c-compiler",
+          describe:
+            "C Compiler to use: 'cc', 'gcc', 'clang', 'zig', or 'cl' (MSVC)",
+          type: "string",
+          choices: ["cc", "gcc", "clang", "zig", "cl"],
         })
         .option("verbose", {
           alias: "v",
@@ -337,7 +403,233 @@ yo --version                     Show version number
       process.exit(summary.failed > 0 ? 1 : 0);
     }
   )
-  .demandCommand(1, "You need to specify a command (e.g., 'compile')")
+  .command(
+    "init [dir]",
+    "Initialize a new Yo project",
+    (_yargs) => {
+      _yargs
+        .positional("dir", {
+          describe: "Directory to initialize (default: current directory)",
+          type: "string",
+          default: ".",
+        })
+        .option("name", {
+          describe: "Project name (default: directory name)",
+          type: "string",
+        });
+    },
+    (argv) => {
+      initProject({
+        dir: argv.dir as string,
+        name: argv.name as string | undefined,
+      });
+    }
+  )
+  .command(
+    "fetch",
+    "Fetch git dependencies into global cache",
+    (_yargs) => {
+      _yargs
+        .option("build-file", {
+          describe: "Path to build file",
+          type: "string",
+          default: "./build.yo",
+        })
+        .option("verbose", {
+          alias: "v",
+          describe: "Verbose output",
+          type: "boolean",
+          default: false,
+        })
+        .option("update", {
+          alias: "u",
+          describe: "Re-resolve git refs to latest commits and update yo.lock",
+          type: "boolean",
+          default: false,
+        });
+    },
+    async (argv) => {
+      const { runFetch } = await import("./fetch-command");
+      await runFetch({
+        buildFile: argv.buildFile as string,
+        verbose: argv.verbose as boolean,
+        update: argv.update as boolean,
+      });
+    }
+  )
+  .command(
+    "install <package>",
+    "Install a dependency from GitHub",
+    (_yargs) => {
+      _yargs
+        .positional("package", {
+          describe:
+            "Package specifier: github.com/user/repo, user/repo, or URL. " +
+            "Append @version to pin (e.g., github.com/user/repo@v1.0.0)",
+          type: "string",
+          demandOption: true,
+        })
+        .option("build-file", {
+          describe: "Path to build file",
+          type: "string",
+          default: "./build.yo",
+        })
+        .option("verbose", {
+          alias: "v",
+          describe: "Verbose output",
+          type: "boolean",
+          default: false,
+        });
+    },
+    async (argv) => {
+      const { runInstall } = await import("./install-command");
+      await runInstall({
+        package: argv.package as string,
+        buildFile: argv.buildFile as string,
+        verbose: argv.verbose as boolean,
+      });
+    }
+  )
+  .command(
+    "build [steps..]",
+    "Build project using build.yo",
+    (_yargs) => {
+      _yargs
+        .positional("steps", {
+          describe: "Named steps to run (default: install). Common: run, test",
+          type: "string",
+          array: true,
+        })
+        .option("cc", {
+          alias: "c-compiler",
+          describe:
+            "C Compiler to use: 'cc', 'gcc', 'clang', 'zig', or 'cl' (MSVC)",
+          type: "string",
+          choices: ["cc", "gcc", "clang", "zig", "cl"],
+        })
+        .option("t", {
+          alias: "target",
+          describe:
+            "Target triple for cross-compilation (e.g. x86_64-linux-gnu, aarch64-macos).",
+          type: "string",
+        })
+        .option("sysroot", {
+          describe: "Sysroot directory for cross-compilation.",
+          type: "string",
+        })
+        .option("build-file", {
+          describe: "Path to build file",
+          type: "string",
+          default: "./build.yo",
+        })
+        .option("list-steps", {
+          describe: "List available build steps",
+          type: "boolean",
+          default: false,
+        })
+        .option("dry-run", {
+          describe: "Show what would be built without building",
+          type: "boolean",
+          default: false,
+        })
+        .option("verbose", {
+          alias: "v",
+          describe: "Verbose build output",
+          type: "boolean",
+          default: false,
+        })
+        .option("summary", {
+          describe: "Print build summary tree after completion",
+          type: "boolean",
+          default: false,
+        })
+        .parserConfiguration({ "unknown-options-as-args": true });
+
+      // When --help is requested, evaluate build.yo to discover project options
+      if (process.argv.includes("--help") || process.argv.includes("-h")) {
+        try {
+          const userCwd = process.env.YO_ORIGINAL_CWD ?? process.cwd();
+          const buildFile = path.resolve(userCwd, "./build.yo");
+          if (fs.existsSync(buildFile)) {
+            clearBuildRegistry();
+            const modulePath = `file://${fs.realpathSync(buildFile)}`;
+            const moduleManager = new ModuleManager();
+            moduleManager.loadModule(modulePath);
+            moduleManager.resetAllState();
+            const registry = getBuildRegistry();
+            if (registry.declaredOptions.size > 0) {
+              let epilog = "Project-Specific Options:";
+              for (const [name, opt] of registry.declaredOptions) {
+                epilog += `\n  -D${name}\t${opt.description} [default: ${opt.defaultValue}]`;
+              }
+              _yargs.epilog(epilog);
+            }
+          }
+        } catch (e) {
+          // Silently ignore — build.yo may not exist or may have errors
+          if (process.env.YO_DEBUG_HELP) {
+            console.error("Debug: build.yo evaluation failed:", e);
+          }
+        }
+      }
+    },
+    async (argv) => {
+      // Parse -Dname=value flags from process.argv (yargs doesn't handle -D natively)
+      const defines: Record<string, string> = {};
+      for (const arg of process.argv) {
+        if (arg.startsWith("-D")) {
+          const rest = arg.slice(2);
+          const eqIdx = rest.indexOf("=");
+          if (eqIdx >= 0) {
+            defines[rest.slice(0, eqIdx)] = rest.slice(eqIdx + 1);
+          } else {
+            defines[rest] = "true";
+          }
+        }
+      }
+      await runBuild({
+        buildFile: argv.buildFile as string,
+        targetTriple: argv.t as string | undefined,
+        sysroot: argv.sysroot as string | undefined,
+        verbose: argv.verbose as boolean,
+        dryRun: argv.dryRun as boolean,
+        listSteps: argv.listSteps as boolean,
+        steps: argv.steps as string[] | undefined,
+        cCompiler: argv.cc as string | undefined,
+        defines: Object.keys(defines).length > 0 ? defines : undefined,
+        summary: argv.summary as boolean,
+      });
+    }
+  )
+  .command(
+    "cache <action>",
+    "Manage the global dependency cache",
+    (_yargs) => {
+      _yargs.positional("action", {
+        describe: "Cache action",
+        choices: ["path", "clean"],
+        type: "string",
+      });
+    },
+    (argv) => {
+      const action = argv.action as string;
+      if (action === "path") {
+        console.log(getGlobalCacheDir());
+      } else if (action === "clean") {
+        const cacheDir = getGlobalCacheDir();
+        if (fs.existsSync(cacheDir)) {
+          fs.rmSync(cacheDir, { recursive: true, force: true });
+          console.log(`Removed cache directory: ${cacheDir}`);
+        } else {
+          console.log(`Cache directory does not exist: ${cacheDir}`);
+        }
+      }
+    }
+  )
+  .demandCommand(
+    1,
+    "You need to specify a command (e.g., 'compile', 'build', 'init')"
+  )
   .strict()
   .help()
   .version("version", "Show version number", `yo ${packageJson.version}`).argv;

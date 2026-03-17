@@ -1167,6 +1167,25 @@ export const BuiltinFunctions = {
   // Process related functions
   __yo_process_platform: ["__yo_process_platform"], // returns process.platform as comptime_string
   __yo_process_arch: ["__yo_process_arch"], // returns process.arch as comptime_string
+
+  // Build system functions (compile-time only)
+  __yo_build_project: ["__yo_build_project"],
+  __yo_build_executable: ["__yo_build_executable"],
+  __yo_build_static_library: ["__yo_build_static_library"],
+  __yo_build_shared_library: ["__yo_build_shared_library"],
+  __yo_build_test: ["__yo_build_test"],
+  __yo_build_run: ["__yo_build_run"],
+  __yo_build_step: ["__yo_build_step"],
+  __yo_build_step_depend_on: ["__yo_build_step_depend_on"],
+  __yo_build_link: ["__yo_build_link"],
+  __yo_build_link_system_library: ["__yo_build_link_system_library"],
+  __yo_build_target_host: ["__yo_build_target_host"],
+  __yo_build_target_parse: ["__yo_build_target_parse"],
+  __yo_build_dependency: ["__yo_build_dependency"],
+  __yo_build_path_dependency: ["__yo_build_path_dependency"],
+  __yo_build_system_library: ["__yo_build_system_library"],
+  __yo_build_option: ["__yo_build_option"],
+  __yo_build_dep_artifact: ["__yo_build_dep_artifact"],
 };
 
 export function exprIsInfixOperatorFunctionCall(expr: Expr): boolean {

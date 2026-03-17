@@ -56,10 +56,10 @@ extern "Yo",
 
 random_bytes :: (fn(buf: *(u8), size: usize, using(exn : Exception)) -> unit)(
   cond(
-    (platform == Platform.Darwin) => {
+    (platform == Platform.Macos) => {
       __yo_arc4random_buf(buf, size);
     },
-    (platform == Platform.Win32) => {
+    (platform == Platform.Windows) => {
       r := __yo_bcrypt_gen_random(buf, u32(size));
       cond(
         (r == i32(0)) => (),

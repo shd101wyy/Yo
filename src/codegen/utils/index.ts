@@ -245,6 +245,23 @@ export interface CodeGenContext {
    * Maps type ID string to the C variable name for the static.
    */
   typeIdStatics?: Map<string, string>;
+
+  /**
+   * When true, compiling as a library (no main() wrapper, exported functions use plain names).
+   */
+  isLibrary?: boolean;
+
+  /**
+   * The module ID of the current module being compiled (e.g., "yo3818ce2d").
+   * Used in library mode to distinguish user-defined exports from std library functions.
+   */
+  currentModuleId?: string;
+
+  /**
+   * Maps exported label names to their funcIds.
+   * Used in library mode to give exported functions stable, non-mangled C names.
+   */
+  exportedFunctionLabels?: Map<FuncValueId, string>;
 }
 
 /**

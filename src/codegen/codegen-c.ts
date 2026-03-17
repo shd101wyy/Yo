@@ -37,6 +37,7 @@ import { fixupDynImplKeys } from "./utils/fixup";
 
 export class CodeGeneratorC {
   private emitter: Emitter;
+  private exportedFunctionNames: Set<string> = new Set();
 
   constructor() {
     this.emitter = new Emitter();
@@ -56,6 +57,7 @@ export class CodeGeneratorC {
       debugParallelism?: boolean;
       debugAsyncAwait?: boolean;
       allocator?: "mimalloc" | "libc";
+      isLibrary?: boolean;
     } = {}
   ): void {
     this.emitter.emitDeclarationLine(`\n// Module ${modulePath}`);
@@ -97,11 +99,25 @@ export class CodeGeneratorC {
       debugAsyncAwait: options.debugAsyncAwait ?? false,
       deferredAsyncBlocks: [], // Initialize deferred async blocks array
       allocator: options.allocator ?? "mimalloc",
+      isLibrary: options.isLibrary ?? false,
+      currentModuleId: options.isLibrary
+        ? generateModuleId(modulePath)
+        : undefined,
     };
 
     // First pass: Collect all functions and types (exported and required by exported functions)
     collectRequiredFunctions(moduleValue, context);
     collectRequiredTypes(moduleValue, context);
+
+    // Store exported function names for library mode
+    if (options.isLibrary && context.exportedFunctionLabels) {
+      for (const [funcId] of context.exportedFunctionLabels) {
+        const entry = context.functions[funcId];
+        if (entry) {
+          this.exportedFunctionNames.add(entry.cName);
+        }
+      }
+    }
 
     // Collect dispose methods from generic impls for all collected types
     // This is needed because ___dispose functions may need to call user's dispose methods
@@ -174,7 +190,10 @@ static Slice_uint8_t_u42_ __yo_args;
 
     // Generate main wrapper after deferred async blocks
     // since async main returns a Future type defined in deferred blocks
-    generateMainWrapper(context);
+    // Skip in library mode — libraries don't have a main() entry point
+    if (!options.isLibrary) {
+      generateMainWrapper(context);
+    }
 
     // Generate closure dispose functions after async blocks
     // (async blocks can create closures, so we need to generate after deferred blocks)
@@ -189,5 +208,9 @@ static Slice_uint8_t_u42_ __yo_args;
 
   public print(): string {
     return this.emitter.print();
+  }
+
+  public getExportedFunctionNames(): Set<string> {
+    return this.exportedFunctionNames;
   }
 }

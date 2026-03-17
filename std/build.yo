@@ -1,0 +1,287 @@
+// Build System Module
+//
+// Provides the declarative build API for Yo projects.
+// All functions are compile-time only — they register build artifacts
+// and steps that the build runner uses to orchestrate compilation.
+//
+// Usage in build.yo:
+//   build :: import "std/build";
+//   build.project({ name: "my-app", root: "./src/lib.yo" });
+//   exe :: build.executable({ name: "my-app", root: "./src/main.yo" });
+//   install :: build.step("install", "Build all artifacts");
+//   install.depend_on(exe);
+
+// ── Optimization levels ──────────────────────────────────────────────
+
+Optimize :: enum(
+  Debug,
+  ReleaseSafe,
+  ReleaseFast,
+  ReleaseSmall
+);
+export Optimize;
+
+// ── Memory allocators ────────────────────────────────────────────────
+
+Allocator :: enum(
+  Mimalloc,
+  Libc
+);
+export Allocator;
+
+// ── Sanitizers ───────────────────────────────────────────────────────
+
+Sanitize :: enum(
+  None,
+  Address,
+  Leak
+);
+export Sanitize;
+
+// ── Step kinds ───────────────────────────────────────────────────────
+
+StepKind :: enum(
+  Executable,
+  StaticLibrary,
+  SharedLibrary,
+  SystemLibrary,
+  TestSuite,
+  Run,
+  Custom
+);
+export StepKind;
+
+// ── Target utilities ─────────────────────────────────────────────────
+
+target_host :: __yo_build_target_host();
+export target_host;
+
+// ── Config struct types ──────────────────────────────────────────────
+// Struct types with defaults, like Zig's options structs.
+// Usage: build.executable({ name: "app", root: "./src/main.yo" })
+// Unspecified fields get their default values.
+
+Project :: struct(
+  name : comptime_string,
+  (root : comptime_string) ?= "./src/lib.yo"
+);
+export Project;
+
+Executable :: struct(
+  name : comptime_string,
+  root : comptime_string,
+  (target : comptime_string) ?= __yo_build_target_host(),
+  (optimize : Optimize) ?= Optimize.Debug,
+  (allocator : Allocator) ?= Allocator.Mimalloc,
+  (sanitize : Sanitize) ?= Sanitize.None
+);
+export Executable;
+
+StaticLibrary :: struct(
+  name : comptime_string,
+  root : comptime_string,
+  (target : comptime_string) ?= __yo_build_target_host(),
+  (optimize : Optimize) ?= Optimize.Debug
+);
+export StaticLibrary;
+
+SharedLibrary :: struct(
+  name : comptime_string,
+  root : comptime_string,
+  (target : comptime_string) ?= __yo_build_target_host(),
+  (optimize : Optimize) ?= Optimize.Debug
+);
+export SharedLibrary;
+
+TestSuite :: struct(
+  name : comptime_string,
+  root : comptime_string,
+  (target : comptime_string) ?= __yo_build_target_host()
+);
+export TestSuite;
+
+// ── Step type ────────────────────────────────────────────────────────
+// Returned by all build functions. Used to wire dependencies between steps.
+
+Step :: struct(
+  name : comptime_string,
+  kind : StepKind
+);
+export Step;
+
+// ── Step methods ─────────────────────────────────────────────────────
+// Methods on Step for Zig-like API: step.depend_on(other), exe.link(lib).
+
+impl(Step,
+  depend_on : (fn(comptime(self) : Self, comptime(dep) : Step) -> comptime(unit))({
+    __yo_build_step_depend_on(self.name, dep.name, dep.kind);
+  }),
+  link : (fn(comptime(self) : Self, comptime(library) : Step) -> comptime(unit))({
+    __yo_build_link(self.name, library.name);
+  })
+);
+
+// ── Build option config types ────────────────────────────────────────
+// Like Zig's b.option(), declare user-configurable options.
+// CLI usage: yo build -Dname=value
+
+BuildOption :: struct(
+  name : comptime_string,
+  description : comptime_string,
+  (default : comptime_string) ?= ""
+);
+export BuildOption;
+
+// ── Dependency config types ──────────────────────────────────────────
+
+GitDependency :: struct(
+  name : comptime_string,
+  url : comptime_string,
+  (ref : comptime_string) ?= "HEAD",
+  (path : comptime_string) ?= ""
+);
+export GitDependency;
+
+PathDependency :: struct(
+  name : comptime_string,
+  path : comptime_string
+);
+export PathDependency;
+
+SystemLibrary :: struct(
+  name : comptime_string,
+  pkg_config : comptime_string,
+  (fallback_include : comptime_string) ?= "",
+  (fallback_lib : comptime_string) ?= "",
+  (fallback_link : comptime_string) ?= ""
+);
+export SystemLibrary;
+
+// ── Dependency handle ────────────────────────────────────────────────
+// Returned by build.dependency() and build.path_dependency().
+// Provides access to artifacts defined in the dependency's build.yo.
+
+Dependency :: struct(
+  name : comptime_string
+);
+export Dependency;
+
+impl(Dependency,
+  // Access a named artifact from the dependency's build.yo.
+  // Returns a Step that can be linked to the consumer's artifacts.
+  artifact : (fn(comptime(self) : Self, comptime(artifact_name) : comptime_string) -> comptime(Step))({
+    __yo_build_dep_artifact(self.name, artifact_name);
+    Step(name: artifact_name, kind: StepKind.StaticLibrary)
+  })
+);
+
+// ── Build functions ──────────────────────────────────────────────────
+// All registration functions return a Step value, allowing steps to be
+// wired together as dependencies via step.depend_on(dep).
+
+// Register project metadata.
+project :: (fn(comptime(config) : Project) -> comptime(unit)) {
+  __yo_build_project(config.name, config.root);
+};
+export project;
+
+// Register an executable artifact. Returns a Step for dependency wiring.
+executable :: (fn(comptime(config) : Executable) -> comptime(Step)) {
+  opt_str :: match(config.optimize,
+    .Debug => "debug",
+    .ReleaseSafe => "release-safe",
+    .ReleaseFast => "release-fast",
+    .ReleaseSmall => "release-small"
+  );
+  alloc_str :: match(config.allocator,
+    .Mimalloc => "mimalloc",
+    .Libc => "libc"
+  );
+  san_str :: match(config.sanitize,
+    .None => "none",
+    .Address => "address",
+    .Leak => "leak"
+  );
+  __yo_build_executable(config.name, config.root, config.target, opt_str, alloc_str, san_str);
+  Step(name: config.name, kind: StepKind.Executable)
+};
+export executable;
+
+// Register a static library artifact. Returns a Step for dependency wiring.
+static_library :: (fn(comptime(config) : StaticLibrary) -> comptime(Step)) {
+  opt_str :: match(config.optimize,
+    .Debug => "debug",
+    .ReleaseSafe => "release-safe",
+    .ReleaseFast => "release-fast",
+    .ReleaseSmall => "release-small"
+  );
+  __yo_build_static_library(config.name, config.root, config.target, opt_str);
+  Step(name: config.name, kind: StepKind.StaticLibrary)
+};
+export static_library;
+
+// Register a shared/dynamic library artifact. Returns a Step for dependency wiring.
+shared_library :: (fn(comptime(config) : SharedLibrary) -> comptime(Step)) {
+  opt_str :: match(config.optimize,
+    .Debug => "debug",
+    .ReleaseSafe => "release-safe",
+    .ReleaseFast => "release-fast",
+    .ReleaseSmall => "release-small"
+  );
+  __yo_build_shared_library(config.name, config.root, config.target, opt_str);
+  Step(name: config.name, kind: StepKind.SharedLibrary)
+};
+export shared_library;
+
+// Register a test suite. Returns a Step for dependency wiring.
+test :: (fn(comptime(config) : TestSuite) -> comptime(Step)) {
+  __yo_build_test(config.name, config.root, config.target);
+  Step(name: config.name, kind: StepKind.TestSuite)
+};
+export test;
+
+// Create a run step (compile + execute an artifact). Returns a Step.
+run :: (fn(comptime(artifact) : Step) -> comptime(Step)) {
+  __yo_build_run(artifact.name);
+  Step(name: artifact.name, kind: StepKind.Run)
+};
+export run;
+
+// Register a named build step. Use step.depend_on(dep) to add dependencies.
+step :: (fn(
+  comptime(name) : comptime_string,
+  comptime(description) : comptime_string
+) -> comptime(Step)) {
+  __yo_build_step(name, description);
+  Step(name: name, kind: StepKind.Custom)
+};
+export step;
+
+// Register a git-hosted dependency. Returns a Dependency handle for accessing artifacts.
+dependency :: (fn(comptime(config) : GitDependency) -> comptime(Dependency)) {
+  __yo_build_dependency(config.name, config.url, config.ref, config.path);
+  Dependency(name: config.name)
+};
+export dependency;
+
+// Register a local path dependency. Returns a Dependency handle for accessing artifacts.
+path_dependency :: (fn(comptime(config) : PathDependency) -> comptime(Dependency)) {
+  __yo_build_path_dependency(config.name, config.path);
+  Dependency(name: config.name)
+};
+export path_dependency;
+
+// Register a system C library discovered via pkg-config. Returns a Step for linking.
+system_library :: (fn(comptime(config) : SystemLibrary) -> comptime(Step)) {
+  __yo_build_system_library(config.name, config.pkg_config, config.fallback_include, config.fallback_lib, config.fallback_link);
+  Step(name: config.name, kind: StepKind.SystemLibrary)
+};
+export system_library;
+
+// Declare a user-configurable build option.
+// Returns the option value (from CLI -Dname=value, or the default).
+// Usage: strip :: build.option({ name: "strip", description: "Strip debug symbols", default: "false" });
+option :: (fn(comptime(config) : BuildOption) -> comptime(str))(
+  __yo_build_option(config.name, config.description, config.default)
+);
+export option;

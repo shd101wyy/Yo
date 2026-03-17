@@ -26,6 +26,24 @@ import {
 } from "../utils";
 import type { FunctionGenerationContext } from "./context";
 
+// Functions that are defined as C preprocessor macros in the threading preamble.
+// We must NOT emit `extern` declarations for these — the preprocessor would expand
+// the macro name, creating conflicting declarations with the real pthread functions.
+const THREADING_MACRO_FUNCTIONS = new Set([
+  "yo_mutex_init",
+  "yo_mutex_destroy",
+  "yo_mutex_lock",
+  "yo_mutex_unlock",
+  "yo_cond_init",
+  "yo_cond_destroy",
+  "yo_cond_wait",
+  "yo_cond_signal",
+  "yo_cond_broadcast",
+  "yo_thread_create",
+  "yo_thread_join",
+  "yo_thread_self",
+]);
+
 /**
  * Generate function declarations (prototypes)
  */
@@ -40,7 +58,14 @@ export function generateFunctionDeclarations(
   for (const key in context.externFunctions) {
     const { cName, type } = context.externFunctions[key]!;
     if (type.isExtern === "yo") {
-      continue; // Yo language extern types. No need to generate C declarations for them
+      // Skip functions that are actually C preprocessor macros
+      if (THREADING_MACRO_FUNCTIONS.has(cName)) {
+        continue;
+      }
+      // Generate extern declaration for Yo-language extern functions
+      // These reference functions exported from other Yo modules (static libraries)
+      generateFunctionDeclaration(type, cName, true, context);
+      continue;
     }
     if (type.isExtern === "c" && type.cInclude) {
       continue; // C extern types with cInclude are defined in header files, no need to generate extern declarations

@@ -25,6 +25,7 @@ import {
   isFutureTraitType,
   isIsoType,
   isModuleType,
+  isNewtypeType,
   isPrimitiveType,
   isPtrType,
   isSliceType,
@@ -212,13 +213,16 @@ export function areTypesCompatible(
   // - [u8]  u8 slice
   // - *(u8)    u8 pointer with \0 terminator
   // - *(char)  char pointer with \0 terminator
+  // - str      newtype over [u8]
   if (
     (isComptimeStringType(expected.type) ||
       (isSliceType(expected.type) && // [u8]
         isU8Type(expected.type.childType)) ||
       (isPtrType(expected.type) && // *(u8) or *(char)
         (isU8Type(expected.type.childType) ||
-          isCharType(expected.type.childType)))) &&
+          isCharType(expected.type.childType))) ||
+      (isNewtypeType(expected.type) && // str
+        expected.type.typeName === "str")) &&
     isComptimeStringType(given.type)
   ) {
     return true;

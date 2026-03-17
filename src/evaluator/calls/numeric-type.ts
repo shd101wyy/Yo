@@ -20,7 +20,7 @@ import {
   isSomeType,
 } from "../../types/guards";
 import { TypeTag } from "../../types/tags";
-import { typeToString } from "../../types/utils";
+import { typeToString, getTargetPointerSizeBits } from "../../types/utils";
 import {
   createComptimeFloatValue,
   createComptimeIntValue,
@@ -63,10 +63,17 @@ export function getNumericBounds(
       return { min: 0n, max: 18446744073709551615n };
     case TypeTag.I64:
       return { min: -9223372036854775808n, max: 9223372036854775807n };
-    case TypeTag.Usize:
-      return { min: 0n, max: 18446744073709551615n };
-    case TypeTag.Isize:
-      return { min: -9223372036854775808n, max: 9223372036854775807n };
+    case TypeTag.Usize: {
+      const bits = getTargetPointerSizeBits();
+      return { min: 0n, max: (1n << BigInt(bits)) - 1n };
+    }
+    case TypeTag.Isize: {
+      const bits = getTargetPointerSizeBits();
+      return {
+        min: -(1n << BigInt(bits - 1)),
+        max: (1n << BigInt(bits - 1)) - 1n,
+      };
+    }
     case TypeTag.ComptimeInt:
       return { min: -Infinity, max: Infinity }; // Unbounded
     case TypeTag.F32:

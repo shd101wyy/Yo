@@ -48,6 +48,7 @@ import { evaluateImplConstraint } from "../builtins/impl-constraint";
 import { evaluateMacroExpand } from "../builtins/macro-expand";
 import { evaluatePanic } from "../builtins/panic";
 import { evaluateYoProcessFunctions } from "../builtins/process";
+import { evaluateYoBuildFunctions } from "../builtins/build";
 import { evaluateAddressCall } from "../builtins/ptr-fns";
 import { evaluateQuote } from "../builtins/quote";
 import { evaluateRc } from "../builtins/rc";
@@ -973,6 +974,43 @@ ${exprToString(expr)}`,
       exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_process_arch)
     ) {
       return evaluateYoProcessFunctions({
+        expr,
+        env,
+        context: { ...context },
+      });
+    }
+    // Build system functions
+    else if (
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_project) ||
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_executable) ||
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_static_library) ||
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_shared_library) ||
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_test) ||
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_run) ||
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_step) ||
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_step_depend_on) ||
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_target_host) ||
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_target_parse) ||
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_dependency) ||
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_path_dependency) ||
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_system_library) ||
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_link) ||
+      exprIsFunctionCallOf(
+        expr,
+        BuiltinFunctions.__yo_build_link_system_library
+      ) ||
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_option) ||
+      exprIsFunctionCallOf(expr, BuiltinFunctions.__yo_build_dep_artifact)
+    ) {
+      // Evaluate args before dispatching — builtins expect resolved values
+      for (let i = 0; i < expr.args.length; i++) {
+        expr.args[i] = _evaluateExpression({
+          expr: expr.args[i]!,
+          env,
+          context: { ...context },
+        });
+      }
+      return evaluateYoBuildFunctions({
         expr,
         env,
         context: { ...context },

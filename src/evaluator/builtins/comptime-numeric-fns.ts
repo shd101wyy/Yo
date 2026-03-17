@@ -45,6 +45,7 @@ import { ValueTag } from "../../value-tag";
 import { getNumericBounds } from "../calls/numeric-type";
 import type { EvaluatorContext } from "../context";
 import { evaluateExpression } from "../exprs/expr";
+import { getTargetPointerSizeBits } from "../../types/utils";
 
 // Helper function to extract numeric value from a Value
 function extractNumericValue(value?: Value): number | bigint | null {
@@ -195,7 +196,7 @@ function getBitWidthForType(type: Type): number | null {
       return 64;
     case TypeTag.Usize:
     case TypeTag.Isize:
-      return 64; // Assume 64-bit platform
+      return getTargetPointerSizeBits();
     default:
       return null;
   }
