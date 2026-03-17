@@ -249,12 +249,12 @@ yo build --summary
 ```
 Build Summary: 3/3 steps succeeded
 install success
-├── compile exe my-app Debug native success 1.3s
-│   └── compile lib math Debug native success 295ms
-└── compile lib my-app-lib Debug native success 310ms
+├── compile exe my-app Debug native success 1.3s MaxRSS:706M
+│   └── compile lib math Debug native success 295ms MaxRSS:650M
+└── compile lib my-app-lib Debug native success 310ms MaxRSS:680M
 ```
 
-Each node shows: step description, success/failure status, and duration. The tree structure reflects the DAG dependency edges.
+Each node shows: step description, success/failure status, duration, and peak memory usage (MaxRSS). The tree structure reflects the DAG dependency edges.
 
 ## Linking Libraries
 

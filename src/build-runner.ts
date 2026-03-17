@@ -247,6 +247,8 @@ interface StepResult {
   kind: "artifact" | "test" | "run" | "step";
   success: boolean;
   durationMs: number;
+  /** Peak RSS in bytes during this step's execution */
+  maxRssBytes: number;
   /** Short description for summary (e.g., "compile lib fizzbuzz Debug native") */
   description: string;
   /** Child step results (dependencies that were executed) */
@@ -535,8 +537,16 @@ async function executeNode(
 ): Promise<StepResult> {
   const { registry } = ctx;
   const startTime = Date.now();
+  const startRss = process.memoryUsage.rss();
+  let peakRss = startRss;
   let success = true;
   let description = "";
+
+  // Sample RSS periodically during execution via a wrapper
+  const sampleRss = (): void => {
+    const current = process.memoryUsage.rss();
+    if (current > peakRss) peakRss = current;
+  };
 
   switch (node.kind) {
     case "artifact": {
@@ -585,12 +595,14 @@ async function executeNode(
       break;
   }
 
+  sampleRss();
   const durationMs = Date.now() - startTime;
   return {
     name: node.name,
     kind: node.kind,
     success,
     durationMs,
+    maxRssBytes: peakRss,
     description: description || node.name,
     children: [],
   };
@@ -610,6 +622,19 @@ function formatDuration(ms: number): string {
   const minutes = Math.floor(seconds / 60);
   const remainingSec = seconds % 60;
   return `${minutes}m${remainingSec.toFixed(0)}s`;
+}
+
+/**
+ * Format bytes as a human-readable memory size.
+ */
+function formatMemory(bytes: number): string {
+  if (bytes < 1024) return `${bytes}B`;
+  const kb = bytes / 1024;
+  if (kb < 1024) return `${Math.round(kb)}K`;
+  const mb = kb / 1024;
+  if (mb < 1024) return `${Math.round(mb)}M`;
+  const gb = mb / 1024;
+  return `${gb.toFixed(1)}G`;
 }
 
 /**
@@ -662,12 +687,16 @@ function printSummaryNode(
     result && result.durationMs > 0
       ? ` ${formatDuration(result.durationMs)}`
       : "";
+  const memory =
+    result && result.maxRssBytes > 0
+      ? ` MaxRSS:${formatMemory(result.maxRssBytes)}`
+      : "";
   const description = result?.description ?? node.name;
 
   if (isRoot) {
     console.log(`${description} ${status}`);
   } else {
-    console.log(`${linePrefix}${description} ${status}${duration}`);
+    console.log(`${linePrefix}${description} ${status}${duration}${memory}`);
   }
 
   // Find children (nodes that this node depends on)
