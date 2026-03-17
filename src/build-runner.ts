@@ -12,6 +12,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { CodeGenerator } from "./codegen";
 import { findAvailableCompiler } from "./compiler-utils";
+import { clearEnvContainingPrelude } from "./env";
 import {
   type BuildArtifact,
   type BuildRegistry,
@@ -19,8 +20,11 @@ import {
   clearBuildRegistry,
   getBuildRegistry,
 } from "./evaluator/builtins/build";
+import { clearAllGlobalImplState } from "./evaluator/values/impl";
 import { fetchAllDependencies, areDependenciesCached } from "./fetch";
 import { ModuleManager } from "./module-manager";
+import { clearAllModuleCounters } from "./utils";
+import { clearAllCachedTypes } from "./types/creators";
 import { resolveAllSystemLibraries } from "./pkg-config";
 
 export interface BuildOptions {
@@ -264,12 +268,22 @@ async function compileArtifact(
     const linkedArtifact = registry.findArtifact(linkedName);
     if (linkedArtifact) {
       await compileArtifact(linkedArtifact, ctx);
-      // Add the compiled library to link flags
-      const libDir = path.join(projectDir, "yo-out", "lib");
-      if (!artifact.libraryPaths.includes(libDir)) {
-        artifact.libraryPaths.push(libDir);
+
+      if (linkedArtifact.kind === "static_library") {
+        // For static libraries, pass the .a file directly as an extern source
+        const libDir = path.join(projectDir, "yo-out", "lib");
+        const libFile = path.join(libDir, `lib${linkedName}.a`);
+        if (fs.existsSync(libFile)) {
+          artifact.cSources.push(libFile);
+        }
+      } else {
+        // For shared libraries, use -L and -l flags
+        const libDir = path.join(projectDir, "yo-out", "lib");
+        if (!artifact.libraryPaths.includes(libDir)) {
+          artifact.libraryPaths.push(libDir);
+        }
+        artifact.linkLibraries.push(linkedName);
       }
-      artifact.linkLibraries.push(linkedName);
     }
   }
 
@@ -280,22 +294,33 @@ async function compileArtifact(
   }
 
   // Determine output directory and path
-  const outputSubdir =
-    artifact.kind === "executable" ? "yo-out/bin" : "yo-out/lib";
+  const isLibKind =
+    artifact.kind === "static_library" || artifact.kind === "shared_library";
+  const outputSubdir = isLibKind ? "yo-out/lib" : "yo-out/bin";
   const outputDir = path.join(projectDir, outputSubdir);
   if (!fs.existsSync(outputDir)) {
     fs.mkdirSync(outputDir, { recursive: true });
   }
 
-  const outputPath = path.join(outputDir, artifact.name);
+  // For static libraries, output is lib<name>.a; for others, just the name
+  const outputName =
+    artifact.kind === "static_library" ? `lib${artifact.name}` : artifact.name;
+  const outputPath = path.join(outputDir, outputName);
 
   const projectName = ctx.registry.project?.name ?? artifact.name;
   const version = ctx.registry.project?.version ?? "0.0.0";
   console.log(
-    `Building ${projectName} v${version} → ${path.relative(projectDir, outputPath)}`
+    `Building ${projectName} v${version} → ${path.relative(projectDir, outputPath)}${artifact.kind === "static_library" ? ".a" : ""}`
   );
 
   const absolutePath = `file://${fs.realpathSync(sourcePath)}`;
+
+  // Reset global evaluator state before each artifact compilation
+  // to avoid duplicate function definitions and impl conflicts
+  clearAllGlobalImplState();
+  clearEnvContainingPrelude();
+  clearAllModuleCounters();
+  clearAllCachedTypes();
 
   // Map build optimize level to compiler options
   const release =
@@ -324,6 +349,7 @@ async function compileArtifact(
     strip: artifact.strip,
     static: artifact.staticLink,
     shared: artifact.kind === "shared_library",
+    staticLibrary: artifact.kind === "static_library",
   });
 }
 

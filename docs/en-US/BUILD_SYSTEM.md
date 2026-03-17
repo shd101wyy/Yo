@@ -252,6 +252,83 @@ install.depend_on(lib);
 - **Static/shared libraries** — compiled first, output passed to the linker
 - **System libraries** — resolved via `pkg-config` at build time, flags applied to the artifact
 
+### Cross-Module Linking with `extern "Yo"`
+
+Static libraries export Yo functions that other modules can call using `extern "Yo"`. This is similar to Zig's `@import` across modules.
+
+**Library module** (`add.yo`):
+
+```yo
+add :: (fn(a: i32, b: i32) -> i32)(
+  (a + b)
+);
+
+export add;
+```
+
+**Executable module** (`demo.yo`):
+
+```yo
+stdio :: import "std/libc/stdio";
+
+extern "Yo",
+  add : (fn(a: i32, b: i32) -> i32);
+
+main :: (fn() -> unit)({
+  result := add(i32(3), i32(4));
+  stdio.printf("3 + 4 = %d\n", result);
+});
+
+export main;
+```
+
+**Build file** (`build.yo`):
+
+```yo
+build :: import "std/build";
+
+build.project(build.Project(name: "cross-module-demo"));
+
+lib :: build.static_library(build.StaticLibrary(
+  name: "add",
+  root: "./add.yo"
+));
+
+exe :: build.executable(build.Executable(
+  name: "demo",
+  root: "./demo.yo"
+));
+
+exe.link(lib);
+
+install :: build.step("install", "Build all artifacts");
+install.depend_on(exe);
+install.depend_on(lib);
+```
+
+Running `yo build` produces:
+
+```
+yo-out/
+├── bin/
+│   └── demo          ← Executable (calls add from library)
+└── lib/
+    └── libadd.a      ← Static library (exports add function)
+```
+
+In library mode, the compiler:
+
+1. Uses plain C names for exported functions (e.g., `add` instead of `fn_yo3818ce2d_id_3_add`)
+2. Makes all internal runtime functions `static` to avoid duplicate symbols when linking
+3. Skips `main()` wrapper generation
+
+You can also compile static libraries directly via CLI:
+
+```bash
+yo compile add.yo --static-library -o libadd
+yo compile demo.yo --extern libadd.a -o demo
+```
+
 ## Build Options
 
 Like Zig's `b.option()`, declare user-configurable build options that can be set from the CLI with `-Dname=value`:

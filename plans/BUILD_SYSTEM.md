@@ -232,6 +232,51 @@ test_step :: build.step("test", "Run library tests");
 test_step.depend_on(lib_tests);
 ```
 
+### 2.4.1 Cross-Module Linking
+
+Yo supports cross-module linking via `extern "Yo"` declarations and static libraries. When a module is compiled as a static library, its exported functions receive plain C names (not hash-mangled) so other modules can reference them.
+
+**Library module** (`add.yo`) exports a function:
+
+```yo
+add :: (fn(a: i32, b: i32) -> i32)((a + b));
+export add;
+```
+
+**Executable module** (`demo.yo`) declares it with `extern "Yo"` and calls it:
+
+```yo
+extern "Yo",
+  add : (fn(a: i32, b: i32) -> i32);
+
+main :: (fn() -> unit)({
+  result := add(i32(3), i32(4));
+});
+export main;
+```
+
+**Build file** (`build.yo`) links them together:
+
+```yo
+build :: import "std/build";
+build.project(build.Project(name: "demo"));
+
+lib :: build.static_library(build.StaticLibrary(name: "add", root: "./add.yo"));
+exe :: build.executable(build.Executable(name: "demo", root: "./demo.yo"));
+exe.link(lib);
+
+install :: build.step("install", "Build all artifacts");
+install.depend_on(exe);
+install.depend_on(lib);
+```
+
+**Implementation details:**
+
+- In library mode (`--static-library`), exported functions use plain names (e.g., `add` → C symbol `add`)
+- All non-exported functions are made `static` in the generated C to prevent duplicate symbol errors when linking
+- The build runner compiles linked libraries first, then passes `.a` files as extern sources
+- Global evaluator state is reset between artifact compilations to prevent impl conflicts
+
 ### 2.5 `build` Module API (`std/build.yo`)
 
 The build module is imported as a namespace and provides compile-time functions backed by evaluator builtins.

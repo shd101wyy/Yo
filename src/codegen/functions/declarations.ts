@@ -40,7 +40,10 @@ export function generateFunctionDeclarations(
   for (const key in context.externFunctions) {
     const { cName, type } = context.externFunctions[key]!;
     if (type.isExtern === "yo") {
-      continue; // Yo language extern types. No need to generate C declarations for them
+      // Generate extern declaration for Yo-language extern functions
+      // These reference functions exported from other Yo modules (static libraries)
+      generateFunctionDeclaration(type, cName, true, context);
+      continue;
     }
     if (type.isExtern === "c" && type.cInclude) {
       continue; // C extern types with cInclude are defined in header files, no need to generate extern declarations

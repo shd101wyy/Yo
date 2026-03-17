@@ -129,6 +129,11 @@ export class CodeGenerator {
        */
       shared?: boolean;
       /**
+       * Produce a static library (.a).
+       * Compiles to .o then creates archive with ar.
+       */
+      staticLibrary?: boolean;
+      /**
        * Arbitrary flags to pass directly to the C compiler.
        */
       cflags?: string;
@@ -141,6 +146,8 @@ export class CodeGenerator {
     setCurrentTarget(targetInfo);
     setTargetPointerSize(targetInfo.pointerSizeBits);
 
+    const isLibrary = !!(options.staticLibrary || options.shared);
+
     if (!options.skipCodegen) {
       this.moduleManager.compileModule(modulePath, {
         emitC: options.emitC,
@@ -148,10 +155,21 @@ export class CodeGenerator {
         debugParallelism: options.debugParallelism,
         debugAsyncAwait: options.debugAsyncAwait,
         allocator: options.allocator ?? "mimalloc",
+        isLibrary,
       });
 
       // Get the generated C code
-      const compiledCode = this.moduleManager.getGeneratedCode();
+      let compiledCode = this.moduleManager.getGeneratedCode();
+
+      // In library mode, make all non-exported functions static to avoid
+      // duplicate symbol errors when linking with executables
+      if (isLibrary) {
+        const exportedNames = this.moduleManager.getExportedFunctionNames();
+        compiledCode = makeNonExportedFunctionsStatic(
+          compiledCode,
+          exportedNames
+        );
+      }
 
       // Write the C code to a file
       const outputFile = options.output as string;
@@ -170,6 +188,79 @@ export class CodeGenerator {
         }
 
         const isMSVC = compiler === "cl";
+
+        // Static library: compile to .o then create .a archive
+        if (options.staticLibrary) {
+          const objectFile = outputFile + ".o";
+
+          // Step 1: Compile .c to .o
+          const compileToObjArgs = isMSVC
+            ? ["/std:c11", "/c", tempCFile, `/Fo${objectFile}`]
+            : [
+                ...(compiler === "zig" ? ["cc"] : []),
+                "-std=c11",
+                "-c",
+                "-fPIC",
+                "-w",
+                tempCFile,
+                "-o",
+                objectFile,
+              ];
+
+          // Add optimization
+          if (options.release) {
+            compileToObjArgs.splice(
+              isMSVC ? 1 : compiler === "zig" ? 2 : 1,
+              0,
+              isMSVC ? "/O2" : "-O2"
+            );
+          }
+
+          // Add cross-compilation flags
+          const host = hostTarget();
+          if (!isMSVC && targetInfo.triple !== host.triple) {
+            const triple = clangTriple(targetInfo);
+            compileToObjArgs.splice(-2, 0, `--target=${triple}`);
+            if (options.sysroot) {
+              compileToObjArgs.splice(-2, 0, `--sysroot=${options.sysroot}`);
+            }
+          }
+
+          console.log(
+            `Compiling to object: ${compiler} ${compileToObjArgs.join(" ")}`
+          );
+          const objResult = spawnSync(compiler, compileToObjArgs, {
+            stdio: "inherit",
+          });
+          if (objResult.error || objResult.status !== 0) {
+            console.error(`Object compilation failed`);
+            process.exit(objResult.status || 1);
+          }
+
+          // Step 2: Create static library archive
+          const archiveFile = outputFile.endsWith(".a")
+            ? outputFile
+            : `${outputFile}.a`;
+          const arTool = isMSVC ? "lib" : "ar";
+          const arArgs = isMSVC
+            ? [`/OUT:${archiveFile}`, objectFile]
+            : ["rcs", archiveFile, objectFile];
+
+          console.log(`Creating archive: ${arTool} ${arArgs.join(" ")}`);
+          const arResult = spawnSync(arTool, arArgs, { stdio: "inherit" });
+          if (arResult.error || arResult.status !== 0) {
+            console.error(`Archive creation failed`);
+            process.exit(arResult.status || 1);
+          }
+
+          // Clean up intermediate .o file
+          if (fs.existsSync(objectFile)) {
+            fs.unlinkSync(objectFile);
+          }
+
+          console.log(`Successfully created static library ${archiveFile}`);
+          return;
+        }
 
         // Determine optimization flags
         let optimizationFlags: string[];
@@ -420,4 +511,115 @@ export class CodeGenerator {
       }
     }
   }
+}
+
+/**
+ * In library mode, make all non-exported, non-static C function definitions
+ * static to avoid duplicate symbol errors when linking multiple Yo modules.
+ *
+ * This post-processes the generated C code by:
+ * 1. Identifying function definition lines (return_type function_name(...))
+ * 2. Skipping lines already marked static, inline, extern, or typedef
+ * 3. Skipping the main() function (shouldn't exist in library mode, but just in case)
+ * 4. Only keeping exported function names as global (non-static) symbols
+ */
+function makeNonExportedFunctionsStatic(
+  cCode: string,
+  exportedNames: Set<string>
+): string {
+  const lines = cCode.split("\n");
+  const result: string[] = [];
+
+  // Match function declarations/definitions at column 0.
+  // Pattern: optional return type, then function_name, then '('
+  // We extract the function name and check if it's exported.
+  // This handles complex signatures like: void yo_fn(void (*cb)(void*), void* data) {
+  //
+  // Strategy: find lines that start at column 0 with a type+name pattern
+  // and end with either '{' (definition) or ';' (declaration, possibly on next line)
+  const funcLineRegex =
+    /^([a-zA-Z_][a-zA-Z0-9_*\s]*?)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\(/;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!;
+    const trimmed = line.trimStart();
+
+    // Skip lines that are already static, inline, extern, typedef, preprocessor, or empty
+    if (
+      trimmed.startsWith("static ") ||
+      trimmed.startsWith("static\t") ||
+      trimmed.startsWith("inline ") ||
+      trimmed.startsWith("extern ") ||
+      trimmed.startsWith("typedef ") ||
+      trimmed.startsWith("#") ||
+      trimmed.startsWith("//") ||
+      trimmed.startsWith("/*") ||
+      trimmed.startsWith("*") ||
+      trimmed === "" ||
+      trimmed === "}" ||
+      trimmed === "{" ||
+      trimmed.startsWith("struct ") ||
+      trimmed.startsWith("union ") ||
+      trimmed.startsWith("enum ")
+    ) {
+      result.push(line);
+      continue;
+    }
+
+    // Skip lines starting with C keywords that could be falsely matched as function declarations
+    const cKeywords = [
+      "return",
+      "if",
+      "else",
+      "while",
+      "for",
+      "do",
+      "switch",
+      "case",
+      "break",
+      "continue",
+      "goto",
+      "default",
+      "sizeof",
+      "typeof",
+    ];
+    const firstWord = trimmed.split(/[\s(]/)[0] ?? "";
+    if (cKeywords.includes(firstWord)) {
+      result.push(line);
+      continue;
+    }
+
+    // Skip indented lines (inside a function body, not a top-level definition)
+    if (line.startsWith("  ") || line.startsWith("\t")) {
+      result.push(line);
+      continue;
+    }
+
+    // Try to match a function declaration or definition at column 0
+    const match = funcLineRegex.exec(trimmed);
+
+    if (match) {
+      const funcName = match[2]!;
+
+      // Don't make exported functions static — they need to be visible
+      if (exportedNames.has(funcName)) {
+        result.push(line);
+        continue;
+      }
+
+      // Don't make main static (shouldn't exist in library mode, but safety check)
+      if (funcName === "main") {
+        result.push(line);
+        continue;
+      }
+
+      // Make this function static
+      result.push("static " + line);
+      continue;
+    }
+
+    result.push(line);
+  }
+
+  return result.join("\n");
 }

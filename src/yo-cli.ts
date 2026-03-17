@@ -225,6 +225,12 @@ yo --version                     Show version number
           demandOption: false,
           default: false,
         })
+        .option("static-library", {
+          describe: "Compile as a static library (.a archive).",
+          type: "boolean",
+          demandOption: false,
+          default: false,
+        })
         .option("cflags", {
           describe:
             "Pass arbitrary flags directly to the C compiler. Example: --cflags '-march=native -mtune=native'",
@@ -278,6 +284,7 @@ yo --version                     Show version number
         debugSymbols: argv.g as boolean,
         strip: argv.s as boolean,
         static: argv.static as boolean,
+        staticLibrary: argv.staticLibrary as boolean,
         cflags: argv.cflags as string | undefined,
       });
     }
