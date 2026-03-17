@@ -248,6 +248,15 @@ export function fetchAllDependencies(
   update: boolean = false
 ): FetchResult {
   if (dependencies.length === 0) {
+    // Even with no deps, prune stale lock entries
+    const existingLock = readLockFile(projectDir);
+    if (existingLock.dependencies.length > 0) {
+      const emptyLock: LockFile = { dependencies: [] };
+      saveLockFile(projectDir, emptyLock);
+      console.log(
+        `Pruned ${existingLock.dependencies.length} stale dependency(ies) from yo.lock`
+      );
+    }
     return { resolvedPaths: new Map(), lockFile: { dependencies: [] } };
   }
 
@@ -264,6 +273,27 @@ export function fetchAllDependencies(
     const result = fetchDependency(cacheDir, dep, lockFile, verbose, update);
     lockFile = result.lockFile;
     resolvedPaths.set(dep.name, result.depPath);
+  }
+
+  // Prune stale lock entries (deps removed from build.yo)
+  const declaredNames = new Set(dependencies.map((d) => d.name));
+  const staleEntries = lockFile.dependencies.filter(
+    (entry) => !declaredNames.has(entry.name)
+  );
+  if (staleEntries.length > 0) {
+    lockFile = {
+      dependencies: lockFile.dependencies.filter((entry) =>
+        declaredNames.has(entry.name)
+      ),
+    };
+    for (const stale of staleEntries) {
+      if (verbose) {
+        console.log(`  Pruned stale lock entry: ${stale.name}`);
+      }
+    }
+    console.log(
+      `Pruned ${staleEntries.length} stale dependency(ies) from yo.lock`
+    );
   }
 
   // Write updated lock file
