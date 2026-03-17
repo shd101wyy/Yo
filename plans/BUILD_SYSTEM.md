@@ -29,7 +29,6 @@ Additionally, several parts of the compiler conflate **host** and **target** pla
 
 - Package manager / dependency resolution (future work)
 - Caching / incremental builds (future work)
-- Parallel build steps (future work)
 - Remote build execution
 - Build system self-hosting (build.yo is evaluated by the TypeScript compiler, not a compiled Yo binary)
 

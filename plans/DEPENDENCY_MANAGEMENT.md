@@ -442,7 +442,7 @@ Root Registry (saved) → Fresh Registry (active) → Evaluate dep build.yo → 
 
 3. **Dependency build artifacts**: ✅ Resolved — `dep.artifact("name")` accesses artifacts from the dependency's `build.yo`. Build runner evaluates and compiles them.
 
-4. **Version conflicts**: If two dependencies need different versions of the same package, what happens? For now: error. Zig uses content hashing to allow multiple versions.
+4. **Version conflicts**: ✅ Resolved — Content-addressed caching by dependency identity hash. Same version (same path/URL+ref) shares compiled artifact. Different versions compile separately with unique hashes.
 
 5. **Private dependencies**: Should there be a way to use SSH URLs for private repos? Yes — `git+ssh://` URLs should work with the user's SSH agent.
 

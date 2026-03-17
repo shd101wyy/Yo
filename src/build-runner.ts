@@ -10,6 +10,7 @@
 
 import * as fs from "fs";
 import * as path from "path";
+import { createHash } from "crypto";
 import { CodeGenerator } from "./codegen";
 import { findAvailableCompiler } from "./compiler-utils";
 import { clearEnvContainingPrelude } from "./env";
@@ -225,6 +226,160 @@ interface ExecutionContext {
   verbose?: boolean;
 }
 
+// ── DAG-based execution ──────────────────────────────────────────────
+
+/**
+ * A node in the build DAG. Each node represents an artifact, test,
+ * run step, or custom step that may depend on other nodes.
+ */
+export interface DAGNode {
+  name: string;
+  kind: "artifact" | "test" | "run" | "step";
+  dependsOn: string[];
+}
+
+/**
+ * Build a DAG by walking the step's dependency tree.
+ * Each node gets its transitive dependencies resolved into direct edges.
+ */
+export function buildDAG(
+  registry: BuildRegistry,
+  rootStepName: string
+): DAGNode[] {
+  const nodes = new Map<string, DAGNode>();
+  const visited = new Set<string>();
+
+  function walk(name: string): void {
+    if (visited.has(name)) return;
+    visited.add(name);
+
+    const resolved = registry.resolveDependency(name);
+    if (!resolved) return;
+
+    switch (resolved.kind) {
+      case "artifact": {
+        const artifact = resolved.value;
+        const deps: string[] = [];
+        // Linked artifacts are dependencies
+        for (const linked of artifact.linkedArtifacts) {
+          deps.push(linked);
+          walk(linked);
+        }
+        nodes.set(name, { name, kind: "artifact", dependsOn: deps });
+        break;
+      }
+      case "test": {
+        nodes.set(name, { name, kind: "test", dependsOn: [] });
+        break;
+      }
+      case "run": {
+        const runStep = resolved.value;
+        // Run step depends on its artifact being compiled
+        const deps = [runStep.artifactName];
+        walk(runStep.artifactName);
+        nodes.set(name, { name, kind: "run", dependsOn: deps });
+        break;
+      }
+      case "step": {
+        const step = resolved.value;
+        const deps: string[] = [];
+        for (const depName of step.dependencyNames) {
+          deps.push(depName);
+          walk(depName);
+        }
+        nodes.set(name, { name, kind: "step", dependsOn: deps });
+        break;
+      }
+    }
+  }
+
+  // Start from the root step
+  const rootStep = registry.findStep(rootStepName);
+  if (!rootStep) return [];
+
+  walk(rootStepName);
+  return Array.from(nodes.values());
+}
+
+/**
+ * Detect cycles in a DAG. Returns the cycle path if found, null otherwise.
+ */
+export function detectCycle(dag: DAGNode[]): string[] | null {
+  const nodeMap = new Map<string, DAGNode>();
+  for (const node of dag) nodeMap.set(node.name, node);
+
+  const WHITE = 0,
+    GRAY = 1,
+    BLACK = 2;
+  const color = new Map<string, number>();
+  for (const node of dag) color.set(node.name, WHITE);
+
+  const parent = new Map<string, string | null>();
+
+  function dfs(name: string): string | null {
+    color.set(name, GRAY);
+    const node = nodeMap.get(name);
+    if (!node) {
+      color.set(name, BLACK);
+      return null;
+    }
+
+    for (const dep of node.dependsOn) {
+      if (!nodeMap.has(dep)) continue;
+      if (color.get(dep) === GRAY) {
+        // Found cycle — reconstruct path
+        const cycle = [dep, name];
+        let cur = name;
+        while (parent.get(cur) !== undefined && parent.get(cur) !== dep) {
+          cur = parent.get(cur)!;
+          cycle.push(cur);
+        }
+        cycle.push(dep);
+        return dep; // signal cycle found
+      }
+      if (color.get(dep) === WHITE) {
+        parent.set(dep, name);
+        const result = dfs(dep);
+        if (result !== null) return result;
+      }
+    }
+
+    color.set(name, BLACK);
+    return null;
+  }
+
+  // Reconstruct a cleaner cycle
+  for (const node of dag) {
+    if (color.get(node.name) === WHITE) {
+      const cycleNode = dfs(node.name);
+      if (cycleNode !== null) {
+        // Walk the cycle
+        const cycle: string[] = [cycleNode];
+        const nodeObj = nodeMap.get(cycleNode);
+        if (nodeObj) {
+          for (const dep of nodeObj.dependsOn) {
+            if (color.get(dep) === GRAY || dep === cycleNode) {
+              // Simple cycle reporting
+              cycle.push(dep);
+              break;
+            }
+          }
+        }
+        return cycle;
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Execute a step using DAG-based scheduling.
+ *
+ * Nodes at each "level" (zero in-degree) execute concurrently.
+ * Artifact compilations are serialized (global evaluator state),
+ * but tests and run steps can run in parallel.
+ */
 async function executeStep(
   stepName: string,
   ctx: ExecutionContext
@@ -243,25 +398,122 @@ async function executeStep(
     process.exit(1);
   }
 
-  // Resolve all dependencies for this step
-  const deps = registry.resolveDependencies(step);
+  // Build the DAG from the step's dependency tree
+  const dag = buildDAG(registry, stepName);
 
-  // Compile all artifacts
-  for (const artifact of deps.artifacts) {
-    await compileArtifact(artifact, ctx);
+  // Check for cycles
+  const cycle = detectCycle(dag);
+  if (cycle) {
+    console.error(`Error: Cycle detected in build DAG: ${cycle.join(" → ")}`);
+    process.exit(1);
   }
 
-  // Run tests
-  for (const testSuite of deps.tests) {
-    await runTestSuite(testSuite, ctx);
-  }
+  // Execute using level-based scheduling
+  await executeDAG(dag, stepName, ctx);
+}
 
-  // Run executables (only when an explicit run step is in deps)
-  for (const runStep of deps.runs) {
-    const artifact = registry.findArtifact(runStep.artifactName);
-    if (artifact) {
-      await runExecutable(artifact, runStep.args, ctx);
+/**
+ * Level-based DAG executor (Kahn's algorithm).
+ * Runs independent nodes concurrently at each level.
+ */
+async function executeDAG(
+  dag: DAGNode[],
+  rootName: string,
+  ctx: ExecutionContext
+): Promise<void> {
+  if (dag.length === 0) return;
+
+  const nodeMap = new Map<string, DAGNode>();
+  for (const node of dag) nodeMap.set(node.name, node);
+
+  // Compute in-degrees
+  const inDegree = new Map<string, number>();
+  const dependents = new Map<string, string[]>();
+  for (const node of dag) {
+    if (!inDegree.has(node.name)) inDegree.set(node.name, 0);
+    for (const dep of node.dependsOn) {
+      if (!nodeMap.has(dep)) continue; // skip external deps not in DAG
+      const list = dependents.get(dep) ?? [];
+      list.push(node.name);
+      dependents.set(dep, list);
+      inDegree.set(node.name, (inDegree.get(node.name) ?? 0) + 1);
     }
+  }
+
+  const completed = new Set<string>();
+
+  while (completed.size < dag.length) {
+    // Find all ready nodes (in-degree == 0, not yet completed)
+    const ready = dag.filter(
+      (n) => !completed.has(n.name) && (inDegree.get(n.name) ?? 0) === 0
+    );
+
+    if (ready.length === 0) {
+      // Should not happen after cycle detection, but guard anyway
+      const remaining = dag
+        .filter((n) => !completed.has(n.name))
+        .map((n) => n.name);
+      console.error(
+        `Error: Build DAG stalled. Remaining nodes: ${remaining.join(", ")}`
+      );
+      process.exit(1);
+    }
+
+    // Group by kind for execution strategy
+    const artifactNodes = ready.filter((n) => n.kind === "artifact");
+    const otherNodes = ready.filter((n) => n.kind !== "artifact");
+
+    // Artifact compilations must be serialized (global evaluator state)
+    for (const node of artifactNodes) {
+      await executeNode(node, ctx);
+    }
+
+    // Tests and run steps can execute concurrently
+    if (otherNodes.length > 0) {
+      await Promise.all(otherNodes.map((node) => executeNode(node, ctx)));
+    }
+
+    // Mark completed and update in-degrees
+    for (const node of ready) {
+      completed.add(node.name);
+      for (const dep of dependents.get(node.name) ?? []) {
+        inDegree.set(dep, (inDegree.get(dep) ?? 1) - 1);
+      }
+    }
+  }
+}
+
+/**
+ * Execute a single DAG node based on its kind.
+ */
+async function executeNode(
+  node: DAGNode,
+  ctx: ExecutionContext
+): Promise<void> {
+  const { registry } = ctx;
+
+  switch (node.kind) {
+    case "artifact": {
+      const artifact = registry.findArtifact(node.name);
+      if (artifact) await compileArtifact(artifact, ctx);
+      break;
+    }
+    case "test": {
+      const testSuite = registry.findTest(node.name);
+      if (testSuite) await runTestSuite(testSuite, ctx);
+      break;
+    }
+    case "run": {
+      const runStep = registry.findRunStep(node.name);
+      if (runStep) {
+        const artifact = registry.findArtifact(runStep.artifactName);
+        if (artifact) await runExecutable(artifact, runStep.args, ctx);
+      }
+      break;
+    }
+    case "step":
+      // Named steps are structural — their work is done by their dependencies
+      break;
   }
 }
 
@@ -373,6 +625,46 @@ async function compileArtifact(
 // ── Dependency artifact resolution ────────────────────────────────────
 
 /**
+ * Content-addressed cache for compiled dependency artifacts.
+ * Key: `<content_hash>:<artifact_name>`, Value: path to compiled .a file.
+ * Prevents rebuilding the same dependency artifact multiple times.
+ */
+const compiledDepCache = new Map<string, string>();
+
+/**
+ * Compute a content-based identity hash for a dependency.
+ * Same dependency identity (same path or same git URL+ref) → same hash → shared build.
+ */
+export function computeDependencyHash(
+  registry: BuildRegistry,
+  depName: string,
+  projectDir: string
+): string {
+  const pathDep = registry.findPathDependency(depName);
+  if (pathDep) {
+    const absPath = path.resolve(projectDir, pathDep.path);
+    return createHash("sha256")
+      .update(`path:${absPath}`)
+      .digest("hex")
+      .slice(0, 12);
+  }
+
+  const gitDep = registry.findDependency(depName);
+  if (gitDep) {
+    return createHash("sha256")
+      .update(`git:${gitDep.url}:${gitDep.ref}`)
+      .digest("hex")
+      .slice(0, 12);
+  }
+
+  // Fallback: hash the name itself
+  return createHash("sha256")
+    .update(`name:${depName}`)
+    .digest("hex")
+    .slice(0, 12);
+}
+
+/**
  * Resolve and compile dependency artifacts.
  *
  * For each DependencyArtifactRef (from dep.artifact("name") calls in build.yo):
@@ -404,6 +696,9 @@ async function resolveDependencyArtifacts(
   }
 
   for (const [depName, refs] of refsByDep) {
+    // Compute content hash for deduplication
+    const depHash = computeDependencyHash(rootRegistry, depName, projectDir);
+
     // 1. Find dependency source directory
     const depDir = findDependencyDir(rootRegistry, projectDir, depName);
     if (!depDir) {
@@ -424,20 +719,48 @@ async function resolveDependencyArtifacts(
       process.exit(1);
     }
 
-    if (opts.verbose) {
-      console.log(`Evaluating build.yo for dependency "${depName}"...`);
+    // Check if ALL requested artifacts for this dep are already cached
+    const allCached = refs.every((ref) =>
+      compiledDepCache.has(`${depHash}:${ref.artifactName}`)
+    );
+
+    let depRegistry: BuildRegistry | undefined;
+    if (!allCached) {
+      if (opts.verbose) {
+        console.log(`Evaluating build.yo for dependency "${depName}"...`);
+      }
+      // 3. Evaluate the dependency's build.yo in isolation
+      depRegistry = evaluateDependencyBuildFile(depBuildFile);
     }
 
-    // 3. Evaluate the dependency's build.yo in isolation
-    const depRegistry = evaluateDependencyBuildFile(depBuildFile);
-
-    // 4. For each requested artifact, compile it and register in root
+    // 4. For each requested artifact, compile it (or reuse cached) and register in root
     for (const ref of refs) {
-      const depArtifact = depRegistry.findArtifact(ref.artifactName);
+      const cacheKey = `${depHash}:${ref.artifactName}`;
+
+      // Check content-addressed cache
+      const cachedLibFile = compiledDepCache.get(cacheKey);
+      if (cachedLibFile) {
+        if (opts.verbose) {
+          console.log(
+            `  Reusing cached artifact: ${depName}/${ref.artifactName} (${depHash})`
+          );
+        }
+        // Reuse the cached .a file for all root artifacts that link this
+        for (const rootArtifact of rootRegistry.artifacts) {
+          if (rootArtifact.linkedArtifacts.includes(ref.artifactName)) {
+            if (!rootArtifact.cSources.includes(cachedLibFile)) {
+              rootArtifact.cSources.push(cachedLibFile);
+            }
+          }
+        }
+        continue;
+      }
+
+      const depArtifact = depRegistry!.findArtifact(ref.artifactName);
       if (!depArtifact) {
         console.error(
           `Error: Artifact "${ref.artifactName}" not found in dependency "${depName}". ` +
-            `Available artifacts: ${depRegistry.artifacts.map((a) => a.name).join(", ") || "(none)"}`
+            `Available artifacts: ${depRegistry!.artifacts.map((a) => a.name).join(", ") || "(none)"}`
         );
         process.exit(1);
       }
@@ -474,10 +797,11 @@ async function resolveDependencyArtifacts(
         opts
       );
 
-      // 6. Register in root registry so consumer artifacts can link against it
-      // The artifact name stays the same — link resolution will find it
+      // 6. Register in cache and root registry
       if (adjustedArtifact.kind === "static_library") {
         const libFile = path.join(depOutputDir, `lib${ref.artifactName}.a`);
+        // Cache the compiled artifact by content hash
+        compiledDepCache.set(cacheKey, libFile);
         // For any root artifact that links this dependency artifact,
         // add the .a file as an extern source
         for (const rootArtifact of rootRegistry.artifacts) {

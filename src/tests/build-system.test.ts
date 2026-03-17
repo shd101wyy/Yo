@@ -17,6 +17,13 @@ import {
 } from "../lock-file";
 import { parseTarget, clangTriple, type TargetInfo } from "../target";
 import { getGlobalCacheDir } from "../cache";
+import {
+  type BuildArtifact,
+  BuildRegistry,
+  clearBuildRegistry,
+  getBuildRegistry,
+  swapBuildRegistry,
+} from "../evaluator/builtins/build";
 
 // ── Lock file tests ──────────────────────────────────────────────────
 
@@ -456,13 +463,6 @@ describe("Global cache directory", () => {
 
 // ── BuildRegistry tests ──────────────────────────────────────────────
 
-import {
-  BuildRegistry,
-  swapBuildRegistry,
-  getBuildRegistry,
-  clearBuildRegistry,
-} from "../evaluator/builtins/build";
-
 function makeDefaultArtifactConfig() {
   return {
     root: "./src/main.yo",
@@ -776,3 +776,203 @@ describe("swapBuildRegistry", () => {
     clearBuildRegistry();
   });
 });
+
+// ── DAG builder tests ────────────────────────────────────────────────
+
+import { buildDAG, detectCycle, computeDependencyHash } from "../build-runner";
+
+describe("buildDAG", () => {
+  test("empty step produces empty DAG", () => {
+    const reg = new BuildRegistry();
+    reg.registerStep("install", "Build all");
+    const dag = buildDAG(reg, "install");
+    // Root step itself is in the DAG, but with no deps
+    expect(dag).toHaveLength(1);
+    expect(dag[0]!.name).toBe("install");
+    expect(dag[0]!.dependsOn).toEqual([]);
+  });
+
+  test("step with artifact dependencies", () => {
+    const reg = new BuildRegistry();
+    reg.registerExecutable(makeArtifact("app", "./src/main.yo"));
+    reg.registerStaticLibrary(makeArtifact("lib-a", "./src/a.yo"));
+    reg.registerStep("install", "Build all");
+    reg.addStepDependency("install", "app");
+    reg.addStepDependency("install", "lib-a");
+
+    const dag = buildDAG(reg, "install");
+    expect(dag).toHaveLength(3); // install, app, lib-a
+    const names = dag.map((n) => n.name).sort();
+    expect(names).toEqual(["app", "install", "lib-a"]);
+  });
+
+  test("linked artifacts create edges", () => {
+    const reg = new BuildRegistry();
+    reg.registerExecutable(makeArtifact("app", "./src/main.yo"));
+    reg.registerStaticLibrary(makeArtifact("mylib", "./src/lib.yo"));
+    reg.registerLink("app", "mylib");
+    reg.registerStep("install", "Build all");
+    reg.addStepDependency("install", "app");
+
+    const dag = buildDAG(reg, "install");
+    const appNode = dag.find((n) => n.name === "app");
+    expect(appNode).toBeDefined();
+    expect(appNode!.dependsOn).toContain("mylib");
+  });
+
+  test("run step depends on its artifact", () => {
+    const reg = new BuildRegistry();
+    reg.registerExecutable(makeArtifact("app", "./src/main.yo"));
+    reg.registerRun("app", []);
+    reg.registerStep("run", "Run the app");
+    reg.addStepDependency("run", "run:app");
+
+    const dag = buildDAG(reg, "run");
+    const runNode = dag.find((n) => n.name === "run:app");
+    expect(runNode).toBeDefined();
+    expect(runNode!.kind).toBe("run");
+    expect(runNode!.dependsOn).toContain("app");
+  });
+
+  test("nested steps are walked transitively", () => {
+    const reg = new BuildRegistry();
+    reg.registerExecutable(makeArtifact("app", "./src/main.yo"));
+    reg.registerStep("compile", "Compile step");
+    reg.addStepDependency("compile", "app");
+    reg.registerStep("install", "Install step");
+    reg.addStepDependency("install", "compile");
+
+    const dag = buildDAG(reg, "install");
+    expect(dag).toHaveLength(3); // install, compile, app
+    const installNode = dag.find((n) => n.name === "install");
+    expect(installNode!.dependsOn).toContain("compile");
+  });
+
+  test("deduplicates shared dependencies", () => {
+    const reg = new BuildRegistry();
+    reg.registerStaticLibrary(makeArtifact("common", "./src/common.yo"));
+    reg.registerExecutable(makeArtifact("app-a", "./src/a.yo"));
+    reg.registerExecutable(makeArtifact("app-b", "./src/b.yo"));
+    reg.registerLink("app-a", "common");
+    reg.registerLink("app-b", "common");
+    reg.registerStep("install", "Build all");
+    reg.addStepDependency("install", "app-a");
+    reg.addStepDependency("install", "app-b");
+
+    const dag = buildDAG(reg, "install");
+    // common should appear only once
+    const commonNodes = dag.filter((n) => n.name === "common");
+    expect(commonNodes).toHaveLength(1);
+  });
+});
+
+describe("detectCycle", () => {
+  test("no cycle returns null", () => {
+    const dag = [
+      { name: "a", kind: "artifact" as const, dependsOn: [] },
+      { name: "b", kind: "artifact" as const, dependsOn: ["a"] },
+      { name: "c", kind: "step" as const, dependsOn: ["b"] },
+    ];
+    expect(detectCycle(dag)).toBeNull();
+  });
+
+  test("direct cycle is detected", () => {
+    const dag = [
+      { name: "a", kind: "artifact" as const, dependsOn: ["b"] },
+      { name: "b", kind: "artifact" as const, dependsOn: ["a"] },
+    ];
+    const cycle = detectCycle(dag);
+    expect(cycle).not.toBeNull();
+    expect(cycle!.length).toBeGreaterThanOrEqual(2);
+  });
+
+  test("indirect cycle is detected", () => {
+    const dag = [
+      { name: "a", kind: "artifact" as const, dependsOn: ["b"] },
+      { name: "b", kind: "artifact" as const, dependsOn: ["c"] },
+      { name: "c", kind: "artifact" as const, dependsOn: ["a"] },
+    ];
+    const cycle = detectCycle(dag);
+    expect(cycle).not.toBeNull();
+  });
+
+  test("self-loop is detected", () => {
+    const dag = [{ name: "a", kind: "artifact" as const, dependsOn: ["a"] }];
+    const cycle = detectCycle(dag);
+    expect(cycle).not.toBeNull();
+  });
+});
+
+// ── Dependency hash tests ────────────────────────────────────────────
+
+describe("computeDependencyHash", () => {
+  test("path dep produces consistent hash", () => {
+    const reg = new BuildRegistry();
+    reg.registerPathDependency({ name: "mylib", path: "../mylib" });
+    const hash1 = computeDependencyHash(reg, "mylib", "/project");
+    const hash2 = computeDependencyHash(reg, "mylib", "/project");
+    expect(hash1).toBe(hash2);
+    expect(hash1).toHaveLength(12);
+  });
+
+  test("different paths produce different hashes", () => {
+    const reg = new BuildRegistry();
+    reg.registerPathDependency({ name: "lib-a", path: "../lib-a" });
+    reg.registerPathDependency({ name: "lib-b", path: "../lib-b" });
+    const hashA = computeDependencyHash(reg, "lib-a", "/project");
+    const hashB = computeDependencyHash(reg, "lib-b", "/project");
+    expect(hashA).not.toBe(hashB);
+  });
+
+  test("git dep produces consistent hash", () => {
+    const reg = new BuildRegistry();
+    reg.registerDependency({
+      name: "json",
+      url: "https://github.com/user/json.git",
+      ref: "v1.0.0",
+      path: "",
+    });
+    const hash1 = computeDependencyHash(reg, "json", "/project");
+    const hash2 = computeDependencyHash(reg, "json", "/project");
+    expect(hash1).toBe(hash2);
+    expect(hash1).toHaveLength(12);
+  });
+
+  test("same path from different project dirs produces same hash", () => {
+    const reg = new BuildRegistry();
+    reg.registerPathDependency({ name: "mylib", path: "/absolute/mylib" });
+    const hash1 = computeDependencyHash(reg, "mylib", "/project-a");
+    const hash2 = computeDependencyHash(reg, "mylib", "/project-b");
+    // Absolute path → same hash regardless of project dir
+    expect(hash1).toBe(hash2);
+  });
+
+  test("unknown dep falls back to name hash", () => {
+    const reg = new BuildRegistry();
+    const hash = computeDependencyHash(reg, "unknown", "/project");
+    expect(hash).toHaveLength(12);
+  });
+});
+
+// ── Helper for creating test artifacts ───────────────────────────────
+
+function makeArtifact(name: string, root: string): Omit<BuildArtifact, "kind"> {
+  return {
+    name,
+    root,
+    target: "",
+    optimize: "debug",
+    allocator: "mimalloc",
+    sanitize: "none",
+    strip: false,
+    staticLink: false,
+    cSources: [],
+    includePaths: [],
+    libraryPaths: [],
+    linkLibraries: [],
+    linkedArtifacts: [],
+    linkedSystemLibraries: [],
+    defines: [],
+    cFlags: [],
+  };
+}

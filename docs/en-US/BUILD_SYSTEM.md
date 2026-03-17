@@ -181,6 +181,24 @@ test_step :: build.step("test", "Run unit tests");
 test_step.depend_on(tests);
 ```
 
+### DAG-Based Execution
+
+The build system models the project as a **directed acyclic graph (DAG)** of steps. When you run `yo build install`, the build runner:
+
+1. Builds a DAG from step dependencies and linked artifacts
+2. Detects cycles and reports errors
+3. Executes independent steps concurrently at each level
+
+For example, if `install` depends on both `exe` and `lib` (and they are independent), they compile at the same DAG level. If `exe` links `lib`, then `lib` compiles first.
+
+```
+Level 0: lib-a, lib-b, tests   (independent — compile concurrently)
+Level 1: app                    (depends on lib-a, lib-b)
+Level 2: install                (depends on app, tests)
+```
+
+> **Note**: Artifact compilations are currently serialized (the Yo evaluator uses global state). Tests and run steps execute concurrently.
+
 ### `Step`
 
 | Field  | Type              | Description                                                                                              |
@@ -647,6 +665,20 @@ yo cache clean
 2. `$XDG_CACHE_HOME/yo` (XDG standard)
 3. `~/.cache/yo` (Linux/macOS default)
 4. `%LOCALAPPDATA%\yo\cache` (Windows default)
+
+### Shared Dependencies
+
+When multiple packages depend on the same dependency (same URL+ref or same path), the build system uses **content-addressed caching** to compile the dependency only once:
+
+```
+   root project
+   ├── dep_A → dep_C (path: ../shared_lib)
+   └── dep_B → dep_C (path: ../shared_lib)
+```
+
+The dependency identity is hashed (based on resolved path or git URL+ref). Identical hashes share a single compiled artifact, avoiding redundant builds.
+
+If two dependencies require **different versions** of the same package (different URLs or refs), each version is compiled separately with a unique content hash.
 
 ### System Libraries (pkg-config)
 
