@@ -19,6 +19,13 @@ description: "Use when running tests, setting up test files, or debugging test f
 - `--test-name-pattern "Test XXX"` — run specific test by name
 - Tests automatically use AddressSanitizer for leak detection.
 
+## Build system tests
+
+- Run: `bun test src/tests/build-system.test.ts --timeout 10000`
+- Tests cover: BuildRegistry, artifacts, steps, DAG, dependencies, lock file, target parsing, path deps, transitive deps
+- Currently 86+ tests
+- These are TypeScript unit tests, not `.yo` integration tests
+
 ## Important constraints
 
 - You **cannot** `./yo-cli compile` on a `*.test.yo` file. To test a failing test, move the code into a separate `.yo` file with a `main` function and `export main;` at the end.
