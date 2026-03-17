@@ -177,7 +177,8 @@ function fetchDependency(
   cacheDir: string,
   dep: BuildGitDependency,
   lockFile: LockFile,
-  verbose: boolean
+  verbose: boolean,
+  update: boolean = false
 ): { lockFile: LockFile; depPath: string } {
   const existingEntry = findLockEntry(lockFile, dep.name);
 
@@ -187,8 +188,8 @@ function fetchDependency(
   }
   const commit = resolveGitRef(dep.url, dep.ref);
 
-  // If lock file has the same commit, check if cache exists
-  if (existingEntry && existingEntry.commit === commit) {
+  // If lock file has the same commit, check if cache exists (skip in update mode)
+  if (!update && existingEntry && existingEntry.commit === commit) {
     const cachedPath = path.join(
       cacheDir,
       `${dep.name}-${commit.slice(0, 12)}`
@@ -243,7 +244,8 @@ export interface FetchResult {
 export function fetchAllDependencies(
   projectDir: string,
   dependencies: BuildGitDependency[],
-  verbose: boolean = false
+  verbose: boolean = false,
+  update: boolean = false
 ): FetchResult {
   if (dependencies.length === 0) {
     return { resolvedPaths: new Map(), lockFile: { dependencies: [] } };
@@ -259,7 +261,7 @@ export function fetchAllDependencies(
   }
 
   for (const dep of dependencies) {
-    const result = fetchDependency(cacheDir, dep, lockFile, verbose);
+    const result = fetchDependency(cacheDir, dep, lockFile, verbose, update);
     lockFile = result.lockFile;
     resolvedPaths.set(dep.name, result.depPath);
   }

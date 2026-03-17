@@ -574,9 +574,12 @@ Fetch dependencies with:
 ```bash
 yo fetch              # Fetch all dependencies from build.yo
 yo fetch --verbose    # Show detailed progress
+yo fetch --update     # Re-resolve git refs to latest commits
 ```
 
 Dependencies are stored in a global cache and tracked by `yo.lock` (commit this file to version control). `yo build` auto-fetches if dependencies are not yet cached.
+
+**Updating dependencies**: When using branch refs like `"main"`, the lock file pins the exact commit SHA at fetch time. Run `yo fetch --update` (or `yo fetch -u`) to re-resolve all refs to their latest commits and update `yo.lock`.
 
 ### Linking Dependency Artifacts
 
@@ -746,7 +749,12 @@ yo fetch [options]
 Options:
   --build-file <path>    Path to build file (default: ./build.yo)
   --verbose, -v          Verbose output
+  --update, -u           Re-resolve git refs to latest commits and update yo.lock
 ```
+
+`yo fetch` evaluates `build.yo` to discover dependencies, resolves git refs to exact commit SHAs via `git ls-remote`, clones them to the global cache, and records everything in `yo.lock`.
+
+Without `--update`, cached dependencies (matching commit in `yo.lock`) are skipped. With `--update`, all refs are re-resolved and re-fetched even if already cached — useful for tracking branch HEAD changes.
 
 ## `yo cache` Reference
 

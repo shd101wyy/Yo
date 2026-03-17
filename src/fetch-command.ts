@@ -17,10 +17,11 @@ import { ModuleManager } from "./module-manager";
 export interface FetchOptions {
   buildFile: string;
   verbose: boolean;
+  update: boolean;
 }
 
 export async function runFetch(options: FetchOptions): Promise<void> {
-  const { buildFile, verbose } = options;
+  const { buildFile, verbose, update } = options;
 
   const userCwd = process.env.YO_ORIGINAL_CWD ?? process.cwd();
   const resolvedBuildFile = path.resolve(userCwd, buildFile);
@@ -63,7 +64,16 @@ export async function runFetch(options: FetchOptions): Promise<void> {
   }
   console.log();
 
-  const result = fetchAllDependencies(projectDir, dependencies, verbose);
+  if (update) {
+    console.log("Updating: re-resolving all git refs to latest commits...\n");
+  }
+
+  const result = fetchAllDependencies(
+    projectDir,
+    dependencies,
+    verbose,
+    update
+  );
 
   console.log("\nResolved dependencies:");
   for (const [name, depPath] of result.resolvedPaths) {

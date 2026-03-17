@@ -432,6 +432,12 @@ yo --version                     Show version number
           describe: "Verbose output",
           type: "boolean",
           default: false,
+        })
+        .option("update", {
+          alias: "u",
+          describe: "Re-resolve git refs to latest commits and update yo.lock",
+          type: "boolean",
+          default: false,
         });
     },
     async (argv) => {
@@ -439,6 +445,7 @@ yo --version                     Show version number
       await runFetch({
         buildFile: argv.buildFile as string,
         verbose: argv.verbose as boolean,
+        update: argv.update as boolean,
       });
     }
   )
