@@ -316,7 +316,128 @@ impl(NfaVm,
   })
 );
 
-// Block 4: exec_at (depends on Block 1+2+3)
+// Block 4: Sub-VM for lookahead/lookbehind (depends on Block 1+2+3)
+impl(NfaVm,
+  // Run a sub-VM starting at sub_start_pc from start_byte.
+  // If required_end is not UNSET, only succeed when Match is found at exactly required_end.
+  _run_sub_vm : (fn(self : Self, sub_start_pc : usize, start_byte : usize, required_end : usize) -> bool)({
+    unset := usize(0xFFFFFFFFFFFFFFFF);
+    sub_current := ArrayList(NfaThread).new();
+    sub_next := ArrayList(NfaThread).new();
+
+    sub_seen := ArrayList(bool).with_capacity(self._program.instructions.len());
+    si := usize(0);
+    while (si < self._program.instructions.len()), (si = (si + usize(1))), {
+      sub_seen.push(false);
+    };
+
+    initial := NfaThread.new(sub_start_pc, self._n_slots);
+    self._add_thread(&(sub_current), initial, start_byte, &(sub_seen));
+
+    sub_pos := start_byte;
+    input_len := self._bytes.len();
+
+    while (sub_pos <= input_len), {
+      cond(
+        (sub_current.len() == usize(0)) => { break; },
+        true => ()
+      );
+
+      // Check for Match in current threads
+      st := usize(0);
+      while (st < sub_current.len()), (st = (st + usize(1))), {
+        st_thread := sub_current.get(st).unwrap();
+        st_instr := self._program.instructions.get(st_thread.pc).unwrap();
+        match(st_instr.kind,
+          .Match => {
+            cond(
+              (required_end == unset) => { return true; },
+              (sub_pos == required_end) => { return true; },
+              true => ()
+            );
+          },
+          _ => ()
+        );
+      };
+
+      cond(
+        (sub_pos >= input_len) => { break; },
+        true => ()
+      );
+
+      // Stop if we've passed the required end position
+      cond(
+        ((required_end != unset) && (sub_pos > required_end)) => { break; },
+        true => ()
+      );
+
+      decoded := self._decode_codepoint(sub_pos);
+      sub_cp := decoded.codepoint;
+      sub_blen := decoded.byte_len;
+
+      // Clear seen
+      sj := usize(0);
+      while (sj < sub_seen.len()), (sj = (sj + usize(1))), {
+        sub_seen.set(sj, false);
+      };
+
+      // Process consuming instructions
+      st2 := usize(0);
+      while (st2 < sub_current.len()), (st2 = (st2 + usize(1))), {
+        st_thread := sub_current.get(st2).unwrap();
+        st_instr := self._program.instructions.get(st_thread.pc).unwrap();
+        match(st_instr.kind,
+          .Char => {
+            cond(
+              self._char_matches(st_instr.codepoint, sub_cp) => {
+                new_t := st_thread.fork((st_thread.pc + usize(1)));
+                self._add_thread(&(sub_next), new_t, (sub_pos + sub_blen), &(sub_seen));
+              },
+              true => ()
+            );
+          },
+          .AnyChar => {
+            should_match := cond(
+              self._flags.dot_all => true,
+              true => (sub_cp != u32(10))
+            );
+            cond(
+              should_match => {
+                new_t := st_thread.fork((st_thread.pc + usize(1)));
+                self._add_thread(&(sub_next), new_t, (sub_pos + sub_blen), &(sub_seen));
+              },
+              true => ()
+            );
+          },
+          .CharClass => {
+            class_opt := self._program.classes.get(st_instr.class_idx);
+            match(class_opt,
+              .Some(cls) => {
+                cond(
+                  self._codepoint_in_class(sub_cp, cls) => {
+                    new_t := st_thread.fork((st_thread.pc + usize(1)));
+                    self._add_thread(&(sub_next), new_t, (sub_pos + sub_blen), &(sub_seen));
+                  },
+                  true => ()
+                );
+              },
+              .None => ()
+            );
+          },
+          _ => ()
+        );
+      };
+
+      sub_current = sub_next;
+      sub_next = ArrayList(NfaThread).new();
+      sub_pos = (sub_pos + sub_blen);
+    };
+
+    false
+  })
+);
+
+// Block 5: exec_at (depends on Block 1+2+3+4)
 impl(NfaVm,
   exec_at : (fn(self : Self, start_byte : usize) -> VmMatch)({
     current := ArrayList(NfaThread).new();
@@ -324,9 +445,11 @@ impl(NfaVm,
     deferred := ArrayList(DeferredThread).new();
 
     seen := ArrayList(bool).with_capacity(self._program.instructions.len());
+    next_seen := ArrayList(bool).with_capacity(self._program.instructions.len());
     i := usize(0);
     while (i < self._program.instructions.len()), (i = (i + usize(1))), {
       seen.push(false);
+      next_seen.push(false);
     };
 
     initial := NfaThread.new(usize(0), self._n_slots);
@@ -355,6 +478,7 @@ impl(NfaVm,
       j := usize(0);
       while (j < seen.len()), (j = (j + usize(1))), {
         seen.set(j, false);
+        next_seen.set(j, false);
       };
 
       // Process deferred threads targeting this byte_pos
@@ -391,7 +515,7 @@ impl(NfaVm,
             cond(
               ((!(at_end)) && (self._char_matches(instr.codepoint, cur_cp))) => {
                 new_thread := thread.fork((thread.pc + usize(1)));
-                self._add_thread(&(next), new_thread, (byte_pos + char_byte_len), &(seen));
+                self._add_thread(&(next), new_thread, (byte_pos + char_byte_len), &(next_seen));
               },
               true => ()
             );
@@ -406,7 +530,7 @@ impl(NfaVm,
                 cond(
                   should_match => {
                     new_thread := thread.fork((thread.pc + usize(1)));
-                    self._add_thread(&(next), new_thread, (byte_pos + char_byte_len), &(seen));
+                    self._add_thread(&(next), new_thread, (byte_pos + char_byte_len), &(next_seen));
                   },
                   true => ()
                 );
@@ -423,7 +547,7 @@ impl(NfaVm,
                     cond(
                       self._codepoint_in_class(cur_cp, cls) => {
                         new_thread := thread.fork((thread.pc + usize(1)));
-                        self._add_thread(&(next), new_thread, (byte_pos + char_byte_len), &(seen));
+                        self._add_thread(&(next), new_thread, (byte_pos + char_byte_len), &(next_seen));
                       },
                       true => ()
                     );
@@ -498,6 +622,85 @@ impl(NfaVm,
                   },
                   true => ()
                 );
+              },
+              true => ()
+            );
+          },
+          .Lookahead => {
+            // Zero-width assertion: run sub-VM at current position
+            sub_start := instr.target_a;
+            positive := (instr.slot == usize(1));
+            sub_matched := self._run_sub_vm(sub_start, byte_pos, unset);
+            cond(
+              (sub_matched == positive) => {
+                sub_end := instr.target_b;
+                new_thread := thread.fork(sub_end);
+                self._add_thread(&(current), new_thread, byte_pos, &(seen));
+              },
+              true => ()
+            );
+          },
+          .Lookbehind => {
+            // Zero-width assertion: check if sub-pattern matches ending at current position
+            sub_start := instr.target_a;
+            positive := (instr.slot == usize(1));
+            (lb_matched : bool) = false;
+
+            // Try each byte position backwards from byte_pos
+            cond(
+              (byte_pos == usize(0)) => {
+                // Only try empty match at position 0
+                cond(
+                  self._run_sub_vm(sub_start, usize(0), usize(0)) => {
+                    lb_matched = true;
+                  },
+                  true => ()
+                );
+              },
+              true => {
+                // Try from byte_pos backwards to 0
+                (try_pos : usize) = byte_pos;
+                while (!(lb_matched)), {
+                  cond(
+                    (try_pos == usize(0)) => {
+                      cond(
+                        self._run_sub_vm(sub_start, usize(0), byte_pos) => {
+                          lb_matched = true;
+                        },
+                        true => ()
+                      );
+                      break;
+                    },
+                    true => {
+                      try_pos = (try_pos - usize(1));
+                      // Skip UTF-8 continuation bytes (10xxxxxx)
+                      cond(
+                        (try_pos > usize(0)) => {
+                          tb := self._bytes.get(try_pos).unwrap();
+                          while (((tb >= u8(0x80)) && (tb < u8(0xC0))) && (try_pos > usize(0))), {
+                            try_pos = (try_pos - usize(1));
+                            tb = self._bytes.get(try_pos).unwrap();
+                          };
+                        },
+                        true => ()
+                      );
+                      cond(
+                        self._run_sub_vm(sub_start, try_pos, byte_pos) => {
+                          lb_matched = true;
+                        },
+                        true => ()
+                      );
+                    }
+                  );
+                };
+              }
+            );
+
+            cond(
+              (lb_matched == positive) => {
+                sub_end := instr.target_b;
+                new_thread := thread.fork(sub_end);
+                self._add_thread(&(current), new_thread, byte_pos, &(seen));
               },
               true => ()
             );

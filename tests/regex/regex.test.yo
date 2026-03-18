@@ -487,3 +487,89 @@ test "Named backref fails when not repeated", {
   m := re.exec(`hello world`);
   assert(m.is_none(), "should not match different words");
 };
+
+// ===== 15. Lookahead =====
+
+test "Positive lookahead matches position", {
+  re := Regex.new(`foo(?=bar)`, ``).unwrap();
+  m := re.exec(`foobar`);
+  result := m.unwrap();
+  assert((result.value() == `foo`), "should match foo before bar");
+  assert((result.index() == usize(0)), "at index 0");
+};
+
+test "Positive lookahead fails when not followed", {
+  re := Regex.new(`foo(?=bar)`, ``).unwrap();
+  m := re.exec(`foobaz`);
+  assert(m.is_none(), "should not match foo not followed by bar");
+};
+
+test "Negative lookahead matches position", {
+  re := Regex.new(`foo(?!bar)`, ``).unwrap();
+  m := re.exec(`foobaz`);
+  result := m.unwrap();
+  assert((result.value() == `foo`), "should match foo not followed by bar");
+};
+
+test "Negative lookahead fails when followed", {
+  re := Regex.new(`foo(?!bar)`, ``).unwrap();
+  m := re.exec(`foobar`);
+  assert(m.is_none(), "should not match foo followed by bar");
+};
+
+test "Lookahead with quantifier in main pattern", {
+  re := Regex.new(`\\w+(?=\\d)`, ``).unwrap();
+  m := re.exec(`abc3`);
+  result := m.unwrap();
+  assert((result.value() == `abc`), "should match word before digit");
+};
+
+test "Lookahead is zero-width", {
+  re := Regex.new(`a(?=b)b`, ``).unwrap();
+  m := re.exec(`ab`);
+  result := m.unwrap();
+  assert((result.value() == `ab`), "lookahead does not consume characters");
+};
+
+// ===== 16. Lookbehind =====
+
+test "Positive lookbehind matches position", {
+  re := Regex.new(`(?<=foo)bar`, ``).unwrap();
+  m := re.exec(`foobar`);
+  result := m.unwrap();
+  assert((result.value() == `bar`), "should match bar after foo");
+  assert((result.index() == usize(3)), "at index 3");
+};
+
+test "Positive lookbehind fails when not preceded", {
+  re := Regex.new(`(?<=foo)bar`, ``).unwrap();
+  m := re.exec(`bazbar`);
+  assert(m.is_none(), "should not match bar not preceded by foo");
+};
+
+test "Negative lookbehind matches position", {
+  re := Regex.new(`(?<!foo)bar`, ``).unwrap();
+  m := re.exec(`bazbar`);
+  result := m.unwrap();
+  assert((result.value() == `bar`), "should match bar not preceded by foo");
+};
+
+test "Negative lookbehind fails when preceded", {
+  re := Regex.new(`(?<!foo)bar`, ``).unwrap();
+  m := re.exec(`foobar`);
+  assert(m.is_none(), "should not match bar preceded by foo");
+};
+
+test "Lookbehind with digit class", {
+  re := Regex.new(`(?<=\\d)px`, ``).unwrap();
+  m := re.exec(`10px`);
+  result := m.unwrap();
+  assert((result.value() == `px`), "should match px after digit");
+};
+
+test "Combined lookahead and lookbehind", {
+  re := Regex.new(`(?<=\\d)\\w+(?=\\.)`, ``).unwrap();
+  m := re.exec(`3items.`);
+  result := m.unwrap();
+  assert((result.value() == `items`), "should match word between digit and dot");
+};

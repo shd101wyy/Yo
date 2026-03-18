@@ -20,7 +20,9 @@ InstrKind :: enum(
   AssertEnd,
   AssertWordBoundary,
   AssertNonWordBoundary,
-  Backref
+  Backref,
+  Lookahead,
+  Lookbehind
 );
 
 // A single NFA instruction
@@ -82,6 +84,18 @@ impl(Instr,
   backref_instr : (fn(group_idx : usize) -> Self)(
     Self(kind: .Backref, codepoint: u32(0), class_idx: usize(0),
          target_a: usize(0), target_b: usize(0), target: usize(0), slot: group_idx)
+  ),
+  // Lookahead: target_a=sub_start, target_b=sub_end, slot=1 for positive/0 for negative
+  lookahead_instr : (fn(sub_start : usize, sub_end : usize, positive : bool) -> Self)(
+    Self(kind: .Lookahead, codepoint: u32(0), class_idx: usize(0),
+         target_a: sub_start, target_b: sub_end, target: usize(0),
+         slot: cond(positive => usize(1), true => usize(0)))
+  ),
+  // Lookbehind: target_a=sub_start, target_b=sub_end, slot=1 for positive/0 for negative
+  lookbehind_instr : (fn(sub_start : usize, sub_end : usize, positive : bool) -> Self)(
+    Self(kind: .Lookbehind, codepoint: u32(0), class_idx: usize(0),
+         target_a: sub_start, target_b: sub_end, target: usize(0),
+         slot: cond(positive => usize(1), true => usize(0)))
   )
 );
 
@@ -256,6 +270,27 @@ impl(NfaCompiler,
       },
       .Backreference => {
         self._emit(Instr.backref_instr(node.group_index));
+      },
+      .Lookahead => {
+        child := node.children.get(usize(0)).unwrap();
+        positive := (!(node.negated));
+        // Emit lookahead instruction with placeholder sub_end
+        la_pc := self._emit(Instr.lookahead_instr(usize(0), usize(0), positive));
+        sub_start := self._current_pc();
+        recur(self, child);
+        self._emit(Instr.match_instr());
+        sub_end := self._current_pc();
+        self._program.instructions.set(la_pc, Instr.lookahead_instr(sub_start, sub_end, positive));
+      },
+      .Lookbehind => {
+        child := node.children.get(usize(0)).unwrap();
+        positive := (!(node.negated));
+        lb_pc := self._emit(Instr.lookbehind_instr(usize(0), usize(0), positive));
+        sub_start := self._current_pc();
+        recur(self, child);
+        self._emit(Instr.match_instr());
+        sub_end := self._current_pc();
+        self._program.instructions.set(lb_pc, Instr.lookbehind_instr(sub_start, sub_end, positive));
       }
     );
   })

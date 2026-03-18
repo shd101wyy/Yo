@@ -12,7 +12,10 @@ ParseFrame :: struct(
   alternatives : ArrayList(ArrayList(RegexNode)),
   current      : ArrayList(RegexNode),
   is_non_capturing : bool,
-  group_index  : usize
+  group_index  : usize,
+  is_lookahead  : bool,
+  is_lookbehind : bool,
+  is_positive   : bool
 );
 
 // Parser state object
@@ -546,6 +549,9 @@ impl(RegexParser,
     cur_seq  := ArrayList(RegexNode).new();
     cur_non_cap := false;
     cur_group_idx := usize(0);
+    cur_is_la := false;
+    cur_is_lb := false;
+    cur_is_pos := true;
 
     while (!(self._at_end())), {
       pk := self._peek();
@@ -562,12 +568,18 @@ impl(RegexParser,
             alternatives: cur_alts,
             current: cur_seq,
             is_non_capturing: cur_non_cap,
-            group_index: cur_group_idx
+            group_index: cur_group_idx,
+            is_lookahead: cur_is_la,
+            is_lookbehind: cur_is_lb,
+            is_positive: cur_is_pos
           ));
 
-          // Detect (?:  or  (?<name>
+          // Detect group type: (?:  (?<name>  (?=  (?!  (?<=  (?<!
           is_nc := false;
           g_idx := usize(0);
+          is_la := false;
+          is_lb := false;
+          is_pos := true;
           pk2 := self._peek();
           is_question := match(pk2,
             .Some(v) => (v == u8(63)),
@@ -589,31 +601,73 @@ impl(RegexParser,
                       is_nc = true;
                       self._pos = (self._pos + usize(2));
                     },
-                    // (?<name>  — named capturing group
-                    (next_ch == u8(60)) => {
+                    // (?=  — positive lookahead
+                    (next_ch == u8(61)) => {
+                      is_la = true;
+                      is_pos = true;
+                      is_nc = true;
                       self._pos = (self._pos + usize(2));
-                      name_bytes := ArrayList(u8).new();
-                      while (!(self._at_end())), {
-                        name_b := self._peek();
-                        name_ch := match(name_b,
+                    },
+                    // (?!  — negative lookahead
+                    (next_ch == u8(33)) => {
+                      is_la = true;
+                      is_pos = false;
+                      is_nc = true;
+                      self._pos = (self._pos + usize(2));
+                    },
+                    // (?< — could be lookbehind or named group
+                    (next_ch == u8(60)) => {
+                      // Check char after '<'
+                      has_third := ((self._pos + usize(2)) < self._bytes.len());
+                      third_ch := cond(
+                        has_third => match(self._bytes.get((self._pos + usize(2))),
                           .Some(v) => v,
-                          .None => { break; }
-                        );
-                        cond(
-                          (name_ch == u8(62)) => {
-                            self._pos = (self._pos + usize(1));
-                            break;
-                          },
-                          true => {
-                            name_bytes.push(name_ch);
-                            self._pos = (self._pos + usize(1));
-                          }
-                        );
-                      };
-                      self._group_count = (self._group_count + usize(1));
-                      g_idx = self._group_count;
-                      group_name := String.from_bytes(name_bytes);
-                      self._group_names.push(GroupNameEntry(name: group_name, index: g_idx));
+                          .None => u8(0)
+                        ),
+                        true => u8(0)
+                      );
+                      cond(
+                        // (?<=  — positive lookbehind
+                        (third_ch == u8(61)) => {
+                          is_lb = true;
+                          is_pos = true;
+                          is_nc = true;
+                          self._pos = (self._pos + usize(3));
+                        },
+                        // (?<!  — negative lookbehind
+                        (third_ch == u8(33)) => {
+                          is_lb = true;
+                          is_pos = false;
+                          is_nc = true;
+                          self._pos = (self._pos + usize(3));
+                        },
+                        // (?<name>  — named capturing group
+                        true => {
+                          self._pos = (self._pos + usize(2));
+                          name_bytes := ArrayList(u8).new();
+                          while (!(self._at_end())), {
+                            name_b := self._peek();
+                            name_ch := match(name_b,
+                              .Some(v) => v,
+                              .None => { break; }
+                            );
+                            cond(
+                              (name_ch == u8(62)) => {
+                                self._pos = (self._pos + usize(1));
+                                break;
+                              },
+                              true => {
+                                name_bytes.push(name_ch);
+                                self._pos = (self._pos + usize(1));
+                              }
+                            );
+                          };
+                          self._group_count = (self._group_count + usize(1));
+                          g_idx = self._group_count;
+                          group_name := String.from_bytes(name_bytes);
+                          self._group_names.push(GroupNameEntry(name: group_name, index: g_idx));
+                        }
+                      );
                     },
                     true => ()
                   );
@@ -625,7 +679,7 @@ impl(RegexParser,
           );
 
           cond(
-            ((!(is_nc)) && (g_idx == usize(0))) => {
+            (((!(is_nc)) && (!(is_la))) && ((!(is_lb)) && (g_idx == usize(0)))) => {
               self._group_count = (self._group_count + usize(1));
               g_idx = self._group_count;
             },
@@ -636,6 +690,9 @@ impl(RegexParser,
           cur_seq = ArrayList(RegexNode).new();
           cur_non_cap = is_nc;
           cur_group_idx = g_idx;
+          cur_is_la = is_la;
+          cur_is_lb = is_lb;
+          cur_is_pos = is_pos;
         },
         (b == u8(41)) => {
           // ')' — close group
@@ -648,7 +705,14 @@ impl(RegexParser,
           );
 
           inner := self._finalize_frame(cur_alts, cur_seq);
+
+          // Save this group's type before restoring parent frame
+          this_is_la := cur_is_la;
+          this_is_lb := cur_is_lb;
+
           group_node := cond(
+            cur_is_la => RegexNode.lookahead(inner, cur_is_pos),
+            cur_is_lb => RegexNode.lookbehind(inner, cur_is_pos),
             cur_non_cap => RegexNode.non_capturing_group(inner),
             true => RegexNode.group(inner, cur_group_idx)
           );
@@ -659,11 +723,22 @@ impl(RegexParser,
           cur_seq = parent.current;
           cur_non_cap = parent.is_non_capturing;
           cur_group_idx = parent.group_index;
+          cur_is_la = parent.is_lookahead;
+          cur_is_lb = parent.is_lookbehind;
+          cur_is_pos = parent.is_positive;
 
-          quantified := self._maybe_quantify(group_node);
-          match(quantified,
-            .Ok(q) => { cur_seq.push(q); },
-            .Err(e) => { return .Err(e); }
+          // Lookahead/lookbehind should not be quantified
+          cond(
+            (this_is_la || this_is_lb) => {
+              cur_seq.push(group_node);
+            },
+            true => {
+              quantified := self._maybe_quantify(group_node);
+              match(quantified,
+                .Ok(q) => { cur_seq.push(q); },
+                .Err(e) => { return .Err(e); }
+              );
+            }
           );
         },
         (b == u8(124)) => {

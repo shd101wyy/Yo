@@ -219,7 +219,9 @@ Key design decisions:
 - Parser uses iterative stack-based approach with ParseFrame structs instead of recursive descent, working around Yo's forward method reference limitation.
 - All recursive calls use `recur(self, args)` per Yo's recursion model.
 
-**Next**: Phase 6 (Named Groups & Backreferences)
+**Next**: Phase 7 (Lookahead & Lookbehind)
+
+Phase 6 completed: Named groups, numeric backreferences (\1-\9), and named backreferences (\k<name>) all working. Used a DeferredThread mechanism for multi-byte backreferences — threads that consume multiple bytes are deferred until the target byte position is reached. Also discovered and fixed a Yo compiler bug: `getSizeOfType` didn't account for C struct alignment padding (pointer+bool struct was calculated as 9 bytes instead of 16).
 
 ---
 
@@ -304,7 +306,7 @@ Key design decisions:
 - Multiline flag (`m`) — `^`/`$` match line boundaries
 - Dot-all flag (`s`) — `.` matches `\n`
 
-### Phase 6: Named Groups & Backreferences
+### Phase 6: Named Groups & Backreferences ✅
 
 **Goal**: Named capture groups and backreferences.
 
