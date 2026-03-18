@@ -190,6 +190,30 @@ impl(Tree,
 
 `recur` works in any `fn` body (free functions and methods). The arguments must match the function's parameter types.
 
+## Module imports
+
+Use destructured imports for files in the same directory:
+
+```yo
+// CORRECT — destructured import with relative path:
+{ RegexNode, NodeKind, CharRange } :: import "./node.yo";
+
+// CORRECT - Named moudle
+Node :: import "./node.yo";
+
+// CORRECT — open import for std library modules:
+open import "std/collections/array_list";
+open import "std/string";
+
+// WRONG — `import "path" as name` does NOT work for .yo files:
+// import "./node.yo" as node;  // causes "Invalid function call on type: comptime_string"
+
+// WRONG — absolute-style paths from within a subdirectory:
+// import "std/regex/node" as node;  // module resolution fails
+```
+
+For files within the same directory, always use relative paths (`./file.yo`). For std library modules, use the standard `"std/module"` path.
+
 ## Other syntax notes
 
 - `unit` is a type not value, `()` is the unit value.
