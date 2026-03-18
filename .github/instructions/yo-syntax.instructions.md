@@ -199,7 +199,7 @@ Use destructured imports for files in the same directory:
 { RegexNode, NodeKind, CharRange } :: import "./node.yo";
 
 // CORRECT - Named moudle
-Node :: import "./node.yo";
+node_module :: import "./node.yo";
 
 // CORRECT — open import for std library modules:
 open import "std/collections/array_list";
