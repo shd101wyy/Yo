@@ -701,3 +701,65 @@ test "replace with pre-match and post-match refs", {
   result := re.replace(`abc123def`, `[$\`|$']`);
   assert((result == `abc[abc|def]def`), "should insert pre and post match");
 };
+
+// ===== Phase 10: Performance optimization correctness =====
+
+test "literal prefix optimization: simple literal", {
+  // Pattern starts with literal "hello" — prefix scan should jump to it
+  re := Regex.new(`hello world`, ``).unwrap();
+  m := re.exec(`xxxxxx hello world yyyy`);
+  assert(m.is_some(), "should find match");
+  assert((m.unwrap().value() == `hello world`), "should match full string");
+};
+
+test "literal prefix optimization: no match fast exit", {
+  re := Regex.new(`xyz123`, ``).unwrap();
+  m := re.exec(`aaaaaaaaaaaa`);
+  assert(m.is_none(), "should not find match when prefix absent");
+};
+
+test "literal prefix optimization: match_all finds all occurrences", {
+  re := Regex.new(`ab.`, ``).unwrap();
+  matches := re.match_all(`--abc--abd--abe--`);
+  assert((matches.len() == usize(3)), "should find 3 matches");
+  assert((matches.get(usize(0)).unwrap().value() == `abc`), "first match");
+  assert((matches.get(usize(1)).unwrap().value() == `abd`), "second match");
+  assert((matches.get(usize(2)).unwrap().value() == `abe`), "third match");
+};
+
+test "literal prefix optimization: case insensitive disables prefix", {
+  re := Regex.new(`hello`, `i`).unwrap();
+  m := re.exec(`xxxHELLOxxx`);
+  assert(m.is_some(), "case insensitive should still match without prefix");
+  assert((m.unwrap().value() == `HELLO`), "should match uppercase");
+};
+
+test "literal prefix optimization: prefix shorter than input", {
+  re := Regex.new(`ab`, ``).unwrap();
+  m := re.exec(`a`);
+  assert(m.is_none(), "input shorter than prefix should not crash");
+};
+
+test "literal prefix optimization: alternation has no prefix", {
+  // Pattern starts with alternation — no literal prefix
+  re := Regex.new(`(a|b)c`, ``).unwrap();
+  m1 := re.exec(`xxacxx`);
+  assert(m1.is_some(), "should match ac");
+  m2 := re.exec(`xxbcxx`);
+  assert(m2.is_some(), "should match bc");
+};
+
+test "early break in char class: large class still matches", {
+  // [a-z] has 26 entries; early break should still find the match
+  re := Regex.new(`[a-z]+`, ``).unwrap();
+  m := re.exec(`123hello456`);
+  assert(m.is_some(), "should match lowercase run");
+  assert((m.unwrap().value() == `hello`), "should match the letters");
+};
+
+test "early break in char class: negated class with early break", {
+  re := Regex.new(`[^0-9]+`, ``).unwrap();
+  m := re.exec(`123hello456`);
+  assert(m.is_some(), "should match non-digit run");
+  assert((m.unwrap().value() == `hello`), "should match the letters");
+};

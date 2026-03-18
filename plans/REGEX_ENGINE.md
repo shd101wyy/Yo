@@ -219,7 +219,11 @@ Key design decisions:
 - Parser uses iterative stack-based approach with ParseFrame structs instead of recursive descent, working around Yo's forward method reference limitation.
 - All recursive calls use `recur(self, args)` per Yo's recursion model.
 
-**Next**: Phase 8 (Unicode Support)
+**Next**: Phase 10 (Performance Optimization)
+
+Phase 10 completed: Added literal prefix extraction and fast-scan optimization — the compiler extracts leading literal ASCII bytes from the pattern, and `exec`/`match_all` use `_find_prefix_pos` to skip non-matching start positions. Added early-break in `_codepoint_in_class` loops to stop once a match is found. Disabled prefix optimization for case-insensitive patterns. Fixed unsigned underflow in `_find_prefix_pos` when input is shorter than prefix. 8 new tests added (85 total).
+
+Phase 9 completed: Added `search`, `replace`, `replace_all`, and `split` methods to Regex. Replacement patterns support `$&`, `$1`-`$9`, `${name}`, `` $` ``, `$'`, and `$$`. Split includes captured groups in results (JS-compatible). Avoided early returns in `split` and `replace_all` to prevent RC memory leaks detected by ASan.
 
 Phase 7 completed: All four lookaround assertions (positive/negative lookahead/lookbehind) implemented. Uses a `_run_sub_vm` method that runs a mini Thompson simulation for sub-patterns. Lookbehind tries all start positions backwards with UTF-8 boundary handling. Fixed a shared seen-array bug where lookbehind `current`-list additions were blocking `next`-list thread expansion — solved with separate `next_seen` array.
 
@@ -341,7 +345,7 @@ Phase 6 completed: Named groups, numeric backreferences (\1-\9), and named backr
 - Unicode category escapes
 - Proper handling of multi-byte UTF-8 sequences in character classes
 
-### Phase 9: String Integration
+### Phase 9: String Integration ✅
 
 **Goal**: Add regex-aware methods to `String`.
 
@@ -353,16 +357,21 @@ Phase 6 completed: Named groups, numeric backreferences (\1-\9), and named backr
 - `String.split` with `Regex`
 - Replacement patterns: `$1`, `$&`, `` $` ``, `$'`, `${name}`
 
-### Phase 10: Performance Optimization
+### Phase 10: Performance Optimization ✅
 
 **Goal**: Make the engine fast for real-world usage.
 
-**Optimizations**:
+**Implemented optimizations**:
 
-- Literal prefix optimization (skip NFA for initial literal prefix)
-- One-pass NFA for simple patterns (avoid full parallel tracking)
+- ✅ Literal prefix optimization (extract leading literal bytes, skip NFA start positions via fast byte scan)
+- ✅ Early break in character class matching (stop iterating ranges once a match is found)
+- ✅ Case-insensitive prefix disabled (prefix scan is byte-exact, incompatible with case folding)
+
+**Not implemented** (diminishing returns for current use cases):
+
+- One-pass NFA for simple patterns
 - Character class bitmap (256-bit bitmap for ASCII fast path)
-- Compiled DFA cache for hot patterns (optional, complex)
+- Compiled DFA cache for hot patterns
 
 ---
 

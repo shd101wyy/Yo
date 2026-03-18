@@ -167,9 +167,9 @@ impl(NfaVm,
       true => cp
     );
 
-    found := false;
+    (found : bool) = false;
     i := usize(0);
-    while (i < cls.ranges.len()), (i = (i + usize(1))), {
+    while ((i < cls.ranges.len()) && (!(found))), (i = (i + usize(1))), {
       r := cls.ranges.get(i).unwrap();
       (low : u32) = cond(
         self._flags.ignore_case => self._to_lower(r.low),
@@ -188,7 +188,7 @@ impl(NfaVm,
     cond(
       ((!(found)) && self._flags.ignore_case) => {
         i2 := usize(0);
-        while (i2 < cls.ranges.len()), (i2 = (i2 + usize(1))), {
+        while ((i2 < cls.ranges.len()) && (!(found))), (i2 = (i2 + usize(1))), {
           r := cls.ranges.get(i2).unwrap();
           cond(
             ((cp >= r.low) && (cp <= r.high)) => { found = true; },

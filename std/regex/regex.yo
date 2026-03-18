@@ -44,6 +44,11 @@ impl(Regex,
             gnames := parser.group_names();
             compiler := NfaCompiler.new();
             program := compiler.compile(ast, n_groups, gnames);
+            // Literal prefix scan is case-sensitive; disable when ignoreCase
+            cond(
+              flags.ignore_case => { program.literal_prefix = ArrayList(u8).new(); },
+              true => ()
+            );
             .Ok(Self(
               _program: program,
               _flags: flags,
@@ -85,6 +90,52 @@ impl(Regex,
       char_idx = (char_idx + usize(1));
     };
     char_idx
+  }),
+
+  // Fast-scan: find the next byte position where the literal prefix matches.
+  // Returns the byte position or input_len if not found.
+  _find_prefix_pos : (fn(self : Self, input_bytes : ArrayList(u8), from_byte : usize) -> usize)({
+    prefix := self._program.literal_prefix;
+    prefix_len := prefix.len();
+    input_len := input_bytes.len();
+
+    cond(
+      (prefix_len == usize(0)) => from_byte,
+      (input_len < prefix_len) => (input_len + usize(1)),
+      true => {
+        first_byte := prefix.get(usize(0)).unwrap();
+        (pos : usize) = from_byte;
+        (found : bool) = false;
+
+        while ((pos <= (input_len - prefix_len)) && (!(found))), {
+          cond(
+            (input_bytes.get(pos).unwrap() == first_byte) => {
+              // Check remaining prefix bytes
+              (match_ok : bool) = true;
+              pi := usize(1);
+              while ((pi < prefix_len) && match_ok), (pi = (pi + usize(1))), {
+                cond(
+                  (input_bytes.get((pos + pi)).unwrap() != prefix.get(pi).unwrap()) => {
+                    match_ok = false;
+                  },
+                  true => ()
+                );
+              };
+              cond(
+                match_ok => { found = true; },
+                true => { pos = (pos + usize(1)); }
+              );
+            },
+            true => { pos = (pos + usize(1)); }
+          );
+        };
+
+        cond(
+          found => pos,
+          true => (input_len + usize(1))
+        )
+      }
+    )
   })
 );
 
@@ -135,8 +186,13 @@ impl(Regex,
   exec : (fn(self : Self, input : String) -> Option(RegexMatch))({
     bytes := input.as_bytes();
     input_len := bytes.len();
+    has_prefix := (self._program.literal_prefix.len() > usize(0));
 
-    byte_pos := usize(0);
+    byte_pos := cond(
+      has_prefix => self._find_prefix_pos(bytes, usize(0)),
+      true => usize(0)
+    );
+
     while (byte_pos <= input_len), {
       vm := NfaVm.new(self._program, self._flags, input);
       result := vm.exec_at(byte_pos);
@@ -159,7 +215,11 @@ impl(Regex,
             ((b >= u8(0xE0)) && (b < u8(0xF0))) => usize(3),
             true => usize(4)
           );
-          byte_pos = (byte_pos + char_len);
+          next_pos := (byte_pos + char_len);
+          byte_pos = cond(
+            has_prefix => self._find_prefix_pos(bytes, next_pos),
+            true => next_pos
+          );
         }
       );
     };
@@ -171,7 +231,12 @@ impl(Regex,
     matches := ArrayList(RegexMatch).new();
     bytes := input.as_bytes();
     input_len := bytes.len();
-    byte_pos := usize(0);
+    has_prefix := (self._program.literal_prefix.len() > usize(0));
+
+    byte_pos := cond(
+      has_prefix => self._find_prefix_pos(bytes, usize(0)),
+      true => usize(0)
+    );
 
     while (byte_pos <= input_len), {
       vm := NfaVm.new(self._program, self._flags, input);
@@ -197,12 +262,19 @@ impl(Regex,
                     ((b >= u8(0xE0)) && (b < u8(0xF0))) => usize(3),
                     true => usize(4)
                   );
-                  byte_pos = (byte_pos + char_len);
+                  next_pos := (byte_pos + char_len);
+                  byte_pos = cond(
+                    has_prefix => self._find_prefix_pos(bytes, next_pos),
+                    true => next_pos
+                  );
                 }
               );
             },
             true => {
-              byte_pos = match_end;
+              byte_pos = cond(
+                has_prefix => self._find_prefix_pos(bytes, match_end),
+                true => match_end
+              );
             }
           );
         },
@@ -217,7 +289,11 @@ impl(Regex,
                 ((b >= u8(0xE0)) && (b < u8(0xF0))) => usize(3),
                 true => usize(4)
               );
-              byte_pos = (byte_pos + char_len);
+              next_pos := (byte_pos + char_len);
+              byte_pos = cond(
+                has_prefix => self._find_prefix_pos(bytes, next_pos),
+                true => next_pos
+              );
             }
           );
         }

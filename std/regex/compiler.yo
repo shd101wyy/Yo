@@ -107,10 +107,11 @@ ClassEntry :: struct(
 
 // The compiled NFA program
 NfaProgram :: object(
-  instructions : ArrayList(Instr),
-  classes      : ArrayList(ClassEntry),
-  n_groups     : usize,
-  group_names  : ArrayList(GroupNameEntry)
+  instructions   : ArrayList(Instr),
+  classes        : ArrayList(ClassEntry),
+  n_groups       : usize,
+  group_names    : ArrayList(GroupNameEntry),
+  literal_prefix : ArrayList(u8)
 );
 
 // The NFA compiler
@@ -126,7 +127,8 @@ impl(NfaCompiler,
         instructions: ArrayList(Instr).new(),
         classes: ArrayList(ClassEntry).new(),
         n_groups: usize(0),
-        group_names: ArrayList(GroupNameEntry).new()
+        group_names: ArrayList(GroupNameEntry).new(),
+        literal_prefix: ArrayList(u8).new()
       )
     )
   ),
@@ -296,6 +298,39 @@ impl(NfaCompiler,
   })
 );
 
+// Literal prefix extraction (must be before compile)
+impl(NfaCompiler,
+  // Extract literal bytes from the start of the pattern for fast scanning.
+  // Walks past Save/AssertStart instructions, then collects Char instructions.
+  _extract_literal_prefix : (fn(self : Self) -> unit)({
+    prefix := ArrayList(u8).new();
+    pc := usize(0);
+    instrs := self._program.instructions;
+    (done : bool) = false;
+
+    while ((pc < instrs.len()) && (!(done))), {
+      instr := instrs.get(pc).unwrap();
+      match(instr.kind,
+        .Save => { pc = (pc + usize(1)); },
+        .AssertStart => { pc = (pc + usize(1)); },
+        .Char => {
+          cp := instr.codepoint;
+          cond(
+            (cp < u32(0x80)) => {
+              prefix.push(u8(cp));
+              pc = (pc + usize(1));
+            },
+            true => { done = true; }
+          );
+        },
+        _ => { done = true; }
+      );
+    };
+
+    self._program.literal_prefix = prefix;
+  })
+);
+
 // Top-level compile method
 impl(NfaCompiler,
   compile : (fn(self : Self, root : RegexNode, n_groups : usize, group_names : ArrayList(GroupNameEntry)) -> NfaProgram)({
@@ -305,6 +340,7 @@ impl(NfaCompiler,
     self._compile_node(root);
     self._emit(Instr.save_instr(usize(1)));
     self._emit(Instr.match_instr());
+    self._extract_literal_prefix();
     self._program
   })
 );
