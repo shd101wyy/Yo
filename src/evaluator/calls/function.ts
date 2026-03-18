@@ -4,6 +4,7 @@ import {
   getReceiverMethodsByNameFromEnv,
   getTypeTraitMethodsByNameFromEnv,
   getVariablesFromEnv,
+  isComptimeRuntimeSpecializationPair,
   popEnvFrame,
   updateExistingVariable,
 } from "../../env";
@@ -59,6 +60,7 @@ import {
   isArrayValue,
   isExprValue,
   isFunctionValue,
+  isModuleValue,
   isSliceValue,
   isTupleValue,
   isTypeValue,
@@ -287,7 +289,42 @@ export function evaluateFunctionCall({
                 isInfixOperatorCall: false, // isInfixOperatorCall - property access allows auto pointer conversion
               });
 
+              // If no methods found via trait lookup but receiver is a module,
+              // check module fields directly (handles specialization pair exports)
+              let isModuleFieldLookup = false;
+              if (
+                methods.length === 0 &&
+                isModuleType(receiverType) &&
+                isModuleValue(receiverValue)
+              ) {
+                for (let fi = 0; fi < receiverType.fields.length; fi++) {
+                  const field = receiverType.fields[fi]!;
+                  if (
+                    field.label === methodName &&
+                    isFunctionType(field.type)
+                  ) {
+                    const value = receiverValue.fields[fi];
+                    methods.push({
+                      type: field.type,
+                      value,
+                    });
+                  }
+                }
+                if (methods.length > 0) {
+                  isModuleFieldLookup = true;
+                }
+              }
+
               functions = methods.map((method) => {
+                // Module field functions don't take the receiver as first arg
+                if (isModuleFieldLookup) {
+                  return {
+                    type: method.type,
+                    value: method.value,
+                    needsPointerConversion: method.needsPointerConversion,
+                    args: [...args],
+                  };
+                }
                 // If pointer conversion is needed, wrap the receiver in &()
                 let methodArgs: Expr[];
                 if (method.needsPointerConversion) {
@@ -527,6 +564,28 @@ export function evaluateFunctionCall({
               value: functionToCall.$.value,
             },
           ];
+
+          // Check for comptime/runtime specialization pair:
+          // If the callee is a simple identifier with 2 specialization variants,
+          // add both as function candidates for disambiguation.
+          if (exprIsAtom(expr.func) && isFunctionType(functionToCall.$.type)) {
+            const allVariables = getVariablesFromEnv(
+              env,
+              expr.func.token.value
+            );
+            if (
+              allVariables.length === 2 &&
+              isComptimeRuntimeSpecializationPair(
+                allVariables[0]!,
+                allVariables[1]!
+              )
+            ) {
+              functions = allVariables.map((v) => ({
+                type: v.type,
+                value: v.value?.[0],
+              }));
+            }
+          }
         }
       }
     }

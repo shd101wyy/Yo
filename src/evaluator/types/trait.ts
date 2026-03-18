@@ -3,6 +3,7 @@ import {
   addWhereClauseConstraintToEnv,
   type Environment,
   getVariablesFromEnv,
+  isComptimeRuntimeSpecializationPair,
   popEnvFrame,
   pushEnvFrame,
 } from "../../env";
@@ -982,14 +983,35 @@ export function evaluateTraitType({
       });
 
       // Check if there is duplicate labels
-      const duplicateLabel = fields.find((elem) => elem.label === field.label);
-      if (duplicateLabel) {
-        throw formatErrorMessage({
-          token: exprIsFunctionCall(arg)
-            ? (arg.args[0]?.token ?? arg.token)
-            : arg.token,
-          errorMessage: `Duplicate label 3 "${field.label}" in trait`,
-        });
+      // Allow comptime/runtime specialization pairs (max 2 with same label)
+      const duplicateLabels = fields.filter(
+        (elem) => elem.label === field.label
+      );
+      if (duplicateLabels.length > 0) {
+        if (duplicateLabels.length === 1) {
+          const existing = duplicateLabels[0]!;
+          const isSpecPair = isComptimeRuntimeSpecializationPair(
+            existing,
+            field
+          );
+          if (!isSpecPair) {
+            throw formatErrorMessage({
+              token: exprIsFunctionCall(arg)
+                ? (arg.args[0]?.token ?? arg.token)
+                : arg.token,
+              errorMessage: `Duplicate label 3 "${field.label}" in trait`,
+            });
+          }
+          // Valid specialization pair — allow the second field
+        } else {
+          // Already 2+ with same label
+          throw formatErrorMessage({
+            token: exprIsFunctionCall(arg)
+              ? (arg.args[0]?.token ?? arg.token)
+              : arg.token,
+            errorMessage: `Maximum 2 comptime/runtime specialization overloads for "${field.label}" in trait`,
+          });
+        }
       }
 
       fields.push(field);

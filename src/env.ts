@@ -467,6 +467,56 @@ export function createEnvContainingPrelude(): Environment {
  */
 export const YoSelf = "__yo_self";
 
+/**
+ * Check whether two function-typed variables form a valid comptime/runtime
+ * specialization pair. Rules:
+ * 1. Both must have function types.
+ * 2. Same number of non-forall, non-implicit parameters.
+ * 3. Same parameter types (compared by type id).
+ * 4. At least one parameter differs in isCompileTimeOnly.
+ */
+export function isComptimeRuntimeSpecializationPair(
+  existingVar: { type: Type; value?: [Value] },
+  newVar: { type: Type; value?: [Value] }
+): boolean {
+  if (!isFunctionType(existingVar.type) || !isFunctionType(newVar.type)) {
+    return false;
+  }
+
+  const existingParams = existingVar.type.parameters;
+  const newParams = newVar.type.parameters;
+
+  // Must have at least one parameter
+  if (existingParams.length === 0 || newParams.length === 0) {
+    return false;
+  }
+
+  // Same number of parameters
+  if (existingParams.length !== newParams.length) {
+    return false;
+  }
+
+  let hasComptimeDifference = false;
+
+  for (let i = 0; i < existingParams.length; i++) {
+    const existingParam = existingParams[i]!;
+    const newParam = newParams[i]!;
+
+    // Types must match (by type id)
+    if (existingParam.type.id !== newParam.type.id) {
+      return false;
+    }
+
+    // Track comptime/runtime differences
+    if (existingParam.isCompileTimeOnly !== newParam.isCompileTimeOnly) {
+      hasComptimeDifference = true;
+    }
+  }
+
+  // At least one parameter must differ in comptime/runtime context
+  return hasComptimeDifference;
+}
+
 export function addVariableToEnv({
   env,
   variable,
@@ -507,21 +557,45 @@ export function addVariableToEnv({
   // Prevent variable shadowing across all scopes
   // Variables with the same name cannot exist in different frames
   // EXCEPT: When allowVariableShadowing is true (for function type parameters)
+  // EXCEPT: When the new variable forms a valid comptime/runtime specialization pair
   if (variable.name !== YoSelf) {
     const existingVariables = getVariablesFromEnv(env, variable.name);
     if (existingVariables.length > 0 && !allowVariableShadowing) {
       const existingVariable = existingVariables[existingVariables.length - 1]!;
-      // console.trace("Variable shadowing detected:");
-      throw formatErrorMessages([
-        {
-          token: variable.token,
-          errorMessage: `Failed to define variable "${variable.name}":`,
-        },
-        {
-          token: existingVariable.token,
-          errorMessage: `Variable "${variable.name}" is already defined here (variable shadowing is not allowed):`,
-        },
-      ]);
+
+      // Allow comptime/runtime specialization pairs (max 2 overloads)
+      if (existingVariables.length === 1) {
+        const isSpecPair = isComptimeRuntimeSpecializationPair(
+          existingVariable,
+          variable
+        );
+        if (isSpecPair) {
+          // Valid specialization pair — allow the second definition
+        } else {
+          throw formatErrorMessages([
+            {
+              token: variable.token,
+              errorMessage: `Failed to define variable "${variable.name}":`,
+            },
+            {
+              token: existingVariable.token,
+              errorMessage: `Variable "${variable.name}" is already defined here (variable shadowing is not allowed):`,
+            },
+          ]);
+        }
+      } else {
+        // Already 2+ definitions — no more allowed
+        throw formatErrorMessages([
+          {
+            token: variable.token,
+            errorMessage: `Failed to define variable "${variable.name}": maximum 2 comptime/runtime specialization overloads allowed.`,
+          },
+          {
+            token: existingVariable.token,
+            errorMessage: `Variable "${variable.name}" already has 2 definitions:`,
+          },
+        ]);
+      }
     }
   }
 
@@ -570,19 +644,44 @@ export function addVariableToFrame({
   }
 
   // Check if variable already exists in the frame
-  // If yes, then report an error
-  if (frame.variables.some((value) => value.name === variable.name)) {
-    throw formatErrorMessages([
-      {
-        token: variable.token,
-        errorMessage: `Failed to define variable "${variable.name}":`,
-      },
-      {
-        token: frame.variables.find((value) => value.name === variable.name)!
-          .token,
-        errorMessage: `Variable "${variable.name}" is already defined here in the same scope:`,
-      },
-    ]);
+  // If yes, check if it forms a valid comptime/runtime specialization pair
+  // If not a valid pair, report an error
+  const existingInFrame = frame.variables.filter(
+    (value) => value.name === variable.name
+  );
+  if (existingInFrame.length > 0) {
+    if (existingInFrame.length === 1) {
+      const existing = existingInFrame[0]!;
+      const isSpecPair = isComptimeRuntimeSpecializationPair(
+        existing,
+        variable
+      );
+      if (!isSpecPair) {
+        throw formatErrorMessages([
+          {
+            token: variable.token,
+            errorMessage: `Failed to define variable "${variable.name}":`,
+          },
+          {
+            token: existing.token,
+            errorMessage: `Variable "${variable.name}" is already defined here in the same scope:`,
+          },
+        ]);
+      }
+      // Valid specialization pair — allow the second definition
+    } else {
+      // Already 2+ definitions — no more allowed
+      throw formatErrorMessages([
+        {
+          token: variable.token,
+          errorMessage: `Failed to define variable "${variable.name}": maximum 2 comptime/runtime specialization overloads allowed.`,
+        },
+        {
+          token: existingInFrame[0]!.token,
+          errorMessage: `Variable "${variable.name}" already has 2 definitions:`,
+        },
+      ]);
+    }
   }
 
   // Check if there is already a value with the same variableName
@@ -867,20 +966,23 @@ export function getTypeTraitMethodsByNameFromEnv({
   }
 
   // First check direct methods on the type's trait
-  const directMethod = type.trait.fields.find(
+  // Return all matching methods (supports comptime/runtime specialization pairs)
+  const directMethods = type.trait.fields.filter(
     (field) => field.label === methodName && isFunctionType(field.type)
   );
 
-  if (directMethod && isFunctionType(directMethod.type)) {
-    let value: Value | undefined = directMethod.assignedValue;
-    if (isUnknownValue(value)) {
-      value = createUnknownValue(directMethod.type, {
-        variableName: directMethod.label,
-        env,
-        context,
-      });
+  for (const directMethod of directMethods) {
+    if (isFunctionType(directMethod.type)) {
+      let value: Value | undefined = directMethod.assignedValue;
+      if (isUnknownValue(value)) {
+        value = createUnknownValue(directMethod.type, {
+          variableName: directMethod.label,
+          env,
+          context,
+        });
+      }
+      methods.push({ type: directMethod.type, value });
     }
-    methods.push({ type: directMethod.type, value });
   }
 
   // Check for impl'd traits (stored with empty label "" as TraitValue)
@@ -992,13 +1094,14 @@ export function getReceiverMethodsByNameFromEnv({
     }
     */
 
-    const method = traitType.fields.find(
+    // Find all matching methods (supports comptime/runtime specialization pairs)
+    const matchingMethods = traitType.fields.filter(
       (field) =>
         field.label === methodName &&
         (isFunctionType(field.type) || isTraitType(field.type))
     );
 
-    if (method) {
+    for (const method of matchingMethods) {
       let value: Value | undefined = undefined;
       if (isFunctionType(method.type)) {
         if (isUnknownValue(traitValue)) {
@@ -1008,9 +1111,7 @@ export function getReceiverMethodsByNameFromEnv({
             context,
           });
         } else if (isTraitValue(traitValue)) {
-          const index = traitType.fields.findIndex(
-            (field) => field.label === method.label
-          );
+          const index = traitType.fields.indexOf(method);
           value = traitValue.fields[index];
         }
 
@@ -1024,8 +1125,8 @@ export function getReceiverMethodsByNameFromEnv({
       }
     }
 
-    // If method not found directly, search in nested traits
-    if (!method) {
+    // If no method found directly, search in nested traits
+    if (matchingMethods.length === 0) {
       for (const field of traitType.fields) {
         if (isTraitType(field.type) && field.assignedValue) {
           // Recursively check nested traits
@@ -1278,21 +1379,26 @@ export function getReceiverMethodsByNameFromEnv({
     visitTraits.add(traitType.id);
 
     // First, check direct methods in this trait
-    const directMethod = traitType.fields.find(
+    // Use filter to find all matches (supports comptime/runtime specialization pairs)
+    const directMethods = traitType.fields.filter(
       (field) => field.label === traitMethodName && isFunctionType(field.type)
     );
 
-    if (directMethod && isFunctionType(directMethod.type)) {
-      let value: Value | undefined = directMethod.assignedValue;
-      if (isUnknownValue(value)) {
-        value = createUnknownValue(directMethod.type, {
-          variableName: directMethod.label,
-          env,
-          context,
-        });
+    if (directMethods.length > 0) {
+      for (const directMethod of directMethods) {
+        if (isFunctionType(directMethod.type)) {
+          let value: Value | undefined = directMethod.assignedValue;
+          if (isUnknownValue(value)) {
+            value = createUnknownValue(directMethod.type, {
+              variableName: directMethod.label,
+              env,
+              context,
+            });
+          }
+          methods.push({ type: directMethod.type, value });
+        }
       }
-      methods.push({ type: directMethod.type, value });
-      return; // Found the method, no need to search nested traits
+      return; // Found method(s), no need to search nested traits
     }
 
     // If not found, recursively check nested traits
@@ -1307,21 +1413,25 @@ export function getReceiverMethodsByNameFromEnv({
 
   // Check if th receiverType itself has method that can be called
   if (receiverType !== dereferencedReceiverType && receiverType.trait) {
-    // First check direct methods
-    const directMethod = receiverType.trait.fields.find(
+    // First check direct methods (use filter for specialization pair support)
+    const directMethods = receiverType.trait.fields.filter(
       (field) => field.label === methodName && isFunctionType(field.type)
     );
 
-    if (directMethod && isFunctionType(directMethod.type)) {
-      let value: Value | undefined = directMethod.assignedValue;
-      if (isUnknownValue(value)) {
-        value = createUnknownValue(directMethod.type, {
-          variableName: directMethod.label,
-          env,
-          context,
-        });
+    if (directMethods.length > 0) {
+      for (const directMethod of directMethods) {
+        if (isFunctionType(directMethod.type)) {
+          let value: Value | undefined = directMethod.assignedValue;
+          if (isUnknownValue(value)) {
+            value = createUnknownValue(directMethod.type, {
+              variableName: directMethod.label,
+              env,
+              context,
+            });
+          }
+          methods.push({ type: directMethod.type, value });
+        }
       }
-      methods.push({ type: directMethod.type, value });
     } else {
       // If no direct method found, recursively check nested traits
       checkTraitForMethod(receiverType.trait, methodName);
@@ -1339,14 +1449,12 @@ export function getReceiverMethodsByNameFromEnv({
       ) {
         const implTraitValue = field.assignedValue;
         const implTraitType = implTraitValue.type;
-        const methodIndex = implTraitType.fields.findIndex(
-          (f) => f.label === methodName && isFunctionType(f.type)
-        );
-        if (methodIndex >= 0) {
-          const method = implTraitType.fields[methodIndex]!;
-          if (isFunctionType(method.type)) {
-            const value = implTraitValue.fields[methodIndex];
-            let methodType = method.type;
+        // Find all matching methods (supports specialization pairs)
+        for (let mi = 0; mi < implTraitType.fields.length; mi++) {
+          const f = implTraitType.fields[mi]!;
+          if (f.label === methodName && isFunctionType(f.type)) {
+            const value = implTraitValue.fields[mi];
+            let methodType = f.type;
             if (isFunctionValue(value) && value.specializedType) {
               methodType = value.specializedType;
             }
@@ -1382,29 +1490,37 @@ export function getReceiverMethodsByNameFromEnv({
     !skipSomeTypeWithResolvedConcreteType
   ) {
     // First check direct methods (can be FunctionType or ModuleType with Call)
-    const directMethod = dereferencedReceiverType.trait.fields.find(
+    // Use filter to find all matches (supports comptime/runtime specialization pairs)
+    const directMethods = dereferencedReceiverType.trait.fields.filter(
       (field) =>
         field.label === methodName &&
         (isFunctionType(field.type) || isModuleType(field.type))
     );
 
-    if (directMethod && isFunctionType(directMethod.type)) {
-      let value: Value | undefined = directMethod.assignedValue;
-      if (isUnknownValue(value)) {
-        value = createUnknownValue(directMethod.type, {
-          variableName: directMethod.label,
-          env,
-          context,
-        });
+    let foundDirectMethod = false;
+    for (const directMethod of directMethods) {
+      if (isFunctionType(directMethod.type)) {
+        let value: Value | undefined = directMethod.assignedValue;
+        if (isUnknownValue(value)) {
+          value = createUnknownValue(directMethod.type, {
+            variableName: directMethod.label,
+            env,
+            context,
+          });
+        }
+        methods.push({ type: directMethod.type, value });
+        foundDirectMethod = true;
+      } else if (isModuleType(directMethod.type)) {
+        // Handle module with Call (e.g., `unwrap :: impl { ... export Call; }`)
+        const moduleValue_ = directMethod.assignedValue;
+        if (isModuleValue(moduleValue_)) {
+          checkModuleSelfCall(moduleValue_);
+        }
+        foundDirectMethod = true;
       }
-      methods.push({ type: directMethod.type, value });
-    } else if (directMethod && isModuleType(directMethod.type)) {
-      // Handle module with Call (e.g., `unwrap :: impl { ... export Call; }`)
-      const moduleValue_ = directMethod.assignedValue;
-      if (isModuleValue(moduleValue_)) {
-        checkModuleSelfCall(moduleValue_);
-      }
-    } else {
+    }
+
+    if (!foundDirectMethod) {
       // If no direct method found, recursively check nested traits
       checkTraitForMethod(dereferencedReceiverType.trait, methodName);
     }
@@ -1421,18 +1537,12 @@ export function getReceiverMethodsByNameFromEnv({
       ) {
         const implTraitValue = field.assignedValue;
         const implTraitType = implTraitValue.type;
-        // Search for the method in the impl'd trait
-        const methodIndex = implTraitType.fields.findIndex(
-          (f) => f.label === methodName && isFunctionType(f.type)
-        );
-        if (methodIndex >= 0) {
-          const method = implTraitType.fields[methodIndex]!;
-          if (isFunctionType(method.type)) {
-            // Get the actual function value from the trait value
-            const value = implTraitValue.fields[methodIndex];
-            // Use the function value's specialized type if available,
-            // as it has Self replaced with the concrete receiver type
-            let methodType = method.type;
+        // Find all matching methods (supports specialization pairs)
+        for (let mi = 0; mi < implTraitType.fields.length; mi++) {
+          const f = implTraitType.fields[mi]!;
+          if (f.label === methodName && isFunctionType(f.type)) {
+            const value = implTraitValue.fields[mi];
+            let methodType = f.type;
             if (isFunctionValue(value) && value.specializedType) {
               methodType = value.specializedType;
             }
@@ -1473,34 +1583,31 @@ export function getReceiverMethodsByNameFromEnv({
       // console.log(
       //   `DEBUG: runtime type trait fields: ${runtimeType.trait.fields.map((f) => f.label).join(", ")}`
       // );
-      // First check direct methods on the runtime type
-      const directMethod = runtimeType.trait.fields.find(
+      // First check direct methods on the runtime type (use filter for specialization pair support)
+      const directMethods = runtimeType.trait.fields.filter(
         (field) => field.label === methodName && isFunctionType(field.type)
       );
 
-      if (directMethod && isFunctionType(directMethod.type)) {
-        // console.log(`DEBUG: Found direct method ${methodName}`);
-        let value: Value | undefined = directMethod.assignedValue;
-        if (isUnknownValue(value)) {
-          value = createUnknownValue(directMethod.type, {
-            variableName: directMethod.label,
-            env,
-            context,
-          });
+      if (directMethods.length > 0) {
+        for (const directMethod of directMethods) {
+          if (isFunctionType(directMethod.type)) {
+            let value: Value | undefined = directMethod.assignedValue;
+            if (isUnknownValue(value)) {
+              value = createUnknownValue(directMethod.type, {
+                variableName: directMethod.label,
+                env,
+                context,
+              });
+            }
+            methods.push({ type: directMethod.type, value });
+          }
         }
-        methods.push({ type: directMethod.type, value });
       } else {
-        // console.log(
-        //   `DEBUG: No direct method, checking nested traits for ${methodName}`
-        // );
         // If no direct method found, recursively check nested traits
         checkTraitForMethod(runtimeType.trait, methodName);
       }
 
       // Also check for impl'd traits (stored with empty label as ModuleValue)
-      // console.log(
-      //   `DEBUG: Checking impl'd traits, found ${runtimeType.trait.fields.filter((f) => f.label === "").length} empty-label fields`
-      // );
       for (const field of runtimeType.trait.fields) {
         if (
           field.label === "" &&
@@ -1509,25 +1616,16 @@ export function getReceiverMethodsByNameFromEnv({
         ) {
           const implTraitValue = field.assignedValue;
           const implTraitType = implTraitValue.type;
-          // console.log(
-          //   `DEBUG: Checking impl trait with fields: ${implTraitType.fields.map((f) => f.label).join(", ")}`
-          // );
-          const methodIndex = implTraitType.fields.findIndex(
-            (f) => f.label === methodName && isFunctionType(f.type)
-          );
-          // console.log(
-          //   `DEBUG: Method ${methodName} index in impl: ${methodIndex}`
-          // );
-          if (methodIndex >= 0) {
-            const method = implTraitType.fields[methodIndex]!;
-            if (isFunctionType(method.type)) {
-              const value = implTraitValue.fields[methodIndex];
-              let methodType = method.type;
+          // Find all matching methods (supports specialization pairs)
+          for (let mi = 0; mi < implTraitType.fields.length; mi++) {
+            const f = implTraitType.fields[mi]!;
+            if (f.label === methodName && isFunctionType(f.type)) {
+              const value = implTraitValue.fields[mi];
+              let methodType = f.type;
               if (isFunctionValue(value) && value.specializedType) {
                 methodType = value.specializedType;
               }
               methods.push({ type: methodType, value });
-              // console.log(`DEBUG: Added method ${methodName} from impl trait`);
             }
           }
         }

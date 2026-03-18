@@ -1,0 +1,205 @@
+import "std/prelude";
+open import "std/fmt";
+
+// Test 1: Basic comptime/runtime specialization for free functions
+test "basic comptime/runtime specialization", {
+  return_self :: (fn(comptime(self) : i32) -> comptime(i32))(self);
+  return_self :: (fn(self : i32) -> i32)(self);
+
+  // Comptime call
+  x :: return_self(42);
+  comptime_assert((x == 42), "comptime call should return 42");
+
+  // Runtime call
+  y := return_self(i32(42));
+  assert((y == i32(42)), "runtime call should return 42");
+};
+
+// Test 2: Specialization with two parameters
+test "specialization with two parameters", {
+  add :: (fn(comptime(a) : i32, comptime(b) : i32) -> comptime(i32))((a + b));
+  add :: (fn(a : i32, b : i32) -> i32)((a + b));
+
+  // Comptime
+  result_comptime :: add(10, 20);
+  comptime_assert((result_comptime == 30), "comptime add should return 30");
+
+  // Runtime
+  result_runtime := add(i32(10), i32(20));
+  assert((result_runtime == i32(30)), "runtime add should return 30");
+};
+
+// Test 3: Specialization with bool type
+test "specialization with bool", {
+  negate :: (fn(comptime(self) : bool) -> comptime(bool))(!(self));
+  negate :: (fn(self : bool) -> bool)(!(self));
+
+  // Comptime
+  a :: negate(true);
+  comptime_assert((a == false), "comptime negate true should be false");
+
+  // Runtime
+  val := true;
+  b := negate(val);
+  assert((b == false), "runtime negate true should be false");
+};
+
+// Test 4: Both params comptime in comptime variant
+test "both params comptime in comptime variant", {
+  add_first :: (fn(comptime(a) : i32, comptime(b) : i32) -> comptime(i32))(a);
+  add_first :: (fn(a : i32, b : i32) -> i32)(a);
+
+  // Comptime variant
+  x :: add_first(42, 10);
+  comptime_assert((x == 42), "should return comptime first param");
+
+  // Runtime variant
+  y := add_first(i32(42), i32(10));
+  assert((y == i32(42)), "should return runtime first param");
+};
+
+// Test 5: Specialization in impl blocks
+test "specialization in impl blocks", {
+  MyInt :: newtype(value : i32);
+
+  impl(MyInt,
+    get_value : (fn(self : Self) -> i32)(self.value),
+    get_value : (fn(comptime(self) : Self) -> comptime(i32))(self.value)
+  );
+
+  // Runtime
+  x := MyInt(i32(42));
+  v := x.get_value();
+  assert((v == i32(42)), "runtime get_value should return 42");
+
+  // Comptime
+  y :: MyInt(42);
+  w :: y.get_value();
+  comptime_assert((w == 42), "comptime get_value should return 42");
+};
+
+// Test 6: Specialization with different return values
+test "specialization returns different results", {
+  describe :: (fn(comptime(x) : i32) -> comptime(i32))((x * 2));
+  describe :: (fn(x : i32) -> i32)((x + i32(1)));
+
+  // Comptime: multiplies by 2
+  a :: describe(5);
+  comptime_assert((a == 10), "comptime should multiply by 2");
+
+  // Both comptime args and runtime receiver can call comptime variant
+  // i32(5) is still compile-time known, so comptime variant is used
+  c :: describe(i32(5));
+  comptime_assert((c == 10), "comptime-known i32 should use comptime variant");
+};
+
+// Test 7: Definition order doesn't matter (runtime first, comptime second)
+test "definition order independence", {
+  double :: (fn(x : i32) -> i32)((x + x));
+  double :: (fn(comptime(x) : i32) -> comptime(i32))((x + x));
+
+  // Comptime
+  a :: double(7);
+  comptime_assert((a == 14), "comptime double should return 14");
+
+  // Runtime
+  b := double(i32(7));
+  assert((b == i32(14)), "runtime double should return 14");
+};
+
+// Test 8: Specialization in impl with struct having multiple fields
+test "specialization in impl with multi-field struct", {
+  Point :: struct(x : i32, y : i32);
+
+  impl(Point,
+    sum : (fn(self : Self) -> i32)((self.x + self.y)),
+    sum : (fn(comptime(self) : Self) -> comptime(i32))((self.x + self.y))
+  );
+
+  // Runtime
+  p1 := Point(i32(3), i32(4));
+  s1 := p1.sum();
+  assert((s1 == i32(7)), "runtime sum should return 7");
+
+  // Comptime
+  p2 :: Point(3, 4);
+  s2 :: p2.sum();
+  comptime_assert((s2 == 7), "comptime sum should return 7");
+};
+
+// Test 9: Specialization in module export
+test "specialization in module export", {
+  some_module :: impl {
+    return_self :: (fn(comptime(self) : i32) -> comptime(i32))(self);
+    return_self :: (fn(self : i32) -> i32)(self);
+    export return_self;
+  };
+
+  // Comptime call via module
+  x :: some_module.return_self(42);
+  comptime_assert((x == 42), "comptime call via module should return 42");
+
+  // Runtime call via module
+  y := some_module.return_self(i32(42));
+  assert((y == i32(42)), "runtime call via module should return 42");
+};
+
+// Test 10: Specialization alias from module
+test "specialization alias from module", {
+  some_module :: impl {
+    return_self :: (fn(comptime(self) : i32) -> comptime(i32))(self);
+    return_self :: (fn(self : i32) -> i32)(self);
+    export return_self;
+  };
+
+  return_self :: some_module.return_self;
+
+  // Comptime call via alias
+  x :: return_self(42);
+  comptime_assert((x == 42), "comptime call via alias should return 42");
+
+  // Runtime call via alias
+  y := return_self(i32(42));
+  assert((y == i32(42)), "runtime call via alias should return 42");
+};
+
+// Test 11: Disallowed — overload without parameters
+test "disallowed: overload without parameters", {
+  comptime_expect_error({
+    return_self :: (fn() -> comptime(i32))(42);
+    return_self :: (fn() -> i32)(i32(42));
+  });
+};
+
+// Test 12: Disallowed — same comptime/runtime context
+test "disallowed: same context parameters", {
+  comptime_expect_error({
+    return_self :: (fn(comptime(self) : i32) -> comptime(i32))(self);
+    return_self :: (fn(comptime(self) : i32) -> i32)(self);
+  });
+};
+
+// Test 13: Disallowed — more than 2 overloads
+test "disallowed: more than two overloads", {
+  comptime_expect_error({
+    return_self :: (fn(comptime(self) : i32) -> comptime(i32))(self);
+    return_self :: (fn(self : i32) -> i32)(self);
+    return_self :: (fn(self : i32) -> i32)(self);
+  });
+};
+
+// Test 14: Direct variable aliasing of specialization pair
+test "direct variable aliasing", {
+  return_self :: (fn(comptime(self) : i32) -> comptime(i32))(self);
+  return_self :: (fn(self : i32) -> i32)(self);
+
+  my_fn :: return_self;
+
+  // Comptime call via alias
+  x :: my_fn(42);
+  comptime_assert((x == 42), "comptime call via direct alias should return 42");
+
+  // Runtime call via alias
+  y := my_fn(i32(42));
+  assert((y == i32(42)), "runtime call via direct alias should return 42");
+};

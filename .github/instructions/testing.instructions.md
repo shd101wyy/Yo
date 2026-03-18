@@ -38,6 +38,14 @@ description: "Use when running tests, setting up test files, or debugging test f
 - You can comment out existing code in `src/tests/fixme.yo` and create new test code there.
 - If you want to create new `.yo` files, create them in `./tmp` directory under this workspace, not `/tmp`.
 
+## Assertion builtins for Yo tests
+
+- `assert(condition, "message")` — runtime assertion (evaluates at runtime in the compiled C code)
+- `comptime_assert(condition, "message")` — compile-time assertion (evaluates during compilation). Use this for testing comptime behavior.
+- `comptime_expect_error(expr)` — expects the expression to produce a compile-time error. Use this to test that invalid code is properly rejected.
+
+Prefer `comptime_assert` over `assert` when the value being tested is compile-time known.
+
 ## Linting and formatting
 
 - Lint: `bun run lint`

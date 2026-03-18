@@ -1,6 +1,7 @@
 import {
   type Environment,
   getVariablesFromEnv,
+  isComptimeRuntimeSpecializationPair,
   popEnvFrame,
   pushEnvFrame,
 } from "../../env";
@@ -292,7 +293,6 @@ export function evaluateAnonymousModuleBeginExprs({
                 errorMessage: `Variable "${givenVariableName}" is not defined in the module.`,
               });
             }
-            const variable = variables[variables.length - 1]!;
 
             // Check if the same variable is already exported
             const existingElementIndex = moduleType.fields.findIndex(
@@ -304,7 +304,19 @@ export function evaluateAnonymousModuleBeginExprs({
                 token: exportExpr.token,
                 errorMessage: `Variable "${givenVariableName}" is already exported in the module.`,
               });
-            } else {
+            }
+
+            // Check for comptime/runtime specialization pair:
+            // If there are 2 variables forming a specialization pair, export BOTH.
+            const isSpecPair =
+              variables.length === 2 &&
+              isComptimeRuntimeSpecializationPair(variables[0]!, variables[1]!);
+
+            const variablesToExport = isSpecPair
+              ? variables
+              : [variables[variables.length - 1]!];
+
+            for (const variable of variablesToExport) {
               // Prevent exporting runtime variable
               if (!variable.isCompileTimeOnly) {
                 throw formatErrorMessage({
@@ -330,15 +342,16 @@ export function evaluateAnonymousModuleBeginExprs({
                 },
               });
               moduleElementValues.push(variable.value?.[0]);
-
-              // Add information to exportExpr
-              exportExpr.$ = {
-                env,
-                type: variable.type,
-                value: variable.value?.[0],
-                pathCollection: [],
-              };
             }
+
+            // Add information to exportExpr (use last variable for expr metadata)
+            const lastVar = variablesToExport[variablesToExport.length - 1]!;
+            exportExpr.$ = {
+              env,
+              type: lastVar.type,
+              value: lastVar.value?.[0],
+              pathCollection: [],
+            };
           }
         }
       } else {

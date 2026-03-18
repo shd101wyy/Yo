@@ -182,3 +182,36 @@ IntoIterator :: trait(
 - **`:` in impl** creates a TraitValue (provides all fields).
 - **`:=` in where clause** creates a specialized TraitType (constrains associated types only).
 - Always wrap `fn` types in parentheses inside trait field definitions: `next : (fn(...) -> T)`, not `next : fn(...) -> T`.
+
+## Comptime/runtime function specialization
+
+Yo allows **at most 2 definitions** of the same function name if they differ only in comptime/runtime parameter context. This is compile-time dispatch, not general overloading.
+
+### Rules
+- Both definitions must be function types with **at least one parameter**
+- Same number of parameters with the **same types** (by type id)
+- At least one parameter must differ in `isCompileTimeOnly`
+- If one returns `comptime(T)`, the other must return `T` (runtime)
+- Max 2 overloads per name
+
+### Free function example
+```yo
+return_self :: (fn(comptime(self) : i32) -> comptime(i32))(self);
+return_self :: (fn(self : i32) -> i32)(self);
+
+x :: return_self(42);      // comptime variant
+y := return_self(i32(42)); // runtime variant
+```
+
+### Impl block example
+```yo
+impl(MyInt,
+  get_value : (fn(self : Self) -> i32)(self.value),
+  get_value : (fn(comptime(self) : Self) -> comptime(i32))(self.value)
+);
+```
+
+### Dispatch rules
+- If all arguments are comptime-known, the comptime variant is preferred
+- If any argument is runtime-only, the runtime variant is used
+- The existing disambiguation logic in `function.ts` handles selection automatically
