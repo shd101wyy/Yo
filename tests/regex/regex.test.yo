@@ -763,3 +763,119 @@ test "early break in char class: negated class with early break", {
   assert(m.is_some(), "should match non-digit run");
   assert((m.unwrap().value() == `hello`), "should match the letters");
 };
+
+// ===== Multi-byte UTF-8 / Chinese character tests =====
+
+test "Chinese literal match", {
+  re := Regex.new(`你好`, ``).unwrap();
+  m := re.exec(`你好世界`);
+  assert(m.is_some(), "should match 你好");
+  assert((m.unwrap().value() == `你好`), "should match exact Chinese text");
+};
+
+test "Chinese literal no match", {
+  re := Regex.new(`你好`, ``).unwrap();
+  m := re.exec(`再见世界`);
+  assert(m.is_none(), "should not match when absent");
+};
+
+test "Chinese literal in middle of string", {
+  re := Regex.new(`世界`, ``).unwrap();
+  m := re.exec(`你好世界再见`);
+  assert(m.is_some(), "should find 世界 in middle");
+  assert((m.unwrap().value() == `世界`), "should match exact substring");
+};
+
+test "dot matches Chinese characters", {
+  re := Regex.new(`.`, ``).unwrap();
+  m := re.exec(`你`);
+  assert(m.is_some(), "dot should match Chinese character");
+  assert((m.unwrap().value() == `你`), "dot should match full character");
+};
+
+test "dot-star matches Chinese string", {
+  re := Regex.new(`你.*界`, ``).unwrap();
+  m := re.exec(`你好世界`);
+  assert(m.is_some(), "should match 你...界");
+  assert((m.unwrap().value() == `你好世界`), "should match full span");
+};
+
+test "Chinese character class", {
+  re := Regex.new(`[你我他]`, ``).unwrap();
+  m1 := re.exec(`你好`);
+  assert(m1.is_some(), "should match 你");
+  assert((m1.unwrap().value() == `你`), "should match single Chinese char");
+  m2 := re.exec(`她好`);
+  assert(m2.is_none(), "should not match 她 (not in class)");
+};
+
+test "Chinese character range in class", {
+  // Unicode range: 一 (U+4E00) through 龥 (U+9FA5) covers CJK Unified Ideographs
+  re := Regex.new(`[一-龥]+`, ``).unwrap();
+  m := re.exec(`hello你好world`);
+  assert(m.is_some(), "should match Chinese chars in CJK range");
+  assert((m.unwrap().value() == `你好`), "should match the Chinese substring");
+};
+
+test "Chinese with quantifier", {
+  re := Regex.new(`你{2}`, ``).unwrap();
+  m1 := re.exec(`你`);
+  assert(m1.is_none(), "one 你 should not match {2}");
+  m2 := re.exec(`你你`);
+  assert(m2.is_some(), "two 你 should match {2}");
+};
+
+test "mixed Chinese and ASCII", {
+  re := Regex.new(`hello你好world`, ``).unwrap();
+  m := re.exec(`xxhello你好worldxx`);
+  assert(m.is_some(), "should match mixed string");
+  assert((m.unwrap().value() == `hello你好world`), "should match full mixed text");
+};
+
+test "Chinese capture group", {
+  re := Regex.new(`(你)(好)`, ``).unwrap();
+  m := re.exec(`你好世界`);
+  assert(m.is_some(), "should match with groups");
+  mg := m.unwrap();
+  assert((mg.group(usize(1)).unwrap() == `你`), "group 1 should be 你");
+  assert((mg.group(usize(2)).unwrap() == `好`), "group 2 should be 好");
+};
+
+test "Chinese alternation", {
+  re := Regex.new(`你好|再见`, ``).unwrap();
+  m1 := re.exec(`你好`);
+  assert(m1.is_some(), "should match first alt");
+  assert((m1.unwrap().value() == `你好`), "should match 你好");
+  m2 := re.exec(`再见`);
+  assert(m2.is_some(), "should match second alt");
+  assert((m2.unwrap().value() == `再见`), "should match 再见");
+};
+
+test "Chinese match_all finds all occurrences", {
+  re := Regex.new(`你好`, ``).unwrap();
+  matches := re.match_all(`你好世界你好`);
+  assert((matches.len() == usize(2)), "should find 2 occurrences");
+};
+
+test "Chinese replace", {
+  re := Regex.new(`世界`, ``).unwrap();
+  result := re.replace(`你好世界`, `朋友`);
+  assert((result == `你好朋友`), "should replace Chinese text");
+};
+
+test "Chinese split", {
+  re := Regex.new(`，`, ``).unwrap();
+  parts := re.split(`你好，世界，再见`);
+  assert((parts.len() == usize(3)), "should split into 3 parts");
+  assert((parts.get(usize(0)).unwrap() == `你好`), "first part");
+  assert((parts.get(usize(1)).unwrap() == `世界`), "second part");
+  assert((parts.get(usize(2)).unwrap() == `再见`), "third part");
+};
+
+test "emoji matching", {
+  // 😀 is U+1F600 (4-byte UTF-8: F0 9F 98 80)
+  re := Regex.new(`😀`, ``).unwrap();
+  m := re.exec(`hello😀world`);
+  assert(m.is_some(), "should match emoji");
+  assert((m.unwrap().value() == `😀`), "should match exact emoji");
+};

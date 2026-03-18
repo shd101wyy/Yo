@@ -58,6 +58,32 @@ impl(RegexParser,
     b
   }),
 
+  // Decode a full UTF-8 codepoint given the first byte (already consumed by _advance).
+  // Reads 0-3 continuation bytes from self._pos and advances past them.
+  _read_codepoint : (fn(self : Self, first : u8) -> u32)(
+    cond(
+      (first < u8(0x80)) => u32(first),
+      ((first >= u8(0xC0)) && (first < u8(0xE0))) => {
+        second := self._bytes.get(self._pos).unwrap();
+        self._pos = (self._pos + usize(1));
+        (((u32(first) & u32(0x1F)) << u32(6)) | (u32(second) & u32(0x3F)))
+      },
+      ((first >= u8(0xE0)) && (first < u8(0xF0))) => {
+        second := self._bytes.get(self._pos).unwrap();
+        third := self._bytes.get((self._pos + usize(1))).unwrap();
+        self._pos = (self._pos + usize(2));
+        ((((u32(first) & u32(0x0F)) << u32(12)) | ((u32(second) & u32(0x3F)) << u32(6))) | (u32(third) & u32(0x3F)))
+      },
+      true => {
+        second := self._bytes.get(self._pos).unwrap();
+        third := self._bytes.get((self._pos + usize(1))).unwrap();
+        fourth := self._bytes.get((self._pos + usize(2))).unwrap();
+        self._pos = (self._pos + usize(3));
+        (((((u32(first) & u32(0x07)) << u32(18)) | ((u32(second) & u32(0x3F)) << u32(12))) | ((u32(third) & u32(0x3F)) << u32(6))) | (u32(fourth) & u32(0x3F)))
+      }
+    )
+  ),
+
   _at_end : (fn(self : Self) -> bool)(
     (self._pos >= self._bytes.len())
   ),
@@ -214,21 +240,19 @@ impl(RegexParser,
         has_end := ((self._pos + usize(1)) < self._bytes.len());
         cond(
           has_end => {
-            nb := self._bytes.get((self._pos + usize(1)));
-            end_char := match(nb,
-              .Some(v) => v,
-              .None => {
-                ranges.push(CharRange(low: low, high: low));
-                return;
-              }
-            );
+            end_first := self._bytes.get((self._pos + usize(1))).unwrap();
             cond(
-              (end_char == u8(93)) => {
+              (end_first == u8(93)) => {
                 ranges.push(CharRange(low: low, high: low));
               },
               true => {
-                self._pos = (self._pos + usize(2));
-                ranges.push(CharRange(low: low, high: u32(end_char)));
+                // Consume dash
+                self._pos = (self._pos + usize(1));
+                // Consume first byte of end char
+                self._pos = (self._pos + usize(1));
+                // Decode full codepoint (reads continuation bytes)
+                end_cp := self._read_codepoint(end_first);
+                ranges.push(CharRange(low: low, high: end_cp));
               }
             );
           },
@@ -269,7 +293,7 @@ impl(RegexParser,
       },
       true => {
         self._pos = (self._pos + usize(1));
-        low := u32(b);
+        low := self._read_codepoint(b);
         self._try_parse_char_range(ranges, low);
       }
     );
@@ -473,7 +497,7 @@ impl(RegexParser,
           (ch == u8(36)) => .Ok(RegexNode.anchor_node(.End)),
           (ch == u8(91)) => self._parse_char_class(),
           (ch == u8(92)) => self._parse_escape(),
-          true => .Ok(RegexNode.literal(u32(ch)))
+          true => .Ok(RegexNode.literal(self._read_codepoint(ch)))
         ),
       .None => .Err(`Unexpected end of pattern`)
     )
