@@ -954,7 +954,7 @@ BufWriter.flush :: (fn(self: Self, using(io : IO)) -> Impl(Future(Result(unit, I
 | 16    | Phase 14 | `std/sync/once` — One-Time Init                    | Low      | Small       | ✅ Done        |
 | —     | Phase 14 | `std/url/` — URL parsing                           | Low      | Small       | ✅ Done        |
 | —     | Phase 14 | `std/sys/bufio/` — Buffered I/O                    | Medium   | Medium      | ✅ Done        |
-| —     | —        | `std/regex` — Regular expressions                  | Medium   | Large       | 📋 Planned     |
+| —     | —        | `std/regex` — Regular expressions                  | Medium   | Large       | ✅ Done        |
 
 **Rationale**: Error trait and fmt/Writer come first because they're dependencies of almost everything else. Time comes before fs/net because Duration/Instant are useful for timeouts and logging. fs and net are the largest, most impactful modules. Math/encoding/crypto are independent utilities. Testing, logging, and advanced collections are low priority since the existing tools work.
 
