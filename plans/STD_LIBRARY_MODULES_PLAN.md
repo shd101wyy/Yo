@@ -56,15 +56,10 @@ Byte buffers use `ArrayList(u8)` (not `Slice(u8)`).
 | **Encoding**        | `std/encoding/`                         | ✅ Complete | Base64, hex, JSON, UTF-16 — all using Exception effect                                                             |
 | **Crypto**          | `std/crypto/`                           | ✅ Complete | SHA-256, MD5, secure random, UUID v4 — all using Exception effect                                                  |
 | **URL**             | `std/url/`                              | ✅ Complete | URL parser with Exception effect                                                                                   |
+| **Regex**           | `std/regex/`                            | ✅ Complete | Regular expression engine                                                                                          |
 | **Math**            | `std/math/`                             | Not Planned | Generic min/max/clamp, lerp, PRNG (xoshiro256\*\*)                                                                 |
 | **Log**             | `std/log/`                              | Not Planned | Structured logger with level filtering and output routing                                                          |
 | **Testing**         | `std/testing/`                          | Not Planned | Rich assertion helpers, micro-benchmarking                                                                         |
-
-### What's Remaining
-
-Potential future additions (not currently planned):
-
-1. **`std/regex`** — Regular expressions
 
 ---
 
