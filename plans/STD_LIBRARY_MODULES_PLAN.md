@@ -47,8 +47,7 @@ Byte buffers use `ArrayList(u8)` (not `Slice(u8)`).
 | **Worker**          | `std/worker.yo`                         | ✅ Complete | Thread pool with round-robin task distribution                                                                     |
 | **GC**              | `std/gc.yo`                             | ✅ Complete | `collect`, `tracked_count`                                                                                         |
 | **Async**           | `std/async.yo`                          | ✅ Minimal  | Only `yield`; async/await uses IO algebraic effect                                                                 |
-| **Time**            | `std/time.yo`                           | 🔸 Minimal  | Only `sleep`; see `std/time/` for Duration, Instant, DateTime                                                      |
-| **Time (rich)**     | `std/time/`                             | ✅ Complete | `Duration`, `Instant` (monotonic), `DateTime` (wall clock) — 25 tests all passing                                  |
+| **Time**            | `std/time/`                             | ✅ Complete | `Duration`, `Instant` (monotonic), `DateTime` (wall clock), `sleep` (sync) — 25 tests all passing                  |
 | **Sys (low-level)** | `std/sys/` (37 files)                   | ✅ Complete | Full async I/O: file, socket, process, mmap, DNS, signals, TTY, etc.                                               |
 | **Libc bindings**   | `std/libc/`                             | ✅ Complete | stdio, stdlib, string, math, errno, signal, etc.                                                                   |
 | **FS**              | `std/fs/`                               | ✅ Complete | `File`, `Metadata`, `TempDir`, `TempFile`, directory walker — 44 tests passing with Exception effect               |
@@ -57,15 +56,10 @@ Byte buffers use `ArrayList(u8)` (not `Slice(u8)`).
 | **Encoding**        | `std/encoding/`                         | ✅ Complete | Base64, hex, JSON, UTF-16 — all using Exception effect                                                             |
 | **Crypto**          | `std/crypto/`                           | ✅ Complete | SHA-256, MD5, secure random, UUID v4 — all using Exception effect                                                  |
 | **URL**             | `std/url/`                              | ✅ Complete | URL parser with Exception effect                                                                                   |
+| **Regex**           | `std/regex/`                            | ✅ Complete | Regular expression engine                                                                                          |
 | **Math**            | `std/math/`                             | Not Planned | Generic min/max/clamp, lerp, PRNG (xoshiro256\*\*)                                                                 |
 | **Log**             | `std/log/`                              | Not Planned | Structured logger with level filtering and output routing                                                          |
 | **Testing**         | `std/testing/`                          | Not Planned | Rich assertion helpers, micro-benchmarking                                                                         |
-
-### What's Remaining
-
-Potential future additions (not currently planned):
-
-1. **`std/regex`** — Regular expressions
 
 ---
 
@@ -960,7 +954,7 @@ BufWriter.flush :: (fn(self: Self, using(io : IO)) -> Impl(Future(Result(unit, I
 | 16    | Phase 14 | `std/sync/once` — One-Time Init                    | Low      | Small       | ✅ Done        |
 | —     | Phase 14 | `std/url/` — URL parsing                           | Low      | Small       | ✅ Done        |
 | —     | Phase 14 | `std/sys/bufio/` — Buffered I/O                    | Medium   | Medium      | ✅ Done        |
-| —     | —        | `std/regex` — Regular expressions                  | Medium   | Large       | 📋 Planned     |
+| —     | —        | `std/regex` — Regular expressions                  | Medium   | Large       | ✅ Done        |
 
 **Rationale**: Error trait and fmt/Writer come first because they're dependencies of almost everything else. Time comes before fs/net because Duration/Instant are useful for timeouts and logging. fs and net are the largest, most impactful modules. Math/encoding/crypto are independent utilities. Testing, logging, and advanced collections are low priority since the existing tools work.
 

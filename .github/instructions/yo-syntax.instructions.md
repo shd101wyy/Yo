@@ -153,6 +153,67 @@ assert(!d.is_empty(), "should not be empty");
 assert(!(d.is_empty()), "should not be empty");
 ```
 
+## Recursion requires `recur`
+
+Yo does **not** allow a function to call itself by name. Use the `recur` keyword instead:
+
+```yo
+// WRONG — "Variable 'factorial' not found":
+factorial :: (fn(n : i32) -> i32)(
+  cond(
+    (n <= i32(1)) => i32(1),
+    true => (n * factorial((n - i32(1))))
+  )
+);
+
+// CORRECT — use recur:
+factorial :: (fn(n : i32) -> i32)(
+  cond(
+    (n <= i32(1)) => i32(1),
+    true => (n * recur((n - i32(1))))
+  )
+);
+```
+
+For methods, pass `self` explicitly as the first argument:
+
+```yo
+impl(Tree,
+  depth : (fn(self : Self) -> i32)(
+    cond(
+      self.is_leaf() => i32(0),
+      true => (i32(1) + recur(self.left()))
+    )
+  )
+)
+```
+
+`recur` works in any `fn` body (free functions and methods). The arguments must match the function's parameter types.
+
+## Module imports
+
+Use destructured imports for files in the same directory:
+
+```yo
+// CORRECT — destructured import with relative path:
+{ RegexNode, NodeKind, CharRange } :: import "./node.yo";
+
+// CORRECT - Named moudle
+node_module :: import "./node.yo";
+
+// CORRECT — open import for std library modules:
+open import "std/collections/array_list";
+open import "std/string";
+
+// WRONG — `import "path" as name` does NOT work for .yo files:
+// import "./node.yo" as node;  // causes "Invalid function call on type: comptime_string"
+
+// WRONG — absolute-style paths from within a subdirectory:
+// import "std/regex/node" as node;  // module resolution fails
+```
+
+For files within the same directory, always use relative paths (`./file.yo`). For std library modules, use the standard `"std/module"` path.
+
 ## Other syntax notes
 
 - `unit` is a type not value, `()` is the unit value.

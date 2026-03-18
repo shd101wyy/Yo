@@ -1,7 +1,7 @@
 open import "std/libc/stdio";
 { RwLock } :: import "std/sync/rwlock";
 { Thread } :: import "std/thread";
-{ Time } :: import "std/time";
+{ sleep } :: import "std/time/sleep";
 { WaitGroup } :: import "std/sync/waitgroup";
 Worker :: import "std/worker";
 
@@ -118,19 +118,19 @@ test "RwLock concurrent readers across threads", {
 
   t1 := Thread.spawn(() => {
     lock.(*).read_lock();
-    Time.sleep(usize(10));
+    sleep(usize(10));
     lock.(*).read_unlock();
   });
 
   t2 := Thread.spawn(() => {
     lock.(*).read_lock();
-    Time.sleep(usize(10));
+    sleep(usize(10));
     lock.(*).read_unlock();
   });
 
   t3 := Thread.spawn(() => {
     lock.(*).read_lock();
-    Time.sleep(usize(10));
+    sleep(usize(10));
     lock.(*).read_unlock();
   });
 
@@ -199,13 +199,13 @@ test "RwLock readers wait for writer across threads", {
   // Writer runs first, holds lock while sleeping
   writer := Thread.spawn(() => {
     lock.(*).write_lock();
-    Time.sleep(usize(50));
+    sleep(usize(50));
     data.(*).(*) = i32(99);
     lock.(*).write_unlock();
   });
 
   // Give writer time to acquire lock
-  Time.sleep(usize(10));
+  sleep(usize(10));
 
   // Readers will block until writer releases
   t1 := Thread.spawn(() => {

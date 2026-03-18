@@ -1,0 +1,737 @@
+// std/regex/vm.yo - NFA virtual machine (Thompson simulation)
+//
+// Executes a compiled NFA program against an input string.
+// Uses Thompson's NFA simulation with parallel state tracking
+// for O(n*m) worst-case time complexity.
+
+open import "std/collections/array_list";
+open import "std/string";
+{ NfaProgram, Instr, InstrKind, ClassEntry, GroupNameEntry } :: import "./compiler.yo";
+{ CharRange } :: import "./node.yo";
+{ RegexFlags } :: import "./flags.yo";
+
+// Max number of capture slots (group 0 + up to 99 groups = 200 slots)
+MAX_SLOTS :: 200;
+
+// A single NFA thread: an instruction pointer + capture slots
+NfaThread :: object(
+  pc    : usize,
+  slots : ArrayList(usize)
+);
+
+impl(NfaThread,
+  new : (fn(pc : usize, n_slots : usize) -> Self)({
+    s := ArrayList(usize).with_capacity(n_slots);
+    i := usize(0);
+    while (i < n_slots), (i = (i + usize(1))), {
+      // 0xFFFFFFFFFFFFFFFF signals "unset"
+      s.push(usize(0xFFFFFFFFFFFFFFFF));
+    };
+    Self(pc: pc, slots: s)
+  }),
+
+  // Clone a thread with a new PC
+  fork : (fn(self : Self, new_pc : usize) -> Self)({
+    new_slots := ArrayList(usize).with_capacity(self.slots.len());
+    i := usize(0);
+    while (i < self.slots.len()), (i = (i + usize(1))), {
+      new_slots.push(self.slots.get(i).unwrap());
+    };
+    Self(pc: new_pc, slots: new_slots)
+  })
+);
+
+// VM execution result
+VmMatch :: struct(
+  matched : bool,
+  slots   : ArrayList(usize)
+);
+
+// The NFA virtual machine
+NfaVm :: object(
+  _program   : NfaProgram,
+  _flags     : RegexFlags,
+  _input     : String,
+  _bytes     : ArrayList(u8),
+  _n_slots   : usize
+);
+
+// Helper struct for decoded characters
+DecodedChar :: struct(
+  codepoint : u32,
+  byte_len  : usize
+);
+
+// A thread deferred to a future byte position (for multi-byte backrefs)
+DeferredThread :: struct(
+  target_byte_pos : usize,
+  thread : NfaThread
+);
+
+// Block 1: Constructor and leaf helpers (no method dependencies)
+impl(NfaVm,
+  new : (fn(program : NfaProgram, flags : RegexFlags, input : String) -> Self)({
+    n_slots := ((program.n_groups + usize(1)) * usize(2));
+    Self(
+      _program: program,
+      _flags: flags,
+      _input: input,
+      _bytes: input.as_bytes(),
+      _n_slots: n_slots
+    )
+  }),
+
+  _decode_codepoint : (fn(self : Self, pos : usize) -> DecodedChar)({
+    first := self._bytes.get(pos).unwrap();
+    cond(
+      (first < u8(0x80)) =>
+        DecodedChar(codepoint: u32(first), byte_len: usize(1)),
+      ((first >= u8(0xC0)) && (first < u8(0xE0))) => {
+        second := self._bytes.get((pos + usize(1))).unwrap();
+        cp := (((u32(first) & u32(0x1F)) << u32(6)) | (u32(second) & u32(0x3F)));
+        DecodedChar(codepoint: cp, byte_len: usize(2))
+      },
+      ((first >= u8(0xE0)) && (first < u8(0xF0))) => {
+        second := self._bytes.get((pos + usize(1))).unwrap();
+        third := self._bytes.get((pos + usize(2))).unwrap();
+        cp := ((((u32(first) & u32(0x0F)) << u32(12)) | ((u32(second) & u32(0x3F)) << u32(6))) | (u32(third) & u32(0x3F)));
+        DecodedChar(codepoint: cp, byte_len: usize(3))
+      },
+      true => {
+        second := self._bytes.get((pos + usize(1))).unwrap();
+        third := self._bytes.get((pos + usize(2))).unwrap();
+        fourth := self._bytes.get((pos + usize(3))).unwrap();
+        cp := (((((u32(first) & u32(0x07)) << u32(18)) | ((u32(second) & u32(0x3F)) << u32(12))) | ((u32(third) & u32(0x3F)) << u32(6))) | (u32(fourth) & u32(0x3F)));
+        DecodedChar(codepoint: cp, byte_len: usize(4))
+      }
+    )
+  }),
+
+  _to_lower : (fn(self : Self, cp : u32) -> u32)(
+    cond(
+      ((cp >= u32(65)) && (cp <= u32(90))) => (cp + u32(32)),
+      true => cp
+    )
+  ),
+
+  _is_word_char : (fn(self : Self, cp : u32) -> bool)(
+    ((((cp >= u32(48)) && (cp <= u32(57))) || ((cp >= u32(65)) && (cp <= u32(90)))) || (((cp >= u32(97)) && (cp <= u32(122))) || (cp == u32(95))))
+  ),
+
+  _find_prev_char_start : (fn(self : Self, pos : usize) -> usize)({
+    p := (pos - usize(1));
+    while (p > usize(0)), (p = (p - usize(1))), {
+      b := self._bytes.get(p).unwrap();
+      cond(
+        ((b < u8(0x80)) || (b >= u8(0xC0))) => { return p; },
+        true => ()
+      );
+    };
+    p
+  }),
+
+  _prev_byte_is_newline : (fn(self : Self, pos : usize) -> bool)(
+    cond(
+      (pos == usize(0)) => false,
+      true => {
+        b := self._bytes.get((pos - usize(1))).unwrap();
+        (b == u8(10))
+      }
+    )
+  ),
+
+  _cur_byte_is_newline : (fn(self : Self, pos : usize) -> bool)(
+    cond(
+      (pos >= self._bytes.len()) => false,
+      true => {
+        b := self._bytes.get(pos).unwrap();
+        (b == u8(10))
+      }
+    )
+  )
+);
+
+// Block 2: Methods that depend on Block 1
+impl(NfaVm,
+  _char_matches : (fn(self : Self, expected : u32, actual : u32) -> bool)(
+    cond(
+      (expected == actual) => true,
+      self._flags.ignore_case => (self._to_lower(expected) == self._to_lower(actual)),
+      true => false
+    )
+  ),
+
+  _codepoint_in_class : (fn(self : Self, cp : u32, cls : ClassEntry) -> bool)({
+    check_cp := cond(
+      self._flags.ignore_case => self._to_lower(cp),
+      true => cp
+    );
+
+    (found : bool) = false;
+    i := usize(0);
+    while ((i < cls.ranges.len()) && (!(found))), (i = (i + usize(1))), {
+      r := cls.ranges.get(i).unwrap();
+      (low : u32) = cond(
+        self._flags.ignore_case => self._to_lower(r.low),
+        true => r.low
+      );
+      (high : u32) = cond(
+        self._flags.ignore_case => self._to_lower(r.high),
+        true => r.high
+      );
+      cond(
+        ((check_cp >= low) && (check_cp <= high)) => { found = true; },
+        true => ()
+      );
+    };
+
+    cond(
+      ((!(found)) && self._flags.ignore_case) => {
+        i2 := usize(0);
+        while ((i2 < cls.ranges.len()) && (!(found))), (i2 = (i2 + usize(1))), {
+          r := cls.ranges.get(i2).unwrap();
+          cond(
+            ((cp >= r.low) && (cp <= r.high)) => { found = true; },
+            true => ()
+          );
+        };
+      },
+      true => ()
+    );
+
+    cond(
+      cls.negated => (!(found)),
+      true => found
+    )
+  }),
+
+  _is_word_boundary : (fn(self : Self, pos : usize) -> bool)({
+    left_is_word := cond(
+      (pos == usize(0)) => false,
+      true => {
+        prev_pos := self._find_prev_char_start(pos);
+        prev := self._decode_codepoint(prev_pos);
+        self._is_word_char(prev.codepoint)
+      }
+    );
+    right_is_word := cond(
+      (pos >= self._bytes.len()) => false,
+      true => {
+        cur := self._decode_codepoint(pos);
+        self._is_word_char(cur.codepoint)
+      }
+    );
+    (left_is_word != right_is_word)
+  })
+);
+
+// Block 3: _add_thread (recursive, depends on Block 1+2)
+impl(NfaVm,
+  _add_thread : (fn(self : Self, list : *(ArrayList(NfaThread)), thread : NfaThread, byte_pos : usize, seen : *(ArrayList(bool))) -> unit)({
+    cond(
+      (thread.pc >= self._program.instructions.len()) => { return (); },
+      true => ()
+    );
+
+    is_seen := seen.*.get(thread.pc).unwrap();
+    cond(
+      is_seen => { return (); },
+      true => ()
+    );
+    seen.*.set(thread.pc, true);
+
+    instr := self._program.instructions.get(thread.pc).unwrap();
+
+    match(instr.kind,
+      .Split => {
+        t1 := thread.fork(instr.target_a);
+        t2 := thread.fork(instr.target_b);
+        recur(self, list, t1, byte_pos, seen);
+        recur(self, list, t2, byte_pos, seen);
+      },
+      .Jump => {
+        new_t := thread.fork(instr.target);
+        recur(self, list, new_t, byte_pos, seen);
+      },
+      .Save => {
+        cond(
+          (instr.slot < thread.slots.len()) => {
+            thread.slots.set(instr.slot, byte_pos);
+          },
+          true => ()
+        );
+        new_t := NfaThread(pc: (thread.pc + usize(1)), slots: thread.slots);
+        recur(self, list, new_t, byte_pos, seen);
+      },
+      .AssertStart => {
+        passes := cond(
+          self._flags.multiline =>
+            ((byte_pos == usize(0)) || self._prev_byte_is_newline(byte_pos)),
+          true => (byte_pos == usize(0))
+        );
+        cond(
+          passes => {
+            new_t := thread.fork((thread.pc + usize(1)));
+            recur(self, list, new_t, byte_pos, seen);
+          },
+          true => ()
+        );
+      },
+      .AssertEnd => {
+        passes := cond(
+          self._flags.multiline =>
+            ((byte_pos >= self._bytes.len()) || self._cur_byte_is_newline(byte_pos)),
+          true => (byte_pos >= self._bytes.len())
+        );
+        cond(
+          passes => {
+            new_t := thread.fork((thread.pc + usize(1)));
+            recur(self, list, new_t, byte_pos, seen);
+          },
+          true => ()
+        );
+      },
+      .AssertWordBoundary => {
+        cond(
+          self._is_word_boundary(byte_pos) => {
+            new_t := thread.fork((thread.pc + usize(1)));
+            recur(self, list, new_t, byte_pos, seen);
+          },
+          true => ()
+        );
+      },
+      .AssertNonWordBoundary => {
+        cond(
+          (!(self._is_word_boundary(byte_pos))) => {
+            new_t := thread.fork((thread.pc + usize(1)));
+            recur(self, list, new_t, byte_pos, seen);
+          },
+          true => ()
+        );
+      },
+      _ => {
+        list.*.push(thread);
+      }
+    );
+  })
+);
+
+// Block 4: Sub-VM for lookahead/lookbehind (depends on Block 1+2+3)
+impl(NfaVm,
+  // Run a sub-VM starting at sub_start_pc from start_byte.
+  // If required_end is not UNSET, only succeed when Match is found at exactly required_end.
+  _run_sub_vm : (fn(self : Self, sub_start_pc : usize, start_byte : usize, required_end : usize) -> bool)({
+    unset := usize(0xFFFFFFFFFFFFFFFF);
+    sub_current := ArrayList(NfaThread).new();
+    sub_next := ArrayList(NfaThread).new();
+
+    sub_seen := ArrayList(bool).with_capacity(self._program.instructions.len());
+    si := usize(0);
+    while (si < self._program.instructions.len()), (si = (si + usize(1))), {
+      sub_seen.push(false);
+    };
+
+    initial := NfaThread.new(sub_start_pc, self._n_slots);
+    self._add_thread(&(sub_current), initial, start_byte, &(sub_seen));
+
+    sub_pos := start_byte;
+    input_len := self._bytes.len();
+
+    while (sub_pos <= input_len), {
+      cond(
+        (sub_current.len() == usize(0)) => { break; },
+        true => ()
+      );
+
+      // Check for Match in current threads
+      st := usize(0);
+      while (st < sub_current.len()), (st = (st + usize(1))), {
+        st_thread := sub_current.get(st).unwrap();
+        st_instr := self._program.instructions.get(st_thread.pc).unwrap();
+        match(st_instr.kind,
+          .Match => {
+            cond(
+              (required_end == unset) => { return true; },
+              (sub_pos == required_end) => { return true; },
+              true => ()
+            );
+          },
+          _ => ()
+        );
+      };
+
+      cond(
+        (sub_pos >= input_len) => { break; },
+        true => ()
+      );
+
+      // Stop if we've passed the required end position
+      cond(
+        ((required_end != unset) && (sub_pos > required_end)) => { break; },
+        true => ()
+      );
+
+      decoded := self._decode_codepoint(sub_pos);
+      sub_cp := decoded.codepoint;
+      sub_blen := decoded.byte_len;
+
+      // Clear seen
+      sj := usize(0);
+      while (sj < sub_seen.len()), (sj = (sj + usize(1))), {
+        sub_seen.set(sj, false);
+      };
+
+      // Process consuming instructions
+      st2 := usize(0);
+      while (st2 < sub_current.len()), (st2 = (st2 + usize(1))), {
+        st_thread := sub_current.get(st2).unwrap();
+        st_instr := self._program.instructions.get(st_thread.pc).unwrap();
+        match(st_instr.kind,
+          .Char => {
+            cond(
+              self._char_matches(st_instr.codepoint, sub_cp) => {
+                new_t := st_thread.fork((st_thread.pc + usize(1)));
+                self._add_thread(&(sub_next), new_t, (sub_pos + sub_blen), &(sub_seen));
+              },
+              true => ()
+            );
+          },
+          .AnyChar => {
+            should_match := cond(
+              self._flags.dot_all => true,
+              true => (sub_cp != u32(10))
+            );
+            cond(
+              should_match => {
+                new_t := st_thread.fork((st_thread.pc + usize(1)));
+                self._add_thread(&(sub_next), new_t, (sub_pos + sub_blen), &(sub_seen));
+              },
+              true => ()
+            );
+          },
+          .CharClass => {
+            class_opt := self._program.classes.get(st_instr.class_idx);
+            match(class_opt,
+              .Some(cls) => {
+                cond(
+                  self._codepoint_in_class(sub_cp, cls) => {
+                    new_t := st_thread.fork((st_thread.pc + usize(1)));
+                    self._add_thread(&(sub_next), new_t, (sub_pos + sub_blen), &(sub_seen));
+                  },
+                  true => ()
+                );
+              },
+              .None => ()
+            );
+          },
+          _ => ()
+        );
+      };
+
+      sub_current = sub_next;
+      sub_next = ArrayList(NfaThread).new();
+      sub_pos = (sub_pos + sub_blen);
+    };
+
+    false
+  })
+);
+
+// Block 5: exec_at (depends on Block 1+2+3+4)
+impl(NfaVm,
+  exec_at : (fn(self : Self, start_byte : usize) -> VmMatch)({
+    current := ArrayList(NfaThread).new();
+    next := ArrayList(NfaThread).new();
+    deferred := ArrayList(DeferredThread).new();
+
+    seen := ArrayList(bool).with_capacity(self._program.instructions.len());
+    next_seen := ArrayList(bool).with_capacity(self._program.instructions.len());
+    i := usize(0);
+    while (i < self._program.instructions.len()), (i = (i + usize(1))), {
+      seen.push(false);
+      next_seen.push(false);
+    };
+
+    initial := NfaThread.new(usize(0), self._n_slots);
+    self._add_thread(&(current), initial, start_byte, &(seen));
+
+    best_match := VmMatch(matched: false, slots: ArrayList(usize).new());
+    byte_pos := start_byte;
+    input_len := self._bytes.len();
+    unset := usize(0xFFFFFFFFFFFFFFFF);
+
+    while (byte_pos <= input_len), {
+      (cur_cp : u32) = u32(0);
+      (char_byte_len : usize) = usize(0);
+      (at_end : bool) = (byte_pos >= input_len);
+
+      cond(
+        (!(at_end)) => {
+          decoded := self._decode_codepoint(byte_pos);
+          cur_cp = decoded.codepoint;
+          char_byte_len = decoded.byte_len;
+        },
+        true => ()
+      );
+
+      // Clear seen flags for this generation
+      j := usize(0);
+      while (j < seen.len()), (j = (j + usize(1))), {
+        seen.set(j, false);
+        next_seen.set(j, false);
+      };
+
+      // Process deferred threads targeting this byte_pos
+      new_deferred := ArrayList(DeferredThread).new();
+      di := usize(0);
+      while (di < deferred.len()), (di = (di + usize(1))), {
+        d := deferred.get(di).unwrap();
+        cond(
+          (d.target_byte_pos == byte_pos) => {
+            self._add_thread(&(current), d.thread, byte_pos, &(seen));
+          },
+          true => {
+            new_deferred.push(d);
+          }
+        );
+      };
+      deferred = new_deferred;
+
+      // Break if no threads and no deferred
+      cond(
+        ((current.len() == usize(0)) && (deferred.len() == usize(0))) => { break; },
+        true => ()
+      );
+
+      // Process each thread (priority order — first match wins in gen)
+      (found_match_in_gen : bool) = false;
+      t := usize(0);
+      while ((t < current.len()) && (!(found_match_in_gen))), (t = (t + usize(1))), {
+        thread := current.get(t).unwrap();
+        instr := self._program.instructions.get(thread.pc).unwrap();
+
+        match(instr.kind,
+          .Char => {
+            cond(
+              ((!(at_end)) && (self._char_matches(instr.codepoint, cur_cp))) => {
+                new_thread := thread.fork((thread.pc + usize(1)));
+                self._add_thread(&(next), new_thread, (byte_pos + char_byte_len), &(next_seen));
+              },
+              true => ()
+            );
+          },
+          .AnyChar => {
+            cond(
+              (!(at_end)) => {
+                should_match := cond(
+                  self._flags.dot_all => true,
+                  true => (cur_cp != u32(10))
+                );
+                cond(
+                  should_match => {
+                    new_thread := thread.fork((thread.pc + usize(1)));
+                    self._add_thread(&(next), new_thread, (byte_pos + char_byte_len), &(next_seen));
+                  },
+                  true => ()
+                );
+              },
+              true => ()
+            );
+          },
+          .CharClass => {
+            cond(
+              (!(at_end)) => {
+                class_opt := self._program.classes.get(instr.class_idx);
+                match(class_opt,
+                  .Some(cls) => {
+                    cond(
+                      self._codepoint_in_class(cur_cp, cls) => {
+                        new_thread := thread.fork((thread.pc + usize(1)));
+                        self._add_thread(&(next), new_thread, (byte_pos + char_byte_len), &(next_seen));
+                      },
+                      true => ()
+                    );
+                  },
+                  .None => ()
+                );
+              },
+              true => ()
+            );
+          },
+          .Backref => {
+            group_start_slot := (instr.slot * usize(2));
+            group_end_slot := ((instr.slot * usize(2)) + usize(1));
+            cond(
+              ((group_start_slot < thread.slots.len()) && (group_end_slot < thread.slots.len())) => {
+                gs := thread.slots.get(group_start_slot).unwrap();
+                ge := thread.slots.get(group_end_slot).unwrap();
+                cond(
+                  ((gs != unset) && (ge != unset)) => {
+                    captured_len := (ge - gs);
+                    cond(
+                      ((byte_pos + captured_len) <= input_len) => {
+                        // Compare captured bytes against input at current position
+                        (bytes_match : bool) = true;
+                        bi := usize(0);
+                        while (bi < captured_len), (bi = (bi + usize(1))), {
+                          expected := self._bytes.get((gs + bi)).unwrap();
+                          actual := self._bytes.get((byte_pos + bi)).unwrap();
+                          cond(
+                            self._flags.ignore_case => {
+                              el := cond(
+                                ((expected >= u8(65)) && (expected <= u8(90))) => (expected + u8(32)),
+                                true => expected
+                              );
+                              al := cond(
+                                ((actual >= u8(65)) && (actual <= u8(90))) => (actual + u8(32)),
+                                true => actual
+                              );
+                              cond(
+                                (el != al) => { bytes_match = false; },
+                                true => ()
+                              );
+                            },
+                            true => {
+                              cond(
+                                (expected != actual) => { bytes_match = false; },
+                                true => ()
+                              );
+                            }
+                          );
+                        };
+                        cond(
+                          bytes_match => {
+                            new_pos := (byte_pos + captured_len);
+                            new_thread := thread.fork((thread.pc + usize(1)));
+                            cond(
+                              (captured_len == usize(0)) => {
+                                // Empty capture — epsilon-like, process in current gen
+                                self._add_thread(&(current), new_thread, byte_pos, &(seen));
+                              },
+                              true => {
+                                // Defer to the target byte position
+                                deferred.push(DeferredThread(target_byte_pos: new_pos, thread: new_thread));
+                              }
+                            );
+                          },
+                          true => ()
+                        );
+                      },
+                      true => ()
+                    );
+                  },
+                  true => ()
+                );
+              },
+              true => ()
+            );
+          },
+          .Lookahead => {
+            // Zero-width assertion: run sub-VM at current position
+            sub_start := instr.target_a;
+            positive := (instr.slot == usize(1));
+            sub_matched := self._run_sub_vm(sub_start, byte_pos, unset);
+            cond(
+              (sub_matched == positive) => {
+                sub_end := instr.target_b;
+                new_thread := thread.fork(sub_end);
+                self._add_thread(&(current), new_thread, byte_pos, &(seen));
+              },
+              true => ()
+            );
+          },
+          .Lookbehind => {
+            // Zero-width assertion: check if sub-pattern matches ending at current position
+            sub_start := instr.target_a;
+            positive := (instr.slot == usize(1));
+            (lb_matched : bool) = false;
+
+            // Try each byte position backwards from byte_pos
+            cond(
+              (byte_pos == usize(0)) => {
+                // Only try empty match at position 0
+                cond(
+                  self._run_sub_vm(sub_start, usize(0), usize(0)) => {
+                    lb_matched = true;
+                  },
+                  true => ()
+                );
+              },
+              true => {
+                // Try from byte_pos backwards to 0
+                (try_pos : usize) = byte_pos;
+                while (!(lb_matched)), {
+                  cond(
+                    (try_pos == usize(0)) => {
+                      cond(
+                        self._run_sub_vm(sub_start, usize(0), byte_pos) => {
+                          lb_matched = true;
+                        },
+                        true => ()
+                      );
+                      break;
+                    },
+                    true => {
+                      try_pos = (try_pos - usize(1));
+                      // Skip UTF-8 continuation bytes (10xxxxxx)
+                      cond(
+                        (try_pos > usize(0)) => {
+                          tb := self._bytes.get(try_pos).unwrap();
+                          while (((tb >= u8(0x80)) && (tb < u8(0xC0))) && (try_pos > usize(0))), {
+                            try_pos = (try_pos - usize(1));
+                            tb = self._bytes.get(try_pos).unwrap();
+                          };
+                        },
+                        true => ()
+                      );
+                      cond(
+                        self._run_sub_vm(sub_start, try_pos, byte_pos) => {
+                          lb_matched = true;
+                        },
+                        true => ()
+                      );
+                    }
+                  );
+                };
+              }
+            );
+
+            cond(
+              (lb_matched == positive) => {
+                sub_end := instr.target_b;
+                new_thread := thread.fork(sub_end);
+                self._add_thread(&(current), new_thread, byte_pos, &(seen));
+              },
+              true => ()
+            );
+          },
+          .Match => {
+            // Record match and kill lower-priority threads
+            best_match = VmMatch(matched: true, slots: thread.slots);
+            found_match_in_gen = true;
+          },
+          _ => ()
+        );
+      };
+
+      current = next;
+      next = ArrayList(NfaThread).new();
+
+      cond(
+        at_end => { break; },
+        true => {
+          byte_pos = (byte_pos + char_byte_len);
+        }
+      );
+    };
+
+    best_match
+  })
+);
+
+export
+  NfaVm,
+  NfaThread,
+  VmMatch,
+  DecodedChar
+;

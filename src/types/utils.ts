@@ -1162,33 +1162,61 @@ function getArrayTypeSize(type: ArrayType): number | null {
 }
 
 function getTupleTypeSize(type: TupleType): number | null {
-  let totalSize = 0;
+  let offsetBytes = 0;
+  let maxAlignBytes = 1;
+
   for (const field of type.fields) {
-    const fieldSize = getSizeOfType(field.type);
-    if (fieldSize === null) {
-      return null; // If any field size is unknown, return null
+    const fieldSizeBits = getSizeOfType(field.type);
+    if (fieldSizeBits === null) {
+      return null;
     }
-    if (fieldSize === -1) {
-      return -1; // If any field size is dynamic, return -1
+    if (fieldSizeBits === -1) {
+      return -1;
     }
-    totalSize += fieldSize; // Accumulate the size of each field
+    const fieldAlignBytes = getAlignmentOfType(field.type);
+    if (fieldAlignBytes === null) {
+      return null;
+    }
+
+    const fieldSizeBytes = Math.ceil(fieldSizeBits / 8);
+    // Align current offset to field's alignment requirement
+    offsetBytes = Math.ceil(offsetBytes / fieldAlignBytes) * fieldAlignBytes;
+    offsetBytes += fieldSizeBytes;
+    maxAlignBytes = Math.max(maxAlignBytes, fieldAlignBytes);
   }
-  return totalSize; // Return total size in bits
+
+  // Pad total size to struct alignment
+  offsetBytes = Math.ceil(offsetBytes / maxAlignBytes) * maxAlignBytes;
+  return offsetBytes * 8; // Return total size in bits
 }
 
 function getStructTypeSize(type: StructType): number | null {
-  let totalSize = 0;
+  let offsetBytes = 0;
+  let maxAlignBytes = 1;
+
   for (const field of type.fields) {
-    const fieldSize = getSizeOfType(field.type);
-    if (fieldSize === null) {
-      return null; // If any field size is unknown, return null
+    const fieldSizeBits = getSizeOfType(field.type);
+    if (fieldSizeBits === null) {
+      return null;
     }
-    if (fieldSize === -1) {
-      return -1; // If any field size is dynamic, return -1
+    if (fieldSizeBits === -1) {
+      return -1;
     }
-    totalSize += fieldSize; // Accumulate the size of each field
+    const fieldAlignBytes = getAlignmentOfType(field.type);
+    if (fieldAlignBytes === null) {
+      return null;
+    }
+
+    const fieldSizeBytes = Math.ceil(fieldSizeBits / 8);
+    // Align current offset to field's alignment requirement
+    offsetBytes = Math.ceil(offsetBytes / fieldAlignBytes) * fieldAlignBytes;
+    offsetBytes += fieldSizeBytes;
+    maxAlignBytes = Math.max(maxAlignBytes, fieldAlignBytes);
   }
-  return totalSize; // Return total size in bits
+
+  // Pad total size to struct alignment
+  offsetBytes = Math.ceil(offsetBytes / maxAlignBytes) * maxAlignBytes;
+  return offsetBytes * 8; // Return total size in bits
 }
 
 function getEnumTypeSize(type: EnumType): number | null {
@@ -1196,27 +1224,39 @@ function getEnumTypeSize(type: EnumType): number | null {
   let maxAlignment = 0;
 
   for (const variant of type.variants) {
-    let variantSize: number = 0;
+    let variantOffsetBytes = 0;
+    let variantMaxAlignBytes = 1;
     if (variant.fields) {
       for (const field of variant.fields) {
-        const fieldSize = getSizeOfType(field.type);
-        if (fieldSize === null) {
-          return null; // If any parameter size is unknown, return null
-        }
-        if (fieldSize === -1) {
-          return -1; // If any parameter size is dynamic, return -1
-        }
-        variantSize += fieldSize; // Accumulate the size of each parameter
-
-        // Track maximum alignment requirement
-        const fieldAlignment = getAlignmentOfType(field.type);
-        if (fieldAlignment === null) {
+        const fieldSizeBits = getSizeOfType(field.type);
+        if (fieldSizeBits === null) {
           return null;
         }
-        maxAlignment = Math.max(maxAlignment, fieldAlignment * 8); // Convert bytes to bits
+        if (fieldSizeBits === -1) {
+          return -1;
+        }
+        const fieldAlignBytes = getAlignmentOfType(field.type);
+        if (fieldAlignBytes === null) {
+          return null;
+        }
+
+        const fieldSizeBytes = Math.ceil(fieldSizeBits / 8);
+        // Align current offset to field's alignment requirement
+        variantOffsetBytes =
+          Math.ceil(variantOffsetBytes / fieldAlignBytes) * fieldAlignBytes;
+        variantOffsetBytes += fieldSizeBytes;
+        variantMaxAlignBytes = Math.max(variantMaxAlignBytes, fieldAlignBytes);
+
+        // Track maximum alignment requirement across all variants
+        maxAlignment = Math.max(maxAlignment, fieldAlignBytes * 8); // Convert bytes to bits
       }
     }
-    maxSize = Math.max(maxSize, variantSize); // Track the maximum size of variants
+    // Pad variant size to its own alignment
+    variantOffsetBytes =
+      Math.ceil(variantOffsetBytes / variantMaxAlignBytes) *
+      variantMaxAlignBytes;
+    const variantSizeBits = variantOffsetBytes * 8;
+    maxSize = Math.max(maxSize, variantSizeBits); // Track the maximum size of variants
   }
 
   const tagSize = Math.ceil(Math.ceil(Math.log2(type.variants.length)) / 8) * 8; // Size of the tag in bits
