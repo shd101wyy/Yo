@@ -153,6 +153,43 @@ assert(!d.is_empty(), "should not be empty");
 assert(!(d.is_empty()), "should not be empty");
 ```
 
+## Recursion requires `recur`
+
+Yo does **not** allow a function to call itself by name. Use the `recur` keyword instead:
+
+```yo
+// WRONG — "Variable 'factorial' not found":
+factorial :: (fn(n : i32) -> i32)(
+  cond(
+    (n <= i32(1)) => i32(1),
+    true => (n * factorial((n - i32(1))))
+  )
+);
+
+// CORRECT — use recur:
+factorial :: (fn(n : i32) -> i32)(
+  cond(
+    (n <= i32(1)) => i32(1),
+    true => (n * recur((n - i32(1))))
+  )
+);
+```
+
+For methods, pass `self` explicitly as the first argument:
+
+```yo
+impl(Tree,
+  depth : (fn(self : Self) -> i32)(
+    cond(
+      self.is_leaf() => i32(0),
+      true => (i32(1) + recur(self.left()))
+    )
+  )
+)
+```
+
+`recur` works in any `fn` body (free functions and methods). The arguments must match the function's parameter types.
+
 ## Other syntax notes
 
 - `unit` is a type not value, `()` is the unit value.

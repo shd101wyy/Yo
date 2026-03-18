@@ -1,0 +1,606 @@
+// std/regex/parser.yo - Regex pattern parser
+//
+// Parses a regex pattern string into an AST of RegexNode objects.
+// Uses an iterative stack-based approach to avoid mutual recursion.
+
+open import "std/collections/array_list";
+open import "std/string";
+{ RegexNode, NodeKind, CharRange, AnchorKind } :: import "./node.yo";
+
+// A parse frame for tracking alternation/sequence state
+ParseFrame :: struct(
+  alternatives : ArrayList(ArrayList(RegexNode)),
+  current      : ArrayList(RegexNode),
+  is_non_capturing : bool,
+  group_index  : usize
+);
+
+// Parser state object
+RegexParser :: object(
+  _source      : String,
+  _bytes       : ArrayList(u8),
+  _pos         : usize,
+  _group_count : usize
+);
+
+// First impl block: utility + leaf parsers (defined bottom-up)
+impl(RegexParser,
+  new : (fn(pattern : String) -> Self)(
+    Self(
+      _source: pattern,
+      _bytes: pattern.as_bytes(),
+      _pos: usize(0),
+      _group_count: usize(0)
+    )
+  ),
+
+  _peek : (fn(self : Self) -> Option(u8))(
+    cond(
+      (self._pos < self._bytes.len()) => self._bytes.get(self._pos),
+      true => .None
+    )
+  ),
+
+  _advance : (fn(self : Self) -> Option(u8))({
+    cond(
+      (self._pos >= self._bytes.len()) => {
+        return .None;
+      },
+      true => ()
+    );
+    b := self._bytes.get(self._pos);
+    self._pos = (self._pos + usize(1));
+    b
+  }),
+
+  _at_end : (fn(self : Self) -> bool)(
+    (self._pos >= self._bytes.len())
+  ),
+
+  group_count : (fn(self : Self) -> usize)(
+    self._group_count
+  ),
+
+  _escape_char_codepoint : (fn(self : Self, ch : u8) -> u32)(
+    cond(
+      (ch == u8(110)) => u32(10),
+      (ch == u8(116)) => u32(9),
+      (ch == u8(114)) => u32(13),
+      (ch == u8(102)) => u32(12),
+      (ch == u8(118)) => u32(11),
+      (ch == u8(48))  => u32(0),
+      true => u32(ch)
+    )
+  ),
+
+  _parse_number : (fn(self : Self) -> Option(usize))({
+    start := self._pos;
+    while (!(self._at_end())), {
+      pk := self._peek();
+      is_digit := match(pk,
+        .Some(b) => ((b >= u8(48)) && (b <= u8(57))),
+        .None => false
+      );
+      cond(
+        is_digit => {
+          self._pos = (self._pos + usize(1));
+        },
+        true => { break; }
+      );
+    };
+    cond(
+      (self._pos == start) => {
+        return .None;
+      },
+      true => ()
+    );
+    result := usize(0);
+    i := start;
+    while (i < self._pos), (i = (i + usize(1))), {
+      d := self._bytes.get(i).unwrap();
+      result = ((result * usize(10)) + usize((d - u8(48))));
+    };
+    .Some(result)
+  }),
+
+  _parse_greedy_modifier : (fn(self : Self) -> bool)({
+    pk := self._peek();
+    is_question := match(pk,
+      .Some(b) => (b == u8(63)),
+      .None => false
+    );
+    cond(
+      is_question => {
+        self._pos = (self._pos + usize(1));
+        return false;
+      },
+      true => ()
+    );
+    true
+  }),
+
+  _make_digit_ranges : (fn(self : Self) -> ArrayList(CharRange))({
+    r := ArrayList(CharRange).new();
+    r.push(CharRange(low: u32(48), high: u32(57)));
+    r
+  }),
+
+  _make_word_ranges : (fn(self : Self) -> ArrayList(CharRange))({
+    r := ArrayList(CharRange).new();
+    r.push(CharRange(low: u32(48), high: u32(57)));
+    r.push(CharRange(low: u32(65), high: u32(90)));
+    r.push(CharRange(low: u32(95), high: u32(95)));
+    r.push(CharRange(low: u32(97), high: u32(122)));
+    r
+  }),
+
+  _make_space_ranges : (fn(self : Self) -> ArrayList(CharRange))({
+    r := ArrayList(CharRange).new();
+    r.push(CharRange(low: u32(9), high: u32(13)));
+    r.push(CharRange(low: u32(32), high: u32(32)));
+    r
+  }),
+
+  _parse_class_escape : (fn(self : Self) -> Result(ArrayList(CharRange), String))({
+    b := self._advance();
+    match(b,
+      .Some(ch) =>
+        cond(
+          (ch == u8(100)) => .Ok(self._make_digit_ranges()),
+          (ch == u8(68)) => {
+            r := ArrayList(CharRange).new();
+            r.push(CharRange(low: u32(0), high: u32(47)));
+            r.push(CharRange(low: u32(58), high: u32(0x10FFFF)));
+            .Ok(r)
+          },
+          (ch == u8(119)) => .Ok(self._make_word_ranges()),
+          (ch == u8(87)) => {
+            r := ArrayList(CharRange).new();
+            r.push(CharRange(low: u32(0), high: u32(47)));
+            r.push(CharRange(low: u32(58), high: u32(64)));
+            r.push(CharRange(low: u32(91), high: u32(94)));
+            r.push(CharRange(low: u32(96), high: u32(96)));
+            r.push(CharRange(low: u32(123), high: u32(0x10FFFF)));
+            .Ok(r)
+          },
+          (ch == u8(115)) => .Ok(self._make_space_ranges()),
+          (ch == u8(83)) => {
+            r := ArrayList(CharRange).new();
+            r.push(CharRange(low: u32(0), high: u32(8)));
+            r.push(CharRange(low: u32(14), high: u32(31)));
+            r.push(CharRange(low: u32(33), high: u32(0x10FFFF)));
+            .Ok(r)
+          },
+          true => {
+            r := ArrayList(CharRange).new();
+            codepoint := self._escape_char_codepoint(ch);
+            r.push(CharRange(low: codepoint, high: codepoint));
+            .Ok(r)
+          }
+        ),
+      .None => .Err(`Unexpected end of pattern after backslash`)
+    )
+  }),
+
+  _try_parse_char_range : (fn(self : Self, ranges : ArrayList(CharRange), low : u32) -> unit)({
+    pk3 := self._peek();
+    is_dash := match(pk3,
+      .Some(b2) => (b2 == u8(45)),
+      .None => false
+    );
+    cond(
+      is_dash => {
+        has_end := ((self._pos + usize(1)) < self._bytes.len());
+        cond(
+          has_end => {
+            nb := self._bytes.get((self._pos + usize(1)));
+            end_char := match(nb,
+              .Some(v) => v,
+              .None => {
+                ranges.push(CharRange(low: low, high: low));
+                return;
+              }
+            );
+            cond(
+              (end_char == u8(93)) => {
+                ranges.push(CharRange(low: low, high: low));
+              },
+              true => {
+                self._pos = (self._pos + usize(2));
+                ranges.push(CharRange(low: low, high: u32(end_char)));
+              }
+            );
+          },
+          true => {
+            ranges.push(CharRange(low: low, high: low));
+          }
+        );
+      },
+      true => {
+        ranges.push(CharRange(low: low, high: low));
+      }
+    );
+  }),
+
+  _parse_char_class_content : (fn(self : Self, ranges : ArrayList(CharRange)) -> Result(unit, String))({
+    pk2 := self._peek();
+    b := match(pk2,
+      .Some(v) => v,
+      .None => { return .Err(`Unterminated character class`); }
+    );
+
+    cond(
+      (b == u8(93)) => {
+        return .Ok(());
+      },
+      (b == u8(92)) => {
+        self._pos = (self._pos + usize(1));
+        esc := self._parse_class_escape();
+        match(esc,
+          .Ok(esc_ranges) => {
+            j := usize(0);
+            while (j < esc_ranges.len()), (j = (j + usize(1))), {
+              ranges.push(esc_ranges.get(j).unwrap());
+            };
+          },
+          .Err(e) => { return .Err(e); }
+        );
+      },
+      true => {
+        self._pos = (self._pos + usize(1));
+        low := u32(b);
+        self._try_parse_char_range(ranges, low);
+      }
+    );
+    .Ok(())
+  }),
+
+  _parse_char_class : (fn(self : Self) -> Result(RegexNode, String))({
+    ranges := ArrayList(CharRange).new();
+    negated := false;
+
+    // Check for negation '^'
+    pk := self._peek();
+    is_neg := match(pk,
+      .Some(b) => (b == u8(94)),
+      .None => false
+    );
+    cond(
+      is_neg => {
+        negated = true;
+        self._pos = (self._pos + usize(1));
+      },
+      true => ()
+    );
+
+    // Parse class contents until ']'
+    while (!(self._at_end())), {
+      pk2 := self._peek();
+      found_end := match(pk2,
+        .Some(b) => (b == u8(93)),
+        .None => false
+      );
+      cond(
+        found_end => {
+          self._pos = (self._pos + usize(1));
+          return .Ok(RegexNode.char_class(ranges, negated));
+        },
+        true => ()
+      );
+
+      result := self._parse_char_class_content(ranges);
+      match(result,
+        .Ok(_) => (),
+        .Err(e) => { return .Err(e); }
+      );
+    };
+    .Err(`Unterminated character class`)
+  }),
+
+  _parse_escape : (fn(self : Self) -> Result(RegexNode, String))({
+    b := self._advance();
+    match(b,
+      .Some(ch) =>
+        cond(
+          (ch == u8(100)) => .Ok(RegexNode.char_class(self._make_digit_ranges(), false)),
+          (ch == u8(68)) => .Ok(RegexNode.char_class(self._make_digit_ranges(), true)),
+          (ch == u8(119)) => .Ok(RegexNode.char_class(self._make_word_ranges(), false)),
+          (ch == u8(87)) => .Ok(RegexNode.char_class(self._make_word_ranges(), true)),
+          (ch == u8(115)) => .Ok(RegexNode.char_class(self._make_space_ranges(), false)),
+          (ch == u8(83)) => .Ok(RegexNode.char_class(self._make_space_ranges(), true)),
+          (ch == u8(98)) => .Ok(RegexNode.anchor_node(.WordBoundary)),
+          (ch == u8(66)) => .Ok(RegexNode.anchor_node(.NonWordBoundary)),
+          true => .Ok(RegexNode.literal(self._escape_char_codepoint(ch)))
+        ),
+      .None => .Err(`Unexpected end of pattern after backslash`)
+    )
+  }),
+
+  _parse_counted_quantifier : (fn(self : Self, atom : RegexNode) -> Result(RegexNode, String))({
+    self._pos = (self._pos + usize(1));
+    min_opt := self._parse_number();
+    mn := match(min_opt,
+      .Some(v) => v,
+      .None => { return .Err(`Expected number after '{'`); }
+    );
+
+    pk := self._peek();
+    b := match(pk,
+      .Some(v) => v,
+      .None => { return .Err(`Unexpected end of pattern in quantifier`); }
+    );
+
+    cond(
+      (b == u8(125)) => {
+        // {n}
+        self._pos = (self._pos + usize(1));
+        greedy := self._parse_greedy_modifier();
+        return .Ok(RegexNode.quantifier(atom, mn, mn, greedy));
+      },
+      (b != u8(44)) => {
+        return .Err(`Expected ',' or '}' in quantifier`);
+      },
+      true => ()
+    );
+
+    // Consume ','
+    self._pos = (self._pos + usize(1));
+
+    pk2 := self._peek();
+    b2 := match(pk2,
+      .Some(v) => v,
+      .None => { return .Err(`Unexpected end of pattern in quantifier`); }
+    );
+
+    cond(
+      (b2 == u8(125)) => {
+        // {n,} — unbounded
+        self._pos = (self._pos + usize(1));
+        greedy := self._parse_greedy_modifier();
+        return .Ok(RegexNode.quantifier(atom, mn, usize(0), greedy));
+      },
+      true => ()
+    );
+
+    // {n,m}
+    max_opt := self._parse_number();
+    mx := match(max_opt,
+      .Some(v) => v,
+      .None => { return .Err(`Expected number after ',' in quantifier`); }
+    );
+
+    pk3 := self._peek();
+    b3 := match(pk3,
+      .Some(v) => v,
+      .None => { return .Err(`Unexpected end of pattern in quantifier`); }
+    );
+
+    cond(
+      (b3 != u8(125)) => {
+        return .Err(`Expected '}' in quantifier`);
+      },
+      true => ()
+    );
+    self._pos = (self._pos + usize(1));
+
+    cond(
+      (mx < mn) => {
+        return .Err(`Invalid quantifier: max less than min`);
+      },
+      true => ()
+    );
+
+    greedy := self._parse_greedy_modifier();
+    .Ok(RegexNode.quantifier(atom, mn, mx, greedy))
+  }),
+
+  _parse_atom : (fn(self : Self) -> Result(RegexNode, String))({
+    b := self._advance();
+    match(b,
+      .Some(ch) =>
+        cond(
+          (ch == u8(46)) => .Ok(RegexNode.dot()),
+          (ch == u8(94)) => .Ok(RegexNode.anchor_node(.Start)),
+          (ch == u8(36)) => .Ok(RegexNode.anchor_node(.End)),
+          (ch == u8(91)) => self._parse_char_class(),
+          (ch == u8(92)) => self._parse_escape(),
+          true => .Ok(RegexNode.literal(u32(ch)))
+        ),
+      .None => .Err(`Unexpected end of pattern`)
+    )
+  }),
+
+  _maybe_quantify : (fn(self : Self, a : RegexNode) -> Result(RegexNode, String))({
+    pk := self._peek();
+    b := match(pk,
+      .Some(v) => v,
+      .None => { return .Ok(a); }
+    );
+
+    cond(
+      (b == u8(42)) => {
+        self._pos = (self._pos + usize(1));
+        greedy := self._parse_greedy_modifier();
+        .Ok(RegexNode.quantifier(a, usize(0), usize(0), greedy))
+      },
+      (b == u8(43)) => {
+        self._pos = (self._pos + usize(1));
+        greedy := self._parse_greedy_modifier();
+        .Ok(RegexNode.quantifier(a, usize(1), usize(0), greedy))
+      },
+      (b == u8(63)) => {
+        self._pos = (self._pos + usize(1));
+        greedy := self._parse_greedy_modifier();
+        .Ok(RegexNode.quantifier(a, usize(0), usize(1), greedy))
+      },
+      (b == u8(123)) => self._parse_counted_quantifier(a),
+      true => .Ok(a)
+    )
+  }),
+
+  _parse_quantified : (fn(self : Self) -> Result(RegexNode, String))({
+    atom := self._parse_atom();
+    match(atom,
+      .Ok(a) => self._maybe_quantify(a),
+      .Err(e) => .Err(e)
+    )
+  })
+);
+
+// Second impl block: helper methods first, then main parse loop
+impl(RegexParser,
+  _make_sequence : (fn(self : Self, nodes : ArrayList(RegexNode)) -> RegexNode)(
+    cond(
+      (nodes.len() == usize(0)) => RegexNode.sequence(ArrayList(RegexNode).new()),
+      (nodes.len() == usize(1)) => nodes.get(usize(0)).unwrap(),
+      true => RegexNode.sequence(nodes)
+    )
+  ),
+
+  _finalize_frame : (fn(self : Self, alts : ArrayList(ArrayList(RegexNode)), seq : ArrayList(RegexNode)) -> RegexNode)({
+    cond(
+      (alts.len() == usize(0)) => {
+        return self._make_sequence(seq);
+      },
+      true => ()
+    );
+    alts.push(seq);
+    result := self._make_sequence(alts.get(usize(0)).unwrap());
+    i := usize(1);
+    while (i < alts.len()), (i = (i + usize(1))), {
+      right := self._make_sequence(alts.get(i).unwrap());
+      result = RegexNode.alternation(result, right);
+    };
+    result
+  }),
+
+  parse : (fn(self : Self) -> Result(RegexNode, String))({
+    stack := ArrayList(ParseFrame).new();
+    cur_alts := ArrayList(ArrayList(RegexNode)).new();
+    cur_seq  := ArrayList(RegexNode).new();
+    cur_non_cap := false;
+    cur_group_idx := usize(0);
+
+    while (!(self._at_end())), {
+      pk := self._peek();
+      b := match(pk,
+        .Some(v) => v,
+        .None => { break; }
+      );
+
+      cond(
+        (b == u8(40)) => {
+          // '(' — open group
+          self._pos = (self._pos + usize(1));
+          stack.push(ParseFrame(
+            alternatives: cur_alts,
+            current: cur_seq,
+            is_non_capturing: cur_non_cap,
+            group_index: cur_group_idx
+          ));
+
+          // Detect (?:
+          is_nc := false;
+          g_idx := usize(0);
+          pk2 := self._peek();
+          is_question := match(pk2,
+            .Some(v) => (v == u8(63)),
+            .None => false
+          );
+          cond(
+            is_question => {
+              has_colon := ((self._pos + usize(1)) < self._bytes.len());
+              cond(
+                has_colon => {
+                  nb := self._bytes.get((self._pos + usize(1)));
+                  is_colon := match(nb,
+                    .Some(v) => (v == u8(58)),
+                    .None => false
+                  );
+                  cond(
+                    is_colon => {
+                      is_nc = true;
+                      self._pos = (self._pos + usize(2));
+                    },
+                    true => ()
+                  );
+                },
+                true => ()
+              );
+            },
+            true => ()
+          );
+
+          cond(
+            (!(is_nc)) => {
+              self._group_count = (self._group_count + usize(1));
+              g_idx = self._group_count;
+            },
+            true => ()
+          );
+
+          cur_alts = ArrayList(ArrayList(RegexNode)).new();
+          cur_seq = ArrayList(RegexNode).new();
+          cur_non_cap = is_nc;
+          cur_group_idx = g_idx;
+        },
+        (b == u8(41)) => {
+          // ')' — close group
+          self._pos = (self._pos + usize(1));
+          cond(
+            (stack.len() == usize(0)) => {
+              return .Err(`Unexpected ')' without matching '('`);
+            },
+            true => ()
+          );
+
+          inner := self._finalize_frame(cur_alts, cur_seq);
+          group_node := cond(
+            cur_non_cap => RegexNode.non_capturing_group(inner),
+            true => RegexNode.group(inner, cur_group_idx)
+          );
+
+          parent := stack.get((stack.len() - usize(1))).unwrap();
+          stack.pop();
+          cur_alts = parent.alternatives;
+          cur_seq = parent.current;
+          cur_non_cap = parent.is_non_capturing;
+          cur_group_idx = parent.group_index;
+
+          quantified := self._maybe_quantify(group_node);
+          match(quantified,
+            .Ok(q) => { cur_seq.push(q); },
+            .Err(e) => { return .Err(e); }
+          );
+        },
+        (b == u8(124)) => {
+          // '|' — alternation
+          self._pos = (self._pos + usize(1));
+          cur_alts.push(cur_seq);
+          cur_seq = ArrayList(RegexNode).new();
+        },
+        true => {
+          atom := self._parse_quantified();
+          match(atom,
+            .Ok(a) => { cur_seq.push(a); },
+            .Err(e) => { return .Err(e); }
+          );
+        }
+      );
+    };
+
+    cond(
+      (stack.len() > usize(0)) => {
+        return .Err(`Unterminated group — expected ')'`);
+      },
+      true => ()
+    );
+
+    result := self._finalize_frame(cur_alts, cur_seq);
+    .Ok(result)
+  })
+);
+
+export
+  RegexParser
+;
