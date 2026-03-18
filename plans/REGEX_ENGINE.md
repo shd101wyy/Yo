@@ -219,7 +219,9 @@ Key design decisions:
 - Parser uses iterative stack-based approach with ParseFrame structs instead of recursive descent, working around Yo's forward method reference limitation.
 - All recursive calls use `recur(self, args)` per Yo's recursion model.
 
-**Next**: Phase 7 (Lookahead & Lookbehind)
+**Next**: Phase 8 (Unicode Support)
+
+Phase 7 completed: All four lookaround assertions (positive/negative lookahead/lookbehind) implemented. Uses a `_run_sub_vm` method that runs a mini Thompson simulation for sub-patterns. Lookbehind tries all start positions backwards with UTF-8 boundary handling. Fixed a shared seen-array bug where lookbehind `current`-list additions were blocking `next`-list thread expansion — solved with separate `next_seen` array.
 
 Phase 6 completed: Named groups, numeric backreferences (\1-\9), and named backreferences (\k<name>) all working. Used a DeferredThread mechanism for multi-byte backreferences — threads that consume multiple bytes are deferred until the target byte position is reached. Also discovered and fixed a Yo compiler bug: `getSizeOfType` didn't account for C struct alignment padding (pointer+bool struct was calculated as 9 bytes instead of 16).
 
@@ -317,7 +319,7 @@ Phase 6 completed: Named groups, numeric backreferences (\1-\9), and named backr
 - Numeric backreferences: `\1`, `\2`, ...
 - Note: Backreferences require backtracking (NFA extension or hybrid approach)
 
-### Phase 7: Lookahead & Lookbehind
+### Phase 7: Lookahead & Lookbehind ✅
 
 **Goal**: Zero-width assertions.
 
