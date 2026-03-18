@@ -14,17 +14,18 @@
 open import "std/collections/array_list";
 open import "std/string";
 { RegexParser } :: import "./parser.yo";
-{ NfaCompiler, NfaProgram, Instr, InstrKind, ClassEntry } :: import "./compiler.yo";
+{ NfaCompiler, NfaProgram, Instr, InstrKind, ClassEntry, GroupNameEntry } :: import "./compiler.yo";
 { NfaVm, VmMatch } :: import "./vm.yo";
 { RegexFlags } :: import "./flags.yo";
 { RegexMatch } :: import "./match.yo";
 
 // The Regex type: a compiled regular expression
 Regex :: object(
-  _program  : NfaProgram,
-  _flags    : RegexFlags,
-  _pattern  : String,
-  _n_groups : usize
+  _program     : NfaProgram,
+  _flags       : RegexFlags,
+  _pattern     : String,
+  _n_groups    : usize,
+  _group_names : ArrayList(GroupNameEntry)
 );
 
 // Block 1: Constructor and leaf methods
@@ -40,13 +41,15 @@ impl(Regex,
           .Err(e) => .Err(e),
           .Ok(ast) => {
             n_groups := parser.group_count();
+            gnames := parser.group_names();
             compiler := NfaCompiler.new();
-            program := compiler.compile(ast, n_groups);
+            program := compiler.compile(ast, n_groups, gnames);
             .Ok(Self(
               _program: program,
               _flags: flags,
               _pattern: pattern,
-              _n_groups: n_groups
+              _n_groups: n_groups,
+              _group_names: gnames
             ))
           }
         )
@@ -123,7 +126,7 @@ impl(Regex,
       );
     };
 
-    RegexMatch.new(match_text, match_char_index, input, groups)
+    RegexMatch.new(match_text, match_char_index, input, groups, self._group_names)
   })
 );
 

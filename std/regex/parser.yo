@@ -5,7 +5,7 @@
 
 open import "std/collections/array_list";
 open import "std/string";
-{ RegexNode, NodeKind, CharRange, AnchorKind } :: import "./node.yo";
+{ RegexNode, NodeKind, CharRange, AnchorKind, GroupNameEntry } :: import "./node.yo";
 
 // A parse frame for tracking alternation/sequence state
 ParseFrame :: struct(
@@ -20,7 +20,8 @@ RegexParser :: object(
   _source      : String,
   _bytes       : ArrayList(u8),
   _pos         : usize,
-  _group_count : usize
+  _group_count : usize,
+  _group_names : ArrayList(GroupNameEntry)
 );
 
 // First impl block: utility + leaf parsers (defined bottom-up)
@@ -30,7 +31,8 @@ impl(RegexParser,
       _source: pattern,
       _bytes: pattern.as_bytes(),
       _pos: usize(0),
-      _group_count: usize(0)
+      _group_count: usize(0),
+      _group_names: ArrayList(GroupNameEntry).new()
     )
   ),
 
@@ -60,6 +62,22 @@ impl(RegexParser,
   group_count : (fn(self : Self) -> usize)(
     self._group_count
   ),
+
+  group_names : (fn(self : Self) -> ArrayList(GroupNameEntry))(
+    self._group_names
+  ),
+
+  _lookup_group_name : (fn(self : Self, name : String) -> Option(usize))({
+    i := usize(0);
+    while (i < self._group_names.len()), (i = (i + usize(1))), {
+      entry := self._group_names.get(i).unwrap();
+      cond(
+        (entry.name == name) => { return .Some(entry.index); },
+        true => ()
+      );
+    };
+    .None
+  }),
 
   _escape_char_codepoint : (fn(self : Self, ch : u8) -> u32)(
     cond(
@@ -310,6 +328,54 @@ impl(RegexParser,
           (ch == u8(83)) => .Ok(RegexNode.char_class(self._make_space_ranges(), true)),
           (ch == u8(98)) => .Ok(RegexNode.anchor_node(.WordBoundary)),
           (ch == u8(66)) => .Ok(RegexNode.anchor_node(.NonWordBoundary)),
+          // Numeric backreference \1 through \9
+          ((ch >= u8(49)) && (ch <= u8(57))) => {
+            group_idx := usize((ch - u8(48)));
+            cond(
+              (group_idx > self._group_count) =>
+                .Err(`Backreference \\${group_idx} exceeds number of groups`),
+              true => .Ok(RegexNode.backreference(group_idx))
+            )
+          },
+          // Named backreference \k<name>
+          (ch == u8(107)) => {
+            pk := self._peek();
+            is_lt := match(pk,
+              .Some(v) => (v == u8(60)),
+              .None => false
+            );
+            cond(
+              (!(is_lt)) => {
+                return .Err(`Expected '<' after \\k`);
+              },
+              true => ()
+            );
+            self._pos = (self._pos + usize(1));
+            name_bytes := ArrayList(u8).new();
+            while (!(self._at_end())), {
+              nb := self._peek();
+              nb_val := match(nb,
+                .Some(v) => v,
+                .None => { break; }
+              );
+              cond(
+                (nb_val == u8(62)) => {
+                  self._pos = (self._pos + usize(1));
+                  name_str := String.from_bytes(name_bytes);
+                  lookup := self._lookup_group_name(name_str);
+                  return match(lookup,
+                    .Some(idx) => .Ok(RegexNode.backreference(idx)),
+                    .None => .Err(`Unknown named group in backreference`)
+                  );
+                },
+                true => {
+                  name_bytes.push(nb_val);
+                  self._pos = (self._pos + usize(1));
+                }
+              );
+            };
+            .Err(`Unterminated named backreference \\k<...>`)
+          },
           true => .Ok(RegexNode.literal(self._escape_char_codepoint(ch)))
         ),
       .None => .Err(`Unexpected end of pattern after backslash`)
@@ -499,7 +565,7 @@ impl(RegexParser,
             group_index: cur_group_idx
           ));
 
-          // Detect (?:
+          // Detect (?:  or  (?<name>
           is_nc := false;
           g_idx := usize(0);
           pk2 := self._peek();
@@ -509,18 +575,45 @@ impl(RegexParser,
           );
           cond(
             is_question => {
-              has_colon := ((self._pos + usize(1)) < self._bytes.len());
+              has_next := ((self._pos + usize(1)) < self._bytes.len());
               cond(
-                has_colon => {
+                has_next => {
                   nb := self._bytes.get((self._pos + usize(1)));
-                  is_colon := match(nb,
-                    .Some(v) => (v == u8(58)),
-                    .None => false
+                  next_ch := match(nb,
+                    .Some(v) => v,
+                    .None => u8(0)
                   );
                   cond(
-                    is_colon => {
+                    // (?:  — non-capturing group
+                    (next_ch == u8(58)) => {
                       is_nc = true;
                       self._pos = (self._pos + usize(2));
+                    },
+                    // (?<name>  — named capturing group
+                    (next_ch == u8(60)) => {
+                      self._pos = (self._pos + usize(2));
+                      name_bytes := ArrayList(u8).new();
+                      while (!(self._at_end())), {
+                        name_b := self._peek();
+                        name_ch := match(name_b,
+                          .Some(v) => v,
+                          .None => { break; }
+                        );
+                        cond(
+                          (name_ch == u8(62)) => {
+                            self._pos = (self._pos + usize(1));
+                            break;
+                          },
+                          true => {
+                            name_bytes.push(name_ch);
+                            self._pos = (self._pos + usize(1));
+                          }
+                        );
+                      };
+                      self._group_count = (self._group_count + usize(1));
+                      g_idx = self._group_count;
+                      group_name := String.from_bytes(name_bytes);
+                      self._group_names.push(GroupNameEntry(name: group_name, index: g_idx));
                     },
                     true => ()
                   );
@@ -532,7 +625,7 @@ impl(RegexParser,
           );
 
           cond(
-            (!(is_nc)) => {
+            ((!(is_nc)) && (g_idx == usize(0))) => {
               self._group_count = (self._group_count + usize(1));
               g_idx = self._group_count;
             },

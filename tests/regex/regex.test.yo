@@ -385,3 +385,105 @@ test "Invalid quantifier range returns error", {
   result := Regex.new(`a{5,2}`, ``);
   assert(result.is_err(), "max < min should error");
 };
+
+// ============================================================================
+// 14. Named Capturing Groups
+// ============================================================================
+
+test "Named group captures value", {
+  re := Regex.new(`(?<year>\\d{4})-(?<month>\\d{2})-(?<day>\\d{2})`, ``).unwrap();
+  m := re.exec(`date: 2024-03-17 end`);
+  assert(m.is_some(), "should match date");
+  result := m.unwrap();
+  assert((result.value() == `2024-03-17`), "full match");
+
+  y := result.named_group(`year`);
+  assert(y.is_some(), "year should exist");
+  assert((y.unwrap() == `2024`), "year should be 2024");
+
+  mo := result.named_group(`month`);
+  assert(mo.is_some(), "month should exist");
+  assert((mo.unwrap() == `03`), "month should be 03");
+
+  d := result.named_group(`day`);
+  assert(d.is_some(), "day should exist");
+  assert((d.unwrap() == `17`), "day should be 17");
+};
+
+test "Named group also accessible by index", {
+  re := Regex.new(`(?<first>\\w+)\\s+(?<last>\\w+)`, ``).unwrap();
+  m := re.exec(`John Smith`);
+  assert(m.is_some(), "should match");
+  result := m.unwrap();
+
+  // By name
+  assert((result.named_group(`first`).unwrap() == `John`), "first by name");
+  assert((result.named_group(`last`).unwrap() == `Smith`), "last by name");
+
+  // By index (same groups)
+  assert((result.group(usize(1)).unwrap() == `John`), "first by index");
+  assert((result.group(usize(2)).unwrap() == `Smith`), "last by index");
+};
+
+test "Named group unknown name returns None", {
+  re := Regex.new(`(?<x>a)`, ``).unwrap();
+  m := re.exec(`a`);
+  assert(m.is_some(), "should match");
+  result := m.unwrap();
+  assert((result.named_group(`x`).unwrap() == `a`), "x exists");
+  assert(result.named_group(`y`).is_none(), "y should not exist");
+};
+
+// ============================================================================
+// 15. Numeric Backreferences
+// ============================================================================
+
+test "Numeric backref matches repeated group", {
+  re := Regex.new(`(\\w+)\\s+\\1`, ``).unwrap();
+  m := re.exec(`hello hello world`);
+  assert(m.is_some(), "should match repeated word");
+  assert((m.unwrap().value() == `hello hello`), "should match hello hello");
+};
+
+test "Numeric backref fails when not repeated", {
+  re := Regex.new(`(\\w+)\\s+\\1`, ``).unwrap();
+  m := re.exec(`hello world`);
+  assert(m.is_none(), "should not match different words");
+};
+
+test "Numeric backref with literal", {
+  re := Regex.new(`(a+)b\\1`, ``).unwrap();
+  m1 := re.exec(`aabaa`);
+  assert(m1.is_some(), "should match aabaa");
+  assert((m1.unwrap().value() == `aabaa`), "full match aabaa");
+
+  m2 := re.exec(`aba`);
+  assert(m2.is_some(), "should match aba");
+  assert((m2.unwrap().value() == `aba`), "full match aba");
+};
+
+test "Numeric backref empty group matches", {
+  re := Regex.new(`(a?)b\\1`, ``).unwrap();
+  m := re.exec(`b`);
+  assert(m.is_some(), "empty group backref should match b");
+  assert((m.unwrap().value() == `b`), "should match just b");
+};
+
+// ============================================================================
+// 16. Named Backreferences
+// ============================================================================
+
+test "Named backref matches repeated group", {
+  re := Regex.new(`(?<word>\\w+)\\s+\\k<word>`, ``).unwrap();
+  m := re.exec(`hello hello world`);
+  assert(m.is_some(), "should match repeated word");
+  result := m.unwrap();
+  assert((result.value() == `hello hello`), "should match hello hello");
+  assert((result.named_group(`word`).unwrap() == `hello`), "group captures first word");
+};
+
+test "Named backref fails when not repeated", {
+  re := Regex.new(`(?<word>\\w+)\\s+\\k<word>`, ``).unwrap();
+  m := re.exec(`hello world`);
+  assert(m.is_none(), "should not match different words");
+};

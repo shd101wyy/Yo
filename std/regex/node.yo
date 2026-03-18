@@ -31,7 +31,14 @@ NodeKind :: enum(
   Alternation,
   Quantifier,
   Group,
-  NonCapturingGroup
+  NonCapturingGroup,
+  Backreference
+);
+
+// Entry mapping a named group to its index
+GroupNameEntry :: struct(
+  name  : String,
+  index : usize
 );
 
 // The regex AST node type.
@@ -208,12 +215,29 @@ impl(RegexNode,
       group_index: usize(0),
       anchor: .Start
     )
-  })
+  }),
+
+  // Create a backreference node (\1, \k<name>)
+  backreference : (fn(group_idx : usize) -> Self)(
+    Self(
+      kind: .Backreference,
+      children: ArrayList(RegexNode).new(),
+      codepoint: u32(0),
+      ranges: ArrayList(CharRange).new(),
+      negated: false,
+      q_min: usize(0),
+      q_max: usize(0),
+      q_greedy: true,
+      group_index: group_idx,
+      anchor: .Start
+    )
+  )
 );
 
 export
   RegexNode,
   NodeKind,
   CharRange,
-  AnchorKind
+  AnchorKind,
+  GroupNameEntry
 ;

@@ -5,7 +5,7 @@
 
 open import "std/collections/array_list";
 open import "std/string";
-{ RegexNode, NodeKind, CharRange, AnchorKind } :: import "./node.yo";
+{ RegexNode, NodeKind, CharRange, AnchorKind, GroupNameEntry } :: import "./node.yo";
 
 // NFA instruction types
 InstrKind :: enum(
@@ -19,7 +19,8 @@ InstrKind :: enum(
   AssertStart,
   AssertEnd,
   AssertWordBoundary,
-  AssertNonWordBoundary
+  AssertNonWordBoundary,
+  Backref
 );
 
 // A single NFA instruction
@@ -77,6 +78,10 @@ impl(Instr,
   assert_non_word_boundary_instr : (fn() -> Self)(
     Self(kind: .AssertNonWordBoundary, codepoint: u32(0), class_idx: usize(0),
          target_a: usize(0), target_b: usize(0), target: usize(0), slot: usize(0))
+  ),
+  backref_instr : (fn(group_idx : usize) -> Self)(
+    Self(kind: .Backref, codepoint: u32(0), class_idx: usize(0),
+         target_a: usize(0), target_b: usize(0), target: usize(0), slot: group_idx)
   )
 );
 
@@ -90,7 +95,8 @@ ClassEntry :: struct(
 NfaProgram :: object(
   instructions : ArrayList(Instr),
   classes      : ArrayList(ClassEntry),
-  n_groups     : usize
+  n_groups     : usize,
+  group_names  : ArrayList(GroupNameEntry)
 );
 
 // The NFA compiler
@@ -105,7 +111,8 @@ impl(NfaCompiler,
       _program: NfaProgram(
         instructions: ArrayList(Instr).new(),
         classes: ArrayList(ClassEntry).new(),
-        n_groups: usize(0)
+        n_groups: usize(0),
+        group_names: ArrayList(GroupNameEntry).new()
       )
     )
   ),
@@ -246,6 +253,9 @@ impl(NfaCompiler,
       .NonCapturingGroup => {
         child := node.children.get(usize(0)).unwrap();
         recur(self, child);
+      },
+      .Backreference => {
+        self._emit(Instr.backref_instr(node.group_index));
       }
     );
   })
@@ -253,8 +263,9 @@ impl(NfaCompiler,
 
 // Top-level compile method
 impl(NfaCompiler,
-  compile : (fn(self : Self, root : RegexNode, n_groups : usize) -> NfaProgram)({
+  compile : (fn(self : Self, root : RegexNode, n_groups : usize, group_names : ArrayList(GroupNameEntry)) -> NfaProgram)({
     self._program.n_groups = n_groups;
+    self._program.group_names = group_names;
     self._emit(Instr.save_instr(usize(0)));
     self._compile_node(root);
     self._emit(Instr.save_instr(usize(1)));
@@ -268,5 +279,6 @@ export
   NfaProgram,
   Instr,
   InstrKind,
-  ClassEntry
+  ClassEntry,
+  GroupNameEntry
 ;

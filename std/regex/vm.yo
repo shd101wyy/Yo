@@ -6,7 +6,7 @@
 
 open import "std/collections/array_list";
 open import "std/string";
-{ NfaProgram, Instr, InstrKind, ClassEntry } :: import "./compiler.yo";
+{ NfaProgram, Instr, InstrKind, ClassEntry, GroupNameEntry } :: import "./compiler.yo";
 { CharRange } :: import "./node.yo";
 { RegexFlags } :: import "./flags.yo";
 
@@ -60,6 +60,12 @@ NfaVm :: object(
 DecodedChar :: struct(
   codepoint : u32,
   byte_len  : usize
+);
+
+// A thread deferred to a future byte position (for multi-byte backrefs)
+DeferredThread :: struct(
+  target_byte_pos : usize,
+  thread : NfaThread
 );
 
 // Block 1: Constructor and leaf helpers (no method dependencies)
@@ -315,6 +321,7 @@ impl(NfaVm,
   exec_at : (fn(self : Self, start_byte : usize) -> VmMatch)({
     current := ArrayList(NfaThread).new();
     next := ArrayList(NfaThread).new();
+    deferred := ArrayList(DeferredThread).new();
 
     seen := ArrayList(bool).with_capacity(self._program.instructions.len());
     i := usize(0);
@@ -328,13 +335,9 @@ impl(NfaVm,
     best_match := VmMatch(matched: false, slots: ArrayList(usize).new());
     byte_pos := start_byte;
     input_len := self._bytes.len();
+    unset := usize(0xFFFFFFFFFFFFFFFF);
 
     while (byte_pos <= input_len), {
-      cond(
-        (current.len() == usize(0)) => { break; },
-        true => ()
-      );
-
       (cur_cp : u32) = u32(0);
       (char_byte_len : usize) = usize(0);
       (at_end : bool) = (byte_pos >= input_len);
@@ -348,11 +351,33 @@ impl(NfaVm,
         true => ()
       );
 
-      // Clear seen flags for next generation
+      // Clear seen flags for this generation
       j := usize(0);
       while (j < seen.len()), (j = (j + usize(1))), {
         seen.set(j, false);
       };
+
+      // Process deferred threads targeting this byte_pos
+      new_deferred := ArrayList(DeferredThread).new();
+      di := usize(0);
+      while (di < deferred.len()), (di = (di + usize(1))), {
+        d := deferred.get(di).unwrap();
+        cond(
+          (d.target_byte_pos == byte_pos) => {
+            self._add_thread(&(current), d.thread, byte_pos, &(seen));
+          },
+          true => {
+            new_deferred.push(d);
+          }
+        );
+      };
+      deferred = new_deferred;
+
+      // Break if no threads and no deferred
+      cond(
+        ((current.len() == usize(0)) && (deferred.len() == usize(0))) => { break; },
+        true => ()
+      );
 
       // Process each thread (priority order — first match wins in gen)
       (found_match_in_gen : bool) = false;
@@ -404,6 +429,74 @@ impl(NfaVm,
                     );
                   },
                   .None => ()
+                );
+              },
+              true => ()
+            );
+          },
+          .Backref => {
+            group_start_slot := (instr.slot * usize(2));
+            group_end_slot := ((instr.slot * usize(2)) + usize(1));
+            cond(
+              ((group_start_slot < thread.slots.len()) && (group_end_slot < thread.slots.len())) => {
+                gs := thread.slots.get(group_start_slot).unwrap();
+                ge := thread.slots.get(group_end_slot).unwrap();
+                cond(
+                  ((gs != unset) && (ge != unset)) => {
+                    captured_len := (ge - gs);
+                    cond(
+                      ((byte_pos + captured_len) <= input_len) => {
+                        // Compare captured bytes against input at current position
+                        (bytes_match : bool) = true;
+                        bi := usize(0);
+                        while (bi < captured_len), (bi = (bi + usize(1))), {
+                          expected := self._bytes.get((gs + bi)).unwrap();
+                          actual := self._bytes.get((byte_pos + bi)).unwrap();
+                          cond(
+                            self._flags.ignore_case => {
+                              el := cond(
+                                ((expected >= u8(65)) && (expected <= u8(90))) => (expected + u8(32)),
+                                true => expected
+                              );
+                              al := cond(
+                                ((actual >= u8(65)) && (actual <= u8(90))) => (actual + u8(32)),
+                                true => actual
+                              );
+                              cond(
+                                (el != al) => { bytes_match = false; },
+                                true => ()
+                              );
+                            },
+                            true => {
+                              cond(
+                                (expected != actual) => { bytes_match = false; },
+                                true => ()
+                              );
+                            }
+                          );
+                        };
+                        cond(
+                          bytes_match => {
+                            new_pos := (byte_pos + captured_len);
+                            new_thread := thread.fork((thread.pc + usize(1)));
+                            cond(
+                              (captured_len == usize(0)) => {
+                                // Empty capture — epsilon-like, process in current gen
+                                self._add_thread(&(current), new_thread, byte_pos, &(seen));
+                              },
+                              true => {
+                                // Defer to the target byte position
+                                deferred.push(DeferredThread(target_byte_pos: new_pos, thread: new_thread));
+                              }
+                            );
+                          },
+                          true => ()
+                        );
+                      },
+                      true => ()
+                    );
+                  },
+                  true => ()
                 );
               },
               true => ()
