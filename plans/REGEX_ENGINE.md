@@ -202,7 +202,7 @@ Implemented:
 - Thompson NFA VM with priority-based thread scheduling
 - Full Regex API: `new`, `test`, `exec`, `match_all`
 - RegexMatch object with `value`, `index`, `input`, `groups`
-- RegexFlags parsing (`g`, `i`, `m`, `s`)
+- RegexFlags parsing (`g`, `i`, `m`, `s`, `u`, `y`)
 - Non-greedy quantifiers (`*?`, `+?`, `??`)
 - Anchors (`^`, `$`, `\b`)
 - Non-capturing groups `(?:...)`
@@ -334,18 +334,24 @@ Phase 6 completed: Named groups, numeric backreferences (\1-\9), and named backr
 - Positive lookbehind: `(?<=...)`
 - Negative lookbehind: `(?<!...)`
 
-### Phase 8: Unicode Support (Deferred)
+### Phase 8: Unicode Property Support ✅
 
-**Status**: Deferred — requires large Unicode property tables. The engine already handles UTF-8 correctly for all matching operations. Unicode property classes (`\p{Letter}`, etc.) and case folding can be added later when needed.
+**Status**: Complete — Unicode property escapes (`\p{...}` / `\P{...}`) are implemented with range tables for common categories. The engine already handles UTF-8 correctly for all matching operations.
 
-**Goal**: Full Unicode-aware matching.
+**Features implemented**:
 
-**Features**:
+- `\p{Name}` and `\P{Name}` (negated) Unicode property escapes
+- General categories: L/Letter, Lu/Uppercase_Letter, Ll/Lowercase_Letter, N/Number, Nd/Digit, P/Punctuation, S/Symbol, Z/Separator, M/Mark, C/Other
+- Script categories: ASCII, Latin, Greek, Cyrillic, Han, Hiragana, Katakana, Hangul, Arabic, Devanagari, Thai, Emoji
+- Boolean properties: White_Space/space, Alphabetic/Alpha
+- `u` (unicode) flag enables `\p{...}` (but works without flag too)
+- `y` (sticky) flag — anchors matching to position 0 (exec) or consecutively from end of previous match (match_all)
+- Range tables in `std/regex/unicode.yo` with compact representation
 
-- Case-insensitive matching with Unicode case folding
-- Unicode character properties: `\p{Letter}`, `\p{Digit}`, `\P{...}`
-- Unicode category escapes
-- Proper handling of multi-byte UTF-8 sequences in character classes
+**Not yet implemented**:
+
+- Full Unicode case folding for case-insensitive matching
+- Exhaustive Unicode property tables (current tables cover practical use cases)
 
 ### Phase 9: String Integration ✅
 
@@ -387,7 +393,8 @@ std/regex/
 ├── regex.yo       — Regex type, constructor, test/exec/match_all
 ├── match.yo       — Match type and methods
 ├── flags.yo       — RegexFlags parsing
-├── char_class.yo  — Built-in character classes (\d, \w, \s, Unicode)
+├── node.yo        — AST node types (NodeKind, RegexNode, CharRange)
+├── unicode.yo     — Unicode property range tables for \p{...}
 └── index.yo       — Module exports
 ```
 

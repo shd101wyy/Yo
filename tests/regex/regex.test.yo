@@ -1003,3 +1003,176 @@ test "duplicate flag returns error", {
   result := Regex.new(`test`, `ii`);
   assert(result.is_err(), "duplicate flag should return error");
 };
+
+// ===== Sticky (y) flag tests =====
+
+test "flag y: sticky matches at start only", {
+  re := Regex.new(`\\d+`, `y`).unwrap();
+  m1 := re.exec(`123abc`);
+  assert(m1.is_some(), "should match digits at start");
+  assert((m1.unwrap().value() == `123`), "should match 123");
+};
+
+test "flag y: sticky no match when not at start", {
+  re := Regex.new(`\\d+`, `y`).unwrap();
+  m := re.exec(`abc123`);
+  assert(m.is_none(), "should not match digits in middle with sticky");
+};
+
+test "flag y: sticky match_all consecutive", {
+  re := Regex.new(`[a-z]+`, `y`).unwrap();
+  matches := re.match_all(`abcdef`);
+  assert((matches.len() == usize(1)), "should match entire string as one");
+  assert((matches.get(usize(0)).unwrap().value() == `abcdef`), "should match all");
+};
+
+test "flag y: sticky match_all stops on failure", {
+  re := Regex.new(`\\d`, `y`).unwrap();
+  matches := re.match_all(`12x45`);
+  assert((matches.len() == usize(2)), "should stop at non-digit");
+  assert((matches.get(usize(0)).unwrap().value() == `1`), "first digit");
+  assert((matches.get(usize(1)).unwrap().value() == `2`), "second digit");
+};
+
+test "flag y: sticky with anchored pattern", {
+  re := Regex.new(`^hello`, `y`).unwrap();
+  m := re.exec(`hello world`);
+  assert(m.is_some(), "should match at start with sticky + anchor");
+};
+
+test "flag y: sticky empty string match", {
+  re := Regex.new(``, `y`).unwrap();
+  m := re.exec(`hello`);
+  assert(m.is_some(), "should match empty at start");
+  assert((m.unwrap().value() == ``), "should be empty match");
+};
+
+// ===== Unicode property (u) flag tests =====
+
+test "unicode \\p{Letter} matches letters", {
+  re := Regex.new(`\\p{Letter}+`, `u`).unwrap();
+  m := re.exec(`123hello456`);
+  assert(m.is_some(), "should match letters");
+  assert((m.unwrap().value() == `hello`), "should match hello");
+};
+
+test "unicode \\p{L} short form matches letters", {
+  re := Regex.new(`\\p{L}+`, `u`).unwrap();
+  m := re.exec(`---abc---`);
+  assert(m.is_some(), "should match with short form");
+  assert((m.unwrap().value() == `abc`), "should match abc");
+};
+
+test "unicode \\p{L} matches Chinese characters", {
+  re := Regex.new(`\\p{L}+`, `u`).unwrap();
+  m := re.exec(`123你好世界456`);
+  assert(m.is_some(), "should match Chinese as letters");
+  assert((m.unwrap().value() == `你好世界`), "should match all Chinese");
+};
+
+test "unicode \\P{L} matches non-letters", {
+  re := Regex.new(`\\P{L}+`, `u`).unwrap();
+  m := re.exec(`hello 123 world`);
+  assert(m.is_some(), "should match non-letters");
+  assert((m.unwrap().value() == ` 123 `), "should match space-digits-space");
+};
+
+test "unicode \\p{Number} matches digits", {
+  re := Regex.new(`\\p{Number}+`, `u`).unwrap();
+  m := re.exec(`abc123def`);
+  assert(m.is_some(), "should match digits");
+  assert((m.unwrap().value() == `123`), "should match 123");
+};
+
+test "unicode \\p{Nd} matches decimal digits", {
+  re := Regex.new(`\\p{Nd}+`, `u`).unwrap();
+  m := re.exec(`abc456def`);
+  assert(m.is_some(), "should match decimal digits");
+  assert((m.unwrap().value() == `456`), "should match 456");
+};
+
+test "unicode \\p{P} matches punctuation", {
+  re := Regex.new(`\\p{P}+`, `u`).unwrap();
+  m := re.exec(`hello, world!`);
+  assert(m.is_some(), "should match punctuation");
+  assert((m.unwrap().value() == `,`), "should match comma");
+};
+
+test "unicode \\p{Han} matches CJK characters", {
+  re := Regex.new(`\\p{Han}+`, `u`).unwrap();
+  m := re.exec(`hello你好world`);
+  assert(m.is_some(), "should match CJK characters");
+  assert((m.unwrap().value() == `你好`), "should match Chinese");
+};
+
+test "unicode \\p{Emoji} matches emoji", {
+  re := Regex.new(`\\p{Emoji}`, `u`).unwrap();
+  m := re.exec(`hello😀world`);
+  assert(m.is_some(), "should match emoji");
+  assert((m.unwrap().value() == `😀`), "should match the emoji");
+};
+
+test "unicode \\p{ASCII} matches ASCII only", {
+  re := Regex.new(`\\p{ASCII}+`, `u`).unwrap();
+  m := re.exec(`你好hello世界`);
+  assert(m.is_some(), "should match ASCII portion");
+  assert((m.unwrap().value() == `hello`), "should match hello");
+};
+
+test "unicode \\p{Lu} matches uppercase letters", {
+  re := Regex.new(`\\p{Lu}+`, `u`).unwrap();
+  m := re.exec(`helloWORLDbye`);
+  assert(m.is_some(), "should match uppercase");
+  assert((m.unwrap().value() == `WORLD`), "should match WORLD");
+};
+
+test "unicode \\p{Ll} matches lowercase letters", {
+  re := Regex.new(`\\p{Ll}+`, `u`).unwrap();
+  m := re.exec(`ABChelloDEF`);
+  assert(m.is_some(), "should match lowercase");
+  assert((m.unwrap().value() == `hello`), "should match hello");
+};
+
+test "unicode \\p{White_Space} matches whitespace", {
+  re := Regex.new(`\\p{White_Space}+`, `u`).unwrap();
+  m := re.exec(`hello world`);
+  assert(m.is_some(), "should match whitespace");
+  assert((m.unwrap().value() == ` `), "should match space");
+};
+
+test "unicode \\p{Latin} matches Latin script", {
+  re := Regex.new(`\\p{Latin}+`, `u`).unwrap();
+  m := re.exec(`123hello456`);
+  assert(m.is_some(), "should match Latin chars");
+  assert((m.unwrap().value() == `hello`), "should match hello");
+};
+
+test "unicode unknown property returns error", {
+  result := Regex.new(`\\p{FooBar}`, `u`);
+  assert(result.is_err(), "unknown property should be error");
+};
+
+test "unicode \\p without u flag still works", {
+  // Our engine allows \p{...} without u flag for convenience
+  re := Regex.new(`\\p{L}+`, ``).unwrap();
+  m := re.exec(`123hello456`);
+  assert(m.is_some(), "should work without u flag");
+  assert((m.unwrap().value() == `hello`), "should match letters");
+};
+
+test "unicode property in alternation", {
+  re := Regex.new(`\\p{Han}|\\p{Latin}`, `u`).unwrap();
+  m1 := re.exec(`你`);
+  assert(m1.is_some(), "should match Han");
+  m2 := re.exec(`A`);
+  assert(m2.is_some(), "should match Latin");
+};
+
+test "unicode property with quantifier", {
+  re := Regex.new(`\\p{N}{3,}`, `u`).unwrap();
+  m1 := re.exec(`ab12cd`);
+  assert(m1.is_none(), "should not match only 2 digits");
+  m2 := re.exec(`ab123cd`);
+  assert(m2.is_some(), "should match 3+ digits");
+  assert((m2.unwrap().value() == `123`), "should match 123");
+};

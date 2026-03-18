@@ -186,99 +186,36 @@ impl(Regex,
   exec : (fn(self : Self, input : String) -> Option(RegexMatch))({
     bytes := input.as_bytes();
     input_len := bytes.len();
-    has_prefix := (self._program.literal_prefix.len() > usize(0));
 
-    byte_pos := cond(
-      has_prefix => self._find_prefix_pos(bytes, usize(0)),
-      true => usize(0)
-    );
+    // Sticky flag: only try matching at position 0
+    cond(
+      self._flags.sticky => {
+        vm := NfaVm.new(self._program, self._flags, input);
+        result := vm.exec_at(usize(0));
+        cond(
+          result.matched => .Some(self._build_match(result.slots, input)),
+          true => .None
+        )
+      },
+      true => {
+        has_prefix := (self._program.literal_prefix.len() > usize(0));
+        byte_pos := cond(
+          has_prefix => self._find_prefix_pos(bytes, usize(0)),
+          true => usize(0)
+        );
 
-    while (byte_pos <= input_len), {
-      vm := NfaVm.new(self._program, self._flags, input);
-      result := vm.exec_at(byte_pos);
-
-      cond(
-        result.matched => {
-          m := self._build_match(result.slots, input);
-          return .Some(m);
-        },
-        true => ()
-      );
-
-      cond(
-        (byte_pos >= input_len) => { break; },
-        true => {
-          b := bytes.get(byte_pos).unwrap();
-          char_len := cond(
-            (b < u8(0x80)) => usize(1),
-            ((b >= u8(0xC0)) && (b < u8(0xE0))) => usize(2),
-            ((b >= u8(0xE0)) && (b < u8(0xF0))) => usize(3),
-            true => usize(4)
-          );
-          next_pos := (byte_pos + char_len);
-          byte_pos = cond(
-            has_prefix => self._find_prefix_pos(bytes, next_pos),
-            true => next_pos
-          );
-        }
-      );
-    };
-
-    .None
-  }),
-
-  match_all : (fn(self : Self, input : String) -> ArrayList(RegexMatch))({
-    matches := ArrayList(RegexMatch).new();
-    bytes := input.as_bytes();
-    input_len := bytes.len();
-    has_prefix := (self._program.literal_prefix.len() > usize(0));
-
-    byte_pos := cond(
-      has_prefix => self._find_prefix_pos(bytes, usize(0)),
-      true => usize(0)
-    );
-
-    while (byte_pos <= input_len), {
-      vm := NfaVm.new(self._program, self._flags, input);
-      result := vm.exec_at(byte_pos);
-
-      cond(
-        result.matched => {
-          m := self._build_match(result.slots, input);
-          matches.push(m);
-
-          match_start := result.slots.get(usize(0)).unwrap();
-          match_end := result.slots.get(usize(1)).unwrap();
+        while (byte_pos <= input_len), {
+          vm := NfaVm.new(self._program, self._flags, input);
+          result := vm.exec_at(byte_pos);
 
           cond(
-            (match_end == match_start) => {
-              cond(
-                (byte_pos >= input_len) => { break; },
-                true => {
-                  b := bytes.get(byte_pos).unwrap();
-                  char_len := cond(
-                    (b < u8(0x80)) => usize(1),
-                    ((b >= u8(0xC0)) && (b < u8(0xE0))) => usize(2),
-                    ((b >= u8(0xE0)) && (b < u8(0xF0))) => usize(3),
-                    true => usize(4)
-                  );
-                  next_pos := (byte_pos + char_len);
-                  byte_pos = cond(
-                    has_prefix => self._find_prefix_pos(bytes, next_pos),
-                    true => next_pos
-                  );
-                }
-              );
+            result.matched => {
+              m := self._build_match(result.slots, input);
+              return .Some(m);
             },
-            true => {
-              byte_pos = cond(
-                has_prefix => self._find_prefix_pos(bytes, match_end),
-                true => match_end
-              );
-            }
+            true => ()
           );
-        },
-        true => {
+
           cond(
             (byte_pos >= input_len) => { break; },
             true => {
@@ -296,9 +233,128 @@ impl(Regex,
               );
             }
           );
-        }
-      );
-    };
+        };
+
+        .None
+      }
+    )
+  }),
+
+  match_all : (fn(self : Self, input : String) -> ArrayList(RegexMatch))({
+    matches := ArrayList(RegexMatch).new();
+    bytes := input.as_bytes();
+    input_len := bytes.len();
+
+    cond(
+      self._flags.sticky => {
+        // Sticky: only try at position 0, then at end of each match
+        (byte_pos : usize) = usize(0);
+        while (byte_pos <= input_len), {
+          vm := NfaVm.new(self._program, self._flags, input);
+          result := vm.exec_at(byte_pos);
+
+          cond(
+            result.matched => {
+              m := self._build_match(result.slots, input);
+              matches.push(m);
+              match_start := result.slots.get(usize(0)).unwrap();
+              match_end := result.slots.get(usize(1)).unwrap();
+              cond(
+                (match_end == match_start) => {
+                  // Empty match: advance one char to avoid infinite loop
+                  cond(
+                    (byte_pos >= input_len) => { break; },
+                    true => {
+                      b := bytes.get(byte_pos).unwrap();
+                      char_len := cond(
+                        (b < u8(0x80)) => usize(1),
+                        ((b >= u8(0xC0)) && (b < u8(0xE0))) => usize(2),
+                        ((b >= u8(0xE0)) && (b < u8(0xF0))) => usize(3),
+                        true => usize(4)
+                      );
+                      byte_pos = (byte_pos + char_len);
+                    }
+                  );
+                },
+                true => {
+                  byte_pos = match_end;
+                }
+              );
+            },
+            true => { break; }
+          );
+        };
+      },
+      true => {
+        has_prefix := (self._program.literal_prefix.len() > usize(0));
+        byte_pos := cond(
+          has_prefix => self._find_prefix_pos(bytes, usize(0)),
+          true => usize(0)
+        );
+
+        while (byte_pos <= input_len), {
+          vm := NfaVm.new(self._program, self._flags, input);
+          result := vm.exec_at(byte_pos);
+
+          cond(
+            result.matched => {
+              m := self._build_match(result.slots, input);
+              matches.push(m);
+
+              match_start := result.slots.get(usize(0)).unwrap();
+              match_end := result.slots.get(usize(1)).unwrap();
+
+              cond(
+                (match_end == match_start) => {
+                  cond(
+                    (byte_pos >= input_len) => { break; },
+                    true => {
+                      b := bytes.get(byte_pos).unwrap();
+                      char_len := cond(
+                        (b < u8(0x80)) => usize(1),
+                        ((b >= u8(0xC0)) && (b < u8(0xE0))) => usize(2),
+                        ((b >= u8(0xE0)) && (b < u8(0xF0))) => usize(3),
+                        true => usize(4)
+                      );
+                      next_pos := (byte_pos + char_len);
+                      byte_pos = cond(
+                        has_prefix => self._find_prefix_pos(bytes, next_pos),
+                        true => next_pos
+                      );
+                    }
+                  );
+                },
+                true => {
+                  byte_pos = cond(
+                    has_prefix => self._find_prefix_pos(bytes, match_end),
+                    true => match_end
+                  );
+                }
+              );
+            },
+            true => {
+              cond(
+                (byte_pos >= input_len) => { break; },
+                true => {
+                  b := bytes.get(byte_pos).unwrap();
+                  char_len := cond(
+                    (b < u8(0x80)) => usize(1),
+                    ((b >= u8(0xC0)) && (b < u8(0xE0))) => usize(2),
+                    ((b >= u8(0xE0)) && (b < u8(0xF0))) => usize(3),
+                    true => usize(4)
+                  );
+                  next_pos := (byte_pos + char_len);
+                  byte_pos = cond(
+                    has_prefix => self._find_prefix_pos(bytes, next_pos),
+                    true => next_pos
+                  );
+                }
+              );
+            }
+          );
+        };
+      }
+    );
 
     matches
   })

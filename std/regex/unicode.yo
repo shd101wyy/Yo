@@ -1,0 +1,365 @@
+// std/regex/unicode.yo - Unicode property ranges for \p{...} support
+//
+// Provides character ranges for common Unicode general categories.
+// Uses compact range representation covering the most commonly used
+// Unicode blocks. Not exhaustive but covers practical use cases.
+
+open import "std/collections/array_list";
+open import "std/string";
+{ CharRange } :: import "./node.yo";
+
+_add_letter_ranges :: (fn(rs : ArrayList(CharRange)) -> unit)({
+  // Latin letters
+  rs.push(CharRange(low: u32(0x0041), high: u32(0x005A)));
+  rs.push(CharRange(low: u32(0x0061), high: u32(0x007A)));
+  // Latin Extended
+  rs.push(CharRange(low: u32(0x00C0), high: u32(0x00D6)));
+  rs.push(CharRange(low: u32(0x00D8), high: u32(0x00F6)));
+  rs.push(CharRange(low: u32(0x00F8), high: u32(0x024F)));
+  // Greek
+  rs.push(CharRange(low: u32(0x0370), high: u32(0x0373)));
+  rs.push(CharRange(low: u32(0x0376), high: u32(0x0377)));
+  rs.push(CharRange(low: u32(0x037B), high: u32(0x037D)));
+  rs.push(CharRange(low: u32(0x0386), high: u32(0x0386)));
+  rs.push(CharRange(low: u32(0x0388), high: u32(0x038A)));
+  rs.push(CharRange(low: u32(0x038C), high: u32(0x038C)));
+  rs.push(CharRange(low: u32(0x038E), high: u32(0x03A1)));
+  rs.push(CharRange(low: u32(0x03A3), high: u32(0x03FF)));
+  // Cyrillic
+  rs.push(CharRange(low: u32(0x0400), high: u32(0x0481)));
+  rs.push(CharRange(low: u32(0x048A), high: u32(0x052F)));
+  // Armenian
+  rs.push(CharRange(low: u32(0x0531), high: u32(0x0556)));
+  rs.push(CharRange(low: u32(0x0560), high: u32(0x0588)));
+  // Hebrew
+  rs.push(CharRange(low: u32(0x05D0), high: u32(0x05EA)));
+  // Arabic
+  rs.push(CharRange(low: u32(0x0620), high: u32(0x064A)));
+  rs.push(CharRange(low: u32(0x066E), high: u32(0x066F)));
+  rs.push(CharRange(low: u32(0x0671), high: u32(0x06D3)));
+  // Devanagari
+  rs.push(CharRange(low: u32(0x0904), high: u32(0x0939)));
+  rs.push(CharRange(low: u32(0x0958), high: u32(0x0961)));
+  // Thai
+  rs.push(CharRange(low: u32(0x0E01), high: u32(0x0E30)));
+  rs.push(CharRange(low: u32(0x0E32), high: u32(0x0E33)));
+  // CJK Unified Ideographs
+  rs.push(CharRange(low: u32(0x4E00), high: u32(0x9FFF)));
+  // Hangul Syllables
+  rs.push(CharRange(low: u32(0xAC00), high: u32(0xD7A3)));
+  // Hiragana
+  rs.push(CharRange(low: u32(0x3040), high: u32(0x309F)));
+  // Katakana
+  rs.push(CharRange(low: u32(0x30A0), high: u32(0x30FF)));
+  // CJK Extension A
+  rs.push(CharRange(low: u32(0x3400), high: u32(0x4DBF)));
+  // CJK Extension B
+  rs.push(CharRange(low: u32(0x20000), high: u32(0x2A6DF)));
+});
+
+_add_uppercase_letter_ranges :: (fn(rs : ArrayList(CharRange)) -> unit)({
+  rs.push(CharRange(low: u32(0x0041), high: u32(0x005A)));
+  rs.push(CharRange(low: u32(0x00C0), high: u32(0x00D6)));
+  rs.push(CharRange(low: u32(0x00D8), high: u32(0x00DE)));
+  rs.push(CharRange(low: u32(0x0100), high: u32(0x0100)));
+  rs.push(CharRange(low: u32(0x0102), high: u32(0x0102)));
+  rs.push(CharRange(low: u32(0x0104), high: u32(0x0104)));
+  rs.push(CharRange(low: u32(0x0106), high: u32(0x0106)));
+  rs.push(CharRange(low: u32(0x0391), high: u32(0x03A1)));
+  rs.push(CharRange(low: u32(0x03A3), high: u32(0x03A9)));
+  rs.push(CharRange(low: u32(0x0410), high: u32(0x042F)));
+});
+
+_add_lowercase_letter_ranges :: (fn(rs : ArrayList(CharRange)) -> unit)({
+  rs.push(CharRange(low: u32(0x0061), high: u32(0x007A)));
+  rs.push(CharRange(low: u32(0x00DF), high: u32(0x00F6)));
+  rs.push(CharRange(low: u32(0x00F8), high: u32(0x00FF)));
+  rs.push(CharRange(low: u32(0x0101), high: u32(0x0101)));
+  rs.push(CharRange(low: u32(0x0103), high: u32(0x0103)));
+  rs.push(CharRange(low: u32(0x0105), high: u32(0x0105)));
+  rs.push(CharRange(low: u32(0x03B1), high: u32(0x03C9)));
+  rs.push(CharRange(low: u32(0x0430), high: u32(0x044F)));
+});
+
+_add_number_ranges :: (fn(rs : ArrayList(CharRange)) -> unit)({
+  // ASCII digits
+  rs.push(CharRange(low: u32(0x0030), high: u32(0x0039)));
+  // Superscript/subscript digits
+  rs.push(CharRange(low: u32(0x00B2), high: u32(0x00B3)));
+  rs.push(CharRange(low: u32(0x00B9), high: u32(0x00B9)));
+  rs.push(CharRange(low: u32(0x00BC), high: u32(0x00BE)));
+  // Arabic-Indic digits
+  rs.push(CharRange(low: u32(0x0660), high: u32(0x0669)));
+  rs.push(CharRange(low: u32(0x06F0), high: u32(0x06F9)));
+  // Devanagari digits
+  rs.push(CharRange(low: u32(0x0966), high: u32(0x096F)));
+  // Fullwidth digits
+  rs.push(CharRange(low: u32(0xFF10), high: u32(0xFF19)));
+});
+
+_add_digit_ranges :: (fn(rs : ArrayList(CharRange)) -> unit)({
+  rs.push(CharRange(low: u32(0x0030), high: u32(0x0039)));
+  rs.push(CharRange(low: u32(0x0660), high: u32(0x0669)));
+  rs.push(CharRange(low: u32(0x06F0), high: u32(0x06F9)));
+  rs.push(CharRange(low: u32(0x0966), high: u32(0x096F)));
+  rs.push(CharRange(low: u32(0x09E6), high: u32(0x09EF)));
+  rs.push(CharRange(low: u32(0x0A66), high: u32(0x0A6F)));
+  rs.push(CharRange(low: u32(0xFF10), high: u32(0xFF19)));
+});
+
+_add_punctuation_ranges :: (fn(rs : ArrayList(CharRange)) -> unit)({
+  rs.push(CharRange(low: u32(0x0021), high: u32(0x0023)));
+  rs.push(CharRange(low: u32(0x0025), high: u32(0x002A)));
+  rs.push(CharRange(low: u32(0x002C), high: u32(0x002F)));
+  rs.push(CharRange(low: u32(0x003A), high: u32(0x003B)));
+  rs.push(CharRange(low: u32(0x003F), high: u32(0x0040)));
+  rs.push(CharRange(low: u32(0x005B), high: u32(0x005D)));
+  rs.push(CharRange(low: u32(0x005F), high: u32(0x005F)));
+  rs.push(CharRange(low: u32(0x007B), high: u32(0x007B)));
+  rs.push(CharRange(low: u32(0x007D), high: u32(0x007D)));
+  rs.push(CharRange(low: u32(0x00A1), high: u32(0x00A1)));
+  rs.push(CharRange(low: u32(0x00A7), high: u32(0x00A7)));
+  rs.push(CharRange(low: u32(0x00AB), high: u32(0x00AB)));
+  rs.push(CharRange(low: u32(0x00B6), high: u32(0x00B7)));
+  rs.push(CharRange(low: u32(0x00BB), high: u32(0x00BB)));
+  rs.push(CharRange(low: u32(0x00BF), high: u32(0x00BF)));
+  rs.push(CharRange(low: u32(0x2010), high: u32(0x2027)));
+  rs.push(CharRange(low: u32(0x2030), high: u32(0x2043)));
+  rs.push(CharRange(low: u32(0x3001), high: u32(0x3003)));
+  rs.push(CharRange(low: u32(0x3008), high: u32(0x3011)));
+  rs.push(CharRange(low: u32(0xFF01), high: u32(0xFF0F)));
+  rs.push(CharRange(low: u32(0xFF1A), high: u32(0xFF1B)));
+  rs.push(CharRange(low: u32(0xFF1F), high: u32(0xFF20)));
+});
+
+_add_symbol_ranges :: (fn(rs : ArrayList(CharRange)) -> unit)({
+  rs.push(CharRange(low: u32(0x0024), high: u32(0x0024)));
+  rs.push(CharRange(low: u32(0x002B), high: u32(0x002B)));
+  rs.push(CharRange(low: u32(0x003C), high: u32(0x003E)));
+  rs.push(CharRange(low: u32(0x005E), high: u32(0x005E)));
+  rs.push(CharRange(low: u32(0x0060), high: u32(0x0060)));
+  rs.push(CharRange(low: u32(0x007C), high: u32(0x007C)));
+  rs.push(CharRange(low: u32(0x007E), high: u32(0x007E)));
+  rs.push(CharRange(low: u32(0x00A2), high: u32(0x00A6)));
+  rs.push(CharRange(low: u32(0x00A8), high: u32(0x00A9)));
+  rs.push(CharRange(low: u32(0x00AC), high: u32(0x00AC)));
+  rs.push(CharRange(low: u32(0x00AE), high: u32(0x00B1)));
+  rs.push(CharRange(low: u32(0x2190), high: u32(0x21FF)));
+  rs.push(CharRange(low: u32(0x2200), high: u32(0x22FF)));
+  rs.push(CharRange(low: u32(0x2600), high: u32(0x26FF)));
+  rs.push(CharRange(low: u32(0x2700), high: u32(0x27BF)));
+});
+
+_add_separator_ranges :: (fn(rs : ArrayList(CharRange)) -> unit)({
+  rs.push(CharRange(low: u32(0x0020), high: u32(0x0020)));
+  rs.push(CharRange(low: u32(0x00A0), high: u32(0x00A0)));
+  rs.push(CharRange(low: u32(0x1680), high: u32(0x1680)));
+  rs.push(CharRange(low: u32(0x2000), high: u32(0x200A)));
+  rs.push(CharRange(low: u32(0x2028), high: u32(0x2029)));
+  rs.push(CharRange(low: u32(0x202F), high: u32(0x202F)));
+  rs.push(CharRange(low: u32(0x205F), high: u32(0x205F)));
+  rs.push(CharRange(low: u32(0x3000), high: u32(0x3000)));
+});
+
+_add_mark_ranges :: (fn(rs : ArrayList(CharRange)) -> unit)({
+  // Combining diacritical marks
+  rs.push(CharRange(low: u32(0x0300), high: u32(0x036F)));
+  // Devanagari dependent vowel signs
+  rs.push(CharRange(low: u32(0x093C), high: u32(0x094F)));
+  // Arabic combining marks
+  rs.push(CharRange(low: u32(0x064B), high: u32(0x065F)));
+  // Thai combining marks
+  rs.push(CharRange(low: u32(0x0E31), high: u32(0x0E31)));
+  rs.push(CharRange(low: u32(0x0E34), high: u32(0x0E3A)));
+  // CJK compatibility ideographs supplement
+  rs.push(CharRange(low: u32(0xFE20), high: u32(0xFE2F)));
+});
+
+_add_other_ranges :: (fn(rs : ArrayList(CharRange)) -> unit)({
+  // C0 controls
+  rs.push(CharRange(low: u32(0x0000), high: u32(0x001F)));
+  // Delete
+  rs.push(CharRange(low: u32(0x007F), high: u32(0x007F)));
+  // C1 controls
+  rs.push(CharRange(low: u32(0x0080), high: u32(0x009F)));
+  // Surrogates (not valid in UTF-8, but included for completeness)
+  rs.push(CharRange(low: u32(0xD800), high: u32(0xDFFF)));
+  // Noncharacters
+  rs.push(CharRange(low: u32(0xFDD0), high: u32(0xFDEF)));
+  rs.push(CharRange(low: u32(0xFFFE), high: u32(0xFFFF)));
+});
+
+_add_latin_ranges :: (fn(rs : ArrayList(CharRange)) -> unit)({
+  rs.push(CharRange(low: u32(0x0041), high: u32(0x005A)));
+  rs.push(CharRange(low: u32(0x0061), high: u32(0x007A)));
+  rs.push(CharRange(low: u32(0x00C0), high: u32(0x00D6)));
+  rs.push(CharRange(low: u32(0x00D8), high: u32(0x00F6)));
+  rs.push(CharRange(low: u32(0x00F8), high: u32(0x024F)));
+  rs.push(CharRange(low: u32(0x1E00), high: u32(0x1EFF)));
+});
+
+_add_han_ranges :: (fn(rs : ArrayList(CharRange)) -> unit)({
+  // CJK Unified Ideographs
+  rs.push(CharRange(low: u32(0x4E00), high: u32(0x9FFF)));
+  // CJK Extension A
+  rs.push(CharRange(low: u32(0x3400), high: u32(0x4DBF)));
+  // CJK Extension B
+  rs.push(CharRange(low: u32(0x20000), high: u32(0x2A6DF)));
+  // CJK Compatibility Ideographs
+  rs.push(CharRange(low: u32(0xF900), high: u32(0xFAFF)));
+  // CJK Radicals Supplement
+  rs.push(CharRange(low: u32(0x2E80), high: u32(0x2EFF)));
+  // Kangxi Radicals
+  rs.push(CharRange(low: u32(0x2F00), high: u32(0x2FDF)));
+});
+
+_add_emoji_ranges :: (fn(rs : ArrayList(CharRange)) -> unit)({
+  // Miscellaneous Symbols
+  rs.push(CharRange(low: u32(0x2600), high: u32(0x26FF)));
+  // Dingbats
+  rs.push(CharRange(low: u32(0x2700), high: u32(0x27BF)));
+  // Emoticons
+  rs.push(CharRange(low: u32(0x1F600), high: u32(0x1F64F)));
+  // Misc Symbols and Pictographs
+  rs.push(CharRange(low: u32(0x1F300), high: u32(0x1F5FF)));
+  // Transport and Map
+  rs.push(CharRange(low: u32(0x1F680), high: u32(0x1F6FF)));
+  // Supplemental Symbols
+  rs.push(CharRange(low: u32(0x1F900), high: u32(0x1F9FF)));
+  // Symbols and Pictographs Extended-A
+  rs.push(CharRange(low: u32(0x1FA00), high: u32(0x1FA6F)));
+  rs.push(CharRange(low: u32(0x1FA70), high: u32(0x1FAFF)));
+});
+
+_add_whitespace_ranges :: (fn(rs : ArrayList(CharRange)) -> unit)({
+  rs.push(CharRange(low: u32(0x0009), high: u32(0x000D)));
+  rs.push(CharRange(low: u32(0x0020), high: u32(0x0020)));
+  rs.push(CharRange(low: u32(0x0085), high: u32(0x0085)));
+  rs.push(CharRange(low: u32(0x00A0), high: u32(0x00A0)));
+  rs.push(CharRange(low: u32(0x1680), high: u32(0x1680)));
+  rs.push(CharRange(low: u32(0x2000), high: u32(0x200A)));
+  rs.push(CharRange(low: u32(0x2028), high: u32(0x2029)));
+  rs.push(CharRange(low: u32(0x202F), high: u32(0x202F)));
+  rs.push(CharRange(low: u32(0x205F), high: u32(0x205F)));
+  rs.push(CharRange(low: u32(0x3000), high: u32(0x3000)));
+});
+
+// Unicode property range lookup.
+// Returns Some(ranges) for known property names, None for unknown.
+// Supports both short (L, N, P, S, Z, M, C) and long names (Letter, Number, etc.)
+// as well as subcategories (Lu, Ll, Nd, etc.)
+unicode_property_ranges :: (fn(name : String) -> Option(ArrayList(CharRange)))({
+  rs := ArrayList(CharRange).new();
+  (found : bool) = true;
+
+  cond(
+    // === General Category: Letter (L) ===
+    ((name == `L`) || (name == `Letter`)) => {
+      _add_letter_ranges(rs);
+    },
+    ((name == `Lu`) || (name == `Uppercase_Letter`)) => {
+      _add_uppercase_letter_ranges(rs);
+    },
+    ((name == `Ll`) || (name == `Lowercase_Letter`)) => {
+      _add_lowercase_letter_ranges(rs);
+    },
+
+    // === General Category: Number (N) ===
+    ((name == `N`) || (name == `Number`)) => {
+      _add_number_ranges(rs);
+    },
+    ((name == `Nd`) || (name == `Digit`)) => {
+      _add_digit_ranges(rs);
+    },
+
+    // === General Category: Punctuation (P) ===
+    ((name == `P`) || (name == `Punctuation`)) => {
+      _add_punctuation_ranges(rs);
+    },
+
+    // === General Category: Symbol (S) ===
+    ((name == `S`) || (name == `Symbol`)) => {
+      _add_symbol_ranges(rs);
+    },
+
+    // === General Category: Separator (Z) ===
+    ((name == `Z`) || (name == `Separator`)) => {
+      _add_separator_ranges(rs);
+    },
+
+    // === General Category: Mark (M) ===
+    ((name == `M`) || (name == `Mark`)) => {
+      _add_mark_ranges(rs);
+    },
+
+    // === General Category: Other (C) ===
+    ((name == `C`) || (name == `Other`)) => {
+      _add_other_ranges(rs);
+    },
+
+    // === Script categories ===
+    ((name == `ASCII`) || (name == `ascii`)) => {
+      rs.push(CharRange(low: u32(0x0000), high: u32(0x007F)));
+    },
+    ((name == `Latin`) || (name == `latin`)) => {
+      _add_latin_ranges(rs);
+    },
+    ((name == `Greek`) || (name == `greek`)) => {
+      rs.push(CharRange(low: u32(0x0370), high: u32(0x03FF)));
+      rs.push(CharRange(low: u32(0x1F00), high: u32(0x1FFF)));
+    },
+    ((name == `Cyrillic`) || (name == `cyrillic`)) => {
+      rs.push(CharRange(low: u32(0x0400), high: u32(0x04FF)));
+      rs.push(CharRange(low: u32(0x0500), high: u32(0x052F)));
+    },
+    ((name == `Han`) || (name == `han`)) => {
+      _add_han_ranges(rs);
+    },
+    ((name == `Hiragana`) || (name == `hiragana`)) => {
+      rs.push(CharRange(low: u32(0x3040), high: u32(0x309F)));
+    },
+    ((name == `Katakana`) || (name == `katakana`)) => {
+      rs.push(CharRange(low: u32(0x30A0), high: u32(0x30FF)));
+      rs.push(CharRange(low: u32(0x31F0), high: u32(0x31FF)));
+    },
+    ((name == `Hangul`) || (name == `hangul`)) => {
+      rs.push(CharRange(low: u32(0xAC00), high: u32(0xD7AF)));
+      rs.push(CharRange(low: u32(0x1100), high: u32(0x11FF)));
+      rs.push(CharRange(low: u32(0x3130), high: u32(0x318F)));
+    },
+    ((name == `Arabic`) || (name == `arabic`)) => {
+      rs.push(CharRange(low: u32(0x0600), high: u32(0x06FF)));
+      rs.push(CharRange(low: u32(0x0750), high: u32(0x077F)));
+    },
+    ((name == `Devanagari`) || (name == `devanagari`)) => {
+      rs.push(CharRange(low: u32(0x0900), high: u32(0x097F)));
+    },
+    ((name == `Thai`) || (name == `thai`)) => {
+      rs.push(CharRange(low: u32(0x0E00), high: u32(0x0E7F)));
+    },
+    ((name == `Emoji`) || (name == `emoji`)) => {
+      _add_emoji_ranges(rs);
+    },
+
+    // === Boolean properties ===
+    ((name == `White_Space`) || (name == `space`)) => {
+      _add_whitespace_ranges(rs);
+    },
+    ((name == `Alphabetic`) || (name == `Alpha`)) => {
+      _add_letter_ranges(rs);
+    },
+
+    true => {
+      found = false;
+    }
+  );
+
+  cond(
+    found => .Some(rs),
+    true => .None
+  )
+});
+
+export
+  unicode_property_ranges
+;
