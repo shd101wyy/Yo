@@ -879,3 +879,127 @@ test "emoji matching", {
   assert(m.is_some(), "should match emoji");
   assert((m.unwrap().value() == `😀`), "should match exact emoji");
 };
+
+// ===== Flag tests =====
+
+// --- ignore_case (i) flag ---
+
+test "flag i: basic case insensitive", {
+  re := Regex.new(`hello`, `i`).unwrap();
+  m1 := re.exec(`HELLO`);
+  assert(m1.is_some(), "should match uppercase");
+  assert((m1.unwrap().value() == `HELLO`), "should capture uppercase");
+  m2 := re.exec(`HeLLo`);
+  assert(m2.is_some(), "should match mixed case");
+};
+
+test "flag i: case insensitive char class", {
+  re := Regex.new(`[a-z]+`, `i`).unwrap();
+  m := re.exec(`ABCdef`);
+  assert(m.is_some(), "should match uppercase with [a-z]");
+  assert((m.unwrap().value() == `ABCdef`), "should match all letters");
+};
+
+test "flag i: case insensitive alternation", {
+  re := Regex.new(`cat|dog`, `i`).unwrap();
+  m1 := re.exec(`CAT`);
+  assert(m1.is_some(), "should match CAT");
+  m2 := re.exec(`Dog`);
+  assert(m2.is_some(), "should match Dog");
+};
+
+// --- multiline (m) flag ---
+
+test "flag m: caret matches start of line", {
+  re := Regex.new(`^world`, `m`).unwrap();
+  m := re.exec(`hello\nworld`);
+  assert(m.is_some(), "^ should match after newline with m flag");
+  assert((m.unwrap().value() == `world`), "should match world");
+};
+
+test "flag m: caret without flag only matches start of string", {
+  re := Regex.new(`^world`, ``).unwrap();
+  m := re.exec(`hello\nworld`);
+  assert(m.is_none(), "^ should not match after newline without m flag");
+};
+
+test "flag m: dollar matches end of line", {
+  re := Regex.new(`hello$`, `m`).unwrap();
+  m := re.exec(`hello\nworld`);
+  assert(m.is_some(), "$ should match before newline with m flag");
+  assert((m.unwrap().value() == `hello`), "should match hello");
+};
+
+test "flag m: dollar without flag only matches end of string", {
+  re := Regex.new(`hello$`, ``).unwrap();
+  m := re.exec(`hello\nworld`);
+  assert(m.is_none(), "$ should not match before newline without m flag");
+};
+
+test "flag m: match multiple lines", {
+  re := Regex.new(`^\\w+`, `m`).unwrap();
+  matches := re.match_all(`foo\nbar\nbaz`);
+  assert((matches.len() == usize(3)), "should match start of each line");
+  assert((matches.get(usize(0)).unwrap().value() == `foo`), "first line");
+  assert((matches.get(usize(1)).unwrap().value() == `bar`), "second line");
+  assert((matches.get(usize(2)).unwrap().value() == `baz`), "third line");
+};
+
+// --- dotAll (s) flag ---
+
+test "flag s: dot matches newline", {
+  re := Regex.new(`a.b`, `s`).unwrap();
+  m := re.exec(`a\nb`);
+  assert(m.is_some(), "dot should match newline with s flag");
+  assert((m.unwrap().value() == `a\nb`), "should match across newline");
+};
+
+test "flag s: dot without flag does not match newline", {
+  re := Regex.new(`a.b`, ``).unwrap();
+  m := re.exec(`a\nb`);
+  assert(m.is_none(), "dot should not match newline without s flag");
+};
+
+test "flag s: dot-star spans multiple lines", {
+  re := Regex.new(`start.*end`, `s`).unwrap();
+  m := re.exec(`start\nmiddle\nend`);
+  assert(m.is_some(), "dot-star should span newlines with s flag");
+  assert((m.unwrap().value() == `start\nmiddle\nend`), "should match full span");
+};
+
+// --- combined flags ---
+
+test "flags im: case insensitive multiline", {
+  re := Regex.new(`^hello`, `im`).unwrap();
+  m := re.exec(`world\nHELLO`);
+  assert(m.is_some(), "should match case-insensitive at line start");
+  assert((m.unwrap().value() == `HELLO`), "should capture HELLO");
+};
+
+test "flags is: case insensitive dotAll", {
+  re := Regex.new(`hello.world`, `is`).unwrap();
+  m := re.exec(`HELLO\nWORLD`);
+  assert(m.is_some(), "should match case-insensitive across newline");
+  assert((m.unwrap().value() == `HELLO\nWORLD`), "should capture full span");
+};
+
+test "flags ms: multiline dotAll combined", {
+  re := Regex.new(`^.+$`, `ms`).unwrap();
+  m := re.exec(`hello\nworld`);
+  assert(m.is_some(), "should match with both m and s");
+  // With s, dot matches \n. With m, ^ and $ match line boundaries.
+  // Greedy .+ from ^, with s flag dot matches \n, so it matches the whole string
+  assert((m.unwrap().value() == `hello\nworld`), "greedy .+ should match everything with s flag");
+};
+
+// --- invalid flags ---
+
+test "invalid flag returns error", {
+  result := Regex.new(`test`, `x`);
+  assert(result.is_err(), "invalid flag should return error");
+};
+
+test "duplicate flag returns error", {
+  result := Regex.new(`test`, `ii`);
+  assert(result.is_err(), "duplicate flag should return error");
+};
