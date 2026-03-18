@@ -17,7 +17,7 @@ Below is a non-exhaustive list of features that Yo supports:
 
 - First-class types.
 - Compile-time evaluation.
-- Homoiconicity and metaprogramming (**Yo** syntax is inspired by the **Lisp** S expression).
+- Homoiconicity and metaprogramming (**Yo** syntax is inspired by the **Lisp** S expression. Simple syntax rule, AI friendly).
 - Closure.
 - [Algebraic Effects and Handlers](./docs/en-US/ALGEBRAIC_EFFECTS.md) (One-shot delimited continuation. Tail-Resumptive. Implicit parameters via `using`/`given`, effect handlers with `return`/`escape`, by [Evidence Passing](https://xnning.github.io/papers/multip.pdf)).
 - [Async/await](./docs/en-US/ASYNC_AWAIT.md) (Builtin `IO` effect. Stackless coroutine & Cooperative multi-tasking. Lazy Futures, multi-await, single-threaded concurrency via state machine transformation).

@@ -334,7 +334,9 @@ Phase 6 completed: Named groups, numeric backreferences (\1-\9), and named backr
 - Positive lookbehind: `(?<=...)`
 - Negative lookbehind: `(?<!...)`
 
-### Phase 8: Unicode Support
+### Phase 8: Unicode Support (Deferred)
+
+**Status**: Deferred — requires large Unicode property tables. The engine already handles UTF-8 correctly for all matching operations. Unicode property classes (`\p{Letter}`, etc.) and case folding can be added later when needed.
 
 **Goal**: Full Unicode-aware matching.
 
