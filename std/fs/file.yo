@@ -34,6 +34,8 @@ open import "../fmt";
 { Error, AnyError, Exception } :: import "../error";
 { Metadata } :: import "./metadata";
 _metadata_mod :: import "./metadata";
+{ Statx } :: import "../sys/statx";
+IO_path :: import "../sys/path";
 { OpenMode, FilePermission, SeekFrom, _open_mode_to_flags, _open_mode_needs_perm, _seek_from_to_whence } :: import "./types";
 IO_file :: import "../sys/file";
 IO_seek :: import "../sys/seek";
@@ -373,11 +375,117 @@ exists_cstr :: (fn(path: *(u8), using(io : IO)) -> Impl(Future(bool, IO)))(
   exists(Path.from_cstr(path), using(io))
 );
 
+// Check if a path is a regular file.
+// Returns false for any error (including file not found).
+is_file :: (fn(path: Path, using(io : IO)) -> Impl(Future(bool, IO)))(
+  io.async((using(io : IO)) => {
+    path_str := path.to_string();
+    cstr_bytes := path_str.to_cstr();
+    cstr := cstr_bytes.ptr().unwrap();
+    buf_size := __yo_statx_buf_size();
+    buf := *(u8)(malloc(buf_size).unwrap());
+    result := io.await(IO_file.statx(AT_FDCWD, cstr, AT_STATX_SYNC_AS_STAT, STATX_BASIC_STATS, buf));
+    r := cond(
+      (result < i32(0)) => false,
+      true => {
+        sx := Statx(_buf_ptr: buf, _buf_size: buf_size);
+        sx.is_file()
+      }
+    );
+    free(.Some(*(void)(buf)));
+    r
+  })
+);
+
+// Check if a path is a regular file (str version).
+is_file_str :: (fn(path: str, using(io : IO)) -> Impl(Future(bool, IO)))(
+  is_file(Path.new(String.from(path)), using(io))
+);
+
+// Check if a path is a regular file (C string version).
+is_file_cstr :: (fn(path: *(u8), using(io : IO)) -> Impl(Future(bool, IO)))(
+  is_file(Path.from_cstr(path), using(io))
+);
+
+// Check if a path is a directory.
+// Returns false for any error (including file not found).
+is_dir :: (fn(path: Path, using(io : IO)) -> Impl(Future(bool, IO)))(
+  io.async((using(io : IO)) => {
+    path_str := path.to_string();
+    cstr_bytes := path_str.to_cstr();
+    cstr := cstr_bytes.ptr().unwrap();
+    buf_size := __yo_statx_buf_size();
+    buf := *(u8)(malloc(buf_size).unwrap());
+    result := io.await(IO_file.statx(AT_FDCWD, cstr, AT_STATX_SYNC_AS_STAT, STATX_BASIC_STATS, buf));
+    r := cond(
+      (result < i32(0)) => false,
+      true => {
+        sx := Statx(_buf_ptr: buf, _buf_size: buf_size);
+        sx.is_directory()
+      }
+    );
+    free(.Some(*(void)(buf)));
+    r
+  })
+);
+
+// Check if a path is a directory (str version).
+is_dir_str :: (fn(path: str, using(io : IO)) -> Impl(Future(bool, IO)))(
+  is_dir(Path.new(String.from(path)), using(io))
+);
+
+// Check if a path is a directory (C string version).
+is_dir_cstr :: (fn(path: *(u8), using(io : IO)) -> Impl(Future(bool, IO)))(
+  is_dir(Path.from_cstr(path), using(io))
+);
+
+// Resolve a path to its canonical absolute form (resolves symlinks, . and ..).
+// Throws on error (e.g. path does not exist).
+canonical :: (fn(path: Path, using(io : IO)) -> Impl(Future(Path, IO, Exception)))(
+  io.async((using(io, exn)) => {
+    path_str := path.to_string();
+    cstr_bytes := path_str.to_cstr();
+    cstr := cstr_bytes.ptr().unwrap();
+    // Async stat to verify path exists (provides await point for proper RC cleanup)
+    buf_size := __yo_statx_buf_size();
+    stat_buf := *(u8)(malloc(buf_size).unwrap());
+    stat_result := io.await(IO_file.statx(AT_FDCWD, cstr, AT_STATX_SYNC_AS_STAT, STATX_BASIC_STATS, stat_buf));
+    free(.Some(*(void)(stat_buf)));
+    IOError.check(stat_result);
+    // Resolve the canonical path
+    resolved_buf := *(u8)(malloc(usize(4096)).unwrap());
+    rp_result := IO_path.realpath(cstr, resolved_buf);
+    cond(
+      (rp_result < i32(0)) => {
+        free(.Some(*(void)(resolved_buf)));
+        IOError.check(rp_result);
+      },
+      true => ()
+    );
+    resolved := String.from_cstr(resolved_buf).unwrap();
+    free(.Some(*(void)(resolved_buf)));
+    Path.new(resolved)
+  })
+);
+
+// Resolve a path to its canonical absolute form (str version).
+canonical_str :: (fn(path: str, using(io : IO)) -> Impl(Future(Path, IO, Exception)))(
+  canonical(Path.new(String.from(path)))
+);
+
+// Resolve a path to its canonical absolute form (C string version).
+canonical_cstr :: (fn(path: *(u8), using(io : IO)) -> Impl(Future(Path, IO, Exception)))(
+  canonical(Path.from_cstr(path))
+);
+
 export
   read_string, read_string_str, read_string_cstr,
   read_file, read_file_str, read_file_cstr,
   write_file, write_file_str, write_file_cstr,
   write_bytes,
   append_file, append_file_str,
-  exists, exists_str, exists_cstr
+  exists, exists_str, exists_cstr,
+  is_file, is_file_str, is_file_cstr,
+  is_dir, is_dir_str, is_dir_cstr,
+  canonical, canonical_str, canonical_cstr
 ;
