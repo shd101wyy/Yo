@@ -3410,6 +3410,40 @@ impl(forall(T : Type), Option(T),
   )
 );
 
+// Option(T) implements Comptime when T implements Comptime
+impl(forall(T : Type), where(T <: Comptime), Option(T), Comptime());
+
+// Comptime methods for Option(T)
+impl(forall(T : Type), where(T <: Comptime), Option(T),
+  comptime_unwrap : (fn(comptime(self) : Self) -> comptime(T))(
+    match(self,
+      .Some(value) => value,
+      .None => panic("Called comptime_unwrap on a None value")
+    )
+  ),
+
+  comptime_unwrap_or : (fn(comptime(self) : Self, comptime(or_value) : T) -> comptime(T))(
+    match(self,
+      .Some(value) => value,
+      .None => or_value
+    )
+  ),
+
+  comptime_is_some : (fn(comptime(self) : Self) -> comptime(bool))(
+    match(self,
+      .Some(_) => true,
+      .None => false
+    )
+  ),
+
+  comptime_is_none : (fn(comptime(self) : Self) -> comptime(bool))(
+    match(self,
+      .None => true,
+      .Some(_) => false
+    )
+  )
+);
+
 // Alias of the Option type
 ? :: Option;
 // Nullable pointer
@@ -3459,6 +3493,41 @@ impl(forall(OkType : Type, ErrorType : Type), Result(OkType, ErrorType),
     )
   )
 );
+
+// Result(OkType, ErrorType) implements Comptime when both types implement Comptime
+impl(forall(OkType : Type, ErrorType : Type), where(OkType <: Comptime, ErrorType <: Comptime), Result(OkType, ErrorType), Comptime());
+
+// Comptime methods for Result(OkType, ErrorType)
+impl(forall(OkType : Type, ErrorType : Type), where(OkType <: Comptime, ErrorType <: Comptime), Result(OkType, ErrorType),
+  comptime_unwrap : (fn(comptime(self) : Self) -> comptime(OkType))(
+    match(self,
+      .Ok(value) => value,
+      .Err(_) => panic("Called comptime_unwrap on an Err value")
+    )
+  ),
+
+  comptime_unwrap_err : (fn(comptime(self) : Self) -> comptime(ErrorType))(
+    match(self,
+      .Err(error) => error,
+      .Ok(_) => panic("Called comptime_unwrap_err on an Ok value")
+    )
+  ),
+
+  comptime_is_ok : (fn(comptime(self) : Self) -> comptime(bool))(
+    match(self,
+      .Ok(_) => true,
+      .Err(_) => false
+    )
+  ),
+
+  comptime_is_err : (fn(comptime(self) : Self) -> comptime(bool))(
+    match(self,
+      .Err(_) => true,
+      .Ok(_) => false
+    )
+  )
+);
+
 export
   Result
 ;
