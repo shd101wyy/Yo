@@ -187,7 +187,7 @@ test "TCP peer_addr returns remote address", using(io : IO), {
   io.await(listener.close());
 };
 
-test "TCP read_all gets all data", using(io : IO), {
+test "TCP read_bytes gets all data", using(io : IO), {
   given(exn) := Exception(throw : ((err) -> { assert(false, "unexpected exception"); escape (); }));
   addr := SocketAddr.loopback(u16(19907));
   listener := io.await(TcpListener.bind(addr));
@@ -199,8 +199,8 @@ test "TCP read_all gets all data", using(io : IO), {
   io.await(client.shutdown(i32(1)));
 
   // Server reads all
-  data := io.await(server_stream.read_all());
-  printf("  read_all len = %lld\n", i64(data.len()));
+  data := io.await(server_stream.read_bytes());
+  printf("  read_bytes len = %lld\n", i64(data.len()));
   assert((data.len() == usize(5)), "should be 5 bytes");
   assert((data.get(usize(0)).unwrap() == u8(65)), "A");
   assert((data.get(usize(1)).unwrap() == u8(66)), "B");

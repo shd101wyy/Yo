@@ -1304,75 +1304,75 @@ test "String index_of multiple occurrences returns first", {
 test "String includes found", {
   s := String.from("Hello, World!");
   
-  assert(s.includes(String.from("World")));
-  assert(s.includes(String.from("Hello")));
-  assert(s.includes(String.from(",")));
+  assert(s.contains(String.from("World")));
+  assert(s.contains(String.from("Hello")));
+  assert(s.contains(String.from(",")));
 };
 
 test "String includes not found", {
   s := String.from("Hello, World!");
   
-  assert(not(s.includes(String.from("xyz"))));
-  assert(not(s.includes(String.from("world"))));
+  assert(not(s.contains(String.from("xyz"))));
+  assert(not(s.contains(String.from("world"))));
 };
 
 test "String includes empty string", {
   s := String.from("Hello");
   
-  assert(s.includes(String.from("")));
+  assert(s.contains(String.from("")));
 };
 
 test "String includes entire string", {
   s := String.from("Hello");
   
-  assert(s.includes(String.from("Hello")));
+  assert(s.contains(String.from("Hello")));
 };
 
 test "String includes single character", {
   s := String.from("Hello");
   
-  assert(s.includes(String.from("e")));
-  assert(s.includes(String.from("H")));
-  assert(not(s.includes(String.from("x"))));
+  assert(s.contains(String.from("e")));
+  assert(s.contains(String.from("H")));
+  assert(not(s.contains(String.from("x"))));
 };
 
 test "String includes UTF-8 characters", {
   s := String.from("你好世界");
   
-  assert(s.includes(String.from("世")));
-  assert(s.includes(String.from("你好")));
-  assert(s.includes(String.from("世界")));
-  assert(not(s.includes(String.from("测试"))));
+  assert(s.contains(String.from("世")));
+  assert(s.contains(String.from("你好")));
+  assert(s.contains(String.from("世界")));
+  assert(not(s.contains(String.from("测试"))));
 };
 
 test "String includes mixed ASCII and UTF-8", {
   s := String.from("Hello 世界!");
   
-  assert(s.includes(String.from("Hello")));
-  assert(s.includes(String.from("世界")));
-  assert(s.includes(String.from(" ")));
-  assert(s.includes(String.from("!")));
+  assert(s.contains(String.from("Hello")));
+  assert(s.contains(String.from("世界")));
+  assert(s.contains(String.from(" ")));
+  assert(s.contains(String.from("!")));
 };
 
 test "String includes with emojis", {
   s := String.from("😀😁😂");
   
-  assert(s.includes(String.from("😁")));
-  assert(s.includes(String.from("😀😁")));
-  assert(not(s.includes(String.from("😃"))));
+  assert(s.contains(String.from("😁")));
+  assert(s.contains(String.from("😀😁")));
+  assert(not(s.contains(String.from("😃"))));
 };
 
 test "String includes case sensitive", {
   s := String.from("Hello World");
   
-  assert(s.includes(String.from("Hello")));
-  assert(not(s.includes(String.from("hello"))));
+  assert(s.contains(String.from("Hello")));
+  assert(not(s.contains(String.from("hello"))));
 };
 
 test "String includes substring longer than string", {
   s := String.from("Hi");
   
-  assert(not(s.includes(String.from("Hello"))));
+  assert(not(s.contains(String.from("Hello"))));
 };
 
 // ===== split Tests =====
@@ -1868,105 +1868,105 @@ test "String replace_all overlapping pattern", {
   assert(result == String.from("bb"));
 };
 
-// ===== to_upper_case Tests =====
+// ===== to_uppercase Tests =====
 
-test "String to_upper_case ASCII", {
+test "String to_uppercase ASCII", {
   s := String.from("hello world");
   
-  result := s.to_upper_case();
+  result := s.to_uppercase();
   assert(result == String.from("HELLO WORLD"));
 };
 
-test "String to_upper_case mixed case", {
+test "String to_uppercase mixed case", {
   s := String.from("Hello World");
   
-  result := s.to_upper_case();
+  result := s.to_uppercase();
   assert(result == String.from("HELLO WORLD"));
 };
 
-test "String to_upper_case already upper", {
+test "String to_uppercase already upper", {
   s := String.from("HELLO");
   
-  result := s.to_upper_case();
+  result := s.to_uppercase();
   assert(result == s);
 };
 
-test "String to_upper_case with numbers", {
+test "String to_uppercase with numbers", {
   s := String.from("hello123");
   
-  result := s.to_upper_case();
+  result := s.to_uppercase();
   assert(result == String.from("HELLO123"));
 };
 
-test "String to_upper_case with punctuation", {
+test "String to_uppercase with punctuation", {
   s := String.from("hello, world!");
   
-  result := s.to_upper_case();
+  result := s.to_uppercase();
   assert(result == String.from("HELLO, WORLD!"));
 };
 
-test "String to_upper_case empty string", {
+test "String to_uppercase empty string", {
   s := String.from("");
   
-  result := s.to_upper_case();
+  result := s.to_uppercase();
   assert(result.is_empty());
 };
 
-test "String to_upper_case single character", {
+test "String to_uppercase single character", {
   s := String.from("a");
   
-  result := s.to_upper_case();
+  result := s.to_uppercase();
   assert(result == String.from("A"));
 };
 
-// ===== to_lower_case Tests =====
+// ===== to_lowercase Tests =====
 
-test "String to_lower_case ASCII", {
+test "String to_lowercase ASCII", {
   s := String.from("HELLO WORLD");
   
-  result := s.to_lower_case();
+  result := s.to_lowercase();
   assert(result == String.from("hello world"));
 };
 
-test "String to_lower_case mixed case", {
+test "String to_lowercase mixed case", {
   s := String.from("Hello World");
   
-  result := s.to_lower_case();
+  result := s.to_lowercase();
   assert(result == String.from("hello world"));
 };
 
-test "String to_lower_case already lower", {
+test "String to_lowercase already lower", {
   s := String.from("hello");
   
-  result := s.to_lower_case();
+  result := s.to_lowercase();
   assert(result == s);
 };
 
-test "String to_lower_case with numbers", {
+test "String to_lowercase with numbers", {
   s := String.from("HELLO123");
   
-  result := s.to_lower_case();
+  result := s.to_lowercase();
   assert(result == String.from("hello123"));
 };
 
-test "String to_lower_case with punctuation", {
+test "String to_lowercase with punctuation", {
   s := String.from("HELLO, WORLD!");
   
-  result := s.to_lower_case();
+  result := s.to_lowercase();
   assert(result == String.from("hello, world!"));
 };
 
-test "String to_lower_case empty string", {
+test "String to_lowercase empty string", {
   s := String.from("");
   
-  result := s.to_lower_case();
+  result := s.to_lowercase();
   assert(result.is_empty());
 };
 
-test "String to_lower_case single character", {
+test "String to_lowercase single character", {
   s := String.from("A");
   
-  result := s.to_lower_case();
+  result := s.to_lowercase();
   assert(result == String.from("a"));
 };
 

@@ -34,7 +34,7 @@ open import "../fmt";
 { Error, AnyError, Exception } :: import "../error";
 { Metadata } :: import "./metadata";
 _metadata_mod :: import "./metadata";
-{ OpenMode, FilePermission, _open_mode_to_flags, _open_mode_needs_perm } :: import "./types";
+{ OpenMode, FilePermission, SeekFrom, _open_mode_to_flags, _open_mode_needs_perm, _seek_from_to_whence } :: import "./types";
 IO_file :: import "../sys/file";
 IO_seek :: import "../sys/seek";
 {
@@ -193,9 +193,8 @@ impl(File,
   }),
 
   // Seek to a position. Returns the new absolute position.
-  // whence: SEEK_SET(0), SEEK_CUR(1), SEEK_END(2)
-  seek : (fn(self: Self, offset: i64, whence: i32, using(exn : Exception)) -> i64)({
-    result := IO_seek.lseek(self._fd, offset, whence);
+  seek : (fn(self: Self, offset: i64, from: SeekFrom, using(exn : Exception)) -> i64)({
+    result := IO_seek.lseek(self._fd, offset, _seek_from_to_whence(from));
     cond(
       (result < i64(0)) => exn.throw(dyn IOError.from_errno(i32((i64(0) - result)))),
       true => result
@@ -258,7 +257,7 @@ impl(File, Dispose(
   })
 ));
 
-export File, OpenMode, FilePermission;
+export File, OpenMode, FilePermission, SeekFrom;
 
 // ============================================================================
 // Convenience functions

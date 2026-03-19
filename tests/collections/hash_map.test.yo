@@ -125,19 +125,19 @@ test "HashMap.has returns true for existing key", {
   map := HashMap(i32, i32).new();
   map.set(i32(42), i32(100));
   
-  assert(map.has(i32(42)));
+  assert(map.contains_key(i32(42)));
 };
 
 test "HashMap.has returns false for non-existing key", {
   map := HashMap(i32, i32).new();
   map.set(i32(10), i32(100));
   
-  assert(!map.has(i32(99)));
+  assert(!map.contains_key(i32(99)));
 };
 
 test "HashMap.has returns false for empty map", {
   map := HashMap(i32, i32).new();
-  assert(!map.has(i32(42)));
+  assert(!map.contains_key(i32(42)));
 };
 
 test "HashMap.has works after multiple insertions", {
@@ -146,10 +146,10 @@ test "HashMap.has works after multiple insertions", {
   map.set(i32(2), i32(20));
   map.set(i32(3), i32(30));
   
-  assert(map.has(i32(1)));
-  assert(map.has(i32(2)));
-  assert(map.has(i32(3)));
-  assert(!map.has(i32(4)));
+  assert(map.contains_key(i32(1)));
+  assert(map.contains_key(i32(2)));
+  assert(map.contains_key(i32(3)));
+  assert(!map.contains_key(i32(4)));
 };
 
 // ===== Remove Tests =====
@@ -185,7 +185,7 @@ test "HashMap.remove and verify key no longer exists", {
   map.set(i32(10), i32(100));
   map.remove(i32(10));
   
-  assert(!map.has(i32(10)));
+  assert(!map.contains_key(i32(10)));
   assert(map.get(i32(10)).is_none());
 };
 
@@ -198,9 +198,9 @@ test "HashMap.remove preserves other entries", {
   map.remove(i32(2));
   
   assert(map.len() == usize(2));
-  assert(map.has(i32(1)));
-  assert(!map.has(i32(2)));
-  assert(map.has(i32(3)));
+  assert(map.contains_key(i32(1)));
+  assert(!map.contains_key(i32(2)));
+  assert(map.contains_key(i32(3)));
   assert(map.get(i32(1)).unwrap() == i32(100));
   assert(map.get(i32(3)).unwrap() == i32(300));
 };
@@ -215,9 +215,9 @@ test "HashMap.remove multiple keys", {
   map.remove(i32(3));
   
   assert(map.len() == usize(1));
-  assert(!map.has(i32(1)));
-  assert(map.has(i32(2)));
-  assert(!map.has(i32(3)));
+  assert(!map.contains_key(i32(1)));
+  assert(map.contains_key(i32(2)));
+  assert(!map.contains_key(i32(3)));
 };
 
 // ===== Clear Tests =====
@@ -257,8 +257,8 @@ test "HashMap.clear removes all keys", {
   map.set(i32(2), i32(20));
   map.clear();
   
-  assert(!map.has(i32(1)));
-  assert(!map.has(i32(2)));
+  assert(!map.contains_key(i32(1)));
+  assert(!map.contains_key(i32(2)));
 };
 
 // ===== Length and Empty Tests =====
@@ -358,7 +358,7 @@ test "HashMap handles large number of insertions", {
   // Verify all elements
   i = usize(0);
   while(i < usize(50), i = (i + usize(1)), {
-    assert(map.has(i32(i)));
+    assert(map.contains_key(i32(i)));
     assert(map.get(i32(i)).unwrap() == i32((i * usize(2))));
   });
 };
@@ -374,10 +374,10 @@ test "HashMap alternating insert and remove", {
   map.set(i32(4), i32(40));
   
   assert(map.len() == usize(2));
-  assert(!map.has(i32(1)));
-  assert(!map.has(i32(2)));
-  assert(map.has(i32(3)));
-  assert(map.has(i32(4)));
+  assert(!map.contains_key(i32(1)));
+  assert(!map.contains_key(i32(2)));
+  assert(map.contains_key(i32(3)));
+  assert(map.contains_key(i32(4)));
 };
 
 test "HashMap remove and reinsert same key", {
@@ -397,7 +397,7 @@ test "HashMap with zero key", {
   map := HashMap(i32, i32).new();
   map.set(i32(0), i32(100));
   
-  assert(map.has(i32(0)));
+  assert(map.contains_key(i32(0)));
   assert(map.get(i32(0)).unwrap() == i32(100));
 };
 
@@ -478,9 +478,9 @@ test "HashMap with Box key and value - remove cleans up both", {
   assert(removed.unwrap().(*) == i32(200));
   assert(map.len() == usize(2));
   
-  assert(!map.has(Box(i32)(20)));
-  assert(map.has(Box(i32)(10)));
-  assert(map.has(Box(i32)(30)));
+  assert(!map.contains_key(Box(i32)(20)));
+  assert(map.contains_key(Box(i32)(10)));
+  assert(map.contains_key(Box(i32)(30)));
   // The removed key Box(20) should be dropped, value Box(200) returned
 };
 

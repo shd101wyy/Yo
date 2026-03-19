@@ -76,3 +76,24 @@ impl(FilePermission,
 );
 
 export FilePermission;
+
+// ============================================================================
+// SeekFrom — file seek position reference
+// ============================================================================
+
+SeekFrom :: enum(
+  Start,    // Seek from the beginning of the file
+  Current,  // Seek relative to the current position
+  End       // Seek relative to the end of the file
+);
+
+// Convert SeekFrom to POSIX whence constant (i32).
+_seek_from_to_whence :: (fn(from: SeekFrom) -> i32)(
+  match(from,
+    .Start   => i32(0),
+    .Current => i32(1),
+    .End     => i32(2)
+  )
+);
+
+export SeekFrom, _seek_from_to_whence;
