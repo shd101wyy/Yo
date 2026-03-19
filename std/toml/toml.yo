@@ -1,0 +1,179 @@
+// std/toml/toml.yo - Basic TOML parser
+//
+// Parses a subset of TOML into a TomlValue tree.
+// Supports: strings, integers, booleans, table sections, comments.
+
+open import "../string";
+{ ArrayList } :: import "../collections/array_list";
+
+TomlValue :: enum(
+  Str(value: String),
+  Int(value: i64),
+  Bool(value: bool),
+  Table(keys: ArrayList(String), values: ArrayList(Self))
+);
+
+impl(TomlValue,
+  new_table : (fn() -> Self)(
+    Self.Table(keys: ArrayList(String).new(), values: ArrayList(TomlValue).new())
+  ),
+
+  get : (fn(self: Self, key: String) -> Option(TomlValue))(
+    match(self,
+      .Table(keys, values) => {
+        i := usize(0);
+        while (i < keys.len()), (i = (i + usize(1))), {
+          cond(
+            (keys.get(i).unwrap() == key) => {
+              return .Some(values.get(i).unwrap());
+            },
+            true => ()
+          );
+        };
+        .None
+      },
+      _ => .None
+    )
+  ),
+
+  has_key : (fn(self: Self, key: String) -> bool)(
+    self.get(key).is_some()
+  ),
+
+  set : (fn(self: Self, key: String, value: TomlValue) -> unit)(
+    match(self,
+      .Table(keys, values) => {
+        i := usize(0);
+        len := keys.len();
+        found := false;
+        while (i < len), (i = (i + usize(1))), {
+          cond(
+            (keys.get(i).unwrap() == key) => {
+              values.set(i, value);
+              found = true;
+            },
+            true => ()
+          );
+        };
+        cond(
+          (!(found)) => {
+            keys.push(key);
+            values.push(value);
+          },
+          true => ()
+        );
+      },
+      _ => ()
+    )
+  ),
+
+  table_len : (fn(self: Self) -> usize)(
+    match(self,
+      .Table(keys, _) => keys.len(),
+      _ => usize(0)
+    )
+  ),
+
+  as_string : (fn(self: Self) -> Option(String))(
+    match(self, .Str(s) => .Some(s), _ => .None)
+  ),
+
+  as_int : (fn(self: Self) -> Option(i64))(
+    match(self, .Int(n) => .Some(n), _ => .None)
+  ),
+
+  as_bool : (fn(self: Self) -> Option(bool))(
+    match(self, .Bool(b) => .Some(b), _ => .None)
+  )
+);
+
+_parse_toml_value :: (fn(raw: String) -> Result(TomlValue, String))({
+  trimmed := raw.trim();
+  cond(
+    trimmed.is_empty() => { return .Err(`Empty value`); },
+    true => ()
+  );
+
+  // Quoted string: starts and ends with "
+  cond(
+    (trimmed.starts_with(`"`) && trimmed.ends_with(`"`)) => {
+      len := trimmed.len();
+      cond(
+        (len < usize(2)) => { return .Err(`Unterminated string`); },
+        true => {
+          return .Ok(.Str(trimmed.substring(usize(1), (len - usize(1)))));
+        }
+      );
+    },
+    true => ()
+  );
+
+  // Booleans
+  cond(
+    (trimmed == `true`) => { return .Ok(.Bool(true)); },
+    (trimmed == `false`) => { return .Ok(.Bool(false)); },
+    true => ()
+  );
+
+  // Integer
+  match(trimmed.parse_i64(),
+    .Some(n) => { return .Ok(.Int(n)); },
+    .None => ()
+  );
+
+  .Err(`Unknown value: ${trimmed}`)
+});
+
+toml_parse :: (fn(input: String) -> Result(TomlValue, String))({
+  root_keys := ArrayList(String).new();
+  root_vals := ArrayList(TomlValue).new();
+  cur_keys := root_keys;
+  cur_vals := root_vals;
+  lines := input.split(`\n`);
+  i := usize(0);
+  line_count := lines.len();
+
+  while (i < line_count), (i = (i + usize(1))), {
+    match(lines.get(i),
+      .Some(raw_line) => {
+        line := raw_line.trim();
+        cond(
+          line.is_empty() => (),
+          line.starts_with(`#`) => (),
+          // Table header: [name]
+          (line.starts_with(`[`) && line.ends_with(`]`)) => {
+            table_name := line.substring(usize(1), (line.len() - usize(1))).trim();
+            new_keys := ArrayList(String).new();
+            new_vals := ArrayList(TomlValue).new();
+            root_keys.push(table_name);
+            root_vals.push(.Table(keys: new_keys, values: new_vals));
+            cur_keys = new_keys;
+            cur_vals = new_vals;
+          },
+          // Key = value
+          true => {
+            match(line.index_of(`=`),
+              .Some(pos) => {
+                key := line.substring(usize(0), pos).trim();
+                val_str := line.substring((pos + usize(1)), line.len()).trim();
+                match(_parse_toml_value(val_str),
+                  .Ok(val) => {
+                    cur_keys.push(key);
+                    cur_vals.push(val);
+                  },
+                  .Err(e) => { return .Err(e); }
+                );
+              },
+              .None => ()
+            );
+          }
+        );
+      },
+      .None => ()
+    );
+  };
+
+  .Ok(.Table(keys: root_keys, values: root_vals))
+});
+
+export TomlValue, toml_parse;
