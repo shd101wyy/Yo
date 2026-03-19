@@ -1,0 +1,99 @@
+{ HttpMethod, HttpHeader, HttpRequest, HttpResponse, http_parse_response } :: import "std/http/http";
+open import "std/string";
+
+test "HttpMethod to_string", {
+  assert((HttpMethod.GET.to_string() == `GET`), "GET");
+  assert((HttpMethod.POST.to_string() == `POST`), "POST");
+  assert((HttpMethod.PUT.to_string() == `PUT`), "PUT");
+  assert((HttpMethod.DELETE.to_string() == `DELETE`), "DELETE");
+};
+
+test "HttpRequest basic", {
+  req := HttpRequest.new(.GET, `/api/users`);
+  assert((req.method.to_string() == `GET`), "method should be GET");
+  assert((req.path == `/api/users`), "path");
+  assert((req.headers.len() == usize(0)), "no headers");
+};
+
+test "HttpRequest builder pattern", {
+  req := HttpRequest.new(HttpMethod.POST, `/api/data`);
+  req = req.header(`Content-Type`, `application/json`);
+  req = req.header(`Authorization`, `Bearer token123`);
+  req = req.with_body(`{"key": "value"}`);
+  assert((req.headers.len() == usize(2)), "should have 2 headers");
+  assert((!(req.body.is_empty())), "body should not be empty");
+};
+
+test "HttpRequest to_string", {
+  req := HttpRequest.new(.GET, `/index.html`);
+  req = req.header(`Host`, `example.com`);
+  s := req.to_string();
+  assert(s.starts_with(`GET /index.html HTTP/1.1`), "status line");
+  assert(s.contains(`Host: example.com`), "host header");
+};
+
+test "HttpResponse new", {
+  resp := HttpResponse.new(i32(200), `OK`);
+  assert((resp.status_code == i32(200)), "status code");
+  assert((resp.status_text == `OK`), "status text");
+  assert(resp.is_ok(), "should be ok");
+  assert(!(resp.is_error()), "should not be error");
+  assert(!(resp.is_redirect()), "should not be redirect");
+};
+
+test "HttpResponse status categories", {
+  ok := HttpResponse.new(i32(200), `OK`);
+  assert(ok.is_ok(), "200 is ok");
+
+  redirect := HttpResponse.new(i32(301), `Moved`);
+  assert(redirect.is_redirect(), "301 is redirect");
+  assert(!(redirect.is_ok()), "301 is not ok");
+
+  err := HttpResponse.new(i32(404), `Not Found`);
+  assert(err.is_error(), "404 is error");
+  assert(!(err.is_ok()), "404 is not ok");
+
+  server_err := HttpResponse.new(i32(500), `Internal Server Error`);
+  assert(server_err.is_error(), "500 is error");
+};
+
+test "HttpResponse get_header", {
+  resp := HttpResponse.new(i32(200), `OK`);
+  resp.headers.push(HttpHeader.new(`Content-Type`, `text/html`));
+  resp.headers.push(HttpHeader.new(`X-Custom`, `value`));
+
+  ct := resp.get_header(`Content-Type`);
+  assert(ct.is_some(), "should find Content-Type");
+  assert((ct.unwrap() == `text/html`), "content type value");
+
+  missing := resp.get_header(`X-Missing`);
+  assert(missing.is_none(), "should not find missing header");
+};
+
+test "Parse HTTP response", {
+  raw := `HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nX-Request-Id: abc123\r\n\r\nHello World`;
+  result := http_parse_response(raw);
+  assert(result.is_ok(), "should parse");
+  resp := result.unwrap();
+  assert((resp.status_code == i32(200)), "status code");
+  assert((resp.status_text == `OK`), "status text");
+  assert((resp.headers.len() == usize(2)), "should have 2 headers");
+  assert((resp.get_header(`Content-Type`).unwrap() == `text/plain`), "content-type");
+  assert((resp.get_header(`X-Request-Id`).unwrap() == `abc123`), "request id");
+  assert((resp.body == `Hello World`), "body");
+};
+
+test "Parse HTTP error response", {
+  resp := HttpResponse.new(i32(404), `Not Found`);
+  assert((resp.status_code == i32(404)), "status code");
+  assert(resp.is_error(), "should be error");
+  assert((resp.status_text == `Not Found`), "status text");
+};
+
+test "Parse response with empty body", {
+  raw := `HTTP/1.1 204 No Content\r\n\r\n`;
+  result := http_parse_response(raw);
+  assert(result.is_ok(), "should parse");
+  resp := result.unwrap();
+  assert((resp.status_code == i32(204)), "status code");
+};

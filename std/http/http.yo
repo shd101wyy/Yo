@@ -1,0 +1,164 @@
+// std/http/http.yo - HTTP types and request/response builders
+
+open import "../string";
+{ ArrayList } :: import "../collections/array_list";
+
+HttpMethod :: enum(GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS);
+
+impl(HttpMethod,
+  to_string : (fn(self: Self) -> String)(
+    match(self,
+      .GET => `GET`,
+      .POST => `POST`,
+      .PUT => `PUT`,
+      .DELETE => `DELETE`,
+      .PATCH => `PATCH`,
+      .HEAD => `HEAD`,
+      .OPTIONS => `OPTIONS`
+    )
+  )
+);
+
+HttpHeader :: object(name: String, value: String);
+
+impl(HttpHeader,
+  new : (fn(name: String, value: String) -> Self)(
+    Self(name: name, value: value)
+  )
+);
+
+HttpRequest :: object(
+  method: HttpMethod,
+  path: String,
+  headers: ArrayList(HttpHeader),
+  body: String
+);
+
+impl(HttpRequest,
+  new : (fn(method: HttpMethod, path: String) -> Self)(
+    Self(method: method, path: path, headers: ArrayList(HttpHeader).new(), body: ``)
+  ),
+
+  header : (fn(self: Self, name: String, value: String) -> Self)({
+    self.headers.push(HttpHeader.new(name, value));
+    self
+  }),
+
+  with_body : (fn(self: Self, body: String) -> Self)({
+    self.body = body;
+    self
+  }),
+
+  to_string : (fn(self: Self) -> String)({
+    result := `${self.method.to_string()} ${self.path} HTTP/1.1\r\n`;
+    i := usize(0);
+    while (i < self.headers.len()), (i = (i + usize(1))), {
+      h := self.headers.get(i).unwrap();
+      result = `${result}${h.name}: ${h.value}\r\n`;
+    };
+    result = `${result}\r\n`;
+    cond(
+      (!(self.body.is_empty())) => { result = `${result}${self.body}`; },
+      true => ()
+    );
+    result
+  })
+);
+
+HttpResponse :: object(
+  status_code: i32,
+  status_text: String,
+  headers: ArrayList(HttpHeader),
+  body: String
+);
+
+impl(HttpResponse,
+  new : (fn(status_code: i32, status_text: String) -> Self)(
+    Self(status_code: status_code, status_text: status_text, headers: ArrayList(HttpHeader).new(), body: ``)
+  ),
+
+  get_header : (fn(self: Self, name: String) -> Option(String))({
+    i := usize(0);
+    while (i < self.headers.len()), (i = (i + usize(1))), {
+      h := self.headers.get(i).unwrap();
+      cond((h.name == name) => { return .Some(h.value); }, true => ());
+    };
+    .None
+  }),
+
+  is_ok : (fn(self: Self) -> bool)(
+    ((self.status_code >= i32(200)) && (self.status_code < i32(300)))
+  ),
+
+  is_redirect : (fn(self: Self) -> bool)(
+    ((self.status_code >= i32(300)) && (self.status_code < i32(400)))
+  ),
+
+  is_error : (fn(self: Self) -> bool)(
+    (self.status_code >= i32(400))
+  )
+);
+
+http_parse_response :: (fn(raw: String) -> Result(HttpResponse, String))({
+  lines := raw.split(`\r\n`);
+  cond((lines.len() == usize(0)) => { return .Err(`Empty response`); }, true => ());
+
+  status_line := lines.get(usize(0)).unwrap();
+  cond((!(status_line.starts_with(`HTTP/`))) => { return .Err(`Invalid status line`); }, true => ());
+
+  sp1_opt := status_line.index_of(` `);
+  cond(sp1_opt.is_none() => { return .Err(`Invalid status line format`); }, true => ());
+  sp1 := sp1_opt.unwrap();
+  rest := status_line.substring((sp1 + usize(1)), status_line.len());
+
+  sp2_opt := rest.index_of(` `);
+  cond(sp2_opt.is_none() => { return .Err(`Invalid status line format`); }, true => ());
+  sp2 := sp2_opt.unwrap();
+  code_str := rest.substring(usize(0), sp2);
+  status_text := rest.substring((sp2 + usize(1)), rest.len());
+
+  code_opt := code_str.parse_i32();
+  cond(code_opt.is_none() => { return .Err(`Invalid status code`); }, true => ());
+  code := code_opt.unwrap();
+
+  resp := HttpResponse.new(code, status_text);
+
+  j := usize(1);
+  body_start := lines.len();
+  while (j < lines.len()), (j = (j + usize(1))), {
+    hline := lines.get(j).unwrap();
+    cond(
+      hline.is_empty() => {
+        body_start = (j + usize(1));
+        break;
+      },
+      true => {
+        colon_opt := hline.index_of(`:`);
+        cond(
+          colon_opt.is_some() => {
+            colon := colon_opt.unwrap();
+            hname := hline.substring(usize(0), colon).trim();
+            hval := hline.substring((colon + usize(1)), hline.len()).trim();
+            resp.headers.push(HttpHeader.new(hname, hval));
+          },
+          true => ()
+        );
+      }
+    );
+  };
+
+  cond(
+    (body_start < lines.len()) => {
+      resp.body = lines.get(body_start).unwrap();
+      m := (body_start + usize(1));
+      while (m < lines.len()), (m = (m + usize(1))), {
+        resp.body = `${resp.body}\r\n${lines.get(m).unwrap()}`;
+      };
+    },
+    true => ()
+  );
+
+  .Ok(resp)
+});
+
+export HttpMethod, HttpHeader, HttpRequest, HttpResponse, http_parse_response;
