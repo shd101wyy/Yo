@@ -1,0 +1,17 @@
+// std/io/reader.yo - Reader trait for byte-level input
+//
+// Provides a common interface for reading bytes from various sources
+// (files, network streams, buffers, etc.)
+
+{ Exception } :: import "../error";
+
+// Reader trait — synchronous byte reading interface.
+// Types implementing Reader provide `read` for reading into a buffer.
+Reader :: trait(
+  // Read up to `size` bytes into buffer `buf`.
+  // Returns the number of bytes actually read (0 at end-of-stream).
+  read :
+    fn(self: *(Self), buf: *(u8), size: usize, using(exn : Exception)) -> usize
+);
+
+export Reader;

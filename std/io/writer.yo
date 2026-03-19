@@ -1,0 +1,19 @@
+// std/io/writer.yo - Writer trait for byte-level output
+//
+// Provides a common interface for writing bytes to various destinations
+// (files, network streams, buffers, etc.)
+
+{ Exception } :: import "../error";
+
+// Writer trait — synchronous byte writing interface.
+Writer :: trait(
+  // Write bytes from buffer. Returns number of bytes written.
+  write :
+    fn(self: *(Self), buf: *(u8), size: usize, using(exn : Exception)) -> usize,
+
+  // Flush any buffered data to the underlying destination.
+  flush :
+    fn(self: *(Self), using(exn : Exception)) -> unit
+);
+
+export Writer;
