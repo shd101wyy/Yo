@@ -868,15 +868,10 @@ export function evaluatePropertyAccess({
         const label = propertyExpr.token.value;
 
         {
-          // Check if there are multiple fields with the same label (specialization pair)
-          const matchingFieldIndices: number[] = [];
-          for (let fi = 0; fi < fields.length; fi++) {
-            if (fields[fi]!.label === label) {
-              matchingFieldIndices.push(fi);
-            }
-          }
-
-          if (matchingFieldIndices.length === 0) {
+          const moduleFieldIndex = fields.findIndex(
+            (field) => field.label === label
+          );
+          if (moduleFieldIndex < 0) {
             if (isModuleType(objectExpr.$?.type)) {
               throw formatErrorMessage({
                 token: propertyExpr.token,
@@ -888,15 +883,6 @@ export function evaluatePropertyAccess({
             expr.$ = undefined;
             return expr;
           }
-
-          // If there are 2+ fields (specialization pair), defer to function.ts
-          // by returning undefined so the function call resolver handles disambiguation
-          if (matchingFieldIndices.length >= 2) {
-            expr.$ = undefined;
-            return expr;
-          }
-
-          const moduleFieldIndex = matchingFieldIndices[0]!;
           const moduleField = fields[moduleFieldIndex]!;
           const modulePathCollection =
             objectExpr.$!.pathCollection &&

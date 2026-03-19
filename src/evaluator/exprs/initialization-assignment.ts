@@ -1,9 +1,4 @@
-import {
-  addVariableToEnv,
-  type Environment,
-  getVariablesFromEnv,
-  isComptimeRuntimeSpecializationPair,
-} from "../../env";
+import { addVariableToEnv, type Environment } from "../../env";
 import { formatErrorMessage } from "../../error";
 import {
   BuiltinKeywords,
@@ -17,8 +12,8 @@ import {
   type FnCallExpr,
 } from "../../expr";
 import { areTypesCompatible } from "../../types/compatibility";
-import type { SomeType, Type } from "../../types/definitions";
-import { isModuleType, isSomeType } from "../../types/guards";
+import type { SomeType } from "../../types/definitions";
+import { isSomeType } from "../../types/guards";
 import {
   convertComptimeTypeToRuntimeType,
   prohibitVoidType,
@@ -34,7 +29,6 @@ import {
   isModuleValue,
   isTraitValue,
   isTypeValue,
-  type Value,
 } from "../../value";
 import type { EvaluatorContext } from "../context";
 import { synthesizeExprAndType } from "../types/expr-synthesizer";
@@ -168,105 +162,6 @@ export function evaluateInitializationAssignment({
         token: actualLhs.token,
         errorMessage: `Invalid assignment to ${actualLhs.token.value}, expected identifier or operator`,
       });
-    }
-
-    // Handle specialization pair aliasing:
-    // When RHS resolves to a name that has both comptime and runtime variants,
-    // create both variable bindings under the new name.
-
-    // Helper to create both bindings and return early
-    const tryCreateSpecializationPairBindings = (
-      matchingFields: Array<{ type: Type; value: Value | undefined }>
-    ): boolean => {
-      if (matchingFields.length < 2) return false;
-      for (const field of matchingFields) {
-        const { env: nextEnv } = addVariableToEnv({
-          env,
-          variable: {
-            name: actualLhs.token.value,
-            type: field.type,
-            isCompileTimeOnly: true,
-            value: field.value ? [field.value] : undefined,
-            token: actualLhs.token,
-            initializedAtToken: actualLhs.token,
-            consumedAtToken: undefined,
-            isOwningTheRcValue: false,
-            isOwningTheSameRcValueAs: undefined,
-            isReassignable: false,
-            isImplicit,
-          },
-        });
-        env = nextEnv;
-      }
-      actualLhs.$ = {
-        env,
-        type: matchingFields[0]!.type,
-        value: matchingFields[0]!.value,
-        pathCollection: [],
-      };
-      expr.$ = {
-        env,
-        value: VUnit,
-        type: VUnit.type,
-        pathCollection: [],
-        isCompileTimeOnlyAssignment: true,
-      };
-      return true;
-    };
-
-    // Case 1: `a :: return_self` — direct variable aliasing
-    if (isCompileTimeOnly && exprIsAtom(rhs)) {
-      const rhsName = rhs.token.value;
-      const rhsVariables = getVariablesFromEnv(env, rhsName);
-      if (
-        rhsVariables.length === 2 &&
-        isComptimeRuntimeSpecializationPair(rhsVariables[0]!, rhsVariables[1]!)
-      ) {
-        const fields = rhsVariables.map((v) => ({
-          type: v.type,
-          value: v.value?.[0],
-        }));
-        if (tryCreateSpecializationPairBindings(fields)) {
-          return expr;
-        }
-      }
-    }
-
-    // Case 2: `a :: some_module.return_self` — module property aliasing
-    if (
-      !rhs.$?.type &&
-      isCompileTimeOnly &&
-      exprIsFunctionCall(rhs) &&
-      exprIsFunctionCallOf(rhs, ".", 2)
-    ) {
-      const moduleExpr = rhs.args[0]!;
-      const propertyExpr = rhs.args[1]!;
-      if (
-        exprIsAtom(propertyExpr) &&
-        isModuleType(moduleExpr.$?.type) &&
-        isModuleValue(moduleExpr.$?.value)
-      ) {
-        const moduleType = moduleExpr.$.type;
-        const moduleValue = moduleExpr.$.value;
-        const fieldName = propertyExpr.token.value;
-
-        const matchingFields: Array<{
-          type: Type;
-          value: Value | undefined;
-        }> = [];
-        for (let fi = 0; fi < moduleType.fields.length; fi++) {
-          if (moduleType.fields[fi]!.label === fieldName) {
-            matchingFields.push({
-              type: moduleType.fields[fi]!.type,
-              value: moduleValue.fields[fi],
-            });
-          }
-        }
-
-        if (tryCreateSpecializationPairBindings(matchingFields)) {
-          return expr;
-        }
-      }
     }
 
     // When using given, force compile-time only regardless of := or ::
