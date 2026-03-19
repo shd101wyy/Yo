@@ -83,3 +83,19 @@ test "Result runtime methods still work", {
   assert(x.is_ok(), "runtime is_ok should work");
   assert(!(x.is_err()), "runtime is_err should work");
 };
+
+// === Method extraction tests ===
+
+test "Option method extraction from type", {
+  f :: Option(i32).unwrap;
+  x := Option(i32).Some(i32(42));
+  val := f(x);
+  assert((val == i32(42)), "extracted unwrap should work");
+};
+
+test "Result method extraction from type", {
+  f :: Result(i32, bool).unwrap;
+  x := Result(i32, bool).Ok(i32(42));
+  val := f(x);
+  assert((val == i32(42)), "extracted Result.unwrap should work");
+};

@@ -567,12 +567,69 @@ function getBaseTraitKey(traitType: TraitType): string {
 }
 
 /**
+ * Get a stable identifier for a receiver type's base constructor.
+ * For generic types like Option(T), this returns the constructor function's funcId.
+ * For non-generic types, returns the type's own id.
+ */
+function getReceiverBaseTypeId(type: Type): string | undefined {
+  if ("functionValue" in type) {
+    const funcVal = (type as { functionValue?: FunctionValue }).functionValue;
+    if (funcVal) {
+      return funcVal.funcId;
+    }
+  }
+  return type.id;
+}
+
+/**
  * Register a generic impl in the registry.
  */
 function registerGenericImpl(
   traitTypeName: string,
   genericImpl: GenericImpl
 ): void {
+  // Check for duplicate method names across anonymous impl blocks for the same receiver type
+  if (!genericImpl.traitType.typeName) {
+    const newMethodNames = genericImpl.traitType.fields
+      .filter((f) => f.label && isFunctionType(f.type))
+      .map((f) => f.label);
+
+    if (newMethodNames.length > 0) {
+      const receiverBaseId = getReceiverBaseTypeId(
+        genericImpl.receiverTypePattern
+      );
+      if (receiverBaseId) {
+        for (const [_key, existingImpls] of genericImplRegistry.entries()) {
+          for (const existingImpl of existingImpls) {
+            // Only check anonymous traits (method definitions)
+            if (existingImpl.traitType.typeName) continue;
+
+            const existingBaseId = getReceiverBaseTypeId(
+              existingImpl.receiverTypePattern
+            );
+            if (existingBaseId !== receiverBaseId) continue;
+
+            for (const existingField of existingImpl.traitType.fields) {
+              if (
+                existingField.label &&
+                isFunctionType(existingField.type) &&
+                newMethodNames.includes(existingField.label)
+              ) {
+                throw formatErrorMessage({
+                  token: genericImpl.expr.token,
+                  errorMessage:
+                    `Method "${existingField.label}" is already defined for type "${typeToString(genericImpl.receiverTypePattern)}".\n` +
+                    `Cannot define duplicate method names across impl blocks. ` +
+                    `Use a different name (e.g., "comptime_${existingField.label}") for the comptime variant.`,
+                });
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
   let impls = genericImplRegistry.get(traitTypeName);
   if (!impls) {
     impls = [];
@@ -1866,6 +1923,22 @@ function attachTraitToReceiverType(
     for (let i = 0; i < traitValue.type.fields.length; i++) {
       const field = traitValue.type.fields[i]!;
       const value = traitValue.fields[i];
+
+      // Check for duplicate method names across impl blocks
+      if (field.label && isFunctionType(field.type)) {
+        const existingField = receiverType.trait.fields.find(
+          (f) => f.label === field.label && isFunctionType(f.type)
+        );
+        if (existingField) {
+          throw formatErrorMessage({
+            token: expr.token,
+            errorMessage:
+              `Method "${field.label}" is already defined for type "${typeToString(receiverType)}".\n` +
+              `Cannot define duplicate method names across impl blocks. ` +
+              `Use a different name (e.g., "comptime_${field.label}") for the comptime variant.`,
+          });
+        }
+      }
 
       const newField: TraitField = {
         label: field.label,
