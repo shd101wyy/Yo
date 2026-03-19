@@ -2,7 +2,7 @@
 
 ## Overview
 
-With the low-level `std/sys` async I/O foundation complete (37 modules covering file, socket, process, mmap, signals, TTY, DNS, etc.), this plan covers building the **high-level standard library** that makes Yo battery-included. These modules sit on top of `std/sys` and provide ergonomic, type-safe APIs for common programming tasks.
+With the low-level `std/sys` async I/O foundation complete (39 modules covering file, socket, process, mmap, signals, TTY, DNS, bufio, etc.), this plan covers building the **high-level standard library** that makes Yo battery-included. These modules sit on top of `std/sys` and provide ergonomic, type-safe APIs for common programming tasks.
 
 ## Algebraic Effects: IO and Exception
 
@@ -27,39 +27,39 @@ Byte buffers use `ArrayList(u8)` (not `Slice(u8)`).
 
 ### What's Done
 
-| Module              | File(s)                                 | Status      | Notes                                                                                                              |
-| ------------------- | --------------------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------ |
-| **Prelude**         | `std/prelude.yo`                        | ✅ Complete | Core types, traits, operators, Box, Option, Result, Array, Slice; IO algebraic effect                              |
-| **Error**           | `std/error.yo`                          | ✅ Complete | `Error` trait, `AnyError`, `Exception` / `ResumableException` effects                                              |
-| **String**          | `std/string/`                           | ✅ Complete | Immutable UTF-8 `String`, `rune` (Unicode code point)                                                              |
-| **Collections**     | `std/collections/`                      | ✅ Complete | `ArrayList`, `HashMap`, `HashSet`, `LinkedList`, `Deque`, `BTreeMap`, `PriorityQueue`                              |
-| **Path**            | `std/path.yo`                           | ✅ Complete | Cross-platform path manipulation (join, parent, extension, normalize)                                              |
-| **Process**         | `std/process.yo`                        | ✅ Complete | Platform/arch detection, args, env, cwd, chdir, exit                                                               |
-| **Allocator**       | `std/allocator.yo`                      | ✅ Complete | `GlobalAllocator` (mimalloc/libc), `CustomAllocator` trait                                                         |
-| **Format**          | `std/fmt/`                              | ✅ Complete | `ToString` trait, `Writer`, `Display`; `println`/`print`/`eprintln`                                                |
-| **Hash**            | `std/alg/hash.yo`                       | ✅ Complete | FNV-1a hash function                                                                                               |
-| **Sync**            | `std/sync/mutex.yo`, `std/sync/cond.yo` | ✅ Complete | `Mutex`, `Cond` (stack + GC-managed variants)                                                                      |
-| **Sync Channel**    | `std/sync/channel.yo`                   | ✅ Complete | Bounded MPMC `Channel` — 15 single-threaded tests passing (cross-thread tests removed pending `Send`/`Iso` design) |
-| **Sync RwLock**     | `std/sync/rwlock.yo`                    | ✅ Complete | `RwLock` — multiple-reader / single-writer lock                                                                    |
-| **Sync WaitGroup**  | `std/sync/waitgroup.yo`                 | ✅ Complete | `WaitGroup` — wait for a group of tasks to complete                                                                |
-| **Sync Once**       | `std/sync/once.yo`                      | ✅ Complete | `Once` — one-time thread-safe initialization                                                                       |
-| **Thread**          | `std/thread.yo`                         | ✅ Complete | `Thread` (spawn/join), hardware thread count                                                                       |
-| **Worker**          | `std/worker.yo`                         | ✅ Complete | Thread pool with round-robin task distribution                                                                     |
-| **GC**              | `std/gc.yo`                             | ✅ Complete | `collect`, `tracked_count`                                                                                         |
-| **Async**           | `std/async.yo`                          | ✅ Minimal  | Only `yield`; async/await uses IO algebraic effect                                                                 |
-| **Time**            | `std/time/`                             | ✅ Complete | `Duration`, `Instant` (monotonic), `DateTime` (wall clock), `sleep` (sync) — 25 tests all passing                  |
-| **Sys (low-level)** | `std/sys/` (37 files)                   | ✅ Complete | Full async I/O: file, socket, process, mmap, DNS, signals, TTY, etc.                                               |
-| **Libc bindings**   | `std/libc/`                             | ✅ Complete | stdio, stdlib, string, math, errno, signal, etc.                                                                   |
-| **FS**              | `std/fs/`                               | ✅ Complete | `File`, `Metadata`, `TempDir`, `TempFile`, directory walker — 44 tests passing with Exception effect               |
-| **Net**             | `std/net/`                              | ✅ Complete | `TcpStream`, `TcpListener`, `UdpSocket`, `IpAddr`, DNS lookup — all using Exception effect                         |
-| **OS**              | `std/os/`                               | ✅ Complete | Signal handling, environment directory utilities — all using Exception effect                                      |
-| **Encoding**        | `std/encoding/`                         | ✅ Complete | Base64, hex, JSON, UTF-16 — all using Exception effect                                                             |
-| **Crypto**          | `std/crypto/`                           | ✅ Complete | SHA-256, MD5, secure random, UUID v4 — all using Exception effect                                                  |
-| **URL**             | `std/url/`                              | ✅ Complete | URL parser with Exception effect                                                                                   |
-| **Regex**           | `std/regex/`                            | ✅ Complete | Regular expression engine                                                                                          |
-| **Math**            | `std/math/`                             | Not Planned | Generic min/max/clamp, lerp, PRNG (xoshiro256\*\*)                                                                 |
-| **Log**             | `std/log/`                              | Not Planned | Structured logger with level filtering and output routing                                                          |
-| **Testing**         | `std/testing/`                          | Not Planned | Rich assertion helpers, micro-benchmarking                                                                         |
+| Module              | File(s)                                 | Status             | Notes                                                                                                              |
+| ------------------- | --------------------------------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------ |
+| **Prelude**         | `std/prelude.yo`                        | ✅ Complete        | Core types, traits, operators, Box, Option, Result, Array, Slice; IO algebraic effect                              |
+| **Error**           | `std/error.yo`                          | ✅ Complete        | `Error` trait, `AnyError`, `Exception` / `ResumableException` effects                                              |
+| **String**          | `std/string/`                           | ✅ Complete        | Immutable UTF-8 `String`, `rune` (Unicode code point)                                                              |
+| **Collections**     | `std/collections/`                      | ✅ Complete        | `ArrayList`, `HashMap`, `HashSet`, `LinkedList`, `Deque`, `BTreeMap`, `PriorityQueue`                              |
+| **Path**            | `std/path.yo`                           | ✅ Complete        | Cross-platform path manipulation (join, parent, extension, normalize)                                              |
+| **Process**         | `std/process.yo`                        | ✅ Complete        | Platform/arch detection, args, env, cwd, chdir, exit                                                               |
+| **Allocator**       | `std/allocator.yo`                      | ✅ Complete        | `GlobalAllocator` (mimalloc/libc), `CustomAllocator` trait                                                         |
+| **Format**          | `std/fmt/`                              | ✅ Complete        | `ToString` trait, `Writer`, `Display`; `println`/`print`/`eprintln`                                                |
+| **Hash**            | `std/alg/hash.yo`                       | ✅ Complete        | FNV-1a hash function                                                                                               |
+| **Sync**            | `std/sync/mutex.yo`, `std/sync/cond.yo` | ✅ Complete        | `Mutex`, `Cond` (stack + GC-managed variants)                                                                      |
+| **Sync Channel**    | `std/sync/channel.yo`                   | ✅ Complete        | Bounded MPMC `Channel` — 15 single-threaded tests passing (cross-thread tests removed pending `Send`/`Iso` design) |
+| **Sync RwLock**     | `std/sync/rwlock.yo`                    | ✅ Complete        | `RwLock` — multiple-reader / single-writer lock                                                                    |
+| **Sync WaitGroup**  | `std/sync/waitgroup.yo`                 | ✅ Complete        | `WaitGroup` — wait for a group of tasks to complete                                                                |
+| **Sync Once**       | `std/sync/once.yo`                      | ✅ Complete        | `Once` — one-time thread-safe initialization                                                                       |
+| **Thread**          | `std/thread.yo`                         | ✅ Complete        | `Thread` (spawn/join), hardware thread count                                                                       |
+| **Worker**          | `std/worker.yo`                         | ✅ Complete        | Thread pool with round-robin task distribution                                                                     |
+| **GC**              | `std/gc.yo`                             | ✅ Complete        | `collect`, `tracked_count`                                                                                         |
+| **Async**           | `std/async.yo`                          | ✅ Minimal         | Only `yield`; async/await uses IO algebraic effect                                                                 |
+| **Time**            | `std/time/`                             | ✅ Complete        | `Duration`, `Instant` (monotonic), `DateTime` (wall clock), `sleep` (sync) — 25 tests all passing                  |
+| **Sys (low-level)** | `std/sys/` (39 files)                   | ✅ Complete        | Full async I/O: file, socket, process, mmap, DNS, signals, TTY, bufio, etc.                                        |
+| **Libc bindings**   | `std/libc/`                             | ✅ Complete        | stdio, stdlib, string, math, errno, signal, etc.                                                                   |
+| **FS**              | `std/fs/`                               | ✅ Complete        | `File`, `Metadata`, `TempDir`, `TempFile`, directory walker — 44 tests passing with Exception effect               |
+| **Net**             | `std/net/`                              | ✅ Complete        | `TcpStream`, `TcpListener`, `UdpSocket`, `IpAddr`, DNS lookup — all using Exception effect                         |
+| **OS**              | `std/os/`                               | ✅ Complete        | Signal handling, environment directory utilities — all using Exception effect                                      |
+| **Encoding**        | `std/encoding/`                         | ✅ Complete        | Base64, hex, JSON, UTF-16 — all using Exception effect                                                             |
+| **Crypto**          | `std/crypto/`                           | ✅ Complete        | SHA-256, MD5, secure random, UUID v4 — all using Exception effect                                                  |
+| **URL**             | `std/url/`                              | ✅ Complete        | URL parser with Exception effect                                                                                   |
+| **Regex**           | `std/regex/`                            | ✅ Complete        | Regular expression engine                                                                                          |
+| **Math**            | `std/math/`                             | ❌ Not Implemented | Generic min/max/clamp, lerp, PRNG (xoshiro256\*\*)                                                                 |
+| **Log**             | `std/log/log.yo`                        | ✅ Complete        | Structured logger — Level enum (Trace→Error), `set_level`/`set_output`, convenience helpers (`trace`…`error`)      |
+| **Testing**         | `std/testing/assert.yo`, `bench.yo`     | ✅ Complete        | Rich assertions (`assert_eq`/`ne`/`gt`/`lt`/`ge`/`le`/`approx`), micro-benchmarking with `BenchResult`             |
 
 ---
 
@@ -490,9 +490,9 @@ DateTime.day_of_year :: (fn(self: *(Self)) -> u16) ...;
 
 ---
 
-## Phase 4: String Formatting (`std/fmt`) — Not Planned
+## Phase 4: String Formatting (`std/fmt`) — ✅ Done
 
-**Status**: Not planned. The existing template string approach (`` `Hello ${name}` ``) and `ToString` trait provide sufficient string formatting for current use cases. A dedicated formatting engine can be revisited later if needed.
+**Status**: Complete. `std/fmt/` provides `ToString` trait, `Writer`, `Display`, and `println`/`print`/`eprintln` functions. Template strings (`` `Hello ${name}` ``) with `ToString` trait provide string formatting.
 
 ---
 
@@ -605,9 +605,9 @@ Cross-platform: Linux `getrandom()`, macOS `arc4random_buf()`, Windows `BCryptGe
 
 ---
 
-## Phase 7: Math Extensions (`std/math`) — Not Planned
+## Phase 7: Math Extensions (`std/math`) — ❌ Not Implemented
 
-**Status**: Not planned. The `std/libc/math.yo` already exposes all standard math functions (`sin`, `cos`, `sqrt`, `pow`, `floor`, `ceil`, `fabs`, etc.) from C's `math.h`. A separate math module is unnecessary since libc already provides these.
+**Status**: Not implemented. The `std/libc/math.yo` already exposes all standard math functions (`sin`, `cos`, `sqrt`, `pow`, `floor`, `ceil`, `fabs`, etc.) from C's `math.h`. A separate math module for generic min/max/clamp, lerp, and PRNG could be added in the future.
 
 ---
 
@@ -624,15 +624,22 @@ All fallible operations in the standard library use the `Exception` effect inste
 
 ---
 
-## Phase 9: Logging (`std/log`) — Not Planned
+## Phase 9: Logging (`std/log`) — ✅ Done
 
-**Status**: Not planned. `println` and `eprintln` are sufficient for current logging needs. A structured logging module can be revisited when more complex applications require it.
+**Status**: Complete. `std/log/log.yo` provides a structured logger with:
+
+- `Level` enum — Trace, Debug, Info, Warn, Error
+- `set_level(level)` / `set_output(file)` — configure log level and output destination
+- Convenience functions: `trace()`, `debug()`, `info()`, `warn()`, `error()`
 
 ---
 
-## Phase 10: Testing Utilities (`std/testing`) — Not Planned
+## Phase 10: Testing Utilities (`std/testing`) — ✅ Done
 
-**Status**: Not planned. The built-in `assert(condition)` and `assert(condition, message)` combined with the `test "name", { ... };` syntax provide sufficient testing capabilities.
+**Status**: Complete. `std/testing/` provides:
+
+- `assert.yo` — Rich typed assertions: `assert_eq`, `assert_ne`, `assert_gt`, `assert_lt`, `assert_ge`, `assert_le`, `assert_approx` (with generic type constraints)
+- `bench.yo` — Micro-benchmarking with `BenchResult` struct and `bench()` function for timing statistics
 
 ---
 
@@ -934,27 +941,27 @@ BufWriter.flush :: (fn(self: Self, using(io : IO)) -> Impl(Future(Result(unit, I
 
 ## Recommended Implementation Order
 
-| Order | Phase    | Module                                             | Priority | Est. Effort | Status         |
-| ----- | -------- | -------------------------------------------------- | -------- | ----------- | -------------- |
-| 1     | Phase 8  | `std/error` — Error trait                          | —        | —           | ⏸ Not Planned |
-| 2     | Phase 4  | `std/fmt` — Writer + Display                       | —        | —           | ⏸ Not Planned |
-| 3     | Phase 3  | `std/time` — Duration, Instant, DateTime           | High     | Medium      | ✅ Done        |
-| 4     | Phase 1  | `std/fs` — File, Metadata, Dir, Walker, Temp       | Critical | Large       | ✅ Done        |
-| 5     | Phase 2  | `std/net` — TcpListener, TcpStream, UdpSocket, DNS | Critical | Large       | ✅ Done        |
-| 6     | Phase 7  | `std/math` — Functions, PRNG                       | —        | —           | ⏸ Not Planned |
-| 7     | Phase 5  | `std/encoding` — Base64, Hex, JSON, UTF-16         | Medium   | Medium      | ✅ Done        |
-| 8     | Phase 6  | `std/crypto` — SHA-256, MD5, Random                | Medium   | Medium      | ✅ Done        |
-| 9     | Phase 10 | `std/testing` — Assertions, Bench                  | —        | —           | ⏸ Not Planned |
-| 10    | Phase 9  | `std/log` — Structured logging                     | —        | —           | ⏸ Not Planned |
-| 11    | Phase 11 | `std/collections` — Deque, BTreeMap, PriorityQueue | Low      | Medium      | ✅ Done        |
-| 12    | Phase 12 | `std/os` — Signals, Env dirs                       | Low      | Small       | ✅ Done        |
-| 13    | Phase 13 | `std/sync/channel` — Bounded MPMC Channel          | Critical | Small       | ✅ Done        |
-| 14    | Phase 14 | `std/sync/rwlock` — Reader-Writer Lock             | Medium   | Small       | ✅ Done        |
-| 15    | Phase 14 | `std/sync/waitgroup` — WaitGroup                   | Medium   | Small       | ✅ Done        |
-| 16    | Phase 14 | `std/sync/once` — One-Time Init                    | Low      | Small       | ✅ Done        |
-| —     | Phase 14 | `std/url/` — URL parsing                           | Low      | Small       | ✅ Done        |
-| —     | Phase 14 | `std/sys/bufio/` — Buffered I/O                    | Medium   | Medium      | ✅ Done        |
-| —     | —        | `std/regex` — Regular expressions                  | Medium   | Large       | ✅ Done        |
+| Order | Phase    | Module                                             | Priority | Est. Effort | Status             |
+| ----- | -------- | -------------------------------------------------- | -------- | ----------- | ------------------ |
+| 1     | Phase 8  | `std/error` — Error trait                          | —        | —           | ✅ Done            |
+| 2     | Phase 4  | `std/fmt` — Writer + Display                       | —        | —           | ✅ Done            |
+| 3     | Phase 3  | `std/time` — Duration, Instant, DateTime           | High     | Medium      | ✅ Done            |
+| 4     | Phase 1  | `std/fs` — File, Metadata, Dir, Walker, Temp       | Critical | Large       | ✅ Done            |
+| 5     | Phase 2  | `std/net` — TcpListener, TcpStream, UdpSocket, DNS | Critical | Large       | ✅ Done            |
+| 6     | Phase 7  | `std/math` — Functions, PRNG                       | Low      | Small       | ❌ Not Implemented |
+| 7     | Phase 5  | `std/encoding` — Base64, Hex, JSON, UTF-16         | Medium   | Medium      | ✅ Done            |
+| 8     | Phase 6  | `std/crypto` — SHA-256, MD5, Random                | Medium   | Medium      | ✅ Done            |
+| 9     | Phase 10 | `std/testing` — Assertions, Bench                  | —        | —           | ✅ Done            |
+| 10    | Phase 9  | `std/log` — Structured logging                     | —        | —           | ✅ Done            |
+| 11    | Phase 11 | `std/collections` — Deque, BTreeMap, PriorityQueue | Low      | Medium      | ✅ Done            |
+| 12    | Phase 12 | `std/os` — Signals, Env dirs                       | Low      | Small       | ✅ Done            |
+| 13    | Phase 13 | `std/sync/channel` — Bounded MPMC Channel          | Critical | Small       | ✅ Done            |
+| 14    | Phase 14 | `std/sync/rwlock` — Reader-Writer Lock             | Medium   | Small       | ✅ Done            |
+| 15    | Phase 14 | `std/sync/waitgroup` — WaitGroup                   | Medium   | Small       | ✅ Done            |
+| 16    | Phase 14 | `std/sync/once` — One-Time Init                    | Low      | Small       | ✅ Done            |
+| —     | Phase 14 | `std/url/` — URL parsing                           | Low      | Small       | ✅ Done            |
+| —     | Phase 14 | `std/sys/bufio/` — Buffered I/O                    | Medium   | Medium      | ✅ Done            |
+| —     | —        | `std/regex` — Regular expressions                  | Medium   | Large       | ✅ Done            |
 
 **Rationale**: Error trait and fmt/Writer come first because they're dependencies of almost everything else. Time comes before fs/net because Duration/Instant are useful for timeouts and logging. fs and net are the largest, most impactful modules. Math/encoding/crypto are independent utilities. Testing, logging, and advanced collections are low priority since the existing tools work.
 
