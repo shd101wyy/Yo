@@ -2,22 +2,22 @@
 
 open import "../string";
 { ArrayList } :: import "../collections/array_list";
+{ ToString } :: import "../fmt";
 
-HttpMethod :: enum(GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS);
+HttpMethod :: enum(GET, POST, PUT, DELETE, HEAD, PATCH);
 
-impl(HttpMethod,
-  to_string : (fn(self: Self) -> String)(
+impl(HttpMethod, ToString(
+  to_string : (self ->
     match(self,
       .GET => `GET`,
       .POST => `POST`,
       .PUT => `PUT`,
       .DELETE => `DELETE`,
-      .PATCH => `PATCH`,
       .HEAD => `HEAD`,
-      .OPTIONS => `OPTIONS`
+      .PATCH => `PATCH`
     )
   )
-);
+));
 
 HttpHeader :: object(name: String, value: String);
 
@@ -49,6 +49,18 @@ impl(HttpRequest,
     self
   }),
 
+  set_host : (fn(self: Self, host: String) -> unit)({
+    self.headers.push(HttpHeader.new(`Host`, host));
+  }),
+
+  set_header : (fn(self: Self, name: String, value: String) -> unit)({
+    self.headers.push(HttpHeader.new(name, value));
+  }),
+
+  set_body : (fn(self: Self, body: String) -> unit)({
+    self.body = body;
+  }),
+
   to_string : (fn(self: Self) -> String)({
     result := `${self.method.to_string()} ${self.path} HTTP/1.1\r\n`;
     i := usize(0);
@@ -78,10 +90,11 @@ impl(HttpResponse,
   ),
 
   get_header : (fn(self: Self, name: String) -> Option(String))({
+    lower_name := name.to_lowercase();
     i := usize(0);
     while (i < self.headers.len()), (i = (i + usize(1))), {
       h := self.headers.get(i).unwrap();
-      cond((h.name == name) => { return .Some(h.value); }, true => ());
+      cond((h.name.to_lowercase() == lower_name) => { return .Some(h.value); }, true => ());
     };
     .None
   }),
@@ -99,7 +112,7 @@ impl(HttpResponse,
   )
 );
 
-http_parse_response :: (fn(raw: String) -> Result(HttpResponse, String))({
+parse_response :: (fn(raw: String) -> Result(HttpResponse, String))({
   lines := raw.split(`\r\n`);
   cond((lines.len() == usize(0)) => { return .Err(`Empty response`); }, true => ());
 
@@ -161,4 +174,23 @@ http_parse_response :: (fn(raw: String) -> Result(HttpResponse, String))({
   .Ok(resp)
 });
 
-export HttpMethod, HttpHeader, HttpRequest, HttpResponse, http_parse_response;
+http_status_text :: (fn(code: i32) -> String)(
+  cond(
+    (code == i32(200)) => `OK`,
+    (code == i32(201)) => `Created`,
+    (code == i32(204)) => `No Content`,
+    (code == i32(301)) => `Moved Permanently`,
+    (code == i32(302)) => `Found`,
+    (code == i32(304)) => `Not Modified`,
+    (code == i32(400)) => `Bad Request`,
+    (code == i32(404)) => `Not Found`,
+    (code == i32(405)) => `Method Not Allowed`,
+    (code == i32(500)) => `Internal Server Error`,
+    (code == i32(502)) => `Bad Gateway`,
+    (code == i32(503)) => `Service Unavailable`,
+    true => `Unknown`
+  )
+);
+
+export HttpMethod, HttpHeader, HttpRequest, HttpResponse;
+export parse_response, http_status_text;
