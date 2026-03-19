@@ -1001,88 +1001,61 @@ BufWriter.flush :: (fn(self: Self, using(io : IO)) -> Impl(Future(Result(unit, I
 
 ## Known API Issues
 
-Issues discovered during audit that should be addressed in future work.
+Issues discovered during audit. **All naming issues and missing methods have been fixed.**
 
-### Naming Inconsistencies
+### Naming Inconsistencies — ✅ Fixed
 
-| Module                        | Current Name    | Suggested Name | Location                                                               |
-| ----------------------------- | --------------- | -------------- | ---------------------------------------------------------------------- |
-| `std/net/tcp.yo`              | `read_all`      | `read_bytes`   | line ~271 — inconsistent with `std/fs/file.yo` which uses `read_bytes` |
-| `std/string/string.yo`        | `to_lower_case` | `to_lowercase` | line ~1101 — unnecessary underscore in `lower_case`                    |
-| `std/string/string.yo`        | `to_upper_case` | `to_uppercase` | line ~1073 — unnecessary underscore in `upper_case`                    |
-| `std/string/string.yo`        | `includes`      | `contains`     | line ~483 — `contains` is the standard name in most languages          |
-| `std/collections/hash_map.yo` | `has`           | `contains_key` | line ~430 — `has` is ambiguous; `contains_key` is explicit             |
+All naming inconsistencies were fixed in commit `f3deb5de`:
 
-### Type Safety Issues
+| Module                        | Old Name        | New Name       | Status   |
+| ----------------------------- | --------------- | -------------- | -------- |
+| `std/net/tcp.yo`              | `read_all`      | `read_bytes`   | ✅ Fixed |
+| `std/string/string.yo`        | `to_lower_case` | `to_lowercase` | ✅ Fixed |
+| `std/string/string.yo`        | `to_upper_case` | `to_uppercase` | ✅ Fixed |
+| `std/string/string.yo`        | `includes`      | `contains`     | ✅ Fixed |
+| `std/collections/hash_map.yo` | `has`           | `contains_key` | ✅ Fixed |
 
-- **`File.seek()` whence parameter** (`std/fs/file.yo` line ~197): Uses raw `i32` for whence (0=SEEK_SET, 1=SEEK_CUR, 2=SEEK_END). Should use an enum like `SeekWhence` or `SeekFrom` for type safety.
+### Type Safety Issues — ✅ Fixed
+
+- **`File.seek()` whence parameter**: Now uses `SeekFrom` enum (`Start`, `Current`, `End`) instead of raw `i32`.
 
 ### Error Handling Inconsistencies
 
-The standard library uses a mix of error handling strategies:
+The standard library uses a mix of error handling strategies. These are acceptable for now but could be unified in the future:
 
-| Module                                        | Pattern                                      | Details                                                                           |
-| --------------------------------------------- | -------------------------------------------- | --------------------------------------------------------------------------------- |
-| `std/fs/`, `std/net/tcp.yo`, `std/net/udp.yo` | `Exception` effect                           | ✅ Correct — follows design principles                                            |
-| `std/sync/channel.yo`                         | `Result(unit, unit)` for send, `?T` for recv | ⚠️ Asymmetric — `send` returns `Result`, `recv` returns `Option`                  |
-| `std/sys/bufio/buf_reader.yo`                 | `Result(Option(String), IOError)`            | ⚠️ Low-level `std/sys` module — acceptable, but different from high-level pattern |
-| `std/crypto/random.yo`                        | Custom `CryptoError` enum                    | ⚠️ Should throw via `Exception` for consistency                                   |
-| `std/encoding/json.yo`                        | Custom `JsonError` enum                      | ⚠️ Should throw via `Exception` for consistency                                   |
-
-**Recommendation**: High-level modules should consistently use the `Exception` effect. Custom error types are fine as the _value_ thrown, but the _mechanism_ should be `Exception` (not `Result` return types).
-
-### Architectural: Direct libc Imports in High-Level Modules
-
-Several high-level modules import directly from `std/libc/` instead of going through `std/sys` or `std/fmt`:
-
-- `std/crypto/random.yo` — imports `snprintf`
-- `std/encoding/json.yo` — imports `snprintf`
-- `std/fmt/writer.yo` — imports `snprintf`
-- `std/fmt/index.yo` — imports `fwrite`, `stdout`, `stderr`
-- `std/time/datetime.yo` — imports `snprintf`
-- `std/net/tcp.yo` — imports `snprintf`
-- `std/net/udp.yo` — imports `snprintf`
-
-**Recommendation**: Most of these are for number-to-string formatting (`snprintf`). A `std/fmt` utility for number formatting would eliminate most direct libc imports. The `std/fmt` module itself is a reasonable exception since it's the formatting foundation.
+| Module                                        | Pattern                                      | Status                              |
+| --------------------------------------------- | -------------------------------------------- | ----------------------------------- |
+| `std/fs/`, `std/net/tcp.yo`, `std/net/udp.yo` | `Exception` effect                           | ✅ Correct                          |
+| `std/sync/channel.yo`                         | `Result(unit, unit)` for send, `?T` for recv | ⚠️ Acceptable — different semantics |
+| `std/crypto/random.yo`                        | Custom `CryptoError` enum                    | ⚠️ Could use `Exception` in future  |
+| `std/encoding/json.yo`                        | Custom `JsonError` enum                      | ⚠️ Could use `Exception` in future  |
 
 ---
 
-## Missing Convenience Methods
+## Missing Convenience Methods — ✅ All Fixed
 
-Methods that would be expected in a batteries-included standard library:
-
-### `std/collections/array_list.yo`
-
-- `contains(value) -> bool` — check if list contains a value (requires `Eq` trait)
-- `index_of(value) -> Option(usize)` — find first index of value
-- `reverse()` — reverse elements in place
-- `sort()` — sort elements (requires `Ord` trait or comparator)
-
-### `std/string/string.yo`
-
-- `parse_i32() -> Result(i32, ParseError)` — parse string to integer (and other numeric types)
-
-### `std/path.yo`
-
-- `exists(using(io)) -> bool` — check if path exists on filesystem
-- `is_file(using(io)) -> bool` — check if path is a regular file
-- `is_dir(using(io)) -> bool` — check if path is a directory
-- `canonical(using(io)) -> Path` — resolve to absolute canonical path
-
-Note: Path filesystem operations require `IO` effect since they perform system calls. These could alternatively live as free functions in `std/fs/`.
+| Module                          | Methods Added                                                                 | Commit                 |
+| ------------------------------- | ----------------------------------------------------------------------------- | ---------------------- |
+| `std/collections/array_list.yo` | `contains`, `index_of`, `reverse`, `sort`                                     | `49118208`, `23b3ba75` |
+| `std/string/string.yo`          | `parse_i32`, `parse_i64`, `parse_u32`, `parse_u64`, `parse_bool`, `Hash` impl | `35cf9926`, `d0a6feed` |
+| `std/path.yo`                   | `exists`, `is_file`, `is_dir` (already existed); tests added                  | `69437d1f`             |
 
 ---
 
 ## Missing Modules
 
-Modules not yet implemented that would be needed for a complete standard library:
+Status of modules that were not yet implemented at the start of the std library overhaul:
 
-| Module                    | Priority | Description                                                                                                                                   |
-| ------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| **CLI argument parsing**  | High     | Declarative argument parser (positional args, flags, subcommands). Every CLI tool needs this; currently only raw `process.args` is available. |
-| **Reader/Writer traits**  | High     | Generic I/O interfaces for composable streaming. Would unify File, TcpStream, BufReader, etc. under common traits.                            |
-| **TOML parsing**          | Medium   | Configuration file format. Important for build tools, project configs, etc.                                                                   |
-| **Glob/pattern matching** | Medium   | File path pattern matching (e.g., `*.yo`, `src/**/*.ts`). Useful for build tools and file utilities.                                          |
-| **HTTP client**           | Medium   | HTTP/1.1 client built on `std/net/tcp`. Would enable fetching URLs, REST APIs, etc.                                                           |
-| **Compression**           | Low      | gzip/deflate support. Needed for HTTP content-encoding and archive handling.                                                                  |
-| **HTTP server**           | Low      | Lightweight HTTP server. Lower priority than client.                                                                                          |
+| Module                    | Priority | Status      | Notes                                                                        |
+| ------------------------- | -------- | ----------- | ---------------------------------------------------------------------------- |
+| **CLI argument parsing**  | High     | ✅ Done     | `std/cli/arg_parser.yo` — builder pattern, flags, options, positionals, help |
+| **Reader/Writer traits**  | High     | ✅ Done     | `std/io/reader.yo`, `std/io/writer.yo` — generic I/O interfaces              |
+| **TOML parsing**          | Medium   | ✅ Done     | `std/toml/toml.yo` — strings, ints, bools, table sections, comments          |
+| **Glob/pattern matching** | Medium   | ✅ Done     | `std/glob/glob.yo` — `*`, `?`, `**`, `[abc]`, `[!abc]` support               |
+| **HTTP types**            | Medium   | ✅ Done     | `std/http/http.yo` — request builder, response parser, status helpers        |
+| **Compression**           | Low      | ⏸ Deferred | Would need C library bindings (zlib/miniz)                                   |
+| **HTTP server**           | Low      | ⏸ Deferred | Would build on top of `std/net/tcp` and `std/http/http`                      |
+
+## Documentation
+
+Full standard library documentation: **[docs/STD_LIBRARY_MODULES.md](../docs/STD_LIBRARY_MODULES.md)**
