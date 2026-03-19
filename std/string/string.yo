@@ -1356,6 +1356,27 @@ impl(String, Eq(String)(
   })
 ));
 
+impl(String, Hash(
+  (hash): (fn(self: *(Self)) -> u64)({
+    // FNV-1a hash over the bytes
+    h := u64(14695981039346656037);
+    i := usize(0);
+    len := self.*._bytes.len();
+    while ((i < len)),
+          (i = (i + usize(1))),
+    {
+      match(self.*._bytes.get(i),
+        .Some(b) => {
+          h = (h ^ u64(b));
+          h = (h * u64(1099511628211));
+        },
+        .None => ()
+      );
+    };
+    h
+  })
+));
+
 // === Iterator support ===
 
 /**

@@ -1,0 +1,105 @@
+{ ArgParser, ParsedArgs } :: import "std/cli/arg_parser";
+open import "std/collections/array_list";
+open import "std/string";
+
+test "ArgParser parse flags", {
+  parser := ArgParser.new(`test-app`, `Test application`);
+  parser.add_flag(`--verbose`, `-v`, `Verbose output`);
+
+  args := ArrayList(String).new();
+  args.push(`test-app`);
+  args.push(`--verbose`);
+
+  result := parser.parse(args);
+  assert(result.is_ok(), "should parse successfully");
+
+  parsed := result.unwrap();
+  assert(parsed.get_flag(`--verbose`), "verbose should be true");
+};
+
+test "ArgParser parse options", {
+  parser := ArgParser.new(`test-app`, `Test application`);
+  parser.add_option(`--output`, `-o`, `Output file`, `default.txt`);
+
+  args := ArrayList(String).new();
+  args.push(`test-app`);
+  args.push(`--output`);
+  args.push(`result.txt`);
+
+  result := parser.parse(args);
+  assert(result.is_ok(), "should parse successfully");
+
+  parsed := result.unwrap();
+  opt := parsed.get_option(`--output`);
+  assert(opt.is_some(), "output should be present");
+  assert((opt.unwrap() == `result.txt`), "output should be result.txt");
+};
+
+test "ArgParser parse short flags", {
+  parser := ArgParser.new(`test-app`, `Test`);
+  parser.add_flag(`--verbose`, `-v`, `Verbose`);
+
+  args := ArrayList(String).new();
+  args.push(`test-app`);
+  args.push(`-v`);
+
+  result := parser.parse(args);
+  assert(result.is_ok(), "should parse -v");
+  assert(result.unwrap().get_flag(`--verbose`), "-v should set verbose");
+};
+
+test "ArgParser parse positionals", {
+  parser := ArgParser.new(`test-app`, `Test`);
+  parser.add_positional(`input`, `Input file`);
+
+  args := ArrayList(String).new();
+  args.push(`test-app`);
+  args.push(`hello.txt`);
+
+  result := parser.parse(args);
+  assert(result.is_ok(), "should parse positional");
+
+  parsed := result.unwrap();
+  input := parsed.get_positional(`input`);
+  assert(input.is_some(), "input should be present");
+  assert((input.unwrap() == `hello.txt`), "input should be hello.txt");
+};
+
+test "ArgParser default option value", {
+  parser := ArgParser.new(`test-app`, `Test`);
+  parser.add_option(`--output`, `-o`, `Output`, `default.txt`);
+
+  args := ArrayList(String).new();
+  args.push(`test-app`);
+
+  result := parser.parse(args);
+  assert(result.is_ok(), "should parse with defaults");
+
+  parsed := result.unwrap();
+  opt := parsed.get_option(`--output`);
+  assert(opt.is_some(), "should have default value");
+  assert((opt.unwrap() == `default.txt`), "should be default.txt");
+};
+
+test "ArgParser unknown flag error", {
+  parser := ArgParser.new(`test-app`, `Test`);
+
+  args := ArrayList(String).new();
+  args.push(`test-app`);
+  args.push(`--unknown`);
+
+  result := parser.parse(args);
+  assert(result.is_err(), "should error on unknown flag");
+};
+
+test "ArgParser help text generation", {
+  parser := ArgParser.new(`my-app`, `My cool application`);
+  parser.add_flag(`--verbose`, `-v`, `Enable verbose output`);
+  parser.add_option(`--output`, `-o`, `Output file path`, `out.txt`);
+  parser.add_positional(`input`, `Input file path`);
+
+  help := parser.help_text();
+  assert(help.contains(`my-app`), "help should contain app name");
+  assert(help.contains(`--verbose`), "help should contain verbose flag");
+  assert(help.contains(`--output`), "help should contain output option");
+};
