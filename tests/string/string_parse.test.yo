@@ -1,0 +1,192 @@
+open import "std/string";
+
+// === parse_i32 tests ===
+
+test "String parse_i32 positive", {
+  s := `42`;
+  result := s.parse_i32();
+  assert(result.is_some(), "should parse 42");
+  assert((result.unwrap() == i32(42)), "should be 42");
+};
+
+test "String parse_i32 negative", {
+  s := `-123`;
+  result := s.parse_i32();
+  assert(result.is_some(), "should parse -123");
+  assert((result.unwrap() == i32(-123)), "should be -123");
+};
+
+test "String parse_i32 zero", {
+  s := `0`;
+  result := s.parse_i32();
+  assert(result.is_some(), "should parse 0");
+  assert((result.unwrap() == i32(0)), "should be 0");
+};
+
+test "String parse_i32 invalid", {
+  s := `hello`;
+  result := s.parse_i32();
+  assert(result.is_none(), "should fail on non-numeric");
+};
+
+test "String parse_i32 empty", {
+  s := ``;
+  result := s.parse_i32();
+  assert(result.is_none(), "should fail on empty");
+};
+
+test "String parse_i32 plus sign", {
+  s := `+99`;
+  result := s.parse_i32();
+  assert(result.is_some(), "should parse +99");
+  assert((result.unwrap() == i32(99)), "should be 99");
+};
+
+test "String parse_i32 only sign", {
+  s := `-`;
+  result := s.parse_i32();
+  assert(result.is_none(), "should fail on bare sign");
+};
+
+test "String parse_i32 mixed chars", {
+  s := `12abc`;
+  result := s.parse_i32();
+  assert(result.is_none(), "should fail on mixed");
+};
+
+// === parse_i64 tests ===
+
+test "String parse_i64 positive", {
+  s := `1000000`;
+  result := s.parse_i64();
+  assert(result.is_some(), "should parse 1000000");
+  assert((result.unwrap() == i64(1000000)), "should be 1000000");
+};
+
+test "String parse_i64 negative", {
+  s := `-9876543`;
+  result := s.parse_i64();
+  assert(result.is_some(), "should parse -9876543");
+  assert((result.unwrap() == i64(-9876543)), "should be -9876543");
+};
+
+test "String parse_i64 zero", {
+  s := `0`;
+  result := s.parse_i64();
+  assert(result.is_some(), "should parse 0");
+  assert((result.unwrap() == i64(0)), "should be 0");
+};
+
+test "String parse_i64 invalid", {
+  s := `not_a_number`;
+  result := s.parse_i64();
+  assert(result.is_none(), "should fail on non-numeric");
+};
+
+test "String parse_i64 empty", {
+  s := ``;
+  result := s.parse_i64();
+  assert(result.is_none(), "should fail on empty");
+};
+
+// === parse_u32 tests ===
+
+test "String parse_u32 positive", {
+  s := `42`;
+  result := s.parse_u32();
+  assert(result.is_some(), "should parse 42");
+  assert((result.unwrap() == u32(42)), "should be 42");
+};
+
+test "String parse_u32 zero", {
+  s := `0`;
+  result := s.parse_u32();
+  assert(result.is_some(), "should parse 0");
+  assert((result.unwrap() == u32(0)), "should be 0");
+};
+
+test "String parse_u32 rejects negative", {
+  s := `-5`;
+  result := s.parse_u32();
+  assert(result.is_none(), "should fail on negative");
+};
+
+test "String parse_u32 invalid", {
+  s := `xyz`;
+  result := s.parse_u32();
+  assert(result.is_none(), "should fail on non-numeric");
+};
+
+test "String parse_u32 empty", {
+  s := ``;
+  result := s.parse_u32();
+  assert(result.is_none(), "should fail on empty");
+};
+
+// === parse_u64 tests ===
+
+test "String parse_u64 positive", {
+  s := `123456789`;
+  result := s.parse_u64();
+  assert(result.is_some(), "should parse 123456789");
+  assert((result.unwrap() == u64(123456789)), "should be 123456789");
+};
+
+test "String parse_u64 zero", {
+  s := `0`;
+  result := s.parse_u64();
+  assert(result.is_some(), "should parse 0");
+  assert((result.unwrap() == u64(0)), "should be 0");
+};
+
+test "String parse_u64 rejects negative", {
+  s := `-1`;
+  result := s.parse_u64();
+  assert(result.is_none(), "should fail on negative");
+};
+
+test "String parse_u64 invalid", {
+  s := `abc`;
+  result := s.parse_u64();
+  assert(result.is_none(), "should fail on non-numeric");
+};
+
+test "String parse_u64 empty", {
+  s := ``;
+  result := s.parse_u64();
+  assert(result.is_none(), "should fail on empty");
+};
+
+// === parse_bool tests ===
+
+test "String parse_bool true", {
+  s := `true`;
+  result := s.parse_bool();
+  assert(result.is_some(), "should parse true");
+  assert((result.unwrap() == true), "should be true");
+};
+
+test "String parse_bool false", {
+  s := `false`;
+  result := s.parse_bool();
+  assert(result.is_some(), "should parse false");
+  assert((result.unwrap() == false), "should be false");
+};
+
+test "String parse_bool invalid", {
+  s := `yes`;
+  result := s.parse_bool();
+  assert(result.is_none(), "should fail on invalid");
+};
+
+test "String parse_bool empty", {
+  s := ``;
+  result := s.parse_bool();
+  assert(result.is_none(), "should fail on empty");
+};
+
+test "String parse_bool case sensitive", {
+  s := `True`;
+  result := s.parse_bool();
+  assert(result.is_none(), "should fail on wrong case");
+};
