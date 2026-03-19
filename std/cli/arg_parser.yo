@@ -41,15 +41,17 @@ impl(ParsedArgs,
     self._set_flags.contains(name)
   ),
 
-  get_option : (fn(self: Self, name: String) -> Option(String))({
+  _lookup : (fn(self: Self, names: ArrayList(String), values: ArrayList(String), name: String) -> Option(String))({
     i := usize(0);
-    len := self._option_names.len();
+    len := names.len();
+    (result : Option(String)) = .None;
     while (i < len), (i = (i + usize(1))), {
-      match(self._option_names.get(i),
+      match(names.get(i),
         .Some(n) => {
           cond(
             (n == name) => {
-              return self._option_values.get(i);
+              result = values.get(i);
+              i = len;
             },
             true => ()
           );
@@ -57,27 +59,16 @@ impl(ParsedArgs,
         .None => ()
       );
     };
-    return .None;
+    return result;
   }),
 
-  get_positional : (fn(self: Self, name: String) -> Option(String))({
-    i := usize(0);
-    len := self._positional_names.len();
-    while (i < len), (i = (i + usize(1))), {
-      match(self._positional_names.get(i),
-        .Some(n) => {
-          cond(
-            (n == name) => {
-              return self._positionals.get(i);
-            },
-            true => ()
-          );
-        },
-        .None => ()
-      );
-    };
-    return .None;
-  }),
+  get_option : (fn(self: Self, name: String) -> Option(String))(
+    self._lookup(self._option_names, self._option_values, name)
+  ),
+
+  get_positional : (fn(self: Self, name: String) -> Option(String))(
+    self._lookup(self._positional_names, self._positionals, name)
+  ),
 
   get_positional_at : (fn(self: Self, index: usize) -> Option(String))(
     self._positionals.get(index)
@@ -126,15 +117,17 @@ impl(ArgParser,
     ));
   }),
 
-  _find_arg : (fn(self: Self, name: String) -> Option(ArgDef))({
+  _find_arg_index : (fn(self: Self, name: String) -> Option(usize))({
     i := usize(0);
     len := self._args.len();
+    (result : Option(usize)) = .None;
     while (i < len), (i = (i + usize(1))), {
       match(self._args.get(i),
         .Some(arg_def) => {
           cond(
             ((arg_def._long_name == name) || (arg_def._short_name == name)) => {
-              return .Some(arg_def);
+              result = .Some(i);
+              i = len;
             },
             true => ()
           );
@@ -142,7 +135,7 @@ impl(ArgParser,
         .None => ()
       );
     };
-    return .None;
+    return result;
   }),
 
   help_text : (fn(self: Self) -> String)({
@@ -248,45 +241,51 @@ impl(ArgParser,
     idx := usize(1);
     args_len := args.len();
     positional_idx := usize(0);
+    (err_msg : Option(String)) = .None;
 
-    while (idx < args_len), {
+    while ((idx < args_len) && (err_msg.is_none())), {
       match(args.get(idx),
         .Some(current_arg) => {
           cond(
             ((current_arg == `--help`) || (current_arg == `-h`)) => {
-              return .Err(self.help_text());
+              err_msg = .Some(self.help_text());
             },
             current_arg.starts_with(`-`) => {
-              match(self._find_arg(current_arg),
-                .Some(def) => {
-                  match(def._kind,
-                    .Flag => {
-                      parsed._set_flags.push(def._long_name);
-                    },
-                    .Opt => {
-                      idx = (idx + usize(1));
-                      cond(
-                        (idx < args_len) => {
-                          match(args.get(idx),
-                            .Some(val) => {
-                              parsed._option_names.push(def._long_name);
-                              parsed._option_values.push(val);
+              match(self._find_arg_index(current_arg),
+                .Some(arg_idx) => {
+                  match(self._args.get(arg_idx),
+                    .Some(def) => {
+                      match(def._kind,
+                        .Flag => {
+                          parsed._set_flags.push(def._long_name);
+                        },
+                        .Opt => {
+                          idx = (idx + usize(1));
+                          cond(
+                            (idx < args_len) => {
+                              match(args.get(idx),
+                                .Some(val) => {
+                                  parsed._option_names.push(def._long_name);
+                                  parsed._option_values.push(val);
+                                },
+                                .None => {
+                                  err_msg = .Some(`Missing value for option: ${def._long_name}`);
+                                }
+                              );
                             },
-                            .None => {
-                              return .Err(`Missing value for option: ${def._long_name}`);
+                            true => {
+                              err_msg = .Some(`Missing value for option: ${def._long_name}`);
                             }
                           );
                         },
-                        true => {
-                          return .Err(`Missing value for option: ${def._long_name}`);
-                        }
+                        .Positional => ()
                       );
                     },
-                    .Positional => ()
+                    .None => ()
                   );
                 },
                 .None => {
-                  return .Err(`Unknown argument: ${current_arg}`);
+                  err_msg = .Some(`Unknown argument: ${current_arg}`);
                 }
               );
             },
@@ -322,6 +321,14 @@ impl(ArgParser,
       );
       idx = (idx + usize(1));
     };
+
+    // Check for errors
+    match(err_msg,
+      .Some(msg) => {
+        return .Err(msg);
+      },
+      .None => ()
+    );
 
     // Apply defaults for options not explicitly set
     def_i := usize(0);
