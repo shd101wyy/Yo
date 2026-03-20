@@ -2333,3 +2333,266 @@ test "Test mixed break and continue in Option match in async while loop", using(
   // sum = 1+2+4+5+7 = 19
   assert(sum.* == i32(19), "sum should be 1+2+4+5+7 = 19");
 };
+
+// ===========================================================================
+// Async + Algebraic Effects — additional corner-case tests
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// Resume handler (return) inside async closure — handler resumes, execution
+// continues past the effect call site inside the async block.
+// ---------------------------------------------------------------------------
+test "Test effect resume inside async closure", using(io : IO), {
+  Raise :: (fn(msg : String) -> i32);
+
+  task := io.async((using(io : IO, raise : Raise)) => {
+    a := raise(`first`);
+    io.await(yield());
+    b := raise(`second`);
+    r := (a + b);
+    r
+  });
+
+  (given(raise) : Raise) = ((msg) -> {
+    return i32(10);
+  });
+
+  result := io.await(task, using(io, raise));
+  assert((result == i32(20)), "resume handler should return 10 twice: 10+10=20");
+};
+
+// ---------------------------------------------------------------------------
+// Effect resume across multiple await points — evidence is preserved in the
+// capture struct across state machine yields.
+// ---------------------------------------------------------------------------
+test "Test effect resume across multiple yields", using(io : IO), {
+  Raise :: (fn(msg : String) -> i32);
+
+  counter := Box(i32)(0);
+
+  task := io.async((using(io : IO, raise : Raise)) => {
+    a := raise(`before yield 1`);
+    counter.* = (counter.* + a);
+    io.await(yield());
+    b := raise(`between yields`);
+    counter.* = (counter.* + b);
+    io.await(yield());
+    c := raise(`after yield 2`);
+    counter.* = (counter.* + c);
+    r := counter.*;
+    r
+  });
+
+  (given(raise) : Raise) = ((msg) -> {
+    return i32(5);
+  });
+
+  result := io.await(task, using(io, raise));
+  assert((result == i32(15)), "3 resumes of 5 each: 15");
+  assert((counter.* == i32(15)), "counter should track 5+5+5=15");
+};
+
+// ---------------------------------------------------------------------------
+// Two different effect types injected simultaneously via io.await.
+// Both the Raise and Log handlers are provided via using().
+// ---------------------------------------------------------------------------
+test "Test two effects injected via io.await", using(io : IO), {
+  Raise :: (fn(msg : String) -> i32);
+  Log :: (fn(msg : String) -> unit);
+
+  task := io.async((using(io : IO, raise : Raise, log : Log)) => {
+    log(`hello`);
+    result := raise(`fail`);
+    log(`resumed`);
+    result
+  });
+
+  (given(raise) : Raise) = ((msg) -> {
+    return i32(42);
+  });
+
+  (given(log) : Log) = ((msg) -> {
+    printf("log: ");
+    println(msg);
+  });
+
+  result := io.await(task, using(io, raise, log));
+  assert((result == i32(42)), "raise should resume with 42");
+};
+
+// ---------------------------------------------------------------------------
+// Two different effects injected via io.spawn + JoinHandle.await.
+// ---------------------------------------------------------------------------
+test "Test two effects injected via io.spawn", using(io : IO), {
+  Raise :: (fn(msg : String) -> i32);
+  Log :: (fn(msg : String) -> unit);
+
+  task := io.async((using(io : IO, raise : Raise, log : Log)) => {
+    log(`spawned`);
+    io.await(yield());
+    result := raise(`check`);
+    log(`resumed`);
+    result
+  });
+
+  (given(raise) : Raise) = ((msg) -> {
+    return i32(7);
+  });
+
+  (given(log) : Log) = ((msg) -> {
+    printf("spawn-log: ");
+    println(msg);
+  });
+
+  handle := io.spawn(task, using(io, raise, log));
+  result := handle.await(using(io));
+  assert(result.is_some(), "task should succeed");
+  assert((result.unwrap() == i32(7)), "raise should resume with 7");
+};
+
+// ---------------------------------------------------------------------------
+// Effect resume in async while loop — effect is called each iteration,
+// handler resumes each time. Validates evidence survives loop iterations.
+// ---------------------------------------------------------------------------
+test "Test effect resume in async while loop", using(io : IO), {
+  GetValue :: (fn() -> i32);
+
+  sum := Box(i32)(0);
+  counter := Box(i32)(0);
+
+  task := io.async((using(io : IO, get_value : GetValue)) => {
+    while runtime(counter.* < i32(4)), {
+      v := get_value();
+      sum.* = (sum.* + v);
+      counter.* = (counter.* + i32(1));
+      io.await(yield());
+    };
+    r := sum.*;
+    r
+  });
+
+  (given(get_value) : GetValue) = (() -> {
+    return i32(3);
+  });
+
+  result := io.await(task, using(io, get_value));
+  assert((result == i32(12)), "4 iterations * 3 = 12");
+};
+
+// ---------------------------------------------------------------------------
+// Effect resume in async while loop with break — handler resumes, then
+// a subsequent condition triggers break.
+// ---------------------------------------------------------------------------
+test "Test effect resume in async while loop with break", using(io : IO), {
+  GetValue :: (fn() -> i32);
+
+  sum := Box(i32)(0);
+  counter := Box(i32)(0);
+
+  task := io.async((using(io : IO, get_value : GetValue)) => {
+    while runtime(true), {
+      counter.* = (counter.* + i32(1));
+      v := get_value();
+      io.await(yield());
+      cond(
+        (counter.* >= i32(3)) => { break; },
+        true => ()
+      );
+      sum.* = (sum.* + v);
+    };
+    r := sum.*;
+    r
+  });
+
+  (given(get_value) : GetValue) = (() -> {
+    return i32(10);
+  });
+
+  result := io.await(task, using(io, get_value));
+  // Iterations: 1→get(10)→yield→sum+=10, 2→get(10)→yield→sum+=10, 3→get(10)→yield→break
+  assert((result == i32(20)), "2 full iterations * 10 = 20");
+};
+
+// ---------------------------------------------------------------------------
+// Escape from async task via injected effect — the handler escapes,
+// the future is aborted, and the caller sees the escape.
+// ---------------------------------------------------------------------------
+test "Test escape via injected effect aborts future", using(io : IO), {
+  Raise :: (fn(forall(T : Type), msg : String) -> T);
+
+  test_escape :: (fn(using(io : IO)) -> i32) {
+    task := io.async((using(io : IO, raise : Raise)) => {
+      io.await(yield());
+      raise(`abort now`);
+      return i32(999);
+    });
+
+    (given(raise) : Raise) =
+      (msg) -> {
+        escape i32(77);
+      };
+
+    io.await(task, using(io, raise));
+    // should not reach here
+    i32(0)
+  };
+
+  escape_result := test_escape();
+  assert((escape_result == i32(77)), "escape should return 77");
+};
+
+// ---------------------------------------------------------------------------
+// JoinHandle.await on escaped task returns .None — same as existing test but
+// with the effect injected via io.spawn (not io.await).
+// ---------------------------------------------------------------------------
+test "Test JoinHandle escape via spawn-injected effect", using(io : IO), {
+  Raise :: (fn(forall(T : Type), msg : String) -> T);
+
+  task := io.async((using(io : IO, raise : Raise)) => {
+    io.await(yield());
+    raise(`aborting`);
+    return i32(0);
+  });
+
+  (given(raise) : Raise) =
+    (msg) -> {
+      escape ();
+    };
+
+  handle := io.spawn(task, using(io, raise));
+  result := handle.await(using(io));
+  assert(result.is_none(), "escaped task should return None");
+};
+
+// ---------------------------------------------------------------------------
+// Effect handler inside async closure resolved by given binding (not injected).
+// The handler is installed inside the async block itself — no injection needed.
+// Validates internal given works correctly inside async SM.
+// ---------------------------------------------------------------------------
+test "Test given handler inside async closure with yields", using(io : IO), {
+  Raise :: (fn(msg : String) -> i32);
+
+  task := io.async((using(io : IO)) => {
+    (given(raise) : Raise) = ((msg) -> {
+      return i32(50);
+    });
+
+    might_fail :: (fn(x : i32, using(raise : Raise)) -> i32)(
+      cond(
+        (x < i32(0)) => raise(`negative`),
+        true => x
+      )
+    );
+
+    a := might_fail(i32(5));
+    io.await(yield());
+    b := might_fail(i32(-1));
+    io.await(yield());
+    c := might_fail(i32(3));
+    r := ((a + b) + c);
+    r
+  });
+
+  result := io.await(task);
+  assert((result == i32(58)), "5 + 50 + 3 = 58");
+};

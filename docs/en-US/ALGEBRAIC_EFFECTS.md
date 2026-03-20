@@ -417,7 +417,7 @@ If you need the handler to carry state, encode that state as explicit function a
 
 ### Tests
 
-See `tests/algebraic_effects.test.yo` (57 tests) for comprehensive examples covering:
+See `tests/algebraic_effects.test.yo` (57 tests) for comprehensive sync examples covering:
 
 | Category                                       | Tests |
 | ---------------------------------------------- | ----- |
@@ -445,6 +445,20 @@ See `tests/algebraic_effects.test.yo` (57 tests) for comprehensive examples cove
 | Effect with enum return type                   | 1     |
 | Module effect polymorphism                     | 1     |
 | Transitive SM + module effects                 | 1     |
+
+See `tests/async_await.test.yo` (9 async+effects tests) for async integration:
+
+| Scenario                                       | Tests |
+| ---------------------------------------------- | ----- |
+| Effect resume inside async closure             | 1     |
+| Effect resume across multiple yields           | 1     |
+| Two effects injected via `io.await`            | 1     |
+| Two effects injected via `io.spawn`            | 1     |
+| Effect resume in async while loop              | 1     |
+| Effect resume in async while loop with break   | 1     |
+| Escape via injected effect aborts future       | 1     |
+| JoinHandle escape via spawn-injected effect    | 1     |
+| Given handler inside async closure with yields | 1     |
 
 ---
 

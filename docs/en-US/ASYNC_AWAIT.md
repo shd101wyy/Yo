@@ -851,6 +851,48 @@ handle.await(using(io));
 | Non-module (`IO`) type                  | Compile-time      | No runtime field      |
 | Non-generic, unresolved handler         | Runtime injection | `void*` capture field |
 
+## Async + Algebraic Effects
+
+Algebraic effects and async work together: async closures can declare effect
+parameters via `using(...)`, and callers inject handlers at `io.await` or
+`io.spawn` time. This section covers tested scenarios and known limitations.
+
+### Tested Scenarios
+
+| Scenario                                    | Description                                                  |
+| ------------------------------------------- | ------------------------------------------------------------ |
+| Effect resume inside async closure          | Handler `return`s a value, async closure receives it         |
+| Effect resume across multiple yields        | Effect called after each `io.await(yield())`                 |
+| Two effects injected via `io.await`         | Two independent effect handlers injected together            |
+| Two effects injected via `io.spawn`         | Same, but via `io.spawn` + `handle.await`                    |
+| Effect resume in async while loop           | Effect called inside `while` loop body with yields           |
+| Effect resume in while loop with break      | Effect triggers `break` based on return value                |
+| Escape via injected effect aborts future    | Handler `escape`s, future enters `Aborted` state             |
+| JoinHandle escape via spawn-injected effect | Same but with `io.spawn`, `handle.await` returns `.None`     |
+| Given handler inside async with yields      | `given` binding defined inside async body, used after yields |
+
+### Known Limitations
+
+1. **Effect handlers are not closures** — handler functions are standalone C
+   functions and cannot capture variables from the enclosing scope. Pass state
+   via explicit parameters or `Box`. See `docs/en-US/ALGEBRAIC_EFFECTS.md`.
+
+2. **Async escape RC double-decrement** — when a future is passed as a
+   parameter to a function that escapes during `io.await`, the future's RC is
+   decremented twice (once in the await abort path, once in escape cleanup),
+   causing use-after-free. Workaround: create the future inside the escaping
+   function. See `issues/async-escape-rc-double-decrement.md`.
+
+3. **3-argument while loop in async** — the async SM codegen only handles the
+   2-argument form `while condition, body`. The 3-argument form
+   `while condition, step, body` emits broken C code. Workaround: put the step
+   expression inside the loop body. See `issues/async-while-3arg-form.md`.
+
+4. **Binary expression as async return value** — when the last expression in an
+   async closure is a binary operation (e.g., `(a + b)`), the SM struct gets
+   `void* result` instead of the correct type. Workaround: assign to a variable
+   first. See `issues/async-sm-result-type-binary-expr.md`.
+
 ## Summary
 
 Yo's async/await provides:
