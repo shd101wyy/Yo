@@ -804,6 +804,14 @@ export function generateFunctionBody(
       if (findReturn) {
         break;
       }
+
+      // Stop generating code after an expression with control flow
+      // (e.g., a cond/match where all branches return). Expressions
+      // after such a point are dead code and may lack evaluator metadata.
+      if (hasAnyControlFlow(arg.$?.controlFlow)) {
+        findReturn = true;
+        break;
+      }
     }
 
     // Generate the last expression as a return statement

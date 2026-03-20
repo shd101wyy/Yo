@@ -7,6 +7,7 @@ import {
   exprIsFunctionCallOf,
   ExprTag,
   type FnCallExpr,
+  hasAnyControlFlow,
 } from "../../expr";
 import type { Type } from "../../types/definitions";
 import {
@@ -86,6 +87,10 @@ function generateCaseBody(
       const argCode = generateExpr(arg, indent, context);
       if (argCode) {
         context.emitter.emitLine(`${indent}${argCode};`);
+      }
+      // Stop after control flow (dead code may lack metadata)
+      if (hasAnyControlFlow(arg.$?.controlFlow)) {
+        break;
       }
     }
 

@@ -11,6 +11,7 @@ import {
 import { formatErrorMessage, formatErrorMessages } from "../../error";
 import {
   attachTempVariableToExpr,
+  type AtomExpr,
   BuiltinFunctions,
   BuiltinKeywords,
   cloneExpr,
@@ -479,6 +480,34 @@ export function evaluateBeginExpression({
    */
   isEvaluatingFunctionBodyBeginBlock?: boolean;
 }): Expr {
+  // When { expr } (without semicolons) is used as a function body, the parser
+  // creates an anonymous struct _( expr ) instead of a begin block. Convert it
+  // to a begin block so the last expression gets expectedType propagated correctly.
+  // This fixes enum variant shorthand (e.g., .Ok(value)) not resolving inside
+  // function bodies like: (fn() -> Result(i32, String))({ .Ok(i32(42)) })
+  if (
+    exprIsFunctionCall(expr) &&
+    exprIsFunctionCallOf(expr, "_") &&
+    !exprIsFunctionCallOf(expr, BuiltinKeywords.begin)
+  ) {
+    const fnCallExpr = expr as FnCallExpr;
+    // Check that none of the args are labeled (: expressions) — if they are,
+    // it's a real struct value like { x: 1, y: 2 }, not a begin block.
+    const hasLabeledFields = fnCallExpr.args.some(
+      (arg) => exprIsFunctionCall(arg) && exprIsFunctionCallOf(arg, ":")
+    );
+    if (!hasLabeledFields) {
+      // Convert _( expr1, expr2, ... ) to begin( expr1, expr2, ... )
+      fnCallExpr.func = {
+        ...fnCallExpr.func,
+        token: {
+          ...(fnCallExpr.func as AtomExpr).token,
+          value: BuiltinKeywords.begin[0]!,
+        },
+      } as AtomExpr;
+    }
+  }
+
   if (
     !exprIsFunctionCall(expr) ||
     !exprIsFunctionCallOf(expr, BuiltinKeywords.begin)
