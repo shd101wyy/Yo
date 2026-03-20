@@ -49,6 +49,7 @@ import {
   canOptimizeAsSimpleEnum,
   type CodeGenContext,
   findReturnedAsyncBlock,
+  getEnumVariantCName,
   getTypeString,
   getVariableNameForCodegen,
   isComptimeFunction,
@@ -1117,14 +1118,25 @@ function generateAtomicGCRuntimeFunctions(
 
   // Generate simple non-atomic __yo_decr_rc and __yo_incr_rc functions
   emitter.emitLine(`// Non-atomic reference counting functions (thread-local)
+// Flag to prevent double RC decrements during GC collection.
+// When set, __yo_decr_rc skips all tracked objects because the GC
+// already accounts for their references via trial deletion.
+static _Thread_local int yo_gc_collecting = 0;
+
 void __yo_decr_rc(void* ptr) {
   if (ptr == NULL) return;
   yo_ref_header_t* header = (yo_ref_header_t*)ptr;
   
-  // Skip if this object is marked as garbage by the GC.
-  // During GC collection, dispose functions may call ___drop on children,
-  // but those children are also being collected by the GC.
-  // The GC is responsible for freeing garbage objects, not the RC system.
+  // During GC collection, skip all tracked objects.
+  // The GC handles their lifecycle via trial deletion — decrementing here
+  // would double-count the reference removal. Non-tracked RC children are
+  // still decremented normally (they weren't trial-deleted).
+  if (yo_gc_collecting && (header->gc_flags & YO_GC_TRACKED)) {
+    GC_DEBUG("Decr: Skipping ptr=%p (GC collecting, tracked)\\n", ptr);
+    return;
+  }
+  
+  // Also skip objects marked as garbage by the GC (legacy guard for safety).
   if ((header->gc_flags & YO_GC_TRACKED) && header->gc_mark == YO_GC_GARBAGE) {
     GC_DEBUG("Decr: Skipping ptr=%p (marked as GC garbage)\\n", ptr);
     return;
@@ -1300,8 +1312,8 @@ void __yo_gc_init_thread() {
   yo_current_thread_gc->tracked_objects = header;
   yo_current_thread_gc->tracked_count++;
   
-  // Check if we should trigger GC
-  if (yo_current_thread_gc->tracked_count >= yo_gc_collect_threshold) {
+  // Check if we should trigger GC (skip during active collection to prevent re-entrance)
+  if (!yo_gc_collecting && yo_current_thread_gc->tracked_count >= yo_gc_collect_threshold) {
     __yo_gc_collect();
   }
 }
@@ -1349,16 +1361,30 @@ static void yo_gc_trial_delete_visitor(void* ptr) {
   }
 }
 
-// Phase 2: Restore ref counts for live objects
-static void yo_gc_restore_visitor(void* ptr) {
+// Phase 3: Recursive scan/restore visitor.
+// Restores trial-deleted ref counts and propagates liveness from live roots
+// to all reachable objects. Objects promoted from GARBAGE to live (UNMARKED)
+// have their children recursively scanned.
+static void yo_gc_scan_restore_visitor(void* ptr) {
   if (ptr == NULL) return;
   yo_ref_header_t* header = (yo_ref_header_t*)ptr;
   
-  // Only restore for objects that were trial-deleted
-  if (header->gc_mark == YO_GC_LIVE) {
-    header->ref_count++;
-    GC_DEBUG("Restore: ptr=%p, ref_count->%zu\\n", ptr, header->ref_count);
+  // Skip non-tracked objects (their RC was never trial-deleted)
+  if (!(header->gc_flags & YO_GC_TRACKED)) return;
+  
+  // Restore the trial-deleted reference
+  header->ref_count++;
+  GC_DEBUG("ScanRestore: ptr=%p, ref_count->%zu, mark=%d\\n", ptr, header->ref_count, header->gc_mark);
+  
+  if (header->gc_mark == YO_GC_GARBAGE) {
+    // This object was tentatively marked garbage but is reachable from a live root.
+    // Promote to live (mark UNMARKED = "scanned") and recursively scan children.
+    header->gc_mark = YO_GC_UNMARKED;
+    if (header->traverse_fn) {
+      header->traverse_fn(ptr, yo_gc_scan_restore_visitor);
+    }
   }
+  // If already LIVE or UNMARKED (already scanned), just restore RC — don't recurse again.
 }
 
 void __yo_gc_collect() {
@@ -1369,6 +1395,7 @@ void __yo_gc_collect() {
   
   GC_DEBUG("GC: Starting collection, tracked_count=%zu\\n", yo_current_thread_gc->tracked_count);
   
+  yo_gc_collecting = 1;
   size_t collected = 0;
   
   // Phase 1: Mark all as candidates and trial-delete
@@ -1378,7 +1405,7 @@ void __yo_gc_collect() {
     obj = obj->gc_next;
   }
   
-  // Trial deletion: decrement RC for all internal references
+  // Trial deletion: decrement RC for all internal (tracked→tracked) references
   obj = head;
   while (obj != NULL) {
     if (obj->traverse_fn) {
@@ -1387,7 +1414,8 @@ void __yo_gc_collect() {
     obj = obj->gc_next;
   }
   
-  // Phase 2: Identify garbage (RC == 0) and live objects (RC > 0)
+  // Phase 2: Classify objects — RC > 0 means external references exist (live root),
+  // RC == 0 means only internal references (tentative garbage)
   obj = head;
   while (obj != NULL) {
     if (obj->ref_count == 0) {
@@ -1395,23 +1423,32 @@ void __yo_gc_collect() {
       GC_DEBUG("GC: Marked as garbage: ptr=%p\\n", obj);
     } else {
       obj->gc_mark = YO_GC_LIVE;
-      GC_DEBUG("GC: Marked as live: ptr=%p (ref_count=%zu)\\n", obj, obj->ref_count);
+      GC_DEBUG("GC: Marked as live root: ptr=%p (ref_count=%zu)\\n", obj, obj->ref_count);
     }
     obj = obj->gc_next;
   }
   
-  // Phase 3: Restore ref counts for live objects
+  // Phase 3: Scan from live roots — restore ref counts and propagate liveness.
+  // Live roots (YO_GC_LIVE) are scanned; their reachable GARBAGE children are
+  // promoted to UNMARKED (live+scanned). After this phase, only truly unreachable
+  // objects remain marked YO_GC_GARBAGE.
   obj = head;
   while (obj != NULL) {
-    if (obj->gc_mark == YO_GC_LIVE && obj->traverse_fn) {
-      obj->traverse_fn(obj, yo_gc_restore_visitor);
+    if (obj->gc_mark == YO_GC_LIVE) {
+      // Mark this root as scanned so the loop doesn't re-process it
+      // if the list order changes (defensive) and to distinguish from promoted objects
+      obj->gc_mark = YO_GC_UNMARKED;
+      if (obj->traverse_fn) {
+        obj->traverse_fn(obj, yo_gc_scan_restore_visitor);
+      }
     }
     obj = obj->gc_next;
   }
   
-  // Phase 4a: Call dispose functions on all garbage objects (while memory is still valid)
-  // This must happen before freeing any objects, because dispose functions may try
-  // to access other garbage objects (e.g., to check gc_mark in __yo_decr_rc).
+  // Phase 4a: Call dispose functions on all garbage objects (while memory is still valid).
+  // yo_gc_collecting flag ensures __yo_decr_rc skips tracked objects, preventing
+  // double RC decrements (trial deletion already accounted for those references).
+  // Non-tracked RC children are still properly released by dispose.
   obj = head;
   while (obj != NULL) {
     if (obj->gc_mark == YO_GC_GARBAGE && obj->dispose_fn) {
@@ -1455,6 +1492,8 @@ void __yo_gc_collect() {
       current = next;
     }
   }
+  
+  yo_gc_collecting = 0;
   
   // Adaptive threshold: set to max(min_threshold, 2 * remaining_objects)
   size_t new_threshold = yo_current_thread_gc->tracked_count * 2;
@@ -1616,14 +1655,20 @@ function generateRefStructTraversalFunctions(
             for (const variant of enumType.variants || []) {
               // Check if any of the variant's fields contain references
               if (variant.fields && variant.fields.length > 0) {
-                for (const variantField of variant.fields) {
-                  if (
-                    isStructType(variantField.type) &&
-                    variantField.type.isReferenceSemantics
-                  ) {
-                    // This variant contains a reference
-                    const enumConstantName = `YO_${enumType.id?.toUpperCase()}_${variant.name.toUpperCase()}`;
-                    emitter.emitLine(`  case ${enumConstantName}:`);
+                const rcFields = variant.fields.filter(
+                  (f) => isStructType(f.type) && f.type.isReferenceSemantics
+                );
+
+                if (rcFields.length > 0) {
+                  const enumConstantName = getEnumVariantCName(
+                    enumType,
+                    variant.name,
+                    context
+                  );
+                  emitter.emitLine(`  case ${enumConstantName}:`);
+
+                  // Visit ALL reference-counted fields in this variant
+                  for (const variantField of rcFields) {
                     emitter.emitLine(
                       `    if (obj->${fieldName}.data.${variant.name}.${sanitizeForCIdentifier(variantField.label)}) {`
                     );
@@ -1631,9 +1676,9 @@ function generateRefStructTraversalFunctions(
                       `      visit(obj->${fieldName}.data.${variant.name}.${sanitizeForCIdentifier(variantField.label)});`
                     );
                     emitter.emitLine(`    }`);
-                    emitter.emitLine(`    break;`);
-                    break; // Only generate one case per variant
                   }
+
+                  emitter.emitLine(`    break;`);
                 }
               }
             }
