@@ -603,7 +603,7 @@ Leveled logging: `log_debug`, `log_info`, `log_warn`, `log_error`.
 
 ## Testing
 
-### Assert (`std/testing/assert`)
+### Assert (builtin)
 
 - `assert(condition, message)` — Runtime assertion
 - `comptime_assert(condition, message)` — Compile-time assertion
