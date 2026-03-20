@@ -1,8 +1,9 @@
 # Async SM Codegen Doesn't Support 3-Argument While Loop
 
-**Status:** 🔴 OPEN  
+**Status:** ✅ FIXED  
 **Date:** March 20, 2026  
-**Severity:** Medium (workaround: use 2-argument form with manual step)
+**Severity:** Medium (workaround: use 2-argument form with manual step)  
+**Fixed:** state-code-gen.ts now accepts 2 or 3 args, extracts step expression, stores in whileLoopInfo. state-machine.ts generates step code in resume states for both inner and outer while loops.
 
 ## Problem
 

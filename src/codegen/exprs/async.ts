@@ -107,7 +107,39 @@ export function generateAsyncBlock(
   }
 
   // Get the result type (T in Future(T))
-  const resultType = futureModuleType.isFuture.outputType;
+  let resultType = futureModuleType.isFuture.outputType;
+
+  // If outputType is an unresolved SomeType (type parameter T from forall),
+  // resolve it to a concrete type. The evaluator may set resolvedConcreteType
+  // on the SomeType when the body returns a concrete type, but the
+  // FutureTraitType's outputType may be a different SomeType instance.
+  // Walk several resolution paths to find the concrete type.
+  if (isSomeType(resultType)) {
+    if (resultType.resolvedConcreteType) {
+      resultType = resultType.resolvedConcreteType;
+    } else {
+      const closureArg = expr.$?.runtimeArgExprsInOrder?.[0];
+      const closureFnValue = closureArg?.$?.closureFunctionValue;
+      if (closureFnValue && isFunctionValue(closureFnValue)) {
+        const fnRetType = closureFnValue.type?.return?.type;
+        if (
+          fnRetType &&
+          isSomeType(fnRetType) &&
+          fnRetType.resolvedConcreteType
+        ) {
+          resultType = fnRetType.resolvedConcreteType;
+        } else if (closureFnValue.body?.$?.type) {
+          const bodyType = closureFnValue.body.$.type;
+          if (isSomeType(bodyType) && bodyType.resolvedConcreteType) {
+            resultType = bodyType.resolvedConcreteType;
+          } else if (!isSomeType(bodyType)) {
+            resultType = bodyType;
+          }
+        }
+      }
+    }
+  }
+
   const resultTypeCName = getTypeString(resultType, context);
 
   const emitter = context.emitter;
@@ -1182,7 +1214,36 @@ export function generateIoAsyncSyncCall(
     return `/* Error: Could not extract Future module type */`;
   }
 
-  const resultType = futureModuleType.isFuture.outputType;
+  let resultType = futureModuleType.isFuture.outputType;
+
+  // If outputType is an unresolved SomeType (type parameter T from forall),
+  // resolve it to a concrete type. Same resolution chain as the state machine path.
+  if (isSomeType(resultType)) {
+    if (resultType.resolvedConcreteType) {
+      resultType = resultType.resolvedConcreteType;
+    } else {
+      const closureArg = expr.$?.runtimeArgExprsInOrder?.[0];
+      const closureFnValue = closureArg?.$?.closureFunctionValue;
+      if (closureFnValue && isFunctionValue(closureFnValue)) {
+        const fnRetType = closureFnValue.type?.return?.type;
+        if (
+          fnRetType &&
+          isSomeType(fnRetType) &&
+          fnRetType.resolvedConcreteType
+        ) {
+          resultType = fnRetType.resolvedConcreteType;
+        } else if (closureFnValue.body?.$?.type) {
+          const bodyType = closureFnValue.body.$.type;
+          if (isSomeType(bodyType) && bodyType.resolvedConcreteType) {
+            resultType = bodyType.resolvedConcreteType;
+          } else if (!isSomeType(bodyType)) {
+            resultType = bodyType;
+          }
+        }
+      }
+    }
+  }
+
   const resultTypeCName = getTypeString(resultType, context);
   const structName = expr.$?.asyncStateMachineStructName;
   if (!structName) {
@@ -1272,12 +1333,14 @@ export function generateIoAsyncSyncCall(
   }
   // If an effect handler called escape(), the closure returned early.
   // Set state to -2 (aborted) instead of -1 (completed).
-  // Don't decrement refcount here — the await abort path handles the
-  // event loop reference decrement when it sees state == -2.
+  // Self-decrement the event loop reference (matching full SM behavior in
+  // emitAsyncFutureEscape). The synchronous await abort path does NOT
+  // decrement — all futures handle their own event loop ref cleanup.
   if (closureEvidenceArgs) {
     emitter.emitDeclarationLine(`  if (__yo_effect_escaped) {`);
     emitter.emitDeclarationLine(`    __yo_effect_escaped = 0;`);
     emitter.emitDeclarationLine(`    sm->state = -2;`);
+    emitter.emitDeclarationLine(`    __yo_decr_rc(ptr);`);
     emitter.emitDeclarationLine(`    return;`);
     emitter.emitDeclarationLine(`  }`);
   }

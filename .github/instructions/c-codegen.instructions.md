@@ -96,14 +96,15 @@ void resume(void* ptr) {
   if (__yo_effect_escaped) {
     __yo_effect_escaped = 0;
     sm->state = -2;  // Aborted
-    return;           // Don't decr RC — await abort path handles it
+    __yo_decr_rc(ptr); // Event loop reference — matches full SM behavior
+    return;
   }
   sm->state = -1;    // Completed
   // ... continuation + __yo_decr_rc(ptr)
 }
 ```
 
-**Important:** The escape path does NOT call `__yo_decr_rc`. The await abort path (which checks `state == -2`) handles the event loop reference decrement. This prevents double-free when both resume and await try to decrement the same reference.
+**Event loop RC convention:** ALL futures (both sync_fut_t and full SM) self-decrement the event loop reference on BOTH completion AND escape. The synchronous await abort path (`await.ts`) does NOT decrement — this prevents double-free/UAF. The awaiter's pending deferred drops handle the ownership reference for locally-owned futures.
 
 ### When SM is still needed
 
@@ -116,8 +117,8 @@ Because effect handlers are called via function pointer (evidence passing), the 
 1. Before calling an effect handler via function pointer, the flag is reset to 0.
 2. If the handler calls `escape()`, the flag is set to 1 (in `generateEscape`, gated by `isModuleEffectMemberFunction`).
 3. After the call returns, the caller checks the flag. If set, it drops any RC-typed arguments and propagates the escape:
-   - In async SM: aborts the Future (state = -2), spawns the continuation, returns.
-   - In sync_fut_t resume: sets state = -2 (aborted), returns without decrementing RC.
+   - In async SM: aborts the Future (state = -2), spawns the continuation, self-decrements event loop RC, returns.
+   - In sync_fut_t resume: sets state = -2 (aborted), self-decrements event loop RC, returns.
    - In sync context (evidence passing): drops locals, returns a dummy value. Each caller in the transitive chain checks the flag and propagates.
 
 The `__yo_effect_escaped` and `__yo_effect_escape_value` variables are declared via `emitDeclarationLine` (in the declaration section of the C output) so they are available to sync_fut_t resume functions which are also emitted in the declaration section.

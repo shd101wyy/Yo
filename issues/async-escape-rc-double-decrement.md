@@ -1,8 +1,9 @@
 # Async Escape RC Double-Decrement (Use-After-Free)
 
-**Status:** 🔴 OPEN  
+**Status:** ✅ FIXED  
 **Date:** March 20, 2026  
-**Severity:** High (use-after-free, crashes with ASan)
+**Severity:** High (use-after-free, crashes with ASan)  
+**Fixed:** Made sync_fut_t escape path self-decrement (matching full SM behavior). Removed duplicate decrement from await.ts abort path. Convention: all futures self-decrement their event loop reference on both completion and escape; the synchronous await path never decrements.
 
 ## Problem
 

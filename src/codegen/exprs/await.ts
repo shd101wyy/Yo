@@ -77,7 +77,22 @@ export function generateAwait(
   if (isIoAwaitCall(expr)) {
     const futureCode = generateExpr(futureArg, indent, context);
     const futureTypeName = getTypeString(futureType, context);
-    const resultType = futureModuleType.isFuture.outputType;
+    let resultType = futureModuleType.isFuture.outputType;
+
+    // Resolve SomeType to concrete type for the await result.
+    if (isSomeType(resultType)) {
+      if (resultType.resolvedConcreteType) {
+        resultType = resultType.resolvedConcreteType;
+      } else if (expr.$?.type && !isSomeType(expr.$.type)) {
+        resultType = expr.$.type;
+      } else if (
+        expr.$?.type &&
+        isSomeType(expr.$.type) &&
+        expr.$.type.resolvedConcreteType
+      ) {
+        resultType = expr.$.type.resolvedConcreteType;
+      }
+    }
     const emitter = functionContext.emitter;
 
     // When the output type is an unresolved SomeType (e.g., from forall(T) in
@@ -153,13 +168,11 @@ export function generateAwait(
       emitter.emitLine(`${indent}      abort();`);
       emitter.emitLine(`${indent}    }`);
       // Aborted during this await by effect handler (e.g., Exception.throw escape).
-      // The event loop reference was already decremented by emitAsyncFutureEscape
-      // inside the SM. Clean up the original future reference and all in-scope
-      // locals before returning to prevent memory leaks.
-      emitter.emitLine(`${indent}    __yo_decr_rc((void*)${syncFutureVar});`);
-      // Null out the original future variable to prevent double-free
-      // from pending drops (syncFutureVar aliases futureCode)
-      emitter.emitLine(`${indent}    ${futureCode} = NULL;`);
+      // The event loop reference was already decremented by the SM itself
+      // (emitAsyncFutureEscape for full SM, or sync_fut_t escape path).
+      // Do NOT decrement here — that would cause a double-free/UAF.
+      // The pending deferred drops below will handle locally-owned futures;
+      // borrowed parameters are not in deferred drops and won't be touched.
       // Drop all in-scope local variables (Path, String, etc.)
       // Exclude the await result variable — it hasn't been declared yet in C.
       const savedDrops = functionContext.pendingDeferredDrops;

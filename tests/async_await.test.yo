@@ -2596,3 +2596,79 @@ test "Test given handler inside async closure with yields", using(io : IO), {
   result := io.await(task);
   assert((result == i32(58)), "5 + 50 + 3 = 58");
 };
+
+// ===========================================================================
+// Regression tests for specific bug fixes
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// Bug fix: async SM result type was void* when body returned a binary
+// expression (e.g., (a + b)). The SomeType resolution chain wasn't followed
+// when the closure body type was itself a SomeType with a resolvedConcreteType.
+// ---------------------------------------------------------------------------
+test "Regression: async SM result type for binary expression return", using(io : IO), {
+  task := io.async((using(io : IO)) => {
+    a := i32(10);
+    io.await(yield());
+    b := i32(5);
+    ((a + b) * i32(3))
+  });
+
+  result := io.await(task);
+  assert((result == i32(45)), "async binary expr result should be 45");
+};
+
+// ---------------------------------------------------------------------------
+// Bug fix: 3-argument while(cond, step, body) form was not supported in
+// async state machines. The step expression was ignored when the while loop
+// contained an await point.
+// ---------------------------------------------------------------------------
+test "Regression: 3-arg while loop in async SM with step expression", using(io : IO), {
+  task := io.async((using(io : IO)) => {
+    sum := i32(0);
+    i := i32(0);
+    while((i < i32(5)), (i = (i + i32(1))), {
+      io.await(yield());
+      sum = (sum + i);
+    });
+    sum
+  });
+
+  result := io.await(task);
+  assert((result == i32(10)), "while 3-arg in async: 0+1+2+3+4=10");
+};
+
+// ---------------------------------------------------------------------------
+// Bug fix: async escape caused use-after-free due to double RC decrement.
+// The SM self-decrements on escape (event loop ref), and the synchronous
+// await abort path was also decrementing. The caller's reference was freed
+// prematurely, causing UAF when accessing the future after the function
+// returned.
+// ---------------------------------------------------------------------------
+test "Regression: async escape RC no double-decrement UAF", using(io : IO), {
+  // This test verifies that a full async SM that escapes doesn't cause a
+  // use-after-free when the caller accesses the future after the await.
+  // Before the fix, the synchronous await abort path decremented the RC
+  // again after the SM already self-decremented, causing a double-free.
+  Raise :: (fn(forall(T : Type), msg : String) -> T);
+
+  test_and_check :: (fn(using(io : IO)) -> i32) {
+    task := io.async((using(io : IO, raise : Raise)) => {
+      io.await(yield());
+      raise(`abort now`);
+      return i32(999);
+    });
+
+    (given(raise) : Raise) =
+      (msg) -> {
+        escape i32(77);
+      };
+
+    result := io.await(task, using(io, raise));
+    // If we reach here, the escape didn't work
+    result
+  };
+
+  escape_result := test_and_check();
+  assert((escape_result == i32(77)), "escape should return 77");
+};

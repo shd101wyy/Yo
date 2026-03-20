@@ -1,8 +1,9 @@
 # Async SM Result Type Wrong for Binary Expression Return
 
-**Status:** 🔴 OPEN  
+**Status:** ✅ FIXED  
 **Date:** March 20, 2026  
-**Severity:** Medium (workaround exists: assign to variable before returning)
+**Severity:** Medium (workaround exists: assign to variable before returning)  
+**Fixed:** Evaluator now follows SomeType resolution chain for async closure body types. Codegen also defensively resolves SomeType for SM and sync_fut_t paths.
 
 ## Problem
 

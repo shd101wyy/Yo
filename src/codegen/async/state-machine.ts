@@ -903,6 +903,52 @@ export function generateAsyncBlockResumeFunction(
             `        ASYNC_DEBUG("${asyncBlockId}: Re-evaluating while loop condition\\n");`
           );
 
+          // Generate step expression (3-arg while form) before condition re-evaluation
+          if (whileLoopData.stepExpr) {
+            const previousInStateMachineForStep = context.inAsyncStateMachine;
+            const previousStateMachineVariablesForStep =
+              context.stateMachineVariables;
+            const previousVariableIdRemappingForStep =
+              context.variableIdRemapping;
+
+            context.inAsyncStateMachine = { futureType };
+            context.variableIdRemapping = analysis.variableIdRemapping;
+
+            const combinedVariablesForStep = new Map<
+              string,
+              CapturedVariable
+            >();
+            for (const v of analysis.capturedVariables) {
+              combinedVariablesForStep.set(v.id, v);
+            }
+            if (captureType) {
+              for (const field of captureType.fields) {
+                combinedVariablesForStep.set(field.label, {
+                  id: field.label,
+                  name: field.label,
+                  type: field.type,
+                  kind: "outer",
+                  isOwningTheSameRcValueAs: undefined,
+                });
+              }
+            }
+            context.stateMachineVariables = combinedVariablesForStep;
+
+            const stepCode = generateExpr(
+              whileLoopData.stepExpr,
+              "        ",
+              context
+            );
+            if (stepCode) {
+              emitter.emitLine(`        ${stepCode};`);
+            }
+
+            context.inAsyncStateMachine = previousInStateMachineForStep;
+            context.stateMachineVariables =
+              previousStateMachineVariablesForStep;
+            context.variableIdRemapping = previousVariableIdRemappingForStep;
+          }
+
           // Set up state machine context for condition evaluation
           const previousInStateMachineForCond = context.inAsyncStateMachine;
           const previousStateMachineVariablesForCond =
@@ -1263,6 +1309,44 @@ export function generateAsyncBlockResumeFunction(
             }
 
             // Re-evaluate outer while condition
+            // Generate outer while step expression first (3-arg while form)
+            if (outerWhile.stepExpr) {
+              const prevInSMStep = context.inAsyncStateMachine;
+              const prevSMVarsStep = context.stateMachineVariables;
+              const prevVarRemapStep = context.variableIdRemapping;
+              context.inAsyncStateMachine = { futureType };
+              context.variableIdRemapping = analysis.variableIdRemapping;
+
+              const stepVars = new Map<string, CapturedVariable>();
+              for (const v of analysis.capturedVariables) {
+                stepVars.set(v.id, v);
+              }
+              if (captureType) {
+                for (const field of captureType.fields) {
+                  stepVars.set(field.label, {
+                    id: field.label,
+                    name: field.label,
+                    type: field.type,
+                    kind: "outer",
+                    isOwningTheSameRcValueAs: undefined,
+                  });
+                }
+              }
+              context.stateMachineVariables = stepVars;
+
+              const outerStepCode = generateExpr(
+                outerWhile.stepExpr,
+                "        ",
+                context
+              );
+              if (outerStepCode) {
+                emitter.emitLine(`        ${outerStepCode};`);
+              }
+
+              context.inAsyncStateMachine = prevInSMStep;
+              context.stateMachineVariables = prevSMVarsStep;
+              context.variableIdRemapping = prevVarRemapStep;
+            }
             {
               const prevInSM3 = context.inAsyncStateMachine;
               const prevSMVars3 = context.stateMachineVariables;

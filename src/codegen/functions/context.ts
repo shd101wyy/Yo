@@ -118,6 +118,7 @@ export interface FunctionGenerationContext extends CodeGenContext {
     number,
     {
       conditionExpr: Expr; // The loop condition expression
+      stepExpr?: Expr; // Optional step expression (3-arg while form)
       bodyExpr: Expr; // The loop body expression
       bodyExprsAfterAwait?: Expr[]; // Expressions after the await in the loop body
       // Expressions from an enclosing cond branch that come after this while loop.
@@ -135,6 +136,7 @@ export interface FunctionGenerationContext extends CodeGenContext {
       outerWhileLoop?: {
         whileLoopIndex: number;
         conditionExpr: Expr;
+        stepExpr?: Expr;
         bodyExpr: Expr;
         bodyExprsAfterAwait: Expr[];
       };

@@ -1858,17 +1858,18 @@ function generateWhileWithAwait(
     return;
   }
 
-  // while is represented as: while(condition, body)
+  // while is represented as: while(condition, body) or while(condition, step, body)
   const args = whileExpr.args;
-  if (args.length !== 2) {
+  if (args.length < 2 || args.length > 3) {
     emitter.emitLine(
-      `${indent}// Error: while must have exactly 2 arguments (condition, body)`
+      `${indent}// Error: while must have 2 or 3 arguments (condition, [step,] body)`
     );
     return;
   }
 
   const conditionExpr = args[0]!;
-  const bodyExpr = args[1]!;
+  const stepExpr = args.length === 3 ? args[1] : undefined;
+  const bodyExpr = args.length === 3 ? args[2]! : args[1]!;
 
   // Check if the body contains a nested while-with-await.
   // If so, this is an outer while and needs a separate while loop index
@@ -1926,6 +1927,7 @@ function generateWhileWithAwait(
       innerWhileInfo.outerWhileLoop = {
         whileLoopIndex,
         conditionExpr,
+        stepExpr,
         bodyExpr,
         bodyExprsAfterAwait,
       };
@@ -1934,6 +1936,7 @@ function generateWhileWithAwait(
     // Innermost while - store directly
     context.asyncWhileLoopInfo.set(awaitPoint.index, {
       conditionExpr,
+      stepExpr,
       bodyExpr,
       bodyExprsAfterAwait,
     });
