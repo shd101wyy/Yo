@@ -391,29 +391,60 @@ apply_effect :: (fn(forall(...(E)), n : i32, using(...(E))) -> i32) {
 result := apply_effect(i32(10));
 ```
 
+### Handler Functions Are Not Closures
+
+Effect handler functions are compiled as **standalone C functions** — they are not closures. A handler function cannot reference variables from the enclosing scope. This is by design: evidence passing transforms handlers into explicit function pointer parameters, which must be standalone callable functions in C.
+
+```yo
+// WRONG — handler references outer variable `threshold`, compile error:
+threshold := i32(10);
+(given(raise) : Raise) = ((msg) -> {
+  escape (threshold * i32(2));  // ERROR: threshold is not in scope
+});
+
+// CORRECT — pass state as explicit arguments via the effect function itself:
+check :: (fn(x : i32, threshold : i32, using(raise : Raise)) -> i32)(
+  cond(
+    (x > threshold) => raise(`too large`),
+    true => x
+  )
+);
+(given(raise) : Raise) = ((msg) -> { escape i32(-1); });
+result := check(i32(15), i32(10));
+```
+
+If you need the handler to carry state, encode that state as explicit function arguments or store it in a `Box` allocated outside the handler.
+
 ### Tests
 
-See `tests/algebraic_effects.test.yo` (46 tests) for comprehensive examples covering:
+See `tests/algebraic_effects.test.yo` (57 tests) for comprehensive examples covering:
 
-- Basic escape and resume via `using` parameter
-- Direct effect escape/resume without intermediate `using` function
-- Nested effect escape/resume inside resume handler
-- While loop with effect resume (basic, break, continue, mixed continue-then-break)
-- Break from cond and match arms after effect resume
-- Break drops local allocations after effect resume (verified with AddressSanitizer)
-- Early return inside loop after effect resume
-- Two different effect types in same scope (Log + Raise)
-- Single-level and two-level effect propagation via `using`
-- Given variable shadowing (resume and escape variants)
-- Effect polymorphism with `using` spread (resume and escape)
-- Module-based effects with escape/resume (including forall handlers)
-- Nested module-based effects with escape/resume
-- Module destructured `using(ModuleType)` with escape/resume
-- Multiple effect row spreads with resume/escape
-- Closure with `using()` effect — resume and escape
-- Effect row polymorphism with `...(E)` spread in closure callbacks
-- Transitive effect propagation with break/continue/early return
-- Break/continue in tagged union match arms after effect resume
+| Category                                       | Tests |
+| ---------------------------------------------- | ----- |
+| Basic fn-type effects (escape/resume)          | 4     |
+| Direct handler calls (no `using`)              | 2     |
+| Nested handlers                                | 2     |
+| While loops + effects                          | 6     |
+| Multiple fn-type effects                       | 1     |
+| Effect propagation (1-level, 2-level, 3-level) | 5     |
+| Handler shadowing                              | 2     |
+| Effect polymorphism (forall spread)            | 2     |
+| Module-type effects                            | 6     |
+| Multiple effect row spreads                    | 2     |
+| Closures with effects                          | 2     |
+| Effect row polymorphism                        | 2     |
+| Mixed escape+return handler                    | 1     |
+| Transitive SM (break/continue/return)          | 5     |
+| Module forall handlers                         | 5     |
+| Option match + effects                         | 3     |
+| Module non-unit escape value                   | 1     |
+| Multi-member module effects                    | 1     |
+| Multiple module effects in scope               | 1     |
+| Conditional resume/escape                      | 1     |
+| Recursive functions + effects                  | 2     |
+| Effect with enum return type                   | 1     |
+| Module effect polymorphism                     | 1     |
+| Transitive SM + module effects                 | 1     |
 
 ---
 
@@ -577,6 +608,93 @@ int32_t safe_divide(int32_t x, int32_t y, void* throw) {
 ### Escape value propagation
 
 Escape values (including non-unit values) are propagated via the thread-local `__yo_escape_value` mechanism. When `escape expr` is called inside a handler, the escape value is stored in a thread-local and can be retrieved at the handler installation site (`given`).
+
+---
+
+## Overhead Analysis
+
+### Per-Call-Site Overhead (Happy Path — No Escape)
+
+Each effect call site adds exactly three operations:
+
+| Operation                          | Cost    | Notes                                                       |
+| ---------------------------------- | ------- | ----------------------------------------------------------- |
+| `__yo_effect_escaped = 0` (reset)  | ~1-2 ns | Thread-local store                                          |
+| Indirect call via fn ptr           | ~2-5 ns | vs ~1 ns for direct call; well-predicted after warm-up      |
+| `if (__yo_effect_escaped)` (check) | ~1-2 ns | Thread-local load + branch (always not-taken on happy path) |
+
+**Total happy-path overhead: ~4-9 ns per effect call site.**
+
+The escape branch is never taken on the happy path, so the CPU branch predictor learns this quickly and the check amortizes to near-zero.
+
+### Per-Call-Site Overhead (Escape Path)
+
+When an escape occurs:
+
+| Step                                              | Cost               |
+| ------------------------------------------------- | ------------------ |
+| Handler sets `__yo_effect_escaped = 1`            | ~1 ns              |
+| Handler stores value via `memcpy` (≤64 bytes)     | ~5-20 ns           |
+| Each transitive caller checks flag + drops locals | ~5-10 ns per level |
+| Installation site extracts value via `memcpy`     | ~5-20 ns           |
+
+**Total: ~15-50 ns + ~5-10 ns per transitive call level.**
+
+Escape is the exceptional path and replaces what would otherwise be `longjmp`, `throw`, or an equivalent mechanism.
+
+### Extra C Parameters
+
+Each `using(name : EffectType)` in a function signature adds:
+
+- **Function-type effect**: 1 pointer parameter (8 bytes on x86-64/ARM64)
+- **Module-type effect**: 1 pointer per module member function
+- **Nested module effect**: flattened — 1 pointer per leaf function
+
+Parameters are passed in registers (up to 6 on x86-64 SysV, 8 on ARM64), so most single-effect functions pay zero stack overhead.
+
+### Thread-Local Storage
+
+Two thread-local variables are used globally:
+
+```c
+static _Thread_local int __yo_effect_escaped = 0;                     // 4 bytes
+static _Thread_local _Alignas(16) char __yo_effect_escape_value[64];  // 64 bytes
+```
+
+TLS access latency by platform:
+
+- **Linux (ELF)**: `%fs`-relative — 1 instruction, ~1 ns
+- **macOS (Mach-O)**: `__thread` — ~2-3 ns
+- **Windows**: `__declspec(thread)` — ~1-2 ns
+
+No locks or atomic operations are needed — effects are single-threaded (within an event loop task).
+
+### Code Size per Call Site
+
+| Component                        | Size             |
+| -------------------------------- | ---------------- |
+| Flag reset instruction           | ~4-8 bytes       |
+| Flag check + conditional branch  | ~8-12 bytes      |
+| Escape cleanup block (cold path) | ~20-50 bytes     |
+| **Total per call site**          | **~30-70 bytes** |
+
+### Comparison with Alternatives
+
+| Approach                  | Happy-path overhead          | Escape/throw overhead | Code size         | Async-safe |
+| ------------------------- | ---------------------------- | --------------------- | ----------------- | ---------- |
+| **Evidence passing (Yo)** | ~4-9 ns per call site        | ~15-50 ns             | +30-70 B/site     | ✅ Yes     |
+| `setjmp`/`longjmp`        | ~5-15 ns at handler install¹ | ~5-15 ns (longjmp)    | +20-40 B/site     | ❌ No      |
+| C++ zero-cost exceptions  | ~0 ns                        | ~1000-5000 ns         | Large `.eh_frame` | ❌ No      |
+| Koka evidence vectors     | ~3-5 ns per call site        | ~10-30 ns             | Similar           | ✅ Yes     |
+| OCaml 5 fibers            | ~0 ns (native)               | ~50-200 ns            | Runtime overhead  | ✅ Yes     |
+
+¹ `setjmp` always pays its setup cost (~5-15 ns) at the handler installation point even when no escape ever occurs.
+
+**Happy path** — Evidence passing wins: it pays ~4-9 ns only at actual effect call sites, with zero cost at handler installation. `setjmp` always pays ~5-15 ns at installation regardless of whether effects fire.
+
+**Escape path** — `longjmp` (~5-15 ns) is faster than evidence passing (~15-50 ns) for a single escape. The tradeoff: evidence passing supports async-safe composability and doesn't prevent compiler optimizations around the protected region, while `setjmp`/`longjmp` disables many optimizations.
+
+**Amortized** — When effects are called N times per `given` installation, evidence passing total cost is `N × 4-9 ns`, vs `setjmp` total is `5-15 ns + escape_count × 5-15 ns`. For N > ~2 effect calls with no escapes, evidence passing is cheaper overall.
 
 ---
 

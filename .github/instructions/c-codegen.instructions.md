@@ -55,6 +55,8 @@ For understanding the compile-time RC ownership model, read `COMPILE_TIME_RC_WIT
 
 `forall(...)`, `using(...)`, and modules are **compile-time only** constructs — they are erased at runtime. Evidence passing is how their runtime behavior is realized.
 
+For the full design document with overhead analysis and language semantics, see `docs/en-US/ALGEBRAIC_EFFECTS.md`.
+
 **How it works:**
 - A function with `using(exn : Exception)` gets an extra C parameter: `void (*throw)(AnyError)`
 - A function with `using(raise_mod : Raise)` where `Raise :: module(raise : (fn(msg: String) -> i32))` gets: `int32_t (*raise)(yo_string)`
@@ -152,6 +154,14 @@ Handler functions marked `isModuleEffectMember = true` with SomeType return type
 This consistency prevents type mismatches between forward declarations and definitions. The escape value is communicated through `__yo_effect_escape_value` (thread-local), not through the C return value.
 
 The `overrideReturnTypeStr` field on `FunctionGenerationContext` stores the actual C return type derived from the body, used by `generateEscape` to emit correct dummy return values when the SomeType-based return maps to `void` but the declaration uses a concrete type.
+
+### Handler functions are standalone, not closures
+
+Effect handler functions (both module-type and fn-type) are compiled as standalone C functions via evidence passing. They are **not closures** and cannot reference variables from the enclosing scope — no closure/capture struct is generated. This is **by design**.
+
+If a handler needs state, pass it as explicit arguments to the effect functions, or allocate a `Box` outside the handler and pass its address.
+
+See `docs/en-US/ALGEBRAIC_EFFECTS.md` (§ Handler Functions Are Not Closures) for details.
 
 ## JoinHandle(T) codegen
 

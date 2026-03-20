@@ -99,7 +99,9 @@ This applies to all parameters and return types in comptime-only APIs:
 - `return expr` inside an effect handler **resumes** the continuation.
 - `escape expr` inside an effect handler **discards** the continuation and exits the enclosing `fn`.
 - Effect row variables (`forall(...(E))` with `using(...(E))`) allow functions to be polymorphic over their effects — they forward whatever effects the caller provides.
-- Effect handlers use Evidence Passing (function pointer parameters) for zero-overhead calls.  
+- Effect handlers use Evidence Passing (function pointer parameters) for zero-overhead calls.
+- **Handler functions are standalone, not closures.** Effect handlers are compiled as standalone C functions and cannot reference variables from the enclosing scope. Pass state as explicit function arguments instead.
+- For the full design document with overhead analysis and implementation details, see `docs/en-US/ALGEBRAIC_EFFECTS.md`.
 
 ## Future return types with effects
 
