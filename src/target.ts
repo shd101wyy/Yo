@@ -316,3 +316,7 @@ export function isTargetMSVC(target: TargetInfo): boolean {
 export function isTargetWasm(target: TargetInfo): boolean {
   return target.arch === "wasm32" || target.os === "wasi";
 }
+
+export function isTargetPosix(target: TargetInfo): boolean {
+  return !isTargetWindows(target) && !isTargetWasm(target);
+}

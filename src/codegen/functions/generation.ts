@@ -33,6 +33,7 @@ import {
   typeContainsSomeType,
   typeToString,
 } from "../../types/utils";
+import { isTargetWindows } from "../../target";
 import { isTempVariableName } from "../../utils";
 import { isFunctionValue, isTraitValue, type TraitValue } from "../../value";
 import { generateAsyncRuntime } from "../async/runtime";
@@ -180,10 +181,18 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
   context.emitter.emitLine(`// Function implementations`);
 
   // Generate async/await runtime first (defines yo_continuation_t used by worker threads)
-  generateAsyncRuntime(context.emitter, context.debugAsyncAwait);
+  generateAsyncRuntime(
+    context.emitter,
+    context.targetInfo,
+    context.debugAsyncAwait
+  );
 
   // Generate parallelism runtime (Worker, Channel for multi-threaded execution)
-  generateParallelismRuntime(context.emitter, context.debugParallelism);
+  generateParallelismRuntime(
+    context.emitter,
+    context.debugParallelism,
+    context.targetInfo
+  );
 
   // Generate thread-safe GC runtime functions
   generateAtomicGCRuntimeFunctions(context);
@@ -1203,17 +1212,14 @@ void __yo_decr_rc_atomic(void* ptr) {
   emitter.emitLine(`// Per-thread GC tracking state for cycle collection
 static _Thread_local yo_thread_gc_state_t* yo_current_thread_gc = NULL;  // Current thread's GC state
 static yo_thread_gc_state_t* yo_all_thread_gcs = NULL;  // Global list of all thread GC states (for cleanup)
-#if defined(_WIN32)
-static YO_THREAD_SYNC_TYPE yo_thread_list_mutex;
-#elif defined(__linux__) || defined(__APPLE__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__)
-static YO_THREAD_SYNC_TYPE yo_thread_list_mutex = YO_THREAD_SYNC_INIT;
-#endif
+${isTargetWindows(context.targetInfo) ? `static YO_THREAD_SYNC_TYPE yo_thread_list_mutex;` : `static YO_THREAD_SYNC_TYPE yo_thread_list_mutex = YO_THREAD_SYNC_INIT;`}
 static size_t yo_gc_min_threshold = 256;       // Minimum threshold for adaptive scaling
 static size_t yo_gc_collect_threshold = 256;   // Adaptive: starts at min, grows to 2x live objects after each GC
 
 // Thread cleanup infrastructure
-#if defined(_WIN32)
-// Windows: Use native TLS API instead of C11 tss_t (better compiler support)
+${
+  isTargetWindows(context.targetInfo)
+    ? `// Windows: Use native TLS API instead of C11 tss_t (better compiler support)
 static DWORD yo_thread_cleanup_key = TLS_OUT_OF_INDEXES;
 static volatile LONG yo_thread_cleanup_init_started = 0;
 static volatile LONG yo_thread_cleanup_init_done = 0;
@@ -1229,9 +1235,8 @@ static void yo_init_thread_cleanup_key(void) {
       Sleep(0);
     }
   }
-}
-#elif defined(__linux__) || defined(__APPLE__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__)
-static pthread_key_t yo_thread_cleanup_key = (pthread_key_t)(-1);
+}`
+    : `static pthread_key_t yo_thread_cleanup_key = (pthread_key_t)(-1);
 static pthread_once_t yo_thread_cleanup_once = PTHREAD_ONCE_INIT;
 
 static void yo_pthread_cleanup(void* value) {
@@ -1242,24 +1247,24 @@ static void yo_pthread_cleanup(void* value) {
 
 static void yo_init_thread_cleanup_key(void) {
   pthread_key_create(&yo_thread_cleanup_key, yo_pthread_cleanup);
+}`
 }
-#endif
 
 // Initialize thread-local GC state
 static void yo_init_thread_gc() {
   if (yo_current_thread_gc != NULL) return;
 
-#if defined(_WIN32)
-  yo_init_thread_cleanup_key();
+${
+  isTargetWindows(context.targetInfo)
+    ? `  yo_init_thread_cleanup_key();
   if (yo_thread_cleanup_key != TLS_OUT_OF_INDEXES) {
     TlsSetValue(yo_thread_cleanup_key, (void*)1);
-  }
-#elif defined(__linux__) || defined(__APPLE__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__)
-  pthread_once(&yo_thread_cleanup_once, yo_init_thread_cleanup_key);
+  }`
+    : `  pthread_once(&yo_thread_cleanup_once, yo_init_thread_cleanup_key);
   if (yo_thread_cleanup_key != (pthread_key_t)(-1)) {
     pthread_setspecific(yo_thread_cleanup_key, (void*)1);
-  }
-#endif
+  }`
+}
   
   yo_init_process_cleanup();
 
@@ -1564,37 +1569,37 @@ static void yo_process_cleanup(void) {
     __yo_cleanup_thread_gc();
   }
   
-#if defined(_WIN32)
-  if (yo_thread_cleanup_key != TLS_OUT_OF_INDEXES) {
+${
+  isTargetWindows(context.targetInfo)
+    ? `  if (yo_thread_cleanup_key != TLS_OUT_OF_INDEXES) {
     TlsFree(yo_thread_cleanup_key);
     yo_thread_cleanup_key = TLS_OUT_OF_INDEXES;
-  }
-#elif defined(__linux__) || defined(__APPLE__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__)
-  if (yo_thread_cleanup_key != (pthread_key_t)(-1)) {
+  }`
+    : `  if (yo_thread_cleanup_key != (pthread_key_t)(-1)) {
     pthread_key_delete(yo_thread_cleanup_key);
-  }
-#endif
+  }`
+}
 }
 
-#if defined(_WIN32)
-static INIT_ONCE yo_process_cleanup_once = INIT_ONCE_STATIC_INIT;
+${
+  isTargetWindows(context.targetInfo)
+    ? `static INIT_ONCE yo_process_cleanup_once = INIT_ONCE_STATIC_INIT;
 static BOOL CALLBACK yo_process_cleanup_init_callback(PINIT_ONCE InitOnce, PVOID Parameter, PVOID *Context) {
   (void)InitOnce; (void)Parameter; (void)Context;
   InitializeCriticalSection(&yo_thread_list_mutex);
   atexit(yo_process_cleanup);
   return TRUE;
 }
-#endif
 
 static void yo_init_process_cleanup(void) {
-#if defined(_WIN32)
   InitOnceExecuteOnce(&yo_process_cleanup_once, yo_process_cleanup_init_callback, NULL, NULL);
-#else
+}`
+    : `static void yo_init_process_cleanup(void) {
   static bool cleanup_initialized = false;
   if (cleanup_initialized) return;
   cleanup_initialized = true;
   atexit(yo_process_cleanup);
-#endif
+}`
 }`);
 }
 

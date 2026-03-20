@@ -1,4 +1,5 @@
 import { Emitter } from "../emitter";
+import { getCurrentTarget } from "../target";
 import { generateModuleId } from "../utils";
 import type { ModuleValue } from "../value";
 import { collectCIncludes, emitCIncludes } from "./c/collection";
@@ -97,6 +98,7 @@ export class CodeGeneratorC {
       debugGc: options.debugGc ?? false,
       debugParallelism: options.debugParallelism ?? false,
       debugAsyncAwait: options.debugAsyncAwait ?? false,
+      targetInfo: getCurrentTarget(),
       deferredAsyncBlocks: [], // Initialize deferred async blocks array
       allocator: options.allocator ?? "mimalloc",
       isLibrary: options.isLibrary ?? false,

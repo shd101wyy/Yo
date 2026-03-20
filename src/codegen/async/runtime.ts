@@ -16,6 +16,13 @@
  */
 
 import { Emitter } from "../../emitter";
+import type { TargetInfo } from "../../target";
+import {
+  isTargetLinux,
+  isTargetMacos,
+  isTargetWasm,
+  isTargetWindows,
+} from "../../target";
 import { generateAsyncRuntimeCore } from "./runtime-core";
 import { generateAsyncRuntimeIOCommon } from "./runtime-io-common";
 import { generateAsyncRuntimeIOLinux } from "./runtime-io-linux";
@@ -25,14 +32,27 @@ import { generateAsyncRuntimeIOWindows } from "./runtime-io-windows";
 /**
  * Generates the async runtime code with a single-threaded event loop.
  * Async tasks run cooperatively on the same thread - no multi-threading.
+ *
+ * Only emits the runtime for the compilation target — no platform macros needed.
  */
 export function generateAsyncRuntime(
   emitter: Emitter,
+  targetInfo: TargetInfo,
   _debugAsyncAwait: boolean
 ): void {
-  generateAsyncRuntimeCore(emitter);
-  generateAsyncRuntimeIOLinux(emitter);
-  generateAsyncRuntimeIOMacOS(emitter);
-  generateAsyncRuntimeIOWindows(emitter);
-  generateAsyncRuntimeIOCommon(emitter);
+  generateAsyncRuntimeCore(emitter, targetInfo);
+
+  // Emit only the target platform's async I/O runtime
+  if (isTargetLinux(targetInfo)) {
+    generateAsyncRuntimeIOLinux(emitter);
+  } else if (isTargetMacos(targetInfo)) {
+    generateAsyncRuntimeIOMacOS(emitter);
+  } else if (isTargetWindows(targetInfo)) {
+    generateAsyncRuntimeIOWindows(emitter);
+  }
+  // wasm32: no async I/O runtime (no io_uring/kqueue/IOCP)
+
+  if (!isTargetWasm(targetInfo)) {
+    generateAsyncRuntimeIOCommon(emitter, targetInfo);
+  }
 }

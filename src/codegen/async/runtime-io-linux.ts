@@ -15,7 +15,6 @@ export function generateAsyncRuntimeIOLinux(emitter: Emitter): void {
 // Async I/O Runtime (Linux - io_uring via liburing)
 // ============================================================================
 
-#if defined(__linux__)
 // Try to include liburing.h - if not available, disable I/O features
 #if __has_include(<liburing.h>)
 #define YO_HAS_LIBURING 1
@@ -1754,8 +1753,6 @@ static int32_t __yo_sync_readlinkat(int32_t dirfd, const char* path, char* buf, 
 }
 
 #endif // YO_HAS_LIBURING
-
-#endif // __linux__
 
 `);
 }

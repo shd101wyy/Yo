@@ -1,4 +1,5 @@
 import { BuiltinFunctions } from "../../expr";
+import { isTargetMacos, isTargetWindows } from "../../target";
 import type {
   EnumType,
   FunctionType,
@@ -89,71 +90,75 @@ typedef enum {
 
 // GC flags
 #define YO_GC_TRACKED              0x01  // Object is tracked by GC (might participate in cycles)
+`);
 
-// Thread synchronization for stop-the-world GC
-#ifndef YO_THREAD_SYNC_TYPE
-#if defined(_WIN32)
-  // Windows: Use native Windows APIs for better compatibility
-  #ifndef WIN32_LEAN_AND_MEAN
-  #define WIN32_LEAN_AND_MEAN
-  #endif
-  #ifndef _WINSOCKAPI_
-  #define _WINSOCKAPI_
-  #endif
-  #include <windows.h>
-  #include <process.h>
-  typedef CRITICAL_SECTION YO_THREAD_SYNC_TYPE;
-  typedef CONDITION_VARIABLE YO_COND_TYPE;
-  typedef HANDLE YO_THREAD_TYPE;
-  #define YO_THREAD_SYNC_INIT {0}
-  #define YO_THREAD_SYNC_LOCK(m) EnterCriticalSection(m)
-  #define YO_THREAD_SYNC_UNLOCK(m) LeaveCriticalSection(m)
-  #define YO_COND_INIT CONDITION_VARIABLE_INIT
-  #define yo_mutex_init(m) InitializeCriticalSection(m)
-  #define yo_mutex_destroy(m) DeleteCriticalSection(m)
-  #define yo_mutex_lock(m) EnterCriticalSection(m)
-  #define yo_mutex_unlock(m) LeaveCriticalSection(m)
-  #define yo_cond_init(c) InitializeConditionVariable(c)
-  #define yo_cond_destroy(c) ((void)0)
-  #define yo_cond_wait(c, m) SleepConditionVariableCS(c, m, INFINITE)
-  #define yo_cond_signal(c) WakeConditionVariable(c)
-  #define yo_cond_broadcast(c) WakeAllConditionVariable(c)
-  #define yo_thread_create(t, func, arg) (*(t) = (HANDLE)_beginthreadex(NULL, 0, func, arg, 0, NULL), *(t) != NULL ? 0 : -1)
-  #define yo_thread_join(t) (WaitForSingleObject(t, INFINITE), CloseHandle(t), 0)
-  #define yo_thread_self() ((uintptr_t)GetCurrentThreadId())
-#elif defined(__linux__) || defined(__APPLE__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__)
-  // Unix-like systems: Use pthreads (more reliable, especially on macOS)
-  #include <pthread.h>
-  #include <unistd.h>
-  #include <sys/syscall.h>
-  #if defined(__APPLE__)
-    #include <sys/types.h>
-    #include <sys/sysctl.h>
-  #endif
-  typedef pthread_mutex_t YO_THREAD_SYNC_TYPE;
-  typedef pthread_cond_t YO_COND_TYPE;
-  typedef pthread_t YO_THREAD_TYPE;
-  #define YO_THREAD_SYNC_INIT PTHREAD_MUTEX_INITIALIZER
-  #define YO_THREAD_SYNC_LOCK(m) pthread_mutex_lock(m)
-  #define YO_THREAD_SYNC_UNLOCK(m) pthread_mutex_unlock(m)
-  #define YO_COND_INIT PTHREAD_COND_INITIALIZER
-  #define yo_mutex_init(m) pthread_mutex_init(m, NULL)
-  #define yo_mutex_destroy(m) pthread_mutex_destroy(m)
-  #define yo_mutex_lock(m) pthread_mutex_lock(m)
-  #define yo_mutex_unlock(m) pthread_mutex_unlock(m)
-  #define yo_cond_init(c) pthread_cond_init(c, NULL)
-  #define yo_cond_destroy(c) pthread_cond_destroy(c)
-  #define yo_cond_wait(c, m) pthread_cond_wait(c, m)
-  #define yo_cond_signal(c) pthread_cond_signal(c)
-  #define yo_cond_broadcast(c) pthread_cond_broadcast(c)
-  #define yo_thread_create(t, func, arg) pthread_create(t, NULL, func, arg)
-  #define yo_thread_join(t) pthread_join(t, NULL)
-  #define yo_thread_self() ((uintptr_t)pthread_self())
-#else
-  #error "Unsupported platform for threading"
+  // Thread synchronization — emit only target-specific types and macros
+  if (isTargetWindows(context.targetInfo)) {
+    context.emitter
+      .emitDeclarationLine(`// Thread synchronization for stop-the-world GC (Windows)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
 #endif
+#ifndef _WINSOCKAPI_
+#define _WINSOCKAPI_
 #endif
+#include <windows.h>
+#include <process.h>
+typedef CRITICAL_SECTION YO_THREAD_SYNC_TYPE;
+typedef CONDITION_VARIABLE YO_COND_TYPE;
+typedef HANDLE YO_THREAD_TYPE;
+#define YO_THREAD_SYNC_INIT {0}
+#define YO_THREAD_SYNC_LOCK(m) EnterCriticalSection(m)
+#define YO_THREAD_SYNC_UNLOCK(m) LeaveCriticalSection(m)
+#define YO_COND_INIT CONDITION_VARIABLE_INIT
+#define yo_mutex_init(m) InitializeCriticalSection(m)
+#define yo_mutex_destroy(m) DeleteCriticalSection(m)
+#define yo_mutex_lock(m) EnterCriticalSection(m)
+#define yo_mutex_unlock(m) LeaveCriticalSection(m)
+#define yo_cond_init(c) InitializeConditionVariable(c)
+#define yo_cond_destroy(c) ((void)0)
+#define yo_cond_wait(c, m) SleepConditionVariableCS(c, m, INFINITE)
+#define yo_cond_signal(c) WakeConditionVariable(c)
+#define yo_cond_broadcast(c) WakeAllConditionVariable(c)
+#define yo_thread_create(t, func, arg) (*(t) = (HANDLE)_beginthreadex(NULL, 0, func, arg, 0, NULL), *(t) != NULL ? 0 : -1)
+#define yo_thread_join(t) (WaitForSingleObject(t, INFINITE), CloseHandle(t), 0)
+#define yo_thread_self() ((uintptr_t)GetCurrentThreadId())`);
+  } else {
+    // POSIX (Linux, macOS, FreeBSD, etc.)
+    context.emitter
+      .emitDeclarationLine(`// Thread synchronization for stop-the-world GC (POSIX)
+#include <pthread.h>
+#include <unistd.h>
+#include <sys/syscall.h>
+${
+  isTargetMacos(context.targetInfo)
+    ? `#include <sys/types.h>
+#include <sys/sysctl.h>`
+    : ""
+}
+typedef pthread_mutex_t YO_THREAD_SYNC_TYPE;
+typedef pthread_cond_t YO_COND_TYPE;
+typedef pthread_t YO_THREAD_TYPE;
+#define YO_THREAD_SYNC_INIT PTHREAD_MUTEX_INITIALIZER
+#define YO_THREAD_SYNC_LOCK(m) pthread_mutex_lock(m)
+#define YO_THREAD_SYNC_UNLOCK(m) pthread_mutex_unlock(m)
+#define YO_COND_INIT PTHREAD_COND_INITIALIZER
+#define yo_mutex_init(m) pthread_mutex_init(m, NULL)
+#define yo_mutex_destroy(m) pthread_mutex_destroy(m)
+#define yo_mutex_lock(m) pthread_mutex_lock(m)
+#define yo_mutex_unlock(m) pthread_mutex_unlock(m)
+#define yo_cond_init(c) pthread_cond_init(c, NULL)
+#define yo_cond_destroy(c) pthread_cond_destroy(c)
+#define yo_cond_wait(c, m) pthread_cond_wait(c, m)
+#define yo_cond_signal(c) pthread_cond_signal(c)
+#define yo_cond_broadcast(c) pthread_cond_broadcast(c)
+#define yo_thread_create(t, func, arg) pthread_create(t, NULL, func, arg)
+#define yo_thread_join(t) pthread_join(t, NULL)
+#define yo_thread_self() ((uintptr_t)pthread_self())`);
+  }
 
+  // Thread handle type and helper functions
+  context.emitter.emitDeclarationLine(`
 // Thread handle type for parallelism - value type, stack allocated
 // Contains the OS thread handle (pthread_t or HANDLE)
 typedef struct __yo_thread_t {

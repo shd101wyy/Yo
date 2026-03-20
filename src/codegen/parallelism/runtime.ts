@@ -9,14 +9,84 @@
  */
 
 import { Emitter } from "../../emitter";
+import type { TargetInfo } from "../../target";
+import { isTargetWindows, isTargetLinux, isTargetMacos } from "../../target";
 
 /**
  * Generates the parallelism runtime code.
  */
 export function generateParallelismRuntime(
   emitter: Emitter,
-  _debugParallelism: boolean
+  _debugParallelism: boolean,
+  targetInfo: TargetInfo
 ): void {
+  const isWindows = isTargetWindows(targetInfo);
+  const isLinux = isTargetLinux(targetInfo);
+  const isMacos = isTargetMacos(targetInfo);
+
+  const threadEntrySignature = isWindows
+    ? `static unsigned __stdcall __yo_thread_entry(void* arg) {`
+    : `static void* __yo_thread_entry(void* arg) {`;
+
+  const threadEntryReturn = isWindows ? `return 0;` : `return NULL;`;
+
+  const workerEntrySignature = isWindows
+    ? `static unsigned __stdcall __yo_worker_thread_entry(void* arg) {`
+    : `static void* __yo_worker_thread_entry(void* arg) {`;
+
+  const workerEntryReturn = isWindows ? `return 0;` : `return NULL;`;
+
+  const yieldCall = isWindows ? `SwitchToThread();` : `sched_yield();`;
+
+  const poolMutexDecl = isWindows
+    ? `static YO_THREAD_SYNC_TYPE __yo_worker_pool_mutex;        // Pool-level mutex (initialized in __yo_worker_init_mutex)
+static volatile int __yo_worker_pool_mutex_initialized = 0;`
+    : `static YO_THREAD_SYNC_TYPE __yo_worker_pool_mutex = YO_THREAD_SYNC_INIT;  // Pool-level mutex`;
+
+  const windowsInitMutex = isWindows
+    ? `
+// Initialize the worker pool mutex on Windows (must be called before any use)
+static void __yo_worker_init_mutex(void) {
+  if (!__yo_worker_pool_mutex_initialized) {
+    InitializeCriticalSection(&__yo_worker_pool_mutex);
+    __yo_worker_pool_mutex_initialized = 1;
+  }
+}
+`
+    : ``;
+
+  const initMutexCall = isWindows ? `__yo_worker_init_mutex();` : ``;
+
+  // Hardware threads detection
+  let getHardwareThreads: string;
+  if (isWindows) {
+    getHardwareThreads = `  SYSTEM_INFO sysinfo;
+  GetSystemInfo(&sysinfo);
+  return (size_t)sysinfo.dwNumberOfProcessors;`;
+  } else if (isMacos) {
+    getHardwareThreads = `  int count;
+  size_t size = sizeof(count);
+  if (sysctlbyname("hw.ncpu", &count, &size, NULL, 0) == 0) {
+    return (size_t)count;
+  }
+  return 1;`;
+  } else {
+    getHardwareThreads = `  long count = sysconf(_SC_NPROCESSORS_ONLN);
+  return count > 0 ? (size_t)count : 1;`;
+  }
+
+  // CPU ID detection
+  let getCpuId: string;
+  if (isLinux) {
+    getCpuId = `  int cpu = sched_getcpu();
+  return cpu;`;
+  } else if (isWindows) {
+    getCpuId = `  return (int)GetCurrentProcessorNumber();`;
+  } else {
+    // macOS and others: no direct equivalent
+    getCpuId = `  return -1;`;
+  }
+
   emitter.emitLine(`
 // ============================================================================
 // Parallelism Runtime - Thread and Worker
@@ -38,12 +108,8 @@ typedef struct __yo_thread_entry_args_t {
   void* closure;                // User's closure data
 } __yo_thread_entry_args_t;
 
-// Thread entry point - Windows uses different signature
-#if defined(_WIN32)
-static unsigned __stdcall __yo_thread_entry(void* arg) {
-#else
-static void* __yo_thread_entry(void* arg) {
-#endif
+// Thread entry point
+${threadEntrySignature}
   __yo_thread_entry_args_t* args = (__yo_thread_entry_args_t*)arg;
   
   PARALLELISM_DEBUG("[THREAD] Thread started (tid=%zu)\\n", (size_t)__yo_get_thread_id());
@@ -67,11 +133,7 @@ static void* __yo_thread_entry(void* arg) {
   // Free args
   __yo_free(args);
   
-#if defined(_WIN32)
-  return 0;
-#else
-  return NULL;
-#endif
+  ${threadEntryReturn}
 }
 
 // Spawn a new OS thread (returns by value)
@@ -140,30 +202,11 @@ typedef struct __yo_worker_thread_t {
 static __yo_worker_thread_t* __yo_worker_threads = NULL;  // Array of worker threads
 static size_t __yo_worker_num_threads = 0;                // Number of worker threads
 static size_t __yo_worker_next_thread = 0;                // Round-robin counter for task distribution
-#if defined(_WIN32)
-static YO_THREAD_SYNC_TYPE __yo_worker_pool_mutex;        // Pool-level mutex (initialized in __yo_worker_init_mutex)
-static volatile int __yo_worker_pool_mutex_initialized = 0;
-#else
-static YO_THREAD_SYNC_TYPE __yo_worker_pool_mutex = YO_THREAD_SYNC_INIT;  // Pool-level mutex
-#endif
+${poolMutexDecl}
 static volatile int __yo_worker_pool_initialized = 0;     // Pool initialization flag
-
-#if defined(_WIN32)
-// Initialize the worker pool mutex on Windows (must be called before any use)
-static void __yo_worker_init_mutex(void) {
-  if (!__yo_worker_pool_mutex_initialized) {
-    InitializeCriticalSection(&__yo_worker_pool_mutex);
-    __yo_worker_pool_mutex_initialized = 1;
-  }
-}
-#endif
-
-// Worker thread entry point - Windows uses different signature
-#if defined(_WIN32)
-static unsigned __stdcall __yo_worker_thread_entry(void* arg) {
-#else
-static void* __yo_worker_thread_entry(void* arg) {
-#endif
+${windowsInitMutex}
+// Worker thread entry point
+${workerEntrySignature}
   __yo_worker_thread_t* worker = (__yo_worker_thread_t*)arg;
   
   PARALLELISM_DEBUG("[WORKER] Worker thread started (tid=%zu)\\n", (size_t)__yo_get_thread_id());
@@ -220,11 +263,7 @@ static void* __yo_worker_thread_entry(void* arg) {
   // Final GC cleanup
   __yo_gc_collect();
   
-#if defined(_WIN32)
-  return 0;
-#else
-  return NULL;
-#endif
+  ${workerEntryReturn}
 }
 
 // Initialize the worker pool with the specified number of threads
@@ -263,11 +302,7 @@ static void __yo_worker_pool_init(size_t num_threads) {
     __yo_worker_thread_t* worker = &__yo_worker_threads[i];
     while (!worker->started) {
       // Busy wait with yield to let threads start
-#if defined(_WIN32)
-      SwitchToThread();
-#else
-      sched_yield();
-#endif
+      ${yieldCall}
     }
   }
   
@@ -327,49 +362,18 @@ static void __yo_worker_pool_shutdown(void) {
 
 // Get number of hardware threads (CPU cores)
 static size_t __yo_get_hardware_threads(void) {
-#ifdef _WIN32
-  SYSTEM_INFO sysinfo;
-  GetSystemInfo(&sysinfo);
-  return (size_t)sysinfo.dwNumberOfProcessors;
-#elif defined(__APPLE__)
-  int count;
-  size_t size = sizeof(count);
-  if (sysctlbyname("hw.ncpu", &count, &size, NULL, 0) == 0) {
-    return (size_t)count;
-  }
-  return 1;
-#else
-  long count = sysconf(_SC_NPROCESSORS_ONLN);
-  return count > 0 ? (size_t)count : 1;
-#endif
+${getHardwareThreads}
 }
 
 // Get CPU ID that the current thread is running on
 // Returns -1 if CPU affinity information is not available
 int __yo_get_cpu_id(void) {
-#if defined(__linux__)
-  // On Linux, use sched_getcpu() to get the current CPU
-  int cpu = sched_getcpu();
-  return cpu;
-#elif defined(__APPLE__)
-  // On macOS, there's no direct equivalent to sched_getcpu()
-  // We could use thread_info but it's more complex
-  // For now, return -1 to indicate "not available"
-  return -1;
-#elif defined(_WIN32)
-  // On Windows, use GetCurrentProcessorNumber()
-  return (int)GetCurrentProcessorNumber();
-#else
-  // Unknown platform
-  return -1;
-#endif
+${getCpuId}
 }
 
 // Set the number of worker threads (must be called before first spawn)
 void __yo_worker_set_num_threads(size_t num) {
-#if defined(_WIN32)
-  __yo_worker_init_mutex();
-#endif
+  ${initMutexCall}
   YO_THREAD_SYNC_LOCK(&__yo_worker_pool_mutex);
   if (!__yo_worker_pool_initialized) {
     // Pool not initialized yet, just set for later
@@ -383,9 +387,7 @@ void __yo_worker_set_num_threads(size_t num) {
 
 // Get the number of worker threads
 size_t __yo_worker_get_num_threads(void) {
-#if defined(_WIN32)
-  __yo_worker_init_mutex();
-#endif
+  ${initMutexCall}
   YO_THREAD_SYNC_LOCK(&__yo_worker_pool_mutex);
   size_t num = __yo_worker_num_threads;
   if (num == 0) {
@@ -398,9 +400,7 @@ size_t __yo_worker_get_num_threads(void) {
 // Spawn a task on the worker pool
 // Uses round-robin distribution for thread affinity
 void __yo_worker_spawn(__yo_thread_fn fn, void* closure) {
-#if defined(_WIN32)
-  __yo_worker_init_mutex();
-#endif
+  ${initMutexCall}
   YO_THREAD_SYNC_LOCK(&__yo_worker_pool_mutex);
   
   // Initialize pool on first spawn if not already done

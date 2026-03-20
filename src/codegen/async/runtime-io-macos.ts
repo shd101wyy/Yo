@@ -15,7 +15,6 @@ export function generateAsyncRuntimeIOMacOS(emitter: Emitter): void {
 // Async I/O Runtime (macOS - dispatch_io via Grand Central Dispatch)
 // ============================================================================
 
-#if defined(__APPLE__)
 #include <dispatch/dispatch.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -1708,6 +1707,5 @@ static uint64_t __yo_statx_blocks(void* statxbuf) {
   return (uint64_t)((struct stat*)statxbuf)->st_blocks;
 }
 
-#endif // __APPLE__
 `);
 }

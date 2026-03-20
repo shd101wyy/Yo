@@ -1,3 +1,4 @@
+import { isTargetWindows } from "../../target";
 import type { CodeGenContext } from "../utils";
 
 /**
@@ -26,20 +27,22 @@ export function collectCIncludes(context: CodeGenContext): void {
  * Emit C include headers
  */
 export function emitCIncludes(context: CodeGenContext): void {
-  // Enable POSIX extensions for usleep and other functions
-  context.emitter.emitHeaderLine(`#ifndef _WIN32`);
-  context.emitter.emitHeaderLine(`#define _DEFAULT_SOURCE`);
-  context.emitter.emitHeaderLine(
-    `#define _GNU_SOURCE  // Needed for sched_getcpu() on Linux`
-  );
-  context.emitter.emitHeaderLine(`#else`);
-  context.emitter.emitHeaderLine(`#ifndef WIN32_LEAN_AND_MEAN`);
-  context.emitter.emitHeaderLine(`#define WIN32_LEAN_AND_MEAN`);
-  context.emitter.emitHeaderLine(`#endif`);
-  context.emitter.emitHeaderLine(`#ifndef _WINSOCKAPI_`);
-  context.emitter.emitHeaderLine(`#define _WINSOCKAPI_`);
-  context.emitter.emitHeaderLine(`#endif`);
-  context.emitter.emitHeaderLine(`#endif`);
+  const isWindows = isTargetWindows(context.targetInfo);
+
+  // Emit platform-specific feature macros
+  if (isWindows) {
+    context.emitter.emitHeaderLine(`#ifndef WIN32_LEAN_AND_MEAN`);
+    context.emitter.emitHeaderLine(`#define WIN32_LEAN_AND_MEAN`);
+    context.emitter.emitHeaderLine(`#endif`);
+    context.emitter.emitHeaderLine(`#ifndef _WINSOCKAPI_`);
+    context.emitter.emitHeaderLine(`#define _WINSOCKAPI_`);
+    context.emitter.emitHeaderLine(`#endif`);
+  } else {
+    context.emitter.emitHeaderLine(`#define _DEFAULT_SOURCE`);
+    context.emitter.emitHeaderLine(
+      `#define _GNU_SOURCE  // Needed for sched_getcpu() on Linux`
+    );
+  }
   context.emitter.emitHeaderLine(``);
 
   for (const include of context.cIncludes) {
@@ -47,16 +50,16 @@ export function emitCIncludes(context: CodeGenContext): void {
   }
 
   // Platform-specific includes for file operations
-  context.emitter.emitHeaderLine(`#ifdef _WIN32`);
-  context.emitter.emitHeaderLine(`  #include <windows.h>`);
-  context.emitter.emitHeaderLine(`  #include <bcrypt.h>`);
-  context.emitter.emitHeaderLine(`  #include <io.h>`);
-  context.emitter.emitHeaderLine(`  #include <sys/stat.h>`);
-  context.emitter.emitHeaderLine(`#else`);
-  context.emitter.emitHeaderLine(`  #include <unistd.h>`);
-  context.emitter.emitHeaderLine(`  #include <sys/stat.h>`);
-  context.emitter.emitHeaderLine(`  #include <sys/random.h>`);
-  context.emitter.emitHeaderLine(`#endif`);
+  if (isWindows) {
+    context.emitter.emitHeaderLine(`#include <windows.h>`);
+    context.emitter.emitHeaderLine(`#include <bcrypt.h>`);
+    context.emitter.emitHeaderLine(`#include <io.h>`);
+    context.emitter.emitHeaderLine(`#include <sys/stat.h>`);
+  } else {
+    context.emitter.emitHeaderLine(`#include <unistd.h>`);
+    context.emitter.emitHeaderLine(`#include <sys/stat.h>`);
+    context.emitter.emitHeaderLine(`#include <sys/random.h>`);
+  }
 
   // Add allocator compatibility layer based on the allocator option
   context.emitter.emitHeaderLine(``);

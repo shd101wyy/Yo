@@ -15,6 +15,7 @@ import {
   type FnCallExpr,
 } from "../../expr";
 import type { FunctionValue, FuncValueId } from "../../function-value";
+import type { TargetInfo } from "../../target";
 import type {
   ArcType,
   ArrayType,
@@ -195,6 +196,11 @@ export interface CodeGenContext {
    * Enable debug logging for async/await state machine operations
    */
   debugAsyncAwait: boolean;
+
+  /**
+   * Compilation target info (arch, os, abi)
+   */
+  targetInfo: TargetInfo;
 
   /**
    * Memory allocator to use: 'mimalloc' (default) or 'libc'
