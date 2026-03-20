@@ -32,6 +32,7 @@ import {
 import { typeContainsRcType, typeToString } from "../../types/utils";
 import { isFunctionValue } from "../../value";
 import {
+  computeCrossBoundaryVariables,
   generateAsyncBlockResumeFunction,
   getStateMachineFieldName,
 } from "../async/state-machine";
@@ -350,6 +351,7 @@ function emitAsyncBlockStructDefinition(
     resultTypeCName: string;
     captureType: StructType | undefined;
     analysis: AwaitAnalysisResult;
+    crossBoundaryIds?: Set<string>;
   },
   context: FunctionGenerationContext
 ): void {
@@ -361,6 +363,7 @@ function emitAsyncBlockStructDefinition(
     resultTypeCName,
     captureType,
     analysis,
+    crossBoundaryIds,
   } = asyncBlockInfo;
 
   emitter.emitDeclarationLine(
@@ -417,10 +420,14 @@ function emitAsyncBlockStructDefinition(
     emitter.emitDeclarationLine(``);
   }
 
-  // Local variables (exclude "outer" variables which are in the __capture struct)
-  const localVariables = analysis.capturedVariables.filter(
+  // Local variables — only those that cross await boundaries need struct fields.
+  // Segment-local variables (used in only one segment) will be C locals in their case block.
+  let localVariables = analysis.capturedVariables.filter(
     (v) => v.kind !== "outer"
   );
+  if (crossBoundaryIds) {
+    localVariables = localVariables.filter((v) => crossBoundaryIds.has(v.id));
+  }
   if (localVariables.length > 0) {
     emitter.emitDeclarationLine(`  // Local variables`);
     for (const variable of localVariables) {
@@ -656,6 +663,10 @@ function emitDeferredAsyncBlockStructDefinitions(
       : blocks;
 
   for (const b of orderedBlocks) {
+    const crossBoundaryIds = computeCrossBoundaryVariables(
+      b.bodyExpr,
+      b.analysis
+    );
     emitAsyncBlockStructDefinition(
       {
         asyncBlockId: b.asyncBlockId,
@@ -664,6 +675,7 @@ function emitDeferredAsyncBlockStructDefinitions(
         resultTypeCName: b.resultTypeCName,
         captureType: b.captureType,
         analysis: b.analysis,
+        crossBoundaryIds,
       },
       context
     );
@@ -689,6 +701,7 @@ function generateAsyncBlockStateDisposeFunction(
   captureType: StructType | undefined,
   analysis: AwaitAnalysisResult,
   localVarDrops: string[],
+  crossBoundaryIds: Set<string>,
   context: FunctionGenerationContext
 ): void {
   const emitter = context.emitter;
@@ -773,13 +786,15 @@ function generateAsyncBlockStateDisposeFunction(
 
   // Drop local variables when escape aborted the SM (state == -2).
   // In normal completion, local vars are dropped inline in the final state.
-  // On escape, we must drop ALL local variables from the analysis, not just
-  // body-scope ones, because inner-scope locals (e.g. while loop body vars)
-  // are SM fields that may hold allocated values.
+  // On escape, we must drop ALL cross-boundary local variables from the analysis
+  // (they have struct fields). Segment-local variables are C locals and are
+  // cleaned up inline by the segment's escape handling code.
   {
     const localDropLines: string[] = [];
     for (const v of analysis.capturedVariables) {
       if (v.kind !== "local") continue;
+      // Skip segment-local variables — they are not struct fields
+      if (!crossBoundaryIds.has(v.id)) continue;
       // Skip variables that are borrowing an RC value from another variable
       if (v.isOwningTheSameRcValueAs !== undefined) continue;
 
@@ -1003,7 +1018,21 @@ export function generateDeferredAsyncBlocks(
       string,
       import("../../evaluator/async/await-analysis-types").CapturedVariable
     >();
-    for (const v of analysis.capturedVariables) {
+
+    // Compute cross-boundary variables so segment-local variables become C locals.
+    // Create a filtered analysis where capturedVariables excludes segment-locals.
+    // This ensures ALL internal map-building in the resume function generator
+    // (which iterates analysis.capturedVariables) automatically excludes them.
+    const crossBoundaryIds = computeCrossBoundaryVariables(bodyExpr, analysis);
+    const filteredCapturedVariables = analysis.capturedVariables.filter(
+      (v) => v.kind === "outer" || crossBoundaryIds.has(v.id)
+    );
+    const filteredAnalysis: AwaitAnalysisResult = {
+      ...analysis,
+      capturedVariables: filteredCapturedVariables,
+    };
+
+    for (const v of filteredCapturedVariables) {
       smVarMap.set(v.id, v);
     }
     if (captureType) {
@@ -1024,7 +1053,7 @@ export function generateDeferredAsyncBlocks(
       asyncBlockId,
       structName,
       resumeFunctionName,
-      analysis,
+      filteredAnalysis,
       futureType,
       captureType,
       context
@@ -1043,8 +1072,9 @@ export function generateDeferredAsyncBlocks(
       disposeFunctionName,
       resultType,
       captureType,
-      analysis,
+      filteredAnalysis,
       localVarDrops,
+      crossBoundaryIds,
       context
     );
 
@@ -1071,6 +1101,10 @@ export function generateDeferredAsyncBlocks(
     if (context.deferredAsyncBlocks.length > prevLength) {
       const newBlocks = context.deferredAsyncBlocks.slice(prevLength);
       for (const newBlock of newBlocks) {
+        const newCrossBoundaryIds = computeCrossBoundaryVariables(
+          newBlock.bodyExpr,
+          newBlock.analysis
+        );
         emitAsyncBlockStructDefinition(
           {
             asyncBlockId: newBlock.asyncBlockId,
@@ -1079,6 +1113,7 @@ export function generateDeferredAsyncBlocks(
             resultTypeCName: newBlock.resultTypeCName,
             captureType: newBlock.captureType,
             analysis: newBlock.analysis,
+            crossBoundaryIds: newCrossBoundaryIds,
           },
           context
         );

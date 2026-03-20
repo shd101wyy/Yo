@@ -2672,3 +2672,128 @@ test "Regression: async escape RC no double-decrement UAF", using(io : IO), {
   escape_result := test_and_check();
   assert((escape_result == i32(77)), "escape should return 77");
 };
+
+// ---------------------------------------------------------------------------
+// SM Optimization: Segment-local variables should be C locals, not struct fields
+// ---------------------------------------------------------------------------
+test "SM opt: segment-local i32 vars are not in struct", using(io : IO), {
+  // Variables b, d, e are each used in only one segment.
+  // The optimization should keep them as C locals.
+  task := io.async((using(io : IO)) => {
+    a := i32(10);
+    b := i32(20);
+    sum0 := (a + b);
+    io.await(yield());
+    c := i32(30);
+    d := i32(40);
+    sum1 := ((a + c) + d);
+    io.await(yield());
+    e := i32(50);
+    result := ((sum1 + e) - sum0);
+    return result;
+  });
+  r := io.await(task);
+  // sum0 = 30, sum1 = 10+30+40 = 80, result = 80+50-30 = 100
+  assert((r == i32(100)), "segment-local optimization result should be 100");
+};
+
+test "SM opt: RC-typed segment-local variables", using(io : IO), {
+  // Box values used in only one segment should be properly allocated and freed
+  // even when they are C locals rather than struct fields.
+  task := io.async((using(io : IO)) => {
+    a := Box(i32)(1);
+    io.await(yield());
+    b := Box(i32)(2);
+    c := Box(i32)(3);
+    sum := (b.* + c.*);
+    io.await(yield());
+    d := Box(i32)(4);
+    result := ((a.* + sum) + d.*);
+    return result;
+  });
+  r := io.await(task);
+  // a=1 crosses, b=2 local, c=3 local, sum=5 crosses, d=4 local
+  // result = 1 + 5 + 4 = 10
+  assert((r == i32(10)), "RC segment-local vars should work correctly");
+};
+
+test "SM opt: String segment-local variables", using(io : IO), {
+  // String values used in only one segment should work correctly.
+  task := io.async((using(io : IO)) => {
+    s1 := `hello`;
+    io.await(yield());
+    s2 := `world`;
+    combined := `${s1} ${s2}`;
+    io.await(yield());
+    return combined;
+  });
+  r := io.await(task);
+  assert((r == `hello world`), "String segment-local should work");
+};
+
+test "SM opt: multiple awaits with cross-boundary and local vars", using(io : IO), {
+  // A more complex pattern: some vars cross many boundaries, others are local.
+  task := io.async((using(io : IO)) => {
+    // Segment 0: define persistent var and local-only var
+    persistent := i32(100);
+    local0 := i32(1);
+    check0 := (persistent + local0);
+    io.await(yield());
+    // Segment 1: define another local, use persistent
+    local1 := i32(2);
+    check1 := (persistent + local1);
+    io.await(yield());
+    // Segment 2: define another local, use persistent
+    local2 := i32(3);
+    check2 := (persistent + local2);
+    io.await(yield());
+    // Segment 3: use all checks — checks cross boundaries since used here
+    return ((check0 + check1) + check2);
+  });
+  r := io.await(task);
+  // check0=101, check1=102, check2=103 → 101+102+103 = 306
+  assert((r == i32(306)), "multi-segment cross-boundary should be 306");
+};
+
+test "SM opt: no await points means no struct fields needed", using(io : IO), {
+  // A sync_fut_t (no await points) — all variables should be stack locals.
+  task := io.async((using(io : IO)) => {
+    a := i32(1);
+    b := i32(2);
+    c := i32(3);
+    return ((a + b) + c);
+  });
+  r := io.await(task);
+  assert((r == i32(6)), "no-await sync_fut_t should work with all locals");
+};
+
+test "SM opt: variable reassignment across await", using(io : IO), {
+  // Variable mutated (reassigned) across an await boundary.
+  task := io.async((using(io : IO)) => {
+    x := i32(1);
+    io.await(yield());
+    x = (x + i32(10));
+    io.await(yield());
+    x = (x + i32(100));
+    return x;
+  });
+  r := io.await(task);
+  assert((r == i32(111)), "reassignment across await should be 111");
+};
+
+test "SM opt: cond with segment-local vars and no await in branches", using(io : IO), {
+  // Cond without await in branches — the optimization should still apply
+  // to variables local to each segment.
+  task := io.async((using(io : IO)) => {
+    flag := true;
+    io.await(yield());
+    local_val := cond(
+      flag => i32(42),
+      true => i32(0)
+    );
+    io.await(yield());
+    return local_val;
+  });
+  r := io.await(task);
+  assert((r == i32(42)), "cond without await should work with segment-local");
+};

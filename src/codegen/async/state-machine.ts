@@ -5,14 +5,18 @@
  */
 
 import { Emitter } from "../../emitter";
-import { getVariablesFromEnvByFilter } from "../../env";
+import { getVariablesFromEnv, getVariablesFromEnvByFilter } from "../../env";
 import type {
   AwaitAnalysisResult,
   AwaitPoint,
   CapturedVariable,
 } from "../../evaluator/async/await-analysis";
-import { isIoAwaitCall } from "../../evaluator/async/await-analysis";
+import {
+  isIoAsyncCall,
+  isIoAwaitCall,
+} from "../../evaluator/async/await-analysis";
 import { extractFutureTraitFromType } from "../../evaluator/trait-checking";
+import { TokenType } from "../../token";
 import {
   BuiltinKeywords,
   exprIsAtomOf,
@@ -55,6 +59,177 @@ import {
   generateStateSegmentCode,
   splitIntoStateSegments,
 } from "./state-code-gen";
+
+// ---------------------------------------------------------------------------
+// Cross-boundary variable analysis
+// ---------------------------------------------------------------------------
+
+/**
+ * Collects all variable IDs referenced in an expression tree.
+ * Skips nested io.async() bodies (they have their own state machines).
+ */
+function collectVariableRefsInExpr(
+  expr: Expr,
+  refs: Set<string>,
+  variableIdRemapping: Map<string, string>
+): void {
+  if (!expr) return;
+
+  switch (expr.tag) {
+    case ExprTag.Atom:
+      if (expr.$ && expr.token.type === TokenType.Identifier) {
+        const varName = expr.token.value;
+        const variables = getVariablesFromEnv(expr.$.env, varName);
+        if (variables.length > 0) {
+          const variable = variables[variables.length - 1]!;
+          if (variable && !variable.isCompileTimeOnly) {
+            // Resolve SSA remapping
+            const canonicalId =
+              variableIdRemapping.get(variable.id) ?? variable.id;
+            // Also resolve owner for RC borrowing
+            const ownerId = variable.isOwningTheSameRcValueAs
+              ? variable.isOwningTheSameRcValueAs.id
+              : canonicalId;
+            refs.add(ownerId);
+          }
+        }
+      }
+      break;
+
+    case ExprTag.FnCall:
+      // Skip nested async block bodies
+      if (isIoAsyncCall(expr)) {
+        // Still walk deferred dup expressions (capture references)
+        if (expr.$?.deferredDupExpressions) {
+          for (const dupExpr of expr.$.deferredDupExpressions) {
+            collectVariableRefsInExpr(dupExpr, refs, variableIdRemapping);
+          }
+        }
+        break;
+      }
+
+      collectVariableRefsInExpr(expr.func, refs, variableIdRemapping);
+      for (const arg of expr.args) {
+        collectVariableRefsInExpr(arg, refs, variableIdRemapping);
+      }
+
+      // Also walk deferred drop/dup expressions
+      if (expr.$?.deferredDropExpressions) {
+        for (const dropExpr of expr.$.deferredDropExpressions) {
+          collectVariableRefsInExpr(dropExpr, refs, variableIdRemapping);
+        }
+      }
+      if (expr.$?.deferredDupExpressions) {
+        for (const dupExpr of expr.$.deferredDupExpressions) {
+          collectVariableRefsInExpr(dupExpr, refs, variableIdRemapping);
+        }
+      }
+      break;
+  }
+}
+
+/**
+ * Determines which captured local variables cross await boundaries
+ * (i.e., are referenced in more than one state segment).
+ *
+ * Variables that are only used within a single segment can be emitted as
+ * C local variables in that segment's case block, reducing the state machine
+ * struct size. This is the Yo equivalent of Rust's liveness-based generator
+ * optimization.
+ *
+ * Returns the set of variable IDs that MUST be stored in the struct
+ * (they cross at least one await boundary).
+ */
+export function computeCrossBoundaryVariables(
+  bodyExpr: Expr,
+  analysis: AwaitAnalysisResult
+): Set<string> {
+  const { awaitPoints, capturedVariables, variableIdRemapping } = analysis;
+
+  // If no await points, no variables cross boundaries
+  if (awaitPoints.length === 0) {
+    return new Set();
+  }
+
+  // CONSERVATIVE: if any await point is inside a cond, match, or while,
+  // the segment-based analysis is insufficient because cond/while continuation
+  // states are generated as separate case blocks not represented in segments.
+  // In that case, treat ALL locals as cross-boundary.
+  const hasBranchingAwait = awaitPoints.some(
+    (ap) => ap.isInsideCond || ap.isInsideWhile
+  );
+  if (hasBranchingAwait) {
+    const allIds = new Set<string>();
+    for (const v of capturedVariables) {
+      if (v.kind !== "outer") allIds.add(v.id);
+    }
+    return allIds;
+  }
+
+  // Split body into segments (same function used by the resume code generator)
+  const segments = splitIntoStateSegments(bodyExpr, awaitPoints);
+
+  // For each segment, collect all variable IDs referenced in its expressions
+  const variableSegments = new Map<string, Set<number>>();
+  for (const segment of segments) {
+    const refs = new Set<string>();
+    for (const expr of segment.expressions) {
+      collectVariableRefsInExpr(expr, refs, variableIdRemapping);
+    }
+    for (const varId of refs) {
+      let varSegs = variableSegments.get(varId);
+      if (!varSegs) {
+        varSegs = new Set();
+        variableSegments.set(varId, varSegs);
+      }
+      varSegs.add(segment.stateNumber);
+    }
+  }
+
+  // Also walk the body-level deferred drop expressions — these run at the end
+  // of the entire async block and reference variables that must be in the struct.
+  const CLEANUP_SEGMENT = -1;
+  if (bodyExpr.$?.deferredDropExpressions) {
+    const bodyDropRefs = new Set<string>();
+    for (const dropExpr of bodyExpr.$.deferredDropExpressions) {
+      collectVariableRefsInExpr(dropExpr, bodyDropRefs, variableIdRemapping);
+    }
+    for (const varId of bodyDropRefs) {
+      let varSegs = variableSegments.get(varId);
+      if (!varSegs) {
+        varSegs = new Set();
+        variableSegments.set(varId, varSegs);
+      }
+      varSegs.add(CLEANUP_SEGMENT);
+    }
+  }
+
+  // A variable crosses a boundary if it appears in more than one segment.
+  // CONSERVATIVE: If a variable is captured by the suspension analysis but our
+  // walker didn't find it in any segment, keep it in the struct. This handles
+  // temp variables referenced in deferred drop expressions that may not have
+  // proper environment metadata in the expression tree.
+  // Also: variables that ONLY appear in the cleanup segment (-1) must be in the
+  // struct because cleanup code runs in the last segment and accesses sm->var_X.
+  const crossBoundaryIds = new Set<string>();
+  for (const v of capturedVariables) {
+    if (v.kind === "outer") continue; // Outer vars are in __capture struct
+    const segmentsUsed = variableSegments.get(v.id);
+    if (!segmentsUsed) {
+      // Not found in any segment — keep in struct (conservative)
+      crossBoundaryIds.add(v.id);
+    } else if (segmentsUsed.size > 1) {
+      // Appears in multiple segments — cross-boundary
+      crossBoundaryIds.add(v.id);
+    } else if (segmentsUsed.has(CLEANUP_SEGMENT)) {
+      // Only appears in cleanup segment — must be in struct
+      crossBoundaryIds.add(v.id);
+    }
+    // else: appears in exactly 1 numbered segment — segment-local, can be C local
+  }
+
+  return crossBoundaryIds;
+}
 
 /**
  * Get the state machine field name for the Future being awaited.

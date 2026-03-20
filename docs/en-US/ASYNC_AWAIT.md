@@ -637,6 +637,38 @@ __yo_decr_rc(future);  // Release running task reference
 // 5. Cleanup — when user drops, refcount reaches 0, freed
 ```
 
+### `Impl(Future(T))` Dispatch and Allocation Model
+
+**`Impl(Future(T))` is always heap-allocated with non-atomic reference counting.**
+
+This is **not** static dispatch (where the concrete type is known and stack-allocated). Instead:
+
+1. **Heap allocation**: `io.async(fn)` calls `__yo_malloc(sizeof(state_machine_struct))` and returns a pointer. This is necessary because:
+
+   - Futures suspend and resume across C stack frames — the state machine must outlive the frame that created it
+   - The event loop queues continuations as `(resume_fn, state_machine_ptr)` pairs — stable addresses are required
+   - Multiple references (user code + event loop) can exist simultaneously
+
+2. **Reference counting**: Each state machine has a `yo_ref_header_t` as its first field. The RC is non-atomic because all async code runs on a single thread. The typical lifecycle is:
+
+   - Creation: `refcount = 1` (user owns)
+   - Start (await/spawn): `refcount = 2` (user + event loop)
+   - Task completion: event loop decrements → `refcount = 1`
+   - User scope exit: user decrements → `refcount = 0` → freed via dispose function
+
+3. **Pointer semantics**: In generated C code, `Impl(Future(T))` compiles to `state_machine_struct*` (a pointer). The Yo type system treats it as opaque — user code cannot inspect the struct fields.
+
+4. **Dispose function**: Each state machine type gets a custom dispose function that:
+
+   - Drops the capture struct (outer scope variables)
+   - Drops the result value (if completed and result contains RC types)
+   - Drops local variables (if aborted mid-execution)
+   - The memory is freed by `__yo_decr_rc` after the dispose function returns
+
+5. **sync_fut_t optimization**: When an async block has **no await points** (purely synchronous), a lightweight `sync_fut_t` struct is generated instead of a full state machine. It has the same header layout but no state dispatch — the resume function simply calls the closure and sets state to -1 (completed).
+
+**Why not stack allocation?** Even with `Impl(...)` (which typically implies static dispatch in Yo), Futures must be heap-allocated because their lifetime is decoupled from the creating stack frame. A future created in function `f()` may be awaited in function `g()` after `f()` has returned.
+
 ### State Machine Memory
 
 State machines are small (~32-500 bytes):
