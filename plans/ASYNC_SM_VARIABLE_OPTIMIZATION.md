@@ -117,19 +117,22 @@ Output: set of variables that must be in the struct ("cross-boundary variables")
    - When accessing a variable in state machine context, check if it's struct-stored or segment-local
    - Segment-local variables use plain C name; struct-stored use `sm->var_{id}`
 
-#### Temp Future Variable Deduplication — DEFERRED
+#### Temp Future Variable Deduplication — IMPLEMENTED (Phase 1b)
 
-This sub-task attempted to eliminate duplicate storage where a temp future variable (`var_temp_N`)
-and `await_future_N` store the same future pointer. Two approaches were tried and reverted:
+When `io.await(yield())` creates a temp future, the suspension analysis captures it as a local variable
+**and** the await analysis creates a separate `await_future_N` field — both for the same pointer.
 
-- **Approach 1** (exclude temp from crossBoundaryIds): Failed because deferred drop expressions
-  still referenced the excluded temp variable, causing C compilation errors.
-- **Approach 2** (set futureVariableId in await-analysis.ts): Failed with SEGFAULT because
-  `state-code-gen.ts` skips the future assignment when `futureVariableId` is set, but the temp
-  variable was only a C local, not a SM struct field — the field was never assigned.
+**Solution: Field aliasing.** Temp vars stay in the SM variable map (so atom.ts and deferred drops work)
+but no struct field is generated. `atom.ts` checks `stateMachineFieldAliases` and redirects lookups
+to `sm->await_future_N`. Deferred drops become safe no-ops (await_future_N is already NULLed by the
+resume function at the point where drops execute).
 
-The gain is minor (one pointer field per await point) and the fix requires deeper changes to how
-deferred drops interact with the SM struct. Deferred to a future refactor.
+Key changes:
+
+- `computeCrossBoundaryVariables()` returns `CrossBoundaryResult` with `awaitFutureTempVarAliases`
+- `FunctionGenerationContext.stateMachineFieldAliases` stores the alias map
+- `atom.ts` checks aliases before generating SM field access
+- Struct definition and dispose function skip aliased vars
 
 ### Phase 2: Overlapping Storage (Advanced optimization)
 
@@ -190,6 +193,7 @@ Currently every non-unit await gets an `await_result_N` struct field. The resume
 - **Phase 1** (Liveness): ✅ **IMPLEMENTED**. Segment-local variables in simple linear async blocks are now emitted as C locals.
 - **Phase 1b** (Temp future dedup): ❌ **DEFERRED**. Complex interaction with deferred drops makes this risky for minor gain.
 - **Phase 2** (Overlapping): Deferred. More complex, diminishing returns for typical async functions.
+- **Phase 1b** (Temp future aliasing): ✅ **IMPLEMENTED**. Temp future vars aliased to `await_future_N` fields, eliminating redundant struct fields.
 - **Phase 2b** (Cond/while per-segment): ✅ **IMPLEMENTED**. Variables in non-branching segments can be C locals even when other segments have cond/while with await.
 - **Phase 3** (Await result dedup): ✅ **IMPLEMENTED**. Linear awaits skip `await_result_N` entirely.
 

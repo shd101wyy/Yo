@@ -137,18 +137,38 @@ function collectVariableRefsInExpr(
  * struct size. This is the Yo equivalent of Rust's liveness-based generator
  * optimization.
  *
- * Returns the set of variable IDs that MUST be stored in the struct
- * (they cross at least one await boundary).
+ * Returns a CrossBoundaryResult with the set of variable IDs that MUST be
+ * stored in the struct (cross at least one await boundary), plus any temp
+ * future variable aliases for Phase 1b deduplication.
  */
+/**
+ * Result of cross-boundary variable analysis.
+ */
+export interface CrossBoundaryResult {
+  /** Variable IDs that must be stored as struct fields (cross await boundaries) */
+  crossBoundaryIds: Set<string>;
+  /**
+   * Maps temp variable IDs to their corresponding await_future_N field name.
+   * These temp vars hold the same future pointer as await_future_N but are
+   * never written to in the SM struct — they exist only because the suspension
+   * analysis captures them. The alias allows deferred drops to reference the
+   * await_future field instead of a non-existent struct field.
+   */
+  awaitFutureTempVarAliases: Map<string, string>;
+}
+
 export function computeCrossBoundaryVariables(
   bodyExpr: Expr,
   analysis: AwaitAnalysisResult
-): Set<string> {
+): CrossBoundaryResult {
   const { awaitPoints, capturedVariables, variableIdRemapping } = analysis;
 
   // If no await points, no variables cross boundaries
   if (awaitPoints.length === 0) {
-    return new Set();
+    return {
+      crossBoundaryIds: new Set(),
+      awaitFutureTempVarAliases: new Map(),
+    };
   }
 
   // Identify which segments have branching await points (cond/while with await).
@@ -239,7 +259,35 @@ export function computeCrossBoundaryVariables(
     }
   }
 
-  return crossBoundaryIds;
+  // Phase 1b: Identify temp variables that hold futures already stored in await_future_N.
+  // For io.await(expr()) where expr() creates a temp variable, the suspension analysis
+  // captures the temp var, but the codegen assigns the future to await_future_N.
+  // The temp var struct field is never assigned (always NULL) — its deferred drops are no-ops.
+  // We alias these temp vars to await_future_N so atom.ts redirects references
+  // to the existing field, eliminating the redundant struct field.
+  const awaitFutureTempVarAliases = new Map<string, string>();
+  for (const ap of awaitPoints) {
+    if (ap.futureVariableId !== undefined) continue; // Named variable — already aliased
+    const awaitExpr = ap.expr as Expr;
+    if (!exprIsFunctionCall(awaitExpr)) continue;
+    const futureArg = awaitExpr.args[0];
+    if (!futureArg) continue;
+    const tempVarName = futureArg.$?.variableName;
+    if (!tempVarName) continue;
+
+    // Find the captured variable matching this temp var name
+    const capturedVar = capturedVariables.find(
+      (v) =>
+        v.kind === "local" && (v.name === tempVarName || v.id === tempVarName)
+    );
+    if (capturedVar) {
+      awaitFutureTempVarAliases.set(capturedVar.id, `await_future_${ap.index}`);
+      // Remove from crossBoundaryIds if it was added
+      crossBoundaryIds.delete(capturedVar.id);
+    }
+  }
+
+  return { crossBoundaryIds, awaitFutureTempVarAliases };
 }
 
 /**

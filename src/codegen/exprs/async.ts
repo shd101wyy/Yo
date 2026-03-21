@@ -352,6 +352,7 @@ function emitAsyncBlockStructDefinition(
     captureType: StructType | undefined;
     analysis: AwaitAnalysisResult;
     crossBoundaryIds?: Set<string>;
+    awaitFutureTempVarAliases?: Map<string, string>;
   },
   context: FunctionGenerationContext
 ): void {
@@ -364,6 +365,7 @@ function emitAsyncBlockStructDefinition(
     captureType,
     analysis,
     crossBoundaryIds,
+    awaitFutureTempVarAliases,
   } = asyncBlockInfo;
 
   emitter.emitDeclarationLine(
@@ -422,11 +424,14 @@ function emitAsyncBlockStructDefinition(
 
   // Local variables — only those that cross await boundaries need struct fields.
   // Segment-local variables (used in only one segment) will be C locals in their case block.
+  // Also exclude temp vars aliased to await_future_N fields (Phase 1b).
   let localVariables = analysis.capturedVariables.filter(
     (v) => v.kind !== "outer"
   );
   if (crossBoundaryIds) {
-    localVariables = localVariables.filter((v) => crossBoundaryIds.has(v.id));
+    localVariables = localVariables.filter(
+      (v) => crossBoundaryIds.has(v.id) && !awaitFutureTempVarAliases?.has(v.id)
+    );
   }
   if (localVariables.length > 0) {
     emitter.emitDeclarationLine(`  // Local variables`);
@@ -679,10 +684,8 @@ function emitDeferredAsyncBlockStructDefinitions(
       : blocks;
 
   for (const b of orderedBlocks) {
-    const crossBoundaryIds = computeCrossBoundaryVariables(
-      b.bodyExpr,
-      b.analysis
-    );
+    const { crossBoundaryIds, awaitFutureTempVarAliases } =
+      computeCrossBoundaryVariables(b.bodyExpr, b.analysis);
     emitAsyncBlockStructDefinition(
       {
         asyncBlockId: b.asyncBlockId,
@@ -692,6 +695,7 @@ function emitDeferredAsyncBlockStructDefinitions(
         captureType: b.captureType,
         analysis: b.analysis,
         crossBoundaryIds,
+        awaitFutureTempVarAliases,
       },
       context
     );
@@ -718,6 +722,7 @@ function generateAsyncBlockStateDisposeFunction(
   analysis: AwaitAnalysisResult,
   localVarDrops: string[],
   crossBoundaryIds: Set<string>,
+  awaitFutureTempVarAliases: Map<string, string>,
   context: FunctionGenerationContext
 ): void {
   const emitter = context.emitter;
@@ -811,6 +816,8 @@ function generateAsyncBlockStateDisposeFunction(
       if (v.kind !== "local") continue;
       // Skip segment-local variables — they are not struct fields
       if (!crossBoundaryIds.has(v.id)) continue;
+      // Skip temp future vars aliased to await_future_N — lifecycle managed by resume function
+      if (awaitFutureTempVarAliases.has(v.id)) continue;
       // Skip variables that are borrowing an RC value from another variable
       if (v.isOwningTheSameRcValueAs !== undefined) continue;
 
@@ -1039,9 +1046,15 @@ export function generateDeferredAsyncBlocks(
     // Create a filtered analysis where capturedVariables excludes segment-locals.
     // This ensures ALL internal map-building in the resume function generator
     // (which iterates analysis.capturedVariables) automatically excludes them.
-    const crossBoundaryIds = computeCrossBoundaryVariables(bodyExpr, analysis);
+    // Phase 1b: aliased temp future vars remain in capturedVariables (for deferred drops)
+    // but their struct fields are skipped — atom.ts redirects to await_future_N.
+    const { crossBoundaryIds, awaitFutureTempVarAliases } =
+      computeCrossBoundaryVariables(bodyExpr, analysis);
     const filteredCapturedVariables = analysis.capturedVariables.filter(
-      (v) => v.kind === "outer" || crossBoundaryIds.has(v.id)
+      (v) =>
+        v.kind === "outer" ||
+        crossBoundaryIds.has(v.id) ||
+        awaitFutureTempVarAliases.has(v.id)
     );
     const filteredAnalysis: AwaitAnalysisResult = {
       ...analysis,
@@ -1063,6 +1076,10 @@ export function generateDeferredAsyncBlocks(
       }
     }
     context.stateMachineVariables = smVarMap;
+    // Phase 1b: Set field aliases so atom.ts redirects temp future var
+    // lookups to the corresponding await_future_N field.
+    const savedFieldAliases = context.stateMachineFieldAliases;
+    context.stateMachineFieldAliases = awaitFutureTempVarAliases;
 
     const localVarDrops = generateAsyncBlockResumeFunction(
       bodyExpr,
@@ -1078,6 +1095,7 @@ export function generateDeferredAsyncBlocks(
     // Restore context
     context.stateMachineVariables = savedSMVars;
     context.currentEvidenceParams = savedEvidenceParams;
+    context.stateMachineFieldAliases = savedFieldAliases;
 
     emitter.emitLine(``);
 
@@ -1091,6 +1109,7 @@ export function generateDeferredAsyncBlocks(
       filteredAnalysis,
       localVarDrops,
       crossBoundaryIds,
+      awaitFutureTempVarAliases,
       context
     );
 
@@ -1117,10 +1136,10 @@ export function generateDeferredAsyncBlocks(
     if (context.deferredAsyncBlocks.length > prevLength) {
       const newBlocks = context.deferredAsyncBlocks.slice(prevLength);
       for (const newBlock of newBlocks) {
-        const newCrossBoundaryIds = computeCrossBoundaryVariables(
-          newBlock.bodyExpr,
-          newBlock.analysis
-        );
+        const {
+          crossBoundaryIds: newCrossBoundaryIds,
+          awaitFutureTempVarAliases: newAliases,
+        } = computeCrossBoundaryVariables(newBlock.bodyExpr, newBlock.analysis);
         emitAsyncBlockStructDefinition(
           {
             asyncBlockId: newBlock.asyncBlockId,
@@ -1130,6 +1149,7 @@ export function generateDeferredAsyncBlocks(
             captureType: newBlock.captureType,
             analysis: newBlock.analysis,
             crossBoundaryIds: newCrossBoundaryIds,
+            awaitFutureTempVarAliases: newAliases,
           },
           context
         );

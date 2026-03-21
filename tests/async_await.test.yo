@@ -2888,3 +2888,20 @@ test "SM opt: nested cond-with-await, outer segment locals", using(io : IO), {
   // total = 0 + 100 + 1 = 101
   assert((r == i32(101)), "nested cond-with-await outer locals should be 101");
 };
+
+test "SM opt: temp future vars aliased to await_future fields", using(io : IO), {
+  // Phase 1b: io.await(yield()) creates a temp var that should be aliased
+  // to the corresponding await_future_N field, not stored as a separate
+  // struct field. This test verifies correctness with multiple temp futures.
+  task := io.async((using(io : IO)) => {
+    x := i32(10);
+    io.await(yield());
+    y := i32(20);
+    io.await(yield());
+    z := i32(30);
+    io.await(yield());
+    return ((x + y) + z);
+  });
+  r := io.await(task);
+  assert((r == i32(60)), "temp future aliasing should compute 60");
+};

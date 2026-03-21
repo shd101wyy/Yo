@@ -1,5 +1,7 @@
 # Async State Machine: Temp Future Variable Duplication
 
+**Status: FIXED** (Phase 1b — temp future variable aliasing)
+
 ## Summary
 
 When an async body contains `io.await(yield())` or `io.await(someExpr())`, the state machine struct may contain **both**:
@@ -9,43 +11,19 @@ When an async body contains `io.await(yield())` or `io.await(someExpr())`, the s
 
 Both point to the same future object. Only `await_future_N` is actually used by the resume function logic; the `var_temp_XXXX` field is captured by the variable walker but never referenced during code generation.
 
-## Reproduction
+## Fix applied
 
-```yo
-{ yield } :: import "std/async";
+Instead of removing temp vars from the SM variable map (which breaks deferred drop code generation), we **alias** them to their corresponding `await_future_N` field:
 
-main :: (fn(using(io : IO)) -> unit)({
-  task := io.async((using(io : IO)) => {
-    io.await(yield());
-    return i32(1);
-  });
-  io.await(task);
-});
-export main;
-```
+1. `computeCrossBoundaryVariables()` identifies temp vars by matching `awaitPoint.expr.args[0].$.variableName` to captured variables
+2. Aliased vars stay in `stateMachineVariables` (so atom.ts and drop codegen can find them) but NO struct field is generated
+3. `atom.ts` checks `stateMachineFieldAliases` and redirects lookups to `sm->await_future_N`
+4. Deferred drops for aliased vars become no-ops (await_future_N is already NULLed by the resume function)
+5. The dispose function skips drops for aliased vars (lifecycle managed by resume function)
 
-## Generated struct (observed)
+Key files modified:
 
-```c
-struct state_t_struct {
-  // ... fixed fields ...
-  sync_fut_t* var_temp_5425;   // ← captured by variable walker
-  sync_fut_t* var_temp_5409;   // ← captured by variable walker
-  sync_fut_t* await_future_0;  // ← used by resume function
-  sync_fut_t* await_future_1;  // ← used by resume function
-};
-```
-
-## Expected
-
-Only `await_future_N` fields should be present. The `var_temp_XXXX` fields are redundant.
-
-## Root cause
-
-The suspension analysis walks the entire expression tree including temporary variable references inside `io.await(yield())`. The yield call creates a temporary future that the walker captures. Meanwhile, the await-point analysis separately creates `await_future_N` fields for futures without a named variable (`futureVariableId === undefined`).
-
-## Fix
-
-During suspension analysis, skip capturing temporary variables that are the direct argument of a suspension point expression (i.e., the future passed to `io.await`). These are already handled by the `await_future_N` mechanism.
-
-Alternatively, when a captured variable IS the future for an await point, de-duplicate by using the captured variable field as the `await_future` field (the `getFutureFieldName` function already tries to do this, but it doesn't cover temp variables).
+- `src/codegen/async/state-machine.ts` — `computeCrossBoundaryVariables()` returns `CrossBoundaryResult` with alias map
+- `src/codegen/functions/context.ts` — added `stateMachineFieldAliases` field
+- `src/codegen/exprs/async.ts` — passes aliases through struct definition, dispose, and resume codegen
+- `src/codegen/exprs/atom.ts` — checks aliases before generating SM field access

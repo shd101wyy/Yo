@@ -38,6 +38,9 @@ export interface FunctionGenerationContext extends CodeGenContext {
   // Async state machine context (set when generating code inside an async state machine)
   inAsyncStateMachine?: { futureType: SomeType | DynType };
   stateMachineVariables?: Map<string, CapturedVariable>; // Variables captured in state machine (id -> variable)
+  // Phase 1b: Maps temp future variable IDs to their aliased await_future_N field names.
+  // When set, atom.ts redirects SM variable lookups to the existing await_future field.
+  stateMachineFieldAliases?: Map<string, string>;
   inEffectStateMachine?: unknown; // Legacy — no longer used (effects use evidence passing)
   // Set when generating code for a module effect member function (e.g., Exception.throw handler)
   isModuleEffectMemberFunction?: boolean;

@@ -1,31 +1,15 @@
-{ printf } :: import "std/libc/stdio";
+{ yield } :: import "std/async";
 
-Optimize :: enum(
-  Debug,
-  ReleaseSafe,
-  ReleaseFast,
-  ReleaseSmall
-);
-
-Config :: struct(
-  name : comptime_string,
-  (optimize : Optimize) ?= Optimize.Debug
-);
-
-register :: (fn(comptime(config) : Config) -> unit) {
-  opt_str := match(config.optimize,
-    .Debug => "debug",
-    .ReleaseSafe => "release-safe",
-    .ReleaseFast => "release-fast",
-    .ReleaseSmall => "release-small"
-  );
-  printf("name=%s optimize=%s\n", config.name, opt_str);
-};
-
-register(Config(name: "test1"));
-register(Config(name: "test2", optimize: Optimize.ReleaseFast));
-
-main :: (fn() -> unit) {
-  printf("main\n");
-};
+main :: (fn(using(io : IO)) -> unit)({
+  task := io.async((using(io : IO)) => {
+    a := i32(1);
+    b := i32(2);
+    io.await(yield());
+    c := i32(3);
+    io.await(yield());
+    result := (a + c);
+    return result;
+  });
+  r := io.await(task);
+});
 export main;
