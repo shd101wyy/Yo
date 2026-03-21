@@ -190,12 +190,15 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
     );
   }
 
-  // Generate parallelism runtime (Worker, Channel for multi-threaded execution)
-  generateParallelismRuntime(
-    context.emitter,
-    context.debugParallelism,
-    context.targetInfo
-  );
+  // Generate parallelism runtime only when the program uses threads/workers.
+  // This avoids ~450 lines of C thread pool code for single-threaded programs.
+  if (context.usesParallelism) {
+    generateParallelismRuntime(
+      context.emitter,
+      context.debugParallelism,
+      context.targetInfo
+    );
+  }
 
   // Generate thread-safe GC runtime functions
   generateAtomicGCRuntimeFunctions(context);

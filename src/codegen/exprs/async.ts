@@ -1316,6 +1316,22 @@ function preRegisterAsyncBlocksInExpr(
       }
     }
 
+    // Check if this is a parallelism call (__yo_thread_spawn or __yo_worker_spawn)
+    {
+      const calledType = funcCallExpr.func.$?.type;
+      if (
+        calledType &&
+        "isExtern" in calledType &&
+        calledType.isExtern === "yo" &&
+        "externName" in calledType &&
+        typeof calledType.externName === "string" &&
+        (calledType.externName === "__yo_thread_spawn" ||
+          calledType.externName === "__yo_worker_spawn")
+      ) {
+        context.usesParallelism = true;
+      }
+    }
+
     // Recursively search in arguments
     for (const arg of funcCallExpr.args) {
       preRegisterAsyncBlocksInExpr(arg, context);

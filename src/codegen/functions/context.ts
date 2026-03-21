@@ -189,4 +189,7 @@ export interface FunctionGenerationContext extends CodeGenContext {
   // Set to true when any io.async block is encountered during codegen.
   // Used to conditionally emit the async runtime and event loop in main().
   usesAsync?: boolean;
+  // Set to true when any __yo_thread_spawn or __yo_worker_spawn call is found.
+  // Used to conditionally emit the parallelism runtime (thread pool, worker spawn).
+  usesParallelism?: boolean;
 }
