@@ -88,8 +88,8 @@ Additionally, `getLocalVariablesFromBody()` in `await-analysis.ts` collects ALL 
 Phase 1 liveness analysis has been implemented in `src/codegen/async/state-machine.ts`:
 
 - `computeCrossBoundaryVariables()` determines which variables cross await boundaries
-- Segment-local variables in **simple linear** async blocks (no cond/match/while with await) are now emitted as C locals
-- For async blocks with branching await patterns (cond/while), all variables are conservatively kept in the struct (future Phase 2 work)
+- Segment-local variables are now emitted as C locals
+- Phase 2b improved this further: when a cond/while has an await, only variables in that specific segment are conservatively kept in the struct (previously ALL variables in ALL segments were kept)
 
 Phase 3 await result deduplication has also been implemented:
 
@@ -101,6 +101,5 @@ Phase 3 await result deduplication has also been implemented:
 
 - **Phase 1b** (Temp future dedup): Deferred due to complex interaction with deferred drops
 - **Phase 2** (Overlapping storage / graph coloring): Deferred, diminishing returns
-- **Phase 2b** (Remove cond/while conservative fallback): Deferred, requires deeper AST analysis
 
 See `plans/ASYNC_SM_VARIABLE_OPTIMIZATION.md` for the full optimization plan.

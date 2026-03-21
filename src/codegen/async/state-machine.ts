@@ -151,23 +151,23 @@ export function computeCrossBoundaryVariables(
     return new Set();
   }
 
-  // CONSERVATIVE: if any await point is inside a cond, match, or while,
-  // the segment-based analysis is insufficient because cond/while continuation
-  // states are generated as separate case blocks not represented in segments.
-  // In that case, treat ALL locals as cross-boundary.
-  const hasBranchingAwait = awaitPoints.some(
-    (ap) => ap.isInsideCond || ap.isInsideWhile
-  );
-  if (hasBranchingAwait) {
-    const allIds = new Set<string>();
-    for (const v of capturedVariables) {
-      if (v.kind !== "outer") allIds.add(v.id);
-    }
-    return allIds;
-  }
+  // Identify which segments have branching await points (cond/while with await).
+  // Variables found only in a branching segment must stay in the struct because
+  // the cond/while continuation runs in a separate case block.
+  const branchingAwaitSegmentIndices = new Set<number>();
 
   // Split body into segments (same function used by the resume code generator)
   const segments = splitIntoStateSegments(bodyExpr, awaitPoints);
+
+  // Build the set of segment indices that have branching await points.
+  // Variables that appear ONLY in such a segment must stay in the struct because
+  // the cond/while continuation code runs in a separate case block (not in the
+  // segment's case block), so C locals would be lost across the state transition.
+  for (const segment of segments) {
+    if (segment.awaitPoint?.isInsideCond || segment.awaitPoint?.isInsideWhile) {
+      branchingAwaitSegmentIndices.add(segment.stateNumber);
+    }
+  }
 
   // For each segment, collect all variable IDs referenced in its expressions
   const variableSegments = new Map<string, Set<number>>();
@@ -211,6 +211,9 @@ export function computeCrossBoundaryVariables(
   // proper environment metadata in the expression tree.
   // Also: variables that ONLY appear in the cleanup segment (-1) must be in the
   // struct because cleanup code runs in the last segment and accesses sm->var_X.
+  // Also: variables that appear in exactly 1 segment but that segment has a
+  // branching await (cond/while) must stay in struct because the continuation
+  // code runs in a separate case block.
   const crossBoundaryIds = new Set<string>();
   for (const v of capturedVariables) {
     if (v.kind === "outer") continue; // Outer vars are in __capture struct
@@ -224,8 +227,16 @@ export function computeCrossBoundaryVariables(
     } else if (segmentsUsed.has(CLEANUP_SEGMENT)) {
       // Only appears in cleanup segment — must be in struct
       crossBoundaryIds.add(v.id);
+    } else {
+      // Appears in exactly 1 numbered segment — check if that segment has a
+      // branching await. If so, must stay in struct because the cond/while
+      // continuation runs in a separate case block.
+      const singleSegment = segmentsUsed.values().next().value as number;
+      if (branchingAwaitSegmentIndices.has(singleSegment)) {
+        crossBoundaryIds.add(v.id);
+      }
+      // else: segment-local in a non-branching segment — can be C local
     }
-    // else: appears in exactly 1 numbered segment — segment-local, can be C local
   }
 
   return crossBoundaryIds;

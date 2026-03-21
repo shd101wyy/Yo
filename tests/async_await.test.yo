@@ -2797,3 +2797,94 @@ test "SM opt: cond with segment-local vars and no await in branches", using(io :
   r := io.await(task);
   assert((r == i32(42)), "cond without await should work with segment-local");
 };
+
+// ---------------------------------------------------------------------------
+// SM Optimization: Phase 2b — cond/while with await, non-branching segments
+// Variables in segments WITHOUT branching awaits should still be C locals,
+// even when OTHER segments have branching awaits (cond/while).
+// ---------------------------------------------------------------------------
+test "SM opt: cond-with-await, non-branching segment locals", using(io : IO), {
+  // local_before is used only in segment 0 (before the first await).
+  // Even though segment 1 has a cond-with-await, local_before should be a C local.
+  task := io.async((using(io : IO)) => {
+    cross := i32(100);
+    local_before := i32(7);
+    sum0 := (cross + local_before);
+    io.await(yield());
+    cond(
+      true => {
+        io.await(yield());
+      },
+      true => ()
+    );
+    local_after := i32(9);
+    return ((cross + sum0) + local_after);
+  });
+  r := io.await(task);
+  // sum0 = 107, result = 100 + 107 + 9 = 216
+  assert((r == i32(216)), "non-branching segment locals with cond-with-await should be 216");
+};
+
+test "SM opt: while-with-await, non-branching segment locals", using(io : IO), {
+  // Variables in segments before/after the while should be C locals if only
+  // used in that segment.
+  task := io.async((using(io : IO)) => {
+    persistent := i32(0);
+    local_init := i32(5);
+    persistent = (persistent + local_init);
+    io.await(yield());
+    i := i32(0);
+    while (i < i32(3)), {
+      io.await(yield());
+      persistent = (persistent + i32(1));
+      i = (i + i32(1));
+    };
+    local_end := i32(10);
+    return (persistent + local_end);
+  });
+  r := io.await(task);
+  // persistent starts at 5, loop adds 3 → 8, then + 10 = 18
+  assert((r == i32(18)), "while-with-await non-branching locals should be 18");
+};
+
+test "SM opt: cond-with-await, cross-boundary vars still work", using(io : IO), {
+  // Variables that cross the cond-await boundary must still be in the struct.
+  task := io.async((using(io : IO)) => {
+    a := i32(10);
+    b := i32(20);
+    io.await(yield());
+    c := i32(30);
+    cond(
+      true => {
+        io.await(yield());
+        a = ((a + b) + c);
+      },
+      true => ()
+    );
+    return a;
+  });
+  r := io.await(task);
+  // a=10, b=20, c=30 → 10+20+30 = 60
+  assert((r == i32(60)), "cond-with-await cross-boundary should be 60");
+};
+
+test "SM opt: nested cond-with-await, outer segment locals", using(io : IO), {
+  // Multiple cond-with-await branches; variables only used outside cond are locals.
+  task := io.async((using(io : IO)) => {
+    total := i32(0);
+    local_setup := i32(100);
+    total = (total + local_setup);
+    io.await(yield());
+    cond(
+      true => {
+        io.await(yield());
+        total = (total + i32(1));
+      },
+      true => ()
+    );
+    return total;
+  });
+  r := io.await(task);
+  // total = 0 + 100 + 1 = 101
+  assert((r == i32(101)), "nested cond-with-await outer locals should be 101");
+};

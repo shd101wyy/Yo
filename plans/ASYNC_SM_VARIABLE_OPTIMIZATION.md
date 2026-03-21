@@ -187,9 +187,10 @@ Currently every non-unit await gets an `await_result_N` struct field. The resume
 
 ## Priority
 
-- **Phase 1** (Liveness): ✅ **IMPLEMENTED**. Segment-local variables in simple linear async blocks (no cond/while with await) are now emitted as C locals.
+- **Phase 1** (Liveness): ✅ **IMPLEMENTED**. Segment-local variables in simple linear async blocks are now emitted as C locals.
 - **Phase 1b** (Temp future dedup): ❌ **DEFERRED**. Complex interaction with deferred drops makes this risky for minor gain.
 - **Phase 2** (Overlapping): Deferred. More complex, diminishing returns for typical async functions.
+- **Phase 2b** (Cond/while per-segment): ✅ **IMPLEMENTED**. Variables in non-branching segments can be C locals even when other segments have cond/while with await.
 - **Phase 3** (Await result dedup): ✅ **IMPLEMENTED**. Linear awaits skip `await_result_N` entirely.
 
 ## Implementation Notes (Phase 1)
@@ -214,7 +215,7 @@ The optimization is in the codegen layer (not the evaluator):
 
 ### Limitations / conservative fallbacks
 
-- **Cond/match/while with await**: When any await point is inside a conditional or loop, the optimization is **disabled** for the entire async block. This is because cond/while branch continuations generate additional case blocks not represented in `splitIntoStateSegments`, making the segment-based analysis insufficient.
+- **Cond/match/while with await (per-segment)**: When a segment's await point is inside a conditional or loop, variables appearing only in that segment are conservatively kept in the struct (because cond/while branch continuations run in separate case blocks). Variables in other non-branching segments are still eligible for C-local optimization.
 - **Cleanup-only variables**: Variables that appear only in deferred drop expressions (not in any numbered segment) are kept in the struct.
 - **Unresolved variables**: Variables captured by suspension analysis but not found by the expression walker are conservatively kept in the struct.
 
@@ -249,3 +250,29 @@ The optimization eliminates `await_result_N` intermediate struct fields for line
 
 - `src/codegen/exprs/async.ts`: Struct field generation filtered by `isInsideCond`
 - `src/codegen/async/state-machine.ts`: Direct assignment in resume function
+
+## Implementation Notes (Phase 2b)
+
+### What was implemented
+
+Replaced the global conservative fallback (which disabled the optimization entirely when ANY await was inside cond/while) with per-segment analysis:
+
+1. **`computeCrossBoundaryVariables()`** in `state-machine.ts`:
+
+   - Builds `branchingAwaitSegmentIndices`: the set of segment indices whose `awaitPoint` has `isInsideCond || isInsideWhile`
+   - For variables appearing in exactly 1 segment: if that segment is in the branching set, the variable stays in the struct; otherwise it becomes a C local
+   - Variables in 2+ segments are still cross-boundary (unchanged)
+   - Variables only in cleanup or not found by walker are still conservative (unchanged)
+
+### Why branching-segment variables must stay in struct
+
+When a cond/while has an await inside a branch, `generateCondWithAwait`/`generateWhileWithAwait` emit separate case blocks for the branch continuation. These case blocks are NOT represented in `splitIntoStateSegments`. A C local declared in the segment's case block would not be accessible in the continuation's case block, so variables in branching segments must remain as struct fields.
+
+### Improvement over Phase 1
+
+**Before Phase 2b**: Any cond/while with await forces ALL variables in ALL segments to be struct fields.
+**After Phase 2b**: Only variables in the specific branching segment are forced to struct fields. Variables in other segments benefit from Phase 1 C-local optimization.
+
+### Files modified
+
+- `src/codegen/async/state-machine.ts`: Replaced early-return `hasBranchingAwait` check with per-segment `branchingAwaitSegmentIndices` logic
