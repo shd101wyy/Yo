@@ -1332,23 +1332,6 @@ function preRegisterAsyncBlocksInExpr(
       }
     }
 
-    // Check if this is a signal call (__yo_signal_start, __yo_signal_stop, or __yo_kill)
-    {
-      const calledType = funcCallExpr.func.$?.type;
-      if (
-        calledType &&
-        "isExtern" in calledType &&
-        calledType.isExtern === "yo" &&
-        "externName" in calledType &&
-        typeof calledType.externName === "string" &&
-        (calledType.externName === "__yo_signal_start" ||
-          calledType.externName === "__yo_signal_stop" ||
-          calledType.externName === "__yo_kill")
-      ) {
-        context.usesSignal = true;
-      }
-    }
-
     // Recursively search in arguments
     for (const arg of funcCallExpr.args) {
       preRegisterAsyncBlocksInExpr(arg, context);

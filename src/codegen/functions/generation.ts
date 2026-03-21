@@ -36,7 +36,8 @@ import {
 import { isTargetWindows } from "../../target";
 import { isTempVariableName } from "../../utils";
 import { isFunctionValue, isTraitValue, type TraitValue } from "../../value";
-import { generateAsyncRuntime, generateSignalRuntime } from "../async/runtime";
+import { generateAsyncRuntime } from "../async/runtime";
+import { generateSysRuntime } from "../async/runtime-io-common";
 import {
   generateDeferredDropExpressions,
   generateDeferredDupExpressions,
@@ -180,6 +181,11 @@ function findUserDisposeMethodForType(
 export function generateAllFunctions(context: FunctionGenerationContext): void {
   context.emitter.emitLine(`// Function implementations`);
 
+  // Always emit synchronous system helpers (stat, sync ops, signal, TTY).
+  // These have no async/IOFuture dependency.  All functions are `static`, so
+  // unused ones are dead-code-eliminated by the C compiler.
+  generateSysRuntime(context.emitter, context.targetInfo);
+
   // Generate async/await runtime only when the program uses async code.
   // This avoids ~8K lines of C runtime overhead for non-async programs.
   if (context.usesAsync) {
@@ -198,12 +204,6 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
       context.debugParallelism,
       context.targetInfo
     );
-  }
-
-  // Generate standalone signal runtime when signals are used but async is not.
-  // When async is active, signal code is already included in the IO runtime.
-  if (context.usesSignal && !context.usesAsync) {
-    generateSignalRuntime(context.emitter, context.targetInfo);
   }
 
   // Generate thread-safe GC runtime functions

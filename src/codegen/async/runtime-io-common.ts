@@ -1,23 +1,36 @@
 /**
  * runtime-io-common.ts
  *
- * Cross-platform and POSIX-only I/O helpers:
- * - File system stat helpers (struct stat field accessors)
- * - Timer operations (Linux timerfd, macOS dispatch, Windows threadpool)
- * - File extra operations (access, realpath, utime, mkdtemp, copyfile, sendfile, statfs)
- * - Directory operations (scandir, opendir, readdir, closedir, getdents)
- * - DNS resolution (getaddrinfo, getnameinfo)
- * - Signal handling
- * - TTY operations
- * - FS event watching
- * - Poll operations
+ * Two categories of POSIX/cross-platform C helpers:
+ *
+ * 1. generateSysRuntime — synchronous system helpers that do NOT depend on the
+ *    async IOFuture type or event loop.  Always emitted for non-wasm targets so
+ *    that non-async programs (signals, stat, TTY, sync file ops) compile.
+ *    All functions are `static`, so unused ones are stripped by the C compiler.
+ *
+ *    Sections: stat/dirent, sendfile/copyfile, sync ops, statfs, signal, TTY.
+ *
+ * 2. generateAsyncRuntimeIOCommon — helpers that create / consume IOFuture or
+ *    participate in the event loop.  Only emitted when `usesAsync` is true.
+ *
+ *    Sections: timers, directory scanning (async), DNS (async), process spawn/
+ *    waitpid (async), FS event watching, poll, tick.
  */
 
 import { Emitter } from "../../emitter";
 import type { TargetInfo } from "../../target";
 import { isTargetWindows, isTargetLinux, isTargetMacos } from "../../target";
 
-export function generateAsyncRuntimeIOCommon(
+// ---------------------------------------------------------------------------
+// 1. Synchronous system runtime — no async/IOFuture dependency
+// ---------------------------------------------------------------------------
+
+/**
+ * Emits synchronous POSIX system helpers.  These do NOT depend on the async
+ * runtime (no IOFuture, no event-loop types).  Emitted for every non-wasm
+ * target; unused `static` functions are dead-code-eliminated by the C compiler.
+ */
+export function generateSysRuntime(
   emitter: Emitter,
   targetInfo: TargetInfo
 ): void {
@@ -25,11 +38,12 @@ export function generateAsyncRuntimeIOCommon(
   const isLinux = isTargetLinux(targetInfo);
   const isMacos = isTargetMacos(targetInfo);
 
-  // ============================================================================
-  // POSIX stat/dirent helpers (not needed on Windows)
-  // ============================================================================
-  if (!isWindows) {
-    emitter.emitLine(`
+  if (isWindows) {
+    // Windows sys helpers live in runtime-io-windows.ts
+    return;
+  }
+
+  emitter.emitLine(`
 // ============================================================================
 // File System Helper Functions
 // ============================================================================
@@ -106,7 +120,401 @@ ${
 }
 }
 `);
-  } // end POSIX stat/dirent
+
+  // Includes for sendfile/copyfile
+  if (isLinux) {
+    emitter.emitLine(`#include <sys/sendfile.h>`);
+  } else if (isMacos) {
+    emitter.emitLine(`#include <copyfile.h>`);
+    emitter.emitLine(`#include <sys/socket.h>  // macOS sendfile()`);
+  }
+
+  // Sendfile fallback (Linux and macOS)
+  if (isLinux || isMacos) {
+    emitter.emitLine(`
+// Fallback for platforms where sendfile cannot handle all fd combinations
+static int32_t __yo_sendfile_fallback_copy(int32_t out_fd, int32_t in_fd, int64_t offset, size_t count) {
+  unsigned char buffer[65536];
+  size_t total = 0;
+
+  while (total < count) {
+  size_t remaining = count - total;
+  size_t chunk = remaining < sizeof(buffer) ? remaining : sizeof(buffer);
+
+  ssize_t nread = pread(in_fd, buffer, chunk, (off_t)(offset + (int64_t)total));
+  if (nread < 0) {
+    return -errno;
+  }
+  if (nread == 0) {
+    break;
+  }
+
+  size_t written = 0;
+  while (written < (size_t)nread) {
+    ssize_t nwrite = write(out_fd, buffer + written, (size_t)nread - written);
+    if (nwrite < 0) {
+      return -errno;
+    }
+    written += (size_t)nwrite;
+  }
+
+  total += (size_t)nread;
+  }
+
+  return (int32_t)total;
+}
+`);
+  }
+
+  // Sync operations
+  emitter.emitLine(`
+// ============================================================================
+// Synchronous Operations (POSIX-only) - no IOFuture overhead
+// ============================================================================
+
+static int32_t __yo_sync_access(int32_t dirfd, const char* path, int32_t mode) {
+  int result;
+  if (dirfd == -100) {  // AT_FDCWD
+  result = access(path, mode);
+  } else {
+  result = faccessat(dirfd, path, mode, 0);
+  }
+  return (result < 0) ? -errno : 0;
+}
+
+static int32_t __yo_sync_realpath(const char* path, char* resolved) {
+  char* result = realpath(path, resolved);
+  return result ? 0 : -errno;
+}
+
+static int32_t __yo_sync_mkdtemp(char* template) {
+  char* result = mkdtemp(template);
+  return result ? 0 : -errno;
+}
+
+static int32_t __yo_sync_mkstemp(char* template) {
+  int fd = mkstemp(template);
+  return (fd < 0) ? -errno : fd;
+}
+`);
+
+  // Copyfile (platform-specific)
+  if (isLinux) {
+    emitter.emitLine(`
+static int32_t __yo_sync_copyfile(const char* src, const char* dst, int32_t flags) {
+  int src_fd = open(src, O_RDONLY);
+  if (src_fd < 0) return -errno;
+
+  struct stat st;
+  if (fstat(src_fd, &st) < 0) {
+  int err = errno;
+  close(src_fd);
+  return -err;
+  }
+
+  int open_flags = O_WRONLY | O_CREAT | O_TRUNC;
+  if (flags & 1) open_flags |= O_EXCL;
+
+  int dst_fd = open(dst, open_flags, st.st_mode);
+  if (dst_fd < 0) {
+  int err = errno;
+  close(src_fd);
+  return -err;
+  }
+
+  ssize_t copied = 0;
+  off_t off_in = 0;
+#ifdef __NR_copy_file_range
+  copied = syscall(__NR_copy_file_range, src_fd, &off_in, dst_fd, NULL, (size_t)st.st_size, 0);
+#endif
+  if (copied < 0) {
+  off_t offset = 0;
+  copied = sendfile(dst_fd, src_fd, &offset, (size_t)st.st_size);
+  }
+
+  close(src_fd);
+  close(dst_fd);
+  return (copied < 0) ? -errno : 0;
+}
+`);
+  } else if (isMacos) {
+    emitter.emitLine(`
+static int32_t __yo_sync_copyfile(const char* src, const char* dst, int32_t flags) {
+  copyfile_flags_t cf_flags = COPYFILE_ALL;
+  if (flags & 1) cf_flags |= COPYFILE_EXCL;
+  if (flags & 2) cf_flags |= COPYFILE_CLONE;
+  if (flags & 4) cf_flags |= COPYFILE_CLONE_FORCE;
+
+  int result = copyfile(src, dst, NULL, cf_flags);
+  return (result < 0) ? -errno : 0;
+}
+`);
+  } else {
+    emitter.emitLine(`
+static int32_t __yo_sync_copyfile(const char* src, const char* dst, int32_t flags) {
+  (void)src; (void)dst; (void)flags;
+  return -ENOSYS;
+}
+`);
+  }
+
+  // Sendfile (platform-specific)
+  if (isLinux) {
+    emitter.emitLine(`
+static int32_t __yo_sync_sendfile(int32_t out_fd, int32_t in_fd, int64_t offset, size_t count) {
+  off_t off = (off_t)offset;
+  ssize_t sent = sendfile(out_fd, in_fd, &off, count);
+  return (sent < 0) ? -errno : (int32_t)sent;
+}
+`);
+  } else if (isMacos) {
+    emitter.emitLine(`
+static int32_t __yo_sync_sendfile(int32_t out_fd, int32_t in_fd, int64_t offset, size_t count) {
+  off_t len = (off_t)count;
+  int result = sendfile(in_fd, out_fd, (off_t)offset, &len, NULL, 0);
+  if (result < 0) {
+  if (errno == ENOTSOCK || errno == EINVAL || errno == ENOSYS) {
+    return __yo_sendfile_fallback_copy(out_fd, in_fd, offset, count);
+  }
+  return -errno;
+  }
+  return (int32_t)len;
+}
+`);
+  } else {
+    emitter.emitLine(`
+static int32_t __yo_sync_sendfile(int32_t out_fd, int32_t in_fd, int64_t offset, size_t count) {
+  (void)out_fd; (void)in_fd; (void)offset; (void)count;
+  return -ENOSYS;
+}
+`);
+  }
+
+  // Utime operations (common POSIX)
+  emitter.emitLine(`
+static int32_t __yo_sync_utime(const char* path, int64_t atime_sec, int64_t atime_nsec,
+                             int64_t mtime_sec, int64_t mtime_nsec) {
+  struct timespec times[2];
+  times[0].tv_sec = (time_t)atime_sec;
+  times[0].tv_nsec = (long)atime_nsec;
+  times[1].tv_sec = (time_t)mtime_sec;
+  times[1].tv_nsec = (long)mtime_nsec;
+  int result = utimensat(AT_FDCWD, path, times, 0);
+  return (result < 0) ? -errno : 0;
+}
+
+static int32_t __yo_sync_futime(int32_t fd, int64_t atime_sec, int64_t atime_nsec,
+                              int64_t mtime_sec, int64_t mtime_nsec) {
+  struct timespec times[2];
+  times[0].tv_sec = (time_t)atime_sec;
+  times[0].tv_nsec = (long)atime_nsec;
+  times[1].tv_sec = (time_t)mtime_sec;
+  times[1].tv_nsec = (long)mtime_nsec;
+  int result = futimens(fd, times);
+  return (result < 0) ? -errno : 0;
+}
+
+static int32_t __yo_sync_lutime(const char* path, int64_t atime_sec, int64_t atime_nsec,
+                              int64_t mtime_sec, int64_t mtime_nsec) {
+  struct timespec times[2];
+  times[0].tv_sec = (time_t)atime_sec;
+  times[0].tv_nsec = (long)atime_nsec;
+  times[1].tv_sec = (time_t)mtime_sec;
+  times[1].tv_nsec = (long)mtime_nsec;
+  int result = utimensat(AT_FDCWD, path, times, AT_SYMLINK_NOFOLLOW);
+  return (result < 0) ? -errno : 0;
+}
+
+// Statfs support
+#include <sys/statvfs.h>
+
+static int32_t __yo_sync_statfs(const char* path, void* buf) {
+  int result = statvfs(path, (struct statvfs*)buf);
+  return (result < 0) ? -errno : 0;
+}
+
+static size_t __yo_statfs_buf_size(void) {
+  return sizeof(struct statvfs);
+}
+
+static uint64_t __yo_statfs_type(void* buf) {
+  (void)buf;
+  return 0;
+}
+
+static uint64_t __yo_statfs_bsize(void* buf) {
+  return (uint64_t)((struct statvfs*)buf)->f_bsize;
+}
+
+static uint64_t __yo_statfs_blocks(void* buf) {
+  return (uint64_t)((struct statvfs*)buf)->f_blocks;
+}
+
+static uint64_t __yo_statfs_bfree(void* buf) {
+  return (uint64_t)((struct statvfs*)buf)->f_bfree;
+}
+
+static uint64_t __yo_statfs_bavail(void* buf) {
+  return (uint64_t)((struct statvfs*)buf)->f_bavail;
+}
+
+static uint64_t __yo_statfs_files(void* buf) {
+  return (uint64_t)((struct statvfs*)buf)->f_files;
+}
+
+static uint64_t __yo_statfs_ffree(void* buf) {
+  return (uint64_t)((struct statvfs*)buf)->f_ffree;
+}
+`);
+
+  // Signal operations
+  emitter.emitLine(`
+// ============================================================================
+// Signal Operations
+// ============================================================================
+#include <signal.h>
+
+static void (*__yo_signal_handlers[32])(void*) = {NULL};
+static void* __yo_signal_handler_data[32] = {NULL};
+
+static void __yo_signal_trampoline(int signum) {
+  if (signum >= 0 && signum < 32 && __yo_signal_handlers[signum]) {
+  __yo_signal_handlers[signum](__yo_signal_handler_data[signum]);
+  }
+}
+
+static int32_t __yo_signal_start(int32_t signum, void* handler) {
+  if (signum < 0 || signum >= 32) return -EINVAL;
+  
+  __yo_signal_handlers[signum] = (void (*)(void*))handler;
+  
+  struct sigaction sa;
+  memset(&sa, 0, sizeof(sa));
+  sa.sa_handler = __yo_signal_trampoline;
+  sigemptyset(&sa.sa_mask);
+  sa.sa_flags = SA_RESTART;
+  
+  if (sigaction(signum, &sa, NULL) < 0) {
+  return -errno;
+  }
+  return 0;
+}
+
+static int32_t __yo_signal_stop(int32_t signum) {
+  if (signum < 0 || signum >= 32) return -EINVAL;
+  
+  __yo_signal_handlers[signum] = NULL;
+  __yo_signal_handler_data[signum] = NULL;
+  
+  struct sigaction sa;
+  memset(&sa, 0, sizeof(sa));
+  sa.sa_handler = SIG_DFL;
+  sigemptyset(&sa.sa_mask);
+  
+  if (sigaction(signum, &sa, NULL) < 0) {
+  return -errno;
+  }
+  return 0;
+}
+
+static int32_t __yo_kill(int32_t pid, int32_t signum) {
+  int result = kill((pid_t)pid, signum);
+  return (result < 0) ? -errno : 0;
+}
+`);
+
+  // TTY operations
+  emitter.emitLine(`
+// ============================================================================
+// TTY Operations
+// ============================================================================
+#include <termios.h>
+#include <sys/ioctl.h>
+
+static struct termios __yo_orig_termios;
+static bool __yo_termios_saved = false;
+
+static int32_t __yo_tty_init(int32_t fd) {
+  if (!__yo_termios_saved) {
+  if (tcgetattr(fd, &__yo_orig_termios) < 0) {
+    return -errno;
+  }
+  __yo_termios_saved = true;
+  }
+  return 0;
+}
+
+static int32_t __yo_tty_set_mode(int32_t fd, int32_t mode) {
+  struct termios t;
+  if (tcgetattr(fd, &t) < 0) return -errno;
+  
+  switch (mode) {
+  case 0:  // TTY_MODE_NORMAL
+    t = __yo_orig_termios;
+    break;
+  case 1:  // TTY_MODE_RAW
+    t.c_iflag &= ~(BRKINT | ICRNL | INPCK | ISTRIP | IXON);
+    t.c_oflag &= ~(OPOST);
+    t.c_cflag |= (CS8);
+    t.c_lflag &= ~(ECHO | ICANON | IEXTEN | ISIG);
+    t.c_cc[VMIN] = 1;
+    t.c_cc[VTIME] = 0;
+    break;
+  case 2:  // TTY_MODE_IO (Unix binary mode)
+    t.c_iflag &= ~(ICRNL | IXON);
+    t.c_oflag &= ~(OPOST);
+    break;
+  default:
+    return -EINVAL;
+  }
+  
+  if (tcsetattr(fd, TCSAFLUSH, &t) < 0) return -errno;
+  return 0;
+}
+
+static int32_t __yo_tty_reset_mode(void) {
+  if (__yo_termios_saved) {
+  if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &__yo_orig_termios) < 0) {
+    return -errno;
+  }
+  }
+  return 0;
+}
+
+static int32_t __yo_tty_get_winsize(int32_t fd, int32_t* width, int32_t* height) {
+  struct winsize ws;
+  if (ioctl(fd, TIOCGWINSZ, &ws) < 0) {
+  return -errno;
+  }
+  *width = ws.ws_col;
+  *height = ws.ws_row;
+  return 0;
+}
+
+static int32_t __yo_isatty(int32_t fd) {
+  return isatty(fd) ? 1 : 0;
+}
+`);
+}
+
+// ---------------------------------------------------------------------------
+// 2. Async I/O runtime — requires IOFuture / event loop types
+// ---------------------------------------------------------------------------
+
+/**
+ * Emits async I/O helpers that depend on the IOFuture type and event loop.
+ * Only called when the program uses async code (`context.usesAsync === true`).
+ *
+ * Sections: timer operations, directory scanning (async wrappers), DNS (async),
+ * process spawn/waitpid (async), FS event watching, poll, tick.
+ */
+export function generateAsyncRuntimeIOCommon(
+  emitter: Emitter,
+  targetInfo: TargetInfo
+): void {
+  const isWindows = isTargetWindows(targetInfo);
+  const isLinux = isTargetLinux(targetInfo);
+  const isMacos = isTargetMacos(targetInfo);
 
   // ============================================================================
   // Timer operations (platform-specific)
@@ -270,255 +678,7 @@ static yo_io_future_t* __yo_async_sleep_start(uint64_t milliseconds) {
 `);
   }
 
-  // ============================================================================
-  // POSIX-only file operations (everything below is !Windows)
-  // ============================================================================
   if (!isWindows) {
-    // Includes for sendfile/copyfile
-    if (isLinux) {
-      emitter.emitLine(`#include <sys/sendfile.h>`);
-    } else if (isMacos) {
-      emitter.emitLine(`#include <copyfile.h>`);
-    }
-
-    // Sendfile fallback (Linux and macOS)
-    if (isLinux || isMacos) {
-      emitter.emitLine(`
-// Fallback for platforms where sendfile cannot handle all fd combinations
-static int32_t __yo_sendfile_fallback_copy(int32_t out_fd, int32_t in_fd, int64_t offset, size_t count) {
-  unsigned char buffer[65536];
-  size_t total = 0;
-
-  while (total < count) {
-    size_t remaining = count - total;
-    size_t chunk = remaining < sizeof(buffer) ? remaining : sizeof(buffer);
-
-    ssize_t nread = pread(in_fd, buffer, chunk, (off_t)(offset + (int64_t)total));
-    if (nread < 0) {
-      return -errno;
-    }
-    if (nread == 0) {
-      break;
-    }
-
-    size_t written = 0;
-    while (written < (size_t)nread) {
-      ssize_t nwrite = write(out_fd, buffer + written, (size_t)nread - written);
-      if (nwrite < 0) {
-        return -errno;
-      }
-      written += (size_t)nwrite;
-    }
-
-    total += (size_t)nread;
-  }
-
-  return (int32_t)total;
-}
-`);
-    }
-
-    // Sync operations
-    emitter.emitLine(`
-// ============================================================================
-// Synchronous Operations (POSIX-only) - no IOFuture overhead
-// ============================================================================
-
-static int32_t __yo_sync_access(int32_t dirfd, const char* path, int32_t mode) {
-  int result;
-  if (dirfd == -100) {  // AT_FDCWD
-    result = access(path, mode);
-  } else {
-    result = faccessat(dirfd, path, mode, 0);
-  }
-  return (result < 0) ? -errno : 0;
-}
-
-static int32_t __yo_sync_realpath(const char* path, char* resolved) {
-  char* result = realpath(path, resolved);
-  return result ? 0 : -errno;
-}
-
-static int32_t __yo_sync_mkdtemp(char* template) {
-  char* result = mkdtemp(template);
-  return result ? 0 : -errno;
-}
-
-static int32_t __yo_sync_mkstemp(char* template) {
-  int fd = mkstemp(template);
-  return (fd < 0) ? -errno : fd;
-}
-`);
-
-    // Copyfile (platform-specific)
-    if (isLinux) {
-      emitter.emitLine(`
-static int32_t __yo_sync_copyfile(const char* src, const char* dst, int32_t flags) {
-  int src_fd = open(src, O_RDONLY);
-  if (src_fd < 0) return -errno;
-
-  struct stat st;
-  if (fstat(src_fd, &st) < 0) {
-    int err = errno;
-    close(src_fd);
-    return -err;
-  }
-
-  int open_flags = O_WRONLY | O_CREAT | O_TRUNC;
-  if (flags & 1) open_flags |= O_EXCL;
-
-  int dst_fd = open(dst, open_flags, st.st_mode);
-  if (dst_fd < 0) {
-    int err = errno;
-    close(src_fd);
-    return -err;
-  }
-
-  ssize_t copied = 0;
-  off_t off_in = 0;
-#ifdef __NR_copy_file_range
-  copied = syscall(__NR_copy_file_range, src_fd, &off_in, dst_fd, NULL, (size_t)st.st_size, 0);
-#endif
-  if (copied < 0) {
-    off_t offset = 0;
-    copied = sendfile(dst_fd, src_fd, &offset, (size_t)st.st_size);
-  }
-
-  close(src_fd);
-  close(dst_fd);
-  return (copied < 0) ? -errno : 0;
-}
-`);
-    } else if (isMacos) {
-      emitter.emitLine(`
-static int32_t __yo_sync_copyfile(const char* src, const char* dst, int32_t flags) {
-  copyfile_flags_t cf_flags = COPYFILE_ALL;
-  if (flags & 1) cf_flags |= COPYFILE_EXCL;
-  if (flags & 2) cf_flags |= COPYFILE_CLONE;
-  if (flags & 4) cf_flags |= COPYFILE_CLONE_FORCE;
-
-  int result = copyfile(src, dst, NULL, cf_flags);
-  return (result < 0) ? -errno : 0;
-}
-`);
-    } else {
-      emitter.emitLine(`
-static int32_t __yo_sync_copyfile(const char* src, const char* dst, int32_t flags) {
-  (void)src; (void)dst; (void)flags;
-  return -ENOSYS;
-}
-`);
-    }
-
-    // Sendfile (platform-specific)
-    if (isLinux) {
-      emitter.emitLine(`
-static int32_t __yo_sync_sendfile(int32_t out_fd, int32_t in_fd, int64_t offset, size_t count) {
-  off_t off = (off_t)offset;
-  ssize_t sent = sendfile(out_fd, in_fd, &off, count);
-  return (sent < 0) ? -errno : (int32_t)sent;
-}
-`);
-    } else if (isMacos) {
-      emitter.emitLine(`
-static int32_t __yo_sync_sendfile(int32_t out_fd, int32_t in_fd, int64_t offset, size_t count) {
-  off_t len = (off_t)count;
-  int result = sendfile(in_fd, out_fd, (off_t)offset, &len, NULL, 0);
-  if (result < 0) {
-    if (errno == ENOTSOCK || errno == EINVAL || errno == ENOSYS) {
-      return __yo_sendfile_fallback_copy(out_fd, in_fd, offset, count);
-    }
-    return -errno;
-  }
-  return (int32_t)len;
-}
-`);
-    } else {
-      emitter.emitLine(`
-static int32_t __yo_sync_sendfile(int32_t out_fd, int32_t in_fd, int64_t offset, size_t count) {
-  (void)out_fd; (void)in_fd; (void)offset; (void)count;
-  return -ENOSYS;
-}
-`);
-    }
-
-    // Utime operations (common POSIX)
-    emitter.emitLine(`
-static int32_t __yo_sync_utime(const char* path, int64_t atime_sec, int64_t atime_nsec,
-                               int64_t mtime_sec, int64_t mtime_nsec) {
-  struct timespec times[2];
-  times[0].tv_sec = (time_t)atime_sec;
-  times[0].tv_nsec = (long)atime_nsec;
-  times[1].tv_sec = (time_t)mtime_sec;
-  times[1].tv_nsec = (long)mtime_nsec;
-  int result = utimensat(AT_FDCWD, path, times, 0);
-  return (result < 0) ? -errno : 0;
-}
-
-static int32_t __yo_sync_futime(int32_t fd, int64_t atime_sec, int64_t atime_nsec,
-                                int64_t mtime_sec, int64_t mtime_nsec) {
-  struct timespec times[2];
-  times[0].tv_sec = (time_t)atime_sec;
-  times[0].tv_nsec = (long)atime_nsec;
-  times[1].tv_sec = (time_t)mtime_sec;
-  times[1].tv_nsec = (long)mtime_nsec;
-  int result = futimens(fd, times);
-  return (result < 0) ? -errno : 0;
-}
-
-static int32_t __yo_sync_lutime(const char* path, int64_t atime_sec, int64_t atime_nsec,
-                                int64_t mtime_sec, int64_t mtime_nsec) {
-  struct timespec times[2];
-  times[0].tv_sec = (time_t)atime_sec;
-  times[0].tv_nsec = (long)atime_nsec;
-  times[1].tv_sec = (time_t)mtime_sec;
-  times[1].tv_nsec = (long)mtime_nsec;
-  int result = utimensat(AT_FDCWD, path, times, AT_SYMLINK_NOFOLLOW);
-  return (result < 0) ? -errno : 0;
-}
-
-// Statfs support
-#include <sys/statvfs.h>
-
-static int32_t __yo_sync_statfs(const char* path, void* buf) {
-  int result = statvfs(path, (struct statvfs*)buf);
-  return (result < 0) ? -errno : 0;
-}
-
-static size_t __yo_statfs_buf_size(void) {
-  return sizeof(struct statvfs);
-}
-
-static uint64_t __yo_statfs_type(void* buf) {
-  (void)buf;
-  return 0;
-}
-
-static uint64_t __yo_statfs_bsize(void* buf) {
-  return (uint64_t)((struct statvfs*)buf)->f_bsize;
-}
-
-static uint64_t __yo_statfs_blocks(void* buf) {
-  return (uint64_t)((struct statvfs*)buf)->f_blocks;
-}
-
-static uint64_t __yo_statfs_bfree(void* buf) {
-  return (uint64_t)((struct statvfs*)buf)->f_bfree;
-}
-
-static uint64_t __yo_statfs_bavail(void* buf) {
-  return (uint64_t)((struct statvfs*)buf)->f_bavail;
-}
-
-static uint64_t __yo_statfs_files(void* buf) {
-  return (uint64_t)((struct statvfs*)buf)->f_files;
-}
-
-static uint64_t __yo_statfs_ffree(void* buf) {
-  return (uint64_t)((struct statvfs*)buf)->f_ffree;
-}
-`);
-
     // Directory scanning operations
     emitter.emitLine(`
 // ============================================================================
@@ -882,136 +1042,6 @@ static int32_t __yo_process_term_signal(int32_t status) {
   return 0;
 }
 `);
-
-    // Signal operations
-    emitter.emitLine(`
-// ============================================================================
-// Signal Operations
-// ============================================================================
-#include <signal.h>
-
-static void (*__yo_signal_handlers[32])(void*) = {NULL};
-static void* __yo_signal_handler_data[32] = {NULL};
-
-static void __yo_signal_trampoline(int signum) {
-  if (signum >= 0 && signum < 32 && __yo_signal_handlers[signum]) {
-    __yo_signal_handlers[signum](__yo_signal_handler_data[signum]);
-  }
-}
-
-static int32_t __yo_signal_start(int32_t signum, void* handler) {
-  if (signum < 0 || signum >= 32) return -EINVAL;
-  
-  __yo_signal_handlers[signum] = (void (*)(void*))handler;
-  
-  struct sigaction sa;
-  memset(&sa, 0, sizeof(sa));
-  sa.sa_handler = __yo_signal_trampoline;
-  sigemptyset(&sa.sa_mask);
-  sa.sa_flags = SA_RESTART;
-  
-  if (sigaction(signum, &sa, NULL) < 0) {
-    return -errno;
-  }
-  return 0;
-}
-
-static int32_t __yo_signal_stop(int32_t signum) {
-  if (signum < 0 || signum >= 32) return -EINVAL;
-  
-  __yo_signal_handlers[signum] = NULL;
-  __yo_signal_handler_data[signum] = NULL;
-  
-  struct sigaction sa;
-  memset(&sa, 0, sizeof(sa));
-  sa.sa_handler = SIG_DFL;
-  sigemptyset(&sa.sa_mask);
-  
-  if (sigaction(signum, &sa, NULL) < 0) {
-    return -errno;
-  }
-  return 0;
-}
-
-static int32_t __yo_kill(int32_t pid, int32_t signum) {
-  int result = kill((pid_t)pid, signum);
-  return (result < 0) ? -errno : 0;
-}
-`);
-
-    // TTY operations
-    emitter.emitLine(`
-// ============================================================================
-// TTY Operations
-// ============================================================================
-#include <termios.h>
-#include <sys/ioctl.h>
-
-static struct termios __yo_orig_termios;
-static bool __yo_termios_saved = false;
-
-static int32_t __yo_tty_init(int32_t fd) {
-  if (!__yo_termios_saved) {
-    if (tcgetattr(fd, &__yo_orig_termios) < 0) {
-      return -errno;
-    }
-    __yo_termios_saved = true;
-  }
-  return 0;
-}
-
-static int32_t __yo_tty_set_mode(int32_t fd, int32_t mode) {
-  struct termios t;
-  if (tcgetattr(fd, &t) < 0) return -errno;
-  
-  switch (mode) {
-    case 0:  // TTY_MODE_NORMAL
-      t = __yo_orig_termios;
-      break;
-    case 1:  // TTY_MODE_RAW
-      t.c_iflag &= ~(BRKINT | ICRNL | INPCK | ISTRIP | IXON);
-      t.c_oflag &= ~(OPOST);
-      t.c_cflag |= (CS8);
-      t.c_lflag &= ~(ECHO | ICANON | IEXTEN | ISIG);
-      t.c_cc[VMIN] = 1;
-      t.c_cc[VTIME] = 0;
-      break;
-    case 2:  // TTY_MODE_IO (Unix binary mode)
-      t.c_iflag &= ~(ICRNL | IXON);
-      t.c_oflag &= ~(OPOST);
-      break;
-    default:
-      return -EINVAL;
-  }
-  
-  if (tcsetattr(fd, TCSAFLUSH, &t) < 0) return -errno;
-  return 0;
-}
-
-static int32_t __yo_tty_reset_mode(void) {
-  if (__yo_termios_saved) {
-    if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &__yo_orig_termios) < 0) {
-      return -errno;
-    }
-  }
-  return 0;
-}
-
-static int32_t __yo_tty_get_winsize(int32_t fd, int32_t* width, int32_t* height) {
-  struct winsize ws;
-  if (ioctl(fd, TIOCGWINSZ, &ws) < 0) {
-    return -errno;
-  }
-  *width = ws.ws_col;
-  *height = ws.ws_row;
-  return 0;
-}
-
-static int32_t __yo_isatty(int32_t fd) {
-  return isatty(fd) ? 1 : 0;
-}
-`);
-
     // FS Event operations
     emitter.emitLine(`
 // ============================================================================

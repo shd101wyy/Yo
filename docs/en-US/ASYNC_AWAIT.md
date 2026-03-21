@@ -558,6 +558,8 @@ int main(int argc, char** argv) {
 
 Similarly, the **parallelism runtime** (thread pool, worker spawn, hardware detection) is only emitted when the program uses `Thread.spawn` or `worker.spawn`. Non-parallel programs save ~450 lines of generated C code.
 
+**Synchronous system helpers** (stat/dirent accessors, sendfile/copyfile, sync file operations, signal handlers, TTY) are always emitted via `generateSysRuntime()` and have **no IOFuture dependency**. All functions are `static`, so unused ones are stripped by the C compiler's dead-code elimination. This ensures non-async programs that use signals, stat, TTY, etc. compile without pulling in the full async runtime.
+
 ### Platform-Specific I/O Backends
 
 | Platform | Backend                           | File                    |

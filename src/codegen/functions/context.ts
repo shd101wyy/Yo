@@ -192,8 +192,4 @@ export interface FunctionGenerationContext extends CodeGenContext {
   // Set to true when any __yo_thread_spawn or __yo_worker_spawn call is found.
   // Used to conditionally emit the parallelism runtime (thread pool, worker spawn).
   usesParallelism?: boolean;
-
-  // Set to true when any __yo_signal_start, __yo_signal_stop, or __yo_kill call is found.
-  // Used to conditionally emit the signal runtime (signal handlers, kill).
-  usesSignal?: boolean;
 }
