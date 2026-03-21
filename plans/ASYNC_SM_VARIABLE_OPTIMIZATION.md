@@ -191,9 +191,8 @@ Currently every non-unit await gets an `await_result_N` struct field. The resume
 ## Priority
 
 - **Phase 1** (Liveness): ✅ **IMPLEMENTED**. Segment-local variables in simple linear async blocks are now emitted as C locals.
-- **Phase 1b** (Temp future dedup): ❌ **DEFERRED**. Complex interaction with deferred drops makes this risky for minor gain.
-- **Phase 2** (Overlapping): Deferred. More complex, diminishing returns for typical async functions.
 - **Phase 1b** (Temp future aliasing): ✅ **IMPLEMENTED**. Temp future vars aliased to `await_future_N` fields, eliminating redundant struct fields.
+- **Phase 2** (Overlapping storage): Deferred. Graph coloring for same-type variables with non-overlapping lifetimes. Complex (dispose function must track slot contents per state), diminishing returns for typical async functions.
 - **Phase 2b** (Cond/while per-segment): ✅ **IMPLEMENTED**. Variables in non-branching segments can be C locals even when other segments have cond/while with await.
 - **Phase 3** (Await result dedup): ✅ **IMPLEMENTED**. Linear awaits skip `await_result_N` entirely.
 
