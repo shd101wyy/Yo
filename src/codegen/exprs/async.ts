@@ -1,4 +1,8 @@
-import { isIoAsyncCall } from "../../evaluator/async/await-analysis";
+import {
+  isIoAsyncCall,
+  isIoAwaitCall,
+  isIoSpawnCall,
+} from "../../evaluator/async/await-analysis";
 import type { AwaitAnalysisResult } from "../../evaluator/async/await-analysis-types";
 import {
   extractFutureTraitFromType,
@@ -1249,6 +1253,8 @@ function preRegisterAsyncBlocksInExpr(
 
     // Check if this is an async block
     if (isIoAsyncCall(expr)) {
+      // Mark that the program uses async — enables runtime emission
+      context.usesAsync = true;
       // Found an async block - extract info and pre-register type
       const futureType = expr.$?.type;
       if (futureType && typeImplementsFuture(futureType)) {
@@ -1312,6 +1318,12 @@ function preRegisterAsyncBlocksInExpr(
           );
         }
       }
+    }
+
+    // Check if this is an io.await or io.spawn call — both need the async runtime
+    // (io.await emits yo_async_poll_step; io.spawn cold-starts a Future)
+    if (isIoAwaitCall(expr) || isIoSpawnCall(expr)) {
+      context.usesAsync = true;
     }
 
     // Check if this is a parallelism call (__yo_thread_spawn or __yo_worker_spawn)

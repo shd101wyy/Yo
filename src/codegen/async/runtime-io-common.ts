@@ -11,8 +11,7 @@
  *    Sections: stat/dirent, sendfile/copyfile, sync ops, statfs, signal, TTY.
  *
  * 2. generateAsyncRuntimeIOCommon — helpers that create / consume IOFuture or
- *    participate in the event loop.  Always emitted alongside the async runtime;
- *    all functions are `static` and stripped by DCE when unused.
+ *    participate in the event loop.  Only emitted when `usesAsync` is true.
  *
  *    Sections: timers, directory scanning (async), DNS (async), process spawn/
  *    waitpid (async), FS event watching, poll, tick.
@@ -21,6 +20,9 @@
 import { Emitter } from "../../emitter";
 import type { TargetInfo } from "../../target";
 import { isTargetWindows, isTargetLinux, isTargetMacos } from "../../target";
+import { generatePlatformSysRuntimeMacOS } from "./runtime-io-macos";
+import { generatePlatformSysRuntimeLinux } from "./runtime-io-linux";
+import { generatePlatformSysRuntimeWindows } from "./runtime-io-windows";
 
 // ---------------------------------------------------------------------------
 // 1. Synchronous system runtime — no async/IOFuture dependency
@@ -40,7 +42,7 @@ export function generateSysRuntime(
   const isMacos = isTargetMacos(targetInfo);
 
   if (isWindows) {
-    // Windows sys helpers live in runtime-io-windows.ts
+    generatePlatformSysRuntimeWindows(emitter);
     return;
   }
 
@@ -496,6 +498,16 @@ static int32_t __yo_isatty(int32_t fd) {
   return isatty(fd) ? 1 : 0;
 }
 `);
+
+  // macOS-specific sync helpers (pipe, dup, mmap, socket address helpers, statx, etc.)
+  if (isMacos) {
+    generatePlatformSysRuntimeMacOS(emitter);
+  }
+
+  // Linux-specific sync helpers (pipe, dup, mmap, socket address helpers, statx, etc.)
+  if (isLinux) {
+    generatePlatformSysRuntimeLinux(emitter);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -504,8 +516,7 @@ static int32_t __yo_isatty(int32_t fd) {
 
 /**
  * Emits async I/O helpers that depend on the IOFuture type and event loop.
- * Always emitted as part of the async runtime; all functions are `static`
- * and stripped by DCE when unused.
+ * Only called when the program uses async code (`context.usesAsync === true`).
  *
  * Sections: timer operations, directory scanning (async wrappers), DNS (async),
  * process spawn/waitpid (async), FS event watching, poll, tick.

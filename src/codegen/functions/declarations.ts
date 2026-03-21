@@ -78,13 +78,14 @@ export function generateFunctionDeclarations(
   }
   emitter.emitDeclarationLine("");
 
-  // Forward declarations for async runtime functions (always emitted;
-  // the definitions are static and DCE'd when unused)
-  emitter.emitDeclarationLine(`/// Async runtime functions`);
-  emitter.emitDeclarationLine(
-    `static void yo_async_spawn_task(void (*resume_fn)(void*), void* state_machine);`
-  );
-  emitter.emitDeclarationLine("");
+  // Generate forward declarations for async runtime functions (only when async is used)
+  if (context.usesAsync) {
+    emitter.emitDeclarationLine(`/// Async runtime functions`);
+    emitter.emitDeclarationLine(
+      `static void yo_async_spawn_task(void (*resume_fn)(void*), void* state_machine);`
+    );
+    emitter.emitDeclarationLine("");
+  }
 
   // Generate constructor functions for objects
   emitter.emitDeclarationLine(`/// Object constructors`);

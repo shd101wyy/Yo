@@ -1,14 +1,41 @@
 /**
  * runtime-io-windows.ts
  *
- * Windows async I/O backend using IOCP.
- * Provides async read/write via overlapped I/O and synchronous wrappers for other operations.
+ * Windows I/O helpers split into two categories:
+ *
+ * 1. generatePlatformSysRuntimeWindows — synchronous helpers (pipe, dup,
+ *    lseek, fallocate, mmap, socket address helpers, statx wrappers, etc.)
+ *    that do NOT depend on IOFuture or the async event loop.
+ *
+ * 2. generateAsyncRuntimeIOWindows — async I/O via IOCP (I/O Completion Ports).
+ *    Provides async read, write, openat, close, statx, mkdir, unlink, rename,
+ *    symlink, link, fsync, fdatasync, ftruncate, and socket operations.
  */
 
 import { Emitter } from "../../emitter";
 
-export function generateAsyncRuntimeIOWindows(emitter: Emitter): void {
+// ---------------------------------------------------------------------------
+// 1. Synchronous platform helpers (Windows) — no IOFuture / event-loop dependency
+// ---------------------------------------------------------------------------
+
+/**
+ * Emits synchronous Windows-specific helpers.  These do NOT depend on the
+ * async runtime (no IOFuture, no event-loop types).  All functions are `static`
+ * so unused ones are dead-code-eliminated by the C compiler.
+ *
+ * Sections: includes & defines, utility functions (error conversion, string
+ * encoding, mmap helpers), iovec struct, sync FD ops (pipe, dup, lseek,
+ * fallocate, fcntl, flock, readv/writev, fadvise, madvise, mmap, mprotect,
+ * msync, fchmod, fchown, readlinkat), sync socket ops (getsockname, getpeername,
+ * setsockopt, getsockopt, socketpair, clock_gettime, uname, gethostname, umask),
+ * file open/close/size, statx accessors, socket address helpers,
+ * file extra ops (filetime, sendfile), sync ops (access, realpath, mkdtemp, etc.).
+ */
+export function generatePlatformSysRuntimeWindows(emitter: Emitter): void {
   emitter.emitLine(`
+// ============================================================================
+// Platform-specific sync helpers (Windows)
+// ============================================================================
 // ============================================================================
 // Async I/O Runtime (Windows - IOCP)
 // ============================================================================
@@ -125,29 +152,6 @@ typedef struct __yo_sockaddr_un {
 #ifndef PROCESS_QUERY_LIMITED_INFORMATION
 #define PROCESS_QUERY_LIMITED_INFORMATION 0x1000
 #endif
-
-// __yo_io_initialized is defined in runtime-core
-static _Atomic size_t __yo_pending_io_count = 0;
-static HANDLE __yo_io_iocp = NULL;
-static CRITICAL_SECTION __yo_dir_state_mutex;
-
-typedef struct yo_win_timer_entry_t {
-  uint64_t due_ms;
-  yo_io_future_t* future;
-  struct yo_win_timer_entry_t* next;
-} yo_win_timer_entry_t;
-
-static yo_win_timer_entry_t* __yo_win_timer_head = NULL;
-
-typedef struct {
-  OVERLAPPED overlapped;
-  yo_io_future_t* future;
-  HANDLE handle;
-  bool is_socket;
-  SOCKET sock;
-  WSABUF wsabuf;
-  DWORD sock_flags;
-} yo_win_overlapped_t;
 
 typedef struct {
   void* iov_base;
@@ -281,6 +285,1449 @@ static DWORD __yo_win_mmap_view_access(int32_t prot, int32_t flags, bool anonymo
   if (access == 0) access = FILE_MAP_READ;
   return access;
 }
+
+typedef struct {
+  struct _stat64 stat;
+  uint32_t atime_nsec;
+  uint32_t mtime_nsec;
+  uint32_t ctime_nsec;
+  int64_t btime_sec;
+  uint32_t btime_nsec;
+  uint64_t file_index;
+} yo_win_stat_t;
+
+static void __yo_win_filetime_to_timespec(FILETIME ft, int64_t* sec, uint32_t* nsec) {
+  ULONGLONG t = ((ULONGLONG)ft.dwHighDateTime << 32) | ft.dwLowDateTime;
+  *sec = (int64_t)(t / 10000000ULL) - 11644473600LL;
+  *nsec = (uint32_t)((t % 10000000ULL) * 100ULL);
+}
+
+// ============================================================================
+// Synchronous FD Operations (Windows) - no IOFuture overhead
+// ============================================================================
+
+static int32_t __yo_sync_pipe(int32_t* pipefd) {
+  int result = _pipe(pipefd, 4096, _O_BINARY);
+  return (result < 0) ? -errno : 0;
+}
+
+static int32_t __yo_sync_dup(int32_t oldfd) {
+  int result = _dup(oldfd);
+  return (result < 0) ? -errno : result;
+}
+
+static int32_t __yo_sync_dup2(int32_t oldfd, int32_t newfd) {
+  int result = _dup2(oldfd, newfd);
+  return (result < 0) ? -errno : newfd;
+}
+
+static int64_t __yo_sync_lseek(int32_t fd, int64_t offset, int32_t whence) {
+  if (fd < 0) return (int64_t)(-EBADF);
+  if (__yo_win_is_socket_fd(fd)) return (int64_t)(-ESPIPE);
+  intptr_t hv = _get_osfhandle(fd);
+  if (hv == -1) return (int64_t)(-EBADF);
+  DWORD ft = GetFileType((HANDLE)hv);
+  if (ft == FILE_TYPE_PIPE || ft == FILE_TYPE_CHAR) return (int64_t)(-ESPIPE);
+  __int64 result = _lseeki64(fd, (__int64)offset, whence);
+  return (result < 0) ? (int64_t)(-errno) : (int64_t)result;
+}
+
+static int32_t __yo_sync_fallocate(int32_t fd, int32_t mode, int64_t offset, int64_t length) {
+  if (fd < 0) return -EBADF;
+  if (offset < 0 || length < 0) return -EINVAL;
+
+  uint64_t target_u = (uint64_t)offset + (uint64_t)length;
+  if (target_u > 0x7FFFFFFFFFFFFFFFULL) return -EINVAL;
+  __int64 target = (__int64)target_u;
+
+  intptr_t handle_value = _get_osfhandle(fd);
+  if (handle_value == -1) return -EBADF;
+  HANDLE handle = (HANDLE)handle_value;
+
+  FILE_ALLOCATION_INFO alloc_info;
+  alloc_info.AllocationSize.QuadPart = target;
+  if (!SetFileInformationByHandle(handle, FileAllocationInfo, &alloc_info, sizeof(alloc_info))) {
+    return -__yo_win_last_error_to_errno();
+  }
+
+  // FALLOC_FL_KEEP_SIZE = 0x01
+  if ((mode & 0x01) == 0) {
+    struct _stat64 st;
+    if (_fstat64(fd, &st) != 0) return -errno;
+    if ((__int64)st.st_size < target) {
+      int result = _chsize_s(fd, target);
+      if (result != 0) return -errno;
+    }
+  }
+
+  return 0;
+}
+
+static int32_t __yo_sync_fcntl_getfl(int32_t fd) {
+  if (fd < 0) return -EBADF;
+  if (__yo_win_is_socket_fd(fd)) {
+    // Winsock does not provide a portable way to query current FIONBIO mode.
+    // Return 0 (blocking) as best-effort default.
+    return 0;
+  }
+
+  intptr_t handle_value = _get_osfhandle(fd);
+  if (handle_value == -1) return -EBADF;
+  return 0;
+}
+
+static int32_t __yo_sync_fcntl_setfl(int32_t fd, int32_t flags) {
+  if (fd < 0) return -EBADF;
+  if (__yo_win_is_socket_fd(fd)) {
+    u_long mode = ((flags & O_NONBLOCK) != 0) ? 1UL : 0UL;
+    int result = ioctlsocket((SOCKET)(uintptr_t)(uint32_t)fd, FIONBIO, &mode);
+    return (result == SOCKET_ERROR) ? -(int32_t)WSAGetLastError() : 0;
+  }
+
+  intptr_t handle_value = _get_osfhandle(fd);
+  if (handle_value == -1) return -EBADF;
+
+  if ((flags & O_NONBLOCK) != 0) {
+    HANDLE handle = (HANDLE)handle_value;
+    if (GetFileType(handle) == FILE_TYPE_PIPE) {
+      DWORD pipe_mode = PIPE_NOWAIT;
+      if (SetNamedPipeHandleState(handle, &pipe_mode, NULL, NULL)) {
+        return 0;
+      }
+      return -__yo_win_last_error_to_errno();
+    }
+    return -ENOSYS;
+  }
+
+  return 0;
+}
+
+static int32_t __yo_sync_fcntl_getfd(int32_t fd) {
+  if (fd < 0) return -EBADF;
+  intptr_t handle_value = _get_osfhandle(fd);
+  if (handle_value == -1) {
+    return __yo_win_is_socket_fd(fd) ? 0 : -EBADF;
+  }
+
+  DWORD handle_flags = 0;
+  if (!GetHandleInformation((HANDLE)handle_value, &handle_flags)) {
+    return -__yo_win_last_error_to_errno();
+  }
+
+  return ((handle_flags & HANDLE_FLAG_INHERIT) != 0) ? 0 : FD_CLOEXEC;
+}
+
+static int32_t __yo_sync_fcntl_setfd(int32_t fd, int32_t flags) {
+  if (fd < 0) return -EBADF;
+  intptr_t handle_value = _get_osfhandle(fd);
+  if (handle_value == -1) {
+    return __yo_win_is_socket_fd(fd) ? 0 : -EBADF;
+  }
+
+  DWORD inherit_value = ((flags & FD_CLOEXEC) != 0) ? 0 : HANDLE_FLAG_INHERIT;
+  BOOL ok = SetHandleInformation((HANDLE)handle_value, HANDLE_FLAG_INHERIT, inherit_value);
+  return ok ? 0 : -__yo_win_last_error_to_errno();
+}
+
+#define LOCK_SH 1
+#define LOCK_EX 2
+#define LOCK_NB 4
+#define LOCK_UN 8
+
+static int32_t __yo_sync_flock(int32_t fd, int32_t operation) {
+  if (fd < 0) return -EBADF;
+  intptr_t handle_value = _get_osfhandle(fd);
+  if (handle_value == -1) return -EBADF;
+  HANDLE handle = (HANDLE)handle_value;
+  OVERLAPPED ov;
+  memset(&ov, 0, sizeof(ov));
+  if ((operation & LOCK_UN) != 0) {
+    BOOL ok = UnlockFileEx(handle, 0, 0xFFFFFFFF, 0xFFFFFFFF, &ov);
+    if (!ok && GetLastError() == ERROR_NOT_LOCKED) return 0;
+    return ok ? 0 : -__yo_win_last_error_to_errno();
+  }
+  UnlockFileEx(handle, 0, 0xFFFFFFFF, 0xFFFFFFFF, &ov);
+  memset(&ov, 0, sizeof(ov));
+  DWORD flags = 0;
+  if ((operation & LOCK_EX) != 0) flags |= LOCKFILE_EXCLUSIVE_LOCK;
+  if ((operation & LOCK_NB) != 0) flags |= LOCKFILE_FAIL_IMMEDIATELY;
+  BOOL ok = LockFileEx(handle, flags, 0, 0xFFFFFFFF, 0xFFFFFFFF, &ov);
+  if (!ok && (operation & LOCK_NB) != 0 && GetLastError() == ERROR_LOCK_VIOLATION) {
+    return -EAGAIN;
+  }
+  return ok ? 0 : -__yo_win_last_error_to_errno();
+}
+
+static int32_t __yo_sync_readv(int32_t fd, void* iov, int32_t iovcnt) {
+  if (fd < 0) return -EBADF;
+  if (iovcnt < 0) return -EINVAL;
+  if (iovcnt == 0) return 0;
+
+  yo_iovec_t* vec = (yo_iovec_t*)iov;
+
+  if (__yo_win_is_socket_fd(fd)) {
+    WSABUF* bufs = (WSABUF*)__yo_malloc(sizeof(WSABUF) * (size_t)iovcnt);
+    if (!bufs) return -ENOMEM;
+
+    for (int32_t i = 0; i < iovcnt; i++) {
+      if (vec[i].iov_len > 0xFFFFFFFFu) {
+        __yo_free(bufs);
+        return -EINVAL;
+      }
+      bufs[i].buf = (CHAR*)vec[i].iov_base;
+      bufs[i].len = (ULONG)vec[i].iov_len;
+    }
+
+    DWORD recvd = 0;
+    DWORD flags = 0;
+    int result = WSARecv((SOCKET)(uintptr_t)(uint32_t)fd, bufs, (DWORD)iovcnt, &recvd, &flags, NULL, NULL);
+    __yo_free(bufs);
+    return (result == SOCKET_ERROR) ? -(int32_t)WSAGetLastError() : (int32_t)recvd;
+  }
+
+  intptr_t hv = _get_osfhandle(fd);
+  if (hv == -1) return -EBADF;
+  HANDLE handle = (HANDLE)hv;
+
+  HANDLE evt = CreateEvent(NULL, TRUE, FALSE, NULL);
+  if (!evt) return -ENOMEM;
+
+  LARGE_INTEGER cur_pos;
+  LARGE_INTEGER zero_dist;
+  zero_dist.QuadPart = 0;
+  if (!SetFilePointerEx(handle, zero_dist, &cur_pos, FILE_CURRENT)) {
+    cur_pos.QuadPart = 0;
+  }
+
+  int32_t total = 0;
+  for (int32_t i = 0; i < iovcnt; i++) {
+    char* ptr = (char*)vec[i].iov_base;
+    size_t remaining = vec[i].iov_len;
+    while (remaining > 0) {
+      DWORD chunk = (remaining > 0x7FFFFFFF) ? 0x7FFFFFFF : (DWORD)remaining;
+      OVERLAPPED ov;
+      memset(&ov, 0, sizeof(ov));
+      ov.Offset = (DWORD)(cur_pos.QuadPart & 0xFFFFFFFF);
+      ov.OffsetHigh = (DWORD)(cur_pos.QuadPart >> 32);
+      ov.hEvent = (HANDLE)((uintptr_t)evt | 1);
+      ResetEvent(evt);
+      DWORD bytes_read = 0;
+      BOOL ok = ReadFile(handle, ptr, chunk, &bytes_read, &ov);
+      if (!ok) {
+        DWORD err = GetLastError();
+        if (err == ERROR_IO_PENDING) {
+          WaitForSingleObject(evt, INFINITE);
+          ok = GetOverlappedResult(handle, &ov, &bytes_read, FALSE);
+          if (!ok) {
+            CloseHandle(evt);
+            return (total > 0) ? total : -__yo_win_last_error_to_errno();
+          }
+        } else if (err == ERROR_HANDLE_EOF) {
+          CloseHandle(evt);
+          return total;
+        } else {
+          CloseHandle(evt);
+          return (total > 0) ? total : -__yo_win_last_error_to_errno();
+        }
+      }
+      if (bytes_read == 0) {
+        CloseHandle(evt);
+        return total;
+      }
+      total += (int32_t)bytes_read;
+      cur_pos.QuadPart += bytes_read;
+      if (bytes_read < chunk) {
+        SetFilePointerEx(handle, cur_pos, NULL, FILE_BEGIN);
+        CloseHandle(evt);
+        return total;
+      }
+      ptr += bytes_read;
+      remaining -= bytes_read;
+    }
+  }
+
+  SetFilePointerEx(handle, cur_pos, NULL, FILE_BEGIN);
+  CloseHandle(evt);
+  return total;
+}
+
+static int32_t __yo_sync_writev(int32_t fd, void* iov, int32_t iovcnt) {
+  if (fd < 0) return -EBADF;
+  if (iovcnt < 0) return -EINVAL;
+  if (iovcnt == 0) return 0;
+
+  yo_iovec_t* vec = (yo_iovec_t*)iov;
+
+  if (__yo_win_is_socket_fd(fd)) {
+    WSABUF* bufs = (WSABUF*)__yo_malloc(sizeof(WSABUF) * (size_t)iovcnt);
+    if (!bufs) return -ENOMEM;
+
+    for (int32_t i = 0; i < iovcnt; i++) {
+      if (vec[i].iov_len > 0xFFFFFFFFu) {
+        __yo_free(bufs);
+        return -EINVAL;
+      }
+      bufs[i].buf = (CHAR*)vec[i].iov_base;
+      bufs[i].len = (ULONG)vec[i].iov_len;
+    }
+
+    DWORD sent = 0;
+    int result = WSASend((SOCKET)(uintptr_t)(uint32_t)fd, bufs, (DWORD)iovcnt, &sent, 0, NULL, NULL);
+    __yo_free(bufs);
+    return (result == SOCKET_ERROR) ? -(int32_t)WSAGetLastError() : (int32_t)sent;
+  }
+
+  intptr_t whv = _get_osfhandle(fd);
+  if (whv == -1) return -EBADF;
+  HANDLE whandle = (HANDLE)whv;
+
+  HANDLE wevt = CreateEvent(NULL, TRUE, FALSE, NULL);
+  if (!wevt) return -ENOMEM;
+
+  LARGE_INTEGER wcur_pos;
+  LARGE_INTEGER wzero_dist;
+  wzero_dist.QuadPart = 0;
+  if (!SetFilePointerEx(whandle, wzero_dist, &wcur_pos, FILE_CURRENT)) {
+    wcur_pos.QuadPart = 0;
+  }
+
+  int32_t total = 0;
+  for (int32_t i = 0; i < iovcnt; i++) {
+    char* ptr = (char*)vec[i].iov_base;
+    size_t remaining = vec[i].iov_len;
+    while (remaining > 0) {
+      DWORD chunk = (remaining > 0x7FFFFFFF) ? 0x7FFFFFFF : (DWORD)remaining;
+      OVERLAPPED ov;
+      memset(&ov, 0, sizeof(ov));
+      ov.Offset = (DWORD)(wcur_pos.QuadPart & 0xFFFFFFFF);
+      ov.OffsetHigh = (DWORD)(wcur_pos.QuadPart >> 32);
+      ov.hEvent = (HANDLE)((uintptr_t)wevt | 1);
+      ResetEvent(wevt);
+      DWORD bytes_written = 0;
+      BOOL ok = WriteFile(whandle, ptr, chunk, &bytes_written, &ov);
+      if (!ok) {
+        DWORD err = GetLastError();
+        if (err == ERROR_IO_PENDING) {
+          WaitForSingleObject(wevt, INFINITE);
+          ok = GetOverlappedResult(whandle, &ov, &bytes_written, FALSE);
+          if (!ok) {
+            CloseHandle(wevt);
+            return (total > 0) ? total : -__yo_win_last_error_to_errno();
+          }
+        } else {
+          CloseHandle(wevt);
+          return (total > 0) ? total : -__yo_win_last_error_to_errno();
+        }
+      }
+      total += (int32_t)bytes_written;
+      wcur_pos.QuadPart += bytes_written;
+      if (bytes_written < chunk) {
+        SetFilePointerEx(whandle, wcur_pos, NULL, FILE_BEGIN);
+        CloseHandle(wevt);
+        return total;
+      }
+      ptr += bytes_written;
+      remaining -= bytes_written;
+    }
+  }
+
+  SetFilePointerEx(whandle, wcur_pos, NULL, FILE_BEGIN);
+  CloseHandle(wevt);
+  return total;
+}
+
+static int32_t __yo_sync_preadv(int32_t fd, void* iov, int32_t iovcnt, int64_t offset) {
+  if (iovcnt < 0 || offset < 0) return -EINVAL;
+  if (__yo_win_is_socket_fd(fd)) return -ESPIPE;
+
+  int64_t saved = __yo_sync_lseek(fd, 0, 1);
+  if (saved < 0) return (int32_t)saved;
+
+  int64_t seeked = __yo_sync_lseek(fd, offset, 0);
+  if (seeked < 0) return (int32_t)seeked;
+
+  int32_t result = __yo_sync_readv(fd, iov, iovcnt);
+
+  int64_t restored = __yo_sync_lseek(fd, saved, 0);
+  if (restored < 0 && result >= 0) {
+    return (int32_t)restored;
+  }
+
+  return result;
+}
+
+static int32_t __yo_sync_pwritev(int32_t fd, void* iov, int32_t iovcnt, int64_t offset) {
+  if (iovcnt < 0 || offset < 0) return -EINVAL;
+  if (__yo_win_is_socket_fd(fd)) return -ESPIPE;
+
+  int64_t saved = __yo_sync_lseek(fd, 0, 1);
+  if (saved < 0) return (int32_t)saved;
+
+  int64_t seeked = __yo_sync_lseek(fd, offset, 0);
+  if (seeked < 0) return (int32_t)seeked;
+
+  int32_t result = __yo_sync_writev(fd, iov, iovcnt);
+
+  int64_t restored = __yo_sync_lseek(fd, saved, 0);
+  if (restored < 0 && result >= 0) {
+    return (int32_t)restored;
+  }
+
+  return result;
+}
+
+static size_t __yo_iovec_size(void) {
+  return sizeof(yo_iovec_t);
+}
+
+static void __yo_iovec_set(void* iov, size_t index, void* base, size_t len) {
+  yo_iovec_t* vec = (yo_iovec_t*)iov;
+  vec[index].iov_base = base;
+  vec[index].iov_len = len;
+}
+
+static int32_t __yo_sync_fadvise(int32_t fd, int64_t offset, int64_t len, int32_t advice) {
+  (void)fd;
+  (void)offset;
+  (void)len;
+  (void)advice;
+  // No direct equivalent on Windows; treat as advisory no-op.
+  return 0;
+}
+
+static int32_t __yo_sync_madvise(uint8_t* addr, size_t length, int32_t advice) {
+  if (!addr || length == 0) {
+    return -EINVAL;
+  }
+
+  // Best effort: map MADV_DONTNEED to MEM_RESET to hint pages are discardable.
+  if (advice == 4) {
+    (void)VirtualAlloc((void*)addr, length, MEM_RESET, PAGE_NOACCESS);
+  }
+
+  return 0;
+}
+
+static uint8_t* __yo_sync_mmap(uint8_t* addr, size_t length, int32_t prot, int32_t flags, int32_t fd, int64_t offset) {
+  if (length == 0) {
+    return (uint8_t*)(intptr_t)(-EINVAL);
+  }
+  if (offset < 0) {
+    return (uint8_t*)(intptr_t)(-EINVAL);
+  }
+
+  bool anonymous_map = ((flags & MAP_ANONYMOUS) != 0);
+  HANDLE file_handle = INVALID_HANDLE_VALUE;
+
+  if (!anonymous_map) {
+    if (fd < 0) {
+      return (uint8_t*)(intptr_t)(-EBADF);
+    }
+    intptr_t handle_value = _get_osfhandle(fd);
+    if (handle_value == -1) {
+      return (uint8_t*)(intptr_t)(-EBADF);
+    }
+    file_handle = (HANDLE)handle_value;
+  }
+
+  uint64_t map_end = ((uint64_t)offset + (uint64_t)length);
+  bool prot_none = (prot == 0);
+  DWORD protect = prot_none ? PAGE_READWRITE : __yo_win_mmap_page_protect(prot, flags, anonymous_map);
+  HANDLE mapping = CreateFileMappingW(
+    file_handle,
+    NULL,
+    protect,
+    (DWORD)(map_end >> 32),
+    (DWORD)(map_end & 0xFFFFFFFFu),
+    NULL
+  );
+  if (!mapping) {
+    return (uint8_t*)(intptr_t)(-__yo_win_last_error_to_errno());
+  }
+
+  DWORD desired_access = prot_none ? (FILE_MAP_READ | FILE_MAP_WRITE) : __yo_win_mmap_view_access(prot, flags, anonymous_map);
+  uint64_t offset_u64 = (uint64_t)offset;
+  void* view = NULL;
+
+  if (addr) {
+    view = MapViewOfFileEx(
+      mapping,
+      desired_access,
+      (DWORD)(offset_u64 >> 32),
+      (DWORD)(offset_u64 & 0xFFFFFFFFu),
+      (SIZE_T)length,
+      (LPVOID)addr
+    );
+  } else {
+    view = MapViewOfFile(
+      mapping,
+      desired_access,
+      (DWORD)(offset_u64 >> 32),
+      (DWORD)(offset_u64 & 0xFFFFFFFFu),
+      (SIZE_T)length
+    );
+  }
+
+  if (!CloseHandle(mapping)) {
+    // Ignore mapping handle close failure after map attempt.
+  }
+
+  if (!view) {
+    return (uint8_t*)(intptr_t)(-__yo_win_last_error_to_errno());
+  }
+
+  if (prot_none) {
+    DWORD old_protect;
+    VirtualProtect(view, length, PAGE_NOACCESS, &old_protect);
+  }
+
+  return (uint8_t*)view;
+}
+
+static bool __yo_sync_mmap_is_error(uint8_t* addr) {
+  intptr_t value = (intptr_t)addr;
+  return (value < 0) && (value >= -65535);
+}
+
+static int32_t __yo_sync_mmap_errno(uint8_t* addr) {
+  intptr_t value = (intptr_t)addr;
+  if ((value < 0) && (value >= -65535)) {
+    return (int32_t)(-value);
+  }
+  return 0;
+}
+
+static int32_t __yo_sync_munmap(uint8_t* addr, size_t length) {
+  (void)length;
+  BOOL ok = UnmapViewOfFile((LPCVOID)addr);
+  return ok ? 0 : -__yo_win_last_error_to_errno();
+}
+
+static int32_t __yo_sync_mprotect(uint8_t* addr, size_t length, int32_t prot) {
+  DWORD old_protect = 0;
+  DWORD new_protect = __yo_win_mmap_page_protect(prot, MAP_SHARED, true);
+  BOOL ok = VirtualProtect((LPVOID)addr, (SIZE_T)length, new_protect, &old_protect);
+  return ok ? 0 : -__yo_win_last_error_to_errno();
+}
+
+static int32_t __yo_sync_msync(uint8_t* addr, size_t length, int32_t flags) {
+  (void)flags;
+  BOOL ok = FlushViewOfFile((LPCVOID)addr, (SIZE_T)length);
+  return ok ? 0 : -__yo_win_last_error_to_errno();
+}
+
+static int32_t __yo_sync_fchmod(int32_t fd, uint32_t mode) {
+  if (fd < 0) return -EBADF;
+  HANDLE handle = (HANDLE)_get_osfhandle(fd);
+  if (handle == INVALID_HANDLE_VALUE) return -EBADF;
+  wchar_t path_buf[MAX_PATH];
+  DWORD len = GetFinalPathNameByHandleW(handle, path_buf, MAX_PATH, FILE_NAME_NORMALIZED);
+  if (len == 0 || len >= MAX_PATH) return -__yo_win_last_error_to_errno();
+  int result = _wchmod(path_buf, (int)mode);
+  return (result < 0) ? -errno : 0;
+}
+
+static int32_t __yo_sync_fchmodat(int32_t dirfd, const char* path, uint32_t mode, int32_t flags) {
+  if (!__yo_is_at_fdcwd(dirfd)) return -EINVAL;
+  (void)flags;
+  wchar_t* wpath = __yo_win_utf8_to_wide(path);
+  if (!wpath) return -__yo_win_last_error_to_errno();
+  int result = _wchmod(wpath, (int)mode);
+  __yo_free(wpath);
+  return (result < 0) ? -errno : 0;
+}
+
+static int32_t __yo_sync_fchown(int32_t fd, uint32_t uid, uint32_t gid) {
+  (void)fd;
+  if (uid == (uint32_t)0xFFFFFFFF && gid == (uint32_t)0xFFFFFFFF) return 0;
+  return -ENOSYS;
+}
+
+static int32_t __yo_sync_fchownat(int32_t dirfd, const char* path, uint32_t uid, uint32_t gid, int32_t flags) {
+  (void)dirfd; (void)path; (void)flags;
+  if (uid == (uint32_t)0xFFFFFFFF && gid == (uint32_t)0xFFFFFFFF) return 0;
+  return -ENOSYS;
+}
+
+static int32_t __yo_sync_readlinkat(int32_t dirfd, const char* path, char* buf, size_t bufsize) {
+  if (!__yo_is_at_fdcwd(dirfd)) return -EINVAL;
+  wchar_t* wpath = __yo_win_utf8_to_wide(path);
+  if (!wpath) return -__yo_win_last_error_to_errno();
+  HANDLE handle = CreateFileW(wpath, 0,
+                              FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                              NULL, OPEN_EXISTING,
+                              FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS,
+                              NULL);
+  __yo_free(wpath);
+  if (handle == INVALID_HANDLE_VALUE) return -__yo_win_last_error_to_errno();
+  wchar_t wbuf[MAX_PATH];
+  DWORD len = GetFinalPathNameByHandleW(handle, wbuf, MAX_PATH, FILE_NAME_NORMALIZED);
+  CloseHandle(handle);
+  if (len == 0 || len >= MAX_PATH) return -__yo_win_last_error_to_errno();
+  int written = __yo_win_wide_to_utf8(wbuf, buf, bufsize);
+  return (written < 0) ? written : written;
+}
+
+
+static int32_t __yo_sync_getsockname(int32_t sockfd, void* addr, uint32_t* addrlen) {
+  __yo_io_init();
+
+  int len = (int)(*addrlen);
+  int result = getsockname((SOCKET)(uintptr_t)sockfd, (struct sockaddr*)addr, &len);
+  if (result == SOCKET_ERROR) {
+    return -(int32_t)WSAGetLastError();
+  }
+
+  *addrlen = (uint32_t)len;
+  return 0;
+}
+
+static int32_t __yo_sync_getpeername(int32_t sockfd, void* addr, uint32_t* addrlen) {
+  __yo_io_init();
+
+  int len = (int)(*addrlen);
+  int result = getpeername((SOCKET)(uintptr_t)sockfd, (struct sockaddr*)addr, &len);
+  if (result == SOCKET_ERROR) {
+    return -(int32_t)WSAGetLastError();
+  }
+
+  *addrlen = (uint32_t)len;
+  return 0;
+}
+
+static int32_t __yo_sync_setsockopt(int32_t sockfd, int32_t level, int32_t optname, const void* optval, uint32_t optlen) {
+  __yo_io_init();
+
+  int result = setsockopt((SOCKET)(uintptr_t)sockfd, level, optname, (const char*)optval, (int)optlen);
+  return (result == SOCKET_ERROR) ? -(int32_t)WSAGetLastError() : 0;
+}
+
+static int32_t __yo_sync_getsockopt(int32_t sockfd, int32_t level, int32_t optname, void* optval, uint32_t* optlen) {
+  __yo_io_init();
+
+  int len = (int)(*optlen);
+  int result = getsockopt((SOCKET)(uintptr_t)sockfd, level, optname, (char*)optval, &len);
+  if (result == SOCKET_ERROR) {
+    return -(int32_t)WSAGetLastError();
+  }
+
+  *optlen = (uint32_t)len;
+  return 0;
+}
+
+static int32_t __yo_sync_socketpair(int32_t domain, int32_t sock_type, int32_t protocol, int32_t* sv) {
+  __yo_io_init();
+
+  if (!sv) {
+    return -EINVAL;
+  }
+
+  if (sock_type != SOCK_STREAM) {
+    return -WSAESOCKTNOSUPPORT;
+  }
+
+  // Windows has no native socketpair(); emulate with loopback TCP.
+  // Accept common caller domains used for socketpair APIs.
+  if (!(domain == AF_UNIX || domain == AF_INET || domain == AF_UNSPEC)) {
+    return -WSAEAFNOSUPPORT;
+  }
+
+  if (!(protocol == 0 || protocol == IPPROTO_TCP)) {
+    return -WSAEPROTONOSUPPORT;
+  }
+
+  SOCKET listener = INVALID_SOCKET;
+  SOCKET client = INVALID_SOCKET;
+  SOCKET server = INVALID_SOCKET;
+
+  struct sockaddr_in addr;
+  memset(&addr, 0, sizeof(addr));
+  addr.sin_family = AF_INET;
+  addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+  addr.sin_port = 0;
+
+  listener = WSASocketW(AF_INET, SOCK_STREAM, IPPROTO_TCP, NULL, 0, WSA_FLAG_OVERLAPPED);
+  if (listener == INVALID_SOCKET) {
+    return -(int32_t)WSAGetLastError();
+  }
+
+  if (bind(listener, (const struct sockaddr*)&addr, (int)sizeof(addr)) == SOCKET_ERROR) {
+    int32_t err = -(int32_t)WSAGetLastError();
+    closesocket(listener);
+    return err;
+  }
+
+  if (listen(listener, 1) == SOCKET_ERROR) {
+    int32_t err = -(int32_t)WSAGetLastError();
+    closesocket(listener);
+    return err;
+  }
+
+  int addrlen = (int)sizeof(addr);
+  if (getsockname(listener, (struct sockaddr*)&addr, &addrlen) == SOCKET_ERROR) {
+    int32_t err = -(int32_t)WSAGetLastError();
+    closesocket(listener);
+    return err;
+  }
+
+  client = WSASocketW(AF_INET, SOCK_STREAM, IPPROTO_TCP, NULL, 0, WSA_FLAG_OVERLAPPED);
+  if (client == INVALID_SOCKET) {
+    int32_t err = -(int32_t)WSAGetLastError();
+    closesocket(listener);
+    return err;
+  }
+
+  if (connect(client, (const struct sockaddr*)&addr, addrlen) == SOCKET_ERROR) {
+    int32_t err = -(int32_t)WSAGetLastError();
+    closesocket(client);
+    closesocket(listener);
+    return err;
+  }
+
+  server = accept(listener, NULL, NULL);
+  if (server == INVALID_SOCKET) {
+    int32_t err = -(int32_t)WSAGetLastError();
+    closesocket(client);
+    closesocket(listener);
+    return err;
+  }
+
+  closesocket(listener);
+
+  if (__yo_io_iocp) {
+    CreateIoCompletionPort((HANDLE)client, __yo_io_iocp, 0, 0);
+    CreateIoCompletionPort((HANDLE)server, __yo_io_iocp, 0, 0);
+  }
+
+  sv[0] = (int32_t)(uintptr_t)client;
+  sv[1] = (int32_t)(uintptr_t)server;
+  return 0;
+}
+
+static int32_t __yo_sync_clock_gettime(int32_t clock_id, int64_t* sec, int64_t* nsec) {
+  if (!sec || !nsec) {
+    return -EINVAL;
+  }
+
+  // CLOCK_REALTIME (0): wall clock time since Unix epoch
+  if (clock_id == 0) {
+    FILETIME ft;
+    HMODULE kernel = GetModuleHandleW(L"kernel32.dll");
+    typedef VOID (WINAPI *get_precise_time_fn)(LPFILETIME);
+    get_precise_time_fn get_precise = NULL;
+    if (kernel) {
+      get_precise = (get_precise_time_fn)GetProcAddress(kernel, "GetSystemTimePreciseAsFileTime");
+    }
+    if (get_precise) {
+      get_precise(&ft);
+    } else {
+      GetSystemTimeAsFileTime(&ft);
+    }
+
+    ULARGE_INTEGER ts100;
+    ts100.LowPart = ft.dwLowDateTime;
+    ts100.HighPart = ft.dwHighDateTime;
+
+    const uint64_t WINDOWS_TO_UNIX_EPOCH_SECONDS = 11644473600ULL;
+    uint64_t total_100ns = ts100.QuadPart;
+    uint64_t total_seconds = total_100ns / 10000000ULL;
+    uint64_t rem_100ns = total_100ns % 10000000ULL;
+
+    if (total_seconds < WINDOWS_TO_UNIX_EPOCH_SECONDS) {
+      return -EINVAL;
+    }
+
+    *sec = (int64_t)(total_seconds - WINDOWS_TO_UNIX_EPOCH_SECONDS);
+    *nsec = (int64_t)(rem_100ns * 100ULL);
+    return 0;
+  }
+
+  // CLOCK_MONOTONIC (Linux=1, macOS commonly=6)
+  if (clock_id == 1 || clock_id == 6) {
+    LARGE_INTEGER freq;
+    LARGE_INTEGER counter;
+    if (!QueryPerformanceFrequency(&freq) || freq.QuadPart <= 0) {
+      return -EINVAL;
+    }
+    if (!QueryPerformanceCounter(&counter)) {
+      return -EINVAL;
+    }
+
+    int64_t s = (int64_t)(counter.QuadPart / freq.QuadPart);
+    int64_t rem = (int64_t)(counter.QuadPart % freq.QuadPart);
+    int64_t ns = (int64_t)((rem * 1000000000LL) / freq.QuadPart);
+
+    *sec = s;
+    *nsec = ns;
+    return 0;
+  }
+
+  return -EINVAL;
+}
+
+static void __yo_win_copy_cstr_field(char* dst, size_t dst_len, const char* src) {
+  if (!dst || dst_len == 0) return;
+  if (!src) {
+    dst[0] = '\0';
+    return;
+  }
+
+  size_t i = 0;
+  while (i + 1 < dst_len && src[i] != '\0') {
+    dst[i] = src[i];
+    i++;
+  }
+  dst[i] = '\0';
+}
+
+static int32_t __yo_sync_uname(void* buf) {
+  if (!buf) {
+    return -EINVAL;
+  }
+
+  __yo_io_init();
+
+  const size_t field_size = 256;
+  const size_t total_size = (field_size * 5);
+  char* out = (char*)buf;
+  memset(out, 0, total_size);
+
+  // sysname
+  __yo_win_copy_cstr_field(out + (field_size * 0), field_size, "Windows");
+
+  // nodename
+  char host[256];
+  host[0] = '\0';
+  if (gethostname(host, (int)sizeof(host)) == SOCKET_ERROR) {
+    __yo_win_copy_cstr_field(out + (field_size * 1), field_size, "localhost");
+  } else {
+    host[sizeof(host) - 1] = '\0';
+    __yo_win_copy_cstr_field(out + (field_size * 1), field_size, host);
+  }
+
+  // release / version
+  __yo_win_copy_cstr_field(out + (field_size * 2), field_size, "win32");
+  __yo_win_copy_cstr_field(out + (field_size * 3), field_size, "nt");
+
+  // machine
+  SYSTEM_INFO si;
+  GetNativeSystemInfo(&si);
+  const char* machine = "unknown";
+  switch (si.wProcessorArchitecture) {
+    case PROCESSOR_ARCHITECTURE_AMD64:
+      machine = "x86_64";
+      break;
+    case PROCESSOR_ARCHITECTURE_ARM64:
+      machine = "aarch64";
+      break;
+    case PROCESSOR_ARCHITECTURE_INTEL:
+      machine = "x86";
+      break;
+    case PROCESSOR_ARCHITECTURE_ARM:
+      machine = "arm";
+      break;
+    default:
+      machine = "unknown";
+      break;
+  }
+  __yo_win_copy_cstr_field(out + (field_size * 4), field_size, machine);
+
+  return 0;
+}
+
+static int32_t __yo_sync_gethostname(char* name, size_t len) {
+  __yo_io_init();
+
+  if (!name || len == 0) {
+    return -EINVAL;
+  }
+
+  int result = gethostname(name, (int)len);
+  if (result == SOCKET_ERROR) {
+    return -(int32_t)WSAGetLastError();
+  }
+  name[len - 1] = '\0';
+  return 0;
+}
+
+static int32_t __yo_process_umask = 0;
+
+static int32_t __yo_sync_umask(int32_t mask) {
+  int32_t prev = __yo_process_umask;
+  __yo_process_umask = mask & 0777;
+  return prev;
+}
+
+// ============================================================================
+// Synchronous File Helpers (Windows)
+// ============================================================================
+
+static int32_t __yo_file_open(const char* path, int32_t flags, int32_t mode) {
+  wchar_t* wpath = __yo_win_utf8_to_wide(path);
+  if (!wpath) return -__yo_win_last_error_to_errno();
+  int fd = _wopen(wpath, flags, mode);
+  __yo_free(wpath);
+  return (fd < 0) ? -errno : fd;
+}
+
+static void __yo_file_close(int32_t fd) {
+  SOCKET s = (SOCKET)(uintptr_t)(uint32_t)fd;
+  int cs = closesocket(s);
+  if (cs != 0) {
+    DWORD wsa_err = WSAGetLastError();
+    if (wsa_err == WSAENOTSOCK) {
+      _close(fd);
+    }
+  }
+}
+
+static int64_t __yo_file_size(int32_t fd) {
+  struct _stat64 st;
+  if (_fstat64(fd, &st) < 0) return -1;
+  return (int64_t)st.st_size;
+}
+
+
+// ============================================================================
+// Stat Buffer Accessors (Windows)
+// ============================================================================
+
+static size_t __yo_statx_buf_size(void) {
+  return sizeof(yo_win_stat_t);
+}
+
+static int64_t __yo_statx_size(void* statxbuf) {
+  return (int64_t)((yo_win_stat_t*)statxbuf)->stat.st_size;
+}
+
+static uint32_t __yo_statx_mode(void* statxbuf) {
+  return (uint32_t)((yo_win_stat_t*)statxbuf)->stat.st_mode;
+}
+
+static int64_t __yo_statx_mtime_sec(void* statxbuf) {
+  return (int64_t)((yo_win_stat_t*)statxbuf)->stat.st_mtime;
+}
+
+static uint32_t __yo_statx_mtime_nsec(void* statxbuf) {
+  return ((yo_win_stat_t*)statxbuf)->mtime_nsec;
+}
+
+static int64_t __yo_statx_atime_sec(void* statxbuf) {
+  return (int64_t)((yo_win_stat_t*)statxbuf)->stat.st_atime;
+}
+
+static uint32_t __yo_statx_atime_nsec(void* statxbuf) {
+  return ((yo_win_stat_t*)statxbuf)->atime_nsec;
+}
+
+static int64_t __yo_statx_ctime_sec(void* statxbuf) {
+  return (int64_t)((yo_win_stat_t*)statxbuf)->stat.st_ctime;
+}
+
+static uint32_t __yo_statx_ctime_nsec(void* statxbuf) {
+  return ((yo_win_stat_t*)statxbuf)->ctime_nsec;
+}
+
+static int64_t __yo_statx_btime_sec(void* statxbuf) {
+  return ((yo_win_stat_t*)statxbuf)->btime_sec;
+}
+
+static uint32_t __yo_statx_btime_nsec(void* statxbuf) {
+  return ((yo_win_stat_t*)statxbuf)->btime_nsec;
+}
+
+static uint32_t __yo_statx_uid(void* statxbuf) {
+  return (uint32_t)((yo_win_stat_t*)statxbuf)->stat.st_uid;
+}
+
+static uint32_t __yo_statx_gid(void* statxbuf) {
+  return (uint32_t)((yo_win_stat_t*)statxbuf)->stat.st_gid;
+}
+
+static uint64_t __yo_statx_ino(void* statxbuf) {
+  return ((yo_win_stat_t*)statxbuf)->file_index;
+}
+
+static uint64_t __yo_statx_dev_major(void* statxbuf) {
+  return (uint64_t)((yo_win_stat_t*)statxbuf)->stat.st_dev;
+}
+
+static uint64_t __yo_statx_dev_minor(void* statxbuf) {
+  (void)statxbuf;
+  return 0;
+}
+
+static uint64_t __yo_statx_nlink(void* statxbuf) {
+  return (uint64_t)((yo_win_stat_t*)statxbuf)->stat.st_nlink;
+}
+
+static uint64_t __yo_statx_blksize(void* statxbuf) {
+  (void)statxbuf;
+  return 0;
+}
+
+static uint64_t __yo_statx_blocks(void* statxbuf) {
+  (void)statxbuf;
+  return 0;
+}
+
+
+// ============================================================================
+// Socket Address Helpers (Windows)
+// ============================================================================
+
+static size_t __yo_sockaddr_in_size(void) {
+  return sizeof(struct sockaddr_in);
+}
+
+static size_t __yo_sockaddr_in6_size(void) {
+  return sizeof(struct sockaddr_in6);
+}
+
+static size_t __yo_sockaddr_un_size(void) {
+  return sizeof(__yo_sockaddr_un_t);
+}
+
+static size_t __yo_sockaddr_storage_size(void) {
+  return sizeof(struct sockaddr_storage);
+}
+
+static void __yo_sockaddr_set_family(void* addr, uint16_t family) {
+  ((struct sockaddr*)addr)->sa_family = family;
+}
+
+static uint16_t __yo_sockaddr_get_family(void* addr) {
+  return ((struct sockaddr*)addr)->sa_family;
+}
+
+static void __yo_sockaddr_in_set_port(void* addr, uint16_t port) {
+  ((struct sockaddr_in*)addr)->sin_port = htons(port);
+}
+
+static uint16_t __yo_sockaddr_in_get_port(void* addr) {
+  return ntohs(((struct sockaddr_in*)addr)->sin_port);
+}
+
+static void __yo_sockaddr_in_set_addr(void* addr, uint32_t ip) {
+  ((struct sockaddr_in*)addr)->sin_addr.s_addr = ip;
+}
+
+static uint32_t __yo_sockaddr_in_get_addr(void* addr) {
+  return ((struct sockaddr_in*)addr)->sin_addr.s_addr;
+}
+
+static void __yo_sockaddr_in6_set_port(void* addr, uint16_t port) {
+  ((struct sockaddr_in6*)addr)->sin6_port = htons(port);
+}
+
+static uint16_t __yo_sockaddr_in6_get_port(void* addr) {
+  return ntohs(((struct sockaddr_in6*)addr)->sin6_port);
+}
+
+static void __yo_sockaddr_in6_set_addr(void* addr, const void* ip) {
+  memcpy(&((struct sockaddr_in6*)addr)->sin6_addr, ip, sizeof(struct in6_addr));
+}
+
+static void __yo_sockaddr_in6_get_addr(void* addr, void* out) {
+  memcpy(out, &((struct sockaddr_in6*)addr)->sin6_addr, sizeof(struct in6_addr));
+}
+
+static void __yo_sockaddr_un_set_path(void* addr, const char* path) {
+  __yo_sockaddr_un_t* un = (__yo_sockaddr_un_t*)addr;
+  strncpy(un->sun_path, path, UNIX_PATH_MAX - 1);
+  un->sun_path[UNIX_PATH_MAX - 1] = '\0';
+}
+
+static const char* __yo_sockaddr_un_get_path(void* addr) {
+  return ((__yo_sockaddr_un_t*)addr)->sun_path;
+}
+
+static int32_t __yo_inet_pton(int32_t af, const char* src, void* dst) {
+  return InetPtonA(af, src, dst) == 1 ? 1 : 0;
+}
+
+static const char* __yo_inet_ntop(int32_t af, const void* src, char* dst, uint32_t size) {
+  return InetNtopA(af, src, dst, (DWORD)size);
+}
+
+static uint16_t __yo_htons(uint16_t hostshort) { return htons(hostshort); }
+static uint16_t __yo_ntohs(uint16_t netshort) { return ntohs(netshort); }
+static uint32_t __yo_htonl(uint32_t hostlong) { return htonl(hostlong); }
+static uint32_t __yo_ntohl(uint32_t netlong) { return ntohl(netlong); }
+
+
+// ============================================================================
+// File Extra Operations (Windows)
+// ============================================================================
+
+static FILETIME __yo_win_timespec_to_filetime(int64_t sec, int64_t nsec) {
+  ULONGLONG t = ((ULONGLONG)(sec + 11644473600LL) * 10000000ULL) + ((ULONGLONG)(nsec / 100));
+  FILETIME ft;
+  ft.dwLowDateTime = (DWORD)t;
+  ft.dwHighDateTime = (DWORD)(t >> 32);
+  return ft;
+}
+
+static int32_t __yo_win_sendfile_fallback_copy(int32_t out_fd, int32_t in_fd, int64_t offset, size_t count) {
+  if (offset < 0) return -EINVAL;
+
+  HANDLE in_handle = (HANDLE)_get_osfhandle(in_fd);
+  HANDLE out_handle = (HANDLE)_get_osfhandle(out_fd);
+  if (in_handle == INVALID_HANDLE_VALUE || out_handle == INVALID_HANDLE_VALUE) return -EBADF;
+
+  wchar_t in_path[MAX_PATH];
+  DWORD in_len = GetFinalPathNameByHandleW(in_handle, in_path, MAX_PATH, FILE_NAME_NORMALIZED);
+  if (in_len == 0 || in_len >= MAX_PATH) {
+    return -__yo_win_last_error_to_errno();
+  }
+
+  wchar_t out_path[MAX_PATH];
+  DWORD out_len = GetFinalPathNameByHandleW(out_handle, out_path, MAX_PATH, FILE_NAME_NORMALIZED);
+  if (out_len == 0 || out_len >= MAX_PATH) {
+    return -__yo_win_last_error_to_errno();
+  }
+
+  HANDLE in_sync = CreateFileW(
+    in_path,
+    GENERIC_READ,
+    FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+    NULL,
+    OPEN_EXISTING,
+    FILE_ATTRIBUTE_NORMAL,
+    NULL
+  );
+  if (in_sync == INVALID_HANDLE_VALUE) {
+    return -__yo_win_last_error_to_errno();
+  }
+
+  HANDLE out_sync = CreateFileW(
+    out_path,
+    GENERIC_WRITE,
+    FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+    NULL,
+    OPEN_EXISTING,
+    FILE_ATTRIBUTE_NORMAL,
+    NULL
+  );
+  if (out_sync == INVALID_HANDLE_VALUE) {
+    CloseHandle(in_sync);
+    return -__yo_win_last_error_to_errno();
+  }
+
+  __int64 out_pos = _lseeki64(out_fd, 0, SEEK_CUR);
+  if (out_pos < 0) out_pos = 0;
+
+  LARGE_INTEGER in_start;
+  in_start.QuadPart = (LONGLONG)offset;
+  if (!SetFilePointerEx(in_sync, in_start, NULL, FILE_BEGIN)) {
+    CloseHandle(in_sync);
+    CloseHandle(out_sync);
+    return -__yo_win_last_error_to_errno();
+  }
+
+  LARGE_INTEGER out_start;
+  out_start.QuadPart = out_pos;
+  if (!SetFilePointerEx(out_sync, out_start, NULL, FILE_BEGIN)) {
+    CloseHandle(in_sync);
+    CloseHandle(out_sync);
+    return -__yo_win_last_error_to_errno();
+  }
+
+  unsigned char buffer[65536];
+  size_t total = 0;
+  while (total < count) {
+    size_t remaining = count - total;
+    size_t chunk = remaining < sizeof(buffer) ? remaining : sizeof(buffer);
+    DWORD to_read = (chunk > (size_t)0xFFFFFFFFu) ? 0xFFFFFFFFu : (DWORD)chunk;
+    DWORD read_bytes = 0;
+    if (!ReadFile(in_sync, buffer, to_read, &read_bytes, NULL)) {
+      int32_t err = -__yo_win_last_error_to_errno();
+      CloseHandle(in_sync);
+      CloseHandle(out_sync);
+      return err;
+    }
+    if (read_bytes == 0) {
+      break;
+    }
+
+    size_t written = 0;
+    while (written < (size_t)read_bytes) {
+      size_t write_remaining = (size_t)read_bytes - written;
+      DWORD to_write =
+        (write_remaining > (size_t)0xFFFFFFFFu) ? 0xFFFFFFFFu : (DWORD)write_remaining;
+      DWORD written_bytes = 0;
+      if (!WriteFile(out_sync, (const char*)(buffer + written), to_write, &written_bytes, NULL)) {
+        int32_t err = -__yo_win_last_error_to_errno();
+        CloseHandle(in_sync);
+        CloseHandle(out_sync);
+        return err;
+      }
+      if (written_bytes == 0) {
+        CloseHandle(in_sync);
+        CloseHandle(out_sync);
+        return -EIO;
+      }
+      written += (size_t)written_bytes;
+    }
+
+    total += (size_t)read_bytes;
+  }
+
+  CloseHandle(in_sync);
+  CloseHandle(out_sync);
+
+  (void)_lseeki64(out_fd, out_pos + (__int64)total, SEEK_SET);
+
+  return (int32_t)total;
+}
+
+
+// ============================================================================
+// Synchronous Operations (Windows) - no IOFuture overhead
+// ============================================================================
+
+static int32_t __yo_sync_access(int32_t dirfd, const char* path, int32_t mode) {
+  if (!__yo_is_at_fdcwd(dirfd)) return -EINVAL;
+
+  wchar_t* wpath = __yo_win_utf8_to_wide(path);
+  if (!wpath) return -__yo_win_last_error_to_errno();
+
+  int win_mode = mode & ~1;
+  if (win_mode == 0 && mode != 0) win_mode = 0;
+
+  int result = _waccess(wpath, win_mode);
+  __yo_free(wpath);
+  return (result < 0) ? -errno : 0;
+}
+
+static int32_t __yo_sync_realpath(const char* path, char* resolved) {
+  wchar_t* wpath = __yo_win_utf8_to_wide(path);
+  if (!wpath) return -__yo_win_last_error_to_errno();
+
+  wchar_t wbuf[MAX_PATH];
+  DWORD len = GetFullPathNameW(wpath, MAX_PATH, wbuf, NULL);
+  __yo_free(wpath);
+  if (len == 0 || len >= MAX_PATH) return -__yo_win_last_error_to_errno();
+
+  HANDLE handle = CreateFileW(wbuf, FILE_READ_ATTRIBUTES,
+                              FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                              NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL);
+  if (handle == INVALID_HANDLE_VALUE) return -__yo_win_last_error_to_errno();
+
+  DWORD final_len = GetFinalPathNameByHandleW(handle, wbuf, MAX_PATH, FILE_NAME_NORMALIZED | VOLUME_NAME_DOS);
+  CloseHandle(handle);
+  if (final_len == 0 || final_len >= MAX_PATH) return -__yo_win_last_error_to_errno();
+
+  wchar_t* normalized = wbuf;
+    if (wbuf[0] == L'\\\\' && wbuf[1] == L'\\\\' && wbuf[2] == L'?' && wbuf[3] == L'\\\\' &&
+      wbuf[4] == L'U' && wbuf[5] == L'N' && wbuf[6] == L'C' && wbuf[7] == L'\\\\') {
+    size_t tail_len = wcslen(wbuf + 8);
+    wbuf[0] = L'\\\\';
+    wbuf[1] = L'\\\\';
+    memmove(wbuf + 2, wbuf + 8, (tail_len + 1) * sizeof(wchar_t));
+  } else if (wbuf[0] == L'\\\\' && wbuf[1] == L'\\\\' && wbuf[2] == L'?' && wbuf[3] == L'\\\\') {
+    normalized = wbuf + 4;
+  }
+
+  int written = __yo_win_wide_to_utf8(normalized, resolved, MAX_PATH);
+  return (written < 0) ? written : 0;
+}
+
+static int32_t __yo_sync_mkdtemp(char* template_str) {
+  wchar_t* wtemplate = __yo_win_utf8_to_wide(template_str);
+  if (!wtemplate) return -__yo_win_last_error_to_errno();
+
+  if (_wmktemp_s(wtemplate, wcslen(wtemplate) + 1) != 0) {
+    __yo_free(wtemplate);
+    return -errno;
+  }
+
+  int result = _wmkdir(wtemplate);
+  if (result == 0) {
+    __yo_win_wide_to_utf8(wtemplate, template_str, MAX_PATH);
+  }
+  __yo_free(wtemplate);
+  return (result < 0) ? -errno : 0;
+}
+
+static int32_t __yo_sync_mkstemp(char* template_str) {
+  wchar_t* wtemplate = __yo_win_utf8_to_wide(template_str);
+  if (!wtemplate) return -__yo_win_last_error_to_errno();
+
+  if (_wmktemp_s(wtemplate, wcslen(wtemplate) + 1) != 0) {
+    __yo_free(wtemplate);
+    return -errno;
+  }
+
+  int fd = _wopen(wtemplate, _O_CREAT | _O_EXCL | _O_RDWR | _O_BINARY, _S_IREAD | _S_IWRITE);
+  if (fd >= 0) {
+    __yo_win_wide_to_utf8(wtemplate, template_str, MAX_PATH);
+  }
+  __yo_free(wtemplate);
+  return (fd < 0) ? -errno : fd;
+}
+
+static int32_t __yo_sync_copyfile(const char* src_path, const char* dst_path, int32_t flags) {
+  (void)flags;
+  wchar_t* wsrc = __yo_win_utf8_to_wide(src_path);
+  wchar_t* wdst = __yo_win_utf8_to_wide(dst_path);
+  if (!wsrc || !wdst) {
+    if (wsrc) __yo_free(wsrc);
+    if (wdst) __yo_free(wdst);
+    return -__yo_win_last_error_to_errno();
+  }
+
+  BOOL ok = CopyFileW(wsrc, wdst, FALSE);
+  __yo_free(wsrc);
+  __yo_free(wdst);
+  return ok ? 0 : -__yo_win_last_error_to_errno();
+}
+
+static int32_t __yo_sync_sendfile(int32_t out_fd, int32_t in_fd, int64_t offset, size_t count) {
+  return __yo_win_sendfile_fallback_copy(out_fd, in_fd, offset, count);
+}
+
+static int32_t __yo_sync_utime(const char* path, int64_t atime_sec, int64_t atime_nsec, int64_t mtime_sec, int64_t mtime_nsec) {
+  wchar_t* wpath = __yo_win_utf8_to_wide(path);
+  if (!wpath) return -__yo_win_last_error_to_errno();
+  HANDLE handle = CreateFileW(wpath, FILE_WRITE_ATTRIBUTES,
+                              FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                              NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL);
+  __yo_free(wpath);
+  if (handle == INVALID_HANDLE_VALUE) return -__yo_win_last_error_to_errno();
+  FILETIME at = __yo_win_timespec_to_filetime(atime_sec, atime_nsec);
+  FILETIME mt = __yo_win_timespec_to_filetime(mtime_sec, mtime_nsec);
+  BOOL ok = SetFileTime(handle, NULL, &at, &mt);
+  CloseHandle(handle);
+  return ok ? 0 : -__yo_win_last_error_to_errno();
+}
+
+static int32_t __yo_sync_futime(int32_t fd, int64_t atime_sec, int64_t atime_nsec, int64_t mtime_sec, int64_t mtime_nsec) {
+  if (fd < 0) return -EBADF;
+  HANDLE orig_handle = (HANDLE)_get_osfhandle(fd);
+  if (orig_handle == INVALID_HANDLE_VALUE) return -EBADF;
+  wchar_t path_buf[MAX_PATH];
+  DWORD len = GetFinalPathNameByHandleW(orig_handle, path_buf, MAX_PATH, FILE_NAME_NORMALIZED);
+  if (len == 0 || len >= MAX_PATH) return -__yo_win_last_error_to_errno();
+  HANDLE handle = CreateFileW(path_buf, FILE_WRITE_ATTRIBUTES,
+                              FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                              NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL);
+  if (handle == INVALID_HANDLE_VALUE) return -__yo_win_last_error_to_errno();
+  FILETIME at = __yo_win_timespec_to_filetime(atime_sec, atime_nsec);
+  FILETIME mt = __yo_win_timespec_to_filetime(mtime_sec, mtime_nsec);
+  BOOL ok = SetFileTime(handle, NULL, &at, &mt);
+  CloseHandle(handle);
+  return ok ? 0 : -__yo_win_last_error_to_errno();
+}
+
+static int32_t __yo_sync_lutime(const char* path, int64_t atime_sec, int64_t atime_nsec, int64_t mtime_sec, int64_t mtime_nsec) {
+  wchar_t* wpath = __yo_win_utf8_to_wide(path);
+  if (!wpath) return -__yo_win_last_error_to_errno();
+  HANDLE handle = CreateFileW(wpath, FILE_WRITE_ATTRIBUTES,
+                              FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                              NULL, OPEN_EXISTING,
+                              FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS,
+                              NULL);
+  __yo_free(wpath);
+  if (handle == INVALID_HANDLE_VALUE) return -__yo_win_last_error_to_errno();
+  FILETIME at = __yo_win_timespec_to_filetime(atime_sec, atime_nsec);
+  FILETIME mt = __yo_win_timespec_to_filetime(mtime_sec, mtime_nsec);
+  BOOL ok = SetFileTime(handle, NULL, &at, &mt);
+  CloseHandle(handle);
+  return ok ? 0 : -__yo_win_last_error_to_errno();
+}
+
+typedef struct {
+  uint64_t type;
+  uint64_t bsize;
+  uint64_t blocks;
+  uint64_t bfree;
+  uint64_t bavail;
+  uint64_t files;
+  uint64_t ffree;
+} yo_win_statfs_t;
+
+static int32_t __yo_sync_statfs(const char* path, void* statfsbuf) {
+  wchar_t* wpath = __yo_win_utf8_to_wide(path);
+  if (!wpath) return -__yo_win_last_error_to_errno();
+  ULARGE_INTEGER free_avail, total_bytes, free_bytes;
+  if (!GetDiskFreeSpaceExW(wpath, &free_avail, &total_bytes, &free_bytes)) {
+    __yo_free(wpath);
+    return -__yo_win_last_error_to_errno();
+  }
+  DWORD sectors_per_cluster = 0, bytes_per_sector = 0, num_free_clusters = 0, total_clusters = 0;
+  if (!GetDiskFreeSpaceW(wpath, &sectors_per_cluster, &bytes_per_sector, &num_free_clusters, &total_clusters)) {
+    __yo_free(wpath);
+    return -__yo_win_last_error_to_errno();
+  }
+  __yo_free(wpath);
+  uint64_t bsize = (uint64_t)sectors_per_cluster * (uint64_t)bytes_per_sector;
+  yo_win_statfs_t* fs = (yo_win_statfs_t*)statfsbuf;
+  fs->type = 0;
+  fs->bsize = bsize;
+  fs->blocks = bsize ? (total_bytes.QuadPart / bsize) : 0;
+  fs->bfree = bsize ? (free_bytes.QuadPart / bsize) : 0;
+  fs->bavail = bsize ? (free_avail.QuadPart / bsize) : 0;
+  fs->files = 0;
+  fs->ffree = 0;
+  return 0;
+}
+
+static size_t __yo_statfs_buf_size(void) { return sizeof(yo_win_statfs_t); }
+static uint64_t __yo_statfs_type(void* buf) { return ((yo_win_statfs_t*)buf)->type; }
+static uint64_t __yo_statfs_bsize(void* buf) { return ((yo_win_statfs_t*)buf)->bsize; }
+static uint64_t __yo_statfs_blocks(void* buf) { return ((yo_win_statfs_t*)buf)->blocks; }
+static uint64_t __yo_statfs_bfree(void* buf) { return ((yo_win_statfs_t*)buf)->bfree; }
+static uint64_t __yo_statfs_bavail(void* buf) { return ((yo_win_statfs_t*)buf)->bavail; }
+static uint64_t __yo_statfs_files(void* buf) { return ((yo_win_statfs_t*)buf)->files; }
+static uint64_t __yo_statfs_ffree(void* buf) { return ((yo_win_statfs_t*)buf)->ffree; }
+
+
+`);
+}
+
+// ---------------------------------------------------------------------------
+// 2. Async I/O runtime (Windows — IOCP) — requires IOFuture / event-loop types
+// ---------------------------------------------------------------------------
+
+/**
+ * Emits Windows async I/O helpers using IOCP (I/O Completion Ports).
+ * These functions create / consume IOFuture or participate in the event loop.
+ * Only emitted when `usesAsync` is true.
+ *
+ * Sections: IOCP globals & types, init/cleanup, timer management, IOCP
+ * completion processing, async file ops, directory listing, async socket ops,
+ * directory scanning, DNS, process spawn/waitpid, signals, TTY, FS events,
+ * poll, tick.
+ */
+export function generateAsyncRuntimeIOWindows(emitter: Emitter): void {
+  emitter.emitLine(`
+// ============================================================================
+// Async I/O Runtime (Windows - IOCP)
+// ============================================================================
+// __yo_io_initialized is defined in runtime-core
+static _Atomic size_t __yo_pending_io_count = 0;
+static HANDLE __yo_io_iocp = NULL;
+static CRITICAL_SECTION __yo_dir_state_mutex;
+
+typedef struct yo_win_timer_entry_t {
+  uint64_t due_ms;
+  yo_io_future_t* future;
+  struct yo_win_timer_entry_t* next;
+} yo_win_timer_entry_t;
+
+static yo_win_timer_entry_t* __yo_win_timer_head = NULL;
+
+typedef struct {
+  OVERLAPPED overlapped;
+  yo_io_future_t* future;
+  HANDLE handle;
+  bool is_socket;
+  SOCKET sock;
+  WSABUF wsabuf;
+  DWORD sock_flags;
+} yo_win_overlapped_t;
+
 
 static void __yo_io_init(void) {
   if (__yo_io_initialized) return;
@@ -482,6 +1929,7 @@ static int __yo_io_wait(void) {
   __yo_win_process_completion((yo_win_overlapped_t*)ov, bytes);
   return 1 + __yo_win_timer_process_due(__yo_win_now_ms()) + __yo_poll_and_fs_event_tick();
 }
+
 
 // ============================================================================
 // File Operations (Windows)
@@ -1080,571 +2528,6 @@ static yo_io_future_t* __yo_async_ftruncate_start(int32_t fd, int64_t length) {
   return future;
 }
 
-// ============================================================================
-// Synchronous FD Operations (Windows) - no IOFuture overhead
-// ============================================================================
-
-static int32_t __yo_sync_pipe(int32_t* pipefd) {
-  int result = _pipe(pipefd, 4096, _O_BINARY);
-  return (result < 0) ? -errno : 0;
-}
-
-static int32_t __yo_sync_dup(int32_t oldfd) {
-  int result = _dup(oldfd);
-  return (result < 0) ? -errno : result;
-}
-
-static int32_t __yo_sync_dup2(int32_t oldfd, int32_t newfd) {
-  int result = _dup2(oldfd, newfd);
-  return (result < 0) ? -errno : newfd;
-}
-
-static int64_t __yo_sync_lseek(int32_t fd, int64_t offset, int32_t whence) {
-  if (fd < 0) return (int64_t)(-EBADF);
-  if (__yo_win_is_socket_fd(fd)) return (int64_t)(-ESPIPE);
-  intptr_t hv = _get_osfhandle(fd);
-  if (hv == -1) return (int64_t)(-EBADF);
-  DWORD ft = GetFileType((HANDLE)hv);
-  if (ft == FILE_TYPE_PIPE || ft == FILE_TYPE_CHAR) return (int64_t)(-ESPIPE);
-  __int64 result = _lseeki64(fd, (__int64)offset, whence);
-  return (result < 0) ? (int64_t)(-errno) : (int64_t)result;
-}
-
-static int32_t __yo_sync_fallocate(int32_t fd, int32_t mode, int64_t offset, int64_t length) {
-  if (fd < 0) return -EBADF;
-  if (offset < 0 || length < 0) return -EINVAL;
-
-  uint64_t target_u = (uint64_t)offset + (uint64_t)length;
-  if (target_u > 0x7FFFFFFFFFFFFFFFULL) return -EINVAL;
-  __int64 target = (__int64)target_u;
-
-  intptr_t handle_value = _get_osfhandle(fd);
-  if (handle_value == -1) return -EBADF;
-  HANDLE handle = (HANDLE)handle_value;
-
-  FILE_ALLOCATION_INFO alloc_info;
-  alloc_info.AllocationSize.QuadPart = target;
-  if (!SetFileInformationByHandle(handle, FileAllocationInfo, &alloc_info, sizeof(alloc_info))) {
-    return -__yo_win_last_error_to_errno();
-  }
-
-  // FALLOC_FL_KEEP_SIZE = 0x01
-  if ((mode & 0x01) == 0) {
-    struct _stat64 st;
-    if (_fstat64(fd, &st) != 0) return -errno;
-    if ((__int64)st.st_size < target) {
-      int result = _chsize_s(fd, target);
-      if (result != 0) return -errno;
-    }
-  }
-
-  return 0;
-}
-
-static int32_t __yo_sync_fcntl_getfl(int32_t fd) {
-  if (fd < 0) return -EBADF;
-  if (__yo_win_is_socket_fd(fd)) {
-    // Winsock does not provide a portable way to query current FIONBIO mode.
-    // Return 0 (blocking) as best-effort default.
-    return 0;
-  }
-
-  intptr_t handle_value = _get_osfhandle(fd);
-  if (handle_value == -1) return -EBADF;
-  return 0;
-}
-
-static int32_t __yo_sync_fcntl_setfl(int32_t fd, int32_t flags) {
-  if (fd < 0) return -EBADF;
-  if (__yo_win_is_socket_fd(fd)) {
-    u_long mode = ((flags & O_NONBLOCK) != 0) ? 1UL : 0UL;
-    int result = ioctlsocket((SOCKET)(uintptr_t)(uint32_t)fd, FIONBIO, &mode);
-    return (result == SOCKET_ERROR) ? -(int32_t)WSAGetLastError() : 0;
-  }
-
-  intptr_t handle_value = _get_osfhandle(fd);
-  if (handle_value == -1) return -EBADF;
-
-  if ((flags & O_NONBLOCK) != 0) {
-    HANDLE handle = (HANDLE)handle_value;
-    if (GetFileType(handle) == FILE_TYPE_PIPE) {
-      DWORD pipe_mode = PIPE_NOWAIT;
-      if (SetNamedPipeHandleState(handle, &pipe_mode, NULL, NULL)) {
-        return 0;
-      }
-      return -__yo_win_last_error_to_errno();
-    }
-    return -ENOSYS;
-  }
-
-  return 0;
-}
-
-static int32_t __yo_sync_fcntl_getfd(int32_t fd) {
-  if (fd < 0) return -EBADF;
-  intptr_t handle_value = _get_osfhandle(fd);
-  if (handle_value == -1) {
-    return __yo_win_is_socket_fd(fd) ? 0 : -EBADF;
-  }
-
-  DWORD handle_flags = 0;
-  if (!GetHandleInformation((HANDLE)handle_value, &handle_flags)) {
-    return -__yo_win_last_error_to_errno();
-  }
-
-  return ((handle_flags & HANDLE_FLAG_INHERIT) != 0) ? 0 : FD_CLOEXEC;
-}
-
-static int32_t __yo_sync_fcntl_setfd(int32_t fd, int32_t flags) {
-  if (fd < 0) return -EBADF;
-  intptr_t handle_value = _get_osfhandle(fd);
-  if (handle_value == -1) {
-    return __yo_win_is_socket_fd(fd) ? 0 : -EBADF;
-  }
-
-  DWORD inherit_value = ((flags & FD_CLOEXEC) != 0) ? 0 : HANDLE_FLAG_INHERIT;
-  BOOL ok = SetHandleInformation((HANDLE)handle_value, HANDLE_FLAG_INHERIT, inherit_value);
-  return ok ? 0 : -__yo_win_last_error_to_errno();
-}
-
-#define LOCK_SH 1
-#define LOCK_EX 2
-#define LOCK_NB 4
-#define LOCK_UN 8
-
-static int32_t __yo_sync_flock(int32_t fd, int32_t operation) {
-  if (fd < 0) return -EBADF;
-  intptr_t handle_value = _get_osfhandle(fd);
-  if (handle_value == -1) return -EBADF;
-  HANDLE handle = (HANDLE)handle_value;
-  OVERLAPPED ov;
-  memset(&ov, 0, sizeof(ov));
-  if ((operation & LOCK_UN) != 0) {
-    BOOL ok = UnlockFileEx(handle, 0, 0xFFFFFFFF, 0xFFFFFFFF, &ov);
-    if (!ok && GetLastError() == ERROR_NOT_LOCKED) return 0;
-    return ok ? 0 : -__yo_win_last_error_to_errno();
-  }
-  UnlockFileEx(handle, 0, 0xFFFFFFFF, 0xFFFFFFFF, &ov);
-  memset(&ov, 0, sizeof(ov));
-  DWORD flags = 0;
-  if ((operation & LOCK_EX) != 0) flags |= LOCKFILE_EXCLUSIVE_LOCK;
-  if ((operation & LOCK_NB) != 0) flags |= LOCKFILE_FAIL_IMMEDIATELY;
-  BOOL ok = LockFileEx(handle, flags, 0, 0xFFFFFFFF, 0xFFFFFFFF, &ov);
-  if (!ok && (operation & LOCK_NB) != 0 && GetLastError() == ERROR_LOCK_VIOLATION) {
-    return -EAGAIN;
-  }
-  return ok ? 0 : -__yo_win_last_error_to_errno();
-}
-
-static int32_t __yo_sync_readv(int32_t fd, void* iov, int32_t iovcnt) {
-  if (fd < 0) return -EBADF;
-  if (iovcnt < 0) return -EINVAL;
-  if (iovcnt == 0) return 0;
-
-  yo_iovec_t* vec = (yo_iovec_t*)iov;
-
-  if (__yo_win_is_socket_fd(fd)) {
-    WSABUF* bufs = (WSABUF*)__yo_malloc(sizeof(WSABUF) * (size_t)iovcnt);
-    if (!bufs) return -ENOMEM;
-
-    for (int32_t i = 0; i < iovcnt; i++) {
-      if (vec[i].iov_len > 0xFFFFFFFFu) {
-        __yo_free(bufs);
-        return -EINVAL;
-      }
-      bufs[i].buf = (CHAR*)vec[i].iov_base;
-      bufs[i].len = (ULONG)vec[i].iov_len;
-    }
-
-    DWORD recvd = 0;
-    DWORD flags = 0;
-    int result = WSARecv((SOCKET)(uintptr_t)(uint32_t)fd, bufs, (DWORD)iovcnt, &recvd, &flags, NULL, NULL);
-    __yo_free(bufs);
-    return (result == SOCKET_ERROR) ? -(int32_t)WSAGetLastError() : (int32_t)recvd;
-  }
-
-  intptr_t hv = _get_osfhandle(fd);
-  if (hv == -1) return -EBADF;
-  HANDLE handle = (HANDLE)hv;
-
-  HANDLE evt = CreateEvent(NULL, TRUE, FALSE, NULL);
-  if (!evt) return -ENOMEM;
-
-  LARGE_INTEGER cur_pos;
-  LARGE_INTEGER zero_dist;
-  zero_dist.QuadPart = 0;
-  if (!SetFilePointerEx(handle, zero_dist, &cur_pos, FILE_CURRENT)) {
-    cur_pos.QuadPart = 0;
-  }
-
-  int32_t total = 0;
-  for (int32_t i = 0; i < iovcnt; i++) {
-    char* ptr = (char*)vec[i].iov_base;
-    size_t remaining = vec[i].iov_len;
-    while (remaining > 0) {
-      DWORD chunk = (remaining > 0x7FFFFFFF) ? 0x7FFFFFFF : (DWORD)remaining;
-      OVERLAPPED ov;
-      memset(&ov, 0, sizeof(ov));
-      ov.Offset = (DWORD)(cur_pos.QuadPart & 0xFFFFFFFF);
-      ov.OffsetHigh = (DWORD)(cur_pos.QuadPart >> 32);
-      ov.hEvent = (HANDLE)((uintptr_t)evt | 1);
-      ResetEvent(evt);
-      DWORD bytes_read = 0;
-      BOOL ok = ReadFile(handle, ptr, chunk, &bytes_read, &ov);
-      if (!ok) {
-        DWORD err = GetLastError();
-        if (err == ERROR_IO_PENDING) {
-          WaitForSingleObject(evt, INFINITE);
-          ok = GetOverlappedResult(handle, &ov, &bytes_read, FALSE);
-          if (!ok) {
-            CloseHandle(evt);
-            return (total > 0) ? total : -__yo_win_last_error_to_errno();
-          }
-        } else if (err == ERROR_HANDLE_EOF) {
-          CloseHandle(evt);
-          return total;
-        } else {
-          CloseHandle(evt);
-          return (total > 0) ? total : -__yo_win_last_error_to_errno();
-        }
-      }
-      if (bytes_read == 0) {
-        CloseHandle(evt);
-        return total;
-      }
-      total += (int32_t)bytes_read;
-      cur_pos.QuadPart += bytes_read;
-      if (bytes_read < chunk) {
-        SetFilePointerEx(handle, cur_pos, NULL, FILE_BEGIN);
-        CloseHandle(evt);
-        return total;
-      }
-      ptr += bytes_read;
-      remaining -= bytes_read;
-    }
-  }
-
-  SetFilePointerEx(handle, cur_pos, NULL, FILE_BEGIN);
-  CloseHandle(evt);
-  return total;
-}
-
-static int32_t __yo_sync_writev(int32_t fd, void* iov, int32_t iovcnt) {
-  if (fd < 0) return -EBADF;
-  if (iovcnt < 0) return -EINVAL;
-  if (iovcnt == 0) return 0;
-
-  yo_iovec_t* vec = (yo_iovec_t*)iov;
-
-  if (__yo_win_is_socket_fd(fd)) {
-    WSABUF* bufs = (WSABUF*)__yo_malloc(sizeof(WSABUF) * (size_t)iovcnt);
-    if (!bufs) return -ENOMEM;
-
-    for (int32_t i = 0; i < iovcnt; i++) {
-      if (vec[i].iov_len > 0xFFFFFFFFu) {
-        __yo_free(bufs);
-        return -EINVAL;
-      }
-      bufs[i].buf = (CHAR*)vec[i].iov_base;
-      bufs[i].len = (ULONG)vec[i].iov_len;
-    }
-
-    DWORD sent = 0;
-    int result = WSASend((SOCKET)(uintptr_t)(uint32_t)fd, bufs, (DWORD)iovcnt, &sent, 0, NULL, NULL);
-    __yo_free(bufs);
-    return (result == SOCKET_ERROR) ? -(int32_t)WSAGetLastError() : (int32_t)sent;
-  }
-
-  intptr_t whv = _get_osfhandle(fd);
-  if (whv == -1) return -EBADF;
-  HANDLE whandle = (HANDLE)whv;
-
-  HANDLE wevt = CreateEvent(NULL, TRUE, FALSE, NULL);
-  if (!wevt) return -ENOMEM;
-
-  LARGE_INTEGER wcur_pos;
-  LARGE_INTEGER wzero_dist;
-  wzero_dist.QuadPart = 0;
-  if (!SetFilePointerEx(whandle, wzero_dist, &wcur_pos, FILE_CURRENT)) {
-    wcur_pos.QuadPart = 0;
-  }
-
-  int32_t total = 0;
-  for (int32_t i = 0; i < iovcnt; i++) {
-    char* ptr = (char*)vec[i].iov_base;
-    size_t remaining = vec[i].iov_len;
-    while (remaining > 0) {
-      DWORD chunk = (remaining > 0x7FFFFFFF) ? 0x7FFFFFFF : (DWORD)remaining;
-      OVERLAPPED ov;
-      memset(&ov, 0, sizeof(ov));
-      ov.Offset = (DWORD)(wcur_pos.QuadPart & 0xFFFFFFFF);
-      ov.OffsetHigh = (DWORD)(wcur_pos.QuadPart >> 32);
-      ov.hEvent = (HANDLE)((uintptr_t)wevt | 1);
-      ResetEvent(wevt);
-      DWORD bytes_written = 0;
-      BOOL ok = WriteFile(whandle, ptr, chunk, &bytes_written, &ov);
-      if (!ok) {
-        DWORD err = GetLastError();
-        if (err == ERROR_IO_PENDING) {
-          WaitForSingleObject(wevt, INFINITE);
-          ok = GetOverlappedResult(whandle, &ov, &bytes_written, FALSE);
-          if (!ok) {
-            CloseHandle(wevt);
-            return (total > 0) ? total : -__yo_win_last_error_to_errno();
-          }
-        } else {
-          CloseHandle(wevt);
-          return (total > 0) ? total : -__yo_win_last_error_to_errno();
-        }
-      }
-      total += (int32_t)bytes_written;
-      wcur_pos.QuadPart += bytes_written;
-      if (bytes_written < chunk) {
-        SetFilePointerEx(whandle, wcur_pos, NULL, FILE_BEGIN);
-        CloseHandle(wevt);
-        return total;
-      }
-      ptr += bytes_written;
-      remaining -= bytes_written;
-    }
-  }
-
-  SetFilePointerEx(whandle, wcur_pos, NULL, FILE_BEGIN);
-  CloseHandle(wevt);
-  return total;
-}
-
-static int32_t __yo_sync_preadv(int32_t fd, void* iov, int32_t iovcnt, int64_t offset) {
-  if (iovcnt < 0 || offset < 0) return -EINVAL;
-  if (__yo_win_is_socket_fd(fd)) return -ESPIPE;
-
-  int64_t saved = __yo_sync_lseek(fd, 0, 1);
-  if (saved < 0) return (int32_t)saved;
-
-  int64_t seeked = __yo_sync_lseek(fd, offset, 0);
-  if (seeked < 0) return (int32_t)seeked;
-
-  int32_t result = __yo_sync_readv(fd, iov, iovcnt);
-
-  int64_t restored = __yo_sync_lseek(fd, saved, 0);
-  if (restored < 0 && result >= 0) {
-    return (int32_t)restored;
-  }
-
-  return result;
-}
-
-static int32_t __yo_sync_pwritev(int32_t fd, void* iov, int32_t iovcnt, int64_t offset) {
-  if (iovcnt < 0 || offset < 0) return -EINVAL;
-  if (__yo_win_is_socket_fd(fd)) return -ESPIPE;
-
-  int64_t saved = __yo_sync_lseek(fd, 0, 1);
-  if (saved < 0) return (int32_t)saved;
-
-  int64_t seeked = __yo_sync_lseek(fd, offset, 0);
-  if (seeked < 0) return (int32_t)seeked;
-
-  int32_t result = __yo_sync_writev(fd, iov, iovcnt);
-
-  int64_t restored = __yo_sync_lseek(fd, saved, 0);
-  if (restored < 0 && result >= 0) {
-    return (int32_t)restored;
-  }
-
-  return result;
-}
-
-static size_t __yo_iovec_size(void) {
-  return sizeof(yo_iovec_t);
-}
-
-static void __yo_iovec_set(void* iov, size_t index, void* base, size_t len) {
-  yo_iovec_t* vec = (yo_iovec_t*)iov;
-  vec[index].iov_base = base;
-  vec[index].iov_len = len;
-}
-
-static int32_t __yo_sync_fadvise(int32_t fd, int64_t offset, int64_t len, int32_t advice) {
-  (void)fd;
-  (void)offset;
-  (void)len;
-  (void)advice;
-  // No direct equivalent on Windows; treat as advisory no-op.
-  return 0;
-}
-
-static int32_t __yo_sync_madvise(uint8_t* addr, size_t length, int32_t advice) {
-  if (!addr || length == 0) {
-    return -EINVAL;
-  }
-
-  // Best effort: map MADV_DONTNEED to MEM_RESET to hint pages are discardable.
-  if (advice == 4) {
-    (void)VirtualAlloc((void*)addr, length, MEM_RESET, PAGE_NOACCESS);
-  }
-
-  return 0;
-}
-
-static uint8_t* __yo_sync_mmap(uint8_t* addr, size_t length, int32_t prot, int32_t flags, int32_t fd, int64_t offset) {
-  if (length == 0) {
-    return (uint8_t*)(intptr_t)(-EINVAL);
-  }
-  if (offset < 0) {
-    return (uint8_t*)(intptr_t)(-EINVAL);
-  }
-
-  bool anonymous_map = ((flags & MAP_ANONYMOUS) != 0);
-  HANDLE file_handle = INVALID_HANDLE_VALUE;
-
-  if (!anonymous_map) {
-    if (fd < 0) {
-      return (uint8_t*)(intptr_t)(-EBADF);
-    }
-    intptr_t handle_value = _get_osfhandle(fd);
-    if (handle_value == -1) {
-      return (uint8_t*)(intptr_t)(-EBADF);
-    }
-    file_handle = (HANDLE)handle_value;
-  }
-
-  uint64_t map_end = ((uint64_t)offset + (uint64_t)length);
-  bool prot_none = (prot == 0);
-  DWORD protect = prot_none ? PAGE_READWRITE : __yo_win_mmap_page_protect(prot, flags, anonymous_map);
-  HANDLE mapping = CreateFileMappingW(
-    file_handle,
-    NULL,
-    protect,
-    (DWORD)(map_end >> 32),
-    (DWORD)(map_end & 0xFFFFFFFFu),
-    NULL
-  );
-  if (!mapping) {
-    return (uint8_t*)(intptr_t)(-__yo_win_last_error_to_errno());
-  }
-
-  DWORD desired_access = prot_none ? (FILE_MAP_READ | FILE_MAP_WRITE) : __yo_win_mmap_view_access(prot, flags, anonymous_map);
-  uint64_t offset_u64 = (uint64_t)offset;
-  void* view = NULL;
-
-  if (addr) {
-    view = MapViewOfFileEx(
-      mapping,
-      desired_access,
-      (DWORD)(offset_u64 >> 32),
-      (DWORD)(offset_u64 & 0xFFFFFFFFu),
-      (SIZE_T)length,
-      (LPVOID)addr
-    );
-  } else {
-    view = MapViewOfFile(
-      mapping,
-      desired_access,
-      (DWORD)(offset_u64 >> 32),
-      (DWORD)(offset_u64 & 0xFFFFFFFFu),
-      (SIZE_T)length
-    );
-  }
-
-  if (!CloseHandle(mapping)) {
-    // Ignore mapping handle close failure after map attempt.
-  }
-
-  if (!view) {
-    return (uint8_t*)(intptr_t)(-__yo_win_last_error_to_errno());
-  }
-
-  if (prot_none) {
-    DWORD old_protect;
-    VirtualProtect(view, length, PAGE_NOACCESS, &old_protect);
-  }
-
-  return (uint8_t*)view;
-}
-
-static bool __yo_sync_mmap_is_error(uint8_t* addr) {
-  intptr_t value = (intptr_t)addr;
-  return (value < 0) && (value >= -65535);
-}
-
-static int32_t __yo_sync_mmap_errno(uint8_t* addr) {
-  intptr_t value = (intptr_t)addr;
-  if ((value < 0) && (value >= -65535)) {
-    return (int32_t)(-value);
-  }
-  return 0;
-}
-
-static int32_t __yo_sync_munmap(uint8_t* addr, size_t length) {
-  (void)length;
-  BOOL ok = UnmapViewOfFile((LPCVOID)addr);
-  return ok ? 0 : -__yo_win_last_error_to_errno();
-}
-
-static int32_t __yo_sync_mprotect(uint8_t* addr, size_t length, int32_t prot) {
-  DWORD old_protect = 0;
-  DWORD new_protect = __yo_win_mmap_page_protect(prot, MAP_SHARED, true);
-  BOOL ok = VirtualProtect((LPVOID)addr, (SIZE_T)length, new_protect, &old_protect);
-  return ok ? 0 : -__yo_win_last_error_to_errno();
-}
-
-static int32_t __yo_sync_msync(uint8_t* addr, size_t length, int32_t flags) {
-  (void)flags;
-  BOOL ok = FlushViewOfFile((LPCVOID)addr, (SIZE_T)length);
-  return ok ? 0 : -__yo_win_last_error_to_errno();
-}
-
-static int32_t __yo_sync_fchmod(int32_t fd, uint32_t mode) {
-  if (fd < 0) return -EBADF;
-  HANDLE handle = (HANDLE)_get_osfhandle(fd);
-  if (handle == INVALID_HANDLE_VALUE) return -EBADF;
-  wchar_t path_buf[MAX_PATH];
-  DWORD len = GetFinalPathNameByHandleW(handle, path_buf, MAX_PATH, FILE_NAME_NORMALIZED);
-  if (len == 0 || len >= MAX_PATH) return -__yo_win_last_error_to_errno();
-  int result = _wchmod(path_buf, (int)mode);
-  return (result < 0) ? -errno : 0;
-}
-
-static int32_t __yo_sync_fchmodat(int32_t dirfd, const char* path, uint32_t mode, int32_t flags) {
-  if (!__yo_is_at_fdcwd(dirfd)) return -EINVAL;
-  (void)flags;
-  wchar_t* wpath = __yo_win_utf8_to_wide(path);
-  if (!wpath) return -__yo_win_last_error_to_errno();
-  int result = _wchmod(wpath, (int)mode);
-  __yo_free(wpath);
-  return (result < 0) ? -errno : 0;
-}
-
-static int32_t __yo_sync_fchown(int32_t fd, uint32_t uid, uint32_t gid) {
-  (void)fd;
-  if (uid == (uint32_t)0xFFFFFFFF && gid == (uint32_t)0xFFFFFFFF) return 0;
-  return -ENOSYS;
-}
-
-static int32_t __yo_sync_fchownat(int32_t dirfd, const char* path, uint32_t uid, uint32_t gid, int32_t flags) {
-  (void)dirfd; (void)path; (void)flags;
-  if (uid == (uint32_t)0xFFFFFFFF && gid == (uint32_t)0xFFFFFFFF) return 0;
-  return -ENOSYS;
-}
-
-static int32_t __yo_sync_readlinkat(int32_t dirfd, const char* path, char* buf, size_t bufsize) {
-  if (!__yo_is_at_fdcwd(dirfd)) return -EINVAL;
-  wchar_t* wpath = __yo_win_utf8_to_wide(path);
-  if (!wpath) return -__yo_win_last_error_to_errno();
-  HANDLE handle = CreateFileW(wpath, 0,
-                              FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-                              NULL, OPEN_EXISTING,
-                              FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS,
-                              NULL);
-  __yo_free(wpath);
-  if (handle == INVALID_HANDLE_VALUE) return -__yo_win_last_error_to_errno();
-  wchar_t wbuf[MAX_PATH];
-  DWORD len = GetFinalPathNameByHandleW(handle, wbuf, MAX_PATH, FILE_NAME_NORMALIZED);
-  CloseHandle(handle);
-  if (len == 0 || len >= MAX_PATH) return -__yo_win_last_error_to_errno();
-  int written = __yo_win_wide_to_utf8(wbuf, buf, bufsize);
-  return (written < 0) ? written : written;
-}
 
 // ============================================================================
 // Directory Listing (Windows)
@@ -1840,6 +2723,7 @@ static const char* __yo_dirent_name(void* entry) {
 static uint64_t __yo_dirent_ino(void* entry) {
   return ((yo_win_dirent_t*)entry)->d_ino;
 }
+
 
 // ============================================================================
 // Socket Operations (Windows)
@@ -2114,814 +2998,6 @@ static yo_io_future_t* __yo_async_getsockopt_start(int32_t sockfd, int32_t level
   return future;
 }
 
-static int32_t __yo_sync_getsockname(int32_t sockfd, void* addr, uint32_t* addrlen) {
-  __yo_io_init();
-
-  int len = (int)(*addrlen);
-  int result = getsockname((SOCKET)(uintptr_t)sockfd, (struct sockaddr*)addr, &len);
-  if (result == SOCKET_ERROR) {
-    return -(int32_t)WSAGetLastError();
-  }
-
-  *addrlen = (uint32_t)len;
-  return 0;
-}
-
-static int32_t __yo_sync_getpeername(int32_t sockfd, void* addr, uint32_t* addrlen) {
-  __yo_io_init();
-
-  int len = (int)(*addrlen);
-  int result = getpeername((SOCKET)(uintptr_t)sockfd, (struct sockaddr*)addr, &len);
-  if (result == SOCKET_ERROR) {
-    return -(int32_t)WSAGetLastError();
-  }
-
-  *addrlen = (uint32_t)len;
-  return 0;
-}
-
-static int32_t __yo_sync_setsockopt(int32_t sockfd, int32_t level, int32_t optname, const void* optval, uint32_t optlen) {
-  __yo_io_init();
-
-  int result = setsockopt((SOCKET)(uintptr_t)sockfd, level, optname, (const char*)optval, (int)optlen);
-  return (result == SOCKET_ERROR) ? -(int32_t)WSAGetLastError() : 0;
-}
-
-static int32_t __yo_sync_getsockopt(int32_t sockfd, int32_t level, int32_t optname, void* optval, uint32_t* optlen) {
-  __yo_io_init();
-
-  int len = (int)(*optlen);
-  int result = getsockopt((SOCKET)(uintptr_t)sockfd, level, optname, (char*)optval, &len);
-  if (result == SOCKET_ERROR) {
-    return -(int32_t)WSAGetLastError();
-  }
-
-  *optlen = (uint32_t)len;
-  return 0;
-}
-
-static int32_t __yo_sync_socketpair(int32_t domain, int32_t sock_type, int32_t protocol, int32_t* sv) {
-  __yo_io_init();
-
-  if (!sv) {
-    return -EINVAL;
-  }
-
-  if (sock_type != SOCK_STREAM) {
-    return -WSAESOCKTNOSUPPORT;
-  }
-
-  // Windows has no native socketpair(); emulate with loopback TCP.
-  // Accept common caller domains used for socketpair APIs.
-  if (!(domain == AF_UNIX || domain == AF_INET || domain == AF_UNSPEC)) {
-    return -WSAEAFNOSUPPORT;
-  }
-
-  if (!(protocol == 0 || protocol == IPPROTO_TCP)) {
-    return -WSAEPROTONOSUPPORT;
-  }
-
-  SOCKET listener = INVALID_SOCKET;
-  SOCKET client = INVALID_SOCKET;
-  SOCKET server = INVALID_SOCKET;
-
-  struct sockaddr_in addr;
-  memset(&addr, 0, sizeof(addr));
-  addr.sin_family = AF_INET;
-  addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-  addr.sin_port = 0;
-
-  listener = WSASocketW(AF_INET, SOCK_STREAM, IPPROTO_TCP, NULL, 0, WSA_FLAG_OVERLAPPED);
-  if (listener == INVALID_SOCKET) {
-    return -(int32_t)WSAGetLastError();
-  }
-
-  if (bind(listener, (const struct sockaddr*)&addr, (int)sizeof(addr)) == SOCKET_ERROR) {
-    int32_t err = -(int32_t)WSAGetLastError();
-    closesocket(listener);
-    return err;
-  }
-
-  if (listen(listener, 1) == SOCKET_ERROR) {
-    int32_t err = -(int32_t)WSAGetLastError();
-    closesocket(listener);
-    return err;
-  }
-
-  int addrlen = (int)sizeof(addr);
-  if (getsockname(listener, (struct sockaddr*)&addr, &addrlen) == SOCKET_ERROR) {
-    int32_t err = -(int32_t)WSAGetLastError();
-    closesocket(listener);
-    return err;
-  }
-
-  client = WSASocketW(AF_INET, SOCK_STREAM, IPPROTO_TCP, NULL, 0, WSA_FLAG_OVERLAPPED);
-  if (client == INVALID_SOCKET) {
-    int32_t err = -(int32_t)WSAGetLastError();
-    closesocket(listener);
-    return err;
-  }
-
-  if (connect(client, (const struct sockaddr*)&addr, addrlen) == SOCKET_ERROR) {
-    int32_t err = -(int32_t)WSAGetLastError();
-    closesocket(client);
-    closesocket(listener);
-    return err;
-  }
-
-  server = accept(listener, NULL, NULL);
-  if (server == INVALID_SOCKET) {
-    int32_t err = -(int32_t)WSAGetLastError();
-    closesocket(client);
-    closesocket(listener);
-    return err;
-  }
-
-  closesocket(listener);
-
-  if (__yo_io_iocp) {
-    CreateIoCompletionPort((HANDLE)client, __yo_io_iocp, 0, 0);
-    CreateIoCompletionPort((HANDLE)server, __yo_io_iocp, 0, 0);
-  }
-
-  sv[0] = (int32_t)(uintptr_t)client;
-  sv[1] = (int32_t)(uintptr_t)server;
-  return 0;
-}
-
-static int32_t __yo_sync_clock_gettime(int32_t clock_id, int64_t* sec, int64_t* nsec) {
-  if (!sec || !nsec) {
-    return -EINVAL;
-  }
-
-  // CLOCK_REALTIME (0): wall clock time since Unix epoch
-  if (clock_id == 0) {
-    FILETIME ft;
-    HMODULE kernel = GetModuleHandleW(L"kernel32.dll");
-    typedef VOID (WINAPI *get_precise_time_fn)(LPFILETIME);
-    get_precise_time_fn get_precise = NULL;
-    if (kernel) {
-      get_precise = (get_precise_time_fn)GetProcAddress(kernel, "GetSystemTimePreciseAsFileTime");
-    }
-    if (get_precise) {
-      get_precise(&ft);
-    } else {
-      GetSystemTimeAsFileTime(&ft);
-    }
-
-    ULARGE_INTEGER ts100;
-    ts100.LowPart = ft.dwLowDateTime;
-    ts100.HighPart = ft.dwHighDateTime;
-
-    const uint64_t WINDOWS_TO_UNIX_EPOCH_SECONDS = 11644473600ULL;
-    uint64_t total_100ns = ts100.QuadPart;
-    uint64_t total_seconds = total_100ns / 10000000ULL;
-    uint64_t rem_100ns = total_100ns % 10000000ULL;
-
-    if (total_seconds < WINDOWS_TO_UNIX_EPOCH_SECONDS) {
-      return -EINVAL;
-    }
-
-    *sec = (int64_t)(total_seconds - WINDOWS_TO_UNIX_EPOCH_SECONDS);
-    *nsec = (int64_t)(rem_100ns * 100ULL);
-    return 0;
-  }
-
-  // CLOCK_MONOTONIC (Linux=1, macOS commonly=6)
-  if (clock_id == 1 || clock_id == 6) {
-    LARGE_INTEGER freq;
-    LARGE_INTEGER counter;
-    if (!QueryPerformanceFrequency(&freq) || freq.QuadPart <= 0) {
-      return -EINVAL;
-    }
-    if (!QueryPerformanceCounter(&counter)) {
-      return -EINVAL;
-    }
-
-    int64_t s = (int64_t)(counter.QuadPart / freq.QuadPart);
-    int64_t rem = (int64_t)(counter.QuadPart % freq.QuadPart);
-    int64_t ns = (int64_t)((rem * 1000000000LL) / freq.QuadPart);
-
-    *sec = s;
-    *nsec = ns;
-    return 0;
-  }
-
-  return -EINVAL;
-}
-
-static void __yo_win_copy_cstr_field(char* dst, size_t dst_len, const char* src) {
-  if (!dst || dst_len == 0) return;
-  if (!src) {
-    dst[0] = '\0';
-    return;
-  }
-
-  size_t i = 0;
-  while (i + 1 < dst_len && src[i] != '\0') {
-    dst[i] = src[i];
-    i++;
-  }
-  dst[i] = '\0';
-}
-
-static int32_t __yo_sync_uname(void* buf) {
-  if (!buf) {
-    return -EINVAL;
-  }
-
-  __yo_io_init();
-
-  const size_t field_size = 256;
-  const size_t total_size = (field_size * 5);
-  char* out = (char*)buf;
-  memset(out, 0, total_size);
-
-  // sysname
-  __yo_win_copy_cstr_field(out + (field_size * 0), field_size, "Windows");
-
-  // nodename
-  char host[256];
-  host[0] = '\0';
-  if (gethostname(host, (int)sizeof(host)) == SOCKET_ERROR) {
-    __yo_win_copy_cstr_field(out + (field_size * 1), field_size, "localhost");
-  } else {
-    host[sizeof(host) - 1] = '\0';
-    __yo_win_copy_cstr_field(out + (field_size * 1), field_size, host);
-  }
-
-  // release / version
-  __yo_win_copy_cstr_field(out + (field_size * 2), field_size, "win32");
-  __yo_win_copy_cstr_field(out + (field_size * 3), field_size, "nt");
-
-  // machine
-  SYSTEM_INFO si;
-  GetNativeSystemInfo(&si);
-  const char* machine = "unknown";
-  switch (si.wProcessorArchitecture) {
-    case PROCESSOR_ARCHITECTURE_AMD64:
-      machine = "x86_64";
-      break;
-    case PROCESSOR_ARCHITECTURE_ARM64:
-      machine = "aarch64";
-      break;
-    case PROCESSOR_ARCHITECTURE_INTEL:
-      machine = "x86";
-      break;
-    case PROCESSOR_ARCHITECTURE_ARM:
-      machine = "arm";
-      break;
-    default:
-      machine = "unknown";
-      break;
-  }
-  __yo_win_copy_cstr_field(out + (field_size * 4), field_size, machine);
-
-  return 0;
-}
-
-static int32_t __yo_sync_gethostname(char* name, size_t len) {
-  __yo_io_init();
-
-  if (!name || len == 0) {
-    return -EINVAL;
-  }
-
-  int result = gethostname(name, (int)len);
-  if (result == SOCKET_ERROR) {
-    return -(int32_t)WSAGetLastError();
-  }
-  name[len - 1] = '\0';
-  return 0;
-}
-
-static int32_t __yo_process_umask = 0;
-
-static int32_t __yo_sync_umask(int32_t mask) {
-  int32_t prev = __yo_process_umask;
-  __yo_process_umask = mask & 0777;
-  return prev;
-}
-
-// ============================================================================
-// Synchronous File Helpers (Windows)
-// ============================================================================
-
-static int32_t __yo_file_open(const char* path, int32_t flags, int32_t mode) {
-  wchar_t* wpath = __yo_win_utf8_to_wide(path);
-  if (!wpath) return -__yo_win_last_error_to_errno();
-  int fd = _wopen(wpath, flags, mode);
-  __yo_free(wpath);
-  return (fd < 0) ? -errno : fd;
-}
-
-static void __yo_file_close(int32_t fd) {
-  SOCKET s = (SOCKET)(uintptr_t)(uint32_t)fd;
-  int cs = closesocket(s);
-  if (cs != 0) {
-    DWORD wsa_err = WSAGetLastError();
-    if (wsa_err == WSAENOTSOCK) {
-      _close(fd);
-    }
-  }
-}
-
-static int64_t __yo_file_size(int32_t fd) {
-  struct _stat64 st;
-  if (_fstat64(fd, &st) < 0) return -1;
-  return (int64_t)st.st_size;
-}
-
-// ============================================================================
-// Stat Buffer Accessors (Windows)
-// ============================================================================
-
-static size_t __yo_statx_buf_size(void) {
-  return sizeof(yo_win_stat_t);
-}
-
-static int64_t __yo_statx_size(void* statxbuf) {
-  return (int64_t)((yo_win_stat_t*)statxbuf)->stat.st_size;
-}
-
-static uint32_t __yo_statx_mode(void* statxbuf) {
-  return (uint32_t)((yo_win_stat_t*)statxbuf)->stat.st_mode;
-}
-
-static int64_t __yo_statx_mtime_sec(void* statxbuf) {
-  return (int64_t)((yo_win_stat_t*)statxbuf)->stat.st_mtime;
-}
-
-static uint32_t __yo_statx_mtime_nsec(void* statxbuf) {
-  return ((yo_win_stat_t*)statxbuf)->mtime_nsec;
-}
-
-static int64_t __yo_statx_atime_sec(void* statxbuf) {
-  return (int64_t)((yo_win_stat_t*)statxbuf)->stat.st_atime;
-}
-
-static uint32_t __yo_statx_atime_nsec(void* statxbuf) {
-  return ((yo_win_stat_t*)statxbuf)->atime_nsec;
-}
-
-static int64_t __yo_statx_ctime_sec(void* statxbuf) {
-  return (int64_t)((yo_win_stat_t*)statxbuf)->stat.st_ctime;
-}
-
-static uint32_t __yo_statx_ctime_nsec(void* statxbuf) {
-  return ((yo_win_stat_t*)statxbuf)->ctime_nsec;
-}
-
-static int64_t __yo_statx_btime_sec(void* statxbuf) {
-  return ((yo_win_stat_t*)statxbuf)->btime_sec;
-}
-
-static uint32_t __yo_statx_btime_nsec(void* statxbuf) {
-  return ((yo_win_stat_t*)statxbuf)->btime_nsec;
-}
-
-static uint32_t __yo_statx_uid(void* statxbuf) {
-  return (uint32_t)((yo_win_stat_t*)statxbuf)->stat.st_uid;
-}
-
-static uint32_t __yo_statx_gid(void* statxbuf) {
-  return (uint32_t)((yo_win_stat_t*)statxbuf)->stat.st_gid;
-}
-
-static uint64_t __yo_statx_ino(void* statxbuf) {
-  return ((yo_win_stat_t*)statxbuf)->file_index;
-}
-
-static uint64_t __yo_statx_dev_major(void* statxbuf) {
-  return (uint64_t)((yo_win_stat_t*)statxbuf)->stat.st_dev;
-}
-
-static uint64_t __yo_statx_dev_minor(void* statxbuf) {
-  (void)statxbuf;
-  return 0;
-}
-
-static uint64_t __yo_statx_nlink(void* statxbuf) {
-  return (uint64_t)((yo_win_stat_t*)statxbuf)->stat.st_nlink;
-}
-
-static uint64_t __yo_statx_blksize(void* statxbuf) {
-  (void)statxbuf;
-  return 0;
-}
-
-static uint64_t __yo_statx_blocks(void* statxbuf) {
-  (void)statxbuf;
-  return 0;
-}
-
-// ============================================================================
-// Socket Address Helpers (Windows)
-// ============================================================================
-
-static size_t __yo_sockaddr_in_size(void) {
-  return sizeof(struct sockaddr_in);
-}
-
-static size_t __yo_sockaddr_in6_size(void) {
-  return sizeof(struct sockaddr_in6);
-}
-
-static size_t __yo_sockaddr_un_size(void) {
-  return sizeof(__yo_sockaddr_un_t);
-}
-
-static size_t __yo_sockaddr_storage_size(void) {
-  return sizeof(struct sockaddr_storage);
-}
-
-static void __yo_sockaddr_set_family(void* addr, uint16_t family) {
-  ((struct sockaddr*)addr)->sa_family = family;
-}
-
-static uint16_t __yo_sockaddr_get_family(void* addr) {
-  return ((struct sockaddr*)addr)->sa_family;
-}
-
-static void __yo_sockaddr_in_set_port(void* addr, uint16_t port) {
-  ((struct sockaddr_in*)addr)->sin_port = htons(port);
-}
-
-static uint16_t __yo_sockaddr_in_get_port(void* addr) {
-  return ntohs(((struct sockaddr_in*)addr)->sin_port);
-}
-
-static void __yo_sockaddr_in_set_addr(void* addr, uint32_t ip) {
-  ((struct sockaddr_in*)addr)->sin_addr.s_addr = ip;
-}
-
-static uint32_t __yo_sockaddr_in_get_addr(void* addr) {
-  return ((struct sockaddr_in*)addr)->sin_addr.s_addr;
-}
-
-static void __yo_sockaddr_in6_set_port(void* addr, uint16_t port) {
-  ((struct sockaddr_in6*)addr)->sin6_port = htons(port);
-}
-
-static uint16_t __yo_sockaddr_in6_get_port(void* addr) {
-  return ntohs(((struct sockaddr_in6*)addr)->sin6_port);
-}
-
-static void __yo_sockaddr_in6_set_addr(void* addr, const void* ip) {
-  memcpy(&((struct sockaddr_in6*)addr)->sin6_addr, ip, sizeof(struct in6_addr));
-}
-
-static void __yo_sockaddr_in6_get_addr(void* addr, void* out) {
-  memcpy(out, &((struct sockaddr_in6*)addr)->sin6_addr, sizeof(struct in6_addr));
-}
-
-static void __yo_sockaddr_un_set_path(void* addr, const char* path) {
-  __yo_sockaddr_un_t* un = (__yo_sockaddr_un_t*)addr;
-  strncpy(un->sun_path, path, UNIX_PATH_MAX - 1);
-  un->sun_path[UNIX_PATH_MAX - 1] = '\0';
-}
-
-static const char* __yo_sockaddr_un_get_path(void* addr) {
-  return ((__yo_sockaddr_un_t*)addr)->sun_path;
-}
-
-static int32_t __yo_inet_pton(int32_t af, const char* src, void* dst) {
-  return InetPtonA(af, src, dst) == 1 ? 1 : 0;
-}
-
-static const char* __yo_inet_ntop(int32_t af, const void* src, char* dst, uint32_t size) {
-  return InetNtopA(af, src, dst, (DWORD)size);
-}
-
-static uint16_t __yo_htons(uint16_t hostshort) { return htons(hostshort); }
-static uint16_t __yo_ntohs(uint16_t netshort) { return ntohs(netshort); }
-static uint32_t __yo_htonl(uint32_t hostlong) { return htonl(hostlong); }
-static uint32_t __yo_ntohl(uint32_t netlong) { return ntohl(netlong); }
-
-// ============================================================================
-// File Extra Operations (Windows)
-// ============================================================================
-
-static FILETIME __yo_win_timespec_to_filetime(int64_t sec, int64_t nsec) {
-  ULONGLONG t = ((ULONGLONG)(sec + 11644473600LL) * 10000000ULL) + ((ULONGLONG)(nsec / 100));
-  FILETIME ft;
-  ft.dwLowDateTime = (DWORD)t;
-  ft.dwHighDateTime = (DWORD)(t >> 32);
-  return ft;
-}
-
-static int32_t __yo_win_sendfile_fallback_copy(int32_t out_fd, int32_t in_fd, int64_t offset, size_t count) {
-  if (offset < 0) return -EINVAL;
-
-  HANDLE in_handle = (HANDLE)_get_osfhandle(in_fd);
-  HANDLE out_handle = (HANDLE)_get_osfhandle(out_fd);
-  if (in_handle == INVALID_HANDLE_VALUE || out_handle == INVALID_HANDLE_VALUE) return -EBADF;
-
-  wchar_t in_path[MAX_PATH];
-  DWORD in_len = GetFinalPathNameByHandleW(in_handle, in_path, MAX_PATH, FILE_NAME_NORMALIZED);
-  if (in_len == 0 || in_len >= MAX_PATH) {
-    return -__yo_win_last_error_to_errno();
-  }
-
-  wchar_t out_path[MAX_PATH];
-  DWORD out_len = GetFinalPathNameByHandleW(out_handle, out_path, MAX_PATH, FILE_NAME_NORMALIZED);
-  if (out_len == 0 || out_len >= MAX_PATH) {
-    return -__yo_win_last_error_to_errno();
-  }
-
-  HANDLE in_sync = CreateFileW(
-    in_path,
-    GENERIC_READ,
-    FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-    NULL,
-    OPEN_EXISTING,
-    FILE_ATTRIBUTE_NORMAL,
-    NULL
-  );
-  if (in_sync == INVALID_HANDLE_VALUE) {
-    return -__yo_win_last_error_to_errno();
-  }
-
-  HANDLE out_sync = CreateFileW(
-    out_path,
-    GENERIC_WRITE,
-    FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-    NULL,
-    OPEN_EXISTING,
-    FILE_ATTRIBUTE_NORMAL,
-    NULL
-  );
-  if (out_sync == INVALID_HANDLE_VALUE) {
-    CloseHandle(in_sync);
-    return -__yo_win_last_error_to_errno();
-  }
-
-  __int64 out_pos = _lseeki64(out_fd, 0, SEEK_CUR);
-  if (out_pos < 0) out_pos = 0;
-
-  LARGE_INTEGER in_start;
-  in_start.QuadPart = (LONGLONG)offset;
-  if (!SetFilePointerEx(in_sync, in_start, NULL, FILE_BEGIN)) {
-    CloseHandle(in_sync);
-    CloseHandle(out_sync);
-    return -__yo_win_last_error_to_errno();
-  }
-
-  LARGE_INTEGER out_start;
-  out_start.QuadPart = out_pos;
-  if (!SetFilePointerEx(out_sync, out_start, NULL, FILE_BEGIN)) {
-    CloseHandle(in_sync);
-    CloseHandle(out_sync);
-    return -__yo_win_last_error_to_errno();
-  }
-
-  unsigned char buffer[65536];
-  size_t total = 0;
-  while (total < count) {
-    size_t remaining = count - total;
-    size_t chunk = remaining < sizeof(buffer) ? remaining : sizeof(buffer);
-    DWORD to_read = (chunk > (size_t)0xFFFFFFFFu) ? 0xFFFFFFFFu : (DWORD)chunk;
-    DWORD read_bytes = 0;
-    if (!ReadFile(in_sync, buffer, to_read, &read_bytes, NULL)) {
-      int32_t err = -__yo_win_last_error_to_errno();
-      CloseHandle(in_sync);
-      CloseHandle(out_sync);
-      return err;
-    }
-    if (read_bytes == 0) {
-      break;
-    }
-
-    size_t written = 0;
-    while (written < (size_t)read_bytes) {
-      size_t write_remaining = (size_t)read_bytes - written;
-      DWORD to_write =
-        (write_remaining > (size_t)0xFFFFFFFFu) ? 0xFFFFFFFFu : (DWORD)write_remaining;
-      DWORD written_bytes = 0;
-      if (!WriteFile(out_sync, (const char*)(buffer + written), to_write, &written_bytes, NULL)) {
-        int32_t err = -__yo_win_last_error_to_errno();
-        CloseHandle(in_sync);
-        CloseHandle(out_sync);
-        return err;
-      }
-      if (written_bytes == 0) {
-        CloseHandle(in_sync);
-        CloseHandle(out_sync);
-        return -EIO;
-      }
-      written += (size_t)written_bytes;
-    }
-
-    total += (size_t)read_bytes;
-  }
-
-  CloseHandle(in_sync);
-  CloseHandle(out_sync);
-
-  (void)_lseeki64(out_fd, out_pos + (__int64)total, SEEK_SET);
-
-  return (int32_t)total;
-}
-
-// ============================================================================
-// Synchronous Operations (Windows) - no IOFuture overhead
-// ============================================================================
-
-static int32_t __yo_sync_access(int32_t dirfd, const char* path, int32_t mode) {
-  if (!__yo_is_at_fdcwd(dirfd)) return -EINVAL;
-
-  wchar_t* wpath = __yo_win_utf8_to_wide(path);
-  if (!wpath) return -__yo_win_last_error_to_errno();
-
-  int win_mode = mode & ~1;
-  if (win_mode == 0 && mode != 0) win_mode = 0;
-
-  int result = _waccess(wpath, win_mode);
-  __yo_free(wpath);
-  return (result < 0) ? -errno : 0;
-}
-
-static int32_t __yo_sync_realpath(const char* path, char* resolved) {
-  wchar_t* wpath = __yo_win_utf8_to_wide(path);
-  if (!wpath) return -__yo_win_last_error_to_errno();
-
-  wchar_t wbuf[MAX_PATH];
-  DWORD len = GetFullPathNameW(wpath, MAX_PATH, wbuf, NULL);
-  __yo_free(wpath);
-  if (len == 0 || len >= MAX_PATH) return -__yo_win_last_error_to_errno();
-
-  HANDLE handle = CreateFileW(wbuf, FILE_READ_ATTRIBUTES,
-                              FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-                              NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL);
-  if (handle == INVALID_HANDLE_VALUE) return -__yo_win_last_error_to_errno();
-
-  DWORD final_len = GetFinalPathNameByHandleW(handle, wbuf, MAX_PATH, FILE_NAME_NORMALIZED | VOLUME_NAME_DOS);
-  CloseHandle(handle);
-  if (final_len == 0 || final_len >= MAX_PATH) return -__yo_win_last_error_to_errno();
-
-  wchar_t* normalized = wbuf;
-    if (wbuf[0] == L'\\\\' && wbuf[1] == L'\\\\' && wbuf[2] == L'?' && wbuf[3] == L'\\\\' &&
-      wbuf[4] == L'U' && wbuf[5] == L'N' && wbuf[6] == L'C' && wbuf[7] == L'\\\\') {
-    size_t tail_len = wcslen(wbuf + 8);
-    wbuf[0] = L'\\\\';
-    wbuf[1] = L'\\\\';
-    memmove(wbuf + 2, wbuf + 8, (tail_len + 1) * sizeof(wchar_t));
-  } else if (wbuf[0] == L'\\\\' && wbuf[1] == L'\\\\' && wbuf[2] == L'?' && wbuf[3] == L'\\\\') {
-    normalized = wbuf + 4;
-  }
-
-  int written = __yo_win_wide_to_utf8(normalized, resolved, MAX_PATH);
-  return (written < 0) ? written : 0;
-}
-
-static int32_t __yo_sync_mkdtemp(char* template_str) {
-  wchar_t* wtemplate = __yo_win_utf8_to_wide(template_str);
-  if (!wtemplate) return -__yo_win_last_error_to_errno();
-
-  if (_wmktemp_s(wtemplate, wcslen(wtemplate) + 1) != 0) {
-    __yo_free(wtemplate);
-    return -errno;
-  }
-
-  int result = _wmkdir(wtemplate);
-  if (result == 0) {
-    __yo_win_wide_to_utf8(wtemplate, template_str, MAX_PATH);
-  }
-  __yo_free(wtemplate);
-  return (result < 0) ? -errno : 0;
-}
-
-static int32_t __yo_sync_mkstemp(char* template_str) {
-  wchar_t* wtemplate = __yo_win_utf8_to_wide(template_str);
-  if (!wtemplate) return -__yo_win_last_error_to_errno();
-
-  if (_wmktemp_s(wtemplate, wcslen(wtemplate) + 1) != 0) {
-    __yo_free(wtemplate);
-    return -errno;
-  }
-
-  int fd = _wopen(wtemplate, _O_CREAT | _O_EXCL | _O_RDWR | _O_BINARY, _S_IREAD | _S_IWRITE);
-  if (fd >= 0) {
-    __yo_win_wide_to_utf8(wtemplate, template_str, MAX_PATH);
-  }
-  __yo_free(wtemplate);
-  return (fd < 0) ? -errno : fd;
-}
-
-static int32_t __yo_sync_copyfile(const char* src_path, const char* dst_path, int32_t flags) {
-  (void)flags;
-  wchar_t* wsrc = __yo_win_utf8_to_wide(src_path);
-  wchar_t* wdst = __yo_win_utf8_to_wide(dst_path);
-  if (!wsrc || !wdst) {
-    if (wsrc) __yo_free(wsrc);
-    if (wdst) __yo_free(wdst);
-    return -__yo_win_last_error_to_errno();
-  }
-
-  BOOL ok = CopyFileW(wsrc, wdst, FALSE);
-  __yo_free(wsrc);
-  __yo_free(wdst);
-  return ok ? 0 : -__yo_win_last_error_to_errno();
-}
-
-static int32_t __yo_sync_sendfile(int32_t out_fd, int32_t in_fd, int64_t offset, size_t count) {
-  return __yo_win_sendfile_fallback_copy(out_fd, in_fd, offset, count);
-}
-
-static int32_t __yo_sync_utime(const char* path, int64_t atime_sec, int64_t atime_nsec, int64_t mtime_sec, int64_t mtime_nsec) {
-  wchar_t* wpath = __yo_win_utf8_to_wide(path);
-  if (!wpath) return -__yo_win_last_error_to_errno();
-  HANDLE handle = CreateFileW(wpath, FILE_WRITE_ATTRIBUTES,
-                              FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-                              NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL);
-  __yo_free(wpath);
-  if (handle == INVALID_HANDLE_VALUE) return -__yo_win_last_error_to_errno();
-  FILETIME at = __yo_win_timespec_to_filetime(atime_sec, atime_nsec);
-  FILETIME mt = __yo_win_timespec_to_filetime(mtime_sec, mtime_nsec);
-  BOOL ok = SetFileTime(handle, NULL, &at, &mt);
-  CloseHandle(handle);
-  return ok ? 0 : -__yo_win_last_error_to_errno();
-}
-
-static int32_t __yo_sync_futime(int32_t fd, int64_t atime_sec, int64_t atime_nsec, int64_t mtime_sec, int64_t mtime_nsec) {
-  if (fd < 0) return -EBADF;
-  HANDLE orig_handle = (HANDLE)_get_osfhandle(fd);
-  if (orig_handle == INVALID_HANDLE_VALUE) return -EBADF;
-  wchar_t path_buf[MAX_PATH];
-  DWORD len = GetFinalPathNameByHandleW(orig_handle, path_buf, MAX_PATH, FILE_NAME_NORMALIZED);
-  if (len == 0 || len >= MAX_PATH) return -__yo_win_last_error_to_errno();
-  HANDLE handle = CreateFileW(path_buf, FILE_WRITE_ATTRIBUTES,
-                              FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-                              NULL, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL);
-  if (handle == INVALID_HANDLE_VALUE) return -__yo_win_last_error_to_errno();
-  FILETIME at = __yo_win_timespec_to_filetime(atime_sec, atime_nsec);
-  FILETIME mt = __yo_win_timespec_to_filetime(mtime_sec, mtime_nsec);
-  BOOL ok = SetFileTime(handle, NULL, &at, &mt);
-  CloseHandle(handle);
-  return ok ? 0 : -__yo_win_last_error_to_errno();
-}
-
-static int32_t __yo_sync_lutime(const char* path, int64_t atime_sec, int64_t atime_nsec, int64_t mtime_sec, int64_t mtime_nsec) {
-  wchar_t* wpath = __yo_win_utf8_to_wide(path);
-  if (!wpath) return -__yo_win_last_error_to_errno();
-  HANDLE handle = CreateFileW(wpath, FILE_WRITE_ATTRIBUTES,
-                              FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-                              NULL, OPEN_EXISTING,
-                              FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS,
-                              NULL);
-  __yo_free(wpath);
-  if (handle == INVALID_HANDLE_VALUE) return -__yo_win_last_error_to_errno();
-  FILETIME at = __yo_win_timespec_to_filetime(atime_sec, atime_nsec);
-  FILETIME mt = __yo_win_timespec_to_filetime(mtime_sec, mtime_nsec);
-  BOOL ok = SetFileTime(handle, NULL, &at, &mt);
-  CloseHandle(handle);
-  return ok ? 0 : -__yo_win_last_error_to_errno();
-}
-
-typedef struct {
-  uint64_t type;
-  uint64_t bsize;
-  uint64_t blocks;
-  uint64_t bfree;
-  uint64_t bavail;
-  uint64_t files;
-  uint64_t ffree;
-} yo_win_statfs_t;
-
-static int32_t __yo_sync_statfs(const char* path, void* statfsbuf) {
-  wchar_t* wpath = __yo_win_utf8_to_wide(path);
-  if (!wpath) return -__yo_win_last_error_to_errno();
-  ULARGE_INTEGER free_avail, total_bytes, free_bytes;
-  if (!GetDiskFreeSpaceExW(wpath, &free_avail, &total_bytes, &free_bytes)) {
-    __yo_free(wpath);
-    return -__yo_win_last_error_to_errno();
-  }
-  DWORD sectors_per_cluster = 0, bytes_per_sector = 0, num_free_clusters = 0, total_clusters = 0;
-  if (!GetDiskFreeSpaceW(wpath, &sectors_per_cluster, &bytes_per_sector, &num_free_clusters, &total_clusters)) {
-    __yo_free(wpath);
-    return -__yo_win_last_error_to_errno();
-  }
-  __yo_free(wpath);
-  uint64_t bsize = (uint64_t)sectors_per_cluster * (uint64_t)bytes_per_sector;
-  yo_win_statfs_t* fs = (yo_win_statfs_t*)statfsbuf;
-  fs->type = 0;
-  fs->bsize = bsize;
-  fs->blocks = bsize ? (total_bytes.QuadPart / bsize) : 0;
-  fs->bfree = bsize ? (free_bytes.QuadPart / bsize) : 0;
-  fs->bavail = bsize ? (free_avail.QuadPart / bsize) : 0;
-  fs->files = 0;
-  fs->ffree = 0;
-  return 0;
-}
-
-static size_t __yo_statfs_buf_size(void) { return sizeof(yo_win_statfs_t); }
-static uint64_t __yo_statfs_type(void* buf) { return ((yo_win_statfs_t*)buf)->type; }
-static uint64_t __yo_statfs_bsize(void* buf) { return ((yo_win_statfs_t*)buf)->bsize; }
-static uint64_t __yo_statfs_blocks(void* buf) { return ((yo_win_statfs_t*)buf)->blocks; }
-static uint64_t __yo_statfs_bfree(void* buf) { return ((yo_win_statfs_t*)buf)->bfree; }
-static uint64_t __yo_statfs_bavail(void* buf) { return ((yo_win_statfs_t*)buf)->bavail; }
-static uint64_t __yo_statfs_files(void* buf) { return ((yo_win_statfs_t*)buf)->files; }
-static uint64_t __yo_statfs_ffree(void* buf) { return ((yo_win_statfs_t*)buf)->ffree; }
 
 // ============================================================================
 // Directory Scanning (Windows - FindFirstFileW/FindNextFileW)
@@ -3087,6 +3163,7 @@ static yo_io_future_t* __yo_async_closedir_start(void* dir) {
   return future;
 }
 
+
 // ============================================================================
 // DNS Operations (Windows)
 // ============================================================================
@@ -3147,6 +3224,7 @@ static uint32_t __yo_addrinfo_addrlen(uint8_t* ai) { return (uint32_t)((struct a
 static uint8_t* __yo_addrinfo_addr(uint8_t* ai) { return (uint8_t*)((struct addrinfo*)ai)->ai_addr; }
 static uint8_t* __yo_addrinfo_canonname(uint8_t* ai) { return (uint8_t*)((struct addrinfo*)ai)->ai_canonname; }
 static uint8_t* __yo_addrinfo_next(uint8_t* ai) { return (uint8_t*)((struct addrinfo*)ai)->ai_next; }
+
 
 // ============================================================================
 // Process Operations (Windows)
@@ -3462,6 +3540,7 @@ static int32_t __yo_process_term_signal(int32_t status) {
   return 0;
 }
 
+
 // ============================================================================
 // Signal Operations (Windows)
 // ============================================================================
@@ -3590,6 +3669,7 @@ static int32_t __yo_kill(int32_t pid, int32_t signum) {
 
   return -ENOSYS;
 }
+
 
 // ============================================================================
 // TTY Operations (Windows Console API)
@@ -4084,6 +4164,7 @@ static int __yo_poll_and_fs_event_tick(void) {
 
   return count;
 }
+
 
 `);
 }

@@ -1,14 +1,599 @@
 /**
  * runtime-io-macos.ts
  *
- * macOS async I/O via Grand Central Dispatch (dispatch_io).
- * Provides async read, write, openat, close, statx, mkdir, unlink,
- * rename, symlink, link, fsync, fdatasync, ftruncate, chmod, chown,
- * readlink, dup, pipe, and socket operations.
+ * macOS I/O helpers split into two categories:
+ *
+ * 1. generatePlatformSysRuntimeMacOS — synchronous POSIX helpers (pipe, dup,
+ *    lseek, fallocate, mmap, socket address helpers, statx wrappers, etc.)
+ *    that do NOT depend on IOFuture or the async event loop.
+ *
+ * 2. generateAsyncRuntimeIOMacOS — async I/O via Grand Central Dispatch
+ *    (dispatch_io).  Provides async read, write, openat, close, statx, mkdir,
+ *    unlink, rename, symlink, link, fsync, fdatasync, ftruncate, chmod, chown,
+ *    readlink, dup, pipe, and socket operations.
  */
 
 import { Emitter } from "../../emitter";
 
+// ---------------------------------------------------------------------------
+// 1. Synchronous platform helpers (macOS) — no IOFuture / event-loop dependency
+// ---------------------------------------------------------------------------
+
+/**
+ * Emits synchronous macOS-specific POSIX helpers.  These do NOT depend on the
+ * async runtime (no IOFuture, no event-loop types).  All functions are `static`
+ * so unused ones are dead-code-eliminated by the C compiler.
+ *
+ * Sections: sync FD ops (pipe, dup, lseek, fallocate, fcntl, flock, readv/writev,
+ * iovec, fadvise, madvise, mmap, mprotect, msync, fchmod, fchown, readlinkat),
+ * sync socket ops (getsockname, getpeername, setsockopt, getsockopt, socketpair,
+ * clock_gettime, uname, gethostname, umask), address/socket helpers,
+ * file open/close/size, statx accessors.
+ */
+export function generatePlatformSysRuntimeMacOS(emitter: Emitter): void {
+  emitter.emitLine(`
+// ============================================================================
+// Platform-specific sync helpers (macOS)
+// ============================================================================
+
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/stat.h>
+#include <sys/utsname.h>
+#include <sys/mman.h>
+#include <sys/file.h>
+#include <sys/uio.h>
+#include <time.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <netinet/tcp.h>
+#include <arpa/inet.h>
+#include <sys/un.h>
+
+// ============================================================================
+// Synchronous FD Operations (macOS) - no IOFuture overhead
+// ============================================================================
+
+static int32_t __yo_sync_pipe(int32_t* pipefd) {
+  int result = pipe((int*)pipefd);
+  return (result < 0) ? -errno : 0;
+}
+
+static int32_t __yo_sync_dup(int32_t oldfd) {
+  int result = dup(oldfd);
+  return (result < 0) ? -errno : result;
+}
+
+static int32_t __yo_sync_dup2(int32_t oldfd, int32_t newfd) {
+  int result = dup2(oldfd, newfd);
+  return (result < 0) ? -errno : result;
+}
+
+static int64_t __yo_sync_lseek(int32_t fd, int64_t offset, int32_t whence) {
+  off_t result = lseek(fd, (off_t)offset, whence);
+  return (result < 0) ? (int64_t)(-errno) : (int64_t)result;
+}
+
+static int32_t __yo_sync_fallocate(int32_t fd, int32_t mode, int64_t offset, int64_t length) {
+  if (offset < 0 || length < 0) return -EINVAL;
+
+  uint64_t target_u = (uint64_t)offset + (uint64_t)length;
+  if (target_u > 0x7FFFFFFFFFFFFFFFULL) return -EINVAL;
+  off_t target = (off_t)target_u;
+  if ((uint64_t)target != target_u) return -EINVAL;
+
+  fstore_t store;
+  memset(&store, 0, sizeof(store));
+  store.fst_flags = F_ALLOCATECONTIG;
+  store.fst_posmode = F_VOLPOSMODE;
+  store.fst_offset = (off_t)offset;
+  store.fst_length = (off_t)length;
+
+  int result = fcntl(fd, F_PREALLOCATE, &store);
+  if (result < 0) {
+    store.fst_flags = F_ALLOCATEALL;
+    result = fcntl(fd, F_PREALLOCATE, &store);
+  }
+  if (result < 0) {
+    int alloc_errno = errno;
+
+    // Some filesystems may not support F_PREALLOCATE. Keep a best-effort
+    // fallocate behavior for basic allocation modes.
+    if (alloc_errno == ENOTSUP || alloc_errno == EOPNOTSUPP || alloc_errno == ENOSYS || alloc_errno == EINVAL) {
+      // FALLOC_FL_KEEP_SIZE = 0x01
+      if ((mode & 0x01) != 0) {
+        return 0;
+      }
+      if (ftruncate(fd, target) < 0) return -errno;
+      return 0;
+    }
+
+    return -alloc_errno;
+  }
+
+  // FALLOC_FL_KEEP_SIZE = 0x01
+  if ((mode & 0x01) == 0) {
+    struct stat st;
+    if (fstat(fd, &st) < 0) return -errno;
+    if (st.st_size < target) {
+      if (ftruncate(fd, target) < 0) return -errno;
+    }
+  }
+
+  return 0;
+}
+
+static int32_t __yo_sync_fcntl_getfl(int32_t fd) {
+  int result = fcntl(fd, F_GETFL, 0);
+  return (result < 0) ? -errno : result;
+}
+
+static int32_t __yo_sync_fcntl_setfl(int32_t fd, int32_t flags) {
+  int result = fcntl(fd, F_SETFL, flags);
+  return (result < 0) ? -errno : 0;
+}
+
+static int32_t __yo_sync_fcntl_getfd(int32_t fd) {
+  int result = fcntl(fd, F_GETFD, 0);
+  return (result < 0) ? -errno : result;
+}
+
+static int32_t __yo_sync_fcntl_setfd(int32_t fd, int32_t flags) {
+  int result = fcntl(fd, F_SETFD, flags);
+  return (result < 0) ? -errno : 0;
+}
+
+static int32_t __yo_sync_flock(int32_t fd, int32_t operation) {
+  int result = flock(fd, operation);
+  return (result < 0) ? -errno : 0;
+}
+
+static int32_t __yo_sync_readv(int32_t fd, void* iov, int32_t iovcnt) {
+  ssize_t result = readv(fd, (const struct iovec*)iov, (int)iovcnt);
+  return (result < 0) ? -errno : (int32_t)result;
+}
+
+static int32_t __yo_sync_writev(int32_t fd, void* iov, int32_t iovcnt) {
+  ssize_t result = writev(fd, (const struct iovec*)iov, (int)iovcnt);
+  return (result < 0) ? -errno : (int32_t)result;
+}
+
+static int32_t __yo_sync_preadv(int32_t fd, void* iov, int32_t iovcnt, int64_t offset) {
+  struct iovec* vec = (struct iovec*)iov;
+  ssize_t total = 0;
+  off_t current = (off_t)offset;
+
+  for (int32_t i = 0; i < iovcnt; i++) {
+    if (vec[i].iov_len == 0) continue;
+    ssize_t n = pread(fd, vec[i].iov_base, vec[i].iov_len, current);
+    if (n < 0) {
+      return (total > 0) ? (int32_t)total : -errno;
+    }
+    total += n;
+    if ((size_t)n < vec[i].iov_len) {
+      break;
+    }
+    current += (off_t)n;
+  }
+
+  return (int32_t)total;
+}
+
+static int32_t __yo_sync_pwritev(int32_t fd, void* iov, int32_t iovcnt, int64_t offset) {
+  struct iovec* vec = (struct iovec*)iov;
+  ssize_t total = 0;
+  off_t current = (off_t)offset;
+
+  for (int32_t i = 0; i < iovcnt; i++) {
+    if (vec[i].iov_len == 0) continue;
+    ssize_t n = pwrite(fd, vec[i].iov_base, vec[i].iov_len, current);
+    if (n < 0) {
+      return (total > 0) ? (int32_t)total : -errno;
+    }
+    total += n;
+    if ((size_t)n < vec[i].iov_len) {
+      break;
+    }
+    current += (off_t)n;
+  }
+
+  return (int32_t)total;
+}
+
+static size_t __yo_iovec_size(void) {
+  return sizeof(struct iovec);
+}
+
+static void __yo_iovec_set(void* iov, size_t index, void* base, size_t len) {
+  struct iovec* vec = (struct iovec*)iov;
+  vec[index].iov_base = base;
+  vec[index].iov_len = len;
+}
+
+static int32_t __yo_sync_fadvise(int32_t fd, int64_t offset, int64_t len, int32_t advice) {
+  (void)fd;
+  (void)offset;
+  (void)len;
+  (void)advice;
+  // No direct equivalent on macOS; treat as advisory no-op.
+  return 0;
+}
+
+static int32_t __yo_sync_madvise(uint8_t* addr, size_t length, int32_t advice) {
+  int result = madvise((void*)addr, length, advice);
+  return (result < 0) ? -errno : 0;
+}
+
+static uint8_t* __yo_sync_mmap(uint8_t* addr, size_t length, int32_t prot, int32_t flags, int32_t fd, int64_t offset) {
+  void* result = mmap((void*)addr, length, prot, flags, fd, (off_t)offset);
+  if (result == MAP_FAILED) {
+    return (uint8_t*)(intptr_t)(-errno);
+  }
+  return (uint8_t*)result;
+}
+
+static bool __yo_sync_mmap_is_error(uint8_t* addr) {
+  intptr_t value = (intptr_t)addr;
+  return (value < 0) && (value >= -65535);
+}
+
+static int32_t __yo_sync_mmap_errno(uint8_t* addr) {
+  intptr_t value = (intptr_t)addr;
+  if ((value < 0) && (value >= -65535)) {
+    return (int32_t)(-value);
+  }
+  return 0;
+}
+
+static int32_t __yo_sync_munmap(uint8_t* addr, size_t length) {
+  int result = munmap((void*)addr, length);
+  return (result < 0) ? -errno : 0;
+}
+
+static int32_t __yo_sync_mprotect(uint8_t* addr, size_t length, int32_t prot) {
+  int result = mprotect((void*)addr, length, prot);
+  return (result < 0) ? -errno : 0;
+}
+
+static int32_t __yo_sync_msync(uint8_t* addr, size_t length, int32_t flags) {
+  int result = msync((void*)addr, length, flags);
+  return (result < 0) ? -errno : 0;
+}
+
+static int32_t __yo_sync_fchmod(int32_t fd, uint32_t mode) {
+  int result = fchmod(fd, (mode_t)mode);
+  return (result < 0) ? -errno : 0;
+}
+
+static int32_t __yo_sync_fchmodat(int32_t dirfd, const char* path, uint32_t mode, int32_t flags) {
+  int result;
+  if (dirfd == -100) {
+    result = chmod(path, (mode_t)mode);
+  } else {
+    result = fchmodat(dirfd, path, (mode_t)mode, flags);
+  }
+  return (result < 0) ? -errno : 0;
+}
+
+static int32_t __yo_sync_fchown(int32_t fd, uint32_t uid, uint32_t gid) {
+  int result = fchown(fd, (uid_t)uid, (gid_t)gid);
+  return (result < 0) ? -errno : 0;
+}
+
+static int32_t __yo_sync_fchownat(int32_t dirfd, const char* path, uint32_t uid, uint32_t gid, int32_t flags) {
+  int result;
+  if (dirfd == -100) {
+    if (flags & AT_SYMLINK_NOFOLLOW) {
+      result = lchown(path, (uid_t)uid, (gid_t)gid);
+    } else {
+      result = chown(path, (uid_t)uid, (gid_t)gid);
+    }
+  } else {
+    result = fchownat(dirfd, path, (uid_t)uid, (gid_t)gid, flags);
+  }
+  return (result < 0) ? -errno : 0;
+}
+
+static int32_t __yo_sync_readlinkat(int32_t dirfd, const char* path, char* buf, size_t bufsize) {
+  ssize_t result;
+  if (dirfd == -100) {
+    result = readlink(path, buf, bufsize);
+  } else {
+    result = readlinkat(dirfd, path, buf, bufsize);
+  }
+  return (result < 0) ? -errno : (int32_t)result;
+}
+
+// Sync getsockname - get local socket address
+static int32_t __yo_sync_getsockname(int32_t sockfd, void* addr, uint32_t* addrlen) {
+  socklen_t len = (socklen_t)(*addrlen);
+  int result = getsockname(sockfd, (struct sockaddr*)addr, &len);
+  if (result < 0) {
+    return -errno;
+  }
+  *addrlen = (uint32_t)len;
+  return 0;
+}
+
+// Sync getpeername - get remote peer address
+static int32_t __yo_sync_getpeername(int32_t sockfd, void* addr, uint32_t* addrlen) {
+  socklen_t len = (socklen_t)(*addrlen);
+  int result = getpeername(sockfd, (struct sockaddr*)addr, &len);
+  if (result < 0) {
+    return -errno;
+  }
+  *addrlen = (uint32_t)len;
+  return 0;
+}
+
+// Sync setsockopt - set socket option value
+static int32_t __yo_sync_setsockopt(int32_t sockfd, int32_t level, int32_t optname,
+                                     const void* optval, uint32_t optlen) {
+  int result = setsockopt(sockfd, level, optname, optval, (socklen_t)optlen);
+  return (result < 0) ? -errno : 0;
+}
+
+// Sync getsockopt - get socket option value
+static int32_t __yo_sync_getsockopt(int32_t sockfd, int32_t level, int32_t optname,
+                                     void* optval, uint32_t* optlen) {
+  socklen_t len = (socklen_t)(*optlen);
+  int result = getsockopt(sockfd, level, optname, optval, &len);
+  if (result < 0) {
+    return -errno;
+  }
+  *optlen = (uint32_t)len;
+  return 0;
+}
+
+// Sync socketpair - create a connected socket pair
+static int32_t __yo_sync_socketpair(int32_t domain, int32_t sock_type, int32_t protocol, int32_t* sv) {
+  int result = socketpair(domain, sock_type, protocol, (int*)sv);
+  return (result < 0) ? -errno : 0;
+}
+
+// Sync clock_gettime - read current clock time
+static int32_t __yo_sync_clock_gettime(int32_t clock_id, int64_t* sec, int64_t* nsec) {
+  struct timespec ts;
+  int result = clock_gettime((clockid_t)clock_id, &ts);
+  if (result < 0) {
+    return -errno;
+  }
+  *sec = (int64_t)ts.tv_sec;
+  *nsec = (int64_t)ts.tv_nsec;
+  return 0;
+}
+
+// Sync uname - system identification
+static int32_t __yo_sync_uname(void* buf) {
+  int result = uname((struct utsname*)buf);
+  return (result < 0) ? -errno : 0;
+}
+
+// Sync gethostname - read host name
+static int32_t __yo_sync_gethostname(char* name, size_t len) {
+  int result = gethostname(name, len);
+  if (result < 0) {
+    return -errno;
+  }
+  if (len > 0) {
+    name[len - 1] = '\\0';
+  }
+  return 0;
+}
+
+// Sync umask - set process file mode creation mask
+static int32_t __yo_sync_umask(int32_t mask) {
+  mode_t prev = umask((mode_t)mask);
+  return (int32_t)prev;
+}
+
+// ============================================================================
+// Socket Address Helpers (macOS)
+// ============================================================================
+
+static size_t __yo_sockaddr_in_size(void) {
+  return sizeof(struct sockaddr_in);
+}
+
+static size_t __yo_sockaddr_in6_size(void) {
+  return sizeof(struct sockaddr_in6);
+}
+
+static size_t __yo_sockaddr_un_size(void) {
+  return sizeof(struct sockaddr_un);
+}
+
+static size_t __yo_sockaddr_storage_size(void) {
+  return sizeof(struct sockaddr_storage);
+}
+
+static void __yo_sockaddr_set_family(void* addr, uint16_t family) {
+  ((struct sockaddr*)addr)->sa_family = family;
+}
+
+static uint16_t __yo_sockaddr_get_family(void* addr) {
+  return ((struct sockaddr*)addr)->sa_family;
+}
+
+static void __yo_sockaddr_in_set_port(void* addr, uint16_t port) {
+  ((struct sockaddr_in*)addr)->sin_port = htons(port);
+}
+
+static uint16_t __yo_sockaddr_in_get_port(void* addr) {
+  return ntohs(((struct sockaddr_in*)addr)->sin_port);
+}
+
+static void __yo_sockaddr_in_set_addr(void* addr, uint32_t ip) {
+  ((struct sockaddr_in*)addr)->sin_addr.s_addr = ip;
+}
+
+static uint32_t __yo_sockaddr_in_get_addr(void* addr) {
+  return ((struct sockaddr_in*)addr)->sin_addr.s_addr;
+}
+
+static void __yo_sockaddr_in6_set_port(void* addr, uint16_t port) {
+  ((struct sockaddr_in6*)addr)->sin6_port = htons(port);
+}
+
+static uint16_t __yo_sockaddr_in6_get_port(void* addr) {
+  return ntohs(((struct sockaddr_in6*)addr)->sin6_port);
+}
+
+static void __yo_sockaddr_in6_set_addr(void* addr, const void* ip) {
+  memcpy(&((struct sockaddr_in6*)addr)->sin6_addr, ip, 16);
+}
+
+static void __yo_sockaddr_in6_get_addr(void* addr, void* out) {
+  memcpy(out, &((struct sockaddr_in6*)addr)->sin6_addr, 16);
+}
+
+static void __yo_sockaddr_un_set_path(void* addr, const char* path) {
+  strncpy(((struct sockaddr_un*)addr)->sun_path, path, sizeof(((struct sockaddr_un*)addr)->sun_path) - 1);
+}
+
+static char* __yo_sockaddr_un_get_path(void* addr) {
+  return ((struct sockaddr_un*)addr)->sun_path;
+}
+
+static int32_t __yo_inet_pton(int32_t af, const char* src, void* dst) {
+  return inet_pton(af, src, dst);
+}
+
+static char* __yo_inet_ntop(int32_t af, const void* src, char* dst, uint32_t size) {
+  return (char*)inet_ntop(af, src, dst, (socklen_t)size);
+}
+
+static uint16_t __yo_htons(uint16_t hostshort) {
+  return htons(hostshort);
+}
+
+static uint16_t __yo_ntohs(uint16_t netshort) {
+  return ntohs(netshort);
+}
+
+static uint32_t __yo_htonl(uint32_t hostlong) {
+  return htonl(hostlong);
+}
+
+static uint32_t __yo_ntohl(uint32_t netlong) {
+  return ntohl(netlong);
+}
+
+// Synchronous file operations
+static int32_t __yo_file_open(const char* path, int32_t flags, int32_t mode) {
+  int fd = open(path, flags, mode);
+  int result = fd >= 0 ? fd : -errno;
+  ASYNC_DEBUG("[IO] open(%s, 0x%x, 0%o) = %d\\n", path, flags, mode, result);
+  return result;
+}
+
+static void __yo_file_close(int32_t fd) {
+  ASYNC_DEBUG("[IO] close(%d)\\n", fd);
+  close(fd);
+}
+
+static int64_t __yo_file_size(int32_t fd) {
+  struct stat st;
+  if (fstat(fd, &st) < 0) {
+    int result = -errno;
+    ASYNC_DEBUG("[IO] fstat(%d) failed: %d\\n", fd, result);
+    return result;
+  }
+  ASYNC_DEBUG("[IO] fstat(%d) = %lld bytes\\n", fd, (long long)st.st_size);
+  return st.st_size;
+}
+
+// On macOS, we use struct stat instead of struct statx
+// These functions wrap struct stat access to match the Linux statx API
+static size_t __yo_statx_buf_size(void) {
+  return sizeof(struct stat);
+}
+
+static int64_t __yo_statx_size(void* statxbuf) {
+  return (int64_t)((struct stat*)statxbuf)->st_size;
+}
+
+static uint32_t __yo_statx_mode(void* statxbuf) {
+  return (uint32_t)((struct stat*)statxbuf)->st_mode;
+}
+
+static int64_t __yo_statx_mtime_sec(void* statxbuf) {
+  return (int64_t)((struct stat*)statxbuf)->st_mtimespec.tv_sec;
+}
+
+static uint32_t __yo_statx_mtime_nsec(void* statxbuf) {
+  return (uint32_t)((struct stat*)statxbuf)->st_mtimespec.tv_nsec;
+}
+
+static int64_t __yo_statx_atime_sec(void* statxbuf) {
+  return (int64_t)((struct stat*)statxbuf)->st_atimespec.tv_sec;
+}
+
+static uint32_t __yo_statx_atime_nsec(void* statxbuf) {
+  return (uint32_t)((struct stat*)statxbuf)->st_atimespec.tv_nsec;
+}
+
+static int64_t __yo_statx_ctime_sec(void* statxbuf) {
+  return (int64_t)((struct stat*)statxbuf)->st_ctimespec.tv_sec;
+}
+
+static uint32_t __yo_statx_ctime_nsec(void* statxbuf) {
+  return (uint32_t)((struct stat*)statxbuf)->st_ctimespec.tv_nsec;
+}
+
+static int64_t __yo_statx_btime_sec(void* statxbuf) {
+  return (int64_t)((struct stat*)statxbuf)->st_birthtimespec.tv_sec;
+}
+
+static uint32_t __yo_statx_btime_nsec(void* statxbuf) {
+  return (uint32_t)((struct stat*)statxbuf)->st_birthtimespec.tv_nsec;
+}
+
+static uint32_t __yo_statx_uid(void* statxbuf) {
+  return (uint32_t)((struct stat*)statxbuf)->st_uid;
+}
+
+static uint32_t __yo_statx_gid(void* statxbuf) {
+  return (uint32_t)((struct stat*)statxbuf)->st_gid;
+}
+
+static uint64_t __yo_statx_ino(void* statxbuf) {
+  return (uint64_t)((struct stat*)statxbuf)->st_ino;
+}
+
+static uint64_t __yo_statx_dev_major(void* statxbuf) {
+  return (uint64_t)major(((struct stat*)statxbuf)->st_dev);
+}
+
+static uint64_t __yo_statx_dev_minor(void* statxbuf) {
+  return (uint64_t)minor(((struct stat*)statxbuf)->st_dev);
+}
+
+static uint64_t __yo_statx_nlink(void* statxbuf) {
+  return (uint64_t)((struct stat*)statxbuf)->st_nlink;
+}
+
+static uint64_t __yo_statx_blksize(void* statxbuf) {
+  return (uint64_t)((struct stat*)statxbuf)->st_blksize;
+}
+
+static uint64_t __yo_statx_blocks(void* statxbuf) {
+  return (uint64_t)((struct stat*)statxbuf)->st_blocks;
+}
+
+`);
+}
+
+// ---------------------------------------------------------------------------
+// 2. Async I/O runtime (macOS) — Grand Central Dispatch
+// ---------------------------------------------------------------------------
+
+/**
+ * Emits the macOS async I/O runtime using Grand Central Dispatch (dispatch_io).
+ * Provides async read, write, openat, close, statx, mkdir, unlink, rename,
+ * symlink, link, fsync, fdatasync, ftruncate, chmod, chown, readlink, dup,
+ * pipe, and socket operations.  Requires the IOFuture type and event loop.
+ */
 export function generateAsyncRuntimeIOMacOS(emitter: Emitter): void {
   emitter.emitLine(`
 // ============================================================================
@@ -657,260 +1242,6 @@ static yo_io_future_t* __yo_async_ftruncate_start(int32_t fd, int64_t length) {
 }
 
 // ============================================================================
-// Synchronous FD Operations (macOS) - no IOFuture overhead
-// ============================================================================
-
-static int32_t __yo_sync_pipe(int32_t* pipefd) {
-  int result = pipe((int*)pipefd);
-  return (result < 0) ? -errno : 0;
-}
-
-static int32_t __yo_sync_dup(int32_t oldfd) {
-  int result = dup(oldfd);
-  return (result < 0) ? -errno : result;
-}
-
-static int32_t __yo_sync_dup2(int32_t oldfd, int32_t newfd) {
-  int result = dup2(oldfd, newfd);
-  return (result < 0) ? -errno : result;
-}
-
-static int64_t __yo_sync_lseek(int32_t fd, int64_t offset, int32_t whence) {
-  off_t result = lseek(fd, (off_t)offset, whence);
-  return (result < 0) ? (int64_t)(-errno) : (int64_t)result;
-}
-
-static int32_t __yo_sync_fallocate(int32_t fd, int32_t mode, int64_t offset, int64_t length) {
-  if (offset < 0 || length < 0) return -EINVAL;
-
-  uint64_t target_u = (uint64_t)offset + (uint64_t)length;
-  if (target_u > 0x7FFFFFFFFFFFFFFFULL) return -EINVAL;
-  off_t target = (off_t)target_u;
-  if ((uint64_t)target != target_u) return -EINVAL;
-
-  fstore_t store;
-  memset(&store, 0, sizeof(store));
-  store.fst_flags = F_ALLOCATECONTIG;
-  store.fst_posmode = F_VOLPOSMODE;
-  store.fst_offset = (off_t)offset;
-  store.fst_length = (off_t)length;
-
-  int result = fcntl(fd, F_PREALLOCATE, &store);
-  if (result < 0) {
-    store.fst_flags = F_ALLOCATEALL;
-    result = fcntl(fd, F_PREALLOCATE, &store);
-  }
-  if (result < 0) {
-    int alloc_errno = errno;
-
-    // Some filesystems may not support F_PREALLOCATE. Keep a best-effort
-    // fallocate behavior for basic allocation modes.
-    if (alloc_errno == ENOTSUP || alloc_errno == EOPNOTSUPP || alloc_errno == ENOSYS || alloc_errno == EINVAL) {
-      // FALLOC_FL_KEEP_SIZE = 0x01
-      if ((mode & 0x01) != 0) {
-        return 0;
-      }
-      if (ftruncate(fd, target) < 0) return -errno;
-      return 0;
-    }
-
-    return -alloc_errno;
-  }
-
-  // FALLOC_FL_KEEP_SIZE = 0x01
-  if ((mode & 0x01) == 0) {
-    struct stat st;
-    if (fstat(fd, &st) < 0) return -errno;
-    if (st.st_size < target) {
-      if (ftruncate(fd, target) < 0) return -errno;
-    }
-  }
-
-  return 0;
-}
-
-static int32_t __yo_sync_fcntl_getfl(int32_t fd) {
-  int result = fcntl(fd, F_GETFL, 0);
-  return (result < 0) ? -errno : result;
-}
-
-static int32_t __yo_sync_fcntl_setfl(int32_t fd, int32_t flags) {
-  int result = fcntl(fd, F_SETFL, flags);
-  return (result < 0) ? -errno : 0;
-}
-
-static int32_t __yo_sync_fcntl_getfd(int32_t fd) {
-  int result = fcntl(fd, F_GETFD, 0);
-  return (result < 0) ? -errno : result;
-}
-
-static int32_t __yo_sync_fcntl_setfd(int32_t fd, int32_t flags) {
-  int result = fcntl(fd, F_SETFD, flags);
-  return (result < 0) ? -errno : 0;
-}
-
-static int32_t __yo_sync_flock(int32_t fd, int32_t operation) {
-  int result = flock(fd, operation);
-  return (result < 0) ? -errno : 0;
-}
-
-static int32_t __yo_sync_readv(int32_t fd, void* iov, int32_t iovcnt) {
-  ssize_t result = readv(fd, (const struct iovec*)iov, (int)iovcnt);
-  return (result < 0) ? -errno : (int32_t)result;
-}
-
-static int32_t __yo_sync_writev(int32_t fd, void* iov, int32_t iovcnt) {
-  ssize_t result = writev(fd, (const struct iovec*)iov, (int)iovcnt);
-  return (result < 0) ? -errno : (int32_t)result;
-}
-
-static int32_t __yo_sync_preadv(int32_t fd, void* iov, int32_t iovcnt, int64_t offset) {
-  struct iovec* vec = (struct iovec*)iov;
-  ssize_t total = 0;
-  off_t current = (off_t)offset;
-
-  for (int32_t i = 0; i < iovcnt; i++) {
-    if (vec[i].iov_len == 0) continue;
-    ssize_t n = pread(fd, vec[i].iov_base, vec[i].iov_len, current);
-    if (n < 0) {
-      return (total > 0) ? (int32_t)total : -errno;
-    }
-    total += n;
-    if ((size_t)n < vec[i].iov_len) {
-      break;
-    }
-    current += (off_t)n;
-  }
-
-  return (int32_t)total;
-}
-
-static int32_t __yo_sync_pwritev(int32_t fd, void* iov, int32_t iovcnt, int64_t offset) {
-  struct iovec* vec = (struct iovec*)iov;
-  ssize_t total = 0;
-  off_t current = (off_t)offset;
-
-  for (int32_t i = 0; i < iovcnt; i++) {
-    if (vec[i].iov_len == 0) continue;
-    ssize_t n = pwrite(fd, vec[i].iov_base, vec[i].iov_len, current);
-    if (n < 0) {
-      return (total > 0) ? (int32_t)total : -errno;
-    }
-    total += n;
-    if ((size_t)n < vec[i].iov_len) {
-      break;
-    }
-    current += (off_t)n;
-  }
-
-  return (int32_t)total;
-}
-
-static size_t __yo_iovec_size(void) {
-  return sizeof(struct iovec);
-}
-
-static void __yo_iovec_set(void* iov, size_t index, void* base, size_t len) {
-  struct iovec* vec = (struct iovec*)iov;
-  vec[index].iov_base = base;
-  vec[index].iov_len = len;
-}
-
-static int32_t __yo_sync_fadvise(int32_t fd, int64_t offset, int64_t len, int32_t advice) {
-  (void)fd;
-  (void)offset;
-  (void)len;
-  (void)advice;
-  // No direct equivalent on macOS; treat as advisory no-op.
-  return 0;
-}
-
-static int32_t __yo_sync_madvise(uint8_t* addr, size_t length, int32_t advice) {
-  int result = madvise((void*)addr, length, advice);
-  return (result < 0) ? -errno : 0;
-}
-
-static uint8_t* __yo_sync_mmap(uint8_t* addr, size_t length, int32_t prot, int32_t flags, int32_t fd, int64_t offset) {
-  void* result = mmap((void*)addr, length, prot, flags, fd, (off_t)offset);
-  if (result == MAP_FAILED) {
-    return (uint8_t*)(intptr_t)(-errno);
-  }
-  return (uint8_t*)result;
-}
-
-static bool __yo_sync_mmap_is_error(uint8_t* addr) {
-  intptr_t value = (intptr_t)addr;
-  return (value < 0) && (value >= -65535);
-}
-
-static int32_t __yo_sync_mmap_errno(uint8_t* addr) {
-  intptr_t value = (intptr_t)addr;
-  if ((value < 0) && (value >= -65535)) {
-    return (int32_t)(-value);
-  }
-  return 0;
-}
-
-static int32_t __yo_sync_munmap(uint8_t* addr, size_t length) {
-  int result = munmap((void*)addr, length);
-  return (result < 0) ? -errno : 0;
-}
-
-static int32_t __yo_sync_mprotect(uint8_t* addr, size_t length, int32_t prot) {
-  int result = mprotect((void*)addr, length, prot);
-  return (result < 0) ? -errno : 0;
-}
-
-static int32_t __yo_sync_msync(uint8_t* addr, size_t length, int32_t flags) {
-  int result = msync((void*)addr, length, flags);
-  return (result < 0) ? -errno : 0;
-}
-
-static int32_t __yo_sync_fchmod(int32_t fd, uint32_t mode) {
-  int result = fchmod(fd, (mode_t)mode);
-  return (result < 0) ? -errno : 0;
-}
-
-static int32_t __yo_sync_fchmodat(int32_t dirfd, const char* path, uint32_t mode, int32_t flags) {
-  int result;
-  if (dirfd == -100) {
-    result = chmod(path, (mode_t)mode);
-  } else {
-    result = fchmodat(dirfd, path, (mode_t)mode, flags);
-  }
-  return (result < 0) ? -errno : 0;
-}
-
-static int32_t __yo_sync_fchown(int32_t fd, uint32_t uid, uint32_t gid) {
-  int result = fchown(fd, (uid_t)uid, (gid_t)gid);
-  return (result < 0) ? -errno : 0;
-}
-
-static int32_t __yo_sync_fchownat(int32_t dirfd, const char* path, uint32_t uid, uint32_t gid, int32_t flags) {
-  int result;
-  if (dirfd == -100) {
-    if (flags & AT_SYMLINK_NOFOLLOW) {
-      result = lchown(path, (uid_t)uid, (gid_t)gid);
-    } else {
-      result = chown(path, (uid_t)uid, (gid_t)gid);
-    }
-  } else {
-    result = fchownat(dirfd, path, (uid_t)uid, (gid_t)gid, flags);
-  }
-  return (result < 0) ? -errno : 0;
-}
-
-static int32_t __yo_sync_readlinkat(int32_t dirfd, const char* path, char* buf, size_t bufsize) {
-  ssize_t result;
-  if (dirfd == -100) {
-    result = readlink(path, buf, bufsize);
-  } else {
-    result = readlinkat(dirfd, path, buf, bufsize);
-  }
-  return (result < 0) ? -errno : (int32_t)result;
-}
-
-// ============================================================================
 // Socket Operations (macOS)
 // ============================================================================
 #include <sys/socket.h>
@@ -1428,283 +1759,6 @@ static yo_io_future_t* __yo_async_getsockopt_start(int32_t sockfd, int32_t level
               sockfd, level, optname, future->result);
   
   return future;
-}
-
-// Sync getsockname - get local socket address
-static int32_t __yo_sync_getsockname(int32_t sockfd, void* addr, uint32_t* addrlen) {
-  socklen_t len = (socklen_t)(*addrlen);
-  int result = getsockname(sockfd, (struct sockaddr*)addr, &len);
-  if (result < 0) {
-    return -errno;
-  }
-  *addrlen = (uint32_t)len;
-  return 0;
-}
-
-// Sync getpeername - get remote peer address
-static int32_t __yo_sync_getpeername(int32_t sockfd, void* addr, uint32_t* addrlen) {
-  socklen_t len = (socklen_t)(*addrlen);
-  int result = getpeername(sockfd, (struct sockaddr*)addr, &len);
-  if (result < 0) {
-    return -errno;
-  }
-  *addrlen = (uint32_t)len;
-  return 0;
-}
-
-// Sync setsockopt - set socket option value
-static int32_t __yo_sync_setsockopt(int32_t sockfd, int32_t level, int32_t optname,
-                                     const void* optval, uint32_t optlen) {
-  int result = setsockopt(sockfd, level, optname, optval, (socklen_t)optlen);
-  return (result < 0) ? -errno : 0;
-}
-
-// Sync getsockopt - get socket option value
-static int32_t __yo_sync_getsockopt(int32_t sockfd, int32_t level, int32_t optname,
-                                     void* optval, uint32_t* optlen) {
-  socklen_t len = (socklen_t)(*optlen);
-  int result = getsockopt(sockfd, level, optname, optval, &len);
-  if (result < 0) {
-    return -errno;
-  }
-  *optlen = (uint32_t)len;
-  return 0;
-}
-
-// Sync socketpair - create a connected socket pair
-static int32_t __yo_sync_socketpair(int32_t domain, int32_t sock_type, int32_t protocol, int32_t* sv) {
-  int result = socketpair(domain, sock_type, protocol, (int*)sv);
-  return (result < 0) ? -errno : 0;
-}
-
-// Sync clock_gettime - read current clock time
-static int32_t __yo_sync_clock_gettime(int32_t clock_id, int64_t* sec, int64_t* nsec) {
-  struct timespec ts;
-  int result = clock_gettime((clockid_t)clock_id, &ts);
-  if (result < 0) {
-    return -errno;
-  }
-  *sec = (int64_t)ts.tv_sec;
-  *nsec = (int64_t)ts.tv_nsec;
-  return 0;
-}
-
-// Sync uname - system identification
-static int32_t __yo_sync_uname(void* buf) {
-  int result = uname((struct utsname*)buf);
-  return (result < 0) ? -errno : 0;
-}
-
-// Sync gethostname - read host name
-static int32_t __yo_sync_gethostname(char* name, size_t len) {
-  int result = gethostname(name, len);
-  if (result < 0) {
-    return -errno;
-  }
-  if (len > 0) {
-    name[len - 1] = '\0';
-  }
-  return 0;
-}
-
-// Sync umask - set process file mode creation mask
-static int32_t __yo_sync_umask(int32_t mask) {
-  mode_t prev = umask((mode_t)mask);
-  return (int32_t)prev;
-}
-
-// ============================================================================
-// Socket Address Helpers (macOS)
-// ============================================================================
-
-static size_t __yo_sockaddr_in_size(void) {
-  return sizeof(struct sockaddr_in);
-}
-
-static size_t __yo_sockaddr_in6_size(void) {
-  return sizeof(struct sockaddr_in6);
-}
-
-static size_t __yo_sockaddr_un_size(void) {
-  return sizeof(struct sockaddr_un);
-}
-
-static size_t __yo_sockaddr_storage_size(void) {
-  return sizeof(struct sockaddr_storage);
-}
-
-static void __yo_sockaddr_set_family(void* addr, uint16_t family) {
-  ((struct sockaddr*)addr)->sa_family = family;
-}
-
-static uint16_t __yo_sockaddr_get_family(void* addr) {
-  return ((struct sockaddr*)addr)->sa_family;
-}
-
-static void __yo_sockaddr_in_set_port(void* addr, uint16_t port) {
-  ((struct sockaddr_in*)addr)->sin_port = htons(port);
-}
-
-static uint16_t __yo_sockaddr_in_get_port(void* addr) {
-  return ntohs(((struct sockaddr_in*)addr)->sin_port);
-}
-
-static void __yo_sockaddr_in_set_addr(void* addr, uint32_t ip) {
-  ((struct sockaddr_in*)addr)->sin_addr.s_addr = ip;
-}
-
-static uint32_t __yo_sockaddr_in_get_addr(void* addr) {
-  return ((struct sockaddr_in*)addr)->sin_addr.s_addr;
-}
-
-static void __yo_sockaddr_in6_set_port(void* addr, uint16_t port) {
-  ((struct sockaddr_in6*)addr)->sin6_port = htons(port);
-}
-
-static uint16_t __yo_sockaddr_in6_get_port(void* addr) {
-  return ntohs(((struct sockaddr_in6*)addr)->sin6_port);
-}
-
-static void __yo_sockaddr_in6_set_addr(void* addr, const void* ip) {
-  memcpy(&((struct sockaddr_in6*)addr)->sin6_addr, ip, 16);
-}
-
-static void __yo_sockaddr_in6_get_addr(void* addr, void* out) {
-  memcpy(out, &((struct sockaddr_in6*)addr)->sin6_addr, 16);
-}
-
-static void __yo_sockaddr_un_set_path(void* addr, const char* path) {
-  strncpy(((struct sockaddr_un*)addr)->sun_path, path, sizeof(((struct sockaddr_un*)addr)->sun_path) - 1);
-}
-
-static char* __yo_sockaddr_un_get_path(void* addr) {
-  return ((struct sockaddr_un*)addr)->sun_path;
-}
-
-static int32_t __yo_inet_pton(int32_t af, const char* src, void* dst) {
-  return inet_pton(af, src, dst);
-}
-
-static char* __yo_inet_ntop(int32_t af, const void* src, char* dst, uint32_t size) {
-  return (char*)inet_ntop(af, src, dst, (socklen_t)size);
-}
-
-static uint16_t __yo_htons(uint16_t hostshort) {
-  return htons(hostshort);
-}
-
-static uint16_t __yo_ntohs(uint16_t netshort) {
-  return ntohs(netshort);
-}
-
-static uint32_t __yo_htonl(uint32_t hostlong) {
-  return htonl(hostlong);
-}
-
-static uint32_t __yo_ntohl(uint32_t netlong) {
-  return ntohl(netlong);
-}
-
-// Synchronous file operations
-static int32_t __yo_file_open(const char* path, int32_t flags, int32_t mode) {
-  int fd = open(path, flags, mode);
-  int result = fd >= 0 ? fd : -errno;
-  ASYNC_DEBUG("[IO] open(%s, 0x%x, 0%o) = %d\\n", path, flags, mode, result);
-  return result;
-}
-
-static void __yo_file_close(int32_t fd) {
-  ASYNC_DEBUG("[IO] close(%d)\\n", fd);
-  close(fd);
-}
-
-static int64_t __yo_file_size(int32_t fd) {
-  struct stat st;
-  if (fstat(fd, &st) < 0) {
-    int result = -errno;
-    ASYNC_DEBUG("[IO] fstat(%d) failed: %d\\n", fd, result);
-    return result;
-  }
-  ASYNC_DEBUG("[IO] fstat(%d) = %lld bytes\\n", fd, (long long)st.st_size);
-  return st.st_size;
-}
-
-// On macOS, we use struct stat instead of struct statx
-// These functions wrap struct stat access to match the Linux statx API
-static size_t __yo_statx_buf_size(void) {
-  return sizeof(struct stat);
-}
-
-static int64_t __yo_statx_size(void* statxbuf) {
-  return (int64_t)((struct stat*)statxbuf)->st_size;
-}
-
-static uint32_t __yo_statx_mode(void* statxbuf) {
-  return (uint32_t)((struct stat*)statxbuf)->st_mode;
-}
-
-static int64_t __yo_statx_mtime_sec(void* statxbuf) {
-  return (int64_t)((struct stat*)statxbuf)->st_mtimespec.tv_sec;
-}
-
-static uint32_t __yo_statx_mtime_nsec(void* statxbuf) {
-  return (uint32_t)((struct stat*)statxbuf)->st_mtimespec.tv_nsec;
-}
-
-static int64_t __yo_statx_atime_sec(void* statxbuf) {
-  return (int64_t)((struct stat*)statxbuf)->st_atimespec.tv_sec;
-}
-
-static uint32_t __yo_statx_atime_nsec(void* statxbuf) {
-  return (uint32_t)((struct stat*)statxbuf)->st_atimespec.tv_nsec;
-}
-
-static int64_t __yo_statx_ctime_sec(void* statxbuf) {
-  return (int64_t)((struct stat*)statxbuf)->st_ctimespec.tv_sec;
-}
-
-static uint32_t __yo_statx_ctime_nsec(void* statxbuf) {
-  return (uint32_t)((struct stat*)statxbuf)->st_ctimespec.tv_nsec;
-}
-
-static int64_t __yo_statx_btime_sec(void* statxbuf) {
-  return (int64_t)((struct stat*)statxbuf)->st_birthtimespec.tv_sec;
-}
-
-static uint32_t __yo_statx_btime_nsec(void* statxbuf) {
-  return (uint32_t)((struct stat*)statxbuf)->st_birthtimespec.tv_nsec;
-}
-
-static uint32_t __yo_statx_uid(void* statxbuf) {
-  return (uint32_t)((struct stat*)statxbuf)->st_uid;
-}
-
-static uint32_t __yo_statx_gid(void* statxbuf) {
-  return (uint32_t)((struct stat*)statxbuf)->st_gid;
-}
-
-static uint64_t __yo_statx_ino(void* statxbuf) {
-  return (uint64_t)((struct stat*)statxbuf)->st_ino;
-}
-
-static uint64_t __yo_statx_dev_major(void* statxbuf) {
-  return (uint64_t)major(((struct stat*)statxbuf)->st_dev);
-}
-
-static uint64_t __yo_statx_dev_minor(void* statxbuf) {
-  return (uint64_t)minor(((struct stat*)statxbuf)->st_dev);
-}
-
-static uint64_t __yo_statx_nlink(void* statxbuf) {
-  return (uint64_t)((struct stat*)statxbuf)->st_nlink;
-}
-
-static uint64_t __yo_statx_blksize(void* statxbuf) {
-  return (uint64_t)((struct stat*)statxbuf)->st_blksize;
-}
-
-static uint64_t __yo_statx_blocks(void* statxbuf) {
-  return (uint64_t)((struct stat*)statxbuf)->st_blocks;
 }
 
 `);
