@@ -1249,8 +1249,6 @@ function preRegisterAsyncBlocksInExpr(
 
     // Check if this is an async block
     if (isIoAsyncCall(expr)) {
-      // Mark that the program uses async — enables runtime emission
-      context.usesAsync = true;
       // Found an async block - extract info and pre-register type
       const futureType = expr.$?.type;
       if (futureType && typeImplementsFuture(futureType)) {

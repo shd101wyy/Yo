@@ -186,9 +186,6 @@ export interface FunctionGenerationContext extends CodeGenContext {
   // body-derived type (e.g., module effect member handlers with SomeType return).
   // Used by escape codegen to emit correct dummy return values.
   overrideReturnTypeStr?: string;
-  // Set to true when any io.async block is encountered during codegen.
-  // Used to conditionally emit the async runtime and event loop in main().
-  usesAsync?: boolean;
   // Set to true when any __yo_thread_spawn or __yo_worker_spawn call is found.
   // Used to conditionally emit the parallelism runtime (thread pool, worker spawn).
   usesParallelism?: boolean;

@@ -11,7 +11,8 @@
  *    Sections: stat/dirent, sendfile/copyfile, sync ops, statfs, signal, TTY.
  *
  * 2. generateAsyncRuntimeIOCommon — helpers that create / consume IOFuture or
- *    participate in the event loop.  Only emitted when `usesAsync` is true.
+ *    participate in the event loop.  Always emitted alongside the async runtime;
+ *    all functions are `static` and stripped by DCE when unused.
  *
  *    Sections: timers, directory scanning (async), DNS (async), process spawn/
  *    waitpid (async), FS event watching, poll, tick.
@@ -503,7 +504,8 @@ static int32_t __yo_isatty(int32_t fd) {
 
 /**
  * Emits async I/O helpers that depend on the IOFuture type and event loop.
- * Only called when the program uses async code (`context.usesAsync === true`).
+ * Always emitted as part of the async runtime; all functions are `static`
+ * and stripped by DCE when unused.
  *
  * Sections: timer operations, directory scanning (async wrappers), DNS (async),
  * process spawn/waitpid (async), FS event watching, poll, tick.

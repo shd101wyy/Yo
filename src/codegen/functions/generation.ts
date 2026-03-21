@@ -186,15 +186,14 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
   // unused ones are dead-code-eliminated by the C compiler.
   generateSysRuntime(context.emitter, context.targetInfo);
 
-  // Generate async/await runtime only when the program uses async code.
-  // This avoids ~8K lines of C runtime overhead for non-async programs.
-  if (context.usesAsync) {
-    generateAsyncRuntime(
-      context.emitter,
-      context.targetInfo,
-      context.debugAsyncAwait
-    );
-  }
+  // Always emit async runtime — all functions are `static`, so the C compiler's
+  // dead code elimination strips anything unused.  This avoids fragile detection
+  // of whether the program uses async (e.g. io.await without io.async).
+  generateAsyncRuntime(
+    context.emitter,
+    context.targetInfo,
+    context.debugAsyncAwait
+  );
 
   // Generate parallelism runtime only when the program uses threads/workers.
   // This avoids ~450 lines of C thread pool code for single-threaded programs.
@@ -406,18 +405,9 @@ export function generateMainWrapper(context: FunctionGenerationContext): void {
     const evidenceArgs = evidenceParams.map(() => "NULL").join(", ");
     const mainCallArgs = evidenceArgs ? `(${evidenceArgs})` : "()";
 
-    // Sync main - call it directly and wait for any async tasks
-    const asyncInit = context.usesAsync
-      ? `
-  // Initialize async runtime
-  __yo_async_scheduler_init();`
-      : "";
-    const asyncWait = context.usesAsync
-      ? `
-  // Wait for all async tasks to complete
-  __yo_async_wait_all();`
-      : "";
-
+    // Sync main - always init and wait on the async scheduler.
+    // __yo_async_scheduler_init is a cheap no-op (sets a flag) and
+    // __yo_async_wait_all returns immediately if nothing was scheduled.
     emitter.emitLine(`
 // Main wrapper - calls __yo_user_main directly
 int main(int argc, char** argv) {
@@ -425,10 +415,13 @@ int main(int argc, char** argv) {
   __yo_argc = (int32_t)argc;
   __yo_argv = (uint8_t**)argv;
   __yo_args = (Slice_uint8_t_u42_){ .data = (uint8_t**)argv, .length = (size_t)argc };
-  ${asyncInit}
+
+  // Initialize async runtime
+  __yo_async_scheduler_init();
   // Call sync main
   __yo_user_main${mainCallArgs};
-  ${asyncWait}
+  // Wait for all async tasks to complete
+  __yo_async_wait_all();
   return 0;
 }
 `);

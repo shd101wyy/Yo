@@ -539,24 +539,22 @@ This means:
 
 ### Runtime Initialization
 
-The async runtime is generated conditionally — **only when the program uses async/await**:
+The async runtime is **always emitted** in the generated C output. All runtime functions use `static` linkage, so the C compiler's dead-code elimination (DCE) strips any functions not referenced by the program. This avoids fragile detection of async usage patterns (e.g., `io.await` without `io.async`, `using(io : IO)` on test functions) while adding negligible compile-time cost.
 
-- The compiler tracks whether any `io.async` blocks or async functions exist
-- If no async code is present, the runtime (scheduler, I/O subsystem, continuation queue) is **not emitted** at all, and `main()` calls the user function directly
-- If async code is present, `main()` initializes the scheduler and waits for all tasks:
+`main()` always initializes the scheduler and waits for all tasks — both calls are cheap no-ops when unused:
 
 ```c
 int main(int argc, char** argv) {
   __yo_async_scheduler_init();   // Lightweight: just sets a flag
   __yo_user_main();
-  __yo_async_wait_all();         // Drains queue; returns immediately if empty
+  __yo_async_wait_all();         // Returns immediately if scheduler never used
   return 0;
 }
 ```
 
 **I/O initialization is lazy**: `__yo_io_init()` is called on the first actual I/O operation (file open, socket connect, etc.), not at program start. This means programs using only `yield()` and pure computation pay zero I/O setup cost.
 
-Similarly, the **parallelism runtime** (thread pool, worker spawn, hardware detection) is only emitted when the program uses `Thread.spawn` or `worker.spawn`. Non-parallel programs save ~450 lines of generated C code.
+The **parallelism runtime** (thread pool, worker spawn, hardware detection) is conditionally emitted — only when the program uses `Thread.spawn` or `worker.spawn`. Non-parallel programs save ~450 lines of generated C code.
 
 **Synchronous system helpers** (stat/dirent accessors, sendfile/copyfile, sync file operations, signal handlers, TTY) are always emitted via `generateSysRuntime()` and have **no IOFuture dependency**. All functions are `static`, so unused ones are stripped by the C compiler's dead-code elimination. This ensures non-async programs that use signals, stat, TTY, etc. compile without pulling in the full async runtime.
 
