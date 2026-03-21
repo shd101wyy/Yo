@@ -78,14 +78,16 @@ export function generateFunctionDeclarations(
   }
   emitter.emitDeclarationLine("");
 
-  // Generate forward declarations for async runtime functions
-  emitter.emitDeclarationLine(`/// Async runtime functions`);
-  emitter.emitDeclarationLine(
-    `void yo_async_spawn_task(void (*resume_fn)(void*), void* state_machine);`
-  );
-  // NOTE: yo_async_register_continuation removed - continuation registration is now inline
-  emitter.emitDeclarationLine(`void yo_future_dispose(void* ptr);`);
-  emitter.emitDeclarationLine("");
+  // Generate forward declarations for async runtime functions (only when async is used)
+  if (context.usesAsync) {
+    emitter.emitDeclarationLine(`/// Async runtime functions`);
+    emitter.emitDeclarationLine(
+      `void yo_async_spawn_task(void (*resume_fn)(void*), void* state_machine);`
+    );
+    // NOTE: yo_async_register_continuation removed - continuation registration is now inline
+    emitter.emitDeclarationLine(`void yo_future_dispose(void* ptr);`);
+    emitter.emitDeclarationLine("");
+  }
 
   // Generate constructor functions for objects
   emitter.emitDeclarationLine(`/// Object constructors`);

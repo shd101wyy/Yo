@@ -521,6 +521,50 @@ The async runtime uses a simple **single-threaded event loop**:
 7. **Wake tasks**: Move woken tasks to ready queue
 8. **Repeat** until all tasks complete
 
+### Thread-Local Event Loop
+
+Each thread has its own event loop via thread-local storage:
+
+```c
+// Thread-local async runtime state
+static __thread yo_async_task_queue_t yo_thread_async_queue = {NULL, NULL, 0};
+```
+
+This means:
+
+- **Main thread**: Has its own event loop for `io.async`/`io.await` tasks
+- **Worker threads** (from `Task.spawn`): Each gets an independent event loop
+- **No cross-thread task migration**: Tasks always run on the thread that created them
+- **No locking needed**: Queue operations are single-threaded by design
+
+### Runtime Initialization
+
+The async runtime is generated conditionally — **only when the program uses async/await**:
+
+- The compiler tracks whether any `io.async` blocks or async functions exist
+- If no async code is present, the runtime (scheduler, I/O subsystem, continuation queue) is **not emitted** at all, and `main()` calls the user function directly
+- If async code is present, `main()` initializes the scheduler and waits for all tasks:
+
+```c
+int main(int argc, char** argv) {
+  __yo_async_scheduler_init();   // Lightweight: just sets a flag
+  __yo_user_main();
+  __yo_async_wait_all();         // Drains queue; returns immediately if empty
+  return 0;
+}
+```
+
+**I/O initialization is lazy**: `__yo_io_init()` is called on the first actual I/O operation (file open, socket connect, etc.), not at program start. This means programs using only `yield()` and pure computation pay zero I/O setup cost.
+
+### Platform-Specific I/O Backends
+
+| Platform | Backend                           | File                    |
+| -------- | --------------------------------- | ----------------------- |
+| Linux    | `io_uring` (via liburing)         | `runtime-io-linux.ts`   |
+| macOS    | Grand Central Dispatch (GCD)      | `runtime-io-macos.ts`   |
+| Windows  | I/O Completion Ports (IOCP)       | `runtime-io-windows.ts` |
+| WASM     | No I/O runtime (computation only) | —                       |
+
 ## Memory Management
 
 ### Non-Atomic Reference Counting
