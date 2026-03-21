@@ -556,6 +556,8 @@ int main(int argc, char** argv) {
 
 **I/O initialization is lazy**: `__yo_io_init()` is called on the first actual I/O operation (file open, socket connect, etc.), not at program start. This means programs using only `yield()` and pure computation pay zero I/O setup cost.
 
+Similarly, the **parallelism runtime** (thread pool, worker spawn, hardware detection) is only emitted when the program uses `Thread.spawn` or `worker.spawn`. Non-parallel programs save ~450 lines of generated C code.
+
 ### Platform-Specific I/O Backends
 
 | Platform | Backend                           | File                    |
