@@ -89,7 +89,7 @@ export function generateDynBoxFunctions(
 
     // Generate box constructor
     emitter.emitLine(
-      `${boxTypeName}* __yo_new_${boxTypeName}(${valueTypeStr} value) {`
+      `static ${boxTypeName}* __yo_new_${boxTypeName}(${valueTypeStr} value) {`
     );
     emitter.emitLine(
       `  ${boxTypeName}* box = (${boxTypeName}*)__yo_malloc(sizeof(${boxTypeName}));`
@@ -109,7 +109,7 @@ export function generateDynBoxFunctions(
     emitter.emitLine("");
 
     // Generate box dispose
-    emitter.emitLine(`void __yo_dispose_${boxTypeName}(void* ptr) {`);
+    emitter.emitLine(`static void __yo_dispose_${boxTypeName}(void* ptr) {`);
     emitter.emitLine(`  ${boxTypeName}* box = (${boxTypeName}*)ptr;`);
 
     const concreteType =

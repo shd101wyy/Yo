@@ -82,10 +82,8 @@ export function generateFunctionDeclarations(
   if (context.usesAsync) {
     emitter.emitDeclarationLine(`/// Async runtime functions`);
     emitter.emitDeclarationLine(
-      `void yo_async_spawn_task(void (*resume_fn)(void*), void* state_machine);`
+      `static void yo_async_spawn_task(void (*resume_fn)(void*), void* state_machine);`
     );
-    // NOTE: yo_async_register_continuation removed - continuation registration is now inline
-    emitter.emitDeclarationLine(`void yo_future_dispose(void* ptr);`);
     emitter.emitDeclarationLine("");
   }
 
@@ -539,29 +537,29 @@ export function generateObjectConstructorDeclarations(
 ): void {
   const emitter = context.emitter;
 
-  // Generate builtin reference counting functions
+  // Generate builtin reference counting functions (static — single C file)
   emitter.emitDeclarationLine(
-    `void __yo_decr_rc(void* ptr); // Decrement reference count`
+    `static void __yo_decr_rc(void* ptr); // Decrement reference count`
   );
   emitter.emitDeclarationLine(
-    `void* __yo_incr_rc(void* ptr); // Increment reference count`
+    `static void* __yo_incr_rc(void* ptr); // Increment reference count`
   );
 
   // Generate GC function declarations
   emitter.emitDeclarationLine(
-    `void __yo_gc_register(void* ptr); // Register object for cycle detection`
+    `static void __yo_gc_register(void* ptr); // Register object for cycle detection`
   );
   emitter.emitDeclarationLine(
-    `void __yo_gc_unregister(void* ptr); // Unregister object from cycle detection`
+    `static void __yo_gc_unregister(void* ptr); // Unregister object from cycle detection`
   );
   emitter.emitDeclarationLine(
-    `void __yo_gc_collect(); // Trigger garbage collection`
+    `static void __yo_gc_collect(); // Trigger garbage collection`
   );
   emitter.emitDeclarationLine(
-    `void __yo_gc_init_thread(); // Initialize thread-local GC state (for worker threads)`
+    `static void __yo_gc_init_thread(); // Initialize thread-local GC state (for worker threads)`
   );
   emitter.emitDeclarationLine(
-    `void __yo_cleanup_thread_gc(); // Clean up thread-local GC state`
+    `static void __yo_cleanup_thread_gc(); // Clean up thread-local GC state`
   );
   emitter.emitDeclarationLine(
     `static void yo_init_process_cleanup(void); // Initialize process cleanup`
@@ -591,7 +589,7 @@ export function generateObjectConstructorDeclarations(
         .join(", ");
 
       emitter.emitDeclarationLine(
-        `${cName}* ${constructorName}(${paramTypes}); // Constructor`
+        `static ${cName}* ${constructorName}(${paramTypes}); // Constructor`
       );
     }
   }
@@ -619,7 +617,7 @@ export function generateCaptureDisposeFunctionDeclarations(
     for (const [closureInstanceId] of context.closureCaptureMap) {
       const disposeFunctionName = `__yo_dispose_closure_${closureInstanceId}`;
       emitter.emitDeclarationLine(
-        `void ${disposeFunctionName}(void* closure_ptr);`
+        `static void ${disposeFunctionName}(void* closure_ptr);`
       );
     }
   }

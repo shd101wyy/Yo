@@ -138,7 +138,7 @@ ${threadEntrySignature}
 
 // Spawn a new OS thread (returns by value)
 // The codegen will handle extracting the closure function pointer and data
-__yo_thread_t __yo_thread_spawn(__yo_thread_fn fn, void* closure) {
+static __yo_thread_t __yo_thread_spawn(__yo_thread_fn fn, void* closure) {
   PARALLELISM_DEBUG("[THREAD] Spawning new thread\\n");
   
   __yo_thread_t thread;
@@ -162,7 +162,7 @@ __yo_thread_t __yo_thread_spawn(__yo_thread_fn fn, void* closure) {
 }
 
 // Wait for thread to complete
-void __yo_thread_join(__yo_thread_t thread) {
+static void __yo_thread_join(__yo_thread_t thread) {
   PARALLELISM_DEBUG("[THREAD] Joining thread\\n");
   yo_thread_join(thread.handle);
   PARALLELISM_DEBUG("[THREAD] Thread joined\\n");
@@ -367,12 +367,12 @@ ${getHardwareThreads}
 
 // Get CPU ID that the current thread is running on
 // Returns -1 if CPU affinity information is not available
-int __yo_get_cpu_id(void) {
+static int __yo_get_cpu_id(void) {
 ${getCpuId}
 }
 
 // Set the number of worker threads (must be called before first spawn)
-void __yo_worker_set_num_threads(size_t num) {
+static void __yo_worker_set_num_threads(size_t num) {
   ${initMutexCall}
   YO_THREAD_SYNC_LOCK(&__yo_worker_pool_mutex);
   if (!__yo_worker_pool_initialized) {
@@ -386,7 +386,7 @@ void __yo_worker_set_num_threads(size_t num) {
 }
 
 // Get the number of worker threads
-size_t __yo_worker_get_num_threads(void) {
+static size_t __yo_worker_get_num_threads(void) {
   ${initMutexCall}
   YO_THREAD_SYNC_LOCK(&__yo_worker_pool_mutex);
   size_t num = __yo_worker_num_threads;
@@ -399,7 +399,7 @@ size_t __yo_worker_get_num_threads(void) {
 
 // Spawn a task on the worker pool
 // Uses round-robin distribution for thread affinity
-void __yo_worker_spawn(__yo_thread_fn fn, void* closure) {
+static void __yo_worker_spawn(__yo_thread_fn fn, void* closure) {
   ${initMutexCall}
   YO_THREAD_SYNC_LOCK(&__yo_worker_pool_mutex);
   

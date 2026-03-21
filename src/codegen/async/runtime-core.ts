@@ -113,13 +113,13 @@ static void yo_async_enqueue_continuation(void (*resume_fn)(void*), void* state_
 // - Await/spawn: increments refcount (event loop ref) before starting cold future
 // - Completion: decrements refcount (releases event loop ref)
 // - User drop: decrements refcount (releases user ref)
-void yo_async_spawn_task(void (*resume_fn)(void*), void* state_machine) {
+static void yo_async_spawn_task(void (*resume_fn)(void*), void* state_machine) {
   ASYNC_DEBUG("[ASYNC] Spawning task: resume_fn=%p, sm=%p\\n", (void*)resume_fn, state_machine);
   yo_async_enqueue_continuation(resume_fn, state_machine);
 }
 
 // Process all ready tasks in the queue (non-blocking).
-void yo_async_run_ready_tasks(void) {
+static void yo_async_run_ready_tasks(void) {
   while (yo_thread_async_queue.head) {
     yo_continuation_t* cont = yo_thread_async_queue.head;
     yo_thread_async_queue.head = cont->next;
@@ -133,7 +133,7 @@ void yo_async_run_ready_tasks(void) {
 }
 
 // Perform one step of the event loop: drain task queue, then poll/wait for I/O.
-void yo_async_poll_step(void) {
+static void yo_async_poll_step(void) {
   yo_async_run_ready_tasks();
 ${
   hasIO
@@ -148,7 +148,7 @@ ${
 }
 
 // Run event loop until a specific Future completes (for async main)
-void __yo_async_run_until_complete(void* future_ptr) {
+static void __yo_async_run_until_complete(void* future_ptr) {
   if (!yo_async_scheduler_initialized) {
     __yo_async_scheduler_init();
   }
@@ -224,7 +224,7 @@ ${hasIO ? `  __yo_io_cleanup();` : ``}
 }
 
 // Wait for all async tasks to complete (drains the queue)
-void __yo_async_wait_all(void) {
+static void __yo_async_wait_all(void) {
   if (!yo_async_scheduler_initialized) {
     return;
   }
@@ -280,7 +280,7 @@ ${
 // ============================================================================
 
 // Get the number of hardware threads (CPU cores)
-size_t __yo_thread_get_hardware_threads(void) {
+static size_t __yo_thread_get_hardware_threads(void) {
 ${
   isTargetWindows(targetInfo)
     ? `  SYSTEM_INFO sysinfo;
@@ -299,13 +299,13 @@ ${
 }
 
 // Set maximum threads (placeholder for future spawn support)
-void __yo_thread_set_maximum_threads(size_t num) {
+static void __yo_thread_set_maximum_threads(size_t num) {
   ASYNC_DEBUG("[CONCURRENCY] set_maximum_threads(%zu) - currently no-op for async/await\\n", num);
   (void)num;
 }
 
 // Get current thread ID (useful for debugging)
-size_t __yo_get_thread_id(void) {
+static size_t __yo_get_thread_id(void) {
 ${
   isTargetWindows(targetInfo)
     ? `  return (size_t)GetCurrentThreadId();`
@@ -318,7 +318,7 @@ ${
 }
 
 // Yield execution (allows other tasks to run)
-void __yo_thread_yield(void) {
+static void __yo_thread_yield(void) {
 ${isTargetWindows(targetInfo) ? `  SwitchToThread();` : `  sched_yield();`}
 }
 
@@ -329,7 +329,7 @@ typedef struct __yo_yield_future_t {
   void* continuation_sm;
 } __yo_yield_future_t;
 
-__yo_yield_future_t __yo_async_yield(void) {
+static __yo_yield_future_t __yo_async_yield(void) {
   __yo_yield_future_t future;
   future.state = -1;
   future.continuation_fn = NULL;

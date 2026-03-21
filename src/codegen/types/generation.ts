@@ -168,13 +168,13 @@ typedef struct __yo_thread_t {
 // Thread callback type for spawn
 typedef void (*__yo_thread_fn)(void* closure);
 
-YO_THREAD_SYNC_TYPE yo_mutex_create(void);
-YO_COND_TYPE yo_cond_create(void);
+static YO_THREAD_SYNC_TYPE yo_mutex_create(void);
+static YO_COND_TYPE yo_cond_create(void);
 /**
  * Create and initialize a mutex (stack-allocated value)
  * Returns an initialized mutex that can be used with yo_mutex_lock/unlock
  */
-YO_THREAD_SYNC_TYPE yo_mutex_create(void) {
+static YO_THREAD_SYNC_TYPE yo_mutex_create(void) {
   YO_THREAD_SYNC_TYPE mutex;
   yo_mutex_init(&mutex);
   return mutex;
@@ -184,7 +184,7 @@ YO_THREAD_SYNC_TYPE yo_mutex_create(void) {
  * Create and initialize a condition variable (stack-allocated value)
  * Returns an initialized condition variable that can be used with yo_cond_wait/signal/broadcast
  */
-YO_COND_TYPE yo_cond_create(void) {
+static YO_COND_TYPE yo_cond_create(void) {
   YO_COND_TYPE cond;
   yo_cond_init(&cond);
   return cond;

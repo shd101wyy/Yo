@@ -1148,7 +1148,7 @@ function generateAtomicGCRuntimeFunctions(
 // already accounts for their references via trial deletion.
 static _Thread_local int yo_gc_collecting = 0;
 
-void __yo_decr_rc(void* ptr) {
+static void __yo_decr_rc(void* ptr) {
   if (ptr == NULL) return;
   yo_ref_header_t* header = (yo_ref_header_t*)ptr;
   
@@ -1183,7 +1183,7 @@ void __yo_decr_rc(void* ptr) {
   }
 }
 
-void* __yo_incr_rc(void* ptr) {
+static void* __yo_incr_rc(void* ptr) {
   if (ptr == NULL) return NULL;
   yo_ref_header_t* header = (yo_ref_header_t*)ptr;
   header->ref_count++;
@@ -1194,14 +1194,14 @@ void* __yo_incr_rc(void* ptr) {
   // Atomic reference counting functions for Iso types (thread-safe)
   emitter.emitLine(`
 // Atomic reference counting functions for Iso types (thread-safe)
-void* __yo_incr_rc_atomic(void* ptr) {
+static void* __yo_incr_rc_atomic(void* ptr) {
   if (ptr == NULL) return NULL;
   yo_ref_header_t* header = (yo_ref_header_t*)ptr;
   atomic_fetch_add(((_Atomic size_t*)&header->ref_count), 1);
   return ptr;
 }
 
-void __yo_decr_rc_atomic(void* ptr) {
+static void __yo_decr_rc_atomic(void* ptr) {
   if (ptr == NULL) return;
   yo_ref_header_t* header = (yo_ref_header_t*)ptr;
   size_t old_count = atomic_fetch_sub(((_Atomic size_t*)&header->ref_count), 1);
@@ -1302,12 +1302,12 @@ ${
 }
 
 // Public function to initialize thread-local GC (for worker threads)
-void __yo_gc_init_thread() {
+static void __yo_gc_init_thread() {
   yo_init_thread_gc();
 }`);
 
   // Generate __yo_gc_register and __yo_gc_unregister functions
-  emitter.emitLine(`void __yo_gc_register(void* ptr) {
+  emitter.emitLine(`static void __yo_gc_register(void* ptr) {
   yo_ref_header_t* header = (yo_ref_header_t*)ptr;
   
   if (yo_current_thread_gc == NULL) {
@@ -1339,7 +1339,7 @@ void __yo_gc_init_thread() {
   }
 }
 
-void __yo_gc_unregister(void* ptr) {
+static void __yo_gc_unregister(void* ptr) {
   yo_ref_header_t* header = (yo_ref_header_t*)ptr;
   
   if (yo_current_thread_gc == NULL) {
@@ -1408,7 +1408,7 @@ static void yo_gc_scan_restore_visitor(void* ptr) {
   // If already LIVE or UNMARKED (already scanned), just restore RC — don't recurse again.
 }
 
-void __yo_gc_collect() {
+static void __yo_gc_collect() {
   if (yo_current_thread_gc == NULL) return;
   
   yo_ref_header_t* head = yo_current_thread_gc->tracked_objects;
@@ -1526,14 +1526,14 @@ void __yo_gc_collect() {
   GC_DEBUG("GC: Collection complete, collected=%zu, remaining=%zu, next_threshold=%zu\\n", collected, yo_current_thread_gc->tracked_count, yo_gc_collect_threshold);
 }
 
-size_t __yo_gc_tracked_count() {
+static size_t __yo_gc_tracked_count() {
   if (yo_current_thread_gc == NULL) return 0;
   return yo_current_thread_gc->tracked_count;
 }`);
 
   // Generate thread cleanup function
   emitter.emitLine(`// Clean up thread-local GC state
-void __yo_cleanup_thread_gc() {
+static void __yo_cleanup_thread_gc() {
   yo_mutex_lock(&yo_thread_list_mutex);
   
   yo_thread_gc_state_t* my_gc_state = yo_current_thread_gc;
@@ -1642,7 +1642,7 @@ function generateRefStructTraversalFunctions(
       // Generate traversal function for this struct type
       const traversalFunctionName = `__yo_traverse_${cName}`;
       emitter.emitLine(
-        `void ${traversalFunctionName}(void* ptr, void (*visit)(void*)) {`
+        `static void ${traversalFunctionName}(void* ptr, void (*visit)(void*)) {`
       );
       emitter.emitLine(`  ${cName}* obj = (${cName}*)ptr;`);
 
@@ -1748,7 +1748,7 @@ export function generateRefStructConstructorFunctions(
         })
         .join(", ");
 
-      emitter.emitLine(`${cName}* ${constructorName}(${paramTypes}) {`);
+      emitter.emitLine(`static ${cName}* ${constructorName}(${paramTypes}) {`);
       emitter.emitLine(
         `  ${cName}* obj = (${cName}*)__yo_malloc(sizeof(${cName}));`
       );
@@ -1850,7 +1850,7 @@ export function generateClosureDisposeFunctions(
   for (const [closureInstanceId] of context.closureCaptureMap) {
     const disposeFunctionName = `__yo_dispose_closure_${closureInstanceId}`;
     emitter.emitDeclarationLine(
-      `void ${disposeFunctionName}(void* closure_ptr);`
+      `static void ${disposeFunctionName}(void* closure_ptr);`
     );
   }
 
@@ -1888,7 +1888,7 @@ export function generateClosureDisposeFunctions(
     // This function receives the CLOSURE pointer (not capture pointer),
     // extracts the capture data, and calls drop (no free needed for stack-allocated capture)
     emitter.emitLine(
-      `void ${disposeFunctionName}(void* closure_ptr) { // Dispose for ${closureCName} with ${captureCName} (Impl closure - value type)`
+      `static void ${disposeFunctionName}(void* closure_ptr) { // Dispose for ${closureCName} with ${captureCName} (Impl closure - value type)`
     );
     emitter.emitLine(`  if (closure_ptr) {`);
     emitter.emitLine(
