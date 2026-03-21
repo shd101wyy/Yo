@@ -522,8 +522,12 @@ export function generateFunctionDeclaration(
       );
 
   const yoTypeStr = typeToString(functionType);
+  // Non-extern functions are 'static' (internal linkage) since all Yo code
+  // compiles to a single C file. This enables the C compiler to strip unused
+  // functions with -O2.
+  const linkagePrefix = isExtern ? "extern " : "static ";
   context.emitter.emitDeclarationLine(
-    `${isExtern ? "extern " : ""}${functionPrototype}; // ${yoTypeStr}`
+    `${linkagePrefix}${functionPrototype}; // ${yoTypeStr}`
   );
 }
 
@@ -699,7 +703,7 @@ export function generateSpecializedFunctionDeclarations(
 
     // Emit the function declaration
     context.emitter.emitDeclarationLine(
-      `${generateFunctionPrototype(specializedFunctionType, cFunctionName, context)}; // specialized function: ${typeToString(functionValue.type)}`
+      `static ${generateFunctionPrototype(specializedFunctionType, cFunctionName, context)}; // specialized function: ${typeToString(functionValue.type)}`
     );
   }
 }

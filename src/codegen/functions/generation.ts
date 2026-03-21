@@ -634,7 +634,13 @@ export function generateFunction(
         originalFunctionType
       );
 
-  emitter.emitLine(`${functionPrototype} {`);
+  // All functions are 'static' (internal linkage) except __yo_user_main and
+  // library exports, since everything compiles to a single C file.
+  const isExported =
+    cFunctionName === "__yo_user_main" ||
+    context.exportedFunctionLabels?.has(functionValue.funcId);
+  const linkagePrefix = isExported ? "" : "static ";
+  emitter.emitLine(`${linkagePrefix}${functionPrototype} {`);
 
   // Set current function name and type for recur support and async handling
   const previousFunctionName = context.currentFunctionName;
