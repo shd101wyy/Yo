@@ -34,6 +34,7 @@ import {
   containsSuspensionExpr,
   splitBodyAtSuspensionPoints,
 } from "../shared/suspension-codegen";
+import { getStateMachineFieldName } from "./state-machine";
 import {
   canOptimizeAsNullablePointer,
   getTypeString,
@@ -1159,8 +1160,13 @@ function generateMatchWithAwait(
 
           if (isStateMachineVar && varId) {
             // Store directly in state machine variable
+            const fieldName = getStateMachineFieldName(
+              varId,
+              "local",
+              functionContext.stateMachineFieldAliases
+            );
             emitter.emitLine(
-              `${indent}  sm->var_${varId} = ${matchedValueCode};`
+              `${indent}  sm->${fieldName} = ${matchedValueCode};`
             );
           } else {
             // Local variable not crossing await - declare locally
@@ -1446,8 +1452,13 @@ function generateMatchWithAwait(
 
                 if (isStateMachineVar && varId) {
                   // Store in state machine variable
+                  const fieldName = getStateMachineFieldName(
+                    varId,
+                    "local",
+                    functionContext.stateMachineFieldAliases
+                  );
                   emitter.emitLine(
-                    `${indent}    sm->var_${varId} = ${accessExpr};`
+                    `${indent}    sm->${fieldName} = ${accessExpr};`
                   );
                 } else {
                   // Local variable - declare it

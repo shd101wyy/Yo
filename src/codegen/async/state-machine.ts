@@ -54,6 +54,7 @@ import { getDupFunctionForType } from "../exprs/drop-dup";
 import { generateExpr } from "../exprs/expr";
 import type { FunctionGenerationContext } from "../functions/context";
 import { sanitizeForCIdentifier } from "../utils";
+import { getTypeString } from "../utils/index";
 import {
   generateAwaitExpression,
   generateStateSegmentCode,
@@ -155,6 +156,12 @@ export interface CrossBoundaryResult {
    * await_future field instead of a non-existent struct field.
    */
   awaitFutureTempVarAliases: Map<string, string>;
+  /**
+   * Phase 2: Maps each captured variable ID to the set of segment indices
+   * where it is referenced. Used by overlapping storage analysis to determine
+   * live ranges and compute slot assignments.
+   */
+  variableSegments: Map<string, Set<number>>;
 }
 
 export function computeCrossBoundaryVariables(
@@ -168,6 +175,7 @@ export function computeCrossBoundaryVariables(
     return {
       crossBoundaryIds: new Set(),
       awaitFutureTempVarAliases: new Map(),
+      variableSegments: new Map(),
     };
   }
 
@@ -287,7 +295,159 @@ export function computeCrossBoundaryVariables(
     }
   }
 
-  return { crossBoundaryIds, awaitFutureTempVarAliases };
+  return { crossBoundaryIds, awaitFutureTempVarAliases, variableSegments };
+}
+
+/**
+ * Information about an overlapping storage slot.
+ * Multiple non-RC value-type variables with non-overlapping live ranges
+ * can share a single struct field.
+ */
+export interface OverlappingSlot {
+  /** The struct field name, e.g., "slot_0" */
+  fieldName: string;
+  /** The C type string for this slot */
+  cType: string;
+  /** Variable names sharing this slot (for comments) */
+  variableNames: string[];
+}
+
+/**
+ * Result of overlapping storage analysis (Phase 2).
+ */
+export interface OverlappingStorageResult {
+  /** Maps variable IDs to their aliased slot field name */
+  slotAliases: Map<string, string>;
+  /** Slot field definitions for the struct */
+  slots: OverlappingSlot[];
+}
+
+/**
+ * Phase 2: Compute overlapping storage slots for cross-boundary variables.
+ *
+ * Variables of the same C type whose live ranges don't overlap can share
+ * a single struct field. This uses greedy graph coloring per type group.
+ *
+ * Only non-RC value types are eligible — RC types have lifetimes extending
+ * to function return (via deferred drops), making overlap rare and requiring
+ * state-aware drop logic in the dispose function.
+ */
+export function computeOverlappingSlots(
+  crossBoundaryIds: Set<string>,
+  variableSegments: Map<string, Set<number>>,
+  capturedVariables: CapturedVariable[],
+  awaitFutureTempVarAliases: Map<string, string>,
+  context: FunctionGenerationContext
+): OverlappingStorageResult {
+  const emptyResult: OverlappingStorageResult = {
+    slotAliases: new Map(),
+    slots: [],
+  };
+
+  // Filter to non-RC value types that are cross-boundary local variables
+  const eligible = capturedVariables.filter(
+    (v) =>
+      v.kind === "local" &&
+      crossBoundaryIds.has(v.id) &&
+      !awaitFutureTempVarAliases.has(v.id) &&
+      !typeContainsRcType(v.type)
+  );
+
+  if (eligible.length < 2) return emptyResult;
+
+  // Build live ranges [min_segment, max_segment] for each eligible variable.
+  // Exclude cleanup segment (-1) — non-RC types don't have deferred drops.
+  const ranges = new Map<string, [number, number]>();
+  for (const v of eligible) {
+    const segs = variableSegments.get(v.id);
+    if (!segs || segs.size === 0) continue;
+    const numberedSegs = [...segs].filter((s) => s >= 0);
+    if (numberedSegs.length === 0) continue;
+    const min = Math.min(...numberedSegs);
+    const max = Math.max(...numberedSegs);
+    ranges.set(v.id, [min, max]);
+  }
+
+  if (ranges.size < 2) return emptyResult;
+
+  // Group by C type — only same-type variables can share a slot
+  const byType = new Map<string, string[]>();
+  for (const [varId] of ranges) {
+    const v = eligible.find((e) => e.id === varId);
+    if (!v) continue;
+    const cType = getTypeString(v.type, context);
+    let group = byType.get(cType);
+    if (!group) {
+      group = [];
+      byType.set(cType, group);
+    }
+    group.push(varId);
+  }
+
+  // For each type group with 2+ members, build interference graph and color
+  const slotAliases = new Map<string, string>();
+  const slots: OverlappingSlot[] = [];
+  let nextSlotIndex = 0;
+
+  for (const [cType, varIds] of byType) {
+    if (varIds.length < 2) continue;
+
+    // Build interference: two vars conflict if their ranges overlap
+    const conflicts = new Map<string, Set<string>>();
+    for (const id of varIds) conflicts.set(id, new Set());
+
+    for (let i = 0; i < varIds.length; i++) {
+      for (let j = i + 1; j < varIds.length; j++) {
+        const [minA, maxA] = ranges.get(varIds[i]!)!;
+        const [minB, maxB] = ranges.get(varIds[j]!)!;
+        if (minA <= maxB && minB <= maxA) {
+          conflicts.get(varIds[i]!)!.add(varIds[j]!);
+          conflicts.get(varIds[j]!)!.add(varIds[i]!);
+        }
+      }
+    }
+
+    // Greedy graph coloring
+    const colors = new Map<string, number>();
+    for (const varId of varIds) {
+      const usedColors = new Set<number>();
+      for (const conflictId of conflicts.get(varId)!) {
+        if (colors.has(conflictId)) {
+          usedColors.add(colors.get(conflictId)!);
+        }
+      }
+      let color = 0;
+      while (usedColors.has(color)) color++;
+      colors.set(varId, color);
+    }
+
+    // Group variables by color to find which ones actually share
+    const colorToVars = new Map<number, string[]>();
+    for (const [varId, color] of colors) {
+      let group = colorToVars.get(color);
+      if (!group) {
+        group = [];
+        colorToVars.set(color, group);
+      }
+      group.push(varId);
+    }
+
+    // Only create slot aliases for colors with 2+ variables (actual sharing)
+    for (const [, groupVarIds] of colorToVars) {
+      if (groupVarIds.length < 2) continue;
+      const fieldName = `slot_${nextSlotIndex}`;
+      const varNames = groupVarIds.map(
+        (id) => eligible.find((v) => v.id === id)?.name ?? id
+      );
+      for (const varId of groupVarIds) {
+        slotAliases.set(varId, fieldName);
+      }
+      slots.push({ fieldName, cType, variableNames: varNames });
+      nextSlotIndex++;
+    }
+  }
+
+  return { slotAliases, slots };
 }
 
 /**
@@ -385,11 +545,17 @@ export function generateResumeFunctionDeclaration(
  */
 export function getStateMachineFieldName(
   variableId: string,
-  kind?: "outer" | "local"
+  kind?: "outer" | "local",
+  aliases?: Map<string, string>
 ): string {
   if (kind === "outer") {
     // Outer captured variables are accessed through __capture struct
     return `__capture.${sanitizeForCIdentifier(variableId)}`;
+  }
+  // Check aliases (Phase 1b temp future aliasing, Phase 2 overlapping slots)
+  const alias = aliases?.get(variableId);
+  if (alias) {
+    return alias;
   }
   // Local variables use var_{id} naming
   return sanitizeForCIdentifier(`var_${variableId}`);
@@ -526,7 +692,8 @@ export function generateAsyncBlockResumeFunction(
         } else if (prevAwait.targetVariableId) {
           const fieldName = getStateMachineFieldName(
             prevAwait.targetVariableId,
-            "local"
+            "local",
+            context.stateMachineFieldAliases
           );
           resultTarget = `sm->${fieldName}`;
         }
@@ -564,7 +731,8 @@ export function generateAsyncBlockResumeFunction(
         if (useAwaitResultField && prevAwait.targetVariableId) {
           const fieldName = getStateMachineFieldName(
             prevAwait.targetVariableId,
-            "local"
+            "local",
+            context.stateMachineFieldAliases
           );
           emitter.emitLine(
             `      sm->${fieldName} = sm->await_result_${stateNumber - 1};`
@@ -999,7 +1167,8 @@ export function generateAsyncBlockResumeFunction(
           if (condBranchData.targetVariableId) {
             const fieldName = getStateMachineFieldName(
               condBranchData.targetVariableId,
-              "local"
+              "local",
+              context.stateMachineFieldAliases
             );
             emitter.emitLine(`      // Assign cond result to target variable`);
             emitter.emitLine(

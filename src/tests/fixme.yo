@@ -2,13 +2,13 @@
 
 main :: (fn(using(io : IO)) -> unit)({
   task := io.async((using(io : IO)) => {
-    a := i32(1);
-    b := i32(2);
+    a := i32(10);
     io.await(yield());
-    c := i32(3);
+    b := (a + i32(5));
     io.await(yield());
-    result := (a + c);
-    return result;
+    c := i32(20);
+    io.await(yield());
+    return (b + c);
   });
   r := io.await(task);
 });

@@ -28,6 +28,7 @@ import {
 import { checkVariableIsClosureCaptured } from "./closures";
 import { generateDeferredDupExpressions } from "./drop-dup";
 import { generateExpr } from "./expr";
+import { getStateMachineFieldName } from "../async/state-machine";
 
 /**
  *
@@ -204,8 +205,13 @@ export function generateInitializationAssignment(
         const rhsCode = generateExpr(rhs, indent, context);
 
         if (isStateMachineVar && varId) {
-          // In state machine - assign to sm->var_xxx field
-          context.emitter.emitLine(`${indent}sm->var_${varId} = ${rhsCode};`);
+          // In state machine - assign to sm field (alias-aware for overlapping slots)
+          const fieldName = getStateMachineFieldName(
+            varId,
+            "local",
+            functionContext.stateMachineFieldAliases
+          );
+          context.emitter.emitLine(`${indent}sm->${fieldName} = ${rhsCode};`);
         } else {
           // Skip unit type variables (zero-sized types, optimized away like Rust)
           if (!isUnitType(lhs.$.type)) {
@@ -252,8 +258,13 @@ export function generateInitializationAssignment(
         }
 
         if (isStateMachineVar && varId) {
-          // In state machine - assign to sm->var_xxx field
-          context.emitter.emitLine(`${indent}sm->var_${varId} = ${rhsCode};`);
+          // In state machine - assign to sm field (alias-aware for overlapping slots)
+          const fieldName = getStateMachineFieldName(
+            varId,
+            "local",
+            functionContext.stateMachineFieldAliases
+          );
+          context.emitter.emitLine(`${indent}sm->${fieldName} = ${rhsCode};`);
         } else {
           // Skip unit type variables (zero-sized types, optimized away like Rust)
           if (!isUnitType(lhs.$.type)) {
@@ -444,8 +455,13 @@ export function generateInitializationAssignment(
         const sliceType = lhs.$.type; // Get the slice type directly
 
         if (isStateMachineVar && varId) {
-          // In state machine - assign to sm->var_xxx field
-          context.emitter.emitLine(`${indent}sm->var_${varId} = ${rhsCode};`);
+          // In state machine - assign to sm field (alias-aware for overlapping slots)
+          const fieldName = getStateMachineFieldName(
+            varId,
+            "local",
+            functionContext.stateMachineFieldAliases
+          );
+          context.emitter.emitLine(`${indent}sm->${fieldName} = ${rhsCode};`);
         } else {
           // Skip unit type variables (zero-sized types, optimized away like Rust)
           if (!isUnitType(sliceType)) {
@@ -462,8 +478,13 @@ export function generateInitializationAssignment(
       } else {
         // Normal initialization
         if (isStateMachineVar && varId) {
-          // In state machine - assign to sm->var_xxx field
-          context.emitter.emitLine(`${indent}sm->var_${varId} = ${rhsCode};`);
+          // In state machine - assign to sm field (alias-aware for overlapping slots)
+          const fieldName = getStateMachineFieldName(
+            varId,
+            "local",
+            functionContext.stateMachineFieldAliases
+          );
+          context.emitter.emitLine(`${indent}sm->${fieldName} = ${rhsCode};`);
         } else {
           // Check if RHS is a temp variable with a registered async struct name
           const rhsIsTempVar = isTempVariableName(

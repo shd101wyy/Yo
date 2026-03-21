@@ -33,9 +33,11 @@ import { typeContainsRcType, typeToString } from "../../types/utils";
 import { isFunctionValue } from "../../value";
 import {
   computeCrossBoundaryVariables,
+  computeOverlappingSlots,
   generateAsyncBlockResumeFunction,
   getStateMachineFieldName,
 } from "../async/state-machine";
+import type { OverlappingSlot } from "../async/state-machine";
 import type { FunctionGenerationContext } from "../functions/context";
 import { getEvidenceParameters } from "../functions/declarations";
 import { getTypeString, getVariableTypeString } from "../utils";
@@ -353,6 +355,8 @@ function emitAsyncBlockStructDefinition(
     analysis: AwaitAnalysisResult;
     crossBoundaryIds?: Set<string>;
     awaitFutureTempVarAliases?: Map<string, string>;
+    overlappingSlotAliases?: Map<string, string>;
+    overlappingSlots?: OverlappingSlot[];
   },
   context: FunctionGenerationContext
 ): void {
@@ -366,6 +370,8 @@ function emitAsyncBlockStructDefinition(
     analysis,
     crossBoundaryIds,
     awaitFutureTempVarAliases,
+    overlappingSlotAliases,
+    overlappingSlots,
   } = asyncBlockInfo;
 
   emitter.emitDeclarationLine(
@@ -424,13 +430,17 @@ function emitAsyncBlockStructDefinition(
 
   // Local variables — only those that cross await boundaries need struct fields.
   // Segment-local variables (used in only one segment) will be C locals in their case block.
-  // Also exclude temp vars aliased to await_future_N fields (Phase 1b).
+  // Also exclude temp vars aliased to await_future_N fields (Phase 1b)
+  // and vars sharing overlapping storage slots (Phase 2).
   let localVariables = analysis.capturedVariables.filter(
     (v) => v.kind !== "outer"
   );
   if (crossBoundaryIds) {
     localVariables = localVariables.filter(
-      (v) => crossBoundaryIds.has(v.id) && !awaitFutureTempVarAliases?.has(v.id)
+      (v) =>
+        crossBoundaryIds.has(v.id) &&
+        !awaitFutureTempVarAliases?.has(v.id) &&
+        !overlappingSlotAliases?.has(v.id)
     );
   }
   if (localVariables.length > 0) {
@@ -440,6 +450,18 @@ function emitAsyncBlockStructDefinition(
       const fieldName = getStateMachineFieldName(variable.id, "local");
       emitter.emitDeclarationLine(
         `  ${varTypeCName} ${fieldName};  // ${variable.name}`
+      );
+    }
+    emitter.emitDeclarationLine(``);
+  }
+
+  // Phase 2: Overlapping storage slots — variables of the same non-RC type
+  // with non-overlapping live ranges share a single struct field.
+  if (overlappingSlots && overlappingSlots.length > 0) {
+    emitter.emitDeclarationLine(`  // Overlapping storage slots (Phase 2)`);
+    for (const slot of overlappingSlots) {
+      emitter.emitDeclarationLine(
+        `  ${slot.cType} ${slot.fieldName};  // shared: ${slot.variableNames.join(", ")}`
       );
     }
     emitter.emitDeclarationLine(``);
@@ -684,8 +706,16 @@ function emitDeferredAsyncBlockStructDefinitions(
       : blocks;
 
   for (const b of orderedBlocks) {
-    const { crossBoundaryIds, awaitFutureTempVarAliases } =
+    const { crossBoundaryIds, awaitFutureTempVarAliases, variableSegments } =
       computeCrossBoundaryVariables(b.bodyExpr, b.analysis);
+    const { slotAliases: overlappingSlotAliases, slots: overlappingSlots } =
+      computeOverlappingSlots(
+        crossBoundaryIds,
+        variableSegments,
+        b.analysis.capturedVariables,
+        awaitFutureTempVarAliases,
+        context
+      );
     emitAsyncBlockStructDefinition(
       {
         asyncBlockId: b.asyncBlockId,
@@ -696,6 +726,8 @@ function emitDeferredAsyncBlockStructDefinitions(
         analysis: b.analysis,
         crossBoundaryIds,
         awaitFutureTempVarAliases,
+        overlappingSlotAliases,
+        overlappingSlots,
       },
       context
     );
@@ -1048,13 +1080,24 @@ export function generateDeferredAsyncBlocks(
     // (which iterates analysis.capturedVariables) automatically excludes them.
     // Phase 1b: aliased temp future vars remain in capturedVariables (for deferred drops)
     // but their struct fields are skipped — atom.ts redirects to await_future_N.
-    const { crossBoundaryIds, awaitFutureTempVarAliases } =
+    const { crossBoundaryIds, awaitFutureTempVarAliases, variableSegments } =
       computeCrossBoundaryVariables(bodyExpr, analysis);
+
+    // Phase 2: Compute overlapping storage slots for same-type non-RC variables.
+    const { slotAliases: overlappingSlotAliases } = computeOverlappingSlots(
+      crossBoundaryIds,
+      variableSegments,
+      analysis.capturedVariables,
+      awaitFutureTempVarAliases,
+      context
+    );
+
     const filteredCapturedVariables = analysis.capturedVariables.filter(
       (v) =>
         v.kind === "outer" ||
         crossBoundaryIds.has(v.id) ||
-        awaitFutureTempVarAliases.has(v.id)
+        awaitFutureTempVarAliases.has(v.id) ||
+        overlappingSlotAliases.has(v.id)
     );
     const filteredAnalysis: AwaitAnalysisResult = {
       ...analysis,
@@ -1076,10 +1119,14 @@ export function generateDeferredAsyncBlocks(
       }
     }
     context.stateMachineVariables = smVarMap;
-    // Phase 1b: Set field aliases so atom.ts redirects temp future var
-    // lookups to the corresponding await_future_N field.
+    // Phase 1b + Phase 2: Set field aliases so atom.ts redirects variable
+    // lookups to the corresponding aliased field (await_future_N or slot_N).
     const savedFieldAliases = context.stateMachineFieldAliases;
-    context.stateMachineFieldAliases = awaitFutureTempVarAliases;
+    const mergedAliases = new Map<string, string>(awaitFutureTempVarAliases);
+    for (const [varId, slotField] of overlappingSlotAliases) {
+      mergedAliases.set(varId, slotField);
+    }
+    context.stateMachineFieldAliases = mergedAliases;
 
     const localVarDrops = generateAsyncBlockResumeFunction(
       bodyExpr,
@@ -1139,7 +1186,16 @@ export function generateDeferredAsyncBlocks(
         const {
           crossBoundaryIds: newCrossBoundaryIds,
           awaitFutureTempVarAliases: newAliases,
+          variableSegments: newVarSegments,
         } = computeCrossBoundaryVariables(newBlock.bodyExpr, newBlock.analysis);
+        const { slotAliases: newSlotAliases, slots: newSlots } =
+          computeOverlappingSlots(
+            newCrossBoundaryIds,
+            newVarSegments,
+            newBlock.analysis.capturedVariables,
+            newAliases,
+            context
+          );
         emitAsyncBlockStructDefinition(
           {
             asyncBlockId: newBlock.asyncBlockId,
@@ -1150,6 +1206,8 @@ export function generateDeferredAsyncBlocks(
             analysis: newBlock.analysis,
             crossBoundaryIds: newCrossBoundaryIds,
             awaitFutureTempVarAliases: newAliases,
+            overlappingSlotAliases: newSlotAliases,
+            overlappingSlots: newSlots,
           },
           context
         );

@@ -83,23 +83,18 @@ Additionally, `getLocalVariablesFromBody()` in `await-analysis.ts` collects ALL 
 - Worse cache utilization for high-concurrency workloads
 - Unnecessary initialization/cleanup of struct fields
 
-## Status: PARTIALLY FIXED
+## Status: FIXED
 
-Phase 1 liveness analysis has been implemented in `src/codegen/async/state-machine.ts`:
+All planned optimizations have been implemented:
 
-- `computeCrossBoundaryVariables()` determines which variables cross await boundaries
-- Segment-local variables are now emitted as C locals
-- Phase 2b improved this further: when a cond/while has an await, only variables in that specific segment are conservatively kept in the struct (previously ALL variables in ALL segments were kept)
+**Phase 1** — Liveness analysis (`computeCrossBoundaryVariables()`): segment-local variables are emitted as C locals instead of struct fields.
 
-Phase 3 await result deduplication has also been implemented:
+**Phase 1b** — Temp future aliasing: `io.await(yield())` temp vars alias to `await_future_N` fields via `stateMachineFieldAliases`.
 
-- For linear awaits, `await_result_N` intermediate struct fields are eliminated
-- Results are assigned directly to target variables (`sm->var_X = future->result`)
-- Cond awaits still use `await_result_N` for branch continuation transfer
+**Phase 2** — Overlapping storage: same-type non-RC value variables with non-overlapping live ranges share `slot_N` struct fields via greedy graph coloring (`computeOverlappingSlots()`).
 
-## Remaining optimizations (deferred)
+**Phase 2b** — Per-segment cond/while analysis: only variables in branching segments are conservatively kept in struct; other segments benefit from C-local optimization.
 
-- **Phase 1b** (Temp future dedup): Deferred due to complex interaction with deferred drops
-- **Phase 2** (Overlapping storage / graph coloring): Deferred, diminishing returns
+**Phase 3** — Await result deduplication: linear awaits skip `await_result_N` intermediate struct fields; results assigned directly to target variables.
 
-See `plans/ASYNC_SM_VARIABLE_OPTIMIZATION.md` for the full optimization plan.
+See `plans/ASYNC_SM_VARIABLE_OPTIMIZATION.md` for the full optimization plan and implementation details.

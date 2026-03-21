@@ -15,6 +15,7 @@ import {
 } from "../utils";
 import { generateDeferredDupExpressions } from "./drop-dup";
 import { generateExpr } from "./expr";
+import { getStateMachineFieldName } from "../async/state-machine";
 
 /**
  * Generate C code for a dyn() constructor call
@@ -148,7 +149,7 @@ export function generateDynCall(
   ) {
     for (const [, capturedVar] of functionContext.stateMachineVariables) {
       if (capturedVar.kind === "local" && capturedVar.id === tempVarName) {
-        smFieldRef = `sm->var_${capturedVar.id}`;
+        smFieldRef = `sm->${getStateMachineFieldName(capturedVar.id, "local", functionContext.stateMachineFieldAliases)}`;
         break;
       }
     }

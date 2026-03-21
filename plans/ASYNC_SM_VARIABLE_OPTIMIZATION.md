@@ -192,7 +192,7 @@ Currently every non-unit await gets an `await_result_N` struct field. The resume
 
 - **Phase 1** (Liveness): ✅ **IMPLEMENTED**. Segment-local variables in simple linear async blocks are now emitted as C locals.
 - **Phase 1b** (Temp future aliasing): ✅ **IMPLEMENTED**. Temp future vars aliased to `await_future_N` fields, eliminating redundant struct fields.
-- **Phase 2** (Overlapping storage): Deferred. Graph coloring for same-type variables with non-overlapping lifetimes. Complex (dispose function must track slot contents per state), diminishing returns for typical async functions.
+- **Phase 2** (Overlapping storage): ✅ **IMPLEMENTED**. Same-type non-RC value variables with non-overlapping live ranges share struct fields via graph coloring. RC types excluded (deferred drops extend lifetime to function return).
 - **Phase 2b** (Cond/while per-segment): ✅ **IMPLEMENTED**. Variables in non-branching segments can be C locals even when other segments have cond/while with await.
 - **Phase 3** (Await result dedup): ✅ **IMPLEMENTED**. Linear awaits skip `await_result_N` entirely.
 
@@ -279,3 +279,59 @@ When a cond/while has an await inside a branch, `generateCondWithAwait`/`generat
 ### Files modified
 
 - `src/codegen/async/state-machine.ts`: Replaced early-return `hasBranchingAwait` check with per-segment `branchingAwaitSegmentIndices` logic
+
+## Implementation Notes (Phase 2)
+
+### What was implemented
+
+Phase 2 enables overlapping storage for same-type non-RC value variables with non-overlapping live ranges, using greedy graph coloring. Variables that can share get a single `slot_N` struct field instead of separate `var_X` fields.
+
+1. **`computeOverlappingSlots()`** in `state-machine.ts`:
+
+   - Filters to non-RC value-type variables that are in `crossBoundaryIds`
+   - Builds live ranges `[min_segment, max_segment]` from `variableSegments` (excluding cleanup segment -1)
+   - Groups by C type string — only same-type variables can share a slot
+   - Builds interference graph: two variables conflict if ranges overlap (`minA <= maxB && minB <= maxA`)
+   - Greedy graph coloring assigns each variable a color; variables with same color share a slot
+   - Only creates slot aliases when 2+ variables actually share a color
+
+2. **Struct definition** (`async.ts:emitAsyncBlockStructDefinition`):
+
+   - Accepts `overlappingSlotAliases` and `overlappingSlots` parameters
+   - Local variables in the slot alias map are skipped (no individual `var_X` field)
+   - Slot fields emitted as `<cType> slot_N; // shared: varA, varB`
+
+3. **Alias wiring** (`async.ts:generateDeferredAsyncBlocks`):
+
+   - Slot aliases merged into `stateMachineFieldAliases` alongside Phase 1b temp future aliases
+   - `atom.ts` (already alias-aware) automatically redirects `sm->var_X` lookups to `sm->slot_N`
+
+4. **Field name resolution** (`state-machine.ts:getStateMachineFieldName`):
+
+   - Extended with optional `aliases` parameter for alias-aware resolution
+   - All call sites in `state-machine.ts` pass `context.stateMachineFieldAliases`
+
+5. **Raw `sm->var_` pattern fixes**:
+
+   - `state-code-gen.ts`: 2 match-destructuring patterns now use `getStateMachineFieldName` with aliases
+   - `initialization-assignment.ts`: 4 patterns updated
+   - `match.ts`: 3 patterns updated
+   - `dyn.ts`: 1 pattern updated
+
+### Why RC types are excluded
+
+RC types (object, String, Box, dyn, etc.) have body-level deferred drops that execute at function return. This means their effective lifetime extends from definition to function end, regardless of when they were last referenced. Two RC variables almost always have overlapping lifetimes.
+
+If we did share RC slots, assigning variable B to a slot holding variable A would overwrite A's pointer, causing a memory leak (A is never dropped). Fixing this would require inserting explicit drops before slot reuse and modifying the deferred drop system — too complex for the benefit.
+
+Since only non-RC types are shared, no changes to the dispose function are needed (it only drops RC types).
+
+### Files modified
+
+- `src/codegen/async/state-machine.ts`: Added `variableSegments` to `CrossBoundaryResult`, `computeOverlappingSlots()`, `OverlappingSlot`/`OverlappingStorageResult` interfaces, alias parameter on `getStateMachineFieldName`
+- `src/codegen/exprs/async.ts`: Struct definition with slot fields, alias merging, all 3 call sites updated
+- `src/codegen/async/state-code-gen.ts`: Raw pattern fixes (2 locations)
+- `src/codegen/exprs/initialization-assignment.ts`: Raw pattern fixes (4 locations)
+- `src/codegen/exprs/match.ts`: Raw pattern fixes (3 locations)
+- `src/codegen/exprs/dyn.ts`: Raw pattern fix (1 location)
+- `tests/async_await.test.yo`: 4 new tests (114 total)

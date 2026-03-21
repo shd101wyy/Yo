@@ -2905,3 +2905,70 @@ test "SM opt: temp future vars aliased to await_future fields", using(io : IO), 
   r := io.await(task);
   assert((r == i32(60)), "temp future aliasing should compute 60");
 };
+test "SM opt: overlapping storage for non-RC value types", using(io : IO), {
+  // Phase 2: Variables a and c have non-overlapping live ranges
+  // (a: segments {0,1}, c: segments {2,3}) so they can share a slot.
+  // b overlaps with both, so it keeps its own field.
+  task := io.async((using(io : IO)) => {
+    a := i32(10);
+    io.await(yield());
+    b := (a + i32(5));
+    io.await(yield());
+    c := i32(20);
+    io.await(yield());
+    return (b + c);
+  });
+  r := io.await(task);
+  assert((r == i32(35)), "overlapping storage should compute 35");
+};
+
+test "SM opt: overlapping vars must conflict when ranges overlap", using(io : IO), {
+  // a: segments {0,2}, range [0,2]; b: segments {1,2}, range [1,2]
+  // Ranges overlap at segment 2 — no sharing possible.
+  task := io.async((using(io : IO)) => {
+    a := i32(10);
+    io.await(yield());
+    b := i32(20);
+    io.await(yield());
+    return (a + b);
+  });
+  r := io.await(task);
+  assert((r == i32(30)), "conflicting vars should compute 30");
+};
+
+test "SM opt: multiple non-overlapping pairs share slots", using(io : IO), {
+  // a and c don't overlap, b and d don't overlap.
+  // a: range [0,0], b: range [0,0], c: range [2,2], d: range [2,2]
+  // But a and b are in same segment — they conflict!
+  // So a,c share (both i32, non-overlapping) and b,d share.
+  task := io.async((using(io : IO)) => {
+    a := i32(1);
+    b := i32(2);
+    sum1 := (a + b);
+    io.await(yield());
+    io.await(yield());
+    c := i32(3);
+    d := i32(4);
+    sum2 := (c + d);
+    return (sum1 + sum2);
+  });
+  r := io.await(task);
+  assert((r == i32(10)), "multiple pairs should compute 10");
+};
+
+test "SM opt: RC types excluded from overlapping storage", using(io : IO), {
+  // String is RC-typed. Even if s1 and s2 have non-overlapping reference
+  // ranges, they must NOT share a slot (RC deferred drops extend lifetime).
+  task := io.async((using(io : IO)) => {
+    s1 := `hello`;
+    io.await(yield());
+    n1 := s1.len();
+    io.await(yield());
+    s2 := `world`;
+    io.await(yield());
+    n2 := s2.len();
+    return (n1 + n2);
+  });
+  r := io.await(task);
+  assert((r == usize(10)), "RC types excluded from sharing, lengths should sum to 10");
+};
