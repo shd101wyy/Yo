@@ -451,34 +451,58 @@ export function generateAsyncBlockResumeFunction(
         emitter.emitLine(
           `      ASYNC_DEBUG("${asyncBlockId}: Reading result from await ${stateNumber - 1}, state=%d\\n", state_before_read);`
         );
-        // If the result contains Rc-managed data, we need to dup it before copying
-        // because the Future's dispose function will drop it, and we need our own reference
-        if (typeContainsRcType(prevAwait.resultType)) {
-          const dupFunctionName = getDupFunctionForType(
-            prevAwait.resultType,
-            context
+
+        // Phase 3 optimization: for linear (non-cond) awaits, skip the
+        // intermediate await_result_N field and assign directly to the
+        // target variable or skip entirely if result is unused.
+        const useAwaitResultField = !!prevAwait.isInsideCond;
+
+        // Determine the assignment target:
+        // - Linear await with target variable: write directly to sm->var_X
+        // - Linear await without target: result is unused, skip storage
+        // - Cond await: write to sm->await_result_N (used by branch continuations)
+        let resultTarget: string | undefined;
+        if (useAwaitResultField) {
+          resultTarget = `sm->await_result_${stateNumber - 1}`;
+        } else if (prevAwait.targetVariableId) {
+          const fieldName = getStateMachineFieldName(
+            prevAwait.targetVariableId,
+            "local"
           );
-          if (dupFunctionName) {
-            emitter.emitLine(
-              `      sm->await_result_${stateNumber - 1} = ${dupFunctionName}(sm->${prevFutureFieldName}->result);`
+          resultTarget = `sm->${fieldName}`;
+        }
+        // else: result is unused — no need to store it at all
+
+        if (resultTarget) {
+          // If the result contains Rc-managed data, we need to dup it before copying
+          // because the Future's dispose function will drop it, and we need our own reference
+          if (typeContainsRcType(prevAwait.resultType)) {
+            const dupFunctionName = getDupFunctionForType(
+              prevAwait.resultType,
+              context
             );
+            if (dupFunctionName) {
+              emitter.emitLine(
+                `      ${resultTarget} = ${dupFunctionName}(sm->${prevFutureFieldName}->result);`
+              );
+            } else {
+              emitter.emitLine(
+                `      /* Warning: No ___dup function found for result type, shallow copy may cause use-after-free */`
+              );
+              emitter.emitLine(
+                `      ${resultTarget} = sm->${prevFutureFieldName}->result;`
+              );
+            }
           } else {
+            // For non-Rc types (primitives), simple copy is fine
             emitter.emitLine(
-              `      /* Warning: No ___dup function found for result type, shallow copy may cause use-after-free */`
-            );
-            emitter.emitLine(
-              `      sm->await_result_${stateNumber - 1} = sm->${prevFutureFieldName}->result;`
+              `      ${resultTarget} = sm->${prevFutureFieldName}->result;`
             );
           }
-        } else {
-          // For non-Rc types (primitives), simple copy is fine
-          emitter.emitLine(
-            `      sm->await_result_${stateNumber - 1} = sm->${prevFutureFieldName}->result;`
-          );
         }
 
-        // If this await has a target variable, assign the result to it
-        if (prevAwait.targetVariableId) {
+        // For cond awaits, also copy from await_result to the target variable
+        if (useAwaitResultField && prevAwait.targetVariableId) {
           const fieldName = getStateMachineFieldName(
             prevAwait.targetVariableId,
             "local"

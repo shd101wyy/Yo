@@ -441,8 +441,13 @@ function emitAsyncBlockStructDefinition(
   }
 
   // Await result temporaries
+  // Phase 3 optimization: skip await_result_N for linear (non-cond) awaits.
+  // For linear awaits with a target variable, the result is assigned directly
+  // to sm->var_X. For linear awaits without a target, the result is unused.
+  // Cond awaits still need await_result_N because branch continuation code
+  // reads from it.
   if (analysis.awaitPoints.length > 0) {
-    emitter.emitDeclarationLine(`  // Await result temporaries`);
+    const awaitResultFields: string[] = [];
     for (const awaitPoint of analysis.awaitPoints) {
       // When the output type is an unresolved SomeType (e.g., forall(T) from
       // io.await evaluated with io=UnknownValue), treat it as unit since the
@@ -451,7 +456,12 @@ function emitAsyncBlockStructDefinition(
         isUnitType(awaitPoint.resultType) ||
         (isSomeType(awaitPoint.resultType) &&
           !awaitPoint.resultType.resolvedConcreteType);
-      if (!isEffectivelyUnit) {
+
+      // Skip await_result for linear awaits (non-cond)
+      const needsAwaitResultField =
+        !isEffectivelyUnit && awaitPoint.isInsideCond;
+
+      if (needsAwaitResultField) {
         // Determine the correct type for await_result_X:
         // For extern futures (e.g., io_uring), use the Future's result type directly
         // For async block futures, use awaitPoint.resultType (which matches the block's result)
@@ -468,12 +478,18 @@ function emitAsyncBlockStructDefinition(
         }
 
         const awaitResultTypeCName = getTypeString(awaitResultType, context);
-        emitter.emitDeclarationLine(
+        awaitResultFields.push(
           `  ${awaitResultTypeCName} await_result_${awaitPoint.index};`
         );
       }
     }
-    emitter.emitDeclarationLine(``);
+    if (awaitResultFields.length > 0) {
+      emitter.emitDeclarationLine(`  // Await result temporaries`);
+      for (const field of awaitResultFields) {
+        emitter.emitDeclarationLine(field);
+      }
+      emitter.emitDeclarationLine(``);
+    }
   }
 
   // await_future_X fields (used when awaiting an expression that isn't a captured Future variable)

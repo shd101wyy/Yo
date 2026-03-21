@@ -91,6 +91,16 @@ Phase 1 liveness analysis has been implemented in `src/codegen/async/state-machi
 - Segment-local variables in **simple linear** async blocks (no cond/match/while with await) are now emitted as C locals
 - For async blocks with branching await patterns (cond/while), all variables are conservatively kept in the struct (future Phase 2 work)
 
-## Fix
+Phase 3 await result deduplication has also been implemented:
 
-Implement per-segment liveness analysis to determine which variables actually cross await boundaries. Only store those in the struct; keep segment-local variables as C locals. See `plans/ASYNC_SM_VARIABLE_OPTIMIZATION.md` for the full optimization plan.
+- For linear awaits, `await_result_N` intermediate struct fields are eliminated
+- Results are assigned directly to target variables (`sm->var_X = future->result`)
+- Cond awaits still use `await_result_N` for branch continuation transfer
+
+## Remaining optimizations (deferred)
+
+- **Phase 1b** (Temp future dedup): Deferred due to complex interaction with deferred drops
+- **Phase 2** (Overlapping storage / graph coloring): Deferred, diminishing returns
+- **Phase 2b** (Remove cond/while conservative fallback): Deferred, requires deeper AST analysis
+
+See `plans/ASYNC_SM_VARIABLE_OPTIMIZATION.md` for the full optimization plan.

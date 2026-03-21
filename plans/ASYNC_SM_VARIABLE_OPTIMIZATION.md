@@ -117,12 +117,19 @@ Output: set of variables that must be in the struct ("cross-boundary variables")
    - When accessing a variable in state machine context, check if it's struct-stored or segment-local
    - Segment-local variables use plain C name; struct-stored use `sm->var_{id}`
 
-#### Temp Future Variable Deduplication
+#### Temp Future Variable Deduplication — DEFERRED
 
-As a sub-task of Phase 1, also fix the temp future duplication issue:
+This sub-task attempted to eliminate duplicate storage where a temp future variable (`var_temp_N`)
+and `await_future_N` store the same future pointer. Two approaches were tried and reverted:
 
-- During suspension analysis, skip capturing temp variables that are direct arguments of `io.await()` calls
-- These futures are already stored in `await_future_N` fields
+- **Approach 1** (exclude temp from crossBoundaryIds): Failed because deferred drop expressions
+  still referenced the excluded temp variable, causing C compilation errors.
+- **Approach 2** (set futureVariableId in await-analysis.ts): Failed with SEGFAULT because
+  `state-code-gen.ts` skips the future assignment when `futureVariableId` is set, but the temp
+  variable was only a C local, not a SM struct field — the field was never assigned.
+
+The gain is minor (one pointer field per await point) and the fix requires deeper changes to how
+deferred drops interact with the SM struct. Deferred to a future refactor.
 
 ### Phase 2: Overlapping Storage (Advanced optimization)
 
@@ -170,15 +177,20 @@ Output: slot assignments (variable → slot index)
 
 ### Phase 3: Await Result Deduplication (Minor optimization)
 
-**Goal**: Don't store `await_result_N` if the result is never used.
+**Goal**: Eliminate intermediate `await_result_N` struct fields for linear (non-cond) awaits.
 
-This is a minor optimization. Currently `await_result_N` is emitted for every non-unit await. If the result of an await is never assigned to a variable (e.g., `io.await(yield())`), the `await_result` field is unnecessary.
+Currently every non-unit await gets an `await_result_N` struct field. The resume function writes `sm->await_result_N = future->result`, then copies to `sm->var_X = sm->await_result_N`. For linear awaits (not inside cond/match branches), this intermediate step is unnecessary:
+
+- **With target variable**: Assign directly to `sm->var_X = [dup](future->result)`, skipping `await_result_N`
+- **Without target variable**: Result is unused, skip storage entirely
+- **Inside cond**: Keep `await_result_N` because branch continuation code reads from it
 
 ## Priority
 
 - **Phase 1** (Liveness): ✅ **IMPLEMENTED**. Segment-local variables in simple linear async blocks (no cond/while with await) are now emitted as C locals.
-- **Phase 2** (Overlapping): Medium priority. More complex, diminishing returns for typical async functions.
-- **Phase 3** (Await result): Low priority. Minor savings.
+- **Phase 1b** (Temp future dedup): ❌ **DEFERRED**. Complex interaction with deferred drops makes this risky for minor gain.
+- **Phase 2** (Overlapping): Deferred. More complex, diminishing returns for typical async functions.
+- **Phase 3** (Await result dedup): ✅ **IMPLEMENTED**. Linear awaits skip `await_result_N` entirely.
 
 ## Implementation Notes (Phase 1)
 
@@ -216,3 +228,24 @@ The optimization is in the codegen layer (not the evaluator):
    - Variables in conditional branches with await
    - Variables in while loops with await
    - RC-typed variables (Box, String) that need dup/drop
+
+## Implementation Notes (Phase 3)
+
+### What was implemented
+
+The optimization eliminates `await_result_N` intermediate struct fields for linear awaits:
+
+1. **Struct definition** (`async.ts:emitAsyncBlockStructDefinition`):
+
+   - `await_result_N` fields are only emitted when `awaitPoint.isInsideCond` is true
+   - Linear awaits (not inside cond) skip the field entirely
+
+2. **Resume function** (`state-machine.ts:generateAsyncBlockResumeFunction`):
+   - For linear awaits with `targetVariableId`: assigns directly to `sm->var_X = [dup](future->result)`
+   - For linear awaits without target: skips result storage (unused)
+   - For cond awaits: writes to `sm->await_result_N` as before, then copies to target
+
+### Files modified
+
+- `src/codegen/exprs/async.ts`: Struct field generation filtered by `isInsideCond`
+- `src/codegen/async/state-machine.ts`: Direct assignment in resume function
