@@ -92,6 +92,7 @@ export class CodeGeneratorC {
         "<stdlib.h>",
         "<stdio.h>",
         "<string.h>",
+        "<errno.h>",
         "<fcntl.h>", // For O_RDONLY, O_WRONLY, etc.
         // Note: <unistd.h> and <sys/stat.h> are platform-specific, added in emitCIncludes
       ]),
