@@ -226,11 +226,13 @@ export function generateDynBoxTypes(context: CodeGenContext): void {
 
     // Generate box constructor declaration
     emitter.emitDeclarationLine(
-      `${boxTypeName}* __yo_new_${boxTypeName}(${valueTypeStr} value);`
+      `static ${boxTypeName}* __yo_new_${boxTypeName}(${valueTypeStr} value);`
     );
 
     // Generate box dispose declaration
-    emitter.emitDeclarationLine(`void __yo_dispose_${boxTypeName}(void* ptr);`);
+    emitter.emitDeclarationLine(
+      `static void __yo_dispose_${boxTypeName}(void* ptr);`
+    );
     emitter.emitDeclarationLine("");
   }
 }
