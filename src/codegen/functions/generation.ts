@@ -36,7 +36,7 @@ import {
 import { isTargetWindows } from "../../target";
 import { isTempVariableName } from "../../utils";
 import { isFunctionValue, isTraitValue, type TraitValue } from "../../value";
-import { generateAsyncRuntime } from "../async/runtime";
+import { generateAsyncRuntime, generateSignalRuntime } from "../async/runtime";
 import {
   generateDeferredDropExpressions,
   generateDeferredDupExpressions,
@@ -198,6 +198,12 @@ export function generateAllFunctions(context: FunctionGenerationContext): void {
       context.debugParallelism,
       context.targetInfo
     );
+  }
+
+  // Generate standalone signal runtime when signals are used but async is not.
+  // When async is active, signal code is already included in the IO runtime.
+  if (context.usesSignal && !context.usesAsync) {
+    generateSignalRuntime(context.emitter, context.targetInfo);
   }
 
   // Generate thread-safe GC runtime functions

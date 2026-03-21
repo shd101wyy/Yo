@@ -56,3 +56,78 @@ export function generateAsyncRuntime(
     generateAsyncRuntimeIOCommon(emitter, targetInfo);
   }
 }
+
+/**
+ * Generates a standalone signal runtime for programs that use signals but not
+ * async I/O. When the full async runtime is emitted, signal code is already
+ * included via runtime-io-common.ts / runtime-io-windows.ts.
+ *
+ * POSIX: self-contained (~50 lines, only needs signal.h + errno.h).
+ * Windows: requires the full async runtime (signal depends on Windows IO helpers).
+ */
+export function generateSignalRuntime(
+  emitter: Emitter,
+  targetInfo: TargetInfo
+): void {
+  if (isTargetWindows(targetInfo) || isTargetWasm(targetInfo)) {
+    // Windows signal code depends on helpers from the full IO runtime.
+    // The caller should set usesAsync=true for Windows+signal programs.
+    return;
+  }
+
+  // POSIX signal runtime (Linux, macOS)
+  emitter.emitLine(`
+// ============================================================================
+// Signal Operations (standalone — no async runtime)
+// ============================================================================
+#include <signal.h>
+
+static void (*__yo_signal_handlers[32])(void*) = {NULL};
+static void* __yo_signal_handler_data[32] = {NULL};
+
+static void __yo_signal_trampoline(int signum) {
+  if (signum >= 0 && signum < 32 && __yo_signal_handlers[signum]) {
+    __yo_signal_handlers[signum](__yo_signal_handler_data[signum]);
+  }
+}
+
+static int32_t __yo_signal_start(int32_t signum, void* handler) {
+  if (signum < 0 || signum >= 32) return -EINVAL;
+
+  __yo_signal_handlers[signum] = (void (*)(void*))handler;
+
+  struct sigaction sa;
+  memset(&sa, 0, sizeof(sa));
+  sa.sa_handler = __yo_signal_trampoline;
+  sigemptyset(&sa.sa_mask);
+  sa.sa_flags = SA_RESTART;
+
+  if (sigaction(signum, &sa, NULL) < 0) {
+    return -errno;
+  }
+  return 0;
+}
+
+static int32_t __yo_signal_stop(int32_t signum) {
+  if (signum < 0 || signum >= 32) return -EINVAL;
+
+  __yo_signal_handlers[signum] = NULL;
+  __yo_signal_handler_data[signum] = NULL;
+
+  struct sigaction sa;
+  memset(&sa, 0, sizeof(sa));
+  sa.sa_handler = SIG_DFL;
+  sigemptyset(&sa.sa_mask);
+
+  if (sigaction(signum, &sa, NULL) < 0) {
+    return -errno;
+  }
+  return 0;
+}
+
+static int32_t __yo_kill(int32_t pid, int32_t signum) {
+  int result = kill((pid_t)pid, signum);
+  return (result < 0) ? -errno : 0;
+}
+`);
+}
