@@ -154,12 +154,23 @@ function generateLoopBody(
  * Generate C code for while loop expression
  * Supports both while(condition, body) and while(condition, step, body) forms
  * The 3-argument form is transpiled to a C for loop, 2-argument form to a C while loop
+ *
+ * When the evaluator has unrolled the loop (comptime condition with runtime body),
+ * the unrolled bodies are emitted sequentially without a loop.
  */
 export function generateWhileLoop(
   expr: FnCallExpr,
   indent: string,
   context: CodeGenContext
 ): string {
+  // Handle comptime-unrolled loops: emit bodies sequentially, no C loop
+  if (expr.$?.comptimeUnrolledBodies) {
+    for (const body of expr.$.comptimeUnrolledBodies) {
+      generateLoopBody(body, indent, context);
+    }
+    return "";
+  }
+
   const args = expr.args;
 
   if (args.length === 2) {
