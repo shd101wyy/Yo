@@ -149,7 +149,7 @@ static __yo_thread_t __yo_thread_spawn(__yo_thread_fn fn, void* closure) {
   args->closure = closure;
   
   // Create OS thread
-  int ret = __yo_thread_create(&thread.handle, __yo_thread_entry, args);
+  int ret = __yo_raw_thread_create(&thread.handle, __yo_thread_entry, args);
   if (ret != 0) {
     PARALLELISM_DEBUG("[THREAD] Failed to create thread (ret=%d)\\n", ret);
     __yo_free(args);
@@ -164,7 +164,7 @@ static __yo_thread_t __yo_thread_spawn(__yo_thread_fn fn, void* closure) {
 // Wait for thread to complete
 static void __yo_thread_join(__yo_thread_t thread) {
   PARALLELISM_DEBUG("[THREAD] Joining thread\\n");
-  __yo_thread_join(thread.handle);
+  __yo_raw_thread_join(thread.handle);
   PARALLELISM_DEBUG("[THREAD] Thread joined\\n");
 }
 
@@ -289,7 +289,7 @@ static void __yo_worker_pool_init(size_t num_threads) {
     worker->running = 1;
     worker->started = 0;
     
-    int ret = __yo_thread_create(&worker->handle, __yo_worker_thread_entry, worker);
+    int ret = __yo_raw_thread_create(&worker->handle, __yo_worker_thread_entry, worker);
     if (ret != 0) {
       PARALLELISM_DEBUG("[WORKER] Failed to create worker thread %zu (ret=%d)\\n", i, ret);
       worker->running = 0;
@@ -335,7 +335,7 @@ static void __yo_worker_pool_shutdown(void) {
   for (size_t i = 0; i < __yo_worker_num_threads; i++) {
     __yo_worker_thread_t* worker = &__yo_worker_threads[i];
     if (worker->running) {
-      __yo_thread_join(worker->handle);
+      __yo_raw_thread_join(worker->handle);
     }
     __yo_mutex_destroy(&worker->mutex);
     __yo_cond_destroy(&worker->cond);

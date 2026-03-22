@@ -26,9 +26,10 @@ import {
 } from "../utils";
 import type { FunctionGenerationContext } from "./context";
 
-// Functions that are defined as C preprocessor macros in the threading preamble.
-// We must NOT emit `extern` declarations for these — the preprocessor would expand
-// the macro name, creating conflicting declarations with the real pthread functions.
+// Functions that are either C preprocessor macros or static functions defined
+// in the runtime preamble. We must NOT emit `extern` declarations for these —
+// macros would expand to conflicting declarations, and static functions would
+// conflict with an `extern` linkage specifier.
 const THREADING_MACRO_FUNCTIONS = new Set([
   "__yo_mutex_init",
   "__yo_mutex_destroy",
@@ -39,7 +40,6 @@ const THREADING_MACRO_FUNCTIONS = new Set([
   "__yo_cond_wait",
   "__yo_cond_signal",
   "__yo_cond_broadcast",
-  "__yo_thread_create",
   "__yo_thread_join",
   "__yo_thread_self",
 ]);

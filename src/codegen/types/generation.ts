@@ -120,8 +120,8 @@ typedef HANDLE __YO_THREAD_TYPE;
 #define __yo_cond_wait(c, m) SleepConditionVariableCS(c, m, INFINITE)
 #define __yo_cond_signal(c) WakeConditionVariable(c)
 #define __yo_cond_broadcast(c) WakeAllConditionVariable(c)
-#define __yo_thread_create(t, func, arg) (*(t) = (HANDLE)_beginthreadex(NULL, 0, func, arg, 0, NULL), *(t) != NULL ? 0 : -1)
-#define __yo_thread_join(t) (WaitForSingleObject(t, INFINITE), CloseHandle(t), 0)
+#define __yo_raw_thread_create(t, func, arg) (*(t) = (HANDLE)_beginthreadex(NULL, 0, func, arg, 0, NULL), *(t) != NULL ? 0 : -1)
+#define __yo_raw_thread_join(t) (WaitForSingleObject(t, INFINITE), CloseHandle(t), 0)
 #define __yo_thread_self() ((uintptr_t)GetCurrentThreadId())`);
   } else {
     // POSIX (Linux, macOS, FreeBSD, etc.)
@@ -152,8 +152,8 @@ typedef pthread_t __YO_THREAD_TYPE;
 #define __yo_cond_wait(c, m) pthread_cond_wait(c, m)
 #define __yo_cond_signal(c) pthread_cond_signal(c)
 #define __yo_cond_broadcast(c) pthread_cond_broadcast(c)
-#define __yo_thread_create(t, func, arg) pthread_create(t, NULL, func, arg)
-#define __yo_thread_join(t) pthread_join(t, NULL)
+#define __yo_raw_thread_create(t, func, arg) pthread_create(t, NULL, func, arg)
+#define __yo_raw_thread_join(t) pthread_join(t, NULL)
 #define __yo_thread_self() ((uintptr_t)pthread_self())`);
   }
 
