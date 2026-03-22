@@ -86,7 +86,7 @@ typedef enum {
   __YO_GC_TRIAL_DELETED = 2, // Object has been trial-deleted (RC decremented)
   __YO_GC_LIVE = 3,          // Object is reachable (RC > 0 after trial deletion)
   __YO_GC_GARBAGE = 4        // Object is garbage (RC = 0 after trial deletion)
-} yo_gc_mark_t;
+} __yo_gc_mark_t;
 
 // GC flags
 #define __YO_GC_TRACKED              0x01  // Object is tracked by GC (might participate in cycles)
@@ -190,41 +190,41 @@ static __YO_COND_TYPE __yo_cond_create(void) {
   return cond;
 }
 
-// Forward declare yo_thread_gc_state_t for use in yo_ref_header_t
-typedef struct yo_thread_gc_state yo_thread_gc_state_t;
+// Forward declare __yo_thread_gc_state_t for use in __yo_ref_header_t
+typedef struct __yo_thread_gc_state __yo_thread_gc_state_t;
 
 // Reference counting header - simple non-atomic RC with cycle collection support
 // Thread-local: each object is owned by the thread that created it
-typedef struct yo_ref_header_t {
+typedef struct __yo_ref_header_t {
   // Simple reference count (non-atomic, thread-local)
   size_t ref_count;
   
   // GC cycle collection fields
   uint8_t gc_flags;                                     // GC tracking flags
-  yo_gc_mark_t gc_mark;                                 // GC mark state for trial deletion
+  __yo_gc_mark_t gc_mark;                                 // GC mark state for trial deletion
   
   // GC object management fields (doubly-linked list for O(1) deletion)
-  struct yo_ref_header_t* gc_next;                      // Next object in thread-local GC tracking list
-  struct yo_ref_header_t* gc_prev;                      // Previous object in thread-local GC tracking list
+  struct __yo_ref_header_t* gc_next;                      // Next object in thread-local GC tracking list
+  struct __yo_ref_header_t* gc_prev;                      // Previous object in thread-local GC tracking list
   void (*dispose_fn)(void*);                            // Dispose function for this object type (immutable after construction)
   void (*traverse_fn)(void*, void (*visit)(void*));     // Traversal function for GC marking (immutable after construction)
-} yo_ref_header_t;
+} __yo_ref_header_t;
 
-// Per-thread GC state - defined after yo_ref_header_t so it can use complete type
-struct yo_thread_gc_state {
-  yo_ref_header_t* tracked_objects;          // Head of this thread's tracked objects list
+// Per-thread GC state - defined after __yo_ref_header_t so it can use complete type
+struct __yo_thread_gc_state {
+  __yo_ref_header_t* tracked_objects;          // Head of this thread's tracked objects list
   size_t tracked_count;                      // Number of objects tracked by this thread
   size_t thread_id;                          // Thread identifier (for debugging)
   size_t alloc_count;                        // Allocations since last collection
-  yo_thread_gc_state_t* next;                // Next thread in global thread list
-  yo_thread_gc_state_t* prev;                // Previous thread in global thread list (for O(1) removal)
+  __yo_thread_gc_state_t* next;                // Next thread in global thread list
+  __yo_thread_gc_state_t* prev;                // Previous thread in global thread list (for O(1) removal)
 };
 
 // Generic Future type - used by async runtime for type-agnostic operations
 // All concrete Future types share this same layout for common fields
 typedef struct {
-  yo_ref_header_t header;
-  yo_future_state_t state;
+  __yo_ref_header_t header;
+  __yo_future_state_t state;
   void* state_machine;
   void (*state_machine_dispose_fn)(void*);
   void (*resume_fn)(void*);
@@ -232,18 +232,18 @@ typedef struct {
   void* continuation_sm;
   bool detached;
   // Note: concrete Future types may have additional fields (e.g., result) after this
-} yo_future_generic_t;
+} __yo_future_generic_t;
 
 // Generic I/O Future type for extern "Yo" functions returning Impl Future(T)
 // This has the same layout as async state machines (state, result, continuation_fn, continuation_sm)
 // so the await codegen can access ->state and ->result uniformly
-typedef struct yo_io_future_t {
-  yo_ref_header_t header;                       // Reference counting (must be first)
+typedef struct __yo_io_future_t {
+  __yo_ref_header_t header;                       // Reference counting (must be first)
   _Atomic int state;                            // Future state (0 = pending, -1 = completed)
   int32_t result;                               // The result value (bytes read/written or -errno)
   _Atomic(void (*)(void*)) continuation_fn;     // Continuation function
   _Atomic(void*) continuation_sm;               // Continuation state machine
-} yo_io_future_t;
+} __yo_io_future_t;
 
 // Forward declarations will be added here if needed
 `);
@@ -733,7 +733,7 @@ export function generateIsoTypeDeclarations(context: CodeGenContext): void {
     // Generate Iso struct type
     emitter.emitDeclarationLine(`typedef struct { // Iso wrapper struct`);
     emitter.emitDeclarationLine(
-      `  yo_ref_header_t header; // Atomic RC header`
+      `  __yo_ref_header_t header; // Atomic RC header`
     );
     emitter.emitDeclarationLine(`  _Atomic bool extracted; // Extraction flag`);
     emitter.emitDeclarationLine(`  ${childTypeCName} value; // Inner value`);
@@ -944,7 +944,7 @@ export function generateArcTypeDefinitions(context: CodeGenContext): void {
       `struct ${arcTypeName}_struct { // Arc wrapper`
     );
     emitter.emitDeclarationLine(
-      `  yo_ref_header_t header; // Atomic RC header`
+      `  __yo_ref_header_t header; // Atomic RC header`
     );
     emitter.emitDeclarationLine(`  ${childTypeCName} value; // Inner value`);
     emitter.emitDeclarationLine(`};`);
@@ -1084,7 +1084,7 @@ export function generateClosureDeclaration(
     .join(", ");
 
   // Generate the closure structure with direct call function pointer (static dispatch)
-  // Impl closures are value types - no yo_ref_header_t, stack-allocated
+  // Impl closures are value types - no __yo_ref_header_t, stack-allocated
   // IMPORTANT: Use named-struct form to match our forward declaration pattern.
   emitter.emitDeclarationLine(
     `struct ${cName}_struct { // Impl Closure : ${typeToString(functionType)} (static dispatch, value type)`
@@ -1133,7 +1133,7 @@ export function generateStructDeclaration(
       `struct ${cName}_struct { // ${structType.typeName} : ${typeToString(structType)} (reference counted)`
     );
     emitter.emitDeclarationLine(
-      `  yo_ref_header_t header; // Reference count header`
+      `  __yo_ref_header_t header; // Reference count header`
     );
 
     for (const field of structType.fields) {

@@ -547,7 +547,7 @@ static struct io_uring __yo_io_ring;
 // __yo_io_initialized is defined in runtime-core
 static size_t __yo_pending_io_count = 0;
 
-// I/O Future types - yo_io_future_t is defined in types/generation.ts
+// I/O Future types - __yo_io_future_t is defined in types/generation.ts
 // It has the same layout as async state machines (state, result, continuation_fn, continuation_sm)
 // so the await codegen can access ->state and ->result uniformly.
 // We store the future pointer directly in the SQE user data.
@@ -584,7 +584,7 @@ static int __yo_poll_and_fs_event_tick(void);
 // Process completions from CQ
 // The future pointer is stored directly in the SQE user data
 static void __yo_io_process_cqe(struct io_uring_cqe* cqe) {
-  yo_io_future_t* future = (yo_io_future_t*)io_uring_cqe_get_data(cqe);
+  __yo_io_future_t* future = (__yo_io_future_t*)io_uring_cqe_get_data(cqe);
   __yo_pending_io_count--;
 
   // Set the result
@@ -651,13 +651,13 @@ static int __yo_io_wait(void) {
 }
 
 // Create and start an async read operation
-// Returns a yo_io_future_t* that completes when the read finishes
-static yo_io_future_t* __yo_async_read_start(int32_t fd, void* buffer, uint32_t size, uint64_t offset) {
+// Returns a __yo_io_future_t* that completes when the read finishes
+static __yo_io_future_t* __yo_async_read_start(int32_t fd, void* buffer, uint32_t size, uint64_t offset) {
   // Ensure io_uring is initialized (lazy initialization for eager async execution)
   __yo_io_init();
   
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));  // Zero-initialize to ensure dispose_fn etc. are NULL
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));  // Zero-initialize to ensure dispose_fn etc. are NULL
   
   // Initialize ref counting
   future->header.ref_count = 1;
@@ -690,13 +690,13 @@ static yo_io_future_t* __yo_async_read_start(int32_t fd, void* buffer, uint32_t 
 }
 
 // Create and start an async write operation
-// Returns a yo_io_future_t* that completes when the write finishes
-static yo_io_future_t* __yo_async_write_start(int32_t fd, const void* buffer, uint32_t size, uint64_t offset) {
+// Returns a __yo_io_future_t* that completes when the write finishes
+static __yo_io_future_t* __yo_async_write_start(int32_t fd, const void* buffer, uint32_t size, uint64_t offset) {
   // Ensure io_uring is initialized (lazy initialization for eager async execution)
   __yo_io_init();
   
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));  // Zero-initialize to ensure dispose_fn etc. are NULL
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));  // Zero-initialize to ensure dispose_fn etc. are NULL
   
   // Initialize ref counting
   future->header.ref_count = 1;
@@ -729,12 +729,12 @@ static yo_io_future_t* __yo_async_write_start(int32_t fd, const void* buffer, ui
 }
 
 // Create and start an async openat operation
-// Returns a yo_io_future_t* that completes with the fd or error
-static yo_io_future_t* __yo_async_openat_start(int32_t dirfd, const char* path, int32_t flags, int32_t mode) {
+// Returns a __yo_io_future_t* that completes with the fd or error
+static __yo_io_future_t* __yo_async_openat_start(int32_t dirfd, const char* path, int32_t flags, int32_t mode) {
   __yo_io_init();
   
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
   
   future->header.ref_count = 1;
   future->state = 0;
@@ -761,11 +761,11 @@ static yo_io_future_t* __yo_async_openat_start(int32_t dirfd, const char* path, 
 }
 
 // Create and start an async close operation
-static yo_io_future_t* __yo_async_close_start(int32_t fd) {
+static __yo_io_future_t* __yo_async_close_start(int32_t fd) {
   __yo_io_init();
   
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
   
   future->header.ref_count = 1;
   future->state = 0;
@@ -792,11 +792,11 @@ static yo_io_future_t* __yo_async_close_start(int32_t fd) {
 
 // Create and start an async statx operation (for async stat)
 // Uses statx which is the modern replacement for stat, supported by io_uring
-static yo_io_future_t* __yo_async_statx_start(int32_t dirfd, const char* path, int32_t flags, uint32_t mask, void* statxbuf) {
+static __yo_io_future_t* __yo_async_statx_start(int32_t dirfd, const char* path, int32_t flags, uint32_t mask, void* statxbuf) {
   __yo_io_init();
   
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
   
   future->header.ref_count = 1;
   future->state = 0;
@@ -823,11 +823,11 @@ static yo_io_future_t* __yo_async_statx_start(int32_t dirfd, const char* path, i
 }
 
 // Create and start an async mkdirat operation
-static yo_io_future_t* __yo_async_mkdirat_start(int32_t dirfd, const char* path, int32_t mode) {
+static __yo_io_future_t* __yo_async_mkdirat_start(int32_t dirfd, const char* path, int32_t mode) {
   __yo_io_init();
   
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
   
   future->header.ref_count = 1;
   future->state = 0;
@@ -854,11 +854,11 @@ static yo_io_future_t* __yo_async_mkdirat_start(int32_t dirfd, const char* path,
 }
 
 // Create and start an async unlinkat operation
-static yo_io_future_t* __yo_async_unlinkat_start(int32_t dirfd, const char* path, int32_t flags) {
+static __yo_io_future_t* __yo_async_unlinkat_start(int32_t dirfd, const char* path, int32_t flags) {
   __yo_io_init();
   
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
   
   future->header.ref_count = 1;
   future->state = 0;
@@ -885,11 +885,11 @@ static yo_io_future_t* __yo_async_unlinkat_start(int32_t dirfd, const char* path
 }
 
 // Create and start an async renameat operation
-static yo_io_future_t* __yo_async_renameat_start(int32_t olddirfd, const char* oldpath, int32_t newdirfd, const char* newpath) {
+static __yo_io_future_t* __yo_async_renameat_start(int32_t olddirfd, const char* oldpath, int32_t newdirfd, const char* newpath) {
   __yo_io_init();
   
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
   
   future->header.ref_count = 1;
   future->state = 0;
@@ -916,11 +916,11 @@ static yo_io_future_t* __yo_async_renameat_start(int32_t olddirfd, const char* o
 }
 
 // Create and start an async symlinkat operation
-static yo_io_future_t* __yo_async_symlinkat_start(const char* target, int32_t newdirfd, const char* linkpath) {
+static __yo_io_future_t* __yo_async_symlinkat_start(const char* target, int32_t newdirfd, const char* linkpath) {
   __yo_io_init();
   
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
   
   future->header.ref_count = 1;
   future->state = 0;
@@ -947,11 +947,11 @@ static yo_io_future_t* __yo_async_symlinkat_start(const char* target, int32_t ne
 }
 
 // Create and start an async linkat operation (hard link)
-static yo_io_future_t* __yo_async_linkat_start(int32_t olddirfd, const char* oldpath, int32_t newdirfd, const char* newpath, int32_t flags) {
+static __yo_io_future_t* __yo_async_linkat_start(int32_t olddirfd, const char* oldpath, int32_t newdirfd, const char* newpath, int32_t flags) {
   __yo_io_init();
   
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
   
   future->header.ref_count = 1;
   future->state = 0;
@@ -978,11 +978,11 @@ static yo_io_future_t* __yo_async_linkat_start(int32_t olddirfd, const char* old
 }
 
 // Create and start an async fsync operation
-static yo_io_future_t* __yo_async_fsync_start(int32_t fd) {
+static __yo_io_future_t* __yo_async_fsync_start(int32_t fd) {
   __yo_io_init();
   
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
   
   future->header.ref_count = 1;
   future->state = 0;
@@ -1008,11 +1008,11 @@ static yo_io_future_t* __yo_async_fsync_start(int32_t fd) {
 }
 
 // Create and start an async fdatasync operation
-static yo_io_future_t* __yo_async_fdatasync_start(int32_t fd) {
+static __yo_io_future_t* __yo_async_fdatasync_start(int32_t fd) {
   __yo_io_init();
   
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
   
   future->header.ref_count = 1;
   future->state = 0;
@@ -1038,11 +1038,11 @@ static yo_io_future_t* __yo_async_fdatasync_start(int32_t fd) {
 }
 
 // Create and start an async ftruncate operation
-static yo_io_future_t* __yo_async_ftruncate_start(int32_t fd, int64_t length) {
+static __yo_io_future_t* __yo_async_ftruncate_start(int32_t fd, int64_t length) {
   __yo_io_init();
   
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
   
   future->header.ref_count = 1;
   future->state = 0;
@@ -1082,11 +1082,11 @@ static yo_io_future_t* __yo_async_ftruncate_start(int32_t fd, int64_t length) {
 // ============================================================================
 
 // Async socket - create socket
-static yo_io_future_t* __yo_async_socket_start(int32_t domain, int32_t type, int32_t protocol) {
+static __yo_io_future_t* __yo_async_socket_start(int32_t domain, int32_t type, int32_t protocol) {
   __yo_io_init();
   
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
   
   future->header.ref_count = 1;
   future->state = 0;
@@ -1105,11 +1105,11 @@ static yo_io_future_t* __yo_async_socket_start(int32_t domain, int32_t type, int
 }
 
 // Async bind - bind socket to address
-static yo_io_future_t* __yo_async_bind_start(int32_t sockfd, const void* addr, uint32_t addrlen) {
+static __yo_io_future_t* __yo_async_bind_start(int32_t sockfd, const void* addr, uint32_t addrlen) {
   __yo_io_init();
   
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
   
   future->header.ref_count = 1;
   future->state = 0;
@@ -1127,11 +1127,11 @@ static yo_io_future_t* __yo_async_bind_start(int32_t sockfd, const void* addr, u
 }
 
 // Async listen - mark socket as listening
-static yo_io_future_t* __yo_async_listen_start(int32_t sockfd, int32_t backlog) {
+static __yo_io_future_t* __yo_async_listen_start(int32_t sockfd, int32_t backlog) {
   __yo_io_init();
   
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
   
   future->header.ref_count = 1;
   future->state = 0;
@@ -1149,11 +1149,11 @@ static yo_io_future_t* __yo_async_listen_start(int32_t sockfd, int32_t backlog) 
 }
 
 // Async accept - accept incoming connection (using io_uring)
-static yo_io_future_t* __yo_async_accept_start(int32_t sockfd, void* addr, uint32_t* addrlen) {
+static __yo_io_future_t* __yo_async_accept_start(int32_t sockfd, void* addr, uint32_t* addrlen) {
   __yo_io_init();
   
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
   
   future->header.ref_count = 1;
   future->state = 0;
@@ -1179,11 +1179,11 @@ static yo_io_future_t* __yo_async_accept_start(int32_t sockfd, void* addr, uint3
 }
 
 // Async connect - connect to remote address (using io_uring)
-static yo_io_future_t* __yo_async_connect_start(int32_t sockfd, const void* addr, uint32_t addrlen) {
+static __yo_io_future_t* __yo_async_connect_start(int32_t sockfd, const void* addr, uint32_t addrlen) {
   __yo_io_init();
   
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
   
   future->header.ref_count = 1;
   future->state = 0;
@@ -1209,11 +1209,11 @@ static yo_io_future_t* __yo_async_connect_start(int32_t sockfd, const void* addr
 }
 
 // Async send - send data on socket (using io_uring)
-static yo_io_future_t* __yo_async_send_start(int32_t sockfd, const void* buf, size_t len, int32_t flags) {
+static __yo_io_future_t* __yo_async_send_start(int32_t sockfd, const void* buf, size_t len, int32_t flags) {
   __yo_io_init();
   
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
   
   future->header.ref_count = 1;
   future->state = 0;
@@ -1239,11 +1239,11 @@ static yo_io_future_t* __yo_async_send_start(int32_t sockfd, const void* buf, si
 }
 
 // Async recv - receive data from socket (using io_uring)
-static yo_io_future_t* __yo_async_recv_start(int32_t sockfd, void* buf, size_t len, int32_t flags) {
+static __yo_io_future_t* __yo_async_recv_start(int32_t sockfd, void* buf, size_t len, int32_t flags) {
   __yo_io_init();
   
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
   
   future->header.ref_count = 1;
   future->state = 0;
@@ -1269,12 +1269,12 @@ static yo_io_future_t* __yo_async_recv_start(int32_t sockfd, void* buf, size_t l
 }
 
 // Async sendto - send data to specific address (UDP)
-static yo_io_future_t* __yo_async_sendto_start(int32_t sockfd, const void* buf, size_t len, int32_t flags,
+static __yo_io_future_t* __yo_async_sendto_start(int32_t sockfd, const void* buf, size_t len, int32_t flags,
                                                 const void* dest_addr, uint32_t addrlen) {
   __yo_io_init();
   
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
   
   future->header.ref_count = 1;
   future->state = 0;
@@ -1293,12 +1293,12 @@ static yo_io_future_t* __yo_async_sendto_start(int32_t sockfd, const void* buf, 
 }
 
 // Async recvfrom - receive data with source address (UDP)
-static yo_io_future_t* __yo_async_recvfrom_start(int32_t sockfd, void* buf, size_t len, int32_t flags,
+static __yo_io_future_t* __yo_async_recvfrom_start(int32_t sockfd, void* buf, size_t len, int32_t flags,
                                                   void* src_addr, uint32_t* addrlen) {
   __yo_io_init();
   
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
   
   future->header.ref_count = 1;
   future->state = 0;
@@ -1317,11 +1317,11 @@ static yo_io_future_t* __yo_async_recvfrom_start(int32_t sockfd, void* buf, size
 }
 
 // Async shutdown - shutdown socket
-static yo_io_future_t* __yo_async_shutdown_start(int32_t sockfd, int32_t how) {
+static __yo_io_future_t* __yo_async_shutdown_start(int32_t sockfd, int32_t how) {
   __yo_io_init();
   
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
   
   future->header.ref_count = 1;
   future->state = 0;
@@ -1339,12 +1339,12 @@ static yo_io_future_t* __yo_async_shutdown_start(int32_t sockfd, int32_t how) {
 }
 
 // Async setsockopt - set socket option
-static yo_io_future_t* __yo_async_setsockopt_start(int32_t sockfd, int32_t level, int32_t optname,
+static __yo_io_future_t* __yo_async_setsockopt_start(int32_t sockfd, int32_t level, int32_t optname,
                                                     const void* optval, uint32_t optlen) {
   __yo_io_init();
   
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
   
   future->header.ref_count = 1;
   future->state = 0;
@@ -1363,12 +1363,12 @@ static yo_io_future_t* __yo_async_setsockopt_start(int32_t sockfd, int32_t level
 }
 
 // Async getsockopt - get socket option
-static yo_io_future_t* __yo_async_getsockopt_start(int32_t sockfd, int32_t level, int32_t optname,
+static __yo_io_future_t* __yo_async_getsockopt_start(int32_t sockfd, int32_t level, int32_t optname,
                                                     void* optval, uint32_t* optlen) {
   __yo_io_init();
   
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
   
   future->header.ref_count = 1;
   future->state = 0;

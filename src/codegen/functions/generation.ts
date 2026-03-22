@@ -1156,7 +1156,7 @@ static _Thread_local int __yo_gc_collecting = 0;
 
 static void __yo_decr_rc(void* ptr) {
   if (ptr == NULL) return;
-  yo_ref_header_t* header = (yo_ref_header_t*)ptr;
+  __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
   
   // During GC collection, skip all tracked objects.
   // The GC handles their lifecycle via trial deletion — decrementing here
@@ -1191,7 +1191,7 @@ static void __yo_decr_rc(void* ptr) {
 
 static void* __yo_incr_rc(void* ptr) {
   if (ptr == NULL) return NULL;
-  yo_ref_header_t* header = (yo_ref_header_t*)ptr;
+  __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
   header->ref_count++;
   GC_DEBUG("Incr: ptr=%p RC=%zu\\n", ptr, header->ref_count);
   return ptr;
@@ -1202,14 +1202,14 @@ static void* __yo_incr_rc(void* ptr) {
 // Atomic reference counting functions for Iso types (thread-safe)
 static void* __yo_incr_rc_atomic(void* ptr) {
   if (ptr == NULL) return NULL;
-  yo_ref_header_t* header = (yo_ref_header_t*)ptr;
+  __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
   atomic_fetch_add(((_Atomic size_t*)&header->ref_count), 1);
   return ptr;
 }
 
 static void __yo_decr_rc_atomic(void* ptr) {
   if (ptr == NULL) return;
-  yo_ref_header_t* header = (yo_ref_header_t*)ptr;
+  __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
   size_t old_count = atomic_fetch_sub(((_Atomic size_t*)&header->ref_count), 1);
   
   if (old_count == 1) {
@@ -1232,8 +1232,8 @@ static void __yo_decr_rc_atomic(void* ptr) {
     `static _Thread_local _Alignas(16) char __yo_effect_escape_value[64];  // Thread-local buffer for escape value storage`
   );
   emitter.emitLine(`// Per-thread GC tracking state for cycle collection
-static _Thread_local yo_thread_gc_state_t* __yo_current_thread_gc = NULL;  // Current thread's GC state
-static yo_thread_gc_state_t* __yo_all_thread_gcs = NULL;  // Global list of all thread GC states (for cleanup)
+static _Thread_local __yo_thread_gc_state_t* __yo_current_thread_gc = NULL;  // Current thread's GC state
+static __yo_thread_gc_state_t* __yo_all_thread_gcs = NULL;  // Global list of all thread GC states (for cleanup)
 ${isTargetWindows(context.targetInfo) ? `static __YO_THREAD_SYNC_TYPE __yo_thread_list_mutex;` : `static __YO_THREAD_SYNC_TYPE __yo_thread_list_mutex = __YO_THREAD_SYNC_INIT;`}
 static size_t __yo_gc_min_threshold = 256;       // Minimum threshold for adaptive scaling
 static size_t __yo_gc_collect_threshold = 256;   // Adaptive: starts at min, grows to 2x live objects after each GC
@@ -1290,7 +1290,7 @@ ${
   
   __yo_init_process_cleanup();
 
-  __yo_current_thread_gc = (yo_thread_gc_state_t*)__yo_malloc(sizeof(yo_thread_gc_state_t));
+  __yo_current_thread_gc = (__yo_thread_gc_state_t*)__yo_malloc(sizeof(__yo_thread_gc_state_t));
   __yo_current_thread_gc->tracked_objects = NULL;
   __yo_current_thread_gc->tracked_count = 0;
   __yo_current_thread_gc->thread_id = __yo_thread_self();
@@ -1314,7 +1314,7 @@ static void __yo_gc_init_thread() {
 
   // Generate __yo_gc_register and __yo_gc_unregister functions
   emitter.emitLine(`static void __yo_gc_register(void* ptr) {
-  yo_ref_header_t* header = (yo_ref_header_t*)ptr;
+  __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
   
   if (__yo_current_thread_gc == NULL) {
     __yo_init_thread_gc();
@@ -1346,7 +1346,7 @@ static void __yo_gc_init_thread() {
 }
 
 static void __yo_gc_unregister(void* ptr) {
-  yo_ref_header_t* header = (yo_ref_header_t*)ptr;
+  __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
   
   if (__yo_current_thread_gc == NULL) {
     return;
@@ -1376,7 +1376,7 @@ static void __yo_gc_unregister(void* ptr) {
 // Phase 1: Trial deletion - decrement ref counts for internal references
 static void __yo_gc_trial_delete_visitor(void* ptr) {
   if (ptr == NULL) return;
-  yo_ref_header_t* header = (yo_ref_header_t*)ptr;
+  __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
   
   // Only process tracked objects
   if (!(header->gc_flags & __YO_GC_TRACKED)) return;
@@ -1394,7 +1394,7 @@ static void __yo_gc_trial_delete_visitor(void* ptr) {
 // have their children recursively scanned.
 static void __yo_gc_scan_restore_visitor(void* ptr) {
   if (ptr == NULL) return;
-  yo_ref_header_t* header = (yo_ref_header_t*)ptr;
+  __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
   
   // Skip non-tracked objects (their RC was never trial-deleted)
   if (!(header->gc_flags & __YO_GC_TRACKED)) return;
@@ -1417,7 +1417,7 @@ static void __yo_gc_scan_restore_visitor(void* ptr) {
 static void __yo_gc_collect() {
   if (__yo_current_thread_gc == NULL) return;
   
-  yo_ref_header_t* head = __yo_current_thread_gc->tracked_objects;
+  __yo_ref_header_t* head = __yo_current_thread_gc->tracked_objects;
   if (head == NULL) return;
   
   GC_DEBUG("GC: Starting collection, tracked_count=%zu\\n", __yo_current_thread_gc->tracked_count);
@@ -1426,7 +1426,7 @@ static void __yo_gc_collect() {
   size_t collected = 0;
   
   // Phase 1: Mark all as candidates and trial-delete
-  yo_ref_header_t* obj = head;
+  __yo_ref_header_t* obj = head;
   while (obj != NULL) {
     obj->gc_mark = __YO_GC_CANDIDATE;
     obj = obj->gc_next;
@@ -1486,11 +1486,11 @@ static void __yo_gc_collect() {
   }
   
   // Phase 4b: Free all garbage objects and remove from tracking list
-  yo_ref_header_t* current = head;
-  yo_ref_header_t* prev = NULL;
+  __yo_ref_header_t* current = head;
+  __yo_ref_header_t* prev = NULL;
   
   while (current != NULL) {
-    yo_ref_header_t* next = current->gc_next;
+    __yo_ref_header_t* next = current->gc_next;
     
     if (current->gc_mark == __YO_GC_GARBAGE) {
       GC_DEBUG("GC: Freeing garbage: ptr=%p\\n", current);
@@ -1542,7 +1542,7 @@ static size_t __yo_gc_tracked_count() {
 static void __yo_cleanup_thread_gc() {
   __yo_mutex_lock(&__yo_thread_list_mutex);
   
-  yo_thread_gc_state_t* my_gc_state = __yo_current_thread_gc;
+  __yo_thread_gc_state_t* my_gc_state = __yo_current_thread_gc;
   
   if (my_gc_state == NULL) {
     __yo_mutex_unlock(&__yo_thread_list_mutex);
@@ -1552,9 +1552,9 @@ static void __yo_cleanup_thread_gc() {
   GC_DEBUG("CleanupThread: tracked_count=%zu\\n", my_gc_state->tracked_count);
   
   // Force dispose all remaining tracked objects
-  yo_ref_header_t* current = my_gc_state->tracked_objects;
+  __yo_ref_header_t* current = my_gc_state->tracked_objects;
   while (current != NULL) {
-    yo_ref_header_t* next = current->gc_next;
+    __yo_ref_header_t* next = current->gc_next;
     
     GC_DEBUG("CleanupThread: Disposing object ptr=%p\\n", current);
     if (current->dispose_fn) {

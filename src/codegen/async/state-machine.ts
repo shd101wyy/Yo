@@ -479,12 +479,12 @@ export function getFutureFieldName(
 }
 
 /**
- * Check if a future type is an IO future (yo_io_future_t) rather than a state
+ * Check if a future type is an IO future (__yo_io_future_t) rather than a state
  * machine future (from io.async). IO futures have a Concrete(...) trait and are
  * already submitted to io_uring at creation — they don't have __yo_resume_fn
  * and should not be "cold-started".
  *
- * Detection: IO futures (from Impl(Concrete(yo_io_future_t), Future(i32)))
+ * Detection: IO futures (from Impl(Concrete(__yo_io_future_t), Future(i32)))
  * have their resolvedConcreteType set to an extern SomeType (the Concrete type).
  * State machine futures may also have resolvedConcreteType as a SomeType, but
  * it won't be extern.
@@ -492,7 +492,7 @@ export function getFutureFieldName(
 export function isIoFutureType(type: Type | undefined): boolean {
   if (!type || !isSomeType(type)) return false;
   // Check if the concrete type resolution came from a Concrete(...) trait
-  // pointing to an extern C type like yo_io_future_t. State machine futures
+  // pointing to an extern C type like __yo_io_future_t. State machine futures
   // also have resolvedConcreteType set (from return-type resolution), but
   // their resolved type is never an extern type.
   if (
@@ -1924,7 +1924,7 @@ export function generateAsyncBlockResumeFunction(
           analysis
         );
 
-        // Determine if the future is an IO future (yo_io_future_t) which is
+        // Determine if the future is an IO future (__yo_io_future_t) which is
         // already submitted to io_uring and doesn't have __yo_resume_fn.
         const awaitExprForTypeCheck = segment.awaitPoint.expr as {
           args?: Expr[];
@@ -1984,7 +1984,7 @@ export function generateAsyncBlockResumeFunction(
         emitter.emitLine(`      }`);
         emitter.emitLine(``);
         // Cold future: start it via stored resume function pointer
-        // IO futures (yo_io_future_t) are already submitted to io_uring and don't
+        // IO futures (__yo_io_future_t) are already submitted to io_uring and don't
         // have __yo_resume_fn — skip cold-start for them.
         if (!isIoFuture) {
           // SM futures need an extra ref because the SM future's own completion

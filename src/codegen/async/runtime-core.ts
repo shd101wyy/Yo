@@ -35,16 +35,16 @@ export function generateAsyncRuntimeCore(
 // - State machine is freed when refcount hits 0.
 
 // Continuation - represents a suspended async task waiting to be resumed
-typedef struct yo_continuation_t {
+typedef struct __yo_continuation_t {
   void (*resume_fn)(void* state_machine);  // Function to call to resume
   void* state_machine;                      // State machine to resume
-  struct yo_continuation_t* next;           // Next in linked list
-} yo_continuation_t;
+  struct __yo_continuation_t* next;           // Next in linked list
+} __yo_continuation_t;
 
 // Per-thread async task queue (thread-local for future spawn support)
 typedef struct {
-  yo_continuation_t* head;  // Head of continuation queue
-  yo_continuation_t* tail;  // Tail of continuation queue
+  __yo_continuation_t* head;  // Head of continuation queue
+  __yo_continuation_t* tail;  // Tail of continuation queue
   size_t count;             // Number of pending continuations
 } __yo_async_task_queue_t;
 
@@ -90,7 +90,7 @@ static void __yo_async_scheduler_init(void) {
 static void __yo_async_enqueue_continuation(void (*resume_fn)(void*), void* state_machine) {
   ASYNC_DEBUG("[ASYNC] Enqueueing continuation: resume_fn=%p, sm=%p\\n", (void*)resume_fn, state_machine);
   
-  yo_continuation_t* cont = (yo_continuation_t*)__yo_malloc(sizeof(yo_continuation_t));
+  __yo_continuation_t* cont = (__yo_continuation_t*)__yo_malloc(sizeof(__yo_continuation_t));
   cont->resume_fn = resume_fn;
   cont->state_machine = state_machine;
   cont->next = NULL;
@@ -121,7 +121,7 @@ static void __yo_async_spawn_task(void (*resume_fn)(void*), void* state_machine)
 // Process all ready tasks in the queue (non-blocking).
 static void __yo_async_run_ready_tasks(void) {
   while (__yo_thread_async_queue.head) {
-    yo_continuation_t* cont = __yo_thread_async_queue.head;
+    __yo_continuation_t* cont = __yo_thread_async_queue.head;
     __yo_thread_async_queue.head = cont->next;
     if (!__yo_thread_async_queue.head) {
       __yo_thread_async_queue.tail = NULL;
@@ -164,7 +164,7 @@ ${hasIO ? `  __yo_io_init();  // Initialize platform-specific async I/O` : ``}
   while (__future_state != -1 && __future_state != -2) {
     int tasks_run = 0;
     while (tasks_run < 100) {
-      yo_continuation_t* cont = __yo_thread_async_queue.head;
+      __yo_continuation_t* cont = __yo_thread_async_queue.head;
       if (!cont) break;
       
       __yo_thread_async_queue.head = cont->next;
@@ -236,7 +236,7 @@ ${hasIO ? `  __yo_io_init();  // Ensure async I/O is initialized` : ``}
   while (true) {
     bool tasks_processed = false;
     while (__yo_thread_async_queue.head) {
-      yo_continuation_t* cont = __yo_thread_async_queue.head;
+      __yo_continuation_t* cont = __yo_thread_async_queue.head;
       __yo_thread_async_queue.head = cont->next;
       if (!__yo_thread_async_queue.head) {
         __yo_thread_async_queue.tail = NULL;

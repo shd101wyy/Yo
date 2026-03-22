@@ -573,7 +573,7 @@ export function getTypeString(
       // For Impl(Future(...)), handle different cases:
       // 1. Impl(Concrete(extern_type), Future(T)) - use extern_type's C name
       // 2. Async blocks - use the registered SomeType's cName (state machine struct)
-      // 3. Fallback - use yo_io_future_t for unregistered extern futures
+      // 3. Fallback - use __yo_io_future_t for unregistered extern futures
       if (typeImplementsFuture(someType)) {
         // Check for Concrete(extern_type) - resolvedConcreteType will be an extern type
         if (someType.resolvedConcreteType?.isExtern) {

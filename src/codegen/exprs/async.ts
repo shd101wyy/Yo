@@ -383,9 +383,9 @@ function emitAsyncBlockStructDefinition(
   );
   emitter.emitDeclarationLine(`struct ${structName}_struct {`);
 
-  // Reference counting header - must be first for yo_ref_header_t* casting
+  // Reference counting header - must be first for __yo_ref_header_t* casting
   emitter.emitDeclarationLine(
-    `  yo_ref_header_t header;  // Reference counting header (must be first)`
+    `  __yo_ref_header_t header;  // Reference counting header (must be first)`
   );
 
   emitter.emitDeclarationLine(
@@ -1476,7 +1476,7 @@ export function generateIoAsyncSyncCall(
   // Emit struct definition — includes an embedded __capture field so the
   // capture data lives as long as the future (heap-allocated).
   emitter.emitDeclarationLine(`struct ${structName}_struct {`);
-  emitter.emitDeclarationLine(`  yo_ref_header_t header;`);
+  emitter.emitDeclarationLine(`  __yo_ref_header_t header;`);
   emitter.emitDeclarationLine(`  int state;`);
   if (isUnitType(resultType)) {
     emitter.emitDeclarationLine(`  uint8_t result;`);

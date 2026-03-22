@@ -156,7 +156,7 @@ typedef struct __yo_sockaddr_un {
 typedef struct {
   void* iov_base;
   size_t iov_len;
-} yo_iovec_t;
+} __yo_iovec_t;
 
 static bool __yo_is_at_fdcwd(int32_t dirfd) {
   return (dirfd == -100 || dirfd == -2);
@@ -294,7 +294,7 @@ typedef struct {
   int64_t btime_sec;
   uint32_t btime_nsec;
   uint64_t file_index;
-} yo_win_stat_t;
+} __yo_win_stat_t;
 
 static void __yo_win_filetime_to_timespec(FILETIME ft, int64_t* sec, uint32_t* nsec) {
   ULONGLONG t = ((ULONGLONG)ft.dwHighDateTime << 32) | ft.dwLowDateTime;
@@ -463,7 +463,7 @@ static int32_t __yo_sync_readv(int32_t fd, void* iov, int32_t iovcnt) {
   if (iovcnt < 0) return -EINVAL;
   if (iovcnt == 0) return 0;
 
-  yo_iovec_t* vec = (yo_iovec_t*)iov;
+  __yo_iovec_t* vec = (__yo_iovec_t*)iov;
 
   if (__yo_win_is_socket_fd(fd)) {
     WSABUF* bufs = (WSABUF*)__yo_malloc(sizeof(WSABUF) * (size_t)iovcnt);
@@ -556,7 +556,7 @@ static int32_t __yo_sync_writev(int32_t fd, void* iov, int32_t iovcnt) {
   if (iovcnt < 0) return -EINVAL;
   if (iovcnt == 0) return 0;
 
-  yo_iovec_t* vec = (yo_iovec_t*)iov;
+  __yo_iovec_t* vec = (__yo_iovec_t*)iov;
 
   if (__yo_win_is_socket_fd(fd)) {
     WSABUF* bufs = (WSABUF*)__yo_malloc(sizeof(WSABUF) * (size_t)iovcnt);
@@ -677,11 +677,11 @@ static int32_t __yo_sync_pwritev(int32_t fd, void* iov, int32_t iovcnt, int64_t 
 }
 
 static size_t __yo_iovec_size(void) {
-  return sizeof(yo_iovec_t);
+  return sizeof(__yo_iovec_t);
 }
 
 static void __yo_iovec_set(void* iov, size_t index, void* base, size_t len) {
-  yo_iovec_t* vec = (yo_iovec_t*)iov;
+  __yo_iovec_t* vec = (__yo_iovec_t*)iov;
   vec[index].iov_base = base;
   vec[index].iov_len = len;
 }
@@ -1196,63 +1196,63 @@ static int64_t __yo_file_size(int32_t fd) {
 // ============================================================================
 
 static size_t __yo_statx_buf_size(void) {
-  return sizeof(yo_win_stat_t);
+  return sizeof(__yo_win_stat_t);
 }
 
 static int64_t __yo_statx_size(void* statxbuf) {
-  return (int64_t)((yo_win_stat_t*)statxbuf)->stat.st_size;
+  return (int64_t)((__yo_win_stat_t*)statxbuf)->stat.st_size;
 }
 
 static uint32_t __yo_statx_mode(void* statxbuf) {
-  return (uint32_t)((yo_win_stat_t*)statxbuf)->stat.st_mode;
+  return (uint32_t)((__yo_win_stat_t*)statxbuf)->stat.st_mode;
 }
 
 static int64_t __yo_statx_mtime_sec(void* statxbuf) {
-  return (int64_t)((yo_win_stat_t*)statxbuf)->stat.st_mtime;
+  return (int64_t)((__yo_win_stat_t*)statxbuf)->stat.st_mtime;
 }
 
 static uint32_t __yo_statx_mtime_nsec(void* statxbuf) {
-  return ((yo_win_stat_t*)statxbuf)->mtime_nsec;
+  return ((__yo_win_stat_t*)statxbuf)->mtime_nsec;
 }
 
 static int64_t __yo_statx_atime_sec(void* statxbuf) {
-  return (int64_t)((yo_win_stat_t*)statxbuf)->stat.st_atime;
+  return (int64_t)((__yo_win_stat_t*)statxbuf)->stat.st_atime;
 }
 
 static uint32_t __yo_statx_atime_nsec(void* statxbuf) {
-  return ((yo_win_stat_t*)statxbuf)->atime_nsec;
+  return ((__yo_win_stat_t*)statxbuf)->atime_nsec;
 }
 
 static int64_t __yo_statx_ctime_sec(void* statxbuf) {
-  return (int64_t)((yo_win_stat_t*)statxbuf)->stat.st_ctime;
+  return (int64_t)((__yo_win_stat_t*)statxbuf)->stat.st_ctime;
 }
 
 static uint32_t __yo_statx_ctime_nsec(void* statxbuf) {
-  return ((yo_win_stat_t*)statxbuf)->ctime_nsec;
+  return ((__yo_win_stat_t*)statxbuf)->ctime_nsec;
 }
 
 static int64_t __yo_statx_btime_sec(void* statxbuf) {
-  return ((yo_win_stat_t*)statxbuf)->btime_sec;
+  return ((__yo_win_stat_t*)statxbuf)->btime_sec;
 }
 
 static uint32_t __yo_statx_btime_nsec(void* statxbuf) {
-  return ((yo_win_stat_t*)statxbuf)->btime_nsec;
+  return ((__yo_win_stat_t*)statxbuf)->btime_nsec;
 }
 
 static uint32_t __yo_statx_uid(void* statxbuf) {
-  return (uint32_t)((yo_win_stat_t*)statxbuf)->stat.st_uid;
+  return (uint32_t)((__yo_win_stat_t*)statxbuf)->stat.st_uid;
 }
 
 static uint32_t __yo_statx_gid(void* statxbuf) {
-  return (uint32_t)((yo_win_stat_t*)statxbuf)->stat.st_gid;
+  return (uint32_t)((__yo_win_stat_t*)statxbuf)->stat.st_gid;
 }
 
 static uint64_t __yo_statx_ino(void* statxbuf) {
-  return ((yo_win_stat_t*)statxbuf)->file_index;
+  return ((__yo_win_stat_t*)statxbuf)->file_index;
 }
 
 static uint64_t __yo_statx_dev_major(void* statxbuf) {
-  return (uint64_t)((yo_win_stat_t*)statxbuf)->stat.st_dev;
+  return (uint64_t)((__yo_win_stat_t*)statxbuf)->stat.st_dev;
 }
 
 static uint64_t __yo_statx_dev_minor(void* statxbuf) {
@@ -1261,7 +1261,7 @@ static uint64_t __yo_statx_dev_minor(void* statxbuf) {
 }
 
 static uint64_t __yo_statx_nlink(void* statxbuf) {
-  return (uint64_t)((yo_win_stat_t*)statxbuf)->stat.st_nlink;
+  return (uint64_t)((__yo_win_stat_t*)statxbuf)->stat.st_nlink;
 }
 
 static uint64_t __yo_statx_blksize(void* statxbuf) {
@@ -1648,7 +1648,7 @@ typedef struct {
   uint64_t bavail;
   uint64_t files;
   uint64_t ffree;
-} yo_win_statfs_t;
+} __yo_win_statfs_t;
 
 static int32_t __yo_sync_statfs(const char* path, void* statfsbuf) {
   wchar_t* wpath = __yo_win_utf8_to_wide(path);
@@ -1665,7 +1665,7 @@ static int32_t __yo_sync_statfs(const char* path, void* statfsbuf) {
   }
   __yo_free(wpath);
   uint64_t bsize = (uint64_t)sectors_per_cluster * (uint64_t)bytes_per_sector;
-  yo_win_statfs_t* fs = (yo_win_statfs_t*)statfsbuf;
+  __yo_win_statfs_t* fs = (__yo_win_statfs_t*)statfsbuf;
   fs->type = 0;
   fs->bsize = bsize;
   fs->blocks = bsize ? (total_bytes.QuadPart / bsize) : 0;
@@ -1676,14 +1676,14 @@ static int32_t __yo_sync_statfs(const char* path, void* statfsbuf) {
   return 0;
 }
 
-static size_t __yo_statfs_buf_size(void) { return sizeof(yo_win_statfs_t); }
-static uint64_t __yo_statfs_type(void* buf) { return ((yo_win_statfs_t*)buf)->type; }
-static uint64_t __yo_statfs_bsize(void* buf) { return ((yo_win_statfs_t*)buf)->bsize; }
-static uint64_t __yo_statfs_blocks(void* buf) { return ((yo_win_statfs_t*)buf)->blocks; }
-static uint64_t __yo_statfs_bfree(void* buf) { return ((yo_win_statfs_t*)buf)->bfree; }
-static uint64_t __yo_statfs_bavail(void* buf) { return ((yo_win_statfs_t*)buf)->bavail; }
-static uint64_t __yo_statfs_files(void* buf) { return ((yo_win_statfs_t*)buf)->files; }
-static uint64_t __yo_statfs_ffree(void* buf) { return ((yo_win_statfs_t*)buf)->ffree; }
+static size_t __yo_statfs_buf_size(void) { return sizeof(__yo_win_statfs_t); }
+static uint64_t __yo_statfs_type(void* buf) { return ((__yo_win_statfs_t*)buf)->type; }
+static uint64_t __yo_statfs_bsize(void* buf) { return ((__yo_win_statfs_t*)buf)->bsize; }
+static uint64_t __yo_statfs_blocks(void* buf) { return ((__yo_win_statfs_t*)buf)->blocks; }
+static uint64_t __yo_statfs_bfree(void* buf) { return ((__yo_win_statfs_t*)buf)->bfree; }
+static uint64_t __yo_statfs_bavail(void* buf) { return ((__yo_win_statfs_t*)buf)->bavail; }
+static uint64_t __yo_statfs_files(void* buf) { return ((__yo_win_statfs_t*)buf)->files; }
+static uint64_t __yo_statfs_ffree(void* buf) { return ((__yo_win_statfs_t*)buf)->ffree; }
 
 
 
@@ -1931,23 +1931,23 @@ static _Atomic size_t __yo_pending_io_count = 0;
 static HANDLE __yo_io_iocp = NULL;
 static CRITICAL_SECTION __yo_dir_state_mutex;
 
-typedef struct yo_win_timer_entry_t {
+typedef struct __yo_win_timer_entry_t {
   uint64_t due_ms;
-  yo_io_future_t* future;
-  struct yo_win_timer_entry_t* next;
-} yo_win_timer_entry_t;
+  __yo_io_future_t* future;
+  struct __yo_win_timer_entry_t* next;
+} __yo_win_timer_entry_t;
 
-static yo_win_timer_entry_t* __yo_win_timer_head = NULL;
+static __yo_win_timer_entry_t* __yo_win_timer_head = NULL;
 
 typedef struct {
   OVERLAPPED overlapped;
-  yo_io_future_t* future;
+  __yo_io_future_t* future;
   HANDLE handle;
   bool is_socket;
   SOCKET sock;
   WSABUF wsabuf;
   DWORD sock_flags;
-} yo_win_overlapped_t;
+} __yo_win_overlapped_t;
 
 
 static void __yo_io_init(void) {
@@ -1975,7 +1975,7 @@ static void __yo_io_cleanup(void) {
     __yo_io_iocp = NULL;
   }
   while (__yo_win_timer_head) {
-    yo_win_timer_entry_t* node = __yo_win_timer_head;
+    __yo_win_timer_entry_t* node = __yo_win_timer_head;
     __yo_win_timer_head = node->next;
     __yo_free(node);
   }
@@ -2000,7 +2000,7 @@ static inline bool __yo_has_pending_io(void) {
   return atomic_load(&__yo_pending_io_count) > 0 || __yo_active_watch_count > 0;
 }
 
-static void __yo_io_wake_continuation(yo_io_future_t* future) {
+static void __yo_io_wake_continuation(__yo_io_future_t* future) {
   atomic_store_explicit(&future->state, -1, memory_order_release);
 
   void (*cont_fn)(void*) = atomic_load_explicit(&future->continuation_fn, memory_order_acquire);
@@ -2017,10 +2017,10 @@ static uint64_t __yo_win_now_ms(void) {
   return (uint64_t)GetTickCount64();
 }
 
-static void __yo_win_timer_add(yo_io_future_t* future, uint64_t milliseconds) {
+static void __yo_win_timer_add(__yo_io_future_t* future, uint64_t milliseconds) {
   atomic_fetch_add(&__yo_pending_io_count, 1);
 
-  yo_win_timer_entry_t* node = (yo_win_timer_entry_t*)__yo_malloc(sizeof(yo_win_timer_entry_t));
+  __yo_win_timer_entry_t* node = (__yo_win_timer_entry_t*)__yo_malloc(sizeof(__yo_win_timer_entry_t));
   if (!node) {
     future->result = -ENOMEM;
     __yo_io_wake_continuation(future);
@@ -2038,7 +2038,7 @@ static void __yo_win_timer_add(yo_io_future_t* future, uint64_t milliseconds) {
     return;
   }
 
-  yo_win_timer_entry_t* cur = __yo_win_timer_head;
+  __yo_win_timer_entry_t* cur = __yo_win_timer_head;
   while (cur->next && cur->next->due_ms <= node->due_ms) {
     cur = cur->next;
   }
@@ -2049,7 +2049,7 @@ static void __yo_win_timer_add(yo_io_future_t* future, uint64_t milliseconds) {
 static int __yo_win_timer_process_due(uint64_t now_ms) {
   int fired = 0;
   while (__yo_win_timer_head && __yo_win_timer_head->due_ms <= now_ms) {
-    yo_win_timer_entry_t* node = __yo_win_timer_head;
+    __yo_win_timer_entry_t* node = __yo_win_timer_head;
     __yo_win_timer_head = node->next;
     node->future->result = (int32_t)sizeof(uint64_t);
     __yo_io_wake_continuation(node->future);
@@ -2067,7 +2067,7 @@ static DWORD __yo_win_timer_next_timeout(uint64_t now_ms) {
   return (DWORD)delta;
 }
 
-static void __yo_win_process_completion(yo_win_overlapped_t* ov, DWORD bytes) {
+static void __yo_win_process_completion(__yo_win_overlapped_t* ov, DWORD bytes) {
   if (!ov) return;
 
   if (ov->is_socket) {
@@ -2114,7 +2114,7 @@ static int __yo_io_poll(void) {
   int processed = 0;
   for (ULONG i = 0; i < count; i++) {
     if (!entries[i].lpOverlapped) continue;
-    __yo_win_process_completion((yo_win_overlapped_t*)entries[i].lpOverlapped,
+    __yo_win_process_completion((__yo_win_overlapped_t*)entries[i].lpOverlapped,
                                 entries[i].dwNumberOfBytesTransferred);
     processed++;
   }
@@ -2147,7 +2147,7 @@ static int __yo_io_wait(void) {
   }
   if (!ov) return __yo_poll_and_fs_event_tick();
 
-  __yo_win_process_completion((yo_win_overlapped_t*)ov, bytes);
+  __yo_win_process_completion((__yo_win_overlapped_t*)ov, bytes);
   return 1 + __yo_win_timer_process_due(__yo_win_now_ms()) + __yo_poll_and_fs_event_tick();
 }
 
@@ -2187,10 +2187,10 @@ static void __yo_win_fd_unmark_append(int fd) {
 // Forward declaration for dir state cleanup (defined later, used in close)
 static void __yo_win_cleanup_dir_state(int32_t fd);
 
-static yo_win_overlapped_t* __yo_win_alloc_overlapped(yo_io_future_t* future, HANDLE handle, uint64_t offset) {
-  yo_win_overlapped_t* ov = (yo_win_overlapped_t*)__yo_malloc(sizeof(yo_win_overlapped_t));
+static __yo_win_overlapped_t* __yo_win_alloc_overlapped(__yo_io_future_t* future, HANDLE handle, uint64_t offset) {
+  __yo_win_overlapped_t* ov = (__yo_win_overlapped_t*)__yo_malloc(sizeof(__yo_win_overlapped_t));
   if (!ov) return NULL;
-  memset(ov, 0, sizeof(yo_win_overlapped_t));
+  memset(ov, 0, sizeof(__yo_win_overlapped_t));
   ov->future = future;
   ov->handle = handle;
   ov->is_socket = false;
@@ -2216,11 +2216,11 @@ static DWORD __yo_win_creation_flags(int32_t flags) {
   return OPEN_EXISTING;
 }
 
-static yo_io_future_t* __yo_async_read_start(int32_t fd, void* buffer, uint32_t size, uint64_t offset) {
+static __yo_io_future_t* __yo_async_read_start(int32_t fd, void* buffer, uint32_t size, uint64_t offset) {
   __yo_io_init();
 
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
   future->header.ref_count = 1;
   atomic_init(&future->state, 0);
   future->result = 0;
@@ -2250,7 +2250,7 @@ static yo_io_future_t* __yo_async_read_start(int32_t fd, void* buffer, uint32_t 
 
   __yo_win_associate_handle(handle);
 
-  yo_win_overlapped_t* ov = __yo_win_alloc_overlapped(future, handle, offset);
+  __yo_win_overlapped_t* ov = __yo_win_alloc_overlapped(future, handle, offset);
   if (!ov) {
     future->result = -ENOMEM;
     atomic_store(&future->state, -1);
@@ -2282,11 +2282,11 @@ static yo_io_future_t* __yo_async_read_start(int32_t fd, void* buffer, uint32_t 
   return future;
 }
 
-static yo_io_future_t* __yo_async_write_start(int32_t fd, const void* buffer, uint32_t size, uint64_t offset) {
+static __yo_io_future_t* __yo_async_write_start(int32_t fd, const void* buffer, uint32_t size, uint64_t offset) {
   __yo_io_init();
 
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
   future->header.ref_count = 1;
   atomic_init(&future->state, 0);
   future->result = 0;
@@ -2325,7 +2325,7 @@ static yo_io_future_t* __yo_async_write_start(int32_t fd, const void* buffer, ui
 
   __yo_win_associate_handle(handle);
 
-  yo_win_overlapped_t* ov = __yo_win_alloc_overlapped(future, handle, offset);
+  __yo_win_overlapped_t* ov = __yo_win_alloc_overlapped(future, handle, offset);
   if (!ov) {
     future->result = -ENOMEM;
     atomic_store(&future->state, -1);
@@ -2353,11 +2353,11 @@ static yo_io_future_t* __yo_async_write_start(int32_t fd, const void* buffer, ui
   return future;
 }
 
-static yo_io_future_t* __yo_async_openat_start(int32_t dirfd, const char* path, int32_t flags, int32_t mode) {
+static __yo_io_future_t* __yo_async_openat_start(int32_t dirfd, const char* path, int32_t flags, int32_t mode) {
   __yo_io_init();
 
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
   future->header.ref_count = 1;
   atomic_init(&future->continuation_fn, NULL);
   atomic_init(&future->continuation_sm, NULL);
@@ -2429,14 +2429,14 @@ static yo_io_future_t* __yo_async_openat_start(int32_t dirfd, const char* path, 
   return future;
 }
 
-static yo_io_future_t* __yo_async_close_start(int32_t fd) {
+static __yo_io_future_t* __yo_async_close_start(int32_t fd) {
   __yo_io_init();
 
   __yo_win_fd_unmark_append(fd);
   __yo_win_cleanup_dir_state(fd);
 
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
   future->header.ref_count = 1;
   atomic_init(&future->continuation_fn, NULL);
   atomic_init(&future->continuation_sm, NULL);
@@ -2458,13 +2458,13 @@ static yo_io_future_t* __yo_async_close_start(int32_t fd) {
   return future;
 }
 
-// yo_win_stat_t and __yo_win_filetime_to_timespec are defined in the sync section above.
+// __yo_win_stat_t and __yo_win_filetime_to_timespec are defined in the sync section above.
 
-static yo_io_future_t* __yo_async_statx_start(int32_t dirfd, const char* path, int32_t flags, uint32_t mask, void* statxbuf) {
+static __yo_io_future_t* __yo_async_statx_start(int32_t dirfd, const char* path, int32_t flags, uint32_t mask, void* statxbuf) {
   __yo_io_init();
 
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
   future->header.ref_count = 1;
   atomic_init(&future->continuation_fn, NULL);
   atomic_init(&future->continuation_sm, NULL);
@@ -2478,8 +2478,8 @@ static yo_io_future_t* __yo_async_statx_start(int32_t dirfd, const char* path, i
       return future;
     }
     (void)mask;
-    yo_win_stat_t* ws = (yo_win_stat_t*)statxbuf;
-    memset(ws, 0, sizeof(yo_win_stat_t));
+    __yo_win_stat_t* ws = (__yo_win_stat_t*)statxbuf;
+    memset(ws, 0, sizeof(__yo_win_stat_t));
 
     // Check if we should not follow symlinks
     bool nofollow = (flags & AT_SYMLINK_NOFOLLOW) != 0;
@@ -2531,11 +2531,11 @@ static yo_io_future_t* __yo_async_statx_start(int32_t dirfd, const char* path, i
   return future;
 }
 
-static yo_io_future_t* __yo_async_mkdirat_start(int32_t dirfd, const char* path, int32_t mode) {
+static __yo_io_future_t* __yo_async_mkdirat_start(int32_t dirfd, const char* path, int32_t mode) {
   __yo_io_init();
 
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
   future->header.ref_count = 1;
   atomic_init(&future->continuation_fn, NULL);
   atomic_init(&future->continuation_sm, NULL);
@@ -2561,11 +2561,11 @@ static yo_io_future_t* __yo_async_mkdirat_start(int32_t dirfd, const char* path,
   return future;
 }
 
-static yo_io_future_t* __yo_async_unlinkat_start(int32_t dirfd, const char* path, int32_t flags) {
+static __yo_io_future_t* __yo_async_unlinkat_start(int32_t dirfd, const char* path, int32_t flags) {
   __yo_io_init();
 
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
   future->header.ref_count = 1;
   atomic_init(&future->continuation_fn, NULL);
   atomic_init(&future->continuation_sm, NULL);
@@ -2595,11 +2595,11 @@ static yo_io_future_t* __yo_async_unlinkat_start(int32_t dirfd, const char* path
   return future;
 }
 
-static yo_io_future_t* __yo_async_renameat_start(int32_t olddirfd, const char* oldpath, int32_t newdirfd, const char* newpath) {
+static __yo_io_future_t* __yo_async_renameat_start(int32_t olddirfd, const char* oldpath, int32_t newdirfd, const char* newpath) {
   __yo_io_init();
 
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
   future->header.ref_count = 1;
   atomic_init(&future->continuation_fn, NULL);
   atomic_init(&future->continuation_sm, NULL);
@@ -2628,11 +2628,11 @@ static yo_io_future_t* __yo_async_renameat_start(int32_t olddirfd, const char* o
   return future;
 }
 
-static yo_io_future_t* __yo_async_symlinkat_start(const char* target, int32_t newdirfd, const char* linkpath) {
+static __yo_io_future_t* __yo_async_symlinkat_start(const char* target, int32_t newdirfd, const char* linkpath) {
   __yo_io_init();
 
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
   future->header.ref_count = 1;
   atomic_init(&future->continuation_fn, NULL);
   atomic_init(&future->continuation_sm, NULL);
@@ -2667,11 +2667,11 @@ static yo_io_future_t* __yo_async_symlinkat_start(const char* target, int32_t ne
   return future;
 }
 
-static yo_io_future_t* __yo_async_linkat_start(int32_t olddirfd, const char* oldpath, int32_t newdirfd, const char* newpath, int32_t flags) {
+static __yo_io_future_t* __yo_async_linkat_start(int32_t olddirfd, const char* oldpath, int32_t newdirfd, const char* newpath, int32_t flags) {
   __yo_io_init();
 
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
   future->header.ref_count = 1;
   atomic_init(&future->continuation_fn, NULL);
   atomic_init(&future->continuation_sm, NULL);
@@ -2701,11 +2701,11 @@ static yo_io_future_t* __yo_async_linkat_start(int32_t olddirfd, const char* old
   return future;
 }
 
-static yo_io_future_t* __yo_async_fsync_start(int32_t fd) {
+static __yo_io_future_t* __yo_async_fsync_start(int32_t fd) {
   __yo_io_init();
 
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
   future->header.ref_count = 1;
   atomic_init(&future->continuation_fn, NULL);
   atomic_init(&future->continuation_sm, NULL);
@@ -2716,15 +2716,15 @@ static yo_io_future_t* __yo_async_fsync_start(int32_t fd) {
   return future;
 }
 
-static yo_io_future_t* __yo_async_fdatasync_start(int32_t fd) {
+static __yo_io_future_t* __yo_async_fdatasync_start(int32_t fd) {
   return __yo_async_fsync_start(fd);
 }
 
-static yo_io_future_t* __yo_async_ftruncate_start(int32_t fd, int64_t length) {
+static __yo_io_future_t* __yo_async_ftruncate_start(int32_t fd, int64_t length) {
   __yo_io_init();
 
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
   future->header.ref_count = 1;
   atomic_init(&future->continuation_fn, NULL);
   atomic_init(&future->continuation_sm, NULL);
@@ -2746,23 +2746,23 @@ typedef struct {
   uint8_t _pad;
   uint64_t d_ino;
   char d_name[1];
-} yo_win_dirent_t;
+} __yo_win_dirent_t;
 
-typedef struct yo_win_dir_state_t {
+typedef struct __yo_win_dir_state_t {
   int32_t fd;
   HANDLE find_handle;
   WIN32_FIND_DATAW find_data;
   bool has_data;
   int phase;
   wchar_t* pattern;
-  struct yo_win_dir_state_t* next;
-} yo_win_dir_state_t;
+  struct __yo_win_dir_state_t* next;
+} __yo_win_dir_state_t;
 
-static yo_win_dir_state_t* __yo_dir_state_head = NULL;
+static __yo_win_dir_state_t* __yo_dir_state_head = NULL;
 
-static yo_win_dir_state_t* __yo_win_get_dir_state(int32_t fd) {
+static __yo_win_dir_state_t* __yo_win_get_dir_state(int32_t fd) {
   EnterCriticalSection(&__yo_dir_state_mutex);
-  yo_win_dir_state_t* node = __yo_dir_state_head;
+  __yo_win_dir_state_t* node = __yo_dir_state_head;
   while (node) {
     if (node->fd == fd) {
       LeaveCriticalSection(&__yo_dir_state_mutex);
@@ -2771,8 +2771,8 @@ static yo_win_dir_state_t* __yo_win_get_dir_state(int32_t fd) {
     node = node->next;
   }
 
-  node = (yo_win_dir_state_t*)__yo_malloc(sizeof(yo_win_dir_state_t));
-  memset(node, 0, sizeof(yo_win_dir_state_t));
+  node = (__yo_win_dir_state_t*)__yo_malloc(sizeof(__yo_win_dir_state_t));
+  memset(node, 0, sizeof(__yo_win_dir_state_t));
   node->fd = fd;
   node->find_handle = INVALID_HANDLE_VALUE;
   node->has_data = false;
@@ -2786,10 +2786,10 @@ static yo_win_dir_state_t* __yo_win_get_dir_state(int32_t fd) {
 
 static void __yo_win_cleanup_dir_state(int32_t fd) {
   EnterCriticalSection(&__yo_dir_state_mutex);
-  yo_win_dir_state_t** pp = &__yo_dir_state_head;
+  __yo_win_dir_state_t** pp = &__yo_dir_state_head;
   while (*pp) {
     if ((*pp)->fd == fd) {
-      yo_win_dir_state_t* node = *pp;
+      __yo_win_dir_state_t* node = *pp;
       *pp = node->next;
       if (node->find_handle != INVALID_HANDLE_VALUE) {
         FindClose(node->find_handle);
@@ -2808,12 +2808,12 @@ static void __yo_win_cleanup_dir_state(int32_t fd) {
 
 static size_t __yo_win_dirent_write(char* buf, size_t buf_size, const char* name, uint8_t dtype) {
   size_t name_len = strlen(name);
-  size_t base = offsetof(yo_win_dirent_t, d_name);
+  size_t base = offsetof(__yo_win_dirent_t, d_name);
   size_t reclen = base + name_len + 1;
   size_t aligned = (reclen + 7) & ~((size_t)7);
   if (aligned > buf_size) return 0;
 
-  yo_win_dirent_t* ent = (yo_win_dirent_t*)buf;
+  __yo_win_dirent_t* ent = (__yo_win_dirent_t*)buf;
   ent->d_reclen = (uint16_t)aligned;
   ent->d_type = dtype;
   ent->d_ino = 0;
@@ -2821,11 +2821,11 @@ static size_t __yo_win_dirent_write(char* buf, size_t buf_size, const char* name
   return aligned;
 }
 
-static yo_io_future_t* __yo_async_getdents_start(int32_t fd, void* buf, uint32_t buf_size) {
+static __yo_io_future_t* __yo_async_getdents_start(int32_t fd, void* buf, uint32_t buf_size) {
   __yo_io_init();
 
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
   future->header.ref_count = 1;
   atomic_init(&future->continuation_fn, NULL);
   atomic_init(&future->continuation_sm, NULL);
@@ -2836,7 +2836,7 @@ static yo_io_future_t* __yo_async_getdents_start(int32_t fd, void* buf, uint32_t
     return future;
   }
 
-  yo_win_dir_state_t* state = __yo_win_get_dir_state(fd);
+  __yo_win_dir_state_t* state = __yo_win_get_dir_state(fd);
   if (state->find_handle == INVALID_HANDLE_VALUE && !state->pattern) {
     HANDLE handle = (HANDLE)_get_osfhandle(fd);
     if (handle == INVALID_HANDLE_VALUE) {
@@ -2912,23 +2912,23 @@ static yo_io_future_t* __yo_async_getdents_start(int32_t fd, void* buf, uint32_t
 }
 
 static size_t __yo_dirent_size(void) {
-  return sizeof(yo_win_dirent_t);
+  return sizeof(__yo_win_dirent_t);
 }
 
 static uint16_t __yo_dirent_reclen(void* entry) {
-  return ((yo_win_dirent_t*)entry)->d_reclen;
+  return ((__yo_win_dirent_t*)entry)->d_reclen;
 }
 
 static uint8_t __yo_dirent_type(void* entry) {
-  return ((yo_win_dirent_t*)entry)->d_type;
+  return ((__yo_win_dirent_t*)entry)->d_type;
 }
 
 static const char* __yo_dirent_name(void* entry) {
-  return ((yo_win_dirent_t*)entry)->d_name;
+  return ((__yo_win_dirent_t*)entry)->d_name;
 }
 
 static uint64_t __yo_dirent_ino(void* entry) {
-  return ((yo_win_dirent_t*)entry)->d_ino;
+  return ((__yo_win_dirent_t*)entry)->d_ino;
 }
 
 
@@ -2936,11 +2936,11 @@ static uint64_t __yo_dirent_ino(void* entry) {
 // Socket Operations (Windows)
 // ============================================================================
 
-static yo_io_future_t* __yo_async_socket_start(int32_t domain, int32_t type, int32_t protocol) {
+static __yo_io_future_t* __yo_async_socket_start(int32_t domain, int32_t type, int32_t protocol) {
   __yo_io_init();
 
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
   future->header.ref_count = 1;
   atomic_init(&future->continuation_fn, NULL);
   atomic_init(&future->continuation_sm, NULL);
@@ -2958,11 +2958,11 @@ static yo_io_future_t* __yo_async_socket_start(int32_t domain, int32_t type, int
   return future;
 }
 
-static yo_io_future_t* __yo_async_bind_start(int32_t sockfd, const void* addr, uint32_t addrlen) {
+static __yo_io_future_t* __yo_async_bind_start(int32_t sockfd, const void* addr, uint32_t addrlen) {
   __yo_io_init();
 
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
   future->header.ref_count = 1;
   atomic_init(&future->continuation_fn, NULL);
   atomic_init(&future->continuation_sm, NULL);
@@ -2973,11 +2973,11 @@ static yo_io_future_t* __yo_async_bind_start(int32_t sockfd, const void* addr, u
   return future;
 }
 
-static yo_io_future_t* __yo_async_listen_start(int32_t sockfd, int32_t backlog) {
+static __yo_io_future_t* __yo_async_listen_start(int32_t sockfd, int32_t backlog) {
   __yo_io_init();
 
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
   future->header.ref_count = 1;
   atomic_init(&future->continuation_fn, NULL);
   atomic_init(&future->continuation_sm, NULL);
@@ -2988,11 +2988,11 @@ static yo_io_future_t* __yo_async_listen_start(int32_t sockfd, int32_t backlog) 
   return future;
 }
 
-static yo_io_future_t* __yo_async_accept_start(int32_t sockfd, void* addr, uint32_t* addrlen) {
+static __yo_io_future_t* __yo_async_accept_start(int32_t sockfd, void* addr, uint32_t* addrlen) {
   __yo_io_init();
 
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
   future->header.ref_count = 1;
   atomic_init(&future->continuation_fn, NULL);
   atomic_init(&future->continuation_sm, NULL);
@@ -3012,11 +3012,11 @@ static yo_io_future_t* __yo_async_accept_start(int32_t sockfd, void* addr, uint3
   return future;
 }
 
-static yo_io_future_t* __yo_async_connect_start(int32_t sockfd, const void* addr, uint32_t addrlen) {
+static __yo_io_future_t* __yo_async_connect_start(int32_t sockfd, const void* addr, uint32_t addrlen) {
   __yo_io_init();
 
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
   future->header.ref_count = 1;
   atomic_init(&future->continuation_fn, NULL);
   atomic_init(&future->continuation_sm, NULL);
@@ -3027,11 +3027,11 @@ static yo_io_future_t* __yo_async_connect_start(int32_t sockfd, const void* addr
   return future;
 }
 
-static yo_io_future_t* __yo_async_send_start(int32_t sockfd, const void* buf, size_t len, int32_t flags) {
+static __yo_io_future_t* __yo_async_send_start(int32_t sockfd, const void* buf, size_t len, int32_t flags) {
   __yo_io_init();
 
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
   future->header.ref_count = 1;
   atomic_init(&future->continuation_fn, NULL);
   atomic_init(&future->continuation_sm, NULL);
@@ -3044,8 +3044,8 @@ static yo_io_future_t* __yo_async_send_start(int32_t sockfd, const void* buf, si
 
   SOCKET s = (SOCKET)(uintptr_t)sockfd;
   __yo_win_associate_handle((HANDLE)s);
-  yo_win_overlapped_t* ov = (yo_win_overlapped_t*)__yo_malloc(sizeof(yo_win_overlapped_t));
-  memset(ov, 0, sizeof(yo_win_overlapped_t));
+  __yo_win_overlapped_t* ov = (__yo_win_overlapped_t*)__yo_malloc(sizeof(__yo_win_overlapped_t));
+  memset(ov, 0, sizeof(__yo_win_overlapped_t));
   ov->future = future;
   ov->is_socket = true;
   ov->sock = s;
@@ -3075,11 +3075,11 @@ static yo_io_future_t* __yo_async_send_start(int32_t sockfd, const void* buf, si
   return future;
 }
 
-static yo_io_future_t* __yo_async_recv_start(int32_t sockfd, void* buf, size_t len, int32_t flags) {
+static __yo_io_future_t* __yo_async_recv_start(int32_t sockfd, void* buf, size_t len, int32_t flags) {
   __yo_io_init();
 
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
   future->header.ref_count = 1;
   atomic_init(&future->continuation_fn, NULL);
   atomic_init(&future->continuation_sm, NULL);
@@ -3092,8 +3092,8 @@ static yo_io_future_t* __yo_async_recv_start(int32_t sockfd, void* buf, size_t l
 
   SOCKET s = (SOCKET)(uintptr_t)sockfd;
   __yo_win_associate_handle((HANDLE)s);
-  yo_win_overlapped_t* ov = (yo_win_overlapped_t*)__yo_malloc(sizeof(yo_win_overlapped_t));
-  memset(ov, 0, sizeof(yo_win_overlapped_t));
+  __yo_win_overlapped_t* ov = (__yo_win_overlapped_t*)__yo_malloc(sizeof(__yo_win_overlapped_t));
+  memset(ov, 0, sizeof(__yo_win_overlapped_t));
   ov->future = future;
   ov->is_socket = true;
   ov->sock = s;
@@ -3124,12 +3124,12 @@ static yo_io_future_t* __yo_async_recv_start(int32_t sockfd, void* buf, size_t l
   return future;
 }
 
-static yo_io_future_t* __yo_async_sendto_start(int32_t sockfd, const void* buf, size_t len, int32_t flags,
+static __yo_io_future_t* __yo_async_sendto_start(int32_t sockfd, const void* buf, size_t len, int32_t flags,
                                                 const void* dest_addr, uint32_t addrlen) {
   __yo_io_init();
 
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
   future->header.ref_count = 1;
   atomic_init(&future->continuation_fn, NULL);
   atomic_init(&future->continuation_sm, NULL);
@@ -3145,12 +3145,12 @@ static yo_io_future_t* __yo_async_sendto_start(int32_t sockfd, const void* buf, 
   return future;
 }
 
-static yo_io_future_t* __yo_async_recvfrom_start(int32_t sockfd, void* buf, size_t len, int32_t flags,
+static __yo_io_future_t* __yo_async_recvfrom_start(int32_t sockfd, void* buf, size_t len, int32_t flags,
                                                   void* src_addr, uint32_t* addrlen) {
   __yo_io_init();
 
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
   future->header.ref_count = 1;
   atomic_init(&future->continuation_fn, NULL);
   atomic_init(&future->continuation_sm, NULL);
@@ -3172,11 +3172,11 @@ static yo_io_future_t* __yo_async_recvfrom_start(int32_t sockfd, void* buf, size
   return future;
 }
 
-static yo_io_future_t* __yo_async_shutdown_start(int32_t sockfd, int32_t how) {
+static __yo_io_future_t* __yo_async_shutdown_start(int32_t sockfd, int32_t how) {
   __yo_io_init();
 
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
   future->header.ref_count = 1;
   atomic_init(&future->continuation_fn, NULL);
   atomic_init(&future->continuation_sm, NULL);
@@ -3187,11 +3187,11 @@ static yo_io_future_t* __yo_async_shutdown_start(int32_t sockfd, int32_t how) {
   return future;
 }
 
-static yo_io_future_t* __yo_async_setsockopt_start(int32_t sockfd, int32_t level, int32_t optname, const void* optval, uint32_t optlen) {
+static __yo_io_future_t* __yo_async_setsockopt_start(int32_t sockfd, int32_t level, int32_t optname, const void* optval, uint32_t optlen) {
   __yo_io_init();
 
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
   future->header.ref_count = 1;
   atomic_init(&future->continuation_fn, NULL);
   atomic_init(&future->continuation_sm, NULL);
@@ -3202,11 +3202,11 @@ static yo_io_future_t* __yo_async_setsockopt_start(int32_t sockfd, int32_t level
   return future;
 }
 
-static yo_io_future_t* __yo_async_getsockopt_start(int32_t sockfd, int32_t level, int32_t optname, void* optval, uint32_t* optlen) {
+static __yo_io_future_t* __yo_async_getsockopt_start(int32_t sockfd, int32_t level, int32_t optname, void* optval, uint32_t* optlen) {
   __yo_io_init();
 
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
   future->header.ref_count = 1;
   atomic_init(&future->continuation_fn, NULL);
   atomic_init(&future->continuation_sm, NULL);
@@ -3228,19 +3228,19 @@ static yo_io_future_t* __yo_async_getsockopt_start(int32_t sockfd, int32_t level
 // Directory Scanning (Windows - FindFirstFileW/FindNextFileW)
 // ============================================================================
 
-typedef struct yo_win_opendir_state_s {
+typedef struct __yo_win_opendir_state_s {
   HANDLE find_handle;
   WIN32_FIND_DATAW find_data;
   bool has_data;
   wchar_t* pattern;
-  struct yo_win_opendir_state_s* next;
-} yo_win_opendir_state_t;
+  struct __yo_win_opendir_state_s* next;
+} __yo_win_opendir_state_t;
 
-static yo_io_future_t* __yo_async_scandir_start(int32_t dirfd, const char* path) {
+static __yo_io_future_t* __yo_async_scandir_start(int32_t dirfd, const char* path) {
   __yo_io_init();
 
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
   future->header.ref_count = 1;
   atomic_init(&future->continuation_fn, NULL);
   atomic_init(&future->continuation_sm, NULL);
@@ -3278,11 +3278,11 @@ static yo_io_future_t* __yo_async_scandir_start(int32_t dirfd, const char* path)
   return future;
 }
 
-static yo_io_future_t* __yo_async_opendir_start(const char* path) {
+static __yo_io_future_t* __yo_async_opendir_start(const char* path) {
   __yo_io_init();
 
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
   future->header.ref_count = 1;
   atomic_init(&future->continuation_fn, NULL);
   atomic_init(&future->continuation_sm, NULL);
@@ -3307,8 +3307,8 @@ static yo_io_future_t* __yo_async_opendir_start(const char* path) {
   }
   __yo_free(wpath);
 
-  yo_win_opendir_state_t* state = (yo_win_opendir_state_t*)__yo_malloc(sizeof(yo_win_opendir_state_t));
-  memset(state, 0, sizeof(yo_win_opendir_state_t));
+  __yo_win_opendir_state_t* state = (__yo_win_opendir_state_t*)__yo_malloc(sizeof(__yo_win_opendir_state_t));
+  memset(state, 0, sizeof(__yo_win_opendir_state_t));
   state->pattern = pattern;
   state->find_handle = FindFirstFileW(state->pattern, &state->find_data);
   if (state->find_handle == INVALID_HANDLE_VALUE) {
@@ -3330,11 +3330,11 @@ static yo_io_future_t* __yo_async_opendir_start(const char* path) {
   return future;
 }
 
-static yo_io_future_t* __yo_async_readdir_start(void* dir, void* entries, size_t max_entries) {
+static __yo_io_future_t* __yo_async_readdir_start(void* dir, void* entries, size_t max_entries) {
   __yo_io_init();
 
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
   future->header.ref_count = 1;
   atomic_init(&future->continuation_fn, NULL);
   atomic_init(&future->continuation_sm, NULL);
@@ -3342,7 +3342,7 @@ static yo_io_future_t* __yo_async_readdir_start(void* dir, void* entries, size_t
   (void)entries;
   (void)max_entries;
 
-  yo_win_opendir_state_t* state = (yo_win_opendir_state_t*)dir;
+  __yo_win_opendir_state_t* state = (__yo_win_opendir_state_t*)dir;
   if (!state || state->find_handle == INVALID_HANDLE_VALUE) {
     future->result = 0;
     atomic_init(&future->state, -1);
@@ -3363,16 +3363,16 @@ static yo_io_future_t* __yo_async_readdir_start(void* dir, void* entries, size_t
   return future;
 }
 
-static yo_io_future_t* __yo_async_closedir_start(void* dir) {
+static __yo_io_future_t* __yo_async_closedir_start(void* dir) {
   __yo_io_init();
 
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
   future->header.ref_count = 1;
   atomic_init(&future->continuation_fn, NULL);
   atomic_init(&future->continuation_sm, NULL);
 
-  yo_win_opendir_state_t* state = (yo_win_opendir_state_t*)dir;
+  __yo_win_opendir_state_t* state = (__yo_win_opendir_state_t*)dir;
   if (state) {
     if (state->find_handle != INVALID_HANDLE_VALUE) {
       FindClose(state->find_handle);
@@ -3393,11 +3393,11 @@ static yo_io_future_t* __yo_async_closedir_start(void* dir) {
 // DNS Operations (Windows)
 // ============================================================================
 
-static yo_io_future_t* __yo_async_getaddrinfo_start(const uint8_t* node, const uint8_t* service,
+static __yo_io_future_t* __yo_async_getaddrinfo_start(const uint8_t* node, const uint8_t* service,
                                                      const uint8_t* hints, uint8_t** result) {
   __yo_io_init();
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
 
   future->header.ref_count = 1;
   atomic_init(&future->continuation_fn, NULL);
@@ -3417,12 +3417,12 @@ static yo_io_future_t* __yo_async_getaddrinfo_start(const uint8_t* node, const u
   return future;
 }
 
-static yo_io_future_t* __yo_async_getnameinfo_start(const uint8_t* addr, uint32_t addrlen,
+static __yo_io_future_t* __yo_async_getnameinfo_start(const uint8_t* addr, uint32_t addrlen,
                                                      uint8_t* host, size_t hostlen,
                                                      uint8_t* service, size_t servlen, int32_t flags) {
   __yo_io_init();
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
 
   future->header.ref_count = 1;
   atomic_init(&future->continuation_fn, NULL);
@@ -3455,16 +3455,16 @@ static uint8_t* __yo_addrinfo_next(uint8_t* ai) { return (uint8_t*)((struct addr
 // Process Operations (Windows)
 // ============================================================================
 
-typedef struct yo_process_handle_entry {
+typedef struct __yo_process_handle_entry {
   int32_t pid;
   HANDLE handle;
-  struct yo_process_handle_entry* next;
-} yo_process_handle_entry;
+  struct __yo_process_handle_entry* next;
+} __yo_process_handle_entry;
 
-static yo_process_handle_entry* __yo_process_handles = NULL;
+static __yo_process_handle_entry* __yo_process_handles = NULL;
 
 static void __yo_process_add_handle(int32_t pid, HANDLE handle) {
-  yo_process_handle_entry* entry = (yo_process_handle_entry*)__yo_malloc(sizeof(yo_process_handle_entry));
+  __yo_process_handle_entry* entry = (__yo_process_handle_entry*)__yo_malloc(sizeof(__yo_process_handle_entry));
   entry->pid = pid;
   entry->handle = handle;
   entry->next = __yo_process_handles;
@@ -3472,7 +3472,7 @@ static void __yo_process_add_handle(int32_t pid, HANDLE handle) {
 }
 
 static HANDLE __yo_process_get_handle(int32_t pid) {
-  yo_process_handle_entry* cur = __yo_process_handles;
+  __yo_process_handle_entry* cur = __yo_process_handles;
   while (cur) {
     if (cur->pid == pid) return cur->handle;
     cur = cur->next;
@@ -3481,8 +3481,8 @@ static HANDLE __yo_process_get_handle(int32_t pid) {
 }
 
 static void __yo_process_remove_handle(int32_t pid) {
-  yo_process_handle_entry* prev = NULL;
-  yo_process_handle_entry* cur = __yo_process_handles;
+  __yo_process_handle_entry* prev = NULL;
+  __yo_process_handle_entry* cur = __yo_process_handles;
   while (cur) {
     if (cur->pid == pid) {
       if (prev) {
@@ -3611,10 +3611,10 @@ static HANDLE __yo_win_dup_inheritable_handle(HANDLE handle) {
   return dup;
 }
 
-static yo_io_future_t* __yo_async_spawn_start(const uint8_t* file, uint8_t** argv, uint8_t** envp,
+static __yo_io_future_t* __yo_async_spawn_start(const uint8_t* file, uint8_t** argv, uint8_t** envp,
                                               int32_t stdin_fd, int32_t stdout_fd, int32_t stderr_fd) {
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
 
   future->header.ref_count = 1;
   atomic_init(&future->continuation_fn, NULL);
@@ -3715,9 +3715,9 @@ static yo_io_future_t* __yo_async_spawn_start(const uint8_t* file, uint8_t** arg
   return future;
 }
 
-static yo_io_future_t* __yo_async_waitpid_start(int32_t pid, int32_t options) {
-  yo_io_future_t* future = (yo_io_future_t*)__yo_malloc(sizeof(yo_io_future_t));
-  memset(future, 0, sizeof(yo_io_future_t));
+static __yo_io_future_t* __yo_async_waitpid_start(int32_t pid, int32_t options) {
+  __yo_io_future_t* future = (__yo_io_future_t*)__yo_malloc(sizeof(__yo_io_future_t));
+  memset(future, 0, sizeof(__yo_io_future_t));
 
   future->header.ref_count = 1;
   atomic_init(&future->continuation_fn, NULL);
@@ -3771,7 +3771,7 @@ static int32_t __yo_process_term_signal(int32_t status) {
 // FS Events (Windows - ReadDirectoryChangesW / FindFirstChangeNotification)
 // ============================================================================
 
-typedef struct yo_fs_event_s {
+typedef struct __yo_fs_event_s {
   HANDLE dir_handle;
   HANDLE change_handle;
   void (*callback)(const char*, int, void*);
@@ -3782,21 +3782,21 @@ typedef struct yo_fs_event_s {
   OVERLAPPED overlapped;
   char notify_buf[4096];
   int use_rdcw;
-  struct yo_fs_event_s* next;
-} yo_fs_event_t;
+  struct __yo_fs_event_s* next;
+} __yo_fs_event_t;
 
-static yo_fs_event_t* __yo_active_fs_events = NULL;
+static __yo_fs_event_t* __yo_active_fs_events = NULL;
 
 static void* __yo_fs_event_init(void) {
-  yo_fs_event_t* handle = (yo_fs_event_t*)__yo_malloc(sizeof(yo_fs_event_t));
-  memset(handle, 0, sizeof(yo_fs_event_t));
+  __yo_fs_event_t* handle = (__yo_fs_event_t*)__yo_malloc(sizeof(__yo_fs_event_t));
+  memset(handle, 0, sizeof(__yo_fs_event_t));
   handle->dir_handle = INVALID_HANDLE_VALUE;
   handle->change_handle = INVALID_HANDLE_VALUE;
   return handle;
 }
 
 static int32_t __yo_fs_event_start(void* h, const char* path, uint32_t flags, void* callback, void* user_data) {
-  yo_fs_event_t* handle = (yo_fs_event_t*)h;
+  __yo_fs_event_t* handle = (__yo_fs_event_t*)h;
   if (!handle || !path || !callback) return -EINVAL;
 
   handle->path = (char*)__yo_malloc(strlen(path) + 1);
@@ -3898,7 +3898,7 @@ static int32_t __yo_fs_event_start(void* h, const char* path, uint32_t flags, vo
 }
 
 static int32_t __yo_fs_event_stop(void* h) {
-  yo_fs_event_t* handle = (yo_fs_event_t*)h;
+  __yo_fs_event_t* handle = (__yo_fs_event_t*)h;
   if (!handle) return -EINVAL;
   if (!handle->active) return 0;
 
@@ -3927,7 +3927,7 @@ static int32_t __yo_fs_event_stop(void* h) {
     handle->path = NULL;
   }
 
-  yo_fs_event_t** pp = &__yo_active_fs_events;
+  __yo_fs_event_t** pp = &__yo_active_fs_events;
   while (*pp) {
     if (*pp == handle) {
       *pp = handle->next;
@@ -3940,7 +3940,7 @@ static int32_t __yo_fs_event_stop(void* h) {
 }
 
 static void __yo_fs_event_close(void* h) {
-  yo_fs_event_t* handle = (yo_fs_event_t*)h;
+  __yo_fs_event_t* handle = (__yo_fs_event_t*)h;
   if (!handle) return;
   if (handle->active) __yo_fs_event_stop(h);
   __yo_free(handle);
@@ -3950,26 +3950,26 @@ static void __yo_fs_event_close(void* h) {
 // Poll Operations (Windows - WaitForSingleObject / PeekNamedPipe / select)
 // ============================================================================
 
-typedef struct yo_poll_s {
+typedef struct __yo_poll_s {
   int fd;
   int events;
   void (*callback)(int, int, void*);
   void* user_data;
   int active;
-  struct yo_poll_s* next;
-} yo_poll_t;
+  struct __yo_poll_s* next;
+} __yo_poll_t;
 
-static yo_poll_t* __yo_active_polls = NULL;
+static __yo_poll_t* __yo_active_polls = NULL;
 
 static void* __yo_poll_init(int32_t fd) {
-  yo_poll_t* handle = (yo_poll_t*)__yo_malloc(sizeof(yo_poll_t));
-  memset(handle, 0, sizeof(yo_poll_t));
+  __yo_poll_t* handle = (__yo_poll_t*)__yo_malloc(sizeof(__yo_poll_t));
+  memset(handle, 0, sizeof(__yo_poll_t));
   handle->fd = fd;
   return handle;
 }
 
 static int32_t __yo_poll_start(void* h, int32_t events, void* callback, void* user_data) {
-  yo_poll_t* handle = (yo_poll_t*)h;
+  __yo_poll_t* handle = (__yo_poll_t*)h;
   if (!handle || !callback) return -EINVAL;
 
   handle->events = events;
@@ -3984,14 +3984,14 @@ static int32_t __yo_poll_start(void* h, int32_t events, void* callback, void* us
 }
 
 static int32_t __yo_poll_stop(void* h) {
-  yo_poll_t* handle = (yo_poll_t*)h;
+  __yo_poll_t* handle = (__yo_poll_t*)h;
   if (!handle) return -EINVAL;
   if (!handle->active) return 0;
 
   handle->active = 0;
   __yo_active_watch_count--;
 
-  yo_poll_t** pp = &__yo_active_polls;
+  __yo_poll_t** pp = &__yo_active_polls;
   while (*pp) {
     if (*pp == handle) {
       *pp = handle->next;
@@ -4004,7 +4004,7 @@ static int32_t __yo_poll_stop(void* h) {
 }
 
 static void __yo_poll_close(void* h) {
-  yo_poll_t* handle = (yo_poll_t*)h;
+  __yo_poll_t* handle = (__yo_poll_t*)h;
   if (!handle) return;
   if (handle->active) __yo_poll_stop(h);
   __yo_free(handle);
@@ -4020,9 +4020,9 @@ static int __yo_poll_and_fs_event_tick(void) {
 
   // --- Tick FS event handles ---
   {
-    yo_fs_event_t* fse = __yo_active_fs_events;
+    __yo_fs_event_t* fse = __yo_active_fs_events;
     while (fse) {
-      yo_fs_event_t* next = fse->next;
+      __yo_fs_event_t* next = fse->next;
       if (fse->active) {
         if (fse->use_rdcw && fse->dir_handle != INVALID_HANDLE_VALUE) {
           DWORD bytes_returned = 0;
@@ -4088,9 +4088,9 @@ static int __yo_poll_and_fs_event_tick(void) {
 
   // --- Tick poll handles ---
   {
-    yo_poll_t* ph = __yo_active_polls;
+    __yo_poll_t* ph = __yo_active_polls;
     while (ph) {
-      yo_poll_t* next = ph->next;
+      __yo_poll_t* next = ph->next;
       if (ph->active) {
         HANDLE handle = (HANDLE)_get_osfhandle(ph->fd);
         int yo_events = 0;

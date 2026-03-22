@@ -140,7 +140,7 @@ typedef enum {
   YO_FUTURE_RUNNING = 0,    // Task is in progress (queued or executing)
   YO_FUTURE_COMPLETED = 1,  // Task completed successfully
   YO_FUTURE_ERROR = 2       // Task failed with error
-} yo_future_state_t;
+} __yo_future_state_t;
 `);
 
     // Second pass: Generate type declarations

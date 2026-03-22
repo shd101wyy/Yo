@@ -334,7 +334,7 @@ export function generateState(
  *
  * The JoinHandle struct wraps a void* pointer to the spawned future's state machine.
  * All generated futures share a common initial layout:
- *   yo_ref_header_t header;
+ *   __yo_ref_header_t header;
  *   int state;
  *   ResultType result;
  *   void (*continuation_fn)(void*);
@@ -407,7 +407,7 @@ export function generateJoinHandleAwait(
   emitter.emitLine(`${indent}  void* ${futVar} = ${handleCode}.__future;`);
   // Define inline struct type matching the common future header layout
   emitter.emitLine(`${indent}  struct ${headerStructName} {`);
-  emitter.emitLine(`${indent}    yo_ref_header_t header;`);
+  emitter.emitLine(`${indent}    __yo_ref_header_t header;`);
   emitter.emitLine(`${indent}    int state;`);
   emitter.emitLine(`${indent}    ${resultTypeName} result;`);
   emitter.emitLine(`${indent}    void (*continuation_fn)(void*);`);
