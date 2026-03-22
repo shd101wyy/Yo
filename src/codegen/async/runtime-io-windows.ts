@@ -1686,12 +1686,131 @@ static uint64_t __yo_statfs_files(void* buf) { return ((yo_win_statfs_t*)buf)->f
 static uint64_t __yo_statfs_ffree(void* buf) { return ((yo_win_statfs_t*)buf)->ffree; }
 
 
-`);
+
+// ============================================================================
+// Signal Operations (Windows)
+// ============================================================================
+
+static void (*__yo_signal_handlers[32])(void*) = {NULL};
+static void* __yo_signal_handler_data[32] = {NULL};
+static bool __yo_signal_use_crt[32] = {false};
+
+static bool __yo_win_signal_supported_by_crt(int32_t signum) {
+  switch (signum) {
+#ifdef SIGABRT
+    case SIGABRT:
+#endif
+#ifdef SIGFPE
+    case SIGFPE:
+#endif
+#ifdef SIGILL
+    case SIGILL:
+#endif
+#ifdef SIGINT
+    case SIGINT:
+#endif
+#ifdef SIGSEGV
+    case SIGSEGV:
+#endif
+#ifdef SIGTERM
+    case SIGTERM:
+#endif
+#ifdef SIGBREAK
+    case SIGBREAK:
+#endif
+      return true;
+    default:
+      return false;
+  }
 }
 
-// ---------------------------------------------------------------------------
-// 2. Async I/O runtime (Windows — IOCP) — requires IOFuture / event-loop types
-// ---------------------------------------------------------------------------
+static void __yo_win_signal_trampoline(int signum) {
+  if (signum >= 0 && signum < 32 && __yo_signal_handlers[signum]) {
+    __yo_signal_handlers[signum](__yo_signal_handler_data[signum]);
+  }
+}
+
+static int32_t __yo_signal_start(int32_t signum, void* handler) {
+  if (signum < 0 || signum >= 32) return -EINVAL;
+
+  __yo_signal_handlers[signum] = (void (*)(void*))handler;
+  __yo_signal_handler_data[signum] = NULL;
+
+  if (__yo_win_signal_supported_by_crt(signum)) {
+    if (signal(signum, __yo_win_signal_trampoline) == SIG_ERR) {
+      __yo_signal_handlers[signum] = NULL;
+      __yo_signal_handler_data[signum] = NULL;
+      __yo_signal_use_crt[signum] = false;
+      return -EINVAL;
+    }
+    __yo_signal_use_crt[signum] = true;
+  } else {
+    __yo_signal_use_crt[signum] = false;
+  }
+
+  return 0;
+}
+
+static int32_t __yo_signal_stop(int32_t signum) {
+  if (signum < 0 || signum >= 32) return -EINVAL;
+
+  if (__yo_signal_use_crt[signum]) {
+    if (signal(signum, SIG_DFL) == SIG_ERR) {
+      return -EINVAL;
+    }
+  }
+
+  __yo_signal_handlers[signum] = NULL;
+  __yo_signal_handler_data[signum] = NULL;
+  __yo_signal_use_crt[signum] = false;
+  return 0;
+}
+
+static int32_t __yo_win_deliver_local_signal(int32_t signum) {
+  if (signum < 0 || signum >= 32) return -EINVAL;
+
+  if (__yo_signal_handlers[signum]) {
+    __yo_signal_handlers[signum](__yo_signal_handler_data[signum]);
+    return 0;
+  }
+
+  if (__yo_signal_use_crt[signum]) {
+    int result = raise(signum);
+    return (result == 0) ? 0 : -errno;
+  }
+
+  return -ENOSYS;
+}
+
+static int32_t __yo_kill(int32_t pid, int32_t signum) {
+  if (signum < 0 || signum >= 32) return -EINVAL;
+
+  DWORD current_pid = GetCurrentProcessId();
+  if (pid == 0 || (DWORD)pid == current_pid) {
+    if (signum == 0) return 0;
+    return __yo_win_deliver_local_signal(signum);
+  }
+
+  if (signum == 0) {
+    HANDLE probe = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, (DWORD)pid);
+    if (!probe) return -__yo_win_last_error_to_errno();
+    CloseHandle(probe);
+    return 0;
+  }
+
+  if (signum == 9) {
+    HANDLE handle = OpenProcess(PROCESS_TERMINATE, FALSE, (DWORD)pid);
+    if (!handle) return -__yo_win_last_error_to_errno();
+    BOOL ok = TerminateProcess(handle, 1);
+    CloseHandle(handle);
+    return ok ? 0 : -__yo_win_last_error_to_errno();
+  }
+
+  return -ENOSYS;
+}
+
+`);
+}
 
 /**
  * Emits Windows async I/O helpers using IOCP (I/O Completion Ports).
@@ -3527,136 +3646,6 @@ static int32_t __yo_process_exit_status(int32_t status) {
 static int32_t __yo_process_term_signal(int32_t status) {
   (void)status;
   return 0;
-}
-
-
-// ============================================================================
-// Signal Operations (Windows)
-// ============================================================================
-
-static void (*__yo_signal_handlers[32])(void*) = {NULL};
-static void* __yo_signal_handler_data[32] = {NULL};
-static bool __yo_signal_use_crt[32] = {false};
-
-static bool __yo_win_signal_supported_by_crt(int32_t signum) {
-  switch (signum) {
-#ifdef SIGABRT
-    case SIGABRT:
-#endif
-#ifdef SIGFPE
-    case SIGFPE:
-#endif
-#ifdef SIGILL
-    case SIGILL:
-#endif
-#ifdef SIGINT
-    case SIGINT:
-#endif
-#ifdef SIGSEGV
-    case SIGSEGV:
-#endif
-#ifdef SIGTERM
-    case SIGTERM:
-#endif
-#ifdef SIGBREAK
-    case SIGBREAK:
-#endif
-      return true;
-    default:
-      return false;
-  }
-}
-
-static void __yo_win_signal_trampoline(int signum) {
-  if (signum >= 0 && signum < 32 && __yo_signal_handlers[signum]) {
-    __yo_signal_handlers[signum](__yo_signal_handler_data[signum]);
-  }
-}
-
-static int32_t __yo_signal_start(int32_t signum, void* handler) {
-  if (signum < 0 || signum >= 32) return -EINVAL;
-
-  __yo_signal_handlers[signum] = (void (*)(void*))handler;
-  __yo_signal_handler_data[signum] = NULL;
-
-  if (__yo_win_signal_supported_by_crt(signum)) {
-    if (signal(signum, __yo_win_signal_trampoline) == SIG_ERR) {
-      __yo_signal_handlers[signum] = NULL;
-      __yo_signal_handler_data[signum] = NULL;
-      __yo_signal_use_crt[signum] = false;
-      return -EINVAL;
-    }
-    __yo_signal_use_crt[signum] = true;
-  } else {
-    __yo_signal_use_crt[signum] = false;
-  }
-
-  return 0;
-}
-
-static int32_t __yo_signal_stop(int32_t signum) {
-  if (signum < 0 || signum >= 32) return -EINVAL;
-
-  if (__yo_signal_use_crt[signum]) {
-    if (signal(signum, SIG_DFL) == SIG_ERR) {
-      return -EINVAL;
-    }
-  }
-
-  __yo_signal_handlers[signum] = NULL;
-  __yo_signal_handler_data[signum] = NULL;
-  __yo_signal_use_crt[signum] = false;
-  return 0;
-}
-
-static int32_t __yo_win_deliver_local_signal(int32_t signum) {
-  if (signum < 0 || signum >= 32) return -EINVAL;
-
-  if (__yo_signal_handlers[signum]) {
-    __yo_signal_handlers[signum](__yo_signal_handler_data[signum]);
-    return 0;
-  }
-
-  if (__yo_signal_use_crt[signum]) {
-    int result = raise(signum);
-    return (result == 0) ? 0 : -errno;
-  }
-
-  return -ENOSYS;
-}
-
-static int32_t __yo_kill(int32_t pid, int32_t signum) {
-  if (signum < 0 || signum >= 32) return -EINVAL;
-
-  DWORD current_pid = GetCurrentProcessId();
-  if (pid == 0 || (DWORD)pid == current_pid) {
-    if (signum == 0) return 0;
-    return __yo_win_deliver_local_signal(signum);
-  }
-
-  if (signum == 0) {
-    HANDLE probe = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, (DWORD)pid);
-    if (!probe) return -__yo_win_last_error_to_errno();
-    CloseHandle(probe);
-    return 0;
-  }
-
-  if (signum == 9) {
-    HANDLE handle = __yo_process_get_handle(pid);
-    bool must_close = false;
-    if (!handle) {
-      handle = OpenProcess(PROCESS_TERMINATE, FALSE, (DWORD)pid);
-      if (!handle) return -__yo_win_last_error_to_errno();
-      must_close = true;
-    }
-
-    BOOL ok = TerminateProcess(handle, 1);
-    int32_t result = ok ? 0 : -__yo_win_last_error_to_errno();
-    if (must_close) CloseHandle(handle);
-    return result;
-  }
-
-  return -ENOSYS;
 }
 
 
