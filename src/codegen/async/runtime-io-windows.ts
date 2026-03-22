@@ -2240,21 +2240,7 @@ static yo_io_future_t* __yo_async_close_start(int32_t fd) {
   return future;
 }
 
-typedef struct {
-  struct _stat64 stat;
-  uint32_t atime_nsec;
-  uint32_t mtime_nsec;
-  uint32_t ctime_nsec;
-  int64_t btime_sec;
-  uint32_t btime_nsec;
-  uint64_t file_index;
-} yo_win_stat_t;
-
-static void __yo_win_filetime_to_timespec(FILETIME ft, int64_t* sec, uint32_t* nsec) {
-  ULONGLONG t = ((ULONGLONG)ft.dwHighDateTime << 32) | ft.dwLowDateTime;
-  *sec = (int64_t)(t / 10000000ULL) - 11644473600LL;
-  *nsec = (uint32_t)((t % 10000000ULL) * 100ULL);
-}
+// yo_win_stat_t and __yo_win_filetime_to_timespec are defined in the sync section above.
 
 static yo_io_future_t* __yo_async_statx_start(int32_t dirfd, const char* path, int32_t flags, uint32_t mask, void* statxbuf) {
   __yo_io_init();
