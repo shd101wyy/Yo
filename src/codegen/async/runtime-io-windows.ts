@@ -869,8 +869,18 @@ static int32_t __yo_sync_readlinkat(int32_t dirfd, const char* path, char* buf, 
 }
 
 
+// Lightweight WSA initialization for sync socket helpers.
+// Full async I/O init (__yo_io_init) creates IOCP and is only in the async runtime.
+static bool __yo_wsa_initialized = false;
+static void __yo_wsa_init(void) {
+  if (__yo_wsa_initialized) return;
+  WSADATA wsa;
+  WSAStartup(MAKEWORD(2, 2), &wsa);
+  __yo_wsa_initialized = true;
+}
+
 static int32_t __yo_sync_getsockname(int32_t sockfd, void* addr, uint32_t* addrlen) {
-  __yo_io_init();
+  __yo_wsa_init();
 
   int len = (int)(*addrlen);
   int result = getsockname((SOCKET)(uintptr_t)sockfd, (struct sockaddr*)addr, &len);
@@ -883,7 +893,7 @@ static int32_t __yo_sync_getsockname(int32_t sockfd, void* addr, uint32_t* addrl
 }
 
 static int32_t __yo_sync_getpeername(int32_t sockfd, void* addr, uint32_t* addrlen) {
-  __yo_io_init();
+  __yo_wsa_init();
 
   int len = (int)(*addrlen);
   int result = getpeername((SOCKET)(uintptr_t)sockfd, (struct sockaddr*)addr, &len);
@@ -896,14 +906,14 @@ static int32_t __yo_sync_getpeername(int32_t sockfd, void* addr, uint32_t* addrl
 }
 
 static int32_t __yo_sync_setsockopt(int32_t sockfd, int32_t level, int32_t optname, const void* optval, uint32_t optlen) {
-  __yo_io_init();
+  __yo_wsa_init();
 
   int result = setsockopt((SOCKET)(uintptr_t)sockfd, level, optname, (const char*)optval, (int)optlen);
   return (result == SOCKET_ERROR) ? -(int32_t)WSAGetLastError() : 0;
 }
 
 static int32_t __yo_sync_getsockopt(int32_t sockfd, int32_t level, int32_t optname, void* optval, uint32_t* optlen) {
-  __yo_io_init();
+  __yo_wsa_init();
 
   int len = (int)(*optlen);
   int result = getsockopt((SOCKET)(uintptr_t)sockfd, level, optname, (char*)optval, &len);
@@ -916,7 +926,7 @@ static int32_t __yo_sync_getsockopt(int32_t sockfd, int32_t level, int32_t optna
 }
 
 static int32_t __yo_sync_socketpair(int32_t domain, int32_t sock_type, int32_t protocol, int32_t* sv) {
-  __yo_io_init();
+  __yo_wsa_init();
 
   if (!sv) {
     return -EINVAL;
@@ -993,11 +1003,6 @@ static int32_t __yo_sync_socketpair(int32_t domain, int32_t sock_type, int32_t p
   }
 
   closesocket(listener);
-
-  if (__yo_io_iocp) {
-    CreateIoCompletionPort((HANDLE)client, __yo_io_iocp, 0, 0);
-    CreateIoCompletionPort((HANDLE)server, __yo_io_iocp, 0, 0);
-  }
 
   sv[0] = (int32_t)(uintptr_t)client;
   sv[1] = (int32_t)(uintptr_t)server;
@@ -1085,8 +1090,6 @@ static int32_t __yo_sync_uname(void* buf) {
     return -EINVAL;
   }
 
-  __yo_io_init();
-
   const size_t field_size = 256;
   const size_t total_size = (field_size * 5);
   char* out = (char*)buf;
@@ -1136,7 +1139,7 @@ static int32_t __yo_sync_uname(void* buf) {
 }
 
 static int32_t __yo_sync_gethostname(char* name, size_t len) {
-  __yo_io_init();
+  __yo_wsa_init();
 
   if (!name || len == 0) {
     return -EINVAL;

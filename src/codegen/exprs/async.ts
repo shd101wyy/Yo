@@ -1239,6 +1239,21 @@ export function preRegisterAsyncBlockTypes(
   }
 }
 
+/** Prefixes of extern "yo" function names that require the async runtime. */
+const ASYNC_RUNTIME_EXTERN_PREFIXES = [
+  "__yo_poll_",
+  "__yo_fs_event_",
+  "__yo_async_",
+  "yo_async_",
+];
+
+/** Returns true if the given extern name is defined in the async runtime. */
+function isAsyncRuntimeExternName(name: string): boolean {
+  return ASYNC_RUNTIME_EXTERN_PREFIXES.some((prefix) =>
+    name.startsWith(prefix)
+  );
+}
+
 /**
  * Recursively search for async blocks in an expression and pre-register their types.
  */
@@ -1324,6 +1339,22 @@ function preRegisterAsyncBlocksInExpr(
     // (io.await emits yo_async_poll_step; io.spawn cold-starts a Future)
     if (isIoAwaitCall(expr) || isIoSpawnCall(expr)) {
       context.usesAsync = true;
+    }
+
+    // Check if this is an extern "yo" call to a function defined in the async runtime
+    // (e.g., __yo_poll_init, __yo_fs_event_init, __yo_async_*)
+    {
+      const calledType = funcCallExpr.func.$?.type;
+      if (
+        calledType &&
+        "isExtern" in calledType &&
+        calledType.isExtern === "yo" &&
+        "externName" in calledType &&
+        typeof calledType.externName === "string" &&
+        isAsyncRuntimeExternName(calledType.externName)
+      ) {
+        context.usesAsync = true;
+      }
     }
 
     // Check if this is a parallelism call (__yo_thread_spawn or __yo_worker_spawn)
