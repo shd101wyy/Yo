@@ -3055,7 +3055,15 @@ static yo_io_future_t* __yo_async_send_start(int32_t sockfd, const void* buf, si
   DWORD sent = 0;
   int result = WSASend(s, &ov->wsabuf, 1, &sent, (DWORD)flags, &ov->overlapped, NULL);
 
-  if (result == 0 || (result == SOCKET_ERROR && WSAGetLastError() == WSA_IO_PENDING)) {
+  if (result == 0) {
+    // Synchronous completion — FILE_SKIP_COMPLETION_PORT_ON_SUCCESS means
+    // no IOCP packet will be posted, so complete the future immediately.
+    future->result = (int32_t)sent;
+    atomic_init(&future->state, -1);
+    __yo_free(ov);
+    return future;
+  }
+  if (result == SOCKET_ERROR && WSAGetLastError() == WSA_IO_PENDING) {
     atomic_init(&future->state, 0);
     atomic_fetch_add(&__yo_pending_io_count, 1);
     return future;
@@ -3096,7 +3104,15 @@ static yo_io_future_t* __yo_async_recv_start(int32_t sockfd, void* buf, size_t l
   DWORD received = 0;
   int result = WSARecv(s, &ov->wsabuf, 1, &received, &ov->sock_flags, &ov->overlapped, NULL);
 
-  if (result == 0 || (result == SOCKET_ERROR && WSAGetLastError() == WSA_IO_PENDING)) {
+  if (result == 0) {
+    // Synchronous completion — FILE_SKIP_COMPLETION_PORT_ON_SUCCESS means
+    // no IOCP packet will be posted, so complete the future immediately.
+    future->result = (int32_t)received;
+    atomic_init(&future->state, -1);
+    __yo_free(ov);
+    return future;
+  }
+  if (result == SOCKET_ERROR && WSAGetLastError() == WSA_IO_PENDING) {
     atomic_init(&future->state, 0);
     atomic_fetch_add(&__yo_pending_io_count, 1);
     return future;
