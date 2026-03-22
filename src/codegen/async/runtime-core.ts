@@ -46,17 +46,17 @@ typedef struct {
   yo_continuation_t* head;  // Head of continuation queue
   yo_continuation_t* tail;  // Tail of continuation queue
   size_t count;             // Number of pending continuations
-} yo_async_task_queue_t;
+} __yo_async_task_queue_t;
 
 // Thread-local async runtime state
 ${
   isTargetWindows(targetInfo)
-    ? `static __declspec(thread) yo_async_task_queue_t yo_thread_async_queue = {NULL, NULL, 0};`
-    : `static __thread yo_async_task_queue_t yo_thread_async_queue = {NULL, NULL, 0};`
+    ? `static __declspec(thread) __yo_async_task_queue_t __yo_thread_async_queue = {NULL, NULL, 0};`
+    : `static __thread __yo_async_task_queue_t __yo_thread_async_queue = {NULL, NULL, 0};`
 }
 
 // Async scheduler initialized flag
-static bool yo_async_scheduler_initialized = false;
+static bool __yo_async_scheduler_initialized = false;
 
 // Count of active poll/fs_event watches (used by all platforms)
 static size_t __yo_active_watch_count = 0;
@@ -77,17 +77,17 @@ static int __yo_io_wait(void);`
 
 // Initialize async scheduler (lightweight - just sets flag)
 static void __yo_async_scheduler_init(void) {
-  if (yo_async_scheduler_initialized) {
+  if (__yo_async_scheduler_initialized) {
     return;
   }
-  yo_async_scheduler_initialized = true;
+  __yo_async_scheduler_initialized = true;
   ASYNC_DEBUG("[ASYNC] Scheduler initialized\\n");
 }
 
 // Enqueue a continuation to be executed on the current thread's event loop
 // NOTE: This is a low-level function that does NOT manage refcounts.
-// Use yo_async_spawn_task for spawning tasks with proper lifetime management.
-static void yo_async_enqueue_continuation(void (*resume_fn)(void*), void* state_machine) {
+// Use __yo_async_spawn_task for spawning tasks with proper lifetime management.
+static void __yo_async_enqueue_continuation(void (*resume_fn)(void*), void* state_machine) {
   ASYNC_DEBUG("[ASYNC] Enqueueing continuation: resume_fn=%p, sm=%p\\n", (void*)resume_fn, state_machine);
   
   yo_continuation_t* cont = (yo_continuation_t*)__yo_malloc(sizeof(yo_continuation_t));
@@ -95,16 +95,16 @@ static void yo_async_enqueue_continuation(void (*resume_fn)(void*), void* state_
   cont->state_machine = state_machine;
   cont->next = NULL;
   
-  if (yo_thread_async_queue.tail) {
-    yo_thread_async_queue.tail->next = cont;
-    yo_thread_async_queue.tail = cont;
+  if (__yo_thread_async_queue.tail) {
+    __yo_thread_async_queue.tail->next = cont;
+    __yo_thread_async_queue.tail = cont;
   } else {
-    yo_thread_async_queue.head = cont;
-    yo_thread_async_queue.tail = cont;
+    __yo_thread_async_queue.head = cont;
+    __yo_thread_async_queue.tail = cont;
   }
   
-  yo_thread_async_queue.count++;
-  ASYNC_DEBUG("[ASYNC] Queue count: %zu\\n", yo_thread_async_queue.count);
+  __yo_thread_async_queue.count++;
+  ASYNC_DEBUG("[ASYNC] Queue count: %zu\\n", __yo_thread_async_queue.count);
 }
 
 // Spawn an async task by enqueueing it to the current thread's event loop
@@ -113,33 +113,33 @@ static void yo_async_enqueue_continuation(void (*resume_fn)(void*), void* state_
 // - Await/spawn: increments refcount (event loop ref) before starting cold future
 // - Completion: decrements refcount (releases event loop ref)
 // - User drop: decrements refcount (releases user ref)
-static void yo_async_spawn_task(void (*resume_fn)(void*), void* state_machine) {
+static void __yo_async_spawn_task(void (*resume_fn)(void*), void* state_machine) {
   ASYNC_DEBUG("[ASYNC] Spawning task: resume_fn=%p, sm=%p\\n", (void*)resume_fn, state_machine);
-  yo_async_enqueue_continuation(resume_fn, state_machine);
+  __yo_async_enqueue_continuation(resume_fn, state_machine);
 }
 
 // Process all ready tasks in the queue (non-blocking).
-static void yo_async_run_ready_tasks(void) {
-  while (yo_thread_async_queue.head) {
-    yo_continuation_t* cont = yo_thread_async_queue.head;
-    yo_thread_async_queue.head = cont->next;
-    if (!yo_thread_async_queue.head) {
-      yo_thread_async_queue.tail = NULL;
+static void __yo_async_run_ready_tasks(void) {
+  while (__yo_thread_async_queue.head) {
+    yo_continuation_t* cont = __yo_thread_async_queue.head;
+    __yo_thread_async_queue.head = cont->next;
+    if (!__yo_thread_async_queue.head) {
+      __yo_thread_async_queue.tail = NULL;
     }
-    yo_thread_async_queue.count--;
+    __yo_thread_async_queue.count--;
     cont->resume_fn(cont->state_machine);
     __yo_free(cont);
   }
 }
 
 // Perform one step of the event loop: drain task queue, then poll/wait for I/O.
-static void yo_async_poll_step(void) {
-  yo_async_run_ready_tasks();
+static void __yo_async_poll_step(void) {
+  __yo_async_run_ready_tasks();
 ${
   hasIO
     ? `  if (__yo_io_initialized) {
     __yo_io_poll();
-    if (!yo_thread_async_queue.head && __yo_has_pending_io()) {
+    if (!__yo_thread_async_queue.head && __yo_has_pending_io()) {
       __yo_io_wait();
     }
   }`
@@ -149,7 +149,7 @@ ${
 
 // Run event loop until a specific Future completes (for async main)
 static void __yo_async_run_until_complete(void* future_ptr) {
-  if (!yo_async_scheduler_initialized) {
+  if (!__yo_async_scheduler_initialized) {
     __yo_async_scheduler_init();
   }
   
@@ -164,17 +164,17 @@ ${hasIO ? `  __yo_io_init();  // Initialize platform-specific async I/O` : ``}
   while (__future_state != -1 && __future_state != -2) {
     int tasks_run = 0;
     while (tasks_run < 100) {
-      yo_continuation_t* cont = yo_thread_async_queue.head;
+      yo_continuation_t* cont = __yo_thread_async_queue.head;
       if (!cont) break;
       
-      yo_thread_async_queue.head = cont->next;
-      if (!yo_thread_async_queue.head) {
-        yo_thread_async_queue.tail = NULL;
+      __yo_thread_async_queue.head = cont->next;
+      if (!__yo_thread_async_queue.head) {
+        __yo_thread_async_queue.tail = NULL;
       }
-      yo_thread_async_queue.count--;
+      __yo_thread_async_queue.count--;
       
       ASYNC_DEBUG("[ASYNC] Executing continuation: resume_fn=%p, sm=%p (queue_count=%zu)\\n",
-                  (void*)cont->resume_fn, cont->state_machine, yo_thread_async_queue.count);
+                  (void*)cont->resume_fn, cont->state_machine, __yo_thread_async_queue.count);
       
       cont->resume_fn(cont->state_machine);
       __yo_free(cont);
@@ -187,7 +187,7 @@ ${
     __yo_io_poll();
     
     // If no ready tasks but pending I/O, block until completion
-    if (!yo_thread_async_queue.head && __yo_has_pending_io()) {
+    if (!__yo_thread_async_queue.head && __yo_has_pending_io()) {
       ASYNC_DEBUG("[ASYNC] No ready tasks, waiting for I/O...\\n");
       __yo_io_wait();
       __future_state = future->state;
@@ -197,7 +197,7 @@ ${
 }
     
     __future_state = future->state;
-    if (!yo_thread_async_queue.head) {
+    if (!__yo_thread_async_queue.head) {
 ${
   hasIO
     ? `      if (!__yo_has_pending_io()) {
@@ -225,23 +225,23 @@ ${hasIO ? `  __yo_io_cleanup();` : ``}
 
 // Wait for all async tasks to complete (drains the queue)
 static void __yo_async_wait_all(void) {
-  if (!yo_async_scheduler_initialized) {
+  if (!__yo_async_scheduler_initialized) {
     return;
   }
   
-  ASYNC_DEBUG("[ASYNC] Waiting for all tasks to complete (queue_count=%zu)\\n", yo_thread_async_queue.count);
+  ASYNC_DEBUG("[ASYNC] Waiting for all tasks to complete (queue_count=%zu)\\n", __yo_thread_async_queue.count);
   
 ${hasIO ? `  __yo_io_init();  // Ensure async I/O is initialized` : ``}
   
   while (true) {
     bool tasks_processed = false;
-    while (yo_thread_async_queue.head) {
-      yo_continuation_t* cont = yo_thread_async_queue.head;
-      yo_thread_async_queue.head = cont->next;
-      if (!yo_thread_async_queue.head) {
-        yo_thread_async_queue.tail = NULL;
+    while (__yo_thread_async_queue.head) {
+      yo_continuation_t* cont = __yo_thread_async_queue.head;
+      __yo_thread_async_queue.head = cont->next;
+      if (!__yo_thread_async_queue.head) {
+        __yo_thread_async_queue.tail = NULL;
       }
-      yo_thread_async_queue.count--;
+      __yo_thread_async_queue.count--;
       
       ASYNC_DEBUG("[ASYNC] Executing continuation: resume_fn=%p, sm=%p\\n",
                   (void*)cont->resume_fn, cont->state_machine);
@@ -255,16 +255,16 @@ ${
   hasIO
     ? `    __yo_io_poll();
     
-    if (!tasks_processed && !yo_thread_async_queue.head && __yo_has_pending_io()) {
+    if (!tasks_processed && !__yo_thread_async_queue.head && __yo_has_pending_io()) {
       ASYNC_DEBUG("[ASYNC] No ready tasks, waiting for I/O...\\n");
       __yo_io_wait();
       continue;
     }
     
-    if (!yo_thread_async_queue.head && !__yo_has_pending_io()) {
+    if (!__yo_thread_async_queue.head && !__yo_has_pending_io()) {
       break;
     }`
-    : `    if (!yo_thread_async_queue.head) {
+    : `    if (!__yo_thread_async_queue.head) {
       break;
     }`
 }
@@ -273,7 +273,7 @@ ${
   ASYNC_DEBUG("[ASYNC] All tasks completed\\n");
 }
 
-// NOTE: yo_async_register_continuation has been removed.
+// NOTE: __yo_async_register_continuation has been removed.
 
 // ============================================================================
 // Concurrency Helper Functions (from std/concurrency.yo)

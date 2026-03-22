@@ -2007,7 +2007,7 @@ static void __yo_io_wake_continuation(yo_io_future_t* future) {
   void* cont_sm = atomic_load_explicit(&future->continuation_sm, memory_order_acquire);
 
   if (cont_fn && cont_sm) {
-    yo_async_spawn_task(cont_fn, cont_sm);
+    __yo_async_spawn_task(cont_fn, cont_sm);
   }
 
   atomic_fetch_sub(&__yo_pending_io_count, 1);

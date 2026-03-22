@@ -82,7 +82,7 @@ export function generateFunctionDeclarations(
   if (context.usesAsync) {
     emitter.emitDeclarationLine(`/// Async runtime functions`);
     emitter.emitDeclarationLine(
-      `static void yo_async_spawn_task(void (*resume_fn)(void*), void* state_machine);`
+      `static void __yo_async_spawn_task(void (*resume_fn)(void*), void* state_machine);`
     );
     emitter.emitDeclarationLine("");
   }

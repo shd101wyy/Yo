@@ -1978,7 +1978,7 @@ export function generateAsyncBlockResumeFunction(
           `        // Yield once to event loop for fairness (microtask yield)`
         );
         emitter.emitLine(
-          `        yo_async_spawn_task((void (*)(void*))${resumeFunctionName}, (void*)sm);`
+          `        __yo_async_spawn_task((void (*)(void*))${resumeFunctionName}, (void*)sm);`
         );
         emitter.emitLine(`        return;`);
         emitter.emitLine(`      }`);
@@ -2033,7 +2033,7 @@ export function generateAsyncBlockResumeFunction(
             `          // Completed or aborted synchronously — yield for fairness`
           );
           emitter.emitLine(
-            `          yo_async_spawn_task((void (*)(void*))${resumeFunctionName}, (void*)sm);`
+            `          __yo_async_spawn_task((void (*)(void*))${resumeFunctionName}, (void*)sm);`
           );
           emitter.emitLine(`          return;`);
           emitter.emitLine(`        }`);

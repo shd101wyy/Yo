@@ -684,7 +684,7 @@ static int __yo_io_poll(void) {
   yo_io_continuation_t* node = local_head;
   while (node) {
     yo_io_continuation_t* next = node->next;
-    yo_async_spawn_task(node->resume_fn, node->state_machine);
+    __yo_async_spawn_task(node->resume_fn, node->state_machine);
     __yo_free(node);
     count++;
     node = next;

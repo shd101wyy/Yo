@@ -604,7 +604,7 @@ static void __yo_io_process_cqe(struct io_uring_cqe* cqe) {
   
   if (cont_fn && cont_sm) {
     ASYNC_DEBUG("[IO] Spawning continuation for I/O completion\\n");
-    yo_async_spawn_task(cont_fn, cont_sm);
+    __yo_async_spawn_task(cont_fn, cont_sm);
   }
 
   io_uring_cqe_seen(&__yo_io_ring, cqe);

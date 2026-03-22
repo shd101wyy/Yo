@@ -142,7 +142,7 @@ export function generateAwait(
     emitter.emitLine(
       `${indent}  while (__await_state != -1 && __await_state != -2) {`
     );
-    emitter.emitLine(`${indent}    yo_async_poll_step();`);
+    emitter.emitLine(`${indent}    __yo_async_poll_step();`);
     emitter.emitLine(`${indent}    __await_state = ${syncFutureVar}->state;`);
     emitter.emitLine(`${indent}  }`);
     emitter.emitLine(`${indent}  if (__await_state == -2) {`);
@@ -421,7 +421,7 @@ export function generateJoinHandleAwait(
   // Poll loop: wait until completed (-1) or aborted (-2)
   emitter.emitLine(`${indent}  int __jh_state = ${headerVar}->state;`);
   emitter.emitLine(`${indent}  while (__jh_state != -1 && __jh_state != -2) {`);
-  emitter.emitLine(`${indent}    yo_async_poll_step();`);
+  emitter.emitLine(`${indent}    __yo_async_poll_step();`);
   emitter.emitLine(`${indent}    __jh_state = ${headerVar}->state;`);
   emitter.emitLine(`${indent}  }`);
 

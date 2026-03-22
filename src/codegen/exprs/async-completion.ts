@@ -61,7 +61,7 @@ export function emitAsyncFutureCompletion(opts: AsyncCompletionOptions): void {
   emitter.emitLine(`${indent}  sm->continuation_sm = NULL;`);
   emitter.emitLine(``);
   emitter.emitLine(
-    `${indent}  yo_async_spawn_task(continuation_fn, continuation_sm);`
+    `${indent}  __yo_async_spawn_task(continuation_fn, continuation_sm);`
   );
   emitter.emitLine(`${indent}}`);
 
@@ -113,7 +113,7 @@ export function emitAsyncFutureEscape(opts: AsyncCompletionOptions): void {
   emitter.emitLine(`${indent}  sm->continuation_sm = NULL;`);
   emitter.emitLine(``);
   emitter.emitLine(
-    `${indent}  yo_async_spawn_task(continuation_fn, continuation_sm);`
+    `${indent}  __yo_async_spawn_task(continuation_fn, continuation_sm);`
   );
   emitter.emitLine(`${indent}}`);
 

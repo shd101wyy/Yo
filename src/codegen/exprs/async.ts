@@ -1244,7 +1244,6 @@ const ASYNC_RUNTIME_EXTERN_PREFIXES = [
   "__yo_poll_",
   "__yo_fs_event_",
   "__yo_async_",
-  "yo_async_",
 ];
 
 /** Returns true if the given extern name is defined in the async runtime. */
@@ -1336,7 +1335,7 @@ function preRegisterAsyncBlocksInExpr(
     }
 
     // Check if this is an io.await or io.spawn call — both need the async runtime
-    // (io.await emits yo_async_poll_step; io.spawn cold-starts a Future)
+    // (io.await emits __yo_async_poll_step; io.spawn cold-starts a Future)
     if (isIoAwaitCall(expr) || isIoSpawnCall(expr)) {
       context.usesAsync = true;
     }
